@@ -22,17 +22,19 @@ $Script:Version = "2.0.0"
 $Script:Config = @{
     InstallPath = $InstallPath
     RepositoryUrl = "https://github.com/celsoastro/libsaturn.git"
+    UseLocalRepository = $true
     StateFile = "$env:TEMP\saturn-setup-state.json"
     LogFile = "$env:TEMP\saturn-setup.log"
     EmulatorChoice = $Emulator
     
     Toolchain = @{
-        Name = "MCX-SDK"
-        Version = "v2.0"
-        Url = "https://github.com/jetsetilly/mcx-sdk/releases/download/v2.0/mcx-sdk-win64.zip"
+        Name = "SH-ELF GCC"
+        Version = "13.2.0"
+        Url = ""
         SizeMB = 100
-        InstallDir = "mcx-sdk"
+        InstallDir = "sh-elf-gcc"
         BinPath = $null
+        ManualUrl = "https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2"
     }
     
     Python = @{
@@ -279,12 +281,28 @@ function Test-Command {
 }
 
 function Test-InternetConnection {
-    try {
-        $null = Invoke-WebRequest -Uri "https://github.com" -TimeoutSeconds 10 -UseBasicParsing
-        return $true
-    } catch {
-        return $false
+    $testUrls = @(
+        "https://github.com",
+        "https://www.python.org",
+        "https://raw.githubusercontent.com"
+    )
+    
+    foreach ($url in $testUrls) {
+        try {
+            Write-Info ("Testing connection to: " + $url)
+            $request = [System.Net.WebRequest]::Create($url)
+            $request.Timeout = 5000
+            $response = $request.GetResponse()
+            $response.Close()
+            Write-Success ("Connected to: " + $url)
+            return $true
+        } catch {
+            Write-Warning ("Failed to reach " + $url + ": " + $_.Exception.Message)
+        }
     }
+    
+    Write-Error "Cannot reach any test URL. Check your internet connection or proxy settings."
+    return $false
 }
 
 function Test-GitInstalled {
@@ -323,7 +341,7 @@ function Show-PrerequisitesCheck {
     
     Write-Info "Checking internet connection..."
     if (Test-InternetConnection) {
-        Write-Success "Internet available"
+        Write-Success "Internet connection available"
     } else {
         Write-Error "No internet connection - downloads will fail"
         $issues += "Internet connection"
@@ -358,12 +376,23 @@ function Show-PrerequisitesCheck {
     Complete-Section
     
     if ($issues.Count -gt 0) {
-        Write-Error "Critical issues found: " + ($issues -join ", ")
-        return $false
+        Write-Host ""
+        Write-Error "CRITICAL: " + ($issues -join ", ")
+        Write-Host "Some downloads may not work without internet access." -ForegroundColor Yellow
+        Write-Host ""
     }
     
     if ($warnings.Count -gt 0) {
+        Write-Host ""
         Write-Warning "Warnings: " + ($warnings -join ", ")
+        Write-Host ""
+    }
+    
+    if ($issues.Count -gt 0) {
+        if (Confirm-Prompt "Continue anyway? (Some steps may fail)") {
+            return $true
+        }
+        return $false
     }
     
     return $true
@@ -418,6 +447,7 @@ function Invoke-DownloadFile {
     
     $attempt = 1
     $success = $false
+    $lastError = ""
     
     while ($attempt -le $MaxRetries -and -not $success) {
         try {
@@ -431,7 +461,8 @@ function Invoke-DownloadFile {
             Write-Success ("Downloaded " + $Description + " (" + ([math]::Round($size, 2)) + " MB)")
             $success = $true
         } catch {
-            Write-Warning ("Download attempt " + $attempt + " failed: " + $_.Exception.Message)
+            $lastError = $_.Exception.Message
+            Write-Warning ("Download attempt " + $attempt + " failed: " + $lastError)
             if ($attempt -lt $MaxRetries) {
                 $waitTime = $attempt * 5
                 Write-Info ("Retrying in " + $waitTime + " seconds...")
@@ -443,6 +474,9 @@ function Invoke-DownloadFile {
     
     if (-not $success) {
         Write-Error ("Failed to download " + $Description + " after " + $MaxRetries + " attempts")
+        Write-Error ("Last error: " + $lastError)
+        Write-Info ("URL: " + $Url)
+        Write-Info ("Output path: " + $OutputPath)
     }
     
     return $success
@@ -503,7 +537,7 @@ function Add-ToPathEnvironment {
 function Install-Toolchain {
     param([string]$InstallPath)
     
-    Write-Section "INSTALLING SH-ELF TOOLCHAIN (MCX-SDK)"
+    Write-Section "INSTALLING SH-ELF TOOLCHAIN"
     
     if ($Script:State.ToolchainInstalled) {
         Write-Success "Toolchain already installed, skipping"
@@ -511,45 +545,97 @@ function Install-Toolchain {
     }
     
     $toolchainInstallDir = Join-Path $InstallPath $Script:Config.Toolchain.InstallDir
-    $zipPath = "$env:TEMP\mcx-sdk.zip"
     $binPath = Join-Path $toolchainInstallDir "bin"
     
-    Write-ProgressBar -Activity "Downloading Toolchain" -Status "Starting..." -PercentComplete 0
-    $downloadSuccess = Invoke-DownloadFile -Url $Script:Config.Toolchain.Url -OutputPath $zipPath -Description "MCX-SDK Toolchain"
+    # Check if toolchain is already installed
+    Write-Info "Checking for existing SH-ELF toolchain..."
+    $shGccPaths = @(
+        "C:\sh-elf-gcc\bin\sh-elf-gcc.exe",
+        "C:\sh-elf-gcc\bin\sh-elf-gcc",
+        "$env:ProgramFiles\sh-elf-gcc\bin\sh-elf-gcc.exe",
+        (Join-Path $InstallPath "mcx-sdk\bin\sh-elf-gcc.exe"),
+        (Join-Path $InstallPath "sh-elf-gcc\bin\sh-elf-gcc.exe")
+    )
     
-    if (-not $downloadSuccess) {
-        Write-Error "Toolchain download failed"
-        return $false
-    }
-    
-    Write-ProgressBar -Activity "Downloading Toolchain" -Status "Complete" -PercentComplete 100
-    
-    Write-ProgressBar -Activity "Extracting Toolchain" -Status "Starting..." -PercentComplete 0
-    $extractSuccess = Expand-ZipArchive -ArchivePath $zipPath -DestinationPath $InstallPath -Description "MCX-SDK Toolchain"
-    
-    if (-not $extractSuccess) {
-        return $false
-    }
-    
-    Write-ProgressBar -Activity "Extracting Toolchain" -Status "Complete" -PercentComplete 100
-    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-    
-    if (Test-Path $binPath) {
-        Write-Info ("Toolchain binaries located at: " + $binPath)
-        
-        $shGcc = Get-ChildItem -Path $binPath -Filter "*-gcc.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($shGcc) {
-            Write-Success ("Found compiler: " + $shGcc.Name)
-            $env:Path = $binPath + ";" + $env:Path
+    $existingToolchain = $null
+    foreach ($path in $shGccPaths) {
+        if (Test-Path $path) {
+            $existingToolchain = $path
+            break
         }
-        
+    }
+    
+    if ($existingToolchain) {
+        Write-Success ("Found existing toolchain: " + $existingToolchain)
         $Script:State.ToolchainInstalled = $true
         Save-State
-        
+        Complete-Section
+        return $true
+    }
+    
+    # Check if sh-elf-gcc is in PATH
+    if (Test-Command "sh-elf-gcc") {
+        try {
+            $version = & sh-elf-gcc --version 2>&1 | Select-Object -First 1
+            Write-Success ("SH-ELF GCC found in PATH: " + $version)
+            $Script:State.ToolchainInstalled = $true
+            Save-State
+            Complete-Section
+            return $true
+        } catch {
+            Write-Warning "sh-elf-gcc command found but version check failed"
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "=== SH-ELF TOOLCHAIN INSTALLATION ===" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "The SH-ELF toolchain is required to compile Saturn homebrew programs." -ForegroundColor White
+    Write-Host ""
+    Write-Host "Pre-built Windows binaries are not currently available for download." -ForegroundColor White
+    Write-Host "Please install manually:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Option 1: Use MSYS2 (Recommended)" -ForegroundColor Cyan
+    Write-Host "  1. Download MSYS2: https://www.msys2.org/" -ForegroundColor White
+    Write-Host "  2. Open 'MSYS2 MINGW64' terminal" -ForegroundColor White
+    Write-Host "  3. Run: pacman -S mingw-w64-x86_64-sh-elf-gcc" -ForegroundColor White
+    Write-Host "  4. Add to PATH: C:\msys64\mingw64\bin" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Option 2: WSL (Windows Subsystem for Linux)" -ForegroundColor Cyan
+    Write-Host "  1. Install WSL: wsl --install -d Ubuntu" -ForegroundColor White
+    Write-Host "  2. Run: sudo apt install gcc-sh-elf binutils-sh-elf" -ForegroundColor White
+    Write-Host "  3. Build using WSL: see WINDOWS_SETUP.md" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Option 3: Build from source" -ForegroundColor Cyan
+    Write-Host "  See: https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2" -ForegroundColor White
+    Write-Host ""
+    
+    $toolchainPath = Read-Host "Enter path to sh-elf-gcc (or press Enter to skip)"
+    
+    if ([string]::IsNullOrEmpty($toolchainPath)) {
+        Write-Warning "Skipping toolchain installation"
+        Write-Info "You can run this script again after installing the toolchain"
+        Write-Info "Or use: .\setup.ps1 -Resume to continue later"
+        return $true
+    }
+    
+    # Validate the provided path
+    $gccPath = $toolchainPath
+    if ($gccPath.EndsWith("\") -eq $false -and $gccPath.EndsWith("/") -eq $false) {
+        $gccPath = $gccPath + "\bin\sh-elf-gcc.exe"
+    } else {
+        $gccPath = $gccPath + "bin\sh-elf-gcc.exe"
+    }
+    
+    if (Test-Path $gccPath) {
+        Write-Success ("Toolchain found: " + $gccPath)
+        $env:Path = (Split-Path $gccPath) + ";" + $env:Path
+        $Script:State.ToolchainInstalled = $true
+        Save-State
         Complete-Section
         return $true
     } else {
-        Write-Error "Toolchain binaries not found after extraction"
+        Write-Error ("Toolchain not found at: " + $gccPath)
         return $false
     }
 }
@@ -635,6 +721,40 @@ function Clone-Repository {
     
     $readmePath = Join-Path $InstallPath "README.md"
     
+    # Check if we're already in the repository directory
+    $currentReadme = Join-Path (Get-Location) "README.md"
+    if (Test-Path $currentReadme) {
+        Write-Success "Repository found in current directory: " + (Get-Location)
+        
+        # If InstallPath is different from current directory, copy files
+        if ((Get-Location).Path.TrimEnd("\/") -ne $InstallPath.TrimEnd("\/")) {
+            Write-Info ("Copying files to installation directory: " + $InstallPath)
+            
+            # Create directory if needed
+            if (-not (Test-Path $InstallPath)) {
+                New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
+            }
+            
+            # Copy all items except .git
+            Get-ChildItem -Path (Get-Location) -Exclude ".git" | Copy-Item -Destination $InstallPath -Recurse -Force
+            
+            if (Test-Path $readmePath) {
+                Write-Success ("Repository copied to: " + $InstallPath)
+                $Script:State.RepositoryCloned = $true
+                Save-State
+                Complete-Section
+                return $true
+            }
+        } else {
+            # We're already in the install path
+            Write-Success ("Repository ready at: " + $InstallPath)
+            $Script:State.RepositoryCloned = $true
+            Save-State
+            Complete-Section
+            return $true
+        }
+    }
+    
     if (Test-Path $readmePath) {
         Write-Success ("Repository already exists at: " + $InstallPath)
         $Script:State.RepositoryCloned = $true
@@ -666,10 +786,17 @@ function Clone-Repository {
             Remove-Item $tempClonePath -Recurse -Force
         }
         
+        Write-Info "Running: git clone " + $RepositoryUrl
+        
         $gitProcess = Start-Process -FilePath "git" -ArgumentList "clone", $RepositoryUrl, $tempClonePath -Wait -PassThru -NoNewWindow
         
         if ($gitProcess.ExitCode -ne 0) {
-            Write-Error ("Git clone failed (exit code: " + $gitProcess.ExitCode + ")")
+            Write-Error ("Git clone failed with exit code: " + $gitProcess.ExitCode)
+            Write-Error "Possible causes:"
+            Write-Error "  - Repository URL is incorrect or repository doesn't exist"
+            Write-Error "  - No internet connection"
+            Write-Error "  - Git authentication issues (if using private repo)"
+            Write-Error ("URL: " + $RepositoryUrl)
             return $false
         }
         
@@ -688,6 +815,7 @@ function Clone-Repository {
             return $true
         } else {
             Write-Error "Clone appeared successful but README not found"
+            Write-Info "Expected README at: " + $readmePath
             return $false
         }
     } catch {
@@ -749,7 +877,15 @@ function Build-Library {
             return $true
         } else {
             Write-Error ("Build failed (exit code: " + $buildProcess.ExitCode + ")")
-            Write-Info "Check build output above for errors"
+            Write-Host ""
+            Write-Host "=== BUILD TROUBLESHOOTING ===" -ForegroundColor Yellow
+            Write-Host "Common causes:" -ForegroundColor Yellow
+            Write-Host "  1. Missing toolchain - Run toolchain installation first" -ForegroundColor White
+            Write-Host "  2. Toolchain not in PATH - Restart PowerShell or run as admin" -ForegroundColor White
+            Write-Host "  3. Missing dependencies - Check README.md for requirements" -ForegroundColor White
+            Write-Host "  4. Build script errors - Check " + $buildScript -ForegroundColor White
+            Write-Host ""
+            Write-Info "Check the build output above for specific error messages."
             return $false
         }
     } catch {
@@ -1119,6 +1255,7 @@ function Test-Prerequisites {
         Write-Success "Running as administrator"
     } else {
         Write-Warning "Not running as administrator"
+        Write-Info "Some PATH modifications may require running as administrator later"
     }
     
     Complete-Section
