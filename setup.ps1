@@ -35,6 +35,8 @@ $Script:Config = @{
         InstallDir = "sh-elf-gcc"
         BinPath = $null
         ManualUrl = "https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2"
+        MSYS2InstallPath = "C:\msys64"
+        MSYS2Pkg = "mingw-w64-x86_64-sh-elf-gcc"
     }
     
     Python = @{
@@ -273,8 +275,9 @@ function Test-Administrator {
 function Test-Command {
     param([string]$Command)
     try {
-        $null = Get-Command $Command -ErrorAction Stop
-        return $true
+        $null = Get-Command $Command -ErrorAction Stop -CommandType Application | Where-Object { $_.Name -eq $Command }
+        if ($null -ne $?) { return $true }
+        return $false
     } catch {
         return $false
     }
@@ -534,6 +537,160 @@ function Add-ToPathEnvironment {
     }
 }
 
+function Add-ToSessionPath {
+    param([string]$PathToAdd)
+    $currentPath = $env:Path
+    if ($currentPath -notlike "*$PathToAdd*") {
+        $env:Path = $PathToAdd + ";" + $currentPath
+        Write-Info ("Added to session PATH: " + $PathToAdd)
+    }
+}
+
+function Install-MSYS2-Winget {
+    Write-Info "Attempting to install MSYS2 using winget..."
+    
+    if (-not (Test-Command "winget")) {
+        Write-Warning "winget not found"
+        return $false
+    }
+    
+    try {
+        $msys2InstallPath = $Script:Config.Toolchain.MSYS2InstallPath
+        
+        if (Test-Path $msys2InstallPath) {
+            Write-Success "MSYS2 already installed at: $msys2InstallPath"
+            return $true
+        }
+        
+        Write-Info "Installing MSYS2 via winget..."
+        $process = Start-Process -FilePath "winget" -ArgumentList "install", "-e", "--id", "MSYS2.MSYS2", "--accept-package-agreements", "--accept-source-agreements", "--silent" -Wait -PassThru -NoNewWindow
+        
+        if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 1641) {
+            Write-Success "MSYS2 installed successfully"
+            Start-Sleep -Seconds 2
+            return $true
+        } else {
+            Write-Warning ("winget installation failed with exit code: " + $process.ExitCode)
+            return $false
+        }
+    } catch {
+        Write-Error ("winget installation failed: " + $_.Exception.Message)
+        return $false
+    }
+}
+
+function Install-MSYS2-Chocolatey {
+    Write-Info "Attempting to install MSYS2 using Chocolatey..."
+    
+    if (-not (Test-Command "choco")) {
+        Write-Warning "Chocolatey not found"
+        Write-Info "To install Chocolatey, run as administrator:"
+        Write-Info 'Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString("https://community.chocolatey.org/install.ps1"))'
+        return $false
+    }
+    
+    try {
+        $msys2InstallPath = $Script:Config.Toolchain.MSYS2InstallPath
+        
+        if (Test-Path $msys2InstallPath) {
+            Write-Success "MSYS2 already installed at: $msys2InstallPath"
+            return $true
+        }
+        
+        Write-Info "Installing MSYS2 via Chocolatey..."
+        $process = Start-Process -FilePath "choco" -ArgumentList "install", "msys2", "-y", "--params", ('"/InstallDir:{0}"' -f $msys2InstallPath) -Wait -PassThru -NoNewWindow
+        
+        if ($process.ExitCode -eq 0) {
+            Write-Success "MSYS2 installed successfully"
+            Start-Sleep -Seconds 2
+            return $true
+        } else {
+            Write-Warning ("Chocolatey installation failed with exit code: " + $process.ExitCode)
+            return $false
+        }
+    } catch {
+        Write-Error ("Chocolatey installation failed: " + $_.Exception.Message)
+        return $false
+    }
+}
+
+function Invoke-MSYS2Pacman {
+    param(
+        [string]$Command
+    )
+    
+    $msys2InstallPath = $Script:Config.Toolchain.MSYS2InstallPath
+    $bashPath = Join-Path $msys2InstallPath "usr\bin\bash.exe"
+    
+    if (-not (Test-Path $bashPath)) {
+        Write-Error "MSYS2 bash not found at: $bashPath"
+        return $false
+    }
+    
+    Write-Info "Running in MSYS2: $Command"
+    
+    try {
+        $msys2Args = "-lc", "export PATH='/usr/bin:$PATH';", $Command
+        $process = Start-Process -FilePath $bashPath -ArgumentList $msys2Args -Wait -PassThru -NoNewWindow -WindowStyle Hidden
+        
+        return $process.ExitCode -eq 0
+    } catch {
+        Write-Error ("Failed to run MSYS2 command: " + $_.Exception.Message)
+        return $false
+    }
+}
+
+function Install-ShElfGcc-MSYS2 {
+    Write-Section "INSTALLING SH-ELF GCC VIA MSYS2"
+    
+    $msys2InstallPath = $Script:Config.Toolchain.MSYS2InstallPath
+    
+    if (-not (Test-Path $msys2InstallPath)) {
+        Write-Error "MSYS2 not found at: $msys2InstallPath"
+        Write-Info "Please install MSYS2 first"
+        return $false
+    }
+    
+    $mingw64BinPath = Join-Path $msys2InstallPath "mingw64\bin"
+    $gccPath = Join-Path $mingw64BinPath "sh-elf-gcc.exe"
+    
+    if (Test-Path $gccPath) {
+        Write-Success "SH-ELF GCC already installed"
+        Add-ToSessionPath $mingw64BinPath
+        return $true
+    }
+    
+    Write-Info "Updating MSYS2 package databases..."
+    if (-not (Invoke-MSYS2Pacman "pacman --noconfirm -Sy")) {
+        Write-Warning "Failed to update package database, continuing..."
+    }
+    
+    Write-Info "Installing SH-ELF GCC (this may take several minutes)..."
+    $pkg = $Script:Config.Toolchain.MSYS2Pkg
+    
+    if (Invoke-MSYS2Pacman "pacman --noconfirm -S $pkg") {
+        if (Test-Path $gccPath) {
+            Write-Success "SH-ELF GCC installed successfully"
+            Add-ToSessionPath $mingw64BinPath
+            
+            if (Test-Administrator) {
+                Add-ToPathEnvironment $mingw64BinPath
+            } else {
+                Write-Warning "Administrator rights required to add to system PATH"
+                Write-Info "Run as administrator to persist PATH changes"
+            }
+            
+            return $true
+        } else {
+            Write-Error "Installation appeared successful but sh-elf-gcc not found"
+            return $false
+        }
+    } else {
+        Write-Error "Failed to install SH-ELF GCC"
+        return $false
+    }
+}
+
 function Install-Toolchain {
     param([string]$InstallPath)
     
@@ -546,10 +703,12 @@ function Install-Toolchain {
     
     $toolchainInstallDir = Join-Path $InstallPath $Script:Config.Toolchain.InstallDir
     $binPath = Join-Path $toolchainInstallDir "bin"
+    $msys2InstallPath = $Script:Config.Toolchain.MSYS2InstallPath
     
     # Check if toolchain is already installed
     Write-Info "Checking for existing SH-ELF toolchain..."
     $shGccPaths = @(
+        (Join-Path $msys2InstallPath "mingw64\bin\sh-elf-gcc.exe"),
         "C:\sh-elf-gcc\bin\sh-elf-gcc.exe",
         "C:\sh-elf-gcc\bin\sh-elf-gcc",
         "$env:ProgramFiles\sh-elf-gcc\bin\sh-elf-gcc.exe",
@@ -567,6 +726,7 @@ function Install-Toolchain {
     
     if ($existingToolchain) {
         Write-Success ("Found existing toolchain: " + $existingToolchain)
+        $env:Path = (Split-Path $existingToolchain) + ";" + $env:Path
         $Script:State.ToolchainInstalled = $true
         Save-State
         Complete-Section
@@ -592,50 +752,119 @@ function Install-Toolchain {
     Write-Host ""
     Write-Host "The SH-ELF toolchain is required to compile Saturn homebrew programs." -ForegroundColor White
     Write-Host ""
-    Write-Host "Pre-built Windows binaries are not currently available for download." -ForegroundColor White
-    Write-Host "Please install manually:" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Option 1: Use MSYS2 (Recommended)" -ForegroundColor Cyan
-    Write-Host "  1. Download MSYS2: https://www.msys2.org/" -ForegroundColor White
-    Write-Host "  2. Open 'MSYS2 MINGW64' terminal" -ForegroundColor White
-    Write-Host "  3. Run: pacman -S mingw-w64-x86_64-sh-elf-gcc" -ForegroundColor White
-    Write-Host "  4. Add to PATH: C:\msys64\mingw64\bin" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Option 2: WSL (Windows Subsystem for Linux)" -ForegroundColor Cyan
-    Write-Host "  1. Install WSL: wsl --install -d Ubuntu" -ForegroundColor White
-    Write-Host "  2. Run: sudo apt install gcc-sh-elf binutils-sh-elf" -ForegroundColor White
-    Write-Host "  3. Build using WSL: see WINDOWS_SETUP.md" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Option 3: Build from source" -ForegroundColor Cyan
-    Write-Host "  See: https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2" -ForegroundColor White
+    Write-Host "I can attempt to install it automatically using MSYS2." -ForegroundColor Cyan
     Write-Host ""
     
-    $toolchainPath = Read-Host "Enter path to sh-elf-gcc (or press Enter to skip)"
+    Write-Host "Choose installation method:" -ForegroundColor Cyan
+    Write-Host "  1) Automatic - Try winget, then Chocolatey (Recommended)" -ForegroundColor White
+    Write-Host "  2) Automatic - Use winget only" -ForegroundColor White
+    Write-Host "  3) Automatic - Use Chocolatey only" -ForegroundColor White
+    Write-Host "  4) Manual - Enter path to existing installation" -ForegroundColor White
+    Write-Host "  5) Manual - Show manual installation instructions" -ForegroundColor White
+    Write-Host "  6) Skip - Continue without toolchain" -ForegroundColor White
+    Write-Host ""
     
-    if ([string]::IsNullOrEmpty($toolchainPath)) {
-        Write-Warning "Skipping toolchain installation"
-        Write-Info "You can run this script again after installing the toolchain"
-        Write-Info "Or use: .\setup.ps1 -Resume to continue later"
-        return $true
+    $choice = Read-Host "Select option (1-6)"
+    
+    $autoInstall = $false
+    $installSuccess = $false
+    
+    switch ($choice) {
+        "1" {
+            Write-Info "Trying winget first..."
+            if (Install-MSYS2-Winget) {
+                if (Install-ShElfGcc-MSYS2) {
+                    $installSuccess = $true
+                }
+            }
+            
+            if (-not $installSuccess) {
+                Write-Info "winget failed, trying Chocolatey..."
+                if (Install-MSYS2-Chocolatey) {
+                    if (Install-ShElfGcc-MSYS2) {
+                        $installSuccess = $true
+                    }
+                }
+            }
+        }
+        "2" {
+            Write-Info "Using winget..."
+            if (Install-MSYS2-Winget) {
+                if (Install-ShElfGcc-MSYS2) {
+                    $installSuccess = $true
+                }
+            }
+        }
+        "3" {
+            Write-Info "Using Chocolatey..."
+            if (Install-MSYS2-Chocolatey) {
+                if (Install-ShElfGcc-MSYS2) {
+                    $installSuccess = $true
+                }
+            }
+        }
+        "4" {
+            $toolchainPath = Read-Host "Enter path to sh-elf-gcc installation directory (e.g., C:\sh-elf-gcc)"
+            
+            if ([string]::IsNullOrEmpty($toolchainPath)) {
+                Write-Warning "No path provided, skipping"
+                return $true
+            }
+            
+            $gccPath = Join-Path $toolchainPath "bin\sh-elf-gcc.exe"
+            
+            if (Test-Path $gccPath) {
+                Write-Success ("Toolchain found: " + $gccPath)
+                Add-ToSessionPath (Join-Path $toolchainPath "bin")
+                $installSuccess = $true
+            } else {
+                Write-Error ("Toolchain not found at: " + $gccPath)
+                return $false
+            }
+        }
+        "5" {
+            Write-Host ""
+            Write-Host "=== MANUAL INSTALLATION OPTIONS ===" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Option 1: Use MSYS2 (Recommended)" -ForegroundColor Cyan
+            Write-Host "  1. Download MSYS2: https://www.msys2.org/" -ForegroundColor White
+            Write-Host "  2. Open 'MSYS2 MINGW64' terminal" -ForegroundColor White
+            Write-Host "  3. Run: pacman -S mingw-w64-x86_64-sh-elf-gcc" -ForegroundColor White
+            Write-Host "  4. Add to PATH: C:\msys64\mingw64\bin" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Option 2: WSL (Windows Subsystem for Linux)" -ForegroundColor Cyan
+            Write-Host "  1. Install WSL: wsl --install -d Ubuntu" -ForegroundColor White
+            Write-Host "  2. Run: sudo apt install gcc-sh-elf binutils-sh-elf" -ForegroundColor White
+            Write-Host "  3. Build using WSL: see WINDOWS_SETUP.md" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Option 3: Build from source" -ForegroundColor Cyan
+            Write-Host "  See: https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2" -ForegroundColor White
+            Write-Host ""
+            Write-Host "After manual installation, run this script again and select option 4." -ForegroundColor Yellow
+            Write-Host ""
+            return $true
+        }
+        "6" {
+            Write-Warning "Skipping toolchain installation"
+            Write-Info "You can run this script again with: .\setup.ps1 -Resume"
+            Write-Info "Build step will likely fail without toolchain"
+            return $true
+        }
+        default {
+            Write-Warning "Invalid choice, skipping toolchain installation"
+            return $true
+        }
     }
     
-    # Validate the provided path
-    $gccPath = $toolchainPath
-    if ($gccPath.EndsWith("\") -eq $false -and $gccPath.EndsWith("/") -eq $false) {
-        $gccPath = $gccPath + "\bin\sh-elf-gcc.exe"
-    } else {
-        $gccPath = $gccPath + "bin\sh-elf-gcc.exe"
-    }
-    
-    if (Test-Path $gccPath) {
-        Write-Success ("Toolchain found: " + $gccPath)
-        $env:Path = (Split-Path $gccPath) + ";" + $env:Path
+    if ($installSuccess) {
+        Write-Success "Toolchain installation completed"
         $Script:State.ToolchainInstalled = $true
         Save-State
         Complete-Section
         return $true
     } else {
-        Write-Error ("Toolchain not found at: " + $gccPath)
+        Write-Error "Automatic installation failed"
+        Write-Info "Try manual installation (option 4 or 5) or run script again"
         return $false
     }
 }
