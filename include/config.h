@@ -1,0 +1,19 @@
+#ifndef SATURN_CONFIG_H
+#define SATURN_CONFIG_H
+
+#define SCREEN_WIDTH  320
+#define SCREEN_HEIGHT 224
+
+#define FRAMERATE 60
+
+#define VRAM_SIZE 0x80000
+
+#define MAX_VDP1_CMDS 1024
+
+#define MAX_QUADS 128
+#define MAX_VERTICES 256
+
+#define SLAVE_STACK_SIZE 0x1000
+#define MASTER_STACK_SIZE 0x2000
+
+#endif
