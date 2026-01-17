@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Saturn Development Environment Setup - libsaturn Automation Script v2.0.0
+# Saturn Development Environment Setup - libsaturn Automation Script v2.0.1 (Fixed)
 
 param(
     [switch]$Express,
@@ -13,7 +13,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Script:Version = "2.0.0"
+$Script:Version = "2.0.1"
+$PSCommandPath = $MyInvocation.MyCommand.Path
+
+# Ensure we use TLS 1.2 (Fixes GitHub download errors on some systems)
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -29,6 +33,7 @@ if ($PSVersionTable.PSVersion.Major -ge 7) {
 
 $Script:Config = @{
     InstallPath = $InstallPath
+    DownloadRetry = $DownloadRetry # Fixed: Added this key so it is available globally
     RepositoryUrl = "https://github.com/celsoastro/libsaturn.git"
     UseLocalRepository = $true
     StateFile = "$env:TEMP\saturn-setup-state.json"
@@ -440,7 +445,7 @@ function Install-Git {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DOWNLOAD FUNCTIONS
+# DOWNLOAD FUNCTIONS (FIXED)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 function Invoke-DownloadFile {
@@ -448,7 +453,7 @@ function Invoke-DownloadFile {
         [string]$Url,
         [string]$OutputPath,
         [string]$Description,
-        [int]$MaxRetries = $Script:Config.DownloadRetry
+        [int]$MaxRetries = 3
     )
     
     $parentDir = Split-Path $OutputPath -Parent
@@ -460,7 +465,8 @@ function Invoke-DownloadFile {
     $success = $false
     $lastError = ""
     
-    while ($attempt -le $MaxRetries -and -not $success) {
+    # Logic changed to do-while to guarantee at least one execution
+    do {
         try {
             Write-Info ("Downloading " + $Description + " (attempt " + $attempt + " of " + $MaxRetries + ")...")
             
@@ -481,7 +487,7 @@ function Invoke-DownloadFile {
             }
             $attempt++
         }
-    }
+    } while ($attempt -le $MaxRetries -and -not $success)
     
     if (-not $success) {
         Write-Error ("Failed to download " + $Description + " after " + $MaxRetries + " attempts")
@@ -630,6 +636,22 @@ function Install-MSYS2-Chocolatey {
                 Write-Error "Could not remove lock files: $($_.Exception.Message)"
                 Write-Info "Try running as Administrator or remove manually:"
                 Write-Info "  Remove-Item 'C:\ProgramData\chocolatey\lib\*.lock' -Force"
+                Write-Info ""
+                Write-Host "Or try Option 1 (Direct Download) which doesn't require Chocolatey." -ForegroundColor Green
+                return $false
+            }
+        }
+        
+        $libBadPath = "C:\ProgramData\chocolatey\lib-bad"
+        if (Test-Path $libBadPath) {
+            Write-Warning "Found Chocolatey lib-bad directory"
+            Write-Info "Attempting to remove..."
+            try {
+                Remove-Item $libBadPath -Recurse -Force -ErrorAction Stop
+                Write-Success "lib-bad directory removed"
+            } catch {
+                Write-Error "Could not remove lib-bad: $($_.Exception.Message)"
+                Write-Info "Try running as Administrator to clean up"
                 return $false
             }
         }
