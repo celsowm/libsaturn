@@ -3,8 +3,8 @@
 ## What Was Created
 
 ### 1. Setup Script (`setup.ps1`)
-- **Size**: ~23KB
-- **Lines**: 400+
+- **Scope**: Entry point + configuration
+- **Modules**: `scripts/setup/*.ps1` holds the implementation
 - **Features**:
   - ASCII art welcome screen
   - Interactive menu system
@@ -36,44 +36,16 @@
 
 ## Script Architecture
 
-### Sections
-```
-1. Header & Configuration (lines 1-50)
-   - Version info
-   - Download URLs
-   - Installation paths
-
-2. UI Functions (lines 51-150)
-   - Write-Banner (ASCII art)
-   - Write-Section (headers)
-   - Write-Success/Error/Warning/Info (color-coded)
-   - Show-ProgressBar (visual progress)
-   - Show-InteractiveMenu (menu system)
-   - Confirm-Prompt (yes/no prompts)
-
-3. Download Functions (lines 151-200)
-   - Invoke-DownloadFile (with progress)
-   - Expand-ArchiveCustom (extraction)
-
-4. Verification Functions (lines 201-250)
-   - Test-Command (check if executable exists)
-   - Test-Administrator (check admin rights)
-   - Show-EnvironmentCheck (comprehensive check)
-
-5. Setup Steps (lines 251-400)
-   - Install-Toolchain (SH-ELF GCC)
-   - Install-Python (if missing)
-   - Install-Emulator (Kronos/YabaSanshiro)
-   - Build-Library (compile libsaturn)
-   - Build-Examples (all 14 examples)
-   - Setup-VSCode (generate config)
-
-6. Main Setup (lines 401-450)
-   - Start-InteractiveSetup (menu-driven)
-   - Start-ExpressSetup (one-click)
-   - Show-Completion (final screen)
-   - Main (entry point)
-```
+### Modules
+- `setup.ps1`: Parameters + configuration + module loader
+- `scripts/setup/ui.ps1`: UI/console helpers
+- `scripts/setup/logging.ps1`: log file setup + logging helpers
+- `scripts/setup/state.ps1`: state save/load/clear
+- `scripts/setup/prerequisites.ps1`: environment checks and validation
+- `scripts/setup/download.ps1`: download/extract helpers
+- `scripts/setup/install.ps1`: installers (MSYS2/toolchain/python/repo/build/emulators/VS Code)
+- `scripts/setup/rollback.ps1`: cleanup/rollback
+- `scripts/setup/main.ps1`: orchestration + entrypoint functions
 
 ## User Experience
 
@@ -329,21 +301,21 @@ cd C:\Users\celso\saturn-sdk\Kronos
 
 ### Modify Toolchain URL
 
-Edit `setup.ps1`, line 20:
+Edit `setup.ps1` in the `Toolchain` config block:
 ```powershell
-URL = "https://your-custom-url/toolchain.zip"
+Url = "https://your-custom-url/toolchain.zip"
 ```
 
 ### Change Default Install Path
 
-Edit `setup.ps1`, line 12:
+Edit the default parameter in `setup.ps1`:
 ```powershell
 $InstallPath = "C:\your\custom\path"
 ```
 
 ### Add Custom Setup Steps
 
-Add new function to setup steps array (line 430):
+Add a new function to the setup steps array in `scripts/setup/main.ps1` (`Start-ExpressSetup`):
 ```powershell
 @{ Name = "My Custom Step"; Script = { My-CustomFunction } }
 ```
