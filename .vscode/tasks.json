@@ -1,0 +1,31 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Library",
+            "type": "shell",
+            "command": "build.bat",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "clean.bat",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build Example (Hello World)",
+            "type": "shell",
+            "command": "cmd",
+            "args": [
+                "/c",
+                "cd examples\\01_helloworld && sh-elf-gcc -m2 -mb -O2 -fomit-frame-pointer -nostartfiles -I..\\..\\include -c ..\\..\\src\\crt0.s -o crt0.o && sh-elf-gcc -m2 -mb -O2 -fomit-frame-pointer -nostartfiles -I..\\..\\include -c main.c -o main.o && sh-elf-ld -T ..\\..\\saturn.ld -o game.elf crt0.o main.o && sh-elf-objcopy -O binary game.elf 0.BIN"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

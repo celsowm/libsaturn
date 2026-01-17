@@ -2,6 +2,39 @@
 
 Bare Metal Sega Saturn 3D Game Engine SDK
 
+## 🔮 One-Command Setup (Recommended)
+
+**Windows:**
+```cmd
+quick_setup.bat
+```
+
+This interactive PowerShell script will:
+- ✅ Download and install SH-ELF toolchain
+- ✅ Configure your development environment
+- ✅ Build libsaturn and all examples
+- ✅ Install a Saturn emulator (Kronos)
+- ✅ Launch your first Saturn homebrew program
+
+**Features:**
+- 🎨 Color-coded progress indicators
+- 📊 Real-time progress bars
+- 🔧 Interactive setup wizard
+- 🔄 Resume capability (interrupt and continue later)
+- ⚡ Express mode for quick installation
+
+## Manual Setup
+
+**Windows:**
+```cmd
+build.bat
+```
+
+**Linux/macOS:**
+```bash
+make lib
+```
+
 No SGL/SGL overhead. Cycle-accurate, memory-safe, optimized for dual SH-2 architecture.
 
 ## Architecture
@@ -29,6 +62,15 @@ No SGL/SGL overhead. Cycle-accurate, memory-safe, optimized for dual SH-2 archit
 
 ## Building
 
+### Windows
+```cmd
+build.bat        # Build libsaturn.a
+clean.bat        # Clean build artifacts
+```
+
+See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for detailed Windows setup instructions.
+
+### Linux/macOS
 ```bash
 make lib        # Build libsaturn.a
 make examples   # Build all examples
@@ -75,6 +117,31 @@ void _main(void) {
     }
 }
 ```
+
+## Setup Script Features
+
+### Interactive Menu System
+```
+╔════════════════════════════════════════════════════════════════════════════╗
+║   🔮       SATURN DEVELOPMENT SETUP       libsaturn v1.0.0              ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+[?] Installation Mode
+    [1] Express (Recommended)
+    [2] Custom Configuration
+    [3] Resume Previous Setup
+
+[████████████████████████████] 100% - Installing Toolchain
+[████████░░░░░░░░░░░░░░░░░░] 45%  - Building Library
+[████████████████████████████] 100% - Complete!
+```
+
+### Smart Automation
+- **Environment Detection**: Automatically checks for existing installations
+- **Resume Capability**: Interrupt and continue setup later
+- **Rollback System**: Undoes changes if setup fails
+- **Verification**: Validates each installation step
+- **Progress Tracking**: Real-time progress bars for long operations
 
 ## Tools
 

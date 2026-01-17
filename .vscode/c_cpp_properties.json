@@ -1,0 +1,21 @@
+{
+    "configurations": [
+        {
+            "name": "Saturn",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/include/saturn"
+            ],
+            "compilerPath": "C:/sh-elf-gcc/bin/sh-elf-gcc.exe",
+            "cStandard": "c99",
+            "intelliSenseMode": "gcc-x86",
+            "compilerArgs": [
+                "-m2",
+                "-mb",
+                "-nostartfiles",
+                "-I./include"
+            ]
+        }
+    ],
+    "version": 4
+}
