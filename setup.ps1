@@ -15,6 +15,14 @@ param(
 $ErrorActionPreference = "Stop"
 $Script:Version = "2.0.0"
 
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $PSNativeCommandArgumentPassing = "Windows"
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -597,7 +605,37 @@ function Install-MSYS2-Chocolatey {
             return $true
         }
         
+        Write-Warning "Chocolatey requires administrator privileges"
+        if (-not (Test-Administrator)) {
+            Write-Error "Not running as administrator. Chocolatey will likely fail."
+            Write-Info "Please run PowerShell as Administrator and try again."
+            Write-Info "Or try option 4 (Manual) to enter path to existing installation."
+            return $false
+        }
+        
+        Write-Info "Checking for Chocolatey lock files..."
+        $chocolateyLib = "C:\ProgramData\chocolatey\lib"
+        $lockFiles = Get-ChildItem -Path $chocolateyLib -Filter "*.lock" -ErrorAction SilentlyContinue
+        
+        if ($lockFiles.Count -gt 0) {
+            Write-Warning "Found Chocolatey lock files from previous installation:"
+            foreach ($lock in $lockFiles) {
+                Write-Info "  - $($lock.FullName)"
+            }
+            Write-Info "Attempting to remove lock files..."
+            try {
+                $lockFiles | Remove-Item -Force -ErrorAction Stop
+                Write-Success "Lock files removed"
+            } catch {
+                Write-Error "Could not remove lock files: $($_.Exception.Message)"
+                Write-Info "Try running as Administrator or remove manually:"
+                Write-Info "  Remove-Item 'C:\ProgramData\chocolatey\lib\*.lock' -Force"
+                return $false
+            }
+        }
+        
         Write-Info "Installing MSYS2 via Chocolatey..."
+        Write-Info "This may take several minutes..."
         $process = Start-Process -FilePath "choco" -ArgumentList "install", "msys2", "-y", "--params", ('"/InstallDir:{0}"' -f $msys2InstallPath) -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -eq 0) {
@@ -606,6 +644,7 @@ function Install-MSYS2-Chocolatey {
             return $true
         } else {
             Write-Warning ("Chocolatey installation failed with exit code: " + $process.ExitCode)
+            Write-Info "Check Chocolatey log for details: C:\ProgramData\chocolatey\logs\chocolatey.log"
             return $false
         }
     } catch {
@@ -616,7 +655,8 @@ function Install-MSYS2-Chocolatey {
 
 function Invoke-MSYS2Pacman {
     param(
-        [string]$Command
+        [string]$Command,
+        [bool]$ShowOutput = $false
     )
     
     $msys2InstallPath = $Script:Config.Toolchain.MSYS2InstallPath
@@ -631,13 +671,109 @@ function Invoke-MSYS2Pacman {
     
     try {
         $msys2Args = "-lc", "export PATH='/usr/bin:$PATH';", $Command
-        $process = Start-Process -FilePath $bashPath -ArgumentList $msys2Args -Wait -PassThru -NoNewWindow -WindowStyle Hidden
+        $windowStyle = if ($ShowOutput) { "Normal" } else { "Hidden" }
+        $process = Start-Process -FilePath $bashPath -ArgumentList $msys2Args -Wait -PassThru -NoNewWindow -WindowStyle $windowStyle
         
         return $process.ExitCode -eq 0
     } catch {
         Write-Error ("Failed to run MSYS2 command: " + $_.Exception.Message)
         return $false
     }
+}
+
+function Install-MSYS2-Direct {
+    Write-Section "DOWNLOADING MSYS2 DIRECTLY"
+    
+    $msys2InstallPath = $Script:Config.Toolchain.MSYS2InstallPath
+    
+    if (Test-Path $msys2InstallPath) {
+        Write-Success "MSYS2 already installed at: $msys2InstallPath"
+        return $true
+    }
+    
+    $msys2Url = "https://github.com/msys2/msys2-installer/releases/download/2023-10-26/msys2-x86_64-20231026.exe"
+    $msys2Version = "20231026"
+    $installerPath = "$env:TEMP\msys2-installer.exe"
+    
+    Write-Info "Downloading MSYS2 installer (approx. 100MB)..."
+    Write-Info "Source: $msys2Url"
+    
+    $downloadSuccess = Invoke-DownloadFile -Url $msys2Url -OutputPath $installerPath -Description "MSYS2 Installer"
+    
+    if (-not $downloadSuccess) {
+        Write-Error "Failed to download MSYS2 installer"
+        return $false
+    }
+    
+    Write-Info "Installing MSYS2 to: $msys2InstallPath"
+    Write-Info "This will take 2-5 minutes..."
+    
+    try {
+        $installArgs = @(
+            "install",
+            "--confirm-command",
+            "--accept-messages",
+            "--root", $msys2InstallPath
+        )
+        
+        $process = Start-Process -FilePath $installerPath -ArgumentList $installArgs -Wait -PassThru -NoNewWindow -WindowStyle Normal
+        
+        Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+        
+        if ($process.ExitCode -eq 0) {
+            Write-Success "MSYS2 installed successfully"
+            Start-Sleep -Seconds 2
+            return $true
+        } else {
+            Write-Error ("MSYS2 installation failed with exit code: " + $process.ExitCode)
+            Write-Info "Installer exit code $process.ExitCode may indicate:"
+            Write-Info "  - Installation was cancelled"
+            Write-Info "  - Another instance is running"
+            Write-Info "  - Insufficient permissions"
+            return $false
+        }
+    } catch {
+        Write-Error ("MSYS2 installation failed: " + $_.Exception.Message)
+        return $false
+    }
+}
+
+function Restart-AsAdministrator {
+    Write-Warning "This operation requires administrator privileges"
+    $currentScript = $PSCommandPath
+    
+    if ([string]::IsNullOrEmpty($currentScript)) {
+        Write-Error "Could not determine script path"
+        return $false
+    }
+    
+    Write-Host ""
+    Write-Host "Would you like to restart as Administrator?" -ForegroundColor Yellow
+    $choice = Read-Host "Press Y to restart, N to continue without admin [Y/N]"
+    
+    if ($choice -eq "Y" -or $choice -eq "y") {
+        $psiArgs = "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$currentScript`""
+        
+        foreach ($arg in $MyInvocation.BoundParameters.GetEnumerator()) {
+            if ($arg.Value -is [switch] -and $arg.Value) {
+                $psiArgs += "-$($arg.Key)"
+            } elseif ($arg.Value -isnot [switch] -and $arg.Value -ne $null) {
+                $psiArgs += "-$($arg.Key)", "`"$($arg.Value)`""
+            }
+        }
+        
+        $psi = New-Object Diagnostics.ProcessStartInfo
+        $psi.FileName = "powershell.exe"
+        $psi.Arguments = $psiArgs -join " "
+        $psi.Verb = "runas"
+        $psi.UseShellExecute = $true
+        
+        Write-Info "Restarting script as Administrator..."
+        [Diagnostics.Process]::Start($psi) | Out-Null
+        exit 0
+    }
+    
+    return $false
 }
 
 function Install-ShElfGcc-MSYS2 {
@@ -752,34 +888,56 @@ function Install-Toolchain {
     Write-Host ""
     Write-Host "The SH-ELF toolchain is required to compile Saturn homebrew programs." -ForegroundColor White
     Write-Host ""
+    
+    $isAdmin = Test-Administrator
+    
+    if (-not $isAdmin) {
+        Write-Warning "Not running as Administrator"
+        Write-Info "Some installation options require elevated privileges."
+        Write-Host ""
+    }
+    
     Write-Host "I can attempt to install it automatically using MSYS2." -ForegroundColor Cyan
     Write-Host ""
-    
     Write-Host "Choose installation method:" -ForegroundColor Cyan
-    Write-Host "  1) Automatic - Try winget, then Chocolatey (Recommended)" -ForegroundColor White
-    Write-Host "  2) Automatic - Use winget only" -ForegroundColor White
-    Write-Host "  3) Automatic - Use Chocolatey only" -ForegroundColor White
-    Write-Host "  4) Manual - Enter path to existing installation" -ForegroundColor White
-    Write-Host "  5) Manual - Show manual installation instructions" -ForegroundColor White
-    Write-Host "  6) Skip - Continue without toolchain" -ForegroundColor White
+    Write-Host "  1) Direct Download - Download and install MSYS2 directly (No admin required)" -ForegroundColor Green
+    Write-Host "  2) Automatic - Try winget, then Chocolatey (Admin required)" -ForegroundColor White
+    Write-Host "  3) Automatic - Use winget only (Admin required)" -ForegroundColor White
+    Write-Host "  4) Automatic - Use Chocolatey only (Admin required)" -ForegroundColor White
+    Write-Host "  5) Manual - Enter path to existing installation" -ForegroundColor White
+    Write-Host "  6) Manual - Show manual installation instructions" -ForegroundColor White
+    Write-Host "  7) Skip - Continue without toolchain (Build will fail)" -ForegroundColor Yellow
     Write-Host ""
     
-    $choice = Read-Host "Select option (1-6)"
+    $choice = Read-Host "Select option (1-7)"
     
     $autoInstall = $false
     $installSuccess = $false
     
     switch ($choice) {
         "1" {
-            Write-Info "Trying winget first..."
+            Write-Info "Using direct download (no admin required)..."
+            if (Install-MSYS2-Direct) {
+                if (Install-ShElfGcc-MSYS2) {
+                    $installSuccess = $true
+                }
+            }
+        }
+        "2" {
+            Write-Info "Trying winget first, then Chocolatey..."
             if (Install-MSYS2-Winget) {
                 if (Install-ShElfGcc-MSYS2) {
                     $installSuccess = $true
                 }
             }
-            
+
             if (-not $installSuccess) {
                 Write-Info "winget failed, trying Chocolatey..."
+                if (-not (Test-Administrator)) {
+                    if (Restart-AsAdministrator) {
+                        return $true
+                    }
+                }
                 if (Install-MSYS2-Chocolatey) {
                     if (Install-ShElfGcc-MSYS2) {
                         $installSuccess = $true
@@ -787,23 +945,33 @@ function Install-Toolchain {
                 }
             }
         }
-        "2" {
+        "3" {
             Write-Info "Using winget..."
+            if (-not (Test-Administrator)) {
+                if (Restart-AsAdministrator) {
+                    return $true
+                }
+            }
             if (Install-MSYS2-Winget) {
                 if (Install-ShElfGcc-MSYS2) {
                     $installSuccess = $true
                 }
             }
         }
-        "3" {
+        "4" {
             Write-Info "Using Chocolatey..."
+            if (-not (Test-Administrator)) {
+                if (Restart-AsAdministrator) {
+                    return $true
+                }
+            }
             if (Install-MSYS2-Chocolatey) {
                 if (Install-ShElfGcc-MSYS2) {
                     $installSuccess = $true
                 }
             }
         }
-        "4" {
+        "5" {
             $toolchainPath = Read-Host "Enter path to sh-elf-gcc installation directory (e.g., C:\sh-elf-gcc)"
             
             if ([string]::IsNullOrEmpty($toolchainPath)) {
@@ -822,7 +990,7 @@ function Install-Toolchain {
                 return $false
             }
         }
-        "5" {
+        "6" {
             Write-Host ""
             Write-Host "=== MANUAL INSTALLATION OPTIONS ===" -ForegroundColor Yellow
             Write-Host ""
@@ -840,11 +1008,11 @@ function Install-Toolchain {
             Write-Host "Option 3: Build from source" -ForegroundColor Cyan
             Write-Host "  See: https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2" -ForegroundColor White
             Write-Host ""
-            Write-Host "After manual installation, run this script again and select option 4." -ForegroundColor Yellow
+            Write-Host "After manual installation, run this script again and select option 5." -ForegroundColor Yellow
             Write-Host ""
             return $true
         }
-        "6" {
+        "7" {
             Write-Warning "Skipping toolchain installation"
             Write-Info "You can run this script again with: .\setup.ps1 -Resume"
             Write-Info "Build step will likely fail without toolchain"
