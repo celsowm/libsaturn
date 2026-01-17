@@ -694,7 +694,7 @@ function Invoke-MSYS2Pacman {
     try {
         $msys2Args = "-lc", "export PATH='/usr/bin:$PATH';", $Command
         $windowStyle = if ($ShowOutput) { "Normal" } else { "Hidden" }
-        $process = Start-Process -FilePath $bashPath -ArgumentList $msys2Args -Wait -PassThru -NoNewWindow -WindowStyle $windowStyle
+        $process = Start-Process -FilePath $bashPath -ArgumentList $msys2Args -Wait -PassThru -WindowStyle $windowStyle
         
         return $process.ExitCode -eq 0
     } catch {
@@ -738,7 +738,7 @@ function Install-MSYS2-Direct {
             "--root", $msys2InstallPath
         )
         
-        $process = Start-Process -FilePath $installerPath -ArgumentList $installArgs -Wait -PassThru -NoNewWindow -WindowStyle Normal
+        $process = Start-Process -FilePath $installerPath -ArgumentList $installArgs -Wait -PassThru -WindowStyle Normal
         
         Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
         
