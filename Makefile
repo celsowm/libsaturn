@@ -30,20 +30,7 @@ clean:
 	rm -rf lib/*.a src/*/*.o examples/*/*.o examples/*/0.BIN examples/*/game.iso
 
 examples:
-	$(MAKE) -C examples/01_helloworld
-	$(MAKE) -C examples/02_input
-	$(MAKE) -C examples/03_sprites
-	$(MAKE) -C examples/04_fixedpoint_math
-	$(MAKE) -C examples/05_dualcpu_sync
-	$(MAKE) -C examples/06_matrix_transform
-	$(MAKE) -C examples/07_polygon_render
-	$(MAKE) -C examples/08_texture_mapping
-	$(MAKE) -C examples/09_vdp2_background
-	$(MAKE) -C examples/10_3d_cube
-	$(MAKE) -C examples/11_sound
-	$(MAKE) -C examples/12_physics
-	$(MAKE) -C examples/13_cd_load
-	$(MAKE) -C examples/14_scu_dma
+	$(MAKE) -C examples/hello_world
 
 tools:
 	chmod +x tools/obj2saturn/*.py
