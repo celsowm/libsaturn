@@ -165,16 +165,57 @@ function Invoke-MSYS2Pacman {
     
     Write-Info "Running in MSYS2: $Command"
     
+    $stdoutFile = [System.IO.Path]::GetTempFileName()
+    $stderrFile = [System.IO.Path]::GetTempFileName()
+    $stdout = ""
+    $stderr = ""
+    $process = $null
+    $success = $false
+    
     try {
         $msys2Args = "-lc", "export PATH='/usr/bin:$PATH'; $Command"
-        $windowStyle = if ($ShowOutput) { "Normal" } else { "Hidden" }
-        $process = Start-Process -FilePath $bashPath -ArgumentList $msys2Args -Wait -PassThru -WindowStyle $windowStyle
+        $process = Start-Process -FilePath $bashPath -ArgumentList $msys2Args -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
         
-        return $process.ExitCode -eq 0
+        $stdout = Get-Content -Path $stdoutFile -Raw -ErrorAction SilentlyContinue
+        $stderr = Get-Content -Path $stderrFile -Raw -ErrorAction SilentlyContinue
+        if ($stdout) { $stdout = $stdout.Trim() } else { $stdout = "" }
+        if ($stderr) { $stderr = $stderr.Trim() } else { $stderr = "" }
+        
+        if ($process) {
+            $success = $process.ExitCode -eq 0
+            
+            if (-not $success) {
+                Write-Warning ("MSYS2 command failed (exit code {0}): {1}" -f $process.ExitCode, $Command)
+                $outputLines = @()
+                if ($stdout) {
+                    $outputLines += ($stdout -split "[\r\n]+")
+                }
+                if ($stderr) {
+                    $outputLines += ($stderr -split "[\r\n]+")
+                }
+                $outputLines = $outputLines | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+                
+                if ($outputLines.Count -eq 0) {
+                    Write-Info "No output captured from MSYS2"
+                } else {
+                    $preview = @($outputLines | Select-Object -First 6)
+                    foreach ($line in $preview) {
+                        Write-Info $line
+                    }
+                    if ($outputLines.Count -gt $preview.Count) {
+                        Write-Info "... (output truncated)"
+                    }
+                }
+            }
+        }
     } catch {
         Write-Error ("Failed to run MSYS2 command: " + $_.Exception.Message)
-        return $false
+        $success = $false
+    } finally {
+        Remove-Item -Path $stdoutFile,$stderrFile -ErrorAction SilentlyContinue
     }
+    
+    return $success
 }
 
 function Find-MSYS2Executable {
@@ -433,6 +474,22 @@ function Log-MissingShElfGccPaths {
     } else {
         Write-Info ("Package '" + $PackageName + "' listing does not contain a 'sh-elf-gcc' binary.")
         Write-Info ("  Run inside MSYS2: export PATH='/usr/bin:\$PATH'; pacman -Ql " + $PackageName + " | head")
+        $snippet = $files | Select-Object -First 8
+        if ($snippet.Count -gt 0) {
+            Write-Info "  Sample files from package:"
+            foreach ($entry in $snippet) {
+                $line = "    - " + $entry.PosixPath
+                if ($entry.WinPath) {
+                    $line += " -> " + $entry.WinPath
+                }
+                Write-Info $line
+            }
+            if ($files.Count -gt $snippet.Count) {
+                Write-Info ("    ... (package contains " + $files.Count + " entries total)")
+            }
+        } else {
+            Write-Info "  Package listing returned no files (empty or inaccessible package)."
+        }
     }
 }
 
@@ -536,10 +593,16 @@ function Install-ShElfGcc-MSYS2 {
     
     $msys2InstallPath = $Script:Config.Toolchain.MSYS2InstallPath
     
-    if (-not (Test-Path $msys2InstallPath)) {
-        Write-Error "MSYS2 not found at: $msys2InstallPath"
-        Write-Info "Please install MSYS2 first"
-        return $false
+    if (-not (Test-Path $msys2InstallPath) -or -not (Test-Path (Join-Path $msys2InstallPath "usr\bin\bash.exe"))) {
+        $detectedMsys2 = @("C:\msys64","C:\tools\msys64") | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if ($detectedMsys2) {
+            Write-Info "MSYS2 found at: $detectedMsys2 (not the configured path)"
+            $msys2InstallPath = $detectedMsys2
+        } else {
+            Write-Error "MSYS2 installation not found (searched: $msys2InstallPath, C:\msys64, C:\tools\msys64)"
+            Write-Info "Please install MSYS2 first"
+            return $false
+        }
     }
     
     $binDirs = $Script:Config.Toolchain.MSYS2BinDirs
@@ -568,16 +631,20 @@ function Install-ShElfGcc-MSYS2 {
     $pkgCandidates = $pkgCandidates | Where-Object { $_ } | Select-Object -Unique
     
     $availablePkgs = @()
+    $missingBinaryPackages = @()
+    $unavailablePkgs = @()
     foreach ($pkg in $pkgCandidates) {
         if (Invoke-MSYS2Pacman "pacman -Si $pkg") {
             $availablePkgs += $pkg
         } else {
             Write-Warning ("MSYS2 package unavailable: " + $pkg)
+            $unavailablePkgs += $pkg
         }
     }
     
     if ($availablePkgs.Count -eq 0) {
         Write-Warning "No SH-ELF GCC packages were found or could be queried from MSYS2"
+        Write-Info "Check the MSYS2 output above for the specific package error"
         Write-Info "Use option 5 to point to an existing toolchain, or option 6 for manual instructions"
         return $false
     }
@@ -613,19 +680,101 @@ function Install-ShElfGcc-MSYS2 {
                 break
             } else {
                 Write-Warning "Package installed but sh-elf-gcc not found in expected MSYS2 paths"
+                if ($missingBinaryPackages -notcontains $pkg) {
+                    $missingBinaryPackages += $pkg
+                }
                 Log-MissingShElfGccPaths -PackageName $pkg -Msys2Root $msys2InstallPath -SearchDirs $binDirs
             }
         } else {
             Write-Warning ("Failed to install package: " + $pkg)
         }
     }
-    
+
     if ($installSuccess) {
         return $true
     }
-    
+
+    if ($missingBinaryPackages.Count -gt 0) {
+        $missingList = ($missingBinaryPackages | Select-Object -Unique) -join ", "
+        Write-Info ("Packages missing sh-elf-gcc binary after install: " + $missingList)
+    }
+    if ($unavailablePkgs.Count -gt 0) {
+        $unavailableList = ($unavailablePkgs | Select-Object -Unique) -join ", "
+        Write-Info ("Packages that could not be queried: " + $unavailableList)
+    }
+
     Write-Error "Failed to install SH-ELF GCC"
+    Write-Info "Review the MSYS2 output above for clues (missing package, path, or install errors)."
     return $false
+}
+
+function Install-ShElfGcc-Prebuilt {
+    param([string]$InstallPath)
+    
+    Write-Section "INSTALLING SH-ELF GCC FROM PREBUILT RELEASE"
+    
+    $toolchainDir = Join-Path $InstallPath $Script:Config.Toolchain.InstallDir
+    $binDir = Join-Path $toolchainDir "bin"
+    
+    if (Test-Path (Join-Path $binDir "sh-elf-gcc.exe")) {
+        Write-Success "SH-ELF GCC already installed at: $binDir"
+        Add-ToSessionPath $binDir
+        return $true
+    }
+    
+    Write-Info "Downloading pre-built SH-ELF GCC toolchain..."
+    Write-Info "Source: SaturnSDK/Saturn-SDK-GCC-SH2 releases"
+    
+    $zipUrl = "https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2/releases/download/v1.0.0/Saturn-SDK-GCC-SH2-v1.0.0-windows.zip"
+    $zipPath = "$env:TEMP\saturn-toolchain.zip"
+    
+    $downloadSuccess = Invoke-DownloadFile -Url $zipUrl -OutputPath $zipPath -Description "SH-ELF GCC Toolchain"
+    
+    if (-not $downloadSuccess) {
+        Write-Warning "Failed to download from primary source, trying alternative..."
+        $altUrl = "https://github.com/kentosama/sh2-elf-gcc/releases/download/latest/sh2-elf-gcc-windows.zip"
+        $downloadSuccess = Invoke-DownloadFile -Url $altUrl -OutputPath $zipPath -Description "SH-ELF GCC Toolchain (Alternative)"
+    }
+    
+    if (-not $downloadSuccess) {
+        Write-Error "Failed to download pre-built toolchain"
+        Write-Info "Try manual installation or use WSL"
+        return $false
+    }
+    
+    Write-Info "Extracting to: $toolchainDir"
+    
+    try {
+        $extractSuccess = Expand-ZipArchive -ArchivePath $zipPath -DestinationPath $toolchainDir -Description "SH-ELF GCC Toolchain"
+        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+        
+        if (-not $extractSuccess) {
+            Write-Error "Failed to extract toolchain"
+            return $false
+        }
+        
+        if (Test-Path (Join-Path $binDir "sh-elf-gcc.exe")) {
+            Write-Success "SH-ELF GCC installed successfully"
+            Add-ToSessionPath $binDir
+            
+            if (Test-Administrator) {
+                Add-ToPathEnvironment $binDir
+            } else {
+                Write-Warning "Administrator rights required to add to system PATH"
+                Write-Info "Run as administrator to persist PATH changes"
+            }
+            
+            return $true
+        } else {
+            Write-Error "Toolchain extracted but sh-elf-gcc not found"
+            Write-Info "Contents of extracted directory:"
+            Get-ChildItem -Path $toolchainDir -Recurse -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Info "  $($_.FullName)" }
+            return $false
+        }
+    } catch {
+        Write-Error ("Toolchain installation failed: " + $_.Exception.Message)
+        return $false
+    }
 }
 
 function Install-Toolchain {
@@ -642,7 +791,6 @@ function Install-Toolchain {
     $binPath = Join-Path $toolchainInstallDir "bin"
     $msys2InstallPath = $Script:Config.Toolchain.MSYS2InstallPath
     
-    # Check if toolchain is already installed
     Write-Info "Checking for existing SH-ELF toolchain..."
     $shGccPaths = @(
         (Join-Path $msys2InstallPath "mingw64\bin\sh-elf-gcc.exe"),
@@ -671,7 +819,6 @@ function Install-Toolchain {
         return $true
     }
     
-    # Check if sh-elf-gcc is in PATH
     if (Test-Command "sh-elf-gcc") {
         try {
             $version = & sh-elf-gcc --version 2>&1 | Select-Object -First 1
@@ -690,90 +837,37 @@ function Install-Toolchain {
     Write-Host ""
     Write-Host "The SH-ELF toolchain is required to compile Saturn homebrew programs." -ForegroundColor White
     Write-Host ""
-    
-    $isAdmin = Test-Administrator
-    
-    if (-not $isAdmin) {
-        Write-Warning "Not running as Administrator"
-        Write-Info "Some installation options require elevated privileges."
-        Write-Host ""
-    }
-    
-    Write-Host "I can attempt to install it automatically using MSYS2." -ForegroundColor Cyan
+    Write-Host "NOTE: MSYS2 packages for sh-elf-gcc are no longer available." -ForegroundColor Yellow
+    Write-Host "Use option 0 to download pre-built binaries from GitHub." -ForegroundColor Yellow
     Write-Host ""
+    
+    Write-Host ""
+    Write-Host "=== SH-ELF TOOLCHAIN INSTALLATION ===" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "The SH-ELF toolchain is required to compile Saturn homebrew programs." -ForegroundColor White
+    Write-Host ""
+    Write-Host "NOTE: MSYS2 packages for sh-elf-gcc are no longer available." -ForegroundColor Yellow
+    Write-Host ""
+    
     Write-Host "Choose installation method:" -ForegroundColor Cyan
-    Write-Host "  1) Direct Download - Download and install MSYS2 directly (No admin required)" -ForegroundColor Green
-    Write-Host "  2) Automatic - Try winget, then Chocolatey (Admin required)" -ForegroundColor White
-    Write-Host "  3) Automatic - Use winget only (Admin required)" -ForegroundColor White
-    Write-Host "  4) Automatic - Use Chocolatey only (Admin required)" -ForegroundColor White
-    Write-Host "  5) Manual - Enter path to existing installation" -ForegroundColor White
-    Write-Host "  6) Manual - Show manual installation instructions" -ForegroundColor White
-    Write-Host "  7) Skip - Continue without toolchain (Build will fail)" -ForegroundColor Yellow
+    Write-Host "  0) Download Pre-built Binary - SaturnSDK GitHub release (RECOMMENDED)" -ForegroundColor Green
+    Write-Host "  1) Manual - Enter path to existing installation" -ForegroundColor White
+    Write-Host "  2) Manual - Show manual installation instructions" -ForegroundColor White
+    Write-Host "  3) Skip - Continue without toolchain (Build will fail)" -ForegroundColor Yellow
     Write-Host ""
     
-    $choice = Read-Host "Select option (1-7)"
+    $choice = Read-Host "Select option (0-3)"
     
-    $autoInstall = $false
     $installSuccess = $false
     
     switch ($choice) {
+        "0" {
+            Write-Info "Downloading pre-built SH-ELF GCC from GitHub..."
+            if (Install-ShElfGcc-Prebuilt -InstallPath $InstallPath) {
+                $installSuccess = $true
+            }
+        }
         "1" {
-            Write-Info "Using direct download (no admin required)..."
-            if (Install-MSYS2-Direct) {
-                if (Install-ShElfGcc-MSYS2) {
-                    $installSuccess = $true
-                }
-            }
-        }
-        "2" {
-            Write-Info "Trying winget first, then Chocolatey..."
-            if (Install-MSYS2-Winget) {
-                if (Install-ShElfGcc-MSYS2) {
-                    $installSuccess = $true
-                }
-            }
-
-            if (-not $installSuccess) {
-                Write-Info "winget failed, trying Chocolatey..."
-                if (-not (Test-Administrator)) {
-                    if (Restart-AsAdministrator) {
-                        return $true
-                    }
-                }
-                if (Install-MSYS2-Chocolatey) {
-                    if (Install-ShElfGcc-MSYS2) {
-                        $installSuccess = $true
-                    }
-                }
-            }
-        }
-        "3" {
-            Write-Info "Using winget..."
-            if (-not (Test-Administrator)) {
-                if (Restart-AsAdministrator) {
-                    return $true
-                }
-            }
-            if (Install-MSYS2-Winget) {
-                if (Install-ShElfGcc-MSYS2) {
-                    $installSuccess = $true
-                }
-            }
-        }
-        "4" {
-            Write-Info "Using Chocolatey..."
-            if (-not (Test-Administrator)) {
-                if (Restart-AsAdministrator) {
-                    return $true
-                }
-            }
-            if (Install-MSYS2-Chocolatey) {
-                if (Install-ShElfGcc-MSYS2) {
-                    $installSuccess = $true
-                }
-            }
-        }
-        "5" {
             $toolchainPath = Read-Host "Enter path to sh-elf-gcc installation directory (e.g., C:\sh-elf-gcc)"
             
             if ([string]::IsNullOrEmpty($toolchainPath)) {
@@ -792,16 +886,14 @@ function Install-Toolchain {
                 return $false
             }
         }
-        "6" {
+        "2" {
             Write-Host ""
             Write-Host "=== MANUAL INSTALLATION OPTIONS ===" -ForegroundColor Yellow
             Write-Host ""
-            Write-Host "Option 1: Use MSYS2 (If available)" -ForegroundColor Cyan
-            Write-Host "  1. Download MSYS2: https://www.msys2.org/" -ForegroundColor White
-            Write-Host "  2. Open 'MSYS2 MINGW64' terminal" -ForegroundColor White
-            Write-Host "  3. Run: pacman -S mingw-w64-i686-sh-elf-gcc" -ForegroundColor White
-            Write-Host "  4. Add to PATH: C:\msys64\mingw64\bin" -ForegroundColor White
-            Write-Host "  Note: Some MSYS2 mirrors no longer provide sh-elf-gcc packages" -ForegroundColor White
+            Write-Host "Option 1: Download Pre-built Binaries (RECOMMENDED)" -ForegroundColor Cyan
+            Write-Host "  1. Download from: https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2/releases" -ForegroundColor White
+            Write-Host "  2. Extract to: C:\sh-elf-gcc" -ForegroundColor White
+            Write-Host "  3. Add to PATH: C:\sh-elf-gcc\bin" -ForegroundColor White
             Write-Host ""
             Write-Host "Option 2: WSL (Windows Subsystem for Linux)" -ForegroundColor Cyan
             Write-Host "  1. Install WSL: wsl --install -d Ubuntu" -ForegroundColor White
@@ -811,11 +903,11 @@ function Install-Toolchain {
             Write-Host "Option 3: Build from source" -ForegroundColor Cyan
             Write-Host "  See: https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2" -ForegroundColor White
             Write-Host ""
-            Write-Host "After manual installation, run this script again and select option 5." -ForegroundColor Yellow
+            Write-Host "After manual installation, run this script again and select option 1." -ForegroundColor Yellow
             Write-Host ""
             return $true
         }
-        "7" {
+        "3" {
             Write-Warning "Skipping toolchain installation"
             Write-Info "You can run this script again with: .\setup.ps1 -Resume"
             Write-Info "Build step will likely fail without toolchain"
@@ -835,7 +927,7 @@ function Install-Toolchain {
         return $true
     } else {
         Write-Error "Automatic installation failed"
-        Write-Info "Try manual installation (option 4 or 5) or run script again"
+        Write-Info "Try option 0 (pre-built binary) or option 1 (manual path)"
         return $false
     }
 }
