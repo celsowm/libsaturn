@@ -711,10 +711,17 @@ function Install-ShElfGcc-MSYS2 {
 function Install-ShElfGcc-Prebuilt {
     param([string]$InstallPath)
     
-    Write-Section "INSTALLING SH-ELF GCC FROM PREBUILT RELEASE"
+    Write-Section "INSTALLING SH-ELF GCC TOOLCHAIN"
     
+    $bundledToolchainPath = Join-Path $PSScriptRoot "..\..\toolchains\sh-elf-gcc"
     $toolchainDir = Join-Path $InstallPath $Script:Config.Toolchain.InstallDir
     $binDir = Join-Path $toolchainDir "bin"
+    
+    if (-not (Test-Path $bundledToolchainPath)) {
+        Write-Warning "Bundled toolchain not found at: $bundledToolchainPath"
+        Write-Info "Please download Jo Engine from https://www.jo-engine.org and extract the Compiler/WINDOWS folder to toolchains/sh-elf-gcc"
+        return $false
+    }
     
     if (Test-Path (Join-Path $binDir "sh-elf-gcc.exe")) {
         Write-Success "SH-ELF GCC already installed at: $binDir"
@@ -722,36 +729,13 @@ function Install-ShElfGcc-Prebuilt {
         return $true
     }
     
-    Write-Info "Downloading pre-built SH-ELF GCC toolchain..."
-    Write-Info "Source: SaturnSDK/Saturn-SDK-GCC-SH2 releases"
-    
-    $zipUrl = "https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2/releases/download/v1.0.0/Saturn-SDK-GCC-SH2-v1.0.0-windows.zip"
-    $zipPath = "$env:TEMP\saturn-toolchain.zip"
-    
-    $downloadSuccess = Invoke-DownloadFile -Url $zipUrl -OutputPath $zipPath -Description "SH-ELF GCC Toolchain"
-    
-    if (-not $downloadSuccess) {
-        Write-Warning "Failed to download from primary source, trying alternative..."
-        $altUrl = "https://github.com/kentosama/sh2-elf-gcc/releases/download/latest/sh2-elf-gcc-windows.zip"
-        $downloadSuccess = Invoke-DownloadFile -Url $altUrl -OutputPath $zipPath -Description "SH-ELF GCC Toolchain (Alternative)"
-    }
-    
-    if (-not $downloadSuccess) {
-        Write-Error "Failed to download pre-built toolchain"
-        Write-Info "Try manual installation or use WSL"
-        return $false
-    }
-    
-    Write-Info "Extracting to: $toolchainDir"
+    Write-Info "Installing bundled SH-ELF GCC toolchain..."
+    Write-Info "Source: Jo Engine Compiler (included with libsaturn)"
     
     try {
-        $extractSuccess = Expand-ZipArchive -ArchivePath $zipPath -DestinationPath $toolchainDir -Description "SH-ELF GCC Toolchain"
-        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+        Write-Info "Copying toolchain to: $toolchainDir"
         
-        if (-not $extractSuccess) {
-            Write-Error "Failed to extract toolchain"
-            return $false
-        }
+        Copy-Item -Path $bundledToolchainPath -Destination $toolchainDir -Recurse -Force
         
         if (Test-Path (Join-Path $binDir "sh-elf-gcc.exe")) {
             Write-Success "SH-ELF GCC installed successfully"
@@ -764,11 +748,14 @@ function Install-ShElfGcc-Prebuilt {
                 Write-Info "Run as administrator to persist PATH changes"
             }
             
+            Write-Host ""
+            Write-Host "Toolchain installed from: $bundledToolchainPath" -ForegroundColor Cyan
+            Write-Host "Copied to: $toolchainDir" -ForegroundColor Cyan
+            Write-Host ""
+            
             return $true
         } else {
-            Write-Error "Toolchain extracted but sh-elf-gcc not found"
-            Write-Info "Contents of extracted directory:"
-            Get-ChildItem -Path $toolchainDir -Recurse -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Info "  $($_.FullName)" }
+            Write-Error "Toolchain installation failed - sh-elf-gcc.exe not found"
             return $false
         }
     } catch {
@@ -832,106 +819,40 @@ function Install-Toolchain {
         }
     }
     
+    Write-Section "INSTALLING SH-ELF TOOLCHAIN"
     Write-Host ""
-    Write-Host "=== SH-ELF TOOLCHAIN INSTALLATION ===" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "The SH-ELF toolchain is required to compile Saturn homebrew programs." -ForegroundColor White
-    Write-Host ""
-    Write-Host "NOTE: MSYS2 packages for sh-elf-gcc are no longer available." -ForegroundColor Yellow
-    Write-Host "Use option 0 to download pre-built binaries from GitHub." -ForegroundColor Yellow
+    Write-Host "Installing bundled SH-ELF GCC toolchain from Jo Engine..." -ForegroundColor Cyan
     Write-Host ""
     
-    Write-Host ""
-    Write-Host "=== SH-ELF TOOLCHAIN INSTALLATION ===" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "The SH-ELF toolchain is required to compile Saturn homebrew programs." -ForegroundColor White
-    Write-Host ""
-    Write-Host "NOTE: MSYS2 packages for sh-elf-gcc are no longer available." -ForegroundColor Yellow
-    Write-Host ""
-    
-    Write-Host "Choose installation method:" -ForegroundColor Cyan
-    Write-Host "  0) Download Pre-built Binary - SaturnSDK GitHub release (RECOMMENDED)" -ForegroundColor Green
-    Write-Host "  1) Manual - Enter path to existing installation" -ForegroundColor White
-    Write-Host "  2) Manual - Show manual installation instructions" -ForegroundColor White
-    Write-Host "  3) Skip - Continue without toolchain (Build will fail)" -ForegroundColor Yellow
-    Write-Host ""
-    
-    $choice = Read-Host "Select option (0-3)"
-    
-    $installSuccess = $false
-    
-    switch ($choice) {
-        "0" {
-            Write-Info "Downloading pre-built SH-ELF GCC from GitHub..."
-            if (Install-ShElfGcc-Prebuilt -InstallPath $InstallPath) {
-                $installSuccess = $true
-            }
-        }
-        "1" {
-            $toolchainPath = Read-Host "Enter path to sh-elf-gcc installation directory (e.g., C:\sh-elf-gcc)"
-            
-            if ([string]::IsNullOrEmpty($toolchainPath)) {
-                Write-Warning "No path provided, skipping"
-                return $true
-            }
-            
-            $gccPath = Join-Path $toolchainPath "bin\sh-elf-gcc.exe"
-            
-            if (Test-Path $gccPath) {
-                Write-Success ("Toolchain found: " + $gccPath)
-                Add-ToSessionPath (Join-Path $toolchainPath "bin")
-                $installSuccess = $true
-            } else {
-                Write-Error ("Toolchain not found at: " + $gccPath)
-                return $false
-            }
-        }
-        "2" {
-            Write-Host ""
-            Write-Host "=== MANUAL INSTALLATION OPTIONS ===" -ForegroundColor Yellow
-            Write-Host ""
-            Write-Host "Option 1: Download Pre-built Binaries (RECOMMENDED)" -ForegroundColor Cyan
-            Write-Host "  1. Download from: https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2/releases" -ForegroundColor White
-            Write-Host "  2. Extract to: C:\sh-elf-gcc" -ForegroundColor White
-            Write-Host "  3. Add to PATH: C:\sh-elf-gcc\bin" -ForegroundColor White
-            Write-Host ""
-            Write-Host "Option 2: WSL (Windows Subsystem for Linux)" -ForegroundColor Cyan
-            Write-Host "  1. Install WSL: wsl --install -d Ubuntu" -ForegroundColor White
-            Write-Host "  2. Run: sudo apt install gcc-sh-elf binutils-sh-elf" -ForegroundColor White
-            Write-Host "  3. Build using WSL: see WINDOWS_SETUP.md" -ForegroundColor White
-            Write-Host ""
-            Write-Host "Option 3: Build from source" -ForegroundColor Cyan
-            Write-Host "  See: https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2" -ForegroundColor White
-            Write-Host ""
-            Write-Host "After manual installation, run this script again and select option 1." -ForegroundColor Yellow
-            Write-Host ""
-            return $true
-        }
-        "3" {
-            Write-Warning "Skipping toolchain installation"
-            Write-Info "You can run this script again with: .\setup.ps1 -Resume"
-            Write-Info "Build step will likely fail without toolchain"
-            return $true
-        }
-        default {
-            Write-Warning "Invalid choice, skipping toolchain installation"
-            return $true
-        }
-    }
-    
-    if ($installSuccess) {
+    if (Install-ShElfGcc-Prebuilt -InstallPath $InstallPath) {
         Write-Success "Toolchain installation completed"
         $Script:State.ToolchainInstalled = $true
         Save-State
         Complete-Section
         return $true
     } else {
-        Write-Error "Automatic installation failed"
-        Write-Info "Try option 0 (pre-built binary) or option 1 (manual path)"
+        Write-Error "Failed to install bundled toolchain"
+        Write-Host ""
+        Write-Host "=== MANUAL INSTALLATION OPTIONS ===" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Option 1: SegaXtreme (EASIEST)" -ForegroundColor Cyan
+        Write-Host "  1. Visit: https://segaxtreme.net/resources/gnu-sh-coff-toolchain-for-the-sega-saturn.31/" -ForegroundColor White
+        Write-Host "  2. Download the GNU SH-COFF toolchain" -ForegroundColor White
+        Write-Host "  3. Extract to: C:\sh-elf-gcc" -ForegroundColor White
+        Write-Host "  4. Add to PATH: C:\sh-elf-gcc\bin" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Option 2: WSL (RECOMMENDED FOR MODERN DEVELOPMENT)" -ForegroundColor Cyan
+        Write-Host "  1. Install WSL: wsl --install -d Ubuntu" -ForegroundColor White
+        Write-Host "  2. Run in WSL: sudo apt install gcc-sh-elf binutils-sh-elf" -ForegroundColor White
+        Write-Host "  3. Use from Windows: wsl sh-elf-gcc [options]" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Option 3: Build from source" -ForegroundColor Cyan
+        Write-Host "  See: https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2" -ForegroundColor White
+        Write-Host ""
         return $false
     }
 }
-
+    
 function Install-Python {
     param([string]$InstallPath)
     
@@ -997,7 +918,7 @@ function Install-Python {
         return $false
     }
 }
-
+    
 function Clone-Repository {
     param(
         [string]$InstallPath,
@@ -1018,17 +939,32 @@ function Clone-Repository {
     if (Test-Path $currentReadme) {
         Write-Success "Repository found in current directory: " + (Get-Location)
         
-        # If InstallPath is different from current directory, copy files
-        if ((Get-Location).Path.TrimEnd("\/") -ne $InstallPath.TrimEnd("\/")) {
+        $currentPath = (Get-Location).Path.TrimEnd("\/")
+        $targetPath = $InstallPath.TrimEnd("\/")
+        
+        if ($currentPath -ne $targetPath) {
             Write-Info ("Copying files to installation directory: " + $InstallPath)
             
-            # Create directory if needed
-            if (-not (Test-Path $InstallPath)) {
-                New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
+            try {
+                if (-not (Test-Path $InstallPath)) {
+                    New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
+                }
+                
+                $sourceDir = Get-Location
+                $items = Get-ChildItem -Path $sourceDir -Exclude ".git","nul"
+                
+                foreach ($item in $items) {
+                    $dest = Join-Path $InstallPath $item.Name
+                    if ($item.PSIsContainer) {
+                        Copy-Item -Path $item.FullName -Destination $dest -Recurse -Force -ErrorAction Stop
+                    } else {
+                        Copy-Item -Path $item.FullName -Destination $dest -Force -ErrorAction Stop
+                    }
+                }
+            } catch {
+                Write-Error ("Failed to copy files: " + $_.Exception.Message)
+                return $false
             }
-            
-            # Copy all items except .git
-            Get-ChildItem -Path (Get-Location) -Exclude ".git" | Copy-Item -Destination $InstallPath -Recurse -Force
             
             if (Test-Path $readmePath) {
                 Write-Success ("Repository copied to: " + $InstallPath)
@@ -1038,7 +974,6 @@ function Clone-Repository {
                 return $true
             }
         } else {
-            # We're already in the install path
             Write-Success ("Repository ready at: " + $InstallPath)
             $Script:State.RepositoryCloned = $true
             Save-State
@@ -1389,4 +1324,416 @@ function Install-VSCodeExtensions {
     
     Complete-Section
     return $true
+}
+
+function Get-ExtendedToolchainSearchPaths {
+    <#
+    .SYNOPSIS
+        Returns extended list of toolchain search paths
+    #>
+    return @(
+        # Bundled with libsaturn
+        (Join-Path $PSScriptRoot "..\..\toolchains\sh-elf-gcc\bin"),
+        
+        # User's Saturn SDK
+        (Join-Path $env:USERPROFILE "saturn-sdk\sh-elf-gcc\bin"),
+        (Join-Path $env:USERPROFILE "saturn-sdk\sh-elf-gcc"),
+        
+        # Common Saturn SDK locations
+        "C:\saturn-sdk\sh-elf-gcc\bin",
+        "C:\saturn-sdk\sh-elf-gcc",
+        "C:\saturn\sh-elf-gcc\bin",
+        "C:\saturn\sh-elf-gcc",
+        
+        # MSYS2 locations (all variants)
+        "C:\msys64\mingw64\bin",
+        "C:\msys64\mingw32\bin",
+        "C:\msys64\ucrt64\bin",
+        "C:\msys64\clang64\bin",
+        "C:\tools\msys64\mingw64\bin",
+        "C:\tools\msys64\mingw32\bin",
+        "C:\tools\msys64\ucrt64\bin",
+        
+        # Program Files locations
+        "$env:ProgramFiles\SaturnSDK\sh-elf-gcc\bin",
+        "$env:ProgramFiles\SaturnSDK\sh-elf-gcc",
+        "$env:ProgramFiles (x86)\SaturnSDK\sh-elf-gcc\bin",
+        "$env:ProgramFiles (x86)\SaturnSDK\sh-elf-gcc",
+        "$env:ProgramFiles\SEGA\SaturnSDK\bin",
+        "$env:ProgramFiles\jo-engine\toolchain\bin",
+        
+        # Legacy/alternative locations
+        "C:\sh-elf-gcc\bin",
+        "C:\sh-elf-gcc",
+        "D:\saturn-sdk\sh-elf-gcc\bin",
+        "D:\saturn-sdk\sh-elf-gcc"
+    )
+}
+
+function Find-ShElfGccExtended {
+    <#
+    .SYNOPSIS
+        Enhanced toolchain finder with extended search paths
+    #>
+    
+    $searchPaths = Get-ExtendedToolchainSearchPaths
+    
+    foreach ($path in $searchPaths) {
+        if ([string]::IsNullOrEmpty($path)) { continue }
+        
+        $gccPath = Join-Path $path "sh-elf-gcc.exe"
+        if (Test-Path $gccPath) {
+            Write-Verbose "Found toolchain at: $path"
+            return $path
+        }
+    }
+    
+    # Check if sh-elf-gcc is already in PATH
+    if (Test-Command "sh-elf-gcc") {
+        try {
+            $shGcc = Get-Command "sh-elf-gcc" -ErrorAction Stop
+            $binPath = Split-Path $shGcc.Source -Parent
+            Write-Verbose "Found in PATH: $binPath"
+            return $binPath
+        } catch {
+            Write-Verbose "sh-elf-gcc in PATH but command failed"
+        }
+    }
+    
+    return $null
+}
+
+function Select-ToolchainSource {
+    <#
+    .SYNOPSIS
+        Presents toolchain source options to the user
+    #>
+    Write-Host ""
+    Write-Host "TOOLCHAIN SOURCE SELECTION" -ForegroundColor Cyan
+    Write-Host ""
+    
+    $options = @{
+        "1" = @{
+            Name = "Bundled Toolchain"
+            Description = "Use the bundled GCC 9.3.0 toolchain (included with libsaturn)"
+            Action = { return "bundled" }
+        }
+        "2" = @{
+            Name = "Existing Installation"
+            Description = "Use an existing sh-elf-gcc installation on your system"
+            Action = { return "existing" }
+        }
+        "3" = @{
+            Name = "Download from SegaXtreme"
+            Description = "Download the GNU SH-COFF toolchain from SegaXtreme.net"
+            Action = { return "download" }
+        }
+        "4" = @{
+            Name = "MSYS2 Package"
+            Description = "Install via MSYS2 package manager"
+            Action = { return "msys2" }
+        }
+    }
+    
+    foreach ($key in $options.Keys | Sort-Object) {
+        $opt = $options[$key]
+        Write-Host "$key) $($opt.Name)" -ForegroundColor White
+        Write-Host "   $($opt.Description)" -ForegroundColor Gray
+    }
+    
+    Write-Host ""
+    $choice = Read-Host "Select toolchain source"
+    
+    if ($options.ContainsKey($choice)) {
+        return & $options[$choice].Action
+    }
+    
+    Write-Warning "Invalid selection, defaulting to bundled"
+    return "bundled"
+}
+
+function Invoke-ExistingToolchainSetup {
+    <#
+    .SYNOPSIS
+        Guides user to select existing toolchain
+    #>
+    Write-Host ""
+    Write-Host "EXISTING TOOLCHAIN SETUP" -ForegroundColor Cyan
+    Write-Host ""
+    
+    $detectedPath = Find-ShElfGccExtended
+    
+    if ($detectedPath) {
+        Write-Success "Found existing toolchain at: $detectedPath"
+        
+        $useDetected = Read-Host "Use this toolchain? (Y/n)"
+        if ($useDetected -ne "n" -and $useDetected -ne "N") {
+            return $detectedPath
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "Enter the path to your sh-elf-gcc installation:" -ForegroundColor White
+    Write-Host "(Example: C:\saturn-sdk\sh-elf-gcc or C:\msys64\mingw64\bin)" -ForegroundColor Gray
+    
+    do {
+        $customPath = Read-Host "Toolchain path"
+        $customPath = $customPath.Trim().Trim('"').Trim("'")
+        
+        if ([string]::IsNullOrEmpty($customPath)) {
+            Write-Warning "Please enter a valid path"
+            continue
+        }
+        
+        # Try to find sh-elf-gcc in the provided path
+        $testPath = $customPath
+        if (-not (Test-Path $testPath)) {
+            # Maybe they gave the bin directory
+            $testPath = Join-Path $customPath "bin"
+        }
+        
+        $gccPath = Join-Path $testPath "sh-elf-gcc.exe"
+        if (Test-Path $gccPath) {
+            Write-Success "Toolchain found at: $testPath"
+            return $testPath
+        }
+        
+        Write-Error "sh-elf-gcc.exe not found at: $testPath"
+        Write-Info "Please verify the path and try again"
+        
+    } while ($true)
+}
+
+function Get-ToolchainVersionInfo {
+    <#
+    .SYNOPSIS
+        Gets detailed version information about the toolchain
+    #>
+    param([string]$BinPath)
+    
+    $gccPath = Join-Path $BinPath "sh-elf-gcc.exe"
+    
+    try {
+        $versionOutput = & $gccPath --version 2>&1 | Select-Object -First 3
+        $gccVersion = ""
+        $targetInfo = ""
+        
+        foreach ($line in $versionOutput) {
+            if ($line -match "GCC (\S+)") {
+                $gccVersion = $Matches[1]
+            }
+            if ($line -match "Target: (\S+)") {
+                $targetInfo = $Matches[1]
+            }
+        }
+        
+        return @{
+            Version = $gccVersion
+            Target = $targetInfo
+            BinPath = $BinPath
+        }
+    } catch {
+        return @{
+            Version = "unknown"
+            Target = "unknown"
+            BinPath = $BinPath
+        }
+    }
+}
+
+function Test-BuildVerification {
+    <#
+    .SYNOPSIS
+        Verifies the build was successful and displays detailed info
+    #>
+    param(
+        [string]$InstallPath,
+        [string]$ToolchainBinPath
+    )
+    
+    $libPath = Join-Path $InstallPath "lib\libsaturn.a"
+    $pkgConfigPath = Join-Path $InstallPath "libsaturn.pc"
+    
+    Write-Host ""
+    Write-Host "BUILD VERIFICATION" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Check library exists
+    if (-not (Test-Path $libPath)) {
+        Write-Error "Library not created: $libPath"
+        return $false
+    }
+    
+    $libSize = (Get-Item $libPath).Length
+    Write-Success "Library created: $libPath"
+    Write-Info "Size: $([Math]::Round($libSize / 1KB, 1)) KB"
+    
+    # Toolchain info
+    $toolchainInfo = Get-ToolchainVersionInfo -BinPath $ToolchainBinPath
+    Write-Info "Toolchain: GCC $($toolchainInfo.Version) ($($toolchainInfo.Target))"
+    
+    # List contents
+    Write-Host ""
+    Write-Info "Library contents:"
+    $arPath = Join-Path $ToolchainBinPath "sh-elf-ar.exe"
+    if (Test-Path $arPath) {
+        $objects = & $arPath -t $libPath 2>$null
+        if ($LASTEXITCODE -eq 0 -and $objects) {
+            foreach ($obj in $objects) {
+                Write-Host "  - $obj" -ForegroundColor Gray
+            }
+        }
+    }
+    
+    # Check pkg-config
+    if (Test-Path $pkgConfigPath) {
+        Write-Host ""
+        Write-Success "pkg-config file created: $pkgConfigPath"
+    }
+    
+    # Usage instructions
+    Write-Host ""
+    Write-Host "USAGE INSTRUCTIONS" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "For Makefile:" -ForegroundColor White
+    Write-Host "  INCLUDES += -I$InstallPath\include" -ForegroundColor Gray
+    Write-Host "  LIBRARIES += -L$InstallPath\lib -lsaturn" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "For pkg-config:" -ForegroundColor White
+    Write-Host "  pkg-config --cflags libsaturn" -ForegroundColor Gray
+    Write-Host "  pkg-config --libs libsaturn" -ForegroundColor Gray
+    
+    return $true
+}
+
+# Override Install-Toolchain to use new functions
+function Install-Toolchain-Enhanced {
+    param([string]$InstallPath)
+    
+    Write-Section "INSTALLING SH-ELF TOOLCHAIN (Enhanced)"
+    
+    if ($Script:State.ToolchainInstalled) {
+        Write-Success "Toolchain already installed, skipping"
+        return $true
+    }
+    
+    # Try auto-detection first
+    Write-Info "Auto-detecting existing toolchain..."
+    $detectedPath = Find-ShElfGccExtended
+    
+    if ($detectedPath) {
+        Write-Success ("Found existing toolchain: " + $detectedPath)
+        Add-ToSessionPath $detectedPath
+        $Script:State.ToolchainInstalled = $true
+        Save-State
+        Complete-Section
+        return $true
+    }
+    
+    # No toolchain found, ask user
+    Write-Host ""
+    Write-Host "No SH-ELF toolchain found on your system." -ForegroundColor Yellow
+    Write-Host ""
+    
+    $source = Select-ToolchainSource
+    
+    switch ($source) {
+        "bundled" {
+            return Install-ShElfGcc-Prebuilt -InstallPath $InstallPath
+        }
+        "existing" {
+            $customPath = Invoke-ExistingToolchainSetup
+            if ($customPath) {
+                Add-ToSessionPath $customPath
+                $Script:State.ToolchainInstalled = $true
+                Save-State
+                Complete-Section
+                return $true
+            }
+            return $false
+        }
+        "download" {
+            Write-Host ""
+            Write-Host "Please download from:" -ForegroundColor Cyan
+            Write-Host "  https://segaxtreme.net/resources/gnu-sh-coff-toolchain-for-the-sega-saturn.31/" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Extract to C:\sh-elf-gcc and re-run this script." -ForegroundColor White
+            return $false
+        }
+        "msys2" {
+            return Install-ShElfGcc-MSYS2
+        }
+        default {
+            Write-Warning "Unknown option, falling back to bundled"
+            return Install-ShElfGcc-Prebuilt -InstallPath $InstallPath
+        }
+    }
+}
+
+function Build-Library-Enhanced {
+    <#
+    .SYNOPSIS
+        Enhanced build function with verification and feedback
+    #>
+    param([string]$InstallPath)
+    
+    Write-Section "BUILDING LIBSATURN LIBRARY (Enhanced)"
+    
+    if ($Script:State.LibraryBuilt) {
+        Write-Success "Library already built, skipping"
+        return $true
+    }
+    
+    $buildScript = Join-Path $InstallPath "build.bat"
+    
+    if (-not (Test-Path $buildScript)) {
+        Write-Error ("Build script not found: " + $buildScript)
+        return $false
+    }
+    
+    # Find toolchain bin path
+    $toolchainBinPath = Find-ShElfGccExtended
+    if (-not $toolchainBinPath) {
+        Write-Error "Could not find sh-elf-gcc toolchain"
+        return $false
+    }
+    
+    Write-Info ("Found toolchain at: " + $toolchainBinPath)
+    
+    try {
+        $buildStartTime = Get-Date
+        Write-ProgressBar -Activity "Building Library" -Status "Compiling..." -PercentComplete 0
+        
+        $buildProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "cd /d", ("`"" + $InstallPath + "`""), "&&", "call", $buildScript -Wait -PassThru -NoNewWindow
+        
+        $buildDuration = (Get-Date) - $buildStartTime
+        
+        if ($buildProcess.ExitCode -eq 0) {
+            Write-ProgressBar -Activity "Building Library" -Status "Complete" -PercentComplete 100
+            Write-Success ("Library built successfully (took " + ($buildDuration.TotalSeconds.ToString("N1")) + " seconds)")
+            
+            # Run verification
+            Test-BuildVerification -InstallPath $InstallPath -ToolchainBinPath $toolchainBinPath
+            
+            $Script:State.LibraryBuilt = $true
+            Save-State
+            Complete-Section
+            return $true
+        } else {
+            Write-Error ("Build failed (exit code: " + $buildProcess.ExitCode + ")")
+            Write-Host ""
+            Write-Host "=== BUILD TROUBLESHOOTING ===" -ForegroundColor Yellow
+            Write-Host "Common causes:" -ForegroundColor Yellow
+            Write-Host "  1. Missing toolchain - Run toolchain installation first" -ForegroundColor White
+            Write-Host "  2. Toolchain not in PATH - Restart PowerShell or run as admin" -ForegroundColor White
+            Write-Host "  3. Missing dependencies - Check README.md for requirements" -ForegroundColor White
+            Write-Host "  4. Build script errors - Check " + $buildScript -ForegroundColor White
+            Write-Host ""
+            Write-Info "Check the build output above for specific error messages."
+            return $false
+        }
+    } catch {
+        Write-Error ("Build process failed: " + $_.Exception.Message)
+        return $false
+    }
 }

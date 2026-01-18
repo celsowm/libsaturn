@@ -19,8 +19,8 @@ static inline fix16_t fix16_sub(fix16_t a, fix16_t b) {
     return a - b;
 }
 
-static inline fix16_t fix16_sin(fix16_t angle);
-static inline fix16_t fix16_cos(fix16_t angle);
+fix16_t fix16_sin(fix16_t angle);
+fix16_t fix16_cos(fix16_t angle);
 
 fix16_t fix16_assembly_mul(fix16_t a, fix16_t b);
 

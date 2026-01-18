@@ -2,6 +2,7 @@
 #define SATURN_VECTOR_H
 
 #include "saturn/types.h"
+#include "saturn/shared.h"
 
 void vec3_zero(Vec3* v);
 void vec3_set(Vec3* v, fix16_t x, fix16_t y, fix16_t z);

@@ -45,8 +45,9 @@ void vdp1_flush_cmd_list(void) {
 }
 
 void vdp1_draw_quad(const Vdp1Cmd* cmd) {
-    *cmd_list = *cmd;
-    cmd->link = (u32)(cmd_list + 1);
+    Vdp1Cmd local = *cmd;
+    local.link = (u32)(cmd_list + 1);
+    *cmd_list = local;
     cmd_list++;
 }
 

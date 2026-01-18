@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 # Saturn Development Environment Setup - libsaturn Automation Script v2.0.1 (Fixed)
 
 param(
@@ -41,13 +41,14 @@ $Script:Config = @{
     EmulatorChoice = $Emulator
     
     Toolchain = @{
-        Name = "SH-ELF GCC"
-        Version = "13.2.0"
+        Name = "SH-ELF GCC (Jo Engine)"
+        Version = "Based on GCC 6.2.0"
         Url = ""
-        SizeMB = 100
+        SizeMB = 50
         InstallDir = "sh-elf-gcc"
         BinPath = $null
-        ManualUrl = "https://github.com/SaturnSDK/Saturn-SDK-GCC-SH2"
+        ManualUrl = "https://www.jo-engine.org"
+        BundledToolchain = $true
         MSYS2InstallPath = "C:\msys64"
         MSYS2Pkg = "mingw-w64-i686-sh-elf-gcc"
         MSYS2PkgFallback = "mingw-w64-x86_64-sh-elf-gcc"

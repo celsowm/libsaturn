@@ -1,6 +1,9 @@
 #include "saturn/matrix.h"
 #include "saturn/fixed.h"
+#include "saturn/vector.h"
 #include <string.h>
+
+static fix16_t fix16_tan(fix16_t angle);
 
 void mat4_identity(Mat4* m) {
     memset(m, 0, sizeof(Mat4));

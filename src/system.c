@@ -1,4 +1,5 @@
 #include "saturn/types.h"
+#include "saturn/system.h"
 #include "saturn/hardware.h"
 
 static InterruptHandler vblank_handler = 0;

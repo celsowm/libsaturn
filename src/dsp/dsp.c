@@ -1,4 +1,5 @@
 #include "saturn/dsp.h"
+#include "saturn/shared.h"
 
 void dsp_init(void) {
 }

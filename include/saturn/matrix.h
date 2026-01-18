@@ -2,6 +2,7 @@
 #define SATURN_MATRIX_H
 
 #include "saturn/types.h"
+#include "saturn/shared.h"
 
 void mat4_identity(Mat4* m);
 void mat4_zero(Mat4* m);

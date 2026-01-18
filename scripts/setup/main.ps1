@@ -13,10 +13,10 @@ function Start-ExpressSetup {
     
     $steps = @(
         @{ Name = "Check Prerequisites"; Script = { Test-Prerequisites } },
-        @{ Name = "Install Toolchain"; Script = { Install-Toolchain $InstallPath } },
+        @{ Name = "Install Toolchain"; Script = { Install-Toolchain-Enhanced $InstallPath } },
         @{ Name = "Install Python"; Script = { Install-Python $InstallPath } },
         @{ Name = "Clone Repository"; Script = { Clone-Repository $InstallPath } },
-        @{ Name = "Build Library"; Script = { Build-Library $InstallPath } },
+        @{ Name = "Build Library"; Script = { Build-Library-Enhanced $InstallPath } },
         @{ Name = "Install Emulator"; Script = { Install-Emulator $InstallPath $Script:Config.EmulatorChoice } },
         @{ Name = "Configure VS Code"; Script = { Install-VSCodeExtensions $InstallPath } }
     )

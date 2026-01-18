@@ -2,6 +2,7 @@
 #define SATURN_DSP_H
 
 #include "saturn/types.h"
+#include "saturn/shared.h"
 
 typedef enum {
     DSP_OP_NOP = 0,
