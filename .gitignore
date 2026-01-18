@@ -1,0 +1,51 @@
+# Build artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.d
+*.dll
+*.exe
+*.pdb
+*.idb
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyi
+venv/
+env/
+.python-version
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Editor/IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Windows
+*.bak
+~$*
+*.suo
+*.user
+*.ncb
+
+# Build directories
+build/
+dist/
+.cache/
+lib/
+
+# Tools
+tools/*/build/
