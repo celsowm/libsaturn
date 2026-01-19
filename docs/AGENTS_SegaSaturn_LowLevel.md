@@ -462,3 +462,158 @@ libsaturn/
 **Rule:** keep these in `include/saturn/hw/*.h` and never duplicate.
 
 ---
+
+## 16) Deep Dive: Hardware Structures & Constraints
+
+### 16.1 VDP1 Command Structure (The "Quad" format)
+
+VDP1 commands are 32 bytes aligned. The command list acts as a linked list, but CMDLINK is a relative word offset, not a pointer.
+
+```c
+// VDP1 Command Table (32 bytes)
+typedef struct {
+    uint16_t cmdctrl;   // Command Control (Jump/Zoom/Dir/Flip)
+    uint16_t cmdlink;   // Link: (Next_Addr - Curr_Addr) / 4
+    uint16_t pmode;     // Draw Mode (Color mode, transparency, mesh)
+    uint16_t cmdcolr;   // Color Control (Palette bank or solid color)
+    uint16_t cmdsrca;   // Texture Source Address (in VRAM / 8)
+    uint16_t cmdsize;   // Texture Size (W, H)
+    int16_t  xa, ya;    // Vertex A (Top-Left)
+    int16_t  xb, yb;    // Vertex B (Top-Right)
+    int16_t  xc, yc;    // Vertex C (Bottom-Right)
+    int16_t  xd, yd;    // Vertex D (Bottom-Left)
+    uint16_t grda;      // Gouraud Shading Table Addr
+    uint16_t reserved;
+} Vdp1Cmd;
+```
+
+Important CMDCTRL Bits (0x0000):
+- #define CMDCTRL_END_BIT     0x8000
+- #define CMDCTRL_JP_JUMP     0x1000 // Jump to address (subroutine)
+- #define CMDCTRL_JP_LINK     0x0000 // Normal link
+- #define CMDCTRL_ZOOM_ON     0x0100
+- #define CMDCTRL_DIR_NORMAL  0x0000
+- #define CMDCTRL_DIR_HFLIP   0x0010
+- #define CMDCTRL_DIR_VFLIP   0x0020
+
+Implementation Tip: When building the command list in WRAM, calculate cmdlink carefully. For a sequential list, cmdlink is usually 0x0008 (skipping 8 words / 32 bytes forward).
+
+### 16.2 VDP2 Cycle Patterns (The "Garbage Screen" Preventer)
+
+VDP2 VRAM is split into banks (A0, A1, B0, B1). If you try to read too much from one bank in a single scanline (e.g., reading character pattern + map + rotation data all from Bank A0), the VDP2 will output garbage.
+
+You must configure the Cycle Pattern Registers (CYCA0-CYCB1) to allocate "access slots" (T0-T7) to specific VRAM banks.
+
+Valid Cycle Pattern Example (Standard):
+
+VRAM A0: NBG0 Pattern Data
+
+VRAM A1: NBG1 Pattern Data
+
+VRAM B0: NBG0 Map Data
+
+VRAM B1: NBG1 Map Data
+
+```c
+// Register: CYCA0L (0x25F800B0) - Defines access for Bank A0
+// Value: 0xFFF2 (Slots T0-T3 = free, T4 = NBG0 Pattern fetch)
+```
+
+Constraint: You cannot have two layers reading from Bank A0 at the same time slot.
+
+Fix: Distribute your assets (Patterns vs Maps) across A0, A1, B0, B1 physically.
+
+### 16.3 SCU DMA Indirect Mode
+
+Direct DMA is simple (Src->Dst). Indirect DMA is faster for command lists because the CPU sets up a table of transfers and the SCU processes them without waking the CPU.
+
+```c
+// Indirect DMA Table Format (Uncached WRAM)
+typedef struct {
+    uint32_t len_and_flags; // Bit 31: Indirect End Bit. Bits 0-19: Length
+    uint32_t src_addr;      // Absolute Source Address
+    uint32_t dst_addr;      // Absolute Destination Address
+} ScuDmaTableEntry;
+
+// Usage:
+// 1. Build table in WRAM.
+// 2. Set SCU DMA Register (D0R) to point to this table.
+// 3. Trigger DMA channel 0 (Indirect Mode bit set).
+```
+
+### 16.4 SH-2 Cache Management (Vital)
+
+The SH-2 does not have bus snooping. If SCU DMA writes to WRAM, the CPU cache will hold stale data.
+
+How to Purge/Invalidate: You typically cannot "purge" (write-back) individual lines easily on Saturn SH-2 without complex assembly. The Strategy:
+
+Invalidate All: Write to the Cache Control Register (CCR) to flush the entire cache if you suspect widespread dirty data (heavy).
+
+Uncached Access: Always read DMA destinations using the 0x20000000 offset (uncached window) to bypass the cache entirely.
+
+```c
+#define CCR_ADDR 0xFFFFFE92
+#define CACHE_INV 0x08 // Cache Invalidate bit
+// void cache_flush() { *CCR_ADDR |= CACHE_INV; }
+```
+
+### 16.5 SMPC Handshake Protocol
+
+Sending commands to the System Manager (SMPC) requires a strict handshake.
+
+Write Parameters: Write to IREG0...IREG6.
+
+Issue Command: Write command ID to COMREG.
+
+Set Flag: SMPC sets SF (Status Flag) register to 1 (busy).
+
+Wait: Loop until SF becomes 0 (even/finished).
+
+```c
+// Pseudo-code
+void smpc_cmd(uint8_t cmd) {
+    while(SMPC_SF & 0x01); // Wait if busy
+    SMPC_SF = 1;           // Set flag manually (some modes require this)
+    SMPC_COMREG = cmd;     // Fire
+    while(SMPC_SF & 0x01); // Wait for finish
+}
+```
+
+## 17) Critical Interrupts & Vector Table (VBR)
+
+You cannot use the BIOS defaults for high performance. You must point the VBR (Vector Base Register) to your own table in WRAM.
+
+Key Vector Offsets: | Vector | Offset | Source | Purpose | | :--- | :--- | :--- | :--- | | 64 | 0x100 | V-Blank IN | Start of VBlank (Update VDP regs now) | | 65 | 0x104 | V-Blank OUT | End of VBlank (Game logic start) | | 66 | 0x108 | H-Blank | Raster effects (Palette swaps per line) | | 71 | 0x11C | VDP1 End | Sprite draw finished (Swap buffers now) | | 74 | 0x128 | SCU DMA 0 | Level 0 DMA done |
+
+SCU Mask Register (0x25FE00A0): You must unmask these interrupts in the SCU to allow them to reach the CPU.
+
+Bit 0: V-Blank IN
+
+Bit 1: V-Blank OUT
+
+Bit 2: H-Blank
+
+Bit 5: VDP1 End
+
+## 18) Bus Arbitration Hierarchy
+
+When multiple devices try to access memory, the SCU arbitrates. Priority Order (Highest to Lowest):
+
+VDP1 / VDP2 (Video refresh—if this is blocked, screen gltiches)
+
+SCU DSP
+
+SCU DMA
+
+CPU
+
+Performance Impact: If you run heavy SCU DMA transfers during active display time, the CPU will stall significantly when trying to access WRAM-H. Tip: Schedule heavy DMA transfers (texture uploads) during V-Blank to avoid starving the CPU.
+
+Low-Level Resource Video
+... VDP1 & VDP2 Architecture Analysis ...
+
+This video provides a visual breakdown of the VDP1 command tables and VDP2 layers referenced in section 16, reinforcing the relationship between the command lists and the resulting frame output.
+
+[Sega Saturn Game Development] SGL Tutorial - 001 - Basics & VDP1
+
+Emerald Nova · 4,4 mil visualizações
