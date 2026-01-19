@@ -6,6 +6,8 @@
 
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 224
+#define BITMAP_WIDTH 512
+#define BITMAP_HEIGHT 256
 #define FONT_WIDTH 8
 #define FONT_HEIGHT 8
 #define FONT_SPACING 1
@@ -49,7 +51,7 @@ static void draw_pixel(int x, int y, u16 color) {
         return;
     }
     volatile u16* fb = (volatile u16*)VDP2_VRAM;
-    fb[y * SCREEN_WIDTH + x] = color;
+    fb[y * BITMAP_WIDTH + x] = color;
 }
 
 static void draw_glyph(int x, int y, const Glyph* glyph, u16 color) {

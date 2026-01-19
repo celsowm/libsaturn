@@ -1,20 +1,36 @@
 #ifndef SATURN_HARDWARE_H
 #define SATURN_HARDWARE_H
 
-#define VDP1_REGS      0x25F00000
-#define VDP1_FBCR      (*(volatile u16*)0x25F80000)
-#define VDP1_PTMR      (*(volatile u16*)0x25F80008)
-#define VDP1_EWDR      (*(volatile u16*)0x25F8000C)
-#define VDP1_EWLR      (*(volatile u16*)0x25F80010)
-#define VDP1_EWRR      (*(volatile u16*)0x25F80012)
-#define VDP1_ENDR      (*(volatile u16*)0x25F80014)
-#define VDP1_COAR      (*(volatile u16*)0x25F80018)
-#define VDP1_COAG      (*(volatile u16*)0x25F8001A)
-#define VDP1_COPR      (*(volatile u16*)0x25F8001C)
+#define VDP1_REGS      0x25D00000
+#define VDP1_TVMR      (*(volatile u16*)(VDP1_REGS + 0x0000))
+#define VDP1_FBCR      (*(volatile u16*)(VDP1_REGS + 0x0002))
+#define VDP1_PTMR      (*(volatile u16*)(VDP1_REGS + 0x0004))
+#define VDP1_EWDR      (*(volatile u16*)(VDP1_REGS + 0x0006))
+#define VDP1_EWLR      (*(volatile u16*)(VDP1_REGS + 0x0008))
+#define VDP1_EWRR      (*(volatile u16*)(VDP1_REGS + 0x000A))
+#define VDP1_ENDR      (*(volatile u16*)(VDP1_REGS + 0x000C))
+#define VDP1_EDSR      (*(volatile u16*)(VDP1_REGS + 0x0010))
+#define VDP1_LOPR      (*(volatile u16*)(VDP1_REGS + 0x0012))
+#define VDP1_COPR      (*(volatile u16*)(VDP1_REGS + 0x0014))
 
-#define VDP2_TVMD      (*(volatile u16*)0x25F80000)
-#define VDP2_TVSTAT    (*(volatile u16*)0x25F80004)
-#define VDP2_EXTEN     (*(volatile u16*)0x25F80010)
+#define VDP2_REGS      0x25F80000
+#define VDP2_TVMD      (*(volatile u16*)(VDP2_REGS + 0x0000))
+#define VDP2_EXTEN     (*(volatile u16*)(VDP2_REGS + 0x0002))
+#define VDP2_TVSTAT    (*(volatile u16*)(VDP2_REGS + 0x0004))
+#define VDP2_RAMCTL    (*(volatile u16*)(VDP2_REGS + 0x000E))
+#define VDP2_CYCA0L    (*(volatile u16*)(VDP2_REGS + 0x0010))
+#define VDP2_CYCA0U    (*(volatile u16*)(VDP2_REGS + 0x0012))
+#define VDP2_CYCA1L    (*(volatile u16*)(VDP2_REGS + 0x0014))
+#define VDP2_CYCA1U    (*(volatile u16*)(VDP2_REGS + 0x0016))
+#define VDP2_CYCB0L    (*(volatile u16*)(VDP2_REGS + 0x0018))
+#define VDP2_CYCB0U    (*(volatile u16*)(VDP2_REGS + 0x001A))
+#define VDP2_CYCB1L    (*(volatile u16*)(VDP2_REGS + 0x001C))
+#define VDP2_CYCB1U    (*(volatile u16*)(VDP2_REGS + 0x001E))
+#define VDP2_BGON      (*(volatile u16*)(VDP2_REGS + 0x0020))
+#define VDP2_CHCTLA    (*(volatile u16*)(VDP2_REGS + 0x0028))
+#define VDP2_BMPNA     (*(volatile u16*)(VDP2_REGS + 0x002C))
+#define VDP2_MPOFN     (*(volatile u16*)(VDP2_REGS + 0x003C))
+#define VDP2_PRISA     (*(volatile u16*)(VDP2_REGS + 0x00F0))
 #define VDP2_VRAM_SIZE 0x80000
 
 #define SCU_REGS       0x25FE0000

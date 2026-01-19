@@ -49,3 +49,10 @@ lib/
 
 # Tools
 tools/*/build/
+
+# Emulator downloads
+tools/emulator/mednafen/
+tools/emulator/downloads/
+
+# Allow IP.BIN generator blobs
+!tools/ip/blobs/*.bin
