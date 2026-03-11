@@ -88,18 +88,25 @@ if (-not (Test-Path $exampleBuildDir)) {
 }
 
 $isoSource = Join-Path $RepoRoot 'build\mvp.iso'
+$cueSource = Join-Path $RepoRoot 'build\mvp.cue'
 $binSource = Join-Path $RepoRoot 'build\mvp.bin'
 $elfSource = Join-Path $RepoRoot 'build\mvp.elf'
 
 $isoTarget = Join-Path $exampleBuildDir "$safeName.iso"
+$cueTarget = Join-Path $exampleBuildDir "$safeName.cue"
 $binTarget = Join-Path $exampleBuildDir "$safeName.bin"
 $elfTarget = Join-Path $exampleBuildDir "$safeName.elf"
 
 Copy-Item $isoSource $isoTarget -Force
+Copy-Item $cueSource $cueTarget -Force
 Copy-Item $binSource $binTarget -Force
 Copy-Item $elfSource $elfTarget -Force
 
+# Update the CUE to reference the renamed ISO
+(Get-Content $cueTarget) -replace 'mvp\.iso', "$safeName.iso" | Set-Content $cueTarget
+
 Write-Host "[build-example] Artefatos:"
 Write-Host "  $isoTarget"
+Write-Host "  $cueTarget"
 Write-Host "  $binTarget"
 Write-Host "  $elfTarget"

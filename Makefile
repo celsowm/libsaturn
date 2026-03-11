@@ -10,6 +10,9 @@ MKISOFS     := $(shell command -v mkisofs 2>/dev/null || command -v genisoimage 
 BUILD_DIR   := build
 ISO_ROOT    := iso_root
 IP_BIN      := ip.bin
+IP_STUB_SRC := src/core/ip_stub.s
+IP_STUB_OBJ := $(BUILD_DIR)/ip_stub.o
+IP_STUB_BIN := $(BUILD_DIR)/ip_stub.bin
 
 CFLAGS      := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra -Iinclude -I.
 CXXFLAGS    := $(CFLAGS) -std=c++20 -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit
@@ -39,6 +42,7 @@ LIBRARY      := $(BUILD_DIR)/libsaturn.a
 ELF          := $(BUILD_DIR)/mvp.elf
 BIN          := $(BUILD_DIR)/mvp.bin
 ISO          := $(BUILD_DIR)/mvp.iso
+CUE          := $(BUILD_DIR)/mvp.cue
 
 .PHONY: all clean dirs check-tools test assets
 
@@ -72,8 +76,13 @@ $(ELF): $(CRT_OBJS) $(APP_OBJS) $(LIBRARY)
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
 
-$(IP_BIN):
-	$(PYTHON) tools/gen_ip_bin.py --output $(IP_BIN)
+$(IP_STUB_BIN): $(IP_STUB_SRC)
+	@mkdir -p $(dir $(IP_STUB_OBJ))
+	$(CC) $(ASFLAGS) -c $(IP_STUB_SRC) -o $(IP_STUB_OBJ)
+	$(OBJCOPY) -O binary $(IP_STUB_OBJ) $(IP_STUB_BIN)
+
+$(IP_BIN): $(IP_STUB_BIN)
+	$(PYTHON) tools/gen_ip_bin.py --output $(IP_BIN) --stub $(IP_STUB_BIN)
 
 $(ISO): $(BIN) $(IP_BIN)
 	@mkdir -p $(ISO_ROOT)
@@ -84,9 +93,12 @@ $(ISO): $(BIN) $(IP_BIN)
 		-publisher "LIBSATURN" \
 		-iso-level 1 \
 		-l \
+		-G $(IP_BIN) \
 		-o $@ \
-		$(IP_BIN) \
 		$(ISO_ROOT)
+	@echo 'FILE "mvp.iso" BINARY' > $(CUE)
+	@echo '  TRACK 01 MODE1/2048' >> $(CUE)
+	@echo '    INDEX 01 00:00:00' >> $(CUE)
 
 assets:
 	$(PYTHON) tools/convert_indexed8.py --input assets/demo.raw --width 16 --height 16 --palette assets/demo.pal.txt --out-prefix build/demo

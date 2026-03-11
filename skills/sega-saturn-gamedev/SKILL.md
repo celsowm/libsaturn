@@ -405,19 +405,24 @@ O arquivo `sample/sys/ip.bin` que acompanha o SBL/SGL é amplamente redistribuí
 
 **Opção B — IP.BIN mínimo escrito do zero:**
 ```
-Estrutura IP.BIN (32KB = 0x8000 bytes):
-  Offset 0x000–0x00F : "SEGA SEGASATURN " (16 bytes, identificação)
-  Offset 0x010–0x05F : Área de hardware init (BIOS preenche)
-  Offset 0x060–0x0FF : Copyright string (não verificado em prática)
-  Offset 0x100–0x10F : Maker ID, Product Number, Version
-  Offset 0x110–0x113 : Release date (YYYYMMDD em BCD)
-  Offset 0x114–0x117 : Device info
-  Offset 0x118–0x11F : Area codes (quais regiões aceita)
-  Offset 0x120–0x12F : Peripheral info
-  Offset 0x130–0x13F : Game name (ASCII, 16 chars)
-  Offset 0x140–0x14F : Game version
-  Offset 0x150–0x153 : Boot entry point (endereço = 0x06004000)
-  Offset 0x160–0x7FFF: Código de boot adicional (copiado para 0x06000000)
+Estrutura IP.BIN — System ID (32KB = 0x8000 bytes):
+  Offset 0x000–0x00F : Hardware ID        "SEGA SEGASATURN " (16 bytes)
+  Offset 0x010–0x01F : Maker ID           (16 bytes)
+  Offset 0x020–0x029 : Product Number     (10 bytes)
+  Offset 0x02A–0x02F : Version            (6 bytes, ex: "V1.000")
+  Offset 0x030–0x037 : Release Date       YYYYMMDD (8 bytes)
+  Offset 0x038–0x03F : Device Info        (8 bytes, ex: "CD-1/1  ")
+  Offset 0x040–0x049 : Area Symbols       (10 bytes, ex: "JTUE      ")
+  Offset 0x04A–0x04F : (padding)          (6 bytes)
+  Offset 0x050–0x05F : Peripherals        (16 bytes)
+  Offset 0x060–0x0CF : Game Title         (112 bytes ASCII)
+  Offset 0x0D0–0x0DF : (reserved)
+  Offset 0x0E0–0x0E3 : IP Size            (4 bytes, binary big-endian)
+  Offset 0x0E8–0x0EB : Master Stack       (4 bytes, binary BE, ex: 0x060FFFFC)
+  Offset 0x0EC–0x0EF : Slave Stack        (4 bytes, binary BE)
+  Offset 0x0F0–0x0F3 : 1st Read Address   (4 bytes, binary BE, ex: 0x06004000)
+  Offset 0x0F4–0x0F7 : 1st Read Size      (4 bytes, binary BE)
+  Offset 0x100–0x7FFF: Security/boot code area
 ```
 
 Para fins práticos: **use o ip.bin do SBL sample/sys**. Ele é o mesmo em todos os jogos de 1ª party e não contém código proprietário novo.

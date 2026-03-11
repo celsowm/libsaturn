@@ -15,13 +15,13 @@ SECTIONS {
         . = ALIGN(4);
     } > WRAMH
 
-    __data_load = LOADADDR(.data);
-    .data : AT(__data_load) {
+    .data : {
         __data_start = .;
         *(.data .data.*)
         . = ALIGN(4);
         __data_end = .;
     } > WRAMH
+    __data_load = LOADADDR(.data);
 
     .bss (NOLOAD) : {
         __bss_start = .;

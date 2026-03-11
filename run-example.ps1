@@ -21,6 +21,7 @@ if ($normalizedExample -match '^(examples[\\/])(.+)$') {
 }
 
 $safeName = ($normalizedExample -replace '[\\/]', '_')
+$cuePath = Join-Path $RepoRoot ("build\examples\{0}.cue" -f $safeName)
 $isoPath = Join-Path $RepoRoot ("build\examples\{0}.iso" -f $safeName)
 
 if ($BuildFirst -or -not (Test-Path $isoPath)) {
@@ -55,6 +56,7 @@ if (-not (Test-Path $launcher)) {
     throw "Launcher do emulador nao encontrado: $launcher. Rode .\scripts\download-emulators.ps1."
 }
 
+$gamePath = if ($Emulator -eq 'mednafen' -and (Test-Path $cuePath)) { $cuePath } else { $isoPath }
 Write-Host "[run-example] Executando $normalizedExample em $Emulator"
-& $launcher -GamePath $isoPath -ExtraArgs $ExtraArgs
+& $launcher -GamePath $gamePath -ExtraArgs $ExtraArgs
 exit $LASTEXITCODE
