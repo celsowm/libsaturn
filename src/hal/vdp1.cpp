@@ -42,10 +42,17 @@ void init(uint16_t width, uint16_t height, uint16_t clear_color) {
 
     TVMR = 0x0000;
     FBCR = 0x0000;
-    PTMR = 0x0002;
+    PTMR = 0x0000;
     EWDR = clear_color;
     EWLR = 0x0000;
     EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | height);
+
+    VDP1_VRAM_32[0] = 0x80000000u;
+    VDP1_VRAM_32[1] = 0x00000000u;
+    VDP1_VRAM_32[2] = 0x00000000u;
+    VDP1_VRAM_32[3] = 0x00000000u;
+
+    PTMR = 0x0002;
 }
 
 void set_clear_color(uint16_t rgb555) {
@@ -73,7 +80,7 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-    cmd.ctrl = 0x0004;
+    cmd.ctrl = 0x0002;
     cmd.link = 0;
     cmd.pmod = 0x00C0;
     cmd.colr = static_cast<uint16_t>(req.palette << 8u);
@@ -119,8 +126,6 @@ void submit() {
     end.pad = 0;
 
     copy_words_to_vram(g_cmd_buffer, g_cmd_count);
-    FBCR = 0x0003;
-    PTMR = 0x0001;
 }
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index) {

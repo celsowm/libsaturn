@@ -20,13 +20,13 @@ volatile uint16_t& PRINA = reg<0x0A8>();
 }  // namespace
 
 void init_ntsc_320x224() {
-    TVMD = 0x0010;
-    RAMCTL = 0x1F00;
-    BGON = 0x0001;
-    CHCTLA = 0x0002;
+    TVMD = 0x0000;
+    RAMCTL = 0x1300;
+    BGON = 0x0000;
+    CHCTLA = 0x0000;
     PRISA = 0x0006;
-    PRINA = 0x0001;
-    TVMD = 0x8110;
+    PRINA = 0x0000;
+    TVMD = 0x8100;
 }
 
 uint16_t read_tvstat() {
