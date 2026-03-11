@@ -1,8 +1,18 @@
 #include "src/hal/vdp1.hpp"
 
+#ifndef SAT_VDP_PROFILE_LEGACY
+#define SAT_VDP_PROFILE_LEGACY 0
+#endif
+
 namespace saturn::hal::vdp1 {
 
 namespace {
+
+#if SAT_VDP_PROFILE_LEGACY
+constexpr bool kUseLegacyVdpProfile = true;
+#else
+constexpr bool kUseLegacyVdpProfile = false;
+#endif
 
 volatile uint16_t& TVMR = *reinterpret_cast<volatile uint16_t*>(0x05D00000);
 volatile uint16_t& FBCR = *reinterpret_cast<volatile uint16_t*>(0x05D00002);
@@ -42,17 +52,18 @@ void init(uint16_t width, uint16_t height, uint16_t clear_color) {
 
     TVMR = 0x0000;
     FBCR = 0x0000;
-    PTMR = 0x0000;
+    PTMR = kUseLegacyVdpProfile ? 0x0002 : 0x0000;
     EWDR = clear_color;
     EWLR = 0x0000;
     EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | height);
 
-    VDP1_VRAM_32[0] = 0x80000000u;
-    VDP1_VRAM_32[1] = 0x00000000u;
-    VDP1_VRAM_32[2] = 0x00000000u;
-    VDP1_VRAM_32[3] = 0x00000000u;
-
-    PTMR = 0x0002;
+    if (!kUseLegacyVdpProfile) {
+        VDP1_VRAM_32[0] = 0x80000000u;
+        VDP1_VRAM_32[1] = 0x00000000u;
+        VDP1_VRAM_32[2] = 0x00000000u;
+        VDP1_VRAM_32[3] = 0x00000000u;
+        PTMR = 0x0002;
+    }
 }
 
 void set_clear_color(uint16_t rgb555) {
@@ -80,7 +91,7 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-    cmd.ctrl = 0x0002;
+    cmd.ctrl = kUseLegacyVdpProfile ? 0x0004 : 0x0002;
     cmd.link = 0;
     cmd.pmod = 0x00C0;
     cmd.colr = static_cast<uint16_t>(req.palette << 8u);
@@ -126,6 +137,10 @@ void submit() {
     end.pad = 0;
 
     copy_words_to_vram(g_cmd_buffer, g_cmd_count);
+    if (kUseLegacyVdpProfile) {
+        FBCR = 0x0003;
+        PTMR = 0x0001;
+    }
 }
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index) {
@@ -164,4 +179,3 @@ sat_result_t upload_texture_indexed8(const uint8_t* pixels, uint16_t width, uint
 }
 
 }  // namespace saturn::hal::vdp1
-

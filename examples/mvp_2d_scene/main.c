@@ -3,10 +3,44 @@
 
 #include "saturn/saturn.h"
 
+#define STAGE_COLOR_A 0x801F
+#define STAGE_COLOR_B 0x83E0
+#define STAGE_COLOR_C 0xFC00
+#define STAGE_COLOR_D0 0xFFFF
+#define STAGE_COLOR_D1 0xBDEF
+
 static uint8_t g_player_pixels[16 * 16];
 static uint8_t g_tile_pixels[16 * 16];
 static uint8_t g_hud_pixels[16 * 16];
 static uint16_t g_palette[256];
+
+static void show_stage_a_marker(void) {
+    volatile uint16_t* const vdp2_tvmd = (volatile uint16_t*)0x05F80000;
+    volatile uint16_t* const vdp2_bgon = (volatile uint16_t*)0x05F80010;
+    volatile uint16_t* const vdp2_cram = (volatile uint16_t*)0x05F00000;
+
+    volatile uint16_t* const vdp1_tvmr = (volatile uint16_t*)0x05D00000;
+    volatile uint16_t* const vdp1_fbcr = (volatile uint16_t*)0x05D00002;
+    volatile uint16_t* const vdp1_ptmr = (volatile uint16_t*)0x05D00004;
+    volatile uint16_t* const vdp1_ewdr = (volatile uint16_t*)0x05D00006;
+    volatile uint16_t* const vdp1_ewlr = (volatile uint16_t*)0x05D00008;
+    volatile uint16_t* const vdp1_ewrr = (volatile uint16_t*)0x05D0000A;
+
+    *vdp2_tvmd = 0x0000;
+    *vdp2_bgon = 0x0000;
+    vdp2_cram[0] = STAGE_COLOR_A;
+    *vdp2_tvmd = 0x8100;
+
+    *vdp1_tvmr = 0x0000;
+    *vdp1_fbcr = 0x0000;
+    *vdp1_ewdr = STAGE_COLOR_A;
+    *vdp1_ewlr = 0x0000;
+    *vdp1_ewrr = (uint16_t)(((320u / 8u) << 9u) | 224u);
+    *vdp1_ptmr = 0x0002;
+
+    for (volatile uint32_t spin = 0; spin < 250000u; ++spin) {
+    }
+}
 
 static void build_palette(void) {
     for (uint16_t i = 0; i < 256; ++i) {
@@ -43,16 +77,19 @@ static void build_textures(void) {
 }
 
 int main(void) {
+    show_stage_a_marker();
+
     sat_video_config_t cfg = {320, 224, 1, 0};
     sat_result_t st = sat_init(&cfg);
     if (st != SAT_OK) {
         for (;;) {
         }
     }
+    sat_set_clear_color(STAGE_COLOR_B);
 
     build_palette();
     build_textures();
-    sat_set_clear_color(0x0000);
+    sat_set_clear_color(STAGE_COLOR_C);
 
     sat_texture_t player_tex = {0};
     sat_texture_t tile_tex = {0};
@@ -77,11 +114,14 @@ int main(void) {
     sat_fx16_t player_x = 160 * SAT_FX16_ONE;
     sat_fx16_t player_y = 112 * SAT_FX16_ONE;
     const sat_fx16_t speed = (sat_fx16_t)(2 * SAT_FX16_ONE);
+    uint32_t frame_counter = 0;
 
     for (;;) {
         sat_pad_state_t pad = {0};
         sat_wait_vblank();
         sat_pad_poll(&pad);
+        sat_set_clear_color((frame_counter & 1u) ? STAGE_COLOR_D0 : STAGE_COLOR_D1);
+        ++frame_counter;
 
         if ((pad.held & SAT_PAD_LEFT) != 0u) {
             player_x -= speed;
@@ -160,4 +200,3 @@ int main(void) {
         sat_end_frame();
     }
 }
-

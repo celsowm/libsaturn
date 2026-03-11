@@ -1,8 +1,18 @@
 #include "src/hal/vdp2.hpp"
 
+#ifndef SAT_VDP_PROFILE_LEGACY
+#define SAT_VDP_PROFILE_LEGACY 0
+#endif
+
 namespace saturn::hal::vdp2 {
 
 namespace {
+
+#if SAT_VDP_PROFILE_LEGACY
+constexpr bool kUseLegacyVdpProfile = true;
+#else
+constexpr bool kUseLegacyVdpProfile = false;
+#endif
 
 template <uint32_t Offset>
 volatile uint16_t& reg() {
@@ -20,13 +30,13 @@ volatile uint16_t& PRINA = reg<0x0A8>();
 }  // namespace
 
 void init_ntsc_320x224() {
-    TVMD = 0x0000;
-    RAMCTL = 0x1300;
-    BGON = 0x0000;
-    CHCTLA = 0x0000;
+    TVMD = kUseLegacyVdpProfile ? 0x0010 : 0x0000;
+    RAMCTL = kUseLegacyVdpProfile ? 0x1F00 : 0x1300;
+    BGON = kUseLegacyVdpProfile ? 0x0001 : 0x0000;
+    CHCTLA = kUseLegacyVdpProfile ? 0x0002 : 0x0000;
     PRISA = 0x0006;
-    PRINA = 0x0000;
-    TVMD = 0x8100;
+    PRINA = kUseLegacyVdpProfile ? 0x0001 : 0x0000;
+    TVMD = kUseLegacyVdpProfile ? 0x8110 : 0x8100;
 }
 
 uint16_t read_tvstat() {

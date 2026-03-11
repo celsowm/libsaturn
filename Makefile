@@ -7,14 +7,37 @@ PYTHON      ?= python
 
 MKISOFS     := $(shell command -v mkisofs 2>/dev/null || command -v genisoimage 2>/dev/null || command -v xorrisofs 2>/dev/null)
 
+VDP_PROFILE ?= head
+IP_PROFILE  ?= current
+
+VALID_VDP_PROFILES := head legacy
+VALID_IP_PROFILES  := current safe
+
+ifneq ($(filter $(VDP_PROFILE),$(VALID_VDP_PROFILES)),$(VDP_PROFILE))
+$(error VDP_PROFILE invalido '$(VDP_PROFILE)'. Use um entre: $(VALID_VDP_PROFILES))
+endif
+ifneq ($(filter $(IP_PROFILE),$(VALID_IP_PROFILES)),$(IP_PROFILE))
+$(error IP_PROFILE invalido '$(IP_PROFILE)'. Use um entre: $(VALID_IP_PROFILES))
+endif
+
+ifeq ($(VDP_PROFILE),legacy)
+VDP_PROFILE_DEFINE := -DSAT_VDP_PROFILE_LEGACY=1
+else
+VDP_PROFILE_DEFINE := -DSAT_VDP_PROFILE_LEGACY=0
+endif
+
 BUILD_DIR   := build
 ISO_ROOT    := iso_root
 IP_BIN      := ip.bin
 IP_TEMPLATE := assets/boot/ip_sbl_template.bin
+VARIANT_NAME := mvp-$(VDP_PROFILE)-$(IP_PROFILE)
+VARIANT_ISO  := $(BUILD_DIR)/$(VARIANT_NAME).iso
+VARIANT_CUE  := $(BUILD_DIR)/$(VARIANT_NAME).cue
 APP_LOAD_ADDR_HEX := 06004000
 MAX_APP_BIN_BYTES := 983040
 
-CFLAGS      := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra -Iinclude -I.
+BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra -Iinclude -I.
+CFLAGS      := $(BASE_CFLAGS) $(VDP_PROFILE_DEFINE)
 CXXFLAGS    := $(CFLAGS) -std=c++20 -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit
 ASFLAGS     := -m2 -mb
 LDFLAGS     := -m2 -mb -nostdlib -Wl,-T,src/core/saturn.ld -Wl,-Map,$(BUILD_DIR)/mvp.map -Wl,--gc-sections
@@ -51,6 +74,7 @@ all: check-tools dirs $(ISO) $(LIBRARY)
 check-tools:
 	@if ! command -v $(CC) >/dev/null 2>&1; then echo "Erro: $(CC) nao encontrado no PATH"; exit 1; fi
 	@if [ -z "$(MKISOFS)" ]; then echo "Erro: mkisofs/genisoimage/xorrisofs nao encontrado"; exit 1; fi
+	@echo "[profiles] VDP_PROFILE=$(VDP_PROFILE) IP_PROFILE=$(IP_PROFILE)"
 
 dirs:
 	@mkdir -p $(BUILD_DIR) $(BUILD_DIR)/src/core $(BUILD_DIR)/src/hal $(BUILD_DIR)/examples/mvp_2d_scene $(ISO_ROOT)
@@ -78,8 +102,8 @@ $(BIN): $(ELF)
 	$(PYTHON) -c "import sys; from pathlib import Path; p = Path('$(BIN)'); size = p.stat().st_size; max_size = $(MAX_APP_BIN_BYTES); print(f'[check] {p} size={size} bytes (max {max_size})'); sys.exit(0 if size <= max_size else 1)"
 
 $(IP_BIN): $(BIN) $(IP_TEMPLATE)
-	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; src=bytearray(Path('$(IP_TEMPLATE)').read_bytes()); sys.exit(1) if len(src) > 0x8000 else None; src.extend(b'\x00' * (0x8000 - len(src))); wf=lambda o,s,t:(src.__setitem__(slice(o,o+s), b' '*s), src.__setitem__(slice(o,o+len(t.encode('ascii')[:s])), t.encode('ascii')[:s])); wf(0x010,16,'LIBSATURN'); wf(0x020,10,'T-00000G  '); wf(0x02A,6,'V1.000'); wf(0x030,8,'20260311'); wf(0x060,112,'LIBSATURN MVP'); struct.pack_into('>I', src, 0x0F0, 0x$(APP_LOAD_ADDR_HEX)); struct.pack_into('>I', src, 0x0F4, app_size); Path('$(IP_BIN)').write_bytes(src); print(f'[gen] ip.bin from template size={len(src)} first_read=0x{0x$(APP_LOAD_ADDR_HEX):08X} first_size=0x{app_size:08X}')"
-	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; d=Path('$(IP_BIN)').read_bytes(); magic=d[0:16]; first_read=struct.unpack('>I', d[0x0F0:0x0F4])[0]; first_size=struct.unpack('>I', d[0x0F4:0x0F8])[0]; ok=(len(d)==0x8000 and magic==b'SEGA SEGASATURN ' and first_read==0x$(APP_LOAD_ADDR_HEX) and first_size==app_size); print(f'[check] ip.bin len={len(d)} magic={magic!r} first_read=0x{first_read:08X} first_size=0x{first_size:08X}'); sys.exit(0 if ok else 1)"
+	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; ip_profile='$(IP_PROFILE)'; first_size=0 if ip_profile=='safe' else app_size; src=bytearray(Path('$(IP_TEMPLATE)').read_bytes()); sys.exit(1) if len(src) > 0x8000 else None; src.extend(b'\x00' * (0x8000 - len(src))); wf=lambda o,s,t:(src.__setitem__(slice(o,o+s), b' '*s), src.__setitem__(slice(o,o+len(t.encode('ascii')[:s])), t.encode('ascii')[:s])); wf(0x010,16,'LIBSATURN'); wf(0x020,10,'T-00000G  '); wf(0x02A,6,'V1.000'); wf(0x030,8,'20260311'); wf(0x060,112,'LIBSATURN MVP'); struct.pack_into('>I', src, 0x0F0, 0x$(APP_LOAD_ADDR_HEX)); struct.pack_into('>I', src, 0x0F4, first_size); Path('$(IP_BIN)').write_bytes(src); print(f'[gen] ip.bin profile={ip_profile} size={len(src)} first_read=0x{0x$(APP_LOAD_ADDR_HEX):08X} first_size=0x{first_size:08X}')"
+	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; ip_profile='$(IP_PROFILE)'; expected_first_size=0 if ip_profile=='safe' else app_size; d=Path('$(IP_BIN)').read_bytes(); magic=d[0:16]; first_read=struct.unpack('>I', d[0x0F0:0x0F4])[0]; first_size=struct.unpack('>I', d[0x0F4:0x0F8])[0]; ok=(len(d)==0x8000 and magic==b'SEGA SEGASATURN ' and first_read==0x$(APP_LOAD_ADDR_HEX) and first_size==expected_first_size); print(f'[check] ip.bin profile={ip_profile} len={len(d)} magic={magic!r} first_read=0x{first_read:08X} first_size=0x{first_size:08X}'); sys.exit(0 if ok else 1)"
 
 $(ISO): $(BIN) $(IP_BIN)
 	@mkdir -p $(ISO_ROOT)
@@ -95,10 +119,16 @@ $(ISO): $(BIN) $(IP_BIN)
 		-G $(IP_BIN) \
 		-o $@ \
 		$(ISO_ROOT)
-	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; iso=Path('$(ISO)').read_bytes(); h=iso[:2048]; magic=h[0:16]; first_read=struct.unpack('>I', h[0x0F0:0x0F4])[0]; first_size=struct.unpack('>I', h[0x0F4:0x0F8])[0]; ok=(magic==b'SEGA SEGASATURN ' and first_read==0x$(APP_LOAD_ADDR_HEX) and first_size==app_size); print(f'[check] iso lba0 magic={magic!r} first_read=0x{first_read:08X} first_size=0x{first_size:08X}'); sys.exit(0 if ok else 1)"
+	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; ip_profile='$(IP_PROFILE)'; expected_first_size=0 if ip_profile=='safe' else app_size; iso=Path('$(ISO)').read_bytes(); h=iso[:2048]; magic=h[0:16]; first_read=struct.unpack('>I', h[0x0F0:0x0F4])[0]; first_size=struct.unpack('>I', h[0x0F4:0x0F8])[0]; ok=(magic==b'SEGA SEGASATURN ' and first_read==0x$(APP_LOAD_ADDR_HEX) and first_size==expected_first_size); print(f'[check] iso profile={ip_profile} lba0 magic={magic!r} first_read=0x{first_read:08X} first_size=0x{first_size:08X}'); sys.exit(0 if ok else 1)"
 	@echo 'FILE "mvp.iso" BINARY' > $(CUE)
 	@echo '  TRACK 01 MODE1/2048' >> $(CUE)
 	@echo '    INDEX 01 00:00:00' >> $(CUE)
+	cp $(ISO) $(VARIANT_ISO)
+	@echo "FILE \"$(VARIANT_NAME).iso\" BINARY" > $(VARIANT_CUE)
+	@echo '  TRACK 01 MODE1/2048' >> $(VARIANT_CUE)
+	@echo '    INDEX 01 00:00:00' >> $(VARIANT_CUE)
+	@echo "[variant] $(VARIANT_ISO)"
+	@echo "[variant] $(VARIANT_CUE)"
 
 assets:
 	$(PYTHON) tools/convert_indexed8.py --input assets/demo.raw --width 16 --height 16 --palette assets/demo.pal.txt --out-prefix build/demo
