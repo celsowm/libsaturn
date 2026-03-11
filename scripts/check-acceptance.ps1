@@ -22,6 +22,7 @@ if (-not $ReportPath) {
 }
 
 $IsoPath = [System.IO.Path]::GetFullPath($IsoPath)
+$CuePath = [System.IO.Path]::ChangeExtension($IsoPath, '.cue')
 $ReportPath = [System.IO.Path]::GetFullPath($ReportPath)
 $ReportDir = Split-Path -Parent $ReportPath
 if ($ReportDir -and -not (Test-Path $ReportDir)) {
@@ -183,7 +184,8 @@ foreach ($target in $targets) {
         Write-Host ''
         Write-Host '--- Execucao Mednafen ---'
         Write-Host "Comando sugerido:"
-        Write-Host "& `"$mednafenExe`" `"$IsoPath`""
+        $mednafenImage = if (Test-Path $CuePath) { $CuePath } else { $IsoPath }
+        Write-Host "& `"$mednafenExe`" -force_module ss -ss.region_autodetect 0 -ss.region_default na `"$mednafenImage`""
     }
 
     if ($target -eq 'kronos') {

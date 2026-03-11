@@ -10,6 +10,7 @@ Use o script `scripts/check-acceptance.ps1` para executar o protocolo e gerar re
 - Toolchain SH2 disponivel no PATH do ambiente MSYS2 (`sh2eb-elf-gcc`).
 - `mkisofs`, `genisoimage` ou `xorrisofs` disponivel no ambiente MSYS2.
 - Mednafen instalado (`scripts/download-emulators.ps1`) e/ou Kronos instalado manualmente.
+- BIOS do Mednafen configuradas como `sega_101.bin` (JP) e `mpr-17933.bin` (US/EU).
 
 ## Execucao do checklist
 
@@ -28,13 +29,13 @@ Opcoes:
 
 1. Valida ferramenta SH2, `make` e `mkisofs`/`genisoimage`/`xorrisofs` no MSYS2.
 2. Executa build limpa (`make clean && make all`) para gerar ISO.
-3. Mostra comandos para abrir a ISO no emulador selecionado.
+3. Mostra comandos para abrir a imagem no emulador selecionado (`.cue` no Mednafen quando disponivel).
 4. Coleta confirmacao manual para os criterios de aceite.
 5. Salva relatorio em `build/acceptance-report.txt` (ou caminho customizado).
 
 ## Criterios de aceite
 
-1. ISO inicia e entra no loop principal.
+1. Imagem do disco inicia e entra no loop principal.
 2. Render de sprites 2D estavel por 1800 frames.
 3. Input sem ghost presses por 5 minutos.
 

@@ -10,11 +10,8 @@ MKISOFS     := $(shell command -v mkisofs 2>/dev/null || command -v genisoimage 
 BUILD_DIR   := build
 ISO_ROOT    := iso_root
 IP_BIN      := ip.bin
-IP_STUB_SRC := src/core/ip_stub.s
-IP_STUB_OBJ := $(BUILD_DIR)/ip_stub.o
-IP_STUB_BIN := $(BUILD_DIR)/ip_stub.bin
-APP_LOAD_ADDR_HEX := 06010000
-IP_LOAD_ADDR_HEX  := 06004000
+IP_TEMPLATE := assets/boot/ip_sbl_template.bin
+APP_LOAD_ADDR_HEX := 06004000
 MAX_APP_BIN_BYTES := 983040
 
 CFLAGS      := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra -Iinclude -I.
@@ -80,18 +77,15 @@ $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
 	$(PYTHON) -c "import sys; from pathlib import Path; p = Path('$(BIN)'); size = p.stat().st_size; max_size = $(MAX_APP_BIN_BYTES); print(f'[check] {p} size={size} bytes (max {max_size})'); sys.exit(0 if size <= max_size else 1)"
 
-$(IP_STUB_BIN): $(IP_STUB_SRC)
-	@mkdir -p $(dir $(IP_STUB_OBJ))
-	$(CC) $(ASFLAGS) -c $(IP_STUB_SRC) -o $(IP_STUB_OBJ)
-	$(OBJCOPY) -O binary $(IP_STUB_OBJ) $(IP_STUB_BIN)
-
-$(IP_BIN): $(IP_STUB_BIN) $(BIN)
-	$(PYTHON) tools/gen_ip_bin.py --output $(IP_BIN) --stub $(IP_STUB_BIN) --ip-load-address $(IP_LOAD_ADDR_HEX) --first-read-address $(APP_LOAD_ADDR_HEX) --first-read-file $(BIN)
-	$(PYTHON) -c "import struct,sys; from pathlib import Path; d=Path('$(IP_BIN)').read_bytes(); magic=d[0:16]; area=d[0x03C:0x046]; first_read=struct.unpack('>I', d[0x0E0:0x0E4])[0]; ok=(magic==b'SEGA SEGASATURN ' and area==b'JT  UB E  ' and first_read==0x$(APP_LOAD_ADDR_HEX)); print(f'[check] ip.bin magic={magic!r} area={area!r} first_read=0x{first_read:08X}'); sys.exit(0 if ok else 1)"
+$(IP_BIN): $(BIN) $(IP_TEMPLATE)
+	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; src=bytearray(Path('$(IP_TEMPLATE)').read_bytes()); sys.exit(1) if len(src) > 0x8000 else None; src.extend(b'\x00' * (0x8000 - len(src))); wf=lambda o,s,t:(src.__setitem__(slice(o,o+s), b' '*s), src.__setitem__(slice(o,o+len(t.encode('ascii')[:s])), t.encode('ascii')[:s])); wf(0x010,16,'LIBSATURN'); wf(0x020,10,'T-00000G  '); wf(0x02A,6,'V1.000'); wf(0x030,8,'20260311'); wf(0x060,112,'LIBSATURN MVP'); struct.pack_into('>I', src, 0x0F0, 0x$(APP_LOAD_ADDR_HEX)); struct.pack_into('>I', src, 0x0F4, app_size); Path('$(IP_BIN)').write_bytes(src); print(f'[gen] ip.bin from template size={len(src)} first_read=0x{0x$(APP_LOAD_ADDR_HEX):08X} first_size=0x{app_size:08X}')"
+	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; d=Path('$(IP_BIN)').read_bytes(); magic=d[0:16]; first_read=struct.unpack('>I', d[0x0F0:0x0F4])[0]; first_size=struct.unpack('>I', d[0x0F4:0x0F8])[0]; ok=(len(d)==0x8000 and magic==b'SEGA SEGASATURN ' and first_read==0x$(APP_LOAD_ADDR_HEX) and first_size==app_size); print(f'[check] ip.bin len={len(d)} magic={magic!r} first_read=0x{first_read:08X} first_size=0x{first_size:08X}'); sys.exit(0 if ok else 1)"
 
 $(ISO): $(BIN) $(IP_BIN)
 	@mkdir -p $(ISO_ROOT)
+	rm -f $(ISO_ROOT)/0.BIN $(ISO_ROOT)/1ST_READ.BIN
 	cp $(BIN) $(ISO_ROOT)/0.BIN
+	cp $(BIN) $(ISO_ROOT)/1ST_READ.BIN
 	$(MKISOFS) \
 		-sysid "SEGA SATURN" \
 		-volid "LIBSATURN" \
@@ -101,7 +95,7 @@ $(ISO): $(BIN) $(IP_BIN)
 		-G $(IP_BIN) \
 		-o $@ \
 		$(ISO_ROOT)
-	$(PYTHON) -c "import struct,sys; from pathlib import Path; iso=Path('$(ISO)').read_bytes(); h=iso[:2048]; magic=h[0:16]; area=h[0x03C:0x046]; first_read=struct.unpack('>I', h[0x0E0:0x0E4])[0]; ok=(magic==b'SEGA SEGASATURN ' and area==b'JT  UB E  ' and first_read==0x$(APP_LOAD_ADDR_HEX)); print(f'[check] iso lba0 magic={magic!r} area={area!r} first_read=0x{first_read:08X}'); sys.exit(0 if ok else 1)"
+	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; iso=Path('$(ISO)').read_bytes(); h=iso[:2048]; magic=h[0:16]; first_read=struct.unpack('>I', h[0x0F0:0x0F4])[0]; first_size=struct.unpack('>I', h[0x0F4:0x0F8])[0]; ok=(magic==b'SEGA SEGASATURN ' and first_read==0x$(APP_LOAD_ADDR_HEX) and first_size==app_size); print(f'[check] iso lba0 magic={magic!r} first_read=0x{first_read:08X} first_size=0x{first_size:08X}'); sys.exit(0 if ok else 1)"
 	@echo 'FILE "mvp.iso" BINARY' > $(CUE)
 	@echo '  TRACK 01 MODE1/2048' >> $(CUE)
 	@echo '    INDEX 01 00:00:00' >> $(CUE)
@@ -113,4 +107,4 @@ test:
 	$(PYTHON) -m unittest tests/test_asset_converter.py tests/test_gen_ip_bin.py
 
 clean:
-	rm -rf $(BUILD_DIR) $(ISO_ROOT)
+	rm -rf $(BUILD_DIR) $(ISO_ROOT) || true

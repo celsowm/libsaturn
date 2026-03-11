@@ -6,6 +6,9 @@ param(
     [ValidateSet('mednafen', 'kronos')]
     [string]$Emulator = 'mednafen',
 
+    [ValidateSet('auto', 'na', 'jp', 'eu')]
+    [string]$BiosProfile = 'na',
+
     [switch]$BuildFirst,
     [string]$Msys2Root,
     [string[]]$ExtraArgs
@@ -58,5 +61,11 @@ if (-not (Test-Path $launcher)) {
 
 $gamePath = if ($Emulator -eq 'mednafen' -and (Test-Path $cuePath)) { $cuePath } else { $isoPath }
 Write-Host "[run-example] Executando $normalizedExample em $Emulator"
-& $launcher -GamePath $gamePath -ExtraArgs $ExtraArgs
+if ($Emulator -eq 'mednafen') {
+    Write-Host "[run-example] BIOS profile: $BiosProfile"
+    & $launcher -GamePath $gamePath -Region $BiosProfile -ExtraArgs $ExtraArgs
+}
+else {
+    & $launcher -GamePath $gamePath -ExtraArgs $ExtraArgs
+}
 exit $LASTEXITCODE

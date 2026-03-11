@@ -17,6 +17,7 @@ __pycache__/
 out/
 toolchain-src/
 !ip.bin
+!assets/boot/ip_sbl_template.bin
 emulators/kronos/*.exe
 emulators/kronos/*.dll
 emulators/kronos/*.zip

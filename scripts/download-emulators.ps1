@@ -150,6 +150,8 @@ $mednafenLauncherContent = @'
 [CmdletBinding()]
 param(
     [string]$GamePath,
+    [ValidateSet('auto', 'jp', 'na', 'eu')]
+    [string]$Region = 'na',
     [string[]]$ExtraArgs
 )
 
@@ -157,20 +159,76 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$defaultCue = Join-Path $repoRoot 'build\mvp.cue'
 $defaultIso = Join-Path $repoRoot 'build\mvp.iso'
 $exePath = '__MEDNAFEN_EXE__'
+
+function Copy-BiosIfPresent {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$TargetPath
+    )
+
+    if (Test-Path $SourcePath) {
+        Copy-Item $SourcePath $TargetPath -Force
+        Write-Host "[run-mednafen] BIOS copiada para: $TargetPath"
+        return $true
+    }
+
+    return $false
+}
 
 if (-not (Test-Path $exePath)) {
     throw "Mednafen nao encontrado: $exePath"
 }
 
-$targetIso = if ($GamePath) { [System.IO.Path]::GetFullPath($GamePath) } else { $defaultIso }
-if (-not (Test-Path $targetIso)) {
-    throw "ISO nao encontrada: $targetIso"
+$targetImage = if ($GamePath) {
+    [System.IO.Path]::GetFullPath($GamePath)
+} elseif (Test-Path $defaultCue) {
+    $defaultCue
+} else {
+    $defaultIso
+}
+if (-not (Test-Path $targetImage)) {
+    throw "Imagem do disco nao encontrada: $targetImage"
 }
 
-Write-Host "[run-mednafen] Executando: $exePath $targetIso"
-& $exePath $targetIso @ExtraArgs
+$emuDir = Split-Path $exePath
+$firmwareDir = Join-Path $emuDir 'firmware'
+$jpFirmware = Join-Path $firmwareDir 'sega_101.bin'
+$nonJpFirmware = Join-Path $firmwareDir 'mpr-17933.bin'
+
+if (-not (Test-Path $jpFirmware) -or -not (Test-Path $nonJpFirmware)) {
+    $biosDir = Join-Path $repoRoot 'bios'
+    if (-not (Test-Path $firmwareDir)) {
+        New-Item -ItemType Directory -Path $firmwareDir -Force | Out-Null
+    }
+
+    Copy-BiosIfPresent -SourcePath (Join-Path $biosDir 'saturn_bios_jp.bin') -TargetPath $jpFirmware | Out-Null
+    $copiedNonJp = Copy-BiosIfPresent -SourcePath (Join-Path $biosDir 'saturn_bios_us.bin') -TargetPath $nonJpFirmware
+    if (-not $copiedNonJp) {
+        Copy-BiosIfPresent -SourcePath (Join-Path $biosDir 'saturn_bios_eu.bin') -TargetPath $nonJpFirmware | Out-Null
+    }
+}
+
+$missingFirmware = @()
+if (-not (Test-Path $jpFirmware)) {
+    $missingFirmware += 'sega_101.bin'
+}
+if (-not (Test-Path $nonJpFirmware)) {
+    $missingFirmware += 'mpr-17933.bin'
+}
+if ($missingFirmware.Count -gt 0) {
+    throw "BIOS do Mednafen ausente: $($missingFirmware -join ', '). Rode: .\scripts\download-bios.ps1"
+}
+
+$regionArgs = @()
+if ($Region -ne 'auto') {
+    $regionArgs = @('-ss.region_autodetect', '0', '-ss.region_default', $Region)
+}
+Write-Host "[run-mednafen] Regiao: $Region"
+Write-Host "[run-mednafen] Executando: $exePath -force_module ss $targetImage"
+& $exePath '-force_module' 'ss' @regionArgs $targetImage @ExtraArgs
 exit $LASTEXITCODE
 '@
 $mednafenLauncherContent = $mednafenLauncherContent.Replace('__MEDNAFEN_EXE__', $mednafenExeLiteral)

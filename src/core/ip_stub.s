@@ -8,7 +8,7 @@
 !   3. Jumping to the IP boot code
 !
 ! This stub sets up the master SH2, initializes minimal hardware,
-! and jumps to the loaded program at 0x06010000.
+! and jumps to the loaded program at 0x06004000.
 
     .section .text
     .global _ip_stub_start
@@ -16,7 +16,9 @@
 
 _ip_stub_start:
     ! Disable interrupts
-    mov.l   _sr_val, r0
+    stc     sr, r0
+    mov.l   _sr_mask, r1
+    or      r1, r0
     ldc     r0, sr
 
     ! Set up master stack
@@ -33,14 +35,14 @@ _ip_stub_start:
     dt      r2
     bf      .delay_loop
 
-    ! Jump to loaded 0.BIN at 1st read address
+    ! Jump to loaded 0.BIN at the Saturn standard first-read address
     mov.l   _app_entry, r0
     jmp     @r0
     nop
 
     .align 4
-_sr_val:        .long 0x000000F0
+_sr_mask:       .long 0x000000F0
 _stack_val:     .long 0x060FFFFC
 _vdp2_tvmd:     .long 0x05F80000
-_app_entry:     .long 0x06010000
+_app_entry:     .long 0x06004000
 _delay_count:   .word 0x1000

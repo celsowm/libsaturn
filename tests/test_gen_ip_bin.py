@@ -31,7 +31,7 @@ class GenIpBinTests(unittest.TestCase):
                 date_yyyymmdd="20260311",
                 game_name="LIBSATURN MVP",
                 ip_load_address=0x06004000,
-                first_read_address=0x06010000,
+                first_read_address=0x06004000,
                 first_read_size=0x1234,
                 master_stack=0x060FFFFC,
                 slave_stack=0x06001000,
@@ -40,14 +40,19 @@ class GenIpBinTests(unittest.TestCase):
 
         self.assertEqual(len(data), 0x8000)
         self.assertEqual(data[0x000:0x010], b"SEGA SEGASATURN ")
-        self.assertEqual(data[0x03C:0x046], b"JT  UB E  ")
-        self.assertEqual(data[0x046:0x04C], b"J     ")
-        self.assertEqual(struct.unpack(">I", data[0x0D0:0x0D4])[0], 0x06004000)
-        self.assertEqual(struct.unpack(">I", data[0x0D4:0x0D8])[0], 0x800)
-        self.assertEqual(struct.unpack(">I", data[0x0E0:0x0E4])[0], 0x06010000)
-        self.assertEqual(struct.unpack(">I", data[0x0E4:0x0E8])[0], 0x1234)
+        self.assertEqual(data[0x038:0x040], b"CD-1/1  ")
+        self.assertEqual(data[0x040:0x04A], b"U         ")
+        self.assertEqual(data[0x050:0x060], b"J               ")
+        self.assertEqual(data[0x060:0x080], b"LIBSATURN MVP                   ")
+        self.assertEqual(struct.unpack(">I", data[0x0E0:0x0E4])[0], 0x1000)
+        self.assertEqual(struct.unpack(">I", data[0x0E8:0x0EC])[0], 0x060FFFFC)
+        self.assertEqual(struct.unpack(">I", data[0x0EC:0x0F0])[0], 0x06001000)
+        self.assertEqual(struct.unpack(">I", data[0x0F0:0x0F4])[0], 0x06004000)
+        self.assertEqual(struct.unpack(">I", data[0x0F4:0x0F8])[0], 0x1234)
         self.assertEqual(data[0x600:0x640], bytes(range(64)))
         self.assertEqual(set(data[0x100:0x600]), {0})
+        self.assertEqual(data[0x0E00:0x0E20], b"For USA and CANADA.             ")
+        self.assertEqual(data[0x0E20:0x0E40], b"                                ")
 
     def test_entry_alias_sets_first_read_address(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -70,7 +75,7 @@ class GenIpBinTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             raw = out_path.read_bytes()
 
-        self.assertEqual(struct.unpack(">I", raw[0x0E0:0x0E4])[0], 0x06012000)
+        self.assertEqual(struct.unpack(">I", raw[0x0F0:0x0F4])[0], 0x06012000)
 
     def test_first_read_file_sets_size(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -96,7 +101,28 @@ class GenIpBinTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             raw = out_path.read_bytes()
 
-        self.assertEqual(struct.unpack(">I", raw[0x0E4:0x0E8])[0], 321)
+        self.assertEqual(struct.unpack(">I", raw[0x0F4:0x0F8])[0], 321)
+
+    def test_rejects_stub_that_overlaps_area_code_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            stub_path = tmp_path / "stub.bin"
+            stub_path.write_bytes(bytes([0x55]) * 2049)
+
+            with self.assertRaisesRegex(ValueError, "stub sobrepoe area code"):
+                GEN_IP_BIN.build_ip_bin(
+                    maker="SEGA ENTERPRISES",
+                    product="T-00000G  ",
+                    version="V1.000",
+                    date_yyyymmdd="20260311",
+                    game_name="LIBSATURN MVP",
+                    ip_load_address=0x06004000,
+                    first_read_address=0x06004000,
+                    first_read_size=0x1234,
+                    master_stack=0x060FFFFC,
+                    slave_stack=0x06001000,
+                    stub_path=str(stub_path),
+                )
 
 
 if __name__ == "__main__":

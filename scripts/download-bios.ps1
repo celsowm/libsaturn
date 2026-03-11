@@ -49,13 +49,23 @@ if (Test-Path $mednafenExe) {
     if (-not (Test-Path $firmwareDir)) {
         New-Item -ItemType Directory -Path $firmwareDir -Force | Out-Null
     }
-    $biosFile = Join-Path $BiosDir 'saturn_bios_us.bin'
-    $target = Join-Path $firmwareDir 'sega_101.bin'
-    if ((Test-Path $biosFile) -and -not (Test-Path $target)) {
-        Copy-Item $biosFile $target -Force
-        Write-Host "[download-bios] Copiado para Mednafen: $target"
-    } elseif (Test-Path $target) {
-        Write-Host "[download-bios] Ja existe no Mednafen: $target"
+
+    $jpSource = Join-Path $BiosDir 'saturn_bios_jp.bin'
+    $nonJpSource = @(
+        (Join-Path $BiosDir 'saturn_bios_us.bin'),
+        (Join-Path $BiosDir 'saturn_bios_eu.bin')
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+    if (Test-Path $jpSource) {
+        $jpTarget = Join-Path $firmwareDir 'sega_101.bin'
+        Copy-Item $jpSource $jpTarget -Force
+        Write-Host "[download-bios] Copiado BIOS JP para Mednafen: $jpTarget"
+    }
+
+    if ($nonJpSource) {
+        $nonJpTarget = Join-Path $firmwareDir 'mpr-17933.bin'
+        Copy-Item $nonJpSource $nonJpTarget -Force
+        Write-Host "[download-bios] Copiado BIOS nao-JP para Mednafen: $nonJpTarget"
     }
 }
 

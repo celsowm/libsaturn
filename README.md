@@ -75,6 +75,10 @@ Isso cria:
 - `emulators/mednafen/run-mednafen.ps1`
 - `emulators/kronos/run-kronos.ps1`
 
+Para Mednafen, mantenha BIOS JP em `firmware/sega_101.bin` e BIOS US/EU em `firmware/mpr-17933.bin`.
+O launcher tenta copiar automaticamente a partir de `bios/saturn_bios_jp.bin` e `bios/saturn_bios_us.bin` (ou `bios/saturn_bios_eu.bin`).
+Por padrao, o launcher do Mednafen forca `region_default=na` (use `-Region auto|jp|na|eu` para trocar).
+
 Kronos segue instalacao manual em `emulators/kronos/kronos.exe`.
 
 ## Checklist de aceite
@@ -124,6 +128,7 @@ Saídas:
 - `build/mvp.elf`
 - `build/mvp.bin`
 - `build/mvp.iso`
+- `build/mvp.cue`
 - `build/libsaturn.a`
 
 ## Smoke tests
@@ -138,6 +143,18 @@ python -m unittest tests/test_asset_converter.py
 - Kronos (debug).
 - Mednafen (timing/compatibilidade).
 
+Para alternar BIOS/regiao no launcher de exemplo sem editar config global do Mednafen:
+
+```powershell
+.\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile na
+.\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile jp
+.\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile eu
+.\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile auto
+```
+
 ## Nota sobre IP.BIN
 
-O projeto gera um `ip.bin` mínimo em `make` usando `tools/gen_ip_bin.py`. Antes de distribuição pública, faça revisão legal/licenciamento de boot assets conforme sua política de release.
+O projeto gera `ip.bin` em `make` a partir de um template validado em `assets/boot/ip_sbl_template.bin` e ajusta apenas `1st read`/`size` para o binario atual.
+Para compatibilidade de boot, a ISO grava o payload como `0.BIN` (primario) e `1ST_READ.BIN` (alias).
+No Mednafen, prefira abrir `build/mvp.cue` em vez de `build/mvp.iso`.
+Antes de distribuição pública, faça revisão legal/licenciamento de boot assets conforme sua política de release.

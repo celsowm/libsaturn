@@ -6,20 +6,34 @@ namespace {
 
 volatile uint8_t& SMPC_COMREG = *reinterpret_cast<volatile uint8_t*>(0x20100001);
 volatile uint8_t& SMPC_SF = *reinterpret_cast<volatile uint8_t*>(0x20100063);
+constexpr uint32_t kSmpcTimeoutSpins = 200000u;
 
 inline volatile uint8_t& oreg(uint32_t n) {
     return *reinterpret_cast<volatile uint8_t*>(0x20100021u + (n * 4u));
 }
 
+inline bool wait_smpc_ready() {
+    uint32_t spin = 0;
+    while ((SMPC_SF & 0x01u) != 0u) {
+        ++spin;
+        if (spin >= kSmpcTimeoutSpins) {
+            return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 uint16_t read_digital_pad() {
-    while ((SMPC_SF & 0x01u) != 0u) {
+    if (!wait_smpc_ready()) {
+        return 0u;
     }
 
     SMPC_COMREG = 0x08;
 
-    while ((SMPC_SF & 0x01u) != 0u) {
+    if (!wait_smpc_ready()) {
+        return 0u;
     }
 
     const uint8_t hi = oreg(0);
@@ -28,4 +42,3 @@ uint16_t read_digital_pad() {
 }
 
 }  // namespace saturn::hal::smpc
-

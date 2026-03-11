@@ -3,7 +3,9 @@
     .align 2
 
 _start:
-    mov.l   sr_val, r0
+    stc     sr, r0
+    mov.l   sr_mask_interrupts, r1
+    or      r1, r0
     ldc     r0, sr
 
     mov.l   stack_top, r15
@@ -30,7 +32,7 @@ hang:
     nop
 
     .align 4
-sr_val:     .long 0x000000F0
+sr_mask_interrupts: .long 0x000000F0
 stack_top:  .long 0x060FFFFC
 bss_start:  .long __bss_start
 bss_end:    .long __bss_end
