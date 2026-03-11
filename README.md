@@ -30,6 +30,12 @@ Para Windows 10/11, use o fluxo PowerShell (nao precisa abrir bash manualmente):
 .\scripts\bootstrap-msys2.ps1 full
 ```
 
+Para preparar tudo de uma vez (host + toolchain + emuladores), use:
+
+```powershell
+.\scripts\bootstrap-dev.ps1
+```
+
 O script tenta localizar MSYS2 nesta ordem:
 
 1. `-Msys2Root`
