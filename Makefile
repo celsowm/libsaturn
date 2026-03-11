@@ -7,7 +7,7 @@ PYTHON      ?= python
 
 MKISOFS     := $(shell command -v mkisofs 2>/dev/null || command -v genisoimage 2>/dev/null || command -v xorrisofs 2>/dev/null)
 
-VDP_PROFILE ?= head
+VDP_PROFILE ?= legacy
 IP_PROFILE  ?= current
 
 VALID_VDP_PROFILES := head legacy

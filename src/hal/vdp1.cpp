@@ -22,8 +22,8 @@ volatile uint16_t& EWLR = *reinterpret_cast<volatile uint16_t*>(0x05D00008);
 volatile uint16_t& EWRR = *reinterpret_cast<volatile uint16_t*>(0x05D0000A);
 
 volatile uint16_t* const VDP2_CRAM = reinterpret_cast<volatile uint16_t*>(0x05F00000);
-volatile uint32_t* const VDP1_VRAM_32 = reinterpret_cast<volatile uint32_t*>(0x05C80000);
-volatile uint8_t* const VDP1_VRAM_8 = reinterpret_cast<volatile uint8_t*>(0x05C80000);
+volatile uint32_t* const VDP1_VRAM_32 = reinterpret_cast<volatile uint32_t*>(0x05C00000);
+volatile uint8_t* const VDP1_VRAM_8 = reinterpret_cast<volatile uint8_t*>(0x05C00000);
 
 constexpr uint32_t kVramSize = 512u * 1024u;
 constexpr uint32_t kCommandAreaBytes = 16u * 1024u;
@@ -91,9 +91,9 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-    cmd.ctrl = kUseLegacyVdpProfile ? 0x0004 : 0x0002;
+    cmd.ctrl = 0x0002;
     cmd.link = 0;
-    cmd.pmod = 0x00C0;
+    cmd.pmod = 0x0020;
     cmd.colr = static_cast<uint16_t>(req.palette << 8u);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);

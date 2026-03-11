@@ -8,27 +8,157 @@
 #define STAGE_COLOR_C 0xFC00
 #define STAGE_COLOR_D0 0xFFFF
 #define STAGE_COLOR_D1 0xBDEF
+#define HELLO_BG_A 0x001F
+#define HELLO_BG_B 0x03E0
+#define MVP_HELLO_VISUAL_ONLY 1
+#define HELLO_TEXT "HELLO WORLD"
+#define HELLO_GLYPH_W 16
+#define HELLO_GLYPH_H 16
+#define HELLO_CHAR_COUNT 11
+#define HELLO_TEX_W (HELLO_GLYPH_W * HELLO_CHAR_COUNT)
+#define HELLO_TEX_H HELLO_GLYPH_H
 
 static uint8_t g_player_pixels[16 * 16];
 static uint8_t g_tile_pixels[16 * 16];
 static uint8_t g_hud_pixels[16 * 16];
+static uint8_t g_hello_pixels[HELLO_TEX_W * HELLO_TEX_H];
 static uint16_t g_palette[256];
 
-static void show_stage_a_marker(void) {
-    volatile uint16_t* const vdp2_tvmd = (volatile uint16_t*)0x05F80000;
-    volatile uint16_t* const vdp2_bgon = (volatile uint16_t*)0x05F80010;
-    volatile uint16_t* const vdp2_cram = (volatile uint16_t*)0x05F00000;
+static const uint32_t SAT_UNCACHED_BASE = 0x20000000u;
 
-    volatile uint16_t* const vdp1_tvmr = (volatile uint16_t*)0x05D00000;
-    volatile uint16_t* const vdp1_fbcr = (volatile uint16_t*)0x05D00002;
-    volatile uint16_t* const vdp1_ptmr = (volatile uint16_t*)0x05D00004;
-    volatile uint16_t* const vdp1_ewdr = (volatile uint16_t*)0x05D00006;
-    volatile uint16_t* const vdp1_ewlr = (volatile uint16_t*)0x05D00008;
-    volatile uint16_t* const vdp1_ewrr = (volatile uint16_t*)0x05D0000A;
+static void set_backdrop_color(uint16_t rgb555) {
+    volatile uint16_t* const vdp2_vram = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05E00000u);
+    volatile uint16_t* const vdp2_bgon = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05F80010u);
+    volatile uint16_t* const vdp2_bktau = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05F800ACu);
+    volatile uint16_t* const vdp2_bktal = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05F800AEu);
+
+    *vdp2_bgon = 0x0000;
+    *vdp2_bktau = 0x0000;
+    *vdp2_bktal = 0x0000;
+    vdp2_vram[0] = (uint16_t)(rgb555 & 0x7FFFu);
+}
+
+static void panic_color_loop(uint16_t color_a, uint16_t color_b) {
+    for (;;) {
+        set_backdrop_color(color_a);
+        for (volatile uint32_t spin = 0; spin < 250000u; ++spin) {
+        }
+        set_backdrop_color(color_b);
+        for (volatile uint32_t spin = 0; spin < 250000u; ++spin) {
+        }
+    }
+}
+
+static uint8_t hello_glyph_row(char ch, uint16_t row) {
+    if (row >= 8u) {
+        return 0x00u;
+    }
+
+    switch (ch) {
+        case 'H': {
+            static const uint8_t kRows[8] = {0x81u, 0x81u, 0x81u, 0xFFu, 0x81u, 0x81u, 0x81u, 0x00u};
+            return kRows[row];
+        }
+        case 'E': {
+            static const uint8_t kRows[8] = {0xFFu, 0x80u, 0x80u, 0xFEu, 0x80u, 0x80u, 0xFFu, 0x00u};
+            return kRows[row];
+        }
+        case 'L': {
+            static const uint8_t kRows[8] = {0x80u, 0x80u, 0x80u, 0x80u, 0x80u, 0x80u, 0xFFu, 0x00u};
+            return kRows[row];
+        }
+        case 'O': {
+            static const uint8_t kRows[8] = {0x7Eu, 0x81u, 0x81u, 0x81u, 0x81u, 0x81u, 0x7Eu, 0x00u};
+            return kRows[row];
+        }
+        case 'W': {
+            static const uint8_t kRows[8] = {0x81u, 0x81u, 0x81u, 0x91u, 0x91u, 0x91u, 0x6Eu, 0x00u};
+            return kRows[row];
+        }
+        case 'R': {
+            static const uint8_t kRows[8] = {0xFEu, 0x81u, 0x81u, 0xFEu, 0x90u, 0x88u, 0x84u, 0x00u};
+            return kRows[row];
+        }
+        case 'D': {
+            static const uint8_t kRows[8] = {0xFCu, 0x82u, 0x81u, 0x81u, 0x81u, 0x82u, 0xFCu, 0x00u};
+            return kRows[row];
+        }
+        default:
+            return 0x00u;
+    }
+}
+
+static void build_hello_texture(void) {
+    const char* text = HELLO_TEXT;
+    for (uint16_t y = 0; y < HELLO_TEX_H; ++y) {
+        for (uint16_t x = 0; x < HELLO_TEX_W; ++x) {
+            g_hello_pixels[(y * HELLO_TEX_W) + x] = 0u;
+        }
+    }
+
+    for (uint16_t i = 0; i < HELLO_CHAR_COUNT; ++i) {
+        const char ch = text[i];
+        for (uint16_t row = 0; row < 8u; ++row) {
+            const uint8_t bits = hello_glyph_row(ch, row);
+            for (uint16_t col = 0; col < 8u; ++col) {
+                const uint8_t bit = (uint8_t)((bits >> (7u - col)) & 1u);
+                if (bit == 0u) {
+                    continue;
+                }
+                const uint16_t base_x = (uint16_t)(i * HELLO_GLYPH_W + col * 2u);
+                const uint16_t base_y = (uint16_t)(row * 2u);
+                g_hello_pixels[(base_y * HELLO_TEX_W) + base_x] = 1u;
+                g_hello_pixels[(base_y * HELLO_TEX_W) + (base_x + 1u)] = 1u;
+                g_hello_pixels[((base_y + 1u) * HELLO_TEX_W) + base_x] = 1u;
+                g_hello_pixels[((base_y + 1u) * HELLO_TEX_W) + (base_x + 1u)] = 1u;
+            }
+        }
+    }
+}
+
+static void hello_visual_loop(const sat_texture_t* hello_tex) {
+    volatile uint16_t* const vdp1_fbcr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00002u);
+    volatile uint16_t* const vdp1_ptmr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00004u);
+    uint32_t counter = 0;
+    for (;;) {
+        sat_wait_vblank();
+        const uint16_t bg = ((counter & 32u) != 0u) ? HELLO_BG_A : HELLO_BG_B;
+        set_backdrop_color(bg);
+        sat_set_clear_color(0x0000);
+        sat_begin_frame();
+
+        sat_sprite_cmd_t hello_cmd = {
+            64 * SAT_FX16_ONE,
+            104 * SAT_FX16_ONE,
+            HELLO_TEX_W,
+            HELLO_TEX_H,
+            hello_tex,
+            0,
+            0
+        };
+        sat_draw_sprite(&hello_cmd);
+        sat_end_frame();
+        *vdp1_fbcr = 0x0003;
+        *vdp1_ptmr = 0x0001;
+
+        for (volatile uint32_t spin = 0; spin < 120000u; ++spin) {
+        }
+        ++counter;
+    }
+}
+
+static void show_stage_a_marker(void) {
+    volatile uint16_t* const vdp2_tvmd = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05F80000u);
+
+    volatile uint16_t* const vdp1_tvmr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00000u);
+    volatile uint16_t* const vdp1_fbcr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00002u);
+    volatile uint16_t* const vdp1_ptmr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00004u);
+    volatile uint16_t* const vdp1_ewdr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00006u);
+    volatile uint16_t* const vdp1_ewlr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00008u);
+    volatile uint16_t* const vdp1_ewrr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D0000Au);
 
     *vdp2_tvmd = 0x0000;
-    *vdp2_bgon = 0x0000;
-    vdp2_cram[0] = STAGE_COLOR_A;
+    set_backdrop_color(STAGE_COLOR_A);
     *vdp2_tvmd = 0x8100;
 
     *vdp1_tvmr = 0x0000;
@@ -82,34 +212,43 @@ int main(void) {
     sat_video_config_t cfg = {320, 224, 1, 0};
     sat_result_t st = sat_init(&cfg);
     if (st != SAT_OK) {
-        for (;;) {
-        }
+        panic_color_loop(0xFC00, 0x801F);
     }
     sat_set_clear_color(STAGE_COLOR_B);
+    set_backdrop_color(HELLO_BG_A);
 
     build_palette();
     build_textures();
+    build_hello_texture();
+    g_palette[0] = 0x0000;
+    g_palette[1] = 0xFFFF;
     sat_set_clear_color(STAGE_COLOR_C);
 
     sat_texture_t player_tex = {0};
     sat_texture_t tile_tex = {0};
     sat_texture_t hud_tex = {0};
+    sat_texture_t hello_tex = {0};
 
     st = sat_tex_upload_indexed8(&player_tex, g_player_pixels, 16, 16, g_palette, 0);
     if (st != SAT_OK) {
-        for (;;) {
-        }
+        panic_color_loop(0x83E0, 0xFC00);
     }
     st = sat_tex_upload_indexed8(&tile_tex, g_tile_pixels, 16, 16, g_palette, 0);
     if (st != SAT_OK) {
-        for (;;) {
-        }
+        panic_color_loop(0x83E0, 0xFC00);
     }
     st = sat_tex_upload_indexed8(&hud_tex, g_hud_pixels, 16, 16, g_palette, 0);
     if (st != SAT_OK) {
-        for (;;) {
-        }
+        panic_color_loop(0x83E0, 0xFC00);
     }
+    st = sat_tex_upload_indexed8(&hello_tex, g_hello_pixels, HELLO_TEX_W, HELLO_TEX_H, g_palette, 0);
+    if (st != SAT_OK) {
+        panic_color_loop(0x83E0, 0xFC00);
+    }
+
+#if MVP_HELLO_VISUAL_ONLY
+    hello_visual_loop(&hello_tex);
+#endif
 
     sat_fx16_t player_x = 160 * SAT_FX16_ONE;
     sat_fx16_t player_y = 112 * SAT_FX16_ONE;
@@ -120,6 +259,7 @@ int main(void) {
         sat_pad_state_t pad = {0};
         sat_wait_vblank();
         sat_pad_poll(&pad);
+        set_backdrop_color((frame_counter & 32u) ? HELLO_BG_A : HELLO_BG_B);
         sat_set_clear_color((frame_counter & 1u) ? STAGE_COLOR_D0 : STAGE_COLOR_D1);
         ++frame_counter;
 
