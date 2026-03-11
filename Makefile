@@ -13,6 +13,9 @@ IP_BIN      := ip.bin
 IP_STUB_SRC := src/core/ip_stub.s
 IP_STUB_OBJ := $(BUILD_DIR)/ip_stub.o
 IP_STUB_BIN := $(BUILD_DIR)/ip_stub.bin
+APP_LOAD_ADDR_HEX := 06010000
+IP_LOAD_ADDR_HEX  := 06004000
+MAX_APP_BIN_BYTES := 983040
 
 CFLAGS      := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra -Iinclude -I.
 CXXFLAGS    := $(CFLAGS) -std=c++20 -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit
@@ -75,14 +78,16 @@ $(ELF): $(CRT_OBJS) $(APP_OBJS) $(LIBRARY)
 
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
+	$(PYTHON) -c "import sys; from pathlib import Path; p = Path('$(BIN)'); size = p.stat().st_size; max_size = $(MAX_APP_BIN_BYTES); print(f'[check] {p} size={size} bytes (max {max_size})'); sys.exit(0 if size <= max_size else 1)"
 
 $(IP_STUB_BIN): $(IP_STUB_SRC)
 	@mkdir -p $(dir $(IP_STUB_OBJ))
 	$(CC) $(ASFLAGS) -c $(IP_STUB_SRC) -o $(IP_STUB_OBJ)
 	$(OBJCOPY) -O binary $(IP_STUB_OBJ) $(IP_STUB_BIN)
 
-$(IP_BIN): $(IP_STUB_BIN)
-	$(PYTHON) tools/gen_ip_bin.py --output $(IP_BIN) --stub $(IP_STUB_BIN)
+$(IP_BIN): $(IP_STUB_BIN) $(BIN)
+	$(PYTHON) tools/gen_ip_bin.py --output $(IP_BIN) --stub $(IP_STUB_BIN) --ip-load-address $(IP_LOAD_ADDR_HEX) --first-read-address $(APP_LOAD_ADDR_HEX) --first-read-file $(BIN)
+	$(PYTHON) -c "import struct,sys; from pathlib import Path; d=Path('$(IP_BIN)').read_bytes(); magic=d[0:16]; area=d[0x03C:0x046]; first_read=struct.unpack('>I', d[0x0E0:0x0E4])[0]; ok=(magic==b'SEGA SEGASATURN ' and area==b'JT  UB E  ' and first_read==0x$(APP_LOAD_ADDR_HEX)); print(f'[check] ip.bin magic={magic!r} area={area!r} first_read=0x{first_read:08X}'); sys.exit(0 if ok else 1)"
 
 $(ISO): $(BIN) $(IP_BIN)
 	@mkdir -p $(ISO_ROOT)
@@ -96,6 +101,7 @@ $(ISO): $(BIN) $(IP_BIN)
 		-G $(IP_BIN) \
 		-o $@ \
 		$(ISO_ROOT)
+	$(PYTHON) -c "import struct,sys; from pathlib import Path; iso=Path('$(ISO)').read_bytes(); h=iso[:2048]; magic=h[0:16]; area=h[0x03C:0x046]; first_read=struct.unpack('>I', h[0x0E0:0x0E4])[0]; ok=(magic==b'SEGA SEGASATURN ' and area==b'JT  UB E  ' and first_read==0x$(APP_LOAD_ADDR_HEX)); print(f'[check] iso lba0 magic={magic!r} area={area!r} first_read=0x{first_read:08X}'); sys.exit(0 if ok else 1)"
 	@echo 'FILE "mvp.iso" BINARY' > $(CUE)
 	@echo '  TRACK 01 MODE1/2048' >> $(CUE)
 	@echo '    INDEX 01 00:00:00' >> $(CUE)
@@ -104,7 +110,7 @@ assets:
 	$(PYTHON) tools/convert_indexed8.py --input assets/demo.raw --width 16 --height 16 --palette assets/demo.pal.txt --out-prefix build/demo
 
 test:
-	$(PYTHON) -m unittest tests/test_asset_converter.py
+	$(PYTHON) -m unittest tests/test_asset_converter.py tests/test_gen_ip_bin.py
 
 clean:
 	rm -rf $(BUILD_DIR) $(ISO_ROOT)

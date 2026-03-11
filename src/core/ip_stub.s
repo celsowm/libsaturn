@@ -1,14 +1,14 @@
 ! Minimal IP.BIN boot stub for Saturn (emulator-compatible)
-! Placed at IP.BIN offset 0x100 (BIOS loads IP.BIN to 0x06002000,
-! so this code lands at 0x06002100).
+! Embedded in the IP executable region and copied by BIOS to the
+! IP load address configured in the IP header.
 !
 ! The Saturn BIOS handles:
 !   1. Reading the System ID (0x000-0x0FF)
 !   2. Loading the 1st-read file (0.BIN) into the address at header +0xF0
-!   3. Jumping to the boot code at +0x100
+!   3. Jumping to the IP boot code
 !
 ! This stub sets up the master SH2, initializes minimal hardware,
-! and jumps to the loaded program at 0x06004000.
+! and jumps to the loaded program at 0x06010000.
 
     .section .text
     .global _ip_stub_start
@@ -42,5 +42,5 @@ _ip_stub_start:
 _sr_val:        .long 0x000000F0
 _stack_val:     .long 0x060FFFFC
 _vdp2_tvmd:     .long 0x05F80000
-_app_entry:     .long 0x06004000
+_app_entry:     .long 0x06010000
 _delay_count:   .word 0x1000

@@ -3,12 +3,12 @@ OUTPUT_ARCH(sh)
 ENTRY(_start)
 
 MEMORY {
-    WRAMH (rwx) : ORIGIN = 0x06004000, LENGTH = 0x000FC000
+    WRAMH (rwx) : ORIGIN = 0x06010000, LENGTH = 0x000F0000
     WRAML (rw)  : ORIGIN = 0x00200000, LENGTH = 0x00100000
 }
 
 SECTIONS {
-    .text 0x06004000 : {
+    .text 0x06010000 : {
         *(.text.start)
         *(.text .text.*)
         *(.rodata .rodata.*)
@@ -21,7 +21,6 @@ SECTIONS {
         . = ALIGN(4);
         __data_end = .;
     } > WRAMH
-    __data_load = LOADADDR(.data);
 
     .bss (NOLOAD) : {
         __bss_start = .;
@@ -42,4 +41,3 @@ SECTIONS {
         *(.eh_frame*)
     }
 }
-
