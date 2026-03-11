@@ -49,5 +49,5 @@ data_vma:   .long __data_start
 data_end:   .long __data_end
 bss_start:  .long __bss_start
 bss_end:    .long __bss_end
-main_addr:  .long main
+main_addr:  .long _main
 

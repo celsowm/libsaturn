@@ -1,8 +1,35 @@
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <errno.h>
 #include <stdint.h>
 #include <stddef.h>
+
+/* Minimal definitions to avoid pulling in sys/stat.h and sys/types.h
+   which may not exist in bare-metal toolchains. */
+typedef int32_t off_t;
+
+int errno;
+#define EINVAL 22
+
+#define S_IFCHR 0020000
+
+struct stat {
+    unsigned short st_mode;
+};
+
+void *memcpy(void *dest, const void *src, size_t n) {
+    unsigned char *d = (unsigned char *)dest;
+    const unsigned char *s = (const unsigned char *)src;
+    while (n--) {
+        *d++ = *s++;
+    }
+    return dest;
+}
+
+void *memset(void *dest, int c, size_t n) {
+    unsigned char *d = (unsigned char *)dest;
+    while (n--) {
+        *d++ = (unsigned char)c;
+    }
+    return dest;
+}
 
 void _exit(int status) {
     (void)status;
@@ -45,7 +72,7 @@ int _read(int file, char* ptr, int len) {
 }
 
 void* _sbrk(ptrdiff_t incr) {
-    extern char __bss_end;
+    extern char __bss_end __asm__("__bss_end");
     static char* heap_end;
     char* prev_heap_end;
     if (heap_end == 0) {

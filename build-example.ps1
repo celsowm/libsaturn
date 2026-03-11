@@ -76,10 +76,10 @@ if (-not $shellPath) {
 }
 
 $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
-$exampleMainMsys = Convert-ToMsysPath -WindowsPath $exampleMain
+$exampleMainRelative = "examples/$normalizedExample/main.c"
 
 Write-Host "[build-example] Buildando example: $normalizedExample"
-Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "cd `"$repoMsysPath`" && make clean && make APP_C_SRCS=`"$exampleMainMsys`" all"
+Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "export PATH=`"`$HOME/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make clean && make APP_C_SRCS=`"$exampleMainRelative`" all"
 
 $safeName = ($normalizedExample -replace '[\\/]', '_')
 $exampleBuildDir = Join-Path $RepoRoot 'build\examples'
