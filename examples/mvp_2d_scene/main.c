@@ -10,7 +10,7 @@
 #define STAGE_COLOR_D1 0xBDEF
 #define HELLO_BG_A 0x001F
 #define HELLO_BG_B 0x03E0
-#define MVP_HELLO_VISUAL_ONLY 1
+#define MVP_HELLO_VISUAL_ONLY 0
 #define HELLO_TEXT "HELLO WORLD"
 #define HELLO_GLYPH_W 16
 #define HELLO_GLYPH_H 16
@@ -24,18 +24,8 @@ static uint8_t g_hud_pixels[16 * 16];
 static uint8_t g_hello_pixels[HELLO_TEX_W * HELLO_TEX_H];
 static uint16_t g_palette[256];
 
-static const uint32_t SAT_UNCACHED_BASE = 0x20000000u;
-
 static void set_backdrop_color(uint16_t rgb555) {
-    volatile uint16_t* const vdp2_vram = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05E00000u);
-    volatile uint16_t* const vdp2_bgon = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05F80010u);
-    volatile uint16_t* const vdp2_bktau = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05F800ACu);
-    volatile uint16_t* const vdp2_bktal = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05F800AEu);
-
-    *vdp2_bgon = 0x0000;
-    *vdp2_bktau = 0x0000;
-    *vdp2_bktal = 0x0000;
-    vdp2_vram[0] = (uint16_t)(rgb555 & 0x7FFFu);
+    (void)sat_vdp2_back_color_set(rgb555);
 }
 
 static void panic_color_loop(uint16_t color_a, uint16_t color_b) {
@@ -116,6 +106,8 @@ static void build_hello_texture(void) {
     }
 }
 
+#if MVP_HELLO_VISUAL_ONLY
+static const uint32_t SAT_UNCACHED_BASE = 0x20000000u;
 static void hello_visual_loop(const sat_texture_t* hello_tex) {
     volatile uint16_t* const vdp1_fbcr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00002u);
     volatile uint16_t* const vdp1_ptmr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00004u);
@@ -146,31 +138,7 @@ static void hello_visual_loop(const sat_texture_t* hello_tex) {
         ++counter;
     }
 }
-
-static void show_stage_a_marker(void) {
-    volatile uint16_t* const vdp2_tvmd = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05F80000u);
-
-    volatile uint16_t* const vdp1_tvmr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00000u);
-    volatile uint16_t* const vdp1_fbcr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00002u);
-    volatile uint16_t* const vdp1_ptmr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00004u);
-    volatile uint16_t* const vdp1_ewdr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00006u);
-    volatile uint16_t* const vdp1_ewlr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00008u);
-    volatile uint16_t* const vdp1_ewrr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D0000Au);
-
-    *vdp2_tvmd = 0x0000;
-    set_backdrop_color(STAGE_COLOR_A);
-    *vdp2_tvmd = 0x8100;
-
-    *vdp1_tvmr = 0x0000;
-    *vdp1_fbcr = 0x0000;
-    *vdp1_ewdr = STAGE_COLOR_A;
-    *vdp1_ewlr = 0x0000;
-    *vdp1_ewrr = (uint16_t)(((320u / 8u) << 9u) | 224u);
-    *vdp1_ptmr = 0x0002;
-
-    for (volatile uint32_t spin = 0; spin < 250000u; ++spin) {
-    }
-}
+#endif
 
 static void build_palette(void) {
     for (uint16_t i = 0; i < 256; ++i) {
@@ -207,8 +175,6 @@ static void build_textures(void) {
 }
 
 int main(void) {
-    show_stage_a_marker();
-
     sat_video_config_t cfg = {320, 224, 1, 0};
     sat_result_t st = sat_init(&cfg);
     if (st != SAT_OK) {

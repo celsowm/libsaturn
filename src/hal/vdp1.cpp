@@ -1,29 +1,21 @@
 #include "src/hal/vdp1.hpp"
 
-#ifndef SAT_VDP_PROFILE_LEGACY
-#define SAT_VDP_PROFILE_LEGACY 0
-#endif
-
 namespace saturn::hal::vdp1 {
 
 namespace {
 
-#if SAT_VDP_PROFILE_LEGACY
-constexpr bool kUseLegacyVdpProfile = true;
-#else
-constexpr bool kUseLegacyVdpProfile = false;
-#endif
+constexpr uintptr_t kUncached = 0x20000000u;
 
-volatile uint16_t& TVMR = *reinterpret_cast<volatile uint16_t*>(0x05D00000);
-volatile uint16_t& FBCR = *reinterpret_cast<volatile uint16_t*>(0x05D00002);
-volatile uint16_t& PTMR = *reinterpret_cast<volatile uint16_t*>(0x05D00004);
-volatile uint16_t& EWDR = *reinterpret_cast<volatile uint16_t*>(0x05D00006);
-volatile uint16_t& EWLR = *reinterpret_cast<volatile uint16_t*>(0x05D00008);
-volatile uint16_t& EWRR = *reinterpret_cast<volatile uint16_t*>(0x05D0000A);
+volatile uint16_t& TVMR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00000u);
+volatile uint16_t& FBCR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00002u);
+volatile uint16_t& PTMR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00004u);
+volatile uint16_t& EWDR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00006u);
+volatile uint16_t& EWLR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00008u);
+volatile uint16_t& EWRR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D0000Au);
 
-volatile uint16_t* const VDP2_CRAM = reinterpret_cast<volatile uint16_t*>(0x05F00000);
-volatile uint32_t* const VDP1_VRAM_32 = reinterpret_cast<volatile uint32_t*>(0x05C00000);
-volatile uint8_t* const VDP1_VRAM_8 = reinterpret_cast<volatile uint8_t*>(0x05C00000);
+volatile uint16_t* const VDP2_CRAM = reinterpret_cast<volatile uint16_t*>(kUncached | 0x05F00000u);
+volatile uint32_t* const VDP1_VRAM_32 = reinterpret_cast<volatile uint32_t*>(kUncached | 0x05C00000u);
+volatile uint16_t* const VDP1_VRAM_16 = reinterpret_cast<volatile uint16_t*>(kUncached | 0x05C00000u);
 
 constexpr uint32_t kVramSize = 512u * 1024u;
 constexpr uint32_t kCommandAreaBytes = 16u * 1024u;
@@ -52,18 +44,16 @@ void init(uint16_t width, uint16_t height, uint16_t clear_color) {
 
     TVMR = 0x0000;
     FBCR = 0x0000;
-    PTMR = kUseLegacyVdpProfile ? 0x0002 : 0x0000;
+    PTMR = 0x0000;
     EWDR = clear_color;
     EWLR = 0x0000;
     EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | height);
 
-    if (!kUseLegacyVdpProfile) {
-        VDP1_VRAM_32[0] = 0x80000000u;
-        VDP1_VRAM_32[1] = 0x00000000u;
-        VDP1_VRAM_32[2] = 0x00000000u;
-        VDP1_VRAM_32[3] = 0x00000000u;
-        PTMR = 0x0002;
-    }
+    VDP1_VRAM_32[0] = 0x80000000u;
+    VDP1_VRAM_32[1] = 0x00000000u;
+    VDP1_VRAM_32[2] = 0x00000000u;
+    VDP1_VRAM_32[3] = 0x00000000u;
+    PTMR = 0x0002;
 }
 
 void set_clear_color(uint16_t rgb555) {
@@ -137,10 +127,6 @@ void submit() {
     end.pad = 0;
 
     copy_words_to_vram(g_cmd_buffer, g_cmd_count);
-    if (kUseLegacyVdpProfile) {
-        FBCR = 0x0003;
-        PTMR = 0x0001;
-    }
 }
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index) {
@@ -169,8 +155,12 @@ sat_result_t upload_texture_indexed8(const uint8_t* pixels, uint16_t width, uint
     }
 
     const uint32_t start = g_texture_cursor;
-    for (uint32_t i = 0; i < size; ++i) {
-        VDP1_VRAM_8[start + i] = pixels[i];
+    const uint32_t half = size / 2u;
+    const uint32_t word_offset = start / 2u;
+    for (uint32_t i = 0; i < half; ++i) {
+        uint16_t hi = pixels[i * 2u];
+        uint16_t lo = pixels[i * 2u + 1u];
+        VDP1_VRAM_16[word_offset + i] = static_cast<uint16_t>((hi << 8u) | lo);
     }
 
     *out_srca = static_cast<uint16_t>(start >> 3u);

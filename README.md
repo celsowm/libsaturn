@@ -131,21 +131,19 @@ Saídas:
 - `build/mvp.cue`
 - `build/libsaturn.a`
 
-Perfis de diagnóstico de boot:
+Perfis de diagnóstico de boot (IP.BIN):
 
 ```bash
-make VDP_PROFILE=head   IP_PROFILE=current
-make VDP_PROFILE=legacy IP_PROFILE=current
-make VDP_PROFILE=head   IP_PROFILE=safe
-make VDP_PROFILE=legacy IP_PROFILE=safe
+make IP_PROFILE=current
+make IP_PROFILE=safe
 ```
 
 Cada build também gera artefatos nomeados por variante:
 
-- `build/mvp-<vdp_profile>-<ip_profile>.iso`
-- `build/mvp-<vdp_profile>-<ip_profile>.cue`
+- `build/mvp-<ip_profile>.iso`
+- `build/mvp-<ip_profile>.cue`
 
-Matriz 2x2 automatizada (build + decisão):
+Matriz 1x2 automatizada (build + decisão):
 
 ```powershell
 .\scripts\build-boot-matrix.ps1

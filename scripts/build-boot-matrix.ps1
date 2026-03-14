@@ -88,10 +88,8 @@ if (-not $shellPath) {
 $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
 
 $combinations = @(
-    @{ Vdp = 'head';   Ip = 'current' },
-    @{ Vdp = 'legacy'; Ip = 'current' },
-    @{ Vdp = 'head';   Ip = 'safe' },
-    @{ Vdp = 'legacy'; Ip = 'safe' }
+    @{ Ip = 'current' },
+    @{ Ip = 'safe' }
 )
 
 $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'
@@ -103,9 +101,8 @@ $reportLines.Add("msys2_shell=$shellPath")
 $reportLines.Add('')
 
 foreach ($combo in $combinations) {
-    $vdp = $combo.Vdp
     $ip = $combo.Ip
-    $variantName = "mvp-$vdp-$ip"
+    $variantName = "mvp-$ip"
     $variantBuildRel = "build/matrix/$variantName"
     $variantIsoRootRel = "iso_root_matrix/$variantName"
     $variantIpRel = "$variantBuildRel/ip.bin"
@@ -115,7 +112,7 @@ foreach ($combo in $combinations) {
     Write-Host ''
     Write-Host "[build-boot-matrix] Buildando variante $variantName"
 
-    $buildCommand = "export PATH=`"`$HOME/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make clean BUILD_DIR=$variantBuildRel ISO_ROOT=$variantIsoRootRel IP_BIN=$variantIpRel VDP_PROFILE=$vdp IP_PROFILE=$ip && make all BUILD_DIR=$variantBuildRel ISO_ROOT=$variantIsoRootRel IP_BIN=$variantIpRel VDP_PROFILE=$vdp IP_PROFILE=$ip"
+    $buildCommand = "export PATH=`"`$HOME/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make clean BUILD_DIR=$variantBuildRel ISO_ROOT=$variantIsoRootRel IP_BIN=$variantIpRel IP_PROFILE=$ip && make all BUILD_DIR=$variantBuildRel ISO_ROOT=$variantIsoRootRel IP_BIN=$variantIpRel IP_PROFILE=$ip"
     Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand $buildCommand
 
     if (-not (Test-Path $variantIso)) {
@@ -134,10 +131,8 @@ foreach ($combo in $combinations) {
 
 $csvLines = @(
     'variant,vdp_profile,ip_profile,stage_max,scene_ok,input_ok,notes',
-    'mvp-head-current,head,current,unknown,false,false,',
-    'mvp-legacy-current,legacy,current,unknown,false,false,',
-    'mvp-head-safe,head,safe,unknown,false,false,',
-    'mvp-legacy-safe,legacy,safe,unknown,false,false,'
+    'mvp-current,main,current,unknown,false,false,',
+    'mvp-safe,main,safe,unknown,false,false,'
 )
 
 Set-Content -Path $ReportPath -Value $reportLines -Encoding ASCII

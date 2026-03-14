@@ -13,6 +13,9 @@ struct RuntimeState {
     sat_video_config_t config;
     sat_pad_state_t pad;
     uint16_t clear_color;
+    uint16_t nbg0_map_plane_index;
+    uint16_t nbg0_map_width;
+    uint16_t nbg0_map_height;
     hal::vdp1::Command command_buffer[internal::kCmdCapacity];
 };
 
@@ -44,6 +47,9 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     g_state.config = *config;
     g_state.pad = {0, 0, 0};
     g_state.clear_color = 0x0000;
+    g_state.nbg0_map_plane_index = 0x0010u;
+    g_state.nbg0_map_width = 64u;
+    g_state.nbg0_map_height = 64u;
     g_state.initialized = true;
 
     hal::vdp2::init_ntsc_320x224();
@@ -188,3 +194,201 @@ extern "C" sat_result_t sat_set_clear_color(uint16_t rgb555) {
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_nbg0_init(const sat_vdp2_nbg0_config_t* config) {
+    using namespace saturn;
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (config == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (config->char_size > SAT_VDP2_CHAR_SIZE_2X2) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (config->color_mode > SAT_VDP2_COLOR_MODE_16770000) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (config->map_plane_index > 0x003Fu) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    hal::vdp2::CharacterSize cs = (config->char_size == SAT_VDP2_CHAR_SIZE_2X2)
+        ? hal::vdp2::CHAR_SIZE_2x2
+        : hal::vdp2::CHAR_SIZE_1x1;
+    hal::vdp2::ColorMode cm = static_cast<hal::vdp2::ColorMode>(config->color_mode);
+    hal::vdp2::configure_nbg0_character(cs, cm);
+    hal::vdp2::configure_nbg0_text_layout();
+    hal::vdp2::set_nbg0_map_plane_index(config->map_plane_index);
+    hal::vdp2::set_nbg0_transparent_code_enabled(config->transparent_code_enabled != 0u);
+    hal::vdp2::set_nbg0_scroll(0, 0, 0, 0);
+
+    g_state.nbg0_map_plane_index = config->map_plane_index;
+    g_state.nbg0_map_width = 64u;
+    g_state.nbg0_map_height = 64u;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_nbg0_set_scroll(const sat_vdp2_scroll_t* scroll) {
+    using namespace saturn;
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (scroll == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    hal::vdp2::set_nbg0_scroll(
+        scroll->x_integer,
+        scroll->x_fraction,
+        scroll->y_integer,
+        scroll->y_fraction
+    );
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_nbg0_set_enabled(uint8_t enable) {
+    using namespace saturn;
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    
+    hal::vdp2::enable_nbg0(enable != 0);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_palette_upload(const uint16_t* palette_rgb555, uint16_t count, uint16_t offset) {
+    using namespace saturn;
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (palette_rgb555 == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    constexpr uint32_t kVdp2CramWordCapacity = 2048u;
+    if ((static_cast<uint32_t>(offset) + static_cast<uint32_t>(count)) > kVdp2CramWordCapacity) {
+        return SAT_ERR_CAPACITY;
+    }
+    
+    hal::vdp2::upload_palette(palette_rgb555, count, offset);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_vram_write_words(uint32_t word_offset, const uint16_t* words, uint32_t word_count) {
+    using namespace saturn;
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (words == nullptr || word_count == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    constexpr uint32_t kVdp2VramWordCapacity = (512u * 1024u) / 2u;
+    if (word_offset >= kVdp2VramWordCapacity || (word_offset + word_count) > kVdp2VramWordCapacity) {
+        return SAT_ERR_CAPACITY;
+    }
+
+    hal::vdp2::write_vram_words(word_offset, words, word_count);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_nbg0_map_fill(uint16_t pattern_name) {
+    using namespace saturn;
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    const uint32_t map_base_words = static_cast<uint32_t>(g_state.nbg0_map_plane_index) << 10u;
+    const uint32_t map_words = static_cast<uint32_t>(g_state.nbg0_map_width) * static_cast<uint32_t>(g_state.nbg0_map_height);
+    hal::vdp2::fill_vram_words(map_base_words, pattern_name, map_words);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_nbg0_map_write_region(
+    const uint16_t* pattern_names,
+    const sat_vdp2_map_region_t* region,
+    uint16_t source_stride
+) {
+    using namespace saturn;
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (pattern_names == nullptr || region == nullptr || source_stride == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (region->width == 0u || region->height == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (region->x >= g_state.nbg0_map_width || region->y >= g_state.nbg0_map_height) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if ((static_cast<uint32_t>(region->x) + static_cast<uint32_t>(region->width)) > g_state.nbg0_map_width) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if ((static_cast<uint32_t>(region->y) + static_cast<uint32_t>(region->height)) > g_state.nbg0_map_height) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (source_stride < region->width) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    const uint32_t map_base_words = static_cast<uint32_t>(g_state.nbg0_map_plane_index) << 10u;
+    const uint32_t map_width = g_state.nbg0_map_width;
+
+    for (uint32_t row = 0; row < region->height; ++row) {
+        const uint32_t dst_offset = map_base_words +
+            (static_cast<uint32_t>(region->y) + row) * map_width +
+            static_cast<uint32_t>(region->x);
+        const uint32_t src_offset = row * static_cast<uint32_t>(source_stride);
+        hal::vdp2::write_vram_words(dst_offset, pattern_names + src_offset, region->width);
+    }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_wait_vblank_start(void) {
+    using namespace saturn;
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    
+    hal::vdp2::wait_vblank_start();
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_wait_vblank_end(void) {
+    using namespace saturn;
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    
+    hal::vdp2::wait_vblank_end();
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_back_color_set(uint16_t rgb555) {
+    using namespace saturn;
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    
+    hal::vdp2::set_backdrop_color(rgb555);
+    return SAT_OK;
+}

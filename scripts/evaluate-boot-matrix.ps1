@@ -43,7 +43,7 @@ if (-not $rows -or $rows.Count -eq 0) {
     throw "Matriz vazia: $MatrixCsvPath"
 }
 
-$requiredKeys = @('head|current', 'legacy|current', 'head|safe', 'legacy|safe')
+$requiredKeys = @('main|current', 'main|safe')
 $statusByKey = @{}
 
 foreach ($row in $rows) {
@@ -73,27 +73,21 @@ foreach ($requiredKey in $requiredKeys) {
     }
 }
 
-$headCurrent = $statusByKey['head|current'].Pass
-$legacyCurrent = $statusByKey['legacy|current'].Pass
-$headSafe = $statusByKey['head|safe'].Pass
-$legacySafe = $statusByKey['legacy|safe'].Pass
+$mainCurrent = $statusByKey['main|current'].Pass
+$mainSafe = $statusByKey['main|safe'].Pass
 
 $decision = ''
 $nextAction = ''
 
-if ($legacyCurrent -and -not $headCurrent) {
-    $decision = 'fix_vdp_legacy'
-    $nextAction = 'Aplicar VDP legacy como default e manter head como fallback.'
+if ($mainCurrent) {
+    $decision = 'keep_current'
+    $nextAction = 'Manter IP current como default.'
 }
-elseif ($headSafe -and -not $headCurrent) {
+elseif ($mainSafe) {
     $decision = 'fix_ip_safe'
-    $nextAction = 'Aplicar IP safe (first_read_size=0) como default e manter current como fallback.'
+    $nextAction = 'Aplicar IP safe (first_read_size=0) como default.'
 }
-elseif ($legacySafe -and -not $headCurrent -and -not $legacyCurrent -and -not $headSafe) {
-    $decision = 'fix_both'
-    $nextAction = 'Aplicar VDP legacy e IP safe como defaults.'
-}
-elseif (-not ($headCurrent -or $legacyCurrent -or $headSafe -or $legacySafe)) {
+elseif (-not ($mainCurrent -or $mainSafe)) {
     $decision = 'round2_startup_ip_stub'
     $nextAction = 'Iniciar segunda rodada focada em startup/IP stub sem mexer em gameplay.'
 }

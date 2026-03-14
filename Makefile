@@ -7,37 +7,26 @@ PYTHON      ?= python
 
 MKISOFS     := $(shell command -v mkisofs 2>/dev/null || command -v genisoimage 2>/dev/null || command -v xorrisofs 2>/dev/null)
 
-VDP_PROFILE ?= legacy
-IP_PROFILE  ?= current
+IP_PROFILE  ?= safe
 
-VALID_VDP_PROFILES := head legacy
 VALID_IP_PROFILES  := current safe
 
-ifneq ($(filter $(VDP_PROFILE),$(VALID_VDP_PROFILES)),$(VDP_PROFILE))
-$(error VDP_PROFILE invalido '$(VDP_PROFILE)'. Use um entre: $(VALID_VDP_PROFILES))
-endif
 ifneq ($(filter $(IP_PROFILE),$(VALID_IP_PROFILES)),$(IP_PROFILE))
 $(error IP_PROFILE invalido '$(IP_PROFILE)'. Use um entre: $(VALID_IP_PROFILES))
-endif
-
-ifeq ($(VDP_PROFILE),legacy)
-VDP_PROFILE_DEFINE := -DSAT_VDP_PROFILE_LEGACY=1
-else
-VDP_PROFILE_DEFINE := -DSAT_VDP_PROFILE_LEGACY=0
 endif
 
 BUILD_DIR   := build
 ISO_ROOT    := iso_root
 IP_BIN      := ip.bin
 IP_TEMPLATE := assets/boot/ip_sbl_template.bin
-VARIANT_NAME := mvp-$(VDP_PROFILE)-$(IP_PROFILE)
+VARIANT_NAME := mvp-$(IP_PROFILE)
 VARIANT_ISO  := $(BUILD_DIR)/$(VARIANT_NAME).iso
 VARIANT_CUE  := $(BUILD_DIR)/$(VARIANT_NAME).cue
 APP_LOAD_ADDR_HEX := 06004000
 MAX_APP_BIN_BYTES := 983040
 
 BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra -Iinclude -I.
-CFLAGS      := $(BASE_CFLAGS) $(VDP_PROFILE_DEFINE)
+CFLAGS      := $(BASE_CFLAGS)
 CXXFLAGS    := $(CFLAGS) -std=c++20 -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit
 ASFLAGS     := -m2 -mb
 LDFLAGS     := -m2 -mb -nostdlib -Wl,-T,src/core/saturn.ld -Wl,-Map,$(BUILD_DIR)/mvp.map -Wl,--gc-sections
@@ -74,7 +63,7 @@ all: check-tools dirs $(ISO) $(LIBRARY)
 check-tools:
 	@if ! command -v $(CC) >/dev/null 2>&1; then echo "Erro: $(CC) nao encontrado no PATH"; exit 1; fi
 	@if [ -z "$(MKISOFS)" ]; then echo "Erro: mkisofs/genisoimage/xorrisofs nao encontrado"; exit 1; fi
-	@echo "[profiles] VDP_PROFILE=$(VDP_PROFILE) IP_PROFILE=$(IP_PROFILE)"
+	@echo "[profiles] IP_PROFILE=$(IP_PROFILE)"
 
 dirs:
 	@mkdir -p $(BUILD_DIR) $(BUILD_DIR)/src/core $(BUILD_DIR)/src/hal $(BUILD_DIR)/examples/mvp_2d_scene $(ISO_ROOT)
