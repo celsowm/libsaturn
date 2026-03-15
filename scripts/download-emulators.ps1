@@ -151,7 +151,7 @@ $mednafenLauncherContent = @'
 param(
     [string]$GamePath,
     [ValidateSet('auto', 'jp', 'na', 'eu')]
-    [string]$Region = 'na',
+    [string]$Region = 'auto',
     [string[]]$ExtraArgs
 )
 
@@ -223,12 +223,18 @@ if ($missingFirmware.Count -gt 0) {
 }
 
 $regionArgs = @()
-if ($Region -ne 'auto') {
+if ($Region -eq 'auto') {
+    $regionArgs = @('-ss.region_autodetect', '1', '-ss.region_default', 'na')
+}
+else {
     $regionArgs = @('-ss.region_autodetect', '0', '-ss.region_default', $Region)
 }
+ $videoArgs = @('-ss.h_overscan', '0', '-ss.videoip', '0')
 Write-Host "[run-mednafen] Regiao: $Region"
-Write-Host "[run-mednafen] Executando: $exePath -force_module ss $targetImage"
-& $exePath '-force_module' 'ss' @regionArgs $targetImage @ExtraArgs
+Write-Host "[run-mednafen] Args de regiao: $($regionArgs -join ' ')"
+Write-Host "[run-mednafen] Args de video: $($videoArgs -join ' ')"
+Write-Host "[run-mednafen] Executando: $exePath -force_module ss $($regionArgs -join ' ') $($videoArgs -join ' ') $targetImage"
+& $exePath '-force_module' 'ss' @regionArgs @videoArgs $targetImage @ExtraArgs
 exit $LASTEXITCODE
 '@
 $mednafenLauncherContent = $mednafenLauncherContent.Replace('__MEDNAFEN_EXE__', $mednafenExeLiteral)

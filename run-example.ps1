@@ -7,7 +7,13 @@ param(
     [string]$Emulator = 'mednafen',
 
     [ValidateSet('auto', 'na', 'jp', 'eu')]
-    [string]$BiosProfile = 'na',
+    [string]$BiosProfile = 'auto',
+
+    [ValidateSet('current', 'safe')]
+    [string]$IpProfile = 'current',
+
+    [ValidateSet('yaul', 'sbl')]
+    [string]$IpTemplate = 'yaul',
 
     [switch]$BuildFirst,
     [string]$Msys2Root,
@@ -35,6 +41,8 @@ if ($BuildFirst -or -not (Test-Path $isoPath)) {
 
     $buildArgs = @{
         Example = $normalizedExample
+        IpProfile = $IpProfile
+        IpTemplate = $IpTemplate
     }
     if ($Msys2Root) {
         $buildArgs.Msys2Root = $Msys2Root

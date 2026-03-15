@@ -77,7 +77,7 @@ Isso cria:
 
 Para Mednafen, mantenha BIOS JP em `firmware/sega_101.bin` e BIOS US/EU em `firmware/mpr-17933.bin`.
 O launcher tenta copiar automaticamente a partir de `bios/saturn_bios_jp.bin` e `bios/saturn_bios_us.bin` (ou `bios/saturn_bios_eu.bin`).
-Por padrao, o launcher do Mednafen forca `region_default=na` (use `-Region auto|jp|na|eu` para trocar).
+Por padrao, o launcher do Mednafen usa `region_autodetect=1` com fallback `region_default=na` e forca `ss.h_overscan=0` / `ss.videoip=0` para evitar corte/artefatos na tela de licenca.
 
 Kronos segue instalacao manual em `emulators/kronos/kronos.exe`.
 
@@ -136,6 +136,8 @@ Perfis de diagnóstico de boot (IP.BIN):
 ```bash
 make IP_PROFILE=current
 make IP_PROFILE=safe
+make IP_TEMPLATE_KIND=yaul
+make IP_TEMPLATE_KIND=sbl
 ```
 
 Cada build também gera artefatos nomeados por variante:
@@ -170,11 +172,18 @@ Para alternar BIOS/regiao no launcher de exemplo sem editar config global do Med
 .\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile jp
 .\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile eu
 .\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile auto
+.\run-example.ps1 mvp_2d_scene -Emulator mednafen -IpTemplate yaul
+.\run-example.ps1 mvp_2d_scene -Emulator mednafen -IpTemplate sbl
 ```
 
 ## Nota sobre IP.BIN
 
-O projeto gera `ip.bin` em `make` a partir de um template validado em `assets/boot/ip_sbl_template.bin` e ajusta apenas `1st read`/`size` para o binario atual.
+O projeto gera `ip.bin` em `make` a partir de um template de boot selecionavel por `IP_TEMPLATE_KIND`:
+- `yaul` (default): `assets/boot/ip_yaul_template.bin`
+- `sbl`: `assets/boot/ip_sbl_template.bin`
+
+Em ambos os casos, o build mantem o template textual/boot original e sobrescreve apenas `1ST_READ` (`0x0F0/0x0F4`).
+Os blocos sensiveis de boot (`0x0100..0x05FF`) e de area code object (`0x0E00..0x7FFF`) permanecem identicos ao template selecionado.
 Para compatibilidade de boot, a ISO grava o payload como `0.BIN` (primario) e `1ST_READ.BIN` (alias).
 No Mednafen, prefira abrir `build/mvp.cue` em vez de `build/mvp.iso`.
 Antes de distribuição pública, faça revisão legal/licenciamento de boot assets conforme sua política de release.

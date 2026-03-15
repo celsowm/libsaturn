@@ -7,19 +7,29 @@ PYTHON      ?= python
 
 MKISOFS     := $(shell command -v mkisofs 2>/dev/null || command -v genisoimage 2>/dev/null || command -v xorrisofs 2>/dev/null)
 
-IP_PROFILE  ?= safe
+IP_PROFILE  ?= current
+IP_TEMPLATE_KIND ?= yaul
 
 VALID_IP_PROFILES  := current safe
+VALID_IP_TEMPLATE_KINDS := yaul sbl
 
 ifneq ($(filter $(IP_PROFILE),$(VALID_IP_PROFILES)),$(IP_PROFILE))
 $(error IP_PROFILE invalido '$(IP_PROFILE)'. Use um entre: $(VALID_IP_PROFILES))
 endif
 
+ifneq ($(filter $(IP_TEMPLATE_KIND),$(VALID_IP_TEMPLATE_KINDS)),$(IP_TEMPLATE_KIND))
+$(error IP_TEMPLATE_KIND invalido '$(IP_TEMPLATE_KIND)'. Use um entre: $(VALID_IP_TEMPLATE_KINDS))
+endif
+
 BUILD_DIR   := build
 ISO_ROOT    := iso_root
 IP_BIN      := ip.bin
+ifeq ($(IP_TEMPLATE_KIND),yaul)
+IP_TEMPLATE := assets/boot/ip_yaul_template.bin
+else
 IP_TEMPLATE := assets/boot/ip_sbl_template.bin
-VARIANT_NAME := mvp-$(IP_PROFILE)
+endif
+VARIANT_NAME := mvp-$(IP_TEMPLATE_KIND)-$(IP_PROFILE)
 VARIANT_ISO  := $(BUILD_DIR)/$(VARIANT_NAME).iso
 VARIANT_CUE  := $(BUILD_DIR)/$(VARIANT_NAME).cue
 APP_LOAD_ADDR_HEX := 06004000
@@ -64,6 +74,7 @@ check-tools:
 	@if ! command -v $(CC) >/dev/null 2>&1; then echo "Erro: $(CC) nao encontrado no PATH"; exit 1; fi
 	@if [ -z "$(MKISOFS)" ]; then echo "Erro: mkisofs/genisoimage/xorrisofs nao encontrado"; exit 1; fi
 	@echo "[profiles] IP_PROFILE=$(IP_PROFILE)"
+	@echo "[profiles] IP_TEMPLATE_KIND=$(IP_TEMPLATE_KIND)"
 
 dirs:
 	@mkdir -p $(BUILD_DIR) $(BUILD_DIR)/src/core $(BUILD_DIR)/src/hal $(BUILD_DIR)/examples/mvp_2d_scene $(ISO_ROOT)
@@ -91,8 +102,8 @@ $(BIN): $(ELF)
 	$(PYTHON) -c "import sys; from pathlib import Path; p = Path('$(BIN)'); size = p.stat().st_size; max_size = $(MAX_APP_BIN_BYTES); print(f'[check] {p} size={size} bytes (max {max_size})'); sys.exit(0 if size <= max_size else 1)"
 
 $(IP_BIN): $(BIN) $(IP_TEMPLATE)
-	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; ip_profile='$(IP_PROFILE)'; first_size=0 if ip_profile=='safe' else app_size; src=bytearray(Path('$(IP_TEMPLATE)').read_bytes()); sys.exit(1) if len(src) > 0x8000 else None; src.extend(b'\x00' * (0x8000 - len(src))); wf=lambda o,s,t:(src.__setitem__(slice(o,o+s), b' '*s), src.__setitem__(slice(o,o+len(t.encode('ascii')[:s])), t.encode('ascii')[:s])); wf(0x010,16,'LIBSATURN'); wf(0x020,10,'T-00000G  '); wf(0x02A,6,'V1.000'); wf(0x030,8,'20260311'); wf(0x060,112,'LIBSATURN MVP'); struct.pack_into('>I', src, 0x0F0, 0x$(APP_LOAD_ADDR_HEX)); struct.pack_into('>I', src, 0x0F4, first_size); Path('$(IP_BIN)').write_bytes(src); print(f'[gen] ip.bin profile={ip_profile} size={len(src)} first_read=0x{0x$(APP_LOAD_ADDR_HEX):08X} first_size=0x{first_size:08X}')"
-	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; ip_profile='$(IP_PROFILE)'; expected_first_size=0 if ip_profile=='safe' else app_size; d=Path('$(IP_BIN)').read_bytes(); magic=d[0:16]; first_read=struct.unpack('>I', d[0x0F0:0x0F4])[0]; first_size=struct.unpack('>I', d[0x0F4:0x0F8])[0]; ok=(len(d)==0x8000 and magic==b'SEGA SEGASATURN ' and first_read==0x$(APP_LOAD_ADDR_HEX) and first_size==expected_first_size); print(f'[check] ip.bin profile={ip_profile} len={len(d)} magic={magic!r} first_read=0x{first_read:08X} first_size=0x{first_size:08X}'); sys.exit(0 if ok else 1)"
+	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; ip_profile='$(IP_PROFILE)'; first_size=0 if ip_profile=='safe' else app_size; tmpl=bytearray(Path('$(IP_TEMPLATE)').read_bytes()); sys.exit(1) if len(tmpl) > 0x8000 else None; tmpl.extend(b'\x00' * (0x8000 - len(tmpl))); src=bytearray(tmpl); struct.pack_into('>I', src, 0x0F0, 0x$(APP_LOAD_ADDR_HEX)); struct.pack_into('>I', src, 0x0F4, first_size); Path('$(IP_BIN)').write_bytes(src); print(f'[gen] ip.bin profile={ip_profile} size={len(src)} first_read=0x{0x$(APP_LOAD_ADDR_HEX):08X} first_size=0x{first_size:08X}')"
+	$(PYTHON) -c "import struct,sys; from pathlib import Path; app_size=Path('$(BIN)').stat().st_size; ip_profile='$(IP_PROFILE)'; expected_first_size=0 if ip_profile=='safe' else app_size; tmpl=bytearray(Path('$(IP_TEMPLATE)').read_bytes()); sys.exit(1) if len(tmpl) > 0x8000 else None; tmpl.extend(b'\x00' * (0x8000 - len(tmpl))); d=Path('$(IP_BIN)').read_bytes(); magic=d[0:16]; area_symbols=d[0x40:0x4A]; first_read=struct.unpack('>I', d[0x0F0:0x0F4])[0]; first_size=struct.unpack('>I', d[0x0F4:0x0F8])[0]; security_ok=(d[0x0100:0x0600]==bytes(tmpl[0x0100:0x0600])); area_obj_ok=(d[0x0E00:0x8000]==bytes(tmpl[0x0E00:0x8000])); header_unchanged=(d[0x0010:0x00F0]==bytes(tmpl[0x0010:0x00F0])); errs=[]; errs += ['size'] if len(d)!=0x8000 else []; errs += ['magic'] if magic!=b'SEGA SEGASATURN ' else []; errs += ['header_modified'] if not header_unchanged else []; errs += ['first_read'] if first_read!=0x$(APP_LOAD_ADDR_HEX) else []; errs += ['first_size'] if first_size!=expected_first_size else []; errs += ['security_block_modified'] if not security_ok else []; errs += ['area_code_object_modified'] if not area_obj_ok else []; print(f'[check] ip.bin profile={ip_profile} len={len(d)} magic={magic!r} area={area_symbols!r} first_read=0x{first_read:08X} first_size=0x{first_size:08X} header_unchanged={header_unchanged} security_ok={security_ok} area_obj_ok={area_obj_ok}'); print('[check] ip.bin FAIL: ' + ', '.join(errs)) if errs else None; sys.exit(1 if errs else 0)"
 
 $(ISO): $(BIN) $(IP_BIN)
 	@mkdir -p $(ISO_ROOT)
@@ -126,4 +137,4 @@ test:
 	$(PYTHON) -m unittest tests/test_asset_converter.py tests/test_gen_ip_bin.py
 
 clean:
-	rm -rf $(BUILD_DIR) $(ISO_ROOT) || true
+	rm -rf $(BUILD_DIR) $(ISO_ROOT) $(IP_BIN) || true
