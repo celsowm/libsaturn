@@ -11,7 +11,7 @@ IP_PROFILE  ?= current
 IP_TEMPLATE_KIND ?= yaul
 
 VALID_IP_PROFILES  := current safe
-VALID_IP_TEMPLATE_KINDS := yaul sbl
+VALID_IP_TEMPLATE_KINDS := yaul sbl minimal yaul_fixed region_free minimal_boot correct final
 
 ifneq ($(filter $(IP_PROFILE),$(VALID_IP_PROFILES)),$(IP_PROFILE))
 $(error IP_PROFILE invalido '$(IP_PROFILE)'. Use um entre: $(VALID_IP_PROFILES))
@@ -26,6 +26,18 @@ ISO_ROOT    := iso_root
 IP_BIN      := ip.bin
 ifeq ($(IP_TEMPLATE_KIND),yaul)
 IP_TEMPLATE := assets/boot/ip_yaul_template.bin
+else ifeq ($(IP_TEMPLATE_KIND),yaul_fixed)
+IP_TEMPLATE := assets/boot/ip_yaul_fixed_template.bin
+else ifeq ($(IP_TEMPLATE_KIND),region_free)
+IP_TEMPLATE := assets/boot/ip_region_free_template.bin
+else ifeq ($(IP_TEMPLATE_KIND),correct)
+IP_TEMPLATE := assets/boot/ip_correct_template.bin
+else ifeq ($(IP_TEMPLATE_KIND),final)
+IP_TEMPLATE := assets/boot/ip_final_template.bin
+else ifeq ($(IP_TEMPLATE_KIND),minimal_boot)
+IP_TEMPLATE := assets/boot/ip_minimal_boot.bin
+else ifeq ($(IP_TEMPLATE_KIND),minimal)
+IP_TEMPLATE := assets/boot/ip_minimal_template.bin
 else
 IP_TEMPLATE := assets/boot/ip_sbl_template.bin
 endif
@@ -48,7 +60,8 @@ LIB_CPP_SRCS := \
 	src/hal/scu.cpp \
 	src/hal/smpc.cpp
 
-LIB_C_SRCS := src/core/newlib_stubs.c
+LIB_C_SRCS := src/core/newlib_stubs.c \
+	src/core/early_init.c
 APP_C_SRCS := examples/mvp_2d_scene/main.c
 CRT_SRCS   := src/core/crt0.s
 

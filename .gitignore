@@ -26,3 +26,4 @@ emulators/mednafen/*.7z
 emulators/mednafen/run-mednafen.ps1
 emulators/kronos/run-kronos.ps1
 bios/
+.external/

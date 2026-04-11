@@ -6,7 +6,7 @@ param(
     [ValidateSet('current', 'safe')]
     [string]$IpProfile = 'current',
 
-    [ValidateSet('yaul', 'sbl')]
+    [ValidateSet('yaul', 'sbl', 'minimal', 'yaul_fixed', 'region_free', 'minimal_boot', 'correct', 'final')]
     [string]$IpTemplate = 'yaul',
 
     [string]$Msys2Root
@@ -85,7 +85,8 @@ $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
 $exampleMainRelative = "examples/$normalizedExample/main.c"
 
 Write-Host "[build-example] Buildando example: $normalizedExample"
-Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "export PATH=`"`$HOME/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make clean IP_PROFILE=$IpProfile IP_TEMPLATE_KIND=$IpTemplate && make APP_C_SRCS=`"$exampleMainRelative`" IP_PROFILE=$IpProfile IP_TEMPLATE_KIND=$IpTemplate all"
+$env:PATH = "/c/msys64/home/celso/saturn-tools/bin:$env:PATH"
+Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "export PATH=`"/c/msys64/home/celso/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make clean IP_PROFILE=$IpProfile IP_TEMPLATE_KIND=$IpTemplate && make APP_C_SRCS=`"$exampleMainRelative`" IP_PROFILE=$IpProfile IP_TEMPLATE_KIND=$IpTemplate all"
 
 $safeName = ($normalizedExample -replace '[\\/]', '_')
 $exampleBuildDir = Join-Path $RepoRoot 'build\examples'
