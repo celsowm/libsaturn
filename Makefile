@@ -54,7 +54,12 @@ ASFLAGS     := -m2 -mb
 LDFLAGS     := -m2 -mb -nostdlib -Wl,-T,src/core/saturn.ld -Wl,-Map,$(BUILD_DIR)/mvp.map -Wl,--gc-sections
 
 LIB_CPP_SRCS := \
-	src/core/saturn.cpp \
+	src/core/runtime_state.cpp \
+	src/core/core_api.cpp \
+	src/core/video_api.cpp \
+	src/core/input_api.cpp \
+	src/core/vdp1_api.cpp \
+	src/core/vdp2_api.cpp \
 	src/hal/vdp1.cpp \
 	src/hal/vdp2.cpp \
 	src/hal/scu.cpp \
@@ -62,8 +67,20 @@ LIB_CPP_SRCS := \
 
 LIB_C_SRCS := src/core/newlib_stubs.c \
 	src/core/early_init.c
-APP_C_SRCS := examples/mvp_2d_scene/main.c
 CRT_SRCS   := src/core/crt0.s
+
+EXAMPLE ?= mvp_2d_scene
+
+APP_C_SRCS := $(wildcard examples/$(EXAMPLE)/*.c) $(wildcard examples/common/*.c)
+APP_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_C_SRCS))
+
+ELF := $(BUILD_DIR)/$(EXAMPLE).elf
+BIN := $(BUILD_DIR)/$(EXAMPLE).bin
+
+HOST_CXX ?= g++
+HOST_BUILD_DIR := build-host
+
+EXAMPLES := $(notdir $(wildcard examples/*))
 
 LIB_CPP_OBJS := $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(LIB_CPP_SRCS))
 LIB_C_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(LIB_C_SRCS))
@@ -79,7 +96,7 @@ BIN          := $(BUILD_DIR)/mvp.bin
 ISO          := $(BUILD_DIR)/mvp.iso
 CUE          := $(BUILD_DIR)/mvp.cue
 
-.PHONY: all clean dirs check-tools test assets
+.PHONY: all clean dirs check-tools test test-host examples-all assets
 
 all: check-tools dirs $(ISO) $(LIBRARY)
 
@@ -146,8 +163,21 @@ $(ISO): $(BIN) $(IP_BIN)
 assets:
 	$(PYTHON) tools/convert_indexed8.py --input assets/demo.raw --width 16 --height 16 --palette assets/demo.pal.txt --out-prefix build/demo
 
-test:
+test-host:
+	@mkdir -p $(HOST_BUILD_DIR)
+	$(HOST_CXX) -std=c++20 -Wall -Wextra -Iinclude -I. \
+		tests/host/test_core_logic.cpp \
+		tests/host/test_input_logic.cpp \
+		tests/host/test_vdp1_logic.cpp \
+		tests/host/test_vdp2_logic.cpp \
+		-o $(HOST_BUILD_DIR)/host_tests
+	$(HOST_BUILD_DIR)/host_tests
+
+test: test-host
 	$(PYTHON) -m unittest tests/test_asset_converter.py tests/test_gen_ip_bin.py
+
+examples-all:
+	@for e in $(EXAMPLES); do $(MAKE) EXAMPLE=$$e all; done
 
 clean:
 	rm -rf $(BUILD_DIR) $(ISO_ROOT) $(IP_BIN) || true

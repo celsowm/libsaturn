@@ -1,6 +1,6 @@
 /* hello_world.c - "HELLO WORLD" renderizado com sprites bitmap */
 #include <stdint.h>
-#include "saturn/saturn.h"
+#include "examples/common/demo.h"
 
 /* ===========================================================================
  * Font 8x8 - cada caractere = 8x8 pixels, 1 bit por pixel
@@ -75,8 +75,7 @@ int main(void) {
     int start_x = -text_width / 2; /* centro = 0, então metade negativa */
     int start_y = -4; /* um pouco acima do centro vertical */
 
-    sat_video_config_t cfg = {320, 224, 1, 0};
-    sat_result_t st = sat_init(&cfg);
+    sat_result_t st = demo_init_default();
     if (st != SAT_OK) { for (;;) { } }
 
     build_font_textures();
@@ -87,11 +86,11 @@ int main(void) {
         sat_tex_upload_indexed8(&g_char_tex[i], g_char_pixels[i], 8, 8, g_palette, 0);
     }
 
+    const uint16_t backdrop_color = 0x0010; /* azul escuro */
+
     for (;;) {
-        sat_wait_vblank();
-        sat_vdp2_back_color_set(0x0010); /* azul escuro */
-        sat_set_clear_color(0x0010);
-        sat_begin_frame();
+        sat_pad_state_t pad;
+        demo_frame_begin(backdrop_color, backdrop_color, &pad);
 
         /* Desenha cada caractere */
         int x = start_x;
@@ -109,6 +108,6 @@ int main(void) {
             x += char_spacing;
         }
 
-        sat_end_frame();
+        demo_frame_end();
     }
 }
