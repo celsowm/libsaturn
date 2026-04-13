@@ -65,7 +65,11 @@ if ($normalizedExample -match '^(examples[\\/])(.+)$') {
 
 $exampleMain = Join-Path $RepoRoot ("examples\{0}\main.c" -f $normalizedExample)
 if (-not (Test-Path $exampleMain)) {
-    throw "Example nao encontrado: $exampleMain"
+    $availableExamples = Get-ChildItem (Join-Path $RepoRoot 'examples') -Directory |
+        Where-Object { $_.Name -ne 'common' } |
+        Select-Object -ExpandProperty Name
+    $availableText = ($availableExamples | Sort-Object) -join ', '
+    throw "Example nao encontrado: $exampleMain. Disponiveis: $availableText"
 }
 
 $rootCandidates = @(

@@ -5,6 +5,7 @@
  * New code should prefer narrow subsystem headers. */
 
 #include "saturn/core.h"
+#include "saturn/color.h"
 #include "saturn/video.h"
 #include "saturn/input.h"
 #include "saturn/vdp1.h"

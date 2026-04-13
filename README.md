@@ -11,6 +11,7 @@ Este repositório entrega o MVP `2D Core`:
 - API pública C (`include/saturn/saturn.h`) com núcleo interno C++.
 - Pipeline de build para `ELF -> BIN -> ISO`.
 - Demo jogável 2D em `examples/mvp_2d_scene`.
+- Demo simples de movimento em `examples/red_square`.
 - Conversor de assets indexados 8-bit em `tools/convert_indexed8.py`.
 
 ## Estrutura principal
@@ -19,6 +20,7 @@ Este repositório entrega o MVP `2D Core`:
 - `src/core`: implementação core, startup e linker script.
 - `src/hal`: acesso direto a registradores de hardware.
 - `examples/mvp_2d_scene`: demo de validação do MVP.
+- `examples/red_square`: quadrado vermelho movido pelo direcional.
 - `scripts`: setup MSYS2, build de toolchain, smoke build e automacao PowerShell.
 - `tools`: utilitários (geração de `ip.bin`, conversor de assets).
 
@@ -174,6 +176,7 @@ Para alternar BIOS/regiao no launcher de exemplo sem editar config global do Med
 .\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile auto
 .\run-example.ps1 mvp_2d_scene -Emulator mednafen -IpTemplate yaul
 .\run-example.ps1 mvp_2d_scene -Emulator mednafen -IpTemplate sbl
+.\run-example.ps1 red_square -Emulator mednafen -BiosProfile auto
 ```
 
 ## Nota sobre IP.BIN
