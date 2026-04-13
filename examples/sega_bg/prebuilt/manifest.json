@@ -2,7 +2,7 @@
   "description": "Assets pr\u00c3\u00a9-convertidos para build r\u00c3\u00a1pido",
   "assets": {
     "sega_bg": {
-      "input": "../../../assets/sega_bg.png",
+      "input": "../assets/sega_bg.png",
       "output": "bg",
       "resize": [
         320,

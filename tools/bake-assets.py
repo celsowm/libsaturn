@@ -40,7 +40,7 @@ def bake_example(example_dir: Path) -> None:
         if not input_path.is_absolute():
             input_path = (prebuilt_dir / input_path).resolve()
         if not input_path.exists():
-            print(f"  [skip] {info['input']} not found")
+            print(f"  [skip] {input_path} not found")
             continue
 
         # Calculate current hash

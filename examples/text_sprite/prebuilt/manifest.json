@@ -2,7 +2,7 @@
   "description": "Assets pr\u00c3\u00a9-convertidos para build r\u00c3\u00a1pido",
   "assets": {
     "sonic_head": {
-      "input": "../../../assets/sonic_head.png",
+      "input": "../assets/sonic_head.png",
       "output": "sonic_head",
       "resize": [
         128,
