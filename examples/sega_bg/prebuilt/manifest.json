@@ -1,0 +1,14 @@
+{
+  "description": "Assets pr\u00c3\u00a9-convertidos para build r\u00c3\u00a1pido",
+  "assets": {
+    "sega_bg": {
+      "input": "../../../assets/sega_bg.png",
+      "output": "bg",
+      "resize": [
+        320,
+        224
+      ],
+      "hash": "770141701f94352a0e0bda46e07f0278925a27538f4212835299f7f2d4c42b29"
+    }
+  }
+}

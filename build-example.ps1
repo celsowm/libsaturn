@@ -46,11 +46,11 @@ function Invoke-Msys2Command {
     $wrappedCommand = "rm -f /var/lib/pacman/db.lck >/dev/null 2>&1 || true; $ScriptCommand"
     & $ShellPath -defterm -no-start -ucrt64 -here -c $wrappedCommand
     if ($LASTEXITCODE -ne 0) {
-        throw "Comando no MSYS2 falhou (codigo $LASTEXITCODE): $ScriptCommand"
+        throw "MSYS2 command failed (code $LASTEXITCODE): $ScriptCommand"
     }
 }
 
-# -- Normalizar nome do exemplo --
+# -- Normalize example name --
 $normalizedExample = $Example.Trim().Trim('\', '/')
 if ($normalizedExample -match '^(examples[\\/])(.+)$') {
     $normalizedExample = $matches[2]
@@ -62,10 +62,10 @@ if (-not (Test-Path $exampleMain)) {
         Where-Object { $_.Name -ne 'common' } |
         Select-Object -ExpandProperty Name
     $availableText = ($availableExamples | Sort-Object) -join ', '
-    throw "Example nao encontrado: $exampleMain. Disponiveis: $availableText"
+    throw "Example not found: $exampleMain. Available: $availableText"
 }
 
-# -- Localizar MSYS2 --
+# -- Locate MSYS2 --
 $rootCandidates = @(
     $RequestedRoot,
     $env:LIBSATURN_MSYS2_ROOT,
@@ -76,17 +76,17 @@ $rootCandidates = @(
 
 $shellPath = Find-Msys2Shell -RootCandidates $rootCandidates
 if (-not $shellPath) {
-    throw 'MSYS2 nao encontrado. Informe -Msys2Root ou ajuste LIBSATURN_MSYS2_ROOT.'
+    throw 'MSYS2 not found. Provide -Msys2Root or set LIBSATURN_MSYS2_ROOT.'
 }
 
 $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
 Write-Host "[build-example] Building example: $normalizedExample"
 
-# Detectar toolchain SH2 automaticamente
+# Auto-detect SH2 toolchain
 $saturnBin = $null
 $msys2Home = '/c/msys64/home'
 
-# Buscar em /home/*/saturn-tools/bin
+# Search in /home/*/saturn-tools/bin
 $homeDirs = Get-ChildItem 'C:\msys64\home' -Directory -ErrorAction SilentlyContinue
 foreach ($dir in $homeDirs) {
     $binPath = "C:\msys64\home\$($dir.Name)\saturn-tools\bin"
@@ -97,46 +97,40 @@ foreach ($dir in $homeDirs) {
 }
 
 if (-not $saturnBin) {
-    Write-Warning "Toolchain SH2 nao detectada automaticamente. Adicione ao PATH ou crie symlinks."
+    Write-Warning "SH2 toolchain not auto-detected. Add to PATH or create symlinks."
 }
 
-# -- Converter assets (apenas se não houver prebuilt) --
-$prebuiltH = Join-Path $RepoRoot "assets\prebuilt\$normalizedExample\*.h"
-$prebuiltFiles = @(Get-ChildItem $prebuiltH -ErrorAction SilentlyContinue)
-$hasPrebuilt = $prebuiltFiles.Count -gt 0
+# -- Verificar/gerar assets com hash check --
+$prebuiltManifest = Join-Path $RepoRoot "examples\$normalizedExample\prebuilt\manifest.json"
+$prebuiltDir = Join-Path $RepoRoot "examples\$normalizedExample\prebuilt"
 
-if (-not $hasPrebuilt) {
-    $makefileInc = Join-Path $RepoRoot "examples\$normalizedExample\Makefile.inc"
-    if (Test-Path $makefileInc) {
-        $incContent = Get-Content $makefileInc -Raw
-        if ($incContent -match 'EXAMPLE_INPUT\s*:=\s*(.+)') {
-            $assetInput = $matches[1].Trim()
-            $assetInputFull = Join-Path $RepoRoot $assetInput
+$checkResult = & python (Join-Path $RepoRoot 'tools\check-prebuilt.py') $prebuiltManifest 2>$null
 
-            if ($incContent -match 'EXAMPLE_RESIZE\s*:=\s*(\d+)\s+(\d+)') {
-                $resizeW = $matches[1]
-                $resizeH = $matches[2]
-
-                if ($incContent -match 'EXAMPLE_ASSET_PREFIX\s*:=\s*\$\(GENERATED_DIR\)/(.+)') {
-                    $assetSubdir = $matches[1]
-                    $assetOutPrefix = Join-Path $RepoRoot "build\generated\$assetSubdir"
-
-                    if (Test-Path $assetInputFull) {
-                        Write-Host "[asset] Converting $assetInput -> ${resizeW}x${resizeH}"
-                        & python (Join-Path $RepoRoot 'tools\convert_indexed8.py') `
-                            --input $assetInputFull `
-                            --resize $resizeW $resizeH `
-                            --out-prefix $assetOutPrefix
-                        if ($LASTEXITCODE -ne 0) {
-                            throw "Falha ao gerar asset para $normalizedExample"
-                        }
-                    }
+if ($checkResult -eq 'ok') {
+    Write-Host "[asset] Prebuilt OK (hash unchanged)"
+} else {
+    # Precisa converter
+    if (Test-Path $prebuiltManifest) {
+        $manifest = Get-Content $prebuiltManifest -Raw | ConvertFrom-Json
+        foreach ($name in $manifest.assets.PSObject.Properties.Name) {
+            $info = $manifest.assets.$name
+            $assetInput = Join-Path $prebuiltDir $info.input
+            if (Test-Path $assetInput) {
+                Write-Host "[asset] Converting $name ($($info.input))"
+                $outPrefix = Join-Path $prebuiltDir $info.output
+                $resizeArgs = if ($info.resize) { "--resize $($info.resize[0]) $($info.resize[1])" } else { "" }
+                & python (Join-Path $RepoRoot 'tools\convert_indexed8.py') `
+                    --input $assetInput `
+                    $resizeArgs.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) `
+                    --out-prefix $outPrefix
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Failed to generate asset $name for $normalizedExample"
                 }
             }
         }
+        # Atualizar hashes
+        & python (Join-Path $RepoRoot 'tools\bake-assets.py') 2>$null
     }
-} else {
-    Write-Host "[asset] Using prebuilt assets (fast build)"
 }
 
 # -- Build via MSYS2 --
@@ -148,7 +142,7 @@ if ($saturnBin) {
 }
 Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand $makeCommand
 
-# -- Copiar artefatos --
+# -- Copy artifacts --
 $exampleBuildDir = Join-Path $RepoRoot 'build\examples'
 if (-not (Test-Path $exampleBuildDir)) {
     New-Item -ItemType Directory -Path $exampleBuildDir -Force | Out-Null
@@ -170,7 +164,7 @@ if (Test-Path $cueSource) { Copy-Item $cueSource $cueTarget -Force }
 if (Test-Path $binSource) { Copy-Item $binSource $binTarget -Force }
 if (Test-Path $elfSource) { Copy-Item $elfSource $elfTarget -Force }
 
-Write-Host "[build-example] Artefatos:"
+Write-Host "[build-example] Artifacts:"
 Write-Host "  $isoTarget"
 Write-Host "  $cueTarget"
 Write-Host "  $binTarget"

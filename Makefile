@@ -1,5 +1,11 @@
 # ================================================================
-# libsaturn Makefile - Build system para Sega Saturn
+# libsaturn Makefile - Build system for Sega Saturn
+# ================================================================
+# Usage:
+#   make EXAMPLE=hello_world
+#   make EXAMPLE=sega_bg IP_PROFILE=safe
+#   make examples-all
+#   make clean
 # ================================================================
 # Uso:
 #   make EXAMPLE=hello_world
@@ -15,7 +21,7 @@ CXX         := $(TARGET)-g++
 AR          := $(TARGET)-ar
 OBJCOPY     := $(TARGET)-objcopy
 
-# Python: prefere o do Windows (tem Pillow), fallback para MSYS2
+# Python: prefer Windows one (has Pillow), fallback to MSYS2
 PYTHON_WIN  := $(shell command -v python 2>/dev/null)
 PYTHON_MSYS := $(shell command -v /usr/bin/python 2>/dev/null)
 PYTHON      ?= $(PYTHON_WIN)
@@ -39,10 +45,10 @@ VALID_IP_PROFILES  := current safe
 VALID_IP_TEMPLATE_KINDS := yaul sbl minimal yaul_fixed region_free minimal_boot correct final
 
 ifneq ($(filter $(IP_PROFILE),$(VALID_IP_PROFILES)),$(IP_PROFILE))
-$(error IP_PROFILE invalido '$(IP_PROFILE)'. Use: $(VALID_IP_PROFILES))
+$(error Invalid IP_PROFILE '$(IP_PROFILE)'. Use: $(VALID_IP_PROFILES))
 endif
 ifneq ($(filter $(IP_TEMPLATE_KIND),$(VALID_IP_TEMPLATE_KINDS)),$(IP_TEMPLATE_KIND))
-$(error IP_TEMPLATE_KIND invalido '$(IP_TEMPLATE_KIND)'. Use: $(VALID_IP_TEMPLATE_KINDS))
+$(error Invalid IP_TEMPLATE_KIND '$(IP_TEMPLATE_KIND)'. Use: $(VALID_IP_TEMPLATE_KINDS))
 endif
 
 # -- IP template ------------------------------------------------
@@ -69,20 +75,20 @@ CRT_OBJS     := $(patsubst %.s,$(BUILD_DIR)/%.o,$(CRT_SRCS))
 
 LIBRARY := $(BUILD_DIR)/libsaturn.a
 
-# -- Exemplo (descoberta automatica) ----------------------------
-# Cada exemplo pode ter um Makefile.inc definindo:
-#   EXAMPLE_ASSETS  = lista de assets (ex: $(GENERATED_DIR)/sega_bg/bg.c)
-#   EXAMPLE_HEADERS = headers gerados
-#   EXAMPLE_DEPS    = dependencias para geracao
-#   EXAMPLE_RESIZE  = largura altura (ex: 320 224)
-#   EXAMPLE_INPUT   = caminho da imagem original
+# -- Example (automatic discovery) ----------------------------
+# Each example can have a Makefile.inc defining:
+#   EXAMPLE_ASSETS  = list of assets (e.g. $(GENERATED_DIR)/sega_bg/bg.c)
+#   EXAMPLE_HEADERS = generated headers
+#   EXAMPLE_DEPS    = dependencies for generation
+#   EXAMPLE_RESIZE  = width height (e.g. 320 224)
+#   EXAMPLE_INPUT   = original image path
 # ---------------------------------------------------------------
 EXAMPLE_DIR     := examples/$(EXAMPLE)
 EXAMPLE_SRCS    := $(wildcard $(EXAMPLE_DIR)/*.c) $(wildcard examples/common/*.c)
 EXAMPLE_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(EXAMPLE_SRCS))
 EXAMPLE_HEADERS :=
 
-# Incluir configuracao do exemplo se existir
+# Include example config if it exists
 EXAMPLE_INC := $(EXAMPLE_DIR)/Makefile.inc
 ifneq ($(wildcard $(EXAMPLE_INC)),)
   include $(EXAMPLE_INC)
@@ -97,7 +103,7 @@ BIN := $(BUILD_DIR)/$(EXAMPLE).bin
 ISO := $(BUILD_DIR)/$(EXAMPLE).iso
 CUE := $(BUILD_DIR)/$(EXAMPLE).cue
 
-# -- Exemplos disponiveis ---------------------------------------
+# -- Available examples ---------------------------------------
 EXAMPLES := $(filter-out common,$(notdir $(wildcard examples/*)))
 
 .PHONY: all clean dirs check-tools examples-all list-examples bake
@@ -107,9 +113,9 @@ all: check-tools dirs $(ELF) $(ISO) $(LIBRARY)
 # -- Verificacoes -----------------------------------------------
 check-tools:
 	@if ! command -v $(CC) >/dev/null 2>&1; then \
-		echo "Erro: $(CC) nao encontrado no PATH"; exit 1; fi
+		echo "Error: $(CC) not found in PATH"; exit 1; fi
 	@if [ -z "$(MKISOFS)" ]; then \
-		echo "Erro: mkisofs/genisoimage/xorrisofs nao encontrado"; exit 1; fi
+		echo "Error: mkisofs/genisoimage/xorrisofs not found"; exit 1; fi
 	@echo "[profiles] EXAMPLE=$(EXAMPLE) IP_PROFILE=$(IP_PROFILE) IP_TEMPLATE=$(IP_TEMPLATE_KIND)"
 
 dirs:
@@ -117,22 +123,30 @@ dirs:
 	@mkdir -p $(dir $(LIB_CPP_OBJS)) $(dir $(LIB_C_OBJS)) $(dir $(CRT_OBJS))
 	@mkdir -p $(dir $(EXAMPLE_OBJS)) $(dir $(ALL_APP_OBJS))
 
-# -- Geracao de assets ------------------------------------------
-# Se assets pré-convertidos existem em assets/prebuilt/, usá-los diretamente.
-# Senão, gerar via convert_indexed8.py (requer Pillow).
-PREBUILT_DIR := assets/prebuilt
+# -- Asset generation ------------------------------------------
+# If prebuilt/manifest.json exists in example AND hash matches, use prebuilt.
+# Otherwise, convert via convert_indexed8.py (requires Pillow).
+EXAMPLE_PREBUILT_DIR := $(EXAMPLE_DIR)/prebuilt
+EXAMPLE_PREBUILT_MANIFEST := $(EXAMPLE_PREBUILT_DIR)/manifest.json
 
-# Verificar se existe asset pré-convertido para este exemplo
-PREBUILT_ASSET_H := $(wildcard $(PREBUILT_DIR)/$(EXAMPLE)/*.h)
-ifneq ($(PREBUILT_ASSET_H),)
-  # Usar asset pré-convertido
-  PREBUILT_ASSET_C := $(PREBUILT_ASSET_H:.h=.c)
-  EXAMPLE_ASSETS := $(PREBUILT_ASSET_C)
-  EXAMPLE_HEADERS := $(PREBUILT_ASSET_H)
-  EXAMPLE_PREBUILT := yes
-  $(info [assets] Usando prebuilt: $(PREBUILT_ASSET_H))
-else
-  # Gerar asset via convert_indexed8.py (requer Pillow)
+ifneq ($(wildcard $(EXAMPLE_PREBUILT_MANIFEST)),)
+  # Check if prebuilt is valid (hash matches)
+  EXAMPLE_PREBUILT_VALID := $(shell python $(TOOLS)/check-prebuilt.py $(EXAMPLE_PREBUILT_MANIFEST) 2>/dev/null)
+  ifeq ($(EXAMPLE_PREBUILT_VALID),ok)
+    # Use pre-converted assets
+    PREBUILT_C := $(wildcard $(EXAMPLE_PREBUILT_DIR)/*.c)
+    PREBUILT_H := $(wildcard $(EXAMPLE_PREBUILT_DIR)/*.h)
+    EXAMPLE_ASSETS := $(PREBUILT_C)
+    EXAMPLE_HEADERS := $(PREBUILT_H)
+    $(info [assets] Prebuilt OK: $(EXAMPLE_PREBUILT_DIR))
+  else
+    # Hash changed or invalid, will convert
+    $(info [assets] Prebuilt stale, will convert)
+  endif
+endif
+
+# If no valid prebuilt, configure for conversion
+ifeq ($(EXAMPLE_ASSETS),)
   ifneq ($(EXAMPLE_INPUT),)
   ifneq ($(EXAMPLE_RESIZE),)
   $(EXAMPLE_ASSETS): $(EXAMPLE_INPUT) $(TOOLS)/convert_indexed8.py
@@ -145,14 +159,14 @@ else
   endif
 endif
 
-# -- Compilacao -------------------------------------------------
-# Regra para arquivos C (exemplos, biblioteca, assets gerados)
+# -- Compilation -------------------------------------------------
+# Rule for C files (examples, library, generated assets)
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Regra para assets pré-convertidos (assets/prebuilt/*.c)
-$(BUILD_DIR)/assets/prebuilt/%.o: assets/prebuilt/%.c
+# Rule for pre-converted assets (examples/*/prebuilt/*.c)
+$(BUILD_DIR)/examples/%/prebuilt/%.o: examples/%/prebuilt/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -235,7 +249,7 @@ $(CUE): $(ISO)
 
 # -- Alvos utilitarios ------------------------------------------
 list-examples:
-	@echo "Exemplos disponiveis:"
+	@echo "Available examples:"
 	@for e in $(EXAMPLES); do echo "  $$e"; done
 
 examples-all:
