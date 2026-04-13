@@ -37,6 +37,7 @@ struct SpriteRequest {
 
 void init(uint16_t width, uint16_t height, uint16_t clear_color);
 void set_clear_color(uint16_t rgb555);
+void set_erase_enabled(bool enable, uint16_t width, uint16_t height);
 void begin_frame(Command* command_buffer, uint16_t capacity);
 sat_result_t push_sprite(const SpriteRequest& req);
 void submit();

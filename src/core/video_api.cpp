@@ -55,3 +55,13 @@ extern "C" sat_result_t sat_vdp2_back_color_set(uint16_t rgb555) {
     saturn::hal::vdp2::set_backdrop_color(rgb555);
     return SAT_OK;
 }
+
+extern "C" sat_result_t sat_vdp1_set_erase_enabled(uint8_t enable) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    saturn::hal::vdp1::set_erase_enabled(enable != 0, g_state.config.width, g_state.config.height);
+    return SAT_OK;
+}

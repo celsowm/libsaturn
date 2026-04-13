@@ -10,7 +10,7 @@ static sat_ascii_font_t g_font;
 
 int main(void) {
     const char* text = "HELLO WORLD!";
-    const uint16_t backdrop_color = 0x0010;
+    const uint16_t backdrop_color = SAT_COLOR_BLUE;  // 0x001F - azul vibrante para teste
 
     sat_example_must(sat_app_init_default());
     sat_example_must(sat_ascii_font_init_8x8_indexed8(&g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 0));

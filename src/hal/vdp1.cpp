@@ -37,7 +37,7 @@ inline void copy_words_to_vram(const Command* src, uint32_t count_commands) {
 
 }  // namespace
 
-void init(uint16_t width, uint16_t height, uint16_t clear_color) {
+void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     g_width = width;
     g_height = height;
     g_texture_cursor = kCommandAreaBytes;
@@ -45,7 +45,12 @@ void init(uint16_t width, uint16_t height, uint16_t clear_color) {
     TVMR = 0x0000;
     FBCR = 0x0000;
     PTMR = 0x0000;
-    EWDR = clear_color;
+    // Erase transparente (end code) para permitir que o backdrop do VDP2
+    // apareça nas áreas sem sprites. O clear_color é ignorado no init porque
+    // o erase padrão é transparente. O usuário pode mudar via set_clear_color().
+    EWDR = 0x8000u;
+    // Erase habilitado na tela inteira para limpar o framebuffer do VDP1
+    // a cada frame. Com cor transparente, o backdrop do VDP2 aparece.
     EWLR = 0x0000;
     EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | height);
 
@@ -57,7 +62,19 @@ void init(uint16_t width, uint16_t height, uint16_t clear_color) {
 }
 
 void set_clear_color(uint16_t rgb555) {
-    EWDR = rgb555;
+    // Adiciona bit de transparência (end code) para que o erase não cubra
+    // o backdrop do VDP2. O bit 15 = 1 marca os pixels como transparentes.
+    EWDR = static_cast<uint16_t>(rgb555 | 0x8000u);
+}
+
+void set_erase_enabled(bool enable, uint16_t width, uint16_t height) {
+    if (enable) {
+        EWLR = 0x0000;
+        EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | height);
+    } else {
+        EWLR = 0x0000;
+        EWRR = 0x0000;
+    }
 }
 
 void begin_frame(Command* command_buffer, uint16_t capacity) {
