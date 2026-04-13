@@ -22,13 +22,13 @@ extern "C" sat_result_t sat_tex_upload_indexed8(
         return SAT_ERR_INVALID_ARG;
     }
 
-    st = hal::vdp1::upload_palette(palette_rgb555, palette_index);
+    st = saturn::hal::vdp1::upload_palette(palette_rgb555, palette_index);
     if (st != SAT_OK) {
         return st;
     }
 
     uint16_t srca = 0;
-    st = hal::vdp1::upload_texture_indexed8(pixels, width, height, &srca);
+    st = saturn::hal::vdp1::upload_texture_indexed8(pixels, width, height, &srca);
     if (st != SAT_OK) {
         return st;
     }
@@ -55,12 +55,12 @@ extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd) {
         return st;
     }
 
-    hal::vdp1::SpriteRequest req = {};
+    saturn::hal::vdp1::SpriteRequest req = {};
     req.x = resolved.x;
     req.y = resolved.y;
     req.width = resolved.width;
     req.height = resolved.height;
     req.srca = resolved.srca;
     req.palette = resolved.palette;
-    return hal::vdp1::push_sprite(req);
+    return saturn::hal::vdp1::push_sprite(req);
 }

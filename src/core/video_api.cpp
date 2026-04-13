@@ -11,7 +11,7 @@ extern "C" sat_result_t sat_begin_frame(void) {
     if (st != SAT_OK) {
         return st;
     }
-    hal::vdp1::begin_frame(g_state.command_buffer, internal::kCmdCapacity);
+    saturn::hal::vdp1::begin_frame(g_state.command_buffer, saturn::internal::kCmdCapacity);
     return SAT_OK;
 }
 
@@ -21,7 +21,7 @@ extern "C" sat_result_t sat_end_frame(void) {
     if (st != SAT_OK) {
         return st;
     }
-    hal::vdp1::submit();
+    saturn::hal::vdp1::submit();
     return SAT_OK;
 }
 
@@ -31,7 +31,7 @@ extern "C" sat_result_t sat_wait_vblank(void) {
     if (st != SAT_OK) {
         return st;
     }
-    hal::scu::wait_vblank();
+    saturn::hal::scu::wait_vblank();
     return SAT_OK;
 }
 
@@ -42,7 +42,7 @@ extern "C" sat_result_t sat_set_clear_color(uint16_t rgb555) {
         return st;
     }
     g_state.clear_color = rgb555;
-    hal::vdp1::set_clear_color(rgb555);
+    saturn::hal::vdp1::set_clear_color(rgb555);
     return SAT_OK;
 }
 
@@ -52,6 +52,6 @@ extern "C" sat_result_t sat_vdp2_back_color_set(uint16_t rgb555) {
     if (st != SAT_OK) {
         return st;
     }
-    hal::vdp2::set_backdrop_color(rgb555);
+    saturn::hal::vdp2::set_backdrop_color(rgb555);
     return SAT_OK;
 }

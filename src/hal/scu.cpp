@@ -6,7 +6,7 @@ namespace saturn::hal::scu {
 
 namespace {
 
-volatile uint32_t g_frame_counter = 0;
+uint32_t g_frame_counter = 0;
 constexpr uint16_t kVblankFlag = 0x0008u;
 constexpr uint32_t kMaxPollSpins = 2000000u;
 

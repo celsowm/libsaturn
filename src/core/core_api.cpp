@@ -14,7 +14,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
      * Early hardware initialization
      * -------------------------------------------------------------------
      * PROBLEMA: O BIOS do Saturn NÃO inicializa VDP1/VDP2 completamente.
-     * Se chamarmos hal::vdp2::init_ntsc_320x224() direto, o hardware pode
+     * Se chamarmos saturn::hal::vdp2::init_ntsc_320x224() direto, o hardware pode
      * estar em estado indefinido causando glitch visual ou crash.
      *
      * SOLUÇÃO: _saturn_early_init() prepara o hardware para um estado
@@ -32,7 +32,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     if (config == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
-    if (config->width != internal::kDefaultWidth || config->height != internal::kDefaultHeight) {
+    if (config->width != saturn::internal::kDefaultWidth || config->height != saturn::internal::kDefaultHeight) {
         return SAT_ERR_UNSUPPORTED;
     }
     if (config->ntsc == 0u) {
@@ -60,10 +60,10 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
      *   3. SCU (interrupts, VBlank counter)
      *   4. VDP1 begin_frame (preparar command buffer)
      * ------------------------------------------------------------------- */
-    hal::vdp2::init_ntsc_320x224();
-    hal::vdp1::init(config->width, config->height, g_state.clear_color);
-    hal::scu::init_interrupts();
-    hal::vdp1::begin_frame(g_state.command_buffer, internal::kCmdCapacity);
+    saturn::hal::vdp2::init_ntsc_320x224();
+    saturn::hal::vdp1::init(config->width, config->height, g_state.clear_color);
+    saturn::hal::scu::init_interrupts();
+    saturn::hal::vdp1::begin_frame(g_state.command_buffer, saturn::internal::kCmdCapacity);
     return SAT_OK;
 }
 

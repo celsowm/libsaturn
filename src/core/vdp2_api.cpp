@@ -16,15 +16,15 @@ extern "C" sat_result_t sat_vdp2_nbg0_init(const sat_vdp2_nbg0_config_t* config)
         return st;
     }
 
-    hal::vdp2::CharacterSize cs = (config->char_size == SAT_VDP2_CHAR_SIZE_2X2)
-        ? hal::vdp2::CHAR_SIZE_2x2
-        : hal::vdp2::CHAR_SIZE_1x1;
-    hal::vdp2::ColorMode cm = static_cast<hal::vdp2::ColorMode>(config->color_mode);
-    hal::vdp2::configure_nbg0_character(cs, cm);
-    hal::vdp2::configure_nbg0_text_layout();
-    hal::vdp2::set_nbg0_map_plane_index(config->map_plane_index);
-    hal::vdp2::set_nbg0_transparent_code_enabled(config->transparent_code_enabled != 0u);
-    hal::vdp2::set_nbg0_scroll(0, 0, 0, 0);
+    saturn::hal::vdp2::CharacterSize cs = (config->char_size == SAT_VDP2_CHAR_SIZE_2X2)
+        ? saturn::hal::vdp2::CHAR_SIZE_2x2
+        : saturn::hal::vdp2::CHAR_SIZE_1x1;
+    saturn::hal::vdp2::ColorMode cm = static_cast<saturn::hal::vdp2::ColorMode>(config->color_mode);
+    saturn::hal::vdp2::configure_nbg0_character(cs, cm);
+    saturn::hal::vdp2::configure_nbg0_text_layout();
+    saturn::hal::vdp2::set_nbg0_map_plane_index(config->map_plane_index);
+    saturn::hal::vdp2::set_nbg0_transparent_code_enabled(config->transparent_code_enabled != 0u);
+    saturn::hal::vdp2::set_nbg0_scroll(0, 0, 0, 0);
 
     g_state.nbg0_map_plane_index = config->map_plane_index;
     g_state.nbg0_map_width = 64u;
@@ -41,7 +41,7 @@ extern "C" sat_result_t sat_vdp2_nbg0_set_scroll(const sat_vdp2_scroll_t* scroll
     if (scroll == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
-    hal::vdp2::set_nbg0_scroll(
+    saturn::hal::vdp2::set_nbg0_scroll(
         scroll->x_integer,
         scroll->x_fraction,
         scroll->y_integer,
@@ -57,7 +57,7 @@ extern "C" sat_result_t sat_vdp2_nbg0_set_enabled(uint8_t enable) {
         return st;
     }
 
-    hal::vdp2::enable_nbg0(enable != 0);
+    saturn::hal::vdp2::enable_nbg0(enable != 0);
     return SAT_OK;
 }
 
@@ -76,7 +76,7 @@ extern "C" sat_result_t sat_vdp2_palette_upload(const uint16_t* palette_rgb555, 
         return st;
     }
 
-    hal::vdp2::upload_palette(palette_rgb555, count, offset);
+    saturn::hal::vdp2::upload_palette(palette_rgb555, count, offset);
     return SAT_OK;
 }
 
@@ -95,7 +95,7 @@ extern "C" sat_result_t sat_vdp2_vram_write_words(uint32_t word_offset, const ui
         return st;
     }
 
-    hal::vdp2::write_vram_words(word_offset, words, word_count);
+    saturn::hal::vdp2::write_vram_words(word_offset, words, word_count);
     return SAT_OK;
 }
 
@@ -108,7 +108,7 @@ extern "C" sat_result_t sat_vdp2_nbg0_map_fill(uint16_t pattern_name) {
 
     const uint32_t map_base_words = compute_map_base_words(g_state.nbg0_map_plane_index);
     const uint32_t map_words = static_cast<uint32_t>(g_state.nbg0_map_width) * static_cast<uint32_t>(g_state.nbg0_map_height);
-    hal::vdp2::fill_vram_words(map_base_words, pattern_name, map_words);
+    saturn::hal::vdp2::fill_vram_words(map_base_words, pattern_name, map_words);
     return SAT_OK;
 }
 
@@ -143,7 +143,7 @@ extern "C" sat_result_t sat_vdp2_nbg0_map_write_region(
             (static_cast<uint32_t>(region->y) + row) * map_width +
             static_cast<uint32_t>(region->x);
         const uint32_t src_offset = row * static_cast<uint32_t>(source_stride);
-        hal::vdp2::write_vram_words(dst_offset, pattern_names + src_offset, region->width);
+        saturn::hal::vdp2::write_vram_words(dst_offset, pattern_names + src_offset, region->width);
     }
     return SAT_OK;
 }
@@ -155,7 +155,7 @@ extern "C" sat_result_t sat_vdp2_wait_vblank_start(void) {
         return st;
     }
 
-    hal::vdp2::wait_vblank_start();
+    saturn::hal::vdp2::wait_vblank_start();
     return SAT_OK;
 }
 
@@ -166,6 +166,6 @@ extern "C" sat_result_t sat_vdp2_wait_vblank_end(void) {
         return st;
     }
 
-    hal::vdp2::wait_vblank_end();
+    saturn::hal::vdp2::wait_vblank_end();
     return SAT_OK;
 }

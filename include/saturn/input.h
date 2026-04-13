@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "saturn/core.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

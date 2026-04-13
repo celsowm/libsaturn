@@ -37,6 +37,11 @@ OUTPUT_FORMAT("elf32-sh", "elf32-sh", "elf32-sh")
 OUTPUT_ARCH(sh)
 ENTRY(_start)  /* Entry point: símbolo _start em crt0.s */
 
+PHDRS {
+    text PT_LOAD FLAGS(5);
+    data PT_LOAD FLAGS(6);
+}
+
 MEMORY {
     /* Work RAM High: código + dados principais
      * Origem: 0x06004000 (após área reservada de 16KB)
@@ -65,7 +70,7 @@ SECTIONS {
         *(.text .text.*)     /* Todo o resto do código */
         *(.rodata .rodata.*) /* Strings, constantes, vtables C++ */
         . = ALIGN(4);        /* Alinhar a 4 bytes */
-    } > WRAMH
+    } > WRAMH :text
 
     /* =========================================================================
      * Seção .data: variáveis globais inicializadas
@@ -80,7 +85,7 @@ SECTIONS {
         *(.data .data.*)     /* Variáveis inicializadas */
         . = ALIGN(4);
         __data_end = .;
-    } > WRAMH
+    } > WRAMH :data
 
     /* =========================================================================
      * Seção .bss: variáveis globais NÃO inicializadas (zeradas no boot)
@@ -94,7 +99,7 @@ SECTIONS {
         *(COMMON)            /* Variáveis COMMON (estilo C antigo) */
         . = ALIGN(4);
         __bss_end = .;       /* Usado pelo crt0.s para zerar BSS */
-    } > WRAMH
+    } > WRAMH :data
 
     /* =========================================================================
      * Seção .wram_l: dados na Work RAM Low
@@ -105,7 +110,7 @@ SECTIONS {
     .wram_l (NOLOAD) : {
         *(.wram_l .wram_l.*) /* Dados explicitamente colocados em WRAML */
         . = ALIGN(4);
-    } > WRAML
+    } > WRAML :data
 
     /* =========================================================================
      * Seções descartadas (não vão para o binário final)

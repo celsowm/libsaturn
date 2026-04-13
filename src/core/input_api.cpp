@@ -14,7 +14,7 @@ extern "C" sat_result_t sat_pad_poll(sat_pad_state_t* out_state) {
         return SAT_ERR_INVALID_ARG;
     }
 
-    const uint16_t held = hal::smpc::read_digital_pad();
+    const uint16_t held = saturn::hal::smpc::read_digital_pad();
     g_state.pad = compute_pad_state(g_state.pad.held, held);
     *out_state = g_state.pad;
     return SAT_OK;

@@ -71,7 +71,8 @@ CRT_SRCS   := src/core/crt0.s
 
 EXAMPLE ?= mvp_2d_scene
 
-APP_C_SRCS := $(wildcard examples/$(EXAMPLE)/*.c) $(wildcard examples/common/*.c)
+APP_COMMON_C_SRCS := $(wildcard examples/common/*.c)
+APP_C_SRCS ?= $(wildcard examples/$(EXAMPLE)/*.c) $(APP_COMMON_C_SRCS)
 APP_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_C_SRCS))
 
 ELF := $(BUILD_DIR)/$(EXAMPLE).elf
@@ -84,7 +85,6 @@ EXAMPLES := $(notdir $(wildcard examples/*))
 
 LIB_CPP_OBJS := $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(LIB_CPP_SRCS))
 LIB_C_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(LIB_C_SRCS))
-APP_OBJS     := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_C_SRCS))
 CRT_OBJS     := $(patsubst %.s,$(BUILD_DIR)/%.o,$(CRT_SRCS))
 
 LIB_OBJS     := $(LIB_CPP_OBJS) $(LIB_C_OBJS)
