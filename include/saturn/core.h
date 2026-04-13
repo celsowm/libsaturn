@@ -55,7 +55,7 @@ sat_result_t sat_shutdown(void);
 #define SAT_PANIC_IF_ERROR(expr) do { \
     sat_result_t sat__st = (expr); \
     if (sat__st != SAT_OK) { \
-        for (;;) { } \
+        while (1) { } \
     } \
 } while (0)
 

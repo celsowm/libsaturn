@@ -137,7 +137,7 @@ int main(void) {
     
     // Main loop
     uint32_t frame_counter = 0;
-    for (;;) {
+    while (1) {
         sat_pad_state_t pad = {0};
         sat_example_must(sat_wait_vblank());
         sat_example_must(sat_pad_poll(&pad));

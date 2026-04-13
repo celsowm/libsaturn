@@ -61,7 +61,7 @@ static sat_result_t build_hello_texture(void) {
 #if MVP_HELLO_VISUAL_ONLY
 static void hello_visual_loop(const sat_texture_t* hello_tex) {
     uint32_t counter = 0;
-    for (;;) {
+    while (1) {
         const uint16_t bg = ((counter & 32u) != 0u) ? HELLO_BG_A : HELLO_BG_B;
         sat_example_must(sat_app_frame_begin(bg, 0x0000, NULL));
 
@@ -149,7 +149,7 @@ int main(void) {
     const sat_fx16_t speed = (sat_fx16_t)(2 * SAT_FX16_ONE);
     uint32_t frame_counter = 0;
 
-    for (;;) {
+    while (1) {
         sat_pad_state_t pad = {0};
         const uint16_t backdrop = (frame_counter & 32u) ? HELLO_BG_A : HELLO_BG_B;
         const uint16_t clear = (frame_counter & 1u) ? STAGE_COLOR_D0 : STAGE_COLOR_D1;

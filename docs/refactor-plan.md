@@ -322,9 +322,9 @@ Before:
 ```c
 sat_video_config_t cfg = {320, 224, 1, 0};
 sat_result_t st = sat_init(&cfg);
-if (st != SAT_OK) { for (;;) { } }
+if (st != SAT_OK) { while (1) { } }
 // ...
-for (;;) {
+while (1) {
     sat_wait_vblank();
     sat_vdp2_back_color_set(0x0010);
     sat_set_clear_color(0x0010);
@@ -337,9 +337,9 @@ for (;;) {
 After:
 ```c
 sat_result_t st = demo_init_default();
-if (st != SAT_OK) { for (;;) { } }
+if (st != SAT_OK) { while (1) { } }
 // ...
-for (;;) {
+while (1) {
     sat_pad_state_t pad;
     demo_frame_begin(0x0010, 0x0010, &pad);
     // draw ...

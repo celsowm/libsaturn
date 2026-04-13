@@ -32,7 +32,7 @@ int main(void) {
     const sat_fx16_t speed = 4 * SAT_FX16_ONE;
     uint32_t frame = 0;
 
-    for (;;) {
+    while (1) {
         sat_pad_state_t pad = {0};
         sat_example_must(sat_app_frame_begin((frame & 32u) ? SAT_COLOR_BLUE : SAT_COLOR_BLACK, SAT_COLOR_BLACK, &pad));
 

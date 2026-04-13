@@ -5,7 +5,7 @@
 
 static inline void sat_example_must(sat_result_t st) {
     if (st != SAT_OK) {
-        for (;;) {
+        while (1) {
         }
     }
 }

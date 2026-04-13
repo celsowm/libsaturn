@@ -33,7 +33,7 @@ void *memset(void *dest, int c, size_t n) {
 
 void _exit(int status) {
     (void)status;
-    for (;;) {
+    while (1) {
     }
 }
 

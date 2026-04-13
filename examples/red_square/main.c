@@ -92,7 +92,7 @@ int main(void) {
     const sat_fx16_t max_x = 144 * SAT_FX16_ONE;
     const sat_fx16_t max_y = 96 * SAT_FX16_ONE;
 
-    for (;;) {
+    while (1) {
         sat_pad_state_t pad = {0};
         sat_example_must(sat_app_frame_begin(SAT_COLOR_BLUE, SAT_COLOR_BLACK, &pad));
 
