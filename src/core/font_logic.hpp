@@ -53,6 +53,19 @@ inline sat_result_t pack_8x8_glyph_indexed8_impl(
     return SAT_OK;
 }
 
+inline int measure_ascii_text_indexed8_impl(const char* text, int char_spacing) {
+    if (text == nullptr || *text == '\0') {
+        return 0;
+    }
+
+    int glyph_count = 0;
+    for (const char* p = text; *p != '\0'; ++p) {
+        ++glyph_count;
+    }
+
+    return static_cast<int>(SAT_ASCII_FONT_GLYPH_WIDTH) + ((glyph_count - 1) * char_spacing);
+}
+
 }  // namespace saturn::core
 
 #endif /* SATURN_CORE_FONT_LOGIC_HPP */

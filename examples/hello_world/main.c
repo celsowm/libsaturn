@@ -4,125 +4,20 @@
 #include "saturn/app.h"
 #include "saturn/color.h"
 #include "saturn/font.h"
-#include "saturn/vdp1.h"
+#include "saturn/example_util.h"
 
-/* ===========================================================================
- * Font 8x8 - cada caractere = 8x8 pixels, 1 bit por pixel
- * 28 caracteres: espaço, A-Z, !
- * =========================================================================== */
-static const uint8_t FONT[] = {
-    /* ' ' */ 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    /* 'A' */ 0x18,0x3C,0x66,0x66,0x7E,0x66,0x66,0x00,
-    /* 'B' */ 0xFC,0x66,0x66,0x7C,0x66,0x66,0xFC,0x00,
-    /* 'C' */ 0x3C,0x66,0xC0,0xC0,0xC0,0x66,0x3C,0x00,
-    /* 'D' */ 0xFC,0x66,0x66,0x66,0x66,0x66,0xFC,0x00,
-    /* 'E' */ 0xFE,0x60,0x60,0x78,0x60,0x60,0xFE,0x00,
-    /* 'F' */ 0xFE,0x60,0x60,0x78,0x60,0x60,0x60,0x00,
-    /* 'G' */ 0x3C,0x66,0xC0,0xCE,0xC6,0x66,0x3C,0x00,
-    /* 'H' */ 0x66,0x66,0x66,0x7E,0x66,0x66,0x66,0x00,
-    /* 'I' */ 0x3C,0x18,0x18,0x18,0x18,0x18,0x3C,0x00,
-    /* 'J' */ 0x1E,0x0C,0x0C,0x0C,0xCC,0xCC,0x78,0x00,
-    /* 'K' */ 0x66,0x6C,0x78,0x70,0x78,0x6C,0x66,0x00,
-    /* 'L' */ 0x60,0x60,0x60,0x60,0x60,0x60,0xFE,0x00,
-    /* 'M' */ 0x63,0x77,0x7F,0x6B,0x63,0x63,0x63,0x00,
-    /* 'N' */ 0x66,0x76,0x7E,0x7E,0x6E,0x66,0x66,0x00,
-    /* 'O' */ 0x3C,0x66,0x66,0x66,0x66,0x66,0x3C,0x00,
-    /* 'P' */ 0xFC,0x66,0x66,0x7C,0x60,0x60,0x60,0x00,
-    /* 'Q' */ 0x3C,0x66,0x66,0x66,0x6E,0x6C,0x36,0x00,
-    /* 'R' */ 0xFC,0x66,0x66,0x7C,0x6C,0x66,0x66,0x00,
-    /* 'S' */ 0x3C,0x66,0x60,0x3C,0x06,0x66,0x3C,0x00,
-    /* 'T' */ 0x7E,0x18,0x18,0x18,0x18,0x18,0x18,0x00,
-    /* 'U' */ 0x66,0x66,0x66,0x66,0x66,0x66,0x3C,0x00,
-    /* 'V' */ 0x66,0x66,0x66,0x66,0x66,0x3C,0x18,0x00,
-    /* 'W' */ 0x63,0x63,0x63,0x6B,0x7F,0x77,0x63,0x00,
-    /* 'X' */ 0x66,0x66,0x3C,0x18,0x3C,0x66,0x66,0x00,
-    /* 'Y' */ 0x66,0x66,0x66,0x3C,0x18,0x18,0x18,0x00,
-    /* 'Z' */ 0xFE,0x0C,0x18,0x30,0x60,0xC0,0xFE,0x00,
-    /* '!' */ 0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x00,
-};
-
-/* Texturas: uma por caractere (8x8 pixels) */
-static uint8_t g_char_pixels[28][8 * 8];
-static uint16_t g_palette[256];
-static sat_texture_t g_char_tex[28];
-
-static int char_to_index(char c) {
-    if (c == ' ') return 0;
-    if (c >= 'A' && c <= 'Z') return c - 'A' + 1;
-    if (c == '!') return 27;
-    return 0;
-}
-
-static sat_result_t build_font_textures(void) {
-    int ch;
-
-    /* Paleta: 0=transp, 1=branco */
-    g_palette[0] = 0x0000;
-    g_palette[1] = 0x7FFF;
-
-    for (ch = 0; ch < 28; ch++) {
-        const uint8_t* glyph = &FONT[ch * 8];
-        sat_result_t st = sat_font_pack_8x8_glyph_indexed8(
-            g_char_pixels[ch],
-            8,
-            8,
-            0,
-            0,
-            glyph,
-            1
-        );
-        if (st != SAT_OK) {
-            return st;
-        }
-    }
-
-    return SAT_OK;
-}
+static sat_ascii_font_t g_font;
 
 int main(void) {
     const char* text = "HELLO WORLD!";
-    int text_len = 12;
-    int char_spacing = 10; /* pixels entre caracteres */
-    int text_width = text_len * 8 + (text_len - 1) * (char_spacing - 8);
-    int start_x = -text_width / 2; /* centro = 0, então metade negativa */
-    int start_y = -4; /* um pouco acima do centro vertical */
+    const uint16_t backdrop_color = 0x0010;
 
-    sat_result_t st = sat_app_init_default();
-    if (st != SAT_OK) { for (;;) { } }
-
-    st = build_font_textures();
-    if (st != SAT_OK) { for (;;) { } }
-
-    /* Upload de cada caractere como textura separada */
-    int i;
-    for (i = 0; i < 28; i++) {
-        sat_tex_upload_indexed8(&g_char_tex[i], g_char_pixels[i], 8, 8, g_palette, 0);
-    }
-
-    const uint16_t backdrop_color = 0x0010; /* azul escuro */
+    sat_example_must(sat_app_init_default());
+    sat_example_must(sat_ascii_font_init_8x8_indexed8(&g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 0));
 
     for (;;) {
-        sat_pad_state_t pad;
-        st = sat_app_frame_begin(backdrop_color, backdrop_color, &pad);
-        if (st != SAT_OK) { for (;;) { } }
-
-        /* Desenha cada caractere */
-        int x = start_x;
-        for (i = 0; i < text_len; i++) {
-            int idx = char_to_index(text[i]);
-            sat_sprite_cmd_t cmd = {
-                (sat_fx16_t)(x * SAT_FX16_ONE),
-                (sat_fx16_t)(start_y * SAT_FX16_ONE),
-                8, 8,
-                &g_char_tex[idx],
-                0,
-                0
-            };
-            sat_draw_sprite(&cmd);
-            x += char_spacing;
-        }
-
-        st = sat_app_frame_end();
-        if (st != SAT_OK) { for (;;) { } }
+        sat_example_must(sat_app_frame_begin(backdrop_color, backdrop_color, NULL));
+        sat_example_must(sat_ascii_font_draw_text_centered_indexed8(&g_font, text, 0, -4, 10, 0, 0));
+        sat_example_must(sat_app_frame_end());
     }
 }

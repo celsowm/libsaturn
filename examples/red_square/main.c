@@ -6,92 +6,20 @@
 #include "saturn/font.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
-
-enum {
-    HUD_SPACE = 0,
-    HUD_COLON,
-    HUD_ZERO,
-    HUD_ONE,
-    HUD_A,
-    HUD_B,
-    HUD_C,
-    HUD_D,
-    HUD_E,
-    HUD_F,
-    HUD_G,
-    HUD_H,
-    HUD_I,
-    HUD_J,
-    HUD_K,
-    HUD_L,
-    HUD_M,
-    HUD_N,
-    HUD_O,
-    HUD_P,
-    HUD_Q,
-    HUD_R,
-    HUD_S,
-    HUD_T,
-    HUD_U,
-    HUD_V,
-    HUD_W,
-    HUD_X,
-    HUD_Y,
-    HUD_Z,
-    HUD_GLYPH_COUNT
-};
-
-static const uint8_t g_font_rows[HUD_GLYPH_COUNT][8] = {
-    /* space */ {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    /* : */     {0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00},
-    /* 0 */     {0x3C, 0x66, 0x6E, 0x76, 0x66, 0x66, 0x3C, 0x00},
-    /* 1 */     {0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00},
-    /* A */     {0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00},
-    /* B */     {0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00},
-    /* C */     {0x3C, 0x66, 0xC0, 0xC0, 0xC0, 0x66, 0x3C, 0x00},
-    /* D */     {0xFC, 0x66, 0x66, 0x66, 0x66, 0x66, 0xFC, 0x00},
-    /* E */     {0xFE, 0x60, 0x60, 0x78, 0x60, 0x60, 0xFE, 0x00},
-    /* F */     {0xFE, 0x60, 0x60, 0x78, 0x60, 0x60, 0x60, 0x00},
-    /* G */     {0x3C, 0x66, 0xC0, 0xCE, 0xC6, 0x66, 0x3C, 0x00},
-    /* H */     {0x66, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x66, 0x00},
-    /* I */     {0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00},
-    /* J */     {0x1E, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0x78, 0x00},
-    /* K */     {0x66, 0x6C, 0x78, 0x70, 0x78, 0x6C, 0x66, 0x00},
-    /* L */     {0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0xFE, 0x00},
-    /* M */     {0x63, 0x77, 0x7F, 0x6B, 0x63, 0x63, 0x63, 0x00},
-    /* N */     {0x66, 0x76, 0x7E, 0x7E, 0x6E, 0x66, 0x66, 0x00},
-    /* O */     {0x3C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00},
-    /* P */     {0xFC, 0x66, 0x66, 0x7C, 0x60, 0x60, 0x60, 0x00},
-    /* Q */     {0x3C, 0x66, 0x66, 0x66, 0x6E, 0x6C, 0x36, 0x00},
-    /* R */     {0xFC, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0x66, 0x00},
-    /* S */     {0x3C, 0x66, 0x60, 0x3C, 0x06, 0x66, 0x3C, 0x00},
-    /* T */     {0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00},
-    /* U */     {0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00},
-    /* V */     {0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x18, 0x00},
-    /* W */     {0x63, 0x63, 0x63, 0x6B, 0x7F, 0x77, 0x63, 0x00},
-    /* X */     {0x66, 0x66, 0x3C, 0x18, 0x3C, 0x66, 0x66, 0x00},
-    /* Y */     {0x66, 0x66, 0x3C, 0x18, 0x18, 0x18, 0x3C, 0x00},
-    /* Z */     {0xFE, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0xFE, 0x00},
-};
+#include "saturn/example_util.h"
 
 static uint8_t g_square_pixels[16 * 16];
-static uint8_t g_font_pixels[HUD_GLYPH_COUNT][8 * 8];
 static uint16_t g_square_palette[256];
-static uint16_t g_font_palette[256];
 static sat_texture_t g_square_tex;
-static sat_texture_t g_font_tex[HUD_GLYPH_COUNT];
+static sat_ascii_font_t g_font;
 
 static void build_square_palette(void) {
     for (uint16_t i = 0; i < 256; ++i) {
         g_square_palette[i] = SAT_COLOR_BLACK;
-        g_font_palette[i] = SAT_COLOR_BLACK;
     }
 
     g_square_palette[0] = SAT_COLOR_BLACK;
     g_square_palette[1] = SAT_COLOR_RED;
-
-    g_font_palette[0] = SAT_COLOR_BLACK;
-    g_font_palette[1] = SAT_COLOR_WHITE;
 }
 
 static const char* color_name_for_rgb555(uint16_t rgb555) {
@@ -143,117 +71,18 @@ static void build_square(void) {
     }
 }
 
-static sat_result_t build_font(void) {
-    for (uint16_t glyph = 0; glyph < HUD_GLYPH_COUNT; ++glyph) {
-        sat_result_t st = sat_font_pack_8x8_glyph_indexed8(
-            g_font_pixels[glyph],
-            8,
-            8,
-            0,
-            0,
-            g_font_rows[glyph],
-            1
-        );
-        if (st != SAT_OK) {
-            return st;
-        }
-    }
-
-    return SAT_OK;
-}
-
-static sat_result_t upload_font(void) {
-    for (uint16_t i = 0; i < HUD_GLYPH_COUNT; ++i) {
-        sat_result_t st = sat_tex_upload_indexed8(&g_font_tex[i], g_font_pixels[i], 8, 8, g_font_palette, 1);
-        if (st != SAT_OK) {
-            return st;
-        }
-    }
-    return SAT_OK;
-}
-
-static uint16_t glyph_for_char(char c) {
-    switch (c) {
-        case ' ': return HUD_SPACE;
-        case ':': return HUD_COLON;
-        case '0': return HUD_ZERO;
-        case '1': return HUD_ONE;
-        case 'A': return HUD_A;
-        case 'B': return HUD_B;
-        case 'C': return HUD_C;
-        case 'D': return HUD_D;
-        case 'E': return HUD_E;
-        case 'F': return HUD_F;
-        case 'G': return HUD_G;
-        case 'H': return HUD_H;
-        case 'I': return HUD_I;
-        case 'J': return HUD_J;
-        case 'K': return HUD_K;
-        case 'L': return HUD_L;
-        case 'M': return HUD_M;
-        case 'N': return HUD_N;
-        case 'O': return HUD_O;
-        case 'P': return HUD_P;
-        case 'Q': return HUD_Q;
-        case 'R': return HUD_R;
-        case 'S': return HUD_S;
-        case 'T': return HUD_T;
-        case 'U': return HUD_U;
-        case 'V': return HUD_V;
-        case 'W': return HUD_W;
-        case 'X': return HUD_X;
-        case 'Y': return HUD_Y;
-        case 'Z': return HUD_Z;
-        default:  return HUD_SPACE;
-    }
-}
-
-static void draw_text_line(int x, int y, const char* text) {
-    for (uint16_t i = 0; text[i] != '\0'; ++i) {
-        const uint16_t idx = glyph_for_char(text[i]);
-        sat_sprite_cmd_t cmd = {
-            (sat_fx16_t)((x + (int)(i * 8u)) * SAT_FX16_ONE),
-            (sat_fx16_t)(y * SAT_FX16_ONE),
-            8,
-            8,
-            &g_font_tex[idx],
-            1,
-            0
-        };
-        (void)sat_draw_sprite(&cmd);
-    }
-}
-
 static void set_button_char(char* line, uint16_t pos, uint16_t is_down) {
     line[pos] = (is_down != 0u) ? '1' : '0';
 }
 
 int main(void) {
-    sat_result_t st = sat_app_init_default();
-    if (st != SAT_OK) {
-        for (;;) {
-        }
-    }
+    sat_example_must(sat_app_init_default());
 
     build_square_palette();
     build_square();
-    st = build_font();
-    if (st != SAT_OK) {
-        for (;;) {
-        }
-    }
 
-    st = sat_tex_upload_indexed8(&g_square_tex, g_square_pixels, 16, 16, g_square_palette, 0);
-    if (st != SAT_OK) {
-        for (;;) {
-        }
-    }
-
-    st = upload_font();
-    if (st != SAT_OK) {
-        for (;;) {
-        }
-    }
+    sat_example_must(sat_tex_upload_indexed8(&g_square_tex, g_square_pixels, 16, 16, g_square_palette, 0));
+    sat_example_must(sat_ascii_font_init_8x8_indexed8(&g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 1));
 
     sat_fx16_t square_x = -8 * SAT_FX16_ONE;
     sat_fx16_t square_y = 40 * SAT_FX16_ONE;
@@ -265,11 +94,7 @@ int main(void) {
 
     for (;;) {
         sat_pad_state_t pad = {0};
-        st = sat_app_frame_begin(SAT_COLOR_BLUE, SAT_COLOR_BLACK, &pad);
-        if (st != SAT_OK) {
-            for (;;) {
-            }
-        }
+        sat_example_must(sat_app_frame_begin(SAT_COLOR_BLUE, SAT_COLOR_BLACK, &pad));
 
         if ((pad.held & SAT_PAD_LEFT) != 0u) {
             square_x -= speed;
@@ -285,11 +110,7 @@ int main(void) {
         }
 
         const uint16_t square_color = choose_square_color(&pad);
-        st = update_square_palette(square_color);
-        if (st != SAT_OK) {
-            for (;;) {
-            }
-        }
+        sat_example_must(update_square_palette(square_color));
 
         if (square_x < min_x) {
             square_x = min_x;
@@ -313,11 +134,7 @@ int main(void) {
             0,
             0
         };
-        st = sat_draw_sprite(&cmd);
-        if (st != SAT_OK) {
-            for (;;) {
-            }
-        }
+        sat_example_must(sat_draw_sprite(&cmd));
 
         const char* color_name = color_name_for_rgb555(square_color);
         char line1[] = "U:0 D:0 L:0 R:0 S:0";
@@ -336,15 +153,11 @@ int main(void) {
         set_button_char(line2, 18u, (pad.held & SAT_PAD_Y) != 0u);
         set_button_char(line2, 22u, (pad.held & SAT_PAD_Z) != 0u);
 
-        draw_text_line(-156, -110, "COLOR: ");
-        draw_text_line(-100, -110, color_name);
-        draw_text_line(-156, -100, line1);
-        draw_text_line(-156, -90, line2);
+        sat_example_must(sat_ascii_font_draw_text_indexed8(&g_font, "COLOR: ", -156, -110, 8, 0, 0));
+        sat_example_must(sat_ascii_font_draw_text_indexed8(&g_font, color_name, -100, -110, 8, 0, 0));
+        sat_example_must(sat_ascii_font_draw_text_indexed8(&g_font, line1, -156, -100, 8, 0, 0));
+        sat_example_must(sat_ascii_font_draw_text_indexed8(&g_font, line2, -156, -90, 8, 0, 0));
 
-        st = sat_app_frame_end();
-        if (st != SAT_OK) {
-            for (;;) {
-            }
-        }
+        sat_example_must(sat_app_frame_end());
     }
 }

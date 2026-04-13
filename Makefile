@@ -202,6 +202,10 @@ $(HOST_BUILD_DIR)/%.exe: tests/host/%.cpp
 	@mkdir -p $(HOST_BUILD_DIR)
 	$(HOST_CXX) -std=c++20 -Wall -Wextra -Iinclude -I. $< -o $@
 
+$(HOST_BUILD_DIR)/test_font_logic.exe: tests/host/test_font_logic.cpp src/core/font_api.cpp
+	@mkdir -p $(HOST_BUILD_DIR)
+	$(HOST_CXX) -std=c++20 -Wall -Wextra -Iinclude -I. $^ -o $@
+
 test: test-host
 	$(PYTHON) -m unittest tests/test_asset_converter.py tests/test_gen_ip_bin.py
 

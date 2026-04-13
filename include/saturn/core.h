@@ -42,6 +42,23 @@ typedef struct sat_video_config {
 sat_result_t sat_init(const sat_video_config_t* config);
 sat_result_t sat_shutdown(void);
 
+/* ------------------------------------------------------------------ */
+/* Error handling helpers                                              */
+/* ------------------------------------------------------------------ */
+#define SAT_TRY(expr) do { \
+    sat_result_t sat__st = (expr); \
+    if (sat__st != SAT_OK) { \
+        return sat__st; \
+    } \
+} while (0)
+
+#define SAT_PANIC_IF_ERROR(expr) do { \
+    sat_result_t sat__st = (expr); \
+    if (sat__st != SAT_OK) { \
+        for (;;) { } \
+    } \
+} while (0)
+
 #ifdef __cplusplus
 }
 #endif

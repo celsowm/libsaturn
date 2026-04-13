@@ -12,6 +12,21 @@
     fprintf(stderr, "FAIL %s:%d: %s != %s\n", __FILE__, __LINE__, #a, #b); \
     exit(1); } } while(0)
 
+extern "C" sat_result_t sat_tex_upload_indexed8(
+    sat_texture_t*,
+    const uint8_t*,
+    uint16_t,
+    uint16_t,
+    const uint16_t*,
+    uint16_t
+) {
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t*) {
+    return SAT_OK;
+}
+
 TEST(pack_glyph_basic) {
     uint8_t pixels[8 * 8] = {};
     const uint8_t glyph[8] = {
@@ -23,6 +38,34 @@ TEST(pack_glyph_basic) {
     ASSERT_EQ(pixels[0], 1u);
     ASSERT_EQ(pixels[1], 0u);
     ASSERT_EQ(pixels[8], 0u);
+}
+
+TEST(ascii_rows_lookup_supported) {
+    const uint8_t* rows = sat_font_ascii_8x8_rows('A');
+    ASSERT_EQ(rows[0], 0x38u);
+    ASSERT_EQ(rows[7], 0x00u);
+}
+
+TEST(ascii_rows_lookup_fallback) {
+    const uint8_t* rows = sat_font_ascii_8x8_rows('\x01');
+    ASSERT_EQ(rows[0], 0x00u);
+    ASSERT_EQ(rows[7], 0x00u);
+}
+
+TEST(measure_ascii_text_empty) {
+    ASSERT_EQ(saturn::core::measure_ascii_text_indexed8_impl("", 10), 0);
+}
+
+TEST(measure_ascii_text_single_char) {
+    ASSERT_EQ(saturn::core::measure_ascii_text_indexed8_impl("A", 10), 8);
+}
+
+TEST(measure_ascii_text_multiple_chars) {
+    ASSERT_EQ(saturn::core::measure_ascii_text_indexed8_impl("HELLO", 10), 48);
+}
+
+TEST(measure_ascii_text_with_overlap) {
+    ASSERT_EQ(saturn::core::measure_ascii_text_indexed8_impl("AB", 6), 14);
 }
 
 TEST(pack_glyph_scale_2) {
@@ -72,10 +115,16 @@ TEST(pack_glyph_invalid_args) {
 
 int main() {
     pack_glyph_basic();
+    ascii_rows_lookup_supported();
+    ascii_rows_lookup_fallback();
+    measure_ascii_text_empty();
+    measure_ascii_text_single_char();
+    measure_ascii_text_multiple_chars();
+    measure_ascii_text_with_overlap();
     pack_glyph_scale_2();
     pack_glyph_multi_layout();
     pack_glyph_invalid_args();
 
-    printf("PASS: test_font_logic.cpp (%d tests)\n", 4);
+    printf("PASS: test_font_logic.cpp (%d tests)\n", 10);
     return 0;
 }

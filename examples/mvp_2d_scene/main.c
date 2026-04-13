@@ -6,6 +6,7 @@
 #include "saturn/font.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
+#include "saturn/example_util.h"
 
 #define STAGE_COLOR_A 0x801F
 #define STAGE_COLOR_B 0x83E0
@@ -28,56 +29,6 @@ static uint8_t g_hud_pixels[16 * 16];
 static uint8_t g_hello_pixels[HELLO_TEX_W * HELLO_TEX_H];
 static uint16_t g_palette[256];
 
-static void panic_color_loop(uint16_t color_a, uint16_t color_b) {
-    for (;;) {
-        (void)sat_vdp2_back_color_set(color_a);
-        for (volatile uint32_t spin = 0; spin < 250000u; ++spin) {
-        }
-        (void)sat_vdp2_back_color_set(color_b);
-        for (volatile uint32_t spin = 0; spin < 250000u; ++spin) {
-        }
-    }
-}
-
-static uint8_t hello_glyph_row(char ch, uint16_t row) {
-    if (row >= 8u) {
-        return 0x00u;
-    }
-
-    switch (ch) {
-        case 'H': {
-            static const uint8_t kRows[8] = {0x81u, 0x81u, 0x81u, 0xFFu, 0x81u, 0x81u, 0x81u, 0x00u};
-            return kRows[row];
-        }
-        case 'E': {
-            static const uint8_t kRows[8] = {0xFFu, 0x80u, 0x80u, 0xFEu, 0x80u, 0x80u, 0xFFu, 0x00u};
-            return kRows[row];
-        }
-        case 'L': {
-            static const uint8_t kRows[8] = {0x80u, 0x80u, 0x80u, 0x80u, 0x80u, 0x80u, 0xFFu, 0x00u};
-            return kRows[row];
-        }
-        case 'O': {
-            static const uint8_t kRows[8] = {0x7Eu, 0x81u, 0x81u, 0x81u, 0x81u, 0x81u, 0x7Eu, 0x00u};
-            return kRows[row];
-        }
-        case 'W': {
-            static const uint8_t kRows[8] = {0x81u, 0x81u, 0x81u, 0x91u, 0x91u, 0x91u, 0x6Eu, 0x00u};
-            return kRows[row];
-        }
-        case 'R': {
-            static const uint8_t kRows[8] = {0xFEu, 0x81u, 0x81u, 0xFEu, 0x90u, 0x88u, 0x84u, 0x00u};
-            return kRows[row];
-        }
-        case 'D': {
-            static const uint8_t kRows[8] = {0xFCu, 0x82u, 0x81u, 0x81u, 0x81u, 0x82u, 0xFCu, 0x00u};
-            return kRows[row];
-        }
-        default:
-            return 0x00u;
-    }
-}
-
 static sat_result_t build_hello_texture(void) {
     const char* text = HELLO_TEXT;
     for (uint16_t y = 0; y < HELLO_TEX_H; ++y) {
@@ -90,10 +41,10 @@ static sat_result_t build_hello_texture(void) {
         const char ch = text[i];
         uint8_t glyph_rows[8];
         for (uint16_t row = 0; row < 8u; ++row) {
-            glyph_rows[row] = hello_glyph_row(ch, row);
+            glyph_rows[row] = sat_font_ascii_8x8_rows(ch)[row];
         }
 
-        sat_result_t st = sat_font_pack_8x8_glyph_indexed8(
+        SAT_TRY(sat_font_pack_8x8_glyph_indexed8(
             g_hello_pixels,
             HELLO_TEX_W,
             HELLO_TEX_H,
@@ -101,10 +52,7 @@ static sat_result_t build_hello_texture(void) {
             0,
             glyph_rows,
             2
-        );
-        if (st != SAT_OK) {
-            return st;
-        }
+        ));
     }
 
     return SAT_OK;
@@ -115,9 +63,7 @@ static void hello_visual_loop(const sat_texture_t* hello_tex) {
     uint32_t counter = 0;
     for (;;) {
         const uint16_t bg = ((counter & 32u) != 0u) ? HELLO_BG_A : HELLO_BG_B;
-        if (sat_app_frame_begin(bg, 0x0000, NULL) != SAT_OK) {
-            continue;
-        }
+        sat_example_must(sat_app_frame_begin(bg, 0x0000, NULL));
 
         sat_sprite_cmd_t hello_cmd = {
             64 * SAT_FX16_ONE,
@@ -128,8 +74,8 @@ static void hello_visual_loop(const sat_texture_t* hello_tex) {
             0,
             0
         };
-        sat_draw_sprite(&hello_cmd);
-        (void)sat_app_frame_end();
+        sat_example_must(sat_draw_sprite(&hello_cmd));
+        sat_example_must(sat_app_frame_end());
 
         for (volatile uint32_t spin = 0; spin < 120000u; ++spin) {
         }
@@ -173,44 +119,26 @@ static void build_textures(void) {
 }
 
 int main(void) {
-    sat_result_t st = sat_app_init_default();
-    if (st != SAT_OK) {
-        panic_color_loop(0xFC00, 0x801F);
-    }
-    sat_set_clear_color(STAGE_COLOR_B);
-    (void)sat_vdp2_back_color_set(HELLO_BG_A);
+    sat_example_must(sat_app_init_default());
+    sat_example_must(sat_set_clear_color(STAGE_COLOR_B));
+    sat_example_must(sat_vdp2_back_color_set(HELLO_BG_A));
 
     build_palette();
     build_textures();
-    st = build_hello_texture();
-    if (st != SAT_OK) {
-        panic_color_loop(0x83E0, 0xFC00);
-    }
+    sat_example_must(build_hello_texture());
     g_palette[0] = 0x0000;
     g_palette[1] = 0xFFFF;
-    sat_set_clear_color(STAGE_COLOR_C);
+    sat_example_must(sat_set_clear_color(STAGE_COLOR_C));
 
     sat_texture_t player_tex = {0};
     sat_texture_t tile_tex = {0};
     sat_texture_t hud_tex = {0};
     sat_texture_t hello_tex = {0};
 
-    st = sat_tex_upload_indexed8(&player_tex, g_player_pixels, 16, 16, g_palette, 0);
-    if (st != SAT_OK) {
-        panic_color_loop(0x83E0, 0xFC00);
-    }
-    st = sat_tex_upload_indexed8(&tile_tex, g_tile_pixels, 16, 16, g_palette, 0);
-    if (st != SAT_OK) {
-        panic_color_loop(0x83E0, 0xFC00);
-    }
-    st = sat_tex_upload_indexed8(&hud_tex, g_hud_pixels, 16, 16, g_palette, 0);
-    if (st != SAT_OK) {
-        panic_color_loop(0x83E0, 0xFC00);
-    }
-    st = sat_tex_upload_indexed8(&hello_tex, g_hello_pixels, HELLO_TEX_W, HELLO_TEX_H, g_palette, 0);
-    if (st != SAT_OK) {
-        panic_color_loop(0x83E0, 0xFC00);
-    }
+    sat_example_must(sat_tex_upload_indexed8(&player_tex, g_player_pixels, 16, 16, g_palette, 0));
+    sat_example_must(sat_tex_upload_indexed8(&tile_tex, g_tile_pixels, 16, 16, g_palette, 0));
+    sat_example_must(sat_tex_upload_indexed8(&hud_tex, g_hud_pixels, 16, 16, g_palette, 0));
+    sat_example_must(sat_tex_upload_indexed8(&hello_tex, g_hello_pixels, HELLO_TEX_W, HELLO_TEX_H, g_palette, 0));
 
 #if MVP_HELLO_VISUAL_ONLY
     hello_visual_loop(&hello_tex);
@@ -225,10 +153,7 @@ int main(void) {
         sat_pad_state_t pad = {0};
         const uint16_t backdrop = (frame_counter & 32u) ? HELLO_BG_A : HELLO_BG_B;
         const uint16_t clear = (frame_counter & 1u) ? STAGE_COLOR_D0 : STAGE_COLOR_D1;
-        st = sat_app_frame_begin(backdrop, clear, &pad);
-        if (st != SAT_OK) {
-            panic_color_loop(0x83E0, 0xFC00);
-        }
+        sat_example_must(sat_app_frame_begin(backdrop, clear, &pad));
 
         if ((pad.held & SAT_PAD_LEFT) != 0u) {
             player_x -= speed;
@@ -267,14 +192,14 @@ int main(void) {
                     0,
                     0
                 };
-                sat_draw_sprite(&tile_cmd);
+                sat_example_must(sat_draw_sprite(&tile_cmd));
 
                 tile_cmd.x += (16 * SAT_FX16_ONE);
-                sat_draw_sprite(&tile_cmd);
+                sat_example_must(sat_draw_sprite(&tile_cmd));
                 tile_cmd.y += (16 * SAT_FX16_ONE);
-                sat_draw_sprite(&tile_cmd);
+                sat_example_must(sat_draw_sprite(&tile_cmd));
                 tile_cmd.x -= (16 * SAT_FX16_ONE);
-                sat_draw_sprite(&tile_cmd);
+                sat_example_must(sat_draw_sprite(&tile_cmd));
             }
         }
 
@@ -287,7 +212,7 @@ int main(void) {
             0,
             0
         };
-        sat_draw_sprite(&player_cmd);
+        sat_example_must(sat_draw_sprite(&player_cmd));
 
         for (uint16_t i = 0; i < 5; ++i) {
             sat_sprite_cmd_t hud_cmd = {
@@ -299,13 +224,10 @@ int main(void) {
                 0,
                 0
             };
-            sat_draw_sprite(&hud_cmd);
+            sat_example_must(sat_draw_sprite(&hud_cmd));
         }
 
-        st = sat_app_frame_end();
-        if (st != SAT_OK) {
-            panic_color_loop(0x83E0, 0xFC00);
-        }
+        sat_example_must(sat_app_frame_end());
         ++frame_counter;
     }
 }

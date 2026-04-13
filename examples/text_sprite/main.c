@@ -4,31 +4,21 @@
 #include "saturn/app.h"
 #include "saturn/color.h"
 #include "saturn/vdp1.h"
+#include "saturn/example_util.h"
 #include "text_sprite/sonic_head.h"
 
-static void panic_forever(void) {
-    for (;;) {
-    }
-}
-
 int main(void) {
-    sat_result_t st = sat_app_init_default();
-    if (st != SAT_OK) {
-        panic_forever();
-    }
+    sat_example_must(sat_app_init_default());
 
     sat_texture_t texture = {0};
-    st = sat_tex_upload_indexed8(
+    sat_example_must(sat_tex_upload_indexed8(
         &texture,
         sonic_head_asset.pixels,
         sonic_head_asset.width,
         sonic_head_asset.height,
         sonic_head_asset.palette,
         sonic_head_asset.palette_index
-    );
-    if (st != SAT_OK) {
-        panic_forever();
-    }
+    ));
 
     const uint16_t sprite_w = texture.width;
     const uint16_t sprite_h = texture.height;
@@ -44,10 +34,7 @@ int main(void) {
 
     for (;;) {
         sat_pad_state_t pad = {0};
-        st = sat_app_frame_begin((frame & 32u) ? SAT_COLOR_BLUE : SAT_COLOR_BLACK, SAT_COLOR_BLACK, &pad);
-        if (st != SAT_OK) {
-            panic_forever();
-        }
+        sat_example_must(sat_app_frame_begin((frame & 32u) ? SAT_COLOR_BLUE : SAT_COLOR_BLACK, SAT_COLOR_BLACK, &pad));
 
         if ((pad.held & SAT_PAD_LEFT) != 0u) {
             x -= speed;
@@ -84,17 +71,11 @@ int main(void) {
             0,
             0
         };
-        st = sat_draw_sprite(&cmd);
-        if (st != SAT_OK) {
-            panic_forever();
-        }
+        sat_example_must(sat_draw_sprite(&cmd));
 
         const uint8_t exit_requested = (uint8_t)((pad.pressed & SAT_PAD_START) != 0u);
 
-        st = sat_app_frame_end();
-        if (st != SAT_OK) {
-            panic_forever();
-        }
+        sat_example_must(sat_app_frame_end());
 
         if (exit_requested != 0u) {
             break;

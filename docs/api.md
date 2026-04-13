@@ -37,6 +37,11 @@ Fluxo recomendado para assets:
 3. Chamar `sat_tex_upload_indexed8()` com `pixels`, `palette`, `width`, `height` e `palette_index` do asset gerado.
 4. Se a imagem original for maior do que o sprite alvo, usar `--resize` no conversor para gerar uma versão compatível com o caminho de VDP1.
 
+## Error helpers
+
+- `SAT_TRY(expr)`
+- `SAT_PANIC_IF_ERROR(expr)`
+
 Exemplo de uso:
 
 ```c
@@ -66,7 +71,16 @@ sat_tex_upload_indexed8(
 
 ## Font helpers
 
+- `sat_ascii_font_t`
+- `sat_ascii_font_init_8x8_indexed8(...)`
+- `sat_ascii_font_measure_text_indexed8(...)`
+- `sat_ascii_font_draw_text_indexed8(...)`
+- `sat_ascii_font_draw_text_centered_indexed8(...)`
+- `sat_font_ascii_8x8_rows(char c)`
 - `sat_font_pack_8x8_glyph_indexed8(...)`
+- `sat_font_draw_text_line_indexed8(...)`
+- `sat_font_draw_text_ascii_indexed8(...)`
+- `sat_font_upload_ascii_8x8_textures_indexed8(...)`
 
 ## Convencoes
 
