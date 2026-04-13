@@ -29,18 +29,11 @@ function Convert-ToMsysPath {
 }
 
 function Find-Msys2Shell {
-    param(
-        [Parameter(Mandatory = $true)][string[]]$RootCandidates
-    )
-
+    param([Parameter(Mandatory = $true)][string[]]$RootCandidates)
     foreach ($candidate in $RootCandidates) {
-        if (-not $candidate) {
-            continue
-        }
+        if (-not $candidate) { continue }
         $shellPath = Join-Path ([System.IO.Path]::GetFullPath($candidate)) 'msys2_shell.cmd'
-        if (Test-Path $shellPath) {
-            return $shellPath
-        }
+        if (Test-Path $shellPath) { return $shellPath }
     }
     return $null
 }
@@ -50,7 +43,6 @@ function Invoke-Msys2Command {
         [Parameter(Mandatory = $true)][string]$ShellPath,
         [Parameter(Mandatory = $true)][string]$ScriptCommand
     )
-
     $wrappedCommand = "rm -f /var/lib/pacman/db.lck >/dev/null 2>&1 || true; $ScriptCommand"
     & $ShellPath -defterm -no-start -ucrt64 -here -c $wrappedCommand
     if ($LASTEXITCODE -ne 0) {
@@ -58,6 +50,7 @@ function Invoke-Msys2Command {
     }
 }
 
+# -- Normalizar nome do exemplo --
 $normalizedExample = $Example.Trim().Trim('\', '/')
 if ($normalizedExample -match '^(examples[\\/])(.+)$') {
     $normalizedExample = $matches[2]
@@ -72,6 +65,7 @@ if (-not (Test-Path $exampleMain)) {
     throw "Example nao encontrado: $exampleMain. Disponiveis: $availableText"
 }
 
+# -- Localizar MSYS2 --
 $rootCandidates = @(
     $RequestedRoot,
     $env:LIBSATURN_MSYS2_ROOT,
@@ -86,45 +80,95 @@ if (-not $shellPath) {
 }
 
 $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
-Write-Host "[build-example] Buildando example: $normalizedExample"
-$env:PATH = "/c/msys64/home/celso/saturn-tools/bin:$env:PATH"
+Write-Host "[build-example] Building example: $normalizedExample"
 
-Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "export PATH=`"/c/msys64/home/celso/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make clean IP_PROFILE=$IpProfile IP_TEMPLATE_KIND=$IpTemplate"
+# Detectar toolchain SH2 automaticamente
+$saturnBin = $null
+$msys2Home = '/c/msys64/home'
 
-if ($normalizedExample -eq 'text_sprite') {
-    $assetScript = Join-Path $RepoRoot 'tools\convert_indexed8.py'
-    $assetOutPrefix = Join-Path $RepoRoot 'build\generated\text_sprite\sonic_head'
-    & python $assetScript --input (Join-Path $RepoRoot 'assets\sonic_head.png') --resize 128 96 --out-prefix $assetOutPrefix
-    if ($LASTEXITCODE -ne 0) {
-        throw "Falha ao gerar asset de textura para $normalizedExample"
+# Buscar em /home/*/saturn-tools/bin
+$homeDirs = Get-ChildItem 'C:\msys64\home' -Directory -ErrorAction SilentlyContinue
+foreach ($dir in $homeDirs) {
+    $binPath = "C:\msys64\home\$($dir.Name)\saturn-tools\bin"
+    if (Test-Path "$binPath\sh2eb-elf-gcc.exe") {
+        $saturnBin = "$msys2Home/$($dir.Name)/saturn-tools/bin"
+        break
     }
 }
 
-Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "export PATH=`"/c/msys64/home/celso/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make EXAMPLE=$normalizedExample IP_PROFILE=$IpProfile IP_TEMPLATE_KIND=$IpTemplate all"
+if (-not $saturnBin) {
+    Write-Warning "Toolchain SH2 nao detectada automaticamente. Adicione ao PATH ou crie symlinks."
+}
 
-$safeName = ($normalizedExample -replace '[\\/]', '_')
+# -- Converter assets (apenas se não houver prebuilt) --
+$prebuiltH = Join-Path $RepoRoot "assets\prebuilt\$normalizedExample\*.h"
+$prebuiltFiles = @(Get-ChildItem $prebuiltH -ErrorAction SilentlyContinue)
+$hasPrebuilt = $prebuiltFiles.Count -gt 0
+
+if (-not $hasPrebuilt) {
+    $makefileInc = Join-Path $RepoRoot "examples\$normalizedExample\Makefile.inc"
+    if (Test-Path $makefileInc) {
+        $incContent = Get-Content $makefileInc -Raw
+        if ($incContent -match 'EXAMPLE_INPUT\s*:=\s*(.+)') {
+            $assetInput = $matches[1].Trim()
+            $assetInputFull = Join-Path $RepoRoot $assetInput
+
+            if ($incContent -match 'EXAMPLE_RESIZE\s*:=\s*(\d+)\s+(\d+)') {
+                $resizeW = $matches[1]
+                $resizeH = $matches[2]
+
+                if ($incContent -match 'EXAMPLE_ASSET_PREFIX\s*:=\s*\$\(GENERATED_DIR\)/(.+)') {
+                    $assetSubdir = $matches[1]
+                    $assetOutPrefix = Join-Path $RepoRoot "build\generated\$assetSubdir"
+
+                    if (Test-Path $assetInputFull) {
+                        Write-Host "[asset] Converting $assetInput -> ${resizeW}x${resizeH}"
+                        & python (Join-Path $RepoRoot 'tools\convert_indexed8.py') `
+                            --input $assetInputFull `
+                            --resize $resizeW $resizeH `
+                            --out-prefix $assetOutPrefix
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Falha ao gerar asset para $normalizedExample"
+                        }
+                    }
+                }
+            }
+        }
+    }
+} else {
+    Write-Host "[asset] Using prebuilt assets (fast build)"
+}
+
+# -- Build via MSYS2 --
+$repoPath = $repoMsysPath.Replace('\', '/')
+if ($saturnBin) {
+    $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && cd "' + $repoPath + '" && make EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
+} else {
+    $makeCommand = 'cd "' + $repoPath + '" && make EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
+}
+Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand $makeCommand
+
+# -- Copiar artefatos --
 $exampleBuildDir = Join-Path $RepoRoot 'build\examples'
 if (-not (Test-Path $exampleBuildDir)) {
     New-Item -ItemType Directory -Path $exampleBuildDir -Force | Out-Null
 }
 
-$isoSource = Join-Path $RepoRoot 'build\mvp.iso'
-$cueSource = Join-Path $RepoRoot 'build\mvp.cue'
-$binSource = Join-Path $RepoRoot 'build\mvp.bin'
-$elfSource = Join-Path $RepoRoot 'build\mvp.elf'
+$safeName = $normalizedExample -replace '[\\/]', '_'
+$isoSource = Join-Path $RepoRoot "build\$normalizedExample.iso"
+$cueSource = Join-Path $RepoRoot "build\$normalizedExample.cue"
+$binSource = Join-Path $RepoRoot "build\$normalizedExample.bin"
+$elfSource = Join-Path $RepoRoot "build\$normalizedExample.elf"
 
 $isoTarget = Join-Path $exampleBuildDir "$safeName.iso"
 $cueTarget = Join-Path $exampleBuildDir "$safeName.cue"
 $binTarget = Join-Path $exampleBuildDir "$safeName.bin"
 $elfTarget = Join-Path $exampleBuildDir "$safeName.elf"
 
-Copy-Item $isoSource $isoTarget -Force
-Copy-Item $cueSource $cueTarget -Force
-Copy-Item $binSource $binTarget -Force
-Copy-Item $elfSource $elfTarget -Force
-
-# Update the CUE to reference the renamed ISO
-(Get-Content $cueTarget) -replace 'mvp\.iso', "$safeName.iso" | Set-Content $cueTarget
+if (Test-Path $isoSource) { Copy-Item $isoSource $isoTarget -Force }
+if (Test-Path $cueSource) { Copy-Item $cueSource $cueTarget -Force }
+if (Test-Path $binSource) { Copy-Item $binSource $binTarget -Force }
+if (Test-Path $elfSource) { Copy-Item $elfSource $elfTarget -Force }
 
 Write-Host "[build-example] Artefatos:"
 Write-Host "  $isoTarget"
