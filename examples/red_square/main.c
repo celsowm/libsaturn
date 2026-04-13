@@ -8,14 +8,29 @@ enum {
     HUD_COLON,
     HUD_ZERO,
     HUD_ONE,
-    HUD_U,
-    HUD_D,
-    HUD_L,
-    HUD_R,
-    HUD_S,
     HUD_A,
     HUD_B,
     HUD_C,
+    HUD_D,
+    HUD_E,
+    HUD_F,
+    HUD_G,
+    HUD_H,
+    HUD_I,
+    HUD_J,
+    HUD_K,
+    HUD_L,
+    HUD_M,
+    HUD_N,
+    HUD_O,
+    HUD_P,
+    HUD_Q,
+    HUD_R,
+    HUD_S,
+    HUD_T,
+    HUD_U,
+    HUD_V,
+    HUD_W,
     HUD_X,
     HUD_Y,
     HUD_Z,
@@ -27,17 +42,32 @@ static const uint8_t g_font_rows[HUD_GLYPH_COUNT][8] = {
     /* : */     {0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00},
     /* 0 */     {0x3C, 0x66, 0x6E, 0x76, 0x66, 0x66, 0x3C, 0x00},
     /* 1 */     {0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00},
-    /* U */     {0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00},
-    /* D */     {0x7C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x7C, 0x00},
-    /* L */     {0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00},
-    /* R */     {0x7C, 0x66, 0x66, 0x7C, 0x70, 0x6C, 0x66, 0x00},
-    /* S */     {0x3C, 0x66, 0x60, 0x3C, 0x06, 0x66, 0x3C, 0x00},
     /* A */     {0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00},
-    /* B */     {0x7C, 0x66, 0x66, 0x7C, 0x66, 0x66, 0x7C, 0x00},
-    /* C */     {0x3C, 0x66, 0x60, 0x60, 0x60, 0x66, 0x3C, 0x00},
+    /* B */     {0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00},
+    /* C */     {0x3C, 0x66, 0xC0, 0xC0, 0xC0, 0x66, 0x3C, 0x00},
+    /* D */     {0xFC, 0x66, 0x66, 0x66, 0x66, 0x66, 0xFC, 0x00},
+    /* E */     {0xFE, 0x60, 0x60, 0x78, 0x60, 0x60, 0xFE, 0x00},
+    /* F */     {0xFE, 0x60, 0x60, 0x78, 0x60, 0x60, 0x60, 0x00},
+    /* G */     {0x3C, 0x66, 0xC0, 0xCE, 0xC6, 0x66, 0x3C, 0x00},
+    /* H */     {0x66, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x66, 0x00},
+    /* I */     {0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00},
+    /* J */     {0x1E, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0x78, 0x00},
+    /* K */     {0x66, 0x6C, 0x78, 0x70, 0x78, 0x6C, 0x66, 0x00},
+    /* L */     {0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0xFE, 0x00},
+    /* M */     {0x63, 0x77, 0x7F, 0x6B, 0x63, 0x63, 0x63, 0x00},
+    /* N */     {0x66, 0x76, 0x7E, 0x7E, 0x6E, 0x66, 0x66, 0x00},
+    /* O */     {0x3C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00},
+    /* P */     {0xFC, 0x66, 0x66, 0x7C, 0x60, 0x60, 0x60, 0x00},
+    /* Q */     {0x3C, 0x66, 0x66, 0x66, 0x6E, 0x6C, 0x36, 0x00},
+    /* R */     {0xFC, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0x66, 0x00},
+    /* S */     {0x3C, 0x66, 0x60, 0x3C, 0x06, 0x66, 0x3C, 0x00},
+    /* T */     {0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00},
+    /* U */     {0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00},
+    /* V */     {0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x18, 0x00},
+    /* W */     {0x63, 0x63, 0x63, 0x6B, 0x7F, 0x77, 0x63, 0x00},
     /* X */     {0x66, 0x66, 0x3C, 0x18, 0x3C, 0x66, 0x66, 0x00},
     /* Y */     {0x66, 0x66, 0x3C, 0x18, 0x18, 0x18, 0x3C, 0x00},
-    /* Z */     {0x7E, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x7E, 0x00},
+    /* Z */     {0xFE, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0xFE, 0x00},
 };
 
 static uint8_t g_square_pixels[16 * 16];
@@ -54,10 +84,29 @@ static void build_square_palette(void) {
     }
 
     g_square_palette[0] = SAT_COLOR_BLACK;
-    g_square_palette[1] = SAT_COLOR_BLUE;
+    g_square_palette[1] = SAT_COLOR_RED;
 
     g_font_palette[0] = SAT_COLOR_BLACK;
     g_font_palette[1] = SAT_COLOR_WHITE;
+}
+
+static const char* color_name_for_rgb555(uint16_t rgb555) {
+    switch (rgb555) {
+        case SAT_COLOR_RED: return "RED";
+        case SAT_COLOR_GREEN: return "GREEN";
+        case SAT_COLOR_BLUE: return "BLUE";
+        case SAT_COLOR_YELLOW: return "YELLOW";
+        case SAT_COLOR_MAGENTA: return "MAGENTA";
+        case SAT_COLOR_CYAN: return "CYAN";
+        case SAT_COLOR_WHITE: return "WHITE";
+        case SAT_COLOR_ORANGE: return "ORANGE";
+        case SAT_COLOR_VIOLET: return "VIOLET";
+        case SAT_COLOR_GRAY: return "GRAY";
+        case SAT_COLOR_TEAL: return "TEAL";
+        case SAT_COLOR_OLIVE: return "OLIVE";
+        case SAT_COLOR_BROWN: return "BROWN";
+        default: return "RED";
+    }
 }
 
 static uint16_t choose_square_color(const sat_pad_state_t* pad) {
@@ -74,7 +123,7 @@ static uint16_t choose_square_color(const sat_pad_state_t* pad) {
     if ((pad->held & SAT_PAD_Z) != 0u) return SAT_COLOR_TEAL;
     if ((pad->held & SAT_PAD_L) != 0u) return SAT_COLOR_OLIVE;
     if ((pad->held & SAT_PAD_R) != 0u) return SAT_COLOR_BROWN;
-    return SAT_COLOR_BLUE;
+    return SAT_COLOR_RED;
 }
 
 static sat_result_t update_square_palette(uint16_t rgb555) {
@@ -118,14 +167,29 @@ static uint16_t glyph_for_char(char c) {
         case ':': return HUD_COLON;
         case '0': return HUD_ZERO;
         case '1': return HUD_ONE;
-        case 'U': return HUD_U;
-        case 'D': return HUD_D;
-        case 'L': return HUD_L;
-        case 'R': return HUD_R;
-        case 'S': return HUD_S;
         case 'A': return HUD_A;
         case 'B': return HUD_B;
         case 'C': return HUD_C;
+        case 'D': return HUD_D;
+        case 'E': return HUD_E;
+        case 'F': return HUD_F;
+        case 'G': return HUD_G;
+        case 'H': return HUD_H;
+        case 'I': return HUD_I;
+        case 'J': return HUD_J;
+        case 'K': return HUD_K;
+        case 'L': return HUD_L;
+        case 'M': return HUD_M;
+        case 'N': return HUD_N;
+        case 'O': return HUD_O;
+        case 'P': return HUD_P;
+        case 'Q': return HUD_Q;
+        case 'R': return HUD_R;
+        case 'S': return HUD_S;
+        case 'T': return HUD_T;
+        case 'U': return HUD_U;
+        case 'V': return HUD_V;
+        case 'W': return HUD_W;
         case 'X': return HUD_X;
         case 'Y': return HUD_Y;
         case 'Z': return HUD_Z;
@@ -206,7 +270,8 @@ int main(void) {
             square_y += speed;
         }
 
-        st = update_square_palette(choose_square_color(&pad));
+        const uint16_t square_color = choose_square_color(&pad);
+        st = update_square_palette(square_color);
         if (st != SAT_OK) {
             for (;;) {
             }
@@ -240,6 +305,7 @@ int main(void) {
             }
         }
 
+        const char* color_name = color_name_for_rgb555(square_color);
         char line1[] = "U:0 D:0 L:0 R:0 S:0";
         char line2[] = "A:0 B:0 C:0 X:0 Y:0 Z:0";
 
@@ -256,8 +322,10 @@ int main(void) {
         set_button_char(line2, 18u, (pad.held & SAT_PAD_Y) != 0u);
         set_button_char(line2, 22u, (pad.held & SAT_PAD_Z) != 0u);
 
-        draw_text_line(-156, -104, line1);
-        draw_text_line(-156, -94, line2);
+        draw_text_line(-156, -110, "COLOR: ");
+        draw_text_line(-100, -110, color_name);
+        draw_text_line(-156, -100, line1);
+        draw_text_line(-156, -90, line2);
 
         st = demo_frame_end();
         if (st != SAT_OK) {

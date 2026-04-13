@@ -24,6 +24,7 @@ endif
 BUILD_DIR   := build
 ISO_ROOT    := iso_root
 IP_BIN      := ip.bin
+GENERATED_DIR := $(BUILD_DIR)/generated
 ifeq ($(IP_TEMPLATE_KIND),yaul)
 IP_TEMPLATE := assets/boot/ip_yaul_template.bin
 else ifeq ($(IP_TEMPLATE_KIND),yaul_fixed)
@@ -46,8 +47,20 @@ VARIANT_ISO  := $(BUILD_DIR)/$(VARIANT_NAME).iso
 VARIANT_CUE  := $(BUILD_DIR)/$(VARIANT_NAME).cue
 APP_LOAD_ADDR_HEX := 06004000
 MAX_APP_BIN_BYTES := 983040
+APP_ASSET_PREFIX :=
+APP_ASSET_C_SRCS :=
+APP_ASSET_HEADERS :=
+APP_ASSET_DEPS :=
+APP_ASSET_OBJS :=
+ifeq ($(EXAMPLE),text_sprite)
+APP_ASSET_PREFIX := $(GENERATED_DIR)/text_sprite/sonic_head
+APP_ASSET_C_SRCS := $(APP_ASSET_PREFIX).c
+APP_ASSET_HEADERS := $(APP_ASSET_PREFIX).h
+APP_ASSET_DEPS := assets/sonic_head.png tools/convert_indexed8.py
+APP_ASSET_OBJS := $(patsubst $(GENERATED_DIR)/%.c,$(GENERATED_DIR)/%.o,$(APP_ASSET_C_SRCS))
+endif
 
-BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra -Iinclude -I.
+BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra -Iinclude -I. -I$(GENERATED_DIR)
 CFLAGS      := $(BASE_CFLAGS)
 CXXFLAGS    := $(CFLAGS) -std=c++20 -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit
 ASFLAGS     := -m2 -mb
@@ -72,8 +85,9 @@ CRT_SRCS   := src/core/crt0.s
 EXAMPLE ?= mvp_2d_scene
 
 APP_COMMON_C_SRCS := $(wildcard examples/common/*.c)
-APP_C_SRCS ?= $(wildcard examples/$(EXAMPLE)/*.c) $(APP_COMMON_C_SRCS)
-APP_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(APP_C_SRCS))
+APP_C_SRCS ?= $(wildcard examples/$(EXAMPLE)/*.c) $(APP_COMMON_C_SRCS) $(APP_ASSET_C_SRCS)
+APP_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(wildcard examples/$(EXAMPLE)/*.c) $(APP_COMMON_C_SRCS)) $(APP_ASSET_OBJS)
+$(APP_OBJS): $(APP_ASSET_HEADERS)
 
 ELF := $(BUILD_DIR)/$(EXAMPLE).elf
 BIN := $(BUILD_DIR)/$(EXAMPLE).bin
@@ -107,9 +121,18 @@ check-tools:
 	@echo "[profiles] IP_TEMPLATE_KIND=$(IP_TEMPLATE_KIND)"
 
 dirs:
-	@mkdir -p $(BUILD_DIR) $(BUILD_DIR)/src/core $(BUILD_DIR)/src/hal $(BUILD_DIR)/examples/mvp_2d_scene $(ISO_ROOT)
+	@mkdir -p $(BUILD_DIR) $(GENERATED_DIR) $(GENERATED_DIR)/text_sprite $(BUILD_DIR)/src/core $(BUILD_DIR)/src/hal $(BUILD_DIR)/examples/mvp_2d_scene $(ISO_ROOT)
+
+ifeq ($(EXAMPLE),text_sprite)
+$(APP_ASSET_PREFIX).h $(APP_ASSET_PREFIX).c: $(APP_ASSET_DEPS)
+	$(PYTHON) tools/convert_indexed8.py --input assets/sonic_head.png --resize 128 96 --out-prefix $(APP_ASSET_PREFIX)
+endif
 
 $(BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/%.o: $(GENERATED_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 

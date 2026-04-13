@@ -12,7 +12,8 @@ Este repositório entrega o MVP `2D Core`:
 - Pipeline de build para `ELF -> BIN -> ISO`.
 - Demo jogável 2D em `examples/mvp_2d_scene`.
 - Demo simples de movimento em `examples/red_square`.
-- Conversor de assets indexados 8-bit em `tools/convert_indexed8.py`.
+- Demo separada de textura em `examples/text_sprite`.
+- Conversor de assets indexados 8-bit em `tools/convert_indexed8.py`, com saida em `C/H` para embed no build.
 
 ## Estrutura principal
 
@@ -161,6 +162,25 @@ Matriz 1x2 automatizada (build + decisão):
 bash scripts/smoke-build.sh
 python -m unittest tests/test_asset_converter.py
 ```
+
+## Assets 2D para VDP1
+
+O conversor `tools/convert_indexed8.py` gera:
+
+- `.tex8` e `.pal` para inspeção/binário legado.
+- `.h` e `.c` com pixels, palette e metadados para compilar no exemplo.
+
+Exemplo usado pelo repositório:
+
+```bash
+python tools/convert_indexed8.py \
+  --input assets/sonic_head.png \
+  --resize 128 96 \
+  --out-prefix build/generated/text_sprite/sonic_head
+```
+
+O exemplo `text_sprite` reduz o `sonic_head.png` para caber no caminho simples de sprite do VDP1.
+Para o exemplo `text_sprite`, o `make` chama essa geração automaticamente antes de compilar o binário.
 
 ## Emuladores alvo
 

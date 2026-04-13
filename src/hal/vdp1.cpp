@@ -81,9 +81,9 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-    cmd.ctrl = 0x0002;
+    cmd.ctrl = 0x0000;
     cmd.link = 0;
-    cmd.pmod = 0x0020;
+    cmd.pmod = 0x00A0;
     cmd.colr = static_cast<uint16_t>(req.palette << 8u);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);

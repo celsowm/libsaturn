@@ -88,7 +88,19 @@ if (-not $shellPath) {
 $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
 Write-Host "[build-example] Buildando example: $normalizedExample"
 $env:PATH = "/c/msys64/home/celso/saturn-tools/bin:$env:PATH"
-Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "export PATH=`"/c/msys64/home/celso/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make clean IP_PROFILE=$IpProfile IP_TEMPLATE_KIND=$IpTemplate && make EXAMPLE=$normalizedExample IP_PROFILE=$IpProfile IP_TEMPLATE_KIND=$IpTemplate all"
+
+Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "export PATH=`"/c/msys64/home/celso/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make clean IP_PROFILE=$IpProfile IP_TEMPLATE_KIND=$IpTemplate"
+
+if ($normalizedExample -eq 'text_sprite') {
+    $assetScript = Join-Path $RepoRoot 'tools\convert_indexed8.py'
+    $assetOutPrefix = Join-Path $RepoRoot 'build\generated\text_sprite\sonic_head'
+    & python $assetScript --input (Join-Path $RepoRoot 'assets\sonic_head.png') --resize 128 96 --out-prefix $assetOutPrefix
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha ao gerar asset de textura para $normalizedExample"
+    }
+}
+
+Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "export PATH=`"/c/msys64/home/celso/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make EXAMPLE=$normalizedExample IP_PROFILE=$IpProfile IP_TEMPLATE_KIND=$IpTemplate all"
 
 $safeName = ($normalizedExample -replace '[\\/]', '_')
 $exampleBuildDir = Join-Path $RepoRoot 'build\examples'
