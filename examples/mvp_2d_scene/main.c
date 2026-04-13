@@ -1,7 +1,11 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#include "saturn/saturn.h"
+#include "saturn/app.h"
+#include "saturn/color.h"
+#include "saturn/font.h"
+#include "saturn/vdp1.h"
+#include "saturn/vdp2.h"
 
 #define STAGE_COLOR_A 0x801F
 #define STAGE_COLOR_B 0x83E0
@@ -24,16 +28,12 @@ static uint8_t g_hud_pixels[16 * 16];
 static uint8_t g_hello_pixels[HELLO_TEX_W * HELLO_TEX_H];
 static uint16_t g_palette[256];
 
-static void set_backdrop_color(uint16_t rgb555) {
-    (void)sat_vdp2_back_color_set(rgb555);
-}
-
 static void panic_color_loop(uint16_t color_a, uint16_t color_b) {
     for (;;) {
-        set_backdrop_color(color_a);
+        (void)sat_vdp2_back_color_set(color_a);
         for (volatile uint32_t spin = 0; spin < 250000u; ++spin) {
         }
-        set_backdrop_color(color_b);
+        (void)sat_vdp2_back_color_set(color_b);
         for (volatile uint32_t spin = 0; spin < 250000u; ++spin) {
         }
     }
@@ -78,7 +78,7 @@ static uint8_t hello_glyph_row(char ch, uint16_t row) {
     }
 }
 
-static void build_hello_texture(void) {
+static sat_result_t build_hello_texture(void) {
     const char* text = HELLO_TEXT;
     for (uint16_t y = 0; y < HELLO_TEX_H; ++y) {
         for (uint16_t x = 0; x < HELLO_TEX_W; ++x) {
@@ -88,36 +88,36 @@ static void build_hello_texture(void) {
 
     for (uint16_t i = 0; i < HELLO_CHAR_COUNT; ++i) {
         const char ch = text[i];
+        uint8_t glyph_rows[8];
         for (uint16_t row = 0; row < 8u; ++row) {
-            const uint8_t bits = hello_glyph_row(ch, row);
-            for (uint16_t col = 0; col < 8u; ++col) {
-                const uint8_t bit = (uint8_t)((bits >> (7u - col)) & 1u);
-                if (bit == 0u) {
-                    continue;
-                }
-                const uint16_t base_x = (uint16_t)(i * HELLO_GLYPH_W + col * 2u);
-                const uint16_t base_y = (uint16_t)(row * 2u);
-                g_hello_pixels[(base_y * HELLO_TEX_W) + base_x] = 1u;
-                g_hello_pixels[(base_y * HELLO_TEX_W) + (base_x + 1u)] = 1u;
-                g_hello_pixels[((base_y + 1u) * HELLO_TEX_W) + base_x] = 1u;
-                g_hello_pixels[((base_y + 1u) * HELLO_TEX_W) + (base_x + 1u)] = 1u;
-            }
+            glyph_rows[row] = hello_glyph_row(ch, row);
+        }
+
+        sat_result_t st = sat_font_pack_8x8_glyph_indexed8(
+            g_hello_pixels,
+            HELLO_TEX_W,
+            HELLO_TEX_H,
+            (uint16_t)(i * HELLO_GLYPH_W),
+            0,
+            glyph_rows,
+            2
+        );
+        if (st != SAT_OK) {
+            return st;
         }
     }
+
+    return SAT_OK;
 }
 
 #if MVP_HELLO_VISUAL_ONLY
-static const uint32_t SAT_UNCACHED_BASE = 0x20000000u;
 static void hello_visual_loop(const sat_texture_t* hello_tex) {
-    volatile uint16_t* const vdp1_fbcr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00002u);
-    volatile uint16_t* const vdp1_ptmr = (volatile uint16_t*)(SAT_UNCACHED_BASE | 0x05D00004u);
     uint32_t counter = 0;
     for (;;) {
-        sat_wait_vblank();
         const uint16_t bg = ((counter & 32u) != 0u) ? HELLO_BG_A : HELLO_BG_B;
-        set_backdrop_color(bg);
-        sat_set_clear_color(0x0000);
-        sat_begin_frame();
+        if (sat_app_frame_begin(bg, 0x0000, NULL) != SAT_OK) {
+            continue;
+        }
 
         sat_sprite_cmd_t hello_cmd = {
             64 * SAT_FX16_ONE,
@@ -129,9 +129,7 @@ static void hello_visual_loop(const sat_texture_t* hello_tex) {
             0
         };
         sat_draw_sprite(&hello_cmd);
-        sat_end_frame();
-        *vdp1_fbcr = 0x0003;
-        *vdp1_ptmr = 0x0001;
+        (void)sat_app_frame_end();
 
         for (volatile uint32_t spin = 0; spin < 120000u; ++spin) {
         }
@@ -175,17 +173,19 @@ static void build_textures(void) {
 }
 
 int main(void) {
-    sat_video_config_t cfg = {320, 224, 1, 0};
-    sat_result_t st = sat_init(&cfg);
+    sat_result_t st = sat_app_init_default();
     if (st != SAT_OK) {
         panic_color_loop(0xFC00, 0x801F);
     }
     sat_set_clear_color(STAGE_COLOR_B);
-    set_backdrop_color(HELLO_BG_A);
+    (void)sat_vdp2_back_color_set(HELLO_BG_A);
 
     build_palette();
     build_textures();
-    build_hello_texture();
+    st = build_hello_texture();
+    if (st != SAT_OK) {
+        panic_color_loop(0x83E0, 0xFC00);
+    }
     g_palette[0] = 0x0000;
     g_palette[1] = 0xFFFF;
     sat_set_clear_color(STAGE_COLOR_C);
@@ -223,11 +223,12 @@ int main(void) {
 
     for (;;) {
         sat_pad_state_t pad = {0};
-        sat_wait_vblank();
-        sat_pad_poll(&pad);
-        set_backdrop_color((frame_counter & 32u) ? HELLO_BG_A : HELLO_BG_B);
-        sat_set_clear_color((frame_counter & 1u) ? STAGE_COLOR_D0 : STAGE_COLOR_D1);
-        ++frame_counter;
+        const uint16_t backdrop = (frame_counter & 32u) ? HELLO_BG_A : HELLO_BG_B;
+        const uint16_t clear = (frame_counter & 1u) ? STAGE_COLOR_D0 : STAGE_COLOR_D1;
+        st = sat_app_frame_begin(backdrop, clear, &pad);
+        if (st != SAT_OK) {
+            panic_color_loop(0x83E0, 0xFC00);
+        }
 
         if ((pad.held & SAT_PAD_LEFT) != 0u) {
             player_x -= speed;
@@ -254,8 +255,6 @@ int main(void) {
         if (player_y > (208 * SAT_FX16_ONE)) {
             player_y = (208 * SAT_FX16_ONE);
         }
-
-        sat_begin_frame();
 
         for (uint16_t ty = 0; ty < 7; ++ty) {
             for (uint16_t tx = 0; tx < 10; ++tx) {
@@ -303,6 +302,10 @@ int main(void) {
             sat_draw_sprite(&hud_cmd);
         }
 
-        sat_end_frame();
+        st = sat_app_frame_end();
+        if (st != SAT_OK) {
+            panic_color_loop(0x83E0, 0xFC00);
+        }
+        ++frame_counter;
     }
 }

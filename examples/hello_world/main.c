@@ -1,6 +1,10 @@
 /* hello_world.c - "HELLO WORLD" renderizado com sprites bitmap */
 #include <stdint.h>
-#include "examples/common/demo.h"
+
+#include "saturn/app.h"
+#include "saturn/color.h"
+#include "saturn/font.h"
+#include "saturn/vdp1.h"
 
 /* ===========================================================================
  * Font 8x8 - cada caractere = 8x8 pixels, 1 bit por pixel
@@ -49,22 +53,30 @@ static int char_to_index(char c) {
     return 0;
 }
 
-static void build_font_textures(void) {
-    int ch, row, col;
+static sat_result_t build_font_textures(void) {
+    int ch;
+
     /* Paleta: 0=transp, 1=branco */
     g_palette[0] = 0x0000;
     g_palette[1] = 0x7FFF;
 
     for (ch = 0; ch < 28; ch++) {
         const uint8_t* glyph = &FONT[ch * 8];
-        for (row = 0; row < 8; row++) {
-            uint8_t bits = glyph[row];
-            for (col = 0; col < 8; col++) {
-                int bit = (bits >> (7 - col)) & 1;
-                g_char_pixels[ch][row * 8 + col] = (uint8_t)(bit ? 1 : 0);
-            }
+        sat_result_t st = sat_font_pack_8x8_glyph_indexed8(
+            g_char_pixels[ch],
+            8,
+            8,
+            0,
+            0,
+            glyph,
+            1
+        );
+        if (st != SAT_OK) {
+            return st;
         }
     }
+
+    return SAT_OK;
 }
 
 int main(void) {
@@ -75,10 +87,11 @@ int main(void) {
     int start_x = -text_width / 2; /* centro = 0, então metade negativa */
     int start_y = -4; /* um pouco acima do centro vertical */
 
-    sat_result_t st = demo_init_default();
+    sat_result_t st = sat_app_init_default();
     if (st != SAT_OK) { for (;;) { } }
 
-    build_font_textures();
+    st = build_font_textures();
+    if (st != SAT_OK) { for (;;) { } }
 
     /* Upload de cada caractere como textura separada */
     int i;
@@ -90,7 +103,8 @@ int main(void) {
 
     for (;;) {
         sat_pad_state_t pad;
-        demo_frame_begin(backdrop_color, backdrop_color, &pad);
+        st = sat_app_frame_begin(backdrop_color, backdrop_color, &pad);
+        if (st != SAT_OK) { for (;;) { } }
 
         /* Desenha cada caractere */
         int x = start_x;
@@ -108,6 +122,7 @@ int main(void) {
             x += char_spacing;
         }
 
-        demo_frame_end();
+        st = sat_app_frame_end();
+        if (st != SAT_OK) { for (;;) { } }
     }
 }

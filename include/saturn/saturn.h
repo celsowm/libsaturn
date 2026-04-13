@@ -8,6 +8,8 @@
 #include "saturn/color.h"
 #include "saturn/video.h"
 #include "saturn/input.h"
+#include "saturn/app.h"
+#include "saturn/font.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
 

@@ -7,6 +7,12 @@ Header publico: `include/saturn/saturn.h`.
 - `sat_init(const sat_video_config_t* config)`
 - `sat_shutdown(void)`
 
+## Helpers de app
+
+- `sat_app_init_default(void)`
+- `sat_app_frame_begin(uint16_t backdrop_rgb555, uint16_t clear_rgb555, sat_pad_state_t* out_pad)`
+- `sat_app_frame_end(void)`
+
 ## Loop de frame
 
 - `sat_wait_vblank(void)`
@@ -57,6 +63,10 @@ sat_tex_upload_indexed8(
 - `sat_vdp2_nbg0_map_fill(...)`
 - `sat_vdp2_nbg0_map_write_region(...)`
 - `sat_vdp2_back_color_set(uint16_t rgb555)`
+
+## Font helpers
+
+- `sat_font_pack_8x8_glyph_indexed8(...)`
 
 ## Convencoes
 

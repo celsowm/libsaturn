@@ -69,6 +69,8 @@ LDFLAGS     := -m2 -mb -nostdlib -Wl,-T,src/core/saturn.ld -Wl,-Map,$(BUILD_DIR)
 LIB_CPP_SRCS := \
 	src/core/runtime_state.cpp \
 	src/core/core_api.cpp \
+	src/core/app_api.cpp \
+	src/core/font_api.cpp \
 	src/core/video_api.cpp \
 	src/core/input_api.cpp \
 	src/core/vdp1_api.cpp \
@@ -94,8 +96,15 @@ BIN := $(BUILD_DIR)/$(EXAMPLE).bin
 
 HOST_CXX ?= g++
 HOST_BUILD_DIR := build-host
+HOST_TEST_SRCS := \
+	tests/host/test_core_logic.cpp \
+	tests/host/test_input_logic.cpp \
+	tests/host/test_vdp1_logic.cpp \
+	tests/host/test_vdp2_logic.cpp \
+	tests/host/test_font_logic.cpp
+HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(HOST_BUILD_DIR)/%.exe,$(HOST_TEST_SRCS))
 
-EXAMPLES := $(notdir $(wildcard examples/*))
+EXAMPLES := $(filter-out common,$(notdir $(wildcard examples/*)))
 
 LIB_CPP_OBJS := $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(LIB_CPP_SRCS))
 LIB_C_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(LIB_C_SRCS))
@@ -186,15 +195,12 @@ $(ISO): $(BIN) $(IP_BIN)
 assets:
 	$(PYTHON) tools/convert_indexed8.py --input assets/demo.raw --width 16 --height 16 --palette assets/demo.pal.txt --out-prefix build/demo
 
-test-host:
+test-host: $(HOST_TEST_BINS)
+	@for t in $(HOST_TEST_BINS); do ./$$t; done
+
+$(HOST_BUILD_DIR)/%.exe: tests/host/%.cpp
 	@mkdir -p $(HOST_BUILD_DIR)
-	$(HOST_CXX) -std=c++20 -Wall -Wextra -Iinclude -I. \
-		tests/host/test_core_logic.cpp \
-		tests/host/test_input_logic.cpp \
-		tests/host/test_vdp1_logic.cpp \
-		tests/host/test_vdp2_logic.cpp \
-		-o $(HOST_BUILD_DIR)/host_tests
-	$(HOST_BUILD_DIR)/host_tests
+	$(HOST_CXX) -std=c++20 -Wall -Wextra -Iinclude -I. $< -o $@
 
 test: test-host
 	$(PYTHON) -m unittest tests/test_asset_converter.py tests/test_gen_ip_bin.py

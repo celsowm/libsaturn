@@ -1,7 +1,11 @@
 /* red_square.c - quadrado vermelho movido com o direcional */
 #include <stdint.h>
 
-#include "examples/common/demo.h"
+#include "saturn/app.h"
+#include "saturn/color.h"
+#include "saturn/font.h"
+#include "saturn/vdp1.h"
+#include "saturn/vdp2.h"
 
 enum {
     HUD_SPACE = 0,
@@ -139,16 +143,23 @@ static void build_square(void) {
     }
 }
 
-static void build_font(void) {
+static sat_result_t build_font(void) {
     for (uint16_t glyph = 0; glyph < HUD_GLYPH_COUNT; ++glyph) {
-        for (uint16_t row = 0; row < 8u; ++row) {
-            const uint8_t bits = g_font_rows[glyph][row];
-            for (uint16_t col = 0; col < 8u; ++col) {
-                const uint8_t on = (uint8_t)((bits >> (7u - col)) & 1u);
-                g_font_pixels[glyph][(row * 8u) + col] = on;
-            }
+        sat_result_t st = sat_font_pack_8x8_glyph_indexed8(
+            g_font_pixels[glyph],
+            8,
+            8,
+            0,
+            0,
+            g_font_rows[glyph],
+            1
+        );
+        if (st != SAT_OK) {
+            return st;
         }
     }
+
+    return SAT_OK;
 }
 
 static sat_result_t upload_font(void) {
@@ -218,8 +229,7 @@ static void set_button_char(char* line, uint16_t pos, uint16_t is_down) {
 }
 
 int main(void) {
-    sat_video_config_t cfg = {320, 224, 1, 0};
-    sat_result_t st = sat_init(&cfg);
+    sat_result_t st = sat_app_init_default();
     if (st != SAT_OK) {
         for (;;) {
         }
@@ -227,7 +237,11 @@ int main(void) {
 
     build_square_palette();
     build_square();
-    build_font();
+    st = build_font();
+    if (st != SAT_OK) {
+        for (;;) {
+        }
+    }
 
     st = sat_tex_upload_indexed8(&g_square_tex, g_square_pixels, 16, 16, g_square_palette, 0);
     if (st != SAT_OK) {
@@ -251,7 +265,7 @@ int main(void) {
 
     for (;;) {
         sat_pad_state_t pad = {0};
-        st = demo_frame_begin(SAT_COLOR_BLUE, SAT_COLOR_BLACK, &pad);
+        st = sat_app_frame_begin(SAT_COLOR_BLUE, SAT_COLOR_BLACK, &pad);
         if (st != SAT_OK) {
             for (;;) {
             }
@@ -327,7 +341,7 @@ int main(void) {
         draw_text_line(-156, -100, line1);
         draw_text_line(-156, -90, line2);
 
-        st = demo_frame_end();
+        st = sat_app_frame_end();
         if (st != SAT_OK) {
             for (;;) {
             }

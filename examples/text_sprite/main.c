@@ -1,7 +1,9 @@
 /* text_sprite.c - exemplo dedicado a textura 2D gerada por asset */
 #include <stdint.h>
 
-#include "examples/common/demo.h"
+#include "saturn/app.h"
+#include "saturn/color.h"
+#include "saturn/vdp1.h"
 #include "text_sprite/sonic_head.h"
 
 static void panic_forever(void) {
@@ -10,7 +12,7 @@ static void panic_forever(void) {
 }
 
 int main(void) {
-    sat_result_t st = demo_init_default();
+    sat_result_t st = sat_app_init_default();
     if (st != SAT_OK) {
         panic_forever();
     }
@@ -42,7 +44,7 @@ int main(void) {
 
     for (;;) {
         sat_pad_state_t pad = {0};
-        st = demo_frame_begin((frame & 32u) ? SAT_COLOR_BLUE : SAT_COLOR_BLACK, SAT_COLOR_BLACK, &pad);
+        st = sat_app_frame_begin((frame & 32u) ? SAT_COLOR_BLUE : SAT_COLOR_BLACK, SAT_COLOR_BLACK, &pad);
         if (st != SAT_OK) {
             panic_forever();
         }
@@ -89,7 +91,7 @@ int main(void) {
 
         const uint8_t exit_requested = (uint8_t)((pad.pressed & SAT_PAD_START) != 0u);
 
-        st = demo_frame_end();
+        st = sat_app_frame_end();
         if (st != SAT_OK) {
             panic_forever();
         }
