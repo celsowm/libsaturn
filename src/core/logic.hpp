@@ -123,20 +123,14 @@ inline sat_result_t resolve_sprite_cmd(
         return SAT_ERR_INVALID_ARG;
     }
 
-    extern int16_t fx16_to_int_impl(sat_fx16_t);
-    out->x = fx16_to_int_impl(cmd->x);
-    out->y = fx16_to_int_impl(cmd->y);
+    // Coordinates: fx16 (16.16) -> integer pixels
+    out->x = static_cast<int16_t>(cmd->x >> 16);
+    out->y = static_cast<int16_t>(cmd->y >> 16);
     out->width = (cmd->width != 0u) ? cmd->width : cmd->texture->width;
     out->height = (cmd->height != 0u) ? cmd->height : cmd->texture->height;
     out->srca = cmd->texture->srca;
     out->palette = (cmd->palette_override != 0u) ? cmd->palette_override : cmd->texture->palette;
     return SAT_OK;
-}
-
-/* Internal fx16 conversion — also in internal.hpp but duplicated here
-   for the pure-logic path (resolve_sprite_cmd). */
-inline int16_t fx16_to_int_impl(sat_fx16_t value) {
-    return static_cast<int16_t>(value >> 16);
 }
 
 }  // namespace saturn::core

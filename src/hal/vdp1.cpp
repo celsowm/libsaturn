@@ -45,12 +45,12 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     TVMR = 0x0000;
     FBCR = 0x0000;
     PTMR = 0x0000;
-    // Erase transparente (end code) para permitir que o backdrop do VDP2
-    // apareça nas áreas sem sprites. O clear_color é ignorado no init porque
-    // o erase padrão é transparente. O usuário pode mudar via set_clear_color().
+    // Transparent erase (end code) to allow VDP2 backdrop to show in areas
+    // without sprites. The clear_color is ignored in init because the default
+    // erase is transparent. User can change it via set_clear_color().
     EWDR = 0x8000u;
-    // Erase habilitado na tela inteira para limpar o framebuffer do VDP1
-    // a cada frame. Com cor transparente, o backdrop do VDP2 aparece.
+    // Erase enabled on entire screen to clear VDP1 framebuffer each frame.
+    // With transparent color, VDP2 backdrop is visible.
     EWLR = 0x0000;
     EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | height);
 
@@ -62,8 +62,8 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
 }
 
 void set_clear_color(uint16_t rgb555) {
-    // Adiciona bit de transparência (end code) para que o erase não cubra
-    // o backdrop do VDP2. O bit 15 = 1 marca os pixels como transparentes.
+    // Adds transparency bit (end code) so erase doesn't cover
+    // VDP2 backdrop. Bit 15 = 1 marks pixels as transparent.
     EWDR = static_cast<uint16_t>(rgb555 | 0x8000u);
 }
 
@@ -104,14 +104,15 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     cmd.colr = static_cast<uint16_t>(req.palette << 8u);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);
+    // VDP1 sprite corners: coordinates are in pixels (0 = center of screen)
     cmd.xa = req.x;
     cmd.ya = req.y;
-    cmd.xb = static_cast<int16_t>(req.x + static_cast<int16_t>(req.width));
+    cmd.xb = static_cast<int16_t>(req.x + req.width);
     cmd.yb = req.y;
-    cmd.xc = static_cast<int16_t>(req.x + static_cast<int16_t>(req.width));
-    cmd.yc = static_cast<int16_t>(req.y + static_cast<int16_t>(req.height));
+    cmd.xc = static_cast<int16_t>(req.x + req.width);
+    cmd.yc = static_cast<int16_t>(req.y + req.height);
     cmd.xd = req.x;
-    cmd.yd = static_cast<int16_t>(req.y + static_cast<int16_t>(req.height));
+    cmd.yd = static_cast<int16_t>(req.y + req.height);
     cmd.grda = 0;
     cmd.pad = 0;
     return SAT_OK;

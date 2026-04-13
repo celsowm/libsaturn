@@ -64,3 +64,43 @@ extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd) {
     req.palette = resolved.palette;
     return saturn::hal::vdp1::push_sprite(req);
 }
+
+extern "C" sat_result_t sat_draw_sprite_screen(
+    const sat_texture_t* texture,
+    int16_t screen_x,
+    int16_t screen_y,
+    uint16_t width,
+    uint16_t height,
+    uint16_t palette_override
+) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (texture == nullptr || texture->valid == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    // Convert screen coordinates (0,0 = top-left corner)
+    // to local VDP1 coordinates (0,0 = screen center).
+    // VDP1 draws from the top-left corner of the sprite (xa, ya).
+    // To center sprite at (screen_x, screen_y):
+    //   vdp1_x = (screen_x - TV_WIDTH/2) - (sprite_width/2)
+    //   vdp1_y = (screen_y - TV_HEIGHT/2) - (sprite_height/2)
+    const uint16_t vdp1_w = (width != 0u) ? width : texture->width;
+    const uint16_t vdp1_h = (height != 0u) ? height : texture->height;
+    const int16_t vdp1_x = screen_x - 160 - static_cast<int16_t>(vdp1_w / 2);
+    const int16_t vdp1_y = screen_y - 112 - static_cast<int16_t>(vdp1_h / 2);
+
+    sat_sprite_cmd_t cmd = {
+        (sat_fx16_t)((int32_t)vdp1_x << 16),
+        (sat_fx16_t)((int32_t)vdp1_y << 16),
+        vdp1_w,
+        vdp1_h,
+        texture,
+        palette_override,
+        0
+    };
+    return sat_draw_sprite(&cmd);
+}

@@ -1,24 +1,23 @@
 # MVP Notes
 
-## Escopo implementado
+## Implemented Scope
 
 - Video: NTSC 320x224.
-- Endianness fixa: SH2 big-endian (`-mb`).
-- API pública sem `float`.
-- Sem alocação dinâmica implícita no core runtime.
+- Fixed endianness: SH2 big-endian (`-mb`).
+- Public API without `float`.
+- No implicit dynamic allocation in core runtime.
 
-## Fora do MVP
+## Out of MVP
 
-- Pipeline 3D completo.
-- SCU DSP avançado.
-- Driver completo M68k/SCSP.
-- Multiprocessamento Master/Slave SH2 para gameplay.
+- Complete 3D pipeline.
+- Advanced SCU DSP.
+- Complete M68k/SCSP driver.
+- Master/Slave SH2 multiprocessing for gameplay.
 
-## Critérios de aceite para execução manual
+## Acceptance criteria for manual execution
 
-1. Build completo sem intervenção manual após setup.
-2. ISO inicia em emulador e entra no loop principal.
-3. Render de sprites 2D estável por 1800 frames.
-4. Input sem ghost presses por 5 minutos.
-5. Conversor de assets coberto por teste automatizado.
-
+1. Complete build without manual intervention after setup.
+2. ISO starts in emulator and enters main loop.
+3. Stable 2D sprite rendering for 1800 frames.
+4. Input without ghost presses for 5 minutes.
+5. Asset converter covered by automated test.

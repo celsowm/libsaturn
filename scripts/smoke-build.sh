@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Validando ferramentas obrigatorias..."
+echo "Validating required tools..."
 for bin in make python; do
   if ! command -v "$bin" >/dev/null 2>&1; then
-    echo "Faltando: $bin"
+    echo "Missing: $bin"
     exit 1
   fi
 done
 
 if ! command -v sh2eb-elf-gcc >/dev/null 2>&1; then
-  echo "Aviso: sh2eb-elf-gcc nao encontrado no PATH. Build completa sera ignorada."
+  echo "Warning: sh2eb-elf-gcc not found in PATH. Full build will be skipped."
   exit 0
 fi
 
 if ! command -v mkisofs >/dev/null 2>&1 && ! command -v genisoimage >/dev/null 2>&1 && ! command -v xorrisofs >/dev/null 2>&1; then
-  echo "Aviso: mkisofs/genisoimage/xorrisofs nao encontrado. Build de ISO pode falhar."
+  echo "Warning: mkisofs/genisoimage/xorrisofs not found. ISO build may fail."
 fi
 
-echo "Executando build limpa..."
+echo "Running clean build..."
 make clean
 make all
 
-echo "Smoke build concluido."
+echo "Smoke build completed."

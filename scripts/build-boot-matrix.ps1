@@ -68,7 +68,7 @@ function Invoke-Msys2Command {
     Write-Host "[build-boot-matrix] $ScriptCommand"
     & $ShellPath -defterm -no-start -ucrt64 -here -c $wrappedCommand
     if ($LASTEXITCODE -ne 0) {
-        throw "Comando no MSYS2 falhou (codigo $LASTEXITCODE): $ScriptCommand"
+        throw "MSYS2 command failed (code $LASTEXITCODE): $ScriptCommand"
     }
 }
 
@@ -82,7 +82,7 @@ $rootCandidates = @(
 
 $shellPath = Find-Msys2Shell -RootCandidates $rootCandidates
 if (-not $shellPath) {
-    throw 'MSYS2 nao encontrado. Informe -Msys2Root ou ajuste LIBSATURN_MSYS2_ROOT.'
+    throw 'MSYS2 not found. Provide -Msys2Root or set LIBSATURN_MSYS2_ROOT.'
 }
 
 $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
@@ -110,16 +110,16 @@ foreach ($combo in $combinations) {
     $variantCue = Join-Path $RepoRoot ("build\matrix\{0}\{0}.cue" -f $variantName)
 
     Write-Host ''
-    Write-Host "[build-boot-matrix] Buildando variante $variantName"
+    Write-Host "[build-boot-matrix] Building variant $variantName"
 
     $buildCommand = "export PATH=`"`$HOME/saturn-tools/bin:`$PATH`" && cd `"$repoMsysPath`" && make clean BUILD_DIR=$variantBuildRel ISO_ROOT=$variantIsoRootRel IP_BIN=$variantIpRel IP_PROFILE=$ip && make all BUILD_DIR=$variantBuildRel ISO_ROOT=$variantIsoRootRel IP_BIN=$variantIpRel IP_PROFILE=$ip"
     Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand $buildCommand
 
     if (-not (Test-Path $variantIso)) {
-        throw "ISO da variante nao encontrada: $variantIso"
+        throw "Variant ISO not found: $variantIso"
     }
     if (-not (Test-Path $variantCue)) {
-        throw "CUE da variante nao encontrada: $variantCue"
+        throw "Variant CUE not found: $variantCue"
     }
 
     $reportLines.Add("[$variantName]")
@@ -139,6 +139,6 @@ Set-Content -Path $ReportPath -Value $reportLines -Encoding ASCII
 Set-Content -Path $MatrixCsvPath -Value $csvLines -Encoding ASCII
 
 Write-Host ''
-Write-Host "[build-boot-matrix] Relatorio: $ReportPath"
-Write-Host "[build-boot-matrix] Planilha de resultados manuais: $MatrixCsvPath"
-Write-Host '[build-boot-matrix] Preencha scene_ok/input_ok/stage_max e rode evaluate-boot-matrix.ps1.'
+Write-Host "[build-boot-matrix] Report: $ReportPath"
+Write-Host "[build-boot-matrix] Manual results spreadsheet: $MatrixCsvPath"
+Write-Host '[build-boot-matrix] Fill in scene_ok/input_ok/stage_max and run evaluate-boot-matrix.ps1.'

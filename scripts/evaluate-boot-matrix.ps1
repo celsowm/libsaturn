@@ -20,7 +20,7 @@ $MatrixCsvPath = [System.IO.Path]::GetFullPath($MatrixCsvPath)
 $ReportPath = [System.IO.Path]::GetFullPath($ReportPath)
 
 if (-not (Test-Path $MatrixCsvPath)) {
-    throw "Arquivo de matriz nao encontrado: $MatrixCsvPath"
+    throw "Matrix file not found: $MatrixCsvPath"
 }
 
 $reportDir = Split-Path -Parent $ReportPath
@@ -40,7 +40,7 @@ function Parse-Bool {
 
 $rows = Import-Csv -Path $MatrixCsvPath
 if (-not $rows -or $rows.Count -eq 0) {
-    throw "Matriz vazia: $MatrixCsvPath"
+    throw "Empty matrix: $MatrixCsvPath"
 }
 
 $requiredKeys = @('main|current', 'main|safe')
@@ -69,7 +69,7 @@ foreach ($row in $rows) {
 
 foreach ($requiredKey in $requiredKeys) {
     if (-not $statusByKey.ContainsKey($requiredKey)) {
-        throw "Matriz incompleta: faltou linha para '$requiredKey'"
+        throw "Incomplete matrix: missing row for '$requiredKey'"
     }
 }
 
@@ -81,19 +81,19 @@ $nextAction = ''
 
 if ($mainCurrent) {
     $decision = 'keep_current'
-    $nextAction = 'Manter IP current como default.'
+    $nextAction = 'Keep IP current as default.'
 }
 elseif ($mainSafe) {
     $decision = 'fix_ip_safe'
-    $nextAction = 'Aplicar IP safe (first_read_size=0) como default.'
+    $nextAction = 'Apply IP safe (first_read_size=0) as default.'
 }
 elseif (-not ($mainCurrent -or $mainSafe)) {
     $decision = 'round2_startup_ip_stub'
-    $nextAction = 'Iniciar segunda rodada focada em startup/IP stub sem mexer em gameplay.'
+    $nextAction = 'Start second round focused on startup/IP stub without touching gameplay.'
 }
 else {
     $decision = 'inconclusive'
-    $nextAction = 'Resultados mistos; revisar notas/stage_max e repetir casos conflitantes.'
+    $nextAction = 'Mixed results; review notes/stage_max and repeat conflicting cases.'
 }
 
 $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'
@@ -116,7 +116,7 @@ $reportLines.Add("next_action=$nextAction")
 
 Set-Content -Path $ReportPath -Value $reportLines -Encoding ASCII
 
-Write-Host "[evaluate-boot-matrix] Relatorio: $ReportPath"
+Write-Host "[evaluate-boot-matrix] Report: $ReportPath"
 Write-Host "[evaluate-boot-matrix] decision=$decision"
 Write-Host "[evaluate-boot-matrix] $nextAction"
 

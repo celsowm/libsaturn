@@ -1,4 +1,4 @@
-/* hello_world.c - "HELLO WORLD" renderizado com sprites bitmap */
+/* hello_world.c - "HELLO WORLD" rendered with bitmap sprites */
 #include <stdint.h>
 
 #include "saturn/app.h"
@@ -10,7 +10,7 @@ static sat_ascii_font_t g_font;
 
 int main(void) {
     const char* text = "HELLO WORLD!";
-    const uint16_t backdrop_color = SAT_COLOR_BLUE;  // 0x001F - azul vibrante para teste
+    const uint16_t backdrop_color = SAT_COLOR_BLUE;  // 0x001F - vibrant blue for testing
 
     sat_example_must(sat_app_init_default());
     sat_example_must(sat_ascii_font_init_8x8_indexed8(&g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 0));

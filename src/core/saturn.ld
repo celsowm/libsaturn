@@ -1,41 +1,41 @@
 /* ===========================================================================
- * saturn.ld - Linker Script para Sega Saturn
+ * saturn.ld - Linker Script for Sega Saturn
  * ===========================================================================
  *
- * Layout de memória do Saturn:
+ * Saturn memory layout:
  *
  * +------------------+----------------+--------+---------------------------+
- * | Região           | Endereço       | Tamanho| Uso                       |
+ * | Region           | Address        | Size   | Use                       |
  * +------------------+----------------+--------+---------------------------+
- * | Work RAM High    | 0x06000000     | 1 MB   | Código + dados (primário) |
+ * | Work RAM High    | 0x06000000     | 1 MB   | Code + data (primary)     |
  * | (WRAMH)          |                |        |                           |
  * +------------------+----------------+--------+---------------------------+
- * | Work RAM Low     | 0x00200000     | 512 KB | Dados (secundário)        |
+ * | Work RAM Low     | 0x00200000     | 512 KB | Data (secondary)          |
  * | (WRAML)          |                |        |                           |
  * +------------------+----------------+--------+---------------------------+
- * | VDP1 VRAM        | 0x25C00000     | 512 KB | Sprites/polígonos         |
- * | VDP2 VRAM        | 0x25E00000     | 512 KB | Backgrounds               |
- * | VDP2 CRAM        | 0x25F00000     | 64 KB  | Paleta de cores           |
- * | VDP2 regs        | 0x25F80000     | -      | Registros de controle     |
- * | VDP1 regs        | 0x25D00000     | -      | Registros de controle     |
+ * | VDP1 VRAM        | 0x25C00000     | 512 KB | Sprites/polygons         |
+ * | VDP2 VRAM        | 0x25E00000     | 512 KB | Backgrounds              |
+ * | VDP2 CRAM        | 0x25F00000     | 64 KB  | Color palette            |
+ * | VDP2 regs        | 0x25F80000     | -      | Control registers        |
+ * | VDP1 regs        | 0x25D00000     | -      | Control registers        |
  * +------------------+----------------+--------+---------------------------+
  *
- * Endereço de carga do executável:
- *   - IP.BIN header offset 0xF0: 0x06004000 (primeiro endereço a carregar)
- *   - O BIOS carrega 0.BIN a partir deste endereço
- *   - _start (entry point) deve estar em 0x06004000
+ * Executable load address:
+ *   - IP.BIN header offset 0xF0: 0x06004000 (first address to load)
+ *   - BIOS loads 0.BIN from this address
+ *   - _start (entry point) must be at 0x06004000
  *
- * Por que 0x06004000 e não 0x06000000?
- *   - Primeiros 16KB (0x06000000-0x06003FFF) reservados para:
- *     - Vetores de interrupção
- *     - Área de comunicação com slave CPU
- *     - Stack do slave CPU
- *   - Código começa em 0x06004000 para não sobrescrever estas áreas
+ * Why 0x06004000 instead of 0x06000000?
+ *   - First 16KB (0x06000000-0x06003FFF) reserved for:
+ *     - Interrupt vectors
+ *     - Slave CPU communication area
+ *     - Slave CPU stack
+ *   - Code starts at 0x06004000 to avoid overwriting these areas
  * =========================================================================== */
 
 OUTPUT_FORMAT("elf32-sh", "elf32-sh", "elf32-sh")
 OUTPUT_ARCH(sh)
-ENTRY(_start)  /* Entry point: símbolo _start em crt0.s */
+ENTRY(_start)  /* Entry point: _start symbol in crt0.s */
 
 PHDRS {
     text PT_LOAD FLAGS(5);
@@ -43,81 +43,81 @@ PHDRS {
 }
 
 MEMORY {
-    /* Work RAM High: código + dados principais
-     * Origem: 0x06004000 (após área reservada de 16KB)
-     * Tamanho: 0xFC000 = 1MB - 16KB = 1.032.192 bytes */
+    /* Work RAM High: code + main data
+     * Origin: 0x06004000 (after 16KB reserved area)
+     * Size: 0xFC000 = 1MB - 16KB = 1,032,192 bytes */
     WRAMH (rwx) : ORIGIN = 0x06004000, LENGTH = 0x000FC000
 
-    /* Work RAM Low: dados secundários
-     * Usada para buffers grandes que não cabem em WRAMH
-     * Origem: 0x00200000
-     * Tamanho: 0x100000 = 512 KB */
+    /* Work RAM Low: secondary data
+     * Used for large buffers that don't fit in WRAMH
+     * Origin: 0x00200000
+     * Size: 0x100000 = 512 KB */
     WRAML (rw)  : ORIGIN = 0x00200000, LENGTH = 0x00100000
 }
 
 SECTIONS {
     /* =========================================================================
-     * Seção .text: código executável e dados read-only
+     * Section .text: executable code and read-only data
      * =========================================================================
-     * Colocada em 0x06004000 (início da WRAMH utilizável)
-     * Ordem de linkagem (crítica para boot):
-     *   1. .text.start: contém _start (crt0.s) - DEVE ser primeiro!
-     *   2. .text: resto do código
-     *   3. .rodata: strings e constantes
+     * Placed at 0x06004000 (start of usable WRAMH)
+     * Link order (critical for boot):
+     *   1. .text.start: contains _start (crt0.s) - MUST be first!
+     *   2. .text: rest of code
+     *   3. .rodata: strings and constants
      * ========================================================================= */
     .text 0x06004000 : {
         *(.text.start)       /* crt0.s: entry point _start */
-        *(.text .text.*)     /* Todo o resto do código */
-        *(.rodata .rodata.*) /* Strings, constantes, vtables C++ */
-        . = ALIGN(4);        /* Alinhar a 4 bytes */
+        *(.text .text.*)     /* All other code */
+        *(.rodata .rodata.*) /* Strings, constants, C++ vtables */
+        . = ALIGN(4);        /* Align to 4 bytes */
     } > WRAMH :text
 
     /* =========================================================================
-     * Seção .data: variáveis globais inicializadas
+     * Section .data: initialized global variables
      * =========================================================================
-     * Na ELF, dados inicializados ficam no arquivo binário.
-     * No runtime, o crt0 deveria copiar de ROM para RAM, mas como
-     * estamos rodando direto da RAM (0.BIN carregado pelo BIOS),
-     * os dados já estão no lugar correto.
+     * In ELF, initialized data is in the binary file.
+     * At runtime, crt0 should copy from ROM to RAM, but since
+     * we're running directly from RAM (0.BIN loaded by BIOS),
+     * the data is already in the right place.
      * ========================================================================= */
     .data : {
-        __data_start = .;    /* Símbolo para cálculo de tamanho */
-        *(.data .data.*)     /* Variáveis inicializadas */
+        __data_start = .;    /* Symbol for size calculation */
+        *(.data .data.*)     /* Initialized variables */
         . = ALIGN(4);
         __data_end = .;
     } > WRAMH :data
 
     /* =========================================================================
-     * Seção .bss: variáveis globais NÃO inicializadas (zeradas no boot)
+     * Section .bss: uninitialized global variables (zeroed at boot)
      * =========================================================================
-     * NOLOAD = não ocupa espaço no binário final.
-     * O crt0.s itera de __bss_start a __bss_end escrevendo zeros.
+     * NOLOAD = does not occupy space in final binary.
+     * crt0.s iterates from __bss_start to __bss_end writing zeros.
      * ========================================================================= */
     .bss (NOLOAD) : {
-        __bss_start = .;     /* Usado pelo crt0.s para zerar BSS */
-        *(.bss .bss.*)       /* Variáveis não inicializadas */
-        *(COMMON)            /* Variáveis COMMON (estilo C antigo) */
+        __bss_start = .;     /* Used by crt0.s to zero BSS */
+        *(.bss .bss.*)       /* Uninitialized variables */
+        *(COMMON)            /* COMMON variables (old C style) */
         . = ALIGN(4);
-        __bss_end = .;       /* Usado pelo crt0.s para zerar BSS */
+        __bss_end = .;       /* Used by crt0.s to zero BSS */
     } > WRAMH :data
 
     /* =========================================================================
-     * Seção .wram_l: dados na Work RAM Low
+     * Section .wram_l: data in Work RAM Low
      * =========================================================================
-     * Para buffers grandes (áudio, texturas, etc) que não cabem em WRAMH.
-     * Usada com atributo __attribute__((section(".wram_l"))) no código.
+     * For large buffers (audio, textures, etc) that don't fit in WRAMH.
+     * Used with __attribute__((section(".wram_l"))) attribute in code.
      * ========================================================================= */
     .wram_l (NOLOAD) : {
-        *(.wram_l .wram_l.*) /* Dados explicitamente colocados em WRAML */
+        *(.wram_l .wram_l.*) /* Data explicitly placed in WRAML */
         . = ALIGN(4);
     } > WRAML :data
 
     /* =========================================================================
-     * Seções descartadas (não vão para o binário final)
+     * Discarded sections (don't go to final binary)
      * ========================================================================= */
     /DISCARD/ : {
-        *(.comment)          /* Comentários do compilador (GCC version) */
-        *(.note*)            /* Notas ELF (build-id, etc) */
-        *(.eh_frame*)        /* C++ exception handling (não usamos) */
+        *(.comment)          /* Compiler comments (GCC version) */
+        *(.note*)            /* ELF notes (build-id, etc) */
+        *(.eh_frame*)        /* C++ exception handling (not used) */
     }
 }

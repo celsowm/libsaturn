@@ -1,21 +1,21 @@
 # Emulators
 
-Esta pasta centraliza binarios e launchers para validacao do MVP.
+This folder centralizes binaries and launchers for MVP validation.
 
-## Estrutura
+## Structure
 
-- `mednafen/`: launchers e arquivos locais do Mednafen.
-- `kronos/`: instalacao manual do Kronos e launcher.
+- `mednafen/`: Mednafen launchers and local files.
+- `kronos/`: Manual Kronos installation and launcher.
 
-## Mednafen (automatico)
+## Mednafen (automatic)
 
-Instale via MSYS2 UCRT64 e gere launcher:
+Install via MSYS2 UCRT64 and generate launcher:
 
 ```powershell
 .\scripts\download-emulators.ps1
 ```
 
-Launcher gerado:
+Generated launcher:
 
 ```powershell
 .\emulators\mednafen\run-mednafen.ps1
@@ -23,12 +23,12 @@ Launcher gerado:
 
 ## Kronos (manual)
 
-1. Baixe o release do Kronos para Windows.
-2. Copie `kronos.exe` e DLLs para `emulators/kronos/`.
+1. Download Kronos release for Windows.
+2. Copy `kronos.exe` and DLLs to `emulators/kronos/`.
 3. Execute:
 
 ```powershell
 .\emulators\kronos\run-kronos.ps1
 ```
 
-Se o binario nao estiver no local esperado, o launcher retorna erro explicito.
+If the binary is not in the expected location, the launcher returns an explicit error.

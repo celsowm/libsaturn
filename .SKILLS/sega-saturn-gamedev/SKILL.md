@@ -1,68 +1,68 @@
 ---
 name: sega-saturn-gamedev-baremetal
 description: >
-  Use this skill para qualquer tarefa de desenvolvimento de biblioteca, engine, framework ou
-  código de baixo nível para o Sega Saturn SEM SGL e SEM libyaul ou qualquer SDK externo.
-  100% bare-metal: compilador cross GCC próprio, crt0.s próprio, linker script próprio.
+  Use this skill for any library development, engine, framework, or
+  low-level code task for Sega Saturn WITHOUT SGL and WITHOUT libyaul or any external SDK.
+  100% bare-metal: your own cross GCC compiler, your own crt0.s, your own linker script.
   Triggers: "Saturn lib", "Saturn engine", "homebrew Saturn", "VDP1", "VDP2", "SH2",
-  "SCU DSP", "SCSP", "Saturn sem SGL", "Saturn bare-metal", "Saturn 3D engine",
-  "Saturn game library", qualquer pedido de acesso direto ao hardware do Saturn.
-  Sempre usar esta skill quando o usuário mencionar Sega Saturn no contexto de desenvolvimento.
+  "SCU DSP", "SCSP", "Saturn without SGL", "Saturn bare-metal", "Saturn 3D engine",
+  "Saturn game library", any request for direct Saturn hardware access.
+  Always use this skill when the user mentions Sega Saturn in the context of development.
 ---
 
-# Sega Saturn — Bare-Metal Game Library (Sem SGL, Sem libyaul)
+# Sega Saturn — Bare-Metal Game Library (No SGL, No libyaul)
 
-Abordagem totalmente independente de qualquer SDK externo. Apenas:
-- Cross-compiler **sh2eb-elf-gcc** compilado do zero
-- **crt0.s** e **linker script** escritos à mão
-- Acesso direto a registradores de hardware
-- C++ moderno + assembly SH2 inline/puro
+Completely independent approach with no external SDK dependencies. Only:
+- **sh2eb-elf-gcc** cross-compiler built from scratch
+- Hand-written **crt0.s** and **linker script**
+- Direct hardware register access
+- Modern C++ + inline/pure SH2 assembly
 
-Detalhes de subsistemas estão nos arquivos de referência em `references/`.
+Subsystem details are in the reference files at `references/`.
 
 ---
 
-## 1. Por que não SGL e não libyaul?
+## 1. Why Not SGL and Not libyaul?
 
 **SGL:**
-- Limite de ~500 quads/frame é imposição de software, não hardware
-- C puro sem otimização de pipeline, sem uso do SCU DSP nem Slave SH2
-- Força uso de estruturas internas incompatíveis com C++ moderno
+- ~500 quads/frame limit is a software restriction, not hardware
+- Pure C with no pipeline optimization, no SCU DSP usage, no Slave SH2 usage
+- Forces use of internal structures incompatible with modern C++
 
 **libyaul:**
-- Sem atualizações relevantes desde ~2022; GCC travado em versão antiga
-- Abstrai demais: impede acesso fino à command list do VDP1
-- Dependência de ambiente complexo que frequentemente quebra em novas distros
+- No relevant updates since ~2022; GCC locked to old version
+- Too much abstraction: prevents fine-grained access to VDP1 command list
+- Complex environment dependency that frequently breaks on new distros
 
-**Solução:** compilador próprio + zero dependências em runtime externo.
-
----
-
-## 2. Hardware em 30 Segundos
-
-| Chip      | Função                          | Clock       |
-|-----------|---------------------------------|-------------|
-| SH2 Master| Lógica principal, render        | 28.63 MHz   |
-| SH2 Slave | Geometria paralela              | 28.63 MHz   |
-| SCU DSP   | Multiplicação matricial em batch| 14.31 MHz   |
-| VDP1      | Rasterizador (command list)     | 28.63 MHz   |
-| VDP2      | Planos de fundo, compositing    | 28.63 MHz   |
-| M68k+SCSP | Áudio PCM/FM, 32 canais         | 11.3 MHz    |
-| SMPC      | Controles, reset, relógio       | 4 MHz       |
-
-Mapa de memória completo → `references/memory_map.md`
+**Solution:** own compiler + zero dependencies on external runtime.
 
 ---
 
-## 3. Toolchain: Compilando o Cross-Compiler do Zero
+## 2. Hardware in 30 Seconds
 
-**Única dependência:** GCC + binutils host. Sem pacotes Saturn específicos.
+| Chip      | Function                       | Clock       |
+|-----------|--------------------------------|-------------|
+| SH2 Master| Main logic, rendering          | 28.63 MHz   |
+| SH2 Slave | Parallel geometry              | 28.63 MHz   |
+| SCU DSP   | Batch matrix multiplication    | 14.31 MHz   |
+| VDP1      | Rasterizer (command list)      | 28.63 MHz   |
+| VDP2      | Background planes, compositing | 28.63 MHz   |
+| M68k+SCSP | PCM/FM audio, 32 channels     | 11.3 MHz    |
+| SMPC      | Controllers, reset, clock      | 4 MHz       |
 
-### 3.1 Construir sh2eb-elf-gcc
+Full memory map → `references/memory_map.md`
+
+---
+
+## 3. Toolchain: Building the Cross-Compiler from Scratch
+
+**Only dependency:** Host GCC + binutils. No Saturn-specific packages.
+
+### 3.1 Building sh2eb-elf-gcc
 
 ```bash
 #!/usr/bin/env bash
-# build-toolchain.sh — cria sh2eb-elf-gcc em ~/saturn-tools/
+# build-toolchain.sh — creates sh2eb-elf-gcc in ~/saturn-tools/
 
 set -e
 
@@ -90,7 +90,7 @@ cd build-binutils
 make -j$JOBS && make install
 cd ..
 
-# ---- GCC (sem newlib primeiro — só compilador C/C++) ----
+# ---- GCC (no newlib first — C/C++ compiler only) ----
 [ ! -f "gcc-$GCC_VER.tar.xz" ] && \
   wget "https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.xz"
 tar xf "gcc-$GCC_VER.tar.xz"
@@ -119,32 +119,32 @@ make -j$JOBS all-gcc all-target-libgcc
 make install-gcc install-target-libgcc
 cd ..
 
-echo "Toolchain pronta em $PREFIX/bin/${TARGET}-gcc"
+echo "Toolchain ready at $PREFIX/bin/${TARGET}-gcc"
 ```
 
-Adicionar ao PATH:
+Add to PATH:
 ```bash
 export PATH="$HOME/saturn-tools/bin:$PATH"
-# Ou permanentemente em ~/.bashrc
+# Or permanently in ~/.bashrc
 echo 'export PATH="$HOME/saturn-tools/bin:$PATH"' >> ~/.bashrc
 ```
 
-### 3.2 Flags de Compilação Obrigatórias
+### 3.2 Required Compilation Flags
 
 ```makefile
-# Makefile — flags críticas
+# Makefile — critical flags
 CC  = sh2eb-elf-gcc
 CXX = sh2eb-elf-g++
 AS  = sh2eb-elf-as
 LD  = sh2eb-elf-ld
 OBJCOPY = sh2eb-elf-objcopy
 
-# -m2       → ISA SH2
-# -mb       → Big-endian (Saturn é big-endian!)
-# -O2       → Habilita instrução MAC, scheduling do pipeline
-# -fno-exceptions -fno-rtti  → Remove overhead C++
-# -ffreestanding → Sem libc host
-# -fomit-frame-pointer → R14 livre para uso geral
+# -m2       → SH2 ISA
+# -mb       → Big-endian (Saturn is big-endian!)
+# -O2       → Enables MAC instruction, pipeline scheduling
+# -fno-exceptions -fno-rtti  → Removes C++ overhead
+# -ffreestanding → No host libc
+# -fomit-frame-pointer → R14 free for general use
 # -fipa-ra  → Inter-procedure register allocation
 CFLAGS  = -m2 -mb -O2 -ffreestanding -fno-exceptions \
            -fomit-frame-pointer -fipa-ra -Wall
@@ -154,32 +154,32 @@ ASFLAGS = --isa=sh2 -big
 
 ---
 
-## 4. Startup Completo do Zero
+## 4. Complete Startup from Scratch
 
-O Saturn não tem OS. Precisamos de:
-1. **crt0.s** — entrada do programa, configura stack, zera BSS, chama `main`
-2. **saturn.ld** — linker script com mapa de memória correto
-3. **IP.BIN** — cabeçalho de boot (16 setores fixos; usar o do SGL sample/sys ou gerar com isomaker)
+The Saturn has no OS. We need:
+1. **crt0.s** — program entry, configures stack, zeroes BSS, calls `main`
+2. **saturn.ld** — linker script with correct memory map
+3. **IP.BIN** — boot header (16 fixed sectors; use the one from SGL sample/sys or generate with isomaker)
 
-### 4.1 crt0.s — Startup Assembly SH2
+### 4.1 crt0.s — SH2 Startup Assembly
 
 ```asm
 ! crt0.s — Saturn bare-metal startup
-! Executa após IP.BIN transferir controle para 0x06004000
+! Runs after IP.BIN transfers control to 0x06004000
 
     .section .text.start
     .global _start
     .align 2
 
 _start:
-    ! ── Desabilitar interrupções ─────────────────────────────────
+    ! ── Disable interrupts ─────────────────────────────────
     mov.l   sr_val, r0
-    ldc     r0, sr              ! SR = 0xF0 (máscara IPM = 15)
+    ldc     r0, sr              ! SR = 0xF0 (IPM mask = 15)
 
-    ! ── Stack pointer Master SH2 ─────────────────────────────────
-    mov.l   stack_top, r15      ! SP = topo de WRAM-H (0x060FFFFC)
+    ! ── Master SH2 stack pointer ─────────────────────────────────
+    mov.l   stack_top, r15      ! SP = top of WRAM-H (0x060FFFFC)
 
-    ! ── Limpar registradores ─────────────────────────────────────
+    ! ── Clear registers ─────────────────────────────────────
     xor     r0, r0
     xor     r1, r1
     xor     r2, r2
@@ -189,12 +189,12 @@ _start:
     xor     r6, r6
     xor     r7, r7
 
-    ! ── Copiar seção .data de ROM para WRAM-H ────────────────────
-    mov.l   data_lma, r0        ! Fonte: LMA no binário
-    mov.l   data_vma, r1        ! Destino: WRAM-H
+    ! ── Copy .data section from ROM to WRAM-H ────────────────────
+    mov.l   data_lma, r0        ! Source: LMA in binary
+    mov.l   data_vma, r1        ! Destination: WRAM-H
     mov.l   data_end, r2
     cmp/eq  r1, r2
-    bt      bss_zero            ! Nada a copiar se igual
+    bt      bss_zero            ! Nothing to copy if equal
 copy_data:
     mov.l   @r0+, r3
     mov.l   r3, @r1
@@ -202,7 +202,7 @@ copy_data:
     cmp/hs  r2, r1
     bf      copy_data
 
-    ! ── Zerar seção .bss ─────────────────────────────────────────
+    ! ── Clear .bss section ─────────────────────────────────────────
 bss_zero:
     mov.l   bss_start, r0
     mov.l   bss_end,   r1
@@ -215,7 +215,7 @@ zero_loop:
     cmp/hs  r1, r0
     bf      zero_loop
 
-    ! ── Construtores C++ (se houver) ─────────────────────────────
+    ! ── C++ constructors (if any) ─────────────────────────────
 call_ctors:
     mov.l   ctors_start, r0
     mov.l   ctors_end,   r1
@@ -228,20 +228,20 @@ ctor_loop:
     cmp/hs  r1, r0
     bf      ctor_loop
 
-    ! ── Chamar main ──────────────────────────────────────────────
+    ! ── Call main ──────────────────────────────────────────────
 jump_main:
     mov.l   main_addr, r0
     jsr     @r0
     nop
 
-    ! ── Jamais retornar — loop infinito ──────────────────────────
+    ! ── Never return — infinite loop ──────────────────────────
 hang:
     bra     hang
     nop
 
     .align 4
-sr_val:     .long 0x000000F0    ! IPM=15 (todos ints mascarados)
-stack_top:  .long 0x060FFFFC    ! Topo de WRAM-H (Master SH2)
+sr_val:     .long 0x000000F0    ! IPM=15 (all ints masked)
+stack_top:  .long 0x060FFFFC    ! Top of WRAM-H (Master SH2)
 data_lma:   .long __data_load
 data_vma:   .long __data_start
 data_end:   .long __data_end
@@ -255,31 +255,31 @@ main_addr:  .long main
 ### 4.2 saturn.ld — Linker Script
 
 ```ld
-/* saturn.ld — Linker script bare-metal para Sega Saturn
-   Programa carregado para WRAM-H a partir de 0x06004000
-   (IP.BIN ocupa 0x06000000..0x06003FFF) */
+/* saturn.ld — Bare-metal linker script for Sega Saturn
+   Program loaded to WRAM-H starting at 0x06004000
+   (IP.BIN occupies 0x06000000..0x06003FFF) */
 
 OUTPUT_FORMAT("elf32-sh", "elf32-sh", "elf32-sh")
 OUTPUT_ARCH(sh)
 ENTRY(_start)
 
 MEMORY {
-    /* WRAM-H: 1MB SDRAM rápido. Reserva 16KB para IP.BIN */
+    /* WRAM-H: 1MB fast SDRAM. Reserve 16KB for IP.BIN */
     WRAMH (rwx) : ORIGIN = 0x06004000, LENGTH = 0x000FC000
-    /* WRAM-L: 1MB DRAM lento. Para dados DMA e malhas estáticas */
+    /* WRAM-L: 1MB slow DRAM. For DMA data and static meshes */
     WRAML (rw)  : ORIGIN = 0x00200000, LENGTH = 0x00100000
 }
 
 SECTIONS {
-    /* ── Código + constantes somente-leitura ── */
+    /* ── Code + read-only constants ── */
     .text 0x06004000 : {
-        *(.text.start)      /* crt0 sempre primeiro */
+        *(.text.start)      /* crt0 always first */
         *(.text .text.*)
         *(.rodata .rodata.*)
         . = ALIGN(4);
     } > WRAMH
 
-    /* ── Dados inicializados ── */
+    /* ── Initialized data ── */
     __data_load = LOADADDR(.data);
     .data : AT(__data_load) {
         __data_start = .;
@@ -288,7 +288,7 @@ SECTIONS {
         __data_end = .;
     } > WRAMH
 
-    /* ── Construtores / destrutores C++ ── */
+    /* ── C++ constructors/destructors ── */
     .ctors : {
         __ctors_start = .;
         KEEP(*(SORT(.ctors.*)))
@@ -303,7 +303,7 @@ SECTIONS {
         __dtors_end = .;
     } > WRAMH
 
-    /* ── BSS (não ocupa espaço no binário) ── */
+    /* ── BSS (does not occupy space in binary) ── */
     .bss (NOLOAD) : {
         __bss_start = .;
         *(.bss .bss.*)
@@ -312,17 +312,17 @@ SECTIONS {
         __bss_end = .;
     } > WRAMH
 
-    /* ── WRAM-L: meshes estáticos, buffers DMA ── */
+    /* ── WRAM-L: static meshes, DMA buffers ── */
     .wram_l (NOLOAD) : {
         *(.wram_l)
         . = ALIGN(4);
     } > WRAML
 
-    /* Stacks são alocadas no final de WRAM-H via SP inicial no crt0 */
-    /* Master SH2: 0x060FFFFC (decresce) */
-    /* Slave SH2:  0x060BFFFC (decresce) — definir via SMPC antes de ativar */
+    /* Stacks are allocated at end of WRAM-H via initial SP in crt0 */
+    /* Master SH2: 0x060FFFFC (grows downward) */
+    /* Slave SH2:  0x060BFFFC (grows downward) — set via SMPC before activating */
 
-    /* Descartar seções desnecessárias */
+    /* Discard unnecessary sections */
     /DISCARD/ : {
         *(.comment)
         *(.note*)
@@ -332,10 +332,10 @@ SECTIONS {
 }
 ```
 
-### 4.3 Makefile Completo
+### 4.3 Complete Makefile
 
 ```makefile
-# Makefile — projeto bare-metal Saturn
+# Makefile — bare-metal Saturn project
 
 CC      := sh2eb-elf-gcc
 CXX     := sh2eb-elf-g++
@@ -368,7 +368,7 @@ $(TARGET).bin: $(TARGET).elf
 
 $(TARGET).iso: $(TARGET).bin
 	mkdir -p iso_root
-	cp $(TARGET).bin iso_root/0.BIN   # "primeiro arquivo" = entry point
+	cp $(TARGET).bin iso_root/0.BIN   # "first file" = entry point
 	$(MKISOFS) \
 	  -sysid "SEGA SATURN" \
 	  -volid "GAME" \
@@ -376,8 +376,8 @@ $(TARGET).iso: $(TARGET).bin
 	  -l -iso-level 1 \
 	  -joliet \
 	  -o $(TARGET).iso \
-	  ip.bin                           # IP.BIN como track especial
-	  # (ver seção 5 sobre IP.BIN)
+	  ip.bin                           # IP.BIN as special track
+	  # (see section 5 about IP.BIN)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -396,47 +396,47 @@ clean:
 
 ---
 
-## 5. IP.BIN — Cabeçalho de Boot
+## 5. IP.BIN — Boot Header
 
-O IP.BIN ocupa os primeiros 16 setores (32 KB) do CD. Ele é lido pelo BIOS do Saturn antes do seu código. Você tem duas opções:
+IP.BIN occupies the first 16 sectors (32 KB) of the CD. It is read by the Saturn BIOS before your code. You have two options:
 
-**Opção A — Usar o IP.BIN dos samples do SGL (recomendado para começar):**
-O arquivo `sample/sys/ip.bin` que acompanha o SBL/SGL é amplamente redistribuído e funciona sem modificações. Ele configura o hardware básico e salta para `0x06004000`.
+**Option A — Use the IP.BIN from SGL samples (recommended for getting started:**
+The file `sample/sys/ip.bin` bundled with SBL/SGL is widely redistributed and works without modifications. It configures basic hardware and jumps to `0x06004000`.
 
-**Opção B — IP.BIN mínimo escrito do zero:**
+**Option B — Minimal IP.BIN written from scratch:**
 ```
-Estrutura IP.BIN — System ID (32KB = 0x8000 bytes):
+IP.BIN Structure — System ID (32KB = 0x8000 bytes):
   Offset 0x000–0x00F : Hardware ID        "SEGA SEGASATURN " (16 bytes)
   Offset 0x010–0x01F : Maker ID           (16 bytes)
   Offset 0x020–0x029 : Product Number     (10 bytes)
-  Offset 0x02A–0x02F : Version            (6 bytes, ex: "V1.000")
+  Offset 0x02A–0x02F : Version            (6 bytes, e.g.: "V1.000")
   Offset 0x030–0x037 : Release Date       YYYYMMDD (8 bytes)
-  Offset 0x038–0x03F : Device Info        (8 bytes, ex: "CD-1/1  ")
-  Offset 0x040–0x049 : Area Symbols       (10 bytes, ex: "JTUE      ")
+  Offset 0x038–0x03F : Device Info        (8 bytes, e.g.: "CD-1/1  ")
+  Offset 0x040–0x049 : Area Symbols       (10 bytes, e.g.: "JTUE      ")
   Offset 0x04A–0x04F : (padding)          (6 bytes)
   Offset 0x050–0x05F : Peripherals        (16 bytes)
   Offset 0x060–0x0CF : Game Title         (112 bytes ASCII)
   Offset 0x0D0–0x0DF : (reserved)
   Offset 0x0E0–0x0E3 : IP Size            (4 bytes, binary big-endian)
-  Offset 0x0E8–0x0EB : Master Stack       (4 bytes, binary BE, ex: 0x060FFFFC)
+  Offset 0x0E8–0x0EB : Master Stack       (4 bytes, binary BE, e.g.: 0x060FFFFC)
   Offset 0x0EC–0x0EF : Slave Stack        (4 bytes, binary BE)
-  Offset 0x0F0–0x0F3 : 1st Read Address   (4 bytes, binary BE, ex: 0x06004000)
+  Offset 0x0F0–0x0F3 : 1st Read Address   (4 bytes, binary BE, e.g.: 0x06004000)
   Offset 0x0F4–0x0F7 : 1st Read Size      (4 bytes, binary BE)
   Offset 0x100–0x7FFF: Security/boot code area
 ```
 
-Para fins práticos: **use o ip.bin do SBL sample/sys**. Ele é o mesmo em todos os jogos de 1ª party e não contém código proprietário novo.
+For practical purposes: **use the ip.bin from SBL sample/sys**. It is the same across all 1st party games and does not contain new proprietary code.
 
 ---
 
-## 6. VDP1 — Acesso Direto (Sem SGL)
+## 6. VDP1 — Direct Access (Without SGL)
 
-VDP1 é orientado a **command list**: você escreve uma lista de comandos de 32 bytes na VRAM do VDP1 e dispara a execução.
+VDP1 is **command list** oriented: you write a list of 32-byte commands to VDP1 VRAM and trigger execution.
 
-### 6.1 Registradores VDP1
+### 6.1 VDP1 Registers
 
 ```cpp
-// hal/vdp1.hpp — acesso direto via ponteiros voláteis
+// hal/vdp1.hpp — direct access via volatile pointers
 namespace VDP1 {
     inline auto& TVMR = *reinterpret_cast<volatile uint16_t*>(0x05D00000);
     inline auto& FBCR = *reinterpret_cast<volatile uint16_t*>(0x05D00002);
@@ -452,51 +452,51 @@ namespace VDP1 {
         TVMR = 0x0000; // 16-bit color, 512px wide, non-rotate
         FBCR = 0x0000; // Manual erase
         PTMR = 0x0002; // Auto-draw on VBLANK
-        EWDR = 0x0000; // Erase color = preto
+        EWDR = 0x0000; // Erase color = black
         EWLR = 0x0000;
-        EWRR = static_cast<uint16_t>(((320 / 8) << 9) | 224); // Área de erase 320×224
+        EWRR = static_cast<uint16_t>(((320 / 8) << 9) | 224); // Erase area 320×224
     }
 }
 ```
 
-### 6.2 Estrutura de Comando (32 bytes)
+### 6.2 Command Structure (32 bytes)
 
 ```cpp
 struct alignas(4) Vdp1Cmd {
-    uint16_t ctrl;   // Tipo do comando + opções
-    uint16_t link;   // Próximo comando: endereço >> 3 (0 = sequencial)
-    uint16_t pmod;   // Draw mode: color mode, transparência
-    uint16_t colr;   // Base da paleta ou cor direta
-    uint16_t srca;   // Endereço da textura >> 3 (relativo à VRAM)
-    uint16_t size;   // (largura/8 << 8) | altura
-    int16_t  xa, ya; // Vértice A (topo-esquerda)
-    int16_t  xb, yb; // Vértice B (topo-direita)
-    int16_t  xc, yc; // Vértice C (baixo-direita)
-    int16_t  xd, yd; // Vértice D (baixo-esquerda)
-    uint16_t grda;   // Tabela Gouraud >> 3
+    uint16_t ctrl;   // Command type + options
+    uint16_t link;   // Next command: address >> 3 (0 = sequential)
+    uint16_t pmod;   // Draw mode: color mode, transparency
+    uint16_t colr;   // Palette base or direct color
+    uint16_t srca;   // Texture address >> 3 (relative to VRAM)
+    uint16_t size;   // (width/8 << 8) | height
+    int16_t  xa, ya; // Vertex A (top-left)
+    int16_t  xb, yb; // Vertex B (top-right)
+    int16_t  xc, yc; // Vertex C (bottom-right)
+    int16_t  xd, yd; // Vertex D (bottom-left)
+    uint16_t grda;   // Gouraud table >> 3
     uint16_t _pad;
 };
 static_assert(sizeof(Vdp1Cmd) == 32);
 
 // ctrl bits:
-//   15:14 = tipo: 00=sprite normal, 10=quad distorcido (3D!), 11=polígono cor-sólida
-//   13    = fim de lista
-//    2    = usar Gouraud shading
+//   15:14 = type: 00=normal sprite, 10=distorted quad (3D!), 11=solid-color polygon
+//   13    = end of list
+//    2    = use Gouraud shading
 // pmod bits:
-//    6:4  = modo de cor: 011=256 cores, 100=RGB555
-//    2    = transparência (cor 0 = transparente)
+//    6:4  = color mode: 011=256 colors, 100=RGB555
+//    2    = transparency (color 0 = transparent)
 ```
 
-### 6.3 Textura na VDP1 VRAM
+### 6.3 Texture in VDP1 VRAM
 
 ```cpp
-// Gerenciador simples de textura (cursor linear)
+// Simple texture manager (linear cursor)
 namespace TexCache {
-    static uint32_t cursor = 0x1000; // Primeiros 4KB reservados para cmd list
+    static uint32_t cursor = 0x1000; // First 4KB reserved for cmd list
 
-    // Retorna valor para o campo srca (offset >> 3)
+    // Returns value for srca field (offset >> 3)
     uint16_t upload(const void* data, uint32_t bytes) {
-        cursor = (cursor + 7) & ~7u; // Alinha em 8 bytes
+        cursor = (cursor + 7) & ~7u; // Align to 8 bytes
         auto* dst = reinterpret_cast<volatile uint16_t*>(VDP1::VRAM_BASE + cursor);
         auto* src = static_cast<const uint16_t*>(data);
         for (uint32_t i = 0; i < bytes / 2; ++i) dst[i] = src[i];
@@ -507,10 +507,10 @@ namespace TexCache {
 }
 ```
 
-### 6.4 Construindo Quads 3D
+### 6.4 Building 3D Quads
 
 ```cpp
-// Escreve um quad texturizado na lista de comandos
+// Writes a textured quad to the command list
 inline void write_quad(Vdp1Cmd* cmd,
                        int16_t xa, int16_t ya,
                        int16_t xb, int16_t yb,
@@ -518,9 +518,9 @@ inline void write_quad(Vdp1Cmd* cmd,
                        int16_t xd, int16_t yd,
                        uint16_t srca, uint16_t w8, uint16_t h,
                        uint16_t palette) {
-    cmd->ctrl = 0x0004;  // Distorted sprite (quad arbitrário)
+    cmd->ctrl = 0x0004;  // Distorted sprite (arbitrary quad)
     cmd->link = 0;
-    cmd->pmod = 0x00C0;  // 256 cores, end-codes on, transparência on
+    cmd->pmod = 0x00C0;  // 256 colors, end-codes on, transparency on
     cmd->colr = palette;
     cmd->srca = srca;
     cmd->size = static_cast<uint16_t>((w8 << 8) | h);
@@ -532,24 +532,24 @@ inline void write_quad(Vdp1Cmd* cmd,
     cmd->_pad = 0;
 }
 
-// Terminar lista de comandos (obrigatório!)
+// End command list (required!)
 inline void end_list(Vdp1Cmd* cmd) {
     cmd->ctrl = 0x8000; // Bit 15 = End of List
 }
 ```
 
-### 6.5 Upload da Lista e Disparo
+### 6.5 List Upload and Trigger
 
 ```cpp
 void frame_submit(const Vdp1Cmd* cmds, uint32_t count) {
-    // Copiar lista de WRAM-H para VDP1 VRAM via escrita direta
-    // (para N grande, usar SCU DMA — ver seção SCU DMA)
+    // Copy list from WRAM-H to VDP1 VRAM via direct write
+    // (for large N, use SCU DMA — see SCU DMA section)
     auto* dst = reinterpret_cast<volatile uint32_t*>(VDP1::VRAM_BASE);
     auto* src = reinterpret_cast<const uint32_t*>(cmds);
     uint32_t dwords = (count * sizeof(Vdp1Cmd)) / 4;
     for (uint32_t i = 0; i < dwords; ++i) dst[i] = src[i];
 
-    // Disparar: trocar framebuffers + apagar + desenhar
+    // Trigger: swap framebuffers + erase + draw
     VDP1::FBCR = 0x0003;
     VDP1::PTMR = 0x0001;
 }
@@ -561,7 +561,7 @@ void frame_submit(const Vdp1Cmd* cmds, uint32_t count) {
 
 ```cpp
 namespace VDP2 {
-    // Macro de acesso por índice de registrador (base 0x05F00000)
+    // Register access macro by index (base 0x05F00000)
     template<uint32_t Offset>
     inline auto& REG = *reinterpret_cast<volatile uint16_t*>(0x05F00000 + Offset);
 
@@ -573,27 +573,27 @@ namespace VDP2 {
     inline auto& PRISA  = REG<0x98>; // Sprite priority
     inline auto& PRINA  = REG<0xA0>; // NBG0/NBG1 priority
 
-    // 320×224 NTSC, sprites VDP1 em prioridade 6, NBG0 em 1
+    // 320×224 NTSC, VDP1 sprites at priority 6, NBG0 at 1
     void init_320x224_ntsc() {
         TVMD   = 0x8110; // Display on, 320×224, NTSC
         RAMCTL = 0x1F00;
         BGON   = 0x0003; // Sprites (VDP1) + NBG0
-        CHCTLA = 0x0002; // NBG0: 256 cores, tiles 8×8
-        PRISA  = 0x0006; // Sprites tipo 0 = prioridade 6
-        PRINA  = 0x0001; // NBG0 = prioridade 1
+        CHCTLA = 0x0002; // NBG0: 256 colors, 8×8 tiles
+        PRISA  = 0x0006; // Sprites type 0 = priority 6
+        PRINA  = 0x0001; // NBG0 = priority 1
     }
 }
 ```
 
-Registradores completos do VDP2 → `references/vdp2_regs.md`
+VDP2 complete registers → `references/vdp2_regs.md`
 
 ---
 
-## 8. Interrupções via SCU
+## 8. Interrupts via SCU
 
 ```cpp
-// Vetores de interrupção (tabela BIOS em WRAM-H)
-// O BIOS do Saturn lê esses endereços na inicialização
+// Interrupt vectors (BIOS table in WRAM-H)
+// The Saturn BIOS reads these addresses during initialization
 constexpr uint32_t* IVT = reinterpret_cast<uint32_t*>(0x06000300);
 
 #define SCU_IST  (*reinterpret_cast<volatile uint32_t*>(0x05A0001C))
@@ -602,26 +602,26 @@ constexpr uint32_t* IVT = reinterpret_cast<uint32_t*>(0x06000300);
 
 static volatile uint32_t g_frame = 0;
 
-// Handler de VBlank — deve ser linkado na seção .text
+// VBlank handler — must be linked in .text section
 extern "C" void vblank_in_handler() {
-    SCU_IST &= ~INT_VBLANK_IN; // Limpar flag
+    SCU_IST &= ~INT_VBLANK_IN; // Clear flag
     ++g_frame;
 }
 
 void interrupts_init() {
     IVT[0x40] = reinterpret_cast<uint32_t>(vblank_in_handler); // VBlank-IN
-    SCU_IMS &= ~INT_VBLANK_IN; // Desmascarar
+    SCU_IMS &= ~INT_VBLANK_IN; // Unmask
 
-    // Habilitar interrupções no SR do SH2
+    // Enable interrupts in SH2 SR
     asm volatile(
         "stc  sr, r0    \n"
-        "and  #0x0F, r0 \n" // IPM = 0 (aceitar tudo)
+        "and  #0x0F, r0 \n" // IPM = 0 (accept all)
         "ldc  r0, sr    \n"
         ::: "r0"
     );
 }
 
-// Esperar próximo VBlank (sincronização de frame)
+// Wait for next VBlank (frame synchronization)
 inline void wait_vblank() {
     uint32_t prev = g_frame;
     while (g_frame == prev);
@@ -630,10 +630,10 @@ inline void wait_vblank() {
 
 ---
 
-## 9. Dual SH2 — Slave Paralelo
+## 9. Dual SH2 — Parallel Slave
 
 ```cpp
-// Ativar Slave SH2 via SMPC
+// Enable Slave SH2 via SMPC
 namespace SMPC {
     inline auto& COMREG = *reinterpret_cast<volatile uint8_t*>(0x20100001);
     inline auto& SF     = *reinterpret_cast<volatile uint8_t*>(0x20100063);
@@ -643,7 +643,7 @@ namespace SMPC {
     void slave_off() { wait(); COMREG = 0x03; wait(); }
 }
 
-// Estrutura de job (em WRAM-L para que ambos os SH2 enxerguem via cache-through)
+// Job structure (in WRAM-L so both SH2s can see via cache-through)
 struct alignas(16) SlaveJob {
     void (*func)(void*);
     void* arg;
@@ -651,14 +651,14 @@ struct alignas(16) SlaveJob {
     uint32_t _pad;
 };
 
-// Colocar na WRAM-L e acessar via endereço cache-through (|0x20000000)
+// Place in WRAM-L and access via cache-through address (|0x20000000)
 static SlaveJob _sjob __attribute__((section(".wram_l")));
 #define SJOB (*(reinterpret_cast<volatile SlaveJob*>( \
                reinterpret_cast<uint32_t>(&_sjob) | 0x20000000u)))
 
-// Slave SH2 main loop (deve estar no binário — chamado pelo startup do slave)
+// Slave SH2 main loop (must be in binary — called by slave startup)
 extern "C" [[noreturn]] void slave_main() {
-    // Mascarar interrupções no slave
+    // Mask interrupts on slave
     asm volatile("ldc %0, sr" :: "r"(0xF0));
     for (;;) {
         if (SJOB.func) {
@@ -671,79 +671,79 @@ extern "C" [[noreturn]] void slave_main() {
     }
 }
 
-// Disparar job no slave e aguardar
+// Trigger job on slave and wait
 void slave_run_sync(void (*f)(void*), void* arg) {
     SJOB.done = 0;
     SJOB.arg  = arg;
-    SJOB.func = f; // Slave vê isso e executa
+    SJOB.func = f; // Slave sees this and executes
     while (!SJOB.done);
 }
 ```
 
 ---
 
-## 10. Matemática Fixed-Point (Nunca Float!)
+## 10. Fixed-Point Math (Never Float!)
 
-O SH2 não tem FPU. Qualquer `float` vira chamada de biblioteca de software (~50× mais lento).
+The SH2 has no FPU. Any `float` becomes a software library call (~50× slower).
 
 ```cpp
 // math/fixed.hpp
 using fx16 = int32_t; // 16.16 fixed-point: 1.0 = 0x00010000
-using fx32 = int64_t; // Intermediário para multiplicações
+using fx32 = int64_t; // Intermediate for multiplications
 
 constexpr fx16 FX_ONE = 0x00010000;
 constexpr fx16 fx_from_float(float f) { return static_cast<fx16>(f * 65536.0f); }
 constexpr fx16 fx_int(int n)          { return n << 16; }
 constexpr int  fx_toint(fx16 f)       { return f >> 16; }
 
-// Multiplicação: (a * b) >> 16
+// Multiplication: (a * b) >> 16
 inline fx16 fx_mul(fx16 a, fx16 b) {
     return static_cast<fx16>((static_cast<fx32>(a) * b) >> 16);
 }
 
-// Divisão usando hardware divider do SH2 (36 ciclos, pipeline!)
+// Division using SH2 hardware divider (36 cycles, pipelined!)
 namespace SH2Div {
     inline auto& DVSR   = *reinterpret_cast<volatile int32_t*>(0xFFFFFF00);
     inline auto& DVDNT  = *reinterpret_cast<volatile int32_t*>(0xFFFFFF04);
     inline auto& DVDNTH = *reinterpret_cast<volatile int32_t*>(0xFFFFFF10);
 }
 
-// Iniciar divisão — leia o resultado 36+ ciclos depois
+// Start division — read result 36+ cycles later
 inline void fx_div_start(fx16 a, fx16 b) {
     SH2Div::DVSR   = b;
     SH2Div::DVDNTH = a >> 16;
     SH2Div::DVDNT  = a << 16;
-    // Fazer outros cálculos aqui enquanto HW divide...
+    // Do other calculations here while HW divides...
 }
 inline fx16 fx_div_read() { return static_cast<fx16>(SH2Div::DVDNT); }
 
-// Vec3 e Mat4 → references/math_3d.md
+// Vec3 and Mat4 → references/math_3d.md
 ```
 
 ---
 
-## 11. Pipeline 3D Completo
+## 11. Complete 3D Pipeline
 
 ```
 [Model verts, fixed16] ──► [Slave SH2: MVP matrix × vertex]
                                     │
                            [Master: frustum cull]
                                     │
-                           [Projeção perspectiva]
+                           [Perspective projection]
                                     │
                            [Back-face culling (CCW 2D cross)]
                                     │
-                           [Z-sort: insertion sort por avg_z]
+                           [Z-sort: insertion sort by avg_z]
                                     │
-                           [Construir Vdp1Cmd[] em WRAM-H]
+                           [Build Vdp1Cmd[] in WRAM-H]
                                     │
                            [SCU DMA → VDP1 VRAM]
                                     │
-                           [Disparar VDP1]
+                           [Trigger VDP1]
 ```
 
 ```cpp
-// Projeção perspectiva (sem float!)
+// Perspective projection (no float!)
 constexpr fx16 FOCAL = fx_from_float(200.f);
 constexpr int  CX = 160, CY = 112;
 
@@ -752,9 +752,9 @@ struct Screen { int16_t x, y; };
 Screen project(fx16 vx, fx16 vy, fx16 vz) {
     if (vz < fx_int(1)) vz = fx_int(1); // Clip near
 
-    // Iniciar duas divisões em sequência, lendo entre elas para pipeline
+    // Start two divisions in sequence, reading between them for pipelining
     fx_div_start(fx_mul(vx, FOCAL), vz);
-    // 36 ciclos de latência — aproveitar para calcular vy*focal antes de ler:
+    // 36 cycles latency — use to calculate vy*focal before reading:
     fx16 ynum = fx_mul(vy, FOCAL);
     fx16 sx = fx_div_read();
     fx_div_start(ynum, vz);
@@ -766,7 +766,7 @@ Screen project(fx16 vx, fx16 vy, fx16 vz) {
     };
 }
 
-// Back-face cull (produto vetorial 2D, descarte horário)
+// Back-face cull (2D cross product, discard clockwise)
 inline bool is_backface(Screen a, Screen b, Screen c) {
     return (int32_t(b.x - a.x) * (c.y - a.y)
           - int32_t(b.y - a.y) * (c.x - a.x)) <= 0;
@@ -775,11 +775,11 @@ inline bool is_backface(Screen a, Screen b, Screen c) {
 
 ---
 
-## 12. SCU DMA — Transferências Sem CPU
+## 12. SCU DMA — Transfers Without CPU
 
 ```cpp
 namespace SCUDMA {
-    // Channel 0 (maior prioridade — usar para cmd list → VDP1 VRAM)
+    // Channel 0 (highest priority — use for cmd list → VDP1 VRAM)
     inline auto& D0R  = *reinterpret_cast<volatile uint32_t*>(0x05A00000);
     inline auto& D0W  = *reinterpret_cast<volatile uint32_t*>(0x05A00004);
     inline auto& D0C  = *reinterpret_cast<volatile uint32_t*>(0x05A00008);
@@ -787,57 +787,57 @@ namespace SCUDMA {
     inline auto& D0EN = *reinterpret_cast<volatile uint32_t*>(0x05A00010);
     inline auto& D0MD = *reinterpret_cast<volatile uint32_t*>(0x05A00014);
 
-    // Copiar src (WRAM-L!) → destino, sem CPU
-    // ATENÇÃO: src DEVE estar em WRAM-L (0x002xxxxx). WRAM-H não é acessível pelo SCU DMA!
+    // Copy src (WRAM-L!) → destination, without CPU
+    // WARNING: src MUST be in WRAM-L (0x002xxxxx). WRAM-H is not accessible by SCU DMA!
     void transfer(uint32_t src_wram_l, uint32_t dst, uint32_t bytes) {
         D0R  = src_wram_l;
         D0W  = dst;
         D0C  = bytes;
         D0AD = 0x00000101; // src +4, dst +4
-        D0MD = 0x00000000; // Modo direto
-        D0EN = 0x01000001; // Iniciar
-        while (D0EN & 0x01000000); // Poll até fim
+        D0MD = 0x00000000; // Direct mode
+        D0EN = 0x01000001; // Start
+        while (D0EN & 0x01000000); // Poll until done
     }
 
-    // Atalho: cmd list de WRAM-L para VDP1 VRAM
+    // Shortcut: cmd list from WRAM-L to VDP1 VRAM
     void cmd_to_vdp1(uint32_t src_wram_l, uint32_t cmd_count) {
         transfer(src_wram_l, 0x05C80000, cmd_count * 32);
     }
 }
 ```
 
-> **Importante:** SCU DMA só acessa WRAM-L (0x002xxxxx). Para DMA de dados em WRAM-H, copie primeiro para WRAM-L, depois dispare o DMA.
+> **Important:** SCU DMA only accesses WRAM-L (0x002xxxxx). For DMA of data in WRAM-H, first copy to WRAM-L, then trigger DMA.
 
 ---
 
-## 13. SCU DSP — Transforms em Batch
+## 13. SCU DSP — Batch Transforms
 
-O SCU DSP é assembly-only (VLIW, 6 ops/ciclo). Ideal para multiplicação matricial em batch.
+The SCU DSP is assembly-only (VLIW, 6 ops/cycle). Ideal for batch matrix multiplication.
 
-Detalhes completos, instruction set e exemplos → `references/scu_dsp.md`
+Complete details, instruction set, and examples → `references/scu_dsp.md`
 
-Uso básico:
+Basic usage:
 ```cpp
 namespace SCUDSP {
     inline auto& PPAF  = *reinterpret_cast<volatile uint32_t*>(0x05A00000); // DSP ctrl
-    // Programa DSP em 0x05FF8000 (1KB)
-    // Data RAM CT0-CT3 em 0x05FF8400 (1KB por CT, ring buffer de 64 words)
+    // DSP program at 0x05FF8000 (1KB)
+    // Data RAM CT0-CT3 at 0x05FF8400 (1KB per CT, 64 words ring buffer)
 
     void execute_from_pc0() {
-        PPAF = 0x00000101; // Executar do PC=0
+        PPAF = 0x00000101; // Execute from PC=0
     }
     void wait_done() {
-        while (PPAF & 0x00010000); // Aguarda flag EXEC
+        while (PPAF & 0x00010000); // Wait for EXEC flag
     }
 }
 ```
 
 ---
 
-## 14. SMPC — Leitura de Controles
+## 14. SMPC — Controller Reading
 
 ```cpp
-// Endereços SMPC (acessar como cache-through: | 0x20000000)
+// SMPC addresses (access as cache-through: | 0x20000000)
 #define SMPC_IREG(n)  (*reinterpret_cast<volatile uint8_t*>(0x20100001 + (n)*4))
 #define SMPC_OREG(n)  (*reinterpret_cast<volatile uint8_t*>(0x20100021 + (n)*4))
 #define SMPC_COMREG   (*reinterpret_cast<volatile uint8_t*>(0x20100001))
@@ -852,25 +852,25 @@ enum PadBtn : uint16_t {
 
 struct PadState { uint16_t held, pressed, released; };
 
-// SMPC retorna dados em OREG após comando GETPERIPHERAL
-// Execução deve ocorrer durante VBlank (16ms de janela)
+// SMPC returns data in OREG after GETPERIPHERAL command
+// Execution must occur during VBlank (16ms window)
 uint16_t pad_read_raw() {
-    while (SMPC_SF & 0x01);        // Aguardar SMPC livre
-    SMPC_COMREG = 0x08;            // Comando: INTBACK (poll periféricos)
-    while (SMPC_SF & 0x01);        // Aguardar conclusão
-    // OREG[0] e OREG[1] contêm os dados do pad 1 em formato digital
+    while (SMPC_SF & 0x01);        // Wait for SMPC idle
+    SMPC_COMREG = 0x08;            // Command: INTBACK (poll peripherals)
+    while (SMPC_SF & 0x01);        // Wait for completion
+    // OREG[0] and OREG[1] contain pad 1 data in digital format
     uint8_t hi = SMPC_OREG(0);
     uint8_t lo = SMPC_OREG(1);
-    return static_cast<uint16_t>((hi << 8) | lo) ^ 0xFFFF; // Inverter: 1=pressionado
+    return static_cast<uint16_t>((hi << 8) | lo) ^ 0xFFFF; // Invert: 1=pressed
 }
 ```
 
 ---
 
-## 15. Áudio — Comunicação SH2 ↔ M68k
+## 15. Audio — SH2 ↔ M68k Communication
 
 ```cpp
-// Área de comunicação em Sound RAM (acessível por ambos)
+// Communication area in Sound RAM (accessible by both)
 #define SCOMM_BASE 0x05A01000
 
 namespace Audio {
@@ -882,7 +882,7 @@ namespace Audio {
     inline auto& LENH = *reinterpret_cast<volatile uint16_t*>(SCOMM_BASE + 0x0A);
     inline auto& FREQ = *reinterpret_cast<volatile uint16_t*>(SCOMM_BASE + 0x0C);
 
-    // Aguardar M68k processar comando anterior
+    // Wait for M68k to process previous command
     void wait() { while (CMD != 0); }
 
     void play_pcm(uint8_t ch, uint32_t addr, uint32_t len, uint16_t freq) {
@@ -893,7 +893,7 @@ namespace Audio {
         LENL = static_cast<uint16_t>(len & 0xFFFF);
         LENH = static_cast<uint16_t>(len >> 16);
         FREQ = freq;
-        CMD  = 1; // M68k executa quando vê CMD != 0
+        CMD  = 1; // M68k executes when it sees CMD != 0
     }
 
     void stop(uint8_t ch) {
@@ -904,82 +904,82 @@ namespace Audio {
 }
 ```
 
-Driver M68k e mapa de registradores SCSP → `references/scsp_audio.md`
+M68k driver and SCSP register map → `references/scsp_audio.md`
 
 ---
 
-## 16. Estrutura de Projeto Recomendada
+## 16. Recommended Project Structure
 
 ```
-meu-jogo/
-├── build-toolchain.sh       ← Compilar sh2eb-elf-gcc do zero
+my-game/
+├── build-toolchain.sh       ← Compile sh2eb-elf-gcc from scratch
 ├── Makefile
 ├── crt0.s                   ← Startup assembly
 ├── saturn.ld                ← Linker script
-├── ip.bin                   ← IP.BIN (do SBL sample/sys)
+├── ip.bin                   ← IP.BIN (from SBL sample/sys)
 ├── hal/
-│   ├── vdp1.hpp             ← Acesso direto ao VDP1
-│   ├── vdp2.hpp             ← Acesso direto ao VDP2
-│   ├── scu.hpp              ← SCU DMA + interrupções
+│   ├── vdp1.hpp             ← Direct VDP1 access
+│   ├── vdp2.hpp             ← Direct VDP2 access
+│   ├── scu.hpp              ← SCU DMA + interrupts
 │   ├── scu_dsp.hpp/.s       ← SCU DSP programs
 │   ├── sh2_slave.hpp        ← Slave SH2 job dispatcher
-│   ├── smpc.hpp             ← Controles + system control
-│   └── audio.hpp            ← Interface áudio SH2-side
+│   ├── smpc.hpp             ← Controllers + system control
+│   └── audio.hpp            ← SH2-side audio interface
 ├── math/
 │   ├── fixed.hpp            ← fixed16: mul, div, sincos
 │   ├── vec3.hpp             ← Vec3 operations
-│   └── mat4.hpp             ← Mat4 × Vec3 (usa MAC.L do SH2)
+│   └── mat4.hpp             ← Mat4 × Vec3 (uses SH2 MAC.L inline asm)
 ├── gfx/
-│   ├── render3d.hpp/.cpp    ← Pipeline 3D completo
+│   ├── render3d.hpp/.cpp    ← Complete 3D pipeline
 │   ├── zsort.hpp            ← Painter's algorithm
-│   ├── tex_cache.hpp        ← Upload textura → VDP1 VRAM
-│   └── sprite2d.hpp         ← Sprites 2D simples
+│   ├── tex_cache.hpp        ← Texture upload → VDP1 VRAM
+│   └── sprite2d.hpp         ← Simple 2D sprites
 ├── audio/
-│   ├── m68k_driver.s        ← Driver M68k assembly (68000)
-│   └── audio_api.hpp        ← API SH2-side
+│   ├── m68k_driver.s        ← M68k assembly driver (68000)
+│   └── audio_api.hpp        ← SH2-side API
 ├── src/
-│   └── main.cpp             ← Ponto de entrada do jogo
+│   └── main.cpp             ← Game entry point
 └── tools/
     ├── make_iso.sh          ← mkisofs wrapper
-    └── palette_conv.py      ← Converter imagens → formato Saturn
+    └── palette_conv.py      ← Convert images → Saturn format
 ```
 
 ---
 
-## 17. Pitfalls Críticos
+## 17. Critical Pitfalls
 
-| Erro | Causa | Solução |
-|------|-------|---------|
-| Dados stale entre SH2s | Cache coherency | Usar endereços `|0x20000000` para shared data |
-| Textura corrompida | Largura não múltipla de 8 | VDP1 exige: width % 8 == 0 |
-| SCU DMA não funciona | Fonte em WRAM-H | SCU DMA só lê WRAM-L (0x002xxxxx) |
-| Performance péssima | Uso de float | Nunca usar `float`; usar `fx16` (fixed16) |
-| Crash no slave SH2 | Bus contention | Usar cache-through e evitar WRAM-L simultâneo |
-| VDP1 não desenha | Lista de cmds sem End | Sempre terminar com ctrl = 0x8000 |
-| Big-endian invertido | Cross-compilando de x86 | Todos os shorts/longs em big-endian no binário |
-| IP.BIN não salta | Entry point errado | Confirmar que 0x06004000 está no linker script |
+| Error | Cause | Solution |
+|-------|-------|---------|
+| Stale data between SH2s | Cache coherency | Use addresses `|0x20000000` for shared data |
+| Corrupted texture | Width not multiple of 8 | VDP1 requires: width % 8 == 0 |
+| SCU DMA not working | Source in WRAM-H | SCU DMA only reads WRAM-L (0x002xxxxx) |
+| Terrible performance | Float usage | Never use `float`; use `fx16` (fixed16) |
+| Crash on slave SH2 | Bus contention | Use cache-through and avoid simultaneous WRAM-L access |
+| VDP1 not drawing | Cmd list missing End | Always end with ctrl = 0x8000 |
+| Big-endian reversed | Cross-compiling from x86 | All shorts/longs are big-endian in binary |
+| IP.BIN not jumping | Wrong entry point | Confirm 0x06004000 is in linker script |
 
 ---
 
-## 18. Emuladores para Teste
+## 18. Emulators for Testing
 
 ```bash
-# Mednafen — mais preciso para timing exato
+# Mednafen — more accurate for exact timing
 mednafen -ss.bios_path bios.bin game.cue
 
-# Kronos — melhor para debug (baseado em Yabause, mais ativo)
+# Kronos — better for debug (based on Yabause, more active)
 # https://github.com/FCare/Kronos
 
-# Yabause — alternativa mais simples
+# Yabause — simpler alternative
 yabause -b bios.bin -i game.iso
 ```
 
-Build de imagem:
+Image build:
 ```bash
-# Gerar ISO bootável (requer mkisofs / genisoimage)
+# Generate bootable ISO (requires mkisofs/genisoimage)
 mkisofs \
   -sysid "SEGA SATURN" \
-  -volid "MYJOGO" \
+  -volid "MYGAME" \
   -publisher "STUDIO" \
   -l -iso-level 1 \
   -o game.iso \
@@ -987,19 +987,19 @@ mkisofs \
   ip.bin \
   iso_root/
 
-# ip.bin deve ser o PRIMEIRO arquivo (IP.BIN = Track1 setores 0-15)
-# Binário do jogo deve estar como primeiro arquivo na iso_root/
+# ip.bin must be the FIRST file (IP.BIN = Track1 sectors 0-15)
+# Game binary must be the first file in iso_root/
 ```
 
 ---
 
-## 19. Arquivos de Referência
+## 19. Reference Files
 
-Ler quando precisar de detalhes de um subsistema:
+Read when you need details on a specific subsystem:
 
-- `references/memory_map.md` — Mapa completo de memória com velocidades de bus
-- `references/scu_dsp.md` — Instruction set SCU DSP, regras VLIW, exemplos
-- `references/vdp1_cmds.md` — Todos os campos da command table VDP1
-- `references/vdp2_regs.md` — Mapa de registradores VDP2, planos de scroll, RBG0
-- `references/math_3d.md` — Vetores, matrizes 4×4, seno/cosseno, MAC.L inline asm
-- `references/scsp_audio.md` — SCSP registers, driver M68k assembly, API SH2
+- `references/memory_map.md` — Complete memory map with bus speeds
+- `references/scu_dsp.md` — SCU DSP instruction set, VLIW rules, examples
+- `references/vdp1_cmds.md` — All VDP1 command table fields
+- `references/vdp2_regs.md` — VDP2 register map, scroll planes, RBG0
+- `references/math_3d.md` — Vectors, 4×4 matrices, sin/cos, MAC.L inline asm
+- `references/scsp_audio.md` — SCSP registers, M68k assembly driver, SH2 API

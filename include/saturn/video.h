@@ -20,23 +20,23 @@ sat_result_t sat_wait_vblank(void);
 /* Clear / backdrop color                                              */
 /* ------------------------------------------------------------------ */
 
-/* Define a cor de erase do VDP1. O erase limpa o framebuffer de sprites
- * no início de cada frame. O erase usa cor TRANSPARENTE (end code) para
- * permitir que o backdrop do VDP2 apareça nas áreas sem sprites.
- * O bit 15 (transparência) é adicionado automaticamente.
+/* Sets VDP1 erase color. The erase clears the sprite framebuffer
+ * at the start of each frame. The erase uses TRANSPARENT color (end code) to
+ * allow the VDP2 backdrop to show in areas without sprites.
+ * Bit 15 (transparency) is added automatically.
  */
 sat_result_t sat_set_clear_color(uint16_t rgb555);
 
-/* Define a cor de fundo do VDP2 (backdrop). Esta cor aparece quando
- * nenhuma camada VDP1/VDP2 desenha por cima. Com o erase transparente
- * do VDP1 (padrão), esta é a cor visível na tela.
+/* Sets VDP2 backdrop color. This color appears when
+ * no VDP1/VDP2 layer draws on top. With transparent VDP1 erase
+ * (default), this is the visible color on screen.
  */
 sat_result_t sat_vdp2_back_color_set(uint16_t rgb555);
 
-/* Habilita ou desabilita o erase automático do VDP1 no frame inteiro.
- * enable=1: VDP1 faz erase com cor transparente (backdrop visível)
- * enable=0: VDP1 NÃO faz erase (framebuffer mantém dados do frame anterior)
- * Padrão: habilitado com cor transparente
+/* Enables or disables automatic VDP1 erase for the entire frame.
+ * enable=1: VDP1 erases with transparent color (backdrop visible)
+ * enable=0: VDP1 does NOT erase (framebuffer keeps previous frame data)
+ * Default: enabled with transparent color
  */
 sat_result_t sat_vdp1_set_erase_enabled(uint8_t enable);
 

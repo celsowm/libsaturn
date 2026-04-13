@@ -4,20 +4,20 @@
 
 ## 1. Character Pattern Table
 
-Pixels do sprite armazenados no VRAM. Boundary: **20H bytes**.
-Endereço 0x000000 é reservado para command tables. Mínimo: VRAM[0x000020].
+Sprite pixels stored in VRAM. Boundary: **20H bytes**.
+Address 0x000000 is reserved for command tables. Minimum: VRAM[0x000020].
 
-### Tamanho por modo
+### Size by mode
 
-| Color Mode | bpp | 8px×1 linha | 8px×8 linhas |
-|------------|-----|-------------|--------------|
-| 0,1 (16 cores) | 4 | 4 bytes | 32 bytes |
+| Color Mode | bpp | 8px×1 line | 8px×8 lines |
+|------------|-----|------------|-------------|
+| 0,1 (16 colors) | 4 | 4 bytes | 32 bytes |
 | 2,3,4 (64/128/256) | 8 | 8 bytes | 64 bytes |
 | 5 (32768 RGB)  | 16 | 16 bytes | 128 bytes |
 
-Fórmula: `bytes = (sizeX × sizeY × bpp) / 8`
+Formula: `bytes = (sizeX × sizeY × bpp) / 8`
 
-### Layout na memória (4bpp, 8×3 pixels)
+### Memory layout (4bpp, 8×3 pixels)
 
 ```
 VRAM offset:  +0H    +1H    +2H    +3H
@@ -30,7 +30,7 @@ pixel row 1:  [8][9] [A][B] [C][D] [E][F]
 pixel row 2: [10][11][12][13][14][15][16][17]
 ```
 
-Cada nibble = 1 pixel (upper nibble = pixel esquerdo).
+Each nibble = 1 pixel (upper nibble = left pixel).
 
 ### Layout 8bpp (8×3 pixels)
 
@@ -43,7 +43,7 @@ Cada nibble = 1 pixel (upper nibble = pixel esquerdo).
 ### Layout 16bpp (8×1 pixels)
 
 ```
-+0H,+1H: pixel 0 (MSB no byte low)
++0H,+1H: pixel 0 (MSB in low byte)
 +2H,+3H: pixel 1
 ...
 +EH,+FH: pixel 7
@@ -53,28 +53,28 @@ Cada nibble = 1 pixel (upper nibble = pixel esquerdo).
 
 ## 2. Color Lookup Table (LUT)
 
-Usado quando Color Mode = 1 (lookup table mode). Tamanho: **20H bytes** (boundary 20H).
-Define 16 cores como valores 16-bit. Os 4 bits do character pattern indexam a tabela.
+Used when Color Mode = 1 (lookup table mode). Size: **20H bytes** (20H boundary).
+Defines 16 colors as 16-bit values. The 4 bits of the character pattern index the table.
 
 ```
-VRAM offset   Conteúdo
-+00H          16-bit color code para índice 0H (transparente se SPD=0)
-+02H          16-bit color code para índice 1H
-+04H          16-bit color code para índice 2H
+VRAM offset   Contents
++00H          16-bit color code for index 0H (transparent if SPD=0)
++02H          16-bit color code for index 1H
++04H          16-bit color code for index 2H
 ...
-+1CH          16-bit color code para índice EH
-+1EH          16-bit color code para índice FH (end code se ECD=0)
++1CH          16-bit color code for index EH
++1EH          16-bit color code for index FH (end code if ECD=0)
 ```
 
-Os 16-bit values podem ser:
-- **Color bank code** (MSB=0): processado pelo VDP2 com color RAM
-- **RGB code** (MSB=1): RGB direto, bypassando color RAM do VDP2
+The 16-bit values can be:
+- **Color bank code** (MSB=0): processed by VDP2 with color RAM
+- **RGB code** (MSB=1): direct RGB, bypassing VDP2 color RAM
 
-O endereço da LUT é especificado em CMDCOLR como `addr/8H`.
-Como boundary é 20H: `CMDCOLR = LUT_VRAM_ADDR >> 3` (lower 2 bits = 00)
+The LUT address is specified in CMDCOLR as `addr/8H`.
+Since boundary is 20H: `CMDCOLR = LUT_VRAM_ADDR >> 3` (lower 2 bits = 00)
 
 ```asm
-; LUT em VRAM[0x0060]
+; LUT at VRAM[0x0060]
 ; CMDCOLR = 0x0060 >> 3 = 0x000C
     mov.w   #0x000C, r0
     mov.w   r0, @CMDCOLR_ADDR
@@ -84,56 +84,56 @@ Como boundary é 20H: `CMDCOLR = LUT_VRAM_ADDR >> 3` (lower 2 bits = 00)
 
 ## 3. Gouraud Shading Table
 
-Tamanho: **8H bytes** (4 words). Boundary: **8H bytes**.
-Define variação de luminosidade RGB para 4 vértices da part.
+Size: **8H bytes** (4 words). Boundary: **8H bytes**.
+Defines RGB brightness variation for 4 vertices of the part.
 
 ```
-Table offset  Conteúdo
-+0H           RGB data para Vértice A (upper-left em sprites)
-+2H           RGB data para Vértice B (upper-right)
-+4H           RGB data para Vértice C (lower-right)
-+6H           RGB data para Vértice D (lower-left)
+Table offset  Contents
++0H           RGB data for Vertex A (upper-left in sprites)
++2H           RGB data for Vertex B (upper-right)
++4H           RGB data for Vertex C (lower-right)
++6H           RGB data for Vertex D (lower-left)
 ```
 
-Para linhas: apenas +0H (start) e +2H (end) são usados; +4H e +6H ignorados.
+For lines: only +0H (start) and +2H (end) are used; +4H and +6H ignored.
 
-### Formato RGB na tabela Gouraud
+### RGB Format in Gouraud table
 
 ```
-bit: [15] ignorado | [14:10] B | [9:5] G | [4:0] R
+bit: [15] ignored | [14:10] B | [9:5] G | [4:0] R
 ```
 
-### Mapeamento de valor → correção
+### Value → correction mapping
 
-| Valor hex | Correção aplicada |
-|-----------|-------------------|
-| 00H       | −10H (escurece máx) |
+| Hex value | Applied correction |
+|------------|-------------------|
+| 00H       | −10H (max darken) |
 | 08H       | −08H              |
 | 0FH       | −01H              |
-| **10H**   | **0 (sem mudança)** |
+| **10H**   | **0 (no change)** |
 | 11H       | +01H              |
 | 18H       | +08H              |
-| 1FH       | +0FH (clareia máx) |
+| 1FH       | +0FH (max lighten) |
 
-- Resultado < 00H → clamp a 00H
-- Resultado > 1FH → clamp a 1FH
-- Para "white Gouraud" (só luminosidade, sem mudança de hue): use mesmo valor para R=G=B
+- Result < 00H → clamp to 00H
+- Result > 1FH → clamp to 1FH
+- For "white Gouraud" (brightness only, no hue change): use same value for R=G=B
 
-### Exemplo: gradiente de escuro para claro (esquerda para direita)
+### Example: gradient from dark to light (left to right)
 
 ```asm
-; Gouraud table em VRAM[0x0080]
-; A(UL): R=G=B=08H → escuro   → 0x1108 (B=02,G=02,R=08? vamos calcular corretamente)
-; Formato: bit14:10=B, bit9:5=G, bit4:0=R
-; Valor 08H para R,G,B: B=08<<10=0x2000, G=08<<5=0x0100, R=08=0x0008
-; → 0x2108  (mas MSB é ignorado, então ok)
-; Valor 18H para R,G=B=18H → B=18<<10=0x6000, G=18<<5=0x0300, R=18=0x0018 → 0x6318
-; A: escuro (08,08,08)
-; B: claro  (18,18,18)
+; Gouraud table at VRAM[0x0080]
+; A(UL): R=G=B=08H → dark   → 0x1108 (B=02,G=02,R=08? let's calculate correctly)
+; Format: bit14:10=B, bit9:5=G, bit4:0=R
+; Value 08H for R,G,B: B=08<<10=0x2000, G=08<<5=0x0100, R=08=0x0008
+; → 0x2108  (but MSB is ignored, so ok)
+; Value 18H for R,G=B=18H → B=18<<10=0x6000, G=18<<5=0x0300, R=18=0x0018 → 0x6318
+; A: dark (08,08,08)
+; B: light (18,18,18)
 
     mov.l   #(VRAM_BASE + 0x0080), r1
     mov.w   #0x2108, r0   ; Vertex A: R=8,G=8,B=8 → 000 01000 01000 01000
-    ; Recalculando: bit14:10=B=08→01000, bit9:5=G=08→01000, bit4:0=R=08→01000
+    ; Recalculating: bit14:10=B=08→01000, bit9:5=G=08→01000, bit4:0=R=08→01000
     ; = 0b0_01000_01000_01000 = 0x2108
     mov.w   r0, @r1
     add     #2, r1
@@ -144,11 +144,11 @@ bit: [15] ignorado | [14:10] B | [9:5] G | [4:0] R
     mov.w   r0, @r1
     add     #2, r1
 
-    mov.w   #0x6318, r0   ; Vertex C: mesmo que B
+    mov.w   #0x6318, r0   ; Vertex C: same as B
     mov.w   r0, @r1
     add     #2, r1
 
-    mov.w   #0x2108, r0   ; Vertex D: mesmo que A
+    mov.w   #0x2108, r0   ; Vertex D: same as A
     mov.w   r0, @r1
 ```
 
@@ -156,9 +156,9 @@ bit: [15] ignorado | [14:10] B | [9:5] G | [4:0] R
 
 ## 4. Color Bank Mode
 
-Usado com Color Mode 0, 2, 3, 4. O pixel data do character pattern tem N bits.
-Os bits superiores do color bank são concatenados para formar o endereço de 16 bits
-na color RAM do VDP2.
+Used with Color Mode 0, 2, 3, 4. The character pattern pixel data has N bits.
+The upper bits of the color bank are concatenated to form the 16-bit address
+in VDP2 color RAM.
 
 ### Frame buffer data = color bank + pixel data
 
@@ -169,59 +169,59 @@ na color RAM do VDP2.
 |  3   |  8  | [6:0]           | [15:7] (9 bits) | 16    |
 |  4   |  8  | [7:0]           | [15:8] (8 bits) | 16    |
 
-**CMDCOLR lower 4 bits devem ser 0** (são OR'd com pixel data).
+**CMDCOLR lower 4 bits must be 0** (they are OR'd with pixel data).
 
 ```asm
-; Color bank para mode 0 (16 cores), usando palette 3 do VDP2
-; Palette 3 começa em color RAM offset 0x30 (16 cores × 2 bytes × 3 = 0x60 se bank direto)
-; Depende de como o VDP2 está configurado. Exemplo genérico:
-    mov.w   #0x0030, r0   ; bank code (lower 4 bits = 0 obrigatório)
+; Color bank for mode 0 (16 colors), using VDP2 palette 3
+; Palette 3 starts at color RAM offset 0x30 (16 colors × 2 bytes × 3 = 0x60 if direct bank)
+; Depends on how VDP2 is configured. Generic example:
+    mov.w   #0x0030, r0   ; bank code (lower 4 bits = 0 required)
     mov.w   r0, @CMDCOLR_ADDR
 ```
 
-### Em 8bpp (high-res ou rotation):
-Apenas o byte inferior dos 16 bits é escrito no frame buffer.
-Para mode 0: upper 8 bits ignorados → apenas 4 bits de palette code escritos.
+### In 8bpp (high-res or rotation):
+Only the lower byte of the 16 bits is written to the frame buffer.
+For mode 0: upper 8 bits ignored → only 4 bits of palette code written.
 
 ---
 
-## 5. Resumo de Endereçamento de Tabelas
+## 5. Table Addressing Summary
 
-| Tabela             | Boundary | Endereço mínimo | Como especificar em command table |
-|--------------------|----------|-----------------|-----------------------------------|
-| Command Table      | 20H      | 000000H         | Automático (VDP1 começa de 0)    |
-| Character Pattern  | 20H      | 000020H         | CMDSRCA = addr / 8H              |
-| Color Lookup Table | 20H      | 000020H         | CMDCOLR = addr / 8H              |
-| Gouraud Table      | 8H       | 000008H         | CMDGRDA = addr / 8H              |
-| (qualquer tabela)  | —        | max = 07FFE0H   | Não ultrapassar 080000H          |
+| Table              | Boundary | Minimum Address | How to specify in command table |
+|--------------------|----------|-----------------|--------------------------------|
+| Command Table      | 20H      | 000000H         | Automatic (VDP1 starts at 0)  |
+| Character Pattern  | 20H      | 000020H         | CMDSRCA = addr / 8H            |
+| Color Lookup Table | 20H      | 000020H         | CMDCOLR = addr / 8H            |
+| Gouraud Table      | 8H       | 000008H         | CMDGRDA = addr / 8H            |
+| (any table)        | —        | max = 07FFE0H   | Don't exceed 080000H           |
 
-**Nunca defina tabelas além de VRAM[07FFFFH].**
+**Never define tables beyond VRAM[07FFFFH].**
 
 ---
 
-## 6. Color Calculation — Detalhes de Implementação
+## 6. Color Calculation — Implementation Details
 
 ### Half-Transparent (CC=011)
-- Pixel do background deve ter MSB=1 para ocorrer transparência
-- Se MSB=0: replace normal é aplicado
-- Fórmula: `resultado = (original + background) / 2`
-- **6× mais lento** que replace
-- Cuidado com polylines (pixels desenhados 2× nos vértices → double half-transp)
+- Background pixel must have MSB=1 for transparency to occur
+- If MSB=0: normal replace is applied
+- Formula: `result = (original + background) / 2`
+- **6× slower** than replace
+- Caution with polylines (pixels drawn 2× at vertices → double half-transp)
 
 ### Shadow (CC=001)
-- Background com MSB=1: `background_RGB = background_RGB / 2`
-- Background com MSB=0: nenhuma modificação
-- **6× mais lento**
-- Para shadow 1/4: escreva a mesma command table 2× no VRAM
+- Background with MSB=1: `background_RGB = background_RGB / 2`
+- Background with MSB=0: no modification
+- **6× slower**
+- For 1/4 shadow: write the same command table 2× in VRAM
 
 ### Gouraud Shading (CC=100)
-- Apenas em RGB mode (color mode 5 ou LUT com RGB codes)
-- Interpola a correção de luminosidade entre os 4 vértices
-- Cada R, G, B é ajustado independentemente (pode mudar hue)
-- Para manter hue: use R=G=B na Gouraud table
+- Only in RGB mode (color mode 5 or LUT with RGB codes)
+- Interpolates brightness correction between the 4 vertices
+- Each R, G, B adjusted independently (can change hue)
+- To keep hue: use R=G=B in the Gouraud table
 
 ### MSB ON (CMDPMOD bit 15)
-- Seta MSB=1 em todos pixels desenhados
-- Transparente (0000H) → 8000H (preto com MSB setado)
-- Use com Replace (CC=000)
-- Habilita shadow/window no VDP2 para aquela área
+- Sets MSB=1 on all drawn pixels
+- Transparent (0000H) → 8000H (black with MSB set)
+- Use with Replace (CC=000)
+- Enables shadow/window on VDP2 for that area

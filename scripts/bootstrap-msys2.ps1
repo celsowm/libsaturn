@@ -90,34 +90,34 @@ function Resolve-Msys2ShellPath {
 
     if (-not $AllowInstall) {
         throw @(
-            "MSYS2 nao encontrado."
-            "Instale manualmente em C:\msys64 ou use -Msys2Root."
+            "MSYS2 not found."
+            "Install manually at C:\msys64 or use -Msys2Root."
         ) -join ' '
     }
 
     $winget = Get-Command winget -ErrorAction SilentlyContinue
     if (-not $winget) {
         throw @(
-            "MSYS2 nao encontrado e winget nao esta disponivel."
-            "Instale manualmente: https://www.msys2.org/"
-            "Depois rode novamente este script com -Msys2Root, se necessario."
+            "MSYS2 not found and winget is not available."
+            "Install manually: https://www.msys2.org/"
+            "Then run this script again with -Msys2Root if needed."
         ) -join ' '
     }
 
-    Write-Log 'MSYS2 nao encontrado. Tentando instalar via winget (MSYS2.MSYS2)...'
+    Write-Log 'MSYS2 not found. Attempting to install via winget (MSYS2.MSYS2)...'
     & $winget.Source install --id MSYS2.MSYS2 -e --accept-package-agreements --accept-source-agreements --disable-interactivity
     if ($LASTEXITCODE -ne 0) {
         throw @(
-            "Falha na instalacao automatica via winget (codigo $LASTEXITCODE)."
-            "Instale manualmente: https://www.msys2.org/"
+            "Automatic installation via winget failed (code $LASTEXITCODE)."
+            "Install manually: https://www.msys2.org/"
         ) -join ' '
     }
 
     $shellPath = Find-Msys2Shell -RootCandidates $commonRoots
     if (-not $shellPath) {
         throw @(
-            "MSYS2 foi instalado, mas msys2_shell.cmd nao foi localizado."
-            "Verifique instalacao e informe o caminho com -Msys2Root."
+            "MSYS2 was installed, but msys2_shell.cmd was not located."
+            "Check installation and provide path with -Msys2Root."
         ) -join ' '
     }
 
@@ -131,10 +131,10 @@ function Invoke-Msys2Command {
     )
 
     $wrappedCommand = "rm -f /var/lib/pacman/db.lck >/dev/null 2>&1 || true; $ScriptCommand"
-    Write-Log "Executando no MSYS2: $ScriptCommand"
+    Write-Log "Executing in MSYS2: $ScriptCommand"
     & $ShellPath -defterm -no-start -ucrt64 -here -c $wrappedCommand
     if ($LASTEXITCODE -ne 0) {
-        throw "Comando no MSYS2 falhou (codigo $LASTEXITCODE): $ScriptCommand"
+        throw "MSYS2 command failed (code $LASTEXITCODE): $ScriptCommand"
     }
 }
 
@@ -155,10 +155,10 @@ function Invoke-SetupMsys2 {
             if (-not $activePacman) {
                 return
             }
-            Write-Log 'pacman em execucao detectado. Aguardando liberacao do lock...'
+            Write-Log 'pacman running detected. Waiting for lock release...'
             Start-Sleep -Seconds 3
         }
-        throw 'Timeout aguardando finalizacao de pacman.exe.'
+        throw 'Timeout waiting for pacman.exe to finish.'
     }
 
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
@@ -166,7 +166,7 @@ function Invoke-SetupMsys2 {
         try {
             Invoke-Msys2Command -ShellPath $ShellPathValue -ScriptCommand $setupCommand
             if ($attempt -gt 1) {
-                Write-Log "setup-msys2.sh concluiu na tentativa $attempt."
+                Write-Log "setup-msys2.sh completed on attempt $attempt."
             }
             return
         }
@@ -174,7 +174,7 @@ function Invoke-SetupMsys2 {
             if ($attempt -ge $maxAttempts) {
                 throw
             }
-            Write-Log "setup-msys2.sh interrompido (tentativa $attempt). Reexecutando automaticamente..."
+            Write-Log "setup-msys2.sh interrupted (attempt $attempt). Re-executing automatically..."
             Start-Sleep -Seconds 6
         }
     }
@@ -185,8 +185,8 @@ $shellPath = Resolve-Msys2ShellPath -RootHint $RequestedRoot -AllowInstall:$allo
 $resolvedRoot = Split-Path -Parent $shellPath
 $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
 
-Write-Log "MSYS2 detectado em: $resolvedRoot"
-Write-Log "Repositorio: $RepoRoot"
+Write-Log "MSYS2 detected at: $resolvedRoot"
+Write-Log "Repository: $RepoRoot"
 
 switch ($Command) {
     'host' {
@@ -201,16 +201,16 @@ switch ($Command) {
     }
     'acceptance' {
         if (-not (Test-Path $CheckAcceptanceScript)) {
-            throw "Script de aceite nao encontrado: $CheckAcceptanceScript"
+            throw "Acceptance script not found: $CheckAcceptanceScript"
         }
 
-        Write-Log 'Preparando ambiente host antes do checklist de aceite...'
+        Write-Log 'Preparing host environment before acceptance checklist...'
         Invoke-SetupMsys2 -ShellPathValue $shellPath -RepoMsysPathValue $repoMsysPath
         & $CheckAcceptanceScript -Emulator both -Msys2Root $resolvedRoot
         if ($LASTEXITCODE -ne 0) {
-            throw "Checklist de aceite falhou (codigo $LASTEXITCODE)."
+            throw "Acceptance checklist failed (code $LASTEXITCODE)."
         }
     }
 }
 
-Write-Log "Fluxo concluido com sucesso: $Command"
+Write-Log "Flow completed successfully: $Command"

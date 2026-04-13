@@ -2,15 +2,15 @@
 set -euo pipefail
 
 if ! command -v pacman >/dev/null 2>&1; then
-  echo "Este script deve rodar dentro do MSYS2."
+  echo "This script must run inside MSYS2."
   exit 1
 fi
 
-echo "[1/3] Atualizando base MSYS2..."
+echo "[1/3] Updating MSYS2 base..."
 pacman -Syu --noconfirm || true
 pacman -Su --noconfirm
 
-echo "[2/3] Instalando dependencias de build..."
+echo "[2/3] Installing build dependencies..."
 pacman -S --needed --noconfirm \
   base-devel \
   git \
@@ -29,12 +29,12 @@ pacman -S --needed --noconfirm \
   mingw-w64-ucrt-x86_64-ninja \
   xorriso
 
-echo "[3/3] Instalando Mednafen (se disponivel no repo)..."
+echo "[3/3] Installing Mednafen (if available in repo)..."
 if pacman -Si mingw-w64-ucrt-x86_64-mednafen >/dev/null 2>&1; then
   pacman -S --needed --noconfirm mingw-w64-ucrt-x86_64-mednafen
 else
-  echo "Pacote mednafen nao encontrado no repo atual. Instale manualmente."
+  echo "mednafen package not found in current repo. Install manually."
 fi
 
-echo "Kronos normalmente e instalado via release binaria/manual no Windows."
-echo "Setup base concluido."
+echo "Kronos is usually installed via binary/manual release on Windows."
+echo "Base setup completed."

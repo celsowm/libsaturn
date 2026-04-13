@@ -1,58 +1,58 @@
-# SCU DSP — Referência Completa
+# SCU DSP — Complete Reference
 
 ## Overview
 
-- Arquitetura Harvard, pipeline VLIW
-- Clock: 14.31818 MHz (metade do SH2)
-- 256 words × 32-bit de Program RAM em 0x05FF8000
-- 3 × 64 words × 32-bit de Data RAM (CT0, CT1, CT2 + CT3) em 0x05FF8400
-- Acumulador 48-bit interno (AC)
-- Até **6 operações paralelas** por ciclo
-- Sem divisão de hardware — usar LUT de recíproco
-- Assembly-only: nenhum compilador C suporta
+- Harvard architecture, VLIW pipeline
+- Clock: 14.31818 MHz (half of SH2)
+- 256 words × 32-bit Program RAM at 0x05FF8000
+- 3 × 64 words × 32-bit Data RAM (CT0, CT1, CT2 + CT3) at 0x05FF8400
+- 48-bit internal accumulator (AC)
+- Up to **6 parallel operations** per cycle
+- No hardware division — use reciprocal LUT
+- Assembly-only: no C compiler supports it
 
 ## Data RAMs
 
 ```
-Endereço Base:
+Base Address:
   CT0: 0x05FF8400  (64 × 32-bit, ring buffer, pointer auto-increment)
   CT1: 0x05FF8500
   CT2: 0x05FF8600
   CT3: 0x05FF8700
 
-Acesso pelo SH2:
-  Leitura/escrita direta (lenta, evitar em loop crítico)
-  Ou via SCU DMA Ch2 (preferido)
+Access from SH2:
+  Direct read/write (slow, avoid in critical loop)
+  Or via SCU DMA Ch2 (preferred)
 ```
 
-Ring buffer: cada leitura/escrita avança o pointer +1 automaticamente. Wrap em 64 entries.
+Ring buffer: each read/write advances the pointer +1 automatically. Wrap at 64 entries.
 
-## Registradores do DSP
+## DSP Registers
 
-| Reg   | Descrição                                       |
-|-------|-------------------------------------------------|
-| AC    | Acumulador 48-bit (resultado principal)         |
-| CT0–CT3 | Ponteiros de ring buffer (6-bit, auto-inc)   |
-| P     | Resultado parcial de MUL (antes do MAC)         |
-| RA0   | Endereço de leitura DMA                         |
-| WA0   | Endereço de escrita DMA                         |
-| PC    | Program Counter                                 |
-| LOP   | Loop counter                                    |
-| TOP   | Topo do loop (endereço para BTM)                |
+| Reg   | Description                                     |
+|-------|------------------------------------------------|
+| AC    | 48-bit Accumulator (main result)                |
+| CT0–CT3 | Ring buffer pointers (6-bit, auto-inc)       |
+| P     | Partial MUL result (before MAC)                 |
+| RA0   | DMA read address                               |
+| WA0   | DMA write address                              |
+| PC    | Program Counter                                |
+| LOP   | Loop counter                                   |
+| TOP   | Loop top (address for BTM)                     |
 
-## Instrução VLIW — Campos Paralelos
+## VLIW Instruction — Parallel Fields
 
-Uma palavra de instrução DSP (32-bit) codifica até 6 campos:
+One DSP instruction word (32-bit) encodes up to 6 fields:
 ```
 [D1  ][D2  ][X  ][Y  ][ALU ][CTRL]
  4-bit 4-bit 3-bit 3-bit 4-bit 12-bit
 ```
-- **D1/D2:** Operações de memória (leitura/escrita em Data RAM)
-- **X/Y:** Seleção de operandos para a unidade multiplicadora
-- **ALU:** Operação no acumulador (MAC, ADD, SUB, etc.)
-- **CTRL:** Desvio, fim de programa, DMA
+- **D1/D2:** Memory operations (read/write to Data RAM)
+- **X/Y:** Operand selection for multiplier unit
+- **ALU:** Operation on accumulator (MAC, ADD, SUB, etc.)
+- **CTRL:** Branch, end of program, DMA
 
-## Set de Instruções
+## Instruction Set
 
 ### ALU
 ```asm
@@ -60,133 +60,133 @@ CLR A           ; AC = 0
 MOV [src], A    ; AC = src
 ADD [s], A      ; AC += s
 SUB [s], A      ; AC -= s
-AD2 [s], A      ; AC = AC/2 + s  (médio ponderado)
+AD2 [s], A      ; AC = AC/2 + s  (weighted average)
 AND [s], A      ; AC &= s
 OR  [s], A      ; AC |= s
 XOR [s], A      ; AC ^= s
-LSR A           ; AC >>= 1 (lógico)
-ASR A           ; AC >>= 1 (aritmético)
+LSR A           ; AC >>= 1 (logical)
+ASR A           ; AC >>= 1 (arithmetic)
 ABS A           ; AC = |AC|
 ```
 
-### Multiply-Accumulate (o mais importante)
+### Multiply-Accumulate (most important)
 ```asm
-MUL [s1], [s2]      ; P = s1 × s2  (não altera AC)
+MUL [s1], [s2]      ; P = s1 × s2  (doesn't change AC)
 MAC [s1], [s2]      ; AC += s1 × s2
-                    ; Operandos podem ser CT0, CT1, CT2, CT3 ou imediato
-                    ; Exemplo:
+                     ; Operands can be CT0, CT1, CT2, CT3 or immediate
+                     ; Example:
 MAC CT0, CT1        ; AC += DataRAM[CT0] × DataRAM[CT1]
-                    ; CT0++ e CT1++ automaticamente
+                     ; CT0++ and CT1++ automatically
 ```
 
-**Para fixed-point 16.16:**
-- Multiplicar dois valores 16.16 gera resultado 32.32 em 48-bit AC
-- Os 16 bits de inteiro do resultado estão em AC[31:16]
-- Para extrair resultado 16.16: armazenar AC e deslocar
+**For fixed-point 16.16:**
+- Multiplying two 16.16 values generates 32.32 result in 48-bit AC
+- The 16 integer bits of the result are in AC[31:16]
+- To extract 16.16 result: store AC and shift
 
 ### MOV / Load / Store
 ```asm
 MOV [s], [d]        ; d = s
 MOV A, [d]          ; Data RAM[addr] = AC (stores upper 32 bits of 48-bit AC)
-MOV [s], CT0        ; CT0 = s (definir pointer)
+MOV [s], CT0        ; CT0 = s (set pointer)
 MVI #imm25, CT0     ; CT0 = immediate (25-bit sign-extended)
 MVI #imm25, A       ; AC = immediate
 ```
 
-### Controle
+### Control
 ```asm
-NOP                 ; Nenhuma operação (preencher slots vazios)
-END                 ; Fim do programa, dispara interrupção
-ENDI                ; Fim do programa, NÃO dispara interrupção
-JMP [addr]          ; Salto incondicional
-BTST [bit], [src]   ; Testar bit
-BTT  [addr]         ; Branch if true (após BTST)
+NOP                 ; No operation (fill empty slots)
+END                 ; End of program, triggers interrupt
+ENDI                ; End of program, does NOT trigger interrupt
+JMP [addr]          ; Unconditional jump
+BTST [bit], [src]   ; Test bit
+BTT  [addr]         ; Branch if true (after BTST)
 BTF  [addr]         ; Branch if false
 
-; Loop (construção de hardware)
-LPS                 ; Marcar início do loop (salvo em TOP)
-LE                  ; Loop end — decrementa LOP, salta para TOP se LOP > 0
+; Loop (hardware construction)
+LPS                 ; Mark loop start (saved to TOP)
+LE                  ; Loop end — decrements LOP, jumps to TOP if LOP > 0
 ```
 
-## Regras de Paralelismo (CRÍTICO)
+## Parallelism Rules (CRITICAL)
 
-1. **MAC** usa os barramentos X e Y → não pode parallelizar com outra instrução que use X ou Y
-2. **MOV para/de AC** usa o barramento ALU → não combina com MAC no mesmo ciclo
-3. **D1/D2 podem operar simultaneamente** — cada um tem barramento independente
-4. **CTRL** (branch/end) ocupa o slot de controle; pode combinar com ALU/MAC
+1. **MAC** uses X and Y buses → cannot parallelize with another instruction using X or Y
+2. **MOV to/from AC** uses ALU bus → cannot combine with MAC in the same cycle
+3. **D1/D2 can operate simultaneously** — each has an independent bus
+4. **CTRL** (branch/end) occupies the control slot; can combine with ALU/MAC
 
-**Exemplo de paralelismo máximo:**
+**Maximum parallelism example:**
 ```asm
-; Ciclo único executando: MAC + 1 leitura D1 + 1 escrita D2
-; Sintaxe Hitachi DSP: múltiplas ops separadas por '|'
-MAC CT0, CT1 | MOV [addr], D2   ; MAC paralelo com store
+; Single cycle executing: MAC + 1 D1 read + 1 D2 write
+; Hitachi DSP syntax: multiple ops separated by '|'
+MAC CT0, CT1 | MOV [addr], D2   ; MAC parallel with store
 ```
 
-## Exemplo Completo: Transformar 4 Vértices por Matriz MVP
+## Complete Example: Transform 4 Vertices by MVP Matrix
 
 ```asm
 ; SCU DSP: transform_batch
-; Entrada (CT0 Data RAM):
-;   [0..15]  = Matriz MVP (4×4 × int32, 16.16 fixed-point), carregada em CT0
-;   [16..19] = Vértice 0 (x,y,z,w em int32)
-;   [20..23] = Vértice 1
-;   [24..27] = Vértice 2
-;   [28..31] = Vértice 3
-; Saída (CT2 Data RAM):
-;   [0..3]  = Vértice 0 transformado (x,y,z,w)
-;   [4..7]  = Vértice 1 transformado
+; Input (CT0 Data RAM):
+;   [0..15]  = MVP Matrix (4×4 × int32, 16.16 fixed-point), loaded in CT0
+;   [16..19] = Vertex 0 (x,y,z,w in int32)
+;   [20..23] = Vertex 1
+;   [24..27] = Vertex 2
+;   [28..31] = Vertex 3
+; Output (CT2 Data RAM):
+;   [0..3]  = Transformed Vertex 0 (x,y,z,w)
+;   [4..7]  = Transformed Vertex 1
 ;   etc.
 ;
-; Nota: resultado de MAC(16.16, 16.16) = 32.32 no AC 48-bit
-;       Precisamos pegar os bits [47:16] → são os bits [31:0] de AC >> 16
+; Note: result of MAC(16.16, 16.16) = 32.32 in 48-bit AC
+;       We need bits [47:16] → these are bits [31:0] of AC >> 16
 
-    ; Configurar pointers
-    MVI #0,  CT0    ; CT0 aponta para início: matriz
-    MVI #16, CT1    ; CT1 aponta para vértice 0
-    MVI #0,  CT2    ; CT2 = destino resultado
+    ; Configure pointers
+    MVI #0,  CT0    ; CT0 points to start: matrix
+    MVI #16, CT1    ; CT1 points to vertex 0
+    MVI #0,  CT2    ; CT2 = output destination
     
-    ; Loop sobre 4 vértices
-    MVI #3, LOP     ; LOP = 3 (4 iterações: 0,1,2,3)
-    LPS             ; Marcar início do loop
+    ; Loop over 4 vertices
+    MVI #3, LOP     ; LOP = 3 (4 iterations: 0,1,2,3)
+    LPS             ; Mark loop start
 
-    ; ── Calcular X transformado ──────────────────────────────
+    ; ── Calculate transformed X ──────────────────────────────
     CLR A
-    MVI #0, CT0     ; Resetar CT0 para linha 0 da matriz
+    MVI #0, CT0     ; Reset CT0 to row 0 of matrix
     MAC CT0, CT1    ; AC += M[0] × V[x]
     MAC CT0, CT1    ; AC += M[1] × V[y]
     MAC CT0, CT1    ; AC += M[2] × V[z]
     MAC CT0, CT1    ; AC += M[3] × V[w]
-    MOV A, CT2      ; CT2[out++] = AC (upper 32 bits = resultado 16.16 correto)
+    MOV A, CT2      ; CT2[out++] = AC (upper 32 bits = correct 16.16 result)
 
-    ; ── Calcular Y transformado ──────────────────────────────
+    ; ── Calculate transformed Y ──────────────────────────────
     CLR A
-    MVI #4, CT0     ; CT0 aponta para linha 1 da matriz
-    MAC CT0, CT1    ; AC += M[4] × V[x]  (CT1 foi adiantado, precisa resetar)
-    ; ... (CT1 precisa ser resetado para o vértice atual antes de cada linha)
-    ; Na prática: carregar CT1 com o endereço do vértice atual
+    MVI #4, CT0     ; CT0 points to row 1 of matrix
+    MAC CT0, CT1    ; AC += M[4] × V[x]  (CT1 was advanced, needs reset)
+    ; ... (CT1 needs to be reset to the current vertex before each row)
+    ; In practice: load CT1 with the current vertex address
     MOV A, CT2
 
-    ; ── Calcular Z e W da mesma forma ───────────────────────
-    ; ... (repetir para linhas 2 e 3 da matriz)
+    ; ── Calculate Z and W the same way ───────────────────────
+    ; ... (repeat for rows 2 and 3 of matrix)
 
-    LE              ; Loop end — decrementa LOP, volta para LPS se LOP > 0
-    ENDI            ; Fim sem interrupção
+    LE              ; Loop end — decrements LOP, returns to LPS if LOP > 0
+    ENDI            ; End without interrupt
 ```
 
-> **Nota prática:** A maior dificuldade do SCU DSP é que CT1 (pointer para o vértice) avança automaticamente com cada MAC. Para transformar Y (linha 2 da matriz), CT1 já estará no vértice *seguinte*. A solução é ou: (a) duplicar os dados do vértice 4× na Data RAM, ou (b) usar MVI para resetar CT1 antes de cada linha (custa 1 ciclo por reset).
+> **Practical note:** The biggest difficulty with SCU DSP is that CT1 (pointer to vertex) advances automatically with each MAC. To transform Y (row 2 of matrix), CT1 will already be at the *next* vertex. The solution is either: (a) duplicate vertex data 4× in Data RAM, or (b) use MVI to reset CT1 before each row (costs 1 cycle per reset).
 
-## Carregar Programa DSP do SH2
+## Load DSP Program from SH2
 
 ```cpp
-// Copiar programa compilado (.dsp assembly → palavras binárias) para DSP Program RAM
+// Copy compiled program (.dsp assembly → binary words) to DSP Program RAM
 void dsp_load_program(const uint32_t* prog, uint32_t word_count) {
     auto* dst = reinterpret_cast<volatile uint32_t*>(0x05FF8000);
     for (uint32_t i = 0; i < word_count; ++i) dst[i] = prog[i];
 }
 
-// Carregar dados para Data RAM CT0 via SCU DMA Ch2
+// Load data to Data RAM CT0 via SCU DMA Ch2
 void dsp_load_data_ct0(const uint32_t* data, uint32_t word_count) {
-    // ATENÇÃO: 'data' deve estar em WRAM-L (0x002xxxxx)
+    // NOTE: 'data' must be in WRAM-L (0x002xxxxx)
     volatile uint32_t* D2R  = reinterpret_cast<volatile uint32_t*>(0x05A00040);
     volatile uint32_t* D2W  = reinterpret_cast<volatile uint32_t*>(0x05A00044);
     volatile uint32_t* D2C  = reinterpret_cast<volatile uint32_t*>(0x05A00048);
@@ -195,11 +195,11 @@ void dsp_load_data_ct0(const uint32_t* data, uint32_t word_count) {
     *D2R  = reinterpret_cast<uint32_t>(data);
     *D2W  = 0x05FF8400;           // CT0 Data RAM
     *D2C  = word_count * 4;
-    *D2EN = 0x01000001;           // Iniciar DMA
-    while (*D2EN & 0x01000000);   // Aguardar
+    *D2EN = 0x01000001;           // Start DMA
+    while (*D2EN & 0x01000000);   // Wait
 }
 
-// Executar DSP e aguardar
+// Execute DSP and wait
 void dsp_run_sync() {
     volatile uint32_t* PPAF = reinterpret_cast<volatile uint32_t*>(0x05A00000);
     *PPAF = 0x00000101;           // Execute from PC=0
@@ -207,15 +207,15 @@ void dsp_run_sync() {
 }
 ```
 
-## Assemblador DSP
+## DSP Assembler
 
-O Hitachi DSP assembler (`dspasm`) faz parte do SBL/SGL toolkit oficial. Alternativa:
-- **SNASM DSP** (Psygnosis, encontrado no Saturn doc archive de antime.kapsi.fi)
-- Escrever manualmente as palavras de 32-bit conforme o encoding do manual SCU (SCU User's Manual, Third Version)
+The Hitachi DSP assembler (`dspasm`) is part of the official SBL/SGL toolkit. Alternative:
+- **SNASM DSP** (Psygnosis, found in Saturn doc archive at antime.kapsi.fi)
+- Write the 32-bit words manually according to the SCU manual encoding (SCU User's Manual, Third Version)
 
-## Errata Conhecida
+## Known Errata
 
-1. **Documentação de opcode desatualizada** em algumas versões do manual. Cruzar com output do disassembler do Yabause/Kronos.
-2. **Bus contention:** Se ambos SH2s estiverem ativos no B-bus enquanto DSP roda, pode ocorrer stall ou crash. Coordenar: desativar slave SH2 ou pausar durante execução DSP crítica.
-3. **AC truncation:** MOV A armazena os 32 bits superiores do AC de 48 bits. Para 16.16 × 16.16 o resultado já está correto nessa posição (inteiro nos bits 31:16, fração nos 15:0).
-4. **Ring buffer wrap silencioso:** CT pointer wrapa em 64 entries sem aviso. Dados além da posição 63 corrompem silenciosamente.
+1. **Outdated opcode documentation** in some manual versions. Cross-reference with Yabause/Kronos disassembler output.
+2. **Bus contention:** If both SH2s are active on the B-bus while DSP runs, stall or crash may occur. Coordinate: disable slave SH2 or pause during critical DSP execution.
+3. **AC truncation:** MOV A stores the upper 32 bits of the 48-bit AC. For 16.16 × 16.16 the result is already correct at that position (integer in bits 31:16, fraction in 15:0).
+4. **Silent ring buffer wrap:** CT pointer wraps at 64 entries without warning. Data beyond position 63 silently corrupts.

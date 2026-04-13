@@ -1,4 +1,4 @@
-/* red_square.c - quadrado vermelho movido com o direcional */
+/* red_square.c - red square moved with the D-pad */
 #include <stdint.h>
 
 #include "saturn/app.h"

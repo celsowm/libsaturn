@@ -1,89 +1,89 @@
 ---
 name: vdp1-sega-saturn
 description: >
-  Referência completa do VDP1 (Video Display Processor 1) do Sega Saturn para
-  desenvolvimento em assembly SH-2. Use este skill sempre que o usuário precisar
-  programar gráficos no Saturn, escrever command tables no VRAM, configurar
-  system registers, desenhar sprites/polígonos/linhas, implementar color
-  calculation (Gouraud shading, half-transparency, shadow), controlar o frame
-  buffer, gerenciar clipping, ou qualquer tarefa envolvendo o VDP1 em baixo nível.
-  Também use quando o usuário mencionar: draw commands, CMDCTRL, CMDPMOD,
+  Complete reference for the VDP1 (Video Display Processor 1) of the Sega Saturn for
+  SH-2 assembly development. Use this skill whenever the user needs to
+  program graphics on the Saturn, write command tables in VRAM, configure
+  system registers, draw sprites/polygons/lines, implement color
+  calculation (Gouraud shading, half-transparency, shadow), control the frame
+  buffer, manage clipping, or any task involving low-level VDP1.
+  Also use when the user mentions: draw commands, CMDCTRL, CMDPMOD,
   frame buffer flip, erase/write, plot trigger, textured/non-textured parts.
 ---
 
 # VDP1 — Sega Saturn Drawing Processor
 
-O VDP1 é o IC de desenho de sprites do Sega Saturn. Ele lê command tables do VRAM
-e escreve pixels no frame buffer (DRAM), que é então exibido via VDP2.
+VDP1 is the sprite drawing IC of the Sega Saturn. It reads command tables from VRAM
+and writes pixels to the frame buffer (DRAM), which is then displayed via VDP2.
 
-> **Para detalhes de um tópico específico, carregue o arquivo de referência correspondente:**
-> - `references/system-registers.md` — Registradores, endereços, bits
-> - `references/command-table.md`    — Estrutura e campos das command tables
-> - `references/commands.md`         — Todos os comandos de desenho com exemplos ASM
-> - `references/color-tables.md`     — Color bank, LUT, Gouraud shading, modos RGB
+> **For details on a specific topic, load the corresponding reference file:**
+> - `references/system-registers.md` — Registers, addresses, bits
+> - `references/command-table.md`    — Command table structure and fields
+> - `references/commands.md`         — All drawing commands with ASM examples
+> - `references/color-tables.md`     — Color bank, LUT, Gouraud shading, RGB modes
 
 ---
 
-## 1. Mapa de Endereços (absoluto, base 5C00000H)
+## 1. Address Map (absolute, base 5C00000H)
 
 ```
-Endereço Relativo   Absoluto         Conteúdo
+Relative Address   Absolute         Contents
 000000–07FFFF       5C00000–5C7FFFF  VRAM (4 Mbit) — command/char/LUT/Gouraud tables
 080000–0BFFFF       5C80000–5CBFFFF  Frame Buffer 0 (2 Mbit)
 0C0000–0FFFFF       5CC0000–5CFFFFF  Frame Buffer 1 (2 Mbit)
 100000–1FFFFF       5D00000–5DFFFFF  System Registers (word access only)
 ```
 
-**Regra:** endereço absoluto = relativo + 5C00000H
+**Rule:** absolute address = relative + 5C00000H
 
 ---
 
-## 2. System Registers — Resumo Rápido
+## 2. System Registers — Quick Summary
 
-| Abrev | Endereço Abs | R/W    | Função                              |
-|-------|--------------|--------|-------------------------------------|
+| Abbr | Absolute Addr | R/W    | Function                              |
+|------|---------------|--------|---------------------------------------|
 | TVMR  | 5D00000H     | W-only | TV mode (TVM) + V-blank erase (VBE) |
 | FBCR  | 5D00002H     | W-only | Frame buffer change mode            |
 | PTMR  | 5D00004H     | W-only | Plot trigger (start drawing)        |
 | EWDR  | 5D00006H     | W-only | Erase/write fill data               |
 | EWLR  | 5D00008H     | W-only | Erase area upper-left (X1,Y1)       |
 | EWRR  | 5D0000AH     | W-only | Erase area lower-right (X3,Y3)      |
-| ENDR  | 5D0000CH     | W-only | Force-terminate drawing (escreva 0) |
+| ENDR  | 5D0000CH     | W-only | Force-terminate drawing (write 0)   |
 | EDSR  | 5D00010H     | R-only | Draw end status (CEF/BEF bits)      |
 | LOPR  | 5D00012H     | R-only | Last processed command address /8H  |
 | COPR  | 5D00014H     | R-only | Current command address /8H         |
-| MODR  | 5D00016H     | R-only | Mirror dos registradores write-only |
+| MODR  | 5D00016H     | R-only | Mirror of write-only registers |
 
-> Acesso sempre em **word (16-bit)**. Nunca use DMA burst nos system registers.
-> Ver `references/system-registers.md` para cada bit detalhado.
+> Always access in **word (16-bit)**. Never use DMA burst on system registers.
+> See `references/system-registers.md` for detailed bit descriptions.
 
 ---
 
-## 3. Inicialização Mínima (template ASM)
+## 3. Minimal Initialization (ASM template)
 
 ```asm
-; Constantes de base
-VDP1_BASE   equ 5D00000H      ; Base absoluta dos system registers
-VRAM_BASE   equ 5C00000H      ; Base do VRAM
+; Base constants
+VDP1_BASE   equ 5D00000H      ; System registers absolute base
+VRAM_BASE   equ 5C00000H      ; VRAM base
 
-; ─── Passo 1: TV Mode (Normal NTSC 320x224, 16bpp, sem rotação) ───────────────
+; ─── Step 1: TV Mode (Normal NTSC 320x224, 16bpp, no rotation) ───────────────
     mov.w   #0000H, r0
     mov.l   #(VDP1_BASE + 0), r1   ; TVMR
     mov.w   r0, @r1
 
-; ─── Passo 2: Frame Buffer Change Mode (1-cycle, automático 60fps) ────────────
+; ─── Step 2: Frame Buffer Change Mode (1-cycle, automatic 60fps) ────────────
     mov.w   #0000H, r0
     mov.l   #(VDP1_BASE + 2), r1   ; FBCR
     mov.w   r0, @r1
 
-; ─── Passo 3: Erase/Write Data (preencher com preto = 0) ──────────────────────
+; ─── Step 3: Erase/Write Data (fill with black = 0) ──────────────────────
     mov.w   #0000H, r0
     mov.l   #(VDP1_BASE + 6), r1   ; EWDR
     mov.w   r0, @r1
 
-; ─── Passo 4: Erase area (320x224 em 16bpp: X1=0→reg=0 proibido, usar 1=8px) ─
+; ─── Step 4: Erase area (320x224 in 16bpp: X1=0→reg=0 prohibited, use 1=8px) ─
 ; EWLR: bit14-9 = X1/8, bit8-0 = Y1
-;   X1=0, Y1=0 → word = 0x0000  (X1=0 é proibido! usar 0 mesmo, VDP1 força 8)
+;   X1=0, Y1=0 → word = 0x0000  (X1=0 is prohibited! use 0 anyway, VDP1 forces 8)
     mov.w   #0x0000, r0
     mov.l   #(VDP1_BASE + 8), r1   ; EWLR
     mov.w   r0, @r1
@@ -94,10 +94,10 @@ VRAM_BASE   equ 5C00000H      ; Base do VRAM
     mov.l   #(VDP1_BASE + 0AH), r1 ; EWRR
     mov.w   r0, @r1
 
-; ─── Passo 5: Escrever command tables no VRAM ─────────────────────────────────
-;   (ver seção 4 e arquivo references/commands.md)
+; ─── Step 5: Write command tables to VRAM ─────────────────────────────────
+;   (see section 4 and file references/commands.md)
 
-; ─── Passo 6: Plot Trigger (iniciar desenho automático a cada frame) ──────────
+; ─── Step 6: Plot Trigger (start automatic drawing every frame) ──────────
     mov.w   #0002H, r0             ; PTM = 10B = auto-start
     mov.l   #(VDP1_BASE + 4), r1   ; PTMR
     mov.w   r0, @r1
@@ -105,19 +105,19 @@ VRAM_BASE   equ 5C00000H      ; Base do VRAM
 
 ---
 
-## 4. Command Table — Estrutura (32 bytes, boundary 20H)
+## 4. Command Table — Structure (32 bytes, boundary 20H)
 
-Cada command table ocupa **1EH bytes úteis + 2 bytes dummy = 20H bytes**.
-A primeira command table **deve** estar em VRAM offset 000000H.
+Each command table occupies **1EH useful bytes + 2 dummy bytes = 20H bytes**.
+The first command table **must** be at VRAM offset 000000H.
 
 ```
-Offset  Campo     Bits         Descrição
+Offset  Field      Bits         Description
 +00H    CMDCTRL   [15]END      1=Draw End Command
                   [14:12]JP    Jump mode (000=next, 001=assign, 010=call, 011=return,
                                100=skip-next, 101=skip-assign, 110=skip-call, 111=skip-return)
                   [11:8]ZP     Zoom point (scaled sprite only; 0=two-coords mode)
                   [5:4]Dir     Character read direction (bit5=V-invert, bit4=H-invert)
-                  [3:0]Comm    Command select (ver tabela abaixo)
+                  [3:0]Comm    Command select (see table below)
 
 +02H    CMDLINK   [15:2]       Link address / 8H (lower 2 bits = 00)
 
@@ -145,8 +145,8 @@ Offset  Campo     Bits         Descrição
 
 +0CH    CMDXA     [10:0]+sign  Vertex A X (sign-extended 11-bit, -1024..1023)
 +0EH    CMDYA                  Vertex A Y
-+10H    CMDXB                  Vertex B X  (ou display width XB para scaled)
-+12H    CMDYB                  Vertex B Y  (ou display width YB para scaled)
++10H    CMDXB                  Vertex B X  (or display width XB for scaled)
++12H    CMDYB                  Vertex B Y  (or display width YB for scaled)
 +14H    CMDXC                  Vertex C X
 +16H    CMDYC                  Vertex C Y
 +18H    CMDXD                  Vertex D X
@@ -154,12 +154,12 @@ Offset  Campo     Bits         Descrição
 
 +1CH    CMDGRDA   [15:0]       Gouraud shading table address / 8H
 
-+1EH    (dummy — 2 bytes, ignorados pelo VDP1)
++1EH    (dummy — 2 bytes, ignored by VDP1)
 ```
 
-**Tabela de Comandos (CMDCTRL[3:0] = Comm, com END=0):**
+**Command Table (CMDCTRL[3:0] = Comm, with END=0):**
 
-| Comm | Comando                            |
+| Comm | Command                            |
 |------|------------------------------------|
 | 0000 | Normal sprite draw                 |
 | 0001 | Scaled sprite draw                 |
@@ -174,44 +174,44 @@ Offset  Campo     Bits         Descrição
 
 ---
 
-## 5. Fluxo de Desenho por Frame
+## 5. Per-Frame Drawing Flow
 
 ```
-1. CPU escreve character pattern tables → VRAM
-2. CPU escreve color lookup tables → VRAM
-3. CPU escreve Gouraud shading tables → VRAM
-4. CPU escreve command tables → VRAM (a partir de 000000H)
-5. VDP1 inicia automaticamente ao trocar frame (PTM=10B)
-   ou manualmente (escreve PTM=01B no PTMR)
-6. VDP1 lê command tables em sequência, desenha no frame buffer traseiro
-7. Ao ler Draw End Command → seta CEF=1 no EDSR e gera interrupt
-8. Na próxima troca de frame buffer → buffer desenhado vira display
+1. CPU writes character pattern tables → VRAM
+2. CPU writes color lookup tables → VRAM
+3. CPU writes Gouraud shading tables → VRAM
+4. CPU writes command tables → VRAM (starting at 000000H)
+5. VDP1 starts automatically on frame swap (PTM=10B)
+   or manually (write PTM=01B to PTMR)
+6. VDP1 reads command tables sequentially, draws to back frame buffer
+7. On reading Draw End Command → sets CEF=1 in EDSR and generates interrupt
+8. On next frame buffer swap → drawn buffer becomes display
 ```
 
-**Verificar fim do desenho (polling):**
+**Check drawing completion (polling):**
 ```asm
     mov.l   #5D00010H, r1       ; EDSR
 .wait:
     mov.w   @r1, r0
     tst     #2, r0              ; CEF = bit 1
-    bt      .wait               ; loop enquanto CEF=0
+    bt      .wait               ; loop while CEF=0
 ```
 
 ---
 
-## 6. Exemplo: Polígono Simples (RGB, replace)
+## 6. Example: Simple Polygon (RGB, replace)
 
 ```asm
-; Desenha um quadrilátero preenchido em vermelho puro (RGB 1F,00,00 = FC00H + MSB = BC00H)
-; Endereço VRAM: 5C00000H (offset 000000H)
+; Draws a filled quadrilateral in pure red (RGB 1F,00,00 = FC00H + MSB = BC00H)
+; VRAM address: 5C00000H (offset 000000H)
 
-    mov.l   #5C00000H, r4   ; base VRAM
+    mov.l   #5C00000H, r4   ; VRAM base
 
     ; CMDCTRL: END=0, JP=000(next), ZP=0, Dir=00, Comm=0100(polygon)
     mov.w   #0x0004, r0 ;  0000 0000 0000 0100
     mov.w   r0, @r4
 
-    ; CMDLINK: não usado (jump next ignora CMDLINK)
+    ; CMDLINK: not used (next jump ignores CMDLINK)
     add     #2, r4
     mov.w   #0x0000, r0
     mov.w   r0, @r4
@@ -223,19 +223,19 @@ Offset  Campo     Bits         Descrição
     mov.w   #0x00C0, r0
     mov.w   r0, @r4
 
-    ; CMDCOLR: non-textured color = vermelho RGB (1,31,0,0) = 8400H | 8000H = 8400H
+    ; CMDCOLR: non-textured color = red RGB (1,31,0,0) = 8400H | 8000H = 8400H
     ; RGB format: MSB=1, B[4:0], G[4:0], R[4:0]
-    ; Vermelho puro: R=1FH, G=00H, B=00H → 1_00000_00000_11111 = 801FH
+    ; Pure red: R=1FH, G=00H, B=00H → 1_00000_00000_11111 = 801FH
     add     #2, r4
     mov.w   #0x801F, r0
     mov.w   r0, @r4
 
-    ; CMDSRCA: não usado para polygon (ignorado)
+    ; CMDSRCA: not used for polygon (ignored)
     add     #2, r4
     mov.w   #0x0000, r0
     mov.w   r0, @r4
 
-    ; CMDSIZE: não usado para polygon (ignorado)
+    ; CMDSIZE: not used for polygon (ignored)
     add     #2, r4
     mov.w   #0x0000, r0
     mov.w   r0, @r4
@@ -272,7 +272,7 @@ Offset  Campo     Bits         Descrição
     mov.w   #80, r0
     mov.w   r0, @r4
 
-    ; CMDGRDA: não usado (Gouraud desabilitado)
+    ; CMDGRDA: not used (Gouraud disabled)
     add     #2, r4
     mov.w   #0x0000, r0
     mov.w   r0, @r4
@@ -282,7 +282,7 @@ Offset  Campo     Bits         Descrição
     mov.w   #0x0000, r0
     mov.w   r0, @r4
 
-    ; ─── Draw End Command em +20H ─────────────────────────────────────────────
+    ; ─── Draw End Command at +20H ─────────────────────────────────────────────
     add     #2, r4
     mov.w   #0x8000, r0     ; END=1
     mov.w   r0, @r4
@@ -290,39 +290,39 @@ Offset  Campo     Bits         Descrição
 
 ---
 
-## 7. Coordenadas e Clipping
+## 7. Coordinates and Clipping
 
 - **Frame buffer plane:** −1024 ≤ X ≤ 1023, −1024 ≤ Y ≤ 1023
-- **System clipping** deve ser configurado antes do primeiro draw (undefined após reset):
-  - Upper-left: fixo em (0,0)
-  - Lower-right: especificado via CMDXC/CMDYC no System Clipping Set Command
-- **Local coordinates** são adicionadas às coordenadas dos draw commands
-- Partes fora do frame buffer plane simplesmente não são desenhadas
+- **System clipping** must be configured before first draw (undefined after reset):
+  - Upper-left: fixed at (0,0)
+  - Lower-right: specified via CMDXC/CMDYC in System Clipping Set Command
+- **Local coordinates** are added to draw command coordinates
+- Parts outside the frame buffer plane are simply not drawn
 
 ```asm
-; System Clipping: área 0,0 → 319,223
-; Command table para system clipping (Comm=1001B)
+; System Clipping: area 0,0 → 319,223
+; Command table for system clipping (Comm=1001B)
     mov.w   #0x0009, r0     ; CMDCTRL: END=0, JP=next, Comm=1001
     mov.w   r0, @r4
-    ; ... pular campos ignorados (write zeros) ...
+    ; ... skip ignored fields (write zeros) ...
     ; CMDXC offset +14H: lower-right X = 319
     ; CMDYC offset +16H: lower-right Y = 223
 ```
 
-> Para detalhes completos de cada registrador e bit, ver `references/system-registers.md`
-> Para todos os comandos com exemplos completos, ver `references/commands.md`
+> For complete details on each register and bit, see `references/system-registers.md`
+> For all commands with complete examples, see `references/commands.md`
 
 ---
 
-## 8. Dicas Críticas para Assembly
+## 8. Critical Assembly Tips
 
-1. **VRAM address / 8H:** CMDSRCA, CMDGRDA, CMDLINK e LOPR/COPR guardam `endereço/8H`. Sempre divida por 8 antes de escrever.
-2. **Coordenadas sign-extended:** bits [15:11] devem replicar bit 10 (sinal). Use `exts.w` no SH-2.
-3. **Boundary 20H:** toda command table deve estar alinhada em 32 bytes. Use `.align 5` ou equivalente.
-4. **Character pattern boundary 20H:** char patterns também em boundary 20H. Endereço 0 é reservado para a primeira command table.
-5. **Acesso word-only nos system registers:** nunca byte ou longword.
-6. **Não acesse frame buffer sendo exibido:** apenas o buffer traseiro (draw) é acessível.
-7. **Color bank:** lower 4 bits devem ser 0 (ex: CMDCOLR para 16-color bank mode).
-8. **RGB format:** MSB=1, bits [14:10]=B, [9:5]=G, [4:0]=R. Preto RGB = 8000H (não 0000H, que é transparente!).
-9. **Após reset:** system/user clipping coordinates são undefined — sempre configure antes de desenhar.
-10. **ECD=1, SPD=1** obrigatório para polygons, polylines e lines (não usam character data).
+1. **VRAM address / 8H:** CMDSRCA, CMDGRDA, CMDLINK, and LOPR/COPR store `address/8H`. Always divide by 8 before writing.
+2. **Sign-extended coordinates:** bits [15:11] must replicate bit 10 (sign). Use `exts.w` on SH-2.
+3. **Boundary 20H:** every command table must be aligned to 32 bytes. Use `.align 5` or equivalent.
+4. **Character pattern boundary 20H:** char patterns also on 20H boundary. Address 0 is reserved for the first command table.
+5. **Word-only access on system registers:** never byte or longword.
+6. **Don't access frame buffer being displayed:** only the back buffer (draw) is accessible.
+7. **Color bank:** lower 4 bits must be 0 (e.g.: CMDCOLR for 16-color bank mode).
+8. **RGB format:** MSB=1, bits [14:10]=B, [9:5]=G, [4:0]=R. Black RGB = 8000H (not 0000H, which is transparent!).
+9. **After reset:** system/user clipping coordinates are undefined — always configure before drawing.
+10. **ECD=1, SPD=1** required for polygons, polylines, and lines (they don't use character data).

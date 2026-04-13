@@ -36,7 +36,7 @@ $isoPath = Join-Path $RepoRoot ("build\examples\{0}.iso" -f $safeName)
 if ($BuildFirst -or -not (Test-Path $isoPath)) {
     $buildScript = Join-Path $RepoRoot 'build-example.ps1'
     if (-not (Test-Path $buildScript)) {
-        throw "Script de build nao encontrado: $buildScript"
+        throw "Build script not found: $buildScript"
     }
 
     $buildArgs = @{
@@ -50,12 +50,12 @@ if ($BuildFirst -or -not (Test-Path $isoPath)) {
 
     & $buildScript @buildArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Falha ao buildar example: $normalizedExample"
+        throw "Failed to build example: $normalizedExample"
     }
 }
 
 if (-not (Test-Path $isoPath)) {
-    throw "ISO do example nao encontrada: $isoPath"
+    throw "Example ISO not found: $isoPath"
 }
 
 $launcher = switch ($Emulator) {
@@ -64,11 +64,11 @@ $launcher = switch ($Emulator) {
 }
 
 if (-not (Test-Path $launcher)) {
-    throw "Launcher do emulador nao encontrado: $launcher. Rode .\scripts\download-emulators.ps1."
+    throw "Emulator launcher not found: $launcher. Run .\scripts\download-emulators.ps1."
 }
 
 $gamePath = if ($Emulator -eq 'mednafen' -and (Test-Path $cuePath)) { $cuePath } else { $isoPath }
-Write-Host "[run-example] Executando $normalizedExample em $Emulator"
+Write-Host "[run-example] Running $normalizedExample on $Emulator"
 if ($Emulator -eq 'mednafen') {
     Write-Host "[run-example] BIOS profile: $BiosProfile"
     & $launcher -GamePath $gamePath -Region $BiosProfile -ExtraArgs $ExtraArgs

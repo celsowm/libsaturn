@@ -66,7 +66,7 @@ function Invoke-Msys2Command {
     Write-Host "[check-acceptance] $ScriptCommand"
     & $ShellPath -defterm -no-start -ucrt64 -here -c $wrappedCommand
     if ($LASTEXITCODE -ne 0) {
-        throw "Comando no MSYS2 falhou (codigo $LASTEXITCODE): $ScriptCommand"
+        throw "MSYS2 command failed (code $LASTEXITCODE): $ScriptCommand"
     }
 }
 
@@ -119,7 +119,7 @@ function Ask-Criterion {
         if ($answer -match '^(?i:n|no|nao)$') {
             return 'FAIL'
         }
-        Write-Host 'Resposta invalida. Digite y ou n.'
+        Write-Host 'Invalid answer. Enter y or n.'
     }
 }
 
@@ -135,15 +135,15 @@ $shellPath = Find-Msys2Shell -RootCandidates $rootCandidates
 
 if (-not $shellPath) {
     throw @(
-        'MSYS2 nao encontrado.'
-        'Execute .\scripts\bootstrap-msys2.ps1 host ou informe -Msys2Root.'
+        'MSYS2 not found.'
+        'Run .\scripts\bootstrap-msys2.ps1 host or provide -Msys2Root.'
     ) -join ' '
 }
 
 $resolvedRoot = Split-Path -Parent $shellPath
 $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
 
-Write-Host '[check-acceptance] Pre-checagem de toolchain e utilitarios...'
+Write-Host '[check-acceptance] Pre-checking toolchain and utilities...'
 $preCheck = @(
     "cd `"$repoMsysPath`"",
     "command -v sh2eb-elf-gcc >/dev/null",
@@ -152,11 +152,11 @@ $preCheck = @(
 ) -join ' && '
 Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand $preCheck
 
-Write-Host '[check-acceptance] Build limpa para gerar ISO...'
+Write-Host '[check-acceptance] Clean build to generate ISO...'
 Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "cd `"$repoMsysPath`" && make clean && make all"
 
 if (-not (Test-Path $IsoPath)) {
-    throw "ISO nao encontrada apos build: $IsoPath"
+    throw "ISO not found after build: $IsoPath"
 }
 
 $targets = switch ($Emulator) {
@@ -166,9 +166,9 @@ $targets = switch ($Emulator) {
 }
 
 $criteria = @(
-    'ISO inicia e entra no loop principal',
-    'Render de sprites 2D estavel por 1800 frames',
-    'Input sem ghost presses por 5 minutos'
+    'ISO boots and enters main loop',
+    '2D sprite rendering stable for 1800 frames',
+    'No input ghost presses for 5 minutes'
 )
 
 $mednafenExe = Find-MednafenExe -ResolvedMsysRoot $resolvedRoot
@@ -179,37 +179,37 @@ $results = New-Object System.Collections.Generic.List[object]
 foreach ($target in $targets) {
     if ($target -eq 'mednafen') {
         if (-not $mednafenExe) {
-            throw "Mednafen nao encontrado. Rode .\scripts\download-emulators.ps1."
+            throw "Mednafen not found. Run .\scripts\download-emulators.ps1."
         }
         Write-Host ''
-        Write-Host '--- Execucao Mednafen ---'
-        Write-Host "Comando sugerido:"
+        Write-Host '--- Mednafen Execution ---'
+        Write-Host "Suggested command:"
         $mednafenImage = if (Test-Path $CuePath) { $CuePath } else { $IsoPath }
         Write-Host "& `"$mednafenExe`" -force_module ss -ss.region_autodetect 0 -ss.region_default na `"$mednafenImage`""
     }
 
     if ($target -eq 'kronos') {
         if (-not (Test-Path $kronosExe)) {
-            Write-Warning "Kronos nao encontrado em $kronosExe. Instale manualmente e rode novamente para validar Kronos."
+            Write-Warning "Kronos not found at $kronosExe. Install manually and run again to validate Kronos."
             foreach ($criterion in $criteria) {
                 $results.Add([pscustomobject]@{
                         Emulator  = 'kronos'
                         Criterion = $criterion
                         Status    = 'SKIPPED'
-                        Notes     = 'Kronos ausente'
+                        Notes     = 'Kronos missing'
                     })
             }
             continue
         }
         Write-Host ''
-        Write-Host '--- Execucao Kronos ---'
-        Write-Host "Comando sugerido:"
+        Write-Host '--- Kronos Execution ---'
+        Write-Host "Suggested command:"
         Write-Host "& `"$kronosExe`" `"$IsoPath`""
     }
 
     foreach ($criterion in $criteria) {
         $status = Ask-Criterion -EmulatorName $target -Criterion $criterion
-        $note = if ($status -eq 'FAIL') { Read-Host "[$target] Observacao para '$criterion'" } else { '' }
+        $note = if ($status -eq 'FAIL') { Read-Host "[$target] Note for '$criterion'" } else { '' }
         $results.Add([pscustomobject]@{
                 Emulator  = $target
                 Criterion = $criterion
@@ -249,8 +249,8 @@ $reportLines.Add("overall=$overall")
 
 Set-Content -Path $ReportPath -Value $reportLines -Encoding ASCII
 Write-Host ''
-Write-Host "[check-acceptance] Relatorio salvo em: $ReportPath"
-Write-Host "[check-acceptance] Resultado geral: $overall"
+Write-Host "[check-acceptance] Report saved at: $ReportPath"
+Write-Host "[check-acceptance] Overall result: $overall"
 
 if ($overall -eq 'FAIL') {
     exit 2

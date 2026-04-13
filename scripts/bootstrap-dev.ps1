@@ -13,11 +13,11 @@ $BootstrapScript = Join-Path $PSScriptRoot 'bootstrap-msys2.ps1'
 $DownloadEmulatorsScript = Join-Path $PSScriptRoot 'download-emulators.ps1'
 
 if (-not (Test-Path $BootstrapScript)) {
-    throw "Script nao encontrado: $BootstrapScript"
+    throw "Script not found: $BootstrapScript"
 }
 
 if (-not (Test-Path $DownloadEmulatorsScript)) {
-    throw "Script nao encontrado: $DownloadEmulatorsScript"
+    throw "Script not found: $DownloadEmulatorsScript"
 }
 
 function Invoke-Step {
@@ -26,9 +26,9 @@ function Invoke-Step {
         [Parameter(Mandatory = $true)][scriptblock]$Action
     )
 
-    Write-Host "[bootstrap-dev] Iniciando etapa: $StepName"
+    Write-Host "[bootstrap-dev] Starting step: $StepName"
     & $Action
-    Write-Host "[bootstrap-dev] Etapa concluida: $StepName"
+    Write-Host "[bootstrap-dev] Step completed: $StepName"
 }
 
 $bootstrapArgs = @{}
@@ -56,7 +56,7 @@ Invoke-Step -StepName 'bootstrap full' -Action {
 }
 
 if ($SkipEmulators.IsPresent) {
-    Write-Host '[bootstrap-dev] Etapa de emuladores pulada por -SkipEmulators.'
+    Write-Host '[bootstrap-dev] Emulators step skipped due to -SkipEmulators.'
 }
 else {
     Invoke-Step -StepName 'download emulators' -Action {
@@ -64,4 +64,4 @@ else {
     }
 }
 
-Write-Host '[bootstrap-dev] Ambiente pronto.'
+Write-Host '[bootstrap-dev] Environment ready.'

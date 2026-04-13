@@ -13,22 +13,22 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     /* -------------------------------------------------------------------
      * Early hardware initialization
      * -------------------------------------------------------------------
-     * PROBLEMA: O BIOS do Saturn NÃO inicializa VDP1/VDP2 completamente.
-     * Se chamarmos saturn::hal::vdp2::init_ntsc_320x224() direto, o hardware pode
-     * estar em estado indefinido causando glitch visual ou crash.
+     * PROBLEM: Saturn's BIOS does NOT initialize VDP1/VDP2 completely.
+     * If we call saturn::hal::vdp2::init_ntsc_320x224() directly, the hardware may
+     * be in undefined state causing visual glitch or crash.
      *
-     * SOLUÇÃO: _saturn_early_init() prepara o hardware para um estado
-     * conhecido antes de qualquer configuração específica do engine.
+     * SOLUTION: _saturn_early_init() prepares hardware to a known state
+     * before any engine-specific configuration.
      *
-     * Comparação com outros engines:
-     *   - libyaul: faz isso em ___sys_init() (chamado pelo crt0)
-     *   - JoEngine: faz isso em jo_core_init() (chamado pelo main)
-     *   - libsaturn: faz isso aqui, no início de sat_init()
+     * Comparison with other engines:
+     *   - libyaul: does this in ___sys_init() (called by crt0)
+     *   - JoEngine: does this in jo_core_init() (called by main)
+     *   - libsaturn: does this here, at the start of sat_init()
      * ------------------------------------------------------------------- */
     extern void _saturn_early_init(void);
     _saturn_early_init();
 
-    /* Validar parâmetros */
+    /* Validate parameters */
     if (config == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -39,7 +39,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
         return SAT_ERR_UNSUPPORTED;
     }
 
-    /* Inicializar estado do runtime */
+    /* Initialize runtime state */
     g_state.config = *config;
     g_state.pad = {0, 0, 0};
     g_state.clear_color = 0x0000;
@@ -49,16 +49,16 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     g_state.initialized = true;
 
     /* -------------------------------------------------------------------
-     * Inicialização completa do hardware
+     * Complete hardware initialization
      * -------------------------------------------------------------------
-     * Agora que o hardware está em estado limpo (_saturn_early_init),
-     * configuramos cada subsistema com os parâmetros desejados.
+     * Now that hardware is in clean state (_saturn_early_init),
+     * we configure each subsystem with desired parameters.
      *
-     * Ordem de init:
+     * Init order:
      *   1. VDP2 (backgrounds, scroll, VRAM)
-     *   2. VDP1 (sprites, polígonos, frame buffer)
+     *   2. VDP1 (sprites, polygons, frame buffer)
      *   3. SCU (interrupts, VBlank counter)
-     *   4. VDP1 begin_frame (preparar command buffer)
+     *   4. VDP1 begin_frame (prepare command buffer)
      * ------------------------------------------------------------------- */
     saturn::hal::vdp2::init_ntsc_320x224();
     saturn::hal::vdp1::init(config->width, config->height, g_state.clear_color);

@@ -12,10 +12,10 @@ case "$MODE" in
     bash scripts/build-toolchain.sh
     ;;
   *)
-    echo "Uso: bash scripts/bootstrap.sh [host|full]"
+    echo "Usage: bash scripts/bootstrap.sh [host|full]"
     exit 1
     ;;
 esac
 
-echo "Bootstrap concluido ($MODE)."
+echo "Bootstrap completed ($MODE)."
 

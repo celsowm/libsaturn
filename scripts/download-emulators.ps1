@@ -50,7 +50,7 @@ function Invoke-Msys2Command {
     Write-Host "[download-emulators] $ScriptCommand"
     & $ShellPath -defterm -no-start -ucrt64 -here -c $wrappedCommand
     if ($LASTEXITCODE -ne 0) {
-        throw "Comando no MSYS2 falhou (codigo $LASTEXITCODE): $ScriptCommand"
+        throw "MSYS2 command failed (code $LASTEXITCODE): $ScriptCommand"
     }
 }
 
@@ -107,8 +107,8 @@ $shellPath = Find-Msys2Shell -RootCandidates $rootCandidates
 
 if (-not $shellPath) {
     throw @(
-        'MSYS2 nao encontrado.'
-        'Execute .\scripts\bootstrap-msys2.ps1 host primeiro ou informe -Msys2Root.'
+        'MSYS2 not found.'
+        'Run .\scripts\bootstrap-msys2.ps1 host first or provide -Msys2Root.'
     ) -join ' '
 }
 
@@ -119,7 +119,7 @@ try {
     Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand "cd `"$repoMsysPath`" && pacman -S --needed --noconfirm mingw-w64-ucrt-x86_64-mednafen"
 }
 catch {
-    Write-Warning "[download-emulators] Pacote mednafen nao disponivel no MSYS2 UCRT64 atual. Tentando winget..."
+    Write-Warning "[download-emulators] Mednafen package not available in current MSYS2 UCRT64. Trying winget..."
 }
 
 $mednafenExe = Find-MednafenExe -ResolvedMsysRoot $resolvedRoot
@@ -127,20 +127,20 @@ if (-not $mednafenExe) {
     $winget = Get-Command winget -ErrorAction SilentlyContinue
     if (-not $winget) {
         throw @(
-            'Mednafen nao encontrado via pacman e winget nao esta disponivel.'
-            'Instale Mednafen manualmente e rode este script novamente.'
+            'Mednafen not found via pacman and winget is not available.'
+            'Install Mednafen manually and run this script again.'
         ) -join ' '
     }
 
-    Write-Host '[download-emulators] Instalando Mednafen via winget (MednafenTeam.Mednafen)...'
+    Write-Host '[download-emulators] Installing Mednafen via winget (MednafenTeam.Mednafen)...'
     & $winget.Source install --id MednafenTeam.Mednafen -e --accept-package-agreements --accept-source-agreements --disable-interactivity
     if ($LASTEXITCODE -ne 0) {
-        throw "Falha ao instalar Mednafen via winget (codigo $LASTEXITCODE)."
+        throw "Failed to install Mednafen via winget (code $LASTEXITCODE)."
     }
 
     $mednafenExe = Find-MednafenExe -ResolvedMsysRoot $resolvedRoot
     if (-not $mednafenExe) {
-        throw 'Mednafen foi instalado, mas o executavel nao foi localizado automaticamente.'
+        throw 'Mednafen was installed, but the executable could not be located automatically.'
     }
 }
 $mednafenExeLiteral = $mednafenExe -replace "'", "''"
@@ -171,7 +171,7 @@ function Copy-BiosIfPresent {
 
     if (Test-Path $SourcePath) {
         Copy-Item $SourcePath $TargetPath -Force
-        Write-Host "[run-mednafen] BIOS copiada para: $TargetPath"
+        Write-Host "[run-mednafen] BIOS copied to: $TargetPath"
         return $true
     }
 
@@ -179,7 +179,7 @@ function Copy-BiosIfPresent {
 }
 
 if (-not (Test-Path $exePath)) {
-    throw "Mednafen nao encontrado: $exePath"
+    throw "Mednafen not found: $exePath"
 }
 
 $targetImage = if ($GamePath) {
@@ -190,7 +190,7 @@ $targetImage = if ($GamePath) {
     $defaultIso
 }
 if (-not (Test-Path $targetImage)) {
-    throw "Imagem do disco nao encontrada: $targetImage"
+    throw "Disc image not found: $targetImage"
 }
 
 $emuDir = Split-Path $exePath
@@ -219,7 +219,7 @@ if (-not (Test-Path $nonJpFirmware)) {
     $missingFirmware += 'mpr-17933.bin'
 }
 if ($missingFirmware.Count -gt 0) {
-    throw "BIOS do Mednafen ausente: $($missingFirmware -join ', '). Rode: .\scripts\download-bios.ps1"
+    throw "Mednafen BIOS missing: $($missingFirmware -join ', '). Run: .\scripts\download-bios.ps1"
 }
 
 $regionArgs = @()
@@ -230,10 +230,10 @@ else {
     $regionArgs = @('-ss.region_autodetect', '0', '-ss.region_default', $Region)
 }
  $videoArgs = @('-ss.h_overscan', '0', '-ss.videoip', '0')
-Write-Host "[run-mednafen] Regiao: $Region"
-Write-Host "[run-mednafen] Args de regiao: $($regionArgs -join ' ')"
-Write-Host "[run-mednafen] Args de video: $($videoArgs -join ' ')"
-Write-Host "[run-mednafen] Executando: $exePath -force_module ss $($regionArgs -join ' ') $($videoArgs -join ' ') $targetImage"
+Write-Host "[run-mednafen] Region: $Region"
+Write-Host "[run-mednafen] Region args: $($regionArgs -join ' ')"
+Write-Host "[run-mednafen] Video args: $($videoArgs -join ' ')"
+Write-Host "[run-mednafen] Executing: $exePath -force_module ss $($regionArgs -join ' ') $($videoArgs -join ' ') $targetImage"
 & $exePath '-force_module' 'ss' @regionArgs @videoArgs $targetImage @ExtraArgs
 exit $LASTEXITCODE
 '@
@@ -256,15 +256,15 @@ $defaultIso = Join-Path $repoRoot 'build\mvp.iso'
 $exePath = Join-Path $PSScriptRoot 'kronos.exe'
 
 if (-not (Test-Path $exePath)) {
-    throw "Kronos nao encontrado em $exePath. Baixe o release e copie kronos.exe para esta pasta."
+    throw "Kronos not found at $exePath. Download the release and copy kronos.exe to this folder."
 }
 
 $targetIso = if ($GamePath) { [System.IO.Path]::GetFullPath($GamePath) } else { $defaultIso }
 if (-not (Test-Path $targetIso)) {
-    throw "ISO nao encontrada: $targetIso"
+    throw "ISO not found: $targetIso"
 }
 
-Write-Host "[run-kronos] Executando: $exePath $targetIso"
+Write-Host "[run-kronos] Executing: $exePath $targetIso"
 & $exePath $targetIso @ExtraArgs
 exit $LASTEXITCODE
 '@
@@ -272,10 +272,10 @@ Set-Content -Path $kronosLauncher -Value $kronosLauncherContent -Encoding ASCII
 
 $kronosExe = Join-Path $KronosDir 'kronos.exe'
 if (Test-Path $kronosExe) {
-    Write-Host "[download-emulators] Kronos detectado: $kronosExe"
+    Write-Host "[download-emulators] Kronos detected: $kronosExe"
 }
 else {
-    Write-Warning "[download-emulators] Kronos nao encontrado em $KronosDir. Instale manualmente conforme emulators/README.md."
+    Write-Warning "[download-emulators] Kronos not found at $KronosDir. Install manually as per emulators/README.md."
 }
 
-Write-Host "[download-emulators] Mednafen instalado e launchers atualizados."
+Write-Host "[download-emulators] Mednafen installed and launchers updated."

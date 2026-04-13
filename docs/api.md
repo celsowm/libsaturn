@@ -1,19 +1,19 @@
-# API C do MVP
+# C API for MVP
 
-Header publico: `include/saturn/saturn.h`.
+Public header: `include/saturn/saturn.h`.
 
-## Ciclo de vida
+## Lifecycle
 
 - `sat_init(const sat_video_config_t* config)`
 - `sat_shutdown(void)`
 
-## Helpers de app
+## App Helpers
 
 - `sat_app_init_default(void)`
 - `sat_app_frame_begin(uint16_t backdrop_rgb555, uint16_t clear_rgb555, sat_pad_state_t* out_pad)`
 - `sat_app_frame_end(void)`
 
-## Loop de frame
+## Frame Loop
 
 - `sat_wait_vblank(void)`
 - `sat_begin_frame(void)`
@@ -24,25 +24,25 @@ Header publico: `include/saturn/saturn.h`.
 - `sat_pad_poll(sat_pad_state_t* out_state)`
 - `sat_pad_held(void)`
 
-## Render 2D (VDP1)
+## 2D Render (VDP1)
 
 - `sat_tex_upload_indexed8(...)`
 - `sat_draw_sprite(const sat_sprite_cmd_t* cmd)`
 - `sat_set_clear_color(uint16_t rgb555)`
 
-Fluxo recomendado para assets:
+Recommended flow for assets:
 
-1. Converter a imagem indexada com `tools/convert_indexed8.py`.
-2. Incluir o `*.h` gerado no exemplo.
-3. Chamar `sat_tex_upload_indexed8()` com `pixels`, `palette`, `width`, `height` e `palette_index` do asset gerado.
-4. Se a imagem original for maior do que o sprite alvo, usar `--resize` no conversor para gerar uma versão compatível com o caminho de VDP1.
+1. Convert the indexed image with `tools/convert_indexed8.py`.
+2. Include the generated `*.h` in the example.
+3. Call `sat_tex_upload_indexed8()` with `pixels`, `palette`, `width`, `height` and `palette_index` from the generated asset.
+4. If the original image is larger than the target sprite, use `--resize` in the converter to generate a version compatible with the VDP1 path.
 
 ## Error helpers
 
 - `SAT_TRY(expr)`
 - `SAT_PANIC_IF_ERROR(expr)`
 
-Exemplo de uso:
+Usage example:
 
 ```c
 #include "text_sprite/sonic_head.h"
@@ -82,9 +82,9 @@ sat_tex_upload_indexed8(
 - `sat_font_draw_text_ascii_indexed8(...)`
 - `sat_font_upload_ascii_8x8_textures_indexed8(...)`
 
-## Convencoes
+## Conventions
 
-- Coordenadas em `sat_fx16_t` (16.16 fixed-point).
-- Largura de textura deve ser multipla de 8.
-- Sem uso de `float` na API publica.
-- Retorno por `sat_result_t`.
+- Coordinates in `sat_fx16_t` (16.16 fixed-point).
+- Texture width must be multiple of 8.
+- No use of `float` in the public API.
+- Return by `sat_result_t`.

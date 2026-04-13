@@ -46,7 +46,23 @@ sat_result_t sat_tex_upload_indexed8(
     uint16_t palette_index
 );
 
+/* Draws sprite with native VDP1 coordinates.
+ * (0,0) = screen center. Coordinates in fixed-point 16.16.
+ */
 sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd);
+
+/* Draws sprite with screen coordinates (high-level).
+ * (0,0) = top-left corner of the screen.
+ * Automatically converts to internal VDP1 coordinates.
+ */
+sat_result_t sat_draw_sprite_screen(
+    const sat_texture_t* texture,
+    int16_t screen_x,
+    int16_t screen_y,
+    uint16_t width,
+    uint16_t height,
+    uint16_t palette_override
+);
 
 #ifdef __cplusplus
 }

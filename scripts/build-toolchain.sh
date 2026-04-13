@@ -11,7 +11,7 @@ ROOT="${ROOT:-$PWD/toolchain-src}"
 mkdir -p "$ROOT"
 cd "$ROOT"
 
-echo "[1/6] Preparando fontes..."
+echo "[1/6] Preparing sources..."
 if [[ ! -f "binutils-$BINUTILS_VER.tar.xz" ]]; then
   wget "https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VER.tar.xz"
 fi
@@ -26,12 +26,12 @@ if [[ ! -d "gcc-$GCC_VER" ]]; then
   tar xf "gcc-$GCC_VER.tar.xz"
 fi
 
-echo "[2/6] Baixando prerequisitos do GCC..."
+echo "[2/6] Downloading GCC prerequisites..."
 pushd "gcc-$GCC_VER" >/dev/null
 ./contrib/download_prerequisites
 popd >/dev/null
 
-echo "[3/6] Build binutils..."
+echo "[3/6] Building binutils..."
 mkdir -p build-binutils
 pushd build-binutils >/dev/null
 ../binutils-$BINUTILS_VER/configure \
@@ -44,7 +44,7 @@ make -j"$JOBS"
 make install
 popd >/dev/null
 
-echo "[4/6] Build GCC (stage freestanding)..."
+echo "[4/6] Building GCC (freestanding stage)..."
 mkdir -p build-gcc
 pushd build-gcc >/dev/null
 ../gcc-$GCC_VER/configure \
@@ -69,7 +69,7 @@ make -j"$JOBS" all-gcc all-target-libgcc
 make install-gcc install-target-libgcc
 popd >/dev/null
 
-echo "[5/6] Toolchain instalada em: $PREFIX"
-echo "[6/6] Adicione ao PATH:"
+echo "[5/6] Toolchain installed at: $PREFIX"
+echo "[6/6] Add to PATH:"
 echo "export PATH=\"$PREFIX/bin:\$PATH\""
 

@@ -25,8 +25,8 @@ extern "C" sat_result_t sat_app_frame_begin(
         return st;
     }
 
-    // VDP1 faz erase com cor transparente (end code), permitindo que o
-    // backdrop do VDP2 apareça nas áreas sem sprites.
+    // VDP1 erases with transparent color (end code), allowing VDP2
+    // backdrop to show in areas without sprites.
     st = sat_begin_frame();
     if (st != SAT_OK) {
         return st;

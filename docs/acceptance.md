@@ -1,46 +1,46 @@
 # Acceptance Checklist
 
-Este documento e a referencia do fluxo de aceite manual para o MVP.
-Use o script `scripts/check-acceptance.ps1` para executar o protocolo e gerar relatorio.
+This document is the reference for the manual acceptance flow for the MVP.
+Use the script `scripts/check-acceptance.ps1` to execute the protocol and generate a report.
 
-## Pre-requisitos
+## Prerequisites
 
 - Windows PowerShell.
-- MSYS2 com perfil UCRT64.
-- Toolchain SH2 disponivel no PATH do ambiente MSYS2 (`sh2eb-elf-gcc`).
-- `mkisofs`, `genisoimage` ou `xorrisofs` disponivel no ambiente MSYS2.
-- Mednafen instalado (`scripts/download-emulators.ps1`) e/ou Kronos instalado manualmente.
-- BIOS do Mednafen configuradas como `sega_101.bin` (JP) e `mpr-17933.bin` (US/EU).
+- MSYS2 with UCRT64 profile.
+- SH2 toolchain available in the MSYS2 environment PATH (`sh2eb-elf-gcc`).
+- `mkisofs`, `genisoimage` or `xorrisofs` available in the MSYS2 environment.
+- Mednafen installed (`scripts/download-emulators.ps1`) and/or Kronos installed manually.
+- Mednafen BIOS configured as `sega_101.bin` (JP) and `mpr-17933.bin` (US/EU).
 
-## Execucao do checklist
+## Checklist Execution
 
 ```powershell
 .\scripts\check-acceptance.ps1 -Emulator both
 ```
 
-Opcoes:
+Options:
 
 - `-Emulator mednafen|kronos|both`
-- `-IsoPath <caminho>`
-- `-ReportPath <caminho>`
-- `-Msys2Root <caminho>`
+- `-IsoPath <path>`
+- `-ReportPath <path>`
+- `-Msys2Root <path>`
 
-## O que o script faz
+## What the script does
 
-1. Valida ferramenta SH2, `make` e `mkisofs`/`genisoimage`/`xorrisofs` no MSYS2.
-2. Executa build limpa (`make clean && make all`) para gerar ISO.
-3. Mostra comandos para abrir a imagem no emulador selecionado (`.cue` no Mednafen quando disponivel).
-4. Coleta confirmacao manual para os criterios de aceite.
-5. Salva relatorio em `build/acceptance-report.txt` (ou caminho customizado).
+1. Validates SH2 tool, `make` and `mkisofs`/`genisoimage`/`xorrisofs` in MSYS2.
+2. Executes clean build (`make clean && make all`) to generate ISO.
+3. Shows commands to open the image in the selected emulator (`.cue` in Mednafen when available).
+4. Collects manual confirmation for acceptance criteria.
+5. Saves report in `build/acceptance-report.txt` (or custom path).
 
-## Criterios de aceite
+## Acceptance Criteria
 
-1. Imagem do disco inicia e entra no loop principal.
-2. Render de sprites 2D estavel por 1800 frames.
-3. Input sem ghost presses por 5 minutos.
+1. Disk image starts and enters the main loop.
+2. Stable 2D sprite rendering for 1800 frames.
+3. Input without ghost presses for 5 minutes.
 
-## Resultado e codigos de saida
+## Result and Exit Codes
 
-- `0`: PASS (todos os criterios aprovados).
-- `2`: FAIL (ao menos um criterio reprovado).
-- `3`: PARTIAL (criterios pulados, por exemplo Kronos ausente).
+- `0`: PASS (all criteria approved).
+- `2`: FAIL (at least one criterion failed).
+- `3`: PARTIAL (criteria skipped, for example Kronos absent).

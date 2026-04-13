@@ -34,16 +34,20 @@ $downloads = @(
 foreach ($item in $downloads) {
     $outPath = Join-Path $BiosDir $item.Name
     if (Test-Path $outPath) {
-        Write-Host "[download-bios] Ja existe: $($item.Name) ($($item.Desc)) - pulando"
+        Write-Host "[download-bios] Already exists: $($item.Name) ($($item.Desc)) - skipping"
         continue
     }
-    Write-Host "[download-bios] Baixando $($item.Desc) -> $($item.Name) ..."
+    Write-Host "[download-bios] Downloading $($item.Desc) -> $($item.Name) ..."
     Invoke-WebRequest -Uri $item.Url -OutFile $outPath -UseBasicParsing
     Write-Host "[download-bios] OK: $outPath"
 }
 
-# Copiar para o diretorio firmware do Mednafen (onde ele busca por padrao)
-$mednafenExe = 'C:\Users\celso\AppData\Local\Microsoft\WinGet\Packages\MednafenTeam.Mednafen_Microsoft.Winget.Source_8wekyb3d8bbwe\mednafen.exe'
+# Copy to Mednafen firmware directory (where it looks by default)
+# Auto-detect Mednafen installed via Winget
+$mednafenBase = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
+$mednafenDir = Get-ChildItem $mednafenBase -Directory -Filter 'Mednafen*' -ErrorAction SilentlyContinue |
+    Select-Object -First 1 -ExpandProperty FullName
+$mednafenExe = if ($mednafenDir) { Join-Path $mednafenDir 'mednafen.exe' } else { $null }
 if (Test-Path $mednafenExe) {
     $firmwareDir = Join-Path (Split-Path $mednafenExe) 'firmware'
     if (-not (Test-Path $firmwareDir)) {
@@ -59,18 +63,18 @@ if (Test-Path $mednafenExe) {
     if (Test-Path $jpSource) {
         $jpTarget = Join-Path $firmwareDir 'sega_101.bin'
         Copy-Item $jpSource $jpTarget -Force
-        Write-Host "[download-bios] Copiado BIOS JP para Mednafen: $jpTarget"
+        Write-Host "[download-bios] Copied JP BIOS to Mednafen: $jpTarget"
     }
 
     if ($nonJpSource) {
         $nonJpTarget = Join-Path $firmwareDir 'mpr-17933.bin'
         Copy-Item $nonJpSource $nonJpTarget -Force
-        Write-Host "[download-bios] Copiado BIOS nao-JP para Mednafen: $nonJpTarget"
+        Write-Host "[download-bios] Copied non-JP BIOS to Mednafen: $nonJpTarget"
     }
 }
 
 Write-Host ""
-Write-Host "[download-bios] BIOS files em: $BiosDir"
+Write-Host "[download-bios] BIOS files at: $BiosDir"
 Get-ChildItem $BiosDir -Filter '*.bin' | ForEach-Object {
     Write-Host "  $($_.Name)  ($([math]::Round($_.Length / 1KB)) KB)"
 }
