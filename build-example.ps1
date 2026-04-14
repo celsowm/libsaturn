@@ -80,6 +80,8 @@ if (-not $shellPath) {
 }
 
 $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
+$hostPythonPath = (Get-Command python).Source
+$hostPythonMsysPath = Convert-ToMsysPath -WindowsPath $hostPythonPath
 Write-Host "[build-example] Building example: $normalizedExample"
 
 # Auto-detect SH2 toolchain
@@ -136,9 +138,9 @@ if ($checkResult -eq 'ok') {
 # -- Build via MSYS2 --
 $repoPath = $repoMsysPath.Replace('\', '/')
 if ($saturnBin) {
-    $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && cd "' + $repoPath + '" && make EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
+    $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
 } else {
-    $makeCommand = 'cd "' + $repoPath + '" && make EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
+    $makeCommand = 'export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
 }
 Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand $makeCommand
 

@@ -1,13 +1,19 @@
-/* vdp2_rbg0_debug.c - Debug RBG0 step by step
- * 
- * This diagnostic tool will:
- * 1. Initialize RBG0 step by step
- * 2. Dump VRAM contents to verify bitmap upload
- * 3. Read back register values
- * 4. Display debug info on screen
+/* vdp2_rbg0_debug.c - Button-driven RBG0 smoke tests
+ *
+ * Stages:
+ *   0. Backdrop only
+ *   1. NBG0 solid fill
+ *   2. RBG0 solid fill
+ *   3. RBG0 checkerboard
+ *   4. RBG0 asset upload
+ *   5. RBG0 asset upload with auto-scroll
+ *
+ * Controls:
+ *   A      Next stage
+ *   B      Previous stage
+ *   Start  Exit
  */
 #include <stdint.h>
-
 #include "saturn/saturn.h"
 #include "saturn/example_util.h"
 #include "vdp2_rbg0_debug/seamless_sea.h"
@@ -20,134 +26,291 @@
 
 #define BITMAP_BASE_WORD  0x00000u
 #define ROT_PARAM_BASE    0x10000u
+#define NBG0_MAP_PLANE_INDEX 0x0010u
+#define NBG0_TILE_WORDS 16u
+#define AUTO_STAGE_FRAMES 180u
 
-/* VRAM access */
-#define VRAM16 ((volatile uint16_t*)(0x20000000u | 0x05E00000u))
-#define VDP2_REG(addr) (*(volatile uint16_t*)(0x20000000u | 0x05F80000u | (addr)))
+#define FX16_SHIFT 16
 
-/* Debug text rendering using VDP1 system fonts */
-static void debug_text(const char* str, int x, int y, uint8_t color) {
-    /* Simple placeholder - we'll use VDP1 later */
-    (void)str;
-    (void)x;
-    (void)y;
-    (void)color;
+typedef enum debug_stage {
+    STAGE_BACKDROP = 0,
+    STAGE_NBG0 = 1,
+    STAGE_SOLID = 2,
+    STAGE_CHECKER = 3,
+    STAGE_ASSET = 4,
+    STAGE_SCROLL = 5,
+    STAGE_COUNT
+} debug_stage_t;
+
+static sat_fx16_t scroll_x = 0;
+static sat_fx16_t scroll_y = 0;
+static debug_stage_t g_stage = STAGE_BACKDROP;
+static uint16_t g_backdrop_color = SAT_COLOR_BLUE;
+static sat_ascii_font_t g_font;
+static uint32_t g_frame_counter = 0;
+
+static const char* stage_name(debug_stage_t stage) {
+    switch (stage) {
+    case STAGE_BACKDROP: return "STAGE 0 BACKDROP";
+    case STAGE_NBG0: return "STAGE 1 NBG0";
+    case STAGE_SOLID: return "STAGE 2 RBG0 SOLID";
+    case STAGE_CHECKER: return "STAGE 3 CHECKER";
+    case STAGE_ASSET: return "STAGE 4 ASSET";
+    case STAGE_SCROLL: return "STAGE 5 SCROLL";
+    default: return "STAGE ?";
+    }
 }
 
-int main(void) {
-    sat_video_config_t cfg = {SCREEN_WIDTH, SCREEN_HEIGHT, 1, 0};
-    sat_example_must(sat_init(&cfg));
+static void frame_line(char* out, uint32_t frame_counter) {
+    static const char prefix[] = "FRAME 000000 A NEXT B PREV";
+    for (uint32_t i = 0; i < sizeof(prefix); ++i) {
+        out[i] = prefix[i];
+    }
 
-    /* Step 1: Upload palette */
-    sat_vdp2_palette_upload(seamless_sea_asset.palette, 256, 0);
-    
-    /* Step 2: Upload bitmap data */
-    {
-        uint32_t word_offset = BITMAP_BASE_WORD;
-        const uint8_t* pixels = seamless_sea_asset.pixels;
-        uint32_t src_width = seamless_sea_asset.width;
-        uint32_t src_height = seamless_sea_asset.height;
-        
-        for (uint32_t y = 0; y < BITMAP_HEIGHT; ++y) {
-            for (uint32_t x = 0; x < BITMAP_WIDTH; x += 2) {
-                uint32_t src_x = x % src_width;
-                uint32_t src_y = y % src_height;
-                
-                uint16_t word = 0;
-                word = (uint16_t)((pixels[src_y * src_width + src_x] << 8) |
-                                  (src_x + 1 < src_width ? 
-                                   pixels[src_y * src_width + (src_x + 1) % src_width] : 0));
-                VRAM16[word_offset++] = word;
-            }
+    for (int i = 10; i >= 5; --i) {
+        out[i] = (char)('0' + (frame_counter % 10u));
+        frame_counter /= 10u;
+    }
+}
+
+static void pad_line(char* out, const sat_pad_state_t* pad) {
+    static const char prefix[] = "U0 D0 L0 R0 A0 B0 S0";
+    for (uint32_t i = 0; i < sizeof(prefix); ++i) {
+        out[i] = prefix[i];
+    }
+
+    out[1] = ((pad->held & SAT_PAD_UP) != 0u) ? '1' : '0';
+    out[4] = ((pad->held & SAT_PAD_DOWN) != 0u) ? '1' : '0';
+    out[7] = ((pad->held & SAT_PAD_LEFT) != 0u) ? '1' : '0';
+    out[10] = ((pad->held & SAT_PAD_RIGHT) != 0u) ? '1' : '0';
+    out[13] = ((pad->held & SAT_PAD_A) != 0u) ? '1' : '0';
+    out[16] = ((pad->held & SAT_PAD_B) != 0u) ? '1' : '0';
+    out[19] = ((pad->held & SAT_PAD_START) != 0u) ? '1' : '0';
+}
+
+static debug_stage_t next_stage(debug_stage_t stage) {
+    return (debug_stage_t)(((uint32_t)stage + 1u) % STAGE_COUNT);
+}
+
+static debug_stage_t prev_stage(debug_stage_t stage) {
+    return (stage == STAGE_BACKDROP)
+        ? (debug_stage_t)(STAGE_COUNT - 1u)
+        : (debug_stage_t)((uint32_t)stage - 1u);
+}
+
+static sat_result_t upload_bitmap_from_pixels(const uint8_t* pixels, uint32_t src_width, uint32_t src_height) {
+    volatile uint16_t* const vram = (volatile uint16_t*)(0x20000000u | 0x05E00000u);
+    uint32_t word_offset = BITMAP_BASE_WORD;
+
+    for (uint32_t y = 0; y < BITMAP_HEIGHT; ++y) {
+        const uint32_t src_y = y % src_height;
+        for (uint32_t x = 0; x < BITMAP_WIDTH; x += 2u) {
+            const uint32_t src_x0 = x % src_width;
+            const uint32_t src_x1 = (x + 1u) % src_width;
+            const uint16_t word = (uint16_t)((pixels[src_y * src_width + src_x0] << 8u) |
+                                             pixels[src_y * src_width + src_x1]);
+            vram[word_offset++] = word;
         }
     }
-    
-    /* Step 3: Verify bitmap upload - check first and last few words */
-    uint16_t first_words[4];
-    uint16_t last_words[4];
-    
-    for (int i = 0; i < 4; i++) {
-        first_words[i] = VRAM16[BITMAP_BASE_WORD + i];
-        last_words[i] = VRAM16[BITMAP_BASE_WORD + 65532 + i];  /* 65536 total words */
+
+    return SAT_OK;
+}
+
+static sat_result_t upload_solid_bitmap(uint8_t palette_index) {
+    volatile uint16_t* const vram = (volatile uint16_t*)(0x20000000u | 0x05E00000u);
+    const uint16_t word = (uint16_t)(((uint16_t)palette_index << 8u) | palette_index);
+
+    for (uint32_t i = 0; i < ((BITMAP_WIDTH * BITMAP_HEIGHT) / 2u); ++i) {
+        vram[BITMAP_BASE_WORD + i] = word;
     }
-    
-    /* Step 4: Setup rotation parameters */
-    {
-        uint32_t base = ROT_PARAM_BASE;
-        
-        /* Clear all params */
-        for (uint32_t i = 0; i < 60; ++i) {
-            VRAM16[base + i] = 0x0000u;
+
+    return SAT_OK;
+}
+
+static sat_result_t upload_checker_bitmap(void) {
+    volatile uint16_t* const vram = (volatile uint16_t*)(0x20000000u | 0x05E00000u);
+    uint32_t word_offset = BITMAP_BASE_WORD;
+
+    for (uint32_t y = 0; y < BITMAP_HEIGHT; ++y) {
+        for (uint32_t x = 0; x < BITMAP_WIDTH; x += 2u) {
+            const uint8_t p0 = (((x >> 5u) ^ (y >> 5u)) & 1u) ? 2u : 1u;
+            const uint8_t p1 = ((((x + 1u) >> 5u) ^ (y >> 5u)) & 1u) ? 2u : 1u;
+            vram[word_offset++] = (uint16_t)(((uint16_t)p0 << 8u) | p1);
         }
-        
-        /* Set dX=1.0, dY=1.0 */
-        VRAM16[base + 10] = 0x0001u;
-        VRAM16[base + 12] = 0x0001u;
-        
-        /* Set identity matrix */
-        VRAM16[base + 14] = 0x0001u;  /* A */
-        VRAM16[base + 22] = 0x0001u;  /* E */
-        VRAM16[base + 30] = 0x0001u;  /* I */
-        
-        /* Set scaling */
-        VRAM16[base + 42] = 0x0001u;  /* kx */
-        VRAM16[base + 44] = 0x0001u;  /* ky */
     }
-    
-    /* Step 5: Read rotation params to verify */
-    uint16_t rot_params[20];
-    for (int i = 0; i < 20; i++) {
-        rot_params[i] = VRAM16[ROT_PARAM_BASE + i];
+
+    return SAT_OK;
+}
+
+static sat_result_t setup_nbg0_solid(void) {
+    static const uint16_t tile_words[NBG0_TILE_WORDS] = {
+        0x1111u, 0x1111u, 0x1111u, 0x1111u,
+        0x1111u, 0x1111u, 0x1111u, 0x1111u,
+        0x1111u, 0x1111u, 0x1111u, 0x1111u,
+        0x1111u, 0x1111u, 0x1111u, 0x1111u
+    };
+    static const uint16_t palette[16] = {
+        SAT_COLOR_BLACK, SAT_COLOR_GREEN
+    };
+    const sat_vdp2_nbg0_config_t nbg0_cfg = {
+        SAT_VDP2_CHAR_SIZE_1X1,
+        SAT_VDP2_COLOR_MODE_16,
+        NBG0_MAP_PLANE_INDEX,
+        0u,
+        0u
+    };
+    const sat_vdp2_scroll_t scroll = {0u, 0u, 0u, 0u};
+
+    SAT_TRY(sat_vdp2_palette_upload(palette, 16, 0));
+    SAT_TRY(sat_vdp2_vram_write_words(BITMAP_BASE_WORD, tile_words, NBG0_TILE_WORDS));
+    SAT_TRY(sat_vdp2_nbg0_init(&nbg0_cfg));
+    SAT_TRY(sat_vdp2_nbg0_set_scroll(&scroll));
+    SAT_TRY(sat_vdp2_nbg0_map_fill(0u));
+    SAT_TRY(sat_vdp2_nbg0_set_enabled(1));
+
+    return SAT_OK;
+}
+
+static sat_result_t setup_rotation_params(void) {
+    volatile uint16_t* const vram = (volatile uint16_t*)(0x20000000u | 0x05E00000u);
+
+    for (uint32_t i = 0; i < 48u; ++i) {
+        vram[ROT_PARAM_BASE + i] = 0x0000u;
     }
-    
-    /* Step 6: Configure RBG0 via HAL */
+
+    SAT_TRY(sat_vdp2_rbg0_set_rotation_matrix(ROT_PARAM_BASE, 0, 0, 0));
+    SAT_TRY(sat_vdp2_rbg0_set_scaling(ROT_PARAM_BASE, SAT_FX16_ONE, SAT_FX16_ONE));
+    SAT_TRY(sat_vdp2_rbg0_set_coordinate_increments(ROT_PARAM_BASE, 1, 0, 1, 0));
+    SAT_TRY(sat_vdp2_rbg0_set_scroll(ROT_PARAM_BASE, 0, 0, 0, 0));
+
+    return SAT_OK;
+}
+
+static sat_result_t configure_rbg0(void) {
     const sat_vdp2_rbg0_config_t rbg0_cfg = {
         SAT_VDP2_RBG0_BITMAP_512x256,
         SAT_VDP2_COLOR_MODE_256,
         BITMAP_BASE_WORD,
         ROT_PARAM_BASE
     };
-    sat_vdp2_rbg0_init(&rbg0_cfg);
-    sat_vdp2_rbg0_set_param_mode(SAT_VDP2_RBG0_PARAM_A);
-    sat_vdp2_rbg0_set_coordinate_increments(ROT_PARAM_BASE, 1, 0, 1, 0);
-    sat_vdp2_rbg0_set_scroll(ROT_PARAM_BASE, 0, 0, 0, 0);
-    
-    /* Step 7: Read VDP2 registers for debug */
-    uint16_t reg_bgon   = VDP2_REG(0x020);  /* BGON */
-    uint16_t reg_chctlb = VDP2_REG(0x02C);  /* CHCTLB */
-    uint16_t reg_ramctl = VDP2_REG(0x00E);  /* RAMCTL */
-    uint16_t reg_rptau  = VDP2_REG(0x0BC);  /* RPTAU */
-    uint16_t reg_rptal  = VDP2_REG(0x0BE);  /* RPTAL */
-    uint16_t reg_bmpnb  = VDP2_REG(0x02E);  /* BMPNB */
-    uint16_t reg_rpmd   = VDP2_REG(0x0B0);  /* RPMD */
-    
-    /* Step 8: Enable RBG0 */
-    sat_vdp2_rbg0_set_enabled(1);
-    
-    /* Step 9: Read BGON again */
-    uint16_t reg_bgon_after = VDP2_REG(0x020);
-    
-    /* Step 10: Set backdrop */
-    sat_vdp2_back_color_set(0x0000);
-    
-    /* Main loop - display debug info */
-    /* For now, just halt and let us check via emulator memory viewer */
+
+    SAT_TRY(sat_vdp2_rbg0_init(&rbg0_cfg));
+    SAT_TRY(sat_vdp2_rbg0_set_param_mode(SAT_VDP2_RBG0_PARAM_A));
+    SAT_TRY(setup_rotation_params());
+
+    return SAT_OK;
+}
+
+static sat_result_t apply_stage(debug_stage_t stage) {
+    static const uint16_t solid_palette[256] = {
+        0x0000u, 0x7C00u, 0x03E0u, 0x7FFFu
+    };
+
+    scroll_x = 0;
+    scroll_y = 0;
+    SAT_TRY(sat_vdp2_nbg0_set_enabled(0));
+    SAT_TRY(sat_vdp2_rbg0_set_enabled(0));
+
+    switch (stage) {
+    case STAGE_BACKDROP:
+        g_backdrop_color = SAT_COLOR_BLUE;
+        SAT_TRY(sat_vdp2_back_color_set(g_backdrop_color));
+        break;
+    case STAGE_NBG0:
+        SAT_TRY(setup_nbg0_solid());
+        g_backdrop_color = SAT_COLOR_BLACK;
+        SAT_TRY(sat_vdp2_back_color_set(g_backdrop_color));
+        break;
+    case STAGE_SOLID:
+        SAT_TRY(sat_vdp2_palette_upload(solid_palette, 4, 0));
+        SAT_TRY(upload_solid_bitmap(1u));
+        SAT_TRY(configure_rbg0());
+        SAT_TRY(sat_vdp2_rbg0_set_enabled(1));
+        g_backdrop_color = SAT_COLOR_BLACK;
+        SAT_TRY(sat_vdp2_back_color_set(g_backdrop_color));
+        break;
+    case STAGE_CHECKER:
+        SAT_TRY(sat_vdp2_palette_upload(solid_palette, 4, 0));
+        SAT_TRY(upload_checker_bitmap());
+        SAT_TRY(configure_rbg0());
+        SAT_TRY(sat_vdp2_rbg0_set_enabled(1));
+        g_backdrop_color = SAT_COLOR_BLACK;
+        SAT_TRY(sat_vdp2_back_color_set(g_backdrop_color));
+        break;
+    case STAGE_ASSET:
+    case STAGE_SCROLL:
+        SAT_TRY(sat_vdp2_palette_upload(seamless_sea_asset.palette, 256, 0));
+        SAT_TRY(upload_bitmap_from_pixels(
+            seamless_sea_asset.pixels,
+            seamless_sea_asset.width,
+            seamless_sea_asset.height));
+        SAT_TRY(configure_rbg0());
+        SAT_TRY(sat_vdp2_rbg0_set_enabled(1));
+        g_backdrop_color = SAT_COLOR_BLACK;
+        SAT_TRY(sat_vdp2_back_color_set(g_backdrop_color));
+        break;
+    default:
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    g_stage = stage;
+    return SAT_OK;
+}
+
+static void update_scroll(void) {
+    if (g_stage != STAGE_SCROLL) {
+        return;
+    }
+
+    scroll_x += (sat_fx16_t)(SAT_FX16_ONE * 2);
+    scroll_y += (sat_fx16_t)(SAT_FX16_ONE / 2);
+
+    sat_example_must(sat_vdp2_rbg0_set_scroll(
+        ROT_PARAM_BASE,
+        (int32_t)(scroll_x >> FX16_SHIFT),
+        (int32_t)(scroll_x & 0xFFFF),
+        (int32_t)(scroll_y >> FX16_SHIFT),
+        (int32_t)(scroll_y & 0xFFFF)));
+}
+
+int main(void) {
+    sat_video_config_t cfg = {SCREEN_WIDTH, SCREEN_HEIGHT, 1, 0};
+    sat_example_must(sat_init(&cfg));
+    sat_example_must(sat_ascii_font_init_8x8_indexed8(&g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 1));
+    sat_example_must(apply_stage(STAGE_BACKDROP));
+
     while (1) {
         sat_pad_state_t pad = {0};
-        sat_wait_vblank();
-        sat_pad_poll(&pad);
-        
+        char line1[] = "FRAME 000000 A NEXT B PREV";
+        char line2[] = "U0 D0 L0 R0 A0 B0 S0";
+        sat_example_must(sat_app_frame_begin(g_backdrop_color, SAT_COLOR_BLACK, &pad));
+
         if ((pad.pressed & SAT_PAD_START) != 0u) {
+            sat_example_must(sat_end_frame());
             break;
         }
-        
-        /* Toggle RBG0 on/off with A button for testing */
-        if ((pad.pressed & SAT_PAD_A) != 0u) {
-            static int enabled = 1;
-            enabled = !enabled;
-            sat_vdp2_rbg0_set_enabled(enabled);
+
+        if ((pad.pressed & (SAT_PAD_A | SAT_PAD_RIGHT | SAT_PAD_DOWN)) != 0u) {
+            sat_example_must(apply_stage(next_stage(g_stage)));
         }
+
+        if ((pad.pressed & (SAT_PAD_B | SAT_PAD_LEFT | SAT_PAD_UP)) != 0u) {
+            sat_example_must(apply_stage(prev_stage(g_stage)));
+        }
+
+        if ((g_frame_counter != 0u) && ((g_frame_counter % AUTO_STAGE_FRAMES) == 0u)) {
+            sat_example_must(apply_stage(next_stage(g_stage)));
+        }
+
+        update_scroll();
+        frame_line(line1, g_frame_counter);
+        pad_line(line2, &pad);
+        sat_example_must(sat_ascii_font_draw_text_indexed8(&g_font, stage_name(g_stage), -152, -96, 8, 0, 0));
+        sat_example_must(sat_ascii_font_draw_text_indexed8(&g_font, line1, -152, -84, 8, 0, 0));
+        sat_example_must(sat_ascii_font_draw_text_indexed8(&g_font, line2, -152, -72, 8, 0, 0));
+        sat_example_must(sat_end_frame());
+        ++g_frame_counter;
     }
-    
+
     return 0;
 }

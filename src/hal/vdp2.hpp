@@ -105,13 +105,14 @@ void set_rbg0_coordinate_increments(uint32_t rot_param_word_offset,
 void set_rbg0_rotation_matrix(uint32_t rot_param_word_offset,
                               int32_t angle_x, int32_t angle_y, int32_t angle_z);
 
-// Viewpoint and center coordinates
+// Viewpoint and center coordinates.
+// Values are interpreted as 16.16 fixed-point and written as integer-only fields.
 void set_rbg0_viewpoint(uint32_t rot_param_word_offset,
                         int32_t px, int32_t py, int32_t pz);
 void set_rbg0_center(uint32_t rot_param_word_offset,
                      int32_t cx, int32_t cy, int32_t cz);
 
-// Scaling coefficients
+// Scaling coefficients in 16.16 fixed-point.
 void set_rbg0_scaling(uint32_t rot_param_word_offset,
                       int32_t kx, int32_t ky);
 

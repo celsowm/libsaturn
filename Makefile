@@ -97,6 +97,12 @@ endif
 ALL_APP_OBJS := $(EXAMPLE_OBJS) $(EXAMPLE_ASSETS:.c=.o)
 ALL_HEADERS  := $(EXAMPLE_HEADERS)
 
+# Generated asset headers are included by example sources, so make sure they
+# exist before compiling any example object that may include them.
+ifneq ($(strip $(ALL_HEADERS)),)
+$(EXAMPLE_OBJS): $(ALL_HEADERS)
+endif
+
 # -- Artefatos --------------------------------------------------
 ELF := $(BUILD_DIR)/$(EXAMPLE).elf
 BIN := $(BUILD_DIR)/$(EXAMPLE).bin
@@ -145,11 +151,13 @@ ifneq ($(wildcard $(EXAMPLE_PREBUILT_MANIFEST)),)
   endif
 endif
 
-# If no valid prebuilt, configure for conversion
-ifeq ($(EXAMPLE_ASSETS),)
+# Generate compiled-in assets for examples that point at build/generated.
+# Prebuilt examples keep their checked-in C/H files and skip this rule.
+GENERATED_EXAMPLE_ASSET_TARGETS := $(filter $(BUILD_DIR)/generated/%,$(EXAMPLE_ASSETS) $(EXAMPLE_HEADERS))
+ifneq ($(strip $(GENERATED_EXAMPLE_ASSET_TARGETS)),)
   ifneq ($(EXAMPLE_INPUT),)
   ifneq ($(EXAMPLE_RESIZE),)
-  $(EXAMPLE_ASSETS): $(EXAMPLE_INPUT) $(TOOLS)/convert_indexed8.py
+  $(GENERATED_EXAMPLE_ASSET_TARGETS) &: $(EXAMPLE_INPUT) $(TOOLS)/convert_indexed8.py
 	@mkdir -p $(dir $@)
 	$(PYTHON) $(TOOLS)/convert_indexed8.py \
 		--input $(EXAMPLE_INPUT) \

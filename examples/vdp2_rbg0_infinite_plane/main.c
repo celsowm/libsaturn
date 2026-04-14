@@ -68,47 +68,19 @@ static sat_result_t setup_rotation_params(void) {
     uint32_t base = ROT_PARAM_BASE;
 
     /* Initialize all parameters to zero */
-    for (uint32_t i = 0; i < 60u; ++i) {
+    for (uint32_t i = 0; i < 48u; ++i) {
         vram[base + i] = 0x0000u;
     }
 
-    /* Set coordinate increments dX=1.0, dY=1.0 for 1:1 pixel mapping
-     * dX at offset +10 (2-bit signed integer + 9-bit fraction)
-     * dY at offset +12 (2-bit signed integer + 9-bit fraction)
-     */
-    vram[base + 10] = 0x0001u;  /* dX integer = 1 */
-    vram[base + 11] = 0x0000u;  /* dX fraction = 0 */
-    vram[base + 12] = 0x0001u;  /* dY integer = 1 */
-    vram[base + 13] = 0x0000u;  /* dY fraction = 0 */
-
-    /* Set dXst=0, dYst=0 (no per-line increment for flat scrolling) */
-    vram[base + 6] = 0x0000u;   /* dXst integer */
-    vram[base + 7] = 0x0000u;   /* dXst fraction */
-    vram[base + 8] = 0x0000u;   /* dYst integer */
-    vram[base + 9] = 0x0000u;   /* dYst fraction */
-
-    /* Set identity rotation matrix at offset +14
-     * A=1.0, E=1.0, I=1.0 (all others = 0)
-     */
-    vram[base + 14] = 0x0001u;  /* A integer */
-    vram[base + 22] = 0x0001u;  /* E integer */
-    vram[base + 30] = 0x0001u;  /* I integer */
-
-    /* Set scaling to 1.0 at offset +42 */
-    vram[base + 42] = 0x0001u;  /* kx integer */
-    vram[base + 44] = 0x0001u;  /* ky integer */
-
-    /* Set viewpoint and center to origin at offsets +30 and +36 */
-    /* (already zero from initialization) */
+    /* Set identity rotation matrix and unit scaling using the corrected layout. */
+    sat_example_must(sat_vdp2_rbg0_set_rotation_matrix(ROT_PARAM_BASE, 0, 0, 0));
+    sat_example_must(sat_vdp2_rbg0_set_scaling(ROT_PARAM_BASE, SAT_FX16_ONE, SAT_FX16_ONE));
 
     return SAT_OK;
 }
 
 /* Update scroll position in rotation parameters */
 static void update_scroll_params(void) {
-    volatile uint16_t* vram = (volatile uint16_t*)(0x20000000u | 0x05E00000u);
-    uint32_t base = ROT_PARAM_BASE;
-
     /* Get integer scroll position */
     int32_t x_int = (int32_t)(scroll_x >> FX16_SHIFT);
     int32_t y_int = (int32_t)(scroll_z >> FX16_SHIFT);
@@ -117,13 +89,11 @@ static void update_scroll_params(void) {
     int32_t x_frac = (int32_t)((scroll_x >> 6u) & 0x03FFu);
     int32_t y_frac = (int32_t)((scroll_z >> 6u) & 0x03FFu);
 
-    /* Update Xst (screen start X) - 12-bit signed */
-    vram[base + 0] = (uint16_t)(x_int & 0x1FFFu);
-    vram[base + 1] = (uint16_t)(x_frac & 0x03FFu);
-
-    /* Update Yst (screen start Y) - 11-bit signed */
-    vram[base + 2] = (uint16_t)(y_int & 0x0FFFu);
-    vram[base + 3] = (uint16_t)(y_frac & 0x03FFu);
+    sat_example_must(sat_vdp2_rbg0_set_scroll(
+        ROT_PARAM_BASE,
+        x_int, x_frac,
+        y_int, y_frac
+    ));
 }
 
 int main(void) {

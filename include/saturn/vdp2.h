@@ -130,10 +130,12 @@ sat_result_t sat_vdp2_rbg0_set_coordinate_increments(uint32_t rot_param_word_off
                                                       int32_t dy_int, int32_t dy_frac);
 sat_result_t sat_vdp2_rbg0_set_rotation_matrix(uint32_t rot_param_word_offset,
                                                 int32_t angle_x, int32_t angle_y, int32_t angle_z);
+/* Viewpoint and center coordinates are interpreted as 16.16 fixed-point. */
 sat_result_t sat_vdp2_rbg0_set_viewpoint(uint32_t rot_param_word_offset,
                                           int32_t px, int32_t py, int32_t pz);
 sat_result_t sat_vdp2_rbg0_set_center(uint32_t rot_param_word_offset,
                                        int32_t cx, int32_t cy, int32_t cz);
+/* Scaling coefficients are interpreted as 16.16 fixed-point. */
 sat_result_t sat_vdp2_rbg0_set_scaling(uint32_t rot_param_word_offset,
                                         int32_t kx, int32_t ky);
 
