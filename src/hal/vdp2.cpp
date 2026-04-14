@@ -262,11 +262,14 @@ volatile uint16_t& RPMD   = reg<0x0B0>();
 volatile uint16_t& RPRCTL = reg<0x0B2>();
 volatile uint16_t& RPTAU  = reg<0x0BC>();
 volatile uint16_t& RPTAL  = reg<0x0BE>();
+volatile uint16_t& RBLA0  = reg<0x0B4>();  /* Bitmap Lead Address */
+volatile uint16_t& RBLN0  = reg<0x0B6>();  /* Bitmap Region Height */
+volatile uint16_t& RBLU0  = reg<0x0B8>();  /* Bitmap Region Width (pitch) */
 volatile uint16_t& BMPNB  = reg<0x02E>();
 
 void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
                            uint32_t bitmap_base_word, uint32_t rot_param_base_word) {
-    /* FIX #1: Configure VRAM banks for RBG0 bitmap mode
+    /* Configure VRAM banks for RBG0 bitmap mode
      * RAMCTL bits 0-1 (RDBSA0) and 4-5 (RDBSB0) control RBG0 VRAM usage:
      *   00b = Not used for RBG0
      *   01b = Coefficient table
@@ -284,32 +287,29 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
     ramctl = static_cast<uint16_t>(ramctl | 0x0010u);  /* Set to 01b (coefficient table) */
     RAMCTL = ramctl;
 
-    /* FIX #6: RBG0 bitmap size is controlled by single bit R0BMSZ (bit 10 of CHCTLB)
-     *   0 = 512x256
-     *   1 = 512x512
-     * We use 512x256 for all cases (256x256 textures fit within this)
+    /* Configure CHCTLB for RBG0
+     * According to official Saturn docs, CHCTLB bits 12-13 control RBG0 mode:
+     *   00 = Disabled
+     *   01 = 16 colors
+     *   10 = 256 colors
+     *   11 = Bitmap mode (used for all bitmap configurations)
+     *
+     * We use 11 (bitmap mode) for all bitmap sizes
      */
-    uint16_t chctlb = 0;
-
-    /* Bitmap size bit (bit 10): 0 = 512x256, 1 = 512x512 */
+    uint16_t chctlb = CHCTLB & 0xCFFFu;  /* Clear bits 12-13 */
+    chctlb = static_cast<uint16_t>(chctlb | 0x3000u);  /* Set bits 12-13 = 11 (bitmap mode) */
+    
+    /* Bitmap size bit (R0BMSZ, bit 10): 0 = 512x256, 1 = 512x512 */
     if (bitmap_size >= RBG0_BITMAP_SIZE_512x512) {
         chctlb = static_cast<uint16_t>(chctlb | 0x0400u);  /* Set bit 10 for 512x512 */
     }
-    /* else: bit 10 = 0 for 512x256 */
-
-    /* Color mode (bits 12-14) */
-    const uint16_t mode = static_cast<uint16_t>(color_mode) & 0x0007u;
-    chctlb = static_cast<uint16_t>(chctlb | static_cast<uint16_t>(mode << 12u));
-
-    /* Enable bitmap mode (bit 9 R0BMEN) */
-    chctlb = static_cast<uint16_t>(chctlb | 0x0200u);
-
+    
     CHCTLB = chctlb;
 
-    /* FIX #7: RNCN0 is ignored in bitmap mode (when R0BMEN=1), so skip it */
+    /* RNCN0 is ignored in bitmap mode */
 
-    /* FIX #3: Correct RPTA address calculation
-     * Formula: Lead address = (RPTA18-RPTA7) * 0x100 + (RPTA5-RPTA1) * 4
+    /* Configure RPTA (Rotation Parameter Table Address)
+     * Formula: byte_addr = (RPTA18-RPTA7) * 0x100 + (RPTA5-RPTA1) * 4
      * RPTAU bits 2-0 = RPTA18-RPTA16
      * RPTAL bits 15-1 = RPTA15-RPTA1 (bit 0 is ignored)
      */
@@ -319,24 +319,42 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
     /* Set default rotation parameter mode (A) */
     RPMD = 0x0000u;
 
-    /* FIX #5: Configure BMPNB for 256-color palette
+    /* Configure bitmap region parameters
+     * RBLA0: Bitmap lead address (in words, bit 0 must be 0 for alignment)
+     * RBLN0: Bitmap height in scanlines
+     * RBLU0: Bitmap width (pitch) in 16-bit words
+     *
+     * For 512x256 bitmap in 256-color mode:
+     *   - Width = 512 pixels = 256 words (2 pixels per word in 8bpp)
+     *   - Height = 256 scanlines
+     * For 512x512 bitmap:
+     *   - Width = 512 pixels = 256 words
+     *   - Height = 512 scanlines
+     */
+    RBLA0 = static_cast<uint16_t>(bitmap_base_word & 0xFFFEu);  /* Word address, bit 0 = 0 */
+    
+    if (bitmap_size >= RBG0_BITMAP_SIZE_512x512) {
+        RBLN0 = 512u;  /* Height in scanlines */
+    } else {
+        RBLN0 = 256u;  /* Height in scanlines */
+    }
+    RBLU0 = 256u;  /* Width in words (512 pixels / 2 pixels per word) */
+
+    /* Configure BMPNB for 256-color palette
      * BMPNB bits 2-0 (R0BMP) select the upper 3 bits of palette number
      * For 256 colors starting at CRAM offset 0, set R0BMP=0
      * Also clear special bits R0BMCC and R0BMPR
      */
     BMPNB = 0x0000u;
-
-    /* Suppress unused parameter warning */
-    (void)bitmap_base_word;
 }
 
 void enable_rbg0(bool enable) {
-    /* BGON bit 12 = R0ON (RBG0 enable) */
+    /* BGON bit 4 = R0ON (RBG0 enable) */
     uint16_t bgon = BGON;
     if (enable) {
-        bgon = static_cast<uint16_t>(bgon | 0x1000u);
+        bgon = static_cast<uint16_t>(bgon | 0x0010u);  /* Set bit 4 */
     } else {
-        bgon = static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x1000u));
+        bgon = static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x0010u));  /* Clear bit 4 */
     }
     BGON = bgon;
 }

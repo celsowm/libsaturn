@@ -1,4 +1,0 @@
-interface:
-  display_name: "Saturn Basic Manual"
-  short_description: "Use o manual basico do Saturn para boot, memoria e subsistemas."
-  default_prompt: "Use esta skill para consultar o manual basico do Sega Saturn e orientar decisoes de boot, memoria, SMPC/SCU/CD e visao geral de VDP1/VDP2."
