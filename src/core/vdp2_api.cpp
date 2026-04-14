@@ -169,3 +169,123 @@ extern "C" sat_result_t sat_vdp2_wait_vblank_end(void) {
     saturn::hal::vdp2::wait_vblank_end();
     return SAT_OK;
 }
+
+/* ================================================================== */
+/* RBG0 (Rotation Background 0) API                                   */
+/* ================================================================== */
+
+extern "C" sat_result_t sat_vdp2_rbg0_init(const sat_vdp2_rbg0_config_t* config) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (config == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    saturn::hal::vdp2::RBG0BitmapSize bs = static_cast<saturn::hal::vdp2::RBG0BitmapSize>(config->bitmap_size);
+    saturn::hal::vdp2::ColorMode cm = static_cast<saturn::hal::vdp2::ColorMode>(config->color_mode);
+    saturn::hal::vdp2::configure_rbg0_bitmap(bs, cm,
+        static_cast<uint32_t>(config->bitmap_base_word),
+        static_cast<uint32_t>(config->rot_param_base_word));
+
+    g_state.rbg0_rot_param_offset = static_cast<uint16_t>(config->rot_param_base_word & 0xFFFFu);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_enabled(uint8_t enable) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::enable_rbg0(enable != 0);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_param_mode(sat_vdp2_rbg0_param_mode_t mode) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_param_mode(static_cast<saturn::hal::vdp2::RBG0ParamMode>(mode));
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_scroll(uint32_t rot_param_word_offset,
+                                                   int32_t xst_int, int32_t xst_frac,
+                                                   int32_t yst_int, int32_t yst_frac) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_scroll(rot_param_word_offset, xst_int, xst_frac, yst_int, yst_frac);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_coordinate_increments(uint32_t rot_param_word_offset,
+                                                                 int32_t dx_int, int32_t dx_frac,
+                                                                 int32_t dy_int, int32_t dy_frac) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_coordinate_increments(rot_param_word_offset, dx_int, dx_frac, dy_int, dy_frac);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_rotation_matrix(uint32_t rot_param_word_offset,
+                                                            int32_t angle_x, int32_t angle_y, int32_t angle_z) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_rotation_matrix(rot_param_word_offset, angle_x, angle_y, angle_z);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_viewpoint(uint32_t rot_param_word_offset,
+                                                      int32_t px, int32_t py, int32_t pz) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_viewpoint(rot_param_word_offset, px, py, pz);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_center(uint32_t rot_param_word_offset,
+                                                   int32_t cx, int32_t cy, int32_t cz) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_center(rot_param_word_offset, cx, cy, cz);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_scaling(uint32_t rot_param_word_offset,
+                                                    int32_t kx, int32_t ky) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_scaling(rot_param_word_offset, kx, ky);
+    return SAT_OK;
+}

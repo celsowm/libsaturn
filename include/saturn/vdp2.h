@@ -85,6 +85,58 @@ sat_result_t sat_vdp2_nbg0_map_write_region(
 sat_result_t sat_vdp2_wait_vblank_start(void);
 sat_result_t sat_vdp2_wait_vblank_end(void);
 
+/* ------------------------------------------------------------------ */
+/* RBG0 (Rotation Background 0) - Infinite plane support              */
+/* ------------------------------------------------------------------ */
+
+/* RBG0 bitmap size modes */
+typedef enum sat_vdp2_rbg0_bitmap_size {
+    SAT_VDP2_RBG0_BITMAP_256x256   = 0x00,
+    SAT_VDP2_RBG0_BITMAP_512x256   = 0x01,
+    SAT_VDP2_RBG0_BITMAP_1024x256  = 0x02,
+    SAT_VDP2_RBG0_BITMAP_256x512   = 0x04,
+    SAT_VDP2_RBG0_BITMAP_512x512   = 0x05,
+    SAT_VDP2_RBG0_BITMAP_1024x512  = 0x06,
+    SAT_VDP2_RBG0_BITMAP_1024x1024 = 0x07
+} sat_vdp2_rbg0_bitmap_size_t;
+
+/* RBG0 rotation parameter mode */
+typedef enum sat_vdp2_rbg0_param_mode {
+    SAT_VDP2_RBG0_PARAM_A     = 0x00,
+    SAT_VDP2_RBG0_PARAM_B     = 0x01,
+    SAT_VDP2_RBG0_PARAM_COEFF = 0x02,
+    SAT_VDP2_RBG0_PARAM_WINDOW = 0x03
+} sat_vdp2_rbg0_param_mode_t;
+
+/* RBG0 configuration */
+typedef struct sat_vdp2_rbg0_config {
+    sat_vdp2_rbg0_bitmap_size_t bitmap_size;
+    sat_vdp2_color_mode_t color_mode;
+    uint32_t bitmap_base_word;
+    uint32_t rot_param_base_word;
+} sat_vdp2_rbg0_config_t;
+
+/* RBG0 initialization & control */
+sat_result_t sat_vdp2_rbg0_init(const sat_vdp2_rbg0_config_t* config);
+sat_result_t sat_vdp2_rbg0_set_enabled(uint8_t enable);
+sat_result_t sat_vdp2_rbg0_set_param_mode(sat_vdp2_rbg0_param_mode_t mode);
+
+/* Rotation parameter setup */
+sat_result_t sat_vdp2_rbg0_set_scroll(uint32_t rot_param_word_offset,
+                                       int32_t xst_int, int32_t xst_frac,
+                                       int32_t yst_int, int32_t yst_frac);
+sat_result_t sat_vdp2_rbg0_set_coordinate_increments(uint32_t rot_param_word_offset,
+                                                      int32_t dx_int, int32_t dx_frac,
+                                                      int32_t dy_int, int32_t dy_frac);
+sat_result_t sat_vdp2_rbg0_set_rotation_matrix(uint32_t rot_param_word_offset,
+                                                int32_t angle_x, int32_t angle_y, int32_t angle_z);
+sat_result_t sat_vdp2_rbg0_set_viewpoint(uint32_t rot_param_word_offset,
+                                          int32_t px, int32_t py, int32_t pz);
+sat_result_t sat_vdp2_rbg0_set_center(uint32_t rot_param_word_offset,
+                                       int32_t cx, int32_t cy, int32_t cz);
+sat_result_t sat_vdp2_rbg0_set_scaling(uint32_t rot_param_word_offset,
+                                        int32_t kx, int32_t ky);
+
 #ifdef __cplusplus
 }
 #endif

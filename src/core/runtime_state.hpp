@@ -15,6 +15,7 @@ struct RuntimeState {
     uint16_t nbg0_map_plane_index;
     uint16_t nbg0_map_width;
     uint16_t nbg0_map_height;
+    uint16_t rbg0_rot_param_offset;
     saturn::hal::vdp1::Command command_buffer[saturn::internal::kCmdCapacity];
 };
 

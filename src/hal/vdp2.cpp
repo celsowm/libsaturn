@@ -252,4 +252,258 @@ void fill_vram_words(uint32_t word_offset, uint16_t value, uint32_t word_count) 
     }
 }
 
+/* ================================================================== */
+/* RBG0 (Rotation Background 0) Implementation                        */
+/* ================================================================== */
+
+volatile uint16_t& CHCTLB = reg<0x02C>();
+volatile uint16_t& RNCN0  = reg<0x038>();
+volatile uint16_t& RPMD   = reg<0x0B0>();
+volatile uint16_t& RPRCTL = reg<0x0B2>();
+volatile uint16_t& RPTAU  = reg<0x0BC>();
+volatile uint16_t& RPTAL  = reg<0x0BE>();
+volatile uint16_t& BMPNB  = reg<0x02E>();
+
+void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
+                           uint32_t bitmap_base_word, uint32_t rot_param_base_word) {
+    /* FIX #1: Configure VRAM banks for RBG0 bitmap mode
+     * RAMCTL bits 0-1 (RDBSA0) and 4-5 (RDBSB0) control RBG0 VRAM usage:
+     *   00b = Not used for RBG0
+     *   01b = Coefficient table
+     *   10b = Pattern name table
+     *   11b = Bitmap pattern data
+     *
+     * For bitmap mode, we need VRAM-A0 for bitmap data and VRAM-B0 for rotation params
+     */
+    uint16_t ramctl = RAMCTL;
+    /* Set VRAM-A0 to bitmap pattern (11b) */
+    ramctl = static_cast<uint16_t>(ramctl & 0xFFFCu);  /* Clear bits 0-1 */
+    ramctl = static_cast<uint16_t>(ramctl | 0x0003u);  /* Set to 11b (bitmap pattern) */
+    /* Set VRAM-B0 to coefficient/param table (01b) */
+    ramctl = static_cast<uint16_t>(ramctl & 0xFFCFu);  /* Clear bits 4-5 */
+    ramctl = static_cast<uint16_t>(ramctl | 0x0010u);  /* Set to 01b (coefficient table) */
+    RAMCTL = ramctl;
+
+    /* FIX #6: RBG0 bitmap size is controlled by single bit R0BMSZ (bit 10 of CHCTLB)
+     *   0 = 512x256
+     *   1 = 512x512
+     * We use 512x256 for all cases (256x256 textures fit within this)
+     */
+    uint16_t chctlb = 0;
+
+    /* Bitmap size bit (bit 10): 0 = 512x256, 1 = 512x512 */
+    if (bitmap_size >= RBG0_BITMAP_SIZE_512x512) {
+        chctlb = static_cast<uint16_t>(chctlb | 0x0400u);  /* Set bit 10 for 512x512 */
+    }
+    /* else: bit 10 = 0 for 512x256 */
+
+    /* Color mode (bits 12-14) */
+    const uint16_t mode = static_cast<uint16_t>(color_mode) & 0x0007u;
+    chctlb = static_cast<uint16_t>(chctlb | static_cast<uint16_t>(mode << 12u));
+
+    /* Enable bitmap mode (bit 9 R0BMEN) */
+    chctlb = static_cast<uint16_t>(chctlb | 0x0200u);
+
+    CHCTLB = chctlb;
+
+    /* FIX #7: RNCN0 is ignored in bitmap mode (when R0BMEN=1), so skip it */
+
+    /* FIX #3: Correct RPTA address calculation
+     * Formula: Lead address = (RPTA18-RPTA7) * 0x100 + (RPTA5-RPTA1) * 4
+     * RPTAU bits 2-0 = RPTA18-RPTA16
+     * RPTAL bits 15-1 = RPTA15-RPTA1 (bit 0 is ignored)
+     */
+    RPTAU = static_cast<uint16_t>((rot_param_base_word >> 16u) & 0x0007u);
+    RPTAL = static_cast<uint16_t>((rot_param_base_word << 1u) & 0xFFFEu);
+
+    /* Set default rotation parameter mode (A) */
+    RPMD = 0x0000u;
+
+    /* FIX #5: Configure BMPNB for 256-color palette
+     * BMPNB bits 2-0 (R0BMP) select the upper 3 bits of palette number
+     * For 256 colors starting at CRAM offset 0, set R0BMP=0
+     * Also clear special bits R0BMCC and R0BMPR
+     */
+    BMPNB = 0x0000u;
+
+    /* Suppress unused parameter warning */
+    (void)bitmap_base_word;
+}
+
+void enable_rbg0(bool enable) {
+    /* BGON bit 12 = R0ON (RBG0 enable) */
+    uint16_t bgon = BGON;
+    if (enable) {
+        bgon = static_cast<uint16_t>(bgon | 0x1000u);
+    } else {
+        bgon = static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x1000u));
+    }
+    BGON = bgon;
+}
+
+void set_rbg0_param_mode(RBG0ParamMode mode) {
+    RPMD = static_cast<uint16_t>(mode & 0x0003u);
+}
+
+void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count) {
+    if (params == nullptr || word_count == 0u) {
+        return;
+    }
+    write_vram_words(rot_param_word_offset, params, word_count);
+}
+
+void set_rbg0_scroll(uint32_t rot_param_word_offset,
+                     int32_t xst_int, int32_t xst_frac,
+                     int32_t yst_int, int32_t yst_frac) {
+    /* FIX #4: Correct sign mask for Xst/Yst
+     * Xst: 12-bit signed integer + 10-bit fraction = 22 bits total
+     *   Integer part uses bits 15-4 (12 bits with sign)
+     *   Fraction part uses bits 3-0 (upper 4 bits of 10-bit fraction)
+     * Yst: 11-bit signed integer + 10-bit fraction = 21 bits total
+     *   Integer part uses bits 15-5 (11 bits with sign)
+     *   Fraction part uses bits 4-0 (upper 5 bits of 10-bit fraction)
+     */
+    volatile uint16_t* vram = VDP2_VRAM_16;
+
+    /* Xst: 12-bit signed (preserve sign bit in bit 15) */
+    vram[rot_param_word_offset + 0] = static_cast<uint16_t>(xst_int & 0x1FFFu);
+    /* Xst fraction: upper 10 bits stored in lower 10 bits of word */
+    vram[rot_param_word_offset + 1] = static_cast<uint16_t>(xst_frac & 0x03FFu);
+
+    /* Yst: 11-bit signed (preserve sign bit in bit 15) */
+    vram[rot_param_word_offset + 2] = static_cast<uint16_t>(yst_int & 0x0FFFu);
+    /* Yst fraction: upper 10 bits stored in lower 10 bits of word */
+    vram[rot_param_word_offset + 3] = static_cast<uint16_t>(yst_frac & 0x03FFu);
+}
+
+/* FIX #2: Correct rotation parameter table structure
+ * According to manual Figure 6.3, the rotation parameter table layout is:
+ *   +0:  Xst integer (12-bit signed)
+ *   +1:  Xst fraction (10-bit)
+ *   +2:  Yst integer (11-bit signed)
+ *   +3:  Yst fraction (10-bit)
+ *   +4:  Zst integer (12-bit signed)
+ *   +5:  Zst fraction (10-bit)
+ *   +6:  dXst integer (12-bit signed) - per-line X increment
+ *   +7:  dXst fraction (10-bit)
+ *   +8:  dYst integer (11-bit signed) - per-line Y increment
+ *   +9:  dYst fraction (10-bit)
+ *   +10: dX integer (2-bit signed) - per-dot X increment
+ *   +11: dX fraction (9-bit)
+ *   +12: dY integer (2-bit signed) - per-dot Y increment
+ *   +13: dY fraction (9-bit)
+ *   +14: A integer (rotation matrix)
+ *   +15: A fraction
+ *   +16: B integer
+ *   +17: B fraction
+ *   ... (C through I follow)
+ */
+
+void set_rbg0_rotation_matrix(uint32_t rot_param_word_offset,
+                              int32_t angle_x, int32_t angle_y, int32_t angle_z) {
+    volatile uint16_t* vram = VDP2_VRAM_16;
+
+    /* Set identity rotation matrix (no rotation)
+     * Matrix starts at offset +14, NOT +6!
+     * A=1.0, B=0, C=0, D=0, E=1.0, F=0, G=0, H=0, I=1.0
+     */
+    uint32_t base = rot_param_word_offset + 14u;
+
+    /* A=1.0 */
+    vram[base + 0] = 0x0001u;
+    vram[base + 1] = 0x0000u;
+    /* B=0 */
+    vram[base + 2] = 0x0000u;
+    vram[base + 3] = 0x0000u;
+    /* C=0 */
+    vram[base + 4] = 0x0000u;
+    vram[base + 5] = 0x0000u;
+    /* D=0 */
+    vram[base + 6] = 0x0000u;
+    vram[base + 7] = 0x0000u;
+    /* E=1.0 */
+    vram[base + 8] = 0x0001u;
+    vram[base + 9] = 0x0000u;
+    /* F=0 */
+    vram[base + 10] = 0x0000u;
+    vram[base + 11] = 0x0000u;
+    /* G=0 */
+    vram[base + 12] = 0x0000u;
+    vram[base + 13] = 0x0000u;
+    /* H=0 */
+    vram[base + 14] = 0x0000u;
+    vram[base + 15] = 0x0000u;
+    /* I=1.0 */
+    vram[base + 16] = 0x0001u;
+    vram[base + 17] = 0x0000u;
+
+    /* Suppress unused parameter warnings */
+    (void)angle_x;
+    (void)angle_y;
+    (void)angle_z;
+}
+
+void set_rbg0_viewpoint(uint32_t rot_param_word_offset,
+                        int32_t px, int32_t py, int32_t pz) {
+    volatile uint16_t* vram = VDP2_VRAM_16;
+    /* Viewpoint starts at offset +30 (after matrix A-I at +14..+31) */
+    uint32_t base = rot_param_word_offset + 30u;
+
+    /* Px */
+    vram[base + 0] = static_cast<uint16_t>((px >> 16u) & 0x0FFFu);
+    vram[base + 1] = static_cast<uint16_t>((px >> 8u) & 0x03FFu);
+    /* Py */
+    vram[base + 2] = static_cast<uint16_t>((py >> 16u) & 0x0FFFu);
+    vram[base + 3] = static_cast<uint16_t>((py >> 8u) & 0x03FFu);
+    /* Pz */
+    vram[base + 4] = static_cast<uint16_t>((pz >> 16u) & 0x0FFFu);
+    vram[base + 5] = static_cast<uint16_t>((pz >> 8u) & 0x03FFu);
+}
+
+void set_rbg0_center(uint32_t rot_param_word_offset,
+                     int32_t cx, int32_t cy, int32_t cz) {
+    volatile uint16_t* vram = VDP2_VRAM_16;
+    /* Center starts at offset +36 */
+    uint32_t base = rot_param_word_offset + 36u;
+
+    /* Cx */
+    vram[base + 0] = static_cast<uint16_t>((cx >> 16u) & 0x0FFFu);
+    vram[base + 1] = static_cast<uint16_t>((cx >> 8u) & 0x03FFu);
+    /* Cy */
+    vram[base + 2] = static_cast<uint16_t>((cy >> 16u) & 0x0FFFu);
+    vram[base + 3] = static_cast<uint16_t>((cy >> 8u) & 0x03FFu);
+    /* Cz */
+    vram[base + 4] = static_cast<uint16_t>((cz >> 16u) & 0x0FFFu);
+    vram[base + 5] = static_cast<uint16_t>((cz >> 8u) & 0x03FFu);
+}
+
+void set_rbg0_scaling(uint32_t rot_param_word_offset,
+                      int32_t kx, int32_t ky) {
+    volatile uint16_t* vram = VDP2_VRAM_16;
+    /* Scaling starts at offset +42 */
+    uint32_t base = rot_param_word_offset + 42u;
+
+    /* kx */
+    vram[base + 0] = static_cast<uint16_t>((kx >> 16u) & 0x0FFFu);
+    vram[base + 1] = static_cast<uint16_t>((kx >> 8u) & 0x03FFu);
+    /* ky */
+    vram[base + 2] = static_cast<uint16_t>((ky >> 16u) & 0x0FFFu);
+    vram[base + 3] = static_cast<uint16_t>((ky >> 8u) & 0x03FFu);
+}
+
+/* Helper function to set coordinate increments (dX, dY) for proper bitmap mapping */
+void set_rbg0_coordinate_increments(uint32_t rot_param_word_offset,
+                                     int32_t dx_int, int32_t dx_frac,
+                                     int32_t dy_int, int32_t dy_frac) {
+    volatile uint16_t* vram = VDP2_VRAM_16;
+
+    /* dX at offset +10 (2-bit signed integer + 9-bit fraction) */
+    vram[rot_param_word_offset + 10] = static_cast<uint16_t>(dx_int & 0x0003u);
+    vram[rot_param_word_offset + 11] = static_cast<uint16_t>(dx_frac & 0x01FFu);
+
+    /* dY at offset +12 (2-bit signed integer + 9-bit fraction) */
+    vram[rot_param_word_offset + 12] = static_cast<uint16_t>(dy_int & 0x0003u);
+    vram[rot_param_word_offset + 13] = static_cast<uint16_t>(dy_frac & 0x01FFu);
+}
+
 }  // namespace saturn::hal::vdp2
