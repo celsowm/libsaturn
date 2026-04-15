@@ -216,6 +216,28 @@ extern "C" sat_result_t sat_vdp2_rbg0_set_param_mode(sat_vdp2_rbg0_param_mode_t 
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_rbg0_set_rotation_read_control(uint16_t rprctl) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_rotation_read_control(rprctl);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_coefficient_control(uint16_t ktctl) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_coefficient_control(ktctl);
+    return SAT_OK;
+}
+
 extern "C" uint16_t sat_vdp2_rbg0_last_bgon_written(void) {
     return saturn::hal::vdp2::last_rbg0_bgon_written();
 }
@@ -238,6 +260,14 @@ extern "C" uint16_t sat_vdp2_rbg0_last_rptau_written(void) {
 
 extern "C" uint16_t sat_vdp2_rbg0_last_rptal_written(void) {
     return saturn::hal::vdp2::last_rbg0_rptal_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_rprctl_written(void) {
+    return saturn::hal::vdp2::last_rbg0_rprctl_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_ktctl_written(void) {
+    return saturn::hal::vdp2::last_rbg0_ktctl_written();
 }
 
 extern "C" sat_result_t sat_vdp2_rbg0_set_scroll(uint32_t rot_param_word_offset,

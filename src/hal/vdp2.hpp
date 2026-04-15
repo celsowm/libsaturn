@@ -92,7 +92,11 @@ uint16_t last_rbg0_chctlb_written();
 uint16_t last_rbg0_mpofr_written();
 uint16_t last_rbg0_rptau_written();
 uint16_t last_rbg0_rptal_written();
+uint16_t last_rbg0_rprctl_written();
+uint16_t last_rbg0_ktctl_written();
 void set_rbg0_param_mode(RBG0ParamMode mode);
+void set_rbg0_rotation_read_control(uint16_t rprctl);
+void set_rbg0_coefficient_control(uint16_t ktctl);
 
 // Rotation parameter table upload
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count);
@@ -112,12 +116,13 @@ void set_rbg0_coordinate_increments(uint32_t rot_param_word_offset,
                                      int32_t dx_int, int32_t dx_frac,
                                      int32_t dy_int, int32_t dy_frac);
 
-// Rotation matrix setup (for perspective/3D effects)
+// Rotation matrix setup (for perspective/3D effects).
+// Angles are interpreted as degrees in X/Y/Z order.
 void set_rbg0_rotation_matrix(uint32_t rot_param_word_offset,
                               int32_t angle_x, int32_t angle_y, int32_t angle_z);
 
 // Viewpoint and center coordinates.
-// Values are interpreted as 16.16 fixed-point and written as integer-only fields.
+// Values are provided as 16.16 fixed-point and written as integer-only fields.
 void set_rbg0_viewpoint(uint32_t rot_param_word_offset,
                         int32_t px, int32_t py, int32_t pz);
 void set_rbg0_center(uint32_t rot_param_word_offset,

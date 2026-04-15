@@ -23,6 +23,8 @@ uint16_t g_last_rbg0_chctlb_written = 0x0000u;
 uint16_t g_last_rbg0_mpofr_written = 0x0000u;
 uint16_t g_last_rbg0_rptau_written = 0x0000u;
 uint16_t g_last_rbg0_rptal_written = 0x0000u;
+uint16_t g_last_rbg0_rprctl_written = 0x0000u;
+uint16_t g_last_rbg0_ktctl_written = 0x0000u;
 
 template <uint32_t Offset>
 volatile uint16_t& reg() {
@@ -107,6 +109,56 @@ inline void ensure_rbg0_bank_fetch_visible(uint32_t word_offset) {
      * visible without fully starving CPU-side parameter updates.
      */
     set_vram_cycle_pattern(bank_id, kRbg0CyclePatternLo, kRbg0CyclePatternHi);
+}
+
+constexpr double kPi = 3.141592653589793238462643383279502884;
+
+inline double wrap_degrees(double degrees) {
+    while (degrees > 180.0) {
+        degrees -= 360.0;
+    }
+    while (degrees < -180.0) {
+        degrees += 360.0;
+    }
+    return degrees;
+}
+
+inline void sincos_degrees(int32_t angle_deg, double& out_sin, double& out_cos) {
+    double degrees = wrap_degrees(static_cast<double>(angle_deg));
+    double sign_s = 1.0;
+    double sign_c = 1.0;
+
+    if (degrees > 90.0) {
+        degrees = 180.0 - degrees;
+        sign_c = -1.0;
+    } else if (degrees < -90.0) {
+        degrees = 180.0 + degrees;
+        sign_s = -1.0;
+        sign_c = -1.0;
+    }
+
+    const double radians = degrees * (kPi / 180.0);
+    const double r2 = radians * radians;
+    const double r4 = r2 * r2;
+    const double r6 = r4 * r2;
+    const double r8 = r4 * r4;
+
+    const double sin_approx = radians * (1.0 - (r2 / 6.0) + (r4 / 120.0) - (r6 / 5040.0));
+    const double cos_approx = 1.0 - (r2 / 2.0) + (r4 / 24.0) - (r6 / 720.0) + (r8 / 40320.0);
+
+    out_sin = sign_s * sin_approx;
+    out_cos = sign_c * cos_approx;
+}
+
+inline int32_t fx16_from_double(double value) {
+    const double scaled = value * 65536.0;
+    return static_cast<int32_t>(scaled >= 0.0 ? (scaled + 0.5) : (scaled - 0.5));
+}
+
+inline void write_fx16_pair(volatile uint16_t* vram, uint32_t word_offset, double value) {
+    const uint32_t bits = static_cast<uint32_t>(fx16_from_double(value));
+    vram[word_offset + 0u] = static_cast<uint16_t>((bits >> 16u) & 0xFFFFu);
+    vram[word_offset + 1u] = static_cast<uint16_t>(bits & 0xFFFFu);
 }
 
 }  // namespace
@@ -305,6 +357,7 @@ volatile uint16_t& CHCTLB = reg<0x02A>();
 volatile uint16_t& RNCN0  = reg<0x038>();
 volatile uint16_t& RPMD   = reg<0x0B0>();
 volatile uint16_t& RPRCTL = reg<0x0B2>();
+volatile uint16_t& KTCTL  = reg<0x0B4>();
 volatile uint16_t& RPTAU  = reg<0x0BC>();
 volatile uint16_t& RPTAL  = reg<0x0BE>();
 volatile uint16_t& PRIR   = reg<0x0FC>();
@@ -380,6 +433,10 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
 
     /* Set default rotation parameter mode (A) */
     RPMD = 0x0000u;
+    RPRCTL = 0x0000u;
+    KTCTL = 0x0000u;
+    g_last_rbg0_rprctl_written = 0x0000u;
+    g_last_rbg0_ktctl_written = 0x0000u;
 
     /* RBG0 priority (R0PRIN) to visible foreground level. */
     PRIR = static_cast<uint16_t>((PRIR & 0xFFF8u) | 0x0007u);
@@ -426,8 +483,26 @@ uint16_t last_rbg0_rptal_written() {
     return g_last_rbg0_rptal_written;
 }
 
+uint16_t last_rbg0_rprctl_written() {
+    return g_last_rbg0_rprctl_written;
+}
+
+uint16_t last_rbg0_ktctl_written() {
+    return g_last_rbg0_ktctl_written;
+}
+
 void set_rbg0_param_mode(RBG0ParamMode mode) {
     RPMD = static_cast<uint16_t>(mode & 0x0003u);
+}
+
+void set_rbg0_rotation_read_control(uint16_t rprctl) {
+    RPRCTL = rprctl;
+    g_last_rbg0_rprctl_written = rprctl;
+}
+
+void set_rbg0_coefficient_control(uint16_t ktctl) {
+    KTCTL = ktctl;
+    g_last_rbg0_ktctl_written = ktctl;
 }
 
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count) {
@@ -467,25 +542,31 @@ void set_rbg0_rotation_matrix(uint32_t rot_param_word_offset,
     volatile uint16_t* vram = VDP2_VRAM_16;
     const uint32_t base = rot_param_word_offset + saturn::core::kRbg0MatrixWordOffset;
 
-    /* Flat plane identity matrix: A and E = 1.0, the rest = 0.
-     * The VDP2 table stores A-F only.
-     */
-    vram[base + 0] = 0x0001u;
-    vram[base + 1] = 0x0000u;
-    vram[base + 2] = 0x0000u;
-    vram[base + 3] = 0x0000u;
-    vram[base + 4] = 0x0000u;
-    vram[base + 5] = 0x0000u;
-    vram[base + 6] = 0x0000u;
-    vram[base + 7] = 0x0000u;
-    vram[base + 8] = 0x0001u;
-    vram[base + 9] = 0x0000u;
-    vram[base + 10] = 0x0000u;
-    vram[base + 11] = 0x0000u;
+    double sin_x = 0.0;
+    double cos_x = 1.0;
+    double sin_y = 0.0;
+    double cos_y = 1.0;
+    double sin_z = 0.0;
+    double cos_z = 1.0;
 
-    (void)angle_x;
-    (void)angle_y;
-    (void)angle_z;
+    sincos_degrees(angle_x, sin_x, cos_x);
+    sincos_degrees(angle_y, sin_y, cos_y);
+    sincos_degrees(angle_z, sin_z, cos_z);
+
+    /* ZYX rotation order: pitch (X), yaw (Y), roll (Z). */
+    const double a = cos_z * cos_y;
+    const double b = (cos_z * sin_y * sin_x) - (sin_z * cos_x);
+    const double c = (cos_z * sin_y * cos_x) + (sin_z * sin_x);
+    const double d = sin_z * cos_y;
+    const double e = (sin_z * sin_y * sin_x) + (cos_z * cos_x);
+    const double f = (sin_z * sin_y * cos_x) - (cos_z * sin_x);
+
+    write_fx16_pair(vram, base + 0u, a);
+    write_fx16_pair(vram, base + 2u, b);
+    write_fx16_pair(vram, base + 4u, c);
+    write_fx16_pair(vram, base + 6u, d);
+    write_fx16_pair(vram, base + 8u, e);
+    write_fx16_pair(vram, base + 10u, f);
 }
 
 void set_rbg0_viewpoint(uint32_t rot_param_word_offset,
@@ -497,10 +578,10 @@ void set_rbg0_viewpoint(uint32_t rot_param_word_offset,
     volatile uint16_t* vram = VDP2_VRAM_16;
     const uint32_t base = rot_param_word_offset + saturn::core::kRbg0ViewpointWordOffset;
 
-    /* Viewpoint is stored as integer-only fields. */
-    vram[base + 0] = static_cast<uint16_t>((px >> 16u) & 0x1FFFu);
-    vram[base + 1] = static_cast<uint16_t>((py >> 16u) & 0x1FFFu);
-    vram[base + 2] = static_cast<uint16_t>((pz >> 16u) & 0x1FFFu);
+    /* Viewpoint is stored as signed integer-only fields. */
+    vram[base + 0] = static_cast<uint16_t>(static_cast<int16_t>(px >> 16u));
+    vram[base + 1] = static_cast<uint16_t>(static_cast<int16_t>(py >> 16u));
+    vram[base + 2] = static_cast<uint16_t>(static_cast<int16_t>(pz >> 16u));
 }
 
 void set_rbg0_center(uint32_t rot_param_word_offset,
@@ -512,10 +593,10 @@ void set_rbg0_center(uint32_t rot_param_word_offset,
     volatile uint16_t* vram = VDP2_VRAM_16;
     const uint32_t base = rot_param_word_offset + saturn::core::kRbg0CenterWordOffset;
 
-    /* Center is stored as integer-only fields. */
-    vram[base + 0] = static_cast<uint16_t>((cx >> 16u) & 0x1FFFu);
-    vram[base + 1] = static_cast<uint16_t>((cy >> 16u) & 0x1FFFu);
-    vram[base + 2] = static_cast<uint16_t>((cz >> 16u) & 0x1FFFu);
+    /* Center is stored as signed integer-only fields. */
+    vram[base + 0] = static_cast<uint16_t>(static_cast<int16_t>(cx >> 16u));
+    vram[base + 1] = static_cast<uint16_t>(static_cast<int16_t>(cy >> 16u));
+    vram[base + 2] = static_cast<uint16_t>(static_cast<int16_t>(cz >> 16u));
 }
 
 void set_rbg0_scaling(uint32_t rot_param_word_offset,

@@ -7,6 +7,7 @@
  *   3. RBG0 checkerboard
  *   4. RBG0 asset upload
  *   5. RBG0 asset upload with auto-scroll
+ *   6. RBG0 tilted ground-plane probe
  *
  * Controls:
  *   A      Next stage
@@ -44,6 +45,7 @@ typedef enum debug_stage {
     STAGE_CHECKER = 3,
     STAGE_ASSET = 4,
     STAGE_SCROLL = 5,
+    STAGE_PERSPECTIVE = 6,
     STAGE_COUNT
 } debug_stage_t;
 
@@ -136,7 +138,7 @@ static void vdp2_line5(char* out) {
     }
 
     write_hex16(&out[5], read_vdp2_reg(0x0BEu));
-    write_hex16(&out[15], read_vdp2_reg(0x0B2u));
+    write_hex16(&out[15], sat_vdp2_rbg0_last_rprctl_written());
     write_hex16(&out[25], read_vdp2_reg(0x0FCu));
 }
 
@@ -182,6 +184,7 @@ static const char* stage_name(debug_stage_t stage) {
     case STAGE_CHECKER: return "STG3";
     case STAGE_ASSET: return "STG4";
     case STAGE_SCROLL: return "STG5";
+    case STAGE_PERSPECTIVE: return "STG6";
     default: return "STG?";
     }
 }
@@ -335,6 +338,28 @@ static sat_result_t setup_rotation_params(void) {
     return SAT_OK;
 }
 
+static sat_result_t setup_tilted_ground_plane(void) {
+    /* Pitch the plane toward the horizon and place the camera above it.
+     * The matrix helper now emits real rotation coefficients, so this stage
+     * becomes the first practical camera test for the future infinite-plane
+     * path.
+     */
+    SAT_TRY(sat_vdp2_rbg0_set_rotation_matrix(ROT_PARAM_BASE, -58, 0, 0));
+    SAT_TRY(sat_vdp2_rbg0_set_viewpoint(
+        ROT_PARAM_BASE,
+        0,
+        72 * SAT_FX16_ONE,
+        -192 * SAT_FX16_ONE
+    ));
+    SAT_TRY(sat_vdp2_rbg0_set_center(ROT_PARAM_BASE, 0, 0, 0));
+    SAT_TRY(sat_vdp2_rbg0_set_scaling(ROT_PARAM_BASE, SAT_FX16_ONE, SAT_FX16_ONE));
+    SAT_TRY(sat_vdp2_rbg0_set_rotation_read_control(0x0007u));
+    SAT_TRY(sat_vdp2_rbg0_set_coefficient_control(0x0000u));
+    SAT_TRY(sat_vdp2_rbg0_set_scroll(ROT_PARAM_BASE, 0, 0, 0, 0));
+
+    return SAT_OK;
+}
+
 static sat_result_t configure_rbg0(void) {
     const sat_vdp2_rbg0_config_t rbg0_cfg = {
         SAT_VDP2_RBG0_BITMAP_512x256,
@@ -350,12 +375,24 @@ static sat_result_t configure_rbg0(void) {
     return SAT_OK;
 }
 
+static sat_result_t configure_rbg0_stage(debug_stage_t stage) {
+    switch (stage) {
+    case STAGE_SCROLL:
+        return SAT_OK;
+    case STAGE_PERSPECTIVE:
+        return setup_tilted_ground_plane();
+    default:
+        return SAT_OK;
+    }
+}
+
 static uint8_t is_rbg0_stage(debug_stage_t stage) {
     switch (stage) {
     case STAGE_SOLID:
     case STAGE_CHECKER:
     case STAGE_ASSET:
     case STAGE_SCROLL:
+    case STAGE_PERSPECTIVE:
         return 1u;
     default:
         return 0u;
@@ -380,6 +417,7 @@ static sat_result_t refresh_rbg0_state(void) {
     case STAGE_CHECKER:
     case STAGE_ASSET:
     case STAGE_SCROLL:
+    case STAGE_PERSPECTIVE:
         SAT_TRY(sat_vdp2_rbg0_set_enabled(1));
         break;
     default:
@@ -434,6 +472,16 @@ static sat_result_t apply_stage(debug_stage_t stage) {
             seamless_sea_asset.width,
             seamless_sea_asset.height));
         SAT_TRY(configure_rbg0());
+        SAT_TRY(configure_rbg0_stage(stage));
+        SAT_TRY(sat_vdp2_rbg0_set_enabled(1));
+        g_backdrop_color = SAT_COLOR_BLACK;
+        SAT_TRY(sat_vdp2_back_color_set(g_backdrop_color));
+        break;
+    case STAGE_PERSPECTIVE:
+        SAT_TRY(sat_vdp2_palette_upload(solid_palette, 4, 0));
+        SAT_TRY(upload_checker_bitmap());
+        SAT_TRY(configure_rbg0());
+        SAT_TRY(configure_rbg0_stage(stage));
         SAT_TRY(sat_vdp2_rbg0_set_enabled(1));
         g_backdrop_color = SAT_COLOR_BLACK;
         SAT_TRY(sat_vdp2_back_color_set(g_backdrop_color));
@@ -447,12 +495,17 @@ static sat_result_t apply_stage(debug_stage_t stage) {
 }
 
 static void update_scroll(void) {
-    if (g_stage != STAGE_SCROLL) {
+    if (g_stage != STAGE_SCROLL && g_stage != STAGE_PERSPECTIVE) {
         return;
     }
 
-    scroll_x += (sat_fx16_t)(SAT_FX16_ONE * 2);
-    scroll_y += (sat_fx16_t)(SAT_FX16_ONE / 2);
+    if (g_stage == STAGE_SCROLL) {
+        scroll_x += (sat_fx16_t)(SAT_FX16_ONE * 2);
+        scroll_y += (sat_fx16_t)(SAT_FX16_ONE / 2);
+    } else {
+        scroll_x += (sat_fx16_t)(SAT_FX16_ONE / 4);
+        scroll_y += (sat_fx16_t)(SAT_FX16_ONE / 8);
+    }
 
     sat_example_must(sat_vdp2_rbg0_set_scroll(
         ROT_PARAM_BASE,
@@ -507,6 +560,7 @@ int main(void) {
             g_force_legacy_cycles = (uint8_t)(g_force_legacy_cycles == 0u);
             if ((g_force_legacy_cycles == 0u) && (is_rbg0_stage(g_stage) != 0u)) {
                 sat_example_must(configure_rbg0());
+                sat_example_must(configure_rbg0_stage(g_stage));
             }
         }
         if ((pad.pressed & (SAT_PAD_X | SAT_PAD_Y)) != 0u) {

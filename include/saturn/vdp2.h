@@ -126,6 +126,10 @@ uint16_t sat_vdp2_rbg0_last_chctlb_written(void);
 uint16_t sat_vdp2_rbg0_last_mpofr_written(void);
 uint16_t sat_vdp2_rbg0_last_rptau_written(void);
 uint16_t sat_vdp2_rbg0_last_rptal_written(void);
+uint16_t sat_vdp2_rbg0_last_rprctl_written(void);
+uint16_t sat_vdp2_rbg0_last_ktctl_written(void);
+sat_result_t sat_vdp2_rbg0_set_rotation_read_control(uint16_t rprctl);
+sat_result_t sat_vdp2_rbg0_set_coefficient_control(uint16_t ktctl);
 
 /* Rotation parameter setup */
 sat_result_t sat_vdp2_rbg0_set_scroll(uint32_t rot_param_word_offset,
@@ -137,9 +141,14 @@ sat_result_t sat_vdp2_rbg0_set_vertical_increments(uint32_t rot_param_word_offse
 sat_result_t sat_vdp2_rbg0_set_coordinate_increments(uint32_t rot_param_word_offset,
                                                        int32_t dx_int, int32_t dx_frac,
                                                        int32_t dy_int, int32_t dy_frac);
+/* Rotation matrix setup (for perspective/3D effects).
+ * Angles are interpreted as degrees in X/Y/Z order.
+ */
 sat_result_t sat_vdp2_rbg0_set_rotation_matrix(uint32_t rot_param_word_offset,
                                                 int32_t angle_x, int32_t angle_y, int32_t angle_z);
-/* Viewpoint and center coordinates are interpreted as 16.16 fixed-point. */
+/* Viewpoint and center coordinates are provided as 16.16 fixed-point and
+ * written to the table as integer-only fields.
+ */
 sat_result_t sat_vdp2_rbg0_set_viewpoint(uint32_t rot_param_word_offset,
                                           int32_t px, int32_t py, int32_t pz);
 sat_result_t sat_vdp2_rbg0_set_center(uint32_t rot_param_word_offset,
