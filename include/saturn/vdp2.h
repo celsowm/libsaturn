@@ -120,14 +120,23 @@ typedef struct sat_vdp2_rbg0_config {
 sat_result_t sat_vdp2_rbg0_init(const sat_vdp2_rbg0_config_t* config);
 sat_result_t sat_vdp2_rbg0_set_enabled(uint8_t enable);
 sat_result_t sat_vdp2_rbg0_set_param_mode(sat_vdp2_rbg0_param_mode_t mode);
+uint16_t sat_vdp2_rbg0_last_bgon_written(void);
+uint16_t sat_vdp2_rbg0_last_ramctl_written(void);
+uint16_t sat_vdp2_rbg0_last_chctlb_written(void);
+uint16_t sat_vdp2_rbg0_last_mpofr_written(void);
+uint16_t sat_vdp2_rbg0_last_rptau_written(void);
+uint16_t sat_vdp2_rbg0_last_rptal_written(void);
 
 /* Rotation parameter setup */
 sat_result_t sat_vdp2_rbg0_set_scroll(uint32_t rot_param_word_offset,
                                        int32_t xst_int, int32_t xst_frac,
                                        int32_t yst_int, int32_t yst_frac);
+sat_result_t sat_vdp2_rbg0_set_vertical_increments(uint32_t rot_param_word_offset,
+                                                    int32_t dxst_int, int32_t dxst_frac,
+                                                    int32_t dyst_int, int32_t dyst_frac);
 sat_result_t sat_vdp2_rbg0_set_coordinate_increments(uint32_t rot_param_word_offset,
-                                                      int32_t dx_int, int32_t dx_frac,
-                                                      int32_t dy_int, int32_t dy_frac);
+                                                       int32_t dx_int, int32_t dx_frac,
+                                                       int32_t dy_int, int32_t dy_frac);
 sat_result_t sat_vdp2_rbg0_set_rotation_matrix(uint32_t rot_param_word_offset,
                                                 int32_t angle_x, int32_t angle_y, int32_t angle_z);
 /* Viewpoint and center coordinates are interpreted as 16.16 fixed-point. */

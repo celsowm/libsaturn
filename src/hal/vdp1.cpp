@@ -1,4 +1,5 @@
 #include "src/hal/vdp1.hpp"
+#include "saturn/vdp1.h"
 
 namespace saturn::hal::vdp1 {
 
@@ -100,7 +101,7 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     Command& cmd = g_cmd_buffer[g_cmd_count++];
     cmd.ctrl = 0x0000;
     cmd.link = 0;
-    cmd.pmod = 0x00A0;
+    cmd.pmod = static_cast<uint16_t>(0x00A0u | ((req.flags & SAT_SPRITE_FLAG_OPAQUE) != 0u ? 0x0040u : 0u));
     cmd.colr = static_cast<uint16_t>(req.palette << 8u);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);

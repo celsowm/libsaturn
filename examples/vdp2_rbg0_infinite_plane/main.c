@@ -75,6 +75,8 @@ static sat_result_t setup_rotation_params(void) {
     /* Set identity rotation matrix and unit scaling using the corrected layout. */
     sat_example_must(sat_vdp2_rbg0_set_rotation_matrix(ROT_PARAM_BASE, 0, 0, 0));
     sat_example_must(sat_vdp2_rbg0_set_scaling(ROT_PARAM_BASE, SAT_FX16_ONE, SAT_FX16_ONE));
+    /* ΔXst=0, ΔYst=1: advance Y by 1 per scanline */
+    sat_example_must(sat_vdp2_rbg0_set_vertical_increments(ROT_PARAM_BASE, 0, 0, 1, 0));
 
     return SAT_OK;
 }
@@ -100,6 +102,7 @@ int main(void) {
     /* Initialize Saturn with 320x224 resolution */
     sat_video_config_t cfg = {SCREEN_WIDTH, SCREEN_HEIGHT, 1, 0};
     sat_example_must(sat_init(&cfg));
+    sat_example_must(sat_vdp1_set_erase_enabled(0));
 
     /* Upload full 256-color palette */
     sat_example_must(sat_vdp2_palette_upload(
@@ -132,11 +135,11 @@ int main(void) {
     /* Set rotation parameter mode to A */
     sat_example_must(sat_vdp2_rbg0_set_param_mode(SAT_VDP2_RBG0_PARAM_A));
 
-    /* Set coordinate increments dX=1.0, dY=1.0 for 1:1 pixel mapping */
+    /* Set coordinate increments dX=1.0, dY=0 for 1:1 pixel mapping */
     sat_example_must(sat_vdp2_rbg0_set_coordinate_increments(
         ROT_PARAM_BASE,
         1, 0,  /* dX = 1.0 */
-        1, 0   /* dY = 1.0 */
+        0, 0   /* dY = 0 */
     ));
 
     /* Set initial scroll position to 0 */

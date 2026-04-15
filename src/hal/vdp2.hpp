@@ -86,6 +86,12 @@ enum RBG0ParamMode {
 void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
                            uint32_t bitmap_base_word, uint32_t rot_param_base_word);
 void enable_rbg0(bool enable);
+uint16_t last_rbg0_bgon_written();
+uint16_t last_rbg0_ramctl_written();
+uint16_t last_rbg0_chctlb_written();
+uint16_t last_rbg0_mpofr_written();
+uint16_t last_rbg0_rptau_written();
+uint16_t last_rbg0_rptal_written();
 void set_rbg0_param_mode(RBG0ParamMode mode);
 
 // Rotation parameter table upload
@@ -96,7 +102,12 @@ void set_rbg0_scroll(uint32_t rot_param_word_offset,
                      int32_t xst_int, int32_t xst_frac,
                      int32_t yst_int, int32_t yst_frac);
 
-// Coordinate increments (dX, dY) for bitmap mapping
+// Vertical coordinate increments (ΔXst, ΔYst) — per-line Y stepping
+void set_rbg0_vertical_increments(uint32_t rot_param_word_offset,
+                                   int32_t dxst_int, int32_t dxst_frac,
+                                   int32_t dyst_int, int32_t dyst_frac);
+
+// Horizontal coordinate increments (ΔX, ΔY) — per-dot X stepping
 void set_rbg0_coordinate_increments(uint32_t rot_param_word_offset,
                                      int32_t dx_int, int32_t dx_frac,
                                      int32_t dy_int, int32_t dy_frac);

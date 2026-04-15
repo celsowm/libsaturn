@@ -33,6 +33,7 @@ struct SpriteRequest {
     uint16_t height;
     uint16_t srca;
     uint16_t palette;
+    uint16_t flags;
 };
 
 void init(uint16_t width, uint16_t height, uint16_t clear_color);

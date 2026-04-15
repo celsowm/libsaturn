@@ -62,6 +62,7 @@ extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd) {
     req.height = resolved.height;
     req.srca = resolved.srca;
     req.palette = resolved.palette;
+    req.flags = resolved.flags;
     return saturn::hal::vdp1::push_sprite(req);
 }
 

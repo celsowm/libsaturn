@@ -194,6 +194,7 @@ struct ResolvedSprite {
     uint16_t height;
     uint16_t srca;
     uint16_t palette;
+    uint16_t flags;
 };
 
 inline sat_result_t resolve_sprite_cmd(
@@ -214,6 +215,7 @@ inline sat_result_t resolve_sprite_cmd(
     out->height = (cmd->height != 0u) ? cmd->height : cmd->texture->height;
     out->srca = cmd->texture->srca;
     out->palette = (cmd->palette_override != 0u) ? cmd->palette_override : cmd->texture->palette;
+    out->flags = cmd->flags;
     return SAT_OK;
 }
 

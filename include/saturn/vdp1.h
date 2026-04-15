@@ -21,6 +21,9 @@ typedef struct sat_texture {
     uint16_t reserved;
 } sat_texture_t;
 
+/* Sprite flags                                                        */
+#define SAT_SPRITE_FLAG_OPAQUE 0x0001u
+
 /* ------------------------------------------------------------------ */
 /* Sprite command                                                      */
 /* ------------------------------------------------------------------ */

@@ -13,8 +13,16 @@ constexpr uint16_t kTvmdBdclmd = 0x0100u;
 constexpr uint16_t kTvstatVblank = 0x0008u;
 constexpr uint16_t kNbg0MapPlaneAIndex = 0x0010u;  // 0x0010 << 11 = 0x8000
 constexpr uint32_t kVdp2VramWordCapacity = (512u * 1024u) / 2u;
-constexpr uint32_t kBackdropTableWordOffset = 0u;
+constexpr uint32_t kBackdropTableWordOffset = 0x3FFFFu;
+constexpr uint16_t kRbg0CyclePatternLo = 0x4E4Eu;
+constexpr uint16_t kRbg0CyclePatternHi = 0x4E4Eu;
 uint16_t g_nbg0_map_plane_index = kNbg0MapPlaneAIndex;
+uint16_t g_last_rbg0_bgon_written = 0x0000u;
+uint16_t g_last_rbg0_ramctl_written = 0x0000u;
+uint16_t g_last_rbg0_chctlb_written = 0x0000u;
+uint16_t g_last_rbg0_mpofr_written = 0x0000u;
+uint16_t g_last_rbg0_rptau_written = 0x0000u;
+uint16_t g_last_rbg0_rptal_written = 0x0000u;
 
 template <uint32_t Offset>
 volatile uint16_t& reg() {
@@ -70,12 +78,46 @@ inline void set_backdrop_table_word_offset(uint32_t word_offset) {
     BKTAL = static_cast<uint16_t>(bkta & 0xFFFFu);
 }
 
+inline void set_vram_cycle_pattern(uint16_t bank_id, uint16_t low_pattern, uint16_t high_pattern) {
+    switch (bank_id & 0x0003u) {
+    case 0u:
+        CYCA0L = low_pattern;
+        CYCA0U = high_pattern;
+        break;
+    case 1u:
+        CYCA1L = low_pattern;
+        CYCA1U = high_pattern;
+        break;
+    case 2u:
+        CYCB0L = low_pattern;
+        CYCB0U = high_pattern;
+        break;
+    case 3u:
+        CYCB1L = low_pattern;
+        CYCB1U = high_pattern;
+        break;
+    default:
+        break;
+    }
+}
+
+inline void ensure_rbg0_bank_fetch_visible(uint32_t word_offset) {
+    const uint16_t bank_id = static_cast<uint16_t>((word_offset >> 16u) & 0x0003u);
+    /* Give the selected bank alternating VDP2/CPU slots so RBG0 fetches are
+     * visible without fully starving CPU-side parameter updates.
+     */
+    set_vram_cycle_pattern(bank_id, kRbg0CyclePatternLo, kRbg0CyclePatternHi);
+}
+
 }  // namespace
 
 void init_ntsc_320x224() {
     TVMD = 0x0000;
     VRSIZE = 0x0000;
-    RAMCTL = SCREEN_MODE_RGB555;
+    /* Keep the VRAM split / access base that early init established.
+     * The low screen-mode bitfield is not the complete RAMCTL state.
+     */
+    RAMCTL = 0x1100u;
 
     // Allocate NBG0 fetches on VRAM-A0 and keep other banks CPU-access friendly.
     CYCA0L = 0x0E4Eu;
@@ -275,47 +317,66 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
         return;
     }
 
-    /* Configure VRAM banks for RBG0 bitmap mode
-     * RAMCTL bits 0-1 (RDBSA0) and 4-5 (RDBSB0) control RBG0 VRAM usage:
-     *   00b = Not used for RBG0
-     *   01b = Coefficient table
-     *   10b = Pattern name table
-     *   11b = Bitmap pattern data
-     *
-     * For bitmap mode, we need VRAM-A0 for bitmap data and VRAM-B0 for rotation params
+    /* Configure RAMCTL usage bits for the bank that stores the bitmap.
+     * Only the selected bitmap bank needs to be marked as bitmap data.
+     * Rotation parameters are addressed through RPTA and do not use a
+     * dedicated RAMCTL usage class.
      */
-    uint16_t ramctl = RAMCTL;
-    /* Set VRAM-A0 to bitmap pattern (11b) */
-    ramctl = static_cast<uint16_t>(ramctl & 0xFFFCu);  /* Clear bits 0-1 */
-    ramctl = static_cast<uint16_t>(ramctl | 0x0003u);  /* Set to 11b (bitmap pattern) */
-    /* Set VRAM-B0 to coefficient/param table (01b) */
-    ramctl = static_cast<uint16_t>(ramctl & 0xFFCFu);  /* Clear bits 4-5 */
-    ramctl = static_cast<uint16_t>(ramctl | 0x0010u);  /* Set to 01b (coefficient table) */
+    uint16_t ramctl = 0x1100u;
+    const uint16_t bitmap_bank_id = static_cast<uint16_t>((bitmap_base_word >> 16u) & 0x0003u);
+    switch (bitmap_bank_id) {
+    case 0u:  // VRAM-A0
+        ramctl = static_cast<uint16_t>(ramctl | 0x0003u);
+        break;
+    case 1u:  // VRAM-A1
+        ramctl = static_cast<uint16_t>(ramctl | 0x000Cu);
+        break;
+    case 2u:  // VRAM-B0
+        ramctl = static_cast<uint16_t>(ramctl | 0x0030u);
+        break;
+    case 3u:  // VRAM-B1
+        ramctl = static_cast<uint16_t>(ramctl | 0x00C0u);
+        break;
+    default:
+        break;
+    }
     RAMCTL = ramctl;
+    g_last_rbg0_ramctl_written = ramctl;
+
+    ensure_rbg0_bank_fetch_visible(bitmap_base_word);
+    ensure_rbg0_bank_fetch_visible(rot_param_base_word);
 
     /* Configure CHCTLB for RBG0.
      * R0CHCN uses bits 14..12, R0BMEN is bit 9 and R0BMSZ is bit 10.
      * The register lives at 18002AH, not 18002CH.
      */
-    CHCTLB = static_cast<uint16_t>((CHCTLB & 0x89FFu) |
+    const uint16_t chctlb = static_cast<uint16_t>((CHCTLB & 0x89FFu) |
         saturn::core::compose_rbg0_bitmap_control_word(
             static_cast<sat_vdp2_color_mode_t>(color_mode),
             static_cast<sat_vdp2_rbg0_bitmap_size_t>(bitmap_size)));
+    CHCTLB = chctlb;
+    g_last_rbg0_chctlb_written = chctlb;
 
     /* Select the VRAM bank that contains the bitmap data.
      * RBG0 bitmap mode only selects a bank base, not an arbitrary word offset.
      */
     const uint16_t bitmap_bank = static_cast<uint16_t>((bitmap_base_word >> 16u) & 0x0007u);
-    MPOFR = static_cast<uint16_t>((MPOFR & 0xFFF8u) | bitmap_bank);
+    const uint16_t mpofr = static_cast<uint16_t>((MPOFR & 0xFFF8u) | bitmap_bank);
+    MPOFR = mpofr;
+    g_last_rbg0_mpofr_written = mpofr;
 
     /* RNCN0 is ignored in bitmap mode */
 
     /* Configure RPTA (Rotation Parameter Table Address).
-     * API offset is in VRAM words; RPTA encoding is based on byte address bits.
+     * RPTA stores address bits A18..A1 directly, i.e. the VRAM word offset.
+     * Bit 0 of RPTAL is unused; bit 6 is forced to 0 for parameter A.
      */
-    const uint32_t rot_param_base_byte = (rot_param_base_word << 1u);
-    RPTAU = static_cast<uint16_t>((rot_param_base_byte >> 16u) & 0x0007u);
-    RPTAL = static_cast<uint16_t>(rot_param_base_byte & 0xFFFEu);
+    const uint16_t rptau = static_cast<uint16_t>((rot_param_base_word >> 16u) & 0x0007u);
+    const uint16_t rptal = static_cast<uint16_t>(rot_param_base_word & 0xFFFEu);
+    RPTAU = rptau;
+    RPTAL = rptal;
+    g_last_rbg0_rptau_written = rptau;
+    g_last_rbg0_rptal_written = rptal;
 
     /* Set default rotation parameter mode (A) */
     RPMD = 0x0000u;
@@ -338,6 +399,31 @@ void enable_rbg0(bool enable) {
         bgon = static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x0010u));
     }
     BGON = bgon;
+    g_last_rbg0_bgon_written = static_cast<uint16_t>(enable ? 0x1010u : 0x0000u);
+}
+
+uint16_t last_rbg0_bgon_written() {
+    return g_last_rbg0_bgon_written;
+}
+
+uint16_t last_rbg0_ramctl_written() {
+    return g_last_rbg0_ramctl_written;
+}
+
+uint16_t last_rbg0_chctlb_written() {
+    return g_last_rbg0_chctlb_written;
+}
+
+uint16_t last_rbg0_mpofr_written() {
+    return g_last_rbg0_mpofr_written;
+}
+
+uint16_t last_rbg0_rptau_written() {
+    return g_last_rbg0_rptau_written;
+}
+
+uint16_t last_rbg0_rptal_written() {
+    return g_last_rbg0_rptal_written;
 }
 
 void set_rbg0_param_mode(RBG0ParamMode mode) {
@@ -448,7 +534,28 @@ void set_rbg0_scaling(uint32_t rot_param_word_offset,
     vram[base + 3] = static_cast<uint16_t>(ky & 0xFFFFu);
 }
 
-/* Helper function to set coordinate increments (dX, dY) for proper bitmap mapping */
+/* Set screen vertical coordinate increments (ΔXst, ΔYst).
+ * For a normal 1:1 2D bitmap: ΔXst = 0, ΔYst = 1.0.
+ */
+void set_rbg0_vertical_increments(uint32_t rot_param_word_offset,
+                                   int32_t dxst_int, int32_t dxst_frac,
+                                   int32_t dyst_int, int32_t dyst_frac) {
+    if (saturn::core::validate_rbg0_rotation_table_offset(rot_param_word_offset) != SAT_OK) {
+        return;
+    }
+
+    volatile uint16_t* vram = VDP2_VRAM_16;
+
+    vram[rot_param_word_offset + saturn::core::kRbg0DScrollWordOffset] = static_cast<uint16_t>(dxst_int & 0x01FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DScrollFracWordOffset] = static_cast<uint16_t>(dxst_frac & 0x03FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DScrollYWordOffset] = static_cast<uint16_t>(dyst_int & 0x01FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DScrollYFracWordOffset] = static_cast<uint16_t>(dyst_frac & 0x03FFu);
+}
+
+/* Set screen horizontal coordinate increments (ΔX, ΔY).
+ * For a normal 1:1 2D bitmap: ΔX = 1.0, ΔY = 0.
+ * Integer field is 9-bit signed, fraction is 10-bit.
+ */
 void set_rbg0_coordinate_increments(uint32_t rot_param_word_offset,
                                      int32_t dx_int, int32_t dx_frac,
                                      int32_t dy_int, int32_t dy_frac) {
@@ -458,10 +565,10 @@ void set_rbg0_coordinate_increments(uint32_t rot_param_word_offset,
 
     volatile uint16_t* vram = VDP2_VRAM_16;
 
-    vram[rot_param_word_offset + saturn::core::kRbg0DotStepWordOffset] = static_cast<uint16_t>(dx_int & 0x0003u);
-    vram[rot_param_word_offset + saturn::core::kRbg0DotStepFracWordOffset] = static_cast<uint16_t>(dx_frac & 0x01FFu);
-    vram[rot_param_word_offset + saturn::core::kRbg0DotStepYWordOffset] = static_cast<uint16_t>(dy_int & 0x0003u);
-    vram[rot_param_word_offset + saturn::core::kRbg0DotStepYFracWordOffset] = static_cast<uint16_t>(dy_frac & 0x01FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DotStepWordOffset] = static_cast<uint16_t>(dx_int & 0x01FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DotStepFracWordOffset] = static_cast<uint16_t>(dx_frac & 0x03FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DotStepYWordOffset] = static_cast<uint16_t>(dy_int & 0x01FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DotStepYFracWordOffset] = static_cast<uint16_t>(dy_frac & 0x03FFu);
 }
 
 }  // namespace saturn::hal::vdp2

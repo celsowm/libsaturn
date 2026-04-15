@@ -216,6 +216,30 @@ extern "C" sat_result_t sat_vdp2_rbg0_set_param_mode(sat_vdp2_rbg0_param_mode_t 
     return SAT_OK;
 }
 
+extern "C" uint16_t sat_vdp2_rbg0_last_bgon_written(void) {
+    return saturn::hal::vdp2::last_rbg0_bgon_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_ramctl_written(void) {
+    return saturn::hal::vdp2::last_rbg0_ramctl_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_chctlb_written(void) {
+    return saturn::hal::vdp2::last_rbg0_chctlb_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_mpofr_written(void) {
+    return saturn::hal::vdp2::last_rbg0_mpofr_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_rptau_written(void) {
+    return saturn::hal::vdp2::last_rbg0_rptau_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_rptal_written(void) {
+    return saturn::hal::vdp2::last_rbg0_rptal_written();
+}
+
 extern "C" sat_result_t sat_vdp2_rbg0_set_scroll(uint32_t rot_param_word_offset,
                                                    int32_t xst_int, int32_t xst_frac,
                                                    int32_t yst_int, int32_t yst_frac) {
@@ -231,6 +255,24 @@ extern "C" sat_result_t sat_vdp2_rbg0_set_scroll(uint32_t rot_param_word_offset,
     }
 
     saturn::hal::vdp2::set_rbg0_scroll(rot_param_word_offset, xst_int, xst_frac, yst_int, yst_frac);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_vertical_increments(uint32_t rot_param_word_offset,
+                                                                int32_t dxst_int, int32_t dxst_frac,
+                                                                int32_t dyst_int, int32_t dyst_frac) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    st = validate_rbg0_rotation_table_offset(rot_param_word_offset);
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_vertical_increments(rot_param_word_offset, dxst_int, dxst_frac, dyst_int, dyst_frac);
     return SAT_OK;
 }
 
