@@ -386,6 +386,66 @@ static sat_result_t configure_rbg0_stage(debug_stage_t stage) {
     }
 }
 
+/* Re-apply all RBG0 VDP2 registers during VBlank. This mirrors the register
+ * writes from configure_rbg0_bitmap() and sat_vdp2_rbg0_init(), but without
+ * re-uploading VRAM data. Called from refresh_rbg0_state() every frame. */
+static sat_result_t reapply_rbg0_registers(void) {
+    const uint32_t bitmap_base_word = BITMAP_BASE_WORD;
+    const uint32_t rot_param_base_word = ROT_PARAM_BASE;
+
+    /* RAMCTL: VRAM split mode + rotation data bank selection */
+    uint16_t ramctl = 0x1100u;
+    const uint16_t bitmap_bank_id = (uint16_t)((bitmap_base_word >> 16u) & 0x0003u);
+    switch (bitmap_bank_id) {
+    case 0u:  ramctl |= 0x0003u; break;  /* VRAM-A0 bitmap */
+    case 1u:  ramctl |= 0x000Cu; break;  /* VRAM-A1 bitmap */
+    case 2u:  ramctl |= 0x0030u; break;  /* VRAM-B0 bitmap */
+    case 3u:  ramctl |= 0x00C0u; break;  /* VRAM-B1 bitmap */
+    default:  break;
+    }
+    write_vdp2_reg(0x00Eu, ramctl);  /* RAMCTL */
+
+    /* CHCTLB: RBG0 bitmap config */
+    uint16_t chctlb = sat_vdp2_rbg0_last_chctlb_written();
+    if (chctlb == 0u) {
+        /* Build default if write-back not yet set */
+        chctlb = 0x1A4Eu;  /* 256-color, 512x256 bitmap, bitmap enable */
+    }
+    write_vdp2_reg(0x02Au, chctlb);
+
+    /* MPOFR: bitmap bank selection */
+    const uint16_t bitmap_bank = (uint16_t)((bitmap_base_word >> 16u) & 0x0007u);
+    uint16_t mpofr = sat_vdp2_rbg0_last_mpofr_written();
+    if (mpofr == 0u) {
+        mpofr = (uint16_t)(0x1A48u | bitmap_bank);
+    }
+    write_vdp2_reg(0x03Eu, mpofr);
+
+    /* RPTAU/RPTAL: rotation parameter table address */
+    uint16_t rptau = sat_vdp2_rbg0_last_rptau_written();
+    uint16_t rptal = sat_vdp2_rbg0_last_rptal_written();
+    if (rptau == 0u && rptal == 0u) {
+        rptau = (uint16_t)((rot_param_base_word >> 16u) & 0x0007u);
+        rptal = (uint16_t)(rot_param_base_word & 0xFFFEu);
+    }
+    write_vdp2_reg(0x0BCu, rptau);
+    write_vdp2_reg(0x0BEu, rptal);
+
+    /* RPMD: param mode A */
+    write_vdp2_reg(0x0B0u, 0x0000u);
+
+    /* RPRCTL: per-line increments enable (0x0007 = read Xst/Yst/KAst per line) */
+    write_vdp2_reg(0x0B2u, 0x0007u);
+
+    /* KTCTL: coefficient control (0x0000 = no coefficient table) */
+    write_vdp2_reg(0x0B4u, 0x0000u);
+
+    /* PRIR: RBG0 priority */
+    write_vdp2_reg(0x0FCu, 0x0007u);
+
+    return SAT_OK;
+}
+
 static uint8_t is_rbg0_stage(debug_stage_t stage) {
     switch (stage) {
     case STAGE_SOLID:
@@ -418,7 +478,14 @@ static sat_result_t refresh_rbg0_state(void) {
     case STAGE_ASSET:
     case STAGE_SCROLL:
     case STAGE_PERSPECTIVE:
+        /* Re-apply RBG0 VDP2 registers during VBlank. The initial
+         * configure_rbg0() call in apply_stage() happens outside VBlank,
+         * so all its VDP2 writes are lost on real hardware. We must
+         * re-apply the registers here where VBlank is guaranteed. */
+        SAT_TRY(reapply_rbg0_registers());
         SAT_TRY(sat_vdp2_rbg0_set_enabled(1));
+        /* Stage-specific rotation parameter updates */
+        SAT_TRY(configure_rbg0_stage(g_stage));
         break;
     default:
         break;
@@ -435,8 +502,9 @@ static sat_result_t apply_stage(debug_stage_t stage) {
 
     scroll_x = 0;
     scroll_y = 0;
+    /* Don't disable RBG0 here — writes outside VBlank are lost.
+     * refresh_rbg0_state() will re-apply full config during VBlank. */
     SAT_TRY(sat_vdp2_nbg0_set_enabled(0));
-    SAT_TRY(sat_vdp2_rbg0_set_enabled(0));
 
     switch (stage) {
     case STAGE_BACKDROP:

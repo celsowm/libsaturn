@@ -14,8 +14,8 @@ constexpr uint16_t kTvstatVblank = 0x0008u;
 constexpr uint16_t kNbg0MapPlaneAIndex = 0x0010u;  // 0x0010 << 11 = 0x8000
 constexpr uint32_t kVdp2VramWordCapacity = (512u * 1024u) / 2u;
 constexpr uint32_t kBackdropTableWordOffset = 0x3FFFFu;
-constexpr uint16_t kRbg0CyclePatternLo = 0x4E4Eu;
-constexpr uint16_t kRbg0CyclePatternHi = 0x4E4Eu;
+constexpr uint16_t kRbg0CyclePatternLo = 0xCCCCu;
+constexpr uint16_t kRbg0CyclePatternHi = 0xCCCCu;
 uint16_t g_nbg0_map_plane_index = kNbg0MapPlaneAIndex;
 uint16_t g_last_rbg0_bgon_written = 0x0000u;
 uint16_t g_last_rbg0_ramctl_written = 0x0000u;
@@ -358,8 +358,8 @@ volatile uint16_t& RNCN0  = reg<0x038>();
 volatile uint16_t& RPMD   = reg<0x0B0>();
 volatile uint16_t& RPRCTL = reg<0x0B2>();
 volatile uint16_t& KTCTL  = reg<0x0B4>();
-volatile uint16_t& RPTAU  = reg<0x0BC>();
-volatile uint16_t& RPTAL  = reg<0x0BE>();
+volatile uint16_t& RPTAU  = reg<0x0B8>();
+volatile uint16_t& RPTAL  = reg<0x0BA>();
 volatile uint16_t& PRIR   = reg<0x0FC>();
 volatile uint16_t& BMPNB  = reg<0x02E>();
 
@@ -393,6 +393,25 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
     default:
         break;
     }
+
+    const uint16_t rot_bank_id = static_cast<uint16_t>((rot_param_base_word >> 16u) & 0x0003u);
+    switch (rot_bank_id) {
+    case 0u:  // VRAM-A0
+        ramctl = static_cast<uint16_t>(ramctl | 0x0001u);
+        break;
+    case 1u:  // VRAM-A1
+        ramctl = static_cast<uint16_t>(ramctl | 0x0004u);
+        break;
+    case 2u:  // VRAM-B0
+        ramctl = static_cast<uint16_t>(ramctl | 0x0010u);
+        break;
+    case 3u:  // VRAM-B1
+        ramctl = static_cast<uint16_t>(ramctl | 0x0040u);
+        break;
+    default:
+        break;
+    }
+
     RAMCTL = ramctl;
     g_last_rbg0_ramctl_written = ramctl;
 
@@ -528,9 +547,9 @@ void set_rbg0_scroll(uint32_t rot_param_word_offset,
     volatile uint16_t* vram = VDP2_VRAM_16;
 
     vram[rot_param_word_offset + saturn::core::kRbg0ScrollWordOffset] = static_cast<uint16_t>(xst_int & 0x1FFFu);
-    vram[rot_param_word_offset + saturn::core::kRbg0ScrollFracWordOffset] = static_cast<uint16_t>(xst_frac & 0x03FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0ScrollFracWordOffset] = static_cast<uint16_t>(xst_frac & 0xFFFFu);
     vram[rot_param_word_offset + saturn::core::kRbg0ScrollYWordOffset] = static_cast<uint16_t>(yst_int & 0x1FFFu);
-    vram[rot_param_word_offset + saturn::core::kRbg0ScrollYFracWordOffset] = static_cast<uint16_t>(yst_frac & 0x03FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0ScrollYFracWordOffset] = static_cast<uint16_t>(yst_frac & 0xFFFFu);
 }
 
 void set_rbg0_rotation_matrix(uint32_t rot_param_word_offset,
@@ -627,10 +646,10 @@ void set_rbg0_vertical_increments(uint32_t rot_param_word_offset,
 
     volatile uint16_t* vram = VDP2_VRAM_16;
 
-    vram[rot_param_word_offset + saturn::core::kRbg0DScrollWordOffset] = static_cast<uint16_t>(dxst_int & 0x01FFu);
-    vram[rot_param_word_offset + saturn::core::kRbg0DScrollFracWordOffset] = static_cast<uint16_t>(dxst_frac & 0x03FFu);
-    vram[rot_param_word_offset + saturn::core::kRbg0DScrollYWordOffset] = static_cast<uint16_t>(dyst_int & 0x01FFu);
-    vram[rot_param_word_offset + saturn::core::kRbg0DScrollYFracWordOffset] = static_cast<uint16_t>(dyst_frac & 0x03FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DScrollWordOffset] = static_cast<uint16_t>(dxst_int & 0x07FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DScrollFracWordOffset] = static_cast<uint16_t>(dxst_frac & 0xFFFFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DScrollYWordOffset] = static_cast<uint16_t>(dyst_int & 0x07FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DScrollYFracWordOffset] = static_cast<uint16_t>(dyst_frac & 0xFFFFu);
 }
 
 /* Set screen horizontal coordinate increments (ΔX, ΔY).
@@ -646,10 +665,10 @@ void set_rbg0_coordinate_increments(uint32_t rot_param_word_offset,
 
     volatile uint16_t* vram = VDP2_VRAM_16;
 
-    vram[rot_param_word_offset + saturn::core::kRbg0DotStepWordOffset] = static_cast<uint16_t>(dx_int & 0x01FFu);
-    vram[rot_param_word_offset + saturn::core::kRbg0DotStepFracWordOffset] = static_cast<uint16_t>(dx_frac & 0x03FFu);
-    vram[rot_param_word_offset + saturn::core::kRbg0DotStepYWordOffset] = static_cast<uint16_t>(dy_int & 0x01FFu);
-    vram[rot_param_word_offset + saturn::core::kRbg0DotStepYFracWordOffset] = static_cast<uint16_t>(dy_frac & 0x03FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DotStepWordOffset] = static_cast<uint16_t>(dx_int & 0x07FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DotStepFracWordOffset] = static_cast<uint16_t>(dx_frac & 0xFFFFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DotStepYWordOffset] = static_cast<uint16_t>(dy_int & 0x07FFu);
+    vram[rot_param_word_offset + saturn::core::kRbg0DotStepYFracWordOffset] = static_cast<uint16_t>(dy_frac & 0xFFFFu);
 }
 
 }  // namespace saturn::hal::vdp2
