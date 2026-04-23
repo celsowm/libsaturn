@@ -267,7 +267,7 @@ def convert_asset(
     height: int
     colors: list[int]
 
-    if suffix == ".png":
+    if suffix in {".png", ".tga", ".bmp", ".jpg", ".jpeg"}:
         pixels, width, height, colors = parse_png(in_path, resize_to=resize_to)
     elif suffix == ".pgm":
         pixels, width, height = parse_pgm(in_path)
@@ -286,7 +286,7 @@ def convert_asset(
             raise ValueError(".raw input requires --palette")
         colors = parse_palette_txt(palette_path)
     else:
-        raise ValueError("Unsupported format. Use .png, .pgm or .raw")
+        raise ValueError("Unsupported format. Use .png, .tga, .bmp, .jpg, .jpeg, .pgm or .raw")
 
     if width <= 0 or height <= 0:
         raise ValueError("Invalid dimensions")
@@ -311,7 +311,7 @@ def main() -> int:
         description="Convert indexed8 assets for Saturn VDP1"
     )
     parser.add_argument(
-        "--input", required=True, help="Input file (.png, .pgm or .raw)"
+        "--input", required=True, help="Input file (.png, .tga, .bmp, .jpg, .jpeg, .pgm or .raw)"
     )
     parser.add_argument("--out-prefix", required=True, help="Output prefix")
     parser.add_argument("--palette", help="Palette txt file (r g b por linha)")

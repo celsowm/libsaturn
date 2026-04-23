@@ -128,6 +128,18 @@ uint16_t sat_vdp2_rbg0_last_rptau_written(void);
 uint16_t sat_vdp2_rbg0_last_rptal_written(void);
 uint16_t sat_vdp2_rbg0_last_rprctl_written(void);
 uint16_t sat_vdp2_rbg0_last_ktctl_written(void);
+uint16_t sat_vdp2_rbg0_last_rpmd_written(void);
+uint16_t sat_vdp2_rbg0_last_prir_written(void);
+uint16_t sat_vdp2_rbg0_last_bmpnb_written(void);
+uint16_t sat_vdp2_rbg0_last_plsz_written(void);
+
+/* Re-apply all RBG0 configuration registers during VBlank.
+ * After sat_init() the display is enabled, so VDP2 register writes
+ * outside VBlank are silently dropped by the hardware.  Call this
+ * function once per frame inside your VBlank handler (i.e. after
+ * sat_wait_vblank() returns) to ensure RBG0 registers take effect.
+ */
+sat_result_t sat_vdp2_rbg0_commit(void);
 sat_result_t sat_vdp2_rbg0_set_rotation_read_control(uint16_t rprctl);
 sat_result_t sat_vdp2_rbg0_set_coefficient_control(uint16_t ktctl);
 

@@ -104,7 +104,7 @@ int main(void) {
     const sat_vdp2_nbg0_config_t nbg0_cfg = {
         SAT_VDP2_CHAR_SIZE_1X1,
         SAT_VDP2_COLOR_MODE_16,
-        0x0010u,
+        0x0001u,
         1u,
         0u
     };

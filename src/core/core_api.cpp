@@ -43,7 +43,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     g_state.config = *config;
     g_state.pad = {0, 0, 0};
     g_state.clear_color = 0x0000;
-    g_state.nbg0_map_plane_index = 0x0010u;
+    g_state.nbg0_map_plane_index = 0x003Bu;
     g_state.nbg0_map_width = 64u;
     g_state.nbg0_map_height = 64u;
     g_state.initialized = true;

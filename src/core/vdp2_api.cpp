@@ -16,6 +16,12 @@ extern "C" sat_result_t sat_vdp2_nbg0_init(const sat_vdp2_nbg0_config_t* config)
         return st;
     }
 
+    /* VDP2 register writes are safest while the screen is in VBlank.
+     * Some emulators latch register state more reliably when the setup is
+     * performed inside the blanking interval.
+     */
+    saturn::hal::vdp2::wait_vblank_start();
+    saturn::hal::vdp2::set_display_enable(false);
     saturn::hal::vdp2::CharacterSize cs = (config->char_size == SAT_VDP2_CHAR_SIZE_2X2)
         ? saturn::hal::vdp2::CHAR_SIZE_2x2
         : saturn::hal::vdp2::CHAR_SIZE_1x1;
@@ -29,6 +35,7 @@ extern "C" sat_result_t sat_vdp2_nbg0_init(const sat_vdp2_nbg0_config_t* config)
     g_state.nbg0_map_plane_index = config->map_plane_index;
     g_state.nbg0_map_width = 64u;
     g_state.nbg0_map_height = 64u;
+    saturn::hal::vdp2::set_display_enable(true);
     return SAT_OK;
 }
 
@@ -136,14 +143,22 @@ extern "C" sat_result_t sat_vdp2_nbg0_map_write_region(
     }
 
     const uint32_t map_base_words = compute_map_base_words(g_state.nbg0_map_plane_index);
-    const uint32_t map_width = g_state.nbg0_map_width;
+    const uint32_t map_height = g_state.nbg0_map_height;
+    uint16_t column_words[64];
 
-    for (uint32_t row = 0; row < region->height; ++row) {
+    /* JoEngine writes NBG0 map entries column-major.
+     * Keep the source buffer row-major for the API, but emit VRAM columns
+     * in the same order as the working benchmark.
+     */
+    for (uint32_t col = 0; col < region->width; ++col) {
+        for (uint32_t row = 0; row < region->height; ++row) {
+            column_words[row] = pattern_names[(row * static_cast<uint32_t>(source_stride)) + col];
+        }
+
         const uint32_t dst_offset = map_base_words +
-            (static_cast<uint32_t>(region->y) + row) * map_width +
-            static_cast<uint32_t>(region->x);
-        const uint32_t src_offset = row * static_cast<uint32_t>(source_stride);
-        saturn::hal::vdp2::write_vram_words(dst_offset, pattern_names + src_offset, region->width);
+            static_cast<uint32_t>(region->x + col) * map_height +
+            static_cast<uint32_t>(region->y);
+        saturn::hal::vdp2::write_vram_words(dst_offset, column_words, region->height);
     }
     return SAT_OK;
 }
@@ -268,6 +283,33 @@ extern "C" uint16_t sat_vdp2_rbg0_last_rprctl_written(void) {
 
 extern "C" uint16_t sat_vdp2_rbg0_last_ktctl_written(void) {
     return saturn::hal::vdp2::last_rbg0_ktctl_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_rpmd_written(void) {
+    return saturn::hal::vdp2::last_rbg0_rpmd_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_prir_written(void) {
+    return saturn::hal::vdp2::last_rbg0_prir_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_bmpnb_written(void) {
+    return saturn::hal::vdp2::last_rbg0_bmpnb_written();
+}
+
+extern "C" uint16_t sat_vdp2_rbg0_last_plsz_written(void) {
+    return saturn::hal::vdp2::last_rbg0_plsz_written();
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_commit(void) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::commit_rbg0_config();
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_vdp2_rbg0_set_scroll(uint32_t rot_param_word_offset,

@@ -9,7 +9,8 @@ param(
     [ValidateSet('yaul', 'sbl', 'minimal', 'yaul_fixed', 'region_free', 'minimal_boot', 'correct', 'final')]
     [string]$IpTemplate = 'yaul',
 
-    [string]$Msys2Root
+    [string]$Msys2Root,
+    [switch]$ForceRebuild
 )
 
 Set-StrictMode -Version Latest
@@ -137,10 +138,11 @@ if ($checkResult -eq 'ok') {
 
 # -- Build via MSYS2 --
 $repoPath = $repoMsysPath.Replace('\', '/')
+$makeFlags = if ($ForceRebuild) { '-B ' } else { '' }
 if ($saturnBin) {
-    $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
+    $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
 } else {
-    $makeCommand = 'export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
+    $makeCommand = 'export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
 }
 Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand $makeCommand
 

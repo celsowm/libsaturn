@@ -230,6 +230,7 @@ $(ISO): $(BIN)
 		--expected-size $$APP_SIZE \
 		--profile $(IP_PROFILE) \
 		--load-addr 0x$(APP_LOAD_ADDR_HEX) && \
+	cp $(BIN) $(ISO_ROOT)/0.BIN && \
 	cp $(BIN) $(ISO_ROOT)/1ST_READ.BIN && \
 	$(MKISOFS) \
 		-sysid "SEGA SATURN" \

@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true, Position = 0)]
     [string]$Example,
 
-    [ValidateSet('mednafen', 'kronos')]
+    [ValidateSet('mednafen', 'kronos', 'yabasanshiro')]
     [string]$Emulator = 'mednafen',
 
     [ValidateSet('auto', 'na', 'jp', 'eu')]
@@ -44,6 +44,9 @@ if ($BuildFirst -or -not (Test-Path $isoPath)) {
         IpProfile = $IpProfile
         IpTemplate = $IpTemplate
     }
+    if ($BuildFirst) {
+        $buildArgs.ForceRebuild = $true
+    }
     if ($Msys2Root) {
         $buildArgs.Msys2Root = $Msys2Root
     }
@@ -61,13 +64,14 @@ if (-not (Test-Path $isoPath)) {
 $launcher = switch ($Emulator) {
     'mednafen' { Join-Path $RepoRoot 'emulators\mednafen\run-mednafen.ps1' }
     'kronos' { Join-Path $RepoRoot 'emulators\kronos\run-kronos.ps1' }
+    'yabasanshiro' { Join-Path $RepoRoot 'emulators\YabaSanshiro\run-yabasanshiro.ps1' }
 }
 
 if (-not (Test-Path $launcher)) {
     throw "Emulator launcher not found: $launcher. Run .\scripts\download-emulators.ps1."
 }
 
-$gamePath = if ($Emulator -eq 'mednafen' -and (Test-Path $cuePath)) { $cuePath } else { $isoPath }
+$gamePath = if (($Emulator -eq 'mednafen' -or $Emulator -eq 'yabasanshiro') -and (Test-Path $cuePath)) { $cuePath } else { $isoPath }
 Write-Host "[run-example] Running $normalizedExample on $Emulator"
 if ($Emulator -eq 'mednafen') {
     Write-Host "[run-example] BIOS profile: $BiosProfile"

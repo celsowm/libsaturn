@@ -11,42 +11,45 @@ constexpr uint32_t kRbg0RotationParamWordCount = 48u;
 /* Rotation parameter table word offsets (16-bit word indices from table base).
  * Matches ST-013-R3-061694 byte layout; divide each byte offset by 2.
  *
- *  Word 0-1 : Xst integer / fraction       (bytes 0x00-0x03)
- *  Word 2-3 : Yst integer / fraction       (bytes 0x04-0x07)
- *  Word 4-5 : DeltaXst integer / fraction  (bytes 0x08-0x0B)
- *  Word 6-7 : DeltaYst integer / fraction  (bytes 0x0C-0x0F)
- *  Word 8-9 : DeltaX  integer / fraction   (bytes 0x10-0x13)
- *  Word 10-11: DeltaY integer / fraction   (bytes 0x14-0x17)
- *  Word 12-25: Rotation matrix A-F         (bytes 0x18-0x2F, 6 x 32-bit fx16)
- *  Word 26-28: Viewpoint Px, Py, Pz (+pad) (bytes 0x34-0x3B, +reserved at 0x36)
- *  Word 28-30: Center Cx, Cy, Cz (+pad)   (bytes 0x38-0x3F, +reserved at 0x3E)
- *  Word 32-35: Parallel move Mx, My       (bytes 0x40-0x47)
- *  Word 36-39: Scaling Kx, Ky             (bytes 0x48-0x4F)
- *  Word 40-41: Kast                       (bytes 0x50-0x53)
- *  Word 42-43: DeltaKast                  (bytes 0x54-0x57)
- *  Word 44-45: DeltaKax                   (bytes 0x58-0x5B)
- *  Word 46-47: (padding to reach 48 words)
+ *  Word 0-1  : Xst integer / fraction       (bytes 0x00-0x03)
+ *  Word 2-3  : Yst integer / fraction       (bytes 0x04-0x07)
+ *  Word 4-5  : Zst integer / fraction       (bytes 0x08-0x0B)
+ *  Word 6-7  : DeltaXst integer / fraction  (bytes 0x0C-0x0F)
+ *  Word 8-9  : DeltaYst integer / fraction  (bytes 0x10-0x13)
+ *  Word 10-11: DeltaX  integer / fraction   (bytes 0x14-0x17)
+ *  Word 12-13: DeltaY integer / fraction    (bytes 0x18-0x1B)
+ *  Word 14-25: Rotation matrix A-F          (bytes 0x1C-0x2F, 6 x 32-bit fx16)
+ *  Word 26-29: Viewpoint Px, Py, Pz (+pad)  (bytes 0x34-0x3B, +reserved at 0x36)
+ *  Word 30-33: Center Cx, Cy, Cz (+pad)     (bytes 0x38-0x3F, +reserved at 0x3E)
+ *  Word 34-37: Parallel move Mx, My         (bytes 0x40-0x47)
+ *  Word 38-41: Scaling Kx, Ky               (bytes 0x48-0x4F)
+ *  Word 42-43: Kast                         (bytes 0x50-0x53)
+ *  Word 44-45: DeltaKast                    (bytes 0x54-0x57)
+ *  Word 46-47: DeltaKax                     (bytes 0x58-0x5B)
+ *  Word 48+  : (padding to reach 48 words)
  */
 constexpr uint32_t kRbg0ScrollWordOffset       = 0u;
 constexpr uint32_t kRbg0ScrollFracWordOffset   = 1u;
 constexpr uint32_t kRbg0ScrollYWordOffset      = 2u;
 constexpr uint32_t kRbg0ScrollYFracWordOffset  = 3u;
-constexpr uint32_t kRbg0DScrollWordOffset      = 4u;   /* ΔXst integer  (byte 0x08) */
-constexpr uint32_t kRbg0DScrollFracWordOffset  = 5u;   /* ΔXst fraction (byte 0x0A) */
-constexpr uint32_t kRbg0DScrollYWordOffset     = 6u;   /* ΔYst integer  (byte 0x0C) */
-constexpr uint32_t kRbg0DScrollYFracWordOffset = 7u;   /* ΔYst fraction (byte 0x0E) */
-constexpr uint32_t kRbg0DotStepWordOffset      = 8u;   /* ΔX integer    (byte 0x10) */
-constexpr uint32_t kRbg0DotStepFracWordOffset  = 9u;   /* ΔX fraction   (byte 0x12) */
-constexpr uint32_t kRbg0DotStepYWordOffset     = 10u;  /* ΔY integer    (byte 0x14) */
-constexpr uint32_t kRbg0DotStepYFracWordOffset = 11u;  /* ΔY fraction   (byte 0x16) */
-constexpr uint32_t kRbg0MatrixWordOffset       = 12u;  /* Matrix A-F    (byte 0x18) */
-constexpr uint32_t kRbg0ViewpointWordOffset    = 24u;  /* Px,Py,Pz      (byte 0x30) */
-constexpr uint32_t kRbg0CenterWordOffset       = 28u;  /* Cx,Cy,Cz      (byte 0x38) */
-constexpr uint32_t kRbg0ParallelMoveWordOffset = 32u;  /* Mx,My         (byte 0x40) */
-constexpr uint32_t kRbg0ScalingWordOffset      = 36u;  /* Kx,Ky         (byte 0x48) */
-constexpr uint32_t kRbg0KastWordOffset         = 40u;  /* Kast          (byte 0x50) */
-constexpr uint32_t kRbg0DeltaKastWordOffset    = 42u;  /* ΔKast         (byte 0x54) */
-constexpr uint32_t kRbg0DeltaKaxWordOffset     = 44u;  /* ΔKax          (byte 0x58) */
+constexpr uint32_t kRbg0ScrollZWordOffset      = 4u;   /* Zst integer   (byte 0x08) */
+constexpr uint32_t kRbg0ScrollZFracWordOffset  = 5u;   /* Zst fraction  (byte 0x0A) */
+constexpr uint32_t kRbg0DScrollWordOffset      = 6u;   /* ΔXst integer  (byte 0x0C) */
+constexpr uint32_t kRbg0DScrollFracWordOffset  = 7u;   /* ΔXst fraction (byte 0x0E) */
+constexpr uint32_t kRbg0DScrollYWordOffset     = 8u;   /* ΔYst integer  (byte 0x10) */
+constexpr uint32_t kRbg0DScrollYFracWordOffset = 9u;   /* ΔYst fraction (byte 0x12) */
+constexpr uint32_t kRbg0DotStepWordOffset      = 10u;  /* ΔX integer    (byte 0x14) */
+constexpr uint32_t kRbg0DotStepFracWordOffset  = 11u;  /* ΔX fraction   (byte 0x16) */
+constexpr uint32_t kRbg0DotStepYWordOffset     = 12u;  /* ΔY integer    (byte 0x18) */
+constexpr uint32_t kRbg0DotStepYFracWordOffset = 13u;  /* ΔY fraction   (byte 0x1A) */
+constexpr uint32_t kRbg0MatrixWordOffset       = 14u;  /* Matrix A-F    (byte 0x1C) */
+constexpr uint32_t kRbg0ViewpointWordOffset    = 26u;  /* Px,Py,Pz      (byte 0x34) */
+constexpr uint32_t kRbg0CenterWordOffset       = 30u;  /* Cx,Cy,Cz      (byte 0x38) */
+constexpr uint32_t kRbg0ParallelMoveWordOffset = 34u;  /* Mx,My         (byte 0x40) */
+constexpr uint32_t kRbg0ScalingWordOffset      = 38u;  /* Kx,Ky         (byte 0x48) */
+constexpr uint32_t kRbg0KastWordOffset         = 42u;  /* Kast          (byte 0x50) */
+constexpr uint32_t kRbg0DeltaKastWordOffset    = 44u;  /* ΔKast         (byte 0x54) */
+constexpr uint32_t kRbg0DeltaKaxWordOffset     = 46u;  /* ΔKax          (byte 0x58) */
 
 /* ------------------------------------------------------------------ */
 /* Pure logic helpers — testable on host with native g++               */
@@ -194,7 +197,10 @@ inline sat_result_t validate_map_region(
 }
 
 inline uint32_t compute_map_base_words(uint16_t plane_index) {
-    return static_cast<uint32_t>(plane_index) << 10u;
+    /* For NBG0 cell format with 1-word pattern names and 1x1 characters,
+     * one page is 0x2000 bytes = 0x1000 words.
+     */
+    return static_cast<uint32_t>(plane_index) << 12u;
 }
 
 inline uint32_t compute_map_row_offset(

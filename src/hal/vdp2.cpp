@@ -11,11 +11,21 @@ constexpr uintptr_t kVdp2Base = 0x05F80000u;
 constexpr uint16_t kTvmdDisp = 0x8000u;
 constexpr uint16_t kTvmdBdclmd = 0x0100u;
 constexpr uint16_t kTvstatVblank = 0x0008u;
-constexpr uint16_t kNbg0MapPlaneAIndex = 0x0010u;  // 0x0010 << 11 = 0x8000
+constexpr uint16_t kNbg0MapPlaneAIndex = 0x003Bu;  // JoEngine-style NBG0 map base (MPABN0/MPCDN0 = 0x3B3B)
 constexpr uint32_t kVdp2VramWordCapacity = (512u * 1024u) / 2u;
 constexpr uint32_t kBackdropTableWordOffset = 0x3FFFFu;
-constexpr uint16_t kRbg0CyclePatternLo = 0xCCCCu;
-constexpr uint16_t kRbg0CyclePatternHi = 0xCCCCu;
+/* VDP2 cycle pattern commands:
+ * 0-7 = NBG0-NBG3 pattern/character reads
+ * 8   = RBG0 parameter table read
+ * 9   = RBG0 bitmap read (bitmap mode) / coefficient read (cell mode)
+ * C   = Color RAM read
+ * E   = CPU read/write
+ * F   = No access
+ */
+constexpr uint16_t kRbg0BitmapCyclePatternLo = 0x9E9Eu;  /* Bitmap read + CPU */
+constexpr uint16_t kRbg0BitmapCyclePatternHi = 0x9E9Eu;
+constexpr uint16_t kRbg0ParamCyclePatternLo = 0x8E8Eu;   /* Param read + CPU */
+constexpr uint16_t kRbg0ParamCyclePatternHi = 0x8E8Eu;
 uint16_t g_nbg0_map_plane_index = kNbg0MapPlaneAIndex;
 uint16_t g_last_rbg0_bgon_written = 0x0000u;
 uint16_t g_last_rbg0_ramctl_written = 0x0000u;
@@ -25,6 +35,18 @@ uint16_t g_last_rbg0_rptau_written = 0x0000u;
 uint16_t g_last_rbg0_rptal_written = 0x0000u;
 uint16_t g_last_rbg0_rprctl_written = 0x0000u;
 uint16_t g_last_rbg0_ktctl_written = 0x0000u;
+uint16_t g_last_rbg0_rpmd_written = 0x0000u;
+uint16_t g_last_rbg0_prir_written = 0x0000u;
+uint16_t g_last_rbg0_bmpnb_written = 0x0000u;
+uint16_t g_last_rbg0_plsz_written = 0x0000u;
+uint16_t g_last_rbg0_cycle_a0l = 0xEEEEu;
+uint16_t g_last_rbg0_cycle_a0u = 0xEEEEu;
+uint16_t g_last_rbg0_cycle_a1l = 0xEEEEu;
+uint16_t g_last_rbg0_cycle_a1u = 0xEEEEu;
+uint16_t g_last_rbg0_cycle_b0l = 0xEEEEu;
+uint16_t g_last_rbg0_cycle_b0u = 0xEEEEu;
+uint16_t g_last_rbg0_cycle_b1l = 0xEEEEu;
+uint16_t g_last_rbg0_cycle_b1u = 0xEEEEu;
 
 template <uint32_t Offset>
 volatile uint16_t& reg() {
@@ -85,30 +107,43 @@ inline void set_vram_cycle_pattern(uint16_t bank_id, uint16_t low_pattern, uint1
     case 0u:
         CYCA0L = low_pattern;
         CYCA0U = high_pattern;
+        g_last_rbg0_cycle_a0l = low_pattern;
+        g_last_rbg0_cycle_a0u = high_pattern;
         break;
     case 1u:
         CYCA1L = low_pattern;
         CYCA1U = high_pattern;
+        g_last_rbg0_cycle_a1l = low_pattern;
+        g_last_rbg0_cycle_a1u = high_pattern;
         break;
     case 2u:
         CYCB0L = low_pattern;
         CYCB0U = high_pattern;
+        g_last_rbg0_cycle_b0l = low_pattern;
+        g_last_rbg0_cycle_b0u = high_pattern;
         break;
     case 3u:
         CYCB1L = low_pattern;
         CYCB1U = high_pattern;
+        g_last_rbg0_cycle_b1l = low_pattern;
+        g_last_rbg0_cycle_b1u = high_pattern;
         break;
     default:
         break;
     }
 }
 
-inline void ensure_rbg0_bank_fetch_visible(uint32_t word_offset) {
+inline void ensure_rbg0_bank_fetch_visible(uint32_t word_offset, bool is_bitmap_bank) {
     const uint16_t bank_id = static_cast<uint16_t>((word_offset >> 16u) & 0x0003u);
-    /* Give the selected bank alternating VDP2/CPU slots so RBG0 fetches are
-     * visible without fully starving CPU-side parameter updates.
+    /* Use cycle patterns with RBG0 bitmap read (9) or parameter read (8)
+     * alternated with CPU access (E) so the VDP2 can fetch data while the
+     * CPU can still update tables during VBlank.
      */
-    set_vram_cycle_pattern(bank_id, kRbg0CyclePatternLo, kRbg0CyclePatternHi);
+    if (is_bitmap_bank) {
+        set_vram_cycle_pattern(bank_id, kRbg0BitmapCyclePatternLo, kRbg0BitmapCyclePatternHi);
+    } else {
+        set_vram_cycle_pattern(bank_id, kRbg0ParamCyclePatternLo, kRbg0ParamCyclePatternHi);
+    }
 }
 
 constexpr double kPi = 3.141592653589793238462643383279502884;
@@ -166,28 +201,26 @@ inline void write_fx16_pair(volatile uint16_t* vram, uint32_t word_offset, doubl
 void init_ntsc_320x224() {
     TVMD = 0x0000;
     VRSIZE = 0x0000;
-    /* Keep the VRAM split / access base that early init established.
-     * The low screen-mode bitfield is not the complete RAMCTL state.
+    /* Mirror the JoEngine baseline VDP2 setup for NBG0 cell format.
+     * This keeps the register state consistent with the working benchmark.
      */
-    RAMCTL = 0x1100u;
+    RAMCTL = 0x1327u;
 
-    // Allocate NBG0 fetches on VRAM-A0 and keep other banks CPU-access friendly.
-    CYCA0L = 0x0E4Eu;
-    CYCA0U = 0x4E4Eu;
-    CYCA1L = 0xEEEEu;
-    CYCA1U = 0xEEEEu;
-    CYCB0L = 0xEEEEu;
+    CYCA0L = 0x5555u;
+    CYCA0U = 0xFEEEu;
+    CYCA1L = 0x5555u;
+    CYCA1U = 0xFEEEu;
+    CYCB0L = 0xFFFFu;
     CYCB0U = 0xEEEEu;
-    CYCB1L = 0xEEEEu;
+    CYCB1L = 0x044Fu;
     CYCB1U = 0xEEEEu;
 
     BGON = 0x0000;
-    CHCTLA = 0x0000;
-    PNCN0 = 0xC000;  // 1-word pattern name + 12-bit character number
-    PLSZ = static_cast<uint16_t>(PLSZ & 0xFFFCu);
-    MPOFN = static_cast<uint16_t>(MPOFN & 0xFFF8u);
+    CHCTLA = 0x3210u;
+    PNCN0 = 0x800Cu;  // 1-word pattern name + 12-bit character number
+    PLSZ = 0x0000u;
+    MPOFN = 0x0000u;
     set_nbg0_map_plane_index(kNbg0MapPlaneAIndex);
-    MPCDN0 = 0x0000;
 
     SCXIN0 = 0x0000;
     SCXDN0 = 0x0000;
@@ -210,7 +243,7 @@ uint16_t read_tvstat() {
 }
 
 void configure_nbg0_character(CharacterSize char_size, ColorMode color_mode) {
-    uint16_t value = static_cast<uint16_t>(CHCTLA & 0xFF80u);
+    uint16_t value = 0x3200u;
     const uint16_t mode = static_cast<uint16_t>(color_mode) & 0x0007u;
     value = static_cast<uint16_t>(value | static_cast<uint16_t>(mode << 4u));
     if (char_size == CHAR_SIZE_2x2) {
@@ -220,11 +253,10 @@ void configure_nbg0_character(CharacterSize char_size, ColorMode color_mode) {
 }
 
 void configure_nbg0_text_layout() {
-    PNCN0 = 0xC000;
-    PLSZ = static_cast<uint16_t>(PLSZ & 0xFFFCu);
-    MPOFN = static_cast<uint16_t>(MPOFN & 0xFFF8u);
+    PNCN0 = 0x800Cu;
+    PLSZ = 0x0000u;
+    MPOFN = 0x0000u;
     set_nbg0_map_plane_index(g_nbg0_map_plane_index);
-    MPCDN0 = 0x0000;
 
     SCXIN0 = 0x0000;
     SCXDN0 = 0x0000;
@@ -242,7 +274,9 @@ void configure_nbg0_text_layout() {
 void set_nbg0_map_plane_index(uint16_t plane_index) {
     const uint16_t clamped = static_cast<uint16_t>(plane_index & 0x003Fu);
     g_nbg0_map_plane_index = clamped;
-    MPABN0 = static_cast<uint16_t>((MPABN0 & 0xFF00u) | clamped);
+    const uint16_t packed = static_cast<uint16_t>((clamped << 8u) | clamped);
+    MPABN0 = packed;
+    MPCDN0 = packed;
 }
 
 uint16_t nbg0_map_plane_index() {
@@ -415,8 +449,8 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
     RAMCTL = ramctl;
     g_last_rbg0_ramctl_written = ramctl;
 
-    ensure_rbg0_bank_fetch_visible(bitmap_base_word);
-    ensure_rbg0_bank_fetch_visible(rot_param_base_word);
+    ensure_rbg0_bank_fetch_visible(bitmap_base_word, true);
+    ensure_rbg0_bank_fetch_visible(rot_param_base_word, false);
 
     /* Configure CHCTLB for RBG0.
      * R0CHCN uses bits 14..12, R0BMEN is bit 9 and R0BMSZ is bit 10.
@@ -452,18 +486,30 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
 
     /* Set default rotation parameter mode (A) */
     RPMD = 0x0000u;
+    g_last_rbg0_rpmd_written = 0x0000u;
     RPRCTL = 0x0000u;
     KTCTL = 0x0000u;
     g_last_rbg0_rprctl_written = 0x0000u;
     g_last_rbg0_ktctl_written = 0x0000u;
 
     /* RBG0 priority (R0PRIN) to visible foreground level. */
-    PRIR = static_cast<uint16_t>((PRIR & 0xFFF8u) | 0x0007u);
+    const uint16_t prir = static_cast<uint16_t>((PRIR & 0xFFF8u) | 0x0007u);
+    PRIR = prir;
+    g_last_rbg0_prir_written = prir;
 
     /* Configure BMPNB for bitmap palette control.
      * The example uses palette 0, so leave the bitmap palette bits cleared.
      */
     BMPNB = 0x0000u;
+    g_last_rbg0_bmpnb_written = 0x0000u;
+
+    /* Set screen-over (overflow) mode to repeat image outside display area.
+     * RAOVR bits 11..10 = 00: repeat image (infinite plane effect).
+     * RAPLSZ bits 9..8 = 00: 1x1 page plane size.
+     */
+    const uint16_t plsz = static_cast<uint16_t>(PLSZ & 0xF0FFu);
+    PLSZ = plsz;
+    g_last_rbg0_plsz_written = plsz;
 }
 
 void enable_rbg0(bool enable) {
@@ -472,10 +518,10 @@ void enable_rbg0(bool enable) {
     if (enable) {
         bgon = static_cast<uint16_t>(bgon | 0x1010u);
     } else {
-        bgon = static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x0010u));
+        bgon = static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x1010u));
     }
     BGON = bgon;
-    g_last_rbg0_bgon_written = static_cast<uint16_t>(enable ? 0x1010u : 0x0000u);
+    g_last_rbg0_bgon_written = bgon;
 }
 
 uint16_t last_rbg0_bgon_written() {
@@ -508,6 +554,47 @@ uint16_t last_rbg0_rprctl_written() {
 
 uint16_t last_rbg0_ktctl_written() {
     return g_last_rbg0_ktctl_written;
+}
+
+uint16_t last_rbg0_rpmd_written() {
+    return g_last_rbg0_rpmd_written;
+}
+
+uint16_t last_rbg0_prir_written() {
+    return g_last_rbg0_prir_written;
+}
+
+uint16_t last_rbg0_bmpnb_written() {
+    return g_last_rbg0_bmpnb_written;
+}
+
+uint16_t last_rbg0_plsz_written() {
+    return g_last_rbg0_plsz_written;
+}
+
+void commit_rbg0_config() {
+    /* Re-apply all RBG0 VDP2 register values from their shadows.
+     * Must be called during VBlank for writes to take effect. */
+    RAMCTL = g_last_rbg0_ramctl_written;
+    CYCA0L = g_last_rbg0_cycle_a0l;
+    CYCA0U = g_last_rbg0_cycle_a0u;
+    CYCA1L = g_last_rbg0_cycle_a1l;
+    CYCA1U = g_last_rbg0_cycle_a1u;
+    CYCB0L = g_last_rbg0_cycle_b0l;
+    CYCB0U = g_last_rbg0_cycle_b0u;
+    CYCB1L = g_last_rbg0_cycle_b1l;
+    CYCB1U = g_last_rbg0_cycle_b1u;
+    CHCTLB = g_last_rbg0_chctlb_written;
+    MPOFR = g_last_rbg0_mpofr_written;
+    BMPNB = g_last_rbg0_bmpnb_written;
+    PLSZ = g_last_rbg0_plsz_written;
+    RPTAU = g_last_rbg0_rptau_written;
+    RPTAL = g_last_rbg0_rptal_written;
+    RPMD = g_last_rbg0_rpmd_written;
+    RPRCTL = g_last_rbg0_rprctl_written;
+    KTCTL = g_last_rbg0_ktctl_written;
+    PRIR = g_last_rbg0_prir_written;
+    BGON = g_last_rbg0_bgon_written;
 }
 
 void set_rbg0_param_mode(RBG0ParamMode mode) {

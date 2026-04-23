@@ -160,6 +160,9 @@ int main(void) {
     while (1) {
         sat_pad_state_t pad = {0};
         sat_example_must(sat_wait_vblank());
+        /* Register writes outside VBlank are silently dropped by the VDP2.
+         * Re-apply all RBG0 config registers during VBlank. */
+        sat_example_must(sat_vdp2_rbg0_commit());
         sat_example_must(sat_pad_poll(&pad));
 
         /* Exit on START button */
