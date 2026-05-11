@@ -80,4 +80,4 @@ if ($Emulator -eq 'mednafen') {
 else {
     & $launcher -GamePath $gamePath -ExtraArgs $ExtraArgs
 }
-exit $LASTEXITCODE
+if (Test-Path Variable:LASTEXITCODE) { exit $LASTEXITCODE }
