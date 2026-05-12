@@ -18,8 +18,8 @@
 
 /* Bitmap in VRAM-A0 (words 0x00000..0x0FFFF) */
 #define BM_BASE_WORD  0x00000u
-/* Rotation params in VRAM-B0 (word 0x20000) — completely separate bank */
-#define RP_BASE_WORD  0x20000u
+/* Rotation params also in VRAM-A0, after bitmap (word 0x10000) */
+#define RP_BASE_WORD  0x10000u
 
 #define FX16_SHIFT 16
 
@@ -118,20 +118,20 @@ static void init_rbg0_mode7(void) {
 
     /* RAMCTL: 512K mode
      * A0 = bitmap (bits 1-0 = 11)
-     * B0 = params (bits 5-4 = 01)
+     * A1 = params (bits 3-2 = 01)
      */
-    r[0x00E >> 1] = 0x1113u;
+    r[0x00E >> 1] = 0x1107u;
 
     /* Cycle patterns:
      * A0: bitmap fetch (9) + CPU (E)
-     * B0: param fetch (8) + CPU (E)
+     * A1: param fetch (8) + CPU (E)
      */
     r[0x010 >> 1] = 0x9E9Eu;  /* CYCA0L */
     r[0x012 >> 1] = 0x9E9Eu;  /* CYCA0U */
-    r[0x014 >> 1] = 0xEEEEu;  /* CYCA1L */
-    r[0x016 >> 1] = 0xEEEEu;  /* CYCA1U */
-    r[0x018 >> 1] = 0x8E8Eu;  /* CYCB0L */
-    r[0x01A >> 1] = 0x8E8Eu;  /* CYCB0U */
+    r[0x014 >> 1] = 0x8E8Eu;  /* CYCA1L */
+    r[0x016 >> 1] = 0x8E8Eu;  /* CYCA1U */
+    r[0x018 >> 1] = 0xEEEEu;  /* CYCB0L */
+    r[0x01A >> 1] = 0xEEEEu;  /* CYCB0U */
     r[0x01C >> 1] = 0xEEEEu;  /* CYCB1L */
     r[0x01E >> 1] = 0xEEEEu;  /* CYCB1U */
 
@@ -144,11 +144,11 @@ static void init_rbg0_mode7(void) {
     /* MPOFR: bitmap bank = 0 (A0) */
     r[0x03E >> 1] = 0x0000u;
 
-    /* RPTA: rotation table at word 0x20000 (B0 bank)
-     * RPTAU = 0x20000 >> 16 = 2
-     * RPTAL = 0x20000 & 0xFFFE = 0x0000
+    /* RPTA: rotation table at word 0x10000 (A1 bank start)
+     * RPTAU = 0x10000 >> 16 = 1
+     * RPTAL = 0x10000 & 0xFFFE = 0x0000
      */
-    r[0x0B8 >> 1] = 0x0002u;
+    r[0x0B8 >> 1] = 0x0001u;
     r[0x0BA >> 1] = 0x0000u;
 
     r[0x0B0 >> 1] = 0x0000u;  /* RPMD = A */
