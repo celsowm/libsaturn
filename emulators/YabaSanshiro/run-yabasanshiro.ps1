@@ -63,7 +63,7 @@ if ($selectedBios) {
 else {
     $cliArgs += '--no-bios'
 }
-$cliArgs += $ExtraArgs
+$cliArgs += $ExtraArgs | Where-Object { $_ }
 
 Write-Host "[run-yabasanshiro] Executing: $exePath $($cliArgs -join ' ')"
 $process = Start-Process -FilePath $exePath -ArgumentList $cliArgs -WorkingDirectory $PSScriptRoot -PassThru -Wait
