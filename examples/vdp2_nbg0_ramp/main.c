@@ -17,8 +17,8 @@ enum {
     kMapWidthCells = 64,
     kMapHeightCells = 64,
     kMapWordBase   = ((uint32_t)kMapPlaneIndex << 12u),
-    kPaletteId     = 0u,
-    kPaletteWordOffset = 0u,
+    kPaletteId     = 1u,
+    kPaletteWordOffset = 256u,
     kCellMapOffset = 0x0100u,
     kTileWidth     = 8,
     kTileHeight    = 8,
@@ -100,27 +100,36 @@ static void build_gradient_image(uint8_t pixels[IMG_WIDTH * IMG_HEIGHT]) {
     }
 }
 
+static void build_tile_stream_8bpp(
+    const uint8_t* pixels,
+    uint16_t image_width,
+    uint16_t tile_x,
+    uint16_t tile_y,
+    uint8_t out_bytes[kBytesPerTile8bpp]
+) {
+    uint16_t byte_index = 0u;
+    for (uint16_t col = 0; col < kTileWidth; ++col) {
+        for (uint16_t row = 0; row < kTileHeight; ++row) {
+            const uint32_t src_x = (uint32_t)(image_width - 1u) -
+                ((uint32_t)(tile_x * kTileWidth) + col);
+            const uint32_t src_y = (uint32_t)(tile_y * kTileHeight) + row;
+            out_bytes[byte_index++] = pixels[(src_y * image_width) + src_x];
+        }
+    }
+}
+
 /* Convert 64x64 image into 8x8 tiles and upload to VRAM */
 static sat_result_t upload_image_as_tiles(const uint8_t pixels[IMG_WIDTH * IMG_HEIGHT]) {
     uint8_t tile_bytes[kBytesPerTile8bpp];
-    const uint16_t tiles_x = IMG_WIDTH / kTileWidth;   /* 8 */
-    const uint16_t tiles_y = IMG_HEIGHT / kTileHeight;  /* 8 */
-    const uint32_t tile_count = (uint32_t)tiles_x * (uint32_t)tiles_y;
+    const uint16_t tiles_x = IMG_WIDTH / kTileWidth;
+    const uint16_t tiles_y = IMG_HEIGHT / kTileHeight;
     uint32_t word_offset = 0x1000u;
 
     volatile uint16_t* const vram_words = (volatile uint16_t*)(0x20000000u | 0x05E60000u);
 
     for (uint16_t ty = 0; ty < tiles_y; ++ty) {
         for (uint16_t tx = 0; tx < tiles_x; ++tx) {
-            /* Extract tile pixels */
-            uint8_t bi = 0;
-            for (uint16_t row = 0; row < kTileHeight; ++row) {
-                for (uint16_t col = 0; col < kTileWidth; ++col) {
-                    uint32_t sx = tx * kTileWidth + col;
-                    uint32_t sy = ty * kTileHeight + row;
-                    tile_bytes[bi++] = pixels[sy * IMG_WIDTH + sx];
-                }
-            }
+            build_tile_stream_8bpp(pixels, IMG_WIDTH, tx, ty, tile_bytes);
             for (uint32_t i = 0; i < kBytesPerTile8bpp; i += 2u) {
                 vram_words[word_offset++] = (uint16_t)(
                     ((uint16_t)tile_bytes[i] << 8u) | (uint16_t)tile_bytes[i + 1u]);
@@ -128,9 +137,8 @@ static sat_result_t upload_image_as_tiles(const uint8_t pixels[IMG_WIDTH * IMG_H
         }
     }
 
-    /* Build pattern names for tiled map */
-    uint16_t x2 = 0u;
-    uint16_t y2 = 0u;
+    /* Build pattern names */
+    uint16_t x2 = 0u, y2 = 0u;
     for (uint32_t i = 0; i < (uint32_t)(kMapWidthCells * kMapHeightCells); ++i) {
         if (i != 0u && ((i % kMapWidthCells) == 0u)) { ++x2; }
         if (x2 >= tiles_x) { x2 = 0u; }
@@ -141,11 +149,9 @@ static sat_result_t upload_image_as_tiles(const uint8_t pixels[IMG_WIDTH * IMG_H
         if (y2 >= tiles_y) { y2 = 0u; }
     }
 
-    /* Upload map to VRAM */
-    volatile uint16_t* map_vram = (volatile uint16_t*)(0x20000000u | 0x05E60000u);
-    for (uint32_t i = 0; i < (uint32_t)(kMapWidthCells * kMapHeightCells); ++i) {
-        map_vram[kMapWordBase / 2u + i] = g_pattern_names[i];
-    }
+    SAT_TRY(sat_vdp2_vram_write_words(
+        kMapWordBase, g_pattern_names,
+        (uint32_t)(kMapWidthCells * kMapHeightCells)));
 
     return SAT_OK;
 }

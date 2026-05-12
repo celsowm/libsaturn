@@ -16,26 +16,59 @@ extern "C" sat_result_t sat_vdp2_nbg0_init(const sat_vdp2_nbg0_config_t* config)
         return st;
     }
 
-    /* VDP2 register writes are safest while the screen is in VBlank.
-     * Some emulators latch register state more reliably when the setup is
-     * performed inside the blanking interval.
-     */
-    saturn::hal::vdp2::wait_vblank_start();
-    saturn::hal::vdp2::set_display_enable(false);
-    saturn::hal::vdp2::CharacterSize cs = (config->char_size == SAT_VDP2_CHAR_SIZE_2X2)
-        ? saturn::hal::vdp2::CHAR_SIZE_2x2
-        : saturn::hal::vdp2::CHAR_SIZE_1x1;
-    saturn::hal::vdp2::ColorMode cm = static_cast<saturn::hal::vdp2::ColorMode>(config->color_mode);
-    saturn::hal::vdp2::configure_nbg0_character(cs, cm);
-    saturn::hal::vdp2::configure_nbg0_text_layout();
-    saturn::hal::vdp2::set_nbg0_map_plane_index(config->map_plane_index);
-    saturn::hal::vdp2::set_nbg0_transparent_code_enabled(config->transparent_code_enabled != 0u);
-    saturn::hal::vdp2::set_nbg0_scroll(0, 0, 0, 0);
-
+    /* Save state */
     g_state.nbg0_map_plane_index = config->map_plane_index;
     g_state.nbg0_map_width = 64u;
     g_state.nbg0_map_height = 64u;
-    saturn::hal::vdp2::set_display_enable(true);
+
+    /* Direct register write sequence matching the working vdp2_nbg0_image.
+     * This bypasses the broken configure_nbg0_text_layout which was not
+     * enabling NBG0 correctly. */
+    volatile uint16_t* const regs = (volatile uint16_t*)0x25F80000u;
+
+    regs[0x000u >> 1] = 0x0000u;  /* TVMD off */
+    regs[0x00Eu >> 1] = 0x1327u;  /* RAMCTL */
+
+    regs[0x010u >> 1] = 0x5555u;
+    regs[0x012u >> 1] = 0xFEEEu;
+    regs[0x014u >> 1] = 0x5555u;
+    regs[0x016u >> 1] = 0xFEEEu;
+    regs[0x018u >> 1] = 0xFFFFu;
+    regs[0x01Au >> 1] = 0xEEEEu;
+    regs[0x01Cu >> 1] = 0x044Fu;
+    regs[0x01Eu >> 1] = 0xEEEEu;
+
+    regs[0x020u >> 1] = 0x0000u;  /* BGON off during config */
+
+    /* CHCTLA: color mode + char size */
+    const uint16_t mode = static_cast<uint16_t>(config->color_mode) & 0x0007u;
+    const uint16_t chctl = static_cast<uint16_t>(0x3200u | (mode << 4u) |
+        (config->char_size == SAT_VDP2_CHAR_SIZE_2X2 ? 0x0001u : 0u));
+    regs[0x028u >> 1] = chctl;
+
+    regs[0x030u >> 1] = 0xC00Cu;  /* PNCN0 */
+    regs[0x03Au >> 1] = 0x0000u;  /* PLSZ */
+    regs[0x03Cu >> 1] = 0x0000u;  /* MPOFN */
+
+    /* MPABN0/MPCDN0: map plane index */
+    const uint16_t mp = static_cast<uint16_t>(config->map_plane_index & 0x003Fu);
+    const uint16_t mp_packed = static_cast<uint16_t>((mp << 8u) | mp);
+    regs[0x040u >> 1] = mp_packed;
+    regs[0x042u >> 1] = mp_packed;
+
+    regs[0x078u >> 1] = 0x0001u;
+    regs[0x07Au >> 1] = 0x0000u;
+    regs[0x07Cu >> 1] = 0x0001u;
+    regs[0x07Eu >> 1] = 0x0000u;
+
+    regs[0x0F0u >> 1] = 0x0606u;  /* PRISA */
+    regs[0x0F8u >> 1] = 0x0607u;  /* PRINA */
+
+    /* BGON: bit 0 = NBG0 enable, bit 8 = transparent code disable */
+    const uint16_t bgon = config->transparent_code_enabled ? 0x0001u : 0x0101u;
+    regs[0x020u >> 1] = bgon;
+    regs[0x000u >> 1] = 0x8100u;  /* TVMD on */
+
     return SAT_OK;
 }
 
@@ -199,13 +232,80 @@ extern "C" sat_result_t sat_vdp2_rbg0_init(const sat_vdp2_rbg0_config_t* config)
     if (st != SAT_OK) {
         return st;
     }
-    saturn::hal::vdp2::RBG0BitmapSize bs = static_cast<saturn::hal::vdp2::RBG0BitmapSize>(config->bitmap_size);
-    saturn::hal::vdp2::ColorMode cm = static_cast<saturn::hal::vdp2::ColorMode>(config->color_mode);
-    saturn::hal::vdp2::configure_rbg0_bitmap(bs, cm,
-        static_cast<uint32_t>(config->bitmap_base_word),
-        static_cast<uint32_t>(config->rot_param_base_word));
 
+    /* Save state */
     g_state.rbg0_rot_param_offset = static_cast<uint16_t>(config->rot_param_base_word & 0xFFFFu);
+
+    /* Direct register write sequence matching the working vdp2_rbg0_infinite_plane.
+     * TVMD=0 → config all → BGON=enable → TVMD=0x8100 */
+    volatile uint16_t* const regs = (volatile uint16_t*)0x25F80000u;
+    volatile uint16_t* const vram = (volatile uint16_t*)0x25E00000u;
+
+    const uint32_t bm_base = static_cast<uint32_t>(config->bitmap_base_word);
+    const uint32_t rp_base = static_cast<uint32_t>(config->rot_param_base_word);
+    const uint16_t bm_bank = static_cast<uint16_t>((bm_base >> 16u) & 0x0003u);
+    const uint16_t rp_bank = static_cast<uint16_t>((rp_base >> 16u) & 0x0003u);
+    const uint16_t cm = static_cast<uint16_t>(config->color_mode) & 0x0007u;
+    const uint16_t bs = static_cast<uint16_t>(config->bitmap_size) & 0x0003u;
+
+    /* TVMD off */
+    regs[0x000u >> 1] = 0x0000u;
+
+    /* RAMCTL: 512K mode + bitmap usage bits for both banks */
+    uint16_t ramctl = 0x1100u;
+    ramctl |= static_cast<uint16_t>(0x0003u << (bm_bank * 2u));  /* bitmap bank */
+    ramctl |= static_cast<uint16_t>(0x0001u << (rp_bank * 2u));  /* param bank */
+    regs[0x00Eu >> 1] = ramctl;
+
+    /* Cycle patterns: bank A0 gets RBG0 bitmap read (9E9E), rest CPU-only (EEEE) */
+    regs[0x010u >> 1] = (bm_bank == 0) ? 0x9E9Eu : 0xEEEEu;
+    regs[0x012u >> 1] = (bm_bank == 0) ? 0x9E9Eu : 0xEEEEu;
+    regs[0x014u >> 1] = (bm_bank == 1) ? 0x9E9Eu : 0xEEEEu;
+    regs[0x016u >> 1] = (bm_bank == 1) ? 0x9E9Eu : 0xEEEEu;
+    regs[0x018u >> 1] = (bm_bank == 2) ? 0x9E9Eu : 0xEEEEu;
+    regs[0x01Au >> 1] = (bm_bank == 2) ? 0x9E9Eu : 0xEEEEu;
+    regs[0x01Cu >> 1] = (bm_bank == 3) ? 0x9E9Eu : 0xEEEEu;
+    regs[0x01Eu >> 1] = (bm_bank == 3) ? 0x9E9Eu : 0xEEEEu;
+
+    /* BGON: all disabled during config */
+    regs[0x020u >> 1] = 0x0000u;
+
+    /* CHCTLB: RBG0 color mode + bitmap size */
+    const uint16_t chctlb = static_cast<uint16_t>(
+        (cm << 12u) |          /* R0CHCN: color mode bits 14-12 */
+        (bs << 10u) |          /* R0BMSZ: bitmap size bit 10 */
+        (1u << 9u));           /* R0BMEN: bitmap enable bit 9 */
+    regs[0x02Au >> 1] = chctlb;
+
+    /* MPOFR: bitmap bank selection */
+    regs[0x03Eu >> 1] = static_cast<uint16_t>((regs[0x03Eu >> 1] & 0xFFF8u) | bm_bank);
+
+    /* RPTA: rotation parameter table address */
+    regs[0x0B8u >> 1] = static_cast<uint16_t>((rp_base >> 16u) & 0x0007u);
+    regs[0x0BAu >> 1] = static_cast<uint16_t>(rp_base & 0xFFFEu);
+
+    /* RPMD: parameter mode A */
+    regs[0x0B0u >> 1] = 0x0000u;
+
+    /* RPRCTL, KTCTL */
+    regs[0x0B2u >> 1] = 0x0000u;
+    regs[0x0B4u >> 1] = 0x0000u;
+
+    /* PRIR: priority = 7 */
+    regs[0x0FCu >> 1] = 0x0007u;
+
+    /* BMPNB: bitmap palette = 0 */
+    regs[0x02Eu >> 1] = 0x0000u;
+
+    /* PLSZ: overflow = repeat, 1x1 plane */
+    regs[0x03Au >> 1] = 0x0000u;
+
+    /* BGON: bit 4 = R0ON (RBG0 enable) */
+    regs[0x020u >> 1] = 0x0010u;
+
+    /* TVMD: re-enable display */
+    regs[0x000u >> 1] = 0x8100u;
+
     return SAT_OK;
 }
 

@@ -253,7 +253,25 @@ void configure_nbg0_character(CharacterSize char_size, ColorMode color_mode) {
 }
 
 void configure_nbg0_text_layout() {
-    PNCN0 = 0x800Cu;
+    /* Match the working vdp2_nbg0_image direct register sequence exactly.
+     * NOTE: CHCTLA is set by configure_nbg0_character() before this call,
+     * so we do NOT overwrite it here. */
+    TVMD = 0x0000u;  /* Disable display during config */
+
+    RAMCTL = 0x1327u;
+
+    CYCA0L = 0x5555u;
+    CYCA0U = 0xFEEEu;
+    CYCA1L = 0x5555u;
+    CYCA1U = 0xFEEEu;
+    CYCB0L = 0xFFFFu;
+    CYCB0U = 0xEEEEu;
+    CYCB1L = 0x044Fu;
+    CYCB1U = 0xEEEEu;
+
+    BGON = 0x0000u;
+    /* CHCTLA is set by configure_nbg0_character() - do not overwrite */
+    PNCN0 = 0xC00Cu;   /* 1-word pattern name + 12-bit char number, cell base in B1 */
     PLSZ = 0x0000u;
     MPOFN = 0x0000u;
     set_nbg0_map_plane_index(g_nbg0_map_plane_index);
@@ -267,8 +285,11 @@ void configure_nbg0_text_layout() {
     ZMYIN0 = 0x0001;
     ZMYDN0 = 0x0000;
 
-    PRINA = static_cast<uint16_t>((PRINA & 0xFFF8u) | 0x0001u);
-    set_nbg0_transparent_code_enabled(true);
+    PRISA = 0x0606u;
+    PRINA = 0x0607u;
+
+    BGON = 0x0101u;
+    TVMD = 0x8100u;
 }
 
 void set_nbg0_map_plane_index(uint16_t plane_index) {
