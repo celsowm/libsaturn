@@ -20,6 +20,8 @@
 #define BM_BASE_WORD  0x00000u
 /* Rotation params also in VRAM-A0, after bitmap (word 0x10000) */
 #define RP_BASE_WORD  0x10000u
+/* Coefficient table in VRAM-A1 (word 0x12000) */
+#define COEF_BASE_WORD 0x12000u
 
 #define FX16_SHIFT 16
 
@@ -81,6 +83,49 @@ static void upload_bitmap(uint8_t pixels[BITMAP_WIDTH * BITMAP_HEIGHT]) {
     }
 }
 
+/* 2-word coefficient (mode 0/1/2):
+ * word0: bit15=transparent, bits14..8 line-color(ignored here),
+ *        bit7=sign, bits6..0 integer(7)
+ * word1: fraction(16). */
+static void encode_coef_2word(float k, uint16_t* out_w0, uint16_t* out_w1) {
+    if (k < 0.0f) {
+        k = 0.0f;
+    }
+    if (k > 127.999f) {
+        k = 127.999f;
+    }
+
+    int integer = (int)k;
+    float frac_f = k - (float)integer;
+    int frac = (int)(frac_f * 65536.0f + 0.5f);
+    if (frac > 65535) {
+        frac = 65535;
+    }
+
+    *out_w0 = (uint16_t)(integer & 0x007F);
+    *out_w1 = (uint16_t)(frac & 0xFFFF);
+}
+
+/* Build line-based perspective coefficient table (224 lines), 2-word entries. */
+static void write_coefficient_table(void) {
+    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
+    const int horizon = 72;
+    for (int y = 0; y < SCREEN_HEIGHT; y++) {
+        float k;
+        if (y < horizon) {
+            k = 0.88f;
+        } else {
+            const float t = (float)(y - horizon) / (float)(SCREEN_HEIGHT - 1 - horizon);
+            k = 0.88f + (t * t) * 0.34f;
+        }
+        uint16_t w0, w1;
+        encode_coef_2word(k, &w0, &w1);
+        const uint32_t base = COEF_BASE_WORD + ((uint32_t)y * 2u);
+        vram[base + 0u] = w0;
+        vram[base + 1u] = w1;
+    }
+}
+
 /* Write rotation params directly to VRAM-A1 */
 static void write_rotation_params(int32_t sx, int32_t sy) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
@@ -89,24 +134,60 @@ static void write_rotation_params(int32_t sx, int32_t sy) {
     /* Zero entire 48-word table */
     for (int i = 0; i < 48; i++) vram[b + i] = 0;
 
-    /* Xst, Yst scroll position */
-    vram[b + 0] = (uint16_t)(sx & 0x07FF);
+    /* Keep origin in world space; projection center is handled by Px/Cx. */
+    const int32_t xst = sx - 20;
+    const int32_t yst = sy;
+
+    /* Xst, Yst, Zst */
+    vram[b + 0] = (uint16_t)(xst & 0x1FFF);
     vram[b + 1] = 0x0000;
-    vram[b + 2] = (uint16_t)(sy & 0x07FF);
+    vram[b + 2] = (uint16_t)(yst & 0x1FFF);
     vram[b + 3] = 0x0000;
+    vram[b + 4] = 0x0000;
+    vram[b + 5] = 0x0000;
 
-    /* DeltaYst: Y advances 1 per scanline (frac = 0x0100) */
-    vram[b + 9] = 0x0100;
-    /* DeltaX: X advances 1 per dot */
+    /* DeltaXst/DeltaYst */
+    vram[b + 6] = 0x0000;
+    vram[b + 7] = 0x0000;
+    vram[b + 8] = 0x0001;
+    vram[b + 9] = 0x0000;
+
+    /* DeltaX/DeltaY */
     vram[b + 10] = 0x0001;
+    vram[b + 11] = 0x0000;
+    vram[b + 12] = 0x0000;
+    vram[b + 13] = 0x0000;
 
-    /* Identity rotation: A=1.0, E=1.0 */
+    /* Identity matrix: A=1.0, E=1.0, others 0 */
     vram[b + 14] = 0x0001;
+    vram[b + 15] = 0x0000;
     vram[b + 22] = 0x0001;
+    vram[b + 23] = 0x0000;
 
     /* Scaling = 1.0 */
     vram[b + 38] = 0x0001;
+    vram[b + 39] = 0x0000;
     vram[b + 40] = 0x0001;
+    vram[b + 41] = 0x0000;
+
+    /* Align perspective center with screen center in X/Y. */
+    vram[b + 26] = (uint16_t)(SCREEN_WIDTH / 2); /* Px */
+    vram[b + 27] = (uint16_t)(SCREEN_HEIGHT / 2); /* Py */
+    vram[b + 28] = 0x0200; /* Pz = 512 */
+    vram[b + 30] = (uint16_t)(SCREEN_WIDTH / 2); /* Cx */
+    vram[b + 31] = (uint16_t)(SCREEN_HEIGHT / 2); /* Cy */
+    vram[b + 32] = 0x0000; /* Cz */
+
+    /* Coefficient table addressing (2-word mode):
+     * start = (RAKTAOS_low2 * 0x40000) + (KAst * 4)
+     * Use RAKTAOS=0 and KAst=0x9000 => byte 0x24000 => word 0x12000.
+     */
+    vram[b + 42] = 0x9000; /* KAst integer */
+    vram[b + 43] = 0x0000; /* KAst fraction */
+    vram[b + 44] = 0x0001; /* DeltaKAst integer: next line */
+    vram[b + 45] = 0x0000; /* DeltaKAst fraction */
+    vram[b + 46] = 0x0000; /* DeltaKAx integer: no per-dot advance */
+    vram[b + 47] = 0x0000; /* DeltaKAx fraction */
 }
 
 /* Init RBG0 with SEPARATE banks and cycle patterns */
@@ -148,12 +229,13 @@ static void init_rbg0_mode7(void) {
      * RPTAU = 0x10000 >> 16 = 1
      * RPTAL = 0x10000 & 0xFFFE = 0x0000
      */
-    r[0x0B8 >> 1] = 0x0001u;
-    r[0x0BA >> 1] = 0x0000u;
+    r[0x0BC >> 1] = 0x0001u;
+    r[0x0BE >> 1] = 0x0000u;
 
     r[0x0B0 >> 1] = 0x0000u;  /* RPMD = A */
-    r[0x0B2 >> 1] = 0x0007u;  /* RPRCTL: read both A and B params */
-    r[0x0B4 >> 1] = 0x0000u;  /* KTCTL */
+    r[0x0B2 >> 1] = 0x0000u;  /* RPRCTL: default reads */
+    r[0x0B4 >> 1] = 0x0005u;  /* KTCTL: A coeff enable + 2-word + mode1(kx only) */
+    r[0x0B6 >> 1] = 0x0000u;  /* KTAOF: RAKTAOS=0 */
     r[0x0FC >> 1] = 0x0007u;  /* PRIR = 7 */
     r[0x02E >> 1] = 0x0000u;  /* BMPNB = 0 */
     r[0x03A >> 1] = 0x0000u;  /* PLSZ: repeat overflow */
@@ -178,6 +260,7 @@ int main(void) {
     /* Upload data */
     sat_example_must(sat_vdp2_palette_upload(palette, 256, 0));
     upload_bitmap(pixels);
+    write_coefficient_table();
 
     /* Write rotation params BEFORE init */
     write_rotation_params(0, 0);

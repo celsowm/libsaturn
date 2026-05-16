@@ -413,8 +413,11 @@ volatile uint16_t& RNCN0  = reg<0x038>();
 volatile uint16_t& RPMD   = reg<0x0B0>();
 volatile uint16_t& RPRCTL = reg<0x0B2>();
 volatile uint16_t& KTCTL  = reg<0x0B4>();
-volatile uint16_t& RPTAU  = reg<0x0B8>();
-volatile uint16_t& RPTAL  = reg<0x0BA>();
+/* RPTA lives at 0x0BC/0x0BE.
+ * 0x0B8/0x0BA are OVPNRA/OVPNRB (screen-over pattern name), not RPTA.
+ */
+volatile uint16_t& RPTAU  = reg<0x0BC>();
+volatile uint16_t& RPTAL  = reg<0x0BE>();
 volatile uint16_t& PRIR   = reg<0x0FC>();
 volatile uint16_t& BMPNB  = reg<0x02E>();
 
