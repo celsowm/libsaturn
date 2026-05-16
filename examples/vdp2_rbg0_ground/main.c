@@ -33,22 +33,27 @@ static void build_palette(uint16_t palette[256]) {
     for (int i = 0; i < 256; i++) {
         uint16_t r, g, b;
         if (i < 64) {
-            /* Dark earth */
-            r = (uint16_t)(i / 2); g = (uint16_t)(i / 3); b = 0;
+            /* Sky gradient (blue-cyan range) */
+            r = (uint16_t)(i / 24);
+            g = (uint16_t)(8 + (i * 16) / 63);
+            b = (uint16_t)(16 + (i * 15) / 63);
         } else if (i < 128) {
-            /* Medium brown */
-            r = (uint16_t)(16 + ((i-64)*12)/64);
-            g = (uint16_t)(8 + ((i-64)*8)/64);
+            /* Dark/medium earth */
+            int j = i - 64;
+            r = (uint16_t)(10 + (j * 16) / 63);
+            g = (uint16_t)(4 + (j * 10) / 63);
             b = 0;
         } else if (i < 192) {
-            /* Sandy */
-            r = (uint16_t)(28 + ((i-128)*8)/64);
-            g = (uint16_t)(16 + ((i-128)*8)/64);
-            b = (uint16_t)((i-128)/16);
+            /* Warm sand */
+            int j = i - 128;
+            r = (uint16_t)(20 + (j * 10) / 63);
+            g = (uint16_t)(10 + (j * 12) / 63);
+            b = (uint16_t)(j / 21);
         } else {
             /* Highlight */
-            uint16_t v = (uint16_t)(30 + ((i-192)*2)/64);
-            r = v; g = (uint16_t)(v - 4); b = (uint16_t)(v / 3);
+            int j = i - 192;
+            uint16_t v = (uint16_t)(26 + (j * 5) / 63);
+            r = v; g = (uint16_t)(v - 5); b = (uint16_t)(v / 4);
         }
         palette[i] = (uint16_t)((b << 10) | (g << 5) | r);
     }
@@ -58,17 +63,11 @@ static void build_palette(uint16_t palette[256]) {
 static void fill_ground_pattern(uint8_t pixels[BITMAP_WIDTH * BITMAP_HEIGHT]) {
     for (int y = 0; y < BITMAP_HEIGHT; y++) {
         for (int x = 0; x < BITMAP_WIDTH; x++) {
-            uint8_t col;
-            /* Checker ground */
             int bx = (x >> 4) & 1;
             int by = (y >> 4) & 1;
-            col = (uint8_t)((bx ^ by) ? 100 : 60);
-            /* Horizontal grid lines every 16px */
-            if ((y & 0x0F) == 0) col = 200;
-            /* Vertical grid lines every 32px */
-            if ((x & 0x1F) == 0) col = 200;
-            /* Horizon fade: darker at top */
-            if (y < 48) col = (uint8_t)(col >> 2);
+            uint8_t col = (uint8_t)((bx ^ by) ? 130 : 90);
+            if ((y & 0x0F) == 0) col = 210;
+            if ((x & 0x1F) == 0) col = 210;
             pixels[y * BITMAP_WIDTH + x] = col;
         }
     }
@@ -87,7 +86,7 @@ static void upload_bitmap(uint8_t pixels[BITMAP_WIDTH * BITMAP_HEIGHT]) {
  * word0: bit15=transparent, bits14..8 line-color(ignored here),
  *        bit7=sign, bits6..0 integer(7)
  * word1: fraction(16). */
-static void encode_coef_2word(float k, uint16_t* out_w0, uint16_t* out_w1) {
+static void encode_coef_2word(float k, int transparent, uint16_t* out_w0, uint16_t* out_w1) {
     if (k < 0.0f) {
         k = 0.0f;
     }
@@ -103,23 +102,31 @@ static void encode_coef_2word(float k, uint16_t* out_w0, uint16_t* out_w1) {
     }
 
     *out_w0 = (uint16_t)(integer & 0x007F);
+    if (transparent) {
+        *out_w0 |= 0x8000u;
+    }
     *out_w1 = (uint16_t)(frac & 0xFFFF);
 }
 
-/* Build line-based perspective coefficient table (224 lines), 2-word entries. */
+/* Build line-based coefficient table (224 lines), 2-word entries.
+ * Use mode1(kx only) with a narrow range to avoid lateral bowing.
+ */
 static void write_coefficient_table(void) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    const int horizon = 72;
+    const int horizon = SCREEN_HEIGHT / 2;
     for (int y = 0; y < SCREEN_HEIGHT; y++) {
         float k;
+        int transparent = 0;
         if (y < horizon) {
-            k = 0.88f;
+            k = 1.0f;
+            transparent = 1;
         } else {
             const float t = (float)(y - horizon) / (float)(SCREEN_HEIGHT - 1 - horizon);
-            k = 0.88f + (t * t) * 0.34f;
+            /* Mild perspective without half-pipe curvature. */
+            k = 1.25f - (t * 0.35f);
         }
         uint16_t w0, w1;
-        encode_coef_2word(k, &w0, &w1);
+        encode_coef_2word(k, transparent, &w0, &w1);
         const uint32_t base = COEF_BASE_WORD + ((uint32_t)y * 2u);
         vram[base + 0u] = w0;
         vram[base + 1u] = w1;
@@ -135,8 +142,11 @@ static void write_rotation_params(int32_t sx, int32_t sy) {
     for (int i = 0; i < 48; i++) vram[b + i] = 0;
 
     /* Keep origin in world space; projection center is handled by Px/Cx. */
-    const int32_t xst = sx - 20;
-    const int32_t yst = sy;
+    const int32_t xst = sx;
+    /* Start from the bottom of the texture and walk upward per scanline.
+     * This flips "ceiling-like" projection into floor-like depth.
+     */
+    const int32_t yst = sy + (BITMAP_HEIGHT - 1);
 
     /* Xst, Yst, Zst */
     vram[b + 0] = (uint16_t)(xst & 0x1FFF);
@@ -149,7 +159,7 @@ static void write_rotation_params(int32_t sx, int32_t sy) {
     /* DeltaXst/DeltaYst */
     vram[b + 6] = 0x0000;
     vram[b + 7] = 0x0000;
-    vram[b + 8] = 0x0001;
+    vram[b + 8] = 0xFFFF; /* -1.0 per scanline (16.16 integer part) */
     vram[b + 9] = 0x0000;
 
     /* DeltaX/DeltaY */
@@ -173,7 +183,7 @@ static void write_rotation_params(int32_t sx, int32_t sy) {
     /* Align perspective center with screen center in X/Y. */
     vram[b + 26] = (uint16_t)(SCREEN_WIDTH / 2); /* Px */
     vram[b + 27] = (uint16_t)(SCREEN_HEIGHT / 2); /* Py */
-    vram[b + 28] = 0x0200; /* Pz = 512 */
+    vram[b + 28] = 0x0380; /* Pz = 896: balanced depth */
     vram[b + 30] = (uint16_t)(SCREEN_WIDTH / 2); /* Cx */
     vram[b + 31] = (uint16_t)(SCREEN_HEIGHT / 2); /* Cy */
     vram[b + 32] = 0x0000; /* Cz */
@@ -243,8 +253,8 @@ static void init_rbg0_mode7(void) {
     /* BGON: bit 4 = R0ON (RBG0 enable) */
     r[0x020 >> 1] = 0x0010u;
 
-    /* TVMD: re-enable display */
-    r[0x000 >> 1] = 0x8100u;
+    /* TVMD: re-enable display, black border (disable back-screen border mode) */
+    r[0x000 >> 1] = 0x8000u;
 }
 
 int main(void) {
@@ -268,7 +278,7 @@ int main(void) {
     /* Init RBG0 */
     init_rbg0_mode7();
 
-    sat_example_must(sat_vdp2_back_color_set(0x0000));
+    sat_example_must(sat_vdp2_back_color_set(0x7C00));
 
     int32_t last_x = -1, last_y = -1;
 
@@ -292,9 +302,6 @@ int main(void) {
             last_y = yi;
         }
 
-        /* Flash backdrop */
-        volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-        vram[0x3FFFF] = (yi & 0x10) ? 0x001F : 0x03E0;
     }
     return 0;
 }

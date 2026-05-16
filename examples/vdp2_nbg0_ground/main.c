@@ -1,4 +1,4 @@
-/* vdp2_nbg0_ramp.c - Procedural gradient using NBG0 with direct register writes
+/* vdp2_nbg0_ground.c - Procedural gradient using NBG0 with direct register writes
  *
  * Copies the working approach from vdp2_nbg0_image (direct VDP2_REG writes).
  * NO external assets. Everything generated in-code.
@@ -25,7 +25,7 @@ enum {
     kBytesPerTile8bpp = 64,
 };
 
-/* Our "image" is 64x64 pixels (8x8 tiles) with a color ramp */
+/* Our "image" is 64x64 pixels (8x8 tiles) with a color gradient */
 #define IMG_WIDTH  64
 #define IMG_HEIGHT 64
 
@@ -72,7 +72,7 @@ static void nbg0_direct_set_scroll(uint16_t x, uint16_t y) {
     VDP2_REG(0x076u) = 0x0000u;
 }
 
-/* Build a 256-color RGB ramp palette */
+/* Build a 256-color RGB gradient palette */
 static void build_palette(uint16_t palette[256]) {
     for (int i = 0; i < 256; i++) {
         uint16_t r, g, b;
@@ -94,7 +94,7 @@ static void build_palette(uint16_t palette[256]) {
 static void build_gradient_image(uint8_t pixels[IMG_WIDTH * IMG_HEIGHT]) {
     for (int y = 0; y < IMG_HEIGHT; y++) {
         for (int x = 0; x < IMG_WIDTH; x++) {
-            /* Horizontal ramp with vertical phase shift */
+            /* Horizontal gradient with vertical phase shift */
             pixels[y * IMG_WIDTH + x] = (uint8_t)((x + y * 4) & 0xFF);
         }
     }

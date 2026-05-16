@@ -1,6 +1,6 @@
-/* vdp2_nbg0_ramp_api.c - Procedural gradient using NBG0 via libsaturn API
+/* vdp2_nbg0_ground_api.c - Procedural gradient using NBG0 via libsaturn API
  *
- * Same visual output as vdp2_nbg0_ramp (direct registers) but uses
+ * Same visual output as vdp2_nbg0_ground (direct registers) but uses
  * the libsaturn API (sat_vdp2_nbg0_init, sat_vdp2_vram_write_words, etc.)
  * to verify the API is now working correctly.
  */
@@ -46,7 +46,7 @@ static void build_tile_stream_8bpp(
     }
 }
 
-/* Generate 256-color RGB ramp palette */
+/* Generate 256-color RGB gradient palette */
 static void build_palette(uint16_t palette[256]) {
     for (int i = 0; i < 256; i++) {
         uint16_t r, g, b;
