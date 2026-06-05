@@ -1,21 +1,24 @@
-/* vdp2_rbg0_ground.c - Infinite Mode-7 ground using VDP2 RBG0.
+/* vdp2_rbg0_ground.c - Infinite floor plane using VDP2 RBG0.
  *
- * Sky in top half (RBG0 transparent -> BACK screen color).
- * Floor in bottom half rendered through a per-scanline coefficient table
- * with KMD=0 (k applied to both kx and ky), giving classic Mode-7 depth.
+ * Sky in top half (RBG0 transparent -> BACK screen color). Floor in bottom
+ * half rendered through a per-scanline coefficient table with KMD=0
+ * (k applied to both kx and ky), giving classic Mode-7 depth.
  *
  * D-Pad UP/DOWN walks forward/back, LEFT/RIGHT strafes. START exits.
- * NO external assets - palette and bitmap are generated procedurally.
+ * Uses the same floor.tga texture as vdp2_nbg0_image, tiled into the RBG0
+ * bitmap so the plane repeats while walking.
  *
  * VRAM layout:
  *   A0 (0x00000..0x0FFFF words): RBG0 bitmap, 512x256 8bpp
  *   A1 (0x10000..0x10017 words): rotation parameter A table
  *   A1 (0x12000..0x121BF words): coefficient table (224 lines x 2 words)
+ *   A1 (0x3FFFF): BACK screen color
  */
 #include <stdint.h>
 
 #include "saturn/saturn.h"
 #include "saturn/example_util.h"
+#include "vdp2_rbg0_ground/bg.h"
 
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 224
@@ -24,72 +27,45 @@
 #define BITMAP_HEIGHT 256
 
 /* Mode-7 layout */
-#define HORIZON       112u                              /* y row of vanishing point */
+#define HORIZON       96u                               /* y row of vanishing point */
 #define CX            (SCREEN_WIDTH / 2)                /* 160 */
-#define CY            HORIZON                           /* 112 */
-#define FOCAL         (SCREEN_HEIGHT - 1u - HORIZON)    /* 111 */
+#define CY            HORIZON
+#define FOCAL         96u
+#define MIN_DEPTH     8u
 
 #define BM_BASE_WORD   0x00000u
 #define RP_BASE_WORD   0x10000u
 #define COEF_BASE_WORD 0x12000u
+#define BACK_COLOR_WORD 0x3FFFFu
+
+#define SKY_COLOR     0x7F45u
 
 #define FX16_SHIFT 16
 
 static sat_fx16_t cam_x = 0;
 static sat_fx16_t cam_y = 0;
 
-/* Build a simple ground/sky palette.
- * 0..63   : sky gradient (used by BACK screen visually too, optional)
- * 64..255 : earth-tone grid colors
- */
-static void build_palette(uint16_t palette[256]) {
-    for (int i = 0; i < 256; i++) {
-        uint16_t r, g, b;
-        if (i < 64) {
-            /* Sky gradient: dark blue -> cyan (unused by floor pixels) */
-            r = (uint16_t)(i / 24);
-            g = (uint16_t)(8 + (i * 16) / 63);
-            b = (uint16_t)(16 + (i * 15) / 63);
-        } else if (i < 128) {
-            int j = i - 64;
-            r = (uint16_t)(10 + (j * 16) / 63);
-            g = (uint16_t)(4 + (j * 10) / 63);
-            b = 0;
-        } else if (i < 192) {
-            int j = i - 128;
-            r = (uint16_t)(20 + (j * 10) / 63);
-            g = (uint16_t)(10 + (j * 12) / 63);
-            b = (uint16_t)(j / 21);
-        } else {
-            int j = i - 192;
-            uint16_t v = (uint16_t)(26 + (j * 5) / 63);
-            r = v; g = (uint16_t)(v - 5); b = (uint16_t)(v / 4);
-        }
-        palette[i] = (uint16_t)((b << 10) | (g << 5) | r);
-    }
+static void compute_wrapped_camera_translation(int32_t cam_xi, int32_t cam_yi, int32_t* mx, int32_t* my) {
+    const int32_t sx = (int32_t)((uint32_t)cam_xi & (uint32_t)(BITMAP_WIDTH  - 1));
+    const int32_t sy = (int32_t)((uint32_t)cam_yi & (uint32_t)(BITMAP_HEIGHT - 1));
+
+    *mx = sx - (int32_t)CX;
+    *my = sy - (int32_t)CY;
 }
 
-/* Fill bitmap with a tiled ground grid. 16x16 cells, 32-pixel major
- * gridlines, slightly varied earth tones for depth cueing.
- */
-static void fill_ground_pattern(uint8_t pixels[BITMAP_WIDTH * BITMAP_HEIGHT]) {
-    for (int y = 0; y < BITMAP_HEIGHT; y++) {
-        for (int x = 0; x < BITMAP_WIDTH; x++) {
-            int bx = (x >> 4) & 1;
-            int by = (y >> 4) & 1;
-            uint8_t col = (uint8_t)((bx ^ by) ? 130 : 90);
-            if ((y & 0x1F) == 0) col = 210;
-            if ((x & 0x1F) == 0) col = 210;
-            pixels[y * BITMAP_WIDTH + x] = col;
-        }
-    }
-}
-
-static void upload_bitmap(uint8_t pixels[BITMAP_WIDTH * BITMAP_HEIGHT]) {
+static void upload_tiled_bitmap(const sat_indexed8_asset_t* asset) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
     uint32_t off = BM_BASE_WORD;
-    for (int i = 0; i < BITMAP_WIDTH * BITMAP_HEIGHT; i += 2) {
-        vram[off++] = (uint16_t)((pixels[i] << 8) | pixels[i + 1]);
+
+    for (uint32_t y = 0; y < BITMAP_HEIGHT; y++) {
+        const uint32_t src_y = y % asset->height;
+        for (uint32_t x = 0; x < BITMAP_WIDTH; x += 2u) {
+            const uint32_t src_x0 = x % asset->width;
+            const uint32_t src_x1 = (x + 1u) % asset->width;
+            const uint8_t p0 = asset->pixels[(src_y * asset->width) + src_x0];
+            const uint8_t p1 = asset->pixels[(src_y * asset->width) + src_x1];
+            vram[off++] = (uint16_t)(((uint16_t)p0 << 8u) | p1);
+        }
     }
 }
 
@@ -97,7 +73,9 @@ static void upload_bitmap(uint8_t pixels[BITMAP_WIDTH * BITMAP_HEIGHT]) {
  * word0: bit15 = transparent, bit7 = sign, bits6..0 = integer
  * word1: 16-bit fraction
  *
- * k(y) = FOCAL / (y - HORIZON) for y > HORIZON  (smaller k -> closer / larger texture)
+ * k(y) = FOCAL / depth for y > HORIZON.
+ * MIN_DEPTH avoids the near-horizon singularity that produced huge stretched
+ * streaks in the screenshot.
  * y <= HORIZON => transparent line, BACK screen shows through (sky).
  */
 static void write_coefficient_table(void) {
@@ -108,7 +86,7 @@ static void write_coefficient_table(void) {
             w0 = 0x8000u;
             w1 = 0x0000u;
         } else {
-            uint32_t d = y - HORIZON;                /* 1..111 */
+            uint32_t d = (y - HORIZON) + MIN_DEPTH;
             /* k in 16.16: round((FOCAL << 16) / d) */
             uint32_t k16 = (((uint32_t)FOCAL << 16) + (d / 2u)) / d;
             uint32_t integer = (k16 >> 16) & 0x007Fu;
@@ -122,6 +100,15 @@ static void write_coefficient_table(void) {
     }
 }
 
+static void write_back_screen_sky(void) {
+    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
+    volatile uint16_t* r = (volatile uint16_t*)0x25F80000u;
+
+    vram[BACK_COLOR_WORD] = SKY_COLOR;
+    r[0x0AC >> 1] = (uint16_t)((BACK_COLOR_WORD >> 16u) & 0x0007u);
+    r[0x0AE >> 1] = (uint16_t)(BACK_COLOR_WORD & 0xFFFFu);
+}
+
 /* Rotation parameter A table at word 0x10000.
  * Camera position lives in Mx/My (parallel-translation) so the per-line
  * coefficient does NOT scale the camera, only the per-pixel deltas.
@@ -133,12 +120,9 @@ static void write_coefficient_table(void) {
 static void write_rotation_params(int32_t cam_xi, int32_t cam_yi) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
     uint32_t b = RP_BASE_WORD;
+    int32_t mx, my;
 
-    /* Wrap camera into the bitmap so "repeat overflow" tiles seamlessly. */
-    int32_t sx = (int32_t)((uint32_t)cam_xi & (uint32_t)(BITMAP_WIDTH  - 1));
-    int32_t sy = (int32_t)((uint32_t)cam_yi & (uint32_t)(BITMAP_HEIGHT - 1));
-    int32_t mx = sx - (int32_t)CX;
-    int32_t my = sy - (int32_t)CY;
+    compute_wrapped_camera_translation(cam_xi, cam_yi, &mx, &my);
 
     /* Zero the whole 48-word table first. */
     for (int i = 0; i < 48; i++) vram[b + i] = 0;
@@ -195,6 +179,18 @@ static void write_rotation_params(int32_t cam_xi, int32_t cam_yi) {
     vram[b + 47] = 0x0000;
 }
 
+static void write_camera_translation(int32_t cam_xi, int32_t cam_yi) {
+    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
+    int32_t mx, my;
+
+    compute_wrapped_camera_translation(cam_xi, cam_yi, &mx, &my);
+
+    vram[RP_BASE_WORD + 34u] = (uint16_t)(mx & 0x1FFF);
+    vram[RP_BASE_WORD + 35u] = 0x0000;
+    vram[RP_BASE_WORD + 36u] = (uint16_t)(my & 0x1FFF);
+    vram[RP_BASE_WORD + 37u] = 0x0000;
+}
+
 /* Configure RBG0 in bitmap mode with per-line coefficient (Mode-7 floor). */
 static void init_rbg0_mode7(void) {
     volatile uint16_t* r = (volatile uint16_t*)0x25F80000u;
@@ -208,11 +204,13 @@ static void init_rbg0_mode7(void) {
      */
     r[0x00E >> 1] = 0x1107u;
 
-    /* Cycle patterns: keep bitmap reads on A0, param/coef reads on A1. */
+    /* Cycle patterns: keep bitmap reads on A0 and alternate parameter /
+     * coefficient reads on A1.
+     */
     r[0x010 >> 1] = 0x9E9Eu; /* CYCA0L */
     r[0x012 >> 1] = 0x9E9Eu; /* CYCA0U */
-    r[0x014 >> 1] = 0x8E8Eu; /* CYCA1L */
-    r[0x016 >> 1] = 0x8E8Eu; /* CYCA1U */
+    r[0x014 >> 1] = 0x9898u; /* CYCA1L */
+    r[0x016 >> 1] = 0x9898u; /* CYCA1U */
     r[0x018 >> 1] = 0xEEEEu; /* CYCB0L */
     r[0x01A >> 1] = 0xEEEEu; /* CYCB0U */
     r[0x01C >> 1] = 0xEEEEu; /* CYCB1L */
@@ -240,48 +238,45 @@ static void init_rbg0_mode7(void) {
     r[0x02E >> 1] = 0x0000u; /* BMPNB */
     r[0x03A >> 1] = 0x0000u; /* PLSZ: repeat overflow */
 
-    /* BGON: bit 4 = R0ON (enable RBG0). All NBG layers off. */
-    r[0x020 >> 1] = 0x0010u;
+    write_back_screen_sky();
+
+    /* BGON: bit 4 = R0ON, bit 12 = R0TPON (disable transparent color code).
+     * floor.tga uses palette index 0 as valid texel data; leaving it
+     * transparent creates the huge black perspective stripes.
+     */
+    r[0x020 >> 1] = 0x1010u;
 
     /* TVMD fixed: DISP=1, BDCLMD=1, 320x224 non-interlaced NTSC. */
     r[0x000 >> 1] = 0x8100u;
 }
 
 int main(void) {
-    uint16_t palette[256];
-    uint8_t pixels[BITMAP_WIDTH * BITMAP_HEIGHT];
-
-    build_palette(palette);
-    fill_ground_pattern(pixels);
-
     sat_video_config_t cfg = {SCREEN_WIDTH, SCREEN_HEIGHT, 1, 0};
     sat_example_must(sat_init(&cfg));
 
     /* Upload palette + bitmap + coefficient table before enabling display. */
-    sat_example_must(sat_vdp2_palette_upload(palette, 256, 0));
-    upload_bitmap(pixels);
+    sat_example_must(sat_vdp2_palette_upload(
+        bg_asset.palette,
+        (uint16_t)bg_asset.palette_count,
+        0
+    ));
+    upload_tiled_bitmap(&bg_asset);
     write_coefficient_table();
     write_rotation_params(0, 0);
 
     /* Bring up RBG0 with our Mode-7 setup. */
     init_rbg0_mode7();
 
-    /* Sky color (BACK screen) configured AFTER RBG0 init so nothing
-     * else can disturb BKTAU/BKTAL afterwards.
-     * White (0x7FFF) is used here as a diagnostic stark sky color.
-     */
-    sat_example_must(sat_vdp2_back_color_set(0x7FFFu));
-
     int32_t last_x = -1, last_y = -1;
 
     while (1) {
         sat_pad_state_t pad = {0};
-        sat_example_must(sat_wait_vblank());
+        sat_example_must(sat_vdp2_wait_vblank_start());
         sat_example_must(sat_pad_poll(&pad));
         if ((pad.pressed & SAT_PAD_START) != 0) break;
 
-        /* 4 texels / frame walking speed. */
-        const sat_fx16_t spd = 4 << FX16_SHIFT;
+        /* Faster walking speed; only Mx/My are rewritten during VBlank. */
+        const sat_fx16_t spd = 16 << FX16_SHIFT;
 
         if ((pad.held & SAT_PAD_LEFT))  cam_x -= spd;
         if ((pad.held & SAT_PAD_RIGHT)) cam_x += spd;
@@ -291,10 +286,11 @@ int main(void) {
         int32_t xi = (int32_t)(cam_x >> FX16_SHIFT);
         int32_t yi = (int32_t)(cam_y >> FX16_SHIFT);
         if (xi != last_x || yi != last_y) {
-            write_rotation_params(xi, yi);
+            write_camera_translation(xi, yi);
             last_x = xi;
             last_y = yi;
         }
+        sat_example_must(sat_vdp2_wait_vblank_end());
     }
     return 0;
 }
