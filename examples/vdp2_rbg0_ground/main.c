@@ -63,6 +63,7 @@
 static sat_fx16_t cam_x = 0;
 static sat_fx16_t cam_y = 0;
 static sat_ascii_font_t g_pad_debug_font;
+static uint32_t g_frame_count = 0;
 
 /* Renders pad.held as "PAD:xxxx U D L R S A B C" — hex bitmask plus a letter
  * per button that lights up ('.' when not held) — to visually confirm any
@@ -85,6 +86,20 @@ static void format_pad_debug(uint16_t held, char* out) {
     out[16] = (held & SAT_PAD_B) ? 'B' : '.';
     out[17] = (held & SAT_PAD_C) ? 'C' : '.';
     out[18] = '\0';
+}
+
+/* Renders a free-running frame counter as "FRM:xxxxxxxx" (hex). If this
+ * value is frozen on screen (never counts up), the main loop itself never
+ * got past whatever call precedes the increment — proves/disproves a full
+ * hang independent of the PAD: line, which only tells us about input.
+ */
+static void format_frame_debug(uint32_t count, char* out) {
+    static const char kHex[16] = "0123456789ABCDEF";
+    out[0] = 'F'; out[1] = 'R'; out[2] = 'M'; out[3] = ':'; out[4] = ' ';
+    for (int i = 0; i < 8; i++) {
+        out[5 + i] = kHex[(count >> ((7 - i) * 4)) & 0xFu];
+    }
+    out[13] = '\0';
 }
 
 /* Single source of truth for the Mode-7 layout, shared verbatim with
@@ -257,14 +272,20 @@ int main(void) {
     while (1) {
         sat_pad_state_t pad = {0};
         sat_example_must(sat_vdp2_wait_vblank_start());
+        g_frame_count++;
         sat_example_must(sat_pad_poll(&pad));
         if ((pad.pressed & SAT_PAD_START) != 0) break;
 
         char pad_debug_text[19];
+        char frame_debug_text[14];
         format_pad_debug(pad.held, pad_debug_text);
+        format_frame_debug(g_frame_count, frame_debug_text);
         sat_example_must(sat_begin_frame());
         sat_example_must(sat_ascii_font_draw_text_indexed8(
             &g_pad_debug_font, pad_debug_text, -152, -108, 8, 0, 0
+        ));
+        sat_example_must(sat_ascii_font_draw_text_indexed8(
+            &g_pad_debug_font, frame_debug_text, -152, -96, 8, 0, 0
         ));
         sat_example_must(sat_end_frame());
 

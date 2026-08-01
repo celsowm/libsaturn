@@ -93,6 +93,54 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     g_cmd_buffer = command_buffer;
     g_cmd_capacity = capacity;
     g_cmd_count = 0;
+
+    // Both the local (relative) coordinate register and the system clipping
+    // register are hardware-undefined after power-on/reset (VDP1 manual
+    // 7.1/7.3) and persist only until explicitly rewritten. Every command
+    // list submitted here starts fresh at VRAM word 0 (see submit()'s
+    // copy_words_to_vram call), so without re-issuing these two setup
+    // commands every frame, sprite coordinates silently stop being relative
+    // to screen center (0,0) as every other function in this HAL assumes,
+    // and drift onto whatever garbage the clip/offset registers held.
+    if (g_cmd_capacity < 2u) {
+        return;
+    }
+
+    Command& local_coord = g_cmd_buffer[g_cmd_count++];
+    local_coord.ctrl = 0x000A;  // command select 1010B: local coordinate set
+    local_coord.link = 0;
+    local_coord.pmod = 0;
+    local_coord.colr = 0;
+    local_coord.srca = 0;
+    local_coord.size = 0;
+    local_coord.xa = static_cast<int16_t>(g_width / 2u);
+    local_coord.ya = static_cast<int16_t>(g_height / 2u);
+    local_coord.xb = 0;
+    local_coord.yb = 0;
+    local_coord.xc = 0;
+    local_coord.yc = 0;
+    local_coord.xd = 0;
+    local_coord.yd = 0;
+    local_coord.grda = 0;
+    local_coord.pad = 0;
+
+    Command& sys_clip = g_cmd_buffer[g_cmd_count++];
+    sys_clip.ctrl = 0x0009;  // command select 1001B: system clipping coordinate set
+    sys_clip.link = 0;
+    sys_clip.pmod = 0;
+    sys_clip.colr = 0;
+    sys_clip.srca = 0;
+    sys_clip.size = 0;
+    sys_clip.xa = 0;
+    sys_clip.ya = 0;
+    sys_clip.xb = 0;
+    sys_clip.yb = 0;
+    sys_clip.xc = static_cast<int16_t>(g_width - 1u);
+    sys_clip.yc = static_cast<int16_t>(g_height - 1u);
+    sys_clip.xd = 0;
+    sys_clip.yd = 0;
+    sys_clip.grda = 0;
+    sys_clip.pad = 0;
 }
 
 sat_result_t push_sprite(const SpriteRequest& req) {
