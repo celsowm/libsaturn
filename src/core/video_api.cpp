@@ -46,6 +46,16 @@ extern "C" sat_result_t sat_set_clear_color(uint16_t rgb555) {
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp1_set_erase_transparent(void) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    saturn::hal::vdp1::set_erase_transparent();
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp2_back_color_set(uint16_t rgb555) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();

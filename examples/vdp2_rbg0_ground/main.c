@@ -10,7 +10,7 @@
  *
  * VRAM layout:
  *   A0 (0x00000..0x0FFFF words): RBG0 bitmap, 512x256 8bpp
- *   A1 (0x10000..0x10017 words): rotation parameter A table
+ *   A1 (0x10000..0x1002F words): rotation parameter A table (0x60 bytes = 48 words)
  *   A1 (0x12000..0x121BF words): coefficient table (224 lines x 2 words)
  *   A1 (0x3FFFF): BACK screen color
  */
@@ -33,6 +33,16 @@
 #define FOCAL         96u
 #define MIN_DEPTH     8u
 
+/* Screen-space distance projected onto the ground plane, i.e. the effective
+ * focal length of the Y axis. MUST be non-zero: the hardware computes
+ * Ysp = E * (Yst - Py), so Yst == Py collapses every scanline onto a single
+ * texture row (only X gets scaled by k, producing radial streaks).
+ * Equal to FOCAL keeps the plane isotropic: one world unit sideways covers the
+ * same screen area as one unit forward. Lower values stretch the ground in
+ * depth (a "longer" look), higher values flatten it.
+ */
+#define GROUND_FORWARD 96u
+
 #define BM_BASE_WORD   0x00000u
 #define RP_BASE_WORD   0x10000u
 #define COEF_BASE_WORD 0x12000u
@@ -42,7 +52,7 @@
 
 #define FX16_SHIFT 16
 
-static sat_fx16_t cam_x = 0;
+static sat_fx16_t cam_x = 96 << FX16_SHIFT; /* DIAGNOSTIC: temporary off-centre start */
 static sat_fx16_t cam_y = 0;
 
 static void compute_wrapped_camera_translation(int32_t cam_xi, int32_t cam_yi, int32_t* mx, int32_t* my) {
@@ -113,9 +123,16 @@ static void write_back_screen_sky(void) {
  * Camera position lives in Mx/My (parallel-translation) so the per-line
  * coefficient does NOT scale the camera, only the per-pixel deltas.
  *
- * Effective sample point (per pixel) for line y:
- *   tex_x = cam_x + k(y) * (screen_x - 160)
- *   tex_y = cam_y + k(y) * 111
+ * Hardware evaluates (VDP2 manual 6.1, docs/.../vdp2/hon/p06_10.md):
+ *   X = kx * (Xsp + dX * Hcnt) + Xp,  Xsp = A*(Xst - Px), Xp = Cx + Mx
+ *   Y = ky * (Ysp + dY * Hcnt) + Yp,  Ysp = E*(Yst - Py), Yp = Cy + My
+ *   dX = A*DX + B*DY,  dY = D*DX + E*DY
+ *
+ * With A = E = 1 (all other matrix terms 0), DX = 1, DY = 0, Px = Cx = CX,
+ * Py = Cy = CY, Xst = 0, Yst = CY + GROUND_FORWARD, and kx = ky = k(y) from
+ * the coefficient table, this reduces to the intended Mode-7 sample point:
+ *   tex_x = cam_x + k(y) * (screen_x - CX)
+ *   tex_y = cam_y + k(y) * GROUND_FORWARD
  */
 static void write_rotation_params(int32_t cam_xi, int32_t cam_yi) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
@@ -127,10 +144,14 @@ static void write_rotation_params(int32_t cam_xi, int32_t cam_yi) {
     /* Zero the whole 48-word table first. */
     for (int i = 0; i < 48; i++) vram[b + i] = 0;
 
-    /* Xst = 0, Yst = FOCAL (so that at horizon offset 0 sample lands at camera) */
+    /* Xst = 0 => Xsp = 0 - Px = -CX, so screen_x = CX samples tex_x = cam_x.
+     * Yst = CY + GROUND_FORWARD => Ysp = Yst - Py = GROUND_FORWARD, the term
+     * the coefficient k(y) scales into per-scanline depth. Yst == Py here is
+     * the bug that flattened the plane; keep them distinct.
+     */
     vram[b +  0] = 0x0000;          /* Xst integer */
     vram[b +  1] = 0x0000;          /* Xst fraction */
-    vram[b +  2] = (uint16_t)FOCAL; /* Yst integer = 111 */
+    vram[b +  2] = (uint16_t)(CY + GROUND_FORWARD); /* Yst integer = 192 */
     vram[b +  3] = 0x0000;          /* Yst fraction */
     /* Zst = 0 already zeroed */
 
@@ -146,8 +167,8 @@ static void write_rotation_params(int32_t cam_xi, int32_t cam_yi) {
     vram[b + 22] = 0x0001; /* E */
 
     /* Viewpoint Px,Py,Pz */
-    vram[b + 26] = (uint16_t)CX; /* Px = 160 */
-    vram[b + 27] = (uint16_t)CY; /* Py = 112 */
+    vram[b + 26] = (uint16_t)CX; /* Px = CX = 160 */
+    vram[b + 27] = (uint16_t)CY; /* Py = CY = 96 */
     vram[b + 28] = 0x0000;       /* Pz */
 
     /* Center Cx,Cy,Cz */
@@ -275,13 +296,16 @@ int main(void) {
         sat_example_must(sat_pad_poll(&pad));
         if ((pad.pressed & SAT_PAD_START) != 0) break;
 
-        /* Faster walking speed; only Mx/My are rewritten during VBlank. */
-        const sat_fx16_t spd = 16 << FX16_SHIFT;
+        /* Walking speed in texels/frame; only Mx/My are rewritten during VBlank. */
+        const sat_fx16_t spd = 2 << FX16_SHIFT;
 
         if ((pad.held & SAT_PAD_LEFT))  cam_x -= spd;
         if ((pad.held & SAT_PAD_RIGHT)) cam_x += spd;
-        if ((pad.held & SAT_PAD_UP))    cam_y -= spd; /* forward = camera world-Y decreases */
-        if ((pad.held & SAT_PAD_DOWN))  cam_y += spd;
+        /* tex_y = cam_y + k(y) * GROUND_FORWARD, so larger tex_y is farther away:
+         * walking forward moves distant ground toward the viewer => cam_y grows.
+         */
+        if ((pad.held & SAT_PAD_UP))    cam_y += spd;
+        if ((pad.held & SAT_PAD_DOWN))  cam_y -= spd;
 
         int32_t xi = (int32_t)(cam_x >> FX16_SHIFT);
         int32_t yi = (int32_t)(cam_y >> FX16_SHIFT);

@@ -25,8 +25,10 @@ extern "C" sat_result_t sat_app_frame_begin(
         return st;
     }
 
-    // VDP1 erases with transparent color (end code), allowing VDP2
-    // backdrop to show in areas without sprites.
+    // sat_set_clear_color above makes the VDP1 erase OPAQUE, so clear_rgb555
+    // covers the VDP2 backdrop. Apps that want VDP2 layers visible behind the
+    // sprite layer should drive the frame manually and call
+    // sat_vdp1_set_erase_transparent() instead of using this helper.
     st = sat_begin_frame();
     if (st != SAT_OK) {
         return st;

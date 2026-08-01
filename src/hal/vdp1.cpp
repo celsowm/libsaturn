@@ -46,14 +46,18 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     TVMR = 0x0000;
     FBCR = 0x0000;
     PTMR = 0x0000;
-    // Transparent erase (end code) to allow VDP2 backdrop to show in areas
-    // without sprites. The clear_color is ignored in init because the default
-    // erase is transparent. User can change it via set_clear_color().
-    EWDR = 0x8000u;
+    // Transparent erase. In the 16bpp framebuffer bit15 = 1 is the RGB code,
+    // i.e. an OPAQUE pixel; 0x0000 is the "no data" code that lets the VDP2
+    // backdrop and lower VDP2 layers show through. See
+    // docs/sega_saturn_hardware/hard/vdp1/hon/p04_14.md.
+    // clear_color is ignored here because the default erase is transparent;
+    // call set_clear_color() for an opaque erase instead.
+    EWDR = 0x0000u;
     // Erase enabled on entire screen to clear VDP1 framebuffer each frame.
-    // With transparent color, VDP2 backdrop is visible.
+    // EWRR bit15..9 = X3 (units of 8 px, actual X3 = value*8 - 1),
+    // bit8..0 = Y3, the last erased line, hence height - 1.
     EWLR = 0x0000;
-    EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | height);
+    EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | (height - 1u));
 
     VDP1_VRAM_32[0] = 0x80000000u;
     VDP1_VRAM_32[1] = 0x00000000u;
@@ -63,15 +67,22 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
 }
 
 void set_clear_color(uint16_t rgb555) {
-    // Adds transparency bit (end code) so erase doesn't cover
-    // VDP2 backdrop. Bit 15 = 1 marks pixels as transparent.
+    // Sets bit 15, the RGB code, producing an OPAQUE erase in the given color.
+    // This covers the VDP2 backdrop and any VDP2 layer below the sprite layer.
+    // Use set_erase_transparent() to restore the see-through default.
     EWDR = static_cast<uint16_t>(rgb555 | 0x8000u);
+}
+
+void set_erase_transparent() {
+    // 0x0000 is the framebuffer "no data" code: nothing is drawn, so the VDP2
+    // backdrop and lower VDP2 layers remain visible.
+    EWDR = 0x0000u;
 }
 
 void set_erase_enabled(bool enable, uint16_t width, uint16_t height) {
     if (enable) {
         EWLR = 0x0000;
-        EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | height);
+        EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | (height - 1u));
     } else {
         EWLR = 0x0000;
         EWRR = 0x0000;
