@@ -12,6 +12,7 @@ This repository delivers the `2D Core` MVP:
 - Build pipeline for `ELF -> BIN -> ISO`.
 - Playable 2D demo in `examples/mvp_2d_scene`.
 - Simple movement demo in `examples/red_square`.
+- Controller held/pressed/released debug HUD in `examples/input_debug`.
 - Separate texture demo in `examples/text_sprite`.
 - 8-bit indexed asset converter in `tools/convert_indexed8.py`, with output in `C/H` for embedding in build.
 
@@ -22,6 +23,7 @@ This repository delivers the `2D Core` MVP:
 - `src/hal`: Direct hardware register access.
 - `examples/mvp_2d_scene`: MVP validation demo.
 - `examples/red_square`: Red square moved by D-pad.
+- `examples/input_debug`: HUD showing digital pad held/pressed/released state.
 - `scripts`: MSYS2 setup, toolchain build, smoke build and PowerShell automation.
 - `tools`: Utilities (generation of `ip.bin`, asset converter).
 

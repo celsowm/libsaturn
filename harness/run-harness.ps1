@@ -22,7 +22,12 @@ param(
     [int]$Frames = 60,
     [int]$BootFrames = 90,
     [string]$Msys2Root,
-    [switch]$ForceRebuildHarness
+    [switch]$ForceRebuildHarness,
+    [string]$PadButton,
+    [int]$PadPressAt = 0,
+    [int]$PadReleaseAt = 0,
+    [int]$FbSample = 256,
+    [string]$Out
 )
 
 Set-StrictMode -Version Latest
@@ -90,18 +95,23 @@ if ($ForceRebuildHarness -or -not (Test-Path $probeExe)) {
 }
 
 # -- Run the probe --
-$outJson = Join-Path $HarnessRoot 'build\probe.json'
+$outJson = if ($Out) { $Out } else { Join-Path $HarnessRoot 'build\probe.json' }
 Write-Host "[run-harness] Running probe: $normalizedExample, $BootFrames boot frames + $Frames frames"
-& $probeExe `
-    --iso $isoPath `
-    --bios $biosPath `
-    --bin $binPath `
-    --frames $Frames `
-    --boot-frames $BootFrames `
-    --dump-vram "0x10000:48" `
-    --dump-vram "0x12000:448" `
-    --fb-sample 256 `
-    --out $outJson
+$probeArgs = @(
+    '--iso', $isoPath,
+    '--bios', $biosPath,
+    '--bin', $binPath,
+    '--frames', $Frames,
+    '--boot-frames', $BootFrames,
+    '--dump-vram', '0x10000:48',
+    '--dump-vram', '0x12000:448',
+    '--fb-sample', $FbSample,
+    '--out', $outJson
+)
+if ($PadButton) {
+    $probeArgs += @('--pad-button', $PadButton, '--pad-press-at', $PadPressAt, '--pad-release-at', $PadReleaseAt)
+}
+& $probeExe @probeArgs
 if ($LASTEXITCODE -ne 0) { throw "probe.exe failed (exit $LASTEXITCODE)" }
 
 Write-Host "[run-harness] Wrote $outJson"

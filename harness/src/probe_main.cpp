@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include <ymir/hw/smpc/peripheral/peripheral_state_common.hpp>
 #include <ymir/media/loader/loader.hpp>
 #include <ymir/sys/saturn.hpp>
 
@@ -29,6 +30,41 @@ struct VramRange {
     uint32_t base_word;
     uint32_t word_count;
 };
+
+// Scheduled single-button press for --pad-button: held (bit set, matching
+// Ymir's PeripheralReport.buttons convention — see the pre-existing
+// PROBE_HOLD_START callback below) for frame indices in
+// [pad_press_at, pad_release_at) of phase 3 (the injected program's run),
+// released every other frame. File-scope state because Ymir's report
+// callback is a plain C function pointer, not a capturing std::function.
+uint32_t g_pad_frame_counter = 0;
+uint32_t g_pad_held_observed = 0; // times the report callback actually reported the button held
+ymir::peripheral::Button g_pad_button = ymir::peripheral::Button::None;
+uint32_t g_pad_press_at = 0;
+uint32_t g_pad_release_at = 0;
+// The BIOS polls peripherals on its own during the --boot-frames warm-up
+// (phase 1, before our program has even been injected), which would
+// otherwise burn through the press/release frame window before phase 3
+// starts. Counting only starts once this is set, right before phase 3.
+bool g_pad_active = false;
+
+ymir::peripheral::Button button_from_name(const std::string& name) {
+    using ymir::peripheral::Button;
+    if (name == "UP") return Button::Up;
+    if (name == "DOWN") return Button::Down;
+    if (name == "LEFT") return Button::Left;
+    if (name == "RIGHT") return Button::Right;
+    if (name == "START") return Button::Start;
+    if (name == "A") return Button::A;
+    if (name == "B") return Button::B;
+    if (name == "C") return Button::C;
+    if (name == "X") return Button::X;
+    if (name == "Y") return Button::Y;
+    if (name == "Z") return Button::Z;
+    if (name == "L") return Button::L;
+    if (name == "R") return Button::R;
+    return Button::None;
+}
 
 struct Args {
     std::string iso_path;
@@ -41,13 +77,17 @@ struct Args {
     uint32_t fb_sample_count = 16; // first N bytes of the VDP1 display framebuffer
     std::string dump_wram_high_path; // diagnostic: raw 1MiB High Work RAM dump
     bool print_sh2_state = false;    // diagnostic: master SH2 PC/registers to stderr
+    std::string pad_button;          // e.g. "A", "UP" — scheduled single-button press
+    uint32_t pad_press_at = 0;       // frame index (within --frames) buttons becomes held
+    uint32_t pad_release_at = 0;     // frame index buttons becomes released again
 };
 
 void print_usage() {
     std::fprintf(stderr,
         "usage: probe --iso <path> --bios <path> --bin <path> [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
-        "             [--dump-wram-high <path>] [--print-sh2-state]\n");
+        "             [--dump-wram-high <path>] [--print-sh2-state]\n"
+        "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n");
 }
 
 bool parse_vram_range(const std::string& spec, VramRange* out) {
@@ -104,6 +144,18 @@ bool parse_args(int argc, char** argv, Args* out) {
             out->dump_wram_high_path = v;
         } else if (arg == "--print-sh2-state") {
             out->print_sh2_state = true;
+        } else if (arg == "--pad-button") {
+            const char* v = next("--pad-button");
+            if (!v) return false;
+            out->pad_button = v;
+        } else if (arg == "--pad-press-at") {
+            const char* v = next("--pad-press-at");
+            if (!v) return false;
+            out->pad_press_at = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+        } else if (arg == "--pad-release-at") {
+            const char* v = next("--pad-release-at");
+            if (!v) return false;
+            out->pad_release_at = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
         } else if (arg == "--dump-vram") {
             const char* v = next("--dump-vram");
             if (!v) return false;
@@ -120,6 +172,10 @@ bool parse_args(int argc, char** argv, Args* out) {
     }
     if (out->iso_path.empty() || out->bios_path.empty() || out->bin_path.empty()) {
         std::fprintf(stderr, "--iso, --bios and --bin are required\n");
+        return false;
+    }
+    if (!out->pad_button.empty() && button_from_name(out->pad_button) == ymir::peripheral::Button::None) {
+        std::fprintf(stderr, "unknown --pad-button: %s\n", out->pad_button.c_str());
         return false;
     }
     return true;
@@ -266,7 +322,33 @@ int main(int argc, char** argv) {
     }
     saturn->LoadDisc(std::move(disc));
     saturn->UsePreferredRegion();
-    if (std::getenv("PROBE_CONNECT_PAD") != nullptr) {
+    if (!args.pad_button.empty()) {
+        // --pad-button: hold exactly one button for a scheduled frame window,
+        // released before and after — lets a test observe a single clean
+        // press+release edge rather than every-button-held-forever.
+        g_pad_button = button_from_name(args.pad_button);
+        g_pad_press_at = args.pad_press_at;
+        g_pad_release_at = args.pad_release_at;
+        auto& port = saturn->SMPC.GetPeripheralPort1();
+        using ReportCb = void (*)(ymir::peripheral::PeripheralReport&, void*);
+        port.SetPeripheralReportCallback(ReportCb([](ymir::peripheral::PeripheralReport& report, void*) {
+            if (!g_pad_active) {
+                report.report.controlPad.buttons = ymir::peripheral::Button::None;
+                return;
+            }
+            uint32_t frame = g_pad_frame_counter++;
+            bool held = frame >= g_pad_press_at && frame < g_pad_release_at;
+            report.report.controlPad.buttons = held ? g_pad_button : ymir::peripheral::Button::None;
+            if (held) {
+                g_pad_held_observed++;
+            }
+            if (std::getenv("PROBE_PAD_DEBUG") != nullptr) {
+                std::fprintf(stderr, "pad callback: frame=%u held=%d buttons=%04X\n", frame, held,
+                              static_cast<unsigned>(report.report.controlPad.buttons));
+            }
+        }));
+        port.ConnectControlPad();
+    } else if (std::getenv("PROBE_CONNECT_PAD") != nullptr) {
         auto& port = saturn->SMPC.GetPeripheralPort1();
         if (std::getenv("PROBE_HOLD_START") != nullptr) {
             using ReportCb = void (*)(ymir::peripheral::PeripheralReport&, void*);
@@ -358,6 +440,7 @@ int main(int argc, char** argv) {
     sh2p.RefillPipeline();    // PC was changed behind the interpreter's back
 
     // -- Phase 3: run the injected program for --frames frames.
+    g_pad_active = true;
     run_frames(args.frames, args.boot_frames);
 
     const uint32_t pc_after_run = sh2p.PC();
@@ -451,6 +534,18 @@ int main(int argc, char** argv) {
     j.key("bin_bytes"); j.value(static_cast<uint64_t>(bin.size()));
     j.key("boot_frames"); j.value(static_cast<uint64_t>(args.boot_frames));
     j.key("pc_after_run"); j.value(static_cast<uint64_t>(pc_after_run));
+    j.end_object();
+
+    j.key("input");
+    j.begin_object();
+    j.key("connected"); j.value(!args.pad_button.empty());
+    j.key("button"); j.value(args.pad_button);
+    j.key("press_at"); j.value(static_cast<uint64_t>(args.pad_press_at));
+    j.key("release_at"); j.value(static_cast<uint64_t>(args.pad_release_at));
+    // How many times the SMPC peripheral report callback actually reported
+    // the button held — proof the --pad-button schedule reached Ymir's SMPC
+    // layer, independent of whether the injected program ever polled it.
+    j.key("observed_held_reports"); j.value(static_cast<uint64_t>(g_pad_held_observed));
     j.end_object();
 
     j.key("vdp1");
