@@ -44,7 +44,8 @@ TEST(validate_video_config_valid) {
 }
 
 TEST(compute_map_base_words) {
-    ASSERT_EQ(saturn::core::compute_map_base_words(0x0010), 0x0010u << 10u);
+    /* One page is 0x2000 bytes = 0x1000 words = 1 << 12. */
+    ASSERT_EQ(saturn::core::compute_map_base_words(0x0010), 0x0010u << 12u);
 }
 
 TEST(compute_map_row_offset) {

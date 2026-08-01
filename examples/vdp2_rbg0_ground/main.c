@@ -18,7 +18,10 @@
 
 #include "saturn/saturn.h"
 #include "saturn/example_util.h"
+#include "saturn/font.h"
+#include "saturn/color.h"
 #include "vdp2_rbg0_ground/bg.h"
+#include "rbg0_math.h"
 
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 224
@@ -52,16 +55,51 @@
 
 #define FX16_SHIFT 16
 
-static sat_fx16_t cam_x = 96 << FX16_SHIFT; /* DIAGNOSTIC: temporary off-centre start */
+/* Palette index 0 is the RBG0 ground bitmap; the pad-debug text uses its own
+ * bank so uploading the font never disturbs bg_asset's palette.
+ */
+#define PAD_DEBUG_PALETTE 1u
+
+static sat_fx16_t cam_x = 0;
 static sat_fx16_t cam_y = 0;
+static sat_ascii_font_t g_pad_debug_font;
 
-static void compute_wrapped_camera_translation(int32_t cam_xi, int32_t cam_yi, int32_t* mx, int32_t* my) {
-    const int32_t sx = (int32_t)((uint32_t)cam_xi & (uint32_t)(BITMAP_WIDTH  - 1));
-    const int32_t sy = (int32_t)((uint32_t)cam_yi & (uint32_t)(BITMAP_HEIGHT - 1));
-
-    *mx = sx - (int32_t)CX;
-    *my = sy - (int32_t)CY;
+/* Renders pad.held as "PAD:xxxx U D L R S A B C" — hex bitmask plus a letter
+ * per button that lights up ('.' when not held) — to visually confirm any
+ * input at all is reaching the program, independent of camera movement.
+ */
+static void format_pad_debug(uint16_t held, char* out) {
+    static const char kHex[16] = "0123456789ABCDEF";
+    out[0] = 'P'; out[1] = 'A'; out[2] = 'D'; out[3] = ':'; out[4] = ' ';
+    out[5] = kHex[(held >> 12) & 0xFu];
+    out[6] = kHex[(held >> 8) & 0xFu];
+    out[7] = kHex[(held >> 4) & 0xFu];
+    out[8] = kHex[held & 0xFu];
+    out[9] = ' ';
+    out[10] = (held & SAT_PAD_UP) ? 'U' : '.';
+    out[11] = (held & SAT_PAD_DOWN) ? 'D' : '.';
+    out[12] = (held & SAT_PAD_LEFT) ? 'L' : '.';
+    out[13] = (held & SAT_PAD_RIGHT) ? 'R' : '.';
+    out[14] = (held & SAT_PAD_START) ? 'S' : '.';
+    out[15] = (held & SAT_PAD_A) ? 'A' : '.';
+    out[16] = (held & SAT_PAD_B) ? 'B' : '.';
+    out[17] = (held & SAT_PAD_C) ? 'C' : '.';
+    out[18] = '\0';
 }
+
+/* Single source of truth for the Mode-7 layout, shared verbatim with
+ * tests/host/test_rbg0_ground.cpp via rbg0_math.h.
+ */
+static const rbg0_ground_config_t rbg0_cfg = {
+    BITMAP_WIDTH,
+    BITMAP_HEIGHT,
+    CX,
+    HORIZON, /* == CY */
+    FOCAL,
+    MIN_DEPTH,
+    GROUND_FORWARD,
+    COEF_BASE_WORD,
+};
 
 static void upload_tiled_bitmap(const sat_indexed8_asset_t* asset) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
@@ -79,31 +117,14 @@ static void upload_tiled_bitmap(const sat_indexed8_asset_t* asset) {
     }
 }
 
-/* Coefficient table (2-word, mode 0):
- * word0: bit15 = transparent, bit7 = sign, bits6..0 = integer
- * word1: 16-bit fraction
- *
- * k(y) = FOCAL / depth for y > HORIZON.
- * MIN_DEPTH avoids the near-horizon singularity that produced huge stretched
- * streaks in the screenshot.
- * y <= HORIZON => transparent line, BACK screen shows through (sky).
+/* Coefficient table (2-word, mode 0) — see rbg0_ground_encode_coefficient()
+ * in rbg0_math.h for the encoding and the k(y) = FOCAL / depth derivation.
  */
 static void write_coefficient_table(void) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
     for (uint32_t y = 0; y < (uint32_t)SCREEN_HEIGHT; y++) {
         uint16_t w0, w1;
-        if (y <= HORIZON) {
-            w0 = 0x8000u;
-            w1 = 0x0000u;
-        } else {
-            uint32_t d = (y - HORIZON) + MIN_DEPTH;
-            /* k in 16.16: round((FOCAL << 16) / d) */
-            uint32_t k16 = (((uint32_t)FOCAL << 16) + (d / 2u)) / d;
-            uint32_t integer = (k16 >> 16) & 0x007Fu;
-            uint32_t frac    = k16 & 0xFFFFu;
-            w0 = (uint16_t)integer;
-            w1 = (uint16_t)frac;
-        }
+        rbg0_ground_encode_coefficient(&rbg0_cfg, y, &w0, &w1);
         uint32_t base = COEF_BASE_WORD + (y * 2u);
         vram[base + 0u] = w0;
         vram[base + 1u] = w1;
@@ -119,96 +140,31 @@ static void write_back_screen_sky(void) {
     r[0x0AE >> 1] = (uint16_t)(BACK_COLOR_WORD & 0xFFFFu);
 }
 
-/* Rotation parameter A table at word 0x10000.
+/* Rotation parameter A table at word 0x10000. Built by
+ * rbg0_ground_build_params() (rbg0_math.h) — see that function's comment for
+ * the Xst/Yst/Px/Py derivation and why Yst must differ from Py.
  * Camera position lives in Mx/My (parallel-translation) so the per-line
  * coefficient does NOT scale the camera, only the per-pixel deltas.
- *
- * Hardware evaluates (VDP2 manual 6.1, docs/.../vdp2/hon/p06_10.md):
- *   X = kx * (Xsp + dX * Hcnt) + Xp,  Xsp = A*(Xst - Px), Xp = Cx + Mx
- *   Y = ky * (Ysp + dY * Hcnt) + Yp,  Ysp = E*(Yst - Py), Yp = Cy + My
- *   dX = A*DX + B*DY,  dY = D*DX + E*DY
- *
- * With A = E = 1 (all other matrix terms 0), DX = 1, DY = 0, Px = Cx = CX,
- * Py = Cy = CY, Xst = 0, Yst = CY + GROUND_FORWARD, and kx = ky = k(y) from
- * the coefficient table, this reduces to the intended Mode-7 sample point:
- *   tex_x = cam_x + k(y) * (screen_x - CX)
- *   tex_y = cam_y + k(y) * GROUND_FORWARD
  */
 static void write_rotation_params(int32_t cam_xi, int32_t cam_yi) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    uint32_t b = RP_BASE_WORD;
-    int32_t mx, my;
+    uint16_t table[48];
+    int i;
 
-    compute_wrapped_camera_translation(cam_xi, cam_yi, &mx, &my);
-
-    /* Zero the whole 48-word table first. */
-    for (int i = 0; i < 48; i++) vram[b + i] = 0;
-
-    /* Xst = 0 => Xsp = 0 - Px = -CX, so screen_x = CX samples tex_x = cam_x.
-     * Yst = CY + GROUND_FORWARD => Ysp = Yst - Py = GROUND_FORWARD, the term
-     * the coefficient k(y) scales into per-scanline depth. Yst == Py here is
-     * the bug that flattened the plane; keep them distinct.
-     */
-    vram[b +  0] = 0x0000;          /* Xst integer */
-    vram[b +  1] = 0x0000;          /* Xst fraction */
-    vram[b +  2] = (uint16_t)(CY + GROUND_FORWARD); /* Yst integer = 192 */
-    vram[b +  3] = 0x0000;          /* Yst fraction */
-    /* Zst = 0 already zeroed */
-
-    /* DeltaXst/DeltaYst = 0 (per-line stepping is encoded in coefficient k) */
-    /* already zero */
-
-    /* DeltaX = +1 per pixel, DeltaY = 0 */
-    vram[b + 10] = 0x0001;
-    vram[b + 12] = 0x0000;
-
-    /* Identity rotation matrix: A=E=1, others 0 */
-    vram[b + 14] = 0x0001; /* A */
-    vram[b + 22] = 0x0001; /* E */
-
-    /* Viewpoint Px,Py,Pz */
-    vram[b + 26] = (uint16_t)CX; /* Px = CX = 160 */
-    vram[b + 27] = (uint16_t)CY; /* Py = CY = 96 */
-    vram[b + 28] = 0x0000;       /* Pz */
-
-    /* Center Cx,Cy,Cz */
-    vram[b + 30] = (uint16_t)CX;
-    vram[b + 31] = (uint16_t)CY;
-    vram[b + 32] = 0x0000;
-
-    /* Parallel translation = camera position relative to projection center.
-     * Stored as signed 13-bit integer + 10-bit fraction (Mx/My layout).
-     */
-    vram[b + 34] = (uint16_t)(mx & 0x1FFF); /* Mx integer */
-    vram[b + 35] = 0x0000;                  /* Mx fraction */
-    vram[b + 36] = (uint16_t)(my & 0x1FFF); /* My integer */
-    vram[b + 37] = 0x0000;                  /* My fraction */
-
-    /* kx/ky fallback = 1.0; ignored once coefficient table drives k. */
-    vram[b + 38] = 0x0001;
-    vram[b + 40] = 0x0001;
-
-    /* Coefficient table addressing (2-word, RAKTAOS=0):
-     *   start_byte = (KAst_integer) * 4
-     * COEF_BASE_WORD = 0x12000 (word) => byte 0x24000 => KAst = 0x9000.
-     */
-    vram[b + 42] = 0x9000; /* KAst integer */
-    vram[b + 43] = 0x0000; /* KAst fraction */
-    vram[b + 44] = 0x0001; /* DeltaKAst: next coefficient per scanline */
-    vram[b + 45] = 0x0000;
-    vram[b + 46] = 0x0000; /* DeltaKAx = 0 (line-based, not per-dot) */
-    vram[b + 47] = 0x0000;
+    rbg0_ground_build_params(&rbg0_cfg, cam_xi, cam_yi, table);
+    for (i = 0; i < 48; i++) {
+        vram[RP_BASE_WORD + (uint32_t)i] = table[i];
+    }
 }
 
 static void write_camera_translation(int32_t cam_xi, int32_t cam_yi) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    int32_t mx, my;
+    int32_t mx = rbg0_ground_wrap_translation(cam_xi, rbg0_cfg.bitmap_width, rbg0_cfg.cx);
+    int32_t my = rbg0_ground_wrap_translation(cam_yi, rbg0_cfg.bitmap_height, rbg0_cfg.horizon);
 
-    compute_wrapped_camera_translation(cam_xi, cam_yi, &mx, &my);
-
-    vram[RP_BASE_WORD + 34u] = (uint16_t)(mx & 0x1FFF);
+    vram[RP_BASE_WORD + 34u] = (uint16_t)((uint32_t)mx & 0x1FFFu);
     vram[RP_BASE_WORD + 35u] = 0x0000;
-    vram[RP_BASE_WORD + 36u] = (uint16_t)(my & 0x1FFF);
+    vram[RP_BASE_WORD + 36u] = (uint16_t)((uint32_t)my & 0x1FFFu);
     vram[RP_BASE_WORD + 37u] = 0x0000;
 }
 
@@ -256,6 +212,11 @@ static void init_rbg0_mode7(void) {
     r[0x0B6 >> 1] = 0x0000u; /* KTAOF: RAKTAOS=0 */
 
     r[0x0FC >> 1] = 0x0007u; /* PRIR: highest priority */
+    /* PRISA: sprite priority 7, matching RBG0's PRIR above. Saturn resolves
+     * equal priority in the sprite's favor, so the VDP1 pad-debug text stays
+     * visible over the ground plane instead of being hidden behind it.
+     */
+    r[0x0F0 >> 1] = 0x0707u;
     r[0x02E >> 1] = 0x0000u; /* BMPNB */
     r[0x03A >> 1] = 0x0000u; /* PLSZ: repeat overflow */
 
@@ -274,6 +235,9 @@ static void init_rbg0_mode7(void) {
 int main(void) {
     sat_video_config_t cfg = {SCREEN_WIDTH, SCREEN_HEIGHT, 1, 0};
     sat_example_must(sat_init(&cfg));
+    sat_example_must(sat_ascii_font_init_8x8_indexed8(
+        &g_pad_debug_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, PAD_DEBUG_PALETTE
+    ));
 
     /* Upload palette + bitmap + coefficient table before enabling display. */
     sat_example_must(sat_vdp2_palette_upload(
@@ -295,6 +259,14 @@ int main(void) {
         sat_example_must(sat_vdp2_wait_vblank_start());
         sat_example_must(sat_pad_poll(&pad));
         if ((pad.pressed & SAT_PAD_START) != 0) break;
+
+        char pad_debug_text[19];
+        format_pad_debug(pad.held, pad_debug_text);
+        sat_example_must(sat_begin_frame());
+        sat_example_must(sat_ascii_font_draw_text_indexed8(
+            &g_pad_debug_font, pad_debug_text, -152, -108, 8, 0, 0
+        ));
+        sat_example_must(sat_end_frame());
 
         /* Walking speed in texels/frame; only Mx/My are rewritten during VBlank. */
         const sat_fx16_t spd = 2 << FX16_SHIFT;

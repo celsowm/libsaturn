@@ -55,6 +55,13 @@ constexpr uint32_t kRbg0DeltaKaxWordOffset     = 46u;  /* ΔKax          (byte 0
 /* Pure logic helpers — testable on host with native g++               */
 /* ------------------------------------------------------------------ */
 
+/* fx16 (16.16 fixed point) -> integer, truncating toward negative infinity
+ * (arithmetic right shift). Matches the conversion inlined in resolve_sprite_cmd.
+ */
+inline int32_t fx16_to_int_impl(sat_fx16_t v) {
+    return static_cast<int32_t>(v >> 16);
+}
+
 inline sat_pad_state_t compute_pad_state(uint16_t prev_held, uint16_t cur_held) {
     sat_pad_state_t state = {};
     state.held = cur_held;
@@ -234,8 +241,8 @@ inline sat_result_t resolve_sprite_cmd(
     }
 
     // Coordinates: fx16 (16.16) -> integer pixels
-    out->x = static_cast<int16_t>(cmd->x >> 16);
-    out->y = static_cast<int16_t>(cmd->y >> 16);
+    out->x = static_cast<int16_t>(fx16_to_int_impl(cmd->x));
+    out->y = static_cast<int16_t>(fx16_to_int_impl(cmd->y));
     out->width = (cmd->width != 0u) ? cmd->width : cmd->texture->width;
     out->height = (cmd->height != 0u) ? cmd->height : cmd->texture->height;
     out->srca = cmd->texture->srca;

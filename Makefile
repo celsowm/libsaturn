@@ -112,7 +112,7 @@ CUE := $(BUILD_DIR)/$(EXAMPLE).cue
 # -- Available examples ---------------------------------------
 EXAMPLES := $(filter-out common,$(notdir $(wildcard examples/*)))
 
-.PHONY: all clean dirs check-tools examples-all list-examples bake
+.PHONY: all clean dirs check-tools examples-all list-examples bake test
 
 all: check-tools dirs $(ELF) $(ISO) $(LIBRARY)
 
@@ -255,6 +255,34 @@ $(CUE): $(ISO)
 	$(PYTHON) $(TOOLS)/gen_cue.py \
 		--iso-name $(EXAMPLE).iso \
 		--cue-output $(CUE)
+
+# -- Host tests -------------------------------------------------
+# tests/host/*.cpp exercise the pure helpers in src/core/logic.hpp. They are
+# built with the NATIVE compiler (not sh2eb-elf-g++) and run on the host, so
+# they need no Saturn hardware, emulator or BIOS.
+#   make test
+HOST_CXX       ?= g++
+HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -I.
+HOST_TEST_SRCS := $(wildcard tests/host/*.cpp)
+HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(BUILD_DIR)/tests/%,$(HOST_TEST_SRCS))
+
+# Some host tests exercise logic that lives in a library .cpp file rather than
+# a header (e.g. font glyph tables), and stub out that file's hardware calls
+# themselves (see the extern "C" stubs at the top of test_font_logic.cpp).
+# List such extra sources per test name here.
+HOST_TEST_EXTRA_test_font_logic := src/core/font_api.cpp
+
+$(BUILD_DIR)/tests/%: tests/host/%.cpp
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CXXFLAGS) $< $(HOST_TEST_EXTRA_$*) -o $@
+
+test: $(HOST_TEST_BINS)
+	@fail=0; \
+	for t in $(HOST_TEST_BINS); do \
+		if ! ./$$t; then fail=1; fi; \
+	done; \
+	if [ $$fail -ne 0 ]; then echo "[test] FAILED"; exit 1; fi; \
+	echo "[test] all host tests passed"
 
 # -- Alvos utilitarios ------------------------------------------
 list-examples:
