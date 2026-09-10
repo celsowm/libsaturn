@@ -60,9 +60,8 @@
  */
 #define PAD_DEBUG_PALETTE 1u
 
-/* Debug glyphs are the stock 8x8 font scaled 2x (16x16) so the HUD stays
- * readable in small emulator windows. Bright yellow contrasts with both the
- * blue sky and the tan ground.
+/* HUD font: stock 8x8 scaled 2x (16x16) for readability in small emulator
+ * windows. Bright yellow contrasts with both the blue sky and the tan ground.
  */
 #define PAD_DEBUG_FONT_PX 16u
 
@@ -285,10 +284,6 @@ static void init_rbg0_mode7(void) {
     r[0x000 >> 1] = 0x8100u;
 }
 
-/* TEMP DEBUG MARKER - searchable in the WRAM dump to locate .data base.
- * g_dbg[1] = loop iterations, [2] = pad polls, [3] = polls seeing held!=0,
- * [4] = last held, [5] = polls where held changed vs previous frame.
- */
 int main(void) {
     sat_video_config_t cfg = {SCREEN_WIDTH, SCREEN_HEIGHT, 1, 0};
     sat_example_must(sat_init(&cfg));
@@ -311,20 +306,8 @@ int main(void) {
     sat_pad_state_t pad = {0};
 
     while (1) {
-        /* sat_wait_vblank() is the frame sync every other example uses
-         * (sat_app_frame_begin() calls it internally). It is edge-triggered and
-         * bounded, so the loop keeps running even if TVSTAT.VBLANK stalls.
-         * sat_vdp2_wait_vblank_start() is level-triggered and could trap the
-         * CPU forever here, which froze the HUD and the controller.
-         */
         sat_example_must(sat_wait_vblank());
         g_frame_count++;
-
-        /* Read the pad at the START of the frame so the camera moves on the
-         * same frame the button is held, not one frame later. This also
-         * prevents a single slow INTBACK from blocking the HUD and VDP1
-         * submission for an entire frame.
-         */
         sat_example_must(sat_pad_poll(&pad));
 
         char pad_debug_text[19];
@@ -332,7 +315,6 @@ int main(void) {
         format_pad_debug(pad.held, pad_debug_text);
         format_frame_debug(g_frame_count, frame_debug_text);
         sat_example_must(sat_begin_frame());
-        /* 16px glyphs, 16px advance; two lines clear of the overscan edge. */
         sat_example_must(sat_ascii_font_draw_text_indexed8(
             &g_pad_debug_font, pad_debug_text, -152, -104, 16, 0, 0
         ));
