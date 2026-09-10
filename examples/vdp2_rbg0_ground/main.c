@@ -60,6 +60,45 @@
  */
 #define PAD_DEBUG_PALETTE 1u
 
+/* Debug glyphs are the stock 8x8 font scaled 2x (16x16) so the HUD stays
+ * readable in small emulator windows. Bright yellow contrasts with both the
+ * blue sky and the tan ground.
+ */
+#define PAD_DEBUG_FONT_PX 16u
+
+static sat_result_t init_pad_debug_font_2x(sat_ascii_font_t* font) {
+    uint16_t palette[256] = {0};
+    palette[1] = SAT_COLOR_YELLOW;
+
+    for (uint16_t g = 0; g < SAT_ASCII_FONT_GLYPH_COUNT; ++g) {
+        uint8_t pixels[PAD_DEBUG_FONT_PX * PAD_DEBUG_FONT_PX] = {0};
+        sat_result_t st = sat_font_pack_8x8_glyph_indexed8(
+            pixels,
+            PAD_DEBUG_FONT_PX,
+            PAD_DEBUG_FONT_PX,
+            0,
+            0,
+            sat_font_ascii_8x8_rows((char)(g + 32u)),
+            2u
+        );
+        if (st != SAT_OK) {
+            return st;
+        }
+        st = sat_tex_upload_indexed8(
+            &font->glyphs[g],
+            pixels,
+            PAD_DEBUG_FONT_PX,
+            PAD_DEBUG_FONT_PX,
+            palette,
+            PAD_DEBUG_PALETTE
+        );
+        if (st != SAT_OK) {
+            return st;
+        }
+    }
+    return SAT_OK;
+}
+
 static sat_fx16_t cam_x = 0;
 static sat_fx16_t cam_y = 0;
 static sat_ascii_font_t g_pad_debug_font;
@@ -226,10 +265,9 @@ static void init_rbg0_mode7(void) {
     r[0x0B4 >> 1] = 0x0001u; /* KTCTL: A enable, 2-word, KMD=0 (k -> kx & ky) */
     r[0x0B6 >> 1] = 0x0000u; /* KTAOF: RAKTAOS=0 */
 
-    r[0x0FC >> 1] = 0x0007u; /* PRIR: highest priority */
-    /* PRISA: sprite priority 7, matching RBG0's PRIR above. Saturn resolves
-     * equal priority in the sprite's favor, so the VDP1 pad-debug text stays
-     * visible over the ground plane instead of being hidden behind it.
+    r[0x0FC >> 1] = 0x0006u; /* PRIR: below the VDP1 debug text */
+    /* PRISA: sprite priority 7, above RBG0's PRIR, so the VDP1 pad-debug text
+     * remains visible over the ground plane.
      */
     r[0x0F0 >> 1] = 0x0707u;
     r[0x02E >> 1] = 0x0000u; /* BMPNB */
@@ -247,12 +285,14 @@ static void init_rbg0_mode7(void) {
     r[0x000 >> 1] = 0x8100u;
 }
 
+/* TEMP DEBUG MARKER - searchable in the WRAM dump to locate .data base.
+ * g_dbg[1] = loop iterations, [2] = pad polls, [3] = polls seeing held!=0,
+ * [4] = last held, [5] = polls where held changed vs previous frame.
+ */
 int main(void) {
     sat_video_config_t cfg = {SCREEN_WIDTH, SCREEN_HEIGHT, 1, 0};
     sat_example_must(sat_init(&cfg));
-    sat_example_must(sat_ascii_font_init_8x8_indexed8(
-        &g_pad_debug_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, PAD_DEBUG_PALETTE
-    ));
+    sat_example_must(init_pad_debug_font_2x(&g_pad_debug_font));
 
     /* Upload palette + bitmap + coefficient table before enabling display. */
     sat_example_must(sat_vdp2_palette_upload(
@@ -268,24 +308,36 @@ int main(void) {
     init_rbg0_mode7();
 
     int32_t last_x = -1, last_y = -1;
+    sat_pad_state_t pad = {0};
 
     while (1) {
-        sat_pad_state_t pad = {0};
-        sat_example_must(sat_vdp2_wait_vblank_start());
+        /* sat_wait_vblank() is the frame sync every other example uses
+         * (sat_app_frame_begin() calls it internally). It is edge-triggered and
+         * bounded, so the loop keeps running even if TVSTAT.VBLANK stalls.
+         * sat_vdp2_wait_vblank_start() is level-triggered and could trap the
+         * CPU forever here, which froze the HUD and the controller.
+         */
+        sat_example_must(sat_wait_vblank());
         g_frame_count++;
+
+        /* Read the pad at the START of the frame so the camera moves on the
+         * same frame the button is held, not one frame later. This also
+         * prevents a single slow INTBACK from blocking the HUD and VDP1
+         * submission for an entire frame.
+         */
         sat_example_must(sat_pad_poll(&pad));
-        if ((pad.pressed & SAT_PAD_START) != 0) break;
 
         char pad_debug_text[19];
         char frame_debug_text[14];
         format_pad_debug(pad.held, pad_debug_text);
         format_frame_debug(g_frame_count, frame_debug_text);
         sat_example_must(sat_begin_frame());
+        /* 16px glyphs, 16px advance; two lines clear of the overscan edge. */
         sat_example_must(sat_ascii_font_draw_text_indexed8(
-            &g_pad_debug_font, pad_debug_text, -152, -108, 8, 0, 0
+            &g_pad_debug_font, pad_debug_text, -152, -104, 16, 0, 0
         ));
         sat_example_must(sat_ascii_font_draw_text_indexed8(
-            &g_pad_debug_font, frame_debug_text, -152, -96, 8, 0, 0
+            &g_pad_debug_font, frame_debug_text, -152, -80, 16, 0, 0
         ));
         sat_example_must(sat_end_frame());
 
@@ -307,7 +359,8 @@ int main(void) {
             last_x = xi;
             last_y = yi;
         }
-        sat_example_must(sat_vdp2_wait_vblank_end());
+
+        if ((pad.pressed & SAT_PAD_START) != 0) break;
     }
     return 0;
 }

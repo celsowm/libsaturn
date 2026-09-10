@@ -348,18 +348,41 @@ void upload_palette_16(const uint16_t palette_rgb555[16], uint16_t offset) {
     upload_palette(palette_rgb555, 16, offset);
 }
 
-void wait_vblank_start() {
-    while ((TVSTAT & kTvstatVblank) != 0u) {
-    }
-    while ((TVSTAT & kTvstatVblank) == 0u) {
+namespace {
+
+/* Upper bound on polling spins for the VBlank level changes below.
+ *
+ * These waits are level-triggered on TVSTAT.VBLANK. If the VDP2 CRTC is not
+ * advancing the vertical phase (display off, or an emulator/host that does not
+ * toggle the flag), an unbounded wait traps the caller forever and the whole
+ * application appears frozen - no input, no rendering, no HUD updates.
+ *
+ * scu::wait_vblank() already bounds its poll for exactly this reason; these
+ * helpers must do the same so that any caller degrades into a slow frame
+ * instead of a hard hang.
+ */
+constexpr uint32_t kMaxVblankSpins = 2000000u;
+
+/* Waits for TVSTAT.VBLANK to reach `level`, giving up after kMaxVblankSpins. */
+void wait_vblank_level(uint16_t level) {
+    uint32_t spin = 0;
+    while (static_cast<uint16_t>(TVSTAT & kTvstatVblank) != level) {
+        if (++spin >= kMaxVblankSpins) {
+            return;
+        }
     }
 }
 
+}  // namespace
+
+void wait_vblank_start() {
+    wait_vblank_level(0u);  /* leave the current VBlank if we are inside one */
+    wait_vblank_level(kTvstatVblank);
+}
+
 void wait_vblank_end() {
-    while ((TVSTAT & kTvstatVblank) == 0u) {
-    }
-    while ((TVSTAT & kTvstatVblank) != 0u) {
-    }
+    wait_vblank_level(kTvstatVblank);
+    wait_vblank_level(0u);
 }
 
 void set_screen_mode(ScreenMode mode) {

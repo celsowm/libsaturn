@@ -53,8 +53,12 @@ inline bool intback_read_port1(uint8_t* out_d1, uint8_t* out_d2) {
     SMPC_IREG1 = 0xCAu;
     SMPC_IREG2 = 0xF0u; // mandatory per the INTBACK command spec
 
-    SMPC_COMREG = kIntbackCommand;
+    /* SF must be raised before writing COMREG, because the COMREG write starts
+     * command execution. Reversing these writes can leave stale OREG data or
+     * make the command appear complete before INTBACK has actually run.
+     */
     SMPC_SF = 0x01u;
+    SMPC_COMREG = kIntbackCommand;
 
     if (!wait_sf_clear()) {
         return false;
