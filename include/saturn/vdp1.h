@@ -120,6 +120,22 @@ sat_result_t sat_draw_sprite_screen(
  * destination rectangle, so non-uniform scaling is supported. */
 sat_result_t sat_draw_sprite_scaled(const sat_scaled_sprite_cmd_t* cmd);
 
+/* Draws a scaled sprite centred on a SCREEN coordinate (0,0 = top-left).
+ *
+ * VDP1 texture width must be a multiple of 8, which is often not the size a
+ * sprite wants to be on screen -- an actor on an 8-pixel tile grid wants to be
+ * around 12 pixels, and the nearest legal texture is 16. Scaling at draw time
+ * is how those two meet, and doing it through screen coordinates keeps the
+ * call site from hand-rolling the centre-origin conversion. */
+sat_result_t sat_draw_sprite_scaled_screen(
+    const sat_texture_t* texture,
+    int16_t screen_x,
+    int16_t screen_y,
+    uint16_t draw_width,
+    uint16_t draw_height,
+    uint16_t palette_override
+);
+
 /* Draws a distorted (arbitrary-quad) sprite with native VDP1 coordinates.
  * Region order is A(top-left), B(top-right), C(bottom-right), D(bottom-left). */
 sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd_t* cmd);

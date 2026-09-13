@@ -115,6 +115,32 @@ extern "C" sat_result_t sat_mesh_build_sphere(
     return build_sphere(mesh, *center, radius, segments, rings);
 }
 
+extern "C" void sat_mesh_sphere_wedge_counts(
+    uint16_t segments,
+    uint16_t rings,
+    uint16_t gap_segments,
+    uint16_t* out_vertices,
+    uint16_t* out_faces
+) {
+    sphere_wedge_counts(segments, rings, gap_segments, out_vertices, out_faces);
+}
+
+extern "C" sat_result_t sat_mesh_build_sphere_wedge(
+    sat_mesh_t* mesh,
+    const sat_vec3_t* center,
+    sat_fx16_t radius,
+    uint16_t segments,
+    uint16_t rings,
+    uint16_t gap_start_segment,
+    uint16_t gap_segments
+) {
+    if (center == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return build_sphere_wedge(
+        mesh, *center, radius, segments, rings, gap_start_segment, gap_segments);
+}
+
 extern "C" sat_result_t sat_mesh_build_cylinder(
     sat_mesh_t* mesh,
     const sat_vec3_t* center,
@@ -141,6 +167,10 @@ extern "C" sat_result_t sat_mesh_face_normal(const sat_mesh_t* mesh, uint16_t fa
     return face_normal(mesh, face, out);
 }
 
+extern "C" sat_result_t sat_mesh_face_normal_scaled(const sat_mesh_t* mesh, uint16_t face, sat_vec3_t* out) {
+    return face_normal_scaled(mesh, face, out);
+}
+
 extern "C" int sat_mesh_face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t* eye) {
     if (eye == nullptr) {
         return 0;
@@ -150,6 +180,13 @@ extern "C" int sat_mesh_face_visible(const sat_mesh_t* mesh, uint16_t face, cons
 
 extern "C" sat_result_t sat_mesh_translate(sat_mesh_t* mesh, sat_fx16_t dx, sat_fx16_t dy, sat_fx16_t dz) {
     return translate(mesh, dx, dy, dz);
+}
+
+extern "C" sat_result_t sat_mesh_transform(sat_mesh_t* mesh, const sat_mat4_t* matrix) {
+    if (matrix == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return transform(mesh, matrix->m);
 }
 
 extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_draw_t* params) {
@@ -168,14 +205,15 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
     if (sorted) {
         uint8_t live = 0u;
         for (uint16_t i = 0; i < mesh->face_count; ++i) {
-            sat_vec3_t center;
+            sat_quad3_t quad;
+            if (face_quad(mesh, i, &quad) != SAT_OK) {
+                continue;
+            }
             if ((params->flags & SAT_MESH_CULL_BACKFACE) != 0u &&
-                !face_visible(mesh, i, params->eye)) {
+                !quad_visible(quad, params->eye)) {
                 continue;
             }
-            if (face_center(mesh, i, &center) != SAT_OK) {
-                continue;
-            }
+            const sat_vec3_t center = quad_center(quad);
             params->order[live] = static_cast<uint8_t>(i);
             params->depth[i] = saturn::core::render3d::ground_distance_sq(
                 params->eye.x, params->eye.z, center.x, center.z);
@@ -189,21 +227,24 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
     for (uint16_t n = 0; n < count; ++n) {
         const uint16_t face = sorted ? params->order[n] : n;
         sat_quad3_t quad;
-        uint16_t color = params->color;
+        uint16_t color =
+            (params->face_colors != nullptr) ? params->face_colors[face] : params->color;
 
-        if (!sorted && (params->flags & SAT_MESH_CULL_BACKFACE) != 0u &&
-            !face_visible(mesh, face, params->eye)) {
-            continue;
-        }
         if (face_quad(mesh, face, &quad) != SAT_OK) {
             continue;
         }
+        /* Already culled above when sorting; only the unsorted path still
+         * has to test, and it tests from the quad it just fetched rather
+         * than fetching it a second time. */
+        if (!sorted && (params->flags & SAT_MESH_CULL_BACKFACE) != 0u &&
+            !quad_visible(quad, params->eye)) {
+            continue;
+        }
         if ((params->flags & SAT_MESH_SHADE) != 0u) {
-            sat_vec3_t normal;
-            if (face_normal(mesh, face, &normal) == SAT_OK) {
-                color = saturn::core::render3d::shade_rgb555(
-                    color, saturn::core::render3d::face_intensity3(normal, params->ambient));
-            }
+            color = saturn::core::render3d::shade_rgb555(
+                color,
+                saturn::core::render3d::face_intensity3_scaled(
+                    quad_normal_scaled(quad), params->ambient));
         }
 
         const sat_result_t st = sat_draw_world_polygon(params->view_proj, &quad, color);

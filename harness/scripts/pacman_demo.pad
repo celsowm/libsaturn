@@ -1,20 +1,35 @@
-# Pad script for the harness probe: "FRAME BUTTONS", buttons held from that
-# program frame until the next line. '+' combines buttons, NONE releases all.
-#
-# Drives pacman_2d out of its spawn corridor and around the lower-left of the
-# maze, so a run demonstrably eats pellets rather than sitting still.
+# Pad script for the harness probe: "FRAME BUTTONS", held from that program
+# frame until the next line. '+' combines buttons, NONE releases all.
 #
 #   probe.exe ... --pad-script harness/scripts/pacman_demo.pad
 #
-# Frames are program frames (one per emulated frame once the vblank sync is
-# working), so these numbers are real sixtieths of a second.
+# Drives pacman_2d and pacman_3d -- they run the same simulation -- through a
+# route that eats a power pellet early and then tours the top half of the
+# maze. It ends around frame 400 having scored about 1400 without dying.
+#
+# Two things to know before editing it.
+#
+# The numbers are four frames per tile: Pac-Man moves 2 pixels a frame and a
+# tile is 8. And he is ALREADY MOVING at frame 0 -- the pad only sets which
+# way he WANTS to go next, so he keeps running in his current direction until
+# a turn becomes legal. A direction issued mid-corridor therefore takes effect
+# at the next junction that allows it, not where it was issued, which is why
+# "UP" at frame 86 rather than 94 is the difference between turning up at
+# column 6 and turning up at column 9.
+#
+# Nothing here reacts to the ghosts. Run it much past frame 400 and Pac-Man
+# will eventually be caught standing still in a corner; that is the script
+# running out, not the game misbehaving.
 
-0    NONE
-30   LEFT      # off the spawn tile, eating along row 20
-120  UP        # up the left side
-200  RIGHT
-260  UP
-320  RIGHT     # across the top
-440  DOWN
-520  LEFT
-600  NONE
+0    LEFT      # already running left off the spawn tile, eating along row 20
+46   DOWN      # down the left edge to the power pellet at the bottom corner
+60   UP        # back up to the long bottom corridor
+72   RIGHT
+86   UP        # turns up at column 6 and climbs to the top corridor
+152  RIGHT     # all the way across row 5
+234  DOWN      # down the right edge
+248  LEFT
+270  UP        # up column 21 to the top row
+300  LEFT
+330  DOWN
+350  LEFT      # back west along row 5

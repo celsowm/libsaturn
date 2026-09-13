@@ -34,6 +34,7 @@
         exit(1); } } while(0)
 
 using namespace saturn::core::mesh3d;
+using saturn::core::math3d::fx_abs;
 using saturn::core::math3d::fx_from_int;
 using saturn::core::math3d::fx_to_int;
 using saturn::core::math3d::vec3;
@@ -305,6 +306,142 @@ TEST(clear_keeps_the_storage_binding) {
     ASSERT_EQ(mesh.face_count, 6u);
 }
 
+
+/* face_normal_scaled is the hot path; face_normal is it plus a normalise.
+ * They must point the same way for every face of a primitive, or culling and
+ * shading would disagree about which side a face is on. */
+TEST(scaled_and_unit_normals_point_the_same_way) {
+    sat_mesh_t mesh = make_mesh();
+    ASSERT_EQ(build_sphere(&mesh, vec3(0, 0, 0), fx_from_int(12), 8, 5), SAT_OK);
+    for (uint16_t i = 0; i < mesh.face_count; ++i) {
+        sat_vec3_t scaled;
+        sat_vec3_t unit;
+        ASSERT_EQ(face_normal_scaled(&mesh, i, &scaled), SAT_OK);
+        ASSERT_EQ(face_normal(&mesh, i, &unit), SAT_OK);
+        ASSERT_TRUE(vec3_dot_raw(scaled, unit) > 0);
+    }
+}
+
+
+TEST(sphere_wedge_counts_match_the_builder) {
+    sat_mesh_t mesh = make_mesh();
+    uint16_t v = 0;
+    uint16_t f = 0;
+
+    sphere_wedge_counts(12, 3, 4, &v, &f);
+    ASSERT_EQ(build_sphere_wedge(&mesh, vec3(0, 0, 0), fx_from_int(10), 12, 3, 2, 4), SAT_OK);
+    ASSERT_EQ(mesh.vertex_count, v);
+    ASSERT_EQ(mesh.face_count, f);
+    /* 3 rings x 8 surviving bands, plus two cut walls of 3 quads each. */
+    ASSERT_EQ(mesh.face_count, 30u);
+
+    sphere_wedge_counts(12, 3, 0, &v, &f);
+    ASSERT_EQ(build_sphere_wedge(&mesh, vec3(0, 0, 0), fx_from_int(10), 12, 3, 0, 0), SAT_OK);
+    ASSERT_EQ(mesh.face_count, f);
+    ASSERT_EQ(mesh.face_count, 36u); /* a whole sphere: no gap, no walls */
+}
+
+/* The surface faces must still point away from the centre, and the two cut
+ * walls must face INTO the opening -- if either wall winds the other way it
+ * is culled, and the solid renders as a sphere with a hole you can see
+ * through. */
+TEST(sphere_wedge_surface_and_cut_walls_face_the_right_way) {
+    sat_mesh_t mesh = make_mesh();
+    const sat_vec3_t center = vec3(fx_from_int(5), fx_from_int(9), fx_from_int(-3));
+    const uint16_t segments = 12;
+    const uint16_t rings = 3;
+    const uint16_t gap_start = 2;
+    const uint16_t gap = 4;
+    uint16_t walls = 0;
+    uint16_t i;
+
+    ASSERT_EQ(
+        build_sphere_wedge(&mesh, center, fx_from_int(12), segments, rings, gap_start, gap),
+        SAT_OK);
+
+    /* Middle of the opening, as a direction on the ground plane. Longitude 0
+     * is +Z and increases towards +X, so segment k spans 30k degrees. */
+    const int mid_deg = 30 * (gap_start + (gap / 2));
+    const sat_vec3_t gap_dir = vec3(
+        saturn::core::math3d::sin_deg_fx(fx_from_int(mid_deg)),
+        0,
+        saturn::core::math3d::cos_deg_fx(fx_from_int(mid_deg)));
+
+    for (i = 0; i < mesh.face_count; ++i) {
+        sat_vec3_t normal;
+        sat_vec3_t fc;
+        ASSERT_EQ(face_normal(&mesh, i, &normal), SAT_OK);
+        ASSERT_EQ(face_center(&mesh, i, &fc), SAT_OK);
+        if (vec3_dot_raw(normal, vec3_sub(fc, center)) > 0) {
+            continue; /* an outward-facing surface face */
+        }
+        /* Everything else has to be a cut wall, facing into the opening. */
+        ++walls;
+        ASSERT_TRUE(vec3_dot_raw(normal, gap_dir) > 0);
+    }
+    ASSERT_EQ(walls, (uint16_t)(2u * rings));
+}
+
+TEST(sphere_wedge_gap_removes_the_right_bands) {
+    sat_mesh_t mesh = make_mesh();
+    const uint16_t segments = 12;
+    uint16_t i;
+    int found_in_gap = 0;
+
+    /* A gap that wraps past longitude 0 must be handled without a special
+     * case, because the direction an actor faces is not chosen to avoid it. */
+    ASSERT_EQ(
+        build_sphere_wedge(&mesh, vec3(0, 0, 0), fx_from_int(10), segments, 3, 11, 3),
+        SAT_OK);
+
+    for (i = 0; i < mesh.face_count; ++i) {
+        sat_vec3_t fc;
+        ASSERT_EQ(face_center(&mesh, i, &fc), SAT_OK);
+        /* Bands 11, 0 and 1 span 330..390 degrees: centred on +Z, so a
+         * surface face there would sit at positive z with small |x|. Cut
+         * walls do reach into that arc, so only non-axis faces count. */
+        if (fc.z > fx_from_int(6) && fx_abs(fc.x) < fx_from_int(2)) {
+            found_in_gap = 1;
+        }
+    }
+    ASSERT_FALSE(found_in_gap);
+}
+
+
+/* Orienting a primitive after building it is how a sphere's mouth ends up
+ * opening up-and-down instead of side-to-side: build in the canonical pose,
+ * then rotate. A rotation must move the vertices and leave the shape alone. */
+TEST(transform_rotates_a_built_primitive) {
+    sat_mesh_t mesh = make_mesh();
+    sat_mat4_t rot;
+    sat_vec3_t before;
+    sat_vec3_t after;
+
+    ASSERT_EQ(build_box(&mesh, vec3(0, 0, 0), fx_from_int(4), fx_from_int(10), fx_from_int(4)),
+              SAT_OK);
+    ASSERT_EQ(face_normal(&mesh, 4, &before), SAT_OK); /* the +Y face */
+    ASSERT_NEAR(before.y, SAT_FX16_ONE, 64);
+
+    /* Rotating 90 degrees about Z takes +Y to -X. */
+    ASSERT_EQ(sat_mat4_rotate_z(&rot, fx_from_int(90)), SAT_OK);
+    ASSERT_EQ(transform(&mesh, rot.m), SAT_OK);
+    ASSERT_EQ(face_normal(&mesh, 4, &after), SAT_OK);
+    ASSERT_NEAR(after.x, -SAT_FX16_ONE, 256);
+    ASSERT_NEAR(after.y, 0, 256);
+
+    /* The box is still a box: its half extents have swapped, not changed. */
+    sat_fx16_t max_x = 0;
+    sat_fx16_t max_y = 0;
+    for (uint16_t i = 0; i < mesh.vertex_count; ++i) {
+        const sat_fx16_t ax = fx_abs(mesh.vertices[i].x);
+        const sat_fx16_t ay = fx_abs(mesh.vertices[i].y);
+        if (ax > max_x) { max_x = ax; }
+        if (ay > max_y) { max_y = ay; }
+    }
+    ASSERT_NEAR(fx_to_int(max_x), 10, 1);
+    ASSERT_NEAR(fx_to_int(max_y), 4, 1);
+}
+
 int main() {
     init_rejects_null_storage();
     add_face_rejects_unknown_vertices();
@@ -324,6 +461,11 @@ int main() {
     face_visible_matches_which_side_the_eye_is_on();
     translate_moves_every_vertex();
     clear_keeps_the_storage_binding();
-    printf("test_mesh3d_logic: 18 tests passed\n");
+    scaled_and_unit_normals_point_the_same_way();
+    sphere_wedge_counts_match_the_builder();
+    sphere_wedge_surface_and_cut_walls_face_the_right_way();
+    sphere_wedge_gap_removes_the_right_bands();
+    transform_rotates_a_built_primitive();
+    printf("test_mesh3d_logic: 23 tests passed\n");
     return 0;
 }

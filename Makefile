@@ -289,6 +289,7 @@ HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(BUILD_DIR)/tests/%,$(HOST_TEST_S
 HOST_TEST_EXTRA_test_font_logic := src/core/font_api.cpp
 HOST_TEST_EXTRA_test_math3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_render3d_logic := src/core/math3d_api.cpp
+HOST_TEST_EXTRA_test_mesh3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c src/core/grid_api.cpp
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp

@@ -200,6 +200,32 @@ TEST(vec3_cross_unit_survives_long_edges) {
     ASSERT_TRUE(n.z > SAT_FX16_ONE - 128);
 }
 
+
+/* fx_mul(v, v) overflows int32 once v passes about 181.0, so building a view
+ * matrix from a camera further out than that used to produce a sign-flipped
+ * forward vector and a view of nothing in particular. A board-game camera is
+ * routinely 250+ units up. */
+TEST(look_at_survives_a_distant_camera) {
+    sat_mat4_t view;
+    const sat_vec3_t eye = { fx_from_int(112), fx_from_int(260), fx_from_int(290) };
+    const sat_vec3_t center = { fx_from_int(112), 0, fx_from_int(100) };
+    const sat_vec3_t up = { 0, SAT_FX16_ONE, 0 };
+    ASSERT_EQ(sat_mat4_look_at(&view, &eye, &center, &up), SAT_OK);
+
+    /* Row 2 is -forward, so it must be a unit vector pointing back towards
+     * the camera: up and away from the board, never negative. */
+    ASSERT_TRUE(view.m[9] > 0);
+    ASSERT_TRUE(view.m[10] > 0);
+    const sat_vec3_t back = { view.m[8], view.m[9], view.m[10] };
+    const sat_fx16_t len = sat_vec3_length(&back);
+    ASSERT_TRUE(len > SAT_FX16_ONE - 256 && len < SAT_FX16_ONE + 256);
+}
+
+TEST(vec3_length_does_not_overflow_on_long_vectors) {
+    const sat_vec3_t v = { fx_from_int(3000), fx_from_int(4000), 0 };
+    ASSERT_NEAR(sat_vec3_length(&v), fx_from_int(5000), 256);
+}
+
 int main() {
     fx_mul_and_div_roundtrip();
     fx_sqrt_exact();
@@ -217,7 +243,9 @@ int main() {
     vec3_normalize_leaves_a_zero_vector_alone();
     vec3_normalize_gives_unit_length();
     vec3_cross_unit_survives_long_edges();
+    look_at_survives_a_distant_camera();
+    vec3_length_does_not_overflow_on_long_vectors();
 
-    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 16);
+    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 18);
     return 0;
 }

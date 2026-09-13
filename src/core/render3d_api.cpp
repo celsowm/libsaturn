@@ -2,6 +2,7 @@
 
 #include "src/core/render3d_logic.hpp"
 #include "src/core/runtime_state.hpp"
+#include "src/hal/vdp1.hpp"
 
 using namespace saturn::core::render3d;
 
@@ -94,6 +95,34 @@ extern "C" sat_result_t sat_draw_world_polygon(
     return sat_draw_polygon(&cmd);
 }
 
+/* Goes straight to the HAL rather than through sat_draw_polygon.
+ *
+ * That is not premature: replaying a baked scene submits several hundred of
+ * these per frame, and each extra layer copies the same eight coordinates
+ * into another struct. Profiling pacman_3d put the whole submission path at
+ * about 40% of its frame, spread evenly across the layers. */
+extern "C" sat_result_t sat_draw_quad2_polygon(const sat_quad2_t* quad, uint16_t color) {
+    const sat_result_t st = saturn::core::require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (quad == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    saturn::hal::vdp1::PolygonRequest req = {};
+    req.xa = quad->x[0];
+    req.ya = quad->y[0];
+    req.xb = quad->x[1];
+    req.yb = quad->y[1];
+    req.xc = quad->x[2];
+    req.yc = quad->y[2];
+    req.xd = quad->x[3];
+    req.yd = quad->y[3];
+    req.color = color;
+    req.flags = 0;
+    return saturn::hal::vdp1::push_polygon(req);
+}
+
 extern "C" sat_result_t sat_draw_world_sprite(
     const sat_mat4_t* view_proj,
     const sat_quad3_t* quad,
@@ -151,4 +180,11 @@ extern "C" sat_fx16_t sat_face_intensity3(const sat_vec3_t* normal, sat_fx16_t f
         return 0;
     }
     return saturn::core::render3d::face_intensity3(*normal, floor_intensity);
+}
+
+extern "C" sat_fx16_t sat_face_intensity3_scaled(const sat_vec3_t* normal, sat_fx16_t floor_intensity) {
+    if (normal == nullptr) {
+        return 0;
+    }
+    return saturn::core::render3d::face_intensity3_scaled(*normal, floor_intensity);
 }

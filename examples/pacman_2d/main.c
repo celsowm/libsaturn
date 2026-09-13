@@ -9,7 +9,8 @@
  *   - walls are merged into horizontal runs once at startup and drawn as
  *     filled rectangles, which cuts the command count by roughly 4x versus
  *     one quad per tile;
- *   - pellets, Pac-Man and the ghosts are small rectangles;
+ *   - pellets are small rectangles, and Pac-Man and the ghosts are 16x16
+ *     indexed sprites generated at startup and drawn scaled down;
  *   - the HUD is the built-in 8x8 ASCII font.
  *
  * Controls: D-Pad to move, START to restart.
@@ -35,7 +36,6 @@
 #define MAZE_Y ((SCREEN_H - kPacMazePixelH) / 2)  /* 12 */
 #define TILE kPacTilePx
 
-#define ACTOR_HALF 3
 #define PELLET_HALF 1
 #define POWER_HALF 3
 
@@ -48,7 +48,6 @@
 #define COLOR_PELLET SAT_RGB555(31, 24, 16)
 #define COLOR_POWER  SAT_RGB555(31, 31, 31)
 #define COLOR_PAC    SAT_RGB555(31, 31, 0)
-#define COLOR_MOUTH  SAT_RGB555(0, 0, 0)
 #define COLOR_BLACK  SAT_RGB555(0, 0, 0)
 
 static const uint16_t kGhostColors[PAC_GHOST_COUNT] = {
@@ -101,6 +100,214 @@ static void build_wall_runs(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Actor sprites                                                       */
+/* ------------------------------------------------------------------ */
+/* Pac-Man and the ghosts are 16x16 indexed sprites, drawn scaled down to
+ * ACTOR_PX. VDP1 texture widths must be a multiple of 8, and 16 is the
+ * smallest one with enough room for a recognisable ghost; 16 pixels on an
+ * 8-pixel tile grid would swallow the corridor, so the draw is scaled.
+ *
+ * The pixels are generated at startup rather than stored. Pac-Man is a disc
+ * with a wedge removed, which is three lines of arithmetic per pixel and
+ * beats hand-editing twelve frames of art; the ghost is one shared outline
+ * with its eyes stamped in afterwards. Nothing is kept in RAM but the texture
+ * handles -- sat_tex_upload_indexed8 copies into VDP1 VRAM, so one scratch
+ * buffer is reused for all thirty of them.
+ */
+#define SPRITE_DIM 16u
+#define ACTOR_PX 12
+
+/* One palette bank holds every colour the actors use. Keeping them in one
+ * bank means a texture picks its colour by index, so the ghost outline is
+ * uploaded once per colour instead of needing a bank each. */
+#define ACTOR_PALETTE 1u
+enum {
+    PIX_NONE = 0,
+    PIX_PAC = 1,
+    PIX_EYE = 2,
+    PIX_PUPIL = 3,
+    PIX_GHOST0 = 4, /* ..7: one per ghost */
+    PIX_FRIGHT = 8,
+    PIX_FLASH = 9
+};
+
+/* Mouth openings, as the tangent of the wedge half-angle in hundredths.
+ * Zero is a closed mouth and skips the wedge entirely. */
+static const int kMouthTan[] = {0, 27, 70};
+#define PAC_FRAMES 3
+
+static uint8_t g_sprite[SPRITE_DIM * SPRITE_DIM];
+static sat_texture_t g_pac_tex[4][PAC_FRAMES];  /* [direction][mouth frame] */
+static sat_texture_t g_ghost_tex[PAC_GHOST_COUNT][4]; /* [ghost][direction]  */
+static sat_texture_t g_fright_tex[2];           /* blue, and the white flash */
+static uint16_t g_actor_palette[256];
+
+/* The ghost outline: dome on top, straight sides, notched skirt. */
+static const char* const kGhostArt[SPRITE_DIM] = {
+    "................",
+    ".....######.....",
+    "...##########...",
+    "..############..",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".###..####..###.",
+    ".##....##....##."
+};
+
+static void sprite_fill(uint8_t value) {
+    uint16_t i;
+    for (i = 0; i < SPRITE_DIM * SPRITE_DIM; ++i) {
+        g_sprite[i] = value;
+    }
+}
+
+static void sprite_box(int x, int y, int w, int h, uint8_t value) {
+    int py;
+    int px;
+    for (py = y; py < y + h; ++py) {
+        for (px = x; px < x + w; ++px) {
+            if (px >= 0 && px < (int)SPRITE_DIM && py >= 0 && py < (int)SPRITE_DIM) {
+                g_sprite[(py * (int)SPRITE_DIM) + px] = value;
+            }
+        }
+    }
+}
+
+/* Pac-Man: every pixel inside the disc, minus the pixels inside the mouth
+ * wedge. Coordinates are doubled so the centre lands between pixels without
+ * needing fractions, and the wedge test is a dot product against the facing
+ * direction with a tangent bound instead of an arctangent. */
+static void build_pac(int dir, int frame) {
+    const int fx = sat_dir_dx(dir);
+    const int fy = sat_dir_dy(dir);
+    const int tan100 = kMouthTan[frame];
+    int y;
+    int x;
+
+    sprite_fill(PIX_NONE);
+    for (y = 0; y < (int)SPRITE_DIM; ++y) {
+        for (x = 0; x < (int)SPRITE_DIM; ++x) {
+            const int dx = (2 * x) - 15;
+            const int dy = (2 * y) - 15;
+            int dot;
+            int cross;
+            if ((dx * dx) + (dy * dy) > 232) {
+                continue; /* outside the disc */
+            }
+            if (tan100 > 0) {
+                dot = (dx * fx) + (dy * fy);
+                cross = (dx * fy) - (dy * fx);
+                if (cross < 0) {
+                    cross = -cross;
+                }
+                if (dot > 0 && (cross * 100) <= (dot * tan100)) {
+                    continue; /* inside the mouth */
+                }
+            }
+            g_sprite[(y * (int)SPRITE_DIM) + x] = PIX_PAC;
+        }
+    }
+}
+
+static void build_ghost_outline(uint8_t body) {
+    int y;
+    int x;
+    for (y = 0; y < (int)SPRITE_DIM; ++y) {
+        for (x = 0; x < (int)SPRITE_DIM; ++x) {
+            g_sprite[(y * (int)SPRITE_DIM) + x] =
+                (kGhostArt[y][x] == '#') ? body : PIX_NONE;
+        }
+    }
+}
+
+/* Eyes looking where the ghost is going. Three pixels of white with a two
+ * pixel pupil inside leaves exactly one pixel of travel per axis, which is
+ * enough to read at this size. */
+static void build_ghost(uint8_t body, int dir) {
+    const int dx = sat_dir_dx(dir);
+    const int dy = sat_dir_dy(dir);
+
+    build_ghost_outline(body);
+    sprite_box(3, 5, 3, 4, PIX_EYE);
+    sprite_box(10, 5, 3, 4, PIX_EYE);
+    sprite_box(4 + dx, 6 + dy, 2, 2, PIX_PUPIL);
+    sprite_box(11 + dx, 6 + dy, 2, 2, PIX_PUPIL);
+}
+
+/* The frightened ghost has a face instead of eyes: two dots and a flat
+ * zigzag mouth, the arcade's way of saying this one can be eaten. */
+static void build_fright(uint8_t body, uint8_t face) {
+    int x;
+    build_ghost_outline(body);
+    sprite_box(4, 6, 2, 2, face);
+    sprite_box(10, 6, 2, 2, face);
+    for (x = 3; x < 13; ++x) {
+        sprite_box(x, ((x & 1) != 0) ? 10 : 11, 1, 1, face);
+    }
+}
+
+static void upload_sprite(sat_texture_t* out) {
+    sat_example_must(sat_tex_upload_indexed8(
+        out, g_sprite, SPRITE_DIM, SPRITE_DIM, g_actor_palette, ACTOR_PALETTE));
+}
+
+static void build_actor_sprites(void) {
+    int i;
+    int d;
+
+    for (i = 0; i < 256; ++i) {
+        g_actor_palette[i] = 0;
+    }
+    g_actor_palette[PIX_PAC] = COLOR_PAC;
+    g_actor_palette[PIX_EYE] = SAT_RGB555(31, 31, 31);
+    g_actor_palette[PIX_PUPIL] = SAT_RGB555(2, 2, 24);
+    for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+        g_actor_palette[PIX_GHOST0 + i] = kGhostColors[i];
+    }
+    g_actor_palette[PIX_FRIGHT] = COLOR_FRIGHT_A;
+    g_actor_palette[PIX_FLASH] = COLOR_FRIGHT_B;
+
+    for (d = 0; d < 4; ++d) {
+        for (i = 0; i < PAC_FRAMES; ++i) {
+            build_pac(d, i);
+            upload_sprite(&g_pac_tex[d][i]);
+        }
+        for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+            build_ghost((uint8_t)(PIX_GHOST0 + i), d);
+            upload_sprite(&g_ghost_tex[i][d]);
+        }
+    }
+    build_fright(PIX_FRIGHT, PIX_EYE);
+    upload_sprite(&g_fright_tex[0]);
+    build_fright(PIX_FLASH, PIX_FRIGHT);
+    upload_sprite(&g_fright_tex[1]);
+}
+
+/* SAT_DIR_NONE while stopped against a wall: keep the last real facing so the
+ * sprite does not snap back to a default. */
+static int facing(int dir, int* last) {
+    if (dir != SAT_DIR_NONE) {
+        *last = dir;
+    }
+    return *last;
+}
+
+static void draw_actor_sprite(const sat_texture_t* tex, int cx, int cy) {
+    if (sat_draw_sprite_scaled_screen(
+            tex, (int16_t)cx, (int16_t)cy, ACTOR_PX, ACTOR_PX, 0) != SAT_OK) {
+        g_draw_overflow = 1;
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Drawing                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -139,6 +346,9 @@ static void render_maze(void) {
             if (cell != '.' && cell != 'o') {
                 continue;
             }
+            if (cell == 'o' && ((g_game.frame / 10u) & 1u) != 0u) {
+                continue; /* power pellets blink, as they always have */
+            }
             draw_centered_box(
                 sat_grid_tile_center_x(&g_game.grid, c),
                 sat_grid_tile_center_y(&g_game.grid, r),
@@ -148,39 +358,39 @@ static void render_maze(void) {
     }
 }
 
-/* Pac-Man is a yellow box with a black notch chewing on the side he faces. */
+/* Pac-Man chews closed-half-open-half, four frames to the cycle, so the
+ * animation reads as a mouth rather than a flicker. */
 static void render_pac(void) {
-    const int cx = (int)g_game.pac.x;
-    const int cy = (int)g_game.pac.y;
-    draw_centered_box(cx, cy, ACTOR_HALF, COLOR_PAC);
-    if (((g_game.frame / 4u) & 1u) == 0u) {
-        return;
-    }
-    draw_centered_box(
-        cx + (sat_dir_dx(g_game.pac.dir) * ACTOR_HALF),
-        cy + (sat_dir_dy(g_game.pac.dir) * ACTOR_HALF),
-        1,
-        COLOR_MOUTH);
+    static const uint8_t kChewFrame[4] = {0, 1, 2, 1};
+    static int last_dir = SAT_DIR_LEFT;
+    const int dir = facing((int)g_game.pac.dir, &last_dir);
+    const uint8_t frame = kChewFrame[(g_game.frame / 4u) & 3u];
+    draw_actor_sprite(
+        &g_pac_tex[dir][frame], (int)g_game.pac.x, (int)g_game.pac.y);
 }
 
 static void render_ghosts(void) {
+    static int last_dir[PAC_GHOST_COUNT] = {
+        SAT_DIR_LEFT, SAT_DIR_LEFT, SAT_DIR_LEFT, SAT_DIR_LEFT
+    };
     int i;
+
     for (i = 0; i < PAC_GHOST_COUNT; ++i) {
-        uint16_t color;
+        const sat_grid_actor_t* a = &g_game.ghosts[i].actor;
+        const int dir = facing((int)a->dir, &last_dir[i]);
+        const sat_texture_t* tex;
+
         if (pac_game_ghost_penned(&g_game, i)) {
             continue;
         }
-        color = kGhostColors[i];
         if (pac_game_frightened(&g_game)) {
-            /* Flash white near the end so the player can see time running
-             * out rather than being surprised by it. */
-            color = ((g_game.frame / 6u) & 1u) ? COLOR_FRIGHT_A : COLOR_FRIGHT_B;
+            /* Flashing white near the end is how the player sees the timer
+             * running out instead of being surprised by it. */
+            tex = &g_fright_tex[((g_game.frame / 6u) & 1u) ? 0u : 1u];
+        } else {
+            tex = &g_ghost_tex[i][dir];
         }
-        draw_centered_box(
-            (int)g_game.ghosts[i].actor.x,
-            (int)g_game.ghosts[i].actor.y,
-            ACTOR_HALF,
-            color);
+        draw_actor_sprite(tex, (int)a->x, (int)a->y);
     }
 }
 
@@ -236,6 +446,7 @@ int main(void) {
 
     pac_game_init(&g_game, MAZE_X, MAZE_Y);
     build_wall_runs();
+    build_actor_sprites();
 
     while (1) {
         sat_pad_state_t pad = {0};

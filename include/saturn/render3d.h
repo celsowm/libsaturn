@@ -99,6 +99,18 @@ sat_result_t sat_draw_world_polygon(
     uint16_t color
 );
 
+/* Submits an ALREADY projected quad -- the output of sat_project_quad -- as a
+ * flat-shaded polygon.
+ *
+ * This exists for scenes whose camera does not move. Projection is the
+ * expensive half of drawing on this hardware (four matrix transforms and two
+ * 64-bit divides per corner), and a fixed camera projects the same static
+ * geometry to the same screen coordinates every frame. Projecting it once at
+ * startup and replaying the corners turns a per-frame cost into a startup
+ * cost; see examples/pacman_3d, where it is the difference between the board
+ * running at full rate and at a fifth of it. */
+sat_result_t sat_draw_quad2_polygon(const sat_quad2_t* quad, uint16_t color);
+
 /* Projects and submits a textured (distorted-sprite) quad. Same rejection
  * rule as sat_draw_world_polygon. */
 sat_result_t sat_draw_world_sprite(
@@ -141,6 +153,12 @@ sat_fx16_t sat_face_intensity(sat_fx16_t nx, sat_fx16_t nz, sat_fx16_t floor_int
  * form above assumes a vertical wall and gives every horizontal surface the
  * same value. */
 sat_fx16_t sat_face_intensity3(const sat_vec3_t* normal, sat_fx16_t floor_intensity);
+
+/* Same, for a normal that has direction but no particular length -- the form
+ * sat_mesh_face_normal_scaled returns. Dividing the dot product by the length
+ * once is cheaper than normalising the vector first, which is why
+ * sat_draw_mesh uses this one. */
+sat_fx16_t sat_face_intensity3_scaled(const sat_vec3_t* normal, sat_fx16_t floor_intensity);
 
 #ifdef __cplusplus
 }

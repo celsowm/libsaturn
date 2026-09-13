@@ -123,3 +123,16 @@ software would run under.
 `-BootFrames` (default 90) controls how many frames of BIOS-only execution
 run before injection; `-Frames` (default 60) controls how many frames run
 afterward, with our code in control.
+
+### Pad polarity
+
+Ymir reports pad state active-low: `peripheral_report.hpp` documents the field
+as "Button states (1=released, 0=pressed)" and the `Button` enum's `Default` is
+`All`. `Button::None` therefore means *every button held*. `probe_main.cpp`
+converts through `pad_report()`, so `--pad-script` and `--pad-button` take
+buttons in the obvious sense: `LEFT` means left is down and nothing else is.
+
+This was inverted before 2026-09-13, which silently held START (restarting any
+example that watches for it) on every scripted run. To check the conversion,
+run `examples/input_debug` under a script whose current line is `NONE` and
+confirm every HELD bit reads 0.

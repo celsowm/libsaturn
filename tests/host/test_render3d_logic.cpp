@@ -311,6 +311,26 @@ TEST(face_intensity3_clamps_its_floor) {
     ASSERT_EQ(face_intensity3(up, fx_from_int(4)), SAT_FX16_ONE);
 }
 
+
+/* The scaled form is what sat_draw_mesh actually calls, so it has to agree
+ * with the unit-normal form -- and be indifferent to how long the normal is,
+ * since a cross product's length depends on the size of the face. */
+TEST(face_intensity3_scaled_matches_the_unit_form_at_any_length) {
+    const sat_vec3_t unit = { 0, SAT_FX16_ONE, 0 };
+    const sat_fx16_t ambient = SAT_FX16_ONE / 4;
+    const sat_fx16_t expected = face_intensity3(unit, ambient);
+
+    for (int scale = 1; scale <= 4096; scale *= 8) {
+        const sat_vec3_t scaled = { 0, SAT_FX16_ONE * scale, 0 };
+        ASSERT_NEAR(face_intensity3_scaled(scaled, ambient), expected, 64);
+    }
+}
+
+TEST(face_intensity3_scaled_handles_a_degenerate_normal) {
+    const sat_vec3_t zero = { 0, 0, 0 };
+    ASSERT_EQ(face_intensity3_scaled(zero, SAT_FX16_ONE / 2), SAT_FX16_ONE / 2);
+}
+
 int main() {
     wall_quad_corner_order();
     floor_quad_is_flat_and_centred();
@@ -332,7 +352,9 @@ int main() {
     face_intensity3_separates_up_from_down();
     face_intensity3_horizontal_matches_the_ground_light_direction();
     face_intensity3_clamps_its_floor();
+    face_intensity3_scaled_matches_the_unit_form_at_any_length();
+    face_intensity3_scaled_handles_a_degenerate_normal();
 
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 20);
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 22);
     return 0;
 }

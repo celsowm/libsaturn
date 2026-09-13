@@ -113,6 +113,22 @@ ymir::peripheral::Button buttons_from_spec(const std::string& spec) {
     return mask;
 }
 
+// Converts a "these buttons are down" mask into what the SMPC actually
+// reports.
+//
+// Ymir's peripheral_report.hpp is explicit about this: "Button states
+// (1=released, 0=pressed)", and the enum's Default is All. So Button::None --
+// which reads like "nothing pressed" -- is every button held at once, and a
+// single-button mask is every button EXCEPT that one. Getting it backwards
+// still moves the game, which is why it survived: a script that meant LEFT
+// was really sending everything-but-LEFT, and the guest dutifully did
+// something different for each script.
+ymir::peripheral::Button pad_report(ymir::peripheral::Button down) {
+    using ymir::peripheral::Button;
+    return static_cast<Button>(
+        static_cast<uint16_t>(Button::All) & ~static_cast<uint16_t>(down));
+}
+
 // Buttons held at a given program frame: the most recent script entry at or
 // before it.
 ymir::peripheral::Button buttons_at_frame(uint32_t frame) {
@@ -453,11 +469,11 @@ int main(int argc, char** argv) {
         using ReportCb = void (*)(ymir::peripheral::PeripheralReport&, void*);
         port.SetPeripheralReportCallback(ReportCb([](ymir::peripheral::PeripheralReport& report, void*) {
             if (!g_pad_active) {
-                report.report.controlPad.buttons = ymir::peripheral::Button::None;
+                report.report.controlPad.buttons = pad_report(ymir::peripheral::Button::None);
                 return;
             }
             const ymir::peripheral::Button held = buttons_at_frame(g_pad_frame_index);
-            report.report.controlPad.buttons = held;
+            report.report.controlPad.buttons = pad_report(held);
             if (held != ymir::peripheral::Button::None) {
                 g_pad_held_observed++;
             }
@@ -476,12 +492,13 @@ int main(int argc, char** argv) {
         using ReportCb = void (*)(ymir::peripheral::PeripheralReport&, void*);
         port.SetPeripheralReportCallback(ReportCb([](ymir::peripheral::PeripheralReport& report, void*) {
             if (!g_pad_active) {
-                report.report.controlPad.buttons = ymir::peripheral::Button::None;
+                report.report.controlPad.buttons = pad_report(ymir::peripheral::Button::None);
                 return;
             }
             uint32_t frame = g_pad_frame_counter++;
             bool held = frame >= g_pad_press_at && frame < g_pad_release_at;
-            report.report.controlPad.buttons = held ? g_pad_button : ymir::peripheral::Button::None;
+            report.report.controlPad.buttons =
+                pad_report(held ? g_pad_button : ymir::peripheral::Button::None);
             if (held) {
                 g_pad_held_observed++;
             }
@@ -496,7 +513,7 @@ int main(int argc, char** argv) {
         if (std::getenv("PROBE_HOLD_START") != nullptr) {
             using ReportCb = void (*)(ymir::peripheral::PeripheralReport&, void*);
             port.SetPeripheralReportCallback(ReportCb([](ymir::peripheral::PeripheralReport& report, void*) {
-                report.report.controlPad.buttons = ymir::peripheral::Button::All & ~ymir::peripheral::Button::Start;
+                report.report.controlPad.buttons = pad_report(ymir::peripheral::Button::Start);
             }));
         }
         port.ConnectControlPad();

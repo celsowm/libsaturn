@@ -136,6 +136,40 @@ extern "C" sat_result_t sat_draw_sprite_scaled(const sat_scaled_sprite_cmd_t* cm
     return saturn::hal::vdp1::push_scaled_sprite(req);
 }
 
+extern "C" sat_result_t sat_draw_sprite_scaled_screen(
+    const sat_texture_t* texture,
+    int16_t screen_x,
+    int16_t screen_y,
+    uint16_t draw_width,
+    uint16_t draw_height,
+    uint16_t palette_override
+) {
+    using namespace saturn::core;
+    const sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (texture == nullptr || texture->valid == 0u || draw_width == 0u || draw_height == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    const sat_video_config_t& cfg = g_state.config;
+    const int32_t left = static_cast<int32_t>(screen_x) - static_cast<int32_t>(draw_width / 2u);
+    const int32_t top = static_cast<int32_t>(screen_y) - static_cast<int32_t>(draw_height / 2u);
+
+    sat_scaled_sprite_cmd_t cmd = {};
+    cmd.x0 = saturn::internal::screen_to_native(static_cast<int>(left), cfg.width);
+    cmd.y0 = saturn::internal::screen_to_native(static_cast<int>(top), cfg.height);
+    /* The destination rectangle is inclusive of both corners, so the far edge
+     * is one pixel short of left + width. */
+    cmd.x1 = static_cast<int16_t>(cmd.x0 + static_cast<int16_t>(draw_width) - 1);
+    cmd.y1 = static_cast<int16_t>(cmd.y0 + static_cast<int16_t>(draw_height) - 1);
+    cmd.texture = texture;
+    cmd.palette_override = palette_override;
+    cmd.flags = 0;
+    return sat_draw_sprite_scaled(&cmd);
+}
+
 extern "C" sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd_t* cmd) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();

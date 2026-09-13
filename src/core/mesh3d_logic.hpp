@@ -27,7 +27,7 @@ using saturn::core::math3d::fx_from_int;
 using saturn::core::math3d::fx_mul;
 using saturn::core::math3d::sin_deg_fx;
 using saturn::core::math3d::vec3;
-using saturn::core::math3d::vec3_cross_unit;
+using saturn::core::math3d::vec3_cross_scaled;
 using saturn::core::math3d::vec3_dot_raw;
 using saturn::core::math3d::vec3_sub;
 
@@ -145,28 +145,22 @@ inline sat_result_t face_quad(const sat_mesh_t* mesh, uint16_t face, sat_quad3_t
     return SAT_OK;
 }
 
-inline sat_result_t face_center(const sat_mesh_t* mesh, uint16_t face, sat_vec3_t* out) {
-    const uint16_t* idx = face_indices(mesh, face);
-    if (idx == nullptr || out == nullptr) {
-        return SAT_ERR_INVALID_ARG;
-    }
+inline sat_vec3_t quad_center(const sat_quad3_t& quad) {
     int64_t sx = 0;
     int64_t sy = 0;
     int64_t sz = 0;
     for (int i = 0; i < 4; ++i) {
-        const sat_vec3_t& v = mesh->vertices[idx[i]];
-        sx += v.x;
-        sy += v.y;
-        sz += v.z;
+        sx += quad.v[i].x;
+        sy += quad.v[i].y;
+        sz += quad.v[i].z;
     }
-    *out = vec3(
+    return vec3(
         static_cast<sat_fx16_t>(sx / 4),
         static_cast<sat_fx16_t>(sy / 4),
         static_cast<sat_fx16_t>(sz / 4));
-    return SAT_OK;
 }
 
-inline sat_result_t face_normal(const sat_mesh_t* mesh, uint16_t face, sat_vec3_t* out) {
+inline sat_result_t face_center(const sat_mesh_t* mesh, uint16_t face, sat_vec3_t* out) {
     sat_quad3_t quad;
     if (out == nullptr) {
         return SAT_ERR_INVALID_ARG;
@@ -175,40 +169,94 @@ inline sat_result_t face_normal(const sat_mesh_t* mesh, uint16_t face, sat_vec3_
     if (st != SAT_OK) {
         return st;
     }
-    /* cross(D - A, B - A): see the winding note in mesh3d.h.
-     *
-     * Degenerate faces are normal here, not exceptional -- a sphere's pole
-     * band repeats A and B, and a cylinder cap repeats A and D -- so one of
-     * those two edges is often zero. For a planar convex quad, substituting C
-     * for the collapsed corner gives a vector that turns the same way, so the
-     * sign of the normal is preserved; picking the opposite diagonal instead
-     * does not, which is what flipped every pole face inward. */
-    sat_vec3_t n = vec3_cross_unit(
+    *out = quad_center(quad);
+    return SAT_OK;
+}
+
+/* Outward normal WITHOUT normalising: direction is right, length is not.
+ *
+ * This is the hot path. Backface culling only needs the sign of a dot
+ * product, and shading only needs the dot divided by the length, so making
+ * every face pay for a square root and three 64-bit divides -- which is what
+ * a normalised normal costs on a CPU with neither -- is pure waste. Profiling
+ * the board camera put 64% of the frame in exactly that.
+ *
+ * Degenerate faces are ordinary here, not exceptional: a sphere pole band
+ * repeats A and B, a cylinder cap repeats A and D. Substituting C for the
+ * collapsed corner gives a vector that turns the same way, so the sign of the
+ * normal survives; taking the opposite diagonal instead does not, which flips
+ * every pole face inward. */
+inline sat_vec3_t quad_normal_scaled(const sat_quad3_t& quad) {
+    sat_vec3_t n = vec3_cross_scaled(
         vec3_sub(quad.v[3], quad.v[0]), vec3_sub(quad.v[1], quad.v[0]));
     if (n.x == 0 && n.y == 0 && n.z == 0) {
         /* B collapsed onto A: the face is the triangle A, C, D. */
-        n = vec3_cross_unit(
+        n = vec3_cross_scaled(
             vec3_sub(quad.v[3], quad.v[0]), vec3_sub(quad.v[2], quad.v[0]));
     }
     if (n.x == 0 && n.y == 0 && n.z == 0) {
         /* D collapsed onto A: the face is the triangle A, B, C. */
-        n = vec3_cross_unit(
+        n = vec3_cross_scaled(
             vec3_sub(quad.v[2], quad.v[0]), vec3_sub(quad.v[1], quad.v[0]));
     }
-    *out = n;
+    return n;
+}
+
+inline sat_result_t face_normal_scaled(const sat_mesh_t* mesh, uint16_t face, sat_vec3_t* out) {
+    sat_quad3_t quad;
+    if (out == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const sat_result_t st = face_quad(mesh, face, &quad);
+    if (st != SAT_OK) {
+        return st;
+    }
+    *out = quad_normal_scaled(quad);
+    return SAT_OK;
+}
+
+inline sat_result_t face_normal(const sat_mesh_t* mesh, uint16_t face, sat_vec3_t* out) {
+    const sat_result_t st = face_normal_scaled(mesh, face, out);
+    if (st != SAT_OK) {
+        return st;
+    }
+    *out = saturn::core::math3d::vec3_normalize(*out);
     return SAT_OK;
 }
 
 /* A face is visible when its outward normal has a component towards the eye,
- * i.e. dot(normal, eye - center) > 0. */
+ * i.e. dot(normal, eye - center) > 0. The scaled normal is enough: scaling by
+ * a positive factor cannot change the sign. */
+inline bool quad_visible(const sat_quad3_t& quad, const sat_vec3_t& eye) {
+    return vec3_dot_raw(quad_normal_scaled(quad), vec3_sub(eye, quad_center(quad))) > 0;
+}
+
 inline bool face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t& eye) {
-    sat_vec3_t normal;
-    sat_vec3_t center;
-    if (face_normal(mesh, face, &normal) != SAT_OK ||
-        face_center(mesh, face, &center) != SAT_OK) {
+    sat_quad3_t quad;
+    if (face_quad(mesh, face, &quad) != SAT_OK) {
         return false;
     }
-    return vec3_dot_raw(normal, vec3_sub(eye, center)) > 0;
+    return quad_visible(quad, eye);
+}
+
+/* Applies an affine matrix to every vertex, w assumed 1.
+ *
+ * Meant for orienting a primitive after building it. The builders all work in
+ * one canonical pose -- a sphere's poles on Y, a cylinder's axis on Y -- so
+ * anything that has to point somewhere else is built at the origin and then
+ * moved, which is cheaper in code than a family of builders that each take an
+ * axis. */
+inline sat_result_t transform(sat_mesh_t* mesh, const sat_fx16_t* m) {
+    if (mesh == nullptr || mesh->vertices == nullptr || m == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    for (uint16_t i = 0; i < mesh->vertex_count; ++i) {
+        const sat_vec3_t v = mesh->vertices[i];
+        const sat_vec4_t out =
+            saturn::core::math3d::mat4_transform_vec4(m, v.x, v.y, v.z, SAT_FX16_ONE);
+        mesh->vertices[i] = vec3(out.x, out.y, out.z);
+    }
+    return SAT_OK;
 }
 
 inline sat_result_t translate(sat_mesh_t* mesh, sat_fx16_t dx, sat_fx16_t dy, sat_fx16_t dz) {
@@ -397,6 +445,136 @@ inline sat_result_t build_sphere(
                 static_cast<uint16_t>(bottom + j1),
                 static_cast<uint16_t>(bottom + j));
         }
+    }
+    return SAT_OK;
+}
+
+/* Sphere with an angular sector removed, closed by flat faces.
+ *
+ * The removed sector is a lune between two meridians, so from above the solid
+ * reads as a pie chart with a slice taken out -- which is what a Pac-Man is.
+ * Cutting the geometry is not the same as drawing a dark wedge over a whole
+ * sphere: the silhouette changes, the cut walls catch the light differently
+ * from the outside of the sphere, and the shape stays right from any angle.
+ *
+ * Longitude 0 points along +Z and increases towards +X, matching
+ * build_sphere. A gap of zero segments gives a plain sphere with two unused
+ * axis vertices, which is why build_sphere stays a separate function. */
+inline void sphere_wedge_counts(
+    uint16_t segments,
+    uint16_t rings,
+    uint16_t gap_segments,
+    uint16_t* v,
+    uint16_t* f
+) {
+    const uint32_t s = clamp_segments(segments);
+    const uint32_t r = clamp_rings(rings);
+    /* At least one band has to survive, or there is no solid left. */
+    const uint32_t gap = (gap_segments >= s) ? (s - 1u) : gap_segments;
+    if (v != nullptr) {
+        *v = static_cast<uint16_t>(((r + 1u) * s) + (r + 1u));
+    }
+    if (f != nullptr) {
+        /* The surface, minus the removed bands, plus two flat cut walls. */
+        *f = static_cast<uint16_t>((r * (s - gap)) + ((gap > 0u) ? (2u * r) : 0u));
+    }
+}
+
+inline sat_result_t build_sphere_wedge(
+    sat_mesh_t* mesh,
+    const sat_vec3_t& center,
+    sat_fx16_t radius,
+    uint16_t segments,
+    uint16_t rings,
+    uint16_t gap_start_segment,
+    uint16_t gap_segments
+) {
+    const uint16_t s = clamp_segments(segments);
+    const uint16_t r = clamp_rings(rings);
+    const uint16_t gap = (gap_segments >= s) ? static_cast<uint16_t>(s - 1u) : gap_segments;
+    const uint16_t gap_start = static_cast<uint16_t>(gap_start_segment % s);
+    uint16_t need_v = 0;
+    uint16_t need_f = 0;
+    uint16_t i;
+    uint16_t j;
+
+    sphere_wedge_counts(s, r, gap, &need_v, &need_f);
+    if (mesh == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (!has_room(mesh, need_v, need_f)) {
+        return SAT_ERR_CAPACITY;
+    }
+    clear(mesh);
+
+    for (i = 0; i <= r; ++i) {
+        const sat_fx16_t theta = fx_div(fx_from_int(180 * i), fx_from_int(r));
+        const sat_fx16_t y = fx_mul(radius, cos_deg_fx(theta));
+        const sat_fx16_t ring_r = fx_mul(radius, sin_deg_fx(theta));
+        for (j = 0; j < s; ++j) {
+            const sat_fx16_t phi = fx_div(fx_from_int(360 * j), fx_from_int(s));
+            add_vertex(
+                mesh,
+                center.x + fx_mul(ring_r, sin_deg_fx(phi)),
+                center.y + y,
+                center.z + fx_mul(ring_r, cos_deg_fx(phi)),
+                nullptr);
+        }
+    }
+    /* The axis, one point per latitude: the inner edge of both cut walls. */
+    const uint16_t axis = static_cast<uint16_t>((r + 1u) * s);
+    for (i = 0; i <= r; ++i) {
+        const sat_fx16_t theta = fx_div(fx_from_int(180 * i), fx_from_int(r));
+        add_vertex(mesh, center.x, center.y + fx_mul(radius, cos_deg_fx(theta)), center.z, nullptr);
+    }
+
+    for (i = 0; i < r; ++i) {
+        const uint16_t top = static_cast<uint16_t>(i * s);
+        const uint16_t bottom = static_cast<uint16_t>((i + 1u) * s);
+        for (j = 0; j < s; ++j) {
+            /* Band j spans longitudes j..j+1, and is removed when it falls in
+             * the gap. The comparison is done on a rotated index so a gap
+             * that wraps past longitude 0 needs no special case. */
+            const uint16_t rotated = static_cast<uint16_t>((j + s - gap_start) % s);
+            const uint16_t j1 = static_cast<uint16_t>((j + 1u) % s);
+            if (rotated < gap) {
+                continue;
+            }
+            add_face(
+                mesh,
+                static_cast<uint16_t>(top + j),
+                static_cast<uint16_t>(top + j1),
+                static_cast<uint16_t>(bottom + j1),
+                static_cast<uint16_t>(bottom + j));
+        }
+    }
+
+    if (gap == 0u) {
+        return SAT_OK;
+    }
+
+    /* The two cut walls, each a fan from the axis out to the rim.
+     *
+     * Their normals face INTO the gap -- outwards as far as the remaining
+     * solid is concerned -- so the winding is mirrored between the two: the
+     * solid lies at lower longitude than the start meridian and at higher
+     * longitude than the end one. */
+    const uint16_t end_j = static_cast<uint16_t>((gap_start + gap) % s);
+    for (i = 0; i < r; ++i) {
+        const uint16_t top = static_cast<uint16_t>(i * s);
+        const uint16_t bottom = static_cast<uint16_t>((i + 1u) * s);
+        add_face(
+            mesh,
+            static_cast<uint16_t>(axis + i + 1u),
+            static_cast<uint16_t>(bottom + gap_start),
+            static_cast<uint16_t>(top + gap_start),
+            static_cast<uint16_t>(axis + i));
+        add_face(
+            mesh,
+            static_cast<uint16_t>(axis + i),
+            static_cast<uint16_t>(top + end_j),
+            static_cast<uint16_t>(bottom + end_j),
+            static_cast<uint16_t>(axis + i + 1u));
     }
     return SAT_OK;
 }

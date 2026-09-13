@@ -48,6 +48,47 @@ inline sat_fx16_t fx_abs(sat_fx16_t v) {
     return (v < 0) ? static_cast<sat_fx16_t>(-v) : v;
 }
 
+/* Exact integer square root, bit by bit. Used where the value whose root is
+ * wanted is a sum of squares that only fits in 64 bits. */
+inline uint64_t isqrt64(uint64_t x) {
+    uint64_t res = 0;
+    uint64_t bit = static_cast<uint64_t>(1) << 62;
+    while (bit > x) {
+        bit >>= 2;
+    }
+    while (bit != 0) {
+        if (x >= res + bit) {
+            x -= res + bit;
+            res = (res >> 1) + bit;
+        } else {
+            res >>= 1;
+        }
+        bit >>= 2;
+    }
+    return res;
+}
+
+/* Length of a 16.16 vector, computed without ever forming a 16.16 product.
+ *
+ * The obvious fx_sqrt(fx_mul(x,x) + fx_mul(y,y) + fx_mul(z,z)) overflows
+ * int32 once any component passes about 181.0, because fx_mul reduces by
+ * 2^16 but the square itself does not fit first. A camera 260 units above a
+ * board is past that, and the result is not a slightly wrong length but a
+ * sign-flipped one, which turns the whole view matrix into nonsense.
+ *
+ * Squaring in int64 keeps the sum at the 2^32 scale, so its integer square
+ * root is already the 16.16 answer. */
+inline sat_fx16_t fx_len3(sat_fx16_t x, sat_fx16_t y, sat_fx16_t z) {
+    const uint64_t sum = (static_cast<int64_t>(x) * x) +
+                         (static_cast<int64_t>(y) * y) +
+                         (static_cast<int64_t>(z) * z);
+    uint64_t root = isqrt64(sum);
+    if (root > 0x7FFFFFFFu) {
+        root = 0x7FFFFFFFu;
+    }
+    return static_cast<sat_fx16_t>(root);
+}
+
 /* sqrt of a 16.16 value, returned as 16.16.
  * For v = A * 2^16, computing sqrt(v << 16) = sqrt(A * 2^32) = sqrt(A) * 2^16
  * yields the 16.16 result directly, so a 64-bit Newton iteration suffices. */
@@ -102,7 +143,7 @@ inline sat_vec3_t vec3_cross(const sat_vec3_t& a, const sat_vec3_t& b) {
 }
 
 inline sat_fx16_t vec3_length(const sat_vec3_t& v) {
-    return fx_sqrt(vec3_dot(v, v));
+    return fx_len3(v.x, v.y, v.z);
 }
 
 inline sat_vec3_t vec3_normalize(const sat_vec3_t& v) {
@@ -113,16 +154,20 @@ inline sat_vec3_t vec3_normalize(const sat_vec3_t& v) {
     return vec3(fx_div(v.x, len), fx_div(v.y, len), fx_div(v.z, len));
 }
 
-/* Unit-length cross product, safe for edges of any length a scene is likely
- * to contain.
+/* Cross product that keeps its direction for edges of any length a scene is
+ * likely to contain, WITHOUT normalising.
  *
  * vec3_cross reduces each product by 2^16 as it goes, so crossing two edges a
  * couple of hundred units long overflows int32 and yields a normal pointing
  * somewhere arbitrary -- which shows up as a large polygon being culled or
- * lit backwards while every small one behaves. Face normals only ever need a
- * direction, so this keeps the full 64-bit products, scales them down until
- * they fit, and normalises. */
-inline sat_vec3_t vec3_cross_unit(const sat_vec3_t& a, const sat_vec3_t& b) {
+ * lit backwards while every small one behaves. Keeping the full 64-bit
+ * products and scaling them down until they fit fixes that.
+ *
+ * The length is meaningless; only the direction is. That is deliberate:
+ * normalising costs a square root and three 64-bit divides, and the two
+ * things face normals are used for -- the sign of a dot product, and a dot
+ * divided by the length -- do not need it. */
+inline sat_vec3_t vec3_cross_scaled(const sat_vec3_t& a, const sat_vec3_t& b) {
     int64_t cx = (static_cast<int64_t>(a.y) * b.z) - (static_cast<int64_t>(a.z) * b.y);
     int64_t cy = (static_cast<int64_t>(a.z) * b.x) - (static_cast<int64_t>(a.x) * b.z);
     int64_t cz = (static_cast<int64_t>(a.x) * b.y) - (static_cast<int64_t>(a.y) * b.x);
@@ -134,26 +179,25 @@ inline sat_vec3_t vec3_cross_unit(const sat_vec3_t& a, const sat_vec3_t& b) {
     if (m == 0) {
         return vec3(0, 0, 0);
     }
-    /* 2^20 leaves room for the squares vec3_length takes without overflow. */
+    /* 2^20 leaves room for the squares fx_len3 takes without overflow. */
     while (m > (static_cast<int64_t>(1) << 20)) {
         cx >>= 1;
         cy >>= 1;
         cz >>= 1;
         m >>= 1;
     }
-    return vec3_normalize(vec3(
+    return vec3(
         static_cast<sat_fx16_t>(cx),
         static_cast<sat_fx16_t>(cy),
-        static_cast<sat_fx16_t>(cz)));
+        static_cast<sat_fx16_t>(cz));
 }
 
-/* Sign of the dot product without the 16.16 rounding that fx_mul applies.
- *
- * Backface culling only needs the sign, and the vectors it compares are a
- * face normal (often small, from a cross product of short edges) against a
- * camera offset (often large). Reducing each product by 2^16 first can round
- * a genuinely non-zero dot to zero and cull a face that should be visible,
- * so the test is made in full 64-bit width instead. */
+/* Unit-length cross product. Only call this where the length actually
+ * matters; see the note above. */
+inline sat_vec3_t vec3_cross_unit(const sat_vec3_t& a, const sat_vec3_t& b) {
+    return vec3_normalize(vec3_cross_scaled(a, b));
+}
+
 inline int64_t vec3_dot_raw(const sat_vec3_t& a, const sat_vec3_t& b) {
     return (static_cast<int64_t>(a.x) * static_cast<int64_t>(b.x)) +
            (static_cast<int64_t>(a.y) * static_cast<int64_t>(b.y)) +
@@ -298,8 +342,7 @@ inline void mat4_look_at(
     sat_fx16_t fx = cx - ex;
     sat_fx16_t fy = cy - ey;
     sat_fx16_t fz = cz - ez;
-    const sat_fx16_t flen = fx_sqrt(
-        static_cast<sat_fx16_t>(fx_mul(fx, fx) + fx_mul(fy, fy) + fx_mul(fz, fz)));
+    const sat_fx16_t flen = fx_len3(fx, fy, fz);
     if (flen != 0) {
         fx = fx_div(fx, flen);
         fy = fx_div(fy, flen);
@@ -310,8 +353,7 @@ inline void mat4_look_at(
     sat_fx16_t sx = fx_mul(fy, uz) - fx_mul(fz, uy);
     sat_fx16_t sy = fx_mul(fz, ux) - fx_mul(fx, uz);
     sat_fx16_t sz = fx_mul(fx, uy) - fx_mul(fy, ux);
-    const sat_fx16_t slen = fx_sqrt(
-        static_cast<sat_fx16_t>(fx_mul(sx, sx) + fx_mul(sy, sy) + fx_mul(sz, sz)));
+    const sat_fx16_t slen = fx_len3(sx, sy, sz);
     if (slen != 0) {
         sx = fx_div(sx, slen);
         sy = fx_div(sy, slen);

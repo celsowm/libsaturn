@@ -21,6 +21,27 @@
 #define PAC_PEN_ROW 14
 static const uint8_t kGhostSpawnCol[PAC_GHOST_COUNT] = {12, 13, 14, 15};
 
+/* The pen interior, and the corridor tile just outside its door.
+ *
+ * A ghost inside the pen cannot be steered by the ordinary chase rule. That
+ * rule picks whichever legal move lands nearest the target, and the target is
+ * Pac-Man, who is almost always BELOW the pen -- so a ghost in the pen walks
+ * into its own south wall and stays there. The symptom is subtle enough to
+ * miss: the ghosts animate, the game runs, and three of the four simply never
+ * appear. (Measured before this fix: ghosts 1, 2 and 3 spent 100% of their
+ * released frames inside the pen; only ghost 0 ever escaped, and only because
+ * it starts facing the door.)
+ *
+ * So a penned ghost aims at the tile outside the door instead, until it is
+ * out. This is what the arcade game does too. */
+#define PAC_PEN_COL_MIN 11
+#define PAC_PEN_COL_MAX 16
+#define PAC_PEN_ROW_MIN 12
+#define PAC_PEN_ROW_MAX 15
+#define PAC_DOOR_COL_LEFT 13
+#define PAC_DOOR_COL_RIGHT 14
+#define PAC_DOOR_EXIT_ROW 11
+
 /* Scatter corners, one per ghost, so they spread out instead of stacking up
  * on the same tile whenever they are not chasing. */
 static const uint8_t kScatterCol[PAC_GHOST_COUNT] = {26, 1, 26, 1};
@@ -30,6 +51,21 @@ static const uint8_t kScatterRow[PAC_GHOST_COUNT] = {1, 1, 23, 23};
  * staggered so they do not emerge as a single clump. */
 #define PAC_MODE_PERIOD 240u
 #define PAC_RELEASE_STEP 45u
+
+/* Ghosts skip one step in every PAC_GHOST_SLOW_PERIOD frames.
+ *
+ * sat_grid_actor_t moves a whole number of pixels per frame, so a ghost
+ * cannot simply be given 1.7 pixels; dropping a step is how a slower speed is
+ * expressed on an integer grid. Some margin is needed: with four ghosts at
+ * exactly Pac-Man's speed, converging on his tile, a corridor has no escape
+ * and the game is not winnable. The arcade slows its ghosts for the same
+ * reason.
+ *
+ * One frame in eight puts them at 87.5% of Pac-Man's speed, which is about
+ * where the arcade has them on its first level. It is a deliberate choice
+ * rather than a tuned one: a bot good enough to measure "playable" against is
+ * a bigger piece of work than the game it would be measuring. */
+#define PAC_GHOST_SLOW_PERIOD 8u
 
 /* Half-width of the square used for the Pac-Man/ghost overlap test. Actors
  * are 8 pixels apart at adjacent tile centres, so 6 catches a genuine overlap
@@ -246,6 +282,68 @@ static void step_pac(pac_game_t* game) {
     sat_grid_actor_step(&game->grid, &game->pac, pac_game_is_floor, game);
 }
 
+/* Where ghost `index` is heading while chasing.
+ *
+ * All four aiming at Pac-Man's own tile is what makes them clump: the chase
+ * rule is deterministic, so ghosts that share a tile share a decision and
+ * then travel as one blob for the rest of the game. Giving each a different
+ * target is what separates them, and it is also the whole of Pac-Man's
+ * character -- one pursues, one cuts ahead, one flanks, one loses its nerve.
+ *
+ * Targets are allowed to fall outside the maze. sat_grid_chase_dir only
+ * scores squared distance, so an unreachable target simply biases movement in
+ * its direction, which is exactly the intent. */
+/* True while the ghost is still inside the pen box. */
+static int inside_pen(int col, int row) {
+    return col >= PAC_PEN_COL_MIN && col <= PAC_PEN_COL_MAX &&
+           row >= PAC_PEN_ROW_MIN && row <= PAC_PEN_ROW_MAX;
+}
+
+static void chase_target(const pac_game_t* game, int index, int* out_col, int* out_row) {
+    const int pac_col = actor_col(game, &game->pac);
+    const int pac_row = actor_row(game, &game->pac);
+    const int dx = sat_dir_dx((int)game->pac.dir);
+    const int dy = sat_dir_dy((int)game->pac.dir);
+
+    switch (index) {
+    case 1:
+        /* Four tiles in front of Pac-Man: arrives where he is going. */
+        *out_col = pac_col + (dx * 4);
+        *out_row = pac_row + (dy * 4);
+        break;
+    case 2: {
+        /* The point two ahead of Pac-Man, reflected through ghost 0. That
+         * keeps it roughly opposite its partner, so the two of them close
+         * from both sides instead of following each other. */
+        const int ahead_col = pac_col + (dx * 2);
+        const int ahead_row = pac_row + (dy * 2);
+        const int lead_col = actor_col(game, &game->ghosts[0].actor);
+        const int lead_row = actor_row(game, &game->ghosts[0].actor);
+        *out_col = ahead_col + (ahead_col - lead_col);
+        *out_row = ahead_row + (ahead_row - lead_row);
+        break;
+    }
+    case 3: {
+        /* Chases from a distance and breaks off when it gets close, which
+         * leaves one corner of the maze survivable. */
+        const int gap_col = pac_col - actor_col(game, &game->ghosts[3].actor);
+        const int gap_row = pac_row - actor_row(game, &game->ghosts[3].actor);
+        if ((gap_col * gap_col) + (gap_row * gap_row) > (8 * 8)) {
+            *out_col = pac_col;
+            *out_row = pac_row;
+        } else {
+            *out_col = (int)kScatterCol[3];
+            *out_row = (int)kScatterRow[3];
+        }
+        break;
+    }
+    default:
+        *out_col = pac_col;
+        *out_row = pac_row;
+        break;
+    }
+}
+
 static void step_ghost(pac_game_t* game, int index) {
     pac_ghost_t* ghost = &game->ghosts[index];
     sat_grid_actor_t* a = &ghost->actor;
@@ -254,6 +352,12 @@ static void step_ghost(pac_game_t* game, int index) {
 
     if (ghost->release > 0u) {
         --ghost->release;
+        return;
+    }
+    /* Staggered by ghost, not global: dropping the same frame for all four
+     * keeps them in lockstep, which puts them back to making identical moves
+     * from identical tiles -- the clumping this is meant to avoid. */
+    if (((game->frame + (uint32_t)index) % PAC_GHOST_SLOW_PERIOD) == 0u) {
         return;
     }
     if (!sat_grid_at_tile_center(&game->grid, (int)a->x, (int)a->y)) {
@@ -265,6 +369,19 @@ static void step_ghost(pac_game_t* game, int index) {
     col = actor_col(game, a);
     row = actor_row(game, a);
 
+    if (inside_pen(col, row)) {
+        /* Getting out comes before scattering, chasing or fleeing: a ghost
+         * that wanders inside the pen is a ghost that is not in the game. */
+        const int door_col =
+            (col <= PAC_DOOR_COL_LEFT) ? PAC_DOOR_COL_LEFT : PAC_DOOR_COL_RIGHT;
+        a->dir = (int16_t)sat_grid_chase_dir(
+            &game->grid, col, row, a->dir, door_col, PAC_DOOR_EXIT_ROW,
+            pac_game_is_floor, game);
+        a->want = a->dir;
+        sat_grid_actor_step(&game->grid, a, pac_game_is_floor, game);
+        return;
+    }
+
     if (game->fright > 0u) {
         /* Frightened ghosts wander, which is what makes a power pellet worth
          * eating: their paths stop being predictable. */
@@ -273,9 +390,13 @@ static void step_ghost(pac_game_t* game, int index) {
     } else {
         int target_col;
         int target_row;
-        if (((game->frame / PAC_MODE_PERIOD) & 1u) == 0u) {
-            target_col = actor_col(game, &game->pac);
-            target_row = actor_row(game, &game->pac);
+        /* The round OPENS on scatter, not chase. Four ghosts beelining at a
+         * Pac-Man who has not moved yet is how a round ends before it starts;
+         * the arcade sends them to their corners first for the same reason.
+         * The same applies after a death, since the frame counter is what
+         * drives the alternation and a death does not reset it. */
+        if (((game->frame / PAC_MODE_PERIOD) & 1u) != 0u) {
+            chase_target(game, index, &target_col, &target_row);
         } else {
             target_col = (int)kScatterCol[index];
             target_row = (int)kScatterRow[index];

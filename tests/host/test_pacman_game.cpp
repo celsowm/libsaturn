@@ -145,23 +145,39 @@ TEST(eating_pellets_scores_and_depletes) {
     ASSERT_EQ(g.score % 10u, 0u);
 }
 
+/* Releases are staggered so the four do not emerge as one clump.
+ *
+ * This deliberately stops before frame 97. Once ghosts could actually get out
+ * of the pen (see every_ghost_actually_leaves_the_pen) a Pac-Man left standing
+ * on his spawn tile gets caught at frame 97, and a death re-pens everyone with
+ * fresh timers -- so running this to frame 200 would be measuring how long the
+ * player survives, not the release stagger. */
 TEST(ghosts_leave_the_pen_on_a_stagger) {
     pac_game_t g;
     const sat_pad_state_t idle = pad_held(0);
+    int step;
     int i;
 
     pac_game_init(&g, kOriginX, kOriginY);
     for (i = 0; i < PAC_GHOST_COUNT; ++i) {
         ASSERT_EQ(pac_game_ghost_penned(&g, i), i == 0 ? 0 : 1);
     }
-    for (i = 0; i < 200; ++i) {
-        pac_game_update(&g, &idle);
-    }
-    for (i = 0; i < PAC_GHOST_COUNT; ++i) {
-        ASSERT_FALSE(pac_game_ghost_penned(&g, i));
+
+    /* One more ghost released per 45-frame step. */
+    for (step = 1; step <= 2; ++step) {
+        for (i = 0; i < 46; ++i) {
+            pac_game_update(&g, &idle);
+        }
+        for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+            ASSERT_EQ(pac_game_ghost_penned(&g, i), (i <= step) ? 0 : 1);
+        }
     }
 }
 
+/* Releases every ghost up front rather than waiting out the stagger. Waiting
+ * is no longer reliable: ghosts that can reach Pac-Man kill an idle one, and
+ * each death re-pens all four with fresh timers, so a fixed number of frames
+ * no longer implies a released ghost. */
 TEST(ghosts_actually_move_once_released) {
     pac_game_t g;
     const sat_pad_state_t idle = pad_held(0);
@@ -169,13 +185,15 @@ TEST(ghosts_actually_move_once_released) {
     int i;
 
     pac_game_init(&g, kOriginX, kOriginY);
-    for (i = 0; i < 200; ++i) {
-        pac_game_update(&g, &idle);
-    }
     for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+        g.ghosts[i].release = 0u;
+        ASSERT_FALSE(pac_game_ghost_penned(&g, i));
         before[i] = g.ghosts[i].actor.x + (g.ghosts[i].actor.y * 1000);
     }
     for (i = 0; i < 60; ++i) {
+        /* Kept alive so a death does not re-pen them mid-measurement. */
+        g.lives = 9;
+        g.state = PAC_STATE_PLAY;
         pac_game_update(&g, &idle);
     }
     for (i = 0; i < PAC_GHOST_COUNT; ++i) {
@@ -300,6 +318,146 @@ TEST(out_of_range_cells_read_as_wall) {
     ASSERT_EQ(pac_game_ghost_penned(&g, -1), 0);
 }
 
+
+/* The bug this pins: the ordinary chase rule steers towards whichever legal
+ * move lands nearest Pac-Man, and Pac-Man is almost always below the pen --
+ * so a ghost inside the pen walks into its own south wall and stays there
+ * forever. Before the fix, ghosts 1, 2 and 3 spent 100% of their released
+ * frames in the pen and never appeared in the game at all. */
+TEST(every_ghost_actually_leaves_the_pen) {
+    pac_game_t g;
+    const sat_pad_state_t left = pad_held(SAT_PAD_LEFT);
+    long released[PAC_GHOST_COUNT] = {0, 0, 0, 0};
+    long in_pen[PAC_GHOST_COUNT] = {0, 0, 0, 0};
+    int i;
+    uint32_t f;
+
+    pac_game_init(&g, kOriginX, kOriginY);
+    for (f = 0; f < 3000u; ++f) {
+        pac_game_update(&g, &left);
+        for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+            int col;
+            int row;
+            if (pac_game_ghost_penned(&g, i)) {
+                continue;
+            }
+            ++released[i];
+            col = ((int)g.ghosts[i].actor.x - kOriginX) / kPacTilePx;
+            row = ((int)g.ghosts[i].actor.y - kOriginY) / kPacTilePx;
+            if (col >= 11 && col <= 16 && row >= 12 && row <= 15) {
+                ++in_pen[i];
+            }
+        }
+    }
+
+    for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+        ASSERT_TRUE(released[i] > 1000);
+        /* Leaving, and re-entering after being eaten, is a small fraction of
+         * a run. Being trapped is 100%. */
+        ASSERT_TRUE(in_pen[i] * 5 < released[i]);
+    }
+}
+
+/* Four ghosts aiming at the same tile make the same decision at every
+ * junction, so any two that meet travel as one for the rest of the game.
+ * Starting them all on one tile is the scenario that shows it: with a single
+ * shared target they stay stacked about 11% of the run, and with a target
+ * each about 5%. */
+TEST(ghosts_that_meet_separate_again) {
+    pac_game_t g;
+    const int kCol = 13;
+    const int kRow = 11;
+    long stacked = 0;
+    long pairs = 0;
+    int i;
+    int j;
+    uint32_t f;
+
+    pac_game_init(&g, kOriginX, kOriginY);
+    for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+        g.ghosts[i].release = 0u;
+        g.ghosts[i].actor.x = (int16_t)(kOriginX + (kCol * kPacTilePx) + (kPacTilePx / 2));
+        g.ghosts[i].actor.y = (int16_t)(kOriginY + (kRow * kPacTilePx) + (kPacTilePx / 2));
+        g.ghosts[i].actor.dir = SAT_DIR_LEFT;
+        g.ghosts[i].actor.want = SAT_DIR_LEFT;
+    }
+
+    for (f = 0; f < 1200u; ++f) {
+        const sat_pad_state_t pad = pad_held(((f / 70u) & 1u) ? SAT_PAD_UP : SAT_PAD_LEFT);
+        /* Held inside the CHASE window -- frame 0 is scatter, and scatter
+         * already gives each ghost its own corner -- while still advancing,
+         * because the frame counter also drives the per-ghost slowdown
+         * stagger: freezing it at a constant would stop one ghost outright.
+         * 240 is PAC_MODE_PERIOD, which pacman_game.c keeps private. */
+        g.frame = 240u + (f % 240u);
+        g.fright = 0u;
+        g.lives = 9;
+        g.state = PAC_STATE_PLAY;
+        pac_game_update(&g, &pad);
+
+        for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+            for (j = i + 1; j < PAC_GHOST_COUNT; ++j) {
+                const int32_t dx = g.ghosts[i].actor.x - g.ghosts[j].actor.x;
+                const int32_t dy = g.ghosts[i].actor.y - g.ghosts[j].actor.y;
+                ++pairs;
+                if ((dx * dx) + (dy * dy) < (kPacTilePx * kPacTilePx)) {
+                    ++stacked;
+                }
+            }
+        }
+    }
+    ASSERT_TRUE(pairs > 0);
+    ASSERT_TRUE((stacked * 100) / pairs < 8);
+}
+
+
+/* Ghosts have to be slower than Pac-Man or the game is not winnable: four
+ * pursuers at the player's exact speed leave a corridor with no way out.
+ * Positions are whole pixels, so the slowdown is a dropped step rather than a
+ * fractional speed, and this pins both that it happens and that it stays
+ * small. */
+TEST(ghosts_move_slower_than_pac_man) {
+    pac_game_t g;
+    const sat_pad_state_t idle = pad_held(0);
+    int moved[PAC_GHOST_COUNT] = {0, 0, 0, 0};
+    int live[PAC_GHOST_COUNT] = {0, 0, 0, 0};
+    int32_t prev_x[PAC_GHOST_COUNT];
+    int32_t prev_y[PAC_GHOST_COUNT];
+    int i;
+    int f;
+
+    pac_game_init(&g, kOriginX, kOriginY);
+    for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+        g.ghosts[i].release = 0u;
+        prev_x[i] = g.ghosts[i].actor.x;
+        prev_y[i] = g.ghosts[i].actor.y;
+    }
+    for (f = 0; f < 600; ++f) {
+        g.lives = 9;
+        g.state = PAC_STATE_PLAY;
+        g.fright = 0u;
+        pac_game_update(&g, &idle);
+        for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+            /* Catching Pac-Man re-pens everyone, and a penned ghost does not
+             * move at all -- which would be counted as slowness that is not
+             * the slowness under test. */
+            if (!pac_game_ghost_penned(&g, i)) {
+                ++live[i];
+                if (g.ghosts[i].actor.x != prev_x[i] || g.ghosts[i].actor.y != prev_y[i]) {
+                    ++moved[i];
+                }
+            }
+            prev_x[i] = g.ghosts[i].actor.x;
+            prev_y[i] = g.ghosts[i].actor.y;
+        }
+    }
+    for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+        ASSERT_TRUE(live[i] > 200);
+        ASSERT_TRUE(moved[i] < live[i]);              /* slower than Pac-Man */
+        ASSERT_TRUE(moved[i] * 4 > live[i] * 3);      /* but only a little   */
+    }
+}
+
 int main() {
     init_sets_up_a_playable_round();
     nobody_spawns_inside_a_wall();
@@ -315,7 +473,10 @@ int main() {
     origin_only_shifts_positions_not_behaviour();
     null_game_pointer_is_safe();
     out_of_range_cells_read_as_wall();
+    every_ghost_actually_leaves_the_pen();
+    ghosts_that_meet_separate_again();
+    ghosts_move_slower_than_pac_man();
 
-    printf("PASS: test_pacman_game.cpp (%d tests)\n", 14);
+    printf("PASS: test_pacman_game.cpp (%d tests)\n", 17);
     return 0;
 }

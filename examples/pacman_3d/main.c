@@ -1,20 +1,32 @@
-/* pacman_3d - playable perspective Pac-Man for Sega Saturn (libsaturn).
+/* pacman_3d - Pac-Man on a 3D board for Sega Saturn (libsaturn).
  *
  * Same game as examples/pacman_2d, same code driving it: every rule lives in
  * examples/common/pacman_game.c and this file only decides how to look at it.
  * The maze pixels the 2D example treats as screen X and Y are treated here as
  * world X and Z.
  *
- * Everything in the scene is a flat-shaded polygon submitted to the VDP1
- * through the library's world-quad helpers (saturn/render3d.h):
- *   - maze walls are merged into runs, backface-culled, depth-sorted and
- *     drawn as solid quads shaded by which way they face;
- *   - pellets are small quads lying on the floor;
- *   - Pac-Man and the ghosts are camera-facing solid quads.
+ * The camera is a fixed high three-quarter view with the whole maze in frame,
+ * the way a board game sits on a table. A chase camera behind Pac-Man was the
+ * obvious thing to try and it reads badly here: at this scale the walls are a
+ * few tiles away in every direction, so the view is mostly wall, and a game
+ * about seeing where the ghosts are becomes a game about not seeing them.
+ *
+ * Everything in the scene is a solid, flat-shaded polygon submitted to the
+ * VDP1, and all of it is built from the library's mesh primitives
+ * (saturn/mesh3d.h) rather than from hand-written corner lists:
+ *   - wall runs are merged into rectangles and drawn as boxes;
+ *   - Pac-Man is a sphere, the ghosts are capped cylinders;
+ *   - the board is one subdivided plane;
+ *   - pellets are small flat quads.
  * There are no textures, so nothing here needs an asset pipeline.
  *
- * The ground is a VDP2 RBG0 coefficient-table plane, which costs no VDP1
- * commands at all -- the 512-command list is reserved for the geometry.
+ * Because the camera never moves, the maze, the board and the pellets always
+ * project to the same screen coordinates. They are therefore projected ONCE
+ * at startup -- culled, shaded and depth-sorted there too -- and each frame
+ * only replays the corners through sat_draw_quad2_polygon. Projection is four
+ * matrix transforms and two 64-bit divides per corner, and this is about 1500
+ * corners; doing it every frame ran the board at roughly a fifth of full
+ * rate. Only Pac-Man and the ghosts, which actually move, are projected live.
  *
  * Controls: D-Pad to move, START to restart. No sound.
  */
@@ -26,6 +38,7 @@
 #include "saturn/grid.h"
 #include "saturn/input.h"
 #include "saturn/math3d.h"
+#include "saturn/mesh3d.h"
 #include "saturn/render3d.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
@@ -33,57 +46,44 @@
 #include "saturn/example_util.h"
 
 #include "../common/pacman_game.h"
-#include "../vdp2_rbg0_ground/rbg0_math.h"
 
 #define SCREEN_W 320
 #define SCREEN_H 224
 #define TILE kPacTilePx
 
-#define WALL_HEIGHT 24
+#define BOARD_W (kPacMazeCols * TILE) /* 224 */
+#define BOARD_D (kPacMazeRows * TILE) /* 200 */
 
-/* RBG0 ground plane */
-#define RBG0_BITMAP_WIDTH 512u
-#define RBG0_BITMAP_HEIGHT 256u
-#define RBG0_HORIZON 96u
-#define RBG0_FOCAL 96u
-#define RBG0_MIN_DEPTH 8u
-#define RBG0_GROUND_FORWARD 96u
-#define RBG0_BITMAP_BASE_WORD 0x00000u
-#define RBG0_ROT_BASE_WORD 0x10000u
-#define RBG0_COEF_BASE_WORD 0x12000u
-#define RBG0_PALETTE 0u
+/* Low walls, and the reason is not just that tall ones hide the board.
+ *
+ * The VDP1 has no depth buffer, so everything is ordered back-to-front per
+ * object -- and a tall wall in the row NEARER the camera is drawn after the
+ * corridor behind it, painting over anything standing there even though it
+ * does not actually occlude it. At this camera angle a wall projects about
+ * 1.3 screen pixels per unit of height while a whole tile row is only about
+ * 7 pixels deep, so 12-unit walls reached two rows back and sliced pieces off
+ * Pac-Man whenever he ran alongside one. Six units keeps a wall inside its
+ * own row, which is what makes the per-object ordering sufficient. */
+#define WALL_HEIGHT 6
 
-/* CRAM has 8 palette banks (0..7). The RBG0 ground owns bank 0, so the HUD
- * font gets bank 1. */
-#define HUD_PALETTE 1u
+/* Camera. Fixed, so these are the numbers that frame the board: from
+ * 260 units up and 190 back, a 36-degree vertical field of view puts all four
+ * corners of the maze on screen with the top 28 pixels left clear for the
+ * HUD. Changing any one of them needs the other two checked. */
+#define CAM_HEIGHT 260
+#define CAM_BACK 190
+#define CAM_FOV 36
 
-/* 146 merged faces is the exact count for kPacMaze; the slack absorbs edits
- * to the maze art without silently dropping walls. Faces are indexed with a
- * uint8_t in the sort table, so this must stay below 256. */
-#define MAX_WALL_FACES 192u
-
-/* Pellets beyond this many world units are a pixel or less on screen and only
- * cost VDP1 commands. Walls are not distance-culled -- a missing wall reads as
- * a hole in the maze, while a missing far pellet reads as nothing at all. */
-#define PELLET_DRAW_RANGE 120
-
-enum { FACE_HORIZONTAL = 0, FACE_VERTICAL = 1 };
-
-typedef struct wall_face {
-    uint8_t axis;
-    int8_t side;     /* -1 = faces the low side of `fixed`, +1 = the high side */
-    uint8_t fixed;   /* row for horizontal faces, column for vertical ones */
-    uint8_t start;
-    uint8_t end;
-} wall_face_t;
+#define HUD_PALETTE 0u
 
 /* Colours */
-#define COLOR_SKY     SAT_RGB555(2, 4, 10)
-#define COLOR_WALL    SAT_RGB555(6, 11, 31)
-#define COLOR_PELLET  SAT_RGB555(31, 24, 14)
-#define COLOR_POWER   SAT_RGB555(31, 31, 31)
-#define COLOR_PAC     SAT_RGB555(31, 30, 2)
-#define COLOR_SHADOW  SAT_RGB555(1, 2, 6)
+#define COLOR_TABLE SAT_RGB555(0, 1, 3)
+#define COLOR_BOARD SAT_RGB555(1, 2, 7)
+#define COLOR_WALL SAT_RGB555(6, 11, 31)
+#define COLOR_PELLET SAT_RGB555(31, 24, 14)
+#define COLOR_POWER SAT_RGB555(31, 31, 31)
+#define COLOR_PAC SAT_RGB555(31, 30, 2)
+#define COLOR_MOUTH SAT_RGB555(2, 2, 5)
 
 static const uint16_t kGhostColors[PAC_GHOST_COUNT] = {
     SAT_RGB555(31, 0, 0),
@@ -93,318 +93,355 @@ static const uint16_t kGhostColors[PAC_GHOST_COUNT] = {
 };
 #define COLOR_FRIGHT_A SAT_RGB555(4, 4, 31)
 #define COLOR_FRIGHT_B SAT_RGB555(31, 31, 31)
+/* Frames of fright left when the warning flash starts. */
+#define PAC_FRIGHT_WARNING 120u
 
 /* Faces turned away from the light keep this fraction of their colour, so a
- * back-facing wall stays visible instead of reading as a hole. */
-#define WALL_AMBIENT (SAT_FX16_ONE / 3)
+ * shadowed side stays readable instead of reading as a hole. */
+#define AMBIENT (SAT_FX16_ONE / 3)
 
-static const rbg0_ground_config_t g_rbg0_cfg = {
-    RBG0_BITMAP_WIDTH,
-    RBG0_BITMAP_HEIGHT,
-    SCREEN_W / 2u,
-    RBG0_HORIZON,
-    RBG0_FOCAL,
-    RBG0_MIN_DEPTH,
-    RBG0_GROUND_FORWARD,
-    RBG0_COEF_BASE_WORD,
-};
+/* ------------------------------------------------------------------ */
+/* Baked scene                                                         */
+/* ------------------------------------------------------------------ */
+/* The VDP1 has no depth buffer: quads overwrite each other in list order, so
+ * everything in the scene has to go into ONE back-to-front ordering. Sorting
+ * walls and pellets separately looks right until a pellet sits just in front
+ * of a wall, at which point the wall paints over it.
+ *
+ * The static half of that ordering is fixed for the life of the program, so
+ * it is computed once into g_baked and then just walked. Pellets stay in the
+ * list after they are eaten and are skipped by looking at the maze, which
+ * avoids re-sorting anything when the board changes. */
+#define MAX_BAKED 448u
+#define MAX_WALL_RECTS 96u
+/* The board is a flat, evenly lit surface, so subdividing it buys nothing
+ * but VDP1 commands -- and on this scene every command counts: 400 of them
+ * per frame is already about one frame of SH-2 time. */
+#define BOARD_SEGMENTS 1u
+#define MAX_BOARD_QUADS 4u
+
+/* Marks a baked quad that is always drawn, as opposed to a pellet that is
+ * only drawn while its maze cell still holds one. */
+#define BAKED_ALWAYS 0xFFu
+
+typedef struct wall_rect {
+    uint8_t col;
+    uint8_t row;
+    uint8_t cols;
+    uint8_t rows;
+} wall_rect_t;
+
+typedef struct baked_quad {
+    sat_quad2_t quad;
+    uint32_t depth; /* squared ground distance from the camera */
+    uint16_t color;
+    uint8_t cell_col; /* BAKED_ALWAYS, or the pellet cell to test */
+    uint8_t cell_row;
+} baked_quad_t;
+
+/* Pac-Man and the ghosts move, so they are projected live and merged into the
+ * baked order by depth. */
+typedef struct actor_draw {
+    uint32_t depth;
+    int16_t x;
+    int16_t z;
+    uint16_t color;
+    uint8_t is_pac;
+    int8_t dir; /* facing, for Pac-Man's mouth */
+} actor_draw_t;
+
+/* Chew cycle: closed, half, open, half. */
+static const uint8_t kPacChew[4] = {0u, 1u, 2u, 1u};
+
+/* Scratch mesh storage, sized for the largest primitive drawn here, the
+ * Pac-Man sphere. sat_mesh_sphere_counts gives the exact numbers at runtime;
+ * these have to be compile-time constants, so sat_mesh_build_* is left to
+ * report SAT_ERR_CAPACITY if they are ever made too small. */
+#define PAC_SPHERE_SEGMENTS 12u
+#define PAC_SPHERE_RINGS 3u
+#define GHOST_SEGMENTS 6u
+#define MESH_VERTEX_CAP 56u
+#define MESH_FACE_CAP 40u
 
 static pac_game_t g_game;
 static sat_ascii_font_t g_font;
 
-static wall_face_t g_faces[MAX_WALL_FACES];
-static uint16_t g_face_count;
-static uint8_t g_face_order[MAX_WALL_FACES];
-static uint32_t g_face_depth[MAX_WALL_FACES];
+static wall_rect_t g_rects[MAX_WALL_RECTS];
+static uint16_t g_rect_count;
+
+static baked_quad_t g_baked[MAX_BAKED];
+static uint16_t g_baked_count;
+
+/* The board is under everything and never overlaps itself, so it is drawn
+ * first as a block rather than taking part in the depth ordering. */
+static sat_quad2_t g_board[MAX_BOARD_QUADS];
+static uint16_t g_board_colors[MAX_BOARD_QUADS];
+static uint16_t g_board_count;
+
+static sat_vec3_t g_mesh_vertices[MESH_VERTEX_CAP];
+static uint16_t g_mesh_indices[MESH_FACE_CAP * 4u];
+static sat_mesh_t g_mesh;
+static uint8_t g_mesh_order[MESH_FACE_CAP];
+static uint32_t g_mesh_depth[MESH_FACE_CAP];
 
 static sat_mat4_t g_view_proj;
 static sat_vec3_t g_cam_eye;
-static int g_cam_dir = SAT_DIR_LEFT;  /* last direction Pac-Man actually faced */
-static sat_fx16_t g_cam_right_x;
-static sat_fx16_t g_cam_right_z;
 
 /* Set when the VDP1 command list filled up, so the overflow is reported on
  * screen rather than appearing as geometry that silently vanishes. */
 static int g_draw_overflow;
 
 /* ------------------------------------------------------------------ */
-/* RBG0 ground plane                                                   */
+/* Wall rectangles                                                     */
 /* ------------------------------------------------------------------ */
-
-static void upload_rbg0_palette(void) {
-    uint16_t palette[256];
-    int i;
-    for (i = 0; i < 256; ++i) {
-        palette[i] = 0;
-    }
-    palette[0] = SAT_RGB555(2, 4, 10);
-    palette[1] = SAT_RGB555(8, 14, 24);
-    palette[2] = SAT_RGB555(16, 24, 31);
-    palette[3] = SAT_RGB555(28, 18, 10);
-    sat_example_must(sat_vdp2_palette_upload(palette, 256u, RBG0_PALETTE));
-}
-
-/* A tile grid, so motion over the ground is readable even where no wall is
- * in view to give a sense of speed. */
-static void upload_rbg0_bitmap(void) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    uint32_t off = RBG0_BITMAP_BASE_WORD;
-    uint32_t y;
-    uint32_t x;
-
-    for (y = 0; y < RBG0_BITMAP_HEIGHT; ++y) {
-        for (x = 0; x < RBG0_BITMAP_WIDTH; x += 2u) {
-            uint8_t pix[2];
-            uint32_t k;
-            for (k = 0; k < 2u; ++k) {
-                const uint32_t xx = x + k;
-                uint8_t p = (((xx / 32u) + (y / 32u)) & 1u) ? 1u : 0u;
-                if ((xx % 32u) == 0u || (y % 32u) == 0u) {
-                    p = 2u;
-                }
-                pix[k] = p;
-            }
-            vram[off++] = (uint16_t)(((uint16_t)pix[0] << 8u) | pix[1]);
-        }
-    }
-}
-
-static void write_rbg0_coefficients(void) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    uint32_t y;
-    for (y = 0; y < (uint32_t)SCREEN_H; ++y) {
-        uint16_t w0;
-        uint16_t w1;
-        const uint32_t base = RBG0_COEF_BASE_WORD + (y * 2u);
-        rbg0_ground_encode_coefficient(&g_rbg0_cfg, y, &w0, &w1);
-        vram[base] = w0;
-        vram[base + 1u] = w1;
-    }
-}
-
-static void write_rbg0_params(int cam_x, int cam_z) {
-    uint16_t params[48];
-    rbg0_ground_build_params(&g_rbg0_cfg, cam_x, cam_z, params);
-    sat_example_must(sat_vdp2_vram_write_words(RBG0_ROT_BASE_WORD, params, 48u));
-}
-
-static void init_rbg0(void) {
-    sat_vdp2_rbg0_mode7_config_t cfg = {
-        SAT_VDP2_RBG0_BITMAP_512x256,
-        SAT_VDP2_COLOR_MODE_256,
-        RBG0_BITMAP_BASE_WORD,
-        RBG0_ROT_BASE_WORD,
-        COLOR_SKY,
-        6u,
-        7u
-    };
-    upload_rbg0_palette();
-    upload_rbg0_bitmap();
-    write_rbg0_coefficients();
-    sat_example_must(sat_vdp2_rbg0_mode7_init(&cfg));
-    write_rbg0_params(0, 0);
-}
-
-/* ------------------------------------------------------------------ */
-/* Wall face extraction                                                */
-/* ------------------------------------------------------------------ */
-
-static void add_face(int axis, int side, int fixed, int start, int end) {
-    wall_face_t* face;
-    if (g_face_count >= MAX_WALL_FACES || end < start) {
-        return;
-    }
-    face = &g_faces[g_face_count++];
-    face->axis = (uint8_t)axis;
-    face->side = (int8_t)side;
-    face->fixed = (uint8_t)fixed;
-    face->start = (uint8_t)start;
-    face->end = (uint8_t)end;
-}
 
 static int is_wall(int col, int row) {
     return pac_game_cell(&g_game, col, row) == '#';
 }
 
-/* Only wall tiles with open floor next to them produce a face, and adjacent
- * such tiles are merged into one quad. Interior wall tiles are never visible,
- * so emitting them would cost commands and draw nothing. */
-static void build_wall_faces(void) {
-    int fixed;
-    int side;
+/* Greedy merge of wall tiles into maximal rectangles: run right along a row,
+ * then extend down as far as every column of the run stays wall.
+ *
+ * One box per rectangle instead of one per tile is the difference between
+ * about 60 solids and about 200, and on a 512-command list that is the
+ * difference between the board fitting and not. */
+static void build_wall_rects(void) {
+    uint8_t used[kPacMazeRows][kPacMazeCols];
+    int row;
+    int col;
 
-    g_face_count = 0;
-
-    for (fixed = 0; fixed < kPacMazeRows; ++fixed) {
-        for (side = -1; side <= 1; side += 2) {
-            int c = 0;
-            while (c < kPacMazeCols) {
-                if (is_wall(c, fixed) && !is_wall(c, fixed + side)) {
-                    const int start = c;
-                    while (c < kPacMazeCols && is_wall(c, fixed) &&
-                           !is_wall(c, fixed + side)) {
-                        ++c;
-                    }
-                    add_face(FACE_HORIZONTAL, side, fixed, start, c - 1);
-                } else {
-                    ++c;
-                }
-            }
+    g_rect_count = 0;
+    for (row = 0; row < kPacMazeRows; ++row) {
+        for (col = 0; col < kPacMazeCols; ++col) {
+            used[row][col] = 0u;
         }
     }
 
-    for (fixed = 0; fixed < kPacMazeCols; ++fixed) {
-        for (side = -1; side <= 1; side += 2) {
-            int r = 0;
-            while (r < kPacMazeRows) {
-                if (is_wall(fixed, r) && !is_wall(fixed + side, r)) {
-                    const int start = r;
-                    while (r < kPacMazeRows && is_wall(fixed, r) &&
-                           !is_wall(fixed + side, r)) {
-                        ++r;
+    for (row = 0; row < kPacMazeRows; ++row) {
+        col = 0;
+        while (col < kPacMazeCols) {
+            int end;
+            int bottom;
+            int r;
+            int c;
+
+            if (!is_wall(col, row) || used[row][col]) {
+                ++col;
+                continue;
+            }
+            end = col;
+            while (end < kPacMazeCols && is_wall(end, row) && !used[row][end]) {
+                ++end;
+            }
+            bottom = row + 1;
+            while (bottom < kPacMazeRows) {
+                int ok = 1;
+                for (c = col; c < end; ++c) {
+                    if (!is_wall(c, bottom) || used[bottom][c]) {
+                        ok = 0;
+                        break;
                     }
-                    add_face(FACE_VERTICAL, side, fixed, start, r - 1);
-                } else {
-                    ++r;
+                }
+                if (!ok) {
+                    break;
+                }
+                ++bottom;
+            }
+            for (r = row; r < bottom; ++r) {
+                for (c = col; c < end; ++c) {
+                    used[r][c] = 1u;
                 }
             }
+            if (g_rect_count < MAX_WALL_RECTS) {
+                wall_rect_t* rect = &g_rects[g_rect_count++];
+                rect->col = (uint8_t)col;
+                rect->row = (uint8_t)row;
+                rect->cols = (uint8_t)(end - col);
+                rect->rows = (uint8_t)(bottom - row);
+            }
+            col = end;
         }
-    }
-}
-
-/* World-space plane the face lies on, and the span it covers. */
-static int face_plane(const wall_face_t* face) {
-    return ((int)face->fixed * TILE) + ((face->side > 0) ? TILE : 0);
-}
-
-static void face_center(const wall_face_t* face, int* out_x, int* out_z) {
-    const int mid = (((int)face->start + (int)face->end + 1) * TILE) / 2;
-    if (face->axis == FACE_HORIZONTAL) {
-        *out_x = mid;
-        *out_z = face_plane(face);
-    } else {
-        *out_x = face_plane(face);
-        *out_z = mid;
     }
 }
 
 /* ------------------------------------------------------------------ */
-/* Camera                                                              */
+/* Camera                                                             */
 /* ------------------------------------------------------------------ */
 
-static void update_camera(void) {
+static void init_camera(void) {
     sat_mat4_t view;
     sat_mat4_t projection;
     sat_vec3_t center;
     sat_vec3_t up = {0, SAT_FX16_ONE, 0};
-    int fx;
-    int fz;
 
-    /* Pac-Man's direction goes to SAT_DIR_NONE whenever he is stopped against
-     * a wall. Reusing the last real facing keeps the view from collapsing:
-     * a zero forward vector makes look_at degenerate. */
-    if (g_game.pac.dir != SAT_DIR_NONE) {
-        g_cam_dir = g_game.pac.dir;
-    }
-    fx = sat_dir_dx(g_cam_dir);
-    fz = sat_dir_dy(g_cam_dir);
-
-    /* Right-hand perpendicular of the forward vector, used to spread the
-     * billboards square-on to the camera. */
-    g_cam_right_x = sat_fx16_from_int(fz);
-    g_cam_right_z = sat_fx16_from_int(-fx);
-
-    g_cam_eye.x = sat_fx16_from_int((int)g_game.pac.x - (fx * 48));
-    g_cam_eye.y = sat_fx16_from_int(34);
-    g_cam_eye.z = sat_fx16_from_int((int)g_game.pac.y - (fz * 48));
-    center.x = sat_fx16_from_int((int)g_game.pac.x + (fx * 22));
-    center.y = sat_fx16_from_int(5);
-    center.z = sat_fx16_from_int((int)g_game.pac.y + (fz * 22));
+    g_cam_eye.x = sat_fx16_from_int(BOARD_W / 2);
+    g_cam_eye.y = sat_fx16_from_int(CAM_HEIGHT);
+    g_cam_eye.z = sat_fx16_from_int((BOARD_D / 2) + CAM_BACK);
+    center.x = sat_fx16_from_int(BOARD_W / 2);
+    center.y = 0;
+    center.z = sat_fx16_from_int(BOARD_D / 2);
 
     sat_example_must(sat_mat4_look_at(&view, &g_cam_eye, &center, &up));
     sat_example_must(sat_mat4_perspective(
         &projection,
-        sat_fx16_from_int(65),
+        sat_fx16_from_int(CAM_FOV),
         sat_fx16_div(sat_fx16_from_int(SCREEN_W), sat_fx16_from_int(SCREEN_H)),
         sat_fx16_from_int(1),
-        sat_fx16_from_int(500)));
+        sat_fx16_from_int(800)));
     sat_example_must(sat_mat4_multiply(&g_view_proj, &projection, &view));
 }
 
 /* ------------------------------------------------------------------ */
-/* Drawing                                                             */
+/* Baking the static scene                                             */
 /* ------------------------------------------------------------------ */
 
-static void submit_polygon(const sat_quad3_t* quad, uint16_t color) {
-    const sat_result_t st = sat_draw_world_polygon(&g_view_proj, quad, color);
-    /* SAT_ERR_UNSUPPORTED just means the quad is behind the camera. */
-    if (st != SAT_OK && st != SAT_ERR_UNSUPPORTED) {
+static void note(sat_result_t status) {
+    /* SAT_ERR_UNSUPPORTED just means the geometry is behind the camera. */
+    if (status != SAT_OK && status != SAT_ERR_UNSUPPORTED) {
         g_draw_overflow = 1;
     }
 }
 
-static void draw_wall_face(const wall_face_t* face) {
-    sat_quad3_t quad;
-    const int plane = face_plane(face);
-    const int a = (int)face->start * TILE;
-    const int b = ((int)face->end + 1) * TILE;
-    sat_fx16_t nx = 0;
-    sat_fx16_t nz = 0;
-    sat_fx16_t intensity;
-
-    if (face->axis == FACE_HORIZONTAL) {
-        /* Backface cull: the face is only visible from the side its open
-         * floor is on. Skipping the other half of the maze's faces is what
-         * keeps the command list in budget. */
-        if ((sat_fx16_to_int(g_cam_eye.z) - plane) * face->side <= 0) {
-            return;
-        }
-        nz = sat_fx16_from_int(face->side);
-        sat_quad3_wall(
-            &quad,
-            sat_fx16_from_int(a), sat_fx16_from_int(plane),
-            sat_fx16_from_int(b), sat_fx16_from_int(plane),
-            sat_fx16_from_int(WALL_HEIGHT));
-    } else {
-        if ((sat_fx16_to_int(g_cam_eye.x) - plane) * face->side <= 0) {
-            return;
-        }
-        nx = sat_fx16_from_int(face->side);
-        sat_quad3_wall(
-            &quad,
-            sat_fx16_from_int(plane), sat_fx16_from_int(a),
-            sat_fx16_from_int(plane), sat_fx16_from_int(b),
-            sat_fx16_from_int(WALL_HEIGHT));
+/* Twice the area of a projected quad, by the shoelace formula. Sign depends
+ * on winding, so callers take the magnitude. */
+static int32_t quad_area2(const sat_quad2_t* q) {
+    int32_t sum = 0;
+    int i;
+    for (i = 0; i < 4; ++i) {
+        const int j = (i + 1) & 3;
+        sum += ((int32_t)q->x[i] * (int32_t)q->y[j]) - ((int32_t)q->x[j] * (int32_t)q->y[i]);
     }
-
-    intensity = sat_face_intensity(nx, nz, WALL_AMBIENT);
-    submit_polygon(&quad, sat_shade_rgb555(COLOR_WALL, intensity));
+    return (sum < 0) ? -sum : sum;
 }
 
-static void render_maze(void) {
+/* Quads smaller than this many square pixels are dropped at bake time.
+ *
+ * A box side face seen nearly edge-on covers no pixels but still costs a
+ * VDP1 command and the work of building it, and with the camera above the
+ * middle of the board most of the maze's side faces are in exactly that
+ * position. Two square pixels is below the smallest pellet, which projects to
+ * about five -- and that is the ceiling on this threshold, not a safety
+ * margin: at eight square pixels it starts eating the pellets themselves. */
+#define MIN_QUAD_AREA2 4
+
+static uint32_t depth_at(int x, int z) {
+    return sat_ground_distance_sq(
+        g_cam_eye.x, g_cam_eye.z, sat_fx16_from_int(x), sat_fx16_from_int(z));
+}
+
+/* Projects one face of the scratch mesh and files it in the baked list.
+ * `x`/`z` are the world position the quad sorts by; `col`/`row` are
+ * BAKED_ALWAYS for permanent geometry, or the maze cell a pellet belongs to. */
+static void bake_face(uint16_t face, uint16_t color, int x, int z, int col, int row) {
+    baked_quad_t* slot;
+    sat_quad3_t quad;
+
+    if (g_baked_count >= MAX_BAKED) {
+        g_draw_overflow = 1;
+        return;
+    }
+    if (sat_mesh_face_quad(&g_mesh, face, &quad) != SAT_OK) {
+        return;
+    }
+    slot = &g_baked[g_baked_count];
+    if (sat_project_quad(&g_view_proj, &quad, &slot->quad) != SAT_OK) {
+        return; /* behind the camera: nothing to replay later */
+    }
+    if (quad_area2(&slot->quad) < MIN_QUAD_AREA2) {
+        return;
+    }
+    slot->color = color;
+    slot->depth = depth_at(x, z);
+    slot->cell_col = (uint8_t)col;
+    slot->cell_row = (uint8_t)row;
+    ++g_baked_count;
+}
+
+static uint16_t shade_face(uint16_t face, uint16_t color) {
+    sat_vec3_t normal;
+    /* The scaled normal is enough: sat_face_intensity3_scaled divides the dot
+     * product by the length instead of needing a unit vector. */
+    if (sat_mesh_face_normal_scaled(&g_mesh, face, &normal) != SAT_OK) {
+        return color;
+    }
+    return sat_shade_rgb555(color, sat_face_intensity3_scaled(&normal, AMBIENT));
+}
+
+/* The board sits under everything and never overlaps itself, so it is drawn
+ * first as a block and takes no part in the depth ordering. */
+static void bake_board(void) {
+    sat_vec3_t center;
     uint16_t i;
 
-    for (i = 0; i < g_face_count; ++i) {
-        int cx;
-        int cz;
-        face_center(&g_faces[i], &cx, &cz);
-        g_face_order[i] = (uint8_t)i;
-        g_face_depth[i] = sat_ground_distance_sq(
-            g_cam_eye.x, g_cam_eye.z,
-            sat_fx16_from_int(cx), sat_fx16_from_int(cz));
-    }
-    /* The VDP1 has no depth buffer: quads simply overwrite each other in list
-     * order, so the list has to be built farthest-first. */
-    sat_sort_indices_desc(g_face_order, g_face_depth, g_face_count);
+    center.x = sat_fx16_from_int(BOARD_W / 2);
+    center.y = 0;
+    center.z = sat_fx16_from_int(BOARD_D / 2);
+    note(sat_mesh_build_plane(
+        &g_mesh,
+        &center,
+        sat_fx16_from_int((BOARD_W / 2) + TILE),
+        sat_fx16_from_int((BOARD_D / 2) + TILE),
+        BOARD_SEGMENTS,
+        BOARD_SEGMENTS));
 
-    for (i = 0; i < g_face_count; ++i) {
-        draw_wall_face(&g_faces[g_face_order[i]]);
+    g_board_count = 0;
+    for (i = 0; i < g_mesh.face_count && g_board_count < MAX_BOARD_QUADS; ++i) {
+        sat_quad3_t quad;
+        if (sat_mesh_face_quad(&g_mesh, i, &quad) != SAT_OK) {
+            continue;
+        }
+        if (sat_project_quad(&g_view_proj, &quad, &g_board[g_board_count]) != SAT_OK) {
+            continue;
+        }
+        g_board_colors[g_board_count] = shade_face(i, COLOR_BOARD);
+        ++g_board_count;
     }
 }
 
-static void render_pellets(void) {
-    const int cam_x = sat_fx16_to_int(g_cam_eye.x);
-    const int cam_z = sat_fx16_to_int(g_cam_eye.z);
+static void bake_walls(void) {
+    uint16_t r;
+
+    for (r = 0; r < g_rect_count; ++r) {
+        const wall_rect_t* rect = &g_rects[r];
+        const int half_x = ((int)rect->cols * TILE) / 2;
+        const int half_z = ((int)rect->rows * TILE) / 2;
+        sat_vec3_t center;
+        uint16_t f;
+
+        center.x = sat_fx16_from_int(((int)rect->col * TILE) + half_x);
+        center.y = sat_fx16_from_int(WALL_HEIGHT / 2);
+        center.z = sat_fx16_from_int(((int)rect->row * TILE) + half_z);
+        note(sat_mesh_build_box(
+            &g_mesh,
+            &center,
+            sat_fx16_from_int(half_x),
+            sat_fx16_from_int(WALL_HEIGHT / 2),
+            sat_fx16_from_int(half_z)));
+
+        for (f = 0; f < g_mesh.face_count; ++f) {
+            sat_vec3_t face_center;
+            /* The camera never moves, so a face turned away from it now is
+             * turned away forever: culling here costs nothing again. Roughly
+             * half of every box goes, which is what keeps the whole maze
+             * inside the 512-command list. */
+            if (!sat_mesh_face_visible(&g_mesh, f, &g_cam_eye)) {
+                continue;
+            }
+            if (sat_mesh_face_center(&g_mesh, f, &face_center) != SAT_OK) {
+                continue;
+            }
+            bake_face(
+                f,
+                shade_face(f, COLOR_WALL),
+                sat_fx16_to_int(face_center.x),
+                sat_fx16_to_int(face_center.z),
+                BAKED_ALWAYS,
+                BAKED_ALWAYS);
+        }
+    }
+}
+
+static void bake_pellets(void) {
     int r;
     int c;
 
@@ -414,63 +451,343 @@ static void render_pellets(void) {
             sat_quad3_t quad;
             int x;
             int z;
-            int dx;
-            int dz;
             if (cell != '.' && cell != 'o') {
                 continue;
             }
             x = sat_grid_tile_center_x(&g_game.grid, c);
             z = sat_grid_tile_center_y(&g_game.grid, r);
-            dx = x - cam_x;
-            dz = z - cam_z;
-            if (dx > PELLET_DRAW_RANGE || dx < -PELLET_DRAW_RANGE ||
-                dz > PELLET_DRAW_RANGE || dz < -PELLET_DRAW_RANGE) {
-                continue;
-            }
-            /* Lifted a unit off the floor so it is not z-fighting the RBG0
-             * plane at grazing angles. */
             sat_quad3_floor(
                 &quad,
                 sat_fx16_from_int(x),
+                /* Lifted a unit off the board so it is not z-fighting the
+                 * floor plane at this grazing angle. */
                 sat_fx16_from_int(1),
                 sat_fx16_from_int(z),
                 sat_fx16_from_int((cell == 'o') ? 3 : 1));
-            submit_polygon(&quad, (cell == 'o') ? COLOR_POWER : COLOR_PELLET);
+            sat_mesh_clear(&g_mesh);
+            if (sat_mesh_add_quad(&g_mesh, &quad) != SAT_OK) {
+                continue;
+            }
+            bake_face(0u, (cell == 'o') ? COLOR_POWER : COLOR_PELLET, x, z, c, r);
         }
     }
 }
 
-static void draw_actor(const sat_grid_actor_t* actor, uint16_t color) {
-    sat_quad3_t quad;
-    const sat_fx16_t wx = sat_fx16_from_int((int)actor->x);
-    const sat_fx16_t wz = sat_fx16_from_int((int)actor->y);
+/* Insertion sort, farthest first. It runs once, at startup, on a few hundred
+ * entries -- which is why the quadratic form is fine, and why the library's
+ * sat_sort_indices_desc (capped at 255 entries by its uint8 index) is not
+ * what this uses. */
+static void sort_baked(void) {
+    uint16_t i;
 
-    /* Floor shadow first: it anchors the billboard to the ground, which is
-     * what stops a flat quad from looking like it is floating. */
-    sat_quad3_floor(&quad, wx, sat_fx16_from_int(1), wz, sat_fx16_from_int(6));
-    submit_polygon(&quad, COLOR_SHADOW);
-
-    sat_quad3_billboard(
-        &quad, wx, wz, g_cam_right_x, g_cam_right_z,
-        sat_fx16_from_int(6), sat_fx16_from_int(18));
-    submit_polygon(&quad, color);
+    for (i = 1u; i < g_baked_count; ++i) {
+        const baked_quad_t value = g_baked[i];
+        int j = (int)i - 1;
+        while (j >= 0 && g_baked[j].depth < value.depth) {
+            g_baked[j + 1] = g_baked[j];
+            --j;
+        }
+        g_baked[j + 1] = value;
+    }
 }
 
-static void render_actors(void) {
+static void bake_scene(void) {
+    g_baked_count = 0;
+    bake_board();
+    bake_walls();
+    bake_pellets();
+    sort_baked();
+}
+
+/* ------------------------------------------------------------------ */
+/* Per-frame drawing                                                   */
+/* ------------------------------------------------------------------ */
+
+static void draw_board(void) {
+    uint16_t i;
+    for (i = 0; i < g_board_count; ++i) {
+        note(sat_draw_quad2_polygon(&g_board[i], g_board_colors[i]));
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Actors                                                              */
+/* ------------------------------------------------------------------ */
+/* Actors are around fourteen pixels across at this camera distance, so the
+ * things that make one readable are, in order: colour, a face, and only then
+ * silhouette. That ordering is why the ghosts get eyes before they get a
+ * rounder body, and why Pac-Man's mouth is a single flat wedge laid over the
+ * sphere rather than a hole cut through its geometry -- from a camera looking
+ * down at the board, a wedge in plan view is exactly what a Pac-Man mouth
+ * looks like, and it costs one VDP1 command instead of a rebuilt mesh. */
+
+/* The mouth is a sector missing from the sphere, measured in longitude bands.
+ *
+ * PAC_SPHERE_SEGMENTS is 12 so a band boundary lands exactly on each of the
+ * four directions an actor can face: 90 degrees is three bands. An even gap
+ * centred on that boundary is therefore symmetric about the way Pac-Man is
+ * going, which an odd one would not be -- hence 0, 2 and 4 rather than a
+ * smooth count. */
+static const uint8_t kMouthGap[] = {0u, 2u, 4u};
+
+#define ACTOR_Y 6      /* centre height of every actor */
+#define PAC_RADIUS 7
+#define GHOST_RADIUS 5
+#define GHOST_HALF_H 6
+
+/* Small: the eye panel sits a unit in front of the body, so perspective makes
+ * it slightly larger than its world size, and a ghost is only about fourteen
+ * pixels wide. At half-width 2 the two eyes merged into one white band across
+ * the whole face. */
+#define EYE_Y 9
+#define EYE_HALF_W 1
+#define EYE_HALF_H 1
+#define EYE_SPREAD 2
+
+#define COLOR_EYE SAT_RGB555(31, 31, 31)
+
+static void submit_mesh(uint16_t color, const uint16_t* face_colors) {
+    sat_mesh_draw_t draw;
+    draw.view_proj = &g_view_proj;
+    draw.eye = g_cam_eye;
+    draw.color = color;
+    draw.face_colors = face_colors;
+    draw.ambient = AMBIENT;
+    draw.flags = SAT_MESH_CULL_BACKFACE | SAT_MESH_SORT | SAT_MESH_SHADE;
+    draw.order = g_mesh_order;
+    draw.depth = g_mesh_depth;
+    note(sat_draw_mesh(&g_mesh, &draw));
+}
+
+/* Paints the inside of the mouth dark.
+ *
+ * sat_mesh_build_sphere_wedge puts the two cut walls last, so the table is
+ * just "body colour everywhere, mouth colour for the tail". Without this the
+ * opening is the same yellow as the rest of him and the notch reads as a
+ * shading artefact rather than a mouth. */
+static const uint16_t* mouth_colors(uint16_t gap) {
+    static uint16_t colors[MESH_FACE_CAP];
+    const uint16_t walls = (uint16_t)((gap > 0u) ? (2u * PAC_SPHERE_RINGS) : 0u);
+    const uint16_t total = g_mesh.face_count;
+    uint16_t i;
+
+    if (walls == 0u || total > MESH_FACE_CAP) {
+        return NULL;
+    }
+    for (i = 0; i < total; ++i) {
+        colors[i] = (i >= (uint16_t)(total - walls)) ? COLOR_MOUTH : COLOR_PAC;
+    }
+    return colors;
+}
+
+/* Quarter turns from +Z to the way an actor is facing. Longitude 0 in the
+ * mesh builders points along +Z, and the maze's +Z is south. */
+static int facing_quarter(int dir) {
+    const int dx = sat_dir_dx(dir);
+    const int dz = sat_dir_dy(dir);
+    if (dz > 0) {
+        return 0; /* +Z */
+    }
+    if (dx > 0) {
+        return 1; /* +X */
+    }
+    if (dz < 0) {
+        return 2; /* -Z */
+    }
+    return 3; /* -X */
+}
+
+/* Builds Pac-Man: a sphere with a sector genuinely missing.
+ *
+ * The sector is a lune between two meridians, so the bite is taken out in
+ * PLAN view -- which is the right choice for a camera looking down at a
+ * board, and is what makes the silhouette read as Pac-Man rather than as a
+ * ball. Tipping the mouth over to open up-and-down, the way a character in a
+ * third-person game would, was tried and looks worse from up here: the upper
+ * jaw hides the opening from any camera above it.
+ *
+ * The opening is only ever fully visible when he is facing towards or away
+ * from the camera. Running along a corridor it shows as a notch in the
+ * outline, which is honest -- his cheek really is in the way. */
+static void build_pac(const actor_draw_t* actor, uint16_t gap) {
+    sat_vec3_t center;
+    const int quarter = facing_quarter((int)actor->dir);
+    /* Band boundaries sit every 360/12 = 30 degrees and each quarter turn is
+     * three of them, so the gap centres exactly on the facing when it starts
+     * half a gap earlier. */
+    const uint16_t start = (uint16_t)(((quarter * (int)PAC_SPHERE_SEGMENTS / 4)
+                                       - ((int)gap / 2)
+                                       + (int)PAC_SPHERE_SEGMENTS)
+                                      % (int)PAC_SPHERE_SEGMENTS);
+
+    center.x = sat_fx16_from_int(actor->x);
+    center.y = sat_fx16_from_int(ACTOR_Y);
+    center.z = sat_fx16_from_int(actor->z);
+    note(sat_mesh_build_sphere_wedge(
+        &g_mesh,
+        &center,
+        sat_fx16_from_int(PAC_RADIUS),
+        PAC_SPHERE_SEGMENTS,
+        PAC_SPHERE_RINGS,
+        start,
+        gap));
+}
+
+/* One eye: a small upright panel on the face of the ghost nearest the camera.
+ *
+ * The camera never turns, so "nearest the camera" is always -Z and the panel
+ * never has to be re-oriented -- a billboard's worth of readability for a
+ * fixed quad. */
+/* White on a coloured body, dark on the white flash: an eye has to contrast
+ * with whatever it is sitting on. */
+static uint16_t eye_color(uint16_t body) {
+    return (body == COLOR_FRIGHT_B) ? COLOR_MOUTH : COLOR_EYE;
+}
+
+static void draw_eye(const actor_draw_t* actor, int offset) {
+    const sat_fx16_t x0 = sat_fx16_from_int(actor->x + offset - EYE_HALF_W);
+    const sat_fx16_t x1 = sat_fx16_from_int(actor->x + offset + EYE_HALF_W);
+    const sat_fx16_t y0 = sat_fx16_from_int(EYE_Y + EYE_HALF_H);
+    const sat_fx16_t y1 = sat_fx16_from_int(EYE_Y - EYE_HALF_H);
+    /* A whisker in front of the body, so it is not z-fighting the face. */
+    const sat_fx16_t z = sat_fx16_from_int(actor->z - GHOST_RADIUS - 1);
+    sat_quad3_t quad;
+
+    quad.v[0].x = x0; quad.v[0].y = y0; quad.v[0].z = z;
+    quad.v[1].x = x1; quad.v[1].y = y0; quad.v[1].z = z;
+    quad.v[2].x = x1; quad.v[2].y = y1; quad.v[2].z = z;
+    quad.v[3].x = x0; quad.v[3].y = y1; quad.v[3].z = z;
+    note(sat_draw_world_polygon(&g_view_proj, &quad, eye_color(actor->color)));
+}
+
+static void draw_actor(const actor_draw_t* actor) {
+    sat_vec3_t center;
+
+    center.x = sat_fx16_from_int(actor->x);
+    center.y = sat_fx16_from_int(ACTOR_Y);
+    center.z = sat_fx16_from_int(actor->z);
+
+    if (actor->is_pac) {
+        const uint16_t gap = kMouthGap[kPacChew[(g_game.frame / 5u) & 3u]];
+        build_pac(actor, gap);
+        submit_mesh(actor->color, mouth_colors(gap));
+        return;
+    }
+
+    note(sat_mesh_build_box(
+        &g_mesh,
+        &center,
+        sat_fx16_from_int(GHOST_RADIUS),
+        sat_fx16_from_int(GHOST_HALF_H),
+        sat_fx16_from_int(GHOST_RADIUS)));
+    submit_mesh(actor->color, NULL);
+    draw_eye(actor, -EYE_SPREAD);
+    draw_eye(actor, EYE_SPREAD);
+}
+
+/* Facing goes to SAT_DIR_NONE whenever an actor is stopped against a wall;
+ * reusing the last real direction keeps Pac-Man's mouth from snapping to a
+ * default the moment he stops. */
+static int g_last_dir[PAC_GHOST_COUNT + 1] = {
+    SAT_DIR_LEFT, SAT_DIR_LEFT, SAT_DIR_LEFT, SAT_DIR_LEFT, SAT_DIR_LEFT
+};
+
+static int actor_facing(const sat_grid_actor_t* a, int slot) {
+    if (a->dir != SAT_DIR_NONE) {
+        g_last_dir[slot] = (int)a->dir;
+    }
+    return g_last_dir[slot];
+}
+
+/* Collects the movers, farthest first. At most five of them, so a plain
+ * insertion sort is the whole algorithm. */
+static uint16_t collect_actors(actor_draw_t* out) {
+    uint16_t count = 0;
+    actor_draw_t pac;
     int i;
+
     for (i = 0; i < PAC_GHOST_COUNT; ++i) {
-        uint16_t color;
+        actor_draw_t ghost;
         if (pac_game_ghost_penned(&g_game, i)) {
             continue;
         }
-        color = kGhostColors[i];
+        ghost.x = (int16_t)g_game.ghosts[i].actor.x;
+        ghost.z = (int16_t)g_game.ghosts[i].actor.y;
+        ghost.is_pac = 0u;
+        ghost.dir = (int8_t)actor_facing(&g_game.ghosts[i].actor, i);
+        ghost.color = kGhostColors[i];
         if (pac_game_frightened(&g_game)) {
-            color = ((g_game.frame / 6u) & 1u) ? COLOR_FRIGHT_A : COLOR_FRIGHT_B;
+            /* Blue for most of it, flashing white only once the timer is
+             * nearly out. Flashing the whole time hides how much is left,
+             * and a white ghost with white eyes is a featureless blob. */
+            ghost.color =
+                (g_game.fright < PAC_FRIGHT_WARNING && ((g_game.frame / 6u) & 1u) == 0u)
+                    ? COLOR_FRIGHT_B
+                    : COLOR_FRIGHT_A;
         }
-        draw_actor(&g_game.ghosts[i].actor, color);
+        ghost.depth = depth_at(ghost.x, ghost.z);
+        out[count++] = ghost;
     }
-    draw_actor(&g_game.pac, COLOR_PAC);
+
+    pac.x = (int16_t)g_game.pac.x;
+    pac.z = (int16_t)g_game.pac.y;
+    pac.is_pac = 1u;
+    pac.dir = (int8_t)actor_facing(&g_game.pac, PAC_GHOST_COUNT);
+    pac.color = COLOR_PAC;
+    pac.depth = depth_at(pac.x, pac.z);
+    out[count++] = pac;
+
+    for (i = 1; i < (int)count; ++i) {
+        const actor_draw_t value = out[i];
+        int j = i - 1;
+        while (j >= 0 && out[j].depth < value.depth) {
+            out[j + 1] = out[j];
+            --j;
+        }
+        out[j + 1] = value;
+    }
+    return count;
 }
+
+static int pellet_still_there(const baked_quad_t* baked) {
+    const char cell = pac_game_cell(&g_game, baked->cell_col, baked->cell_row);
+    return cell == '.' || cell == 'o';
+}
+
+/* Static scene first, then the actors on top.
+ *
+ * Merging the actors into the static depth order by distance is the obvious
+ * thing and it looks worse. Per-object ordering cannot say "this wall is
+ * nearer but does not actually cover you", so a wall one row in front of
+ * Pac-Man was drawn after him and sliced a band out of him as he ran along a
+ * corridor. Since an actor is twelve to fourteen units tall and no wall is
+ * more than six, almost all of an actor is above every wall in the maze and
+ * genuinely cannot be occluded -- so drawing them last is not a shortcut past
+ * the depth problem, it is the more correct answer for this scene. */
+static void render_scene(void) {
+    actor_draw_t actors[PAC_GHOST_COUNT + 1];
+    uint16_t actor_count;
+    uint16_t i;
+
+    for (i = 0; i < g_baked_count; ++i) {
+        const baked_quad_t* baked = &g_baked[i];
+        if (baked->cell_col != BAKED_ALWAYS && !pellet_still_there(baked)) {
+            continue;
+        }
+        note(sat_draw_quad2_polygon(&baked->quad, baked->color));
+    }
+
+    /* Still farthest-first among themselves, so two actors crossing overlap
+     * the right way round. */
+    actor_count = collect_actors(actors);
+    for (i = 0; i < actor_count; ++i) {
+        draw_actor(&actors[i]);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* HUD                                                                */
+/* ------------------------------------------------------------------ */
 
 static void draw_text(const char* text, int x, int y) {
     sat_example_must(sat_ascii_font_draw_text_screen_indexed8(
@@ -502,7 +819,7 @@ static void render_hud(void) {
         draw_text_centered("GAME OVER", 104);
         draw_text_centered("PRESS START", 116);
     } else if (g_game.frame < 240u) {
-        draw_text_centered("DPAD MOVE   START RESET", 214);
+        draw_text_centered("DPAD MOVE   START RESET", 216);
     }
 
     if (g_draw_overflow) {
@@ -511,14 +828,14 @@ static void render_hud(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Frame loop                                                          */
+/* Frame loop                                                         */
 /* ------------------------------------------------------------------ */
 
 /* Driven by hand rather than through sat_app_frame_begin, because that helper
- * sets an OPAQUE VDP1 erase which would paint over the VDP2 ground plane. */
+ * sets an OPAQUE VDP1 erase which would paint over the VDP2 backdrop. */
 static void frame_begin(sat_pad_state_t* pad) {
     SAT_PANIC_IF_ERROR(sat_wait_vblank());
-    SAT_PANIC_IF_ERROR(sat_vdp2_back_color_set(COLOR_SKY));
+    SAT_PANIC_IF_ERROR(sat_vdp2_back_color_set(COLOR_TABLE));
     SAT_PANIC_IF_ERROR(sat_vdp1_set_erase_transparent());
     SAT_PANIC_IF_ERROR(sat_begin_frame());
     SAT_PANIC_IF_ERROR(sat_pad_poll(pad));
@@ -528,26 +845,24 @@ int main(void) {
     sat_video_config_t video = {SCREEN_W, SCREEN_H, 1u, 0u};
 
     SAT_PANIC_IF_ERROR(sat_init(&video));
-    init_rbg0();
     SAT_PANIC_IF_ERROR(sat_ascii_font_init_8x8_indexed8(
         &g_font, SAT_COLOR_WHITE, 0x0000u, HUD_PALETTE));
+    sat_example_must(sat_mesh_init(
+        &g_mesh, g_mesh_vertices, MESH_VERTEX_CAP, g_mesh_indices, MESH_FACE_CAP));
 
     pac_game_init(&g_game, 0, 0);
-    build_wall_faces();
+    build_wall_rects();
+    init_camera();
+    bake_scene();
 
     while (1) {
         sat_pad_state_t pad = {0};
         frame_begin(&pad);
 
         pac_game_update(&g_game, &pad);
-        update_camera();
 
-        write_rbg0_params((int)g_game.pac.x, (int)g_game.pac.y);
-        SAT_PANIC_IF_ERROR(sat_vdp2_rbg0_commit());
-
-        render_maze();
-        render_pellets();
-        render_actors();
+        draw_board();
+        render_scene();
         render_hud();
 
         SAT_PANIC_IF_ERROR(sat_end_frame());

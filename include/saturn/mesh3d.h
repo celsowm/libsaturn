@@ -77,6 +77,13 @@ sat_result_t sat_mesh_add_quad(sat_mesh_t* mesh, const sat_quad3_t* quad);
 void sat_mesh_box_counts(uint16_t* out_vertices, uint16_t* out_faces);
 void sat_mesh_plane_counts(uint16_t seg_x, uint16_t seg_z, uint16_t* out_vertices, uint16_t* out_faces);
 void sat_mesh_sphere_counts(uint16_t segments, uint16_t rings, uint16_t* out_vertices, uint16_t* out_faces);
+void sat_mesh_sphere_wedge_counts(
+    uint16_t segments,
+    uint16_t rings,
+    uint16_t gap_segments,
+    uint16_t* out_vertices,
+    uint16_t* out_faces
+);
 void sat_mesh_cylinder_counts(uint16_t segments, int capped, uint16_t* out_vertices, uint16_t* out_faces);
 
 /* ------------------------------------------------------------------ */
@@ -123,6 +130,33 @@ sat_result_t sat_mesh_build_sphere(
     uint16_t rings
 );
 
+/* Sphere with an angular sector removed and the opening closed by two flat
+ * walls -- a pie chart with a slice taken out, or a Pac-Man.
+ *
+ * `gap_segments` longitude bands are removed starting at `gap_start_segment`,
+ * wrapping past longitude 0 if it has to; zero removes nothing. Longitude 0
+ * points along +Z and increases towards +X, so the band boundaries sit at
+ * multiples of 360/segments degrees -- choose `segments` so the direction the
+ * opening should face lands on a boundary, or the mouth comes out lopsided.
+ *
+ * This is not the same as drawing something dark over a whole sphere: the
+ * silhouette really has the notch, and the cut walls shade as the surfaces
+ * they are.
+ *
+ * FACE ORDER: the curved surface comes first, then the two cut walls, 2 *
+ * rings faces of them, last. That is a promise, not an accident -- it is what
+ * lets a caller paint the inside of the mouth a different colour through
+ * sat_mesh_draw_t::face_colors without inspecting any geometry. */
+sat_result_t sat_mesh_build_sphere_wedge(
+    sat_mesh_t* mesh,
+    const sat_vec3_t* center,
+    sat_fx16_t radius,
+    uint16_t segments,
+    uint16_t rings,
+    uint16_t gap_start_segment,
+    uint16_t gap_segments
+);
+
 /* Cylinder aligned to Y, `half_height` above and below center. `capped`
  * adds flat end discs as triangle fans (again, degenerate quads). */
 sat_result_t sat_mesh_build_cylinder(
@@ -141,8 +175,15 @@ sat_result_t sat_mesh_build_cylinder(
 sat_result_t sat_mesh_face_quad(const sat_mesh_t* mesh, uint16_t face, sat_quad3_t* out);
 sat_result_t sat_mesh_face_center(const sat_mesh_t* mesh, uint16_t face, sat_vec3_t* out);
 
-/* Unit outward normal, or the zero vector for a degenerate face. */
+/* Unit outward normal, or the zero vector for a degenerate face. Normalising
+ * costs a square root and three 64-bit divides on this CPU, so prefer the
+ * scaled form below unless the length is genuinely needed. */
 sat_result_t sat_mesh_face_normal(const sat_mesh_t* mesh, uint16_t face, sat_vec3_t* out);
+
+/* Outward normal with the right direction and an arbitrary length. This is
+ * what culling and sat_face_intensity3_scaled want, and it is what
+ * sat_draw_mesh uses. */
+sat_result_t sat_mesh_face_normal_scaled(const sat_mesh_t* mesh, uint16_t face, sat_vec3_t* out);
 
 /* True when the face is turned towards `eye`. This is the test sat_draw_mesh
  * applies for SAT_MESH_CULL_BACKFACE; it is exposed because a program that
@@ -152,6 +193,14 @@ int sat_mesh_face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_
 /* Translates every vertex. Cheaper than rebuilding when only the position of
  * an already-built primitive changes. */
 sat_result_t sat_mesh_translate(sat_mesh_t* mesh, sat_fx16_t dx, sat_fx16_t dy, sat_fx16_t dz);
+
+/* Applies an affine matrix to every vertex (w taken as 1).
+ *
+ * Every builder here works in one canonical pose -- poles on Y for a sphere,
+ * axis on Y for a cylinder -- so a primitive that has to point somewhere else
+ * is built at the origin and then placed with this. Beware that a matrix with
+ * non-uniform scale changes face normals in ways flat shading will show. */
+sat_result_t sat_mesh_transform(sat_mesh_t* mesh, const sat_mat4_t* matrix);
 
 /* ------------------------------------------------------------------ */
 /* Drawing                                                              */
@@ -165,6 +214,12 @@ typedef struct sat_mesh_draw {
     const sat_mat4_t* view_proj;
     sat_vec3_t eye; /* camera position in world space: culling and sorting */
     uint16_t color;
+    /* Optional per-face colours, face_count entries, overriding `color`.
+     * Null uses `color` throughout. This is how a solid gets more than one
+     * material without being split into several meshes -- the inside of a
+     * sat_mesh_build_sphere_wedge mouth, for instance, which is the same
+     * yellow as the outside until something says otherwise. */
+    const uint16_t* face_colors;
     sat_fx16_t ambient; /* 16.16 floor for SAT_MESH_SHADE; 0 = full black */
     uint16_t flags;
     /* Scratch for SAT_MESH_SORT, each at least face_count entries. May be
