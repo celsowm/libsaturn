@@ -4,6 +4,32 @@
 #include <stdint.h>
 
 /* ------------------------------------------------------------------ */
+/* Color construction                                                  */
+/* ------------------------------------------------------------------ */
+/* Saturn color words are BGR555: RED occupies bits 0-4, green bits 5-9 and
+ * BLUE bits 10-14 -- the reverse of the channel order the name "RGB555"
+ * suggests. Writing the shift by hand is therefore easy to get backwards, and
+ * the result is a plausible-looking picture in the wrong colors (a yellow
+ * Pac-Man comes out cyan), which is why this macro exists.
+ *
+ * Bit 15 is the RGB code: it marks the value as a direct color rather than a
+ * color-bank index, and must be set on every color handed to a VDP1 polygon,
+ * line or erase command. Cross-check against the named constants below:
+ * SAT_RGB555(31, 0, 0) is SAT_COLOR_RED with bit 15 set.
+ */
+#define SAT_RGB555(r, g, b) ((uint16_t)(0x8000u | \
+    (((uint16_t)(b) & 0x1Fu) << 10u) | \
+    (((uint16_t)(g) & 0x1Fu) << 5u) | \
+    ((uint16_t)(r) & 0x1Fu)))
+
+/* Same channel order, without the RGB code bit -- for CRAM palette entries,
+ * which are indexed rather than direct. */
+#define SAT_BGR555(r, g, b) ((uint16_t)( \
+    (((uint16_t)(b) & 0x1Fu) << 10u) | \
+    (((uint16_t)(g) & 0x1Fu) << 5u) | \
+    ((uint16_t)(r) & 0x1Fu)))
+
+/* ------------------------------------------------------------------ */
 /* Named Saturn BGR555 colors                                          */
 /* ------------------------------------------------------------------ */
 #define SAT_COLOR_BLACK   ((uint16_t)0x0000)

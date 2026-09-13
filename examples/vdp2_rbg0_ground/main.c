@@ -66,36 +66,13 @@
 #define PAD_DEBUG_FONT_PX 16u
 
 static sat_result_t init_pad_debug_font_2x(sat_ascii_font_t* font) {
-    uint16_t palette[256] = {0};
-    palette[1] = SAT_COLOR_YELLOW;
-
-    for (uint16_t g = 0; g < SAT_ASCII_FONT_GLYPH_COUNT; ++g) {
-        uint8_t pixels[PAD_DEBUG_FONT_PX * PAD_DEBUG_FONT_PX] = {0};
-        sat_result_t st = sat_font_pack_8x8_glyph_indexed8(
-            pixels,
-            PAD_DEBUG_FONT_PX,
-            PAD_DEBUG_FONT_PX,
-            0,
-            0,
-            sat_font_ascii_8x8_rows((char)(g + 32u)),
-            2u
-        );
-        if (st != SAT_OK) {
-            return st;
-        }
-        st = sat_tex_upload_indexed8(
-            &font->glyphs[g],
-            pixels,
-            PAD_DEBUG_FONT_PX,
-            PAD_DEBUG_FONT_PX,
-            palette,
-            PAD_DEBUG_PALETTE
-        );
-        if (st != SAT_OK) {
-            return st;
-        }
-    }
-    return SAT_OK;
+    return sat_ascii_font_init_scaled_indexed8(
+        font,
+        SAT_COLOR_YELLOW,
+        0x0000u,
+        PAD_DEBUG_PALETTE,
+        2u
+    );
 }
 
 static sat_fx16_t cam_x = 0;
@@ -103,41 +80,14 @@ static sat_fx16_t cam_y = 0;
 static sat_ascii_font_t g_pad_debug_font;
 static uint32_t g_frame_count = 0;
 
-/* Renders pad.held as "PAD:xxxx U D L R S A B C" — hex bitmask plus a letter
- * per button that lights up ('.' when not held) — to visually confirm any
- * input at all is reaching the program, independent of camera movement.
- */
+/* Renders pad.held as "PAD:xxxx UDLRSABC" using the library helper. */
 static void format_pad_debug(uint16_t held, char* out) {
-    static const char kHex[16] = "0123456789ABCDEF";
-    out[0] = 'P'; out[1] = 'A'; out[2] = 'D'; out[3] = ':'; out[4] = ' ';
-    out[5] = kHex[(held >> 12) & 0xFu];
-    out[6] = kHex[(held >> 8) & 0xFu];
-    out[7] = kHex[(held >> 4) & 0xFu];
-    out[8] = kHex[held & 0xFu];
-    out[9] = ' ';
-    out[10] = (held & SAT_PAD_UP) ? 'U' : '.';
-    out[11] = (held & SAT_PAD_DOWN) ? 'D' : '.';
-    out[12] = (held & SAT_PAD_LEFT) ? 'L' : '.';
-    out[13] = (held & SAT_PAD_RIGHT) ? 'R' : '.';
-    out[14] = (held & SAT_PAD_START) ? 'S' : '.';
-    out[15] = (held & SAT_PAD_A) ? 'A' : '.';
-    out[16] = (held & SAT_PAD_B) ? 'B' : '.';
-    out[17] = (held & SAT_PAD_C) ? 'C' : '.';
-    out[18] = '\0';
+    sat_pad_format_held(held, out, 19);
 }
 
-/* Renders a free-running frame counter as "FRM:xxxxxxxx" (hex). If this
- * value is frozen on screen (never counts up), the main loop itself never
- * got past whatever call precedes the increment — proves/disproves a full
- * hang independent of the PAD: line, which only tells us about input.
- */
+/* Renders a free-running frame counter as "FRM:xxxxxxxx" (hex). */
 static void format_frame_debug(uint32_t count, char* out) {
-    static const char kHex[16] = "0123456789ABCDEF";
-    out[0] = 'F'; out[1] = 'R'; out[2] = 'M'; out[3] = ':'; out[4] = ' ';
-    for (int i = 0; i < 8; i++) {
-        out[5 + i] = kHex[(count >> ((7 - i) * 4)) & 0xFu];
-    }
-    out[13] = '\0';
+    sat_pad_format_frame(count, out, 14);
 }
 
 /* Single source of truth for the Mode-7 layout, shared verbatim with
@@ -184,15 +134,6 @@ static void write_coefficient_table(void) {
     }
 }
 
-static void write_back_screen_sky(void) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    volatile uint16_t* r = (volatile uint16_t*)0x25F80000u;
-
-    vram[BACK_COLOR_WORD] = SKY_COLOR;
-    r[0x0AC >> 1] = (uint16_t)((BACK_COLOR_WORD >> 16u) & 0x0007u);
-    r[0x0AE >> 1] = (uint16_t)(BACK_COLOR_WORD & 0xFFFFu);
-}
-
 /* Rotation parameter A table at word 0x10000. Built by
  * rbg0_ground_build_params() (rbg0_math.h) — see that function's comment for
  * the Xst/Yst/Px/Py derivation and why Yst must differ from Py.
@@ -223,65 +164,16 @@ static void write_camera_translation(int32_t cam_xi, int32_t cam_yi) {
 
 /* Configure RBG0 in bitmap mode with per-line coefficient (Mode-7 floor). */
 static void init_rbg0_mode7(void) {
-    volatile uint16_t* r = (volatile uint16_t*)0x25F80000u;
-
-    /* Turn display off while reconfiguring (keep BDCLMD bit). */
-    r[0x000 >> 1] = (uint16_t)(r[0x000 >> 1] & (uint16_t)~0x8000u);
-
-    /* RAMCTL:
-     *   A0 = RBG0 bitmap/character data (bits 1..0 = 11)
-     *   A1 = RBG0 coefficient table     (bits 3..2 = 01)
-     */
-    r[0x00E >> 1] = 0x1107u;
-
-    /* Cycle patterns: keep bitmap reads on A0 and alternate parameter /
-     * coefficient reads on A1.
-     */
-    r[0x010 >> 1] = 0x9E9Eu; /* CYCA0L */
-    r[0x012 >> 1] = 0x9E9Eu; /* CYCA0U */
-    r[0x014 >> 1] = 0x9898u; /* CYCA1L */
-    r[0x016 >> 1] = 0x9898u; /* CYCA1U */
-    r[0x018 >> 1] = 0xEEEEu; /* CYCB0L */
-    r[0x01A >> 1] = 0xEEEEu; /* CYCB0U */
-    r[0x01C >> 1] = 0xEEEEu; /* CYCB1L */
-    r[0x01E >> 1] = 0xEEEEu; /* CYCB1U */
-
-    /* BGON off during config. */
-    r[0x020 >> 1] = 0x0000u;
-
-    /* CHCTLB: 256-color, 512x256 bitmap, bitmap mode on. */
-    r[0x02A >> 1] = 0x1200u;
-
-    /* MPOFR: bitmap bank = 0 (A0). */
-    r[0x03E >> 1] = 0x0000u;
-
-    /* RPTA: rotation table at byte 0x20000 (word 0x10000). */
-    r[0x0BC >> 1] = 0x0001u; /* RPTAU */
-    r[0x0BE >> 1] = 0x0000u; /* RPTAL */
-
-    r[0x0B0 >> 1] = 0x0000u; /* RPMD = use parameter A only */
-    r[0x0B2 >> 1] = 0x0000u; /* RPRCTL */
-    r[0x0B4 >> 1] = 0x0001u; /* KTCTL: A enable, 2-word, KMD=0 (k -> kx & ky) */
-    r[0x0B6 >> 1] = 0x0000u; /* KTAOF: RAKTAOS=0 */
-
-    r[0x0FC >> 1] = 0x0006u; /* PRIR: below the VDP1 debug text */
-    /* PRISA: sprite priority 7, above RBG0's PRIR, so the VDP1 pad-debug text
-     * remains visible over the ground plane.
-     */
-    r[0x0F0 >> 1] = 0x0707u;
-    r[0x02E >> 1] = 0x0000u; /* BMPNB */
-    r[0x03A >> 1] = 0x0000u; /* PLSZ: repeat overflow */
-
-    write_back_screen_sky();
-
-    /* BGON: bit 4 = R0ON, bit 12 = R0TPON (disable transparent color code).
-     * floor.tga uses palette index 0 as valid texel data; leaving it
-     * transparent creates the huge black perspective stripes.
-     */
-    r[0x020 >> 1] = 0x1010u;
-
-    /* TVMD fixed: DISP=1, BDCLMD=1, 320x224 non-interlaced NTSC. */
-    r[0x000 >> 1] = 0x8100u;
+    sat_vdp2_rbg0_mode7_config_t cfg = {
+        SAT_VDP2_RBG0_BITMAP_512x256,
+        SAT_VDP2_COLOR_MODE_256,
+        BM_BASE_WORD,
+        RP_BASE_WORD,
+        SKY_COLOR,
+        6u,   /* RBG0 priority below VDP1 HUD */
+        7u    /* Sprite priority above ground */
+    };
+    sat_example_must(sat_vdp2_rbg0_mode7_init(&cfg));
 }
 
 int main(void) {

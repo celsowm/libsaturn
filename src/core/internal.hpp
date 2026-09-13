@@ -15,6 +15,14 @@ inline int16_t fx16_to_int(sat_fx16_t value) {
     return static_cast<int16_t>(value >> 16);
 }
 
+/* Screen coordinates put (0,0) at the top-left corner; the VDP1 draws in
+ * "local" coordinates whose origin sat_begin_frame places at the screen
+ * centre. Converting is a single subtraction, but doing it by hand at every
+ * call site is exactly how HUD elements end up drawn off-screen. */
+inline int16_t screen_to_native(int coord, uint16_t extent) {
+    return static_cast<int16_t>(coord - static_cast<int>(extent / 2u));
+}
+
 }  // namespace saturn::internal
 
 #endif

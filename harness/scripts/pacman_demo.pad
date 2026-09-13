@@ -1,0 +1,20 @@
+# Pad script for the harness probe: "FRAME BUTTONS", buttons held from that
+# program frame until the next line. '+' combines buttons, NONE releases all.
+#
+# Drives pacman_2d out of its spawn corridor and around the lower-left of the
+# maze, so a run demonstrably eats pellets rather than sitting still.
+#
+#   probe.exe ... --pad-script harness/scripts/pacman_demo.pad
+#
+# Frames are program frames (one per emulated frame once the vblank sync is
+# working), so these numbers are real sixtieths of a second.
+
+0    NONE
+30   LEFT      # off the spawn tile, eating along row 20
+120  UP        # up the left side
+200  RIGHT
+260  UP
+320  RIGHT     # across the top
+440  DOWN
+520  LEFT
+600  NONE

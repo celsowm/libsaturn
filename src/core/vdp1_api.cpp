@@ -21,6 +21,10 @@ extern "C" sat_result_t sat_tex_upload_indexed8(
     if (out_texture == nullptr || pixels == nullptr || palette_rgb555 == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
+    st = validate_palette_bank(palette_index);
+    if (st != SAT_OK) {
+        return st;
+    }
 
     st = saturn::hal::vdp1::upload_palette(palette_rgb555, palette_index);
     if (st != SAT_OK) {
@@ -104,4 +108,124 @@ extern "C" sat_result_t sat_draw_sprite_screen(
         0
     };
     return sat_draw_sprite(&cmd);
+}
+
+extern "C" sat_result_t sat_draw_sprite_scaled(const sat_scaled_sprite_cmd_t* cmd) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    ResolvedScaledSprite resolved = {};
+    st = resolve_scaled_sprite_cmd(cmd, &resolved);
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp1::ScaledSpriteRequest req = {};
+    req.x0 = resolved.x0;
+    req.y0 = resolved.y0;
+    req.x1 = resolved.x1;
+    req.y1 = resolved.y1;
+    req.width = resolved.width;
+    req.height = resolved.height;
+    req.srca = resolved.srca;
+    req.palette = resolved.palette;
+    req.flags = resolved.flags;
+    return saturn::hal::vdp1::push_scaled_sprite(req);
+}
+
+extern "C" sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd_t* cmd) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    ResolvedDistortedSprite resolved = {};
+    st = resolve_distorted_sprite_cmd(cmd, &resolved);
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp1::DistortedSpriteRequest req = {};
+    for (int i = 0; i < 4; ++i) {
+        req.x[i] = resolved.x[i];
+        req.y[i] = resolved.y[i];
+    }
+    req.width = resolved.width;
+    req.height = resolved.height;
+    req.srca = resolved.srca;
+    req.palette = resolved.palette;
+    req.flags = resolved.flags;
+    return saturn::hal::vdp1::push_distorted_sprite(req);
+}
+
+extern "C" sat_result_t sat_draw_polygon(const sat_polygon_cmd_t* cmd) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (cmd == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    saturn::hal::vdp1::PolygonRequest req = {};
+    req.xa = cmd->x[0];
+    req.ya = cmd->y[0];
+    req.xb = cmd->x[1];
+    req.yb = cmd->y[1];
+    req.xc = cmd->x[2];
+    req.yc = cmd->y[2];
+    req.xd = cmd->x[3];
+    req.yd = cmd->y[3];
+    req.color = cmd->color;
+    req.flags = cmd->flags;
+    return saturn::hal::vdp1::push_polygon(req);
+}
+
+extern "C" sat_result_t sat_draw_polyline(const sat_polygon_cmd_t* cmd) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (cmd == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    saturn::hal::vdp1::PolygonRequest req = {};
+    req.xa = cmd->x[0];
+    req.ya = cmd->y[0];
+    req.xb = cmd->x[1];
+    req.yb = cmd->y[1];
+    req.xc = cmd->x[2];
+    req.yc = cmd->y[2];
+    req.xd = cmd->x[3];
+    req.yd = cmd->y[3];
+    req.color = cmd->color;
+    req.flags = cmd->flags;
+    return saturn::hal::vdp1::push_polyline(req);
+}
+
+extern "C" sat_result_t sat_draw_line(const sat_line_cmd_t* cmd) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (cmd == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    saturn::hal::vdp1::LineRequest req = {};
+    req.x0 = cmd->x0;
+    req.y0 = cmd->y0;
+    req.x1 = cmd->x1;
+    req.y1 = cmd->y1;
+    req.color = cmd->color;
+    req.flags = cmd->flags;
+    return saturn::hal::vdp1::push_line(req);
 }

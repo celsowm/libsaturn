@@ -1,0 +1,11 @@
+{"type":"goal_created","goalId":"mtwcmt18-uh1pkt","objective":"Implement all required libsaturn library code and deliver two playable Pac-Man examples in this repo: (1) a 2D Pac-Man (no sound) and (2) a 3D Pac-Man using a VDP2 RBG0 infinite plane for the ground/background and true-perspective VDP1 distorted/scaled sprites + polygons for the 3D Pac-Man, ghosts, and maze. Done when both examples build as ISOs, are playable (movement, pellets, ghosts, win/lose), all host tests pass, and the headless harness probe plus emulator screenshots confirm they run.","sisyphus":false,"autoContinue":true,"at":"2026-09-11T02:40:34.940Z"}
+{"type":"task_list_set","goalId":"mtwcmt18-uh1pkt","taskCount":4,"blockCompletion":false,"at":"2026-09-11T02:40:34.940Z"}
+{"type":"task_started","goalId":"mtwcmt18-uh1pkt","taskId":"task-1","at":"2026-09-11T02:40:38.496Z"}
+{"type":"task_started","goalId":"mtwcmt18-uh1pkt","taskId":"task-1a","at":"2026-09-11T02:44:01.009Z"}
+{"goalId":"mtwcmt18-uh1pkt","taskId":"task-1a","at":"2026-09-11T02:54:21.801Z","type":"task_complete","evidence":"src/core/math3d_logic.hpp + include/saturn/math3d.h + src/core/math3d_api.cpp; host tests test_math3d_logic.cpp 11 pass."}
+{"goalId":"mtwcmt18-uh1pkt","taskId":"task-1b","at":"2026-09-11T02:54:21.801Z","type":"task_complete","evidence":"sat_draw_sprite_scaled/distorted in vdp1.h/vdp1_api.cpp/hal; test_vdp1_logic.cpp 19 pass; SH2 hello_world builds."}
+{"goalId":"mtwcmt18-uh1pkt","taskId":"task-1","at":"2026-09-11T02:54:21.801Z","type":"task_complete","evidence":"make test all host tests passed (84). target build hello_world succeeded."}
+{"type":"task_started","goalId":"mtwcmt18-uh1pkt","taskId":"task-2","at":"2026-09-11T02:58:17.139Z"}
+{"type":"goal_paused","goalId":"mtwcmt18-uh1pkt","reason":"user","status":"paused","at":"2026-09-11T03:32:08.700Z"}
+{"type":"goal_resumed","goalId":"mtwcmt18-uh1pkt","reason":"user","at":"2026-09-11T03:49:55.596Z"}
+{"type":"task_started","goalId":"mtwcmt18-uh1pkt","taskId":"task-2","at":"2026-09-11T04:13:49.623Z"}

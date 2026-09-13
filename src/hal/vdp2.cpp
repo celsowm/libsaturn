@@ -53,42 +53,84 @@ volatile uint16_t& reg() {
     return *reinterpret_cast<volatile uint16_t*>(kUncached | (kVdp2Base + Offset));
 }
 
-volatile uint16_t* const VDP2_VRAM_16 = reinterpret_cast<volatile uint16_t*>(kUncached | 0x05E00000u);
-volatile uint16_t* const VDP2_CRAM_16 = reinterpret_cast<volatile uint16_t*>(kUncached | 0x05F00000u);
+/* The register names below are macros, not reference variables, and that is
+ * deliberate.
+ *
+ * `volatile uint16_t& TVMD = reg<0x000>();` at namespace scope looks cleaner
+ * but is DYNAMICALLY initialized: a reinterpret_cast is never a constant
+ * expression, so the compiler allocates a pointer in .bss and emits a static
+ * constructor to fill it. This build never runs static constructors -- crt0.s
+ * jumps straight to _main and the linker script has no .init_array pass -- so
+ * those pointers stay null and every access silently reads or writes address
+ * zero.
+ *
+ * That failure is nearly invisible: writes are swallowed, and reads return a
+ * constant, so TVSTAT polling never observes the VBLANK bit change and every
+ * frame burns the full 2,000,000-spin timeout in scu::wait_vblank -- the whole
+ * program runs roughly 85x too slow while still looking like it works.
+ * GCC happens to constant-fold most of these references at -O2, which is why
+ * only some of them were ever broken; a macro does not depend on that luck.
+ *
+ * tools/check_no_static_ctors.py fails the build if any static constructor
+ * survives, so this cannot regress silently.
+ */
 
-volatile uint16_t& TVMD = reg<0x000>();
-volatile uint16_t& TVSTAT = reg<0x004>();
-volatile uint16_t& VRSIZE = reg<0x006>();
-volatile uint16_t& RAMCTL = reg<0x00E>();
-volatile uint16_t& CYCA0L = reg<0x010>();
-volatile uint16_t& CYCA0U = reg<0x012>();
-volatile uint16_t& CYCA1L = reg<0x014>();
-volatile uint16_t& CYCA1U = reg<0x016>();
-volatile uint16_t& CYCB0L = reg<0x018>();
-volatile uint16_t& CYCB0U = reg<0x01A>();
-volatile uint16_t& CYCB1L = reg<0x01C>();
-volatile uint16_t& CYCB1U = reg<0x01E>();
-volatile uint16_t& BGON = reg<0x020>();
-volatile uint16_t& CHCTLA = reg<0x028>();
-volatile uint16_t& PNCN0 = reg<0x030>();
-volatile uint16_t& PLSZ = reg<0x03A>();
-volatile uint16_t& MPOFN = reg<0x03C>();
-volatile uint16_t& MPOFR = reg<0x03E>();
-volatile uint16_t& MPABN0 = reg<0x040>();
-volatile uint16_t& MPCDN0 = reg<0x042>();
-volatile uint16_t& SCXIN0 = reg<0x070>();
-volatile uint16_t& SCXDN0 = reg<0x072>();
-volatile uint16_t& SCYIN0 = reg<0x074>();
-volatile uint16_t& SCYDN0 = reg<0x076>();
-volatile uint16_t& ZMXIN0 = reg<0x078>();
-volatile uint16_t& ZMXDN0 = reg<0x07A>();
-volatile uint16_t& ZMYIN0 = reg<0x07C>();
-volatile uint16_t& ZMYDN0 = reg<0x07E>();
-volatile uint16_t& BKTAU = reg<0x0AC>();
-volatile uint16_t& BKTAL = reg<0x0AE>();
-volatile uint16_t& PRISA = reg<0x0F0>();
-volatile uint16_t& PRINA = reg<0x0F8>();
+/* These are macros rather than reference variables on purpose: a reference or
+ * pointer bound to a reinterpret_cast is dynamically initialized, and this
+ * build runs no static constructors (crt0.s calls _main directly and the
+ * linker script has no .init_array pass). GCC constant-folds most of them at
+ * -O2, but the ones it does not silently become null and every access reads or
+ * writes address zero. See the long explanation in src/hal/vdp2.cpp and the
+ * build-time guard in tools/check_no_static_ctors.py. */
+#define VDP2_VRAM_16 (reinterpret_cast<volatile uint16_t*>(kUncached | 0x05E00000u))
+#define VDP2_CRAM_16 (reinterpret_cast<volatile uint16_t*>(kUncached | 0x05F00000u))
+#define TVMD reg<0x000>()
+#define TVSTAT reg<0x004>()
+#define VRSIZE reg<0x006>()
+#define RAMCTL reg<0x00E>()
+#define CYCA0L reg<0x010>()
+#define CYCA0U reg<0x012>()
+#define CYCA1L reg<0x014>()
+#define CYCA1U reg<0x016>()
+#define CYCB0L reg<0x018>()
+#define CYCB0U reg<0x01A>()
+#define CYCB1L reg<0x01C>()
+#define CYCB1U reg<0x01E>()
+#define BGON reg<0x020>()
+#define CHCTLA reg<0x028>()
+#define PNCN0 reg<0x030>()
+#define PLSZ reg<0x03A>()
+#define MPOFN reg<0x03C>()
+#define MPOFR reg<0x03E>()
+#define MPABN0 reg<0x040>()
+#define MPCDN0 reg<0x042>()
+#define SCXIN0 reg<0x070>()
+#define SCXDN0 reg<0x072>()
+#define SCYIN0 reg<0x074>()
+#define SCYDN0 reg<0x076>()
+#define ZMXIN0 reg<0x078>()
+#define ZMXDN0 reg<0x07A>()
+#define ZMYIN0 reg<0x07C>()
+#define ZMYDN0 reg<0x07E>()
+#define BKTAU reg<0x0AC>()
+#define BKTAL reg<0x0AE>()
+#define PRISA reg<0x0F0>()
+#define PRINA reg<0x0F8>()
 
+/* Colour-operation registers. The library does not use any of them, which is
+ * exactly why they have to be written: the BIOS leaves its own splash-screen
+ * settings behind, and anything still enabled here silently transforms every
+ * pixel the program draws. See reset_color_ops(). */
+#define CCCTL  reg<0x0EC>()
+#define SFCCMD reg<0x0F2>()
+#define CLOFEN reg<0x110>()
+#define CLOFSL reg<0x112>()
+#define COAR   reg<0x114>()
+#define COAG   reg<0x116>()
+#define COAB   reg<0x118>()
+#define COBR   reg<0x11A>()
+#define COBG   reg<0x11C>()
+#define COBB   reg<0x11E>()
 inline uint16_t to_scroll_fraction(uint16_t fraction) {
     if (fraction <= 0x00FFu) {
         return static_cast<uint16_t>(fraction << 8u);
@@ -198,6 +240,29 @@ inline void write_fx16_pair(volatile uint16_t* vram, uint32_t word_offset, doubl
 
 }  // namespace
 
+/* Puts VDP2 colour calculation and colour offset into a known, neutral state.
+ *
+ * These registers survive across a soft boot, and the BIOS uses them for its
+ * own start-up screen. Whatever it leaves enabled keeps applying to every
+ * layer the program draws afterwards, so without this the picture's brightness
+ * depends on what ran before -- observed as a colour offset near -223 on every
+ * channel, which turned a bright blue maze (r=40 g=64 b=248) into (0, 0, 25):
+ * recognisable in shape, almost black on screen, and easy to misread as a
+ * palette or draw bug rather than a leftover register.
+ */
+void reset_color_ops() {
+    CCCTL = 0x0000u;   /* no colour calculation on any layer */
+    SFCCMD = 0x0000u;  /* no special colour calculation modes */
+    CLOFEN = 0x0000u;  /* colour offset disabled for every layer */
+    CLOFSL = 0x0000u;  /* ... and both offset registers select A */
+    COAR = 0x0000u;
+    COAG = 0x0000u;
+    COAB = 0x0000u;
+    COBR = 0x0000u;
+    COBG = 0x0000u;
+    COBB = 0x0000u;
+}
+
 void init_ntsc_320x224() {
     TVMD = 0x0000;
     VRSIZE = 0x0000;
@@ -233,6 +298,8 @@ void init_ntsc_320x224() {
 
     PRISA = 0x0606;
     PRINA = static_cast<uint16_t>((PRINA & 0xFFF8u) | 0x0001u);
+
+    reset_color_ops();
 
     set_backdrop_color(0x0000);
     TVMD = static_cast<uint16_t>(kTvmdDisp | kTvmdBdclmd);
@@ -431,19 +498,19 @@ void fill_vram_words(uint32_t word_offset, uint16_t value, uint32_t word_count) 
 /* RBG0 (Rotation Background 0) Implementation                        */
 /* ================================================================== */
 
-volatile uint16_t& CHCTLB = reg<0x02A>();
-volatile uint16_t& RNCN0  = reg<0x038>();
-volatile uint16_t& RPMD   = reg<0x0B0>();
-volatile uint16_t& RPRCTL = reg<0x0B2>();
-volatile uint16_t& KTCTL  = reg<0x0B4>();
+#define CHCTLB reg<0x02A>()
+#define RNCN0 reg<0x038>()
+#define RPMD reg<0x0B0>()
+#define RPRCTL reg<0x0B2>()
+#define KTCTL reg<0x0B4>()
+#define KTAOF reg<0x0B6>()
 /* RPTA lives at 0x0BC/0x0BE.
  * 0x0B8/0x0BA are OVPNRA/OVPNRB (screen-over pattern name), not RPTA.
  */
-volatile uint16_t& RPTAU  = reg<0x0BC>();
-volatile uint16_t& RPTAL  = reg<0x0BE>();
-volatile uint16_t& PRIR   = reg<0x0FC>();
-volatile uint16_t& BMPNB  = reg<0x02E>();
-
+#define RPTAU reg<0x0BC>()
+#define RPTAL reg<0x0BE>()
+#define PRIR reg<0x0FC>()
+#define BMPNB reg<0x02E>()
 void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
                            uint32_t bitmap_base_word, uint32_t rot_param_base_word) {
     if (!saturn::core::is_supported_rbg0_bitmap_size(static_cast<sat_vdp2_rbg0_bitmap_size_t>(bitmap_size)) ||
@@ -656,6 +723,21 @@ void set_rbg0_rotation_read_control(uint16_t rprctl) {
 void set_rbg0_coefficient_control(uint16_t ktctl) {
     KTCTL = ktctl;
     g_last_rbg0_ktctl_written = ktctl;
+}
+
+void set_rbg0_ktaof(uint16_t ktaof) {
+    KTAOF = ktaof;
+}
+
+void set_rbg0_priority(uint8_t priority) {
+    const uint16_t prir = static_cast<uint16_t>((PRIR & 0xFFF8u) | (priority & 0x07u));
+    PRIR = prir;
+    g_last_rbg0_prir_written = prir;
+}
+
+void set_rbg0_sprite_priority(uint8_t priority) {
+    const uint16_t prisa = static_cast<uint16_t>((priority & 0x07u) | ((priority & 0x07u) << 8u));
+    PRISA = prisa;
 }
 
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count) {

@@ -41,6 +41,19 @@ typedef struct sat_pad_state {
 sat_result_t sat_pad_poll(sat_pad_state_t* out_state);
 uint16_t sat_pad_held(void);
 
+/* ------------------------------------------------------------------ */
+/* Debug formatting helpers                                            */
+/* ------------------------------------------------------------------ */
+/* Formats held bitmask as "PAD:xxxx UDLRSABC" (18 chars + '\0').
+ * out_size must be >= 19.
+ */
+sat_result_t sat_pad_format_held(uint16_t held, char* out, uint16_t out_size);
+
+/* Formats frame count as "FRM:xxxxxxxx" (13 chars + '\0').
+ * out_size must be >= 14.
+ */
+sat_result_t sat_pad_format_frame(uint32_t frame_count, char* out, uint16_t out_size);
+
 #ifdef __cplusplus
 }
 #endif

@@ -4,12 +4,13 @@
 // runs it for a fixed number of frames, and dumps VDP1/VDP2 register and
 // VRAM state to JSON for assertion by harness/tests/*.py.
 //
-// Deliberately does NOT capture a composited video frame — Ymir's public
-// vdp_callbacks.hpp only exposes a "frame finished" notification, not an
-// output buffer, so this pass sticks to register/VRAM/framebuffer state,
-// which is enough to assert the two PR1 bugs (Yst==Py in the rotation
-// parameter table; EWDR left opaque) without depending on Ymir's own
-// rendering being correct.
+// Captures the real composited video frame (VDP1 sprites over VDP2 layers)
+// via VDP::SetSoftwareRenderCallback, which hands the software renderer's
+// output buffer straight to us -- the same picture Ymir's own GUI displays.
+// An earlier pass believed only a "frame finished" notification was exposed
+// and worked from register/VRAM state alone; that is still dumped, because
+// register assertions are precise in a way pixels are not, but screenshots
+// no longer require the caller to reconstruct a picture from VDP1 VRAM.
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -18,7 +19,10 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include "png_writer.hpp"
 
 #include <ymir/hw/smpc/peripheral/peripheral_state_common.hpp>
 #include <ymir/media/loader/loader.hpp>
@@ -48,6 +52,22 @@ uint32_t g_pad_release_at = 0;
 // starts. Counting only starts once this is set, right before phase 3.
 bool g_pad_active = false;
 
+// Frame-indexed input timeline for --pad-script. Each entry says "from this
+// program frame onward, hold exactly these buttons", so a whole play session
+// is a short text file rather than a single press window. File scope because
+// Ymir's report callback is a plain function pointer.
+struct PadEvent {
+    uint32_t frame;
+    ymir::peripheral::Button buttons;
+};
+std::vector<PadEvent> g_pad_script;
+// The emulated frame index within phase 3, set by the run loop rather than
+// counted inside the report callback: the SMPC polls at a rate the program
+// controls, so counting reports would make the timeline depend on how often
+// the game happens to read the pad.
+uint32_t g_pad_frame_index = 0;
+bool g_pad_use_script = false;
+
 ymir::peripheral::Button button_from_name(const std::string& name) {
     using ymir::peripheral::Button;
     if (name == "UP") return Button::Up;
@@ -66,6 +86,46 @@ ymir::peripheral::Button button_from_name(const std::string& name) {
     return Button::None;
 }
 
+// "UP+A", "START", "NONE" -> a button mask.
+ymir::peripheral::Button buttons_from_spec(const std::string& spec) {
+    using ymir::peripheral::Button;
+    if (spec.empty() || spec == "NONE" || spec == "-") {
+        return Button::None;
+    }
+    Button mask = Button::None;
+    size_t start = 0;
+    while (start <= spec.size()) {
+        const size_t plus = spec.find('+', start);
+        const std::string name = spec.substr(start, plus == std::string::npos ? std::string::npos : plus - start);
+        if (!name.empty()) {
+            const Button b = button_from_name(name);
+            if (b == Button::None) {
+                std::fprintf(stderr, "unknown button in spec: %s\n", name.c_str());
+                return Button::None;
+            }
+            mask = static_cast<Button>(static_cast<uint16_t>(mask) | static_cast<uint16_t>(b));
+        }
+        if (plus == std::string::npos) {
+            break;
+        }
+        start = plus + 1;
+    }
+    return mask;
+}
+
+// Buttons held at a given program frame: the most recent script entry at or
+// before it.
+ymir::peripheral::Button buttons_at_frame(uint32_t frame) {
+    ymir::peripheral::Button held = ymir::peripheral::Button::None;
+    for (const PadEvent& e : g_pad_script) {
+        if (e.frame > frame) {
+            break;
+        }
+        held = e.buttons;
+    }
+    return held;
+}
+
 struct Args {
     std::string iso_path;
     std::string bios_path;
@@ -76,6 +136,10 @@ struct Args {
     std::vector<VramRange> vdp2_vram_ranges;
     uint32_t fb_sample_count = 16; // first N bytes of the VDP1 display framebuffer
     std::string dump_wram_high_path; // diagnostic: raw 1MiB High Work RAM dump
+    std::string dump_fb_path;        // raw VDP1 display framebuffer, for visual checks
+    std::string profile_pc_path;     // one master-SH2 PC sample per frame, for profiling
+    std::string pad_script_path;     // frame-indexed input timeline
+    std::vector<std::pair<uint32_t, std::string>> screenshots;  // frame -> PNG path
     bool print_sh2_state = false;    // diagnostic: master SH2 PC/registers to stderr
     std::string pad_button;          // e.g. "A", "UP" — scheduled single-button press
     uint32_t pad_press_at = 0;       // frame index (within --frames) buttons becomes held
@@ -86,7 +150,9 @@ void print_usage() {
     std::fprintf(stderr,
         "usage: probe --iso <path> --bios <path> --bin <path> [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
-        "             [--dump-wram-high <path>] [--print-sh2-state]\n"
+        "             [--dump-wram-high <path>] [--dump-fb <path>]\n"
+        "             [--profile-pc <path>] [--print-sh2-state]\n"
+        "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n");
 }
 
@@ -142,6 +208,34 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--dump-wram-high");
             if (!v) return false;
             out->dump_wram_high_path = v;
+        } else if (arg == "--screenshot") {
+            const char* v = next("--screenshot");
+            if (!v) return false;
+            const std::string spec(v);
+            // The FIRST colon separates the frame number from the path: a
+            // frame number never contains one, but a Windows path does
+            // ("C:/..."), so searching from the right splits in the wrong
+            // place and silently drops the drive letter.
+            const size_t colon = spec.find(':');
+            if (colon == std::string::npos || colon == 0) {
+                std::fprintf(stderr, "invalid --screenshot spec: %s (want FRAME:PATH)\n", v);
+                return false;
+            }
+            out->screenshots.emplace_back(
+                static_cast<uint32_t>(std::strtoul(spec.substr(0, colon).c_str(), nullptr, 0)),
+                spec.substr(colon + 1));
+        } else if (arg == "--pad-script") {
+            const char* v = next("--pad-script");
+            if (!v) return false;
+            out->pad_script_path = v;
+        } else if (arg == "--profile-pc") {
+            const char* v = next("--profile-pc");
+            if (!v) return false;
+            out->profile_pc_path = v;
+        } else if (arg == "--dump-fb") {
+            const char* v = next("--dump-fb");
+            if (!v) return false;
+            out->dump_fb_path = v;
         } else if (arg == "--print-sh2-state") {
             out->print_sh2_state = true;
         } else if (arg == "--pad-button") {
@@ -322,7 +416,56 @@ int main(int argc, char** argv) {
     }
     saturn->LoadDisc(std::move(disc));
     saturn->UsePreferredRegion();
-    if (!args.pad_button.empty()) {
+    if (!args.pad_script_path.empty()) {
+        // A whole play session as a text file: "FRAME BUTTONS" per line, the
+        // buttons held from that program frame until the next line. Comments
+        // start with '#'.
+        std::ifstream script(args.pad_script_path);
+        if (!script) {
+            std::fprintf(stderr, "failed to open --pad-script: %s\n", args.pad_script_path.c_str());
+            return 1;
+        }
+        std::string line;
+        uint32_t lineno = 0;
+        while (std::getline(script, line)) {
+            ++lineno;
+            const size_t hash = line.find('#');
+            if (hash != std::string::npos) {
+                line = line.substr(0, hash);
+            }
+            std::istringstream ls(line);
+            uint32_t frame = 0;
+            std::string spec;
+            if (!(ls >> frame >> spec)) {
+                continue;  // blank or comment-only
+            }
+            g_pad_script.push_back({frame, buttons_from_spec(spec)});
+        }
+        if (g_pad_script.empty()) {
+            std::fprintf(stderr, "--pad-script %s has no usable lines\n", args.pad_script_path.c_str());
+            return 1;
+        }
+        std::stable_sort(g_pad_script.begin(), g_pad_script.end(),
+                         [](const PadEvent& a, const PadEvent& b) { return a.frame < b.frame; });
+        g_pad_use_script = true;
+
+        auto& port = saturn->SMPC.GetPeripheralPort1();
+        using ReportCb = void (*)(ymir::peripheral::PeripheralReport&, void*);
+        port.SetPeripheralReportCallback(ReportCb([](ymir::peripheral::PeripheralReport& report, void*) {
+            if (!g_pad_active) {
+                report.report.controlPad.buttons = ymir::peripheral::Button::None;
+                return;
+            }
+            const ymir::peripheral::Button held = buttons_at_frame(g_pad_frame_index);
+            report.report.controlPad.buttons = held;
+            if (held != ymir::peripheral::Button::None) {
+                g_pad_held_observed++;
+            }
+        }));
+        port.ConnectControlPad();
+        std::fprintf(stderr, "[probe] loaded %zu pad script entries from %s\n",
+                     g_pad_script.size(), args.pad_script_path.c_str());
+    } else if (!args.pad_button.empty()) {
         // --pad-button: hold exactly one button for a scheduled frame window,
         // released before and after — lets a test observe a single clean
         // press+release edge rather than every-button-held-forever.
@@ -359,11 +502,64 @@ int main(int argc, char** argv) {
         port.ConnectControlPad();
     }
 
+    // Latest composited video frame (VDP1 sprites over VDP2 layers), copied
+    // out of Ymir's software renderer. Copied rather than referenced because
+    // the renderer reuses its buffer for the next frame as soon as the
+    // callback returns.
+    //
+    // Ymir's callback is C-style: a function pointer plus a context pointer
+    // passed as the LAST argument, so a captureless lambda works.
+    struct FrameSink {
+        std::vector<uint32_t> pixels;
+        uint32_t width = 0;
+        uint32_t height = 0;
+    };
+    FrameSink frame;
+    saturn->VDP.SetSoftwareRenderCallback(
+        {&frame, [](uint32_t* fb, uint32_t width, uint32_t height, void* ctx) {
+             FrameSink* sink = static_cast<FrameSink*>(ctx);
+             sink->width = width;
+             sink->height = height;
+             sink->pixels.assign(fb, fb + static_cast<size_t>(width) * height);
+         }});
+
     bool trace_frames = std::getenv("PROBE_TRACE_FRAMES") != nullptr;
     auto& sh2p = saturn->masterSH2.GetProbe();
+    // One PC sample per emulated frame. Coarse, but a program that needs many
+    // emulated frames per program frame is exactly the case worth profiling,
+    // and there the samples land squarely in whatever is eating the time.
+    std::vector<uint32_t> pc_samples;
+    bool sampling_pc = false;
+    bool taking_screenshots = false;
     auto run_frames = [&](uint32_t count, uint32_t frame_offset) {
         for (uint32_t i = 0; i < count; i++) {
+            // Set before running, so the pad reports the buttons this script
+            // line asks for during the frame it names rather than after it.
+            g_pad_frame_index = i;
             saturn->RunFrame();
+            if (sampling_pc) {
+                pc_samples.push_back(sh2p.PC());
+            }
+            if (taking_screenshots) {
+                for (const auto& shot : args.screenshots) {
+                    if (shot.first != i) {
+                        continue;
+                    }
+                    if (frame.pixels.empty()) {
+                        std::fprintf(stderr,
+                                     "[probe] frame %u: no composited frame yet, skipping %s\n",
+                                     i, shot.second.c_str());
+                        continue;
+                    }
+                    if (harness::png::write_rgb(shot.second, frame.pixels.data(), frame.width, frame.height)) {
+                        std::fprintf(stderr, "[probe] frame %u -> %s (%ux%u)\n", i,
+                                     shot.second.c_str(), frame.width, frame.height);
+                    } else {
+                        std::fprintf(stderr, "[probe] frame %u: failed to write %s\n", i,
+                                     shot.second.c_str());
+                    }
+                }
+            }
             if (!trace_frames) continue;
             uint32_t gbr = sh2p.GBR();
             uint32_t masked = (gbr + 576u) & 0x0FFF'FFFFu;
@@ -441,6 +637,8 @@ int main(int argc, char** argv) {
 
     // -- Phase 3: run the injected program for --frames frames.
     g_pad_active = true;
+    sampling_pc = !args.profile_pc_path.empty();
+    taking_screenshots = !args.screenshots.empty();
     run_frames(args.frames, args.boot_frames);
 
     const uint32_t pc_after_run = sh2p.PC();
@@ -487,6 +685,35 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "SCU IMASK=%08X (VBlankIN masked=%d) ISTAT=%08X (VBlankIN pending=%d)\n",
                      static_cast<uint32_t>(imask.u32), imask.VDP2_VBlankIN, static_cast<uint32_t>(istat.u32),
                      istat.VDP2_VBlankIN);
+    }
+
+    if (!args.profile_pc_path.empty()) {
+        std::ofstream pc_out(args.profile_pc_path);
+        if (!pc_out) {
+            std::fprintf(stderr, "failed to open --profile-pc output: %s\n", args.profile_pc_path.c_str());
+        } else {
+            for (uint32_t pc : pc_samples) {
+                pc_out << std::hex << pc << "\n";
+            }
+            std::fprintf(stderr, "[probe] wrote %zu PC samples to %s\n",
+                         pc_samples.size(), args.profile_pc_path.c_str());
+        }
+    }
+
+    // Whole VDP1 display framebuffer, so a run can be checked by looking at
+    // the picture rather than only at registers: the --fb-sample window of
+    // first-N-bytes cannot tell "drew the maze" from "drew nothing".
+    if (!args.dump_fb_path.empty()) {
+        auto fb = saturn->VDP.VDP1GetDisplayFramebuffer();
+        std::ofstream fb_out(args.dump_fb_path, std::ios::binary);
+        if (!fb_out) {
+            std::fprintf(stderr, "failed to open --dump-fb output: %s\n", args.dump_fb_path.c_str());
+        } else {
+            fb_out.write(reinterpret_cast<const char*>(fb.data()),
+                         static_cast<std::streamsize>(fb.size()));
+            std::fprintf(stderr, "[probe] wrote %zu framebuffer bytes to %s\n",
+                         fb.size(), args.dump_fb_path.c_str());
+        }
     }
 
     if (!args.dump_wram_high_path.empty()) {

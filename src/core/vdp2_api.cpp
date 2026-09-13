@@ -196,6 +196,17 @@ extern "C" sat_result_t sat_vdp2_nbg0_map_write_region(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_set_backdrop_color(uint16_t rgb555) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_backdrop_color(rgb555);
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp2_wait_vblank_start(void) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();
@@ -290,6 +301,39 @@ extern "C" sat_result_t sat_vdp2_rbg0_set_coefficient_control(uint16_t ktctl) {
     }
 
     saturn::hal::vdp2::set_rbg0_coefficient_control(ktctl);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_ktaof(uint16_t ktaof) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_ktaof(ktaof);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_priority(uint8_t priority) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_priority(priority);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_sprite_priority(uint8_t priority) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    saturn::hal::vdp2::set_rbg0_sprite_priority(priority);
     return SAT_OK;
 }
 
@@ -471,5 +515,36 @@ extern "C" sat_result_t sat_vdp2_rbg0_set_scaling(uint32_t rot_param_word_offset
     }
 
     saturn::hal::vdp2::set_rbg0_scaling(rot_param_word_offset, kx, ky);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_mode7_init(const sat_vdp2_rbg0_mode7_config_t* config) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (config == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    sat_vdp2_rbg0_config_t rbg0_cfg = {};
+    rbg0_cfg.bitmap_size = config->bitmap_size;
+    rbg0_cfg.color_mode = config->color_mode;
+    rbg0_cfg.bitmap_base_word = config->bitmap_base_word;
+    rbg0_cfg.rot_param_base_word = config->rot_param_base_word;
+
+    st = sat_vdp2_rbg0_init(&rbg0_cfg);
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    /* 2-word coefficient table, parameter A, KMD=0 (k applied to both kx and ky) */
+    SAT_TRY(sat_vdp2_rbg0_set_coefficient_control(0x0001u));
+    SAT_TRY(sat_vdp2_rbg0_set_ktaof(0x0000u));
+    SAT_TRY(sat_vdp2_rbg0_set_priority(config->rbg0_priority));
+    SAT_TRY(sat_vdp2_rbg0_set_sprite_priority(config->sprite_priority));
+    SAT_TRY(sat_vdp2_set_backdrop_color(config->back_color_rgb555));
+
     return SAT_OK;
 }

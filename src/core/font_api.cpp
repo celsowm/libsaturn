@@ -135,6 +135,41 @@ static sat_result_t upload_ascii_font_glyph_indexed8(
     );
 }
 
+static sat_result_t upload_ascii_font_glyph_scaled_indexed8(
+    sat_texture_t* out_texture,
+    char ch,
+    const uint16_t* palette_rgb555,
+    uint16_t palette_index,
+    uint8_t scale
+) {
+    if (scale > 8u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const uint16_t glyph_w = static_cast<uint16_t>(SAT_ASCII_FONT_GLYPH_WIDTH) * scale;
+    const uint16_t glyph_h = static_cast<uint16_t>(SAT_ASCII_FONT_GLYPH_HEIGHT) * scale;
+    uint8_t glyph_pixels[64u * 8u] = {};  /* max 64x64 @ scale=8 */
+    const uint8_t* rows = sat_font_ascii_8x8_rows(ch);
+
+    SAT_TRY(sat_font_pack_8x8_glyph_indexed8(
+        glyph_pixels,
+        glyph_w,
+        glyph_h,
+        0,
+        0,
+        rows,
+        scale
+    ));
+
+    return sat_tex_upload_indexed8(
+        out_texture,
+        glyph_pixels,
+        glyph_w,
+        glyph_h,
+        palette_rgb555,
+        palette_index
+    );
+}
+
 extern "C" sat_result_t sat_ascii_font_init_8x8_indexed8(
     sat_ascii_font_t* out_font,
     uint16_t fg_rgb555,
@@ -161,8 +196,40 @@ extern "C" sat_result_t sat_ascii_font_init_8x8_indexed8(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_ascii_font_init_scaled_indexed8(
+    sat_ascii_font_t* out_font,
+    uint16_t fg_rgb555,
+    uint16_t bg_rgb555,
+    uint16_t palette_index,
+    uint8_t scale
+) {
+    if (out_font == nullptr || scale == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    uint16_t palette[256] = {};
+    palette[0] = bg_rgb555;
+    palette[1] = fg_rgb555;
+
+    for (uint16_t glyph = 0u; glyph < SAT_ASCII_FONT_GLYPH_COUNT; ++glyph) {
+        SAT_TRY(upload_ascii_font_glyph_scaled_indexed8(
+            &out_font->glyphs[glyph],
+            (char)(glyph + 32u),
+            palette,
+            palette_index,
+            scale
+        ));
+    }
+
+    return SAT_OK;
+}
+
 extern "C" int sat_ascii_font_measure_text_indexed8(const char* text, int char_spacing) {
     return saturn::core::measure_ascii_text_indexed8_impl(text, char_spacing);
+}
+
+extern "C" int sat_ascii_font_measure_text_scaled_indexed8(const char* text, int char_spacing, uint8_t scale) {
+    return saturn::core::measure_ascii_text_scaled_indexed8_impl(text, char_spacing, scale);
 }
 
 extern "C" sat_result_t sat_ascii_font_draw_text_indexed8(
@@ -278,7 +345,11 @@ extern "C" sat_result_t sat_font_draw_text_line_indexed8(
             return st;
         }
 
-        pen_x += char_spacing;
+        /* char_spacing is the per-glyph ADVANCE. A non-positive value would
+         * otherwise leave the pen where it is and pile every glyph of the
+         * string onto one another, rendering a solid block; advance by the
+         * glyph's own width instead, so 0 means "glyphs touching". */
+        pen_x += (char_spacing > 0) ? char_spacing : static_cast<int>(texture->width);
     }
 
     return SAT_OK;
@@ -321,7 +392,11 @@ extern "C" sat_result_t sat_font_draw_text_ascii_indexed8(
             return st;
         }
 
-        pen_x += char_spacing;
+        /* char_spacing is the per-glyph ADVANCE. A non-positive value would
+         * otherwise leave the pen where it is and pile every glyph of the
+         * string onto one another, rendering a solid block; advance by the
+         * glyph's own width instead, so 0 means "glyphs touching". */
+        pen_x += (char_spacing > 0) ? char_spacing : static_cast<int>(texture->width);
     }
 
     return SAT_OK;

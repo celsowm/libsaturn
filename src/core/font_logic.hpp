@@ -63,7 +63,29 @@ inline int measure_ascii_text_indexed8_impl(const char* text, int char_spacing) 
         ++glyph_count;
     }
 
-    return static_cast<int>(SAT_ASCII_FONT_GLYPH_WIDTH) + ((glyph_count - 1) * char_spacing);
+    /* char_spacing is the per-glyph ADVANCE, not a gap added to the glyph.
+     * Zero therefore used to stack every glyph on the same pixel, which draws
+     * a solid block instead of text -- a silent, very confusing failure. Treat
+     * a non-positive advance as "one glyph width", i.e. glyphs touching. */
+    const int advance = (char_spacing > 0)
+                            ? char_spacing
+                            : static_cast<int>(SAT_ASCII_FONT_GLYPH_WIDTH);
+    return static_cast<int>(SAT_ASCII_FONT_GLYPH_WIDTH) + ((glyph_count - 1) * advance);
+}
+
+inline int measure_ascii_text_scaled_indexed8_impl(const char* text, int char_spacing, uint8_t scale) {
+    if (text == nullptr || *text == '\0' || scale == 0u) {
+        return 0;
+    }
+
+    int glyph_count = 0;
+    for (const char* p = text; *p != '\0'; ++p) {
+        ++glyph_count;
+    }
+
+    const int glyph_width = static_cast<int>(SAT_ASCII_FONT_GLYPH_WIDTH) * static_cast<int>(scale);
+    const int advance = (char_spacing > 0) ? char_spacing : glyph_width;
+    return glyph_width + ((glyph_count - 1) * advance);
 }
 
 }  // namespace saturn::core

@@ -102,6 +102,9 @@ void commit_rbg0_config();
 void set_rbg0_param_mode(RBG0ParamMode mode);
 void set_rbg0_rotation_read_control(uint16_t rprctl);
 void set_rbg0_coefficient_control(uint16_t ktctl);
+void set_rbg0_ktaof(uint16_t ktaof);
+void set_rbg0_priority(uint8_t priority);
+void set_rbg0_sprite_priority(uint8_t priority);
 
 // Rotation parameter table upload
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count);

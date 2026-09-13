@@ -36,12 +36,53 @@ struct SpriteRequest {
     uint16_t flags;
 };
 
+struct ScaledSpriteRequest {
+    int16_t x0, y0;
+    int16_t x1, y1;
+    uint16_t width;   /* source character size, becomes CMDSIZE */
+    uint16_t height;
+    uint16_t srca;
+    uint16_t palette;
+    uint16_t flags;
+};
+
+struct DistortedSpriteRequest {
+    int16_t x[4];
+    int16_t y[4];
+    uint16_t width;   /* source character size, becomes CMDSIZE */
+    uint16_t height;
+    uint16_t srca;
+    uint16_t palette;
+    uint16_t flags;
+};
+
+struct PolygonRequest {
+    int16_t xa, ya;
+    int16_t xb, yb;
+    int16_t xc, yc;
+    int16_t xd, yd;
+    uint16_t color;
+    uint16_t flags;
+};
+
+struct LineRequest {
+    int16_t x0, y0;
+    int16_t x1, y1;
+    uint16_t color;
+    uint16_t flags;
+};
+
 void init(uint16_t width, uint16_t height, uint16_t clear_color);
 void set_clear_color(uint16_t rgb555);
 void set_erase_transparent();
 void set_erase_enabled(bool enable, uint16_t width, uint16_t height);
 void begin_frame(Command* command_buffer, uint16_t capacity);
 sat_result_t push_sprite(const SpriteRequest& req);
+sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req);
+sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req);
+sat_result_t push_polygon(const PolygonRequest& req);
+sat_result_t push_polyline(const PolygonRequest& req);
+sat_result_t push_line(const LineRequest& req);
 void submit();
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index);

@@ -106,6 +106,21 @@ inline sat_result_t validate_vdp2_palette_upload(uint16_t count, uint16_t offset
     return SAT_OK;
 }
 
+/* CRAM holds 2048 words, which is 8 banks of 256 entries, so a palette bank
+ * index is only valid in 0..7. hal::vdp1::upload_palette writes
+ * CRAM[index * 256 ...] with no bounds check of its own, so bank 8 lands past
+ * the end of CRAM -- in practice wrapping onto bank 0 and overwriting whatever
+ * palette the VDP2 layers are using. Nothing about that failure is visible at
+ * the call site, which is why it is rejected here. */
+constexpr uint16_t kPaletteBankCount = 8u;
+
+inline sat_result_t validate_palette_bank(uint16_t palette_index) {
+    if (palette_index >= kPaletteBankCount) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return SAT_OK;
+}
+
 inline sat_result_t validate_vdp2_vram_write(uint32_t offset, uint32_t words) {
     if (words == 0u) {
         return SAT_ERR_INVALID_ARG;
@@ -216,6 +231,132 @@ inline uint32_t compute_map_row_offset(
     uint16_t row
 ) {
     return compute_map_base_words(plane_index) + static_cast<uint32_t>(row) * static_cast<uint32_t>(map_w);
+}
+
+/* ------------------------------------------------------------------ */
+/* VDP1 non-texture command encoding                                   */
+/* ------------------------------------------------------------------ */
+
+/* VDP1 command select values (CMDCTRL bits 3..0), VDP1 manual 6.1. */
+constexpr uint16_t kVdp1CmdNormalSprite = 0x0000u;
+constexpr uint16_t kVdp1CmdScaledSprite = 0x0001u;
+constexpr uint16_t kVdp1CmdDistortedSprite = 0x0002u;
+constexpr uint16_t kVdp1CmdPolygon  = 0x0004u;  /* filled interior            */
+constexpr uint16_t kVdp1CmdPolyline = 0x0005u;  /* outline only, 4 vertices   */
+constexpr uint16_t kVdp1CmdLine     = 0x0006u;  /* straight line, 2 vertices  */
+constexpr uint16_t kVdp1CmdEnd      = 0x8000u;  /* end bit (CMDCTRL bit 15)   */
+
+/* PMOD bits common to all non-texture commands:
+ *   bits 2..0 = color mode 000B (16-bit palette / RGB code)
+ *   bit 3     = SPD (sprite disable)   — required, no character data is read
+ *   bit 4     = ECD (end code disable) — required, no end code is read
+ * Setting SPD/ECD to 0 makes the VDP1 fetch character data for a command that
+ * has none, which can stall or draw garbage.
+ */
+constexpr uint16_t kVdp1PolygonPmod = 0x0018u;
+
+/* Composes CMDPMOD for a polygon/polyline/line command.
+ * bit 6 = opaque flag, mirrored from SAT_SPRITE_FLAG_OPAQUE for API symmetry.
+ */
+inline uint16_t compose_polygon_pmod(uint16_t flags) {
+    return static_cast<uint16_t>(
+        kVdp1PolygonPmod | ((flags & SAT_SPRITE_FLAG_OPAQUE) != 0u ? 0x0040u : 0u));
+}
+
+/* Composes CMDCTRL for a polygon-family command: command select + end bit. */
+inline uint16_t compose_polygon_ctrl(uint16_t command_select, bool is_end) {
+    return static_cast<uint16_t>(command_select & 0x000Fu) |
+           (is_end ? kVdp1CmdEnd : 0x0000u);
+}
+
+/* PMOD bits common to texture (sprite-family) commands, matching the value
+ * used by normal sprites (CMDT spin+PRIV flag) in push_sprite:
+ *   bits 5..3 = color mode 100B (16-bit color bank, 256-entry palette)
+ *   bit 7     = ECD (end code disable) — code 0 is transparent, not end
+ * bit 6 (transparent-pixel disable) is set only for SAT_SPRITE_FLAG_OPAQUE. */
+constexpr uint16_t kVdp1SpritePmodBase = 0x00A0u;
+
+/* Composes CMDPMOD for a scaled/distorted sprite. bit 6 = opaque flag,
+ * mirrored from SAT_SPRITE_FLAG_OPAQUE, forcing every texel to be drawn. */
+inline uint16_t compose_sprite_pmod(uint16_t flags) {
+    return static_cast<uint16_t>(
+        kVdp1SpritePmodBase | ((flags & SAT_SPRITE_FLAG_OPAQUE) != 0u ? 0x0040u : 0u));
+}
+
+/* Composes CMDCOLR for a sprite-family command. Color mode 100B uses the
+ * 16-bit color bank number in bits 15..8, hence the << 8. */
+inline uint16_t compose_sprite_colr(uint16_t palette) {
+    return static_cast<uint16_t>(palette << 8u);
+}
+
+/* ------------------------------------------------------------------ */
+/* Scaled / distorted sprite resolution                               */
+/* ------------------------------------------------------------------ */
+
+struct ResolvedScaledSprite {
+    int16_t x0;
+    int16_t y0;
+    int16_t x1;
+    int16_t y1;
+    uint16_t width;   /* source size, becomes CMDSIZE */
+    uint16_t height;
+    uint16_t srca;
+    uint16_t palette;
+    uint16_t flags;
+};
+
+inline sat_result_t resolve_scaled_sprite_cmd(
+    const sat_scaled_sprite_cmd_t* cmd,
+    ResolvedScaledSprite* out
+) {
+    if (cmd == nullptr || out == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (cmd->texture == nullptr || cmd->texture->valid == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    out->x0 = cmd->x0;
+    out->y0 = cmd->y0;
+    out->x1 = cmd->x1;
+    out->y1 = cmd->y1;
+    out->width = cmd->texture->width;
+    out->height = cmd->texture->height;
+    out->srca = cmd->texture->srca;
+    out->palette = (cmd->palette_override != 0u) ? cmd->palette_override : cmd->texture->palette;
+    out->flags = cmd->flags;
+    return SAT_OK;
+}
+
+struct ResolvedDistortedSprite {
+    int16_t x[4];
+    int16_t y[4];
+    uint16_t width;
+    uint16_t height;
+    uint16_t srca;
+    uint16_t palette;
+    uint16_t flags;
+};
+
+inline sat_result_t resolve_distorted_sprite_cmd(
+    const sat_distorted_sprite_cmd_t* cmd,
+    ResolvedDistortedSprite* out
+) {
+    if (cmd == nullptr || out == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (cmd->texture == nullptr || cmd->texture->valid == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    for (int i = 0; i < 4; ++i) {
+        out->x[i] = cmd->x[i];
+        out->y[i] = cmd->y[i];
+    }
+    out->width = cmd->texture->width;
+    out->height = cmd->texture->height;
+    out->srca = cmd->texture->srca;
+    out->palette = (cmd->palette_override != 0u) ? cmd->palette_override : cmd->texture->palette;
+    out->flags = cmd->flags;
+    return SAT_OK;
 }
 
 /* Resolved sprite data — used internally by sat_draw_sprite */

@@ -38,6 +38,54 @@ typedef struct sat_sprite_cmd {
 } sat_sprite_cmd_t;
 
 /* ------------------------------------------------------------------ */
+/* Scaled sprite command (command select 0001B)                        */
+/* ------------------------------------------------------------------ */
+/* Draws the texture into the axis-aligned rectangle whose top-left is
+ * vertex A (x0,y0) and bottom-right is vertex C (x1,y1), in native VDP1
+ * coordinates (0,0 = screen center). This is the two-coordinate form of the
+ * rectangular sprite command (zoom point = 0). */
+typedef struct sat_scaled_sprite_cmd {
+    int16_t x0;
+    int16_t y0;
+    int16_t x1;
+    int16_t y1;
+    const sat_texture_t* texture;
+    uint16_t palette_override;
+    uint16_t flags;
+} sat_scaled_sprite_cmd_t;
+
+/* ------------------------------------------------------------------ */
+/* Distorted sprite command (command select 0010B)                     */
+/* ------------------------------------------------------------------ */
+/* Draws the texture into an arbitrary quad, enabling rotation and true
+ * perspective faces. Texture corners map A=top-left, B=top-right,
+ * C=bottom-right, D=bottom-left. Native VDP1 coordinates (0,0 = center). */
+typedef struct sat_distorted_sprite_cmd {
+    int16_t x[4];
+    int16_t y[4];
+    const sat_texture_t* texture;
+    uint16_t palette_override;
+    uint16_t flags;
+} sat_distorted_sprite_cmd_t;
+
+/* ------------------------------------------------------------------ */
+/* Polygon / polyline / line commands                                 */
+/* ------------------------------------------------------------------ */
+typedef struct sat_polygon_cmd {
+    int16_t x[4];
+    int16_t y[4];
+    uint16_t color;      /* RGB555 (set bit 15) or color bank code */
+    uint16_t flags;
+} sat_polygon_cmd_t;
+
+typedef struct sat_line_cmd {
+    int16_t x0, y0;
+    int16_t x1, y1;
+    uint16_t color;      /* RGB555 (set bit 15) or color bank code */
+    uint16_t flags;
+} sat_line_cmd_t;
+
+/* ------------------------------------------------------------------ */
 /* Texture upload & sprite rendering                                   */
 /* ------------------------------------------------------------------ */
 sat_result_t sat_tex_upload_indexed8(
@@ -66,6 +114,43 @@ sat_result_t sat_draw_sprite_screen(
     uint16_t height,
     uint16_t palette_override
 );
+
+/* Draws a scaled sprite with native VDP1 coordinates (0,0 = screen center).
+ * The texture's own width/height define CMDSIZE; (x0,y0)-(x1,y1) define the
+ * destination rectangle, so non-uniform scaling is supported. */
+sat_result_t sat_draw_sprite_scaled(const sat_scaled_sprite_cmd_t* cmd);
+
+/* Draws a distorted (arbitrary-quad) sprite with native VDP1 coordinates.
+ * Region order is A(top-left), B(top-right), C(bottom-right), D(bottom-left). */
+sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd_t* cmd);
+
+/* Draws a filled polygon (4 vertices) with native VDP1 coordinates.
+ * (0,0) = screen center.
+ */
+sat_result_t sat_draw_polygon(const sat_polygon_cmd_t* cmd);
+
+/* Draws a filled, axis-aligned rectangle in SCREEN coordinates
+ * ((0,0) = top-left), converting to native VDP1 coordinates internally.
+ * `color` must be RGB-coded (see SAT_RGB555). A zero width or height draws
+ * nothing and still returns SAT_OK.
+ */
+sat_result_t sat_draw_rect_screen(
+    int16_t x,
+    int16_t y,
+    uint16_t width,
+    uint16_t height,
+    uint16_t color
+);
+
+/* Draws an unfilled polyline (4 vertices, outline only) with native VDP1 coordinates.
+ * (0,0) = screen center.
+ */
+sat_result_t sat_draw_polyline(const sat_polygon_cmd_t* cmd);
+
+/* Draws a single line (2 endpoints) with native VDP1 coordinates.
+ * (0,0) = screen center.
+ */
+sat_result_t sat_draw_line(const sat_line_cmd_t* cmd);
 
 #ifdef __cplusplus
 }

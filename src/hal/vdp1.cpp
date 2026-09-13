@@ -1,4 +1,5 @@
 #include "src/hal/vdp1.hpp"
+#include "src/core/logic.hpp"
 #include "saturn/vdp1.h"
 
 namespace saturn::hal::vdp1 {
@@ -7,17 +8,29 @@ namespace {
 
 constexpr uintptr_t kUncached = 0x20000000u;
 
-volatile uint16_t& TVMR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00000u);
-volatile uint16_t& FBCR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00002u);
-volatile uint16_t& PTMR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00004u);
-volatile uint16_t& EWDR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00006u);
-volatile uint16_t& EWLR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00008u);
-volatile uint16_t& EWRR = *reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D0000Au);
-
-volatile uint16_t* const VDP2_CRAM = reinterpret_cast<volatile uint16_t*>(kUncached | 0x05F00000u);
-volatile uint32_t* const VDP1_VRAM_32 = reinterpret_cast<volatile uint32_t*>(kUncached | 0x05C00000u);
-volatile uint16_t* const VDP1_VRAM_16 = reinterpret_cast<volatile uint16_t*>(kUncached | 0x05C00000u);
-
+/* These are macros rather than reference variables on purpose: a reference or
+ * pointer bound to a reinterpret_cast is dynamically initialized, and this
+ * build runs no static constructors (crt0.s calls _main directly and the
+ * linker script has no .init_array pass). GCC constant-folds most of them at
+ * -O2, but the ones it does not silently become null and every access reads or
+ * writes address zero. See the long explanation in src/hal/vdp2.cpp and the
+ * build-time guard in tools/check_no_static_ctors.py. */
+#define TVMR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00000u))
+#define FBCR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00002u))
+#define PTMR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00004u))
+#define EWDR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00006u))
+#define EWLR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00008u))
+#define EWRR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D0000Au))
+/* These are macros rather than reference variables on purpose: a reference or
+ * pointer bound to a reinterpret_cast is dynamically initialized, and this
+ * build runs no static constructors (crt0.s calls _main directly and the
+ * linker script has no .init_array pass). GCC constant-folds most of them at
+ * -O2, but the ones it does not silently become null and every access reads or
+ * writes address zero. See the long explanation in src/hal/vdp2.cpp and the
+ * build-time guard in tools/check_no_static_ctors.py. */
+#define VDP2_CRAM (reinterpret_cast<volatile uint16_t*>(kUncached | 0x05F00000u))
+#define VDP1_VRAM_32 (reinterpret_cast<volatile uint32_t*>(kUncached | 0x05C00000u))
+#define VDP1_VRAM_16 (reinterpret_cast<volatile uint16_t*>(kUncached | 0x05C00000u))
 constexpr uint32_t kVramSize = 512u * 1024u;
 constexpr uint32_t kCommandAreaBytes = 16u * 1024u;
 
@@ -107,7 +120,7 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     }
 
     Command& local_coord = g_cmd_buffer[g_cmd_count++];
-    local_coord.ctrl = 0x000A;  // command select 1010B: local coordinate set
+    local_coord.ctrl = saturn::core::compose_polygon_ctrl(0x000Au, false);  // 1010B: local coordinate set
     local_coord.link = 0;
     local_coord.pmod = 0;
     local_coord.colr = 0;
@@ -125,7 +138,7 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     local_coord.pad = 0;
 
     Command& sys_clip = g_cmd_buffer[g_cmd_count++];
-    sys_clip.ctrl = 0x0009;  // command select 1001B: system clipping coordinate set
+    sys_clip.ctrl = saturn::core::compose_polygon_ctrl(0x0009u, false);  // 1001B: system clipping coordinate set
     sys_clip.link = 0;
     sys_clip.pmod = 0;
     sys_clip.colr = 0;
@@ -160,8 +173,8 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     Command& cmd = g_cmd_buffer[g_cmd_count++];
     cmd.ctrl = 0x0000;
     cmd.link = 0;
-    cmd.pmod = static_cast<uint16_t>(0x00A0u | ((req.flags & SAT_SPRITE_FLAG_OPAQUE) != 0u ? 0x0040u : 0u));
-    cmd.colr = static_cast<uint16_t>(req.palette << 8u);
+    cmd.pmod = saturn::core::compose_sprite_pmod(req.flags);
+    cmd.colr = saturn::core::compose_sprite_colr(req.palette);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);
     // VDP1 sprite corners: coordinates are in pixels (0 = center of screen)
@@ -178,6 +191,138 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     return SAT_OK;
 }
 
+sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
+    if (g_cmd_buffer == nullptr) {
+        return SAT_ERR_NOT_INITIALIZED;
+    }
+    if (req.width == 0u || req.height == 0u || (req.width & 7u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (g_cmd_count + 1u >= g_cmd_capacity) {
+        return SAT_ERR_CAPACITY;
+    }
+
+    Command& cmd = g_cmd_buffer[g_cmd_count++];
+    cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdScaledSprite, false);
+    cmd.link = 0;
+    cmd.pmod = saturn::core::compose_sprite_pmod(req.flags);
+    cmd.colr = saturn::core::compose_sprite_colr(req.palette);
+    cmd.srca = req.srca;
+    cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);
+    /* Two-coordinate rectangle: A top-left, C bottom-right. B and D are filled
+     * consistently even though the hardware only reads A/C in this form. */
+    cmd.xa = req.x0;
+    cmd.ya = req.y0;
+    cmd.xb = req.x1;
+    cmd.yb = req.y0;
+    cmd.xc = req.x1;
+    cmd.yc = req.y1;
+    cmd.xd = req.x0;
+    cmd.yd = req.y1;
+    cmd.grda = 0;
+    cmd.pad = 0;
+    return SAT_OK;
+}
+
+sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
+    if (g_cmd_buffer == nullptr) {
+        return SAT_ERR_NOT_INITIALIZED;
+    }
+    if (req.width == 0u || req.height == 0u || (req.width & 7u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (g_cmd_count + 1u >= g_cmd_capacity) {
+        return SAT_ERR_CAPACITY;
+    }
+
+    Command& cmd = g_cmd_buffer[g_cmd_count++];
+    cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdDistortedSprite, false);
+    cmd.link = 0;
+    cmd.pmod = saturn::core::compose_sprite_pmod(req.flags);
+    cmd.colr = saturn::core::compose_sprite_colr(req.palette);
+    cmd.srca = req.srca;
+    cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);
+    cmd.xa = req.x[0];
+    cmd.ya = req.y[0];
+    cmd.xb = req.x[1];
+    cmd.yb = req.y[1];
+    cmd.xc = req.x[2];
+    cmd.yc = req.y[2];
+    cmd.xd = req.x[3];
+    cmd.yd = req.y[3];
+    cmd.grda = 0;
+    cmd.pad = 0;
+    return SAT_OK;
+}
+
+namespace {
+
+inline sat_result_t push_polygon_like(uint16_t command_select, const PolygonRequest& req) {
+    if (g_cmd_buffer == nullptr) {
+        return SAT_ERR_NOT_INITIALIZED;
+    }
+    if (g_cmd_count + 1u >= g_cmd_capacity) {
+        return SAT_ERR_CAPACITY;
+    }
+
+    Command& cmd = g_cmd_buffer[g_cmd_count++];
+    cmd.ctrl = saturn::core::compose_polygon_ctrl(command_select, false);
+    cmd.link = 0;
+    cmd.pmod = saturn::core::compose_polygon_pmod(req.flags);
+    cmd.colr = req.color;
+    cmd.srca = 0;
+    cmd.size = 0;
+    cmd.xa = req.xa;
+    cmd.ya = req.ya;
+    cmd.xb = req.xb;
+    cmd.yb = req.yb;
+    cmd.xc = req.xc;
+    cmd.yc = req.yc;
+    cmd.xd = req.xd;
+    cmd.yd = req.yd;
+    cmd.grda = 0;
+    cmd.pad = 0;
+    return SAT_OK;
+}
+
+}  // namespace
+
+sat_result_t push_polygon(const PolygonRequest& req) {
+    return push_polygon_like(saturn::core::kVdp1CmdPolygon, req);
+}
+
+sat_result_t push_polyline(const PolygonRequest& req) {
+    return push_polygon_like(saturn::core::kVdp1CmdPolyline, req);
+}
+
+sat_result_t push_line(const LineRequest& req) {
+    if (g_cmd_buffer == nullptr) {
+        return SAT_ERR_NOT_INITIALIZED;
+    }
+    if (g_cmd_count + 1u >= g_cmd_capacity) {
+        return SAT_ERR_CAPACITY;
+    }
+
+    Command& cmd = g_cmd_buffer[g_cmd_count++];
+    cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdLine, false);
+    cmd.link = 0;
+    cmd.pmod = saturn::core::compose_polygon_pmod(req.flags);
+    cmd.colr = req.color;
+    cmd.srca = 0;
+    cmd.size = 0;
+    cmd.xa = req.x0;
+    cmd.ya = req.y0;
+    cmd.xb = req.x1;
+    cmd.yb = req.y1;
+    cmd.xc = 0;
+    cmd.yc = 0;
+    cmd.xd = 0;
+    cmd.yd = 0;
+    cmd.grda = 0;
+    cmd.pad = 0;
+    return SAT_OK;
+}
+
 void submit() {
     if (g_cmd_buffer == nullptr) {
         return;
@@ -187,7 +332,7 @@ void submit() {
     }
 
     Command& end = g_cmd_buffer[g_cmd_count++];
-    end.ctrl = 0x8000;
+    end.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdNormalSprite, true);
     end.link = 0;
     end.pmod = 0;
     end.colr = 0;

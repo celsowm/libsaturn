@@ -113,6 +113,27 @@ TEST(pack_glyph_invalid_args) {
     ASSERT_EQ(saturn::core::pack_8x8_glyph_indexed8_impl(pixels, 8, 8, 1, 0, glyph, 1), SAT_ERR_CAPACITY);
 }
 
+/* char_spacing is the per-glyph advance. Zero used to leave the pen in place,
+ * stacking the whole string into one solid block on screen. */
+TEST(measure_treats_zero_spacing_as_glyph_width) {
+    using namespace saturn::core;
+    ASSERT_EQ(measure_ascii_text_indexed8_impl("AB", 0), 16);
+    ASSERT_EQ(measure_ascii_text_indexed8_impl("ABC", 0), 24);
+    ASSERT_EQ(measure_ascii_text_indexed8_impl("ABC", -4), 24);
+    /* An explicit advance still wins. */
+    ASSERT_EQ(measure_ascii_text_indexed8_impl("ABC", 10), 28);
+    /* A single glyph is one glyph wide whatever the advance. */
+    ASSERT_EQ(measure_ascii_text_indexed8_impl("A", 0), 8);
+    ASSERT_EQ(measure_ascii_text_indexed8_impl("A", 10), 8);
+}
+
+TEST(measure_scaled_treats_zero_spacing_as_glyph_width) {
+    using namespace saturn::core;
+    ASSERT_EQ(measure_ascii_text_scaled_indexed8_impl("AB", 0, 2), 32);
+    ASSERT_EQ(measure_ascii_text_scaled_indexed8_impl("ABC", 0, 2), 48);
+    ASSERT_EQ(measure_ascii_text_scaled_indexed8_impl("ABC", 20, 2), 56);
+}
+
 int main() {
     pack_glyph_basic();
     ascii_rows_lookup_supported();
@@ -124,7 +145,9 @@ int main() {
     pack_glyph_scale_2();
     pack_glyph_multi_layout();
     pack_glyph_invalid_args();
+    measure_treats_zero_spacing_as_glyph_width();
+    measure_scaled_treats_zero_spacing_as_glyph_width();
 
-    printf("PASS: test_font_logic.cpp (%d tests)\n", 10);
+    printf("PASS: test_font_logic.cpp (%d tests)\n", 12);
     return 0;
 }

@@ -80,6 +80,11 @@ sat_result_t sat_vdp2_nbg0_map_write_region(
 );
 
 /* ------------------------------------------------------------------ */
+/* Backdrop / BACK screen color                                        */
+/* ------------------------------------------------------------------ */
+sat_result_t sat_vdp2_set_backdrop_color(uint16_t rgb555);
+
+/* ------------------------------------------------------------------ */
 /* VBlank wait helpers (VDP2-specific)                                 */
 /* ------------------------------------------------------------------ */
 sat_result_t sat_vdp2_wait_vblank_start(void);
@@ -142,6 +147,9 @@ uint16_t sat_vdp2_rbg0_last_plsz_written(void);
 sat_result_t sat_vdp2_rbg0_commit(void);
 sat_result_t sat_vdp2_rbg0_set_rotation_read_control(uint16_t rprctl);
 sat_result_t sat_vdp2_rbg0_set_coefficient_control(uint16_t ktctl);
+sat_result_t sat_vdp2_rbg0_set_ktaof(uint16_t ktaof);
+sat_result_t sat_vdp2_rbg0_set_priority(uint8_t priority);
+sat_result_t sat_vdp2_rbg0_set_sprite_priority(uint8_t priority);
 
 /* Rotation parameter setup */
 sat_result_t sat_vdp2_rbg0_set_scroll(uint32_t rot_param_word_offset,
@@ -168,6 +176,27 @@ sat_result_t sat_vdp2_rbg0_set_center(uint32_t rot_param_word_offset,
 /* Scaling coefficients are interpreted as 16.16 fixed-point. */
 sat_result_t sat_vdp2_rbg0_set_scaling(uint32_t rot_param_word_offset,
                                         int32_t kx, int32_t ky);
+
+/* ------------------------------------------------------------------ */
+/* RBG0 Mode-7 high-level init                                         */
+/* ------------------------------------------------------------------ */
+typedef struct sat_vdp2_rbg0_mode7_config {
+    sat_vdp2_rbg0_bitmap_size_t bitmap_size;
+    sat_vdp2_color_mode_t color_mode;
+    uint32_t bitmap_base_word;
+    uint32_t rot_param_base_word;
+    uint16_t back_color_rgb555;
+    uint8_t rbg0_priority;
+    uint8_t sprite_priority;
+} sat_vdp2_rbg0_mode7_config_t;
+
+/* One-shot setup for a Mode-7 style RBG0 floor.
+ * Configures bitmap mode, coefficient table (2-word, KMD=0),
+ * priorities, backdrop color, and enables the layer.
+ * The caller must still upload the bitmap, generate the coefficient
+ * table, and build the rotation parameter table.
+ */
+sat_result_t sat_vdp2_rbg0_mode7_init(const sat_vdp2_rbg0_mode7_config_t* config);
 
 #ifdef __cplusplus
 }

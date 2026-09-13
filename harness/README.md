@@ -66,10 +66,28 @@ An emulator is not hardware truth, and VDP2 rotation (the area this harness
 was built for) is exactly the kind of under-tested corner where Ymir's own
 rendering could be wrong. Assertions are derived from the Sega hardware
 manuals in `docs/sega_saturn_hardware/`, which hold regardless of Ymir's
-accuracy. Golden-image / pixel comparison is deliberately out of scope here —
-see the root plan history for why (`vdp_configs.hpp` in Ymir only exposes a
-"frame finished" notification, not a composited-output buffer, so capturing a
-final image would need more investigation than this pass covers).
+accuracy. Golden-image / pixel comparison is still deliberately out of scope as an
+*assertion* mechanism, for the reason above.
+
+Screenshots themselves are now supported, though: `VDP::SetSoftwareRenderCallback`
+hands over the software renderer's composited output buffer (VDP1 sprites over
+VDP2 layers), so `--screenshot FRAME:PATH` writes the real picture as a PNG.
+An earlier pass recorded that only a "frame finished" notification existed;
+that was wrong. Use screenshots to *look* at a run -- they catch whole classes
+of problem that register assertions cannot, such as a leftover VDP2 colour
+offset that renders everything at a tenth of its intended brightness -- but
+keep the pass/fail assertions on registers and VRAM.
+
+### Frame pacing
+
+The probe runs one emulated frame per `RunFrame()`, and a libsaturn program
+paced by `sat_wait_vblank` advances one program frame per emulated frame. If a
+run seems to make no progress, measure that ratio before suspecting the
+harness: a program frame that costs dozens of emulated frames means the guest
+is spinning somewhere, and `--profile-pc` plus `tools/pcprof.py` will say
+where. This is not hypothetical -- it was how a null VDP2 register pointer,
+which made every frame burn the full VBlank poll timeout and run ~85x slow,
+was finally identified.
 
 ## Layout
 
@@ -79,6 +97,8 @@ harness/
   README.md        this file
   CMakeLists.txt    FetchContents Ymir (pinned commit), builds the probe app
   src/probe_main.cpp  links ymir-core; boots an ISO, dumps state to JSON
+  src/png_writer.hpp  dependency-free PNG writer for --screenshot
+  scripts/*.pad       input timelines for --pad-script
   tests/*.py        unittest assertions over the emitted JSON
   run-harness.ps1    Windows wrapper matching build-example.ps1 conventions
 ```

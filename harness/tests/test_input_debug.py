@@ -9,17 +9,19 @@ Scope note (read before extending this file): this test verifies that the
 probe's --pad-button/--pad-press-at/--pad-release-at scheduling actually
 reaches Ymir's SMPC peripheral report layer — i.e. the injection plumbing
 itself works. It deliberately does NOT assert that input_debug's on-screen
-HUD digits change in response (a framebuffer diff), because investigation
-while adding this test found that the injected program's main loop only
-completes a small, fixed number of iterations under the probe's
-frame-stepping before stalling — regardless of --frames budget or whether a
-pad is connected. That's a pre-existing gap in the probe's boot-injection
-fidelity (see harness/README.md's discussion of direct injection bypassing
-BIOS-driven boot), not specific to input_debug or to the pad-injection code
-added here, and chasing it is out of scope for this test. Once that stall is
-fixed, a framebuffer-diff assertion could be added the same way
-test_rbg0_ground.py's tests were — see this file's git history for the
-differential approach that was tried and reverted.
+HUD digits change in response (a framebuffer diff); that stays out of scope
+for this test, which is about the input plumbing.
+
+Historical note, kept because it misdirected later work: this comment used to
+claim the injected program's main loop only completed "a small, fixed number
+of iterations before stalling", and blamed the probe's boot injection. That
+diagnosis was wrong. The program was not stalling -- it was running roughly
+85x too slow, because two VDP2 register pointers in the library were null (a
+namespace-scope reference bound to a reinterpret_cast needs a static
+constructor, and nothing runs those), so every TVSTAT read returned a constant
+and the VBlank poll burned its whole 2,000,000-iteration timeout each frame.
+Fixed in src/hal/vdp2.cpp; the probe now advances one program frame per
+emulated frame, and screenshots via --screenshot show complete frames.
 
 Generate the two probe.json files with (requires a Saturn BIOS/IPL image).
 Note -Frames 300: investigation while adding this test found input_debug's

@@ -6,16 +6,22 @@ namespace saturn::hal::smpc {
 
 namespace {
 
-volatile uint8_t& SMPC_IREG0 = *reinterpret_cast<volatile uint8_t*>(0x20100001);
-volatile uint8_t& SMPC_IREG1 = *reinterpret_cast<volatile uint8_t*>(0x20100003);
-volatile uint8_t& SMPC_IREG2 = *reinterpret_cast<volatile uint8_t*>(0x20100005);
-volatile uint8_t& SMPC_OREG0 = *reinterpret_cast<volatile uint8_t*>(0x20100021);
-volatile uint8_t& SMPC_OREG2 = *reinterpret_cast<volatile uint8_t*>(0x20100025);
-volatile uint8_t& SMPC_OREG3 = *reinterpret_cast<volatile uint8_t*>(0x20100027);
-volatile uint8_t& SMPC_SF = *reinterpret_cast<volatile uint8_t*>(0x20100063);
-volatile uint8_t& SMPC_COMREG = *reinterpret_cast<volatile uint8_t*>(0x2010001F);
-volatile uint8_t& SMPC_IOSEL1 = *reinterpret_cast<volatile uint8_t*>(0x2010007D);
-
+/* These are macros rather than reference variables on purpose: a reference or
+ * pointer bound to a reinterpret_cast is dynamically initialized, and this
+ * build runs no static constructors (crt0.s calls _main directly and the
+ * linker script has no .init_array pass). GCC constant-folds most of them at
+ * -O2, but the ones it does not silently become null and every access reads or
+ * writes address zero. See the long explanation in src/hal/vdp2.cpp and the
+ * build-time guard in tools/check_no_static_ctors.py. */
+#define SMPC_IREG0 (*reinterpret_cast<volatile uint8_t*>(0x20100001))
+#define SMPC_IREG1 (*reinterpret_cast<volatile uint8_t*>(0x20100003))
+#define SMPC_IREG2 (*reinterpret_cast<volatile uint8_t*>(0x20100005))
+#define SMPC_OREG0 (*reinterpret_cast<volatile uint8_t*>(0x20100021))
+#define SMPC_OREG2 (*reinterpret_cast<volatile uint8_t*>(0x20100025))
+#define SMPC_OREG3 (*reinterpret_cast<volatile uint8_t*>(0x20100027))
+#define SMPC_SF (*reinterpret_cast<volatile uint8_t*>(0x20100063))
+#define SMPC_COMREG (*reinterpret_cast<volatile uint8_t*>(0x2010001F))
+#define SMPC_IOSEL1 (*reinterpret_cast<volatile uint8_t*>(0x2010007D))
 constexpr uint32_t kSfTimeoutIters = 1000000u;
 constexpr uint8_t kIntbackCommand = 0x10u;
 
