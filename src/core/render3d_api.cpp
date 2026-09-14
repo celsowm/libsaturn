@@ -154,6 +154,10 @@ extern "C" void sat_sort_indices_desc(uint8_t* indices, const uint32_t* keys, ui
     sort_indices_desc(indices, keys, count);
 }
 
+extern "C" void sat_sort_indices16_desc(uint16_t* indices, const uint32_t* keys, uint32_t count) {
+    sort_indices16_desc(indices, keys, count);
+}
+
 extern "C" uint32_t sat_ground_distance_sq(
     sat_fx16_t ax,
     sat_fx16_t az,

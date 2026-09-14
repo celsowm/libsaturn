@@ -135,6 +135,9 @@ sat_result_t sat_draw_world_sprite(
  * moving camera produces. `count` must not exceed 255. */
 void sat_sort_indices_desc(uint8_t* indices, const uint32_t* keys, uint16_t count);
 
+/* Wide form for meshes past the 255-face limit; `count` may reach 65535. */
+void sat_sort_indices16_desc(uint16_t* indices, const uint32_t* keys, uint32_t count);
+
 /* Squared distance between two points on the ground plane, in world units.
  * Saturates rather than overflowing on far-apart points. */
 uint32_t sat_ground_distance_sq(sat_fx16_t ax, sat_fx16_t az, sat_fx16_t bx, sat_fx16_t bz);

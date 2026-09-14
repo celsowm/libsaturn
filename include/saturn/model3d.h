@@ -82,7 +82,11 @@ sat_result_t sat_model_upload_textures(
 
 /* Binds an uploaded model for drawing: fills a sat_mesh_draw_t that draws
  * the mesh with the model's textures. face_colors may be null. The caller
- * owns order/depth scratch (face_count entries each) when SORT is set. */
+ * owns order/depth scratch (face_count entries each) when SORT is set.
+ *
+ * Meshes past 255 faces sort through `order16` (see sat_mesh_draw_t); use
+ * sat_model_bind_draw_ex to provide it. The legacy entry keeps order16
+ * null and still serves every mesh up to 255 faces unchanged. */
 sat_result_t sat_model_bind_draw(
     const sat_model_asset_t* asset,
     const sat_mesh_t* mesh,
@@ -95,6 +99,23 @@ sat_result_t sat_model_bind_draw(
     sat_fx16_t ambient,
     uint16_t flags,
     uint8_t* order,
+    uint32_t* depth,
+    sat_mesh_draw_t* out_draw
+);
+
+sat_result_t sat_model_bind_draw_ex(
+    const sat_model_asset_t* asset,
+    const sat_mesh_t* mesh,
+    const sat_texture_t* textures,
+    uint16_t texture_count,
+    const sat_mat4_t* view_proj,
+    const sat_vec3_t* eye,
+    uint16_t color,
+    const uint16_t* face_colors,
+    sat_fx16_t ambient,
+    uint16_t flags,
+    uint8_t* order,
+    uint16_t* order16,
     uint32_t* depth,
     sat_mesh_draw_t* out_draw
 );

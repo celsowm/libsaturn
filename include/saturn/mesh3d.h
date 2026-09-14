@@ -241,11 +241,15 @@ typedef struct sat_mesh_draw {
     sat_fx16_t ambient; /* 16.16 floor for SAT_MESH_SHADE; 0 = full black */
     uint16_t flags;
     /* Scratch for SAT_MESH_SORT, each at least face_count entries. May be
-     * null when SAT_MESH_SORT is not set. Faces are indexed by uint8_t, so
-     * sorting is limited to 255 faces; larger meshes must be split, which is
-     * usually what you want on a 512-command display list anyway. */
+     * null when SAT_MESH_SORT is not set. Meshes of up to 255 faces sort
+     * through the legacy `order` (uint8_t) table; larger meshes -- an
+     * animated character near the VDP1 command budget, for example -- sort
+     * through `order16` instead, which sat_draw_mesh selects automatically
+     * by face_count. `depth` serves both paths. Splitting a character just
+     * to preserve the old uint8_t limit is not required. */
     uint8_t* order;
     uint32_t* depth;
+    uint16_t* order16;
 } sat_mesh_draw_t;
 
 /* Submits the mesh. Returns SAT_OK when every surviving face was drawn,

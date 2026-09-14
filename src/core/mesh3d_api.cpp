@@ -194,7 +194,15 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
         return SAT_ERR_INVALID_ARG;
     }
     const bool sorted = (params->flags & SAT_MESH_SORT) != 0u;
-    if (sorted && (params->order == nullptr || params->depth == nullptr || mesh->face_count > 255u)) {
+    /* Meshes past the legacy 255-face uint8_t limit sort through order16;
+     * smaller meshes keep the legacy order table untouched. */
+    const bool wide = mesh->face_count > 255u;
+    if (sorted && wide &&
+        (params->order16 == nullptr || params->depth == nullptr)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (sorted && !wide &&
+        (params->order == nullptr || params->depth == nullptr)) {
         return SAT_ERR_INVALID_ARG;
     }
     /* A face texture index must never read past the texture table. Validate
@@ -212,8 +220,9 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
      * loop, keeps the sort keyed on the faces that actually survive -- and
      * means a mesh drawn without SAT_MESH_SORT costs no scratch at all. */
     uint16_t count = mesh->face_count;
+    uint32_t live16 = 0u;
     if (sorted) {
-        uint8_t live = 0u;
+        uint16_t live = 0u;
         for (uint16_t i = 0; i < mesh->face_count; ++i) {
             sat_quad3_t quad;
             if (face_quad(mesh, i, &quad) != SAT_OK) {
@@ -224,18 +233,30 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
                 continue;
             }
             const sat_vec3_t center = quad_center(quad);
-            params->order[live] = static_cast<uint8_t>(i);
-            params->depth[i] = saturn::core::render3d::ground_distance_sq(
+            const uint32_t key = saturn::core::render3d::ground_distance_sq(
                 params->eye.x, params->eye.z, center.x, center.z);
-            ++live;
+            if (wide) {
+                params->order16[live16] = i;
+                params->depth[i] = key;
+                ++live16;
+            } else {
+                params->order[live] = static_cast<uint8_t>(i);
+                params->depth[i] = key;
+                ++live;
+            }
         }
-        count = live;
-        saturn::core::render3d::sort_indices_desc(params->order, params->depth, count);
+        if (wide) {
+            saturn::core::render3d::sort_indices16_desc(params->order16, params->depth, live16);
+        } else {
+            count = live;
+            saturn::core::render3d::sort_indices_desc(params->order, params->depth, count);
+        }
     }
 
     sat_result_t worst = SAT_OK;
-    for (uint16_t n = 0; n < count; ++n) {
-        const uint16_t face = sorted ? params->order[n] : n;
+    const uint32_t total = wide ? live16 : static_cast<uint32_t>(count);
+    for (uint32_t n = 0; n < total; ++n) {
+        const uint16_t face = sorted ? (wide ? params->order16[n] : params->order[n]) : static_cast<uint16_t>(n);
         sat_quad3_t quad;
         uint16_t color =
             (params->face_colors != nullptr) ? params->face_colors[face] : params->color;

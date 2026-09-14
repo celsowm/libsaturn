@@ -187,6 +187,25 @@ inline void sort_indices_desc(uint8_t* indices, const uint32_t* keys, uint16_t c
     }
 }
 
+/* Wide form of the painter's sort for meshes past the 255-face uint8_t
+ * limit (animated characters near the VDP1 command budget). Same stable
+ * insertion sort over face indices; `count` may reach 65535. */
+inline void sort_indices16_desc(uint16_t* indices, const uint32_t* keys, uint32_t count) {
+    if (indices == nullptr || keys == nullptr || count > 65535u) {
+        return;
+    }
+    for (uint32_t i = 1u; i < count; ++i) {
+        const uint16_t value = indices[i];
+        const uint32_t key = keys[value];
+        int64_t j = static_cast<int64_t>(i) - 1;
+        while (j >= 0 && keys[indices[j]] < key) {
+            indices[j + 1] = indices[j];
+            --j;
+        }
+        indices[j + 1] = value;
+    }
+}
+
 /* Distances between maze-scale points fit comfortably in 32 bits, but a
  * degenerate camera position must not wrap the key and invert the sort. */
 inline uint32_t ground_distance_sq(sat_fx16_t ax, sat_fx16_t az, sat_fx16_t bx, sat_fx16_t bz) {

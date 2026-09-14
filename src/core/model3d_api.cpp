@@ -81,6 +81,27 @@ extern "C" sat_result_t sat_model_bind_draw(
     uint32_t* depth,
     sat_mesh_draw_t* out_draw
 ) {
+    return sat_model_bind_draw_ex(
+        asset, mesh, textures, texture_count, view_proj, eye, color,
+        face_colors, ambient, flags, order, nullptr, depth, out_draw);
+}
+
+extern "C" sat_result_t sat_model_bind_draw_ex(
+    const sat_model_asset_t* asset,
+    const sat_mesh_t* mesh,
+    const sat_texture_t* textures,
+    uint16_t texture_count,
+    const sat_mat4_t* view_proj,
+    const sat_vec3_t* eye,
+    uint16_t color,
+    const uint16_t* face_colors,
+    sat_fx16_t ambient,
+    uint16_t flags,
+    uint8_t* order,
+    uint16_t* order16,
+    uint32_t* depth,
+    sat_mesh_draw_t* out_draw
+) {
     if (asset == nullptr || mesh == nullptr || textures == nullptr ||
         view_proj == nullptr || eye == nullptr || out_draw == nullptr) {
         return SAT_ERR_INVALID_ARG;
@@ -95,7 +116,11 @@ extern "C" sat_result_t sat_model_bind_draw(
         return SAT_ERR_INVALID_ARG;
     }
     const bool sorted = (flags & SAT_MESH_SORT) != 0u;
-    if (sorted && (order == nullptr || depth == nullptr)) {
+    const bool wide = asset->face_count > 255u;
+    if (sorted && wide && (order16 == nullptr || depth == nullptr)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (sorted && !wide && (order == nullptr || depth == nullptr)) {
         return SAT_ERR_INVALID_ARG;
     }
     out_draw->view_proj = view_proj;
@@ -109,6 +134,7 @@ extern "C" sat_result_t sat_model_bind_draw(
     out_draw->flags = flags;
     out_draw->order = order;
     out_draw->depth = depth;
+    out_draw->order16 = order16;
     return SAT_OK;
 }
 
