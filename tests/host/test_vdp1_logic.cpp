@@ -231,6 +231,35 @@ TEST(palette_bank_must_be_in_range) {
     ASSERT_EQ((uint32_t)kPaletteBankCount * 256u, 2048u);
 }
 
+TEST(indexed8_dims_reject_zero_and_misaligned_width) {
+    using namespace saturn::core;
+    ASSERT_EQ(validate_indexed8_texture_dims(0, 8), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(validate_indexed8_texture_dims(8, 0), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(validate_indexed8_texture_dims(12, 8), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(validate_indexed8_texture_dims(7, 8), SAT_ERR_INVALID_ARG);
+}
+
+TEST(indexed8_dims_accept_legal_sizes) {
+    using namespace saturn::core;
+    ASSERT_EQ(validate_indexed8_texture_dims(8, 1), SAT_OK);
+    ASSERT_EQ(validate_indexed8_texture_dims(16, 16), SAT_OK);
+    /* Source images may be 256x256, but VDP1 character patterns top out at
+     * 255 rows (manual 6.6), so baked face textures must stay at or below. */
+    ASSERT_EQ(validate_indexed8_texture_dims(256, 248), SAT_OK);
+    /* Documented maxima from VDP1 manual 5.1/6.6. */
+    ASSERT_EQ(validate_indexed8_texture_dims(504, 255), SAT_OK);
+    ASSERT_EQ(kVdp1MaxTextureWidth, 504u);
+    ASSERT_EQ(kVdp1MaxTextureHeight, 255u);
+}
+
+TEST(indexed8_dims_reject_over_maximum) {
+    using namespace saturn::core;
+    ASSERT_EQ(validate_indexed8_texture_dims(512, 8), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(validate_indexed8_texture_dims(8, 256), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(validate_indexed8_texture_dims(504, 256), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(validate_indexed8_texture_dims(256, 256), SAT_ERR_INVALID_ARG);
+}
+
 int main() {
     resolve_sprite_cmd_null_cmd();
     resolve_sprite_cmd_null_texture();
@@ -251,7 +280,10 @@ int main() {
     sprite_colr_shifts_bank_to_high_byte();
     sprite_cmd_select_values();
     palette_bank_must_be_in_range();
+    indexed8_dims_reject_zero_and_misaligned_width();
+    indexed8_dims_accept_legal_sizes();
+    indexed8_dims_reject_over_maximum();
 
-    printf("PASS: test_vdp1_logic.cpp (%d tests)\n", 20);
+    printf("PASS: test_vdp1_logic.cpp (%d tests)\n", 23);
     return 0;
 }

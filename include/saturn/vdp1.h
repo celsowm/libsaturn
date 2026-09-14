@@ -97,6 +97,27 @@ sat_result_t sat_tex_upload_indexed8(
     uint16_t palette_index
 );
 
+/* Uploads one 256-entry palette without touching texture VRAM. Use this once
+ * for a model whose many baked face textures share a palette, then upload
+ * each texture with sat_tex_upload_indexed8_pixels. */
+sat_result_t sat_palette_upload_indexed8(
+    const uint16_t* palette_rgb555,
+    uint16_t palette_index
+);
+
+/* Uploads indexed8 texels that reference an already-uploaded palette. Unlike
+ * sat_tex_upload_indexed8 this performs no palette upload, so N faces sharing
+ * one palette cost one CRAM write instead of N. Width/height validation and
+ * VRAM allocation are identical to the combined path; exhaustion returns
+ * SAT_ERR_CAPACITY. */
+sat_result_t sat_tex_upload_indexed8_pixels(
+    sat_texture_t* out_texture,
+    const uint8_t* pixels,
+    uint16_t width,
+    uint16_t height,
+    uint16_t palette_index
+);
+
 /* Draws sprite with native VDP1 coordinates.
  * (0,0) = screen center. Coordinates in fixed-point 16.16.
  */

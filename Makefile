@@ -291,6 +291,7 @@ HOST_TEST_EXTRA_test_math3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_render3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_mesh3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_mesh3d_textured := src/core/mesh3d_api.cpp src/core/math3d_api.cpp
+HOST_TEST_EXTRA_test_vdp1_upload := src/core/vdp1_api.cpp src/core/runtime_state.cpp
 HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c src/core/grid_api.cpp
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp

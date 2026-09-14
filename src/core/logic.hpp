@@ -121,6 +121,27 @@ inline sat_result_t validate_palette_bank(uint16_t palette_index) {
     return SAT_OK;
 }
 
+/* VDP1 character pattern limits from the hardware manual (Chapter 5.1):
+ * width 8..504 in multiples of 8, height 1..255. Width enforcement already
+ * existed in the HAL (non-zero, multiple of 8); the upper bounds are the
+ * documented table-size limits. Centralized here so both the combined and
+ * the split upload paths agree. */
+constexpr uint16_t kVdp1MaxTextureWidth = 504u;
+constexpr uint16_t kVdp1MaxTextureHeight = 255u;
+
+inline sat_result_t validate_indexed8_texture_dims(uint16_t width, uint16_t height) {
+    if (width == 0u || height == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if ((width & 7u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (width > kVdp1MaxTextureWidth || height > kVdp1MaxTextureHeight) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return SAT_OK;
+}
+
 inline sat_result_t validate_vdp2_vram_write(uint32_t offset, uint32_t words) {
     if (words == 0u) {
         return SAT_ERR_INVALID_ARG;

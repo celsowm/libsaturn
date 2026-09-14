@@ -370,6 +370,12 @@ sat_result_t upload_texture_indexed8(const uint8_t* pixels, uint16_t width, uint
     if (width == 0 || height == 0 || (width & 7u) != 0u) {
         return SAT_ERR_INVALID_ARG;
     }
+    /* Hardware table-size limits (manual 5.1): 8..504 x 1..255. The core
+     * layer validates these too; the HAL repeats the check so a caller
+     * reaching this layer directly still gets a clean error. */
+    if (width > 504u || height > 255u) {
+        return SAT_ERR_INVALID_ARG;
+    }
 
     uint32_t size = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
     g_texture_cursor = (g_texture_cursor + 7u) & ~7u;
