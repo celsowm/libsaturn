@@ -442,6 +442,91 @@ TEST(transform_rotates_a_built_primitive) {
     ASSERT_NEAR(fx_to_int(max_y), 4, 1);
 }
 
+TEST(null_texture_table_selects_polygon_for_every_face) {
+    uint16_t out = 0xBEEFu;
+    ASSERT_TRUE(resolve_face_draw_mode(0, nullptr, 4, nullptr, 0, &out) ==
+                mesh_face_draw_mode::kPolygon);
+    ASSERT_TRUE(resolve_face_draw_mode(3, nullptr, 4, nullptr, 0, nullptr) ==
+                mesh_face_draw_mode::kPolygon);
+    ASSERT_EQ(validate_face_textures(nullptr, 4, nullptr, 0), SAT_OK);
+}
+
+TEST(texture_none_selects_polygon_path) {
+    sat_texture_t tex[1] = {};
+    const uint16_t table[2] = {SAT_MESH_TEXTURE_NONE, SAT_MESH_TEXTURE_NONE};
+    uint16_t out = 0xBEEFu;
+    ASSERT_TRUE(resolve_face_draw_mode(0, table, 2, tex, 1, &out) ==
+                mesh_face_draw_mode::kPolygon);
+    ASSERT_EQ(validate_face_textures(table, 2, tex, 1), SAT_OK);
+    /* A table of NONE needs no texture storage to be valid. */
+    ASSERT_EQ(validate_face_textures(table, 2, nullptr, 0), SAT_OK);
+}
+
+TEST(valid_texture_index_resolves_to_textured) {
+    sat_texture_t tex[2] = {};
+    const uint16_t table[3] = {0u, 1u, SAT_MESH_TEXTURE_NONE};
+    uint16_t out = 0xBEEFu;
+    ASSERT_TRUE(resolve_face_draw_mode(0, table, 3, tex, 2, &out) ==
+                mesh_face_draw_mode::kTextured);
+    ASSERT_EQ(out, 0u);
+    ASSERT_TRUE(resolve_face_draw_mode(1, table, 3, tex, 2, &out) ==
+                mesh_face_draw_mode::kTextured);
+    ASSERT_EQ(out, 1u);
+    ASSERT_TRUE(resolve_face_draw_mode(2, table, 3, tex, 2, &out) ==
+                mesh_face_draw_mode::kPolygon);
+    ASSERT_EQ(validate_face_textures(table, 3, tex, 2), SAT_OK);
+}
+
+TEST(out_of_range_texture_index_is_invalid) {
+    sat_texture_t tex[1] = {};
+    const uint16_t table[2] = {0u, 5u};
+    ASSERT_TRUE(resolve_face_draw_mode(1, table, 2, tex, 1, nullptr) ==
+                mesh_face_draw_mode::kInvalid);
+    ASSERT_EQ(validate_face_textures(table, 2, tex, 1), SAT_ERR_INVALID_ARG);
+    /* Null storage cannot back a real index. */
+    const uint16_t table2[1] = {0u};
+    ASSERT_TRUE(resolve_face_draw_mode(0, table2, 1, nullptr, 0, nullptr) ==
+                mesh_face_draw_mode::kInvalid);
+    ASSERT_EQ(validate_face_textures(table2, 1, nullptr, 0), SAT_ERR_INVALID_ARG);
+    /* Face past the end of the mesh is invalid, not polygon. */
+    ASSERT_TRUE(resolve_face_draw_mode(7, table2, 1, nullptr, 0, nullptr) ==
+                mesh_face_draw_mode::kInvalid);
+}
+
+TEST(texture_selection_shares_culling_with_polygon_path) {
+    sat_mesh_t mesh = make_mesh();
+    ASSERT_EQ(
+        build_box(&mesh, vec3(0, 0, 0), fx_from_int(10), fx_from_int(10), fx_from_int(10)),
+        SAT_OK);
+    const sat_vec3_t eye = vec3(fx_from_int(0), fx_from_int(0), fx_from_int(100));
+    /* Culling is decided from geometry alone; the texture table must not
+     * change which faces are visible. */
+    for (uint16_t i = 0; i < mesh.face_count; ++i) {
+        const bool visible = face_visible(&mesh, i, eye);
+        sat_quad3_t quad;
+        ASSERT_EQ(face_quad(&mesh, i, &quad), SAT_OK);
+        ASSERT_EQ(quad_visible(quad, eye) ? true : false, visible);
+    }
+}
+
+TEST(degenerate_triangle_quad_keeps_outward_normal) {
+    sat_mesh_t mesh = make_mesh();
+    /* Triangle in the z=0 plane facing +Z, carried as A,B,C,C. With
+     * A=(0,0), B=(0,16), C=(16,0): D-A=(16,0), B-A=(0,16), and
+     * cross(D-A, B-A).z = 16*16 - 0*0 > 0. */
+    uint16_t a = 0, b = 0, c = 0;
+    ASSERT_EQ(add_vertex(&mesh, 0, 0, 0, &a), SAT_OK);
+    ASSERT_EQ(add_vertex(&mesh, 0, fx_from_int(16), 0, &b), SAT_OK);
+    ASSERT_EQ(add_vertex(&mesh, fx_from_int(16), 0, 0, &c), SAT_OK);
+    ASSERT_EQ(add_face(&mesh, a, b, c, c), SAT_OK);
+    sat_vec3_t normal;
+    ASSERT_EQ(face_normal_scaled(&mesh, 0, &normal), SAT_OK);
+    ASSERT_TRUE(normal.z > 0);
+    const sat_vec3_t eye = vec3(0, 0, fx_from_int(100));
+    ASSERT_TRUE(face_visible(&mesh, 0, eye));
+    ASSERT_FALSE(face_visible(&mesh, 0, vec3(0, 0, fx_from_int(-100))));
+}
+
 int main() {
     init_rejects_null_storage();
     add_face_rejects_unknown_vertices();
@@ -466,6 +551,12 @@ int main() {
     sphere_wedge_surface_and_cut_walls_face_the_right_way();
     sphere_wedge_gap_removes_the_right_bands();
     transform_rotates_a_built_primitive();
-    printf("test_mesh3d_logic: 23 tests passed\n");
+    null_texture_table_selects_polygon_for_every_face();
+    texture_none_selects_polygon_path();
+    valid_texture_index_resolves_to_textured();
+    out_of_range_texture_index_is_invalid();
+    texture_selection_shares_culling_with_polygon_path();
+    degenerate_triangle_quad_keeps_outward_normal();
+    printf("test_mesh3d_logic: 29 tests passed\n");
     return 0;
 }

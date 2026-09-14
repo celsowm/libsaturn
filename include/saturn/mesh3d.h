@@ -210,6 +210,12 @@ sat_result_t sat_mesh_transform(sat_mesh_t* mesh, const sat_mat4_t* matrix);
 #define SAT_MESH_SORT 0x0002u          /* submit farthest-first (painter's)   */
 #define SAT_MESH_SHADE 0x0004u         /* modulate colour by face normal      */
 
+/* Face texture selector: face_texture_indices[face] == this value means the
+ * face is drawn as an untextured polygon even when a texture table is bound.
+ * Source UVs are baked offline (see tools/import_model.py); the runtime only
+ * sees this compact per-face index into sat_mesh_draw_t::textures. */
+#define SAT_MESH_TEXTURE_NONE 0xFFFFu
+
 typedef struct sat_mesh_draw {
     const sat_mat4_t* view_proj;
     sat_vec3_t eye; /* camera position in world space: culling and sorting */
@@ -220,6 +226,18 @@ typedef struct sat_mesh_draw {
      * sat_mesh_build_sphere_wedge mouth, for instance, which is the same
      * yellow as the outside until something says otherwise. */
     const uint16_t* face_colors;
+    /* Optional per-face textures, face_count entries. Null selects the legacy
+     * polygon path for every face. A face set to SAT_MESH_TEXTURE_NONE is
+     * drawn as a polygon; any other value indexes `textures` and is drawn as
+     * a VDP1 distorted sprite. An out-of-range index returns
+     * SAT_ERR_INVALID_ARG without reading past the arrays.
+     *
+     * SAT_MESH_SHADE applies only to polygon faces. Textured faces are drawn
+     * with the texture's own colours because the VDP1 distorted-sprite path
+     * has no per-face RGB modulation matching the polygon path. */
+    const sat_texture_t* textures;
+    uint16_t texture_count;
+    const uint16_t* face_texture_indices;
     sat_fx16_t ambient; /* 16.16 floor for SAT_MESH_SHADE; 0 = full black */
     uint16_t flags;
     /* Scratch for SAT_MESH_SORT, each at least face_count entries. May be

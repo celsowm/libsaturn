@@ -197,6 +197,16 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
     if (sorted && (params->order == nullptr || params->depth == nullptr || mesh->face_count > 255u)) {
         return SAT_ERR_INVALID_ARG;
     }
+    /* A face texture index must never read past the texture table. Validate
+     * the whole table up front so the error does not depend on which faces
+     * happen to survive culling from this camera position. */
+    if (validate_face_textures(
+            params->face_texture_indices,
+            mesh->face_count,
+            params->textures,
+            params->texture_count) != SAT_OK) {
+        return SAT_ERR_INVALID_ARG;
+    }
 
     /* Building the draw order first, rather than culling inside the submit
      * loop, keeps the sort keyed on the faces that actually survive -- and
@@ -240,14 +250,30 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
             !quad_visible(quad, params->eye)) {
             continue;
         }
-        if ((params->flags & SAT_MESH_SHADE) != 0u) {
-            color = saturn::core::render3d::shade_rgb555(
-                color,
-                saturn::core::render3d::face_intensity3_scaled(
-                    quad_normal_scaled(quad), params->ambient));
+        /* Shared culling/sorting above; only the submit path forks here. */
+        uint16_t tex_index = 0u;
+        const mesh_face_draw_mode mode = resolve_face_draw_mode(
+            face,
+            params->face_texture_indices,
+            mesh->face_count,
+            params->textures,
+            params->texture_count,
+            &tex_index);
+        sat_result_t st = SAT_OK;
+        if (mode == mesh_face_draw_mode::kTextured) {
+            /* Textured faces bypass SAT_MESH_SHADE: the VDP1 distorted-sprite
+             * path has no per-face RGB modulation matching the polygon path. */
+            st = sat_draw_world_sprite(
+                params->view_proj, &quad, &params->textures[tex_index], 0u, 0u);
+        } else {
+            if ((params->flags & SAT_MESH_SHADE) != 0u) {
+                color = saturn::core::render3d::shade_rgb555(
+                    color,
+                    saturn::core::render3d::face_intensity3_scaled(
+                        quad_normal_scaled(quad), params->ambient));
+            }
+            st = sat_draw_world_polygon(params->view_proj, &quad, color);
         }
-
-        const sat_result_t st = sat_draw_world_polygon(params->view_proj, &quad, color);
         /* A quad crossing the near plane cannot be drawn on hardware with no
          * clipper; that is a visibility outcome, not a failure. Running out of
          * VDP1 commands is a real one, and is reported after the loop so the
