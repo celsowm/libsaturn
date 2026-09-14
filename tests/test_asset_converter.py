@@ -232,7 +232,11 @@ class AssetConverterTests(unittest.TestCase):
                 check=False,
             )
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("multipla de 8", result.stderr + result.stdout)
+            output = result.stderr + result.stdout
+            self.assertTrue(
+                "multipla de 8" in output or "multiple of 8" in output,
+                msg=output,
+            )
 
     def test_rejects_missing_palette_for_raw(self) -> None:
         repo = Path(__file__).resolve().parents[1]
@@ -262,7 +266,12 @@ class AssetConverterTests(unittest.TestCase):
                 check=False,
             )
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Entrada .raw exige --palette", result.stderr + result.stdout)
+            output = result.stderr + result.stdout
+            self.assertTrue(
+                "Entrada .raw exige --palette" in output
+                or ".raw input requires --palette" in output,
+                msg=output,
+            )
 
 
 if __name__ == "__main__":

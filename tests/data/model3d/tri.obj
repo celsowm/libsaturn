@@ -1,0 +1,10 @@
+# Single CCW triangle in the z=0 plane.
+mtllib test.mtl
+v 0.0 0.0 0.0
+v 1.0 0.0 0.0
+v 0.0 1.0 0.0
+vt 0.0 0.0
+vt 1.0 0.0
+vt 0.0 1.0
+usemtl TestMat
+f 1/1 2/2 3/3

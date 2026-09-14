@@ -10,34 +10,19 @@ binary without runtime file loading.
 from __future__ import annotations
 
 import argparse
-import re
+import sys
 from pathlib import Path
 from typing import Iterable, Sequence
 
-
-def rgb888_to_rgb555(r: int, g: int, b: int) -> int:
-    r5 = (r >> 3) & 0x1F
-    g5 = (g >> 3) & 0x1F
-    b5 = (b >> 3) & 0x1F
-    return 0x8000 | (b5 << 10) | (g5 << 5) | r5
-
-
-def sanitize_identifier(value: str) -> str:
-    name = re.sub(r"[^0-9A-Za-z]+", "_", value)
-    name = re.sub(r"_+", "_", name).strip("_")
-    if not name:
-        return "asset"
-    if name[0].isdigit():
-        name = f"_{name}"
-    return name
-
-
-def asset_symbol_prefix(out_prefix: Path) -> str:
-    return sanitize_identifier(out_prefix.name)
-
-
-def asset_header_guard(out_prefix: Path) -> str:
-    return f"{asset_symbol_prefix(out_prefix).upper()}_H"
+sys.path.insert(0, str(Path(__file__).parent))
+from saturn_asset_common import (
+    asset_header_guard,
+    asset_symbol_prefix,
+    format_byte_array,
+    format_word_array,
+    rgb888_to_rgb555,
+    sanitize_identifier,
+)
 
 
 def parse_palette_txt(path: Path) -> list[int]:
@@ -131,30 +116,6 @@ def write_palette(path: Path, colors: Iterable[int]) -> None:
     for c in colors:
         out.extend(((c >> 8) & 0xFF, c & 0xFF))
     path.write_bytes(bytes(out))
-
-
-def format_byte_array(
-    values: Sequence[int], indent: str = "    ", columns: int = 12
-) -> str:
-    if not values:
-        return ""
-    lines: list[str] = []
-    for start in range(0, len(values), columns):
-        chunk = values[start : start + columns]
-        lines.append(indent + ", ".join(f"0x{value:02X}" for value in chunk))
-    return ",\n".join(lines)
-
-
-def format_word_array(
-    values: Sequence[int], indent: str = "    ", columns: int = 8
-) -> str:
-    if not values:
-        return ""
-    lines: list[str] = []
-    for start in range(0, len(values), columns):
-        chunk = values[start : start + columns]
-        lines.append(indent + ", ".join(f"0x{value:04X}" for value in chunk))
-    return ",\n".join(lines)
 
 
 def emit_asset_headers(
