@@ -120,8 +120,7 @@ def render_masks(positions, triangles, views, size: int = 48, frame=None):
     are compared (source vs simplified) MUST share one frame -- normalizing
     each mesh by its own extents registers the two pixel grids differently
     and manufactures IoU damage out of sub-pixel extent differences. When
-    omitted, the frame derives from ``positions`` and is returned for reuse
-    as ``(masks, (lo, hi))`` via :func:`render_masks_with_frame`.
+    omitted, the frame derives from ``positions``.
     """
     np = _require_numpy()
     p = np.asarray(positions, dtype=np.float64)
@@ -148,29 +147,57 @@ def render_masks(positions, triangles, views, size: int = 48, frame=None):
         span = np.maximum(fhi - flo, 1e-9)
         q = np.stack([p @ u, p @ w], axis=1)
         g = (q - flo) / span * (size - 1)
+        # Binned vectorized coverage: triangles are bucketed into an 8x8
+        # spatial grid by bounding box (one vectorized pass), then each bin
+        # tests only its own triangles against its own pixel centers with
+        # edge functions (small dense ops, no per-triangle Python loop and
+        # no full pixel-x-triangle broadcast).
+        tri = g[t]  # (T, 3, 2)
+        a, b, c = tri[:, 0, :], tri[:, 1, :], tri[:, 2, :]
+        area2 = (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (c[:, 0] - a[:, 0]) * (b[:, 1] - a[:, 1])
+        valid = np.abs(area2) > 1e-12
+        tmin = tri.min(axis=1)
+        tmax = tri.max(axis=1)
+        NB = 8
+        bedge = np.linspace(0, size, NB + 1)
         mask = np.zeros((size, size), dtype=bool)
-        for (a, b, c) in t:
-            tri = g[[a, b, c]]
-            x0 = max(0, int(tri[:, 0].min()))
-            x1 = min(size - 1, int(tri[:, 0].max()))
-            y0 = max(0, int(tri[:, 1].min()))
-            y1 = min(size - 1, int(tri[:, 1].max()))
-            if x1 < x0 or y1 < y0:
+        eps = 1e-9
+        abx, aby = b[:, 0] - a[:, 0], b[:, 1] - a[:, 1]
+        bcx, bcy = c[:, 0] - b[:, 0], c[:, 1] - b[:, 1]
+        cax, cay = a[:, 0] - c[:, 0], a[:, 1] - c[:, 1]
+        coords = np.arange(size, dtype=np.float64) + 0.5
+        xx_all, yy_all = np.meshgrid(coords, coords)
+        all_pix = np.stack([xx_all.ravel(), yy_all.ravel()], axis=1)
+        if len(tri) <= 128:
+            # Small meshes: one dense broadcast beats bin bookkeeping.
+            e0 = abx[None, :] * (all_pix[:, 1, None] - a[None, :, 1]) - aby[None, :] * (all_pix[:, 0, None] - a[None, :, 0])
+            e1 = bcx[None, :] * (all_pix[:, 1, None] - b[None, :, 1]) - bcy[None, :] * (all_pix[:, 0, None] - b[None, :, 0])
+            e2 = cax[None, :] * (all_pix[:, 1, None] - c[None, :, 1]) - cay[None, :] * (all_pix[:, 0, None] - c[None, :, 0])
+            inside = ((e0 >= -eps) & (e1 >= -eps) & (e2 >= -eps)) | ((e0 <= eps) & (e1 <= eps) & (e2 <= eps))
+            inside &= valid[None, :]
+            masks.append(inside.any(axis=1).reshape(size, size))
+            continue
+        for bx in range(NB):
+            x0, x1 = bedge[bx], bedge[bx + 1]
+            xs = np.arange(max(0, int(x0)), min(size, int(np.ceil(x1)))) + 0.5
+            if len(xs) == 0:
                 continue
-            xs = np.arange(x0, x1 + 1)
-            ys = np.arange(y0, y1 + 1)
-            xx, yy = np.meshgrid(xs, ys)
-            px, py = xx.ravel() + 0.5, yy.ravel() + 0.5
-            (ax, ay), (bx, by), (cx, cy) = tri
-            d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
-            if abs(d) < 1e-12:
-                continue
-            l0 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / d
-            l1 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / d
-            l2 = 1.0 - l0 - l1
-            inside = (l0 >= -1e-9) & (l1 >= -1e-9) & (l2 >= -1e-9)
-            pts = np.stack([xx.ravel()[inside], yy.ravel()[inside]], axis=1)
-            mask[pts[:, 1], pts[:, 0]] = True
+            for by in range(NB):
+                y0, y1 = bedge[by], bedge[by + 1]
+                ys = np.arange(max(0, int(y0)), min(size, int(np.ceil(y1)))) + 0.5
+                if len(ys) == 0:
+                    continue
+                xx, yy = np.meshgrid(xs, ys)
+                pix = np.stack([xx.ravel(), yy.ravel()], axis=1)
+                hit = (tmin[:, 0] <= x1 + eps) & (tmax[:, 0] >= x0 - eps) & (tmin[:, 1] <= y1 + eps) & (tmax[:, 1] >= y0 - eps) & valid
+                if not hit.any():
+                    continue
+                e0 = abx[hit][None, :] * (pix[:, 1, None] - a[hit][None, :, 1]) - aby[hit][None, :] * (pix[:, 0, None] - a[hit][None, :, 0])
+                e1 = bcx[hit][None, :] * (pix[:, 1, None] - b[hit][None, :, 1]) - bcy[hit][None, :] * (pix[:, 0, None] - b[hit][None, :, 0])
+                e2 = cax[hit][None, :] * (pix[:, 1, None] - c[hit][None, :, 1]) - cay[hit][None, :] * (pix[:, 0, None] - c[hit][None, :, 0])
+                inside = ((e0 >= -eps) & (e1 >= -eps) & (e2 >= -eps)) | ((e0 <= eps) & (e1 <= eps) & (e2 <= eps))
+                on = inside.any(axis=1).reshape(len(ys), len(xs))
+                mask[np.ix_(ys.astype(int), xs.astype(int))] |= on
         masks.append(mask)
     return masks
 

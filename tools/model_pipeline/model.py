@@ -92,6 +92,10 @@ class SourceModel:
     clips: list[AnimationClip] = field(default_factory=list)
     mesh_node: int = -1  # node carrying the merged mesh (for rest transform)
     skin_index: int = -1
+    # Back-references for GLB re-emission (preview path only; the Saturn
+    # path never reads these).
+    glb: object = None
+    json_doc: dict | None = None
 
     @property
     def is_skinned(self) -> bool:
@@ -509,6 +513,8 @@ def from_gltf(glb, source_name: str = "model") -> SourceModel:
         model.clips.append(AnimationClip(name=name, duration=duration, channels=channels))
 
     _apply_mesh_rest_transform(model, source_name)
+    model.glb = glb
+    model.json_doc = glb.json
     return model
 
 

@@ -204,7 +204,7 @@ class AnimationAwareTests(unittest.TestCase):
         kw = dict(
             clip=m.clips[0],
             requested_triangles=4,
-            preset_name="balanced",
+            preset="balanced",
             simplify_options=simp_mod.SimplificationOptions(target_triangles=4),
             times=HINGE_TIMES,
         )

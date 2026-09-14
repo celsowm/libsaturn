@@ -304,6 +304,8 @@ def surface_error_stats(
     sample_tris = source.triangles[::step]
 
     dists_all = []
+    worst = {"time": 0.0, "vertex": None, "error": 0.0}
+    n_src_verts = len(source.vertices)
     for t in times:
         if clip is not None and simp_view.is_skinned:
             simp_pose = np.asarray(
@@ -338,9 +340,18 @@ def surface_error_stats(
                 np, src_pose, A[start : start + tri_chunk], B[start : start + tri_chunk], C[start : start + tri_chunk]
             )
             best = np.minimum(best, d2.min(axis=1))
-        dists_all.append(np.sqrt(np.maximum(best, 0.0)))
+        dist = np.sqrt(np.maximum(best, 0.0))
+        dists_all.append(dist)
+        local_worst = int(dist.argmax())
+        if float(dist[local_worst]) > worst["error"]:
+            worst = {
+                "time": float(t),
+                "vertex": local_worst if local_worst < n_src_verts else None,
+                "error": float(dist[local_worst]),
+            }
     dists = np.concatenate(dists_all, axis=0) / diag
     flat = np.sort(dists)
+    worst["error"] = worst["error"] / diag
     return {
         "mean": float(dists.mean()),
         "rms": float(np.sqrt((dists * dists).mean())),
@@ -348,6 +359,7 @@ def surface_error_stats(
         "max": float(flat[-1]) if len(flat) else 0.0,
         "samples": int(dists.size),
         "bbox_diagonal": float(diag),
+        "worst": worst,
     }
 
 
@@ -422,6 +434,14 @@ def normal_error_stats(source, simplified, clip, times=None) -> dict | None:
     }
 
 
+def _resolve_preset(preset) -> tuple[str, dict]:
+    if isinstance(preset, dict):
+        return str(preset.get("__name__", "custom")), preset
+    if preset not in QUALITY_PRESETS:
+        raise GltfError(f"unknown quality preset {preset!r}")
+    return str(preset), QUALITY_PRESETS[preset]
+
+
 def integrity_report(source: SourceModel, simplified) -> dict:
     """UV/material integrity: subset simplification must never invent or mix."""
     src_uvs = {tuple(u) for u in source.uvs} if source.uvs else set()
@@ -462,16 +482,15 @@ def evaluate_candidate(
     source: SourceModel,
     simplified,
     clip,
-    preset_name: str = "balanced",
+    preset="balanced",
     times: list[float] | None = None,
     silhouette_views: int = 16,
 ) -> dict:
     """Full quality report for one simplified candidate plus PASS/FAIL."""
     from . import silhouette as sil_mod
 
-    if preset_name not in QUALITY_PRESETS:
-        raise GltfError(f"unknown quality preset {preset_name!r}")
-    preset = QUALITY_PRESETS[preset_name]
+    preset_name, preset_dict = _resolve_preset(preset)
+    preset = preset_dict
     if times is None:
         times = sample_times_for_importance(clip) if clip is not None else [0.0]
     surf = surface_error_stats(source, simplified, clip, times)
@@ -526,7 +545,7 @@ def search_upward(
     source: SourceModel,
     clip,
     requested_triangles: int,
-    preset_name: str = "balanced",
+    preset="balanced",
     simplify_options=None,
     anim_importance=None,
     sil_importance=None,
@@ -549,6 +568,7 @@ def search_upward(
     if requested_triangles < 1:
         raise GltfError("search_upward: requested_triangles must be >= 1")
     opts = simplify_options
+    preset_name, _ = _resolve_preset(preset)
     if times is None:
         times = sample_times_for_importance(clip) if clip is not None else [0.0]
 
@@ -569,7 +589,7 @@ def search_upward(
             options=o,
             pose_positions=pose_positions,
         )
-        rep = evaluate_candidate(source, simp, clip, preset_name, times)
+        rep = evaluate_candidate(source, simp, clip, preset, times)
         return simp, rep
 
     lo = min(requested_triangles, len(source.triangles))
