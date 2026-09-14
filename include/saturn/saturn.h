@@ -8,6 +8,7 @@
 #include "saturn/color.h"
 #include "saturn/math3d.h"
 #include "saturn/mesh3d.h"
+#include "saturn/model3d.h"
 #include "saturn/render3d.h"
 #include "saturn/video.h"
 #include "saturn/input.h"
