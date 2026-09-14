@@ -254,6 +254,25 @@ class SimplifyBackendTests(unittest.TestCase):
         check_valid(out, self)
         self.assertLessEqual(len(out.triangles), 4)
 
+    def test_exact_duplicates_weld_but_seams_survive(self):
+        m = model_mod.SourceModel()
+        m.normals = []
+        # Verts 0/1 coincide with identical attributes -> weld into one.
+        # Verts 2/3 coincide with different UVs -> must NOT weld.
+        for pos, uv in [((0, 0, 0), (0, 0)), ((0, 0, 0), (0, 0)),
+                        ((1, 0, 0), (1, 0)), ((1, 0, 0), (1, 1)),
+                        ((0, 1, 0), (0, 1))]:
+            m.vertices.append(pos)
+            m.normals.append((0, 0, 1))
+            m.uvs.append(uv)
+        m.triangles = [(0, 2, 4), (1, 3, 4)]
+        m.tri_materials = [0, 0]
+        out = S.simplify(m, options=S.SimplificationOptions(target_triangles=10))
+        self.assertEqual(out.report["welded_vertices"], 1)
+        self.assertEqual(len(out.positions), 4)
+        self.assertIn((1, 0), [tuple(u) for u in out.uvs])
+        self.assertIn((1, 1), [tuple(u) for u in out.uvs])
+
 
 if __name__ == "__main__":
     unittest.main()

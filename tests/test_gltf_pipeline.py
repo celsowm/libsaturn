@@ -632,6 +632,26 @@ class FromGltfTests(unittest.TestCase):
             model_mod.from_gltf(parsed, "tiny")
         self.assertIn("skin", str(ctx.exception).lower())
 
+    def test_mesh_rest_transform_composes_to_scene_space(self):
+        # The mesh node carries scale+translation; import must compose it
+        # into vertices while skinning evaluates bit-identically.
+        parsed = gltf.parse_glb_bytes(build_skinned_gltf())
+        plain = model_mod.from_gltf(parsed, "tiny")
+        p0 = anim.evaluate_positions(plain, plain.clips[0], 0.5)
+        parsed2 = gltf.parse_glb_bytes(build_skinned_gltf())
+        mesh_node = parsed2.json["nodes"][0]
+        mesh_node["translation"] = [10.0, 0.0, 5.0]
+        mesh_node["scale"] = [2.0, 2.0, 2.0]
+        moved = model_mod.from_gltf(parsed2, "tiny")
+        # Bind vertices moved to scene space (scaled + translated).
+        self.assertAlmostEqual(moved.vertices[1][0], plain.vertices[1][0] * 2.0 + 10.0)
+        self.assertAlmostEqual(moved.vertices[1][2], plain.vertices[1][2] * 2.0 + 5.0)
+        # Skinning is invariant: same scene-space poses.
+        p1 = anim.evaluate_positions(moved, moved.clips[0], 0.5)
+        for a, b in zip(p0, p1):
+            for x, y in zip(a, b):
+                self.assertAlmostEqual(x, y, places=5)
+
 
 if __name__ == "__main__":
     unittest.main()

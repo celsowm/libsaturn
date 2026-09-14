@@ -69,7 +69,14 @@ class AnimationClip:
 
 @dataclass
 class SourceModel:
-    """Host-only source representation shared by OBJ and glTF importers."""
+    """Host-only source representation shared by OBJ and glTF importers.
+
+    Positions, normals and animation clips are expressed in SCENE space: the
+    mesh node's rest transform is composed into vertices/normals at import
+    and its inverse is folded into the skin's inverse bind matrices, so
+    host skinning evaluates identically while every consumer (quadrics,
+    metrics, baking) works in one consistent frame.
+    """
 
     vertices: list[tuple[float, float, float]] = field(default_factory=list)
     normals: list[tuple[float, float, float]] | None = None
@@ -117,6 +124,116 @@ def _as_v2(row, what: str) -> tuple[float, float]:
     if len(row) != 2:
         raise GltfError(f"{what}: expected VEC2, got {len(row)} components")
     return (float(row[0]), float(row[1]))
+
+
+def _mat_mult(a: list[float], b: list[float]) -> list[float]:
+    """Column-major 4x4 multiply: out = a @ b."""
+    out = [0.0] * 16
+    for col in range(4):
+        for row in range(4):
+            s = 0.0
+            for k in range(4):
+                s += a[k * 4 + row] * b[col * 4 + k]
+            out[col * 4 + row] = s
+    return out
+
+
+def _mat_inverse(m: list[float]) -> list[float]:
+    """General 4x4 inverse by Gauss-Jordan with partial pivoting."""
+    a = [list(m[r * 4 : r * 4 + 4]) for r in range(4)]  # rows
+    # Transpose to row-major working copy.
+    rows = [[a[c][r] for c in range(4)] for r in range(4)]
+    inv = [[1.0 if i == j else 0.0 for j in range(4)] for i in range(4)]
+    for col in range(4):
+        piv = max(range(col, 4), key=lambda r: abs(rows[r][col]))
+        if abs(rows[piv][col]) < 1e-12:
+            raise GltfError("mesh rest transform is singular")
+        rows[col], rows[piv] = rows[piv], rows[col]
+        inv[col], inv[piv] = inv[piv], inv[col]
+        div = rows[col][col]
+        rows[col] = [v / div for v in rows[col]]
+        inv[col] = [v / div for v in inv[col]]
+        for r in range(4):
+            if r == col:
+                continue
+            factor = rows[r][col]
+            rows[r] = [x - factor * y for x, y in zip(rows[r], rows[col])]
+            inv[r] = [x - factor * y for x, y in zip(inv[r], inv[col])]
+    # Back to column-major.
+    return [inv[r][c] for c in range(4) for r in range(4)]
+
+
+def _mat_vec(m: list[float], v: tuple[float, float, float]) -> tuple[float, float, float]:
+    x, y, z = v
+    return (
+        m[0] * x + m[4] * y + m[8] * z + m[12],
+        m[1] * x + m[5] * y + m[9] * z + m[13],
+        m[2] * x + m[6] * y + m[10] * z + m[14],
+    )
+
+
+def _node_rest_globals(nodes: list[SourceNode]) -> list[list[float]]:
+    """Global rest matrices for every node from the hierarchy roots down."""
+    from .gltf import node_local_matrix
+
+    child_of: dict[int, int] = {}
+    for ni, node in enumerate(nodes):
+        for c in node.children:
+            child_of[c] = ni
+    locals_ = [
+        node.matrix
+        if node.matrix is not None
+        else node_local_matrix(
+            {"translation": list(node.translation), "rotation": list(node.rotation), "scale": list(node.scale)},
+            f"node {ni}",
+        )
+        for ni, node in enumerate(nodes)
+    ]
+    globals_: list[list[float] | None] = [None] * len(nodes)
+    identity = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    stack = [(r, identity) for r in sorted(set(range(len(nodes))) - set(child_of))]
+    while stack:
+        ni, parent = stack.pop()
+        g = _mat_mult(parent, locals_[ni])
+        globals_[ni] = g
+        for c in reversed(nodes[ni].children):
+            stack.append((c, g))
+    return [g if g is not None else list(identity) for g in globals_]
+
+
+def _apply_mesh_rest_transform(model: SourceModel, source_name: str) -> None:
+    """Compose the mesh node's rest transform into the source model.
+
+    Vertices/normals move to scene space; the inverse folds into every
+    inverse bind matrix so host skinning evaluates bit-identically
+    (verified by test). Models without a mesh node or without skins only
+    get the vertex/normal composition.
+    """
+    if model.mesh_node < 0 or model.mesh_node >= len(model.nodes):
+        return
+    globals_ = _node_rest_globals(model.nodes)
+    g = globals_[model.mesh_node]
+    identity = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    if all(abs(a - b) < 1e-12 for a, b in zip(g, identity)):
+        return
+    model.vertices = [_mat_vec(g, v) for v in model.vertices]
+    if model.normals is not None:
+        fixed = []
+        for n in model.normals:
+            # Rotation/scale part only, renormalized (uniform scales in
+            # practice; direction is what skinning consumes).
+            x = g[0] * n[0] + g[4] * n[1] + g[8] * n[2]
+            y = g[1] * n[0] + g[5] * n[1] + g[9] * n[2]
+            z = g[2] * n[0] + g[6] * n[1] + g[10] * n[2]
+            import math
+
+            length = math.sqrt(x * x + y * y + z * z) or 1.0
+            fixed.append((x / length, y / length, z / length))
+        model.normals = fixed
+        if model.skins:
+            ginv = _mat_inverse(g)
+            for skin in model.skins:
+                skin.inverse_bind = [_mat_mult(ibm, ginv) for ibm in skin.inverse_bind]
 
 
 def _normalize_weights(
@@ -391,6 +508,7 @@ def from_gltf(glb, source_name: str = "model") -> SourceModel:
         channels.sort(key=lambda c: (c.node, c.path))
         model.clips.append(AnimationClip(name=name, duration=duration, channels=channels))
 
+    _apply_mesh_rest_transform(model, source_name)
     return model
 
 

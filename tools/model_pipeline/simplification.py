@@ -145,13 +145,85 @@ def _add_quadric(a, b):
     return [x + y for x, y in zip(a, b)]
 
 
+def _weld_exact_duplicates(model: SourceModel):
+    """Merge vertices identical in every attribute (position/UV/normal/
+    joints/weights). Exact duplicates carry no information; welding them can
+    only restore manifold sharing (closed solids chamfer instead of losing
+    whole faces) and shrink the pose stream. UV seams and material data are
+    untouched: any attribute difference vetoes the weld, and faces keep
+    their own material indices. Returns (model, welded_count, dropped_degenerate).
+    """
+    n = len(model.vertices)
+    has_j = bool(model.joints) and len(model.joints) == n
+    has_w = bool(model.weights) and len(model.weights) == n
+    has_n = model.normals is not None and len(model.normals) == n
+    has_uv = bool(model.uvs) and len(model.uvs) == n
+    key_of = []
+    for i in range(n):
+        p = model.vertices[i]
+        key = (
+            round(p[0], 9), round(p[1], 9), round(p[2], 9),
+            tuple(model.uvs[i]) if has_uv else None,
+            tuple(model.normals[i]) if has_n else None,
+            tuple(model.joints[i]) if has_j else None,
+            tuple(model.weights[i]) if has_w else None,
+        )
+        key_of.append(key)
+    first: dict = {}
+    remap = [0] * n
+    for i, key in enumerate(key_of):
+        if key in first:
+            remap[i] = first[key]
+        else:
+            first[key] = i
+            remap[i] = i
+    survivors = sorted(set(remap))
+    if len(survivors) == n:
+        return model, list(range(n)), 0, 0
+    new_index = {old: new for new, old in enumerate(survivors)}
+    new_remap = [new_index[r] for r in remap]
+    welded = SourceModel()
+    welded.vertices = [model.vertices[o] for o in survivors]
+    welded.normals = [model.normals[o] for o in survivors] if has_n else None
+    welded.uvs = [model.uvs[o] for o in survivors] if has_uv else []
+    welded.joints = [model.joints[o] for o in survivors] if has_j else []
+    welded.weights = [model.weights[o] for o in survivors] if has_w else []
+    welded.materials = list(model.materials)
+    welded.textures = list(model.textures)
+    welded.nodes = model.nodes
+    welded.skins = model.skins
+    welded.clips = model.clips
+    welded.mesh_node = model.mesh_node
+    welded.skin_index = model.skin_index
+    dropped = 0
+    for tri, mt in zip(model.triangles, model.tri_materials):
+        mapped = (new_remap[tri[0]], new_remap[tri[1]], new_remap[tri[2]])
+        if len(set(mapped)) < 3:
+            dropped += 1
+            continue
+        welded.triangles.append(mapped)
+        welded.tri_materials.append(mt)
+    return welded, new_remap, n - len(survivors), dropped
+
+
 def simplify(
     model: SourceModel,
     anim_importance: list[float] | None = None,
     sil_importance: list[float] | None = None,
     options: SimplificationOptions | None = None,
+    pose_positions: list[list[tuple[float, float, float]]] | None = None,
 ) -> SimplifiedMesh:
-    """Reduce ``model`` toward ``options.target_triangles`` deterministically."""
+    """Reduce ``model`` toward ``options.target_triangles`` deterministically.
+
+    ``pose_positions`` carries baked animation poses (bind pose is always
+    included automatically). The cost of a collapse is the MAXIMUM error over
+    every pose -- cheap in all poses collapses first, expensive in any pose
+    is protected -- so rigidly-swinging limbs cost exactly what bind-pose
+    QEM says (rotation preserves error magnitude) while genuinely deforming
+    regions (elbows, knees, shoulders) pay their worst-pose price. Per-vertex
+    skinning makes the per-pose survivor positions exact for subset
+    collapse. Foldover is rejected in every pose for the same reason.
+    """
     opts = options or SimplificationOptions()
     if opts.quality not in _QUALITY_PARAMS:
         raise GltfError(f"unknown simplification quality {opts.quality!r}")
@@ -168,27 +240,80 @@ def simplify(
     sil_imp = list(sil_importance) if sil_importance else [0.0] * nv
     if len(anim_imp) != nv or len(sil_imp) != nv:
         raise GltfError("simplify: importance arrays must match vertex count")
-    if n_tri0 <= opts.target_triangles:
-        return _identity(model, opts, "target already satisfied")
+    pose_list = list(pose_positions or [])
+    for pose in pose_list:
+        if len(pose) != n_src:
+            raise GltfError("simplify: pose vertex count must match the model")
 
-    npos, _diag = _normalize_positions(model.vertices)
+    # Exact-duplicate weld FIRST (even when already under target): it
+    # restores manifold sharing where the exporter split verts redundantly
+    # (closed solids chamfer instead of losing whole faces), drops degenerate
+    # source faces, and shrinks the pose stream. Importance follows the max
+    # of each welded group; poses remap by the same index map. Reported,
+    # deterministic, seam-safe: any attribute difference vetoes the weld,
+    # and the final source_vertex map composes back to ORIGINAL indices.
+    orig_n_src = n_src
+    orig_n_tri0 = n_tri0
+    model, weld_remap, welded_verts, dropped_degenerate = _weld_exact_duplicates(model)
+    first_old = list(range(len(model.vertices)))
+    if welded_verts or dropped_degenerate:
+        n_src = len(model.vertices)
+        nv = n_src
+        grouped_a: dict[int, float] = {}
+        grouped_s: dict[int, float] = {}
+        first_old = [0] * nv
+        seen_new: set[int] = set()
+        for old, new in enumerate(weld_remap):
+            if new not in seen_new:  # first occurrence wins deterministically
+                seen_new.add(new)
+                first_old[new] = old
+            if anim_imp[old] > grouped_a.get(new, 0.0):
+                grouped_a[new] = anim_imp[old]
+            if sil_imp[old] > grouped_s.get(new, 0.0):
+                grouped_s[new] = sil_imp[old]
+        anim_imp = [grouped_a.get(i, 0.0) for i in range(nv)]
+        sil_imp = [grouped_s.get(i, 0.0) for i in range(nv)]
+        pose_list = [[pose[old] for old in first_old] for pose in pose_list]
+        n_tri0 = len(model.triangles)
+    if n_tri0 <= opts.target_triangles:
+        done = _identity(model, opts, "target already satisfied")
+        done.source_vertex = [first_old[w] for w in done.source_vertex]
+        done.report["welded_vertices"] = welded_verts
+        done.report["dropped_degenerate"] = dropped_degenerate
+        done.report["source_vertices"] = orig_n_src
+        done.report["source_triangles"] = orig_n_tri0
+        return done
+
+    npos, diag = _normalize_positions(model.vertices)
+    if diag <= 0.0:
+        diag = 1.0
+    # Every pose shares the bind-pose normalization so costs stay comparable.
+    pose_sets = [npos]
+    for pose in pose_list:
+        pose_sets.append([(p[0] / diag, p[1] / diag, p[2] / diag) for p in pose])
     pos_eps = 1e-9
     uv_eps = 1e-6
 
     nv = n_src
     alive_v = [True] * nv
-    quadrics: list[list[float]] = [[0.0] * 10 for _ in range(nv)]
-    for (a, b, c) in model.triangles:
-        n = _face_normal(npos[a], npos[b], npos[c])
-        length = math.sqrt(_dot(n, n))
-        if length <= 1e-15:
-            continue  # degenerate source face contributes no plane
-        n = (n[0] / length, n[1] / length, n[2] / length)
-        d = -_dot(n, npos[a])
-        q = _plane_quadric(n, d)
-        quadrics[a] = _add_quadric(quadrics[a], q)
-        quadrics[b] = _add_quadric(quadrics[b], q)
-        quadrics[c] = _add_quadric(quadrics[c], q)
+    # Per-pose quadrics: pose_quadrics[p][v]. Summing across poses would let
+    # rigidly-moving regions outvote static ones by pose count; the edge cost
+    # takes the MAXIMUM over poses instead (see edge_cost).
+    pose_quadrics: list[list[list[float]]] = []
+    for positions in pose_sets:
+        quadrics: list[list[float]] = [[0.0] * 10 for _ in range(nv)]
+        for (a, b, c) in model.triangles:
+            n = _face_normal(positions[a], positions[b], positions[c])
+            length = math.sqrt(_dot(n, n))
+            if length <= 1e-15:
+                continue  # degenerate face contributes no plane
+            n = (n[0] / length, n[1] / length, n[2] / length)
+            d = -_dot(n, positions[a])
+            q = _plane_quadric(n, d)
+            quadrics[a] = _add_quadric(quadrics[a], q)
+            quadrics[b] = _add_quadric(quadrics[b], q)
+            quadrics[c] = _add_quadric(quadrics[c], q)
+        pose_quadrics.append(quadrics)
 
     tris: list[list[int]] = [list(t) for t in model.triangles]
     tri_mats = list(model.tri_materials)
@@ -256,8 +381,16 @@ def simplify(
         # Deterministic and keeps articulation vertices' exact attributes.
         if (anim_imp[v], sil_imp[v], -v) > (anim_imp[u], sil_imp[u], -u):
             u, v = v, u
-        q = _add_quadric(quadrics[u], quadrics[v])
-        cost = _quadric_at(q, npos[u])
+        # Worst-pose QEM cost: collapse error evaluated in every pose at
+        # the survivor's posed position, maximum wins. Rigid motion is
+        # error-magnitude preserving, so rigid regions cost exactly their
+        # bind-pose price while deforming regions pay their worst pose.
+        cost = 0.0
+        for pi, positions in enumerate(pose_sets):
+            q = _add_quadric(pose_quadrics[pi][u], pose_quadrics[pi][v])
+            err = _quadric_at(q, positions[u])
+            if err > cost:
+                cost = err
         # Shortest-first ordering among geometrically free edges.
         d = _sub(npos[u], npos[v])
         cost += 1e-9 * _dot(d, d)
@@ -305,20 +438,21 @@ def simplify(
     rejected = 0
 
     def would_fold(keep: int, drop: int) -> bool:
-        kp = npos[keep]
-        for ti in vertex_tris[drop]:
-            if not tri_alive[ti]:
-                continue
-            t = tris[ti]
-            if keep in t:
-                continue  # collapses to degenerate, removed by design
-            old = _face_normal(npos[t[0]], npos[t[1]], npos[t[2]])
-            if math.sqrt(_dot(old, old)) <= 1e-15:
-                continue
-            moved = [kp if x == drop else npos[x] for x in t]
-            new = _face_normal(moved[0], moved[1], moved[2])
-            if _dot(new, old) <= 0.0:
-                return True
+        kp = [positions[keep] for positions in pose_sets]
+        for positions, keep_p in zip(pose_sets, kp):
+            for ti in vertex_tris[drop]:
+                if not tri_alive[ti]:
+                    continue
+                t = tris[ti]
+                if keep in t:
+                    continue  # collapses to degenerate, removed by design
+                old = _face_normal(positions[t[0]], positions[t[1]], positions[t[2]])
+                if math.sqrt(_dot(old, old)) <= 1e-15:
+                    continue
+                moved = [keep_p if x == drop else positions[x] for x in t]
+                new = _face_normal(moved[0], moved[1], moved[2])
+                if _dot(new, old) <= 0.0:
+                    return True
         return False
 
     while heap and alive_tris > opts.target_triangles:
@@ -369,8 +503,11 @@ def simplify(
         if kills == 0:
             rejected += 1
             continue
-        # Commit: merge quadrics, move adjacency, retire `drop`.
-        quadrics[keep] = _add_quadric(quadrics[keep], quadrics[drop])
+        # Commit: merge per-pose quadrics, move adjacency, retire `drop`.
+        for pi in range(len(pose_sets)):
+            pose_quadrics[pi][keep] = _add_quadric(
+                pose_quadrics[pi][keep], pose_quadrics[pi][drop]
+            )
         alive_v[drop] = False
         for ti, new_t in planned:
             t = tris[ti]
@@ -455,9 +592,11 @@ def simplify(
         "requested_target": opts.target_triangles,
         "delivered_triangles": delivered,
         "delivered_vertices": len(new_positions),
-        "source_triangles": n_tri0,
-        "source_vertices": n_src,
-        "reduction_percent": round(100.0 * (1.0 - delivered / n_tri0), 2) if n_tri0 else 0.0,
+        "source_triangles": orig_n_tri0,
+        "source_vertices": orig_n_src,
+        "welded_vertices": welded_verts,
+        "dropped_degenerate": dropped_degenerate,
+        "reduction_percent": round(100.0 * (1.0 - delivered / orig_n_tri0), 2) if orig_n_tri0 else 0.0,
         "collapses": collapses,
         "foldover_rejected": rejected,
         "target_met": delivered <= opts.target_triangles,
@@ -471,7 +610,7 @@ def simplify(
         weights=new_w if has_weights else None,
         triangles=new_tris,
         tri_materials=new_mats,
-        source_vertex=src_idx,
+        source_vertex=[first_old[w] for w in src_idx],
         report=report,
     )
 
