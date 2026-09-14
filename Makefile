@@ -180,6 +180,48 @@ ifneq ($(strip $(GENERATED_EXAMPLE_ASSET_TARGETS)),)
   endif
 endif
 
+# Generic 3D model generation via tools/import_model.py.
+# An example opts in by defining MODEL_OBJ in its Makefile.inc, e.g.:
+#   MODEL_OBJ         := examples/$(EXAMPLE)/assets/sonic.obj
+#   MODEL_OUT_PREFIX  := $(GENERATED_DIR)/$(EXAMPLE)/sonic_model
+#   MODEL_SYMBOL      := sonic_model
+# Optional: MODEL_SCALE, MODEL_TEXTURE_SCALE, MODEL_PALETTE_INDEX,
+# MODEL_MAX_TEXTURE_WIDTH/HEIGHT, MODEL_FLIP_X/Y/Z, MODEL_REVERSE_WINDING.
+# The model rule coexists with the 2D converter above; an example uses one.
+ifdef MODEL_OBJ
+MODEL_SYMBOL              ?= $(notdir $(MODEL_OUT_PREFIX))
+MODEL_SCALE               ?= 1.0
+MODEL_TEXTURE_SCALE       ?= 1.0
+MODEL_PALETTE_INDEX       ?= 1
+MODEL_MAX_TEXTURE_WIDTH   ?= 504
+MODEL_MAX_TEXTURE_HEIGHT  ?= 255
+MODEL_FLIP_FLAGS          :=
+ifeq ($(MODEL_FLIP_X),1)
+MODEL_FLIP_FLAGS += --flip-x
+endif
+ifeq ($(MODEL_FLIP_Y),1)
+MODEL_FLIP_FLAGS += --flip-y
+endif
+ifeq ($(MODEL_FLIP_Z),1)
+MODEL_FLIP_FLAGS += --flip-z
+endif
+ifeq ($(MODEL_REVERSE_WINDING),1)
+MODEL_FLIP_FLAGS += --reverse-winding
+endif
+$(MODEL_OUT_PREFIX).c $(MODEL_OUT_PREFIX).h &: $(MODEL_OBJ) $(TOOLS)/import_model.py
+	@mkdir -p $(dir $@)
+	$(PYTHON) $(TOOLS)/import_model.py \
+		--input $(MODEL_OBJ) \
+		--out-prefix $(MODEL_OUT_PREFIX) \
+		--symbol $(MODEL_SYMBOL) \
+		--scale $(MODEL_SCALE) \
+		--palette-index $(MODEL_PALETTE_INDEX) \
+		--max-texture-width $(MODEL_MAX_TEXTURE_WIDTH) \
+		--max-texture-height $(MODEL_MAX_TEXTURE_HEIGHT) \
+		--texture-scale $(MODEL_TEXTURE_SCALE) \
+		$(MODEL_FLIP_FLAGS)
+endif
+
 # -- Compilation -------------------------------------------------
 # Rule for C files (examples, library, generated assets)
 $(BUILD_DIR)/%.o: %.c
