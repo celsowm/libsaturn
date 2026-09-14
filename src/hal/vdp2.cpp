@@ -740,6 +740,14 @@ void set_rbg0_sprite_priority(uint8_t priority) {
     PRISA = prisa;
 }
 
+void set_nbg0_priority(uint8_t priority) {
+    PRINA = saturn::core::compose_nbg0_priority(PRINA, priority);
+}
+
+void set_sprite_priority(uint8_t priority) {
+    PRISA = saturn::core::compose_sprite_priority(priority);
+}
+
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count) {
     if (params == nullptr || word_count == 0u) {
         return;

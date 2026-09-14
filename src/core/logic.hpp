@@ -392,6 +392,142 @@ inline sat_result_t resolve_sprite_cmd(
     return SAT_OK;
 }
 
+/* ------------------------------------------------------------------ */
+/* Layer priority                                                      */
+/* ------------------------------------------------------------------ */
+/* Every layer, plus the sprite layer that the VDP1 draws into, carries a
+ * 3-bit priority. The highest number wins; zero means "never shown", which
+ * is a real trap because it looks exactly like a layer that failed to
+ * initialise. Ties go to a fixed hardware order, so a background meant to
+ * sit behind the VDP1 has to be strictly lower, not equal. */
+inline uint16_t compose_nbg0_priority(uint16_t prina, uint8_t priority) {
+    return static_cast<uint16_t>((prina & 0xFFF8u) | (priority & 0x07u));
+}
+
+/* PRISA holds two sprite priorities, for sprite types that select between
+ * them per pixel. The library never uses that, so both halves are set to the
+ * same value -- otherwise the effective priority would depend on a sprite
+ * type bit the caller did not ask about. */
+inline uint16_t compose_sprite_priority(uint8_t priority) {
+    const uint16_t p = static_cast<uint16_t>(priority & 0x07u);
+    return static_cast<uint16_t>(p | (p << 8u));
+}
+
+/* ------------------------------------------------------------------ */
+/* Tiled image upload                                                  */
+/* ------------------------------------------------------------------ */
+/* NBG0 in cell format reads 8x8 tiles through a map of pattern names. An
+ * ordinary linear image therefore has to be cut into tiles, and a map built
+ * that puts them back in order -- which is the whole of what these two
+ * helpers do. */
+constexpr uint16_t kVdp2CellPx = 8u;
+constexpr uint16_t kVdp2CellBytes = 64u;   /* 8x8 at 8bpp */
+constexpr uint16_t kVdp2CellWords = 32u;
+constexpr uint16_t kVdp2MapCells = 64u;    /* one 64x64-cell plane */
+
+/* A 1-word pattern name addresses character data in 32-byte units, so a
+ * 64-byte 8bpp cell advances the character number by two. */
+constexpr uint32_t kVdp2CharNumberUnitBytes = 32u;
+
+/* The 12-bit character number in a 1-word pattern name cannot reach all of
+ * VRAM on its own; supplementary bits in PNCN0 supply the top of the address.
+ * With the register sequence sat_vdp2_nbg0_init writes, the reachable window
+ * is in VRAM bank B1, and character data has to start 0x2000 bytes into it:
+ *
+ *     byte address = 0x62000 + ((character_number - 0x100) * 32)
+ *
+ * The 0x2000 offset is EMPIRICAL, not derived. Cells written at 0x60000 and
+ * addressed from character number 0 render as garbage on Ymir, while the
+ * same cells at 0x62000 addressed from 0x100 render correctly -- verified by
+ * uploading a structured texture and comparing the screenshot against the
+ * source image pixel for pixel. Why the first 0x2000 bytes do not work was
+ * not established, so this is a measured constant rather than an explained
+ * one; do not "simplify" it back to zero without re-running that test.
+ *
+ * What IS confirmed is that the rest of the window behaves linearly: a
+ * 256x256 image (1024 cells, character numbers up to 0x8FE) renders 1:1,
+ * so the character number really is 12 bits wide here. */
+constexpr uint32_t kVdp2CellWindowByteBase = 0x62000u;
+constexpr uint32_t kVdp2CellWindowWordBase = kVdp2CellWindowByteBase / 2u;
+constexpr uint16_t kVdp2FirstCharNumber = 0x100u;
+constexpr uint32_t kVdp2MaxCharNumber = 0x0FFFu;
+
+/* The map plane sits in the same window, above the character data, so the
+ * cells have to stop before it. One page of 1-word pattern names for a
+ * 64x64-cell plane is 0x1000 words. */
+inline uint32_t nbg0_map_word_base(uint16_t plane_index) {
+    return static_cast<uint32_t>(plane_index) << 12u;
+}
+
+inline sat_result_t validate_nbg0_image(uint16_t width, uint16_t height, uint16_t plane_index) {
+    if (width == 0u || height == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if ((width % kVdp2CellPx) != 0u || (height % kVdp2CellPx) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    /* The image repeats across the plane, so it may be smaller than the
+     * plane -- but a tile the map cannot address is a silent truncation. */
+    if ((width / kVdp2CellPx) > kVdp2MapCells || (height / kVdp2CellPx) > kVdp2MapCells) {
+        return SAT_ERR_CAPACITY;
+    }
+
+    const uint32_t tiles = static_cast<uint32_t>(width / kVdp2CellPx) *
+                           static_cast<uint32_t>(height / kVdp2CellPx);
+    const uint32_t cell_words = tiles * kVdp2CellWords;
+    const uint32_t map_base = nbg0_map_word_base(plane_index);
+    if (map_base <= kVdp2CellWindowWordBase) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if ((kVdp2CellWindowWordBase + cell_words) > map_base) {
+        return SAT_ERR_CAPACITY;
+    }
+    if ((kVdp2FirstCharNumber + ((tiles - 1u) * (kVdp2CellBytes / kVdp2CharNumberUnitBytes))) >
+        kVdp2MaxCharNumber) {
+        return SAT_ERR_CAPACITY;
+    }
+    return SAT_OK;
+}
+
+/* One 8x8 cell, taken out of a linear indexed8 image.
+ *
+ * Row-major, left to right and top to bottom, which is the layout the VDP2
+ * reads character data in. (JoEngine writes cells transposed and mirrored
+ * and then transposes the map to match; the two cancel out to a 90-degree
+ * rotation of the whole image, which nobody notices on a floor texture. It
+ * is not what the hardware wants.) */
+inline void build_cell_indexed8(
+    const uint8_t* pixels,
+    uint16_t image_width,
+    uint16_t tile_x,
+    uint16_t tile_y,
+    uint8_t* out_cell
+) {
+    for (uint16_t row = 0; row < kVdp2CellPx; ++row) {
+        const uint32_t src_y = (static_cast<uint32_t>(tile_y) * kVdp2CellPx) + row;
+        const uint32_t src_x = static_cast<uint32_t>(tile_x) * kVdp2CellPx;
+        for (uint16_t col = 0; col < kVdp2CellPx; ++col) {
+            out_cell[(row * kVdp2CellPx) + col] =
+                pixels[(src_y * image_width) + src_x + col];
+        }
+    }
+}
+
+/* Pattern name for the tile at (tile_x, tile_y) of an image whose cells were
+ * written consecutively, row-major, from the base of the character window. */
+inline uint16_t compose_pattern_name(
+    uint16_t palette_id,
+    uint16_t tiles_x,
+    uint16_t tile_x,
+    uint16_t tile_y
+) {
+    const uint32_t cell_index = (static_cast<uint32_t>(tile_y) * tiles_x) + tile_x;
+    const uint32_t character = kVdp2FirstCharNumber +
+                               (cell_index * (kVdp2CellBytes / kVdp2CharNumberUnitBytes));
+    return static_cast<uint16_t>(((palette_id & 0x0Fu) << 12u) |
+                                 static_cast<uint16_t>(character & kVdp2MaxCharNumber));
+}
+
 }  // namespace saturn::core
 
 #endif /* SATURN_CORE_LOGIC_HPP */

@@ -177,6 +177,91 @@ TEST(validate_map_region_valid) {
     ASSERT_EQ(saturn::core::validate_map_region(0, 0, 8, 8, 64, 64, 64), SAT_OK);
 }
 
+/* ---- layer priority ---- */
+
+TEST(nbg0_priority_leaves_other_layers_alone) {
+    /* PRINA carries NBG1 in bits 8-10. Setting NBG0 must not disturb it --
+     * a mask slip here moves a layer nobody touched. */
+    const uint16_t prina = 0x0507u; /* NBG1 = 5, NBG0 = 7 */
+    ASSERT_EQ(saturn::core::compose_nbg0_priority(prina, 1u), 0x0501u);
+    ASSERT_EQ(saturn::core::compose_nbg0_priority(prina, 0u), 0x0500u);
+}
+
+TEST(nbg0_priority_clamps_to_three_bits) {
+    /* 8 is not a priority; it must not spill into the NBG1 field. */
+    ASSERT_EQ(saturn::core::compose_nbg0_priority(0x0500u, 8u), 0x0500u);
+    ASSERT_EQ(saturn::core::compose_nbg0_priority(0x0500u, 0xFFu), 0x0507u);
+}
+
+TEST(sprite_priority_sets_both_halves) {
+    /* Sprite type bits can select either half per pixel; leaving them
+     * different makes the priority depend on a bit the caller never set. */
+    ASSERT_EQ(saturn::core::compose_sprite_priority(6u), 0x0606u);
+    ASSERT_EQ(saturn::core::compose_sprite_priority(1u), 0x0101u);
+}
+
+/* ---- tiled image upload ---- */
+
+TEST(cell_is_row_major_from_the_right_block) {
+    /* A 16x16 image numbered by position, so a transposed or mirrored cell
+     * cannot accidentally pass. */
+    uint8_t image[16 * 16];
+    for (int y = 0; y < 16; ++y) {
+        for (int x = 0; x < 16; ++x) {
+            image[(y * 16) + x] = (uint8_t)((y * 16) + x);
+        }
+    }
+
+    uint8_t cell[64];
+    saturn::core::build_cell_indexed8(image, 16u, 1u, 1u, cell);
+
+    /* Tile (1,1) is the bottom-right 8x8: rows 8-15, columns 8-15. */
+    ASSERT_EQ(cell[0], (uint8_t)((8 * 16) + 8));   /* first pixel */
+    ASSERT_EQ(cell[1], (uint8_t)((8 * 16) + 9));   /* next COLUMN, not row */
+    ASSERT_EQ(cell[8], (uint8_t)((9 * 16) + 8));   /* start of the next row */
+    ASSERT_EQ(cell[63], (uint8_t)((15 * 16) + 15));
+}
+
+TEST(pattern_name_advances_two_per_cell) {
+    /* An 8bpp cell is 64 bytes and a character number counts 32-byte units,
+     * so consecutive cells are two apart. Numbering starts at 0x100 because
+     * character data does not begin at the base of the addressable window --
+     * see kVdp2FirstCharNumber. */
+    ASSERT_EQ(saturn::core::compose_pattern_name(0u, 4u, 0u, 0u), 0x0100u);
+    ASSERT_EQ(saturn::core::compose_pattern_name(0u, 4u, 1u, 0u), 0x0102u);
+    ASSERT_EQ(saturn::core::compose_pattern_name(0u, 4u, 0u, 1u), 0x0108u); /* row of 4 */
+    ASSERT_EQ(saturn::core::compose_pattern_name(0u, 4u, 3u, 2u), 0x0116u);
+}
+
+TEST(pattern_name_carries_the_palette_bank) {
+    ASSERT_EQ(saturn::core::compose_pattern_name(1u, 4u, 1u, 0u), 0x1102u);
+    ASSERT_EQ(saturn::core::compose_pattern_name(7u, 4u, 0u, 0u), 0x7100u);
+}
+
+TEST(nbg0_image_must_be_whole_cells) {
+    ASSERT_EQ(saturn::core::validate_nbg0_image(100u, 64u, 0x3Bu), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(saturn::core::validate_nbg0_image(64u, 100u, 0x3Bu), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(saturn::core::validate_nbg0_image(0u, 64u, 0x3Bu), SAT_ERR_INVALID_ARG);
+}
+
+TEST(nbg0_image_must_fit_under_the_map_plane) {
+    /* Character data and the map share one addressable window, and the map
+     * plane index decides where the cells have to stop. At plane 0x3B the
+     * window holds 0xA000 words, i.e. 1280 cells of 32 words each:
+     * 256x256 is 1024 cells and fits, 320x320 is 1600 and does not. */
+    ASSERT_EQ(saturn::core::validate_nbg0_image(256u, 256u, 0x3Bu), SAT_OK);
+    ASSERT_EQ(saturn::core::validate_nbg0_image(320u, 320u, 0x3Bu), SAT_ERR_CAPACITY);
+
+    /* A plane low enough to sit inside the character window leaves no room
+     * at all, rather than silently overwriting the cells with the map. */
+    ASSERT_EQ(saturn::core::validate_nbg0_image(64u, 64u, 0x10u), SAT_ERR_INVALID_ARG);
+}
+
+TEST(nbg0_image_cannot_exceed_the_plane) {
+    /* The plane is 64 cells across; a wider image could not be addressed. */
+    ASSERT_EQ(saturn::core::validate_nbg0_image(520u, 64u, 0x3Bu), SAT_ERR_CAPACITY);
+}
+
 int main() {
     validate_nbg0_config_null();
     validate_nbg0_config_valid();
@@ -200,7 +285,16 @@ int main() {
     validate_map_region_out_of_bounds();
     validate_map_region_stride_less_than_width();
     validate_map_region_valid();
+    nbg0_priority_leaves_other_layers_alone();
+    nbg0_priority_clamps_to_three_bits();
+    sprite_priority_sets_both_halves();
+    cell_is_row_major_from_the_right_block();
+    pattern_name_advances_two_per_cell();
+    pattern_name_carries_the_palette_bank();
+    nbg0_image_must_be_whole_cells();
+    nbg0_image_must_fit_under_the_map_plane();
+    nbg0_image_cannot_exceed_the_plane();
 
-    printf("PASS: test_vdp2_logic.cpp (%d tests)\n", 21);
+    printf("PASS: test_vdp2_logic.cpp (%d tests)\n", 31);
     return 0;
 }

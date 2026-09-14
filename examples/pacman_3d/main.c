@@ -18,17 +18,25 @@
  *   - Pac-Man is a sphere, the ghosts are capped cylinders;
  *   - the board is one subdivided plane;
  *   - pellets are small flat quads.
- * There are no textures, so nothing here needs an asset pipeline.
+ * Nothing in the 3D scene is textured. The only asset is the starfield on
+ * the VDP2 background behind it.
  *
- * Because the camera never moves, the maze, the board and the pellets always
- * project to the same screen coordinates. They are therefore projected ONCE
- * at startup -- culled, shaded and depth-sorted there too -- and each frame
- * only replays the corners through sat_draw_quad2_polygon. Projection is four
- * matrix transforms and two 64-bit divides per corner, and this is about 1500
- * corners; doing it every frame ran the board at roughly a fifth of full
- * rate. Only Pac-Man and the ghosts, which actually move, are projected live.
+ * The camera can only be in one of sixteen positions around the board, and
+ * that restriction is the whole performance story. From a given position the
+ * maze, the board and the pellets always project to the same screen
+ * coordinates, so they are projected ONCE -- culled, shaded and depth-sorted
+ * there too -- and each frame only replays the corners through
+ * sat_draw_quad2_polygon. Projection is four matrix transforms and two
+ * 64-bit divides per corner, and this is about 1500 corners; doing it every
+ * frame ran the board at roughly a fifth of full rate. Only Pac-Man and the
+ * ghosts, which actually move, are projected live.
  *
- * Controls: D-Pad to move, START to restart. No sound.
+ * Turning the camera therefore does not re-project anything: all sixteen
+ * views are baked at startup, which takes about two seconds and is why there
+ * is a progress bar, and turning just selects a different one.
+ *
+ * Controls: D-Pad to move, L and R to turn the camera, START to restart.
+ * No sound.
  */
 #include <stdint.h>
 
@@ -46,6 +54,7 @@
 #include "saturn/example_util.h"
 
 #include "../common/pacman_game.h"
+#include "pacman_3d/stars.h"
 
 #define SCREEN_W 320
 #define SCREEN_H 224
@@ -73,6 +82,15 @@
 #define CAM_HEIGHT 260
 #define CAM_BACK 190
 #define CAM_FOV 36
+
+/* Camera positions around the board, selectable with L and R.
+ *
+ * Sixteen of them, because the whole static scene is baked per angle (see
+ * the baked-scene note below) and a baked angle costs about 10KB: sixteen
+ * fits in work RAM with room to spare and turns in 22.5-degree steps, which
+ * reads as turning rather than as snapping between four fixed views. */
+#define CAM_ANGLES 16
+#define CAM_STEP_DEGREES (360 / CAM_ANGLES)
 
 #define HUD_PALETTE 0u
 
@@ -169,14 +187,19 @@ static sat_ascii_font_t g_font;
 static wall_rect_t g_rects[MAX_WALL_RECTS];
 static uint16_t g_rect_count;
 
-static baked_quad_t g_baked[MAX_BAKED];
-static uint16_t g_baked_count;
+/* One baked scene per camera angle. This is the big allocation in the
+ * program -- about 170KB -- and it is what makes turning free: the
+ * alternative, re-projecting the maze when the angle changes, costs a full
+ * unbaked frame every time and would stutter for as long as a button is
+ * held. Baking all of them at startup pays that cost once. */
+static baked_quad_t g_baked[CAM_ANGLES][MAX_BAKED];
+static uint16_t g_baked_count[CAM_ANGLES];
 
 /* The board is under everything and never overlaps itself, so it is drawn
  * first as a block rather than taking part in the depth ordering. */
-static sat_quad2_t g_board[MAX_BOARD_QUADS];
-static uint16_t g_board_colors[MAX_BOARD_QUADS];
-static uint16_t g_board_count;
+static sat_quad2_t g_board[CAM_ANGLES][MAX_BOARD_QUADS];
+static uint16_t g_board_colors[CAM_ANGLES][MAX_BOARD_QUADS];
+static uint16_t g_board_count[CAM_ANGLES];
 
 static sat_vec3_t g_mesh_vertices[MESH_VERTEX_CAP];
 static uint16_t g_mesh_indices[MESH_FACE_CAP * 4u];
@@ -186,6 +209,14 @@ static uint32_t g_mesh_depth[MESH_FACE_CAP];
 
 static sat_mat4_t g_view_proj;
 static sat_vec3_t g_cam_eye;
+
+/* Which camera angle is live, and the trig for it. The two sines are kept
+ * because the ghosts' eye panels have to face the camera, which stops being
+ * a constant direction once the camera can turn. */
+static uint16_t g_angle;
+static uint16_t g_bake_angle;
+static sat_fx16_t g_cam_sin;
+static sat_fx16_t g_cam_cos;
 
 /* Set when the VDP1 command list filled up, so the overflow is reported on
  * screen rather than appearing as geometry that silently vanishes. */
@@ -268,15 +299,70 @@ static void build_wall_rects(void) {
 /* Camera                                                             */
 /* ------------------------------------------------------------------ */
 
-static void init_camera(void) {
+static sat_fx16_t fx_abs(sat_fx16_t v) {
+    return (v < 0) ? -v : v;
+}
+
+/* How much further back the camera has to sit at this angle for the whole
+ * board to stay on screen.
+ *
+ * The maze is 224 by 200, so it is not square, and a rectangle seen corner-on
+ * is wider than the same rectangle seen face-on -- 300 units across the
+ * diagonal against 224 across the front. A camera distance that frames the
+ * front view crops the corners of the diagonal ones.
+ *
+ * Holding the distance at the worst case instead would shrink the front view,
+ * the one the game is mostly played in, by a quarter for the benefit of the
+ * four diagonals. Since every angle is baked separately anyway, each one can
+ * simply have the distance that frames it: the board stays about the same
+ * size on screen whichever way it is turned, which is the thing the eye
+ * actually tracks. The cost is that the camera visibly pulls back and in
+ * again while turning, rather than swinging at a fixed radius.
+ *
+ * Both axes matter, and taking only the width is not enough: turned a
+ * quarter of the way round, the maze is NARROWER than it started (200
+ * against 224) but DEEPER by the same swap, and it was the depth that ran
+ * off the bottom of the screen. */
+static sat_fx16_t frame_scale(sat_fx16_t sin_az, sat_fx16_t cos_az) {
+    const sat_fx16_t width = sat_fx16_from_int(BOARD_W);
+    const sat_fx16_t depth = sat_fx16_from_int(BOARD_D);
+    const sat_fx16_t abs_sin = fx_abs(sin_az);
+    const sat_fx16_t abs_cos = fx_abs(cos_az);
+    /* Bounding box of the rotated board, along the camera's axes. */
+    const sat_fx16_t span_x =
+        sat_fx16_mul(width, abs_cos) + sat_fx16_mul(depth, abs_sin);
+    const sat_fx16_t span_z =
+        sat_fx16_mul(width, abs_sin) + sat_fx16_mul(depth, abs_cos);
+    const sat_fx16_t need_x = sat_fx16_div(span_x, width);
+    const sat_fx16_t need_z = sat_fx16_div(span_z, depth);
+    /* Normalised so that angle 0 comes out at exactly 1.0, which keeps the
+     * straight-on view identical to the fixed camera this replaced. */
+    return (need_x > need_z) ? need_x : need_z;
+}
+
+/* Points the camera at the board from `angle`, and leaves g_view_proj and
+ * g_cam_eye describing it. Called once per angle while baking, and again
+ * whenever the player turns -- never per frame. */
+static void set_camera(uint16_t angle) {
     sat_mat4_t view;
     sat_mat4_t projection;
     sat_vec3_t center;
     sat_vec3_t up = {0, SAT_FX16_ONE, 0};
+    const sat_fx16_t degrees = sat_fx16_from_int((int)angle * CAM_STEP_DEGREES);
+    sat_fx16_t scale;
 
-    g_cam_eye.x = sat_fx16_from_int(BOARD_W / 2);
-    g_cam_eye.y = sat_fx16_from_int(CAM_HEIGHT);
-    g_cam_eye.z = sat_fx16_from_int((BOARD_D / 2) + CAM_BACK);
+    g_cam_sin = sat_sin_deg(degrees);
+    g_cam_cos = sat_cos_deg(degrees);
+    scale = frame_scale(g_cam_sin, g_cam_cos);
+
+    /* Angle 0 is the original fixed camera: straight down the +Z axis,
+     * behind the bottom edge of the maze. */
+    g_cam_eye.x = sat_fx16_from_int(BOARD_W / 2) +
+                  sat_fx16_mul(sat_fx16_mul(sat_fx16_from_int(CAM_BACK), scale), g_cam_sin);
+    g_cam_eye.y = sat_fx16_mul(sat_fx16_from_int(CAM_HEIGHT), scale);
+    g_cam_eye.z = sat_fx16_from_int(BOARD_D / 2) +
+                  sat_fx16_mul(sat_fx16_mul(sat_fx16_from_int(CAM_BACK), scale), g_cam_cos);
+
     center.x = sat_fx16_from_int(BOARD_W / 2);
     center.y = 0;
     center.z = sat_fx16_from_int(BOARD_D / 2);
@@ -287,7 +373,7 @@ static void init_camera(void) {
         sat_fx16_from_int(CAM_FOV),
         sat_fx16_div(sat_fx16_from_int(SCREEN_W), sat_fx16_from_int(SCREEN_H)),
         sat_fx16_from_int(1),
-        sat_fx16_from_int(800)));
+        sat_fx16_from_int(1200)));
     sat_example_must(sat_mat4_multiply(&g_view_proj, &projection, &view));
 }
 
@@ -336,14 +422,14 @@ static void bake_face(uint16_t face, uint16_t color, int x, int z, int col, int 
     baked_quad_t* slot;
     sat_quad3_t quad;
 
-    if (g_baked_count >= MAX_BAKED) {
+    if (g_baked_count[g_bake_angle] >= MAX_BAKED) {
         g_draw_overflow = 1;
         return;
     }
     if (sat_mesh_face_quad(&g_mesh, face, &quad) != SAT_OK) {
         return;
     }
-    slot = &g_baked[g_baked_count];
+    slot = &g_baked[g_bake_angle][g_baked_count[g_bake_angle]];
     if (sat_project_quad(&g_view_proj, &quad, &slot->quad) != SAT_OK) {
         return; /* behind the camera: nothing to replay later */
     }
@@ -354,7 +440,7 @@ static void bake_face(uint16_t face, uint16_t color, int x, int z, int col, int 
     slot->depth = depth_at(x, z);
     slot->cell_col = (uint8_t)col;
     slot->cell_row = (uint8_t)row;
-    ++g_baked_count;
+    ++g_baked_count[g_bake_angle];
 }
 
 static uint16_t shade_face(uint16_t face, uint16_t color) {
@@ -384,17 +470,19 @@ static void bake_board(void) {
         BOARD_SEGMENTS,
         BOARD_SEGMENTS));
 
-    g_board_count = 0;
-    for (i = 0; i < g_mesh.face_count && g_board_count < MAX_BOARD_QUADS; ++i) {
+    g_board_count[g_bake_angle] = 0;
+    for (i = 0; i < g_mesh.face_count &&
+                g_board_count[g_bake_angle] < MAX_BOARD_QUADS; ++i) {
         sat_quad3_t quad;
+        const uint16_t slot = g_board_count[g_bake_angle];
         if (sat_mesh_face_quad(&g_mesh, i, &quad) != SAT_OK) {
             continue;
         }
-        if (sat_project_quad(&g_view_proj, &quad, &g_board[g_board_count]) != SAT_OK) {
+        if (sat_project_quad(&g_view_proj, &quad, &g_board[g_bake_angle][slot]) != SAT_OK) {
             continue;
         }
-        g_board_colors[g_board_count] = shade_face(i, COLOR_BOARD);
-        ++g_board_count;
+        g_board_colors[g_bake_angle][slot] = shade_face(i, COLOR_BOARD);
+        ++g_board_count[g_bake_angle];
     }
 }
 
@@ -420,10 +508,11 @@ static void bake_walls(void) {
 
         for (f = 0; f < g_mesh.face_count; ++f) {
             sat_vec3_t face_center;
-            /* The camera never moves, so a face turned away from it now is
-             * turned away forever: culling here costs nothing again. Roughly
-             * half of every box goes, which is what keeps the whole maze
-             * inside the 512-command list. */
+            /* The camera cannot move within an angle, so a face turned away
+             * from it is turned away for as long as this baked view is the
+             * live one: culling here costs nothing again. Roughly half of
+             * every box goes, which is what keeps the whole maze inside the
+             * 512-command list. */
             if (!sat_mesh_face_visible(&g_mesh, f, &g_cam_eye)) {
                 continue;
             }
@@ -478,25 +567,54 @@ static void bake_pellets(void) {
  * sat_sort_indices_desc (capped at 255 entries by its uint8 index) is not
  * what this uses. */
 static void sort_baked(void) {
+    baked_quad_t* const list = g_baked[g_bake_angle];
+    const uint16_t count = g_baked_count[g_bake_angle];
     uint16_t i;
 
-    for (i = 1u; i < g_baked_count; ++i) {
-        const baked_quad_t value = g_baked[i];
+    for (i = 1u; i < count; ++i) {
+        const baked_quad_t value = list[i];
         int j = (int)i - 1;
-        while (j >= 0 && g_baked[j].depth < value.depth) {
-            g_baked[j + 1] = g_baked[j];
+        while (j >= 0 && list[j].depth < value.depth) {
+            list[j + 1] = list[j];
             --j;
         }
-        g_baked[j + 1] = value;
+        list[j + 1] = value;
     }
 }
 
+/* Baking sixteen angles takes about a hundred frames, and a program that
+ * shows nothing for the first two seconds looks like one that has hung. The
+ * bar costs sixteen extra frames and removes that whole class of false
+ * alarm -- worth it for an example, whose readers are precisely the people
+ * who cannot tell a slow start from a crash. */
+static void draw_text_centered(const char* text, int y);
+
+static void bake_progress(uint16_t done) {
+    const int16_t width = (int16_t)((200 * (int)done) / CAM_ANGLES);
+
+    SAT_PANIC_IF_ERROR(sat_wait_vblank());
+    SAT_PANIC_IF_ERROR(sat_vdp1_set_erase_transparent());
+    SAT_PANIC_IF_ERROR(sat_begin_frame());
+    draw_text_centered("BUILDING CAMERA VIEWS", 100);
+    SAT_PANIC_IF_ERROR(sat_draw_rect_screen(60, 116, 200, 6, COLOR_BOARD));
+    if (width > 0) {
+        SAT_PANIC_IF_ERROR(sat_draw_rect_screen(60, 116, width, 6, COLOR_PAC));
+    }
+    SAT_PANIC_IF_ERROR(sat_end_frame());
+}
+
 static void bake_scene(void) {
-    g_baked_count = 0;
-    bake_board();
-    bake_walls();
-    bake_pellets();
-    sort_baked();
+    for (g_bake_angle = 0u; g_bake_angle < CAM_ANGLES; ++g_bake_angle) {
+        bake_progress(g_bake_angle);
+        set_camera(g_bake_angle);
+        g_baked_count[g_bake_angle] = 0;
+        bake_board();
+        bake_walls();
+        bake_pellets();
+        sort_baked();
+    }
+    g_bake_angle = 0u;
+    set_camera(g_angle);
 }
 
 /* ------------------------------------------------------------------ */
@@ -505,8 +623,8 @@ static void bake_scene(void) {
 
 static void draw_board(void) {
     uint16_t i;
-    for (i = 0; i < g_board_count; ++i) {
-        note(sat_draw_quad2_polygon(&g_board[i], g_board_colors[i]));
+    for (i = 0; i < g_board_count[g_angle]; ++i) {
+        note(sat_draw_quad2_polygon(&g_board[g_angle][i], g_board_colors[g_angle][i]));
     }
 }
 
@@ -516,10 +634,13 @@ static void draw_board(void) {
 /* Actors are around fourteen pixels across at this camera distance, so the
  * things that make one readable are, in order: colour, a face, and only then
  * silhouette. That ordering is why the ghosts get eyes before they get a
- * rounder body, and why Pac-Man's mouth is a single flat wedge laid over the
- * sphere rather than a hole cut through its geometry -- from a camera looking
- * down at the board, a wedge in plan view is exactly what a Pac-Man mouth
- * looks like, and it costs one VDP1 command instead of a rebuilt mesh. */
+ * rounder body: at this size a face reads and a silhouette barely does.
+ *
+ * Pac-Man's mouth is the exception, and it is real geometry -- a sector cut
+ * out of the sphere, not a dark wedge drawn over one. A wedge laid on top
+ * only looks right from directly above, and the camera can now be turned
+ * until the sphere is seen edge-on, where the cut shows in the silhouette
+ * and a decal would be a flat smear across the face. */
 
 /* The mouth is a sector missing from the sphere, measured in longitude bands.
  *
@@ -633,30 +754,53 @@ static void build_pac(const actor_draw_t* actor, uint16_t gap) {
         gap));
 }
 
-/* One eye: a small upright panel on the face of the ghost nearest the camera.
- *
- * The camera never turns, so "nearest the camera" is always -Z and the panel
- * never has to be re-oriented -- a billboard's worth of readability for a
- * fixed quad. */
 /* White on a coloured body, dark on the white flash: an eye has to contrast
  * with whatever it is sitting on. */
 static uint16_t eye_color(uint16_t body) {
     return (body == COLOR_FRIGHT_B) ? COLOR_MOUTH : COLOR_EYE;
 }
 
+/* One eye: a small upright panel on the face of the ghost nearest the camera.
+ *
+ * This used to be a quad at a fixed -Z offset, because the camera could not
+ * turn and "nearest the camera" was therefore always the same direction. Now
+ * that it can, the panel has to be placed along the horizontal direction back
+ * towards the camera, and spread along the perpendicular of that -- otherwise
+ * the eyes slide round the side of the head as the board turns, and at 90
+ * degrees they disappear behind it.
+ *
+ * It stays a flat quad rather than becoming a proper billboard with its own
+ * orientation: the camera direction is taken as constant across the board
+ * (it is 200-odd units away and the board is 224 across, so the error is a
+ * few degrees) and the panel is only four pixels wide. */
 static void draw_eye(const actor_draw_t* actor, int offset) {
-    const sat_fx16_t x0 = sat_fx16_from_int(actor->x + offset - EYE_HALF_W);
-    const sat_fx16_t x1 = sat_fx16_from_int(actor->x + offset + EYE_HALF_W);
+    /* Towards the camera on the ground plane, and its left perpendicular. */
+    const sat_fx16_t toward_x = g_cam_sin;
+    const sat_fx16_t toward_z = g_cam_cos;
+    const sat_fx16_t right_x = g_cam_cos;
+    const sat_fx16_t right_z = -g_cam_sin;
+    const sat_fx16_t spread = sat_fx16_from_int(offset);
+    const sat_fx16_t lift = sat_fx16_from_int(GHOST_RADIUS + 1);
+    const sat_fx16_t half_w = sat_fx16_from_int(EYE_HALF_W);
+
+    /* Centre of this eye: out from the body towards the camera, then along
+     * the camera's right by the eye spacing. */
+    const sat_fx16_t cx = sat_fx16_from_int(actor->x) +
+                          sat_fx16_mul(toward_x, lift) +
+                          sat_fx16_mul(right_x, spread);
+    const sat_fx16_t cz = sat_fx16_from_int(actor->z) +
+                          sat_fx16_mul(toward_z, lift) +
+                          sat_fx16_mul(right_z, spread);
+    const sat_fx16_t dx = sat_fx16_mul(right_x, half_w);
+    const sat_fx16_t dz = sat_fx16_mul(right_z, half_w);
     const sat_fx16_t y0 = sat_fx16_from_int(EYE_Y + EYE_HALF_H);
     const sat_fx16_t y1 = sat_fx16_from_int(EYE_Y - EYE_HALF_H);
-    /* A whisker in front of the body, so it is not z-fighting the face. */
-    const sat_fx16_t z = sat_fx16_from_int(actor->z - GHOST_RADIUS - 1);
     sat_quad3_t quad;
 
-    quad.v[0].x = x0; quad.v[0].y = y0; quad.v[0].z = z;
-    quad.v[1].x = x1; quad.v[1].y = y0; quad.v[1].z = z;
-    quad.v[2].x = x1; quad.v[2].y = y1; quad.v[2].z = z;
-    quad.v[3].x = x0; quad.v[3].y = y1; quad.v[3].z = z;
+    quad.v[0].x = cx - dx; quad.v[0].y = y0; quad.v[0].z = cz - dz;
+    quad.v[1].x = cx + dx; quad.v[1].y = y0; quad.v[1].z = cz + dz;
+    quad.v[2].x = cx + dx; quad.v[2].y = y1; quad.v[2].z = cz + dz;
+    quad.v[3].x = cx - dx; quad.v[3].y = y1; quad.v[3].z = cz - dz;
     note(sat_draw_world_polygon(&g_view_proj, &quad, eye_color(actor->color)));
 }
 
@@ -769,8 +913,8 @@ static void render_scene(void) {
     uint16_t actor_count;
     uint16_t i;
 
-    for (i = 0; i < g_baked_count; ++i) {
-        const baked_quad_t* baked = &g_baked[i];
+    for (i = 0; i < g_baked_count[g_angle]; ++i) {
+        const baked_quad_t* baked = &g_baked[g_angle][i];
         if (baked->cell_col != BAKED_ALWAYS && !pellet_still_there(baked)) {
             continue;
         }
@@ -819,12 +963,102 @@ static void render_hud(void) {
         draw_text_centered("GAME OVER", 104);
         draw_text_centered("PRESS START", 116);
     } else if (g_game.frame < 240u) {
-        draw_text_centered("DPAD MOVE   START RESET", 216);
+        draw_text_centered("DPAD MOVE  L R TURN  START RESET", 216);
     }
 
     if (g_draw_overflow) {
         draw_text("RENDER LIMIT", 4, 14);
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* Starfield                                                          */
+/* ------------------------------------------------------------------ */
+/* The board floats in space, so the sky is a VDP2 background rather than
+ * more VDP1 geometry: the VDP1 command list is the scarce resource here
+ * (around 400 commands is already a whole frame of SH-2 time) and a VDP2
+ * layer costs exactly none of it, whatever it shows.
+ *
+ * NBG0 specifically, of the four normal backgrounds. NBG2 and NBG3 are
+ * 16-colour only, and NBG1 has no API in this library yet; NBG0 is also the
+ * one already free here, since this example otherwise uses nothing but the
+ * VDP2 back-screen colour.
+ *
+ * The one setting that matters is priority. sat_vdp2_nbg0_init leaves NBG0
+ * at 7 -- in FRONT of the sprite layer -- which puts the starfield over the
+ * whole maze and looks like the 3D scene failed to draw. It has to be below
+ * the sprite priority, and below rather than equal, because ties are broken
+ * by a fixed hardware order instead of by setup order. */
+#define SKY_PALETTE 1u
+#define SKY_PRIORITY 1u
+#define SPRITE_PRIORITY 6u
+
+/* Scratch for the pattern-name map; the library allocates nothing itself.
+ * 8KB is too much to leave in the fast work RAM for something used once at
+ * startup, so it goes to Work RAM Low. */
+static uint16_t g_sky_map[SAT_VDP2_NBG0_MAP_CELLS] __attribute__((section(".wram_l")));
+
+static void init_sky(void) {
+    sat_vdp2_nbg0_config_t config;
+    sat_vdp2_scroll_t scroll = {0u, 0u, 0u, 0u};
+
+    config.char_size = SAT_VDP2_CHAR_SIZE_1X1;
+    config.color_mode = SAT_VDP2_COLOR_MODE_256;
+    config.map_plane_index = 0x003Bu;
+    config.transparent_code_enabled = 0u;
+    config.reserved = 0u;
+
+    sat_example_must(sat_vdp2_nbg0_init(&config));
+    sat_example_must(sat_vdp2_palette_upload(
+        stars_asset.palette, 256u, (uint16_t)(SKY_PALETTE * 256u)));
+    sat_example_must(sat_vdp2_nbg0_upload_indexed8(
+        stars_asset.pixels,
+        stars_asset.width,
+        stars_asset.height,
+        SKY_PALETTE,
+        g_sky_map));
+
+    /* sat_vdp2_nbg0_init re-enables the display on its way out, and VDP2
+     * register writes are dropped while the display is active -- so the
+     * priorities have to wait for the next VBlank to stick. */
+    sat_example_must(sat_wait_vblank());
+    sat_example_must(sat_vdp2_sprite_set_priority(SPRITE_PRIORITY));
+    sat_example_must(sat_vdp2_nbg0_set_priority(SKY_PRIORITY));
+    sat_example_must(sat_vdp2_nbg0_set_scroll(&scroll));
+}
+
+/* Turn the sky with the camera.
+ *
+ * Without this the stars stay nailed to the screen while the board pivots
+ * under them, which reads as the BOARD turning rather than the camera going
+ * round it -- the sky is the only thing on screen far enough away to say
+ * which of the two is happening. A full revolution scrolls the 512-pixel
+ * plane exactly once, so the stars come back to where they started. */
+static void set_sky_angle(uint16_t angle) {
+    sat_vdp2_scroll_t scroll = {0u, 0u, 0u, 0u};
+    scroll.x_integer = (uint16_t)(((uint32_t)angle * 512u) / CAM_ANGLES);
+    sat_example_must(sat_vdp2_nbg0_set_scroll(&scroll));
+}
+
+/* L and R turn the camera one step. On the press rather than while held:
+ * a step is 22.5 degrees, and repeating that every frame would spin the
+ * board eight times a second. */
+static void update_camera(const sat_pad_state_t* pad) {
+    uint16_t next = g_angle;
+
+    if ((pad->pressed & SAT_PAD_L) != 0u) {
+        next = (uint16_t)((g_angle + CAM_ANGLES - 1u) % CAM_ANGLES);
+    } else if ((pad->pressed & SAT_PAD_R) != 0u) {
+        next = (uint16_t)((g_angle + 1u) % CAM_ANGLES);
+    }
+    if (next == g_angle) {
+        return;
+    }
+    g_angle = next;
+    /* The baked quads for this angle are already in memory; all that is
+     * left is the matrix the live actors are projected through. */
+    set_camera(g_angle);
+    set_sky_angle(g_angle);
 }
 
 /* ------------------------------------------------------------------ */
@@ -835,7 +1069,6 @@ static void render_hud(void) {
  * sets an OPAQUE VDP1 erase which would paint over the VDP2 backdrop. */
 static void frame_begin(sat_pad_state_t* pad) {
     SAT_PANIC_IF_ERROR(sat_wait_vblank());
-    SAT_PANIC_IF_ERROR(sat_vdp2_back_color_set(COLOR_TABLE));
     SAT_PANIC_IF_ERROR(sat_vdp1_set_erase_transparent());
     SAT_PANIC_IF_ERROR(sat_begin_frame());
     SAT_PANIC_IF_ERROR(sat_pad_poll(pad));
@@ -850,16 +1083,19 @@ int main(void) {
     sat_example_must(sat_mesh_init(
         &g_mesh, g_mesh_vertices, MESH_VERTEX_CAP, g_mesh_indices, MESH_FACE_CAP));
 
+    init_sky();
+
     pac_game_init(&g_game, 0, 0);
     build_wall_rects();
-    init_camera();
     bake_scene();
+    set_sky_angle(g_angle);
 
     while (1) {
         sat_pad_state_t pad = {0};
         frame_begin(&pad);
 
         pac_game_update(&g_game, &pad);
+        update_camera(&pad);
 
         draw_board();
         render_scene();

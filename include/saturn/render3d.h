@@ -108,7 +108,11 @@ sat_result_t sat_draw_world_polygon(
  * geometry to the same screen coordinates every frame. Projecting it once at
  * startup and replaying the corners turns a per-frame cost into a startup
  * cost; see examples/pacman_3d, where it is the difference between the board
- * running at full rate and at a fifth of it. */
+ * running at full rate and at a fifth of it.
+ *
+ * A camera that moves between a SMALL FIXED SET of positions still qualifies:
+ * bake one list per position and select between them. pacman_3d does exactly
+ * that for its sixteen view angles, at a cost of about 10KB per angle. */
 sat_result_t sat_draw_quad2_polygon(const sat_quad2_t* quad, uint16_t color);
 
 /* Projects and submits a textured (distorted-sprite) quad. Same rejection

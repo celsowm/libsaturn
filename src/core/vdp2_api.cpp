@@ -101,6 +101,89 @@ extern "C" sat_result_t sat_vdp2_nbg0_set_enabled(uint8_t enable) {
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_nbg0_set_priority(uint8_t priority) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    saturn::hal::vdp2::set_nbg0_priority(priority);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_sprite_set_priority(uint8_t priority) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    saturn::hal::vdp2::set_sprite_priority(priority);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_nbg0_upload_indexed8(
+    const uint8_t* pixels,
+    uint16_t width,
+    uint16_t height,
+    uint16_t palette_id,
+    uint16_t* map_scratch
+) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (pixels == nullptr || map_scratch == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    const uint16_t plane_index = g_state.nbg0_map_plane_index;
+    st = validate_nbg0_image(width, height, plane_index);
+    if (st != SAT_OK) {
+        return st;
+    }
+
+    const uint16_t tiles_x = static_cast<uint16_t>(width / kVdp2CellPx);
+    const uint16_t tiles_y = static_cast<uint16_t>(height / kVdp2CellPx);
+    uint32_t word_offset = kVdp2CellWindowWordBase;
+    uint8_t cell[kVdp2CellBytes];
+    uint16_t words[kVdp2CellWords];
+
+    for (uint16_t ty = 0; ty < tiles_y; ++ty) {
+        for (uint16_t tx = 0; tx < tiles_x; ++tx) {
+            build_cell_indexed8(pixels, width, tx, ty, cell);
+            /* Packed big-endian into 16-bit words: the VDP2 reads character
+             * data as a byte stream, but VRAM is written a word at a time. */
+            for (uint16_t i = 0; i < kVdp2CellWords; ++i) {
+                words[i] = static_cast<uint16_t>(
+                    (static_cast<uint16_t>(cell[i * 2u]) << 8u) |
+                    static_cast<uint16_t>(cell[(i * 2u) + 1u]));
+            }
+            saturn::hal::vdp2::write_vram_words(word_offset, words, kVdp2CellWords);
+            word_offset += kVdp2CellWords;
+        }
+    }
+
+    /* The map covers the whole plane whatever the image size: the source is
+     * repeated by wrapping the tile coordinates, which is why a seamless
+     * texture tiles cleanly and a non-seamless one shows its seams. */
+    for (uint16_t my = 0; my < kVdp2MapCells; ++my) {
+        for (uint16_t mx = 0; mx < kVdp2MapCells; ++mx) {
+            map_scratch[(my * kVdp2MapCells) + mx] = compose_pattern_name(
+                palette_id,
+                tiles_x,
+                static_cast<uint16_t>(mx % tiles_x),
+                static_cast<uint16_t>(my % tiles_y));
+        }
+    }
+    saturn::hal::vdp2::write_vram_words(
+        nbg0_map_word_base(plane_index),
+        map_scratch,
+        static_cast<uint32_t>(kVdp2MapCells) * kVdp2MapCells);
+
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp2_palette_upload(const uint16_t* palette_rgb555, uint16_t count, uint16_t offset) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();

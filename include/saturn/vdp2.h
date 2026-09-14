@@ -59,9 +59,63 @@ typedef struct sat_vdp2_map_region {
 /* ------------------------------------------------------------------ */
 /* NBG0 initialization & control                                       */
 /* ------------------------------------------------------------------ */
+/* NOTE: sat_vdp2_nbg0_init leaves NBG0 at priority 7, ABOVE the sprite
+ * layer the VDP1 draws into, which is what a program showing nothing but a
+ * background wants. If the VDP1 output has to appear on top -- a background
+ * behind a 3D scene, say -- call sat_vdp2_nbg0_set_priority() afterwards
+ * with a value below the sprite priority. */
 sat_result_t sat_vdp2_nbg0_init(const sat_vdp2_nbg0_config_t* config);
 sat_result_t sat_vdp2_nbg0_set_scroll(const sat_vdp2_scroll_t* scroll);
 sat_result_t sat_vdp2_nbg0_set_enabled(uint8_t enable);
+
+/* Layer priority, 0-7. The highest number is drawn in front, and equal
+ * priorities are resolved by a fixed hardware order rather than by the
+ * order anything was set up in -- so a layer that must stay behind the
+ * VDP1 needs a strictly lower number, not an equal one.
+ *
+ * Priority 0 hides the layer completely. That is a legitimate way to turn
+ * one off, but it looks identical to a layer that was never initialised,
+ * so prefer sat_vdp2_nbg0_set_enabled() when hiding is what you mean. */
+sat_result_t sat_vdp2_nbg0_set_priority(uint8_t priority);
+
+/* Priority of the sprite layer, i.e. of everything the VDP1 draws. This is
+ * one setting for the whole VDP1 output, not a per-sprite one. */
+sat_result_t sat_vdp2_sprite_set_priority(uint8_t priority);
+
+/* ------------------------------------------------------------------ */
+/* NBG0 tiled image upload                                             */
+/* ------------------------------------------------------------------ */
+/* Cells for one 64x64-cell NBG0 plane. Pass a buffer of this many uint16_t
+ * as the scratch argument below; the library allocates nothing itself. */
+#define SAT_VDP2_NBG0_MAP_CELLS (64u * 64u)
+
+/* Upload a linear indexed8 image as NBG0 character data, and build the map
+ * that reassembles it.
+ *
+ * The image is REPEATED across the plane, so a source smaller than
+ * 512x512 tiles rather than leaving a gap -- which is what you want from a
+ * seamless texture and is worth knowing if yours is not seamless.
+ *
+ * Both dimensions must be multiples of 8 (VDP2 cells are 8x8) and at most
+ * 512 pixels (the plane is 64 cells across). Where the character data lands
+ * in VRAM is not a parameter: a 1-word pattern name can only reach one
+ * fixed window, and the plane index chosen at sat_vdp2_nbg0_init() decides
+ * how much of it is left, so the layout has exactly one sensible answer and
+ * the function picks it. An image too large to fit under the map returns
+ * SAT_ERR_CAPACITY.
+ *
+ * palette_id selects one of the CRAM banks of 256 colours; upload the
+ * palette to word offset palette_id * 256 with sat_vdp2_palette_upload().
+ *
+ * map_scratch must hold SAT_VDP2_NBG0_MAP_CELLS entries; it is used to
+ * stage the pattern names and is not read afterwards. */
+sat_result_t sat_vdp2_nbg0_upload_indexed8(
+    const uint8_t* pixels,
+    uint16_t width,
+    uint16_t height,
+    uint16_t palette_id,
+    uint16_t* map_scratch
+);
 
 /* ------------------------------------------------------------------ */
 /* Palette & VRAM                                                      */

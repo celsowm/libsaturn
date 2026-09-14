@@ -20,6 +20,14 @@
 # Nothing here reacts to the ghosts. Run it much past frame 400 and Pac-Man
 # will eventually be caught standing still in a corner; that is the script
 # running out, not the game misbehaving.
+#
+# The frame numbers are EMULATED frames, so they line up with pacman_2d,
+# which starts playing immediately. pacman_3d now spends its first hundred
+# frames or so baking its sixteen camera views before the game loop starts,
+# which shifts the whole route by that much -- so this script still drives it
+# (usefully, for a performance run) but no longer follows the same path or
+# reaches the same score there. Use it as a load, not as a fixture, on the 3D
+# one.
 
 0    LEFT      # already running left off the spawn tile, eating along row 20
 46   DOWN      # down the left edge to the power pellet at the bottom corner
