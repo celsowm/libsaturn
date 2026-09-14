@@ -503,6 +503,12 @@ def simplify(
         if kills == 0:
             rejected += 1
             continue
+        if alive_tris - kills < 1:
+            # Never commit an empty mesh: a zero-triangle collapse removes
+            # the surface instead of reducing it. Stop here and deliver the
+            # smallest nonzero candidate.
+            rejected += 1
+            break
         # Commit: merge per-pose quadrics, move adjacency, retire `drop`.
         for pi in range(len(pose_sets)):
             pose_quadrics[pi][keep] = _add_quadric(

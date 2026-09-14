@@ -294,6 +294,8 @@ def surface_error_stats(
     if times is None:
         times = sample_times_for_importance(clip) if clip is not None else [0.0]
     simp_view = simplified_as_source(simplified, source)
+    if not simplified.triangles or not simplified.positions:
+        raise GltfError("simplification produced an empty mesh")
     diag = posed_bbox_diagonal(source, clip, times)
 
     # Deterministic extra surface samples: barycenters of an even subset of

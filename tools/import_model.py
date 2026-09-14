@@ -38,6 +38,8 @@ rectangle collapses together with the geometric quad on the VDP1.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import math
 import sys
 from collections import Counter
@@ -45,6 +47,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from model_pipeline import animation as anim_eval
+from model_pipeline import emit_c as emit_anim
+from model_pipeline import gltf as gltf_mod
+from model_pipeline import lod as lod_mod
+from model_pipeline import metrics as metrics_mod
+from model_pipeline import model as srcmodel
+from model_pipeline import pose_bake
+from model_pipeline import saturn_profile as saturn_profile_mod
+from model_pipeline import silhouette as sil_mod
+from model_pipeline import simplification as simp_mod
 from saturn_asset_common import (
     asset_header_guard,
     asset_symbol_prefix,
@@ -900,9 +912,463 @@ def print_stats(stats: dict) -> None:
     print(f"largest baked texture: {lw}x{lh}")
 
 
+def print_stats(stats: dict) -> None:
+    print(f"source vertices: {stats['source_vertices']}")
+    print(f"source UVs: {stats['source_uvs']}")
+    print(f"source faces: {stats['source_faces']}")
+    print(f"source triangles: {stats['source_triangles']}")
+    print(f"source quads: {stats['source_quads']}")
+    print(f"materials: {stats['materials']}")
+    print(f"baked faces before dedup: {stats['baked_faces_before_dedup']}")
+    print(f"unique textures after dedup: {stats['unique_textures_after_dedup']}")
+    print(f"palette count: {stats['palette_count']}")
+    print(f"indexed texture bytes: {stats['indexed_texture_bytes']}")
+    print(f"palette bytes: {stats['palette_bytes']}")
+    print(f"estimated VDP1 VRAM usage: {stats['estimated_vram_usage']}")
+    lw, lh = stats["largest_baked_texture"]
+    print(f"largest baked texture: {lw}x{lh}")
+
+
+# ----------------------------------------------------------------------
+# Animated glTF/GLB import (Saturn baked-vertex path)
+# ----------------------------------------------------------------------
+#
+# Pipeline (host-side; the Saturn sees only the generated C/H):
+#
+#   parse source -> select clips -> sample times -> bake poses (all clips)
+#        |
+#        v
+#   animation/silhouette importance -> quality-gated simplification
+#        |
+#        +------> bake per-clip pose frames on the shared topology
+#        +------> bake face textures on the simplified topology
+#                        |
+#                        v
+#                   dedup + palette -> generated C/H + JSON report
+#
+# Source skeletal data is baked to vertex animation: no joints, weights,
+# inverse bind matrices, source UVs or GLB structures reach the runtime.
+
+@dataclass
+class AnimatedImportResult:
+    static: ImportResult
+    animations: list[dict]
+    report: dict
+
+
+def select_animation_clips(model, selector: str) -> list[int]:
+    if selector == "all":
+        if not model.clips:
+            raise ImportError("model has no animation clips")
+        return list(range(len(model.clips)))
+    try:
+        index = int(selector)
+        if index < 0 or index >= len(model.clips):
+            raise ImportError(
+                f"--animation {selector}: only {len(model.clips)} clip(s) available"
+            )
+        return [index]
+    except ValueError:
+        for i, clip in enumerate(model.clips):
+            if clip.name == selector:
+                return [i]
+        raise ImportError(
+            f"--animation {selector!r}: no such clip "
+            f"(have: {[c.name for c in model.clips]})"
+        )
+
+
+def animated_frame_times(model, clip, fps: str) -> tuple[list[float], bool]:
+    """Runtime sample times for one clip plus loop-duplicate flag."""
+    if fps == "source":
+        return anim_eval.runtime_frame_times(model, clip)
+    try:
+        rate = float(fps)
+    except ValueError:
+        raise ImportError(f"--animation-fps must be 'source' or a number (got {fps!r})")
+    if rate <= 0.0:
+        raise ImportError(f"--animation-fps must be positive (got {fps!r})")
+    n = int(clip.duration * rate)
+    times = [min(i / rate, clip.duration) for i in range(n + 1)]
+    if times[-1] < clip.duration:
+        times.append(clip.duration)
+    seen: dict[float, None] = {}
+    for t in times:
+        seen[float(t)] = None
+    ordered = sorted(seen)
+    # A terminal sample equal to the first pose is a redundant loop frame.
+    poses = anim_eval.bake_clip_poses(model, clip, [ordered[0], ordered[-1]])
+    removed = False
+    if len(ordered) > 1 and anim_eval.loop_pose_distance(poses[0], poses[1]) <= 1e-5:
+        ordered = ordered[:-1]
+        removed = True
+    return ordered, removed
+
+
+def rate_fraction(frame_count: int, duration: float) -> tuple[int, int]:
+    """Reduced (num, den) frames-per-second fraction for the runtime."""
+    if duration <= 0.0 or frame_count <= 0:
+        raise ImportError("cannot derive a sample rate from an empty clip")
+    num = int(round(frame_count / duration * 1000000))
+    den = 1000000
+    g = math.gcd(num, den)
+    return num // g, den // g
+
+
+def _face_command_cap(args, profile) -> int | None:
+    cap: int | None = None
+    if args.target == "saturn" or args.profile is not None:
+        cap = saturn_profile_mod.face_command_budget(profile)
+    if args.max_vdp1_commands is not None:
+        room = (args.max_vdp1_commands - profile.setup_commands - profile.end_commands
+                - profile.hud_reserve - profile.min_command_headroom)
+        if room < 1:
+            raise ImportError("--max-vdp1-commands leaves no room for model faces")
+        cap = room if cap is None else min(cap, room)
+    if args.max_triangles is not None:
+        cap = args.max_triangles if cap is None else min(cap, args.max_triangles)
+    return cap
+
+
+def _glb_winding(tris, uvs, reverse_winding):
+    """glTF CCW triangles to LibSaturn A/B/C/D degenerate quads.
+
+    Default reverses to clockwise (outward under cross(D-A, B-A)), the same
+    convention as the OBJ path; --reverse-winding keeps source order.
+    Returns (quads, quad_uvs) with duplicated corners carrying duplicated
+    UVs so the canonical rectangle collapses with the geometric quad.
+    """
+    quads, quad_uvs = [], []
+    for (a, b, c) in tris:
+        ua, ub, uc = uvs[a], uvs[b], uvs[c]
+        if reverse_winding:
+            quads.append((a, b, c, c))
+            quad_uvs.append((ua, ub, uc, uc))
+        else:
+            quads.append((a, c, b, b))
+            quad_uvs.append((ua, uc, ub, ub))
+    return quads, quad_uvs
+
+
+def import_animated_model(
+    glb_path: Path,
+    scale: float = 1.0,
+    flip_x: bool = False,
+    flip_y: bool = False,
+    flip_z: bool = False,
+    reverse_winding: bool = False,
+    palette_index: int = 0,
+    max_texture_width: int = VDP1_MAX_TEXTURE_WIDTH,
+    max_texture_height: int = VDP1_MAX_TEXTURE_HEIGHT,
+    texture_scale: float = 1.0,
+    sampling: str = "nearest",
+    simplify: str = "auto",
+    quality: str = "balanced",
+    max_triangles: int | None = None,
+    max_vdp1_commands: int | None = None,
+    animation: str = "all",
+    animation_fps: str = "source",
+    generate_lods: bool = False,
+    silhouette_views: int = 16,
+    animation_weight: float = 1.0,
+    silhouette_weight: float = 1.0,
+) -> AnimatedImportResult:
+    if palette_index < 0 or palette_index > 7:
+        raise ImportError(f"--palette-index must be in 0..7 (got {palette_index})")
+    if texture_scale <= 0.0:
+        raise ImportError(f"--texture-scale must be positive (got {texture_scale})")
+    if scale <= 0.0:
+        raise ImportError(f"--scale must be positive (got {scale})")
+    if quality not in metrics_mod.QUALITY_PRESETS:
+        raise ImportError(f"unknown --quality {quality!r}")
+
+    try:
+        glb = gltf_mod.parse_model(glb_path)
+        model = srcmodel.from_gltf(glb, glb_path.stem)
+    except gltf_mod.GltfError as exc:
+        raise ImportError(str(exc))
+    stats = srcmodel.source_stats(model)
+    if not model.textures:
+        raise ImportError(f"{glb_path}: no embedded textures found")
+
+    clip_ids = select_animation_clips(model, animation)
+    per_clip_times: dict[int, list[float]] = {}
+    loop_flags: dict[int, bool] = {}
+    for ci in clip_ids:
+        times, removed = animated_frame_times(model, model.clips[ci], animation_fps)
+        if not times:
+            raise ImportError(f"clip '{model.clips[ci].name}' produced no sample times")
+        per_clip_times[ci] = times
+        loop_flags[ci] = removed
+
+    # Bake every clip's poses on the SOURCE topology for importance and
+    # worst-pose collapse costs; the shared simplified topology is baked
+    # again afterwards (subset positions make that exact).
+    all_poses: list = []
+    for ci in clip_ids:
+        all_poses.extend(anim_eval.bake_clip_poses(model, model.clips[ci], per_clip_times[ci]))
+    metric_times = per_clip_times[clip_ids[0]]
+    first_clip = model.clips[clip_ids[0]]
+    anim_imp = metrics_mod.compute_animation_importance(model, first_clip, metric_times)
+    if len(clip_ids) > 1:
+        for ci in clip_ids[1:]:
+            extra = metrics_mod.compute_animation_importance(model, model.clips[ci], per_clip_times[ci])
+            anim_imp = [max(a, b) for a, b in zip(anim_imp, extra)]
+    sil_imp = sil_mod.compute_silhouette_importance(
+        model, clip=first_clip,
+        times=metric_times[:: max(1, len(metric_times) // 8)][:8],
+        n_views=silhouette_views,
+    )
+
+    profile = saturn_profile_mod.SaturnProfile()
+    face_cap = _face_command_cap(
+        argparse.Namespace(target="saturn", profile=None, max_triangles=max_triangles,
+                           max_vdp1_commands=max_vdp1_commands),
+        profile,
+    )
+    if simplify == "off":
+        simp = simp_mod.simplify(
+            model, anim_importance=anim_imp, sil_importance=sil_imp,
+            options=simp_mod.SimplificationOptions(
+                target_triangles=len(model.triangles), quality=quality,
+                animation_weight=animation_weight, silhouette_weight=silhouette_weight),
+            pose_positions=all_poses,
+        )
+        quality_report = metrics_mod.evaluate_candidate(
+            model, simp, first_clip, quality, metric_times, silhouette_views)
+        if not quality_report["passed"]:
+            raise ImportError(
+                f"full-resolution model fails quality preset {quality!r}: "
+                f"{quality_report['failing_gates']}"
+            )
+    else:
+        if simplify == "auto":
+            requested = face_cap if face_cap is not None else len(model.triangles)
+        else:
+            try:
+                requested = int(simplify)
+            except ValueError:
+                raise ImportError(f"--simplify must be off|auto|TARGET (got {simplify!r})")
+            if requested < 1:
+                raise ImportError(f"--simplify target must be >= 1 (got {simplify!r})")
+        try:
+            simp, quality_report = metrics_mod.search_upward(
+                model, first_clip, requested, quality,
+                simp_mod.SimplificationOptions(
+                    target_triangles=requested, quality=quality,
+                    animation_weight=animation_weight, silhouette_weight=silhouette_weight),
+                anim_importance=anim_imp, sil_importance=sil_imp,
+                times=metric_times, pose_positions=all_poses,
+            )
+        except gltf_mod.GltfError as exc:
+            raise ImportError(str(exc))
+    delivered = len(simp.triangles)
+    if face_cap is not None and delivered > face_cap:
+        raise ImportError(saturn_profile_mod.format_hard_failure(
+            delivered, face_cap,
+            f"smallest {quality}-valid mesh has {delivered} triangles"))
+
+    # Mirror-flip handling matches the OBJ path: odd-axis mirrors toggle
+    # the winding reversal so outward normals stay outward.
+    if (int(bool(flip_x)) + int(bool(flip_y)) + int(bool(flip_z))) % 2 == 1:
+        reverse_winding = not reverse_winding
+
+    def _flip(p):
+        x, y, z = p
+        return (-x if flip_x else x, -y if flip_y else y, -z if flip_z else z)
+
+    # Bake per-clip pose frames on the shared simplified topology.
+    simp_view = metrics_mod.simplified_as_source(simp, model)
+    animations: list[dict] = []
+    for ci in clip_ids:
+        clip = model.clips[ci]
+        times = per_clip_times[ci]
+        frames = anim_eval.bake_clip_poses(simp_view, clip, times)
+        frames = [[_flip(p) for p in frame] for frame in frames]
+        baked = pose_bake.quantize_frames(
+            frames, scale=scale, bbox_diagonal=simp_view.bbox_diagonal() * scale)
+        num, den = rate_fraction(len(times), clip.duration or 1.0) \
+            if animation_fps == "source" else (int(float(animation_fps)), 1)
+        baked["name"] = clip.name
+        baked["sample_rate_num"] = num
+        baked["sample_rate_den"] = den
+        baked["loop"] = loop_flags[ci]
+        baked["frame_times"] = list(times)
+        animations.append(baked)
+
+    # Static geometry: bind pose with flips/scale, LibSaturn winding.
+    bind = [_flip(p) for p in simp.positions]
+    bind = [(x * scale, y * scale, z * scale) for (x, y, z) in bind]
+    quads, quad_uvs = _glb_winding(simp.triangles, simp.uvs, reverse_winding)
+    # Compact bind arrays in simplified order (simp.positions already is).
+    vertices_fx = [(float_to_fx16(x), float_to_fx16(y), float_to_fx16(z)) for (x, y, z) in bind]
+    for i, (x, y, z) in enumerate(vertices_fx):
+        if not -(2**31) <= x < 2**31 or not -(2**31) <= y < 2**31 or not -(2**31) <= z < 2**31:
+            raise ImportError(f"vertex {i} overflows 16.16 fixed point (reduce --scale)")
+
+    # Canonical face-texture baking from the SIMPLIFIED topology.
+    baked_rgba: list = []
+    face_sizes: list[tuple[int, int]] = []
+    face_mtls: list[str] = []
+    for qi, ((a, b, c, d), (ua, ub, uc, ud)) in enumerate(zip(quads, quad_uvs)):
+        mt = simp.tri_materials[qi]
+        mat = model.materials[mt] if mt < len(model.materials) else {}
+        if "texture" not in mat:
+            raise ImportError(
+                f"face {qi} uses material {mat.get('name', mt)!r} without a "
+                "baseColorTexture (the animated textured path needs a texture "
+                "on every material)"
+            )
+        tex = model.textures[mat["texture"]]
+        est_w, est_h = estimate_face_size((ua, ub, uc, ud), tex.width, tex.height, texture_scale)
+        out_w, out_h = conform_size(est_w, est_h, max_texture_width, max_texture_height,
+                                    mat.get("name"), qi)
+        baked_rgba.append(bake_face_rgba((ua, ub, uc, ud), tex.width, tex.height,
+                                         tex.pixels_rgba, out_w, out_h, sampling))
+        face_sizes.append((out_w, out_h))
+        face_mtls.append(mat.get("name", str(mt)))
+
+    palette_rgb888, has_transparency, _ = build_shared_palette(baked_rgba)
+    indexed_faces = map_faces_to_indices(baked_rgba, face_sizes, palette_rgb888)
+    palette_rgb555: list[int] = []
+    for i, (r, g, b) in enumerate(palette_rgb888):
+        palette_rgb555.append(0x0000 if (has_transparency and i == 0) else rgb888_to_rgb555(r, g, b))
+    while len(palette_rgb555) < 256:
+        palette_rgb555.append(0x0000)
+    palette_rgb555 = palette_rgb555[:256]
+    opaque_flag = 0x0001 if not has_transparency else 0x0000
+    unique: list[dict] = []
+    key_to_index: dict[tuple, int] = {}
+    face_texture_indices: list[int] = []
+    for (w, h), pixels in zip(face_sizes, indexed_faces):
+        key = (w, h, bytes(pixels), 0, opaque_flag)
+        if key in key_to_index:
+            face_texture_indices.append(key_to_index[key])
+        else:
+            idx = len(unique)
+            key_to_index[key] = idx
+            unique.append({"width": w, "height": h, "pixels": bytes(pixels),
+                           "flags": opaque_flag, "pixel_count": w * h})
+            face_texture_indices.append(idx)
+
+    static = ImportResult(
+        vertices_fx=vertices_fx,
+        indices_abcd=quads,
+        face_texture_indices=face_texture_indices,
+        textures=unique,
+        palette_rgb555=palette_rgb555,
+        palette_base=palette_index,
+        stats={},
+    )
+    indexed_bytes = sum(t["pixel_count"] for t in unique)
+    vram_est = sum(((t["pixel_count"] + 7) & ~7) for t in unique)
+    largest = max((t["width"] * t["height"], t["width"], t["height"]) for t in unique) if unique else (0, 0, 0)
+    pose_bytes = sum(a["pose_bytes"] for a in animations)
+    resource_report = saturn_profile_mod.check_resources(
+        profile, faces=delivered, texture_payload_bytes=indexed_bytes,
+        texture_sizes=[t["pixel_count"] for t in unique],
+        pose_stream_bytes=pose_bytes)
+    if not resource_report["passed"]:
+        raise ImportError(saturn_profile_mod.format_hard_failure(
+            delivered, face_cap or saturn_profile_mod.face_command_budget(profile),
+            "; ".join(resource_report["failing_gates"])))
+
+    lod_reports = None
+    if generate_lods:
+        budget = face_cap or saturn_profile_mod.face_command_budget(profile)
+        specs = lod_mod.default_lod_specs(budget, len(model.triangles))
+        lod_reports = []
+        for entry in lod_mod.generate_lods(model, first_clip, specs, quality,
+                                           anim_imp, sil_imp, metric_times, all_poses,
+                                           silhouette_views):
+            lod_reports.append({k: v for k, v in entry.items()
+                                if k not in ("simplified", "quality")})
+            lod_reports[-1]["passed"] = entry["passed"]
+            lod_reports[-1]["failing_gates"] = entry["failing_gates"]
+
+    static.stats = {
+        "source_vertices": stats["vertices"],
+        "source_triangles": stats["triangles"],
+        "source_materials": stats["materials"],
+        "source_textures": stats["textures"],
+        "source_joints": stats["joints"],
+        "animation_clips": stats["animation_clips"],
+        "selected_clips": [model.clips[ci].name for ci in clip_ids],
+        "baked_faces_before_dedup": len(baked_rgba),
+        "unique_textures_after_dedup": len(unique),
+        "palette_count": 1,
+        "indexed_texture_bytes": indexed_bytes,
+        "palette_bytes": 512,
+        "estimated_vram_usage": vram_est,
+        "largest_baked_texture": (largest[1], largest[2]) if unique else (0, 0),
+        "has_transparency": has_transparency,
+        "scale": scale,
+    }
+    report = {
+        "source": {
+            **stats,
+            "clip_durations": {model.clips[ci].name: model.clips[ci].duration for ci in clip_ids},
+        },
+        "simplification": {**simp.report, "quality_preset": quality},
+        "animation_quality": quality_report,
+        "saturn_animation": [
+            {
+                "clip": a["name"],
+                "baked_frames": a["frame_count"],
+                "sample_rate_num": a["sample_rate_num"],
+                "sample_rate_den": a["sample_rate_den"],
+                "loop": a["loop"],
+                "duplicate_loop_frame_removed": loop_flags[ci],
+                "position_encoding": "int16 scale/bias per axis",
+                "pose_stream_bytes": a["pose_bytes"],
+                "quantization_max_error": a["max_error"],
+                "quantization_mean_error": a["mean_error"],
+            }
+            for a, ci in zip(animations, clip_ids)
+        ],
+        "textures": {
+            "baked_faces": len(baked_rgba),
+            "unique_textures": len(unique),
+            "indexed_pixel_bytes": indexed_bytes,
+            "palette_bytes": 512,
+            "estimated_vram_bytes": vram_est,
+        },
+        "vdp1": resource_report,
+        "lods": lod_reports,
+        "result": {"pass": bool(quality_report["passed"] and resource_report["passed"])},
+    }
+    return AnimatedImportResult(static=static, animations=animations, report=report)
+
+
+def print_animated_stats(report: dict) -> None:
+    src = report["source"]
+    simp = report["simplification"]
+    print(f"source vertices: {src['vertices']}")
+    print(f"source triangles: {src['triangles']}")
+    print(f"source joints: {src['joints']}")
+    print(f"animation clips: {src['animation_clips']}")
+    print(f"requested target: {simp['requested_target']}")
+    print(f"delivered triangles: {simp['delivered_triangles']}")
+    print(f"delivered vertices: {simp['delivered_vertices']}")
+    print(f"reduction: {simp['reduction_percent']}%")
+    aq = report["animation_quality"]["surface"]
+    print(f"animated surface error: max {aq['max']:.4f} p95 {aq['p95']:.4f} mean {aq['mean']:.4f}")
+    for anim in report["saturn_animation"]:
+        print(f"clip '{anim['clip']}': {anim['baked_frames']} frames @ "
+              f"{anim['sample_rate_num']}/{anim['sample_rate_den']} Hz, loop={anim['loop']}, "
+              f"pose bytes {anim['pose_stream_bytes']}, quant err {anim['quantization_max_error']:.6f}")
+    print(f"unique textures: {report['textures']['unique_textures']}")
+    print(f"texture VRAM estimate: {report['textures']['estimated_vram_bytes']}")
+    vdp1 = report["vdp1"]
+    print(f"VDP1 commands: model {vdp1['worst_case_model_commands']} + "
+          f"reserved {vdp1['reserved_commands']} = {vdp1['total_command_estimate']} "
+          f"(headroom {vdp1['command_headroom']})")
+    print(f"RESULT: {'PASS' if report['result']['pass'] else 'FAIL'} saturn-vdp1 profile")
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Import OBJ/MTL textured model for Saturn")
-    parser.add_argument("--input", required=True, help="Input OBJ file")
+    parser = argparse.ArgumentParser(description="Import textured/animated 3D models for Saturn")
+    parser.add_argument("--input", required=True, help="Input OBJ or GLB/GLTF file")
     parser.add_argument("--out-prefix", required=True, help="Output C/H prefix")
     parser.add_argument("--symbol", default=None, help="Generated symbol prefix (default: out-prefix name)")
     parser.add_argument("--scale", type=float, default=1.0, help="Uniform geometry scale")
@@ -910,15 +1376,43 @@ def main() -> int:
     parser.add_argument("--flip-y", action="store_true")
     parser.add_argument("--flip-z", action="store_true")
     parser.add_argument("--reverse-winding", action="store_true",
-                        help="Keep OBJ winding instead of converting to LibSaturn clockwise")
+                        help="Keep source winding instead of converting to LibSaturn clockwise")
     parser.add_argument("--palette-index", type=int, default=0)
     parser.add_argument("--max-texture-width", type=int, default=VDP1_MAX_TEXTURE_WIDTH)
     parser.add_argument("--max-texture-height", type=int, default=VDP1_MAX_TEXTURE_HEIGHT)
     parser.add_argument("--texture-scale", type=float, default=1.0,
                         help="Global baked-texture resolution scale")
     parser.add_argument("--sampling", default="nearest", help="Bake sampling mode (nearest)")
+    parser.add_argument("--target", default=None,
+                        help="Compilation target; 'saturn' enables the animated GLB path")
+    parser.add_argument("--simplify", default="auto",
+                        help="Animated GLB topology: off|auto|TARGET (default auto)")
+    parser.add_argument("--quality", default="balanced",
+                        help="Quality preset: conservative|balanced|aggressive")
+    parser.add_argument("--max-triangles", type=int, default=None)
+    parser.add_argument("--max-vdp1-commands", type=int, default=None)
+    parser.add_argument("--animation", default="all",
+                        help="Animated clips: all|NAME|INDEX (default all)")
+    parser.add_argument("--animation-fps", default="source",
+                        help="Runtime clip sampling: source|N fps (default source)")
+    parser.add_argument("--generate-lods", action="store_true", default=False)
+    parser.add_argument("--silhouette-views", type=int, default=16)
+    parser.add_argument("--animation-weight", type=float, default=1.0)
+    parser.add_argument("--silhouette-weight", type=float, default=1.0)
+    parser.add_argument("--report", default=None, help="JSON report path (animated path)")
     args = parser.parse_args()
 
+    suffix = Path(args.input).suffix.lower()
+    if suffix in (".glb", ".gltf"):
+        return _main_animated(args)
+    if suffix != ".obj":
+        print(f"import_model: error: expected .obj, .glb or .gltf (got {args.input})",
+              file=sys.stderr)
+        return 1
+    if args.simplify != "off" and (args.target == "saturn" or args.quality != "balanced"):
+        print("import_model: error: --simplify/--quality apply to the animated GLB path; "
+              "OBJ import is not simplified", file=sys.stderr)
+        return 1
     try:
         result = import_model(
             obj_path=Path(args.input),
@@ -939,6 +1433,66 @@ def main() -> int:
         return 1
 
     print_stats(result.stats)
+    print(f"OK: {header_path} + {source_path}")
+    return 0
+
+
+def _main_animated(args) -> int:
+    if args.target not in (None, "saturn"):
+        print(f"import_model: error: unknown --target {args.target!r} (have: saturn)",
+              file=sys.stderr)
+        return 1
+    if args.simplify == "off" and args.generate_lods:
+        print("import_model: error: --generate-lods needs simplification enabled",
+              file=sys.stderr)
+        return 1
+    try:
+        result = import_animated_model(
+            glb_path=Path(args.input),
+            scale=args.scale,
+            flip_x=args.flip_x,
+            flip_y=args.flip_y,
+            flip_z=args.flip_z,
+            reverse_winding=args.reverse_winding,
+            palette_index=args.palette_index,
+            max_texture_width=args.max_texture_width,
+            max_texture_height=args.max_texture_height,
+            texture_scale=args.texture_scale,
+            sampling=args.sampling,
+            simplify=args.simplify,
+            quality=args.quality,
+            max_triangles=args.max_triangles,
+            max_vdp1_commands=args.max_vdp1_commands,
+            animation=args.animation,
+            animation_fps=args.animation_fps,
+            generate_lods=args.generate_lods,
+            silhouette_views=args.silhouette_views,
+            animation_weight=args.animation_weight,
+            silhouette_weight=args.silhouette_weight,
+        )
+        header_path, source_path = emit_anim.emit_animated_c_h(
+            result.static, result.animations, Path(args.out_prefix), args.symbol)
+    except ImportError as exc:
+        print(f"import_model: error: {exc}", file=sys.stderr)
+        return 1
+    except pose_bake.PoseBakeError as exc:
+        print(f"import_model: error: {exc}", file=sys.stderr)
+        return 1
+    except gltf_mod.GltfError as exc:
+        print(f"import_model: error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = dict(result.report)
+        payload["output"] = {"header": str(header_path), "source": str(source_path)}
+        c_bytes = source_path.read_bytes()
+        h_bytes = header_path.read_bytes()
+        payload["output"]["sha256_c"] = hashlib.sha256(c_bytes).hexdigest()
+        payload["output"]["sha256_h"] = hashlib.sha256(h_bytes).hexdigest()
+        report_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    print_animated_stats(result.report)
     print(f"OK: {header_path} + {source_path}")
     return 0
 

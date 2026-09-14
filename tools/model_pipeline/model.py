@@ -393,7 +393,10 @@ def from_gltf(glb, source_name: str = "model") -> SourceModel:
         elif model.normals is not None:
             raise GltfError(f"{source_name}: mixed NORMAL presence across primitives")
         uv = read_accessor(glb, int(attrs["TEXCOORD_0"]))
-        model.uvs.extend(_as_v2(r, "TEXCOORD_0") for r in uv.rows)
+        # glTF UV origin is the TOP-left of the image; the canonical baker
+        # (shared with the OBJ path) takes v=0 at the bottom. Flip once at
+        # import so every downstream stage stays in one convention.
+        model.uvs.extend((u, 1.0 - v) for (u, v) in (_as_v2(r, "TEXCOORD_0") for r in uv.rows))
         if len(model.uvs) - len(uv.rows) + len(uv.rows) != len(model.vertices):
             pass  # counts checked below per primitive
         if len(uv.rows) != len(pos.rows):
