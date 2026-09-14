@@ -184,6 +184,60 @@ python tools/convert_indexed8.py \
 The `text_sprite` example reduces `sonic_head.png` to fit in the simple sprite path of VDP1.
 For the `text_sprite` example, `make` automatically calls this generation before compiling the binary.
 
+## 3D Model Pipeline for VDP1
+
+Conventional UV-mapped models cannot go straight to the VDP1: it draws
+distorted sprites from four corners with no per-vertex UVs, no depth buffer
+and no clipper. `tools/import_model.py` therefore bakes every source face
+offline into a canonical rectangular texture:
+
+```text
+OBJ + MTL + PNG
+      |
+      | tools/import_model.py
+      v
+generated C/H model
+      |
+      | upload once (sat_model_upload_textures)
+      v
+LibSaturn textured mesh (sat_draw_mesh textured path)
+      |
+      v
+VDP1 distorted sprites
+```
+
+Why bake offline: source UVs are importer input, not runtime state. The
+generated asset holds vertices in Saturn fixed point, quad indices in
+LibSaturn A/B/C/D order, face-to-texture indices into a deduplicated texture
+set, and shared indexed palette(s) -- no OBJ/MTL/PNG parsing on the Saturn,
+no heap, no per-frame uploads.
+
+VDP1 texture constraints (manual 5.1/6.6): width 8..504 in multiples of 8,
+height 1..255. The importer resamples the same UV domain across the legal
+aligned width (never pads with unused columns), enforces the maxima and CLI
+limits (`--max-texture-width/height`, `--texture-scale`), and fails with a
+face/material diagnostic when a face cannot be represented. Baked faces are
+deduplicated after palette mapping (width, height, indexed bytes, palette
+identity, flags), and one shared <=256-entry palette is built
+deterministically (index 0 reserved for transparency when needed; fully
+opaque models use `SAT_SPRITE_FLAG_OPAQUE`). Triangles travel as degenerate
+quads with the duplicated UV matching the duplicated corner.
+
+```bash
+python tools/import_model.py \
+  --input examples/basic_3d_texture/assets/sonic.obj \
+  --out-prefix build/generated/basic_3d_texture/sonic_model \
+  --symbol sonic_model \
+  --palette-index 1
+make EXAMPLE=basic_3d_texture
+.\run-example.ps1 basic_3d_texture -Emulator mednafen -BiosProfile auto
+```
+
+Viewer controls: LEFT/RIGHT orbit yaw, UP/DOWN pitch (clamped), L/R zoom
+out/in, A toggle auto-orbit, B reset, START toggle HUD. The camera orbits an
+immutable model (center from `sat_model_compute_center`); textures upload
+once at startup and frames draw with culling + painter sorting.
+
 ## Target Emulators
 
 - Kronos (debug).
