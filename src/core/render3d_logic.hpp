@@ -112,20 +112,34 @@ inline void project_vertex(
     out->y = project_axis(-(static_cast<int64_t>(clip.y) * static_cast<int64_t>(screen_h)), w2);
 }
 
-/* Twice the signed area of a projected quad, shoelace over A, B, C, D in
- * native coordinates (y grows downward). A front face -- A, B, C, D running
- * clockwise on screen, the winding saturn/mesh3d.h specifies -- comes out
- * positive, so this is backface culling without a 3D normal: exact under
- * perspective for any face in front of the camera, in int16 products. A
- * repeated corner contributes nothing, so triangles and fans need no special
- * case. */
+/* Twice the signed area of a quad A, B, C, D from native corner coordinates
+ * (y grows downward): the cross product of its diagonals, (C - A) x (D - B),
+ * which expands term for term into the shoelace sum -- two products instead
+ * of eight. A front face -- A, B, C, D running clockwise on screen, the
+ * winding saturn/mesh3d.h specifies -- comes out positive, so this is
+ * backface culling without a 3D normal: exact under perspective for any face
+ * in front of the camera. A repeated corner needs no special case: with
+ * D == C it is the triangle's own cross product. Corners are clamped to
+ * +/-2047, so each product fits comfortably in 32 bits. */
+inline int32_t corner_area2(
+    int32_t ax, int32_t ay, int32_t bx, int32_t by,
+    int32_t cx, int32_t cy, int32_t dx, int32_t dy
+) {
+    return ((cx - ax) * (dy - by)) - ((dx - bx) * (cy - ay));
+}
+
 inline int32_t quad2_area2(const sat_quad2_t& q) {
-    int32_t sum = 0;
-    for (int i = 0; i < 4; ++i) {
-        const int j = (i + 1) & 3;
-        sum += (static_cast<int32_t>(q.x[i]) * q.y[j]) - (static_cast<int32_t>(q.x[j]) * q.y[i]);
-    }
-    return sum;
+    return corner_area2(q.x[0], q.y[0], q.x[1], q.y[1], q.x[2], q.y[2], q.x[3], q.y[3]);
+}
+
+/* The same area straight from projection-cache entries, without building a
+ * sat_quad2_t for a face that may be culled anyway. */
+inline int32_t projected_area2(const sat_projected_vertex_t* screen, const uint16_t* idx) {
+    const sat_projected_vertex_t& a = screen[idx[0]];
+    const sat_projected_vertex_t& b = screen[idx[1]];
+    const sat_projected_vertex_t& c = screen[idx[2]];
+    const sat_projected_vertex_t& d = screen[idx[3]];
+    return corner_area2(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
 }
 
 /* A quad is drawable only if every corner is in front of the camera: the VDP1
@@ -292,6 +306,75 @@ inline void sort_indices16_desc(uint16_t* indices, const uint32_t* keys, uint32_
         return;
     }
     sort_painter(indices, keys, count);
+}
+
+/* Marks a face paint_order_buckets leaves out (culled, or not drawable). */
+constexpr uint32_t kPaintSkip = 0xFFFFFFFFu;
+constexpr uint32_t kPaintBuckets = 1024u;
+
+/* Farthest-first draw order in O(faces + buckets), for sat_draw_mesh.
+ *
+ * depth[f] holds face f's key (larger = farther) or kPaintSkip. The live key
+ * range is spread over kPaintBuckets by a power-of-two shift -- no divide --
+ * and faces come out bucket by bucket, farthest first, in ascending face
+ * index inside a bucket. Faces closer in depth than one bucket (about a
+ * thousandth of the mesh's depth span) can therefore keep index order where
+ * the heapsort this replaced ordered them exactly; that heapsort spent
+ * O(n log n) indirect key comparisons doing it, which an unbiased profile put
+ * at most of an animated character's frame. depth[] is overwritten with
+ * bucket numbers. Returns the number of faces written to out[]. */
+template <typename Index>
+inline uint32_t paint_order_buckets(uint32_t* depth, uint32_t face_count, Index* out) {
+    uint32_t lo = 0xFFFFFFFFu;
+    uint32_t hi = 0u;
+    uint32_t live = 0u;
+    for (uint32_t f = 0; f < face_count; ++f) {
+        const uint32_t key = depth[f];
+        if (key == kPaintSkip) {
+            continue;
+        }
+        if (key < lo) {
+            lo = key;
+        }
+        if (key > hi) {
+            hi = key;
+        }
+        ++live;
+    }
+    if (live == 0u) {
+        return 0u;
+    }
+    uint32_t shift = 0u;
+    while (((hi - lo) >> shift) >= kPaintBuckets) {
+        ++shift;
+    }
+    /* face_count fits uint16_t, so every running position does too. */
+    uint16_t start[kPaintBuckets];
+    for (uint32_t b = 0; b < kPaintBuckets; ++b) {
+        start[b] = 0u;
+    }
+    for (uint32_t f = 0; f < face_count; ++f) {
+        if (depth[f] == kPaintSkip) {
+            continue;
+        }
+        const uint32_t bucket = (depth[f] - lo) >> shift;
+        depth[f] = bucket;
+        ++start[bucket];
+    }
+    uint32_t running = 0u;
+    for (uint32_t b = kPaintBuckets; b-- > 0u;) {
+        const uint32_t n = start[b];
+        start[b] = static_cast<uint16_t>(running);
+        running += n;
+    }
+    for (uint32_t f = 0; f < face_count; ++f) {
+        const uint32_t bucket = depth[f];
+        if (bucket == kPaintSkip) {
+            continue;
+        }
+        out[start[bucket]++] = static_cast<Index>(f);
+    }
+    return live;
 }
 
 /* Distances between maze-scale points fit comfortably in 32 bits, but a

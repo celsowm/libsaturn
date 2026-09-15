@@ -351,12 +351,12 @@ int main(void) {
     if (size < (SAT_FX16_ONE >> 6)) {
         size = SAT_FX16_ONE >> 6;
     }
-    /* Frame the model: with a 60 degree FOV, a distance of its largest
-     * extent fills about 85% of the screen height -- close enough that the
-     * figure gets the pixels, not the black around it. Zoom 1/3x to 16x. */
+    /* Frame the model: with a 60 degree FOV, 1.25x its largest extent fills
+     * about 70% of the screen height -- close enough that the figure gets
+     * the pixels, with room for the stride and the HUD. Zoom 1/3x to 16x. */
     g_min_dist = size / 3;
     g_max_dist = size * 16;
-    g_distance = size;
+    g_distance = size + size / 4;
     if (g_distance < g_min_dist) {
         g_distance = g_min_dist;
     }

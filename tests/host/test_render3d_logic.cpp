@@ -360,6 +360,95 @@ TEST(screen_area_culling_matches_world_culling) {
     }
 }
 
+/* The diagonal cross product is the shoelace sum, for any corners in range,
+ * and the cache-entry form agrees with the quad form. */
+TEST(diagonal_area_equals_shoelace) {
+    uint32_t seed = 777u;
+    for (int n = 0; n < 5000; ++n) {
+        sat_quad2_t q;
+        sat_projected_vertex_t screen[4];
+        const uint16_t idx[4] = {0, 1, 2, 3};
+        for (int i = 0; i < 4; ++i) {
+            seed = seed * 1103515245u + 12345u;
+            q.x[i] = (int16_t)((int32_t)((seed >> 8) % 4095u) - 2047);
+            seed = seed * 1103515245u + 12345u;
+            q.y[i] = (int16_t)((int32_t)((seed >> 8) % 4095u) - 2047);
+        }
+        if (n % 3 == 0) {
+            q.x[3] = q.x[2]; /* degenerate triangle corner */
+            q.y[3] = q.y[2];
+        }
+        int32_t shoelace = 0;
+        for (int i = 0; i < 4; ++i) {
+            const int j = (i + 1) & 3;
+            shoelace += (int32_t)q.x[i] * q.y[j] - (int32_t)q.x[j] * q.y[i];
+            screen[i].x = q.x[i];
+            screen[i].y = q.y[i];
+            screen[i].w = SAT_FX16_ONE;
+        }
+        ASSERT_EQ(quad2_area2(q), shoelace);
+        ASSERT_EQ(projected_area2(screen, idx), shoelace);
+    }
+}
+
+/* Bucketed painter's order: every live face exactly once, farther buckets
+ * first, ascending face index inside a bucket, skipped faces left out. */
+TEST(bucket_paint_order_is_complete_and_farthest_first) {
+    static uint32_t keys[700];
+    static uint32_t work[700];
+    static uint32_t work8[255];
+    static uint16_t out[700];
+    static uint8_t out8[255];
+    static uint8_t seen[700];
+    const uint32_t sizes[] = {0u, 1u, 2u, 5u, 255u, 700u};
+    uint32_t seed = 4242u;
+    for (uint32_t s = 0; s < sizeof(sizes) / sizeof(sizes[0]); ++s) {
+        const uint32_t n = sizes[s];
+        uint32_t expect_live = 0u;
+        uint32_t lo = 0xFFFFFFFFu;
+        uint32_t hi = 0u;
+        for (uint32_t i = 0; i < n; ++i) {
+            seed = seed * 1103515245u + 12345u;
+            keys[i] = ((seed >> 4) % 7u == 0u) ? kPaintSkip : ((seed >> 3) % 5000000u);
+            work[i] = keys[i];
+            if (keys[i] != kPaintSkip) {
+                ++expect_live;
+                lo = keys[i] < lo ? keys[i] : lo;
+                hi = keys[i] > hi ? keys[i] : hi;
+            }
+        }
+        const uint32_t live = paint_order_buckets(work, n, out);
+        ASSERT_EQ(live, expect_live);
+        uint32_t shift = 0u;
+        while (live > 0u && ((hi - lo) >> shift) >= kPaintBuckets) {
+            ++shift;
+        }
+        for (uint32_t i = 0; i < n; ++i) {
+            seen[i] = 0u;
+        }
+        for (uint32_t i = 0; i < live; ++i) {
+            ASSERT_TRUE(out[i] < n);
+            ASSERT_TRUE(keys[out[i]] != kPaintSkip);
+            ASSERT_EQ(seen[out[i]], 0u);
+            seen[out[i]] = 1u;
+            if (i + 1u < live) {
+                const uint32_t b0 = (keys[out[i]] - lo) >> shift;
+                const uint32_t b1 = (keys[out[i + 1u]] - lo) >> shift;
+                ASSERT_TRUE(b0 > b1 || (b0 == b1 && out[i] < out[i + 1u]));
+            }
+        }
+        if (n <= 255u) {
+            for (uint32_t i = 0; i < n; ++i) {
+                work8[i] = keys[i];
+            }
+            ASSERT_EQ(paint_order_buckets(work8, n, out8), live);
+            for (uint32_t i = 0; i < live; ++i) {
+                ASSERT_EQ(out8[i], out[i]);
+            }
+        }
+    }
+}
+
 TEST(sort_handles_degenerate_counts) {
     uint8_t idx[1] = {0};
     const uint32_t keys[1] = {7u};
@@ -527,6 +616,8 @@ int main() {
     project_quad_reuses_repeated_corners();
     project_vertex_matches_project_native();
     screen_area_culling_matches_world_culling();
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 27);
+    bucket_paint_order_is_complete_and_farthest_first();
+    diagonal_area_equals_shoelace();
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 29);
     return 0;
 }

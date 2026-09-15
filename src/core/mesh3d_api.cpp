@@ -91,45 +91,46 @@ sat_result_t draw_mesh_projected(
         return st;
     }
     const bool cull = (params->flags & SAT_MESH_CULL_BACKFACE) != 0u;
+    /* One pass over the vertices decides whether any face can straddle the
+     * camera plane; when none can -- the usual case for a framed model --
+     * the per-face loop skips four depth loads per face. */
+    bool any_behind = false;
+    for (uint16_t v = 0; v < mesh->vertex_count; ++v) {
+        if (screen[v].w <= 0) {
+            any_behind = true;
+            break;
+        }
+    }
     sat_result_t worst = SAT_OK;
-    uint32_t live = 0u;
     for (uint16_t f = 0; f < mesh->face_count; ++f) {
         const uint16_t* idx = &mesh->indices[static_cast<uint32_t>(f) * 4u];
         /* The VDP1 cannot clip at the near plane: a straddling face is not
          * drawable, which is a visibility outcome, not an error. */
-        if (screen[idx[0]].w <= 0 || screen[idx[1]].w <= 0 ||
-            screen[idx[2]].w <= 0 || screen[idx[3]].w <= 0) {
-            continue;
-        }
-        sat_quad2_t projected;
-        fill_quad2(screen, idx, &projected);
-        if (cull && saturn::core::render3d::quad2_area2(projected) <= 0) {
-            continue;
+        bool drawable = !any_behind ||
+            (screen[idx[0]].w > 0 && screen[idx[1]].w > 0 &&
+             screen[idx[2]].w > 0 && screen[idx[3]].w > 0);
+        if (drawable && cull) {
+            drawable = saturn::core::render3d::projected_area2(screen, idx) > 0;
         }
         if (!sorted) {
-            st = submit_projected_face(mesh, params, f, projected);
-            if (st != SAT_OK && st != SAT_ERR_UNSUPPORTED) {
-                worst = st;
+            if (drawable) {
+                sat_quad2_t projected;
+                fill_quad2(screen, idx, &projected);
+                st = submit_projected_face(mesh, params, f, projected);
+                if (st != SAT_OK && st != SAT_ERR_UNSUPPORTED) {
+                    worst = st;
+                }
             }
             continue;
         }
-        if (wide) {
-            params->order16[live] = f;
-        } else {
-            params->order[live] = static_cast<uint8_t>(f);
-        }
-        params->depth[f] = view_depth_key(screen, idx);
-        ++live;
+        params->depth[f] = drawable ? view_depth_key(screen, idx) : saturn::core::render3d::kPaintSkip;
     }
     if (!sorted) {
         return worst;
     }
-    if (wide) {
-        saturn::core::render3d::sort_indices16_desc(params->order16, params->depth, live);
-    } else {
-        saturn::core::render3d::sort_indices_desc(
-            params->order, params->depth, static_cast<uint16_t>(live));
-    }
+    const uint32_t live = wide
+        ? saturn::core::render3d::paint_order_buckets(params->depth, mesh->face_count, params->order16)
+        : saturn::core::render3d::paint_order_buckets(params->depth, mesh->face_count, params->order);
     for (uint32_t n = 0; n < live; ++n) {
         const uint16_t f = wide ? params->order16[n] : params->order[n];
         sat_quad2_t projected;
@@ -361,41 +362,26 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
     /* Building the draw order first, rather than culling inside the submit
      * loop, keeps the sort keyed on the faces that actually survive -- and
      * means a mesh drawn without SAT_MESH_SORT costs no scratch at all. */
-    uint16_t count = mesh->face_count;
-    uint32_t live16 = 0u;
+    using saturn::core::render3d::kPaintSkip;
+    uint32_t total = mesh->face_count;
     if (sorted) {
-        uint16_t live = 0u;
         for (uint16_t i = 0; i < mesh->face_count; ++i) {
             sat_quad3_t quad;
-            if (face_quad(mesh, i, &quad) != SAT_OK) {
+            if (face_quad(mesh, i, &quad) != SAT_OK ||
+                ((params->flags & SAT_MESH_CULL_BACKFACE) != 0u &&
+                 !quad_visible(quad, params->eye))) {
+                params->depth[i] = kPaintSkip;
                 continue;
             }
-            if ((params->flags & SAT_MESH_CULL_BACKFACE) != 0u &&
-                !quad_visible(quad, params->eye)) {
-                continue;
-            }
-            const sat_vec3_t center = quad_center(quad);
-            const uint32_t key = eye_distance_key(params->eye, center);
-            if (wide) {
-                params->order16[live16] = i;
-                params->depth[i] = key;
-                ++live16;
-            } else {
-                params->order[live] = static_cast<uint8_t>(i);
-                params->depth[i] = key;
-                ++live;
-            }
+            const uint32_t key = eye_distance_key(params->eye, quad_center(quad));
+            params->depth[i] = (key == kPaintSkip) ? kPaintSkip - 1u : key;
         }
-        if (wide) {
-            saturn::core::render3d::sort_indices16_desc(params->order16, params->depth, live16);
-        } else {
-            count = live;
-            saturn::core::render3d::sort_indices_desc(params->order, params->depth, count);
-        }
+        total = wide
+            ? saturn::core::render3d::paint_order_buckets(params->depth, mesh->face_count, params->order16)
+            : saturn::core::render3d::paint_order_buckets(params->depth, mesh->face_count, params->order);
     }
 
     sat_result_t worst = SAT_OK;
-    const uint32_t total = wide ? live16 : static_cast<uint32_t>(count);
     for (uint32_t n = 0; n < total; ++n) {
         const uint16_t face = sorted ? (wide ? params->order16[n] : params->order[n]) : static_cast<uint16_t>(n);
         sat_quad3_t quad;
