@@ -42,3 +42,7 @@ run_vdp2_simulation.py
 bios/
 .external/
 !assets/prebuilt/
+# The basic_3d_animation acceptance GLB is a local-only fixture: its
+# assets/LICENSE.txt carries no redistribution grant, so the binary stays
+# out of version control (committed tests use generated fixtures instead).
+examples/basic_3d_animation/assets/*.glb

@@ -38,7 +38,10 @@ class SaturnProfile:
     cmd_capacity: int = 512
     setup_commands: int = 2
     end_commands: int = 1
-    hud_reserve: int = 8
+    # Worst-case viewer HUD: ~113 text glyphs at one VDP1 command each,
+    # rounded up. The HUD is toggleable, but the budget must hold with it
+    # visible; silent face-truncation is never an option.
+    hud_reserve: int = 128
     min_command_headroom: int = 16
     texture_budget_bytes: int = VDP1_TEXTURE_BUDGET_BYTES
     max_texture_fraction: float = 0.90

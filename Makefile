@@ -180,6 +180,72 @@ ifneq ($(strip $(GENERATED_EXAMPLE_ASSET_TARGETS)),)
   endif
 endif
 
+# Generic animated GLB compilation via tools/import_model.py --target saturn.
+# An example opts in by defining MODEL_GLB in its Makefile.inc, e.g.:
+#   MODEL_GLB           := examples/$(EXAMPLE)/assets/walk.glb
+#   MODEL_OUT_PREFIX    := $(GENERATED_DIR)/$(EXAMPLE)/walk_model
+#   MODEL_SYMBOL        := walk_model
+# Optional: MODEL_SCALE, MODEL_TEXTURE_SCALE, MODEL_PALETTE_INDEX,
+# MODEL_MAX_TEXTURE_WIDTH/HEIGHT, MODEL_SIMPLIFY (off|auto|TARGET),
+# MODEL_QUALITY, MODEL_ANIMATION, MODEL_ANIMATION_FPS, MODEL_FLIP_X/Y/Z,
+# MODEL_REVERSE_WINDING, MODEL_GENERATE_LODS.
+# Model generation rebuilds when the GLB, the importer, or any
+# model-pipeline module changes. Simplification/profile OPTION changes are
+# not file dependencies: after editing them, remove the generated prefix
+# (or touch the GLB) to force a rebuild.
+MODEL_PIPELINE_SRCS := $(wildcard $(TOOLS)/model_pipeline/*.py)
+ifdef MODEL_GLB
+MODEL_SYMBOL              ?= $(notdir $(MODEL_OUT_PREFIX))
+MODEL_SCALE               ?= 1.0
+MODEL_TEXTURE_SCALE       ?= 1.0
+MODEL_PALETTE_INDEX       ?= 1
+MODEL_MAX_TEXTURE_WIDTH   ?= 504
+MODEL_MAX_TEXTURE_HEIGHT  ?= 255
+MODEL_SIMPLIFY            ?= auto
+MODEL_QUALITY             ?= balanced
+MODEL_ANIMATION           ?= all
+MODEL_ANIMATION_FPS       ?= source
+MODEL_FLIP_FLAGS          :=
+ifeq ($(MODEL_FLIP_X),1)
+MODEL_FLIP_FLAGS += --flip-x
+endif
+ifeq ($(MODEL_FLIP_Y),1)
+MODEL_FLIP_FLAGS += --flip-y
+endif
+ifeq ($(MODEL_FLIP_Z),1)
+MODEL_FLIP_FLAGS += --flip-z
+endif
+ifeq ($(MODEL_REVERSE_WINDING),1)
+MODEL_FLIP_FLAGS += --reverse-winding
+endif
+ifeq ($(MODEL_GENERATE_LODS),1)
+MODEL_LOD_FLAG := --generate-lods
+else
+MODEL_LOD_FLAG :=
+endif
+$(MODEL_OUT_PREFIX).c $(MODEL_OUT_PREFIX).h &: $(MODEL_GLB) $(TOOLS)/import_model.py $(MODEL_PIPELINE_SRCS)
+	@if [ ! -f "$(MODEL_GLB)" ]; then \
+		echo "error: animated source GLB missing: $(MODEL_GLB)"; \
+		echo "Provide the example GLB (see its assets/LICENSE.txt) or build with repository fixtures."; \
+		exit 1; fi
+	@mkdir -p $(dir $@)
+	$(PYTHON) $(TOOLS)/import_model.py \
+		--input $(MODEL_GLB) \
+		--target saturn \
+		--out-prefix $(MODEL_OUT_PREFIX) \
+		--symbol $(MODEL_SYMBOL) \
+		--scale $(MODEL_SCALE) \
+		--palette-index $(MODEL_PALETTE_INDEX) \
+		--max-texture-width $(MODEL_MAX_TEXTURE_WIDTH) \
+		--max-texture-height $(MODEL_MAX_TEXTURE_HEIGHT) \
+		--texture-scale $(MODEL_TEXTURE_SCALE) \
+		--simplify $(MODEL_SIMPLIFY) \
+		--quality $(MODEL_QUALITY) \
+		--animation $(MODEL_ANIMATION) \
+		--animation-fps $(MODEL_ANIMATION_FPS) \
+		--report $(MODEL_OUT_PREFIX).report.json \
+		$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG)
+endif
 # Generic 3D model generation via tools/import_model.py.
 # An example opts in by defining MODEL_OBJ in its Makefile.inc, e.g.:
 #   MODEL_OBJ         := examples/$(EXAMPLE)/assets/sonic.obj

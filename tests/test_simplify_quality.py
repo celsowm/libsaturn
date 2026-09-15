@@ -283,8 +283,8 @@ class SilhouetteTests(unittest.TestCase):
 class SaturnProfileTests(unittest.TestCase):
     def test_face_budget_math(self):
         p = profile_mod.SaturnProfile()
-        # 512 - 2 setup - 1 end - 8 HUD - 16 headroom = 485.
-        self.assertEqual(profile_mod.face_command_budget(p), 485)
+        # 512 - 2 setup - 1 end - 128 HUD - 16 headroom = 365.
+        self.assertEqual(profile_mod.face_command_budget(p), 365)
 
     def test_passing_candidate(self):
         p = profile_mod.SaturnProfile()
@@ -293,7 +293,7 @@ class SaturnProfileTests(unittest.TestCase):
         )
         self.assertTrue(rep["passed"], rep["failing_gates"])
         self.assertEqual(rep["worst_case_model_commands"], 300)
-        self.assertEqual(rep["reserved_commands"], 2 + 1 + 8)
+        self.assertEqual(rep["reserved_commands"], 2 + 1 + 128)
         self.assertGreaterEqual(rep["command_headroom"], p.min_command_headroom)
 
     def test_face_over_budget_fails(self):

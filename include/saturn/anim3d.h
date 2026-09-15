@@ -83,21 +83,21 @@ typedef struct sat_anim_state {
 /* Descriptor validation without touching hardware. Checks counts, nulls,
  * rate denominators, vertex-count agreement with the static model, and
  * encoding ranges. */
-sat_result_t sat_anim_validate(const sat_animated_model_asset* asset);
-sat_result_t sat_anim_clip_validate(const sat_animated_model_asset* asset, uint16_t clip);
+sat_result_t sat_anim_validate(const sat_animated_model_asset_t* asset);
+sat_result_t sat_anim_clip_validate(const sat_animated_model_asset_t* asset, uint16_t clip);
 
 /* Clip duration in 16.16 seconds (frame_count at the clip rate). */
-sat_fx16_t sat_anim_clip_duration(const sat_animated_model_asset* asset, uint16_t clip);
+sat_fx16_t sat_anim_clip_duration(const sat_animated_model_asset_t* asset, uint16_t clip);
 
 /* Binds state to a clip at time zero. */
 sat_result_t sat_anim_state_init(
     sat_anim_state_t* state,
-    const sat_animated_model_asset* asset,
+    const sat_animated_model_asset_t* asset,
     uint16_t clip
 );
 sat_result_t sat_anim_set_clip(
     sat_anim_state_t* state,
-    const sat_animated_model_asset* asset,
+    const sat_animated_model_asset_t* asset,
     uint16_t clip
 );
 sat_result_t sat_anim_reset(sat_anim_state_t* state);
@@ -109,7 +109,7 @@ int sat_anim_is_paused(const sat_anim_state_t* state);
  * frame. A paused state is left untouched and still returns SAT_OK. */
 sat_result_t sat_anim_advance(
     sat_anim_state_t* state,
-    const sat_animated_model_asset* asset,
+    const sat_animated_model_asset_t* asset,
     sat_fx16_t dt_fx16
 );
 
@@ -118,7 +118,7 @@ sat_result_t sat_anim_advance(
  * too small (writes nothing) and SAT_ERR_INVALID_ARG for a malformed
  * request. Feed the output to a sat_mesh_t's vertices before drawing. */
 sat_result_t sat_anim_decode(
-    const sat_animated_model_asset* asset,
+    const sat_animated_model_asset_t* asset,
     const sat_anim_state_t* state,
     sat_vec3_t* out_vertices,
     uint16_t vertex_cap
