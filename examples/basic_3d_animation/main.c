@@ -47,8 +47,9 @@
 #define FONT_PALETTE 0u
 
 /* Mesh storage with headroom over the generated asset so importer retuning
- * does not force a recompile of sizes by hand each time. Faces exceed the
- * legacy 255-entry uint8 sort table, so SORT runs through order16. */
+ * does not force a recompile of sizes by hand each time. SORT binds through
+ * the narrow uint8 path while face_count <= 255 and switches to order16
+ * automatically beyond that; both buffers are sized for the cap. */
 #define MODEL_VERTEX_CAP 768u
 #define MODEL_FACE_CAP 320u
 #define MODEL_TEXTURE_CAP 32u
@@ -68,6 +69,10 @@ static sat_vec3_t g_mesh_vertices[MODEL_VERTEX_CAP];
 static uint16_t g_mesh_indices[MODEL_FACE_CAP * 4u];
 static sat_mesh_t g_mesh;
 static sat_texture_t g_model_textures[MODEL_TEXTURE_CAP];
+/* Narrow order path when the model fits the uint8 table (<=255 faces),
+ * wide order16 path otherwise; passing both keeps the call valid either
+ * way and lets the importer retune counts without code edits. */
+static uint8_t g_mesh_order[MODEL_FACE_CAP];
 static uint16_t g_mesh_order16[MODEL_FACE_CAP];
 static uint32_t g_mesh_depth[MODEL_FACE_CAP];
 
@@ -327,7 +332,7 @@ int main(void) {
             &g_view_proj, &g_cam_eye,
             SAT_RGB555(31, 31, 31), NULL, 0,
             SAT_MESH_CULL_BACKFACE | SAT_MESH_SORT,
-            NULL, g_mesh_order16, g_mesh_depth, &draw));
+            g_mesh_order, g_mesh_order16, g_mesh_depth, &draw));
         if (!g_draw_overflow) {
             note(sat_draw_mesh(&g_mesh, &draw));
         }
