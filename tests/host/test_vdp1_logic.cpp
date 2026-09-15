@@ -110,11 +110,12 @@ TEST(polygon_ctrl_masks_high_bits) {
 
 TEST(polygon_pmod_required_bits) {
     using namespace saturn::core;
-    /* SPD (bit3) and ECD (bit4) must be set, color mode bits 2..0 = 000B. */
+    /* ECD (bit7) and SPD (bit6) set; color mode (bits 5..3) and color
+     * calculation (bits 2..0) both 000B. */
     const uint16_t pmod = compose_polygon_pmod(0);
-    ASSERT_EQ(pmod & 0x0007u, 0x0000u);  /* color mode 000B */
-    ASSERT_TRUE((pmod & 0x0008u) != 0u); /* SPD = 1 */
-    ASSERT_TRUE((pmod & 0x0010u) != 0u); /* ECD = 1 */
+    ASSERT_EQ(pmod & 0x003Fu, 0x0000u);  /* color mode + calculation 000B */
+    ASSERT_TRUE((pmod & 0x0040u) != 0u); /* SPD = 1 */
+    ASSERT_TRUE((pmod & 0x0080u) != 0u); /* ECD = 1 */
     ASSERT_EQ(pmod, kVdp1PolygonPmod);
 }
 

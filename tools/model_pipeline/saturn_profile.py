@@ -5,11 +5,11 @@ Converts measured hardware/runtime constraints into a model face budget so
 the simplifier report can prove the accepted topology fits with headroom.
 Limits come from the vendored VDP1 documentation and the current HAL:
 
-- command-list capacity 512 (``saturn::internal::kCmdCapacity``), of which
+- command-list capacity 2048 (``saturn::internal::kCmdCapacity``), of which
   2 setup commands (local-coordinate + system-clip, re-issued every frame)
   and 1 END command are runtime overhead, not model data;
 - one distorted-sprite command per visible textured triangle/quad;
-- texture VRAM: 512 KiB VDP1 VRAM minus the 16 KiB command area, with the
+- texture VRAM: 512 KiB VDP1 VRAM minus the 64 KiB command area, with the
   HAL's 8-byte cursor alignment applied per texture;
 - palette CRAM: 8 banks of 256 RGB555 entries;
 - sort scratch: caller-owned, sized per face (see the widened 16-bit sort
@@ -25,7 +25,7 @@ from dataclasses import dataclass
 
 
 VDP1_VRAM_BYTES = 512 * 1024
-VDP1_COMMAND_AREA_BYTES = 16 * 1024
+VDP1_COMMAND_AREA_BYTES = 64 * 1024
 VDP1_TEXTURE_BUDGET_BYTES = VDP1_VRAM_BYTES - VDP1_COMMAND_AREA_BYTES
 VDP1_MAX_TEXTURE_WIDTH = 504
 VDP1_MAX_TEXTURE_HEIGHT = 255
@@ -35,7 +35,7 @@ PALETTE_BANKS_TOTAL = 8
 @dataclass
 class SaturnProfile:
     name: str = "saturn-vdp1"
-    cmd_capacity: int = 512
+    cmd_capacity: int = 2048
     setup_commands: int = 2
     end_commands: int = 1
     # Worst-case viewer HUD: ~113 text glyphs at one VDP1 command each,

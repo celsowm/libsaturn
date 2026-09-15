@@ -60,6 +60,23 @@ inline sat_result_t validate(const sat_animated_model_asset* asset) {
         if (st != SAT_OK) {
             return st;
         }
+        /* Every shade index must land inside the palette. This walk is
+         * O(frames x faces), so it lives here -- called once at load --
+         * rather than in the per-frame paths, which keep O(1) clip checks. */
+        const sat_model_animation_asset* anim = &asset->animations[c];
+        if (anim->face_shades != nullptr) {
+            const sat_model_asset* model = asset->model;
+            if (model->shade_palette_rgb555 == nullptr || model->shade_palette_count == 0u) {
+                return SAT_ERR_INVALID_ARG;
+            }
+            const uint32_t n =
+                static_cast<uint32_t>(anim->frame_count) * static_cast<uint32_t>(model->face_count);
+            for (uint32_t i = 0; i < n; ++i) {
+                if (anim->face_shades[i] >= model->shade_palette_count) {
+                    return SAT_ERR_INVALID_ARG;
+                }
+            }
+        }
     }
     return SAT_OK;
 }
@@ -133,11 +150,41 @@ inline sat_result_t advance(
     return SAT_OK;
 }
 
-/* One quantized axis back to 16.16: bias + scale * q / 32767. */
-inline sat_fx16_t decode_axis(sat_fx16_t bias, sat_fx16_t scale, int16_t q) {
-    return bias +
-        static_cast<sat_fx16_t>(
-            (static_cast<int64_t>(scale) * static_cast<int64_t>(q)) / 32767);
+/* floor(n / 32767) for 0 <= |n| < 2^30, truncating toward zero, with no
+ * divide: m = ceil(2^45 / 32767) = 1073774594 overshoots 2^45 / 32767 by
+ * e = 32766 / 32767, and n * e < 2^45 across that whole range, so the
+ * reciprocal multiply is exact. */
+inline int32_t div32767_small(int32_t n) {
+    const uint32_t mag = static_cast<uint32_t>((n < 0) ? -n : n);
+    const uint32_t q =
+        static_cast<uint32_t>((static_cast<uint64_t>(mag) * 1073774594u) >> 45u);
+    return (n < 0) ? -static_cast<int32_t>(q) : static_cast<int32_t>(q);
+}
+
+/* One axis of the quantization contract, bias + trunc(scale * q / 32767),
+ * split so the per-vertex part never divides.
+ *
+ * Decoding used to spend three 64-bit divides per vertex per frame -- the
+ * single largest cost of an animated model, even on the hardware divider.
+ * scale = whole * 32767 + rest is taken once per clip axis instead; whole * q
+ * is then exact, rest * q stays under 2^30, and since both parts share the
+ * sign of scale their truncations add up to the truncation of the sum. */
+struct axis_decoder {
+    sat_fx16_t bias;
+    int32_t whole;
+    int32_t rest;
+};
+
+inline axis_decoder make_axis_decoder(sat_fx16_t bias, sat_fx16_t scale) {
+    axis_decoder d;
+    d.bias = bias;
+    d.whole = scale / 32767;
+    d.rest = scale - (d.whole * 32767);
+    return d;
+}
+
+inline sat_fx16_t decode_axis(const axis_decoder& d, int16_t q) {
+    return d.bias + static_cast<sat_fx16_t>(d.whole * q) + div32767_small(d.rest * q);
 }
 
 inline sat_result_t decode(
@@ -161,11 +208,52 @@ inline sat_result_t decode(
     }
     const uint32_t base =
         static_cast<uint32_t>(state->frame) * static_cast<uint32_t>(anim->vertex_count) * 3u;
+    const axis_decoder ax = make_axis_decoder(anim->encoding.bias_x, anim->encoding.scale_x);
+    const axis_decoder ay = make_axis_decoder(anim->encoding.bias_y, anim->encoding.scale_y);
+    const axis_decoder az = make_axis_decoder(anim->encoding.bias_z, anim->encoding.scale_z);
+    const int16_t* q = &anim->positions[base];
     for (uint16_t v = 0; v < anim->vertex_count; ++v) {
-        const uint32_t slot = base + static_cast<uint32_t>(v) * 3u;
-        out[v].x = decode_axis(anim->encoding.bias_x, anim->encoding.scale_x, anim->positions[slot]);
-        out[v].y = decode_axis(anim->encoding.bias_y, anim->encoding.scale_y, anim->positions[slot + 1u]);
-        out[v].z = decode_axis(anim->encoding.bias_z, anim->encoding.scale_z, anim->positions[slot + 2u]);
+        out[v].x = decode_axis(ax, q[0]);
+        out[v].y = decode_axis(ay, q[1]);
+        out[v].z = decode_axis(az, q[2]);
+        q += 3;
+    }
+    return SAT_OK;
+}
+
+inline sat_result_t face_colors(
+    const sat_animated_model_asset* asset,
+    const sat_anim_state_t* state,
+    uint16_t* out,
+    uint16_t cap
+) {
+    if (asset == nullptr || state == nullptr || out == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (validate_clip(asset, state->clip) != SAT_OK) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const sat_model_animation_asset* anim = clip_at(asset, state->clip);
+    const sat_model_asset* model = asset->model;
+    if (state->frame >= anim->frame_count) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (anim->face_shades == nullptr || model->shade_palette_rgb555 == nullptr ||
+        model->shade_palette_count == 0u) {
+        return SAT_ERR_UNSUPPORTED;
+    }
+    if (cap < model->face_count) {
+        return SAT_ERR_CAPACITY;
+    }
+    const uint8_t* shade =
+        &anim->face_shades[static_cast<uint32_t>(state->frame) * model->face_count];
+    const uint16_t* palette = model->shade_palette_rgb555;
+    const uint16_t count = model->shade_palette_count;
+    for (uint16_t f = 0; f < model->face_count; ++f) {
+        /* sat_anim_validate already bounds every index; clamping here costs
+         * one compare and keeps an unvalidated asset from reading past it. */
+        const uint8_t i = shade[f];
+        out[f] = palette[(i < count) ? i : 0u];
     }
     return SAT_OK;
 }

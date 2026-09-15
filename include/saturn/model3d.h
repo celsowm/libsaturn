@@ -55,6 +55,13 @@ typedef struct sat_model_asset {
      * goes to bank (palette_base + i). */
     uint16_t palette_base;
     uint16_t reserved;
+    /* Optional baked-lighting shade palette: shade_palette_count RGB555
+     * entries (at most 256) that sat_model_animation_asset_t::face_shades
+     * index. Entry 0 is reserved. Solid-color assets set texture_count to 0,
+     * every face_texture_indices entry to SAT_MESH_TEXTURE_NONE, and carry
+     * their colors here instead of in textures. Zero for textured assets. */
+    const uint16_t* shade_palette_rgb555;
+    uint16_t shade_palette_count;
 } sat_model_asset_t;
 
 /* Validates a compiled-model descriptor without touching hardware.

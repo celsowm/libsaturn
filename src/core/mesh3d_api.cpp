@@ -5,6 +5,145 @@
 
 using namespace saturn::core::mesh3d;
 
+namespace {
+
+/* Painter's key: squared 3D eye distance at 8 fractional bits.
+ *
+ * The public ground_distance_sq keys on whole units in the XZ plane, which is
+ * right for maze-scale scenes but collapses every face of a sub-unit model
+ * (an animated character spans ~0.5 units) onto the same key, so the "sorted"
+ * draw came out in index order. Eight fractional bits resolve 1/256 unit and
+ * still fit ~147 units per axis in 32 bits; farther faces clamp together,
+ * where their order no longer matters. */
+inline uint32_t eye_distance_key(const sat_vec3_t& eye, const sat_vec3_t& c) {
+    const int64_t dx = (static_cast<int64_t>(eye.x) - c.x) >> 8;
+    const int64_t dy = (static_cast<int64_t>(eye.y) - c.y) >> 8;
+    const int64_t dz = (static_cast<int64_t>(eye.z) - c.z) >> 8;
+    const int64_t d = dx * dx + dy * dy + dz * dz;
+    return d > static_cast<int64_t>(0xFFFFFFFFu) ? 0xFFFFFFFFu : static_cast<uint32_t>(d);
+}
+
+/* ------------------------------------------------------------------ */
+/* Screen-space path (sat_mesh_draw_t::screen)                          */
+/* ------------------------------------------------------------------ */
+
+inline void fill_quad2(const sat_projected_vertex_t* screen, const uint16_t* idx, sat_quad2_t* out) {
+    for (int i = 0; i < 4; ++i) {
+        out->x[i] = screen[idx[i]].x;
+        out->y[i] = screen[idx[i]].y;
+    }
+}
+
+/* Painter's key from view depth: the corners' clip w, a quarter each so the
+ * sum of four positive 16.16 values stays inside 32 bits. */
+inline uint32_t view_depth_key(const sat_projected_vertex_t* screen, const uint16_t* idx) {
+    uint32_t key = 0u;
+    for (int i = 0; i < 4; ++i) {
+        key += static_cast<uint32_t>(screen[idx[i]].w) >> 2u;
+    }
+    return key;
+}
+
+sat_result_t submit_projected_face(
+    const sat_mesh_t* mesh,
+    const sat_mesh_draw_t* params,
+    uint16_t face,
+    const sat_quad2_t& projected
+) {
+    uint16_t tex_index = 0u;
+    const mesh_face_draw_mode mode = resolve_face_draw_mode(
+        face,
+        params->face_texture_indices,
+        mesh->face_count,
+        params->textures,
+        params->texture_count,
+        &tex_index);
+    if (mode == mesh_face_draw_mode::kTextured) {
+        return sat_draw_quad2_sprite(&projected, &params->textures[tex_index], 0u, 0u);
+    }
+    uint16_t color = (params->face_colors != nullptr) ? params->face_colors[face] : params->color;
+    if ((params->flags & SAT_MESH_SHADE) != 0u) {
+        sat_quad3_t quad;
+        if (face_quad(mesh, face, &quad) == SAT_OK) {
+            color = saturn::core::render3d::shade_rgb555(
+                color,
+                saturn::core::render3d::face_intensity3_scaled(
+                    quad_normal_scaled(quad), params->ambient));
+        }
+    }
+    return sat_draw_quad2_polygon(&projected, color);
+}
+
+/* Projects every vertex once, then culls, sorts and submits from screen
+ * space. Per face that is a handful of int16 products and additions, where
+ * the world-space path pays a 3D cross product, a center and a 64-bit
+ * distance for every face before it can even decide to skip it. */
+sat_result_t draw_mesh_projected(
+    const sat_mesh_t* mesh,
+    const sat_mesh_draw_t* params,
+    bool sorted,
+    bool wide
+) {
+    const sat_projected_vertex_t* screen = params->screen;
+    sat_result_t st = sat_project_vertices(
+        params->view_proj, mesh->vertices, mesh->vertex_count, params->screen);
+    if (st != SAT_OK) {
+        return st;
+    }
+    const bool cull = (params->flags & SAT_MESH_CULL_BACKFACE) != 0u;
+    sat_result_t worst = SAT_OK;
+    uint32_t live = 0u;
+    for (uint16_t f = 0; f < mesh->face_count; ++f) {
+        const uint16_t* idx = &mesh->indices[static_cast<uint32_t>(f) * 4u];
+        /* The VDP1 cannot clip at the near plane: a straddling face is not
+         * drawable, which is a visibility outcome, not an error. */
+        if (screen[idx[0]].w <= 0 || screen[idx[1]].w <= 0 ||
+            screen[idx[2]].w <= 0 || screen[idx[3]].w <= 0) {
+            continue;
+        }
+        sat_quad2_t projected;
+        fill_quad2(screen, idx, &projected);
+        if (cull && saturn::core::render3d::quad2_area2(projected) <= 0) {
+            continue;
+        }
+        if (!sorted) {
+            st = submit_projected_face(mesh, params, f, projected);
+            if (st != SAT_OK && st != SAT_ERR_UNSUPPORTED) {
+                worst = st;
+            }
+            continue;
+        }
+        if (wide) {
+            params->order16[live] = f;
+        } else {
+            params->order[live] = static_cast<uint8_t>(f);
+        }
+        params->depth[f] = view_depth_key(screen, idx);
+        ++live;
+    }
+    if (!sorted) {
+        return worst;
+    }
+    if (wide) {
+        saturn::core::render3d::sort_indices16_desc(params->order16, params->depth, live);
+    } else {
+        saturn::core::render3d::sort_indices_desc(
+            params->order, params->depth, static_cast<uint16_t>(live));
+    }
+    for (uint32_t n = 0; n < live; ++n) {
+        const uint16_t f = wide ? params->order16[n] : params->order[n];
+        sat_quad2_t projected;
+        fill_quad2(screen, &mesh->indices[static_cast<uint32_t>(f) * 4u], &projected);
+        st = submit_projected_face(mesh, params, f, projected);
+        if (st != SAT_OK && st != SAT_ERR_UNSUPPORTED) {
+            worst = st;
+        }
+    }
+    return worst;
+}
+
+}  // namespace
+
 extern "C" sat_result_t sat_mesh_init(
     sat_mesh_t* mesh,
     sat_vec3_t* vertices,
@@ -215,6 +354,9 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
             params->texture_count) != SAT_OK) {
         return SAT_ERR_INVALID_ARG;
     }
+    if (params->screen != nullptr) {
+        return draw_mesh_projected(mesh, params, sorted, wide);
+    }
 
     /* Building the draw order first, rather than culling inside the submit
      * loop, keeps the sort keyed on the faces that actually survive -- and
@@ -233,8 +375,7 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
                 continue;
             }
             const sat_vec3_t center = quad_center(quad);
-            const uint32_t key = saturn::core::render3d::ground_distance_sq(
-                params->eye.x, params->eye.z, center.x, center.z);
+            const uint32_t key = eye_distance_key(params->eye, center);
             if (wide) {
                 params->order16[live16] = i;
                 params->depth[i] = key;
@@ -281,18 +422,19 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
             params->texture_count,
             &tex_index);
         sat_result_t st = SAT_OK;
-        if (mode == mesh_face_draw_mode::kTextured) {
-            /* Textured faces bypass SAT_MESH_SHADE: the VDP1 distorted-sprite
-             * path has no per-face RGB modulation matching the polygon path. */
+        const bool textured = mode == mesh_face_draw_mode::kTextured;
+        /* Textured faces bypass SAT_MESH_SHADE: the VDP1 distorted-sprite
+         * path has no per-face RGB modulation matching the polygon path. */
+        if (!textured && (params->flags & SAT_MESH_SHADE) != 0u) {
+            color = saturn::core::render3d::shade_rgb555(
+                color,
+                saturn::core::render3d::face_intensity3_scaled(
+                    quad_normal_scaled(quad), params->ambient));
+        }
+        if (textured) {
             st = sat_draw_world_sprite(
                 params->view_proj, &quad, &params->textures[tex_index], 0u, 0u);
         } else {
-            if ((params->flags & SAT_MESH_SHADE) != 0u) {
-                color = saturn::core::render3d::shade_rgb555(
-                    color,
-                    saturn::core::render3d::face_intensity3_scaled(
-                        quad_normal_scaled(quad), params->ambient));
-            }
             st = sat_draw_world_polygon(params->view_proj, &quad, color);
         }
         /* A quad crossing the near plane cannot be drawn on hardware with no

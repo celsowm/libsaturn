@@ -49,6 +49,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from model_pipeline import animation as anim_eval
 from model_pipeline import emit_c as emit_anim
+from model_pipeline import face_colors as face_color_mod
 from model_pipeline import gltf as gltf_mod
 from model_pipeline import lod as lod_mod
 from model_pipeline import metrics as metrics_mod
@@ -71,7 +72,7 @@ from saturn_asset_common import (
 VDP1_MAX_TEXTURE_WIDTH = 504
 VDP1_MAX_TEXTURE_HEIGHT = 255
 VDP1_VRAM_BYTES = 512 * 1024
-VDP1_COMMAND_AREA_BYTES = 16 * 1024
+VDP1_COMMAND_AREA_BYTES = 64 * 1024
 FX16_ONE = 65536
 
 
@@ -640,6 +641,9 @@ class ImportResult:
     palette_rgb555: list[int]
     palette_base: int
     stats: dict
+    # Solid-color assets: baked-lighting palette, [0] reserved (see
+    # model_pipeline/face_colors.py). None for textured assets.
+    shade_palette_rgb555: list[int] | None = None
 
 
 def import_model(
@@ -888,6 +892,8 @@ def emit_c_h(
     parts.append(f"    {sym}_palette,")
     parts.append("    1u,")
     parts.append(f"    {result.palette_base}u,")
+    parts.append("    0u,")
+    parts.append("    0,")
     parts.append("    0u")
     parts.append("};")
     parts.append("")
@@ -1072,9 +1078,21 @@ def import_animated_model(
     silhouette_views: int = 16,
     animation_weight: float = 1.0,
     silhouette_weight: float = 1.0,
+    face_colors: str = "off",
+    light_dir=(-0.5, 0.6, 0.8),
+    ambient: float = 0.35,
+    diffuse: float = 0.75,
 ) -> AnimatedImportResult:
     if palette_index < 0 or palette_index > 7:
         raise ImportError(f"--palette-index must be in 0..7 (got {palette_index})")
+    if face_colors not in ("off", "auto", "on"):
+        raise ImportError(f"--face-colors must be off|auto|on (got {face_colors!r})")
+    if ambient < 0.0 or diffuse < 0.0:
+        raise ImportError("--ambient and --diffuse must not be negative")
+    try:
+        light = face_color_mod.parse_light_dir(light_dir)
+    except gltf_mod.GltfError as exc:
+        raise ImportError(str(exc))
     if texture_scale <= 0.0:
         raise ImportError(f"--texture-scale must be positive (got {texture_scale})")
     if scale <= 0.0:
@@ -1090,6 +1108,38 @@ def import_animated_model(
     stats = srcmodel.source_stats(model)
     if not model.textures:
         raise ImportError(f"{glb_path}: no embedded textures found")
+
+    # Solid-color mode replaces the model BEFORE importance, poses and
+    # simplification: every later stage then works on the welded vertices.
+    color_report: dict = {"mode": face_colors, "enabled": False}
+    face_levels = 0
+    base_colors: list = []
+    if face_colors != "off":
+        analysis = face_color_mod.analyze(model)
+        enable, reason = face_color_mod.decide(face_colors, analysis)
+        color_report.update({
+            "uniform_faces": analysis.uniform,
+            "non_uniform_faces": analysis.non_uniform,
+            "distinct_colors": analysis.distinct_colors,
+            "reason": reason,
+        })
+        if face_colors == "on" and not enable:
+            raise ImportError(f"--face-colors on: {reason}")
+        if enable:
+            source_vertices = len(model.vertices)
+            model, base_colors, welded_count = face_color_mod.flatten(model, analysis)
+            face_levels = face_color_mod.levels_for(len(base_colors))
+            color_report.update({
+                "enabled": True,
+                "levels": face_levels,
+                "palette_entries": 1 + len(base_colors) * face_levels,
+                "light_dir": list(light),
+                "ambient": ambient,
+                "diffuse": diffuse,
+                "welded_vertices": welded_count,
+                "vertices_before_weld": source_vertices,
+                "vertices_after_weld": len(model.vertices),
+            })
 
     clip_ids = select_animation_clips(model, animation)
     per_clip_times: dict[int, list[float]] = {}
@@ -1159,6 +1209,9 @@ def import_animated_model(
                     animation_weight=animation_weight, silhouette_weight=silhouette_weight),
                 anim_importance=anim_imp, sil_importance=sil_imp,
                 times=metric_times, pose_positions=all_poses,
+                # An explicit numeric --simplify target is a floor: honor the
+                # requested density when it passes instead of minimizing away.
+                enforce_floor=(simplify != "auto"),
             )
         except gltf_mod.GltfError as exc:
             raise ImportError(str(exc))
@@ -1187,6 +1240,10 @@ def import_animated_model(
         frames = [[_flip(p) for p in frame] for frame in frames]
         baked = pose_bake.quantize_frames(
             frames, scale=scale, bbox_diagonal=simp_view.bbox_diagonal() * scale)
+        if face_levels:
+            baked["shades"] = face_color_mod.bake_shades(
+                frames, simp.triangles, simp.tri_materials, face_levels, light,
+                clockwise_front=reverse_winding)
         num, den = rate_fraction(len(times), clip.duration or 1.0) \
             if animation_fps == "source" else (int(float(animation_fps)), 1)
         baked["name"] = clip.name
@@ -1206,11 +1263,14 @@ def import_animated_model(
         if not -(2**31) <= x < 2**31 or not -(2**31) <= y < 2**31 or not -(2**31) <= z < 2**31:
             raise ImportError(f"vertex {i} overflows 16.16 fixed point (reduce --scale)")
 
-    # Canonical face-texture baking from the SIMPLIFIED topology.
+    # Canonical face-texture baking from the SIMPLIFIED topology (textured
+    # assets only; a solid-color asset's faces are palette shades).
     baked_rgba: list = []
     face_sizes: list[tuple[int, int]] = []
     face_mtls: list[str] = []
     for qi, ((a, b, c, d), (ua, ub, uc, ud)) in enumerate(zip(quads, quad_uvs)):
+        if face_levels:
+            break
         mt = simp.tri_materials[qi]
         mat = model.materials[mt] if mt < len(model.materials) else {}
         if "texture" not in mat:
@@ -1228,18 +1288,25 @@ def import_animated_model(
         face_sizes.append((out_w, out_h))
         face_mtls.append(mat.get("name", str(mt)))
 
-    palette_rgb888, has_transparency, _ = build_shared_palette(baked_rgba)
-    indexed_faces = map_faces_to_indices(baked_rgba, face_sizes, palette_rgb888)
-    palette_rgb555: list[int] = []
-    for i, (r, g, b) in enumerate(palette_rgb888):
-        palette_rgb555.append(0x0000 if (has_transparency and i == 0) else rgb888_to_rgb555(r, g, b))
-    while len(palette_rgb555) < 256:
-        palette_rgb555.append(0x0000)
-    palette_rgb555 = palette_rgb555[:256]
+    shade_palette = None
+    has_transparency = False
+    if face_levels:
+        palette_rgb555: list[int] = []
+        indexed_faces: list = []
+        shade_palette = face_color_mod.shade_palette(base_colors, face_levels, ambient, diffuse)
+    else:
+        palette_rgb888, has_transparency, _ = build_shared_palette(baked_rgba)
+        indexed_faces = map_faces_to_indices(baked_rgba, face_sizes, palette_rgb888)
+        palette_rgb555 = []
+        for i, (r, g, b) in enumerate(palette_rgb888):
+            palette_rgb555.append(0x0000 if (has_transparency and i == 0) else rgb888_to_rgb555(r, g, b))
+        while len(palette_rgb555) < 256:
+            palette_rgb555.append(0x0000)
+        palette_rgb555 = palette_rgb555[:256]
     opaque_flag = 0x0001 if not has_transparency else 0x0000
     unique: list[dict] = []
     key_to_index: dict[tuple, int] = {}
-    face_texture_indices: list[int] = []
+    face_texture_indices: list[int] = [0xFFFF] * len(quads) if face_levels else []
     for (w, h), pixels in zip(face_sizes, indexed_faces):
         key = (w, h, bytes(pixels), 0, opaque_flag)
         if key in key_to_index:
@@ -1259,11 +1326,16 @@ def import_animated_model(
         palette_rgb555=palette_rgb555,
         palette_base=palette_index,
         stats={},
+        shade_palette_rgb555=shade_palette,
     )
     indexed_bytes = sum(t["pixel_count"] for t in unique)
     vram_est = sum(((t["pixel_count"] + 7) & ~7) for t in unique)
     largest = max((t["width"] * t["height"], t["width"], t["height"]) for t in unique) if unique else (0, 0, 0)
-    pose_bytes = sum(a["pose_bytes"] for a in animations)
+    shade_bytes = sum(len(a.get("shades") or []) for a in animations)
+    if face_levels:
+        color_report["shade_bytes"] = shade_bytes
+    # Shade streams are per-frame data like poses and share their budget.
+    pose_bytes = sum(a["pose_bytes"] for a in animations) + shade_bytes
     resource_report = saturn_profile_mod.check_resources(
         profile, faces=delivered, texture_payload_bytes=indexed_bytes,
         texture_sizes=[t["pixel_count"] for t in unique],
@@ -1333,6 +1405,7 @@ def import_animated_model(
             "palette_bytes": 512,
             "estimated_vram_bytes": vram_est,
         },
+        "face_colors": color_report,
         "vdp1": resource_report,
         "lods": lod_reports,
         "result": {"pass": bool(quality_report["passed"] and resource_report["passed"])},
@@ -1357,6 +1430,14 @@ def print_animated_stats(report: dict) -> None:
         print(f"clip '{anim['clip']}': {anim['baked_frames']} frames @ "
               f"{anim['sample_rate_num']}/{anim['sample_rate_den']} Hz, loop={anim['loop']}, "
               f"pose bytes {anim['pose_stream_bytes']}, quant err {anim['quantization_max_error']:.6f}")
+    colors = report.get("face_colors", {})
+    if colors.get("enabled"):
+        print(f"face colors: {colors['distinct_colors']} colors x {colors['levels']} light levels "
+              f"({colors['non_uniform_faces']} non-uniform faces averaged), "
+              f"vertices welded {colors['vertices_before_weld']} -> {colors['vertices_after_weld']}, "
+              f"shade bytes {colors['shade_bytes']}")
+    elif colors.get("mode", "off") != "off":
+        print(f"face colors: not used ({colors.get('reason')})")
     print(f"unique textures: {report['textures']['unique_textures']}")
     print(f"texture VRAM estimate: {report['textures']['estimated_vram_bytes']}")
     vdp1 = report["vdp1"]
@@ -1399,6 +1480,15 @@ def main() -> int:
     parser.add_argument("--silhouette-views", type=int, default=16)
     parser.add_argument("--animation-weight", type=float, default=1.0)
     parser.add_argument("--silhouette-weight", type=float, default=1.0)
+    parser.add_argument("--face-colors", default="off",
+                        help="Animated GLB faces as solid lit colors instead of textures: "
+                             "off|auto|on (default off)")
+    parser.add_argument("--light-dir", default="-0.5,0.6,0.8",
+                        help="Baked light direction x,y,z in asset space (towards the light)")
+    parser.add_argument("--ambient", type=float, default=0.35,
+                        help="Baked light floor for --face-colors (linear)")
+    parser.add_argument("--diffuse", type=float, default=0.75,
+                        help="Baked directional light strength for --face-colors (linear)")
     parser.add_argument("--report", default=None, help="JSON report path (animated path)")
     args = parser.parse_args()
 
@@ -1469,6 +1559,10 @@ def _main_animated(args) -> int:
             silhouette_views=args.silhouette_views,
             animation_weight=args.animation_weight,
             silhouette_weight=args.silhouette_weight,
+            face_colors=args.face_colors,
+            light_dir=args.light_dir,
+            ambient=args.ambient,
+            diffuse=args.diffuse,
         )
         header_path, source_path = emit_anim.emit_animated_c_h(
             result.static, result.animations, Path(args.out_prefix), args.symbol)

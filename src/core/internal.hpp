@@ -9,7 +9,8 @@ namespace saturn::internal {
 
 constexpr uint16_t kDefaultWidth = 320;
 constexpr uint16_t kDefaultHeight = 224;
-constexpr uint16_t kCmdCapacity = 512;
+/* Must fit src/hal/vdp1.cpp's kCommandAreaBytes at 32 bytes per command. */
+constexpr uint16_t kCmdCapacity = 2048;
 
 inline int16_t fx16_to_int(sat_fx16_t value) {
     return static_cast<int16_t>(value >> 16);

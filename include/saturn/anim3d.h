@@ -59,6 +59,12 @@ typedef struct sat_model_animation_asset {
     uint16_t flags;
     uint16_t reserved;
     sat_anim_position_encoding_t encoding;
+    /* Optional baked flat lighting: frame_count * face_count indices into
+     * the model's shade palette, frame-major (frame f, face i at
+     * face_shades[f * face_count + i]). The importer lights each face of
+     * each frame with a fixed light, so the runtime cost is one table
+     * lookup per face (sat_anim_face_colors). Null when the clip has none. */
+    const uint8_t* face_shades;
 } sat_model_animation_asset_t;
 
 typedef struct sat_animated_model_asset {
@@ -122,6 +128,17 @@ sat_result_t sat_anim_decode(
     const sat_anim_state_t* state,
     sat_vec3_t* out_vertices,
     uint16_t vertex_cap
+);
+
+/* Fills out_colors[face] with every face's baked shade color for the
+ * current frame, ready for sat_mesh_draw_t::face_colors. One palette lookup
+ * per face. Returns SAT_ERR_UNSUPPORTED when the clip carries no baked
+ * shades and SAT_ERR_CAPACITY when color_cap is below the face count. */
+sat_result_t sat_anim_face_colors(
+    const sat_animated_model_asset_t* asset,
+    const sat_anim_state_t* state,
+    uint16_t* out_colors,
+    uint16_t color_cap
 );
 
 #ifdef __cplusplus

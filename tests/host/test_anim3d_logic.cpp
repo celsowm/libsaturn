@@ -26,7 +26,7 @@ uint8_t kPixels[8] = {};
 uint16_t kPalette[256] = {};
 sat_model_texture_asset_t kTex[1] = {{kPixels, 8, 1, 0, 0, 8u}};
 sat_model_asset_t kModel = {
-    kVerts, 2, kIndices, 1, kFaceTex, kTex, 1, kPalette, 1, 1, 0,
+    kVerts, 2, kIndices, 1, kFaceTex, kTex, 1, kPalette, 1, 1, 0, nullptr, 0,
 };
 
 /* Three frames for two verts: frame f holds (f, f+100, f+200) raw q15. */
@@ -40,12 +40,14 @@ sat_model_animation_asset_t kLoopClip = {
     kPos, 3, 2, 30, 1,
     SAT_ANIM_FLAG_LOOP, 0,
     {0, 0, 0, 65536, 65536, 65536}, /* bias 0, scale 1.0 */
+    nullptr,
 };
 
 sat_model_animation_asset_t kOnceClip = {
     kPos, 3, 2, 30, 1,
     0, 0,
     {0, 0, 0, 65536, 65536, 65536},
+    nullptr,
 };
 
 sat_model_animation_asset_t kClips[2];
@@ -71,6 +73,20 @@ extern "C" sat_result_t sat_draw_world_polygon(
 extern "C" sat_result_t sat_draw_world_sprite(
     const sat_mat4_t*, const sat_quad3_t*,
     const sat_texture_t*, uint16_t, uint16_t) {
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_project_vertices(
+    const sat_mat4_t*, const sat_vec3_t*, uint16_t, sat_projected_vertex_t*) {
+    return SAT_ERR_UNSUPPORTED;
+}
+
+extern "C" sat_result_t sat_draw_quad2_polygon(const sat_quad2_t*, uint16_t) {
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_draw_quad2_sprite(
+    const sat_quad2_t*, const sat_texture_t*, uint16_t, uint16_t) {
     return SAT_OK;
 }
 
@@ -268,11 +284,12 @@ static void decode_extremes_and_bias() {
     static sat_model_animation_asset_t clip = {
         pos, 1, 1, 30, 1, SAT_ANIM_FLAG_LOOP, 0,
         {100, -50, 7, 1000, 2000, 0},
+        nullptr,
     };
     static sat_vec3_t mverts[1] = {{0, 0, 0}};
     static uint16_t midx[4] = {0, 0, 0, 0};
     static sat_model_asset_t m1 = {
-        mverts, 1, midx, 1, kFaceTex, kTex, 1, kPalette, 1, 1, 0,
+        mverts, 1, midx, 1, kFaceTex, kTex, 1, kPalette, 1, 1, 0, nullptr, 0,
     };
     static sat_model_animation_asset_t clips[1];
     clips[0] = clip;
@@ -284,6 +301,72 @@ static void decode_extremes_and_bias() {
     ASSERT_EQ(out[0].x, 100 + 1000);   /* bias + scale */
     ASSERT_EQ(out[0].y, -50 - 2000);   /* bias - scale */
     ASSERT_EQ(out[0].z, 7);            /* scale 0 -> bias */
+}
+
+/* The divide-free decoder must reproduce the contract exactly: every q
+ * extreme, scales of both signs up to the full fx16 range, and the largest
+ * rest * q the reciprocal multiply has to cover. */
+static void divide_free_decode_is_exact() {
+    ASSERT_EQ(saturn::core::anim3d::div32767_small(32766 * 32767), 32766);
+    ASSERT_EQ(saturn::core::anim3d::div32767_small(-(32766 * 32767)), -32766);
+    ASSERT_EQ(saturn::core::anim3d::div32767_small(32766 * 32767 - 1), 32765);
+    for (int32_t n = 0; n < 2000000; n += 7) {
+        ASSERT_EQ(saturn::core::anim3d::div32767_small(n), n / 32767);
+        ASSERT_EQ(saturn::core::anim3d::div32767_small(-n), -n / 32767);
+    }
+    const int32_t scales[] = {0, 1, -1, 32766, 32767, 32768, -32767, 65536, -65536,
+                              1234567, -7654321, 0x7FFFFFFF, -0x7FFFFFFF};
+    uint32_t seed = 99u;
+    for (int32_t scale : scales) {
+        const auto d = saturn::core::anim3d::make_axis_decoder(17, scale);
+        for (int32_t q = -32767; q <= 32767; q += (q > -32700 && q < 32700) ? 97 : 1) {
+            const int32_t expect = 17 + (int32_t)(((int64_t)scale * (int64_t)q) / 32767);
+            ASSERT_EQ(saturn::core::anim3d::decode_axis(d, (int16_t)q), expect);
+        }
+    }
+    for (int i = 0; i < 20000; ++i) {
+        seed = seed * 1103515245u + 12345u;
+        const int32_t scale = (int32_t)(seed ^ (seed << 7)) / 2;
+        seed = seed * 1103515245u + 12345u;
+        const int16_t q = (int16_t)(((seed >> 8) % 65535u) - 32767);
+        const auto d = saturn::core::anim3d::make_axis_decoder(0, scale);
+        const int32_t expect = (int32_t)(((int64_t)scale * (int64_t)q) / 32767);
+        ASSERT_EQ(saturn::core::anim3d::decode_axis(d, q), expect);
+    }
+}
+
+/* Baked shades: one palette lookup per face per frame, bounded at load. */
+static void face_colors_follow_baked_shades() {
+    static uint16_t shade_pal[3] = {0x8000u, 0x801Fu, 0xFC00u};
+    static uint8_t shades[3] = {1, 2, 1}; /* 3 frames x 1 face */
+    sat_model_asset_t model = kModel;
+    model.shade_palette_rgb555 = shade_pal;
+    model.shade_palette_count = 3;
+    sat_model_animation_asset_t clips[1] = {kLoopClip};
+    clips[0].face_shades = shades;
+    sat_animated_model_asset_t a = {&model, clips, 1, 0};
+    ASSERT_EQ(sat_anim_validate(&a), SAT_OK);
+
+    sat_anim_state_t st = {};
+    ASSERT_EQ(sat_anim_state_init(&st, &a, 0), SAT_OK);
+    uint16_t out[1] = {0};
+    ASSERT_EQ(sat_anim_face_colors(&a, &st, out, 1), SAT_OK);
+    ASSERT_EQ(out[0], 0x801Fu);
+    st.frame = 1;
+    ASSERT_EQ(sat_anim_face_colors(&a, &st, out, 1), SAT_OK);
+    ASSERT_EQ(out[0], 0xFC00u);
+    ASSERT_EQ(sat_anim_face_colors(&a, &st, out, 0), SAT_ERR_CAPACITY);
+    ASSERT_EQ(sat_anim_face_colors(&a, &st, nullptr, 1), SAT_ERR_INVALID_ARG);
+
+    shades[2] = 7; /* past the palette */
+    ASSERT_EQ(sat_anim_validate(&a), SAT_ERR_INVALID_ARG);
+    shades[2] = 1;
+    model.shade_palette_count = 0;
+    ASSERT_EQ(sat_anim_validate(&a), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(sat_anim_face_colors(&a, &st, out, 1), SAT_ERR_UNSUPPORTED);
+    model.shade_palette_count = 3;
+    clips[0].face_shades = nullptr;
+    ASSERT_EQ(sat_anim_face_colors(&a, &st, out, 1), SAT_ERR_UNSUPPORTED);
 }
 
 static void decode_capacity_and_malformed() {
@@ -407,9 +490,11 @@ int main() {
     decode_matches_quantization_contract();
     decode_extremes_and_bias();
     decode_capacity_and_malformed();
+    divide_free_decode_is_exact();
+    face_colors_follow_baked_shades();
     wide_sort_draws_big_meshes();
     legacy_small_mesh_unaffected();
     decode_feeds_mesh_and_bind();
-    printf("PASS: test_anim3d_logic.cpp (14 tests)\n");
+    printf("PASS: test_anim3d_logic.cpp (16 tests)\n");
     return 0;
 }

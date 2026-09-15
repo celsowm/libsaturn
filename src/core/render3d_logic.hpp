@@ -37,6 +37,27 @@ inline int16_t clamp_coord64(int64_t v) {
     return static_cast<int16_t>(v);
 }
 
+/* clamp_coord64(num / w2) for w2 > 0, without a libgcc 64-bit divide.
+ *
+ * Every projected corner used to pay two __divdi3 calls, which profiling put
+ * near a fifth of an animated-model frame. A quotient past the clamp needs no
+ * divide at all, and ruling those out first leaves one that fits 32 bits --
+ * exactly what the SH-2's hardware divider takes. */
+inline int16_t project_axis(int64_t num, int64_t w2) {
+    const int64_t limit = w2 * static_cast<int64_t>(kCoordLimit + 1);
+    if (num >= limit) {
+        return static_cast<int16_t>(kCoordLimit);
+    }
+    if (num <= -limit) {
+        return static_cast<int16_t>(-kCoordLimit);
+    }
+    if (w2 > static_cast<int64_t>(0x7FFFFFFF)) {
+        return static_cast<int16_t>(num / w2);
+    }
+    return static_cast<int16_t>(
+        saturn::core::math3d::div_s64_s32(num, static_cast<int32_t>(w2)));
+}
+
 /* Projects one world point straight to NATIVE VDP1 coordinates.
  *
  * The screen-space form is ((ndc + 1) * half) for x and ((1 - ndc) * half)
@@ -68,13 +89,43 @@ inline bool project_native(
     /* Both operands are 16.16, so the fixed-point scaling cancels in the
      * ratio and the result is already in whole pixels. */
     const int64_t w2 = static_cast<int64_t>(clip.w) * 2;
-    const int64_t nx =
-        (static_cast<int64_t>(clip.x) * static_cast<int64_t>(screen_w)) / w2;
-    const int64_t ny =
-        (static_cast<int64_t>(clip.y) * static_cast<int64_t>(screen_h)) / w2;
-    *out_x = clamp_coord64(nx);
-    *out_y = clamp_coord64(-ny);
+    *out_x = project_axis(static_cast<int64_t>(clip.x) * static_cast<int64_t>(screen_w), w2);
+    *out_y = project_axis(-(static_cast<int64_t>(clip.y) * static_cast<int64_t>(screen_h)), w2);
     return true;
+}
+
+/* Projects one point and keeps its clip w; w <= 0 leaves x/y untouched. */
+inline void project_vertex(
+    const sat_fx16_t* view_proj,
+    const sat_vec3_t& p,
+    int16_t screen_w,
+    int16_t screen_h,
+    sat_projected_vertex_t* out
+) {
+    const sat_vec4_t clip = mat4_transform_vec4(view_proj, p.x, p.y, p.z, SAT_FX16_ONE);
+    out->w = clip.w;
+    if (clip.w <= 0) {
+        return;
+    }
+    const int64_t w2 = static_cast<int64_t>(clip.w) * 2;
+    out->x = project_axis(static_cast<int64_t>(clip.x) * static_cast<int64_t>(screen_w), w2);
+    out->y = project_axis(-(static_cast<int64_t>(clip.y) * static_cast<int64_t>(screen_h)), w2);
+}
+
+/* Twice the signed area of a projected quad, shoelace over A, B, C, D in
+ * native coordinates (y grows downward). A front face -- A, B, C, D running
+ * clockwise on screen, the winding saturn/mesh3d.h specifies -- comes out
+ * positive, so this is backface culling without a 3D normal: exact under
+ * perspective for any face in front of the camera, in int16 products. A
+ * repeated corner contributes nothing, so triangles and fans need no special
+ * case. */
+inline int32_t quad2_area2(const sat_quad2_t& q) {
+    int32_t sum = 0;
+    for (int i = 0; i < 4; ++i) {
+        const int j = (i + 1) & 3;
+        sum += (static_cast<int32_t>(q.x[i]) * q.y[j]) - (static_cast<int32_t>(q.x[j]) * q.y[i]);
+    }
+    return sum;
 }
 
 /* A quad is drawable only if every corner is in front of the camera: the VDP1
@@ -91,15 +142,22 @@ inline bool project_quad(
         return false;
     }
     for (int i = 0; i < 4; ++i) {
-        if (!project_native(
-                view_proj,
-                quad->v[i].x,
-                quad->v[i].y,
-                quad->v[i].z,
-                screen_w,
-                screen_h,
-                &out->x[i],
-                &out->y[i])) {
+        const sat_vec3_t& v = quad->v[i];
+        /* Triangles and fans are quads with a repeated corner: reuse the
+         * earlier projection rather than paying for the same point twice. */
+        int same = -1;
+        for (int j = 0; j < i; ++j) {
+            if (quad->v[j].x == v.x && quad->v[j].y == v.y && quad->v[j].z == v.z) {
+                same = j;
+                break;
+            }
+        }
+        if (same >= 0) {
+            out->x[i] = out->x[same];
+            out->y[i] = out->y[same];
+            continue;
+        }
+        if (!project_native(view_proj, v.x, v.y, v.z, screen_w, screen_h, &out->x[i], &out->y[i])) {
             return false;
         }
     }
@@ -171,39 +229,69 @@ inline void make_billboard(
 /* Painter's algorithm                                                 */
 /* ------------------------------------------------------------------ */
 
+/* Painter's order: larger key first, equal keys by ascending index -- which,
+ * for an ascending input list, is exactly what a stable sort produces. The
+ * index tie-break is what lets an unstable heapsort give that answer. */
+template <typename Index>
+inline bool paints_before(Index a, Index b, const uint32_t* keys) {
+    return keys[a] > keys[b] || (keys[a] == keys[b] && a < b);
+}
+
+template <typename Index>
+inline void sift_down(Index* indices, const uint32_t* keys, uint32_t root, uint32_t end) {
+    const Index value = indices[root];
+    for (;;) {
+        uint32_t child = (root * 2u) + 1u;
+        if (child >= end) {
+            break;
+        }
+        if (child + 1u < end && paints_before(indices[child], indices[child + 1u], keys)) {
+            ++child;
+        }
+        if (!paints_before(value, indices[child], keys)) {
+            break;
+        }
+        indices[root] = indices[child];
+        root = child;
+    }
+    indices[root] = value;
+}
+
+/* Heapsort: O(n log n) worst case, no scratch. It replaced an insertion sort
+ * whose "near-linear on coherent orders" never applied here -- sat_draw_mesh
+ * rebuilds the list in index order every frame, so the quadratic case was
+ * the ordinary one. */
+template <typename Index>
+inline void sort_painter(Index* indices, const uint32_t* keys, uint32_t count) {
+    if (count < 2u) {
+        return;
+    }
+    for (uint32_t i = count / 2u; i > 0u; --i) {
+        sift_down(indices, keys, i - 1u, count);
+    }
+    for (uint32_t end = count - 1u; end > 0u; --end) {
+        const Index last = indices[0];
+        indices[0] = indices[end];
+        indices[end] = last;
+        sift_down(indices, keys, 0u, end);
+    }
+}
+
 inline void sort_indices_desc(uint8_t* indices, const uint32_t* keys, uint16_t count) {
     if (indices == nullptr || keys == nullptr || count > 255u) {
         return;
     }
-    for (uint16_t i = 1u; i < count; ++i) {
-        const uint8_t value = indices[i];
-        const uint32_t key = keys[value];
-        int j = static_cast<int>(i) - 1;
-        while (j >= 0 && keys[indices[j]] < key) {
-            indices[j + 1] = indices[j];
-            --j;
-        }
-        indices[j + 1] = value;
-    }
+    sort_painter(indices, keys, count);
 }
 
 /* Wide form of the painter's sort for meshes past the 255-face uint8_t
- * limit (animated characters near the VDP1 command budget). Same stable
- * insertion sort over face indices; `count` may reach 65535. */
+ * limit (animated characters near the VDP1 command budget); `count` may
+ * reach 65535. */
 inline void sort_indices16_desc(uint16_t* indices, const uint32_t* keys, uint32_t count) {
     if (indices == nullptr || keys == nullptr || count > 65535u) {
         return;
     }
-    for (uint32_t i = 1u; i < count; ++i) {
-        const uint16_t value = indices[i];
-        const uint32_t key = keys[value];
-        int64_t j = static_cast<int64_t>(i) - 1;
-        while (j >= 0 && keys[indices[j]] < key) {
-            indices[j + 1] = indices[j];
-            --j;
-        }
-        indices[j + 1] = value;
-    }
+    sort_painter(indices, keys, count);
 }
 
 /* Distances between maze-scale points fit comfortably in 32 bits, but a

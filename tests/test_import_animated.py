@@ -141,7 +141,10 @@ class AnimatedImportTests(unittest.TestCase):
             src = tmp_path / "grid.glb"
             src.write_bytes(build_grid_glb())
             result = import_model.import_animated_model(src, simplify="auto", quality="balanced")
-            self.assertEqual(len(result.static.indices_abcd), 32)
+            # "lift" moves whole grid columns rigidly, so auto search halves
+            # the 32-triangle grid with exactly zero surface error; 8
+            # triangles can no longer follow the lifted edge and fail.
+            self.assertEqual(len(result.static.indices_abcd), 16)
             self.assertEqual(len(result.animations), 1)
             anim = result.animations[0]
             self.assertEqual(anim["name"], "lift")
@@ -222,6 +225,84 @@ class AnimatedImportTests(unittest.TestCase):
             # Fully opaque asset: index 0 is an ordinary color entry (it
             # carries the RGB code bit), not the transparent reservation.
             self.assertNotEqual(result.static.palette_rgb555[0], 0x0000)
+
+    def test_face_colors_bake_solid_lit_faces(self):
+        from saturn_asset_common import rgb888_to_rgb555
+
+        colors = ((255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0))
+        with tempfile.TemporaryDirectory() as tmp:
+            src = make_quadrant_glb(Path(tmp))
+            # Light straight along the +Z face normal, no ambient: every face
+            # sits at the top level, which is exactly its source color.
+            lit = import_model.import_animated_model(
+                src, simplify="off", face_colors="on",
+                light_dir=(0.0, 0.0, 1.0), ambient=0.0, diffuse=1.0)
+            st = lit.static
+            self.assertEqual(st.textures, [])
+            self.assertTrue(all(i == 0xFFFF for i in st.face_texture_indices))
+            palette = st.shade_palette_rgb555
+            self.assertEqual(palette[0], 0x8000)  # reserved entry
+            self.assertLessEqual(len(palette), 256)
+            anim = lit.animations[0]
+            nf = len(st.indices_abcd)
+            self.assertEqual(len(anim["shades"]), anim["frame_count"] * nf)
+            for k, rgb in enumerate(colors):
+                for face in (2 * k, 2 * k + 1):
+                    self.assertEqual(palette[anim["shades"][face]], rgb888_to_rgb555(*rgb),
+                                     f"face {face} should be its lit quadrant color")
+            report = lit.report["face_colors"]
+            self.assertTrue(report["enabled"])
+            self.assertEqual(report["distinct_colors"], 4)
+            self.assertEqual(report["non_uniform_faces"], 0)
+
+            # Light from behind every face: all faces at the unlit level,
+            # which with no ambient is black.
+            dark = import_model.import_animated_model(
+                src, simplify="off", face_colors="on",
+                light_dir=(0.0, 0.0, -1.0), ambient=0.0, diffuse=1.0)
+            dark_pal = dark.static.shade_palette_rgb555
+            self.assertTrue(all(dark_pal[s] == 0x8000 for s in dark.animations[0]["shades"]))
+
+            cc = shutil.which("gcc") or shutil.which("cc") or shutil.which("clang")
+            if cc is not None:
+                _, c = import_model.emit_anim.emit_animated_c_h(
+                    lit.static, lit.animations, Path(tmp) / "solid", "solid")
+                text = c.read_text(encoding="utf-8")
+                self.assertIn("solid_shade_palette", text)
+                self.assertIn("solid_anim0_shades", text)
+                self.assertNotIn("solid_textures", text)
+                r = subprocess.run(
+                    [cc, "-fsyntax-only", "-Wall", "-Wextra", "-Werror",
+                     f"-I{REPO / 'include'}", str(c)],
+                    capture_output=True, text=True, check=False)
+                self.assertEqual(r.returncode, 0, msg=r.stderr[-2000:])
+
+    def test_face_colors_weld_uv_split_copies(self):
+        from model_pipeline import face_colors, model as srcmodel
+
+        m = srcmodel.SourceModel()
+        # Two triangles sharing an edge, split into separate copies by UV.
+        m.vertices = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+        m.uvs = [(0, 0), (0.1, 0), (0, 0.1), (0.9, 0.9), (1, 1), (0.8, 0.9)]
+        m.triangles = [(0, 1, 2), (3, 4, 5)]
+        m.tri_materials = [0, 0]
+        m.materials = [{}]
+        analysis = face_colors.FaceColorAnalysis(colors=[(255, 0, 0), (0, 0, 255)], uniform=2)
+        welded, base, count = face_colors.flatten(m, analysis)
+        self.assertEqual(len(welded.vertices), 4)
+        self.assertEqual(count, 2)
+        self.assertEqual(base, [(255, 0, 0), (0, 0, 255)])
+        self.assertEqual(welded.tri_materials, [0, 1])
+        self.assertEqual(welded.triangles[1], (1, 3, 2))
+
+    def test_face_colors_auto_refuses_textured_detail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = make_quadrant_glb(Path(tmp))
+            with self.assertRaises(import_model.ImportError):
+                import_model.import_animated_model(src, simplify="off", face_colors="sometimes")
+            off = import_model.import_animated_model(src, simplify="off", face_colors="off")
+            self.assertFalse(off.report["face_colors"]["enabled"])
+            self.assertTrue(off.static.textures)
 
     def test_quantization_round_trip_bounded(self):
         with tempfile.TemporaryDirectory() as tmp:

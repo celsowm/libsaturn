@@ -250,6 +250,16 @@ typedef struct sat_mesh_draw {
     uint8_t* order;
     uint32_t* depth;
     uint16_t* order16;
+    /* Optional projection cache, vertex_count entries. With it, the draw
+     * projects every vertex once, then works in screen space: back faces
+     * are culled by the signed area of their projected corners (exact under
+     * perspective, no 64-bit face normals), and SAT_MESH_SORT orders by
+     * view depth -- the corners' clip w -- instead of distance from `eye`.
+     * Faces with a corner at or behind the camera plane are skipped, as on
+     * the per-face path. Null keeps the per-face world-space path. Pure
+     * scratch: nothing in it survives from one draw to the next.
+     * Zero-initialise the struct so this reads as absent when unused. */
+    sat_projected_vertex_t* screen;
 } sat_mesh_draw_t;
 
 /* Submits the mesh. Returns SAT_OK when every surviving face was drawn,

@@ -215,6 +215,10 @@ def _run(args) -> int:
         model, clip, requested, preset, options,
         anim_importance=anim_imp, sil_importance=sil_imp,
         times=times, pose_positions=poses,
+        # An explicit --target-triangles/--target-ratio acts as a floor:
+        # honor it when it passes; profile-derived caps keep minimize mode.
+        enforce_floor=(args.target_triangles is not None
+                       or args.target_ratio is not None),
     )
     delivered = len(simp.triangles)
 

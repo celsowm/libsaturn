@@ -64,6 +64,8 @@ static sat_mesh_t g_mesh;
 static sat_texture_t g_model_textures[MODEL_TEXTURE_CAP];
 static uint8_t g_mesh_order[MODEL_FACE_CAP];
 static uint32_t g_mesh_depth[MODEL_FACE_CAP];
+/* Projection cache for sat_draw_mesh's screen-space path. */
+static sat_projected_vertex_t g_mesh_screen[MODEL_VERTEX_CAP];
 
 static sat_mat4_t g_view_proj;
 static sat_vec3_t g_cam_eye;
@@ -279,6 +281,7 @@ int main(void) {
             SAT_RGB555(31, 31, 31), NULL, 0,
             SAT_MESH_CULL_BACKFACE | SAT_MESH_SORT,
             g_mesh_order, g_mesh_depth, &draw));
+        draw.screen = g_mesh_screen;
         if (!g_draw_overflow) {
             note(sat_draw_mesh(&g_mesh, &draw));
         }

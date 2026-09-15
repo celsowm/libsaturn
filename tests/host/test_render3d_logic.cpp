@@ -8,6 +8,7 @@
 #include "saturn/color.h"
 #include "saturn/render3d.h"
 #include "src/core/render3d_logic.hpp"
+#include "src/core/mesh3d_logic.hpp"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
@@ -193,6 +194,172 @@ TEST(sort_orders_far_to_near) {
     ASSERT_EQ(idx[1], 3);
 }
 
+/* The stable insertion sort the heapsort replaced, kept as the reference. */
+static void reference_sort16(uint16_t* idx, const uint32_t* keys, uint32_t n) {
+    for (uint32_t i = 1; i < n; ++i) {
+        const uint16_t value = idx[i];
+        int64_t j = (int64_t)i - 1;
+        while (j >= 0 && keys[idx[j]] < keys[value]) {
+            idx[j + 1] = idx[j];
+            --j;
+        }
+        idx[j + 1] = value;
+    }
+}
+
+TEST(heap_sort_matches_stable_reference) {
+    static uint32_t keys[600];
+    static uint16_t got[600];
+    static uint16_t want[600];
+    static uint8_t got8[255];
+    const uint32_t sizes[] = {0u, 1u, 2u, 3u, 17u, 255u, 600u};
+    uint32_t seed = 12345u;
+    for (uint32_t s = 0; s < sizeof(sizes) / sizeof(sizes[0]); ++s) {
+        const uint32_t n = sizes[s];
+        for (uint32_t i = 0; i < n; ++i) {
+            seed = seed * 1103515245u + 12345u;
+            keys[i] = (seed >> 16) % 23u; /* plenty of ties */
+            got[i] = (uint16_t)i;
+            want[i] = (uint16_t)i;
+        }
+        reference_sort16(want, keys, n);
+        sort_indices16_desc(got, keys, n);
+        for (uint32_t i = 0; i < n; ++i) {
+            ASSERT_EQ(got[i], want[i]);
+        }
+        if (n <= 255u) {
+            for (uint32_t i = 0; i < n; ++i) {
+                got8[i] = (uint8_t)i;
+            }
+            sort_indices_desc(got8, keys, (uint16_t)n);
+            for (uint32_t i = 0; i < n; ++i) {
+                ASSERT_EQ(got8[i], want[i]);
+            }
+        }
+    }
+}
+
+/* project_axis must equal the clamped division it replaced, including right
+ * at the clamp boundary and for divisors past 32 bits. */
+TEST(project_axis_matches_clamped_division) {
+    const int64_t divisors[] = {1, 2, 7, 1000, 65536, 0x7FFFFFFF,
+                                (int64_t)0x7FFFFFFF + 1, (int64_t)1 << 40};
+    const int64_t quotients[] = {-5000, -2049, -2048, -2047, -1, 0, 1, 2047, 2048, 2049, 5000};
+    for (int64_t w2 : divisors) {
+        for (int64_t q : quotients) {
+            for (int64_t d = -1; d <= 1; ++d) {
+                const int64_t num = q * w2 + d;
+                ASSERT_EQ(project_axis(num, w2), clamp_coord64(num / w2));
+            }
+        }
+        const int64_t huge = (int64_t)1 << 60;
+        ASSERT_EQ(project_axis(huge, w2), clamp_coord64(huge / w2));
+        ASSERT_EQ(project_axis(-huge, w2), clamp_coord64(-huge / w2));
+    }
+}
+
+TEST(project_quad_reuses_repeated_corners) {
+    const sat_mat4_t vp = make_view_proj(100);
+    sat_quad3_t tri;
+    make_floor(&tri, fx_from_int(3), fx_from_int(-2), fx_from_int(-5), fx_from_int(7));
+    tri.v[3] = tri.v[2];
+    sat_quad2_t out;
+    ASSERT_TRUE(project_quad(vp.m, &tri, kW, kH, &out));
+    for (int i = 0; i < 4; ++i) {
+        int16_t x = 0;
+        int16_t y = 0;
+        ASSERT_TRUE(project_native(vp.m, tri.v[i].x, tri.v[i].y, tri.v[i].z, kW, kH, &x, &y));
+        ASSERT_EQ(out.x[i], x);
+        ASSERT_EQ(out.y[i], y);
+    }
+    /* A fan repeats its hub as the first and last corner. */
+    sat_quad3_t fan = tri;
+    fan.v[3] = fan.v[0];
+    ASSERT_TRUE(project_quad(vp.m, &fan, kW, kH, &out));
+    ASSERT_EQ(out.x[3], out.x[0]);
+    ASSERT_EQ(out.y[3], out.y[0]);
+}
+
+static sat_mat4_t view_proj_looking_at_origin(sat_vec3_t eye) {
+    sat_mat4_t view;
+    sat_mat4_t proj;
+    sat_mat4_t vp;
+    sat_vec3_t center = { 0, 0, 0 };
+    sat_vec3_t up = { 0, SAT_FX16_ONE, 0 };
+    sat_mat4_look_at(&view, &eye, &center, &up);
+    sat_mat4_perspective(
+        &proj,
+        fx_from_int(90),
+        sat_fx16_div(fx_from_int(kW), fx_from_int(kH)),
+        fx_from_int(1),
+        fx_from_int(500));
+    sat_mat4_multiply(&vp, &proj, &view);
+    return vp;
+}
+
+TEST(project_vertex_matches_project_native) {
+    const sat_mat4_t vp = make_view_proj(100);
+    const sat_vec3_t points[] = {
+        {0, 0, 0},
+        {fx_from_int(10), fx_from_int(-7), fx_from_int(3)},
+        {fx_from_int(-40), fx_from_int(25), fx_from_int(-60)},
+        {fx_from_int(900), fx_from_int(900), fx_from_int(90)},
+    };
+    for (const sat_vec3_t& p : points) {
+        sat_projected_vertex_t pv = {};
+        project_vertex(vp.m, p, kW, kH, &pv);
+        int16_t x = 0;
+        int16_t y = 0;
+        const bool in_front = project_native(vp.m, p.x, p.y, p.z, kW, kH, &x, &y);
+        ASSERT_TRUE(in_front == (pv.w > 0));
+        if (in_front) {
+            ASSERT_EQ(pv.x, x);
+            ASSERT_EQ(pv.y, y);
+        }
+    }
+    sat_projected_vertex_t behind = {};
+    project_vertex(vp.m, sat_vec3_t{0, 0, fx_from_int(200)}, kW, kH, &behind);
+    ASSERT_TRUE(behind.w <= 0);
+}
+
+/* Screen-space culling (signed projected area) must agree with the world
+ * test (outward normal towards the eye) for every face of a closed box. */
+TEST(screen_area_culling_matches_world_culling) {
+    namespace mesh3d = saturn::core::mesh3d;
+    sat_vec3_t verts[8];
+    uint16_t indices[24];
+    sat_mesh_t mesh;
+    ASSERT_EQ(mesh3d::init(&mesh, verts, 8, indices, 6), SAT_OK);
+    ASSERT_EQ(mesh3d::build_box(&mesh, sat_vec3_t{0, 0, 0},
+                                fx_from_int(4), fx_from_int(5), fx_from_int(3)), SAT_OK);
+    const sat_vec3_t eyes[] = {
+        {0, 0, fx_from_int(30)},
+        {fx_from_int(30), fx_from_int(10), fx_from_int(2)},
+        {fx_from_int(-20), fx_from_int(25), fx_from_int(-20)},
+        {fx_from_int(6), fx_from_int(-30), fx_from_int(9)},
+    };
+    for (const sat_vec3_t& eye : eyes) {
+        const sat_mat4_t vp = view_proj_looking_at_origin(eye);
+        int front = 0;
+        for (uint16_t f = 0; f < mesh.face_count; ++f) {
+            sat_quad3_t quad;
+            ASSERT_EQ(mesh3d::face_quad(&mesh, f, &quad), SAT_OK);
+            sat_quad2_t projected;
+            for (int i = 0; i < 4; ++i) {
+                sat_projected_vertex_t pv = {};
+                project_vertex(vp.m, quad.v[i], kW, kH, &pv);
+                ASSERT_TRUE(pv.w > 0);
+                projected.x[i] = pv.x;
+                projected.y[i] = pv.y;
+            }
+            const bool screen_front = quad2_area2(projected) > 0;
+            ASSERT_TRUE(screen_front == mesh3d::quad_visible(quad, eye));
+            front += screen_front ? 1 : 0;
+        }
+        ASSERT_TRUE(front >= 1 && front <= 3);
+    }
+}
+
 TEST(sort_handles_degenerate_counts) {
     uint8_t idx[1] = {0};
     const uint32_t keys[1] = {7u};
@@ -355,6 +522,11 @@ int main() {
     face_intensity3_scaled_matches_the_unit_form_at_any_length();
     face_intensity3_scaled_handles_a_degenerate_normal();
 
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 22);
+    heap_sort_matches_stable_reference();
+    project_axis_matches_clamped_division();
+    project_quad_reuses_repeated_corners();
+    project_vertex_matches_project_native();
+    screen_area_culling_matches_world_culling();
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 27);
     return 0;
 }

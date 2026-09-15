@@ -15,7 +15,15 @@ MODEL_TEXTURE_SCALE      := 2.0
 MODEL_PALETTE_INDEX      := 1
 MODEL_MAX_TEXTURE_WIDTH  := 504
 MODEL_MAX_TEXTURE_HEIGHT := 255
-MODEL_SIMPLIFY           := auto
+# Every face of this low-poly model samples one swatch of a color atlas, so
+# it compiles to solid polygon colors with baked flat lighting instead of
+# textures. That welds the UV-split vertex copies (3176 -> 792) and makes
+# the full 1552-triangle mesh cheaper than a textured, simplified one.
+MODEL_SIMPLIFY           := off
+MODEL_FACE_COLORS        := on
+MODEL_LIGHT_DIR          := -0.5,0.6,0.8
+MODEL_AMBIENT            := 0.35
+MODEL_DIFFUSE            := 0.75
 MODEL_QUALITY            := balanced
 MODEL_ANIMATION          := all
 MODEL_ANIMATION_FPS      := source

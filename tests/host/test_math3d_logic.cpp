@@ -24,6 +24,20 @@
 
 using namespace saturn::core::math3d;
 
+/* fx_sqrt is the exact floor root of v << 16 across the whole positive range. */
+TEST(fx_sqrt_is_floor_root) {
+    const uint32_t extremes[] = {1u, 2u, 3u, 65535u, 65536u, 65537u, 0x7FFFFFFFu};
+    for (uint32_t i = 0; i < sizeof(extremes) / sizeof(extremes[0]) + 5000u; ++i) {
+        const uint32_t v = (i < sizeof(extremes) / sizeof(extremes[0]))
+            ? extremes[i]
+            : (uint32_t)((i * 2654435761u) & 0x7FFFFFFFu) | 1u;
+        const uint64_t x = (uint64_t)v << 16;
+        const uint64_t r = (uint64_t)fx_sqrt((sat_fx16_t)v);
+        ASSERT_TRUE(r * r <= x);
+        ASSERT_TRUE((r + 1) * (r + 1) > x);
+    }
+}
+
 TEST(fx_mul_and_div_roundtrip) {
     const sat_fx16_t two = fx_from_int(2);
     const sat_fx16_t three = fx_from_int(3);
@@ -229,6 +243,7 @@ TEST(vec3_length_does_not_overflow_on_long_vectors) {
 int main() {
     fx_mul_and_div_roundtrip();
     fx_sqrt_exact();
+    fx_sqrt_is_floor_root();
     sin_cos_cardinal_values();
     sin_45_degrees();
     mat4_identity_multiply();
@@ -246,6 +261,6 @@ int main() {
     look_at_survives_a_distant_camera();
     vec3_length_does_not_overflow_on_long_vectors();
 
-    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 18);
+    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 19);
     return 0;
 }

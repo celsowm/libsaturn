@@ -51,7 +51,7 @@ QUALITY_PRESETS = {
         "mean_surface_error": 0.004,
         "silhouette_iou_min": 0.50,
         "chamfer_px_max": 1.5,
-        "normal_error_deg_max": 10.0,
+        "max_flipped_facets": 0,
     },
     "balanced": {
         "max_surface_error": 0.050,
@@ -59,7 +59,7 @@ QUALITY_PRESETS = {
         "mean_surface_error": 0.010,
         "silhouette_iou_min": 0.35,
         "chamfer_px_max": 2.5,
-        "normal_error_deg_max": 15.0,
+        "max_flipped_facets": 0,
     },
     "aggressive": {
         "max_surface_error": 0.080,
@@ -67,7 +67,7 @@ QUALITY_PRESETS = {
         "mean_surface_error": 0.015,
         "silhouette_iou_min": 0.20,
         "chamfer_px_max": 4.0,
-        "normal_error_deg_max": 25.0,
+        "max_flipped_facets": 0,
     },
 }
 
@@ -261,9 +261,10 @@ def _point_triangle_dist2_chunk(np, P, A, B, C):
     # Face interior.
     handled = va | vb | vc | eab | eac | ebc
     rem = ~handled
+    # Ericson: va = vc_bc, vb = vc_ac, vc = vc_ab; v = vb/sum, w = vc/sum.
     denom = 1.0 / (vc_ab[rem] + vc_ac[rem] + vc_bc[rem] + 1e-30)
-    v = (vc_bc[rem]) * denom
-    w = (vc_ac[rem]) * denom
+    v = (vc_ac[rem]) * denom
+    w = (vc_ab[rem]) * denom
     qi = np.nonzero(rem)
     q = (
         A[qi[1]]
@@ -369,14 +370,21 @@ def normal_error_stats(source, simplified, clip, times=None) -> dict | None:
     """Angular deviation (degrees) of simplified facets vs covered surface.
 
     For each simplified triangle, the source triangles around its corners
-    (bind-time adjacency through the subset mapping) are the surface it
-    replaced. The error is the smallest angle between the posed simplified
-    facet and those posed source facets. No nearest-point matching is
-    involved, so split-vertex seams and thin closed limbs cannot manufacture
-    orientation flips: at full resolution every facet trivially matches its
-    own source face for 0.0 degrees. What remains is real facet tilt -- the
-    quantity that must stay sane for backface culling. (Textured VDP1 faces
-    bypass runtime lighting, so this gate guards culling consistency.)
+    are the surface it replaced. Corners are matched by POSITION, not by
+    vertex index: split-vertex exports give every side of a corner its own
+    copy, and one copy's adjacency is often a single sliver of the surface.
+    The error is the smallest angle between the posed simplified facet and
+    those posed source facets. No nearest-point matching is involved, so
+    thin closed limbs cannot manufacture orientation flips: at full
+    resolution every facet trivially matches its own source face for 0.0
+    degrees.
+
+    Tilt itself is expected -- one facet replacing a curved patch cannot
+    match every facet it covers -- so the gate is ``flipped_facets``: facets
+    turned more than 90 degrees from all of the surface they replaced in
+    some sampled pose. Those are the ones backface culling drops, leaving a
+    see-through hole. (Textured VDP1 faces bypass runtime lighting, so this
+    gate guards culling consistency.)
     """
     from .animation import bake_clip_poses
 
@@ -388,17 +396,19 @@ def normal_error_stats(source, simplified, clip, times=None) -> dict | None:
         times = sample_times_for_importance(clip) if clip is not None else [0.0]
     src_tris = np.asarray(source.triangles, dtype=np.int64)
     simp_tris = np.asarray(simplified.triangles, dtype=np.int64)
-    adjacency: list[list[int]] = [[] for _ in range(len(source.vertices))]
-    for k, (a, b, c) in enumerate(source.triangles):
-        adjacency[a].append(k)
-        adjacency[b].append(k)
-        adjacency[c].append(k)
+    def pos_key(p):
+        return (round(p[0], 9), round(p[1], 9), round(p[2], 9))
+
+    adjacency: dict[tuple, set[int]] = {}
+    for k, tri in enumerate(source.triangles):
+        for v in tri:
+            adjacency.setdefault(pos_key(source.vertices[v]), set()).add(k)
     # Candidate source faces per simplified triangle (bind-time, sorted).
     cover: list[list[int]] = []
-    for (a, b, c) in simplified.triangles:
-        cand = set()
-        for v in (simplified.source_vertex[a], simplified.source_vertex[b], simplified.source_vertex[c]):
-            cand.update(adjacency[v])
+    for tri in simplified.triangles:
+        cand: set[int] = set()
+        for x in tri:
+            cand.update(adjacency.get(pos_key(simplified.positions[x]), ()))
         cover.append(sorted(cand))
     angs = []
     for t in times:
@@ -428,7 +438,9 @@ def normal_error_stats(source, simplified, clip, times=None) -> dict | None:
             best[i] = dots.max()
         angs.append(np.degrees(np.arccos(best.clip(-1.0, 1.0))))
     all_a = np.concatenate(angs, axis=0)
+    per_face = np.stack(angs, axis=0).max(axis=0) if angs else np.zeros(0)
     return {
+        "flipped_facets": int((per_face > 90.0).sum()),
         "mean_deg": float(all_a.mean()),
         "p95_deg": float(np.sort(all_a)[min(len(all_a) - 1, int(0.95 * len(all_a)))]),
         "max_deg": float(all_a.max()) if len(all_a) else 0.0,
@@ -472,7 +484,31 @@ def integrity_report(source: SourceModel, simplified) -> dict:
     return {
         "uv_violations": uv_violations,
         "material_violations": mat_violations,
+        "crack_edges": max(
+            0,
+            open_edge_count(simplified.positions, simplified.triangles)
+            - open_edge_count(source.vertices, source.triangles),
+        ),
     }
+
+
+def open_edge_count(positions, triangles) -> int:
+    """Edges used by exactly one face once coincident vertex copies weld.
+
+    Split-vertex exports (flat normals, UV seams) have an open edge on every
+    raw index, so openness is judged by position: a simplification that adds
+    open edges has torn the surface, which shows as see-through cracks.
+    """
+    key_of = [(round(p[0], 9), round(p[1], 9), round(p[2], 9)) for p in positions]
+    counts: dict[tuple, int] = {}
+    for tri in triangles:
+        for i in range(3):
+            a, b = key_of[tri[i]], key_of[tri[(i + 1) % 3]]
+            if a == b:
+                continue
+            edge = (a, b) if a < b else (b, a)
+            counts[edge] = counts.get(edge, 0) + 1
+    return sum(1 for n in counts.values() if n == 1)
 
 
 # ----------------------------------------------------------------------
@@ -523,14 +559,19 @@ def evaluate_candidate(
         failing.append(
             f"silhouette chamfer {sil['chamfer_px_max']:.2f}px > {preset['chamfer_px_max']:.2f}px"
         )
-    if norm is not None and norm["max_deg"] > preset["normal_error_deg_max"]:
+    if norm is not None and norm["flipped_facets"] > preset["max_flipped_facets"]:
         failing.append(
-            f"normal error {norm['max_deg']:.2f}deg > {preset['normal_error_deg_max']:.2f}deg"
+            f"{norm['flipped_facets']} facets flipped past 90deg "
+            f"(> {preset['max_flipped_facets']}; culling would open holes)"
         )
     if integrity["uv_violations"]:
         failing.append(f"{integrity['uv_violations']} UV integrity violations")
     if integrity["material_violations"]:
         failing.append(f"{integrity['material_violations']} material violations")
+    if integrity["crack_edges"]:
+        failing.append(
+            f"{integrity['crack_edges']} crack edges (surface torn open between vertex copies)"
+        )
     return {
         "preset": preset_name,
         "surface": surf,
@@ -554,6 +595,7 @@ def search_upward(
     times: list[float] | None = None,
     pose_positions: list | None = None,
     max_steps: int = 8,
+    enforce_floor: bool = False,
 ) -> tuple:
     """Smallest triangle count in [requested, source] passing quality gates.
 
@@ -564,6 +606,10 @@ def search_upward(
     candidate simplification. Returns ``(simplified, quality_report)``.
     Raises GltfError when even the full source mesh cannot pass (a tool bug
     or an impossible preset, never a silent force-down).
+
+    When ``enforce_floor`` is set (explicit numeric --simplify target), the
+    requested count is a floor instead of a starting hint: the search never
+    slides below it, so an explicit request is honored when it passes.
     """
     from . import simplification as simp_mod
 
@@ -597,6 +643,9 @@ def search_upward(
     lo = min(requested_triangles, len(source.triangles))
     simp, rep = _run(lo)
     if rep["passed"]:
+        if enforce_floor:
+            # Explicit target: deliver it when it passes; never shrink.
+            return simp, rep
         # Try lower counts while quality still passes (bounded steps).
         best, best_rep = simp, rep
         floor = max(1, lo // 2)

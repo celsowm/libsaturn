@@ -267,14 +267,18 @@ constexpr uint16_t kVdp1CmdPolyline = 0x0005u;  /* outline only, 4 vertices   */
 constexpr uint16_t kVdp1CmdLine     = 0x0006u;  /* straight line, 2 vertices  */
 constexpr uint16_t kVdp1CmdEnd      = 0x8000u;  /* end bit (CMDCTRL bit 15)   */
 
-/* PMOD bits common to all non-texture commands:
- *   bits 2..0 = color mode 000B (16-bit palette / RGB code)
- *   bit 3     = SPD (sprite disable)   — required, no character data is read
- *   bit 4     = ECD (end code disable) — required, no end code is read
- * Setting SPD/ECD to 0 makes the VDP1 fetch character data for a command that
- * has none, which can stall or draw garbage.
- */
-constexpr uint16_t kVdp1PolygonPmod = 0x0018u;
+/* PMOD bits common to all non-texture commands (CMDPMOD, VDP1 manual p06_30):
+ *   bit 7     = ECD (end code disable)
+ *   bit 6     = SPD (transparent pixel disable)
+ *     -- neither means anything without character data; both set so no end
+ *        or transparent code is ever looked for
+ *   bits 5..3 = color mode 000B: CMDCOLR is used as is, an RGB code or a
+ *     color-bank code. It is the mode the manual prescribes for untextured
+ *     commands, and the only one an 8bpp high-resolution frame buffer takes.
+ *   bits 2..0 = color calculation 000B (replace)
+ * This used to be 0x0018, which mistook bits 3/4 for SPD/ECD and so selected
+ * color mode 011B instead. */
+constexpr uint16_t kVdp1PolygonPmod = 0x00C0u;
 
 /* Composes CMDPMOD for a polygon/polyline/line command.
  * bit 6 = opaque flag, mirrored from SAT_SPRITE_FLAG_OPAQUE for API symmetry.

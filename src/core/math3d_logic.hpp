@@ -48,6 +48,29 @@ inline sat_fx16_t fx_abs(sat_fx16_t v) {
     return (v < 0) ? static_cast<sat_fx16_t>(-v) : v;
 }
 
+/* Signed 64/32 division truncating toward zero, for a quotient the caller
+ * guarantees fits in 32 bits.
+ *
+ * On the SH-2 this runs on the on-chip division unit -- a fixed 39-cycle
+ * hardware divide -- instead of libgcc's __divdi3, a bit-serial software loop
+ * that projection and pose decoding used to call thousands of times a frame.
+ * The registers are dereferenced here, never bound to a global, for the
+ * static-constructor reason given in src/hal/vdp2.cpp. The host build keeps
+ * the plain operator, which has identical semantics. */
+inline int32_t div_s64_s32(int64_t num, int32_t den) {
+#if defined(__sh__)
+    /* SH7604 DIVU: DVSR, DVDNTH, then writing DVDNTL starts the divide and
+     * leaves the quotient in DVDNTL. */
+    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF00u) = static_cast<uint32_t>(den);
+    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF10u) =
+        static_cast<uint32_t>(static_cast<uint64_t>(num) >> 32u);
+    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF14u) = static_cast<uint32_t>(num);
+    return static_cast<int32_t>(*reinterpret_cast<volatile uint32_t*>(0xFFFFFF14u));
+#else
+    return static_cast<int32_t>(num / den);
+#endif
+}
+
 /* Exact integer square root, bit by bit. Used where the value whose root is
  * wanted is a sum of squares that only fits in 64 bits. */
 inline uint64_t isqrt64(uint64_t x) {
@@ -89,22 +112,16 @@ inline sat_fx16_t fx_len3(sat_fx16_t x, sat_fx16_t y, sat_fx16_t z) {
     return static_cast<sat_fx16_t>(root);
 }
 
-/* sqrt of a 16.16 value, returned as 16.16.
- * For v = A * 2^16, computing sqrt(v << 16) = sqrt(A * 2^32) = sqrt(A) * 2^16
- * yields the 16.16 result directly, so a 64-bit Newton iteration suffices. */
+/* sqrt of a 16.16 value, returned as 16.16 (floor).
+ * For v = A * 2^16, sqrt(v << 16) = sqrt(A * 2^32) = sqrt(A) * 2^16 is the
+ * 16.16 result directly. It used to take a fixed 32 Newton steps, each a
+ * 64-bit software divide, where the digit-by-digit root needs no divide. */
 inline sat_fx16_t fx_sqrt(sat_fx16_t v) {
     if (v <= 0) {
         return 0;
     }
-    const uint64_t x = static_cast<uint64_t>(static_cast<uint32_t>(v)) << 16u;
-    uint64_t r = 1u;
-    while ((r * r) <= x && r < (1u << 31u)) {
-        r <<= 1u;
-    }
-    for (int i = 0; i < 32; ++i) {
-        r = (r + (x / r)) >> 1u;
-    }
-    return static_cast<sat_fx16_t>(r);
+    return static_cast<sat_fx16_t>(
+        isqrt64(static_cast<uint64_t>(static_cast<uint32_t>(v)) << 16u));
 }
 
 /* ------------------------------------------------------------------ */

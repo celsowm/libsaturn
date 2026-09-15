@@ -262,14 +262,19 @@ The generated asset quantizes positions to int16 per axis around a
 scale/bias (decoder: `pos_fx16 = bias + scale*q/32767`), reuses the same
 baked-face texture dedup as the static path, and keeps the simplified mesh
 inside explicit quality gates (animated surface error, silhouette chamfer,
-normal angle, IoU) and Saturn budgets (VDP1 commands incl. HUD reserve,
-VRAM, <=256 KiB pose stream). Any gate breach is a hard FAIL with numbers --
-the importer never emits a silently degraded asset.
+IoU, no facet flipped past 90 degrees, no crack edges) and Saturn budgets
+(VDP1 commands incl. HUD reserve, VRAM, <=256 KiB pose stream). Any gate
+breach is a hard FAIL with numbers -- the importer never emits a silently
+degraded asset.
 
 Simplification uses worst-pose QEM (MAX over baked poses) with UV-seam and
-material locks, crease/boundary penalties, per-pose foldover rejection and
-an exact-duplicate weld pre-pass; only subset collapses are allowed, so
-surviving vertices keep exact source UVs/joints/weights. `--simplify auto`
+material locks, boundary quadrics on borders/seams, crease penalties and an
+exact-duplicate weld pre-pass. Collapses move whole position groups: every
+split copy of a surface point (flat normals, UV seams, palette-swatch UVs)
+moves together, so the surface never tears open. Each face stays within a
+preset angle of its source orientation in every pose, so backface culling
+never opens holes. Only subset collapses are allowed, so surviving vertices
+keep exact source UVs/joints/weights. `--simplify auto`
 searches under `--quality <preset>` within the profile caps;
 `--simplify off|N` force the triangle count.
 

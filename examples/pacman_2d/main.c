@@ -62,7 +62,7 @@ static const uint16_t kGhostColors[PAC_GHOST_COUNT] = {
 static pac_game_t g_game;
 static sat_ascii_font_t g_font;
 
-/* Set when the VDP1 command list fills up. The list holds 512 commands and a
+/* Set when the VDP1 command list fills up. The list holds 1024 commands and a
  * full round needs about 350, so this should never trigger -- but editing the
  * maze could push it over, and a silent panic loop would look like a crashed
  * console instead of telling anyone why. */

@@ -5,9 +5,11 @@ Extends the static compiled-model format (same table layout and formatting
 conventions as tools/import_model.py) with baked animation assets:
 
 - static tables: vertices (16.16 bind pose), A/B/C/D indices, per-face
-  texture selectors, deduplicated baked textures, shared palette;
-- animation tables: one int16 pose stream per clip (frame-major), clip
-  descriptors (frames, rate, loop flag, scale/bias encoding);
+  texture selectors, deduplicated baked textures, shared palette -- or, for
+  solid-color assets, no textures and a baked-lighting shade palette;
+- animation tables: one int16 pose stream per clip (frame-major), optional
+  per-frame face shade indices, clip descriptors (frames, rate, loop flag,
+  scale/bias encoding);
 - one top-level ``sat_animated_model_asset_t`` descriptor.
 
 No source UVs, joints, weights, inverse bind matrices or GLB structures
@@ -48,8 +50,9 @@ def emit_animated_c_h(
 
     ``static_result`` is the import_model.ImportResult shape (vertices_fx,
     indices_abcd, face_texture_indices, textures, palette_rgb555,
-    palette_base, stats). ``animations`` holds pose_bake.quantize_frames
-    dicts plus ``name``, ``sample_rate_num/den`` and ``loop``.
+    palette_base, stats, shade_palette_rgb555). ``animations`` holds
+    pose_bake.quantize_frames dicts plus ``name``, ``sample_rate_num/den``,
+    ``loop`` and, for solid-color assets, ``shades``.
     """
     sym = sanitize_identifier(symbol) if symbol else sanitize_identifier(out_prefix.name)
     guard = f"{sym.upper()}_H"
@@ -61,6 +64,8 @@ def emit_animated_c_h(
     nf = len(static_result.indices_abcd)
     nt = len(static_result.textures)
     na = len(animations)
+    has_palette = bool(static_result.palette_rgb555)
+    shade = list(getattr(static_result, "shade_palette_rgb555", None) or [])
 
     header_lines = [
         f"#ifndef {guard}",
@@ -78,21 +83,30 @@ def emit_animated_c_h(
         f"extern const sat_vec3_t {sym}_vertices[{nv}];",
         f"extern const uint16_t {sym}_indices[{nf * 4}];",
         f"extern const uint16_t {sym}_face_textures[{nf}];",
-        f"extern const sat_model_texture_asset_t {sym}_textures[{nt}];",
-        "extern const uint16_t " + f"{sym}_palette[256];",
-        f"extern const sat_model_asset_t {sym}_asset;",
     ]
+    if nt:
+        header_lines.append(f"extern const sat_model_texture_asset_t {sym}_textures[{nt}];")
+    if has_palette:
+        header_lines.append("extern const uint16_t " + f"{sym}_palette[256];")
+    if shade:
+        header_lines.append(f"extern const uint16_t {sym}_shade_palette[{len(shade)}];")
+    header_lines.append(f"extern const sat_model_asset_t {sym}_asset;")
     for i, anim in enumerate(animations):
         n = anim["frame_count"] * anim["vertex_count"] * 3
         header_lines.append(
             f"extern const int16_t {sym}_anim{i}_positions[{n}];"
         )
+        if anim.get("shades") is not None:
+            header_lines.append(
+                f"extern const uint8_t {sym}_anim{i}_shades[{len(anim['shades'])}];"
+            )
     header_lines += [
         f"extern const sat_model_animation_asset_t {sym}_animations[{na}];",
         f"extern const sat_animated_model_asset_t {sym}_anim_asset;",
         f"#define {sym.upper()}_VERTEX_COUNT ({nv}u)",
         f"#define {sym.upper()}_FACE_COUNT ({nf}u)",
         f"#define {sym.upper()}_TEXTURE_COUNT ({nt}u)",
+        f"#define {sym.upper()}_SHADE_COUNT ({len(shade)}u)",
         f"#define {sym.upper()}_ANIMATION_COUNT ({na}u)",
     ]
     for i, anim in enumerate(animations):
@@ -138,32 +152,41 @@ def emit_animated_c_h(
             parts.append(body)
         parts.append("};")
         parts.append("")
-    parts.append(f"const sat_model_texture_asset_t {sym}_textures[{nt}] = {{")
-    for i, tex in enumerate(static_result.textures):
-        parts.append(
-            f"    {{{sym}_tex{i}_pixels, {tex['width']}u, {tex['height']}u, "
-            f"0u, {tex['flags']}u, {tex['pixel_count']}u}},"
-        )
-    parts.append("};")
-    parts.append("")
-    parts.append(f"const uint16_t {sym}_palette[256] = {{")
-    body = format_word_array(static_result.palette_rgb555)
-    if body:
-        parts.append(body)
-    parts.append("};")
-    parts.append("")
+    if nt:
+        parts.append(f"const sat_model_texture_asset_t {sym}_textures[{nt}] = {{")
+        for i, tex in enumerate(static_result.textures):
+            parts.append(
+                f"    {{{sym}_tex{i}_pixels, {tex['width']}u, {tex['height']}u, "
+                f"0u, {tex['flags']}u, {tex['pixel_count']}u}},"
+            )
+        parts.append("};")
+        parts.append("")
+    if has_palette:
+        parts.append(f"const uint16_t {sym}_palette[256] = {{")
+        body = format_word_array(static_result.palette_rgb555)
+        if body:
+            parts.append(body)
+        parts.append("};")
+        parts.append("")
+    if shade:
+        parts.append(f"const uint16_t {sym}_shade_palette[{len(shade)}] = {{")
+        parts.append(format_word_array(shade))
+        parts.append("};")
+        parts.append("")
     parts.append(f"const sat_model_asset_t {sym}_asset = {{")
     parts.append(f"    {sym}_vertices,")
     parts.append(f"    {nv}u,")
     parts.append(f"    {sym}_indices,")
     parts.append(f"    {nf}u,")
     parts.append(f"    {sym}_face_textures,")
-    parts.append(f"    {sym}_textures,")
+    parts.append(f"    {sym}_textures," if nt else "    0,")
     parts.append(f"    {nt}u,")
-    parts.append(f"    {sym}_palette,")
-    parts.append("    1u,")
+    parts.append(f"    {sym}_palette," if has_palette else "    0,")
+    parts.append("    1u," if has_palette else "    0u,")
     parts.append(f"    {static_result.palette_base}u,")
-    parts.append("    0u")
+    parts.append("    0u,")
+    parts.append(f"    {sym}_shade_palette," if shade else "    0,")
+    parts.append(f"    {len(shade)}u")
     parts.append("};")
     parts.append("")
     for i, anim in enumerate(animations):
@@ -174,18 +197,27 @@ def emit_animated_c_h(
             parts.append(body)
         parts.append("};")
         parts.append("")
+        if anim.get("shades") is not None:
+            parts.append(f"const uint8_t {sym}_anim{i}_shades[{len(anim['shades'])}] = {{")
+            body = format_byte_array(list(anim["shades"]))
+            if body:
+                parts.append(body)
+            parts.append("};")
+            parts.append("")
     parts.append(f"const sat_model_animation_asset_t {sym}_animations[{na}] = {{")
     for i, anim in enumerate(animations):
         enc_b, enc_s = anim["encoding"]["bias"], anim["encoding"]["scale"]
         loop = "0x0001u" if anim["loop"] else "0x0000u"
+        shades_ref = f"{sym}_anim{i}_shades" if anim.get("shades") is not None else "0"
         parts.append(f"    {{{sym}_anim{i}_positions,")
         parts.append(f"     {anim['frame_count']}u, {anim['vertex_count']}u,")
         parts.append(f"     {anim['sample_rate_num']}u, {anim['sample_rate_den']}u,")
         parts.append(f"     {loop}, 0u,")
         parts.append(
             f"     {{{enc_b[0]}, {enc_b[1]}, {enc_b[2]}, "
-            f"{enc_s[0]}, {enc_s[1]}, {enc_s[2]}}}}},"
+            f"{enc_s[0]}, {enc_s[1]}, {enc_s[2]}}},"
         )
+        parts.append(f"     {shades_ref}}},")
     parts.append("};")
     parts.append("")
     parts.append(f"const sat_animated_model_asset_t {sym}_anim_asset = {{")

@@ -63,6 +63,8 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     saturn::hal::vdp2::init_ntsc_320x224();
     saturn::hal::vdp1::init(config->width, config->height, g_state.clear_color);
     saturn::hal::scu::init_interrupts();
+    /* After VDP2 init: calibration times two real VBLANK edges. */
+    saturn::hal::scu::init_frame_clock();
     saturn::hal::vdp1::begin_frame(g_state.command_buffer, saturn::internal::kCmdCapacity);
     return SAT_OK;
 }

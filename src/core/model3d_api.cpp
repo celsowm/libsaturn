@@ -102,11 +102,20 @@ extern "C" sat_result_t sat_model_bind_draw_ex(
     uint32_t* depth,
     sat_mesh_draw_t* out_draw
 ) {
-    if (asset == nullptr || mesh == nullptr || textures == nullptr ||
+    if (asset == nullptr || mesh == nullptr ||
         view_proj == nullptr || eye == nullptr || out_draw == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
-    if (saturn::core::model3d::validate(asset) != SAT_OK) {
+    /* A solid-color asset has no textures to bind. */
+    if (asset->texture_count > 0u && textures == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    /* O(1) on purpose: this runs every frame. The O(faces) descriptor walk
+     * belongs to sat_model_validate / sat_model_copy_to_mesh, which had to
+     * accept this asset for the mesh counts below to match it, and
+     * sat_draw_mesh still bounds every face texture index itself. */
+    if (asset->face_texture_indices == nullptr ||
+        (asset->texture_count > 0u && asset->textures == nullptr)) {
         return SAT_ERR_INVALID_ARG;
     }
     if (mesh->face_count != asset->face_count || mesh->vertex_count != asset->vertex_count) {
@@ -135,6 +144,7 @@ extern "C" sat_result_t sat_model_bind_draw_ex(
     out_draw->order = order;
     out_draw->depth = depth;
     out_draw->order16 = order16;
+    out_draw->screen = nullptr;
     return SAT_OK;
 }
 

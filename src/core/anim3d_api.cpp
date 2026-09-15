@@ -85,3 +85,12 @@ extern "C" sat_result_t sat_anim_decode(
 ) {
     return saturn::core::anim3d::decode(asset, state, out_vertices, vertex_cap);
 }
+
+extern "C" sat_result_t sat_anim_face_colors(
+    const sat_animated_model_asset* asset,
+    const sat_anim_state_t* state,
+    uint16_t* out_colors,
+    uint16_t color_cap
+) {
+    return saturn::core::anim3d::face_colors(asset, state, out_colors, color_cap);
+}

@@ -16,6 +16,16 @@ sat_result_t sat_begin_frame(void);
 sat_result_t sat_end_frame(void);
 sat_result_t sat_wait_vblank(void);
 
+/* Display frames (VBlanks) elapsed since sat_init.
+ *
+ * Unlike counting sat_wait_vblank calls, this keeps counting while the
+ * program is busy: a frame that takes three VBlanks to build advances it by
+ * three. Time-based animation should step by its deltas, or it plays in slow
+ * motion exactly when the scene is heaviest. Measured with the SH-2
+ * free-running timer, calibrated against real VBlank edges during sat_init;
+ * a single program frame longer than about 18 NTSC frames undercounts. */
+uint32_t sat_frame_count(void);
+
 /* ------------------------------------------------------------------ */
 /* Clear / backdrop color                                              */
 /* ------------------------------------------------------------------ */

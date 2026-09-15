@@ -25,16 +25,24 @@ inline sat_result_t validate(const sat_model_asset_t* asset) {
     if (asset->face_texture_indices == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
-    if (asset->texture_count == 0u || asset->textures == nullptr) {
-        return SAT_ERR_INVALID_ARG;
+    /* Textures and their palettes are required only by textured assets; a
+     * solid-color asset has none and draws every face as a polygon. */
+    if (asset->texture_count > 0u) {
+        if (asset->textures == nullptr) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        if (asset->palette_count == 0u || asset->palettes_rgb555 == nullptr) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        if (asset->palette_base >= 8u) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        if ((uint32_t)asset->palette_base + (uint32_t)asset->palette_count > 8u) {
+            return SAT_ERR_INVALID_ARG;
+        }
     }
-    if (asset->palette_count == 0u || asset->palettes_rgb555 == nullptr) {
-        return SAT_ERR_INVALID_ARG;
-    }
-    if (asset->palette_base >= 8u) {
-        return SAT_ERR_INVALID_ARG;
-    }
-    if ((uint32_t)asset->palette_base + (uint32_t)asset->palette_count > 8u) {
+    if (asset->shade_palette_count > 256u ||
+        (asset->shade_palette_count > 0u && asset->shade_palette_rgb555 == nullptr)) {
         return SAT_ERR_INVALID_ARG;
     }
     for (uint16_t f = 0; f < asset->face_count; ++f) {

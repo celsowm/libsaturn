@@ -234,8 +234,8 @@ static int is_wall(int col, int row) {
  * then extend down as far as every column of the run stays wall.
  *
  * One box per rectangle instead of one per tile is the difference between
- * about 60 solids and about 200, and on a 512-command list that is the
- * difference between the board fitting and not. */
+ * about 60 solids and about 200, and at ~400 polygons per SH-2 frame that is
+ * the difference between the board fitting a frame and not. */
 static void build_wall_rects(void) {
     uint8_t used[kPacMazeRows][kPacMazeCols];
     int row;
@@ -511,8 +511,8 @@ static void bake_walls(void) {
             /* The camera cannot move within an angle, so a face turned away
              * from it is turned away for as long as this baked view is the
              * live one: culling here costs nothing again. Roughly half of
-             * every box goes, which is what keeps the whole maze inside the
-             * 512-command list. */
+             * every box goes, which is what keeps the whole maze inside one
+             * frame of polygon submission. */
             if (!sat_mesh_face_visible(&g_mesh, f, &g_cam_eye)) {
                 continue;
             }
@@ -668,7 +668,10 @@ static const uint8_t kMouthGap[] = {0u, 2u, 4u};
 #define COLOR_EYE SAT_RGB555(31, 31, 31)
 
 static void submit_mesh(uint16_t color, const uint16_t* face_colors) {
-    sat_mesh_draw_t draw;
+    /* Zeroed: the fields this does not set -- textures, face_texture_indices,
+     * order16, screen -- must read as absent, not as stack garbage that
+     * sat_draw_mesh would dereference. */
+    sat_mesh_draw_t draw = {0};
     draw.view_proj = &g_view_proj;
     draw.eye = g_cam_eye;
     draw.color = color;

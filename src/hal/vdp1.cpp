@@ -32,7 +32,9 @@ constexpr uintptr_t kUncached = 0x20000000u;
 #define VDP1_VRAM_32 (reinterpret_cast<volatile uint32_t*>(kUncached | 0x05C00000u))
 #define VDP1_VRAM_16 (reinterpret_cast<volatile uint16_t*>(kUncached | 0x05C00000u))
 constexpr uint32_t kVramSize = 512u * 1024u;
-constexpr uint32_t kCommandAreaBytes = 16u * 1024u;
+/* Room for saturn::internal::kCmdCapacity 32-byte command tables; texture
+ * uploads start right after it. */
+constexpr uint32_t kCommandAreaBytes = 64u * 1024u;
 
 Command* g_cmd_buffer = nullptr;
 uint16_t g_cmd_capacity = 0;

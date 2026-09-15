@@ -36,6 +36,15 @@ typedef struct sat_quad2 {
     int16_t y[4];
 } sat_quad2_t;
 
+/* One vertex projected into native VDP1 coordinates. `w` is its clip-space
+ * w -- view depth in 16.16 world units. w <= 0 means at or behind the camera
+ * plane, and x/y are then meaningless. */
+typedef struct sat_projected_vertex {
+    int16_t x;
+    int16_t y;
+    sat_fx16_t w;
+} sat_projected_vertex_t;
+
 /* ------------------------------------------------------------------ */
 /* Quad construction                                                   */
 /* ------------------------------------------------------------------ */
@@ -115,6 +124,26 @@ sat_result_t sat_draw_world_polygon(
  * that for its sixteen view angles, at a cost of about 10KB per angle. */
 sat_result_t sat_draw_quad2_polygon(const sat_quad2_t* quad, uint16_t color);
 
+/* Textured counterpart of sat_draw_quad2_polygon: submits an already
+ * projected quad as a distorted sprite. */
+sat_result_t sat_draw_quad2_sprite(
+    const sat_quad2_t* quad,
+    const sat_texture_t* texture,
+    uint16_t palette_override,
+    uint16_t flags
+);
+
+/* Projects `count` world points into native VDP1 coordinates in one call,
+ * clamped exactly as sat_project_quad clamps corners. A point at or behind
+ * the camera plane comes back with w <= 0 rather than as an error. This is
+ * the step sat_draw_mesh's projection cache runs once per draw. */
+sat_result_t sat_project_vertices(
+    const sat_mat4_t* view_proj,
+    const sat_vec3_t* points,
+    uint16_t count,
+    sat_projected_vertex_t* out
+);
+
 /* Projects and submits a textured (distorted-sprite) quad. Same rejection
  * rule as sat_draw_world_polygon. */
 sat_result_t sat_draw_world_sprite(
@@ -130,9 +159,10 @@ sat_result_t sat_draw_world_sprite(
 /* ------------------------------------------------------------------ */
 
 /* Orders `indices` so the largest key comes first, i.e. farthest-first when
- * the keys are squared distances from the camera. Insertion sort: stable, no
- * scratch memory, and near-linear on the frame-to-frame coherent orders a
- * moving camera produces. `count` must not exceed 255. */
+ * the keys are squared distances from the camera. Equal keys come out in
+ * ascending index order, which for an ascending input list is exactly the
+ * stable order. Heapsort: O(n log n) worst case, no scratch memory.
+ * `count` must not exceed 255. */
 void sat_sort_indices_desc(uint8_t* indices, const uint32_t* keys, uint16_t count);
 
 /* Wide form for meshes past the 255-face limit; `count` may reach 65535. */

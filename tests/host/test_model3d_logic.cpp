@@ -57,6 +57,20 @@ extern "C" sat_result_t sat_draw_world_sprite(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_project_vertices(
+    const sat_mat4_t*, const sat_vec3_t*, uint16_t, sat_projected_vertex_t*) {
+    return SAT_ERR_UNSUPPORTED;
+}
+
+extern "C" sat_result_t sat_draw_quad2_polygon(const sat_quad2_t*, uint16_t) {
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_draw_quad2_sprite(
+    const sat_quad2_t*, const sat_texture_t*, uint16_t, uint16_t) {
+    return SAT_OK;
+}
+
 static int g_tex_calls = 0;
 static sat_result_t g_tex_status = SAT_OK;
 
@@ -89,6 +103,46 @@ static void null_and_empty_rejected() {
     bad = a;
     bad.face_count = 0;
     ASSERT_EQ(sat_model_validate(&bad), SAT_ERR_INVALID_ARG);
+}
+
+/* A solid-color asset carries a shade palette instead of textures, and
+ * binds for drawing without a texture table. */
+static void solid_color_model_needs_no_textures() {
+    sat_model_asset_t a = make_valid();
+    static uint16_t none[2] = {SAT_MESH_TEXTURE_NONE, SAT_MESH_TEXTURE_NONE};
+    static uint16_t shades[4] = {0x8000u, 0x801Fu, 0x83E0u, 0xFC00u};
+    a.face_texture_indices = none;
+    a.textures = nullptr;
+    a.texture_count = 0;
+    a.palettes_rgb555 = nullptr;
+    a.palette_count = 0;
+    a.shade_palette_rgb555 = shades;
+    a.shade_palette_count = 4;
+    ASSERT_EQ(sat_model_validate(&a), SAT_OK);
+
+    sat_model_asset_t bad = a;
+    bad.shade_palette_rgb555 = nullptr;
+    ASSERT_EQ(sat_model_validate(&bad), SAT_ERR_INVALID_ARG);
+    bad = a;
+    bad.shade_palette_count = 257;
+    ASSERT_EQ(sat_model_validate(&bad), SAT_ERR_INVALID_ARG);
+    bad = a;
+    bad.texture_count = 1; /* claims textures but has no table */
+    ASSERT_EQ(sat_model_validate(&bad), SAT_ERR_INVALID_ARG);
+
+    sat_vec3_t verts[4];
+    uint16_t idx[8];
+    sat_mesh_t mesh;
+    ASSERT_EQ(sat_mesh_init(&mesh, verts, 4, idx, 2), SAT_OK);
+    ASSERT_EQ(sat_model_copy_to_mesh(&a, &mesh), SAT_OK);
+    sat_mat4_t vp = {};
+    sat_vec3_t eye = {0, 0, 65536};
+    sat_mesh_draw_t draw = {};
+    ASSERT_EQ(sat_model_bind_draw(
+        &a, &mesh, nullptr, 0, &vp, &eye, 0x8000u, nullptr, 0, 0, nullptr, nullptr, &draw),
+        SAT_OK);
+    ASSERT_TRUE(draw.textures == nullptr);
+    ASSERT_EQ(draw.texture_count, 0u);
 }
 
 static void face_vertex_bounds_checked() {
@@ -198,6 +252,7 @@ static void bind_draw_fills_mesh_draw() {
 int main() {
     valid_descriptor_passes();
     null_and_empty_rejected();
+    solid_color_model_needs_no_textures();
     face_vertex_bounds_checked();
     face_texture_mapping_checked();
     texture_dims_and_pixel_count_checked();
@@ -206,6 +261,6 @@ int main() {
     bounds_and_center_derived();
     byte_and_vram_estimates();
     bind_draw_fills_mesh_draw();
-    printf("PASS: test_model3d_logic.cpp (10 tests)\n");
+    printf("PASS: test_model3d_logic.cpp (11 tests)\n");
     return 0;
 }

@@ -123,6 +123,48 @@ extern "C" sat_result_t sat_draw_quad2_polygon(const sat_quad2_t* quad, uint16_t
     return saturn::hal::vdp1::push_polygon(req);
 }
 
+extern "C" sat_result_t sat_draw_quad2_sprite(
+    const sat_quad2_t* quad,
+    const sat_texture_t* texture,
+    uint16_t palette_override,
+    uint16_t flags
+) {
+    if (quad == nullptr || texture == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    sat_distorted_sprite_cmd_t cmd = {};
+    for (int i = 0; i < 4; ++i) {
+        cmd.x[i] = quad->x[i];
+        cmd.y[i] = quad->y[i];
+    }
+    cmd.texture = texture;
+    cmd.palette_override = palette_override;
+    cmd.flags = flags;
+    return sat_draw_sprite_distorted(&cmd);
+}
+
+extern "C" sat_result_t sat_project_vertices(
+    const sat_mat4_t* view_proj,
+    const sat_vec3_t* points,
+    uint16_t count,
+    sat_projected_vertex_t* out
+) {
+    const sat_result_t st = saturn::core::require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (view_proj == nullptr || out == nullptr || (count > 0u && points == nullptr)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const sat_video_config_t& cfg = saturn::core::g_state.config;
+    const int16_t screen_w = static_cast<int16_t>(cfg.width);
+    const int16_t screen_h = static_cast<int16_t>(cfg.height);
+    for (uint16_t i = 0; i < count; ++i) {
+        project_vertex(view_proj->m, points[i], screen_w, screen_h, &out[i]);
+    }
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_draw_world_sprite(
     const sat_mat4_t* view_proj,
     const sat_quad3_t* quad,

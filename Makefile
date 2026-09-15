@@ -188,7 +188,9 @@ endif
 # Optional: MODEL_SCALE, MODEL_TEXTURE_SCALE, MODEL_PALETTE_INDEX,
 # MODEL_MAX_TEXTURE_WIDTH/HEIGHT, MODEL_SIMPLIFY (off|auto|TARGET),
 # MODEL_QUALITY, MODEL_ANIMATION, MODEL_ANIMATION_FPS, MODEL_FLIP_X/Y/Z,
-# MODEL_REVERSE_WINDING, MODEL_GENERATE_LODS.
+# MODEL_REVERSE_WINDING, MODEL_GENERATE_LODS, MODEL_FACE_COLORS (off|auto|on:
+# solid lit polygon faces instead of textures), MODEL_LIGHT_DIR (x,y,z),
+# MODEL_AMBIENT, MODEL_DIFFUSE.
 # Model generation rebuilds when the GLB, the importer, or any
 # model-pipeline module changes. Simplification/profile OPTION changes are
 # not file dependencies: after editing them, remove the generated prefix
@@ -205,6 +207,10 @@ MODEL_SIMPLIFY            ?= auto
 MODEL_QUALITY             ?= balanced
 MODEL_ANIMATION           ?= all
 MODEL_ANIMATION_FPS       ?= source
+MODEL_FACE_COLORS         ?= off
+MODEL_LIGHT_DIR           ?= -0.5,0.6,0.8
+MODEL_AMBIENT             ?= 0.35
+MODEL_DIFFUSE             ?= 0.75
 MODEL_FLIP_FLAGS          :=
 ifeq ($(MODEL_FLIP_X),1)
 MODEL_FLIP_FLAGS += --flip-x
@@ -243,6 +249,10 @@ $(MODEL_OUT_PREFIX).c $(MODEL_OUT_PREFIX).h &: $(MODEL_GLB) $(TOOLS)/import_mode
 		--quality $(MODEL_QUALITY) \
 		--animation $(MODEL_ANIMATION) \
 		--animation-fps $(MODEL_ANIMATION_FPS) \
+		--face-colors $(MODEL_FACE_COLORS) \
+		--light-dir=$(MODEL_LIGHT_DIR) \
+		--ambient $(MODEL_AMBIENT) \
+		--diffuse $(MODEL_DIFFUSE) \
 		--report $(MODEL_OUT_PREFIX).report.json \
 		$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG)
 endif

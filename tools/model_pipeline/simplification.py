@@ -69,6 +69,7 @@ _QUALITY_PARAMS = {
         "crease_mult": 25.0,
         "boundary_mult": 25.0,
         "aggressive_merge_mult": 100.0,
+        "ancestor_cos": 0.707,
     },
     "balanced": {
         "seam_lock": True,
@@ -77,6 +78,7 @@ _QUALITY_PARAMS = {
         "crease_mult": 10.0,
         "boundary_mult": 10.0,
         "aggressive_merge_mult": 50.0,
+        "ancestor_cos": 0.5,
     },
     "aggressive": {
         "seam_lock": False,
@@ -85,6 +87,7 @@ _QUALITY_PARAMS = {
         "crease_mult": 4.0,
         "boundary_mult": 2.0,
         "aggressive_merge_mult": 8.0,
+        "ancestor_cos": 0.0,
     },
 }
 
@@ -291,108 +294,245 @@ def simplify(
     pose_sets = [npos]
     for pose in pose_list:
         pose_sets.append([(p[0] / diag, p[1] / diag, p[2] / diag) for p in pose])
-    pos_eps = 1e-9
     uv_eps = 1e-6
+    use_uv = opts.preserve_uv and bool(model.uvs) and len(model.uvs) == nv
+    has_skin = (
+        bool(model.joints) and bool(model.weights)
+        and len(model.joints) == nv and len(model.weights) == nv
+    )
 
-    nv = n_src
-    alive_v = [True] * nv
-    # Per-pose quadrics: pose_quadrics[p][v]. Summing across poses would let
-    # rigidly-moving regions outvote static ones by pose count; the edge cost
-    # takes the MAXIMUM over poses instead (see edge_cost).
-    pose_quadrics: list[list[list[float]]] = []
-    for positions in pose_sets:
-        quadrics: list[list[float]] = [[0.0] * 10 for _ in range(nv)]
-        for (a, b, c) in model.triangles:
-            n = _face_normal(positions[a], positions[b], positions[c])
-            length = math.sqrt(_dot(n, n))
-            if length <= 1e-15:
-                continue  # degenerate face contributes no plane
-            n = (n[0] / length, n[1] / length, n[2] / length)
-            d = -_dot(n, positions[a])
-            q = _plane_quadric(n, d)
-            quadrics[a] = _add_quadric(quadrics[a], q)
-            quadrics[b] = _add_quadric(quadrics[b], q)
-            quadrics[c] = _add_quadric(quadrics[c], q)
-        pose_quadrics.append(quadrics)
+    # Position groups. Exporters split one surface point into several vertex
+    # copies (flat normals, UV seams, palette-swatch UVs give nearly every
+    # corner its own copy). Collapsing one copy alone drags it away from its
+    # twins and tears a crack through the surface, so collapses run on groups
+    # of coincident, identically skinned copies and move every copy at once.
+    group_of = [0] * nv
+    members: list[list[int]] = []
+    group_index: dict[tuple, int] = {}
+    for vi in range(nv):
+        p = model.vertices[vi]
+        key = (
+            round(p[0], 9), round(p[1], 9), round(p[2], 9),
+            tuple(model.joints[vi]) if has_skin else None,
+            tuple(model.weights[vi]) if has_skin else None,
+        )
+        gi = group_index.get(key)
+        if gi is None:
+            gi = len(members)
+            group_index[key] = gi
+            members.append([])
+        members[gi].append(vi)
+        group_of[vi] = gi
+    ng = len(members)
+    rep = [m[0] for m in members]
+    g_anim = [max(anim_imp[v] for v in m) for m in members]
+    g_sil = [max(sil_imp[v] for v in m) for m in members]
 
     tris: list[list[int]] = [list(t) for t in model.triangles]
     tri_mats = list(model.tri_materials)
     tri_alive = [True] * len(tris)
     alive_tris = len(tris)
+    for ti, t in enumerate(tris):
+        # Two corners on one position: zero-area, invisible, and it would
+        # confuse group adjacency. Drop it like any other degenerate face.
+        if len({group_of[x] for x in t}) < 3:
+            tri_alive[ti] = False
+            alive_tris -= 1
+            dropped_degenerate += 1
 
-    # Edge -> list of triangle indices (keys always (min, max)).
-    edge_tris: dict[tuple[int, int], list[int]] = {}
-    for ti, (a, b, c) in enumerate(tris):
-        for u, v in ((a, b), (b, c), (c, a)):
-            key = (u, v) if u < v else (v, u)
-            edge_tris.setdefault(key, []).append(ti)
+    vertex_tris: list[set[int]] = [set() for _ in range(nv)]
+    group_tris: list[set[int]] = [set() for _ in range(ng)]
+    for ti, t in enumerate(tris):
+        if not tri_alive[ti]:
+            continue
+        for x in t:
+            vertex_tris[x].add(ti)
+            group_tris[group_of[x]].add(ti)
 
-    # Seam vertices: same position, different UV.
-    pos_key: dict[tuple, list[int]] = {}
-    for vi, p in enumerate(npos):
-        key = (round(p[0], 9), round(p[1], 9), round(p[2], 9))
-        pos_key.setdefault(key, []).append(vi)
-    seam_vertex = [False] * nv
-    if opts.preserve_uv and model.uvs:
-        for group in pos_key.values():
-            if len(group) < 2:
-                continue
-            base_uv = model.uvs[group[0]]
-            if any(
-                abs(model.uvs[v][0] - base_uv[0]) > uv_eps
-                or abs(model.uvs[v][1] - base_uv[1]) > uv_eps
-                for v in group[1:]
-            ):
-                for v in group:
-                    seam_vertex[v] = True
+    def gkey(a: int, b: int) -> tuple[int, int]:
+        return (a, b) if a < b else (b, a)
+
+    def uv_same(a: int, b: int) -> bool:
+        if not use_uv:
+            return True
+        ua, ub = model.uvs[a], model.uvs[b]
+        return abs(ua[0] - ub[0]) <= uv_eps and abs(ua[1] - ub[1]) <= uv_eps
+
+    def corner(ti: int, g: int) -> int:
+        for x in tris[ti]:
+            if group_of[x] == g:
+                return x
+        return -1
+
+    edge_faces0: dict[tuple[int, int], list[int]] = {}
+    for ti, t in enumerate(tris):
+        if not tri_alive[ti]:
+            continue
+        for i in range(3):
+            key = gkey(group_of[t[i]], group_of[t[(i + 1) % 3]])
+            edge_faces0.setdefault(key, []).append(ti)
+
+    # Feature edges get perpendicular constraint planes (Garland-Heckbert
+    # boundary quadrics): open borders, UV seams and material boundaries.
+    # Without them a flat region's outline -- a sleeve cuff, a color patch
+    # edge -- could wander at zero QEM cost.
+    feature_edges: list[tuple[int, int, int]] = []
+    for key in sorted(edge_faces0):
+        faces = edge_faces0[key]
+        g0, g1 = key
+        if len(faces) == 1:
+            if opts.preserve_boundaries:
+                feature_edges.append((g0, g1, faces[0]))
+        elif len(faces) == 2:
+            f0, f1 = faces
+            seam = use_uv and not (
+                uv_same(corner(f0, g0), corner(f1, g0))
+                and uv_same(corner(f0, g1), corner(f1, g1))
+            )
+            if seam or tri_mats[f0] != tri_mats[f1]:
+                feature_edges.append((g0, g1, f0))
+                feature_edges.append((g0, g1, f1))
 
     crease_cos = math.cos(math.radians(qp["crease_angle_deg"]))
+    constraint_weight = qp["boundary_mult"]
 
-    def same_position(u: int, v: int) -> bool:
-        a, b = npos[u], npos[v]
-        return (
-            abs(a[0] - b[0]) <= pos_eps
-            and abs(a[1] - b[1]) <= pos_eps
-            and abs(a[2] - b[2]) <= pos_eps
-        )
+    # Per-pose quadrics per group: pose_quadrics[p][g]. Summing across poses
+    # would let rigidly-moving regions outvote static ones by pose count; the
+    # edge cost takes the MAXIMUM over poses instead (see edge_cost).
+    pose_quadrics: list[list[list[float]]] = []
+    for positions in pose_sets:
+        quadrics: list[list[float]] = [[0.0] * 10 for _ in range(ng)]
+        for ti, (a, b, c) in enumerate(tris):
+            if not tri_alive[ti]:
+                continue
+            n = _face_normal(positions[a], positions[b], positions[c])
+            length = math.sqrt(_dot(n, n))
+            if length <= 1e-15:
+                continue  # degenerate face contributes no plane
+            n = (n[0] / length, n[1] / length, n[2] / length)
+            q = _plane_quadric(n, -_dot(n, positions[a]))
+            for x in (a, b, c):
+                g = group_of[x]
+                quadrics[g] = _add_quadric(quadrics[g], q)
+        for g0, g1, ti in feature_edges:
+            a, b, c = tris[ti]
+            n = _face_normal(positions[a], positions[b], positions[c])
+            length = math.sqrt(_dot(n, n))
+            if length <= 1e-15:
+                continue
+            n = (n[0] / length, n[1] / length, n[2] / length)
+            p0 = positions[rep[g0]]
+            e = _sub(positions[rep[g1]], p0)
+            m = _cross(e, n)
+            ml = math.sqrt(_dot(m, m))
+            if ml <= 1e-15:
+                continue
+            m = (m[0] / ml, m[1] / ml, m[2] / ml)
+            q = [w * constraint_weight for w in _plane_quadric(m, -_dot(m, p0))]
+            quadrics[g0] = _add_quadric(quadrics[g0], q)
+            quadrics[g1] = _add_quadric(quadrics[g1], q)
+        pose_quadrics.append(quadrics)
 
-    def edge_locked(u: int, v: int, adjacent: list[int]) -> bool:
-        live = [t for t in adjacent if tri_alive[t]]
-        if opts.preserve_uv and qp["seam_lock"] and model.uvs:
-            if same_position(u, v):
-                au, av = model.uvs[u], model.uvs[v]
-                if abs(au[0] - av[0]) > uv_eps or abs(au[1] - av[1]) > uv_eps:
-                    return True
-        mats = {tri_mats[t] for t in live}
-        if len(mats) > 1 and qp["material_lock"]:
-            return True
-        return False
-
+    alive_g = [True] * ng
     INF = float("inf")
 
-    def edge_cost(u: int, v: int, adjacent: list[int]) -> tuple[float, int]:
-        """(cost, survivor): survivor reuses exact source attributes."""
-        live = [t for t in adjacent if tri_alive[t]]
+    def live_edge_faces(g0: int, g1: int) -> list[int]:
+        a, b = group_tris[g0], group_tris[g1]
+        if len(a) > len(b):
+            a, b = b, a
+        return sorted(t for t in a if t in b and tri_alive[t])
+
+    has_normals = model.normals is not None and len(model.normals) == nv
+
+    def closest_copy(candidates: list[int], d: int) -> int:
+        """Of several usable keep copies, the one facing like ``d``.
+
+        Flat-shaded exports give every side of a corner its own copy; taking
+        the lowest index could hand a face the copy from the far side of an
+        edge, whose normal and source adjacency describe another surface.
+        """
+        if not has_normals or len(candidates) == 1:
+            return candidates[0]
+        nd = model.normals[d]
+        return max(candidates, key=lambda k: (_dot(model.normals[k], nd), -k))
+
+    def plan_remap(keep: int, drop: int, edge_faces: list[int]) -> tuple[dict[int, int], bool]:
+        """Pair each live copy of ``drop`` with a copy of ``keep``.
+
+        A copy sharing a collapsing face with a keep copy takes that copy
+        (same chart, the ordinary subset collapse). Any other copy takes the
+        keep copy with the identical UV. With no such copy the collapse would
+        push a UV seam across the surface: ``crossed`` reports it, and the
+        closest-chart fallback keeps the output a strict source subset.
+        """
+        ef = set(edge_faces)
+        remap: dict[int, int] = {}
+        crossed = False
+        for d in members[drop]:
+            if not any(tri_alive[t] for t in vertex_tris[d]):
+                continue
+            linked = sorted({
+                x
+                for t in vertex_tris[d] if t in ef
+                for x in tris[t] if group_of[x] == keep
+            })
+            if linked:
+                same = [x for x in linked if uv_same(x, d)]
+                if not same and any(not uv_same(x, linked[0]) for x in linked[1:]):
+                    crossed = True
+                remap[d] = closest_copy(same if same else linked, d)
+                continue
+            same = [k for k in members[keep] if uv_same(k, d)]
+            if same:
+                remap[d] = closest_copy(same, d)
+            else:
+                crossed = True
+                remap[d] = closest_copy(members[keep], d)
+        return remap, crossed
+
+    def edge_cost(g0: int, g1: int):
+        """(cost, survivor, remap): survivor copies keep exact source attributes."""
+        live = live_edge_faces(g0, g1)
         if not live:
-            return INF, u
-        if edge_locked(u, v, adjacent):
-            return INF, u
+            return INF, g0, None
+        edge_mats = {tri_mats[t] for t in live}
+        if len(edge_mats) > 1 and qp["material_lock"]:
+            return INF, g0, None
         # Survivor: higher animation importance wins, ties -> lower index.
         # Deterministic and keeps articulation vertices' exact attributes.
-        if (anim_imp[v], sil_imp[v], -v) > (anim_imp[u], sil_imp[u], -u):
-            u, v = v, u
+        # When that direction is locked (it would drag a seam or material
+        # boundary inward) the reverse is often still legal: a patch's
+        # interior vertex may fold onto its outline, never the outline in.
+        keep, drop = g0, g1
+        if (g_anim[drop], g_sil[drop], -drop) > (g_anim[keep], g_sil[keep], -keep):
+            keep, drop = drop, keep
+        cost, remap = directed_cost(keep, drop, live)
+        if cost == INF:
+            cost, remap = directed_cost(drop, keep, live)
+            if cost != INF:
+                return cost, drop, remap
+        return cost, keep, remap
+
+    def directed_cost(keep: int, drop: int, live: list[int]):
+        drop_mats = {tri_mats[t] for t in group_tris[drop] if tri_alive[t]}
+        keep_mats = {tri_mats[t] for t in group_tris[keep] if tri_alive[t]}
+        if qp["material_lock"] and not drop_mats <= keep_mats:
+            return INF, None  # would drag a material boundary inward
+        remap, crossed = plan_remap(keep, drop, live)
+        if crossed and use_uv and qp["seam_lock"]:
+            return INF, None
         # Worst-pose QEM cost: collapse error evaluated in every pose at
         # the survivor's posed position, maximum wins. Rigid motion is
         # error-magnitude preserving, so rigid regions cost exactly their
         # bind-pose price while deforming regions pay their worst pose.
         cost = 0.0
         for pi, positions in enumerate(pose_sets):
-            q = _add_quadric(pose_quadrics[pi][u], pose_quadrics[pi][v])
-            err = _quadric_at(q, positions[u])
+            q = _add_quadric(pose_quadrics[pi][keep], pose_quadrics[pi][drop])
+            err = _quadric_at(q, positions[rep[keep]])
             if err > cost:
                 cost = err
         # Shortest-first ordering among geometrically free edges.
-        d = _sub(npos[u], npos[v])
+        d = _sub(npos[rep[keep]], npos[rep[drop]])
         cost += 1e-9 * _dot(d, d)
         mult = 1.0
         if len(live) == 1 and opts.preserve_boundaries:
@@ -406,98 +546,98 @@ def simplify(
             if l0 > 1e-15 and l1 > 1e-15:
                 if _dot(n0, n1) / (l0 * l1) < crease_cos:
                     mult *= qp["crease_mult"]
-        if not qp["seam_lock"] and seam_vertex[u] and seam_vertex[v]:
+        if crossed:
             mult *= qp["aggressive_merge_mult"]
-        if not qp["material_lock"] and len({tri_mats[t] for t in live}) > 1:
+        if not qp["material_lock"] and len(drop_mats | keep_mats) > 1:
             mult *= qp["aggressive_merge_mult"]
-        imp = (anim_imp[u] + anim_imp[v]) * 0.5 * opts.animation_weight + (
-            sil_imp[u] + sil_imp[v]
+        imp = (g_anim[keep] + g_anim[drop]) * 0.5 * opts.animation_weight + (
+            g_sil[keep] + g_sil[drop]
         ) * 0.5 * opts.silhouette_weight
         mult *= 1.0 + imp
-        return cost * mult, u
+        return cost * mult, remap
 
     seq = itertools.count()
-    heap: list[tuple[float, int, int, int, int]] = []  # (cost, seq, u, v, gen)
+    heap: list[tuple[float, int, int, int, int]] = []  # (cost, seq, keep, drop, gen)
     edge_gen: dict[tuple[int, int], int] = {}
-    for key in sorted(edge_tris.keys()):
-        u, v = key
-        c, surv = edge_cost(u, v, edge_tris[key])
+    for key in sorted(edge_faces0.keys()):
+        g0, g1 = key
+        c, surv, _ = edge_cost(g0, g1)
         if c == INF:
             continue
         edge_gen[key] = 0
-        heapq.heappush(heap, (c, next(seq), surv, v if surv == u else u, 0))
+        heapq.heappush(heap, (c, next(seq), surv, g1 if surv == g0 else g0, 0))
 
-    vertex_tris: list[set[int]] = [set() for _ in range(nv)]
-    for ti, (a, b, c) in enumerate(tris):
-        vertex_tris[a].add(ti)
-        vertex_tris[b].add(ti)
-        vertex_tris[c].add(ti)
-
-    live_tri_set = {tuple(sorted(t)) for t in tris}
+    live_tri_set = {tuple(sorted(t)) for ti, t in enumerate(tris) if tri_alive[ti]}
     collapses = 0
     rejected = 0
 
-    def would_fold(keep: int, drop: int) -> bool:
-        kp = [positions[keep] for positions in pose_sets]
-        for positions, keep_p in zip(pose_sets, kp):
-            for ti in vertex_tris[drop]:
-                if not tri_alive[ti]:
-                    continue
+    # Rejecting only a flip relative to the previous step lets a face creep
+    # past 90 degrees over several collapses of up to 89 degrees each, and a
+    # face turned that far is dropped by backface culling, leaving a
+    # see-through hole. Every face is also held within acos(ancestor_cos) of
+    # its ORIGINAL source orientation, in every pose.
+    ancestor_cos = qp["ancestor_cos"]
+    ancestor_normals = [
+        [_face_normal(positions[t[0]], positions[t[1]], positions[t[2]]) for t in tris]
+        for positions in pose_sets
+    ]
+
+    def would_fold(faces: list[int], remap: dict[int, int]) -> bool:
+        for pi, positions in enumerate(pose_sets):
+            for ti in faces:
                 t = tris[ti]
-                if keep in t:
-                    continue  # collapses to degenerate, removed by design
                 old = _face_normal(positions[t[0]], positions[t[1]], positions[t[2]])
-                if math.sqrt(_dot(old, old)) <= 1e-15:
+                old_len = math.sqrt(_dot(old, old))
+                if old_len <= 1e-15:
                     continue
-                moved = [keep_p if x == drop else positions[x] for x in t]
+                moved = [positions[remap.get(x, x)] for x in t]
                 new = _face_normal(moved[0], moved[1], moved[2])
+                new_len = math.sqrt(_dot(new, new))
                 if _dot(new, old) <= 0.0:
+                    return True
+                anc = ancestor_normals[pi][ti]
+                anc_len = math.sqrt(_dot(anc, anc))
+                if anc_len > 1e-15 and _dot(new, anc) <= ancestor_cos * anc_len * new_len:
                     return True
         return False
 
     while heap and alive_tris > opts.target_triangles:
         cost, _, keep, drop, gen = heapq.heappop(heap)
-        if not alive_v[keep] or not alive_v[drop] or keep == drop:
+        if not alive_g[keep] or not alive_g[drop] or keep == drop:
             continue
-        key = (keep, drop) if keep < drop else (drop, keep)
+        key = gkey(keep, drop)
         if edge_gen.get(key, -1) != gen:
             continue  # stale entry
-        adjacent = [t for t in edge_tris.get(key, []) if tri_alive[t]]
-        if not adjacent:
-            continue
-        fresh, surv = edge_cost(keep, drop, edge_tris.get(key, []))
+        fresh, surv, remap = edge_cost(keep, drop)
         if surv != keep:
             keep, drop = drop, keep
-            key = (keep, drop) if keep < drop else (drop, keep)
         if fresh == INF or abs(fresh - cost) > 1e-12 * max(1.0, abs(cost)):
             if fresh != INF:
                 edge_gen[key] = gen + 1
                 heapq.heappush(heap, (fresh, next(seq), keep, drop, gen + 1))
             continue
-        if would_fold(keep, drop):
+        edge_set = set(live_edge_faces(keep, drop))
+        moved_faces = [
+            ti for ti in sorted(group_tris[drop]) if tri_alive[ti] and ti not in edge_set
+        ]
+        if would_fold(moved_faces, remap):
             rejected += 1
             continue
         # Simulate first: a collapse that removes no triangle is pure
-        # attribute damage (e.g. welding coincident seam sides that share
-        # no face) with zero progress toward the face budget. Skip it.
+        # attribute damage with zero progress toward the face budget.
         planned: list[tuple[int, list[int] | None]] = []
         kills = 0
         sim_set = set(live_tri_set)
-        for ti in sorted(vertex_tris[drop]):
+        for ti in sorted(group_tris[drop]):
             if not tri_alive[ti]:
                 continue
             t = tris[ti]
-            old_canon = tuple(sorted(t))
-            if keep in t:
-                planned.append((ti, None))
-                kills += 1
-                continue
-            new_t = [keep if x == drop else x for x in t]
-            if len(set(new_t)) < 3 or tuple(sorted(new_t)) in sim_set:
+            new_t = [remap.get(x, x) for x in t]
+            if len({group_of[x] for x in new_t}) < 3 or tuple(sorted(new_t)) in sim_set:
                 planned.append((ti, None))
                 kills += 1
             else:
-                sim_set.discard(old_canon)
+                sim_set.discard(tuple(sorted(t)))
                 sim_set.add(tuple(sorted(new_t)))
                 planned.append((ti, new_t))
         if kills == 0:
@@ -514,54 +654,48 @@ def simplify(
             pose_quadrics[pi][keep] = _add_quadric(
                 pose_quadrics[pi][keep], pose_quadrics[pi][drop]
             )
-        alive_v[drop] = False
+        alive_g[drop] = False
         for ti, new_t in planned:
-            t = tris[ti]
+            live_tri_set.discard(tuple(sorted(tris[ti])))
             if new_t is None:
                 tri_alive[ti] = False
-                live_tri_set.discard(tuple(sorted(t)))
                 alive_tris -= 1
             else:
-                live_tri_set.discard(tuple(sorted(t)))
                 live_tri_set.add(tuple(sorted(new_t)))
                 tris[ti] = new_t
-                vertex_tris[keep].add(ti)
-        vertex_tris[drop] = set()
-        # Refresh keys touching `keep`.
+                for x in new_t:
+                    vertex_tris[x].add(ti)
+                group_tris[keep].add(ti)
+        for d in members[drop]:
+            vertex_tris[d] = set()
+        members[drop] = []
+        group_tris[drop] = set()
+        # Refresh group edges touching `keep`.
         neighbors = set()
-        for ti in vertex_tris[keep]:
+        for ti in group_tris[keep]:
             if not tri_alive[ti]:
                 continue
             for x in tris[ti]:
-                if x != keep and alive_v[x]:
-                    neighbors.add(x)
-        for x in sorted(neighbors):
-            k2 = (keep, x) if keep < x else (x, keep)
-            # Rebuild adjacency for k2 from live triangles.
-            adj = [
-                ti
-                for ti in (vertex_tris[keep] & vertex_tris[x])
-                if tri_alive[ti] and keep in tris[ti] and x in tris[ti]
-            ]
-            edge_tris[k2] = adj
-            c2, surv2 = edge_cost(keep if keep < x else x, x if keep < x else keep, adj)
+                g = group_of[x]
+                if g != keep and alive_g[g]:
+                    neighbors.add(g)
+        for g in sorted(neighbors):
+            k2 = gkey(keep, g)
+            c2, surv2, _ = edge_cost(k2[0], k2[1])
             if c2 == INF:
                 continue
-            a2, b2 = (keep, x) if surv2 == keep else (x, keep)
+            other = k2[1] if surv2 == k2[0] else k2[0]
             edge_gen[k2] = edge_gen.get(k2, 0) + 1
-            heapq.heappush(heap, (c2, next(seq), a2, b2, edge_gen[k2]))
+            heapq.heappush(heap, (c2, next(seq), surv2, other, edge_gen[k2]))
         collapses += 1
 
-    # Sweep orphaned vertices: UV-split characters leave most corners with a
-    # single user, so each collapse strands the opposite corners of its
-    # retired faces. Only referenced vertices reach the pose stream.
-    referenced: set[int] = set()
+    # Only vertices referenced by a surviving face reach the output: retired
+    # copies and the corners stranded by removed faces are swept here.
+    alive_v = [False] * nv
     for ti, t in enumerate(tris):
         if tri_alive[ti]:
-            referenced.update(t)
-    for vi in range(nv):
-        if alive_v[vi] and vi not in referenced:
-            alive_v[vi] = False
+            for x in t:
+                alive_v[x] = True
 
     # Compact surviving vertices in source order (deterministic).
     remap = {}
