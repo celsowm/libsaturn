@@ -189,6 +189,46 @@ sat_result_t sat_draw_polyline(const sat_polygon_cmd_t* cmd);
  */
 sat_result_t sat_draw_line(const sat_line_cmd_t* cmd);
 
+/* ------------------------------------------------------------------ */
+/* Gouraud shading                                                     */
+/* ------------------------------------------------------------------ */
+/* The VDP1 interpolates a per-corner RGB correction across a part and adds it
+ * to the part's color (VDP1 manual 5.3). A table entry holds three 5-bit
+ * values where 10h means "no change", 00h subtracts 16 levels and 1Fh adds
+ * 15; results clamp to 0..31. It applies to RGB-coded parts only: polygons,
+ * polylines and lines with an RGB color (SAT_RGB555) on the 16bpp frame
+ * buffer. A color-bank textured sprite is not RGB-coded, and the 8bpp
+ * high-resolution frame buffer allows no color calculation at all.
+ *
+ * The library manages the table area: every *_gouraud call stages one table
+ * for the frame, sat_end_frame copies it to VRAM with the command list, and
+ * the command is pointed at it. Returns SAT_ERR_CAPACITY past 2048 tables in
+ * one frame. */
+#define SAT_GOURAUD_NEUTRAL ((uint16_t)0x4210u)
+
+/* One table entry from per-channel corrections, each clamped to -16..+15. */
+static inline uint16_t sat_gouraud_rgb(int dr, int dg, int db) {
+    int r = dr + 16;
+    int g = dg + 16;
+    int b = db + 16;
+    r = (r < 0) ? 0 : ((r > 31) ? 31 : r);
+    g = (g < 0) ? 0 : ((g > 31) ? 31 : g);
+    b = (b < 0) ? 0 : ((b > 31) ? 31 : b);
+    return (uint16_t)((b << 10) | (g << 5) | r);
+}
+
+/* The same correction on every channel: brightness without a hue shift,
+ * what the manual calls white Gouraud. */
+static inline uint16_t sat_gouraud_grey(int d) {
+    return sat_gouraud_rgb(d, d, d);
+}
+
+/* gouraud[0..3] correct corners A..D. */
+sat_result_t sat_draw_polygon_gouraud(const sat_polygon_cmd_t* cmd, const uint16_t gouraud[4]);
+sat_result_t sat_draw_polyline_gouraud(const sat_polygon_cmd_t* cmd, const uint16_t gouraud[4]);
+/* gouraud[0] corrects the start point, gouraud[1] the end point. */
+sat_result_t sat_draw_line_gouraud(const sat_line_cmd_t* cmd, const uint16_t gouraud[2]);
+
 #ifdef __cplusplus
 }
 #endif

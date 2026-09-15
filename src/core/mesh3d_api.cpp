@@ -71,6 +71,14 @@ sat_result_t submit_projected_face(
                     quad_normal_scaled(quad), params->ambient));
         }
     }
+    if (params->vertex_gouraud != nullptr) {
+        const uint16_t* idx = &mesh->indices[static_cast<uint32_t>(face) * 4u];
+        const uint16_t table[4] = {
+            params->vertex_gouraud[idx[0]], params->vertex_gouraud[idx[1]],
+            params->vertex_gouraud[idx[2]], params->vertex_gouraud[idx[3]],
+        };
+        return sat_draw_quad2_polygon_gouraud(&projected, color, table);
+    }
     return sat_draw_quad2_polygon(&projected, color);
 }
 
@@ -311,6 +319,14 @@ extern "C" sat_result_t sat_mesh_face_normal_scaled(const sat_mesh_t* mesh, uint
     return face_normal_scaled(mesh, face, out);
 }
 
+extern "C" sat_result_t sat_mesh_vertex_normals(
+    const sat_mesh_t* mesh,
+    sat_vec3_t* out_normals,
+    uint16_t normal_cap
+) {
+    return vertex_normals(mesh, out_normals, normal_cap);
+}
+
 extern "C" int sat_mesh_face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t* eye) {
     if (eye == nullptr) {
         return 0;
@@ -420,6 +436,13 @@ extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_dra
         if (textured) {
             st = sat_draw_world_sprite(
                 params->view_proj, &quad, &params->textures[tex_index], 0u, 0u);
+        } else if (params->vertex_gouraud != nullptr) {
+            const uint16_t* idx = face_indices(mesh, face);
+            const uint16_t table[4] = {
+                params->vertex_gouraud[idx[0]], params->vertex_gouraud[idx[1]],
+                params->vertex_gouraud[idx[2]], params->vertex_gouraud[idx[3]],
+            };
+            st = sat_draw_world_polygon_gouraud(params->view_proj, &quad, color, table);
         } else {
             st = sat_draw_world_polygon(params->view_proj, &quad, color);
         }

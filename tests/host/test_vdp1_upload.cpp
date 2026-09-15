@@ -49,6 +49,9 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest&) { return SAT_O
 sat_result_t push_polygon(const PolygonRequest&) { return SAT_OK; }
 sat_result_t push_polyline(const PolygonRequest&) { return SAT_OK; }
 sat_result_t push_line(const LineRequest&) { return SAT_OK; }
+sat_result_t push_polygon_gouraud(const PolygonRequest&, const uint16_t*) { return SAT_OK; }
+sat_result_t push_polyline_gouraud(const PolygonRequest&, const uint16_t*) { return SAT_OK; }
+sat_result_t push_line_gouraud(const LineRequest&, const uint16_t*) { return SAT_OK; }
 
 }  // namespace saturn::hal::vdp1
 

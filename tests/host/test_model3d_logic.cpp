@@ -71,6 +71,16 @@ extern "C" sat_result_t sat_draw_quad2_sprite(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
+    const sat_quad2_t*, uint16_t, const uint16_t*) {
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_draw_world_polygon_gouraud(
+    const sat_mat4_t*, const sat_quad3_t*, uint16_t, const uint16_t*) {
+    return SAT_OK;
+}
+
 static int g_tex_calls = 0;
 static sat_result_t g_tex_status = SAT_OK;
 
@@ -129,6 +139,21 @@ static void solid_color_model_needs_no_textures() {
     bad = a;
     bad.texture_count = 1; /* claims textures but has no table */
     ASSERT_EQ(sat_model_validate(&bad), SAT_ERR_INVALID_ARG);
+
+    static uint8_t base[2] = {1, 3};
+    a.face_base_shades = base;
+    ASSERT_EQ(sat_model_validate(&a), SAT_OK);
+    uint16_t colors[2] = {0, 0};
+    ASSERT_EQ(sat_model_face_base_colors(&a, colors, 2), SAT_OK);
+    ASSERT_EQ(colors[0], 0x801Fu);
+    ASSERT_EQ(colors[1], 0xFC00u);
+    ASSERT_EQ(sat_model_face_base_colors(&a, colors, 1), SAT_ERR_CAPACITY);
+    base[1] = 4; /* past the palette */
+    ASSERT_EQ(sat_model_validate(&a), SAT_ERR_INVALID_ARG);
+    base[1] = 3;
+    bad = a;
+    bad.face_base_shades = nullptr;
+    ASSERT_EQ(sat_model_face_base_colors(&bad, colors, 2), SAT_ERR_UNSUPPORTED);
 
     sat_vec3_t verts[4];
     uint16_t idx[8];

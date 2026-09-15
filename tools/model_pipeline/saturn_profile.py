@@ -9,7 +9,8 @@ Limits come from the vendored VDP1 documentation and the current HAL:
   2 setup commands (local-coordinate + system-clip, re-issued every frame)
   and 1 END command are runtime overhead, not model data;
 - one distorted-sprite command per visible textured triangle/quad;
-- texture VRAM: 512 KiB VDP1 VRAM minus the 64 KiB command area, with the
+- texture VRAM: 512 KiB VDP1 VRAM minus the 64 KiB command area and the
+  16 KiB Gouraud table area, with the
   HAL's 8-byte cursor alignment applied per texture;
 - palette CRAM: 8 banks of 256 RGB555 entries;
 - sort scratch: caller-owned, sized per face (see the widened 16-bit sort
@@ -26,7 +27,8 @@ from dataclasses import dataclass
 
 VDP1_VRAM_BYTES = 512 * 1024
 VDP1_COMMAND_AREA_BYTES = 64 * 1024
-VDP1_TEXTURE_BUDGET_BYTES = VDP1_VRAM_BYTES - VDP1_COMMAND_AREA_BYTES
+VDP1_GOURAUD_AREA_BYTES = 16 * 1024
+VDP1_TEXTURE_BUDGET_BYTES = VDP1_VRAM_BYTES - VDP1_COMMAND_AREA_BYTES - VDP1_GOURAUD_AREA_BYTES
 VDP1_MAX_TEXTURE_WIDTH = 504
 VDP1_MAX_TEXTURE_HEIGHT = 255
 PALETTE_BANKS_TOTAL = 8

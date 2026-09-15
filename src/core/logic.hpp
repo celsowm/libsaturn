@@ -294,6 +294,20 @@ inline uint16_t compose_polygon_ctrl(uint16_t command_select, bool is_end) {
            (is_end ? kVdp1CmdEnd : 0x0000u);
 }
 
+/* Gouraud shading (VDP1 manual 5.3): color calculation bits 2..0 = 100B, and
+ * CMDGRDA holds the table's VRAM address divided by 8. A table entry of
+ * 10h per channel means "no change". */
+constexpr uint16_t kVdp1ColorCalcGouraud = 0x0004u;
+constexpr uint16_t kGouraudNeutral = 0x4210u;
+
+inline uint16_t compose_gouraud_pmod(uint16_t pmod) {
+    return static_cast<uint16_t>((pmod & ~0x0007u) | kVdp1ColorCalcGouraud);
+}
+
+inline uint16_t gouraud_table_grda(uint32_t area_base_bytes, uint16_t index) {
+    return static_cast<uint16_t>((area_base_bytes / 8u) + index);
+}
+
 /* PMOD bits common to texture (sprite-family) commands, matching the value
  * used by normal sprites (CMDT spin+PRIV flag) in push_sprite:
  *   bits 5..3 = color mode 100B (16-bit color bank, 256-entry palette)

@@ -35,11 +35,19 @@ constexpr uint32_t kVramSize = 512u * 1024u;
 /* Room for saturn::internal::kCmdCapacity 32-byte command tables; texture
  * uploads start right after it. */
 constexpr uint32_t kCommandAreaBytes = 64u * 1024u;
+/* Gouraud shading tables (VDP1 manual 5.3), 8 bytes each, right after the
+ * command area. Like commands they are staged in work RAM during the frame
+ * and copied to VRAM in submit(); textures start after both areas. */
+constexpr uint32_t kGouraudAreaBytes = 16u * 1024u;
+constexpr uint16_t kGouraudTableCapacity = static_cast<uint16_t>(kGouraudAreaBytes / 8u);
+constexpr uint32_t kTextureBase = kCommandAreaBytes + kGouraudAreaBytes;
 
 Command* g_cmd_buffer = nullptr;
 uint16_t g_cmd_capacity = 0;
 uint16_t g_cmd_count = 0;
-uint32_t g_texture_cursor = kCommandAreaBytes;
+uint16_t g_gouraud_words[kGouraudTableCapacity * 4u];
+uint16_t g_gouraud_count = 0;
+uint32_t g_texture_cursor = kTextureBase;
 uint16_t g_width = 320;
 uint16_t g_height = 224;
 
@@ -56,7 +64,7 @@ inline void copy_words_to_vram(const Command* src, uint32_t count_commands) {
 void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     g_width = width;
     g_height = height;
-    g_texture_cursor = kCommandAreaBytes;
+    g_texture_cursor = kTextureBase;
 
     TVMR = 0x0000;
     FBCR = 0x0000;
@@ -108,6 +116,7 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     g_cmd_buffer = command_buffer;
     g_cmd_capacity = capacity;
     g_cmd_count = 0;
+    g_gouraud_count = 0;
 
     // Both the local (relative) coordinate register and the system clipping
     // register are hardware-undefined after power-on/reset (VDP1 manual
@@ -325,6 +334,68 @@ sat_result_t push_line(const LineRequest& req) {
     return SAT_OK;
 }
 
+namespace {
+
+/* Stages the next Gouraud table and returns the CMDGRDA value that points at
+ * it. Lines use two corners; C and D stay neutral. */
+inline sat_result_t stage_gouraud(const uint16_t* corners, int corner_count, uint16_t* out_grda) {
+    if (corners == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (g_gouraud_count >= kGouraudTableCapacity) {
+        return SAT_ERR_CAPACITY;
+    }
+    uint16_t* table = &g_gouraud_words[static_cast<uint32_t>(g_gouraud_count) * 4u];
+    for (int i = 0; i < 4; ++i) {
+        table[i] = (i < corner_count) ? corners[i] : saturn::core::kGouraudNeutral;
+    }
+    *out_grda = saturn::core::gouraud_table_grda(kCommandAreaBytes, g_gouraud_count);
+    ++g_gouraud_count;
+    return SAT_OK;
+}
+
+/* Turns the command just pushed into a Gouraud-shaded one, or releases the
+ * staged table when the push itself failed. */
+inline sat_result_t shade_last_command(sat_result_t pushed, uint16_t grda) {
+    if (pushed != SAT_OK) {
+        --g_gouraud_count;
+        return pushed;
+    }
+    Command& cmd = g_cmd_buffer[g_cmd_count - 1u];
+    cmd.pmod = saturn::core::compose_gouraud_pmod(cmd.pmod);
+    cmd.grda = grda;
+    return SAT_OK;
+}
+
+}  // namespace
+
+sat_result_t push_polygon_gouraud(const PolygonRequest& req, const uint16_t* gouraud) {
+    uint16_t grda = 0u;
+    const sat_result_t st = stage_gouraud(gouraud, 4, &grda);
+    if (st != SAT_OK) {
+        return st;
+    }
+    return shade_last_command(push_polygon(req), grda);
+}
+
+sat_result_t push_polyline_gouraud(const PolygonRequest& req, const uint16_t* gouraud) {
+    uint16_t grda = 0u;
+    const sat_result_t st = stage_gouraud(gouraud, 4, &grda);
+    if (st != SAT_OK) {
+        return st;
+    }
+    return shade_last_command(push_polyline(req), grda);
+}
+
+sat_result_t push_line_gouraud(const LineRequest& req, const uint16_t* gouraud) {
+    uint16_t grda = 0u;
+    const sat_result_t st = stage_gouraud(gouraud, 2, &grda);
+    if (st != SAT_OK) {
+        return st;
+    }
+    return shade_last_command(push_line(req), grda);
+}
+
 void submit() {
     if (g_cmd_buffer == nullptr) {
         return;
@@ -352,6 +423,12 @@ void submit() {
     end.pad = 0;
 
     copy_words_to_vram(g_cmd_buffer, g_cmd_count);
+
+    const uint32_t gouraud_word_base = kCommandAreaBytes / 2u;
+    const uint32_t gouraud_words = static_cast<uint32_t>(g_gouraud_count) * 4u;
+    for (uint32_t i = 0; i < gouraud_words; ++i) {
+        VDP1_VRAM_16[gouraud_word_base + i] = g_gouraud_words[i];
+    }
 }
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index) {

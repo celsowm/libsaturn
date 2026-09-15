@@ -644,6 +644,8 @@ class ImportResult:
     # Solid-color assets: baked-lighting palette, [0] reserved (see
     # model_pipeline/face_colors.py). None for textured assets.
     shade_palette_rgb555: list[int] | None = None
+    # Solid-color assets: each face's Gouraud base shade (palette index).
+    face_base_shades: list[int] | None = None
 
 
 def import_model(
@@ -894,7 +896,8 @@ def emit_c_h(
     parts.append(f"    {result.palette_base}u,")
     parts.append("    0u,")
     parts.append("    0,")
-    parts.append("    0u")
+    parts.append("    0u,")
+    parts.append("    0")
     parts.append("};")
     parts.append("")
     source_path.write_text("\n".join(parts), encoding="utf-8")
@@ -1244,6 +1247,9 @@ def import_animated_model(
             baked["shades"] = face_color_mod.bake_shades(
                 frames, simp.triangles, simp.tri_materials, face_levels, light,
                 clockwise_front=reverse_winding)
+            baked["vertex_gouraud"] = face_color_mod.bake_vertex_gouraud(
+                frames, simp.triangles, len(simp.positions), light, ambient, diffuse,
+                clockwise_front=reverse_winding)
         num, den = rate_fraction(len(times), clip.duration or 1.0) \
             if animation_fps == "source" else (int(float(animation_fps)), 1)
         baked["name"] = clip.name
@@ -1289,11 +1295,13 @@ def import_animated_model(
         face_mtls.append(mat.get("name", str(mt)))
 
     shade_palette = None
+    face_base = None
     has_transparency = False
     if face_levels:
         palette_rgb555: list[int] = []
         indexed_faces: list = []
         shade_palette = face_color_mod.shade_palette(base_colors, face_levels, ambient, diffuse)
+        face_base = face_color_mod.face_base_shades(simp.tri_materials, face_levels)
     else:
         palette_rgb888, has_transparency, _ = build_shared_palette(baked_rgba)
         indexed_faces = map_faces_to_indices(baked_rgba, face_sizes, palette_rgb888)
@@ -1327,15 +1335,19 @@ def import_animated_model(
         palette_base=palette_index,
         stats={},
         shade_palette_rgb555=shade_palette,
+        face_base_shades=face_base,
     )
     indexed_bytes = sum(t["pixel_count"] for t in unique)
     vram_est = sum(((t["pixel_count"] + 7) & ~7) for t in unique)
     largest = max((t["width"] * t["height"], t["width"], t["height"]) for t in unique) if unique else (0, 0, 0)
     shade_bytes = sum(len(a.get("shades") or []) for a in animations)
+    gouraud_bytes = sum(len(a.get("vertex_gouraud") or []) for a in animations)
     if face_levels:
         color_report["shade_bytes"] = shade_bytes
-    # Shade streams are per-frame data like poses and share their budget.
-    pose_bytes = sum(a["pose_bytes"] for a in animations) + shade_bytes
+        color_report["gouraud_bytes"] = gouraud_bytes + len(face_base or [])
+    # Shade and Gouraud streams are per-frame data like poses and share
+    # their budget.
+    pose_bytes = sum(a["pose_bytes"] for a in animations) + shade_bytes + gouraud_bytes
     resource_report = saturn_profile_mod.check_resources(
         profile, faces=delivered, texture_payload_bytes=indexed_bytes,
         texture_sizes=[t["pixel_count"] for t in unique],
@@ -1435,7 +1447,7 @@ def print_animated_stats(report: dict) -> None:
         print(f"face colors: {colors['distinct_colors']} colors x {colors['levels']} light levels "
               f"({colors['non_uniform_faces']} non-uniform faces averaged), "
               f"vertices welded {colors['vertices_before_weld']} -> {colors['vertices_after_weld']}, "
-              f"shade bytes {colors['shade_bytes']}")
+              f"shade bytes {colors['shade_bytes']}, Gouraud bytes {colors['gouraud_bytes']}")
     elif colors.get("mode", "off") != "off":
         print(f"face colors: not used ({colors.get('reason')})")
     print(f"unique textures: {report['textures']['unique_textures']}")

@@ -145,6 +145,7 @@ extern "C" sat_result_t sat_model_bind_draw_ex(
     out_draw->depth = depth;
     out_draw->order16 = order16;
     out_draw->screen = nullptr;
+    out_draw->vertex_gouraud = nullptr;
     return SAT_OK;
 }
 
@@ -169,4 +170,12 @@ extern "C" uint32_t sat_model_texture_bytes(const sat_model_asset_t* asset) {
 
 extern "C" uint32_t sat_model_vram_estimate_bytes(const sat_model_asset_t* asset) {
     return saturn::core::model3d::vram_estimate_bytes(asset);
+}
+
+extern "C" sat_result_t sat_model_face_base_colors(
+    const sat_model_asset_t* asset,
+    uint16_t* out_colors,
+    uint16_t color_cap
+) {
+    return saturn::core::model3d::face_base_colors(asset, out_colors, color_cap);
 }

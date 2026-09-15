@@ -66,6 +66,7 @@ def emit_animated_c_h(
     na = len(animations)
     has_palette = bool(static_result.palette_rgb555)
     shade = list(getattr(static_result, "shade_palette_rgb555", None) or [])
+    base = list(getattr(static_result, "face_base_shades", None) or [])
 
     header_lines = [
         f"#ifndef {guard}",
@@ -90,6 +91,8 @@ def emit_animated_c_h(
         header_lines.append("extern const uint16_t " + f"{sym}_palette[256];")
     if shade:
         header_lines.append(f"extern const uint16_t {sym}_shade_palette[{len(shade)}];")
+    if base:
+        header_lines.append(f"extern const uint8_t {sym}_face_base_shades[{nf}];")
     header_lines.append(f"extern const sat_model_asset_t {sym}_asset;")
     for i, anim in enumerate(animations):
         n = anim["frame_count"] * anim["vertex_count"] * 3
@@ -99,6 +102,10 @@ def emit_animated_c_h(
         if anim.get("shades") is not None:
             header_lines.append(
                 f"extern const uint8_t {sym}_anim{i}_shades[{len(anim['shades'])}];"
+            )
+        if anim.get("vertex_gouraud") is not None:
+            header_lines.append(
+                f"extern const uint8_t {sym}_anim{i}_gouraud[{len(anim['vertex_gouraud'])}];"
             )
     header_lines += [
         f"extern const sat_model_animation_asset_t {sym}_animations[{na}];",
@@ -173,6 +180,11 @@ def emit_animated_c_h(
         parts.append(format_word_array(shade))
         parts.append("};")
         parts.append("")
+    if base:
+        parts.append(f"const uint8_t {sym}_face_base_shades[{nf}] = {{")
+        parts.append(format_byte_array(base))
+        parts.append("};")
+        parts.append("")
     parts.append(f"const sat_model_asset_t {sym}_asset = {{")
     parts.append(f"    {sym}_vertices,")
     parts.append(f"    {nv}u,")
@@ -186,7 +198,8 @@ def emit_animated_c_h(
     parts.append(f"    {static_result.palette_base}u,")
     parts.append("    0u,")
     parts.append(f"    {sym}_shade_palette," if shade else "    0,")
-    parts.append(f"    {len(shade)}u")
+    parts.append(f"    {len(shade)}u,")
+    parts.append(f"    {sym}_face_base_shades" if base else "    0")
     parts.append("};")
     parts.append("")
     for i, anim in enumerate(animations):
@@ -204,11 +217,21 @@ def emit_animated_c_h(
                 parts.append(body)
             parts.append("};")
             parts.append("")
+        if anim.get("vertex_gouraud") is not None:
+            parts.append(
+                f"const uint8_t {sym}_anim{i}_gouraud[{len(anim['vertex_gouraud'])}] = {{")
+            body = format_byte_array(list(anim["vertex_gouraud"]))
+            if body:
+                parts.append(body)
+            parts.append("};")
+            parts.append("")
     parts.append(f"const sat_model_animation_asset_t {sym}_animations[{na}] = {{")
     for i, anim in enumerate(animations):
         enc_b, enc_s = anim["encoding"]["bias"], anim["encoding"]["scale"]
         loop = "0x0001u" if anim["loop"] else "0x0000u"
         shades_ref = f"{sym}_anim{i}_shades" if anim.get("shades") is not None else "0"
+        gouraud_ref = (f"{sym}_anim{i}_gouraud"
+                       if anim.get("vertex_gouraud") is not None else "0")
         parts.append(f"    {{{sym}_anim{i}_positions,")
         parts.append(f"     {anim['frame_count']}u, {anim['vertex_count']}u,")
         parts.append(f"     {anim['sample_rate_num']}u, {anim['sample_rate_den']}u,")
@@ -217,7 +240,7 @@ def emit_animated_c_h(
             f"     {{{enc_b[0]}, {enc_b[1]}, {enc_b[2]}, "
             f"{enc_s[0]}, {enc_s[1]}, {enc_s[2]}}},"
         )
-        parts.append(f"     {shades_ref}}},")
+        parts.append(f"     {shades_ref}, {gouraud_ref}}},")
     parts.append("};")
     parts.append("")
     parts.append(f"const sat_animated_model_asset_t {sym}_anim_asset = {{")

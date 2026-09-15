@@ -305,6 +305,45 @@ inline bool face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t
     return quad_visible(quad, eye);
 }
 
+/* Smooth vertex normals: each face's scaled normal added once to each of its
+ * distinct corner vertices, then normalised. The scaled normals are shifted
+ * down by 2 so even a vertex shared by thousands of faces cannot overflow. */
+inline sat_result_t vertex_normals(const sat_mesh_t* mesh, sat_vec3_t* out, uint16_t cap) {
+    if (mesh == nullptr || out == nullptr || mesh->vertices == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (cap < mesh->vertex_count) {
+        return SAT_ERR_CAPACITY;
+    }
+    for (uint16_t v = 0; v < mesh->vertex_count; ++v) {
+        out[v] = vec3(0, 0, 0);
+    }
+    for (uint16_t f = 0; f < mesh->face_count; ++f) {
+        sat_quad3_t quad;
+        if (face_quad(mesh, f, &quad) != SAT_OK) {
+            continue;
+        }
+        const sat_vec3_t n = quad_normal_scaled(quad);
+        const uint16_t* idx = face_indices(mesh, f);
+        for (int i = 0; i < 4; ++i) {
+            bool repeated = false;
+            for (int j = 0; j < i; ++j) {
+                repeated = repeated || idx[j] == idx[i];
+            }
+            if (repeated) {
+                continue;
+            }
+            out[idx[i]].x += n.x >> 2;
+            out[idx[i]].y += n.y >> 2;
+            out[idx[i]].z += n.z >> 2;
+        }
+    }
+    for (uint16_t v = 0; v < mesh->vertex_count; ++v) {
+        out[v] = saturn::core::math3d::vec3_normalize(out[v]);
+    }
+    return SAT_OK;
+}
+
 /* Applies an affine matrix to every vertex, w assumed 1.
  *
  * Meant for orienting a primitive after building it. The builders all work in

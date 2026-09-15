@@ -26,7 +26,7 @@ uint8_t kPixels[8] = {};
 uint16_t kPalette[256] = {};
 sat_model_texture_asset_t kTex[1] = {{kPixels, 8, 1, 0, 0, 8u}};
 sat_model_asset_t kModel = {
-    kVerts, 2, kIndices, 1, kFaceTex, kTex, 1, kPalette, 1, 1, 0, nullptr, 0,
+    kVerts, 2, kIndices, 1, kFaceTex, kTex, 1, kPalette, 1, 1, 0, nullptr, 0, nullptr,
 };
 
 /* Three frames for two verts: frame f holds (f, f+100, f+200) raw q15. */
@@ -41,12 +41,14 @@ sat_model_animation_asset_t kLoopClip = {
     SAT_ANIM_FLAG_LOOP, 0,
     {0, 0, 0, 65536, 65536, 65536}, /* bias 0, scale 1.0 */
     nullptr,
+    nullptr,
 };
 
 sat_model_animation_asset_t kOnceClip = {
     kPos, 3, 2, 30, 1,
     0, 0,
     {0, 0, 0, 65536, 65536, 65536},
+    nullptr,
     nullptr,
 };
 
@@ -87,6 +89,16 @@ extern "C" sat_result_t sat_draw_quad2_polygon(const sat_quad2_t*, uint16_t) {
 
 extern "C" sat_result_t sat_draw_quad2_sprite(
     const sat_quad2_t*, const sat_texture_t*, uint16_t, uint16_t) {
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
+    const sat_quad2_t*, uint16_t, const uint16_t*) {
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_draw_world_polygon_gouraud(
+    const sat_mat4_t*, const sat_quad3_t*, uint16_t, const uint16_t*) {
     return SAT_OK;
 }
 
@@ -285,11 +297,12 @@ static void decode_extremes_and_bias() {
         pos, 1, 1, 30, 1, SAT_ANIM_FLAG_LOOP, 0,
         {100, -50, 7, 1000, 2000, 0},
         nullptr,
+        nullptr,
     };
     static sat_vec3_t mverts[1] = {{0, 0, 0}};
     static uint16_t midx[4] = {0, 0, 0, 0};
     static sat_model_asset_t m1 = {
-        mverts, 1, midx, 1, kFaceTex, kTex, 1, kPalette, 1, 1, 0, nullptr, 0,
+        mverts, 1, midx, 1, kFaceTex, kTex, 1, kPalette, 1, 1, 0, nullptr, 0, nullptr,
     };
     static sat_model_animation_asset_t clips[1];
     clips[0] = clip;
@@ -367,6 +380,33 @@ static void face_colors_follow_baked_shades() {
     model.shade_palette_count = 3;
     clips[0].face_shades = nullptr;
     ASSERT_EQ(sat_anim_face_colors(&a, &st, out, 1), SAT_ERR_UNSUPPORTED);
+}
+
+/* Baked Gouraud: one white table entry per vertex per frame. */
+static void vertex_gouraud_follows_baked_levels() {
+    static uint8_t levels[3 * 2] = {16, 31, 0, 20, 5, 16}; /* 3 frames x 2 verts */
+    sat_model_animation_asset_t clips[1] = {kLoopClip};
+    clips[0].vertex_gouraud = levels;
+    sat_animated_model_asset_t a = {&kModel, clips, 1, 0};
+    ASSERT_EQ(sat_anim_validate(&a), SAT_OK);
+
+    sat_anim_state_t st = {};
+    ASSERT_EQ(sat_anim_state_init(&st, &a, 0), SAT_OK);
+    uint16_t out[2] = {0, 0};
+    ASSERT_EQ(sat_anim_vertex_gouraud(&a, &st, out, 2), SAT_OK);
+    ASSERT_EQ(out[0], 0x4210u);
+    ASSERT_EQ(out[1], 0x7FFFu);
+    st.frame = 2;
+    ASSERT_EQ(sat_anim_vertex_gouraud(&a, &st, out, 2), SAT_OK);
+    ASSERT_EQ(out[0], 0x14A5u);
+    ASSERT_EQ(out[1], 0x4210u);
+    ASSERT_EQ(sat_anim_vertex_gouraud(&a, &st, out, 1), SAT_ERR_CAPACITY);
+
+    levels[3] = 32; /* not a 5-bit level */
+    ASSERT_EQ(sat_anim_validate(&a), SAT_ERR_INVALID_ARG);
+    levels[3] = 20;
+    clips[0].vertex_gouraud = nullptr;
+    ASSERT_EQ(sat_anim_vertex_gouraud(&a, &st, out, 2), SAT_ERR_UNSUPPORTED);
 }
 
 static void decode_capacity_and_malformed() {
@@ -492,9 +532,10 @@ int main() {
     decode_capacity_and_malformed();
     divide_free_decode_is_exact();
     face_colors_follow_baked_shades();
+    vertex_gouraud_follows_baked_levels();
     wide_sort_draws_big_meshes();
     legacy_small_mesh_unaffected();
     decode_feeds_mesh_and_bind();
-    printf("PASS: test_anim3d_logic.cpp (16 tests)\n");
+    printf("PASS: test_anim3d_logic.cpp (17 tests)\n");
     return 0;
 }

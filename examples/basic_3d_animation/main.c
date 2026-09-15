@@ -81,6 +81,12 @@ static sat_projected_vertex_t g_mesh_screen[MODEL_VERTEX_CAP];
 /* Per-face colors for the current frame, looked up from the baked shades. */
 static uint16_t g_face_colors[MODEL_FACE_CAP];
 static int g_has_shades;
+/* Gouraud mode (X toggles): static per-face base colors plus the current
+ * frame's per-vertex corrections, both from the baked asset. */
+static uint16_t g_face_base[MODEL_FACE_CAP];
+static uint16_t g_vertex_gouraud[MODEL_VERTEX_CAP];
+static int g_can_gouraud;
+static int g_gouraud;
 /* Program frames per second of display time, for the HUD. */
 static uint32_t g_fps;
 static uint32_t g_fps_frames;
@@ -236,6 +242,9 @@ static void update_animation_from_inputs(const sat_pad_state_t *pad) {
     if ((pad->pressed & SAT_PAD_A) != 0u) {
         sat_anim_set_paused(&g_anim, !sat_anim_is_paused(&g_anim));
     }
+    if ((pad->pressed & SAT_PAD_X) != 0u && g_can_gouraud) {
+        g_gouraud = !g_gouraud;
+    }
     note(sat_anim_advance(&g_anim, &male_walk_anim_asset, vblank_dt()));
 }
 
@@ -281,7 +290,10 @@ static void draw_hud(void) {
     }
     draw_text("LEFT/RIGHT ORBIT  UP/DN PITCH", 4, 2);
     draw_text("L/R ZOOM  A PAUSE  B RESET", 4, 12);
-    draw_text("C ORBIT  START HUD", 4, 22);
+    draw_text("C ORBIT  X SHADE  START HUD", 4, 22);
+    if (g_can_gouraud) {
+        draw_text(g_gouraud ? "GOURAUD" : "FLAT", 200, 192);
+    }
     if (sat_anim_is_paused(&g_anim)) {
         draw_text("ANIM PAUSE", 4, 192);
     } else {
@@ -382,6 +394,11 @@ int main(void) {
     /* Solid-color assets carry per-frame baked shades; textured ones don't. */
     g_has_shades = sat_anim_face_colors(
         &male_walk_anim_asset, &g_anim, g_face_colors, MODEL_FACE_CAP) == SAT_OK;
+    g_can_gouraud =
+        sat_model_face_base_colors(&male_walk_asset, g_face_base, MODEL_FACE_CAP) == SAT_OK &&
+        sat_anim_vertex_gouraud(
+            &male_walk_anim_asset, &g_anim, g_vertex_gouraud, MODEL_VERTEX_CAP) == SAT_OK;
+    g_gouraud = 0;
 
     while (1) {
         sat_pad_state_t pad = {0};
@@ -399,7 +416,10 @@ int main(void) {
          * model-local positions, no texture state touched. */
         note(sat_anim_decode(
             &male_walk_anim_asset, &g_anim, g_mesh.vertices, g_mesh.vertex_cap));
-        if (g_has_shades) {
+        if (g_gouraud) {
+            note(sat_anim_vertex_gouraud(
+                &male_walk_anim_asset, &g_anim, g_vertex_gouraud, MODEL_VERTEX_CAP));
+        } else if (g_has_shades) {
             note(sat_anim_face_colors(
                 &male_walk_anim_asset, &g_anim, g_face_colors, MODEL_FACE_CAP));
         }
@@ -410,10 +430,12 @@ int main(void) {
             &male_walk_asset, &g_mesh,
             g_model_textures, male_walk_asset.texture_count,
             &g_view_proj, &g_cam_eye,
-            SAT_RGB555(31, 31, 31), g_has_shades ? g_face_colors : NULL, 0,
+            SAT_RGB555(31, 31, 31),
+            g_gouraud ? g_face_base : (g_has_shades ? g_face_colors : NULL), 0,
             SAT_MESH_CULL_BACKFACE | SAT_MESH_SORT,
             g_mesh_order, g_mesh_order16, g_mesh_depth, &draw));
         draw.screen = g_mesh_screen;
+        draw.vertex_gouraud = g_gouraud ? g_vertex_gouraud : NULL;
         if (!g_draw_overflow) {
             note(sat_draw_mesh(&g_mesh, &draw));
         }

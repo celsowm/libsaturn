@@ -77,6 +77,15 @@ inline sat_result_t validate(const sat_animated_model_asset* asset) {
                 }
             }
         }
+        if (anim->vertex_gouraud != nullptr) {
+            const uint32_t n =
+                static_cast<uint32_t>(anim->frame_count) * static_cast<uint32_t>(anim->vertex_count);
+            for (uint32_t i = 0; i < n; ++i) {
+                if (anim->vertex_gouraud[i] > 31u) {
+                    return SAT_ERR_INVALID_ARG;
+                }
+            }
+        }
     }
     return SAT_OK;
 }
@@ -254,6 +263,39 @@ inline sat_result_t face_colors(
          * one compare and keeps an unvalidated asset from reading past it. */
         const uint8_t i = shade[f];
         out[f] = palette[(i < count) ? i : 0u];
+    }
+    return SAT_OK;
+}
+
+inline sat_result_t vertex_gouraud(
+    const sat_animated_model_asset* asset,
+    const sat_anim_state_t* state,
+    uint16_t* out,
+    uint16_t cap
+) {
+    if (asset == nullptr || state == nullptr || out == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (validate_clip(asset, state->clip) != SAT_OK) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const sat_model_animation_asset* anim = clip_at(asset, state->clip);
+    if (state->frame >= anim->frame_count) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (anim->vertex_gouraud == nullptr) {
+        return SAT_ERR_UNSUPPORTED;
+    }
+    if (cap < anim->vertex_count) {
+        return SAT_ERR_CAPACITY;
+    }
+    const uint8_t* level =
+        &anim->vertex_gouraud[static_cast<uint32_t>(state->frame) * anim->vertex_count];
+    for (uint16_t v = 0; v < anim->vertex_count; ++v) {
+        /* Same level on every channel (white Gouraud); an out-of-range
+         * level, which sat_anim_validate rejects, reads as "no change". */
+        const uint16_t l = (level[v] <= 31u) ? level[v] : 16u;
+        out[v] = static_cast<uint16_t>((l << 10u) | (l << 5u) | l);
     }
     return SAT_OK;
 }

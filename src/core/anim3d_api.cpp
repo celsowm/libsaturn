@@ -94,3 +94,12 @@ extern "C" sat_result_t sat_anim_face_colors(
 ) {
     return saturn::core::anim3d::face_colors(asset, state, out_colors, color_cap);
 }
+
+extern "C" sat_result_t sat_anim_vertex_gouraud(
+    const sat_animated_model_asset* asset,
+    const sat_anim_state_t* state,
+    uint16_t* out_gouraud,
+    uint16_t gouraud_cap
+) {
+    return saturn::core::anim3d::vertex_gouraud(asset, state, out_gouraud, gouraud_cap);
+}

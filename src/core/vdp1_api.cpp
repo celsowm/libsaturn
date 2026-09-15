@@ -325,3 +325,68 @@ extern "C" sat_result_t sat_draw_line(const sat_line_cmd_t* cmd) {
     req.flags = cmd->flags;
     return saturn::hal::vdp1::push_line(req);
 }
+
+namespace {
+
+saturn::hal::vdp1::PolygonRequest polygon_request(const sat_polygon_cmd_t* cmd) {
+    saturn::hal::vdp1::PolygonRequest req = {};
+    req.xa = cmd->x[0];
+    req.ya = cmd->y[0];
+    req.xb = cmd->x[1];
+    req.yb = cmd->y[1];
+    req.xc = cmd->x[2];
+    req.yc = cmd->y[2];
+    req.xd = cmd->x[3];
+    req.yd = cmd->y[3];
+    req.color = cmd->color;
+    req.flags = cmd->flags;
+    return req;
+}
+
+}  // namespace
+
+extern "C" sat_result_t sat_draw_polygon_gouraud(
+    const sat_polygon_cmd_t* cmd,
+    const uint16_t gouraud[4]
+) {
+    sat_result_t st = saturn::core::require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (cmd == nullptr || gouraud == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return saturn::hal::vdp1::push_polygon_gouraud(polygon_request(cmd), gouraud);
+}
+
+extern "C" sat_result_t sat_draw_polyline_gouraud(
+    const sat_polygon_cmd_t* cmd,
+    const uint16_t gouraud[4]
+) {
+    sat_result_t st = saturn::core::require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (cmd == nullptr || gouraud == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return saturn::hal::vdp1::push_polyline_gouraud(polygon_request(cmd), gouraud);
+}
+
+extern "C" sat_result_t sat_draw_line_gouraud(const sat_line_cmd_t* cmd, const uint16_t gouraud[2]) {
+    sat_result_t st = saturn::core::require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (cmd == nullptr || gouraud == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    saturn::hal::vdp1::LineRequest req = {};
+    req.x0 = cmd->x0;
+    req.y0 = cmd->y0;
+    req.x1 = cmd->x1;
+    req.y1 = cmd->y1;
+    req.color = cmd->color;
+    req.flags = cmd->flags;
+    return saturn::hal::vdp1::push_line_gouraud(req, gouraud);
+}

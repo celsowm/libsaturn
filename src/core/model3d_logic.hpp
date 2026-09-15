@@ -45,6 +45,16 @@ inline sat_result_t validate(const sat_model_asset_t* asset) {
         (asset->shade_palette_count > 0u && asset->shade_palette_rgb555 == nullptr)) {
         return SAT_ERR_INVALID_ARG;
     }
+    if (asset->face_base_shades != nullptr) {
+        if (asset->shade_palette_count == 0u) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        for (uint16_t f = 0; f < asset->face_count; ++f) {
+            if (asset->face_base_shades[f] >= asset->shade_palette_count) {
+                return SAT_ERR_INVALID_ARG;
+            }
+        }
+    }
     for (uint16_t f = 0; f < asset->face_count; ++f) {
         const uint16_t* idx = &asset->indices[(uint32_t)f * 4u];
         for (int k = 0; k < 4; ++k) {
@@ -144,6 +154,25 @@ inline uint32_t vram_estimate_bytes(const sat_model_asset_t* asset) {
         total += (size + 7u) & ~7u;
     }
     return total;
+}
+
+inline sat_result_t face_base_colors(const sat_model_asset_t* asset, uint16_t* out, uint16_t cap) {
+    if (asset == nullptr || out == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (asset->face_base_shades == nullptr || asset->shade_palette_rgb555 == nullptr ||
+        asset->shade_palette_count == 0u) {
+        return SAT_ERR_UNSUPPORTED;
+    }
+    if (cap < asset->face_count) {
+        return SAT_ERR_CAPACITY;
+    }
+    const uint16_t count = asset->shade_palette_count;
+    for (uint16_t f = 0; f < asset->face_count; ++f) {
+        const uint8_t i = asset->face_base_shades[f];
+        out[f] = asset->shade_palette_rgb555[(i < count) ? i : 0u];
+    }
+    return SAT_OK;
 }
 
 }  // namespace saturn::core::model3d

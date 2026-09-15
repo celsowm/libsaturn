@@ -190,6 +190,12 @@ sat_result_t sat_mesh_face_normal_scaled(const sat_mesh_t* mesh, uint16_t face, 
  * batches its own geometry still wants the same answer. */
 int sat_mesh_face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t* eye);
 
+/* Smooth unit normals per vertex: the adjacent face normals summed and
+ * normalised, so shading blends across every shared edge -- the input
+ * sat_gouraud_lambert wants. `normal_cap` must be at least vertex_count;
+ * a vertex no face uses gets the zero vector. */
+sat_result_t sat_mesh_vertex_normals(const sat_mesh_t* mesh, sat_vec3_t* out_normals, uint16_t normal_cap);
+
 /* Translates every vertex. Cheaper than rebuilding when only the position of
  * an already-built primitive changes. */
 sat_result_t sat_mesh_translate(sat_mesh_t* mesh, sat_fx16_t dx, sat_fx16_t dy, sat_fx16_t dz);
@@ -260,6 +266,13 @@ typedef struct sat_mesh_draw {
      * scratch: nothing in it survives from one draw to the next.
      * Zero-initialise the struct so this reads as absent when unused. */
     sat_projected_vertex_t* screen;
+    /* Optional Gouraud shading: one table entry per vertex (format in
+     * saturn/vdp1.h). Each untextured face is drawn Gouraud-shaded with the
+     * entries of its four corner vertices, on top of its flat color --
+     * sat_gouraud_lambert over sat_mesh_vertex_normals builds this for any
+     * mesh. Textured faces ignore it: their color-bank texels are not
+     * RGB-coded, which the VDP1 requires. Null draws flat faces. */
+    const uint16_t* vertex_gouraud;
 } sat_mesh_draw_t;
 
 /* Submits the mesh. Returns SAT_OK when every surviving face was drawn,

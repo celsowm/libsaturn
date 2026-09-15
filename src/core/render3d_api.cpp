@@ -143,6 +143,69 @@ extern "C" sat_result_t sat_draw_quad2_sprite(
     return sat_draw_sprite_distorted(&cmd);
 }
 
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
+    const sat_quad2_t* quad,
+    uint16_t color,
+    const uint16_t gouraud[4]
+) {
+    const sat_result_t st = saturn::core::require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (quad == nullptr || gouraud == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    saturn::hal::vdp1::PolygonRequest req = {};
+    req.xa = quad->x[0];
+    req.ya = quad->y[0];
+    req.xb = quad->x[1];
+    req.yb = quad->y[1];
+    req.xc = quad->x[2];
+    req.yc = quad->y[2];
+    req.xd = quad->x[3];
+    req.yd = quad->y[3];
+    req.color = color;
+    req.flags = 0;
+    return saturn::hal::vdp1::push_polygon_gouraud(req, gouraud);
+}
+
+extern "C" sat_result_t sat_draw_world_polygon_gouraud(
+    const sat_mat4_t* view_proj,
+    const sat_quad3_t* quad,
+    uint16_t color,
+    const uint16_t gouraud[4]
+) {
+    if (gouraud == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    sat_quad2_t projected = {};
+    const sat_result_t st = project(view_proj, quad, &projected);
+    if (st != SAT_OK) {
+        return st;
+    }
+    return sat_draw_quad2_polygon_gouraud(&projected, color, gouraud);
+}
+
+extern "C" uint16_t sat_gouraud_from_intensity(sat_fx16_t intensity) {
+    return gouraud_from_intensity(intensity);
+}
+
+extern "C" sat_result_t sat_gouraud_lambert(
+    const sat_vec3_t* normals,
+    uint16_t count,
+    const sat_vec3_t* light,
+    sat_fx16_t ambient,
+    uint16_t* out_gouraud
+) {
+    if (light == nullptr || (count > 0u && (normals == nullptr || out_gouraud == nullptr))) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    for (uint16_t i = 0; i < count; ++i) {
+        out_gouraud[i] = gouraud_lambert_word(normals[i], *light, ambient);
+    }
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_project_vertices(
     const sat_mat4_t* view_proj,
     const sat_vec3_t* points,

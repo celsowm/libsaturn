@@ -9,6 +9,7 @@
 #include "saturn/render3d.h"
 #include "src/core/render3d_logic.hpp"
 #include "src/core/mesh3d_logic.hpp"
+#include "src/core/logic.hpp"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
@@ -360,6 +361,48 @@ TEST(screen_area_culling_matches_world_culling) {
     }
 }
 
+/* Gouraud table entries, light-to-entry mapping and command encoding. */
+TEST(gouraud_table_words_and_light) {
+    ASSERT_EQ(SAT_GOURAUD_NEUTRAL, 0x4210);
+    ASSERT_EQ(sat_gouraud_grey(0), SAT_GOURAUD_NEUTRAL);
+    ASSERT_EQ(sat_gouraud_rgb(-16, 0, 15), (uint16_t)((31 << 10) | (16 << 5) | 0));
+    ASSERT_EQ(sat_gouraud_rgb(-99, 99, 3), (uint16_t)((19 << 10) | (31 << 5) | 0));
+    ASSERT_EQ(gouraud_grey_word(5), sat_gouraud_grey(5));
+    ASSERT_EQ(gouraud_grey_word(-40), 0x0000);
+    ASSERT_EQ(gouraud_from_intensity(SAT_FX16_ONE), SAT_GOURAUD_NEUTRAL);
+    ASSERT_EQ(gouraud_from_intensity(0), 0x0000);
+    ASSERT_EQ(gouraud_from_intensity(2 * SAT_FX16_ONE), 0x7FFF);
+    ASSERT_EQ(gouraud_from_intensity(SAT_FX16_ONE / 2), sat_gouraud_grey(-8));
+    const sat_vec3_t up = {0, SAT_FX16_ONE, 0};
+    const sat_vec3_t down = {0, -SAT_FX16_ONE, 0};
+    ASSERT_EQ(gouraud_lambert_word(up, up, SAT_FX16_ONE / 4), SAT_GOURAUD_NEUTRAL);
+    ASSERT_EQ(gouraud_lambert_word(down, up, SAT_FX16_ONE / 4), sat_gouraud_grey(-12));
+    ASSERT_EQ(saturn::core::compose_gouraud_pmod(saturn::core::compose_polygon_pmod(0)) & 0x7u, 4u);
+    ASSERT_EQ(saturn::core::compose_gouraud_pmod(saturn::core::compose_polygon_pmod(0)) & 0xFFF8u,
+              saturn::core::compose_polygon_pmod(0));
+    ASSERT_EQ(saturn::core::gouraud_table_grda(64u * 1024u, 3), (uint16_t)(8192 + 3));
+}
+
+/* Smooth vertex normals of a closed box point out of it, unit length. */
+TEST(vertex_normals_point_out_of_a_box) {
+    namespace mesh3d = saturn::core::mesh3d;
+    sat_vec3_t verts[8];
+    uint16_t indices[24];
+    sat_mesh_t mesh;
+    ASSERT_EQ(mesh3d::init(&mesh, verts, 8, indices, 6), SAT_OK);
+    const sat_vec3_t center = {fx_from_int(2), fx_from_int(-1), fx_from_int(3)};
+    ASSERT_EQ(mesh3d::build_box(&mesh, center, fx_from_int(4), fx_from_int(5), fx_from_int(3)), SAT_OK);
+    sat_vec3_t normals[8];
+    ASSERT_EQ(mesh3d::vertex_normals(&mesh, normals, 8), SAT_OK);
+    for (int v = 0; v < 8; ++v) {
+        const sat_vec3_t rel = {verts[v].x - center.x, verts[v].y - center.y, verts[v].z - center.z};
+        ASSERT_TRUE(saturn::core::math3d::vec3_dot_raw(normals[v], rel) > 0);
+        ASSERT_NEAR(saturn::core::math3d::fx_len3(normals[v].x, normals[v].y, normals[v].z),
+                    SAT_FX16_ONE, 64);
+    }
+    ASSERT_EQ(mesh3d::vertex_normals(&mesh, normals, 7), SAT_ERR_CAPACITY);
+}
+
 /* The diagonal cross product is the shoelace sum, for any corners in range,
  * and the cache-entry form agrees with the quad form. */
 TEST(diagonal_area_equals_shoelace) {
@@ -618,6 +661,8 @@ int main() {
     screen_area_culling_matches_world_culling();
     bucket_paint_order_is_complete_and_farthest_first();
     diagonal_area_equals_shoelace();
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 29);
+    gouraud_table_words_and_light();
+    vertex_normals_point_out_of_a_box();
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 31);
     return 0;
 }

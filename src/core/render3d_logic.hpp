@@ -495,6 +495,45 @@ inline sat_fx16_t face_intensity(sat_fx16_t nx, sat_fx16_t nz, sat_fx16_t floor_
     return floor_intensity + fx_mul(SAT_FX16_ONE - floor_intensity, dot);
 }
 
+/* ------------------------------------------------------------------ */
+/* Gouraud shading                                                     */
+/* ------------------------------------------------------------------ */
+
+/* One white-Gouraud table entry: the same correction, clamped to -16..+15
+ * levels, on all three channels (10h is "no change"). */
+inline uint16_t gouraud_grey_word(int32_t delta) {
+    if (delta < -16) {
+        delta = -16;
+    }
+    if (delta > 15) {
+        delta = 15;
+    }
+    const uint16_t v = static_cast<uint16_t>(delta + 16);
+    return static_cast<uint16_t>((v << 10u) | (v << 5u) | v);
+}
+
+/* (intensity - 1) * 16 levels, rounded: 1.0 keeps the part color. */
+inline uint16_t gouraud_from_intensity(sat_fx16_t intensity) {
+    const int64_t scaled = (static_cast<int64_t>(intensity) - SAT_FX16_ONE) * 16;
+    return gouraud_grey_word(static_cast<int32_t>((scaled + 32768) >> 16));
+}
+
+inline uint16_t gouraud_lambert_word(
+    const sat_vec3_t& normal,
+    const sat_vec3_t& light,
+    sat_fx16_t ambient
+) {
+    const sat_fx16_t floor_value = clamp_floor(ambient);
+    sat_fx16_t d = saturn::core::math3d::vec3_dot(normal, light);
+    if (d < 0) {
+        d = 0;
+    }
+    if (d > SAT_FX16_ONE) {
+        d = SAT_FX16_ONE;
+    }
+    return gouraud_from_intensity(floor_value + fx_mul(SAT_FX16_ONE - floor_value, d));
+}
+
 }  // namespace saturn::core::render3d
 
 #endif /* SATURN_CORE_RENDER3D_LOGIC_HPP */

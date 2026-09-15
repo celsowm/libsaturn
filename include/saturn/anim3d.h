@@ -65,6 +65,11 @@ typedef struct sat_model_animation_asset {
      * each frame with a fixed light, so the runtime cost is one table
      * lookup per face (sat_anim_face_colors). Null when the clip has none. */
     const uint8_t* face_shades;
+    /* Optional baked Gouraud lighting: frame_count * vertex_count white-
+     * Gouraud levels (0..31, 16 = no change), frame-major, from smooth
+     * vertex normals under the same light. Drawn over the model's
+     * face_base_shades via sat_anim_vertex_gouraud. Null when not baked. */
+    const uint8_t* vertex_gouraud;
 } sat_model_animation_asset_t;
 
 typedef struct sat_animated_model_asset {
@@ -139,6 +144,18 @@ sat_result_t sat_anim_face_colors(
     const sat_anim_state_t* state,
     uint16_t* out_colors,
     uint16_t color_cap
+);
+
+/* Fills out_gouraud[vertex] with every vertex's baked Gouraud table entry
+ * for the current frame, ready for sat_mesh_draw_t::vertex_gouraud (draw
+ * with sat_model_face_base_colors as the face colors). Returns
+ * SAT_ERR_UNSUPPORTED when the clip carries no baked Gouraud levels and
+ * SAT_ERR_CAPACITY when gouraud_cap is below the vertex count. */
+sat_result_t sat_anim_vertex_gouraud(
+    const sat_animated_model_asset_t* asset,
+    const sat_anim_state_t* state,
+    uint16_t* out_gouraud,
+    uint16_t gouraud_cap
 );
 
 #ifdef __cplusplus

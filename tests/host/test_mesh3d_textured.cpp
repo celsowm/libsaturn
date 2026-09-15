@@ -42,6 +42,8 @@ int g_call_x[32];
 int g_call_count;
 int g_call_is_sprite[32];
 int g_project_calls;
+int g_gouraud_calls;
+uint16_t g_last_gouraud[4];
 
 sat_mat4_t g_identity;
 
@@ -53,6 +55,7 @@ void reset_stubs() {
     g_sprite_status = SAT_OK;
     g_call_count = 0;
     g_project_calls = 0;
+    g_gouraud_calls = 0;
 }
 
 void record_quad2(const sat_quad2_t* quad, int is_sprite) {
@@ -138,6 +141,33 @@ extern "C" sat_result_t sat_draw_quad2_sprite(
     g_last_sprite_tex = texture;
     record_quad2(quad, 1);
     return g_sprite_status;
+}
+
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
+    const sat_quad2_t* quad, uint16_t, const uint16_t gouraud[4]) {
+    ++g_polygon_calls;
+    ++g_gouraud_calls;
+    for (int i = 0; i < 4; ++i) {
+        g_last_gouraud[i] = gouraud[i];
+    }
+    record_quad2(quad, 0);
+    return g_polygon_status;
+}
+
+extern "C" sat_result_t sat_draw_world_polygon_gouraud(
+    const sat_mat4_t*, const sat_quad3_t* quad, uint16_t, const uint16_t gouraud[4]) {
+    ++g_polygon_calls;
+    ++g_gouraud_calls;
+    for (int i = 0; i < 4; ++i) {
+        g_last_gouraud[i] = gouraud[i];
+    }
+    if (g_call_count < 32) {
+        g_call_x[g_call_count] = (int)sat_fx16_to_int(
+            (quad->v[0].x + quad->v[1].x + quad->v[2].x + quad->v[3].x) / 4);
+        g_call_is_sprite[g_call_count] = 0;
+        ++g_call_count;
+    }
+    return g_polygon_status;
 }
 
 /* Stubs for the render3d submit layer. */
@@ -433,8 +463,40 @@ static void screen_cache_culls_like_world_path() {
     ASSERT_EQ(g_call_count, 2);
 }
 
+/* vertex_gouraud hands each face the entries of its own corners, in A..D
+ * order, on both the world-space and the screen-space path. */
+static void vertex_gouraud_follows_face_corners() {
+    sat_mesh_t mesh = make_mesh();
+    build_two_quads(&mesh);
+    static uint16_t gouraud[8];
+    for (int v = 0; v < 8; ++v) {
+        gouraud[v] = sat_gouraud_grey(v - 4);
+    }
+    const uint16_t* last_face = &g_indices[4];
+    sat_vec3_t eye = {0, 0, sat_fx16_from_int(100)};
+
+    reset_stubs();
+    sat_mesh_draw_t p = base_draw(eye);
+    p.vertex_gouraud = gouraud;
+    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(g_gouraud_calls, 2);
+    for (int i = 0; i < 4; ++i) {
+        ASSERT_EQ(g_last_gouraud[i], gouraud[last_face[i]]);
+    }
+
+    static sat_projected_vertex_t screen[kVCap];
+    reset_stubs();
+    p.screen = screen;
+    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(g_gouraud_calls, 2);
+    for (int i = 0; i < 4; ++i) {
+        ASSERT_EQ(g_last_gouraud[i], gouraud[last_face[i]]);
+    }
+}
+
 int main() {
     make_identity();
+    vertex_gouraud_follows_face_corners();
     screen_cache_projects_each_vertex_once();
     screen_cache_culls_like_world_path();
     screen_cache_skips_faces_behind_camera();
@@ -446,6 +508,6 @@ int main() {
     sub_unit_faces_sort_farthest_first();
     degenerate_triangle_face_draws_textured();
     capacity_error_propagates_but_draws_rest();
-    printf("PASS: test_mesh3d_textured.cpp (11 tests)\n");
+    printf("PASS: test_mesh3d_textured.cpp (12 tests)\n");
     return 0;
 }

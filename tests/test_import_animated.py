@@ -250,6 +250,13 @@ class AnimatedImportTests(unittest.TestCase):
                 for face in (2 * k, 2 * k + 1):
                     self.assertEqual(palette[anim["shades"][face]], rgb888_to_rgb555(*rgb),
                                      f"face {face} should be its lit quadrant color")
+            # Gouraud: every vertex faces the light, so every correction
+            # brightens; base shades index the palette, one per face.
+            gouraud = anim["vertex_gouraud"]
+            self.assertEqual(len(gouraud), anim["frame_count"] * anim["vertex_count"])
+            self.assertTrue(all(16 < g <= 31 for g in gouraud))
+            self.assertEqual(len(st.face_base_shades), nf)
+            self.assertTrue(all(0 < s < len(palette) for s in st.face_base_shades))
             report = lit.report["face_colors"]
             self.assertTrue(report["enabled"])
             self.assertEqual(report["distinct_colors"], 4)
@@ -262,6 +269,7 @@ class AnimatedImportTests(unittest.TestCase):
                 light_dir=(0.0, 0.0, -1.0), ambient=0.0, diffuse=1.0)
             dark_pal = dark.static.shade_palette_rgb555
             self.assertTrue(all(dark_pal[s] == 0x8000 for s in dark.animations[0]["shades"]))
+            self.assertTrue(all(g < 16 for g in dark.animations[0]["vertex_gouraud"]))
 
             cc = shutil.which("gcc") or shutil.which("cc") or shutil.which("clang")
             if cc is not None:
@@ -270,6 +278,8 @@ class AnimatedImportTests(unittest.TestCase):
                 text = c.read_text(encoding="utf-8")
                 self.assertIn("solid_shade_palette", text)
                 self.assertIn("solid_anim0_shades", text)
+                self.assertIn("solid_anim0_gouraud", text)
+                self.assertIn("solid_face_base_shades", text)
                 self.assertNotIn("solid_textures", text)
                 r = subprocess.run(
                     [cc, "-fsyntax-only", "-Wall", "-Wextra", "-Werror",

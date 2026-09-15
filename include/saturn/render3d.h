@@ -133,6 +133,40 @@ sat_result_t sat_draw_quad2_sprite(
     uint16_t flags
 );
 
+/* Gouraud-shaded counterparts of sat_draw_quad2_polygon and
+ * sat_draw_world_polygon (table format in saturn/vdp1.h): gouraud[0..3]
+ * correct corners A..D, and `color` must be RGB-coded. */
+sat_result_t sat_draw_quad2_polygon_gouraud(
+    const sat_quad2_t* quad,
+    uint16_t color,
+    const uint16_t gouraud[4]
+);
+sat_result_t sat_draw_world_polygon_gouraud(
+    const sat_mat4_t* view_proj,
+    const sat_quad3_t* quad,
+    uint16_t color,
+    const uint16_t gouraud[4]
+);
+
+/* White-Gouraud table entry for a light intensity (16.16): SAT_FX16_ONE
+ * keeps the part color, 0 subtracts 16 levels, about 1.94 adds 15. Pick the
+ * part color as the fully lit one and feed intensities in [0, 1]. */
+uint16_t sat_gouraud_from_intensity(sat_fx16_t intensity);
+
+/* Per-vertex white-Gouraud entries under one directional light:
+ * intensity = ambient + (1 - ambient) * max(0, normal . light), so with the
+ * part color as the fully lit color, lit corners keep it and corners turned
+ * away darken towards `ambient`. `normals` and `light` must be unit length,
+ * `light` pointing towards the light -- sat_mesh_vertex_normals gives the
+ * normals for any mesh. Pass the result as sat_mesh_draw_t::vertex_gouraud. */
+sat_result_t sat_gouraud_lambert(
+    const sat_vec3_t* normals,
+    uint16_t count,
+    const sat_vec3_t* light,
+    sat_fx16_t ambient,
+    uint16_t* out_gouraud
+);
+
 /* Projects `count` world points into native VDP1 coordinates in one call,
  * clamped exactly as sat_project_quad clamps corners. A point at or behind
  * the camera plane comes back with w <= 0 rather than as an error. This is

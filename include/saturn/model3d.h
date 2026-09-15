@@ -62,6 +62,11 @@ typedef struct sat_model_asset {
      * their colors here instead of in textures. Zero for textured assets. */
     const uint16_t* shade_palette_rgb555;
     uint16_t shade_palette_count;
+    /* Optional per-face base shade for Gouraud drawing: face_count indices
+     * into the shade palette, each face's color at the middle light level.
+     * The baked per-vertex corrections (sat_anim_vertex_gouraud) brighten or
+     * darken it towards each corner. Null when not baked. */
+    const uint8_t* face_base_shades;
 } sat_model_asset_t;
 
 /* Validates a compiled-model descriptor without touching hardware.
@@ -125,6 +130,16 @@ sat_result_t sat_model_bind_draw_ex(
     uint16_t* order16,
     uint32_t* depth,
     sat_mesh_draw_t* out_draw
+);
+
+/* Fills out_colors[face] with every face's Gouraud base color (see
+ * face_base_shades). Static, so once at load is enough. Returns
+ * SAT_ERR_UNSUPPORTED when the asset has none and SAT_ERR_CAPACITY when
+ * color_cap is below face_count. */
+sat_result_t sat_model_face_base_colors(
+    const sat_model_asset_t* asset,
+    uint16_t* out_colors,
+    uint16_t color_cap
 );
 
 /* Geometry bounds in fixed point, derived from the generic descriptor so

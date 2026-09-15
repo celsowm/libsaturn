@@ -201,6 +201,62 @@ def bake_shades(
     return out
 
 
+GOURAUD_REFERENCE_ALBEDO = 0.75
+
+
+def bake_vertex_gouraud(
+    frames: list[list[tuple[float, float, float]]],
+    triangles: list[tuple[int, int, int]],
+    vertex_count: int,
+    light_dir: tuple[float, float, float],
+    ambient: float,
+    diffuse: float,
+    clockwise_front: bool,
+) -> list[int]:
+    """White-Gouraud level (0..31, 16 = no change) per vertex per frame.
+
+    Vertex normals are the area-weighted sum of the adjacent face normals in
+    each pose, which blends light across every edge -- the Gouraud look. The
+    runtime draws each face at its base shade (the middle light level, see
+    face_base_shades) and the VDP1 adds the interpolated corner corrections.
+    A correction is the sRGB step, in 5-bit levels, between a reference
+    albedo lit at the vertex and lit at the middle level, so one grey table
+    serves every face color."""
+    lx, ly, lz = light_dir
+    sign = -1.0 if clockwise_front else 1.0
+    ref = GOURAUD_REFERENCE_ALBEDO
+    mid = linear_to_srgb(ref * (ambient + diffuse * 0.5))
+    out: list[int] = []
+    for frame in frames:
+        acc = [[0.0, 0.0, 0.0] for _ in range(vertex_count)]
+        for (a, b, c) in triangles:
+            ax, ay, az = frame[a]
+            bx, by, bz = frame[b]
+            cx, cy, cz = frame[c]
+            ux, uy, uz = bx - ax, by - ay, bz - az
+            vx, vy, vz = cx - ax, cy - ay, cz - az
+            nx = (uy * vz - uz * vy) * sign
+            ny = (uz * vx - ux * vz) * sign
+            nz = (ux * vy - uy * vx) * sign
+            for v in (a, b, c):
+                acc[v][0] += nx
+                acc[v][1] += ny
+                acc[v][2] += nz
+        for nx, ny, nz in acc:
+            length = math.sqrt(nx * nx + ny * ny + nz * nz)
+            d = (nx * lx + ny * ly + nz * lz) / length if length > 0.0 else 0.0
+            light = ambient + diffuse * max(0.0, d)
+            delta = int(round(31.0 * (linear_to_srgb(ref * light) - mid)))
+            out.append(max(0, min(31, 16 + delta)))
+    return out
+
+
+def face_base_shades(tri_colors: list[int], levels: int) -> list[int]:
+    """Each face's shade-palette index at the middle light level."""
+    mid = int(round((levels - 1) / 2.0))
+    return [1 + color * levels + mid for color in tri_colors]
+
+
 def shade_palette(
     base_colors: list[tuple[int, int, int]],
     levels: int,

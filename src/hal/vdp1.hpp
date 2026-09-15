@@ -83,6 +83,10 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req);
 sat_result_t push_polygon(const PolygonRequest& req);
 sat_result_t push_polyline(const PolygonRequest& req);
 sat_result_t push_line(const LineRequest& req);
+/* Gouraud-shaded variants: `gouraud` holds 4 table entries (2 for a line). */
+sat_result_t push_polygon_gouraud(const PolygonRequest& req, const uint16_t* gouraud);
+sat_result_t push_polyline_gouraud(const PolygonRequest& req, const uint16_t* gouraud);
+sat_result_t push_line_gouraud(const LineRequest& req, const uint16_t* gouraud);
 void submit();
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index);
