@@ -238,6 +238,59 @@ out/in, A toggle auto-orbit, B reset, START toggle HUD. The camera orbits an
 immutable model (center from `sat_model_compute_center`); textures upload
 once at startup and frames draw with culling + painter sorting.
 
+## Animated 3D Model Pipeline (GLB)
+
+Skeletal animation never runs on the Saturn. `tools/import_model.py`
+(`--target saturn`) parses skinned GLB on the host, evaluates joint TRS
+channels at the clip's sample rate, and bakes every runtime frame as a pose:
+
+```text
+GLB skin + animation
+      |
+      | tools/import_model.py --target saturn
+      | (gltf parse -> skinning eval -> QEM simplify -> pose bake)
+      v
+generated C/H animated model (shared indices/textures + pose stream)
+      |
+      | textures upload once; per frame:
+      | sat_anim_advance + sat_anim_decode -> caller vertices
+      v
+VDP1 distorted sprites (same sat_draw_mesh textured path)
+```
+
+The generated asset quantizes positions to int16 per axis around a
+scale/bias (decoder: `pos_fx16 = bias + scale*q/32767`), reuses the same
+baked-face texture dedup as the static path, and keeps the simplified mesh
+inside explicit quality gates (animated surface error, silhouette chamfer,
+normal angle, IoU) and Saturn budgets (VDP1 commands incl. HUD reserve,
+VRAM, <=256 KiB pose stream). Any gate breach is a hard FAIL with numbers --
+the importer never emits a silently degraded asset.
+
+Simplification uses worst-pose QEM (MAX over baked poses) with UV-seam and
+material locks, crease/boundary penalties, per-pose foldover rejection and
+an exact-duplicate weld pre-pass; only subset collapses are allowed, so
+surviving vertices keep exact source UVs/joints/weights. `--simplify auto`
+searches under `--quality <preset>` within the profile caps;
+`--simplify off|N` force the triangle count.
+
+```bash
+python tools/import_model.py \
+  --input examples/basic_3d_animation/assets/male_basic_walk_30_frames_loop.glb \
+  --target saturn \
+  --out-prefix build/generated/basic_3d_animation/male_walk \
+  --symbol male_walk --palette-index 1 \
+  --simplify auto --quality balanced \
+  --animation all --animation-fps source
+make EXAMPLE=basic_3d_animation
+.\run-example.ps1 basic_3d_animation -Emulator mednafen -BiosProfile auto
+```
+
+The `basic_3d_animation` GLB is a local-only acceptance fixture (see
+`examples/basic_3d_animation/assets/LICENSE.txt`); it is not committed, and
+the build fails with the exact missing path when it is absent. Viewer
+controls: LEFT/RIGHT orbit yaw, UP/DOWN pitch, L/R zoom, A pause/resume
+animation, B reset camera+animation, C auto-orbit, START toggle HUD.
+
 ## Target Emulators
 
 - Kronos (debug).
