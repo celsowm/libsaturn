@@ -1,6 +1,7 @@
 #include "src/hal/vdp2_color_calc.hpp"
 
 #include "src/core/vdp2_color_calc_logic.hpp"
+#include "src/hal/vdp2.hpp"
 
 namespace saturn::hal::vdp2_color_calc {
 
@@ -8,6 +9,7 @@ namespace {
 
 constexpr uintptr_t kUncached = 0x20000000u;
 constexpr uintptr_t kVdp2Base = 0x05F80000u;
+constexpr uint16_t kTvstatVblank = 0x0008u;
 
 #define VDP2_REG16(offset) \
     (*reinterpret_cast<volatile uint16_t*>(kUncached | (kVdp2Base + (offset))))
@@ -24,10 +26,24 @@ uint8_t g_enabled = 0u;
 uint8_t g_normal_priority = 6u;
 uint8_t g_ratio[8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
 
+/* VDP2 configuration registers are latched during VBlank.  A caller can
+ * easily spend most of that short window in SMPC polling before reaching a
+ * color-calc commit, which makes otherwise-correct writes disappear on real
+ * hardware and timing-accurate emulators.  Keep the public commit explicit,
+ * but make the HAL defensive: if the call arrives outside VBlank, wait for
+ * the next VBlank start before touching SPCTL/PRISA/CCCTL/CCRSA-D. */
+void ensure_vblank(void) {
+    if ((saturn::hal::vdp2::read_tvstat() & kTvstatVblank) == 0u) {
+        saturn::hal::vdp2::wait_vblank_start();
+    }
+}
+
 }  // namespace
 
 void commit() {
     using namespace saturn::core::vdp2_color_calc;
+
+    ensure_vblank();
 
     CCRSA = compose_ratio_pair(g_ratio[0], g_ratio[1]);
     CCRSB = compose_ratio_pair(g_ratio[2], g_ratio[3]);
