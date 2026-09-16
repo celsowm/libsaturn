@@ -155,8 +155,17 @@ ifneq ($(wildcard $(EXAMPLE_PREBUILT_MANIFEST)),)
     # Use pre-converted assets
     PREBUILT_C := $(wildcard $(EXAMPLE_PREBUILT_DIR)/*.c)
     PREBUILT_H := $(wildcard $(EXAMPLE_PREBUILT_DIR)/*.h)
-    EXAMPLE_ASSETS := $(PREBUILT_C)
-    EXAMPLE_HEADERS := $(PREBUILT_H)
+    # Prebuilt assets SEED build/generated rather than replacing it, and
+    # EXAMPLE_ASSETS/EXAMPLE_HEADERS keep pointing at the generated paths the
+    # example's Makefile.inc named. Pointing them at the prebuilt directory
+    # instead, which is what this used to do, broke the build two ways:
+    # ALL_APP_OBJS is computed from EXAMPLE_ASSETS further up this file and so
+    # still asked for build/generated/<example>/<asset>.o, and examples include
+    # their assets as <example>/<asset>.h, which only resolves against
+    # -I$(GENERATED_DIR). Both happened to work only while a previous
+    # non-prebuilt build had left copies behind; deleting build/generated made
+    # the prebuilt path fail outright.
+    $(shell mkdir -p $(GENERATED_DIR)/$(EXAMPLE) &&             cp -f $(PREBUILT_C) $(PREBUILT_H) $(GENERATED_DIR)/$(EXAMPLE)/ 2>/dev/null)
     $(info [assets] Prebuilt OK: $(EXAMPLE_PREBUILT_DIR))
   else
     # Hash changed or invalid, will convert
@@ -303,11 +312,6 @@ endif
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
-
-# Rule for pre-converted assets (examples/*/prebuilt/*.c)
-$(BUILD_DIR)/examples/%/prebuilt/%.o: examples/%/prebuilt/%.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/%.o: %.cpp
 	@mkdir -p $(dir $@)

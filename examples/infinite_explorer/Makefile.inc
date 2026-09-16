@@ -20,7 +20,7 @@ EXAMPLE_HEADERS := \
 
 $(EXPLORER_GEN_DIR)/terrain.c $(EXPLORER_GEN_DIR)/terrain.h &: $(EXPLORER_ASSET_DIR)/rocks_ground_02_cc0.jpg tools/convert_indexed8.py
 	@mkdir -p $(dir $@)
-	$(PYTHON) tools/convert_indexed8.py --input $< --resize 128 128 --out-prefix $(EXPLORER_GEN_DIR)/terrain
+	$(PYTHON) tools/convert_indexed8.py --input $< --resize 128 128 		--reserve-index0 --out-prefix $(EXPLORER_GEN_DIR)/terrain
 
 $(EXPLORER_HORIZON_PREFIX).c $(EXPLORER_HORIZON_PREFIX).h &: tools/generate_infinite_explorer_horizon.py tools/saturn_asset_common.py
 	@mkdir -p $(dir $@)
@@ -32,7 +32,7 @@ $(EXPLORER_HORIZON_PREFIX).c $(EXPLORER_HORIZON_PREFIX).h &: tools/generate_infi
 
 $(EXPLORER_GEN_DIR)/spacecraft.c $(EXPLORER_GEN_DIR)/spacecraft.h &: $(EXPLORER_ASSET_DIR)/nasa_psyche_spacecraft.jpg tools/convert_indexed8.py
 	@mkdir -p $(dir $@)
-	$(PYTHON) tools/convert_indexed8.py --input $< --resize 64 64 --transparent-dark --out-prefix $(EXPLORER_GEN_DIR)/spacecraft
+	$(PYTHON) tools/convert_indexed8.py --input $< --resize 64 64 		--transparent-luma 30 --gain 1.6 --out-prefix $(EXPLORER_GEN_DIR)/spacecraft
 
 $(EXPLORER_AUDIO_PREFIX).c $(EXPLORER_AUDIO_PREFIX).h &: tools/generate_infinite_explorer_audio.py
 	@mkdir -p $(dir $@)

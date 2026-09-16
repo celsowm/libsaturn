@@ -80,8 +80,27 @@ def parse_pgm(path: Path) -> tuple[bytes, int, int]:
 
 
 def parse_png(
-    path: Path, resize_to: tuple[int, int] | None = None
+    path: Path,
+    resize_to: tuple[int, int] | None = None,
+    reserve_index0: bool = False,
+    alpha_threshold: int | None = None,
+    luma_threshold: int | None = None,
+    gain: float = 1.0,
 ) -> tuple[bytes, int, int, list[int]]:
+    """Quantize an image to an indexed8 Saturn asset.
+
+    Quantization runs on RGB, never on RGBA.  Pillow's adaptive quantizer
+    collapses an RGBA source to a fraction of the colours it is asked for --
+    the 128x128 terrain of examples/infinite_explorer came out with 58 of the
+    requested 256, which is visible as banding once the Mode-7 floor magnifies
+    it.  The same image converted to RGB first quantizes to the full 256.
+
+    reserve_index0 keeps palette entry 0 out of the quantized set, because
+    both the VDP1 (sprites) and the VDP2 (bitmap backgrounds with transparent
+    code enabled) read colour index 0 as TRANSPARENT.  Without it a quantizer
+    is free to assign index 0 to an ordinary opaque colour -- and then every
+    pixel of that colour punches a hole in the image.
+    """
     try:
         from PIL import Image
     except ModuleNotFoundError as exc:
@@ -90,25 +109,74 @@ def parse_png(
         ) from exc
 
     img = Image.open(path)
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
     if resize_to is not None:
         resize_width, resize_height = resize_to
         if resize_width <= 0 or resize_height <= 0:
             raise ValueError("Invalid resize dimensions")
-        if img.mode != "RGBA":
-            img = img.convert("RGBA")
         resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
         img = img.resize((resize_width, resize_height), resample=resample)
-    if img.mode != "P":
-        img = img.convert("P", palette=Image.ADAPTIVE, colors=256)
+
     width, height = img.size
-    pixels = bytes(img.getdata())
-    pal = img.getpalette() or []
+    alpha = img.getchannel("A")
+    rgb = img.convert("RGB")
+
+    # Which source pixels must end up transparent (index 0). Measured BEFORE
+    # the gain, so raising the gain to make a dark subject readable does not
+    # also drag its backdrop above the cutout threshold.
+    transparent = bytearray(width * height)
+    if alpha_threshold is not None:
+        for i, a in enumerate(alpha.tobytes()):
+            if a < alpha_threshold:
+                transparent[i] = 1
+    if luma_threshold is not None:
+        for i, l in enumerate(rgb.convert("L").tobytes()):
+            if l <= luma_threshold:
+                transparent[i] = 1
+
+    if gain != 1.0:
+        rgb = apply_gain(rgb, gain)
+    has_transparent = any(transparent)
+    reserve = reserve_index0 or has_transparent
+
+    # Quantize without dithering: a 128x128 texture magnified by the VDP2
+    # turns Floyd-Steinberg noise into visible speckle.
+    dither = getattr(getattr(Image, "Dither", Image), "NONE")
+    quantized = rgb.quantize(colors=255 if reserve else 256, dither=dither)
+
+    raw = quantized.tobytes()
+    pal = quantized.getpalette() or []
     colors: list[int] = []
     for i in range(0, min(len(pal), 256 * 3), 3):
         colors.append(rgb888_to_rgb555(pal[i], pal[i + 1], pal[i + 2]))
+
+    if reserve:
+        # Shift every index up by one so nothing lands on 0, then let 0 be
+        # the transparent entry.
+        pixels = bytes(
+            0 if transparent[i] else min(255, value + 1) for i, value in enumerate(raw)
+        )
+        colors = [0x0000] + colors[:255]
+    else:
+        pixels = raw
+
     while len(colors) < 256:
         colors.append(0)
-    return pixels, width, height, colors
+    return pixels, width, height, colors[:256]
+
+
+def apply_gain(img, gain: float):
+    """Scale RGB brightness, clamped.
+
+    NASA release renders are exposed for a black background and quantize to a
+    near-black sprite once they are shrunk to 64x64; a gain makes the subject
+    readable on a TV instead of a dark smudge.
+    """
+    from PIL import Image
+
+    lut = [min(255, int(value * gain + 0.5)) for value in range(256)]
+    return Image.merge("RGB", [chan.point(lut) for chan in img.split()])
 
 
 def make_darkest_palette_entry_transparent(
@@ -253,6 +321,10 @@ def convert_asset(
     palette_index: int,
     resize_to: tuple[int, int] | None,
     transparent_dark: bool,
+    reserve_index0: bool = False,
+    alpha_threshold: int | None = None,
+    luma_threshold: int | None = None,
+    gain: float = 1.0,
 ) -> dict[str, Path]:
     suffix = in_path.suffix.lower()
     pixels: bytes
@@ -261,7 +333,14 @@ def convert_asset(
     colors: list[int]
 
     if suffix in {".png", ".tga", ".bmp", ".jpg", ".jpeg"}:
-        pixels, width, height, colors = parse_png(in_path, resize_to=resize_to)
+        pixels, width, height, colors = parse_png(
+            in_path,
+            resize_to=resize_to,
+            reserve_index0=reserve_index0,
+            alpha_threshold=alpha_threshold,
+            luma_threshold=luma_threshold,
+            gain=gain,
+        )
     elif suffix == ".pgm":
         pixels, width, height = parse_pgm(in_path)
         if palette_path is None:
@@ -331,6 +410,36 @@ def main() -> int:
         action="store_true",
         help="Make the darkest quantized colour index zero (VDP1 transparency)",
     )
+    parser.add_argument(
+        "--reserve-index0",
+        action="store_true",
+        help=(
+            "Quantize to 255 colours and keep index 0 unused, so the hardware's "
+            "transparent colour index never collides with an opaque colour"
+        ),
+    )
+    parser.add_argument(
+        "--transparent-alpha",
+        type=int,
+        metavar="N",
+        help="Source pixels with alpha < N become index 0 (implies --reserve-index0)",
+    )
+    parser.add_argument(
+        "--transparent-luma",
+        type=int,
+        metavar="N",
+        help=(
+            "Source pixels with luma <= N become index 0 (implies --reserve-index0). "
+            "Use for artwork on a black backdrop, where --transparent-dark only "
+            "catches the single darkest palette entry and leaves the rest opaque."
+        ),
+    )
+    parser.add_argument(
+        "--gain",
+        type=float,
+        default=1.0,
+        help="Multiply RGB brightness before quantizing (1.0 = unchanged)",
+    )
     args = parser.parse_args()
 
     in_path = Path(args.input)
@@ -345,6 +454,10 @@ def main() -> int:
         palette_index=args.palette_index,
         resize_to=tuple(args.resize) if args.resize else None,
         transparent_dark=args.transparent_dark,
+        reserve_index0=args.reserve_index0,
+        alpha_threshold=args.transparent_alpha,
+        luma_threshold=args.transparent_luma,
+        gain=args.gain,
     )
 
     print(

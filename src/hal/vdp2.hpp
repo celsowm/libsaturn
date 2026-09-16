@@ -107,6 +107,7 @@ void set_rbg0_coefficient_control(uint16_t ktctl);
 void set_rbg0_ktaof(uint16_t ktaof);
 void set_rbg0_priority(uint8_t priority);
 void set_rbg0_sprite_priority(uint8_t priority);
+void set_nbg0_supplementary_palette(uint8_t palette);
 void set_nbg0_priority(uint8_t priority);
 void set_sprite_priority(uint8_t priority);
 

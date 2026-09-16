@@ -95,7 +95,7 @@ extern "C" sat_result_t sat_vdp2_nbg0_upload_indexed8(
     if (st != SAT_OK) {
         return st;
     }
-    if (pixels == nullptr || map_scratch == nullptr) {
+    if (pixels == nullptr || map_scratch == nullptr || palette_id > 7u) {
         return SAT_ERR_INVALID_ARG;
     }
 
@@ -142,6 +142,12 @@ extern "C" sat_result_t sat_vdp2_nbg0_upload_indexed8(
         nbg0_map_word_base(plane_index),
         map_scratch,
         static_cast<uint32_t>(kVdp2MapCells) * kVdp2MapCells);
+
+    /* These are 8-bit indices, so NBG0 is in 256-colour mode, and there the
+     * CRAM bank comes from PNCN0's supplementary palette bits -- the palette
+     * bits compose_pattern_name() puts in the pattern name are palette number
+     * 3-0, which the hardware does not use to form a 256-colour address. */
+    saturn::hal::vdp2::set_nbg0_supplementary_palette(static_cast<uint8_t>(palette_id));
 
     return SAT_OK;
 }

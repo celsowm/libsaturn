@@ -47,6 +47,33 @@ uint16_t g_last_rbg0_cycle_b0l = 0xEEEEu;
 uint16_t g_last_rbg0_cycle_b0u = 0xEEEEu;
 uint16_t g_last_rbg0_cycle_b1l = 0xEEEEu;
 uint16_t g_last_rbg0_cycle_b1u = 0xEEEEu;
+/* NBG0 register shadows.
+ *
+ * The VDP2 latches most of its configuration registers once per frame, so a
+ * write that lands mid-frame -- which is every write a program makes outside
+ * its VBlank handler -- may never reach the layer.  commit_rbg0_config()
+ * already replays RBG0's registers for that reason; NBG0's were set once at
+ * init time and never replayed, so on hardware (and on emulators that model
+ * the latch) the sky layer of a program that sets up NBG0 right after
+ * sat_init() could simply never appear.  Shadow them here and replay them
+ * from commit_layers(), which is what sat_vdp2_layers_commit() has always
+ * been documented to do. */
+uint16_t g_last_nbg0_chctla_written = 0x0000u;
+uint16_t g_last_nbg0_pncn0_written = 0x0000u;
+uint16_t g_last_nbg0_plsz_written = 0x0000u;
+uint16_t g_last_nbg0_mpofn_written = 0x0000u;
+uint16_t g_last_nbg0_mpabn0_written = 0x0000u;
+uint16_t g_last_nbg0_mpcdn0_written = 0x0000u;
+uint16_t g_last_nbg0_prina_written = 0x0000u;
+uint16_t g_last_nbg0_zmxin0_written = 0x0001u;
+uint16_t g_last_nbg0_zmxdn0_written = 0x0000u;
+uint16_t g_last_nbg0_zmyin0_written = 0x0001u;
+uint16_t g_last_nbg0_zmydn0_written = 0x0000u;
+uint16_t g_last_nbg0_scxin0_written = 0x0000u;
+uint16_t g_last_nbg0_scxdn0_written = 0x0000u;
+uint16_t g_last_nbg0_scyin0_written = 0x0000u;
+uint16_t g_last_nbg0_scydn0_written = 0x0000u;
+uint16_t g_last_prisa_written = 0x0606u;
 bool g_nbg0_configured = false;
 
 template <uint32_t Offset>
@@ -284,22 +311,36 @@ void init_ntsc_320x224() {
 
     BGON = 0x0000;
     CHCTLA = 0x3210u;
+    g_last_nbg0_chctla_written = 0x3210u;
     PNCN0 = 0x800Cu;  // 1-word pattern name + 12-bit character number
+    g_last_nbg0_pncn0_written = 0x800Cu;
     PLSZ = 0x0000u;
+    g_last_nbg0_plsz_written = 0x0000u;
     MPOFN = 0x0000u;
+    g_last_nbg0_mpofn_written = 0x0000u;
     set_nbg0_map_plane_index(kNbg0MapPlaneAIndex);
 
     SCXIN0 = 0x0000;
     SCXDN0 = 0x0000;
     SCYIN0 = 0x0000;
     SCYDN0 = 0x0000;
+    g_last_nbg0_scxin0_written = 0x0000u;
+    g_last_nbg0_scxdn0_written = 0x0000u;
+    g_last_nbg0_scyin0_written = 0x0000u;
+    g_last_nbg0_scydn0_written = 0x0000u;
     ZMXIN0 = 0x0001;
     ZMXDN0 = 0x0000;
     ZMYIN0 = 0x0001;
     ZMYDN0 = 0x0000;
+    g_last_nbg0_zmxin0_written = 0x0001u;
+    g_last_nbg0_zmxdn0_written = 0x0000u;
+    g_last_nbg0_zmyin0_written = 0x0001u;
+    g_last_nbg0_zmydn0_written = 0x0000u;
 
     PRISA = 0x0606;
+    g_last_prisa_written = 0x0606u;
     PRINA = static_cast<uint16_t>((PRINA & 0xFFF8u) | 0x0001u);
+    g_last_nbg0_prina_written = PRINA;
 
     reset_color_ops();
 
@@ -319,6 +360,7 @@ void configure_nbg0_character(CharacterSize char_size, ColorMode color_mode) {
         value = static_cast<uint16_t>(value | 0x0001u);
     }
     CHCTLA = value;
+    g_last_nbg0_chctla_written = value;
 }
 
 void configure_nbg0_text_layout() {
@@ -334,20 +376,41 @@ void configure_nbg0_text_layout() {
 
     /* CHCTLA is set by configure_nbg0_character() - do not overwrite */
     PNCN0 = 0xC00Cu;   /* 1-word pattern name + 12-bit char number, cell base in B1 */
+    g_last_nbg0_pncn0_written = 0xC00Cu;
     PLSZ = static_cast<uint16_t>(PLSZ & 0xFFFCu);
+    g_last_nbg0_plsz_written = PLSZ;
     MPOFN = static_cast<uint16_t>(MPOFN & 0xFFF8u);
+    g_last_nbg0_mpofn_written = MPOFN;
     set_nbg0_map_plane_index(g_nbg0_map_plane_index);
 
-    SCXIN0 = 0x0000;
-    SCXDN0 = 0x0000;
-    SCYIN0 = 0x0000;
-    SCYDN0 = 0x0000;
+    set_nbg0_scroll(0u, 0u, 0u, 0u);
     ZMXIN0 = 0x0001;
     ZMXDN0 = 0x0000;
     ZMYIN0 = 0x0001;
     ZMYDN0 = 0x0000;
+    g_last_nbg0_zmxin0_written = 0x0001u;
+    g_last_nbg0_zmxdn0_written = 0x0000u;
+    g_last_nbg0_zmyin0_written = 0x0001u;
+    g_last_nbg0_zmydn0_written = 0x0000u;
 
-    PRINA = saturn::core::compose_nbg0_priority(PRINA, 7u);
+    set_nbg0_priority(7u);
+}
+
+/* Palette number bits 6-4, supplied as pattern-name auxiliary data in PNCN0
+ * bits 7-5 (N0SPLT6..4).
+ *
+ * This is the ONLY way an NBG0 in 256-colour mode can pick a CRAM bank. The
+ * colour RAM address is then bits 10-8 = palette number 6-4 and bits 7-0 =
+ * the dot code (VDP2 manual 4.6, "Number of character colors: 256 colors"),
+ * so palette number bits 3-0 -- the ones a 1-word pattern name carries in its
+ * top nibble -- are not part of the address at all. Putting the bank there,
+ * which is what this library used to do, selects nothing: every layer reads
+ * CRAM bank 0 whatever it asked for. */
+void set_nbg0_supplementary_palette(uint8_t palette) {
+    const uint16_t value = static_cast<uint16_t>(
+        (PNCN0 & 0xFF1Fu) | static_cast<uint16_t>((palette & 0x07u) << 5u));
+    PNCN0 = value;
+    g_last_nbg0_pncn0_written = value;
 }
 
 void set_nbg0_map_plane_index(uint16_t plane_index) {
@@ -356,6 +419,8 @@ void set_nbg0_map_plane_index(uint16_t plane_index) {
     const uint16_t packed = static_cast<uint16_t>((clamped << 8u) | clamped);
     MPABN0 = packed;
     MPCDN0 = packed;
+    g_last_nbg0_mpabn0_written = packed;
+    g_last_nbg0_mpcdn0_written = packed;
 }
 
 uint16_t nbg0_map_plane_index() {
@@ -378,6 +443,10 @@ void set_nbg0_scroll(uint16_t x_integer, uint16_t x_fraction, uint16_t y_integer
     SCXDN0 = to_scroll_fraction(x_fraction);
     SCYIN0 = static_cast<uint16_t>(y_integer & 0x07FFu);
     SCYDN0 = to_scroll_fraction(y_fraction);
+    g_last_nbg0_scxin0_written = SCXIN0;
+    g_last_nbg0_scxdn0_written = SCXDN0;
+    g_last_nbg0_scyin0_written = SCYIN0;
+    g_last_nbg0_scydn0_written = SCYDN0;
 }
 
 void enable_nbg0(bool enable) {
@@ -707,7 +776,38 @@ void set_rbg0_transparent_code_enabled(bool enabled) {
     g_last_rbg0_bgon_written = bgon;
 }
 
+void commit_nbg0_config() {
+    /* Re-apply NBG0's configuration from its shadows. Safe to call even when
+     * NBG0 was never configured: the shadows then still hold the values
+     * init_ntsc_320x224() wrote, so this is a no-op rewrite rather than a
+     * layer being switched on behind the caller's back. */
+    CHCTLA = g_last_nbg0_chctla_written;
+    PNCN0 = g_last_nbg0_pncn0_written;
+    PLSZ = static_cast<uint16_t>((PLSZ & 0xFFFCu) | (g_last_nbg0_plsz_written & 0x0003u));
+    MPOFN = g_last_nbg0_mpofn_written;
+    MPABN0 = g_last_nbg0_mpabn0_written;
+    MPCDN0 = g_last_nbg0_mpcdn0_written;
+    SCXIN0 = g_last_nbg0_scxin0_written;
+    SCXDN0 = g_last_nbg0_scxdn0_written;
+    SCYIN0 = g_last_nbg0_scyin0_written;
+    SCYDN0 = g_last_nbg0_scydn0_written;
+    ZMXIN0 = g_last_nbg0_zmxin0_written;
+    ZMXDN0 = g_last_nbg0_zmxdn0_written;
+    ZMYIN0 = g_last_nbg0_zmyin0_written;
+    ZMYDN0 = g_last_nbg0_zmydn0_written;
+    PRINA = g_last_nbg0_prina_written;
+}
+
 void commit_layers() {
+    /* NBG0 first: commit_rbg0_config() rewrites RAMCTL and the VRAM cycle
+     * patterns, which decide whether NBG0's bank is reachable at all, so it
+     * must have the last word on those. */
+    if (g_nbg0_configured) {
+        commit_nbg0_config();
+    }
+    /* Sprite priority decides whether the VDP1's output is in front of the
+     * VDP2 layers, so it is replayed whether or not NBG0 is in use. */
+    PRISA = g_last_prisa_written;
     commit_rbg0_config();
 }
 
@@ -738,14 +838,17 @@ void set_rbg0_priority(uint8_t priority) {
 void set_rbg0_sprite_priority(uint8_t priority) {
     const uint16_t prisa = static_cast<uint16_t>((priority & 0x07u) | ((priority & 0x07u) << 8u));
     PRISA = prisa;
+    g_last_prisa_written = prisa;
 }
 
 void set_nbg0_priority(uint8_t priority) {
     PRINA = saturn::core::compose_nbg0_priority(PRINA, priority);
+    g_last_nbg0_prina_written = PRINA;
 }
 
 void set_sprite_priority(uint8_t priority) {
     PRISA = saturn::core::compose_sprite_priority(priority);
+    g_last_prisa_written = PRISA;
 }
 
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count) {

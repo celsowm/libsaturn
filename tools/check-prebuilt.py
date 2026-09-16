@@ -1,4 +1,12 @@
-"""Checks if prebuilt assets are valid (hash of original asset matches)."""
+"""Checks if prebuilt assets are valid.
+
+Valid means two things: the source image still hashes to what the manifest
+recorded, AND the converter that produced the checked-in .c/.h is still the
+converter in the tree. The second check exists because the first one on its
+own let a converter fix silently skip every example with prebuilt assets --
+improving tools/convert_indexed8.py changed nothing for them, because their
+inputs had not changed and the stale output was reused.
+"""
 
 import hashlib
 import json
@@ -12,6 +20,13 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+CONVERTER = Path(__file__).resolve().parent / "convert_indexed8.py"
+
+
+def sha256_text(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def main():
@@ -31,6 +46,11 @@ def main():
     if not assets:
         print("invalid", end="")
         sys.exit(1)
+
+    if CONVERTER.exists():
+        if manifest.get("converter_hash", "") != sha256_text(CONVERTER):
+            print("stale", end="")
+            sys.exit(0)
 
     for name, info in assets.items():
         # Resolve path relative to manifest directory

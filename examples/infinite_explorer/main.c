@@ -38,7 +38,7 @@ static render_item_t g_render[MAX_RENDER];
 static sat_texture_t g_world_texture;
 static sat_mat4_t g_view_proj;
 static uint32_t g_seed = 0x51A7C0DEu, g_frames, g_distance;
-static int32_t g_heading, g_speed;
+static int32_t g_heading, g_speed, g_heading_delta;
 static uint16_t g_render_count, g_drones;
 static uint8_t g_energy, g_artifacts, g_biome, g_target_biome;
 static uint8_t g_transition, g_invulnerable, g_paused, g_finished;
@@ -79,14 +79,26 @@ static uint16_t tint_horizon(uint16_t c, uint8_t biome, uint8_t scale) {
     return SAT_BGR555(r, g, b);
 }
 
+/* Both layers keep colour index 0 exactly as the converter left it.
+ *
+ * Zeroing it here used to speckle the ground black. Both layers run with
+ * transparent-code processing OFF (BGON reads 0x1111: N0TPON and R0TPON set),
+ * so colour index 0 is not transparent -- it is drawn with whatever palette
+ * entry 0 holds. The terrain was quantized WITHOUT reserving index 0, so
+ * about a fifth of its pixels landed on it, and forcing that entry to black
+ * turned every one of them into a black dot on the rock.
+ *
+ * tools/convert_indexed8.py is now told --reserve-index0, so the terrain
+ * never uses index 0 at all and there is nothing to suppress. Reserving it
+ * is worth doing even here, where nothing is transparent: it costs one
+ * colour out of 256 and makes the asset safe to reuse on the VDP1, which
+ * does treat index 0 as transparent unconditionally. */
 static void upload_biome_palettes(uint8_t biome, uint8_t scale) {
     uint16_t i;
     for (i = 0; i < 256u; ++i) {
         g_ground_palette[i] = scale_color(terrain_palette[i], scale);
         g_sky_palette[i] = tint_horizon(explorer_horizon_palette[i], biome, scale);
     }
-    g_ground_palette[0] = 0;
-    g_sky_palette[0] = 0;
     sat_example_must(sat_vdp2_palette_upload(g_ground_palette, 256u, 0u));
     sat_example_must(sat_vdp2_palette_upload(g_sky_palette, 256u, 256u));
 }
@@ -208,7 +220,7 @@ static void reset_game(void) {
     g_seed = g_seed * 1664525u + 1013904223u + g_frames;
     g_player.chunk_x = g_player.chunk_z = 0;
     g_player.local_x = g_player.local_z = FX(128);
-    g_heading = g_speed = 0;
+    g_heading = g_speed = g_heading_delta = 0;
     g_frames = g_distance = g_drones = 0;
     g_energy = 6; g_artifacts = 0; g_invulnerable = 0; g_finished = 0; g_paused = 0;
     g_biome = g_target_biome = explorer_biome(g_seed, 0, 0); g_transition = 0;
@@ -294,19 +306,77 @@ static void draw_landmark(const render_item_t* r) {
     }
 }
 
+/* Scenery rock colour.
+ *
+ * Deliberately NOT object_color(): that returns the saturated biome accent
+ * used for mission markers and the HUD, and a field of rocks in it reads as a
+ * row of neon boxes rather than as ground. These are stone tints that sit
+ * close to the terrain bitmap, nudged per biome so a biome change is still
+ * legible. */
+static uint16_t rock_color(uint8_t biome, uint8_t bright) {
+    if (biome == 0u) return bright ? SAT_RGB555(14, 15, 17) : SAT_RGB555(6, 7, 9);
+    if (biome == 1u) return bright ? SAT_RGB555(18, 15, 10) : SAT_RGB555(8, 6, 4);
+    return bright ? SAT_RGB555(16, 12, 14) : SAT_RGB555(7, 5, 6);
+}
+
+/* A squat, flat-shaded silhouette, lit from one side so a field of them still
+ * reads as ground clutter.
+ *
+ * These used to be drawn with the spacecraft texture -- the same 64x64 NASA
+ * render as the player's craft and the drones -- which is why the world was
+ * full of identical dark rectangles instead of anything recognisable. A rock
+ * has no texture to be drawn with, so it is a shaded polygon. */
+static void draw_rock(const render_item_t* r, int half, int height) {
+    sat_fx16_t w = FX(half);
+    sat_fx16_t h = FX(height);
+    sat_quad3_t body;
+    uint16_t gouraud[4];
+    /* Corner order is A top-left, B top-right, C bottom-right, D bottom-left.
+     * Narrowing the top, asymmetrically, turns the billboard rectangle into a
+     * boulder silhouette -- a plain rectangle reads as a floating card however
+     * it is shaded. */
+    body.v[0].x = r->side - (w * 7 / 16); body.v[0].y = h;  body.v[0].z = r->depth;
+    body.v[1].x = r->side + (w * 9 / 16); body.v[1].y = h;  body.v[1].z = r->depth;
+    body.v[2].x = r->side + w;            body.v[2].y = 0;  body.v[2].z = r->depth;
+    body.v[3].x = r->side - w;            body.v[3].y = 0;  body.v[3].z = r->depth;
+    /* Lit from the left, so a whole field of them agrees on where the sun is. */
+    gouraud[0] = sat_gouraud_from_intensity(SAT_FX16_ONE);
+    gouraud[1] = sat_gouraud_from_intensity(SAT_FX16_ONE / 3);
+    gouraud[2] = sat_gouraud_from_intensity(SAT_FX16_ONE / 5);
+    gouraud[3] = sat_gouraud_from_intensity(SAT_FX16_ONE * 3 / 4);
+
+    {
+        /* Contact shadow, submitted BEFORE the boulder: the VDP1 has no depth
+         * buffer and paints in list order, so the later command wins wherever
+         * the two overlap. Without it the boulder floats. */
+        sat_quad3_t ground;
+        sat_quad3_floor(&ground, r->side, 0, r->depth, w);
+        (void)sat_draw_world_polygon(&g_view_proj, &ground, rock_color(r->biome, 0u));
+    }
+    (void)sat_draw_world_polygon_gouraud(&g_view_proj, &body, rock_color(r->biome, 1u),
+                                         gouraud);
+}
+
 static void draw_world(void) {
     uint16_t i;
     for (i = 0; i < g_render_count; ++i) {
         render_item_t* r = &g_render[i];
         if (r->type == 4u || r->type == 5u) {
             draw_landmark(r);
-        } else {
+        } else if (r->type == 3u) {
+            /* Drone: a real craft, so it gets the real craft texture, hovering
+             * clear of the ground. */
             sat_quad3_t q;
-            int half = r->type==2u ? 18 : (r->type==1u ? 12 : 15);
-            int height = r->type==2u ? 34 : 26;
-            sat_quad3_billboard(&q,r->side,r->depth,FX(1),0,FX(half),FX(height));
-            if (r->type == 3u) { uint8_t v; for(v=0;v<4u;++v) q.v[v].y += FX(18); }
-            sat_draw_world_sprite(&g_view_proj,&q,&g_world_texture,0,0);
+            uint8_t v;
+            sat_quad3_billboard(&q, r->side, r->depth, FX(1), 0, FX(12), FX(26));
+            for (v = 0; v < 4u; ++v) q.v[v].y += FX(18);
+            (void)sat_draw_world_sprite(&g_view_proj, &q, &g_world_texture, 0, 0);
+        } else {
+            /* Boulders, not buildings: the old sizes came from a billboard
+             * that was mostly transparent texture, so as solid geometry they
+             * filled the screen. */
+            draw_rock(r, r->type == 2u ? 8 : (r->type == 1u ? 5 : 6),
+                      r->type == 2u ? 13 : 9);
         }
     }
 }
@@ -398,8 +468,9 @@ static void update_game(const sat_pad_state_t* pad) {
         g_paused ^= 1u;
     }
     if (g_paused || g_finished) return;
-    if (pad->held & SAT_PAD_LEFT) g_heading -= FX(2);
-    if (pad->held & SAT_PAD_RIGHT) g_heading += FX(2);
+    g_heading_delta = 0;
+    if (pad->held & SAT_PAD_LEFT) { g_heading -= FX(2); g_heading_delta = -1; }
+    if (pad->held & SAT_PAD_RIGHT) { g_heading += FX(2); g_heading_delta = 1; }
     while (g_heading < 0) g_heading += FX(360);
     while (g_heading >= FX(360)) g_heading -= FX(360);
     if (pad->held & SAT_PAD_UP) thrust += FX(1) / 12;
@@ -469,8 +540,21 @@ static void update_game(const sat_pad_state_t* pad) {
 
 static void draw_player_and_weather(void) {
     sat_quad3_t craft;
-    sat_quad3_billboard(&craft,0,FX(6),FX(1),0,FX(11),FX(14));
-    sat_draw_world_sprite(&g_view_proj,&craft,&g_world_texture,0,0);
+    /* The player's craft is the one thing on screen the player owns, so it is
+     * drawn large enough to be read as a craft. It banks with the turn, which
+     * on a billboard means shearing the top corners sideways. */
+    sat_fx16_t lean = (sat_fx16_t)(g_heading_delta * FX(3));
+    /* Hover height: a craft whose base sits at y = 0 is a craft parked on the
+     * rocks. Lift the whole quad clear of the ground, and bob it with speed. */
+    sat_fx16_t hover = FX(5) + (sat_fx16_t)(g_speed / 3);
+    uint8_t v;
+    sat_quad3_billboard(&craft, 0, FX(12), FX(1), 0, FX(13), FX(15));
+    for (v = 0; v < 4u; ++v) craft.v[v].y += hover;
+    /* Banking: shearing only the top corners leans the billboard into the
+     * turn, which is as much roll as a flat quad can express. */
+    craft.v[0].x += lean;
+    craft.v[1].x += lean;
+    (void)sat_draw_world_sprite(&g_view_proj, &craft, &g_world_texture, 0, 0);
     if (g_speed > FX(2)) {
         uint8_t i;
         for (i = 0u; i < 5u; ++i) {
@@ -538,7 +622,15 @@ int main(void) {
         explorer_build_ground_params(g_player.local_x, g_player.local_z, sin_h, cos_h, COEF_BASE_WORD, params);
         sat_example_must(sat_vdp2_vram_write_words(RP_BASE_WORD, params, 48u));
         sky_scroll.x_integer = (uint16_t)(((uint32_t)(g_heading >> 16) * SKY_W / 360u) % SKY_W);
-        sky_scroll.x_fraction = 0; sky_scroll.y_integer = 0u; sky_scroll.y_fraction = 0;
+        sky_scroll.x_fraction = 0;
+        /* Land the panorama's own horizon line on the Mode-7 horizon. The
+         * strip is SKY_H tall and ends at its horizon, so showing its last
+         * EXPLORER_HORIZON rows over the top EXPLORER_HORIZON scanlines means
+         * scrolling down by the difference. At y=0 the bottom of the strip sat
+         * at scanline 128, i.e. 32 rows BELOW the ground's edge, so the part
+         * of the panorama with the horizon in it was never visible. */
+        sky_scroll.y_integer = (uint16_t)(SKY_H - EXPLORER_HORIZON);
+        sky_scroll.y_fraction = 0;
         sat_example_must(sat_vdp2_nbg0_set_scroll(&sky_scroll));
         sat_example_must(sat_vdp2_layers_commit());
         build_render_list(sin_h, cos_h);

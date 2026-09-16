@@ -104,8 +104,15 @@ sat_result_t sat_vdp2_sprite_set_priority(uint8_t priority);
  * the function picks it. An image too large to fit under the map returns
  * SAT_ERR_CAPACITY.
  *
- * palette_id selects one of the CRAM banks of 256 colours; upload the
- * palette to word offset palette_id * 256 with sat_vdp2_palette_upload().
+ * palette_id selects one of the EIGHT CRAM banks of 256 colours (0-7);
+ * upload the palette to word offset palette_id * 256 with
+ * sat_vdp2_palette_upload(). Anything above 7 is SAT_ERR_INVALID_ARG,
+ * because a 256-colour address only has three bits of bank in it: the
+ * colour RAM address is palette number bits 6-4 followed by the eight-bit
+ * dot code, so palette number bits 3-0 -- the ones a 1-word pattern name
+ * carries -- select nothing at all. The bank is therefore written to
+ * PNCN0's supplementary palette field by this call, which is why choosing
+ * it is not a separate step.
  *
  * map_scratch must hold SAT_VDP2_NBG0_MAP_CELLS entries; it is used to
  * stage the pattern names and is not read afterwards. */
