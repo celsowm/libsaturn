@@ -11,15 +11,13 @@ from PIL import Image
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# When installed in libsaturn/tools this resolves directly. For standalone
-# syntax tests the import can be satisfied by placing saturn_asset_common.py
-# beside this script.
 from saturn_asset_common import format_byte_array, format_word_array, rgb888_to_rgb555
 
 SOURCE_URL = "https://dl.polyhaven.org/file/ph-assets/HDRIs/extra/Tonemapped%20JPG/dikhololo_night.jpg"
 SOURCE_PAGE = "https://polyhaven.com/a/dikhololo_night"
 WIDTH = 512
 HEIGHT = 128
+SEAM_BLEND = 10
 
 
 def download(url: str, path: Path) -> None:
@@ -32,27 +30,58 @@ def download(url: str, path: Path) -> None:
     path.write_bytes(data)
 
 
-def crop_horizon(img: Image.Image) -> Image.Image:
-    """Keep the sky plus the 360-degree horizon and discard most of the nadir.
+def seal_horizontal_wrap(img: Image.Image) -> Image.Image:
+    """Make the two equirectangular edges numerically identical after resize.
 
-    The source is a true equirectangular 360 panorama, so horizontal wrapping
-    remains physically seamless after a vertical crop and resize.
+    The source is already a real 360 panorama, but ordinary image resampling
+    filters the left and right image boundaries independently. Blend a tiny
+    gutter around that boundary and force the outermost pair to the same RGB
+    value so the Saturn's modulo scroll cannot reveal a one-pixel JPEG/resample
+    seam.
     """
+    img = img.copy().convert("RGB")
+    px = img.load()
+    w, h = img.size
+    band = min(SEAM_BLEND, max(1, w // 16))
+    for y in range(h):
+        for k in range(band):
+            lx = k
+            rx = w - 1 - k
+            left = px[lx, y]
+            right = px[rx, y]
+            avg = tuple((left[c] + right[c]) // 2 for c in range(3))
+            weight = band - k
+            denom = band + 1
+            px[lx, y] = tuple((left[c] * (denom - weight) + avg[c] * weight) // denom for c in range(3))
+            px[rx, y] = tuple((right[c] * (denom - weight) + avg[c] * weight) // denom for c in range(3))
+        edge = tuple((px[0, y][c] + px[w - 1, y][c]) // 2 for c in range(3))
+        px[0, y] = edge
+        px[w - 1, y] = edge
+    return img
+
+
+def crop_horizon(img: Image.Image) -> Image.Image:
+    """Keep the sky plus the 360-degree horizon and discard most of the nadir."""
     img = img.convert("RGB")
     w, h = img.size
     top = int(h * 0.06)
     bottom = int(h * 0.61)
     cropped = img.crop((0, top, w, bottom))
     resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
-    return cropped.resize((WIDTH, HEIGHT), resample=resample)
+    return seal_horizontal_wrap(cropped.resize((WIDTH, HEIGHT), resample=resample))
 
 
 def quantize(img: Image.Image) -> tuple[bytes, list[int]]:
-    # Quantizing the complete 360 strip in one pass gives one shared palette
-    # across the seam instead of two independently quantized edges.
+    # One quantization pass across the complete 360 strip gives the seam one
+    # shared palette. The RGB edges were made identical immediately above.
     adaptive = getattr(getattr(Image, "Palette", Image), "ADAPTIVE")
     q = img.convert("P", palette=adaptive, colors=256)
-    pixels = bytes(q.getdata())
+    mutable = bytearray(q.getdata())
+    # Force the palette index at x=511 to equal x=0 as well: exact wrap in the
+    # actual indexed payload, not just in its RGB precursor.
+    for y in range(HEIGHT):
+        mutable[y * WIDTH + WIDTH - 1] = mutable[y * WIDTH]
+    pixels = bytes(mutable)
     pal = q.getpalette() or []
     colors: list[int] = []
     for i in range(0, min(len(pal), 256 * 3), 3):
@@ -77,7 +106,7 @@ def fallback_panorama() -> Image.Image:
             if star == 0 and y < HEIGHT * 0.65:
                 r = g = b = 220
             px[x, y] = (r, g, b)
-    return img
+    return seal_horizontal_wrap(img)
 
 
 def emit(out_c: Path, out_h: Path, pixels: bytes, palette: list[int], real_source: bool) -> None:
