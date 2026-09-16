@@ -1,0 +1,153 @@
+#include <stdint.h>
+
+#include "saturn/app.h"
+#include "saturn/audio.h"
+#include "saturn/color.h"
+#include "saturn/example_util.h"
+#include "saturn/fmt.h"
+#include "saturn/font.h"
+#include "audio_showcase/audio_data.h"
+
+static sat_sound_t g_sounds[5];
+static sat_voice_t g_loop_voice = {0};
+static uint8_t g_loop_playing = 0u;
+static uint8_t g_selected = 0u;
+static uint16_t g_volume = 255u;
+static int16_t g_pan = 0;
+
+static void draw_line(const sat_ascii_font_t* font, const char* text, int y) {
+    sat_example_must(sat_ascii_font_draw_text_screen_indexed8(font, text, 8, y, 8, 0xFFFFu, 0u));
+}
+
+static void draw_value(const sat_ascii_font_t* font, const char* label, uint32_t value, int y) {
+    char line[32];
+    sat_example_must(sat_fmt_label_u32(label, value, line, sizeof(line), 0));
+    draw_line(font, line, y);
+}
+
+static sat_sound_play_params_t current_params(void) {
+    sat_sound_play_params_t p;
+    p.volume = g_volume;
+    p.pan = g_pan;
+    p.priority = 10u;
+    p.flags = 0u;
+    p.pitch = SAT_FX16_ONE;
+    return p;
+}
+
+static void load_sound(sat_sound_t* out, const int16_t* samples, uint32_t count, uint8_t loop) {
+    sat_sound_desc_t desc;
+    desc.samples = samples;
+    desc.sample_count = count;
+    desc.sample_rate = SHOWCASE_SAMPLE_RATE;
+    desc.loop_start = 0u;
+    desc.loop_end = 0u;
+    desc.format = SAT_AUDIO_PCM_S16;
+    desc.loop = loop;
+    desc.reserved0 = 0u;
+    desc.reserved1 = 0u;
+    sat_example_must(sat_sound_create(out, &desc));
+}
+
+int main(void) {
+    sat_example_must(sat_app_init_default());
+    sat_example_must(sat_audio_init());
+
+    sat_ascii_font_t font;
+    sat_example_must(sat_ascii_font_init_8x8_indexed8(&font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u));
+
+    load_sound(&g_sounds[0], showcase_ping, showcase_ping_count, 0u);
+    load_sound(&g_sounds[1], showcase_bass, showcase_bass_count, 0u);
+    load_sound(&g_sounds[2], showcase_noise, showcase_noise_count, 0u);
+    load_sound(&g_sounds[3], showcase_sweep, showcase_sweep_count, 0u);
+    load_sound(&g_sounds[4], showcase_loop, showcase_loop_count, 1u);
+
+    while (1) {
+        sat_example_must(sat_audio_update());
+
+        sat_pad_state_t pad = {0};
+        sat_example_must(sat_app_frame_begin(SAT_COLOR_BLACK, SAT_COLOR_BLACK, &pad));
+
+        if ((pad.pressed & SAT_PAD_X) != 0u) g_selected = (uint8_t)((g_selected + 4u) % 5u);
+        if ((pad.pressed & SAT_PAD_Y) != 0u) g_selected = (uint8_t)((g_selected + 1u) % 5u);
+
+        if ((pad.pressed & SAT_PAD_LEFT) != 0u && g_pan > SAT_AUDIO_PAN_LEFT) {
+            g_pan = (int16_t)(g_pan - 3);
+            if (g_pan < SAT_AUDIO_PAN_LEFT) g_pan = SAT_AUDIO_PAN_LEFT;
+        }
+        if ((pad.pressed & SAT_PAD_RIGHT) != 0u && g_pan < SAT_AUDIO_PAN_RIGHT) {
+            g_pan = (int16_t)(g_pan + 3);
+            if (g_pan > SAT_AUDIO_PAN_RIGHT) g_pan = SAT_AUDIO_PAN_RIGHT;
+        }
+        if ((pad.pressed & SAT_PAD_UP) != 0u) g_volume = (uint16_t)(g_volume > 223u ? 255u : g_volume + 32u);
+        if ((pad.pressed & SAT_PAD_DOWN) != 0u) g_volume = (uint16_t)(g_volume < 32u ? 0u : g_volume - 32u);
+
+        if ((pad.pressed & SAT_PAD_A) != 0u) {
+            sat_sound_play_params_t p = current_params();
+            sat_example_must(sat_sound_play(g_sounds[g_selected], &p, 0));
+        }
+
+        if ((pad.pressed & SAT_PAD_B) != 0u) {
+            sat_sound_play_params_t p = current_params();
+            for (uint16_t i = 0u; i < 36u; ++i) {
+                p.pan = (int16_t)((int32_t)(i % 31u) - 15);
+                p.priority = (uint16_t)(i & 3u);
+                (void)sat_sound_play(g_sounds[i % 4u], &p, 0);
+            }
+        }
+
+        if ((pad.pressed & SAT_PAD_C) != 0u) {
+            if (g_loop_playing != 0u && sat_voice_is_playing(g_loop_voice) != 0u) {
+                sat_example_must(sat_voice_stop(g_loop_voice));
+                g_loop_playing = 0u;
+            } else {
+                sat_sound_play_params_t p = current_params();
+                p.priority = 100u;
+                sat_example_must(sat_sound_play(g_sounds[4], &p, &g_loop_voice));
+                g_loop_playing = 1u;
+            }
+        }
+
+        if ((pad.held & SAT_PAD_L) != 0u && (pad.held & SAT_PAD_R) != 0u &&
+            (pad.pressed & SAT_PAD_START) != 0u) {
+            sat_example_must(sat_app_frame_end());
+            break;
+        }
+
+        sat_audio_stats_t stats;
+        sat_example_must(sat_audio_get_stats(&stats));
+
+        draw_line(&font, "LIBSATURN AUDIO SHOWCASE", 8);
+        draw_line(&font, "A PLAY  B BURST  C LOOP", 24);
+        draw_line(&font, "X/Y SOUND  LEFT/RIGHT PAN", 36);
+        draw_line(&font, "UP/DOWN VOLUME", 48);
+        draw_line(&font, "L+R+START EXIT", 60);
+
+        draw_value(&font, "SOUND ", g_selected, 84);
+        draw_value(&font, "VOLUME ", g_volume, 96);
+        {
+            char pan_line[24];
+            char pan_num[SAT_FMT_I32_MAX];
+            uint16_t n = 0u;
+            uint16_t p = 0u;
+            const char prefix[] = "PAN ";
+            sat_example_must(sat_fmt_i32(g_pan, pan_num, sizeof(pan_num), &n));
+            while (prefix[p] != '\0') { pan_line[p] = prefix[p]; ++p; }
+            for (uint16_t i = 0u; i < n; ++i) pan_line[p + i] = pan_num[i];
+            pan_line[p + n] = '\0';
+            draw_line(&font, pan_line, 108);
+        }
+        draw_value(&font, "VOICES ", stats.active_voices, 132);
+        draw_value(&font, "STEALS ", stats.voice_steals, 144);
+        draw_value(&font, "FAILED ", stats.failed_play_requests, 156);
+        draw_value(&font, "SND RAM USED ", stats.sound_ram_used, 168);
+        draw_value(&font, "SND RAM HIGH ", stats.sound_ram_high_water, 180);
+        draw_value(&font, "SOUNDS ", stats.resident_sounds, 192);
+
+        sat_example_must(sat_app_frame_end());
+    }
+
+    for (uint8_t i = 0u; i < 5u; ++i) (void)sat_sound_unload(g_sounds[i]);
+    (void)sat_audio_shutdown();
+    return 0;
+}
