@@ -1,11 +1,9 @@
 # Short physics_2d smoke script: move, jump, and spawn several balls.
-0     NONE
-8     RIGHT
-28    RIGHT+B
-29    RIGHT
-48    A
-49    NONE
-56    A
-57    NONE
-64    LEFT
-90    NONE
+0     RIGHT
+50    RIGHT+B
+51    RIGHT
+70    A
+71    NONE
+78    A
+79    LEFT
+100   NONE
