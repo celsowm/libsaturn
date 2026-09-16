@@ -443,6 +443,25 @@ inline uint16_t compose_nbg0_priority(uint16_t prina, uint8_t priority) {
     return static_cast<uint16_t>((prina & 0xFFF8u) | (priority & 0x07u));
 }
 
+/* NBG0 and RBG0 share BGON.  Layer setup must only touch its own enable and
+ * transparent-code bits or initializing the sky after the ground makes the
+ * ground disappear (and vice versa). */
+inline uint16_t compose_nbg0_bgon(uint16_t bgon, bool enabled, bool transparent_code_enabled) {
+    bgon = enabled ? static_cast<uint16_t>(bgon | 0x0001u)
+                   : static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x0001u));
+    return transparent_code_enabled
+        ? static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x0100u))
+        : static_cast<uint16_t>(bgon | 0x0100u);
+}
+
+inline uint16_t compose_rbg0_bgon(uint16_t bgon, bool enabled, bool transparent_code_enabled) {
+    bgon = enabled ? static_cast<uint16_t>(bgon | 0x0010u)
+                   : static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x0010u));
+    return transparent_code_enabled
+        ? static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x1000u))
+        : static_cast<uint16_t>(bgon | 0x1000u);
+}
+
 /* PRISA holds two sprite priorities, for sprite types that select between
  * them per pixel. The library never uses that, so both halves are set to the
  * same value -- otherwise the effective priority would depend on a sprite

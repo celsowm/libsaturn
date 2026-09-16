@@ -200,6 +200,16 @@ TEST(sprite_priority_sets_both_halves) {
     ASSERT_EQ(saturn::core::compose_sprite_priority(1u), 0x0101u);
 }
 
+TEST(nbg0_bgon_preserves_rbg0) {
+    ASSERT_EQ(saturn::core::compose_nbg0_bgon(0x1010u, true, false), 0x1111u);
+    ASSERT_EQ(saturn::core::compose_nbg0_bgon(0x1010u, true, true), 0x1011u);
+}
+
+TEST(rbg0_bgon_preserves_nbg0) {
+    ASSERT_EQ(saturn::core::compose_rbg0_bgon(0x0101u, true, false), 0x1111u);
+    ASSERT_EQ(saturn::core::compose_rbg0_bgon(0x0101u, false, true), 0x0101u);
+}
+
 /* ---- tiled image upload ---- */
 
 TEST(cell_is_row_major_from_the_right_block) {
@@ -288,6 +298,8 @@ int main() {
     nbg0_priority_leaves_other_layers_alone();
     nbg0_priority_clamps_to_three_bits();
     sprite_priority_sets_both_halves();
+    nbg0_bgon_preserves_rbg0();
+    rbg0_bgon_preserves_nbg0();
     cell_is_row_major_from_the_right_block();
     pattern_name_advances_two_per_cell();
     pattern_name_carries_the_palette_bank();
@@ -295,6 +307,6 @@ int main() {
     nbg0_image_must_fit_under_the_map_plane();
     nbg0_image_cannot_exceed_the_plane();
 
-    printf("PASS: test_vdp2_logic.cpp (%d tests)\n", 31);
+    printf("PASS: test_vdp2_logic.cpp (%d tests)\n", 33);
     return 0;
 }

@@ -21,53 +21,15 @@ extern "C" sat_result_t sat_vdp2_nbg0_init(const sat_vdp2_nbg0_config_t* config)
     g_state.nbg0_map_width = 64u;
     g_state.nbg0_map_height = 64u;
 
-    /* Direct register write sequence matching the working vdp2_nbg0_image.
-     * This bypasses the broken configure_nbg0_text_layout which was not
-     * enabling NBG0 correctly. */
-    volatile uint16_t* const regs = (volatile uint16_t*)0x25F80000u;
-
-    regs[0x000u >> 1] = 0x0000u;  /* TVMD off */
-    regs[0x00Eu >> 1] = 0x1327u;  /* RAMCTL */
-
-    regs[0x010u >> 1] = 0x5555u;
-    regs[0x012u >> 1] = 0xFEEEu;
-    regs[0x014u >> 1] = 0x5555u;
-    regs[0x016u >> 1] = 0xFEEEu;
-    regs[0x018u >> 1] = 0xFFFFu;
-    regs[0x01Au >> 1] = 0xEEEEu;
-    regs[0x01Cu >> 1] = 0x044Fu;
-    regs[0x01Eu >> 1] = 0xEEEEu;
-
-    regs[0x020u >> 1] = 0x0000u;  /* BGON off during config */
-
-    /* CHCTLA: color mode + char size */
-    const uint16_t mode = static_cast<uint16_t>(config->color_mode) & 0x0007u;
-    const uint16_t chctl = static_cast<uint16_t>(0x3200u | (mode << 4u) |
-        (config->char_size == SAT_VDP2_CHAR_SIZE_2X2 ? 0x0001u : 0u));
-    regs[0x028u >> 1] = chctl;
-
-    regs[0x030u >> 1] = 0xC00Cu;  /* PNCN0 */
-    regs[0x03Au >> 1] = 0x0000u;  /* PLSZ */
-    regs[0x03Cu >> 1] = 0x0000u;  /* MPOFN */
-
-    /* MPABN0/MPCDN0: map plane index */
-    const uint16_t mp = static_cast<uint16_t>(config->map_plane_index & 0x003Fu);
-    const uint16_t mp_packed = static_cast<uint16_t>((mp << 8u) | mp);
-    regs[0x040u >> 1] = mp_packed;
-    regs[0x042u >> 1] = mp_packed;
-
-    regs[0x078u >> 1] = 0x0001u;
-    regs[0x07Au >> 1] = 0x0000u;
-    regs[0x07Cu >> 1] = 0x0001u;
-    regs[0x07Eu >> 1] = 0x0000u;
-
-    regs[0x0F0u >> 1] = 0x0606u;  /* PRISA */
-    regs[0x0F8u >> 1] = 0x0607u;  /* PRINA */
-
-    /* BGON: bit 0 = NBG0 enable, bit 8 = transparent code disable */
-    const uint16_t bgon = config->transparent_code_enabled ? 0x0001u : 0x0101u;
-    regs[0x020u >> 1] = bgon;
-    regs[0x000u >> 1] = 0x8100u;  /* TVMD on */
+    saturn::hal::vdp2::set_display_enable(false);
+    saturn::hal::vdp2::configure_nbg0_character(
+        static_cast<saturn::hal::vdp2::CharacterSize>(config->char_size),
+        static_cast<saturn::hal::vdp2::ColorMode>(config->color_mode));
+    saturn::hal::vdp2::set_nbg0_map_plane_index(config->map_plane_index);
+    saturn::hal::vdp2::configure_nbg0_text_layout();
+    saturn::hal::vdp2::set_nbg0_transparent_code_enabled(config->transparent_code_enabled != 0u);
+    saturn::hal::vdp2::enable_nbg0(true);
+    saturn::hal::vdp2::set_display_enable(true);
 
     return SAT_OK;
 }
@@ -476,6 +438,22 @@ extern "C" sat_result_t sat_vdp2_rbg0_commit(void) {
     }
 
     saturn::hal::vdp2::commit_rbg0_config();
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_transparent_code_enabled(uint8_t enable) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    saturn::hal::vdp2::set_rbg0_transparent_code_enabled(enable != 0u);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_layers_commit(void) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    saturn::hal::vdp2::commit_layers();
     return SAT_OK;
 }
 

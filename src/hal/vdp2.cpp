@@ -47,6 +47,7 @@ uint16_t g_last_rbg0_cycle_b0l = 0xEEEEu;
 uint16_t g_last_rbg0_cycle_b0u = 0xEEEEu;
 uint16_t g_last_rbg0_cycle_b1l = 0xEEEEu;
 uint16_t g_last_rbg0_cycle_b1u = 0xEEEEu;
+bool g_nbg0_configured = false;
 
 template <uint32_t Offset>
 volatile uint16_t& reg() {
@@ -265,6 +266,7 @@ void reset_color_ops() {
 
 void init_ntsc_320x224() {
     TVMD = 0x0000;
+    g_nbg0_configured = false;
     VRSIZE = 0x0000;
     /* Mirror the JoEngine baseline VDP2 setup for NBG0 cell format.
      * This keeps the register state consistent with the working benchmark.
@@ -320,27 +322,20 @@ void configure_nbg0_character(CharacterSize char_size, ColorMode color_mode) {
 }
 
 void configure_nbg0_text_layout() {
-    /* Match the working vdp2_nbg0_image direct register sequence exactly.
-     * NOTE: CHCTLA is set by configure_nbg0_character() before this call,
-     * so we do NOT overwrite it here. */
-    TVMD = 0x0000u;  /* Disable display during config */
-
-    RAMCTL = 0x1327u;
-
-    CYCA0L = 0x5555u;
-    CYCA0U = 0xFEEEu;
-    CYCA1L = 0x5555u;
-    CYCA1U = 0xFEEEu;
-    CYCB0L = 0xFFFFu;
-    CYCB0U = 0xEEEEu;
+    /* Character data and the map live in B1.  Do not reset A0/A1 here: they
+     * may already be feeding an RBG0 ground plane. */
+    RAMCTL = static_cast<uint16_t>(RAMCTL | 0x1327u);
+    g_nbg0_configured = true;
+    g_last_rbg0_ramctl_written = RAMCTL;
     CYCB1L = 0x044Fu;
     CYCB1U = 0xEEEEu;
+    g_last_rbg0_cycle_b1l = 0x044Fu;
+    g_last_rbg0_cycle_b1u = 0xEEEEu;
 
-    BGON = 0x0000u;
     /* CHCTLA is set by configure_nbg0_character() - do not overwrite */
     PNCN0 = 0xC00Cu;   /* 1-word pattern name + 12-bit char number, cell base in B1 */
-    PLSZ = 0x0000u;
-    MPOFN = 0x0000u;
+    PLSZ = static_cast<uint16_t>(PLSZ & 0xFFFCu);
+    MPOFN = static_cast<uint16_t>(MPOFN & 0xFFF8u);
     set_nbg0_map_plane_index(g_nbg0_map_plane_index);
 
     SCXIN0 = 0x0000;
@@ -352,11 +347,7 @@ void configure_nbg0_text_layout() {
     ZMYIN0 = 0x0001;
     ZMYDN0 = 0x0000;
 
-    PRISA = 0x0606u;
-    PRINA = 0x0607u;
-
-    BGON = 0x0101u;
-    TVMD = 0x8100u;
+    PRINA = saturn::core::compose_nbg0_priority(PRINA, 7u);
 }
 
 void set_nbg0_map_plane_index(uint16_t plane_index) {
@@ -379,6 +370,7 @@ void set_nbg0_transparent_code_enabled(bool enabled) {
         value = static_cast<uint16_t>(value | 0x0100u);
     }
     BGON = value;
+    g_last_rbg0_bgon_written = value;
 }
 
 void set_nbg0_scroll(uint16_t x_integer, uint16_t x_fraction, uint16_t y_integer, uint16_t y_fraction) {
@@ -396,6 +388,7 @@ void enable_nbg0(bool enable) {
         value = static_cast<uint16_t>(value & static_cast<uint16_t>(~0x0001u));
     }
     BGON = value;
+    g_last_rbg0_bgon_written = value;
 }
 
 void upload_palette(const uint16_t* palette_rgb555, uint16_t count, uint16_t offset) {
@@ -523,7 +516,7 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
      * Rotation parameters are addressed through RPTA and do not use a
      * dedicated RAMCTL usage class.
      */
-    uint16_t ramctl = 0x1100u;
+    uint16_t ramctl = g_nbg0_configured ? static_cast<uint16_t>(RAMCTL | 0x1100u) : 0x1100u;
     const uint16_t bitmap_bank_id = static_cast<uint16_t>((bitmap_base_word >> 16u) & 0x0003u);
     switch (bitmap_bank_id) {
     case 0u:  // VRAM-A0
@@ -570,7 +563,7 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
      * R0CHCN uses bits 14..12, R0BMEN is bit 9 and R0BMSZ is bit 10.
      * The register lives at 18002AH, not 18002CH.
      */
-    const uint16_t chctlb = static_cast<uint16_t>((CHCTLB & 0x89FFu) |
+    const uint16_t chctlb = static_cast<uint16_t>((CHCTLB & 0x89F8u) |
         saturn::core::compose_rbg0_bitmap_control_word(
             static_cast<sat_vdp2_color_mode_t>(color_mode),
             static_cast<sat_vdp2_rbg0_bitmap_size_t>(bitmap_size)));
@@ -627,13 +620,9 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
 }
 
 void enable_rbg0(bool enable) {
-    /* BGON bit 4 = R0ON (RBG0 enable), bit 12 = R0TPON (transparent code disable). */
-    uint16_t bgon = BGON;
-    if (enable) {
-        bgon = static_cast<uint16_t>(bgon | 0x1010u);
-    } else {
-        bgon = static_cast<uint16_t>(bgon & static_cast<uint16_t>(~0x1010u));
-    }
+    /* Coefficient lines use the transparent bit, so transparent-code handling
+     * stays enabled while the layer itself is toggled. */
+    uint16_t bgon = saturn::core::compose_rbg0_bgon(BGON, enable, false);
     BGON = bgon;
     g_last_rbg0_bgon_written = bgon;
 }
@@ -709,6 +698,17 @@ void commit_rbg0_config() {
     KTCTL = g_last_rbg0_ktctl_written;
     PRIR = g_last_rbg0_prir_written;
     BGON = g_last_rbg0_bgon_written;
+}
+
+void set_rbg0_transparent_code_enabled(bool enabled) {
+    const uint16_t bgon = saturn::core::compose_rbg0_bgon(
+        BGON, (BGON & 0x0010u) != 0u, enabled);
+    BGON = bgon;
+    g_last_rbg0_bgon_written = bgon;
+}
+
+void commit_layers() {
+    commit_rbg0_config();
 }
 
 void set_rbg0_param_mode(RBG0ParamMode mode) {

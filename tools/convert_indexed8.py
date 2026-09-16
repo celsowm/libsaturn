@@ -111,6 +111,34 @@ def parse_png(
     return pixels, width, height, colors
 
 
+def make_darkest_palette_entry_transparent(
+    pixels: bytes, colors: list[int]
+) -> tuple[bytes, list[int]]:
+    """Move the darkest quantized colour to index zero for VDP1 sprites.
+
+    NASA concept art normally uses a black backdrop.  VDP1 treats colour index
+    zero as transparent, so swapping that palette entry lets the artwork be
+    used as a proper sprite instead of as an opaque black rectangle.
+    """
+    def brightness(color: int) -> int:
+        return (color & 0x1F) + ((color >> 5) & 0x1F) + ((color >> 10) & 0x1F)
+
+    darkest = min(range(len(colors)), key=lambda index: brightness(colors[index]))
+    if darkest == 0:
+        colors[0] = 0
+        return pixels, colors
+
+    swapped = bytearray(pixels)
+    for index, value in enumerate(swapped):
+        if value == darkest:
+            swapped[index] = 0
+        elif value == 0:
+            swapped[index] = darkest
+    colors[darkest] = colors[0]
+    colors[0] = 0
+    return bytes(swapped), colors
+
+
 def write_palette(path: Path, colors: Iterable[int]) -> None:
     out = bytearray()
     for c in colors:
@@ -147,6 +175,8 @@ def emit_asset_headers(
                 'extern "C" {',
                 "#endif",
                 "",
+                "#ifndef SAT_INDEXED8_ASSET_T_DEFINED",
+                "#define SAT_INDEXED8_ASSET_T_DEFINED",
                 "typedef struct sat_indexed8_asset {",
                 "    const uint8_t* pixels;",
                 "    const uint16_t* palette;",
@@ -156,6 +186,7 @@ def emit_asset_headers(
                 "    uint32_t pixel_count;",
                 "    uint32_t palette_count;",
                 "} sat_indexed8_asset_t;",
+                "#endif",
                 "",
                 f"extern const uint8_t {symbol_prefix}_pixels[{len(pixel_values)}];",
                 f"extern const uint16_t {symbol_prefix}_palette[{len(palette_values)}];",
@@ -221,6 +252,7 @@ def convert_asset(
     height_arg: int | None,
     palette_index: int,
     resize_to: tuple[int, int] | None,
+    transparent_dark: bool,
 ) -> dict[str, Path]:
     suffix = in_path.suffix.lower()
     pixels: bytes
@@ -253,6 +285,9 @@ def convert_asset(
         raise ValueError("Invalid dimensions")
     if (width % 8) != 0:
         raise ValueError("Width must be multiple of 8 for VDP1")
+
+    if transparent_dark:
+        pixels, colors = make_darkest_palette_entry_transparent(pixels, colors)
 
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     tex_path, pal_path = emit_legacy_outputs(out_prefix, pixels, colors)
@@ -291,6 +326,11 @@ def main() -> int:
         default=0,
         help="Palette index stored in generated metadata",
     )
+    parser.add_argument(
+        "--transparent-dark",
+        action="store_true",
+        help="Make the darkest quantized colour index zero (VDP1 transparency)",
+    )
     args = parser.parse_args()
 
     in_path = Path(args.input)
@@ -304,6 +344,7 @@ def main() -> int:
         height_arg=args.height,
         palette_index=args.palette_index,
         resize_to=tuple(args.resize) if args.resize else None,
+        transparent_dark=args.transparent_dark,
     )
 
     print(

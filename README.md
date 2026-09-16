@@ -14,6 +14,8 @@ This repository delivers the `2D Core` MVP:
 - Simple movement demo in `examples/red_square`.
 - Controller held/pressed/released debug HUD in `examples/input_debug`.
 - Separate texture demo in `examples/text_sprite`.
+- Procedural 360-degree VDP2 exploration game in `examples/infinite_explorer`,
+  combining an RBG0 infinite ground, an NBG0 panoramic sky and VDP1 gameplay.
 - 8-bit indexed asset converter in `tools/convert_indexed8.py`, with output in `C/H` for embedding in build.
 
 ## Main Structure

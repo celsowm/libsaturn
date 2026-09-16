@@ -86,6 +86,7 @@ enum RBG0ParamMode {
 void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
                            uint32_t bitmap_base_word, uint32_t rot_param_base_word);
 void enable_rbg0(bool enable);
+void set_rbg0_transparent_code_enabled(bool enabled);
 uint16_t last_rbg0_bgon_written();
 uint16_t last_rbg0_ramctl_written();
 uint16_t last_rbg0_chctlb_written();
@@ -99,6 +100,7 @@ uint16_t last_rbg0_prir_written();
 uint16_t last_rbg0_bmpnb_written();
 uint16_t last_rbg0_plsz_written();
 void commit_rbg0_config();
+void commit_layers();
 void set_rbg0_param_mode(RBG0ParamMode mode);
 void set_rbg0_rotation_read_control(uint16_t rprctl);
 void set_rbg0_coefficient_control(uint16_t ktctl);

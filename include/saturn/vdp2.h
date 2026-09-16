@@ -178,6 +178,7 @@ typedef struct sat_vdp2_rbg0_config {
 /* RBG0 initialization & control */
 sat_result_t sat_vdp2_rbg0_init(const sat_vdp2_rbg0_config_t* config);
 sat_result_t sat_vdp2_rbg0_set_enabled(uint8_t enable);
+sat_result_t sat_vdp2_rbg0_set_transparent_code_enabled(uint8_t enable);
 sat_result_t sat_vdp2_rbg0_set_param_mode(sat_vdp2_rbg0_param_mode_t mode);
 uint16_t sat_vdp2_rbg0_last_bgon_written(void);
 uint16_t sat_vdp2_rbg0_last_ramctl_written(void);
@@ -199,6 +200,8 @@ uint16_t sat_vdp2_rbg0_last_plsz_written(void);
  * sat_wait_vblank() returns) to ensure RBG0 registers take effect.
  */
 sat_result_t sat_vdp2_rbg0_commit(void);
+/* Re-applies the composed NBG0/RBG0 state during VBlank. */
+sat_result_t sat_vdp2_layers_commit(void);
 sat_result_t sat_vdp2_rbg0_set_rotation_read_control(uint16_t rprctl);
 sat_result_t sat_vdp2_rbg0_set_coefficient_control(uint16_t ktctl);
 sat_result_t sat_vdp2_rbg0_set_ktaof(uint16_t ktaof);
