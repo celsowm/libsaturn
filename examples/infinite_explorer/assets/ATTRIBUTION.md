@@ -33,59 +33,87 @@ The former Peony Nebula image is no longer used as the gameplay horizon; it was 
 
 ## Audio
 
-All audio below is published as **CC0 / public domain** by its source page. The build downmixes to mono, resamples to 11025 Hz, bounds clip duration, and emits signed PCM8 so several looping and one-shot resources can coexist in the Saturn's Sound RAM.
+All runtime audio sources below are **CC0 / public domain**. The build prefers immutable GitHub-hosted copies or mirrors so building the example does not depend on OpenGameArt's file CDN being reachable. Original provenance is preserved here.
+
+`tools/generate_infinite_explorer_audio.py` downmixes source WAV files to mono, resamples to 11025 Hz, bounds clip duration, crossfades loops where appropriate, and emits signed PCM8 so several looping and one-shot resources can coexist in the Saturn's Sound RAM.
 
 ### Rocket Engine
 
+- Runtime symbol: `explorer_engine`
 - Author: theMinesAreShakin
 - Purpose: ship engine loop and low-pitched portal hum
-- License: **CC0**
-- Source: https://opengameart.org/content/rocket-engine
-- WAV: https://opengameart.org/sites/default/files/rocket_engine.001.wav
+- License: **CC0 1.0**
+- Original source: https://opengameart.org/content/rocket-engine
+- Original WAV: https://opengameart.org/sites/default/files/rocket_engine.001.wav
+- GitHub mirror used first: `Damerlan/polar-assault`, pinned commit `6a4bd8330c06241df27991ae72bed992376c6621`
+- Original SHA-256: `dc82ef86d6af2278d6592d20372737c32620f1c1957290c79f6643af5381f277`
 
-### Click
+The original hash is independently recorded by the CC0-source manifest in `ExCodeCowboy/StudentGrouper`; the LibSaturn generator verifies the downloaded mirror against that SHA-256 before accepting it.
 
+### Scanner ping
+
+- Runtime symbol: `explorer_scanner`
+- File: `ricochet_ping.wav`
+- Author: GameAudio
+- Source: https://freesound.org/people/GameAudio/sounds/220204/
+- License: **CC0 1.0**
+- GitHub copy: `euuuuuuan/voidclad-public`, pinned commit `440916aabc30abe014cb33ad90bd150bfbf22dd0`
+- SHA-256: `971a301fa89fd51a7ceeb4d8e948de393af5edd1112cd00e77090aa7624a3556`
+
+The public repository's media-license register explicitly records this file as CC0 and redistribution-safe.
+
+### Fire SFX
+
+- Runtime symbol: `explorer_fire`
+- File: `fire_heavy.wav`
 - Author: qubodup
-- Purpose: scanner / interaction ping
-- License: **CC0**
-- Source: https://opengameart.org/content/click
-- WAV: https://opengameart.org/sites/default/files/click.wav
+- Source: https://opengameart.org/content/tiny-naval-battle-sounds-set
+- Source sound: `GunShotGverb`
+- License: **CC0 1.0**
+- GitHub copy: `euuuuuuan/voidclad-public`, pinned commit `440916aabc30abe014cb33ad90bd150bfbf22dd0`
+- SHA-256: `cfbbaeb156bb9992ac571d6dd820fcff2a5702b276c9bb59f12a38f6ad7eadde`
 
-### Laser
+### Impact SFX
 
-- Author: frosty ham
-- Purpose: fire SFX
-- License: **CC0**
-- Source: https://opengameart.org/content/laser
-- WAV: https://opengameart.org/sites/default/files/laserthing.wav
+- Runtime symbol: `explorer_impact`
+- File: `impact_pen.wav`
+- Author: qubodup
+- Source: https://opengameart.org/content/tiny-naval-battle-sounds-set
+- Source sound: `ExplosionMetalGverb`
+- License: **CC0 1.0**
+- GitHub copy: `euuuuuuan/voidclad-public`, pinned commit `440916aabc30abe014cb33ad90bd150bfbf22dd0`
+- SHA-256: `935cbabff9aa83176bf946db7a00204def63a4ae7fa83b64f92d6732a63f74f4`
 
-### Explosion
+### Music
 
-- Author: TinyWorlds
-- Purpose: damage / collision / portal event
-- License: **CC0**
-- Source: https://opengameart.org/content/explosion-0
-- WAV: https://opengameart.org/sites/default/files/explosion.wav
+- Runtime symbol: `explorer_music`
+- File: `distant_flute.wav`
+- Author: Beatscribe
+- Collection: **Homebrew Free Jingle and Fanfare Music Assets**
+- License: **CC0 1.0**
+- Source repository: https://github.com/Beatscribe/homebrew_vgm
+- GitHub source pinned to commit `5a82f88b87bb442499685c494b7a96278121b4c7`
 
-### 8 Bit Disco Loop
+The upstream README states that the collection is CC0 and may be used in any project. This short real composition is used as the resident exploratory BGM until `sat_music_t` streaming replaces the resident-Sound-RAM path.
 
-- Author: cosmac
-- Purpose: temporary resident BGM until `sat_music_t` streaming replaces it
-- License: **CC0**
-- Source: https://opengameart.org/content/8-bit-disco-loop
-- WAV: https://opengameart.org/sites/default/files/title_1.wav
+### Storm ambience
 
-### wind1
+- Runtime symbol: `explorer_storm`
+- Build file: `wave.wav`
+- Original asset: **Water Waves**
+- Original creator: transitking; submitted by qubodup
+- License: **CC0 1.0**
+- Original source: https://opengameart.org/content/water-waves
+- GitHub processed CC0 copy: `ExCodeCowboy/StudentGrouper`, pinned commit `75cc0b3e101bb6cfb824ac9149b46361e91991d9`
+- Processed-file SHA-256: `23eed75efff0950354376a7073917839ea80711d9f78724d519fa2a643e9aaa9`
 
-- Author: Luke.RUSTLTD
-- Purpose: storm ambience
-- License: **CC0**
-- Source: https://opengameart.org/content/wind1
-- WAV: https://lpc.opengameart.org/sites/default/files/wind1.wav
+The source repository records both the original CC0 recording and the processing manifest for `wave.wav`.
 
 ## Offline fallback and acceptance mode
 
 Network access is not required for an ordinary repository build. Both generators use deterministic fallbacks if an external CC0 source cannot be downloaded, and the example shows `ASSET FALLBACK` on its HUD if any fallback was used.
+
+Audio sources intentionally prefer `raw.githubusercontent.com` before any original CDN URL because GitHub access is already required to obtain LibSaturn itself. Cached downloads remain under the generated build directory and are reused on later builds.
 
 For a content/licensing acceptance build, set:
 
