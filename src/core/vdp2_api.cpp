@@ -613,6 +613,12 @@ extern "C" sat_result_t sat_vdp2_rbg0_mode7_init(const sat_vdp2_rbg0_mode7_confi
         return st;
     }
 
+    /* The Mode-7 coefficient table marks every sky scanline with bit 15.
+     * That bit only punches a hole through RBG0 when R0TPON is clear; the
+     * generic RBG0 enable path currently leaves R0TPON set, which makes those
+     * scanlines opaque black and hides NBG0 completely. */
+    SAT_TRY(sat_vdp2_rbg0_set_transparent_code_enabled(1u));
+
     /* 2-word coefficient table, parameter A, KMD=0 (k applied to both kx and ky) */
     SAT_TRY(sat_vdp2_rbg0_set_coefficient_control(0x0001u));
     SAT_TRY(sat_vdp2_rbg0_set_ktaof(0x0000u));
