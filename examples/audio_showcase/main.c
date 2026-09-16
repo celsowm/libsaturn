@@ -8,9 +8,12 @@
 #include "saturn/font.h"
 #include "audio_showcase/audio_data.h"
 
+#define SHOWCASE_SFX_COUNT 4u
+#define SHOWCASE_MUSIC_SLOT 4u
+
 static sat_sound_t g_sounds[5];
-static sat_voice_t g_loop_voice = {0};
-static uint8_t g_loop_playing = 0u;
+static sat_voice_t g_music_voice = {0};
+static uint8_t g_music_playing = 0u;
 static uint8_t g_selected = 0u;
 static uint16_t g_volume = 255u;
 static int16_t g_pan = 0;
@@ -23,6 +26,15 @@ static void draw_value(const sat_ascii_font_t* font, const char* label, uint32_t
     char line[32];
     sat_example_must(sat_fmt_label_u32(label, value, line, sizeof(line), 0));
     draw_line(font, line, y);
+}
+
+static const char* selected_name(void) {
+    switch (g_selected) {
+        case 0u: return "CLICK";
+        case 1u: return "LASER";
+        case 2u: return "EXPLOSION";
+        default: return "REFERENCE TONE";
+    }
 }
 
 static sat_sound_play_params_t current_params(void) {
@@ -49,6 +61,20 @@ static void load_sound(sat_sound_t* out, const int16_t* samples, uint32_t count,
     sat_example_must(sat_sound_create(out, &desc));
 }
 
+static void toggle_music(void) {
+    if (g_music_playing != 0u && sat_voice_is_playing(g_music_voice) != 0u) {
+        sat_example_must(sat_voice_stop(g_music_voice));
+        g_music_playing = 0u;
+        return;
+    }
+
+    sat_sound_play_params_t p = current_params();
+    p.pan = SAT_AUDIO_PAN_CENTER;
+    p.priority = 100u;
+    sat_example_must(sat_sound_play(g_sounds[SHOWCASE_MUSIC_SLOT], &p, &g_music_voice));
+    g_music_playing = 1u;
+}
+
 int main(void) {
     sat_example_must(sat_app_init_default());
     sat_example_must(sat_audio_init());
@@ -56,20 +82,30 @@ int main(void) {
     sat_ascii_font_t font;
     sat_example_must(sat_ascii_font_init_8x8_indexed8(&font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u));
 
-    load_sound(&g_sounds[0], showcase_ping, showcase_ping_count, 0u);
-    load_sound(&g_sounds[1], showcase_bass, showcase_bass_count, 0u);
-    load_sound(&g_sounds[2], showcase_noise, showcase_noise_count, 0u);
-    load_sound(&g_sounds[3], showcase_sweep, showcase_sweep_count, 0u);
-    load_sound(&g_sounds[4], showcase_loop, showcase_loop_count, 1u);
+    load_sound(&g_sounds[0], showcase_click, showcase_click_count, 0u);
+    load_sound(&g_sounds[1], showcase_laser, showcase_laser_count, 0u);
+    load_sound(&g_sounds[2], showcase_explosion, showcase_explosion_count, 0u);
+    load_sound(&g_sounds[3], showcase_reference, showcase_reference_count, 0u);
+    load_sound(&g_sounds[SHOWCASE_MUSIC_SLOT], showcase_music, showcase_music_count, 1u);
+
+    toggle_music();
 
     while (1) {
         sat_example_must(sat_audio_update());
 
+        if (g_music_playing != 0u && sat_voice_is_playing(g_music_voice) == 0u) {
+            g_music_playing = 0u;
+        }
+
         sat_pad_state_t pad = {0};
         sat_example_must(sat_app_frame_begin(SAT_COLOR_BLACK, SAT_COLOR_BLACK, &pad));
 
-        if ((pad.pressed & SAT_PAD_X) != 0u) g_selected = (uint8_t)((g_selected + 4u) % 5u);
-        if ((pad.pressed & SAT_PAD_Y) != 0u) g_selected = (uint8_t)((g_selected + 1u) % 5u);
+        if ((pad.pressed & SAT_PAD_X) != 0u) {
+            g_selected = (uint8_t)((g_selected + SHOWCASE_SFX_COUNT - 1u) % SHOWCASE_SFX_COUNT);
+        }
+        if ((pad.pressed & SAT_PAD_Y) != 0u) {
+            g_selected = (uint8_t)((g_selected + 1u) % SHOWCASE_SFX_COUNT);
+        }
 
         if ((pad.pressed & SAT_PAD_LEFT) != 0u && g_pan > SAT_AUDIO_PAN_LEFT) {
             g_pan = (int16_t)(g_pan - 3);
@@ -79,8 +115,12 @@ int main(void) {
             g_pan = (int16_t)(g_pan + 3);
             if (g_pan > SAT_AUDIO_PAN_RIGHT) g_pan = SAT_AUDIO_PAN_RIGHT;
         }
-        if ((pad.pressed & SAT_PAD_UP) != 0u) g_volume = (uint16_t)(g_volume > 223u ? 255u : g_volume + 32u);
-        if ((pad.pressed & SAT_PAD_DOWN) != 0u) g_volume = (uint16_t)(g_volume < 32u ? 0u : g_volume - 32u);
+        if ((pad.pressed & SAT_PAD_UP) != 0u) {
+            g_volume = (uint16_t)(g_volume > 223u ? 255u : g_volume + 32u);
+        }
+        if ((pad.pressed & SAT_PAD_DOWN) != 0u) {
+            g_volume = (uint16_t)(g_volume < 32u ? 0u : g_volume - 32u);
+        }
 
         if ((pad.pressed & SAT_PAD_A) != 0u) {
             sat_sound_play_params_t p = current_params();
@@ -92,20 +132,12 @@ int main(void) {
             for (uint16_t i = 0u; i < 36u; ++i) {
                 p.pan = (int16_t)((int32_t)(i % 31u) - 15);
                 p.priority = (uint16_t)(i & 3u);
-                (void)sat_sound_play(g_sounds[i % 4u], &p, 0);
+                (void)sat_sound_play(g_sounds[i % SHOWCASE_SFX_COUNT], &p, 0);
             }
         }
 
         if ((pad.pressed & SAT_PAD_C) != 0u) {
-            if (g_loop_playing != 0u && sat_voice_is_playing(g_loop_voice) != 0u) {
-                sat_example_must(sat_voice_stop(g_loop_voice));
-                g_loop_playing = 0u;
-            } else {
-                sat_sound_play_params_t p = current_params();
-                p.priority = 100u;
-                sat_example_must(sat_sound_play(g_sounds[4], &p, &g_loop_voice));
-                g_loop_playing = 1u;
-            }
+            toggle_music();
         }
 
         if ((pad.held & SAT_PAD_L) != 0u && (pad.held & SAT_PAD_R) != 0u &&
@@ -118,13 +150,12 @@ int main(void) {
         sat_example_must(sat_audio_get_stats(&stats));
 
         draw_line(&font, "LIBSATURN AUDIO SHOWCASE", 8);
-        draw_line(&font, "A PLAY  B BURST  C LOOP", 24);
+        draw_line(&font, "A SFX  B BURST  C MUSIC", 24);
         draw_line(&font, "X/Y SOUND  LEFT/RIGHT PAN", 36);
         draw_line(&font, "UP/DOWN VOLUME", 48);
-        draw_line(&font, "L+R+START EXIT", 60);
-
-        draw_value(&font, "SOUND ", g_selected, 84);
-        draw_value(&font, "VOLUME ", g_volume, 96);
+        draw_line(&font, selected_name(), 68);
+        draw_value(&font, "REAL ASSETS ", SHOWCASE_REAL_ASSET_COUNT, 80);
+        draw_value(&font, "VOLUME ", g_volume, 92);
         {
             char pan_line[24];
             char pan_num[SAT_FMT_I32_MAX];
@@ -135,19 +166,23 @@ int main(void) {
             while (prefix[p] != '\0') { pan_line[p] = prefix[p]; ++p; }
             for (uint16_t i = 0u; i < n; ++i) pan_line[p + i] = pan_num[i];
             pan_line[p + n] = '\0';
-            draw_line(&font, pan_line, 108);
+            draw_line(&font, pan_line, 104);
         }
+        draw_line(&font, g_music_playing != 0u ? "MUSIC ON" : "MUSIC OFF", 116);
         draw_value(&font, "VOICES ", stats.active_voices, 132);
         draw_value(&font, "STEALS ", stats.voice_steals, 144);
         draw_value(&font, "FAILED ", stats.failed_play_requests, 156);
         draw_value(&font, "SND RAM USED ", stats.sound_ram_used, 168);
         draw_value(&font, "SND RAM HIGH ", stats.sound_ram_high_water, 180);
         draw_value(&font, "SOUNDS ", stats.resident_sounds, 192);
+        draw_line(&font, "L+R+START EXIT", 208);
 
         sat_example_must(sat_app_frame_end());
     }
 
-    for (uint8_t i = 0u; i < 5u; ++i) (void)sat_sound_unload(g_sounds[i]);
+    for (uint8_t i = 0u; i < 5u; ++i) {
+        (void)sat_sound_unload(g_sounds[i]);
+    }
     (void)sat_audio_shutdown();
     return 0;
 }
