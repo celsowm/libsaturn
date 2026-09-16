@@ -412,7 +412,11 @@ HOST_TEST_EXTRA_test_mesh3d_textured := src/core/mesh3d_api.cpp src/core/math3d_
 HOST_TEST_EXTRA_test_vdp1_upload := src/core/vdp1_api.cpp src/core/runtime_state.cpp
 HOST_TEST_EXTRA_test_model3d_logic := src/core/model3d_api.cpp src/core/mesh3d_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_anim3d_logic := src/core/anim3d_api.cpp src/core/model3d_api.cpp src/core/mesh3d_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c src/core/grid_api.cpp
+HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c src/core/grid_api.cpp src/core/collide2d_api.cpp src/core/math3d_api.cpp
+HOST_TEST_EXTRA_test_collide2d_logic := src/core/collide2d_api.cpp
+HOST_TEST_EXTRA_test_spatial_logic := src/core/spatial_api.cpp src/core/collide2d_api.cpp
+HOST_TEST_EXTRA_test_physics_logic := src/core/collide2d_api.cpp src/core/grid_api.cpp
+HOST_TEST_EXTRA_test_collide3d_logic :=
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp
 	@mkdir -p $(dir $@)

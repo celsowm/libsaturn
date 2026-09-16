@@ -324,3 +324,46 @@ Sensitive boot blocks (`0x0100..0x05FF`) and code object area (`0x0E00..0x7FFF`)
 For boot compatibility, the ISO writes the payload as `0.BIN` (primary) and `1ST_READ.BIN` (alias).
 In Mednafen, prefer opening `build/mvp.cue` instead of `build/mvp.iso`.
 Before public distribution, perform legal/licensing review of boot assets according to your release policy.
+
+## Physics and Collisions
+
+The collision toolkit is deliberately small, deterministic and malloc-free:
+
+| Module | Purpose |
+|---|---|
+| `collide2d.h` / `collide2d_logic.hpp` | 2D boxes, circles, contacts, rays and sweeps |
+| `spatial.h` / `spatial_logic.hpp` | Caller-owned uniform-grid broad phase and pair queries |
+| `physics.h` / `physics_logic.hpp` | Fixed-step clock and arcade 2D body/tile movement |
+| `collide3d.h` / `collide3d_logic.hpp` | 3D spheres, AABBs, planes, quads and mesh rays |
+| `collide3d_api.cpp` | 3D body stepping, mesh contacts and C ABI wrappers |
+
+All positions and velocities are 16.16 fixed point. 2D uses y-down screen/world
+pixels; 3D uses y-up. Overlap is strict: touching an edge is not collision.
+This lets a body rest on a floor while `GROUNDED` is set, and preserves the
+Pac-Man rule `abs(delta) < 6`. Squares and dots are formed in int64 at raw
+2^32 scale. Distance tests compare those squares directly; square roots are
+reserved for requested depths and hit points. Raycasts and sweeps use the
+`div_s64_s32` divide path, which maps to the SH-2 DIVU hardware.
+
+The broad phase takes storage from the caller. Choose a cell size near the
+largest object; the normal cost is O(n + candidate pairs), while the documented
+worst case of every object in one cell is O(n²). Out-of-range coordinates clamp
+to edge cells, and query stamps deduplicate a candidate in constant time.
+
+A minimal platformer loop is:
+
+```c
+sat_step_clock_t clock;
+sat_step_clock_init(&clock);
+for (;;) {
+    uint16_t steps = sat_step_clock_steps(&clock, 4);
+    while (steps--) {
+        sat_body2_step(&player, &params);
+        sat_body2_move_tiles(&player, &grid, tile_at, user);
+    }
+    draw_player(&player);
+}
+```
+
+The `physics_2d` and `physics_3d` examples exercise these APIs with static
+storage, broad-phase statistics and a ray-pick HUD.

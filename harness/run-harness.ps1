@@ -26,6 +26,9 @@ param(
     [string]$PadButton,
     [int]$PadPressAt = 0,
     [int]$PadReleaseAt = 0,
+    [string]$PadScript,
+    [string[]]$Screenshot,
+    [string]$ProfilePc,
     [int]$FbSample = 256,
     [string]$Out
 )
@@ -110,6 +113,17 @@ $probeArgs = @(
 )
 if ($PadButton) {
     $probeArgs += @('--pad-button', $PadButton, '--pad-press-at', $PadPressAt, '--pad-release-at', $PadReleaseAt)
+}
+if ($PadScript) {
+    $probeArgs += @('--pad-script', $PadScript)
+}
+if ($Screenshot) {
+    foreach ($shot in $Screenshot) {
+        $probeArgs += @('--screenshot', $shot)
+    }
+}
+if ($ProfilePc) {
+    $probeArgs += @('--profile-pc', $ProfilePc)
 }
 & $probeExe @probeArgs
 if ($LASTEXITCODE -ne 0) { throw "probe.exe failed (exit $LASTEXITCODE)" }

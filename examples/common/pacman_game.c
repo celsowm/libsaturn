@@ -2,6 +2,8 @@
 
 #define PACMAN_MAZE_IMPL
 #include "pacman_game.h"
+#include "saturn/collide2d.h"
+#include "saturn/math3d.h"
 
 /* ------------------------------------------------------------------ */
 /* Spawn cells                                                         */
@@ -413,10 +415,10 @@ static void step_ghost(pac_game_t* game, int index) {
 }
 
 static int touching_pac(const pac_game_t* game, const sat_grid_actor_t* a) {
-    const int32_t dx = a->x - game->pac.x;
-    const int32_t dy = a->y - game->pac.y;
-    return dx > -PAC_TOUCH_RANGE && dx < PAC_TOUCH_RANGE &&
-           dy > -PAC_TOUCH_RANGE && dy < PAC_TOUCH_RANGE;
+    const sat_fx16_t half = sat_fx16_from_int(PAC_TOUCH_RANGE / 2);
+    const sat_box2_t pac = {{sat_fx16_from_int(game->pac.x), sat_fx16_from_int(game->pac.y)}, {half, half}};
+    const sat_box2_t actor = {{sat_fx16_from_int(a->x), sat_fx16_from_int(a->y)}, {half, half}};
+    return sat_box2_overlap(&pac, &actor);
 }
 
 static void resolve_collisions(pac_game_t* game) {

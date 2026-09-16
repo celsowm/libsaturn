@@ -12,6 +12,8 @@
 #include <cstdint>
 
 #include "examples/common/pacman_game.h"
+#include "saturn/collide2d.h"
+#include "saturn/math3d.h"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
@@ -43,6 +45,21 @@ static int actor_in_wall(const pac_game_t* g, const sat_grid_actor_t* a) {
     const int col = sat_grid_wrap_col(&g->grid, sat_grid_col_at(&g->grid, (int)a->x));
     const int row = sat_grid_row_at(&g->grid, (int)a->y);
     return pac_game_cell(g, col, row) == '#';
+}
+
+TEST(touch_range_is_open_six_pixels) {
+    const sat_fx16_t h = sat_fx16_from_int(3);
+    const sat_box2_t pac = {{0, 0}, {h, h}};
+    sat_box2_t ghost = pac;
+    ghost.center.x = sat_fx16_from_int(5);
+    ASSERT_TRUE(sat_box2_overlap(&pac, &ghost));
+    ghost.center.x = sat_fx16_from_int(6);
+    ASSERT_FALSE(sat_box2_overlap(&pac, &ghost));
+    ghost.center.x = 0;
+    ghost.center.y = sat_fx16_from_int(5);
+    ASSERT_TRUE(sat_box2_overlap(&pac, &ghost));
+    ghost.center.y = sat_fx16_from_int(6);
+    ASSERT_FALSE(sat_box2_overlap(&pac, &ghost));
 }
 
 /* ------------------------------------------------------------------ */
@@ -459,6 +476,7 @@ TEST(ghosts_move_slower_than_pac_man) {
 }
 
 int main() {
+    touch_range_is_open_six_pixels();
     init_sets_up_a_playable_round();
     nobody_spawns_inside_a_wall();
     everyone_spawns_on_a_tile_center();
@@ -477,6 +495,6 @@ int main() {
     ghosts_that_meet_separate_again();
     ghosts_move_slower_than_pac_man();
 
-    printf("PASS: test_pacman_game.cpp (%d tests)\n", 17);
+    printf("PASS: test_pacman_game.cpp (%d tests)\n", 18);
     return 0;
 }

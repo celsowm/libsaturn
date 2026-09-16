@@ -17,6 +17,10 @@
 #include "saturn/fmt.h"
 #include "saturn/font.h"
 #include "saturn/grid.h"
+#include "saturn/collide2d.h"
+#include "saturn/spatial.h"
+#include "saturn/physics.h"
+#include "saturn/collide3d.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
 
