@@ -1,6 +1,7 @@
 #include "saturn/vdp2_color_calc.h"
 
 #include "src/core/internal.hpp"
+#include "src/core/runtime_state.hpp"
 #include "src/core/vdp2_color_calc_logic.hpp"
 #include "src/hal/vdp2_color_calc.hpp"
 
