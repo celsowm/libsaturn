@@ -76,9 +76,54 @@ uint16_t g_last_nbg0_scydn0_written = 0x0000u;
 uint16_t g_last_prisa_written = 0x0606u;
 bool g_nbg0_configured = false;
 
+/* VDP2 control registers are WRITE-ONLY on hardware. Only TVSTAT, VRSIZE,
+ * HCNT and VCNT can be read back; everything else returns 0 (mednafen) or
+ * open bus. Ymir happens to return the last written value, which hid every
+ * read-modify-write in this file: `TVMD = TVMD | BDCLMD` switched the display
+ * OFF on mednafen, and `BGON = compose(BGON, ...)` from RBG0 init turned NBG0
+ * off. So every register access goes through a shadow: writes update both the
+ * shadow and the hardware, reads return the shadow -- except for the few
+ * registers that are genuinely readable. .bss, so no static constructor. */
+constexpr uint32_t kVdp2RegisterWords = 0x120u / 2u;
+uint16_t g_reg_shadow[kVdp2RegisterWords];
+
+class RegRef {
+public:
+    explicit RegRef(uint32_t offset) : offset_(offset) {}
+
+    RegRef& operator=(uint16_t value) {
+        g_reg_shadow[offset_ >> 1u] = value;
+        hw() = value;
+        return *this;
+    }
+
+    RegRef& operator=(const RegRef& other) {
+        return *this = static_cast<uint16_t>(other);
+    }
+
+    operator uint16_t() const {
+        switch (offset_) {
+        case 0x004u:  // TVSTAT
+        case 0x006u:  // VRSIZE
+        case 0x008u:  // HCNT
+        case 0x00Au:  // VCNT
+            return hw();
+        default:
+            return g_reg_shadow[offset_ >> 1u];
+        }
+    }
+
+private:
+    volatile uint16_t& hw() const {
+        return *reinterpret_cast<volatile uint16_t*>(kUncached | (kVdp2Base + offset_));
+    }
+
+    uint32_t offset_;
+};
+
 template <uint32_t Offset>
-volatile uint16_t& reg() {
-    return *reinterpret_cast<volatile uint16_t*>(kUncached | (kVdp2Base + Offset));
+RegRef reg() {
+    return RegRef(Offset);
 }
 
 /* The register names below are macros, not reference variables, and that is
