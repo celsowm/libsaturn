@@ -970,6 +970,15 @@ def select_animation_clips(model, selector: str) -> list[int]:
         if not model.clips:
             raise ImportError("model has no animation clips")
         return list(range(len(model.clips)))
+    if "," in selector:
+        # A comma list keeps only the clips a program plays, in that order,
+        # so a many-clip rig fits the pose-stream budget.
+        picked: list[int] = []
+        for part in selector.split(","):
+            for index in select_animation_clips(model, part.strip()):
+                if index not in picked:
+                    picked.append(index)
+        return picked
     try:
         index = int(selector)
         if index < 0 or index >= len(model.clips):

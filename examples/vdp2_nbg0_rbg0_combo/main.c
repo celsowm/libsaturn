@@ -151,7 +151,10 @@ static void init_layers(void) {
 
 int main(void) {
     const sat_video_config_t video = {320u, 224u, 1u, 0u};
-    sat_vdp2_scroll_t sky_scroll = {0u, 0u, (uint16_t)(SKY_IMG_H - HORIZON), 0u};
+    /* Scanlines 0..HORIZON (inclusive) are transparent in the Mode-7 table:
+     * HORIZON + 1 sky rows. Scrolling by one less than that would wrap the
+     * horizon scanline to the image's top row -- a dark line at the seam. */
+    sat_vdp2_scroll_t sky_scroll = {0u, 0u, (uint16_t)(SKY_IMG_H - HORIZON - 1u), 0u};
     uint32_t frame = 0u;
     int32_t cam_x = 0;
     int32_t cam_y = 0;

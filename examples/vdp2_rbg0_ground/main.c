@@ -129,7 +129,9 @@ static void update_sky_scroll(sat_fx16_t camera_x) {
     const sat_vdp2_scroll_t scroll = {
         (uint16_t)(((uint32_t)(camera_x >> (FX16_SHIFT + SKY_PARALLAX_SHIFT))) & (SKY_IMG_W - 1u)),
         0u,
-        (uint16_t)(SKY_IMG_H - HORIZON),
+        /* HORIZON + 1 transparent scanlines (y <= HORIZON); anything less
+         * wraps the horizon scanline to the image's dark top row. */
+        (uint16_t)(SKY_IMG_H - HORIZON - 1u),
         0u,
     };
     sat_example_must(sat_vdp2_nbg0_set_scroll(&scroll));

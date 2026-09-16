@@ -7,12 +7,28 @@ EXPLORER_HORIZON_PREFIX := $(EXPLORER_GEN_DIR)/horizon
 EXPLORER_AUDIO_PREFIX   := $(EXPLORER_GEN_DIR)/audio_data
 EXPLORER_REQUIRE_REAL_FLAG := $(if $(filter 1 yes true,$(INFINITE_EXPLORER_REQUIRE_REAL)),--require-real,)
 
+# Player: Eggman's Egg Mobile (Sonic R export). Only the clips the game plays
+# are baked, at 15 fps with half-size textures, which keeps the pose stream
+# and VDP1 texture VRAM inside the Saturn profile. Palette bank 4: 0/1 are
+# the VDP2 layers, 2 the HUD font, 3 the drone sprite.
+MODEL_GLB                := $(EXPLORER_ASSET_DIR)/eggman.glb
+MODEL_OUT_PREFIX         := $(EXPLORER_GEN_DIR)/eggman
+MODEL_SYMBOL             := eggman
+MODEL_SCALE              := 0.12
+MODEL_TEXTURE_SCALE      := 0.5
+MODEL_PALETTE_INDEX      := 4
+MODEL_SIMPLIFY           := off
+MODEL_ANIMATION          := idle,turn_left,turn_right
+MODEL_ANIMATION_FPS      := 15
+
 EXAMPLE_ASSETS := \
+	$(MODEL_OUT_PREFIX).c \
 	$(EXPLORER_GEN_DIR)/terrain.c \
 	$(EXPLORER_HORIZON_PREFIX).c \
 	$(EXPLORER_GEN_DIR)/spacecraft.c \
 	$(EXPLORER_AUDIO_PREFIX).c
 EXAMPLE_HEADERS := \
+	$(MODEL_OUT_PREFIX).h \
 	$(EXPLORER_GEN_DIR)/terrain.h \
 	$(EXPLORER_HORIZON_PREFIX).h \
 	$(EXPLORER_GEN_DIR)/spacecraft.h \

@@ -1,4 +1,9 @@
-/* infinite_explorer - procedural 360-degree VDP2 world. */
+/* infinite_explorer - procedural 360-degree VDP2 world.
+ *
+ * The player is Eggman's Egg Mobile: an animated textured GLB baked by
+ * tools/import_model.py (idle / turn_left / turn_right clips). It hovers in
+ * front of the chase camera, banks into turns and plays the matching turn
+ * clip while the VDP2 Mode-7 ground and the panorama rotate around it. */
 #include <stdint.h>
 
 #include "saturn/saturn.h"
@@ -8,6 +13,7 @@
 #include "infinite_explorer/horizon.h"
 #include "infinite_explorer/spacecraft.h"
 #include "infinite_explorer/audio_data.h"
+#include "infinite_explorer/eggman.h"
 
 #define BM_BASE_WORD   0x00000u
 #define RP_BASE_WORD   0x10000u
@@ -16,6 +22,19 @@
 #define SKY_H EXPLORER_HORIZON_HEIGHT
 #define MAX_RENDER 60
 #define FX(v) ((int32_t)((v) * 65536))
+
+/* Clip order matches MODEL_ANIMATION in Makefile.inc. */
+#define EGG_CLIP_IDLE       0u
+#define EGG_CLIP_TURN_LEFT  1u
+#define EGG_CLIP_TURN_RIGHT 2u
+/* A quarter turn points the rig's nose down +Z, away from the chase camera,
+ * so the player sees the back of the Egg Mobile. (-90 shows the front: the
+ * blue coat and the round yellow lamp.) */
+#define EGG_BASE_YAW_DEG    90
+#define EGG_TURN_YAW_DEG    14   /* nose swings into the turn */
+#define EGG_BANK_DEG        16   /* and it rolls into it */
+#define EGG_DEPTH           12   /* in front of the camera, world units */
+#define EGG_HOVER           10
 
 typedef struct landmark {
     int32_t cx, cz;
@@ -47,6 +66,20 @@ static int8_t g_signal_dir;
 static uint32_t g_signal_distance;
 static uint16_t g_scanner_cooldown;
 static uint8_t g_weather_audio;
+
+/* Player model. Vertices are decoded per frame and then moved into world
+ * space on the CPU, so culling and painter sorting see the real eye. */
+static sat_vec3_t g_egg_vertices[EGGMAN_VERTEX_COUNT];
+static uint16_t g_egg_indices[EGGMAN_FACE_COUNT * 4u];
+static sat_mesh_t g_egg_mesh;
+static sat_texture_t g_egg_textures[EGGMAN_TEXTURE_COUNT];
+static uint8_t g_egg_order[EGGMAN_FACE_COUNT];
+static uint16_t g_egg_order16[EGGMAN_FACE_COUNT];
+static uint32_t g_egg_depth[EGGMAN_FACE_COUNT];
+static sat_projected_vertex_t g_egg_screen[EGGMAN_VERTEX_COUNT];
+static sat_anim_state_t g_egg_anim;
+static int32_t g_egg_turn;   /* smoothed turn amount, 16.16 in [-1, 1] */
+static const sat_vec3_t g_camera_eye = {0, FX(34), FX(-42)};
 
 static sat_sound_t g_snd_engine, g_snd_scanner, g_snd_fire, g_snd_impact, g_snd_music, g_snd_storm;
 static sat_voice_t g_voice_engine, g_voice_music, g_voice_storm, g_voice_portal;
@@ -116,12 +149,75 @@ static void generate_ground(void) {
 }
 
 static void init_textured_3d(void) {
-    sat_vec3_t eye = {0, FX(34), FX(-42)}, target = {0, FX(18), FX(90)}, up = {0,FX(1),0};
+    sat_vec3_t eye = g_camera_eye, target = {0, FX(18), FX(90)}, up = {0,FX(1),0};
     sat_mat4_t view, proj;
     sat_example_must(sat_tex_upload_indexed8(&g_world_texture,spacecraft_pixels,64u,64u,spacecraft_palette,3u));
     sat_example_must(sat_mat4_look_at(&view,&eye,&target,&up));
     sat_example_must(sat_mat4_perspective(&proj,FX(56),sat_fx16_div(FX(320),FX(224)),FX(4),FX(1300)));
     sat_example_must(sat_mat4_multiply(&g_view_proj,&proj,&view));
+
+    sat_example_must(sat_model_validate(&eggman_asset));
+    sat_example_must(sat_anim_validate(&eggman_anim_asset));
+    sat_example_must(sat_mesh_init(&g_egg_mesh, g_egg_vertices, EGGMAN_VERTEX_COUNT,
+                                   g_egg_indices, EGGMAN_FACE_COUNT));
+    sat_example_must(sat_model_copy_to_mesh(&eggman_asset, &g_egg_mesh));
+    sat_example_must(sat_model_upload_textures(&eggman_asset, g_egg_textures, EGGMAN_TEXTURE_COUNT));
+    sat_example_must(sat_anim_state_init(&g_egg_anim, &eggman_anim_asset, EGG_CLIP_IDLE));
+}
+
+/* Picks the clip for the current steering and keeps idle cycling: the baked
+ * clips do not loop, so a finished idle restarts, while a turn clip holds its
+ * last (fully leaned) frame for as long as the turn is held. */
+static void update_player_animation(void) {
+    const uint16_t want = g_heading_delta < 0 ? EGG_CLIP_TURN_LEFT :
+                          (g_heading_delta > 0 ? EGG_CLIP_TURN_RIGHT : EGG_CLIP_IDLE);
+    const int32_t target = g_heading_delta * SAT_FX16_ONE;
+    if (want != g_egg_anim.clip) {
+        sat_example_must(sat_anim_set_clip(&g_egg_anim, &eggman_anim_asset, want));
+    } else if (want == EGG_CLIP_IDLE &&
+               g_egg_anim.time >= sat_anim_clip_duration(&eggman_anim_asset, EGG_CLIP_IDLE)) {
+        sat_example_must(sat_anim_reset(&g_egg_anim));
+    }
+    if (!g_paused && !g_finished) {
+        sat_example_must(sat_anim_advance(&g_egg_anim, &eggman_anim_asset, SAT_FX16_ONE / 60));
+    }
+    g_egg_turn += (target - g_egg_turn) / 6;
+}
+
+/* Decodes the pose, then yaws, banks and places it in front of the camera. */
+static void draw_player(void) {
+    const sat_fx16_t yaw = FX(EGG_BASE_YAW_DEG) + sat_fx16_mul(g_egg_turn, FX(EGG_TURN_YAW_DEG));
+    const sat_fx16_t bank = -sat_fx16_mul(g_egg_turn, FX(EGG_BANK_DEG));
+    const int32_t sy = sat_sin_deg(yaw), cy = sat_cos_deg(yaw);
+    const int32_t sb = sat_sin_deg(bank), cb = sat_cos_deg(bank);
+    /* A gentle bob, plus a little lift at speed. */
+    const sat_fx16_t hover = FX(EGG_HOVER) + (sat_fx16_t)(g_speed / 3) +
+        sat_fx16_mul(sat_sin_deg((sat_fx16_t)((g_frames * 6u) % 360u) << 16), FX(1) / 2);
+    sat_mesh_draw_t draw;
+    uint16_t i;
+
+    if (sat_anim_decode(&eggman_anim_asset, &g_egg_anim, g_egg_mesh.vertices,
+                        g_egg_mesh.vertex_cap) != SAT_OK) {
+        return;
+    }
+    for (i = 0; i < EGGMAN_VERTEX_COUNT; ++i) {
+        sat_vec3_t* v = &g_egg_mesh.vertices[i];
+        const int32_t x1 = sat_fx16_mul(v->x, cy) + sat_fx16_mul(v->z, sy);
+        const int32_t z1 = sat_fx16_mul(v->z, cy) - sat_fx16_mul(v->x, sy);
+        const int32_t x2 = sat_fx16_mul(x1, cb) - sat_fx16_mul(v->y, sb);
+        const int32_t y2 = sat_fx16_mul(x1, sb) + sat_fx16_mul(v->y, cb);
+        v->x = x2;
+        v->y = y2 + hover;
+        v->z = z1 + FX(EGG_DEPTH);
+    }
+    if (sat_model_bind_draw_ex(&eggman_asset, &g_egg_mesh, g_egg_textures, eggman_asset.texture_count,
+                               &g_view_proj, &g_camera_eye, SAT_RGB555(31, 31, 31), 0, 0,
+                               SAT_MESH_CULL_BACKFACE | SAT_MESH_SORT,
+                               g_egg_order, g_egg_order16, g_egg_depth, &draw) != SAT_OK) {
+        return;
+    }
+    draw.screen = g_egg_screen;
+    (void)sat_draw_mesh(&g_egg_mesh, &draw);
 }
 
 static void write_coefficients(void) {
@@ -539,22 +635,7 @@ static void update_game(const sat_pad_state_t* pad) {
 }
 
 static void draw_player_and_weather(void) {
-    sat_quad3_t craft;
-    /* The player's craft is the one thing on screen the player owns, so it is
-     * drawn large enough to be read as a craft. It banks with the turn, which
-     * on a billboard means shearing the top corners sideways. */
-    sat_fx16_t lean = (sat_fx16_t)(g_heading_delta * FX(3));
-    /* Hover height: a craft whose base sits at y = 0 is a craft parked on the
-     * rocks. Lift the whole quad clear of the ground, and bob it with speed. */
-    sat_fx16_t hover = FX(5) + (sat_fx16_t)(g_speed / 3);
-    uint8_t v;
-    sat_quad3_billboard(&craft, 0, FX(12), FX(1), 0, FX(13), FX(15));
-    for (v = 0; v < 4u; ++v) craft.v[v].y += hover;
-    /* Banking: shearing only the top corners leans the billboard into the
-     * turn, which is as much roll as a flat quad can express. */
-    craft.v[0].x += lean;
-    craft.v[1].x += lean;
-    (void)sat_draw_world_sprite(&g_view_proj, &craft, &g_world_texture, 0, 0);
+    draw_player();
     if (g_speed > FX(2)) {
         uint8_t i;
         for (i = 0u; i < 5u; ++i) {
@@ -628,13 +709,18 @@ int main(void) {
          * EXPLORER_HORIZON rows over the top EXPLORER_HORIZON scanlines means
          * scrolling down by the difference. At y=0 the bottom of the strip sat
          * at scanline 128, i.e. 32 rows BELOW the ground's edge, so the part
-         * of the panorama with the horizon in it was never visible. */
-        sky_scroll.y_integer = (uint16_t)(SKY_H - EXPLORER_HORIZON);
+         * of the panorama with the horizon in it was never visible.
+         * The Mode-7 table keeps scanline EXPLORER_HORIZON itself transparent
+         * too (y <= horizon), so EXPLORER_HORIZON + 1 sky rows are visible;
+         * scrolling by only SKY_H - EXPLORER_HORIZON wrapped that last
+         * scanline to the strip's TOP row, a dark line on the horizon. */
+        sky_scroll.y_integer = (uint16_t)(SKY_H - EXPLORER_HORIZON - 1u);
         sky_scroll.y_fraction = 0;
         sat_example_must(sat_vdp2_nbg0_set_scroll(&sky_scroll));
         sat_example_must(sat_vdp2_layers_commit());
         build_render_list(sin_h, cos_h);
         sat_example_must(sat_begin_frame());
+        update_player_animation();
         draw_world(); draw_player_and_weather(); draw_hud();
         sat_example_must(sat_end_frame());
     }
