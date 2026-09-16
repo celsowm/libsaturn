@@ -6,30 +6,21 @@ namespace saturn::hal::smpc {
 
 namespace {
 
-/* These are macros rather than reference variables on purpose: a reference or
- * pointer bound to a reinterpret_cast is dynamically initialized, and this
- * build runs no static constructors (crt0.s calls _main directly and the
- * linker script has no .init_array pass). GCC constant-folds most of them at
- * -O2, but the ones it does not silently become null and every access reads or
- * writes address zero. See the long explanation in src/hal/vdp2.cpp and the
- * build-time guard in tools/check_no_static_ctors.py. */
 #define SMPC_IREG0 (*reinterpret_cast<volatile uint8_t*>(0x20100001))
 #define SMPC_IREG1 (*reinterpret_cast<volatile uint8_t*>(0x20100003))
 #define SMPC_IREG2 (*reinterpret_cast<volatile uint8_t*>(0x20100005))
 #define SMPC_OREG0 (*reinterpret_cast<volatile uint8_t*>(0x20100021))
 #define SMPC_OREG2 (*reinterpret_cast<volatile uint8_t*>(0x20100025))
 #define SMPC_OREG3 (*reinterpret_cast<volatile uint8_t*>(0x20100027))
+#define SMPC_OREG31 (*reinterpret_cast<volatile uint8_t*>(0x2010005F))
 #define SMPC_SF (*reinterpret_cast<volatile uint8_t*>(0x20100063))
 #define SMPC_COMREG (*reinterpret_cast<volatile uint8_t*>(0x2010001F))
 #define SMPC_IOSEL1 (*reinterpret_cast<volatile uint8_t*>(0x2010007D))
 constexpr uint32_t kSfTimeoutIters = 1000000u;
 constexpr uint8_t kIntbackCommand = 0x10u;
+constexpr uint8_t kSoundOnCommand = 0x06u;
+constexpr uint8_t kSoundOffCommand = 0x07u;
 
-// SMPC control mode (IOSEL=0) is required to read the pad via INTBACK. SH-2
-// direct mode (bit-banging PDR1) is reserved for peripherals that need it,
-// like the Virtua Gun — the hardware manual states plainly that it must not
-// be used otherwise (docs/sega_saturn_hardware/hard/smpc/hon/p01_20.md),
-// and the standard digital pad is not one of the exceptions.
 inline void ensure_smpc_control_mode() {
     SMPC_IOSEL1 = 0x00u;
 }
@@ -44,25 +35,26 @@ inline bool wait_sf_clear() {
     return true;
 }
 
-// Issues INTBACK to fetch port 1's peripheral data only (port 2 left in
-// 0-byte mode since nothing here reads it). Returns false if the command
-// timed out or nothing is connected to port 1.
+inline bool issue_simple_command(uint8_t command) {
+    if (!wait_sf_clear()) {
+        return false;
+    }
+    SMPC_SF = 0x01u;
+    SMPC_COMREG = command;
+    if (!wait_sf_clear()) {
+        return false;
+    }
+    return SMPC_OREG31 == command;
+}
+
 inline bool intback_read_port1(uint8_t* out_d1, uint8_t* out_d2) {
     if (!wait_sf_clear()) {
         return false;
     }
 
-    SMPC_IREG0 = 0x00u; // "get only peripheral data" (no SMPC status bytes)
-    // bit7-6 P2MD=11 (0-byte mode, port 2 skipped), bit5-4 P1MD=00
-    // (15-byte mode), bit3 PEN=1 (return peripheral data), bit1 OPE=1
-    // (no optimization — simplest correct behavior for a polled read).
+    SMPC_IREG0 = 0x00u;
     SMPC_IREG1 = 0xCAu;
-    SMPC_IREG2 = 0xF0u; // mandatory per the INTBACK command spec
-
-    /* SF must be raised before writing COMREG, because the COMREG write starts
-     * command execution. Reversing these writes can leave stale OREG data or
-     * make the command appear complete before INTBACK has actually run.
-     */
+    SMPC_IREG2 = 0xF0u;
     SMPC_SF = 0x01u;
     SMPC_COMREG = kIntbackCommand;
 
@@ -70,22 +62,16 @@ inline bool intback_read_port1(uint8_t* out_d1, uint8_t* out_d2) {
         return false;
     }
 
-    // OREG0 = port 1 status: bits3-0 = number of connectors (0 = nothing
-    // connected or an unrecognized peripheral).
     const uint8_t port1_status = SMPC_OREG0;
     if ((port1_status & 0x0Fu) == 0u) {
         return false;
     }
 
-    // OREG1 (skipped, peripheral ID/data-size byte) then 1st/2nd data.
     *out_d1 = SMPC_OREG2;
     *out_d2 = SMPC_OREG3;
     return true;
 }
 
-// Saturn Digital Device standard format (2-byte data, peripheral type 0H —
-// see docs/sega_saturn_hardware/hard/smpc/hon/p03_20.md, Table 3.10).
-// Every button bit reads 0 when pressed.
 inline uint16_t translate_standard_pad(uint8_t d1, uint8_t d2) {
     uint16_t held = 0u;
 
@@ -121,6 +107,16 @@ uint16_t read_digital_pad() {
         return 0u;
     }
     return translate_standard_pad(d1, d2);
+}
+
+bool sound_on() {
+    ensure_smpc_control_mode();
+    return issue_simple_command(kSoundOnCommand);
+}
+
+bool sound_off() {
+    ensure_smpc_control_mode();
+    return issue_simple_command(kSoundOffCommand);
 }
 
 }  // namespace saturn::hal::smpc
