@@ -2,41 +2,42 @@
 
 ## Purpose
 
-Evolve LibSaturn's native public API before implementing SDL compatibility, so SDL2 and other future compatibility layers can remain thin translations instead of becoming repositories of Saturn-specific workarounds.
+Evolve LibSaturn's native public API before implementing compatibility layers, so SDL2, raylib, Allegro, and future source-port adapters can remain thin semantic translations instead of becoming repositories of Saturn-specific workarounds.
 
-The target is not to reshape LibSaturn into SDL. The target is to provide reusable, Saturn-native runtime primitives that are useful to ordinary LibSaturn games and also happen to cover the needs of portable game APIs such as SDL, raylib, Allegro, and custom engines.
+The target is **not** to reshape LibSaturn into SDL or raylib. The target is to provide reusable, Saturn-native runtime primitives that are useful to ordinary LibSaturn games and also cover the common needs of portable C game APIs.
 
 The guiding rule is:
 
-> **LibSaturn owns Saturn complexity. Compatibility layers translate API semantics; they must not own VDP1/VDP2/SCSP/SMPC workarounds.**
+> **LibSaturn owns Saturn complexity. Compatibility layers translate API semantics; they must not own VDP1/VDP2/SCSP/SMPC/CD workarounds.**
 
 The intended end state is:
 
 ```text
-                   Game / engine
-                        |
-          +-------------+-------------+
-          |                           |
-   Native LibSaturn API          SDL2 compatibility
-          |                           |
-          |                    thin semantic mapping
-          |                           |
-          +-------------+-------------+
-                        |
-              LibSaturn runtime
-       surfaces / textures / render2d
-       events / time / audio / files
-                        |
-          +-------------+-------------+
-          |             |             |
-         VDP1          VDP2          SCSP / SMPC / CD
-          |             |             |
-          +-------------+-------------+
-                        |
-                    Sega Saturn
+                         Game / engine
+                              |
+             +----------------+----------------+
+             |                |                |
+      Native LibSaturn      SDL2 shim      raylib shim
+             |                |                |
+             |          thin translation  thin translation
+             |                |                |
+             +----------------+----------------+
+                              |
+                    LibSaturn runtime
+            memory / assets / filesystem / time
+           surfaces / textures / render state / text
+                events / audio / 2D / 3D facade
+                              |
+            +-----------------+------------------+
+            |                 |                  |
+           VDP1              VDP2          SCSP / SMPC / CD
+            |                 |                  |
+            +-----------------+------------------+
+                              |
+                         Sega Saturn
 ```
 
-SDL is an acceptance consumer of this work, not the architectural template for it.
+SDL2 and raylib are **acceptance consumers** of this work, not architectural templates for it.
 
 ---
 
@@ -52,15 +53,17 @@ Rules:
 4. Build affected examples after every public-API change.
 5. Preserve the no-heap runtime model. New high-level facilities must use caller-owned memory, fixed-capacity pools, compile-time capacities, or explicit arenas supplied by the caller.
 6. Do not hide `malloc`, C++ dynamic allocation, static constructors, or unbounded containers behind a high-level API.
-7. Keep low-level Saturn APIs available. A high-level renderer must not remove the ability to submit explicit VDP1/VDP2 operations.
-8. Do not put SDL names, SDL types, SDL constants, or SDL-specific behavior in the LibSaturn core.
-9. Hardware limitations belong behind LibSaturn abstractions whenever a generic solution is possible.
+7. Keep low-level Saturn APIs available. High-level APIs must not remove explicit VDP1/VDP2/SCSP/SMPC access.
+8. Do not put SDL or raylib names, types, constants, or compatibility behavior in the LibSaturn core.
+9. Hardware limitations belong behind LibSaturn abstractions whenever a generic Saturn-native solution is possible.
 10. Hardware-specific APIs must remain visibly hardware-specific (`sat_vdp1_*`, `sat_vdp2_*`, `sat_scsp_*`, etc.).
 11. Prefer deterministic capacity failures (`SAT_ERR_CAPACITY`) over implicit allocation or undefined behavior.
-12. Preserve source compatibility where practical, but do not keep a leaky abstraction solely to avoid a justified migration. When a breaking migration is necessary, provide a deliberate compatibility path and update all repository-owned consumers in the same coherent phase.
-13. Commit coherent, tested phases directly to `main`.
-14. Use repository build/run scripts and emulator harnesses according to `AGENTS.md`.
-15. Do not begin the SDL compatibility implementation until the native acceptance gate at the end of this document passes.
+12. Preserve source compatibility where practical, but do not retain a leaky abstraction solely to avoid a justified migration.
+13. When a breaking migration is necessary, provide a deliberate migration path and update repository-owned consumers in the same coherent phase.
+14. Commit coherent, tested phases directly to `main`.
+15. Use repository build/run scripts and emulator harnesses according to `AGENTS.md`.
+16. Do not begin SDL2 or raylib compatibility-layer implementation until the native acceptance gates in this document pass.
+17. Do not implement fake programmable-shader semantics or desktop rendering features merely to make a compatibility table look complete.
 
 ---
 
@@ -68,18 +71,25 @@ Rules:
 
 ### 1. High-level and low-level APIs are both first-class
 
-The public surface should have two layers:
+The public surface should conceptually contain:
 
 ```text
-High-level, portable game-runtime concepts
-------------------------------------------
+High-level game-runtime concepts
+--------------------------------
+memory.h
+geometry2d.h
+color.h
+time.h
+input.h
+event.h
 surface.h
 texture.h
 render2d.h
-time.h
-event.h
+font.h / text.h
 audio.h
 file.h
+asset.h
+camera3d / model facade where justified
 
 Low-level Saturn concepts
 -------------------------
@@ -87,16 +97,16 @@ vdp1.h
 vdp2.h
 scsp.h
 smpc.h
-cd.h / filesystem backends
+cd.h
 ```
 
-A normal 2D game should not need to understand CMDSRCA, VDP1 center-origin coordinates, CRAM ownership, texture upload alignment, or command selection.
+A normal 2D source port should not need to understand CMDSRCA, VDP1 center-origin coordinates, CRAM ownership, texture-width alignment, command selection, SCSP slots, or CD sectors.
 
 A Saturn-specific engine must still be able to use those facilities directly.
 
-### 2. No heap is a feature, not an implementation accident
+### 2. No heap is a feature
 
-Managed resources must not imply dynamic allocation.
+Managed resources must not imply unrestricted allocation.
 
 Use one or more of:
 
@@ -106,138 +116,161 @@ Use one or more of:
 - compile-time capacities with documented defaults;
 - startup-time preparation of static resources.
 
-Every bounded resource should have a queryable capacity or a deterministic `SAT_ERR_CAPACITY` failure path.
+Every bounded resource should have a queryable capacity or a deterministic failure path.
 
 ### 3. Public logical objects must not expose hardware addresses
 
-A logical texture is not the same thing as a VDP1 character pattern.
+A logical texture is not a VDP1 character pattern. A sound is not an SCSP slot. An asset path is not a CD sector.
 
-Hardware-native structures may expose hardware fields in `vdp1.h`, but generic objects in `texture.h` and `render2d.h` must describe game intent rather than command-table layout.
+Hardware-native structures may expose hardware fields in low-level headers. Generic runtime objects must describe game intent.
 
 ### 4. Sprite-sheet regions are a native runtime concern
 
-Source rectangles are useful to native LibSaturn games, not only SDL ports.
+Source rectangles are useful to native LibSaturn games, SDL ports, raylib ports, and custom engines.
 
-The native API must support drawing a region of a logical texture without requiring the caller to manually crop, repack, upload, cache, and track VDP1-compatible subtextures.
+The runtime must support drawing a region of a logical texture without requiring callers to manually crop, repack, upload, cache, and track VDP1-compatible subtextures.
 
-### 5. Conversion happens at explicit boundaries
+### 5. Asset source format and runtime format are different things
 
-CPU pixel storage, logical textures, and hardware-native textures are distinct concepts.
+A game may logically request:
 
-Conversion between them must be testable and have clear ownership/lifetime rules.
+```text
+assets/player.png
+fonts/main.ttf
+audio/jump.wav
+audio/music.ogg
+```
+
+but the Saturn build may contain preconverted representations:
+
+```text
+indexed/RGB555 texture data
+baked glyph atlas + metrics
+PCM/ADPCM/streamable audio payload
+asset metadata
+```
+
+The game-facing logical asset identity should be stable even when the physical CD payload is transformed offline.
 
 ### 6. Compatibility layers should be boring
 
-A good eventual SDL implementation should mostly perform operations like:
+A good SDL2 implementation should mostly map:
 
 ```text
 SDL_Rect            -> sat_rect_t
-SDL_Surface         -> sat_surface_t wrapper
-SDL_Texture         -> sat_texture_t handle
+SDL_Surface         -> sat_surface_t
+SDL_Texture         -> sat_texture_t
 SDL_RenderCopy      -> sat_draw_texture
 SDL_RenderCopyEx    -> sat_draw_texture + params
-SDL_PollEvent       -> sat_event_poll mapping
+SDL_PollEvent       -> sat_event_poll
 SDL_GetTicks        -> sat_time_ms
 SDL_QueueAudio      -> sat_audio_stream_write
 ```
 
-If an SDL source file must understand VDP1 texture stride, CRAM, SCSP slots, SMPC register formats, or CD block details, this runtime plan is incomplete.
+A good raylib implementation should mostly map:
+
+```text
+Texture2D           -> sat_texture_t
+Image               -> sat_surface_t / asset decode result
+DrawTexturePro      -> sat_draw_texture
+DrawRectangle       -> sat_fill_rect
+BeginMode2D         -> sat_render2d state/camera push
+EndMode2D           -> sat_render2d state pop
+GetFrameTime        -> sat_time delta
+IsKeyDown           -> high-level input state
+IsGamepadButtonDown -> high-level pad state
+DrawTextEx          -> sat_text_draw
+LoadSound           -> sat_sound_load / asset load
+PlaySound           -> sat_sound_play
+LoadMusicStream     -> sat_music_open
+UpdateMusicStream   -> sat_music_update / streaming API
+LoadTexture(path)   -> logical asset/VFS + texture creation
+```
+
+If either compatibility layer must understand VDP1 texture stride, CRAM, VRAM allocation, SCSP slots, SMPC register formats, or CD block details, this plan is incomplete.
 
 ---
 
 ## Definition of done
 
-This runtime foundation is ready for an SDL2 compatibility layer only when a native LibSaturn acceptance example can do all of the following without directly using VDP1/VDP2/SCSP/SMPC APIs from game code:
+The runtime foundation is ready for compatibility layers only when native LibSaturn acceptance examples can perform ordinary game-runtime work without direct hardware APIs in gameplay code.
+
+Required capabilities:
 
 - initialize and shut down cleanly;
-- use millisecond/sub-frame timing;
-- read at least two controller ports through the high-level input/event API;
-- create or wrap CPU-side pixel surfaces without heap allocation;
-- convert supported pixel formats;
-- upload logical textures;
-- draw a full texture;
-- draw arbitrary sprite-sheet regions;
-- scale a source region to a destination rectangle;
-- flip horizontally and vertically;
-- rotate around a configurable center where supported by VDP1 distorted sprites;
-- draw filled rectangles and lines;
-- update at least a rectangular region of a dynamic texture;
-- explicitly prewarm sprite-sheet regions;
-- handle region-cache capacity failure deterministically;
-- stream PCM audio through the high-level audio API;
-- read game data through the high-level file API;
-- run without runtime heap allocation;
-- build all existing examples after migration.
+- deterministic caller-supplied arenas and fixed pools;
+- millisecond/sub-frame timing;
+- at least two controller ports;
+- polling and event-style input;
+- CPU-side pixel surfaces with pitch and pixel-format conversion;
+- logical texture creation/update/destruction;
+- full-texture and sprite-sheet-region drawing;
+- scaling, flip, configurable rotation center;
+- tint/color modulation where hardware permits;
+- documented blend modes and capability failures;
+- 2D camera/transform state;
+- clipping/scissor where a correct implementation is practical;
+- filled rectangles and lines;
+- dynamic texture-region updates;
+- explicit sprite-region prewarming;
+- deterministic region-cache exhaustion;
+- high-level baked-font/text drawing;
+- PCM sound playback and streaming music/audio;
+- logical asset loading by path;
+- streamable file/data reads;
+- a small high-level 3D camera/model facade sufficient for common raylib-style model code where current LibSaturn 3D facilities already support the semantics;
+- no runtime heap allocation;
+- all existing examples building after migrations.
 
-The final acceptance path should conceptually look like:
-
-```text
-caller-owned image bytes / generated asset
-                 |
-                 v
-            sat_surface_t
-                 |
-        conversion if needed
-                 |
-                 v
-            sat_texture_t
-                 |
-      +----------+-----------+
-      |                      |
- full texture             src rect
-      |                      |
-      |                region resolver
-      |               /      |       \
-      |          native   prepared   cached
-      |             path     region    copy
-      +---------------+-------+--------+
-                              |
-                              v
-                      render2d commands
-                              |
-                              v
-                             VDP1
-```
+Shaders, arbitrary render-to-texture, desktop windowing, and unrestricted desktop filesystem semantics are **not** required for readiness.
 
 ---
 
 # Phase 0 — Baseline and repository audit
 
-Before modifying code, inspect at minimum:
+Inspect at minimum:
 
 ```text
 include/saturn/core.h
+include/saturn/color.h
 include/saturn/video.h
 include/saturn/input.h
 include/saturn/vdp1.h
 include/saturn/app.h
+include/saturn/font.h
+include/saturn/math3d.h
+include/saturn/mesh3d.h
+include/saturn/model3d.h
+include/saturn/render3d.h
 include/saturn/saturn.h
 src/core/
 src/hal/
 tests/host/
 examples/
+tools/
 Makefile
 build-example.ps1
 run-example.ps1
 harness/
 ```
 
-Also inspect the vendored Saturn hardware documentation before encoding any VDP1, VDP2, SCSP, SMPC, CRAM, VRAM, or timing limits.
+Also inspect the vendored Saturn hardware documentation before encoding VDP1, VDP2, SCSP, SMPC, CRAM, VRAM, timing, controller, or CD limits.
 
-Record the current answers to these questions in implementation notes or tests where appropriate:
+Record:
 
-- how VDP1 texture VRAM is allocated;
-- whether texture upload storage is monotonic for the lifetime of the process;
-- legal indexed and direct-color texture formats;
-- legal VDP1 texture dimensions and alignment;
-- current command-list limits;
-- current CRAM allocation/ownership policy;
-- current frame lifecycle and VBlank behavior;
-- how controller ports are currently read;
-- what free-running timer state is already maintained by `sat_frame_count()`;
-- whether any public or internal audio API already exists;
-- current CD/filesystem helpers, if any;
-- current host-test coverage for VDP1 upload and drawing.
+- current VDP1 texture-VRAM allocation strategy;
+- whether texture storage is monotonic;
+- legal indexed/direct-color texture formats and dimensions;
+- command-list limits;
+- CRAM ownership policy;
+- frame/VBlank/timer behavior;
+- controller-port capabilities;
+- current font implementation and atlas ownership;
+- current 3D camera/model abstractions;
+- existing audio code, if any;
+- existing CD/filesystem helpers, if any;
+- asset converter architecture;
+- host-test coverage for drawing/upload/conversion.
 
 Baseline gate:
 
@@ -245,19 +278,15 @@ Baseline gate:
 make test
 ```
 
-Also build the repository's standard examples target and run the normal harness suite when available in the environment.
-
-Do not proceed from a red baseline without first identifying whether the failure predates this plan.
+Build the standard examples target and run the normal harness suite where available. Do not proceed from a red baseline without identifying whether the failure predates this plan.
 
 ---
 
-# Phase 1 — Common runtime value types and timing
+# Phase 1 — Runtime foundations: geometry, color, memory, time
 
-## 1.1 Geometry types
+## 1.1 Geometry
 
-Add a small header for game-facing 2D value types, or place them in the narrowest existing common header if that is cleaner after inspection.
-
-Conceptually:
+Introduce game-facing screen-space value types independent of VDP1 center-origin coordinates:
 
 ```c
 typedef struct sat_point {
@@ -273,15 +302,19 @@ typedef struct sat_rect {
 } sat_rect_t;
 ```
 
-Do not tie these types to VDP1 center-origin coordinates. High-level 2D coordinates use screen-space top-left origin unless an API explicitly documents otherwise.
+Add host-testable intersection, clipping, bounds, and safe arithmetic helpers where useful.
 
-Add pure host tests for rectangle bounds, clipping helpers, intersection, and safe integer behavior if those helpers are introduced.
+## 1.2 Color and pixel formats
 
-## 1.2 Pixel-format enumeration
+Provide a generic color value and source-pixel-format vocabulary distinct from VDP1 command encodings.
 
-Introduce a game-facing format enum independent of VDP1 command bits:
+Conceptually:
 
 ```c
+typedef struct sat_color {
+    uint8_t r, g, b, a;
+} sat_color_t;
+
 typedef enum sat_pixel_format {
     SAT_PIXEL_INDEX8,
     SAT_PIXEL_RGB555,
@@ -291,47 +324,63 @@ typedef enum sat_pixel_format {
 } sat_pixel_format_t;
 ```
 
-The exact initially supported set may be reduced after auditing the hardware and current conversion pipeline, but the API must distinguish source CPU formats from native VDP1 storage formats.
+The exact supported subset must follow verified hardware/conversion capability. Unsupported conversion must return `SAT_ERR_UNSUPPORTED`, never reinterpret bytes silently.
 
-Unsupported conversions return `SAT_ERR_UNSUPPORTED`; they must not silently reinterpret bytes.
+## 1.3 Arena and pool primitives
 
-## 1.3 Time API
-
-Promote the existing free-running-timer knowledge behind `sat_frame_count()` into a reusable time facility.
-
-Target public operations:
+Add small deterministic memory utilities useful both to native games and compatibility layers:
 
 ```c
-uint32_t sat_time_ms(void);
-uint64_t sat_time_us(void);
-sat_result_t sat_delay_ms(uint32_t ms);
-```
+typedef struct sat_arena sat_arena_t;
+typedef struct sat_pool sat_pool_t;
 
-If a microsecond API would imply misleading precision on the actual implementation, document the real resolution and choose a name/contract that does not promise more than the hardware provides.
+sat_result_t sat_arena_init(...);
+void* sat_arena_alloc(...);
+void sat_arena_reset(...);
+
+sat_result_t sat_pool_init(...);
+sat_result_t sat_pool_acquire(...);
+sat_result_t sat_pool_release(...);
+```
 
 Requirements:
 
-- `sat_time_ms()` must advance while game code is busy, not only at VBlank calls;
-- wrap behavior must be documented;
-- `sat_frame_count()` must continue to work;
-- no duplicate independent timer calibration logic;
-- host logic for wrap-safe deltas should be unit-tested.
+- caller supplies backing memory;
+- explicit alignment;
+- no hidden heap fallback;
+- overflow/exhaustion is deterministic;
+- optional high-water diagnostics;
+- host tests for alignment, exhaustion, reset, generation safety where handles are used.
 
-Phase gate:
+Compatibility layers may use their own arenas for objects that desktop APIs traditionally allocate dynamically.
 
-- existing video/frame tests pass;
-- new timing tests pass;
-- existing examples build unchanged or with mechanical include adjustments only.
+## 1.4 Time API
+
+Promote the existing free-running-timer knowledge behind frame counting into a reusable time facility:
+
+```c
+uint32_t sat_time_ms(void);
+uint64_t sat_time_us(void);   /* only if honest about actual resolution */
+sat_result_t sat_delay_ms(uint32_t ms);
+```
+
+Requirements:
+
+- time advances while game code is busy;
+- no duplicate calibration subsystem;
+- wrap behavior documented;
+- `sat_frame_count()` remains supported;
+- host tests cover wrap-safe deltas.
+
+Phase gate: host tests green, existing examples build, no heap introduced.
 
 ---
 
 # Phase 2 — CPU-side surfaces
 
-Add `include/saturn/surface.h` and corresponding core logic.
+Add `include/saturn/surface.h` and host-testable core logic.
 
-A surface is a non-owning or explicitly caller-backed view of pixels in CPU-visible memory. It must not allocate memory by default.
-
-A suitable shape is conceptually:
+A surface is a non-owning or explicitly caller-backed pixel view:
 
 ```c
 typedef struct sat_surface {
@@ -345,51 +394,40 @@ typedef struct sat_surface {
 } sat_surface_t;
 ```
 
-The final field widths must be chosen after checking maximum useful dimensions and overflow behavior.
-
-Required operations:
+Target operations:
 
 ```text
 sat_surface_init
 sat_surface_subview
 sat_surface_fill
 sat_surface_blit
-sat_surface_blit_scaled        (only if a bounded CPU implementation is justified)
+sat_surface_blit_scaled       if a bounded implementation is justified
 sat_surface_convert
-sat_surface_get_pixel          (debug/convenience; not necessarily fast path)
-sat_surface_set_pixel          (debug/convenience; not necessarily fast path)
+sat_surface_get_pixel
+sat_surface_set_pixel
 ```
 
 Rules:
 
-- caller owns the pixel buffer;
-- surface destruction is unnecessary for a pure non-owning view;
-- overlapping blits must have defined behavior;
-- palette ownership must be explicit;
-- pitch must be honored; never assume tightly packed rows;
-- integer overflow in `pitch * height`, offsets, or conversion loops must be rejected where user input can trigger it;
-- conversion code must be host-testable without Saturn hardware.
+- caller owns backing bytes;
+- pitch is always honored;
+- palette ownership is explicit;
+- overlapping blits have defined behavior;
+- integer overflow is rejected;
+- conversion stays host-testable;
+- no dependency on SDL/raylib structures.
 
-Do not make VDP1 upload functions depend on `SDL_Surface`-like hidden allocation.
-
-Phase gate:
-
-- host tests cover every supported format conversion;
-- host tests cover pitch larger than row width;
-- host tests cover subviews and clipping;
-- no runtime heap is introduced.
+Phase gate: conversions, pitch, subviews, clipping, overlap behavior, and invalid arguments covered by tests.
 
 ---
 
 # Phase 3 — Split logical textures from native VDP1 textures
 
-This is the central architectural migration.
+This is the central graphics migration.
 
-## 3.1 Introduce an explicitly native VDP1 texture representation
+## 3.1 Native texture representation
 
-The current hardware-facing texture representation containing fields such as source address/palette belongs to the VDP1 layer.
-
-Introduce an explicitly named type, conceptually:
+Move hardware-facing fields such as source address and palette into an explicitly VDP1 type:
 
 ```c
 typedef struct sat_vdp1_texture {
@@ -402,15 +440,11 @@ typedef struct sat_vdp1_texture {
 } sat_vdp1_texture_t;
 ```
 
-Low-level upload/draw paths may operate on this object.
+Low-level operations remain available to Saturn-native engines.
 
-Naming of existing low-level upload functions should become consistently VDP1-specific when they expose VDP1 storage semantics.
+## 3.2 Logical texture handle
 
-## 3.2 Introduce a logical texture handle
-
-The high-level texture should be a small value handle into a fixed-capacity runtime table, not a heap pointer.
-
-Conceptually:
+Introduce a high-level fixed-table handle, conceptually:
 
 ```c
 typedef struct sat_texture {
@@ -419,48 +453,23 @@ typedef struct sat_texture {
 } sat_texture_t;
 ```
 
-The exact representation is implementation-defined, but stale handles must be detectable if resources can be destroyed and slots reused.
+Internal metadata may include dimensions, source format, usage policy, backing reference, native representation, region records, dirty state, and generation.
 
-Internal metadata may contain:
+The public handle must never expose VRAM addresses.
 
-```text
-width / height
-source format
-usage flags
-optional caller-owned source surface reference
-native full-texture representation
-prepared region records
-dirty/update state
-generation / validity
-```
-
-The public logical handle must not expose VRAM addresses.
-
-## 3.3 Define explicit source/backing policies
-
-Arbitrary source rectangles sometimes require materializing a packed VDP1-compatible region. Therefore texture creation must make backing lifetime explicit.
+## 3.3 Explicit backing policies
 
 Support policies equivalent to:
 
 ```text
 UPLOAD_ONLY
-    Source bytes are needed only during creation/update.
-    Full-texture rendering works.
-    Arbitrary unprepared regions may be unsupported.
-
 PERSISTENT_SOURCE
-    LibSaturn stores a non-owning reference to caller-owned source pixels.
-    Caller guarantees the bytes remain valid for the texture lifetime.
-    Enables lazy region materialization.
-
 DYNAMIC
-    Caller-owned writable backing is expected to change.
-    Explicit updates invalidate affected cached regions.
 ```
 
-Do not secretly duplicate an entire texture in work RAM merely to make region rendering convenient.
+`PERSISTENT_SOURCE` is a non-owning caller-memory reference; do not secretly duplicate full source textures in work RAM.
 
-## 3.4 High-level texture API
+## 3.4 High-level texture lifecycle
 
 Target operations:
 
@@ -471,47 +480,35 @@ sat_texture_update_rect
 sat_texture_info
 sat_texture_destroy
 sat_texture_prepare_region
-sat_texture_forget_region      (if explicit eviction is useful)
-sat_texture_region_stats       (debug/capacity visibility, optional)
+sat_texture_forget_region      optional
+sat_texture_region_stats       optional diagnostics
 ```
 
-Creation must return deterministic errors for unsupported source format, illegal dimensions, exhausted logical texture slots, CRAM exhaustion, and VRAM exhaustion.
+Return deterministic errors for invalid dimensions, unsupported source format, logical-slot exhaustion, CRAM exhaustion, and VRAM exhaustion.
 
-## 3.5 Migration strategy
+## 3.5 Migration
 
-Because `sat_texture_t` currently represents a hardware-native object, this phase may require a breaking rename.
+Do not retain two unrelated meanings of `sat_texture_t`.
 
-Do not keep two unrelated meanings of `sat_texture_t` simultaneously.
+Preferred order:
 
-Preferred migration:
+1. introduce `sat_vdp1_texture_t`;
+2. migrate low-level repository call sites;
+3. introduce logical `sat_texture_t`;
+4. migrate high-level mesh/model/render code according to actual ownership needs;
+5. document external migration clearly.
 
-1. introduce `sat_vdp1_texture_t` and convert low-level APIs internally;
-2. migrate repository-owned low-level call sites to the explicit native type;
-3. introduce the new high-level `sat_texture_t` handle;
-4. update higher-level mesh/model code according to whether it actually needs a logical texture or a native VDP1 texture;
-5. if necessary, provide a short-lived opt-in compatibility header/macro for external migration, but do not permanently alias a hardware object and a logical object under the same type name.
-
-Document the break clearly in the eventual release notes.
-
-Phase gate:
-
-- all stale-handle tests pass;
-- pool exhaustion returns `SAT_ERR_CAPACITY`;
-- existing repository examples are migrated and build;
-- low-level VDP1 tests still validate exact command data;
-- no high-level header exposes texture VRAM addresses.
+Phase gate: stale-handle tests, pool exhaustion, migrated examples, exact low-level VDP1 command tests, no hardware addresses in high-level headers.
 
 ---
 
-# Phase 4 — High-level 2D renderer
+# Phase 4 — High-level 2D rendering, render state, and Camera2D
 
-Add `include/saturn/render2d.h`.
+Add or expand `include/saturn/render2d.h`.
 
-The renderer should express game intent and lower to VDP1/VDP2 as appropriate.
+## 4.1 Unified texture drawing
 
-## 4.1 Unified texture draw operation
-
-The central call should be conceptually similar to:
+The central API should support source rectangle, destination rectangle, rotation/origin, flip, tint, and blend semantics:
 
 ```c
 typedef enum sat_flip {
@@ -523,6 +520,8 @@ typedef enum sat_flip {
 typedef struct sat_draw_params {
     sat_fx16_t rotation;
     sat_point_t center;
+    sat_color_t tint;
+    uint16_t blend_mode;
     uint16_t flags;
     uint8_t flip;
     uint8_t reserved;
@@ -536,21 +535,22 @@ sat_result_t sat_draw_texture(
 );
 ```
 
-Final ABI details may differ, but preserve these semantics:
+Semantics:
 
-- `src == NULL`: entire texture;
-- `dst == NULL`: document one useful deterministic behavior or reject it; do not copy SDL semantics blindly;
-- destination uses top-left screen coordinates;
-- source regions are logical pixel coordinates;
-- scaling is supported;
-- horizontal/vertical flip is supported;
+- `src == NULL` means full texture;
+- source coordinates are logical pixels;
+- destination coordinates are high-level screen space;
+- scaling and flip are supported;
 - rotation lowers to distorted sprites where representable;
 - rotation center is explicit;
-- unsupported combinations return an error rather than silently rendering differently.
+- tint/blend modes have documented capability limits;
+- unsupported combinations return `SAT_ERR_UNSUPPORTED` rather than silently rendering differently.
+
+Tint does not have to imply unrestricted RGBA multiplication. Define a useful hardware-backed subset and expose capabilities honestly.
 
 ## 4.2 Shape drawing
 
-Provide high-level screen-space primitives for at least:
+Provide screen-space primitives:
 
 ```text
 sat_draw_rect
@@ -558,36 +558,54 @@ sat_fill_rect
 sat_draw_line
 ```
 
-These should lower to existing VDP1 line/polygon functionality without requiring callers to convert to native center-origin coordinates.
+## 4.3 Render-state stack
 
-## 4.3 Preserve low-level draw APIs
+Add bounded state push/pop for portable engines that naturally use begin/end scopes:
 
-Existing explicit native operations remain available under the low-level VDP1 API.
+```text
+sat_render2d_push
+sat_render2d_pop
+sat_render2d_set_transform
+sat_render2d_set_camera
+sat_render2d_set_clip
+sat_render2d_set_blend
+sat_render2d_set_tint      if global tint is useful
+```
 
-Do not implement `sat_draw_texture()` by duplicating VDP1 command construction in a second unrelated subsystem. Reuse the same tested command-building logic beneath both layers.
+The stack uses fixed capacity and returns deterministic overflow.
 
-Phase gate:
+## 4.4 Camera2D
 
-- full texture rendering works;
-- scaling works;
-- flip tests cover all combinations;
-- rotation tests verify generated distorted-sprite vertices;
-- shape drawing tests verify coordinate conversion;
-- previous VDP1 APIs remain independently usable.
+Provide a Saturn-native camera/transform abstraction conceptually similar to:
+
+```c
+typedef struct sat_camera2d {
+    sat_fx16_t offset_x;
+    sat_fx16_t offset_y;
+    sat_fx16_t target_x;
+    sat_fx16_t target_y;
+    sat_fx16_t rotation;
+    sat_fx16_t zoom;
+} sat_camera2d_t;
+```
+
+Do not copy raylib ABI; preserve only the useful game concept.
+
+This lets a raylib adapter map `BeginMode2D`/`EndMode2D` to bounded state push/pop rather than manually transforming every draw call.
+
+## 4.5 Clipping
+
+Investigate high-level rectangular clipping/scissor behavior. Use hardware clipping where correct and practical; otherwise define a bounded high-level clipping implementation. Do not claim arbitrary scissor support if the hardware path cannot preserve semantics.
+
+Phase gate: full texture, source rectangle, scale, flip, rotation, tint subset, blend subset, camera transform, state push/pop, clip behavior, and shape tests.
 
 ---
 
 # Phase 5 — Native texture-region resolver and cache
 
-This phase removes the largest source of future SDL-shim hacks.
+Source-region handling belongs below `sat_draw_texture`.
 
-## 5.1 Region resolution belongs below `sat_draw_texture`
-
-When `src` selects only part of a logical texture, the high-level renderer asks the texture system for a native representation of that region.
-
-The resolver chooses the cheapest correct path available.
-
-Conceptually:
+Resolver architecture:
 
 ```text
 sat_draw_texture(texture, src, dst)
@@ -595,7 +613,6 @@ sat_draw_texture(texture, src, dst)
                 v
         texture-region resolver
           /          |           \
-         /           |            \
  direct/native   prepared hit   materialize
       path            |          packed copy
          \            |            /
@@ -605,132 +622,118 @@ sat_draw_texture(texture, src, dst)
                  VDP1 draw
 ```
 
-## 5.2 Exploit hardware-safe direct paths first
-
-Before copying pixels, investigate which subregions can be represented by changing native source address/dimensions without violating VDP1's actual memory traversal rules.
-
-Do not infer this from intuition. Prove legal cases from the VDP1 documentation and test them.
-
-Examples may include some aligned/full-row or vertical-offset cases, but the implementation must use only verified cases.
-
-## 5.3 Fixed-capacity prepared-region cache
-
-For regions that require packed copies, use a bounded cache.
-
 Requirements:
 
-- no heap;
+- prove hardware-safe direct paths from VDP1 documentation;
 - fixed metadata capacity;
-- VRAM usage accounted explicitly;
+- explicit VRAM budget;
 - key includes texture identity/generation and exact source rectangle;
-- dynamic texture updates invalidate overlapping cached regions;
-- texture destruction invalidates all owned regions;
-- stale entries cannot resolve to a reused texture slot;
-- capacity behavior is deterministic.
+- dynamic updates invalidate overlapping regions;
+- destruction invalidates owned regions;
+- stale entries cannot resolve to reused texture slots;
+- deterministic eviction/capacity policy;
+- explicit prewarming via `sat_texture_prepare_region`;
+- lazy materialization only when backing policy allows it;
+- clear error for unprepared regions without source backing.
 
-A simple fixed-size LRU or clock policy is acceptable if tests prove it and costs remain bounded.
-
-## 5.4 Explicit prewarming
-
-Games must be able to eliminate first-use work during gameplay:
-
-```c
-sat_texture_prepare_region(texture, &idle0);
-sat_texture_prepare_region(texture, &run0);
-sat_texture_prepare_region(texture, &run1);
-sat_texture_prepare_region(texture, &jump0);
-```
-
-This is especially important for sprite sheets and makes the same infrastructure useful to native games.
-
-## 5.5 Lazy behavior
-
-A persistent-source texture may allow `sat_draw_texture()` to materialize a missing region lazily.
-
-The lazy path must be documented as potentially doing copy/upload work.
-
-An upload-only texture with an unprepared region that cannot use a direct hardware path must return a clear error, not draw garbage.
-
-If a new error code is needed (for example `SAT_ERR_NOT_READY` or `SAT_ERR_NO_SOURCE`), add it deliberately and update error tests.
-
-Phase gate:
-
-- repeated region draws hit cache after first preparation;
-- two textures with identical rectangle coordinates never alias incorrectly;
-- generation reuse is safe;
-- dynamic updates invalidate affected regions only where practical;
-- cache exhaustion has a deterministic tested outcome;
-- prewarming avoids lazy materialization during the acceptance animation loop.
+Phase gate: cache hits, cross-texture isolation, generation reuse, dynamic invalidation, exhaustion behavior, and prewarming all tested.
 
 ---
 
 # Phase 6 — Input ports and event abstraction
 
-The current `held / pressed / released` pad state is a good low-level/high-level polling primitive. Extend it rather than replacing it.
+Extend current `held / pressed / released` polling rather than replacing it.
 
-## 6.1 Multi-port polling
+## 6.1 Multi-port input
 
-Add an explicit controller index/port API, conceptually:
+Conceptually:
 
 ```c
 sat_result_t sat_pad_poll_port(uint8_t port, sat_pad_state_t* out_state);
 ```
 
-Keep the current single-pad helper as a convenience mapping to port zero if preserving it is useful.
+Keep convenient port-zero helpers where useful.
 
-Do not hard-code future event infrastructure to a single controller.
+## 6.2 Bounded event queue
 
-## 6.2 Event queue
-
-Add a bounded event system backed by a fixed ring buffer.
-
-Conceptual event types:
+Support event types such as:
 
 ```text
-SAT_EVENT_NONE
 SAT_EVENT_PAD_CONNECTED
 SAT_EVENT_PAD_DISCONNECTED
 SAT_EVENT_BUTTON_DOWN
 SAT_EVENT_BUTTON_UP
 SAT_EVENT_AXIS
-SAT_EVENT_QUIT_REQUEST      only if LibSaturn itself has a meaningful source
 ```
-
-A pad state transition should be expressible both as polling state and events.
 
 Requirements:
 
-- no allocation;
-- deterministic overflow policy;
-- overflow state/query must be visible for debugging;
-- multiple events from one hardware poll retain stable ordering;
-- raw polling remains available for latency-sensitive games.
+- fixed ring buffer;
+- deterministic overflow policy and diagnostics;
+- stable event ordering;
+- raw polling remains available;
+- polling and event views agree.
 
-This gives future compatibility layers a clean source for keyboard/controller-style event synthesis.
+## 6.3 Portable input vocabulary
 
-Phase gate:
+Do not add `KEY_RIGHT` or SDL keycodes to core. Instead, define Saturn/game-runtime input identities that adapters can map to keyboard-like APIs.
 
-- two-controller host tests;
-- press/release ordering tests;
-- event queue overflow test;
-- polling and event views agree on state transitions.
+A raylib shim may map Saturn D-pad/button state onto `IsKeyDown()` and gamepad calls without those desktop key constants leaking into LibSaturn.
+
+Phase gate: two-pad tests, press/release ordering, overflow, connection state, and polling/event consistency.
 
 ---
 
-# Phase 7 — High-level audio streaming API
+# Phase 7 — High-level fonts and text
 
-Before SDL audio support, LibSaturn needs a native audio abstraction above raw SCSP details.
-
-Audit existing audio work first; do not build a duplicate subsystem if suitable primitives already exist.
+Raylib-style ports commonly expect text to be a basic runtime primitive. LibSaturn already has font support; evolve it rather than building a parallel subsystem.
 
 Target concepts:
 
-```c
-typedef enum sat_audio_format {
-    SAT_AUDIO_S8,
-    SAT_AUDIO_S16
-} sat_audio_format_t;
+```text
+sat_font_t
+sat_font_info
+sat_text_measure
+sat_text_draw
+sat_text_draw_ex
+```
 
+Requirements:
+
+- runtime font data is bounded and Saturn-ready;
+- TTF/OTF parsing/rasterization is expected to happen offline for the default pipeline;
+- generated asset contains glyph atlas + metrics + mapping;
+- no runtime dependency on FreeType-like desktop libraries;
+- variable scale/tint behavior is documented according to renderer capability;
+- default/built-in font remains possible;
+- UTF support level is explicit rather than accidental.
+
+Asset pipeline concept:
+
+```text
+TTF / OTF
+   |
+ host-side bake
+   v
+atlas + glyph metrics + character map
+   |
+   v
+sat_font_t runtime asset
+```
+
+Phase gate: measure/draw consistency, multiple glyph widths, clipping, scale, missing-glyph policy, and baked-font example.
+
+---
+
+# Phase 8 — High-level audio: sounds and streams
+
+Build a native layer above raw SCSP concepts.
+
+## 8.1 Streaming primitive
+
+Conceptually:
+
+```c
 typedef struct sat_audio_spec {
     uint32_t frequency;
     uint16_t buffer_frames;
@@ -750,47 +753,37 @@ sat_audio_stream_flush
 sat_audio_stream_close
 ```
 
-Architecture:
+Use caller-owned/fixed ring buffers with tested underrun/overrun semantics.
+
+## 8.2 Short sound abstraction
+
+Add a convenient bounded sound resource/player layer for common game effects:
 
 ```text
-Game / decoder
-      |
-      v
-sat_audio_stream_write
-      |
- bounded ring buffer
-      |
- SCSP transfer / playback backend
-      |
-     SCSP
+sat_sound_load / create
+sat_sound_play
+sat_sound_stop
+sat_sound_is_playing
+sat_sound_destroy
 ```
 
-Requirements:
+Internally this may map to prepared SCSP playback resources; public game code must not manage SCSP slots.
 
-- fixed/caller-owned ring buffer;
-- underrun and overrun behavior documented;
-- supported sample rates/formats explicit;
-- conversion/resampling either belongs in a separate reusable helper or returns unsupported; do not hide an expensive unbounded resampler;
-- mono/stereo behavior explicit;
-- stream state queryable;
-- host tests cover ring-buffer arithmetic independently of hardware.
+## 8.3 Music/stream abstraction
 
-The first acceptance implementation only needs the smallest robust PCM streaming subset that can later back queued SDL audio.
+Provide a small streaming abstraction useful for raylib-like `LoadMusicStream`/`UpdateMusicStream` patterns without copying raylib lifecycle exactly.
 
-Phase gate:
+The runtime should support preconverted streamable audio from the asset pipeline. Runtime OGG/MP3 decoding is not a requirement.
 
-- continuous PCM playback in an example or harness fixture;
-- no underrun under the documented normal producer cadence;
-- ring-buffer host tests pass;
-- no heap allocation.
+Phase gate: PCM stream, short sound playback, stream state, ring-buffer tests, deterministic voice/stream exhaustion, and no heap.
 
 ---
 
-# Phase 8 — File/data I/O abstraction
+# Phase 9 — Filesystem, logical assets, and VFS
 
-Portable game code should not need to know whether bytes came from ISO9660, CD sectors, RAM, or another LibSaturn backend.
+This phase is critical for real source ports.
 
-Audit existing CD/filesystem code first.
+## 9.1 Generic file I/O
 
 Target handle-based API:
 
@@ -805,110 +798,164 @@ sat_file_close
 
 Requirements:
 
-- bounded fixed handle table or caller-owned file objects;
-- explicit read-only support is acceptable initially;
-- seek semantics and error cases documented;
-- paths have a documented normalization/case policy;
+- fixed handle table or caller-owned object;
+- read-only initially is acceptable;
 - no implicit whole-file allocation;
-- streaming reads are supported;
-- backend-specific APIs remain available separately.
+- streaming reads;
+- documented path normalization/case behavior;
+- backend-specific CD APIs stay separate.
 
-This abstraction is useful for native asset/data streaming and later maps naturally to SDL's stream/I/O concepts without importing SDL semantics into core.
+## 9.2 Logical asset paths
+
+Add an asset lookup layer so source-port code can continue referring to logical source names even when build tools have transcoded the payload.
+
+Example source code:
+
+```c
+sat_texture_load("assets/player.png", &texture);
+sat_sound_load("audio/jump.wav", &sound);
+sat_font_load("fonts/main.ttf", &font);
+```
+
+Possible Saturn build representation:
+
+```text
+assets/player.png  -> baked indexed texture entry
+audio/jump.wav     -> prepared PCM entry
+fonts/main.ttf     -> baked font atlas entry
+```
+
+The logical key remains stable; the physical representation does not need to preserve the original desktop file format.
+
+## 9.3 Generated asset registry / manifest
+
+Extend the host asset pipeline with a deterministic generated registry containing at least:
+
+```text
+logical path
+asset kind
+physical CD path or embedded symbol
+format metadata
+size / dimensions / stream metadata
+optional hash/version
+```
+
+Lookup must be bounded and deterministic. Do not require a runtime dynamic hash table unless a fixed implementation is explicitly provisioned.
+
+## 9.4 Explicit raw-file escape hatch
+
+Native games and ports must still be able to open raw data files that are not typed assets. `sat_asset_*` complements `sat_file_*`; it does not replace it.
 
 Phase gate:
 
-- read a repository-owned acceptance data file from the generated ISO;
-- seek and partial reads tested;
-- handle exhaustion returns `SAT_ERR_CAPACITY`;
-- invalid path/file errors are distinguishable from invalid arguments if the result-code system is extended.
+- load at least texture, font, sound, and generic data by logical path;
+- verify asset lookup after offline conversion;
+- partial/streaming reads work;
+- handle/registry exhaustion is deterministic;
+- missing asset and I/O failures are distinguishable.
 
 ---
 
-# Phase 9 — Native 2D runtime acceptance example
+# Phase 10 — High-level 3D facade for portable game code
 
-Create a native example specifically to prove the high-level API before any SDL code exists.
+LibSaturn already has `math3d`, `mesh3d`, `model3d`, `render3d`, and animation facilities. Do not rewrite them to imitate raylib.
 
-A suitable name is:
+Instead, identify the smallest additional high-level facade needed so ordinary model-rendering code does not need backend details.
+
+Candidate concepts:
 
 ```text
-examples/runtime_2d
+sat_camera3d_t
+sat_render3d_begin(camera)
+sat_model_draw(model, transform, params)
+sat_render3d_end()
+sat_draw_billboard(...)
 ```
 
-The example must use high-level runtime headers only for normal game operations. Hardware-specific headers may be used by library internals but not by the example's gameplay/render/audio code.
+Goals:
 
-The example should demonstrate:
+- convenient camera setup;
+- reusable model transform structure;
+- simple model/material draw parameters;
+- billboard support where it maps naturally to the current renderer;
+- current detailed mesh/model APIs remain first-class;
+- skeletal animation support reuses existing LibSaturn facilities rather than adding raylib-specific state.
 
-1. one sprite sheet with at least four animation frames;
-2. drawing via source rectangles;
-3. explicit region prewarming during startup;
-4. scaling;
-5. horizontal flip;
-6. rotation using the high-level API;
-7. filled rectangle and line drawing;
-8. controller input;
-9. millisecond-based animation timing rather than one-step-per-rendered-frame logic;
-10. a small dynamic texture update or animated CPU-generated surface;
-11. streamed PCM audio;
-12. reading at least one small data/config asset through `sat_file_*`;
-13. on-screen or serial/debug visibility for capacity/errors where practical.
+Do **not** promise raylib `rlgl`, programmable shaders, arbitrary render targets, or OpenGL-like state.
 
-Acceptance gameplay code should look conceptually like this:
+Phase gate: a native example can draw a model using camera + model facade without direct VDP1 command knowledge; existing 3D examples/regressions remain green.
 
-```c
-sat_surface_t sheet_surface;
-sat_texture_t sheet;
+---
 
-sat_surface_init(...);
-sat_texture_create_from_surface(&sheet, &sheet_surface, ...);
+# Phase 11 — Native runtime acceptance examples
 
-sat_texture_prepare_region(sheet, &run_frames[0]);
-sat_texture_prepare_region(sheet, &run_frames[1]);
+## 11.1 `runtime_2d`
 
-while (running) {
-    sat_event_t event;
-    while (sat_event_poll(&event) == SAT_OK) {
-        handle_event(&event);
-    }
+Create or evolve a native example demonstrating:
 
-    update(sat_time_ms());
+1. sprite sheet with at least four frames;
+2. source rectangles;
+3. startup region prewarming;
+4. scaling and flipping;
+5. rotation;
+6. tint/blend supported subset;
+7. Camera2D/state push-pop;
+8. clipping;
+9. shapes;
+10. controller input and events;
+11. millisecond-based animation;
+12. dynamic texture update;
+13. baked-font text;
+14. short sound effect;
+15. streamed audio/music;
+16. texture/font/sound/data loading by logical asset path;
+17. capacity/error diagnostics.
 
-    sat_begin_frame();
-    sat_draw_texture(sheet, &run_frames[frame], &dst, &params);
-    sat_end_frame();
-}
-```
+The gameplay code must not perform VDP1 source-address math, CRAM management, sprite-sheet repacking, SCSP slot handling, or CD-sector reads.
 
-Exact lifecycle calls may differ after implementation, but the example must remain free of VDP1 source-address math, texture repacking, manual CRAM ownership, and direct SCSP streaming details.
+## 11.2 `runtime_3d`
+
+Add or adapt a small acceptance example proving:
+
+- high-level camera setup;
+- model load/use through the asset/runtime path;
+- model transform and drawing;
+- billboard if implemented;
+- controller-driven camera;
+- no direct hardware command construction in gameplay code.
 
 Run/build gate:
 
 - host tests green;
 - all examples compile;
-- `runtime_2d` builds to ISO/CUE;
-- run it through the normal emulator path;
-- verify animation, source rectangles, flip, rotation, input, audio, dynamic update, and file read.
+- acceptance examples build to ISO/CUE;
+- run through the normal emulator path;
+- verify relevant functionality in harness/emulator.
 
 ---
 
-# Phase 10 — Public API cleanup and documentation
+# Phase 12 — Public API cleanup and documentation
 
-After the acceptance example passes, review the complete public header set for naming and ownership consistency.
+Review naming, ownership, and layering across public headers.
 
-Target organization:
+Target conceptual organization:
 
 ```text
 include/saturn/
     core.h
+    memory.h
     color.h
-    geometry2d.h       or equivalent common placement
+    geometry2d.h
     time.h
     input.h
     event.h
     surface.h
     texture.h
     render2d.h
+    font.h
     audio.h
     file.h
+    asset.h
 
     vdp1.h
     vdp2.h
@@ -923,73 +970,139 @@ include/saturn/
     ...
 ```
 
-Do not create headers solely to match this proposed tree if an existing header has a cleaner responsibility. The important constraint is conceptual separation.
+Do not create a header merely to match this tree if an existing responsibility boundary is cleaner.
 
 Document for every resource type:
 
-- owner;
+- ownership;
 - lifetime;
-- whether it references caller memory;
-- fixed capacity involved;
+- caller-memory references;
+- capacity;
 - update/invalidation rules;
-- thread/CPU assumptions if relevant;
+- CPU/thread assumptions;
 - hardware limitations visible at the abstraction boundary.
 
-Add a README section explaining the two-level API model:
+README should explain:
 
 ```text
 High-level runtime: portable game concepts with Saturn-aware implementation.
-Low-level hardware: explicit VDP1/VDP2/SCSP/SMPC control for Saturn-specific work.
+Low-level hardware: explicit Saturn control for hardware-specific work.
 ```
 
-Do not advertise SDL compatibility yet unless the shim actually exists.
+Do not advertise SDL/raylib compatibility until those adapters actually exist.
 
 ---
 
-# Phase 11 — SDL-readiness review
+# Phase 13 — SDL2-readiness review
 
-Only after Phases 0-10 are green, perform a paper mapping of the intended SDL2 subset onto native LibSaturn APIs.
-
-The mapping should require no new hardware workaround inside the SDL layer for the basic subset:
+Perform a paper mapping after native phases are green:
 
 | SDL2 concept | Expected LibSaturn mapping |
 |---|---|
 | `SDL_GetTicks` | `sat_time_ms` |
-| `SDL_Surface` | caller-backed `sat_surface_t` wrapper |
-| `SDL_CreateTextureFromSurface` | `sat_texture_create_from_surface` |
-| `SDL_UpdateTexture` | `sat_texture_update_rect` |
+| `SDL_Surface` | caller-backed `sat_surface_t` |
+| `SDL_CreateTextureFromSurface` | logical texture creation |
+| `SDL_UpdateTexture` | texture update rect |
 | `SDL_RenderCopy` | `sat_draw_texture` |
-| `SDL_RenderCopyEx` | `sat_draw_texture` + draw params |
+| `SDL_RenderCopyEx` | `sat_draw_texture` + params |
 | `SDL_RenderFillRect` | `sat_fill_rect` |
 | `SDL_RenderDrawLine` | `sat_draw_line` |
-| `SDL_PollEvent` | `sat_event_poll` + semantic mapping |
+| `SDL_PollEvent` | `sat_event_poll` mapping |
 | controller polling | `sat_pad_poll_port` |
 | queued audio | `sat_audio_stream_write` |
-| basic stream/file reads | `sat_file_*` |
+| stream/file reads | `sat_file_*` |
 
 Create `docs/SDL2_COMPATIBILITY_LAYER_PLAN.md` only after this review.
 
-If the mapping requires SDL code to implement any of the following, return to the relevant native phase first:
+If SDL code would need VDP1 coordinate conversion, source repacking, region caching, palette/VRAM allocation, format conversion, raw SMPC state tracking, raw SCSP mechanics, or CD-sector logic, return to the corresponding native phase.
 
-- VDP1 coordinate conversion;
-- source-rectangle pixel repacking;
-- VDP1 region caching;
-- CRAM allocation;
-- VRAM allocation;
-- texture-format conversion;
-- raw SMPC button transition tracking;
-- raw SCSP ring-buffer mechanics;
-- CD-sector/file streaming details.
+---
 
-Those are LibSaturn responsibilities.
+# Phase 14 — raylib-readiness review
+
+Perform a separate paper mapping of a realistic raylib subset.
+
+## Tier 1 — Core / 2D
+
+Expected mappings:
+
+| raylib concept | Expected LibSaturn mapping |
+|---|---|
+| `InitWindow` | LibSaturn init + fixed display config |
+| `CloseWindow` | shutdown |
+| `WindowShouldClose` | platform-specific exit convention / adapter policy |
+| `BeginDrawing` / `EndDrawing` | frame lifecycle |
+| `ClearBackground` | high-level clear/backdrop path |
+| `GetTime` / `GetFrameTime` | `sat_time_*` + delta |
+| `IsKeyDown` / `IsKeyPressed` | adapter mapping over pad state/events |
+| gamepad APIs | `sat_pad_poll_port` / events |
+| `Image` | `sat_surface_t` or typed asset representation |
+| `Texture2D` | `sat_texture_t` |
+| `LoadTexture(path)` | `sat_asset`/logical path + texture creation |
+| `UpdateTexture` | texture update |
+| `DrawTexture*` / `DrawTexturePro` | `sat_draw_texture` |
+| shape drawing | high-level shape API |
+| `BeginMode2D` / `EndMode2D` | bounded render-state stack + Camera2D |
+| scissor mode | high-level clip capability |
+| colors/tint | `sat_color_t` + supported modulation |
+
+## Tier 2 — Text / audio / files
+
+| raylib concept | Expected LibSaturn mapping |
+|---|---|
+| `Font` | `sat_font_t` |
+| `LoadFont(path)` | baked font via logical asset path |
+| `MeasureText*` | `sat_text_measure` |
+| `DrawText*` | high-level text drawing |
+| `Sound` | short sound resource |
+| `LoadSound(path)` | preconverted sound asset |
+| `PlaySound` | sound player |
+| `Music` | high-level stream/music resource |
+| `LoadMusicStream(path)` | preconverted streaming asset |
+| `UpdateMusicStream` | stream maintenance API |
+| file data APIs | `sat_file_*` / `sat_asset_*` |
+
+## Tier 3 — 3D
+
+| raylib concept | Expected LibSaturn mapping |
+|---|---|
+| `Camera3D` | `sat_camera3d_t` or existing camera representation |
+| `BeginMode3D` / `EndMode3D` | high-level 3D frame/state facade |
+| `Mesh` / `Model` | existing LibSaturn mesh/model runtime |
+| `DrawModel*` | `sat_model_draw` facade |
+| billboards | high-level billboard draw if implemented |
+| model animation subset | existing LibSaturn animation facilities |
+
+## Tier 4 — Explicitly hardware-dependent / limited
+
+These are **not** readiness blockers for the initial raylib adapter:
+
+```text
+BeginShaderMode / Shader / GLSL semantics
+rlgl compatibility
+arbitrary RenderTexture2D semantics
+OpenGL-style custom batching
+multiple desktop windows
+clipboard/cursor/desktop monitor APIs
+unrestricted mouse semantics
+```
+
+For each unsupported or limited feature, the eventual adapter must:
+
+- document the limitation;
+- fail clearly where a meaningful fallback does not exist;
+- use a native VDP1/VDP2 capability only when semantics are sufficiently close;
+- never pretend programmable shaders exist.
+
+Create `docs/RAYLIB_COMPATIBILITY_LAYER_PLAN.md` only after this review passes for Tiers 1 and 2. Tier 3 may be implemented incrementally afterward, but the native 3D facade should already be coherent.
+
+If raylib adapter code needs to implement sprite-sheet repacking, image conversion, Camera2D transform math, font baking, SCSP voice management, asset transcoding, or CD lookup itself, return to the corresponding native phase.
 
 ---
 
 ## Result-code review
 
-The current result set may become too coarse as the runtime grows.
-
-During implementation, evaluate whether the public error model needs explicit values equivalent to:
+Evaluate whether the result model needs useful distinctions such as:
 
 ```text
 SAT_ERR_NOT_FOUND
@@ -999,31 +1112,36 @@ SAT_ERR_NO_SOURCE
 SAT_ERR_BUSY
 ```
 
-Do not add codes speculatively. Add them only when callers can usefully distinguish the condition and tests cover the distinction.
+Do not add codes speculatively. Add them only when callers can act differently and tests cover the distinction.
 
-Compatibility layers must be able to translate meaningful LibSaturn failures into their own error mechanisms without parsing strings.
+Compatibility layers must translate meaningful LibSaturn errors without parsing strings.
 
 ---
 
 ## Capacity and configuration strategy
 
-Every new managed subsystem must publish its bounded nature.
+Managed subsystems must publish their bounded nature.
 
-Candidate capacities include:
+Candidate capacities:
 
 ```text
+arena/pool backing sizes
 logical texture slots
-prepared texture-region metadata entries
+prepared texture-region metadata
 region-cache VRAM budget
+render-state stack depth
 event queue length
-audio stream count
-audio ring-buffer capacity
-open file handles
+font/glyph resources
+sound voices
+audio streams and ring buffers
+open files
+asset registry entries
+3D model/runtime handles where managed
 ```
 
-Prefer central configuration through clearly named compile-time definitions or an initialization config object rather than unrelated magic numbers scattered across implementation files.
+Prefer central configuration through named compile-time definitions or an initialization config object rather than unrelated magic numbers.
 
-Where practical, add read-only diagnostics such as:
+Where practical expose diagnostics:
 
 ```text
 used
@@ -1032,7 +1150,7 @@ high-water mark
 overflow count
 ```
 
-These are especially valuable on Saturn, where a compatibility layer must diagnose why a desktop-oriented game exceeded console budgets.
+These are especially valuable when adapting desktop-oriented games to console budgets.
 
 ---
 
@@ -1042,32 +1160,37 @@ These are especially valuable on Saturn, where a compatibility layer must diagno
 
 Keep pure logic host-testable:
 
-- surface conversion and blits;
-- pitch handling;
-- rectangle clipping/intersection;
-- texture handle generation checks;
-- pool exhaustion;
+- arenas/pools and alignment;
+- surface conversion/blits/pitch;
+- geometry/clipping;
+- texture handle generations;
 - region cache lookup/eviction/invalidation;
-- draw coordinate conversion;
-- rotated quad generation;
-- event synthesis and queue behavior;
-- timer delta/wrap helpers;
-- audio ring buffer;
-- file handle table logic.
+- draw transforms and rotated quads;
+- Camera2D transforms/state stack;
+- tint/blend capability selection;
+- event synthesis/queue behavior;
+- timer wrap/deltas;
+- font metrics/layout;
+- audio ring buffers;
+- file-handle logic;
+- asset registry/path normalization;
+- 3D facade transform conversion where pure.
 
 ### Hardware/HAL-facing tests
 
-Verify exact Saturn behavior for:
+Verify:
 
-- native texture upload;
-- CRAM allocation;
-- VDP1 source addresses and dimensions;
-- scaled/distorted sprite command fields;
-- verified direct-source-region paths;
+- texture upload and CRAM allocation;
+- VDP1 source addresses/dimensions;
+- scaled/distorted command fields;
+- verified direct source-region paths;
+- clipping/tint/blend hardware paths;
 - cache uploads;
-- SCSP streaming;
-- controller port reads;
-- CD/file backend reads.
+- font atlas drawing;
+- SCSP sound/stream playback;
+- controller ports;
+- CD/file/asset reads;
+- high-level 3D facade lowering.
 
 ### Regression gates
 
@@ -1080,27 +1203,29 @@ build all examples before phase completion
 run relevant emulator/harness acceptance
 ```
 
-Do not defer mass migration failures until the end.
+Do not defer repository-wide migration failures until the end.
 
 ---
 
-## Explicit non-goals for this plan
+## Explicit non-goals
 
 This plan does **not** require:
 
-- implementing SDL2;
-- implementing SDL3;
-- API compatibility with SDL naming or ABI;
+- implementing SDL2 or raylib themselves;
+- SDL/raylib ABI compatibility in the LibSaturn core;
 - desktop-style multiple windows;
-- OpenGL or Vulkan emulation;
+- OpenGL/Vulkan emulation;
+- programmable shaders;
+- full `rlgl` compatibility;
+- arbitrary render-to-texture semantics;
 - desktop clipboard APIs;
 - general-purpose POSIX threading;
 - hiding every Saturn hardware limit;
-- converting LibSaturn into a software renderer;
-- runtime parsing of general desktop image formats unless separately justified;
+- turning LibSaturn into a generic software renderer;
+- runtime parsing of PNG/JPEG/TTF/OGG/MP3 unless separately justified;
 - heap allocation.
 
-The purpose is to create strong native primitives, not to reproduce a PC operating environment.
+The purpose is to create strong native primitives, not reproduce a PC operating environment.
 
 ---
 
@@ -1109,51 +1234,58 @@ The purpose is to create strong native primitives, not to reproduce a PC operati
 ```text
 Phase 0   baseline / audit
    |
-Phase 1   geometry + pixel formats + time
+Phase 1   geometry + color + memory + time
    |
 Phase 2   caller-backed surfaces
    |
-Phase 3   logical texture / native VDP1 texture split
+Phase 3   logical texture / native VDP1 split
    |
-Phase 4   high-level render2d
+Phase 4   render2d + render state + Camera2D
    |
-Phase 5   native source-region resolver/cache
+Phase 5   source-region resolver/cache
    |
 Phase 6   multi-port input + events
    |
-Phase 7   audio streaming
+Phase 7   high-level fonts/text
    |
-Phase 8   file I/O
+Phase 8   sounds + audio streaming
    |
-Phase 9   native runtime_2d acceptance example
+Phase 9   file I/O + logical assets/VFS
    |
-Phase 10  public API cleanup/docs
+Phase 10  high-level 3D facade
    |
-Phase 11  SDL-readiness review
+Phase 11  native runtime acceptance examples
    |
-   +----> only now design the SDL2 shim
+Phase 12  public API cleanup/docs
+   |
+   +----> Phase 13 SDL2-readiness review
+   |
+   +----> Phase 14 raylib-readiness review
+              |
+              +----> compatibility-layer plans
 ```
 
-The most important dependency chain is:
+Critical 2D dependency chain:
 
 ```text
-surface
-   -> logical texture
-      -> source-region resolver
-         -> render2d
-            -> native acceptance
-               -> SDL2 compatibility
+memory + surface
+      -> logical texture
+         -> source-region resolver
+            -> render2d/state/Camera2D
+               -> font/audio/assets
+                  -> native acceptance
+                     -> SDL2 + raylib adapters
 ```
 
-Do not start by implementing SDL calls and then backfill missing native APIs around them. The native API must become coherent first.
+Do not start by implementing SDL/raylib calls and then backfill native APIs around them.
 
 ---
 
-## Final architectural acceptance rule
+## Final architectural acceptance rules
 
-Before declaring this plan complete, inspect the future-looking pseudocode for an SDL renderer implementation.
+### SDL2
 
-It should be possible for `SDL_RenderCopy` to be essentially this simple:
+`SDL_RenderCopy` should eventually be close to:
 
 ```c
 int SDL_RenderCopy(
@@ -1164,21 +1296,40 @@ int SDL_RenderCopy(
 {
     sat_rect_t sat_src;
     sat_rect_t sat_dst;
-
     const sat_rect_t* src_ptr = convert_optional_rect(src, &sat_src);
     convert_rect(dst, &sat_dst);
 
-    sat_result_t result = sat_draw_texture(
-        texture->native,
-        src_ptr,
-        &sat_dst,
-        NULL
+    return translate_result(
+        sat_draw_texture(texture->native, src_ptr, &sat_dst, NULL)
     );
-
-    return translate_result(result);
 }
 ```
 
-If the real implementation instead needs to know how to crop source pixels, allocate VDP1 texture space, upload a temporary character pattern, manage palettes, convert coordinate origins, or invalidate texture-region caches, the abstraction boundary is still wrong.
+### raylib
+
+`DrawTexturePro` should eventually be close to:
+
+```c
+void DrawTexturePro(
+    Texture2D texture,
+    Rectangle source,
+    Rectangle dest,
+    Vector2 origin,
+    float rotation,
+    Color tint)
+{
+    sat_rect_t src = convert_rect(source);
+    sat_rect_t dst = convert_rect(dest);
+    sat_draw_params_t params = convert_draw_params(origin, rotation, tint);
+
+    raylib_sat_set_error(
+        sat_draw_texture(texture.native, &src, &dst, &params)
+    );
+}
+```
+
+And `LoadTexture("assets/player.png")` should resolve through LibSaturn's logical asset layer rather than teaching the raylib shim how to parse PNG, locate CD sectors, convert pixels, allocate CRAM, or prepare VDP1 textures.
+
+If either real adapter needs to crop source pixels, allocate hardware texture space, manage palettes, convert coordinate origins, synthesize Camera2D transforms, bake fonts, manage SCSP voices, transcode assets, or invalidate region caches itself, the abstraction boundary is still wrong.
 
 That is the gate this plan exists to enforce.
