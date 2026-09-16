@@ -34,11 +34,12 @@ inline sat_result_t eval(
         return SAT_OK;
     }
 
-    const uint32_t span = static_cast<uint32_t>(fade->end - fade->start);
-    const uint32_t pos = static_cast<uint32_t>(view_depth - fade->start);
+    const uint64_t span = static_cast<uint64_t>(
+        static_cast<int64_t>(fade->end) - static_cast<int64_t>(fade->start));
+    const uint64_t pos = static_cast<uint64_t>(
+        static_cast<int64_t>(view_depth) - static_cast<int64_t>(fade->start));
     uint32_t level = static_cast<uint32_t>(
-        (static_cast<uint64_t>(pos) * static_cast<uint64_t>(fade->levels)) /
-        static_cast<uint64_t>(span));
+        (pos * static_cast<uint64_t>(fade->levels)) / span);
     if (level >= fade->levels) {
         level = static_cast<uint32_t>(fade->levels - 1u);
     }
