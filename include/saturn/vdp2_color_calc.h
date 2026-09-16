@@ -40,8 +40,10 @@ sat_result_t sat_vdp2_sprite_color_calc_set_ratio(
 );
 
 /* Replays SPCTL/PRISA/CCCTL/CCRSA-D from LibSaturn's color-calc state.
- * Call during VBlank after sat_vdp2_layers_commit() when that layer commit is
- * used, because the generic layer commit replays its own PRISA shadow. */
+ * When called outside VBlank, the implementation waits for the next VBlank
+ * start before writing the latched VDP2 registers. If sat_vdp2_layers_commit()
+ * is also used during the same VBlank, call this afterwards because the generic
+ * layer commit replays its own PRISA shadow. */
 sat_result_t sat_vdp2_sprite_color_calc_commit(void);
 
 sat_result_t sat_vdp2_sprite_color_calc_disable(void);
