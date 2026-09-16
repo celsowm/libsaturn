@@ -11,6 +11,7 @@
 #include "saturn/model3d.h"
 #include "saturn/anim3d.h"
 #include "saturn/render3d.h"
+#include "saturn/fade3d.h"
 #include "saturn/video.h"
 #include "saturn/input.h"
 #include "saturn/app.h"
@@ -23,6 +24,8 @@
 #include "saturn/physics.h"
 #include "saturn/collide3d.h"
 #include "saturn/vdp1.h"
+#include "saturn/vdp1_color_calc.h"
 #include "saturn/vdp2.h"
+#include "saturn/vdp2_color_calc.h"
 
 #endif /* SATURN_SATURN_H */
