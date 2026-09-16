@@ -1,47 +1,53 @@
-# LibSaturn Audio & Music Runtime — Execution Plan
+# LibSaturn Audio, Music & MIDI Runtime — Execution Plan
 
 ## Purpose
 
 Build a complete native audio foundation for LibSaturn before SDL2/raylib compatibility work depends on it.
 
-The end result must support all three common game-audio workloads:
+The runtime must support four distinct game-audio workloads:
 
-1. **resident sound effects** — short samples such as jump, hit, menu click, explosion;
+1. **resident sound effects** — short reusable PCM assets such as jump, hit, menu click, explosion;
 2. **streamed music / long-form audio** — BGM and long tracks that must not consume the entire SCSP sound RAM;
-3. **generic PCM streaming** — procedural audio, decoders, SDL queued audio, raylib `AudioStream`, and future source ports.
+3. **generic PCM streaming** — procedural audio, decoders, SDL queued audio, raylib `AudioStream`, and future source ports;
+4. **sequenced music** — Standard MIDI File source material compiled offline into a Saturn-native event stream plus a trimmed instrument/sample bank.
 
-This is not a thin wrapper over SCSP registers. LibSaturn must own the difficult Saturn-specific pieces: sound-system startup, sound RAM management, slot/voice scheduling, PCM playback, transfers, buffering, underrun handling, mixing policy, CD/file streaming, and hardware limitations.
+This is not a thin wrapper over SCSP registers. LibSaturn must own the difficult Saturn-specific pieces: sound-system startup, sound RAM management, slot/voice scheduling, PCM playback, transfers, buffering, underrun handling, gain/pan policy, sequence timing, instrument/sample-bank management, CD/file streaming, and hardware limitations.
 
 The target architecture is:
 
 ```text
-                       Game / engine
-                            |
-          +-----------------+-----------------+
-          |                 |                 |
-      sat_sound_t       sat_music_t     sat_audio_stream_t
-     short resident      long/streamed     generic PCM
-          |                 |                 |
-          +-----------------+-----------------+
-                            |
-                    High-level audio API
-                            |
-                 voices / buses / streams
-                            |
-             sound-RAM manager / scheduler
-                            |
-                 transport / refill logic
-                            |
-               +------------+------------+
-               |                         |
-          SCSP HAL                    CD / file I/O
-               |                         |
-         slots / mixer / RAM         streamed payload
-               |
-        SCSP + MC68EC000
+                              Game / engine
+                                   |
+          +------------------------+------------------------+
+          |                        |                        |
+      sat_sound_t              sat_music_t          sat_audio_stream_t
+     resident SFX             streamed PCM             generic PCM
+          |                        |                        |
+          +------------------------+------------------------+
+                                   |
+                            sat_sequence_t
+                         MIDI/sequence playback
+                                   |
+          +------------------------+------------------------+
+          |                        |                        |
+       voices                   streams              sequencer/events
+          |                        |                        |
+          +------------------------+------------------------+
+                                   |
+                 sound-RAM manager / buses / scheduler
+                                   |
+                 transfer / refill / command transport
+                                   |
+                    +--------------+--------------+
+                    |                             |
+                 SCSP HAL                    CD / file / VFS
+                    |                             |
+             slots / mixer / RAM            streamed payloads
+                    |
+             SCSP + MC68EC000
 ```
 
-The future SDL2 and raylib compatibility layers are consumers of this runtime, not architectural templates for it.
+SDL2, raylib, Allegro, custom engines, and future source-port layers are consumers of this runtime. They are not architectural templates for it.
 
 ---
 
@@ -51,92 +57,98 @@ Do not encode assumptions from memory. Verify every hardware-sensitive detail ag
 
 At minimum, implementation must account for these documented characteristics:
 
-- Saturn sound block includes the **MC68EC000 sound CPU, SCSP, and 4 Mbits / 512 KiB of sound RAM**;
+- the Saturn sound block includes the **MC68EC000 sound CPU, SCSP, and 4 Mbits / 512 KiB of sound RAM**;
 - SCSP exposes **32 audio slots** usable for PCM/FM;
-- waveform data supports at least the documented **8-bit and 16-bit PCM formats**;
+- waveform data supports documented **8-bit and 16-bit PCM formats**;
 - SCSP has per-slot envelope/LFO facilities, output mixing, and DSP facilities;
-- SCSP sound-system startup/reset involves the SMPC and the sound CPU;
+- sound-system startup/reset involves the SMPC and the sound CPU;
 - SMPC `SNDON`/`SNDOFF` control sound-CPU reset state;
-- SCSP has interrupt and DMA facilities, but their real usefulness for our transport path must be measured rather than assumed;
-- CD audio/CD data paths have different semantics and must not be conflated with PCM streamed through our runtime.
+- SCSP has interrupt and DMA facilities, but their usefulness for the chosen transport path must be measured rather than assumed;
+- SCSP contains a MIDI serial interface at MIDI rate, but the retail Saturn does not provide a directly usable DIN MIDI peripheral; external MIDI hardware support therefore must not be confused with SMF/sequence playback;
+- CD audio/CD data paths have different semantics and must not be conflated with PCM streamed through the runtime.
 
-Before writing constants, cite the corresponding vendored hardware document in code comments where the value is non-obvious or easy to misinterpret.
+Before writing constants, cite the corresponding vendored hardware document in code comments where a value is non-obvious or easy to misinterpret.
 
 ---
 
-## Harness execution contract
-
-This document is intended to be executed phase by phase by a coding harness.
-
-Rules:
+## Core architectural rules
 
 1. Work directly in `celsowm/libsaturn` on `main`.
-2. Inspect current code and hardware documentation before implementing each phase.
+2. Inspect current code and vendored hardware documentation before implementing each phase.
 3. Run host tests after every coherent phase.
 4. Build affected examples after every public API change.
 5. Preserve the project's **no-runtime-heap** rule.
 6. Do not use hidden `malloc`, `new`, unbounded STL containers, or static constructors.
 7. Use fixed capacities, caller-owned memory, compile-time storage, or explicit arenas/pools.
-8. Keep the low-level SCSP API usable independently of high-level audio.
-9. Do not put SDL or raylib types/names into LibSaturn core APIs.
-10. Do not parse OGG/MP3/FLAC or other heavyweight desktop codecs on Saturn unless a later benchmark proves that runtime decoding is desirable and bounded.
-11. Prefer host-side conversion to a Saturn-friendly payload.
-12. Do not claim support for a sample rate, format, stereo mode, loop mode, transfer path, or mixer behavior until it is tested.
-13. Capacity failures and underruns must be observable, never silently corrupt audio.
-14. Commit coherent, tested phases directly to `main`.
-15. Use project build/run/emulator scripts according to `AGENTS.md`.
-16. The final example is an acceptance test, not decorative sample code.
+8. Keep low-level SCSP APIs independently usable.
+9. Do not put SDL, raylib, SMF, SF2, or desktop-codec implementation details into the SCSP HAL.
+10. Do not parse OGG/MP3/FLAC/SF2 or general SMF on Saturn in the first implementation.
+11. Prefer host-side conversion into bounded Saturn-native payloads.
+12. Do not claim support for a sample rate, channel mode, MIDI event, controller, loop mode, transfer path, or mixer behavior until it is tested.
+13. Capacity failures, voice steals, event drops, and underruns must be observable.
+14. Audio timing must not depend on one update per rendered frame.
+15. Commit coherent, tested phases directly to `main`.
+16. Use project build/run/emulator scripts according to `AGENTS.md`.
+17. The final example is an acceptance harness, not decorative sample code.
 
 ---
 
 # Definition of done
 
-This plan is complete only when a normal game can use audio without touching SCSP registers, sound RAM addresses, SMPC sound commands, or transport mechanics.
+A normal game must be able to use audio without touching SCSP registers, sound-RAM addresses, SMPC sound commands, MC68EC000 mailbox details, or transport mechanics.
 
-The final public runtime must provide these distinct concepts:
+The final public runtime must expose four distinct concepts:
 
 ```text
 sat_sound_t
     small/medium reusable sound effect
-    typically resident in sound RAM
+    normally resident in sound RAM
 
 sat_music_t
-    long-form track
-    streamed/refilled without requiring full residency
+    long-form PCM-like track
+    streamed/refilled without full residency
 
 sat_audio_stream_t
     generic PCM producer/consumer stream
-    used by decoders, procedural audio and compatibility layers
+    used by procedural audio and compatibility layers
+
+sat_sequence_t
+    compiled musical sequence
+    drives voices/instruments from a Saturn-native event stream
 ```
 
 The final `examples/audio_showcase` must demonstrate simultaneously:
 
-- sound-system bring-up;
-- one continuously playing/looping music stream;
-- multiple overlapping sound effects while music continues;
-- at least one mono and one stereo-relevant/panned demonstration where supported;
-- per-sound volume;
-- per-voice pan;
-- master/music/SFX bus volume if the architecture supports buses;
+- deterministic sound-system bring-up;
+- continuously playing/looping streamed music;
+- a compiled MIDI/sequence song using an instrument bank;
+- switching between streamed-music and MIDI-sequence modes;
+- optional coexistence of sequence playback with an independent generic PCM stream;
+- multiple overlapping SFX while music/sequence playback continues;
+- mono and stereo/pan-relevant demonstrations where supported;
+- per-sound/voice volume and pan;
+- master/SFX/music/sequence/stream bus gain where implemented;
 - looping SFX or loop-region behavior;
-- pause/resume/stop/restart music;
-- a generic PCM stream independent of `sat_music_t`;
+- pause/resume/stop/restart;
 - deterministic voice exhaustion/stealing behavior;
 - deterministic sound-RAM exhaustion behavior in tests;
-- live stream-buffer diagnostics;
-- underrun counting;
+- live stream and sequence diagnostics;
+- underrun/event-lateness counters;
 - no runtime heap allocation;
 - stable playback while rendering a normal LibSaturn frame loop;
 - build to ISO/CUE and execution through the normal emulator/harness path.
 
-A useful game-facing result should look approximately like:
+Game-facing usage should remain simple:
 
 ```c
 sat_sound_t jump;
 sat_music_t bgm;
+sat_sequence_t battle;
 
 SAT_TRY(sat_sound_load(&jump, "audio/jump.wav"));
 SAT_TRY(sat_music_open(&bgm, "audio/showcase_theme.ogg"));
+SAT_TRY(sat_sequence_open(&battle, "music/battle.mid"));
+
 SAT_TRY(sat_music_play(bgm, SAT_AUDIO_LOOP));
 
 while (running) {
@@ -150,7 +162,7 @@ while (running) {
 }
 ```
 
-The physical ISO does not need to contain WAV/OGG files in their desktop representation. Logical path identity may resolve to host-preconverted Saturn payloads.
+The physical ISO does not need to contain WAV/OGG/MID/SF2 files in desktop representation. Logical paths may resolve to generated Saturn-native payloads.
 
 ---
 
@@ -175,6 +187,7 @@ src/hal/scu.hpp
 examples/
 tests/host/
 harness/
+tools/
 docs/sega_saturn_hardware/hard/scsp/
 docs/sega_saturn_hardware/hard/smpc/
 docs/sega_saturn_hardware/hard/intr/
@@ -193,104 +206,107 @@ normal harness suite result
 Do not prematurely commit to one of these models:
 
 ```text
-A. SH-2-controlled
+A. SH-2 controlled
    SH-2 writes sound RAM / SCSP slot state directly.
 
 B. MC68EC000 driver
-   SH-2 sends commands to a resident 68k sound driver.
-   The sound CPU owns most slot scheduling/refill work.
+   SH-2 submits commands to a resident 68k sound driver.
+   The sound CPU owns most slot/refill/timing work.
 
 C. Hybrid
-   SH-2 owns asset/file streaming and command submission;
-   68k owns time-sensitive playback/refill/voice work.
+   SH-2 owns asset/file streaming and coarse commands;
+   68k owns time-sensitive playback/refill/sequence work.
 ```
 
-Create minimal spikes where needed and evaluate:
+Create minimal spikes where needed and measure:
 
 - implementation complexity;
-- CPU cost on SH-2;
-- timing stability under a heavy render frame;
-- communication overhead;
+- SH-2 CPU cost;
+- timing stability under heavy rendering;
+- command/mailbox overhead;
 - refill latency/jitter;
+- sequence-event jitter;
 - slot ownership clarity;
 - emulator support/reliability;
-- feasibility on real Saturn hardware assumptions;
+- assumptions likely to hold on real hardware;
 - interaction with CD reads;
 - debug/testability.
 
-The plan may begin bring-up with direct SH-2 control because it minimizes variables, but the long-term runtime architecture must be chosen from measurements before high-level APIs harden around it.
-
-Document the chosen design in the code/docs once proven.
+The bring-up may start with direct SH-2 control to reduce variables, but the long-term architecture must be selected from measurements before high-level contracts harden.
 
 Phase gate:
 
 - baseline recorded;
-- hardware constants verified;
-- control-architecture decision has evidence, not intuition;
-- no public high-level API implemented yet.
+- relevant hardware constants verified;
+- architecture decision backed by evidence;
+- no public high-level API frozen prematurely.
 
 ---
 
 # Phase 1 — Sound-system bring-up and SCSP HAL
 
-Add an explicit SCSP hardware layer, conceptually:
+Add an explicit SCSP hardware layer:
 
 ```text
 src/hal/scsp.hpp
 src/hal/scsp.cpp
 ```
 
-and any narrowly required SMPC helpers for sound-system reset/startup.
+plus narrowly required SMPC helpers for sound-system reset/startup.
 
-## 1.1 Sound startup
+## 1.1 Deterministic startup
 
-Implement and test the minimal deterministic lifecycle:
+Implement:
 
 ```text
 system init
    -> establish known sound reset state
-   -> initialize/clear required sound RAM/register state
-   -> SNDON / release sound CPU as required by chosen architecture
-   -> configure SCSP common state
+   -> release/initialize SCSP according to documented timing
+   -> configure sound-memory/common registers
+   -> initialize/clear owned sound RAM regions
+   -> install/load 68k program if architecture uses one
+   -> release sound CPU
+   -> verify driver/SCSP readiness
    -> audio ready
 ```
 
-Shutdown should leave the subsystem in a predictable state and stop active voices.
+Do not assume emulator power-on state is representative of hardware.
 
-Do not assume power-on emulator state is representative of hardware.
+## 1.2 Low-level slot primitives
 
-## 1.2 Low-level SCSP slot primitives
+HAL operations must cover only verified semantics needed by the runtime:
 
-Provide internal/HAL operations sufficient to configure and inspect a slot:
-
-- sample base/start address;
-- sample format;
+- sample start/base;
+- 8/16-bit sample format;
 - loop start/end/control;
 - pitch/sample-rate parameters;
 - direct level/output routing;
 - pan;
 - envelope values needed for clean PCM playback;
 - KEY ON / KEY OFF;
-- status needed to detect active/completed playback.
+- slot status/completion;
+- common mixer/global controls used by the runtime.
 
-Keep register bit layout in the HAL. Core/high-level code should use semantic structures.
+Keep register bit layout inside HAL.
 
-## 1.3 Common/global controls
+## 1.3 MIDI hardware registers
 
-Implement only what the runtime needs initially:
+Implement low-level MIDI-register encoding/access only if it naturally belongs in the HAL work being touched, but keep it clearly separate from `sat_sequence_t`.
 
-- master output state/level where appropriate;
-- interrupt status/acknowledgement if used;
-- mixer routing required for PCM;
-- sound-RAM access helpers;
-- transport primitives required by measured architecture.
+Possible low-level future-facing names:
 
-Do **not** implement the SCSP DSP or FM synthesis just because the registers exist.
+```text
+sat_scsp_midi_status
+sat_scsp_midi_read
+sat_scsp_midi_write
+```
+
+These APIs are **not required** by the initial showcase because external MIDI requires non-standard hardware/interface support.
 
 Phase gate:
 
 - host tests cover pure register encoding logic;
-- a deterministic SCSP init sequence exists;
+- deterministic SCSP init sequence exists;
 - no magic register values leak above HAL;
 - existing non-audio examples still build.
 
@@ -298,14 +314,12 @@ Phase gate:
 
 # Phase 2 — First PCM: prove one voice end to end
 
-Before building managers, make one known sample play correctly.
-
-Use a tiny repository-generated waveform, not copyrighted audio.
+Before managers, play one known repository-generated waveform.
 
 Acceptance fixture:
 
 ```text
-440 Hz or similarly obvious tone
+440 Hz tone
 mono
 known sample count
 known amplitude
@@ -314,30 +328,26 @@ known source sample rate
 
 Prove:
 
-- 8-bit PCM if supported by selected first path;
-- 16-bit PCM in the next sub-step;
-- correct pitch at at least two source sample rates;
+- 8-bit PCM where supported;
+- 16-bit PCM;
+- correct pitch at multiple source rates;
 - KEY ON starts cleanly;
 - KEY OFF stops cleanly;
-- one-shot completion behaves correctly;
-- looping behaves correctly;
-- no stale sound continues across reinitialization.
+- one-shot completion;
+- looping;
+- reset/reinit does not leave stale playback.
 
-If an emulator capture or deterministic SCSP state probe can validate frequency/duration automatically, add it to the harness. Otherwise include explicit runtime telemetry and keep the acceptance behavior simple enough to verify reliably.
-
-Do not move to high-level sound objects until this phase is solid.
+If emulator capture or deterministic state probes can verify frequency/duration automatically, add them to the harness.
 
 ---
 
 # Phase 3 — Sound RAM allocator and transfer layer
 
-The SCSP has limited sound RAM; treat it as a first-class managed resource.
+Treat SCSP sound RAM as a first-class bounded resource.
 
-## 3.1 Deterministic sound-RAM allocator
+## 3.1 Deterministic allocator
 
-Create a bounded allocator with explicit alignment rules derived from actual SCSP requirements.
-
-Conceptual API below the public sound layer:
+Internal API concept:
 
 ```text
 sound_ram_init
@@ -349,58 +359,42 @@ sound_ram_stats
 Requirements:
 
 - no general heap;
-- deterministic allocation failure;
-- explicit alignment;
-- coalescing policy defined if frees are supported;
-- stale/double free detectable where practical;
-- `used`, `free`, `largest_free`, `high_water` diagnostics;
-- reserved regions for driver/streaming buffers are explicit;
-- no overlap with 68k program/data if a sound-CPU driver is used.
-
-A fixed block allocator, segregated classes, free-list over static metadata, or another bounded design is acceptable. Choose based on realistic audio asset sizes and fragmentation tests.
+- deterministic failure;
+- documented alignment;
+- explicit reserved areas for 68k code, mailboxes, stream buffers, sequence bank samples, and runtime metadata;
+- coalescing/fragmentation policy if frees exist;
+- diagnostics: `used`, `free`, `largest_free`, `high_water`, failed allocations;
+- no overlap with sound-CPU program/data.
 
 ## 3.2 Transfer abstraction
 
-Separate **where data comes from** from **how it reaches sound RAM**.
-
-Conceptually:
+Separate source from transport:
 
 ```text
-CPU/file bytes
-    |
-transfer abstraction
-    |
-sound RAM
+CPU / file / generated bytes
+            |
+      transfer layer
+            |
+         sound RAM
 ```
 
-Benchmark candidate paths available to the chosen architecture. Do not blindly assume SCSP DMA solves main-CPU-to-sound-RAM transfer; the hardware documentation's DMA restrictions must be respected.
+Benchmark realistic paths. Do not assume the SCSP internal DMA is a generic main-CPU-to-sound-RAM DMA engine.
 
-Expose transfer stats useful during the showcase:
-
-```text
-bytes uploaded
-last transfer bytes
-peak transfer time
-failed transfers
-```
+Expose upload telemetry.
 
 Phase gate:
 
-- allocator stress tests;
-- exhaustion test;
-- fragmentation/reuse test if frees exist;
-- repeated upload/play/free cycles without corruption;
+- allocator stress/exhaustion/reuse tests;
+- repeated upload/play/free cycles;
 - measured transfer behavior documented.
 
 ---
 
 # Phase 4 — Voice manager
 
-A **voice** is a currently playing hardware-backed instance. A **sound** is reusable sample data. Keep those concepts separate.
+A **voice** is a currently playing hardware instance. A **sound/instrument sample** is reusable data.
 
-The SCSP exposes a finite number of slots; the runtime must own scheduling policy.
-
-Conceptual internal voice handle:
+Conceptual internal handle:
 
 ```c
 typedef struct sat_voice {
@@ -409,69 +403,47 @@ typedef struct sat_voice {
 } sat_voice_t;
 ```
 
-The exact ABI may differ.
+Responsibilities:
 
-Voice manager responsibilities:
-
-- allocate/free SCSP slots;
+- allocate/release SCSP slots;
 - track one-shot completion;
-- looping state;
-- per-voice volume;
-- per-voice pan;
-- pitch/playback-rate control where useful;
-- pause/resume if implementable cleanly;
+- looping;
+- volume/pan;
+- pitch/playback-rate;
 - priority;
-- reserved slots for streaming/music if needed;
+- owner category: SFX / MUSIC / STREAM / SEQUENCE;
+- protected/reserved voices where required;
 - generation-safe handles;
-- deterministic exhaustion behavior.
+- deterministic exhaustion.
 
 ## 4.1 Voice stealing
 
-Define an explicit policy rather than random slot reuse.
+Baseline policy:
 
-Candidate policy:
+1. free eligible voice;
+2. otherwise lowest-priority stealable voice;
+3. tie -> oldest start;
+4. protected stream/sequence/music voices are not stolen unless explicitly permitted.
 
-1. use a free eligible voice;
-2. otherwise choose the lowest-priority stealable voice;
-3. break ties by oldest start time;
-4. never steal protected music/stream voices unless explicitly allowed.
-
-Allow a play request to opt out of stealing.
+Sequence notes must participate in this policy deliberately; a dense MIDI arrangement must not randomly destroy critical SFX or stream channels.
 
 Diagnostics:
 
 ```text
-voices active / capacity
-voice steals
-failed play requests
+voices active/capacity
+voice steals by owner
+failed play/note requests
 per-bus active count
+peak simultaneous voices
 ```
-
-Phase gate:
-
-- N overlapping sounds behave deterministically;
-- all eligible slots can be exercised in a stress test;
-- voice stealing unit tests cover priority/tie behavior;
-- stopping one sound does not kill another instance of the same sample.
 
 ---
 
 # Phase 5 — High-level resident sound API
 
-Add a game-facing `audio.h` (or split headers only if responsibility remains clearer).
+Add game-facing audio types without hardware addresses.
 
-A resident sound is reusable sample data, normally preconverted and uploaded to sound RAM.
-
-Conceptual public type:
-
-```c
-typedef struct sat_sound {
-    uint16_t slot;
-    uint16_t generation;
-} sat_sound_t;
-```
-
-Do not expose sound-RAM addresses or SCSP slots through this object.
+Conceptual `sat_sound_t` is a generation-safe handle.
 
 Target operations:
 
@@ -483,55 +455,40 @@ sat_sound_stop_all_instances
 sat_sound_info
 ```
 
-Play parameters should support at least:
+Play params should support at least:
 
-```c
-typedef struct sat_sound_play_params {
-    uint16_t volume;
-    int16_t pan;
-    uint16_t priority;
-    uint16_t flags;
-} sat_sound_play_params_t;
+```text
+volume
+pan
+priority
+loop/flags
+optional pitch ratio
 ```
-
-Final ranges/types should reflect useful fixed-point/hardware resolution rather than copy SDL/raylib types.
 
 Required semantics:
 
-- a `sat_sound_t` may have multiple simultaneous playing voices;
-- unloading while active must have a documented policy;
-- invalid/stale handles fail safely;
-- logical sample rate is preserved by playback pitch calculation;
-- loop metadata is explicit;
-- SFX bus/master gain interaction is deterministic.
-
-Phase gate:
-
-- load/play/unload cycle;
-- overlapping instances;
-- pan left/center/right;
-- multiple volume levels;
-- looping effect;
-- stale handle tests;
-- deterministic resource exhaustion.
+- one sound may have multiple active instances;
+- unload-while-playing behavior documented;
+- stale handles fail safely;
+- source sample rate preserved by pitch calculation;
+- loop metadata explicit;
+- SFX/master bus interaction deterministic.
 
 ---
 
 # Phase 6 — Audio buses and gain model
 
-Introduce a small game-oriented gain hierarchy if it can be implemented cleanly:
+Provide a small bounded hierarchy:
 
 ```text
 MASTER
-  |
   +-- SFX
-  |
   +-- MUSIC
-  |
-  +-- STREAM / optional AUX
+  +-- SEQUENCE
+  +-- STREAM / AUX
 ```
 
-Required operations may be conceptually:
+Target operations:
 
 ```text
 sat_audio_set_master_volume
@@ -539,28 +496,24 @@ sat_audio_bus_set_volume
 sat_audio_bus_get_volume
 ```
 
-Do not emulate an arbitrary desktop mixer graph.
-
 Specify:
 
 - gain representation;
 - clamping;
-- whether gain changes affect already-playing voices immediately;
+- whether changes affect already-playing voices immediately;
 - pan law;
-- interaction between source gain, voice gain, bus gain, and master gain;
-- hardware vs software application of gain.
+- source x voice x bus x master composition;
+- hardware vs software gain application.
 
-Avoid expensive per-sample SH-2 mixing when SCSP hardware can perform the needed level/pan operation directly.
-
-Phase gate: gain math host tests and audible/runtime verification in the showcase scaffold.
+Avoid per-sample SH-2 mixing when the SCSP can do the job.
 
 ---
 
 # Phase 7 — Generic PCM streaming core
 
-This is the central primitive for long music, procedural audio, SDL queued audio, and raylib streams.
+This is the primitive for long PCM music, procedural audio, SDL queued audio, and raylib streams.
 
-Conceptual public configuration:
+Conceptual configuration:
 
 ```c
 typedef enum sat_audio_format {
@@ -590,17 +543,12 @@ sat_audio_stream_close
 sat_audio_stream_stats
 ```
 
-## 7.1 Buffering architecture
-
-Use a bounded ring/double-buffer strategy with explicit ownership.
-
-Conceptually:
+## 7.1 Bounded buffering
 
 ```text
 producer
    |
-   v
-CPU-side bounded ring / staging
+CPU-side fixed ring/staging
    |
 refill scheduler
    |
@@ -609,45 +557,39 @@ SCSP sound-RAM playback buffers
 SCSP voice(s)
 ```
 
-If the chosen 68k/hybrid architecture moves refill work to the sound CPU, keep the public semantics identical.
+If 68k/hybrid architecture owns refill, public semantics remain unchanged.
 
-## 7.2 Underrun model
+## 7.2 Underruns
 
-Underruns must be observable.
-
-Track at least:
+Track:
 
 ```text
 underrun_count
-overrun/rejected_write_count
-bytes/frames queued
-minimum observed fill
-maximum observed fill
+rejected/overrun_write_count
+queued frames
+minimum fill
+maximum fill
 ```
 
-Specify what audio is produced during underrun: silence, held sample, stop/restart, or another documented behavior.
+Define deterministic underrun behavior.
 
 ## 7.3 Stereo
 
-Determine experimentally the cleanest stereo strategy under the SCSP architecture. This may use paired voices/buffers or another verified path.
-
-Do not advertise stereo streams until simultaneous-channel synchronization is stable.
+Prove synchronization experimentally before advertising stereo stream support.
 
 Phase gate:
 
-- long generated PCM stream runs for several minutes in emulator without drift/crash;
-- deliberate producer starvation increments underrun count predictably;
-- pause/resume does not corrupt buffer state;
-- ring-buffer logic has pure host tests;
-- stereo, if supported, survives long-run synchronization test.
+- multi-minute stream without drift/crash;
+- intentional starvation increments underruns predictably;
+- pause/resume stable;
+- pure host ring-buffer tests;
+- stereo long-run test if enabled.
 
 ---
 
-# Phase 8 — Music runtime
+# Phase 8 — Streamed music runtime
 
-Build `sat_music_t` **on the generic streaming core**, not as a separate audio engine.
-
-A music object owns source/decoder/stream state but ultimately feeds `sat_audio_stream_t`.
+Build `sat_music_t` on `sat_audio_stream_t`, not as a separate engine.
 
 Target operations:
 
@@ -657,7 +599,7 @@ sat_music_play
 sat_music_pause
 sat_music_resume
 sat_music_stop
-sat_music_seek          if source format/backend supports it cleanly
+sat_music_seek          optional initially
 sat_music_set_loop
 sat_music_update
 sat_music_close
@@ -665,334 +607,613 @@ sat_music_info
 sat_music_stats
 ```
 
-`sat_music_update()` may remain explicit in the first version if the game must periodically feed data. If later architecture can make refill autonomous, preserve compatibility with the explicit call as a harmless/service operation.
+Support full-track looping first. Add intro+loop and sample-accurate loop points only when the physical format/backend can deliver them without gaps.
 
-## 8.1 Looping
-
-Support at least full-track looping.
-
-Later optional support:
-
-- loop start/end metadata;
-- intro + loop-body arrangement;
-- sample-accurate loop points where the physical format permits it.
-
-Do not fake seamless looping if the CD/filesystem/refill path produces a gap. Measure and test it.
-
-## 8.2 Seek
-
-Seek is useful but not required for the first acceptance if implementing it would destabilize streaming. If deferred, return `SAT_ERR_UNSUPPORTED` explicitly.
+Seek may initially return `SAT_ERR_UNSUPPORTED`.
 
 Phase gate:
 
-- music loops while gameplay/render loop runs;
-- SFX can overlap music without corruption;
+- looping music under normal rendering;
+- SFX overlap cleanly;
 - pause/resume/stop/restart stable;
-- track restart does not leak stream or sound-RAM resources;
-- at least a multi-minute stress playback run.
+- multi-minute stress run;
+- no resource leaks on repeated open/close.
 
 ---
 
-# Phase 9 — Host-side audio asset pipeline
+# Phase 9 — First-class host audio toolchain
 
-Desktop source formats are build inputs, not necessarily runtime formats.
+The toolchain is an official deliverable, not build-script glue.
 
-The intended pipeline is:
-
-```text
-WAV / OGG / FLAC / other supported source
-              |
-          host tooling
-              |
-      decode / normalize
-      resample if required
-      channel conversion
-      optional compression choice
-      loop metadata extraction
-              |
-       Saturn audio payload
-              |
-      ISO + asset metadata
-```
-
-## 9.1 SFX conversion
-
-For resident effects, generate a compact payload containing at least:
+Create and document:
 
 ```text
-sample format
-sample rate
-channels / layout
-sample count
-loop metadata
-PCM bytes
+tools/convert_audio.py
+tools/inspect_audio.py
+tools/pack_audio_assets.py
+tools/convert_midi.py
+tools/inspect_midi.py
+tools/build_midi_bank.py
+tools/generate_audio_showcase_assets.py
 ```
 
-Prefer direct SCSP-friendly PCM initially. Add compression only when the decode/space tradeoff is measured.
+Use shared Python modules internally if needed; do not duplicate codec/resample/metadata logic across scripts.
 
-## 9.2 Music conversion
+## 9.1 `convert_audio.py`
 
-Choose a stream format based on:
+Purpose:
 
-- CD bandwidth;
-- work-RAM footprint;
-- sound-RAM buffer footprint;
-- SH-2/68k decode cost;
-- seek complexity;
-- loop quality;
-- source-port usefulness.
-
-The first robust implementation may simply stream preconverted PCM if capacity/bandwidth measurements permit it. Do not introduce ADPCM solely because it sounds more sophisticated.
-
-Evaluate compression as a later measured optimization.
-
-## 9.3 Logical paths
-
-Integrate with the high-level asset/VFS direction:
-
-```c
-sat_sound_load(&sound, "audio/jump.wav");
-sat_music_open(&music, "audio/theme.ogg");
+```text
+WAV / OGG / FLAC / supported desktop source
+                    |
+              host conversion
+                    |
+          Saturn-native payload
 ```
 
-may resolve to generated Saturn-native files/registry entries while preserving the logical source path.
+Responsibilities:
 
-This is important for future SDL/raylib source ports.
+- decode source through a documented host dependency or standard-library path where possible;
+- normalize only when explicitly requested;
+- resample;
+- mono/stereo conversion;
+- 8/16-bit PCM conversion;
+- clipping/dither policy explicit;
+- loop metadata import/override;
+- deterministic payload writer;
+- `--kind sound|music|stream` presets;
+- machine-readable metadata output.
 
-## 9.4 Reproducibility
+Example UX:
 
-Asset conversion must be deterministic. Tests should verify generated metadata and hashes/byte sizes for repository-owned fixtures where appropriate.
+```bash
+python tools/convert_audio.py audio/jump.wav \
+  --kind sound \
+  --output build/audio/jump.satpcm
+
+python tools/convert_audio.py audio/theme.ogg \
+  --kind music \
+  --output build/audio/theme.satstream
+```
+
+Do not hard-depend on one external executable in every Makefile. If ffmpeg or another decoder is used, isolate and validate the dependency in the tool.
+
+## 9.2 `inspect_audio.py`
+
+Must report useful source-port/runtime budgeting information:
+
+```text
+source format
+duration
+source rate/channels/bit depth
+converted rate/channels/format
+payload bytes
+estimated stream bandwidth
+recommended/selected buffer size
+resident sound-RAM cost
+loop points
+peak amplitude / clipping warning
+```
+
+Support inspection of both desktop inputs and generated Saturn payloads.
+
+## 9.3 `pack_audio_assets.py`
+
+Purpose:
+
+- build asset/VFS metadata;
+- preserve logical source paths;
+- associate logical `audio/jump.wav` with generated payload;
+- associate logical `music/theme.ogg` with stream payload;
+- associate logical `music/battle.mid` with `.satseq` + bank;
+- emit deterministic manifests/registry data;
+- avoid embedding per-example conversion hacks in Makefiles.
+
+## 9.4 Determinism
+
+Tools must support reproducible CI outputs. Repository fixtures should have stable metadata/size/hash expectations where practical.
 
 ---
 
-# Phase 10 — File/CD streaming integration
+# Phase 10 — MIDI/sequence compilation and runtime
 
-Music playback must coexist with actual game I/O.
+MIDI support means **sequenced music**, not pretending the retail Saturn has a normal MIDI DIN port.
 
-Build on the repository's eventual high-level file/VFS abstraction when available. Until then, keep the music source interface narrow enough that the backend can be replaced without changing audio semantics.
+Desktop authoring input:
+
+```text
+song.mid
+   +
+SF2 / sample bank / explicit instrument manifest
+   |
+   +--> tools/convert_midi.py
+   +--> tools/build_midi_bank.py
+   |
+   v
+song.satseq
+song.satbank
+```
+
+The Saturn runtime should consume compact prevalidated formats. It should not need a general SMF parser or SF2 parser initially.
+
+## 10.1 SMF source support
+
+Initial tool support should target:
+
+```text
+SMF format 0
+SMF format 1
+PPQN timing
+multiple tracks
+running status
+standard tempo meta events
+```
+
+Reject unsupported/corrupt files with precise diagnostics.
+
+## 10.2 Event subset for first runtime
+
+Required:
+
+```text
+Note On
+Note Off
+Velocity
+Program Change
+Control Change: volume
+Control Change: pan
+Control Change: expression
+Control Change: sustain pedal
+Pitch Bend
+Tempo changes
+Channel 10 percussion convention
+```
+
+Later optional:
+
+```text
+aftertouch
+channel pressure
+RPN/NRPN
+selected SysEx semantics
+richer controller automation
+```
+
+Unknown metadata should be discarded or preserved according to an explicit tool policy, never silently reinterpreted.
+
+## 10.3 `tools/convert_midi.py`
+
+Responsibilities:
+
+- parse SMF;
+- merge/normalize track timing without destroying channel semantics;
+- canonicalize running status;
+- build tempo map;
+- validate event ordering;
+- resolve instrument/program usage;
+- calculate polyphony over time;
+- generate compact `.satseq` event data;
+- emit diagnostics for events not supported by runtime;
+- preserve useful track/channel names in debug metadata, not necessarily runtime payload;
+- optionally precompute event deadlines/lookahead blocks to reduce runtime work.
+
+The output format must be versioned and endian-explicit.
+
+## 10.4 `inspect_midi.py`
+
+Report:
+
+```text
+SMF format
+tracks
+PPQN
+duration
+tempo changes
+channels used
+programs used
+percussion usage
+controllers used
+pitch bend usage
+max simultaneous notes
+max notes by channel
+estimated SCSP slot pressure
+unsupported events
+bank/sample estimate
+```
+
+Example:
+
+```text
+File: boss.mid
+Format: SMF 1
+Tracks: 9
+Duration: 03:21.400
+PPQN: 480
+Tempo changes: 3
+Max simultaneous notes: 18
+Peak estimated SCSP voices: 18 / 32
+Programs: Piano, Bass, Strings, Lead
+Channel 10: drums
+Pitch bend: yes
+Sustain: yes
+```
+
+## 10.5 `build_midi_bank.py`
+
+Build only the instruments/sample regions actually required by one song or a declared song set.
+
+Inputs may include:
+
+```text
+SF2
+explicit WAV sample manifest
+future native instrument description
+```
+
+Responsibilities:
+
+- map MIDI program/percussion keys to instrument regions;
+- trim unused programs and samples;
+- resample/convert samples to SCSP-friendly format;
+- preserve sample loop points;
+- generate key/velocity region metadata;
+- generate root-key/tuning data;
+- deduplicate identical samples;
+- estimate sound-RAM residency;
+- support policies for always-resident vs load-on-song-start banks;
+- deterministic output.
+
+Do **not** attempt to load a full General MIDI soundfont into sound RAM by default.
+
+## 10.6 `sat_sequence_t`
+
+Conceptual public API:
+
+```text
+sat_sequence_open
+sat_sequence_play
+sat_sequence_pause
+sat_sequence_resume
+sat_sequence_stop
+sat_sequence_seek          optional initially
+sat_sequence_set_loop
+sat_sequence_set_tempo_scale
+sat_sequence_update
+sat_sequence_close
+sat_sequence_info
+sat_sequence_stats
+```
+
+A sequence object owns compact event state and a logical instrument bank, not hardware slots directly.
+
+## 10.7 Sequence scheduling
+
+Sequence timing must be tied to a monotonic/audio clock, not rendered frames.
+
+Bad:
+
+```text
+one MIDI tick batch per game frame
+```
+
+Required concept:
+
+```text
+canonical sequence time
+        |
+        v
+lookahead scheduler
+        |
+voice/note commands with deadlines
+        |
+SCSP/68k execution
+```
+
+If the chosen 68k driver architecture can accept timestamped/lookahead events, prefer that for low jitter. If scheduling remains on SH-2, `sat_audio_update()` must process bounded lookahead and tolerate variable frame duration without musically audible drift.
+
+Track:
+
+```text
+sequence current time/tick
+late event count
+maximum event lateness
+queued lookahead events
+notes active
+notes stolen
+loop count
+```
+
+## 10.8 Instrument/sample voice semantics
+
+Map:
+
+```text
+Note On       -> instrument region lookup -> voice start
+Note Off      -> release/key-off policy
+velocity      -> level
+audio channel volume/expression -> gain
+pan           -> SCSP pan
+note number   -> root-key-relative pitch
+pitch bend    -> pitch update
+sustain       -> deferred release
+program       -> instrument selection
+channel 10    -> percussion-key mapping
+```
+
+Envelope policy may come from the bank/instrument definition and use SCSP envelope facilities where appropriate.
+
+## 10.9 Sequence voice pressure
+
+MIDI polyphony competes for the same finite SCSP slots as SFX/streaming.
+
+Define explicit policy:
+
+- reserve minimum critical stream voices;
+- sequence notes have configurable priority class;
+- release tails may be shortened/stolen before critical attacks where musically preferable;
+- drum hits may use different stealing priority from sustained melodic notes;
+- expose sequence note steals separately from SFX steals.
+
+Phase gate:
+
+- deterministic SMF fixture compiles;
+- scale/arpeggio sequence plays correct pitches;
+- Program Change selects correct instrument;
+- sustain behaves correctly;
+- pitch bend audible/state-verifiable;
+- tempo change stays in time;
+- dense chord stress exercises voice policy deterministically;
+- sequence timing does not slow when render frames are intentionally delayed.
+
+---
+
+# Phase 11 — File/CD/VFS integration
+
+Music and sequences must coexist with game I/O.
 
 Requirements:
 
-- partial reads;
-- refill-sized reads, not full-file allocation;
-- bounded staging buffers;
-- EOF and loop restart handling;
-- read errors propagated to music state/stats;
-- no assumption that file reads complete instantly;
-- avoid long blocking refill inside latency-sensitive render paths where possible.
+- partial/refill-sized reads;
+- bounded staging;
+- EOF/loop restart;
+- read errors propagated to state/stats;
+- no whole-file allocation for streamed PCM;
+- sequence payload may be small enough for whole-file loading only when bounded policy explicitly permits it;
+- instrument-bank loading has explicit sound-RAM budget;
+- no assumption that CD reads complete instantly;
+- avoid long blocking refill inside latency-sensitive paths.
 
 Stress scenarios:
 
 ```text
-music streaming + rapid SFX
-music streaming + normal rendering
-music streaming + unrelated asset read
-music looping at EOF + SFX burst
+streamed music + SFX burst
+MIDI sequence + SFX burst
+MIDI sequence + generic PCM stream
+streamed music + unrelated asset read
+sequence bank load/unload cycles
+music loop at EOF + SFX burst
 intentional delayed refill
 ```
 
-If CD scheduling becomes a bottleneck, document the policy and expose enough telemetry to diagnose it before inventing asynchronous complexity.
-
 ---
 
-# Phase 11 — Update/service model
+# Phase 12 — Bounded update/service model
 
-Define one obvious rule for games:
+Define one obvious game rule:
 
 ```c
 sat_audio_update();
 ```
 
-or prove that no global update is required.
+or prove that no global call is needed.
 
-If retained, `sat_audio_update()` should perform bounded service work such as:
+If retained, it performs bounded service work:
 
 - reap completed voices;
-- process music/stream refills;
+- process stream/music refills;
+- advance sequence lookahead;
+- enqueue due/near-due sequence events;
 - apply deferred commands;
 - update diagnostics;
-- process sound-CPU mailbox messages if the architecture uses them.
+- service sound-CPU mailbox if used.
 
 Requirements:
 
 - bounded maximum work per call;
-- no file decode of unbounded size;
-- safe to call once per game frame;
-- behavior under frames slower than 60 Hz documented;
-- audio timing must not rely on exactly one call per VBlank.
-
-The audio system must continue correctly when a game frame spans multiple VBlanks, subject to documented buffering limits.
+- no unbounded decode/parse;
+- safe once per game frame;
+- behavior under slow frames documented;
+- audio clock independent of frame count;
+- long frame cannot make musical time itself slow down;
+- excessive lateness is counted and visible.
 
 ---
 
-# Phase 12 — `examples/audio_showcase`
+# Phase 13 — `examples/audio_showcase`
 
-Create a new first-class example:
+Create a first-class interactive acceptance example:
 
 ```text
 examples/audio_showcase/
     main.c
     Makefile.inc
     assets/
-        ... source fixtures or generated-input declarations
+        source/ or declarations
+        audio/
+        midi/
 ```
 
-Add any required host generator/converter support under `tools/` or the repository's established asset pipeline.
+The example must be a small **audio test console**, not a blank screen playing a tone.
 
-The example should look and behave like a small **audio test console**, not a blank screen that plays a beep.
+## 13.1 Host-generated fixtures
 
-## 12.1 Visual HUD
-
-Use existing LibSaturn text/2D facilities to display live state, for example:
-
-```text
-LIBSATURN AUDIO SHOWCASE
-
-MUSIC   PLAYING   LOOP ON
-TRACK   showcase_theme
-TIME    00:42
-
-SFX     laser
-PAN     +00
-VOL     100%
-
-VOICES  07 / 32
-SND RAM 214K / 512K
-STREAM  68% full
-UNDERRUNS 0
-STEALS     3
-
-A   play selected SFX
-B   burst / overlap test
-C   toggle SFX loop
-X/Y select SFX
-L/R pan left/right
-UP/DOWN volume
-Z   generic stream demo
-START pause/resume music
-```
-
-Exact controls may be adjusted to match existing input conventions, but all major capabilities must be directly exercisable.
-
-## 12.2 Required audio fixtures
-
-Do not depend on copyrighted music.
-
-Generate repository-owned deterministic audio fixtures host-side, such as:
-
-- short sine/pluck tone;
-- short noise/percussion effect;
-- short frequency sweep;
-- stereo/pan-identifiable effect;
-- a synthetic multi-second/multi-minute showcase music track generated from simple oscillators/chords/rhythm;
-- a generic procedural PCM stream fixture.
-
-A script such as:
+Use repository-owned deterministic fixtures generated by:
 
 ```text
 tools/generate_audio_showcase_assets.py
 ```
 
-may create WAV source fixtures deterministically before the normal conversion pipeline consumes them.
+Generate at least:
 
-The generated BGM should be long enough that streaming is genuinely required or its payload should be repeated/structured so the runtime path cannot accidentally pass by loading the complete music track into sound RAM.
+- short sine/pluck SFX;
+- short noise/percussion SFX;
+- sweep SFX;
+- pan-identifiable/stereo fixture;
+- looping ambience SFX;
+- multi-minute synthetic streamed BGM;
+- generic procedural PCM stream pattern;
+- a deterministic SMF song with drums, bass, chords and melody;
+- a minimal sample/instrument bank source suitable for the MIDI song.
 
-## 12.3 Interactive tests
-
-The example must demonstrate:
-
-### A — single SFX
-
-Play the selected sound once.
-
-### B — burst/voice stress
-
-Trigger a controlled burst that causes overlapping voices and eventually exercises voice-stealing policy without destabilizing music.
-
-### C — loop
-
-Toggle loop on a selected effect or dedicated looping ambience sample.
-
-### X/Y — selection
-
-Cycle among at least 3 effects with visibly/audibly different properties.
-
-### L/R — pan
-
-Move the next/current suitable effect left/right.
-
-### Up/Down — volume
-
-Adjust SFX or selected voice volume using documented increments.
-
-### Start — music pause/resume
-
-Pause and resume streamed music without reallocating the entire audio system.
-
-### Z — generic stream
-
-Toggle a procedurally generated stream so the example proves `sat_audio_stream_t` independently from `sat_music_t`.
-
-Optionally use another button combination for music restart/loop toggle if controls remain understandable.
-
-## 12.4 Stress mode
-
-Include an optional deterministic stress mode that runs without manual button mashing:
+The MIDI fixture must exercise:
 
 ```text
-- music remains streaming;
-- periodic SFX bursts;
-- pan alternates;
-- volumes vary in a fixed sequence;
-- unrelated file reads may be triggered if file API is ready;
-- counters remain on-screen.
+Note On/Off
+velocity
+Program Change
+pan
+volume/expression
+sustain
+pitch bend
+tempo change
+channel 10 percussion
 ```
 
-The harness should be able to enter stress mode through deterministic input and run it for a fixed duration.
+No copyrighted assets.
 
-## 12.5 Acceptance telemetry
+## 13.2 Visual HUD
+
+Example HUD:
+
+```text
+LIBSATURN AUDIO SHOWCASE
+
+MODE    MIDI SEQUENCE
+SONG    showcase.mid
+STATE   PLAYING / LOOP
+TIME    00:42.318
+TEMPO   128 BPM
+TICK    038420
+
+SFX     sweep
+PAN     +00
+VOL     100%
+
+VOICES  16 / 32
+  SFX    3
+  SEQ   11
+  STRM   2
+SND RAM 244K / 512K
+STREAM  71% full
+UNDERRUNS 0
+STEALS     3
+SEQ LATE   0
+
+A      play selected SFX
+B      burst / overlap stress
+C      toggle selected SFX loop
+X/Y    select SFX
+L/R    pan
+UP/DN  volume
+Z      toggle generic PCM stream
+START  pause/resume current music source
+```
+
+Provide an intuitive button combination to switch between:
+
+```text
+STREAMED BGM
+MIDI SEQUENCE
+```
+
+and another for stress mode / restart / loop toggle as control space permits.
+
+## 13.3 MIDI display
+
+When sequence mode is active, also show useful state:
+
+```text
+tracks/channels
+active notes
+current programs
+sequence loop count
+late events
+maximum event lateness
+sequence note steals
+bank RAM usage
+```
+
+A small piano/key or channel activity visualization is optional but useful if simple.
+
+## 13.4 Stress mode
+
+Deterministic automatic stress mode:
+
+```text
+- current music source continues;
+- periodic SFX bursts;
+- pan alternates;
+- volume changes in fixed sequence;
+- generic PCM stream may run simultaneously;
+- optional unrelated file reads;
+- MIDI mode periodically hits dense chords/drums;
+- all counters remain visible.
+```
+
+Harness must be able to enter stress mode through deterministic input and run it for a fixed duration.
+
+## 13.5 Acceptance telemetry
 
 Expose at least:
 
 ```text
-active voices
-voice capacity
-voice steal count
-failed play count
-sound RAM used/capacity/high-water
-stream buffered frames or percentage
-stream underrun count
-stream rejected/overrun writes
-music state
-music loop count
-bytes read for music
+active voices / capacity / peak
+voice steals by owner
+failed play/note count
+sound RAM used/capacity/high-water/largest-free
+stream buffered frames/percentage
+stream underrun/rejected-write counts
+music state/loop count/bytes read
+sequence state/time/tick/loop count
+sequence active notes
+sequence late-event count/max lateness
+sequence note steals
+bank bytes/resident instruments
 last audio error
 ```
 
-If a 68k driver is used, also expose mailbox/driver health counters useful for diagnosing stalls.
+If a 68k driver is used, expose mailbox/driver health counters.
 
 ---
 
-# Phase 13 — Automated and host testing
+# Phase 14 — Automated testing
 
 ## Host tests
 
-Keep pure logic independently testable:
+Keep pure logic host-testable:
 
-- pitch/sample-rate conversion math;
-- volume/gain clamping;
-- pan mapping;
-- sound-RAM allocator;
-- allocator fragmentation/reuse;
-- voice allocation;
-- voice stealing priority/tie rules;
-- generation/stale handles;
-- stream ring-buffer wraparound;
+- pitch/sample-rate conversion;
+- gain/pan math;
+- sound-RAM allocator and fragmentation;
+- voice allocation/stealing;
+- generation handles;
+- ring-buffer wraparound;
 - underrun/overrun accounting;
 - music state machine;
-- loop state;
-- asset metadata parsing;
-- bounded mailbox logic if using 68k driver.
+- sequence state machine;
+- SMF parser/converter fixtures;
+- running-status parsing;
+- tempo-map conversion;
+- event ordering;
+- controller canonicalization;
+- polyphony calculation;
+- instrument-region lookup;
+- bank sample deduplication;
+- MIDI note -> SCSP pitch math;
+- pitch bend;
+- sustain/deferred release;
+- bounded mailbox logic if used;
+- generated asset determinism.
 
 ## HAL/register tests
 
@@ -1007,56 +1228,64 @@ Verify exact encoding for:
 - envelope defaults;
 - KEY ON/OFF;
 - common registers used by runtime;
-- interrupt/DMA configuration if used.
+- interrupt/DMA configuration if used;
+- MIDI hardware registers if low-level support is added.
 
 ## Emulator/harness tests
 
-Where observable state is available, validate:
+Validate where observable:
 
-- SNDON initialization path;
+- sound startup;
 - slot activation/completion;
 - sound RAM contents/addresses;
-- continuous stream buffer progression;
-- no underruns during normal showcase run;
+- stream progression;
+- no normal-run underruns;
 - intentional starvation increments underrun counter;
+- MIDI sequence progression;
+- tempo-change timing;
+- render slowdown does not proportionally slow the sequence;
 - stress mode finishes without fatal error.
 
-Audio-quality assertions should not depend solely on a human ear if deterministic emulator state or captured output can test them.
+Prefer deterministic emulator state/captured output checks over human-ear-only assertions.
 
 ---
 
-# Phase 14 — Performance and latency characterization
+# Phase 15 — Performance, latency, and jitter characterization
 
-Before declaring the runtime stable, measure and document:
+Measure and document:
 
 ```text
 sound-play request -> SCSP start latency
 stream refill cost
-worst observed refill interval
+worst refill interval
 audio update CPU time
 sound-RAM upload throughput
-maximum stable simultaneous SFX with music
+maximum stable simultaneous SFX with streaming
+maximum stable sequence polyphony with SFX
 music read bandwidth
-buffer sizes and latency
-SH-2 cost if any software conversion/mixing occurs
+buffer sizes and end-to-end latency
+sequence event scheduling jitter
+maximum observed sequence lateness
+SH-2 cost of conversion/mixing/scheduling
 68k utilization/health indicators if applicable
+bank load time
 ```
 
-Test at least:
+Test:
 
-- light 2D frame workload;
-- heavy existing example workload suitable for integration;
-- music + repeated SFX;
+- light 2D workload;
+- heavy existing example workload;
+- streamed music + repeated SFX;
+- MIDI sequence + repeated SFX;
+- MIDI + generic PCM stream;
 - near-full voice usage;
-- CD/file activity while music streams.
+- CD/file activity during playback.
 
-Use the results to choose defaults. Do not optimize based only on theoretical bandwidth.
+Choose defaults from measurements, not theoretical bandwidth.
 
 ---
 
-# Phase 15 — Public API cleanup and compatibility readiness
-
-After `audio_showcase` is green, review public contracts.
+# Phase 16 — Public API cleanup and compatibility readiness
 
 Expected high-level vocabulary:
 
@@ -1074,88 +1303,136 @@ sat_sound_unload
 sat_music_t
 sat_music_open
 sat_music_play
-sat_music_pause
-sat_music_resume
-sat_music_stop
+sat_music_pause/resume/stop
 sat_music_update
 sat_music_close
 
 sat_audio_stream_t
 sat_audio_stream_open
 sat_audio_stream_write
-sat_audio_stream_available
+sat_audio_stream_available/buffered
 sat_audio_stream_pause/resume
 sat_audio_stream_flush
 sat_audio_stream_close
+
+sat_sequence_t
+sat_sequence_open
+sat_sequence_play
+sat_sequence_pause/resume/stop
+sat_sequence_set_loop
+sat_sequence_set_tempo_scale
+sat_sequence_update
+sat_sequence_close
 ```
 
 Exact names may change after implementation. Prefer coherent LibSaturn semantics over copying another library.
 
-## SDL2 mapping acceptance
+## SDL2 acceptance
 
-The eventual SDL2 layer should be able to implement queued audio approximately as:
-
-```text
-SDL_OpenAudioDevice  -> sat_audio_stream_open
-SDL_QueueAudio       -> sat_audio_stream_write
-SDL_PauseAudioDevice -> sat_audio_stream_pause/resume
-SDL_ClearQueuedAudio -> sat_audio_stream_flush
-SDL_CloseAudioDevice -> sat_audio_stream_close
-```
-
-SDL code must not know about SCSP slots, sound RAM, KEY ON, or refill buffers.
-
-## raylib mapping acceptance
-
-The eventual raylib layer should map approximately as:
+Queued audio should map approximately as:
 
 ```text
-LoadSound            -> sat_sound_load
-PlaySound            -> sat_sound_play
-UnloadSound          -> sat_sound_unload
-
-LoadMusicStream      -> sat_music_open
-PlayMusicStream      -> sat_music_play
-UpdateMusicStream    -> sat_music_update
-Pause/Resume/Stop    -> corresponding sat_music calls
-
-LoadAudioStream      -> sat_audio_stream_open
-UpdateAudioStream    -> sat_audio_stream_write
-UnloadAudioStream    -> sat_audio_stream_close
+SDL_OpenAudioDevice   -> sat_audio_stream_open
+SDL_QueueAudio        -> sat_audio_stream_write
+SDL_PauseAudioDevice  -> sat_audio_stream_pause/resume
+SDL_ClearQueuedAudio  -> sat_audio_stream_flush
+SDL_CloseAudioDevice  -> sat_audio_stream_close
 ```
 
-If either compatibility layer must implement its own SCSP slot allocator, sound-RAM allocator, music double buffer, PCM pitch calculation, or CD refill logic, this plan is not complete.
+SDL code must not know SCSP slots, sound RAM, KEY ON, or refill buffers.
+
+## raylib acceptance
+
+```text
+LoadSound             -> sat_sound_load
+PlaySound             -> sat_sound_play
+UnloadSound           -> sat_sound_unload
+
+LoadMusicStream       -> sat_music_open
+PlayMusicStream       -> sat_music_play
+UpdateMusicStream     -> sat_music_update
+Pause/Resume/Stop     -> corresponding sat_music calls
+
+LoadAudioStream       -> sat_audio_stream_open
+UpdateAudioStream     -> sat_audio_stream_write
+UnloadAudioStream     -> sat_audio_stream_close
+```
+
+Raylib does not require a MIDI API mapping, but a raylib/source-port game that uses its own MIDI sequencer should be able to feed the LibSaturn sound/voice layer without learning SCSP details.
+
+## Source-port MIDI acceptance
+
+A port using MIDI assets should need no SCSP-specific rewrite beyond replacing its sequencer backend or using `sat_sequence_t`.
+
+The compatibility/source-port layer must not implement:
+
+- SCSP slot allocation;
+- sound-RAM allocation;
+- sample bank trimming;
+- MIDI note-to-pitch register math;
+- sustain/voice lifecycle hardware details;
+- stream double buffering;
+- CD refill logic.
 
 ---
 
-# Optional Phase 16 — Advanced SCSP capabilities
+# Optional Phase 17 — Advanced SCSP capabilities
 
-These are deliberately **after** the base runtime works.
-
-Candidates:
+Only after the base runtime, tools, MIDI sequence path, and showcase are green:
 
 - SCSP DSP effects / reverb;
 - send/return buses;
-- envelope helpers;
+- richer envelope helpers;
 - LFO helpers;
 - hardware-assisted spatialization patterns;
-- FM synthesis;
-- MIDI-oriented facilities;
-- compressed stream format if storage/bandwidth measurements justify it;
+- FM instrument synthesis;
+- MIDI banks using native SCSP FM instruments;
+- external MIDI serial I/O for users with suitable hardware/interface;
+- compressed stream formats if measurements justify them;
 - sample-accurate scheduled starts;
-- crossfade between music streams;
+- music/sequence crossfade;
 - ducking/side-chain style bus automation;
-- richer 68k sound-driver command system.
+- richer 68k command system;
+- RPN/NRPN/aftertouch/SysEx subsets.
 
-Each must be a separate capability, not a prerequisite for basic game audio.
+FM MIDI instruments are especially interesting for Saturn, but they must be a capability added after sample-based sequencing is proven.
+
+---
+
+## Tooling deliverables summary
+
+The audio work is not complete without these host tools or equivalent consolidated commands:
+
+```text
+convert_audio.py
+    desktop audio -> Saturn PCM/stream payload
+
+inspect_audio.py
+    inspect source and Saturn payload budgets/metadata
+
+pack_audio_assets.py
+    logical-path registry / VFS metadata
+
+convert_midi.py
+    SMF 0/1 -> compact versioned .satseq
+
+inspect_midi.py
+    timing, instruments, controllers, polyphony, slot pressure
+
+build_midi_bank.py
+    used instruments/samples -> compact .satbank
+
+generate_audio_showcase_assets.py
+    deterministic copyrighted-free acceptance assets
+```
+
+The Makefile/build system should invoke these through stable project-level rules rather than embedding conversion logic separately into each example.
 
 ---
 
 ## Capacity/configuration strategy
 
-All bounded resources must be visible and configurable.
-
-Candidate capacities:
+All bounded resources must be visible/configurable:
 
 ```text
 resident sound handles
@@ -1164,12 +1441,15 @@ SCSP slot reservations
 sound-RAM allocator metadata
 music objects
 PCM stream objects
-CPU-side stream ring buffers
+sequence objects
+sequence event lookahead queue
+instrument-bank handles
+CPU-side stream rings
 sound-RAM stream buffers
-command/mailbox queue if using sound CPU
+68k command/mailbox queue
 ```
 
-Expose diagnostics such as:
+Expose diagnostics:
 
 ```text
 used
@@ -1179,9 +1459,10 @@ failed allocations
 overflow count
 underrun count
 voice steals
+late sequence events
 ```
 
-Prefer central compile-time configuration or a coherent audio initialization config over scattered magic constants.
+Prefer central compile-time configuration or coherent audio init config over scattered magic constants.
 
 ---
 
@@ -1189,19 +1470,21 @@ Prefer central compile-time configuration or a coherent audio initialization con
 
 Use `sat_result_t` consistently.
 
-During implementation, add more specific result values only when callers can usefully distinguish them. Likely conditions include:
+Add specific errors only when callers can act on them. Likely conditions:
 
 ```text
 not found
 I/O failure
-unsupported format/rate/channel mode
+unsupported audio format/rate/channel mode
+unsupported MIDI event/source feature
+invalid/corrupt sequence or bank
 not ready
 resource capacity exhausted
-stream underrun state/query
+bank does not fit
 invalid/stale handle
 ```
 
-Underrun itself should usually be a diagnostic runtime event/counter rather than turning every update into a fatal error.
+Underrun/event lateness should generally be runtime diagnostics rather than making every update a fatal error.
 
 Never encode actionable failure solely in a debug string.
 
@@ -1222,54 +1505,60 @@ Phase 4   voice manager
    |
 Phase 5   sat_sound_t / SFX
    |
-Phase 6   buses + gain model
+Phase 6   buses + gain
    |
 Phase 7   generic PCM streaming
    |
-Phase 8   sat_music_t
+Phase 8   sat_music_t / streamed music
    |
-Phase 9   host asset pipeline
+Phase 9   official host audio toolchain
    |
-Phase 10  CD/file streaming integration
+Phase 10  MIDI compiler + bank builder + sat_sequence_t
    |
-Phase 11  bounded audio service/update
+Phase 11  CD/file/VFS integration
    |
-Phase 12  audio_showcase
+Phase 12  bounded audio service/update
    |
-Phase 13  automated acceptance
+Phase 13  audio_showcase: PCM + stream + MIDI
    |
-Phase 14  perf/latency characterization
+Phase 14  automated acceptance
    |
-Phase 15  public API cleanup + SDL/raylib readiness
+Phase 15  performance / latency / MIDI jitter
    |
-Phase 16  optional DSP/FM/advanced features
+Phase 16  public API cleanup + compatibility readiness
+   |
+Phase 17  optional DSP / FM / external MIDI / advanced features
 ```
 
-The critical dependency chain is:
+Critical dependency chain:
 
 ```text
 SCSP bring-up
    -> one correct PCM voice
       -> sound RAM + voice ownership
          -> resident SFX
-            -> generic streaming
-               -> music
-                  -> showcase under load
-                     -> compatibility layers
+            -> generic PCM streaming
+               -> streamed music
+                  -> deterministic asset tools
+                     -> MIDI sequence + compact bank
+                        -> showcase under load
+                           -> compatibility/source-port layers
 ```
 
-Do not start from `sat_music_play()` and backfill the hardware underneath it. Prove the lower layers first.
+Do not begin from `sat_music_play()` or `sat_sequence_play()` and backfill hardware underneath them. Prove lower layers first.
 
 ---
 
 ## Final architectural acceptance rule
 
-The project has succeeded when ordinary game code can think in terms of:
+The project succeeds when ordinary game code can think in terms of:
 
 ```text
 sound effect
-music track
-audio stream
+streamed music
+PCM stream
+MIDI/sequence song
+instrument bank
 volume
 pan
 loop
@@ -1290,8 +1579,12 @@ pitch register math
 PCM upload
 stream buffers
 refill scheduling
+sequence clock/lookahead
+MIDI event -> voice semantics
+instrument-region selection
+bank residency
 CD/file chunking
 underrun recovery
 ```
 
-The `audio_showcase` is the proof. If its gameplay/UI code needs hardware knowledge, the abstraction boundary is still wrong.
+`examples/audio_showcase` is the proof. If its gameplay/UI code needs SCSP register knowledge, manual sound-RAM addresses, SMF parsing, SF2 parsing, or custom refill mechanics, the abstraction boundary is still wrong.
