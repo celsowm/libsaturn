@@ -126,11 +126,9 @@ extern "C" sat_result_t sat_vdp2_nbg0_upload_indexed8(
         }
     }
 
-    /* Keep map_scratch in the public API's natural row-major form, but write
-     * the hardware page using the same column-major layout as
-     * sat_vdp2_nbg0_map_write_region() and the known-good JoEngine-derived
-     * NBG0 examples.  The old bulk upload wrote this row-major buffer straight
-     * to VRAM, so the two NBG0 APIs disagreed about the page layout. */
+    /* The map covers the whole plane whatever the image size: the source is
+     * repeated by wrapping the tile coordinates, which is why a seamless
+     * texture tiles cleanly and a non-seamless one shows its seams. */
     for (uint16_t my = 0; my < kVdp2MapCells; ++my) {
         for (uint16_t mx = 0; mx < kVdp2MapCells; ++mx) {
             map_scratch[(my * kVdp2MapCells) + mx] = compose_pattern_name(
@@ -141,17 +139,13 @@ extern "C" sat_result_t sat_vdp2_nbg0_upload_indexed8(
         }
     }
 
-    const uint32_t map_base_words = nbg0_map_word_base(plane_index);
-    uint16_t column_words[kVdp2MapCells];
-    for (uint32_t col = 0u; col < kVdp2MapCells; ++col) {
-        for (uint32_t row = 0u; row < kVdp2MapCells; ++row) {
-            column_words[row] = map_scratch[(row * kVdp2MapCells) + col];
-        }
-        saturn::hal::vdp2::write_vram_words(
-            map_base_words + (col * kVdp2MapCells),
-            column_words,
-            kVdp2MapCells);
-    }
+    /* The VDP2 reads the page row-major. A column-major write (as JoEngine
+     * does) transposes the map: a non-symmetric image such as a sky panorama
+     * turns into vertical strips, while a checkerboard hides it completely. */
+    saturn::hal::vdp2::write_vram_words(
+        nbg0_map_word_base(plane_index),
+        map_scratch,
+        static_cast<uint32_t>(kVdp2MapCells) * kVdp2MapCells);
 
     /* In 1-word, 1x1, 256-colour mode the palette bank is carried by pattern
      * name bits 14..12.  PNCN0 supplementary palette bits are not part of the
