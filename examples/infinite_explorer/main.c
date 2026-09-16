@@ -66,6 +66,12 @@ static int8_t g_signal_dir;
 static uint32_t g_signal_distance;
 static uint16_t g_scanner_cooldown;
 static uint8_t g_weather_audio;
+/* Display frames (sat_frame_count) at the previous loop iteration, so the
+ * game can measure how much real time actually elapsed. The Egg Mobile is
+ * heavier to draw than the old billboard, so a program frame now spans
+ * roughly two display frames -- without this, every held-frame step (turn
+ * rate, thrust, animation) executes at half its intended real-time rate. */
+static uint32_t g_prev_display_frame;
 
 /* Player model. Vertices are decoded per frame and then moved into world
  * space on the CPU, so culling and painter sorting see the real eye. */
@@ -168,10 +174,18 @@ static void init_textured_3d(void) {
 /* Picks the clip for the current steering and keeps idle cycling: the baked
  * clips do not loop, so a finished idle restarts, while a turn clip holds its
  * last (fully leaned) frame for as long as the turn is held. */
-static void update_player_animation(void) {
-    const uint16_t want = g_heading_delta < 0 ? EGG_CLIP_TURN_LEFT :
-                          (g_heading_delta > 0 ? EGG_CLIP_TURN_RIGHT : EGG_CLIP_IDLE);
-    const int32_t target = g_heading_delta * SAT_FX16_ONE;
+static void update_player_animation(uint32_t dt_ticks) {
+    /* g_heading_delta is correct for steering (verified against the
+     * world/sky rotation math: pressing RIGHT sweeps a landmark from the
+     * right of the screen to the left, exactly as turning right should).
+     * The Egg Mobile's own clip choice and lean read backwards against
+     * that -- source clip content and/or model facing, not the steering --
+     * so only the player's visual response is mirrored here, not g_heading
+     * or anything that feeds the camera/ground/sky. */
+    const int32_t visual_turn = -g_heading_delta;
+    const uint16_t want = visual_turn < 0 ? EGG_CLIP_TURN_LEFT :
+                          (visual_turn > 0 ? EGG_CLIP_TURN_RIGHT : EGG_CLIP_IDLE);
+    const int32_t target = visual_turn * SAT_FX16_ONE;
     if (want != g_egg_anim.clip) {
         sat_example_must(sat_anim_set_clip(&g_egg_anim, &eggman_anim_asset, want));
     } else if (want == EGG_CLIP_IDLE &&
@@ -179,7 +193,11 @@ static void update_player_animation(void) {
         sat_example_must(sat_anim_reset(&g_egg_anim));
     }
     if (!g_paused && !g_finished) {
-        sat_example_must(sat_anim_advance(&g_egg_anim, &eggman_anim_asset, SAT_FX16_ONE / 60));
+        /* Baked at 60 clip-fps; SAT_FX16_ONE/60 per elapsed display frame
+         * keeps playback speed tied to real time, not to how often the
+         * heavier draw lets update_player_animation() run. */
+        sat_example_must(sat_anim_advance(&g_egg_anim, &eggman_anim_asset,
+            (sat_fx16_t)((SAT_FX16_ONE / 60) * (int32_t)dt_ticks)));
     }
     g_egg_turn += (target - g_egg_turn) / 6;
 }
@@ -555,9 +573,9 @@ static void update_audio_reactive(const sat_pad_state_t* pad) {
     }
 }
 
-static void update_game(const sat_pad_state_t* pad) {
+static void update_game(const sat_pad_state_t* pad, uint32_t dt_ticks) {
     int32_t sin_h, cos_h, thrust = 0;
-    uint8_t i;
+    uint8_t i, t;
     if (pad->pressed & SAT_PAD_START) {
         if (g_audio_ready) play_one_shot(g_snd_scanner, 90u, 0, 200u, SAT_FX16_ONE / 2);
         if (g_finished) { reset_game(); return; }
@@ -565,24 +583,30 @@ static void update_game(const sat_pad_state_t* pad) {
     }
     if (g_paused || g_finished) return;
     g_heading_delta = 0;
-    if (pad->held & SAT_PAD_LEFT) { g_heading -= FX(2); g_heading_delta = -1; }
-    if (pad->held & SAT_PAD_RIGHT) { g_heading += FX(2); g_heading_delta = 1; }
+    if (pad->held & SAT_PAD_LEFT) { g_heading -= FX(2) * (int32_t)dt_ticks; g_heading_delta = -1; }
+    if (pad->held & SAT_PAD_RIGHT) { g_heading += FX(2) * (int32_t)dt_ticks; g_heading_delta = 1; }
     while (g_heading < 0) g_heading += FX(360);
     while (g_heading >= FX(360)) g_heading -= FX(360);
-    if (pad->held & SAT_PAD_UP) thrust += FX(1) / 12;
-    if (pad->held & SAT_PAD_DOWN) thrust -= FX(1) / 10;
-    if ((pad->held & SAT_PAD_B) && g_energy > 1u) { thrust += FX(1) / 7; if ((g_frames & 31u) == 0u) --g_energy; }
-    g_speed += thrust; g_speed = (int32_t)(((int64_t)g_speed * 61) / 64);
+    if (pad->held & SAT_PAD_UP) thrust += (FX(1) / 12) * (int32_t)dt_ticks;
+    if (pad->held & SAT_PAD_DOWN) thrust -= (FX(1) / 10) * (int32_t)dt_ticks;
+    if ((pad->held & SAT_PAD_B) && g_energy > 1u) { thrust += (FX(1) / 7) * (int32_t)dt_ticks; if ((g_frames & 31u) == 0u) --g_energy; }
+    g_speed += thrust;
+    /* Friction is tuned per elapsed display frame; replaying it dt_ticks
+     * times keeps the Egg Mobile's top speed the same whether a program
+     * frame spans one display frame or several. */
+    for (t = 0; t < dt_ticks; ++t) {
+        g_speed = (int32_t)(((int64_t)g_speed * 61) / 64);
+    }
     if (g_speed > FX(5)) g_speed = FX(5);
     if (g_speed < FX(-2)) g_speed = FX(-2);
     sin_h = sat_sin_deg(g_heading); cos_h = sat_cos_deg(g_heading);
     g_scanner = (pad->held & SAT_PAD_C) != 0u;
     update_scanner(sin_h, cos_h);
-    g_player.local_x += sat_fx16_mul(sin_h, g_speed);
-    g_player.local_z += sat_fx16_mul(cos_h, g_speed);
+    g_player.local_x += sat_fx16_mul(sin_h, g_speed) * (int32_t)dt_ticks;
+    g_player.local_z += sat_fx16_mul(cos_h, g_speed) * (int32_t)dt_ticks;
     explorer_rebase(&g_player);
-    g_distance += (uint32_t)(g_speed < 0 ? -g_speed : g_speed) >> 16;
-    if (g_invulnerable) --g_invulnerable;
+    g_distance += ((uint32_t)(g_speed < 0 ? -g_speed : g_speed) >> 16) * dt_ticks;
+    if (g_invulnerable) g_invulnerable = (uint8_t)((g_invulnerable > dt_ticks) ? (g_invulnerable - dt_ticks) : 0u);
     for (i = 0; i < 3u; ++i) if (!g_towers[i].active && near_landmark(&g_towers[i], 22) && (pad->held & SAT_PAD_C)) {
         g_towers[i].active = 1; ++g_artifacts; g_energy = 6;
         if (g_audio_ready) play_one_shot(g_snd_scanner, 205u, 0, 190u,
@@ -631,7 +655,7 @@ static void update_game(const sat_pad_state_t* pad) {
         else { if (g_transition == 20u) g_biome = g_target_biome; scale = (uint8_t)((20u - g_transition) * 31u / 20u); }
         upload_biome_palettes(g_biome, scale); --g_transition;
     }
-    ++g_frames;
+    g_frames += dt_ticks;
 }
 
 static void draw_player_and_weather(void) {
@@ -692,12 +716,21 @@ int main(void) {
     sat_example_must(sat_vdp1_set_erase_transparent());
     init_audio();
     reset_game();
+    g_prev_display_frame = sat_frame_count();
     for (;;) {
         sat_pad_state_t pad = {0}; uint16_t params[48]; sat_vdp2_scroll_t sky_scroll;
         int32_t sin_h, cos_h;
+        uint32_t now_display_frame, dt_ticks;
         sat_example_must(sat_wait_vblank());
+        now_display_frame = sat_frame_count();
+        dt_ticks = now_display_frame - g_prev_display_frame;
+        g_prev_display_frame = now_display_frame;
+        if (dt_ticks == 0u) dt_ticks = 1u;
+        /* Clamp a long stall (window focus loss, the very first frame) to a
+         * few ticks so it plays as a brief catch-up instead of a jump. */
+        if (dt_ticks > 4u) dt_ticks = 4u;
         sat_example_must(sat_pad_poll(&pad));
-        update_game(&pad);
+        update_game(&pad, dt_ticks);
         update_audio_reactive(&pad);
         sin_h = sat_sin_deg(g_heading); cos_h = sat_cos_deg(g_heading);
         explorer_build_ground_params(g_player.local_x, g_player.local_z, sin_h, cos_h, COEF_BASE_WORD, params);
@@ -720,7 +753,7 @@ int main(void) {
         sat_example_must(sat_vdp2_layers_commit());
         build_render_list(sin_h, cos_h);
         sat_example_must(sat_begin_frame());
-        update_player_animation();
+        update_player_animation(dt_ticks);
         draw_world(); draw_player_and_weather(); draw_hud();
         sat_example_must(sat_end_frame());
     }
