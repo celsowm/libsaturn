@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import math
 import urllib.error
 import urllib.request
@@ -10,43 +11,67 @@ from pathlib import Path
 
 RATE = 11025
 MAX_SAMPLES = 65535
+DOWNLOAD_TIMEOUT = 15
 
+# Prefer immutable GitHub-hosted mirrors/copies so building LibSaturn does not
+# depend on OpenGameArt's file CDN being reachable. Each item remains CC0 and
+# its original provenance is documented in examples/infinite_explorer/assets/
+# ATTRIBUTION.md. Original source URLs remain as secondary fallbacks where
+# useful.
 ASSETS = {
     "explorer_engine": {
-        "url": "https://opengameart.org/sites/default/files/rocket_engine.001.wav",
+        "urls": [
+            "https://raw.githubusercontent.com/Damerlan/polar-assault/6a4bd8330c06241df27991ae72bed992376c6621/Assets/Audio/music/sfx/rocket_engine.001.wav",
+            "https://opengameart.org/sites/default/files/rocket_engine.001.wav",
+        ],
         "filename": "rocket_engine.001.wav",
         "seconds": 1.60,
         "loop": True,
+        "sha256": "dc82ef86d6af2278d6592d20372737c32620f1c1957290c79f6643af5381f277",
     },
     "explorer_scanner": {
-        "url": "https://opengameart.org/sites/default/files/click.wav",
-        "filename": "click.wav",
+        "urls": [
+            "https://raw.githubusercontent.com/euuuuuuan/voidclad-public/440916aabc30abe014cb33ad90bd150bfbf22dd0/assets/sfx/ricochet_ping.wav",
+        ],
+        "filename": "ricochet_ping.wav",
         "seconds": 0.18,
         "loop": False,
+        "sha256": "971a301fa89fd51a7ceeb4d8e948de393af5edd1112cd00e77090aa7624a3556",
     },
     "explorer_fire": {
-        "url": "https://opengameart.org/sites/default/files/laserthing.wav",
-        "filename": "laserthing.wav",
+        "urls": [
+            "https://raw.githubusercontent.com/euuuuuuan/voidclad-public/440916aabc30abe014cb33ad90bd150bfbf22dd0/assets/sfx/fire_heavy.wav",
+        ],
+        "filename": "fire_heavy.wav",
         "seconds": 0.70,
         "loop": False,
+        "sha256": "cfbbaeb156bb9992ac571d6dd820fcff2a5702b276c9bb59f12a38f6ad7eadde",
     },
     "explorer_impact": {
-        "url": "https://opengameart.org/sites/default/files/explosion.wav",
-        "filename": "explosion.wav",
+        "urls": [
+            "https://raw.githubusercontent.com/euuuuuuan/voidclad-public/440916aabc30abe014cb33ad90bd150bfbf22dd0/assets/sfx/impact_pen.wav",
+        ],
+        "filename": "impact_pen.wav",
         "seconds": 0.85,
         "loop": False,
+        "sha256": "935cbabff9aa83176bf946db7a00204def63a4ae7fa83b64f92d6732a63f74f4",
     },
     "explorer_music": {
-        "url": "https://opengameart.org/sites/default/files/title_1.wav",
-        "filename": "title_1.wav",
+        "urls": [
+            "https://raw.githubusercontent.com/Beatscribe/homebrew_vgm/5a82f88b87bb442499685c494b7a96278121b4c7/SEGA_GEN/fanfares/wav/distant_flute.wav",
+        ],
+        "filename": "distant_flute.wav",
         "seconds": 4.00,
         "loop": True,
     },
     "explorer_storm": {
-        "url": "https://lpc.opengameart.org/sites/default/files/wind1.wav",
-        "filename": "wind1.wav",
+        "urls": [
+            "https://raw.githubusercontent.com/ExCodeCowboy/StudentGrouper/75cc0b3e101bb6cfb824ac9149b46361e91991d9/public/sounds/reveals/wave.wav",
+        ],
+        "filename": "wave.wav",
         "seconds": 1.80,
         "loop": True,
+        "sha256": "23eed75efff0950354376a7073917839ea80711d9f78724d519fa2a643e9aaa9",
     },
 }
 
@@ -55,14 +80,59 @@ def clamp16(v: int) -> int:
     return max(-32768, min(32767, int(v)))
 
 
-def download(url: str, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    req = urllib.request.Request(url, headers={"User-Agent": "libsaturn-infinite-explorer/1.0"})
-    with urllib.request.urlopen(req, timeout=45) as response:
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def validate_file(path: Path, expected_sha256: str | None) -> None:
+    data = path.read_bytes()
+    if len(data) < 44:
+        raise ValueError("downloaded WAV is too small")
+    if expected_sha256 is not None:
+        actual = sha256_bytes(data)
+        if actual.lower() != expected_sha256.lower():
+            raise ValueError(f"SHA-256 mismatch: expected {expected_sha256}, got {actual}")
+
+
+def download_one(url: str) -> bytes:
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "libsaturn-infinite-explorer/1.1"},
+    )
+    with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as response:
         data = response.read()
     if len(data) < 44:
         raise ValueError("downloaded WAV is too small")
-    path.write_bytes(data)
+    return data
+
+
+def ensure_downloaded(spec: dict[str, object], path: Path) -> str:
+    expected_sha256 = spec.get("sha256")
+    expected = str(expected_sha256) if expected_sha256 is not None else None
+
+    if path.exists():
+        try:
+            validate_file(path, expected)
+            return "cache"
+        except (OSError, ValueError):
+            path.unlink(missing_ok=True)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    failures: list[str] = []
+    for raw_url in spec["urls"]:
+        url = str(raw_url)
+        try:
+            data = download_one(url)
+            if expected is not None:
+                actual = sha256_bytes(data)
+                if actual.lower() != expected.lower():
+                    raise ValueError(f"SHA-256 mismatch: expected {expected}, got {actual}")
+            path.write_bytes(data)
+            return url
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            failures.append(f"{url}: {exc}")
+
+    raise OSError("; ".join(failures))
 
 
 def read_sample(raw: bytes, offset: int, width: int) -> int:
@@ -103,7 +173,11 @@ def decode_wav_mono(path: Path) -> tuple[list[int], int]:
 
 
 def resample(samples: list[int], source_rate: int, seconds: float) -> list[int]:
-    target_count = min(MAX_SAMPLES, int(RATE * seconds), max(1, (len(samples) * RATE) // source_rate))
+    target_count = min(
+        MAX_SAMPLES,
+        int(RATE * seconds),
+        max(1, (len(samples) * RATE) // source_rate),
+    )
     out: list[int] = []
     for i in range(target_count):
         pos_num = i * source_rate
@@ -194,9 +268,11 @@ def main() -> None:
     for name, spec in ASSETS.items():
         path = cache_dir / str(spec["filename"])
         try:
-            if not path.exists():
-                download(str(spec["url"]), path)
-                print(f"[infinite-explorer] downloaded {spec['filename']}")
+            source = ensure_downloaded(spec, path)
+            if source != "cache":
+                print(f"[infinite-explorer] downloaded {spec['filename']} from GitHub mirror")
+            else:
+                print(f"[infinite-explorer] cached {spec['filename']}")
             samples, source_rate = decode_wav_mono(path)
             samples = resample(samples, source_rate, float(spec["seconds"]))
             if bool(spec["loop"]):
