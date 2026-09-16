@@ -511,48 +511,167 @@ This phase is where a more Sonic-R-like multi-stage appearance transition can be
 
 ---
 
-# Phase 8 - Reference example
+# Phase 8 - Dedicated end-to-end distance-fade example
 
-Add a dedicated example:
+Create a **new standalone LibSaturn example specifically to test, tune and demonstrate the finished distance-fade feature**. This is a required deliverable, not just documentation or an optional showcase.
+
+The low-level Phase 0 example proves the VDP1/VDP2 register behavior. This second example must exercise the **public high-level API exactly as a game would use it**.
+
+Required example:
 
 ```text
 examples/distance_fade_3d/
+    main.c
+    Makefile.inc        # or the repository's current example-build equivalent
+    assets/             # only if the example needs generated model/texture assets
 ```
 
-Scene proposal:
+The example must be wired into the repository's normal example/ISO build flow so it is easy to build and run without private scripts or manual register patches.
 
-- VDP2 ground and sky;
-- a row or grid of textured 3D objects extending away from the camera;
-- moving camera so objects continuously pass through the fade zone;
-- on-screen diagnostic values:
-  - object depth;
-  - fade level;
-  - selected color-calc slot;
-  - visible object count;
-  - VDP1 command count if available;
-  - frame/display rate.
+## Test scene
 
-Controls:
+Use a deliberately simple scene whose only purpose is to make distance fade obvious and measurable:
+
+- VDP2 sky/background with a color that clearly shows blending;
+- VDP2 ground extending toward the horizon;
+- a long row or grid of repeated textured 3D objects placed at increasing view depths;
+- at least one imported textured `sat_model_asset_t` or representative textured `sat_mesh_t`, so the test covers the real model path rather than only hand-built quads;
+- enough objects beyond `fade_start` that several fade levels are visible simultaneously;
+- a final object beyond `fade_end` to prove culling;
+- optional world-space markers/gates at `fade_start` and `fade_end` so the thresholds are visually obvious.
+
+A useful layout is:
 
 ```text
-D-pad      move camera
-A          toggle distance fade
-B          toggle hard cutoff for A/B comparison
-C          cycle fade range / preset
-START      exit
+camera
+  |
+  v
+
+ [near]      [near]       [fade 1] [fade 2] [fade 3] ... [fade 7]   [culled]
+   O            O             O        O        O             o          x
+---+------------+-------------|-------------------------------|-----------> Z
+                              ^                               ^
+                          fade_start                       fade_end
 ```
 
-The example must make the advantage immediately visible:
+The camera should be movable, and there should also be an optional automatic forward/backward motion mode so objects continuously enter and leave the fade zone without requiring perfect manual input.
+
+## Runtime comparison modes
+
+The example must support at least these render modes using the **same scene, camera and cutoff distances**:
+
+```text
+MODE 0  no far fade / normal draw
+MODE 1  hard cutoff
+MODE 2  4-step distance fade + cutoff
+MODE 3  8-step distance fade + cutoff
+```
+
+The important A/B comparison is:
 
 ```text
 hard cutoff:
-    object suddenly pops into existence
+    object suddenly disappears / appears
 
-distance fade:
-    object gradually emerges from the VDP2 background
+8-step fade:
+    object progressively blends into / emerges from the VDP2 scene
 ```
 
-If practical, include a split-screen or toggle between the two modes using the same geometry and cutoff distance.
+Changing mode must not rebuild the scene or move objects; only the fade policy should change.
+
+## Controls
+
+Suggested controls:
+
+```text
+D-pad       move camera
+L / R       rotate camera or adjust view depth
+A           cycle render mode
+B           freeze/unfreeze automatic camera motion
+C           cycle fade preset/range
+X/Y/Z       optional direct 4-step / 8-step / hard-cutoff selection
+START       exit
+```
+
+Use only buttons that fit the project's current input conventions; the exact mapping may be adjusted during implementation.
+
+## On-screen diagnostics
+
+Render a small debug HUD showing at least:
+
+```text
+mode
+camera/view depth
+fade_start
+fade_end
+fade level of a selected/reference object
+selected VDP2 color-calc slot
+visible object count
+culled object count
+VDP1 command count, if exposed cheaply
+frame/display rate
+```
+
+If useful, allow selecting one reference object and print:
+
+```text
+object depth -> fade level -> VDP2 slot
+```
+
+This makes incorrect bucket boundaries immediately visible during emulator and hardware testing.
+
+## Visual validation cases
+
+The example must make it easy to inspect all of these cases:
+
+1. **Entering the fade zone** — no sudden brightness or transparency jump at `fade_start`.
+2. **Crossing every step** — each configured ratio is visibly ordered from more object to more background.
+3. **Final cutoff** — the last fade level transitions to culling without an obvious pop.
+4. **Camera reversal** — approaching an object uses the same levels in reverse, with no hysteresis bug or stale slot.
+5. **Multiple objects at once** — objects at different depths can use different color-calc slots in the same frame.
+6. **Transparent texture texel 0** — transparent areas remain correct while fading.
+7. **Opaque compatibility** — disabling fade returns exactly to the ordinary textured-mesh path.
+8. **Sorting** — painter ordering remains correct for the supported test scene while several faded meshes overlap.
+9. **Background contrast** — repeat the test against at least two sufficiently different VDP2 background colors/presets if practical, to catch a ratio mapping that only looks correct against one sky color.
+
+## Performance test mode
+
+Include a stress toggle or compile-time preset that places enough repeated meshes to make command/CPU cost measurable.
+
+Compare at minimum:
+
+```text
+hard cutoff
+4-step fade
+8-step fade
+```
+
+The fade implementation should not submit duplicate geometry simply to create the transition. For an equal visible-object set, the expected command count should remain essentially the same as the non-faded textured path; the difference should be command attributes and small per-object fade evaluation cost.
+
+## Build and regression requirements
+
+The example must:
+
+- compile with the normal LibSaturn example build path;
+- require no direct register writes from `main.c` once the public API is implemented;
+- use `sat_fade3d_*`, VDP1/VDP2 public APIs and mesh/model integration rather than calling internal HAL functions;
+- be suitable for Mednafen/Kronos/other project-supported emulator testing and real Saturn validation where available;
+- stay in the tree after the feature lands as a regression/demo example, not be deleted as a temporary experiment.
+
+Where the repository already performs example compile checks in CI, add `distance_fade_3d` to that set. If examples are not currently part of CI, at minimum document the exact build target alongside the example.
+
+## Acceptance criteria for the example
+
+The example is complete only when:
+
+- [ ] `examples/distance_fade_3d` builds through the normal example build system.
+- [ ] A user can visibly compare hard cutoff with 4-step and 8-step fades at runtime.
+- [ ] The HUD exposes the active fade level and selected hardware slot for debugging.
+- [ ] Objects at multiple depths display different fade levels in the same frame.
+- [ ] An object crossing `fade_end` disappears without the abrupt pop visible in hard-cutoff mode.
+- [ ] Disabling fade restores the ordinary rendering path without visual regressions.
+- [ ] No direct VDP2 register pokes are required from the example.
+- [ ] The example has been checked on at least one accurate Saturn emulator; hardware validation should be recorded when available.
 
 ---
 
@@ -686,12 +805,18 @@ vdp1  <---->  vdp2 configuration
 - [ ] Add a helper that applies distance fade to a prepared mesh draw.
 - [ ] Keep all existing draws visually unchanged by default.
 
-## Milestone E - showcase and optimize
+## Milestone E - dedicated end-to-end example and optimization
 
-- [ ] Add `examples/distance_fade_3d`.
-- [ ] Implement fade vs hard-cutoff runtime toggle.
-- [ ] Benchmark SH-2 and VDP1 command cost.
-- [ ] Tune default fade ratios visually.
+- [ ] Add `examples/distance_fade_3d` as a permanent example.
+- [ ] Wire it into the normal example/ISO build flow.
+- [ ] Build a VDP2 sky/ground plus repeated textured 3D-object test scene.
+- [ ] Add runtime modes for no fade, hard cutoff, 4-step fade and 8-step fade.
+- [ ] Add movable/automatic camera motion through the fade zone.
+- [ ] Add HUD diagnostics for depth, fade level, hardware slot, visible/culled counts and frame rate.
+- [ ] Demonstrate multiple objects using different fade levels in the same frame.
+- [ ] Add a stress preset for SH-2 and VDP1 command-cost comparison.
+- [ ] Tune default fade ratios visually using the example.
+- [ ] Validate on at least one accurate Saturn emulator and record hardware results when available.
 - [ ] Document supported/unsupported lighting combinations.
 
 ## Milestone F - advanced integration
@@ -714,9 +839,10 @@ The feature is complete when all of the following are true:
 5. Objects can fade smoothly through the far-distance region and then be culled with no abrupt pop at the final boundary.
 6. Existing VDP1, mesh, model and Gouraud tests remain green.
 7. Hardware-specific restrictions for indexed textures, RGB polygons and Gouraud shading are explicitly documented and tested.
-8. `examples/distance_fade_3d` visibly demonstrates fade versus hard cutoff.
-9. The implementation performs no heap allocation and does not require floating point.
-10. Profiling shows that the feature adds only small per-object CPU overhead and does not add extra geometry commands solely to create the fade.
+8. `examples/distance_fade_3d` visibly demonstrates no fade, hard cutoff, 4-step fade and 8-step fade using the public API.
+9. `examples/distance_fade_3d` remains a permanent regression/demo target in the normal example build flow.
+10. The implementation performs no heap allocation and does not require floating point.
+11. Profiling shows that the feature adds only small per-object CPU overhead and does not add extra geometry commands solely to create the fade.
 
 ---
 
