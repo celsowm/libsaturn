@@ -442,37 +442,64 @@ sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_ind
     return SAT_OK;
 }
 
-sat_result_t upload_texture_indexed8(const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t* out_srca) {
-    if (pixels == nullptr || out_srca == nullptr) {
-        return SAT_ERR_INVALID_ARG;
-    }
-    if (width == 0 || height == 0 || (width & 7u) != 0u) {
-        return SAT_ERR_INVALID_ARG;
-    }
-    /* Hardware table-size limits (manual 5.1): 8..504 x 1..255. The core
-     * layer validates these too; the HAL repeats the check so a caller
-     * reaching this layer directly still gets a clean error. */
-    if (width > 504u || height > 255u) {
-        return SAT_ERR_INVALID_ARG;
-    }
+namespace {
 
-    uint32_t size = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
+sat_result_t validate_indexed8_transfer(
+    const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t pitch) {
+    if (pixels == nullptr || width == 0u || height == 0u || pitch < width || (width & 7u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (width > 504u || height > 255u) return SAT_ERR_INVALID_ARG;
+    return SAT_OK;
+}
+
+void write_indexed8_rows(
+    uint32_t start, const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t pitch) {
+    const uint32_t words_per_row = width / 2u;
+    const uint32_t first_word = start / 2u;
+    for (uint16_t y = 0u; y < height; ++y) {
+        const uint8_t* row = pixels + static_cast<uint32_t>(y) * pitch;
+        const uint32_t dst = first_word + static_cast<uint32_t>(y) * words_per_row;
+        for (uint32_t x = 0u; x < words_per_row; ++x) {
+            const uint16_t hi = row[x * 2u];
+            const uint16_t lo = row[x * 2u + 1u];
+            VDP1_VRAM_16[dst + x] = static_cast<uint16_t>((hi << 8u) | lo);
+        }
+    }
+}
+
+}  // namespace
+
+sat_result_t upload_texture_indexed8_pitched(
+    const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t pitch, uint16_t* out_srca) {
+    if (out_srca == nullptr) return SAT_ERR_INVALID_ARG;
+    const sat_result_t st = validate_indexed8_transfer(pixels, width, height, pitch);
+    if (st != SAT_OK) return st;
+    const uint32_t size = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
     g_texture_cursor = (g_texture_cursor + 7u) & ~7u;
-    if (g_texture_cursor + size > kVramSize) {
-        return SAT_ERR_CAPACITY;
-    }
-
+    if (g_texture_cursor + size > kVramSize) return SAT_ERR_CAPACITY;
     const uint32_t start = g_texture_cursor;
-    const uint32_t half = size / 2u;
-    const uint32_t word_offset = start / 2u;
-    for (uint32_t i = 0; i < half; ++i) {
-        uint16_t hi = pixels[i * 2u];
-        uint16_t lo = pixels[i * 2u + 1u];
-        VDP1_VRAM_16[word_offset + i] = static_cast<uint16_t>((hi << 8u) | lo);
-    }
-
+    write_indexed8_rows(start, pixels, width, height, pitch);
     *out_srca = static_cast<uint16_t>(start >> 3u);
     g_texture_cursor += size;
+    return SAT_OK;
+}
+
+sat_result_t upload_texture_indexed8(
+    const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t* out_srca) {
+    return upload_texture_indexed8_pitched(pixels, width, height, width, out_srca);
+}
+
+sat_result_t update_texture_indexed8_pitched(
+    uint16_t srca, const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t pitch) {
+    const sat_result_t st = validate_indexed8_transfer(pixels, width, height, pitch);
+    if (st != SAT_OK) return st;
+    const uint32_t start = static_cast<uint32_t>(srca) << 3u;
+    const uint32_t size = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
+    if (start < kTextureBase || start + size > g_texture_cursor || start + size > kVramSize) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    write_indexed8_rows(start, pixels, width, height, pitch);
     return SAT_OK;
 }
 
