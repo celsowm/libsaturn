@@ -4,7 +4,14 @@ on:
   push:
     branches: [main]
     paths:
+      - Makefile
+      - "include/**"
+      - "src/**"
+      - "examples/**"
+      - "tests/**"
+      - "scripts/**"
       - .github/workflows/phase3-final-gates.yml
+  workflow_dispatch:
 
 jobs:
   validate:
@@ -28,27 +35,45 @@ jobs:
           JOBS=2 bash scripts/build-toolchain.sh
 
       - name: Build all Saturn examples
+        id: crossbuild
         run: |
           export PATH="${RUNNER_TEMP}/saturn-tools/bin:$PATH"
           sh2eb-elf-g++ --version
           make clean
           set +e
-          make examples-all 2>&1 | tee /tmp/examples-all.log
-          status=${PIPESTATUS[0]}
+          make examples-all > examples-all.log 2>&1
+          status=$?
           set -e
-          if [ "$status" -ne 0 ]; then
-            first_error="$(grep -m1 -E 'fatal error:|error:|undefined reference|collect2: error|make(\[[0-9]+\])?: \*\*\*' /tmp/examples-all.log || true)"
-            if [ -z "$first_error" ]; then
-              first_error="examples-all failed; see build log"
-            fi
-            first_error="${first_error//'%'/'%25'}"
-            first_error="${first_error//$'\r'/'%0D'}"
-            first_error="${first_error//$'\n'/'%0A'}"
-            echo "::error title=Saturn examples-all failed::$first_error"
-            echo '### First Saturn cross-build failure' >> "$GITHUB_STEP_SUMMARY"
-            grep -m5 -E 'fatal error:|error:|undefined reference|collect2: error|make(\[[0-9]+\])?: \*\*\*' /tmp/examples-all.log >> "$GITHUB_STEP_SUMMARY" || true
-            exit "$status"
+          first_error="$(grep -m1 -E 'fatal error:|error:|undefined reference|collect2: error|make(\[[0-9]+\])?: \*\*\*' examples-all.log || true)"
+          if [ -z "$first_error" ] && [ "$status" -ne 0 ]; then
+            first_error="examples-all failed; see examples-all.log"
           fi
+          printf '%s\n' "$first_error" > first-failure.txt
+          cat examples-all.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" -ne 0 ]; then
+            escaped="${first_error//'%'/'%25'}"
+            escaped="${escaped//$'\r'/'%0D'}"
+            escaped="${escaped//$'\n'/'%0A'}"
+            echo "::error title=Saturn examples-all failed::$escaped"
+            echo '### First Saturn cross-build failure' >> "$GITHUB_STEP_SUMMARY"
+            grep -m5 -E 'fatal error:|error:|undefined reference|collect2: error|make(\[[0-9]+\])?: \*\*\*' examples-all.log >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+
+      - name: Preserve Saturn cross-build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: saturn-cross-build-diagnostics
+          path: |
+            examples-all.log
+            first-failure.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce Saturn cross-build gate
+        if: steps.crossbuild.outputs.status != '0'
+        run: exit "${{ steps.crossbuild.outputs.status }}"
 
       - name: Check repository hygiene
         run: git diff --check
