@@ -10,16 +10,29 @@ extern "C" {
 #endif
 
 /* ------------------------------------------------------------------ */
-/* Texture                                                             */
+/* Native VDP1 texture                                                */
 /* ------------------------------------------------------------------ */
-typedef struct sat_texture {
+/* Hardware-facing representation. srca is a VDP1 VRAM character address and
+ * palette is a CRAM bank. Game-facing/runtime texture APIs must not expose
+ * this structure. */
+typedef struct sat_vdp1_texture {
     uint16_t srca;
     uint16_t width;
     uint16_t height;
     uint16_t palette;
     uint16_t valid;
     uint16_t reserved;
-} sat_texture_t;
+} sat_vdp1_texture_t;
+
+/* Transitional source-compatibility alias. New low-level VDP1 code must use
+ * sat_vdp1_texture_t. Define SATURN_DISABLE_LEGACY_TEXTURE_TYPE before
+ * including this header to verify that code no longer depends on the old
+ * hardware-facing sat_texture_t name. The alias will be removed when the
+ * repository migration is complete so sat_texture_t can become the logical
+ * runtime handle. */
+#ifndef SATURN_DISABLE_LEGACY_TEXTURE_TYPE
+typedef sat_vdp1_texture_t sat_texture_t;
+#endif
 
 /* Sprite flags                                                        */
 #define SAT_SPRITE_FLAG_OPAQUE 0x0001u
@@ -32,7 +45,7 @@ typedef struct sat_sprite_cmd {
     sat_fx16_t y;
     uint16_t width;
     uint16_t height;
-    const sat_texture_t* texture;
+    const sat_vdp1_texture_t* texture;
     uint16_t palette_override;
     uint16_t flags;
 } sat_sprite_cmd_t;
@@ -49,7 +62,7 @@ typedef struct sat_scaled_sprite_cmd {
     int16_t y0;
     int16_t x1;
     int16_t y1;
-    const sat_texture_t* texture;
+    const sat_vdp1_texture_t* texture;
     uint16_t palette_override;
     uint16_t flags;
 } sat_scaled_sprite_cmd_t;
@@ -63,7 +76,7 @@ typedef struct sat_scaled_sprite_cmd {
 typedef struct sat_distorted_sprite_cmd {
     int16_t x[4];
     int16_t y[4];
-    const sat_texture_t* texture;
+    const sat_vdp1_texture_t* texture;
     uint16_t palette_override;
     uint16_t flags;
 } sat_distorted_sprite_cmd_t;
@@ -89,7 +102,7 @@ typedef struct sat_line_cmd {
 /* Texture upload & sprite rendering                                   */
 /* ------------------------------------------------------------------ */
 sat_result_t sat_tex_upload_indexed8(
-    sat_texture_t* out_texture,
+    sat_vdp1_texture_t* out_texture,
     const uint8_t* pixels,
     uint16_t width,
     uint16_t height,
@@ -111,7 +124,7 @@ sat_result_t sat_palette_upload_indexed8(
  * VRAM allocation are identical to the combined path; exhaustion returns
  * SAT_ERR_CAPACITY. */
 sat_result_t sat_tex_upload_indexed8_pixels(
-    sat_texture_t* out_texture,
+    sat_vdp1_texture_t* out_texture,
     const uint8_t* pixels,
     uint16_t width,
     uint16_t height,
@@ -128,7 +141,7 @@ sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd);
  * Automatically converts to internal VDP1 coordinates.
  */
 sat_result_t sat_draw_sprite_screen(
-    const sat_texture_t* texture,
+    const sat_vdp1_texture_t* texture,
     int16_t screen_x,
     int16_t screen_y,
     uint16_t width,
@@ -149,7 +162,7 @@ sat_result_t sat_draw_sprite_scaled(const sat_scaled_sprite_cmd_t* cmd);
  * is how those two meet, and doing it through screen coordinates keeps the
  * call site from hand-rolling the centre-origin conversion. */
 sat_result_t sat_draw_sprite_scaled_screen(
-    const sat_texture_t* texture,
+    const sat_vdp1_texture_t* texture,
     int16_t screen_x,
     int16_t screen_y,
     uint16_t draw_width,
