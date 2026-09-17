@@ -26,7 +26,7 @@ extern "C" {
  *
  * Storage is caller-owned like sat_mesh_t: the asset points at const
  * generated arrays, and upload/draw helpers write into caller-supplied
- * sat_texture_t[] / sat_mesh_t storage. The library never allocates.
+ * sat_vdp1_texture_t[] / sat_mesh_t storage. The library never allocates.
  */
 
 typedef struct sat_model_texture_asset {
@@ -88,7 +88,7 @@ sat_result_t sat_model_copy_to_mesh(const sat_model_asset_t* asset, sat_mesh_t* 
  * VDP1 VRAM is exhausted. */
 sat_result_t sat_model_upload_textures(
     const sat_model_asset_t* asset,
-    sat_texture_t* out_textures,
+    sat_vdp1_texture_t* out_textures,
     uint16_t out_cap
 );
 
@@ -102,7 +102,7 @@ sat_result_t sat_model_upload_textures(
 sat_result_t sat_model_bind_draw(
     const sat_model_asset_t* asset,
     const sat_mesh_t* mesh,
-    const sat_texture_t* textures,
+    const sat_vdp1_texture_t* textures,
     uint16_t texture_count,
     const sat_mat4_t* view_proj,
     const sat_vec3_t* eye,
@@ -118,7 +118,7 @@ sat_result_t sat_model_bind_draw(
 sat_result_t sat_model_bind_draw_ex(
     const sat_model_asset_t* asset,
     const sat_mesh_t* mesh,
-    const sat_texture_t* textures,
+    const sat_vdp1_texture_t* textures,
     uint16_t texture_count,
     const sat_mat4_t* view_proj,
     const sat_vec3_t* eye,
