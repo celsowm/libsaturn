@@ -6,7 +6,7 @@
 #include "src/hal/vdp1.hpp"
 
 extern "C" sat_result_t sat_tex_upload_indexed8(
-    sat_texture_t* out_texture,
+    sat_vdp1_texture_t* out_texture,
     const uint8_t* pixels,
     uint16_t width,
     uint16_t height,
@@ -70,7 +70,7 @@ extern "C" sat_result_t sat_palette_upload_indexed8(
 }
 
 extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
-    sat_texture_t* out_texture,
+    sat_vdp1_texture_t* out_texture,
     const uint8_t* pixels,
     uint16_t width,
     uint16_t height,
@@ -133,7 +133,7 @@ extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd) {
 }
 
 extern "C" sat_result_t sat_draw_sprite_screen(
-    const sat_texture_t* texture,
+    const sat_vdp1_texture_t* texture,
     int16_t screen_x,
     int16_t screen_y,
     uint16_t width,
@@ -149,12 +149,6 @@ extern "C" sat_result_t sat_draw_sprite_screen(
         return SAT_ERR_INVALID_ARG;
     }
 
-    // Convert screen coordinates (0,0 = top-left corner)
-    // to local VDP1 coordinates (0,0 = screen center).
-    // VDP1 draws from the top-left corner of the sprite (xa, ya).
-    // To center sprite at (screen_x, screen_y):
-    //   vdp1_x = (screen_x - TV_WIDTH/2) - (sprite_width/2)
-    //   vdp1_y = (screen_y - TV_HEIGHT/2) - (sprite_height/2)
     const uint16_t vdp1_w = (width != 0u) ? width : texture->width;
     const uint16_t vdp1_h = (height != 0u) ? height : texture->height;
     const int16_t vdp1_x = screen_x - 160 - static_cast<int16_t>(vdp1_w / 2);
@@ -199,7 +193,7 @@ extern "C" sat_result_t sat_draw_sprite_scaled(const sat_scaled_sprite_cmd_t* cm
 }
 
 extern "C" sat_result_t sat_draw_sprite_scaled_screen(
-    const sat_texture_t* texture,
+    const sat_vdp1_texture_t* texture,
     int16_t screen_x,
     int16_t screen_y,
     uint16_t draw_width,
@@ -222,8 +216,6 @@ extern "C" sat_result_t sat_draw_sprite_scaled_screen(
     sat_scaled_sprite_cmd_t cmd = {};
     cmd.x0 = saturn::internal::screen_to_native(static_cast<int>(left), cfg.width);
     cmd.y0 = saturn::internal::screen_to_native(static_cast<int>(top), cfg.height);
-    /* The destination rectangle is inclusive of both corners, so the far edge
-     * is one pixel short of left + width. */
     cmd.x1 = static_cast<int16_t>(cmd.x0 + static_cast<int16_t>(draw_width) - 1);
     cmd.y1 = static_cast<int16_t>(cmd.y0 + static_cast<int16_t>(draw_height) - 1);
     cmd.texture = texture;
