@@ -11,6 +11,7 @@
 #include "saturn/time.h"
 #include "saturn/surface.h"
 #include "saturn/texture.h"
+#include "saturn/render2d.h"
 #include "saturn/math3d.h"
 #include "saturn/mesh3d.h"
 #include "saturn/model3d.h"
