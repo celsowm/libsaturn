@@ -41,10 +41,13 @@ jobs:
           sh2eb-elf-g++ --version
           make clean
           set +e
-          make examples-all > examples-all.log 2>&1
+          # Only the SBL IP template is intentionally versioned. Local builds
+          # may select the ignored YAUL template when present, but CI must use
+          # a boot template available in every clean clone.
+          make IP_TEMPLATE_KIND=sbl examples-all > examples-all.log 2>&1
           status=$?
           set -e
-          first_error="$(grep -m1 -E 'fatal error:|error:|undefined reference|collect2: error|make(\[[0-9]+\])?: \*\*\*' examples-all.log || true)"
+          first_error="$(grep -m1 -E 'fatal error:|error:|undefined reference|collect2: error|make(\\[[0-9]+\\])?: \\*\\*\\*' examples-all.log || true)"
           if [ -z "$first_error" ] && [ "$status" -ne 0 ]; then
             first_error="examples-all failed; see examples-all.log"
           fi
@@ -57,7 +60,7 @@ jobs:
             escaped="${escaped//$'\n'/'%0A'}"
             echo "::error title=Saturn examples-all failed::$escaped"
             echo '### First Saturn cross-build failure' >> "$GITHUB_STEP_SUMMARY"
-            grep -m5 -E 'fatal error:|error:|undefined reference|collect2: error|make(\[[0-9]+\])?: \*\*\*' examples-all.log >> "$GITHUB_STEP_SUMMARY" || true
+            grep -m5 -E 'fatal error:|error:|undefined reference|collect2: error|make(\\[[0-9]+\\])?: \\*\\*\\*' examples-all.log >> "$GITHUB_STEP_SUMMARY" || true
           fi
 
       - name: Preserve Saturn cross-build diagnostics
