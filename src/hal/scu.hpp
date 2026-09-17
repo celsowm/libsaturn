@@ -13,8 +13,12 @@ void wait_vblank();
 uint32_t frame_counter();
 /* Display frames elapsed since init_frame_clock, including missed ones. */
 uint32_t display_frames();
+/* Calibrated FRT ticks in one display frame; zero if calibration failed. */
+uint16_t ticks_per_frame();
+/* FRT ticks elapsed since init_frame_clock, extended in software across wraps
+ * whenever this clock is observed. */
+uint64_t elapsed_ticks();
 
 }  // namespace saturn::hal::scu
 
 #endif
-

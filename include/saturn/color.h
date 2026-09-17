@@ -3,8 +3,35 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* ------------------------------------------------------------------ */
-/* Color construction                                                  */
+/* Game-facing color and pixel formats                                */
+/* ------------------------------------------------------------------ */
+typedef struct sat_color {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    uint8_t a;
+} sat_color_t;
+
+typedef enum sat_pixel_format {
+    SAT_PIXEL_INDEX8 = 0,
+    SAT_PIXEL_RGB555,
+    SAT_PIXEL_ARGB1555,
+    SAT_PIXEL_RGB565,
+    SAT_PIXEL_RGBA8888
+} sat_pixel_format_t;
+
+static inline sat_color_t sat_color_rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    sat_color_t color = {r, g, b, a};
+    return color;
+}
+
+/* ------------------------------------------------------------------ */
+/* Saturn-native color construction                                   */
 /* ------------------------------------------------------------------ */
 /* Saturn color words are BGR555: RED occupies bits 0-4, green bits 5-9 and
  * BLUE bits 10-14 -- the reverse of the channel order the name "RGB555"
@@ -30,7 +57,7 @@
     ((uint16_t)(r) & 0x1Fu)))
 
 /* ------------------------------------------------------------------ */
-/* Named Saturn BGR555 colors                                          */
+/* Named Saturn BGR555 colors                                         */
 /* ------------------------------------------------------------------ */
 #define SAT_COLOR_BLACK   ((uint16_t)0x0000)
 #define SAT_COLOR_BLUE    ((uint16_t)0x7C00)
@@ -46,5 +73,9 @@
 #define SAT_COLOR_TEAL    ((uint16_t)0x4200)
 #define SAT_COLOR_OLIVE   ((uint16_t)0x4210)
 #define SAT_COLOR_BROWN   ((uint16_t)0x4016)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* SATURN_COLOR_H */

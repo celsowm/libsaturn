@@ -15,7 +15,9 @@ namespace {
 uint32_t g_frame_counter = 0;
 uint32_t g_display_frames = 0;
 uint16_t g_ticks_per_frame = 0;
-uint16_t g_last_ticks = 0;
+uint16_t g_clock_last_frc = 0;
+uint64_t g_clock_ticks = 0;
+uint64_t g_last_display_tick_total = 0;
 constexpr uint16_t kVblankFlag = 0x0008u;
 constexpr uint32_t kMaxPollSpins = 2000000u;
 /* Fewer ticks than this per frame is not a working timer. */
@@ -26,6 +28,14 @@ uint16_t read_frc() {
     const uint16_t hi = FRT_FRC_H;
     const uint16_t lo = FRT_FRC_L;
     return static_cast<uint16_t>((hi << 8u) | lo);
+}
+
+uint64_t observe_elapsed_ticks() {
+    const uint16_t now = read_frc();
+    const uint16_t delta = static_cast<uint16_t>(now - g_clock_last_frc);
+    g_clock_last_frc = now;
+    g_clock_ticks += delta;
+    return g_clock_ticks;
 }
 
 }  // namespace
@@ -64,7 +74,10 @@ void init_frame_clock() {
     const uint16_t end = read_frc();
     const uint16_t ticks = static_cast<uint16_t>(end - start);
     g_ticks_per_frame = (ticks >= kMinTicksPerFrame) ? ticks : 0u;
-    g_last_ticks = end;
+    g_clock_last_frc = end;
+    g_clock_ticks = 0u;
+    g_last_display_tick_total = 0u;
+    g_frame_counter = 0u;
     g_display_frames = 0u;
 }
 
@@ -84,14 +97,12 @@ void wait_vblank() {
         ++g_display_frames;
         return;
     }
-    /* Sitting on an edge, the elapsed time is a whole number of frames up to
-     * polling jitter, so round; and at least one passed, since we just waited
-     * for an edge. A single wait longer than the counter spans undercounts. */
-    const uint16_t now = read_frc();
-    const uint16_t delta = static_cast<uint16_t>(now - g_last_ticks);
-    g_last_ticks = now;
-    uint32_t frames =
-        (static_cast<uint32_t>(delta) + (g_ticks_per_frame / 2u)) / g_ticks_per_frame;
+
+    const uint64_t now = observe_elapsed_ticks();
+    const uint64_t delta = now - g_last_display_tick_total;
+    g_last_display_tick_total = now;
+    uint32_t frames = static_cast<uint32_t>(
+        (delta + (static_cast<uint64_t>(g_ticks_per_frame) / 2u)) / g_ticks_per_frame);
     if (frames == 0u) {
         frames = 1u;
     }
@@ -104,6 +115,17 @@ uint32_t frame_counter() {
 
 uint32_t display_frames() {
     return g_display_frames;
+}
+
+uint16_t ticks_per_frame() {
+    return g_ticks_per_frame;
+}
+
+uint64_t elapsed_ticks() {
+    if (g_ticks_per_frame == 0u) {
+        return 0u;
+    }
+    return observe_elapsed_ticks();
 }
 
 }  // namespace saturn::hal::scu

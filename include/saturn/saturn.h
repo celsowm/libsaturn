@@ -5,7 +5,10 @@
  * New code should prefer narrow subsystem headers. */
 
 #include "saturn/core.h"
+#include "saturn/geometry2d.h"
 #include "saturn/color.h"
+#include "saturn/memory.h"
+#include "saturn/time.h"
 #include "saturn/math3d.h"
 #include "saturn/mesh3d.h"
 #include "saturn/model3d.h"
