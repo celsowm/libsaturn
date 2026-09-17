@@ -19,7 +19,7 @@ extern "C" {
 #define SAT_ASCII_FONT_GLYPH_HEIGHT 8u
 
 typedef struct sat_ascii_font {
-    sat_texture_t glyphs[SAT_ASCII_FONT_GLYPH_COUNT];
+    sat_vdp1_texture_t glyphs[SAT_ASCII_FONT_GLYPH_COUNT];
 } sat_ascii_font_t;
 
 sat_result_t sat_ascii_font_init_8x8_indexed8(
@@ -107,7 +107,7 @@ sat_result_t sat_font_pack_8x8_glyph_indexed8(
 );
 
 sat_result_t sat_font_draw_text_line_indexed8(
-    const sat_texture_t* glyph_textures,
+    const sat_vdp1_texture_t* glyph_textures,
     const char* glyph_chars,
     uint16_t glyph_count,
     const char* text,
@@ -119,7 +119,7 @@ sat_result_t sat_font_draw_text_line_indexed8(
 );
 
 sat_result_t sat_font_draw_text_ascii_indexed8(
-    const sat_texture_t* ascii_textures,
+    const sat_vdp1_texture_t* ascii_textures,
     const char* text,
     int x,
     int y,
@@ -129,7 +129,7 @@ sat_result_t sat_font_draw_text_ascii_indexed8(
 );
 
 sat_result_t sat_font_upload_ascii_8x8_textures_indexed8(
-    sat_texture_t* out_textures,
+    sat_vdp1_texture_t* out_textures,
     uint8_t* glyph_pixels,
     uint16_t glyph_count,
     const uint16_t* palette_rgb555,
