@@ -506,6 +506,27 @@ Phase gate: stale-handle tests, pool exhaustion, migrated examples, exact low-le
 
 Add or expand `include/saturn/render2d.h`.
 
+### Implementation status — 2026-09-17
+
+Implemented on `main`:
+
+- logical `sat_draw_texture` with full-texture and cached/prepared source-region resolution;
+- destination scaling, X/Y flip, explicit rotation center, and rotation lowered to VDP1 distorted sprites;
+- fixed-capacity render-state push/pop with deterministic overflow/underflow;
+- `sat_camera2d_t` target/offset/rotation/zoom applied consistently to high-level texture and rectangle draws;
+- `sat_fill_rect` and `sat_draw_rect` using `sat_color_t` and the same Camera2D state;
+- inside rectangular scissor through VDP1 user clipping, persisted in render state and re-emitted for each command list;
+- host coverage for texture draw geometry, Camera2D/state stack, color conversion, clipping resolution, VDP1 user-clip command encoding, and clip PMOD bits.
+
+Still open before the Phase 4 gate can be declared complete:
+
+- high-level `sat_draw_line`; the current low-level VDP1 API already owns that C symbol and requires a deliberate hardware-API naming migration rather than a parallel ad-hoc name;
+- a documented hardware-backed tint subset beyond neutral white;
+- a documented hardware-backed blend subset beyond `SAT_BLEND_NONE`;
+- decide whether a separate generic transform setter adds value beyond Camera2D before adding public surface area;
+- final cross-build/examples gate for the complete Phase 4 surface.
+
+
 ## 4.1 Unified texture drawing
 
 The central API should support source rectangle, destination rectangle, rotation/origin, flip, tint, and blend semantics:
