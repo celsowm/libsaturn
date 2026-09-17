@@ -137,9 +137,9 @@ static const int kMouthTan[] = {0, 27, 70};
 #define PAC_FRAMES 3
 
 static uint8_t g_sprite[SPRITE_DIM * SPRITE_DIM];
-static sat_texture_t g_pac_tex[4][PAC_FRAMES];  /* [direction][mouth frame] */
-static sat_texture_t g_ghost_tex[PAC_GHOST_COUNT][4]; /* [ghost][direction]  */
-static sat_texture_t g_fright_tex[2];           /* blue, and the white flash */
+static sat_vdp1_texture_t g_pac_tex[4][PAC_FRAMES];  /* [direction][mouth frame] */
+static sat_vdp1_texture_t g_ghost_tex[PAC_GHOST_COUNT][4]; /* [ghost][direction]  */
+static sat_vdp1_texture_t g_fright_tex[2];           /* blue, and the white flash */
 static uint16_t g_actor_palette[256];
 
 /* The ghost outline: dome on top, straight sides, notched skirt. */
@@ -254,7 +254,7 @@ static void build_fright(uint8_t body, uint8_t face) {
     }
 }
 
-static void upload_sprite(sat_texture_t* out) {
+static void upload_sprite(sat_vdp1_texture_t* out) {
     sat_example_must(sat_tex_upload_indexed8(
         out, g_sprite, SPRITE_DIM, SPRITE_DIM, g_actor_palette, ACTOR_PALETTE));
 }
@@ -300,7 +300,7 @@ static int facing(int dir, int* last) {
     return *last;
 }
 
-static void draw_actor_sprite(const sat_texture_t* tex, int cx, int cy) {
+static void draw_actor_sprite(const sat_vdp1_texture_t* tex, int cx, int cy) {
     if (sat_draw_sprite_scaled_screen(
             tex, (int16_t)cx, (int16_t)cy, ACTOR_PX, ACTOR_PX, 0) != SAT_OK) {
         g_draw_overflow = 1;
@@ -378,7 +378,7 @@ static void render_ghosts(void) {
     for (i = 0; i < PAC_GHOST_COUNT; ++i) {
         const sat_grid_actor_t* a = &g_game.ghosts[i].actor;
         const int dir = facing((int)a->dir, &last_dir[i]);
-        const sat_texture_t* tex;
+        const sat_vdp1_texture_t* tex;
 
         if (pac_game_ghost_penned(&g_game, i)) {
             continue;

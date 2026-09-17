@@ -61,7 +61,7 @@ static sat_ascii_font_t g_font;
 static sat_vec3_t g_mesh_vertices[MODEL_VERTEX_CAP];
 static uint16_t g_mesh_indices[MODEL_FACE_CAP * 4u];
 static sat_mesh_t g_mesh;
-static sat_texture_t g_model_textures[MODEL_TEXTURE_CAP];
+static sat_vdp1_texture_t g_model_textures[MODEL_TEXTURE_CAP];
 static uint8_t g_mesh_order[MODEL_FACE_CAP];
 static uint32_t g_mesh_depth[MODEL_FACE_CAP];
 /* Projection cache for sat_draw_mesh's screen-space path. */

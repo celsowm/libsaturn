@@ -74,7 +74,7 @@ extern "C" sat_result_t sat_draw_world_polygon(
 
 extern "C" sat_result_t sat_draw_world_sprite(
     const sat_mat4_t*, const sat_quad3_t*,
-    const sat_texture_t*, uint16_t, uint16_t) {
+    const sat_vdp1_texture_t*, uint16_t, uint16_t) {
     return SAT_OK;
 }
 
@@ -88,7 +88,7 @@ extern "C" sat_result_t sat_draw_quad2_polygon(const sat_quad2_t*, uint16_t) {
 }
 
 extern "C" sat_result_t sat_draw_quad2_sprite(
-    const sat_quad2_t*, const sat_texture_t*, uint16_t, uint16_t) {
+    const sat_quad2_t*, const sat_vdp1_texture_t*, uint16_t, uint16_t) {
     return SAT_OK;
 }
 
@@ -107,7 +107,7 @@ extern "C" sat_result_t sat_palette_upload_indexed8(const uint16_t*, uint16_t) {
 }
 
 extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
-    sat_texture_t* out, const uint8_t*, uint16_t w, uint16_t h, uint16_t pal) {
+    sat_vdp1_texture_t* out, const uint8_t*, uint16_t w, uint16_t h, uint16_t pal) {
     out->srca = 1;
     out->width = w;
     out->height = h;
@@ -507,7 +507,7 @@ static void decode_feeds_mesh_and_bind() {
     ASSERT_EQ(sat_model_copy_to_mesh(a.model, &mesh), SAT_OK);
     /* Decode the pose over the copied bind vertices. */
     ASSERT_EQ(sat_anim_decode(&a, &st, mesh.vertices, mesh.vertex_cap), SAT_OK);
-    sat_texture_t tex[1] = {};
+    sat_vdp1_texture_t tex[1] = {};
     tex[0].valid = 1;
     sat_mat4_t vp = {};
     sat_vec3_t eye = {0, 0, 65536};

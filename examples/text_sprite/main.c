@@ -10,7 +10,7 @@
 int main(void) {
     sat_example_must(sat_app_init_default());
 
-    sat_texture_t texture = {0};
+    sat_vdp1_texture_t texture = {0};
     sat_example_must(sat_tex_upload_indexed8(
         &texture,
         sonic_head_asset.pixels,

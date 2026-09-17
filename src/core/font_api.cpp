@@ -107,7 +107,7 @@ static const uint8_t kAscii8x8Font[96][8] = {
 }  // namespace
 
 static sat_result_t upload_ascii_font_glyph_indexed8(
-    sat_texture_t* out_texture,
+    sat_vdp1_texture_t* out_texture,
     char ch,
     const uint16_t* palette_rgb555,
     uint16_t palette_index
@@ -136,7 +136,7 @@ static sat_result_t upload_ascii_font_glyph_indexed8(
 }
 
 static sat_result_t upload_ascii_font_glyph_scaled_indexed8(
-    sat_texture_t* out_texture,
+    sat_vdp1_texture_t* out_texture,
     char ch,
     const uint16_t* palette_rgb555,
     uint16_t palette_index,
@@ -303,7 +303,7 @@ extern "C" sat_result_t sat_font_pack_8x8_glyph_indexed8(
 }
 
 extern "C" sat_result_t sat_font_draw_text_line_indexed8(
-    const sat_texture_t* glyph_textures,
+    const sat_vdp1_texture_t* glyph_textures,
     const char* glyph_chars,
     uint16_t glyph_count,
     const char* text,
@@ -329,7 +329,7 @@ extern "C" sat_result_t sat_font_draw_text_line_indexed8(
             }
         }
 
-        const sat_texture_t* texture = &glyph_textures[glyph_index];
+        const sat_vdp1_texture_t* texture = &glyph_textures[glyph_index];
         sat_sprite_cmd_t cmd = {
             (sat_fx16_t)(pen_x * SAT_FX16_ONE),
             (sat_fx16_t)(y * SAT_FX16_ONE),
@@ -356,7 +356,7 @@ extern "C" sat_result_t sat_font_draw_text_line_indexed8(
 }
 
 extern "C" sat_result_t sat_font_draw_text_ascii_indexed8(
-    const sat_texture_t* ascii_textures,
+    const sat_vdp1_texture_t* ascii_textures,
     const char* text,
     int x,
     int y,
@@ -376,7 +376,7 @@ extern "C" sat_result_t sat_font_draw_text_ascii_indexed8(
             glyph_index = static_cast<uint16_t>(code - 32u);
         }
 
-        const sat_texture_t* texture = &ascii_textures[glyph_index];
+        const sat_vdp1_texture_t* texture = &ascii_textures[glyph_index];
         sat_sprite_cmd_t cmd = {
             (sat_fx16_t)(pen_x * SAT_FX16_ONE),
             (sat_fx16_t)(y * SAT_FX16_ONE),
@@ -403,7 +403,7 @@ extern "C" sat_result_t sat_font_draw_text_ascii_indexed8(
 }
 
 extern "C" sat_result_t sat_font_upload_ascii_8x8_textures_indexed8(
-    sat_texture_t* out_textures,
+    sat_vdp1_texture_t* out_textures,
     uint8_t* glyph_pixels,
     uint16_t glyph_count,
     const uint16_t* palette_rgb555,

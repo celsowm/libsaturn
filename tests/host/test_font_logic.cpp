@@ -13,7 +13,7 @@
     exit(1); } } while(0)
 
 extern "C" sat_result_t sat_tex_upload_indexed8(
-    sat_texture_t*,
+    sat_vdp1_texture_t*,
     const uint8_t*,
     uint16_t,
     uint16_t,

@@ -28,7 +28,7 @@ TEST(resolve_sprite_cmd_null_texture) {
 }
 
 TEST(resolve_sprite_cmd_invalid_texture) {
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     tex.valid = 0;
     sat_sprite_cmd_t cmd = {};
     cmd.texture = &tex;
@@ -37,7 +37,7 @@ TEST(resolve_sprite_cmd_invalid_texture) {
 }
 
 TEST(resolve_sprite_cmd_defaults) {
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     tex.valid = 1;
     tex.width = 32;
     tex.height = 32;
@@ -63,7 +63,7 @@ TEST(resolve_sprite_cmd_defaults) {
 }
 
 TEST(resolve_sprite_cmd_palette_override) {
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     tex.valid = 1;
     tex.width = 16;
     tex.height = 16;
@@ -130,7 +130,7 @@ TEST(polygon_pmod_opaque_flag) {
 /* --- Scaled / distorted sprite resolution ------------------------ */
 
 TEST(resolve_scaled_sprite_cmd_defaults) {
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     tex.valid = 1;
     tex.width = 32;
     tex.height = 16;
@@ -160,7 +160,7 @@ TEST(resolve_scaled_sprite_cmd_rejects_bad_texture) {
 }
 
 TEST(resolve_scaled_sprite_cmd_palette_override) {
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     tex.valid = 1; tex.width = 8; tex.height = 8; tex.srca = 0; tex.palette = 1;
     sat_scaled_sprite_cmd_t cmd = {};
     cmd.texture = &tex;
@@ -171,7 +171,7 @@ TEST(resolve_scaled_sprite_cmd_palette_override) {
 }
 
 TEST(resolve_distorted_sprite_cmd_defaults) {
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     tex.valid = 1; tex.width = 16; tex.height = 16; tex.srca = 0x2000; tex.palette = 3;
     sat_distorted_sprite_cmd_t cmd = {};
     cmd.x[0] = -10; cmd.y[0] = -10;

@@ -239,7 +239,7 @@ inline mesh_face_draw_mode resolve_face_draw_mode(
     uint16_t face,
     const uint16_t* face_texture_indices,
     uint16_t face_count,
-    const sat_texture_t* textures,
+    const sat_vdp1_texture_t* textures,
     uint16_t texture_count,
     uint16_t* out_tex_index
 ) {
@@ -272,7 +272,7 @@ inline mesh_face_draw_mode resolve_face_draw_mode(
 inline sat_result_t validate_face_textures(
     const uint16_t* face_texture_indices,
     uint16_t face_count,
-    const sat_texture_t* textures,
+    const sat_vdp1_texture_t* textures,
     uint16_t texture_count
 ) {
     if (face_texture_indices == nullptr) {

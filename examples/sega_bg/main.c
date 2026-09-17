@@ -11,7 +11,7 @@ int main(void) {
     sat_example_must(sat_app_init_default());
 
     /* Upload background texture to VRAM */
-    sat_texture_t bg_tex = {0};
+    sat_vdp1_texture_t bg_tex = {0};
     sat_example_must(sat_tex_upload_indexed8(
         &bg_tex,
         bg_asset.pixels,

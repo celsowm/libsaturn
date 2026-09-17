@@ -77,7 +77,7 @@ static void combined_upload_calls_palette_once_and_texture_once() {
     make_initialized();
     uint8_t pixels[8 * 8] = {};
     uint16_t palette[256] = {};
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     ASSERT_EQ(sat_tex_upload_indexed8(&tex, pixels, 8, 8, palette, 2), SAT_OK);
     ASSERT_EQ(g_palette_calls, 1);
     ASSERT_EQ(g_texture_calls, 1);
@@ -93,7 +93,7 @@ static void pixels_only_skips_palette_upload() {
     reset_hal();
     make_initialized();
     uint8_t pixels[16 * 8] = {};
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     ASSERT_EQ(sat_tex_upload_indexed8_pixels(&tex, pixels, 16, 8, 3), SAT_OK);
     ASSERT_EQ(g_palette_calls, 0);
     ASSERT_EQ(g_texture_calls, 1);
@@ -118,7 +118,7 @@ static void invalid_bank_rejected_without_hal_calls() {
     make_initialized();
     uint8_t pixels[8 * 8] = {};
     uint16_t palette[256] = {};
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     ASSERT_EQ(sat_tex_upload_indexed8(&tex, pixels, 8, 8, palette, 8), SAT_ERR_INVALID_ARG);
     ASSERT_EQ(sat_tex_upload_indexed8_pixels(&tex, pixels, 8, 8, 8), SAT_ERR_INVALID_ARG);
     ASSERT_EQ(sat_palette_upload_indexed8(palette, 8), SAT_ERR_INVALID_ARG);
@@ -132,7 +132,7 @@ static void invalid_dims_rejected() {
     make_initialized();
     uint8_t pixels[16 * 16] = {};
     uint16_t palette[256] = {};
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     /* Misaligned width. */
     ASSERT_EQ(sat_tex_upload_indexed8_pixels(&tex, pixels, 12, 8, 0), SAT_ERR_INVALID_ARG);
     ASSERT_EQ(sat_tex_upload_indexed8(&tex, pixels, 12, 8, palette, 0), SAT_ERR_INVALID_ARG);
@@ -153,7 +153,7 @@ static void texture_capacity_propagates() {
     g_texture_status = SAT_ERR_CAPACITY;
     uint8_t pixels[8 * 8] = {};
     uint16_t palette[256] = {};
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     ASSERT_EQ(sat_tex_upload_indexed8_pixels(&tex, pixels, 8, 8, 0), SAT_ERR_CAPACITY);
     ASSERT_EQ(sat_tex_upload_indexed8(&tex, pixels, 8, 8, palette, 0), SAT_ERR_CAPACITY);
     /* Combined path uploads the palette before discovering VRAM is full;
@@ -166,7 +166,7 @@ static void null_args_rejected() {
     make_initialized();
     uint8_t pixels[8] = {};
     uint16_t palette[256] = {};
-    sat_texture_t tex = {};
+    sat_vdp1_texture_t tex = {};
     ASSERT_EQ(sat_tex_upload_indexed8(nullptr, pixels, 8, 1, palette, 0), SAT_ERR_INVALID_ARG);
     ASSERT_EQ(sat_tex_upload_indexed8(&tex, nullptr, 8, 1, palette, 0), SAT_ERR_INVALID_ARG);
     ASSERT_EQ(sat_tex_upload_indexed8(&tex, pixels, 8, 1, nullptr, 0), SAT_ERR_INVALID_ARG);

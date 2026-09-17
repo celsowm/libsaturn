@@ -10,7 +10,7 @@
 
 static uint8_t g_square_pixels[16 * 16];
 static uint16_t g_square_palette[256];
-static sat_texture_t g_square_tex;
+static sat_vdp1_texture_t g_square_tex;
 static sat_ascii_font_t g_font;
 
 static void build_square_palette(void) {

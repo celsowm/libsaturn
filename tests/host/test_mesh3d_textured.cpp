@@ -34,7 +34,7 @@ uint32_t g_depth[kFCap];
 
 int g_polygon_calls;
 int g_sprite_calls;
-const sat_texture_t* g_last_sprite_tex;
+const sat_vdp1_texture_t* g_last_sprite_tex;
 sat_result_t g_polygon_status = SAT_OK;
 sat_result_t g_sprite_status = SAT_OK;
 /* World-x of each submitted face center, in call order, for order checks. */
@@ -136,7 +136,7 @@ extern "C" sat_result_t sat_draw_quad2_polygon(const sat_quad2_t* quad, uint16_t
 }
 
 extern "C" sat_result_t sat_draw_quad2_sprite(
-    const sat_quad2_t* quad, const sat_texture_t* texture, uint16_t, uint16_t) {
+    const sat_quad2_t* quad, const sat_vdp1_texture_t* texture, uint16_t, uint16_t) {
     ++g_sprite_calls;
     g_last_sprite_tex = texture;
     record_quad2(quad, 1);
@@ -185,7 +185,7 @@ extern "C" sat_result_t sat_draw_world_polygon(
 
 extern "C" sat_result_t sat_draw_world_sprite(
     const sat_mat4_t*, const sat_quad3_t* quad,
-    const sat_texture_t* texture, uint16_t, uint16_t) {
+    const sat_vdp1_texture_t* texture, uint16_t, uint16_t) {
     ++g_sprite_calls;
     g_last_sprite_tex = texture;
     if (g_call_count < 32) {
@@ -211,7 +211,7 @@ static void legacy_null_table_draws_polygons_only() {
 static void mixed_textured_and_untextured_faces() {
     sat_mesh_t mesh = make_mesh();
     build_two_quads(&mesh);
-    sat_texture_t tex[1] = {};
+    sat_vdp1_texture_t tex[1] = {};
     tex[0].valid = 1;
     const uint16_t table[2] = {0u, SAT_MESH_TEXTURE_NONE};
     reset_stubs();
@@ -229,7 +229,7 @@ static void mixed_textured_and_untextured_faces() {
 static void invalid_texture_index_returns_error_and_draws_nothing() {
     sat_mesh_t mesh = make_mesh();
     build_two_quads(&mesh);
-    sat_texture_t tex[1] = {};
+    sat_vdp1_texture_t tex[1] = {};
     const uint16_t table[2] = {0u, 9u};
     reset_stubs();
     sat_vec3_t eye = {0, 0, sat_fx16_from_int(100)};
@@ -256,7 +256,7 @@ static void culling_parity_between_paths() {
     ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
     const int poly_calls = g_polygon_calls;
 
-    sat_texture_t tex[1] = {};
+    sat_vdp1_texture_t tex[1] = {};
     tex[0].valid = 1;
     static uint16_t table[6] = {0u, 0u, 0u, 0u, 0u, 0u};
     reset_stubs();
@@ -289,7 +289,7 @@ static void sorting_parity_and_order() {
     ASSERT_EQ(g_call_x[0], 40);
     ASSERT_EQ(g_call_x[1], 8);
 
-    sat_texture_t tex[1] = {};
+    sat_vdp1_texture_t tex[1] = {};
     const uint16_t table[2] = {0u, 0u};
     reset_stubs();
     sat_mesh_draw_t q = base_draw(eye);
@@ -314,7 +314,7 @@ static void degenerate_triangle_face_draws_textured() {
     sat_mesh_add_vertex(&mesh, 0, sat_fx16_from_int(16), 0, &b);
     sat_mesh_add_vertex(&mesh, sat_fx16_from_int(16), 0, 0, &c);
     sat_mesh_add_face(&mesh, a, b, c, c);
-    sat_texture_t tex[1] = {};
+    sat_vdp1_texture_t tex[1] = {};
     const uint16_t table[1] = {0u};
     reset_stubs();
     sat_vec3_t eye = {0, 0, sat_fx16_from_int(100)};
@@ -330,7 +330,7 @@ static void degenerate_triangle_face_draws_textured() {
 static void capacity_error_propagates_but_draws_rest() {
     sat_mesh_t mesh = make_mesh();
     build_two_quads(&mesh);
-    sat_texture_t tex[1] = {};
+    sat_vdp1_texture_t tex[1] = {};
     const uint16_t table[2] = {0u, SAT_MESH_TEXTURE_NONE};
     reset_stubs();
     g_sprite_status = SAT_ERR_CAPACITY;

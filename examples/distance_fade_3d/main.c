@@ -76,7 +76,7 @@ static uint16_t g_map_scratch[SAT_VDP2_NBG0_MAP_CELLS];
 
 static uint8_t g_object_pixels[OBJECT_TEX_W * OBJECT_TEX_H];
 static uint16_t g_object_palette[256];
-static sat_texture_t g_object_texture;
+static sat_vdp1_texture_t g_object_texture;
 static sat_ascii_font_t g_font;
 
 static sat_mat4_t g_view_proj;

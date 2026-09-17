@@ -59,7 +59,7 @@ static sat_result_t build_hello_texture(void) {
 }
 
 #if MVP_HELLO_VISUAL_ONLY
-static void hello_visual_loop(const sat_texture_t* hello_tex) {
+static void hello_visual_loop(const sat_vdp1_texture_t* hello_tex) {
     uint32_t counter = 0;
     while (1) {
         const uint16_t bg = ((counter & 32u) != 0u) ? HELLO_BG_A : HELLO_BG_B;
@@ -130,10 +130,10 @@ int main(void) {
     g_palette[1] = 0xFFFF;
     sat_example_must(sat_set_clear_color(STAGE_COLOR_C));
 
-    sat_texture_t player_tex = {0};
-    sat_texture_t tile_tex = {0};
-    sat_texture_t hud_tex = {0};
-    sat_texture_t hello_tex = {0};
+    sat_vdp1_texture_t player_tex = {0};
+    sat_vdp1_texture_t tile_tex = {0};
+    sat_vdp1_texture_t hud_tex = {0};
+    sat_vdp1_texture_t hello_tex = {0};
 
     sat_example_must(sat_tex_upload_indexed8(&player_tex, g_player_pixels, 16, 16, g_palette, 0));
     sat_example_must(sat_tex_upload_indexed8(&tile_tex, g_tile_pixels, 16, 16, g_palette, 0));

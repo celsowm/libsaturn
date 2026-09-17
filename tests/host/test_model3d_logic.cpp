@@ -53,7 +53,7 @@ extern "C" sat_result_t sat_draw_world_polygon(
 
 extern "C" sat_result_t sat_draw_world_sprite(
     const sat_mat4_t*, const sat_quad3_t*,
-    const sat_texture_t*, uint16_t, uint16_t) {
+    const sat_vdp1_texture_t*, uint16_t, uint16_t) {
     return SAT_OK;
 }
 
@@ -67,7 +67,7 @@ extern "C" sat_result_t sat_draw_quad2_polygon(const sat_quad2_t*, uint16_t) {
 }
 
 extern "C" sat_result_t sat_draw_quad2_sprite(
-    const sat_quad2_t*, const sat_texture_t*, uint16_t, uint16_t) {
+    const sat_quad2_t*, const sat_vdp1_texture_t*, uint16_t, uint16_t) {
     return SAT_OK;
 }
 
@@ -85,7 +85,7 @@ static int g_tex_calls = 0;
 static sat_result_t g_tex_status = SAT_OK;
 
 extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
-    sat_texture_t* out, const uint8_t*, uint16_t w, uint16_t h, uint16_t pal) {
+    sat_vdp1_texture_t* out, const uint8_t*, uint16_t w, uint16_t h, uint16_t pal) {
     ++g_tex_calls;
     if (g_tex_status != SAT_OK) {
         return g_tex_status;
@@ -220,7 +220,7 @@ static void copy_to_mesh_requires_capacity() {
 
 static void upload_requires_output_capacity() {
     sat_model_asset_t a = make_valid();
-    sat_texture_t out[1];
+    sat_vdp1_texture_t out[1];
     g_tex_calls = 0;
     g_tex_status = SAT_OK;
     ASSERT_EQ(sat_model_upload_textures(&a, out, 1), SAT_OK);
@@ -258,7 +258,7 @@ static void bind_draw_fills_mesh_draw() {
     sat_mesh_t mesh;
     ASSERT_EQ(sat_mesh_init(&mesh, verts, 4, idx, 2), SAT_OK);
     ASSERT_EQ(sat_model_copy_to_mesh(&a, &mesh), SAT_OK);
-    sat_texture_t tex[1] = {};
+    sat_vdp1_texture_t tex[1] = {};
     tex[0].valid = 1;
     sat_mat4_t vp = {};
     sat_vec3_t eye = {0, 0, 65536};

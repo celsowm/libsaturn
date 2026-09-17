@@ -452,7 +452,7 @@ TEST(null_texture_table_selects_polygon_for_every_face) {
 }
 
 TEST(texture_none_selects_polygon_path) {
-    sat_texture_t tex[1] = {};
+    sat_vdp1_texture_t tex[1] = {};
     const uint16_t table[2] = {SAT_MESH_TEXTURE_NONE, SAT_MESH_TEXTURE_NONE};
     uint16_t out = 0xBEEFu;
     ASSERT_TRUE(resolve_face_draw_mode(0, table, 2, tex, 1, &out) ==
@@ -463,7 +463,7 @@ TEST(texture_none_selects_polygon_path) {
 }
 
 TEST(valid_texture_index_resolves_to_textured) {
-    sat_texture_t tex[2] = {};
+    sat_vdp1_texture_t tex[2] = {};
     const uint16_t table[3] = {0u, 1u, SAT_MESH_TEXTURE_NONE};
     uint16_t out = 0xBEEFu;
     ASSERT_TRUE(resolve_face_draw_mode(0, table, 3, tex, 2, &out) ==
@@ -478,7 +478,7 @@ TEST(valid_texture_index_resolves_to_textured) {
 }
 
 TEST(out_of_range_texture_index_is_invalid) {
-    sat_texture_t tex[1] = {};
+    sat_vdp1_texture_t tex[1] = {};
     const uint16_t table[2] = {0u, 5u};
     ASSERT_TRUE(resolve_face_draw_mode(1, table, 2, tex, 1, nullptr) ==
                 mesh_face_draw_mode::kInvalid);
