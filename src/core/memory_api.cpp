@@ -24,11 +24,12 @@ extern "C" size_t sat_arena_high_water(const sat_arena_t* arena) {
 extern "C" sat_result_t sat_pool_init(
     sat_pool_t* pool,
     void* memory,
+    size_t memory_size,
     size_t element_size,
     size_t alignment,
     uint16_t capacity,
     sat_pool_slot_t* slots) {
-    return saturn::core::memory_logic::pool_init(pool, memory, element_size, alignment, capacity, slots);
+    return saturn::core::memory_logic::pool_init(pool, memory, memory_size, element_size, alignment, capacity, slots);
 }
 
 extern "C" sat_result_t sat_pool_acquire(sat_pool_t* pool, sat_pool_handle_t* out_handle, void** out_ptr) {

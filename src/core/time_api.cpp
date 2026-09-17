@@ -21,6 +21,9 @@ extern "C" sat_result_t sat_delay_ms(uint32_t ms) {
     if (require_initialized() != SAT_OK) {
         return SAT_ERR_NOT_INITIALIZED;
     }
+    if (saturn::hal::scu::ticks_per_frame() == 0u) {
+        return SAT_ERR_UNSUPPORTED;
+    }
     const uint32_t start = sat_time_ms();
     while (time_logic::elapsed_ms(sat_time_ms(), start) < ms) {
     }

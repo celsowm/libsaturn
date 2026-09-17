@@ -46,6 +46,7 @@ typedef struct sat_pool {
 sat_result_t sat_pool_init(
     sat_pool_t* pool,
     void* memory,
+    size_t memory_size,
     size_t element_size,
     size_t alignment,
     uint16_t capacity,

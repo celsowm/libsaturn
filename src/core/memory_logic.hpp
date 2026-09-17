@@ -71,6 +71,7 @@ inline void arena_reset(sat_arena_t* arena) {
 inline sat_result_t pool_init(
     sat_pool_t* pool,
     void* memory,
+    size_t memory_size,
     size_t element_size,
     size_t alignment,
     uint16_t capacity,
@@ -90,6 +91,10 @@ inline sat_result_t pool_init(
         return SAT_ERR_INVALID_ARG;
     }
     if (static_cast<size_t>(capacity) > static_cast<size_t>(-1) / stride) {
+        return SAT_ERR_CAPACITY;
+    }
+    const size_t required = static_cast<size_t>(capacity) * stride;
+    if (required > memory_size) {
         return SAT_ERR_CAPACITY;
     }
 

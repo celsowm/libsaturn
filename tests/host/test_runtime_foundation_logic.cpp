@@ -40,7 +40,10 @@ int main() {
     alignas(8) uint8_t pool_bytes[3 * 8]{};
     sat_pool_slot_t slots[3]{};
     sat_pool_t pool{};
-    OK(saturn::core::memory_logic::pool_init(&pool, pool_bytes, sizeof(Item), 8, 3, slots) == SAT_OK);
+    OK(saturn::core::memory_logic::pool_init(&pool, pool_bytes, sizeof(pool_bytes), sizeof(Item), 8, 3, slots) == SAT_OK);
+    sat_pool_t too_small{};
+    OK(saturn::core::memory_logic::pool_init(&too_small, pool_bytes, 8, sizeof(Item), 8, 3, slots) == SAT_ERR_CAPACITY);
+
     sat_pool_handle_t h[3]{};
     void* ptr = nullptr;
     for (auto& handle : h) {
