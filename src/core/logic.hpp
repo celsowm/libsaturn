@@ -265,6 +265,7 @@ constexpr uint16_t kVdp1CmdDistortedSprite = 0x0002u;
 constexpr uint16_t kVdp1CmdPolygon  = 0x0004u;  /* filled interior            */
 constexpr uint16_t kVdp1CmdPolyline = 0x0005u;  /* outline only, 4 vertices   */
 constexpr uint16_t kVdp1CmdLine     = 0x0006u;  /* straight line, 2 vertices  */
+constexpr uint16_t kVdp1CmdUserClip = 0x0008u;  /* user clipping coordinates   */
 constexpr uint16_t kVdp1CmdEnd      = 0x8000u;  /* end bit (CMDCTRL bit 15)   */
 
 /* PMOD bits common to all non-texture commands (CMDPMOD, VDP1 manual p06_30):
@@ -326,6 +327,11 @@ inline uint16_t compose_sprite_pmod(uint16_t flags) {
  * 16-bit color bank number in bits 15..8, hence the << 8. */
 inline uint16_t compose_sprite_colr(uint16_t palette) {
     return static_cast<uint16_t>(palette << 8u);
+}
+
+inline uint16_t compose_inside_user_clip_pmod(uint16_t pmod, bool enabled) {
+    if (!enabled) return pmod;
+    return static_cast<uint16_t>((pmod & static_cast<uint16_t>(~0x0200u)) | 0x0400u);
 }
 
 /* ------------------------------------------------------------------ */

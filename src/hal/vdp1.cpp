@@ -167,6 +167,34 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     sys_clip.pad = 0;
 }
 
+sat_result_t push_user_clip(const UserClipRequest& req) {
+    if (g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
+    if (req.x0 > req.x1 || req.y0 > req.y1 ||
+        req.x1 >= g_width || req.y1 >= g_height) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (g_cmd_count + 1u >= g_cmd_capacity) return SAT_ERR_CAPACITY;
+
+    Command& cmd = g_cmd_buffer[g_cmd_count++];
+    cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdUserClip, false);
+    cmd.link = 0;
+    cmd.pmod = 0;
+    cmd.colr = 0;
+    cmd.srca = 0;
+    cmd.size = 0;
+    cmd.xa = static_cast<int16_t>(req.x0);
+    cmd.ya = static_cast<int16_t>(req.y0);
+    cmd.xb = 0;
+    cmd.yb = 0;
+    cmd.xc = static_cast<int16_t>(req.x1);
+    cmd.yc = static_cast<int16_t>(req.y1);
+    cmd.xd = 0;
+    cmd.yd = 0;
+    cmd.grda = 0;
+    cmd.pad = 0;
+    return SAT_OK;
+}
+
 sat_result_t push_sprite(const SpriteRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
@@ -184,7 +212,8 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     Command& cmd = g_cmd_buffer[g_cmd_count++];
     cmd.ctrl = 0x0000;
     cmd.link = 0;
-    cmd.pmod = saturn::core::compose_sprite_pmod(req.flags);
+    cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
+        saturn::core::compose_sprite_pmod(req.flags), req.user_clip);
     cmd.colr = saturn::core::compose_sprite_colr(req.palette);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);
@@ -216,7 +245,8 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     Command& cmd = g_cmd_buffer[g_cmd_count++];
     cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdScaledSprite, false);
     cmd.link = 0;
-    cmd.pmod = saturn::core::compose_sprite_pmod(req.flags);
+    cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
+        saturn::core::compose_sprite_pmod(req.flags), req.user_clip);
     cmd.colr = saturn::core::compose_sprite_colr(req.palette);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);
@@ -249,7 +279,8 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     Command& cmd = g_cmd_buffer[g_cmd_count++];
     cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdDistortedSprite, false);
     cmd.link = 0;
-    cmd.pmod = saturn::core::compose_sprite_pmod(req.flags);
+    cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
+        saturn::core::compose_sprite_pmod(req.flags), req.user_clip);
     cmd.colr = saturn::core::compose_sprite_colr(req.palette);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);
@@ -279,7 +310,8 @@ inline sat_result_t push_polygon_like(uint16_t command_select, const PolygonRequ
     Command& cmd = g_cmd_buffer[g_cmd_count++];
     cmd.ctrl = saturn::core::compose_polygon_ctrl(command_select, false);
     cmd.link = 0;
-    cmd.pmod = saturn::core::compose_polygon_pmod(req.flags);
+    cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
+        saturn::core::compose_polygon_pmod(req.flags), req.user_clip);
     cmd.colr = req.color;
     cmd.srca = 0;
     cmd.size = 0;
@@ -317,7 +349,8 @@ sat_result_t push_line(const LineRequest& req) {
     Command& cmd = g_cmd_buffer[g_cmd_count++];
     cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdLine, false);
     cmd.link = 0;
-    cmd.pmod = saturn::core::compose_polygon_pmod(req.flags);
+    cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
+        saturn::core::compose_polygon_pmod(req.flags), req.user_clip);
     cmd.colr = req.color;
     cmd.srca = 0;
     cmd.size = 0;

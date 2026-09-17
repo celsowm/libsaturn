@@ -90,6 +90,7 @@ TEST(polygon_ctrl_command_selects) {
     ASSERT_EQ(compose_polygon_ctrl(kVdp1CmdPolygon, false), 0x0004);
     ASSERT_EQ(compose_polygon_ctrl(kVdp1CmdPolyline, false), 0x0005);
     ASSERT_EQ(compose_polygon_ctrl(kVdp1CmdLine, false), 0x0006);
+    ASSERT_EQ(compose_polygon_ctrl(kVdp1CmdUserClip, false), 0x0008);
 }
 
 TEST(polygon_ctrl_end_bit) {
@@ -205,6 +206,15 @@ TEST(sprite_pmod_opaque_flag) {
     ASSERT_EQ(compose_sprite_pmod(0xFFFEu), 0x00A0);
 }
 
+TEST(user_clip_pmod_enables_inside_clip_only) {
+    using namespace saturn::core;
+    const uint16_t sprite = compose_inside_user_clip_pmod(compose_sprite_pmod(0), true);
+    ASSERT_TRUE((sprite & 0x0400u) != 0u);
+    ASSERT_TRUE((sprite & 0x0200u) == 0u);
+    ASSERT_EQ(compose_inside_user_clip_pmod(compose_sprite_pmod(0), false),
+              compose_sprite_pmod(0));
+}
+
 TEST(sprite_colr_shifts_bank_to_high_byte) {
     using namespace saturn::core;
     ASSERT_EQ(compose_sprite_colr(0), 0x0000);
@@ -278,6 +288,7 @@ int main() {
     resolve_distorted_sprite_cmd_defaults();
     sprite_pmod_base_matches_normal_sprite();
     sprite_pmod_opaque_flag();
+    user_clip_pmod_enables_inside_clip_only();
     sprite_colr_shifts_bank_to_high_byte();
     sprite_cmd_select_values();
     palette_bank_must_be_in_range();
@@ -285,6 +296,6 @@ int main() {
     indexed8_dims_accept_legal_sizes();
     indexed8_dims_reject_over_maximum();
 
-    printf("PASS: test_vdp1_logic.cpp (%d tests)\n", 23);
+    printf("PASS: test_vdp1_logic.cpp (%d tests)\n", 24);
     return 0;
 }

@@ -100,6 +100,25 @@ extern "C" sat_result_t sat_render2d_get_camera(sat_camera2d_t* out_camera) {
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_render2d_set_clip(const sat_rect_t* clip) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    if (clip == nullptr) {
+        g_render2d_runtime.current.clip = {0, 0, 0u, 0u};
+        g_render2d_runtime.current.clip_enabled = 0u;
+        g_render2d_runtime.clip_dirty = 0u;
+        return SAT_OK;
+    }
+    Render2DClip resolved{};
+    st = resolve_render2d_clip(clip, g_state.config.width, g_state.config.height, &resolved);
+    if (st != SAT_OK) return st;
+    g_render2d_runtime.current.clip = *clip;
+    g_render2d_runtime.current.clip_enabled = 1u;
+    g_render2d_runtime.clip_dirty = 1u;
+    return SAT_OK;
+}
+
 extern "C" uint16_t sat_render2d_stack_capacity(void) {
     return saturn::core::kRender2DStackCapacity;
 }
@@ -111,6 +130,8 @@ extern "C" uint16_t sat_render2d_stack_depth(void) {
 extern "C" sat_result_t sat_fill_rect(const sat_rect_t* rect, sat_color_t color) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    st = render2d_ensure_clip(g_state.config.width, g_state.config.height);
     if (st != SAT_OK) return st;
 
     uint16_t direct_color = 0u;
@@ -132,12 +153,15 @@ extern "C" sat_result_t sat_fill_rect(const sat_rect_t* rect, sat_color_t color)
     request.yd = quad.y[3];
     request.color = direct_color;
     request.flags = 0u;
+    request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
     return saturn::hal::vdp1::push_polygon(request);
 }
 
 extern "C" sat_result_t sat_draw_rect(const sat_rect_t* rect, sat_color_t color) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    st = render2d_ensure_clip(g_state.config.width, g_state.config.height);
     if (st != SAT_OK) return st;
 
     uint16_t direct_color = 0u;
@@ -157,6 +181,7 @@ extern "C" sat_result_t sat_draw_rect(const sat_rect_t* rect, sat_color_t color)
         request.y1 = quad.y[next];
         request.color = direct_color;
         request.flags = 0u;
+        request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
         st = saturn::hal::vdp1::push_line(request);
         if (st != SAT_OK) return st;
     }
@@ -182,6 +207,9 @@ extern "C" sat_result_t sat_draw_texture(
 
     const sat_vdp1_texture_t* native = nullptr;
     st = resolve_draw_source(texture, *slot, src, &native);
+    if (st != SAT_OK) return st;
+
+    st = render2d_ensure_clip(g_state.config.width, g_state.config.height);
     if (st != SAT_OK) return st;
 
     const sat_draw_params_t effective = params != nullptr ? *params : sat_draw_params_default();
@@ -213,6 +241,7 @@ extern "C" sat_result_t sat_draw_texture(
         request.srca = native->srca;
         request.palette = native->palette;
         request.flags = 0u;
+        request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
         return saturn::hal::vdp1::push_distorted_sprite(request);
     }
 
@@ -235,6 +264,7 @@ extern "C" sat_result_t sat_draw_texture(
         request.srca = native->srca;
         request.palette = native->palette;
         request.flags = 0u;
+        request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
         return saturn::hal::vdp1::push_sprite(request);
     }
 
@@ -248,5 +278,6 @@ extern "C" sat_result_t sat_draw_texture(
     request.srca = native->srca;
     request.palette = native->palette;
     request.flags = 0u;
+    request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
     return saturn::hal::vdp1::push_scaled_sprite(request);
 }

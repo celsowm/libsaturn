@@ -31,6 +31,15 @@ int main() {
     OK(render2d_color_to_direct_rgb555(sat_color_rgba(0u, 0u, 255u, 254u), &direct) == SAT_ERR_UNSUPPORTED);
     OK(render2d_color_to_direct_rgb555(sat_color_rgba(0u, 0u, 0u, 255u), nullptr) == SAT_ERR_INVALID_ARG);
 
+    Render2DClip clip{};
+    const sat_rect_t valid_clip{10, 20, 30u, 40u};
+    OK(resolve_render2d_clip(&valid_clip, 320u, 224u, &clip) == SAT_OK);
+    OK(clip.x0 == 10u && clip.y0 == 20u && clip.x1 == 39u && clip.y1 == 59u);
+    const sat_rect_t negative_clip{-1, 0, 10u, 10u};
+    OK(resolve_render2d_clip(&negative_clip, 320u, 224u, &clip) == SAT_ERR_INVALID_ARG);
+    const sat_rect_t outside_clip{319, 223, 2u, 1u};
+    OK(resolve_render2d_clip(&outside_clip, 320u, 224u, &clip) == SAT_ERR_INVALID_ARG);
+
     const sat_rect_t dst{10, 20, 8u, 4u};
     Render2DDestination resolved{};
     OK(resolve_render2d_destination(&dst, 320u, 224u, 8u, 4u, &resolved) == SAT_OK);
@@ -101,6 +110,8 @@ int main() {
     Render2DRuntime runtime{};
     render2d_runtime_reset(runtime);
     OK(runtime.depth == 0u);
+    OK(runtime.clip_dirty == 0u);
+    OK(runtime.current.clip_enabled == 0u);
     OK(render2d_camera_is_identity(runtime.current.camera));
     for (uint16_t i = 0u; i < kRender2DStackCapacity; ++i) {
         OK(render2d_runtime_push(runtime) == SAT_OK);
@@ -114,6 +125,16 @@ int main() {
     OK(render2d_camera_is_identity(runtime.current.camera));
     while (runtime.depth != 0u) OK(render2d_runtime_pop(runtime) == SAT_OK);
     OK(render2d_runtime_pop(runtime) == SAT_ERR_INVALID_ARG);
+
+    runtime.current.clip = valid_clip;
+    runtime.current.clip_enabled = 1u;
+    runtime.clip_dirty = 0u;
+    OK(render2d_runtime_push(runtime) == SAT_OK);
+    runtime.current.clip_enabled = 0u;
+    OK(render2d_runtime_pop(runtime) == SAT_OK);
+    OK(runtime.current.clip_enabled == 1u);
+    OK(runtime.clip_dirty == 1u);
+
     moved.zoom = 0;
     OK(render2d_runtime_set_camera(runtime, moved) == SAT_ERR_INVALID_ARG);
 

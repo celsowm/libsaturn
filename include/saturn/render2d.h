@@ -86,6 +86,8 @@ sat_result_t sat_render2d_push(void);
 sat_result_t sat_render2d_pop(void);
 sat_result_t sat_render2d_set_camera(const sat_camera2d_t* camera);
 sat_result_t sat_render2d_get_camera(sat_camera2d_t* out_camera);
+/* Absolute screen-space scissor; Camera2D does not transform it. NULL disables. */
+sat_result_t sat_render2d_set_clip(const sat_rect_t* clip);
 uint16_t sat_render2d_stack_capacity(void);
 uint16_t sat_render2d_stack_depth(void);
 

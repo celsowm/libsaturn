@@ -22,6 +22,13 @@ struct Render2DQuad {
     int16_t y[4];
 };
 
+struct Render2DClip {
+    uint16_t x0;
+    uint16_t y0;
+    uint16_t x1;
+    uint16_t y1;
+};
+
 inline bool render2d_neutral_tint(sat_color_t tint) {
     return tint.r == 255u && tint.g == 255u && tint.b == 255u && tint.a == 255u;
 }
@@ -44,6 +51,28 @@ inline sat_result_t validate_render2d_params(const sat_draw_params_t* params) {
     if (params->blend_mode != SAT_BLEND_NONE || !render2d_neutral_tint(params->tint)) {
         return SAT_ERR_UNSUPPORTED;
     }
+    return SAT_OK;
+}
+
+inline sat_result_t resolve_render2d_clip(
+    const sat_rect_t* clip,
+    uint16_t screen_width,
+    uint16_t screen_height,
+    Render2DClip* out
+) {
+    if (clip == nullptr || out == nullptr || screen_width == 0u || screen_height == 0u ||
+        clip->x < 0 || clip->y < 0 || clip->width == 0u || clip->height == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const uint32_t x1 = static_cast<uint32_t>(static_cast<uint16_t>(clip->x)) +
+                        static_cast<uint32_t>(clip->width) - 1u;
+    const uint32_t y1 = static_cast<uint32_t>(static_cast<uint16_t>(clip->y)) +
+                        static_cast<uint32_t>(clip->height) - 1u;
+    if (x1 >= screen_width || y1 >= screen_height) return SAT_ERR_INVALID_ARG;
+    out->x0 = static_cast<uint16_t>(clip->x);
+    out->y0 = static_cast<uint16_t>(clip->y);
+    out->x1 = static_cast<uint16_t>(x1);
+    out->y1 = static_cast<uint16_t>(y1);
     return SAT_OK;
 }
 

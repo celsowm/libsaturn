@@ -1,5 +1,6 @@
 #include "saturn/video.h"
 
+#include "src/core/render2d_runtime.hpp"
 #include "src/core/runtime_state.hpp"
 #include "src/hal/scu.hpp"
 #include "src/hal/vdp1.hpp"
@@ -12,7 +13,8 @@ extern "C" sat_result_t sat_begin_frame(void) {
         return st;
     }
     saturn::hal::vdp1::begin_frame(g_state.command_buffer, saturn::internal::kCmdCapacity);
-    return SAT_OK;
+    g_render2d_runtime.clip_dirty = g_render2d_runtime.current.clip_enabled;
+    return render2d_ensure_clip(g_state.config.width, g_state.config.height);
 }
 
 extern "C" sat_result_t sat_end_frame(void) {
