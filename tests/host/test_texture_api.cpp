@@ -15,6 +15,7 @@ uint32_t g_palette_uploads = 0u;
 uint32_t g_texture_uploads = 0u;
 uint32_t g_texture_updates = 0u;
 uint16_t g_last_pitch = 0u;
+sat_result_t g_texture_upload_status = SAT_OK;
 }
 
 namespace saturn::hal::vdp1 {
@@ -27,6 +28,7 @@ sat_result_t upload_palette(const uint16_t*, uint16_t) {
 sat_result_t upload_texture_indexed8_pitched(
     const uint8_t*, uint16_t width, uint16_t height, uint16_t pitch, uint16_t* out_srca) {
     if (out_srca == nullptr || pitch < width || width == 0u || height == 0u) return SAT_ERR_INVALID_ARG;
+    if (g_texture_upload_status != SAT_OK) return g_texture_upload_status;
     ++g_texture_uploads;
     g_last_pitch = pitch;
     *out_srca = g_next_srca++;
@@ -54,6 +56,7 @@ static void reset_runtime() {
     g_texture_uploads = 0u;
     g_texture_updates = 0u;
     g_last_pitch = 0u;
+    g_texture_upload_status = SAT_OK;
 }
 
 static void make_palette(uint16_t* palette, uint16_t seed) {
@@ -102,6 +105,9 @@ int main() {
     sat_surface_t dynamic_surface{dynamic_pixels, 8u, 4u, 12u, SAT_PIXEL_INDEX8, palette, 256u};
     sat_texture_t dynamic{};
     OK(sat_texture_create_from_surface(&dynamic, &dynamic_surface, SAT_TEXTURE_DYNAMIC) == SAT_OK);
+    const sat_rect_t dynamic_region{0, 0, 8u, 4u};
+    OK(sat_texture_prepare_region(dynamic, &dynamic_region) == SAT_OK);
+    OK(sat_texture_region_stats(dynamic, &stats) == SAT_OK && stats.used == 1u);
 
     uint8_t patch_pixels[2u * 8u]{};
     patch_pixels[0] = 7u;
@@ -111,7 +117,7 @@ int main() {
     sat_surface_t patch{patch_pixels, 2u, 2u, 8u, SAT_PIXEL_INDEX8, palette, 256u};
     const sat_rect_t dst{3, 1, 2, 2};
     OK(sat_texture_update_rect(dynamic, &dst, &patch) == SAT_OK);
-    OK(g_texture_updates == 3u);
+    OK(g_texture_updates == 4u); /* parent + persistent region + parent + dynamic region */
     OK(dynamic_pixels[15u] == 7u && dynamic_pixels[16u] == 8u);
     OK(dynamic_pixels[27u] == 9u && dynamic_pixels[28u] == 10u);
 
@@ -149,6 +155,68 @@ int main() {
     for (uint16_t i = 0u; i < kTextureCapacity; ++i) {
         OK(sat_texture_destroy(handles[i]) == SAT_OK);
     }
+
+    reset_runtime();
+
+    uint8_t cache_pixels[64u * 64u]{};
+    sat_surface_t cache_surface{
+        cache_pixels, 64u, 64u, 64u, SAT_PIXEL_INDEX8, palette, 256u};
+    sat_texture_t cache_owner{};
+    OK(sat_texture_create_from_surface(
+        &cache_owner, &cache_surface, SAT_TEXTURE_PERSISTENT_SOURCE) == SAT_OK);
+    const sat_texture_t cache_owner_stale = cache_owner;
+
+    for (uint16_t y = 0u; y < 8u; ++y) {
+        for (uint16_t x = 0u; x < 8u; ++x) {
+            const sat_rect_t tile{
+                static_cast<int16_t>(x * 8u),
+                static_cast<int16_t>(y * 8u),
+                8u,
+                8u};
+            OK(sat_texture_prepare_region(cache_owner, &tile) == SAT_OK);
+        }
+    }
+    OK(texture_region_used(g_texture_registry) == kTextureRegionCapacity);
+    OK(sat_texture_region_stats(cache_owner, &stats) == SAT_OK);
+    OK(stats.used == kTextureRegionCapacity);
+
+    sat_texture_t cache_other{};
+    OK(sat_texture_create_from_surface(
+        &cache_other, &cache_surface, SAT_TEXTURE_PERSISTENT_SOURCE) == SAT_OK);
+    const sat_rect_t cache_other_region{0, 0, 16u, 8u};
+    OK(sat_texture_prepare_region(cache_other, &cache_other_region) == SAT_ERR_CAPACITY);
+    OK(sat_texture_region_stats(cache_other, &stats) == SAT_OK && stats.used == 0u);
+
+    const sat_rect_t first_tile{0, 0, 8u, 8u};
+    OK(texture_find_region(g_texture_registry, cache_owner, first_tile) != nullptr);
+    OK(texture_find_region(g_texture_registry, cache_other, first_tile) == nullptr);
+
+    OK(sat_texture_destroy(cache_owner) == SAT_OK);
+    OK(texture_region_used(g_texture_registry) == 0u);
+    OK(texture_find_region(g_texture_registry, cache_owner_stale, first_tile) == nullptr);
+    OK(sat_texture_prepare_region(cache_other, &cache_other_region) == SAT_OK);
+    OK(sat_texture_region_stats(cache_other, &stats) == SAT_OK && stats.used == 1u);
+
+    sat_texture_t cache_reused{};
+    OK(sat_texture_create_from_surface(
+        &cache_reused, &cache_surface, SAT_TEXTURE_PERSISTENT_SOURCE) == SAT_OK);
+    OK(cache_reused.slot == cache_owner_stale.slot);
+    OK(cache_reused.generation != cache_owner_stale.generation);
+    OK(sat_texture_prepare_region(cache_reused, &first_tile) == SAT_OK);
+    OK(texture_find_region(g_texture_registry, cache_reused, first_tile) != nullptr);
+    OK(texture_find_region(g_texture_registry, cache_owner_stale, first_tile) == nullptr);
+
+    reset_runtime();
+    sat_texture_t vram_limited{};
+    OK(sat_texture_create_from_surface(
+        &vram_limited, &cache_surface, SAT_TEXTURE_PERSISTENT_SOURCE) == SAT_OK);
+    g_texture_upload_status = SAT_ERR_CAPACITY;
+    OK(sat_texture_prepare_region(vram_limited, &first_tile) == SAT_ERR_CAPACITY);
+    OK(sat_texture_region_stats(vram_limited, &stats) == SAT_OK && stats.used == 0u);
+    OK(texture_region_used(g_texture_registry) == 0u);
+    g_texture_upload_status = SAT_OK;
+    OK(sat_texture_prepare_region(vram_limited, &first_tile) == SAT_OK);
+    OK(sat_texture_region_stats(vram_limited, &stats) == SAT_OK && stats.used == 1u);
 
     reset_runtime();
     OK(palette_claim_external(g_palette_registry, 0u, kCramWordCount) == SAT_OK);
