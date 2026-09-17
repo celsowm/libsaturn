@@ -26,6 +26,16 @@ inline bool render2d_neutral_tint(sat_color_t tint) {
     return tint.r == 255u && tint.g == 255u && tint.b == 255u && tint.a == 255u;
 }
 
+inline sat_result_t render2d_color_to_direct_rgb555(sat_color_t color, uint16_t* out_color) {
+    if (out_color == nullptr) return SAT_ERR_INVALID_ARG;
+    if (color.a != 255u) return SAT_ERR_UNSUPPORTED;
+    const uint16_t r = static_cast<uint16_t>((static_cast<uint32_t>(color.r) * 31u + 127u) / 255u);
+    const uint16_t g = static_cast<uint16_t>((static_cast<uint32_t>(color.g) * 31u + 127u) / 255u);
+    const uint16_t b = static_cast<uint16_t>((static_cast<uint32_t>(color.b) * 31u + 127u) / 255u);
+    *out_color = SAT_RGB555(r, g, b);
+    return SAT_OK;
+}
+
 inline sat_result_t validate_render2d_params(const sat_draw_params_t* params) {
     if (params == nullptr) return SAT_OK;
     if (params->flip > static_cast<uint8_t>(SAT_FLIP_X | SAT_FLIP_Y)) return SAT_ERR_INVALID_ARG;

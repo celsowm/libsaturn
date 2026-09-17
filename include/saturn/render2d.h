@@ -89,6 +89,12 @@ sat_result_t sat_render2d_get_camera(sat_camera2d_t* out_camera);
 uint16_t sat_render2d_stack_capacity(void);
 uint16_t sat_render2d_stack_depth(void);
 
+/* High-level world/screen-space shape primitives. Colors are opaque RGBA8888
+ * values converted to Saturn direct BGR555. Partial alpha is not silently
+ * approximated and returns SAT_ERR_UNSUPPORTED. */
+sat_result_t sat_fill_rect(const sat_rect_t* rect, sat_color_t color);
+sat_result_t sat_draw_rect(const sat_rect_t* rect, sat_color_t color);
+
 /* Draws a logical texture in top-left world/screen coordinates.
  *
  * src == NULL selects the complete texture. A non-NULL source rectangle is

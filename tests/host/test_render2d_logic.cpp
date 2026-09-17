@@ -23,6 +23,14 @@ int main() {
     params.tint.r = 254u;
     OK(validate_render2d_params(&params) == SAT_ERR_UNSUPPORTED);
 
+    uint16_t direct = 0u;
+    OK(render2d_color_to_direct_rgb555(sat_color_rgba(255u, 0u, 0u, 255u), &direct) == SAT_OK);
+    OK(direct == SAT_RGB555(31u, 0u, 0u));
+    OK(render2d_color_to_direct_rgb555(sat_color_rgba(0u, 255u, 0u, 255u), &direct) == SAT_OK);
+    OK(direct == SAT_RGB555(0u, 31u, 0u));
+    OK(render2d_color_to_direct_rgb555(sat_color_rgba(0u, 0u, 255u, 254u), &direct) == SAT_ERR_UNSUPPORTED);
+    OK(render2d_color_to_direct_rgb555(sat_color_rgba(0u, 0u, 0u, 255u), nullptr) == SAT_ERR_INVALID_ARG);
+
     const sat_rect_t dst{10, 20, 8u, 4u};
     Render2DDestination resolved{};
     OK(resolve_render2d_destination(&dst, 320u, 224u, 8u, 4u, &resolved) == SAT_OK);
