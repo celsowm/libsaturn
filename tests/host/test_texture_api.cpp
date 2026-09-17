@@ -125,6 +125,32 @@ int main() {
     OK(sat_texture_create_from_surface(&invalid, &rgba, SAT_TEXTURE_UPLOAD_ONLY) == SAT_ERR_UNSUPPORTED);
 
     reset_runtime();
+    OK(sat_texture_capacity() == kTextureCapacity);
+    sat_texture_t handles[kTextureCapacity]{};
+    for (uint16_t i = 0u; i < kTextureCapacity; ++i) {
+        OK(sat_texture_create_from_surface(&handles[i], &surface, SAT_TEXTURE_UPLOAD_ONLY) == SAT_OK);
+    }
+    sat_texture_t overflow{};
+    OK(sat_texture_create_from_surface(&overflow, &surface, SAT_TEXTURE_UPLOAD_ONLY) == SAT_ERR_CAPACITY);
+
+    constexpr uint16_t recycled_index = 17u;
+    const sat_texture_t recycled_stale = handles[recycled_index];
+    const uint16_t recycled_slot = recycled_stale.slot;
+    const uint16_t recycled_generation = recycled_stale.generation;
+    OK(sat_texture_destroy(handles[recycled_index]) == SAT_OK);
+
+    sat_texture_t recycled{};
+    OK(sat_texture_create_from_surface(&recycled, &surface, SAT_TEXTURE_UPLOAD_ONLY) == SAT_OK);
+    OK(recycled.slot == recycled_slot);
+    OK(recycled.generation != recycled_generation);
+    OK(sat_texture_info(recycled_stale, &info) == SAT_ERR_INVALID_ARG);
+    handles[recycled_index] = recycled;
+
+    for (uint16_t i = 0u; i < kTextureCapacity; ++i) {
+        OK(sat_texture_destroy(handles[i]) == SAT_OK);
+    }
+
+    reset_runtime();
     OK(palette_claim_external(g_palette_registry, 0u, kCramWordCount) == SAT_OK);
     OK(sat_texture_create_from_surface(&invalid, &surface, SAT_TEXTURE_UPLOAD_ONLY) == SAT_ERR_CAPACITY);
 
