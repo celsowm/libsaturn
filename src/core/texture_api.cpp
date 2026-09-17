@@ -73,6 +73,32 @@ sat_result_t upload_native_from_surface(
     return SAT_OK;
 }
 
+sat_result_t refresh_prepared_regions(sat_texture_t texture, TextureSlot& slot) {
+    using namespace saturn::core;
+    if (slot.region_count == 0u) return SAT_OK;
+    if (slot.source.pixels == nullptr) return SAT_ERR_INVALID_ARG;
+
+    for (uint16_t i = 0u; i < kTextureRegionCapacity; ++i) {
+        TextureRegionRecord& record = g_texture_registry.regions[i];
+        if (record.used == 0u || record.owner_slot != texture.slot ||
+            record.owner_generation != texture.generation) {
+            continue;
+        }
+        const uint16_t x = static_cast<uint16_t>(record.rect.x);
+        const uint16_t y = static_cast<uint16_t>(record.rect.y);
+        const uint8_t* pixels = surface_row(slot.source, y) + x;
+        const sat_result_t st = saturn::hal::vdp1::update_texture_indexed8_pitched(
+            record.native.srca,
+            pixels,
+            record.rect.width,
+            record.rect.height,
+            slot.source.pitch);
+        if (st != SAT_OK) return st;
+        record.native.palette = slot.palette_bank;
+    }
+    return SAT_OK;
+}
+
 }  // namespace
 
 extern "C" uint16_t sat_texture_capacity(void) {
@@ -196,8 +222,10 @@ extern "C" sat_result_t sat_texture_update(sat_texture_t texture, const sat_surf
 
     slot->palette_bank = static_cast<uint8_t>(palette_bank);
     slot->native.palette = palette_bank;
-    if (slot->policy != SAT_TEXTURE_UPLOAD_ONLY) slot->source = *source;
-    texture_invalidate_regions(g_texture_registry, texture);
+    if (slot->policy != SAT_TEXTURE_UPLOAD_ONLY) {
+        slot->source = *source;
+        return refresh_prepared_regions(texture, *slot);
+    }
     return SAT_OK;
 }
 
@@ -242,9 +270,7 @@ extern "C" sat_result_t sat_texture_update_rect(
         slot->source.height,
         slot->source.pitch);
     if (st != SAT_OK) return st;
-
-    texture_invalidate_regions(g_texture_registry, texture);
-    return SAT_OK;
+    return refresh_prepared_regions(texture, *slot);
 }
 
 extern "C" sat_result_t sat_texture_prepare_region(sat_texture_t texture, const sat_rect_t* region) {
