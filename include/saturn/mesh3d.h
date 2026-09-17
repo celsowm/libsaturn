@@ -241,7 +241,7 @@ typedef struct sat_mesh_draw {
      * SAT_MESH_SHADE applies only to polygon faces. Textured faces are drawn
      * with the texture's own colours because the VDP1 distorted-sprite path
      * has no per-face RGB modulation matching the polygon path. */
-    const sat_texture_t* textures;
+    const sat_vdp1_texture_t* textures;
     uint16_t texture_count;
     const uint16_t* face_texture_indices;
     sat_fx16_t ambient; /* 16.16 floor for SAT_MESH_SHADE; 0 = full black */
