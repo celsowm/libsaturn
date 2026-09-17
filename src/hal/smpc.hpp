@@ -3,9 +3,11 @@
 
 #include <stdint.h>
 
+#include "src/hal/smpc_input_logic.hpp"
+
 namespace saturn::hal::smpc {
 
-uint16_t read_digital_pad();
+bool read_digital_pad(uint8_t port, DigitalPadSample* out_sample);
 bool sound_on();
 bool sound_off();
 

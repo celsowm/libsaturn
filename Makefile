@@ -379,6 +379,7 @@ HOST_TEST_EXTRA_test_vdp1_upload := src/core/vdp1_api.cpp src/core/runtime_state
 HOST_TEST_EXTRA_test_vdp1_clip := src/hal/vdp1.cpp
 HOST_TEST_EXTRA_test_texture_api := src/core/texture_api.cpp src/core/runtime_state.cpp src/core/palette_registry.cpp src/core/texture_runtime.cpp
 HOST_TEST_EXTRA_test_render2d_api := src/core/render2d_api.cpp src/core/render2d_runtime.cpp src/core/texture_api.cpp src/core/texture_runtime.cpp src/core/palette_registry.cpp src/core/runtime_state.cpp
+HOST_TEST_EXTRA_test_input_api := src/core/input_api.cpp src/core/input_runtime.cpp src/core/runtime_state.cpp
 HOST_TEST_EXTRA_test_model3d_logic := src/core/model3d_api.cpp src/core/mesh3d_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_anim3d_logic := src/core/anim3d_api.cpp src/core/model3d_api.cpp src/core/mesh3d_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c src/core/grid_api.cpp src/core/collide2d_api.cpp src/core/math3d_api.cpp

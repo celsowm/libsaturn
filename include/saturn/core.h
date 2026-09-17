@@ -23,7 +23,8 @@ typedef enum sat_result {
     SAT_ERR_INVALID_ARG = -1,
     SAT_ERR_NOT_INITIALIZED = -2,
     SAT_ERR_CAPACITY = -3,
-    SAT_ERR_UNSUPPORTED = -4
+    SAT_ERR_UNSUPPORTED = -4,
+    SAT_ERR_IO = -5
 } sat_result_t;
 
 /* ------------------------------------------------------------------ */

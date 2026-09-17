@@ -1,6 +1,7 @@
 #include "saturn/core.h"
 
 #include "src/core/internal.hpp"
+#include "src/core/input_runtime.hpp"
 #include "src/core/palette_registry.hpp"
 #include "src/core/render2d_runtime.hpp"
 #include "src/core/runtime_state.hpp"
@@ -26,12 +27,12 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
         return SAT_ERR_UNSUPPORTED;
     }
 
+    input_runtime_reset(g_input_runtime);
     palette_registry_reset(g_palette_registry);
     texture_registry_reset(g_texture_registry);
     render2d_runtime_reset(g_render2d_runtime);
 
     g_state.config = *config;
-    g_state.pad = {0, 0, 0};
     g_state.clear_color = 0x0000;
     g_state.nbg0_map_plane_index = 0x003Bu;
     g_state.nbg0_map_width = 64u;
@@ -48,6 +49,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
 
 extern "C" sat_result_t sat_shutdown(void) {
     using namespace saturn::core;
+    input_runtime_reset(g_input_runtime);
     render2d_runtime_reset(g_render2d_runtime);
     g_state.initialized = false;
     return SAT_OK;

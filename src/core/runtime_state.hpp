@@ -10,7 +10,6 @@ namespace saturn::core {
 struct RuntimeState {
     bool initialized;
     sat_video_config_t config;
-    sat_pad_state_t pad;
     uint16_t clear_color;
     uint16_t nbg0_map_plane_index;
     uint16_t nbg0_map_width;
