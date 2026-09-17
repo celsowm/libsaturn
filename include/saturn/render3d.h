@@ -128,7 +128,7 @@ sat_result_t sat_draw_quad2_polygon(const sat_quad2_t* quad, uint16_t color);
  * projected quad as a distorted sprite. */
 sat_result_t sat_draw_quad2_sprite(
     const sat_quad2_t* quad,
-    const sat_texture_t* texture,
+    const sat_vdp1_texture_t* texture,
     uint16_t palette_override,
     uint16_t flags
 );
@@ -183,7 +183,7 @@ sat_result_t sat_project_vertices(
 sat_result_t sat_draw_world_sprite(
     const sat_mat4_t* view_proj,
     const sat_quad3_t* quad,
-    const sat_texture_t* texture,
+    const sat_vdp1_texture_t* texture,
     uint16_t palette_override,
     uint16_t flags
 );
