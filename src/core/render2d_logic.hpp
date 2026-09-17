@@ -54,8 +54,6 @@ inline sat_result_t resolve_render2d_destination(
     const int32_t y0 = static_cast<int32_t>(dst->y) - static_cast<int32_t>(screen_height / 2u);
     const int32_t x1 = x0 + static_cast<int32_t>(dst->width) - 1;
     const int32_t y1 = y0 + static_cast<int32_t>(dst->height) - 1;
-    /* Normal sprites derive B/C/D by adding width/height to A, so validate one
-     * pixel beyond the inclusive scaled-sprite endpoint as well. */
     const int32_t normal_right = x0 + static_cast<int32_t>(dst->width);
     const int32_t normal_bottom = y0 + static_cast<int32_t>(dst->height);
 
@@ -125,6 +123,62 @@ inline sat_result_t resolve_render2d_quad(
     for (uint16_t i = 0u; i < 4u; ++i) {
         out->x[i] = static_cast<int16_t>(geometric_x[map[i]]);
         out->y[i] = static_cast<int16_t>(geometric_y[map[i]]);
+    }
+    return SAT_OK;
+}
+
+inline sat_result_t apply_render2d_camera(
+    Render2DQuad* quad,
+    uint16_t screen_width,
+    uint16_t screen_height,
+    const sat_camera2d_t& camera
+) {
+    if (quad == nullptr || screen_width == 0u || screen_height == 0u || camera.zoom <= 0) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (camera.offset_x == 0 && camera.offset_y == 0 &&
+        camera.target_x == 0 && camera.target_y == 0 &&
+        camera.rotation == 0 && camera.zoom == SAT_FX16_ONE) {
+        return SAT_OK;
+    }
+
+    const sat_fx16_t sine = math3d::sin_deg_fx(camera.rotation);
+    const sat_fx16_t cosine = math3d::cos_deg_fx(camera.rotation);
+    const int64_t half_w = static_cast<int64_t>(screen_width / 2u);
+    const int64_t half_h = static_cast<int64_t>(screen_height / 2u);
+
+    for (uint16_t i = 0u; i < 4u; ++i) {
+        const int64_t world_x =
+            (static_cast<int64_t>(quad->x[i]) + half_w) << 16;
+        const int64_t world_y =
+            (static_cast<int64_t>(quad->y[i]) + half_h) << 16;
+        const int64_t dx = world_x - static_cast<int64_t>(camera.target_x);
+        const int64_t dy = world_y - static_cast<int64_t>(camera.target_y);
+
+        const int64_t scaled_x = (dx * static_cast<int64_t>(camera.zoom)) >> 16;
+        const int64_t scaled_y = (dy * static_cast<int64_t>(camera.zoom)) >> 16;
+        if (scaled_x < INT32_MIN || scaled_x > INT32_MAX ||
+            scaled_y < INT32_MIN || scaled_y > INT32_MAX) {
+            return SAT_ERR_INVALID_ARG;
+        }
+
+        const int64_t rotated_x =
+            (scaled_x * static_cast<int64_t>(cosine) -
+             scaled_y * static_cast<int64_t>(sine)) >> 16;
+        const int64_t rotated_y =
+            (scaled_x * static_cast<int64_t>(sine) +
+             scaled_y * static_cast<int64_t>(cosine)) >> 16;
+        const int64_t screen_x_fx = static_cast<int64_t>(camera.offset_x) + rotated_x;
+        const int64_t screen_y_fx = static_cast<int64_t>(camera.offset_y) + rotated_y;
+        const int64_t native_x = (screen_x_fx >> 16) - half_w;
+        const int64_t native_y = (screen_y_fx >> 16) - half_h;
+
+        if (native_x < INT16_MIN || native_x > INT16_MAX ||
+            native_y < INT16_MIN || native_y > INT16_MAX) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        quad->x[i] = static_cast<int16_t>(native_x);
+        quad->y[i] = static_cast<int16_t>(native_y);
     }
     return SAT_OK;
 }

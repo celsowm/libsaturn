@@ -25,6 +25,19 @@ typedef enum sat_blend_mode {
     SAT_BLEND_SUBTRACT = 3
 } sat_blend_mode_t;
 
+typedef struct sat_camera2d {
+    /* Screen-space point where target lands, in 16.16 pixels. */
+    sat_fx16_t offset_x;
+    sat_fx16_t offset_y;
+    /* World-space camera target, in 16.16 pixels. */
+    sat_fx16_t target_x;
+    sat_fx16_t target_y;
+    /* Clockwise-positive screen-space rotation in 16.16 degrees. */
+    sat_fx16_t rotation;
+    /* Positive 16.16 scale; SAT_FX16_ONE is identity. */
+    sat_fx16_t zoom;
+} sat_camera2d_t;
+
 typedef struct sat_draw_params {
     /* Clockwise-positive screen-space rotation in 16.16 degrees. */
     sat_fx16_t rotation;
@@ -37,6 +50,17 @@ typedef struct sat_draw_params {
     uint8_t flip;
     uint8_t reserved;
 } sat_draw_params_t;
+
+static inline sat_camera2d_t sat_camera2d_default(void) {
+    sat_camera2d_t camera;
+    camera.offset_x = 0;
+    camera.offset_y = 0;
+    camera.target_x = 0;
+    camera.target_y = 0;
+    camera.rotation = 0;
+    camera.zoom = SAT_FX16_ONE;
+    return camera;
+}
 
 static inline sat_draw_params_t sat_draw_params_default(void) {
     sat_draw_params_t params;
@@ -54,7 +78,18 @@ static inline sat_draw_params_t sat_draw_params_default(void) {
     return params;
 }
 
-/* Draws a logical texture in top-left screen coordinates.
+/* Fixed-capacity render-state stack. Push saves the complete current 2D
+ * state; pop restores it. Overflow returns SAT_ERR_CAPACITY and underflow
+ * returns SAT_ERR_INVALID_ARG. */
+sat_result_t sat_render2d_reset(void);
+sat_result_t sat_render2d_push(void);
+sat_result_t sat_render2d_pop(void);
+sat_result_t sat_render2d_set_camera(const sat_camera2d_t* camera);
+sat_result_t sat_render2d_get_camera(sat_camera2d_t* out_camera);
+uint16_t sat_render2d_stack_capacity(void);
+uint16_t sat_render2d_stack_depth(void);
+
+/* Draws a logical texture in top-left world/screen coordinates.
  *
  * src == NULL selects the complete texture. A non-NULL source rectangle is
  * resolved through the runtime's prepared-region cache; PERSISTENT_SOURCE and
@@ -62,10 +97,10 @@ static inline sat_draw_params_t sat_draw_params_default(void) {
  * textures return SAT_ERR_UNSUPPORTED for partial regions.
  *
  * dst is required and its width/height must be non-zero. Scaling, X/Y flip,
- * and rotation around params.center are supported. params == NULL is
- * equivalent to sat_draw_params_default(). The current tint/blend subset is
- * neutral tint + SAT_BLEND_NONE; other valid combinations return
- * SAT_ERR_UNSUPPORTED instead of silently changing rendering semantics. */
+ * rotation around params.center, and the current Camera2D are supported.
+ * params == NULL is equivalent to sat_draw_params_default(). The current
+ * tint/blend subset is neutral tint + SAT_BLEND_NONE; other valid combinations
+ * return SAT_ERR_UNSUPPORTED instead of silently changing semantics. */
 sat_result_t sat_draw_texture(
     sat_texture_t texture,
     const sat_rect_t* src,

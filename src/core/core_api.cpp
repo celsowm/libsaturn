@@ -2,6 +2,7 @@
 
 #include "src/core/internal.hpp"
 #include "src/core/palette_registry.hpp"
+#include "src/core/render2d_runtime.hpp"
 #include "src/core/runtime_state.hpp"
 #include "src/core/texture_runtime.hpp"
 #include "src/hal/scu.hpp"
@@ -12,25 +13,9 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     using namespace saturn;
     using namespace saturn::core;
 
-    /* -------------------------------------------------------------------
-     * Early hardware initialization
-     * -------------------------------------------------------------------
-     * PROBLEM: Saturn's BIOS does NOT initialize VDP1/VDP2 completely.
-     * If we call saturn::hal::vdp2::init_ntsc_320x224() directly, the hardware may
-     * be in undefined state causing visual glitch or crash.
-     *
-     * SOLUTION: _saturn_early_init() prepares hardware to a known state
-     * before any engine-specific configuration.
-     *
-     * Comparison with other engines:
-     *   - libyaul: does this in ___sys_init() (called by crt0)
-     *   - JoEngine: does this in jo_core_init() (called by main)
-     *   - libsaturn: does this here, at the start of sat_init()
-     * ------------------------------------------------------------------- */
     extern void _saturn_early_init(void);
     _saturn_early_init();
 
-    /* Validate parameters */
     if (config == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -41,11 +26,10 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
         return SAT_ERR_UNSUPPORTED;
     }
 
-    /* Reset shared runtime resource ownership before exposing initialized state. */
     palette_registry_reset(g_palette_registry);
     texture_registry_reset(g_texture_registry);
+    render2d_runtime_reset(g_render2d_runtime);
 
-    /* Initialize runtime state */
     g_state.config = *config;
     g_state.pad = {0, 0, 0};
     g_state.clear_color = 0x0000;
@@ -54,22 +38,9 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     g_state.nbg0_map_height = 64u;
     g_state.initialized = true;
 
-    /* -------------------------------------------------------------------
-     * Complete hardware initialization
-     * -------------------------------------------------------------------
-     * Now that hardware is in clean state (_saturn_early_init),
-     * we configure each subsystem with desired parameters.
-     *
-     * Init order:
-     *   1. VDP2 (backgrounds, scroll, VRAM)
-     *   2. VDP1 (sprites, polygons, frame buffer)
-     *   3. SCU (interrupts, VBlank counter)
-     *   4. VDP1 begin_frame (prepare command buffer)
-     * ------------------------------------------------------------------- */
     saturn::hal::vdp2::init_ntsc_320x224();
     saturn::hal::vdp1::init(config->width, config->height, g_state.clear_color);
     saturn::hal::scu::init_interrupts();
-    /* After VDP2 init: calibration times two real VBLANK edges. */
     saturn::hal::scu::init_frame_clock();
     saturn::hal::vdp1::begin_frame(g_state.command_buffer, saturn::internal::kCmdCapacity);
     return SAT_OK;
@@ -77,6 +48,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
 
 extern "C" sat_result_t sat_shutdown(void) {
     using namespace saturn::core;
+    render2d_runtime_reset(g_render2d_runtime);
     g_state.initialized = false;
     return SAT_OK;
 }

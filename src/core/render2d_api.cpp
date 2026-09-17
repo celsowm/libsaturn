@@ -1,6 +1,7 @@
 #include "saturn/render2d.h"
 
 #include "src/core/render2d_logic.hpp"
+#include "src/core/render2d_runtime.hpp"
 #include "src/core/runtime_state.hpp"
 #include "src/core/texture_runtime.hpp"
 #include "src/hal/vdp1.hpp"
@@ -42,6 +43,53 @@ sat_result_t resolve_draw_source(
 
 }  // namespace
 
+extern "C" sat_result_t sat_render2d_reset(void) {
+    using namespace saturn::core;
+    const sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    render2d_runtime_reset(g_render2d_runtime);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_render2d_push(void) {
+    using namespace saturn::core;
+    const sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    return render2d_runtime_push(g_render2d_runtime);
+}
+
+extern "C" sat_result_t sat_render2d_pop(void) {
+    using namespace saturn::core;
+    const sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    return render2d_runtime_pop(g_render2d_runtime);
+}
+
+extern "C" sat_result_t sat_render2d_set_camera(const sat_camera2d_t* camera) {
+    using namespace saturn::core;
+    const sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    if (camera == nullptr) return SAT_ERR_INVALID_ARG;
+    return render2d_runtime_set_camera(g_render2d_runtime, *camera);
+}
+
+extern "C" sat_result_t sat_render2d_get_camera(sat_camera2d_t* out_camera) {
+    using namespace saturn::core;
+    const sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    if (out_camera == nullptr) return SAT_ERR_INVALID_ARG;
+    *out_camera = g_render2d_runtime.current.camera;
+    return SAT_OK;
+}
+
+extern "C" uint16_t sat_render2d_stack_capacity(void) {
+    return saturn::core::kRender2DStackCapacity;
+}
+
+extern "C" uint16_t sat_render2d_stack_depth(void) {
+    return saturn::core::g_render2d_runtime.depth;
+}
+
 extern "C" sat_result_t sat_draw_texture(
     sat_texture_t texture,
     const sat_rect_t* src,
@@ -64,7 +112,9 @@ extern "C" sat_result_t sat_draw_texture(
     if (st != SAT_OK) return st;
 
     const sat_draw_params_t effective = params != nullptr ? *params : sat_draw_params_default();
-    if (effective.rotation != 0 || effective.flip != SAT_FLIP_NONE) {
+    const sat_camera2d_t& camera = g_render2d_runtime.current.camera;
+    if (effective.rotation != 0 || effective.flip != SAT_FLIP_NONE ||
+        !render2d_camera_is_identity(camera)) {
         Render2DQuad quad{};
         st = resolve_render2d_quad(
             dst,
@@ -72,6 +122,12 @@ extern "C" sat_result_t sat_draw_texture(
             g_state.config.height,
             effective,
             &quad);
+        if (st != SAT_OK) return st;
+        st = apply_render2d_camera(
+            &quad,
+            g_state.config.width,
+            g_state.config.height,
+            camera);
         if (st != SAT_OK) return st;
 
         saturn::hal::vdp1::DistortedSpriteRequest request{};
