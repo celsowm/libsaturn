@@ -93,6 +93,11 @@ int main() {
     OK(sat_texture_region_stats(persistent, &stats) == SAT_OK);
     OK(stats.used == 1u && stats.capacity == kTextureRegionCapacity);
 
+    OK(sat_texture_update(persistent, &surface) == SAT_OK);
+    OK(g_texture_updates == 2u); /* parent + prepared region, both in place */
+    OK(g_texture_uploads == 3u); /* no new VRAM allocation */
+    OK(sat_texture_region_stats(persistent, &stats) == SAT_OK && stats.used == 1u);
+
     uint8_t dynamic_pixels[4u * 12u]{};
     sat_surface_t dynamic_surface{dynamic_pixels, 8u, 4u, 12u, SAT_PIXEL_INDEX8, palette, 256u};
     sat_texture_t dynamic{};
@@ -106,7 +111,7 @@ int main() {
     sat_surface_t patch{patch_pixels, 2u, 2u, 8u, SAT_PIXEL_INDEX8, palette, 256u};
     const sat_rect_t dst{3, 1, 2, 2};
     OK(sat_texture_update_rect(dynamic, &dst, &patch) == SAT_OK);
-    OK(g_texture_updates == 1u);
+    OK(g_texture_updates == 3u);
     OK(dynamic_pixels[15u] == 7u && dynamic_pixels[16u] == 8u);
     OK(dynamic_pixels[27u] == 9u && dynamic_pixels[28u] == 10u);
 
