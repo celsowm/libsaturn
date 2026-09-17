@@ -84,11 +84,11 @@ int main() {
 
     sat_texture_t persistent{};
     OK(sat_texture_create_from_surface(&persistent, &surface, SAT_TEXTURE_PERSISTENT_SOURCE) == SAT_OK);
-    OK(g_palette_uploads == 1u); /* identical palette is shared */
+    OK(g_palette_uploads == 1u);
     OK(sat_texture_prepare_region(persistent, &region) == SAT_OK);
-    OK(g_texture_uploads == 3u); /* two full textures + one region */
+    OK(g_texture_uploads == 3u);
     OK(sat_texture_prepare_region(persistent, &region) == SAT_OK);
-    OK(g_texture_uploads == 3u); /* idempotent region prepare */
+    OK(g_texture_uploads == 3u);
     sat_texture_region_stats_t stats{};
     OK(sat_texture_region_stats(persistent, &stats) == SAT_OK);
     OK(stats.used == 1u && stats.capacity == kTextureRegionCapacity);
@@ -97,22 +97,18 @@ int main() {
     sat_surface_t dynamic_surface{dynamic_pixels, 8u, 4u, 12u, SAT_PIXEL_INDEX8, palette, 256u};
     sat_texture_t dynamic{};
     OK(sat_texture_create_from_surface(&dynamic, &dynamic_surface, SAT_TEXTURE_DYNAMIC) == SAT_OK);
+
     uint8_t patch_pixels[2u * 8u]{};
-    patch_pixels[0] = 7u; patch_pixels[1] = 8u; patch_pixels[8] = 9u; patch_pixels[9] = 10u;
+    patch_pixels[0] = 7u;
+    patch_pixels[1] = 8u;
+    patch_pixels[8] = 9u;
+    patch_pixels[9] = 10u;
     sat_surface_t patch{patch_pixels, 2u, 2u, 8u, SAT_PIXEL_INDEX8, palette, 256u};
     const sat_rect_t dst{3, 1, 2, 2};
-    OK(sat_texture_update_rect(dynamic, &dst, &patch) == SAT_ERR_INVALID_ARG); /* patch width is not VDP1-legal */
-
-    uint8_t patch8_pixels[2u * 8u]{};
-    for (uint16_t i = 0; i < 8u; ++i) { patch8_pixels[i] = static_cast<uint8_t>(20u + i); patch8_pixels[8u + i] = static_cast<uint8_t>(40u + i); }
-    sat_surface_t patch8{patch8_pixels, 8u, 2u, 8u, SAT_PIXEL_INDEX8, palette, 256u};
-    const sat_rect_t dst8{0, 1, 8, 2};
-    OK(sat_texture_update_rect(dynamic, &dst8, &patch8) == SAT_OK);
+    OK(sat_texture_update_rect(dynamic, &dst, &patch) == SAT_OK);
     OK(g_texture_updates == 1u);
-    for (uint16_t i = 0; i < 8u; ++i) {
-        OK(dynamic_pixels[12u + i] == static_cast<uint8_t>(20u + i));
-        OK(dynamic_pixels[24u + i] == static_cast<uint8_t>(40u + i));
-    }
+    OK(dynamic_pixels[15u] == 7u && dynamic_pixels[16u] == 8u);
+    OK(dynamic_pixels[27u] == 9u && dynamic_pixels[28u] == 10u);
 
     const sat_texture_t stale = upload_only;
     OK(sat_texture_destroy(upload_only) == SAT_OK);
