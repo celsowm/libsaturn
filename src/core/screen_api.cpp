@@ -45,7 +45,7 @@ extern "C" sat_result_t sat_draw_rect_screen(
     cmd.x[3] = x0; cmd.y[3] = y1;
     cmd.color = color;
     cmd.flags = 0;
-    return sat_draw_polygon(&cmd);
+    return sat_vdp1_draw_polygon(&cmd);
 }
 
 extern "C" sat_result_t sat_ascii_font_draw_text_screen_indexed8(

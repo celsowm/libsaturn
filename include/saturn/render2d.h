@@ -96,6 +96,7 @@ uint16_t sat_render2d_stack_depth(void);
  * approximated and returns SAT_ERR_UNSUPPORTED. */
 sat_result_t sat_fill_rect(const sat_rect_t* rect, sat_color_t color);
 sat_result_t sat_draw_rect(const sat_rect_t* rect, sat_color_t color);
+sat_result_t sat_draw_line(sat_point_t start, sat_point_t end, sat_color_t color);
 
 /* Draws a logical texture in top-left world/screen coordinates.
  *

@@ -104,8 +104,26 @@ int main() {
     OK(quad.x[2] == 14 && quad.y[2] == 6);
 
     camera = sat_camera2d_default();
+    Render2DLine line{};
+    OK(resolve_render2d_line(
+        sat_point_t{10, 20}, sat_point_t{17, 23}, 320u, 224u, camera, &line) == SAT_OK);
+    OK(line.x0 == -150 && line.y0 == -92);
+    OK(line.x1 == -143 && line.y1 == -89);
+
+    camera.offset_x = static_cast<sat_fx16_t>(160 << 16);
+    camera.offset_y = static_cast<sat_fx16_t>(112 << 16);
+    camera.target_x = static_cast<sat_fx16_t>(10 << 16);
+    camera.target_y = static_cast<sat_fx16_t>(20 << 16);
+    OK(resolve_render2d_line(
+        sat_point_t{10, 20}, sat_point_t{17, 23}, 320u, 224u, camera, &line) == SAT_OK);
+    OK(line.x0 == 0 && line.y0 == 0);
+    OK(line.x1 == 7 && line.y1 == 3);
+
+    camera = sat_camera2d_default();
     camera.zoom = 0;
     OK(apply_render2d_camera(&quad, 320u, 224u, camera) == SAT_ERR_INVALID_ARG);
+    OK(resolve_render2d_line(
+        sat_point_t{0, 0}, sat_point_t{1, 1}, 320u, 224u, camera, &line) == SAT_ERR_INVALID_ARG);
 
     Render2DRuntime runtime{};
     render2d_runtime_reset(runtime);

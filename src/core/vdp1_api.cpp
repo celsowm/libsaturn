@@ -263,7 +263,7 @@ extern "C" sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd
     return saturn::hal::vdp1::push_distorted_sprite(req);
 }
 
-extern "C" sat_result_t sat_draw_polygon(const sat_polygon_cmd_t* cmd) {
+extern "C" sat_result_t sat_vdp1_draw_polygon(const sat_polygon_cmd_t* cmd) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();
     if (st != SAT_OK) {
@@ -287,7 +287,7 @@ extern "C" sat_result_t sat_draw_polygon(const sat_polygon_cmd_t* cmd) {
     return saturn::hal::vdp1::push_polygon(req);
 }
 
-extern "C" sat_result_t sat_draw_polyline(const sat_polygon_cmd_t* cmd) {
+extern "C" sat_result_t sat_vdp1_draw_polyline(const sat_polygon_cmd_t* cmd) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();
     if (st != SAT_OK) {
@@ -311,7 +311,7 @@ extern "C" sat_result_t sat_draw_polyline(const sat_polygon_cmd_t* cmd) {
     return saturn::hal::vdp1::push_polyline(req);
 }
 
-extern "C" sat_result_t sat_draw_line(const sat_line_cmd_t* cmd) {
+extern "C" sat_result_t sat_vdp1_draw_line(const sat_line_cmd_t* cmd) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();
     if (st != SAT_OK) {
@@ -350,7 +350,7 @@ saturn::hal::vdp1::PolygonRequest polygon_request(const sat_polygon_cmd_t* cmd) 
 
 }  // namespace
 
-extern "C" sat_result_t sat_draw_polygon_gouraud(
+extern "C" sat_result_t sat_vdp1_draw_polygon_gouraud(
     const sat_polygon_cmd_t* cmd,
     const uint16_t gouraud[4]
 ) {
@@ -364,7 +364,7 @@ extern "C" sat_result_t sat_draw_polygon_gouraud(
     return saturn::hal::vdp1::push_polygon_gouraud(polygon_request(cmd), gouraud);
 }
 
-extern "C" sat_result_t sat_draw_polyline_gouraud(
+extern "C" sat_result_t sat_vdp1_draw_polyline_gouraud(
     const sat_polygon_cmd_t* cmd,
     const uint16_t gouraud[4]
 ) {
@@ -378,7 +378,7 @@ extern "C" sat_result_t sat_draw_polyline_gouraud(
     return saturn::hal::vdp1::push_polyline_gouraud(polygon_request(cmd), gouraud);
 }
 
-extern "C" sat_result_t sat_draw_line_gouraud(const sat_line_cmd_t* cmd, const uint16_t gouraud[2]) {
+extern "C" sat_result_t sat_vdp1_draw_line_gouraud(const sat_line_cmd_t* cmd, const uint16_t gouraud[2]) {
     sat_result_t st = saturn::core::require_initialized();
     if (st != SAT_OK) {
         return st;

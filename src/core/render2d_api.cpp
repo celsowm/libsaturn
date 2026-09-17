@@ -172,20 +172,55 @@ extern "C" sat_result_t sat_draw_rect(const sat_rect_t* rect, sat_color_t color)
     st = resolve_shape_quad(rect, &quad);
     if (st != SAT_OK) return st;
 
-    for (uint16_t i = 0u; i < 4u; ++i) {
-        const uint16_t next = static_cast<uint16_t>((i + 1u) & 3u);
-        saturn::hal::vdp1::LineRequest request{};
-        request.x0 = quad.x[i];
-        request.y0 = quad.y[i];
-        request.x1 = quad.x[next];
-        request.y1 = quad.y[next];
-        request.color = direct_color;
-        request.flags = 0u;
-        request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
-        st = saturn::hal::vdp1::push_line(request);
-        if (st != SAT_OK) return st;
-    }
-    return SAT_OK;
+    saturn::hal::vdp1::PolygonRequest request{};
+    request.xa = quad.x[0];
+    request.ya = quad.y[0];
+    request.xb = quad.x[1];
+    request.yb = quad.y[1];
+    request.xc = quad.x[2];
+    request.yc = quad.y[2];
+    request.xd = quad.x[3];
+    request.yd = quad.y[3];
+    request.color = direct_color;
+    request.flags = 0u;
+    request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
+    return saturn::hal::vdp1::push_polyline(request);
+}
+
+extern "C" sat_result_t sat_draw_line(
+    sat_point_t start,
+    sat_point_t end,
+    sat_color_t color
+) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    st = render2d_ensure_clip(g_state.config.width, g_state.config.height);
+    if (st != SAT_OK) return st;
+
+    uint16_t direct_color = 0u;
+    st = render2d_color_to_direct_rgb555(color, &direct_color);
+    if (st != SAT_OK) return st;
+
+    Render2DLine line{};
+    st = resolve_render2d_line(
+        start,
+        end,
+        g_state.config.width,
+        g_state.config.height,
+        g_render2d_runtime.current.camera,
+        &line);
+    if (st != SAT_OK) return st;
+
+    saturn::hal::vdp1::LineRequest request{};
+    request.x0 = line.x0;
+    request.y0 = line.y0;
+    request.x1 = line.x1;
+    request.y1 = line.y1;
+    request.color = direct_color;
+    request.flags = 0u;
+    request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
+    return saturn::hal::vdp1::push_line(request);
 }
 
 extern "C" sat_result_t sat_draw_texture(

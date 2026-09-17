@@ -42,7 +42,7 @@ extern "C" sat_result_t sat_draw_world_polygon(const sat_mat4_t* view_proj, cons
     for (int i = 0; i < 4; ++i) { cmd.x[i] = projected.x[i]; cmd.y[i] = projected.y[i]; }
     cmd.color = color;
     cmd.flags = 0;
-    return sat_draw_polygon(&cmd);
+    return sat_vdp1_draw_polygon(&cmd);
 }
 
 extern "C" sat_result_t sat_draw_quad2_polygon(const sat_quad2_t* quad, uint16_t color) {

@@ -29,6 +29,13 @@ struct Render2DClip {
     uint16_t y1;
 };
 
+struct Render2DLine {
+    int16_t x0;
+    int16_t y0;
+    int16_t x1;
+    int16_t y1;
+};
+
 inline bool render2d_neutral_tint(sat_color_t tint) {
     return tint.r == 255u && tint.g == 255u && tint.b == 255u && tint.a == 255u;
 }
@@ -219,6 +226,48 @@ inline sat_result_t apply_render2d_camera(
         quad->x[i] = static_cast<int16_t>(native_x);
         quad->y[i] = static_cast<int16_t>(native_y);
     }
+    return SAT_OK;
+}
+
+inline sat_result_t resolve_render2d_line(
+    sat_point_t start,
+    sat_point_t end,
+    uint16_t screen_width,
+    uint16_t screen_height,
+    const sat_camera2d_t& camera,
+    Render2DLine* out
+) {
+    if (out == nullptr || screen_width == 0u || screen_height == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const int32_t half_w = static_cast<int32_t>(screen_width / 2u);
+    const int32_t half_h = static_cast<int32_t>(screen_height / 2u);
+    const int32_t sx = static_cast<int32_t>(start.x) - half_w;
+    const int32_t sy = static_cast<int32_t>(start.y) - half_h;
+    const int32_t ex = static_cast<int32_t>(end.x) - half_w;
+    const int32_t ey = static_cast<int32_t>(end.y) - half_h;
+    if (sx < INT16_MIN || sx > INT16_MAX || sy < INT16_MIN || sy > INT16_MAX ||
+        ex < INT16_MIN || ex > INT16_MAX || ey < INT16_MIN || ey > INT16_MAX) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    Render2DQuad quad{};
+    quad.x[0] = static_cast<int16_t>(sx);
+    quad.y[0] = static_cast<int16_t>(sy);
+    quad.x[1] = static_cast<int16_t>(ex);
+    quad.y[1] = static_cast<int16_t>(ey);
+    quad.x[2] = quad.x[1];
+    quad.y[2] = quad.y[1];
+    quad.x[3] = quad.x[0];
+    quad.y[3] = quad.y[0];
+
+    const sat_result_t st =
+        apply_render2d_camera(&quad, screen_width, screen_height, camera);
+    if (st != SAT_OK) return st;
+    out->x0 = quad.x[0];
+    out->y0 = quad.y[0];
+    out->x1 = quad.x[1];
+    out->y1 = quad.y[1];
     return SAT_OK;
 }
 

@@ -666,14 +666,14 @@ static void draw_player_and_weather(void) {
             int16_t x = (int16_t)(-10 + (int16_t)i * 5 + (int16_t)((g_frames + i * 3u) & 3u));
             int16_t len = (int16_t)(8 + ((g_frames + i * 7u) & 7u));
             sat_line_cmd_t thrust = {x,72,x, (int16_t)(72 + len), object_color(g_biome,1u),0};
-            sat_draw_line(&thrust);
+            sat_vdp1_draw_line(&thrust);
         }
     }
     if (g_transition || ((g_frames / 600u) % 4u) == 1u || ((g_frames / 600u) % 4u) == 3u) {
         uint16_t i; for (i = 0; i < 12u; ++i) {
             int x = (int)((i * 47u + g_frames * 3u) % 320u);
             sat_line_cmd_t l = {(int16_t)(x-160),(int16_t)(-112),(int16_t)(x-170),(int16_t)(-75),SAT_RGB555(20,20,31),0};
-            sat_draw_line(&l);
+            sat_vdp1_draw_line(&l);
         }
     }
 }
@@ -695,7 +695,7 @@ static void draw_hud(void) {
     if (g_scanner && !g_finished) {
         int end = g_signal_dir == -1 ? 122 : (g_signal_dir == 1 ? 198 : 160);
         sat_line_cmd_t l = {0,-76,(int16_t)(end-160),-68,SAT_RGB555(31,31,31),0};
-        sat_draw_line(&l);
+        sat_vdp1_draw_line(&l);
         sat_ascii_font_draw_text_screen_centered_indexed8(&g_font,
             g_signal_dir == 2 ? "SIGNAL BEHIND" : "SIGNAL",160,30,8,0,0);
     }

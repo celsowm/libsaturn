@@ -72,6 +72,9 @@ typedef struct sat_line_cmd {
     uint16_t flags;
 } sat_line_cmd_t;
 
+/* Native command APIs intentionally carry the VDP1 prefix. High-level
+ * screen/world-space shapes live in render2d.h and use sat_color_t/Camera2D. */
+
 sat_result_t sat_tex_upload_indexed8(
     sat_vdp1_texture_t* out_texture,
     const uint8_t* pixels,
@@ -117,7 +120,7 @@ sat_result_t sat_draw_sprite_scaled_screen(
 );
 
 sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd_t* cmd);
-sat_result_t sat_draw_polygon(const sat_polygon_cmd_t* cmd);
+sat_result_t sat_vdp1_draw_polygon(const sat_polygon_cmd_t* cmd);
 
 sat_result_t sat_draw_rect_screen(
     int16_t x,
@@ -127,8 +130,8 @@ sat_result_t sat_draw_rect_screen(
     uint16_t color
 );
 
-sat_result_t sat_draw_polyline(const sat_polygon_cmd_t* cmd);
-sat_result_t sat_draw_line(const sat_line_cmd_t* cmd);
+sat_result_t sat_vdp1_draw_polyline(const sat_polygon_cmd_t* cmd);
+sat_result_t sat_vdp1_draw_line(const sat_line_cmd_t* cmd);
 
 #define SAT_GOURAUD_NEUTRAL ((uint16_t)0x4210u)
 
@@ -146,9 +149,9 @@ static inline uint16_t sat_gouraud_grey(int d) {
     return sat_gouraud_rgb(d, d, d);
 }
 
-sat_result_t sat_draw_polygon_gouraud(const sat_polygon_cmd_t* cmd, const uint16_t gouraud[4]);
-sat_result_t sat_draw_polyline_gouraud(const sat_polygon_cmd_t* cmd, const uint16_t gouraud[4]);
-sat_result_t sat_draw_line_gouraud(const sat_line_cmd_t* cmd, const uint16_t gouraud[2]);
+sat_result_t sat_vdp1_draw_polygon_gouraud(const sat_polygon_cmd_t* cmd, const uint16_t gouraud[4]);
+sat_result_t sat_vdp1_draw_polyline_gouraud(const sat_polygon_cmd_t* cmd, const uint16_t gouraud[4]);
+sat_result_t sat_vdp1_draw_line_gouraud(const sat_line_cmd_t* cmd, const uint16_t gouraud[2]);
 
 #ifdef __cplusplus
 }
