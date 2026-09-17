@@ -25,11 +25,9 @@ jobs:
           PREFIX: ${{ runner.temp }}/saturn-tools
           ROOT: ${{ runner.temp }}/saturn-toolchain-src
         run: |
-          JOBS=2 ./scripts/build-toolchain.sh
+          JOBS=2 bash scripts/build-toolchain.sh
 
       - name: Build all Saturn examples
-        env:
-          PATH: ${{ runner.temp }}/saturn-tools/bin:${{ env.PATH }}
         run: |
           export PATH="${RUNNER_TEMP}/saturn-tools/bin:$PATH"
           sh2eb-elf-g++ --version
