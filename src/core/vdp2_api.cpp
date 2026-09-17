@@ -1,6 +1,7 @@
 #include "saturn/vdp2.h"
 
 #include "src/core/logic.hpp"
+#include "src/core/palette_registry.hpp"
 #include "src/core/runtime_state.hpp"
 #include "src/hal/vdp2.hpp"
 
@@ -164,6 +165,10 @@ extern "C" sat_result_t sat_vdp2_palette_upload(const uint16_t* palette_rgb555, 
     }
 
     st = validate_vdp2_palette_upload(count, offset);
+    if (st != SAT_OK) {
+        return st;
+    }
+    st = palette_claim_external(g_palette_registry, offset, count);
     if (st != SAT_OK) {
         return st;
     }

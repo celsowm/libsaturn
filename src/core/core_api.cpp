@@ -1,6 +1,7 @@
 #include "saturn/core.h"
 
 #include "src/core/internal.hpp"
+#include "src/core/palette_registry.hpp"
 #include "src/core/runtime_state.hpp"
 #include "src/hal/scu.hpp"
 #include "src/hal/vdp1.hpp"
@@ -38,6 +39,9 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     if (config->ntsc == 0u) {
         return SAT_ERR_UNSUPPORTED;
     }
+
+    /* Reset shared runtime resource ownership before exposing initialized state. */
+    palette_registry_reset(g_palette_registry);
 
     /* Initialize runtime state */
     g_state.config = *config;

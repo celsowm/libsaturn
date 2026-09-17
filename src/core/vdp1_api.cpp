@@ -2,6 +2,7 @@
 
 #include "src/core/internal.hpp"
 #include "src/core/logic.hpp"
+#include "src/core/palette_registry.hpp"
 #include "src/core/runtime_state.hpp"
 #include "src/hal/vdp1.hpp"
 
@@ -26,6 +27,10 @@ extern "C" sat_result_t sat_tex_upload_indexed8(
         return st;
     }
     st = validate_indexed8_texture_dims(width, height);
+    if (st != SAT_OK) {
+        return st;
+    }
+    st = palette_claim_external(g_palette_registry, static_cast<uint16_t>(palette_index * 256u), 256u);
     if (st != SAT_OK) {
         return st;
     }
@@ -66,6 +71,10 @@ extern "C" sat_result_t sat_palette_upload_indexed8(
     if (st != SAT_OK) {
         return st;
     }
+    st = palette_claim_external(g_palette_registry, static_cast<uint16_t>(palette_index * 256u), 256u);
+    if (st != SAT_OK) {
+        return st;
+    }
     return saturn::hal::vdp1::upload_palette(palette_rgb555, palette_index);
 }
 
@@ -89,6 +98,10 @@ extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
         return st;
     }
     st = validate_indexed8_texture_dims(width, height);
+    if (st != SAT_OK) {
+        return st;
+    }
+    st = palette_claim_external(g_palette_registry, static_cast<uint16_t>(palette_index * 256u), 256u);
     if (st != SAT_OK) {
         return st;
     }
