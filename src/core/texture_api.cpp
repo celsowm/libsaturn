@@ -11,11 +11,19 @@ namespace {
 using saturn::core::TextureRegionRecord;
 using saturn::core::TextureSlot;
 
-sat_result_t validate_source_surface(const sat_surface_t* source) {
+sat_result_t validate_indexed8_surface_basic(const sat_surface_t* source) {
     if (source == nullptr || source->pixels == nullptr) return SAT_ERR_INVALID_ARG;
     if (source->format != SAT_PIXEL_INDEX8) return SAT_ERR_UNSUPPORTED;
     if (source->palette_rgb555 == nullptr || source->palette_count != 256u) return SAT_ERR_INVALID_ARG;
-    if (source->pitch < source->width) return SAT_ERR_INVALID_ARG;
+    if (source->width == 0u || source->height == 0u || source->pitch < source->width) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return SAT_OK;
+}
+
+sat_result_t validate_texture_source(const sat_surface_t* source) {
+    const sat_result_t st = validate_indexed8_surface_basic(source);
+    if (st != SAT_OK) return st;
     return saturn::core::validate_indexed8_texture_dims(source->width, source->height);
 }
 
@@ -86,7 +94,7 @@ extern "C" sat_result_t sat_texture_create_from_surface(
     if (out_texture == nullptr) return SAT_ERR_INVALID_ARG;
     st = validate_policy(backing_policy);
     if (st != SAT_OK) return st;
-    st = validate_source_surface(source);
+    st = validate_texture_source(source);
     if (st != SAT_OK) return st;
 
     sat_texture_t handle{};
@@ -158,7 +166,7 @@ extern "C" sat_result_t sat_texture_update(sat_texture_t texture, const sat_surf
     using namespace saturn::core;
     sat_result_t st = require_initialized();
     if (st != SAT_OK) return st;
-    st = validate_source_surface(source);
+    st = validate_texture_source(source);
     if (st != SAT_OK) return st;
     TextureSlot* slot = texture_resolve(g_texture_registry, texture);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
@@ -202,7 +210,7 @@ extern "C" sat_result_t sat_texture_update_rect(
     sat_result_t st = require_initialized();
     if (st != SAT_OK) return st;
     if (destination_rect == nullptr) return SAT_ERR_INVALID_ARG;
-    st = validate_source_surface(source);
+    st = validate_indexed8_surface_basic(source);
     if (st != SAT_OK) return st;
     TextureSlot* slot = texture_resolve(g_texture_registry, texture);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
@@ -261,17 +269,15 @@ extern "C" sat_result_t sat_texture_prepare_region(sat_texture_t texture, const 
     const uint16_t x = static_cast<uint16_t>(region->x);
     const uint16_t y = static_cast<uint16_t>(region->y);
     const uint8_t* pixels = surface_row(slot->source, y) + x;
-    st = upload_native_from_surface(
-        &record->native,
-        sat_surface_t{
-            const_cast<uint8_t*>(pixels),
-            region->width,
-            region->height,
-            slot->source.pitch,
-            SAT_PIXEL_INDEX8,
-            slot->source.palette_rgb555,
-            slot->source.palette_count},
-        slot->palette_bank);
+    sat_surface_t region_surface{
+        const_cast<uint8_t*>(pixels),
+        region->width,
+        region->height,
+        slot->source.pitch,
+        SAT_PIXEL_INDEX8,
+        slot->source.palette_rgb555,
+        slot->source.palette_count};
+    st = upload_native_from_surface(&record->native, region_surface, slot->palette_bank);
     if (st != SAT_OK) {
         texture_cancel_region(g_texture_registry, texture, record);
         return st;
