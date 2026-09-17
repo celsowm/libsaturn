@@ -26,18 +26,18 @@ typedef enum sat_blend_mode {
 } sat_blend_mode_t;
 
 typedef struct sat_draw_params {
+    /* Clockwise-positive screen-space rotation in 16.16 degrees. */
     sat_fx16_t rotation;
+    /* Rotation center in destination-local pixels, relative to dst.x/dst.y. */
     sat_point_t center;
     sat_color_t tint;
     uint16_t blend_mode;
     uint16_t flags;
+    /* Bitwise SAT_FLIP_X | SAT_FLIP_Y. */
     uint8_t flip;
     uint8_t reserved;
 } sat_draw_params_t;
 
-/* Identity parameters for ordinary texture drawing. The first implementation
- * supports this neutral tint/blend/flip/rotation combination and returns
- * SAT_ERR_UNSUPPORTED for valid combinations not implemented yet. */
 static inline sat_draw_params_t sat_draw_params_default(void) {
     sat_draw_params_t params;
     params.rotation = 0;
@@ -61,10 +61,11 @@ static inline sat_draw_params_t sat_draw_params_default(void) {
  * DYNAMIC textures may materialize a missing region lazily, while UPLOAD_ONLY
  * textures return SAT_ERR_UNSUPPORTED for partial regions.
  *
- * dst is required and its width/height must be non-zero. Scaling is supported.
- * params == NULL is equivalent to sat_draw_params_default(). Unsupported
- * rotation/flip/tint/blend combinations fail explicitly instead of silently
- * changing rendering semantics. */
+ * dst is required and its width/height must be non-zero. Scaling, X/Y flip,
+ * and rotation around params.center are supported. params == NULL is
+ * equivalent to sat_draw_params_default(). The current tint/blend subset is
+ * neutral tint + SAT_BLEND_NONE; other valid combinations return
+ * SAT_ERR_UNSUPPORTED instead of silently changing rendering semantics. */
 sat_result_t sat_draw_texture(
     sat_texture_t texture,
     const sat_rect_t* src,

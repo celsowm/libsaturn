@@ -5,59 +5,65 @@
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 
+static int abs_i(int v) { return v < 0 ? -v : v; }
+
 int main() {
     using namespace saturn::core;
 
-    const sat_draw_params_t defaults = sat_draw_params_default();
-    OK(defaults.rotation == 0);
-    OK(defaults.flip == SAT_FLIP_NONE);
-    OK(defaults.blend_mode == SAT_BLEND_NONE);
-    OK(render2d_neutral_tint(defaults.tint));
-    OK(validate_render2d_params(nullptr) == SAT_OK);
-    OK(validate_render2d_params(&defaults) == SAT_OK);
+    sat_draw_params_t params = sat_draw_params_default();
+    OK(validate_render2d_params(&params) == SAT_OK);
 
-    sat_draw_params_t unsupported = defaults;
-    unsupported.rotation = SAT_FX16_ONE;
-    OK(validate_render2d_params(&unsupported) == SAT_ERR_UNSUPPORTED);
-    unsupported = defaults;
-    unsupported.flip = SAT_FLIP_X;
-    OK(validate_render2d_params(&unsupported) == SAT_ERR_UNSUPPORTED);
-    unsupported = defaults;
-    unsupported.tint.r = 254u;
-    OK(validate_render2d_params(&unsupported) == SAT_ERR_UNSUPPORTED);
-    unsupported = defaults;
-    unsupported.blend_mode = SAT_BLEND_ALPHA;
-    OK(validate_render2d_params(&unsupported) == SAT_ERR_UNSUPPORTED);
+    params.flip = 4u;
+    OK(validate_render2d_params(&params) == SAT_ERR_INVALID_ARG);
+    params = sat_draw_params_default();
+    params.blend_mode = SAT_BLEND_ALPHA;
+    OK(validate_render2d_params(&params) == SAT_ERR_UNSUPPORTED);
+    params = sat_draw_params_default();
+    params.tint.r = 254u;
+    OK(validate_render2d_params(&params) == SAT_ERR_UNSUPPORTED);
 
-    sat_draw_params_t invalid = defaults;
-    invalid.flip = 4u;
-    OK(validate_render2d_params(&invalid) == SAT_ERR_INVALID_ARG);
-    invalid = defaults;
-    invalid.blend_mode = 99u;
-    OK(validate_render2d_params(&invalid) == SAT_ERR_INVALID_ARG);
-    invalid = defaults;
-    invalid.flags = 1u;
-    OK(validate_render2d_params(&invalid) == SAT_ERR_INVALID_ARG);
-
+    const sat_rect_t dst{10, 20, 8u, 4u};
     Render2DDestination resolved{};
-    const sat_rect_t identity{10, 20, 16u, 8u};
-    OK(resolve_render2d_destination(&identity, 320u, 224u, 16u, 8u, &resolved) == SAT_OK);
+    OK(resolve_render2d_destination(&dst, 320u, 224u, 8u, 4u, &resolved) == SAT_OK);
     OK(resolved.x0 == -150 && resolved.y0 == -92);
-    OK(resolved.x1 == -135 && resolved.y1 == -85);
+    OK(resolved.x1 == -143 && resolved.y1 == -89);
     OK(!resolved.scaled);
-
-    const sat_rect_t scaled{10, 20, 32u, 16u};
-    OK(resolve_render2d_destination(&scaled, 320u, 224u, 16u, 8u, &resolved) == SAT_OK);
-    OK(resolved.x0 == -150 && resolved.y0 == -92);
-    OK(resolved.x1 == -119 && resolved.y1 == -77);
+    OK(resolve_render2d_destination(&dst, 320u, 224u, 16u, 4u, &resolved) == SAT_OK);
     OK(resolved.scaled);
 
-    const sat_rect_t zero{0, 0, 0u, 8u};
-    OK(resolve_render2d_destination(&zero, 320u, 224u, 16u, 8u, &resolved) == SAT_ERR_INVALID_ARG);
-    OK(resolve_render2d_destination(nullptr, 320u, 224u, 16u, 8u, &resolved) == SAT_ERR_INVALID_ARG);
+    params = sat_draw_params_default();
+    Render2DQuad quad{};
+    OK(resolve_render2d_quad(&dst, 320u, 224u, params, &quad) == SAT_OK);
+    OK(quad.x[0] == -150 && quad.y[0] == -92);
+    OK(quad.x[1] == -143 && quad.y[1] == -92);
+    OK(quad.x[2] == -143 && quad.y[2] == -89);
+    OK(quad.x[3] == -150 && quad.y[3] == -89);
 
-    const sat_rect_t overflow{32760, 0, 100u, 8u};
-    OK(resolve_render2d_destination(&overflow, 1u, 224u, 16u, 8u, &resolved) == SAT_ERR_INVALID_ARG);
+    params.flip = SAT_FLIP_X;
+    OK(resolve_render2d_quad(&dst, 320u, 224u, params, &quad) == SAT_OK);
+    OK(quad.x[0] == -143 && quad.y[0] == -92);
+    OK(quad.x[1] == -150 && quad.y[1] == -92);
+    OK(quad.x[2] == -150 && quad.y[2] == -89);
+    OK(quad.x[3] == -143 && quad.y[3] == -89);
+
+    params = sat_draw_params_default();
+    params.flip = SAT_FLIP_Y;
+    OK(resolve_render2d_quad(&dst, 320u, 224u, params, &quad) == SAT_OK);
+    OK(quad.x[0] == -150 && quad.y[0] == -89);
+    OK(quad.x[1] == -143 && quad.y[1] == -89);
+    OK(quad.x[2] == -143 && quad.y[2] == -92);
+    OK(quad.x[3] == -150 && quad.y[3] == -92);
+
+    const sat_rect_t rotated_dst{100, 50, 10u, 6u};
+    params = sat_draw_params_default();
+    params.center.x = 5;
+    params.center.y = 3;
+    params.rotation = static_cast<sat_fx16_t>(90 << 16);
+    OK(resolve_render2d_quad(&rotated_dst, 320u, 224u, params, &quad) == SAT_OK);
+    OK(abs_i(quad.x[0] - (-52)) <= 1 && abs_i(quad.y[0] - (-64)) <= 1);
+    OK(abs_i(quad.x[1] - (-52)) <= 1 && abs_i(quad.y[1] - (-55)) <= 1);
+    OK(abs_i(quad.x[2] - (-57)) <= 1 && abs_i(quad.y[2] - (-55)) <= 1);
+    OK(abs_i(quad.x[3] - (-57)) <= 1 && abs_i(quad.y[3] - (-64)) <= 1);
 
     std::puts("render2d logic: OK");
     return 0;

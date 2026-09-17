@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "saturn/render2d.h"
+#include "src/core/math3d_logic.hpp"
 
 namespace saturn::core {
 
@@ -16,6 +17,11 @@ struct Render2DDestination {
     bool scaled;
 };
 
+struct Render2DQuad {
+    int16_t x[4];
+    int16_t y[4];
+};
+
 inline bool render2d_neutral_tint(sat_color_t tint) {
     return tint.r == 255u && tint.g == 255u && tint.b == 255u && tint.a == 255u;
 }
@@ -25,8 +31,7 @@ inline sat_result_t validate_render2d_params(const sat_draw_params_t* params) {
     if (params->flip > static_cast<uint8_t>(SAT_FLIP_X | SAT_FLIP_Y)) return SAT_ERR_INVALID_ARG;
     if (params->blend_mode > SAT_BLEND_SUBTRACT) return SAT_ERR_INVALID_ARG;
     if (params->flags != 0u || params->reserved != 0u) return SAT_ERR_INVALID_ARG;
-    if (params->rotation != 0 || params->flip != SAT_FLIP_NONE ||
-        params->blend_mode != SAT_BLEND_NONE || !render2d_neutral_tint(params->tint)) {
+    if (params->blend_mode != SAT_BLEND_NONE || !render2d_neutral_tint(params->tint)) {
         return SAT_ERR_UNSUPPORTED;
     }
     return SAT_OK;
@@ -66,6 +71,61 @@ inline sat_result_t resolve_render2d_destination(
     out->x1 = static_cast<int16_t>(x1);
     out->y1 = static_cast<int16_t>(y1);
     out->scaled = dst->width != source_width || dst->height != source_height;
+    return SAT_OK;
+}
+
+inline sat_result_t resolve_render2d_quad(
+    const sat_rect_t* dst,
+    uint16_t screen_width,
+    uint16_t screen_height,
+    const sat_draw_params_t& params,
+    Render2DQuad* out
+) {
+    if (dst == nullptr || out == nullptr || dst->width == 0u || dst->height == 0u ||
+        screen_width == 0u || screen_height == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    const int32_t cx = params.center.x;
+    const int32_t cy = params.center.y;
+    const int32_t right = static_cast<int32_t>(dst->width) - 1 - cx;
+    const int32_t bottom = static_cast<int32_t>(dst->height) - 1 - cy;
+    const int32_t local_x[4] = {-cx, right, right, -cx};
+    const int32_t local_y[4] = {-cy, -cy, bottom, bottom};
+
+    const sat_fx16_t sine = math3d::sin_deg_fx(params.rotation);
+    const sat_fx16_t cosine = math3d::cos_deg_fx(params.rotation);
+    const int32_t pivot_x = static_cast<int32_t>(dst->x) + cx - static_cast<int32_t>(screen_width / 2u);
+    const int32_t pivot_y = static_cast<int32_t>(dst->y) + cy - static_cast<int32_t>(screen_height / 2u);
+
+    int32_t geometric_x[4]{};
+    int32_t geometric_y[4]{};
+    for (uint16_t i = 0u; i < 4u; ++i) {
+        const int64_t rotated_x =
+            static_cast<int64_t>(local_x[i]) * cosine - static_cast<int64_t>(local_y[i]) * sine;
+        const int64_t rotated_y =
+            static_cast<int64_t>(local_x[i]) * sine + static_cast<int64_t>(local_y[i]) * cosine;
+        const int64_t x = static_cast<int64_t>(pivot_x) + (rotated_x >> 16);
+        const int64_t y = static_cast<int64_t>(pivot_y) + (rotated_y >> 16);
+        if (x < INT16_MIN || x > INT16_MAX || y < INT16_MIN || y > INT16_MAX) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        geometric_x[i] = static_cast<int32_t>(x);
+        geometric_y[i] = static_cast<int32_t>(y);
+    }
+
+    uint8_t map[4] = {0u, 1u, 2u, 3u};
+    if ((params.flip & SAT_FLIP_X) != 0u) {
+        map[0] = 1u; map[1] = 0u; map[2] = 3u; map[3] = 2u;
+    }
+    if ((params.flip & SAT_FLIP_Y) != 0u) {
+        for (uint16_t i = 0u; i < 4u; ++i) map[i] = static_cast<uint8_t>(3u - map[i]);
+    }
+
+    for (uint16_t i = 0u; i < 4u; ++i) {
+        out->x[i] = static_cast<int16_t>(geometric_x[map[i]]);
+        out->y[i] = static_cast<int16_t>(geometric_y[map[i]]);
+    }
     return SAT_OK;
 }
 

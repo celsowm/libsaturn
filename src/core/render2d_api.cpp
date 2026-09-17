@@ -63,6 +63,30 @@ extern "C" sat_result_t sat_draw_texture(
     st = resolve_draw_source(texture, *slot, src, &native);
     if (st != SAT_OK) return st;
 
+    const sat_draw_params_t effective = params != nullptr ? *params : sat_draw_params_default();
+    if (effective.rotation != 0 || effective.flip != SAT_FLIP_NONE) {
+        Render2DQuad quad{};
+        st = resolve_render2d_quad(
+            dst,
+            g_state.config.width,
+            g_state.config.height,
+            effective,
+            &quad);
+        if (st != SAT_OK) return st;
+
+        saturn::hal::vdp1::DistortedSpriteRequest request{};
+        for (uint16_t i = 0u; i < 4u; ++i) {
+            request.x[i] = quad.x[i];
+            request.y[i] = quad.y[i];
+        }
+        request.width = native->width;
+        request.height = native->height;
+        request.srca = native->srca;
+        request.palette = native->palette;
+        request.flags = 0u;
+        return saturn::hal::vdp1::push_distorted_sprite(request);
+    }
+
     Render2DDestination resolved{};
     st = resolve_render2d_destination(
         dst,
