@@ -855,6 +855,21 @@ Phase gate: PCM stream, short sound playback, stream state, ring-buffer tests, d
 
 # Phase 9 — Filesystem, logical assets, and VFS
 
+### Implementation status — 2026-09-17
+
+Implemented as the initial read-only VFS/registry subphase:
+
+- fixed caller-backed file mounts and generation-checked file handles;
+- bounded read, seek, tell, size, close, and deterministic mount/handle exhaustion;
+- slash normalization with `.` removal and `..` rejection;
+- fixed logical asset registry with kind, payload, dimensions, audio metadata,
+  and generation-safe lookup/close;
+- host coverage for normalization, partial reads, seeking, missing paths,
+  stale handles, and asset metadata lookup.
+
+The CD/file transport adapter, generated build manifest, and typed asset loaders
+that turn registered texture/font/sound entries into runtime objects remain open.
+
 This phase is critical for real source ports.
 
 ## 9.1 Generic file I/O

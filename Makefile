@@ -373,6 +373,7 @@ HOST_TEST_EXTRA_test_font_logic := src/core/font_api.cpp
 HOST_TEST_EXTRA_test_font_text_logic :=
 HOST_TEST_EXTRA_test_audio_stream_logic :=
 HOST_TEST_EXTRA_test_audio_stream_api := src/core/audio_stream_api.cpp src/core/audio_stream_runtime.cpp
+HOST_TEST_EXTRA_test_file_asset_logic := src/core/file_api.cpp src/core/asset_api.cpp src/core/file_asset_runtime.cpp
 HOST_TEST_EXTRA_test_math3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_render3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_mesh3d_logic := src/core/math3d_api.cpp
