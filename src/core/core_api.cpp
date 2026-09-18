@@ -3,6 +3,7 @@
 #include "src/core/internal.hpp"
 #include "src/core/input_runtime.hpp"
 #include "src/core/palette_registry.hpp"
+#include "src/core/file_asset_runtime.hpp"
 #include "src/core/render2d_runtime.hpp"
 #include "src/core/runtime_state.hpp"
 #include "src/core/texture_runtime.hpp"
@@ -28,6 +29,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     }
 
     input_runtime_reset(g_input_runtime);
+    file_asset_runtime_reset(g_file_asset_runtime);
     palette_registry_reset(g_palette_registry);
     texture_registry_reset(g_texture_registry);
     render2d_runtime_reset(g_render2d_runtime);
@@ -50,6 +52,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
 extern "C" sat_result_t sat_shutdown(void) {
     using namespace saturn::core;
     input_runtime_reset(g_input_runtime);
+    file_asset_runtime_reset(g_file_asset_runtime);
     render2d_runtime_reset(g_render2d_runtime);
     g_state.initialized = false;
     return SAT_OK;
