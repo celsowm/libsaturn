@@ -2,8 +2,8 @@
 
 This document is a snapshot of the hardware and runtime coverage currently exposed by LibSaturn.
 
-**Snapshot date:** 2026-09-17  
-**Baseline:** `main` at `a14f318`
+**Snapshot date:** 2026-09-18
+**Baseline:** `main` at `9506877`
 
 The goal is not to measure a percentage of the Sega Saturn hardware. Instead, this document answers a more useful question:
 
@@ -38,7 +38,6 @@ LibSaturn is already strongest in the areas needed to render and run small-to-me
 
 The largest Saturn hardware areas still missing as first-class LibSaturn subsystems are:
 
-- runtime CD Block access, ISO9660/CDFS and end-to-end streaming;
 - Backup RAM/save support;
 - RAM cartridge support and generic cartridge/A-Bus access;
 - 3D Control Pad analog input and the broader Saturn peripheral family;
@@ -56,7 +55,13 @@ The current umbrella header exposes the following subsystem headers:
 
 ```text
 core.h
+geometry2d.h
 color.h
+memory.h
+time.h
+surface.h
+texture.h
+render2d.h
 math3d.h
 mesh3d.h
 model3d.h
@@ -67,6 +72,12 @@ video.h
 input.h
 app.h
 audio.h
+cd.h
+cdfs.h
+file.h
+asset.h
+cd_block.h
+scene3d.h
 fmt.h
 font.h
 grid.h
@@ -115,13 +126,13 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | SCSP synthesis / envelopes / LFO | **NOT EXPOSED** | Public audio API is centered on PCM voices. | Hardware envelope generators, LFO/modulation and richer slot synthesis. | `include/saturn/audio.h` |
 | 68000 sound CPU | **NOT EXPOSED** | Sound CPU can be switched by the SMPC HAL, but there is no resident sound-driver framework. | 68k driver loading, command queues, independent music/SFX scheduling and streaming coordination. | `src/hal/smpc.*` |
 | CD Block runtime I/O | **PARTIAL** | Hardware-specific synchronous 2048-byte sector reads, bounded command polling, LBA/FAD conversion, a `sat_cd_device_t` adapter, and modified-Ymir BIOS-harness validation are exposed. | Authentication policy, asynchronous I/O, seek/read scheduling and richer error/status reporting. | `include/saturn/cd_block.h`, `src/hal/cd_block.cpp`, `examples/cd_block_probe` |
-| CDFS / VFS | **PARTIAL** | Read-only logical paths, bounded handles, caller-backed blobs, caller-owned `read_at` backends, ISO9660 PVD/directory lookup, CDFS-to-VFS file adapters and non-resident music refill through the VFS path are public. | Asynchronous scheduling, prefetch/cache policy and transparent manifest-driven CD registration. | `include/saturn/cd.h`, `include/saturn/cdfs.h`, `include/saturn/file.h`, `src/core/cdfs_api.cpp`, `src/core/music_api.cpp` |
-| Asset streaming | **PARTIAL** | File reads support partial backend transfers; typed resident loading and bounded embedded/non-resident logical music streams require no whole-file allocation. | Texture/model/map streaming, general typed non-resident loaders, prefetch, cache policy and a CD-backed service scheduler. | `include/saturn/file.h`, `include/saturn/asset.h`, `src/core/music_api.cpp` |
+| CDFS / VFS | **PARTIAL** | Read-only logical paths, bounded handles, caller-backed blobs, caller-owned `read_at` backends, ISO9660 PVD/directory lookup, CDFS-to-VFS file adapters, non-resident music refill and cooperative asset prefetch/cache through the VFS path are public. | Transparent manifest-driven CD registration and a genuinely non-blocking storage backend remain outside the current synchronous CD contract. | `include/saturn/cd.h`, `include/saturn/cdfs.h`, `include/saturn/file.h`, `include/saturn/asset.h`, `src/core/cdfs_api.cpp`, `src/core/asset_api.cpp` |
+| Asset streaming | **PARTIAL** | File reads support partial backend transfers; typed resident loading, bounded embedded/non-resident logical music streams, fixed-block cache, cache diagnostics and cooperative prefetch require no whole-file allocation. | Texture/model/map streaming and general typed non-resident loaders. | `include/saturn/file.h`, `include/saturn/asset.h`, `src/core/asset_api.cpp`, `src/core/music_api.cpp` |
 | Backup RAM / save data | **NOT EXPOSED** | No first-class save/Backup RAM API found in the current public surface. | File-like save records, directory/enumeration, free-space checks, checksums/versioning. | No public save/backup module. |
 | RAM cartridge | **NOT EXPOSED** | No first-class RAM-cart allocator/detection API found. | Cartridge detection, capacity probing, allocation and optional asset/cache use. | No public cartridge RAM module. |
 | Generic cartridge / A-Bus | **NOT EXPOSED** | No general A-Bus/cartridge framework. | ROM carts, expansion hardware, bus probing and safe mapped access abstractions. | No corresponding public module. |
 | Slave SH-2 | **NOT EXPOSED** | No public second-CPU scheduler/job abstraction. | Boot/synchronization, mailbox, queues, worker jobs and cache-safe ownership rules. | No public dual-SH2 module. |
-| Runtime filesystem-independent asset API | **PARTIAL** | Bounded logical asset handles, metadata, caller-owned partial reads, typed texture/font/sound loaders, bounded non-resident music refill, and generated C registration for embedded/physical manifest entries are independent of the current storage representation. | Concrete RAM-cart backend and non-resident typed texture/model/map loaders. | `include/saturn/asset.h`, `src/core/asset_api.cpp`, `src/core/music_api.cpp`, `tools/generate_asset_manifest.py`, `tools/generate_asset_registry.py` |
+| Runtime filesystem-independent asset API | **PARTIAL** | Bounded logical asset handles, metadata, caller-owned partial reads, typed texture/font/sound loaders, bounded non-resident music refill, fixed cache/prefetch service, and generated C registration for embedded/physical manifest entries are independent of the current storage representation. | Concrete RAM-cart backend and non-resident typed texture/model/map loaders. | `include/saturn/asset.h`, `src/core/asset_api.cpp`, `src/core/music_api.cpp`, `tools/generate_asset_manifest.py`, `tools/generate_asset_registry.py` |
 | Formatting / fonts / utility drawing | **PARTIAL** | Formatting, font and grid helpers are public. | Broader UI/text layout and asset-backed fonts if desired. | `include/saturn/fmt.h`, `include/saturn/font.h`, `include/saturn/grid.h` |
 | NetLink / modem / communications | **NOT EXPOSED** | No runtime communication subsystem. | NetLink/modem/serial-style communication abstractions. | No corresponding public module. |
 | MPEG Card | **NOT EXPOSED** | No runtime MPEG-card subsystem. | Detection, decode/control APIs and optional video playback pipeline. | No corresponding public module. |
@@ -254,8 +265,9 @@ and VFS `read_at` callback. The reader intentionally leaves disc
 authentication to the BIOS/platform startup path. Non-resident music can use
 that storage-neutral path once the relevant backend is mounted. The modified
 Ymir BIOS harness now validates the CD Block transport by reading LBA 16 and
-checking the ISO9660 `CD001` signature; async scheduling and prefetch/cache
-policy remain open.
+checking the ISO9660 `CD001` signature. Logical non-resident assets also have
+a fixed four-block cache and a cooperative prefetch queue serviced by
+`sat_asset_prefetch_update()`; no worker thread is implied.
 
 A complete storage path could grow in layers:
 
@@ -269,7 +281,7 @@ ISO9660 / CDFS
 VFS / logical asset paths
         |
         v
-async read + prefetch + cache
+cooperative read + prefetch + cache
         |
         v
 texture / model / map / audio streaming

@@ -160,8 +160,53 @@ int main() {
     uint32_t physical_read = 0u;
     OK(sat_asset_read_at("data/cd-raw.bin", 1u, physical_out, sizeof(physical_out), &physical_read) == SAT_OK &&
        physical_read == 2u && physical_out[0] == 8u && physical_out[1] == 9u);
-    OK(sat_asset_read_at("data/cd-raw.bin", 3u, physical_out, sizeof(physical_out), &physical_read) == SAT_OK &&
-       physical_read == 0u);
+    OK(sat_asset_read_at("data/cd-raw.bin", 0u, physical_out, 1u, &physical_read) == SAT_OK &&
+       physical_read == 1u && physical_out[0] == 7u);
+    sat_asset_cache_stats_t cache_stats{};
+    OK(sat_asset_cache_stats(&cache_stats) == SAT_OK && cache_stats.used == 1u &&
+       cache_stats.fills == 1u && cache_stats.hits >= 1u);
+    uint8_t streamed_data[4096u] = {};
+    for (uint32_t i = 0u; i < sizeof(streamed_data); ++i) {
+        streamed_data[i] = static_cast<uint8_t>(i ^ 0x5Au);
+    }
+    OK(sat_file_register_blob("ASSETS/STREAM.BIN", streamed_data, sizeof(streamed_data)) == SAT_OK);
+    sat_asset_desc_t streamed_desc = {};
+    streamed_desc.logical_path = "data/stream.bin";
+    streamed_desc.source_path = "ASSETS/STREAM.BIN";
+    streamed_desc.size = sizeof(streamed_data);
+    streamed_desc.kind = SAT_ASSET_DATA;
+    OK(sat_asset_register(&streamed_desc, nullptr) == SAT_ERR_INVALID_ARG);
+    sat_asset_t streamed_asset{};
+    OK(sat_asset_register(&streamed_desc, &streamed_asset) == SAT_OK);
+    sat_asset_prefetch_t prefetch{};
+    OK(sat_asset_prefetch_submit("data/stream.bin", 100u, 3000u, &prefetch) == SAT_OK);
+    sat_asset_prefetch_state_t prefetch_state{};
+    sat_result_t prefetch_result = SAT_ERR_BUSY;
+    uint32_t cached_bytes = 0u;
+    OK(sat_asset_prefetch_status(prefetch, &prefetch_state, &prefetch_result, &cached_bytes) == SAT_OK &&
+       prefetch_state == SAT_ASSET_PREFETCH_PENDING);
+    OK(sat_asset_prefetch_update() == SAT_OK);
+    OK(sat_asset_prefetch_update() == SAT_OK);
+    OK(sat_asset_prefetch_status(prefetch, &prefetch_state, &prefetch_result, &cached_bytes) == SAT_OK &&
+       prefetch_state == SAT_ASSET_PREFETCH_COMPLETE && prefetch_result == SAT_OK &&
+       cached_bytes == 4096u);
+    uint8_t streamed_out[3000u] = {};
+    OK(sat_asset_read_at("data/stream.bin", 100u, streamed_out, sizeof(streamed_out), &physical_read) == SAT_OK &&
+       physical_read == sizeof(streamed_out) && std::memcmp(streamed_out, streamed_data + 100u,
+                                                             sizeof(streamed_out)) == 0);
+    OK(sat_asset_cache_stats(&cache_stats) == SAT_OK && cache_stats.prefetch_completed == 1u &&
+       cache_stats.used == 3u);
+    sat_asset_desc_t missing_desc = streamed_desc;
+    missing_desc.logical_path = "data/missing-stream.bin";
+    missing_desc.source_path = "ASSETS/MISSING.BIN";
+    sat_asset_t missing_asset{};
+    OK(sat_asset_register(&missing_desc, &missing_asset) == SAT_OK);
+    sat_asset_prefetch_t failed_prefetch{};
+    OK(sat_asset_prefetch_submit("data/missing-stream.bin", 0u, 1u, &failed_prefetch) == SAT_OK);
+    OK(sat_asset_prefetch_update() == SAT_ERR_NOT_FOUND);
+    OK(sat_asset_prefetch_status(failed_prefetch, &prefetch_state, &prefetch_result, &cached_bytes) == SAT_OK &&
+       prefetch_state == SAT_ASSET_PREFETCH_FAILED && prefetch_result == SAT_ERR_NOT_FOUND);
+    OK(sat_asset_prefetch_cancel(failed_prefetch) == SAT_OK);
     OK(sat_asset_load_data("assets/player.png", &loaded_data, &loaded_size) == SAT_ERR_UNSUPPORTED);
     OK(sat_texture_destroy(texture) == SAT_OK);
     const sat_asset_t stale_asset = asset;

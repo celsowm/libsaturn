@@ -2,6 +2,24 @@
 
 #include "src/core/file_asset_runtime.hpp"
 
+namespace {
+
+sat_result_t lookup_asset(const char* logical_path, sat_asset_info_t* out_info);
+
+sat_result_t normalize_source_path(const char* source_path, char* normalized) {
+    return saturn::core::normalize_path(source_path, normalized, SAT_FILE_PATH_MAX);
+}
+
+saturn::core::AssetPrefetchRequest* resolve_prefetch(sat_asset_prefetch_t request) {
+    using namespace saturn::core;
+    if (request.slot >= SAT_ASSET_PREFETCH_CAPACITY || request.generation == 0u) return nullptr;
+    AssetPrefetchRequest& entry = g_file_asset_runtime.prefetch[request.slot];
+    if (entry.used == 0u || entry.generation != request.generation) return nullptr;
+    return &entry;
+}
+
+}  // namespace
+
 extern "C" sat_result_t sat_asset_reset(void) {
     saturn::core::file_asset_runtime_reset(saturn::core::g_file_asset_runtime);
     return SAT_OK;
@@ -103,6 +121,123 @@ extern "C" uint16_t sat_asset_capacity(void) {
     return SAT_ASSET_CAPACITY;
 }
 
+extern "C" sat_result_t sat_asset_prefetch_submit(
+    const char* logical_path,
+    uint32_t offset,
+    uint32_t bytes,
+    sat_asset_prefetch_t* out_request
+) {
+    if (logical_path == nullptr || out_request == nullptr) return SAT_ERR_INVALID_ARG;
+    sat_asset_info_t info{};
+    SAT_TRY(lookup_asset(logical_path, &info));
+    if (info.source_path == nullptr) return SAT_ERR_UNSUPPORTED;
+    if (offset > info.size) return SAT_ERR_INVALID_ARG;
+    char source_path[SAT_FILE_PATH_MAX] = {};
+    SAT_TRY(normalize_source_path(info.source_path, source_path));
+    uint32_t end = offset + bytes;
+    if (end < offset || end > info.size) end = info.size;
+    const uint32_t first_block = offset / SAT_ASSET_CACHE_BLOCK_BYTES;
+    const uint32_t end_block = end == offset
+        ? first_block : (end - 1u) / SAT_ASSET_CACHE_BLOCK_BYTES;
+    using namespace saturn::core;
+    for (uint16_t i = 0u; i < SAT_ASSET_PREFETCH_CAPACITY; ++i) {
+        AssetPrefetchRequest& request = g_file_asset_runtime.prefetch[i];
+        if (request.used != 0u) continue;
+        if (request.generation == 0u) request.generation = 1u;
+        uint16_t j = 0u;
+        while (source_path[j] != '\0') {
+            request.source_path[j] = source_path[j];
+            ++j;
+        }
+        request.source_path[j] = '\0';
+        request.next_block = first_block;
+        request.end_block = end_block;
+        request.cached_bytes = 0u;
+        request.result = SAT_OK;
+        request.state = bytes == 0u ? SAT_ASSET_PREFETCH_COMPLETE : SAT_ASSET_PREFETCH_PENDING;
+        request.used = 1u;
+        out_request->slot = i;
+        out_request->generation = request.generation;
+        return SAT_OK;
+    }
+    return SAT_ERR_CAPACITY;
+}
+
+extern "C" sat_result_t sat_asset_prefetch_update(void) {
+    using namespace saturn::core;
+    for (uint16_t i = 0u; i < SAT_ASSET_PREFETCH_CAPACITY; ++i) {
+        AssetPrefetchRequest& request = g_file_asset_runtime.prefetch[i];
+        if (request.used == 0u || request.state != SAT_ASSET_PREFETCH_PENDING) continue;
+        uint32_t valid_bytes = 0u;
+        const sat_result_t status = asset_cache_fill(
+            g_file_asset_runtime, request.source_path, request.next_block, &valid_bytes);
+        if (status != SAT_OK) {
+            request.result = status;
+            request.state = SAT_ASSET_PREFETCH_FAILED;
+            ++g_file_asset_runtime.prefetch_failed;
+            return status;
+        }
+        request.cached_bytes += valid_bytes;
+        if (request.next_block >= request.end_block) {
+            request.state = SAT_ASSET_PREFETCH_COMPLETE;
+            ++g_file_asset_runtime.prefetch_completed;
+        } else {
+            ++request.next_block;
+        }
+        return SAT_OK;
+    }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_asset_prefetch_status(
+    sat_asset_prefetch_t request,
+    sat_asset_prefetch_state_t* out_state,
+    sat_result_t* out_result,
+    uint32_t* out_cached_bytes
+) {
+    if (out_state == nullptr || out_result == nullptr || out_cached_bytes == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const saturn::core::AssetPrefetchRequest* entry = resolve_prefetch(request);
+    if (entry == nullptr) return SAT_ERR_INVALID_ARG;
+    *out_state = static_cast<sat_asset_prefetch_state_t>(entry->state);
+    *out_result = entry->result;
+    *out_cached_bytes = entry->cached_bytes;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_asset_prefetch_cancel(sat_asset_prefetch_t request) {
+    saturn::core::AssetPrefetchRequest* entry = resolve_prefetch(request);
+    if (entry == nullptr) return SAT_ERR_INVALID_ARG;
+    entry->used = 0u;
+    entry->generation = saturn::core::next_file_generation(entry->generation);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_asset_cache_stats(sat_asset_cache_stats_t* out_stats) {
+    if (out_stats == nullptr) return SAT_ERR_INVALID_ARG;
+    using namespace saturn::core;
+    uint16_t used = 0u;
+    uint16_t pending = 0u;
+    for (uint16_t i = 0u; i < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++i) {
+        used += g_file_asset_runtime.cache[i].used != 0u ? 1u : 0u;
+    }
+    for (uint16_t i = 0u; i < SAT_ASSET_PREFETCH_CAPACITY; ++i) {
+        pending += g_file_asset_runtime.prefetch[i].used != 0u &&
+                   g_file_asset_runtime.prefetch[i].state == SAT_ASSET_PREFETCH_PENDING ? 1u : 0u;
+    }
+    out_stats->used = used;
+    out_stats->capacity = SAT_ASSET_CACHE_BLOCK_CAPACITY;
+    out_stats->prefetch_pending = pending;
+    out_stats->prefetch_capacity = SAT_ASSET_PREFETCH_CAPACITY;
+    out_stats->hits = g_file_asset_runtime.cache_hits;
+    out_stats->misses = g_file_asset_runtime.cache_misses;
+    out_stats->fills = g_file_asset_runtime.cache_fills;
+    out_stats->prefetch_completed = g_file_asset_runtime.prefetch_completed;
+    out_stats->prefetch_failed = g_file_asset_runtime.prefetch_failed;
+    return SAT_OK;
+}
+
 namespace {
 
 sat_result_t lookup_asset(const char* logical_path, sat_asset_info_t* out_info) {
@@ -145,18 +280,13 @@ extern "C" sat_result_t sat_asset_read_at(
     *out_read = 0u;
     if (bytes == 0u || offset == info.size) return SAT_OK;
     if (info.source_path != nullptr) {
-        sat_file_t file{};
-        SAT_TRY(sat_file_open(info.source_path, &file));
-        const sat_result_t seek_status = sat_file_seek(
-            file, static_cast<int32_t>(offset), SAT_FILE_SEEK_SET);
-        if (seek_status != SAT_OK) {
-            (void)sat_file_close(file);
-            return seek_status;
-        }
-        const sat_result_t read_status = sat_file_read(file, destination, bytes, out_read);
-        const sat_result_t close_status = sat_file_close(file);
-        if (read_status != SAT_OK) return read_status;
-        return close_status;
+        char source_path[SAT_FILE_PATH_MAX] = {};
+        SAT_TRY(normalize_source_path(info.source_path, source_path));
+        const uint32_t available = info.size - offset;
+        const uint32_t count = bytes < available ? bytes : available;
+        return saturn::core::asset_cache_read_at(
+            saturn::core::g_file_asset_runtime, source_path, offset,
+            destination, count, out_read);
     }
     if (info.data == nullptr) return SAT_ERR_IO;
     const uint32_t available = info.size - offset;

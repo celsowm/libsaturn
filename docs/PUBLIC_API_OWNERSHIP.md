@@ -17,7 +17,7 @@ scratch region. The runtime performs no general-purpose heap allocation.
 | Sound | PCM sample bytes | bounded sound descriptor/player state | source remains valid while registered; fixed sound slots | SCSP programming stays in audio layer |
 | Audio stream/music | ring storage and staging buffers | stream state and bounded scheduler state | fixed stream count; close invalidates handle; writes reject overrun | SCSP/CD transport is hidden behind adapters |
 | File handle | backend context and mount table storage | fixed mount/handle records | generation-checked handles; close releases one slot | backend may be host file, memory, or CD/CDFS |
-| Logical asset | manifest/source descriptors | fixed registry records | generation-checked handles; source remains caller-owned | physical assets stay non-resident until read |
+| Logical asset | manifest/source descriptors | fixed registry records, four-block cache, four prefetch requests | generation-checked handles; source remains caller-owned; prefetch is cooperative and bounded | physical assets stay non-resident until read; CD remains behind VFS/CDFS |
 | CDFS/CD device | sector buffer and device context | parser/device adapter state | caller keeps device and destination storage alive | `sat_cd_block_*` is synchronous; BIOS owns authentication |
 | Camera/scene/model | camera, transforms, sort/vertex/face scratch | draw-time validation only | caller scratch remains valid for the draw/scene lifetime | scene facade owns projection/command encoding |
 | Input/events | output state and event destination | two-port state and bounded event queue | queue drops oldest deterministically on overflow | SMPC polling is isolated from gameplay |

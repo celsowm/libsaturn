@@ -804,10 +804,10 @@ two fixed sound-RAM pages and `sat_audio_update()` consumes/refills at most one
 chunk per stream. `examples/audio_showcase` feeds its generated BGM through
 that path while resident SFX remain independent. `sat_music_t` now accepts both
 embedded and non-resident logical stream assets, refilling the latter through
-`sat_asset_read_at` into a caller-owned staging buffer. The remaining audio
-follow-up is long-run audible measurement plus asynchronous prefetch/cache
-policy; the hardware transport gate is covered separately by the CD Block
-probe described in Phase 9.
+`sat_asset_read_at` into a caller-owned staging buffer. The runtime now also
+provides a fixed block cache and cooperative `sat_asset_prefetch_*` service;
+long-run audible measurement remains a hardware-tuning follow-up. The hardware
+transport gate is covered separately by the CD Block probe described in Phase 9.
 
 Build a native layer above raw SCSP concepts.
 
@@ -889,16 +889,20 @@ Implemented as the initial read-only VFS/registry subphase:
   adapter;
 - host coverage for normalization, partial reads, seeking, missing paths,
   stale handles, backend reads, asset metadata lookup, and typed texture/data
-  loading.
+  loading;
+- host coverage for cache hits, fixed-block fills, multi-block prefetch,
+  deterministic prefetch failure, cancellation, and cache diagnostics.
 
 As the first hardware transport subphase, `include/saturn/cd_block.h` and
 `src/hal/cd_block.cpp` expose synchronous 2048-byte sector reads with bounded
 timeouts, LBA-to-FAD conversion, and a `sat_cd_device_t` adapter. Disc
 authentication remains a BIOS/platform concern. Non-resident stream assets can
 now refill through the VFS/asset `read_at` path, including a CDFS-backed source
-when that backend is mounted; asynchronous scheduling and prefetch/cache policy
-remain open. `examples/cd_block_probe` boots after BIOS warm-up, initializes the
-CD Block, reads LBA 16 through the modified Ymir disc image, and validates the
+when that backend is mounted; `sat_asset_prefetch_update()` provides bounded
+cooperative scheduling over a fixed four-block cache, with hit/miss/fill and
+request diagnostics. It intentionally does not create a worker thread or
+promise non-blocking behavior inside a storage callback. `examples/cd_block_probe`
+boots after BIOS warm-up, initializes the CD Block, reads LBA 16 through the modified Ymir disc image, and validates the
 ISO9660 `CD001` signature through the normal Ymir harness. The host pipeline emits both
 the deterministic JSON manifest and an optional C registration unit; physical
 entries preserve their source path and remain non-resident until their storage
