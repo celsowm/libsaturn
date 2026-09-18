@@ -1098,6 +1098,15 @@ Run/build gate:
 
 # Phase 12 — Public API cleanup and documentation
 
+### Implementation status — 2026-09-18
+
+The public surface now has a maintained narrow-header/umbrella split, and the
+README documents the Saturn-native runtime versus explicit hardware layers.
+Acceptance instructions point to the modified Ymir harness and the BIOS dump
+under `bios/`; they do not advertise an unvalidated emulator path. The
+remaining cleanup is a broader ownership/lifetime pass over every public
+resource and the final source-port mapping review.
+
 Review naming, ownership, and layering across public headers.
 
 Target conceptual organization:

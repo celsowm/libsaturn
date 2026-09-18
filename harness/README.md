@@ -52,9 +52,9 @@ instead of tracking upstream via plain `FetchContent`, which this harness
 deliberately avoids.
 
 The disc/CD-boot path itself is **not validated by this harness** as a
-result — `run-example.ps1` against mednafen/Kronos remains the check that an
-IP.BIN and ISO actually boot on something that reads a real disc. What this
-harness validates is everything downstream of the program actually running:
+result: this repository's automated acceptance path is the modified Ymir
+direct-injection flow. What this harness validates is everything downstream
+of the program actually running:
 register setup, VRAM contents, VDP1/VDP2 state — which is what it was built
 for. `harness/tests/test_rbg0_ground.py`'s `setUpClass` enforces this
 boundary itself: it fails immediately (before any other assertion) if

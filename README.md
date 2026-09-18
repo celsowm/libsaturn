@@ -77,30 +77,30 @@ Prepare the `emulators/` folder and install Mednafen via MSYS2:
 
 If the package is not available in the current MSYS2 repo, the script attempts to install Mednafen via winget (`MednafenTeam.Mednafen`).
 
-This creates:
+This creates the optional legacy emulator launcher:
 
 - `emulators/mednafen/run-mednafen.ps1`
-- `emulators/kronos/run-kronos.ps1`
 
 For Mednafen, keep JP BIOS in `firmware/sega_101.bin` and US/EU BIOS in `firmware/mpr-17933.bin`.
 The launcher attempts to automatically copy from `bios/saturn_bios_jp.bin` and `bios/saturn_bios_us.bin` (or `bios/saturn_bios_eu.bin`).
 By default, the Mednafen launcher uses `region_autodetect=1` with fallback `region_default=na` and forces `ss.h_overscan=0` / `ss.videoip=0` to avoid cutting/artifacts on the license screen.
 
-Kronos follows manual installation in `emulators/kronos/kronos.exe`.
+For the repository's current acceptance flow, use the modified Ymir harness
+with the BIOS dump in `bios/`, for example:
+
+```powershell
+.\harness\run-harness.ps1 runtime_2d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
+```
 
 ## Acceptance Checklist
 
-Run the guided checklist:
+Run the host suite and the modified Ymir probe with the BIOS from `bios/`:
 
 ```powershell
-.\scripts\check-acceptance.ps1 -Emulator both
+make test
+.\harness\run-harness.ps1 runtime_2d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
+.\harness\run-harness.ps1 runtime_3d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
 ```
-
-Output:
-
-- `build/acceptance-report.txt`
-
-Full protocol: `docs/acceptance.md`.
 
 ## Host Requirements (MSYS2 Shell)
 
@@ -298,10 +298,12 @@ the build fails with the exact missing path when it is absent. Viewer
 controls: LEFT/RIGHT orbit yaw, UP/DOWN pitch, L/R zoom, A pause/resume
 animation, B reset camera+animation, C auto-orbit, START toggle HUD.
 
-## Target Emulators
+## Runtime validation
 
-- Kronos (debug).
-- Mednafen (timing/compatibility).
+The canonical automated runtime validation is the modified Ymir harness. It
+boots the Saturn BIOS for the configured warm-up, injects the built BIN, and
+checks the running program through the harness probe. A real BIOS disc boot is
+not inferred from that direct-injection path.
 
 To switch BIOS/region in the example launcher without editing Mednafen's global config:
 
