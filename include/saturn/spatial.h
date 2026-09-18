@@ -14,6 +14,7 @@ extern "C" {
 typedef struct sat_spatial_entry {
     uint16_t id;
     uint16_t next;
+    uint32_t cell;
 } sat_spatial_entry_t;
 
 typedef struct sat_spatial_pair {
@@ -25,7 +26,8 @@ typedef struct sat_spatial_pair {
  * log2 of a cell's world-pixel size (cell size = 1 << cell_shift pixels).
  * The grid clamps out-of-range boxes to its edge cells. A cell about as large
  * as the largest object keeps the usual case close to O(n + candidate pairs);
- * putting every object in one cell is necessarily O(n^2).
+ * putting every object in one cell is necessarily O(n^2). Clear and pair
+ * enumeration scale with inserted entries rather than the full grid area.
  */
 typedef struct sat_spatial {
     uint16_t* heads;
