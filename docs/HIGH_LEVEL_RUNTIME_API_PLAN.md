@@ -518,13 +518,15 @@ Implemented on `main`:
 - inside rectangular scissor through VDP1 user clipping, persisted in render state and re-emitted for each command list;
 - host coverage for texture draw geometry, Camera2D/state stack, color conversion, clipping resolution, VDP1 user-clip command encoding, and clip PMOD bits.
 
-Still open before the Phase 4 gate can be declared complete:
+The Phase 4 capability subset is intentionally conservative: indexed8
+color-bank textures support neutral opaque tint and `SAT_BLEND_NONE`; the
+current hardware path cannot promise arbitrary texture modulation or blending
+for that representation, so those combinations return `SAT_ERR_UNSUPPORTED`.
+The high-level line API is distinct from the explicitly prefixed low-level
+VDP1 API, and the final host/cross-build gates are green.
 
-- high-level `sat_draw_line`; the current low-level VDP1 API already owns that C symbol and requires a deliberate hardware-API naming migration rather than a parallel ad-hoc name;
-- a documented hardware-backed tint subset beyond neutral white;
-- a documented hardware-backed blend subset beyond `SAT_BLEND_NONE`;
-- decide whether a separate generic transform setter adds value beyond Camera2D before adding public surface area;
-- final cross-build/examples gate for the complete Phase 4 surface.
+The Phase 4 gate is complete with these documented capability failures.
+
 
 
 ## 4.1 Unified texture drawing
@@ -722,7 +724,7 @@ Phase gate: two-pad tests, press/release ordering, overflow, connection state, a
 
 # Phase 7 — High-level fonts and text
 
-### Implementation status — 2026-09-17
+### Implementation status — 2026-09-18
 
 Implemented on `main`:
 
@@ -802,9 +804,10 @@ two fixed sound-RAM pages and `sat_audio_update()` consumes/refills at most one
 chunk per stream. `examples/audio_showcase` feeds its generated BGM through
 that path while resident SFX remain independent. `sat_music_t` now accepts both
 embedded and non-resident logical stream assets, refilling the latter through
-`sat_asset_read_at` into a caller-owned staging buffer. Long-run audible
-measurement, asynchronous prefetch/cache policy, and hardware CD read validation
-remain open.
+`sat_asset_read_at` into a caller-owned staging buffer. The remaining audio
+follow-up is long-run audible measurement plus asynchronous prefetch/cache
+policy; the hardware transport gate is covered separately by the CD Block
+probe described in Phase 9.
 
 Build a native layer above raw SCSP concepts.
 
@@ -893,8 +896,10 @@ As the first hardware transport subphase, `include/saturn/cd_block.h` and
 timeouts, LBA-to-FAD conversion, and a `sat_cd_device_t` adapter. Disc
 authentication remains a BIOS/platform concern. Non-resident stream assets can
 now refill through the VFS/asset `read_at` path, including a CDFS-backed source
-when that backend is mounted; asynchronous scheduling, prefetch/cache policy,
-and Ymir/hardware CD read validation remain open. The host pipeline emits both
+when that backend is mounted; asynchronous scheduling and prefetch/cache policy
+remain open. `examples/cd_block_probe` boots after BIOS warm-up, initializes the
+CD Block, reads LBA 16 through the modified Ymir disc image, and validates the
+ISO9660 `CD001` signature through the normal Ymir harness. The host pipeline emits both
 the deterministic JSON manifest and an optional C registration unit; physical
 entries preserve their source path and remain non-resident until their storage
 backend is mounted.
@@ -1048,8 +1053,9 @@ Implemented the first native acceptance pair:
 - both examples build to ISO/CUE and pass the modified Ymir harness with
   `bios/saturn_bios_us.bin`.
 
-The remaining Phase 11 work is broader content coverage and any future
-acceptance cases needed by source-port adapters.
+The native acceptance pair covers the Phase 11 gate; future source-port
+adapters may add content-specific acceptance cases without changing this core
+runtime contract.
 
 ## 11.1 `runtime_2d`
 
@@ -1103,9 +1109,12 @@ Run/build gate:
 The public surface now has a maintained narrow-header/umbrella split, and the
 README documents the Saturn-native runtime versus explicit hardware layers.
 Acceptance instructions point to the modified Ymir harness and the BIOS dump
-under `bios/`; they do not advertise an unvalidated emulator path. The
-remaining cleanup is a broader ownership/lifetime pass over every public
-resource and the final source-port mapping review.
+under `bios/`; they do not advertise an unvalidated emulator path. Ownership,
+lifetime, and capacity rules are recorded in
+`docs/PUBLIC_API_OWNERSHIP.md`. The final source-port mapping review is
+recorded in `docs/SDL2_COMPATIBILITY_LAYER_PLAN.md` and
+`docs/RAYLIB_COMPATIBILITY_LAYER_PLAN.md`; both remain design-only documents
+until a concrete port justifies adapter implementation.
 
 Review naming, ownership, and layering across public headers.
 

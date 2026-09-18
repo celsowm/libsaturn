@@ -135,5 +135,6 @@ int main(void) {
     }
 
     (void)model_asset_handle;
+    (void)sat_shutdown();
     return 0;
 }

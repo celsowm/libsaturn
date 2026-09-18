@@ -655,7 +655,7 @@ The example must:
 - compile with the normal LibSaturn example build path;
 - require no direct register writes from `main.c` once the public API is implemented;
 - use `sat_fade3d_*`, VDP1/VDP2 public APIs and mesh/model integration rather than calling internal HAL functions;
-- be suitable for Mednafen/Kronos/other project-supported emulator testing and real Saturn validation where available;
+- be suitable for the modified Ymir harness and real Saturn validation where available;
 - stay in the tree after the feature lands as a regression/demo example, not be deleted as a temporary experiment.
 
 Where the repository already performs example compile checks in CI, add `distance_fade_3d` to that set. If examples are not currently part of CI, at minimum document the exact build target alongside the example.

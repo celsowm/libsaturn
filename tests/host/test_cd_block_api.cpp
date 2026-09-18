@@ -3,6 +3,10 @@
 
 #include "saturn/cd_block.h"
 
+#if SAT_CD_BLOCK_HIRQ_CSCT != 0x0004u
+#error "CSCT must select the CD Block sector-stored flag"
+#endif
+
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 
 int main() {

@@ -273,5 +273,6 @@ int main(void) {
     (void)sat_texture_destroy(player_sheet);
     (void)sat_texture_destroy(font.atlas);
     (void)sat_audio_shutdown();
+    (void)sat_shutdown();
     return 0;
 }

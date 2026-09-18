@@ -127,6 +127,12 @@ sat_result_t read_impl(
     SAT_TRY(execute_and_wait(block, {0x6000u, 0u, 0u, 0u}, SAT_CD_BLOCK_HIRQ_ESEL));
     SAT_TRY(execute_and_wait(block, {0x4800u, 0u, 0u, 0u}, SAT_CD_BLOCK_HIRQ_ESEL));
     SAT_TRY(execute_and_wait(block, {0x3000u, 0u, 0u, 0u}, SAT_CD_BLOCK_HIRQ_ESEL));
+    /* CSCT/PEND are level flags and may still describe the BIOS' last
+     * operation.  They must not satisfy the first data-ready poll. */
+    write_reg(
+        SAT_CD_BLOCK_HIRQ,
+        static_cast<uint16_t>(~(SAT_CD_BLOCK_HIRQ_PEND | SAT_CD_BLOCK_HIRQ_CSCT) |
+                              SAT_CD_BLOCK_HIRQ_CMOK));
     SAT_TRY(execute_and_wait(
         block,
         {

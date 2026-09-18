@@ -1300,7 +1300,7 @@ make EXAMPLE=basic_3d_animation
 
 Expected outputs include the normal ELF/BIN/ISO/CUE artifacts for the repository build flow.
 
-Run through the existing Mednafen/Kronos workflow.
+Run through the existing modified Ymir harness workflow.
 
 Acceptance requires:
 

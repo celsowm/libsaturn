@@ -114,7 +114,7 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | SCSP DSP / effects | **NOT EXPOSED** | Internal SCSP initialization touches DSP state, but there is no supported public DSP effects API. | Reverb, chorus/delay-style effects, mixer programs, DSP program loading and routing. | `src/hal/scsp.*`; Sega SCSP docs under `docs/sega_saturn_hardware`. |
 | SCSP synthesis / envelopes / LFO | **NOT EXPOSED** | Public audio API is centered on PCM voices. | Hardware envelope generators, LFO/modulation and richer slot synthesis. | `include/saturn/audio.h` |
 | 68000 sound CPU | **NOT EXPOSED** | Sound CPU can be switched by the SMPC HAL, but there is no resident sound-driver framework. | 68k driver loading, command queues, independent music/SFX scheduling and streaming coordination. | `src/hal/smpc.*` |
-| CD Block runtime I/O | **PARTIAL** | Hardware-specific synchronous 2048-byte sector reads, bounded command polling, LBA/FAD conversion and a `sat_cd_device_t` adapter are exposed. | Authentication policy, asynchronous I/O, seek/read scheduling, Ymir/hardware validation and richer error/status reporting. | `include/saturn/cd_block.h`, `src/hal/cd_block.cpp` |
+| CD Block runtime I/O | **PARTIAL** | Hardware-specific synchronous 2048-byte sector reads, bounded command polling, LBA/FAD conversion, a `sat_cd_device_t` adapter, and modified-Ymir BIOS-harness validation are exposed. | Authentication policy, asynchronous I/O, seek/read scheduling and richer error/status reporting. | `include/saturn/cd_block.h`, `src/hal/cd_block.cpp`, `examples/cd_block_probe` |
 | CDFS / VFS | **PARTIAL** | Read-only logical paths, bounded handles, caller-backed blobs, caller-owned `read_at` backends, ISO9660 PVD/directory lookup, CDFS-to-VFS file adapters and non-resident music refill through the VFS path are public. | Asynchronous scheduling, prefetch/cache policy and transparent manifest-driven CD registration. | `include/saturn/cd.h`, `include/saturn/cdfs.h`, `include/saturn/file.h`, `src/core/cdfs_api.cpp`, `src/core/music_api.cpp` |
 | Asset streaming | **PARTIAL** | File reads support partial backend transfers; typed resident loading and bounded embedded/non-resident logical music streams require no whole-file allocation. | Texture/model/map streaming, general typed non-resident loaders, prefetch, cache policy and a CD-backed service scheduler. | `include/saturn/file.h`, `include/saturn/asset.h`, `src/core/music_api.cpp` |
 | Backup RAM / save data | **NOT EXPOSED** | No first-class save/Backup RAM API found in the current public surface. | File-like save records, directory/enumeration, free-space checks, checksums/versioning. | No public save/backup module. |
@@ -252,8 +252,10 @@ The runtime now has a hardware-specific synchronous CD Block reader with a
 storage-neutral `sat_cd_device_t` adapter, plus the bounded ISO9660/CDFS parser
 and VFS `read_at` callback. The reader intentionally leaves disc
 authentication to the BIOS/platform startup path. Non-resident music can use
-that storage-neutral path once the relevant backend is mounted; async
-scheduling, prefetch/cache policy and hardware CD read validation remain open.
+that storage-neutral path once the relevant backend is mounted. The modified
+Ymir BIOS harness now validates the CD Block transport by reading LBA 16 and
+checking the ISO9660 `CD001` signature; async scheduling and prefetch/cache
+policy remain open.
 
 A complete storage path could grow in layers:
 
