@@ -20,6 +20,10 @@ constexpr uint16_t kLoopNormal = 0x0020u;
 constexpr uint32_t kNativeRate = 44100u;
 
 bool g_ready = false;
+// Slot control (+00) contains write-only fields (including KYONB), so it
+// cannot be read-modified-written safely. Keep the programmed state here and
+// use it whenever a key transition needs KYONEX.
+uint16_t g_slot_control[kSlotCount] = {};
 
 inline volatile uint16_t* slot_word(uint8_t slot, uint32_t offset) {
     return reinterpret_cast<volatile uint16_t*>(
@@ -68,6 +72,11 @@ inline uint8_t clamp_u8(uint32_t value, uint8_t max_value) {
     return static_cast<uint8_t>(value > max_value ? max_value : value);
 }
 
+inline void execute_key_transition(uint8_t slot) {
+    *slot_word(slot, 0x00u) = g_slot_control[slot];
+    *slot_word(slot, 0x00u) = static_cast<uint16_t>(g_slot_control[slot] | kKeyOnExecute);
+}
+
 }  // namespace
 
 bool init() {
@@ -85,6 +94,7 @@ bool init() {
     clear_sound_ram(0u, kSystemReservedBytes);
     install_idle_68k_stub();
     clear_slot_registers();
+    for (uint8_t slot = 0u; slot < kSlotCount; ++slot) g_slot_control[slot] = 0u;
     clear_dsp_program();
 
     if (!smpc::sound_on()) {
@@ -192,6 +202,7 @@ bool configure_slot(uint8_t slot, const SlotConfig& config) {
     if (config.pcm8 != 0u) control |= kPcm8Bit;
     if (config.loop != 0u) control |= kLoopNormal;
 
+    g_slot_control[slot] = control;
     *slot_word(slot, 0x00u) = control;
     *slot_word(slot, 0x02u) = static_cast<uint16_t>(config.start_address & 0xFFFFu);
     *slot_word(slot, 0x04u) = config.loop_start;
@@ -213,18 +224,14 @@ bool configure_slot(uint8_t slot, const SlotConfig& config) {
 
 void key_on(uint8_t slot) {
     if (!g_ready || slot >= kSlotCount) return;
-    uint16_t control = *slot_word(slot, 0x00u);
-    control = static_cast<uint16_t>(control | kKeyOnBit);
-    *slot_word(slot, 0x00u) = control;
-    *slot_word(slot, 0x00u) = static_cast<uint16_t>(control | kKeyOnExecute);
+    g_slot_control[slot] = static_cast<uint16_t>(g_slot_control[slot] | kKeyOnBit);
+    execute_key_transition(slot);
 }
 
 void key_off(uint8_t slot) {
     if (slot >= kSlotCount) return;
-    uint16_t control = *slot_word(slot, 0x00u);
-    control = static_cast<uint16_t>(control & ~kKeyOnBit);
-    *slot_word(slot, 0x00u) = control;
-    *slot_word(slot, 0x00u) = static_cast<uint16_t>(control | kKeyOnExecute);
+    g_slot_control[slot] = static_cast<uint16_t>(g_slot_control[slot] & ~kKeyOnBit);
+    execute_key_transition(slot);
 }
 
 void set_slot_level_pan(uint8_t slot, uint8_t total_level, uint8_t direct_level, uint8_t pan) {
@@ -244,11 +251,10 @@ void set_master_volume(uint8_t level) {
 void stop_all_slots() {
     if (!g_ready) return;
     for (uint8_t slot = 0; slot < kSlotCount; ++slot) {
-        uint16_t control = *slot_word(slot, 0x00u);
-        *slot_word(slot, 0x00u) = static_cast<uint16_t>(control & ~kKeyOnBit);
+        g_slot_control[slot] = static_cast<uint16_t>(g_slot_control[slot] & ~kKeyOnBit);
+        *slot_word(slot, 0x00u) = g_slot_control[slot];
     }
-    uint16_t control = *slot_word(0u, 0x00u);
-    *slot_word(0u, 0x00u) = static_cast<uint16_t>(control | kKeyOnExecute);
+    *slot_word(0u, 0x00u) = static_cast<uint16_t>(g_slot_control[0u] | kKeyOnExecute);
 }
 
 }  // namespace saturn::hal::scsp

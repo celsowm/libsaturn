@@ -83,6 +83,8 @@ LIBRARY := $(BUILD_DIR)/libsaturn.a
 # Each example can have a Makefile.inc defining:
 #   EXAMPLE_ASSETS  = list of assets (e.g. $(GENERATED_DIR)/sega_bg/bg.c)
 #   EXAMPLE_HEADERS = generated headers
+#   EXAMPLE_ISO_DIR = directory whose contents are copied into the ISO root
+#   EXAMPLE_ISO_FILES = generated/checked-in files required by that directory
 #   EXAMPLE_DEPS    = dependencies for generation
 #   EXAMPLE_RESIZE  = width height (e.g. 320 224)
 #   EXAMPLE_INPUT   = original image path
@@ -127,7 +129,7 @@ EXAMPLES := $(filter-out common,$(notdir $(wildcard examples/*)))
 
 .PHONY: all clean dirs check-tools examples-all list-examples bake test
 
-all: check-tools dirs $(ELF) $(ISO) $(LIBRARY)
+all: check-tools dirs $(ELF) $(ISO) $(CUE) $(LIBRARY)
 
 # -- Verificacoes -----------------------------------------------
 check-tools:
@@ -339,11 +341,14 @@ $(BIN): $(ELF)
 		exit 1; \
 	fi
 
-$(ISO): $(BIN)
+$(ISO): $(BIN) $(EXAMPLE_ISO_FILES)
 	@rm -rf $(ISO_ROOT)
 	@mkdir -p $(ISO_ROOT)
 	@cp $(BIN) $(ISO_ROOT)/0.BIN
 	@cp $(IP_TEMPLATE) $(ISO_ROOT)/IP.BIN
+	@if [ -n "$(EXAMPLE_ISO_DIR)" ]; then \
+		cp -R "$(EXAMPLE_ISO_DIR)/." "$(ISO_ROOT)/"; \
+	fi
 	$(MKISOFS) -quiet -sysid "SEGA SATURN" -volid "LIBSATURN" \
 		-volset "LIBSATURN" -publisher "LIBSATURN" -preparer "LIBSATURN" \
 		-A "LIBSATURN" -G $(IP_TEMPLATE) -full-iso9660-filenames \

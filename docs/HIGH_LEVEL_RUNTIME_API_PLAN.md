@@ -908,6 +908,13 @@ the deterministic JSON manifest and an optional C registration unit; physical
 entries preserve their source path and remain non-resident until their storage
 backend is mounted.
 
+`examples/cd_streaming_jukebox` is the end-to-end CD asset acceptance case:
+its generated public-domain PCM tracks are staged as ISO files rather than
+linked into the executable, found through CDFS, registered as VFS backends,
+and played through non-resident `sat_music_t` reads plus cooperative prefetch.
+It exposes cache/stream diagnostics and passes the modified-Ymir BIOS harness
+both during normal playback and after an input-driven track change.
+
 This phase is critical for real source ports.
 
 ## 9.1 Generic file I/O

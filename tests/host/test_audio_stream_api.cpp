@@ -13,8 +13,15 @@ extern "C" uint8_t sat_audio_is_initialized(void) {
 
 namespace saturn::hal::scsp {
 
+static SlotConfig g_last_config{};
+static uint8_t g_configured_slot = 0xffu;
+
 bool upload(uint32_t, const void*, uint32_t) { return true; }
-bool configure_slot(uint8_t, const SlotConfig&) { return true; }
+bool configure_slot(uint8_t slot, const SlotConfig& config) {
+    g_configured_slot = slot;
+    g_last_config = config;
+    return true;
+}
 void key_on(uint8_t) {}
 void key_off(uint8_t) {}
 uint8_t encode_pan(int16_t) { return 0u; }
@@ -44,6 +51,11 @@ int main() {
     OK(sat_audio_stream_stats(streams[0], &stats) == SAT_OK);
     OK(stats.rejected_write_count == 1u && stats.maximum_fill == 4u &&
        stats.consumed_frames == 4u && stats.refill_count == 1u && stats.playing == 1u);
+    OK(saturn::hal::scsp::g_configured_slot == 28u &&
+       saturn::hal::scsp::g_last_config.sample_count == 4u &&
+       saturn::hal::scsp::g_last_config.loop == 0u &&
+       saturn::hal::scsp::g_last_config.loop_start == 0u &&
+       saturn::hal::scsp::g_last_config.loop_end == 3u);
     OK(sat_audio_stream_pause(streams[0]) == SAT_OK);
     OK(sat_audio_stream_stats(streams[0], &stats) == SAT_OK &&
        stats.paused == 1u && stats.playing == 0u);

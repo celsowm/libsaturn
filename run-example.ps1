@@ -33,7 +33,8 @@ $safeName = ($normalizedExample -replace '[\\/]', '_')
 $cuePath = Join-Path $RepoRoot ("build\examples\{0}.cue" -f $safeName)
 $isoPath = Join-Path $RepoRoot ("build\examples\{0}.iso" -f $safeName)
 
-if ($BuildFirst -or -not (Test-Path $isoPath)) {
+$requiresCue = $Emulator -eq 'mednafen' -or $Emulator -eq 'yabasanshiro'
+if ($BuildFirst -or -not (Test-Path $isoPath) -or ($requiresCue -and -not (Test-Path $cuePath))) {
     $buildScript = Join-Path $RepoRoot 'build-example.ps1'
     if (-not (Test-Path $buildScript)) {
         throw "Build script not found: $buildScript"
@@ -71,8 +72,12 @@ if (-not (Test-Path $launcher)) {
     throw "Emulator launcher not found: $launcher. Run .\scripts\download-emulators.ps1."
 }
 
-$gamePath = if (($Emulator -eq 'mednafen' -or $Emulator -eq 'yabasanshiro') -and (Test-Path $cuePath)) { $cuePath } else { $isoPath }
+$gamePath = if ($requiresCue) { $cuePath } else { $isoPath }
+if (-not (Test-Path $gamePath)) {
+    throw "Example disc image not found: $gamePath"
+}
 Write-Host "[run-example] Running $normalizedExample on $Emulator"
+Write-Host "[run-example] Disc image: $gamePath"
 if ($Emulator -eq 'mednafen') {
     Write-Host "[run-example] BIOS profile: $BiosProfile"
     & $launcher -GamePath $gamePath -Region $BiosProfile -ExtraArgs $ExtraArgs

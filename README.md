@@ -100,6 +100,7 @@ Run the host suite and the modified Ymir probe with the BIOS from `bios/`:
 make test
 .\harness\run-harness.ps1 runtime_2d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
 .\harness\run-harness.ps1 runtime_3d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
+.\harness\run-harness.ps1 cd_streaming_jukebox -Bios .\bios\saturn_bios_us.bin -Frames 300 -BootFrames 90
 ```
 
 ## Host Requirements (MSYS2 Shell)

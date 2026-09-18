@@ -83,7 +83,9 @@ void audio_stream_service(AudioStreamRegistry& registry, uint32_t frame_now) {
         config.sample_rate = slot.sample_rate;
         config.sample_count = static_cast<uint16_t>(frames);
         config.loop_start = 0u;
-        config.loop_end = 0u;
+        // LEA also terminates a non-looping waveform.  Zero here would make
+        // every streamed chunk stop after its first sample.
+        config.loop_end = static_cast<uint16_t>(frames - 1u);
         config.pitch_scale_q16 = SAT_FX16_ONE;
         config.pcm8 = slot.format == SAT_AUDIO_PCM_S8 ? 1u : 0u;
         config.loop = 0u;
