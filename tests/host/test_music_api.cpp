@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "saturn/asset.h"
 #include "saturn/audio.h"
@@ -10,6 +11,7 @@
 
 namespace {
 int16_t g_samples[4096] = {};
+bool g_physical = false;
 }
 
 extern "C" uint8_t sat_audio_is_initialized(void) {
@@ -18,21 +20,34 @@ extern "C" uint8_t sat_audio_is_initialized(void) {
 
 extern "C" sat_result_t sat_asset_open(const char*, sat_asset_t* out_asset) {
     if (out_asset == nullptr) return SAT_ERR_INVALID_ARG;
-    out_asset->slot = 0u;
+    out_asset->slot = g_physical ? 1u : 0u;
     out_asset->generation = 1u;
     return SAT_OK;
 }
 
-extern "C" sat_result_t sat_asset_info(sat_asset_t, sat_asset_info_t* out_info) {
+extern "C" sat_result_t sat_asset_info(sat_asset_t asset, sat_asset_info_t* out_info) {
     if (out_info == nullptr) return SAT_ERR_INVALID_ARG;
     *out_info = {};
     out_info->kind = SAT_ASSET_STREAM;
-    out_info->data = g_samples;
+    out_info->data = asset.slot == 1u ? nullptr : g_samples;
+    out_info->source_path = asset.slot == 1u ? "MUSIC/THEME.S16" : nullptr;
     out_info->size = sizeof(g_samples);
     out_info->sample_rate = 22050u;
     out_info->sample_count = 4096u;
     out_info->channels = 1u;
     out_info->format = SAT_AUDIO_PCM_S16;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_asset_read_at(
+    const char*, uint32_t offset, void* destination, uint32_t bytes, uint32_t* out_read) {
+    if (destination == nullptr || out_read == nullptr || offset > sizeof(g_samples)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const uint32_t available = static_cast<uint32_t>(sizeof(g_samples)) - offset;
+    const uint32_t count = bytes < available ? bytes : available;
+    std::memcpy(destination, reinterpret_cast<const uint8_t*>(g_samples) + offset, count);
+    *out_read = count;
     return SAT_OK;
 }
 
@@ -66,6 +81,12 @@ int main() {
     const sat_music_t stale = music;
     OK(sat_music_close(music) == SAT_OK);
     OK(sat_music_info(stale, &info) == SAT_ERR_INVALID_ARG);
+    g_physical = true;
+    sat_music_t physical{};
+    OK(sat_music_open(&physical, "music/cd-theme.satstream") == SAT_OK);
+    OK(sat_music_play(physical) == SAT_OK);
+    OK(sat_music_stats(physical, &stats) == SAT_OK && stats.buffered_frames == 2048u);
+    OK(sat_music_close(physical) == SAT_OK);
     std::puts("music api: OK");
     return 0;
 }

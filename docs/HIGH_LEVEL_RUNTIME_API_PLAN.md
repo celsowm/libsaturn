@@ -663,7 +663,7 @@ Phase gate: cache hits, cross-texture isolation, generation reuse, dynamic inval
 
 # Phase 6 — Input ports and event abstraction
 
-### Implementation status — 2026-09-17
+### Implementation status — 2026-09-18
 
 Implemented on `main`:
 
@@ -800,8 +800,11 @@ Implemented on `main` as the first streaming subphase:
 This subphase now includes a bounded SCSP chunk scheduler: each stream reserves
 two fixed sound-RAM pages and `sat_audio_update()` consumes/refills at most one
 chunk per stream. `examples/audio_showcase` feeds its generated BGM through
-that path while resident SFX remain independent. Long-run audible measurement,
-CD-backed refill and the higher-level `sat_music_t` contract remain open.
+that path while resident SFX remain independent. `sat_music_t` now accepts both
+embedded and non-resident logical stream assets, refilling the latter through
+`sat_asset_read_at` into a caller-owned staging buffer. Long-run audible
+measurement, asynchronous prefetch/cache policy, and hardware CD read validation
+remain open.
 
 Build a native layer above raw SCSP concepts.
 
@@ -857,7 +860,7 @@ Phase gate: PCM stream, short sound playback, stream state, ring-buffer tests, d
 
 # Phase 9 — Filesystem, logical assets, and VFS
 
-### Implementation status — 2026-09-17
+### Implementation status — 2026-09-18
 
 Implemented as the initial read-only VFS/registry subphase:
 
@@ -888,11 +891,13 @@ Implemented as the initial read-only VFS/registry subphase:
 As the first hardware transport subphase, `include/saturn/cd_block.h` and
 `src/hal/cd_block.cpp` expose synchronous 2048-byte sector reads with bounded
 timeouts, LBA-to-FAD conversion, and a `sat_cd_device_t` adapter. Disc
-authentication remains a BIOS/platform concern, and asynchronous scheduling,
-transparent CD-backed asset refill, and Ymir/hardware read validation remain
-open. The host pipeline emits both the deterministic JSON manifest and an
-optional C registration unit; physical entries preserve their source path and
-remain non-resident until a transport-backed loader is attached.
+authentication remains a BIOS/platform concern. Non-resident stream assets can
+now refill through the VFS/asset `read_at` path, including a CDFS-backed source
+when that backend is mounted; asynchronous scheduling, prefetch/cache policy,
+and Ymir/hardware CD read validation remain open. The host pipeline emits both
+the deterministic JSON manifest and an optional C registration unit; physical
+entries preserve their source path and remain non-resident until their storage
+backend is mounted.
 
 This phase is critical for real source ports.
 
