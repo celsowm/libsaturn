@@ -346,8 +346,7 @@ $(ISO): $(BIN)
 	@cp $(IP_TEMPLATE) $(ISO_ROOT)/IP.BIN
 	$(MKISOFS) -quiet -sysid "SEGA SATURN" -volid "LIBSATURN" \
 		-volset "LIBSATURN" -publisher "LIBSATURN" -preparer "LIBSATURN" \
-		-application "LIBSATURN" -abstract "LIBSATURN" -copyright "LIBSATURN" \
-		-biblio "LIBSATURN" -G $(IP_TEMPLATE) -full-iso9660-filenames \
+		-A "LIBSATURN" -G $(IP_TEMPLATE) -full-iso9660-filenames \
 		-o $@ $(ISO_ROOT)
 
 # -- CUE --------------------------------------------------------
