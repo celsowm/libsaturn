@@ -4,13 +4,18 @@
 #include "src/core/audio_stream_runtime.hpp"
 #include "src/hal/scsp.hpp"
 
+namespace saturn::core {
+void music_runtime_reset();
+}
+
 namespace {
 
 constexpr uint16_t kSoundCapacity = 24u;
 constexpr uint16_t kVoiceCapacity = 32u;
+constexpr uint16_t kResidentVoiceCapacity = kVoiceCapacity - saturn::core::kAudioStreamCapacity;
 constexpr uint16_t kAllocationCapacity = 40u;
 constexpr uint32_t kSoundRamBase = saturn::hal::scsp::kSystemReservedBytes;
-constexpr uint32_t kSoundRamCapacity = saturn::hal::scsp::kSoundRamBytes;
+constexpr uint32_t kResidentSoundRamEnd = saturn::core::kAudioStreamRamBase;
 
 struct AllocationEntry {
     uint32_t offset;
@@ -77,7 +82,7 @@ bool ram_allocate(uint32_t size, uint32_t alignment, uint16_t* out_slot, uint32_
     if (metadata_slot == kAllocationCapacity) return false;
 
     uint32_t candidate = align_up(kSoundRamBase, alignment);
-    while (candidate <= kSoundRamCapacity && size <= (kSoundRamCapacity - candidate)) {
+    while (candidate <= kResidentSoundRamEnd && size <= (kResidentSoundRamEnd - candidate)) {
         bool collision = false;
         uint32_t bump_to = candidate;
         for (uint16_t i = 0; i < kAllocationCapacity; ++i) {
@@ -151,12 +156,12 @@ void release_voice(uint16_t slot) {
 }
 
 int32_t choose_voice(uint16_t priority) {
-    for (uint16_t i = 0; i < kVoiceCapacity; ++i) {
+    for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
         if (g_voices[i].active == 0u) return static_cast<int32_t>(i);
     }
 
     int32_t best = -1;
-    for (uint16_t i = 0; i < kVoiceCapacity; ++i) {
+    for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
         const VoiceEntry& v = g_voices[i];
         if (v.looping != 0u || v.priority > priority) continue;
         if (best < 0 || v.priority < g_voices[best].priority ||
@@ -193,6 +198,7 @@ void reset_runtime_state() {
 
 extern "C" sat_result_t sat_audio_init(void) {
     if (g_initialized != 0u) return SAT_OK;
+    saturn::core::music_runtime_reset();
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     reset_runtime_state();
     if (!saturn::hal::scsp::init()) return SAT_ERR_NOT_INITIALIZED;
@@ -204,6 +210,7 @@ extern "C" sat_result_t sat_audio_shutdown(void) {
     if (g_initialized == 0u) return SAT_OK;
     saturn::hal::scsp::shutdown();
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+    saturn::core::music_runtime_reset();
     reset_runtime_state();
     g_initialized = 0u;
     return SAT_OK;
@@ -216,7 +223,8 @@ extern "C" uint8_t sat_audio_is_initialized(void) {
 extern "C" sat_result_t sat_audio_update(void) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
     const uint32_t now = sat_frame_count();
-    for (uint16_t i = 0; i < kVoiceCapacity; ++i) {
+    saturn::core::audio_stream_service(saturn::core::g_audio_streams, now);
+    for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
         VoiceEntry& voice = g_voices[i];
         if (voice.active == 0u || voice.looping != 0u) continue;
         if (static_cast<int32_t>(now - voice.end_frame) >= 0) release_voice(i);
@@ -239,17 +247,17 @@ extern "C" sat_result_t sat_audio_get_stats(sat_audio_stats_t* out_stats) {
     uint16_t sounds = 0u;
     uint16_t voices = 0u;
     for (uint16_t i = 0; i < kSoundCapacity; ++i) sounds += g_sounds[i].used != 0u ? 1u : 0u;
-    for (uint16_t i = 0; i < kVoiceCapacity; ++i) voices += g_voices[i].active != 0u ? 1u : 0u;
+    for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) voices += g_voices[i].active != 0u ? 1u : 0u;
 
     out_stats->sound_ram_used = g_sound_ram_used;
-    out_stats->sound_ram_capacity = kSoundRamCapacity - kSoundRamBase;
+    out_stats->sound_ram_capacity = kResidentSoundRamEnd - kSoundRamBase;
     out_stats->sound_ram_high_water = g_sound_ram_high_water;
     out_stats->voice_steals = g_voice_steals;
     out_stats->failed_play_requests = g_failed_play_requests;
     out_stats->resident_sounds = sounds;
     out_stats->resident_sound_capacity = kSoundCapacity;
     out_stats->active_voices = voices;
-    out_stats->voice_capacity = kVoiceCapacity;
+    out_stats->voice_capacity = kResidentVoiceCapacity;
     return SAT_OK;
 }
 

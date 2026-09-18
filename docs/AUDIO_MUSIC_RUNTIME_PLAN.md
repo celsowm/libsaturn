@@ -513,14 +513,17 @@ Avoid per-sample SH-2 mixing when the SCSP can do the job.
 
 ### Implementation status — 2026-09-17
 
-The caller-owned CPU-side ring-buffer core is implemented in LibSaturn with
-fixed stream slots, generation-safe handles, mono PCM S8/S16 validation,
-deterministic rejected writes, pause/resume/flush, and diagnostics. Host tests
-cover wraparound and public lifecycle behavior.
+The caller-owned CPU-side ring-buffer core and a bounded SCSP chunk scheduler
+are implemented in LibSaturn with fixed stream slots, generation-safe handles,
+mono PCM S8/S16 validation, deterministic rejected writes, pause/resume/flush,
+SCSP-slot/sound-RAM reservation, and consumption/refill diagnostics. Each
+stream uses two fixed 1024-frame sound-RAM pages and `sat_audio_update()` owns
+at most one refill per stream per call. The `audio_showcase` BGM now exercises
+this path while resident SFX continue to use the normal voice pool.
 
-The SCSP refill/consumption scheduler is deliberately still open. This phase
-must not be called complete until the ring is connected to measured SCSP
-playback and the long-run, starvation, and pause/resume gates below pass.
+Long-run audible measurement, starvation quality, and pause/resume acceptance
+on hardware/Ymir remain open; this phase must not be called complete until the
+gates below pass.
 
 This is the primitive for long PCM music, procedural audio, SDL queued audio, and raylib streams.
 

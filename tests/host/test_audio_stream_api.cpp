@@ -2,6 +2,8 @@
 #include <cstdlib>
 
 #include "saturn/audio.h"
+#include "src/core/audio_stream_runtime.hpp"
+#include "src/hal/scsp.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 
@@ -9,7 +11,18 @@ extern "C" uint8_t sat_audio_is_initialized(void) {
     return 1u;
 }
 
+namespace saturn::hal::scsp {
+
+bool upload(uint32_t, const void*, uint32_t) { return true; }
+bool configure_slot(uint8_t, const SlotConfig&) { return true; }
+void key_on(uint8_t) {}
+void key_off(uint8_t) {}
+uint8_t encode_pan(int16_t) { return 0u; }
+
+}  // namespace saturn::hal::scsp
+
 int main() {
+    saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     sat_audio_spec_t spec = {22050u, 4u, 1u, SAT_AUDIO_PCM_S16, 0u};
     uint8_t storage[8u] = {};
     sat_audio_stream_t streams[4] = {};
@@ -25,14 +38,21 @@ int main() {
     OK(sat_audio_stream_available(streams[0]) == 0u);
     OK(sat_audio_stream_write(streams[0], frames, 1u) == SAT_ERR_CAPACITY);
 
+    saturn::core::audio_stream_service(saturn::core::g_audio_streams, 0u);
+
     sat_audio_stream_stats_t stats{};
     OK(sat_audio_stream_stats(streams[0], &stats) == SAT_OK);
-    OK(stats.rejected_write_count == 1u && stats.maximum_fill == 4u);
+    OK(stats.rejected_write_count == 1u && stats.maximum_fill == 4u &&
+       stats.consumed_frames == 4u && stats.refill_count == 1u && stats.playing == 1u);
     OK(sat_audio_stream_pause(streams[0]) == SAT_OK);
-    OK(sat_audio_stream_stats(streams[0], &stats) == SAT_OK && stats.paused == 1u);
+    OK(sat_audio_stream_stats(streams[0], &stats) == SAT_OK &&
+       stats.paused == 1u && stats.playing == 0u);
     OK(sat_audio_stream_resume(streams[0]) == SAT_OK);
     OK(sat_audio_stream_flush(streams[0]) == SAT_OK);
     OK(sat_audio_stream_buffered(streams[0]) == 0u);
+    saturn::core::audio_stream_service(saturn::core::g_audio_streams, 100u);
+    OK(sat_audio_stream_stats(streams[0], &stats) == SAT_OK &&
+       stats.underrun_count == 1u && stats.playing == 0u);
 
     const sat_audio_stream_t stale = streams[0];
     OK(sat_audio_stream_close(streams[0]) == SAT_OK);

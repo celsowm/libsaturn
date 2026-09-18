@@ -8,6 +8,12 @@
 namespace saturn::core {
 
 constexpr uint16_t kAudioStreamCapacity = 4u;
+constexpr uint8_t kAudioStreamScspSlotBase = 28u;
+constexpr uint32_t kAudioStreamChunkFrames = 1024u;
+constexpr uint32_t kAudioStreamChunkBytes = kAudioStreamChunkFrames * 2u;
+constexpr uint32_t kAudioStreamRamBytes =
+    static_cast<uint32_t>(kAudioStreamCapacity) * 2u * kAudioStreamChunkBytes;
+constexpr uint32_t kAudioStreamRamBase = 0x80000u - kAudioStreamRamBytes;
 
 struct AudioStreamRing {
     uint8_t* buffer;
@@ -25,6 +31,16 @@ struct AudioStreamRing {
 
 struct AudioStreamSlot {
     AudioStreamRing ring;
+    uint32_t sample_rate;
+    uint32_t sound_ram_offset;
+    uint32_t playback_end_frame;
+    uint32_t consumed_frames;
+    uint32_t refill_count;
+    uint8_t format;
+    uint8_t scsp_slot;
+    uint8_t playback_buffer;
+    uint8_t hardware_playing;
+    uint8_t staging[kAudioStreamChunkBytes];
     uint16_t generation;
     uint8_t used;
     uint8_t reserved;
@@ -58,6 +74,15 @@ inline void audio_stream_registry_reset(AudioStreamRegistry& registry) {
         slot.generation = next_audio_stream_generation(slot.generation);
         slot.used = 0u;
         slot.ring = {};
+        slot.sample_rate = 0u;
+        slot.sound_ram_offset = 0u;
+        slot.playback_end_frame = 0u;
+        slot.consumed_frames = 0u;
+        slot.refill_count = 0u;
+        slot.format = 0u;
+        slot.scsp_slot = 0u;
+        slot.playback_buffer = 0u;
+        slot.hardware_playing = 0u;
     }
 }
 
@@ -132,6 +157,11 @@ inline uint32_t audio_stream_copy_out(
     audio_stream_update_fill_stats(ring);
     return frame_count;
 }
+
+/* Hardware-facing service implemented in audio_stream_api.cpp. It performs at
+ * most one bounded SCSP chunk refill per stream per call. */
+void audio_stream_service(AudioStreamRegistry& registry, uint32_t frame_now);
+void audio_stream_stop_playback(AudioStreamSlot& slot);
 
 }  // namespace saturn::core
 

@@ -12,6 +12,8 @@ extern "C" {
 #define SAT_AUDIO_PAN_LEFT   (-15)
 #define SAT_AUDIO_PAN_CENTER 0
 #define SAT_AUDIO_PAN_RIGHT  15
+#define SAT_MUSIC_CAPACITY 2u
+#define SAT_MUSIC_BUFFER_FRAMES 4096u
 
 typedef enum sat_audio_format {
     SAT_AUDIO_PCM_S8 = 0,
@@ -41,6 +43,20 @@ typedef struct sat_audio_stream {
     uint16_t generation;
 } sat_audio_stream_t;
 
+typedef struct sat_music {
+    uint16_t slot;
+    uint16_t generation;
+} sat_music_t;
+
+typedef struct sat_music_info {
+    uint32_t sample_rate;
+    uint32_t sample_count;
+    uint8_t channels;
+    uint8_t format;
+    uint8_t looping;
+    uint8_t playing;
+} sat_music_info_t;
+
 typedef struct sat_audio_stream_stats {
     uint32_t buffered_frames;
     uint32_t capacity_frames;
@@ -48,7 +64,10 @@ typedef struct sat_audio_stream_stats {
     uint32_t rejected_write_count;
     uint32_t minimum_fill;
     uint32_t maximum_fill;
+    uint32_t consumed_frames;
+    uint32_t refill_count;
     uint8_t paused;
+    uint8_t playing;
     uint8_t reserved0;
     uint16_t reserved1;
 } sat_audio_stream_stats_t;
@@ -128,6 +147,22 @@ sat_result_t sat_audio_stream_stats(
     sat_audio_stream_t stream,
     sat_audio_stream_stats_t* out_stats
 );
+
+/* Preconverted streamable PCM from the logical asset registry. Runtime
+ * decoding of OGG/MP3 is intentionally out of scope. The initial music
+ * runtime loops the complete asset and uses a fixed internal pool of two
+ * streams; use sat_music_capacity() to size content budgets. */
+sat_result_t sat_music_open(sat_music_t* out_music, const char* logical_path);
+sat_result_t sat_music_play(sat_music_t music);
+sat_result_t sat_music_pause(sat_music_t music);
+sat_result_t sat_music_resume(sat_music_t music);
+sat_result_t sat_music_stop(sat_music_t music);
+sat_result_t sat_music_update(sat_music_t music);
+sat_result_t sat_music_close(sat_music_t music);
+sat_result_t sat_music_info(sat_music_t music, sat_music_info_t* out_info);
+sat_result_t sat_music_stats(sat_music_t music, sat_audio_stream_stats_t* out_stats);
+uint8_t sat_music_is_playing(sat_music_t music);
+uint16_t sat_music_capacity(void);
 
 #ifdef __cplusplus
 }

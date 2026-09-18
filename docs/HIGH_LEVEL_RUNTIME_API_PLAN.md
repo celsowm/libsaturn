@@ -797,9 +797,11 @@ Implemented on `main` as the first streaming subphase:
   stale handles, rejected writes, and lifecycle operations;
 - SH-2 cross-build and Ymir execution of the existing `audio_showcase` example.
 
-This subphase intentionally stops at the CPU-side producer/consumer ring. The
-SCSP refill/consumption scheduler and audible streamed-music backend remain open;
-the API does not claim playback semantics until that hardware path is measured.
+This subphase now includes a bounded SCSP chunk scheduler: each stream reserves
+two fixed sound-RAM pages and `sat_audio_update()` consumes/refills at most one
+chunk per stream. `examples/audio_showcase` feeds its generated BGM through
+that path while resident SFX remain independent. Long-run audible measurement,
+CD-backed refill and the higher-level `sat_music_t` contract remain open.
 
 Build a native layer above raw SCSP concepts.
 

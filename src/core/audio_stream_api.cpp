@@ -1,6 +1,7 @@
 #include "saturn/audio.h"
 
 #include "src/core/audio_stream_runtime.hpp"
+#include "src/hal/scsp.hpp"
 
 namespace {
 
@@ -31,6 +32,76 @@ sat_result_t validate_stream_spec(
 
 }  // namespace
 
+namespace saturn::core {
+
+namespace {
+
+uint32_t stream_playback_duration(uint32_t sample_count, uint32_t sample_rate) {
+    if (sample_count == 0u || sample_rate == 0u) return 1u;
+    const uint64_t numerator = static_cast<uint64_t>(sample_count) * 60u;
+    uint32_t frames = static_cast<uint32_t>((numerator + sample_rate - 1u) / sample_rate);
+    return frames == 0u ? 1u : frames;
+}
+
+}  // namespace
+
+void audio_stream_stop_playback(AudioStreamSlot& slot) {
+    if (slot.hardware_playing != 0u) {
+        saturn::hal::scsp::key_off(slot.scsp_slot);
+        slot.hardware_playing = 0u;
+    }
+    slot.playback_end_frame = 0u;
+}
+
+void audio_stream_service(AudioStreamRegistry& registry, uint32_t frame_now) {
+    for (uint16_t i = 0u; i < kAudioStreamCapacity; ++i) {
+        AudioStreamSlot& slot = registry.slots[i];
+        if (slot.used == 0u || slot.ring.paused != 0u) continue;
+        if (slot.hardware_playing != 0u &&
+            static_cast<int32_t>(frame_now - slot.playback_end_frame) < 0) {
+            continue;
+        }
+        audio_stream_stop_playback(slot);
+        if (slot.ring.buffered_frames == 0u) {
+            ++slot.ring.underrun_count;
+            continue;
+        }
+
+        const uint32_t requested_frames = slot.ring.capacity_frames < kAudioStreamChunkFrames
+            ? slot.ring.capacity_frames : kAudioStreamChunkFrames;
+        const uint32_t frames = audio_stream_copy_out(
+            slot.ring, slot.staging, requested_frames);
+        if (frames == 0u) continue;
+        const uint32_t bytes_per_sample = slot.format == SAT_AUDIO_PCM_S16 ? 2u : 1u;
+        const uint32_t byte_count = frames * bytes_per_sample;
+        const uint32_t buffer_offset = slot.sound_ram_offset +
+            static_cast<uint32_t>(slot.playback_buffer) * kAudioStreamChunkBytes;
+        if (!saturn::hal::scsp::upload(buffer_offset, slot.staging, byte_count)) continue;
+
+        saturn::hal::scsp::SlotConfig config{};
+        config.start_address = buffer_offset;
+        config.sample_rate = slot.sample_rate;
+        config.sample_count = static_cast<uint16_t>(frames);
+        config.loop_start = 0u;
+        config.loop_end = 0u;
+        config.pitch_scale_q16 = SAT_FX16_ONE;
+        config.pcm8 = slot.format == SAT_AUDIO_PCM_S8 ? 1u : 0u;
+        config.loop = 0u;
+        config.total_level = 0u;
+        config.direct_level = 7u;
+        config.pan = saturn::hal::scsp::encode_pan(SAT_AUDIO_PAN_CENTER);
+        if (!saturn::hal::scsp::configure_slot(slot.scsp_slot, config)) continue;
+        saturn::hal::scsp::key_on(slot.scsp_slot);
+        slot.hardware_playing = 1u;
+        slot.playback_end_frame = frame_now + stream_playback_duration(frames, slot.sample_rate);
+        slot.playback_buffer ^= 1u;
+        slot.consumed_frames += frames;
+        ++slot.refill_count;
+    }
+}
+
+}  // namespace saturn::core
+
 extern "C" sat_result_t sat_audio_stream_open(
     sat_audio_stream_t* out_stream,
     const sat_audio_spec_t* spec,
@@ -53,6 +124,16 @@ extern "C" sat_result_t sat_audio_stream_open(
         slot.ring.capacity_frames = spec->buffer_frames;
         slot.ring.frame_bytes = frame_bytes;
         audio_stream_ring_reset(slot.ring);
+        slot.sample_rate = spec->sample_rate;
+        slot.sound_ram_offset = kAudioStreamRamBase +
+            static_cast<uint32_t>(i) * 2u * kAudioStreamChunkBytes;
+        slot.playback_end_frame = 0u;
+        slot.consumed_frames = 0u;
+        slot.refill_count = 0u;
+        slot.format = spec->format;
+        slot.scsp_slot = static_cast<uint8_t>(kAudioStreamScspSlotBase + i);
+        slot.playback_buffer = 0u;
+        slot.hardware_playing = 0u;
         out_stream->slot = i;
         out_stream->generation = slot.generation;
         return SAT_OK;
@@ -97,6 +178,7 @@ extern "C" sat_result_t sat_audio_stream_pause(sat_audio_stream_t stream) {
     if (sat_audio_is_initialized() == 0u) return SAT_ERR_NOT_INITIALIZED;
     AudioStreamSlot* slot = audio_stream_resolve(g_audio_streams, stream);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
+    audio_stream_stop_playback(*slot);
     slot->ring.paused = 1u;
     return SAT_OK;
 }
@@ -116,6 +198,7 @@ extern "C" sat_result_t sat_audio_stream_flush(sat_audio_stream_t stream) {
     AudioStreamSlot* slot = audio_stream_resolve(g_audio_streams, stream);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
     AudioStreamRing& ring = slot->ring;
+    audio_stream_stop_playback(*slot);
     ring.read_frame = ring.write_frame;
     ring.buffered_frames = 0u;
     audio_stream_update_fill_stats(ring);
@@ -127,6 +210,7 @@ extern "C" sat_result_t sat_audio_stream_close(sat_audio_stream_t stream) {
     if (sat_audio_is_initialized() == 0u) return SAT_ERR_NOT_INITIALIZED;
     AudioStreamSlot* slot = audio_stream_resolve(g_audio_streams, stream);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
+    audio_stream_stop_playback(*slot);
     slot->used = 0u;
     slot->generation = next_audio_stream_generation(slot->generation);
     slot->ring = {};
@@ -149,7 +233,10 @@ extern "C" sat_result_t sat_audio_stream_stats(
     out_stats->rejected_write_count = ring.rejected_write_count;
     out_stats->minimum_fill = ring.minimum_fill;
     out_stats->maximum_fill = ring.maximum_fill;
+    out_stats->consumed_frames = slot->consumed_frames;
+    out_stats->refill_count = slot->refill_count;
     out_stats->paused = ring.paused;
+    out_stats->playing = slot->hardware_playing;
     out_stats->reserved0 = 0u;
     out_stats->reserved1 = 0u;
     return SAT_OK;
