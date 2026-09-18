@@ -45,6 +45,8 @@ typedef struct sat_video_config {
 /* Core lifecycle                                                      */
 /* ------------------------------------------------------------------ */
 sat_result_t sat_init(const sat_video_config_t* config);
+/* Idempotently invalidates runtime handles and shuts down optional audio
+ * state before returning. Explicit subsystem shutdown calls remain valid. */
 sat_result_t sat_shutdown(void);
 
 /* ------------------------------------------------------------------ */

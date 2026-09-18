@@ -1119,6 +1119,9 @@ lifetime, and capacity rules are recorded in
 recorded in `docs/SDL2_COMPATIBILITY_LAYER_PLAN.md` and
 `docs/RAYLIB_COMPATIBILITY_LAYER_PLAN.md`; both remain design-only documents
 until a concrete port justifies adapter implementation.
+`sat_shutdown()` now also tears down optional audio state and invalidates
+texture/palette registries, so repeated or explicit subsystem shutdowns do not
+leave stale runtime resources behind.
 
 Review naming, ownership, and layering across public headers.
 

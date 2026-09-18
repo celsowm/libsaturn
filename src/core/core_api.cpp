@@ -1,4 +1,5 @@
 #include "saturn/core.h"
+#include "saturn/audio.h"
 
 #include "src/core/internal.hpp"
 #include "src/core/input_runtime.hpp"
@@ -51,8 +52,14 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
 
 extern "C" sat_result_t sat_shutdown(void) {
     using namespace saturn::core;
+    /* Audio is an optional subsystem, but shutdown owns the complete runtime
+     * lifecycle when it is active. sat_audio_shutdown() is idempotent, so
+     * applications that already shut audio down explicitly remain valid. */
+    SAT_TRY(sat_audio_shutdown());
     input_runtime_reset(g_input_runtime);
     file_asset_runtime_reset(g_file_asset_runtime);
+    palette_registry_reset(g_palette_registry);
+    texture_registry_reset(g_texture_registry);
     render2d_runtime_reset(g_render2d_runtime);
     g_state.initialized = false;
     return SAT_OK;

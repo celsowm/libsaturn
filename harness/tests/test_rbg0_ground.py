@@ -72,6 +72,12 @@ class Rbg0GroundProbeTests(unittest.TestCase):
                 f"Saturn BIOS/IPL image; see harness/README.md)."
             )
         cls.probe = load_probe(path)
+        iso = cls.probe.get("iso_path", "").replace("\\", "/")
+        if not iso.endswith("/vdp2_rbg0_ground.iso"):
+            raise unittest.SkipTest(
+                f"probe JSON is for {iso!r}, not vdp2_rbg0_ground - re-run "
+                f"run-harness.ps1 vdp2_rbg0_ground first."
+            )
 
         # Enforced here, not as an ordinary test method, so it can never be
         # skipped by test selection and always fails first: this harness
@@ -128,19 +134,23 @@ class Rbg0GroundProbeTests(unittest.TestCase):
 
     def test_ramctl_bank_assignment(self):
         """A0 = bitmap/character data (bits 1..0 = 11), A1 = coefficient table
-        (bits 3..2 = 01)."""
-        self.assertEqual(self.probe["vdp2"]["ramctl"], 0x1107)
+        (bits 3..2 = 01). NBG0 keeps its B1 access bits when the sky layer is
+        configured alongside RBG0, so unrelated RAMCTL fields are preserved."""
+        ramctl = self.probe["vdp2"]["ramctl"]
+        self.assertEqual(ramctl & 0x000F, 0x0007)
+        self.assertEqual(ramctl & 0x1100, 0x1100)
 
     def test_ktctl_coefficient_enable(self):
         """A enable, 2-word, KMD=0 (coefficient drives both kx and ky)."""
         self.assertEqual(self.probe["vdp2"]["ktctl"], 0x0001)
 
     def test_bgon_r0on_and_r0tpon(self):
-        """bit4 = R0ON (RBG0 enabled), bit12 = R0TPON (palette index 0 is
-        real texel data, not the transparent code)."""
+        """bit4 = R0ON (RBG0 enabled), bit12 = R0TPON.  R0TPON is clear
+        because the coefficient table marks the sky rows with transparent
+        code and those rows must reveal NBG0."""
         bgon = self.probe["vdp2"]["bgon"]
         self.assertTrue(bgon & (1 << 4), f"BGON=0x{bgon:04X}: R0ON not set")
-        self.assertTrue(bgon & (1 << 12), f"BGON=0x{bgon:04X}: R0TPON not set")
+        self.assertFalse(bgon & (1 << 12), f"BGON=0x{bgon:04X}: R0TPON unexpectedly set")
 
     def test_chctlb_bitmap_mode(self):
         """256-color, 512x256 bitmap, bitmap mode on."""
