@@ -41,22 +41,40 @@ int main() {
     sat_pool_slot_t slots[3]{};
     sat_pool_t pool{};
     OK(saturn::core::memory_logic::pool_init(&pool, pool_bytes, sizeof(pool_bytes), sizeof(Item), 8, 3, slots) == SAT_OK);
+    OK(pool.free_head == 0u);
+    OK(slots[0].next_free == 1u && slots[1].next_free == 2u);
+    OK(slots[2].next_free == saturn::core::memory_logic::kPoolNoFree);
+
     sat_pool_t too_small{};
     OK(saturn::core::memory_logic::pool_init(&too_small, pool_bytes, 8, sizeof(Item), 8, 3, slots) == SAT_ERR_CAPACITY);
 
     sat_pool_handle_t h[3]{};
     void* ptr = nullptr;
-    for (auto& handle : h) {
-        OK(saturn::core::memory_logic::pool_acquire(&pool, &handle, &ptr) == SAT_OK);
+    for (uint16_t i = 0u; i < 3u; ++i) {
+        OK(saturn::core::memory_logic::pool_acquire(&pool, &h[i], &ptr) == SAT_OK);
         OK(ptr != nullptr);
+        OK(h[i].index == i);
     }
+    OK(pool.free_head == saturn::core::memory_logic::kPoolNoFree);
+
     sat_pool_handle_t extra{};
     OK(saturn::core::memory_logic::pool_acquire(&pool, &extra, &ptr) == SAT_ERR_CAPACITY);
+    OK(ptr == nullptr);
+
     const sat_pool_handle_t stale = h[1];
     OK(saturn::core::memory_logic::pool_release(&pool, h[1]) == SAT_OK);
+    OK(pool.free_head == stale.index);
     OK(saturn::core::memory_logic::pool_get(&pool, stale) == nullptr);
     OK(saturn::core::memory_logic::pool_acquire(&pool, &h[1], &ptr) == SAT_OK);
+    OK(h[1].index == stale.index);
     OK(h[1].generation != stale.generation);
+
+    OK(saturn::core::memory_logic::pool_release(&pool, h[0]) == SAT_OK);
+    OK(saturn::core::memory_logic::pool_release(&pool, h[2]) == SAT_OK);
+    OK(pool.free_head == h[2].index);
+    sat_pool_handle_t recycled{};
+    OK(saturn::core::memory_logic::pool_acquire(&pool, &recycled, &ptr) == SAT_OK);
+    OK(recycled.index == h[2].index);
     OK(pool.high_water == 3u);
 
     using saturn::core::time_logic::elapsed_ms;

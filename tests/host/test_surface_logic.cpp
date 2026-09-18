@@ -101,6 +101,16 @@ int main() {
     OK(convert(&index_dst, &index_src) == SAT_OK);
     OK(index_dst_bytes[0] == 2u && index_dst_bytes[1] == 3u && index_dst_bytes[2] == 1u && index_dst_bytes[3] == 2u);
 
+    /* Unused source-palette colors must not make an indexed blit fail. */
+    uint8_t sparse_src_bytes[2] = {1, 1};
+    uint8_t sparse_dst_bytes[2] = {};
+    const uint16_t sparse_dst_pal[2] = {pal[0], pal[1]};
+    sat_surface_t sparse_src{}, sparse_dst{};
+    OK(init(&sparse_src, sparse_src_bytes, 2, 1, 2, SAT_PIXEL_INDEX8, pal, 4) == SAT_OK);
+    OK(init(&sparse_dst, sparse_dst_bytes, 2, 1, 2, SAT_PIXEL_INDEX8, sparse_dst_pal, 2) == SAT_OK);
+    OK(convert(&sparse_dst, &sparse_src) == SAT_OK);
+    OK(sparse_dst_bytes[0] == 1u && sparse_dst_bytes[1] == 1u);
+
     uint8_t overlap_bytes[6] = {0, 1, 2, 3, 1, 2};
     sat_surface_t overlap{};
     OK(init(&overlap, overlap_bytes, 6, 1, 6, SAT_PIXEL_INDEX8, pal, 4) == SAT_OK);

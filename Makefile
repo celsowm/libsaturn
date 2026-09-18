@@ -395,6 +395,7 @@ HOST_TEST_EXTRA_test_collide2d_logic := src/core/collide2d_api.cpp
 HOST_TEST_EXTRA_test_spatial_logic := src/core/spatial_api.cpp src/core/collide2d_api.cpp
 HOST_TEST_EXTRA_test_physics_logic := src/core/collide2d_api.cpp src/core/grid_api.cpp
 HOST_TEST_EXTRA_test_collide3d_logic :=
+HOST_TEST_EXTRA_test_spatial3_api := src/core/spatial3_api.cpp src/core/collide3d_api.cpp
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp
 	@mkdir -p $(dir $@)

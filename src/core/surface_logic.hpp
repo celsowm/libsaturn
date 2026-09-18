@@ -275,16 +275,43 @@ inline sat_result_t fill(sat_surface_t* surface, const sat_rect_t* rect, sat_col
     if (!clip_rect_to_surface(surface, rect, clipped)) {
         return SAT_OK;
     }
-    for (int32_t y = 0; y < clipped.height; ++y) {
-        for (int32_t x = 0; x < clipped.width; ++x) {
-            const sat_result_t result = set_pixel(
-                surface,
-                static_cast<uint16_t>(clipped.x + x),
-                static_cast<uint16_t>(clipped.y + y),
-                color);
-            if (result != SAT_OK) {
-                return result;
+
+    if (surface->format == SAT_PIXEL_INDEX8) {
+        uint8_t index = 0u;
+        const sat_result_t result = palette_index_for_color(surface, color, &index);
+        if (result != SAT_OK) return result;
+        for (int32_t y = 0; y < clipped.height; ++y) {
+            uint8_t* row = pixel_ptr(surface, static_cast<uint16_t>(clipped.x),
+                                     static_cast<uint16_t>(clipped.y + y));
+            for (int32_t x = 0; x < clipped.width; ++x) row[x] = index;
+        }
+        return SAT_OK;
+    }
+
+    if (surface->format == SAT_PIXEL_RGBA8888) {
+        for (int32_t y = 0; y < clipped.height; ++y) {
+            uint8_t* row = pixel_ptr(surface, static_cast<uint16_t>(clipped.x),
+                                     static_cast<uint16_t>(clipped.y + y));
+            for (int32_t x = 0; x < clipped.width; ++x) {
+                uint8_t* p = row + static_cast<size_t>(x) * 4u;
+                p[0] = color.r; p[1] = color.g; p[2] = color.b; p[3] = color.a;
             }
+        }
+        return SAT_OK;
+    }
+
+    uint16_t word = 0u;
+    switch (surface->format) {
+        case SAT_PIXEL_RGB555: word = encode_rgb555(color, false); break;
+        case SAT_PIXEL_ARGB1555: word = encode_rgb555(color, true); break;
+        case SAT_PIXEL_RGB565: word = encode_rgb565(color); break;
+        default: return SAT_ERR_UNSUPPORTED;
+    }
+    for (int32_t y = 0; y < clipped.height; ++y) {
+        uint8_t* row = pixel_ptr(surface, static_cast<uint16_t>(clipped.x),
+                                 static_cast<uint16_t>(clipped.y + y));
+        for (int32_t x = 0; x < clipped.width; ++x) {
+            store_u16(row + static_cast<size_t>(x) * 2u, word);
         }
     }
     return SAT_OK;
@@ -404,6 +431,33 @@ inline sat_result_t blit(
     }
 
     if (overlap) return SAT_ERR_UNSUPPORTED;
+
+    if (destination->format == SAT_PIXEL_INDEX8 && source->format == SAT_PIXEL_INDEX8) {
+        uint8_t remap[256]{};
+        uint8_t mapped[32]{};
+        for (int32_t y = 0; y < region.height; ++y) {
+            const uint8_t* src = pixel_ptr(source, static_cast<uint16_t>(region.sx),
+                                           static_cast<uint16_t>(region.sy + y));
+            uint8_t* dst = pixel_ptr(destination, static_cast<uint16_t>(region.dx),
+                                     static_cast<uint16_t>(region.dy + y));
+            for (int32_t x = 0; x < region.width; ++x) {
+                const uint8_t source_index = src[x];
+                if (source_index >= source->palette_count) return SAT_ERR_INVALID_ARG;
+                const uint8_t bit = static_cast<uint8_t>(1u << (source_index & 7u));
+                uint8_t& flags = mapped[source_index >> 3u];
+                if ((flags & bit) == 0u) {
+                    const sat_color_t color = decode_rgb555(source->palette_rgb555[source_index]);
+                    const sat_result_t result =
+                        palette_index_for_color(destination, color, &remap[source_index]);
+                    if (result != SAT_OK) return result;
+                    flags = static_cast<uint8_t>(flags | bit);
+                }
+                dst[x] = remap[source_index];
+            }
+        }
+        return SAT_OK;
+    }
+
     for (int32_t y = 0; y < region.height; ++y) {
         for (int32_t x = 0; x < region.width; ++x) {
             sat_color_t color{};

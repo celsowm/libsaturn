@@ -51,6 +51,18 @@ int main() {
     texture_invalidate_regions(registry, handles[0]);
     OK(texture_region_used(registry) == 0u);
     OK(texture_resolve(registry, handles[0])->region_count == 0u);
+    OK(texture_find_region(registry, handles[0], rect) == nullptr);
+
+    /* Hash removal must permit immediate record reuse without leaving a stale
+     * bucket link (which would otherwise create a self-cycle on reinsert). */
+    OK(texture_reserve_region(registry, handles[0], rect, &region) == SAT_OK);
+    OK(texture_find_region(registry, handles[0], rect) == region);
+    texture_cancel_region(registry, handles[0], region);
+    OK(texture_find_region(registry, handles[0], rect) == nullptr);
+    OK(texture_resolve(registry, handles[0])->region_count == 0u);
+    OK(texture_reserve_region(registry, handles[0], rect, &region) == SAT_OK);
+    OK(texture_find_region(registry, handles[0], rect) == region);
+    texture_invalidate_regions(registry, handles[0]);
 
     const sat_texture_t before_reset = handles[1];
     texture_registry_reset(registry);

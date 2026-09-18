@@ -45,8 +45,9 @@ inline void for_cells(const sat_spatial_t& s, const sat_box2_t& b, Fn fn) {
 }
 
 inline void clear(sat_spatial_t& s) {
-    const uint32_t n = static_cast<uint32_t>(s.cols) * s.rows;
-    for (uint32_t i = 0; i < n; ++i) s.heads[i] = SAT_SPATIAL_EMPTY;
+    for (uint16_t i = 0; i < s.entry_count; ++i) {
+        s.heads[s.entries[i].cell] = SAT_SPATIAL_EMPTY;
+    }
     s.entry_count = 0;
 }
 
@@ -57,10 +58,12 @@ inline sat_result_t insert(sat_spatial_t& s, uint16_t id, const sat_box2_t& box)
     if (s.entry_count > s.entry_cap || need > static_cast<uint32_t>(s.entry_cap - s.entry_count)) return SAT_ERR_CAPACITY;
     s.items[id] = box;
     for_cells(s, box, [&](int x, int y) {
+        const uint32_t cell = index(s, x, y);
         sat_spatial_entry_t& e = s.entries[s.entry_count];
         e.id = id;
-        e.next = s.heads[index(s, x, y)];
-        s.heads[index(s, x, y)] = s.entry_count++;
+        e.next = s.heads[cell];
+        e.cell = cell;
+        s.heads[cell] = s.entry_count++;
     });
     return SAT_OK;
 }
@@ -89,9 +92,10 @@ inline sat_result_t query(sat_spatial_t& s, const sat_box2_t& box, uint16_t* out
 inline sat_result_t pairs(sat_spatial_t& s, sat_spatial_pair_t* out, uint16_t cap, uint16_t& count) {
     count = 0;
     sat_result_t result = SAT_OK;
-    const uint32_t cell_count = static_cast<uint32_t>(s.cols) * s.rows;
-    for (uint32_t ci = 0; ci < cell_count; ++ci) {
-        const uint16_t first = s.heads[ci];
+    for (uint16_t head_entry = 0; head_entry < s.entry_count; ++head_entry) {
+        const uint32_t ci = s.entries[head_entry].cell;
+        if (s.heads[ci] != head_entry) continue;
+        const uint16_t first = head_entry;
         for (uint16_t ea = first; ea != SAT_SPATIAL_EMPTY; ea = s.entries[ea].next) {
             const uint16_t a = s.entries[ea].id;
             for (uint16_t eb = s.entries[ea].next; eb != SAT_SPATIAL_EMPTY; eb = s.entries[eb].next) {
@@ -104,7 +108,7 @@ inline sat_result_t pairs(sat_spatial_t& s, sat_spatial_pair_t* out, uint16_t ca
                 bounds(ba, ax, ay, ax1, ay1); bounds(bb, bx, by, bx1, by1);
                 const int anchor_x = cell_x(s, ax > bx ? ax : bx);
                 const int anchor_y = cell_y(s, ay > by ? ay : by);
-                if (anchor_x * 1 + anchor_y * s.cols != static_cast<int>(ci)) continue;
+                if (index(s, anchor_x, anchor_y) != ci) continue;
                 const uint16_t lo = a < b ? a : b;
                 const uint16_t hi = a < b ? b : a;
                 if (count >= cap) { result = SAT_ERR_CAPACITY; continue; }
