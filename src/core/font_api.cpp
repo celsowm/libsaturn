@@ -317,15 +317,32 @@ extern "C" sat_result_t sat_font_draw_text_line_indexed8(
         return SAT_ERR_INVALID_ARG;
     }
 
+    constexpr uint16_t kMissingGlyph = 0xFFFFu;
+    constexpr uint16_t kLinearGlyphThreshold = 8u;
+    uint16_t glyph_lookup[256];
+    const bool use_lookup = glyph_count > kLinearGlyphThreshold;
+    if (use_lookup) {
+        for (uint16_t i = 0u; i < 256u; ++i) glyph_lookup[i] = kMissingGlyph;
+        for (uint16_t i = 0u; i < glyph_count; ++i) {
+            const uint8_t code = static_cast<uint8_t>(glyph_chars[i]);
+            if (glyph_lookup[code] == kMissingGlyph) glyph_lookup[code] = i;
+        }
+    }
+
     int pen_x = x;
     for (const char* p = text; *p != '\0'; ++p) {
         uint16_t glyph_index = 0u;
         const char ch = *p;
 
-        for (uint16_t i = 0u; i < glyph_count; ++i) {
-            if (glyph_chars[i] == ch) {
-                glyph_index = i;
-                break;
+        if (use_lookup) {
+            const uint16_t found = glyph_lookup[static_cast<uint8_t>(ch)];
+            if (found != kMissingGlyph) glyph_index = found;
+        } else {
+            for (uint16_t i = 0u; i < glyph_count; ++i) {
+                if (glyph_chars[i] == ch) {
+                    glyph_index = i;
+                    break;
+                }
             }
         }
 

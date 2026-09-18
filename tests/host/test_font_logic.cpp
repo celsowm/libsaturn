@@ -23,7 +23,12 @@ extern "C" sat_result_t sat_tex_upload_indexed8(
     return SAT_OK;
 }
 
-extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t*) {
+static const sat_vdp1_texture_t* g_last_draw_texture = nullptr;
+static uint32_t g_draw_count = 0u;
+
+extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd) {
+    g_last_draw_texture = cmd != nullptr ? cmd->texture : nullptr;
+    ++g_draw_count;
     return SAT_OK;
 }
 
@@ -127,6 +132,22 @@ TEST(measure_treats_zero_spacing_as_glyph_width) {
     ASSERT_EQ(measure_ascii_text_indexed8_impl("A", 10), 8);
 }
 
+TEST(generic_text_uses_first_matching_glyph_and_fallback) {
+    sat_vdp1_texture_t glyphs[9]{};
+    for (uint16_t i = 0u; i < 9u; ++i) glyphs[i].width = static_cast<uint16_t>(8u + i);
+    const char chars[9] = {'A','B','C','D','E','F','G','A','I'};
+
+    g_last_draw_texture = nullptr;
+    g_draw_count = 0u;
+    ASSERT_EQ(sat_font_draw_text_line_indexed8(glyphs, chars, 9u, "A", 0, 0, 0, 0, 0), SAT_OK);
+    ASSERT_EQ(g_last_draw_texture, &glyphs[0]);
+    ASSERT_EQ(g_draw_count, 1u);
+
+    g_last_draw_texture = nullptr;
+    ASSERT_EQ(sat_font_draw_text_line_indexed8(glyphs, chars, 9u, "Z", 0, 0, 0, 0, 0), SAT_OK);
+    ASSERT_EQ(g_last_draw_texture, &glyphs[0]);
+}
+
 TEST(measure_scaled_treats_zero_spacing_as_glyph_width) {
     using namespace saturn::core;
     ASSERT_EQ(measure_ascii_text_scaled_indexed8_impl("AB", 0, 2), 32);
@@ -146,8 +167,9 @@ int main() {
     pack_glyph_multi_layout();
     pack_glyph_invalid_args();
     measure_treats_zero_spacing_as_glyph_width();
+    generic_text_uses_first_matching_glyph_and_fallback();
     measure_scaled_treats_zero_spacing_as_glyph_width();
 
-    printf("PASS: test_font_logic.cpp (%d tests)\n", 12);
+    printf("PASS: test_font_logic.cpp (%d tests)\n", 13);
     return 0;
 }
