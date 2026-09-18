@@ -2,6 +2,7 @@
 
 #include "saturn/video.h"
 #include "src/core/audio_stream_runtime.hpp"
+#include "src/core/runtime_state.hpp"
 #include "src/hal/scsp.hpp"
 
 namespace saturn::core {
@@ -223,7 +224,8 @@ extern "C" uint8_t sat_audio_is_initialized(void) {
 extern "C" sat_result_t sat_audio_update(void) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
     const uint32_t now = sat_frame_count();
-    saturn::core::audio_stream_service(saturn::core::g_audio_streams, now);
+    const uint32_t display_rate = saturn::core::g_state.config.ntsc != 0u ? 60u : 50u;
+    saturn::core::audio_stream_service(saturn::core::g_audio_streams, now, display_rate);
     for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
         VoiceEntry& voice = g_voices[i];
         if (voice.active == 0u || voice.looping != 0u) continue;
