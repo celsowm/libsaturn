@@ -34,12 +34,18 @@ struct AudioStreamSlot {
     uint32_t sample_rate;
     uint32_t sound_ram_offset;
     uint32_t playback_end_frame;
+    uint32_t playback_start_frame;
+    uint32_t playback_chunk_frames;
+    uint32_t serviced_chunks;
     uint32_t consumed_frames;
     uint32_t refill_count;
     uint8_t format;
     uint8_t scsp_slot;
     uint8_t playback_buffer;
     uint8_t hardware_playing;
+    uint8_t seamless_loop;
+    uint8_t reserved0;
+    uint16_t reserved1;
     uint8_t staging[kAudioStreamChunkBytes];
     uint16_t generation;
     uint8_t used;
@@ -77,12 +83,18 @@ inline void audio_stream_registry_reset(AudioStreamRegistry& registry) {
         slot.sample_rate = 0u;
         slot.sound_ram_offset = 0u;
         slot.playback_end_frame = 0u;
+        slot.playback_start_frame = 0u;
+        slot.playback_chunk_frames = 0u;
+        slot.serviced_chunks = 0u;
         slot.consumed_frames = 0u;
         slot.refill_count = 0u;
         slot.format = 0u;
         slot.scsp_slot = 0u;
         slot.playback_buffer = 0u;
         slot.hardware_playing = 0u;
+        slot.seamless_loop = 0u;
+        slot.reserved0 = 0u;
+        slot.reserved1 = 0u;
     }
 }
 
@@ -158,9 +170,15 @@ inline uint32_t audio_stream_copy_out(
     return frame_count;
 }
 
-/* Hardware-facing service implemented in audio_stream_api.cpp. It performs at
- * most one bounded SCSP chunk refill per stream per call. */
-void audio_stream_service(AudioStreamRegistry& registry, uint32_t frame_now);
+/* Hardware-facing service implemented in audio_stream_api.cpp. Large streams
+ * keep one SCSP slot running over a double buffer and refill only the half that
+ * has just finished; small caller buffers retain the bounded one-shot fallback.
+ * At most one steady-state refill is performed per stream per call. */
+void audio_stream_service(
+    AudioStreamRegistry& registry,
+    uint32_t frame_now,
+    uint32_t display_rate = 60u
+);
 void audio_stream_stop_playback(AudioStreamSlot& slot);
 
 }  // namespace saturn::core
