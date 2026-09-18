@@ -2,8 +2,8 @@
 
 This document is a snapshot of the hardware and runtime coverage currently exposed by LibSaturn.
 
-**Snapshot date:** 2026-09-16  
-**Baseline:** `main` at `fd5422403154c4637dfd1163037bfaf692d4a99d`
+**Snapshot date:** 2026-09-17  
+**Baseline:** `main` at `a14f318`
 
 The goal is not to measure a percentage of the Sega Saturn hardware. Instead, this document answers a more useful question:
 
@@ -38,7 +38,7 @@ LibSaturn is already strongest in the areas needed to render and run small-to-me
 
 The largest Saturn hardware areas still missing as first-class LibSaturn subsystems are:
 
-- runtime CD Block access, CDFS/VFS and streaming;
+- runtime CD Block access, ISO9660/CDFS and end-to-end streaming;
 - Backup RAM/save support;
 - RAM cartridge support and generic cartridge/A-Bus access;
 - 3D Control Pad analog input and the broader Saturn peripheral family;
@@ -115,13 +115,13 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | SCSP synthesis / envelopes / LFO | **NOT EXPOSED** | Public audio API is centered on PCM voices. | Hardware envelope generators, LFO/modulation and richer slot synthesis. | `include/saturn/audio.h` |
 | 68000 sound CPU | **NOT EXPOSED** | Sound CPU can be switched by the SMPC HAL, but there is no resident sound-driver framework. | 68k driver loading, command queues, independent music/SFX scheduling and streaming coordination. | `src/hal/smpc.*` |
 | CD Block runtime I/O | **NOT EXPOSED** | ISO images are produced by the build, but no first-class runtime CD Block API is exposed. | Sector reads, command layer, asynchronous I/O, seek/read scheduling and error handling. | Build pipeline exists; no public CD runtime header. |
-| CDFS / VFS | **NOT EXPOSED** | Assets are primarily converted/baked for inclusion at build time. | ISO9660/CDFS reader, logical paths, VFS abstraction and transparent asset lookup. | No public filesystem/VFS module. |
-| Asset streaming | **NOT EXPOSED** | Runtime asset use is currently oriented around resident/embedded converted data. | Texture/model/map/audio streaming, prefetch and cache policy. | No public streaming module. |
+| CDFS / VFS | **PARTIAL** | Read-only logical paths, bounded handles, caller-backed blobs, and caller-owned `read_at` backends are public; normalized asset lookup is available. | ISO9660/CDFS reader, real CD transport, asynchronous scheduling and transparent CD-backed registration. | `include/saturn/file.h`, `include/saturn/asset.h`, `src/core/file_api.cpp`, `tools/generate_asset_manifest.py` |
+| Asset streaming | **PARTIAL** | File reads support partial backend transfers and typed resident asset loading; no whole-file allocation is required by `sat_file_*`. | Texture/model/map/audio streaming, prefetch, cache policy and a CD-backed service scheduler. | `include/saturn/file.h`, `include/saturn/asset.h` |
 | Backup RAM / save data | **NOT EXPOSED** | No first-class save/Backup RAM API found in the current public surface. | File-like save records, directory/enumeration, free-space checks, checksums/versioning. | No public save/backup module. |
 | RAM cartridge | **NOT EXPOSED** | No first-class RAM-cart allocator/detection API found. | Cartridge detection, capacity probing, allocation and optional asset/cache use. | No public cartridge RAM module. |
 | Generic cartridge / A-Bus | **NOT EXPOSED** | No general A-Bus/cartridge framework. | ROM carts, expansion hardware, bus probing and safe mapped access abstractions. | No corresponding public module. |
 | Slave SH-2 | **NOT EXPOSED** | No public second-CPU scheduler/job abstraction. | Boot/synchronization, mailbox, queues, worker jobs and cache-safe ownership rules. | No public dual-SH2 module. |
-| Runtime filesystem-independent asset API | **NOT EXPOSED** | Converters exist, but there is no unified logical asset handle independent of storage backend. | One asset API backed by embedded data, CD, RAM cart or future storage. | Host tools exist; runtime storage abstraction does not. |
+| Runtime filesystem-independent asset API | **PARTIAL** | Bounded logical asset handles, metadata, raw-data access and typed texture/font/sound loaders are independent of the current storage representation. | Generated compiled registration and concrete CD/RAM-cart backends. | `include/saturn/asset.h`, `src/core/asset_api.cpp`, `tools/generate_asset_manifest.py` |
 | Formatting / fonts / utility drawing | **PARTIAL** | Formatting, font and grid helpers are public. | Broader UI/text layout and asset-backed fonts if desired. | `include/saturn/fmt.h`, `include/saturn/font.h`, `include/saturn/grid.h` |
 | NetLink / modem / communications | **NOT EXPOSED** | No runtime communication subsystem. | NetLink/modem/serial-style communication abstractions. | No corresponding public module. |
 | MPEG Card | **NOT EXPOSED** | No runtime MPEG-card subsystem. | Detection, decode/control APIs and optional video playback pipeline. | No corresponding public module. |
@@ -247,6 +247,10 @@ A generic device API here would also make future SDL/raylib compatibility layers
 Current status: **NOT EXPOSED**.
 
 LibSaturn can build an ISO, but building an ISO and using the Saturn CD Block at runtime are separate capabilities.
+
+The higher-level file layer now has a storage-neutral `read_at` callback, so a
+future CD Block implementation can be attached without changing `sat_file_*`
+or `sat_asset_*`. This callback is not itself a CD driver or an ISO9660 reader.
 
 A complete storage path could grow in layers:
 
