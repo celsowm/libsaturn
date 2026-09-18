@@ -36,9 +36,13 @@ namespace saturn::core {
 
 namespace {
 
-uint32_t stream_playback_duration(uint32_t sample_count, uint32_t sample_rate) {
-    if (sample_count == 0u || sample_rate == 0u) return 1u;
-    const uint64_t numerator = static_cast<uint64_t>(sample_count) * 60u;
+uint32_t stream_playback_duration(
+    uint32_t sample_count,
+    uint32_t sample_rate,
+    uint32_t display_rate
+) {
+    if (sample_count == 0u || sample_rate == 0u || display_rate == 0u) return 1u;
+    const uint64_t numerator = static_cast<uint64_t>(sample_count) * display_rate;
     uint32_t frames = static_cast<uint32_t>((numerator + sample_rate - 1u) / sample_rate);
     return frames == 0u ? 1u : frames;
 }
@@ -60,7 +64,7 @@ void audio_stream_stop_playback(AudioStreamSlot& slot) {
 namespace {
 
 bool stream_can_loop_seamlessly(const AudioStreamSlot& slot, uint32_t display_rate) {
-    if (display_rate == 0u) return false;
+    if (display_rate == 0u || slot.format != SAT_AUDIO_PCM_S16) return false;
     if (slot.ring.capacity_frames < 2u * kAudioStreamChunkFrames) return false;
     // The cooperative service runs once per display frame. Keep each half
     // longer than one display frame so the half that just became inactive is
@@ -199,7 +203,8 @@ void audio_stream_service(
         saturn::hal::scsp::key_on(slot.scsp_slot);
         slot.hardware_playing = 1u;
         slot.seamless_loop = 0u;
-        slot.playback_end_frame = frame_now + stream_playback_duration(frames, slot.sample_rate);
+        slot.playback_end_frame =
+            frame_now + stream_playback_duration(frames, slot.sample_rate, display_rate);
         slot.playback_buffer ^= 1u;
     }
 }
