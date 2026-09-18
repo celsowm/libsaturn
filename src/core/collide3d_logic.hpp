@@ -106,9 +106,85 @@ inline bool ray_sphere(const sat_sphere_t& s,const sat_ray3_t& r,sat_hit3_t& o){
 inline bool inside_quad(const sat_quad3_t& q,sat_vec3_t p,sat_vec3_t n){for(int i=0;i<4;++i){const sat_vec3_t a=q.v[i],b=q.v[(i+1)&3];if(vec3_dot_raw(vec3_cross_scaled(sub(b,a),sub(p,a)),n)>0)return false;}return true;}
 inline bool ray_quad(const sat_quad3_t& q,const sat_ray3_t& r,sat_hit3_t& o){const sat_vec3_t n=quad_normal_scaled(q);if(!n.x&&!n.y&&!n.z)return false;const sat_vec3_t d=mul(r.dir,r.length);const int64_t den=vec3_dot_raw(n,d);if(!den)return false;const int64_t num=vec3_dot_raw(n,sub(q.v[0],r.origin));const sat_fx16_t t=ratio(num,den);if(t<0||t>SAT_FX16_ONE)return false;const sat_vec3_t p=at(r.origin,d,t);if(!inside_quad(q,p,n))return false;o.t=t;o.point=p;o.normal=unit(n);o.face=0xFFFF;return true;}
 
-inline bool mesh_bounds(const sat_mesh_t& m,sat_aabb3_t& b){if(!m.vertices||!m.vertex_count)return false;sat_vec3_t lo=m.vertices[0],hi=lo;for(uint16_t i=1;i<m.vertex_count;++i){const sat_vec3_t v=m.vertices[i];if(v.x<lo.x)lo.x=v.x;if(v.y<lo.y)lo.y=v.y;if(v.z<lo.z)lo.z=v.z;if(v.x>hi.x)hi.x=v.x;if(v.y>hi.y)hi.y=v.y;if(v.z>hi.z)hi.z=v.z;}b.center={(lo.x+hi.x)/2,(lo.y+hi.y)/2,(lo.z+hi.z)/2};b.half={(hi.x-lo.x)/2,(hi.y-lo.y)/2,(hi.z-lo.z)/2};return true;}
-inline bool ray_mesh(const sat_mesh_t& m,const sat_ray3_t& r,sat_hit3_t& o){sat_aabb3_t b;if(!mesh_bounds(m,b))return false;sat_hit3_t broad;if(!ray_box(b,r,broad))return false;int found=0;for(uint16_t i=0;i<m.face_count;++i){sat_quad3_t q; if(sat_mesh_face_quad(&m,i,&q)!=SAT_OK)continue;sat_hit3_t h;if(ray_quad(q,r,h)&&(!found||h.t<o.t)){h.face=i;o=h;found=1;}}return found;}
+inline bool mesh_bounds(const sat_mesh_t& m, sat_aabb3_t& b) {
+    if (!m.vertices || !m.vertex_count) return false;
+    sat_vec3_t lo = m.vertices[0], hi = lo;
+    for (uint16_t i = 1; i < m.vertex_count; ++i) {
+        const sat_vec3_t v = m.vertices[i];
+        if (v.x < lo.x) lo.x = v.x; if (v.y < lo.y) lo.y = v.y; if (v.z < lo.z) lo.z = v.z;
+        if (v.x > hi.x) hi.x = v.x; if (v.y > hi.y) hi.y = v.y; if (v.z > hi.z) hi.z = v.z;
+    }
+    b.center = {(lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2};
+    b.half = {(hi.x - lo.x) / 2, (hi.y - lo.y) / 2, (hi.z - lo.z) / 2};
+    return true;
+}
 
-inline sat_result_t sphere_mesh(const sat_mesh_t& m,const sat_sphere_t& s,sat_contact3_t* out,uint16_t cap,uint16_t& count){count=0;sat_result_t result=SAT_OK;for(uint16_t i=0;i<m.face_count;++i){sat_quad3_t q;if(sat_mesh_face_quad(&m,i,&q)!=SAT_OK)continue;const sat_vec3_t n=unit(quad_normal_scaled(q));if(!n.x&&!n.y&&!n.z)continue;const sat_fx16_t signed_d=static_cast<sat_fx16_t>(vec3_dot_raw(sub(s.center,q.v[0]),n)>>16);sat_vec3_t proj=sub(s.center,mul(n,signed_d));sat_vec3_t closest=proj;if(!inside_quad(q,proj,n)){sat_fx16_t best=s.radius+1;for(int e=0;e<4;++e){const sat_vec3_t a=q.v[e],d=sub(q.v[(e+1)&3],a);const uint64_t dd=len2(d);sat_fx16_t t=dd?ratio(vec3_dot_raw(sub(s.center,a),d),static_cast<int64_t>(dd)):0;if(t<0)t=0;if(t>SAT_FX16_ONE)t=SAT_FX16_ONE;const sat_vec3_t p=at(a,d,t);const sat_fx16_t dist=static_cast<sat_fx16_t>(isqrt64(len2(sub(s.center,p))));if(dist<best){best=dist;closest=p;}}}const sat_vec3_t diff=sub(s.center,closest);const sat_fx16_t dist=static_cast<sat_fx16_t>(isqrt64(len2(diff)));if(dist>=s.radius)continue;sat_contact3_t c;c.normal=dist?unit(diff):(signed_d<0?mul(n,-SAT_FX16_ONE):n);c.depth=s.radius-dist;if(count>=cap){result=SAT_ERR_CAPACITY;continue;}out[count++]=c;}return result;}
+inline bool ray_mesh(const sat_mesh_t& m, const sat_ray3_t& r, sat_hit3_t& o) {
+    sat_aabb3_t b;
+    if (!mesh_bounds(m, b)) return false;
+    sat_hit3_t broad;
+    if (!ray_box(b, r, broad)) return false;
+    int found = 0;
+    for (uint16_t i = 0; i < m.face_count; ++i) {
+        sat_quad3_t q;
+        if (saturn::core::mesh3d::face_quad(&m, i, &q) != SAT_OK) continue;
+        sat_hit3_t h;
+        if (ray_quad(q, r, h) && (!found || h.t < o.t)) {
+            h.face = i; o = h; found = 1;
+        }
+    }
+    return found;
+}
+
+inline bool sphere_quad_contact(const sat_quad3_t& q, const sat_sphere_t& s, sat_contact3_t& c) {
+    const sat_vec3_t n = unit(quad_normal_scaled(q));
+    if (!n.x && !n.y && !n.z) return false;
+    const sat_fx16_t signed_d =
+        static_cast<sat_fx16_t>(vec3_dot_raw(sub(s.center, q.v[0]), n) >> 16);
+    const sat_vec3_t proj = sub(s.center, mul(n, signed_d));
+    sat_vec3_t closest = proj;
+    if (!inside_quad(q, proj, n)) {
+        sat_fx16_t best = s.radius + 1;
+        for (int e = 0; e < 4; ++e) {
+            const sat_vec3_t a = q.v[e];
+            const sat_vec3_t d = sub(q.v[(e + 1) & 3], a);
+            const uint64_t dd = len2(d);
+            sat_fx16_t t = dd
+                ? ratio(vec3_dot_raw(sub(s.center, a), d), static_cast<int64_t>(dd))
+                : 0;
+            if (t < 0) t = 0;
+            if (t > SAT_FX16_ONE) t = SAT_FX16_ONE;
+            const sat_vec3_t p = at(a, d, t);
+            const sat_fx16_t dist = static_cast<sat_fx16_t>(isqrt64(len2(sub(s.center, p))));
+            if (dist < best) { best = dist; closest = p; }
+        }
+    }
+    const sat_vec3_t diff = sub(s.center, closest);
+    const sat_fx16_t dist = static_cast<sat_fx16_t>(isqrt64(len2(diff)));
+    if (dist >= s.radius) return false;
+    c.normal = dist ? unit(diff) : (signed_d < 0 ? mul(n, -SAT_FX16_ONE) : n);
+    c.depth = s.radius - dist;
+    return true;
+}
+
+inline sat_result_t sphere_mesh(
+    const sat_mesh_t& m,
+    const sat_sphere_t& s,
+    sat_contact3_t* out,
+    uint16_t cap,
+    uint16_t& count
+) {
+    count = 0;
+    sat_result_t result = SAT_OK;
+    for (uint16_t i = 0; i < m.face_count; ++i) {
+        sat_quad3_t q;
+        if (saturn::core::mesh3d::face_quad(&m, i, &q) != SAT_OK) continue;
+        sat_contact3_t c;
+        if (!sphere_quad_contact(q, s, c)) continue;
+        if (count >= cap) { result = SAT_ERR_CAPACITY; continue; }
+        out[count++] = c;
+    }
+    return result;
+}
 }
 #endif
