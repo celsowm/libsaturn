@@ -12,6 +12,8 @@ struct FileMount {
     char path[SAT_FILE_PATH_MAX];
     const uint8_t* data;
     uint32_t size;
+    sat_file_read_at_fn read_at;
+    void* context;
     uint8_t used;
 };
 

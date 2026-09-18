@@ -860,6 +860,8 @@ Phase gate: PCM stream, short sound playback, stream state, ring-buffer tests, d
 Implemented as the initial read-only VFS/registry subphase:
 
 - fixed caller-backed file mounts and generation-checked file handles;
+- caller-owned `read_at` file backends with bounded partial reads and explicit
+  `SAT_ERR_IO` propagation, leaving CD transport policy outside the VFS;
 - bounded read, seek, tell, size, close, and deterministic mount/handle exhaustion;
 - slash normalization with `.` removal and `..` rejection;
 - fixed logical asset registry with kind, payload, dimensions, audio metadata,
@@ -869,7 +871,8 @@ Implemented as the initial read-only VFS/registry subphase:
 - deterministic host manifest generation with normalized paths, sorted entries,
   physical payload metadata, and optional SHA-256 enrichment;
 - host coverage for normalization, partial reads, seeking, missing paths,
-  stale handles, asset metadata lookup, and typed texture/data loading.
+  stale handles, backend reads, asset metadata lookup, and typed texture/data
+  loading.
 
 The CD/file transport adapter and generated compiled registration that consumes
 the manifest remain open. The manifest tool currently emits a deterministic
@@ -897,6 +900,7 @@ Requirements:
 - no implicit whole-file allocation;
 - streaming reads;
 - documented path normalization/case behavior;
+- optional caller-owned `read_at` transport for CD or other storage backends;
 - backend-specific CD APIs stay separate.
 
 ## 9.2 Logical asset paths

@@ -39,6 +39,33 @@ extern "C" sat_result_t sat_font_init(
     return SAT_ERR_UNSUPPORTED;
 }
 
+namespace {
+
+struct BackendBlob {
+    const uint8_t* data;
+    uint32_t size;
+};
+
+sat_result_t backend_read_at(
+    void* context,
+    uint32_t offset,
+    void* destination,
+    uint32_t bytes,
+    uint32_t* out_read
+) {
+    if (context == nullptr || destination == nullptr || out_read == nullptr) return SAT_ERR_INVALID_ARG;
+    const BackendBlob& blob = *static_cast<const BackendBlob*>(context);
+    if (offset > blob.size) return SAT_ERR_IO;
+    const uint32_t available = blob.size - offset;
+    const uint32_t count = bytes < available ? bytes : available;
+    const uint32_t partial = count > 2u ? 2u : count;
+    std::memcpy(destination, blob.data + offset, partial);
+    *out_read = partial;
+    return SAT_OK;
+}
+
+}  // namespace
+
 int main() {
     char normalized[SAT_FILE_PATH_MAX] = {};
     OK(saturn::core::normalize_path("./assets\\player//sprite.bin", normalized, sizeof(normalized)) == SAT_OK);
@@ -59,6 +86,18 @@ int main() {
     OK(std::memcmp(out, bytes, 3u) == 0);
     OK(sat_file_seek(file, -1, SAT_FILE_SEEK_END) == SAT_OK);
     OK(sat_file_read(file, out, 3u, &read) == SAT_OK && read == 1u && out[0] == 50u);
+    BackendBlob backend{bytes, sizeof(bytes)};
+    OK(sat_file_register_backend("data/backend.bin", sizeof(bytes), backend_read_at,
+                                 &backend) == SAT_OK);
+    sat_file_t backend_file{};
+    OK(sat_file_open("data/backend.bin", &backend_file) == SAT_OK);
+    OK(sat_file_seek(backend_file, 0, SAT_FILE_SEEK_SET) == SAT_OK);
+    uint8_t backend_out[4] = {};
+    OK(sat_file_read(backend_file, backend_out, sizeof(backend_out), &read) == SAT_OK &&
+       read == 2u && backend_out[0] == 10u && backend_out[1] == 20u);
+    OK(sat_file_read(backend_file, backend_out, sizeof(backend_out), &read) == SAT_OK &&
+       read == 2u && backend_out[0] == 30u && backend_out[1] == 40u);
+    OK(sat_file_close(backend_file) == SAT_OK);
     const sat_file_t stale = file;
     OK(sat_file_close(file) == SAT_OK);
     OK(sat_file_tell(stale, &size) == SAT_ERR_INVALID_ARG);

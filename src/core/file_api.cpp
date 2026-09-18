@@ -8,19 +8,19 @@ sat_result_t path_for_lookup(const char* path, char* normalized) {
     return saturn::core::normalize_path(path, normalized, SAT_FILE_PATH_MAX);
 }
 
-}  // namespace
-
-extern "C" sat_result_t sat_file_reset(void) {
-    saturn::core::file_asset_runtime_reset(saturn::core::g_file_asset_runtime);
-    return SAT_OK;
-}
-
-extern "C" sat_result_t sat_file_register_blob(
+sat_result_t register_mount(
     const char* path,
-    const void* data,
-    uint32_t size
+    uint32_t size,
+    const uint8_t* data,
+    sat_file_read_at_fn read_at,
+    void* context
 ) {
-    if (data == nullptr && size != 0u) return SAT_ERR_INVALID_ARG;
+    if ((data == nullptr && read_at == nullptr && size != 0u) ||
+        (data != nullptr && read_at != nullptr)) return SAT_ERR_INVALID_ARG;
+    if (data == nullptr && read_at == nullptr && size == 0u) {
+        /* Empty blobs are valid; a null reader means the zero-byte blob
+         * backend and never gets called. */
+    }
     char normalized[SAT_FILE_PATH_MAX] = {};
     SAT_TRY(path_for_lookup(path, normalized));
     using namespace saturn::core;
@@ -39,12 +39,40 @@ extern "C" sat_result_t sat_file_register_blob(
             ++j;
         }
         mount.path[j] = '\0';
-        mount.data = static_cast<const uint8_t*>(data);
+        mount.data = data;
         mount.size = size;
+        mount.read_at = read_at;
+        mount.context = context;
         mount.used = 1u;
         return SAT_OK;
     }
     return SAT_ERR_CAPACITY;
+}
+
+}  // namespace
+
+extern "C" sat_result_t sat_file_reset(void) {
+    saturn::core::file_asset_runtime_reset(saturn::core::g_file_asset_runtime);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_file_register_blob(
+    const char* path,
+    const void* data,
+    uint32_t size
+) {
+    if (data == nullptr && size != 0u) return SAT_ERR_INVALID_ARG;
+    return register_mount(path, size, static_cast<const uint8_t*>(data), nullptr, nullptr);
+}
+
+extern "C" sat_result_t sat_file_register_backend(
+    const char* path,
+    uint32_t size,
+    sat_file_read_at_fn read_at,
+    void* context
+) {
+    if (read_at == nullptr) return SAT_ERR_INVALID_ARG;
+    return register_mount(path, size, nullptr, read_at, context);
 }
 
 extern "C" sat_result_t sat_file_open(const char* path, sat_file_t* out_file) {
@@ -88,6 +116,26 @@ extern "C" sat_result_t sat_file_read(
     const FileMount& mount = g_file_asset_runtime.mounts[handle->mount_slot];
     const uint32_t available = mount.size - handle->position;
     const uint32_t count = bytes < available ? bytes : available;
+    if (count == 0u) {
+        *out_read = 0u;
+        return SAT_OK;
+    }
+    if (mount.read_at != nullptr) {
+        uint32_t backend_read = 0u;
+        const sat_result_t st = mount.read_at(
+            mount.context, handle->position, destination, count, &backend_read);
+        if (st != SAT_OK) {
+            *out_read = 0u;
+            return st;
+        }
+        if (backend_read > count) {
+            *out_read = 0u;
+            return SAT_ERR_IO;
+        }
+        handle->position += backend_read;
+        *out_read = backend_read;
+        return SAT_OK;
+    }
     const uint8_t* source = mount.data + handle->position;
     uint8_t* output = static_cast<uint8_t*>(destination);
     for (uint32_t i = 0u; i < count; ++i) output[i] = source[i];
