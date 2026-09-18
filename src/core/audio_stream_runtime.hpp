@@ -9,7 +9,9 @@ namespace saturn::core {
 
 constexpr uint16_t kAudioStreamCapacity = 4u;
 constexpr uint8_t kAudioStreamScspSlotBase = 28u;
-constexpr uint32_t kAudioStreamChunkFrames = 1024u;
+// Each half spans several display frames at common music rates, leaving
+// enough time for cooperative refills even around synchronous CD work.
+constexpr uint32_t kAudioStreamChunkFrames = 4096u;
 constexpr uint32_t kAudioStreamChunkBytes = kAudioStreamChunkFrames * 2u;
 constexpr uint32_t kAudioStreamRamBytes =
     static_cast<uint32_t>(kAudioStreamCapacity) * 2u * kAudioStreamChunkBytes;
@@ -45,7 +47,7 @@ struct AudioStreamSlot {
     uint8_t hardware_playing;
     uint8_t pan;
     uint8_t seamless_loop;
-    uint8_t reserved0;
+    uint8_t pending_refill;
     uint16_t reserved1;
     uint8_t staging[kAudioStreamChunkBytes];
     uint16_t generation;
@@ -95,7 +97,7 @@ inline void audio_stream_registry_reset(AudioStreamRegistry& registry) {
         slot.hardware_playing = 0u;
         slot.pan = 0u;
         slot.seamless_loop = 0u;
-        slot.reserved0 = 0u;
+        slot.pending_refill = 0u;
         slot.reserved1 = 0u;
     }
 }

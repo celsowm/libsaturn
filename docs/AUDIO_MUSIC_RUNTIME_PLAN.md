@@ -517,7 +517,7 @@ The caller-owned CPU-side ring-buffer core and a bounded SCSP chunk scheduler
 are implemented in LibSaturn with fixed stream slots, generation-safe handles,
 mono PCM S8/S16 validation, deterministic rejected writes, pause/resume/flush,
 SCSP-slot/sound-RAM reservation, and consumption/refill diagnostics. Each
-stream uses two fixed 1024-frame sound-RAM pages as one continuous SCSP
+stream uses two fixed 4096-frame sound-RAM pages as one continuous SCSP
 double buffer, and `sat_audio_update()` owns
 at most one refill per stream per call. The `audio_showcase` BGM now exercises
 this path while resident SFX continue to use the normal voice pool.

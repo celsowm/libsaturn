@@ -4,6 +4,7 @@
 #include "src/core/audio_stream_runtime.hpp"
 #include "src/core/runtime_state.hpp"
 #include "src/hal/scsp.hpp"
+#include "src/hal/vdp2.hpp"
 
 namespace saturn::core {
 void music_runtime_reset();
@@ -61,6 +62,10 @@ uint32_t g_voice_steals = 0u;
 uint32_t g_failed_play_requests = 0u;
 uint32_t g_start_serial = 0u;
 uint8_t g_initialized = 0u;
+uint32_t g_audio_service_frame = 0u;
+uint32_t g_audio_last_app_frame = 0u;
+uint8_t g_audio_last_vblank = 0u;
+uint8_t g_audio_clock_valid = 0u;
 
 uint32_t align_up(uint32_t value, uint32_t alignment) {
     return (value + alignment - 1u) & ~(alignment - 1u);
@@ -193,6 +198,10 @@ void reset_runtime_state() {
     g_voice_steals = 0u;
     g_failed_play_requests = 0u;
     g_start_serial = 0u;
+    g_audio_service_frame = 0u;
+    g_audio_last_app_frame = 0u;
+    g_audio_last_vblank = 0u;
+    g_audio_clock_valid = 0u;
 }
 
 }  // namespace
@@ -224,8 +233,24 @@ extern "C" uint8_t sat_audio_is_initialized(void) {
 extern "C" sat_result_t sat_audio_update(void) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
     const uint32_t now = sat_frame_count();
+    const uint8_t vblank =
+        (saturn::hal::vdp2::read_tvstat() & 0x0008u) != 0u ? 1u : 0u;
+    if (g_audio_clock_valid == 0u) {
+        g_audio_service_frame = now;
+        g_audio_last_app_frame = now;
+        g_audio_clock_valid = 1u;
+    } else if (now != g_audio_last_app_frame) {
+        g_audio_service_frame += now - g_audio_last_app_frame;
+        g_audio_last_app_frame = now;
+    } else if (vblank != 0u && g_audio_last_vblank == 0u) {
+        // CD Block waits pump this function while the application frame is
+        // stalled. Count real VBlank edges so streaming time still advances.
+        ++g_audio_service_frame;
+    }
+    g_audio_last_vblank = vblank;
     const uint32_t display_rate = saturn::core::g_state.config.ntsc != 0u ? 60u : 50u;
-    saturn::core::audio_stream_service(saturn::core::g_audio_streams, now, display_rate);
+    saturn::core::audio_stream_service(
+        saturn::core::g_audio_streams, g_audio_service_frame, display_rate);
     for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
         VoiceEntry& voice = g_voices[i];
         if (voice.active == 0u || voice.looping != 0u) continue;

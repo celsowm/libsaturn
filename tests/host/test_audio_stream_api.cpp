@@ -101,37 +101,37 @@ int main() {
     (void)sat_audio_stream_close(recycled);
 
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
-    sat_audio_spec_t seamless_spec = {11025u, 4096u, 1u, SAT_AUDIO_PCM_S16, 0u};
-    uint8_t seamless_storage[8192u] = {};
-    uint8_t seamless_frames[4096u] = {};
+    sat_audio_spec_t seamless_spec = {11025u, 8192u, 1u, SAT_AUDIO_PCM_S16, 0u};
+    uint8_t seamless_storage[16384u] = {};
+    uint8_t seamless_frames[16384u] = {};
     sat_audio_stream_t seamless{};
     OK(sat_audio_stream_open(
         &seamless, &seamless_spec, seamless_storage, sizeof(seamless_storage)) == SAT_OK);
     OK(sat_audio_stream_set_pan(seamless, SAT_AUDIO_PAN_RIGHT) == SAT_OK);
-    OK(sat_audio_stream_write(seamless, seamless_frames, 2048u) == SAT_OK);
+    OK(sat_audio_stream_write(seamless, seamless_frames, 8192u) == SAT_OK);
 
     saturn::hal::scsp::g_upload_count = 0u;
     saturn::hal::scsp::g_key_on_count = 0u;
     saturn::hal::scsp::g_key_off_count = 0u;
     saturn::core::audio_stream_service(saturn::core::g_audio_streams, 0u, 60u);
     OK(sat_audio_stream_stats(seamless, &stats) == SAT_OK);
-    OK(stats.consumed_frames == 2048u && stats.refill_count == 2u && stats.playing == 1u);
+    OK(stats.consumed_frames == 8192u && stats.refill_count == 2u && stats.playing == 1u);
     OK(saturn::hal::scsp::g_upload_count == 2u);
     OK(saturn::hal::scsp::g_key_on_count == 1u);
     OK(saturn::hal::scsp::g_key_off_count == 0u);
-    OK(saturn::hal::scsp::g_last_config.sample_count == 2048u &&
+    OK(saturn::hal::scsp::g_last_config.sample_count == 8192u &&
        saturn::hal::scsp::g_last_config.loop == 1u &&
        saturn::hal::scsp::g_last_config.loop_start == 0u &&
-       saturn::hal::scsp::g_last_config.loop_end == 2047u &&
+       saturn::hal::scsp::g_last_config.loop_end == 8191u &&
        saturn::hal::scsp::g_last_config.pan == 30u);
 
-    OK(sat_audio_stream_write(seamless, seamless_frames, 1024u) == SAT_OK);
+    OK(sat_audio_stream_write(seamless, seamless_frames, 4096u) == SAT_OK);
     saturn::core::audio_stream_service(saturn::core::g_audio_streams, 5u, 60u);
     OK(sat_audio_stream_stats(seamless, &stats) == SAT_OK &&
-       stats.consumed_frames == 2048u && stats.refill_count == 2u);
-    saturn::core::audio_stream_service(saturn::core::g_audio_streams, 6u, 60u);
+       stats.consumed_frames == 8192u && stats.refill_count == 2u);
+    saturn::core::audio_stream_service(saturn::core::g_audio_streams, 23u, 60u);
     OK(sat_audio_stream_stats(seamless, &stats) == SAT_OK &&
-       stats.consumed_frames == 3072u && stats.refill_count == 3u &&
+       stats.consumed_frames == 12288u && stats.refill_count == 3u &&
        stats.underrun_count == 0u);
     OK(saturn::hal::scsp::g_upload_count == 3u);
     OK(saturn::hal::scsp::g_key_on_count == 1u);

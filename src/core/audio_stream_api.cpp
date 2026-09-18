@@ -59,6 +59,7 @@ void audio_stream_stop_playback(AudioStreamSlot& slot) {
     slot.playback_chunk_frames = 0u;
     slot.serviced_chunks = 0u;
     slot.seamless_loop = 0u;
+    slot.pending_refill = 0u;
 }
 
 namespace {
@@ -117,6 +118,7 @@ bool start_seamless_loop(AudioStreamSlot& slot, uint32_t frame_now, uint32_t dis
     slot.playback_chunk_frames = kAudioStreamChunkFrames;
     slot.serviced_chunks = 0u;
     slot.playback_buffer = 0u;
+    slot.pending_refill = 0u;
     slot.playback_end_frame = 0u;
     return true;
 }
@@ -141,18 +143,15 @@ void audio_stream_service(
             const uint32_t completed_chunks = chunk_units == 0u
                 ? 0u : static_cast<uint32_t>(elapsed_units / chunk_units);
             if (completed_chunks <= slot.serviced_chunks) continue;
-
-            if (completed_chunks > slot.serviced_chunks + 1u) {
+            if (slot.pending_refill == 0u &&
+                completed_chunks > slot.serviced_chunks + 1u) {
                 slot.ring.underrun_count +=
                     completed_chunks - slot.serviced_chunks - 1u;
             }
-
-            // Just after boundary N, half (N-1)&1 is the half the SCSP has
-            // finished and is therefore safe to overwrite.
             const uint8_t refill_half = static_cast<uint8_t>((completed_chunks - 1u) & 1u);
             if (slot.ring.buffered_frames < slot.playback_chunk_frames) {
-                ++slot.ring.underrun_count;
-                slot.serviced_chunks = completed_chunks;
+                if (slot.pending_refill == 0u) ++slot.ring.underrun_count;
+                slot.pending_refill = 1u;
                 continue;
             }
             if (upload_stream_chunk(slot, refill_half, slot.playback_chunk_frames) !=
@@ -161,6 +160,7 @@ void audio_stream_service(
             }
             slot.playback_buffer = static_cast<uint8_t>(refill_half ^ 1u);
             slot.serviced_chunks = completed_chunks;
+            slot.pending_refill = 0u;
             continue;
         }
 
@@ -177,6 +177,11 @@ void audio_stream_service(
         if (start_seamless_loop(slot, frame_now, display_rate)) {
             continue;
         }
+
+        // A stream large enough for the continuous loop should wait until
+        // both halves are primed. Starting it as a short one-shot here would
+        // drain music faster than the producer can establish the loop.
+        if (stream_can_loop_seamlessly(slot, display_rate)) continue;
 
         const uint32_t requested_frames = slot.ring.capacity_frames < kAudioStreamChunkFrames
             ? slot.ring.capacity_frames : kAudioStreamChunkFrames;
@@ -248,7 +253,7 @@ extern "C" sat_result_t sat_audio_stream_open(
         slot.hardware_playing = 0u;
         slot.pan = saturn::hal::scsp::encode_pan(SAT_AUDIO_PAN_CENTER);
         slot.seamless_loop = 0u;
-        slot.reserved0 = 0u;
+        slot.pending_refill = 0u;
         slot.reserved1 = 0u;
         out_stream->slot = i;
         out_stream->generation = slot.generation;

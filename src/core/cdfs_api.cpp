@@ -189,11 +189,13 @@ extern "C" sat_result_t sat_cdfs_read_at(
     while (remaining != 0u) {
         const uint32_t sector_index = position / SAT_CD_SECTOR_BYTES;
         const uint32_t sector_offset = position % SAT_CD_SECTOR_BYTES;
-        const uint32_t chunk = (remaining < SAT_CD_SECTOR_BYTES - sector_offset)
+        uint32_t chunk = (remaining < SAT_CD_SECTOR_BYTES - sector_offset)
             ? remaining : SAT_CD_SECTOR_BYTES - sector_offset;
-        if (sector_offset == 0u && chunk == SAT_CD_SECTOR_BYTES) {
+        if (sector_offset == 0u && remaining >= SAT_CD_SECTOR_BYTES) {
+            const uint32_t full_sectors = remaining / SAT_CD_SECTOR_BYTES;
             SAT_TRY(sat_cd_read_sectors(
-                volume->device, file->extent_lba + sector_index, 1u, output));
+                volume->device, file->extent_lba + sector_index, full_sectors, output));
+            chunk = full_sectors * SAT_CD_SECTOR_BYTES;
         } else {
             SAT_TRY(read_sector(volume, file->extent_lba + sector_index));
             for (uint32_t i = 0u; i < chunk; ++i) {

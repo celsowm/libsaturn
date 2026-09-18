@@ -2,6 +2,11 @@
 
 #include <stddef.h>
 
+// CD transfers are synchronous, but SCSP streaming still needs servicing
+// while the drive is seeking or collecting sectors. Keep this dependency
+// optional so the standalone CD Block host tests need no audio runtime.
+extern "C" sat_result_t sat_audio_update(void) __attribute__((weak));
+
 namespace {
 
 struct Command {
@@ -28,9 +33,14 @@ uint32_t timeout_for(const sat_cd_block_t* block) {
         ? SAT_CD_BLOCK_DEFAULT_TIMEOUT : block->timeout_iterations;
 }
 
+inline void pump_audio() {
+    if (sat_audio_update != nullptr) (void)sat_audio_update();
+}
+
 sat_result_t wait_hirq(const sat_cd_block_t* block, uint16_t mask) {
     for (uint32_t i = 0u; i < timeout_for(block); ++i) {
         if ((read_reg(SAT_CD_BLOCK_HIRQ) & mask) != 0u) return SAT_OK;
+        if ((i & 0x0FFFu) == 0u) pump_audio();
     }
     return SAT_ERR_TIMEOUT;
 }
@@ -145,6 +155,7 @@ sat_result_t read_impl(
 
     uint32_t remaining = sector_count;
     while (remaining != 0u) {
+        pump_audio();
         uint16_t ready = 0u;
         for (;;) {
             SAT_TRY(get_ready_sectors(block, &ready));
@@ -158,6 +169,7 @@ sat_result_t read_impl(
             SAT_CD_BLOCK_HIRQ_DRDY));
         SAT_TRY(transfer_words(destination, take * SAT_CD_SECTOR_BYTES));
         SAT_TRY(execute_and_wait(block, {0x0600u, 0u, 0u, 0u}, 0u));
+        pump_audio();
         destination += take * SAT_CD_SECTOR_BYTES;
         remaining -= take;
     }

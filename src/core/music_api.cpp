@@ -25,7 +25,7 @@ struct MusicSlot {
     uint8_t buffer[SAT_MUSIC_BUFFER_FRAMES * 2u];
     uint8_t buffer_r[SAT_MUSIC_BUFFER_FRAMES * 2u];
     uint8_t staging[SAT_MUSIC_BUFFER_FRAMES * 2u];
-    // Deinterleaved L/R channel frames for stereo feeds (2048 frames each).
+    // Deinterleaved L/R channel frames for stereo feeds.
     uint8_t staging_split[SAT_MUSIC_BUFFER_FRAMES * 2u];
 };
 
