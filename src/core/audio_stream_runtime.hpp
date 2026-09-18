@@ -9,7 +9,13 @@ namespace saturn::core {
 
 constexpr uint16_t kAudioStreamCapacity = 4u;
 constexpr uint8_t kAudioStreamScspSlotBase = 28u;
-constexpr uint32_t kAudioStreamChunkFrames = 1024u;
+/*
+ * 1470 PCM frames are exactly two NTSC video frames at the SCSP's native
+ * 44.1 kHz rate.  Audio service runs once per video frame, so using that
+ * cadence avoids the audible 10 ms holes that a 1024-frame (23.2 ms) chunk
+ * created when the next refill could only occur 33.3 ms later.
+ */
+constexpr uint32_t kAudioStreamChunkFrames = 1470u;
 constexpr uint32_t kAudioStreamChunkBytes = kAudioStreamChunkFrames * 2u;
 constexpr uint32_t kAudioStreamRamBytes =
     static_cast<uint32_t>(kAudioStreamCapacity) * 2u * kAudioStreamChunkBytes;
@@ -40,6 +46,7 @@ struct AudioStreamSlot {
     uint8_t scsp_slot;
     uint8_t playback_buffer;
     uint8_t hardware_playing;
+    uint8_t pan;
     uint8_t staging[kAudioStreamChunkBytes];
     uint16_t generation;
     uint8_t used;

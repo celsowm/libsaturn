@@ -1,77 +1,24 @@
 #!/usr/bin/env python3
-"""Generate the CD-only PCM tracks for cd_streaming_jukebox.
+"""Stage the CD-only PCM tracks for cd_streaming_jukebox.
 
-The notes below are short, newly synthesized monophonic arrangements of public
-domain compositions.  No recording, sample, score scan, or third-party audio
-asset is downloaded or embedded by this tool.
+All three tracks are freely licensed renders from Wikimedia, vendored as
+build-ready big-endian S16 stereo @ 44100 Hz (CD quality; see
+examples/cd_streaming_jukebox/audio-src/ and ../LICENSES.md).  This tool just
+copies them into the ISO staging dir and emits the sizing header, so the
+example build needs no network access and no audio decoder.
 """
 
 import argparse
-import math
-import struct
 from pathlib import Path
 
-RATE = 11025
-NOTE_SECONDS = 0.20
-
-# Semitone offsets from A4.  The source/provenance of each melody is recorded
-# in examples/cd_streaming_jukebox/LICENSES.md.
-TRACKS = (
-    (
-        "ode_to_joy",
-        "Ode to Joy - Beethoven",
-        (2, 2, 3, 5, 5, 3, 2, 0, -2, -2, 0, 2, 2, 0, 0,
-         2, 2, 3, 5, 5, 3, 2, 0, -2, -2, 0, 2, 0, -2, -2),
-    ),
-    (
-        "minuet_in_g",
-        "Minuet in G - Petzold",
-        (-2, -7, -5, -3, -2, -7, -7,
-         -5, -7, -5, -3, -5, -2, -2,
-         -2, -7, -5, -3, -2, -7, -7,
-         -5, -2, 0, 2, -5, -3, -2),
-    ),
-    (
-        "greensleeves",
-        "Greensleeves - traditional",
-        (-5, -2, 0, 2, 3, 5, 0, -2,
-         -3, -5, -7, -3, -5, -2, 0, 2,
-         3, 5, 0, -2, -3, -5, -7, -5,
-         -3, -2, -5, -7, -9, -5),
-    ),
+RATE = 44100
+CHANNELS = 2
+# Vendored build-ready tracks: mono S16 big-endian at RATE.
+VENDORED_TRACKS = (
+    ("ode_to_joy", "Ode to Joy - Beethoven"),
+    ("minuet_in_g", "Minuet in G - Petzold"),
+    ("greensleeves", "Greensleeves - traditional"),
 )
-
-
-def clamp16(value):
-    return max(-32768, min(32767, int(value)))
-
-
-def synthesize(notes):
-    samples = []
-    count = int(RATE * NOTE_SECONDS)
-    attack = max(1, RATE // 100)
-    release = max(1, RATE // 50)
-    for semitone in notes:
-        if semitone is None:
-            samples.extend([0] * count)
-            continue
-        frequency = 440.0 * (2.0 ** (semitone / 12.0))
-        for index in range(count):
-            envelope = 1.0
-            if index < attack:
-                envelope = index / attack
-            elif index >= count - release:
-                envelope = (count - index - 1) / release
-            t = index / RATE
-            # Deliberately simple, repository-authored timbre: fundamental,
-            # octave, and a quiet fifth.  It is not derived from a recording.
-            sample = (
-                math.sin(2.0 * math.pi * frequency * t) * 10500.0
-                + math.sin(2.0 * math.pi * frequency * 2.0 * t) * 3600.0
-                + math.sin(2.0 * math.pi * frequency * 1.5 * t) * 1800.0
-            ) * envelope
-            samples.append(clamp16(sample))
-    return samples
 
 
 def write_header(path, assets):
@@ -80,6 +27,7 @@ def write_header(path, assets):
         "#define LIBSATURN_CD_STREAMING_JUKEBOX_DATA_H",
         "",
         f"#define CD_JUKEBOX_SAMPLE_RATE {RATE}u",
+        f"#define CD_JUKEBOX_CHANNELS {CHANNELS}u",
         f"#define CD_JUKEBOX_TRACK_COUNT {len(assets)}u",
         "",
     ]
@@ -98,19 +46,21 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--out-h", required=True, type=Path)
+    parser.add_argument("--vendored-dir", required=True, type=Path,
+                        help="dir with vendored big-endian S16 stereo tracks at RATE")
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     assets = []
-    for name, title, notes in TRACKS:
-        samples = synthesize(notes)
-        # The SH-2 is big-endian and SCSP uploads preserve each source byte pair.
-        # Store signed 16-bit PCM in that order so the CD asset matches native
-        # int16_t sample data uploaded by the runtime.
-        pcm = b"".join(struct.pack(">h", sample) for sample in samples)
+    for name, title in VENDORED_TRACKS:
+        pcm = (args.vendored_dir / f"{name}.s16be").read_bytes()
+        if len(pcm) == 0 or len(pcm) % (2 * CHANNELS) != 0:
+            raise SystemExit(f"invalid vendored PCM: {name}")
+        frames = len(pcm) // (2 * CHANNELS)
         (args.out_dir / f"{name}.pcm").write_bytes(pcm)
-        assets.append((name, title, len(samples), len(pcm)))
-        print(f"[cd-streaming-jukebox] {name}: {len(samples)} samples, {len(pcm)} bytes")
+        assets.append((name, title, frames, len(pcm)))
+        print(f"[cd-streaming-jukebox] {name}: {frames} frames, "
+              f"{len(pcm)} bytes (vendored recording)")
     args.out_h.parent.mkdir(parents=True, exist_ok=True)
     write_header(args.out_h, assets)
 

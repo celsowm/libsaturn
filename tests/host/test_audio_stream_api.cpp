@@ -15,6 +15,8 @@ namespace saturn::hal::scsp {
 
 static SlotConfig g_last_config{};
 static uint8_t g_configured_slot = 0xffu;
+static int16_t g_last_encode_input = 0;
+static uint8_t g_pan_calls = 0u;
 
 bool upload(uint32_t, const void*, uint32_t) { return true; }
 bool configure_slot(uint8_t slot, const SlotConfig& config) {
@@ -24,7 +26,11 @@ bool configure_slot(uint8_t slot, const SlotConfig& config) {
 }
 void key_on(uint8_t) {}
 void key_off(uint8_t) {}
-uint8_t encode_pan(int16_t) { return 0u; }
+uint8_t encode_pan(int16_t pan) {
+    g_last_encode_input = pan;
+    return static_cast<uint8_t>(pan + 15);
+}
+void set_slot_level_pan(uint8_t, uint8_t, uint8_t, uint8_t) { ++g_pan_calls; }
 
 }  // namespace saturn::hal::scsp
 
@@ -69,6 +75,19 @@ int main() {
     const sat_audio_stream_t stale = streams[0];
     OK(sat_audio_stream_close(streams[0]) == SAT_OK);
     OK(sat_audio_stream_stats(stale, &stats) == SAT_ERR_INVALID_ARG);
+    OK(sat_audio_stream_set_pan(stale, 0) == SAT_ERR_INVALID_ARG);
+    // Pan placement with clamping; streams[1] is open and idle.
+    OK(sat_audio_stream_set_pan(streams[1], -15) == SAT_OK &&
+       saturn::hal::scsp::g_last_encode_input == -15 &&
+       saturn::hal::scsp::g_pan_calls == 1u);
+    OK(sat_audio_stream_set_pan(streams[1], 100) == SAT_OK &&
+       saturn::hal::scsp::g_last_encode_input == 15 &&
+       saturn::hal::scsp::g_pan_calls == 2u);
+    /* Placement survives the next chunk configuration rather than being
+     * replaced by the default centred value. */
+    OK(sat_audio_stream_write(streams[1], frames, 4u) == SAT_OK);
+    saturn::core::audio_stream_service(saturn::core::g_audio_streams, 100u);
+    OK(saturn::hal::scsp::g_last_config.pan == 30u);
     sat_audio_stream_t recycled{};
     OK(sat_audio_stream_open(&recycled, &spec, storage, sizeof(storage)) == SAT_OK);
     OK(recycled.slot == stale.slot && recycled.generation != stale.generation);

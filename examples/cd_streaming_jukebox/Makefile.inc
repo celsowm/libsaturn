@@ -4,6 +4,11 @@ CD_JUKEBOX_DIR := $(GENERATED_DIR)/cd_streaming_jukebox
 CD_JUKEBOX_ISO_DIR := $(CD_JUKEBOX_DIR)/iso
 CD_JUKEBOX_AUDIO_DIR := $(CD_JUKEBOX_ISO_DIR)/audio
 CD_JUKEBOX_HEADER := $(CD_JUKEBOX_DIR)/jukebox_data.h
+CD_JUKEBOX_VENDORED_DIR := examples/cd_streaming_jukebox/audio-src
+CD_JUKEBOX_VENDORED := \
+	$(CD_JUKEBOX_VENDORED_DIR)/ode_to_joy.s16be \
+	$(CD_JUKEBOX_VENDORED_DIR)/minuet_in_g.s16be \
+	$(CD_JUKEBOX_VENDORED_DIR)/greensleeves.s16be
 
 EXAMPLE_HEADERS := $(CD_JUKEBOX_HEADER)
 EXAMPLE_ISO_DIR := $(CD_JUKEBOX_ISO_DIR)
@@ -12,8 +17,9 @@ EXAMPLE_ISO_FILES := \
 	$(CD_JUKEBOX_AUDIO_DIR)/minuet_in_g.pcm \
 	$(CD_JUKEBOX_AUDIO_DIR)/greensleeves.pcm
 
-$(EXAMPLE_ISO_FILES) $(CD_JUKEBOX_HEADER) &: tools/generate_cd_streaming_jukebox_assets.py
+$(EXAMPLE_ISO_FILES) $(CD_JUKEBOX_HEADER) &: tools/generate_cd_streaming_jukebox_assets.py $(CD_JUKEBOX_VENDORED)
 	@mkdir -p $(CD_JUKEBOX_AUDIO_DIR)
 	$(PYTHON) tools/generate_cd_streaming_jukebox_assets.py \
 		--out-dir $(CD_JUKEBOX_AUDIO_DIR) \
-		--out-h $(CD_JUKEBOX_HEADER)
+		--out-h $(CD_JUKEBOX_HEADER) \
+		--vendored-dir $(CD_JUKEBOX_VENDORED_DIR)

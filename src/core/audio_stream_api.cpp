@@ -91,7 +91,7 @@ void audio_stream_service(AudioStreamRegistry& registry, uint32_t frame_now) {
         config.loop = 0u;
         config.total_level = 0u;
         config.direct_level = 7u;
-        config.pan = saturn::hal::scsp::encode_pan(SAT_AUDIO_PAN_CENTER);
+        config.pan = slot.pan;
         if (!saturn::hal::scsp::configure_slot(slot.scsp_slot, config)) continue;
         saturn::hal::scsp::key_on(slot.scsp_slot);
         slot.hardware_playing = 1u;
@@ -136,6 +136,7 @@ extern "C" sat_result_t sat_audio_stream_open(
         slot.scsp_slot = static_cast<uint8_t>(kAudioStreamScspSlotBase + i);
         slot.playback_buffer = 0u;
         slot.hardware_playing = 0u;
+        slot.pan = saturn::hal::scsp::encode_pan(SAT_AUDIO_PAN_CENTER);
         out_stream->slot = i;
         out_stream->generation = slot.generation;
         return SAT_OK;
@@ -191,6 +192,22 @@ extern "C" sat_result_t sat_audio_stream_resume(sat_audio_stream_t stream) {
     AudioStreamSlot* slot = audio_stream_resolve(g_audio_streams, stream);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
     slot->ring.paused = 0u;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_audio_stream_set_pan(sat_audio_stream_t stream, int16_t pan) {
+    using namespace saturn::core;
+    if (sat_audio_is_initialized() == 0u) return SAT_ERR_NOT_INITIALIZED;
+    AudioStreamSlot* slot = audio_stream_resolve(g_audio_streams, stream);
+    if (slot == nullptr) return SAT_ERR_INVALID_ARG;
+    if (pan < SAT_AUDIO_PAN_LEFT) pan = SAT_AUDIO_PAN_LEFT;
+    if (pan > SAT_AUDIO_PAN_RIGHT) pan = SAT_AUDIO_PAN_RIGHT;
+    // Streams run at full level; only the placement changes.  Keep the value
+    // in the stream state too: every chunk is configured afresh before it is
+    // keyed on, so a direct register write alone would be lost at refill.
+    slot->pan = saturn::hal::scsp::encode_pan(pan);
+    saturn::hal::scsp::set_slot_level_pan(
+        slot->scsp_slot, 0u, 7u, slot->pan);
     return SAT_OK;
 }
 

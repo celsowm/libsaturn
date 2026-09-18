@@ -12,6 +12,7 @@
 namespace {
 int16_t g_samples[4096] = {};
 bool g_physical = false;
+bool g_stereo = false;
 }
 
 extern "C" uint8_t sat_audio_is_initialized(void) {
@@ -33,8 +34,8 @@ extern "C" sat_result_t sat_asset_info(sat_asset_t asset, sat_asset_info_t* out_
     out_info->source_path = asset.slot == 1u ? "MUSIC/THEME.S16" : nullptr;
     out_info->size = sizeof(g_samples);
     out_info->sample_rate = 22050u;
-    out_info->sample_count = 4096u;
-    out_info->channels = 1u;
+    out_info->sample_count = g_stereo ? 2048u : 4096u;
+    out_info->channels = g_stereo ? 2u : 1u;
     out_info->format = SAT_AUDIO_PCM_S16;
     return SAT_OK;
 }
@@ -58,6 +59,7 @@ bool configure_slot(uint8_t, const SlotConfig&) { return true; }
 void key_on(uint8_t) {}
 void key_off(uint8_t) {}
 uint8_t encode_pan(int16_t) { return 0u; }
+void set_slot_level_pan(uint8_t, uint8_t, uint8_t, uint8_t) {}
 
 }  // namespace saturn::hal::scsp
 
@@ -72,7 +74,7 @@ int main() {
     sat_audio_stream_stats_t stats{};
     OK(sat_music_stats(music, &stats) == SAT_OK && stats.buffered_frames == 2048u);
     saturn::core::audio_stream_service(saturn::core::g_audio_streams, 0u);
-    OK(sat_music_stats(music, &stats) == SAT_OK && stats.consumed_frames == 1024u &&
+    OK(sat_music_stats(music, &stats) == SAT_OK && stats.consumed_frames == 1470u &&
        stats.refill_count == 1u);
     OK(sat_music_update(music) == SAT_OK);
     OK(sat_music_pause(music) == SAT_OK && sat_music_is_playing(music) == 0u);
@@ -87,6 +89,19 @@ int main() {
     OK(sat_music_play(physical) == SAT_OK);
     OK(sat_music_stats(physical, &stats) == SAT_OK && stats.buffered_frames == 2048u);
     OK(sat_music_close(physical) == SAT_OK);
+    g_stereo = true;
+    sat_music_t stereo{};
+    OK(sat_music_open(&stereo, "music/cd-stereo.satstream") == SAT_OK);
+    OK(sat_music_info(stereo, &info) == SAT_OK && info.channels == 2u &&
+       info.sample_count == 2048u);
+    OK(sat_music_play(stereo) == SAT_OK && sat_music_is_playing(stereo) != 0u);
+    OK(sat_music_stats(stereo, &stats) == SAT_OK && stats.buffered_frames == 2048u);
+    saturn::core::audio_stream_service(saturn::core::g_audio_streams, 200u);
+    OK(sat_music_stats(stereo, &stats) == SAT_OK && stats.consumed_frames == 1470u &&
+       stats.refill_count == 2u);
+    OK(sat_music_update(stereo) == SAT_OK);
+    OK(sat_music_stop(stereo) == SAT_OK && sat_music_is_playing(stereo) == 0u);
+    OK(sat_music_close(stereo) == SAT_OK);
     std::puts("music api: OK");
     return 0;
 }

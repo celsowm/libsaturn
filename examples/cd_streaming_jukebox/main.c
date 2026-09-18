@@ -83,8 +83,8 @@ static sat_result_t register_cd_tracks(void) {
         asset.source_path = g_tracks[i].source_path;
         asset.size = g_sources[i].file.size;
         asset.sample_rate = CD_JUKEBOX_SAMPLE_RATE;
-        asset.sample_count = asset.size / 2u;
-        asset.channels = 1u;
+        asset.sample_count = asset.size / (2u * CD_JUKEBOX_CHANNELS);
+        asset.channels = CD_JUKEBOX_CHANNELS;
         asset.format = SAT_AUDIO_PCM_S16;
         asset.kind = SAT_ASSET_STREAM;
         status = sat_asset_register(&asset, &(sat_asset_t){0});

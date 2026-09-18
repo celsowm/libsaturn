@@ -142,6 +142,10 @@ uint32_t sat_audio_stream_buffered(sat_audio_stream_t stream);
 sat_result_t sat_audio_stream_pause(sat_audio_stream_t stream);
 sat_result_t sat_audio_stream_resume(sat_audio_stream_t stream);
 sat_result_t sat_audio_stream_flush(sat_audio_stream_t stream);
+/* Stereo placement of a mono stream. `pan` spans SAT_AUDIO_PAN_LEFT (-15)
+ * through SAT_AUDIO_PAN_RIGHT (15); streams open centered. Used by the stereo
+ * music runtime to place its left/right channel streams. */
+sat_result_t sat_audio_stream_set_pan(sat_audio_stream_t stream, int16_t pan);
 sat_result_t sat_audio_stream_close(sat_audio_stream_t stream);
 sat_result_t sat_audio_stream_stats(
     sat_audio_stream_t stream,
