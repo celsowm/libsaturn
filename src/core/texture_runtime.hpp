@@ -41,6 +41,12 @@ struct TextureRegistry {
 
 extern TextureRegistry g_texture_registry;
 
+inline void texture_unlink_region(
+    TextureRegistry& registry,
+    sat_texture_t owner,
+    TextureRegionRecord& region
+);
+
 inline uint16_t next_texture_generation(uint16_t generation) {
     ++generation;
     return generation == 0u ? 1u : generation;
