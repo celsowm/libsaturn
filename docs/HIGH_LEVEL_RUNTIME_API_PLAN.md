@@ -784,6 +784,23 @@ Phase gate: measure/draw consistency, multiple glyph widths, clipping, scale, mi
 
 # Phase 8 — High-level audio: sounds and streams
 
+### Implementation status — 2026-09-17
+
+Implemented on `main` as the first streaming subphase:
+
+- caller-owned fixed PCM ring buffers with generation-checked stream handles;
+- deterministic four-stream capacity and all-or-nothing overrun rejection;
+- mono PCM S8/S16 validation, buffered/available queries, pause/resume, flush,
+  close, and fill/underrun/overrun diagnostics;
+- no runtime heap allocation or hidden backing-buffer fallback;
+- host coverage for wraparound, ordering, underrun accounting, slot exhaustion,
+  stale handles, rejected writes, and lifecycle operations;
+- SH-2 cross-build and Ymir execution of the existing `audio_showcase` example.
+
+This subphase intentionally stops at the CPU-side producer/consumer ring. The
+SCSP refill/consumption scheduler and audible streamed-music backend remain open;
+the API does not claim playback semantics until that hardware path is measured.
+
 Build a native layer above raw SCSP concepts.
 
 ## 8.1 Streaming primitive

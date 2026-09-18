@@ -511,6 +511,17 @@ Avoid per-sample SH-2 mixing when the SCSP can do the job.
 
 # Phase 7 — Generic PCM streaming core
 
+### Implementation status — 2026-09-17
+
+The caller-owned CPU-side ring-buffer core is implemented in LibSaturn with
+fixed stream slots, generation-safe handles, mono PCM S8/S16 validation,
+deterministic rejected writes, pause/resume/flush, and diagnostics. Host tests
+cover wraparound and public lifecycle behavior.
+
+The SCSP refill/consumption scheduler is deliberately still open. This phase
+must not be called complete until the ring is connected to measured SCSP
+playback and the long-run, starvation, and pause/resume gates below pass.
+
 This is the primitive for long PCM music, procedural audio, SDL queued audio, and raylib streams.
 
 Conceptual configuration:

@@ -1,6 +1,7 @@
 #include "saturn/audio.h"
 
 #include "saturn/video.h"
+#include "src/core/audio_stream_runtime.hpp"
 #include "src/hal/scsp.hpp"
 
 namespace {
@@ -192,6 +193,7 @@ void reset_runtime_state() {
 
 extern "C" sat_result_t sat_audio_init(void) {
     if (g_initialized != 0u) return SAT_OK;
+    saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     reset_runtime_state();
     if (!saturn::hal::scsp::init()) return SAT_ERR_NOT_INITIALIZED;
     g_initialized = 1u;
@@ -201,6 +203,7 @@ extern "C" sat_result_t sat_audio_init(void) {
 extern "C" sat_result_t sat_audio_shutdown(void) {
     if (g_initialized == 0u) return SAT_OK;
     saturn::hal::scsp::shutdown();
+    saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     reset_runtime_state();
     g_initialized = 0u;
     return SAT_OK;

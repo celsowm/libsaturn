@@ -28,6 +28,31 @@ typedef struct sat_voice {
     uint16_t generation;
 } sat_voice_t;
 
+typedef struct sat_audio_spec {
+    uint32_t sample_rate;
+    uint32_t buffer_frames;
+    uint8_t channels;
+    uint8_t format;
+    uint16_t reserved;
+} sat_audio_spec_t;
+
+typedef struct sat_audio_stream {
+    uint16_t slot;
+    uint16_t generation;
+} sat_audio_stream_t;
+
+typedef struct sat_audio_stream_stats {
+    uint32_t buffered_frames;
+    uint32_t capacity_frames;
+    uint32_t underrun_count;
+    uint32_t rejected_write_count;
+    uint32_t minimum_fill;
+    uint32_t maximum_fill;
+    uint8_t paused;
+    uint8_t reserved0;
+    uint16_t reserved1;
+} sat_audio_stream_stats_t;
+
 typedef struct sat_sound_desc {
     const void* samples;
     uint32_t sample_count;
@@ -77,6 +102,32 @@ sat_result_t sat_voice_stop(sat_voice_t voice);
 sat_result_t sat_voice_set_volume(sat_voice_t voice, uint16_t volume);
 sat_result_t sat_voice_set_pan(sat_voice_t voice, int16_t pan);
 uint8_t sat_voice_is_playing(sat_voice_t voice);
+
+/* Generic caller-backed PCM producer/consumer stream. The first runtime
+ * implementation accepts mono PCM_S8/PCM_S16. `buffer` remains owned by the
+ * caller and must stay valid until close. No audio API allocates a fallback
+ * buffer. A write is all-or-nothing when the ring lacks free frames. */
+sat_result_t sat_audio_stream_open(
+    sat_audio_stream_t* out_stream,
+    const sat_audio_spec_t* spec,
+    void* buffer,
+    uint32_t buffer_bytes
+);
+sat_result_t sat_audio_stream_write(
+    sat_audio_stream_t stream,
+    const void* frames,
+    uint32_t frame_count
+);
+uint32_t sat_audio_stream_available(sat_audio_stream_t stream);
+uint32_t sat_audio_stream_buffered(sat_audio_stream_t stream);
+sat_result_t sat_audio_stream_pause(sat_audio_stream_t stream);
+sat_result_t sat_audio_stream_resume(sat_audio_stream_t stream);
+sat_result_t sat_audio_stream_flush(sat_audio_stream_t stream);
+sat_result_t sat_audio_stream_close(sat_audio_stream_t stream);
+sat_result_t sat_audio_stream_stats(
+    sat_audio_stream_t stream,
+    sat_audio_stream_stats_t* out_stats
+);
 
 #ifdef __cplusplus
 }

@@ -371,6 +371,8 @@ HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(BUILD_DIR)/tests/%,$(HOST_TEST_S
 # List such extra sources per test name here.
 HOST_TEST_EXTRA_test_font_logic := src/core/font_api.cpp
 HOST_TEST_EXTRA_test_font_text_logic :=
+HOST_TEST_EXTRA_test_audio_stream_logic :=
+HOST_TEST_EXTRA_test_audio_stream_api := src/core/audio_stream_api.cpp src/core/audio_stream_runtime.cpp
 HOST_TEST_EXTRA_test_math3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_render3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_mesh3d_logic := src/core/math3d_api.cpp
