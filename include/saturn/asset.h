@@ -29,6 +29,8 @@ typedef struct sat_asset {
 
 typedef struct sat_asset_desc {
     const char* logical_path;
+    /* Optional physical/runtime source path for a non-embedded payload. */
+    const char* source_path;
     const void* data;
     uint32_t size;
     uint32_t pitch;
@@ -50,6 +52,7 @@ typedef struct sat_asset_desc {
 
 typedef struct sat_asset_info {
     sat_asset_kind_t kind;
+    const char* source_path;
     const void* data;
     uint32_t size;
     uint32_t pitch;

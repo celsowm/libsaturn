@@ -872,6 +872,8 @@ Implemented as the initial read-only VFS/registry subphase:
   sounds, and baked font atlases;
 - deterministic host manifest generation with normalized paths, sorted entries,
   physical payload metadata, and optional SHA-256 enrichment;
+- deterministic C registry generation for embedded symbols and physical source
+  paths, with no runtime allocation or dynamic lookup table;
 - sector-device callback, ISO9660 Primary Volume Descriptor mount, bounded
   directory lookup, file reads, and VFS registration through a CDFS `read_at`
   adapter;
@@ -879,11 +881,12 @@ Implemented as the initial read-only VFS/registry subphase:
   stale handles, backend reads, asset metadata lookup, and typed texture/data
   loading.
 
-The physical Saturn CD Block driver and generated compiled registration that
-consumes the manifest remain open. The current sector layer is a strict
-caller-owned transport boundary; it does not pretend to be a hardware driver.
-The manifest tool currently emits a deterministic JSON registry for the build
-pipeline.
+The physical Saturn CD Block driver and transparent CD-backed asset refill
+remain open. The current sector layer is a strict caller-owned transport
+boundary; it does not pretend to be a hardware driver. The host pipeline now
+emits both the deterministic JSON manifest and an optional C registration unit;
+physical entries preserve their source path and remain non-resident until a
+transport backend is attached.
 
 This phase is critical for real source ports.
 
@@ -948,11 +951,13 @@ optional hash/version
 
 Lookup must be bounded and deterministic. Do not require a runtime dynamic hash table unless a fixed implementation is explicitly provisioned.
 
-The first host implementation is `tools/generate_asset_manifest.py`. It accepts
-a declarative JSON asset list, normalizes logical/physical paths, rejects
-duplicates and traversal, sorts by logical path, and can add payload size and
-SHA-256 values with `--root`. A later CD packaging step can consume the same
-schema without changing source-facing logical names.
+The host implementation is `tools/generate_asset_manifest.py` plus
+`tools/generate_asset_registry.py`. They accept a declarative JSON asset list,
+normalize logical/physical paths, reject duplicates and traversal, sort by
+logical path, and can add payload size and SHA-256 values with `--root`. The
+registry generator emits a bounded `sat_asset_register_*` function for
+embedded symbols and physical source-path metadata. A later CD packaging step
+can consume the same schema without changing source-facing logical names.
 
 ## 9.4 Explicit raw-file escape hatch
 

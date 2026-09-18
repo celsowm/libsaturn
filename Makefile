@@ -364,6 +364,7 @@ HOST_CXX       ?= g++
 HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -I.
 HOST_TEST_SRCS := $(wildcard tests/host/*.cpp)
 HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(BUILD_DIR)/tests/%,$(HOST_TEST_SRCS))
+HOST_TOOL_TESTS := $(wildcard tests/tools/*.py)
 
 # Some host tests exercise logic that lives in a library .cpp file rather than
 # a header (e.g. font glyph tables), and stub out that file's hardware calls
@@ -404,6 +405,10 @@ test: $(HOST_TEST_BINS)
 	done; \
 	if [ $$fail -ne 0 ]; then echo "[test] FAILED"; exit 1; fi; \
 	echo "[test] all host tests passed"
+	@for t in $(HOST_TOOL_TESTS); do \
+		echo "[test] $$t"; \
+		$(PYTHON) $$t || exit 1; \
+	done
 
 # -- Alvos utilitarios ------------------------------------------
 list-examples:

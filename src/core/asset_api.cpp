@@ -12,7 +12,8 @@ extern "C" sat_result_t sat_asset_register(
     sat_asset_t* out_asset
 ) {
     if (desc == nullptr || out_asset == nullptr || desc->logical_path == nullptr ||
-        (desc->data == nullptr && desc->size != 0u)) return SAT_ERR_INVALID_ARG;
+        (desc->data == nullptr && desc->source_path == nullptr && desc->size != 0u) ||
+        (desc->data != nullptr && desc->source_path != nullptr)) return SAT_ERR_INVALID_ARG;
     char normalized[SAT_FILE_PATH_MAX] = {};
     SAT_TRY(saturn::core::normalize_path(desc->logical_path, normalized, SAT_FILE_PATH_MAX));
     using namespace saturn::core;
@@ -30,6 +31,7 @@ extern "C" sat_result_t sat_asset_register(
         }
         entry.path[j] = '\0';
         entry.info.kind = desc->kind;
+        entry.info.source_path = desc->source_path;
         entry.info.data = desc->data;
         entry.info.size = desc->size;
         entry.info.pitch = desc->pitch;
@@ -121,6 +123,7 @@ extern "C" sat_result_t sat_asset_load_data(
     sat_asset_info_t info{};
     SAT_TRY(lookup_asset(logical_path, &info));
     if (info.kind != SAT_ASSET_DATA) return SAT_ERR_UNSUPPORTED;
+    if (info.source_path != nullptr) return SAT_ERR_IO;
     if (info.data == nullptr && info.size != 0u) return SAT_ERR_IO;
     *out_data = info.data;
     *out_size = info.size;
