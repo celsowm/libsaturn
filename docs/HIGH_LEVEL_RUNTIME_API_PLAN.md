@@ -663,6 +663,21 @@ Phase gate: cache hits, cross-texture isolation, generation reuse, dynamic inval
 
 # Phase 6 — Input ports and event abstraction
 
+### Implementation status — 2026-09-17
+
+Implemented on `main`:
+
+- two physical controller ports with shared polling snapshots;
+- bounded 32-event ring buffer with deterministic drop-oldest overflow;
+- connection/disconnection, button-down/up, and reserved axis event vocabulary;
+- stable event ordering generated from the same samples returned by polling;
+- capacity, overflow, invalid-port, I/O, and polling/event consistency tests.
+
+The current Saturn digital-pad HAL does not expose analog axes, so `SAT_EVENT_AXIS`
+is a vocabulary value only until an axis-capable device is supported.
+
+The Phase 6 gate is complete.
+
 Extend current `held / pressed / released` polling rather than replacing it.
 
 ## 6.1 Multi-port input
@@ -706,6 +721,27 @@ Phase gate: two-pad tests, press/release ordering, overflow, connection state, a
 ---
 
 # Phase 7 — High-level fonts and text
+
+### Implementation status — 2026-09-17
+
+Implemented on `main`:
+
+- caller-owned `sat_font_t` views over a logical atlas texture and baked glyph metrics;
+- explicit fallback-glyph or `SAT_ERR_NOT_FOUND` missing-glyph policy;
+- validated UTF-8 scalar decoding, newline handling, and carriage-return handling;
+- fixed-point text scaling, tint/blend forwarding, measurement, and draw APIs;
+- explicit `sat_font_prepare` region prewarming through the native texture cache;
+- host coverage for glyph lookup, fallback, UTF-8 validation, multiline metrics, and scaling.
+
+Runtime font data remains offline-baked. The glyph table and atlas lifetime remain
+the caller's responsibility; no font API allocates or parses TTF/OTF data at runtime.
+
+`examples/hello_world` now exercises the native baked-atlas path end to end:
+caller-owned atlas pixels and metrics, logical texture creation, explicit
+region prewarming, measurement, and `sat_text_draw`.
+
+The Phase 7 gate is complete. The next planned phase is the high-level audio
+streaming layer in Phase 8.
 
 Raylib-style ports commonly expect text to be a basic runtime primitive. LibSaturn already has font support; evolve it rather than building a parallel subsystem.
 

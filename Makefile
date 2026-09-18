@@ -346,8 +346,7 @@ $(ISO): $(BIN)
 	@cp $(IP_TEMPLATE) $(ISO_ROOT)/IP.BIN
 	$(MKISOFS) -quiet -sysid "SEGA SATURN" -volid "LIBSATURN" \
 		-volset "LIBSATURN" -publisher "LIBSATURN" -preparer "LIBSATURN" \
-		-application "LIBSATURN" -abstract "LIBSATURN" -copyright "LIBSATURN" \
-		-biblio "LIBSATURN" -G $(IP_TEMPLATE) -full-iso9660-filenames \
+		-A "LIBSATURN" -G $(IP_TEMPLATE) -full-iso9660-filenames \
 		-o $@ $(ISO_ROOT)
 
 # -- CUE --------------------------------------------------------
@@ -371,6 +370,7 @@ HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(BUILD_DIR)/tests/%,$(HOST_TEST_S
 # themselves (see the extern "C" stubs at the top of test_font_logic.cpp).
 # List such extra sources per test name here.
 HOST_TEST_EXTRA_test_font_logic := src/core/font_api.cpp
+HOST_TEST_EXTRA_test_font_text_logic :=
 HOST_TEST_EXTRA_test_math3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_render3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_mesh3d_logic := src/core/math3d_api.cpp

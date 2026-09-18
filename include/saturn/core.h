@@ -24,7 +24,9 @@ typedef enum sat_result {
     SAT_ERR_NOT_INITIALIZED = -2,
     SAT_ERR_CAPACITY = -3,
     SAT_ERR_UNSUPPORTED = -4,
-    SAT_ERR_IO = -5
+    SAT_ERR_IO = -5,
+    /* The requested logical object or glyph is not present. */
+    SAT_ERR_NOT_FOUND = -6
 } sat_result_t;
 
 /* ------------------------------------------------------------------ */
