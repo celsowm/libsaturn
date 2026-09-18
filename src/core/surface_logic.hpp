@@ -434,11 +434,7 @@ inline sat_result_t blit(
 
     if (destination->format == SAT_PIXEL_INDEX8 && source->format == SAT_PIXEL_INDEX8) {
         uint8_t remap[256]{};
-        for (uint16_t i = 0u; i < source->palette_count; ++i) {
-            const sat_color_t color = decode_rgb555(source->palette_rgb555[i]);
-            const sat_result_t result = palette_index_for_color(destination, color, &remap[i]);
-            if (result != SAT_OK) return result;
-        }
+        uint8_t mapped[32]{};
         for (int32_t y = 0; y < region.height; ++y) {
             const uint8_t* src = pixel_ptr(source, static_cast<uint16_t>(region.sx),
                                            static_cast<uint16_t>(region.sy + y));
@@ -447,6 +443,15 @@ inline sat_result_t blit(
             for (int32_t x = 0; x < region.width; ++x) {
                 const uint8_t source_index = src[x];
                 if (source_index >= source->palette_count) return SAT_ERR_INVALID_ARG;
+                const uint8_t bit = static_cast<uint8_t>(1u << (source_index & 7u));
+                uint8_t& flags = mapped[source_index >> 3u];
+                if ((flags & bit) == 0u) {
+                    const sat_color_t color = decode_rgb555(source->palette_rgb555[source_index]);
+                    const sat_result_t result =
+                        palette_index_for_color(destination, color, &remap[source_index]);
+                    if (result != SAT_OK) return result;
+                    flags = static_cast<uint8_t>(flags | bit);
+                }
                 dst[x] = remap[source_index];
             }
         }
