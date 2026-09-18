@@ -5,31 +5,9 @@
 
 #include "saturn/collide3d.h"
 #include "src/core/collide3d_logic.hpp"
+#include "src/core/spatial3_hash.hpp"
 
 namespace saturn::core::collide3d {
-
-inline bool mesh3_grid_power_of_two(uint16_t value) {
-    return value != 0u && (value & static_cast<uint16_t>(value - 1u)) == 0u;
-}
-
-inline int32_t mesh3_grid_cell(int64_t raw, uint8_t shift) {
-    const int64_t size = static_cast<int64_t>(1) << (16u + shift);
-    if (raw >= 0) return static_cast<int32_t>(raw / size);
-    return static_cast<int32_t>(-(((-raw) + size - 1) / size));
-}
-
-inline uint16_t mesh3_grid_bucket(
-    const sat_mesh3_grid_t& grid,
-    int32_t x,
-    int32_t y,
-    int32_t z
-) {
-    uint32_t h = static_cast<uint32_t>(x) * 73856093u;
-    h ^= static_cast<uint32_t>(y) * 19349663u;
-    h ^= static_cast<uint32_t>(z) * 83492791u;
-    h ^= h >> 16u;
-    return static_cast<uint16_t>(h & static_cast<uint32_t>(grid.bucket_count - 1u));
-}
 
 inline void quad_bounds_raw(
     const sat_quad3_t& q,
@@ -40,9 +18,12 @@ inline void quad_bounds_raw(
     miny = maxy = q.v[0].y;
     minz = maxz = q.v[0].z;
     for (int i = 1; i < 4; ++i) {
-        if (q.v[i].x < minx) minx = q.v[i].x; if (q.v[i].x > maxx) maxx = q.v[i].x;
-        if (q.v[i].y < miny) miny = q.v[i].y; if (q.v[i].y > maxy) maxy = q.v[i].y;
-        if (q.v[i].z < minz) minz = q.v[i].z; if (q.v[i].z > maxz) maxz = q.v[i].z;
+        if (q.v[i].x < minx) minx = q.v[i].x;
+        if (q.v[i].x > maxx) maxx = q.v[i].x;
+        if (q.v[i].y < miny) miny = q.v[i].y;
+        if (q.v[i].y > maxy) maxy = q.v[i].y;
+        if (q.v[i].z < minz) minz = q.v[i].z;
+        if (q.v[i].z > maxz) maxz = q.v[i].z;
     }
 }
 
@@ -54,14 +35,18 @@ inline void mesh3_grid_face_cells(
 ) {
     int64_t minx, miny, minz, maxx, maxy, maxz;
     quad_bounds_raw(q, minx, miny, minz, maxx, maxy, maxz);
-    x0 = mesh3_grid_cell(minx, shift); y0 = mesh3_grid_cell(miny, shift); z0 = mesh3_grid_cell(minz, shift);
-    x1 = mesh3_grid_cell(maxx, shift); y1 = mesh3_grid_cell(maxy, shift); z1 = mesh3_grid_cell(maxz, shift);
+    x0 = saturn::core::spatial3_hash::cell(minx, shift);
+    y0 = saturn::core::spatial3_hash::cell(miny, shift);
+    z0 = saturn::core::spatial3_hash::cell(minz, shift);
+    x1 = saturn::core::spatial3_hash::cell(maxx, shift);
+    y1 = saturn::core::spatial3_hash::cell(maxy, shift);
+    z1 = saturn::core::spatial3_hash::cell(maxz, shift);
 }
 
 inline bool mesh3_grid_valid(const sat_mesh3_grid_t* grid) {
     return grid != nullptr && grid->mesh != nullptr && grid->heads != nullptr &&
            grid->entries != nullptr && grid->stamps != nullptr &&
-           mesh3_grid_power_of_two(grid->bucket_count) &&
+           saturn::core::spatial3_hash::power_of_two(grid->bucket_count) &&
            grid->stamp_cap >= grid->mesh->face_count;
 }
 
@@ -79,21 +64,21 @@ inline sat_result_t mesh3_grid_init(
     if (heads == nullptr || entries == nullptr || stamps == nullptr ||
         mesh.vertices == nullptr || mesh.indices == nullptr ||
         mesh.face_count == 0u || entry_cap == 0u ||
-        !mesh3_grid_power_of_two(bucket_count) || cell_shift > 15u ||
-        stamp_cap < mesh.face_count) {
+        !saturn::core::spatial3_hash::power_of_two(bucket_count) ||
+        cell_shift > 15u || stamp_cap < mesh.face_count) {
         return SAT_ERR_INVALID_ARG;
     }
 
     uint64_t required = 0u;
     for (uint16_t face = 0; face < mesh.face_count; ++face) {
         sat_quad3_t q;
-        if (saturn::core::mesh3d::face_quad(&mesh, face, &q) != SAT_OK) return SAT_ERR_INVALID_ARG;
+        if (saturn::core::mesh3d::face_quad(&mesh, face, &q) != SAT_OK) {
+            return SAT_ERR_INVALID_ARG;
+        }
         int32_t x0, y0, z0, x1, y1, z1;
         mesh3_grid_face_cells(q, cell_shift, x0, y0, z0, x1, y1, z1);
-        const uint64_t nx = static_cast<uint64_t>(static_cast<int64_t>(x1) - x0 + 1);
-        const uint64_t ny = static_cast<uint64_t>(static_cast<int64_t>(y1) - y0 + 1);
-        const uint64_t nz = static_cast<uint64_t>(static_cast<int64_t>(z1) - z0 + 1);
-        required += nx * ny * nz;
+        required += saturn::core::spatial3_hash::cell_count(
+            x0, y0, z0, x1, y1, z1);
         if (required > entry_cap) return SAT_ERR_CAPACITY;
     }
 
@@ -118,10 +103,14 @@ inline sat_result_t mesh3_grid_init(
         for (int32_t z = z0; z <= z1; ++z) {
             for (int32_t y = y0; y <= y1; ++y) {
                 for (int32_t x = x0; x <= x1; ++x) {
-                    const uint16_t bucket = mesh3_grid_bucket(grid, x, y, z);
+                    const uint16_t bucket = saturn::core::spatial3_hash::bucket(
+                        grid.bucket_count, x, y, z);
                     sat_mesh3_grid_entry_t& e = entries[grid.entry_count];
-                    e.cell_x = x; e.cell_y = y; e.cell_z = z;
-                    e.face = face; e.next = heads[bucket];
+                    e.cell_x = x;
+                    e.cell_y = y;
+                    e.cell_z = z;
+                    e.face = face;
+                    e.next = heads[bucket];
                     heads[bucket] = grid.entry_count++;
                 }
             }
@@ -147,18 +136,25 @@ inline sat_result_t sphere_mesh_grid(
         grid.query_stamp = 1u;
     }
 
-    const int32_t x0 = mesh3_grid_cell(static_cast<int64_t>(sphere.center.x) - sphere.radius, grid.cell_shift);
-    const int32_t y0 = mesh3_grid_cell(static_cast<int64_t>(sphere.center.y) - sphere.radius, grid.cell_shift);
-    const int32_t z0 = mesh3_grid_cell(static_cast<int64_t>(sphere.center.z) - sphere.radius, grid.cell_shift);
-    const int32_t x1 = mesh3_grid_cell(static_cast<int64_t>(sphere.center.x) + sphere.radius, grid.cell_shift);
-    const int32_t y1 = mesh3_grid_cell(static_cast<int64_t>(sphere.center.y) + sphere.radius, grid.cell_shift);
-    const int32_t z1 = mesh3_grid_cell(static_cast<int64_t>(sphere.center.z) + sphere.radius, grid.cell_shift);
+    const int32_t x0 = saturn::core::spatial3_hash::cell(
+        static_cast<int64_t>(sphere.center.x) - sphere.radius, grid.cell_shift);
+    const int32_t y0 = saturn::core::spatial3_hash::cell(
+        static_cast<int64_t>(sphere.center.y) - sphere.radius, grid.cell_shift);
+    const int32_t z0 = saturn::core::spatial3_hash::cell(
+        static_cast<int64_t>(sphere.center.z) - sphere.radius, grid.cell_shift);
+    const int32_t x1 = saturn::core::spatial3_hash::cell(
+        static_cast<int64_t>(sphere.center.x) + sphere.radius, grid.cell_shift);
+    const int32_t y1 = saturn::core::spatial3_hash::cell(
+        static_cast<int64_t>(sphere.center.y) + sphere.radius, grid.cell_shift);
+    const int32_t z1 = saturn::core::spatial3_hash::cell(
+        static_cast<int64_t>(sphere.center.z) + sphere.radius, grid.cell_shift);
 
     sat_result_t result = SAT_OK;
     for (int32_t z = z0; z <= z1; ++z) {
         for (int32_t y = y0; y <= y1; ++y) {
             for (int32_t x = x0; x <= x1; ++x) {
-                const uint16_t bucket = mesh3_grid_bucket(grid, x, y, z);
+                const uint16_t bucket = saturn::core::spatial3_hash::bucket(
+                    grid.bucket_count, x, y, z);
                 for (uint16_t ei = grid.heads[bucket];
                      ei != SAT_MESH3_GRID_EMPTY;
                      ei = grid.entries[ei].next) {
@@ -171,7 +167,10 @@ inline sat_result_t sphere_mesh_grid(
                     if (saturn::core::mesh3d::face_quad(grid.mesh, e.face, &q) != SAT_OK) continue;
                     sat_contact3_t c;
                     if (!sphere_quad_contact(q, sphere, c)) continue;
-                    if (count >= cap) { result = SAT_ERR_CAPACITY; continue; }
+                    if (count >= cap) {
+                        result = SAT_ERR_CAPACITY;
+                        continue;
+                    }
                     out[count++] = c;
                 }
             }

@@ -1,6 +1,8 @@
 #include "saturn/collide3d.h"
+#include "saturn/spatial3.h"
 #include "src/core/collide3d_logic.hpp"
 #include "src/core/mesh3d_collision_grid.hpp"
+#include "src/core/spatial3_logic.hpp"
 
 using namespace saturn::core::collide3d;
 extern "C" int sat_sphere_overlap(const sat_sphere_t*a,const sat_sphere_t*b){return a&&b&&a->radius>=0&&b->radius>=0&&sphere_overlap(*a,*b);}
@@ -55,6 +57,37 @@ extern "C" sat_result_t sat_body3_collide_aabbs(sat_body3_t*b,const sat_aabb3_t*
         for (int it=0;it<3;++it) {
             int hit=0;
             for (uint16_t i=0;i<count;++i) { sat_contact3_t c; if (sphere_box_contact(b->shape,boxes[i],c)) { body_contact(*b,c,p); hit=1; } }
+            if (!hit) break;
+        }
+    }
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_body3_collide_spatial_aabbs(
+    sat_body3_t* b, sat_spatial3_t* spatial
+) {
+    if (!b || b->shape.radius < 0 || !saturn::core::spatial3::valid(spatial)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    sat_body3_params_t p = {{0,0,0},0,0,SAT_FX16_ONE,SAT_FX16_ONE};
+    const sat_fx16_t l = fx_len3(b->vel.x,b->vel.y,b->vel.z);
+    const uint16_t steps = (b->shape.radius && l > b->shape.radius)
+        ? static_cast<uint16_t>((l+b->shape.radius-1)/b->shape.radius) : 1;
+    const sat_vec3_t d = mul(b->vel,static_cast<sat_fx16_t>(SAT_FX16_ONE/steps));
+    for (uint16_t s=0;s<steps;++s) {
+        b->shape.center = add(b->shape.center,d);
+        for (int it=0;it<3;++it) {
+            const sat_fx16_t r = b->shape.radius;
+            const sat_aabb3_t query = {b->shape.center,{r,r,r}};
+            int hit = 0;
+            const sat_result_t st = saturn::core::spatial3::query_each(
+                *spatial, query, [&](uint16_t id) {
+                    sat_contact3_t c;
+                    if (sphere_box_contact(b->shape, spatial->items[id], c)) {
+                        body_contact(*b, c, p);
+                        hit = 1;
+                    }
+                });
+            if (st != SAT_OK) return st;
             if (!hit) break;
         }
     }

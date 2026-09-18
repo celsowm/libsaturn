@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 
+struct sat_spatial3;
+
 /* Allocation-free 3D collision helpers. Y is up, matching math3d.h. All
  * squared distances use int64 raw fixed-point products; square roots happen
  * only when a contact or hit point needs a length. */
@@ -96,6 +98,9 @@ typedef struct sat_body3_params {
 } sat_body3_params_t;
 void sat_body3_step(sat_body3_t*, const sat_body3_params_t*);
 sat_result_t sat_body3_collide_aabbs(sat_body3_t*, const sat_aabb3_t*, uint16_t count);
+/* Accelerated AABB path. The spatial grid contains the same boxes and narrows
+ * each solver iteration to local candidates; candidate order is unspecified. */
+sat_result_t sat_body3_collide_spatial_aabbs(sat_body3_t*, struct sat_spatial3*);
 sat_result_t sat_body3_collide_mesh(sat_body3_t*, const sat_mesh_t*);
 /* Accelerated static-mesh path. Complexity depends on locally occupied grid
  * cells/candidates rather than scanning every mesh face per substep. */

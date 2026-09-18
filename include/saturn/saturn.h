@@ -29,6 +29,7 @@
 #include "saturn/spatial.h"
 #include "saturn/physics.h"
 #include "saturn/collide3d.h"
+#include "saturn/spatial3.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp1_color_calc.h"
 #include "saturn/vdp2.h"
