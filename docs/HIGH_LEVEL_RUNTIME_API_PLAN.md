@@ -870,13 +870,18 @@ Implemented as the initial read-only VFS/registry subphase:
   sounds, and baked font atlases;
 - deterministic host manifest generation with normalized paths, sorted entries,
   physical payload metadata, and optional SHA-256 enrichment;
+- sector-device callback, ISO9660 Primary Volume Descriptor mount, bounded
+  directory lookup, file reads, and VFS registration through a CDFS `read_at`
+  adapter;
 - host coverage for normalization, partial reads, seeking, missing paths,
   stale handles, backend reads, asset metadata lookup, and typed texture/data
   loading.
 
-The CD/file transport adapter and generated compiled registration that consumes
-the manifest remain open. The manifest tool currently emits a deterministic
-JSON registry for the build pipeline; it does not perform runtime CD I/O.
+The physical Saturn CD Block driver and generated compiled registration that
+consumes the manifest remain open. The current sector layer is a strict
+caller-owned transport boundary; it does not pretend to be a hardware driver.
+The manifest tool currently emits a deterministic JSON registry for the build
+pipeline.
 
 This phase is critical for real source ports.
 
@@ -901,6 +906,7 @@ Requirements:
 - streaming reads;
 - documented path normalization/case behavior;
 - optional caller-owned `read_at` transport for CD or other storage backends;
+- sector-device and ISO9660/CDFS layers can be attached through that transport;
 - backend-specific CD APIs stay separate.
 
 ## 9.2 Logical asset paths

@@ -115,7 +115,7 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | SCSP synthesis / envelopes / LFO | **NOT EXPOSED** | Public audio API is centered on PCM voices. | Hardware envelope generators, LFO/modulation and richer slot synthesis. | `include/saturn/audio.h` |
 | 68000 sound CPU | **NOT EXPOSED** | Sound CPU can be switched by the SMPC HAL, but there is no resident sound-driver framework. | 68k driver loading, command queues, independent music/SFX scheduling and streaming coordination. | `src/hal/smpc.*` |
 | CD Block runtime I/O | **NOT EXPOSED** | ISO images are produced by the build, but no first-class runtime CD Block API is exposed. | Sector reads, command layer, asynchronous I/O, seek/read scheduling and error handling. | Build pipeline exists; no public CD runtime header. |
-| CDFS / VFS | **PARTIAL** | Read-only logical paths, bounded handles, caller-backed blobs, and caller-owned `read_at` backends are public; normalized asset lookup is available. | ISO9660/CDFS reader, real CD transport, asynchronous scheduling and transparent CD-backed registration. | `include/saturn/file.h`, `include/saturn/asset.h`, `src/core/file_api.cpp`, `tools/generate_asset_manifest.py` |
+| CDFS / VFS | **PARTIAL** | Read-only logical paths, bounded handles, caller-backed blobs, caller-owned `read_at` backends, ISO9660 PVD/directory lookup and CDFS-to-VFS file adapters are public. | Real CD transport, asynchronous scheduling and transparent manifest-driven CD registration. | `include/saturn/cd.h`, `include/saturn/cdfs.h`, `include/saturn/file.h`, `src/core/cdfs_api.cpp` |
 | Asset streaming | **PARTIAL** | File reads support partial backend transfers and typed resident asset loading; no whole-file allocation is required by `sat_file_*`. | Texture/model/map/audio streaming, prefetch, cache policy and a CD-backed service scheduler. | `include/saturn/file.h`, `include/saturn/asset.h` |
 | Backup RAM / save data | **NOT EXPOSED** | No first-class save/Backup RAM API found in the current public surface. | File-like save records, directory/enumeration, free-space checks, checksums/versioning. | No public save/backup module. |
 | RAM cartridge | **NOT EXPOSED** | No first-class RAM-cart allocator/detection API found. | Cartridge detection, capacity probing, allocation and optional asset/cache use. | No public cartridge RAM module. |
@@ -248,9 +248,10 @@ Current status: **NOT EXPOSED**.
 
 LibSaturn can build an ISO, but building an ISO and using the Saturn CD Block at runtime are separate capabilities.
 
-The higher-level file layer now has a storage-neutral `read_at` callback, so a
-future CD Block implementation can be attached without changing `sat_file_*`
-or `sat_asset_*`. This callback is not itself a CD driver or an ISO9660 reader.
+The higher-level file layer now has a storage-neutral `read_at` callback and
+the runtime includes a bounded ISO9660/CDFS parser, so a future CD Block
+implementation can be attached without changing `sat_file_*` or `sat_asset_*`.
+The callback is not itself a CD driver.
 
 A complete storage path could grow in layers:
 

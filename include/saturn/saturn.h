@@ -22,6 +22,8 @@
 #include "saturn/input.h"
 #include "saturn/app.h"
 #include "saturn/audio.h"
+#include "saturn/cd.h"
+#include "saturn/cdfs.h"
 #include "saturn/file.h"
 #include "saturn/asset.h"
 #include "saturn/fmt.h"
