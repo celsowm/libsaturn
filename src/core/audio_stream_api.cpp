@@ -237,12 +237,18 @@ extern "C" sat_result_t sat_audio_stream_open(
         slot.sound_ram_offset = kAudioStreamRamBase +
             static_cast<uint32_t>(i) * 2u * kAudioStreamChunkBytes;
         slot.playback_end_frame = 0u;
+        slot.playback_start_frame = 0u;
+        slot.playback_chunk_frames = 0u;
+        slot.serviced_chunks = 0u;
         slot.consumed_frames = 0u;
         slot.refill_count = 0u;
         slot.format = spec->format;
         slot.scsp_slot = static_cast<uint8_t>(kAudioStreamScspSlotBase + i);
         slot.playback_buffer = 0u;
         slot.hardware_playing = 0u;
+        slot.seamless_loop = 0u;
+        slot.reserved0 = 0u;
+        slot.reserved1 = 0u;
         out_stream->slot = i;
         out_stream->generation = slot.generation;
         return SAT_OK;
