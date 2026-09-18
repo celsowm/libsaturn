@@ -26,6 +26,7 @@
 #include "saturn/cdfs.h"
 #include "saturn/file.h"
 #include "saturn/asset.h"
+#include "saturn/scene3d.h"
 #include "saturn/fmt.h"
 #include "saturn/font.h"
 #include "saturn/grid.h"

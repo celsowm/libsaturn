@@ -975,6 +975,23 @@ Phase gate:
 
 # Phase 10 — High-level 3D facade for portable game code
 
+### Implementation status — 2026-09-18
+
+Implemented the initial caller-owned facade in `include/saturn/scene3d.h`:
+
+- `sat_camera3d_t` builds a reusable view-projection matrix from look-at and
+  perspective parameters;
+- `sat_model_transform3d_t` provides position, Euler rotation, scale, and a
+  fixed-point model matrix helper;
+- `sat_scene3d_t` owns no storage and draws compiled models through caller-
+  supplied mesh/index/sort/projection scratch;
+- immediate model drawing reuses `sat_model_copy_to_mesh`,
+  `sat_model_bind_draw_ex`, and `sat_draw_mesh`, so gameplay code does not
+  construct VDP1 commands or manage native addresses.
+
+The facade intentionally remains immediate-mode and single-mesh-at-a-time;
+material upload, animation, and detailed mesh controls remain explicit APIs.
+
 LibSaturn already has `math3d`, `mesh3d`, `model3d`, `render3d`, and animation facilities. Do not rewrite them to imitate raylib.
 
 Instead, identify the smallest additional high-level facade needed so ordinary model-rendering code does not need backend details.
