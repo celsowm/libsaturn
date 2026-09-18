@@ -1034,6 +1034,23 @@ Phase gate: a native example can draw a model using camera + model facade withou
 
 # Phase 11 — Native runtime acceptance examples
 
+### Implementation status — 2026-09-18
+
+Implemented the first native acceptance pair:
+
+- `examples/runtime_2d` exercises logical texture/font/sound/data paths,
+  prewarmed sprite-sheet regions, Camera2D push/pop, clipping, shapes,
+  rotation/flipping/scaling, dynamic texture updates, millisecond animation,
+  controller events, SFX, and streamed music;
+- `examples/runtime_3d` resolves a compiled model through the logical data
+  asset API and draws it through `sat_scene3d_t` with caller-owned camera,
+  transform, sort and projection storage;
+- both examples build to ISO/CUE and pass the modified Ymir harness with
+  `bios/saturn_bios_us.bin`.
+
+The remaining Phase 11 work is broader content coverage and any future
+acceptance cases needed by source-port adapters.
+
 ## 11.1 `runtime_2d`
 
 Create or evolve a native example demonstrating:
