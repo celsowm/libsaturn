@@ -29,6 +29,7 @@ typedef struct sat_pool_handle {
 
 typedef struct sat_pool_slot {
     uint16_t generation;
+    uint16_t next_free;
     uint8_t used;
     uint8_t reserved;
 } sat_pool_slot_t;
@@ -41,6 +42,7 @@ typedef struct sat_pool {
     uint16_t capacity;
     uint16_t used;
     uint16_t high_water;
+    uint16_t free_head;
 } sat_pool_t;
 
 sat_result_t sat_pool_init(

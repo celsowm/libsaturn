@@ -7,6 +7,8 @@
 
 namespace saturn::core::memory_logic {
 
+constexpr uint16_t kPoolNoFree = 0xFFFFu;
+
 inline bool is_power_of_two(size_t value) {
     return value != 0u && (value & (value - 1u)) == 0u;
 }
@@ -105,8 +107,11 @@ inline sat_result_t pool_init(
     pool->capacity = capacity;
     pool->used = 0u;
     pool->high_water = 0u;
+    pool->free_head = 0u;
     for (uint16_t i = 0u; i < capacity; ++i) {
         pool->slots[i].generation = 1u;
+        pool->slots[i].next_free =
+            (static_cast<uint32_t>(i) + 1u < capacity) ? static_cast<uint16_t>(i + 1u) : kPoolNoFree;
         pool->slots[i].used = 0u;
         pool->slots[i].reserved = 0u;
     }
@@ -125,22 +130,28 @@ inline sat_result_t pool_acquire(sat_pool_t* pool, sat_pool_handle_t* out_handle
     if (pool == nullptr || out_handle == nullptr || out_ptr == nullptr || pool->memory == nullptr || pool->slots == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
-    for (uint16_t i = 0u; i < pool->capacity; ++i) {
-        sat_pool_slot_t& slot = pool->slots[i];
-        if (slot.used == 0u) {
-            slot.used = 1u;
-            ++pool->used;
-            if (pool->used > pool->high_water) {
-                pool->high_water = pool->used;
-            }
-            out_handle->index = i;
-            out_handle->generation = slot.generation;
-            *out_ptr = pool_ptr(pool, i);
-            return SAT_OK;
-        }
+    if (pool->free_head == kPoolNoFree) {
+        *out_ptr = nullptr;
+        return SAT_ERR_CAPACITY;
     }
-    *out_ptr = nullptr;
-    return SAT_ERR_CAPACITY;
+    if (pool->free_head >= pool->capacity) {
+        *out_ptr = nullptr;
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    const uint16_t i = pool->free_head;
+    sat_pool_slot_t& slot = pool->slots[i];
+    pool->free_head = slot.next_free;
+    slot.next_free = kPoolNoFree;
+    slot.used = 1u;
+    ++pool->used;
+    if (pool->used > pool->high_water) {
+        pool->high_water = pool->used;
+    }
+    out_handle->index = i;
+    out_handle->generation = slot.generation;
+    *out_ptr = pool_ptr(pool, i);
+    return SAT_OK;
 }
 
 inline bool pool_handle_valid(const sat_pool_t* pool, sat_pool_handle_t handle) {
@@ -159,6 +170,8 @@ inline sat_result_t pool_release(sat_pool_t* pool, sat_pool_handle_t handle) {
     if (slot.generation == 0u) {
         slot.generation = 1u;
     }
+    slot.next_free = pool->free_head;
+    pool->free_head = handle.index;
     return SAT_OK;
 }
 
