@@ -10,7 +10,8 @@ extern "C" sat_result_t sat_spatial_init(sat_spatial_t* s, uint16_t* heads,
     s->heads = heads; s->entries = entries; s->stamps = stamps; s->items = items;
     s->cols = cols; s->rows = rows; s->cell_shift = shift;
     s->entry_cap = entry_cap; s->entry_count = 0; s->item_cap = item_cap; s->query_stamp = 0;
-    clear(*s);
+    const uint32_t cell_count = static_cast<uint32_t>(cols) * rows;
+    for (uint32_t i = 0; i < cell_count; ++i) heads[i] = SAT_SPATIAL_EMPTY;
     for (uint16_t i = 0; i < item_cap; ++i) stamps[i] = 0;
     return SAT_OK;
 }
