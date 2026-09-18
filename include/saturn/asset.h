@@ -6,6 +6,7 @@
 #include "saturn/audio.h"
 #include "saturn/core.h"
 #include "saturn/font.h"
+#include "saturn/file.h"
 #include "saturn/texture.h"
 
 #ifdef __cplusplus
@@ -88,6 +89,13 @@ sat_result_t sat_asset_load_data(
     const char* logical_path,
     const void** out_data,
     uint32_t* out_size
+);
+sat_result_t sat_asset_read_at(
+    const char* logical_path,
+    uint32_t offset,
+    void* destination,
+    uint32_t bytes,
+    uint32_t* out_read
 );
 sat_result_t sat_texture_load(const char* logical_path, sat_texture_t* out_texture);
 sat_result_t sat_sound_load(const char* logical_path, sat_sound_t* out_sound);

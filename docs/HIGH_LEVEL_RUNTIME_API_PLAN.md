@@ -870,6 +870,8 @@ Implemented as the initial read-only VFS/registry subphase:
   and generation-safe lookup/close;
 - typed logical-path loaders for raw data, indexed8 textures, resident PCM
   sounds, and baked font atlases;
+- caller-owned `sat_asset_read_at` for partial reads from embedded payloads or
+  generated physical paths mounted through the VFS;
 - deterministic host manifest generation with normalized paths, sorted entries,
   physical payload metadata, and optional SHA-256 enrichment;
 - deterministic C registry generation for embedded symbols and physical source

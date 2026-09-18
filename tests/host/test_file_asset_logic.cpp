@@ -155,6 +155,13 @@ int main() {
        std::strcmp(info.source_path, "ASSETS/CD-RAW.BIN") == 0 &&
        info.data == nullptr && info.size == sizeof(raw_data));
     OK(sat_asset_load_data("data/cd-raw.bin", &loaded_data, &loaded_size) == SAT_ERR_IO);
+    OK(sat_file_register_blob("ASSETS/CD-RAW.BIN", raw_data, sizeof(raw_data)) == SAT_OK);
+    uint8_t physical_out[4] = {};
+    uint32_t physical_read = 0u;
+    OK(sat_asset_read_at("data/cd-raw.bin", 1u, physical_out, sizeof(physical_out), &physical_read) == SAT_OK &&
+       physical_read == 2u && physical_out[0] == 8u && physical_out[1] == 9u);
+    OK(sat_asset_read_at("data/cd-raw.bin", 3u, physical_out, sizeof(physical_out), &physical_read) == SAT_OK &&
+       physical_read == 0u);
     OK(sat_asset_load_data("assets/player.png", &loaded_data, &loaded_size) == SAT_ERR_UNSUPPORTED);
     OK(sat_texture_destroy(texture) == SAT_OK);
     const sat_asset_t stale_asset = asset;

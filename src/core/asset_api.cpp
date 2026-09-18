@@ -130,6 +130,44 @@ extern "C" sat_result_t sat_asset_load_data(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_asset_read_at(
+    const char* logical_path,
+    uint32_t offset,
+    void* destination,
+    uint32_t bytes,
+    uint32_t* out_read
+) {
+    if (logical_path == nullptr || out_read == nullptr ||
+        (destination == nullptr && bytes != 0u)) return SAT_ERR_INVALID_ARG;
+    sat_asset_info_t info{};
+    SAT_TRY(lookup_asset(logical_path, &info));
+    if (offset > info.size) return SAT_ERR_INVALID_ARG;
+    *out_read = 0u;
+    if (bytes == 0u || offset == info.size) return SAT_OK;
+    if (info.source_path != nullptr) {
+        sat_file_t file{};
+        SAT_TRY(sat_file_open(info.source_path, &file));
+        const sat_result_t seek_status = sat_file_seek(
+            file, static_cast<int32_t>(offset), SAT_FILE_SEEK_SET);
+        if (seek_status != SAT_OK) {
+            (void)sat_file_close(file);
+            return seek_status;
+        }
+        const sat_result_t read_status = sat_file_read(file, destination, bytes, out_read);
+        const sat_result_t close_status = sat_file_close(file);
+        if (read_status != SAT_OK) return read_status;
+        return close_status;
+    }
+    if (info.data == nullptr) return SAT_ERR_IO;
+    const uint32_t available = info.size - offset;
+    const uint32_t count = bytes < available ? bytes : available;
+    const uint8_t* source = static_cast<const uint8_t*>(info.data) + offset;
+    uint8_t* output = static_cast<uint8_t*>(destination);
+    for (uint32_t i = 0u; i < count; ++i) output[i] = source[i];
+    *out_read = count;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_texture_load(const char* logical_path, sat_texture_t* out_texture) {
     if (out_texture == nullptr) return SAT_ERR_INVALID_ARG;
     sat_asset_info_t info{};
