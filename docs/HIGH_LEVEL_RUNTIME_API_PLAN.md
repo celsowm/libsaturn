@@ -874,6 +874,8 @@ Implemented as the initial read-only VFS/registry subphase:
   physical payload metadata, and optional SHA-256 enrichment;
 - deterministic C registry generation for embedded symbols and physical source
   paths, with no runtime allocation or dynamic lookup table;
+- a hardware-specific synchronous Saturn CD Block sector reader with bounded
+  command polling and a direct `sat_cd_device_t` adapter;
 - sector-device callback, ISO9660 Primary Volume Descriptor mount, bounded
   directory lookup, file reads, and VFS registration through a CDFS `read_at`
   adapter;
@@ -881,12 +883,14 @@ Implemented as the initial read-only VFS/registry subphase:
   stale handles, backend reads, asset metadata lookup, and typed texture/data
   loading.
 
-The physical Saturn CD Block driver and transparent CD-backed asset refill
-remain open. The current sector layer is a strict caller-owned transport
-boundary; it does not pretend to be a hardware driver. The host pipeline now
-emits both the deterministic JSON manifest and an optional C registration unit;
-physical entries preserve their source path and remain non-resident until a
-transport backend is attached.
+As the first hardware transport subphase, `include/saturn/cd_block.h` and
+`src/hal/cd_block.cpp` expose synchronous 2048-byte sector reads with bounded
+timeouts, LBA-to-FAD conversion, and a `sat_cd_device_t` adapter. Disc
+authentication remains a BIOS/platform concern, and asynchronous scheduling,
+transparent CD-backed asset refill, and Ymir/hardware read validation remain
+open. The host pipeline emits both the deterministic JSON manifest and an
+optional C registration unit; physical entries preserve their source path and
+remain non-resident until a transport-backed loader is attached.
 
 This phase is critical for real source ports.
 

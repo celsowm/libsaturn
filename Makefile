@@ -377,6 +377,7 @@ HOST_TEST_EXTRA_test_audio_stream_api := src/core/audio_stream_api.cpp src/core/
 HOST_TEST_EXTRA_test_music_api := src/core/music_api.cpp src/core/audio_stream_api.cpp src/core/audio_stream_runtime.cpp
 HOST_TEST_EXTRA_test_file_asset_logic := src/core/file_api.cpp src/core/asset_api.cpp src/core/file_asset_runtime.cpp src/core/texture_api.cpp src/core/runtime_state.cpp src/core/palette_registry.cpp src/core/texture_runtime.cpp
 HOST_TEST_EXTRA_test_cdfs_logic := src/core/cd_api.cpp src/core/cdfs_api.cpp src/core/file_api.cpp src/core/file_asset_runtime.cpp
+HOST_TEST_EXTRA_test_cd_block_api := src/hal/cd_block.cpp src/core/cd_api.cpp
 HOST_TEST_EXTRA_test_math3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_render3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_mesh3d_logic := src/core/math3d_api.cpp
