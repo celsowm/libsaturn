@@ -135,6 +135,28 @@ sat_result_t sat_anim_decode(
     uint16_t vertex_cap
 );
 
+/* Prepare one animated-model INSTANCE from immutable pose data, without
+ * repeatedly baking transforms into an already transformed vertex buffer.
+ * Each call first decodes the selected LOCAL clip into the supplied mesh,
+ * then applies a caller-specified WORLD matrix once.
+ *
+ * Mesh index data must have been bound/copied once at startup using
+ * sat_model_copy_to_mesh; this call does not touch indices or shared assets.
+ * Optional out_face_materials maps current frame shade indices to an
+ * uploaded uniform-indexed-texture table (0..texture_count-1), for the
+ * same indexed VDP1 path as non-animated meshes. Passing null skips it.
+ * Invalid clip, capacity and shade-table errors are detected BEFORE the
+ * mesh is modified. No heap, VRAM upload or implicit draw submission. */
+sat_result_t sat_anim_prepare_model_instance(
+    const sat_animated_model_asset_t* asset,
+    const sat_anim_state_t* state,
+    const sat_mat4_t* world,
+    sat_mesh_t* mesh,
+    uint16_t* out_face_materials,
+    uint16_t material_capacity,
+    uint16_t material_count
+);
+
 /* Fills out_colors[face] with every face's baked shade color for the
  * current frame, ready for sat_mesh_draw_t::face_colors. One palette lookup
  * per face. Returns SAT_ERR_UNSUPPORTED when the clip carries no baked
