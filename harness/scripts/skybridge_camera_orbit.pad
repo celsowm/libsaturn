@@ -2,7 +2,10 @@
 # Keep the avatar at its spawn point: only rotate the camera by six B taps
 # (90 degrees). The pilot must stay on the initial deck in BOTH views;
 # its projected position changes naturally, but its world coords do not.
+# Toggle Y debug HUD at frame 70; DECK must stay 1 before and after six taps.
 0    NONE
+70   Y
+71   NONE
 90   B
 91   NONE
 94   B
