@@ -69,39 +69,31 @@ static void build_ground_bitmap(void) {
 }
 
 static void write_coefficients(void) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    uint32_t y;
-
-    for (y = 0u; y < SCREEN_HEIGHT; ++y) {
-        uint16_t w0;
-        uint16_t w1;
-        sat_vdp2_rbg0_ground_encode_coefficient(&g_ground_cfg, y, &w0, &w1);
-        vram[COEF_BASE_WORD + (y * 2u)] = w0;
-        vram[COEF_BASE_WORD + (y * 2u) + 1u] = w1;
-    }
+    uint16_t words[SCREEN_HEIGHT*2u];
+    for(uint32_t y=0u;y<SCREEN_HEIGHT;++y)
+        sat_vdp2_rbg0_ground_encode_coefficient(
+            &g_ground_cfg,y,&words[y*2u],&words[y*2u+1u]);
+    sat_example_must(sat_vdp2_vram_write_words(
+        COEF_BASE_WORD,words,SCREEN_HEIGHT*2u));
 }
 
 static void write_rotation_params(void) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
     uint16_t params[48];
-    uint32_t i;
-
-    sat_vdp2_rbg0_ground_build_params(&g_ground_cfg, 0, 0, params);
-    for (i = 0u; i < 48u; ++i) {
-        vram[RP_BASE_WORD + i] = params[i];
-    }
+    sat_vdp2_rbg0_ground_build_params(&g_ground_cfg,0,0,params);
+    sat_example_must(sat_vdp2_vram_write_words(RP_BASE_WORD,params,48u));
 }
 
 /* Only Mx/My change while walking, so rewrite just those words. */
 static void write_camera_translation(int32_t cam_xi, int32_t cam_yi) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    int32_t mx = sat_vdp2_rbg0_ground_wrap_translation(cam_xi, g_ground_cfg.bitmap_width, g_ground_cfg.cx);
-    int32_t my = sat_vdp2_rbg0_ground_wrap_translation(cam_yi, g_ground_cfg.bitmap_height, g_ground_cfg.horizon);
-
-    vram[RP_BASE_WORD + 34u] = (uint16_t)((uint32_t)mx & 0x1FFFu);
-    vram[RP_BASE_WORD + 35u] = 0x0000u;
-    vram[RP_BASE_WORD + 36u] = (uint16_t)((uint32_t)my & 0x1FFFu);
-    vram[RP_BASE_WORD + 37u] = 0x0000u;
+    int32_t mx=sat_vdp2_rbg0_ground_wrap_translation(
+        cam_xi,g_ground_cfg.bitmap_width,g_ground_cfg.cx);
+    int32_t my=sat_vdp2_rbg0_ground_wrap_translation(
+        cam_yi,g_ground_cfg.bitmap_height,g_ground_cfg.horizon);
+    const uint16_t words[4]={
+        (uint16_t)((uint32_t)mx&0x1FFFu),0u,
+        (uint16_t)((uint32_t)my&0x1FFFu),0u
+    };
+    sat_example_must(sat_vdp2_vram_write_words(RP_BASE_WORD+34u,words,4u));
 }
 
 static void init_layers(void) {

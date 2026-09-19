@@ -168,14 +168,12 @@ static void upload_tiled_bitmap(const sat_indexed8_asset_t* asset) {
  * in saturn/vdp2_rbg0_ground.h for the encoding and the k(y) = FOCAL / depth derivation.
  */
 static void write_coefficient_table(void) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    for (uint32_t y = 0; y < (uint32_t)SCREEN_HEIGHT; y++) {
-        uint16_t w0, w1;
-        sat_vdp2_rbg0_ground_encode_coefficient(&rbg0_cfg, y, &w0, &w1);
-        uint32_t base = COEF_BASE_WORD + (y * 2u);
-        vram[base + 0u] = w0;
-        vram[base + 1u] = w1;
-    }
+    uint16_t words[SCREEN_HEIGHT*2u];
+    for (uint32_t y = 0; y < (uint32_t)SCREEN_HEIGHT; ++y)
+        sat_vdp2_rbg0_ground_encode_coefficient(
+            &rbg0_cfg,y,&words[y*2u],&words[y*2u+1u]);
+    sat_example_must(sat_vdp2_vram_write_words(
+        COEF_BASE_WORD,words,SCREEN_HEIGHT*2u));
 }
 
 /* Rotation parameter A table at word 0x10000. Built by
@@ -185,25 +183,21 @@ static void write_coefficient_table(void) {
  * coefficient does NOT scale the camera, only the per-pixel deltas.
  */
 static void write_rotation_params(int32_t cam_xi, int32_t cam_yi) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
     uint16_t table[48];
-    int i;
-
-    sat_vdp2_rbg0_ground_build_params(&rbg0_cfg, cam_xi, cam_yi, table);
-    for (i = 0; i < 48; i++) {
-        vram[RP_BASE_WORD + (uint32_t)i] = table[i];
-    }
+    sat_vdp2_rbg0_ground_build_params(&rbg0_cfg,cam_xi,cam_yi,table);
+    sat_example_must(sat_vdp2_vram_write_words(RP_BASE_WORD,table,48u));
 }
 
 static void write_camera_translation(int32_t cam_xi, int32_t cam_yi) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    int32_t mx = sat_vdp2_rbg0_ground_wrap_translation(cam_xi, rbg0_cfg.bitmap_width, rbg0_cfg.cx);
-    int32_t my = sat_vdp2_rbg0_ground_wrap_translation(cam_yi, rbg0_cfg.bitmap_height, rbg0_cfg.horizon);
-
-    vram[RP_BASE_WORD + 34u] = (uint16_t)((uint32_t)mx & 0x1FFFu);
-    vram[RP_BASE_WORD + 35u] = 0x0000;
-    vram[RP_BASE_WORD + 36u] = (uint16_t)((uint32_t)my & 0x1FFFu);
-    vram[RP_BASE_WORD + 37u] = 0x0000;
+    int32_t mx=sat_vdp2_rbg0_ground_wrap_translation(
+        cam_xi,rbg0_cfg.bitmap_width,rbg0_cfg.cx);
+    int32_t my=sat_vdp2_rbg0_ground_wrap_translation(
+        cam_yi,rbg0_cfg.bitmap_height,rbg0_cfg.horizon);
+    const uint16_t words[4]={
+        (uint16_t)((uint32_t)mx&0x1FFFu),0u,
+        (uint16_t)((uint32_t)my&0x1FFFu),0u
+    };
+    sat_example_must(sat_vdp2_vram_write_words(RP_BASE_WORD+34u,words,4u));
 }
 
 /* Configure RBG0 in bitmap mode with per-line coefficient (Mode-7 floor). */

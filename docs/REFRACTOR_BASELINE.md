@@ -127,3 +127,13 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
   independently uncovered gate is Infinite Explorer WRAMH overflow
   (466072 bytes in run 35465179593); this image-upload refactor does NOT
   imply that the memory overrun is resolved.
+
+## Tenth slice: remove direct register-memory writes from VDP2 examples
+
+- Both `vdp2_rbg0_ground` and `vdp2_nbg0_rbg0_combo` now submit their
+  coefficient table, rotation parameter block and per-frame camera offsets
+  through the checked public `sat_vdp2_vram_write_words` path. The
+  deliberately low-level coefficient *math* remains visible in the tests.
+- No direct `0x25E00000` dereference remains in the four migrated
+  application/probe examples. This does not alter the scene's existing VDP2
+  register shadow, bank allocation or alpha semantics.
