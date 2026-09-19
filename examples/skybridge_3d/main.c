@@ -1071,9 +1071,13 @@ static void hud(void) {
         (void)sat_draw_rect_screen(0,31,W,13u,SAT_RGB555(3,8,15));
         label("DECK ",g_game.support<0?0u:(uint32_t)g_game.support+1u,7,33);
         label("YAW ",(uint32_t)g_yaw,101,33);
-        put_text(surface==SB_SURFACE_SLICK?"ICE":
-                 surface==SB_SURFACE_GRIP?"GRIP":
-                 surface==SB_SURFACE_AIR?"AIR":"NORMAL",197,33);
+        if(g_game.support>=0 &&
+           sb_course_platforms(&g_game)[(uint8_t)g_game.support].kind==SB_SEESAW)
+            hud_coord('T',g_game.seesaw_tilt[(uint8_t)g_game.support],197,33);
+        else
+            put_text(surface==SB_SURFACE_SLICK?"ICE":
+                     surface==SB_SURFACE_GRIP?"GRIP":
+                     surface==SB_SURFACE_AIR?"AIR":"NORMAL",197,33);
     }
     if (g_game.finished) {
         (void)sat_draw_rect_screen(46,76,228u,75u,SAT_RGB555(2,13,16));
