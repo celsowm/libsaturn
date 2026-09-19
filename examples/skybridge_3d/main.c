@@ -17,8 +17,8 @@
 #define COEF_WORD 0x12000u
 #define SKY_W 512u
 #define SKY_H 128u
-#define FADE_START SB_F(66)
-#define FADE_END SB_F(134)
+#define FADE_START SB_FADE_START
+#define FADE_END SB_FADE_END
 #define VIEW_LIMIT FADE_END
 #define FADE_COLOR_COUNT 20u
 #define FADE_PALETTE_BANK 4u
