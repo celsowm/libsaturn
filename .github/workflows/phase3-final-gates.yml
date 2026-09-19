@@ -91,6 +91,19 @@ jobs:
           fi
           printf '%s\n' "$first_error" > first-failure.txt
           cat examples-all.log
+          # Keep evidence for precise memory-budget work. A failed linker
+          # still emits a partial .map with the actual WRAMH/WRAML owners.
+          # Never silence the failing cross-build gate or invent extra RAM.
+          if [ "$status" -ne 0 ]; then
+            {
+              echo '### Per-object Saturn section sizes (bytes)'
+              sh2eb-elf-size -A build/generated/infinite_explorer/*.o build/examples/infinite_explorer/main.o build/libsaturn.a 2>&1 || true
+              echo '### Largest named source allocations (bytes)'
+              sh2eb-elf-nm --print-size --size-sort --radix=d build/generated/infinite_explorer/*.o build/examples/infinite_explorer/main.o build/libsaturn.a 2>&1 | tail -n 100 || true
+            } > memory-diagnostics.txt
+            echo '### Memory diagnostics' >> "$GITHUB_STEP_SUMMARY"
+            echo 'See memory-diagnostics.txt and the partial linker map in the cross-build artifact.' >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
           if [ "$status" -ne 0 ]; then
             escaped="${first_error//'%'/'%25'}"
@@ -98,7 +111,7 @@ jobs:
             escaped="${escaped//$'\n'/'%0A'}"
             echo "::error title=Saturn examples-all failed::$escaped"
             echo '### First Saturn cross-build failure' >> "$GITHUB_STEP_SUMMARY"
-            grep -m5 -E 'fatal error:|error:|undefined reference|collect2: error|make(\\[[0-9]+\\])?: \\*\\*\\*' examples-all.log >> "$GITHUB_STEP_SUMMARY" || true
+            grep -m5 -E '(^|[[:space:]])(fatal error:|error:|undefined reference|collect2: error|make(\\[[0-9]+\\])?: \\*\\*\\*)|region .*overflowed by|will not fit in region' examples-all.log >> "$GITHUB_STEP_SUMMARY" || true
           fi
 
       - name: Preserve Saturn cross-build diagnostics
@@ -109,6 +122,8 @@ jobs:
           path: |
             examples-all.log
             first-failure.txt
+            memory-diagnostics.txt
+            build/infinite_explorer.map
           if-no-files-found: error
           retention-days: 7
 
