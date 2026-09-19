@@ -28,10 +28,10 @@
 #define SOUNDS 6u
 #define SOUND_LEN 2048u
 #define MUSIC_LEN 32768u
-#define RENDER_COUNT (SB_PLATFORM_COUNT + 1u)
+#define RENDER_COUNT SB_PLATFORM_COUNT
 
 typedef struct sb_render_item {
-    int8_t id;    /* -1=player; 0..9=platform and its collectible */
+    int8_t id;    /* 0..9: platform and its collectible */
     int32_t depth;
 } sb_render_item_t;
 
@@ -316,9 +316,11 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
             sb_abs(px-g_game.x)>SB_F(160) || sb_abs(pz-g_game.z)>SB_F(180)) continue;
         g_items[g_items_count++]=(sb_render_item_t){(int8_t)i,depth};
     }
-    g_items[g_items_count++]=(sb_render_item_t){-1,
-        view_depth(g_game.x,g_game.z,forward_x,forward_z)};
-    /* One global far-to-near object order; no illusion of a depth buffer. */
+    /* VDP1 has no Z-buffer. Sorting the player by the *centre* of a large
+     * platform allows its top surface to be submitted AFTER the cube once
+     * the avatar walks past that centre, hiding the cube and its sidewalls.
+     * Submit world first, reserve the support platform for the foreground,
+     * and draw the opaque player last. */
     for (i=1u;i<g_items_count;++i) {
         sb_render_item_t cur=g_items[i];
         j=i;
@@ -328,18 +330,20 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
         g_items[j]=cur;
     }
     for (i=0u;i<g_items_count;++i) {
-        if (g_items[i].id==-1) {
-            g_active_fade_slot=FADE_OPAQUE;
-            player_box();
-        } else {
-            uint8_t id=(uint8_t)g_items[i].id;
-            uint8_t slot=platform_fade_slot(id,g_items[i].depth);
-            if(slot==FADE_CULLED)continue;
-            g_active_fade_slot=slot;
-            stage_box(id);
-        }
+        uint8_t id=(uint8_t)g_items[i].id;
+        uint8_t slot;
+        if(g_game.support==(int8_t)id)continue;
+        slot=platform_fade_slot(id,g_items[i].depth);
+        if(slot==FADE_CULLED)continue;
+        g_active_fade_slot=slot;
+        stage_box(id);
+    }
+    if(g_game.support>=0 && sb_platform_active(&g_game,(uint8_t)g_game.support)) {
+        g_active_fade_slot=FADE_OPAQUE;
+        stage_box((uint8_t)g_game.support);
     }
     g_active_fade_slot=FADE_OPAQUE;
+    player_box();
 }
 static void init_tile_texture(void) {
     uint16_t palette[256];
