@@ -349,6 +349,31 @@ TEST(skybridge_stage_one_step_and_jump_projection_stays_bounded) {
         }
     }
 }
+/* A three-vertex near-clipped polygon is ONE drawable triangle, not an
+ * unchanged four-corner textured quad. Count==1 alone was incorrectly
+ * treated as UV-safe by Skybridge, allowing the original giant inset
+ * command to bypass near clipping. */
+TEST(single_near_clipped_triangle_changes_original_texture_corners) {
+    const sat_vec3_t eye={0,0,fx_from_int(100)};
+    const sat_vec3_t forward={0,0,-SAT_FX16_ONE};
+    sat_quad3_t quad={};
+    quad.v[0]={-fx_from_int(8),0,fx_from_int(95)};
+    quad.v[1]={ fx_from_int(8),0,fx_from_int(95)};
+    quad.v[2]={ fx_from_int(8),0,fx_from_int(80)};
+    quad.v[3]={-fx_from_int(8),0,fx_from_int(95)};
+    sat_quad3_t clipped[4];
+    uint8_t count=0u;
+    ASSERT_EQ(clip_world_quad_near(
+        &quad,&eye,&forward,fx_from_int(8),clipped,&count),SAT_OK);
+    ASSERT_EQ(count,1u);
+    bool unchanged=true;
+    for(uint8_t i=0u;i<4u;++i) {
+        if(clipped[0].v[i].x!=quad.v[i].x ||
+           clipped[0].v[i].y!=quad.v[i].y ||
+           clipped[0].v[i].z!=quad.v[i].z)unchanged=false;
+    }
+    ASSERT_FALSE(unchanged);
+}
 /* A point very close to the camera plane projects enormous; it must clamp
  * rather than wrap its sign and turn the quad inside out. */
 TEST(project_clamps_instead_of_wrapping) {
@@ -835,6 +860,7 @@ int main() {
     clip_near_generates_projectable_triangles();
     screen_clip_bounds_huge_pier_and_jump_views();
     skybridge_stage_one_step_and_jump_projection_stays_bounded();
+    single_near_clipped_triangle_changes_original_texture_corners();
     project_clamps_instead_of_wrapping();
     project_quad_rejects_null_arguments();
     sort_orders_far_to_near();
@@ -860,6 +886,6 @@ int main() {
     diagonal_area_equals_shoelace();
     gouraud_table_words_and_light();
     vertex_normals_point_out_of_a_box();
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 35);
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 36);
     return 0;
 }
