@@ -205,6 +205,105 @@ static void patterned_texture_invalid_input_and_command_failure() {
     EQ(g_opaque,1);
 }
 
+static sat_indexed_tiled_quad3_t tiled_regions() {
+    static sat_vdp1_texture_t whole={100u,16u,16u,4u,1u,0u};
+    static sat_vdp1_texture_t quarter[4]={
+        {101u,8u,8u,4u,1u,0u},{102u,8u,8u,4u,1u,0u},
+        {103u,8u,8u,4u,1u,0u},{104u,8u,8u,4u,1u,0u}
+    };
+    sat_indexed_tiled_quad3_t p={};
+    p.full=&whole;
+    for(uint8_t i=0u;i<4u;++i) p.tiles[i]=&quarter[i];
+    return p;
+}
+static void tiled_texture_fast_path_submits_original_once() {
+    reset();
+    const sat_quad3_t q=quad(3,12);
+    const sat_indexed_solid_render3d_t p=render();
+    const sat_indexed_tiled_quad3_t regions=tiled_regions();
+    uint8_t submitted=99u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
+    EQ(submitted,1u);
+    EQ(g_opaque,1);
+    EQ(g_srca[0],100u);
+    EQ(g_near_calls,0);
+    EQ(g_screen_calls,0);
+    EQ(g_project_calls,1);
+}
+static void tiled_texture_preserves_actual_regions_at_near_boundary() {
+    reset();
+    sat_quad3_t q=quad(3,12);
+    /* The corner at A is behind the 8-unit near guard; only TL touches
+     * that corner. All three other 8x8 subregions have safe full UV maps. */
+    q.v[0].z=FX(7);
+    const sat_indexed_solid_render3d_t p=render();
+    const sat_indexed_tiled_quad3_t regions=tiled_regions();
+    uint8_t submitted=99u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
+    EQ(submitted,3u);
+    EQ(g_opaque,3);
+    EQ(g_srca[0],102u); /* top right */
+    EQ(g_srca[1],103u); /* bottom left */
+    EQ(g_srca[2],104u); /* bottom right */
+    EQ(g_near_calls,0);
+    EQ(g_project_calls,3);
+}
+static void tiled_texture_preserves_regions_at_screen_boundary() {
+    reset();
+    sat_quad3_t q=quad(3,12);
+    /* Full quad crosses screen right edge, but TL, BL and BR stay inside.
+     * The original full texture MUST NOT be stretched over those subquads. */
+    q.v[1].x=FX(162);
+    const sat_indexed_solid_render3d_t p=render();
+    const sat_indexed_tiled_quad3_t regions=tiled_regions();
+    uint8_t submitted=99u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
+    EQ(submitted,3u);
+    EQ(g_opaque,3);
+    EQ(g_srca[0],101u);
+    EQ(g_srca[1],103u);
+    EQ(g_srca[2],104u);
+}
+static void tiled_texture_rejects_inconsistent_region_dimensions() {
+    reset();
+    const sat_quad3_t q=quad(3,12);
+    const sat_indexed_solid_render3d_t p=render();
+    sat_indexed_tiled_quad3_t regions=tiled_regions();
+    sat_vdp1_texture_t bad=*regions.tiles[2];
+    bad.width=16u;
+    regions.tiles[2]=&bad;
+    uint8_t submitted=99u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),
+       SAT_ERR_INVALID_ARG);
+    EQ(submitted,0u);
+    EQ(g_project_calls,0);
+    regions=tiled_regions();
+    bad=*regions.tiles[0];
+    bad.palette=7u;
+    regions.tiles[0]=&bad;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),
+       SAT_ERR_INVALID_ARG);
+    EQ(g_project_calls,0);
+}
+static void tiled_texture_propagates_capacity_without_faking_success() {
+    reset();
+    sat_quad3_t q=quad(3,12);
+    const sat_indexed_solid_render3d_t p=render();
+    const sat_indexed_tiled_quad3_t regions=tiled_regions();
+    uint8_t submitted=99u;
+    g_submit_status=SAT_ERR_CAPACITY;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),
+       SAT_ERR_CAPACITY);
+    EQ(submitted,0u);
+    EQ(g_opaque,1);
+    reset();
+    q.v[0].z=FX(7);
+    g_submit_status=SAT_ERR_CAPACITY;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),
+       SAT_ERR_CAPACITY);
+    EQ(submitted,0u);
+    EQ(g_opaque,1);
+}
 static void mesh_uses_immutable_geometry_and_sorts_depth() {
     reset();
     sat_vec3_t vertices[8];
@@ -253,8 +352,13 @@ int main() {
     invisible_and_hardware_errors();
     patterned_texture_draws_only_with_original_four_corners();
     patterned_texture_invalid_input_and_command_failure();
+    tiled_texture_fast_path_submits_original_once();
+    tiled_texture_preserves_actual_regions_at_near_boundary();
+    tiled_texture_preserves_regions_at_screen_boundary();
+    tiled_texture_rejects_inconsistent_region_dimensions();
+    tiled_texture_propagates_capacity_without_faking_success();
     mesh_uses_immutable_geometry_and_sorts_depth();
     mesh_invalid_face_or_material_is_atomic();
-    puts("test_render3d_indexed: 7 tests passed");
+    puts("test_render3d_indexed: 12 tests passed");
     return 0;
 }
