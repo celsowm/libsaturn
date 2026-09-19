@@ -137,6 +137,44 @@ example that watches for it) on every scripted run. To check the conversion,
 run `examples/input_debug` under a script whose current line is `NONE` and
 confirm every HELD bit reads 0.
 
+## Backup RAM / save persistence
+
+The probe can attach a real file-backed 32 KiB internal Backup RAM image with
+`--backup-ram <path>`. The PowerShell wrapper exposes the same option as
+`-BackupRam`. Ymir maps the image write-through, so writes made by the guest
+survive after `probe.exe` exits and can be observed by a fresh emulator
+process.
+
+When a Backup RAM image is attached, `probe.json` contains a
+`backup_memory` object with:
+
+- header validity, byte/block capacity and used blocks;
+- the logical BUP directory (filename, comment, language, date and block use);
+- exported payload size, FNV-1a hash and the first 64 payload bytes for each
+  record.
+
+That data is an emulator-side observation used to prove persistence; guest code
+still reaches storage through the Saturn Boot ROM BUP library. The harness does
+not bypass LibSaturn's save implementation to create `LIBSAT_DEMO`.
+
+For the end-to-end two-process acceptance test:
+
+```powershell
+.\harness\run-save-persistence.ps1 -Bios .\bios\saturn_bios_us.bin
+```
+
+The script deletes its test Backup RAM image, launches
+`examples/save_backup_demo` once, exits the emulator, then launches a second
+fresh probe against the same image. The Python assertion requires the guest's
+versioned `LIBSAT_DEMO` record to contain boot count 1 after the first process
+and boot count 2 after the second. A same-process write/read check alone is not
+accepted as persistence proof.
+
+`run-harness.ps1 save_backup_demo` automatically uses
+`harness/build/save_backup_demo.bup` when `-BackupRam` is omitted, which is
+convenient for manual restart testing. Delete that file to simulate a new
+formatted Ymir Backup RAM image.
+
 ## Audio / SCSP regressions
 
 For audio work, read [`docs/SCSP_AUDIO_STREAMING_GUIDE.md`](../docs/SCSP_AUDIO_STREAMING_GUIDE.md)

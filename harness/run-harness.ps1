@@ -27,6 +27,7 @@ param(
     [int]$PadPressAt = 0,
     [int]$PadReleaseAt = 0,
     [string]$PadScript,
+    [string]$BackupRam,
     [string[]]$Screenshot,
     [string]$ProfilePc,
     [switch]$ScspTrace,
@@ -57,6 +58,13 @@ if ($normalizedExample -match '^(examples[\\/])(.+)$') {
 $safeName = ($normalizedExample -replace '[\\/]', '_')
 $isoPath = Join-Path $RepoRoot ("build\examples\{0}.iso" -f $safeName)
 $binPath = Join-Path $RepoRoot ("build\examples\{0}.bin" -f $safeName)
+$backupRamPath = if ($BackupRam) {
+    $BackupRam
+} elseif ($normalizedExample -eq 'save_backup_demo') {
+    Join-Path $HarnessRoot 'build\save_backup_demo.bup'
+} else {
+    $null
+}
 
 if (-not (Test-Path $isoPath)) {
     Write-Host "[run-harness] Building example: $normalizedExample"
@@ -117,6 +125,13 @@ if ($PadButton) {
 }
 if ($PadScript) {
     $probeArgs += @('--pad-script', $PadScript)
+}
+if ($backupRamPath) {
+    $backupDir = Split-Path -Parent $backupRamPath
+    if ($backupDir -and -not (Test-Path $backupDir)) {
+        New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+    }
+    $probeArgs += @('--backup-ram', $backupRamPath)
 }
 if ($Screenshot) {
     foreach ($shot in $Screenshot) {
