@@ -11,7 +11,10 @@
 #define SB_PLAYER_HALF SB_F(2)
 #define SB_PLAYER_HEIGHT SB_F(5)
 #define SB_PLATFORM_COUNT 10u
-#define SB_COURSE_COUNT 3u
+#define SB_COURSE_COUNT 4u
+#define SB_SEESAW_LIMIT SB_F(3)
+#define SB_SEESAW_SPEED (SB_F(1)/8)
+#define SB_SEESAW_RETURN (SB_F(1)/20)
 #define SB_COURSE3_HOLE_COUNT 6u
 #define SB_PICKUP_COUNT 8u
 #define SB_GEM_RADIUS SB_F(2)
@@ -22,7 +25,7 @@ enum { SB_UP=1u, SB_DOWN=2u, SB_LEFT=4u, SB_RIGHT=8u, SB_JUMP=16u, SB_BRAKE=32u 
 enum { SB_EVENT_JUMP=1u, SB_EVENT_LAND=2u, SB_EVENT_PICKUP=4u,
        SB_EVENT_CHECKPOINT=8u, SB_EVENT_FALL=16u, SB_EVENT_WIN=32u,
        SB_EVENT_WARNING=64u };
-enum { SB_FIXED=0u, SB_MOVING=1u, SB_COLLAPSING=2u, SB_LIFT=3u };
+enum { SB_FIXED=0u, SB_MOVING=1u, SB_COLLAPSING=2u, SB_LIFT=3u, SB_SEESAW=4u };
 enum { SB_SURFACE_NORMAL=0u, SB_SURFACE_SLICK=1u,
        SB_SURFACE_GRIP=2u, SB_SURFACE_AIR=3u };
 
@@ -75,6 +78,22 @@ static const sb_platform_t sb_stage_three[SB_PLATFORM_COUNT] = {
     {  0, 0, 400, 17, 27, SB_FIXED, SB_SURFACE_NORMAL},
     {  0, 0, 450, 20, 27, SB_FIXED, SB_SURFACE_NORMAL}
 };
+/* Course 4: six genuinely tilting boards with stable checkpoint piers.
+ * Successive boards overlap slightly to remain reachable using the
+ * original jump, while the hinge is always at the deck's central Y. */
+static const sb_platform_t sb_stage_four[SB_PLATFORM_COUNT] = {
+    {  0,0,   0,16,17,SB_FIXED,  SB_SURFACE_NORMAL},
+    {  0,0,  33,12,20,SB_SEESAW,SB_SURFACE_NORMAL},
+    {  2,1,  71,11,20,SB_SEESAW,SB_SURFACE_NORMAL},
+    {  2,2, 108,16,17,SB_FIXED,  SB_SURFACE_GRIP},
+    { -2,2, 144,12,21,SB_SEESAW,SB_SURFACE_NORMAL},
+    { -1,3, 184,11,21,SB_SEESAW,SB_SURFACE_NORMAL},
+    {  0,4, 222,16,17,SB_FIXED,  SB_SURFACE_GRIP},
+    {  3,4, 259,12,21,SB_SEESAW,SB_SURFACE_NORMAL},
+    {  3,5, 299,11,21,SB_SEESAW,SB_SURFACE_NORMAL},
+    {  0,6, 338,18,17,SB_FIXED,  SB_SURFACE_NORMAL}
+};
+
 typedef struct sb_hole {
     uint8_t platform; /* index into Course 3's shared deck table */
     int16_t x_offset, z_offset, half_x, half_z;
@@ -97,11 +116,12 @@ typedef struct sb_deck_slice {
 typedef struct sb_game {
     int32_t x, y, z, vx, vy, vz;
     int32_t moving_x;
+    int32_t seesaw_tilt[SB_PLATFORM_COUNT]; /* +/-3 world units at each Z end */
     uint32_t ticks;
     uint16_t pickups;            /* optional, 8-bit collectible mask */
     uint16_t collapse_ticks;     /* 0=ready, 1..30 warning, 31..150 absent */
     uint8_t checkpoint;          /* stage index 0, 3 or 6 */
-    uint8_t course;              /* 0=original, 1=elevators, 2=long piers with holes */
+    uint8_t course;              /* 0=original, 1=elevators, 2=holes, 3=seesaws */
     uint8_t coyote, jump_buffer, finished, paused;
     int8_t facing_x, facing_z;    /* persistent cardinal snout direction */
     int8_t support;              /* -1 when airborne */
@@ -115,8 +135,9 @@ static inline int32_t sb_mul(int32_t a, int32_t b) {
     return (int32_t)(((int64_t)a * b) >> 16);
 }
 static inline const sb_platform_t* sb_course_platforms(const sb_game_t* g) {
-    return g->course==2u?sb_stage_three:
-           (g->course==1u?sb_stage_two:sb_stage);
+    return g->course==3u?sb_stage_four:
+           (g->course==2u?sb_stage_three:
+           (g->course==1u?sb_stage_two:sb_stage));
 }
 /* Surface coefficients are explicit per platform; the original opening
  * decks (including the fixed second deck) retain their old handling.
@@ -169,6 +190,36 @@ static inline int32_t sb_platform_y_at(const sb_game_t* g,uint8_t id,uint32_t ti
 static inline int32_t sb_platform_y(const sb_game_t* g,uint8_t id) {
     return sb_platform_y_at(g,id,g->ticks);
 }
+/* A seesaw's deck is a single planar surface. Its signed tilt is exactly
+ * the height at the +Z end relative to its hinge; the -Z end has -tilt.
+ * Collision, gem placement, shadows and rendered corner vertices must
+ * all use this same function, including when the pig walks uphill. */
+static inline int32_t sb_platform_surface_y(
+    const sb_game_t* g,uint8_t id,int32_t x,int32_t z) {
+    const sb_platform_t* p=&sb_course_platforms(g)[id];
+    int32_t base=sb_platform_y(g,id);
+    (void)x;
+    if(p->kind!=SB_SEESAW)return base;
+    int32_t dz=sb_clamp(z-SB_F(p->z),
+                        -SB_F(p->half_z),SB_F(p->half_z));
+    return base+(int32_t)((int64_t)g->seesaw_tilt[id]*dz/SB_F(p->half_z));
+}
+static inline void sb_update_seesaws(sb_game_t* g,int8_t rider) {
+    for(uint8_t id=0u;id<SB_PLATFORM_COUNT;++id) {
+        const sb_platform_t* p=&sb_course_platforms(g)[id];
+        if(p->kind!=SB_SEESAW)continue;
+        int32_t target=0,rate=SB_SEESAW_RETURN;
+        if(rider==(int8_t)id) {
+            const int32_t dz=sb_clamp(g->z-SB_F(p->z),
+                                     -SB_F(p->half_z),SB_F(p->half_z));
+            target=-(int32_t)((int64_t)dz*SB_SEESAW_LIMIT/
+                               SB_F(p->half_z));
+            rate=SB_SEESAW_SPEED;
+        }
+        g->seesaw_tilt[id]=sb_approach(g->seesaw_tilt[id],target,rate);
+    }
+}
+
 static inline int32_t sb_platform_x(const sb_game_t* g, uint8_t id) {
     const sb_platform_t* p=&sb_course_platforms(g)[id];
     return SB_F(p->x) + (p->kind==SB_MOVING ? g->moving_x : 0);
@@ -262,7 +313,8 @@ static inline int sb_gem_contact(const sb_game_t* g,uint8_t id) {
     int32_t deck_y;
     if(id<1u || id>SB_PICKUP_COUNT || !sb_platform_active(g,id))
         return 0;
-    deck_y=sb_platform_y(g,id);
+    deck_y=sb_platform_surface_y(g,id,sb_platform_x(g,id),
+                                 SB_F(sb_course_platforms(g)[id].z));
     if(g->y+SB_PLAYER_HEIGHT < deck_y+SB_F(1) ||
        g->y > deck_y+SB_F(7))
         return 0;
@@ -284,7 +336,7 @@ static inline void sb_respawn(sb_game_t* g) {
     uint8_t cp = g->checkpoint;
     g->x = sb_platform_x(g, cp);
     g->z = SB_F(sb_course_platforms(g)[cp].z - 4);
-    g->y = sb_platform_y(g,cp);
+    g->y = sb_platform_surface_y(g,cp,g->x,g->z);
     g->vx = g->vy = g->vz = 0;
     g->support = (int8_t)cp;
     g->coyote = 5u;
@@ -314,8 +366,9 @@ static inline void sb_side_collide(sb_game_t* g, int32_t old_x, int32_t old_z) {
         const int32_t front = cz + SB_F(p->half_z) + SB_PLAYER_HALF;
         if (!sb_platform_active(g,i) ||
             (sb_platform_hole(g,i) && !sb_deck_footprint(g,i)) ||
-            g->y >= sb_platform_y(g,i) - SB_F(1)/16 ||
-            g->y + SB_PLAYER_HEIGHT <= sb_platform_y(g,i)-SB_F(5)) continue;
+            g->y >= sb_platform_surface_y(g,i,g->x,g->z) - SB_F(1)/16 ||
+            g->y + SB_PLAYER_HEIGHT <=
+                sb_platform_surface_y(g,i,g->x,g->z)-SB_F(5)) continue;
         if (g->z > back && g->z < front) {
             if (old_x <= left && g->x > left) { g->x=left; g->vx=0; }
             if (old_x >= right && g->x < right) { g->x=right; g->vx=0; }
@@ -420,12 +473,26 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
     old_x=g->x; old_z=g->z; old_y=g->y;
     g->x+=g->vx; g->z+=g->vz;
     sb_side_collide(g,old_x,old_z);
+    /* The board reacts to where the rider stands this tick, not where
+     * they stood one frame earlier. A grounded pig follows the newly
+     * tilted plane both uphill and downhill; a jump immediately detaches. */
+    sb_update_seesaws(g,old_support);
+    if(old_support>=0 &&
+       sb_course_platforms(g)[(uint8_t)old_support].kind==SB_SEESAW &&
+       g->support==(int8_t)old_support &&
+       sb_supported_footprint(g,(uint8_t)old_support) && g->vy<=0) {
+        g->y=sb_platform_surface_y(
+            g,(uint8_t)old_support,g->x,g->z);
+        g->vy=0;
+    }
     g->y+=g->vy;
     best_y=-SB_F(100);
     if (g->vy<=0) {
         for (i=0u;i<SB_PLATFORM_COUNT;++i) {
-            int32_t top=sb_platform_y(g,i);
+            int32_t top=sb_platform_surface_y(g,i,g->x,g->z);
             int32_t previous_top=sb_platform_y_at(g,i,g->ticks-1u);
+            if(sb_course_platforms(g)[i].kind==SB_SEESAW)
+                previous_top=old_y; /* last grounded height before moving */
             if (!sb_platform_active(g,i) || !sb_supported_footprint(g,i)) continue;
             if (old_y>=previous_top-SB_F(1)/8 && g->y<=top && top>best_y) {
                 best=(int8_t)i; best_y=top;
@@ -438,7 +505,7 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
     } else {
         g->support=-1;
         for (i=0u;i<SB_PLATFORM_COUNT;++i) {
-            int32_t underside=sb_platform_y(g,i)-SB_F(5);
+            int32_t underside=sb_platform_surface_y(g,i,g->x,g->z)-SB_F(5);
             if (!sb_platform_active(g,i) || !sb_horizontal_overlap(g,i) ||
                 (sb_platform_hole(g,i) && !sb_deck_footprint(g,i))) continue;
             if (old_y+SB_PLAYER_HEIGHT<=underside &&
