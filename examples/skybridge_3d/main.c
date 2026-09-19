@@ -199,8 +199,10 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
                 put_quad(&q,SAT_RGB555(24,20,10));
             } else {
                 sat_result_t st;
+                const sat_vdp1_texture_t* texture=
+                    &g_tile_textures[trim==1u?0u:(trim==3u?1u:2u)];
                 if (g_active_fade_slot==FADE_OPAQUE) {
-                    st=sat_draw_world_sprite(&g_vp,&q,&g_tile_texture,0u,0u);
+                    st=sat_draw_world_sprite(&g_vp,&q,texture,0u,0u);
                 } else {
                     sat_quad2_t projected;
                     st=sat_project_quad(&g_vp,&q,&projected);
@@ -210,7 +212,7 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
                         for(k=0u;k<4u;++k) {
                             cmd.x[k]=projected.x[k];cmd.y[k]=projected.y[k];
                         }
-                        cmd.texture=&g_tile_texture;
+                        cmd.texture=texture;
                         st=sat_draw_sprite_distorted_color_calc(&cmd,g_active_fade_slot);
                     }
                 }
@@ -233,7 +235,34 @@ static void stage_box(uint8_t i) {
     box3(x,SB_F(p->y),z,SB_F(p->half_x),SB_F(5),SB_F(p->half_z),
          t, i<4u ? SAT_RGB555(12,14,14):SAT_RGB555(6,16,15),
          i<4u ? SAT_RGB555(17,17,14):SAT_RGB555(8,19,18),
-         (i==7u)?2u:1u);
+         (i==7u)?2u:(i<4u?1u:(i<7u?3u:4u)));
+    /* Distinct corner braces and inset deck rails make the floating decks
+     * read as engineered 3D structures rather than untextured slabs.
+     * All braces are outside the traversable deck and are decorative only. */
+    if(i==0u || i==3u || i==4u || i==6u || i==9u) {
+        int32_t rim_z=z+(g_eye.z<z?-SB_F(p->half_z-3):
+                                      SB_F(p->half_z-3));
+        uint16_t metal=(i<4u)?SAT_RGB555(17,17,14):
+            (i<7u?SAT_RGB555(8,19,18):SAT_RGB555(24,20,10));
+        box3(x-SB_F(p->half_x-4),SB_F(p->y-6),rim_z,
+             SB_F(2),SB_F(3),SB_F(2),metal,metal,metal,0u);
+        box3(x+SB_F(p->half_x-4),SB_F(p->y-6),rim_z,
+             SB_F(2),SB_F(3),SB_F(2),metal,metal,metal,0u);
+    }
+    /* A thin raised, contrasting edge band makes platform boundaries
+     * legible at speed without adding collision-changing obstacles. */
+    if(g_eye.y>SB_F(p->y) && p->half_x>7 && p->half_z>7) {
+        sat_quad3_t edge;
+        int32_t sy=SB_F(p->y)+SB_F(1)/24;
+        int32_t lx=x-SB_F(p->half_x-1),rx=x+SB_F(p->half_x-1);
+        int32_t bz=z-SB_F(p->half_z-1),fz=z+SB_F(p->half_z-1);
+        uint16_t edge_color=(i<4u)?SAT_RGB555(24,20,10):
+            (i<7u?SAT_RGB555(12,26,19):SAT_RGB555(31,26,3));
+        quad_rect_xz(&edge,lx,rx,bz,bz+SB_F(1),sy);
+        put_quad(&edge,edge_color);
+        quad_rect_xz(&edge,lx,rx,fz-SB_F(1),fz,sy);
+        put_quad(&edge,edge_color);
+    }
     /* Checkpoints and finish are physically marked, not just HUD text. */
     if (i==3u || i==6u) {
         box3(x-SB_F(7),SB_F(p->y+5),z+SB_F(5),SB_F(1),SB_F(5),SB_F(1),
