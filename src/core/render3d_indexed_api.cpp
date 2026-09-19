@@ -72,6 +72,55 @@ extern "C" sat_result_t sat_draw_indexed_solid_quad3(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_draw_indexed_textured_quad3(
+    const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* p,
+    const sat_vdp1_texture_t* texture, uint8_t* out_drawn
+) {
+    if(out_drawn!=nullptr) *out_drawn=0u;
+    if(quad==nullptr || texture==nullptr || !valid_render(p) ||
+       p->width<2u || p->height<2u || p->width>2048u || p->height>2048u)
+        return SAT_ERR_INVALID_ARG;
+
+    /* A distorted VDP1 sprite carries no independent UVs at its corners.
+     * In particular, one "clipped" triangle may still have a count of one,
+     * but it is NOT the source quad. Test each ORIGINAL corner instead. */
+    for(uint8_t i=0u;i<4u;++i) {
+        const sat_vec3_t& v=quad->v[i];
+        const int64_t dx=static_cast<int64_t>(v.x)-p->eye.x;
+        const int64_t dy=static_cast<int64_t>(v.y)-p->eye.y;
+        const int64_t dz=static_cast<int64_t>(v.z)-p->eye.z;
+        const int64_t depth=(dx*p->forward.x+dy*p->forward.y+
+                             dz*p->forward.z)/SAT_FX16_ONE;
+        if(depth < p->near_depth) return SAT_OK;
+    }
+
+    sat_quad2_t projected;
+    const sat_result_t proj=sat_project_quad(p->view_proj,quad,&projected);
+    if(proj==SAT_ERR_UNSUPPORTED) return SAT_OK;
+    if(proj!=SAT_OK) return proj;
+    const int32_t min_x=-static_cast<int32_t>(p->width)/2;
+    const int32_t max_x=static_cast<int32_t>(p->width+1u)/2-1;
+    const int32_t min_y=-static_cast<int32_t>(p->height)/2;
+    const int32_t max_y=static_cast<int32_t>(p->height+1u)/2-1;
+    for(uint8_t i=0u;i<4u;++i) {
+        if(projected.x[i]<min_x || projected.x[i]>max_x ||
+           projected.y[i]<min_y || projected.y[i]>max_y)
+            return SAT_OK;
+    }
+
+    sat_distorted_sprite_cmd_t cmd={};
+    for(uint8_t i=0u;i<4u;++i) {
+        cmd.x[i]=projected.x[i];
+        cmd.y[i]=projected.y[i];
+    }
+    cmd.texture=texture;
+    const sat_result_t st=p->color_calc_slot==SAT_INDEXED_SOLID_OPAQUE
+        ? sat_draw_sprite_distorted(&cmd)
+        : sat_draw_sprite_distorted_color_calc(&cmd,p->color_calc_slot);
+    if(st==SAT_OK && out_drawn!=nullptr) *out_drawn=1u;
+    return st;
+}
+
 extern "C" sat_result_t sat_draw_indexed_solid_mesh3(
     const sat_mesh_t* mesh,const sat_indexed_solid_mesh3d_draw_t* p
 ) {

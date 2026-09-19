@@ -94,6 +94,25 @@ sat_result_t sat_draw_indexed_solid_quad3(
     const sat_vdp1_texture_t* uniform_indexed8_texture
 );
 
+/* VDP1 distorted sprites map the ENTIRE texture to all four quad corners.
+ * Arbitrary near/screen clipping cannot retain patterned UVs without an
+ * explicit texture-region/materialization pipeline. In the absence of that
+ * capability, this helper conservatively draws exactly one unmodified
+ * textured quad only when all four corners are in front of the near plane
+ * and within screen bounds. Unsafe/fully invisible quads draw nothing,
+ * leaving any caller-rendered clipped solid backing face visible.
+ *
+ * Color-calc follows the same global VDP2 slot rules as indexed solids.
+ * This API reports whether it emitted a sprite through optional out_drawn;
+ * returning SAT_OK with out_drawn=0 is a valid visibility outcome, not an
+ * error. Width/height must describe the actual display viewport. */
+sat_result_t sat_draw_indexed_textured_quad3(
+    const sat_quad3_t* quad,
+    const sat_indexed_solid_render3d_t* params,
+    const sat_vdp1_texture_t* texture,
+    uint8_t* out_drawn
+);
+
 typedef struct sat_projected_vertex {
     int16_t x;
     int16_t y;

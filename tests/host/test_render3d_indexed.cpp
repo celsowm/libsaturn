@@ -141,6 +141,70 @@ static sat_indexed_solid_mesh3d_draw_t mesh_params(
     p.depth=depth;
     return p;
 }
+static void patterned_texture_draws_only_with_original_four_corners() {
+    reset();
+    sat_quad3_t q=quad(3,12);
+    sat_indexed_solid_render3d_t p=render();
+    uint8_t emitted=99u;
+    EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[1],&emitted),SAT_OK);
+    EQ(emitted,1u);
+    EQ(g_opaque,1);
+    EQ(g_srca[0],20u);
+    EQ(g_x[0],3u);
+    EQ(g_near_calls,0);
+    EQ(g_screen_calls,0);
+
+    /* One near-plane crossing corner must NOT become a triangle with the
+     * original texture stretched across it, even if a clipper says count=1. */
+    reset();
+    q.v[0].z=FX(7);
+    emitted=99u;
+    EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[1],&emitted),SAT_OK);
+    EQ(emitted,0u);
+    EQ(g_project_calls,0);
+    EQ(g_opaque,0);
+    q.v[0].z=FX(12);
+
+    /* Sprite coordinates must remain in the physical 320x224 viewport.
+     * Its solid backing can still be drawn via the uniform-color clipper. */
+    reset();
+    q.v[1].x=FX(161);
+    emitted=99u;
+    EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[1],&emitted),SAT_OK);
+    EQ(emitted,0u);
+    EQ(g_project_calls,1);
+    EQ(g_opaque,0);
+    q.v[1].x=FX(5);
+
+    /* The ordinary and VDP2 faded submission paths share the safety gate. */
+    reset();
+    p.color_calc_slot=4u;
+    EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[0],&emitted),SAT_OK);
+    EQ(emitted,1u);
+    EQ(g_faded,1);
+    EQ(g_last_slot,4u);
+}
+
+static void patterned_texture_invalid_input_and_command_failure() {
+    reset();
+    sat_quad3_t q=quad(0,12);
+    sat_indexed_solid_render3d_t p=render();
+    uint8_t emitted=99u;
+    EQ(sat_draw_indexed_textured_quad3(nullptr,&p,&g_texture[0],&emitted),
+       SAT_ERR_INVALID_ARG);
+    EQ(emitted,0u);
+    p.width=1u;
+    EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[0],&emitted),
+       SAT_ERR_INVALID_ARG);
+    EQ(g_project_calls,0);
+    p=render();
+    g_submit_status=SAT_ERR_CAPACITY;
+    EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[0],&emitted),
+       SAT_ERR_CAPACITY);
+    EQ(emitted,0u);
+    EQ(g_opaque,1);
+}
+
 static void mesh_uses_immutable_geometry_and_sorts_depth() {
     reset();
     sat_vec3_t vertices[8];
@@ -187,8 +251,10 @@ int main() {
     quad_validates_and_draws_opaque();
     faded_quad_and_multiple_screen_triangles();
     invisible_and_hardware_errors();
+    patterned_texture_draws_only_with_original_four_corners();
+    patterned_texture_invalid_input_and_command_failure();
     mesh_uses_immutable_geometry_and_sorts_depth();
     mesh_invalid_face_or_material_is_atomic();
-    puts("test_render3d_indexed: 5 tests passed");
+    puts("test_render3d_indexed: 7 tests passed");
     return 0;
 }

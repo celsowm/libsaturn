@@ -41,3 +41,20 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
 - This is an intermediate indexed-solid subsystem, not a claim that patterned
   UV clipping, scene-wide interpenetration, global palette pooling or the
   breaking replacement of the generic mesh API are complete.
+
+## Third slice: patterned indexed insets — renderer-owned conservative policy
+
+- Added `sat_draw_indexed_textured_quad3`: preserves the original four VDP1
+  texture corners when ALL source vertices are in front of the near guard
+  and the projected quad is fully inside the physical screen. The routine
+  makes no fake UV-clipping claim: unsafe insets are omitted over the already
+  drawn, safely clipped solid backing face. It uses the same optional VDP2
+  color-calc slot and reports whether the sprite was actually submitted.
+- Skybridge's 50-line bespoke near-clip/screen-clip/VDP1 inset branch is
+  replaced with a material selection and one call to the new library path.
+- Host tests cover unchanged source corners, one-corner near crossing,
+  screen overflow, faded/opaque submission and capacity/invalid-input handling.
+- Arbitrary UV-preserving clipped patterned geometry remains **unimplemented**:
+  true support requires clipped texture-region materialization or another
+  verified VDP1 mapping strategy. This is not equivalent to a general
+  perspective-correct UV renderer.

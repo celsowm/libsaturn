@@ -271,57 +271,23 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
             if (trim==2u) {
                 put_quad(&q,SAT_RGB555(24,20,10));
             } else {
-                /* Non-uniform paving UVs need a texture clipper to split
-                 * accurately. Never submit a stretched/malformed inset if
-                 * the camera's near plane cuts the floor. Its SOLID base
-                 * remains visible via put_quad's geometric near clipping. */
-                sat_quad3_t clipped[4];
-                uint8_t clipped_count=0u;
-                sat_example_must(sat_clip_quad_near(
-                    &q,&g_eye,&g_scene.forward,SB_F(8),clipped,&clipped_count));
-                if(clipped_count==1u) {
-                    uint8_t fully_in_front=1u,k;
-                    sat_quad2_t projected;
-                    sat_result_t st;
-                    /* One clipped triangle ALSO has count=1! Check that the
-                     * original 4 UV corners survived unchanged before drawing
-                     * a patterned quad; otherwise the old near-plane hazard
-                     * was still reachable through this inset. */
-                    for(k=0u;k<4u;++k) {
-                        if(clipped[0].v[k].x!=q.v[k].x ||
-                           clipped[0].v[k].y!=q.v[k].y ||
-                           clipped[0].v[k].z!=q.v[k].z)
-                            fully_in_front=0u;
-                    }
-                    if(fully_in_front) {
-                        st=sat_project_quad(&g_vp,&q,&projected);
-                        if(st==SAT_OK) {
-                            uint8_t entirely_on_screen=1u;
-                            sat_distorted_sprite_cmd_t cmd={0};
-                            for(k=0u;k<4u;++k) {
-                                if(projected.x[k]<-(int32_t)W/2 ||
-                                   projected.x[k]>=(int32_t)W/2 ||
-                                   projected.y[k]<-(int32_t)H/2 ||
-                                   projected.y[k]>=(int32_t)H/2)
-                                    entirely_on_screen=0u;
-                                cmd.x[k]=projected.x[k];
-                                cmd.y[k]=projected.y[k];
-                            }
-                            /* This patterned sprite has no UV-aware
-                             * clipping. When partially off-screen, render
-                             * only the safe, clipped solid base instead. */
-                            if(entirely_on_screen) {
-                                cmd.texture=&g_tile_textures[
-                                    trim==1u?0u:(trim==3u?1u:2u)];
-                                if(g_active_fade_slot==FADE_OPAQUE)
-                                    st=sat_draw_sprite_distorted(&cmd);
-                                else st=sat_draw_sprite_distorted_color_calc(
-                                    &cmd,g_active_fade_slot);
-                                if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED)
-                                    sat_example_must(st);
-                            }
-                        } else if(st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
-                    }
+                /* The library owns the conservative patterned-texture path:
+                 * unlike a uniform color, this material cannot be split
+                 * without preserving its original UV mapping. */
+                sat_indexed_solid_render3d_t draw={0};
+                draw.view_proj=&g_vp;
+                draw.eye=g_eye;
+                draw.forward=g_scene.forward;
+                draw.near_depth=SB_F(8);
+                draw.width=W;
+                draw.height=H;
+                draw.color_calc_slot=g_active_fade_slot;
+                {
+                    const sat_vdp1_texture_t* texture=&g_tile_textures[
+                        trim==1u?0u:(trim==3u?1u:2u)];
+                    const sat_result_t st=sat_draw_indexed_textured_quad3(
+                        &q,&draw,texture,0);
+                    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
                 }
             }
         }
