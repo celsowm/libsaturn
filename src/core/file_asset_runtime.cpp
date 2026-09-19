@@ -118,7 +118,7 @@ sat_result_t asset_cache_fill(
     }
     block.source_path[j] = '\0';
     block.block_index = block_index;
-    block.valid_bytes = static_cast<uint16_t>(valid_bytes);
+    block.valid_bytes = valid_bytes;
     block.last_used = ++runtime.cache_clock;
     block.used = 1u;
     ++runtime.cache_fills;
