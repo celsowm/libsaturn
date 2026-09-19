@@ -75,41 +75,49 @@ The eight collectibles are distinct **golden octahedra** (eight triangular facet
 
 The goal checks only whether the player is grounded on the final platform. Finishing with 0/8, 3/8 or 8/8 gems is valid; the score is displayed on the completion overlay. `tests/host/test_skybridge_game.cpp` covers distant/diagonal/vertical misses, midair collection, one-time pickup, moving deck positions, collapse state and zero/partial-gem victories.
 
-## Fixed second platform: approaching the near plane
+## Fixed second platform: consecutive steps and jump
 
-The reported Course-1 case at **X≈7, Y=0, Z≈30** is **not** the
-collapsing bridge. The second platform (stage index 1) is a fixed deck at
-Z=36; the collapsing platform is index 7 at Z=235. When the pig walks
-onto stage 1, the follow camera moves through the space immediately
-behind/above the **previous pier** (index 0, Z=-18..18). The pier's large
-floor quads can straddle the camera's near plane. Previously
-`sat_project_quad()` submitted nearly unbounded distorted sprites as a
-corner approached depth zero, then rejected the **entire** quad once the
-corner was behind the eye. Giant partial VDP1 sprites can consume
-excessive raster time and make later objects/HUD disappear or appear
-late; one huge floor suddenly disappearing is not the bridge-collapse
-mechanic.
+The user's regression is **Course 1's fixed second platform**, stage index
+1 at Z=36, with the player near X=7, Y=0, Z=30. The collapsing platform is
+stage index 7 at Z=235 and is **not** involved. The previous change only
+clipped world polygons near the eye; the user confirmed it **did not fix the
+bug**, and jumping also made the HUD disappear. That implicates VDP1 frame
+processing or a draw-time error as well as ordinary visibility: the HUD is
+submitted after world geometry into the same VDP1 command list.
 
-The reusable `sat_clip_quad_near()` in `render3d.h` now clips
-**solid world-space geometry** against a safe near depth and triangulates
-the visible part before native projection. Skybridge uses an 8-world-unit
-rendering near plane for these procedural quads. Textured floor insets
-that cross that plane are omitted rather than drawn with incorrect UVs;
-their clipped **solid base** remains visible. Gameplay positions,
-platform collision, platform kinds and camera orbit are unchanged.
-Host tests `clip_near_oversized_previous_pier` and
-`clip_near_generates_projectable_triangles` walk the camera through
-consecutive positions and assert that clipped geometry stays in front
-of the near plane. These do not prove correct VDP1 raster timing.
+The additional rendering safeguards are:
 
-**Visual acceptance:** with Course 1 at approximately X=7, Y=0, move
-Z=30 → 31 → 32 without turning. The HUD must remain visible,
-the pig must remain on the fixed second deck, and no giant flat-colored
-floor may fill the screen or suddenly eliminate the world as the first
-pier passes behind the camera. Repeat with the camera rotated and check
-several consecutive frames, not just one screenshot. If the problem
-persists, record whether the HUD/time freezes: this distinguishes
-software error/spin or VDP1 command starvation from ordinary culling.
+- `sat_clip_quad_screen()` in `render3d.h` is a reusable,
+  allocation-free **solid-color** viewport clipper. After the near-plane
+  clipping and 3D projection, Skybridge bounds all uniform indexed quads
+  to the native 320×224 screen before submitting VDP1 distorted sprites.
+  The old near-only clip could produce enormous off-screen VDP1 raster
+  commands even though the polygon was in front of the eye.
+- Patterned floor insets have no UV-aware clipper yet. Draw the textured
+  inset only if the **original four corners** survive the near plane
+  unchanged and its projected corners are entirely on-screen. A clipped
+  triangle may also have `clipped_count == 1`, so count alone is NOT a
+  sufficient safety check. The clipped solid floor remains visible.
+- When the chase camera is physically inside the **horizontal footprint
+  of an already-passed, non-supporting deck**, avoid rendering that deck
+  immediately around the eye. At the reported Z≈30 position, the camera
+  is roughly Z≈−12, inside the previous pier's Z=[−18,18] footprint. This
+  safeguard works for both courses and does not change the pig, collision,
+  collectibles, actual deck placement or the supporting platform.
+
+Tests in `tests/host/test_render3d_logic.cpp` cover near+screen clipping
+for successive Z=30..33 steps and several jump heights. They verify that
+generated triangles fit inside VDP1's screen bounds. **They do not verify
+real VDP1 raster time or prove the HUD no longer disappears**.
+
+Visual gate: build the latest Skybridge ISO and reproduce X≈7, Y=0,
+Z≈30→31→32, then jump in place on the second fixed platform. The HUD,
+pig and distant platforms must update each frame; an older pier may
+disappear when the camera crosses it, but **the current platform cannot
+vanish or freeze**. Check whether the displayed TIME keeps changing if
+any object disappears and record two neighboring frames to distinguish
+a game-code stall from a VDP1-frame backlog. Do not label this case a
+collapsing bridge or claim fixed based solely on a host test.
 
 ## Pig/gem camera occlusion regression
 
