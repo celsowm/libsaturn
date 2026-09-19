@@ -20,7 +20,7 @@
 #define FADE_START SB_FADE_START
 #define FADE_END SB_FADE_END
 #define VIEW_LIMIT FADE_END
-#define FADE_COLOR_COUNT 20u
+#define FADE_COLOR_COUNT 25u
 #define FADE_PALETTE_BANK 4u
 #define FADE_OPAQUE 255u
 #define SOUNDS 6u
@@ -51,7 +51,9 @@ static const uint16_t g_fade_colors[FADE_COLOR_COUNT]={
     SAT_RGB555(31,26,3), SAT_RGB555(23,16,3), SAT_RGB555(31,19,2),
     SAT_RGB555(16,12,3), SAT_RGB555(27,20,4),
     SAT_RGB555(20,14,3), SAT_RGB555(27,19,4),
-    SAT_RGB555(31,30,8), SAT_RGB555(31,13,3), SAT_RGB555(31,23,4)
+    SAT_RGB555(31,30,8), SAT_RGB555(31,13,3), SAT_RGB555(31,23,4),
+    SAT_RGB555(31,28,7), SAT_RGB555(31,20,6), SAT_RGB555(31,12,4),
+    SAT_RGB555(31,31,31), SAT_RGB555(8,10,10)
 };
 static uint8_t g_tile_pixels[16u*16u];
 static uint8_t g_sky[SKY_W * SKY_H];
@@ -106,46 +108,50 @@ static void label(const char* title, uint32_t n, int x, int y) {
     char buf[32];
     if (sat_fmt_label_u32(title, n, buf, sizeof(buf), 0) == SAT_OK) put_text(buf,x,y);
 }
-/* VDP2 color calculation blends only indexed VDP1 sprites with NBG0/RBG0.
- * RGB VDP1 polygons cannot inherit a generic "alpha" flag. Convert every
- * far platform face into an indexed, solid-color distorted sprite instead.
- * All faces of a single platform share a distance slot and fade together. */
-static void put_quad(const sat_quad3_t* q, uint16_t c) {
-    sat_result_t st;
-    if (g_active_fade_slot==FADE_OPAQUE) {
-        st=sat_draw_world_polygon(&g_vp,q,c);
-    } else {
-        uint8_t i,chosen=0u;
-        uint32_t best=0xFFFFFFFFu;
-        sat_quad2_t screen;
-        for(i=0u;i<FADE_COLOR_COUNT;++i) {
-            const uint16_t v=g_fade_colors[i];
-            int32_t dr=(int32_t)(c&31u)-(int32_t)(v&31u);
-            int32_t dg=(int32_t)((c>>5u)&31u)-(int32_t)((v>>5u)&31u);
-            int32_t db=(int32_t)((c>>10u)&31u)-(int32_t)((v>>10u)&31u);
-            uint32_t distance=(uint32_t)(dr*dr+dg*dg+db*db);
-            if(distance<best){best=distance;chosen=i;if(!distance)break;}
-        }
-        st=sat_project_quad(&g_vp,q,&screen);
-        if(st==SAT_OK) {
-            sat_distorted_sprite_cmd_t cmd={0};
-            for(i=0u;i<4u;++i) {
-                cmd.x[i]=screen.x[i];cmd.y[i]=screen.y[i];
-            }
-            cmd.texture=&g_fade_textures[chosen];
-            st=sat_draw_sprite_distorted_color_calc(&cmd,g_active_fade_slot);
-        }
+/* Sprite Type 0's RGB-coded pixels have different VDP2 interpretation
+ * from indexed pixels. With sprite color calc enabled, mixing RGB geometry
+ * and indexed faded quads made the near player's RGB body and the solid
+ * platform walls disappear over the RBG0 ocean on the target emulator.
+ * Keep *every* world-facing material on a single indexed palette path.
+ * Ordinary sprites remain opaque at priority 7; only distant objects
+ * explicitly request the faded selector (priority 6, above sea priority 5).
+ * The indexed top insets keep their original patterned texture. */
+static uint8_t fade_material(uint16_t c) {
+    uint8_t i, chosen=0u;
+    uint32_t best=0xFFFFFFFFu;
+    for (i=0u;i<FADE_COLOR_COUNT;++i) {
+        uint16_t v=g_fade_colors[i];
+        int32_t dr=(int32_t)(c&31u)-(int32_t)(v&31u);
+        int32_t dg=(int32_t)((c>>5u)&31u)-(int32_t)((v>>5u)&31u);
+        int32_t db=(int32_t)((c>>10u)&31u)-(int32_t)((v>>10u)&31u);
+        uint32_t distance=(uint32_t)(dr*dr+dg*dg+db*db);
+        if(distance<best) {best=distance;chosen=i;if(!distance)break;}
     }
-    if (st != SAT_OK && st != SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    return chosen;
+}
+static void put_quad(const sat_quad3_t* q, uint16_t c) {
+    sat_quad2_t screen;
+    sat_distorted_sprite_cmd_t cmd={0};
+    sat_result_t st=sat_project_quad(&g_vp,q,&screen);
+    uint8_t i;
+    if(st!=SAT_OK) {
+        if(st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+        return;
+    }
+    for(i=0u;i<4u;++i) {
+        cmd.x[i]=screen.x[i];cmd.y[i]=screen.y[i];
+    }
+    cmd.texture=&g_fade_textures[fade_material(c)];
+    if(g_active_fade_slot==FADE_OPAQUE)
+        st=sat_draw_sprite_distorted(&cmd);
+    else
+        st=sat_draw_sprite_distorted_color_calc(&cmd,g_active_fade_slot);
+    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
 static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
-    const uint16_t light[4]={
-        SAT_GOURAUD_NEUTRAL, sat_gouraud_from_intensity(SB_F(7)/8),
-        sat_gouraud_from_intensity(SB_F(3)/4), sat_gouraud_from_intensity(SB_F(7)/8)
-    };
-    if (g_active_fade_slot!=FADE_OPAQUE) {put_quad(q,c);return;}
-    sat_result_t st=sat_draw_world_polygon_gouraud(&g_vp,q,c,light);
-    if (st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    /* Gouraud RGB polygons are incompatible with this VDP2 blend path;
+     * use an indexed flat-colored face so near geometry stays solid. */
+    put_quad(q,c);
 }
 static void pquad(sat_quad3_t* q, int32_t ax,int32_t ay,int32_t az,
                   int32_t bx,int32_t by,int32_t bz,
@@ -250,8 +256,8 @@ static void player_box(void) {
         const sb_platform_t* p=&sb_stage[(uint8_t)g_game.support];
         sat_quad3_t shadow;
         int32_t sy=SB_F(p->y)+SB_F(1)/16;
-        quad_rect_xz(&shadow,px-SB_F(3),px+SB_F(3),pz-SB_F(3),pz+SB_F(3),sy);
-        (void)sat_draw_world_polygon_effects(&g_vp,&shadow,SAT_RGB555(4,6,6),SAT_SPRITE_FLAG_MESH);
+        quad_rect_xz(&shadow,px-SB_F(2),px+SB_F(2),pz-SB_F(2),pz+SB_F(2),sy);
+        put_quad(&shadow,SAT_RGB555(8,10,10));
     }
     box3(px,feet+SB_F(5)/2+bob,pz,SB_PLAYER_HALF,SB_F(5)/2,SB_PLAYER_HALF,
          top,SAT_RGB555(31,20,6),front,0u);
