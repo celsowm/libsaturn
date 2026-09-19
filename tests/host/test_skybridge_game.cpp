@@ -518,6 +518,120 @@ int main() {
         assert(sb_platform_hole(&long_course,2u)==nullptr);
     }
 
+    /* Course 4: physical 3D seesaws. The hinged surface, rider's grounded
+     * feet and gem all use the SAME moving ramp height; neither a rotated
+     * visual-only box nor an elevator with a constant deck Y is sufficient. */
+    {
+        sb_game_t ramp;
+        sb_start_course(&ramp,3u);
+        assert(ramp.course==3u && ramp.support==0 &&
+               sb_course_platforms(&ramp)==sb_stage_four);
+        assert(ramp.pickups==0u && ramp.ticks==0u);
+        const uint8_t hinged[6]={1u,2u,4u,5u,7u,8u};
+        uint8_t count=0u;
+        for(uint8_t id=0u;id<SB_PLATFORM_COUNT;++id) {
+            const sb_platform_t* p=&sb_course_platforms(&ramp)[id];
+            if(p->kind!=SB_SEESAW)continue;
+            assert(id==hinged[count++]);
+            assert(sb_platform_hole(&ramp,id)==nullptr);
+            assert(sb_platform_y(&ramp,id)==SB_F(p->y));
+            assert(sb_platform_surface_y(
+                &ramp,id,sb_platform_x(&ramp,id),SB_F(p->z))==SB_F(p->y));
+        }
+        assert(count==6u);
+        for(uint8_t n=0u;n<6u;++n) {
+            uint8_t id=hinged[n];
+            const sb_platform_t* p=&sb_stage_four[id];
+            sb_start_course(&ramp,3u);
+            place(ramp,id);
+            const int32_t center_z=SB_F(p->z),center_x=sb_platform_x(&ramp,id);
+            const int32_t near_z=center_z-SB_F(p->half_z-6);
+            const int32_t far_z=center_z+SB_F(p->half_z-6);
+            ramp.z=near_z;
+            ramp.y=sb_platform_surface_y(&ramp,id,ramp.x,ramp.z);
+            int32_t initial_y=ramp.y;
+            for(int frame=0;frame<50;++frame) {
+                uint16_t event=tick(ramp,SB_BRAKE);
+                assert(!(event&SB_EVENT_FALL));
+                assert(ramp.support==(int8_t)id);
+                assert(ramp.vy==0 && ramp.vz==0 && ramp.x==center_x);
+                assert(ramp.z==near_z);
+                assert(ramp.y==sb_platform_surface_y(&ramp,id,ramp.x,ramp.z));
+                assert(sb_abs(ramp.seesaw_tilt[id])<=SB_SEESAW_LIMIT);
+            }
+            assert(ramp.seesaw_tilt[id]>SB_F(1));
+            assert(ramp.y<initial_y); /* pig depresses the near end */
+            assert(sb_platform_surface_y(&ramp,id,ramp.x,
+                     center_z+SB_F(p->half_z))>SB_F(p->y));
+            /* Move to the OTHER end: the plank reverses its inclination
+             * under the pig, including when it climbs or descends. */
+            ramp.z=far_z;
+            ramp.y=sb_platform_surface_y(&ramp,id,ramp.x,ramp.z);
+            for(int frame=0;frame<70;++frame) {
+                tick(ramp,SB_BRAKE);
+                assert(ramp.support==(int8_t)id);
+                assert(ramp.y==sb_platform_surface_y(&ramp,id,ramp.x,ramp.z));
+            }
+            assert(ramp.seesaw_tilt[id]<-SB_F(1));
+            assert(sb_platform_surface_y(&ramp,id,ramp.x,
+                     center_z+SB_F(p->half_z))<SB_F(p->y));
+            /* The gem is at the central hinge: its actual collision and
+             * visual height remain aligned even with both ends tilted. */
+            assert(sb_platform_surface_y(
+                &ramp,id,center_x,center_z)==SB_F(p->y));
+            ramp.z=center_z;
+            ramp.y=sb_platform_surface_y(&ramp,id,ramp.x,ramp.z);
+            assert(sb_gem_contact(&ramp,id));
+            const int32_t old_tilt=ramp.seesaw_tilt[id];
+            uint16_t event=tick(ramp,SB_JUMP,SB_JUMP);
+            assert(event&SB_EVENT_JUMP);
+            assert(ramp.support==-1 && ramp.vy>0);
+            assert(sb_abs(ramp.seesaw_tilt[id])<sb_abs(old_tilt));
+            /* Gravity does not snap an airborne rider down to the ramp,
+             * and camera-only turns do not change the physical slope. */
+            int32_t jump_height=ramp.y;
+            for(int frame=0;frame<3;++frame) {
+                tick(ramp,SB_JUMP);
+                assert(ramp.support==-1 && ramp.y>jump_height);
+                jump_height=ramp.y;
+            }
+            /* A player entirely BELOW a tilted plank must never be
+             * teleported to its surface by the descending landing scan. */
+            sb_start_course(&ramp,3u);
+            place(ramp,id);
+            ramp.y=sb_platform_surface_y(&ramp,id,ramp.x,ramp.z)-SB_F(9);
+            ramp.vy=-SB_F(1);
+            ramp.support=-1;
+            tick(ramp);
+            assert(ramp.support==-1);
+            assert(ramp.y<SB_F(p->y));
+        }
+        /* Checkpoint piers are fixed and save progress even as nearby
+         * seesaws continue to settle back to level. */
+        sb_start_course(&ramp,3u);
+        place(ramp,3u);
+        assert(tick(ramp)&SB_EVENT_CHECKPOINT);
+        assert(ramp.checkpoint==3u);
+        ramp.y=SB_F(-30); ramp.support=-1;
+        assert(tick(ramp)&SB_EVENT_FALL);
+        assert(ramp.support==3 && ramp.y==SB_F(2));
+        place(ramp,6u);
+        assert(tick(ramp)&SB_EVENT_CHECKPOINT);
+        assert(ramp.checkpoint==6u);
+        /* The finish is unconditional, and C4 wraps back to Course 1. */
+        sb_start_course(&ramp,3u);
+        place(ramp,9u);
+        assert(ramp.pickups==0u);
+        assert(tick(ramp)&SB_EVENT_WIN);
+        assert(ramp.finished && ramp.course==3u);
+        sb_start_course(&ramp,(uint8_t)(ramp.course+1u));
+        assert(ramp.course==0u && ramp.support==0 &&
+               !ramp.finished && ramp.pickups==0u);
+        for(uint8_t id=0u;id<SB_PLATFORM_COUNT;++id)
+            assert(ramp.seesaw_tilt[id]==0);
+        assert(sb_course_platforms(&ramp)==sb_stage);
+    }
+
     /* Horizontal block cannot be crossed while the player's feet are below it. */
     g.x=SB_F(0);
     g.z=SB_F(36-13-2-1);
