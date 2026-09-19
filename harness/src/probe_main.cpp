@@ -26,6 +26,7 @@
 
 #include "png_writer.hpp"
 
+#include <ymir/hw/cart/cart_impl_bup.hpp>
 #include <ymir/hw/smpc/peripheral/peripheral_state_common.hpp>
 #include <ymir/media/loader/loader.hpp>
 #include <ymir/sys/saturn.hpp>
@@ -243,6 +244,7 @@ struct Args {
     std::string profile_pc_path;     // one master-SH2 PC sample per frame, for profiling
     std::string pad_script_path;     // frame-indexed input timeline
     std::string backup_ram_path;     // persistent 32 KiB internal Backup RAM image
+    std::string backup_cart_path;    // existing external image; mapped copy-on-write
     std::vector<std::pair<uint32_t, std::string>> screenshots;  // frame -> PNG path
     bool print_sh2_state = false;    // diagnostic: master SH2 PC/registers to stderr
     std::string pad_button;          // e.g. "A", "UP" — scheduled single-button press
@@ -259,7 +261,7 @@ void print_usage() {
         "             [--profile-pc <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
-        "             [--backup-ram <path>] [--scsp-trace]\n");
+        "             [--backup-ram <path>] [--backup-cart <existing-path>] [--scsp-trace]\n");
 }
 
 bool parse_vram_range(const std::string& spec, VramRange* out) {
@@ -360,6 +362,10 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--backup-ram");
             if (!v) return false;
             out->backup_ram_path = v;
+        } else if (arg == "--backup-cart") {
+            const char* v = next("--backup-cart");
+            if (!v) return false;
+            out->backup_cart_path = v;
         } else if (arg == "--scsp-trace") {
             out->scsp_trace = true;
         } else if (arg == "--dump-vram") {
@@ -527,6 +533,32 @@ int main(int argc, char** argv) {
         if (backup_error) {
             std::fprintf(stderr, "failed to load internal Backup RAM image %s: %s\n",
                          args.backup_ram_path.c_str(), backup_error.message().c_str());
+            return 1;
+        }
+    }
+
+    ymir::cart::BackupMemoryCartridge* backup_cart = nullptr;
+    uint64_t backup_cart_before_hash = 0u;
+    if (!args.backup_cart_path.empty()) {
+        // Read-only diagnostic path: never create, resize or format images;
+        // never persist guest writes to a user-supplied cartridge image.
+        ymir::bup::BackupMemory cart_image;
+        std::error_code cart_error;
+        const auto result = cart_image.LoadFrom(
+            args.backup_cart_path, /*copyOnWrite=*/true, cart_error);
+        if (result != ymir::bup::BackupMemoryImageLoadResult::Success) {
+            std::fprintf(stderr,
+                         "failed to load existing backup cartridge image %s (result %u): %s\n",
+                         args.backup_cart_path.c_str(),
+                         static_cast<unsigned>(result), cart_error.message().c_str());
+            return 1;
+        }
+        const auto bytes_before = cart_image.ReadAll();
+        backup_cart_before_hash = fnv1a64(bytes_before.data(), bytes_before.size());
+        backup_cart = saturn->InsertCartridge<ymir::cart::BackupMemoryCartridge>(
+            std::move(cart_image));
+        if (backup_cart == nullptr) {
+            std::fprintf(stderr, "failed to insert backup cartridge\n");
             return 1;
         }
     }
@@ -930,6 +962,40 @@ int main(int argc, char** argv) {
         j.key("files");
         j.begin_array();
         j.end_array();
+    }
+    j.end_object();
+
+    // External cartridge image is a separate, copy-on-write medium. Never
+    // mistake internal backup_memory state for a cartridge operation.
+    j.key("backup_cartridge");
+    j.begin_object();
+    j.key("enabled"); j.value(backup_cart != nullptr);
+    j.key("path"); j.value(args.backup_cart_path);
+    if (backup_cart != nullptr) {
+        auto& image = backup_cart->GetBackupMemory();
+        const auto bytes_after = image.ReadAll();
+        const uint64_t after_hash = fnv1a64(bytes_after.data(), bytes_after.size());
+        j.key("copy_on_write"); j.value(true);
+        j.key("header_valid"); j.value(image.IsHeaderValid());
+        j.key("size"); j.value(static_cast<uint64_t>(image.Size()));
+        j.key("block_size"); j.value(static_cast<uint64_t>(image.GetBlockSize()));
+        j.key("total_blocks"); j.value(static_cast<uint64_t>(image.GetTotalBlocks()));
+        j.key("used_blocks"); j.value(static_cast<uint64_t>(image.GetUsedBlocks()));
+        j.key("raw_hash_before"); j.value(backup_cart_before_hash);
+        j.key("raw_hash_after"); j.value(after_hash);
+        j.key("guest_changed_cart_memory"); j.value(backup_cart_before_hash != after_hash);
+        j.key("files");
+        j.begin_array();
+        for (const auto& info : image.List()) {
+            j.begin_object();
+            j.key("filename"); j.value(info.header.filename);
+            j.key("comment"); j.value(info.header.comment);
+            j.key("data_size"); j.value(static_cast<uint64_t>(info.size));
+            j.end_object();
+        }
+        j.end_array();
+    } else {
+        j.key("files"); j.begin_array(); j.end_array();
     }
     j.end_object();
 
