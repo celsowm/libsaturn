@@ -85,10 +85,10 @@ typedef struct sb_hole {
 static const sb_hole_t sb_course3_holes[SB_COURSE3_HOLE_COUNT] = {
     {1u, -7,  8, 5, 6},
     {2u,  0, 10,12, 5},
-    {4u,  7, -9, 6, 5},
-    {5u, -6, 10, 6, 5},
+    {4u,  8, -9, 5, 5},
+    {5u, -8, 10, 5, 5},
     {7u,  0, 10,12, 5},
-    {8u,  7, -9, 6, 5}
+    {8u,  8, -9, 5, 5}
 };
 typedef struct sb_deck_slice {
     int32_t min_x,max_x,min_z,max_z;
