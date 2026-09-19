@@ -112,6 +112,9 @@ static uint8_t g_stage_frame_slot[SB_PLATFORM_COUNT];
 static sat_vec3_t g_gem_vertices[GEM_VERTEX_CAP];
 static uint16_t g_gem_indices[GEM_FACE_CAP * 4u];
 static sat_mesh_t g_gem_mesh;
+static uint16_t g_gem_materials[GEM_FACE_CAP];
+static uint16_t g_gem_order[GEM_FACE_CAP];
+static uint32_t g_gem_depth[GEM_FACE_CAP];
 static sat_vec3_t g_pig_vertices[PIG_VERTEX_CAP];
 static uint16_t g_pig_indices[PIG_FACE_CAP*4u];
 static sat_mesh_t g_pig_mesh;
@@ -208,43 +211,21 @@ static uint8_t fade_material(uint16_t c) {
     }
     return chosen;
 }
-/* Large decks can cross the view plane when the follow camera overtakes
- * the previous platform. Projecting one near-zero-depth corner into a giant
- * distorted sprite can starve VDP1, so clip WORLD geometry before projection
- * rather than dropping the entire quad on the next frame. Solid material
- * triangles can reuse the same tiny uniform indexed texture. */
+/* World clipping, projection, screen clipping and VDP1 command setup belong
+ * to the LibSaturn renderer; this wrapper only chooses the level material. */
 static void put_quad(const sat_quad3_t* q, uint16_t c) {
-    sat_quad3_t pieces[4];
-    uint8_t count=0u;
-    sat_example_must(sat_clip_quad_near(
-        q,&g_eye,&g_scene.forward,SB_F(8),pieces,&count));
-    for(uint8_t piece=0u;piece<count;++piece) {
-        sat_quad2_t screen,visible[6];
-        uint8_t visible_count=0u;
-        sat_result_t st=sat_project_quad(&g_vp,&pieces[piece],&screen);
-        if(st==SAT_ERR_UNSUPPORTED)continue;
-        sat_example_must(st);
-        st=sat_clip_quad_screen(&screen,W,H,visible,&visible_count);
-        if(st==SAT_ERR_UNSUPPORTED)continue;
-        sat_example_must(st);
-        /* VDP1 processes each distorted-sprite command even outside the
-         * display. Clip the giant near-plane polygons BEFORE submitting:
-         * an earlier platform must not consume the entire frame and starve
-         * the pig, other decks and especially the HUD appended at the end. */
-        for(uint8_t tri=0u;tri<visible_count;++tri) {
-            sat_distorted_sprite_cmd_t cmd={0};
-            for(uint8_t k=0u;k<4u;++k) {
-                cmd.x[k]=visible[tri].x[k];
-                cmd.y[k]=visible[tri].y[k];
-            }
-            cmd.texture=&g_fade_textures[fade_material(c)];
-            if(g_active_fade_slot==FADE_OPAQUE)
-                st=sat_draw_sprite_distorted(&cmd);
-            else
-                st=sat_draw_sprite_distorted_color_calc(
-                    &cmd,g_active_fade_slot);
-            if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
-        }
+    sat_indexed_solid_render3d_t draw={0};
+    draw.view_proj=&g_vp;
+    draw.eye=g_eye;
+    draw.forward=g_scene.forward;
+    draw.near_depth=SB_F(8);
+    draw.width=W;
+    draw.height=H;
+    draw.color_calc_slot=g_active_fade_slot;
+    {
+        sat_result_t st=sat_draw_indexed_solid_quad3(
+            q,&draw,&g_fade_textures[fade_material(c)]);
+        if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
     }
 }
 static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
@@ -351,54 +332,36 @@ static uint16_t top_color(uint8_t i) {
     if (i<7u) return SAT_RGB555(12,26,19);
     return SAT_RGB555(27,23,16);
 }
-/* Collectibles share one pre-built octahedron, not eight hand-assembled
- * per-frame triangles. The temporary face painter retains the proven indexed
- * near/screen clipping path until the common material renderer replaces it.
- * Four equatorial side pairs are sorted far-to-near for VDP1. */
+/* Palette-to-material mapping is baked once at initialization. */
+static const uint16_t g_gem_facet_colors[GEM_FACE_CAP]={
+    SAT_RGB555(31,30,8),SAT_RGB555(31,13,3),
+    SAT_RGB555(31,26,3),SAT_RGB555(31,23,4),
+    SAT_RGB555(31,30,8),SAT_RGB555(31,13,3),
+    SAT_RGB555(31,23,4),SAT_RGB555(31,23,4)
+};
+/* The library owns the facet painter and clipping; game logic only positions
+ * an instance of the immutable octahedron mesh above its supporting deck. */
 static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
-    static const uint16_t facet_colors[GEM_FACE_CAP]={
-        SAT_RGB555(31,30,8),SAT_RGB555(31,13,3),
-        SAT_RGB555(31,26,3),SAT_RGB555(31,23,4),
-        SAT_RGB555(31,30,8),SAT_RGB555(31,13,3),
-        SAT_RGB555(31,23,4),SAT_RGB555(31,23,4)
-    };
     const int32_t bob=sat_fx16_mul(
         sat_sin_deg(SB_F((int32_t)(g_game.ticks*5u+id*33u)%360)),
         SB_F(1)/2);
-    const sat_vec3_t location={x,deck_y+SB_GEM_BASE_OFFSET+bob,z};
-    uint8_t order[4]={0u,1u,2u,3u};
-    uint64_t distance[4];
-    uint8_t i,j;
-    for(i=0u;i<4u;++i) {
-        const uint8_t next=(uint8_t)((i+1u)&3u);
-        const int32_t cx=x+(g_gem_vertices[i].x+g_gem_vertices[next].x)/2;
-        const int32_t cz=z+(g_gem_vertices[i].z+g_gem_vertices[next].z)/2;
-        const int64_t dx=(int64_t)g_eye.x-cx;
-        const int64_t dz=(int64_t)g_eye.z-cz;
-        distance[i]=(uint64_t)(dx*dx+dz*dz);
-    }
-    for(i=1u;i<4u;++i) {
-        const uint8_t index=order[i];
-        j=i;
-        while(j>0u && distance[order[j-1u]]<distance[index]) {
-            order[j]=order[j-1u];
-            --j;
-        }
-        order[j]=index;
-    }
-    for(i=0u;i<4u;++i) {
-        const uint8_t side=order[i];
-        for(uint8_t half=0u;half<2u;++half) {
-            sat_quad3_t tri;
-            const uint16_t face=(uint16_t)(2u*side+half);
-            sat_example_must(sat_mesh_face_quad(&g_gem_mesh,face,&tri));
-            for(uint8_t corner=0u;corner<4u;++corner) {
-                tri.v[corner].x+=location.x;
-                tri.v[corner].y+=location.y;
-                tri.v[corner].z+=location.z;
-            }
-            put_quad(&tri,facet_colors[face]);
-        }
+    sat_indexed_solid_mesh3d_draw_t draw={0};
+    draw.render.view_proj=&g_vp;
+    draw.render.eye=g_eye;
+    draw.render.forward=g_scene.forward;
+    draw.render.near_depth=SB_F(8);
+    draw.render.width=W;
+    draw.render.height=H;
+    draw.render.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    draw.position=(sat_vec3_t){x,deck_y+SB_GEM_BASE_OFFSET+bob,z};
+    draw.textures=g_fade_textures;
+    draw.texture_count=FADE_COLOR_COUNT;
+    draw.face_materials=g_gem_materials;
+    draw.order=g_gem_order;
+    draw.depth=g_gem_depth;
+    {
+        sat_result_t st=sat_draw_indexed_solid_mesh3(&g_gem_mesh,&draw);
+        if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
     }
 }
 /* An actual hinged 3D deck: the two long ends use the SAME 16.16
@@ -1084,6 +1047,8 @@ int main(void) {
                                       g_gem_indices,GEM_FACE_CAP));
         sat_example_must(sat_mesh_build_octahedron(&g_gem_mesh,&origin,
                          SB_GEM_RADIUS,SB_GEM_HALF_HEIGHT));
+        for(uint8_t face=0u;face<GEM_FACE_CAP;++face)
+            g_gem_materials[face]=fade_material(g_gem_facet_colors[face]);
     }
     loading_frame("IMPORTING PIG",10u);
     sat_example_must(sat_model_validate(&skybridge_pig_asset));

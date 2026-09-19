@@ -73,6 +73,27 @@ sat_result_t sat_clip_quad_screen(
 /* One vertex projected into native VDP1 coordinates. `w` is its clip-space
  * w -- view depth in 16.16 world units. w <= 0 means at or behind the camera
  * plane, and x/y are then meaningless. */
+/* Render a uniform-color INDEX8 material with geometrically correct near
+ * and screen clipping. This is intentionally NOT patterned-texture UV
+ * clipping: all texels in the supplied indexed8 sprite must have one color.
+ * The fade selector uses the eight GLOBAL VDP2 sprite color-calc slots; 255
+ * selects the ordinary opaque priority. The caller configures that table. */
+#define SAT_INDEXED_SOLID_OPAQUE 255u
+typedef struct sat_indexed_solid_render3d {
+    const sat_mat4_t* view_proj;
+    sat_vec3_t eye;
+    sat_vec3_t forward; /* normalized camera direction */
+    sat_fx16_t near_depth; /* > 0; guard against giant VDP1 sprites */
+    uint16_t width, height;
+    uint8_t color_calc_slot; /* 0..7 or SAT_INDEXED_SOLID_OPAQUE */
+} sat_indexed_solid_render3d_t;
+
+sat_result_t sat_draw_indexed_solid_quad3(
+    const sat_quad3_t* quad,
+    const sat_indexed_solid_render3d_t* params,
+    const sat_vdp1_texture_t* uniform_indexed8_texture
+);
+
 typedef struct sat_projected_vertex {
     int16_t x;
     int16_t y;

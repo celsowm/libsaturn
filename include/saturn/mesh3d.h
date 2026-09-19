@@ -300,6 +300,26 @@ typedef struct sat_mesh_draw {
  * so a partly off-screen mesh still returns SAT_OK. */
 sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_draw_t* params);
 
+/* Local-space flat indexed model instance. Each face references one uniform
+ * INDEX8 texture through face_materials, and the base mesh is never mutated.
+ * The library validates the full face/material table, sorts by camera depth,
+ * translates each face and uses the same near/screen-safe indexed quad path.
+ * order/depth are caller-owned arrays of mesh->face_count entries. This
+ * painter is not an exact Z-buffer for intersecting scene geometry. */
+typedef struct sat_indexed_solid_mesh3d_draw {
+    sat_indexed_solid_render3d_t render;
+    sat_vec3_t position;
+    const sat_vdp1_texture_t* textures;
+    uint16_t texture_count;
+    const uint16_t* face_materials;
+    uint16_t* order;
+    uint32_t* depth;
+} sat_indexed_solid_mesh3d_draw_t;
+
+sat_result_t sat_draw_indexed_solid_mesh3(
+    const sat_mesh_t* mesh, const sat_indexed_solid_mesh3d_draw_t* params
+);
+
 #ifdef __cplusplus
 }
 #endif
