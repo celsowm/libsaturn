@@ -60,9 +60,10 @@ public:
     bool active() const { return active_; }
 
     bool release() {
-        if (!active_) return false;
+        if (!active_) return true;
+        if (!saturn::hal::smpc::reset_enable()) return false;
         active_ = false;
-        return saturn::hal::smpc::reset_enable();
+        return true;
     }
 
     ~ResetGuard() {
