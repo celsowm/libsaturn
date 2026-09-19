@@ -83,6 +83,7 @@ static int8_t g_audio[SOUNDS - 1u][SOUND_LEN];
 static int8_t g_music[MUSIC_LEN];
 static uint8_t g_audio_ready;
 static uint8_t g_show_help=1u;
+static uint8_t g_show_debug=0u;
 static const rbg0_ground_config_t g_ocean = {
     512u, 256u, 160u, HORIZON, 96u, 8u, 96u, COEF_WORD
 };
@@ -645,6 +646,13 @@ static void hud(void) {
     put_text("SKYBRIDGE 3D",7,4);
     label("GEMS ",count,144,4);
     label("TIME ",g_game.ticks/60u,224,4);
+    if(g_show_debug) {
+        /* Y toggles a camera-orbit diagnostic: same DECK value in both
+         * views proves a rotation did not silently switch the ground body. */
+        (void)sat_draw_rect_screen(0,17,198u,13u,SAT_RGB555(3,8,15));
+        label("DECK ",g_game.support<0?0u:(uint32_t)g_game.support+1u,7,19);
+        label("YAW ",(uint32_t)g_yaw,101,19);
+    }
     if (g_game.finished) {
         (void)sat_draw_rect_screen(46,82,228u,53u,SAT_RGB555(2,13,16));
         put_text("COURSE COMPLETE!",80,88);
@@ -711,6 +719,7 @@ int main(void) {
                 g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};}
             else g_game.paused=(uint8_t)!g_game.paused;
         }
+        if(pad.pressed&SAT_PAD_Y)g_show_debug=(uint8_t)!g_show_debug;
         if(pad.pressed&SAT_PAD_B) g_yaw-=15;
         if(pad.pressed&SAT_PAD_C) g_yaw+=15;
         if(g_yaw>=360)g_yaw-=360;
