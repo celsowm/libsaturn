@@ -117,6 +117,25 @@ static void label(const char* title, uint32_t n, int x, int y) {
     char buf[32];
     if (sat_fmt_label_u32(title, n, buf, sizeof(buf), 0) == SAT_OK) put_text(buf,x,y);
 }
+/* Display signed 16.16 WORLD coordinates, to one decimal place.
+ * The small formatter avoids printf/libc and preserves -0.x on a fall. */
+static void hud_coord(char axis,int32_t fixed,int x,int y) {
+    char digits[SAT_FMT_U32_MAX];
+    char out[18];
+    uint16_t len=0u,i=0u;
+    int64_t magnitude=fixed<0?-(int64_t)fixed:(int64_t)fixed;
+    uint32_t whole=(uint32_t)(magnitude>>16u);
+    uint32_t tenth=(uint32_t)(((magnitude&0xFFFFLL)*10u)>>16u);
+    if(sat_fmt_u32(whole,digits,sizeof(digits),&len)!=SAT_OK)return;
+    out[i++]=axis;
+    out[i++]=' ';
+    if(fixed<0)out[i++]='-';
+    {uint16_t j;for(j=0u;j<len;++j)out[i++]=digits[j];}
+    out[i++]='.';
+    out[i++]=(char)('0'+tenth);
+    out[i]=0;
+    put_text(out,x,y);
+}
 /* Sprite Type 0's RGB-coded pixels have different VDP2 interpretation
  * from indexed pixels. With sprite color calc enabled, mixing RGB geometry
  * and indexed faded quads made the near player's RGB body and the solid
@@ -646,12 +665,16 @@ static void hud(void) {
     put_text("SKYBRIDGE 3D",7,4);
     label("GEMS ",count,144,4);
     label("TIME ",g_game.ticks/60u,224,4);
+    /* Always show player position, not the smoothed camera anchor. */
+    (void)sat_draw_rect_screen(0,17,W,13u,SAT_RGB555(3,8,15));
+    hud_coord('X',g_game.x,7,19);
+    hud_coord('Y',g_game.y,112,19);
+    hud_coord('Z',g_game.z,217,19);
     if(g_show_debug) {
-        /* Y toggles a camera-orbit diagnostic: same DECK value in both
-         * views proves a rotation did not silently switch the ground body. */
-        (void)sat_draw_rect_screen(0,17,198u,13u,SAT_RGB555(3,8,15));
-        label("DECK ",g_game.support<0?0u:(uint32_t)g_game.support+1u,7,19);
-        label("YAW ",(uint32_t)g_yaw,101,19);
+        /* Y toggles the extra camera-orbit diagnostic below the XYZ row. */
+        (void)sat_draw_rect_screen(0,31,198u,13u,SAT_RGB555(3,8,15));
+        label("DECK ",g_game.support<0?0u:(uint32_t)g_game.support+1u,7,33);
+        label("YAW ",(uint32_t)g_yaw,101,33);
     }
     if (g_game.finished) {
         (void)sat_draw_rect_screen(46,82,228u,53u,SAT_RGB555(2,13,16));
@@ -660,7 +683,7 @@ static void hud(void) {
     } else if (g_game.paused) {
         put_text("PAUSED - START RESUMES",64,92);
     } else if (g_game.support==9 && g_game.pickups!=0xFFu) {
-        put_text("COLLECT ALL 8 GEMS",65,35);
+        put_text("COLLECT ALL 8 GEMS",65,g_show_debug?47:35);
     } else if(g_show_help && g_game.ticks<480u) {
         put_text("D-PAD MOVE  A JUMP",8,204);
         put_text("B/C CAMERA  START PAUSE",8,215);
