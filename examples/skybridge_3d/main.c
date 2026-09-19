@@ -21,7 +21,7 @@
 #define FADE_START SB_FADE_START
 #define FADE_END SB_FADE_END
 #define VIEW_LIMIT FADE_END
-#define FADE_COLOR_COUNT 25u
+#define FADE_COLOR_COUNT 28u
 #define FADE_PALETTE_BANK 4u
 #define FADE_OPAQUE 255u
 #define FADE_CULLED 254u
@@ -59,7 +59,8 @@ static const uint16_t g_fade_colors[FADE_COLOR_COUNT]={
     SAT_RGB555(20,14,3), SAT_RGB555(27,19,4),
     SAT_RGB555(31,30,8), SAT_RGB555(31,13,3), SAT_RGB555(31,23,4),
     SAT_RGB555(31,28,7), SAT_RGB555(31,20,6), SAT_RGB555(31,12,4),
-    SAT_RGB555(31,31,31), SAT_RGB555(8,10,10)
+    SAT_RGB555(31,31,31), SAT_RGB555(8,10,10),
+    SAT_RGB555(29,14,29), SAT_RGB555(19,5,21), SAT_RGB555(26,9,27)
 };
 static uint8_t g_tile_pixels[16u*16u];
 static uint32_t g_last_ocean_palette_step=0xFFFFFFFFu;
@@ -284,7 +285,10 @@ static void stage_box(uint8_t i) {
 }
 static void player_box(void) {
     int32_t px=g_game.x,pz=g_game.z,feet=g_game.y;
-    uint16_t top=SAT_RGB555(31,28,7),front=SAT_RGB555(31,12,4);
+    /* Magenta pilot with white eyes; golden collectibles are intentionally
+     * NOT the same material as the avatar. Camera rotation must never make
+     * the pickup look like another copy of the player. */
+    uint16_t top=SAT_RGB555(29,14,29),front=SAT_RGB555(26,9,27);
     int32_t bob=0;
     if (g_game.support>=0 && (sb_abs(g_game.vx)+sb_abs(g_game.vz))>SB_F(1)/2)
         bob=sat_fx16_mul(sat_sin_deg(SB_F((int32_t)(g_frame*12u)%360)),SB_F(1)/7);
@@ -296,16 +300,35 @@ static void player_box(void) {
         put_quad(&shadow,SAT_RGB555(8,10,10));
     }
     box3(px,feet+SB_F(5)/2+bob,pz,SB_PLAYER_HALF,SB_F(5)/2,SB_PLAYER_HALF,
-         top,SAT_RGB555(31,20,6),front,0u);
-    /* Direction marker, attached to the cube's camera-facing surface. */
+         top,SAT_RGB555(19,5,21),front,0u);
+    /* The previous white face marker appeared ONLY when looking from -Z;
+     * from the side the pilot was indistinguishable from a pickup. Draw
+     * two white eyes on the CAMERA-FACING side, whichever axis dominates. */
     {
         sat_quad3_t q;
-        if (g_eye.z < pz) {
-            pquad(&q,px-SB_F(1),feet+SB_F(4)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32,
-                  px+SB_F(1),feet+SB_F(4)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32,
-                  px+SB_F(1),feet+SB_F(2)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32,
-                  px-SB_F(1),feet+SB_F(2)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32);
-            put_quad(&q,SAT_RGB555(31,31,31));
+        uint8_t eye;
+        int32_t eye_y0=feet+SB_F(3)+bob;
+        int32_t eye_y1=feet+SB_F(4)+bob;
+        int32_t face;
+        int32_t side=SB_F(1)/3;
+        if(sb_abs(g_eye.z-pz)>=sb_abs(g_eye.x-px)) {
+            face=pz+(g_eye.z<pz?-SB_PLAYER_HALF-SB_F(1)/64:
+                                      SB_PLAYER_HALF+SB_F(1)/64);
+            for(eye=0u;eye<2u;++eye) {
+                int32_t ex=px+(eye==0u?-SB_F(1):SB_F(1));
+                pquad(&q,ex-side,eye_y1,face,ex+side,eye_y1,face,
+                      ex+side,eye_y0,face,ex-side,eye_y0,face);
+                put_quad(&q,SAT_RGB555(31,31,31));
+            }
+        } else {
+            face=px+(g_eye.x<px?-SB_PLAYER_HALF-SB_F(1)/64:
+                                     SB_PLAYER_HALF+SB_F(1)/64);
+            for(eye=0u;eye<2u;++eye) {
+                int32_t ez=pz+(eye==0u?-SB_F(1):SB_F(1));
+                pquad(&q,face,eye_y1,ez-side,face,eye_y1,ez+side,
+                      face,eye_y0,ez+side,face,eye_y0,ez-side);
+                put_quad(&q,SAT_RGB555(31,31,31));
+            }
         }
     }
 }
@@ -718,10 +741,14 @@ int main(void) {
             g_camera_anchor.y+=(g_game.y-g_camera_anchor.y)/6;
             g_camera_anchor.z+=(g_game.z-g_camera_anchor.z)/4;
         }
-        g_eye=(sat_vec3_t){g_camera_anchor.x-sb_mul(fx,SB_F(33)),
-             g_camera_anchor.y+SB_F(29),g_camera_anchor.z-sb_mul(fz,SB_F(43))};
-        g_target=(sat_vec3_t){g_camera_anchor.x+sb_mul(fx,SB_F(10)),
-             g_camera_anchor.y+SB_F(5),g_camera_anchor.z+sb_mul(fz,SB_F(12))};
+        {
+            int32_t ex,ez,lx,lz;
+            sb_camera_offset(fx,fz,&ex,&ez,&lx,&lz);
+            g_eye=(sat_vec3_t){g_camera_anchor.x+ex,
+                g_camera_anchor.y+SB_F(29),g_camera_anchor.z+ez};
+            g_target=(sat_vec3_t){g_camera_anchor.x+lx,
+                g_camera_anchor.y+SB_F(5),g_camera_anchor.z+lz};
+        }
         {
             sat_mat4_t view,projection;
             sat_example_must(sat_mat4_look_at(&view,&g_eye,&g_target,&up));
