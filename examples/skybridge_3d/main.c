@@ -28,6 +28,8 @@
 #define FADE_PALETTE_BANK 4u
 #define FADE_OPAQUE 255u
 #define FADE_CULLED 254u
+#define PIG_PALETTE_BANK FADE_PALETTE_BANK
+#define PIG_PALETTE_INDEX_BASE (FADE_COLOR_COUNT + 1u)
 #define FADE_HYSTERESIS SB_F(2)
 #define SOUNDS 6u
 #define SOUND_LEN 2048u
@@ -43,6 +45,8 @@
 _Static_assert(SKYBRIDGE_PIG_VERTEX_COUNT <= PIG_VERTEX_CAP, "pig vertex budget");
 _Static_assert(SKYBRIDGE_PIG_FACE_COUNT <= PIG_FACE_CAP, "pig face budget");
 _Static_assert(SKYBRIDGE_PIG_ANIMATION_COUNT == 3u, "Walk Idle Jump clips required");
+_Static_assert(PIG_PALETTE_INDEX_BASE + SKYBRIDGE_PIG_SHADE_COUNT <= 256u,
+               "pig and fade palette must fit one indexed bank");
 
 static sb_game_t g_game;
 static sat_ascii_font_t g_font;
@@ -51,6 +55,8 @@ static sat_vdp1_texture_t g_cloud_texture;
 static uint8_t g_cloud_pixels[SB_CLOUD_W * SB_CLOUD_H];
 static sat_vdp1_texture_t g_fade_textures[FADE_COLOR_COUNT];
 static uint8_t g_fade_solid_pixels[16u*16u];
+static sat_vdp1_texture_t g_pig_textures[SKYBRIDGE_PIG_SHADE_COUNT];
+static uint8_t g_pig_solid_pixels[8u*8u];
 static uint8_t g_active_fade_slot=FADE_OPAQUE;
 static uint8_t g_platform_fade[SB_PLATFORM_COUNT];
 static const sat_fade3d_t g_fade_policy={
@@ -83,9 +89,9 @@ static const uint16_t g_fade_colors[FADE_COLOR_COUNT]={
 #define PIG_BLACK SAT_RGB555(3,2,4)
 static uint8_t g_tile_pixels[16u*16u];
 static uint32_t g_last_ocean_palette_step=0xFFFFFFFFu;
-static uint8_t g_sky[SKY_W * SKY_H];
+static uint8_t g_sky[SKY_W * SKY_H] __attribute__((section(".wram_l")));
 static uint16_t g_sky_colors[256], g_sea_colors[256];
-static uint16_t g_map[SAT_VDP2_NBG0_MAP_CELLS];
+static uint16_t g_map[SAT_VDP2_NBG0_MAP_CELLS] __attribute__((section(".wram_l")));
 static sat_mat4_t g_vp;
 static sat_vec3_t g_eye, g_target, g_camera_anchor;
 /* A bounded, caller-owned scene queue: the library sorts and executes it.
@@ -104,7 +110,7 @@ static uint8_t g_pig_order[PIG_FACE_CAP];
 static uint16_t g_pig_order16[PIG_FACE_CAP];
 static uint32_t g_pig_depth[PIG_FACE_CAP];
 static sat_projected_vertex_t g_pig_projected[PIG_VERTEX_CAP];
-static uint16_t g_pig_colors[PIG_FACE_CAP];
+static uint16_t g_pig_face_textures[PIG_FACE_CAP];
 static sat_anim_state_t g_pig_anim;
 
 static int16_t g_yaw;
@@ -115,8 +121,8 @@ static const char* const g_sfx_paths[SOUNDS-1u]={
     "skybridge/sfx/jump", "skybridge/sfx/land", "skybridge/sfx/pickup",
     "skybridge/sfx/fall", "skybridge/sfx/finish"
 };
-static int8_t g_audio[SOUNDS - 1u][SOUND_LEN];
-static int8_t g_music[MUSIC_LEN];
+static int8_t g_audio[SOUNDS - 1u][SOUND_LEN] __attribute__((section(".wram_l")));
+static int8_t g_music[MUSIC_LEN] __attribute__((section(".wram_l")));
 static uint8_t g_audio_ready;
 static uint8_t g_show_help=1u;
 static uint8_t g_show_debug=0u;
@@ -556,14 +562,18 @@ static void pig_shadow(void) {
         put_quad(&shadow,SAT_RGB555(8,10,10));
     }
 }
-/* Authored GLB face materials/animations remain intact after importer
- * simplification. One painted object is sorted with the gems by the
- * existing scene queue, then its individual faces use a bounded mesh
- * painter sort. No independent game-specific depth sorting is added. */
+/* The VDP2 fade setup intentionally makes only indexed Sprite Type 0
+ * materials opaque at priority 7. The converter's RGB shade palette is
+ * therefore uploaded into the spare entries of the fade bank and each
+ * animated face selects a tiny indexed solid texture. This keeps the pig
+ * opaque and pink instead of blending it with the RBG0 sea. */
 static void player_pig(void) {
     sat_model_transform3d_t pose;
     sat_mat4_t world;
     sat_mesh_draw_t draw;
+    const sat_model_animation_asset_t* anim;
+    const uint8_t* shades;
+    uint16_t i;
     sat_example_must(sat_anim_decode(
         &skybridge_pig_anim_asset,&g_pig_anim,
         g_pig_mesh.vertices,PIG_VERTEX_CAP));
@@ -577,14 +587,17 @@ static void player_pig(void) {
          (g_game.facing_x<0?SB_F(270):0));
     sat_example_must(sat_model_transform3d_matrix(&pose,&world));
     sat_example_must(sat_mesh_transform(&g_pig_mesh,&world));
-    sat_example_must(sat_anim_face_colors(
-        &skybridge_pig_anim_asset,&g_pig_anim,
-        g_pig_colors,PIG_FACE_CAP));
+    anim=&skybridge_pig_animations[g_pig_anim.clip];
+    shades=&anim->face_shades[(uint32_t)g_pig_anim.frame*SKYBRIDGE_PIG_FACE_COUNT];
+    for(i=0u;i<SKYBRIDGE_PIG_FACE_COUNT;++i)
+        g_pig_face_textures[i]=(uint16_t)shades[i];
     sat_example_must(sat_model_bind_draw_ex(
-        &skybridge_pig_asset,&g_pig_mesh,0,0,
-        &g_vp,&g_eye,SAT_RGB555(31,20,25),g_pig_colors,0,
+        &skybridge_pig_asset,&g_pig_mesh,g_pig_textures,
+        SKYBRIDGE_PIG_SHADE_COUNT,
+        &g_vp,&g_eye,SAT_RGB555(31,20,25),0,0,
         SAT_MESH_CULL_BACKFACE|SAT_MESH_SORT,
         g_pig_order,g_pig_order16,g_pig_depth,&draw));
+    draw.face_texture_indices=g_pig_face_textures;
     draw.screen=g_pig_projected;
     draw.vertex_gouraud=0;
     sat_example_must(sat_draw_mesh(&g_pig_mesh,&draw));
@@ -806,6 +819,21 @@ static void init_fade_materials(void) {
         for(n=0u;n<256u;++n)g_fade_solid_pixels[n]=(uint8_t)(i+1u);
         sat_example_must(sat_tex_upload_indexed8_pixels(
             &g_fade_textures[i],g_fade_solid_pixels,16u,16u,FADE_PALETTE_BANK));
+    }
+}
+static void init_pig_materials(void) {
+    uint16_t palette[256]={0};
+    uint16_t i,p;
+    for(i=0u;i<FADE_COLOR_COUNT;++i)
+        palette[i+1u]=g_fade_colors[i];
+    for(i=0u;i<SKYBRIDGE_PIG_SHADE_COUNT;++i)
+        palette[PIG_PALETTE_INDEX_BASE+i]=skybridge_pig_shade_palette[i];
+    sat_example_must(sat_palette_upload_indexed8(palette,PIG_PALETTE_BANK));
+    for(i=0u;i<SKYBRIDGE_PIG_SHADE_COUNT;++i) {
+        for(p=0u;p<sizeof(g_pig_solid_pixels);++p)
+            g_pig_solid_pixels[p]=(uint8_t)(PIG_PALETTE_INDEX_BASE+i);
+        sat_example_must(sat_tex_upload_indexed8_pixels(
+            &g_pig_textures[i],g_pig_solid_pixels,8u,8u,PIG_PALETTE_BANK));
     }
 }
 static void init_sky(void) {
@@ -1048,6 +1076,7 @@ int main(void) {
     loading_frame("IMPORTING PIG",10u);
     sat_example_must(sat_model_validate(&skybridge_pig_asset));
     sat_example_must(sat_anim_validate(&skybridge_pig_anim_asset));
+    init_pig_materials();
     sat_example_must(sat_mesh_init(&g_pig_mesh,
         g_pig_vertices,PIG_VERTEX_CAP,g_pig_indices,PIG_FACE_CAP));
     sat_example_must(sat_model_copy_to_mesh(&skybridge_pig_asset,&g_pig_mesh));

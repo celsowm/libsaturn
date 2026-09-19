@@ -200,7 +200,8 @@ endif
 # MODEL_MAX_TEXTURE_WIDTH/HEIGHT, MODEL_SIMPLIFY (off|auto|TARGET),
 # MODEL_QUALITY, MODEL_ANIMATION, MODEL_ANIMATION_FPS, MODEL_FLIP_X/Y/Z,
 # MODEL_REVERSE_WINDING, MODEL_GENERATE_LODS, MODEL_FACE_COLORS (off|auto|on:
-# solid lit polygon faces instead of textures), MODEL_LIGHT_DIR (x,y,z),
+# solid lit polygon faces instead of textures), MODEL_MERGE_RIGID_MESHES,
+# MODEL_LIGHT_DIR (x,y,z),
 # MODEL_AMBIENT, MODEL_DIFFUSE.
 # Model generation rebuilds when the GLB, the importer, or any
 # model-pipeline module changes. Simplification/profile OPTION changes are
@@ -240,6 +241,11 @@ MODEL_LOD_FLAG := --generate-lods
 else
 MODEL_LOD_FLAG :=
 endif
+ifeq ($(MODEL_MERGE_RIGID_MESHES),1)
+MODEL_MERGE_RIGID_MESHES_FLAG := --merge-rigid-meshes
+else
+MODEL_MERGE_RIGID_MESHES_FLAG :=
+endif
 $(MODEL_OUT_PREFIX).c $(MODEL_OUT_PREFIX).h &: $(MODEL_GLB) $(TOOLS)/import_model.py $(MODEL_PIPELINE_SRCS)
 	@if [ ! -f "$(MODEL_GLB)" ]; then \
 		echo "error: animated source GLB missing: $(MODEL_GLB)"; \
@@ -265,7 +271,7 @@ $(MODEL_OUT_PREFIX).c $(MODEL_OUT_PREFIX).h &: $(MODEL_GLB) $(TOOLS)/import_mode
 		--ambient $(MODEL_AMBIENT) \
 		--diffuse $(MODEL_DIFFUSE) \
 		--report $(MODEL_OUT_PREFIX).report.json \
-		$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG)
+		$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG) $(MODEL_MERGE_RIGID_MESHES_FLAG)
 endif
 # Generic 3D model generation via tools/import_model.py.
 # An example opts in by defining MODEL_OBJ in its Makefile.inc, e.g.:

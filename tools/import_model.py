@@ -1086,6 +1086,7 @@ def import_animated_model(
     max_vdp1_commands: int | None = None,
     animation: str = "all",
     animation_fps: str = "source",
+    merge_rigid_meshes: bool = False,
     generate_lods: bool = False,
     silhouette_views: int = 16,
     animation_weight: float = 1.0,
@@ -1114,13 +1115,12 @@ def import_animated_model(
 
     try:
         glb = gltf_mod.parse_model(glb_path)
-        model = srcmodel.from_gltf(glb, glb_path.stem)
+        model = srcmodel.from_gltf(
+            glb, glb_path.stem, merge_rigid_meshes=merge_rigid_meshes
+        )
     except gltf_mod.GltfError as exc:
         raise ImportError(str(exc))
     stats = srcmodel.source_stats(model)
-    if not model.textures:
-        raise ImportError(f"{glb_path}: no embedded textures found")
-
     # Solid-color mode replaces the model BEFORE importance, poses and
     # simplification: every later stage then works on the welded vertices.
     color_report: dict = {"mode": face_colors, "enabled": False}
@@ -1152,6 +1152,11 @@ def import_animated_model(
                 "vertices_before_weld": source_vertices,
                 "vertices_after_weld": len(model.vertices),
             })
+
+    if not model.textures and not color_report["enabled"]:
+        raise ImportError(
+            f"{glb_path}: no embedded textures found and solid face colors are disabled"
+        )
 
     clip_ids = select_animation_clips(model, animation)
     per_clip_times: dict[int, list[float]] = {}
@@ -1497,6 +1502,8 @@ def main() -> int:
                         help="Animated clips: all|NAME|INDEX (default all)")
     parser.add_argument("--animation-fps", default="source",
                         help="Runtime clip sampling: source|N fps (default source)")
+    parser.add_argument("--merge-rigid-meshes", action="store_true",
+                        help="Merge unskinned animated mesh nodes into one synthetic rigid skin")
     parser.add_argument("--generate-lods", action="store_true", default=False)
     parser.add_argument("--silhouette-views", type=int, default=16)
     parser.add_argument("--animation-weight", type=float, default=1.0)
@@ -1576,6 +1583,7 @@ def _main_animated(args) -> int:
             max_vdp1_commands=args.max_vdp1_commands,
             animation=args.animation,
             animation_fps=args.animation_fps,
+            merge_rigid_meshes=args.merge_rigid_meshes,
             generate_lods=args.generate_lods,
             silhouette_views=args.silhouette_views,
             animation_weight=args.animation_weight,

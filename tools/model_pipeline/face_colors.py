@@ -73,6 +73,10 @@ def analyze(model: SourceModel) -> FaceColorAnalysis:
     for tri, mt in zip(model.triangles, model.tri_materials):
         mat = model.materials[mt] if mt < len(model.materials) else {}
         if "texture" not in mat or not model.uvs:
+            if "rgb" in mat:
+                out.uniform += 1
+                out.colors.append(tuple(int(v) for v in mat["rgb"]))
+                continue
             out.untextured += 1
             out.colors.append((255, 255, 255))
             continue

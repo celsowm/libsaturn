@@ -267,14 +267,18 @@ def _normalize_weights(
     return out_j, out_w
 
 
-def from_gltf(glb, source_name: str = "model") -> SourceModel:
+def from_gltf(
+    glb, source_name: str = "model", merge_rigid_meshes: bool = False
+) -> SourceModel:
     """Build a canonical source model from parsed GLB data.
 
     All mesh primitives merge into one triangle soup; material boundaries
     are recorded per triangle so simplification never merges across them.
     Only skinned triangle meshes with TEXCOORD_0 are accepted for the
-    animated Saturn path; anything else fails with a precise diagnostic
-    instead of rendering incorrectly.
+    animated Saturn path by default. With ``merge_rigid_meshes``, multiple
+    unskinned mesh nodes are converted into one synthetic rigid skin: every
+    source mesh becomes one joint, preserving node/ancestor animation while
+    producing the single mesh expected by the Saturn asset pipeline.
     """
     from .gltf import GlbData  # noqa: F401  (type reference only)
 
@@ -297,14 +301,16 @@ def from_gltf(glb, source_name: str = "model") -> SourceModel:
             )
         )
 
-    # Locate the (single) skinned mesh node. Multiple distinct skins on one
-    # primitive are rejected: blending across skeletons has no defined
-    # meaning for the baked-pose runtime.
+    # Locate the skinned mesh node, or (when requested) all plain mesh nodes.
+    # Multiple distinct authored skins on one primitive are rejected: blending
+    # across skeletons has no defined meaning for the baked-pose runtime.
     skinned_nodes = [
         ni for ni, n in enumerate(nodes) if "mesh" in n and "skin" in n
     ]
     plain_nodes = [ni for ni, n in enumerate(nodes) if "mesh" in n and "skin" not in n]
     skins_doc = doc.get("skins", [])
+    rigid_mesh_merge = False
+    mesh_instances: list[tuple[int, int]]
     if skinned_nodes:
         skin_indices = {int(nodes[ni]["skin"]) for ni in skinned_nodes}
         if len(skin_indices) > 1:
@@ -324,19 +330,58 @@ def from_gltf(glb, source_name: str = "model") -> SourceModel:
                 "only a single skinned mesh node is supported initially"
             )
         model.mesh_node = skinned_nodes[0]
+        mesh_instances = [(model.mesh_node, int(nodes[model.mesh_node]["mesh"]))]
     elif plain_nodes:
         mesh_ids = sorted({int(nodes[ni]["mesh"]) for ni in plain_nodes})
-        if len(mesh_ids) > 1:
+        if not merge_rigid_meshes and len(mesh_ids) > 1:
             raise GltfError(
                 f"{source_name}: {len(mesh_ids)} meshes found; only a single "
                 "mesh is supported initially"
             )
-        model.mesh_node = plain_nodes[0]
+        if merge_rigid_meshes:
+            if skins_doc:
+                raise GltfError(
+                    f"{source_name}: --merge-rigid-meshes cannot combine an "
+                    "unskinned mesh hierarchy with authored skins"
+                )
+            rigid_mesh_merge = True
+            model.mesh_node = -1
+            rest_globals = _node_rest_globals(model.nodes)
+            rigid_nodes: list[int] = []
+            rigid_inverse: list[list[float]] = []
+            for ni in plain_nodes:
+                try:
+                    inverse = _mat_inverse(rest_globals[ni])
+                except GltfError:
+                    # Exporters sometimes leave zero-scale mesh helpers in
+                    # the scene. They cannot contribute visible geometry or
+                    # a valid rigid joint, so omit only those singular nodes.
+                    continue
+                rigid_nodes.append(ni)
+                rigid_inverse.append(inverse)
+            if not rigid_nodes:
+                raise GltfError(
+                    f"{source_name}: --merge-rigid-meshes found no renderable mesh nodes"
+                )
+            model.skin_index = 0
+            model.skins = [
+                SourceSkin(
+                    joints=rigid_nodes,
+                    inverse_bind=rigid_inverse,
+                )
+            ]
+            mesh_instances = [
+                (joint, int(nodes[ni]["mesh"]))
+                for joint, ni in enumerate(rigid_nodes)
+            ]
+        else:
+            model.mesh_node = plain_nodes[0]
+            mesh_instances = [(model.mesh_node, int(nodes[model.mesh_node]["mesh"]))]
     else:
         raise GltfError(f"{source_name}: no node carries a mesh")
 
     # Skins.
-    for skin_doc in skins_doc:
+    for skin_doc in ([] if rigid_mesh_merge else skins_doc):
         joints = [int(j) for j in skin_doc.get("joints", [])]
         if not joints:
             raise GltfError(f"{source_name}: skin has no joints")
@@ -362,77 +407,81 @@ def from_gltf(glb, source_name: str = "model") -> SourceModel:
     # Merge primitives.
     raw_joints: list = []
     raw_weights: list = []
-    has_skin_data = False
-    mesh_index = int(nodes[model.mesh_node]["mesh"])
-    primitives = meshes[mesh_index].get("primitives", [])
-    if not primitives:
-        raise GltfError(f"{source_name}: mesh {mesh_index} has no primitives")
-    for prim in primitives:
-        check_primitive_mode(prim, mesh_index)
-        attrs = prim.get("attributes", {})
-        for need in ("POSITION", "TEXCOORD_0"):
-            if need not in attrs:
-                raise GltfError(
-                    f"{source_name}: primitive is missing {need} "
-                    "(the animated textured path needs UV-mapped positions)"
-                )
-        pos = read_accessor(glb, int(attrs["POSITION"]))
-        if pos.accessor_type != "VEC3":
-            raise GltfError(f"{source_name}: POSITION must be VEC3")
-        base = len(model.vertices)
-        model.vertices.extend(_as_v3(r, "POSITION") for r in pos.rows)
-        if "NORMAL" in attrs:
-            nrm = read_accessor(glb, int(attrs["NORMAL"]))
-            if nrm.accessor_type != "VEC3":
-                raise GltfError(f"{source_name}: NORMAL must be VEC3")
-            if model.normals is None and model.vertices and len(model.vertices) != len(pos.rows):
-                raise GltfError(f"{source_name}: NORMAL count disagrees with POSITION")
-            if model.normals is None:
-                model.normals = []
-            model.normals.extend(_as_v3(r, "NORMAL") for r in nrm.rows)
-        elif model.normals is not None:
-            raise GltfError(f"{source_name}: mixed NORMAL presence across primitives")
-        uv = read_accessor(glb, int(attrs["TEXCOORD_0"]))
-        # glTF UV origin is the TOP-left of the image; the canonical baker
-        # (shared with the OBJ path) takes v=0 at the bottom. Flip once at
-        # import so every downstream stage stays in one convention.
-        model.uvs.extend((u, 1.0 - v) for (u, v) in (_as_v2(r, "TEXCOORD_0") for r in uv.rows))
-        if len(model.uvs) - len(uv.rows) + len(uv.rows) != len(model.vertices):
-            pass  # counts checked below per primitive
-        if len(uv.rows) != len(pos.rows):
-            raise GltfError(f"{source_name}: TEXCOORD_0 count disagrees with POSITION")
-        if "JOINTS_0" in attrs or "WEIGHTS_0" in attrs:
-            if "JOINTS_0" not in attrs or "WEIGHTS_0" not in attrs:
-                raise GltfError(
-                    f"{source_name}: JOINTS_0 and WEIGHTS_0 must appear together"
-                )
-            has_skin_data = True
-            jd = read_accessor(glb, int(attrs["JOINTS_0"]))
-            wd = read_accessor(glb, int(attrs["WEIGHTS_0"]))
-            if jd.accessor_type != "VEC4" or wd.accessor_type != "VEC4":
-                raise GltfError(f"{source_name}: JOINTS_0/WEIGHTS_0 must be VEC4")
-            if jd.count != len(pos.rows) or wd.count != len(pos.rows):
-                raise GltfError(f"{source_name}: skin attribute count disagrees")
-            raw_joints.extend(jd.rows)
-            raw_weights.extend(wd.rows)
-        if "indices" not in prim:
-            raise GltfError(f"{source_name}: non-indexed primitives are not supported")
-        indices = read_indices(glb, int(prim["indices"]))
-        if len(indices) % 3 != 0:
-            raise GltfError(f"{source_name}: index count is not a multiple of 3")
-        for v in indices:
-            if v < 0 or v >= len(pos.rows):
-                raise GltfError(f"{source_name}: index {v} out of range")
-        mat_index = 0
-        if "material" in prim:
-            mat_index = int(prim["material"])
-            while len(model.materials) <= mat_index:
-                model.materials.append({})
-        for i in range(0, len(indices), 3):
-            model.triangles.append(
-                (base + indices[i], base + indices[i + 1], base + indices[i + 2])
+    has_skin_data = rigid_mesh_merge
+    for rigid_joint, mesh_index in mesh_instances:
+        primitives = meshes[mesh_index].get("primitives", [])
+        if not primitives:
+            raise GltfError(f"{source_name}: mesh {mesh_index} has no primitives")
+        for prim in primitives:
+            check_primitive_mode(prim, mesh_index)
+            attrs = prim.get("attributes", {})
+            for need in ("POSITION", "TEXCOORD_0"):
+                if need not in attrs:
+                    raise GltfError(
+                        f"{source_name}: primitive is missing {need} "
+                        "(the animated textured path needs UV-mapped positions)"
+                    )
+            pos = read_accessor(glb, int(attrs["POSITION"]))
+            if pos.accessor_type != "VEC3":
+                raise GltfError(f"{source_name}: POSITION must be VEC3")
+            base = len(model.vertices)
+            model.vertices.extend(_as_v3(r, "POSITION") for r in pos.rows)
+            if "NORMAL" in attrs:
+                nrm = read_accessor(glb, int(attrs["NORMAL"]))
+                if nrm.accessor_type != "VEC3":
+                    raise GltfError(f"{source_name}: NORMAL must be VEC3")
+                if len(nrm.rows) != len(pos.rows):
+                    raise GltfError(f"{source_name}: NORMAL count disagrees with POSITION")
+                if model.normals is None:
+                    model.normals = [(0.0, 0.0, 0.0)] * base
+                model.normals.extend(_as_v3(r, "NORMAL") for r in nrm.rows)
+            elif model.normals is not None:
+                raise GltfError(f"{source_name}: mixed NORMAL presence across primitives")
+            uv = read_accessor(glb, int(attrs["TEXCOORD_0"]))
+            # glTF UV origin is the TOP-left of the image; the canonical baker
+            # (shared with the OBJ path) takes v=0 at the bottom. Flip once at
+            # import so every downstream stage stays in one convention.
+            if len(uv.rows) != len(pos.rows):
+                raise GltfError(f"{source_name}: TEXCOORD_0 count disagrees with POSITION")
+            model.uvs.extend(
+                (u, 1.0 - v)
+                for (u, v) in (_as_v2(r, "TEXCOORD_0") for r in uv.rows)
             )
-            model.tri_materials.append(mat_index)
+            if rigid_mesh_merge:
+                raw_joints.extend((rigid_joint, 0, 0, 0) for _ in pos.rows)
+                raw_weights.extend((1.0, 0.0, 0.0, 0.0) for _ in pos.rows)
+            elif "JOINTS_0" in attrs or "WEIGHTS_0" in attrs:
+                if "JOINTS_0" not in attrs or "WEIGHTS_0" not in attrs:
+                    raise GltfError(
+                        f"{source_name}: JOINTS_0 and WEIGHTS_0 must appear together"
+                    )
+                has_skin_data = True
+                jd = read_accessor(glb, int(attrs["JOINTS_0"]))
+                wd = read_accessor(glb, int(attrs["WEIGHTS_0"]))
+                if jd.accessor_type != "VEC4" or wd.accessor_type != "VEC4":
+                    raise GltfError(f"{source_name}: JOINTS_0/WEIGHTS_0 must be VEC4")
+                if jd.count != len(pos.rows) or wd.count != len(pos.rows):
+                    raise GltfError(f"{source_name}: skin attribute count disagrees")
+                raw_joints.extend(jd.rows)
+                raw_weights.extend(wd.rows)
+            if "indices" not in prim:
+                raise GltfError(f"{source_name}: non-indexed primitives are not supported")
+            indices = read_indices(glb, int(prim["indices"]))
+            if len(indices) % 3 != 0:
+                raise GltfError(f"{source_name}: index count is not a multiple of 3")
+            for v in indices:
+                if v < 0 or v >= len(pos.rows):
+                    raise GltfError(f"{source_name}: index {v} out of range")
+            mat_index = 0
+            if "material" in prim:
+                mat_index = int(prim["material"])
+                while len(model.materials) <= mat_index:
+                    model.materials.append({})
+            for i in range(0, len(indices), 3):
+                model.triangles.append(
+                    (base + indices[i], base + indices[i + 1], base + indices[i + 2])
+                )
+                model.tri_materials.append(mat_index)
 
     # Materials / textures.
     for mi, mat in enumerate(doc.get("materials", [])):
@@ -442,6 +491,14 @@ def from_gltf(glb, source_name: str = "model") -> SourceModel:
         entry["name"] = str(mat.get("name", f"material_{mi}"))
         entry["doubleSided"] = bool(mat.get("doubleSided", False))
         pbr = mat.get("pbrMetallicRoughness", {})
+        factor = pbr.get("baseColorFactor")
+        if factor is not None:
+            if not isinstance(factor, list) or len(factor) < 3:
+                raise GltfError(f"{source_name}: material {mi} has malformed baseColorFactor")
+            entry["rgb"] = tuple(
+                max(0, min(255, int(round(float(v) * 255.0))))
+                for v in factor[:3]
+            )
         tex_info = pbr.get("baseColorTexture")
         if tex_info is not None:
             tex_doc = doc.get("textures", [])[int(tex_info["index"])]
@@ -515,7 +572,8 @@ def from_gltf(glb, source_name: str = "model") -> SourceModel:
         channels.sort(key=lambda c: (c.node, c.path))
         model.clips.append(AnimationClip(name=name, duration=duration, channels=channels))
 
-    _apply_mesh_rest_transform(model, source_name)
+    if not rigid_mesh_merge:
+        _apply_mesh_rest_transform(model, source_name)
     model.glb = glb
     model.json_doc = glb.json
     return model
