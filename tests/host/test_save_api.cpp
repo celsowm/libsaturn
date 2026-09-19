@@ -20,6 +20,7 @@ static int32_t g_directory_count = 1;
 static uint8_t g_last_overwrite = 0xFFu;
 static uint32_t g_format_calls = 0u;
 static uint32_t g_write_calls = 0u;
+static uint16_t g_last_directory_capacity = 0u;
 static Dir g_dir = {};
 static Stat g_stat = {32768u, 512u, 64u, 30000u, 480u, 12u};
 
@@ -34,20 +35,21 @@ Result init(Config out_configs[3]) {
 Result select_partition(uint32_t, uint16_t) { return Result::Ok; }
 
 Result format(uint32_t device) {
-    OK(device == 0u);
+    OK(device == 1u);
     ++g_format_calls;
     return g_format_result;
 }
 
 Result stat(uint32_t device, uint32_t, Stat* out_stat) {
-    OK(device == 0u);
+    OK(device == 1u);
     if (g_stat_result != Result::Ok) return g_stat_result;
     *out_stat = g_stat;
     return Result::Ok;
 }
 
 int32_t directory(uint32_t device, const char*, uint16_t capacity, Dir* out_entries) {
-    OK(device == 0u);
+    OK(device == 1u);
+    g_last_directory_capacity = capacity;
     if (capacity != 0u && out_entries != nullptr && g_directory_count != 0) {
         out_entries[0] = g_dir;
         if (capacity > 1u && (g_directory_count > 1 || g_directory_count < -1)) {
@@ -59,14 +61,14 @@ int32_t directory(uint32_t device, const char*, uint16_t capacity, Dir* out_entr
 }
 
 Result write(uint32_t device, Dir*, const void*, uint8_t overwrite) {
-    OK(device == 0u);
+    OK(device == 1u);
     ++g_write_calls;
     g_last_overwrite = overwrite;
     return g_write_result;
 }
 
 Result read(uint32_t device, const char*, void* data) {
-    OK(device == 0u);
+    OK(device == 1u);
     if (g_read_result == Result::Ok) {
         static const uint8_t payload[4] = {1u, 2u, 3u, 4u};
         std::memcpy(data, payload, sizeof(payload));
@@ -75,12 +77,12 @@ Result read(uint32_t device, const char*, void* data) {
 }
 
 Result remove(uint32_t device, const char*) {
-    OK(device == 0u);
+    OK(device == 1u);
     return g_remove_result;
 }
 
 Result verify(uint32_t device, const char*, const void*) {
-    OK(device == 0u);
+    OK(device == 1u);
     return g_verify_result;
 }
 
@@ -128,7 +130,7 @@ int main() {
     OK(entries[1].name[0] == 'B');
 
     OK(sat_save_list(SAT_SAVE_INTERNAL, nullptr, nullptr, 0u, &total) == SAT_OK &&
-       total == 3u);
+       total == 3u && g_last_directory_capacity == 1u);
     OK(sat_save_list(SAT_SAVE_INTERNAL, "123456789012", entries, 2u, &total) ==
        SAT_ERR_INVALID_ARG);
 

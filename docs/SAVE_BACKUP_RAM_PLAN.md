@@ -19,9 +19,9 @@ Important constraints from the Sega Backup Library manual:
 - applications should use the Backup Library instead of manipulating Backup RAM
   as a private raw filesystem;
 - the built-in backup memory is 32 KiB;
-- device 0 is built-in backup memory;
-- device 1 is a memory cartridge / parallel interface;
-- device 2 is a serial interface;
+- the official Sega BUP unit IDs are **1 = built-in backup memory** and
+  **2 = Backup Memory cartridge**; LibSaturn's public enum is deliberately
+  logical and maps to those BIOS IDs inside the HAL;
 - devices may expose partitions, so storage capacity must not be hard-coded;
 - callers should select the partition and query status/free space before writes;
 - `BUP_Init` expands the Boot ROM backup library into a caller-provided 16 KiB
@@ -319,7 +319,7 @@ enough to prove persistence.
 
 Only after internal memory works:
 
-- detect device 1;
+- detect the public Backup Memory cartridge device (BIOS BUP unit 2);
 - enumerate partitions/configuration;
 - write/read/verify a test record on a real or emulated Backup Memory cartridge;
 - keep this separate from RAM expansion-cartridge work.
@@ -365,7 +365,7 @@ Only after internal memory works:
 
 ### Phase 6 — Backup Memory cartridge
 
-- expose device 1 only after detection is proven;
+- expose the Backup Memory cartridge only after BIOS unit-2 detection is proven;
 - support partitions through `BUP_SelPart`;
 - test cartridge free-space and directory behavior;
 - do not mix this work with the volatile RAM expansion cartridge subsystem.
@@ -385,7 +385,7 @@ The first milestone is successful host tests plus an SH-2 build that can:
 
 ```text
 BUP_Init
- -> BUP_Stat(device 0)
+ -> BUP_Stat(BUP_MAIN_UNIT / BIOS unit 1)
  -> BUP_Write
  -> BUP_Verify
  -> BUP_Read
