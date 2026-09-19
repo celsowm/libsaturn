@@ -8,6 +8,7 @@
 #include "saturn/example_util.h"
 #include "examples/vdp2_rbg0_ground/rbg0_math.h"
 #include "game.h"
+#include "scenery.h"
 
 #define W 320u
 #define H 224u
@@ -15,8 +16,8 @@
 #define SEA_WORD 0x00000u
 #define ROT_WORD 0x10000u
 #define COEF_WORD 0x12000u
-#define SKY_W 512u
-#define SKY_H 128u
+#define SKY_W SB_SKY_W
+#define SKY_H SB_SKY_H
 #define FADE_START SB_FADE_START
 #define FADE_END SB_FADE_END
 #define VIEW_LIMIT FADE_END
@@ -37,7 +38,9 @@ typedef struct sb_render_item {
 
 static sb_game_t g_game;
 static sat_ascii_font_t g_font;
-static sat_vdp1_texture_t g_tile_texture;
+static sat_vdp1_texture_t g_tile_textures[3];
+static sat_vdp1_texture_t g_cloud_texture;
+static uint8_t g_cloud_pixels[SB_CLOUD_W * SB_CLOUD_H];
 static sat_vdp1_texture_t g_fade_textures[FADE_COLOR_COUNT];
 static uint8_t g_fade_solid_pixels[16u*16u];
 static uint8_t g_active_fade_slot=FADE_OPAQUE;
@@ -59,6 +62,7 @@ static const uint16_t g_fade_colors[FADE_COLOR_COUNT]={
     SAT_RGB555(31,31,31), SAT_RGB555(8,10,10)
 };
 static uint8_t g_tile_pixels[16u*16u];
+static uint32_t g_last_ocean_palette_step=0xFFFFFFFFu;
 static uint8_t g_sky[SKY_W * SKY_H];
 static uint16_t g_sky_colors[256], g_sea_colors[256];
 static uint16_t g_map[SAT_VDP2_NBG0_MAP_CELLS];
@@ -346,19 +350,72 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
     player_box();
 }
 static void init_tile_texture(void) {
+    static const uint8_t banks[3]={3u,5u,6u};
+    static const uint8_t colors[3][3][3]={
+        {{9u,23u,18u},{17u,28u,22u},{26u,30u,27u}},
+        {{8u,18u,24u},{13u,25u,28u},{23u,29u,30u}},
+        {{21u,17u,9u},{27u,23u,14u},{31u,29u,22u}}
+    };
     uint16_t palette[256];
     uint16_t x,y;
-    for (x=0u;x<256u;++x) palette[x]=SAT_BGR555(0,0,0);
-    palette[1]=SAT_RGB555(9,23,18);
-    palette[2]=SAT_RGB555(16,28,22);
-    palette[3]=SAT_RGB555(26,30,27);
+    uint8_t theme;
+    /* Broad 4x4 paving motifs, a quiet border and sparse highlights:
+     * distinguish the three regions without a noisy repeating checker. */
     for (y=0u;y<16u;++y) for (x=0u;x<16u;++x) {
-        uint8_t idx=(uint8_t)((x%4u==0u || y%4u==0u)?2u:1u);
-        if ((x+y)%11u==0u) idx=3u;
-        g_tile_pixels[y*16u+x]=idx;
+        uint8_t cell=(uint8_t)(((x>>2u)+(y>>2u))&1u);
+        uint8_t grout=(uint8_t)((x&7u)==0u || (y&7u)==0u);
+        uint8_t glint=(uint8_t)((x==5u && y==4u)||(x==13u && y==12u));
+        g_tile_pixels[y*16u+x]=glint?3u:(grout?2u:(uint8_t)(1u+cell));
     }
+    for(theme=0u;theme<3u;++theme) {
+        for(x=0u;x<256u;++x)palette[x]=SAT_BGR555(0,0,0);
+        for(x=0u;x<3u;++x)
+            palette[x+1u]=SAT_RGB555(colors[theme][x][0],
+                                     colors[theme][x][1],
+                                     colors[theme][x][2]);
+        sat_example_must(sat_tex_upload_indexed8(
+            &g_tile_textures[theme],g_tile_pixels,16u,16u,palette,banks[theme]));
+    }
+}
+static void init_cloud_texture(void) {
+    uint16_t palette[256];
+    uint16_t x,y;
+    for(x=0u;x<256u;++x)palette[x]=SAT_BGR555(0,0,0);
+    palette[1u]=SAT_RGB555(31,31,31);
+    palette[2u]=SAT_RGB555(28,30,31);
+    palette[3u]=SAT_RGB555(23,27,30);
+    palette[4u]=SAT_RGB555(18,24,28);
+    for(y=0u;y<SB_CLOUD_H;++y)for(x=0u;x<SB_CLOUD_W;++x)
+        g_cloud_pixels[y*SB_CLOUD_W+x]=sb_scenery_cloud_pixel(x,y);
+    /* CRAM bank 7 is deliberately separate from sea 0, sky 1,
+     * font 2, stage 3/5/6 and the fade-material bank 4. */
     sat_example_must(sat_tex_upload_indexed8(
-        &g_tile_texture,g_tile_pixels,16u,16u,palette,3u));
+        &g_cloud_texture,g_cloud_pixels,SB_CLOUD_W,SB_CLOUD_H,palette,7u));
+}
+static void draw_clouds(void) {
+    static const uint16_t base_x[6]={18u,102u,206u,315u,405u,488u};
+    static const uint8_t y[6]={21u,42u,27u,15u,48u,32u};
+    static const uint8_t width[6]={68u,52u,79u,60u,55u,72u};
+    static const uint8_t height[6]={15u,12u,18u,14u,12u,16u};
+    uint8_t i;
+    for(i=0u;i<6u;++i) {
+        int32_t x=sb_scenery_cloud_x(base_x[i],(uint16_t)g_yaw,g_frame);
+        int32_t left=x-(int32_t)width[i]/2;
+        int32_t right=x+(int32_t)width[i]/2;
+        if(right>0 && left<(int32_t)W)
+            sat_example_must(sat_draw_sprite_scaled_screen(
+                &g_cloud_texture,(int16_t)x,(int16_t)y[i],
+                width[i],height[i],0u));
+        /* Draw the periodic copy when a cloud crosses the 512px seam.
+         * Do not wrap every cloud at 320px: that visibly tiles the sky. */
+        x-=512;
+        left=x-(int32_t)width[i]/2;
+        right=x+(int32_t)width[i]/2;
+        if(right>0 && left<(int32_t)W)
+            sat_example_must(sat_draw_sprite_scaled_screen(
+                &g_cloud_texture,(int16_t)x,(int16_t)y[i],
+                width[i],height[i],0u));
+    }
 }
 static void init_fade_materials(void) {
     uint16_t palette[256]={0};
@@ -375,51 +432,51 @@ static void init_fade_materials(void) {
     }
 }
 static void init_sky(void) {
-    uint32_t y,x;
-    for (y=0;y<256u;++y) {
-        uint32_t t=y<128u?y:127u;
-        g_sky_colors[y]=SAT_BGR555((t*17u)/127u+2u,
-            (t*19u)/127u+8u,(t*8u)/127u+21u);
-    }
-    g_sky_colors[160]=SAT_BGR555(27,28,29);
-    g_sky_colors[161]=SAT_BGR555(23,27,29);
-    g_sky_colors[162]=SAT_BGR555(13,19,24);
-    g_sky_colors[163]=SAT_BGR555(10,16,20);
-    for (y=0u;y<SKY_H;++y) for (x=0u;x<SKY_W;++x) {
-        uint32_t at=y*SKY_W+x;
-        uint32_t wave=((x*13u + (x>>3u)*19u)&63u);
-        uint32_t cloud=(x/57u + (x/19u)%3u)*7u;
-        uint8_t index=(uint8_t)(y+1u);
-        if (y>42u && y<70u && ((x+cloud)&127u)>24u &&
-            ((y-49u)*3u + (x&15u))%71u < 13u)
-            index=(uint8_t)(160u+((x>>4u)&1u));
-        /* Low mountains, behind the RBG0 sea at the horizon. */
-        if (y>112u+(wave>>3u) && y<126u) index=(uint8_t)(162u+((x>>5u)&1u));
-        g_sky[at]=index;
-    }
+    uint32_t x,y;
+    for(x=0u;x<256u;++x)g_sky_colors[x]=sb_scenery_sky_color(x);
+    for(y=0u;y<SKY_H;++y)for(x=0u;x<SKY_W;++x)
+        g_sky[y*SKY_W+x]=sb_scenery_sky_pixel(x,y);
 }
 static void init_sea(void) {
     volatile uint16_t* vram=(volatile uint16_t*)0x25E00000u;
     uint32_t x,y,at=SEA_WORD;
-    for (x=0u;x<256u;++x) {
-        uint32_t t=x&31u;
-        g_sea_colors[x]=SAT_BGR555(2u+t/5u,8u+t/2u,17u+t/3u);
+    for(x=0u;x<256u;++x)
+        g_sea_colors[x]=sb_scenery_sea_color(x&63u);
+    for(y=0u;y<SB_SEA_H;++y) {
+        for(x=0u;x<SB_SEA_W;x+=2u) {
+            uint8_t a=sb_scenery_sea_pixel(x,y);
+            uint8_t b=sb_scenery_sea_pixel(x+1u,y);
+            vram[at++]=(uint16_t)(((uint16_t)a<<8u)|b);
+        }
+        if((y&15u)==15u)
+            loading_frame("GENERATING OCEAN",
+                (uint8_t)(15u+((y+1u)*60u/SB_SEA_H)));
     }
-    for (y=0u;y<256u;++y) for (x=0u;x<512u;x+=2u) {
-        uint32_t a=((x*5u)^(y*13u)^(x>>3u))&31u;
-        uint32_t b=(((x+1u)*5u)^(y*13u)^((x+1u)>>3u))&31u;
-        uint8_t va=(uint8_t)(1u+(a>>1u)+(((y+(x>>4u))&31u)<3u?9u:0u));
-        uint8_t vb=(uint8_t)(1u+(b>>1u)+(((y+((x+1u)>>4u))&31u)<3u?9u:0u));
-        vram[at++]=(uint16_t)(((uint16_t)va<<8u)|vb);
-        if(x==510u && (y&15u)==15u)
-            loading_frame("GENERATING OCEAN",(uint8_t)(15u+((y+1u)*60u/256u)));
+}
+static void animate_sea_palette(uint32_t tick) {
+    /* Palette modulation touches only eight highlight colors: 16 bytes
+     * every 8 display frames, never a 128 KiB bitmap or the fade registers.
+     * The RBG0 scroll supplies flow and this supplies subtle foam shimmer. */
+    uint32_t phase=(tick>>3u)&31u;
+    uint32_t light=phase<16u?phase:31u-phase;
+    uint32_t i;
+    if(g_last_ocean_palette_step==phase)return;
+    g_last_ocean_palette_step=phase;
+    for(i=0u;i<8u;++i) {
+        uint32_t t=i+(light>>2u);
+        g_sea_colors[48u+i]=sb_scenery_rgb(6u+t/3u,18u+t/2u,
+                                           24u+t/4u);
     }
+    sat_example_must(sat_vdp2_palette_upload(
+        &g_sea_colors[48u],8u,48u));
 }
 static void update_rotation(int32_t fx,int32_t fz) {
     uint16_t p[48];
     /* Keep the sea under a fixed 96px horizon, rotate/scroll sample plane. */
-    rbg0_ground_build_params(&g_ocean, (g_game.x>>16)+(int32_t)(g_frame>>2u),
-                              (g_game.z>>16)+(int32_t)(g_frame>>3u),p);
+    /* Two slow, non-identical currents slide the textured water plane
+     * underneath a fixed world horizon without any per-frame bitmap upload. */
+    rbg0_ground_build_params(&g_ocean, (g_game.x>>16)+(int32_t)(g_frame/9u),
+                              (g_game.z>>16)+(int32_t)(g_frame/17u),p);
     p[15]=(uint16_t)((uint32_t)fz&0xFFFFu);
     p[17]=(uint16_t)((uint32_t)fx&0xFFFFu);
     p[21]=(uint16_t)((uint32_t)(-fx)&0xFFFFu);
@@ -564,6 +621,7 @@ int main(void) {
     sat_example_must(sat_vdp1_set_erase_transparent());
     loading_frame("INITIALIZING WORLD",5u);
     init_tile_texture();
+    init_cloud_texture();
     init_fade_materials();
     loading_frame("BUILDING SKY",10u);
     init_sky();
@@ -583,9 +641,10 @@ int main(void) {
          * now lives in the layer shadow, so it cannot alternate per frame. */
         now=sat_frame_count();
         g_frame=now;
-        sky_scroll.x_integer=(uint16_t)(
-            ((uint32_t)g_yaw*SKY_W/360u+(g_frame>>3u))&511u);
+        sky_scroll.x_integer=sb_scenery_sky_scroll(
+            (uint16_t)g_yaw,g_frame);
         sat_example_must(sat_vdp2_nbg0_set_scroll(&sky_scroll));
+        animate_sea_palette(g_frame);
         update_rotation(sat_sin_deg(SB_F(g_yaw)),
                         sat_cos_deg(SB_F(g_yaw)));
         sat_example_must(sat_vdp2_layers_commit());
@@ -645,6 +704,7 @@ int main(void) {
          * VBlank layer replay now preserves both of its priority selectors. */
         sat_example_must(sat_vdp1_set_erase_transparent());
         sat_example_must(sat_begin_frame());
+        draw_clouds();
         draw_world(fx,fz);
         hud();
         sat_example_must(sat_end_frame());
