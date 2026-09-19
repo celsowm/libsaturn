@@ -303,15 +303,22 @@ static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
     }
 }
 static void stage_box(uint8_t i) {
-    const sb_platform_t* p=&sb_stage[i];
+    const sb_platform_t* p=&sb_course_platforms(&g_game)[i];
     int32_t x=sb_platform_x(&g_game,i), z=SB_F(p->z);
+    int32_t top_y=sb_platform_y(&g_game,i);
     uint16_t t=top_color(i);
-    if (i==7u && g_game.collapse_ticks>0u && g_game.collapse_ticks<=30u)
+    if(p->kind==SB_LIFT)
+        t=SAT_RGB555(31,26,3);
+    if (p->kind==SB_COLLAPSING && g_game.collapse_ticks>0u &&
+        g_game.collapse_ticks<=30u)
         t=(g_game.ticks&4u)?SAT_RGB555(31,8,5):SAT_RGB555(31,26,5);
-    box3(x,SB_F(p->y),z,SB_F(p->half_x),SB_F(5),SB_F(p->half_z),
-         t, i<4u ? SAT_RGB555(12,14,14):SAT_RGB555(6,16,15),
-         i<4u ? SAT_RGB555(17,17,14):SAT_RGB555(8,19,18),
-         (i==7u)?2u:(i<4u?1u:(i<7u?3u:4u)));
+    box3(x,top_y,z,SB_F(p->half_x),SB_F(5),SB_F(p->half_z),
+         t, p->kind==SB_LIFT?SAT_RGB555(24,20,10):
+             (i<4u ? SAT_RGB555(12,14,14):SAT_RGB555(6,16,15)),
+         p->kind==SB_LIFT?SAT_RGB555(31,19,2):
+             (i<4u ? SAT_RGB555(17,17,14):SAT_RGB555(8,19,18)),
+         p->kind==SB_COLLAPSING?2u:
+             (p->kind==SB_LIFT?4u:(i<4u?1u:(i<7u?3u:4u))));
     /* Distinct corner braces and inset deck rails make the floating decks
      * read as engineered 3D structures rather than untextured slabs.
      * All braces are outside the traversable deck and are decorative only. */
@@ -320,16 +327,16 @@ static void stage_box(uint8_t i) {
                                       SB_F(p->half_z-3));
         uint16_t metal=(i<4u)?SAT_RGB555(17,17,14):
             (i<7u?SAT_RGB555(8,19,18):SAT_RGB555(24,20,10));
-        box3(x-SB_F(p->half_x-4),SB_F(p->y-6),rim_z,
+        box3(x-SB_F(p->half_x-4),top_y-SB_F(6),rim_z,
              SB_F(2),SB_F(3),SB_F(2),metal,metal,metal,0u);
-        box3(x+SB_F(p->half_x-4),SB_F(p->y-6),rim_z,
+        box3(x+SB_F(p->half_x-4),top_y-SB_F(6),rim_z,
              SB_F(2),SB_F(3),SB_F(2),metal,metal,metal,0u);
     }
     /* A thin raised, contrasting edge band makes platform boundaries
      * legible at speed without adding collision-changing obstacles. */
-    if(g_eye.y>SB_F(p->y) && p->half_x>7 && p->half_z>7) {
+    if(g_eye.y>top_y && p->half_x>7 && p->half_z>7) {
         sat_quad3_t edge;
-        int32_t sy=SB_F(p->y)+SB_F(1)/24;
+        int32_t sy=top_y+SB_F(1)/24;
         int32_t lx=x-SB_F(p->half_x-1),rx=x+SB_F(p->half_x-1);
         int32_t bz=z-SB_F(p->half_z-1),fz=z+SB_F(p->half_z-1);
         uint16_t edge_color=(i<4u)?SAT_RGB555(24,20,10):
@@ -339,22 +346,29 @@ static void stage_box(uint8_t i) {
         quad_rect_xz(&edge,lx,rx,fz-SB_F(1),fz,sy);
         put_quad(&edge,edge_color);
     }
+    /* Elevators have a visible shaft below the deck: its length
+     * changes with the actual collision top, never a separate animation. */
+    if(p->kind==SB_LIFT) {
+        box3(x,top_y-SB_F(9),z,SB_F(2),SB_F(4),SB_F(2),
+             SAT_RGB555(24,20,10),SAT_RGB555(12,14,14),
+             SAT_RGB555(17,17,14),0u);
+    }
     /* Checkpoints and finish are physically marked, not just HUD text. */
     if (i==3u || i==6u) {
-        box3(x-SB_F(7),SB_F(p->y+5),z+SB_F(5),SB_F(1),SB_F(5),SB_F(1),
+        box3(x-SB_F(7),top_y+SB_F(5),z+SB_F(5),SB_F(1),SB_F(5),SB_F(1),
              SAT_RGB555(31,26,3),SAT_RGB555(23,16,3),SAT_RGB555(31,19,2),0u);
     }
     if (i==9u) {
-        box3(x-SB_F(10),SB_F(p->y+9),z+SB_F(5),SB_F(1),SB_F(9),SB_F(1),
+        box3(x-SB_F(10),top_y+SB_F(9),z+SB_F(5),SB_F(1),SB_F(9),SB_F(1),
              SAT_RGB555(31,26,3),SAT_RGB555(16,12,3),SAT_RGB555(27,20,4),0u);
-        box3(x+SB_F(10),SB_F(p->y+9),z+SB_F(5),SB_F(1),SB_F(9),SB_F(1),
+        box3(x+SB_F(10),top_y+SB_F(9),z+SB_F(5),SB_F(1),SB_F(9),SB_F(1),
              SAT_RGB555(31,26,3),SAT_RGB555(16,12,3),SAT_RGB555(27,20,4),0u);
-        box3(x,SB_F(p->y+19),z+SB_F(5),SB_F(11),SB_F(1),SB_F(1),
+        box3(x,top_y+SB_F(19),z+SB_F(5),SB_F(11),SB_F(1),SB_F(1),
              SAT_RGB555(31,26,3),SAT_RGB555(20,14,3),SAT_RGB555(27,19,4),0u);
     }
     if (i>=1u && i<=SB_PICKUP_COUNT && sb_platform_active(&g_game,i) &&
         !(g_game.pickups & (1u<<(i-1u)))) {
-        draw_gem(i,x,SB_F(p->y),z);
+        draw_gem(i,x,top_y,z);
     }
 }
 static void player_box(void) {
@@ -367,9 +381,8 @@ static void player_box(void) {
     if (g_game.support>=0 && (sb_abs(g_game.vx)+sb_abs(g_game.vz))>SB_F(1)/2)
         bob=sat_fx16_mul(sat_sin_deg(SB_F((int32_t)(g_frame*12u)%360)),SB_F(1)/7);
     if (g_game.support>=0) {
-        const sb_platform_t* p=&sb_stage[(uint8_t)g_game.support];
         sat_quad3_t shadow;
-        int32_t sy=SB_F(p->y)+SB_F(1)/16;
+        int32_t sy=sb_platform_y(&g_game,(uint8_t)g_game.support)+SB_F(1)/16;
         quad_rect_xz(&shadow,px-SB_F(2),px+SB_F(2),pz-SB_F(2),pz+SB_F(2),sy);
         put_quad(&shadow,SAT_RGB555(8,10,10));
     }
@@ -440,7 +453,7 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
     uint8_t i,j;
     g_items_count=0u;
     for (i=0u;i<SB_PLATFORM_COUNT;++i) {
-        int32_t px=sb_platform_x(&g_game,i),pz=SB_F(sb_stage[i].z);
+        int32_t px=sb_platform_x(&g_game,i),pz=SB_F(sb_course_platforms(&g_game)[i].z);
         int32_t depth=view_depth(px,pz,forward_x,forward_z);
         if (!sb_platform_active(&g_game,i) || depth < -SB_F(9) ||
             sb_abs(px-g_game.x)>SB_F(160) || sb_abs(pz-g_game.z)>SB_F(180)) continue;
@@ -716,7 +729,8 @@ static void hud(void) {
     uint8_t i,count=0u;
     for(i=0u;i<SB_PICKUP_COUNT;++i) if(g_game.pickups&(1u<<i)) ++count;
     (void)sat_draw_rect_screen(0,0,W,16u,SAT_RGB555(3,8,15));
-    put_text("SKYBRIDGE 3D",7,4);
+    put_text("SKYBRIDGE",7,4);
+    label("C",g_game.course+1u,104,4);
     label("GEMS ",count,144,4);
     put_text("/8",192,4);
     label("TIME ",g_game.ticks/60u,224,4);
@@ -733,10 +747,12 @@ static void hud(void) {
     }
     if (g_game.finished) {
         (void)sat_draw_rect_screen(46,76,228u,75u,SAT_RGB555(2,13,16));
-        put_text("COURSE COMPLETE!",80,83);
+        put_text(g_game.course==0u?"COURSE 1 COMPLETE":
+                                     "COURSE 2 COMPLETE",66,83);
         label("GEMS ",count,116,104);
         put_text("/8",164,104);
-        put_text("START: PLAY AGAIN",82,128);
+        put_text(g_game.course==0u?"START: COURSE 2":
+                                     "START: REPLAY",82,128);
     } else if (g_game.paused) {
         put_text("PAUSED - START RESUMES",64,92);
     } else if(g_show_help && g_game.ticks<480u) {
@@ -793,9 +809,13 @@ int main(void) {
         if(steps>3u) steps=3u; /* Drop excess catch-up, preserve responsive input. */
         if (steps==0u) steps=1u;
         if (pad.pressed&SAT_PAD_START) {
-            if(g_game.finished) {uint8_t i;sb_init(&g_game);g_yaw=0;
+            if(g_game.finished) {
+                uint8_t i;
+                sb_start_course(&g_game,(uint8_t)(g_game.course+1u));
+                g_yaw=0;
                 for(i=0u;i<SB_PLATFORM_COUNT;++i)g_platform_fade[i]=FADE_OPAQUE;
-                g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};}
+                g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
+            }
             else g_game.paused=(uint8_t)!g_game.paused;
         }
         if(pad.pressed&SAT_PAD_Y)g_show_debug=(uint8_t)!g_show_debug;
