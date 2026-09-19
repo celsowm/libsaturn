@@ -85,3 +85,17 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
   it does NOT claim arbitrary projective UV clipping, pixel-perfect seam
   handling for non-affine surfaces, or exact visibility when the near plane
   crosses a tile. True UV clipping remains a separate materialization design.
+
+## Sixth slice: quadrant preparation belongs to the renderer
+
+- `sat_upload_indexed8_quadrants` validates native VDP1 tile dimensions,
+  source pitch and caller-owned scratch capacity before copying source
+  pixels into four correct 8x8 (or larger) packed regions at startup. It
+  uploads once through the existing native indexed8 texture uploader.
+- Skybridge no longer contains the 2x2 pixel-crop/stride code; game content
+  passes original image, palette bank, output descriptors and 64-byte scratch.
+- Host tests verify byte-for-byte quadrant membership on pitched source
+  images and that invalid shapes or insufficient scratch do not upload.
+- Hardware upload failures after partial preparation leave allocated VDP1
+  bytes; run this only during asset initialization and stop on error. This
+  avoids pretending the low-level append-only VRAM uploader supports rollback.

@@ -140,6 +140,26 @@ typedef struct sat_indexed_tiled_quad3 {
     const sat_vdp1_texture_t* tiles[4]; /* TL, TR, BL, BR */
 } sat_indexed_tiled_quad3_t;
 
+/* Offline/loading-time region preparation for the tiled renderer, no heap.
+ * Packs four contiguous quadrant pixel buffers and uploads 4 native INDEX8
+ * textures once. 'pixels' has source_pitch bytes per row; width must be
+ * divisible by 16, height even (<=254), and each quadrant fits VDP1's
+ * 8-pixel width alignment. 'scratch' requires (width/2)*(height/2) bytes,
+ * reused for each tile. 'tiles' holds four returned descriptors ordered
+ * TL,TR,BL,BR; source pixels/pitch/format and palette must match the already
+ * uploaded full texture used with sat_draw_indexed_tiled_quad3.
+ * Input/capacity failures do not upload anything; a hardware failure after
+ * some uploads may leave partially allocated VRAM (startup should abort).
+ * No runtime crop, no SRC-address trick, and no hidden VRAM allocation on
+ * each draw. */
+sat_result_t sat_upload_indexed8_quadrants(
+    const uint8_t* pixels,
+    uint16_t width, uint16_t height, uint16_t source_pitch,
+    uint16_t palette_bank,
+    sat_vdp1_texture_t tiles[4],
+    uint8_t* scratch, uint32_t scratch_capacity
+);
+
 sat_result_t sat_draw_indexed_tiled_quad3(
     const sat_quad3_t* quad,
     const sat_indexed_solid_render3d_t* params,

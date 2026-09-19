@@ -153,6 +153,36 @@ inline bool valid_tiled_regions(const sat_indexed_tiled_quad3_t* regions) {
 }
 }
 
+extern "C" sat_result_t sat_upload_indexed8_quadrants(
+    const uint8_t* pixels,uint16_t width,uint16_t height,
+    uint16_t source_pitch,uint16_t palette_bank,
+    sat_vdp1_texture_t tiles[4],uint8_t* scratch,
+    uint32_t scratch_capacity
+) {
+    if(pixels==nullptr || tiles==nullptr || scratch==nullptr ||
+       width<16u || width>504u || (width&15u)!=0u ||
+       height<2u || height>254u || (height&1u)!=0u ||
+       source_pitch<width)
+        return SAT_ERR_INVALID_ARG;
+    const uint16_t tile_w=static_cast<uint16_t>(width/2u);
+    const uint16_t tile_h=static_cast<uint16_t>(height/2u);
+    const uint32_t tile_bytes=static_cast<uint32_t>(tile_w)*tile_h;
+    if(scratch_capacity<tile_bytes) return SAT_ERR_CAPACITY;
+    for(uint8_t row=0u;row<2u;++row) for(uint8_t col=0u;col<2u;++col) {
+        for(uint16_t py=0u;py<tile_h;++py) for(uint16_t px=0u;px<tile_w;++px) {
+            const uint32_t src_y=static_cast<uint32_t>(row)*tile_h+py;
+            const uint32_t src_x=static_cast<uint32_t>(col)*tile_w+px;
+            scratch[static_cast<uint32_t>(py)*tile_w+px]=
+                pixels[src_y*source_pitch+src_x];
+        }
+        const uint8_t tile=static_cast<uint8_t>(row*2u+col);
+        const sat_result_t st=sat_tex_upload_indexed8_pixels(
+            &tiles[tile],scratch,tile_w,tile_h,palette_bank);
+        if(st!=SAT_OK) return st;
+    }
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_draw_indexed_tiled_quad3(
     const sat_quad3_t* quad,const sat_indexed_solid_render3d_t* params,
     const sat_indexed_tiled_quad3_t* regions,uint8_t* out_submitted

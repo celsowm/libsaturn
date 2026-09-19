@@ -18,6 +18,11 @@ static uint16_t g_x[64];
 static sat_result_t g_submit_status=SAT_OK;
 static sat_vdp1_texture_t g_texture[2]={{10,8,8,4,1,0},{20,8,8,4,1,0}};
 static sat_mat4_t g_matrix={};
+static int g_upload_calls;
+static uint16_t g_uploaded_palette[4];
+static uint16_t g_uploaded_width[4],g_uploaded_height[4];
+static uint8_t g_upload_bytes[4][64];
+static sat_result_t g_upload_status=SAT_OK;
 
 extern "C" sat_result_t sat_clip_quad_near(
     const sat_quad3_t* quad,const sat_vec3_t*,const sat_vec3_t*,
@@ -43,6 +48,23 @@ extern "C" sat_result_t sat_clip_quad_screen(
     ++g_screen_calls;
     *count=(g_screen_mode==1)?0u:(g_screen_mode==2)?2u:1u;
     for(uint8_t i=0;i<*count;++i) out[i]=*q;
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
+    sat_vdp1_texture_t* out,const uint8_t* pixels,
+    uint16_t width,uint16_t height,uint16_t palette_bank
+) {
+    const int n=g_upload_calls++;
+    if(g_upload_status!=SAT_OK) return g_upload_status;
+    CHECK(n<4);
+    CHECK(static_cast<uint32_t>(width)*height<=64u);
+    g_uploaded_width[n]=width;
+    g_uploaded_height[n]=height;
+    g_uploaded_palette[n]=palette_bank;
+    for(uint32_t i=0u;i<static_cast<uint32_t>(width)*height;++i)
+        g_upload_bytes[n][i]=pixels[i];
+    *out=(sat_vdp1_texture_t){
+        static_cast<uint16_t>(200+n),width,height,palette_bank,1u,0u};
     return SAT_OK;
 }
 extern "C" sat_result_t sat_draw_sprite_distorted(
@@ -205,6 +227,46 @@ static void patterned_texture_invalid_input_and_command_failure() {
     EQ(g_opaque,1);
 }
 
+static void quadrant_upload_owns_correct_source_rows_and_palette() {
+    reset();
+    uint8_t pixels[16u*20u]={0};
+    for(uint8_t row=0u;row<16u;++row) for(uint8_t col=0u;col<16u;++col)
+        pixels[static_cast<uint32_t>(row)*20u+col]=
+            static_cast<uint8_t>(row*16u+col);
+    sat_vdp1_texture_t tiles[4]={};
+    uint8_t scratch[64]={};
+    g_upload_calls=0;
+    EQ(sat_upload_indexed8_quadrants(
+        pixels,16u,16u,20u,5u,tiles,scratch,sizeof(scratch)),SAT_OK);
+    EQ(g_upload_calls,4);
+    for(uint8_t tile=0u;tile<4u;++tile) {
+        EQ(tiles[tile].width,8u);
+        EQ(tiles[tile].height,8u);
+        EQ(g_uploaded_palette[tile],5u);
+        EQ(g_uploaded_width[tile],8u);
+        EQ(g_uploaded_height[tile],8u);
+        const uint8_t row=tile/2u,col=tile%2u;
+        for(uint8_t y=0u;y<8u;++y) for(uint8_t x=0u;x<8u;++x)
+            EQ(g_upload_bytes[tile][y*8u+x],
+               pixels[static_cast<uint32_t>(row*8u+y)*20u+col*8u+x]);
+    }
+}
+static void quadrant_upload_rejects_bad_source_and_short_scratch_atomically() {
+    reset();
+    uint8_t pixels[256]={0},scratch[64]={0};
+    sat_vdp1_texture_t tiles[4]={};
+    g_upload_calls=0;
+    EQ(sat_upload_indexed8_quadrants(
+        pixels,16u,16u,16u,4u,tiles,scratch,63u),SAT_ERR_CAPACITY);
+    EQ(g_upload_calls,0);
+    EQ(sat_upload_indexed8_quadrants(
+        pixels,16u,16u,15u,4u,tiles,scratch,64u),SAT_ERR_INVALID_ARG);
+    EQ(g_upload_calls,0);
+    EQ(sat_upload_indexed8_quadrants(
+        pixels,16u,15u,16u,4u,tiles,scratch,64u),SAT_ERR_INVALID_ARG);
+    EQ(g_upload_calls,0);
+}
+
 static sat_indexed_tiled_quad3_t tiled_regions() {
     static sat_vdp1_texture_t whole={100u,16u,16u,4u,1u,0u};
     static sat_vdp1_texture_t quarter[4]={
@@ -352,6 +414,8 @@ int main() {
     invisible_and_hardware_errors();
     patterned_texture_draws_only_with_original_four_corners();
     patterned_texture_invalid_input_and_command_failure();
+    quadrant_upload_owns_correct_source_rows_and_palette();
+    quadrant_upload_rejects_bad_source_and_short_scratch_atomically();
     tiled_texture_fast_path_submits_original_once();
     tiled_texture_preserves_actual_regions_at_near_boundary();
     tiled_texture_preserves_regions_at_screen_boundary();
@@ -359,6 +423,6 @@ int main() {
     tiled_texture_propagates_capacity_without_faking_success();
     mesh_uses_immutable_geometry_and_sorts_depth();
     mesh_invalid_face_or_material_is_atomic();
-    puts("test_render3d_indexed: 12 tests passed");
+    puts("test_render3d_indexed: 14 tests passed");
     return 0;
 }

@@ -706,18 +706,12 @@ static void init_tile_texture(void) {
                                      colors[theme][x][2]);
         sat_example_must(sat_tex_upload_indexed8(
             &g_tile_textures[theme],g_tile_pixels,16u,16u,palette,banks[theme]));
-        /* Crop actual pixel regions, not a fake SRC address offset: VDP1
-         * always uses its declared texture width as the source row stride.
-         * Each small texture owns a contiguous, correctly laid out 8x8 copy. */
-        for(uint8_t row=0u;row<2u;++row) for(uint8_t col=0u;col<2u;++col) {
-            const uint8_t tile=(uint8_t)(row*2u+col);
-            for(uint8_t py=0u;py<8u;++py) for(uint8_t px=0u;px<8u;++px)
-                g_tile_quadrant_pixels[py*8u+px]=
-                    g_tile_pixels[(row*8u+py)*16u+col*8u+px];
-            sat_example_must(sat_tex_upload_indexed8_pixels(
-                &g_tile_quadrants[theme][tile],g_tile_quadrant_pixels,
-                8u,8u,banks[theme]));
-        }
+        /* The renderer's asset preparation owns source-region packing.
+         * No example-local crop/stride logic, and no per-frame VRAM writes. */
+        sat_example_must(sat_upload_indexed8_quadrants(
+            g_tile_pixels,16u,16u,16u,banks[theme],
+            g_tile_quadrants[theme],g_tile_quadrant_pixels,
+            sizeof(g_tile_quadrant_pixels)));
     }
 }
 static void init_cloud_texture(void) {
