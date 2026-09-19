@@ -369,8 +369,54 @@ static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
         put_quad(&tri,lower[side]);
     }
 }
+/* An actual hinged 3D deck: the two long ends use the SAME 16.16
+ * surface-height function as the landing solver. It is a sloped quad,
+ * not a flat box translated or rotated just for the camera. Only three
+ * visible side faces and a small hinge are needed on Saturn hardware. */
+static void draw_seesaw(uint8_t id,const sb_platform_t* p) {
+    const int32_t x=sb_platform_x(&g_game,id),z=SB_F(p->z);
+    const int32_t lx=x-SB_F(p->half_x),rx=x+SB_F(p->half_x);
+    const int32_t bz=z-SB_F(p->half_z),fz=z+SB_F(p->half_z);
+    const int32_t y0=sb_platform_surface_y(&g_game,id,x,bz);
+    const int32_t y1=sb_platform_surface_y(&g_game,id,x,fz);
+    const int32_t bottom=sb_platform_y(&g_game,id)-SB_F(5);
+    const uint16_t top=(id&1u)?SAT_RGB555(25,20,9):
+                                  SAT_RGB555(13,25,25);
+    const uint16_t side=(id&1u)?SAT_RGB555(17,13,8):
+                                   SAT_RGB555(8,16,19);
+    sat_quad3_t q;
+    if(g_eye.x>x) {
+        pquad(&q,rx,y0,bz,rx,y1,fz,rx,bottom,fz,rx,bottom,bz);
+    } else {
+        pquad(&q,lx,y1,fz,lx,y0,bz,lx,bottom,bz,lx,bottom,fz);
+    }
+    put_quad(&q,side);
+    if(g_eye.z>z)
+        pquad(&q,rx,y1,fz,lx,y1,fz,lx,bottom,fz,rx,bottom,fz);
+    else
+        pquad(&q,lx,y0,bz,rx,y0,bz,rx,bottom,bz,lx,bottom,bz);
+    put_quad(&q,side);
+    if(g_eye.y>bottom) {
+        pquad(&q,lx,y0,bz,rx,y0,bz,rx,y1,fz,lx,y1,fz);
+        put_quad_lit(&q,top);
+        /* The short crossbar remains on the hinge, identifying the pivot
+         * while the opposite ends visibly rise and fall. */
+        pquad(&q,lx,sb_platform_y(&g_game,id)+SB_F(1)/20,z-SB_F(1)/3,
+              rx,sb_platform_y(&g_game,id)+SB_F(1)/20,z-SB_F(1)/3,
+              rx,sb_platform_y(&g_game,id)+SB_F(1)/20,z+SB_F(1)/3,
+              lx,sb_platform_y(&g_game,id)+SB_F(1)/20,z+SB_F(1)/3);
+        put_quad(&q,SAT_RGB555(31,27,8));
+    }
+    box3(x,bottom-SB_F(3),z,SB_F(2),SB_F(3),SB_F(2),
+         SAT_RGB555(22,20,14),SAT_RGB555(12,14,14),
+         SAT_RGB555(18,17,12),0u);
+}
 static void stage_box(uint8_t i) {
     const sb_platform_t* p=&sb_course_platforms(&g_game)[i];
+    if(p->kind==SB_SEESAW) {
+        draw_seesaw(i,p);
+        return;
+    }
     int32_t x=sb_platform_x(&g_game,i), z=SB_F(p->z);
     int32_t top_y=sb_platform_y(&g_game,i);
     uint16_t t=top_color(i);
@@ -587,7 +633,8 @@ static void player_pig(void) {
     uint8_t i;
     if(g_game.support>=0) {
         sat_quad3_t shadow;
-        int32_t sy=sb_platform_y(&g_game,(uint8_t)g_game.support)+SB_F(1)/16;
+        int32_t sy=sb_platform_surface_y(
+            &g_game,(uint8_t)g_game.support,px,pz)+SB_F(1)/16;
         quad_rect_xz(&shadow,px-SB_F(2),px+SB_F(2),
                      pz-SB_F(2),pz+SB_F(2),sy);
         put_quad(&shadow,SAT_RGB555(8,10,10));
@@ -672,7 +719,9 @@ static sat_result_t draw_gem_item(void* user,const sat_camera3d_t* camera) {
     uint8_t id=*(const uint8_t*)user;
     (void)camera;
     g_active_fade_slot=FADE_OPAQUE;
-    draw_gem(id,sb_platform_x(&g_game,id),sb_platform_y(&g_game,id),
+    draw_gem(id,sb_platform_x(&g_game,id),
+             sb_platform_surface_y(&g_game,id,sb_platform_x(&g_game,id),
+                SB_F(sb_course_platforms(&g_game)[id].z)),
              SB_F(sb_course_platforms(&g_game)[id].z));
     return SAT_OK;
 }
@@ -702,7 +751,9 @@ static void draw_world(void) {
         uint8_t slot;
         if(!sb_platform_active(&g_game,i))continue;
         center=(sat_vec3_t){
-            sb_platform_x(&g_game,i),sb_platform_y(&g_game,i),SB_F(p->z)
+            sb_platform_x(&g_game,i),
+            sb_platform_surface_y(&g_game,i,sb_platform_x(&g_game,i),SB_F(p->z)),
+            SB_F(p->z)
         };
         /* Camera-penetration guard for an already-passed platform. At the
          * reported C1 position X~7 Z~30, the chase camera (42 units behind
@@ -744,7 +795,8 @@ static void draw_world(void) {
         if(!visible_decks[i] || (g_game.pickups&(1u<<(i-1u))))continue;
         center=(sat_vec3_t){
             sb_platform_x(&g_game,i),
-            sb_platform_y(&g_game,i)+SB_GEM_BASE_OFFSET,
+            sb_platform_surface_y(&g_game,i,sb_platform_x(&g_game,i),
+                SB_F(sb_course_platforms(&g_game)[i].z))+SB_GEM_BASE_OFFSET,
             SB_F(sb_course_platforms(&g_game)[i].z)
         };
         sat_example_must(sat_scene3d_queue_depth(&g_scene,&center,&depth));
@@ -1027,17 +1079,20 @@ static void hud(void) {
         (void)sat_draw_rect_screen(46,76,228u,75u,SAT_RGB555(2,13,16));
         put_text(g_game.course==0u?"COURSE 1 COMPLETE":
                  g_game.course==1u?"COURSE 2 COMPLETE":
-                                     "COURSE 3 COMPLETE",66,83);
+                 g_game.course==2u?"COURSE 3 COMPLETE":
+                                     "COURSE 4 COMPLETE",66,83);
         label("GEMS ",count,116,104);
         put_text("/8",164,104);
         put_text(g_game.course==0u?"START: COURSE 2":
                  g_game.course==1u?"START: COURSE 3":
+                 g_game.course==2u?"START: COURSE 4":
                                      "START: REPLAY",82,128);
     } else if (g_game.paused) {
         put_text("PAUSED - START RESUMES",64,92);
         put_text("X: SWITCH COURSE",80,108);
     } else if(g_show_help && g_game.ticks<480u) {
-        put_text(g_game.course==2u?"JUMP THE YELLOW-RIM HOLES":
+        put_text(g_game.course==3u?"RIDE THE TILTING RAMPS":
+                 g_game.course==2u?"JUMP THE YELLOW-RIM HOLES":
                                       "GEMS OPTIONAL  Z BRAKE",8,192);
         put_text("D-PAD MOVE  A JUMP",8,204);
         put_text("B/C CAMERA  START PAUSE",8,215);
