@@ -128,7 +128,7 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | CD Block runtime I/O | **PARTIAL** | Hardware-specific synchronous 2048-byte sector reads, bounded command polling, LBA/FAD conversion, a `sat_cd_device_t` adapter, plus modified-Ymir BIOS-harness validation of both a PVD probe and CD-resident PCM playback are exposed. | Authentication policy, asynchronous I/O, seek/read scheduling and richer error/status reporting. | `include/saturn/cd_block.h`, `src/hal/cd_block.cpp`, `examples/cd_block_probe`, `examples/cd_streaming_jukebox` |
 | CDFS / VFS | **PARTIAL** | Read-only logical paths, bounded handles, caller-backed blobs, caller-owned `read_at` backends, ISO9660 PVD/directory lookup, CDFS-to-VFS file adapters, non-resident music refill and cooperative asset prefetch/cache through the VFS path are public. `cd_streaming_jukebox` stages public-domain PCM as ISO files and joins this complete route. | Transparent manifest-driven CD registration and a genuinely non-blocking storage backend remain outside the current synchronous CD contract. | `include/saturn/cd.h`, `include/saturn/cdfs.h`, `include/saturn/file.h`, `include/saturn/asset.h`, `src/core/cdfs_api.cpp`, `src/core/asset_api.cpp`, `examples/cd_streaming_jukebox` |
 | Asset streaming | **PARTIAL** | File reads support partial backend transfers; typed resident loading, bounded embedded/non-resident logical music streams, fixed-block cache, cache diagnostics and cooperative prefetch require no whole-file allocation. | Texture/model/map streaming and general typed non-resident loaders. | `include/saturn/file.h`, `include/saturn/asset.h`, `src/core/asset_api.cpp`, `src/core/music_api.cpp` |
-| Backup RAM / save data | **NOT EXPOSED** | No first-class save/Backup RAM API found in the current public surface. | File-like save records, directory/enumeration, free-space checks, checksums/versioning. | No public save/backup module. |
+| Backup RAM / save data | **PARTIAL** | Public internal-Backup-RAM save API over the Boot ROM BUP library: init, status/free-space, directory listing, read, write/overwrite, verify, delete and explicit format. Mutating BIOS calls are protected by SMPC reset-disable/reset-enable critical sections. | Emulator persistence acceptance, Backup Memory cartridge support, RTC convenience metadata and optional versioned/CRC payload helpers. | `include/saturn/save.h`, `src/core/save_api.cpp`, `src/hal/bup.*`, `tests/host/test_save_api.cpp` |
 | RAM cartridge | **NOT EXPOSED** | No first-class RAM-cart allocator/detection API found. | Cartridge detection, capacity probing, allocation and optional asset/cache use. | No public cartridge RAM module. |
 | Generic cartridge / A-Bus | **NOT EXPOSED** | No general A-Bus/cartridge framework. | ROM carts, expansion hardware, bus probing and safe mapped access abstractions. | No corresponding public module. |
 | Slave SH-2 | **NOT EXPOSED** | No public second-CPU scheduler/job abstraction. | Boot/synchronization, mailbox, queues, worker jobs and cache-safe ownership rules. | No public dual-SH2 module. |
@@ -291,14 +291,22 @@ This would remove the assumption that important game assets need to be compiled 
 
 ### Backup RAM and cartridge expansion
 
-Current status: **NOT EXPOSED**.
+Current status: **PARTIAL** for internal Backup RAM; cartridge expansion remains unexposed.
 
-Two distinct areas should remain separate in the architecture:
+The internal save path now wraps the Saturn Boot ROM BUP library rather than
+reimplementing Sega's on-media allocation format. The public API can inspect
+capacity, enumerate records, read/write/verify/delete them and explicitly
+format the device. Initialization never formats automatically.
+
+Two distinct areas remain separate in the architecture:
 
 - **Backup RAM/save storage**: persistent game data, directory records, free-space handling and robust versioned saves.
 - **RAM cartridge**: volatile expansion memory usable for caches/assets/game-specific data.
 
-A later generic cartridge/A-Bus layer could support detection and hardware beyond the RAM cart without coupling that hardware directly to save or asset APIs.
+Backup Memory cartridge support belongs to the save subsystem but is deliberately
+deferred until device detection and emulator/hardware acceptance are proven.
+A later generic cartridge/A-Bus layer can support volatile RAM carts and other
+hardware without coupling those devices to the save API.
 
 ## Host-side tooling coverage
 

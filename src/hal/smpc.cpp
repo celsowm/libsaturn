@@ -20,6 +20,8 @@ constexpr uint32_t kSfTimeoutIters = 1000000u;
 constexpr uint8_t kIntbackCommand = 0x10u;
 constexpr uint8_t kSoundOnCommand = 0x06u;
 constexpr uint8_t kSoundOffCommand = 0x07u;
+constexpr uint8_t kResetEnableCommand = 0x19u;
+constexpr uint8_t kResetDisableCommand = 0x1Au;
 
 inline void ensure_smpc_control_mode() {
     SMPC_IOSEL1 = 0x00u;
@@ -96,6 +98,16 @@ bool sound_on() {
 bool sound_off() {
     ensure_smpc_control_mode();
     return issue_simple_command(kSoundOffCommand);
+}
+
+bool reset_enable() {
+    ensure_smpc_control_mode();
+    return issue_simple_command(kResetEnableCommand);
+}
+
+bool reset_disable() {
+    ensure_smpc_control_mode();
+    return issue_simple_command(kResetDisableCommand);
 }
 
 }  // namespace saturn::hal::smpc

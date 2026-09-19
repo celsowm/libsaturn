@@ -28,7 +28,12 @@ typedef enum sat_result {
     /* The requested logical object or glyph is not present. */
     SAT_ERR_NOT_FOUND = -6,
     SAT_ERR_BUSY = -7,
-    SAT_ERR_TIMEOUT = -8
+    SAT_ERR_TIMEOUT = -8,
+    SAT_ERR_NOT_CONNECTED = -9,
+    SAT_ERR_UNFORMATTED = -10,
+    SAT_ERR_WRITE_PROTECTED = -11,
+    SAT_ERR_ALREADY_EXISTS = -12,
+    SAT_ERR_VERIFY_FAILED = -13
 } sat_result_t;
 
 /* ------------------------------------------------------------------ */

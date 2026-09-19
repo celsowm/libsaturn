@@ -147,10 +147,12 @@ sat_result_t sat_save_format(
 
 - `sat_save_init()` must **never auto-format** an unformatted device.
   Formatting is destructive and must remain an explicit call.
-- `sat_save_write()` must query capacity first and translate BUP errors into
-  normal `sat_result_t` values.
-- A failed write must not be hidden behind automatic delete/retry logic unless
-  overwrite was explicitly requested.
+- `sat_save_write()` queries status first and translates BUP errors into
+  normal `sat_result_t` values. Final fit remains authoritative in
+  `BUP_Write`, because overwriting can reclaim the previous record's blocks.
+- The BIOS write flag is counterintuitive: `0` means overwrite an existing
+  record and non-zero means fail with BUP_FOUND. LibSaturn maps its public
+  `overwrite` boolean explicitly instead of exposing that quirk.
 - The reset button should be disabled only for the smallest critical window and
   re-enabled on every exit path.
 - The high-level API should preserve Sega metadata (name, comment, language,
@@ -236,16 +238,21 @@ error enum to application code.
 
 The BIOS format uses:
 
-- filename: 11 ASCII characters + NUL;
-- comment: 10 ASCII characters + NUL;
+- filename: at most 11 ASCII characters plus NUL;
+- comment: at most 10 ASCII characters plus NUL;
 - language field;
 - packed date;
 - data size in bytes;
 - block size.
 
-LibSaturn should accept ordinary NUL-terminated strings, validate lengths, then
-construct the exact BIOS-facing structure internally. Do not silently truncate
-filenames because two logical save names could otherwise collide.
+`BUP_Dir` accepts a filename pattern; `*` is the useful all-files wildcard.
+Its return is a match count: positive when all results fit, negative when more
+records matched than the provided output capacity. The absolute value is the
+total match count.
+
+LibSaturn accepts ordinary NUL-terminated strings, validates lengths, then
+constructs zero-padded BIOS-facing structures internally. It never silently
+truncates filenames because two logical save names could otherwise collide.
 
 ## Versioning of game payloads
 
