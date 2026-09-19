@@ -23,6 +23,8 @@
 #define FADE_COLOR_COUNT 25u
 #define FADE_PALETTE_BANK 4u
 #define FADE_OPAQUE 255u
+#define FADE_CULLED 254u
+#define FADE_HYSTERESIS SB_F(2)
 #define SOUNDS 6u
 #define SOUND_LEN 2048u
 #define MUSIC_LEN 32768u
@@ -39,6 +41,7 @@ static sat_vdp1_texture_t g_tile_texture;
 static sat_vdp1_texture_t g_fade_textures[FADE_COLOR_COUNT];
 static uint8_t g_fade_solid_pixels[16u*16u];
 static uint8_t g_active_fade_slot=FADE_OPAQUE;
+static uint8_t g_platform_fade[SB_PLATFORM_COUNT];
 static const sat_fade3d_t g_fade_policy={
     FADE_START, FADE_END, 8u, SAT_FADE3D_CULL_AFTER_END, 0u
 };
@@ -276,6 +279,33 @@ static void player_box(void) {
 static int32_t view_depth(int32_t x,int32_t z,int32_t forward_x,int32_t forward_z) {
     return sb_mul(x-g_eye.x,forward_x)+sb_mul(z-g_eye.z,forward_z);
 }
+/* Each platform owns its previous quantized level. Once within two units
+ * of a transition, keep the old state until the camera actually crosses
+ * the hysteresis band; don't toggle one object twice as the chase camera
+ * eases across a color-calc slot or at the culling boundary. */
+static uint8_t platform_fade_slot(uint8_t id,int32_t depth) {
+    sat_fade3d_result_t result={0};
+    uint8_t prev=g_platform_fade[id],target;
+    int32_t band=FADE_HYSTERESIS;
+    if(g_game.support==(int8_t)id) {
+        g_platform_fade[id]=FADE_OPAQUE;
+        return FADE_OPAQUE;
+    }
+    if(sat_fade3d_eval(&g_fade_policy,depth,&result)!=SAT_OK)
+        return FADE_CULLED;
+    target=result.culled?FADE_CULLED:
+        (depth<=FADE_START?FADE_OPAQUE:result.level);
+    if(prev==FADE_OPAQUE && depth<=FADE_START+band) return prev;
+    if(prev==FADE_CULLED && depth>=FADE_END-band) return prev;
+    if(prev<8u) {
+        int32_t span=(FADE_END-FADE_START)/8;
+        int32_t lo=FADE_START+(int32_t)prev*span-band;
+        int32_t hi=FADE_START+(int32_t)(prev+1u)*span+band;
+        if(depth>=lo && depth<=hi)return prev;
+    }
+    g_platform_fade[id]=target;
+    return target;
+}
 static void draw_world(int32_t forward_x,int32_t forward_z) {
     uint8_t i,j;
     g_items_count=0u;
@@ -302,13 +332,11 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
             g_active_fade_slot=FADE_OPAQUE;
             player_box();
         } else {
-            sat_fade3d_result_t fade={0};
-            if (sat_fade3d_eval(&g_fade_policy,g_items[i].depth,&fade)!=SAT_OK)
-                continue;
-            if (fade.culled) continue;
-            g_active_fade_slot=g_items[i].depth<=FADE_START ?
-                FADE_OPAQUE : fade.level;
-            stage_box((uint8_t)g_items[i].id);
+            uint8_t id=(uint8_t)g_items[i].id;
+            uint8_t slot=platform_fade_slot(id,g_items[i].depth);
+            if(slot==FADE_CULLED)continue;
+            g_active_fade_slot=slot;
+            stage_box(id);
         }
     }
     g_active_fade_slot=FADE_OPAQUE;
@@ -524,6 +552,7 @@ int main(void) {
     sat_vdp2_scroll_t sky_scroll={0u,0u,31u,0u};
     sat_example_must(sat_init(&video));
     sb_init(&g_game);
+    {uint8_t i;for(i=0u;i<SB_PLATFORM_COUNT;++i)g_platform_fade[i]=FADE_OPAQUE;}
     g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
     /* Load the first drawable font before expensive procedural generation. */
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
@@ -551,7 +580,8 @@ int main(void) {
         if(steps>3u) steps=3u; /* Drop excess catch-up, preserve responsive input. */
         if (steps==0u) steps=1u;
         if (pad.pressed&SAT_PAD_START) {
-            if(g_game.finished) {sb_init(&g_game);g_yaw=0;
+            if(g_game.finished) {uint8_t i;sb_init(&g_game);g_yaw=0;
+                for(i=0u;i<SB_PLATFORM_COUNT;++i)g_platform_fade[i]=FADE_OPAQUE;
                 g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};}
             else g_game.paused=(uint8_t)!g_game.paused;
         }
