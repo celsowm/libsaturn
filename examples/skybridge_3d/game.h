@@ -17,44 +17,46 @@
 #define SB_GEM_BASE_OFFSET SB_F(4)
 #define SB_GEM_HALF_HEIGHT SB_F(2)
 
-enum { SB_UP=1u, SB_DOWN=2u, SB_LEFT=4u, SB_RIGHT=8u, SB_JUMP=16u };
+enum { SB_UP=1u, SB_DOWN=2u, SB_LEFT=4u, SB_RIGHT=8u, SB_JUMP=16u, SB_BRAKE=32u };
 enum { SB_EVENT_JUMP=1u, SB_EVENT_LAND=2u, SB_EVENT_PICKUP=4u,
        SB_EVENT_CHECKPOINT=8u, SB_EVENT_FALL=16u, SB_EVENT_WIN=32u,
        SB_EVENT_WARNING=64u };
 enum { SB_FIXED=0u, SB_MOVING=1u, SB_COLLAPSING=2u, SB_LIFT=3u };
+enum { SB_SURFACE_NORMAL=0u, SB_SURFACE_SLICK=1u,
+       SB_SURFACE_GRIP=2u, SB_SURFACE_AIR=3u };
 
 typedef struct sb_platform {
     int16_t x, y, z, half_x, half_z;
-    uint8_t kind;
+    uint8_t kind, surface;
 } sb_platform_t;
 
 static const sb_platform_t sb_stage[SB_PLATFORM_COUNT] = {
-    { 0,  0,   0, 18, 18, SB_FIXED}, /* Pier */
-    { 0,  0,  36, 13, 13, SB_FIXED},
-    {14,  3,  68, 12, 12, SB_FIXED},
-    {15,  3, 102, 13, 13, SB_FIXED}, /* Checkpoint A */
-    { 2,  5, 137, 13, 13, SB_MOVING},
-    {-7,  5, 169, 13, 12, SB_FIXED},
-    { 0,  7, 202, 13, 12, SB_FIXED}, /* Checkpoint B */
-    { 9,  7, 235, 13, 12, SB_COLLAPSING},
-    { 9, 10, 266, 13, 12, SB_FIXED},
-    { 0, 11, 299, 18, 15, SB_FIXED} /* Finish */
+    { 0,  0,   0, 18, 18, SB_FIXED, SB_SURFACE_NORMAL}, /* Pier */
+    { 0,  0,  36, 13, 13, SB_FIXED, SB_SURFACE_NORMAL},
+    {14,  3,  68, 12, 12, SB_FIXED, SB_SURFACE_NORMAL},
+    {15,  3, 102, 13, 13, SB_FIXED, SB_SURFACE_GRIP}, /* Checkpoint A */
+    { 2,  5, 137, 13, 13, SB_MOVING, SB_SURFACE_NORMAL},
+    {-7,  5, 169, 13, 12, SB_FIXED, SB_SURFACE_SLICK},
+    { 0,  7, 202, 13, 12, SB_FIXED, SB_SURFACE_NORMAL}, /* Checkpoint B */
+    { 9,  7, 235, 13, 12, SB_COLLAPSING, SB_SURFACE_NORMAL},
+    { 9, 10, 266, 13, 12, SB_FIXED, SB_SURFACE_NORMAL},
+    { 0, 11, 299, 18, 15, SB_FIXED, SB_SURFACE_NORMAL} /* Finish */
 };
 
 /* Second course: narrower landing zones, varied widths and four elevators.
  * Adjacent deck gaps are bounded for the original jump speed; checkpoints
  * remain at stages 3 and 6. No new assets or expansion RAM are required. */
 static const sb_platform_t sb_stage_two[SB_PLATFORM_COUNT] = {
-    {  0, 0,   0, 20, 17, SB_FIXED},
-    { -2, 2,  29,  8, 11, SB_FIXED},
-    {  8, 4,  58,  9, 10, SB_LIFT},
-    { 12, 8,  86,  7, 10, SB_FIXED},
-    {  1, 8, 113, 12,  9, SB_LIFT},
-    { -9,12, 141,  7, 11, SB_FIXED},
-    { -2,14, 169, 11, 11, SB_LIFT},
-    {  6,16, 196,  7,  9, SB_FIXED},
-    { 12,18, 223, 10,  8, SB_LIFT},
-    {  0,20, 251, 17, 15, SB_FIXED}
+    {  0, 0,   0, 20, 17, SB_FIXED, SB_SURFACE_NORMAL},
+    { -2, 2,  29,  8, 11, SB_FIXED, SB_SURFACE_NORMAL},
+    {  8, 4,  58,  9, 10, SB_LIFT, SB_SURFACE_NORMAL},
+    { 12, 8,  86,  7, 10, SB_FIXED, SB_SURFACE_GRIP},
+    {  1, 8, 113, 12,  9, SB_LIFT, SB_SURFACE_NORMAL},
+    { -9,12, 141,  7, 11, SB_FIXED, SB_SURFACE_NORMAL},
+    { -2,14, 169, 11, 11, SB_LIFT, SB_SURFACE_NORMAL},
+    {  6,16, 196,  7,  9, SB_FIXED, SB_SURFACE_SLICK},
+    { 12,18, 223, 10,  8, SB_LIFT, SB_SURFACE_NORMAL},
+    {  0,20, 251, 17, 15, SB_FIXED, SB_SURFACE_NORMAL}
 };
 
 typedef struct sb_game {
@@ -80,6 +82,43 @@ static inline int32_t sb_mul(int32_t a, int32_t b) {
 static inline const sb_platform_t* sb_course_platforms(const sb_game_t* g) {
     return g->course==1u?sb_stage_two:sb_stage;
 }
+/* Surface coefficients are explicit per platform; the original opening
+ * decks (including the fixed second deck) retain their old handling.
+ * All magnitudes are 16.16 world units per 60 Hz simulation tick. */
+static inline uint8_t sb_ground_surface(const sb_game_t* g,int8_t support) {
+    return support>=0 && support<(int8_t)SB_PLATFORM_COUNT
+        ? sb_course_platforms(g)[(uint8_t)support].surface
+        : SB_SURFACE_AIR;
+}
+static inline int32_t sb_surface_friction(uint8_t surface) {
+    if(surface==SB_SURFACE_SLICK)return SB_F(1)/20;
+    if(surface==SB_SURFACE_GRIP)return SB_F(2)/5;
+    if(surface==SB_SURFACE_AIR)return SB_F(1)/12;
+    return SB_F(1)/5;
+}
+/* Reusable fixed-point velocity control: no proportional drag that leaves
+ * a tiny forever-sliding residual, and no sign flip when braking crosses 0. */
+static inline int32_t sb_approach(int32_t value,int32_t target,int32_t amount) {
+    if(value<target)return value+sb_clamp(target-value,0,amount);
+    if(value>target)return value-sb_clamp(value-target,0,amount);
+    return value;
+}
+static inline int32_t sb_move_axis(int32_t velocity,int32_t desired,
+                                  uint8_t surface,uint8_t brake) {
+    int32_t rate;
+    if(brake) {
+        rate=surface==SB_SURFACE_AIR?SB_F(1)/8:SB_F(3)/5;
+        return sb_approach(velocity,0,rate);
+    }
+    if(desired==0)return sb_approach(velocity,0,
+                                      sb_surface_friction(surface));
+    if((velocity<0 && desired>0)||(velocity>0 && desired<0))
+        rate=surface==SB_SURFACE_AIR?SB_F(1)/12:SB_F(2)/5;
+    else
+        rate=surface==SB_SURFACE_AIR?SB_F(1)/12:SB_F(1)/5;
+    return sb_approach(velocity,desired,rate);
+}
+
 /* Vertical elevators follow a triangular 180-tick cycle. Each lift's
  * phase is staggered so the whole course is not moving in lockstep. */
 static inline int32_t sb_lift_offset(uint32_t tick,uint8_t id) {
@@ -273,9 +312,10 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
         int32_t cap=SB_F(1)+SB_HALF;
         int32_t target_x=sb_clamp(dx*3/2,-cap,cap);
         int32_t target_z=sb_clamp(dz*3/2,-cap,cap);
-        int32_t accel=(old_support>=0)?SB_F(1)/5:SB_F(1)/12;
-        g->vx+=sb_clamp(target_x-g->vx,-accel,accel);
-        g->vz+=sb_clamp(target_z-g->vz,-accel,accel);
+        uint8_t surface=sb_ground_surface(g,old_support);
+        uint8_t brake=(uint8_t)((held&SB_BRAKE)!=0u);
+        g->vx=sb_move_axis(g->vx,target_x,surface,brake);
+        g->vz=sb_move_axis(g->vz,target_z,surface,brake);
     }
     sb_update_facing(g);
     if (pressed & SB_JUMP) g->jump_buffer=7u;
