@@ -229,6 +229,58 @@ TEST(clip_near_generates_projectable_triangles) {
         SAT_ERR_INVALID_ARG);
 }
 
+/* A quad straddling the view plane may project into +/-2047 pixel
+ * coordinates. Native viewport clipping must constrain every submitted
+ * solid triangle to the 320x224 target without losing the visible area.
+ * The Skybridge HUD is submitted later to that same VDP1 command list. */
+TEST(screen_clip_bounds_huge_pier_and_jump_views) {
+    sat_quad2_t huge={};
+    huge.x[0]=-2047;huge.y[0]=-2047;
+    huge.x[1]=2047; huge.y[1]=-2047;
+    huge.x[2]=2047; huge.y[2]=2047;
+    huge.x[3]=-2047;huge.y[3]=2047;
+    sat_quad2_t clipped[6];
+    uint8_t count=99u;
+    ASSERT_EQ(clip_quad_screen(&huge,320u,224u,clipped,&count),SAT_OK);
+    ASSERT_TRUE(count>=1u && count<=6u);
+    for(uint8_t i=0u;i<count;++i)for(uint8_t j=0u;j<4u;++j) {
+        ASSERT_TRUE(clipped[i].x[j]>=-160 && clipped[i].x[j]<=159);
+        ASSERT_TRUE(clipped[i].y[j]>=-112 && clipped[i].y[j]<=111);
+    }
+    /* Patterned overlays and ordinary sprites retain their original UV
+     * corners only when completely inside the screen. */
+    sat_quad2_t inside={};
+    inside.x[0]=-30;inside.x[1]=30;inside.x[2]=30;inside.x[3]=-30;
+    inside.y[0]=-20;inside.y[1]=-20;inside.y[2]=20;inside.y[3]=20;
+    ASSERT_EQ(clip_quad_screen(&inside,320u,224u,clipped,&count),SAT_OK);
+    ASSERT_EQ(count,1u);
+    for(uint8_t j=0u;j<4u;++j) {
+        ASSERT_EQ(clipped[0].x[j],inside.x[j]);
+        ASSERT_EQ(clipped[0].y[j],inside.y[j]);
+    }
+    /* Entirely out-of-view: no VDP1 commands at all. */
+    for(uint8_t j=0;j<4u;++j)inside.x[j]+=1000;
+    ASSERT_EQ(clip_quad_screen(&inside,320u,224u,clipped,&count),SAT_OK);
+    ASSERT_EQ(count,0u);
+    /* Narrowly crossing the right edge on different jump heights is
+     * supported without a giant raster or wraparound. */
+    for(int height=-110;height<=110;height+=11) {
+        inside.x[0]=145;inside.x[1]=170;
+        inside.x[2]=170;inside.x[3]=145;
+        inside.y[0]=static_cast<int16_t>(height-6);
+        inside.y[1]=static_cast<int16_t>(height-6);
+        inside.y[2]=static_cast<int16_t>(height+6);
+        inside.y[3]=static_cast<int16_t>(height+6);
+        ASSERT_EQ(clip_quad_screen(&inside,320u,224u,clipped,&count),SAT_OK);
+        ASSERT_TRUE(count<=6u);
+        for(uint8_t i=0u;i<count;++i)for(uint8_t j=0u;j<4u;++j) {
+            ASSERT_TRUE(clipped[i].x[j]>=-160 && clipped[i].x[j]<=159);
+            ASSERT_TRUE(clipped[i].y[j]>=-112 && clipped[i].y[j]<=111);
+        }
+    }
+    ASSERT_EQ(clip_quad_screen(nullptr,320u,224u,clipped,&count),
+              SAT_ERR_INVALID_ARG);
+}
 /* A point very close to the camera plane projects enormous; it must clamp
  * rather than wrap its sign and turn the quad inside out. */
 TEST(project_clamps_instead_of_wrapping) {
@@ -713,6 +765,7 @@ int main() {
     project_quad_rejects_straddling_quads();
     clip_near_oversized_previous_pier();
     clip_near_generates_projectable_triangles();
+    screen_clip_bounds_huge_pier_and_jump_views();
     project_clamps_instead_of_wrapping();
     project_quad_rejects_null_arguments();
     sort_orders_far_to_near();
@@ -738,6 +791,6 @@ int main() {
     diagonal_area_equals_shoelace();
     gouraud_table_words_and_light();
     vertex_normals_point_out_of_a_box();
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 33);
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 34);
     return 0;
 }
