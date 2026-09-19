@@ -725,6 +725,13 @@ static void sound_event(uint16_t event) {
     else return;
     (void)sat_sound_play(g_sounds[id],&p,0);
 }
+static void start_course(uint8_t course) {
+    uint8_t i;
+    sb_start_course(&g_game,course);
+    g_yaw=0;
+    for(i=0u;i<SB_PLATFORM_COUNT;++i)g_platform_fade[i]=FADE_OPAQUE;
+    g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
+}
 static void hud(void) {
     uint8_t i,count=0u;
     for(i=0u;i<SB_PICKUP_COUNT;++i) if(g_game.pickups&(1u<<i)) ++count;
@@ -755,6 +762,7 @@ static void hud(void) {
                                      "START: REPLAY",82,128);
     } else if (g_game.paused) {
         put_text("PAUSED - START RESUMES",64,92);
+        put_text("X: SWITCH COURSE",80,108);
     } else if(g_show_help && g_game.ticks<480u) {
         put_text("GEMS OPTIONAL",8,192);
         put_text("D-PAD MOVE  A JUMP",8,204);
@@ -808,14 +816,13 @@ int main(void) {
         g_prev_frame=now;
         if(steps>3u) steps=3u; /* Drop excess catch-up, preserve responsive input. */
         if (steps==0u) steps=1u;
-        if (pad.pressed&SAT_PAD_START) {
-            if(g_game.finished) {
-                uint8_t i;
-                sb_start_course(&g_game,(uint8_t)(g_game.course+1u));
-                g_yaw=0;
-                for(i=0u;i<SB_PLATFORM_COUNT;++i)g_platform_fade[i]=FADE_OPAQUE;
-                g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
-            }
+        /* Pause + X is a deliberate course selector for playing/testing
+         * Course 2 without finishing all ten decks of Course 1 first. */
+        if(g_game.paused && (pad.pressed&SAT_PAD_X)) {
+            start_course((uint8_t)(g_game.course+1u));
+        } else if (pad.pressed&SAT_PAD_START) {
+            if(g_game.finished)
+                start_course((uint8_t)(g_game.course+1u));
             else g_game.paused=(uint8_t)!g_game.paused;
         }
         if(pad.pressed&SAT_PAD_Y)g_show_debug=(uint8_t)!g_show_debug;
