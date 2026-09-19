@@ -75,6 +75,42 @@ The eight collectibles are distinct **golden octahedra** (eight triangular facet
 
 The goal checks only whether the player is grounded on the final platform. Finishing with 0/8, 3/8 or 8/8 gems is valid; the score is displayed on the completion overlay. `tests/host/test_skybridge_game.cpp` covers distant/diagonal/vertical misses, midair collection, one-time pickup, moving deck positions, collapse state and zero/partial-gem victories.
 
+## Fixed second platform: approaching the near plane
+
+The reported Course-1 case at **X≈7, Y=0, Z≈30** is **not** the
+collapsing bridge. The second platform (stage index 1) is a fixed deck at
+Z=36; the collapsing platform is index 7 at Z=235. When the pig walks
+onto stage 1, the follow camera moves through the space immediately
+behind/above the **previous pier** (index 0, Z=-18..18). The pier's large
+floor quads can straddle the camera's near plane. Previously
+`sat_project_quad()` submitted nearly unbounded distorted sprites as a
+corner approached depth zero, then rejected the **entire** quad once the
+corner was behind the eye. Giant partial VDP1 sprites can consume
+excessive raster time and make later objects/HUD disappear or appear
+late; one huge floor suddenly disappearing is not the bridge-collapse
+mechanic.
+
+The reusable `sat_clip_quad_near()` in `render3d.h` now clips
+**solid world-space geometry** against a safe near depth and triangulates
+the visible part before native projection. Skybridge uses an 8-world-unit
+rendering near plane for these procedural quads. Textured floor insets
+that cross that plane are omitted rather than drawn with incorrect UVs;
+their clipped **solid base** remains visible. Gameplay positions,
+platform collision, platform kinds and camera orbit are unchanged.
+Host tests `clip_near_oversized_previous_pier` and
+`clip_near_generates_projectable_triangles` walk the camera through
+consecutive positions and assert that clipped geometry stays in front
+of the near plane. These do not prove correct VDP1 raster timing.
+
+**Visual acceptance:** with Course 1 at approximately X=7, Y=0, move
+Z=30 → 31 → 32 without turning. The HUD must remain visible,
+the pig must remain on the fixed second deck, and no giant flat-colored
+floor may fill the screen or suddenly eliminate the world as the first
+pier passes behind the camera. Repeat with the camera rotated and check
+several consecutive frames, not just one screenshot. If the problem
+persists, record whether the HUD/time freezes: this distinguishes
+software error/spin or VDP1 command starvation from ordinary culling.
+
 ## Pig/gem camera occlusion regression
 
 If the player stays at a fixed world XYZ position while only B/C rotates the camera, the octahedral gem can move in front of or behind the pig in screen space. **VDP1 has no Z-buffer**: the older `stage_box()` drew each gem as part of its platform and then unconditionally drew the pig last, so the pig covered *even a gem that was physically closer to the camera*. The LibSaturn `sat_scene3d_queue_t` now accepts the platforms, pig and gems as deferred drawing items. It renders the pig and gems **back-to-front using their own 3D camera-space depths, including the pitched camera's Y direction**, without keeping a Skybridge-specific actor list or sorting loop. The pig is not automatically last. All 3D positions, gem hit tests, pickup state, shadow and collision remain unchanged.
