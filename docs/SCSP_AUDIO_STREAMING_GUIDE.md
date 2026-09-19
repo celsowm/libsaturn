@@ -128,20 +128,25 @@ Useful assertions, in increasing strength:
 5. captured audio samples, if/when the harness grows an audio-output capture
    path.
 
-Ymir exposes SCSP slot state through `saturn.GetSCSP().GetProbe().GetSlots()`.
-That is preferable to reconstructing slot state from unrelated video behavior.
-The existing harness does not yet serialize SCSP slots into `probe.json`, so a
-future harness extension should expose at least:
+Ymir exposes SCSP slot state through `saturn.SCSP.GetProbe().GetSlots()`.
+The LibSaturn probe serializes slots 28-31 under `scsp.stream_slots` in
+`probe.json`, including:
 
-- `active`, `keyOnBit`;
-- `startAddress`, `loopStartAddress`, `loopEndAddress`;
-- `currSample`;
-- `pcm8Bit`, `loopControl`;
-- `octave`, `freqNumSwitch`;
-- `totalLevel`, `directSendLevel`, `directPan`.
+- `active`, `key_on`, `pcm8`;
+- `start_address`, `loop_start`, `loop_end`, `curr_sample`;
+- `loop_control`, `octave`, register-visible `fns`;
+- `total_level`, `direct_send_level`, `direct_pan`;
+- FNV-1a hashes of both 4096-sample Sound RAM halves when the slot matches the
+  continuous S16 streaming layout.
 
-For streaming tests, sampling those fields at several frames is more valuable
-than a single final snapshot.
+Pass `--scsp-trace` to the probe, or `-ScspTrace` to `run-harness.ps1`, to
+capture those fields after every program frame under `scsp.trace`. The wrapper
+enables this automatically for `cd_streaming_jukebox`.
+
+The jukebox acceptance test compares consecutive half hashes. Once a stream is
+active, a refill may change only one half, and the changed half must be the
+opposite of the half containing `curr_sample`. This directly catches an
+active-half overwrite without depending on audible output or screenshots.
 
 ## Distortion triage
 
