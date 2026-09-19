@@ -43,6 +43,19 @@ sat_result_t upload_texture_indexed8(const uint8_t*, uint16_t, uint16_t, uint16_
     return SAT_OK;
 }
 
+int g_reserved_calls = 0;
+int g_overlay_pass_calls = 0;
+uint16_t g_last_reservation = 0;
+sat_result_t reserve_overlay_commands(uint16_t count) {
+    ++g_reserved_calls;
+    g_last_reservation=count;
+    return SAT_OK;
+}
+sat_result_t begin_overlay_pass() {
+    ++g_overlay_pass_calls;
+    return SAT_OK;
+}
+
 sat_result_t push_sprite(const SpriteRequest&) { return SAT_OK; }
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest&) { return SAT_OK; }
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest&) { return SAT_OK; }
@@ -70,6 +83,18 @@ void make_initialized() {
 }
 
 }  // namespace
+
+static void overlay_budget_api_routes_into_hal() {
+    using namespace saturn::hal::vdp1;
+    make_initialized();
+    g_reserved_calls=0;
+    g_overlay_pass_calls=0;
+    ASSERT_EQ(sat_vdp1_reserve_overlay_commands(192u),SAT_OK);
+    ASSERT_EQ(g_reserved_calls,1);
+    ASSERT_EQ(g_last_reservation,192u);
+    ASSERT_EQ(sat_vdp1_overlay_begin(),SAT_OK);
+    ASSERT_EQ(g_overlay_pass_calls,1);
+}
 
 static void combined_upload_calls_palette_once_and_texture_once() {
     using namespace saturn::hal::vdp1;
@@ -176,6 +201,7 @@ static void null_args_rejected() {
 }
 
 int main() {
+    overlay_budget_api_routes_into_hal();
     combined_upload_calls_palette_once_and_texture_once();
     pixels_only_skips_palette_upload();
     palette_only_uploads_no_texture();
@@ -183,6 +209,6 @@ int main() {
     invalid_dims_rejected();
     texture_capacity_propagates();
     null_args_rejected();
-    printf("PASS: test_vdp1_upload.cpp (7 tests)\n");
+    printf("PASS: test_vdp1_upload.cpp (8 tests)\n");
     return 0;
 }
