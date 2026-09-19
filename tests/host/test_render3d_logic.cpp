@@ -156,6 +156,79 @@ TEST(project_quad_rejects_straddling_quads) {
     ASSERT_FALSE(project_quad(vp.m, &straddling, kW, kH, &out));
 }
 
+/* Regression: walking toward the SECOND FIXED platform (stage 1, Z=36)
+ * carries the follow camera through the first pier's near-plane region.
+ * A huge floor quad at Z=-18..18, Y=0 used to project at tiny positive
+ * depth and then vanish completely as soon as one corner crossed behind.
+ * The software clipper must retain only the visible portion, in bounded
+ * triangles. No platform state or input changes here. */
+TEST(clip_near_oversized_previous_pier) {
+    sat_quad3_t pier;
+    make_floor(&pier,0,0,0,fx_from_int(18));
+    sat_quad3_t original=pier;
+    const sat_vec3_t forward={0,-SAT_FX16_ONE*2/5,SAT_FX16_ONE*9/10};
+    sat_quad3_t out[4];
+    for(int camera_z=-12;camera_z<=-7;++camera_z) {
+        const sat_vec3_t eye={fx_from_int(7),fx_from_int(29),
+                              fx_from_int(camera_z)};
+        uint8_t count=99u;
+        ASSERT_EQ(clip_world_quad_near(
+            &pier,&eye,&forward,fx_from_int(8),out,&count),SAT_OK);
+        ASSERT_TRUE(count>=1u && count<=4u);
+        for(uint8_t i=0u;i<count;++i) {
+            for(uint8_t j=0u;j<4u;++j) {
+                ASSERT_TRUE(world_view_depth(out[i].v[j],eye,forward)>=
+                            fx_from_int(8)-128);
+            }
+        }
+    }
+    for(int i=0;i<4;++i) {
+        ASSERT_EQ(pier.v[i].x,original.v[i].x);
+        ASSERT_EQ(pier.v[i].y,original.v[i].y);
+        ASSERT_EQ(pier.v[i].z,original.v[i].z);
+    }
+    /* Fully in front preserves the original quad (and texture UV order).
+     * Fully behind produces zero quads, not an oversized billboard. */
+    const sat_vec3_t eye={0,0,fx_from_int(100)};
+    const sat_vec3_t along_neg_z={0,0,-SAT_FX16_ONE};
+    sat_quad3_t wall;
+    make_wall(&wall,fx_from_int(-10),fx_from_int(80),
+                fx_from_int(10),fx_from_int(80),fx_from_int(12));
+    uint8_t count=99u;
+    ASSERT_EQ(clip_world_quad_near(
+        &wall,&eye,&along_neg_z,fx_from_int(8),out,&count),SAT_OK);
+    ASSERT_EQ(count,1u);
+    ASSERT_EQ(out[0].v[0].z,wall.v[0].z);
+    make_wall(&wall,fx_from_int(-10),fx_from_int(96),
+                fx_from_int(10),fx_from_int(96),fx_from_int(12));
+    ASSERT_EQ(clip_world_quad_near(
+        &wall,&eye,&along_neg_z,fx_from_int(8),out,&count),SAT_OK);
+    ASSERT_EQ(count,0u);
+}
+TEST(clip_near_generates_projectable_triangles) {
+    const sat_vec3_t eye={0,0,fx_from_int(100)};
+    const sat_vec3_t forward={0,0,-SAT_FX16_ONE};
+    const sat_mat4_t vp=make_view_proj(100);
+    sat_quad3_t crossing;
+    crossing.v[0]={-fx_from_int(5),fx_from_int(5),fx_from_int(99)};
+    crossing.v[1]={ fx_from_int(5),fx_from_int(5),fx_from_int(80)};
+    crossing.v[2]={ fx_from_int(5),0,fx_from_int(80)};
+    crossing.v[3]={-fx_from_int(5),0,fx_from_int(99)};
+    sat_quad3_t parts[4];
+    sat_quad2_t screen;
+    uint8_t count=99u;
+    ASSERT_EQ(clip_world_quad_near(
+        &crossing,&eye,&forward,fx_from_int(8),parts,&count),SAT_OK);
+    ASSERT_TRUE(count>=1u&&count<=4u);
+    for(uint8_t i=0u;i<count;++i) {
+        ASSERT_EQ(parts[i].v[2].z,parts[i].v[3].z);
+        ASSERT_TRUE(project_quad(vp.m,&parts[i],kW,kH,&screen));
+    }
+    ASSERT_EQ(clip_world_quad_near(
+        nullptr,&eye,&forward,fx_from_int(8),parts,&count),
+        SAT_ERR_INVALID_ARG);
+}
+
 /* A point very close to the camera plane projects enormous; it must clamp
  * rather than wrap its sign and turn the quad inside out. */
 TEST(project_clamps_instead_of_wrapping) {
@@ -638,6 +711,8 @@ int main() {
     project_respects_screen_axes();
     project_rejects_points_behind_camera();
     project_quad_rejects_straddling_quads();
+    clip_near_oversized_previous_pier();
+    clip_near_generates_projectable_triangles();
     project_clamps_instead_of_wrapping();
     project_quad_rejects_null_arguments();
     sort_orders_far_to_near();
@@ -663,6 +738,6 @@ int main() {
     diagonal_area_equals_shoelace();
     gouraud_table_words_and_light();
     vertex_normals_point_out_of_a_box();
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 31);
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 33);
     return 0;
 }
