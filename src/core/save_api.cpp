@@ -12,8 +12,10 @@ using saturn::hal::bup::Stat;
 
 bool g_save_initialized = false;
 
-constexpr uint32_t kBiosInternalUnit = 1u;
-constexpr uint32_t kBiosBackupCartridgeUnit = 2u;
+// BUP function device is a configuration-table index, NOT BupConfig.unit_id.
+// Config[0] has unit_id=1 (internal). External selector remains disabled until
+// the cartridge-side BIOS contract has been validated on emulator/hardware.
+constexpr uint32_t kBiosInternalDeviceIndex = 0u;
 
 sat_result_t map_result(Result result) {
     switch (result) {
@@ -35,10 +37,9 @@ sat_result_t map_device(sat_save_device_t device, uint32_t* out_device) {
     if (out_device == nullptr) return SAT_ERR_INVALID_ARG;
     switch (device) {
         case SAT_SAVE_INTERNAL:
-            *out_device = kBiosInternalUnit;
+            *out_device = kBiosInternalDeviceIndex;
             return SAT_OK;
         case SAT_SAVE_BACKUP_CARTRIDGE:
-            (void)kBiosBackupCartridgeUnit;
             return SAT_ERR_UNSUPPORTED;
     }
     return SAT_ERR_INVALID_ARG;
