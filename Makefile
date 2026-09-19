@@ -397,6 +397,7 @@ HOST_TEST_EXTRA_test_render3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_voxel_terrain := src/core/voxel_terrain_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_voxel_display_probe :=
 HOST_TEST_EXTRA_test_render3d_effects := src/core/render3d_api.cpp src/core/math3d_api.cpp src/core/runtime_state.cpp
+HOST_TEST_EXTRA_test_render3d_indexed := src/core/render3d_indexed_api.cpp
 HOST_TEST_EXTRA_test_mesh3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_mesh3d_textured := src/core/mesh3d_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_vdp1_upload := src/core/vdp1_api.cpp src/core/runtime_state.cpp src/core/palette_registry.cpp
