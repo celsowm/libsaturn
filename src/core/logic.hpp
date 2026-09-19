@@ -281,12 +281,49 @@ constexpr uint16_t kVdp1CmdEnd      = 0x8000u;  /* end bit (CMDCTRL bit 15)   */
  * color mode 011B instead. */
 constexpr uint16_t kVdp1PolygonPmod = 0x00C0u;
 
+constexpr uint16_t kVdp1EffectFlags = SAT_SPRITE_FLAG_OPAQUE |
+    SAT_SPRITE_FLAG_MESH | SAT_SPRITE_FLAG_HALF_TRANSPARENT |
+    SAT_SPRITE_FLAG_HALF_LUMINANCE;
+constexpr uint16_t kVdp1HalfFlags =
+    SAT_SPRITE_FLAG_HALF_TRANSPARENT | SAT_SPRITE_FLAG_HALF_LUMINANCE;
+
+inline sat_result_t validate_polygon_effects(uint16_t color, uint16_t flags) {
+    if ((flags & ~kVdp1EffectFlags) != 0u ||
+        (flags & kVdp1HalfFlags) == kVdp1HalfFlags) return SAT_ERR_INVALID_ARG;
+    /* RGB code is required for source color calculations; palette/indexed
+     * colors cannot be interpreted as RGB by the VDP1 arithmetic unit. */
+    if ((flags & kVdp1HalfFlags) != 0u && (color & 0x8000u) == 0u) {
+        return SAT_ERR_UNSUPPORTED;
+    }
+    return SAT_OK;
+}
+
+inline sat_result_t validate_indexed8_sprite_effects(uint16_t flags) {
+    if ((flags & ~kVdp1EffectFlags) != 0u ||
+        (flags & kVdp1HalfFlags) == kVdp1HalfFlags) return SAT_ERR_INVALID_ARG;
+    if ((flags & kVdp1HalfFlags) != 0u) return SAT_ERR_UNSUPPORTED;
+    return SAT_OK;
+}
+
+inline uint16_t color_calculation_bits(uint16_t flags, bool gouraud) {
+    if ((flags & SAT_SPRITE_FLAG_HALF_TRANSPARENT) != 0u) {
+        return gouraud ? 0x0007u : 0x0003u;
+    }
+    if ((flags & SAT_SPRITE_FLAG_HALF_LUMINANCE) != 0u) {
+        return gouraud ? 0x0006u : 0x0002u;
+    }
+    return gouraud ? 0x0004u : 0u;
+}
+
+
 /* Composes CMDPMOD for a polygon/polyline/line command.
  * bit 6 = opaque flag, mirrored from SAT_SPRITE_FLAG_OPAQUE for API symmetry.
  */
 inline uint16_t compose_polygon_pmod(uint16_t flags) {
     return static_cast<uint16_t>(
-        kVdp1PolygonPmod | ((flags & SAT_SPRITE_FLAG_OPAQUE) != 0u ? 0x0040u : 0u));
+        kVdp1PolygonPmod |
+        ((flags & SAT_SPRITE_FLAG_MESH) != 0u ? 0x0100u : 0u) |
+        color_calculation_bits(flags, false));
 }
 
 /* Composes CMDCTRL for a polygon-family command: command select + end bit. */
@@ -302,7 +339,11 @@ constexpr uint16_t kVdp1ColorCalcGouraud = 0x0004u;
 constexpr uint16_t kGouraudNeutral = 0x4210u;
 
 inline uint16_t compose_gouraud_pmod(uint16_t pmod) {
-    return static_cast<uint16_t>((pmod & ~0x0007u) | kVdp1ColorCalcGouraud);
+    const uint16_t base_calc = static_cast<uint16_t>(pmod & 0x0007u);
+    const uint16_t gouraud_calc = base_calc == 0x0003u ? 0x0007u :
+                                  base_calc == 0x0002u ? 0x0006u :
+                                  kVdp1ColorCalcGouraud;
+    return static_cast<uint16_t>((pmod & ~0x0007u) | gouraud_calc);
 }
 
 inline uint16_t gouraud_table_grda(uint32_t area_base_bytes, uint16_t index) {
@@ -320,7 +361,9 @@ constexpr uint16_t kVdp1SpritePmodBase = 0x00A0u;
  * mirrored from SAT_SPRITE_FLAG_OPAQUE, forcing every texel to be drawn. */
 inline uint16_t compose_sprite_pmod(uint16_t flags) {
     return static_cast<uint16_t>(
-        kVdp1SpritePmodBase | ((flags & SAT_SPRITE_FLAG_OPAQUE) != 0u ? 0x0040u : 0u));
+        kVdp1SpritePmodBase |
+        ((flags & SAT_SPRITE_FLAG_OPAQUE) != 0u ? 0x0040u : 0u) |
+        ((flags & SAT_SPRITE_FLAG_MESH) != 0u ? 0x0100u : 0u));
 }
 
 /* Composes CMDCOLR for a sprite-family command. Color mode 100B uses the

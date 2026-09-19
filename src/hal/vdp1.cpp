@@ -199,6 +199,7 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
     }
+    SAT_TRY(saturn::core::validate_indexed8_sprite_effects(req.flags));
     if (req.width == 0 || req.height == 0) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -235,6 +236,7 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
     }
+    SAT_TRY(saturn::core::validate_indexed8_sprite_effects(req.flags));
     if (req.width == 0u || req.height == 0u || (req.width & 7u) != 0u) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -269,6 +271,7 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
     }
+    SAT_TRY(saturn::core::validate_indexed8_sprite_effects(req.flags));
     if (req.width == 0u || req.height == 0u || (req.width & 7u) != 0u) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -303,6 +306,7 @@ inline sat_result_t push_polygon_like(uint16_t command_select, const PolygonRequ
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
     }
+    SAT_TRY(saturn::core::validate_polygon_effects(req.color, req.flags));
     if (g_cmd_count + 1u >= g_cmd_capacity) {
         return SAT_ERR_CAPACITY;
     }
@@ -342,6 +346,7 @@ sat_result_t push_line(const LineRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
     }
+    SAT_TRY(saturn::core::validate_polygon_effects(req.color, req.flags));
     if (g_cmd_count + 1u >= g_cmd_capacity) {
         return SAT_ERR_CAPACITY;
     }
@@ -403,6 +408,7 @@ inline sat_result_t shade_last_command(sat_result_t pushed, uint16_t grda) {
 }  // namespace
 
 sat_result_t push_polygon_gouraud(const PolygonRequest& req, const uint16_t* gouraud) {
+    SAT_TRY(saturn::core::validate_polygon_effects(req.color, req.flags));
     uint16_t grda = 0u;
     const sat_result_t st = stage_gouraud(gouraud, 4, &grda);
     if (st != SAT_OK) {
@@ -412,6 +418,7 @@ sat_result_t push_polygon_gouraud(const PolygonRequest& req, const uint16_t* gou
 }
 
 sat_result_t push_polyline_gouraud(const PolygonRequest& req, const uint16_t* gouraud) {
+    SAT_TRY(saturn::core::validate_polygon_effects(req.color, req.flags));
     uint16_t grda = 0u;
     const sat_result_t st = stage_gouraud(gouraud, 4, &grda);
     if (st != SAT_OK) {
@@ -421,6 +428,7 @@ sat_result_t push_polyline_gouraud(const PolygonRequest& req, const uint16_t* go
 }
 
 sat_result_t push_line_gouraud(const LineRequest& req, const uint16_t* gouraud) {
+    SAT_TRY(saturn::core::validate_polygon_effects(req.color, req.flags));
     uint16_t grda = 0u;
     const sat_result_t st = stage_gouraud(gouraud, 2, &grda);
     if (st != SAT_OK) {

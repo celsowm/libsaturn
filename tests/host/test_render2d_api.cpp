@@ -203,7 +203,17 @@ int main() {
     OK(g_last_polygon.user_clip);
     OK(g_last_polygon.color == SAT_RGB555(0u, 0u, 31u));
 
-    OK(sat_fill_rect(&rect, sat_color_rgba(255u, 255u, 255u, 128u)) == SAT_ERR_UNSUPPORTED);
+    OK(sat_fill_rect(&rect, sat_color_rgba(255u, 255u, 255u, 128u)) == SAT_OK);
+    OK(g_polygon_calls == 2u);
+    OK(g_last_polygon.flags == SAT_SPRITE_FLAG_HALF_TRANSPARENT);
+    OK(g_last_polygon.color == SAT_RGB555(31u, 31u, 31u));
+    OK(sat_fill_rect(&rect, sat_color_rgba(255u, 255u, 255u, 0u)) == SAT_OK);
+    OK(g_polygon_calls == 2u);
+    OK(sat_fill_rect(&rect, sat_color_rgba(255u, 255u, 255u, 127u)) == SAT_ERR_UNSUPPORTED);
+    sat_draw_params_t meshed = sat_draw_params_default();
+    meshed.flags = SAT_SPRITE_FLAG_MESH;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &meshed) == SAT_OK);
+    OK(g_sprite_calls == 2u && g_last_sprite.flags == SAT_SPRITE_FLAG_MESH);
 
     std::puts("render2d api: OK");
     return 0;

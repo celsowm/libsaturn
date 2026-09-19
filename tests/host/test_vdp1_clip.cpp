@@ -8,8 +8,8 @@
 int main() {
     using namespace saturn::hal::vdp1;
 
-    Command commands[8]{};
-    begin_frame(commands, 8u);
+    Command commands[12]{};
+    begin_frame(commands, 12u);
 
     UserClipRequest clip{10u, 20u, 100u, 80u};
     OK(push_user_clip(clip) == SAT_OK);
@@ -24,6 +24,29 @@ int main() {
     OK(push_sprite(sprite) == SAT_OK);
     OK((commands[3].pmod & 0x0400u) != 0u);
     OK((commands[3].pmod & 0x0200u) == 0u);
+
+    SpriteRequest mesh_sprite = sprite;
+    mesh_sprite.flags = SAT_SPRITE_FLAG_MESH;
+    OK(push_sprite(mesh_sprite) == SAT_OK);
+    OK((commands[4].pmod & 0x0100u) != 0u);
+    const uint16_t count_after_mesh = 5u;
+    (void)count_after_mesh;
+
+    SpriteRequest unsupported_sprite = sprite;
+    unsupported_sprite.flags = SAT_SPRITE_FLAG_HALF_TRANSPARENT;
+    OK(push_sprite(unsupported_sprite) == SAT_ERR_UNSUPPORTED);
+    PolygonRequest polygon{};
+    polygon.color = 0x801Fu;
+    polygon.flags = SAT_SPRITE_FLAG_HALF_TRANSPARENT | SAT_SPRITE_FLAG_MESH;
+    OK(push_polygon(polygon) == SAT_OK);
+    OK((commands[5].pmod & 0x0107u) == 0x0103u);
+    polygon.color = 0x001Fu;
+    OK(push_polygon(polygon) == SAT_ERR_UNSUPPORTED);
+    polygon.color = 0x801Fu;
+    polygon.flags = SAT_SPRITE_FLAG_HALF_LUMINANCE;
+    const uint16_t corners[4] = {0x4210u,0x4210u,0x4210u,0x4210u};
+    OK(push_polygon_gouraud(polygon, corners) == SAT_OK);
+    OK((commands[6].pmod & 0x0007u) == 0x0006u);
 
     UserClipRequest invalid_order{20u, 20u, 10u, 30u};
     OK(push_user_clip(invalid_order) == SAT_ERR_INVALID_ARG);

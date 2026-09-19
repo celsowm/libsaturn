@@ -7,6 +7,7 @@
 #include "saturn/core.h"
 #include "saturn/geometry2d.h"
 #include "saturn/texture.h"
+#include "saturn/vdp1.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -91,9 +92,11 @@ sat_result_t sat_render2d_set_clip(const sat_rect_t* clip);
 uint16_t sat_render2d_stack_capacity(void);
 uint16_t sat_render2d_stack_depth(void);
 
-/* High-level world/screen-space shape primitives. Colors are opaque RGBA8888
- * values converted to Saturn direct BGR555. Partial alpha is not silently
- * approximated and returns SAT_ERR_UNSUPPORTED. */
+/* Shape alpha is discrete on this VDP1 RGB framebuffer: 255 = opaque,
+ * 128 = native half-transparency against an *already drawn RGB VDP1 pixel*,
+ * 0 = no draw. All other alpha values return SAT_ERR_UNSUPPORTED.
+ * On a transparent VDP1 pixel (e.g. just the VDP2 background), hardware
+ * half-transparency REPLACES the color instead of blending with VDP2. */
 sat_result_t sat_fill_rect(const sat_rect_t* rect, sat_color_t color);
 sat_result_t sat_draw_rect(const sat_rect_t* rect, sat_color_t color);
 sat_result_t sat_draw_line(sat_point_t start, sat_point_t end, sat_color_t color);
@@ -108,8 +111,10 @@ sat_result_t sat_draw_line(sat_point_t start, sat_point_t end, sat_color_t color
  * dst is required and its width/height must be non-zero. Scaling, X/Y flip,
  * rotation around params.center, and the current Camera2D are supported.
  * params == NULL is equivalent to sat_draw_params_default(). The current
- * tint/blend subset is neutral tint + SAT_BLEND_NONE; other valid combinations
- * return SAT_ERR_UNSUPPORTED instead of silently changing semantics. */
+ * Supported path: neutral RGB tint with SAT_BLEND_NONE, or explicit
+ * SAT_SPRITE_FLAG_MESH for checkerboard transparency; other tint/blend
+ * combinations currently return SAT_ERR_UNSUPPORTED rather than pretending
+ * to provide arbitrary per-texel alpha. */
 sat_result_t sat_draw_texture(
     sat_texture_t texture,
     const sat_rect_t* src,

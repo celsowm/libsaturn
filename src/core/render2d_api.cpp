@@ -134,8 +134,15 @@ extern "C" sat_result_t sat_fill_rect(const sat_rect_t* rect, sat_color_t color)
     st = render2d_ensure_clip(g_state.config.width, g_state.config.height);
     if (st != SAT_OK) return st;
 
+    uint16_t effect_flags = 0u;
+    bool skip = false;
+    st = render2d_shape_effect(color, &effect_flags, &skip);
+    if (st != SAT_OK) return st;
+    if (rect == nullptr) return SAT_ERR_INVALID_ARG;
+    if (skip) return SAT_OK;
+    const sat_color_t opaque_color = {color.r, color.g, color.b, 255u};
     uint16_t direct_color = 0u;
-    st = render2d_color_to_direct_rgb555(color, &direct_color);
+    st = render2d_color_to_direct_rgb555(opaque_color, &direct_color);
     if (st != SAT_OK) return st;
 
     Render2DQuad quad{};
@@ -152,7 +159,7 @@ extern "C" sat_result_t sat_fill_rect(const sat_rect_t* rect, sat_color_t color)
     request.xd = quad.x[3];
     request.yd = quad.y[3];
     request.color = direct_color;
-    request.flags = 0u;
+    request.flags = effect_flags;
     request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
     return saturn::hal::vdp1::push_polygon(request);
 }
@@ -164,8 +171,15 @@ extern "C" sat_result_t sat_draw_rect(const sat_rect_t* rect, sat_color_t color)
     st = render2d_ensure_clip(g_state.config.width, g_state.config.height);
     if (st != SAT_OK) return st;
 
+    uint16_t effect_flags = 0u;
+    bool skip = false;
+    st = render2d_shape_effect(color, &effect_flags, &skip);
+    if (st != SAT_OK) return st;
+    if (rect == nullptr) return SAT_ERR_INVALID_ARG;
+    if (skip) return SAT_OK;
+    const sat_color_t opaque_color = {color.r, color.g, color.b, 255u};
     uint16_t direct_color = 0u;
-    st = render2d_color_to_direct_rgb555(color, &direct_color);
+    st = render2d_color_to_direct_rgb555(opaque_color, &direct_color);
     if (st != SAT_OK) return st;
 
     Render2DQuad quad{};
@@ -182,7 +196,7 @@ extern "C" sat_result_t sat_draw_rect(const sat_rect_t* rect, sat_color_t color)
     request.xd = quad.x[3];
     request.yd = quad.y[3];
     request.color = direct_color;
-    request.flags = 0u;
+    request.flags = effect_flags;
     request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
     return saturn::hal::vdp1::push_polyline(request);
 }
@@ -198,8 +212,14 @@ extern "C" sat_result_t sat_draw_line(
     st = render2d_ensure_clip(g_state.config.width, g_state.config.height);
     if (st != SAT_OK) return st;
 
+    uint16_t effect_flags = 0u;
+    bool skip = false;
+    st = render2d_shape_effect(color, &effect_flags, &skip);
+    if (st != SAT_OK) return st;
+    if (skip) return SAT_OK;
+    const sat_color_t opaque_color = {color.r, color.g, color.b, 255u};
     uint16_t direct_color = 0u;
-    st = render2d_color_to_direct_rgb555(color, &direct_color);
+    st = render2d_color_to_direct_rgb555(opaque_color, &direct_color);
     if (st != SAT_OK) return st;
 
     Render2DLine line{};
@@ -218,7 +238,7 @@ extern "C" sat_result_t sat_draw_line(
     request.x1 = line.x1;
     request.y1 = line.y1;
     request.color = direct_color;
-    request.flags = 0u;
+    request.flags = effect_flags;
     request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
     return saturn::hal::vdp1::push_line(request);
 }
@@ -275,7 +295,7 @@ extern "C" sat_result_t sat_draw_texture(
         request.height = native->height;
         request.srca = native->srca;
         request.palette = native->palette;
-        request.flags = 0u;
+        request.flags = effective.flags;
         request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
         return saturn::hal::vdp1::push_distorted_sprite(request);
     }
@@ -298,7 +318,7 @@ extern "C" sat_result_t sat_draw_texture(
         request.height = native->height;
         request.srca = native->srca;
         request.palette = native->palette;
-        request.flags = 0u;
+        request.flags = effective.flags;
         request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
         return saturn::hal::vdp1::push_sprite(request);
     }
@@ -312,7 +332,7 @@ extern "C" sat_result_t sat_draw_texture(
     request.height = native->height;
     request.srca = native->srca;
     request.palette = native->palette;
-    request.flags = 0u;
+    request.flags = effective.flags;
     request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
     return saturn::hal::vdp1::push_scaled_sprite(request);
 }

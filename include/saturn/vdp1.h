@@ -26,6 +26,17 @@ typedef struct sat_vdp1_texture {
 
 /* Sprite flags                                                        */
 #define SAT_SPRITE_FLAG_OPAQUE 0x0001u
+/* CMDPMOD bit 8: checkerboard 50% coverage, not an alpha blend. */
+#define SAT_SPRITE_FLAG_MESH 0x0002u
+/* CMDPMOD color calculation 011B: (RGB source + RGB framebuffer)/2.
+ * The pre-existing framebuffer pixel must have MSB=1. On an empty/VDP2-only
+ * background this mode REPLACES the pixel; it does NOT blend with VDP2.
+ * Supported on RGB-coded polygons, lines and Gouraud polygons, not INDEX8
+ * palette sprites. VDP1 color calculation has substantial rendering cost. */
+#define SAT_SPRITE_FLAG_HALF_TRANSPARENT 0x0004u
+/* CMDPMOD color calculation 010B: halves RGB source brightness, without
+ * mixing with the underlying framebuffer. */
+#define SAT_SPRITE_FLAG_HALF_LUMINANCE 0x0008u
 
 /* ------------------------------------------------------------------ */
 /* Sprite command                                                      */

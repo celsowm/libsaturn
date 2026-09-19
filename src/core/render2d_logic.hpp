@@ -50,11 +50,26 @@ inline sat_result_t render2d_color_to_direct_rgb555(sat_color_t color, uint16_t*
     return SAT_OK;
 }
 
+inline sat_result_t render2d_shape_effect(
+    sat_color_t color, uint16_t* out_flags, bool* out_skip) {
+    if (out_flags == nullptr || out_skip == nullptr) return SAT_ERR_INVALID_ARG;
+    *out_flags = 0u;
+    *out_skip = false;
+    if (color.a == 255u) return SAT_OK;
+    if (color.a == 0u) { *out_skip = true; return SAT_OK; }
+    if (color.a == 128u) {
+        *out_flags = SAT_SPRITE_FLAG_HALF_TRANSPARENT;
+        return SAT_OK;
+    }
+    return SAT_ERR_UNSUPPORTED;
+}
+
 inline sat_result_t validate_render2d_params(const sat_draw_params_t* params) {
     if (params == nullptr) return SAT_OK;
     if (params->flip > static_cast<uint8_t>(SAT_FLIP_X | SAT_FLIP_Y)) return SAT_ERR_INVALID_ARG;
     if (params->blend_mode > SAT_BLEND_SUBTRACT) return SAT_ERR_INVALID_ARG;
-    if (params->flags != 0u || params->reserved != 0u) return SAT_ERR_INVALID_ARG;
+    if ((params->flags & ~SAT_SPRITE_FLAG_MESH) != 0u ||
+        params->reserved != 0u) return SAT_ERR_INVALID_ARG;
     if (params->blend_mode != SAT_BLEND_NONE || !render2d_neutral_tint(params->tint)) {
         return SAT_ERR_UNSUPPORTED;
     }

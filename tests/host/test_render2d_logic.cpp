@@ -20,6 +20,11 @@ int main() {
     params.blend_mode = SAT_BLEND_ALPHA;
     OK(validate_render2d_params(&params) == SAT_ERR_UNSUPPORTED);
     params = sat_draw_params_default();
+    params.flags = SAT_SPRITE_FLAG_MESH;
+    OK(validate_render2d_params(&params) == SAT_OK);
+    params.flags = 0x8000u;
+    OK(validate_render2d_params(&params) == SAT_ERR_INVALID_ARG);
+    params = sat_draw_params_default();
     params.tint.r = 254u;
     OK(validate_render2d_params(&params) == SAT_ERR_UNSUPPORTED);
 
@@ -30,6 +35,16 @@ int main() {
     OK(direct == SAT_RGB555(0u, 31u, 0u));
     OK(render2d_color_to_direct_rgb555(sat_color_rgba(0u, 0u, 255u, 254u), &direct) == SAT_ERR_UNSUPPORTED);
     OK(render2d_color_to_direct_rgb555(sat_color_rgba(0u, 0u, 0u, 255u), nullptr) == SAT_ERR_INVALID_ARG);
+
+    uint16_t shape_flags = 0u;
+    bool skip = false;
+    OK(render2d_shape_effect(sat_color_rgba(10u, 20u, 30u, 128u),
+                             &shape_flags, &skip) == SAT_OK);
+    OK(shape_flags == SAT_SPRITE_FLAG_HALF_TRANSPARENT && !skip);
+    OK(render2d_shape_effect(sat_color_rgba(10u, 20u, 30u, 0u),
+                             &shape_flags, &skip) == SAT_OK && skip);
+    OK(render2d_shape_effect(sat_color_rgba(10u, 20u, 30u, 127u),
+                             &shape_flags, &skip) == SAT_ERR_UNSUPPORTED);
 
     Render2DClip clip{};
     const sat_rect_t valid_clip{10, 20, 30u, 40u};

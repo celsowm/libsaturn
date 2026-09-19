@@ -125,7 +125,7 @@ TEST(polygon_pmod_opaque_flag) {
     ASSERT_EQ(compose_polygon_pmod(SAT_SPRITE_FLAG_OPAQUE),
               static_cast<uint16_t>(kVdp1PolygonPmod | 0x0040u));
     /* Unrelated flag bits must not leak into PMOD. */
-    ASSERT_EQ(compose_polygon_pmod(0xFFFEu), kVdp1PolygonPmod);
+    ASSERT_EQ(compose_polygon_pmod(0xFFFEu), static_cast<uint16_t>(kVdp1PolygonPmod | 0x0103u));
 }
 
 /* --- Scaled / distorted sprite resolution ------------------------ */
@@ -203,7 +203,7 @@ TEST(sprite_pmod_base_matches_normal_sprite) {
 TEST(sprite_pmod_opaque_flag) {
     using namespace saturn::core;
     ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_OPAQUE), 0x00E0);
-    ASSERT_EQ(compose_sprite_pmod(0xFFFEu), 0x00A0);
+    ASSERT_EQ(compose_sprite_pmod(0xFFFEu), 0x01A0);
 }
 
 TEST(user_clip_pmod_enables_inside_clip_only) {
