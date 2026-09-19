@@ -577,8 +577,19 @@ int main(void) {
         uint16_t pressed,events=0u;
         int32_t fx,fz,rx,rz;
         sat_example_must(sat_wait_vblank());
-        sat_example_must(sat_pad_poll(&pad));
+        /* VDP2's register latch is at VBlank. Apply BOTH layer and sprite
+         * priority configuration before the comparatively slow SMPC pad poll,
+         * math, audio and VDP1 submissions. The color-calc PRISA selector
+         * now lives in the layer shadow, so it cannot alternate per frame. */
         now=sat_frame_count();
+        g_frame=now;
+        sky_scroll.x_integer=(uint16_t)(
+            ((uint32_t)g_yaw*SKY_W/360u+(g_frame>>3u))&511u);
+        sat_example_must(sat_vdp2_nbg0_set_scroll(&sky_scroll));
+        update_rotation(sat_sin_deg(SB_F(g_yaw)),
+                        sat_cos_deg(SB_F(g_yaw)));
+        sat_example_must(sat_vdp2_layers_commit());
+        sat_example_must(sat_pad_poll(&pad));
         steps=now-g_prev_frame;
         g_prev_frame=now;
         if(steps>3u) steps=3u; /* Drop excess catch-up, preserve responsive input. */
@@ -612,7 +623,6 @@ int main(void) {
             }
         }
         sound_event(events);
-        g_frame=now;
         if (events & SB_EVENT_FALL) {
             g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
         } else {
@@ -631,14 +641,8 @@ int main(void) {
                 sat_fx16_div(SB_F(W),SB_F(H)),SB_F(2),SB_F(250)));
             sat_example_must(sat_mat4_multiply(&g_vp,&projection,&view));
         }
-        /* VBlank: configure VDP2 before submitting the next VDP1 frame. */
-        sky_scroll.x_integer=(uint16_t)(((uint32_t)g_yaw*SKY_W/360u+(g_frame>>3u))&511u);
-        sat_example_must(sat_vdp2_nbg0_set_scroll(&sky_scroll));
-        update_rotation(fx,fz);
-        sat_example_must(sat_vdp2_layers_commit());
-        /* Commit after the generic layer priorities: fade uses selector 1
-         * at priority 6, which is still above RBG0 (priority 5). */
-        sat_example_must(sat_vdp2_sprite_color_calc_commit());
+        /* Sprite color calculation was configured at startup. The generic
+         * VBlank layer replay now preserves both of its priority selectors. */
         sat_example_must(sat_vdp1_set_erase_transparent());
         sat_example_must(sat_begin_frame());
         draw_world(fx,fz);
