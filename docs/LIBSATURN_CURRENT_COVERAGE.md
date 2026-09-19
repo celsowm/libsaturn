@@ -2,8 +2,8 @@
 
 This document is a snapshot of the hardware and runtime coverage currently exposed by LibSaturn.
 
-**Snapshot date:** 2026-09-18
-**Baseline:** `main` at `9506877`
+**Snapshot date:** 2026-09-19
+**Baseline:** `main` at `9d53694`
 
 The goal is not to measure a percentage of the Sega Saturn hardware. Instead, this document answers a more useful question:
 
@@ -39,7 +39,7 @@ LibSaturn is already strongest in the areas needed to render and run small-to-me
 The largest Saturn hardware areas still missing as first-class LibSaturn subsystems are:
 
 - Backup RAM/save support;
-- RAM cartridge support and generic cartridge/A-Bus access;
+- generic cartridge/A-Bus access beyond the volatile RAM-expansion driver;
 - 3D Control Pad analog input and the broader Saturn peripheral family;
 - Slave SH-2 scheduling/job execution;
 - SCU DMA;
@@ -291,7 +291,7 @@ This would remove the assumption that important game assets need to be compiled 
 
 ### Backup RAM and cartridge expansion
 
-Current status: **PARTIAL** for internal Backup RAM; cartridge expansion remains unexposed.
+Current status: **PARTIAL** for internal Backup RAM and for volatile RAM expansion. External persistent Backup Memory cartridge support remains separate and is not yet implemented.
 
 The internal save path now wraps the Saturn Boot ROM BUP library rather than
 reimplementing Sega's on-media allocation format. The public API can inspect
@@ -305,8 +305,9 @@ Two distinct areas remain separate in the architecture:
 
 Backup Memory cartridge support belongs to the save subsystem but is deliberately
 deferred until device detection and emulator/hardware acceptance are proven.
-A later generic cartridge/A-Bus layer can support volatile RAM carts and other
-hardware without coupling those devices to the save API.
+The volatile 1 MiB / 4 MiB RAM-expansion driver now provides detection, two-bank
+allocations, bounded asset-cache backing and a VFS bridge. A later generic
+cartridge/A-Bus layer may support other hardware without coupling it to saves.
 
 ## Host-side tooling coverage
 
@@ -341,7 +342,7 @@ From the current snapshot, the largest new capability domains are:
 5. **Advanced SCSP + 68000 sound runtime**
 6. **SCU DSP**
 7. **Advanced VDP2 raster/layer features**
-8. **Backup RAM and cartridge expansion**
+8. **External Backup Memory cartridge and RAM-cart DMA tuning**
 9. **NetLink/communications and optional MPEG hardware**
 
 This ordering is a practical engineering sequence, not a statement that later hardware is less interesting. The first items unlock capabilities that can be reused broadly by many games and by compatibility layers.
