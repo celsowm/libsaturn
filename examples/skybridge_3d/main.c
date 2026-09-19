@@ -21,7 +21,7 @@
 #define FADE_START SB_FADE_START
 #define FADE_END SB_FADE_END
 #define VIEW_LIMIT FADE_END
-#define FADE_COLOR_COUNT 28u
+#define FADE_COLOR_COUNT 36u
 #define FADE_PALETTE_BANK 4u
 #define FADE_OPAQUE 255u
 #define FADE_CULLED 254u
@@ -60,8 +60,19 @@ static const uint16_t g_fade_colors[FADE_COLOR_COUNT]={
     SAT_RGB555(31,30,8), SAT_RGB555(31,13,3), SAT_RGB555(31,23,4),
     SAT_RGB555(31,28,7), SAT_RGB555(31,20,6), SAT_RGB555(31,12,4),
     SAT_RGB555(31,31,31), SAT_RGB555(8,10,10),
-    SAT_RGB555(29,14,29), SAT_RGB555(19,5,21), SAT_RGB555(26,9,27)
+    SAT_RGB555(29,14,29), SAT_RGB555(19,5,21), SAT_RGB555(26,9,27),
+    SAT_RGB555(31,20,25), SAT_RGB555(29,15,22), SAT_RGB555(24,10,17),
+    SAT_RGB555(31,23,27), SAT_RGB555(31,25,27), SAT_RGB555(26,12,19),
+    SAT_RGB555(17,7,12), SAT_RGB555(3,2,4)
 };
+#define PIG_TOP SAT_RGB555(31,20,25)
+#define PIG_SIDE SAT_RGB555(29,15,22)
+#define PIG_DARK SAT_RGB555(24,10,17)
+#define PIG_HEAD SAT_RGB555(31,23,27)
+#define PIG_SNOUT SAT_RGB555(31,25,27)
+#define PIG_EAR SAT_RGB555(26,12,19)
+#define PIG_HOOF SAT_RGB555(17,7,12)
+#define PIG_BLACK SAT_RGB555(3,2,4)
 static uint8_t g_tile_pixels[16u*16u];
 static uint32_t g_last_ocean_palette_step=0xFFFFFFFFu;
 static uint8_t g_sky[SKY_W * SKY_H];
@@ -371,52 +382,159 @@ static void stage_box(uint8_t i) {
         draw_gem(i,x,top_y,z);
     }
 }
-static void player_box(void) {
-    int32_t px=g_game.x,pz=g_game.z,feet=g_game.y;
-    /* Magenta pilot with white eyes; golden collectibles are intentionally
-     * NOT the same material as the avatar. Camera rotation must never make
-     * the pickup look like another copy of the player. */
-    uint16_t top=SAT_RGB555(29,14,29),front=SAT_RGB555(26,9,27);
-    int32_t bob=0;
-    if (g_game.support>=0 && (sb_abs(g_game.vx)+sb_abs(g_game.vz))>SB_F(1)/2)
-        bob=sat_fx16_mul(sat_sin_deg(SB_F((int32_t)(g_frame*12u)%360)),SB_F(1)/7);
-    if (g_game.support>=0) {
+/* Model only: the pig is contained inside the original 4x4x5 fixed-point
+ * collision volume. Course 1/2 movement, coyote time, gem contact and
+ * elevator carry remain owned by game.h. Its geometry uses indexed VDP1
+ * distorted sprites through box3()/put_quad(), never RGB faces that break
+ * the existing VDP2 distance color-calculation setup. */
+static void pig_transform(int32_t x,int32_t z,int8_t fx,int8_t fz,
+                          int32_t side,int32_t forward,
+                          int32_t* out_x,int32_t* out_z) {
+    /* Local forward follows the persistent cardinal snout direction.
+     * Local side and forward are 16.16; facing is exactly -1, 0 or 1. */
+    *out_x=x+(int32_t)fz*side+(int32_t)fx*forward;
+    *out_z=z-(int32_t)fx*side+(int32_t)fz*forward;
+}
+static void pig_box(int32_t x,int32_t z,int32_t feet,
+                    int8_t fx,int8_t fz,
+                    int32_t side,int32_t up,int32_t forward,
+                    int32_t half_side,int32_t half_up,int32_t half_forward,
+                    uint16_t top,uint16_t lateral,uint16_t front) {
+    int32_t wx,wz;
+    int32_t hx=fz!=0?half_side:half_forward;
+    int32_t hz=fz!=0?half_forward:half_side;
+    pig_transform(x,z,fx,fz,side,forward,&wx,&wz);
+    box3(wx,feet+up,wz,hx,half_up,hz,top,lateral,front,0u);
+}
+static void pig_mark(int32_t px,int32_t pz,int32_t feet,
+                     int8_t fx,int8_t fz,
+                     int32_t side,int32_t y,int32_t forward,
+                     int32_t half_width,int32_t half_height,
+                     uint16_t color) {
+    sat_quad3_t q;
+    int32_t ax,az,bx,bz;
+    pig_transform(px,pz,fx,fz,side-half_width,forward,&ax,&az);
+    pig_transform(px,pz,fx,fz,side+half_width,forward,&bx,&bz);
+    pquad(&q,ax,feet+y+half_height,az,
+          bx,feet+y+half_height,bz,
+          bx,feet+y-half_height,bz,
+          ax,feet+y-half_height,az);
+    put_quad(&q,color);
+}
+static void pig_ear(int32_t px,int32_t pz,int32_t feet,
+                    int8_t fx,int8_t fz,int32_t side) {
+    sat_quad3_t q;
+    int32_t ax,az,bx,bz,tx,tz;
+    const int32_t spread=SB_F(1)/4;
+    const int32_t base_f=SB_F(1)/4;
+    /* Flat, pointed low-poly ear: pink outer triangle + inset shading. */
+    pig_transform(px,pz,fx,fz,side-spread,base_f,&ax,&az);
+    pig_transform(px,pz,fx,fz,side+spread,base_f,&bx,&bz);
+    pig_transform(px,pz,fx,fz,side,-SB_F(1)/12,&tx,&tz);
+    pquad(&q,ax,feet+SB_F(4)+SB_F(1)/20,az,
+          bx,feet+SB_F(4)+SB_F(1)/20,bz,
+          tx,feet+SB_F(4)+SB_F(4)/5,tz,
+          tx,feet+SB_F(4)+SB_F(4)/5,tz);
+    put_quad(&q,PIG_TOP);
+    pig_transform(px,pz,fx,fz,side-spread/2,base_f+SB_F(1)/64,&ax,&az);
+    pig_transform(px,pz,fx,fz,side+spread/2,base_f+SB_F(1)/64,&bx,&bz);
+    pig_transform(px,pz,fx,fz,side,0,&tx,&tz);
+    pquad(&q,ax,feet+SB_F(4)+SB_F(1)/5,az,
+          bx,feet+SB_F(4)+SB_F(1)/5,bz,
+          tx,feet+SB_F(4)+SB_F(3)/5,tz,
+          tx,feet+SB_F(4)+SB_F(3)/5,tz);
+    put_quad(&q,PIG_EAR);
+}
+static void pig_head(int32_t px,int32_t pz,int32_t feet,
+                     int8_t fx,int8_t fz,int32_t bob,
+                     uint8_t show_face) {
+    const int32_t f=feet+bob;
+    pig_box(px,pz,f,fx,fz,0,SB_F(16)/5,SB_HALF,
+            SB_F(1),SB_F(19)/20,SB_F(9)/10,
+            PIG_HEAD,PIG_SIDE,PIG_TOP);
+    /* Ears extend to 4.8 units and never exceed the original 5-unit
+     * player collider even at the peak of the little running bounce. */
+    pig_ear(px,pz,f,fx,fz,-SB_F(7)/10);
+    pig_ear(px,pz,f,fx,fz, SB_F(7)/10);
+    pig_box(px,pz,f,fx,fz,0,SB_F(29)/10,SB_F(3)/2,
+            SB_F(11)/20,SB_F(9)/20,SB_F(2)/5,
+            PIG_SNOUT,PIG_SNOUT,PIG_SIDE);
+    if(show_face) {
+        /* Eyes and two dark nostrils on the *real forward face*.
+         * No camera-facing billboard; rotation now exposes a recognizable
+         * profile, front and back instead of an identically painted cube. */
+        pig_mark(px,pz,f,fx,fz,-SB_F(2)/5,SB_F(18)/5,SB_F(3)/2,
+                 SB_F(3)/20,SB_F(3)/20,SAT_RGB555(31,31,31));
+        pig_mark(px,pz,f,fx,fz, SB_F(2)/5,SB_F(18)/5,SB_F(3)/2,
+                 SB_F(3)/20,SB_F(3)/20,SAT_RGB555(31,31,31));
+        pig_mark(px,pz,f,fx,fz,-SB_F(2)/5,SB_F(18)/5,
+                 SB_F(3)/2+SB_F(1)/64,
+                 SB_F(1)/16,SB_F(1)/16,PIG_BLACK);
+        pig_mark(px,pz,f,fx,fz, SB_F(2)/5,SB_F(18)/5,
+                 SB_F(3)/2+SB_F(1)/64,
+                 SB_F(1)/16,SB_F(1)/16,PIG_BLACK);
+        pig_mark(px,pz,f,fx,fz,-SB_F(1)/5,SB_F(29)/10,
+                 SB_F(19)/10+SB_F(1)/64,
+                 SB_F(1)/12,SB_F(1)/9,PIG_DARK);
+        pig_mark(px,pz,f,fx,fz, SB_F(1)/5,SB_F(29)/10,
+                 SB_F(19)/10+SB_F(1)/64,
+                 SB_F(1)/12,SB_F(1)/9,PIG_DARK);
+    }
+}
+static void pig_tail(int32_t px,int32_t pz,int32_t feet,
+                     int8_t fx,int8_t fz,int32_t bob) {
+    const int32_t f=feet+bob;
+    pig_box(px,pz,f,fx,fz,0,SB_F(5)/2,-SB_F(8)/5,
+            SB_F(1)/6,SB_F(1)/6,SB_F(1)/5,
+            PIG_DARK,PIG_DARK,PIG_DARK);
+    pig_box(px,pz,f,fx,fz,SB_F(1)/5,SB_F(11)/4,-SB_F(9)/5,
+            SB_F(1)/7,SB_F(1)/7,SB_F(1)/7,
+            PIG_TOP,PIG_SIDE,PIG_DARK);
+}
+static void player_pig(void) {
+    const int32_t px=g_game.x,pz=g_game.z,feet=g_game.y;
+    const int8_t fx=g_game.facing_x,fz=g_game.facing_z;
+    int32_t bob=0,step=0;
+    int64_t camera_side;
+    uint8_t from_front;
+    uint8_t i;
+    if(g_game.support>=0) {
         sat_quad3_t shadow;
         int32_t sy=sb_platform_y(&g_game,(uint8_t)g_game.support)+SB_F(1)/16;
-        quad_rect_xz(&shadow,px-SB_F(2),px+SB_F(2),pz-SB_F(2),pz+SB_F(2),sy);
+        quad_rect_xz(&shadow,px-SB_F(2),px+SB_F(2),
+                     pz-SB_F(2),pz+SB_F(2),sy);
         put_quad(&shadow,SAT_RGB555(8,10,10));
     }
-    box3(px,feet+SB_F(5)/2+bob,pz,SB_PLAYER_HALF,SB_F(5)/2,SB_PLAYER_HALF,
-         top,SAT_RGB555(19,5,21),front,0u);
-    /* The previous white face marker appeared ONLY when looking from -Z;
-     * from the side the pilot was indistinguishable from a pickup. Draw
-     * two white eyes on the CAMERA-FACING side, whichever axis dominates. */
-    {
-        sat_quad3_t q;
-        uint8_t eye;
-        int32_t eye_y0=feet+SB_F(3)+bob;
-        int32_t eye_y1=feet+SB_F(4)+bob;
-        int32_t face;
-        int32_t side=SB_F(1)/3;
-        if(sb_abs(g_eye.z-pz)>=sb_abs(g_eye.x-px)) {
-            face=pz+(g_eye.z<pz?-SB_PLAYER_HALF-SB_F(1)/64:
-                                      SB_PLAYER_HALF+SB_F(1)/64);
-            for(eye=0u;eye<2u;++eye) {
-                int32_t ex=px+(eye==0u?-SB_F(1):SB_F(1));
-                pquad(&q,ex-side,eye_y1,face,ex+side,eye_y1,face,
-                      ex+side,eye_y0,face,ex-side,eye_y0,face);
-                put_quad(&q,SAT_RGB555(31,31,31));
-            }
-        } else {
-            face=px+(g_eye.x<px?-SB_PLAYER_HALF-SB_F(1)/64:
-                                     SB_PLAYER_HALF+SB_F(1)/64);
-            for(eye=0u;eye<2u;++eye) {
-                int32_t ez=pz+(eye==0u?-SB_F(1):SB_F(1));
-                pquad(&q,face,eye_y1,ez-side,face,eye_y1,ez+side,
-                      face,eye_y0,ez+side,face,eye_y0,ez-side);
-                put_quad(&q,SAT_RGB555(31,31,31));
-            }
-        }
+    if(g_game.support>=0 &&
+       sb_abs(g_game.vx)+sb_abs(g_game.vz)>SB_F(1)/3) {
+        int32_t cycle=sat_sin_deg(SB_F((int32_t)(g_game.ticks*12u)%360));
+        bob=sb_mul(cycle,SB_F(1)/10);
+        step=sb_mul(cycle,SB_F(1)/5);
+    }
+    /* All four hooves are within X/Z +/-2 and touch the deck when idle. */
+    for(i=0u;i<4u;++i) {
+        int32_t side=(i&1u)?SB_F(4)/5:-SB_F(4)/5;
+        int32_t forward=(i&2u)?SB_F(4)/5:-SB_F(4)/5;
+        int32_t lift=((i&1u)==((i>>1u)&1u)?step:-step);
+        if(lift<0)lift=0;
+        pig_box(px,pz,feet,fx,fz,side,SB_F(13)/20+lift,forward,
+                SB_F(3)/10,SB_F(11)/20,SB_F(3)/10,
+                PIG_SIDE,PIG_HOOF,PIG_DARK);
+    }
+    camera_side=(int64_t)(g_eye.x-px)*fx+(int64_t)(g_eye.z-pz)*fz;
+    from_front=(uint8_t)(camera_side>=0);
+    if(from_front) {
+        pig_tail(px,pz,feet,fx,fz,bob);
+    } else {
+        pig_head(px,pz,feet,fx,fz,bob,0u);
+    }
+    pig_box(px,pz,feet+bob,fx,fz,0,SB_F(47)/20,-SB_F(1)/5,
+            SB_F(6)/5,SB_F(11)/10,SB_F(13)/10,
+            PIG_TOP,PIG_SIDE,PIG_DARK);
+    if(from_front) {
+        pig_head(px,pz,feet,fx,fz,bob,1u);
+    } else {
+        pig_tail(px,pz,feet,fx,fz,bob);
     }
 }
 static int32_t view_depth(int32_t x,int32_t z,int32_t forward_x,int32_t forward_z) {
@@ -486,7 +604,7 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
         stage_box((uint8_t)g_game.support);
     }
     g_active_fade_slot=FADE_OPAQUE;
-    player_box();
+    player_pig();
 }
 static void init_tile_texture(void) {
     static const uint8_t banks[3]={3u,5u,6u};
