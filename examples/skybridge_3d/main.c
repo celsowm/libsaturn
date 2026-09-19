@@ -669,6 +669,19 @@ static void draw_world(void) {
         center=(sat_vec3_t){
             sb_platform_x(&g_game,i),sb_platform_y(&g_game,i),SB_F(p->z)
         };
+        /* Camera-penetration guard for an already-passed platform. At the
+         * reported C1 position X~7 Z~30, the chase camera (42 units behind
+         * the pig) sits inside the previous pier's XZ footprint. Drawing
+         * the pier right around the camera adds several nearly full-screen
+         * VDP1 raster commands, even after geometric clipping. That pier
+         * is NOT the supporting deck; omit it while the eye is inside its
+         * footprint, without touching world/collision/collectibles.
+         * Apply to ALL courses and decks; no hardcoded stage index. */
+        if(g_game.support!=(int8_t)i &&
+           g_eye.y>center.y+SB_F(6) &&
+           sb_abs(g_eye.x-center.x)<SB_F(p->half_x) &&
+           sb_abs(g_eye.z-center.z)<SB_F(p->half_z))
+            continue;
         sat_example_must(sat_scene3d_queue_depth(&g_scene,&center,&depth));
         if(g_game.support!=(int8_t)i &&
            (depth < -SB_F(9) ||
