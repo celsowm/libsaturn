@@ -69,3 +69,19 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
   RBG0 host tests. `saturn/saturn.h` now exposes the canonical shared math.
 - Hardware register writes, VRAM layout and horizon synchronization are a
   subsequent VDP2 runtime workstream, not a property of this pure math move.
+
+## Fifth slice: pre-baked 2x2 textured-region fallback
+
+- Added `sat_draw_indexed_tiled_quad3`: a fully safe quad uses one original
+  full patterned sprite; when unsafe, library tests up to four midpoint
+  subquads with corresponding previously uploaded 2x2 pixel regions. Every
+  actually emitted tile retains its own complete UV range; anything touching
+  near/screen boundaries is omitted over the existing clipped solid backing.
+  No per-frame source crop or VRAM upload, at most four sprite commands.
+- Skybridge creates twelve 8x8 INDEX8 texture regions ONCE from its three
+  existing 16x16 paving motifs (768 additional VDP1 VRAM bytes), and passes
+  those immutable region descriptors to the library for floor insets.
+- This preserves the native VDP1 region mapping on axis-aligned inset planes;
+  it does NOT claim arbitrary projective UV clipping, pixel-perfect seam
+  handling for non-affine surfaces, or exact visibility when the near plane
+  crosses a tile. True UV clipping remains a separate materialization design.

@@ -113,6 +113,40 @@ sat_result_t sat_draw_indexed_textured_quad3(
     uint8_t* out_drawn
 );
 
+/* PREBAKED 2x2 patterned texture regions: preserve the VDP1's fixed
+ * full-texture-to-quad mapping by pairing four subdivision quads with four
+ * independently uploaded source regions. No runtime allocation or VRAM writes.
+ *
+ * The full INDEX8 texture must have an even height and width divisible by 16;
+ * each tile must have exactly half those dimensions and the same palette.
+ * The four regions must contain the source's true top-left, top-right,
+ * bottom-left, bottom-right pixels. Their correspondence is a caller asset
+ * invariant: VDP1 cannot verify which source pixels were uploaded.
+ * For a fully safe projected quad, draw the original full texture ONCE.
+ * Otherwise, draw only subquads that are fully safe in camera and screen
+ * space, at most four VDP1 commands; never stretch an unclipped full texture
+ * onto a clipped polygon. Skipped tile areas expose the solid backing face.
+ * Bilinear world subdivision is exact for an affine/parallelogram surface;
+ * arbitrary perspective/UV interpolation and pixel-perfect seams are not
+ * promised for non-affine quads. This is a bounded tile fallback, NOT general
+ * textured polygon clipping or perspective-correct UV mapping.
+ *
+ * Prepare/upload regions during asset initialization, not per frame.
+ * out_submitted (optional) is 0..4. On a hardware submission failure, prior
+ * successful tiles may already have been sent; out_submitted counts only
+ * successful commands. The caller should reserve at most four commands. */
+typedef struct sat_indexed_tiled_quad3 {
+    const sat_vdp1_texture_t* full;
+    const sat_vdp1_texture_t* tiles[4]; /* TL, TR, BL, BR */
+} sat_indexed_tiled_quad3_t;
+
+sat_result_t sat_draw_indexed_tiled_quad3(
+    const sat_quad3_t* quad,
+    const sat_indexed_solid_render3d_t* params,
+    const sat_indexed_tiled_quad3_t* regions,
+    uint8_t* out_submitted
+);
+
 typedef struct sat_projected_vertex {
     int16_t x;
     int16_t y;

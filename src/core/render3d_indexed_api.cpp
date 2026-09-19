@@ -121,6 +121,78 @@ extern "C" sat_result_t sat_draw_indexed_textured_quad3(
     return st;
 }
 
+namespace {
+inline sat_vec3_t tile_midpoint(const sat_vec3_t& a,const sat_vec3_t& b) {
+    return sat_vec3_t{
+        static_cast<sat_fx16_t>((static_cast<int64_t>(a.x)+b.x)/2),
+        static_cast<sat_fx16_t>((static_cast<int64_t>(a.y)+b.y)/2),
+        static_cast<sat_fx16_t>((static_cast<int64_t>(a.z)+b.z)/2)
+    };
+}
+inline sat_vec3_t tile_center(const sat_quad3_t& q) {
+    return tile_midpoint(
+        tile_midpoint(q.v[0],q.v[2]),
+        tile_midpoint(q.v[1],q.v[3]));
+}
+inline bool valid_tiled_regions(const sat_indexed_tiled_quad3_t* regions) {
+    if(regions==nullptr || regions->full==nullptr ||
+       regions->full->valid==0u ||
+       regions->full->width<16u || (regions->full->width&15u)!=0u ||
+       regions->full->height<2u || (regions->full->height&1u)!=0u)
+        return false;
+    const sat_vdp1_texture_t& whole=*regions->full;
+    for(uint8_t i=0u;i<4u;++i) {
+        const sat_vdp1_texture_t* tile=regions->tiles[i];
+        if(tile==nullptr || tile->valid==0u ||
+           tile->width!=whole.width/2u ||
+           tile->height!=whole.height/2u ||
+           tile->palette!=whole.palette)
+            return false;
+    }
+    return true;
+}
+}
+
+extern "C" sat_result_t sat_draw_indexed_tiled_quad3(
+    const sat_quad3_t* quad,const sat_indexed_solid_render3d_t* params,
+    const sat_indexed_tiled_quad3_t* regions,uint8_t* out_submitted
+) {
+    if(out_submitted!=nullptr) *out_submitted=0u;
+    if(quad==nullptr || !valid_render(params) || !valid_tiled_regions(regions))
+        return SAT_ERR_INVALID_ARG;
+    uint8_t drawn=0u;
+    sat_result_t st=sat_draw_indexed_textured_quad3(
+        quad,params,regions->full,&drawn);
+    if(st!=SAT_OK) return st;
+    if(drawn!=0u) {
+        if(out_submitted!=nullptr) *out_submitted=1u;
+        return SAT_OK;
+    }
+
+    /* UV regions correspond to these exact midpoint-bounded quads. Caller
+     * must supply a planar affine surface for the intended texel mapping. */
+    const sat_vec3_t ab=tile_midpoint(quad->v[0],quad->v[1]);
+    const sat_vec3_t bc=tile_midpoint(quad->v[1],quad->v[2]);
+    const sat_vec3_t cd=tile_midpoint(quad->v[2],quad->v[3]);
+    const sat_vec3_t da=tile_midpoint(quad->v[3],quad->v[0]);
+    const sat_vec3_t center=tile_center(*quad);
+    const sat_quad3_t sub[4]={
+        {{quad->v[0],ab,center,da}}, /* TL */
+        {{ab,quad->v[1],bc,center}}, /* TR */
+        {{da,center,cd,quad->v[3]}}, /* BL */
+        {{center,bc,quad->v[2],cd}}  /* BR */
+    };
+    for(uint8_t i=0u;i<4u;++i) {
+        drawn=0u;
+        st=sat_draw_indexed_textured_quad3(
+            &sub[i],params,regions->tiles[i],&drawn);
+        if(st!=SAT_OK) return st;
+        if(out_submitted!=nullptr)
+            *out_submitted=static_cast<uint8_t>(*out_submitted+drawn);
+    }
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_draw_indexed_solid_mesh3(
     const sat_mesh_t* mesh,const sat_indexed_solid_mesh3d_draw_t* p
 ) {

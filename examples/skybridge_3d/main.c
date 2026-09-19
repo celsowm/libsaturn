@@ -53,6 +53,10 @@ _Static_assert(PIG_PALETTE_INDEX_BASE + SKYBRIDGE_PIG_SHADE_COUNT <= 256u,
 static sb_game_t g_game;
 static sat_ascii_font_t g_font;
 static sat_vdp1_texture_t g_tile_textures[3];
+/* 2x2 8x8 slices of each 16x16 patterned top inset, uploaded at startup.
+ * Extra VRAM: 3 themes * 4 tiles * 64 bytes = 768 bytes (INDEX8). */
+static sat_vdp1_texture_t g_tile_quadrants[3][4];
+static uint8_t g_tile_quadrant_pixels[8u*8u];
 static sat_vdp1_texture_t g_cloud_texture;
 static uint8_t g_cloud_pixels[SB_CLOUD_W * SB_CLOUD_H];
 static sat_vdp1_texture_t g_fade_textures[FADE_COLOR_COUNT];
@@ -283,10 +287,14 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
                 draw.height=H;
                 draw.color_calc_slot=g_active_fade_slot;
                 {
-                    const sat_vdp1_texture_t* texture=&g_tile_textures[
-                        trim==1u?0u:(trim==3u?1u:2u)];
-                    const sat_result_t st=sat_draw_indexed_textured_quad3(
-                        &q,&draw,texture,0);
+                    const uint8_t theme=trim==1u?0u:(trim==3u?1u:2u);
+                    const sat_indexed_tiled_quad3_t regions={
+                        &g_tile_textures[theme],
+                        {&g_tile_quadrants[theme][0],&g_tile_quadrants[theme][1],
+                         &g_tile_quadrants[theme][2],&g_tile_quadrants[theme][3]}
+                    };
+                    const sat_result_t st=sat_draw_indexed_tiled_quad3(
+                        &q,&draw,&regions,0);
                     if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
                 }
             }
@@ -698,6 +706,18 @@ static void init_tile_texture(void) {
                                      colors[theme][x][2]);
         sat_example_must(sat_tex_upload_indexed8(
             &g_tile_textures[theme],g_tile_pixels,16u,16u,palette,banks[theme]));
+        /* Crop actual pixel regions, not a fake SRC address offset: VDP1
+         * always uses its declared texture width as the source row stride.
+         * Each small texture owns a contiguous, correctly laid out 8x8 copy. */
+        for(uint8_t row=0u;row<2u;++row) for(uint8_t col=0u;col<2u;++col) {
+            const uint8_t tile=(uint8_t)(row*2u+col);
+            for(uint8_t py=0u;py<8u;++py) for(uint8_t px=0u;px<8u;++px)
+                g_tile_quadrant_pixels[py*8u+px]=
+                    g_tile_pixels[(row*8u+py)*16u+col*8u+px];
+            sat_example_must(sat_tex_upload_indexed8_pixels(
+                &g_tile_quadrants[theme][tile],g_tile_quadrant_pixels,
+                8u,8u,banks[theme]));
+        }
     }
 }
 static void init_cloud_texture(void) {
