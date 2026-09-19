@@ -437,7 +437,7 @@ list-examples:
 	@for e in $(EXAMPLES); do echo "  $$e"; done
 
 examples-all:
-	@for e in $(EXAMPLES); do \
+	@for e in $(filter-out $(EXAMPLES_ALL_SKIP),$(EXAMPLES)); do \
 		echo "[build] $$e"; \
 		$(MAKE) --no-print-directory EXAMPLE=$$e all || exit $$?; \
 	done

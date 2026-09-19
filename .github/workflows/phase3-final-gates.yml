@@ -72,7 +72,17 @@ jobs:
           # Only the SBL IP template is intentionally versioned. Local builds
           # may select the ignored YAUL template when present, but CI must use
           # a boot template available in every clean clone.
-          make IP_TEMPLATE_KIND=sbl examples-all > examples-all.log 2>&1
+          # The animated demo's third-party GLB fixture is NOT versioned.
+          # Do not pretend it passed or stop verification of the other demos:
+          # exclude only this one when the fixture is absent, and say so.
+          if [ ! -f examples/basic_3d_animation/assets/male_basic_walk_30_frames_loop.glb ]; then
+            echo "::notice title=Fixture unavailable::basic_3d_animation is not cross-built: source GLB is absent from this clean clone"
+            echo '### Explicit unbuilt fixture' >> "$GITHUB_STEP_SUMMARY"
+            echo 'basic_3d_animation: absent male_basic_walk_30_frames_loop.glb (not tested)' >> "$GITHUB_STEP_SUMMARY"
+            make IP_TEMPLATE_KIND=sbl EXAMPLES_ALL_SKIP=basic_3d_animation examples-all > examples-all.log 2>&1
+          else
+            make IP_TEMPLATE_KIND=sbl examples-all > examples-all.log 2>&1
+          fi
           status=$?
           set -e
           first_error="$(grep -m1 -E 'fatal error:|error:|undefined reference|collect2: error|make(\\[[0-9]+\\])?: \\*\\*\\*' examples-all.log || true)"
