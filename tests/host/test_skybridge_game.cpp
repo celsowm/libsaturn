@@ -607,6 +607,41 @@ int main() {
             assert(ramp.support==-1);
             assert(ramp.y<SB_F(p->y));
         }
+        /* Walk across a ramp instead of teleporting between the two
+         * weighing stations: climbing/downhill carry must keep the feet
+         * on the exact projected plane throughout an ordinary D-pad run. */
+        sb_start_course(&ramp,3u);
+        place(ramp,1u);
+        ramp.z=SB_F(25);
+        ramp.y=sb_platform_surface_y(&ramp,1u,ramp.x,ramp.z);
+        int32_t previous_walk_z=ramp.z;
+        for(int frame=0;frame<22;++frame) {
+            tick(ramp,SB_UP);
+            assert(ramp.z>previous_walk_z);
+            previous_walk_z=ramp.z;
+            assert(ramp.support==1);
+            assert(ramp.y==sb_platform_surface_y(&ramp,1u,ramp.x,ramp.z));
+            assert(sb_abs(ramp.seesaw_tilt[1u])<=SB_SEESAW_LIMIT);
+        }
+        assert(ramp.z>SB_F(40));
+        const int32_t tilted=ramp.seesaw_tilt[1u];
+        assert(tilted!=0);
+        /* Jumping off the plank makes it return toward level even before
+         * the pig lands on any other platform. */
+        tick(ramp,SB_JUMP,SB_JUMP);
+        assert(ramp.support==-1);
+        int32_t remaining=sb_abs(ramp.seesaw_tilt[1u]);
+        for(int frame=0;frame<8;++frame) {
+            tick(ramp,SB_JUMP);
+            assert(sb_abs(ramp.seesaw_tilt[1u])<=remaining);
+            remaining=sb_abs(ramp.seesaw_tilt[1u]);
+        }
+        /* No surface displacement or torque may leak into earlier
+         * courses when the course selector resets the state. */
+        sb_start_course(&ramp,0u);
+        for(uint8_t id=0u;id<SB_PLATFORM_COUNT;++id)
+            assert(ramp.seesaw_tilt[id]==0);
+
         /* Checkpoint piers are fixed and save progress even as nearby
          * seesaws continue to settle back to level. */
         sb_start_course(&ramp,3u);
