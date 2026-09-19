@@ -19,9 +19,13 @@ Important constraints from the Sega Backup Library manual:
 - applications should use the Backup Library instead of manipulating Backup RAM
   as a private raw filesystem;
 - the built-in backup memory is 32 KiB;
-- the official Sega BUP unit IDs are **1 = built-in backup memory** and
-  **2 = Backup Memory cartridge**; LibSaturn's public enum is deliberately
-  logical and maps to those BIOS IDs inside the HAL;
+- **do not confuse** the `BupConfig.unit_id` values (1 = internal, 2 =
+  external cartridge) with the BUP function `device` arguments. Sega's
+  user guide describes function arguments 0 = internal, 1 = cartridge /
+  parallel interface, 2 = serial interface. The current implementation
+  incorrectly maps the internal logical enum to BUP device argument 1;
+  reconcile and verify this before enabling external saves. See
+  `docs/BACKUP_MEMORY_CARTRIDGE_PLAN.md`;
 - devices may expose partitions, so storage capacity must not be hard-coded;
 - callers should select the partition and query status/free space before writes;
 - `BUP_Init` expands the Boot ROM backup library into a caller-provided 16 KiB
@@ -369,10 +373,12 @@ Only after internal memory works:
 
 ### Phase 6 — Backup Memory cartridge
 
-- expose the Backup Memory cartridge only after BIOS unit-2 detection is proven;
-- support partitions through `BUP_SelPart`;
-- test cartridge free-space and directory behavior;
-- do not mix this work with the volatile RAM expansion cartridge subsystem.
+See `docs/BACKUP_MEMORY_CARTRIDGE_PLAN.md` for the detailed phased plan.
+Resolve BUP function device indices separately from `BupConfig.unit_id`,
+complete internal persistence acceptance, then add read-only cartridge
+discovery, partition selection, common API support, host tests, two-process
+emulator acceptance, and hardware validation. Do not mix this work with the
+volatile RAM expansion-cartridge subsystem.
 
 ### Phase 7 — Convenience layer
 
@@ -388,10 +394,13 @@ Only after internal memory works:
   automatically; formatting requires explicit A-button confirmation.
 - **Phase 5:** the Ymir harness now supports a file-backed internal Backup RAM
   image plus a two-process persistence runner. Harness compilation against the
-  pinned Ymir revision is green. The actual two-process runtime acceptance
-  still requires a Saturn BIOS supplied by the developer.
-- **Phase 6:** intentionally pending until the internal path is proven by the
-  persistence runner.
+  pinned Ymir revision is green. Real two-process runtime acceptance remains
+  unverified and requires a Saturn BIOS supplied by the developer. The
+  save-specific SH-2 build also currently fails at a freestanding
+  `string.h` include; see the cartridge plan's Phase 0 prerequisite.
+- **Phase 6:** planned in `docs/BACKUP_MEMORY_CARTRIDGE_PLAN.md`;
+  intentionally blocked until the internal selector and runtime path are
+  verified.
 - **Phase 7:** pending.
 
 ## Recommended first runtime acceptance
@@ -400,7 +409,7 @@ The next milestone is a real BIOS-backed run that can:
 
 ```text
 BUP_Init
- -> BUP_Stat(BUP_MAIN_UNIT / BIOS unit 1)
+ -> BUP_Stat(verified internal BUP device argument; Sega guide uses 0)
  -> BUP_Write
  -> BUP_Verify
  -> BUP_Read
