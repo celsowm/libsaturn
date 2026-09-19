@@ -202,39 +202,33 @@ static void update_player_animation(uint32_t dt_ticks) {
 }
 
 /* Decodes the pose, then yaws, banks and places it in front of the camera. */
+/* Compose the Egg Mobile's yaw THEN bank in local space, followed by
+ * camera-relative hover/translation. No game-owned per-vertex transform loop:
+ * the animation runtime decodes an immutable clip and applies this matrix. */
 static void draw_player(void) {
-    const sat_fx16_t yaw = FX(EGG_BASE_YAW_DEG) + sat_fx16_mul(g_egg_turn, FX(EGG_TURN_YAW_DEG));
-    const sat_fx16_t bank = -sat_fx16_mul(g_egg_turn, FX(EGG_BANK_DEG));
-    const int32_t sy = sat_sin_deg(yaw), cy = sat_cos_deg(yaw);
-    const int32_t sb = sat_sin_deg(bank), cb = sat_cos_deg(bank);
-    /* A gentle bob, plus a little lift at speed. */
-    const sat_fx16_t hover = FX(EGG_HOVER) + (sat_fx16_t)(g_speed / 3) +
-        sat_fx16_mul(sat_sin_deg((sat_fx16_t)((g_frames * 6u) % 360u) << 16), FX(1) / 2);
+    const sat_fx16_t yaw=FX(EGG_BASE_YAW_DEG)+
+        sat_fx16_mul(g_egg_turn,FX(EGG_TURN_YAW_DEG));
+    const sat_fx16_t bank=-sat_fx16_mul(g_egg_turn,FX(EGG_BANK_DEG));
+    const sat_fx16_t hover=FX(EGG_HOVER)+(sat_fx16_t)(g_speed/3)+
+        sat_fx16_mul(
+            sat_sin_deg((sat_fx16_t)((g_frames*6u)%360u)<<16),FX(1)/2);
+    sat_mat4_t yaw_matrix,bank_matrix,rotation,translation,world;
     sat_mesh_draw_t draw;
-    uint16_t i;
-
-    if (sat_anim_decode(&eggman_anim_asset, &g_egg_anim, g_egg_mesh.vertices,
-                        g_egg_mesh.vertex_cap) != SAT_OK) {
-        return;
-    }
-    for (i = 0; i < EGGMAN_VERTEX_COUNT; ++i) {
-        sat_vec3_t* v = &g_egg_mesh.vertices[i];
-        const int32_t x1 = sat_fx16_mul(v->x, cy) + sat_fx16_mul(v->z, sy);
-        const int32_t z1 = sat_fx16_mul(v->z, cy) - sat_fx16_mul(v->x, sy);
-        const int32_t x2 = sat_fx16_mul(x1, cb) - sat_fx16_mul(v->y, sb);
-        const int32_t y2 = sat_fx16_mul(x1, sb) + sat_fx16_mul(v->y, cb);
-        v->x = x2;
-        v->y = y2 + hover;
-        v->z = z1 + FX(EGG_DEPTH);
-    }
-    if (sat_model_bind_draw_ex(&eggman_asset, &g_egg_mesh, g_egg_textures, eggman_asset.texture_count,
-                               &g_view_proj, &g_camera_eye, SAT_RGB555(31, 31, 31), 0, 0,
-                               SAT_MESH_CULL_BACKFACE | SAT_MESH_SORT,
-                               g_egg_order, g_egg_order16, g_egg_depth, &draw) != SAT_OK) {
-        return;
-    }
-    draw.screen = g_egg_screen;
-    (void)sat_draw_mesh(&g_egg_mesh, &draw);
+    sat_example_must(sat_mat4_rotate_y(&yaw_matrix,yaw));
+    sat_example_must(sat_mat4_rotate_z(&bank_matrix,bank));
+    sat_example_must(sat_mat4_multiply(&rotation,&bank_matrix,&yaw_matrix));
+    sat_example_must(sat_mat4_translate(
+        &translation,0,hover,FX(EGG_DEPTH)));
+    sat_example_must(sat_mat4_multiply(&world,&translation,&rotation));
+    sat_example_must(sat_anim_prepare_model_instance(
+        &eggman_anim_asset,&g_egg_anim,&world,&g_egg_mesh,0,0u,0u));
+    if(sat_model_bind_draw_ex(
+        &eggman_asset,&g_egg_mesh,g_egg_textures,eggman_asset.texture_count,
+        &g_view_proj,&g_camera_eye,SAT_RGB555(31,31,31),0,0,
+        SAT_MESH_CULL_BACKFACE|SAT_MESH_SORT,
+        g_egg_order,g_egg_order16,g_egg_depth,&draw)!=SAT_OK) return;
+    draw.screen=g_egg_screen;
+    (void)sat_draw_mesh(&g_egg_mesh,&draw);
 }
 
 static void write_coefficients(void) {
