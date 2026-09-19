@@ -229,9 +229,17 @@ no regression to internal saves, and no unapproved destructive operations.
   header, capacity, directory and in-emulator before/after hashes in the
   `backup_cartridge` JSON field. This is **not** proof that LibSaturn can
   read or write a cartridge; the guest-side cartridge code is still disabled.
-- Phase 1 BIOS device/partition discovery and all cartridge mutations: pending
-  the Phase 0 acceptance gate; do not turn on `SAT_SAVE_BACKUP_CARTRIDGE`
-  merely because Ymir can mount an image.
+- Phase 1 **configuration snapshot groundwork implemented**:
+  `sat_save_device_info(device, &info)` reports connected state and partition
+  count from `BUP_Init` without attempting any cartridge BUP_Stat/read/write,
+  and `examples/save_cartridge_probe` displays these values without any
+  cartridge storage operation. Host tests simulate a cartridge in both
+  non-internal Config indices and a disconnected device. The mapping and
+  partition semantics still require an actual BIOS-backed cartridge run.
+- The save CI independently cross-builds both the internal-save demo and the
+  read-only cartridge probe. Do not infer that either runtime persistence
+  acceptance or cartridge read/write access passed merely because the
+  cross-build passed; all cartridge mutations remain disabled.
 
 ## Delivery order and boundaries
 
