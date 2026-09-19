@@ -88,3 +88,18 @@ References already vendored in this repo:
 `docs/sega_saturn_hardware/hard/vdp1/hon/p06_30.md`,
 `p06_33.md`, `p06_37.md`, and
 `docs/sega_saturn_hardware/hard/vdp2/hon/p12_10.md`.
+
+## World-space polygon effects
+
+`sat_draw_world_polygon_effects(view_proj, quad, RGB, flags)` and
+`sat_draw_world_polygon_gouraud_effects(..., flags)` propagate VDP1 mesh,
+half-transparency and half-luminance flags through existing 3D projection.
+The preprojected variants are `sat_draw_quad2_polygon_effects` and
+`sat_draw_quad2_polygon_gouraud_effects`. No fake arbitrary alpha is offered:
+the half-transparency mode is 50% against an **earlier RGB VDP1 pixel** only.
+
+For multiple translucent quads, submit the opaque surfaces first, then
+translucent surfaces from back to front. Sort across separate meshes yourself:
+`SAT_MESH_SORT` orders the faces of one mesh, not all objects globally.
+Indexed8 textured meshes can use `SAT_SPRITE_FLAG_MESH`; their VDP1
+half-transparency is unsupported because the palette sprite mode is not RGB.

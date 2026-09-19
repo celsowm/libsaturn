@@ -108,6 +108,19 @@ sat_result_t sat_draw_world_polygon(
     uint16_t color
 );
 
+/* Select explicit native VDP1 RGB polygon effects without duplicating
+ * projection. Flags: SAT_SPRITE_FLAG_MESH, HALF_TRANSPARENT and
+ * HALF_LUMINANCE (declared in vdp1.h). Both half modes require RGB-coded
+ * color (bit 15 set). Callers submit translucent quads back-to-front:
+ * VDP1 has no depth buffer and only blends against its own RGB framebuffer,
+ * not against NBG0/RBG0. */
+sat_result_t sat_draw_world_polygon_effects(
+    const sat_mat4_t* view_proj,
+    const sat_quad3_t* quad,
+    uint16_t color,
+    uint16_t flags
+);
+
 /* Submits an ALREADY projected quad -- the output of sat_project_quad -- as a
  * flat-shaded polygon.
  *
@@ -123,6 +136,8 @@ sat_result_t sat_draw_world_polygon(
  * bake one list per position and select between them. pacman_3d does exactly
  * that for its sixteen view angles, at a cost of about 10KB per angle. */
 sat_result_t sat_draw_quad2_polygon(const sat_quad2_t* quad, uint16_t color);
+sat_result_t sat_draw_quad2_polygon_effects(
+    const sat_quad2_t* quad, uint16_t color, uint16_t flags);
 
 /* Textured counterpart of sat_draw_quad2_polygon: submits an already
  * projected quad as a distorted sprite. */
@@ -141,12 +156,18 @@ sat_result_t sat_draw_quad2_polygon_gouraud(
     uint16_t color,
     const uint16_t gouraud[4]
 );
+sat_result_t sat_draw_quad2_polygon_gouraud_effects(
+    const sat_quad2_t* quad, uint16_t color,
+    const uint16_t gouraud[4], uint16_t flags);
 sat_result_t sat_draw_world_polygon_gouraud(
     const sat_mat4_t* view_proj,
     const sat_quad3_t* quad,
     uint16_t color,
     const uint16_t gouraud[4]
 );
+sat_result_t sat_draw_world_polygon_gouraud_effects(
+    const sat_mat4_t* view_proj, const sat_quad3_t* quad,
+    uint16_t color, const uint16_t gouraud[4], uint16_t flags);
 
 /* White-Gouraud table entry for a light intensity (16.16): SAT_FX16_ONE
  * keeps the part color, 0 subtracts 16 levels, about 1.94 adds 15. Pick the

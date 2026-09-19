@@ -35,24 +35,31 @@ extern "C" sat_result_t sat_project_quad(const sat_mat4_t* view_proj, const sat_
 }
 
 extern "C" sat_result_t sat_draw_world_polygon(const sat_mat4_t* view_proj, const sat_quad3_t* quad, uint16_t color) {
+    return sat_draw_world_polygon_effects(view_proj, quad, color, 0u);
+}
+
+extern "C" sat_result_t sat_draw_world_polygon_effects(
+    const sat_mat4_t* view_proj, const sat_quad3_t* quad,
+    uint16_t color, uint16_t flags) {
     sat_quad2_t projected = {};
     const sat_result_t st = project(view_proj, quad, &projected);
     if (st != SAT_OK) return st;
-    sat_polygon_cmd_t cmd = {};
-    for (int i = 0; i < 4; ++i) { cmd.x[i] = projected.x[i]; cmd.y[i] = projected.y[i]; }
-    cmd.color = color;
-    cmd.flags = 0;
-    return sat_vdp1_draw_polygon(&cmd);
+    return sat_draw_quad2_polygon_effects(&projected, color, flags);
 }
 
 extern "C" sat_result_t sat_draw_quad2_polygon(const sat_quad2_t* quad, uint16_t color) {
+    return sat_draw_quad2_polygon_effects(quad, color, 0u);
+}
+
+extern "C" sat_result_t sat_draw_quad2_polygon_effects(
+    const sat_quad2_t* quad, uint16_t color, uint16_t flags) {
     const sat_result_t st = saturn::core::require_initialized();
     if (st != SAT_OK) return st;
     if (quad == nullptr) return SAT_ERR_INVALID_ARG;
     saturn::hal::vdp1::PolygonRequest req = {};
     req.xa = quad->x[0]; req.ya = quad->y[0]; req.xb = quad->x[1]; req.yb = quad->y[1];
     req.xc = quad->x[2]; req.yc = quad->y[2]; req.xd = quad->x[3]; req.yd = quad->y[3];
-    req.color = color; req.flags = 0;
+    req.color = color; req.flags = flags;
     return saturn::hal::vdp1::push_polygon(req);
 }
 
@@ -64,23 +71,38 @@ extern "C" sat_result_t sat_draw_quad2_sprite(const sat_quad2_t* quad, const sat
     return sat_draw_sprite_distorted(&cmd);
 }
 
-extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(const sat_quad2_t* quad, uint16_t color, const uint16_t gouraud[4]) {
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
+    const sat_quad2_t* quad, uint16_t color, const uint16_t gouraud[4]) {
+    return sat_draw_quad2_polygon_gouraud_effects(quad, color, gouraud, 0u);
+}
+
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud_effects(
+    const sat_quad2_t* quad, uint16_t color,
+    const uint16_t gouraud[4], uint16_t flags) {
     const sat_result_t st = saturn::core::require_initialized();
     if (st != SAT_OK) return st;
     if (quad == nullptr || gouraud == nullptr) return SAT_ERR_INVALID_ARG;
     saturn::hal::vdp1::PolygonRequest req = {};
     req.xa = quad->x[0]; req.ya = quad->y[0]; req.xb = quad->x[1]; req.yb = quad->y[1];
     req.xc = quad->x[2]; req.yc = quad->y[2]; req.xd = quad->x[3]; req.yd = quad->y[3];
-    req.color = color; req.flags = 0;
+    req.color = color; req.flags = flags;
     return saturn::hal::vdp1::push_polygon_gouraud(req, gouraud);
 }
 
-extern "C" sat_result_t sat_draw_world_polygon_gouraud(const sat_mat4_t* view_proj, const sat_quad3_t* quad, uint16_t color, const uint16_t gouraud[4]) {
+extern "C" sat_result_t sat_draw_world_polygon_gouraud(
+    const sat_mat4_t* view_proj, const sat_quad3_t* quad,
+    uint16_t color, const uint16_t gouraud[4]) {
+    return sat_draw_world_polygon_gouraud_effects(view_proj, quad, color, gouraud, 0u);
+}
+
+extern "C" sat_result_t sat_draw_world_polygon_gouraud_effects(
+    const sat_mat4_t* view_proj, const sat_quad3_t* quad, uint16_t color,
+    const uint16_t gouraud[4], uint16_t flags) {
     if (gouraud == nullptr) return SAT_ERR_INVALID_ARG;
     sat_quad2_t projected = {};
     const sat_result_t st = project(view_proj, quad, &projected);
     if (st != SAT_OK) return st;
-    return sat_draw_quad2_polygon_gouraud(&projected, color, gouraud);
+    return sat_draw_quad2_polygon_gouraud_effects(&projected, color, gouraud, flags);
 }
 
 extern "C" uint16_t sat_gouraud_from_intensity(sat_fx16_t intensity) { return gouraud_from_intensity(intensity); }
