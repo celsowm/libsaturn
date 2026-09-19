@@ -115,6 +115,7 @@ int main() {
         assert(pig.facing_x==0 && pig.facing_z==-1);
         sb_init(&pig);
         tick(pig,SB_RIGHT);
+        tick(pig,SB_RIGHT); /* second accel tick exceeds the facing threshold */
         assert(pig.facing_x==-1 && pig.facing_z==0);
         const int32_t facing_x=pig.facing_x,facing_z=pig.facing_z;
         pig.paused=1;
