@@ -408,6 +408,62 @@ static void mesh_invalid_face_or_material_is_atomic() {
     EQ(sat_draw_indexed_solid_mesh3(&mesh,&p),SAT_ERR_INVALID_ARG);
     EQ(g_near_calls,0);
 }
+static sat_indexed_box3_t box3() {
+    sat_indexed_box3_t b={};
+    b.top_center=(sat_vec3_t){FX(4),FX(4),FX(18)};
+    b.half_extents=(sat_vec3_t){FX(2),FX(2),FX(3)};
+    b.top_material=&g_texture[0];
+    b.x_material=&g_texture[1];
+    b.z_material=&g_texture[0];
+    return b;
+}
+static void indexed_box_owns_visibility_winding_and_material_selection() {
+    reset();
+    const sat_indexed_box3_t b=box3();
+    sat_indexed_solid_render3d_t p=render();
+    p.eye=(sat_vec3_t){FX(20),FX(30),FX(40)};
+    EQ(sat_draw_indexed_box3(&b,&p),SAT_OK);
+    EQ(g_near_calls,3);
+    EQ(g_opaque,3);
+    EQ(g_srca[0],20u); /* camera-facing +X wall */
+    EQ(g_srca[1],10u); /* camera-facing +Z wall */
+    EQ(g_srca[2],10u); /* top */
+    EQ(g_x[0],6u);
+    EQ(g_x[1],6u);
+    EQ(g_x[2],2u);
+
+    reset();
+    p.eye=(sat_vec3_t){FX(-20),FX(1),FX(0)};
+    EQ(sat_draw_indexed_box3(&b,&p),SAT_OK);
+    EQ(g_near_calls,2); /* no false lid below the platform top */
+    EQ(g_opaque,2);
+    EQ(g_x[0],2u); /* camera-facing -X wall */
+    EQ(g_x[1],2u); /* camera-facing -Z wall */
+}
+static void indexed_box_rejects_bad_geometry_before_emitting() {
+    reset();
+    sat_indexed_box3_t b=box3();
+    sat_indexed_solid_render3d_t p=render();
+    b.half_extents.x=0;
+    EQ(sat_draw_indexed_box3(&b,&p),SAT_ERR_INVALID_ARG);
+    b=box3(); b.top_center.z=INT32_MAX;
+    EQ(sat_draw_indexed_box3(&b,&p),SAT_ERR_INVALID_ARG);
+    b=box3(); b.top_material=nullptr;
+    EQ(sat_draw_indexed_box3(&b,&p),SAT_ERR_INVALID_ARG);
+    b=box3();
+    EQ(sat_draw_indexed_box3(nullptr,&p),SAT_ERR_INVALID_ARG);
+    EQ(g_near_calls,0);
+    EQ(g_opaque,0);
+}
+static void indexed_box_propagates_capacity_without_attempting_other_faces() {
+    reset();
+    const sat_indexed_box3_t b=box3();
+    sat_indexed_solid_render3d_t p=render();
+    g_submit_status=SAT_ERR_CAPACITY;
+    EQ(sat_draw_indexed_box3(&b,&p),SAT_ERR_CAPACITY);
+    EQ(g_opaque,1);
+    EQ(g_near_calls,1);
+}
 int main() {
     quad_validates_and_draws_opaque();
     faded_quad_and_multiple_screen_triangles();
@@ -423,6 +479,9 @@ int main() {
     tiled_texture_propagates_capacity_without_faking_success();
     mesh_uses_immutable_geometry_and_sorts_depth();
     mesh_invalid_face_or_material_is_atomic();
-    puts("test_render3d_indexed: 14 tests passed");
+    indexed_box_owns_visibility_winding_and_material_selection();
+    indexed_box_rejects_bad_geometry_before_emitting();
+    indexed_box_propagates_capacity_without_attempting_other_faces();
+    puts("test_render3d_indexed: 17 tests passed");
     return 0;
 }
