@@ -48,6 +48,15 @@ Course 1 remains the original horizontal-moving/collapsing platform demo. Course
 
 START after Course 1 completion begins Course 2 and clears that course's gems, time and checkpoints. START after Course 2 completion restarts Course 1. While paused, X deliberately switches between courses and immediately resumes gameplay so the elevator demonstration can be tested without finishing Course 1. The title HUD shows C1/C2 and the X/Y/Z row remains live. Checkpoints remain on the fourth and seventh decks; the goal remains accessible without collecting any gems. The original course's special moving/collapse objects are activated by each platform's kind, not a globally hard-coded platform index. The new host regression runs all four elevators through a complete 180-tick period, checks grounded carry and jump detachment, moving-height gem collision, both course resets, a narrow-deck footprint and completion with zero gems.
 
+To compare elevator motion without traversing Course 1, the new `harness/scripts/skybridge_course2_lifts.pad` controller script pauses then selects C2. With your own Saturn BIOS and a built ISO, capture multiple frames with the camera stationary:
+
+```powershell
+.\harness\run-harness.ps1 skybridge_3d -Bios .\bios\saturn_bios_us.bin -Frames 300 -BootFrames 90 -PadScript .\harness\scripts\skybridge_course2_lifts.pad -Screenshot '140:lifts_a.png','230:lifts_b.png','290:lifts_c.png'
+```
+
+Look for distinct fixed and vertically moving gold decks, a constant HUD C2 indicator, and gems staying centred above their own decks; screenshots alone cannot establish whether the moving-platform carry is collision-correct.
+
+
 ## Optional gems and 3D contact
 
 The eight collectibles are distinct **golden octahedra** (eight triangular facets, floating gently above platform centres), deliberately different in color and silhouette from the magenta player. Their centre and collision radius are shared through `game.h`. Pickup uses the character's actual 3D position and extents: circle-versus-player AABB in the XZ plane, plus overlapping vertical intervals that account for the gem's half-unit bob. The check runs while grounded **and airborne**, so a jump through a gem collects it; standing anywhere on its platform does not automatically award it. A gem on the moving deck follows the deck's current X, and a gem disappears while its collapsing deck is inactive.
