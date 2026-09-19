@@ -406,6 +406,7 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
     uint16_t event = 0u;
     uint8_t i;
     int32_t want_f=0, want_r=0, old_x, old_z, old_y, best_y;
+    int32_t previous_tilt[SB_PLATFORM_COUNT];
     int8_t old_support=g->support, best=-1;
     if (g->finished || g->paused) return 0u;
     ++g->ticks;
@@ -471,6 +472,8 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
     g->vy-=SB_F(1)/9;
     if (g->vy<-SB_F(3)) g->vy=-SB_F(3);
     old_x=g->x; old_z=g->z; old_y=g->y;
+    for(i=0u;i<SB_PLATFORM_COUNT;++i)
+        previous_tilt[i]=g->seesaw_tilt[i];
     g->x+=g->vx; g->z+=g->vz;
     sb_side_collide(g,old_x,old_z);
     /* The board reacts to where the rider stands this tick, not where
@@ -491,8 +494,17 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
         for (i=0u;i<SB_PLATFORM_COUNT;++i) {
             int32_t top=sb_platform_surface_y(g,i,g->x,g->z);
             int32_t previous_top=sb_platform_y_at(g,i,g->ticks-1u);
-            if(sb_course_platforms(g)[i].kind==SB_SEESAW)
-                previous_top=old_y; /* last grounded height before moving */
+            if(sb_course_platforms(g)[i].kind==SB_SEESAW) {
+                /* A FALLING pig must cross the actual previous tilted
+                 * surface from above; using old_y here teleported pigs
+                 * upward from below a ramp. For a carried rider, previous
+                 * top uses last frame's tilt and pre-move world position. */
+                const sb_platform_t* p=&sb_course_platforms(g)[i];
+                int32_t dz=sb_clamp(old_z-SB_F(p->z),
+                                  -SB_F(p->half_z),SB_F(p->half_z));
+                previous_top=SB_F(p->y)+(int32_t)(
+                    (int64_t)previous_tilt[i]*dz/SB_F(p->half_z));
+            }
             if (!sb_platform_active(g,i) || !sb_supported_footprint(g,i)) continue;
             if (old_y>=previous_top-SB_F(1)/8 && g->y<=top && top>best_y) {
                 best=(int8_t)i; best_y=top;
