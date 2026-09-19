@@ -12,6 +12,8 @@ extern "C" {
 #define SAT_SAVE_NAME_MAX 11u
 #define SAT_SAVE_COMMENT_MAX 10u
 
+/* These are LibSaturn logical device IDs, not raw Sega BUP unit IDs.
+ * The HAL maps SAT_SAVE_INTERNAL to BUP_MAIN_UNIT (1). */
 typedef enum sat_save_device {
     SAT_SAVE_INTERNAL = 0,
     /* Reserved for the persistent Backup Memory cartridge. The initial

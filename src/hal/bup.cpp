@@ -11,7 +11,7 @@ namespace {
 
 constexpr uintptr_t kBupVectorPointer = 0x06000354u;
 constexpr uintptr_t kBupInitPointer = 0x06000358u;
-constexpr uint32_t kInternalDevice = 0u;
+constexpr uint32_t kInternalConfigIndex = 0u;
 constexpr uint16_t kInternalUnitId = 1u;
 
 alignas(4) volatile uint32_t g_library[4096] = {};
@@ -94,7 +94,7 @@ Result init(Config out_configs[3]) {
         fn(g_library, g_work, g_configs);
         if (!guard.release()) return Result::TransportError;
 
-        if (g_configs[kInternalDevice].unit_id != kInternalUnitId) {
+        if (g_configs[kInternalConfigIndex].unit_id != kInternalUnitId) {
             return Result::NotConnected;
         }
         g_initialized = true;

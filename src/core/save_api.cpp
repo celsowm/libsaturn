@@ -12,6 +12,9 @@ using saturn::hal::bup::Stat;
 
 bool g_save_initialized = false;
 
+constexpr uint32_t kBiosInternalUnit = 1u;
+constexpr uint32_t kBiosBackupCartridgeUnit = 2u;
+
 sat_result_t map_result(Result result) {
     switch (result) {
         case Result::Ok: return SAT_OK;
@@ -32,9 +35,10 @@ sat_result_t map_device(sat_save_device_t device, uint32_t* out_device) {
     if (out_device == nullptr) return SAT_ERR_INVALID_ARG;
     switch (device) {
         case SAT_SAVE_INTERNAL:
-            *out_device = 0u;
+            *out_device = kBiosInternalUnit;
             return SAT_OK;
         case SAT_SAVE_BACKUP_CARTRIDGE:
+            (void)kBiosBackupCartridgeUnit;
             return SAT_ERR_UNSUPPORTED;
     }
     return SAT_ERR_INVALID_ARG;
@@ -176,8 +180,13 @@ extern "C" sat_result_t sat_save_list(
     if (capacity > kBatchCapacity) return SAT_ERR_CAPACITY;
 
     Dir raw[kBatchCapacity] = {};
+    // The BIOS directory routine expects a real output table. For a
+    // count-only public query, use one scratch entry; BUP_Dir returns -N when
+    // the table is smaller than the total match count, so the absolute result
+    // still yields the complete count without exposing a bogus entry.
+    const uint16_t bios_capacity = capacity == 0u ? 1u : capacity;
     const int32_t count = saturn::hal::bup::directory(
-        bios_device, effective_pattern, capacity, capacity == 0u ? nullptr : raw);
+        bios_device, effective_pattern, bios_capacity, raw);
 
     const uint32_t total = count < 0
         ? static_cast<uint32_t>(-static_cast<int64_t>(count))
