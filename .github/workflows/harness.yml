@@ -1,0 +1,30 @@
+name: Harness build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "harness/**"
+      - ".github/workflows/harness.yml"
+  pull_request:
+    paths:
+      - "harness/**"
+      - ".github/workflows/harness.yml"
+  workflow_dispatch:
+
+jobs:
+  build-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install harness build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build
+
+      - name: Configure pinned Ymir harness
+        run: cmake -S harness -B harness/build-ci -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build probe
+        run: cmake --build harness/build-ci --target probe -j2
