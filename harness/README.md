@@ -136,3 +136,25 @@ This was inverted before 2026-09-13, which silently held START (restarting any
 example that watches for it) on every scripted run. To check the conversion,
 run `examples/input_debug` under a script whose current line is `NONE` and
 confirm every HELD bit reads 0.
+
+## Audio / SCSP regressions
+
+For audio work, read [`docs/SCSP_AUDIO_STREAMING_GUIDE.md`](../docs/SCSP_AUDIO_STREAMING_GUIDE.md)
+before adding assertions. The probe still does not capture final DAC samples, so
+do not treat a successful screenshot as evidence that PCM playback is correct.
+
+The probe now exports LibSaturn's reserved stream slots (28-31) under
+`scsp.stream_slots`. It records slot activity, SA/LSA/LEA, current sample,
+PCM width, loop mode, OCT/FNS, TL, DISDL/DIPAN and hashes of both 4096-sample
+Sound RAM halves for the continuous S16 streaming layout.
+
+Use `--scsp-trace` directly or `-ScspTrace` through `run-harness.ps1` to
+capture the same state every program frame under `scsp.trace`.
+`cd_streaming_jukebox` enables this trace automatically. Its acceptance test
+compares consecutive Sound RAM hashes and fails if a refill rewrites both halves
+or rewrites the half currently containing `curr_sample`.
+
+That test intentionally uses Ymir's hardware state through
+`saturn.SCSP.GetProbe().GetSlots()` plus `SCSP::DumpWRAM()`, rather than
+inferring audio correctness from VDP state.
+

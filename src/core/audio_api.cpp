@@ -240,7 +240,16 @@ extern "C" sat_result_t sat_audio_update(void) {
         g_audio_last_app_frame = now;
         g_audio_clock_valid = 1u;
     } else if (now != g_audio_last_app_frame) {
-        g_audio_service_frame += now - g_audio_last_app_frame;
+        // sat_frame_count() catches up missed display frames when the app
+        // returns to its normal VBlank path. Those same frames may already
+        // have advanced g_audio_service_frame through TVSTAT while a
+        // synchronous CD read was pumping audio. Reconcile the two clocks
+        // instead of adding the elapsed interval a second time: double
+        // counting can make the stream scheduler overwrite an SCSP buffer
+        // half that is still being played.
+        if (static_cast<int32_t>(now - g_audio_service_frame) > 0) {
+            g_audio_service_frame = now;
+        }
         g_audio_last_app_frame = now;
     } else if (vblank != 0u && g_audio_last_vblank == 0u) {
         // CD Block waits pump this function while the application frame is

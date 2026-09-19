@@ -13,3 +13,10 @@
 ## Practical Expectation
 
 - Sempre entregar status claro: comando executado, resultado e próximo passo.
+
+## Hardware / Audio Context
+
+- Antes de alterar SCSP, streaming de música ou testes relacionados, leia `docs/SCSP_AUDIO_STREAMING_GUIDE.md`.
+- Trate os manuais em `docs/sega_saturn_hardware/` como fonte primária para semântica de registradores.
+- Para regressões de áudio, prefira invariantes observáveis (registradores SCSP, posição da amostra, Sound RAM e contadores de underrun/refill) a ajustes empíricos de volume/pitch.
+

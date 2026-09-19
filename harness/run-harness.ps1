@@ -29,6 +29,7 @@ param(
     [string]$PadScript,
     [string[]]$Screenshot,
     [string]$ProfilePc,
+    [switch]$ScspTrace,
     [int]$FbSample = 256,
     [string]$Out
 )
@@ -124,6 +125,11 @@ if ($Screenshot) {
 }
 if ($ProfilePc) {
     $probeArgs += @('--profile-pc', $ProfilePc)
+}
+# The jukebox acceptance test asserts SCSP double-buffer behavior, so trace it
+# automatically. Other examples can opt in with -ScspTrace.
+if ($ScspTrace -or $normalizedExample -eq 'cd_streaming_jukebox') {
+    $probeArgs += '--scsp-trace'
 }
 & $probeExe @probeArgs
 if ($LASTEXITCODE -ne 0) { throw "probe.exe failed (exit $LASTEXITCODE)" }
