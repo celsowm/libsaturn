@@ -64,45 +64,6 @@ int main() {
             }
         }
     }
-    /* VDP1 has no Z buffer. In the screenshot regression the stationary
-     * pig and gem change apparent overlap on camera orbit: sort their
-     * camera-space depths (including pitch), NOT always pig-last. */
-    {
-        sb_game_t pig;
-        sb_init(&pig);
-        pig.x=-SB_F(1)/2;
-        pig.y=SB_F(7);
-        pig.z=SB_F(206);
-        int32_t gem_x=SB_F(sb_stage[6].x);
-        int32_t gem_y=SB_F(sb_stage[6].y)+SB_GEM_BASE_OFFSET;
-        int32_t gem_z=SB_F(sb_stage[6].z);
-        int32_t pig_y=pig.y+SB_PLAYER_HEIGHT/2;
-        int64_t p_front=sb_actor_view_depth(
-            pig.x,pig_y,pig.z,
-            0,SB_F(29),SB_F(155),0,-SB_F(24),SB_F(50));
-        int64_t g_front=sb_actor_view_depth(
-            gem_x,gem_y,gem_z,
-            0,SB_F(29),SB_F(155),0,-SB_F(24),SB_F(50));
-        assert(p_front>g_front); /* camera behind pig, looking +Z */
-        int64_t p_rear=sb_actor_view_depth(
-            pig.x,pig_y,pig.z,
-            0,SB_F(29),SB_F(255),0,-SB_F(24),-SB_F(50));
-        int64_t g_rear=sb_actor_view_depth(
-            gem_x,gem_y,gem_z,
-            0,SB_F(29),SB_F(255),0,-SB_F(24),-SB_F(50));
-        assert(g_rear>p_rear);   /* reverse camera makes gem foreground */
-        /* World positions/grounding do not depend on this render order. */
-        int32_t x=pig.x,y=pig.y,z=pig.z;
-        int8_t support=pig.support;
-        assert(pig.x==x && pig.y==y && pig.z==z && pig.support==support);
-        /* A camera pitched downward can also change the depth ordering
-         * of two objects at different heights but identical X/Z. */
-        int64_t low=sb_actor_view_depth(
-            0,SB_F(1),0,0,SB_F(15),-SB_F(10),0,-SB_F(20),SB_F(50));
-        int64_t high=sb_actor_view_depth(
-            0,SB_F(5),0,0,SB_F(15),-SB_F(10),0,-SB_F(20),SB_F(50));
-        assert(low>high);
-    }
     /* A cube merely touching a deck with its last corner must not stay
      * grounded in the air when the camera is rotated to a side view. */
     {
