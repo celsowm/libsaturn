@@ -311,9 +311,9 @@ static void init_tile_texture(void) {
     uint16_t palette[256];
     uint16_t x,y;
     for (x=0u;x<256u;++x) palette[x]=SAT_BGR555(0,0,0);
-    palette[1]=SAT_BGR555(9,23,18);
-    palette[2]=SAT_BGR555(16,28,22);
-    palette[3]=SAT_BGR555(26,30,27);
+    palette[1]=SAT_RGB555(9,23,18);
+    palette[2]=SAT_RGB555(16,28,22);
+    palette[3]=SAT_RGB555(26,30,27);
     for (y=0u;y<16u;++y) for (x=0u;x<16u;++x) {
         uint8_t idx=(uint8_t)((x%4u==0u || y%4u==0u)?2u:1u);
         if ((x+y)%11u==0u) idx=3u;
@@ -326,7 +326,7 @@ static void init_fade_materials(void) {
     uint16_t palette[256]={0};
     uint8_t i;
     for(i=0u;i<FADE_COLOR_COUNT;++i)
-        palette[i+1u]=(uint16_t)(g_fade_colors[i]&0x7FFFu);
+        palette[i+1u]=g_fade_colors[i]; /* Match the RGB-coded CRAM format proven by distance_fade_3d. */
     sat_example_must(sat_vdp1_set_erase_transparent());
     sat_example_must(sat_palette_upload_indexed8(palette,FADE_PALETTE_BANK));
     for(i=0u;i<FADE_COLOR_COUNT;++i) {
