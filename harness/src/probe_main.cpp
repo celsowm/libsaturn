@@ -20,6 +20,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -241,6 +242,7 @@ struct Args {
     std::string dump_fb_path;        // raw VDP1 display framebuffer, for visual checks
     std::string profile_pc_path;     // one master-SH2 PC sample per frame, for profiling
     std::string pad_script_path;     // frame-indexed input timeline
+    std::string backup_ram_path;     // persistent 32 KiB internal Backup RAM image
     std::vector<std::pair<uint32_t, std::string>> screenshots;  // frame -> PNG path
     bool print_sh2_state = false;    // diagnostic: master SH2 PC/registers to stderr
     std::string pad_button;          // e.g. "A", "UP" — scheduled single-button press
@@ -257,7 +259,7 @@ void print_usage() {
         "             [--profile-pc <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
-        "             [--scsp-trace]\n");
+        "             [--backup-ram <path>] [--scsp-trace]\n");
 }
 
 bool parse_vram_range(const std::string& spec, VramRange* out) {
@@ -354,6 +356,10 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--pad-release-at");
             if (!v) return false;
             out->pad_release_at = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+        } else if (arg == "--backup-ram") {
+            const char* v = next("--backup-ram");
+            if (!v) return false;
+            out->backup_ram_path = v;
         } else if (arg == "--scsp-trace") {
             out->scsp_trace = true;
         } else if (arg == "--dump-vram") {
@@ -508,6 +514,22 @@ int main(int argc, char** argv) {
     // constructing it as a local.
     auto saturn = std::make_unique<ymir::Saturn>();
     saturn->LoadIPL(std::span<uint8_t, ymir::sys::kIPLSize>(bios.data(), ymir::sys::kIPLSize));
+
+    if (!args.backup_ram_path.empty()) {
+        // Ymir memory-maps the image in write-through mode when copyOnWrite is
+        // false, so a second probe process can observe saves made by the first.
+        // CreateFrom semantics inside Ymir also create/format a missing 32 KiB
+        // internal image, which gives persistence tests a deterministic first
+        // boot without committing any emulator-owned save image to the repo.
+        std::error_code backup_error;
+        saturn->mem.LoadInternalBackupMemoryImage(
+            args.backup_ram_path, /*copyOnWrite=*/false, backup_error);
+        if (backup_error) {
+            std::fprintf(stderr, "failed to load internal Backup RAM image %s: %s\n",
+                         args.backup_ram_path.c_str(), backup_error.message().c_str());
+            return 1;
+        }
+    }
 
     ymir::media::Disc disc;
     // LoadDisc tries several loaders in sequence (CHD, BIN/CUE, MDF/MDS, CCD,
@@ -861,6 +883,55 @@ int main(int argc, char** argv) {
 
     j.key("frames_run"); j.value(static_cast<uint64_t>(args.frames));
     j.key("iso_path"); j.value(args.iso_path);
+
+    j.key("backup_memory");
+    j.begin_object();
+    j.key("enabled"); j.value(!args.backup_ram_path.empty());
+    j.key("path"); j.value(args.backup_ram_path);
+    if (!args.backup_ram_path.empty()) {
+        auto& backup = saturn->mem.GetInternalBackupRAM();
+        j.key("header_valid"); j.value(backup.IsHeaderValid());
+        j.key("size"); j.value(static_cast<uint64_t>(backup.Size()));
+        j.key("block_size"); j.value(static_cast<uint64_t>(backup.GetBlockSize()));
+        j.key("total_blocks"); j.value(static_cast<uint64_t>(backup.GetTotalBlocks()));
+        j.key("used_blocks"); j.value(static_cast<uint64_t>(backup.GetUsedBlocks()));
+        j.key("files");
+        j.begin_array();
+        for (const auto& info : backup.List()) {
+            j.begin_object();
+            j.key("filename"); j.value(info.header.filename);
+            j.key("comment"); j.value(info.header.comment);
+            j.key("language"); j.value(static_cast<uint64_t>(info.header.language));
+            j.key("date"); j.value(static_cast<uint64_t>(info.header.date));
+            j.key("size"); j.value(static_cast<uint64_t>(info.size));
+            j.key("raw_blocks"); j.value(static_cast<uint64_t>(info.numRawBlocks));
+            j.key("blocks"); j.value(static_cast<uint64_t>(info.numBlocks));
+
+            const auto exported = backup.Export(info.header.filename);
+            j.key("data_size");
+            j.value(static_cast<uint64_t>(exported ? exported->data.size() : 0u));
+            j.key("data_hash");
+            j.value(exported
+                ? fnv1a64(exported->data.data(), exported->data.size())
+                : static_cast<uint64_t>(0u));
+            j.key("data_prefix");
+            j.begin_array();
+            if (exported) {
+                const size_t prefix = std::min<size_t>(64u, exported->data.size());
+                for (size_t i = 0; i < prefix; ++i) {
+                    j.value(static_cast<uint64_t>(exported->data[i]));
+                }
+            }
+            j.end_array();
+            j.end_object();
+        }
+        j.end_array();
+    } else {
+        j.key("files");
+        j.begin_array();
+        j.end_array();
+    }
+    j.end_object();
 
     // "boot" records what direct-injection did (harness/README.md): the BIOS
     // never finishes loading our disc under Ymir's CD block, so instead of
