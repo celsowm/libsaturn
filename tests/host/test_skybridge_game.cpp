@@ -617,7 +617,14 @@ int main() {
         int32_t previous_walk_z=ramp.z;
         for(int frame=0;frame<15;++frame) {
             tick(ramp,SB_UP);
-            assert(ramp.z>previous_walk_z);
+            if(!(ramp.z>previous_walk_z)) {
+                std::cerr<<"seesaw traversal frame="<<frame
+                         <<" z="<<ramp.z<<" previous="<<previous_walk_z
+                         <<" y="<<ramp.y<<" vz="<<ramp.vz
+                         <<" support="<<(int)ramp.support
+                         <<" tilt="<<ramp.seesaw_tilt[1u]<<"\\n";
+                assert(ramp.z>previous_walk_z);
+            }
             previous_walk_z=ramp.z;
             assert(ramp.support==1);
             assert(ramp.y==sb_platform_surface_y(&ramp,1u,ramp.x,ramp.z));
