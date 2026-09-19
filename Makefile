@@ -393,6 +393,7 @@ HOST_TEST_EXTRA_test_file_asset_logic := src/core/file_api.cpp src/core/asset_ap
 HOST_TEST_EXTRA_test_cdfs_logic := src/core/cd_api.cpp src/core/cdfs_api.cpp src/core/file_api.cpp src/core/file_asset_runtime.cpp
 HOST_TEST_EXTRA_test_cd_block_api := src/hal/cd_block.cpp src/core/cd_api.cpp
 HOST_TEST_EXTRA_test_math3d_logic := src/core/math3d_api.cpp
+HOST_TEST_EXTRA_test_orbit_camera3d := src/core/orbit_camera3d_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_render3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_voxel_terrain := src/core/voxel_terrain_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_voxel_display_probe :=
