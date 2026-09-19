@@ -21,6 +21,10 @@ static uint8_t g_last_overwrite = 0xFFu;
 static uint32_t g_format_calls = 0u;
 static uint32_t g_write_calls = 0u;
 static uint16_t g_last_directory_capacity = 0u;
+static uint32_t g_stat_calls = 0u;
+static uint32_t g_directory_calls = 0u;
+static uint16_t g_cart_index = 0xFFFFu;
+static uint16_t g_cart_partitions = 0u;
 static Dir g_dir = {};
 static Stat g_stat = {32768u, 512u, 64u, 30000u, 480u, 12u};
 
@@ -31,6 +35,9 @@ Result init(Config out_configs[3]) {
     out_configs[0] = {1u, 1u};
     out_configs[1] = {};
     out_configs[2] = {};
+    if (g_cart_index < 3u) {
+        out_configs[g_cart_index] = {2u, g_cart_partitions};
+    }
     return Result::Ok;
 }
 
@@ -44,6 +51,7 @@ Result format(uint32_t device) {
 
 Result stat(uint32_t device, uint32_t, Stat* out_stat) {
     OK(device == 0u);
+    ++g_stat_calls;
     if (g_stat_result != Result::Ok) return g_stat_result;
     *out_stat = g_stat;
     return Result::Ok;
@@ -51,6 +59,7 @@ Result stat(uint32_t device, uint32_t, Stat* out_stat) {
 
 int32_t directory(uint32_t device, const char*, uint16_t capacity, Dir* out_entries) {
     OK(device == 0u);
+    ++g_directory_calls;
     g_last_directory_capacity = capacity;
     if (capacity != 0u && out_entries != nullptr && g_directory_count != 0) {
         out_entries[0] = g_dir;
@@ -94,6 +103,9 @@ int main() {
     using namespace saturn::hal::bup;
 
     sat_save_storage_info_t info{};
+    sat_save_device_info_t device_info{};
+    OK(sat_save_device_info(SAT_SAVE_BACKUP_CARTRIDGE, &device_info) ==
+       SAT_ERR_NOT_INITIALIZED);
     OK(sat_save_storage_info(SAT_SAVE_INTERNAL, 0u, &info) == SAT_ERR_NOT_INITIALIZED);
 
     g_init_result = Result::NotConnected;
@@ -102,6 +114,42 @@ int main() {
     OK(sat_save_init() == SAT_OK);
 
     OK(g_format_calls == 0u);
+
+    // The read-only query inspects the BUP_Init Config snapshot. It must
+    // never call BUP_Stat, BUP_Dir, or any mutating BIOS operation.
+    OK(sat_save_device_info(SAT_SAVE_INTERNAL, nullptr) == SAT_ERR_INVALID_ARG);
+    OK(sat_save_device_info(static_cast<sat_save_device_t>(99), &device_info) ==
+       SAT_ERR_INVALID_ARG);
+    OK(sat_save_device_info(SAT_SAVE_INTERNAL, &device_info) == SAT_OK &&
+       device_info.connected == 1u && device_info.partition_count == 1u);
+    OK(sat_save_device_info(SAT_SAVE_BACKUP_CARTRIDGE, &device_info) == SAT_OK &&
+       device_info.connected == 0u && device_info.partition_count == 0u);
+    OK(g_stat_calls == 0u && g_directory_calls == 0u &&
+       g_write_calls == 0u && g_format_calls == 0u);
+
+    // Simulate each possible non-internal Config entry. Unit ID 2 is
+    // descriptive; it must not be mistaken for the BIOS call selector.
+    g_cart_index = 2u;
+    g_cart_partitions = 3u;
+    OK(sat_save_init() == SAT_OK);
+    OK(sat_save_device_info(SAT_SAVE_BACKUP_CARTRIDGE, &device_info) == SAT_OK &&
+       device_info.connected == 1u && device_info.partition_count == 3u);
+    OK(sat_save_storage_info(SAT_SAVE_BACKUP_CARTRIDGE, 0u, &info) ==
+       SAT_ERR_UNSUPPORTED);
+    g_cart_index = 1u;
+    g_cart_partitions = 2u;
+    OK(sat_save_init() == SAT_OK);
+    OK(sat_save_device_info(SAT_SAVE_BACKUP_CARTRIDGE, &device_info) == SAT_OK &&
+       device_info.connected == 1u && device_info.partition_count == 2u);
+    g_cart_partitions = 0u;
+    OK(sat_save_init() == SAT_OK);
+    OK(sat_save_device_info(SAT_SAVE_BACKUP_CARTRIDGE, &device_info) == SAT_OK &&
+       device_info.connected == 0u && device_info.partition_count == 0u);
+    g_cart_index = 0xFFFFu;
+    g_cart_partitions = 0u;
+    OK(sat_save_init() == SAT_OK);
+    OK(g_stat_calls == 0u && g_directory_calls == 0u &&
+       g_write_calls == 0u && g_format_calls == 0u);
 
     OK(sat_save_storage_info(SAT_SAVE_INTERNAL, 128u, &info) == SAT_OK);
     OK(info.total_size == 32768u && info.total_blocks == 512u &&
