@@ -57,19 +57,15 @@ static void build_palettes(void) {
     }
 }
 
+static uint8_t ground_bitmap_pixel(void* user,uint16_t x,uint16_t y) {
+    (void)user;
+    return (uint8_t)(32u+((((uint32_t)x>>4u)^((uint32_t)y>>4u))&31u));
+}
 static void build_ground_bitmap(void) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    uint32_t off = BM_BASE_WORD;
-    uint32_t y;
-
-    for (y = 0u; y < 256u; ++y) {
-        uint32_t x;
-        for (x = 0u; x < 512u; x += 2u) {
-            uint8_t a = (uint8_t)(32u + (((x >> 4u) ^ (y >> 4u)) & 31u));
-            uint8_t b = (uint8_t)(32u + ((((x + 1u) >> 4u) ^ (y >> 4u)) & 31u));
-            vram[off++] = (uint16_t)(((uint16_t)a << 8u) | b);
-        }
-    }
+    uint16_t row_words[512u/2u];
+    sat_example_must(sat_vdp2_bitmap_upload_indexed8(
+        BM_BASE_WORD,512u,256u,ground_bitmap_pixel,0,0,
+        row_words,512u/2u));
 }
 
 static void write_coefficients(void) {

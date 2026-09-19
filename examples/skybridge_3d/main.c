@@ -804,21 +804,24 @@ static void init_sky(void) {
     for(y=0u;y<SKY_H;++y)for(x=0u;x<SKY_W;++x)
         g_sky[y*SKY_W+x]=sb_scenery_sky_pixel(x,y);
 }
+static uint8_t ocean_bitmap_pixel(void* user,uint16_t x,uint16_t y) {
+    (void)user;
+    return sb_scenery_sea_pixel(x,y);
+}
+static void ocean_bitmap_progress(void* user,uint16_t rows_complete) {
+    (void)user;
+    if((rows_complete&15u)==0u)
+        loading_frame("GENERATING OCEAN",
+            (uint8_t)(15u+((uint32_t)rows_complete*60u/SB_SEA_H)));
+}
 static void init_sea(void) {
-    volatile uint16_t* vram=(volatile uint16_t*)0x25E00000u;
-    uint32_t x,y,at=SEA_WORD;
-    for(x=0u;x<256u;++x)
+    uint16_t row_words[SB_SEA_W/2u];
+    for(uint32_t x=0u;x<256u;++x)
         g_sea_colors[x]=sb_scenery_sea_color(x&63u);
-    for(y=0u;y<SB_SEA_H;++y) {
-        for(x=0u;x<SB_SEA_W;x+=2u) {
-            uint8_t a=sb_scenery_sea_pixel(x,y);
-            uint8_t b=sb_scenery_sea_pixel(x+1u,y);
-            vram[at++]=(uint16_t)(((uint16_t)a<<8u)|b);
-        }
-        if((y&15u)==15u)
-            loading_frame("GENERATING OCEAN",
-                (uint8_t)(15u+((y+1u)*60u/SB_SEA_H)));
-    }
+    sat_example_must(sat_vdp2_bitmap_upload_indexed8(
+        SEA_WORD,SB_SEA_W,SB_SEA_H,
+        ocean_bitmap_pixel,ocean_bitmap_progress,0,
+        row_words,SB_SEA_W/2u));
 }
 static void animate_sea_palette(uint32_t tick) {
     /* Palette modulation touches only eight highlight colors: 16 bytes

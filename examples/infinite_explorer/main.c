@@ -142,16 +142,15 @@ static void upload_biome_palettes(uint8_t biome, uint8_t scale) {
     sat_example_must(sat_vdp2_palette_upload(g_sky_palette, 256u, 256u));
 }
 
+static uint8_t terrain_bitmap_pixel(void* user,uint16_t x,uint16_t y) {
+    (void)user;
+    return terrain_pixels[((uint32_t)y & 127u)*128u+((uint32_t)x & 127u)];
+}
 static void generate_ground(void) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    uint32_t y, x, off = BM_BASE_WORD;
-    for (y = 0; y < 256u; ++y) {
-        for (x = 0; x < 512u; x += 2u) {
-            uint8_t a = terrain_pixels[(y & 127u) * 128u + (x & 127u)];
-            uint8_t b = terrain_pixels[(y & 127u) * 128u + ((x + 1u) & 127u)];
-            vram[off++] = (uint16_t)(((uint16_t)a << 8u) | b);
-        }
-    }
+    uint16_t row_words[512u/2u];
+    sat_example_must(sat_vdp2_bitmap_upload_indexed8(
+        BM_BASE_WORD,512u,256u,terrain_bitmap_pixel,0,0,
+        row_words,512u/2u));
 }
 
 static void init_textured_3d(void) {

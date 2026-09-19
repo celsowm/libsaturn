@@ -151,20 +151,17 @@ static const sat_vdp2_rbg0_ground_config_t rbg0_cfg = {
     COEF_BASE_WORD,
 };
 
+static uint8_t tiled_bitmap_pixel(void* user,uint16_t x,uint16_t y) {
+    const sat_indexed8_asset_t* asset=(const sat_indexed8_asset_t*)user;
+    const uint32_t src_x=(uint32_t)x%asset->width;
+    const uint32_t src_y=(uint32_t)y%asset->height;
+    return asset->pixels[src_y*asset->width+src_x];
+}
 static void upload_tiled_bitmap(const sat_indexed8_asset_t* asset) {
-    volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    uint32_t off = BM_BASE_WORD;
-
-    for (uint32_t y = 0; y < BITMAP_HEIGHT; y++) {
-        const uint32_t src_y = y % asset->height;
-        for (uint32_t x = 0; x < BITMAP_WIDTH; x += 2u) {
-            const uint32_t src_x0 = x % asset->width;
-            const uint32_t src_x1 = (x + 1u) % asset->width;
-            const uint8_t p0 = asset->pixels[(src_y * asset->width) + src_x0];
-            const uint8_t p1 = asset->pixels[(src_y * asset->width) + src_x1];
-            vram[off++] = (uint16_t)(((uint16_t)p0 << 8u) | p1);
-        }
-    }
+    uint16_t row_words[BITMAP_WIDTH/2u];
+    sat_example_must(sat_vdp2_bitmap_upload_indexed8(
+        BM_BASE_WORD,BITMAP_WIDTH,BITMAP_HEIGHT,
+        tiled_bitmap_pixel,0,(void*)asset,row_words,BITMAP_WIDTH/2u));
 }
 
 /* Coefficient table (2-word, mode 0) — see sat_vdp2_rbg0_ground_encode_coefficient()

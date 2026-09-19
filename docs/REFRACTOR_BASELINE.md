@@ -111,3 +111,19 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
 - All six primitive command allocation sites in the VDP1 HAL now share a quota-aware capacity guard. The new public `sat_vdp1_reserve_overlay_commands` partitions a frame after the setup commands and preserves the mandatory END entry; `sat_vdp1_overlay_begin` permanently unlocks the reserved slots for the final HUD pass, resetting next frame.
 - Skybridge reserves 192 commands before clouds/world rendering, treats world SAT_ERR_CAPACITY as an optional geometry drop instead of aborting, and explicitly starts the protected HUD pass. This prevents WORLD command exhaustion from consuming the HUD's reserved command slots. It does not promise a VDP1 raster-time guarantee or protect the pig when the world itself uses every world slot.
 - HAL host tests force the cap for sprite, polygon and clip primitives, confirm overlay slots remain usable, and verify per-frame reset and unsatisfiable reservation rejection. Emulator captures and measured maximum HUD glyph consumption remain outstanding.
+
+## Ninth slice: VDP2 bitmap uploads are game-independent
+
+- `sat_vdp2_bitmap_upload_indexed8` generates an INDEX8 image a row at a
+  time into caller-owned scratch, packs the pixels into Saturn's high/low
+  byte order, validates the **entire** VRAM interval before first upload,
+  and writes through the public checked VDP2 API. No full-frame bitmap in
+  work RAM or direct VDP2 MMIO in the migrated generator.
+- Skybridge ocean (with its existing progress UI), Infinite Explorer terrain,
+  RBG0 ground and NBG0/RBG0 combo all reuse the same streaming method.
+  Games only provide their procedural or authored pixel selection.
+- CI first-failure extraction no longer mistakes the importer report
+  `animated surface error: max ...` for a compiler diagnostic. The next
+  independently uncovered gate is Infinite Explorer WRAMH overflow
+  (466072 bytes in run 35465179593); this image-upload refactor does NOT
+  imply that the memory overrun is resolved.
