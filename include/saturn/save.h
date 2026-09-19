@@ -66,8 +66,24 @@ typedef struct sat_save_storage_info {
     uint32_t fit_count;
 } sat_save_storage_info_t;
 
+/* Snapshot of BUP_Init device configuration, not a hot-plug detector.
+ * It does not query capacity or perform any read/write on the medium.
+ * The cartridge remains unsupported for sat_save_read/write/format/etc. */
+typedef struct sat_save_device_info {
+    uint8_t connected;
+    uint8_t partition_count;
+    uint16_t reserved;
+} sat_save_device_info_t;
+
 /* Initializes the Boot ROM BUP service. Never formats storage implicitly. */
 sat_result_t sat_save_init(void);
+
+/* Read-only connection/partition discovery from the BUP_Init configuration
+ * snapshot. A missing cart returns SAT_OK with connected=0. Reinitialize
+ * after changing hardware by restarting the Saturn program. */
+sat_result_t sat_save_device_info(
+    sat_save_device_t device,
+    sat_save_device_info_t* out_info);
 
 /* Query storage capacity. prospective_data_size may be zero. */
 sat_result_t sat_save_storage_info(
