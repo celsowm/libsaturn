@@ -1,6 +1,7 @@
 /* Skybridge 3D: a playable stock-Saturn platformer, VDP1 world + VDP2 sea/sky. */
 #include <stdint.h>
 #include "saturn/saturn.h"
+#include "saturn/asset.h"
 #include "saturn/example_util.h"
 #include "examples/vdp2_rbg0_ground/rbg0_math.h"
 #include "game.h"
@@ -39,6 +40,10 @@ static int16_t g_yaw;
 static uint32_t g_prev_frame, g_frame;
 static sat_sound_t g_sounds[SOUNDS];
 static sat_voice_t g_music_voice;
+static const char* const g_sfx_paths[SOUNDS-1u]={
+    "skybridge/sfx/jump", "skybridge/sfx/land", "skybridge/sfx/pickup",
+    "skybridge/sfx/fall", "skybridge/sfx/finish"
+};
 static int8_t g_audio[SOUNDS - 1u][SOUND_LEN];
 static int8_t g_music[MUSIC_LEN];
 static uint8_t g_audio_ready;
@@ -47,6 +52,27 @@ static const rbg0_ground_config_t g_ocean = {
     512u, 256u, 160u, HORIZON, 96u, 8u, 96u, COEF_WORD
 };
 
+/* Boot is a series of completed jobs, not a pretend timed progress bar.
+ * VDP1 draws this fullscreen panel independently of whether VDP2 is ready. */
+static void loading_frame(const char* stage, uint8_t percent) {
+    char progress[28];
+    uint16_t width=(uint16_t)((uint32_t)percent*252u/100u);
+    sat_example_must(sat_wait_vblank());
+    sat_example_must(sat_begin_frame());
+    sat_example_must(sat_draw_rect_screen(0,0,W,H,SAT_RGB555(2,7,14)));
+    sat_example_must(sat_draw_rect_screen(34,64,252u,3u,SAT_RGB555(12,26,27)));
+    sat_example_must(sat_ascii_font_draw_text_screen_centered_indexed8(
+        &g_font,"SKYBRIDGE 3D",160,77,8,0u,0u));
+    sat_example_must(sat_ascii_font_draw_text_screen_centered_indexed8(
+        &g_font,stage,160,110,8,0u,0u));
+    sat_example_must(sat_draw_rect_screen(34,137,252u,9u,SAT_RGB555(6,13,17)));
+    if(width>0u) sat_example_must(sat_draw_rect_screen(
+        34,137,width,9u,SAT_RGB555(20,29,19)));
+    sat_example_must(sat_fmt_label_u32("LOADING ",percent,progress,sizeof(progress),0));
+    sat_example_must(sat_ascii_font_draw_text_screen_centered_indexed8(
+        &g_font,progress,160,153,8,0u,0u));
+    sat_example_must(sat_end_frame());
+}
 static void put_text(const char* text, int x, int y) {
     (void)sat_ascii_font_draw_text_screen_indexed8(
         &g_font, text, x, y, 8, 0u, 0u);
@@ -254,6 +280,8 @@ static void init_sea(void) {
         uint8_t va=(uint8_t)(1u+(a>>1u)+(((y+(x>>4u))&31u)<3u?9u:0u));
         uint8_t vb=(uint8_t)(1u+(b>>1u)+(((y+((x+1u)>>4u))&31u)<3u?9u:0u));
         vram[at++]=(uint16_t)(((uint16_t)va<<8u)|vb);
+        if(x==510u && (y&15u)==15u)
+            loading_frame("GENERATING OCEAN",(uint8_t)(15u+((y+1u)*60u/256u)));
     }
 }
 static void update_rotation(int32_t fx,int32_t fz) {
@@ -282,7 +310,6 @@ static void init_background(void) {
         SEA_WORD,ROT_WORD,SAT_COLOR_BLACK,5u,7u
     };
     uint32_t y;
-    init_sky();init_sea();
     for(y=0u;y<H;++y) rbg0_ground_encode_coefficient(&g_ocean,y,
                       &coef[y*2u],&coef[y*2u+1u]);
     rbg0_ground_build_params(&g_ocean,0,0,p);
@@ -296,6 +323,7 @@ static void init_background(void) {
     sat_example_must(sat_vdp2_nbg0_set_priority(2u));
     sat_example_must(sat_vdp2_rbg0_set_priority(5u));
     sat_example_must(sat_vdp2_sprite_set_priority(7u));
+    loading_frame("COMPOSING VDP2",82u);
 }
 static void init_audio(void) {
     uint32_t i;
@@ -312,9 +340,21 @@ static void init_audio(void) {
             if (j==3u) wave=(int32_t)(((i*73u)^(i>>2u))&63u)-32;
             g_audio[j][i]=(int8_t)(wave*env/32);
         }
-        desc.samples=g_audio[j];desc.sample_count=SOUND_LEN;
-        desc.sample_rate=11025u;desc.format=SAT_AUDIO_PCM_S8;
-        sat_example_must(sat_sound_create(&g_sounds[j],&desc));
+        {
+            sat_asset_desc_t asset={0};
+            sat_asset_t asset_handle={0};
+            asset.logical_path=g_sfx_paths[j];
+            asset.kind=SAT_ASSET_SOUND;
+            asset.data=g_audio[j];
+            asset.size=SOUND_LEN;
+            asset.sample_rate=11025u;
+            asset.sample_count=SOUND_LEN;
+            asset.channels=1u;
+            asset.format=SAT_AUDIO_PCM_S8;
+            sat_example_must(sat_asset_register(&asset,&asset_handle));
+            sat_example_must(sat_sound_load(g_sfx_paths[j],&g_sounds[j]));
+        }
+        loading_frame("REGISTERING AUDIO",(uint8_t)(82u+(j+1u)*2u));
     }
     {
         static const uint8_t periods[8]={50u,45u,40u,38u,34u,38u,40u,45u};
@@ -329,6 +369,8 @@ static void init_audio(void) {
             bass=(bass<32 ? bass : 64-bass)-16;
             /* 8-note, three-second arpeggio. Fade notes to zero at boundaries. */
             g_music[i]=(int8_t)((wave*envelope)/320+bass/4);
+            if ((i&4095u)==4095u)
+                loading_frame("GENERATING MUSIC",(uint8_t)(92u+(i+1u)*6u/MUSIC_LEN));
         }
     }
     {
@@ -340,6 +382,7 @@ static void init_audio(void) {
         sat_example_must(sat_sound_play(g_sounds[5u],&music_params,&g_music_voice));
     }
     g_audio_ready=1u;
+    loading_frame("READY",100u);
 }
 static void sound_event(uint16_t event) {
     uint8_t id;
@@ -383,11 +426,17 @@ int main(void) {
     sat_example_must(sat_init(&video));
     sb_init(&g_game);
     g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
-    init_background();
-    init_tile_texture();
+    /* Load the first drawable font before expensive procedural generation. */
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
         &g_font,SAT_COLOR_WHITE,SAT_COLOR_BLACK,2u));
     sat_example_must(sat_vdp1_set_erase_transparent());
+    loading_frame("INITIALIZING WORLD",5u);
+    init_tile_texture();
+    loading_frame("BUILDING SKY",10u);
+    init_sky();
+    loading_frame("BUILDING SEA",15u);
+    init_sea();
+    init_background();
     init_audio();
     g_prev_frame=sat_frame_count();
     for(;;) {
