@@ -94,6 +94,31 @@ sat_result_t sat_draw_indexed_solid_quad3(
     const sat_vdp1_texture_t* uniform_indexed8_texture
 );
 
+/* Axis-aligned deck/block instance, described without app-side quad winding.
+ * top_center.y is the WALKABLE TOP (the solid extends by 2*half_height
+ * below it); half_extents is positive for all three axes.
+ * The runtime derives the camera-facing X and Z walls and visible top;
+ * the caller supplies three indexed solid material textures. The top is not
+ * drawn when the camera is below it: this deliberately does not add a
+ * phantom lid when the camera passes underneath a platform.
+ *
+ * All coordinates and material descriptors are validated before drawing.
+ * No mesh vertices, indices, material arrays or scratch allocations are
+ * constructed by the game. Uses the SAME safe near/screen solid clipper.
+ * For intersecting boxes this is still painter rendering, not Z testing. */
+typedef struct sat_indexed_box3 {
+    sat_vec3_t top_center;
+    sat_vec3_t half_extents;
+    const sat_vdp1_texture_t* top_material;
+    const sat_vdp1_texture_t* x_material;
+    const sat_vdp1_texture_t* z_material;
+} sat_indexed_box3_t;
+
+sat_result_t sat_draw_indexed_box3(
+    const sat_indexed_box3_t* box,
+    const sat_indexed_solid_render3d_t* params
+);
+
 /* VDP1 distorted sprites map the ENTIRE texture to all four quad corners.
  * Arbitrary near/screen clipping cannot retain patterned UVs without an
  * explicit texture-region/materialization pipeline. In the absence of that
