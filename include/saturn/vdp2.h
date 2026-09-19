@@ -130,6 +130,32 @@ sat_result_t sat_vdp2_nbg0_upload_indexed8(
 sat_result_t sat_vdp2_palette_upload(const uint16_t* palette_rgb555, uint16_t count, uint16_t offset);
 sat_result_t sat_vdp2_vram_write_words(uint32_t word_offset, const uint16_t* words, uint32_t word_count);
 
+/* Pixel generator for an INDEX8 VDP2 bitmap. The callback is invoked once
+ * for each (x,y) and returns its palette index. It must be deterministic and
+ * cannot use the row scratch storage passed to the upload call. */
+typedef uint8_t (*sat_vdp2_indexed8_pixel_fn)(void* user, uint16_t x, uint16_t y);
+/* Optional progress callback, invoked AFTER each complete row was committed.
+ * Useful for rendering a loading indicator without a full bitmap in WRAM. */
+typedef void (*sat_vdp2_bitmap_row_fn)(void* user, uint16_t rows_complete);
+
+/* Convert a generated INDEX8 bitmap into VDP2 big-endian pixel pairs and
+ * upload it with the existing validated word writer; games never address
+ * 0x25E00000 directly. The caller owns a buffer of width/2 uint16_t words.
+ * Any even width (<=1024) and height (<=1024) may be used for a bitmap
+ * subregion; the RBG0 display mode itself must be configured separately.
+ *
+ * Validates the WHOLE VRAM interval and scratch length before invoking the
+ * pixel callback or writing a single row. No heap or full-frame RAM copy.
+ * Do not overlap bitmap, rotation, coefficient or NBG0 VRAM allocations.
+ * On hardware failure, previously written rows are not rolled back. */
+sat_result_t sat_vdp2_bitmap_upload_indexed8(
+    uint32_t base_word, uint16_t width, uint16_t height,
+    sat_vdp2_indexed8_pixel_fn pixel_fn,
+    sat_vdp2_bitmap_row_fn row_fn,
+    void* user, uint16_t* row_words, uint32_t row_word_capacity
+);
+
+
 /* ------------------------------------------------------------------ */
 /* Map fill & region write                                             */
 /* ------------------------------------------------------------------ */
