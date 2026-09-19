@@ -2,6 +2,9 @@
 #include <stdint.h>
 #include "saturn/saturn.h"
 #include "saturn/asset.h"
+#include "saturn/fade3d.h"
+#include "saturn/vdp1_color_calc.h"
+#include "saturn/vdp2_color_calc.h"
 #include "saturn/example_util.h"
 #include "examples/vdp2_rbg0_ground/rbg0_math.h"
 #include "game.h"
@@ -14,7 +17,12 @@
 #define COEF_WORD 0x12000u
 #define SKY_W 512u
 #define SKY_H 128u
-#define VIEW_LIMIT SB_F(116)
+#define FADE_START SB_F(66)
+#define FADE_END SB_F(134)
+#define VIEW_LIMIT FADE_END
+#define FADE_COLOR_COUNT 20u
+#define FADE_PALETTE_BANK 4u
+#define FADE_OPAQUE 255u
 #define SOUNDS 6u
 #define SOUND_LEN 2048u
 #define MUSIC_LEN 32768u
@@ -28,6 +36,23 @@ typedef struct sb_render_item {
 static sb_game_t g_game;
 static sat_ascii_font_t g_font;
 static sat_vdp1_texture_t g_tile_texture;
+static sat_vdp1_texture_t g_fade_textures[FADE_COLOR_COUNT];
+static uint8_t g_fade_solid_pixels[16u*16u];
+static uint8_t g_active_fade_slot=FADE_OPAQUE;
+static const sat_fade3d_t g_fade_policy={
+    FADE_START, FADE_END, 8u, SAT_FADE3D_CULL_AFTER_END, 0u
+};
+static const uint16_t g_fade_colors[FADE_COLOR_COUNT]={
+    SAT_RGB555(24,23,16), SAT_RGB555(12,26,19), SAT_RGB555(27,23,16),
+    SAT_RGB555(31,8,5), SAT_RGB555(31,26,5),
+    SAT_RGB555(12,14,14), SAT_RGB555(6,16,15),
+    SAT_RGB555(17,17,14), SAT_RGB555(8,19,18),
+    SAT_RGB555(24,20,10),
+    SAT_RGB555(31,26,3), SAT_RGB555(23,16,3), SAT_RGB555(31,19,2),
+    SAT_RGB555(16,12,3), SAT_RGB555(27,20,4),
+    SAT_RGB555(20,14,3), SAT_RGB555(27,19,4),
+    SAT_RGB555(31,30,8), SAT_RGB555(31,13,3), SAT_RGB555(31,23,4)
+};
 static uint8_t g_tile_pixels[16u*16u];
 static uint8_t g_sky[SKY_W * SKY_H];
 static uint16_t g_sky_colors[256], g_sea_colors[256];
@@ -81,9 +106,36 @@ static void label(const char* title, uint32_t n, int x, int y) {
     char buf[32];
     if (sat_fmt_label_u32(title, n, buf, sizeof(buf), 0) == SAT_OK) put_text(buf,x,y);
 }
+/* VDP2 color calculation blends only indexed VDP1 sprites with NBG0/RBG0.
+ * RGB VDP1 polygons cannot inherit a generic "alpha" flag. Convert every
+ * far platform face into an indexed, solid-color distorted sprite instead.
+ * All faces of a single platform share a distance slot and fade together. */
 static void put_quad(const sat_quad3_t* q, uint16_t c) {
-    /* A whole quad crossing the near plane is intentionally rejected by this API. */
-    sat_result_t st = sat_draw_world_polygon(&g_vp,q,c);
+    sat_result_t st;
+    if (g_active_fade_slot==FADE_OPAQUE) {
+        st=sat_draw_world_polygon(&g_vp,q,c);
+    } else {
+        uint8_t i,chosen=0u;
+        uint32_t best=0xFFFFFFFFu;
+        sat_quad2_t screen;
+        for(i=0u;i<FADE_COLOR_COUNT;++i) {
+            const uint16_t v=g_fade_colors[i];
+            int32_t dr=(int32_t)(c&31u)-(int32_t)(v&31u);
+            int32_t dg=(int32_t)((c>>5u)&31u)-(int32_t)((v>>5u)&31u);
+            int32_t db=(int32_t)((c>>10u)&31u)-(int32_t)((v>>10u)&31u);
+            uint32_t distance=(uint32_t)(dr*dr+dg*dg+db*db);
+            if(distance<best){best=distance;chosen=i;if(!distance)break;}
+        }
+        st=sat_project_quad(&g_vp,q,&screen);
+        if(st==SAT_OK) {
+            sat_distorted_sprite_cmd_t cmd={0};
+            for(i=0u;i<4u;++i) {
+                cmd.x[i]=screen.x[i];cmd.y[i]=screen.y[i];
+            }
+            cmd.texture=&g_fade_textures[chosen];
+            st=sat_draw_sprite_distorted_color_calc(&cmd,g_active_fade_slot);
+        }
+    }
     if (st != SAT_OK && st != SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
 static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
@@ -91,6 +143,7 @@ static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
         SAT_GOURAUD_NEUTRAL, sat_gouraud_from_intensity(SB_F(7)/8),
         sat_gouraud_from_intensity(SB_F(3)/4), sat_gouraud_from_intensity(SB_F(7)/8)
     };
+    if (g_active_fade_slot!=FADE_OPAQUE) {put_quad(q,c);return;}
     sat_result_t st=sat_draw_world_polygon_gouraud(&g_vp,q,c,light);
     if (st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
@@ -132,7 +185,22 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
             if (trim==2u) {
                 put_quad(&q,SAT_RGB555(24,20,10));
             } else {
-                sat_result_t st=sat_draw_world_sprite(&g_vp,&q,&g_tile_texture,0u,0u);
+                sat_result_t st;
+                if (g_active_fade_slot==FADE_OPAQUE) {
+                    st=sat_draw_world_sprite(&g_vp,&q,&g_tile_texture,0u,0u);
+                } else {
+                    sat_quad2_t projected;
+                    st=sat_project_quad(&g_vp,&q,&projected);
+                    if (st==SAT_OK) {
+                        sat_distorted_sprite_cmd_t cmd={0};
+                        uint8_t k;
+                        for(k=0u;k<4u;++k) {
+                            cmd.x[k]=projected.x[k];cmd.y[k]=projected.y[k];
+                        }
+                        cmd.texture=&g_tile_texture;
+                        st=sat_draw_sprite_distorted_color_calc(&cmd,g_active_fade_slot);
+                    }
+                }
                 if (st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
             }
         }
@@ -208,8 +276,8 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
     for (i=0u;i<SB_PLATFORM_COUNT;++i) {
         int32_t px=sb_platform_x(&g_game,i),pz=SB_F(sb_stage[i].z);
         int32_t depth=view_depth(px,pz,forward_x,forward_z);
-        if (!sb_platform_active(&g_game,i) || depth < -SB_F(9) || depth>VIEW_LIMIT ||
-            sb_abs(px-g_game.x)>SB_F(100) || sb_abs(pz-g_game.z)>SB_F(110)) continue;
+        if (!sb_platform_active(&g_game,i) || depth < -SB_F(9) ||
+            sb_abs(px-g_game.x)>SB_F(160) || sb_abs(pz-g_game.z)>SB_F(180)) continue;
         g_items[g_items_count++]=(sb_render_item_t){(int8_t)i,depth};
     }
     g_items[g_items_count++]=(sb_render_item_t){-1,
@@ -224,9 +292,20 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
         g_items[j]=cur;
     }
     for (i=0u;i<g_items_count;++i) {
-        if (g_items[i].id==-1) player_box();
-        else stage_box((uint8_t)g_items[i].id);
+        if (g_items[i].id==-1) {
+            g_active_fade_slot=FADE_OPAQUE;
+            player_box();
+        } else {
+            sat_fade3d_result_t fade={0};
+            if (sat_fade3d_eval(&g_fade_policy,g_items[i].depth,&fade)!=SAT_OK)
+                continue;
+            if (fade.culled) continue;
+            g_active_fade_slot=g_items[i].depth<=FADE_START ?
+                FADE_OPAQUE : fade.level;
+            stage_box((uint8_t)g_items[i].id);
+        }
     }
+    g_active_fade_slot=FADE_OPAQUE;
 }
 static void init_tile_texture(void) {
     uint16_t palette[256];
@@ -242,6 +321,20 @@ static void init_tile_texture(void) {
     }
     sat_example_must(sat_tex_upload_indexed8(
         &g_tile_texture,g_tile_pixels,16u,16u,palette,3u));
+}
+static void init_fade_materials(void) {
+    uint16_t palette[256]={0};
+    uint8_t i;
+    for(i=0u;i<FADE_COLOR_COUNT;++i)
+        palette[i+1u]=(uint16_t)(g_fade_colors[i]&0x7FFFu);
+    sat_example_must(sat_vdp1_set_erase_transparent());
+    sat_example_must(sat_palette_upload_indexed8(palette,FADE_PALETTE_BANK));
+    for(i=0u;i<FADE_COLOR_COUNT;++i) {
+        uint16_t n;
+        for(n=0u;n<256u;++n)g_fade_solid_pixels[n]=(uint8_t)(i+1u);
+        sat_example_must(sat_tex_upload_indexed8_pixels(
+            &g_fade_textures[i],g_fade_solid_pixels,16u,16u,FADE_PALETTE_BANK));
+    }
 }
 static void init_sky(void) {
     uint32_t y,x;
@@ -323,6 +416,7 @@ static void init_background(void) {
     sat_example_must(sat_vdp2_nbg0_set_priority(2u));
     sat_example_must(sat_vdp2_rbg0_set_priority(5u));
     sat_example_must(sat_vdp2_sprite_set_priority(7u));
+    sat_example_must(sat_vdp2_sprite_color_calc_configure_alpha(7u));
     loading_frame("COMPOSING VDP2",82u);
 }
 static void init_audio(void) {
@@ -431,6 +525,7 @@ int main(void) {
     sat_example_must(sat_vdp1_set_erase_transparent());
     loading_frame("INITIALIZING WORLD",5u);
     init_tile_texture();
+    init_fade_materials();
     loading_frame("BUILDING SKY",10u);
     init_sky();
     loading_frame("BUILDING SEA",15u);
@@ -500,6 +595,9 @@ int main(void) {
         sat_example_must(sat_vdp2_nbg0_set_scroll(&sky_scroll));
         update_rotation(fx,fz);
         sat_example_must(sat_vdp2_layers_commit());
+        /* Commit after the generic layer priorities: fade uses selector 1
+         * at priority 6, which is still above RBG0 (priority 5). */
+        sat_example_must(sat_vdp2_sprite_color_calc_commit());
         sat_example_must(sat_vdp1_set_erase_transparent());
         sat_example_must(sat_begin_frame());
         draw_world(fx,fz);
