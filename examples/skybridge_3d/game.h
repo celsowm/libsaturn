@@ -11,6 +11,7 @@
 #define SB_PLAYER_HALF SB_F(2)
 #define SB_PLAYER_HEIGHT SB_F(5)
 #define SB_PLATFORM_COUNT 10u
+#define SB_COURSE_COUNT 2u
 #define SB_PICKUP_COUNT 8u
 #define SB_GEM_RADIUS SB_F(2)
 #define SB_GEM_BASE_OFFSET SB_F(4)
@@ -20,7 +21,7 @@ enum { SB_UP=1u, SB_DOWN=2u, SB_LEFT=4u, SB_RIGHT=8u, SB_JUMP=16u };
 enum { SB_EVENT_JUMP=1u, SB_EVENT_LAND=2u, SB_EVENT_PICKUP=4u,
        SB_EVENT_CHECKPOINT=8u, SB_EVENT_FALL=16u, SB_EVENT_WIN=32u,
        SB_EVENT_WARNING=64u };
-enum { SB_FIXED=0u, SB_MOVING=1u, SB_COLLAPSING=2u };
+enum { SB_FIXED=0u, SB_MOVING=1u, SB_COLLAPSING=2u, SB_LIFT=3u };
 
 typedef struct sb_platform {
     int16_t x, y, z, half_x, half_z;
@@ -40,6 +41,22 @@ static const sb_platform_t sb_stage[SB_PLATFORM_COUNT] = {
     { 0, 11, 299, 18, 15, SB_FIXED} /* Finish */
 };
 
+/* Second course: narrower landing zones, varied widths and four elevators.
+ * Adjacent deck gaps are bounded for the original jump speed; checkpoints
+ * remain at stages 3 and 6. No new assets or expansion RAM are required. */
+static const sb_platform_t sb_stage_two[SB_PLATFORM_COUNT] = {
+    {  0, 0,   0, 20, 17, SB_FIXED},
+    { -2, 2,  29,  8, 11, SB_FIXED},
+    {  8, 4,  58,  9, 10, SB_LIFT},
+    { 12, 8,  86,  7, 10, SB_FIXED},
+    {  1, 8, 113, 12,  9, SB_LIFT},
+    { -9,12, 141,  7, 11, SB_FIXED},
+    { -2,14, 169, 11, 11, SB_LIFT},
+    {  6,16, 196,  7,  9, SB_FIXED},
+    { 12,18, 223, 10,  8, SB_LIFT},
+    {  0,20, 251, 17, 15, SB_FIXED}
+};
+
 typedef struct sb_game {
     int32_t x, y, z, vx, vy, vz;
     int32_t moving_x;
@@ -47,6 +64,7 @@ typedef struct sb_game {
     uint16_t pickups;            /* optional, 8-bit collectible mask */
     uint16_t collapse_ticks;     /* 0=ready, 1..30 warning, 31..150 absent */
     uint8_t checkpoint;          /* stage index 0, 3 or 6 */
+    uint8_t course;              /* 0=original, 1=variable-width elevators */
     uint8_t coyote, jump_buffer, finished, paused;
     int8_t support;              /* -1 when airborne */
 } sb_game_t;
@@ -58,14 +76,33 @@ static inline int32_t sb_clamp(int32_t n, int32_t low, int32_t high) {
 static inline int32_t sb_mul(int32_t a, int32_t b) {
     return (int32_t)(((int64_t)a * b) >> 16);
 }
+static inline const sb_platform_t* sb_course_platforms(const sb_game_t* g) {
+    return g->course==1u?sb_stage_two:sb_stage;
+}
+/* Vertical elevators follow a triangular 180-tick cycle. Each lift's
+ * phase is staggered so the whole course is not moving in lockstep. */
+static inline int32_t sb_lift_offset(uint32_t tick,uint8_t id) {
+    uint32_t phase=(tick+(uint32_t)id*23u)%180u;
+    int32_t ramp=(int32_t)(phase<90u?phase:180u-phase);
+    return ((ramp*2-90)*SB_F(4))/90;
+}
+static inline int32_t sb_platform_y_at(const sb_game_t* g,uint8_t id,uint32_t tick) {
+    const sb_platform_t* p=&sb_course_platforms(g)[id];
+    return SB_F(p->y)+(p->kind==SB_LIFT?sb_lift_offset(tick,id):0);
+}
+static inline int32_t sb_platform_y(const sb_game_t* g,uint8_t id) {
+    return sb_platform_y_at(g,id,g->ticks);
+}
 static inline int32_t sb_platform_x(const sb_game_t* g, uint8_t id) {
-    return SB_F(sb_stage[id].x) + (id == 4u ? g->moving_x : 0);
+    const sb_platform_t* p=&sb_course_platforms(g)[id];
+    return SB_F(p->x) + (p->kind==SB_MOVING ? g->moving_x : 0);
 }
 static inline int sb_platform_active(const sb_game_t* g, uint8_t id) {
-    return id != 7u || g->collapse_ticks <= 30u || g->collapse_ticks >= 150u;
+    return sb_course_platforms(g)[id].kind!=SB_COLLAPSING ||
+           g->collapse_ticks <= 30u || g->collapse_ticks >= 150u;
 }
 static inline int sb_horizontal_overlap(const sb_game_t* g, uint8_t id) {
-    const sb_platform_t* p = &sb_stage[id];
+    const sb_platform_t* p = &sb_course_platforms(g)[id];
     return sb_abs(g->x - sb_platform_x(g, id)) < SB_F(p->half_x) + SB_PLAYER_HALF &&
            sb_abs(g->z - SB_F(p->z)) < SB_F(p->half_z) + SB_PLAYER_HALF;
 }
@@ -75,7 +112,7 @@ static inline int sb_horizontal_overlap(const sb_game_t* g, uint8_t id) {
  * camera it then looked as if the cube floated in front of the slab.
  * Keep nearly the whole footprint on the deck; coyote time handles edges. */
 static inline int sb_supported_footprint(const sb_game_t* g, uint8_t id) {
-    const sb_platform_t* p=&sb_stage[id];
+    const sb_platform_t* p=&sb_course_platforms(g)[id];
     const int32_t safe_half_x=SB_F(p->half_x)-SB_PLAYER_HALF+SB_HALF;
     const int32_t safe_half_z=SB_F(p->half_z)-SB_PLAYER_HALF+SB_HALF;
     return sb_abs(g->x-sb_platform_x(g,id))<=safe_half_x &&
@@ -103,12 +140,12 @@ static inline int sb_gem_contact(const sb_game_t* g,uint8_t id) {
     int32_t deck_y;
     if(id<1u || id>SB_PICKUP_COUNT || !sb_platform_active(g,id))
         return 0;
-    deck_y=SB_F(sb_stage[id].y);
+    deck_y=sb_platform_y(g,id);
     if(g->y+SB_PLAYER_HEIGHT < deck_y+SB_F(1) ||
        g->y > deck_y+SB_F(7))
         return 0;
     dx=sb_abs(g->x-sb_platform_x(g,id))-SB_PLAYER_HALF;
-    dz=sb_abs(g->z-SB_F(sb_stage[id].z))-SB_PLAYER_HALF;
+    dz=sb_abs(g->z-SB_F(sb_course_platforms(g)[id].z))-SB_PLAYER_HALF;
     if(dx<0)dx=0;
     if(dz<0)dz=0;
     return (int64_t)dx*dx+(int64_t)dz*dz <=
@@ -124,8 +161,8 @@ static inline int32_t sb_moving_offset(uint32_t tick) {
 static inline void sb_respawn(sb_game_t* g) {
     uint8_t cp = g->checkpoint;
     g->x = sb_platform_x(g, cp);
-    g->z = SB_F(sb_stage[cp].z - 4);
-    g->y = SB_F(sb_stage[cp].y);
+    g->z = SB_F(sb_course_platforms(g)[cp].z - 4);
+    g->y = sb_platform_y(g,cp);
     g->vx = g->vy = g->vz = 0;
     g->support = (int8_t)cp;
     g->coyote = 5u;
@@ -137,17 +174,22 @@ static inline void sb_init(sb_game_t* g) {
     g->moving_x = sb_moving_offset(0u);
     sb_respawn(g);
 }
+static inline void sb_start_course(sb_game_t* g,uint8_t course) {
+    sb_init(g);
+    g->course=(uint8_t)(course%SB_COURSE_COUNT);
+    sb_respawn(g);
+}
 static inline void sb_side_collide(sb_game_t* g, int32_t old_x, int32_t old_z) {
     uint8_t i;
     for (i=0u; i<SB_PLATFORM_COUNT; ++i) {
-        const sb_platform_t* p = &sb_stage[i];
+        const sb_platform_t* p = &sb_course_platforms(g)[i];
         const int32_t cx = sb_platform_x(g, i), cz = SB_F(p->z);
         const int32_t left = cx - SB_F(p->half_x) - SB_PLAYER_HALF;
         const int32_t right = cx + SB_F(p->half_x) + SB_PLAYER_HALF;
         const int32_t back = cz - SB_F(p->half_z) - SB_PLAYER_HALF;
         const int32_t front = cz + SB_F(p->half_z) + SB_PLAYER_HALF;
-        if (!sb_platform_active(g,i) || g->y >= SB_F(p->y) - SB_F(1)/16 ||
-            g->y + SB_PLAYER_HEIGHT <= SB_F(p->y-5)) continue;
+        if (!sb_platform_active(g,i) || g->y >= sb_platform_y(g,i) - SB_F(1)/16 ||
+            g->y + SB_PLAYER_HEIGHT <= sb_platform_y(g,i)-SB_F(5)) continue;
         if (g->z > back && g->z < front) {
             if (old_x <= left && g->x > left) { g->x=left; g->vx=0; }
             if (old_x >= right && g->x < right) { g->x=right; g->vx=0; }
@@ -177,17 +219,30 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
     {
         int32_t old_move=g->moving_x;
         g->moving_x=sb_moving_offset(g->ticks);
-        if (old_support==4) g->x+=g->moving_x-old_move;
+        if(old_support>=0 && sb_platform_active(g,(uint8_t)old_support)) {
+            uint8_t support_id=(uint8_t)old_support;
+            uint8_t kind=sb_course_platforms(g)[support_id].kind;
+            if(kind==SB_MOVING)g->x+=g->moving_x-old_move;
+            if(kind==SB_LIFT) {
+                /* Carry the rider at the same instant the deck rises/falls,
+                 * BEFORE gravity and the landing sweep use the new top. */
+                int32_t old_top=sb_platform_y_at(g,support_id,g->ticks-1u);
+                int32_t new_top=sb_platform_y(g,support_id);
+                g->y+=new_top-old_top;
+            }
+        }
     }
     if (g->collapse_ticks) {
         ++g->collapse_ticks;
         if (g->collapse_ticks >= 150u) g->collapse_ticks=0u;
     }
-    if (old_support==7 && g->collapse_ticks==0u) {
+    if (old_support>=0 &&
+        sb_course_platforms(g)[(uint8_t)old_support].kind==SB_COLLAPSING &&
+        g->collapse_ticks==0u) {
         g->collapse_ticks=1u;
         event|=SB_EVENT_WARNING;
     }
-    if (old_support==7 && !sb_platform_active(g,7u)) {
+    if (old_support>=0 && !sb_platform_active(g,(uint8_t)old_support)) {
         g->support=-1;
         old_support=-1;
     }
@@ -227,9 +282,10 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
     best_y=-SB_F(100);
     if (g->vy<=0) {
         for (i=0u;i<SB_PLATFORM_COUNT;++i) {
-            int32_t top=SB_F(sb_stage[i].y);
+            int32_t top=sb_platform_y(g,i);
+            int32_t previous_top=sb_platform_y_at(g,i,g->ticks-1u);
             if (!sb_platform_active(g,i) || !sb_supported_footprint(g,i)) continue;
-            if (old_y>=top-SB_F(1)/8 && g->y<=top && top>best_y) {
+            if (old_y>=previous_top-SB_F(1)/8 && g->y<=top && top>best_y) {
                 best=(int8_t)i; best_y=top;
             }
         }
@@ -240,7 +296,7 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
     } else {
         g->support=-1;
         for (i=0u;i<SB_PLATFORM_COUNT;++i) {
-            int32_t underside=SB_F(sb_stage[i].y-5);
+            int32_t underside=sb_platform_y(g,i)-SB_F(5);
             if (!sb_platform_active(g,i) || !sb_horizontal_overlap(g,i)) continue;
             if (old_y+SB_PLAYER_HEIGHT<=underside &&
                 g->y+SB_PLAYER_HEIGHT>=underside) {
