@@ -15,7 +15,8 @@ extern "C" {
 
 #define SAT_ASSET_CAPACITY 32u
 #define SAT_ASSET_CACHE_BLOCK_BYTES 65536u
-#define SAT_ASSET_CACHE_BLOCK_CAPACITY 4u
+#define SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY 4u
+#define SAT_ASSET_CACHE_BLOCK_CAPACITY 32u
 #define SAT_ASSET_PREFETCH_CAPACITY 4u
 
 typedef enum sat_asset_kind {
@@ -128,6 +129,10 @@ sat_result_t sat_asset_prefetch_status(
 );
 sat_result_t sat_asset_prefetch_cancel(sat_asset_prefetch_t request);
 sat_result_t sat_asset_cache_stats(sat_asset_cache_stats_t* out_stats);
+/* Caller-owned cache storage. Pass 0/nullptr to restore internal four blocks.
+ * The provided memory must remain valid until cache reset/reconfiguration.
+ * Invalidates cached contents; refuses changes during pending prefetch. */
+sat_result_t sat_asset_cache_configure(void* memory, uint16_t blocks);
 
 /* Typed logical-path loaders. The registered payload and auxiliary metadata
  * remain caller-owned for the lifetime of the returned runtime object. */

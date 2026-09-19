@@ -242,6 +242,19 @@ int main() {
     const sat_asset_t stale_asset = asset;
     OK(sat_asset_close(asset) == SAT_OK);
     OK(sat_asset_info(stale_asset, &info) == SAT_ERR_INVALID_ARG);
+    /* Cache can expand into caller-owned RAM without growing BSS. */
+    alignas(64) static uint8_t external_cache[6u * SAT_ASSET_CACHE_BLOCK_BYTES] = {};
+    OK(sat_asset_cache_configure(external_cache, 6u) == SAT_OK);
+    OK(sat_asset_cache_stats(&cache_stats) == SAT_OK &&
+       cache_stats.capacity == 6u && cache_stats.used == 0u);
+    OK(sat_asset_read_at("data/full-block.bin", 0u, full_block_probe,
+                         sizeof(full_block_probe), &physical_read) == SAT_OK);
+    OK(sat_asset_cache_stats(&cache_stats) == SAT_OK &&
+       cache_stats.capacity == 6u && cache_stats.used == 1u);
+    OK(sat_asset_cache_configure(nullptr, 0u) == SAT_OK);
+    OK(sat_asset_cache_stats(&cache_stats) == SAT_OK &&
+       cache_stats.capacity == SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY &&
+       cache_stats.used == 0u);
     std::puts("file asset logic: OK");
     return 0;
 }

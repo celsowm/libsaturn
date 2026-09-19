@@ -8,6 +8,7 @@
 #include "saturn/geometry2d.h"
 #include "saturn/color.h"
 #include "saturn/memory.h"
+#include "saturn/ram_cart.h"
 #include "saturn/save.h"
 #include "saturn/time.h"
 #include "saturn/surface.h"

@@ -36,7 +36,7 @@ struct AssetCacheBlock {
     uint32_t block_index;
     uint32_t valid_bytes;
     uint32_t last_used;
-    uint8_t data[SAT_ASSET_CACHE_BLOCK_BYTES];
+    uint8_t* data;
     uint8_t used;
 };
 
@@ -56,6 +56,8 @@ struct FileAssetRuntime {
     FileHandle handles[SAT_FILE_HANDLE_CAPACITY];
     AssetEntry assets[SAT_ASSET_CAPACITY];
     AssetCacheBlock cache[SAT_ASSET_CACHE_BLOCK_CAPACITY];
+    uint8_t internal_cache[SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY][SAT_ASSET_CACHE_BLOCK_BYTES];
+    uint16_t cache_block_count;
     AssetPrefetchRequest prefetch[SAT_ASSET_PREFETCH_CAPACITY];
     uint32_t cache_clock;
     uint32_t cache_hits;
@@ -70,6 +72,7 @@ extern FileAssetRuntime g_file_asset_runtime;
 sat_result_t normalize_path(const char* input, char* output, uint16_t output_size);
 uint16_t next_file_generation(uint16_t generation);
 void file_asset_runtime_reset(FileAssetRuntime& runtime);
+void asset_cache_configure(FileAssetRuntime& runtime, uint8_t* memory, uint16_t blocks);
 sat_result_t asset_cache_read_at(
     FileAssetRuntime& runtime,
     const char* source_path,

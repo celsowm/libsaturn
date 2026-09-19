@@ -11,6 +11,23 @@ uint16_t next_file_generation(uint16_t generation) {
     return generation == 0u ? 1u : generation;
 }
 
+void asset_cache_configure(FileAssetRuntime& runtime, uint8_t* memory, uint16_t blocks) {
+    const uint16_t count = blocks == 0u ? SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY : blocks;
+    runtime.cache_block_count = count;
+    for (uint16_t i = 0u; i < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++i) {
+        runtime.cache[i] = {};
+        if (i < count) {
+            runtime.cache[i].data = memory == nullptr
+                ? runtime.internal_cache[i]
+                : memory + static_cast<uint32_t>(i) * SAT_ASSET_CACHE_BLOCK_BYTES;
+        }
+    }
+    runtime.cache_clock = 0u;
+    runtime.cache_hits = 0u;
+    runtime.cache_misses = 0u;
+    runtime.cache_fills = 0u;
+}
+
 void file_asset_runtime_reset(FileAssetRuntime& runtime) {
     for (uint16_t i = 0u; i < SAT_FILE_HANDLE_CAPACITY; ++i) {
         FileHandle& handle = runtime.handles[i];
@@ -25,9 +42,7 @@ void file_asset_runtime_reset(FileAssetRuntime& runtime) {
         entry = {};
         entry.generation = generation;
     }
-    for (uint16_t i = 0u; i < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++i) {
-        runtime.cache[i] = {};
-    }
+    asset_cache_configure(runtime, nullptr, 0u);
     for (uint16_t i = 0u; i < SAT_ASSET_PREFETCH_CAPACITY; ++i) {
         AssetPrefetchRequest& request = runtime.prefetch[i];
         const uint16_t generation = next_file_generation(request.generation);
@@ -53,9 +68,9 @@ uint16_t find_mount(const FileAssetRuntime& runtime, const char* source_path) {
 }
 
 uint16_t choose_cache_slot(FileAssetRuntime& runtime) {
-    uint16_t selected = SAT_ASSET_CACHE_BLOCK_CAPACITY;
+    uint16_t selected = runtime.cache_block_count;
     uint32_t oldest = 0xFFFFFFFFu;
-    for (uint16_t i = 0u; i < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++i) {
+    for (uint16_t i = 0u; i < runtime.cache_block_count; ++i) {
         if (runtime.cache[i].used == 0u) return i;
         if (runtime.cache[i].last_used < oldest) {
             oldest = runtime.cache[i].last_used;
@@ -74,7 +89,7 @@ sat_result_t asset_cache_fill(
     uint32_t* out_valid_bytes
 ) {
     if (source_path == nullptr || out_valid_bytes == nullptr) return SAT_ERR_INVALID_ARG;
-    for (uint16_t i = 0u; i < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++i) {
+    for (uint16_t i = 0u; i < runtime.cache_block_count; ++i) {
         AssetCacheBlock& block = runtime.cache[i];
         if (block.used != 0u && block.block_index == block_index &&
             __builtin_strcmp(block.source_path, source_path) == 0) {
@@ -93,7 +108,7 @@ sat_result_t asset_cache_fill(
     const uint32_t valid_bytes = (mount.size - offset) < SAT_ASSET_CACHE_BLOCK_BYTES
         ? mount.size - offset : SAT_ASSET_CACHE_BLOCK_BYTES;
     const uint16_t cache_slot = choose_cache_slot(runtime);
-    if (cache_slot >= SAT_ASSET_CACHE_BLOCK_CAPACITY) return SAT_ERR_CAPACITY;
+    if (cache_slot >= runtime.cache_block_count) return SAT_ERR_CAPACITY;
     AssetCacheBlock& block = runtime.cache[cache_slot];
     uint32_t total = 0u;
     while (total < valid_bytes) {
@@ -149,7 +164,7 @@ sat_result_t asset_cache_read_at(
         uint32_t count = valid_bytes - in_block;
         if (count > remaining) count = remaining;
         const AssetCacheBlock* cached_block = nullptr;
-        for (uint16_t slot = 0u; slot < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++slot) {
+        for (uint16_t slot = 0u; slot < runtime.cache_block_count; ++slot) {
             const AssetCacheBlock& block = runtime.cache[slot];
             if (block.used != 0u && block.block_index == block_index &&
                 __builtin_strcmp(block.source_path, source_path) == 0) {

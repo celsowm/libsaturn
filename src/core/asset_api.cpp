@@ -214,12 +214,27 @@ extern "C" sat_result_t sat_asset_prefetch_cancel(sat_asset_prefetch_t request) 
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_asset_cache_configure(void* memory, uint16_t blocks) {
+    using namespace saturn::core;
+    if ((memory == nullptr && blocks != 0u) ||
+        (memory != nullptr && (blocks == 0u || blocks > SAT_ASSET_CACHE_BLOCK_CAPACITY))) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    for (const auto& request : g_file_asset_runtime.prefetch) {
+        if (request.used != 0u && request.state == SAT_ASSET_PREFETCH_PENDING) {
+            return SAT_ERR_BUSY;
+        }
+    }
+    asset_cache_configure(g_file_asset_runtime, static_cast<uint8_t*>(memory), blocks);
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_asset_cache_stats(sat_asset_cache_stats_t* out_stats) {
     if (out_stats == nullptr) return SAT_ERR_INVALID_ARG;
     using namespace saturn::core;
     uint16_t used = 0u;
     uint16_t pending = 0u;
-    for (uint16_t i = 0u; i < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++i) {
+    for (uint16_t i = 0u; i < g_file_asset_runtime.cache_block_count; ++i) {
         used += g_file_asset_runtime.cache[i].used != 0u ? 1u : 0u;
     }
     for (uint16_t i = 0u; i < SAT_ASSET_PREFETCH_CAPACITY; ++i) {
@@ -227,7 +242,7 @@ extern "C" sat_result_t sat_asset_cache_stats(sat_asset_cache_stats_t* out_stats
                    g_file_asset_runtime.prefetch[i].state == SAT_ASSET_PREFETCH_PENDING ? 1u : 0u;
     }
     out_stats->used = used;
-    out_stats->capacity = SAT_ASSET_CACHE_BLOCK_CAPACITY;
+    out_stats->capacity = g_file_asset_runtime.cache_block_count;
     out_stats->prefetch_pending = pending;
     out_stats->prefetch_capacity = SAT_ASSET_PREFETCH_CAPACITY;
     out_stats->hits = g_file_asset_runtime.cache_hits;

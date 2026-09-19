@@ -18,7 +18,7 @@
 #include "cd_streaming_jukebox/jukebox_data.h"
 
 #define TRACK_COUNT CD_JUKEBOX_TRACK_COUNT
-#define PREFETCH_BYTES (SAT_ASSET_CACHE_BLOCK_BYTES * SAT_ASSET_CACHE_BLOCK_CAPACITY)
+#define PREFETCH_BYTES (SAT_ASSET_CACHE_BLOCK_BYTES * SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY)
 
 typedef struct track {
     const char* title;
