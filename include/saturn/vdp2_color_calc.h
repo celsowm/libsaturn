@@ -40,10 +40,14 @@ sat_result_t sat_vdp2_sprite_color_calc_set_ratio(
 );
 
 /* Replays SPCTL/PRISA/CCCTL/CCRSA-D from LibSaturn's color-calc state.
- * When called outside VBlank, the implementation waits for the next VBlank
- * start before writing the latched VDP2 registers. If sat_vdp2_layers_commit()
- * is also used during the same VBlank, call this afterwards because the generic
- * layer commit replays its own PRISA shadow. */
+ * The ordinary and faded priority selectors are also registered with the
+ * generic VDP2 layer shadow at configure/disable time. This ensures that
+ * sat_vdp2_layers_commit() replays the same PRISA word each frame; an
+ * extra color-calc commit after every layer commit is NOT needed, and doing
+ * so after the VBlank window can defer the next gameplay frame.
+ * Call this explicit commit only when restoring color-calc registers or
+ * when deliberately changing the configuration. Outside VBlank it waits for
+ * the next VBlank start before writing latched registers. */
 /* Standard alpha preset: 8 shared slots with ratios {0,4,8,12,16,20,24,31}.
  * Overrides any distance-fade or other consumer's ratio table. Priority 2..7
  * must put both kinds of sprites above the VDP2 background to be blended. */
