@@ -140,15 +140,21 @@ confirm every HELD bit reads 0.
 ## Audio / SCSP regressions
 
 For audio work, read [`docs/SCSP_AUDIO_STREAMING_GUIDE.md`](../docs/SCSP_AUDIO_STREAMING_GUIDE.md)
-before adding assertions. The current probe is video-centric and does not capture
-the final audio output, so do not treat a successful screenshot as evidence that
-PCM playback is correct.
+before adding assertions. The probe still does not capture final DAC samples, so
+do not treat a successful screenshot as evidence that PCM playback is correct.
 
-Prefer guest-visible audio stats and SCSP state. Ymir exposes slot state through
-`saturn.GetSCSP().GetProbe().GetSlots()`; a future probe extension should
-serialize the fields listed in the guide so tests can verify sample format,
-SA/LSA/LEA, pitch, mixer routing and current sample position. For double-buffer
-streaming, the strongest state-level regression test is to prove that only the
-inactive Sound RAM half changes at a refill boundary and that
-`underrun_count` remains zero.
+The probe now exports LibSaturn's reserved stream slots (28-31) under
+`scsp.stream_slots`. It records slot activity, SA/LSA/LEA, current sample,
+PCM width, loop mode, OCT/FNS, TL, DISDL/DIPAN and hashes of both 4096-sample
+Sound RAM halves for the continuous S16 streaming layout.
+
+Use `--scsp-trace` directly or `-ScspTrace` through `run-harness.ps1` to
+capture the same state every program frame under `scsp.trace`.
+`cd_streaming_jukebox` enables this trace automatically. Its acceptance test
+compares consecutive Sound RAM hashes and fails if a refill rewrites both halves
+or rewrites the half currently containing `curr_sample`.
+
+That test intentionally uses Ymir's hardware state through
+`saturn.SCSP.GetProbe().GetSlots()` plus `SCSP::DumpWRAM()`, rather than
+inferring audio correctness from VDP state.
 
