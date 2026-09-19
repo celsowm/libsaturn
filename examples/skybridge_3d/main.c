@@ -595,6 +595,10 @@ static void draw_world(void) {
     camera.eye=g_eye;
     camera.target=g_target;
     camera.up=(sat_vec3_t){0,SB_F(1),0};
+    camera.fov_y=SB_F(55);
+    camera.aspect=(sat_fx16_t)((W*65536u)/H);
+    camera.near_z=SB_F(2);
+    camera.far_z=SB_F(250);
     camera.view_proj=g_vp;  /* already calculated once in the frame loop */
     sat_example_must(sat_scene3d_queue_begin(&g_scene,&camera));
 
