@@ -562,7 +562,7 @@ int main(void) {
         fx=sat_sin_deg(SB_F(g_yaw));
         fz=sat_cos_deg(SB_F(g_yaw));
         /* View basis: looking along +Z, screen-right is world -X. */
-        rx=-fz;rz=fx;
+        sb_camera_right(fx,fz,&rx,&rz);
         pressed=0u;
         if (pad.pressed&SAT_PAD_A) pressed|=SB_JUMP;
         {
