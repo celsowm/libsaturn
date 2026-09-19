@@ -111,8 +111,12 @@ inline bool mesh_bounds(const sat_mesh_t& m, sat_aabb3_t& b) {
     sat_vec3_t lo = m.vertices[0], hi = lo;
     for (uint16_t i = 1; i < m.vertex_count; ++i) {
         const sat_vec3_t v = m.vertices[i];
-        if (v.x < lo.x) lo.x = v.x; if (v.y < lo.y) lo.y = v.y; if (v.z < lo.z) lo.z = v.z;
-        if (v.x > hi.x) hi.x = v.x; if (v.y > hi.y) hi.y = v.y; if (v.z > hi.z) hi.z = v.z;
+        if (v.x < lo.x) lo.x = v.x;
+        if (v.y < lo.y) lo.y = v.y;
+        if (v.z < lo.z) lo.z = v.z;
+        if (v.x > hi.x) hi.x = v.x;
+        if (v.y > hi.y) hi.y = v.y;
+        if (v.z > hi.z) hi.z = v.z;
     }
     b.center = {(lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2};
     b.half = {(hi.x - lo.x) / 2, (hi.y - lo.y) / 2, (hi.z - lo.z) / 2};
