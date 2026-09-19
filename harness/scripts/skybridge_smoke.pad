@@ -1,0 +1,22 @@
+# Skybridge smoke input (the frame indices are emulated frames, not game ticks).
+# Movement and a jump on the first few platforms; not a certified win-route.
+0    NONE
+45   UP
+53   UP+A
+59   UP
+68   UP+RIGHT
+80   RIGHT
+90   NONE
+105  UP+A
+112  UP
+132  NONE
+145  B
+146  NONE
+160  C
+161  NONE
+175  START
+176  NONE
+200  START
+201  NONE
+230  DOWN
+242  NONE
