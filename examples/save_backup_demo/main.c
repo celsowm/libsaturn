@@ -1,6 +1,5 @@
 /* save_backup_demo - internal Backup RAM write/read/verify/persistence demo. */
 #include <stdint.h>
-#include <string.h>
 
 #include "saturn/app.h"
 #include "saturn/color.h"
@@ -27,6 +26,17 @@ static uint32_t g_boot_count = 0u;
 static uint32_t g_free_bytes = 0u;
 static uint32_t g_free_blocks = 0u;
 static uint16_t g_entry_count = 0u;
+
+/* The SH-2 freestanding toolchain has no libc string.h. Compare the exact
+ * payload bytes locally; do not pull in a hosted C runtime for this demo. */
+static uint8_t payload_equals(const demo_payload_t* left, const demo_payload_t* right) {
+    const uint8_t* a = (const uint8_t*)left;
+    const uint8_t* b = (const uint8_t*)right;
+    for (uint32_t i = 0u; i < sizeof(demo_payload_t); ++i) {
+        if (a[i] != b[i]) return 0u;
+    }
+    return 1u;
+}
 
 static void draw_line(const char* text, int y) {
     (void)sat_ascii_font_draw_text_screen_indexed8(
@@ -95,7 +105,7 @@ static sat_result_t write_and_verify_demo(void) {
         &roundtrip, sizeof(roundtrip), &roundtrip_size);
     if (status != SAT_OK) return status;
     if (roundtrip_size != sizeof(roundtrip) ||
-        memcmp(&roundtrip, &payload, sizeof(payload)) != 0) {
+        !payload_equals(&roundtrip, &payload)) {
         return SAT_ERR_VERIFY_FAILED;
     }
 
