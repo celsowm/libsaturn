@@ -8,8 +8,8 @@ static uint16_t tick(sb_game_t& g,uint16_t held=0,uint16_t pressed=0) {
 }
 static void place(sb_game_t& g,uint8_t i) {
     g.x=sb_platform_x(&g,i);
-    g.z=SB_F(sb_stage[i].z);
-    g.y=SB_F(sb_stage[i].y);
+    g.z=SB_F(sb_course_platforms(&g)[i].z);
+    g.y=sb_platform_y(&g,i);
     g.vx=g.vy=g.vz=0;
     g.support=(int8_t)i;
     g.coyote=5;
@@ -201,6 +201,94 @@ int main() {
     assert(g.finished==1u && g.pickups==0x35u);
     sb_init(&g);
     assert(!g.finished && g.pickups==0);
+
+    /* Course 2 is a distinct 10-deck stage, not a cosmetic scene swap.
+     * Narrow ledges must change ground collision extents and four elevator
+     * decks must actually change their Y across the cycle. */
+    {
+        sb_game_t lift;
+        sb_start_course(&lift,1u);
+        assert(lift.course==1u && lift.support==0 && lift.checkpoint==0u);
+        assert(lift.pickups==0u && lift.ticks==0u && lift.y==SB_F(0));
+        assert(sb_course_platforms(&lift)==sb_stage_two);
+        assert(sb_course_platforms(&lift)[1].half_x<
+               sb_stage[1].half_x);
+        assert(sb_course_platforms(&lift)[3].half_x<
+               sb_stage[3].half_x);
+        for(uint8_t id=1u;id<SB_PLATFORM_COUNT;++id) {
+            const sb_platform_t* p=&sb_course_platforms(&lift)[id];
+            const sb_platform_t* prev=&sb_course_platforms(&lift)[id-1u];
+            assert(p->half_x>SB_PLAYER_HALF/65536);
+            assert(p->half_z>SB_PLAYER_HALF/65536);
+            /* Adjacent gaps at rest fit a plausible 35-unit jump. */
+            assert(p->z-prev->z-(p->half_z+prev->half_z)<=17);
+            if(p->kind==SB_LIFT) {
+                assert(sb_platform_y_at(&lift,id,0u)!=
+                       sb_platform_y_at(&lift,id,90u));
+            }
+        }
+        const uint8_t moving_ids[4]={2u,4u,6u,8u};
+        for(uint8_t n=0u;n<4u;++n) {
+            uint8_t id=moving_ids[n];
+            sb_start_course(&lift,1u);
+            place(lift,id);
+            int32_t x=lift.x,z=lift.z;
+            int32_t top_start=lift.y;
+            int saw_up=0,saw_down=0;
+            for(int t=0;t<185;++t) {
+                int32_t before=lift.y;
+                uint16_t event=tick(lift);
+                assert(!(event&SB_EVENT_FALL));
+                assert(lift.support==(int8_t)id);
+                assert(lift.y==sb_platform_y(&lift,id));
+                assert(lift.vy==0);
+                assert(lift.x==x && lift.z==z);
+                if(lift.y>before)saw_up=1;
+                if(lift.y<before)saw_down=1;
+            }
+            assert(saw_up && saw_down && top_start==lift.y);
+        }
+        /* Airborne: jumping from a moving deck detaches its passenger.
+         * The floor itself keeps moving after the jump. */
+        sb_start_course(&lift,1u);
+        place(lift,2u);
+        assert(tick(lift,SB_JUMP,SB_JUMP)&SB_EVENT_JUMP);
+        assert(lift.support==-1);
+        int32_t after_jump=lift.y;
+        tick(lift,SB_JUMP);
+        assert(lift.support==-1 && lift.y>after_jump);
+        /* Descending player lands on an elevator using its swept old/new
+         * top rather than a static height; a gem rides at that same top. */
+        sb_start_course(&lift,1u);
+        place(lift,2u);
+        lift.y+=SB_F(1);
+        lift.vy=-SB_F(1);
+        lift.support=-1;
+        tick(lift);
+        assert(lift.support==2);
+        assert(lift.y==sb_platform_y(&lift,2u));
+        assert(lift.pickups&(1u<<1u));
+        /* Narrow second-course deck does not inherit first-course bounds. */
+        sb_start_course(&lift,1u);
+        lift.x=SB_F(sb_stage_two[1].x+sb_stage_two[1].half_x+1);
+        lift.z=SB_F(sb_stage_two[1].z);
+        assert(!sb_supported_footprint(&lift,1u));
+        /* The first course still uses its horizontal moving deck; the
+         * second course has no collapsing bridge at index 7. */
+        place(lift,7u);
+        for(int i=0;i<200;++i)tick(lift);
+        assert(sb_platform_active(&lift,7u));
+        assert(lift.collapse_ticks==0u);
+        /* Reaching course two's goal needs no optional gems. */
+        sb_start_course(&lift,1u);
+        place(lift,9u);
+        assert(lift.pickups==0u);
+        assert(tick(lift)&SB_EVENT_WIN);
+        assert(lift.finished && lift.course==1u);
+        sb_start_course(&lift,0u);
+        assert(!lift.finished && lift.course==0u && lift.pickups==0u);
+        assert(sb_course_platforms(&lift)==sb_stage);
+    }
 
     /* Horizontal block cannot be crossed while the player's feet are below it. */
     g.x=SB_F(0);
