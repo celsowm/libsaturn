@@ -257,6 +257,112 @@ inline sat_result_t clip_world_quad_near(
     return SAT_OK;
 }
 
+/* Native viewport clipping for UNIFORM 16x16 indexed sprites or polygons.
+ * A large projected floor can occupy thousands of pixels outside the screen:
+ * relying solely on VDP1's system clip still makes its distorted-sprite
+ * rasterizer traverse enormous spans, delaying the HUD and later frames.
+ * Convex quad + rectangle intersection yields <=8 unique vertices. */
+struct ScreenPoint {int16_t x,y;};
+inline bool screen_inside(ScreenPoint p,uint8_t edge,int32_t bound) {
+    const int32_t value=(edge<2u)?p.x:p.y;
+    return (edge&1u)?value<=bound:value>=bound;
+}
+inline ScreenPoint screen_intersection(
+    ScreenPoint a,ScreenPoint b,uint8_t edge,int32_t bound) {
+    const int32_t av=edge<2u?a.x:a.y;
+    const int32_t bv=edge<2u?b.x:b.y;
+    const int32_t delta=bv-av;
+    ScreenPoint out=a;
+    if(edge<2u) {
+        out.x=static_cast<int16_t>(bound);
+        out.y=static_cast<int16_t>(
+            static_cast<int64_t>(a.y)+
+            (static_cast<int64_t>(b.y)-a.y)*(bound-av)/delta);
+    } else {
+        out.y=static_cast<int16_t>(bound);
+        out.x=static_cast<int16_t>(
+            static_cast<int64_t>(a.x)+
+            (static_cast<int64_t>(b.x)-a.x)*(bound-av)/delta);
+    }
+    return out;
+}
+inline bool screen_equal(ScreenPoint a,ScreenPoint b) {
+    return a.x==b.x && a.y==b.y;
+}
+inline sat_result_t clip_quad_screen(
+    const sat_quad2_t* quad,uint16_t width,uint16_t height,
+    sat_quad2_t out[6],uint8_t* out_count) {
+    if(!quad || !out || !out_count || width<2u || height<2u ||
+       width>2048u || height>2048u)
+        return SAT_ERR_INVALID_ARG;
+    const int32_t bounds[4]={
+        -static_cast<int32_t>(width)/2,
+        static_cast<int32_t>(width+1u)/2-1,
+        -static_cast<int32_t>(height)/2,
+        static_cast<int32_t>(height+1u)/2-1
+    };
+    bool fully_inside=true;
+    ScreenPoint previous[12],next[12];
+    uint8_t n=0u;
+    for(uint8_t i=0u;i<4u;++i) {
+        const ScreenPoint point={quad->x[i],quad->y[i]};
+        if(!screen_equal(point,previous[n?n-1u:0u]) || n==0u)
+            previous[n++]=point;
+        for(uint8_t edge=0u;edge<4u;++edge)
+            if(!screen_inside(point,edge,bounds[edge]))fully_inside=false;
+    }
+    if(fully_inside) {
+        out[0]=*quad;
+        *out_count=1u;
+        return SAT_OK;
+    }
+    if(n>1u && screen_equal(previous[n-1u],previous[0]))--n;
+    for(uint8_t edge=0u;edge<4u && n>=3u;++edge) {
+        uint8_t produced=0u;
+        ScreenPoint last=previous[n-1u];
+        bool was_inside=screen_inside(last,edge,bounds[edge]);
+        for(uint8_t i=0u;i<n;++i) {
+            const ScreenPoint current=previous[i];
+            const bool inside=screen_inside(current,edge,bounds[edge]);
+            if(inside!=was_inside) {
+                if(produced>=12u)return SAT_ERR_UNSUPPORTED;
+                next[produced++]=screen_intersection(
+                    last,current,edge,bounds[edge]);
+            }
+            if(inside) {
+                if(produced>=12u)return SAT_ERR_UNSUPPORTED;
+                next[produced++]=current;
+            }
+            last=current;
+            was_inside=inside;
+        }
+        n=0u;
+        for(uint8_t i=0u;i<produced;++i) {
+            if(n==0u || !screen_equal(previous[n-1u],next[i]))
+                previous[n++]=next[i];
+        }
+        if(n>1u && screen_equal(previous[n-1u],previous[0]))--n;
+    }
+    if(n<3u) {*out_count=0u;return SAT_OK;}
+    if(n>8u)return SAT_ERR_UNSUPPORTED;
+    uint8_t triangles=0u;
+    for(uint8_t i=1u;i+1u<n;++i) {
+        const ScreenPoint p0=previous[0],p1=previous[i],
+                          p2=previous[i+1u];
+        const int64_t area=
+            static_cast<int64_t>(p1.x-p0.x)*(p2.y-p0.y)-
+            static_cast<int64_t>(p1.y-p0.y)*(p2.x-p0.x);
+        if(!area)continue;
+        sat_quad2_t& result=out[triangles++];
+        result.x[0]=p0.x;result.y[0]=p0.y;
+        result.x[1]=p1.x;result.y[1]=p1.y;
+        result.x[2]=p2.x;result.y[2]=p2.y;
+        result.x[3]=p2.x;result.y[3]=p2.y;
+    }
+    *out_count=triangles;
+    return SAT_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Quad construction                                                   */
 /* ------------------------------------------------------------------ */
