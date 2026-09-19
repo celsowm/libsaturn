@@ -896,6 +896,18 @@ void set_sprite_priority(uint8_t priority) {
     g_last_prisa_written = PRISA;
 }
 
+void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority) {
+    /* PRISA is replayed by commit_layers() every frame. Without updating
+     * that shadow, the generic commit resets selector 1 from faded to normal
+     * priority before color-calc's separate VBlank commit can restore it.
+     * On a busy SH-2 that second commit waits for another VBlank, producing
+     * alternating opaque/faded frames on otherwise stationary geometry. */
+    g_last_prisa_written = static_cast<uint16_t>(
+        (normal_priority & 0x07u) |
+        (static_cast<uint16_t>(faded_priority & 0x07u) << 8u));
+    PRISA = g_last_prisa_written;
+}
+
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count) {
     if (params == nullptr || word_count == 0u) {
         return;
