@@ -555,7 +555,8 @@ int main(void) {
         if(g_yaw<0)g_yaw+=360;
         fx=sat_sin_deg(SB_F(g_yaw));
         fz=sat_cos_deg(SB_F(g_yaw));
-        rx=fz;rz=-fx;
+        /* View basis: looking along +Z, screen-right is world -X. */
+        rx=-fz;rz=fx;
         pressed=0u;
         if (pad.pressed&SAT_PAD_A) pressed|=SB_JUMP;
         {
