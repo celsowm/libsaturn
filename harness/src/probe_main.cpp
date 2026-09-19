@@ -27,6 +27,8 @@
 #include "png_writer.hpp"
 
 #include <ymir/hw/cart/cart_impl_bup.hpp>
+#include <ymir/hw/cart/cart_impl_dram.hpp>
+#include <span>
 #include <ymir/hw/smpc/peripheral/peripheral_state_common.hpp>
 #include <ymir/media/loader/loader.hpp>
 #include <ymir/sys/saturn.hpp>
@@ -245,6 +247,7 @@ struct Args {
     std::string pad_script_path;     // frame-indexed input timeline
     std::string backup_ram_path;     // persistent 32 KiB internal Backup RAM image
     std::string backup_cart_path;    // existing external image; mapped copy-on-write
+    std::string ram_cart = "none";  // none, 1m, 4m: volatile expansion
     std::vector<std::pair<uint32_t, std::string>> screenshots;  // frame -> PNG path
     bool print_sh2_state = false;    // diagnostic: master SH2 PC/registers to stderr
     std::string pad_button;          // e.g. "A", "UP" — scheduled single-button press
@@ -261,7 +264,7 @@ void print_usage() {
         "             [--profile-pc <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
-        "             [--backup-ram <path>] [--backup-cart <existing-path>] [--scsp-trace]\n");
+        "             [--backup-ram <path>] [--backup-cart <existing-path>] [--ram-cart none|1m|4m] [--scsp-trace]\n");
 }
 
 bool parse_vram_range(const std::string& spec, VramRange* out) {
@@ -366,6 +369,14 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--backup-cart");
             if (!v) return false;
             out->backup_cart_path = v;
+        } else if (arg == "--ram-cart") {
+            const char* v = next("--ram-cart");
+            if (!v) return false;
+            out->ram_cart = v;
+            if (out->ram_cart != "none" && out->ram_cart != "1m" && out->ram_cart != "4m") {
+                std::fprintf(stderr, "invalid --ram-cart: %s (use none, 1m, or 4m)\n", v);
+                return false;
+            }
         } else if (arg == "--scsp-trace") {
             out->scsp_trace = true;
         } else if (arg == "--dump-vram") {
@@ -535,6 +546,20 @@ int main(int argc, char** argv) {
                          args.backup_ram_path.c_str(), backup_error.message().c_str());
             return 1;
         }
+    }
+
+    if (args.ram_cart != "none" && !args.backup_cart_path.empty()) {
+        std::fprintf(stderr, "a Backup Memory cart and DRAM expansion cannot occupy the same slot\n");
+        return 1;
+    }
+    ymir::cart::DRAM8MbitCartridge* ram_cart_1m = nullptr;
+    ymir::cart::DRAM32MbitCartridge* ram_cart_4m = nullptr;
+    if (args.ram_cart == "1m") {
+        ram_cart_1m = saturn->InsertCartridge<ymir::cart::DRAM8MbitCartridge>();
+        if (ram_cart_1m == nullptr) return 1;
+    } else if (args.ram_cart == "4m") {
+        ram_cart_4m = saturn->InsertCartridge<ymir::cart::DRAM32MbitCartridge>();
+        if (ram_cart_4m == nullptr) return 1;
     }
 
     ymir::cart::BackupMemoryCartridge* backup_cart = nullptr;
@@ -915,6 +940,30 @@ int main(int argc, char** argv) {
 
     j.key("frames_run"); j.value(static_cast<uint64_t>(args.frames));
     j.key("iso_path"); j.value(args.iso_path);
+
+    j.key("ram_cartridge");
+    j.begin_object();
+    j.key("type"); j.value(args.ram_cart);
+    j.key("capacity_bytes"); j.value(static_cast<uint64_t>(
+        ram_cart_4m != nullptr ? 4u * 1024u * 1024u :
+        ram_cart_1m != nullptr ? 1024u * 1024u : 0u));
+    bool edge_verified = false;
+    if (ram_cart_4m != nullptr || ram_cart_1m != nullptr) {
+        const size_t bank_size = ram_cart_4m != nullptr ? 2u * 1024u * 1024u : 512u * 1024u;
+        std::vector<uint8_t> bytes(bank_size * 2u);
+        if (ram_cart_4m != nullptr) {
+            ram_cart_4m->DumpRAM(std::span<uint8_t, 4u * 1024u * 1024u>(bytes.data(), bytes.size()));
+        } else {
+            ram_cart_1m->DumpRAM(std::span<uint8_t, 1024u * 1024u>(bytes.data(), bytes.size()));
+        }
+        constexpr uint8_t expected[8] = {0x19, 0x28, 0x37, 0x46, 0x55, 0x64, 0x73, 0x82};
+        edge_verified = true;
+        for (size_t i = 0u; i < 8u; ++i) {
+            if (bytes[bank_size - 4u + i] != expected[i]) edge_verified = false;
+        }
+    }
+    j.key("bank_edge_verified"); j.value(edge_verified);
+    j.end_object();
 
     j.key("backup_memory");
     j.begin_object();

@@ -29,6 +29,8 @@ param(
     [string]$PadScript,
     [string]$BackupRam,
     [string]$BackupCart,
+    [ValidateSet('none', '1m', '4m')]
+    [string]$RamCart = 'none',
     [string[]]$Screenshot,
     [string]$ProfilePc,
     [switch]$ScspTrace,
@@ -132,6 +134,10 @@ if ($BackupCart) {
         throw "Backup cartridge image must already exist: $BackupCart"
     }
     $probeArgs += @('--backup-cart', (Resolve-Path $BackupCart).Path)
+}
+if ($RamCart -ne 'none') {
+    if ($BackupCart) { throw "Backup cart and RAM expansion share one cartridge slot" }
+    $probeArgs += @('--ram-cart', $RamCart)
 }
 if ($backupRamPath) {
     $backupDir = Split-Path -Parent $backupRamPath

@@ -221,3 +221,20 @@ That test intentionally uses Ymir's hardware state through
 `saturn.SCSP.GetProbe().GetSlots()` plus `SCSP::DumpWRAM()`, rather than
 inferring audio correctness from VDP state.
 
+
+
+## Volatile DRAM expansion cartridge
+
+The RAM-expansion mode is independent of the persistent Backup Memory cartridge.
+Run the same demo with three configurations:
+
+```powershell
+.\harness\run-harness.ps1 ram_cart_demo -Bios .\bios\saturn_bios_us.bin -RamCart 4m -Frames 5
+.\harness\run-harness.ps1 ram_cart_demo -Bios .\bios\saturn_bios_us.bin -RamCart 1m -Frames 5
+.\harness\run-harness.ps1 ram_cart_demo -Bios .\bios\saturn_bios_us.bin -RamCart none -Frames 5
+```
+
+The JSON `ram_cartridge.bank_edge_verified` becomes true when the demo's eight-byte
+pattern spans both physical banks correctly. You cannot use `-BackupCart` and
+`-RamCart 4m/1m` at the same time, but internal `-BackupRam` remains independent.
+Provide your own legally obtained Saturn BIOS image.
