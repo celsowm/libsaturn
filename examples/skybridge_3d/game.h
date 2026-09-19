@@ -66,6 +66,7 @@ typedef struct sb_game {
     uint8_t checkpoint;          /* stage index 0, 3 or 6 */
     uint8_t course;              /* 0=original, 1=variable-width elevators */
     uint8_t coyote, jump_buffer, finished, paused;
+    int8_t facing_x, facing_z;    /* persistent cardinal snout direction */
     int8_t support;              /* -1 when airborne */
 } sb_game_t;
 
@@ -168,10 +169,12 @@ static inline void sb_respawn(sb_game_t* g) {
     g->coyote = 5u;
     g->jump_buffer = 0u;
     g->collapse_ticks = 0u;
+    /* Respawns retain the visual facing; first boot starts toward camera. */
 }
 static inline void sb_init(sb_game_t* g) {
     *g = (sb_game_t){0};
     g->moving_x = sb_moving_offset(0u);
+    g->facing_z=-1;
     sb_respawn(g);
 }
 static inline void sb_start_course(sb_game_t* g,uint8_t course) {
@@ -206,6 +209,20 @@ static inline void sb_camera_right(int32_t fx,int32_t fz,
                                    int32_t* rx,int32_t* rz) {
     *rx=-fz;
     *rz=fx;
+}
+/* Update only when one horizontal axis is clearly dominant. Momentum
+ * near a diagonal or low speed cannot rapidly flip the pig's head between
+ * axes. Stopping, jumping and camera-only turns retain its last facing. */
+static inline void sb_update_facing(sb_game_t* g) {
+    const int32_t ax=sb_abs(g->vx),az=sb_abs(g->vz);
+    const int32_t threshold=SB_F(1)/4,margin=SB_F(1)/8;
+    if(ax>threshold && ax>az+margin) {
+        g->facing_x=(int8_t)(g->vx>0?1:-1);
+        g->facing_z=0;
+    } else if(az>threshold && az>ax+margin) {
+        g->facing_x=0;
+        g->facing_z=(int8_t)(g->vz>0?1:-1);
+    }
 }
 /* Camera basis is supplied as unit 16.16 forward (fx,fz), right (rx,rz). */
 static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
@@ -260,6 +277,7 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
         g->vx+=sb_clamp(target_x-g->vx,-accel,accel);
         g->vz+=sb_clamp(target_z-g->vz,-accel,accel);
     }
+    sb_update_facing(g);
     if (pressed & SB_JUMP) g->jump_buffer=7u;
     else if (g->jump_buffer) --g->jump_buffer;
     if (old_support>=0) g->coyote=5u;
