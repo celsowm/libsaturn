@@ -454,16 +454,41 @@ int main() {
                 assert(long_course.support==-1);
                 assert(long_course.y<sb_platform_y(&long_course,id));
                 /* No phantom underside on a jump inside the open shaft. */
-                long_course.y=sb_platform_y(&long_course,id)-SB_F(8);
+                long_course.y=sb_platform_y(&long_course,id)-SB_F(11);
                 long_course.vy=SB_F(2);
                 long_course.support=-1;
                 tick(long_course);
-                assert(long_course.y>sb_platform_y(&long_course,id)-SB_F(8));
+                assert(long_course.y>sb_platform_y(&long_course,id)-SB_F(11));
+                /* Feet are still below deck; head has crossed its bottom
+                 * plane, which must not act as a ceiling inside the hole. */
+                assert(long_course.y+SB_PLAYER_HEIGHT>
+                       sb_platform_y(&long_course,id)-SB_F(5));
             } else {
                 assert(n==1u && area==full);
             }
         }
         assert(hole_count==SB_COURSE3_HOLE_COUNT);
+        /* Cross the wide centre hole on deck 3 using the ORIGINAL jump
+         * impulse and ordinary controls, landing on the following long
+         * solid pier. A full-width opening must never ground mid-flight. */
+        sb_start_course(&long_course,2u);
+        place(long_course,2u);
+        assert(long_course.z==SB_F(100));
+        assert(tick(long_course,SB_UP|SB_JUMP,SB_JUMP)&SB_EVENT_JUMP);
+        int crossed_hole=0;
+        for(int frame=0;frame<23;++frame) {
+            tick(long_course,SB_UP|SB_JUMP);
+            if(long_course.z>=SB_F(105) && long_course.z<=SB_F(115)) {
+                crossed_hole=1;
+                assert(long_course.support==-1);
+                assert(long_course.y>0);
+            }
+        }
+        assert(crossed_hole && long_course.z>SB_F(115));
+        for(int frame=0;frame<45 && long_course.support<0;++frame)
+            tick(long_course,SB_BRAKE);
+        assert(long_course.support==3);
+        assert(sb_supported_footprint(&long_course,3u));
         /* Both established checkpoint indices still save progress, with
          * their respawn centres on solid uninterrupted deck geometry. */
         sb_start_course(&long_course,2u);
