@@ -1037,7 +1037,8 @@ static void hud(void) {
         put_text("PAUSED - START RESUMES",64,92);
         put_text("X: SWITCH COURSE",80,108);
     } else if(g_show_help && g_game.ticks<480u) {
-        put_text("GEMS OPTIONAL  Z BRAKE",8,192);
+        put_text(g_game.course==2u?"JUMP THE YELLOW-RIM HOLES":
+                                      "GEMS OPTIONAL  Z BRAKE",8,192);
         put_text("D-PAD MOVE  A JUMP",8,204);
         put_text("B/C CAMERA  START PAUSE",8,215);
     }
