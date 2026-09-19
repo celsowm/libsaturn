@@ -1,0 +1,56 @@
+name: Skybridge pig GLB importer
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/skybridge_3d/Makefile.inc"
+      - "examples/skybridge_3d/assets/**"
+      - "tools/import_model.py"
+      - "tools/model_pipeline/**"
+      - "tools/unpack_model_asset.py"
+      - ".github/workflows/skybridge-pig-import.yml"
+  workflow_dispatch:
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install source model converter prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-pil
+      - name: Run the REAL LibSaturn converter and verify user GLB
+        run: |
+          python3 tools/unpack_model_asset.py \
+            --prefix examples/skybridge_3d/assets/pig.source.zlib.b64.part \
+            --parts 7 \
+            --sha256 335dfb81cd8774ceb6c7db5eacd068c180c979d55f097f38da7d190169fe3e69 \
+            --out build/generated/skybridge_3d/pig_source.glb
+          python3 tools/import_model.py \
+            --input build/generated/skybridge_3d/pig_source.glb \
+            --target saturn \
+            --out-prefix build/generated/skybridge_3d/pig_model \
+            --symbol skybridge_pig \
+            --scale 4.3 \
+            --palette-index 7 \
+            --simplify auto \
+            --quality balanced \
+            --animation Walk,Idle,Jump \
+            --animation-fps 12 \
+            --face-colors on \
+            --light-dir=-0.5,0.6,0.8 \
+            --ambient 0.48 \
+            --diffuse 0.55 \
+            --report build/generated/skybridge_3d/pig_model.report.json
+          gcc -std=c11 -Wall -Wextra -fsyntax-only -Iinclude -Ibuild/generated \
+            build/generated/skybridge_3d/pig_model.c
+          cat build/generated/skybridge_3d/pig_model.report.json
+      - name: Retain topology and VDP1 budget report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skybridge-pig-conversion
+          path: build/generated/skybridge_3d/pig_model.report.json
+          if-no-files-found: warn
+          retention-days: 7
