@@ -178,6 +178,85 @@ inline bool project_quad(
     return true;
 }
 
+/* Clip a convex 3D face against the front half-space d>=near_depth.
+ * Keeping this before projection avoids folding or enormous distorted
+ * sprites when the follow camera approaches a large nearby deck. The
+ * un-clipped fast path retains the original face and UV corner order. */
+inline int64_t world_view_depth(
+    const sat_vec3_t& p,const sat_vec3_t& eye,const sat_vec3_t& forward) {
+    return ((static_cast<int64_t>(p.x)-eye.x)*forward.x+
+            (static_cast<int64_t>(p.y)-eye.y)*forward.y+
+            (static_cast<int64_t>(p.z)-eye.z)*forward.z)/SAT_FX16_ONE;
+}
+inline sat_vec3_t near_intersection(
+    const sat_vec3_t& a,const sat_vec3_t& b,
+    int64_t da,int64_t db,int64_t clip_depth) {
+    const int64_t numerator=clip_depth-da;
+    const int64_t denominator=db-da; /* caller guarantees a strict crossing */
+    return sat_vec3_t{
+        static_cast<sat_fx16_t>(
+            static_cast<int64_t>(a.x)+
+            (static_cast<int64_t>(b.x)-a.x)*numerator/denominator),
+        static_cast<sat_fx16_t>(
+            static_cast<int64_t>(a.y)+
+            (static_cast<int64_t>(b.y)-a.y)*numerator/denominator),
+        static_cast<sat_fx16_t>(
+            static_cast<int64_t>(a.z)+
+            (static_cast<int64_t>(b.z)-a.z)*numerator/denominator)
+    };
+}
+inline sat_result_t clip_world_quad_near(
+    const sat_quad3_t* quad,const sat_vec3_t* eye,
+    const sat_vec3_t* forward,sat_fx16_t near_depth,
+    sat_quad3_t out[4],uint8_t* out_count) {
+    if(!quad || !eye || !forward || !out || !out_count ||
+       near_depth<=0 || (!forward->x && !forward->y && !forward->z))
+        return SAT_ERR_INVALID_ARG;
+    int64_t depths[4];
+    uint8_t in_count=0;
+    for(uint8_t i=0;i<4u;++i) {
+        depths[i]=world_view_depth(quad->v[i],*eye,*forward);
+        if(depths[i]>=near_depth)++in_count;
+    }
+    if(in_count==4u) {
+        out[0]=*quad; *out_count=1u; return SAT_OK;
+    }
+    if(in_count==0u) {
+        *out_count=0u; return SAT_OK;
+    }
+    sat_vec3_t clipped[6];
+    uint8_t n=0u;
+    sat_vec3_t previous=quad->v[3];
+    int64_t previous_depth=depths[3];
+    bool previous_inside=previous_depth>=near_depth;
+    for(uint8_t i=0u;i<4u;++i) {
+        const sat_vec3_t current=quad->v[i];
+        const int64_t current_depth=depths[i];
+        const bool current_inside=current_depth>=near_depth;
+        if(previous_inside!=current_inside) {
+            clipped[n++]=near_intersection(
+                previous,current,previous_depth,current_depth,near_depth);
+        }
+        if(current_inside) clipped[n++]=current;
+        previous=current;
+        previous_depth=current_depth;
+        previous_inside=current_inside;
+    }
+    if(n<3u) {
+        *out_count=0u; return SAT_OK;
+    }
+    /* A clipped quad has at most 6 vertices, so 4 fan triangles.
+     * Degenerate triangle D=C is understood by the existing projector. */
+    *out_count=static_cast<uint8_t>(n-2u);
+    for(uint8_t i=0u;i<*out_count;++i) {
+        out[i].v[0]=clipped[0];
+        out[i].v[1]=clipped[i+1u];
+        out[i].v[2]=clipped[i+2u];
+        out[i].v[3]=clipped[i+2u];
+    }
+    return SAT_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Quad construction                                                   */
 /* ------------------------------------------------------------------ */
