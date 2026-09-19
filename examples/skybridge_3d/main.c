@@ -26,6 +26,8 @@ typedef struct sb_render_item {
 
 static sb_game_t g_game;
 static sat_ascii_font_t g_font;
+static sat_vdp1_texture_t g_tile_texture;
+static uint8_t g_tile_pixels[16u*16u];
 static uint8_t g_sky[SKY_W * SKY_H];
 static uint16_t g_sky_colors[256], g_sea_colors[256];
 static uint16_t g_map[SAT_VDP2_NBG0_MAP_CELLS];
@@ -58,6 +60,14 @@ static void put_quad(const sat_quad3_t* q, uint16_t c) {
     sat_result_t st = sat_draw_world_polygon(&g_vp,q,c);
     if (st != SAT_OK && st != SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
+static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
+    const uint16_t light[4]={
+        SAT_GOURAUD_NEUTRAL, sat_gouraud_from_intensity(SB_F(7)/8),
+        sat_gouraud_from_intensity(SB_F(3)/4), sat_gouraud_from_intensity(SB_F(7)/8)
+    };
+    sat_result_t st=sat_draw_world_polygon_gouraud(&g_vp,q,c,light);
+    if (st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+}
 static void pquad(sat_quad3_t* q, int32_t ax,int32_t ay,int32_t az,
                   int32_t bx,int32_t by,int32_t bz,
                   int32_t cx,int32_t cy,int32_t cz,
@@ -89,11 +99,16 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
     put_quad(&q,zcolor);
     if (g_eye.y>y) {
         quad_rect_xz(&q,lx,rx,bz,fz,y);
-        put_quad(&q,top);
+        put_quad_lit(&q,top);
         if (trim && hx>SB_F(4) && hz>SB_F(4)) {
-            /* Narrow inset in a different material: visible directional trim. */
+            /* Indexed VDP1 distorted sprite: one tiny reusable 16x16 material. */
             quad_rect_xz(&q,lx+SB_F(2),rx-SB_F(2),bz+SB_F(2),fz-SB_F(2),y+SB_F(1)/32);
-            put_quad(&q,trim==2u ? SAT_RGB555(24,20,10):SAT_RGB555(10,22,20));
+            if (trim==2u) {
+                put_quad(&q,SAT_RGB555(24,20,10));
+            } else {
+                sat_result_t st=sat_draw_world_sprite(&g_vp,&q,&g_tile_texture,0u,0u);
+                if (st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+            }
         }
     }
 }
@@ -186,6 +201,21 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
         if (g_items[i].id==-1) player_box();
         else stage_box((uint8_t)g_items[i].id);
     }
+}
+static void init_tile_texture(void) {
+    uint16_t palette[256];
+    uint16_t x,y;
+    for (x=0u;x<256u;++x) palette[x]=SAT_BGR555(0,0,0);
+    palette[1]=SAT_BGR555(9,23,18);
+    palette[2]=SAT_BGR555(16,28,22);
+    palette[3]=SAT_BGR555(26,30,27);
+    for (y=0u;y<16u;++y) for (x=0u;x<16u;++x) {
+        uint8_t idx=(uint8_t)((x%4u==0u || y%4u==0u)?2u:1u);
+        if ((x+y)%11u==0u) idx=3u;
+        g_tile_pixels[y*16u+x]=idx;
+    }
+    sat_example_must(sat_tex_upload_indexed8(
+        &g_tile_texture,g_tile_pixels,16u,16u,palette,3u));
 }
 static void init_sky(void) {
     uint32_t y,x;
@@ -344,6 +374,7 @@ int main(void) {
     sat_example_must(sat_init(&video));
     sb_init(&g_game);
     init_background();
+    init_tile_texture();
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
         &g_font,SAT_COLOR_WHITE,SAT_COLOR_BLACK,2u));
     sat_example_must(sat_vdp1_set_erase_transparent());
