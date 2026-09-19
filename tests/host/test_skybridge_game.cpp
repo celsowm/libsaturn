@@ -83,8 +83,53 @@ int main() {
     }
     sb_game_t g;
     sb_init(&g);
+    assert(g.facing_x==0 && g.facing_z==-1); // pink pig faces camera on spawn
     assert(g.x==0 && g.y==0 && g.z==SB_F(-4));
     assert(g.support==0 && g.pickups==0 && g.checkpoint==0);
+    /* Visual facing is persistent and independent from camera yaw. It
+     * changes only for clear horizontal movement, not small diagonal
+     * velocity, input release, a jump or a mere camera orbit. */
+    {
+        sb_game_t pig;
+        sb_init(&pig);
+        int8_t initial_x=pig.facing_x,initial_z=pig.facing_z;
+        pig.vx=SB_F(1)/16;
+        pig.vz=SB_F(1)/16;
+        sb_update_facing(&pig);
+        assert(pig.facing_x==initial_x && pig.facing_z==initial_z);
+        pig.vx=-SB_F(1);
+        pig.vz=SB_F(1)/16;
+        sb_update_facing(&pig);
+        assert(pig.facing_x==-1 && pig.facing_z==0);
+        pig.vx=0;
+        pig.vz=0;
+        sb_update_facing(&pig);
+        assert(pig.facing_x==-1 && pig.facing_z==0);
+        pig.vx=SB_F(3)/4;
+        pig.vz=SB_F(3)/4;
+        sb_update_facing(&pig);
+        assert(pig.facing_x==-1 && pig.facing_z==0);
+        pig.vx=SB_F(1)/16;
+        pig.vz=-SB_F(1);
+        sb_update_facing(&pig);
+        assert(pig.facing_x==0 && pig.facing_z==-1);
+        sb_init(&pig);
+        tick(pig,SB_RIGHT);
+        assert(pig.facing_x==-1 && pig.facing_z==0);
+        const int32_t facing_x=pig.facing_x,facing_z=pig.facing_z;
+        pig.paused=1;
+        for(int yaw=0;yaw<4;++yaw)
+            sb_tick(&pig,0,0,0,SB_F(1),SB_F(1),0);
+        assert(pig.facing_x==facing_x && pig.facing_z==facing_z);
+        pig.paused=0;
+        pig.vx=0;
+        pig.vz=0;
+        assert(tick(pig,SB_JUMP,SB_JUMP)&SB_EVENT_JUMP);
+        assert(pig.facing_x==facing_x && pig.facing_z==facing_z);
+        sb_start_course(&pig,1u);
+        assert(pig.facing_x==0 && pig.facing_z==-1);
+        assert(pig.course==1u && pig.y==0);
+    }
     assert(sb_moving_offset(0)==-SB_F(4));
     assert(sb_moving_offset(60)==SB_F(4));
     assert(sb_moving_offset(120)==-SB_F(4));
