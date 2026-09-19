@@ -225,6 +225,10 @@ int main() {
     OK(sat_fill_rect(&rect, sat_color_rgba(255u, 255u, 255u, 0u)) == SAT_OK);
     OK(g_polygon_calls == 2u);
     OK(sat_fill_rect(&rect, sat_color_rgba(255u, 255u, 255u, 127u)) == SAT_ERR_UNSUPPORTED);
+    /* The earlier camera test deliberately used a non-identity transform.
+     * Restore the normal sprite path before checking mesh and alpha routing. */
+    sat_camera2d_t default_camera = sat_camera2d_default();
+    OK(sat_render2d_set_camera(&default_camera) == SAT_OK);
     sat_draw_params_t meshed = sat_draw_params_default();
     meshed.flags = SAT_SPRITE_FLAG_MESH;
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &meshed) == SAT_OK);
@@ -237,7 +241,7 @@ int main() {
     g_alpha_configured = true;
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &alpha) == SAT_OK);
     OK(g_alpha_requested == 128u);
-    OK(g_last_sprite.palette == 0x0040u | (4u << 3u));
+    OK(g_last_sprite.palette == (0x0040u | (4u << 3u)));
     const uint32_t sprites_before_skip = g_sprite_calls;
     alpha.tint.a = 0u;
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &alpha) == SAT_OK);
@@ -247,10 +251,10 @@ int main() {
     OK(g_last_sprite.palette == 0u);
     alpha.tint.a = 128u;
     OK(sat_draw_texture(persistent, &src, &scaled_dst, &alpha) == SAT_OK);
-    OK(g_last_scaled.palette == 0x0040u | (4u << 3u));
+    OK(g_last_scaled.palette == (0x0040u | (4u << 3u)));
     alpha.rotation = static_cast<sat_fx16_t>(30 << 16);
     OK(sat_draw_texture(persistent, &src, &scaled_dst, &alpha) == SAT_OK);
-    OK(g_last_distorted.palette == 0x0040u | (4u << 3u));
+    OK(g_last_distorted.palette == (0x0040u | (4u << 3u)));
     std::puts("render2d api: OK");
     return 0;
 }
