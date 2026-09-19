@@ -147,6 +147,14 @@ int main() {
     OK(g_painter_order[1]==10 && g_painter_order[2]==50);
     OK(g_painter_order[3]==20 && g_painter_order[4]==30);
     OK(sat_scene3d_queue_flush(&painter)==SAT_ERR_INVALID_ARG);
+    /* Empty frames are valid and deterministic. Degenerate cameras are not. */
+    OK(sat_scene3d_queue_begin(&painter,&camera)==SAT_OK);
+    g_painter_count=0;
+    OK(sat_scene3d_queue_flush(&painter)==SAT_OK);
+    OK(g_painter_count==0);
+    sat_camera3d_t invalid_camera=camera;
+    invalid_camera.target=invalid_camera.eye;
+    OK(sat_scene3d_queue_begin(&painter,&invalid_camera)==SAT_ERR_INVALID_ARG);
     /* Flip the camera: the same two actors reverse depth order. */
     camera.eye={0,0,-sat_fx16_from_int(10)};
     camera.target={0,0,0};
@@ -183,9 +191,14 @@ int main() {
     /* Deferred compiled models retain existing immediate draw behavior. */
     const int previous_draw_calls=g_draw_calls;
     const sat_vec3_t local_center={0,0,0};
-    transform.position={0,0,0};
+    transform.position={sat_fx16_from_int(2),0,0};
     OK(sat_scene3d_queue_submit_model(
         &painter,&local_center,0u,&scene,&model_asset,&transform,&params)==SAT_OK);
+    /* Local model anchor was transformed/copied, not kept at its origin. */
+    OK(painter.items[0].center.x==sat_fx16_from_int(2));
+    OK(painter.items[0].transform.position.x==sat_fx16_from_int(2));
+    transform.position.x=sat_fx16_from_int(55);
+    OK(painter.items[0].transform.position.x==sat_fx16_from_int(2));
     g_painter_count=0;
     OK(sat_scene3d_queue_flush(&painter)==SAT_OK);
     OK(g_draw_calls==previous_draw_calls+1 && !scene.active);
