@@ -42,13 +42,12 @@ Do not use `unit_id` as the `device` argument without verification.
   reason to assume all BIOS revisions use the same cart index:
   https://github.com/user-none/erings/blob/96e2cbab8ba8cf3e89bec3954f96c2b14b79f1dd/docs/bios/backup_library.md
 
-The repository currently maps `SAT_SAVE_INTERNAL` to BIOS argument `1`
-in `src/core/save_api.cpp`. That was introduced by conflating the two
-namespaces. Host tests also assert `device == 1`, so their success does not
-prove compatibility with the Sega guide. Fix and validate the internal
-mapping first; establish the external index from `Config[3]`, the guide,
-the BIOS probe, and emulator/hardware observations. Record the resulting
-index table and ROM version in a short BUP contract note.
+The internal path was corrected to pass **BUP device index 0** in
+`src/core/save_api.cpp`; host tests now assert that index separately from
+`Config[0].unit_id == 1`. This is a verified *source/host-test correction*,
+not yet BIOS-backed runtime acceptance. Establish the external index from
+`Config[3]`, the guide, the BIOS probe and emulator/hardware observations.
+Record the resulting index table and ROM version in a short BUP contract note.
 
 Ymir's **pinned** core supports external backup cartridges: construct a
 `ymir::bup::BackupMemory` and insert it with
@@ -68,12 +67,12 @@ image; let BIOS `BUP_Stat` determine its usable capacity and block geometry.
    `src/core/save_api.cpp` and `tests/host/test_save_api.cpp`. Assert the
    actual BIOS arguments in the fake HAL, separately from `Config.unit_id`.
    Do **not** blindly change the cartridge mapping to 2; establish it by probe.
-2. Fix the present targeted SH-2 build blocker: at run
+2. Revalidate the SH-2 save-specific build. At run
    https://github.com/celsowm/libsaturn/actions/runs/35417196472,
-   `examples/save_backup_demo/main.c` fails because this freestanding
-   toolchain cannot find `string.h`. Use repo-owned freestanding-safe byte
-   comparison or a documented project primitive, and rerun the save-specific
-   cross-build gate.
+   `examples/save_backup_demo/main.c` failed because the freestanding
+   toolchain could not find `string.h`. The demo now uses a freestanding-safe
+   local byte comparison; build validation still must be checked on the
+   resulting commit, including any subsequent compiler/linker errors.
 3. Run the existing *two-process* internal persistence test with a locally
    supplied legal Saturn BIOS; verify `LIBSAT_DEMO` counts 1 then 2 and
    that the BIOS's own directory agrees with the Ymir-side record. No BIOS
