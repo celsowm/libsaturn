@@ -15,6 +15,69 @@ static void place(sb_game_t& g,uint8_t i) {
     g.coyote=5;
 }
 int main() {
+    /* Ground acceleration remains the original 0.2 unit/tick on normal
+     * surfaces, with an explicit stronger reversal and user-held Z brake. */
+    {
+        assert(sb_move_axis(0,SB_F(3)/2,SB_SURFACE_NORMAL,0u)==SB_F(1)/5);
+        assert(sb_move_axis(SB_F(1),-SB_F(3)/2,SB_SURFACE_NORMAL,0u)==
+               SB_F(1)-SB_F(2)/5);
+        assert(sb_move_axis(SB_F(1),SB_F(3)/2,SB_SURFACE_NORMAL,1u)==
+               SB_F(1)-SB_F(3)/5);
+        assert(sb_move_axis(0,SB_F(3)/2,SB_SURFACE_NORMAL,1u)==0);
+        assert(sb_move_axis(SB_F(1)/100,0,SB_SURFACE_NORMAL,0u)==0);
+        assert(sb_move_axis(-SB_F(1)/100,0,SB_SURFACE_NORMAL,0u)==0);
+        assert(sb_move_axis(SB_F(1)/10,0,SB_SURFACE_NORMAL,1u)==0);
+        assert(sb_move_axis(SB_F(1),0,SB_SURFACE_SLICK,0u)==
+               SB_F(1)-SB_F(1)/20);
+        assert(sb_move_axis(SB_F(1),0,SB_SURFACE_GRIP,0u)==
+               SB_F(1)-SB_F(2)/5);
+        assert(sb_move_axis(SB_F(1),0,SB_SURFACE_AIR,1u)==
+               SB_F(1)-SB_F(1)/8);
+        assert(sb_move_axis(SB_F(1),0,SB_SURFACE_AIR,0u)==
+               SB_F(1)-SB_F(1)/12);
+        assert(sb_stage[1].surface==SB_SURFACE_NORMAL); /* fixed-deck regression */
+        assert(sb_stage[3].surface==SB_SURFACE_GRIP);
+        assert(sb_stage[5].surface==SB_SURFACE_SLICK);
+        assert(sb_stage_two[3].surface==SB_SURFACE_GRIP);
+        assert(sb_stage_two[7].surface==SB_SURFACE_SLICK);
+
+        sb_game_t rolling;
+        sb_init(&rolling);
+        place(rolling,0u);
+        rolling.vz=SB_F(1);
+        tick(rolling);
+        assert(rolling.vz==SB_F(1)-SB_F(1)/5);
+        place(rolling,5u);
+        rolling.vz=SB_F(1);
+        tick(rolling);
+        assert(rolling.vz==SB_F(1)-SB_F(1)/20);
+        place(rolling,3u);
+        rolling.vz=SB_F(1);
+        tick(rolling);
+        assert(rolling.vz==SB_F(1)-SB_F(2)/5);
+        place(rolling,0u);
+        rolling.vz=SB_F(1);
+        tick(rolling,SB_DOWN);
+        assert(rolling.vz==SB_F(1)-SB_F(2)/5);
+        place(rolling,0u);
+        rolling.vz=SB_F(1);
+        tick(rolling,SB_UP|SB_BRAKE);
+        assert(rolling.vz==SB_F(1)-SB_F(3)/5);
+        for(int i=0;i<5;++i)tick(rolling,SB_UP|SB_BRAKE);
+        assert(rolling.vz==0);
+        /* Brake input must not cancel an elevator's vertical carry. */
+        sb_start_course(&rolling,1u);
+        place(rolling,2u);
+        const int32_t initial_y=rolling.y;
+        tick(rolling,SB_BRAKE);
+        assert(rolling.support==2 && rolling.y==sb_platform_y(&rolling,2u));
+        assert(rolling.y!=initial_y);
+        sb_start_course(&rolling,1u);
+        place(rolling,7u);
+        rolling.vz=SB_F(1);
+        tick(rolling);
+        assert(rolling.vz==SB_F(1)-SB_F(1)/20);
+    }
     /* A gamepad press must match the visible camera-right direction. */
     int32_t rx=0,rz=0;
     sb_camera_right(0,SB_F(1),&rx,&rz);
