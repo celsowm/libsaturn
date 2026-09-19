@@ -36,6 +36,26 @@ typedef struct sat_quad2 {
     int16_t y[4];
 } sat_quad2_t;
 
+/* Software near-plane clipping for a convex WORLD quad (including triangles
+ * encoded with D=C). eye and forward are world-space 16.16; forward must be
+ * a unit camera direction, near_depth > 0. The output array must hold FOUR
+ * quads. A fully visible quad is returned unchanged; a crossing quad is
+ * clipped and tessellated into <=4 triangles (D=C), which can then be
+ * projected through the normal native VDP1 paths without a giant/folded
+ * sprite. Fully hidden quad returns count=0.
+ *
+ * This clips GEOMETRY only, not texture UV coordinates. Use it for solid
+ * materials; textures need UV clipping or an explicit skip near the camera.
+ * The caller supplies all memory and retains the original input unmodified.
+ */
+sat_result_t sat_clip_quad_near(
+    const sat_quad3_t* quad,
+    const sat_vec3_t* eye,
+    const sat_vec3_t* forward,
+    sat_fx16_t near_depth,
+    sat_quad3_t out_triangles[4],
+    uint8_t* out_count);
+
 /* One vertex projected into native VDP1 coordinates. `w` is its clip-space
  * w -- view depth in 16.16 world units. w <= 0 means at or behind the camera
  * plane, and x/y are then meaningless. */
