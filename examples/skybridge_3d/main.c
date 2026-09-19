@@ -182,20 +182,32 @@ static void put_quad(const sat_quad3_t* q, uint16_t c) {
     sat_example_must(sat_clip_quad_near(
         q,&g_eye,&g_scene.forward,SB_F(8),pieces,&count));
     for(uint8_t piece=0u;piece<count;++piece) {
-        sat_quad2_t screen;
-        sat_distorted_sprite_cmd_t cmd={0};
+        sat_quad2_t screen,visible[6];
+        uint8_t visible_count=0u;
         sat_result_t st=sat_project_quad(&g_vp,&pieces[piece],&screen);
         if(st==SAT_ERR_UNSUPPORTED)continue;
         sat_example_must(st);
-        for(uint8_t i=0u;i<4u;++i) {
-            cmd.x[i]=screen.x[i];cmd.y[i]=screen.y[i];
+        st=sat_clip_quad_screen(&screen,W,H,visible,&visible_count);
+        if(st==SAT_ERR_UNSUPPORTED)continue;
+        sat_example_must(st);
+        /* VDP1 processes each distorted-sprite command even outside the
+         * display. Clip the giant near-plane polygons BEFORE submitting:
+         * an earlier platform must not consume the entire frame and starve
+         * the pig, other decks and especially the HUD appended at the end. */
+        for(uint8_t tri=0u;tri<visible_count;++tri) {
+            sat_distorted_sprite_cmd_t cmd={0};
+            for(uint8_t k=0u;k<4u;++k) {
+                cmd.x[k]=visible[tri].x[k];
+                cmd.y[k]=visible[tri].y[k];
+            }
+            cmd.texture=&g_fade_textures[fade_material(c)];
+            if(g_active_fade_slot==FADE_OPAQUE)
+                st=sat_draw_sprite_distorted(&cmd);
+            else
+                st=sat_draw_sprite_distorted_color_calc(
+                    &cmd,g_active_fade_slot);
+            if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
         }
-        cmd.texture=&g_fade_textures[fade_material(c)];
-        if(g_active_fade_slot==FADE_OPAQUE)
-            st=sat_draw_sprite_distorted(&cmd);
-        else
-            st=sat_draw_sprite_distorted_color_calc(&cmd,g_active_fade_slot);
-        if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
     }
 }
 static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
@@ -250,27 +262,48 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
                 sat_example_must(sat_clip_quad_near(
                     &q,&g_eye,&g_scene.forward,SB_F(8),clipped,&clipped_count));
                 if(clipped_count==1u) {
+                    uint8_t fully_in_front=1u,k;
+                    sat_quad2_t projected;
                     sat_result_t st;
-                    const sat_vdp1_texture_t* texture=
-                        &g_tile_textures[trim==1u?0u:(trim==3u?1u:2u)];
-                    if (g_active_fade_slot==FADE_OPAQUE) {
-                        st=sat_draw_world_sprite(&g_vp,&q,texture,0u,0u);
-                    } else {
-                        sat_quad2_t projected;
-                        st=sat_project_quad(&g_vp,&q,&projected);
-                        if (st==SAT_OK) {
-                            sat_distorted_sprite_cmd_t cmd={0};
-                            uint8_t k;
-                            for(k=0u;k<4u;++k) {
-                                cmd.x[k]=projected.x[k];cmd.y[k]=projected.y[k];
-                            }
-                            cmd.texture=texture;
-                            st=sat_draw_sprite_distorted_color_calc(
-                                &cmd,g_active_fade_slot);
-                        }
+                    /* One clipped triangle ALSO has count=1! Check that the
+                     * original 4 UV corners survived unchanged before drawing
+                     * a patterned quad; otherwise the old near-plane hazard
+                     * was still reachable through this inset. */
+                    for(k=0u;k<4u;++k) {
+                        if(clipped[0].v[k].x!=q.v[k].x ||
+                           clipped[0].v[k].y!=q.v[k].y ||
+                           clipped[0].v[k].z!=q.v[k].z)
+                            fully_in_front=0u;
                     }
-                    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED)
-                        sat_example_must(st);
+                    if(fully_in_front) {
+                        st=sat_project_quad(&g_vp,&q,&projected);
+                        if(st==SAT_OK) {
+                            uint8_t entirely_on_screen=1u;
+                            sat_distorted_sprite_cmd_t cmd={0};
+                            for(k=0u;k<4u;++k) {
+                                if(projected.x[k]<-(int32_t)W/2 ||
+                                   projected.x[k]>=(int32_t)W/2 ||
+                                   projected.y[k]<-(int32_t)H/2 ||
+                                   projected.y[k]>=(int32_t)H/2)
+                                    entirely_on_screen=0u;
+                                cmd.x[k]=projected.x[k];
+                                cmd.y[k]=projected.y[k];
+                            }
+                            /* This patterned sprite has no UV-aware
+                             * clipping. When partially off-screen, render
+                             * only the safe, clipped solid base instead. */
+                            if(entirely_on_screen) {
+                                cmd.texture=&g_tile_textures[
+                                    trim==1u?0u:(trim==3u?1u:2u)];
+                                if(g_active_fade_slot==FADE_OPAQUE)
+                                    st=sat_draw_sprite_distorted(&cmd);
+                                else st=sat_draw_sprite_distorted_color_calc(
+                                    &cmd,g_active_fade_slot);
+                                if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED)
+                                    sat_example_must(st);
+                            }
+                        } else if(st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+                    }
                 }
             }
         }
