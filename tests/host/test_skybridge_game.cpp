@@ -116,7 +116,9 @@ int main() {
         sb_init(&pig);
         tick(pig,SB_RIGHT);
         tick(pig,SB_RIGHT); /* second accel tick exceeds the facing threshold */
-        assert(pig.facing_x==-1 && pig.facing_z==0);
+        /* This test's tick() helper deliberately uses right=(+X,0).
+         * The actual game camera's right vector is tested separately. */
+        assert(pig.facing_x==1 && pig.facing_z==0);
         const int32_t facing_x=pig.facing_x,facing_z=pig.facing_z;
         pig.paused=1;
         for(int yaw=0;yaw<4;++yaw)
