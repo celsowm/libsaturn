@@ -34,7 +34,7 @@ struct AssetEntry {
 struct AssetCacheBlock {
     char source_path[SAT_FILE_PATH_MAX];
     uint32_t block_index;
-    uint16_t valid_bytes;
+    uint32_t valid_bytes;
     uint32_t last_used;
     uint8_t data[SAT_ASSET_CACHE_BLOCK_BYTES];
     uint8_t used;
