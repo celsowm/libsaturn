@@ -572,6 +572,7 @@ static uint8_t platform_fade_slot(uint8_t id,int32_t depth) {
 }
 static void draw_world(int32_t forward_x,int32_t forward_z) {
     uint8_t i,j,actor_count=0u;
+    uint8_t visible_decks[SB_PLATFORM_COUNT]={0};
     const int32_t cam_dx=g_target.x-g_eye.x;
     const int32_t cam_dy=g_target.y-g_eye.y;
     const int32_t cam_dz=g_target.z-g_eye.z;
@@ -607,11 +608,13 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
         if(slot==FADE_CULLED)continue;
         g_active_fade_slot=slot;
         stage_box(id);
+        visible_decks[id]=1u;
     }
     if(g_game.support>=0 &&
        sb_platform_active(&g_game,(uint8_t)g_game.support)) {
         g_active_fade_slot=FADE_OPAQUE;
         stage_box((uint8_t)g_game.support);
+        visible_decks[(uint8_t)g_game.support]=1u;
     }
     /* Only objects that physically exist in this frame enter the actor
      * list. Build from current platform positions so moving X/Y decks
@@ -626,7 +629,9 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
     for(i=1u;i<=SB_PICKUP_COUNT;++i) {
         int32_t px,pz,py;
         int64_t depth;
-        if(!sb_platform_active(&g_game,i) ||
+        /* Do not draw an isolated bright gem whose supporting platform
+         * was culled by the scene's existing distance-fade policy. */
+        if(!visible_decks[i] ||
            (g_game.pickups&(1u<<(i-1u))))continue;
         px=sb_platform_x(&g_game,i);
         pz=SB_F(sb_course_platforms(&g_game)[i].z);
