@@ -374,6 +374,8 @@ static void stage_box(uint8_t i) {
     int32_t x=sb_platform_x(&g_game,i), z=SB_F(p->z);
     int32_t top_y=sb_platform_y(&g_game,i);
     uint16_t t=top_color(i);
+    if(p->surface==SB_SURFACE_SLICK)t=SAT_RGB555(9,26,30);
+    if(p->surface==SB_SURFACE_GRIP)t=SAT_RGB555(31,20,7);
     if(p->kind==SB_LIFT)
         t=SAT_RGB555(31,26,3);
     if (p->kind==SB_COLLAPSING && g_game.collapse_ticks>0u &&
@@ -980,9 +982,13 @@ static void hud(void) {
     hud_coord('Z',g_game.z,217,19);
     if(g_show_debug) {
         /* Y toggles the extra camera-orbit diagnostic below the XYZ row. */
-        (void)sat_draw_rect_screen(0,31,198u,13u,SAT_RGB555(3,8,15));
+        uint8_t surface=sb_ground_surface(&g_game,g_game.support);
+        (void)sat_draw_rect_screen(0,31,W,13u,SAT_RGB555(3,8,15));
         label("DECK ",g_game.support<0?0u:(uint32_t)g_game.support+1u,7,33);
         label("YAW ",(uint32_t)g_yaw,101,33);
+        put_text(surface==SB_SURFACE_SLICK?"ICE":
+                 surface==SB_SURFACE_GRIP?"GRIP":
+                 surface==SB_SURFACE_AIR?"AIR":"NORMAL",197,33);
     }
     if (g_game.finished) {
         (void)sat_draw_rect_screen(46,76,228u,75u,SAT_RGB555(2,13,16));
@@ -996,7 +1002,7 @@ static void hud(void) {
         put_text("PAUSED - START RESUMES",64,92);
         put_text("X: SWITCH COURSE",80,108);
     } else if(g_show_help && g_game.ticks<480u) {
-        put_text("GEMS OPTIONAL",8,192);
+        put_text("GEMS OPTIONAL  Z BRAKE",8,192);
         put_text("D-PAD MOVE  A JUMP",8,204);
         put_text("B/C CAMERA  START PAUSE",8,215);
     }
@@ -1080,6 +1086,7 @@ int main(void) {
             if(pad.held&SAT_PAD_LEFT) held|=SB_LEFT;
             if(pad.held&SAT_PAD_RIGHT) held|=SB_RIGHT;
             if(pad.held&SAT_PAD_A) held|=SB_JUMP;
+            if(pad.held&SAT_PAD_Z) held|=SB_BRAKE;
             while(steps--) {
                 events|=sb_tick(&g_game,held,pressed,fx,fz,rx,rz);
                 pressed=0u; /* A pressed edge is delivered once, never per catch-up step. */
