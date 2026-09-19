@@ -77,6 +77,20 @@ static inline int32_t sb_clamp(int32_t n, int32_t low, int32_t high) {
 static inline int32_t sb_mul(int32_t a, int32_t b) {
     return (int32_t)(((int64_t)a * b) >> 16);
 }
+/* VDP1 has no Z-buffer. Sort independent actors (pig and gems) by their
+ * 3D camera-space centre depth, NOT by platform id or world Z. The view
+ * vector includes camera pitch, so a raised gem and a grounded avatar
+ * can swap their screen-space depth as the follow camera orbits.
+ * Return int64 to avoid overflow with distant world coordinates. */
+static inline int64_t sb_actor_view_depth(
+    int32_t x,int32_t y,int32_t z,
+    int32_t eye_x,int32_t eye_y,int32_t eye_z,
+    int32_t view_x,int32_t view_y,int32_t view_z) {
+    return ((int64_t)(x-eye_x)*view_x+
+            (int64_t)(y-eye_y)*view_y+
+            (int64_t)(z-eye_z)*view_z)>>16u;
+}
+
 static inline const sb_platform_t* sb_course_platforms(const sb_game_t* g) {
     return g->course==1u?sb_stage_two:sb_stage;
 }
