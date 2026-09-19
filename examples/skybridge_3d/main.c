@@ -325,7 +325,7 @@ static void init_audio(void) {
             int32_t wave=(phase<64 ? phase : 128-phase)-32;
             int32_t envelope=(int32_t)(local<160u ? local :
                 (local>3935u ? 4095u-local : 160u));
-            int32_t bass=(int32_t)((i%100u)*64u/100u);
+            int32_t bass=(int32_t)((i%128u)/2u);
             bass=(bass<32 ? bass : 64-bass)-16;
             /* 8-note, three-second arpeggio. Fade notes to zero at boundaries. */
             g_music[i]=(int8_t)((wave*envelope)/320+bass/4);
