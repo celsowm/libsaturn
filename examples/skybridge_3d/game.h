@@ -109,6 +109,13 @@ static inline void sb_side_collide(sb_game_t* g, int32_t old_x, int32_t old_z) {
         }
     }
 }
+/* In the Saturn camera's right-handed look-at basis, +Z forward means
+ * -X on the right side of the screen; reverse signs at this single point. */
+static inline void sb_camera_right(int32_t fx,int32_t fz,
+                                   int32_t* rx,int32_t* rz) {
+    *rx=-fz;
+    *rz=fx;
+}
 /* Camera basis is supplied as unit 16.16 forward (fx,fz), right (rx,rz). */
 static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
                                int32_t fx, int32_t fz, int32_t rx, int32_t rz) {
