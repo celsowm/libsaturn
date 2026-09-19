@@ -31,6 +31,9 @@ bool upload(uint32_t offset, const void* data, uint32_t byte_count);
 void clear_sound_ram(uint32_t offset, uint32_t byte_count);
 
 bool configure_slot(uint8_t slot, const SlotConfig& config);
+// Read CA through the MSLC slot monitor. The returned value is the current
+// sample offset in the SCSP's native 4096-sample units.
+bool read_current_sample_block(uint8_t slot, uint8_t* out_block);
 void key_on(uint8_t slot);
 void key_off(uint8_t slot);
 void set_slot_level_pan(uint8_t slot, uint8_t total_level, uint8_t direct_level, uint8_t pan);

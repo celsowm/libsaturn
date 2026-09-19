@@ -58,6 +58,7 @@ void audio_stream_stop_playback(AudioStreamSlot& slot) {
     slot.playback_start_frame = 0u;
     slot.playback_chunk_frames = 0u;
     slot.serviced_chunks = 0u;
+    slot.monitor_frame = 0u;
     slot.seamless_loop = 0u;
     slot.pending_refill = 0u;
 }
@@ -67,10 +68,12 @@ namespace {
 bool stream_can_loop_seamlessly(const AudioStreamSlot& slot, uint32_t display_rate) {
     if (display_rate == 0u || slot.format != SAT_AUDIO_PCM_S16) return false;
     if (slot.ring.capacity_frames < 2u * kAudioStreamChunkFrames) return false;
-    // The cooperative service runs once per display frame. Keep each half
-    // longer than one display frame so the half that just became inactive is
-    // still safe to overwrite when the next service call arrives.
-    return slot.sample_rate <= kAudioStreamChunkFrames * display_rate;
+    // CA is sampled at most once per display-service frame. Keep each half
+    // at least two frames long so a delayed service still cannot skip across
+    // an entire half before observing the transition. This still covers the
+    // usual 22.05/44.1/48 kHz music rates with ample margin.
+    return slot.sample_rate <=
+        (static_cast<uint64_t>(kAudioStreamChunkFrames) * display_rate) / 2u;
 }
 
 uint32_t upload_stream_chunk(AudioStreamSlot& slot, uint8_t buffer_index, uint32_t frames) {
@@ -117,6 +120,8 @@ bool start_seamless_loop(AudioStreamSlot& slot, uint32_t frame_now, uint32_t dis
     slot.playback_start_frame = frame_now;
     slot.playback_chunk_frames = kAudioStreamChunkFrames;
     slot.serviced_chunks = 0u;
+    slot.monitor_frame = frame_now;
+    // Key-on starts at SA, which is the first 4096-sample half.
     slot.playback_buffer = 0u;
     slot.pending_refill = 0u;
     slot.playback_end_frame = 0u;
@@ -135,20 +140,25 @@ void audio_stream_service(
         if (slot.used == 0u || slot.ring.paused != 0u) continue;
 
         if (slot.hardware_playing != 0u && slot.seamless_loop != 0u) {
-            const uint64_t chunk_units =
-                static_cast<uint64_t>(slot.playback_chunk_frames) * display_rate;
-            const uint32_t elapsed_frames = frame_now - slot.playback_start_frame;
-            const uint64_t elapsed_units =
-                static_cast<uint64_t>(elapsed_frames) * slot.sample_rate;
-            const uint32_t completed_chunks = chunk_units == 0u
-                ? 0u : static_cast<uint32_t>(elapsed_units / chunk_units);
-            if (completed_chunks <= slot.serviced_chunks) continue;
-            if (slot.pending_refill == 0u &&
-                completed_chunks > slot.serviced_chunks + 1u) {
-                slot.ring.underrun_count +=
-                    completed_chunks - slot.serviced_chunks - 1u;
+            // Do not infer the playback half from VBlank/display time. The
+            // SCSP exposes its real current address through MSLC/CA, and one
+            // CA unit is exactly our 4096-sample half size.
+            if (slot.monitor_frame == frame_now) continue;
+            slot.monitor_frame = frame_now;
+
+            uint8_t sample_block = 0u;
+            if (!saturn::hal::scsp::read_current_sample_block(
+                    slot.scsp_slot, &sample_block)) {
+                continue;
             }
-            const uint8_t refill_half = static_cast<uint8_t>((completed_chunks - 1u) & 1u);
+            const uint8_t active_half = static_cast<uint8_t>(sample_block & 1u);
+            if (active_half == slot.playback_buffer) continue;
+
+            // playback_buffer is the last observed active half. Once CA moves
+            // to the other half, that old half is hardware-inactive and safe
+            // to rewrite. If the producer is temporarily late, leave the
+            // observed half unchanged and retry on the next service frame.
+            const uint8_t refill_half = slot.playback_buffer;
             if (slot.ring.buffered_frames < slot.playback_chunk_frames) {
                 if (slot.pending_refill == 0u) ++slot.ring.underrun_count;
                 slot.pending_refill = 1u;
@@ -157,9 +167,10 @@ void audio_stream_service(
             if (upload_stream_chunk(slot, refill_half, slot.playback_chunk_frames) !=
                 slot.playback_chunk_frames) {
                 ++slot.ring.underrun_count;
+                continue;
             }
-            slot.playback_buffer = static_cast<uint8_t>(refill_half ^ 1u);
-            slot.serviced_chunks = completed_chunks;
+            slot.playback_buffer = active_half;
+            ++slot.serviced_chunks;
             slot.pending_refill = 0u;
             continue;
         }
@@ -247,6 +258,7 @@ extern "C" sat_result_t sat_audio_stream_open(
         slot.serviced_chunks = 0u;
         slot.consumed_frames = 0u;
         slot.refill_count = 0u;
+        slot.monitor_frame = 0u;
         slot.format = spec->format;
         slot.scsp_slot = static_cast<uint8_t>(kAudioStreamScspSlotBase + i);
         slot.playback_buffer = 0u;

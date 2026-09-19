@@ -20,6 +20,7 @@ static uint8_t g_pan_calls = 0u;
 static uint32_t g_upload_count = 0u;
 static uint32_t g_key_on_count = 0u;
 static uint32_t g_key_off_count = 0u;
+static uint8_t g_current_sample_block = 0u;
 
 bool upload(uint32_t, const void*, uint32_t) {
     ++g_upload_count;
@@ -32,6 +33,11 @@ bool configure_slot(uint8_t slot, const SlotConfig& config) {
 }
 void key_on(uint8_t) { ++g_key_on_count; }
 void key_off(uint8_t) { ++g_key_off_count; }
+bool read_current_sample_block(uint8_t, uint8_t* out_block) {
+    if (out_block == nullptr) return false;
+    *out_block = g_current_sample_block;
+    return true;
+}
 uint8_t encode_pan(int16_t pan) {
     g_last_encode_input = pan;
     return static_cast<uint8_t>(pan + 15);
@@ -126,10 +132,20 @@ int main() {
        saturn::hal::scsp::g_last_config.pan == 30u);
 
     OK(sat_audio_stream_write(seamless, seamless_frames, 4096u) == SAT_OK);
+    saturn::hal::scsp::g_current_sample_block = 0u;
     saturn::core::audio_stream_service(saturn::core::g_audio_streams, 5u, 60u);
     OK(sat_audio_stream_stats(seamless, &stats) == SAT_OK &&
        stats.consumed_frames == 8192u && stats.refill_count == 2u);
+
+    // A huge display-frame jump must not refill anything while CA still says
+    // the SCSP is reading the same half.
     saturn::core::audio_stream_service(saturn::core::g_audio_streams, 23u, 60u);
+    OK(sat_audio_stream_stats(seamless, &stats) == SAT_OK &&
+       stats.consumed_frames == 8192u && stats.refill_count == 2u);
+
+    // The refill is driven by the hardware half transition, not elapsed time.
+    saturn::hal::scsp::g_current_sample_block = 1u;
+    saturn::core::audio_stream_service(saturn::core::g_audio_streams, 24u, 60u);
     OK(sat_audio_stream_stats(seamless, &stats) == SAT_OK &&
        stats.consumed_frames == 12288u && stats.refill_count == 3u &&
        stats.underrun_count == 0u);

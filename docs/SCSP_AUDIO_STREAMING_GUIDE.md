@@ -85,22 +85,24 @@ sounds like harsh full-spectrum noise; a wrong PITCH value changes pitch/tempo;
 rewriting the active SCSP half produces periodic bursts, metallic corruption or
 apparently "exploded" music.
 
-## Scheduler clock rule
+## Scheduler / hardware phase rule
 
-Streaming phase is estimated from elapsed display time, so every time source
-used by the refill scheduler must represent the same physical interval exactly
-once.
+Steady-state double-buffer phase is owned by the SCSP, not by VBlank math.
+LibSaturn selects the streaming slot with `MSLC` and reads `CA`; because one
+CA unit is 4096 samples, `CA & 1` directly identifies the active 4096-sample
+half. A refill happens only after CA has moved to the other half, so the old
+half is known to be hardware-inactive before the SH-2 writes it.
 
-`sat_audio_update()` is deliberately pumped while synchronous CD commands are
-waiting. During that wait the normal application frame path can be stalled, so
-LibSaturn also observes VBlank edges to keep audio moving. When normal frame
-counting catches up afterward, those already-observed display frames must be
-**reconciled**, not added again.
+The MSLC/CA monitor is latched by the SCSP slot pipeline. The HAL therefore
+allows at least one 44.1 kHz sample period after changing MSLC before trusting
+CA. The stream service samples CA at most once per display-service frame; this
+also prevents synchronous CD polling from hammering the monitor register.
 
-Double-counting that interval advances `completed_chunks` too far and can make
-the runtime refill the half that the SCSP has not finished yet. That failure is
-much more destructive than an ordinary underrun because valid PCM is replaced
-while the hardware is reading it.
+`sat_audio_update()` is still deliberately pumped while synchronous CD
+commands are waiting. Display-frame accounting remains relevant for one-shot
+voice lifetime and for bounding how often the stream service runs, but it is no
+longer used to predict which SCSP half is active. A catch-up or duplicated
+VBlank therefore cannot by itself select the wrong half for a refill.
 
 When changing audio timing, explicitly test this sequence:
 
@@ -108,8 +110,9 @@ When changing audio timing, explicitly test this sequence:
 2. enter a synchronous CD wait that spans at least one VBlank;
 3. call/pump `sat_audio_update()` during the wait;
 4. resume the normal frame loop;
-5. verify no refill-count jump corresponding to the same display frames twice;
-6. verify `underrun_count == 0`.
+5. verify refill count changes only when the observed CA half changes;
+6. verify only the inactive Sound RAM half changes;
+7. verify `underrun_count == 0`.
 
 ## Harness strategy
 

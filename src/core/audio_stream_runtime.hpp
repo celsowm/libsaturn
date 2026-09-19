@@ -41,6 +41,7 @@ struct AudioStreamSlot {
     uint32_t serviced_chunks;
     uint32_t consumed_frames;
     uint32_t refill_count;
+    uint32_t monitor_frame;
     uint8_t format;
     uint8_t scsp_slot;
     uint8_t playback_buffer;
@@ -91,6 +92,7 @@ inline void audio_stream_registry_reset(AudioStreamRegistry& registry) {
         slot.serviced_chunks = 0u;
         slot.consumed_frames = 0u;
         slot.refill_count = 0u;
+        slot.monitor_frame = 0u;
         slot.format = 0u;
         slot.scsp_slot = 0u;
         slot.playback_buffer = 0u;

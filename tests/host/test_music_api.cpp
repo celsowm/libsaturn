@@ -58,6 +58,11 @@ bool upload(uint32_t, const void*, uint32_t) { return true; }
 bool configure_slot(uint8_t, const SlotConfig&) { return true; }
 void key_on(uint8_t) {}
 void key_off(uint8_t) {}
+bool read_current_sample_block(uint8_t, uint8_t* out_block) {
+    if (out_block == nullptr) return false;
+    *out_block = 0u;
+    return true;
+}
 uint8_t encode_pan(int16_t) { return 0u; }
 void set_slot_level_pan(uint8_t, uint8_t, uint8_t, uint8_t) {}
 

@@ -1,6 +1,7 @@
 #include "src/hal/scsp.hpp"
 
 #include "src/hal/smpc.hpp"
+#include "src/hal/scu.hpp"
 
 namespace saturn::hal::scsp {
 
@@ -9,6 +10,7 @@ namespace {
 constexpr uintptr_t kSoundRamBase = 0x25A00000u;
 constexpr uintptr_t kRegisterBase = 0x25B00000u;
 constexpr uintptr_t kCommonControlAddress = 0x25B00400u;
+constexpr uintptr_t kSlotStatusAddress = 0x25B00408u;
 constexpr uintptr_t kDspProgramAddress = 0x25B00800u;
 constexpr uint32_t kSlotStride = 0x20u;
 constexpr uint16_t kMem4Mb = 0x0200u;
@@ -117,6 +119,39 @@ void shutdown() {
 
 bool is_ready() {
     return g_ready;
+}
+
+bool read_current_sample_block(uint8_t slot, uint8_t* out_block) {
+    if (!g_ready || slot >= kSlotCount || out_block == nullptr) return false;
+
+    volatile uint16_t* status =
+        reinterpret_cast<volatile uint16_t*>(kSlotStatusAddress);
+
+    // p04_28: writing MSLC selects the monitored slot; reading the same word
+    // returns CA in bits 7..10, where one CA unit is 4096 samples. The monitor
+    // value is latched by the SCSP slot pipeline, so do not trust an immediate
+    // read after changing MSLC. With the calibrated FRT, eight /128 ticks are
+    // comfortably longer than one 44.1 kHz SCSP sample period.
+    *status = static_cast<uint16_t>(static_cast<uint16_t>(slot) << 11u);
+
+    if (saturn::hal::scu::ticks_per_frame() != 0u) {
+        const uint64_t start = saturn::hal::scu::elapsed_ticks();
+        while (saturn::hal::scu::elapsed_ticks() - start < 8u) {
+        }
+    } else {
+        // Frame-clock calibration can fail on a non-advancing display. In
+        // that degraded case, repeated volatile SCSP reads provide a bounded
+        // settling delay without introducing another timer dependency.
+        uint16_t discard = 0u;
+        for (uint16_t i = 0u; i < 256u; ++i) {
+            discard = *status;
+        }
+        (void)discard;
+    }
+
+    const uint16_t value = *status;
+    *out_block = static_cast<uint8_t>((value >> 7u) & 0x0Fu);
+    return true;
 }
 
 bool upload(uint32_t offset, const void* data, uint32_t byte_count) {
