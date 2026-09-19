@@ -3,6 +3,8 @@
 #include "saturn/saturn.h"
 #include "saturn/asset.h"
 #include "saturn/scene3d.h"
+#include "saturn/anim3d.h"
+#include "skybridge_3d/pig_model.h"
 #include "saturn/fade3d.h"
 #include "saturn/vdp1_color_calc.h"
 #include "saturn/vdp2_color_calc.h"
@@ -34,6 +36,13 @@
 #define SCENE_PASS_WORLD 0u
 #define SCENE_PASS_SUPPORT 1u
 #define SCENE_PASS_ACTOR 2u
+#define PIG_VERTEX_CAP 900u
+#define PIG_FACE_CAP 620u
+/* The native GLB goes through tools/import_model.py at build time.
+ * Fail visibly instead of silently recompiling an unexpectedly huge pig. */
+_Static_assert(SKYBRIDGE_PIG_VERTEX_COUNT <= PIG_VERTEX_CAP, "pig vertex budget");
+_Static_assert(SKYBRIDGE_PIG_FACE_COUNT <= PIG_FACE_CAP, "pig face budget");
+_Static_assert(SKYBRIDGE_PIG_ANIMATION_COUNT == 3u, "Walk Idle Jump clips required");
 
 static sb_game_t g_game;
 static sat_ascii_font_t g_font;
@@ -85,6 +94,19 @@ static sat_scene3d_queue_item_t g_scene_items[SCENE_OBJECT_CAP];
 static sat_scene3d_queue_t g_scene;
 static uint8_t g_stage_ids[SB_PLATFORM_COUNT];
 static uint8_t g_stage_frame_slot[SB_PLATFORM_COUNT];
+/* Imported-and-simplified user GLB: caller-owned model, pose and painter
+ * scratch. Static mesh indices are copied ONCE; animated vertices are
+ * decoded in place on each frame and then transformed into world space. */
+static sat_vec3_t g_pig_vertices[PIG_VERTEX_CAP];
+static uint16_t g_pig_indices[PIG_FACE_CAP*4u];
+static sat_mesh_t g_pig_mesh;
+static uint8_t g_pig_order[PIG_FACE_CAP];
+static uint16_t g_pig_order16[PIG_FACE_CAP];
+static uint32_t g_pig_depth[PIG_FACE_CAP];
+static sat_projected_vertex_t g_pig_projected[PIG_VERTEX_CAP];
+static uint16_t g_pig_colors[PIG_FACE_CAP];
+static sat_anim_state_t g_pig_anim;
+
 static int16_t g_yaw;
 static uint32_t g_prev_frame, g_frame;
 static sat_sound_t g_sounds[SOUNDS];
@@ -520,118 +542,12 @@ static void stage_box(uint8_t i) {
  * elevator carry remain owned by game.h. Its geometry uses indexed VDP1
  * distorted sprites through box3()/put_quad(), never RGB faces that break
  * the existing VDP2 distance color-calculation setup. */
-static void pig_transform(int32_t x,int32_t z,int8_t fx,int8_t fz,
-                          int32_t side,int32_t forward,
-                          int32_t* out_x,int32_t* out_z) {
-    /* Local forward follows the persistent cardinal snout direction.
-     * Local side and forward are 16.16; facing is exactly -1, 0 or 1. */
-    *out_x=x+(int32_t)fz*side+(int32_t)fx*forward;
-    *out_z=z-(int32_t)fx*side+(int32_t)fz*forward;
-}
-static void pig_box(int32_t x,int32_t z,int32_t feet,
-                    int8_t fx,int8_t fz,
-                    int32_t side,int32_t up,int32_t forward,
-                    int32_t half_side,int32_t half_up,int32_t half_forward,
-                    uint16_t top,uint16_t lateral,uint16_t front) {
-    int32_t wx,wz;
-    int32_t hx=fz!=0?half_side:half_forward;
-    int32_t hz=fz!=0?half_forward:half_side;
-    pig_transform(x,z,fx,fz,side,forward,&wx,&wz);
-    box3(wx,feet+up,wz,hx,half_up,hz,top,lateral,front,0u);
-}
-static void pig_mark(int32_t px,int32_t pz,int32_t feet,
-                     int8_t fx,int8_t fz,
-                     int32_t side,int32_t y,int32_t forward,
-                     int32_t half_width,int32_t half_height,
-                     uint16_t color) {
-    sat_quad3_t q;
-    int32_t ax,az,bx,bz;
-    pig_transform(px,pz,fx,fz,side-half_width,forward,&ax,&az);
-    pig_transform(px,pz,fx,fz,side+half_width,forward,&bx,&bz);
-    pquad(&q,ax,feet+y+half_height,az,
-          bx,feet+y+half_height,bz,
-          bx,feet+y-half_height,bz,
-          ax,feet+y-half_height,az);
-    put_quad(&q,color);
-}
-static void pig_ear(int32_t px,int32_t pz,int32_t feet,
-                    int8_t fx,int8_t fz,int32_t side) {
-    sat_quad3_t q;
-    int32_t ax,az,bx,bz,tx,tz;
-    const int32_t spread=SB_F(1)/4;
-    const int32_t base_f=SB_F(1)/4;
-    /* Flat, pointed low-poly ear: pink outer triangle + inset shading. */
-    pig_transform(px,pz,fx,fz,side-spread,base_f,&ax,&az);
-    pig_transform(px,pz,fx,fz,side+spread,base_f,&bx,&bz);
-    pig_transform(px,pz,fx,fz,side,-SB_F(1)/12,&tx,&tz);
-    pquad(&q,ax,feet+SB_F(4)+SB_F(1)/20,az,
-          bx,feet+SB_F(4)+SB_F(1)/20,bz,
-          tx,feet+SB_F(4)+SB_F(4)/5,tz,
-          tx,feet+SB_F(4)+SB_F(4)/5,tz);
-    put_quad(&q,PIG_TOP);
-    pig_transform(px,pz,fx,fz,side-spread/2,base_f+SB_F(1)/64,&ax,&az);
-    pig_transform(px,pz,fx,fz,side+spread/2,base_f+SB_F(1)/64,&bx,&bz);
-    pig_transform(px,pz,fx,fz,side,0,&tx,&tz);
-    pquad(&q,ax,feet+SB_F(4)+SB_F(1)/5,az,
-          bx,feet+SB_F(4)+SB_F(1)/5,bz,
-          tx,feet+SB_F(4)+SB_F(3)/5,tz,
-          tx,feet+SB_F(4)+SB_F(3)/5,tz);
-    put_quad(&q,PIG_EAR);
-}
-static void pig_head(int32_t px,int32_t pz,int32_t feet,
-                     int8_t fx,int8_t fz,int32_t bob,
-                     uint8_t show_face) {
-    const int32_t f=feet+bob;
-    pig_box(px,pz,f,fx,fz,0,SB_F(16)/5,SB_HALF,
-            SB_F(1),SB_F(19)/20,SB_F(9)/10,
-            PIG_HEAD,PIG_SIDE,PIG_TOP);
-    /* Ears extend to 4.8 units and never exceed the original 5-unit
-     * player collider even at the peak of the little running bounce. */
-    pig_ear(px,pz,f,fx,fz,-SB_F(7)/10);
-    pig_ear(px,pz,f,fx,fz, SB_F(7)/10);
-    pig_box(px,pz,f,fx,fz,0,SB_F(29)/10,SB_F(3)/2,
-            SB_F(11)/20,SB_F(9)/20,SB_F(2)/5,
-            PIG_SNOUT,PIG_SNOUT,PIG_SIDE);
-    if(show_face) {
-        /* Eyes and two dark nostrils on the *real forward face*.
-         * No camera-facing billboard; rotation now exposes a recognizable
-         * profile, front and back instead of an identically painted cube. */
-        pig_mark(px,pz,f,fx,fz,-SB_F(2)/5,SB_F(18)/5,SB_F(3)/2,
-                 SB_F(3)/20,SB_F(3)/20,SAT_RGB555(31,31,31));
-        pig_mark(px,pz,f,fx,fz, SB_F(2)/5,SB_F(18)/5,SB_F(3)/2,
-                 SB_F(3)/20,SB_F(3)/20,SAT_RGB555(31,31,31));
-        pig_mark(px,pz,f,fx,fz,-SB_F(2)/5,SB_F(18)/5,
-                 SB_F(3)/2+SB_F(1)/64,
-                 SB_F(1)/16,SB_F(1)/16,PIG_BLACK);
-        pig_mark(px,pz,f,fx,fz, SB_F(2)/5,SB_F(18)/5,
-                 SB_F(3)/2+SB_F(1)/64,
-                 SB_F(1)/16,SB_F(1)/16,PIG_BLACK);
-        pig_mark(px,pz,f,fx,fz,-SB_F(1)/5,SB_F(29)/10,
-                 SB_F(19)/10+SB_F(1)/64,
-                 SB_F(1)/12,SB_F(1)/9,PIG_DARK);
-        pig_mark(px,pz,f,fx,fz, SB_F(1)/5,SB_F(29)/10,
-                 SB_F(19)/10+SB_F(1)/64,
-                 SB_F(1)/12,SB_F(1)/9,PIG_DARK);
-    }
-}
-static void pig_tail(int32_t px,int32_t pz,int32_t feet,
-                     int8_t fx,int8_t fz,int32_t bob) {
-    const int32_t f=feet+bob;
-    pig_box(px,pz,f,fx,fz,0,SB_F(5)/2,-SB_F(8)/5,
-            SB_F(1)/6,SB_F(1)/6,SB_F(1)/5,
-            PIG_DARK,PIG_DARK,PIG_DARK);
-    pig_box(px,pz,f,fx,fz,SB_F(1)/5,SB_F(11)/4,-SB_F(9)/5,
-            SB_F(1)/7,SB_F(1)/7,SB_F(1)/7,
-            PIG_TOP,PIG_SIDE,PIG_DARK);
-}
-static void player_pig(void) {
-    const int32_t px=g_game.x,pz=g_game.z,feet=g_game.y;
-    const int8_t fx=g_game.facing_x,fz=g_game.facing_z;
-    int32_t bob=0,step=0;
-    int64_t camera_side;
-    uint8_t from_front;
-    uint8_t i;
+/* Preserve the existing collision/contact shadow, not the old procedural
+ * pig body. The visible pig now comes exclusively from the user-modified
+ * CC BY 4.0 GLB converted by the stock importer at build time. */
+static void pig_shadow(void) {
     if(g_game.support>=0) {
+        const int32_t px=g_game.x,pz=g_game.z;
         sat_quad3_t shadow;
         int32_t sy=sb_platform_surface_y(
             &g_game,(uint8_t)g_game.support,px,pz)+SB_F(1)/16;
@@ -639,37 +555,39 @@ static void player_pig(void) {
                      pz-SB_F(2),pz+SB_F(2),sy);
         put_quad(&shadow,SAT_RGB555(8,10,10));
     }
-    if(g_game.support>=0 &&
-       sb_abs(g_game.vx)+sb_abs(g_game.vz)>SB_F(1)/3) {
-        int32_t cycle=sat_sin_deg(SB_F((int32_t)(g_game.ticks*12u)%360));
-        bob=sb_mul(cycle,SB_F(1)/10);
-        step=sb_mul(cycle,SB_F(1)/5);
-    }
-    /* All four hooves are within X/Z +/-2 and touch the deck when idle. */
-    for(i=0u;i<4u;++i) {
-        int32_t side=(i&1u)?SB_F(4)/5:-SB_F(4)/5;
-        int32_t forward=(i&2u)?SB_F(4)/5:-SB_F(4)/5;
-        int32_t lift=((i&1u)==((i>>1u)&1u)?step:-step);
-        if(lift<0)lift=0;
-        pig_box(px,pz,feet,fx,fz,side,SB_F(13)/20+lift,forward,
-                SB_F(3)/10,SB_F(11)/20,SB_F(3)/10,
-                PIG_SIDE,PIG_HOOF,PIG_DARK);
-    }
-    camera_side=(int64_t)(g_eye.x-px)*fx+(int64_t)(g_eye.z-pz)*fz;
-    from_front=(uint8_t)(camera_side>=0);
-    if(from_front) {
-        pig_tail(px,pz,feet,fx,fz,bob);
-    } else {
-        pig_head(px,pz,feet,fx,fz,bob,0u);
-    }
-    pig_box(px,pz,feet+bob,fx,fz,0,SB_F(47)/20,-SB_F(1)/5,
-            SB_F(6)/5,SB_F(11)/10,SB_F(13)/10,
-            PIG_TOP,PIG_SIDE,PIG_DARK);
-    if(from_front) {
-        pig_head(px,pz,feet,fx,fz,bob,1u);
-    } else {
-        pig_tail(px,pz,feet,fx,fz,bob);
-    }
+}
+/* Authored GLB face materials/animations remain intact after importer
+ * simplification. One painted object is sorted with the gems by the
+ * existing scene queue, then its individual faces use a bounded mesh
+ * painter sort. No independent game-specific depth sorting is added. */
+static void player_pig(void) {
+    sat_model_transform3d_t pose;
+    sat_mat4_t world;
+    sat_mesh_draw_t draw;
+    sat_example_must(sat_anim_decode(
+        &skybridge_pig_anim_asset,&g_pig_anim,
+        g_pig_mesh.vertices,PIG_VERTEX_CAP));
+    sat_model_transform3d_identity(&pose);
+    pose.position=(sat_vec3_t){g_game.x,
+        g_game.y-SB_F(1)/2,g_game.z};
+    /* glTF local +Z points towards the snout. The game controller stores
+     * a persistent CARDINAL forward independent of camera yaw. */
+    pose.rotation_deg.y=g_game.facing_z<0?SB_F(180):
+        (g_game.facing_x>0?SB_F(90):
+         (g_game.facing_x<0?SB_F(270):0));
+    sat_example_must(sat_model_transform3d_matrix(&pose,&world));
+    sat_example_must(sat_mesh_transform(&g_pig_mesh,&world));
+    sat_example_must(sat_anim_face_colors(
+        &skybridge_pig_anim_asset,&g_pig_anim,
+        g_pig_colors,PIG_FACE_CAP));
+    sat_example_must(sat_model_bind_draw_ex(
+        &skybridge_pig_asset,&g_pig_mesh,0,0,
+        &g_vp,&g_eye,SAT_RGB555(31,20,25),g_pig_colors,0,
+        SAT_MESH_CULL_BACKFACE|SAT_MESH_SORT,
+        g_pig_order,g_pig_order16,g_pig_depth,&draw));
+    draw.screen=g_pig_projected;
+    draw.vertex_gouraud=0;
+    sat_example_must(sat_draw_mesh(&g_pig_mesh,&draw));
 }
 /* Each platform owns its previous quantized level. Once within two units
  * of a transition, keep the old state until the camera actually crosses
@@ -712,6 +630,7 @@ static sat_result_t draw_pig_item(void* user,const sat_camera3d_t* camera) {
     (void)user;
     (void)camera;
     g_active_fade_slot=FADE_OPAQUE;
+    pig_shadow();
     player_pig();
     return SAT_OK;
 }
@@ -1050,6 +969,8 @@ static void start_course(uint8_t course) {
     g_yaw=0;
     for(i=0u;i<SB_PLATFORM_COUNT;++i)g_platform_fade[i]=FADE_OPAQUE;
     g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
+    sat_example_must(sat_anim_state_init(
+        &g_pig_anim,&skybridge_pig_anim_asset,1u));
 }
 static void hud(void) {
     uint8_t i,count=0u;
@@ -1124,7 +1045,15 @@ int main(void) {
     init_tile_texture();
     init_cloud_texture();
     init_fade_materials();
-    loading_frame("BUILDING SKY",10u);
+    loading_frame("IMPORTING PIG",10u);
+    sat_example_must(sat_model_validate(&skybridge_pig_asset));
+    sat_example_must(sat_anim_validate(&skybridge_pig_anim_asset));
+    sat_example_must(sat_mesh_init(&g_pig_mesh,
+        g_pig_vertices,PIG_VERTEX_CAP,g_pig_indices,PIG_FACE_CAP));
+    sat_example_must(sat_model_copy_to_mesh(&skybridge_pig_asset,&g_pig_mesh));
+    sat_example_must(sat_anim_state_init(
+        &g_pig_anim,&skybridge_pig_anim_asset,1u)); /* Idle */
+    loading_frame("BUILDING SKY",13u);
     init_sky();
     loading_frame("BUILDING SEA",15u);
     init_sea();
@@ -1190,6 +1119,18 @@ int main(void) {
                 events|=sb_tick(&g_game,held,pressed,fx,fz,rx,rz);
                 pressed=0u; /* A pressed edge is delivered once, never per catch-up step. */
             }
+        }
+        /* Jump=2, Walk=0, Idle=1 in the selected converter clip order.
+         * Use actual movement/grounding, not camera yaw, to choose poses. */
+        {
+            uint16_t clip=g_game.support<0?2u:
+                (sb_abs(g_game.vx)+sb_abs(g_game.vz)>SB_F(1)/3?0u:1u);
+            if(clip!=g_pig_anim.clip)
+                sat_example_must(sat_anim_set_clip(
+                    &g_pig_anim,&skybridge_pig_anim_asset,clip));
+            if(!g_game.paused && !g_game.finished)
+                sat_example_must(sat_anim_advance(
+                    &g_pig_anim,&skybridge_pig_anim_asset,SB_F(1)/60));
         }
         sound_event(events);
         if (events & SB_EVENT_FALL) {
