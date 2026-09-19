@@ -506,12 +506,6 @@ static void player_pig(void) {
     sat_model_transform3d_t pose;
     sat_mat4_t world;
     sat_mesh_draw_t draw;
-    const sat_model_animation_asset_t* anim;
-    const uint8_t* shades;
-    uint16_t i;
-    sat_example_must(sat_anim_decode(
-        &skybridge_pig_anim_asset,&g_pig_anim,
-        g_pig_mesh.vertices,PIG_VERTEX_CAP));
     sat_model_transform3d_identity(&pose);
     pose.position=(sat_vec3_t){g_game.x,
         g_game.y-SB_F(1)/2,g_game.z};
@@ -521,11 +515,12 @@ static void player_pig(void) {
         (g_game.facing_x>0?SB_F(90):
          (g_game.facing_x<0?SB_F(270):0));
     sat_example_must(sat_model_transform3d_matrix(&pose,&world));
-    sat_example_must(sat_mesh_transform(&g_pig_mesh,&world));
-    anim=&skybridge_pig_animations[g_pig_anim.clip];
-    shades=&anim->face_shades[(uint32_t)g_pig_anim.frame*SKYBRIDGE_PIG_FACE_COUNT];
-    for(i=0u;i<SKYBRIDGE_PIG_FACE_COUNT;++i)
-        g_pig_face_textures[i]=(uint16_t)shades[i];
+    /* Each draw decodes an immutable LOCAL frame and applies this frame's
+     * world transform exactly once; no cumulative vertex drift. The API
+     * also maps the imported per-face shade indices to uploaded materials. */
+    sat_example_must(sat_anim_prepare_model_instance(
+        &skybridge_pig_anim_asset,&g_pig_anim,&world,&g_pig_mesh,
+        g_pig_face_textures,PIG_FACE_CAP,SKYBRIDGE_PIG_SHADE_COUNT));
     sat_example_must(sat_model_bind_draw_ex(
         &skybridge_pig_asset,&g_pig_mesh,g_pig_textures,
         SKYBRIDGE_PIG_SHADE_COUNT,
