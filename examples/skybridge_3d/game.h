@@ -11,7 +11,8 @@
 #define SB_PLAYER_HALF SB_F(2)
 #define SB_PLAYER_HEIGHT SB_F(5)
 #define SB_PLATFORM_COUNT 10u
-#define SB_COURSE_COUNT 2u
+#define SB_COURSE_COUNT 3u
+#define SB_COURSE3_HOLE_COUNT 6u
 #define SB_PICKUP_COUNT 8u
 #define SB_GEM_RADIUS SB_F(2)
 #define SB_GEM_BASE_OFFSET SB_F(4)
@@ -59,6 +60,40 @@ static const sb_platform_t sb_stage_two[SB_PLATFORM_COUNT] = {
     {  0,20, 251, 17, 15, SB_FIXED, SB_SURFACE_NORMAL}
 };
 
+/* Third course uses wide, long solid piers with genuine rectangular
+ * openings, not black painted decals. A hole is local to a platform, so
+ * all collision and render geometry use the same immutable coordinates. */
+static const sb_platform_t sb_stage_three[SB_PLATFORM_COUNT] = {
+    {  0, 0,   0, 18, 24, SB_FIXED, SB_SURFACE_NORMAL},
+    {  0, 0,  50, 17, 27, SB_FIXED, SB_SURFACE_NORMAL},
+    {  4, 0, 100, 16, 27, SB_FIXED, SB_SURFACE_NORMAL},
+    {  4, 0, 150, 19, 27, SB_FIXED, SB_SURFACE_GRIP},
+    { -3, 0, 200, 17, 28, SB_FIXED, SB_SURFACE_NORMAL},
+    { -3, 0, 250, 16, 27, SB_FIXED, SB_SURFACE_NORMAL},
+    {  2, 0, 300, 19, 27, SB_FIXED, SB_SURFACE_GRIP},
+    {  2, 0, 350, 17, 28, SB_FIXED, SB_SURFACE_NORMAL},
+    {  0, 0, 400, 17, 27, SB_FIXED, SB_SURFACE_NORMAL},
+    {  0, 0, 450, 20, 27, SB_FIXED, SB_SURFACE_NORMAL}
+};
+typedef struct sb_hole {
+    uint8_t platform; /* index into Course 3's shared deck table */
+    int16_t x_offset, z_offset, half_x, half_z;
+} sb_hole_t;
+/* Hole 2 spans most of the walkway: the side rails are too narrow to
+ * cross with the whole 4-unit pig footprint, encouraging a short jump.
+ * The remaining holes alternate sides, with an optional safe path around. */
+static const sb_hole_t sb_course3_holes[SB_COURSE3_HOLE_COUNT] = {
+    {1u, -7,  8, 5, 6},
+    {2u,  0, 10,12, 5},
+    {4u,  7, -9, 6, 5},
+    {5u, -6, 10, 6, 5},
+    {7u,  0, 10,12, 5},
+    {8u,  7, -9, 6, 5}
+};
+typedef struct sb_deck_slice {
+    int32_t min_x,max_x,min_z,max_z;
+} sb_deck_slice_t;
+
 typedef struct sb_game {
     int32_t x, y, z, vx, vy, vz;
     int32_t moving_x;
@@ -66,7 +101,7 @@ typedef struct sb_game {
     uint16_t pickups;            /* optional, 8-bit collectible mask */
     uint16_t collapse_ticks;     /* 0=ready, 1..30 warning, 31..150 absent */
     uint8_t checkpoint;          /* stage index 0, 3 or 6 */
-    uint8_t course;              /* 0=original, 1=variable-width elevators */
+    uint8_t course;              /* 0=original, 1=elevators, 2=long piers with holes */
     uint8_t coyote, jump_buffer, finished, paused;
     int8_t facing_x, facing_z;    /* persistent cardinal snout direction */
     int8_t support;              /* -1 when airborne */
@@ -80,7 +115,8 @@ static inline int32_t sb_mul(int32_t a, int32_t b) {
     return (int32_t)(((int64_t)a * b) >> 16);
 }
 static inline const sb_platform_t* sb_course_platforms(const sb_game_t* g) {
-    return g->course==1u?sb_stage_two:sb_stage;
+    return g->course==2u?sb_stage_three:
+           (g->course==1u?sb_stage_two:sb_stage);
 }
 /* Surface coefficients are explicit per platform; the original opening
  * decks (including the fixed second deck) retain their old handling.
@@ -137,6 +173,56 @@ static inline int32_t sb_platform_x(const sb_game_t* g, uint8_t id) {
     const sb_platform_t* p=&sb_course_platforms(g)[id];
     return SB_F(p->x) + (p->kind==SB_MOVING ? g->moving_x : 0);
 }
+static inline const sb_hole_t* sb_platform_hole(const sb_game_t* g,
+                                                uint8_t id) {
+    if(g->course!=2u)return 0;
+    for(uint8_t i=0u;i<SB_COURSE3_HOLE_COUNT;++i)
+        if(sb_course3_holes[i].platform==id)return &sb_course3_holes[i];
+    return 0;
+}
+/* Maximum four non-overlapping rectangular SOLID slabs around an opening.
+ * The exact same bounds are used to render the platform and to determine
+ * floor support; the hole itself never gets a top or underside polygon.
+ * Slices omit zero-area cells and are returned in a fixed, stable order. */
+static inline uint8_t sb_deck_slices(const sb_game_t* g,uint8_t id,
+                                    sb_deck_slice_t out[4]) {
+    const sb_platform_t* p=&sb_course_platforms(g)[id];
+    const int32_t cx=sb_platform_x(g,id),cz=SB_F(p->z);
+    const int32_t lx=cx-SB_F(p->half_x),rx=cx+SB_F(p->half_x);
+    const int32_t bz=cz-SB_F(p->half_z),fz=cz+SB_F(p->half_z);
+    const sb_hole_t* h=sb_platform_hole(g,id);
+    if(!h) {
+        out[0]=(sb_deck_slice_t){lx,rx,bz,fz};
+        return 1u;
+    }
+    const int32_t hl=cx+SB_F(h->x_offset-h->half_x);
+    const int32_t hr=cx+SB_F(h->x_offset+h->half_x);
+    const int32_t hb=cz+SB_F(h->z_offset-h->half_z);
+    const int32_t hf=cz+SB_F(h->z_offset+h->half_z);
+    uint8_t count=0u;
+    if(lx<hl)out[count++]=(sb_deck_slice_t){lx,hl,bz,fz};
+    if(hr<rx)out[count++]=(sb_deck_slice_t){hr,rx,bz,fz};
+    if(bz<hb)out[count++]=(sb_deck_slice_t){hl,hr,bz,hb};
+    if(hf<fz)out[count++]=(sb_deck_slice_t){hl,hr,hf,fz};
+    return count;
+}
+/* No invisible collision over the aperture. Nearly the entire pig's
+ * footprint must fit within one solid slab; this conservatively avoids
+ * balancing on disconnected strips or standing on empty central space. */
+static inline int sb_deck_footprint(const sb_game_t* g,uint8_t id) {
+    sb_deck_slice_t pieces[4];
+    uint8_t count=sb_deck_slices(g,id,pieces);
+    for(uint8_t i=0u;i<count;++i) {
+        const int32_t inset=SB_PLAYER_HALF-SB_HALF;
+        if(g->x>=pieces[i].min_x+inset &&
+           g->x<=pieces[i].max_x-inset &&
+           g->z>=pieces[i].min_z+inset &&
+           g->z<=pieces[i].max_z-inset)
+            return 1;
+    }
+    return 0;
+}
+
 static inline int sb_platform_active(const sb_game_t* g, uint8_t id) {
     return sb_course_platforms(g)[id].kind!=SB_COLLAPSING ||
            g->collapse_ticks <= 30u || g->collapse_ticks >= 150u;
@@ -152,11 +238,7 @@ static inline int sb_horizontal_overlap(const sb_game_t* g, uint8_t id) {
  * camera it then looked as if the cube floated in front of the slab.
  * Keep nearly the whole footprint on the deck; coyote time handles edges. */
 static inline int sb_supported_footprint(const sb_game_t* g, uint8_t id) {
-    const sb_platform_t* p=&sb_course_platforms(g)[id];
-    const int32_t safe_half_x=SB_F(p->half_x)-SB_PLAYER_HALF+SB_HALF;
-    const int32_t safe_half_z=SB_F(p->half_z)-SB_PLAYER_HALF+SB_HALF;
-    return sb_abs(g->x-sb_platform_x(g,id))<=safe_half_x &&
-           sb_abs(g->z-SB_F(p->z))<=safe_half_z;
+    return sb_deck_footprint(g,id);
 }
 /* Place the orbit camera at one CONSTANT radius in the horizontal plane.
  * The previous x/z arm lengths (33 vs 43) caused the perspective/zoom to
@@ -230,7 +312,9 @@ static inline void sb_side_collide(sb_game_t* g, int32_t old_x, int32_t old_z) {
         const int32_t right = cx + SB_F(p->half_x) + SB_PLAYER_HALF;
         const int32_t back = cz - SB_F(p->half_z) - SB_PLAYER_HALF;
         const int32_t front = cz + SB_F(p->half_z) + SB_PLAYER_HALF;
-        if (!sb_platform_active(g,i) || g->y >= sb_platform_y(g,i) - SB_F(1)/16 ||
+        if (!sb_platform_active(g,i) ||
+            (sb_platform_hole(g,i) && !sb_deck_footprint(g,i)) ||
+            g->y >= sb_platform_y(g,i) - SB_F(1)/16 ||
             g->y + SB_PLAYER_HEIGHT <= sb_platform_y(g,i)-SB_F(5)) continue;
         if (g->z > back && g->z < front) {
             if (old_x <= left && g->x > left) { g->x=left; g->vx=0; }
@@ -355,7 +439,8 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
         g->support=-1;
         for (i=0u;i<SB_PLATFORM_COUNT;++i) {
             int32_t underside=sb_platform_y(g,i)-SB_F(5);
-            if (!sb_platform_active(g,i) || !sb_horizontal_overlap(g,i)) continue;
+            if (!sb_platform_active(g,i) || !sb_horizontal_overlap(g,i) ||
+                (sb_platform_hole(g,i) && !sb_deck_footprint(g,i))) continue;
             if (old_y+SB_PLAYER_HEIGHT<=underside &&
                 g->y+SB_PLAYER_HEIGHT>=underside) {
                 g->y=underside-SB_PLAYER_HEIGHT; g->vy=0;
