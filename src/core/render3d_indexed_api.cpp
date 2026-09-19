@@ -72,6 +72,72 @@ extern "C" sat_result_t sat_draw_indexed_solid_quad3(
     return SAT_OK;
 }
 
+namespace {
+
+void box_face(sat_quad3_t* out,
+              const sat_vec3_t& a,const sat_vec3_t& b,
+              const sat_vec3_t& c,const sat_vec3_t& d) {
+    out->v[0]=a;
+    out->v[1]=b;
+    out->v[2]=c;
+    out->v[3]=d;
+}
+
+/* Validate EVERY arithmetic result before drawing any face; a half extent
+ * near INT32_MAX must never wrap a solid into the opposite side of space. */
+bool box_axis(sat_fx16_t center,sat_fx16_t half,
+              sat_fx16_t* low,sat_fx16_t* high) {
+    if(half<=0) return false;
+    const int64_t lo=static_cast<int64_t>(center)-half;
+    const int64_t hi=static_cast<int64_t>(center)+half;
+    if(lo<INT32_MIN || hi>INT32_MAX) return false;
+    *low=static_cast<sat_fx16_t>(lo);
+    *high=static_cast<sat_fx16_t>(hi);
+    return true;
+}
+} // namespace
+
+extern "C" sat_result_t sat_draw_indexed_box3(
+    const sat_indexed_box3_t* box,
+    const sat_indexed_solid_render3d_t* p
+) {
+    if(box==nullptr || !valid_render(p) ||
+       box->top_material==nullptr || box->x_material==nullptr ||
+       box->z_material==nullptr) return SAT_ERR_INVALID_ARG;
+
+    sat_fx16_t lx,rx,bottom,top,bz,fz;
+    const int64_t cy=static_cast<int64_t>(box->top_center.y)-box->half_extents.y;
+    if(cy<INT32_MIN || cy>INT32_MAX ||
+       !box_axis(box->top_center.x,box->half_extents.x,&lx,&rx) ||
+       !box_axis(static_cast<sat_fx16_t>(cy),box->half_extents.y,&bottom,&top) ||
+       !box_axis(box->top_center.z,box->half_extents.z,&bz,&fz))
+        return SAT_ERR_INVALID_ARG;
+    const sat_vec3_t& eye=p->eye;
+    sat_quad3_t q;
+    /* Keep the front-wall winding and top-last ordering of the pre-migration
+     * example. The indexed quad renderer owns all near/screen clipping. */
+    if(eye.x>box->top_center.x)
+        box_face(&q,{rx,top,bz},{rx,top,fz},{rx,bottom,fz},{rx,bottom,bz});
+    else
+        box_face(&q,{lx,top,fz},{lx,top,bz},{lx,bottom,bz},{lx,bottom,fz});
+    sat_result_t st=sat_draw_indexed_solid_quad3(&q,p,box->x_material);
+    if(st!=SAT_OK) return st;
+
+    if(eye.z>box->top_center.z)
+        box_face(&q,{rx,top,fz},{lx,top,fz},{lx,bottom,fz},{rx,bottom,fz});
+    else
+        box_face(&q,{lx,top,bz},{rx,top,bz},{rx,bottom,bz},{lx,bottom,bz});
+    st=sat_draw_indexed_solid_quad3(&q,p,box->z_material);
+    if(st!=SAT_OK) return st;
+
+    if(eye.y>top) {
+        box_face(&q,{lx,top,bz},{rx,top,bz},{rx,top,fz},{lx,top,fz});
+        st=sat_draw_indexed_solid_quad3(&q,p,box->top_material);
+        if(st!=SAT_OK) return st;
+    }
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_draw_indexed_textured_quad3(
     const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* p,
     const sat_vdp1_texture_t* texture, uint8_t* out_drawn
