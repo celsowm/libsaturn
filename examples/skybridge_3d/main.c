@@ -16,7 +16,7 @@
 #define VIEW_LIMIT SB_F(116)
 #define SOUNDS 6u
 #define SOUND_LEN 2048u
-#define MUSIC_LEN 4096u
+#define MUSIC_LEN 32768u
 #define RENDER_COUNT (SB_PLATFORM_COUNT + 1u)
 
 typedef struct sb_render_item {
@@ -32,7 +32,7 @@ static uint8_t g_sky[SKY_W * SKY_H];
 static uint16_t g_sky_colors[256], g_sea_colors[256];
 static uint16_t g_map[SAT_VDP2_NBG0_MAP_CELLS];
 static sat_mat4_t g_vp;
-static sat_vec3_t g_eye, g_target;
+static sat_vec3_t g_eye, g_target, g_camera_anchor;
 static sb_render_item_t g_items[RENDER_COUNT];
 static uint8_t g_items_count;
 static int16_t g_yaw;
@@ -301,7 +301,7 @@ static void init_audio(void) {
     uint32_t i;
     uint8_t j;
     const uint8_t tone_step[SOUNDS-1u]={3u,5u,7u,2u,9u};
-    sat_sound_play_params_t music_params={22u,0,1u,0u,SB_F(1)};
+    sat_sound_play_params_t music_params={76u,0,1u,0u,SB_F(1)};
     sat_example_must(sat_audio_init());
     sat_example_must(sat_audio_set_master_volume(160u));
     for(j=0u;j<SOUNDS-1u;++j) {
@@ -316,11 +316,20 @@ static void init_audio(void) {
         desc.sample_rate=11025u;desc.format=SAT_AUDIO_PCM_S8;
         sat_example_must(sat_sound_create(&g_sounds[j],&desc));
     }
-    for (i=0u;i<MUSIC_LEN;++i) {
-        /* Seamless, quiet two-tone ambient loop; no CD or sound-CPU dependency. */
-        int32_t a=(int32_t)((i>>2u)&63u)-32;
-        int32_t b=(int32_t)((i>>4u)&63u)-32;
-        g_music[i]=(int8_t)((a+b)/8);
+    {
+        static const uint8_t periods[8]={50u,45u,40u,38u,34u,38u,40u,45u};
+        for (i=0u;i<MUSIC_LEN;++i) {
+            uint32_t note=i/4096u, local=i%4096u;
+            uint32_t period=periods[note];
+            int32_t phase=(int32_t)((local%period)*128u/period);
+            int32_t wave=(phase<64 ? phase : 128-phase)-32;
+            int32_t envelope=(int32_t)(local<160u ? local :
+                (local>3935u ? 4095u-local : 160u));
+            int32_t bass=(int32_t)((i%100u)*64u/100u);
+            bass=(bass<32 ? bass : 64-bass)-16;
+            /* 8-note, three-second arpeggio. Fade notes to zero at boundaries. */
+            g_music[i]=(int8_t)((wave*envelope)/320+bass/4);
+        }
     }
     {
         sat_sound_desc_t desc={0};
@@ -373,6 +382,7 @@ int main(void) {
     sat_vdp2_scroll_t sky_scroll={0u,0u,31u,0u};
     sat_example_must(sat_init(&video));
     sb_init(&g_game);
+    g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
     init_background();
     init_tile_texture();
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
@@ -392,7 +402,8 @@ int main(void) {
         if(steps>3u) steps=3u; /* Drop excess catch-up, preserve responsive input. */
         if (steps==0u) steps=1u;
         if (pad.pressed&SAT_PAD_START) {
-            if(g_game.finished) {sb_init(&g_game);g_yaw=0;}
+            if(g_game.finished) {sb_init(&g_game);g_yaw=0;
+                g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};}
             else g_game.paused=(uint8_t)!g_game.paused;
         }
         if(pad.pressed&SAT_PAD_B) g_yaw-=15;
@@ -418,10 +429,17 @@ int main(void) {
         }
         sound_event(events);
         g_frame=now;
-        g_eye=(sat_vec3_t){g_game.x-sb_mul(fx,SB_F(33)),
-             g_game.y+SB_F(29),g_game.z-sb_mul(fz,SB_F(43))};
-        g_target=(sat_vec3_t){g_game.x+sb_mul(fx,SB_F(10)),
-             g_game.y+SB_F(5),g_game.z+sb_mul(fz,SB_F(12))};
+        if (events & SB_EVENT_FALL) {
+            g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
+        } else {
+            g_camera_anchor.x+=(g_game.x-g_camera_anchor.x)/4;
+            g_camera_anchor.y+=(g_game.y-g_camera_anchor.y)/6;
+            g_camera_anchor.z+=(g_game.z-g_camera_anchor.z)/4;
+        }
+        g_eye=(sat_vec3_t){g_camera_anchor.x-sb_mul(fx,SB_F(33)),
+             g_camera_anchor.y+SB_F(29),g_camera_anchor.z-sb_mul(fz,SB_F(43))};
+        g_target=(sat_vec3_t){g_camera_anchor.x+sb_mul(fx,SB_F(10)),
+             g_camera_anchor.y+SB_F(5),g_camera_anchor.z+sb_mul(fz,SB_F(12))};
         {
             sat_mat4_t view,projection;
             sat_example_must(sat_mat4_look_at(&view,&g_eye,&g_target,&up));
