@@ -28,7 +28,7 @@ the example uploads the complete surface through
 This is a measurable baseline, **not** evidence of safe zero-tearing streaming
 during every VDP1 drawing phase on all hardware.
 
-Remaining probe: `examples/voxel_display_probe/` with a changing diagnostic
+A first probe is now provided at `examples/voxel_display_probe/`: the same moving\n160x112 diagnostic image can be toggled between a VDP1 dynamic sprite\nand a VDP2 512x256 RBG0 bitmap. The RBG0 prototype packs only the\n160x112 active rectangle into 80 words per row and configures kx=ky=0.5,\nso the VDP2 performs the 2x enlargement. Row uploads currently access the\nvisible bank without a frame-atomic swap: tearing and contention require\nvisual/emulator/hardware measurement; this is NOT the production presenter.\n\nRemaining probe: `examples/voxel_display_probe/` with a changing diagnostic
 pattern and *separate* backend runs:
 1. VDP1 dynamic texture: record CPU copy duration, VDP1 draw duration, total
    elapsed VBlanks and tearing at each target size (80x56,160x112,320x224).
