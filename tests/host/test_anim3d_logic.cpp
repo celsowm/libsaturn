@@ -518,6 +518,64 @@ static void decode_feeds_mesh_and_bind() {
     ASSERT_TRUE(draw.order16 == nullptr);
 }
 
+static void prepared_animated_instance_keeps_bind_indices_and_no_transform_drift() {
+    sat_animated_model_asset_t a=make_asset(true);
+    sat_anim_state_t state={};
+    ASSERT_EQ(sat_anim_state_init(&state,&a,0u),SAT_OK);
+    sat_vec3_t vertices[2]={};
+    uint16_t indices[4]={};
+    sat_mesh_t mesh={};
+    ASSERT_EQ(sat_mesh_init(&mesh,vertices,2u,indices,1u),SAT_OK);
+    ASSERT_EQ(sat_model_copy_to_mesh(a.model,&mesh),SAT_OK);
+    sat_mat4_t world={};
+    ASSERT_EQ(sat_mat4_translate(&world,65536*3,65536*4,65536*5),SAT_OK);
+    const int16_t shades[3]={0,0,0};
+    (void)shades;
+    const uint8_t frame_shades[3]={0u,0u,0u};
+    kClips[0].face_shades=frame_shades;
+    uint16_t materials[1]={65535u};
+    ASSERT_EQ(sat_anim_prepare_model_instance(
+        &a,&state,&world,&mesh,materials,1u,1u),SAT_OK);
+    const sat_vec3_t first=vertices[0];
+    ASSERT_EQ(materials[0],0u);
+    ASSERT_EQ(indices[0],kIndices[0]);
+    ASSERT_EQ(indices[1],kIndices[1]);
+    ASSERT_EQ(sat_anim_prepare_model_instance(
+        &a,&state,&world,&mesh,materials,1u,1u),SAT_OK);
+    ASSERT_EQ(vertices[0].x,first.x);
+    ASSERT_EQ(vertices[0].y,first.y);
+    ASSERT_EQ(vertices[0].z,first.z);
+    ASSERT_EQ(vertices[1].x,
+        saturn::core::anim3d::decode_axis(
+            saturn::core::anim3d::make_axis_decoder(0,65536),1000)+3*65536);
+}
+static void prepared_animated_instance_rejects_bad_shades_before_pose_mutation() {
+    sat_animated_model_asset_t a=make_asset(true);
+    sat_anim_state_t state={};
+    ASSERT_EQ(sat_anim_state_init(&state,&a,0u),SAT_OK);
+    sat_vec3_t vertices[2]={{77,88,99},{66,55,44}};
+    uint16_t indices[4]={};
+    sat_mesh_t mesh={};
+    ASSERT_EQ(sat_mesh_init(&mesh,vertices,2u,indices,1u),SAT_OK);
+    ASSERT_EQ(sat_model_copy_to_mesh(a.model,&mesh),SAT_OK);
+    vertices[0]=(sat_vec3_t){77,88,99};
+    sat_mat4_t identity={};
+    ASSERT_EQ(sat_mat4_identity(&identity),SAT_OK);
+    uint16_t materials[1]={123u};
+    ASSERT_EQ(sat_anim_prepare_model_instance(
+        &a,&state,&identity,&mesh,materials,1u,1u),SAT_ERR_UNSUPPORTED);
+    ASSERT_EQ(vertices[0].x,77);
+    ASSERT_EQ(materials[0],123u);
+    const uint8_t invalid_shades[3]={2u,0u,0u};
+    kClips[0].face_shades=invalid_shades;
+    ASSERT_EQ(sat_anim_prepare_model_instance(
+        &a,&state,&identity,&mesh,materials,1u,1u),SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(vertices[0].x,77);
+    ASSERT_EQ(materials[0],123u);
+    ASSERT_EQ(sat_anim_prepare_model_instance(
+        &a,&state,&identity,&mesh,materials,0u,3u),SAT_ERR_CAPACITY);
+    ASSERT_EQ(vertices[0].x,77);
+}
 int main() {
     valid_descriptor_passes();
     malformed_descriptors_rejected();
@@ -536,6 +594,8 @@ int main() {
     wide_sort_draws_big_meshes();
     legacy_small_mesh_unaffected();
     decode_feeds_mesh_and_bind();
-    printf("PASS: test_anim3d_logic.cpp (17 tests)\n");
+    prepared_animated_instance_keeps_bind_indices_and_no_transform_drift();
+    prepared_animated_instance_rejects_bad_shades_before_pose_mutation();
+    printf("PASS: test_anim3d_logic.cpp (19 tests)\n");
     return 0;
 }
