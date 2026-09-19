@@ -235,7 +235,7 @@ int main() {
             int32_t x=lift.x,z=lift.z;
             int32_t top_start=lift.y;
             int saw_up=0,saw_down=0;
-            for(int t=0;t<185;++t) {
+            for(int t=0;t<180;++t) {
                 int32_t before=lift.y;
                 uint16_t event=tick(lift);
                 assert(!(event&SB_EVENT_FALL));
