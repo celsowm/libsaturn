@@ -1,0 +1,8 @@
+# Course-2 vertical elevator and width-variety visual smoke test.
+# Switch while paused without moving the player, then capture multiple frames.
+# Different gold elevator decks should move up/down while fixed decks remain.
+0    NONE
+70   START
+71   NONE
+75   X
+76   NONE
