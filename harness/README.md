@@ -136,3 +136,19 @@ This was inverted before 2026-09-13, which silently held START (restarting any
 example that watches for it) on every scripted run. To check the conversion,
 run `examples/input_debug` under a script whose current line is `NONE` and
 confirm every HELD bit reads 0.
+
+## Audio / SCSP regressions
+
+For audio work, read [`docs/SCSP_AUDIO_STREAMING_GUIDE.md`](../docs/SCSP_AUDIO_STREAMING_GUIDE.md)
+before adding assertions. The current probe is video-centric and does not capture
+the final audio output, so do not treat a successful screenshot as evidence that
+PCM playback is correct.
+
+Prefer guest-visible audio stats and SCSP state. Ymir exposes slot state through
+`saturn.GetSCSP().GetProbe().GetSlots()`; a future probe extension should
+serialize the fields listed in the guide so tests can verify sample format,
+SA/LSA/LEA, pitch, mixer routing and current sample position. For double-buffer
+streaming, the strongest state-level regression test is to prove that only the
+inactive Sound RAM half changes at a refill boundary and that
+`underrun_count` remains zero.
+
