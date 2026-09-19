@@ -103,3 +103,45 @@ extern "C" sat_result_t sat_anim_vertex_gouraud(
 ) {
     return saturn::core::anim3d::vertex_gouraud(asset, state, out_gouraud, gouraud_cap);
 }
+
+extern "C" sat_result_t sat_anim_prepare_model_instance(
+    const sat_animated_model_asset_t* asset,
+    const sat_anim_state_t* state,
+    const sat_mat4_t* world,
+    sat_mesh_t* mesh,
+    uint16_t* out_face_materials,
+    uint16_t material_capacity,
+    uint16_t material_count
+) {
+    if(asset==nullptr || state==nullptr || world==nullptr || mesh==nullptr ||
+       mesh->vertices==nullptr || mesh->indices==nullptr ||
+       sat_anim_clip_validate(asset,state->clip)!=SAT_OK)
+        return SAT_ERR_INVALID_ARG;
+    const sat_model_asset_t* model=asset->model;
+    const sat_model_animation_asset_t* clip=&asset->animations[state->clip];
+    if(state->frame>=clip->frame_count ||
+       mesh->vertex_count!=model->vertex_count ||
+       mesh->face_count!=model->face_count)
+        return SAT_ERR_INVALID_ARG;
+    if(mesh->vertex_cap<model->vertex_count || mesh->face_cap<model->face_count)
+        return SAT_ERR_CAPACITY;
+    if(out_face_materials!=nullptr) {
+        if(clip->face_shades==nullptr) return SAT_ERR_UNSUPPORTED;
+        if(material_capacity<model->face_count) return SAT_ERR_CAPACITY;
+        if(material_count==0u) return SAT_ERR_INVALID_ARG;
+        const uint8_t* const shades=&clip->face_shades[
+            static_cast<uint32_t>(state->frame)*model->face_count];
+        /* Preflight the complete material table before mutating pose data. */
+        for(uint16_t face=0u;face<model->face_count;++face)
+            if(shades[face]>=material_count) return SAT_ERR_INVALID_ARG;
+    }
+    SAT_TRY(sat_anim_decode(asset,state,mesh->vertices,mesh->vertex_cap));
+    SAT_TRY(sat_mesh_transform(mesh,world));
+    if(out_face_materials!=nullptr) {
+        const uint8_t* const shades=&clip->face_shades[
+            static_cast<uint32_t>(state->frame)*model->face_count];
+        for(uint16_t face=0u;face<model->face_count;++face)
+            out_face_materials[face]=shades[face];
+    }
+    return SAT_OK;
+}
