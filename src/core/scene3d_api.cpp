@@ -1,4 +1,6 @@
 #include "saturn/scene3d.h"
+#include "src/core/scene3d_queue_logic.hpp"
+#include <stdint.h>
 
 namespace {
 
@@ -135,4 +137,126 @@ extern "C" sat_result_t sat_scene3d_end(sat_scene3d_t* scene) {
     if (scene == nullptr || scene->active == 0u) return SAT_ERR_INVALID_ARG;
     scene->active = 0u;
     return SAT_OK;
+}
+
+/* All scene painter storage belongs to the caller. The immediate-mode
+ * sat_scene3d_draw_model implementation above remains unchanged. */
+extern "C" sat_result_t sat_scene3d_queue_init(
+    sat_scene3d_queue_t* queue,
+    sat_scene3d_queue_item_t* storage,
+    uint16_t capacity) {
+    if (!queue || !storage || capacity == 0u) return SAT_ERR_INVALID_ARG;
+    *queue = {};
+    queue->items = storage;
+    queue->capacity = capacity;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_queue_begin(
+    sat_scene3d_queue_t* queue, const sat_camera3d_t* camera) {
+    if (!queue || !queue->items || !queue->capacity || !camera ||
+        queue->active || queue->flushing) return SAT_ERR_INVALID_ARG;
+    sat_vec3_t delta = {
+        static_cast<sat_fx16_t>(camera->target.x-camera->eye.x),
+        static_cast<sat_fx16_t>(camera->target.y-camera->eye.y),
+        static_cast<sat_fx16_t>(camera->target.z-camera->eye.z)
+    };
+    if (delta.x==0 && delta.y==0 && delta.z==0) return SAT_ERR_INVALID_ARG;
+    queue->camera = *camera;
+    sat_vec3_normalize(&queue->forward,&delta);
+    queue->count=0u;
+    queue->active=1u;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_queue_depth(
+    const sat_scene3d_queue_t* queue, const sat_vec3_t* position,
+    sat_fx16_t* out_depth) {
+    if (!queue || !queue->active || queue->flushing || !position ||
+        !out_depth) return SAT_ERR_INVALID_ARG;
+    const int64_t depth=(
+        (static_cast<int64_t>(position->x)-queue->camera.eye.x)*queue->forward.x+
+        (static_cast<int64_t>(position->y)-queue->camera.eye.y)*queue->forward.y+
+        (static_cast<int64_t>(position->z)-queue->camera.eye.z)*queue->forward.z
+    ) / SAT_FX16_ONE;
+    *out_depth=depth>INT32_MAX?INT32_MAX:
+               (depth<INT32_MIN?INT32_MIN:static_cast<sat_fx16_t>(depth));
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_queue_submit_draw(
+    sat_scene3d_queue_t* queue, const sat_vec3_t* center,
+    uint16_t pass, sat_scene3d_draw_fn draw, void* user) {
+    if (!queue || !queue->active || queue->flushing || !center || !draw)
+        return SAT_ERR_INVALID_ARG;
+    if (queue->count>=queue->capacity) return SAT_ERR_CAPACITY;
+    sat_scene3d_queue_item_t& item=queue->items[queue->count];
+    item = {};
+    item.center=*center;
+    item.depth=saturn::core::scene3d_queue::depth_raw(queue->camera,*center);
+    item.pass=pass;
+    item.submission=queue->count++;
+    item.type=1u;
+    item.draw=draw;
+    item.user=user;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_queue_submit_model(
+    sat_scene3d_queue_t* queue, const sat_vec3_t* center_local,
+    uint16_t pass, sat_scene3d_t* model_scene,
+    const sat_model_asset_t* model,
+    const sat_model_transform3d_t* transform,
+    const sat_scene3d_model_params_t* params) {
+    if (!queue || !queue->active || queue->flushing || !center_local ||
+        !model_scene || !model || !transform || !params || !model_scene->mesh.vertices)
+        return SAT_ERR_INVALID_ARG;
+    if (queue->count>=queue->capacity) return SAT_ERR_CAPACITY;
+    if (model_scene->active) return SAT_ERR_BUSY;
+    sat_mat4_t matrix{};
+    SAT_TRY(sat_model_transform3d_matrix(transform,&matrix));
+    const sat_vec4_t local={center_local->x,center_local->y,center_local->z,SAT_FX16_ONE};
+    sat_vec4_t world{};
+    SAT_TRY(sat_mat4_transform_vec4(&matrix,&local,&world));
+    const sat_vec3_t center={world.x,world.y,world.z};
+    sat_scene3d_queue_item_t& item=queue->items[queue->count];
+    item = {};
+    item.center=center;
+    item.depth=saturn::core::scene3d_queue::depth_raw(queue->camera,center);
+    item.pass=pass;
+    item.submission=queue->count++;
+    item.type=2u;
+    item.model_scene=model_scene;
+    item.model=model;
+    item.transform=*transform;
+    item.params=*params;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_queue_flush(sat_scene3d_queue_t* queue) {
+    if (!queue || !queue->active || queue->flushing) return SAT_ERR_INVALID_ARG;
+    queue->flushing=1u;
+    saturn::core::scene3d_queue::sort(queue->items,queue->count);
+    sat_result_t result=SAT_OK;
+    for (uint16_t i=0u;i<queue->count;++i) {
+        const sat_scene3d_queue_item_t& item=queue->items[i];
+        if (item.type==1u) {
+            result=item.draw(item.user,&queue->camera);
+        } else if(item.type==2u) {
+            result=sat_scene3d_begin(item.model_scene,&queue->camera);
+            if(result==SAT_OK) {
+                result=sat_scene3d_draw_model(
+                    item.model_scene,item.model,&item.transform,&item.params);
+                /* The model scratch scene must not leak its active state,
+                 * including when a VDP1 command capacity error occurs. */
+                const sat_result_t end_result=sat_scene3d_end(item.model_scene);
+                if(result==SAT_OK) result=end_result;
+            }
+        } else result=SAT_ERR_INVALID_ARG;
+        if(result!=SAT_OK) break;
+    }
+    queue->active=0u;
+    queue->flushing=0u;
+    queue->count=0u;
+    return result;
 }
