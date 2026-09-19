@@ -175,6 +175,31 @@ accepted as persistence proof.
 convenient for manual restart testing. Delete that file to simulate a new
 formatted Ymir Backup RAM image.
 
+## Backup Memory cartridge inspection (read-only fixture)
+
+The probe accepts `--backup-cart <existing-path>` (PowerShell:
+`-BackupCart <existing-path>`) **in addition to** `--backup-ram`. This is
+an initial read-only diagnostic for the persistent Backup Memory cartridge,
+**not** support for cartridge writes in the LibSaturn save API.
+
+The cartridge image must already exist and have a Ymir-supported size (start
+with an isolated 512 KiB test image). Ymir loads it via `LoadFrom` with
+`copyOnWrite=true`, then attaches a `BackupMemoryCartridge` before guest
+execution. The probe never calls `CreateFrom` on this path and never
+resizes/formats an existing image. Guest writes, if any, remain private to
+the emulated process and cannot change the supplied file.
+
+The `backup_cartridge` JSON object is independent of the internal
+`backup_memory` object. It reports image metadata, file names, raw-memory
+hashes before/after guest execution, and whether the guest changed its private
+copy. **A cartridge-visible file in Ymir JSON does not prove the guest used
+LibSaturn's cartridge save API.** That requires a separate BIOS-backed guest
+write/verify/read acceptance test, after the BUP device selector and internal
+persistence test are validated.
+
+Use an isolated copy of a cart image, never an image containing valued saves.
+No proprietary BIOS or personal backup image belongs in Git.
+
 ## Audio / SCSP regressions
 
 For audio work, read [`docs/SCSP_AUDIO_STREAMING_GUIDE.md`](../docs/SCSP_AUDIO_STREAMING_GUIDE.md)
