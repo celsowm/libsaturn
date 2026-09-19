@@ -61,6 +61,8 @@ def assert_skybridge_uses_renderer_and_overlay_budget() -> None:
         "sat_mesh_build_octahedron(",
         "sat_draw_indexed_solid_mesh3(",
         "sat_draw_indexed_tiled_quad3(",
+        "sat_draw_indexed_box3(",
+        "sat_anim_prepare_model_instance(",
         "sat_upload_indexed8_quadrants(",
         "sat_vdp1_reserve_overlay_commands(",
         "sat_vdp1_overlay_begin(",
@@ -73,6 +75,12 @@ def assert_skybridge_uses_renderer_and_overlay_budget() -> None:
     assert "sat_clip_quad_screen(" not in text, (
         "Skybridge must not implement independent screen-space clipping"
     )
+    assert "pquad(&q,rx,y,bz" not in text, (
+        "Box face winding belongs to the renderer, not to Skybridge"
+    )
+    assert "shades=&anim->face_shades[" not in text, (
+        "Animated face material mapping belongs to the instance runtime"
+    )
 
 
 def main() -> None:
@@ -80,7 +88,10 @@ def main() -> None:
     assert_games_do_not_address_vdp2_mmio()
     assert_shared_orbit_camera_is_used()
     assert_skybridge_uses_renderer_and_overlay_budget()
-    print("PASS: test_refactor_api_ownership.py (4 architecture gates)")
+    explorer = source("infinite_explorer")
+    assert "sat_anim_prepare_model_instance(" in explorer
+    assert "for (i = 0; i < EGGMAN_VERTEX_COUNT;" not in explorer
+    print("PASS: test_refactor_api_ownership.py (5 architecture gates)")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # LibSaturn — Full-Stack API & Examples Refactoring Plan (Breaking Rewrite)
 
-**Status:** IN PROGRESS — initial octahedron geometry + Skybridge migration slice under validation; remaining workstreams are not implemented.  
+**Status:** IN PROGRESS — shared octahedron/solid quad+box renderers, indexed bitmap streaming, model-viewer orbit camera and animated-instance pose preparation are on main; scene-wide face sorting, canonical material pool, physics/level unification and final hardware validation remain open.  
 **Date:** 2026-09-19.  
 **Repository:** `celsowm/libsaturn`; execute coherent, validated slices directly on `main` under `AGENTS.md`.  
 **Policy:** **ZERO backward-compatibility commitment.** There is no compatibility shim, deprecated alias, dual implementation, preserved old layout, old symbol ABI, or old example retained for historical API users. Prefer a single better contract and migrate/remove every repository-owned consumer atomically. Existing external users must adapt to the new version. Hardware correctness, bounded memory, observable behavior and tests are **not** optional.

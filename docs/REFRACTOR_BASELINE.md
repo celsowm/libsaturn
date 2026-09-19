@@ -137,3 +137,31 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
 - No direct `0x25E00000` dereference remains in the four migrated
   application/probe examples. This does not alter the scene's existing VDP2
   register shadow, bank allocation or alpha semantics.
+
+## Eleventh slice: indexed box and animated-model instance ownership
+
+- `sat_draw_indexed_box3` takes an axis-aligned solid with a walkable top,
+  half-extents, and three indexed material descriptors. The renderer selects
+  the camera-facing X/Z sides, preserves outward winding, and clips each face
+  through the existing tested indexed quad path. This removes the Skybridge
+  `box3` wrapper's hand-built sides/top. Level-owned patterned insets and
+  actual collision holes remain authored by Skybridge.
+- `sat_anim_prepare_model_instance` preflights mesh/clip/shade capacities,
+  decodes the current immutable LOCAL pose, applies a world matrix **once**,
+  and optionally emits per-face shade-material indices. Skybridge pig now
+  delegates its shade loop to the runtime; Infinite Explorer Egg Mobile now
+  composes yaw→bank→translation with public fixed-point matrices instead of
+  rewriting every vertex in the game. The existing draw/VDP1 pipeline is
+  unchanged for the pig, avoiding an unmeasured performance regression.
+- Host box tests check facing sides, top visibility, material assignment,
+  invalid extents/overflow and command exhaustion; animated instance tests
+  check non-accumulating transforms, unchanged indices and atomic preflight.
+  No emulator capture is implied by host/cross-build success.
+- **Still open:** a shared camera-space **cross-model face planner** that
+  merges world sections + pig + gems without converting the existing
+  high-throughput projected pig path into hundreds of redundant per-face
+  projections. Current `sat_scene3d_queue` sorts callbacks by one object
+  anchor and cannot guarantee correct partial inter-occlusion. The eventual
+  face planner needs vertex projection caches, per-face depth and visibility,
+  bounded scratch and a stock-Saturn frame-time/command-budget gate before
+  Skybridge uses it.
