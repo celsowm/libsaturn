@@ -1092,8 +1092,8 @@ static void hud(void) {
                  g_game.course==2u?"START: COURSE 4":
                                      "START: REPLAY",82,128);
     } else if (g_game.paused) {
-        put_text("PAUSED - START RESUMES",64,92);
-        put_text("X: SWITCH COURSE",80,108);
+        put_text("START: PLAY COURSE",80,92);
+        put_text("X: NEXT COURSE",88,108);
     } else if(g_show_help && g_game.ticks<480u) {
         put_text(g_game.course==3u?"RIDE THE TILTING RAMPS":
                  g_game.course==2u?"JUMP THE YELLOW-RIM HOLES":
@@ -1158,6 +1158,10 @@ int main(void) {
          * Course 2 without finishing all ten decks of Course 1 first. */
         if(g_game.paused && (pad.pressed&SAT_PAD_X)) {
             start_course((uint8_t)(g_game.course+1u));
+            /* Keep the course picker open: with four courses, three
+             * consecutive X presses select Course 4 without requiring
+             * START/X/START/X/START/X to revisit the pause menu. */
+            g_game.paused=1u;
         } else if (pad.pressed&SAT_PAD_START) {
             if(g_game.finished)
                 start_course((uint8_t)(g_game.course+1u));
