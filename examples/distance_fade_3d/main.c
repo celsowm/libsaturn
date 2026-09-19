@@ -377,9 +377,9 @@ int main(void) {
         scroll.y_integer = (uint16_t)((uint32_t)(g_camera_z >> 19) & 0x07FFu);
         sat_example_must(sat_vdp2_nbg0_set_scroll(&scroll));
         sat_example_must(sat_vdp2_layers_commit());
-        /* layers_commit replays the generic PRISA shadow, so color-calc owns
-         * the final sprite-priority/color-op writes for this VBlank. */
-        sat_example_must(sat_vdp2_sprite_color_calc_commit());
+        /* The generic layer shadow now preserves both color-calc sprite
+         * priorities. Recommitting the color-calc registers later in the
+         * frame could miss VBlank and produce alternating blend frames. */
 
         sat_example_must(sat_vdp1_set_erase_transparent());
         sat_example_must(sat_begin_frame());
