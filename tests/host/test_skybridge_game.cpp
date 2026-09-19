@@ -509,7 +509,8 @@ int main() {
         assert(tick(long_course)&SB_EVENT_WIN);
         assert(long_course.finished && long_course.course==2u);
         sb_start_course(&long_course,(uint8_t)(long_course.course+1u));
-        assert(long_course.course==0u && !long_course.finished);
+        assert(long_course.course==3u && !long_course.finished);
+        assert(sb_course_platforms(&long_course)==sb_stage_four);
         assert(long_course.support==0 && long_course.pickups==0u);
         /* Selecting Course 3 resets its own gems/checkpoints and preserves
          * the original two course tables and their physical geometry. */
