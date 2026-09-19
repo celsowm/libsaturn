@@ -33,6 +33,14 @@ extern "C" void sat_quad3_billboard(sat_quad3_t* out, sat_fx16_t cx, sat_fx16_t 
 extern "C" sat_result_t sat_project_quad(const sat_mat4_t* view_proj, const sat_quad3_t* quad, sat_quad2_t* out) {
     return project(view_proj, quad, out);
 }
+extern "C" sat_result_t sat_clip_quad_near(
+    const sat_quad3_t* quad,const sat_vec3_t* eye,
+    const sat_vec3_t* forward,sat_fx16_t near_depth,
+    sat_quad3_t out_triangles[4],uint8_t* out_count) {
+    return saturn::core::render3d::clip_world_quad_near(
+        quad,eye,forward,near_depth,out_triangles,out_count);
+}
+
 
 extern "C" sat_result_t sat_draw_world_polygon(const sat_mat4_t* view_proj, const sat_quad3_t* quad, uint16_t color) {
     return sat_draw_world_polygon_effects(view_proj, quad, color, 0u);
