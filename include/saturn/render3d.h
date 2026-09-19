@@ -56,6 +56,20 @@ sat_result_t sat_clip_quad_near(
     sat_quad3_t out_triangles[4],
     uint8_t* out_count);
 
+/* Clip a projected solid-color quad against native screen bounds; result
+ * is a list of <=6 triangles (D=C) suitable for small uniform indexed
+ * VDP1 sprites. This prevents a near-plane-clipped world face with
+ * projected +/-2047 corners from issuing huge hardware raster commands.
+ * width/height are viewport dimensions, e.g. 320x224. The clipping
+ * retains shape/winding but does NOT interpolate texture UVs: never use
+ * its triangles with a patterned/photographic sprite.
+ * The full-visible fast path preserves all original quad corners. */
+sat_result_t sat_clip_quad_screen(
+    const sat_quad2_t* quad,
+    uint16_t width,uint16_t height,
+    sat_quad2_t out_triangles[6],
+    uint8_t* out_count);
+
 /* One vertex projected into native VDP1 coordinates. `w` is its clip-space
  * w -- view depth in 16.16 world units. w <= 0 means at or behind the camera
  * plane, and x/y are then meaningless. */
