@@ -35,6 +35,52 @@ int main() {
         sb_tick(&moving,SB_LEFT,0u,0,SB_F(1),rx,rz);
         assert(moving.vx>0 && moving.x>0);
     }
+    /* Rotating the follow camera must NOT change the pilot's physical
+     * coordinates or its supporting deck. Old camera offsets also varied
+     * in horizontal radius (33 units at 90 deg, 43 at 0 deg), so assert a
+     * constant 42-unit orbit at four cardinal directions. */
+    {
+        const int32_t axes[4][2]={
+            {0,SB_F(1)},{SB_F(1),0},{0,-SB_F(1)},{-SB_F(1),0}
+        };
+        for(int yaw=0;yaw<4;++yaw) {
+            int32_t ex,ez,lx,lz;
+            sb_camera_offset(axes[yaw][0],axes[yaw][1],&ex,&ez,&lx,&lz);
+            assert(ex==-sb_mul(axes[yaw][0],SB_F(42)));
+            assert(ez==-sb_mul(axes[yaw][1],SB_F(42)));
+            assert(lx==sb_mul(axes[yaw][0],SB_F(8)));
+            assert(lz==sb_mul(axes[yaw][1],SB_F(8)));
+            assert((int64_t)ex*ex+(int64_t)ez*ez==
+                   (int64_t)SB_F(42)*SB_F(42));
+        }
+        sb_game_t orbit;
+        sb_init(&orbit);
+        for(int yaw=0;yaw<4;++yaw) {
+            for(int t=0;t<20;++t) {
+                sb_tick(&orbit,0u,0u,axes[yaw][0],axes[yaw][1],0,0);
+                assert(orbit.x==0 && orbit.y==0 && orbit.z==SB_F(-4));
+                assert(orbit.support==0);
+                assert(sb_supported_footprint(&orbit,0u));
+            }
+        }
+    }
+    /* A cube merely touching a deck with its last corner must not stay
+     * grounded in the air when the camera is rotated to a side view. */
+    {
+        sb_game_t edge;
+        sb_init(&edge);
+        edge.x=SB_F(sb_stage[0].half_x)+SB_F(1);
+        edge.z=SB_F(sb_stage[0].z);
+        assert(sb_horizontal_overlap(&edge,0u));
+        assert(!sb_supported_footprint(&edge,0u));
+        tick(edge);
+        assert(edge.support==-1 && edge.y<0);
+        edge.x=SB_F(sb_stage[0].half_x)-SB_PLAYER_HALF;
+        edge.y=0;edge.vy=0;edge.vx=0;edge.vz=0;
+        assert(sb_supported_footprint(&edge,0u));
+        tick(edge);
+        assert(edge.support==0 && edge.y==0);
+    }
     sb_game_t g;
     sb_init(&g);
     assert(g.x==0 && g.y==0 && g.z==SB_F(-4));
