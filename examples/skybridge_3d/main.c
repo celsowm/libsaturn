@@ -381,13 +381,46 @@ static void stage_box(uint8_t i) {
     if (p->kind==SB_COLLAPSING && g_game.collapse_ticks>0u &&
         g_game.collapse_ticks<=30u)
         t=(g_game.ticks&4u)?SAT_RGB555(31,8,5):SAT_RGB555(31,26,5);
-    box3(x,top_y,z,SB_F(p->half_x),SB_F(5),SB_F(p->half_z),
-         t, p->kind==SB_LIFT?SAT_RGB555(24,20,10):
-             (i<4u ? SAT_RGB555(12,14,14):SAT_RGB555(6,16,15)),
-         p->kind==SB_LIFT?SAT_RGB555(31,19,2):
-             (i<4u ? SAT_RGB555(17,17,14):SAT_RGB555(8,19,18)),
-         p->kind==SB_COLLAPSING?2u:
-             (p->kind==SB_LIFT?4u:(i<4u?1u:(i<7u?3u:4u))));
+    {
+        /* Course 3 has actual missing geometry, not a dark quad drawn over
+         * an intact floor. Use the SAME shared solid slices as ground
+         * collision, leaving the rectangular opening open to the ocean. */
+        const sb_hole_t* hole=sb_platform_hole(&g_game,i);
+        sb_deck_slice_t slabs[4];
+        uint8_t pieces=sb_deck_slices(&g_game,i,slabs);
+        uint16_t side=p->kind==SB_LIFT?SAT_RGB555(24,20,10):
+            (i<4u?SAT_RGB555(12,14,14):SAT_RGB555(6,16,15));
+        uint16_t front=p->kind==SB_LIFT?SAT_RGB555(31,19,2):
+            (i<4u?SAT_RGB555(17,17,14):SAT_RGB555(8,19,18));
+        for(uint8_t part=0u;part<pieces;++part) {
+            const sb_deck_slice_t* s=&slabs[part];
+            int32_t half_x=(s->max_x-s->min_x)/2;
+            int32_t half_z=(s->max_z-s->min_z)/2;
+            box3(s->min_x+half_x,top_y,s->min_z+half_z,
+                 half_x,SB_F(5),half_z,t,side,front,
+                 hole?0u:(p->kind==SB_COLLAPSING?2u:
+                     (p->kind==SB_LIFT?4u:(i<4u?1u:(i<7u?3u:4u)))));
+        }
+        if(hole && g_eye.y>top_y) {
+            /* Bright narrow rim is drawn OUTSIDE the void. These four
+             * strips never cover the aperture or create phantom flooring. */
+            const int32_t hl=x+SB_F(hole->x_offset-hole->half_x);
+            const int32_t hr=x+SB_F(hole->x_offset+hole->half_x);
+            const int32_t hb=z+SB_F(hole->z_offset-hole->half_z);
+            const int32_t hf=z+SB_F(hole->z_offset+hole->half_z);
+            const int32_t y=top_y+SB_F(1)/24;
+            sat_quad3_t rim;
+            const uint16_t warning=SAT_RGB555(31,23,3);
+            quad_rect_xz(&rim,hl-SB_F(1),hl,hb,hf,y);
+            put_quad(&rim,warning);
+            quad_rect_xz(&rim,hr,hr+SB_F(1),hb,hf,y);
+            put_quad(&rim,warning);
+            quad_rect_xz(&rim,hl,hr,hb-SB_F(1),hb,y);
+            put_quad(&rim,warning);
+            quad_rect_xz(&rim,hl,hr,hf,hf+SB_F(1),y);
+            put_quad(&rim,warning);
+        }
+    }
     /* Distinct corner braces and inset deck rails make the floating decks
      * read as engineered 3D structures rather than untextured slabs.
      * All braces are outside the traversable deck and are decorative only. */
@@ -993,10 +1026,12 @@ static void hud(void) {
     if (g_game.finished) {
         (void)sat_draw_rect_screen(46,76,228u,75u,SAT_RGB555(2,13,16));
         put_text(g_game.course==0u?"COURSE 1 COMPLETE":
-                                     "COURSE 2 COMPLETE",66,83);
+                 g_game.course==1u?"COURSE 2 COMPLETE":
+                                     "COURSE 3 COMPLETE",66,83);
         label("GEMS ",count,116,104);
         put_text("/8",164,104);
         put_text(g_game.course==0u?"START: COURSE 2":
+                 g_game.course==1u?"START: COURSE 3":
                                      "START: REPLAY",82,128);
     } else if (g_game.paused) {
         put_text("PAUSED - START RESUMES",64,92);
