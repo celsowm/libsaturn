@@ -66,6 +66,30 @@ static inline int sb_horizontal_overlap(const sb_game_t* g, uint8_t id) {
     return sb_abs(g->x - sb_platform_x(g, id)) < SB_F(p->half_x) + SB_PLAYER_HALF &&
            sb_abs(g->z - SB_F(p->z)) < SB_F(p->half_z) + SB_PLAYER_HALF;
 }
+/* AABB contact is useful for side/head collision, but is too permissive
+ * for GROUNDING: it allowed the cube centre to move completely outside the
+ * platform while its outermost corner still overlapped. From an oblique
+ * camera it then looked as if the cube floated in front of the slab.
+ * Keep nearly the whole footprint on the deck; coyote time handles edges. */
+static inline int sb_supported_footprint(const sb_game_t* g, uint8_t id) {
+    const sb_platform_t* p=&sb_stage[id];
+    const int32_t safe_half_x=SB_F(p->half_x)-SB_PLAYER_HALF+SB_HALF;
+    const int32_t safe_half_z=SB_F(p->half_z)-SB_PLAYER_HALF+SB_HALF;
+    return sb_abs(g->x-sb_platform_x(g,id))<=safe_half_x &&
+           sb_abs(g->z-SB_F(p->z))<=safe_half_z;
+}
+/* Place the orbit camera at one CONSTANT radius in the horizontal plane.
+ * The previous x/z arm lengths (33 vs 43) caused the perspective/zoom to
+ * change while rotating, making the avatar apparently slip across the deck. */
+static inline void sb_camera_offset(int32_t fx,int32_t fz,
+                                    int32_t* eye_x,int32_t* eye_z,
+                                    int32_t* look_x,int32_t* look_z) {
+    *eye_x=-sb_mul(fx,SB_F(42));
+    *eye_z=-sb_mul(fz,SB_F(42));
+    *look_x=sb_mul(fx,SB_F(8));
+    *look_z=sb_mul(fz,SB_F(8));
+}
+
 static inline int32_t sb_moving_offset(uint32_t tick) {
     /* 4-unit triangular motion, 120 ticks per round trip. */
     uint32_t phase = tick % 120u;
@@ -179,7 +203,7 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
     if (g->vy<=0) {
         for (i=0u;i<SB_PLATFORM_COUNT;++i) {
             int32_t top=SB_F(sb_stage[i].y);
-            if (!sb_platform_active(g,i) || !sb_horizontal_overlap(g,i)) continue;
+            if (!sb_platform_active(g,i) || !sb_supported_footprint(g,i)) continue;
             if (old_y>=top-SB_F(1)/8 && g->y<=top && top>best_y) {
                 best=(int8_t)i; best_y=top;
             }
