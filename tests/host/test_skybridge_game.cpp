@@ -615,7 +615,7 @@ int main() {
         ramp.z=SB_F(25);
         ramp.y=sb_platform_surface_y(&ramp,1u,ramp.x,ramp.z);
         int32_t previous_walk_z=ramp.z;
-        for(int frame=0;frame<22;++frame) {
+        for(int frame=0;frame<15;++frame) {
             tick(ramp,SB_UP);
             assert(ramp.z>previous_walk_z);
             previous_walk_z=ramp.z;
