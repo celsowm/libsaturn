@@ -21,6 +21,9 @@ uint32_t g_distorted_calls = 0u;
 uint32_t g_polygon_calls = 0u;
 uint32_t g_polyline_calls = 0u;
 uint32_t g_line_calls = 0u;
+bool g_alpha_configured = false;
+uint8_t g_alpha_slot = 4u;
+uint8_t g_alpha_requested = 0u;
 saturn::hal::vdp1::SpriteRequest g_last_sprite{};
 saturn::hal::vdp1::ScaledSpriteRequest g_last_scaled{};
 saturn::hal::vdp1::DistortedSpriteRequest g_last_distorted{};
@@ -28,6 +31,15 @@ saturn::hal::vdp1::PolygonRequest g_last_polygon{};
 saturn::hal::vdp1::PolygonRequest g_last_polyline{};
 saturn::hal::vdp1::LineRequest g_last_line{};
 saturn::hal::vdp1::UserClipRequest g_last_clip{};
+}
+
+extern "C" sat_result_t sat_vdp2_sprite_color_calc_alpha_slot(
+    uint8_t alpha, uint8_t* out_slot) {
+    if (out_slot == nullptr) return SAT_ERR_INVALID_ARG;
+    if (!g_alpha_configured) return SAT_ERR_NOT_INITIALIZED;
+    g_alpha_requested = alpha;
+    *out_slot = g_alpha_slot;
+    return SAT_OK;
 }
 
 namespace saturn::hal::vdp1 {
@@ -125,6 +137,9 @@ static void reset_runtime() {
     g_last_polyline = {};
     g_last_line = {};
     g_last_clip = {};
+    g_alpha_configured = false;
+    g_alpha_slot = 4u;
+    g_alpha_requested = 0u;
 }
 
 int main() {
@@ -215,6 +230,27 @@ int main() {
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &meshed) == SAT_OK);
     OK(g_sprite_calls == 2u && g_last_sprite.flags == SAT_SPRITE_FLAG_MESH);
 
+    sat_draw_params_t alpha = sat_draw_params_default();
+    alpha.blend_mode = SAT_BLEND_ALPHA;
+    alpha.tint.a = 128u;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &alpha) == SAT_ERR_NOT_INITIALIZED);
+    g_alpha_configured = true;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &alpha) == SAT_OK);
+    OK(g_alpha_requested == 128u);
+    OK(g_last_sprite.palette == 0x0040u | (4u << 3u));
+    const uint32_t sprites_before_skip = g_sprite_calls;
+    alpha.tint.a = 0u;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &alpha) == SAT_OK);
+    OK(g_sprite_calls == sprites_before_skip);
+    alpha.tint.a = 255u;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &alpha) == SAT_OK);
+    OK(g_last_sprite.palette == 0u);
+    alpha.tint.a = 128u;
+    OK(sat_draw_texture(persistent, &src, &scaled_dst, &alpha) == SAT_OK);
+    OK(g_last_scaled.palette == 0x0040u | (4u << 3u));
+    alpha.rotation = static_cast<sat_fx16_t>(30 << 16);
+    OK(sat_draw_texture(persistent, &src, &scaled_dst, &alpha) == SAT_OK);
+    OK(g_last_distorted.palette == 0x0040u | (4u << 3u));
     std::puts("render2d api: OK");
     return 0;
 }

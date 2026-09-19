@@ -111,10 +111,15 @@ sat_result_t sat_draw_line(sat_point_t start, sat_point_t end, sat_color_t color
  * dst is required and its width/height must be non-zero. Scaling, X/Y flip,
  * rotation around params.center, and the current Camera2D are supported.
  * params == NULL is equivalent to sat_draw_params_default(). The current
- * Supported path: neutral RGB tint with SAT_BLEND_NONE, or explicit
- * SAT_SPRITE_FLAG_MESH for checkerboard transparency; other tint/blend
- * combinations currently return SAT_ERR_UNSUPPORTED rather than pretending
- * to provide arbitrary per-texel alpha. */
+ * Neutral RGB tint and SAT_BLEND_NONE draw normally. SAT_BLEND_ALPHA
+ * interprets tint.a as 0 (skip), 255 (normal), or intermediate alpha via a
+ * preconfigured VDP2 sprite color-calculation ratio slot. Call
+ * sat_vdp2_sprite_color_calc_configure_alpha() first, and keep the VDP2
+ * background at lower priority than both sprite selectors. This mixes
+ * sprites with a VDP2 background, NOT overlapping VDP1 sprites.
+ * A nearest hardware ratio >2 steps away returns SAT_ERR_UNSUPPORTED.
+ * SAT_SPRITE_FLAG_MESH is also supported (checkerboard, not color blending).
+ * ADD, SUBTRACT and non-neutral RGB tint remain unsupported. */
 sat_result_t sat_draw_texture(
     sat_texture_t texture,
     const sat_rect_t* src,

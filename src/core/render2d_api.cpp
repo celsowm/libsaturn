@@ -1,6 +1,8 @@
 #include "saturn/render2d.h"
 
 #include "src/core/render2d_logic.hpp"
+#include "src/core/vdp1_color_calc_logic.hpp"
+#include "saturn/vdp2_color_calc.h"
 #include "src/core/render2d_runtime.hpp"
 #include "src/core/runtime_state.hpp"
 #include "src/core/texture_runtime.hpp"
@@ -268,6 +270,15 @@ extern "C" sat_result_t sat_draw_texture(
     if (st != SAT_OK) return st;
 
     const sat_draw_params_t effective = params != nullptr ? *params : sat_draw_params_default();
+    uint16_t palette = native->palette;
+    if (effective.blend_mode == SAT_BLEND_ALPHA) {
+        if (effective.tint.a == 0u) return SAT_OK;
+        if (effective.tint.a != 255u) {
+            uint8_t slot_id = 0u;
+            SAT_TRY(sat_vdp2_sprite_color_calc_alpha_slot(effective.tint.a, &slot_id));
+            SAT_TRY(vdp1_color_calc::encode_palette_selector(native->palette, slot_id, &palette));
+        }
+    }
     const sat_camera2d_t& camera = g_render2d_runtime.current.camera;
     if (effective.rotation != 0 || effective.flip != SAT_FLIP_NONE ||
         !render2d_camera_is_identity(camera)) {
@@ -294,7 +305,7 @@ extern "C" sat_result_t sat_draw_texture(
         request.width = native->width;
         request.height = native->height;
         request.srca = native->srca;
-        request.palette = native->palette;
+        request.palette = palette;
         request.flags = effective.flags;
         request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
         return saturn::hal::vdp1::push_distorted_sprite(request);
@@ -317,7 +328,7 @@ extern "C" sat_result_t sat_draw_texture(
         request.width = native->width;
         request.height = native->height;
         request.srca = native->srca;
-        request.palette = native->palette;
+        request.palette = palette;
         request.flags = effective.flags;
         request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
         return saturn::hal::vdp1::push_sprite(request);
@@ -331,7 +342,7 @@ extern "C" sat_result_t sat_draw_texture(
     request.width = native->width;
     request.height = native->height;
     request.srca = native->srca;
-    request.palette = native->palette;
+    request.palette = palette;
     request.flags = effective.flags;
     request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
     return saturn::hal::vdp1::push_scaled_sprite(request);

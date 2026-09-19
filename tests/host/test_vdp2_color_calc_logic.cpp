@@ -28,6 +28,19 @@ int main() {
     cfg.ratio[7] = 32u;
     ASSERT_EQ(saturn::core::vdp2_color_calc::validate_config(&cfg), SAT_ERR_INVALID_ARG);
 
+    const uint8_t ratios[8] = {0u, 4u, 8u, 12u, 16u, 20u, 24u, 31u};
+    uint8_t slot = 0xFFu;
+    using saturn::core::vdp2_color_calc::choose_alpha_slot;
+    ASSERT_EQ(choose_alpha_slot(128u, ratios, &slot), SAT_OK);
+    ASSERT_EQ(slot, 4u); // background ratio 16 => approximately 50% alpha
+    ASSERT_EQ(choose_alpha_slot(1u, ratios, &slot), SAT_OK);
+    ASSERT_EQ(slot, 7u);
+    ASSERT_EQ(choose_alpha_slot(0u, ratios, &slot), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(choose_alpha_slot(255u, ratios, &slot), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(choose_alpha_slot(128u, ratios, nullptr), SAT_ERR_INVALID_ARG);
+    const uint8_t no_middle[8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 31u};
+    ASSERT_EQ(choose_alpha_slot(128u, no_middle, &slot), SAT_ERR_UNSUPPORTED);
+
     std::puts("test_vdp2_color_calc_logic: OK");
     return 0;
 }

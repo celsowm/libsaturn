@@ -44,6 +44,17 @@ sat_result_t sat_vdp2_sprite_color_calc_set_ratio(
  * start before writing the latched VDP2 registers. If sat_vdp2_layers_commit()
  * is also used during the same VBlank, call this afterwards because the generic
  * layer commit replays its own PRISA shadow. */
+/* Standard alpha preset: 8 shared slots with ratios {0,4,8,12,16,20,24,31}.
+ * Overrides any distance-fade or other consumer's ratio table. Priority 2..7
+ * must put both kinds of sprites above the VDP2 background to be blended. */
+sat_result_t sat_vdp2_sprite_color_calc_configure_alpha(uint8_t normal_priority);
+
+/* Pick the nearest *existing* slot for alpha 1..254 without changing the
+ * global eight-ratio table. Returns NOT_INITIALIZED if color calc is disabled,
+ * UNSUPPORTED if the nearest value deviates >2 hardware ratio units.
+ * 0 (skip) and 255 (opaque) are handled by the caller. */
+sat_result_t sat_vdp2_sprite_color_calc_alpha_slot(uint8_t alpha, uint8_t* out_slot);
+
 sat_result_t sat_vdp2_sprite_color_calc_commit(void);
 
 sat_result_t sat_vdp2_sprite_color_calc_disable(void);

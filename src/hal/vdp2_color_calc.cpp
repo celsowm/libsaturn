@@ -80,6 +80,11 @@ void set_ratio(uint8_t slot, uint8_t ratio) {
     commit();
 }
 
+sat_result_t select_alpha_slot(uint8_t alpha, uint8_t* out_slot) {
+    if (g_enabled == 0u) return SAT_ERR_NOT_INITIALIZED;
+    return saturn::core::vdp2_color_calc::choose_alpha_slot(alpha, g_ratio, out_slot);
+}
+
 void disable() {
     g_enabled = 0u;
     commit();

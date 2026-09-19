@@ -36,6 +36,10 @@ struct Render2DLine {
     int16_t y1;
 };
 
+inline bool render2d_neutral_rgb(sat_color_t tint) {
+    return tint.r == 255u && tint.g == 255u && tint.b == 255u;
+}
+
 inline bool render2d_neutral_tint(sat_color_t tint) {
     return tint.r == 255u && tint.g == 255u && tint.b == 255u && tint.a == 255u;
 }
@@ -70,6 +74,8 @@ inline sat_result_t validate_render2d_params(const sat_draw_params_t* params) {
     if (params->blend_mode > SAT_BLEND_SUBTRACT) return SAT_ERR_INVALID_ARG;
     if ((params->flags & ~SAT_SPRITE_FLAG_MESH) != 0u ||
         params->reserved != 0u) return SAT_ERR_INVALID_ARG;
+    if (!render2d_neutral_rgb(params->tint)) return SAT_ERR_UNSUPPORTED;
+    if (params->blend_mode == SAT_BLEND_ALPHA) return SAT_OK;
     if (params->blend_mode != SAT_BLEND_NONE || !render2d_neutral_tint(params->tint)) {
         return SAT_ERR_UNSUPPORTED;
     }

@@ -1,9 +1,9 @@
 # Transparency and alpha blending on Saturn
 
-Status: native VDP1 effects and discrete 2D shape alpha are implemented.
-VDP2 sprite-alpha convenience integration and RGBA asset conversion require
-separate handling; do not infer arbitrary RGBA shader semantics from the
-presence of `SAT_BLEND_ALPHA` in an enum.
+Status: VDP1 native effects, discrete 2D shape alpha and VDP2 indexed-sprite
+alpha via eight shared hardware ratio slots are implemented. Automatic
+per-pixel RGBA asset conversion is not implemented; do not infer shader
+semantics from the presence of `SAT_BLEND_ALPHA` in an enum.
 
 ## Four distinct mechanisms
 
@@ -44,6 +44,32 @@ and overlapping-sprite caveats apply. `sat_draw_params_t.flags` accepts
 `SAT_SPRITE_FLAG_MESH` on indexed textures; it is a checkerboard, **not**
 ordinary per-pixel alpha. Direct VDP1 callers can set the three native effect
 flags on polygon commands, including Gouraud variants.
+
+## High-level texture alpha (VDP2, not VDP1-on-VDP1)
+
+```c
+#include "saturn/vdp2_color_calc.h"
+sat_vdp2_sprite_color_calc_configure_alpha(6u); /* call once, after sat_init */
+sat_draw_params_t p = sat_draw_params_default();
+p.blend_mode = SAT_BLEND_ALPHA;
+p.tint.a = 128u;
+sat_draw_texture(texture, NULL, &dst, &p);
+```
+
+The convenience preset uses ratios 0,4,8,12,16,20,24,31 and reserves sprite
+priority selector 1 for color calculation. Priority selector 0 remains opaque.
+Keep the relevant VDP2 background below both sprite priority selectors.
+`sat_draw_texture` chooses the nearest already-configured ratio without
+rewriting global state per sprite; it can coexist with the 3D distance-fade
+table **if** that table offers a ratio near the requested alpha. The table
+has only eight shared entries, so configuring it for 2D alpha may change
+the appearance of preexisting distance-fade sprites. No configuration yields
+SAT_ERR_NOT_INITIALIZED and missing ratios yield SAT_ERR_UNSUPPORTED.
+Alpha 0 skips and 255 draws normally, independent of VDP2 config.
+
+VDP2 color calculation cannot blend one VDP1 sprite over another sprite
+already in the same VDP1 framebuffer. This path is for the lower-priority
+VDP2 background and supported layer arrangements.
 
 ## Constraints and later work
 

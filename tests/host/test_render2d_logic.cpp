@@ -18,6 +18,9 @@ int main() {
     OK(validate_render2d_params(&params) == SAT_ERR_INVALID_ARG);
     params = sat_draw_params_default();
     params.blend_mode = SAT_BLEND_ALPHA;
+    params.tint.a = 128u;
+    OK(validate_render2d_params(&params) == SAT_OK);
+    params.blend_mode = SAT_BLEND_ADD;
     OK(validate_render2d_params(&params) == SAT_ERR_UNSUPPORTED);
     params = sat_draw_params_default();
     params.flags = SAT_SPRITE_FLAG_MESH;

@@ -35,6 +35,22 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_set_ratio(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_sprite_color_calc_configure_alpha(uint8_t normal_priority) {
+    sat_vdp2_sprite_color_calc_config_t config{};
+    config.enabled = 1u;
+    config.normal_priority = normal_priority;
+    constexpr uint8_t ratios[8] = {0u, 4u, 8u, 12u, 16u, 20u, 24u, 31u};
+    for (uint8_t i = 0u; i < 8u; ++i) config.ratio[i] = ratios[i];
+    return sat_vdp2_sprite_color_calc_configure(&config);
+}
+
+extern "C" sat_result_t sat_vdp2_sprite_color_calc_alpha_slot(
+    uint8_t alpha, uint8_t* out_slot) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (out_slot == nullptr || alpha == 0u || alpha == 255u) return SAT_ERR_INVALID_ARG;
+    return saturn::hal::vdp2_color_calc::select_alpha_slot(alpha, out_slot);
+}
+
 extern "C" sat_result_t sat_vdp2_sprite_color_calc_commit(void) {
     sat_result_t st = saturn::core::require_initialized();
     if (st != SAT_OK) {

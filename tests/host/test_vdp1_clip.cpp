@@ -2,6 +2,7 @@
 #include <cstdlib>
 
 #include "src/hal/vdp1.hpp"
+#include "saturn/vdp1.h"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 
@@ -29,8 +30,6 @@ int main() {
     mesh_sprite.flags = SAT_SPRITE_FLAG_MESH;
     OK(push_sprite(mesh_sprite) == SAT_OK);
     OK((commands[4].pmod & 0x0100u) != 0u);
-    const uint16_t count_after_mesh = 5u;
-    (void)count_after_mesh;
 
     SpriteRequest unsupported_sprite = sprite;
     unsupported_sprite.flags = SAT_SPRITE_FLAG_HALF_TRANSPARENT;
