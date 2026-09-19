@@ -247,6 +247,61 @@ static uint16_t top_color(uint8_t i) {
     if (i<7u) return SAT_RGB555(12,26,19);
     return SAT_RGB555(27,23,16);
 }
+/* Real 3D diamond/octahedron, not another box like the magenta avatar.
+ * Four equator corners, one top tip, one bottom tip -> eight triangular
+ * facets. Triangles use repeated D=C, which the quad projection supports.
+ * Submit facets back-to-front: VDP1 has no depth buffer. The diamond shares
+ * the game's position/radius/hover constants with the pickup collision. */
+static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
+    static const int8_t ox[4]={1,0,-1,0};
+    static const int8_t oz[4]={0,1,0,-1};
+    static const uint16_t upper[4]={
+        SAT_RGB555(31,30,8),SAT_RGB555(31,26,3),
+        SAT_RGB555(31,30,8),SAT_RGB555(31,23,4)
+    };
+    static const uint16_t lower[4]={
+        SAT_RGB555(31,13,3),SAT_RGB555(31,23,4),
+        SAT_RGB555(31,13,3),SAT_RGB555(31,23,4)
+    };
+    const int32_t bob=sat_fx16_mul(
+        sat_sin_deg(SB_F((int32_t)(g_game.ticks*5u+id*33u)%360)),
+        SB_F(1)/2);
+    const int32_t mid=deck_y+SB_GEM_BASE_OFFSET+bob;
+    const int32_t tip_top=mid+SB_GEM_HALF_HEIGHT;
+    const int32_t tip_bottom=mid-SB_GEM_HALF_HEIGHT;
+    uint8_t order[4]={0u,1u,2u,3u};
+    uint64_t distance[4];
+    uint8_t i,j;
+    for(i=0u;i<4u;++i) {
+        uint8_t next=(uint8_t)((i+1u)&3u);
+        int32_t cx=x+(ox[i]+ox[next])*SB_GEM_RADIUS/2;
+        int32_t cz=z+(oz[i]+oz[next])*SB_GEM_RADIUS/2;
+        int64_t dx=(int64_t)g_eye.x-cx;
+        int64_t dz=(int64_t)g_eye.z-cz;
+        distance[i]=(uint64_t)(dx*dx+dz*dz);
+    }
+    for(i=1u;i<4u;++i) {
+        uint8_t index=order[i];
+        j=i;
+        while(j>0u && distance[order[j-1u]]<distance[index]) {
+            order[j]=order[j-1u];
+            --j;
+        }
+        order[j]=index;
+    }
+    for(i=0u;i<4u;++i) {
+        sat_quad3_t tri;
+        uint8_t side=order[i],next=(uint8_t)((side+1u)&3u);
+        int32_t ax=x+ox[side]*SB_GEM_RADIUS;
+        int32_t az=z+oz[side]*SB_GEM_RADIUS;
+        int32_t bx=x+ox[next]*SB_GEM_RADIUS;
+        int32_t bz=z+oz[next]*SB_GEM_RADIUS;
+        pquad(&tri,x,tip_top,z,ax,mid,az,bx,mid,bz,bx,mid,bz);
+        put_quad(&tri,upper[side]);
+        pquad(&tri,ax,mid,az,x,tip_bottom,z,bx,mid,bz,bx,mid,bz);
+        put_quad(&tri,lower[side]);
+    }
+}
 static void stage_box(uint8_t i) {
     const sb_platform_t* p=&sb_stage[i];
     int32_t x=sb_platform_x(&g_game,i), z=SB_F(p->z);
@@ -297,10 +352,9 @@ static void stage_box(uint8_t i) {
         box3(x,SB_F(p->y+19),z+SB_F(5),SB_F(11),SB_F(1),SB_F(1),
              SAT_RGB555(31,26,3),SAT_RGB555(20,14,3),SAT_RGB555(27,19,4),0u);
     }
-    if (i>=1u && i<=8u && !(g_game.pickups & (1u<<(i-1u)))) {
-        const int32_t wave=sat_fx16_mul(sat_sin_deg(SB_F((int32_t)(g_frame*5u+i*33u)%360)),SB_F(1)/2);
-        box3(x,SB_F(p->y+7)+wave,z,SB_F(2),SB_F(2),SB_F(2),
-             SAT_RGB555(31,30,8),SAT_RGB555(31,13,3),SAT_RGB555(31,23,4),0u);
+    if (i>=1u && i<=SB_PICKUP_COUNT && sb_platform_active(&g_game,i) &&
+        !(g_game.pickups & (1u<<(i-1u)))) {
+        draw_gem(i,x,SB_F(p->y),z);
     }
 }
 static void player_box(void) {
@@ -677,14 +731,14 @@ static void hud(void) {
         label("YAW ",(uint32_t)g_yaw,101,33);
     }
     if (g_game.finished) {
-        (void)sat_draw_rect_screen(46,82,228u,53u,SAT_RGB555(2,13,16));
-        put_text("COURSE COMPLETE!",80,88);
-        put_text("START: PLAY AGAIN",82,106);
+        (void)sat_draw_rect_screen(46,76,228u,75u,SAT_RGB555(2,13,16));
+        put_text("COURSE COMPLETE!",80,83);
+        label("GEMS ",count,116,104);
+        put_text("START: PLAY AGAIN",82,128);
     } else if (g_game.paused) {
         put_text("PAUSED - START RESUMES",64,92);
-    } else if (g_game.support==9 && g_game.pickups!=0xFFu) {
-        put_text("COLLECT ALL 8 GEMS",65,g_show_debug?47:35);
     } else if(g_show_help && g_game.ticks<480u) {
+        put_text("GEMS OPTIONAL",8,192);
         put_text("D-PAD MOVE  A JUMP",8,204);
         put_text("B/C CAMERA  START PAUSE",8,215);
     }
