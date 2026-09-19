@@ -306,7 +306,7 @@ inline sat_result_t clip_quad_screen(
     uint8_t n=0u;
     for(uint8_t i=0u;i<4u;++i) {
         const ScreenPoint point={quad->x[i],quad->y[i]};
-        if(!screen_equal(point,previous[n?n-1u:0u]) || n==0u)
+        if(n==0u || !screen_equal(point,previous[n-1u]))
             previous[n++]=point;
         for(uint8_t edge=0u;edge<4u;++edge)
             if(!screen_inside(point,edge,bounds[edge]))fully_inside=false;
