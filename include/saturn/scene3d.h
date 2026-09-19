@@ -142,6 +142,7 @@ typedef struct sat_scene3d_queue {
     uint8_t active;
     uint8_t flushing;
     sat_camera3d_t camera;
+    sat_vec3_t forward; /* unit 16.16, derived once at queue_begin */
 } sat_scene3d_queue_t;
 
 sat_result_t sat_scene3d_queue_init(
@@ -150,6 +151,14 @@ sat_result_t sat_scene3d_queue_init(
     uint16_t capacity);
 sat_result_t sat_scene3d_queue_begin(
     sat_scene3d_queue_t* queue, const sat_camera3d_t* camera);
+
+/* Reusable normalized camera-space depth for per-game LOD/fade/culling.
+ * An actor should NOT use this helper to sort other actors: queue owns
+ * that order. Requires an active queue; negative means behind the eye. */
+sat_result_t sat_scene3d_queue_depth(
+    const sat_scene3d_queue_t* queue,
+    const sat_vec3_t* position,
+    sat_fx16_t* out_depth);
 
 /* Synchronous callback receives its own opaque user context and the frame
  * camera. It can invoke existing sat_draw_world_* / VDP1 APIs; it does NOT
