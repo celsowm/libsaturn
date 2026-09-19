@@ -6,7 +6,7 @@ A **playable, stock Sega Saturn 3D platformer example**. The cube is the avatar;
 
 Move with the digital D-pad (camera-relative), press **A** to jump (release early for a shorter jump), press **B / C** to rotate the follow camera by 15 degrees, and press **START** to pause/resume. Reach the gold arch on the tenth platform after collecting the eight golden pickups. The fourth and seventh platforms are checkpoints. Falling into the sea respawns you at the last checkpoint, retaining collectibles. The fifth platform moves, and the eighth bridge flashes before temporarily collapsing. After finishing, START restarts the course.
 
-This demo has no mandatory RAM cartridge, external art downloads, controller extension, CD streaming, game save, or third-party model assets. The generated palette, ocean, sky and PCM all come from C source.
+This demo has no mandatory RAM cartridge, external art downloads, controller extension, CD streaming, game save, or third-party model assets. The generated palette, ocean, sky and PCM all come from C source. A startup loading panel reports completed initialization work and tracks real ocean rows generated, not a fixed timer.
 
 ## Build
 
@@ -32,7 +32,8 @@ The BIOS is your own dump and is not included in this repository. Consult `harne
 - `main.c` creates a VDP2 NBG0 512×128 indexed sky (palette bank 1) and RBG0 512×256 indexed sea (palette bank 0). RBG0 coefficients make sea rows above the 96px horizon transparent. The 48-word rotation table is updated for the player's camera and animated water sampling, without rebuilding or uploading the 128 KiB bitmap every frame.
 - VDP1 draws the solid platforms, the player cube, pickups, checkpoints and finish arch as RGB polygons with Gouraud-shaded tops and a shared INDEX8 16×16 platform-inset texture (palette bank 3). Basic per-object depth sorting is used because VDP1 has **no depth buffer**. The contact shadow is a checkerboard-mesh polygon, not true alpha. Font glyphs use palette bank 2 and are drawn after the world.
 - The frame uses a transparent VDP1 erase and calls `sat_vdp2_layers_commit` before `sat_begin_frame`. Do not replace that with `sat_app_frame_begin`, which clears VDP1 to opaque and can hide the VDP2 scenery.
-- Runtime sound is quiet PCM S8 generated at startup, with five short events and one small ambient loop.
+- Startup first creates the font, then shows progress while preparing the indexed platform texture, sky pixels, ocean rows, VDP2 composition and audio. The scene only starts after these tasks succeed. Five generated PCM S8 sound effects are registered as logical assets through `sat_asset_register` and loaded via `sat_sound_load`; the looping music remains a direct `sat_sound_create` because the current typed sound loader does not preserve the source's loop setting. No asset prefetch is triggered for embedded arrays: `sat_asset_prefetch_submit` is specifically for nonresident, filesystem-backed data, and its cooperative update must be serviced explicitly by a future CD-backed game.
+- The loading screen is drawn with VDP1 before VDP2 is configured and covers the screen with an opaque rectangle while keeping the *erase* transparent, avoiding the usual `sat_app_frame_begin` layering trap.
 
 ## Current scope and trade-offs
 
