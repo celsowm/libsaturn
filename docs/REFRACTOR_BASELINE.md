@@ -99,3 +99,9 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
 - Hardware upload failures after partial preparation leave allocated VDP1
   bytes; run this only during asset initialization and stop on error. This
   avoids pretending the low-level append-only VRAM uploader supports rollback.
+
+## Seventh slice: model-aware shared orbit camera
+
+- `saturn/orbit_camera3d.h` derives target and framing from an entire bounds box, owns yaw/pitch/zoom and projection, validates numeric bounds, and keeps fixed-point state caller-owned.
+- Static Sonic and animated model examples use the same runtime with distinct fitting factors and A/C auto-orbit buttons. The animated example still uses union clip bounds; HUD, animator and model decode remain game concerns.
+- Missing third-party `male_basic_walk_30_frames_loop.glb` is explicitly skipped ONLY by CI when absent. `make examples-all` still requires it without an opt-in `EXAMPLES_ALL_SKIP`.

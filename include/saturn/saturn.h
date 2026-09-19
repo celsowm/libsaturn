@@ -15,6 +15,7 @@
 #include "saturn/texture.h"
 #include "saturn/render2d.h"
 #include "saturn/math3d.h"
+#include "saturn/orbit_camera3d.h"
 #include "saturn/mesh3d.h"
 #include "saturn/model3d.h"
 #include "saturn/anim3d.h"

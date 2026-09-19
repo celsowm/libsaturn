@@ -84,7 +84,7 @@ extern "C" sat_result_t sat_orbit_camera3d_fit_bounds(
     const int64_t dx=static_cast<int64_t>(mx->x)-mn->x;
     const int64_t dy=static_cast<int64_t>(mx->y)-mn->y;
     const int64_t dz=static_cast<int64_t>(mx->z)-mn->z;
-    const int64_t ext=greater(greater(dx,dy),dz);
+    const int64_t ext=(dx>=dy && dx>=dz)?dx:((dy>=dz)?dy:dz);
     if(ext>INT32_MAX) return SAT_ERR_INVALID_ARG;
     const sat_fx16_t size=greater(static_cast<sat_fx16_t>(ext),p->min_extent);
     sat_orbit_camera3d_t next={};

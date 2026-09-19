@@ -33,6 +33,7 @@
 #include "saturn/font.h"
 #include "saturn/input.h"
 #include "saturn/math3d.h"
+#include "saturn/orbit_camera3d.h"
 #include "saturn/mesh3d.h"
 #include "saturn/model3d.h"
 #include "saturn/render3d.h"
@@ -53,15 +54,6 @@
 #define MODEL_VERTEX_CAP 1024u
 #define MODEL_FACE_CAP 1600u
 #define MODEL_TEXTURE_CAP 32u
-
-/* Camera defaults derived from the model size at startup (see below); these
- * are multipliers, not per-asset magic distances. */
-#define PITCH_MIN_DEG (-60)
-#define PITCH_MAX_DEG 60
-#define YAW_STEP_DEG 2
-#define PITCH_STEP_DEG 2
-#define AUTO_YAW_STEP_DEG 1
-#define ZOOM_STEP_DIV 40
 
 static sat_ascii_font_t g_font;
 
@@ -92,18 +84,7 @@ static uint32_t g_fps;
 static uint32_t g_fps_frames;
 static uint32_t g_fps_mark;
 
-static sat_mat4_t g_view_proj;
-static sat_vec3_t g_cam_eye;
-static sat_vec3_t g_target;
-
-static int32_t g_yaw_deg;
-static int32_t g_pitch_deg;
-static sat_fx16_t g_distance;
-static sat_fx16_t g_default_dist;
-static sat_fx16_t g_min_dist;
-static sat_fx16_t g_max_dist;
-static sat_fx16_t g_near;
-static int g_auto_orbit;
+static sat_orbit_camera3d_t g_orbit;
 static int g_show_hud;
 static int g_draw_overflow;
 static int g_ntsc;
@@ -164,66 +145,16 @@ static void anim_bounds(const sat_animated_model_asset_t *asset,
     }
 }
 
-static void reset_camera(void) {
-    g_yaw_deg = 0;
-    g_pitch_deg = 10;
-    g_distance = g_default_dist;
-    g_auto_orbit = 0;
-}
-
-static void update_camera_from_inputs(const sat_pad_state_t *pad) {
-    if ((pad->held & SAT_PAD_LEFT) != 0u) {
-        g_yaw_deg -= YAW_STEP_DEG;
-    }
-    if ((pad->held & SAT_PAD_RIGHT) != 0u) {
-        g_yaw_deg += YAW_STEP_DEG;
-    }
-    if ((pad->held & SAT_PAD_UP) != 0u) {
-        g_pitch_deg += PITCH_STEP_DEG;
-    }
-    if ((pad->held & SAT_PAD_DOWN) != 0u) {
-        g_pitch_deg -= PITCH_STEP_DEG;
-    }
-    if (g_pitch_deg < PITCH_MIN_DEG) {
-        g_pitch_deg = PITCH_MIN_DEG;
-    }
-    if (g_pitch_deg > PITCH_MAX_DEG) {
-        g_pitch_deg = PITCH_MAX_DEG;
-    }
-    if ((pad->held & SAT_PAD_L) != 0u) {
-        g_distance += g_distance / ZOOM_STEP_DIV + 1;
-    }
-    if ((pad->held & SAT_PAD_R) != 0u) {
-        g_distance -= g_distance / ZOOM_STEP_DIV + 1;
-    }
-    if (g_distance < g_min_dist) {
-        g_distance = g_min_dist;
-    }
-    if (g_distance > g_max_dist) {
-        g_distance = g_max_dist;
-    }
-    if ((pad->pressed & SAT_PAD_C) != 0u) {
-        g_auto_orbit = !g_auto_orbit;
-    }
-    if (g_auto_orbit) {
-        g_yaw_deg += AUTO_YAW_STEP_DEG;
-    }
-    if (g_yaw_deg >= 360) {
-        g_yaw_deg -= 360;
-    }
-    if (g_yaw_deg < 0) {
-        g_yaw_deg += 360;
-    }
-    if ((pad->pressed & SAT_PAD_B) != 0u) {
-        reset_camera();
+/* Game-specific HUD and animator semantics stay outside camera math. */
+static void update_camera_from_inputs(const sat_pad_state_t* pad) {
+    sat_example_must(sat_orbit_camera3d_apply_pad(&g_orbit,pad,SAT_PAD_C));
+    if((pad->pressed&SAT_PAD_START)!=0u)
+        g_show_hud=!g_show_hud;
+    if((pad->pressed&SAT_PAD_B)!=0u) {
         note(sat_anim_reset(&g_anim));
-        sat_anim_set_paused(&g_anim, 0);
-    }
-    if ((pad->pressed & SAT_PAD_START) != 0u) {
-        g_show_hud = !g_show_hud;
+        sat_anim_set_paused(&g_anim,0);
     }
 }
-
 /* Counts program frames against display time; refreshes once a second. */
 static void update_fps(void) {
     uint32_t rate = (g_ntsc != 0) ? 60u : 50u;
@@ -246,34 +177,6 @@ static void update_animation_from_inputs(const sat_pad_state_t *pad) {
         g_gouraud = !g_gouraud;
     }
     note(sat_anim_advance(&g_anim, &male_walk_anim_asset, vblank_dt()));
-}
-
-static void compute_camera(void) {
-    sat_fx16_t yaw = sat_fx16_from_int(g_yaw_deg);
-    sat_fx16_t pitch = sat_fx16_from_int(g_pitch_deg);
-    sat_fx16_t cos_p = sat_cos_deg(pitch);
-    sat_fx16_t sin_p = sat_sin_deg(pitch);
-    sat_fx16_t sin_y = sat_sin_deg(yaw);
-    sat_fx16_t cos_y = sat_cos_deg(yaw);
-    sat_fx16_t r = sat_fx16_mul(g_distance, cos_p);
-
-    g_cam_eye.x = g_target.x + sat_fx16_mul(r, sin_y);
-    g_cam_eye.y = g_target.y + sat_fx16_mul(g_distance, sin_p);
-    g_cam_eye.z = g_target.z + sat_fx16_mul(r, cos_y);
-
-    {
-        sat_mat4_t view;
-        sat_mat4_t proj;
-        sat_vec3_t up = {0, SAT_FX16_ONE, 0};
-        sat_example_must(sat_mat4_look_at(&view, &g_cam_eye, &g_target, &up));
-        sat_example_must(sat_mat4_perspective(
-            &proj,
-            sat_fx16_from_int(60),
-            sat_fx16_div(sat_fx16_from_int(SCREEN_W), sat_fx16_from_int(SCREEN_H)),
-            g_near,
-            sat_fx16_from_int(2000)));
-        sat_example_must(sat_mat4_multiply(&g_view_proj, &proj, &view));
-    }
 }
 
 static void draw_text(const char *text, int x, int y) {
@@ -310,7 +213,7 @@ static void draw_hud(void) {
     if (sat_fmt_label_u32("FPS ", g_fps, line, sizeof(line), NULL) == SAT_OK) {
         draw_text(line, 120, 202);
     }
-    if (g_auto_orbit) {
+    if (g_orbit.auto_orbit) {
         draw_text("AUTO", 240, 202);
     }
     if (g_draw_overflow) {
@@ -322,10 +225,6 @@ int main(void) {
     sat_video_config_t video = {SCREEN_W, SCREEN_H, 1u, 0u};
     sat_vec3_t mn = {0, 0, 0};
     sat_vec3_t mx = {0, 0, 0};
-    sat_fx16_t extent_x;
-    sat_fx16_t extent_y;
-    sat_fx16_t extent_z;
-    sat_fx16_t size;
 
     SAT_PANIC_IF_ERROR(sat_init(&video));
     SAT_PANIC_IF_ERROR(sat_ascii_font_init_8x8_indexed8(
@@ -342,49 +241,23 @@ int main(void) {
         &male_walk_asset, g_model_textures, MODEL_TEXTURE_CAP));
     sat_example_must(sat_anim_state_init(&g_anim, &male_walk_anim_asset, 0));
 
-    /* The camera orbits the center of the animated pose range. */
+    /* Use UNION bounds across all animation clips, not just the bind pose. */
     anim_bounds(&male_walk_anim_asset, &mn, &mx);
-    g_target.x = mn.x + (mx.x - mn.x) / 2;
-    g_target.y = mn.y + (mx.y - mn.y) / 2;
-    g_target.z = mn.z + (mx.z - mn.z) / 2;
-    extent_x = mx.x - mn.x;
-    extent_y = mx.y - mn.y;
-    extent_z = mx.z - mn.z;
-    size = extent_x;
-    if (extent_y > size) {
-        size = extent_y;
+    {
+        sat_orbit_camera3d_fit_t fit={0};
+        fit.min_extent=SAT_FX16_ONE>>6;
+        fit.initial_distance_factor=SAT_FX16_ONE+(SAT_FX16_ONE>>2);
+        fit.min_distance_factor=SAT_FX16_ONE/3;
+        fit.max_distance_factor=sat_fx16_from_int(16);
+        fit.near_plane_factor=SAT_FX16_ONE/8;
+        fit.near_plane_floor=1;
+        fit.fov_y=sat_fx16_from_int(60);
+        fit.aspect=sat_fx16_div(sat_fx16_from_int(SCREEN_W),sat_fx16_from_int(SCREEN_H));
+        fit.far_z=sat_fx16_from_int(2000);
+        fit.pitch_min_deg=-60;
+        fit.pitch_max_deg=60;
+        sat_example_must(sat_orbit_camera3d_fit_bounds(&g_orbit,&mn,&mx,&fit));
     }
-    if (extent_z > size) {
-        size = extent_z;
-    }
-    /* No unit-scale floor: assets come in any world scale (this one spans
-     * ~0.5 units), so framing stays proportional to the measured size.
-     * Only clamp degenerate bounds away from zero. */
-    if (size < (SAT_FX16_ONE >> 6)) {
-        size = SAT_FX16_ONE >> 6;
-    }
-    /* Frame the model: with a 60 degree FOV, 1.25x its largest extent fills
-     * about 70% of the screen height -- close enough that the figure gets
-     * the pixels, with room for the stride and the HUD. Zoom 1/3x to 16x. */
-    g_min_dist = size / 3;
-    g_max_dist = size * 16;
-    g_distance = size + size / 4;
-    if (g_distance < g_min_dist) {
-        g_distance = g_min_dist;
-    }
-    if (g_distance > g_max_dist) {
-        g_distance = g_max_dist;
-    }
-    g_default_dist = g_distance;
-    /* Near plane scales with the model too, otherwise a sub-unit asset at
-     * minimum zoom sits inside the near clip and disappears. */
-    g_near = size / 8;
-    if (g_near == 0) {
-        g_near = 1;
-    }
-    g_yaw_deg = 0;
-    g_pitch_deg = 10;
-    g_auto_orbit = 0;
     g_show_hud = 1;
     g_draw_overflow = 0;
     g_tick = sat_frame_count();
@@ -423,13 +296,12 @@ int main(void) {
             note(sat_anim_face_colors(
                 &male_walk_anim_asset, &g_anim, g_face_colors, MODEL_FACE_CAP));
         }
-        compute_camera();
         update_fps();
 
         note(sat_model_bind_draw_ex(
             &male_walk_asset, &g_mesh,
             g_model_textures, male_walk_asset.texture_count,
-            &g_view_proj, &g_cam_eye,
+            &g_orbit.view_proj, &g_orbit.eye,
             SAT_RGB555(31, 31, 31),
             g_gouraud ? g_face_base : (g_has_shades ? g_face_colors : NULL), 0,
             SAT_MESH_CULL_BACKFACE | SAT_MESH_SORT,
