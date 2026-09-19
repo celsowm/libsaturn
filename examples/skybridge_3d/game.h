@@ -12,6 +12,9 @@
 #define SB_PLAYER_HEIGHT SB_F(5)
 #define SB_PLATFORM_COUNT 10u
 #define SB_PICKUP_COUNT 8u
+#define SB_GEM_RADIUS SB_F(2)
+#define SB_GEM_BASE_OFFSET SB_F(4)
+#define SB_GEM_HALF_HEIGHT SB_F(2)
 
 enum { SB_UP=1u, SB_DOWN=2u, SB_LEFT=4u, SB_RIGHT=8u, SB_JUMP=16u };
 enum { SB_EVENT_JUMP=1u, SB_EVENT_LAND=2u, SB_EVENT_PICKUP=4u,
@@ -41,7 +44,7 @@ typedef struct sb_game {
     int32_t x, y, z, vx, vy, vz;
     int32_t moving_x;
     uint32_t ticks;
-    uint16_t pickups;            /* 8-bit completion mask */
+    uint16_t pickups;            /* optional, 8-bit collectible mask */
     uint16_t collapse_ticks;     /* 0=ready, 1..30 warning, 31..150 absent */
     uint8_t checkpoint;          /* stage index 0, 3 or 6 */
     uint8_t coyote, jump_buffer, finished, paused;
@@ -88,6 +91,28 @@ static inline void sb_camera_offset(int32_t fx,int32_t fz,
     *eye_z=-sb_mul(fz,SB_F(42));
     *look_x=sb_mul(fx,SB_F(8));
     *look_z=sb_mul(fz,SB_F(8));
+}
+
+/* The gems are octahedra hovering at (deck top + 4), with a +/- 0.5
+ * unit visual bob. Test the player's actual world-space 3D AABB against
+ * a gem's horizontal sphere and conservative vertical bob envelope.
+ * The check is independent of support/grounding or camera orientation,
+ * works during jumps, and follows the moving deck's current X position. */
+static inline int sb_gem_contact(const sb_game_t* g,uint8_t id) {
+    int32_t dx,dz;
+    int32_t deck_y;
+    if(id<1u || id>SB_PICKUP_COUNT || !sb_platform_active(g,id))
+        return 0;
+    deck_y=SB_F(sb_stage[id].y);
+    if(g->y+SB_PLAYER_HEIGHT < deck_y+SB_F(1) ||
+       g->y > deck_y+SB_F(7))
+        return 0;
+    dx=sb_abs(g->x-sb_platform_x(g,id))-SB_PLAYER_HALF;
+    dz=sb_abs(g->z-SB_F(sb_stage[id].z))-SB_PLAYER_HALF;
+    if(dx<0)dx=0;
+    if(dz<0)dz=0;
+    return (int64_t)dx*dx+(int64_t)dz*dz <=
+           (int64_t)SB_GEM_RADIUS*SB_GEM_RADIUS;
 }
 
 static inline int32_t sb_moving_offset(uint32_t tick) {
@@ -224,19 +249,24 @@ static inline uint16_t sb_tick(sb_game_t* g, uint16_t held, uint16_t pressed,
             }
         }
     }
-    if (g->support>=0) {
-        uint8_t id=(uint8_t)g->support;
-        if (id>=1u && id<=8u && !(g->pickups & (1u<<(id-1u))) &&
-            sb_abs(g->x-sb_platform_x(g,id))<SB_F(6) &&
-            sb_abs(g->z-SB_F(sb_stage[id].z))<SB_F(6)) {
-            g->pickups|=(uint16_t)(1u<<(id-1u));
+    /* Collect against the gem's actual position, not an arbitrary
+     * +/-6-unit square or the identifier of the ground beneath the player.
+     * Airborne pickups and gems riding moving platforms are supported. */
+    for(i=1u;i<=SB_PICKUP_COUNT;++i) {
+        uint16_t bit=(uint16_t)(1u<<(i-1u));
+        if(!(g->pickups&bit) && sb_gem_contact(g,i)) {
+            g->pickups|=bit;
             event|=SB_EVENT_PICKUP;
         }
+    }
+    if(g->support>=0) {
+        uint8_t id=(uint8_t)g->support;
         if ((id==3u || id==6u) && g->checkpoint<id) {
             g->checkpoint=id;
             event|=SB_EVENT_CHECKPOINT;
         }
-        if (id==9u && g->pickups==0xFFu) {
+        /* Gems remain optional: reaching the finish platform is enough. */
+        if(id==9u) {
             g->finished=1u;
             event|=SB_EVENT_WIN;
         }
