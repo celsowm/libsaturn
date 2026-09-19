@@ -11,6 +11,7 @@ using saturn::hal::bup::Result;
 using saturn::hal::bup::Stat;
 
 bool g_save_initialized = false;
+saturn::hal::bup::Config g_save_configs[3] = {};
 
 // BUP function device is a configuration-table index, NOT BupConfig.unit_id.
 // Config[0] has unit_id=1 (internal). External selector remains disabled until
@@ -129,8 +130,56 @@ sat_result_t find_entry(uint32_t device, const char* name, Dir* out_entry) {
 extern "C" sat_result_t sat_save_init(void) {
     saturn::hal::bup::Config configs[3] = {};
     const sat_result_t result = map_result(saturn::hal::bup::init(configs));
-    if (result == SAT_OK) g_save_initialized = true;
+    if (result == SAT_OK) {
+        for (uint32_t i = 0u; i < 3u; ++i) {
+            g_save_configs[i] = configs[i];
+        }
+        g_save_initialized = true;
+    }
     return result;
+}
+
+extern "C" sat_result_t sat_save_device_info(
+    sat_save_device_t device,
+    sat_save_device_info_t* out_info
+) {
+    if (out_info == nullptr) return SAT_ERR_INVALID_ARG;
+    SAT_TRY(require_initialized());
+
+    out_info->connected = 0u;
+    out_info->partition_count = 0u;
+    out_info->reserved = 0u;
+
+    if (device == SAT_SAVE_INTERNAL) {
+        // The internal BUP function device selector is Config array index 0;
+        // its unit_id=1 is descriptive metadata, not a function argument.
+        if (g_save_configs[0].unit_id == 1u &&
+            g_save_configs[0].partitions != 0u) {
+            out_info->connected = 1u;
+            out_info->partition_count = static_cast<uint8_t>(
+                g_save_configs[0].partitions > 255u
+                    ? 255u : g_save_configs[0].partitions);
+        }
+        return SAT_OK;
+    }
+
+    if (device == SAT_SAVE_BACKUP_CARTRIDGE) {
+        // BUP_Init returns three configuration entries. Discover the
+        // cartridge by *unit ID*, not by assuming its callable BIOS index.
+        // The latter remains intentionally disabled until runtime validation.
+        for (uint32_t i = 1u; i < 3u; ++i) {
+            if (g_save_configs[i].unit_id != 2u ||
+                g_save_configs[i].partitions == 0u) continue;
+            out_info->connected = 1u;
+            out_info->partition_count = static_cast<uint8_t>(
+                g_save_configs[i].partitions > 255u
+                    ? 255u : g_save_configs[i].partitions);
+            break;
+        }
+        return SAT_OK;
+    }
+
+    return SAT_ERR_INVALID_ARG;
 }
 
 extern "C" sat_result_t sat_save_storage_info(
