@@ -221,22 +221,24 @@ static uint8_t fade_material(uint16_t c) {
 }
 /* World clipping, projection, screen clipping and VDP1 command setup belong
  * to the LibSaturn renderer; this wrapper only chooses the level material. */
+static sat_indexed_solid_render3d_t world_render(uint8_t slot) {
+    sat_indexed_solid_render3d_t render={0};
+    render.view_proj=&g_vp;
+    render.eye=g_eye;
+    render.forward=g_scene.forward;
+    render.near_depth=SB_F(8);
+    render.width=W;
+    render.height=H;
+    render.color_calc_slot=slot;
+    return render;
+}
 static void put_quad(const sat_quad3_t* q, uint16_t c) {
     if(g_world_cmd_full) return;
-    sat_indexed_solid_render3d_t draw={0};
-    draw.view_proj=&g_vp;
-    draw.eye=g_eye;
-    draw.forward=g_scene.forward;
-    draw.near_depth=SB_F(8);
-    draw.width=W;
-    draw.height=H;
-    draw.color_calc_slot=g_active_fade_slot;
-    {
-        sat_result_t st=sat_draw_indexed_solid_quad3(
-            q,&draw,&g_fade_textures[fade_material(c)]);
-        if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
-        else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
-    }
+    const sat_indexed_solid_render3d_t draw=world_render(g_active_fade_slot);
+    const sat_result_t st=sat_draw_indexed_solid_quad3(
+        q,&draw,&g_fade_textures[fade_material(c)]);
+    if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
+    else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
 static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
     /* Gouraud RGB polygons are incompatible with this VDP2 blend path;
@@ -256,58 +258,39 @@ static void quad_rect_xz(sat_quad3_t* q,int32_t lx,int32_t rx,int32_t z0,int32_t
     pquad(q,lx,y,z0, rx,y,z0, rx,y,z1, lx,y,z1);
 }
 /* Draw just the top and camera-facing sides, always with consistent thickness. */
+/* Level code describes a box, not its camera-facing vertices or winding.
+ * The renderer owns side selection, safe near/screen clipping and materials. */
 static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
                  uint16_t top,uint16_t xcolor,uint16_t zcolor,uint8_t trim) {
+    if(g_world_cmd_full) return;
+    sat_indexed_box3_t block={0};
+    block.top_center=(sat_vec3_t){x,y,z};
+    block.half_extents=(sat_vec3_t){hx,hy,hz};
+    block.top_material=&g_fade_textures[fade_material(top)];
+    block.x_material=&g_fade_textures[fade_material(xcolor)];
+    block.z_material=&g_fade_textures[fade_material(zcolor)];
+    sat_indexed_solid_render3d_t draw=world_render(g_active_fade_slot);
+    sat_result_t st=sat_draw_indexed_box3(&block,&draw);
+    if(st==SAT_ERR_CAPACITY) {g_world_cmd_full=1u;return;}
+    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    /* Decorative inset remains level-owned, not a fake collision surface. */
+    if(g_eye.y<=y || !trim || hx<=SB_F(4) || hz<=SB_F(4)) return;
     sat_quad3_t q;
-    int32_t lx=x-hx,rx=x+hx,by=y-hy,bz=z-hz,fz=z+hz;
-    if (g_eye.x>x) {
-        pquad(&q,rx,y,bz,rx,y,fz,rx,by,fz,rx,by,bz);
-    } else {
-        pquad(&q,lx,y,fz,lx,y,bz,lx,by,bz,lx,by,fz);
+    quad_rect_xz(&q,x-hx+SB_F(2),x+hx-SB_F(2),
+                    z-hz+SB_F(2),z+hz-SB_F(2),y+SB_F(1)/32);
+    if(trim==2u) {
+        put_quad(&q,SAT_RGB555(24,20,10));
+        return;
     }
-    put_quad(&q,xcolor);
-    if (g_eye.z>z) {
-        pquad(&q,rx,y,fz,lx,y,fz,lx,by,fz,rx,by,fz);
-    } else {
-        pquad(&q,lx,y,bz,rx,y,bz,rx,by,bz,lx,by,bz);
-    }
-    put_quad(&q,zcolor);
-    if (g_eye.y>y) {
-        quad_rect_xz(&q,lx,rx,bz,fz,y);
-        put_quad_lit(&q,top);
-        if (trim && hx>SB_F(4) && hz>SB_F(4)) {
-            /* Indexed VDP1 distorted sprite: one tiny reusable 16x16 material. */
-            quad_rect_xz(&q,lx+SB_F(2),rx-SB_F(2),bz+SB_F(2),fz-SB_F(2),y+SB_F(1)/32);
-            if (trim==2u) {
-                put_quad(&q,SAT_RGB555(24,20,10));
-            } else {
-                /* The library owns the conservative patterned-texture path:
-                 * unlike a uniform color, this material cannot be split
-                 * without preserving its original UV mapping. */
-                if(g_world_cmd_full) return;
-                sat_indexed_solid_render3d_t draw={0};
-                draw.view_proj=&g_vp;
-                draw.eye=g_eye;
-                draw.forward=g_scene.forward;
-                draw.near_depth=SB_F(8);
-                draw.width=W;
-                draw.height=H;
-                draw.color_calc_slot=g_active_fade_slot;
-                {
-                    const uint8_t theme=trim==1u?0u:(trim==3u?1u:2u);
-                    const sat_indexed_tiled_quad3_t regions={
-                        &g_tile_textures[theme],
-                        {&g_tile_quadrants[theme][0],&g_tile_quadrants[theme][1],
-                         &g_tile_quadrants[theme][2],&g_tile_quadrants[theme][3]}
-                    };
-                    const sat_result_t st=sat_draw_indexed_tiled_quad3(
-                        &q,&draw,&regions,0);
-                    if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
-                    else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
-                }
-            }
-        }
-    }
+    const uint8_t theme=trim==1u?0u:(trim==3u?1u:2u);
+    const sat_indexed_tiled_quad3_t regions={
+        &g_tile_textures[theme],
+        {&g_tile_quadrants[theme][0],&g_tile_quadrants[theme][1],
+         &g_tile_quadrants[theme][2],&g_tile_quadrants[theme][3]}
+    };
+    st=sat_draw_indexed_tiled_quad3(&q,&draw,&regions,0);
+    if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
+    else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
 static uint16_t top_color(uint8_t i) {
     if (i<4u) return SAT_RGB555(24,23,16);
