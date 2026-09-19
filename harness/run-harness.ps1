@@ -28,6 +28,7 @@ param(
     [int]$PadReleaseAt = 0,
     [string]$PadScript,
     [string]$BackupRam,
+    [string]$BackupCart,
     [string[]]$Screenshot,
     [string]$ProfilePc,
     [switch]$ScspTrace,
@@ -125,6 +126,12 @@ if ($PadButton) {
 }
 if ($PadScript) {
     $probeArgs += @('--pad-script', $PadScript)
+}
+if ($BackupCart) {
+    if (-not (Test-Path $BackupCart -PathType Leaf)) {
+        throw "Backup cartridge image must already exist: $BackupCart"
+    }
+    $probeArgs += @('--backup-cart', (Resolve-Path $BackupCart).Path)
 }
 if ($backupRamPath) {
     $backupDir = Split-Path -Parent $backupRamPath
