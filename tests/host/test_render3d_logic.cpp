@@ -281,6 +281,74 @@ TEST(screen_clip_bounds_huge_pier_and_jump_views) {
     ASSERT_EQ(clip_quad_screen(nullptr,320u,224u,clipped,&count),
               SAT_ERR_INVALID_ARG);
 }
+/* Reproduce the reported fixed C1 platform (index 1 at Z=36) with the
+ * player taking steps from Z=30 to 33 and jumping up to ten world units.
+ * The camera is 42 behind the player and 29 above, looking 50 forward
+ * and 24 down. After near+viewport clipping, NO VDP1 polygon may use
+ * out-of-screen coordinates, irrespective of a skybox or HUD draw order. */
+TEST(skybridge_stage_one_step_and_jump_projection_stays_bounded) {
+    const sat_vec3_t up={0,SAT_FX16_ONE,0};
+    const sat_vec3_t previous_pier[4]={
+        {-fx_from_int(18),0,-fx_from_int(18)},
+        { fx_from_int(18),0,-fx_from_int(18)},
+        { fx_from_int(18),0, fx_from_int(18)},
+        {-fx_from_int(18),0, fx_from_int(18)}
+    };
+    const sat_vec3_t current_pier[4]={
+        {-fx_from_int(13),0,fx_from_int(23)},
+        { fx_from_int(13),0,fx_from_int(23)},
+        { fx_from_int(13),0,fx_from_int(49)},
+        {-fx_from_int(13),0,fx_from_int(49)}
+    };
+    for(int player_z=30;player_z<=33;++player_z) {
+        for(int player_y=0;player_y<=10;player_y+=2) {
+            const sat_vec3_t eye={
+                fx_from_int(7),fx_from_int(29+player_y),
+                fx_from_int(player_z-42)};
+            const sat_vec3_t target={
+                fx_from_int(7),fx_from_int(5+player_y),
+                fx_from_int(player_z+8)};
+            sat_vec3_t look={
+                target.x-eye.x,target.y-eye.y,target.z-eye.z};
+            sat_vec3_t forward;
+            sat_vec3_normalize(&forward,&look);
+            sat_mat4_t view,projection,vp;
+            ASSERT_EQ(sat_mat4_look_at(&view,&eye,&target,&up),SAT_OK);
+            ASSERT_EQ(sat_mat4_perspective(
+                &projection,fx_from_int(55),
+                sat_fx16_div(fx_from_int(320),fx_from_int(224)),
+                fx_from_int(2),fx_from_int(250)),SAT_OK);
+            ASSERT_EQ(sat_mat4_multiply(&vp,&projection,&view),SAT_OK);
+            for(int deck=0;deck<2;++deck) {
+                sat_quad3_t world,near_pieces[4];
+                sat_quad2_t projected,screen_pieces[6];
+                for(int k=0;k<4;++k)
+                    world.v[k]=deck?current_pier[k]:previous_pier[k];
+                uint8_t near_count=0u;
+                ASSERT_EQ(clip_world_quad_near(
+                    &world,&eye,&forward,fx_from_int(8),
+                    near_pieces,&near_count),SAT_OK);
+                ASSERT_TRUE(near_count<=4u);
+                for(uint8_t i=0u;i<near_count;++i) {
+                    ASSERT_TRUE(project_quad(
+                        vp.m,&near_pieces[i],320,224,&projected));
+                    uint8_t screen_count=0u;
+                    ASSERT_EQ(clip_quad_screen(
+                        &projected,320u,224u,screen_pieces,&screen_count),
+                        SAT_OK);
+                    ASSERT_TRUE(screen_count<=6u);
+                    for(uint8_t tri=0u;tri<screen_count;++tri)
+                        for(uint8_t j=0u;j<4u;++j) {
+                            ASSERT_TRUE(screen_pieces[tri].x[j]>=-160);
+                            ASSERT_TRUE(screen_pieces[tri].x[j]<=159);
+                            ASSERT_TRUE(screen_pieces[tri].y[j]>=-112);
+                            ASSERT_TRUE(screen_pieces[tri].y[j]<=111);
+                        }
+                }
+            }
+        }
+    }
+}
 /* A point very close to the camera plane projects enormous; it must clamp
  * rather than wrap its sign and turn the quad inside out. */
 TEST(project_clamps_instead_of_wrapping) {
@@ -766,6 +834,7 @@ int main() {
     clip_near_oversized_previous_pier();
     clip_near_generates_projectable_triangles();
     screen_clip_bounds_huge_pier_and_jump_views();
+    skybridge_stage_one_step_and_jump_projection_stays_bounded();
     project_clamps_instead_of_wrapping();
     project_quad_rejects_null_arguments();
     sort_orders_far_to_near();
@@ -791,6 +860,6 @@ int main() {
     diagonal_area_equals_shoelace();
     gouraud_table_words_and_light();
     vertex_normals_point_out_of_a_box();
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 34);
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 35);
     return 0;
 }
