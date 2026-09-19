@@ -12,6 +12,7 @@
 // register assertions are precise in a way pixels are not, but screenshots
 // no longer require the caller to reconstruct a picture from VDP1 VRAM.
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -34,6 +35,91 @@ struct VramRange {
     uint32_t base_word;
     uint32_t word_count;
 };
+
+struct ScspSlotSnapshot {
+    uint8_t index;
+    bool active;
+    bool key_on;
+    bool pcm8;
+    uint32_t start_address;
+    uint16_t loop_start;
+    uint16_t loop_end;
+    uint32_t curr_sample;
+    uint8_t loop_control;
+    uint8_t octave;
+    uint16_t fns;
+    uint8_t total_level;
+    uint8_t direct_send_level;
+    uint8_t direct_pan;
+    bool ram_half_hash_valid;
+    std::array<uint64_t, 2> ram_half_hashes;
+};
+
+struct ScspFrameSnapshot {
+    uint32_t frame;
+    std::array<ScspSlotSnapshot, 4> stream_slots;
+};
+
+uint64_t fnv1a64(const uint8_t* data, size_t size) {
+    uint64_t hash = 14695981039346656037ull;
+    for (size_t i = 0; i < size; ++i) {
+        hash ^= data[i];
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+ScspFrameSnapshot capture_scsp_stream_snapshot(ymir::Saturn& saturn, uint32_t frame) {
+    constexpr uint8_t kFirstStreamSlot = 28u;
+    constexpr uint32_t kStreamHalfSamples = 4096u;
+    constexpr uint32_t kStreamLoopSamples = 2u * kStreamHalfSamples;
+
+    ScspFrameSnapshot snapshot{};
+    snapshot.frame = frame;
+
+    std::ostringstream sound_ram_out;
+    saturn.SCSP.DumpWRAM(sound_ram_out);
+    const std::string sound_ram = sound_ram_out.str();
+    const auto& slots = saturn.SCSP.GetProbe().GetSlots();
+
+    for (uint8_t i = 0; i < snapshot.stream_slots.size(); ++i) {
+        const uint8_t slot_index = static_cast<uint8_t>(kFirstStreamSlot + i);
+        const auto& slot = slots[slot_index];
+        ScspSlotSnapshot& out = snapshot.stream_slots[i];
+
+        out.index = slot_index;
+        out.active = slot.active;
+        out.key_on = slot.keyOnBit;
+        out.pcm8 = slot.pcm8Bit;
+        out.start_address = slot.startAddress;
+        out.loop_start = slot.loopStartAddress;
+        out.loop_end = slot.loopEndAddress;
+        out.curr_sample = slot.currSample;
+        out.loop_control = static_cast<uint8_t>(slot.loopControl);
+        out.octave = slot.octave;
+        // Ymir stores FNS internally with bit 10 toggled; expose the
+        // register-visible value so harness assertions match the SCSP manual.
+        out.fns = static_cast<uint16_t>(slot.freqNumSwitch ^ 0x400u);
+        out.total_level = slot.totalLevel;
+        out.direct_send_level = slot.directSendLevel;
+        out.direct_pan = slot.directPan;
+
+        if (!slot.pcm8Bit &&
+            static_cast<uint32_t>(slot.loopEndAddress) + 1u == kStreamLoopSamples) {
+            constexpr uint32_t kBytesPerSample = 2u;
+            constexpr uint32_t kHalfBytes = kStreamHalfSamples * kBytesPerSample;
+            const uint32_t first = slot.startAddress;
+            const uint32_t second = first + kHalfBytes;
+            if (second + kHalfBytes <= sound_ram.size()) {
+                const auto* bytes = reinterpret_cast<const uint8_t*>(sound_ram.data());
+                out.ram_half_hash_valid = true;
+                out.ram_half_hashes[0] = fnv1a64(bytes + first, kHalfBytes);
+                out.ram_half_hashes[1] = fnv1a64(bytes + second, kHalfBytes);
+            }
+        }
+    }
+    return snapshot;
+}
 
 // Scheduled single-button press for --pad-button: held (bit set, matching
 // Ymir's PeripheralReport.buttons convention — see the pre-existing
@@ -160,6 +246,7 @@ struct Args {
     std::string pad_button;          // e.g. "A", "UP" — scheduled single-button press
     uint32_t pad_press_at = 0;       // frame index (within --frames) buttons becomes held
     uint32_t pad_release_at = 0;     // frame index buttons becomes released again
+    bool scsp_trace = false;          // sample SCSP stream slots/Sound RAM every program frame
 };
 
 void print_usage() {
@@ -169,7 +256,8 @@ void print_usage() {
         "             [--dump-wram-high <path>] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
-        "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n");
+        "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
+        "             [--scsp-trace]\n");
 }
 
 bool parse_vram_range(const std::string& spec, VramRange* out) {
@@ -266,6 +354,8 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--pad-release-at");
             if (!v) return false;
             out->pad_release_at = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+        } else if (arg == "--scsp-trace") {
+            out->scsp_trace = true;
         } else if (arg == "--dump-vram") {
             const char* v = next("--dump-vram");
             if (!v) return false;
@@ -546,6 +636,7 @@ int main(int argc, char** argv) {
     // emulated frames per program frame is exactly the case worth profiling,
     // and there the samples land squarely in whatever is eating the time.
     std::vector<uint32_t> pc_samples;
+    std::vector<ScspFrameSnapshot> scsp_trace;
     bool sampling_pc = false;
     bool taking_screenshots = false;
     auto run_frames = [&](uint32_t count, uint32_t frame_offset) {
@@ -554,6 +645,9 @@ int main(int argc, char** argv) {
             // line asks for during the frame it names rather than after it.
             g_pad_frame_index = i;
             saturn->RunFrame();
+            if (args.scsp_trace && g_pad_active) {
+                scsp_trace.push_back(capture_scsp_stream_snapshot(*saturn, i));
+            }
             if (sampling_pc) {
                 pc_samples.push_back(sh2p.PC());
             }
@@ -659,6 +753,8 @@ int main(int argc, char** argv) {
     run_frames(args.frames, args.boot_frames);
 
     const uint32_t pc_after_run = sh2p.PC();
+    const ScspFrameSnapshot scsp_final =
+        capture_scsp_stream_snapshot(*saturn, args.frames == 0u ? 0u : args.frames - 1u);
 
     if (args.print_sh2_state) {
         std::fprintf(stderr, "master SH2: PC=%08X PR=%08X SR=%08X GBR=%08X VBR=%08X\n", sh2p.PC(), sh2p.PR(),
@@ -778,6 +874,56 @@ int main(int argc, char** argv) {
     j.key("bin_bytes"); j.value(static_cast<uint64_t>(bin.size()));
     j.key("boot_frames"); j.value(static_cast<uint64_t>(args.boot_frames));
     j.key("pc_after_run"); j.value(static_cast<uint64_t>(pc_after_run));
+    j.end_object();
+
+    auto write_scsp_slot = [&](const ScspSlotSnapshot& slot) {
+        j.begin_object();
+        j.key("index"); j.value(static_cast<uint64_t>(slot.index));
+        j.key("active"); j.value(slot.active);
+        j.key("key_on"); j.value(slot.key_on);
+        j.key("pcm8"); j.value(slot.pcm8);
+        j.key("start_address"); j.value(static_cast<uint64_t>(slot.start_address));
+        j.key("loop_start"); j.value(static_cast<uint64_t>(slot.loop_start));
+        j.key("loop_end"); j.value(static_cast<uint64_t>(slot.loop_end));
+        j.key("curr_sample"); j.value(static_cast<uint64_t>(slot.curr_sample));
+        j.key("loop_control"); j.value(static_cast<uint64_t>(slot.loop_control));
+        j.key("octave"); j.value(static_cast<uint64_t>(slot.octave));
+        j.key("fns"); j.value(static_cast<uint64_t>(slot.fns));
+        j.key("total_level"); j.value(static_cast<uint64_t>(slot.total_level));
+        j.key("direct_send_level"); j.value(static_cast<uint64_t>(slot.direct_send_level));
+        j.key("direct_pan"); j.value(static_cast<uint64_t>(slot.direct_pan));
+        j.key("ram_half_hash_valid"); j.value(slot.ram_half_hash_valid);
+        j.key("ram_half_hashes");
+        j.begin_array();
+        j.value(slot.ram_half_hashes[0]);
+        j.value(slot.ram_half_hashes[1]);
+        j.end_array();
+        j.end_object();
+    };
+
+    j.key("scsp");
+    j.begin_object();
+    j.key("stream_half_samples"); j.value(static_cast<uint64_t>(4096u));
+    j.key("stream_slots");
+    j.begin_array();
+    for (const auto& slot : scsp_final.stream_slots) {
+        write_scsp_slot(slot);
+    }
+    j.end_array();
+    j.key("trace");
+    j.begin_array();
+    for (const auto& frame_snapshot : scsp_trace) {
+        j.begin_object();
+        j.key("frame"); j.value(static_cast<uint64_t>(frame_snapshot.frame));
+        j.key("stream_slots");
+        j.begin_array();
+        for (const auto& slot : frame_snapshot.stream_slots) {
+            write_scsp_slot(slot);
+        }
+        j.end_array();
+        j.end_object();
+    }
+    j.end_array();
     j.end_object();
 
     j.key("input");
