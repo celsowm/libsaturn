@@ -194,8 +194,38 @@ int main() {
     OK(sat_asset_read_at("data/stream.bin", 100u, streamed_out, sizeof(streamed_out), &physical_read) == SAT_OK &&
        physical_read == sizeof(streamed_out) && std::memcmp(streamed_out, streamed_data + 100u,
                                                              sizeof(streamed_out)) == 0);
+    const uint32_t stream_first_block = 100u / SAT_ASSET_CACHE_BLOCK_BYTES;
+    const uint32_t stream_last_block = (100u + 3000u - 1u) / SAT_ASSET_CACHE_BLOCK_BYTES;
+    const uint32_t stream_cache_blocks = stream_last_block - stream_first_block + 1u;
     OK(sat_asset_cache_stats(&cache_stats) == SAT_OK && cache_stats.prefetch_completed == 1u &&
-       cache_stats.used == 3u);
+       cache_stats.used == 1u + stream_cache_blocks);
+
+    /* A full 64 KiB cache block must remain readable on a cache hit. This
+     * guards SAT_ASSET_CACHE_BLOCK_BYTES == 65536 against truncating the
+     * cached valid-byte count to uint16_t (65536 -> 0). */
+    static uint8_t full_block_data[SAT_ASSET_CACHE_BLOCK_BYTES] = {};
+    for (uint32_t i = 0u; i < sizeof(full_block_data); ++i) {
+        full_block_data[i] = static_cast<uint8_t>((i * 13u + 7u) & 0xFFu);
+    }
+    OK(sat_file_register_blob("ASSETS/FULL-BLOCK.BIN", full_block_data, sizeof(full_block_data)) == SAT_OK);
+    sat_asset_desc_t full_block_desc = {};
+    full_block_desc.logical_path = "data/full-block.bin";
+    full_block_desc.source_path = "ASSETS/FULL-BLOCK.BIN";
+    full_block_desc.size = sizeof(full_block_data);
+    full_block_desc.kind = SAT_ASSET_DATA;
+    sat_asset_t full_block_asset{};
+    OK(sat_asset_register(&full_block_desc, &full_block_asset) == SAT_OK);
+    uint8_t full_block_probe[4] = {};
+    OK(sat_asset_read_at("data/full-block.bin", SAT_ASSET_CACHE_BLOCK_BYTES - 4u,
+                         full_block_probe, sizeof(full_block_probe), &physical_read) == SAT_OK &&
+       physical_read == sizeof(full_block_probe) &&
+       std::memcmp(full_block_probe, full_block_data + SAT_ASSET_CACHE_BLOCK_BYTES - 4u,
+                   sizeof(full_block_probe)) == 0);
+    std::memset(full_block_probe, 0, sizeof(full_block_probe));
+    OK(sat_asset_read_at("data/full-block.bin", 0u, full_block_probe,
+                         sizeof(full_block_probe), &physical_read) == SAT_OK &&
+       physical_read == sizeof(full_block_probe) &&
+       std::memcmp(full_block_probe, full_block_data, sizeof(full_block_probe)) == 0);
     sat_asset_desc_t missing_desc = streamed_desc;
     missing_desc.logical_path = "data/missing-stream.bin";
     missing_desc.source_path = "ASSETS/MISSING.BIN";
