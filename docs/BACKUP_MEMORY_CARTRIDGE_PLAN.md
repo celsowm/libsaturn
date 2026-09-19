@@ -216,6 +216,23 @@ valuable data.
 **Exit:** documented emulator + hardware evidence for both read and write,
 no regression to internal saves, and no unapproved destructive operations.
 
+## Implementation snapshot (2026-09-19)
+
+- Phase 0 source corrections: internal BUP function selector is now index
+  `0`, independently of `Config[0].unit_id == 1`; matching fake-HAL host
+  assertions were updated. The SH-2 demo no longer includes hosted
+  `string.h`. These changes **still require** confirmation of the
+  save-specific SH-2 build and the BIOS-backed internal persistence test.
+- Diagnostic harness groundwork: the pinned Ymir probe now accepts an existing
+  external Backup Memory image through `--backup-cart`. It loads the image
+  copy-on-write, inserts a separate external cartridge, and reports its
+  header, capacity, directory and in-emulator before/after hashes in the
+  `backup_cartridge` JSON field. This is **not** proof that LibSaturn can
+  read or write a cartridge; the guest-side cartridge code is still disabled.
+- Phase 1 BIOS device/partition discovery and all cartridge mutations: pending
+  the Phase 0 acceptance gate; do not turn on `SAT_SAVE_BACKUP_CARTRIDGE`
+  merely because Ymir can mount an image.
+
 ## Delivery order and boundaries
 
 Order: **Phase 0 -> 1 -> 2 -> 3 -> 4 -> 5**. The first implementation slice
