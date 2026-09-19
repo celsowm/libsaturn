@@ -40,6 +40,13 @@ extern "C" sat_result_t sat_clip_quad_near(
     return saturn::core::render3d::clip_world_quad_near(
         quad,eye,forward,near_depth,out_triangles,out_count);
 }
+extern "C" sat_result_t sat_clip_quad_screen(
+    const sat_quad2_t* quad,uint16_t width,uint16_t height,
+    sat_quad2_t out_triangles[6],uint8_t* out_count) {
+    return saturn::core::render3d::clip_quad_screen(
+        quad,width,height,out_triangles,out_count);
+}
+
 
 
 extern "C" sat_result_t sat_draw_world_polygon(const sat_mat4_t* view_proj, const sat_quad3_t* quad, uint16_t color) {
