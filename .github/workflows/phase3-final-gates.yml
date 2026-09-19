@@ -43,6 +43,15 @@ jobs:
           make IP_TEMPLATE_KIND=sbl EXAMPLE=save_backup_demo all
           make IP_TEMPLATE_KIND=sbl EXAMPLE=save_cartridge_probe all
 
+      # The optional GLB for basic_3d_animation is not included in clean
+      # clones, so examples-all can fail before reaching skybridge_3d.
+      # Verify this playable example independently first.
+      - name: Build Skybridge 3D
+        run: |
+          export PATH="${RUNNER_TEMP}/saturn-tools/bin:$PATH"
+          make clean
+          make IP_TEMPLATE_KIND=sbl EXAMPLE=skybridge_3d all
+
       - name: Build all Saturn examples
         id: crossbuild
         run: |
