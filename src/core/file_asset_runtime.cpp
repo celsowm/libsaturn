@@ -148,15 +148,23 @@ sat_result_t asset_cache_read_at(
         if (in_block >= valid_bytes) return SAT_ERR_IO;
         uint32_t count = valid_bytes - in_block;
         if (count > remaining) count = remaining;
-        for (uint32_t i = 0u; i < count; ++i) {
-            for (uint16_t slot = 0u; slot < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++slot) {
-                const AssetCacheBlock& block = runtime.cache[slot];
-                if (block.used != 0u && block.block_index == block_index &&
-                    __builtin_strcmp(block.source_path, source_path) == 0) {
-                    output[i] = block.data[in_block + i];
-                    break;
-                }
+        const AssetCacheBlock* cached_block = nullptr;
+        for (uint16_t slot = 0u; slot < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++slot) {
+            const AssetCacheBlock& block = runtime.cache[slot];
+            if (block.used != 0u && block.block_index == block_index &&
+                __builtin_strcmp(block.source_path, source_path) == 0) {
+                cached_block = &block;
+                break;
             }
+        }
+        if (cached_block == nullptr) return SAT_ERR_IO;
+
+        // Resolve the cache block once, then copy linearly.  The old hot path
+        // repeated the cache scan and source-path strcmp for every output
+        // byte, turning an 8 KiB music feed into tens of thousands of string
+        // comparisons on the SH-2 and causing periodic audio starvation.
+        for (uint32_t i = 0u; i < count; ++i) {
+            output[i] = cached_block->data[in_block + i];
         }
         output += count;
         offset += count;
