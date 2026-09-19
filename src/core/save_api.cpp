@@ -176,10 +176,9 @@ extern "C" sat_result_t sat_save_list(
     const char* effective_pattern =
         pattern == nullptr || pattern[0] == '\0' ? "*" : pattern;
 
-    constexpr uint16_t kBatchCapacity = 32u;
-    if (capacity > kBatchCapacity) return SAT_ERR_CAPACITY;
+    if (capacity > SAT_SAVE_LIST_MAX) return SAT_ERR_CAPACITY;
 
-    Dir raw[kBatchCapacity] = {};
+    Dir raw[SAT_SAVE_LIST_MAX] = {};
     // The BIOS directory routine expects a real output table. For a
     // count-only public query, use one scratch entry; BUP_Dir returns -N when
     // the table is smaller than the total match count, so the absolute result

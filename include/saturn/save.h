@@ -11,6 +11,10 @@ extern "C" {
 
 #define SAT_SAVE_NAME_MAX 11u
 #define SAT_SAVE_COMMENT_MAX 10u
+/* Maximum number of directory entries materialized by one sat_save_list()
+ * call. out_total can still report more matches; callers can use a narrower
+ * pattern when they need a specific record. */
+#define SAT_SAVE_LIST_MAX 32u
 
 /* These are LibSaturn logical device IDs, not raw Sega BUP unit IDs.
  * The HAL maps SAT_SAVE_INTERNAL to BUP_MAIN_UNIT (1). */
@@ -72,7 +76,8 @@ sat_result_t sat_save_storage_info(
 
 /* List matching records. A null/empty pattern means "*".
  * out_total receives the total number of matches even when capacity is
- * smaller; entries contains min(*out_total, capacity) records. */
+ * smaller; entries contains min(*out_total, capacity) records.
+ * capacity must not exceed SAT_SAVE_LIST_MAX. */
 sat_result_t sat_save_list(
     sat_save_device_t device,
     const char* pattern,

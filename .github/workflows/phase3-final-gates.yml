@@ -34,6 +34,14 @@ jobs:
         run: |
           JOBS=2 bash scripts/build-toolchain.sh
 
+      - name: Build Backup RAM save example
+        run: |
+          export PATH="${RUNNER_TEMP}/saturn-tools/bin:$PATH"
+          # Keep save support independently cross-compiled even while an
+          # unrelated optional example asset can stop examples-all early.
+          make clean
+          make IP_TEMPLATE_KIND=sbl EXAMPLE=save_backup_demo all
+
       - name: Build all Saturn examples
         id: crossbuild
         run: |

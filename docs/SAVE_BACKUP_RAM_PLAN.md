@@ -212,7 +212,11 @@ safe; otherwise keep both areas static. Prefer static storage initially because
 a 8 KiB automatic allocation is unnecessarily risky on a small bare-metal
 stack.
 
-Document the resulting permanent 16 KiB Work RAM cost in the API guide.
+The current implementation keeps both buffers static: **24 KiB of Work RAM**
+is reserved in total (16 KiB persistent expanded-library area + 8 KiB init
+scratch). This deliberately trades RAM for a small and predictable bare-metal
+stack. If memory pressure later justifies reclaiming the scratch area, do that
+only after hardware/emulator validation proves BUP does not retain it.
 
 ## Error mapping
 
@@ -377,11 +381,22 @@ Only after internal memory works:
 - recovery policy for interrupted/corrupt writes;
 - import/export tooling only after the core Saturn path is stable.
 
-## Recommended first slice
+## Implementation status
 
-Implement Phases 1-3 first.
+- **Phases 1-3:** implemented on `main`; corrected host tests pass.
+- **Phase 4:** `examples/save_backup_demo` is implemented. It never formats
+  automatically; formatting requires explicit A-button confirmation.
+- **Phase 5:** the Ymir harness now supports a file-backed internal Backup RAM
+  image plus a two-process persistence runner. Harness compilation against the
+  pinned Ymir revision is green. The actual two-process runtime acceptance
+  still requires a Saturn BIOS supplied by the developer.
+- **Phase 6:** intentionally pending until the internal path is proven by the
+  persistence runner.
+- **Phase 7:** pending.
 
-The first milestone is successful host tests plus an SH-2 build that can:
+## Recommended first runtime acceptance
+
+The next milestone is a real BIOS-backed run that can:
 
 ```text
 BUP_Init
