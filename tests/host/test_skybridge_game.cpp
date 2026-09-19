@@ -401,6 +401,98 @@ int main() {
         assert(sb_course_platforms(&lift)==sb_stage);
     }
 
+    /* Course 3: six genuine holes in long piers. Rendering and landing
+     * derive from identical deck slices, so there is no invisible solid
+     * floor where a bright hole appears (or vice versa). */
+    {
+        sb_game_t long_course;
+        sb_start_course(&long_course,2u);
+        assert(long_course.course==2u && long_course.support==0);
+        assert(sb_course_platforms(&long_course)==sb_stage_three);
+        assert(long_course.pickups==0u && long_course.ticks==0u);
+        assert(sb_course_platforms(&long_course)[2].half_z>=27);
+        uint8_t hole_count=0u;
+        for(uint8_t id=0u;id<SB_PLATFORM_COUNT;++id) {
+            const sb_platform_t* platform=&sb_course_platforms(&long_course)[id];
+            const sb_hole_t* hole=sb_platform_hole(&long_course,id);
+            sb_deck_slice_t pieces[4];
+            uint8_t n=sb_deck_slices(&long_course,id,pieces);
+            assert(n>=1u && n<=4u);
+            int64_t area=0;
+            for(uint8_t k=0u;k<n;++k) {
+                assert(pieces[k].max_x>pieces[k].min_x);
+                assert(pieces[k].max_z>pieces[k].min_z);
+                area+=((int64_t)(pieces[k].max_x-pieces[k].min_x)>>16)*
+                      ((int64_t)(pieces[k].max_z-pieces[k].min_z)>>16);
+                for(uint8_t m=0u;m<k;++m) {
+                    assert(pieces[k].max_x<=pieces[m].min_x ||
+                           pieces[m].max_x<=pieces[k].min_x ||
+                           pieces[k].max_z<=pieces[m].min_z ||
+                           pieces[m].max_z<=pieces[k].min_z);
+                }
+            }
+            const int64_t full=(int64_t)platform->half_x*2*
+                               platform->half_z*2;
+            if(hole) {
+                ++hole_count;
+                assert(n==4u);
+                assert(area==full-(int64_t)hole->half_x*2*
+                                          hole->half_z*2);
+                place(long_course,id);
+                assert(sb_supported_footprint(&long_course,id));
+                /* Gem is at the centre; none are hidden within an opening. */
+                assert(sb_gem_contact(&long_course,id));
+                long_course.x=sb_platform_x(&long_course,id)+
+                              SB_F(hole->x_offset);
+                long_course.z=SB_F(platform->z+hole->z_offset);
+                assert(!sb_supported_footprint(&long_course,id));
+                assert(sb_horizontal_overlap(&long_course,id));
+                long_course.y=sb_platform_y(&long_course,id);
+                long_course.vx=long_course.vy=long_course.vz=0;
+                long_course.support=(int8_t)id;
+                tick(long_course);
+                assert(long_course.support==-1);
+                assert(long_course.y<sb_platform_y(&long_course,id));
+                /* No phantom underside on a jump inside the open shaft. */
+                long_course.y=sb_platform_y(&long_course,id)-SB_F(8);
+                long_course.vy=SB_F(2);
+                long_course.support=-1;
+                tick(long_course);
+                assert(long_course.y>sb_platform_y(&long_course,id)-SB_F(8));
+            } else {
+                assert(n==1u && area==full);
+            }
+        }
+        assert(hole_count==SB_COURSE3_HOLE_COUNT);
+        /* Both established checkpoint indices still save progress, with
+         * their respawn centres on solid uninterrupted deck geometry. */
+        sb_start_course(&long_course,2u);
+        place(long_course,3u);
+        assert(tick(long_course)&SB_EVENT_CHECKPOINT);
+        assert(long_course.checkpoint==3u);
+        long_course.y=SB_F(-30);
+        long_course.support=-1;
+        assert(tick(long_course)&SB_EVENT_FALL);
+        assert(long_course.support==3 &&
+               sb_supported_footprint(&long_course,3u));
+        place(long_course,6u);
+        assert(tick(long_course)&SB_EVENT_CHECKPOINT);
+        assert(long_course.checkpoint==6u);
+        sb_start_course(&long_course,2u);
+        place(long_course,9u);
+        assert(long_course.pickups==0u);
+        assert(tick(long_course)&SB_EVENT_WIN);
+        assert(long_course.finished && long_course.course==2u);
+        sb_start_course(&long_course,(uint8_t)(long_course.course+1u));
+        assert(long_course.course==0u && !long_course.finished);
+        assert(long_course.support==0 && long_course.pickups==0u);
+        /* Selecting Course 3 resets its own gems/checkpoints and preserves
+         * the original two course tables and their physical geometry. */
+        assert(sb_platform_hole(&long_course,1u)==nullptr);
+        sb_start_course(&long_course,1u);
+        assert(sb_platform_hole(&long_course,2u)==nullptr);
+    }
+
     /* Horizontal block cannot be crossed while the player's feet are below it. */
     g.x=SB_F(0);
     g.z=SB_F(36-13-2-1);
