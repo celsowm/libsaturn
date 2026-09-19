@@ -4,7 +4,7 @@ A **playable, stock Sega Saturn 3D platformer example**. The cube is the avatar;
 
 ## Play
 
-Move with the digital D-pad (camera-relative), press **A** to jump (release early for a shorter jump), press **B / C** to rotate the follow camera by 15 degrees, and press **START** to pause/resume. Reach the gold arch on the tenth platform after collecting the eight golden pickups. The third and seventh platforms are checkpoints. Falling into the sea respawns you at the last checkpoint, retaining collectibles. The fifth platform moves, and the eighth bridge flashes before temporarily collapsing. After finishing, START restarts the course.
+Move with the digital D-pad (camera-relative), press **A** to jump (release early for a shorter jump), press **B / C** to rotate the follow camera by 15 degrees, and press **START** to pause/resume. Reach the gold arch on the tenth platform after collecting the eight golden pickups. The fourth and seventh platforms are checkpoints. Falling into the sea respawns you at the last checkpoint, retaining collectibles. The fifth platform moves, and the eighth bridge flashes before temporarily collapsing. After finishing, START restarts the course.
 
 This demo has no mandatory RAM cartridge, external art downloads, controller extension, CD streaming, game save, or third-party model assets. The generated palette, ocean, sky and PCM all come from C source.
 
@@ -36,6 +36,6 @@ The BIOS is your own dump and is not included in this repository. Consult `harne
 
 ## Current scope and trade-offs
 
-This is the **first playable implementation**, not the full production acceptance of `docs/SKYBRIDGE_3D_PLATFORMER_EXAMPLE_PLAN.md`. It deliberately uses simple simple low-poly geometry, no GLB assets, no bespoke runtime alpha engine, no optional Slave SH-2, DMA, cart cache, save files, or advanced per-line water effects. The current broad-phase is a ten-AABB scan, not the large-world spatial grid. The follow camera is fixed-distance and can intersect arbitrary additional geometry if you modify the level; the world is laid out with generous sight lines. The simple center-based painter ordering may show incorrect overlap where meshes intersect. Fixed 60 Hz game ticks are capped at three catch-up ticks per displayed iteration.
+This is the **first playable implementation**, not the full production acceptance of `docs/SKYBRIDGE_3D_PLATFORMER_EXAMPLE_PLAN.md`. It deliberately uses simple low-poly geometry, no GLB assets, no bespoke runtime alpha engine, no optional Slave SH-2, DMA, cart cache, save files, or advanced per-line water effects. The current broad-phase is a ten-AABB scan, not the large-world spatial grid. The follow camera is fixed-distance and can intersect arbitrary additional geometry if you modify the level; the world is laid out with generous sight lines. The simple center-based painter ordering may show incorrect overlap where meshes intersect. Fixed 60 Hz game ticks are capped at three catch-up ticks per displayed iteration.
 
 Performance, collision traversability and visual/audio behavior **must be validated in a Saturn emulator and ideally on original hardware** before making frame-rate or visual-correctness claims. Tests cover discrete gameplay invariants; they do not substitute for playing the entire course. See `AGENTS.md` and the published plan for the next acceptance gates.
