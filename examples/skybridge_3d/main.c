@@ -30,11 +30,17 @@
 #define SOUND_LEN 2048u
 #define MUSIC_LEN 32768u
 #define RENDER_COUNT SB_PLATFORM_COUNT
+#define SB_ACTOR_COUNT (SB_PICKUP_COUNT+1u)
+#define SB_ACTOR_PIG 0u
 
 typedef struct sb_render_item {
-    int8_t id;    /* 0..9: platform and its collectible */
+    int8_t id;    /* platform only: collectibles are independent actors */
     int32_t depth;
 } sb_render_item_t;
+typedef struct sb_actor_item {
+    uint8_t id;   /* 0: pig, 1..8: gems */
+    int64_t depth; /* camera-space 3D depth, far to near */
+} sb_actor_item_t;
 
 static sb_game_t g_game;
 static sat_ascii_font_t g_font;
@@ -82,6 +88,7 @@ static sat_mat4_t g_vp;
 static sat_vec3_t g_eye, g_target, g_camera_anchor;
 static sb_render_item_t g_items[RENDER_COUNT];
 static uint8_t g_items_count;
+static sb_actor_item_t g_actors[SB_ACTOR_COUNT];
 static int16_t g_yaw;
 static uint32_t g_prev_frame, g_frame;
 static sat_sound_t g_sounds[SOUNDS];
@@ -377,10 +384,6 @@ static void stage_box(uint8_t i) {
         box3(x,top_y+SB_F(19),z+SB_F(5),SB_F(11),SB_F(1),SB_F(1),
              SAT_RGB555(31,26,3),SAT_RGB555(20,14,3),SAT_RGB555(27,19,4),0u);
     }
-    if (i>=1u && i<=SB_PICKUP_COUNT && sb_platform_active(&g_game,i) &&
-        !(g_game.pickups & (1u<<(i-1u)))) {
-        draw_gem(i,x,top_y,z);
-    }
 }
 /* Model only: the pig is contained inside the original 4x4x5 fixed-point
  * collision volume. Course 1/2 movement, coyote time, gem contact and
@@ -568,21 +571,27 @@ static uint8_t platform_fade_slot(uint8_t id,int32_t depth) {
     return target;
 }
 static void draw_world(int32_t forward_x,int32_t forward_z) {
-    uint8_t i,j;
+    uint8_t i,j,actor_count=0u;
+    const int32_t cam_dx=g_target.x-g_eye.x;
+    const int32_t cam_dy=g_target.y-g_eye.y;
+    const int32_t cam_dz=g_target.z-g_eye.z;
     g_items_count=0u;
     for (i=0u;i<SB_PLATFORM_COUNT;++i) {
-        int32_t px=sb_platform_x(&g_game,i),pz=SB_F(sb_course_platforms(&g_game)[i].z);
+        int32_t px=sb_platform_x(&g_game,i);
+        int32_t pz=SB_F(sb_course_platforms(&g_game)[i].z);
         int32_t depth=view_depth(px,pz,forward_x,forward_z);
         if (!sb_platform_active(&g_game,i) || depth < -SB_F(9) ||
-            sb_abs(px-g_game.x)>SB_F(160) || sb_abs(pz-g_game.z)>SB_F(180)) continue;
+            sb_abs(px-g_game.x)>SB_F(160) ||
+            sb_abs(pz-g_game.z)>SB_F(180)) continue;
         g_items[g_items_count++]=(sb_render_item_t){(int8_t)i,depth};
     }
-    /* VDP1 has no Z-buffer. Sorting the player by the *centre* of a large
-     * platform allows its top surface to be submitted AFTER the cube once
-     * the avatar walks past that centre, hiding the cube and its sidewalls.
-     * Submit world first, reserve the support platform for the foreground,
-     * and draw the opaque player last. */
-    for (i=1u;i<g_items_count;++i) {
+    /* Opaque world geometry first, including the deck supporting the
+     * avatar. The prior code drew a gem inside stage_box(), then forced
+     * player_pig() last, so a gem nearer the CAMERA was covered by a pig
+     * farther away whenever the camera orbited. Separate scene geometry
+     * from floating actors and order the actors independently by the full
+     * 3D camera vector (including pitch), NOT platform ID or world Z. */
+    for(i=1u;i<g_items_count;++i) {
         sb_render_item_t cur=g_items[i];
         j=i;
         while(j>0u && g_items[j-1u].depth<cur.depth) {
@@ -590,7 +599,7 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
         }
         g_items[j]=cur;
     }
-    for (i=0u;i<g_items_count;++i) {
+    for(i=0u;i<g_items_count;++i) {
         uint8_t id=(uint8_t)g_items[i].id;
         uint8_t slot;
         if(g_game.support==(int8_t)id)continue;
@@ -599,12 +608,55 @@ static void draw_world(int32_t forward_x,int32_t forward_z) {
         g_active_fade_slot=slot;
         stage_box(id);
     }
-    if(g_game.support>=0 && sb_platform_active(&g_game,(uint8_t)g_game.support)) {
+    if(g_game.support>=0 &&
+       sb_platform_active(&g_game,(uint8_t)g_game.support)) {
         g_active_fade_slot=FADE_OPAQUE;
         stage_box((uint8_t)g_game.support);
     }
+    /* Only objects that physically exist in this frame enter the actor
+     * list. Build from current platform positions so moving X/Y decks
+     * cannot leave a rendered gem behind its collision volume. */
+    g_actors[actor_count++]=(sb_actor_item_t){
+        SB_ACTOR_PIG,
+        sb_actor_view_depth(g_game.x,g_game.y+SB_PLAYER_HEIGHT/2,
+                            g_game.z,
+                            g_eye.x,g_eye.y,g_eye.z,
+                            cam_dx,cam_dy,cam_dz)
+    };
+    for(i=1u;i<=SB_PICKUP_COUNT;++i) {
+        int32_t px,pz,py;
+        int64_t depth;
+        if(!sb_platform_active(&g_game,i) ||
+           (g_game.pickups&(1u<<(i-1u))))continue;
+        px=sb_platform_x(&g_game,i);
+        pz=SB_F(sb_course_platforms(&g_game)[i].z);
+        py=sb_platform_y(&g_game,i)+SB_GEM_BASE_OFFSET;
+        depth=sb_actor_view_depth(px,py,pz,
+                                  g_eye.x,g_eye.y,g_eye.z,
+                                  cam_dx,cam_dy,cam_dz);
+        if(depth<=0 || sb_abs(px-g_game.x)>SB_F(160) ||
+           sb_abs(pz-g_game.z)>SB_F(180))continue;
+        g_actors[actor_count++]=(sb_actor_item_t){i,depth};
+    }
+    for(i=1u;i<actor_count;++i) {
+        sb_actor_item_t cur=g_actors[i];
+        j=i;
+        while(j>0u && g_actors[j-1u].depth<cur.depth) {
+            g_actors[j]=g_actors[j-1u]; --j;
+        }
+        g_actors[j]=cur;
+    }
     g_active_fade_slot=FADE_OPAQUE;
-    player_pig();
+    for(i=0u;i<actor_count;++i) {
+        uint8_t id=g_actors[i].id;
+        if(id==SB_ACTOR_PIG) {
+            player_pig();
+        } else {
+            draw_gem(id,sb_platform_x(&g_game,id),
+                     sb_platform_y(&g_game,id),
+                     SB_F(sb_course_platforms(&g_game)[id].z));
+        }
+    }
 }
 static void init_tile_texture(void) {
     static const uint8_t banks[3]={3u,5u,6u};
