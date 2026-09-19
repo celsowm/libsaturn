@@ -718,6 +718,7 @@ static void hud(void) {
     (void)sat_draw_rect_screen(0,0,W,16u,SAT_RGB555(3,8,15));
     put_text("SKYBRIDGE 3D",7,4);
     label("GEMS ",count,144,4);
+    put_text("/8",192,4);
     label("TIME ",g_game.ticks/60u,224,4);
     /* Always show player position, not the smoothed camera anchor. */
     (void)sat_draw_rect_screen(0,17,W,13u,SAT_RGB555(3,8,15));
@@ -734,6 +735,7 @@ static void hud(void) {
         (void)sat_draw_rect_screen(46,76,228u,75u,SAT_RGB555(2,13,16));
         put_text("COURSE COMPLETE!",80,83);
         label("GEMS ",count,116,104);
+        put_text("/8",164,104);
         put_text("START: PLAY AGAIN",82,128);
     } else if (g_game.paused) {
         put_text("PAUSED - START RESUMES",64,92);
