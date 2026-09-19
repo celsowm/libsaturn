@@ -6,6 +6,8 @@
 /* Pure, allocation-free, 60 Hz platformer logic; buildable on the host. */
 #define SB_F(n) ((int32_t)(n) * 65536)
 #define SB_HALF (32768)
+#define SB_FADE_START SB_F(66)
+#define SB_FADE_END SB_F(134)
 #define SB_PLAYER_HALF SB_F(2)
 #define SB_PLAYER_HEIGHT SB_F(5)
 #define SB_PLATFORM_COUNT 10u
