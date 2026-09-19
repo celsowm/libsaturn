@@ -333,7 +333,6 @@ static void init_audio(void) {
     sat_example_must(sat_audio_init());
     sat_example_must(sat_audio_set_master_volume(160u));
     for(j=0u;j<SOUNDS-1u;++j) {
-        sat_sound_desc_t desc={0};
         for(i=0u;i<SOUND_LEN;++i) {
             int32_t wave=(int32_t)((i*tone_step[j])&63u)-32;
             int32_t env=(int32_t)((SOUND_LEN-i)*55u/SOUND_LEN);
