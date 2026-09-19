@@ -15,6 +15,26 @@ static void place(sb_game_t& g,uint8_t i) {
     g.coyote=5;
 }
 int main() {
+    /* A gamepad press must match the visible camera-right direction. */
+    int32_t rx=0,rz=0;
+    sb_camera_right(0,SB_F(1),&rx,&rz);
+    assert(rx==-SB_F(1) && rz==0); // camera faces +Z, right is -X
+    sb_camera_right(SB_F(1),0,&rx,&rz);
+    assert(rx==0 && rz==SB_F(1)); // yaw +90, right is +Z
+    sb_camera_right(0,-SB_F(1),&rx,&rz);
+    assert(rx==SB_F(1) && rz==0);
+    sb_camera_right(-SB_F(1),0,&rx,&rz);
+    assert(rx==0 && rz==-SB_F(1));
+    {
+        sb_game_t moving;
+        sb_init(&moving);
+        sb_camera_right(0,SB_F(1),&rx,&rz);
+        sb_tick(&moving,SB_RIGHT,0u,0,SB_F(1),rx,rz);
+        assert(moving.vx<0 && moving.x<0);
+        sb_init(&moving);
+        sb_tick(&moving,SB_LEFT,0u,0,SB_F(1),rx,rz);
+        assert(moving.vx>0 && moving.x>0);
+    }
     sb_game_t g;
     sb_init(&g);
     assert(g.x==0 && g.y==0 && g.z==SB_F(-4));
