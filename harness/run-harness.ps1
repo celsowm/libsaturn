@@ -126,7 +126,9 @@ if ($Screenshot) {
 if ($ProfilePc) {
     $probeArgs += @('--profile-pc', $ProfilePc)
 }
-if ($ScspTrace) {
+# The jukebox acceptance test asserts SCSP double-buffer behavior, so trace it
+# automatically. Other examples can opt in with -ScspTrace.
+if ($ScspTrace -or $normalizedExample -eq 'cd_streaming_jukebox') {
     $probeArgs += '--scsp-trace'
 }
 & $probeExe @probeArgs
