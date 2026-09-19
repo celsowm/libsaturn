@@ -129,9 +129,9 @@ int main() {
     OK(sat_camera3d_update(&camera)==SAT_OK);
     OK(sat_scene3d_queue_begin(&painter,&camera)==SAT_OK);
     OK(sat_scene3d_queue_begin(&painter,&camera)==SAT_ERR_INVALID_ARG);
-    sat_fx16_t depth=0;
-    OK(sat_scene3d_queue_depth(&painter,&far_actor,&depth)==SAT_OK);
-    OK(depth==sat_fx16_from_int(10));
+    sat_fx16_t camera_depth=0;
+    OK(sat_scene3d_queue_depth(&painter,&far_actor,&camera_depth)==SAT_OK);
+    OK(camera_depth==sat_fx16_from_int(10));
     OK(sat_scene3d_queue_submit_draw(&painter,&near_actor,1u,capture_painter,&caps[1])==SAT_OK);
     OK(sat_scene3d_queue_submit_draw(&painter,&far_actor,1u,capture_painter,&caps[0])==SAT_OK);
     OK(sat_scene3d_queue_submit_draw(&painter,&same_actor,1u,capture_painter,&caps[2])==SAT_OK);
