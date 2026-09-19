@@ -6,6 +6,25 @@
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 
 static int g_draw_calls;
+static int g_painter_order[32];
+static int g_painter_count;
+struct PainterCapture {
+    sat_scene3d_queue_t* queue;
+    int id;
+    sat_result_t error;
+};
+static sat_result_t capture_painter(void* user, const sat_camera3d_t*) {
+    PainterCapture* cap=static_cast<PainterCapture*>(user);
+    OK(g_painter_count<32);
+    g_painter_order[g_painter_count++]=cap->id;
+    /* Mutating/re-entering the queue during a callback is illegal. */
+    const sat_vec3_t origin={0,0,0};
+    OK(sat_scene3d_queue_submit_draw(
+        cap->queue,&origin,0u,capture_painter,user)==SAT_ERR_INVALID_ARG);
+    OK(sat_scene3d_queue_flush(cap->queue)==SAT_ERR_INVALID_ARG);
+    return cap->error;
+}
+
 
 extern "C" sat_result_t sat_mesh_init(
     sat_mesh_t* mesh,
@@ -87,6 +106,89 @@ int main() {
     OK(g_draw_calls == 1);
     OK(sat_scene3d_end(&scene) == SAT_OK);
     OK(sat_scene3d_end(&scene) == SAT_ERR_INVALID_ARG);
+    /* Same-world-points / opposite-orbit regression: actor ordering changes
+     * with camera, never with submission order or world Z alone. */
+    sat_scene3d_queue_item_t storage[5]={};
+    sat_scene3d_queue_t painter{};
+    OK(sat_scene3d_queue_init(nullptr,storage,5u)==SAT_ERR_INVALID_ARG);
+    OK(sat_scene3d_queue_init(&painter,nullptr,5u)==SAT_ERR_INVALID_ARG);
+    OK(sat_scene3d_queue_init(&painter,storage,0u)==SAT_ERR_INVALID_ARG);
+    OK(sat_scene3d_queue_init(&painter,storage,5u)==SAT_OK);
+    PainterCapture caps[5]={
+        {&painter,10,SAT_OK}, {&painter,20,SAT_OK},
+        {&painter,30,SAT_OK}, {&painter,40,SAT_OK},
+        {&painter,50,SAT_OK}
+    };
+    const sat_vec3_t far_actor={0,0,0};
+    const sat_vec3_t near_actor={0,0,sat_fx16_from_int(7)};
+    const sat_vec3_t same_actor={0,0,sat_fx16_from_int(7)};
+    OK(sat_scene3d_queue_submit_draw(&painter,&far_actor,0u,capture_painter,&caps[0])
+       ==SAT_ERR_INVALID_ARG);
+    camera.eye={0,0,sat_fx16_from_int(10)};
+    camera.target={0,0,0};
+    OK(sat_camera3d_update(&camera)==SAT_OK);
+    OK(sat_scene3d_queue_begin(&painter,&camera)==SAT_OK);
+    OK(sat_scene3d_queue_begin(&painter,&camera)==SAT_ERR_INVALID_ARG);
+    sat_fx16_t depth=0;
+    OK(sat_scene3d_queue_depth(&painter,&far_actor,&depth)==SAT_OK);
+    OK(depth==sat_fx16_from_int(10));
+    OK(sat_scene3d_queue_submit_draw(&painter,&near_actor,1u,capture_painter,&caps[1])==SAT_OK);
+    OK(sat_scene3d_queue_submit_draw(&painter,&far_actor,1u,capture_painter,&caps[0])==SAT_OK);
+    OK(sat_scene3d_queue_submit_draw(&painter,&same_actor,1u,capture_painter,&caps[2])==SAT_OK);
+    /* Pass 0 is an explicit background dependency, independent of depth. */
+    OK(sat_scene3d_queue_submit_draw(&painter,&near_actor,0u,capture_painter,&caps[3])==SAT_OK);
+    OK(sat_scene3d_queue_submit_draw(&painter,&far_actor,1u,capture_painter,&caps[4])==SAT_OK);
+    OK(sat_scene3d_queue_submit_draw(&painter,&far_actor,1u,capture_painter,&caps[4])
+       ==SAT_ERR_CAPACITY);
+    g_painter_count=0;
+    OK(sat_scene3d_queue_flush(&painter)==SAT_OK);
+    OK(g_painter_count==5);
+    OK(g_painter_order[0]==40);
+    OK(g_painter_order[1]==10 && g_painter_order[2]==50);
+    OK(g_painter_order[3]==20 && g_painter_order[4]==30);
+    OK(sat_scene3d_queue_flush(&painter)==SAT_ERR_INVALID_ARG);
+    /* Flip the camera: the same two actors reverse depth order. */
+    camera.eye={0,0,-sat_fx16_from_int(10)};
+    camera.target={0,0,0};
+    OK(sat_camera3d_update(&camera)==SAT_OK);
+    OK(sat_scene3d_queue_begin(&painter,&camera)==SAT_OK);
+    OK(sat_scene3d_queue_submit_draw(&painter,&near_actor,0u,capture_painter,&caps[1])==SAT_OK);
+    OK(sat_scene3d_queue_submit_draw(&painter,&far_actor,0u,capture_painter,&caps[0])==SAT_OK);
+    g_painter_count=0;
+    OK(sat_scene3d_queue_flush(&painter)==SAT_OK);
+    OK(g_painter_count==2 && g_painter_order[0]==20 && g_painter_order[1]==10);
+    /* Pitch distinguishes points with equal X/Z but different Y. */
+    camera.eye={0,sat_fx16_from_int(20),sat_fx16_from_int(10)};
+    camera.target={0,0,0};
+    OK(sat_camera3d_update(&camera)==SAT_OK);
+    const sat_vec3_t lower={0,0,0};
+    const sat_vec3_t upper={0,sat_fx16_from_int(5),0};
+    OK(sat_scene3d_queue_begin(&painter,&camera)==SAT_OK);
+    OK(sat_scene3d_queue_submit_draw(&painter,&upper,0u,capture_painter,&caps[1])==SAT_OK);
+    OK(sat_scene3d_queue_submit_draw(&painter,&lower,0u,capture_painter,&caps[0])==SAT_OK);
+    g_painter_count=0;
+    OK(sat_scene3d_queue_flush(&painter)==SAT_OK);
+    OK(g_painter_count==2 && g_painter_order[0]==10 && g_painter_order[1]==20);
+    /* Stable sorting for equal depth across re-used frames and an explicit
+     * error guarantee (stop once, close, allow a fresh begin). */
+    OK(sat_scene3d_queue_begin(&painter,&camera)==SAT_OK);
+    caps[0].error=SAT_ERR_IO;
+    OK(sat_scene3d_queue_submit_draw(&painter,&upper,0u,capture_painter,&caps[0])==SAT_OK);
+    OK(sat_scene3d_queue_submit_draw(&painter,&upper,0u,capture_painter,&caps[1])==SAT_OK);
+    g_painter_count=0;
+    OK(sat_scene3d_queue_flush(&painter)==SAT_ERR_IO);
+    OK(g_painter_count==1 && g_painter_order[0]==10);
+    caps[0].error=SAT_OK;
+    OK(sat_scene3d_queue_begin(&painter,&camera)==SAT_OK);
+    /* Deferred compiled models retain existing immediate draw behavior. */
+    const int previous_draw_calls=g_draw_calls;
+    const sat_vec3_t local_center={0,0,0};
+    transform.position={0,0,0};
+    OK(sat_scene3d_queue_submit_model(
+        &painter,&local_center,0u,&scene,&model_asset,&transform,&params)==SAT_OK);
+    g_painter_count=0;
+    OK(sat_scene3d_queue_flush(&painter)==SAT_OK);
+    OK(g_draw_calls==previous_draw_calls+1 && !scene.active);
     std::puts("scene3d api: OK");
     return 0;
 }
