@@ -108,6 +108,56 @@ int main() {
     assert((g.pickups&1u)!=0u);
     assert((tick(g)&SB_EVENT_PICKUP)==0u);
 
+    /* A gem is a small world-space object, not a +/-6-unit square tied
+     * to support==id. Far/diagonal/vertical misses must never collect. */
+    {
+        sb_game_t item;
+        sb_init(&item);
+        place(item,1);
+        assert(!sb_gem_contact(&item,0u));
+        assert(!sb_gem_contact(&item,9u));
+        assert(sb_gem_contact(&item,1u));
+        item.x=SB_F(sb_stage[1].x)+SB_F(5);
+        assert(!sb_gem_contact(&item,1u));
+        assert((tick(item)&SB_EVENT_PICKUP)==0u);
+        item.x=SB_F(sb_stage[1].x)+SB_F(4);
+        item.z=SB_F(sb_stage[1].z)+SB_F(4);
+        assert(!sb_gem_contact(&item,1u));
+        assert((tick(item)&SB_EVENT_PICKUP)==0u);
+        item.x=SB_F(sb_stage[1].x);
+        item.z=SB_F(sb_stage[1].z);
+        item.y=SB_F(sb_stage[1].y)+SB_F(11);
+        item.support=-1;
+        assert(!sb_gem_contact(&item,1u));
+        assert((tick(item)&SB_EVENT_PICKUP)==0u);
+        item.y=SB_F(sb_stage[1].y)-SB_F(10);
+        assert(!sb_gem_contact(&item,1u));
+        assert((tick(item)&SB_EVENT_PICKUP)==0u);
+        /* Being airborne must not prevent touching a gem in 3D. */
+        item.y=SB_F(sb_stage[1].y)+SB_F(2);
+        item.vy=0;
+        item.support=-1;
+        assert(sb_gem_contact(&item,1u));
+        assert(tick(item)&SB_EVENT_PICKUP);
+        assert(item.support==-1);
+        assert(item.pickups==1u);
+        assert((tick(item)&SB_EVENT_PICKUP)==0u);
+        /* The collectible follows the CURRENT moving-platform offset. */
+        sb_init(&item);
+        place(item,4);
+        int32_t center=sb_platform_x(&item,4u);
+        item.x=center+SB_F(5);
+        assert(!sb_gem_contact(&item,4u));
+        item.moving_x+=SB_F(3);
+        assert(sb_gem_contact(&item,4u));
+        /* A collapsed platform must not leave an invisible collectible. */
+        sb_init(&item);
+        place(item,7);
+        assert(sb_gem_contact(&item,7u));
+        item.collapse_ticks=32u;
+        assert(!sb_gem_contact(&item,7u));
+    }
+
     place(g,3);
     ev=tick(g);
     assert((ev & SB_EVENT_CHECKPOINT)!=0u && g.checkpoint==3u);
@@ -134,14 +184,21 @@ int main() {
     for(int i=0;i<150;++i)tick(g);
     assert(sb_platform_active(&g,7));
 
-    /* Check finish and pause without depending on a scripted human route. */
+    /* The finishing arch is an unconditional goal: gems are bonus score.
+     * Verify zero and partial collection, then retain win/pause behavior. */
     place(g,9);
-    g.pickups=0xFFu;
+    g.pickups=0u;
     ev=tick(g);
     assert(ev&SB_EVENT_WIN);
-    assert(g.finished==1u);
+    assert(g.finished==1u && g.pickups==0u);
     uint32_t saved=g.ticks;
     assert(tick(g)==0 && g.ticks==saved);
+    sb_init(&g);
+    place(g,9);
+    g.pickups=0x35u;
+    ev=tick(g);
+    assert(ev&SB_EVENT_WIN);
+    assert(g.finished==1u && g.pickups==0x35u);
     sb_init(&g);
     assert(!g.finished && g.pickups==0);
 
