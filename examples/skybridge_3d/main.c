@@ -171,24 +171,32 @@ static uint8_t fade_material(uint16_t c) {
     }
     return chosen;
 }
+/* Large decks can cross the view plane when the follow camera overtakes
+ * the previous platform. Projecting one near-zero-depth corner into a giant
+ * distorted sprite can starve VDP1, so clip WORLD geometry before projection
+ * rather than dropping the entire quad on the next frame. Solid material
+ * triangles can reuse the same tiny uniform indexed texture. */
 static void put_quad(const sat_quad3_t* q, uint16_t c) {
-    sat_quad2_t screen;
-    sat_distorted_sprite_cmd_t cmd={0};
-    sat_result_t st=sat_project_quad(&g_vp,q,&screen);
-    uint8_t i;
-    if(st!=SAT_OK) {
-        if(st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
-        return;
+    sat_quad3_t pieces[4];
+    uint8_t count=0u;
+    sat_example_must(sat_clip_quad_near(
+        q,&g_eye,&g_scene.forward,SB_F(8),pieces,&count));
+    for(uint8_t piece=0u;piece<count;++piece) {
+        sat_quad2_t screen;
+        sat_distorted_sprite_cmd_t cmd={0};
+        sat_result_t st=sat_project_quad(&g_vp,&pieces[piece],&screen);
+        if(st==SAT_ERR_UNSUPPORTED)continue;
+        sat_example_must(st);
+        for(uint8_t i=0u;i<4u;++i) {
+            cmd.x[i]=screen.x[i];cmd.y[i]=screen.y[i];
+        }
+        cmd.texture=&g_fade_textures[fade_material(c)];
+        if(g_active_fade_slot==FADE_OPAQUE)
+            st=sat_draw_sprite_distorted(&cmd);
+        else
+            st=sat_draw_sprite_distorted_color_calc(&cmd,g_active_fade_slot);
+        if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
     }
-    for(i=0u;i<4u;++i) {
-        cmd.x[i]=screen.x[i];cmd.y[i]=screen.y[i];
-    }
-    cmd.texture=&g_fade_textures[fade_material(c)];
-    if(g_active_fade_slot==FADE_OPAQUE)
-        st=sat_draw_sprite_distorted(&cmd);
-    else
-        st=sat_draw_sprite_distorted_color_calc(&cmd,g_active_fade_slot);
-    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
 static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
     /* Gouraud RGB polygons are incompatible with this VDP2 blend path;
@@ -233,25 +241,37 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
             if (trim==2u) {
                 put_quad(&q,SAT_RGB555(24,20,10));
             } else {
-                sat_result_t st;
-                const sat_vdp1_texture_t* texture=
-                    &g_tile_textures[trim==1u?0u:(trim==3u?1u:2u)];
-                if (g_active_fade_slot==FADE_OPAQUE) {
-                    st=sat_draw_world_sprite(&g_vp,&q,texture,0u,0u);
-                } else {
-                    sat_quad2_t projected;
-                    st=sat_project_quad(&g_vp,&q,&projected);
-                    if (st==SAT_OK) {
-                        sat_distorted_sprite_cmd_t cmd={0};
-                        uint8_t k;
-                        for(k=0u;k<4u;++k) {
-                            cmd.x[k]=projected.x[k];cmd.y[k]=projected.y[k];
+                /* Non-uniform paving UVs need a texture clipper to split
+                 * accurately. Never submit a stretched/malformed inset if
+                 * the camera's near plane cuts the floor. Its SOLID base
+                 * remains visible via put_quad's geometric near clipping. */
+                sat_quad3_t clipped[4];
+                uint8_t clipped_count=0u;
+                sat_example_must(sat_clip_quad_near(
+                    &q,&g_eye,&g_scene.forward,SB_F(8),clipped,&clipped_count));
+                if(clipped_count==1u) {
+                    sat_result_t st;
+                    const sat_vdp1_texture_t* texture=
+                        &g_tile_textures[trim==1u?0u:(trim==3u?1u:2u)];
+                    if (g_active_fade_slot==FADE_OPAQUE) {
+                        st=sat_draw_world_sprite(&g_vp,&q,texture,0u,0u);
+                    } else {
+                        sat_quad2_t projected;
+                        st=sat_project_quad(&g_vp,&q,&projected);
+                        if (st==SAT_OK) {
+                            sat_distorted_sprite_cmd_t cmd={0};
+                            uint8_t k;
+                            for(k=0u;k<4u;++k) {
+                                cmd.x[k]=projected.x[k];cmd.y[k]=projected.y[k];
+                            }
+                            cmd.texture=texture;
+                            st=sat_draw_sprite_distorted_color_calc(
+                                &cmd,g_active_fade_slot);
                         }
-                        cmd.texture=texture;
-                        st=sat_draw_sprite_distorted_color_calc(&cmd,g_active_fade_slot);
                     }
+                    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED)
+                        sat_example_must(st);
                 }
-                if (st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
             }
         }
     }
