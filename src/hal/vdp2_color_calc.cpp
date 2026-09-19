@@ -16,7 +16,6 @@ constexpr uint16_t kTvstatVblank = 0x0008u;
 
 #define SPCTL VDP2_REG16(0x0E0u)
 #define CCCTL VDP2_REG16(0x0ECu)
-#define PRISA VDP2_REG16(0x0F0u)
 #define CCRSA VDP2_REG16(0x100u)
 #define CCRSB VDP2_REG16(0x102u)
 #define CCRSC VDP2_REG16(0x104u)
@@ -55,11 +54,16 @@ void commit() {
         /* Type 0 + equality against selector-1's priority. Ordinary sprites
          * keep selector 0 and therefore do not satisfy the condition. */
         SPCTL = compose_spctl(fade_priority);
-        PRISA = compose_prisa(g_normal_priority);
+        /* Share PRISA with the generic VDP2 layer replay. A direct write
+         * here fixes only one VBlank; the next layers_commit() would restore
+         * its old all-opaque 0x0707 shadow and cause a per-frame fade blink. */
+        saturn::hal::vdp2::set_sprite_priority_pair(
+            g_normal_priority, fade_priority);
         CCCTL = kCcctlSpriteEnable;
     } else {
         SPCTL = 0u; /* Type 0, default condition; SPCCEN below is disabled. */
-        PRISA = compose_prisa_disabled(g_normal_priority);
+        saturn::hal::vdp2::set_sprite_priority_pair(
+            g_normal_priority, g_normal_priority);
         CCCTL = 0u;
     }
 }
