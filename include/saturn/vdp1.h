@@ -108,6 +108,19 @@ sat_result_t sat_tex_upload_indexed8_pixels(
     uint16_t palette_index
 );
 
+/* Call immediately after sat_begin_frame to reserve command-list slots for
+ * an overlay/HUD drawn AFTER the world. In the world pass the shared VDP1
+ * writer enforces this reservation for every sprite/polygon/line command;
+ * SAT_ERR_CAPACITY then means world budget exhausted, NOT that HUD was lost.
+ * Begin the final overlay pass just before issuing HUD commands; reservations
+ * then become drawable slots. The END command is always reserved separately.
+ *
+ * The overlay pass is irreversible until the next sat_begin_frame. This is a
+ * command-list budget, not a GPU raster-time guarantee. Callers must handle a
+ * world draw returning SAT_ERR_CAPACITY without aborting the HUD pass. */
+sat_result_t sat_vdp1_reserve_overlay_commands(uint16_t count);
+sat_result_t sat_vdp1_overlay_begin(void);
+
 sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd);
 
 sat_result_t sat_draw_sprite_screen(

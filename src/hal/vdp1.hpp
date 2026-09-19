@@ -87,6 +87,9 @@ void set_clear_color(uint16_t rgb555);
 void set_erase_transparent();
 void set_erase_enabled(bool enable, uint16_t width, uint16_t height);
 void begin_frame(Command* command_buffer, uint16_t capacity);
+/* Caller-owned frame command-buffer partition: protected overlay quota. */
+sat_result_t reserve_overlay_commands(uint16_t count);
+sat_result_t begin_overlay_pass();
 sat_result_t push_user_clip(const UserClipRequest& req);
 sat_result_t push_sprite(const SpriteRequest& req);
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req);

@@ -105,3 +105,9 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
 - `saturn/orbit_camera3d.h` derives target and framing from an entire bounds box, owns yaw/pitch/zoom and projection, validates numeric bounds, and keeps fixed-point state caller-owned.
 - Static Sonic and animated model examples use the same runtime with distinct fitting factors and A/C auto-orbit buttons. The animated example still uses union clip bounds; HUD, animator and model decode remain game concerns.
 - Missing third-party `male_basic_walk_30_frames_loop.glb` is explicitly skipped ONLY by CI when absent. `make examples-all` still requires it without an opt-in `EXAMPLES_ALL_SKIP`.
+
+## Eighth slice: VDP1 HUD command reservation
+
+- All six primitive command allocation sites in the VDP1 HAL now share a quota-aware capacity guard. The new public `sat_vdp1_reserve_overlay_commands` partitions a frame after the setup commands and preserves the mandatory END entry; `sat_vdp1_overlay_begin` permanently unlocks the reserved slots for the final HUD pass, resetting next frame.
+- Skybridge reserves 192 commands before clouds/world rendering, treats world SAT_ERR_CAPACITY as an optional geometry drop instead of aborting, and explicitly starts the protected HUD pass. This prevents WORLD command exhaustion from consuming the HUD's reserved command slots. It does not promise a VDP1 raster-time guarantee or protect the pig when the world itself uses every world slot.
+- HAL host tests force the cap for sprite, polygon and clip primitives, confirm overlay slots remain usable, and verify per-frame reset and unsatisfiable reservation rejection. Emulator captures and measured maximum HUD glyph consumption remain outstanding.

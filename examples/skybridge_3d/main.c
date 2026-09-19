@@ -35,6 +35,9 @@
 #define SOUND_LEN 2048u
 #define MUSIC_LEN 32768u
 #define SCENE_OBJECT_CAP (SB_PLATFORM_COUNT + SB_PICKUP_COUNT + 1u)
+/* Enough for the worst HUD/help/debug text + rects, without sacrificing
+ * the END command. World overflow must never prevent the HUD pass. */
+#define SB_HUD_COMMAND_RESERVE 192u
 #define SCENE_PASS_WORLD 0u
 #define SCENE_PASS_SUPPORT 1u
 #define SCENE_PASS_ACTOR 2u
@@ -142,6 +145,7 @@ static int8_t g_music[MUSIC_LEN] __attribute__((section(".wram_l")));
 static uint8_t g_audio_ready;
 static uint8_t g_show_help=1u;
 static uint8_t g_show_debug=0u;
+static uint8_t g_world_cmd_full=0u;
 static const sat_vdp2_rbg0_ground_config_t g_ocean = {
     512u, 256u, 160u, HORIZON, 96u, 8u, 96u, COEF_WORD
 };
@@ -218,6 +222,7 @@ static uint8_t fade_material(uint16_t c) {
 /* World clipping, projection, screen clipping and VDP1 command setup belong
  * to the LibSaturn renderer; this wrapper only chooses the level material. */
 static void put_quad(const sat_quad3_t* q, uint16_t c) {
+    if(g_world_cmd_full) return;
     sat_indexed_solid_render3d_t draw={0};
     draw.view_proj=&g_vp;
     draw.eye=g_eye;
@@ -229,7 +234,8 @@ static void put_quad(const sat_quad3_t* q, uint16_t c) {
     {
         sat_result_t st=sat_draw_indexed_solid_quad3(
             q,&draw,&g_fade_textures[fade_material(c)]);
-        if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+        if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
+        else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
     }
 }
 static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
@@ -278,6 +284,7 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
                 /* The library owns the conservative patterned-texture path:
                  * unlike a uniform color, this material cannot be split
                  * without preserving its original UV mapping. */
+                if(g_world_cmd_full) return;
                 sat_indexed_solid_render3d_t draw={0};
                 draw.view_proj=&g_vp;
                 draw.eye=g_eye;
@@ -295,7 +302,8 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
                     };
                     const sat_result_t st=sat_draw_indexed_tiled_quad3(
                         &q,&draw,&regions,0);
-                    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+                    if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
+                    else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
                 }
             }
         }
@@ -316,6 +324,7 @@ static const uint16_t g_gem_facet_colors[GEM_FACE_CAP]={
 /* The library owns the facet painter and clipping; game logic only positions
  * an instance of the immutable octahedron mesh above its supporting deck. */
 static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
+    if(g_world_cmd_full) return;
     const int32_t bob=sat_fx16_mul(
         sat_sin_deg(SB_F((int32_t)(g_game.ticks*5u+id*33u)%360)),
         SB_F(1)/2);
@@ -335,7 +344,8 @@ static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
     draw.depth=g_gem_depth;
     {
         sat_result_t st=sat_draw_indexed_solid_mesh3(&g_gem_mesh,&draw);
-        if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+        if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
+        else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
     }
 }
 /* An actual hinged 3D deck: the two long ends use the SAME 16.16
@@ -509,6 +519,7 @@ static void pig_shadow(void) {
  * animated face selects a tiny indexed solid texture. This keeps the pig
  * opaque and pink instead of blending it with the RBG0 sea. */
 static void player_pig(void) {
+    if(g_world_cmd_full) return;
     sat_model_transform3d_t pose;
     sat_mat4_t world;
     sat_mesh_draw_t draw;
@@ -541,7 +552,11 @@ static void player_pig(void) {
     draw.face_texture_indices=g_pig_face_textures;
     draw.screen=g_pig_projected;
     draw.vertex_gouraud=0;
-    sat_example_must(sat_draw_mesh(&g_pig_mesh,&draw));
+    {
+        const sat_result_t st=sat_draw_mesh(&g_pig_mesh,&draw);
+        if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
+        else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    }
 }
 /* Each platform owns its previous quantized level. Once within two units
  * of a transition, keep the old state until the camera actually crosses
@@ -1145,8 +1160,12 @@ int main(void) {
          * VBlank layer replay now preserves both of its priority selectors. */
         sat_example_must(sat_vdp1_set_erase_transparent());
         sat_example_must(sat_begin_frame());
+        g_world_cmd_full=0u;
+        sat_example_must(sat_vdp1_reserve_overlay_commands(
+            SB_HUD_COMMAND_RESERVE));
         draw_clouds();
         draw_world();
+        sat_example_must(sat_vdp1_overlay_begin());
         hud();
         sat_example_must(sat_end_frame());
         sat_example_must(sat_audio_update());

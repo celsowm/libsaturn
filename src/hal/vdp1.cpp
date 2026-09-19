@@ -45,11 +45,22 @@ constexpr uint32_t kTextureBase = kCommandAreaBytes + kGouraudAreaBytes;
 Command* g_cmd_buffer = nullptr;
 uint16_t g_cmd_capacity = 0;
 uint16_t g_cmd_count = 0;
+uint16_t g_overlay_reserved = 0;
+bool g_overlay_pass = false;
 uint16_t g_gouraud_words[kGouraudTableCapacity * 4u];
 uint16_t g_gouraud_count = 0;
 uint32_t g_texture_cursor = kTextureBase;
 uint16_t g_width = 320;
 uint16_t g_height = 224;
+
+/* One terminator command is always unavailable to user draw calls. During
+ * the world pass, hold additional entries in reserve for the final HUD.
+ * A single common check protects EVERY primitive type, including Gouraud
+ * whose command is allocated by push_polygon_like. */
+inline bool command_slot_unavailable() {
+    return static_cast<uint32_t>(g_cmd_count) + 1u +
+        (g_overlay_pass ? 0u : g_overlay_reserved) >= g_cmd_capacity;
+}
 
 inline void copy_words_to_vram(const Command* src, uint32_t count_commands) {
     const uint32_t dwords = (count_commands * sizeof(Command)) / sizeof(uint32_t);
@@ -116,6 +127,8 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     g_cmd_buffer = command_buffer;
     g_cmd_capacity = capacity;
     g_cmd_count = 0;
+    g_overlay_reserved = 0u;
+    g_overlay_pass = false;
     g_gouraud_count = 0;
 
     // Both the local (relative) coordinate register and the system clipping
@@ -167,13 +180,28 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     sys_clip.pad = 0;
 }
 
+sat_result_t reserve_overlay_commands(uint16_t count) {
+    if(g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
+    if(g_overlay_pass) return SAT_ERR_UNSUPPORTED;
+    if(static_cast<uint32_t>(g_cmd_count)+1u+count>g_cmd_capacity)
+        return SAT_ERR_CAPACITY;
+    g_overlay_reserved=count;
+    return SAT_OK;
+}
+
+sat_result_t begin_overlay_pass() {
+    if(g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
+    g_overlay_pass=true;
+    return SAT_OK;
+}
+
 sat_result_t push_user_clip(const UserClipRequest& req) {
     if (g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
     if (req.x0 > req.x1 || req.y0 > req.y1 ||
         req.x1 >= g_width || req.y1 >= g_height) {
         return SAT_ERR_INVALID_ARG;
     }
-    if (g_cmd_count + 1u >= g_cmd_capacity) return SAT_ERR_CAPACITY;
+    if (command_slot_unavailable()) return SAT_ERR_CAPACITY;
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
     cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdUserClip, false);
@@ -206,7 +234,7 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     if ((req.width & 7u) != 0) {
         return SAT_ERR_INVALID_ARG;
     }
-    if (g_cmd_count + 1u >= g_cmd_capacity) {
+    if (command_slot_unavailable()) {
         return SAT_ERR_CAPACITY;
     }
 
@@ -240,7 +268,7 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     if (req.width == 0u || req.height == 0u || (req.width & 7u) != 0u) {
         return SAT_ERR_INVALID_ARG;
     }
-    if (g_cmd_count + 1u >= g_cmd_capacity) {
+    if (command_slot_unavailable()) {
         return SAT_ERR_CAPACITY;
     }
 
@@ -275,7 +303,7 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     if (req.width == 0u || req.height == 0u || (req.width & 7u) != 0u) {
         return SAT_ERR_INVALID_ARG;
     }
-    if (g_cmd_count + 1u >= g_cmd_capacity) {
+    if (command_slot_unavailable()) {
         return SAT_ERR_CAPACITY;
     }
 
@@ -307,7 +335,7 @@ inline sat_result_t push_polygon_like(uint16_t command_select, const PolygonRequ
         return SAT_ERR_NOT_INITIALIZED;
     }
     SAT_TRY(saturn::core::validate_polygon_effects(req.color, req.flags));
-    if (g_cmd_count + 1u >= g_cmd_capacity) {
+    if (command_slot_unavailable()) {
         return SAT_ERR_CAPACITY;
     }
 
@@ -347,7 +375,7 @@ sat_result_t push_line(const LineRequest& req) {
         return SAT_ERR_NOT_INITIALIZED;
     }
     SAT_TRY(saturn::core::validate_polygon_effects(req.color, req.flags));
-    if (g_cmd_count + 1u >= g_cmd_capacity) {
+    if (command_slot_unavailable()) {
         return SAT_ERR_CAPACITY;
     }
 

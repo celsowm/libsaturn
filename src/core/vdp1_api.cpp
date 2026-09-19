@@ -121,6 +121,16 @@ extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp1_reserve_overlay_commands(uint16_t count) {
+    SAT_TRY(saturn::core::require_initialized());
+    return saturn::hal::vdp1::reserve_overlay_commands(count);
+}
+
+extern "C" sat_result_t sat_vdp1_overlay_begin(void) {
+    SAT_TRY(saturn::core::require_initialized());
+    return saturn::hal::vdp1::begin_overlay_pass();
+}
+
 extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();

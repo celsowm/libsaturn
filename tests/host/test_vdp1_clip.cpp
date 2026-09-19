@@ -56,6 +56,30 @@ int main() {
     begin_frame(small, 3u);
     OK(push_user_clip(clip) == SAT_ERR_CAPACITY);
 
+    /* The world can never consume the two protected overlay slots or the
+     * final END slot, regardless of which primitive exhausted its budget. */
+    Command reserved[8]{};
+    begin_frame(reserved,8u); /* two setup commands already installed */
+    OK(reserve_overlay_commands(2u)==SAT_OK);
+    OK(push_sprite(sprite)==SAT_OK);
+    OK(push_polygon(polygon)==SAT_OK);
+    OK(push_user_clip(clip)==SAT_OK);
+    OK(push_sprite(sprite)==SAT_ERR_CAPACITY);
+    OK(push_polygon(polygon)==SAT_ERR_CAPACITY);
+    OK(push_user_clip(clip)==SAT_ERR_CAPACITY);
+    OK(begin_overlay_pass()==SAT_OK);
+    OK(reserve_overlay_commands(0u)==SAT_ERR_UNSUPPORTED);
+    OK(push_sprite(sprite)==SAT_OK);
+    OK(push_polygon(polygon)==SAT_OK);
+    OK(push_sprite(sprite)==SAT_ERR_CAPACITY);
+    /* New frame clears the reservation and restores normal command budget. */
+    begin_frame(reserved,8u);
+    for(int i=0;i<5;++i) OK(push_sprite(sprite)==SAT_OK);
+    OK(push_sprite(sprite)==SAT_ERR_CAPACITY);
+    begin_frame(reserved,8u);
+    OK(reserve_overlay_commands(6u)==SAT_ERR_CAPACITY);
+    OK(push_sprite(sprite)==SAT_OK);
+
     std::puts("vdp1 clip: OK");
     return 0;
 }
