@@ -20,6 +20,7 @@
 #include "saturn/anim3d.h"
 #include "saturn/render3d.h"
 #include "saturn/fade3d.h"
+#include "saturn/voxel_terrain.h"
 #include "saturn/video.h"
 #include "saturn/input.h"
 #include "saturn/app.h"
