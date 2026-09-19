@@ -1,19 +1,12 @@
-/* rbg0_math.h - Pure Mode-7 ground-plane math for vdp2_rbg0_ground.
- *
- * Header-only, dependency-free reimplementation of the VDP2 rotation formula
- * (docs/sega_saturn_hardware/hard/vdp2/hon/p06_10.md section 6.1, and the
- * rotation parameter table layout in p06_30.md Figure 6.3 / coefficient
- * encoding in p06_40.md Figure 6.7) as this example configures it.
- *
- * Kept separate from main.c and compiled unmodified into BOTH:
- *   - the Saturn ROM (examples/vdp2_rbg0_ground/main.c, sh2eb-elf-gcc, C)
- *   - the host test (tests/host/test_rbg0_ground.cpp, native g++, C++)
- * so a test failure means the shipped rotation table is actually wrong, not
- * that a hand-copied "test version" of the math drifted from the real one.
- * This is what a "Yst == Py" style bug (main.c, PR1) should be caught by.
+/* LibSaturn VDP2 RBG0 perspective-ground mathematics.
+ * Header-only and host-testable: games and low-level register examples use
+ * the same coefficient / rotation-table implementation, without allocating
+ * VRAM or touching VDP2 registers.
+ * Reference: docs/sega_saturn_hardware/hard/vdp2/hon/p06_10.md,
+ * p06_30.md and p06_40.md.
  */
-#ifndef VDP2_RBG0_GROUND_RBG0_MATH_H
-#define VDP2_RBG0_GROUND_RBG0_MATH_H
+#ifndef SATURN_VDP2_RBG0_GROUND_H
+#define SATURN_VDP2_RBG0_GROUND_H
 
 #include <stdint.h>
 
@@ -24,9 +17,9 @@ typedef struct {
     uint32_t horizon;          /* CY: y row of vanishing point / Py / Cy */
     uint32_t focal;            /* k(y) = focal / depth */
     uint32_t min_depth;        /* avoids the near-horizon singularity in k(y) */
-    uint32_t ground_forward;   /* Yst - Py; MUST be non-zero, see rbg0_ground_build_params */
+    uint32_t ground_forward;   /* Yst - Py; MUST be non-zero, see sat_vdp2_rbg0_ground_build_params */
     uint32_t coef_base_word;   /* VDP2 VRAM word address of the coefficient table */
-} rbg0_ground_config_t;
+} sat_vdp2_rbg0_ground_config_t;
 
 /* 2-word mode-0 coefficient encoding (p06_40.md Figure 6.7):
  *   word0: bit15 transparent, bit7 sign, bits6..0 integer part
@@ -34,8 +27,8 @@ typedef struct {
  * y <= cfg->horizon is transparent (sky shows through); below it,
  * k(y) = focal / ((y - horizon) + min_depth), rounded to nearest in 16.16.
  */
-static inline void rbg0_ground_encode_coefficient(
-    const rbg0_ground_config_t* cfg,
+static inline void sat_vdp2_rbg0_ground_encode_coefficient(
+    const sat_vdp2_rbg0_ground_config_t* cfg,
     uint32_t y,
     uint16_t* out_word0,
     uint16_t* out_word1
@@ -54,7 +47,7 @@ static inline void rbg0_ground_encode_coefficient(
 /* Wraps a camera integer coordinate into [0, modulus) (modulus a power of 2)
  * and returns the parallel-translation offset (Mx or My) relative to center.
  */
-static inline int32_t rbg0_ground_wrap_translation(int32_t cam, uint32_t modulus, uint32_t center) {
+static inline int32_t sat_vdp2_rbg0_ground_wrap_translation(int32_t cam, uint32_t modulus, uint32_t center) {
     int32_t wrapped = (int32_t)((uint32_t)cam & (modulus - 1u));
     return wrapped - (int32_t)center;
 }
@@ -64,7 +57,7 @@ static inline int32_t rbg0_ground_wrap_translation(int32_t cam, uint32_t modulus
  * integer part represents 4H of byte address for 2-word coefficient data,
  * i.e. KAst = byte_address / 4.
  */
-static inline uint16_t rbg0_ground_kast_word(uint32_t coef_base_word) {
+static inline uint16_t sat_vdp2_rbg0_ground_kast_word(uint32_t coef_base_word) {
     uint32_t byte_addr = coef_base_word * 2u;
     return (uint16_t)(byte_addr / 4u);
 }
@@ -72,7 +65,7 @@ static inline uint16_t rbg0_ground_kast_word(uint32_t coef_base_word) {
 /* Sign-extends the low 13 bits of a rotation-table word (the Mx/My/Px/Py/etc.
  * integer field width per p06_30.md Figure 6.2).
  */
-static inline int32_t rbg0_ground_sign_extend13(uint16_t word) {
+static inline int32_t sat_vdp2_rbg0_ground_sign_extend13(uint16_t word) {
     int32_t v = (int32_t)(word & 0x1FFFu);
     if ((v & 0x1000) != 0) {
         v -= 0x2000;
@@ -88,14 +81,14 @@ static inline int32_t rbg0_ground_sign_extend13(uint16_t word) {
  * (see p06_10.md: Ysp = E*(Yst-Py)). Yst == Py here is the PR1 regression:
  * it collapses Ysp to 0 on every scanline, so tex_y never varies with y.
  */
-static inline void rbg0_ground_build_params(
-    const rbg0_ground_config_t* cfg,
+static inline void sat_vdp2_rbg0_ground_build_params(
+    const sat_vdp2_rbg0_ground_config_t* cfg,
     int32_t cam_x,
     int32_t cam_y,
     uint16_t out[48]
 ) {
-    int32_t mx = rbg0_ground_wrap_translation(cam_x, cfg->bitmap_width, cfg->cx);
-    int32_t my = rbg0_ground_wrap_translation(cam_y, cfg->bitmap_height, cfg->horizon);
+    int32_t mx = sat_vdp2_rbg0_ground_wrap_translation(cam_x, cfg->bitmap_width, cfg->cx);
+    int32_t my = sat_vdp2_rbg0_ground_wrap_translation(cam_y, cfg->bitmap_height, cfg->horizon);
     int i;
 
     for (i = 0; i < 48; i++) {
@@ -123,14 +116,14 @@ static inline void rbg0_ground_build_params(
     out[38] = 0x0001; /* kx fallback = 1.0 (unused once coefficients drive k) */
     out[40] = 0x0001; /* ky fallback = 1.0 */
 
-    out[42] = rbg0_ground_kast_word(cfg->coef_base_word); /* KAst integer */
+    out[42] = sat_vdp2_rbg0_ground_kast_word(cfg->coef_base_word); /* KAst integer */
     out[44] = 0x0001; /* DeltaKAst: advance one coefficient row per scanline */
     out[46] = 0x0000; /* DeltaKAx: coefficient is per-line, not per-dot */
 }
 
 /* Pure reimplementation of the hardware sample point for screen column
  * screen_x on the scanline whose coefficient words were already computed via
- * rbg0_ground_encode_coefficient(). Reads the general 3x3 matrix (A..F) and
+ * sat_vdp2_rbg0_ground_encode_coefficient(). Reads the general 3x3 matrix (A..F) and
  * viewpoint/center terms straight from params[48] rather than assuming the
  * identity-matrix shortcut this example happens to use, so the test actually
  * exercises the formula rather than a hand-simplified copy of it.
@@ -138,7 +131,7 @@ static inline void rbg0_ground_build_params(
  * Returns 0 (and leaves the outputs untouched) if the coefficient's
  * transparent bit is set, matching the hardware's "line is transparent" rule.
  */
-static inline int rbg0_ground_sample_point(
+static inline int sat_vdp2_rbg0_ground_sample_point(
     const uint16_t params[48],
     uint16_t coef_word0,
     uint16_t coef_word1,
@@ -173,8 +166,8 @@ static inline int rbg0_ground_sample_point(
     cx_ = (int16_t)params[30];
     cy_ = (int16_t)params[31];
     cz_ = (int16_t)params[32];
-    mx = rbg0_ground_sign_extend13(params[34]);
-    my = rbg0_ground_sign_extend13(params[36]);
+    mx = sat_vdp2_rbg0_ground_sign_extend13(params[34]);
+    my = sat_vdp2_rbg0_ground_sign_extend13(params[36]);
 
     k_int  = coef_word0 & 0x007Fu;
     k_sign = (coef_word0 & 0x0080u) ? -1 : 1;
@@ -197,4 +190,4 @@ static inline int rbg0_ground_sample_point(
     return 1;
 }
 
-#endif /* VDP2_RBG0_GROUND_RBG0_MATH_H */
+#endif /* SATURN_VDP2_RBG0_GROUND_H */

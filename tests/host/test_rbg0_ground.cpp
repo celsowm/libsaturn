@@ -1,6 +1,6 @@
 /* test_rbg0_ground.cpp — host tests for the vdp2_rbg0_ground Mode-7 math.
  *
- * Exercises examples/vdp2_rbg0_ground/rbg0_math.h directly — the exact same
+ * Exercises examples/vdp2_rbg0_ground/saturn/vdp2_rbg0_ground.h directly — the exact same
  * header compiled unmodified into the Saturn ROM (main.c). A failure here
  * means the shipped rotation/coefficient tables are wrong, not that a
  * hand-copied "test model" of the math drifted from the real thing.
@@ -16,7 +16,7 @@
 #include <cstdlib>
 #include <cstdint>
 
-#include "examples/vdp2_rbg0_ground/rbg0_math.h"
+#include "saturn/vdp2_rbg0_ground.h"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
@@ -41,8 +41,8 @@ static const uint32_t kMinDepth = 8;
 static const uint32_t kGroundForward = 96;
 static const uint32_t kCoefBaseWord = 0x12000;
 
-static rbg0_ground_config_t make_config() {
-    rbg0_ground_config_t cfg;
+static sat_vdp2_rbg0_ground_config_t make_config() {
+    sat_vdp2_rbg0_ground_config_t cfg;
     cfg.bitmap_width = kBitmapWidth;
     cfg.bitmap_height = kBitmapHeight;
     cfg.cx = kCx;
@@ -58,22 +58,22 @@ static rbg0_ground_config_t make_config() {
  * (cam_x, cam_y). Fails the test outright if the line is unexpectedly
  * transparent (only expected for y <= horizon).
  */
-static void sample(const rbg0_ground_config_t& cfg, int32_t cam_x, int32_t cam_y,
+static void sample(const sat_vdp2_rbg0_ground_config_t& cfg, int32_t cam_x, int32_t cam_y,
                     uint32_t y, int32_t screen_x, int32_t* tex_x, int32_t* tex_y) {
     uint16_t params[48];
     uint16_t w0, w1;
-    rbg0_ground_build_params(&cfg, cam_x, cam_y, params);
-    rbg0_ground_encode_coefficient(&cfg, y, &w0, &w1);
-    int visible = rbg0_ground_sample_point(params, w0, w1, screen_x, tex_x, tex_y);
+    sat_vdp2_rbg0_ground_build_params(&cfg, cam_x, cam_y, params);
+    sat_vdp2_rbg0_ground_encode_coefficient(&cfg, y, &w0, &w1);
+    int visible = sat_vdp2_rbg0_ground_sample_point(params, w0, w1, screen_x, tex_x, tex_y);
     ASSERT_TRUE(visible);
 }
 
 /* The PR1 regression: Yst (word 2) must differ from Py (word 27), or every
  * scanline collapses onto the same texture row. */
 TEST(yst_differs_from_py) {
-    rbg0_ground_config_t cfg = make_config();
+    sat_vdp2_rbg0_ground_config_t cfg = make_config();
     uint16_t params[48];
-    rbg0_ground_build_params(&cfg, 0, 0, params);
+    sat_vdp2_rbg0_ground_build_params(&cfg, 0, 0, params);
     ASSERT_NE(params[2], params[27]);
 }
 
@@ -81,7 +81,7 @@ TEST(yst_differs_from_py) {
  * below the horizon must sample different texture Y coordinates. Under the
  * Yst == Py bug, sample_y was constant (== cam_y) for every row. */
 TEST(sample_y_varies_by_row) {
-    rbg0_ground_config_t cfg = make_config();
+    sat_vdp2_rbg0_ground_config_t cfg = make_config();
     int32_t tx1, ty1, tx2, ty2;
     sample(cfg, 0, 0, kHorizon + 1, (int32_t)kCx, &tx1, &ty1);
     sample(cfg, 0, 0, kScreenHeight - 1, (int32_t)kCx, &tx2, &ty2);
@@ -95,7 +95,7 @@ TEST(sample_y_varies_by_row) {
  * tex_y (verified against the actual encode_coefficient output), but it must
  * never go the wrong way. Catches sign flips and stray matrix terms. */
 TEST(sample_y_monotonic_toward_camera) {
-    rbg0_ground_config_t cfg = make_config();
+    sat_vdp2_rbg0_ground_config_t cfg = make_config();
     int32_t prev_ty = 0;
     int32_t tx, ty;
     bool saw_strict_decrease = false;
@@ -119,7 +119,7 @@ TEST(sample_y_monotonic_toward_camera) {
  * cam_x must stay within [0, bitmap_width) here or texel wrapping (the
  * bitmap repeating every 512 texels) changes the expected value. */
 TEST(center_column_samples_camera_x) {
-    rbg0_ground_config_t cfg = make_config();
+    sat_vdp2_rbg0_ground_config_t cfg = make_config();
     int32_t tx, ty;
     const int32_t cam_x = 200;
     ASSERT_TRUE(cam_x < (int32_t)kBitmapWidth);
@@ -129,23 +129,23 @@ TEST(center_column_samples_camera_x) {
 
 /* Rows at or above the horizon are transparent (sky shows through). */
 TEST(horizon_and_above_transparent) {
-    rbg0_ground_config_t cfg = make_config();
+    sat_vdp2_rbg0_ground_config_t cfg = make_config();
     uint16_t w0, w1;
-    rbg0_ground_encode_coefficient(&cfg, 0, &w0, &w1);
+    sat_vdp2_rbg0_ground_encode_coefficient(&cfg, 0, &w0, &w1);
     ASSERT_TRUE((w0 & 0x8000u) != 0u);
-    rbg0_ground_encode_coefficient(&cfg, kHorizon, &w0, &w1);
+    sat_vdp2_rbg0_ground_encode_coefficient(&cfg, kHorizon, &w0, &w1);
     ASSERT_TRUE((w0 & 0x8000u) != 0u);
-    rbg0_ground_encode_coefficient(&cfg, kHorizon + 1, &w0, &w1);
+    sat_vdp2_rbg0_ground_encode_coefficient(&cfg, kHorizon + 1, &w0, &w1);
     ASSERT_TRUE((w0 & 0x8000u) == 0u);
 }
 
 /* The coefficient integer field is 7 bits (Figure 6.7); k = FOCAL/depth peaks
  * just below the horizon and must never overflow it. */
 TEST(coefficient_integer_within_7_bits) {
-    rbg0_ground_config_t cfg = make_config();
+    sat_vdp2_rbg0_ground_config_t cfg = make_config();
     for (uint32_t y = kHorizon + 1; y < kScreenHeight; y++) {
         uint16_t w0, w1;
-        rbg0_ground_encode_coefficient(&cfg, y, &w0, &w1);
+        sat_vdp2_rbg0_ground_encode_coefficient(&cfg, y, &w0, &w1);
         ASSERT_TRUE((w0 & 0x007Fu) == w0); /* no bits set outside the 7-bit field */
         (void)w1;
     }
@@ -153,9 +153,9 @@ TEST(coefficient_integer_within_7_bits) {
 
 /* Negative camera coordinates must wrap into [0, bitmap_{width,height}). */
 TEST(negative_camera_wraps_positive) {
-    rbg0_ground_config_t cfg = make_config();
-    int32_t mx = rbg0_ground_wrap_translation(-1, cfg.bitmap_width, cfg.cx);
-    int32_t my = rbg0_ground_wrap_translation(-1, cfg.bitmap_height, cfg.horizon);
+    sat_vdp2_rbg0_ground_config_t cfg = make_config();
+    int32_t mx = sat_vdp2_rbg0_ground_wrap_translation(-1, cfg.bitmap_width, cfg.cx);
+    int32_t my = sat_vdp2_rbg0_ground_wrap_translation(-1, cfg.bitmap_height, cfg.horizon);
     /* wrapped(-1, 512) = 511, minus center cx=160 => 351 */
     ASSERT_EQ(mx, (int32_t)(cfg.bitmap_width - 1) - (int32_t)cfg.cx);
     ASSERT_EQ(my, (int32_t)(cfg.bitmap_height - 1) - (int32_t)cfg.horizon);
@@ -164,7 +164,7 @@ TEST(negative_camera_wraps_positive) {
 /* KAst encoding: COEF_BASE_WORD 0x12000 (word addr) => byte 0x24000 => KAst
  * 0x9000, per Table 6.3 (LSB = 4H for 2-word coefficient data). */
 TEST(kast_word_encoding) {
-    ASSERT_EQ(rbg0_ground_kast_word(0x12000u), 0x9000u);
+    ASSERT_EQ(sat_vdp2_rbg0_ground_kast_word(0x12000u), 0x9000u);
 }
 
 int main() {

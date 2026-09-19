@@ -9,7 +9,7 @@
 #include "saturn/vdp1_color_calc.h"
 #include "saturn/vdp2_color_calc.h"
 #include "saturn/example_util.h"
-#include "examples/vdp2_rbg0_ground/rbg0_math.h"
+#include "saturn/vdp2_rbg0_ground.h"
 #include "game.h"
 #include "scenery.h"
 
@@ -138,7 +138,7 @@ static int8_t g_music[MUSIC_LEN] __attribute__((section(".wram_l")));
 static uint8_t g_audio_ready;
 static uint8_t g_show_help=1u;
 static uint8_t g_show_debug=0u;
-static const rbg0_ground_config_t g_ocean = {
+static const sat_vdp2_rbg0_ground_config_t g_ocean = {
     512u, 256u, 160u, HORIZON, 96u, 8u, 96u, COEF_WORD
 };
 
@@ -813,7 +813,7 @@ static void update_rotation(int32_t fx,int32_t fz) {
     /* Keep the sea under a fixed 96px horizon, rotate/scroll sample plane. */
     /* Two slow, non-identical currents slide the textured water plane
      * underneath a fixed world horizon without any per-frame bitmap upload. */
-    rbg0_ground_build_params(&g_ocean, (g_game.x>>16)+(int32_t)(g_frame/9u),
+    sat_vdp2_rbg0_ground_build_params(&g_ocean, (g_game.x>>16)+(int32_t)(g_frame/9u),
                               (g_game.z>>16)+(int32_t)(g_frame/17u),p);
     p[15]=(uint16_t)((uint32_t)fz&0xFFFFu);
     p[17]=(uint16_t)((uint32_t)fx&0xFFFFu);
@@ -836,9 +836,9 @@ static void init_background(void) {
         SEA_WORD,ROT_WORD,SAT_COLOR_BLACK,5u,7u
     };
     uint32_t y;
-    for(y=0u;y<H;++y) rbg0_ground_encode_coefficient(&g_ocean,y,
+    for(y=0u;y<H;++y) sat_vdp2_rbg0_ground_encode_coefficient(&g_ocean,y,
                       &coef[y*2u],&coef[y*2u+1u]);
-    rbg0_ground_build_params(&g_ocean,0,0,p);
+    sat_vdp2_rbg0_ground_build_params(&g_ocean,0,0,p);
     sat_example_must(sat_vdp2_palette_upload(g_sea_colors,256u,0u));
     sat_example_must(sat_vdp2_palette_upload(g_sky_colors,256u,256u));
     sat_example_must(sat_vdp2_nbg0_init(&sky));

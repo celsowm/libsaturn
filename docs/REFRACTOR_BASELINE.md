@@ -58,3 +58,14 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
   true support requires clipped texture-region materialization or another
   verified VDP1 mapping strategy. This is not equivalent to a general
   perspective-correct UV renderer.
+
+## Fourth slice: promote RBG0 perspective math into the library
+
+- Moved the single host-testable Mode-7 coefficient/rotation-table
+  implementation into `include/saturn/vdp2_rbg0_ground.h`. Public helpers
+  now have the `sat_vdp2_rbg0_ground_` prefix; the example-local header is
+  deleted, with no alias or compatibility shim.
+- Migrated Skybridge, vdp2_rbg0_ground, vdp2_nbg0_rbg0_combo and the
+  RBG0 host tests. `saturn/saturn.h` now exposes the canonical shared math.
+- Hardware register writes, VRAM layout and horizon synchronization are a
+  subsequent VDP2 runtime workstream, not a property of this pure math move.

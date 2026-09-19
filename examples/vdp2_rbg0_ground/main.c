@@ -26,7 +26,7 @@
 #include "saturn/color.h"
 #include "vdp2_rbg0_ground/bg.h"
 #include "vdp2_rbg0_ground/sky.h"
-#include "rbg0_math.h"
+#include "saturn/vdp2_rbg0_ground.h"
 
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 224
@@ -138,9 +138,9 @@ static void update_sky_scroll(sat_fx16_t camera_x) {
 }
 
 /* Single source of truth for the Mode-7 layout, shared verbatim with
- * tests/host/test_rbg0_ground.cpp via rbg0_math.h.
+ * tests/host/test_rbg0_ground.cpp via saturn/vdp2_rbg0_ground.h.
  */
-static const rbg0_ground_config_t rbg0_cfg = {
+static const sat_vdp2_rbg0_ground_config_t rbg0_cfg = {
     BITMAP_WIDTH,
     BITMAP_HEIGHT,
     CX,
@@ -167,14 +167,14 @@ static void upload_tiled_bitmap(const sat_indexed8_asset_t* asset) {
     }
 }
 
-/* Coefficient table (2-word, mode 0) — see rbg0_ground_encode_coefficient()
- * in rbg0_math.h for the encoding and the k(y) = FOCAL / depth derivation.
+/* Coefficient table (2-word, mode 0) — see sat_vdp2_rbg0_ground_encode_coefficient()
+ * in saturn/vdp2_rbg0_ground.h for the encoding and the k(y) = FOCAL / depth derivation.
  */
 static void write_coefficient_table(void) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
     for (uint32_t y = 0; y < (uint32_t)SCREEN_HEIGHT; y++) {
         uint16_t w0, w1;
-        rbg0_ground_encode_coefficient(&rbg0_cfg, y, &w0, &w1);
+        sat_vdp2_rbg0_ground_encode_coefficient(&rbg0_cfg, y, &w0, &w1);
         uint32_t base = COEF_BASE_WORD + (y * 2u);
         vram[base + 0u] = w0;
         vram[base + 1u] = w1;
@@ -182,7 +182,7 @@ static void write_coefficient_table(void) {
 }
 
 /* Rotation parameter A table at word 0x10000. Built by
- * rbg0_ground_build_params() (rbg0_math.h) — see that function's comment for
+ * sat_vdp2_rbg0_ground_build_params() (saturn/vdp2_rbg0_ground.h) — see that function's comment for
  * the Xst/Yst/Px/Py derivation and why Yst must differ from Py.
  * Camera position lives in Mx/My (parallel-translation) so the per-line
  * coefficient does NOT scale the camera, only the per-pixel deltas.
@@ -192,7 +192,7 @@ static void write_rotation_params(int32_t cam_xi, int32_t cam_yi) {
     uint16_t table[48];
     int i;
 
-    rbg0_ground_build_params(&rbg0_cfg, cam_xi, cam_yi, table);
+    sat_vdp2_rbg0_ground_build_params(&rbg0_cfg, cam_xi, cam_yi, table);
     for (i = 0; i < 48; i++) {
         vram[RP_BASE_WORD + (uint32_t)i] = table[i];
     }
@@ -200,8 +200,8 @@ static void write_rotation_params(int32_t cam_xi, int32_t cam_yi) {
 
 static void write_camera_translation(int32_t cam_xi, int32_t cam_yi) {
     volatile uint16_t* vram = (volatile uint16_t*)0x25E00000u;
-    int32_t mx = rbg0_ground_wrap_translation(cam_xi, rbg0_cfg.bitmap_width, rbg0_cfg.cx);
-    int32_t my = rbg0_ground_wrap_translation(cam_yi, rbg0_cfg.bitmap_height, rbg0_cfg.horizon);
+    int32_t mx = sat_vdp2_rbg0_ground_wrap_translation(cam_xi, rbg0_cfg.bitmap_width, rbg0_cfg.cx);
+    int32_t my = sat_vdp2_rbg0_ground_wrap_translation(cam_yi, rbg0_cfg.bitmap_height, rbg0_cfg.horizon);
 
     vram[RP_BASE_WORD + 34u] = (uint16_t)((uint32_t)mx & 0x1FFFu);
     vram[RP_BASE_WORD + 35u] = 0x0000;

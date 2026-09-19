@@ -42,6 +42,7 @@
 #include "saturn/vdp1.h"
 #include "saturn/vdp1_color_calc.h"
 #include "saturn/vdp2.h"
+#include "saturn/vdp2_rbg0_ground.h"
 #include "saturn/vdp2_color_calc.h"
 
 #endif /* SATURN_SATURN_H */
