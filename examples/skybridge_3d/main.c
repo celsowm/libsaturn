@@ -38,6 +38,8 @@
 #define SCENE_PASS_WORLD 0u
 #define SCENE_PASS_SUPPORT 1u
 #define SCENE_PASS_ACTOR 2u
+#define GEM_VERTEX_CAP 6u
+#define GEM_FACE_CAP 8u
 #define PIG_VERTEX_CAP 900u
 #define PIG_FACE_CAP 620u
 /* The native GLB goes through tools/import_model.py at build time.
@@ -103,6 +105,13 @@ static uint8_t g_stage_frame_slot[SB_PLATFORM_COUNT];
 /* Imported-and-simplified user GLB: caller-owned model, pose and painter
  * scratch. Static mesh indices are copied ONCE; animated vertices are
  * decoded in place on each frame and then transformed into world space. */
+/* One immutable local-space gem mesh shared by every collectible; the game
+ * updates only instance position/bob. Once the unified material renderer is
+ * ready, its existing near/screen-safe indexed face submission below can
+ * move out of this example as well. */
+static sat_vec3_t g_gem_vertices[GEM_VERTEX_CAP];
+static uint16_t g_gem_indices[GEM_FACE_CAP * 4u];
+static sat_mesh_t g_gem_mesh;
 static sat_vec3_t g_pig_vertices[PIG_VERTEX_CAP];
 static uint16_t g_pig_indices[PIG_FACE_CAP*4u];
 static sat_mesh_t g_pig_mesh;
@@ -342,41 +351,34 @@ static uint16_t top_color(uint8_t i) {
     if (i<7u) return SAT_RGB555(12,26,19);
     return SAT_RGB555(27,23,16);
 }
-/* Real 3D diamond/octahedron, not another box like the magenta avatar.
- * Four equator corners, one top tip, one bottom tip -> eight triangular
- * facets. Triangles use repeated D=C, which the quad projection supports.
- * Submit facets back-to-front: VDP1 has no depth buffer. The diamond shares
- * the game's position/radius/hover constants with the pickup collision. */
+/* Collectibles share one pre-built octahedron, not eight hand-assembled
+ * per-frame triangles. The temporary face painter retains the proven indexed
+ * near/screen clipping path until the common material renderer replaces it.
+ * Four equatorial side pairs are sorted far-to-near for VDP1. */
 static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
-    static const int8_t ox[4]={1,0,-1,0};
-    static const int8_t oz[4]={0,1,0,-1};
-    static const uint16_t upper[4]={
-        SAT_RGB555(31,30,8),SAT_RGB555(31,26,3),
-        SAT_RGB555(31,30,8),SAT_RGB555(31,23,4)
-    };
-    static const uint16_t lower[4]={
-        SAT_RGB555(31,13,3),SAT_RGB555(31,23,4),
-        SAT_RGB555(31,13,3),SAT_RGB555(31,23,4)
+    static const uint16_t facet_colors[GEM_FACE_CAP]={
+        SAT_RGB555(31,30,8),SAT_RGB555(31,13,3),
+        SAT_RGB555(31,26,3),SAT_RGB555(31,23,4),
+        SAT_RGB555(31,30,8),SAT_RGB555(31,13,3),
+        SAT_RGB555(31,23,4),SAT_RGB555(31,23,4)
     };
     const int32_t bob=sat_fx16_mul(
         sat_sin_deg(SB_F((int32_t)(g_game.ticks*5u+id*33u)%360)),
         SB_F(1)/2);
-    const int32_t mid=deck_y+SB_GEM_BASE_OFFSET+bob;
-    const int32_t tip_top=mid+SB_GEM_HALF_HEIGHT;
-    const int32_t tip_bottom=mid-SB_GEM_HALF_HEIGHT;
+    const sat_vec3_t location={x,deck_y+SB_GEM_BASE_OFFSET+bob,z};
     uint8_t order[4]={0u,1u,2u,3u};
     uint64_t distance[4];
     uint8_t i,j;
     for(i=0u;i<4u;++i) {
-        uint8_t next=(uint8_t)((i+1u)&3u);
-        int32_t cx=x+(ox[i]+ox[next])*SB_GEM_RADIUS/2;
-        int32_t cz=z+(oz[i]+oz[next])*SB_GEM_RADIUS/2;
-        int64_t dx=(int64_t)g_eye.x-cx;
-        int64_t dz=(int64_t)g_eye.z-cz;
+        const uint8_t next=(uint8_t)((i+1u)&3u);
+        const int32_t cx=x+(g_gem_vertices[i].x+g_gem_vertices[next].x)/2;
+        const int32_t cz=z+(g_gem_vertices[i].z+g_gem_vertices[next].z)/2;
+        const int64_t dx=(int64_t)g_eye.x-cx;
+        const int64_t dz=(int64_t)g_eye.z-cz;
         distance[i]=(uint64_t)(dx*dx+dz*dz);
     }
     for(i=1u;i<4u;++i) {
-        uint8_t index=order[i];
+        const uint8_t index=order[i];
         j=i;
         while(j>0u && distance[order[j-1u]]<distance[index]) {
             order[j]=order[j-1u];
@@ -385,16 +387,18 @@ static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
         order[j]=index;
     }
     for(i=0u;i<4u;++i) {
-        sat_quad3_t tri;
-        uint8_t side=order[i],next=(uint8_t)((side+1u)&3u);
-        int32_t ax=x+ox[side]*SB_GEM_RADIUS;
-        int32_t az=z+oz[side]*SB_GEM_RADIUS;
-        int32_t bx=x+ox[next]*SB_GEM_RADIUS;
-        int32_t bz=z+oz[next]*SB_GEM_RADIUS;
-        pquad(&tri,x,tip_top,z,ax,mid,az,bx,mid,bz,bx,mid,bz);
-        put_quad(&tri,upper[side]);
-        pquad(&tri,ax,mid,az,x,tip_bottom,z,bx,mid,bz,bx,mid,bz);
-        put_quad(&tri,lower[side]);
+        const uint8_t side=order[i];
+        for(uint8_t half=0u;half<2u;++half) {
+            sat_quad3_t tri;
+            const uint16_t face=(uint16_t)(2u*side+half);
+            sat_example_must(sat_mesh_face_quad(&g_gem_mesh,face,&tri));
+            for(uint8_t corner=0u;corner<4u;++corner) {
+                tri.v[corner].x+=location.x;
+                tri.v[corner].y+=location.y;
+                tri.v[corner].z+=location.z;
+            }
+            put_quad(&tri,facet_colors[face]);
+        }
     }
 }
 /* An actual hinged 3D deck: the two long ends use the SAME 16.16
@@ -1073,6 +1077,14 @@ int main(void) {
     init_tile_texture();
     init_cloud_texture();
     init_fade_materials();
+    /* Shared local-space octahedron: zero geometry construction in draw_gem. */
+    {
+        const sat_vec3_t origin={0,0,0};
+        sat_example_must(sat_mesh_init(&g_gem_mesh,g_gem_vertices,GEM_VERTEX_CAP,
+                                      g_gem_indices,GEM_FACE_CAP));
+        sat_example_must(sat_mesh_build_octahedron(&g_gem_mesh,&origin,
+                         SB_GEM_RADIUS,SB_GEM_HALF_HEIGHT));
+    }
     loading_frame("IMPORTING PIG",10u);
     sat_example_must(sat_model_validate(&skybridge_pig_asset));
     sat_example_must(sat_anim_validate(&skybridge_pig_anim_asset));

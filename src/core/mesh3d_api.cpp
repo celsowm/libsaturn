@@ -189,6 +189,10 @@ extern "C" void sat_mesh_box_counts(uint16_t* out_vertices, uint16_t* out_faces)
     box_counts(out_vertices, out_faces);
 }
 
+extern "C" void sat_mesh_octahedron_counts(uint16_t* out_vertices, uint16_t* out_faces) {
+    octahedron_counts(out_vertices, out_faces);
+}
+
 extern "C" void sat_mesh_plane_counts(
     uint16_t seg_x,
     uint16_t seg_z,
@@ -227,6 +231,16 @@ extern "C" sat_result_t sat_mesh_build_box(
         return SAT_ERR_INVALID_ARG;
     }
     return build_box(mesh, *center, half_x, half_y, half_z);
+}
+
+extern "C" sat_result_t sat_mesh_build_octahedron(
+    sat_mesh_t* mesh, const sat_vec3_t* center,
+    sat_fx16_t radius, sat_fx16_t half_height
+) {
+    if (center == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return build_octahedron(mesh, *center, radius, half_height);
 }
 
 extern "C" sat_result_t sat_mesh_build_cube(sat_mesh_t* mesh, const sat_vec3_t* center, sat_fx16_t half) {

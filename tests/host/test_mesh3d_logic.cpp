@@ -527,7 +527,74 @@ TEST(degenerate_triangle_quad_keeps_outward_normal) {
     ASSERT_FALSE(face_visible(&mesh, 0, vec3(0, 0, fx_from_int(-100))));
 }
 
+TEST(octahedron_counts_match_builder_and_wind_outward) {
+    sat_mesh_t mesh = make_mesh();
+    const sat_vec3_t center = vec3(fx_from_int(9), fx_from_int(-3), fx_from_int(17));
+    uint16_t vertices = 0, faces = 0;
+    octahedron_counts(&vertices, &faces);
+    ASSERT_EQ(vertices, 6u);
+    ASSERT_EQ(faces, 8u);
+    ASSERT_EQ(build_octahedron(&mesh, center, fx_from_int(3), fx_from_int(5)), SAT_OK);
+    ASSERT_EQ(mesh.vertex_count, vertices);
+    ASSERT_EQ(mesh.face_count, faces);
+    ASSERT_EQ(mesh.vertices[0].x, center.x + fx_from_int(3));
+    ASSERT_EQ(mesh.vertices[1].z, center.z + fx_from_int(3));
+    ASSERT_EQ(mesh.vertices[4].y, center.y + fx_from_int(5));
+    ASSERT_EQ(mesh.vertices[5].y, center.y - fx_from_int(5));
+    assert_outward(mesh, center, "octahedron");
+}
+
+TEST(octahedron_faces_are_interleaved_triangle_pairs) {
+    sat_mesh_t mesh = make_mesh();
+    ASSERT_EQ(build_octahedron(&mesh, vec3(0, 0, 0), fx_from_int(2),
+                               fx_from_int(4)), SAT_OK);
+    for (uint16_t side = 0u; side < 4u; ++side) {
+        const uint16_t next = static_cast<uint16_t>((side + 1u) & 3u);
+        const uint16_t upper = static_cast<uint16_t>(side * 8u);
+        const uint16_t lower = static_cast<uint16_t>(upper + 4u);
+        ASSERT_EQ(mesh.indices[upper], 4u);
+        ASSERT_EQ(mesh.indices[upper + 1u], side);
+        ASSERT_EQ(mesh.indices[upper + 2u], next);
+        ASSERT_EQ(mesh.indices[upper + 3u], next);
+        ASSERT_EQ(mesh.indices[lower], side);
+        ASSERT_EQ(mesh.indices[lower + 1u], 5u);
+        ASSERT_EQ(mesh.indices[lower + 2u], next);
+        ASSERT_EQ(mesh.indices[lower + 3u], next);
+    }
+}
+
+TEST(octahedron_capacity_is_atomic) {
+    sat_vec3_t vertices[5];
+    uint16_t indices[8u * 4u];
+    sat_mesh_t mesh;
+    ASSERT_EQ(init(&mesh, vertices, 5u, indices, 8u), SAT_OK);
+    ASSERT_EQ(add_vertex(&mesh, 11, 22, 33, nullptr), SAT_OK);
+    ASSERT_EQ(build_octahedron(&mesh, vec3(0, 0, 0), fx_from_int(2),
+                               fx_from_int(3)), SAT_ERR_CAPACITY);
+    ASSERT_EQ(mesh.vertex_count, 1u);
+    ASSERT_EQ(mesh.vertices[0].x, 11);
+    ASSERT_EQ(mesh.face_count, 0u);
+}
+
+TEST(octahedron_rejects_invalid_extents_without_modifying_mesh) {
+    sat_mesh_t mesh = make_mesh();
+    const sat_vec3_t center = vec3(0, 0, 0);
+    ASSERT_EQ(build_octahedron(&mesh, center, fx_from_int(2),
+                               fx_from_int(3)), SAT_OK);
+    ASSERT_EQ(build_octahedron(&mesh, center, 0, fx_from_int(3)),
+              SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(build_octahedron(&mesh, center, fx_from_int(2), -1),
+              SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(mesh.vertex_count, 6u);
+    ASSERT_EQ(mesh.face_count, 8u);
+    ASSERT_EQ(build_octahedron(nullptr, center, 1, 1), SAT_ERR_INVALID_ARG);
+}
+
 int main() {
+    octahedron_counts_match_builder_and_wind_outward();
+    octahedron_faces_are_interleaved_triangle_pairs();
+    octahedron_capacity_is_atomic();
+    octahedron_rejects_invalid_extents_without_modifying_mesh();
     init_rejects_null_storage();
     add_face_rejects_unknown_vertices();
     add_vertex_reports_capacity();
@@ -557,6 +624,6 @@ int main() {
     out_of_range_texture_index_is_invalid();
     texture_selection_shares_culling_with_polygon_path();
     degenerate_triangle_quad_keeps_outward_normal();
-    printf("test_mesh3d_logic: 29 tests passed\n");
+    printf("test_mesh3d_logic: 33 tests passed\n");
     return 0;
 }

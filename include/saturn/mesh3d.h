@@ -75,6 +75,13 @@ sat_result_t sat_mesh_add_quad(sat_mesh_t* mesh, const sat_quad3_t* quad);
  * build into buffers sized this way never returns SAT_ERR_CAPACITY. */
 
 void sat_mesh_box_counts(uint16_t* out_vertices, uint16_t* out_faces);
+
+/* An octahedron has six shared vertices and eight triangular facets.
+ * Triangles are encoded as A,B,C,C. Faces are interleaved in upper/lower
+ * pairs around the equator: side 0 upper, side 0 lower, ..., side 3 lower.
+ * The four equator vertices start at +X and proceed towards +Z.
+ * A single local-space octahedron can be shared by any number of instances. */
+void sat_mesh_octahedron_counts(uint16_t* out_vertices, uint16_t* out_faces);
 void sat_mesh_plane_counts(uint16_t seg_x, uint16_t seg_z, uint16_t* out_vertices, uint16_t* out_faces);
 void sat_mesh_sphere_counts(uint16_t segments, uint16_t rings, uint16_t* out_vertices, uint16_t* out_faces);
 void sat_mesh_sphere_wedge_counts(
@@ -100,6 +107,17 @@ sat_result_t sat_mesh_build_box(
     sat_fx16_t half_x,
     sat_fx16_t half_y,
     sat_fx16_t half_z
+);
+
+/* Builds a pointed diamond with four equator corners at +/-radius in X/Z,
+ * and top/bottom tips at +/-half_height on Y. Both extents must be positive.
+ * Geometry is centered on 'center'; for reusable instances pass the origin.
+ * On invalid input or insufficient storage the existing mesh is unchanged. */
+sat_result_t sat_mesh_build_octahedron(
+    sat_mesh_t* mesh,
+    const sat_vec3_t* center,
+    sat_fx16_t radius,
+    sat_fx16_t half_height
 );
 
 /* Box with equal half extents. */

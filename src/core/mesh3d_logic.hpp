@@ -393,6 +393,11 @@ inline void box_counts(uint16_t* v, uint16_t* f) {
     if (f != nullptr) { *f = 6u; }
 }
 
+inline void octahedron_counts(uint16_t* v, uint16_t* f) {
+    if (v != nullptr) { *v = 6u; }
+    if (f != nullptr) { *f = 8u; }
+}
+
 inline void plane_counts(uint16_t seg_x, uint16_t seg_z, uint16_t* v, uint16_t* f) {
     const uint32_t sx = (seg_x < 1u) ? 1u : seg_x;
     const uint32_t sz = (seg_z < 1u) ? 1u : seg_z;
@@ -450,6 +455,38 @@ inline sat_result_t build_box(
     add_face(mesh, 2u, 6u, 4u, 0u); /* -X */
     add_face(mesh, 2u, 3u, 7u, 6u); /* +Y */
     add_face(mesh, 4u, 5u, 1u, 0u); /* -Y */
+    return SAT_OK;
+}
+
+/* Eight outward-facing triangles over six shared vertices. A repeated D=C
+ * lets the existing quad renderer emit each facet without fake padding
+ * vertices. The alternating upper/lower face order also allows callers to
+ * assign separate facet colors without constructing geometry themselves. */
+inline sat_result_t build_octahedron(
+    sat_mesh_t* mesh,
+    const sat_vec3_t& center,
+    sat_fx16_t radius,
+    sat_fx16_t half_height
+) {
+    if (mesh == nullptr || mesh->vertices == nullptr || mesh->indices == nullptr ||
+        radius <= 0 || half_height <= 0) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (!has_room(mesh, 6u, 8u)) {
+        return SAT_ERR_CAPACITY;
+    }
+    clear(mesh);
+    add_vertex(mesh, center.x + radius, center.y, center.z, nullptr); /* +X */
+    add_vertex(mesh, center.x, center.y, center.z + radius, nullptr); /* +Z */
+    add_vertex(mesh, center.x - radius, center.y, center.z, nullptr); /* -X */
+    add_vertex(mesh, center.x, center.y, center.z - radius, nullptr); /* -Z */
+    add_vertex(mesh, center.x, center.y + half_height, center.z, nullptr); /* top */
+    add_vertex(mesh, center.x, center.y - half_height, center.z, nullptr); /* bottom */
+    for (uint16_t side = 0u; side < 4u; ++side) {
+        const uint16_t next = static_cast<uint16_t>((side + 1u) & 3u);
+        add_face(mesh, 4u, side, next, next); /* upper outward triangle */
+        add_face(mesh, side, 5u, next, next); /* lower outward triangle */
+    }
     return SAT_OK;
 }
 
