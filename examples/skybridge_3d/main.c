@@ -144,16 +144,16 @@ static void player_box(void) {
         quad_rect_xz(&shadow,px-SB_F(3),px+SB_F(3),pz-SB_F(3),pz+SB_F(3),sy);
         (void)sat_draw_world_polygon_effects(&g_vp,&shadow,SAT_RGB555(4,6,6),SAT_SPRITE_FLAG_MESH);
     }
-    box3(px,feet+SB_F(5)+bob,pz,SB_PLAYER_HALF,SB_F(5),SB_PLAYER_HALF,
+    box3(px,feet+SB_F(5)/2+bob,pz,SB_PLAYER_HALF,SB_F(5)/2,SB_PLAYER_HALF,
          top,SAT_RGB555(31,20,6),front,0u);
     /* Direction marker, attached to the cube's camera-facing surface. */
     {
         sat_quad3_t q;
         if (g_eye.z < pz) {
-            pquad(&q,px-SB_F(1),feet+SB_F(7)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32,
-                  px+SB_F(1),feet+SB_F(7)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32,
-                  px+SB_F(1),feet+SB_F(5)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32,
-                  px-SB_F(1),feet+SB_F(5)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32);
+            pquad(&q,px-SB_F(1),feet+SB_F(4)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32,
+                  px+SB_F(1),feet+SB_F(4)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32,
+                  px+SB_F(1),feet+SB_F(2)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32,
+                  px-SB_F(1),feet+SB_F(2)+bob,pz-SB_PLAYER_HALF-SB_F(1)/32);
             put_quad(&q,SAT_RGB555(31,31,31));
         }
     }
@@ -163,8 +163,6 @@ static int32_t view_depth(int32_t x,int32_t z,int32_t forward_x,int32_t forward_
 }
 static void draw_world(int32_t forward_x,int32_t forward_z) {
     uint8_t i,j;
-    int32_t ahead_x=g_target.x-g_eye.x,ahead_z=g_target.z-g_eye.z;
-    (void)ahead_x;(void)ahead_z;
     g_items_count=0u;
     for (i=0u;i<SB_PLATFORM_COUNT;++i) {
         int32_t px=sb_platform_x(&g_game,i),pz=SB_F(sb_stage[i].z);
@@ -233,10 +231,10 @@ static void update_rotation(int32_t fx,int32_t fz) {
     /* Keep the sea under a fixed 96px horizon, rotate/scroll sample plane. */
     rbg0_ground_build_params(&g_ocean, (g_game.x>>16)+(int32_t)(g_frame>>2u),
                               (g_game.z>>16)+(int32_t)(g_frame>>3u),p);
-    p[14]=(uint16_t)fz; p[15]=(uint16_t)((uint32_t)fz&0xFFFFu);
-    p[16]=(uint16_t)fx; p[17]=(uint16_t)((uint32_t)fx&0xFFFFu);
-    p[20]=(uint16_t)(-fx); p[21]=(uint16_t)((uint32_t)(-fx)&0xFFFFu);
-    p[22]=(uint16_t)fz; p[23]=(uint16_t)((uint32_t)fz&0xFFFFu);
+    p[15]=(uint16_t)((uint32_t)fz&0xFFFFu);
+    p[17]=(uint16_t)((uint32_t)fx&0xFFFFu);
+    p[21]=(uint16_t)((uint32_t)(-fx)&0xFFFFu);
+    p[23]=(uint16_t)((uint32_t)fz&0xFFFFu);
     /* The parameter table uses signed 16.16 A/B/D/E, including high words. */
     p[14]=(uint16_t)(fz>>16);
     p[16]=(uint16_t)(fx>>16);
