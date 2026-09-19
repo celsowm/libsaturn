@@ -238,3 +238,12 @@ The JSON `ram_cartridge.bank_edge_verified` becomes true when the demo's eight-b
 pattern spans both physical banks correctly. You cannot use `-BackupCart` and
 `-RamCart 4m/1m` at the same time, but internal `-BackupRam` remains independent.
 Provide your own legally obtained Saturn BIOS image.
+
+
+### Three-mode RAM expansion acceptance
+
+Run `harness/run-ram-cart-acceptance.ps1 -Bios <your-BIOS-path>`.
+It runs `ram_cart_demo` with none, 1 MiB, and 4 MiB configurations,
+and checks the headless Ymir JSON for both detected capacity and successful
+writes/reads over the boundary between DRAM0 and DRAM1.
+The test requires a user-supplied BIOS and is intentionally not run in CI.
