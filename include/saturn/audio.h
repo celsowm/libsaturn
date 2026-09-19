@@ -13,7 +13,7 @@ extern "C" {
 #define SAT_AUDIO_PAN_CENTER 0
 #define SAT_AUDIO_PAN_RIGHT  15
 #define SAT_MUSIC_CAPACITY 2u
-#define SAT_MUSIC_BUFFER_FRAMES 8192u
+#define SAT_MUSIC_BUFFER_FRAMES 32768u
 
 typedef enum sat_audio_format {
     SAT_AUDIO_PCM_S8 = 0,

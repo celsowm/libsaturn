@@ -19,8 +19,9 @@ once to build-ready big-endian S16 stereo @ 44100 Hz (CD quality):
   <https://en.wikipedia.org/wiki/File:Greensleeves.ogg>.
   Direct file: <https://upload.wikimedia.org/wikipedia/commons/2/20/Greensleeves.ogg>.
 
-Conversion (documented for reproducibility; the `.s16be` results are what the
-build consumes, so no network or ffmpeg is needed to rebuild):
+Conversion (documented for reproducibility; these `.s16be` files are the
+vendored 44.1 kHz sources. The build deterministically box-filters them to
+22.05 kHz before ISO staging, without requiring network access or ffmpeg):
 
     ffmpeg -i ode_to_joy.ogg -ac 2 -ar 44100 -sample_fmt s16 -f s16be \
       -af "afade=t=in:st=0:d=0.05,afade=t=out:st=38.50:d=0.079955" \

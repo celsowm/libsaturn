@@ -7,6 +7,9 @@
 
 namespace {
 
+constexpr uint32_t kMusicFeedFrames = 2048u;
+constexpr uint32_t kMusicFeedBytes = kMusicFeedFrames * 2u * 2u;
+
 struct MusicSlot {
     sat_audio_stream_t stream;
     sat_audio_stream_t stream_r;  // right channel; valid only when stereo
@@ -24,9 +27,9 @@ struct MusicSlot {
     uint16_t generation;
     uint8_t buffer[SAT_MUSIC_BUFFER_FRAMES * 2u];
     uint8_t buffer_r[SAT_MUSIC_BUFFER_FRAMES * 2u];
-    uint8_t staging[SAT_MUSIC_BUFFER_FRAMES * 2u];
+    uint8_t staging[kMusicFeedBytes];
     // Deinterleaved L/R channel frames for stereo feeds.
-    uint8_t staging_split[SAT_MUSIC_BUFFER_FRAMES * 2u];
+    uint8_t staging_split[kMusicFeedBytes];
 };
 
 MusicSlot g_music[SAT_MUSIC_CAPACITY] = {};
@@ -77,7 +80,7 @@ sat_result_t feed(MusicSlot& slot) {
         const uint32_t available_r = sat_audio_stream_available(slot.stream_r);
         if (available_r < frames) frames = available_r;
     }
-    if (frames > 2048u) frames = 2048u;
+    if (frames > kMusicFeedFrames) frames = kMusicFeedFrames;
     const uint32_t sample_bytes = bytes_per_sample(slot.format);
     const uint32_t frame_bytes = sample_bytes * slot.channels;
     while (frames != 0u) {
@@ -196,7 +199,13 @@ extern "C" sat_result_t sat_music_play(sat_music_t music) {
     SAT_TRY(sat_audio_stream_resume(slot->stream));
     if (slot->channels == 2u) SAT_TRY(sat_audio_stream_resume(slot->stream_r));
     slot->playing = 1u;
-    return feed(*slot);
+    // Prime the entire software ring before key-on. CD-backed music otherwise
+    // starts with only the two SCSP halves and immediately exhausts them on
+    // the first seek/cache fill.
+    while (sat_audio_stream_available(slot->stream) != 0u) {
+        SAT_TRY(feed(*slot));
+    }
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_music_pause(sat_music_t music) {

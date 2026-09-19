@@ -72,10 +72,7 @@ int main() {
        info.sample_count == 4096u && info.looping != 0u);
     OK(sat_music_play(music) == SAT_OK && sat_music_is_playing(music) != 0u);
     sat_audio_stream_stats_t stats{};
-    OK(sat_music_stats(music, &stats) == SAT_OK && stats.buffered_frames == 2048u);
-    OK(sat_music_update(music) == SAT_OK);
-    OK(sat_music_update(music) == SAT_OK);
-    OK(sat_music_update(music) == SAT_OK);
+    OK(sat_music_stats(music, &stats) == SAT_OK && stats.buffered_frames == 32768u);
     saturn::core::audio_stream_service(saturn::core::g_audio_streams, 0u);
     OK(sat_music_stats(music, &stats) == SAT_OK && stats.consumed_frames == 8192u &&
        stats.refill_count == 2u && stats.playing == 1u);
@@ -90,7 +87,7 @@ int main() {
     sat_music_t physical{};
     OK(sat_music_open(&physical, "music/cd-theme.satstream") == SAT_OK);
     OK(sat_music_play(physical) == SAT_OK);
-    OK(sat_music_stats(physical, &stats) == SAT_OK && stats.buffered_frames == 2048u);
+    OK(sat_music_stats(physical, &stats) == SAT_OK && stats.buffered_frames == 32768u);
     OK(sat_music_close(physical) == SAT_OK);
     g_stereo = true;
     sat_music_t stereo{};
@@ -98,10 +95,7 @@ int main() {
     OK(sat_music_info(stereo, &info) == SAT_OK && info.channels == 2u &&
        info.sample_count == 2048u);
     OK(sat_music_play(stereo) == SAT_OK && sat_music_is_playing(stereo) != 0u);
-    OK(sat_music_stats(stereo, &stats) == SAT_OK && stats.buffered_frames == 2048u);
-    OK(sat_music_update(stereo) == SAT_OK);
-    OK(sat_music_update(stereo) == SAT_OK);
-    OK(sat_music_update(stereo) == SAT_OK);
+    OK(sat_music_stats(stereo, &stats) == SAT_OK && stats.buffered_frames == 32768u);
     saturn::core::audio_stream_service(saturn::core::g_audio_streams, 200u);
     OK(sat_music_stats(stereo, &stats) == SAT_OK && stats.consumed_frames == 8192u &&
        stats.refill_count == 4u && stats.playing == 1u);
