@@ -9,6 +9,12 @@ static uint16_t project_calls=0;
 static uint16_t projected_vertices=0;
 static uint16_t clipped_count=0;
 
+extern "C" sat_result_t sat_mat4_transform_vec4(
+    const sat_mat4_t* matrix,const sat_vec4_t* v,sat_vec4_t* out) {
+    *out=*v;
+    out->x+=matrix->m[3];out->y+=matrix->m[7];out->z+=matrix->m[11];
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_project_vertices(
     const sat_mat4_t* vp, const sat_vec3_t* points,
     uint16_t count, sat_projected_vertex_t* out) {
@@ -128,10 +134,13 @@ int main() {
     const uint16_t per_face[2]={0u,1u};
     sat_projected_vertex_t screen[8]={};
     sat_vec3_t world[8]={};
-    const sat_vec3_t translation={0,0,3*SAT_FX16_ONE};
+    sat_mat4_t translation={};
+    translation.m[11]=3*SAT_FX16_ONE;
+    const sat_scene3d_instance_t instance={
+        &mesh,materials,2u,per_face,&translation,0u,0u};
     const uint16_t calls_before=project_calls;
-    assert(sat_scene3d_faces_submit_mesh(&scene,&mesh,&translation,
-        materials,2u,per_face,0u,0u,screen,world)==SAT_OK);
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&instance,screen,world)==SAT_OK);
     assert(project_calls==calls_before+1u);
     assert(local[0].z==0);
     assert(scene.count==2u);
@@ -142,8 +151,10 @@ int main() {
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
     const uint16_t bad_indices[2]={0u,2u};
-    assert(sat_scene3d_faces_submit_mesh(&scene,&mesh,&translation,
-        materials,2u,bad_indices,0u,0u,screen,world)==SAT_ERR_INVALID_ARG);
+    sat_scene3d_instance_t invalid_instance=instance;
+    invalid_instance.face_materials=bad_indices;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&invalid_instance,screen,world)==SAT_ERR_INVALID_ARG);
     assert(scene.count==0u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     std::puts("scene3d_faces api: OK");

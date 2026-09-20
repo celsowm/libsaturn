@@ -67,13 +67,6 @@ sat_result_t sat_scene3d_faces_submit_quad(
     sat_scene3d_faces_t* scene, const sat_quad3_t* world,
     const sat_scene3d_material_t* material, uint16_t pass);
 
-/* The mesh may already be transformed to world space (translation=NULL),
- * e.g. sat_anim_prepare_model_instance's output. Alternatively, the same
- * immutable LOCAL mesh may be submitted with a different translation.
- * screen_scratch must hold mesh->vertex_count projected vertices; when
- * translation != NULL, world_scratch must also hold that many world vertices.
- * Projection is performed ONCE per vertex, never once per face.
- * Face materials index a caller-owned per-instance material table. */
 /* Reuses the renderer's box-face generator, not application-authored winding.
  * Each wall/top enters the global painter independently. */
 sat_result_t sat_scene3d_faces_submit_box(
@@ -86,13 +79,27 @@ sat_result_t sat_scene3d_faces_submit_tiled_quad(
     const sat_indexed_tiled_quad3_t* regions,
     uint8_t color_calc_slot, uint16_t pass);
 
-sat_result_t sat_scene3d_faces_submit_mesh(
-    sat_scene3d_faces_t* scene, const sat_mesh_t* mesh,
-    const sat_vec3_t* translation,
-    const sat_scene3d_material_t* materials, uint16_t material_count,
-    const uint16_t* face_materials, uint16_t pass, uint8_t cull_backfaces,
-    sat_projected_vertex_t* screen_scratch,
-    sat_vec3_t* world_scratch);
+/* Shared mesh instance: world==NULL means an already-prepared world pose
+ * (e.g. animated pig); a non-null full world matrix instantiates an immutable
+ * LOCAL mesh (e.g. gems). Material bindings and culling belong to the instance,
+ * while the scene owns camera projection, face ordering and command emission. */
+typedef struct sat_scene3d_instance {
+    const sat_mesh_t* mesh;
+    const sat_scene3d_material_t* materials;
+    uint16_t material_count;
+    const uint16_t* face_materials;
+    const sat_mat4_t* world; /* NULL: mesh vertices already in world space */
+    uint16_t pass;
+    uint8_t cull_backfaces;
+} sat_scene3d_instance_t;
+
+/* Projects each world vertex once; copies accepted faces into the queue and
+ * retains no pointers to the descriptor, matrix or temporary vertex buffers.
+ * screen_scratch holds vertex_count projected points. If world != NULL,
+ * world_scratch must hold vertex_count transformed points. */
+sat_result_t sat_scene3d_faces_submit_instance(
+    sat_scene3d_faces_t* scene, const sat_scene3d_instance_t* instance,
+    sat_projected_vertex_t* screen_scratch, sat_vec3_t* world_scratch);
 
 /* Emits far-to-near, closes the frame even when hardware submission fails.
  * Caller manages sat_begin_frame/sat_end_frame and HUD command reservation. */

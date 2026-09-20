@@ -181,16 +181,16 @@ extern "C" sat_result_t sat_scene3d_faces_submit_tiled_quad(
     return sat_scene3d_faces_submit_quad(scene,world,&material,pass);
 }
 
-extern "C" sat_result_t sat_scene3d_faces_submit_mesh(
-    sat_scene3d_faces_t* scene, const sat_mesh_t* mesh,
-    const sat_vec3_t* translation,
-    const sat_scene3d_material_t* materials, uint16_t material_count,
-    const uint16_t* face_materials, uint16_t pass, uint8_t cull_backfaces,
-    sat_projected_vertex_t* screen_scratch,
-    sat_vec3_t* world_scratch) {
-    if (!scene || !scene->active || !mesh || !mesh->vertices ||
+extern "C" sat_result_t sat_scene3d_faces_submit_instance(
+    sat_scene3d_faces_t* scene, const sat_scene3d_instance_t* instance,
+    sat_projected_vertex_t* screen_scratch, sat_vec3_t* world_scratch) {
+    const sat_mesh_t* mesh=instance ? instance->mesh : nullptr;
+    const sat_scene3d_material_t* materials=instance ? instance->materials : nullptr;
+    const uint16_t material_count=instance ? instance->material_count : 0u;
+    const uint16_t* face_materials=instance ? instance->face_materials : nullptr;
+    if (!scene || !scene->active || !instance || !mesh || !mesh->vertices ||
         !mesh->indices || !screen_scratch ||
-        (translation && !world_scratch) ||
+        (instance->world && !world_scratch) ||
         (mesh->face_count && (!materials || !face_materials)))
         return SAT_ERR_INVALID_ARG;
     if (mesh->face_count>scene->capacity-scene->count)
@@ -204,18 +204,15 @@ extern "C" sat_result_t sat_scene3d_faces_submit_mesh(
             if (idx[c]>=mesh->vertex_count) return SAT_ERR_INVALID_ARG;
     }
     const sat_vec3_t* world=mesh->vertices;
-    if (translation) {
+    if (instance->world) {
         for (uint16_t v=0;v<mesh->vertex_count;++v) {
             const sat_vec3_t& p=mesh->vertices[v];
-            const int64_t x=static_cast<int64_t>(p.x)+translation->x;
-            const int64_t y=static_cast<int64_t>(p.y)+translation->y;
-            const int64_t z=static_cast<int64_t>(p.z)+translation->z;
-            if (x<INT32_MIN || x>INT32_MAX || y<INT32_MIN || y>INT32_MAX ||
-                z<INT32_MIN || z>INT32_MAX) return SAT_ERR_INVALID_ARG;
-            world_scratch[v]={
-                static_cast<sat_fx16_t>(x),
-                static_cast<sat_fx16_t>(y),
-                static_cast<sat_fx16_t>(z)};
+            const sat_vec4_t local={p.x,p.y,p.z,SAT_FX16_ONE};
+            sat_vec4_t transformed={};
+            const sat_result_t st=sat_mat4_transform_vec4(
+                instance->world,&local,&transformed);
+            if (st!=SAT_OK) return st;
+            world_scratch[v]={transformed.x,transformed.y,transformed.z};
         }
         world=world_scratch;
     }
@@ -226,7 +223,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_mesh(
      * storage, never retaining world_scratch or projected scratch pointers. */
     for (uint16_t f=0;f<mesh->face_count;++f) {
         const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
-        if (cull_backfaces &&
+        if (instance->cull_backfaces &&
             screen_scratch[idx[0]].w>0 && screen_scratch[idx[1]].w>0 &&
             screen_scratch[idx[2]].w>0 && screen_scratch[idx[3]].w>0 &&
             saturn::core::render3d::projected_area2(screen_scratch,idx)<=0)
@@ -235,7 +232,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_mesh(
         for (uint8_t c=0;c<4u;++c) quad.v[c]=world[idx[c]];
         const sat_result_t st=append(
             scene,quad,screen_scratch,idx,
-            materials[face_materials[f]],pass);
+            materials[face_materials[f]],instance->pass);
         if (st!=SAT_OK) return st;
     }
     return SAT_OK;

@@ -304,11 +304,14 @@ static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
     const int32_t bob=sat_fx16_mul(
         sat_sin_deg(SB_F((int32_t)(g_game.ticks*5u+id*33u)%360)),
         SB_F(1)/2);
-    const sat_vec3_t position={x,deck_y+SB_GEM_BASE_OFFSET+bob,z};
-    const sat_result_t st=sat_scene3d_faces_submit_mesh(
-        &g_face_scene,&g_gem_mesh,&position,g_scene_materials,
-        g_solid_pool.count,g_gem_materials,0u,0u,
-        g_gem_projected,g_gem_world_vertices);
+    sat_mat4_t world={0};
+    sat_example_must(sat_mat4_translate(
+        &world,x,deck_y+SB_GEM_BASE_OFFSET+bob,z));
+    const sat_scene3d_instance_t gem={
+        &g_gem_mesh,g_scene_materials,g_solid_pool.count,
+        g_gem_materials,&world,0u,0u};
+    const sat_result_t st=sat_scene3d_faces_submit_instance(
+        &g_face_scene,&gem,g_gem_projected,g_gem_world_vertices);
     if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
     else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
@@ -501,10 +504,13 @@ static void player_pig(void) {
     sat_example_must(sat_anim_prepare_model_instance(
         &skybridge_pig_anim_asset,&g_pig_anim,&world,&g_pig_mesh,
         g_pig_face_textures,PIG_FACE_CAP,SKYBRIDGE_PIG_SHADE_COUNT));
-    const sat_result_t st=sat_scene3d_faces_submit_mesh(
-        &g_face_scene,&g_pig_mesh,0,g_pig_materials,
-        SKYBRIDGE_PIG_SHADE_COUNT,g_pig_face_textures,0u,1u,
-        g_pig_projected,0);
+    /* Animated pose already carries the world transform; do not apply it
+     * twice when submitting the pig through the canonical instance path. */
+    const sat_scene3d_instance_t pig={
+        &g_pig_mesh,g_pig_materials,SKYBRIDGE_PIG_SHADE_COUNT,
+        g_pig_face_textures,0,0u,1u};
+    const sat_result_t st=sat_scene3d_faces_submit_instance(
+        &g_face_scene,&pig,g_pig_projected,0);
     if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
     else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }

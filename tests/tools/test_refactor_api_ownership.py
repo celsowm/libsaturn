@@ -59,7 +59,7 @@ def assert_skybridge_uses_renderer_and_overlay_budget() -> None:
     text = source("skybridge_3d")
     for symbol in (
         "sat_mesh_build_octahedron(",
-        "sat_scene3d_faces_submit_mesh(",
+        "sat_scene3d_faces_submit_instance(",
         "sat_scene3d_faces_submit_quad(",
         "sat_scene3d_faces_submit_tiled_quad(",
         "sat_scene3d_faces_submit_box(",

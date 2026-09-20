@@ -223,3 +223,15 @@ upload have been removed. The scene painter still has deliberately distinct
 indexed/RGB/tiled effect descriptions because Saturn hardware does not
 support unrestricted alpha or UV clipping. Full animated-model instance
 ownership and visual/hardware gates remain open.
+
+## Fifteenth slice: canonical mesh-instance submission
+
+`sat_scene3d_instance_t` is the common scene-face submission descriptor for
+an immutable local mesh with a full world transform or an already-transformed
+animated world pose. The game no longer needs a special translation-only gem
+renderer or a separate pig draw path. The renderer transforms each instance
+vertex at most once, projects each vertex once, and copies surviving faces
+into the scene-wide bounded painter. The old translation-only mesh entry point
+was deleted (breaking rewrite, no compatibility alias). Full static-level
+partitioning, palette/texture semantics beyond indexed solids and actual
+stock-hardware frame-time validation remain outstanding.
