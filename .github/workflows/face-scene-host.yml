@@ -1,0 +1,40 @@
+name: Scene-wide face painter host gate
+
+on:
+  push:
+    paths:
+      - 'include/saturn/scene3d_faces.h'
+      - 'include/saturn/render3d.h'
+      - 'src/core/scene3d_faces_api.cpp'
+      - 'src/core/scene3d_faces_logic.hpp'
+      - 'src/core/render3d_indexed_api.cpp'
+      - 'examples/skybridge_3d/**'
+      - 'tests/host/test_scene3d_faces_api.cpp'
+      - 'tests/host/test_scene3d_faces_logic.cpp'
+      - 'tests/tools/test_refactor_api_ownership.py'
+      - 'Makefile'
+      - '.github/workflows/face-scene-host.yml'
+  pull_request:
+    paths:
+      - 'include/saturn/scene3d_faces.h'
+      - 'src/core/scene3d_faces_api.cpp'
+      - 'src/core/scene3d_faces_logic.hpp'
+      - 'examples/skybridge_3d/**'
+      - 'tests/host/test_scene3d_faces_api.cpp'
+      - 'tests/host/test_scene3d_faces_logic.cpp'
+      - '.github/workflows/face-scene-host.yml'
+
+jobs:
+  face-painter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build focused native API tests
+        run: make build/tests/test_scene3d_faces_logic build/tests/test_scene3d_faces_api
+      - name: Run focused native API tests
+        run: |
+          ./build/tests/test_scene3d_faces_logic
+          ./build/tests/test_scene3d_faces_api
+      - name: Check example renderer ownership
+        run: python3 tests/tools/test_refactor_api_ownership.py
