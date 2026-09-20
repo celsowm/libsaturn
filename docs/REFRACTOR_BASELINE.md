@@ -165,3 +165,28 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
   face planner needs vertex projection caches, per-face depth and visibility,
   bounded scratch and a stock-Saturn frame-time/command-budget gate before
   Skybridge uses it.
+
+## Twelfth slice: bounded cross-instance face painter (foundation)
+
+`sat_scene3d_faces.h` now exposes a caller-owned scene-wide face list:
+the game may submit a world-space quad or whole meshes with an explicit
+material table and per-face material indices. All submitted faces share one
+camera-space depth order instead of sorting only mesh or object anchors.
+Immutable meshes may be reused with a per-instance translation and caller
+scratch. The mesh path transforms (when necessary) and projects vertices
+ONCE per instance, then copies surviving faces into bounded queue storage;
+it does not reproject each animated pig vertex for every facet. A common
+material descriptor differentiates RGB polygons, solid indexed sprites and
+patterned indexed sprites, including the indexed-only color calculation slots.
+Out-of-view flat indexed faces reuse the existing safe near/screen clipper;
+patterned materials keep their existing explicit UV clipping limitations.
+
+This is a **foundation, not the completed Skybridge migration**: current
+`sat_scene3d_queue` callback passes and Skybridge's platform/pig/gem draw
+callbacks are still immediate, so that example does not yet obtain full
+cross-model inter-occlusion. The level's patterned insets/holes/seesaws need
+a complete scene submission path before removing the explicit passes.
+Likewise a canonical material registry with palette/texture deduplication,
+full-transform immutable instances, global UV-aware polygon subdivision,
+hardware command/time accounting, and emulator validation remain open.
+Do not claim exact ordering for intersecting faces: the VDP1 has no Z-buffer.
