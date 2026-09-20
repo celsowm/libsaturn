@@ -85,7 +85,7 @@ jobs:
           fi
           status=$?
           set -e
-          first_error="$(grep -m1 -E '(^|[[:space:]])(fatal error:|error:|undefined reference|collect2: error|make(\\[[0-9]+\\])?: \\*\\*\\*)|region .*overflowed by|will not fit in region' examples-all.log || true)"
+          first_error="$(grep -m1 -E 'fatal error:|undefined reference|collect2: error|make(\\[[0-9]+\\])?: \\*\\*\\*|region .*overflowed by|will not fit in region|^([^[:space:]]+:[0-9]+(:[0-9]+)?: )?error:' examples-all.log || true)"
           if [ -z "$first_error" ] && [ "$status" -ne 0 ]; then
             first_error="examples-all failed; see examples-all.log"
           fi
@@ -111,7 +111,7 @@ jobs:
             escaped="${escaped//$'\n'/'%0A'}"
             echo "::error title=Saturn examples-all failed::$escaped"
             echo '### First Saturn cross-build failure' >> "$GITHUB_STEP_SUMMARY"
-            grep -m5 -E '(^|[[:space:]])(fatal error:|error:|undefined reference|collect2: error|make(\\[[0-9]+\\])?: \\*\\*\\*)|region .*overflowed by|will not fit in region' examples-all.log >> "$GITHUB_STEP_SUMMARY" || true
+            grep -m5 -E 'fatal error:|undefined reference|collect2: error|make(\\[[0-9]+\\])?: \\*\\*\\*|region .*overflowed by|will not fit in region|^([^[:space:]]+:[0-9]+(:[0-9]+)?: )?error:' examples-all.log >> "$GITHUB_STEP_SUMMARY" || true
           fi
 
       - name: Preserve Saturn cross-build diagnostics
