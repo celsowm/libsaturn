@@ -27,6 +27,32 @@ using saturn::core::math3d::mat4_transform_vec4;
  * inside out. */
 constexpr int32_t kCoordLimit = 2047;
 
+/* A distorted VDP1 sprite carries no per-vertex UVs, so a textured quad can
+ * never be clipped in software without resampling it: it is submitted whole
+ * and the VDP1's own system clipping discards whatever falls outside the
+ * screen. Off-screen corners are therefore legal, but two bounds still apply.
+ * A corner beyond kCoordLimit would be clamped by project_axis, which folds
+ * the quad's shape and skews the texture across it; and a sprite stretched
+ * far past the screen spends VDP1 cycles on pixels nobody sees. Accept a box
+ * this many times the viewport and leave anything larger to the caller's
+ * subdivision fallback. */
+constexpr int32_t kOffscreenViewportScale = 2;
+
+inline int32_t offscreen_bound(uint16_t extent) {
+    const int32_t bound =
+        (static_cast<int32_t>(extent) / 2) * kOffscreenViewportScale;
+    return bound > kCoordLimit ? kCoordLimit : bound;
+}
+
+/* True when a projected corner may go straight to the VDP1 undistorted. */
+inline bool coord_drawable(
+    int32_t x, int32_t y, uint16_t width, uint16_t height
+) {
+    const int32_t bx = offscreen_bound(width);
+    const int32_t by = offscreen_bound(height);
+    return x >= -bx && x <= bx && y >= -by && y <= by;
+}
+
 inline int16_t clamp_coord64(int64_t v) {
     if (v < -static_cast<int64_t>(kCoordLimit)) {
         return static_cast<int16_t>(-kCoordLimit);

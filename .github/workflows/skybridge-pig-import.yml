@@ -35,7 +35,8 @@ jobs:
             --scale 4.3 \
             --palette-index 7 \
             --simplify auto \
-            --quality balanced \
+            --quality aggressive \
+            --merge-rigid-meshes \
             --animation Walk,Idle,Jump \
             --animation-fps 12 \
             --face-colors on \

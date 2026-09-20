@@ -110,6 +110,10 @@ static sat_vec3_t g_eye, g_target, g_camera_anchor;
 /* One bounded shared painter owns projection and ordering of the visible
  * faces of platforms, player and pickups in the same render pass. */
 static sat_scene3d_face_t g_face_items[SCENE_FACE_CAP] __attribute__((section(".wram_l")));
+/* Caller-owned ordering scratch: the painter sorts these indices, so a frame
+ * never moves the face records themselves. */
+static uint32_t g_face_keys[SCENE_FACE_CAP] __attribute__((section(".wram_l")));
+static uint16_t g_face_order[SCENE_FACE_CAP] __attribute__((section(".wram_l")));
 static sat_scene3d_faces_t g_face_scene;
 
 /* Imported-and-simplified user GLB: caller-owned model, pose and painter
@@ -217,16 +221,25 @@ static uint8_t fade_material(uint16_t c) {
     }
     return (uint8_t)g_fade_material_ids[chosen];
 }
+/* Every world submission shares one outcome policy, so it is stated once.
+ * A full command list or face queue ends the frame's world pass quietly:
+ * the decorations that would follow are optional, and a partially drawn
+ * frame is not an error. An unsupported face is simply skipped. Anything
+ * else is a genuine bug and must not be swallowed. Returns 0 once the
+ * world pass is closed, so a caller can stop early. */
+static uint8_t world_ok(sat_result_t st) {
+    if(st==SAT_ERR_CAPACITY) {g_world_cmd_full=1u;return 0u;}
+    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    return 1u;
+}
 /* Skybridge only selects a level material; the shared painter owns the
  * camera projection, per-face ordering, clipping and VDP1 submission. */
 static void put_quad(const sat_quad3_t* q, uint16_t c) {
     if(g_world_cmd_full) return;
     sat_scene3d_material_t material=g_scene_materials[fade_material(c)];
     material.color_calc_slot=g_active_fade_slot;
-    const sat_result_t st=sat_scene3d_faces_submit_quad(
-        &g_face_scene,q,&material,0u);
-    if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
-    else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    world_ok(sat_scene3d_faces_submit_quad(
+        &g_face_scene,q,&material,0u));
 }
 static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
     /* Gouraud RGB polygons are incompatible with this VDP2 blend path;
@@ -245,6 +258,15 @@ static void pquad(sat_quad3_t* q, int32_t ax,int32_t ay,int32_t az,
 static void quad_rect_xz(sat_quad3_t* q,int32_t lx,int32_t rx,int32_t z0,int32_t z1,int32_t y) {
     pquad(q,lx,y,z0, rx,y,z0, rx,y,z1, lx,y,z1);
 }
+/* Rims, edge bands and the contact shadow are all one flat XZ rectangle
+ * submitted right where it is built; building and submitting separately
+ * only invites the two to drift apart. */
+static void put_rect_xz(int32_t lx,int32_t rx,int32_t z0,int32_t z1,
+                        int32_t y,uint16_t c) {
+    sat_quad3_t q;
+    quad_rect_xz(&q,lx,rx,z0,z1,y);
+    put_quad(&q,c);
+}
 /* Draw just the top and camera-facing sides, always with consistent thickness. */
 /* Level code describes a box, not its camera-facing vertices or winding.
  * The renderer owns side selection, safe near/screen clipping and materials. */
@@ -257,10 +279,8 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
     block.top_material=g_scene_materials[fade_material(top)].texture;
     block.x_material=g_scene_materials[fade_material(xcolor)].texture;
     block.z_material=g_scene_materials[fade_material(zcolor)].texture;
-    sat_result_t st=sat_scene3d_faces_submit_box(
-        &g_face_scene,&block,g_active_fade_slot,0u);
-    if(st==SAT_ERR_CAPACITY) {g_world_cmd_full=1u;return;}
-    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    if(!world_ok(sat_scene3d_faces_submit_box(
+            &g_face_scene,&block,g_active_fade_slot,0u))) return;
     /* Decorative inset remains level-owned, not a fake collision surface. */
     if(g_eye.y<=y || !trim || hx<=SB_F(4) || hz<=SB_F(4)) return;
     sat_quad3_t q;
@@ -271,15 +291,19 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
         return;
     }
     const uint8_t theme=trim==1u?0u:(trim==3u?1u:2u);
-    st=sat_scene3d_faces_submit_tiled_quad(
-        &g_face_scene,&q,&g_tile_regions[theme],g_active_fade_slot,0u);
-    if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
-    else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    world_ok(sat_scene3d_faces_submit_tiled_quad(
+        &g_face_scene,&q,&g_tile_regions[theme],g_active_fade_slot,0u));
+}
+/* The three deck zones -- start (0-3), middle (4-6) and finish (7-9) --
+ * are what every platform tint keys off, so the split lives in one place
+ * instead of being re-spelled at each colour decision. */
+static uint16_t deck_tint(uint8_t i,uint16_t start,uint16_t mid,uint16_t end) {
+    return i<4u?start:(i<7u?mid:end);
 }
 static uint16_t top_color(uint8_t i) {
-    if (i<4u) return SAT_RGB555(24,23,16);
-    if (i<7u) return SAT_RGB555(12,26,19);
-    return SAT_RGB555(27,23,16);
+    return deck_tint(i,SAT_RGB555(24,23,16),
+                       SAT_RGB555(12,26,19),
+                       SAT_RGB555(27,23,16));
 }
 /* Palette-to-material mapping is baked once at initialization. */
 static const uint16_t g_gem_facet_colors[GEM_FACE_CAP]={
@@ -301,10 +325,8 @@ static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
     const sat_scene3d_instance_t gem={
         &g_gem_mesh,g_scene_materials,g_solid_pool.count,
         g_gem_materials,&world,0u,0u};
-    const sat_result_t st=sat_scene3d_faces_submit_instance(
-        &g_face_scene,&gem,g_gem_projected,g_gem_world_vertices);
-    if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
-    else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    world_ok(sat_scene3d_faces_submit_instance(
+        &g_face_scene,&gem,g_gem_projected,g_gem_world_vertices));
 }
 /* An actual hinged 3D deck: the two long ends use the SAME 16.16
  * surface-height function as the landing solver. It is a sloped quad,
@@ -392,16 +414,11 @@ static void stage_box(uint8_t i) {
             const int32_t hb=z+SB_F(hole->z_offset-hole->half_z);
             const int32_t hf=z+SB_F(hole->z_offset+hole->half_z);
             const int32_t y=top_y+SB_F(1)/24;
-            sat_quad3_t rim;
             const uint16_t warning=SAT_RGB555(31,23,3);
-            quad_rect_xz(&rim,hl-SB_F(1),hl,hb,hf,y);
-            put_quad(&rim,warning);
-            quad_rect_xz(&rim,hr,hr+SB_F(1),hb,hf,y);
-            put_quad(&rim,warning);
-            quad_rect_xz(&rim,hl,hr,hb-SB_F(1),hb,y);
-            put_quad(&rim,warning);
-            quad_rect_xz(&rim,hl,hr,hf,hf+SB_F(1),y);
-            put_quad(&rim,warning);
+            put_rect_xz(hl-SB_F(1),hl,hb,hf,y,warning);
+            put_rect_xz(hr,hr+SB_F(1),hb,hf,y,warning);
+            put_rect_xz(hl,hr,hb-SB_F(1),hb,y,warning);
+            put_rect_xz(hl,hr,hf,hf+SB_F(1),y,warning);
         }
     }
     /* Distinct corner braces and inset deck rails make the floating decks
@@ -410,8 +427,9 @@ static void stage_box(uint8_t i) {
     if(i==0u || i==3u || i==4u || i==6u || i==9u) {
         int32_t rim_z=z+(g_eye.z<z?-SB_F(p->half_z-3):
                                       SB_F(p->half_z-3));
-        uint16_t metal=(i<4u)?SAT_RGB555(17,17,14):
-            (i<7u?SAT_RGB555(8,19,18):SAT_RGB555(24,20,10));
+        uint16_t metal=deck_tint(i,SAT_RGB555(17,17,14),
+                                   SAT_RGB555(8,19,18),
+                                   SAT_RGB555(24,20,10));
         box3(x-SB_F(p->half_x-4),top_y-SB_F(6),rim_z,
              SB_F(2),SB_F(3),SB_F(2),metal,metal,metal,0u);
         box3(x+SB_F(p->half_x-4),top_y-SB_F(6),rim_z,
@@ -420,16 +438,14 @@ static void stage_box(uint8_t i) {
     /* A thin raised, contrasting edge band makes platform boundaries
      * legible at speed without adding collision-changing obstacles. */
     if(g_eye.y>top_y && p->half_x>7 && p->half_z>7) {
-        sat_quad3_t edge;
         int32_t sy=top_y+SB_F(1)/24;
         int32_t lx=x-SB_F(p->half_x-1),rx=x+SB_F(p->half_x-1);
         int32_t bz=z-SB_F(p->half_z-1),fz=z+SB_F(p->half_z-1);
-        uint16_t edge_color=(i<4u)?SAT_RGB555(24,20,10):
-            (i<7u?SAT_RGB555(12,26,19):SAT_RGB555(31,26,3));
-        quad_rect_xz(&edge,lx,rx,bz,bz+SB_F(1),sy);
-        put_quad(&edge,edge_color);
-        quad_rect_xz(&edge,lx,rx,fz-SB_F(1),fz,sy);
-        put_quad(&edge,edge_color);
+        uint16_t edge_color=deck_tint(i,SAT_RGB555(24,20,10),
+                                        SAT_RGB555(12,26,19),
+                                        SAT_RGB555(31,26,3));
+        put_rect_xz(lx,rx,bz,bz+SB_F(1),sy,edge_color);
+        put_rect_xz(lx,rx,fz-SB_F(1),fz,sy,edge_color);
     }
     /* Elevators have a visible shaft below the deck: its length
      * changes with the actual collision top, never a separate animation. */
@@ -463,12 +479,10 @@ static void stage_box(uint8_t i) {
 static void pig_shadow(void) {
     if(g_game.support>=0) {
         const int32_t px=g_game.x,pz=g_game.z;
-        sat_quad3_t shadow;
-        int32_t sy=sb_platform_surface_y(
+        const int32_t sy=sb_platform_surface_y(
             &g_game,(uint8_t)g_game.support,px,pz)+SB_F(1)/16;
-        quad_rect_xz(&shadow,px-SB_F(2),px+SB_F(2),
-                     pz-SB_F(2),pz+SB_F(2),sy);
-        put_quad(&shadow,SAT_RGB555(8,10,10));
+        put_rect_xz(px-SB_F(2),px+SB_F(2),
+                    pz-SB_F(2),pz+SB_F(2),sy,SAT_RGB555(8,10,10));
     }
 }
 /* The VDP2 fade setup intentionally makes only indexed Sprite Type 0
@@ -500,10 +514,8 @@ static void player_pig(void) {
     const sat_scene3d_instance_t pig={
         &g_pig_mesh,g_pig_materials,SKYBRIDGE_PIG_SHADE_COUNT,
         g_pig_face_textures,0,0u,1u};
-    const sat_result_t st=sat_scene3d_faces_submit_instance(
-        &g_face_scene,&pig,g_pig_projected,0);
-    if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
-    else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    world_ok(sat_scene3d_faces_submit_instance(
+        &g_face_scene,&pig,g_pig_projected,0));
 }
 /* Each platform owns its previous quantized level. Once within two units
  * of a transition, keep the old state until the camera actually crosses
@@ -665,29 +677,21 @@ static void draw_clouds(void) {
     static const uint8_t y[6]={21u,42u,27u,15u,48u,32u};
     static const uint8_t width[6]={68u,52u,79u,60u,55u,72u};
     static const uint8_t height[6]={15u,12u,18u,14u,12u,16u};
-    uint8_t i;
+    uint8_t i,copy;
     for(i=0u;i<6u;++i) {
-        int32_t x=sb_scenery_cloud_x(base_x[i],(uint16_t)g_yaw,g_frame);
-        int32_t left=x-(int32_t)width[i]/2;
-        int32_t right=x+(int32_t)width[i]/2;
-        if(right>0 && left<(int32_t)W && !g_world_cmd_full) {
-            const sat_result_t st=sat_draw_sprite_scaled_screen(
-                &g_cloud_texture,(int16_t)x,(int16_t)y[i],
-                width[i],height[i],0u);
-            if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
-            else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
-        }
-        /* Draw the periodic copy when a cloud crosses the 512px seam.
-         * Do not wrap every cloud at 320px: that visibly tiles the sky. */
-        x-=512;
-        left=x-(int32_t)width[i]/2;
-        right=x+(int32_t)width[i]/2;
-        if(right>0 && left<(int32_t)W && !g_world_cmd_full) {
-            const sat_result_t st=sat_draw_sprite_scaled_screen(
-                &g_cloud_texture,(int16_t)x,(int16_t)y[i],
-                width[i],height[i],0u);
-            if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
-            else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+        const int32_t x=sb_scenery_cloud_x(base_x[i],(uint16_t)g_yaw,g_frame);
+        /* Each cloud is drawn at its own position and once more one full
+         * 512px period to the left, so a cloud straddling the seam stays
+         * whole. Wrapping every cloud at 320px instead would visibly tile
+         * the sky. */
+        for(copy=0u;copy<2u;++copy) {
+            const int32_t cx=x-(int32_t)copy*512;
+            const int32_t half=(int32_t)width[i]/2;
+            if(cx+half<=0 || cx-half>=(int32_t)W || g_world_cmd_full)
+                continue;
+            world_ok(sat_draw_sprite_scaled_screen(
+                &g_cloud_texture,(int16_t)cx,(int16_t)y[i],
+                width[i],height[i],0u));
         }
     }
 }
@@ -877,6 +881,17 @@ static void start_course(uint8_t course) {
     sat_example_must(sat_anim_state_init(
         &g_pig_anim,&skybridge_pig_anim_asset,1u));
 }
+/* Per-course HUD strings are tables indexed by the course, not three
+ * separate ternary ladders that have to be kept in the same order. */
+static const char* const k_course_complete[4]={
+    "COURSE 1 COMPLETE","COURSE 2 COMPLETE",
+    "COURSE 3 COMPLETE","COURSE 4 COMPLETE"};
+static const char* const k_course_next[4]={
+    "START: COURSE 2","START: COURSE 3",
+    "START: COURSE 4","START: REPLAY"};
+static const char* const k_course_hint[4]={
+    "GEMS OPTIONAL  Z BRAKE","GEMS OPTIONAL  Z BRAKE",
+    "JUMP THE YELLOW-RIM HOLES","RIDE THE TILTING RAMPS"};
 static void hud(void) {
     uint8_t i,count=0u;
     for(i=0u;i<SB_PICKUP_COUNT;++i) if(g_game.pickups&(1u<<i)) ++count;
@@ -907,23 +922,15 @@ static void hud(void) {
     }
     if (g_game.finished) {
         (void)sat_draw_rect_screen(46,76,228u,75u,SAT_RGB555(2,13,16));
-        put_text(g_game.course==0u?"COURSE 1 COMPLETE":
-                 g_game.course==1u?"COURSE 2 COMPLETE":
-                 g_game.course==2u?"COURSE 3 COMPLETE":
-                                     "COURSE 4 COMPLETE",66,83);
+        put_text(k_course_complete[g_game.course&3u],66,83);
         label("GEMS ",count,116,104);
         put_text("/8",164,104);
-        put_text(g_game.course==0u?"START: COURSE 2":
-                 g_game.course==1u?"START: COURSE 3":
-                 g_game.course==2u?"START: COURSE 4":
-                                     "START: REPLAY",82,128);
+        put_text(k_course_next[g_game.course&3u],82,128);
     } else if (g_game.paused) {
         put_text("START: PLAY COURSE",80,92);
         put_text("X: NEXT COURSE",88,108);
     } else if(g_show_help && g_game.ticks<480u) {
-        put_text(g_game.course==3u?"RIDE THE TILTING RAMPS":
-                 g_game.course==2u?"JUMP THE YELLOW-RIM HOLES":
-                                      "GEMS OPTIONAL  Z BRAKE",8,192);
+        put_text(k_course_hint[g_game.course&3u],8,192);
         put_text("D-PAD MOVE  A JUMP",8,204);
         put_text("B/C CAMERA  START PAUSE",8,215);
     }
@@ -936,7 +943,7 @@ int main(void) {
     sat_example_must(sat_init(&video));
     sb_init(&g_game);
     sat_example_must(sat_scene3d_faces_init(
-        &g_face_scene,g_face_items,SCENE_FACE_CAP));
+        &g_face_scene,g_face_items,g_face_keys,g_face_order,SCENE_FACE_CAP));
     for(uint8_t i=0u;i<SB_PLATFORM_COUNT;++i)
         g_platform_fade[i]=FADE_OPAQUE;
     g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};

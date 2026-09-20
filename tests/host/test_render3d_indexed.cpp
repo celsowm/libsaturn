@@ -187,10 +187,21 @@ static void patterned_texture_draws_only_with_original_four_corners() {
     EQ(g_opaque,0);
     q.v[0].z=FX(12);
 
-    /* Sprite coordinates must remain in the physical 320x224 viewport.
-     * Its solid backing can still be drawn via the uniform-color clipper. */
+    /* A corner just past the viewport edge is still drawn: the VDP1's system
+     * clipping trims the sprite, and refusing it made patterned floors vanish
+     * whenever the camera reached the near edge of a platform. */
     reset();
     q.v[1].x=FX(161);
+    emitted=99u;
+    EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[1],&emitted),SAT_OK);
+    EQ(emitted,1u);
+    EQ(g_project_calls,1);
+    EQ(g_opaque,1);
+
+    /* Far enough out, though, projection would clamp the corner and skew the
+     * texture, so the caller's subdivision fallback takes over instead. */
+    reset();
+    q.v[1].x=FX(400);
     emitted=99u;
     EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[1],&emitted),SAT_OK);
     EQ(emitted,0u);
@@ -313,18 +324,29 @@ static void tiled_texture_preserves_actual_regions_at_near_boundary() {
 static void tiled_texture_preserves_regions_at_screen_boundary() {
     reset();
     sat_quad3_t q=quad(3,12);
-    /* Full quad crosses screen right edge, but TL, BL and BR stay inside.
-     * The original full texture MUST NOT be stretched over those subquads. */
+    /* Merely crossing the screen edge no longer costs the pattern: one
+     * command goes out whole and the VDP1 clips it. */
     q.v[1].x=FX(162);
     const sat_indexed_solid_render3d_t p=render();
     const sat_indexed_tiled_quad3_t regions=tiled_regions();
     uint8_t submitted=99u;
     EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
+    EQ(submitted,1u);
+    EQ(g_opaque,1);
+    EQ(g_srca[0],100u);
+
+    /* Stretched far enough past the bound, the whole-quad command would be
+     * clamped, so the subregions that do fit are drawn with their OWN
+     * textures. The original full texture MUST NOT be stretched over them. */
+    reset();
+    q.v[1].x=FX(400);
+    submitted=99u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
     EQ(submitted,3u);
     EQ(g_opaque,3);
-    EQ(g_srca[0],101u);
-    EQ(g_srca[1],103u);
-    EQ(g_srca[2],104u);
+    EQ(g_srca[0],101u); /* top left */
+    EQ(g_srca[1],103u); /* bottom left */
+    EQ(g_srca[2],104u); /* bottom right */
 }
 static void tiled_texture_rejects_inconsistent_region_dimensions() {
     reset();

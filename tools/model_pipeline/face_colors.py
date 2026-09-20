@@ -22,22 +22,13 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .gltf import GltfError
+from .gltf import GltfError, linear_to_srgb, srgb_to_linear
 from .model import SourceModel
 
 AUTO_UNIFORM_FRACTION = 0.99
 MAX_LEVELS = 32
 MIN_LEVELS = 3
 PALETTE_SIZE = 256
-
-
-def srgb_to_linear(c: float) -> float:
-    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-
-def linear_to_srgb(c: float) -> float:
-    c = min(max(c, 0.0), 1.0)
-    return c * 12.92 if c <= 0.0031308 else 1.055 * c ** (1.0 / 2.4) - 0.055
 
 
 def _texel(tex, u: float, v: float) -> tuple[int, int, int]:

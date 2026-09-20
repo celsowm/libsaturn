@@ -108,9 +108,15 @@ SECTIONS {
      * Used with __attribute__((section(".wram_l"))) attribute in code.
      * ========================================================================= */
     .wram_l (NOLOAD) : {
+        __wram_l_start = .;  /* Used by crt0.s to zero .wram_l */
         *(.wram_l .wram_l.*) /* Data explicitly placed in WRAML */
         . = ALIGN(4);
-    } > WRAML :data
+        __wram_l_end = .;    /* Used by crt0.s to zero .wram_l */
+    /* :NONE, not :data -- .wram_l is NOLOAD and Work RAM Low sits ~98 MB
+     * below Work RAM High. Putting it in the data PT_LOAD segment makes
+     * that segment span the whole gap, and the linker pads the ELF to
+     * match: every example produced a 95 MB .elf. */
+    } > WRAML :NONE
 
     /* =========================================================================
      * Discarded sections (don't go to final binary)

@@ -21,6 +21,7 @@ from .gltf import (
     check_primitive_mode,
     decode_image_rgba,
     extract_image_bytes,
+    linear_to_srgb,
     node_local_matrix,
     read_accessor,
     read_indices,
@@ -495,8 +496,14 @@ def from_gltf(
         if factor is not None:
             if not isinstance(factor, list) or len(factor) < 3:
                 raise GltfError(f"{source_name}: material {mi} has malformed baseColorFactor")
+            # baseColorFactor is LINEAR by the glTF spec, while every other
+            # color reaching entry["rgb"] (decoded PNG texels) is sRGB-encoded.
+            # Storing the raw factor as a byte makes the shading stage decode
+            # gamma a second time, which crushes G and B far harder than R --
+            # a pink albedo bakes out red. Encode once, here, so both sources
+            # arrive at the shading stage in the same space.
             entry["rgb"] = tuple(
-                max(0, min(255, int(round(float(v) * 255.0))))
+                max(0, min(255, int(round(linear_to_srgb(float(v)) * 255.0))))
                 for v in factor[:3]
             )
         tex_info = pbr.get("baseColorTexture")

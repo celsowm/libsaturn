@@ -92,6 +92,8 @@ static sat_quad3_t quad(int32_t z) {
 int main() {
     sat_scene3d_faces_t scene={};
     sat_scene3d_face_t storage[8]={};
+    uint32_t keys[8]={};
+    uint16_t order[8]={};
     sat_mat4_t vp={};
     const sat_vec3_t eye={0,0,0};
     const sat_vec3_t forward={0,0,SAT_FX16_ONE};
@@ -107,7 +109,12 @@ int main() {
         SAT_SCENE3D_INDEXED_SOLID,0u,&near_tex,nullptr,SAT_INDEXED_SOLID_OPAQUE};
     const sat_scene3d_material_t actor_mat={
         SAT_SCENE3D_INDEXED_SOLID,0u,&actor_tex,nullptr,SAT_INDEXED_SOLID_OPAQUE};
-    assert(sat_scene3d_faces_init(&scene,storage,8u)==SAT_OK);
+    assert(sat_scene3d_faces_init(&scene,storage,keys,order,8u)==SAT_OK);
+    assert(sat_scene3d_faces_init(&scene,storage,nullptr,order,8u)==
+           SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_init(&scene,storage,keys,nullptr,8u)==
+           SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_init(&scene,storage,keys,order,8u)==SAT_OK);
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
@@ -177,6 +184,35 @@ int main() {
     camera.target=camera.eye;
     assert(sat_scene3d_faces_begin_camera(
         &scene,&camera,SAT_FX16_ONE,320u,224u)==SAT_ERR_INVALID_ARG);
+
+    // Paint order, end to end: one platform has a face BEHIND and another IN
+    // FRONT of the actor, which sorting object anchors cannot produce. Equal
+    // depths keep submission order, and a higher pass always paints last.
+    emitted_count=0;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    sat_vdp1_texture_t order_tex[6]={};
+    sat_scene3d_material_t order_mat[6]={};
+    const int32_t order_depth[6]={10,2,6,7,7,30};
+    const uint16_t order_pass[6]={0u,0u,0u,0u,0u,1u};
+    for (uint16_t i=0;i<6u;++i) {
+        order_tex[i].valid=1u;
+        order_tex[i].srca=static_cast<uint16_t>(100u+i);
+        order_mat[i].kind=SAT_SCENE3D_INDEXED_SOLID;
+        order_mat[i].texture=&order_tex[i];
+        order_mat[i].color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+        const sat_quad3_t q=quad(order_depth[i]);
+        assert(sat_scene3d_faces_submit_quad(
+            &scene,&q,&order_mat[i],order_pass[i])==SAT_OK);
+    }
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==6u);
+    assert(emitted[0]==100u); // depth 10, farthest
+    assert(emitted[1]==103u && emitted[2]==104u); // depth 7, submission order
+    assert(emitted[3]==102u); // depth 6
+    assert(emitted[4]==101u); // depth 2, nearest of pass 0
+    assert(emitted[5]==105u); // pass 1 paints last despite being farthest
+
     std::puts("scene3d_faces api: OK");
     return 0;
 }

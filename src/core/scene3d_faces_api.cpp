@@ -1,6 +1,5 @@
 #include "saturn/scene3d_faces.h"
 #include "saturn/vdp1_color_calc.h"
-#include "src/core/scene3d_faces_logic.hpp"
 #include "src/core/render3d_logic.hpp"
 
 #include <stdint.h>
@@ -20,19 +19,38 @@ bool valid_material(const sat_scene3d_material_t& m) {
          m.color_calc_slot<8u);
 }
 
+/* A face the hardware can draw from its projected corners alone: every
+ * corner past the near plane, and none so far off-screen that projection
+ * clamped it. Off-screen corners inside that bound are left to the VDP1's
+ * system clipping instead of the slow re-projecting fallback in emit(). */
 bool safe_projection(const sat_scene3d_faces_t& scene,
                      const sat_projected_vertex_t* vertices,
                      const uint16_t* indices) {
-    const int32_t left=-static_cast<int32_t>(scene.width)/2;
-    const int32_t top=-static_cast<int32_t>(scene.height)/2;
-    const int32_t right=left+scene.width-1;
-    const int32_t bottom=top+scene.height-1;
     for (uint8_t c=0;c<4u;++c) {
         const sat_projected_vertex_t& p=vertices[indices[c]];
-        if (p.w<scene.near_depth || p.x<left || p.x>right ||
-            p.y<top || p.y>bottom) return false;
+        if (p.w<scene.near_depth ||
+            !saturn::core::render3d::coord_drawable(
+                p.x,p.y,scene.width,scene.height)) return false;
     }
     return true;
+}
+
+/* One unsigned painter key: pass ascending in the high bits, then camera
+ * depth far-to-near in the low bits, which is exactly the order
+ * paint_order_buckets emits. Depth keeps 1/4096 of a world unit -- finer
+ * than the 1024 buckets resolve -- and stays clear of kPaintSkip. */
+constexpr uint32_t kFaceDepthBits=20u;
+constexpr uint32_t kFaceDepthMax=(1u<<kFaceDepthBits)-2u;
+constexpr uint32_t kFacePassMax=0xFFFu;
+
+uint32_t painter_key(int64_t depth_sum, uint16_t pass) {
+    int64_t depth=depth_sum/4/16;
+    if (depth<0) depth=0;
+    if (depth>static_cast<int64_t>(kFaceDepthMax))
+        depth=static_cast<int64_t>(kFaceDepthMax);
+    const uint32_t capped=pass>kFacePassMax?kFacePassMax:pass;
+    return ((kFacePassMax-capped)<<kFaceDepthBits)|
+           static_cast<uint32_t>(depth);
 }
 
 sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
@@ -55,10 +73,8 @@ sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
         item.projected.y[c]=projected[indices[c]].y;
     }
     item.material=material;
-    item.depth=sum/4;
-    item.sequence=scene->count;
-    item.pass=pass;
     item.projected_safe=safe_projection(*scene,projected,indices)?1u:0u;
+    scene->keys[scene->count]=painter_key(sum,pass);
     ++scene->count;
     return SAT_OK;
 }
@@ -103,10 +119,12 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
 
 extern "C" sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
-    uint16_t capacity) {
-    if (!scene || !storage || !capacity) return SAT_ERR_INVALID_ARG;
+    uint32_t* keys, uint16_t* order, uint16_t capacity) {
+    if (!scene || !storage || !keys || !order || !capacity)
+        return SAT_ERR_INVALID_ARG;
     *scene={};
-    scene->entries=storage;scene->capacity=capacity;
+    scene->entries=storage;scene->keys=keys;scene->order=order;
+    scene->capacity=capacity;
     return SAT_OK;
 }
 
@@ -275,10 +293,13 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
     sat_scene3d_faces_t* scene) {
     if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
     scene->active=0u;
-    saturn::core::scene3d_faces::sort(scene->entries,scene->count);
+    /* Orders indices in O(faces + buckets) and never moves a face record;
+     * the same helper already carries sat_draw_mesh's paint order. */
+    const uint32_t ordered=saturn::core::render3d::paint_order_buckets(
+        scene->keys,scene->count,scene->order);
     sat_result_t result=SAT_OK;
-    for (uint16_t i=0;i<scene->count;++i) {
-        result=emit(*scene,scene->entries[i]);
+    for (uint32_t i=0;i<ordered;++i) {
+        result=emit(*scene,scene->entries[scene->order[i]]);
         if (result==SAT_ERR_UNSUPPORTED) continue;
         if (result!=SAT_OK) break;
     }

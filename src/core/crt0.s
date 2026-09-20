@@ -56,12 +56,33 @@ _start:
     mov.l   .Lbss_start, r0     /* r0 = BSS start address */
     mov.l   .Lbss_end, r1       /* r1 = BSS end address */
     cmp/eq  r0, r1              /* BSS empty? */
-    bt      .Lmain_call         /* Yes -> skip zeroing */
+    bt      .Lwram_l_clear      /* Yes -> still clear .wram_l */
 .Lloop:
     mov.l   r2, @r0             /* Write 0 at current position */
     add     #4, r0              /* Advance 4 bytes */
     cmp/hs  r1, r0              /* Reached end? */
     bf      .Lloop              /* No -> continue */
+
+    /* -------------------------------------------------------------------
+     * 3b. Zero .wram_l the same way
+     * -------------------------------------------------------------------
+     * .wram_l holds the big buffers that do not fit in WRAMH. It is a
+     * NOLOAD section, so without this loop anything placed there starts
+     * on whatever the previous program left in Work RAM Low -- a global
+     * that is zero-initialised in C would silently not be. Clearing it
+     * makes the section a drop-in for .bss, which is the only reason a
+     * library runtime may be moved there.
+     * ------------------------------------------------------------------- */
+.Lwram_l_clear:
+    mov.l   .Lwram_l_start, r0  /* r0 = .wram_l start address */
+    mov.l   .Lwram_l_end, r1    /* r1 = .wram_l end address */
+    cmp/eq  r0, r1              /* Section empty? */
+    bt      .Lmain_call         /* Yes -> skip zeroing */
+.Lwram_l_loop:
+    mov.l   r2, @r0             /* Write 0 at current position */
+    add     #4, r0              /* Advance 4 bytes */
+    cmp/hs  r1, r0              /* Reached end? */
+    bf      .Lwram_l_loop       /* No -> continue */
 
     /* -------------------------------------------------------------------
      * 4. Call main()
@@ -87,4 +108,6 @@ hang:
 .Lstack_top: .long 0x060FFFFC   /* Stack top (end of WRAMH) */
 .Lbss_start: .long __bss_start   /* BSS section start (linker symbol) */
 .Lbss_end:   .long __bss_end     /* BSS section end (linker symbol) */
+.Lwram_l_start: .long __wram_l_start /* .wram_l start (linker symbol) */
+.Lwram_l_end:   .long __wram_l_end   /* .wram_l end (linker symbol) */
 .Lmain:      .long _main         /* Address of main() function */

@@ -82,6 +82,17 @@ class GlbData:
     source_path: Path | None = None
 
 
+def srgb_to_linear(c: float) -> float:
+    """sRGB-encoded 0..1 channel to linear light."""
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def linear_to_srgb(c: float) -> float:
+    """Linear-light 0..1 channel back to an sRGB-encoded channel."""
+    c = min(max(c, 0.0), 1.0)
+    return c * 12.92 if c <= 0.0031308 else 1.055 * c ** (1.0 / 2.4) - 0.055
+
+
 def _u32(data: bytes, offset: int, what: str, path: str) -> int:
     if offset + 4 > len(data):
         raise GltfError(f"{path}: truncated file while reading {what}")

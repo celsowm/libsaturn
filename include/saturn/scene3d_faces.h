@@ -30,18 +30,20 @@ typedef struct sat_scene3d_material {
     uint8_t color_calc_slot;
 } sat_scene3d_material_t;
 
+/* Paint order is NOT a field here: it lives in the scene's parallel key
+ * array, so ordering a frame moves two-byte indices instead of these
+ * multi-word records. */
 typedef struct sat_scene3d_face {
     sat_quad3_t world;
     sat_quad2_t projected;
     sat_scene3d_material_t material;
-    int64_t depth;
-    uint32_t sequence;
-    uint16_t pass;
     uint8_t projected_safe;
 } sat_scene3d_face_t;
 
 typedef struct sat_scene3d_faces {
     sat_scene3d_face_t* entries;
+    uint32_t* keys;
+    uint16_t* order;
     uint16_t capacity;
     uint16_t count;
     uint16_t width, height;
@@ -51,9 +53,12 @@ typedef struct sat_scene3d_faces {
     uint8_t active;
 } sat_scene3d_faces_t;
 
+/* All three buffers are caller-owned and must hold `capacity` entries:
+ * `storage` the faces, `keys` and `order` the painter's ordering scratch.
+ * The library allocates nothing. */
 sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
-    uint16_t capacity);
+    uint32_t* keys, uint16_t* order, uint16_t capacity);
 
 sat_result_t sat_scene3d_faces_begin(
     sat_scene3d_faces_t* scene, const sat_mat4_t* view_proj,

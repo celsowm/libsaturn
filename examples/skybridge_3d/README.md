@@ -174,11 +174,17 @@ The additional rendering safeguards are:
   to the native 320×224 screen before submitting VDP1 distorted sprites.
   The old near-only clip could produce enormous off-screen VDP1 raster
   commands even though the polygon was in front of the eye.
-- Patterned floor insets have no UV-aware clipper yet. Draw the textured
-  inset only if the **original four corners** survive the near plane
-  unchanged and its projected corners are entirely on-screen. A clipped
+- Patterned floor insets have no UV-aware clipper yet, because a VDP1
+  distorted sprite carries no per-vertex UVs. The **original four
+  corners** must still survive the near plane unchanged; a clipped
   triangle may also have `clipped_count == 1`, so count alone is NOT a
-  sufficient safety check. The clipped solid floor remains visible.
+  sufficient safety check. Off-screen corners, however, are fine: the
+  sprite goes out whole and the VDP1 system clipping trims it. Only a
+  quad stretched past roughly twice the viewport -- where projection
+  would clamp a corner and skew the texture across the quad -- falls
+  back to the pre-uploaded 2x2 subregions. Requiring the inset to be
+  entirely on-screen is what used to make the pattern vanish during a
+  jump and at the near edge of a deck.
 - When the chase camera is physically inside the **horizontal footprint
   of an already-passed, non-supporting deck**, avoid rendering that deck
   immediately around the eye. At the reported Z≈30 position, the camera

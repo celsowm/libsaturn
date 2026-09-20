@@ -177,13 +177,12 @@ extern "C" sat_result_t sat_draw_indexed_textured_quad3(
     const sat_result_t proj=sat_project_quad(p->view_proj,quad,&projected);
     if(proj==SAT_ERR_UNSUPPORTED) return SAT_OK;
     if(proj!=SAT_OK) return proj;
-    const int32_t min_x=-static_cast<int32_t>(p->width)/2;
-    const int32_t max_x=static_cast<int32_t>(p->width+1u)/2-1;
-    const int32_t min_y=-static_cast<int32_t>(p->height)/2;
-    const int32_t max_y=static_cast<int32_t>(p->height+1u)/2-1;
+    /* Partly off-screen is fine: the VDP1 system clipping trims the sprite.
+     * Only a corner so far out that projection would clamp it, or a sprite
+     * stretched well past the screen, is handed back to the caller. */
     for(uint8_t i=0u;i<4u;++i) {
-        if(projected.x[i]<min_x || projected.x[i]>max_x ||
-           projected.y[i]<min_y || projected.y[i]>max_y)
+        if(!saturn::core::render3d::coord_drawable(
+               projected.x[i],projected.y[i],p->width,p->height))
             return SAT_OK;
     }
 

@@ -32,7 +32,13 @@ struct MusicSlot {
     uint8_t staging_split[kMusicFeedBytes];
 };
 
-MusicSlot g_music[SAT_MUSIC_CAPACITY] = {};
+/* ~288 KB of ring and staging buffers. Charging that to Work RAM High
+ * would leave a program barely 300 KB for its own code and data, so the
+ * slots live in Work RAM Low, which crt0 zeroes exactly like .bss. Low
+ * RAM is the slower of the two, but a refill only runs once the SCSP has
+ * moved to the other 4096-sample half, so there is most of that half's
+ * time to copy -- orders of magnitude more than the copy costs. */
+MusicSlot g_music[SAT_MUSIC_CAPACITY] __attribute__((section(".wram_l"))) = {};
 
 uint32_t bytes_per_sample(uint8_t format) {
     if (format == SAT_AUDIO_PCM_S8) return 1u;
