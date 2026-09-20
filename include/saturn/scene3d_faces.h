@@ -2,7 +2,7 @@
 #define SATURN_SCENE3D_FACES_H
 
 #include <stdint.h>
-#include "saturn/mesh3d.h"
+#include "saturn/scene3d.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,6 +59,17 @@ sat_result_t sat_scene3d_faces_begin(
     sat_scene3d_faces_t* scene, const sat_mat4_t* view_proj,
     const sat_vec3_t* eye, const sat_vec3_t* forward,
     sat_fx16_t near_depth, uint16_t width, uint16_t height);
+
+/* Begin using the canonical camera; computes the normalized view forward
+ * once. The game no longer needs a second object-painter queue to obtain
+ * camera depth and should never calculate painter depth itself. */
+sat_result_t sat_scene3d_faces_begin_camera(
+    sat_scene3d_faces_t* scene,const sat_camera3d_t* camera,
+    sat_fx16_t near_depth,uint16_t width,uint16_t height);
+
+sat_result_t sat_scene3d_faces_depth(
+    const sat_scene3d_faces_t* scene,const sat_vec3_t* world,
+    sat_fx16_t* out_depth);
 
 /* Material is copied. Both methods are atomic on invalid input/capacity.
  * pass is an explicit artistic override, NOT an occlusion group: all objects

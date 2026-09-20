@@ -9,6 +9,11 @@ static uint16_t project_calls=0;
 static uint16_t projected_vertices=0;
 static uint16_t clipped_count=0;
 
+extern "C" void sat_vec3_normalize(sat_vec3_t* out,const sat_vec3_t* in) {
+    *out=*in;
+    if (in->z>0 && !in->x && !in->y) out->z=SAT_FX16_ONE;
+    else if (in->z<0 && !in->x && !in->y) out->z=-SAT_FX16_ONE;
+}
 extern "C" sat_result_t sat_mat4_transform_vec4(
     const sat_mat4_t* matrix,const sat_vec4_t* v,sat_vec4_t* out) {
     *out=*v;
@@ -112,7 +117,12 @@ int main() {
     assert(sat_scene3d_faces_submit_quad(&scene,&near,&near_mat,0u)==SAT_OK);
     assert(sat_scene3d_faces_submit_quad(&scene,&actor,&actor_mat,0u)==SAT_OK);
     assert(sat_scene3d_faces_submit_quad(&scene,&far,&far_mat,0u)==SAT_OK);
+    sat_fx16_t world_depth=0;
+    const sat_vec3_t depth_point={0,0,10*SAT_FX16_ONE};
+    assert(sat_scene3d_faces_depth(&scene,&depth_point,&world_depth)==SAT_OK);
+    assert(world_depth==10*SAT_FX16_ONE);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(sat_scene3d_faces_depth(&scene,&depth_point,&world_depth)==SAT_ERR_INVALID_ARG);
     assert(emitted_count==3u && emitted[0]==10u &&
            emitted[1]==30u && emitted[2]==20u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
@@ -157,6 +167,16 @@ int main() {
         &scene,&invalid_instance,screen,world)==SAT_ERR_INVALID_ARG);
     assert(scene.count==0u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    sat_camera3d_t camera={};
+    camera.eye=eye;camera.target=depth_point;camera.view_proj=vp;
+    assert(sat_scene3d_faces_begin_camera(
+        &scene,&camera,SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_depth(&scene,&depth_point,&world_depth)==SAT_OK);
+    assert(world_depth==10*SAT_FX16_ONE);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    camera.target=camera.eye;
+    assert(sat_scene3d_faces_begin_camera(
+        &scene,&camera,SAT_FX16_ONE,320u,224u)==SAT_ERR_INVALID_ARG);
     std::puts("scene3d_faces api: OK");
     return 0;
 }

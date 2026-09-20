@@ -126,6 +126,39 @@ extern "C" sat_result_t sat_scene3d_faces_begin(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_scene3d_faces_begin_camera(
+    sat_scene3d_faces_t* scene,const sat_camera3d_t* camera,
+    sat_fx16_t near_depth,uint16_t width,uint16_t height) {
+    if (!camera || (camera->eye.x==camera->target.x &&
+                    camera->eye.y==camera->target.y &&
+                    camera->eye.z==camera->target.z))
+        return SAT_ERR_INVALID_ARG;
+    const sat_vec3_t delta={
+        static_cast<sat_fx16_t>(camera->target.x-camera->eye.x),
+        static_cast<sat_fx16_t>(camera->target.y-camera->eye.y),
+        static_cast<sat_fx16_t>(camera->target.z-camera->eye.z)};
+    sat_vec3_t forward={};
+    sat_vec3_normalize(&forward,&delta);
+    return sat_scene3d_faces_begin(
+        scene,&camera->view_proj,&camera->eye,
+        &forward,near_depth,width,height);
+}
+
+extern "C" sat_result_t sat_scene3d_faces_depth(
+    const sat_scene3d_faces_t* scene,const sat_vec3_t* world,
+    sat_fx16_t* out_depth) {
+    if (!scene || !scene->active || !world || !out_depth)
+        return SAT_ERR_INVALID_ARG;
+    const int64_t depth=(
+        (static_cast<int64_t>(world->x)-scene->eye.x)*scene->forward.x+
+        (static_cast<int64_t>(world->y)-scene->eye.y)*scene->forward.y+
+        (static_cast<int64_t>(world->z)-scene->eye.z)*scene->forward.z
+    ) / SAT_FX16_ONE;
+    *out_depth=depth>INT32_MAX?INT32_MAX:
+               (depth<INT32_MIN?INT32_MIN:static_cast<sat_fx16_t>(depth));
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_scene3d_faces_submit_quad(
     sat_scene3d_faces_t* scene, const sat_quad3_t* world,
     const sat_scene3d_material_t* material, uint16_t pass) {
