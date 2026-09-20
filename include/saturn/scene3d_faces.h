@@ -15,13 +15,16 @@ extern "C" {
 typedef enum sat_scene3d_material_kind {
     SAT_SCENE3D_RGB = 0,
     SAT_SCENE3D_INDEXED_SOLID = 1,
-    SAT_SCENE3D_INDEXED_TEXTURED = 2
+    SAT_SCENE3D_INDEXED_TEXTURED = 2,
+    SAT_SCENE3D_INDEXED_TILED = 3
 } sat_scene3d_material_kind_t;
 
 typedef struct sat_scene3d_material {
     sat_scene3d_material_kind_t kind;
     uint16_t rgb555;
     const sat_vdp1_texture_t* texture;
+    /* Only used for INDEXED_TILED; descriptor must survive until flush. */
+    const sat_indexed_tiled_quad3_t* tiled;
     /* 255 = ordinary opaque sprite; 0..7 = previously configured VDP2 slot.
      * RGB polygon material does not support the indexed-sprite slots. */
     uint8_t color_calc_slot;
@@ -71,6 +74,18 @@ sat_result_t sat_scene3d_faces_submit_quad(
  * translation != NULL, world_scratch must also hold that many world vertices.
  * Projection is performed ONCE per vertex, never once per face.
  * Face materials index a caller-owned per-instance material table. */
+/* Reuses the renderer's box-face generator, not application-authored winding.
+ * Each wall/top enters the global painter independently. */
+sat_result_t sat_scene3d_faces_submit_box(
+    sat_scene3d_faces_t* scene, const sat_indexed_box3_t* box,
+    uint8_t color_calc_slot, uint16_t pass);
+
+/* A textured deck inset with pre-uploaded quadrant fallback. */
+sat_result_t sat_scene3d_faces_submit_tiled_quad(
+    sat_scene3d_faces_t* scene, const sat_quad3_t* world,
+    const sat_indexed_tiled_quad3_t* regions,
+    uint8_t color_calc_slot, uint16_t pass);
+
 sat_result_t sat_scene3d_faces_submit_mesh(
     sat_scene3d_faces_t* scene, const sat_mesh_t* mesh,
     const sat_vec3_t* translation,

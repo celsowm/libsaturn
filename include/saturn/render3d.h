@@ -114,6 +114,16 @@ typedef struct sat_indexed_box3 {
     const sat_vdp1_texture_t* z_material;
 } sat_indexed_box3_t;
 
+/* Exposes EXACTLY the same camera-facing faces used by the immediate box
+ * renderer. out_count is 2 below the deck or 3 above it. This geometry
+ * extraction allows a scene-wide painter to sort a box's faces together with
+ * actors and gems without reimplementing box winding in the game. */
+sat_result_t sat_indexed_box3_faces(
+    const sat_indexed_box3_t* box, const sat_vec3_t* eye,
+    sat_quad3_t out_faces[3],
+    const sat_vdp1_texture_t* out_materials[3],
+    uint8_t* out_count);
+
 sat_result_t sat_draw_indexed_box3(
     const sat_indexed_box3_t* box,
     const sat_indexed_solid_render3d_t* params

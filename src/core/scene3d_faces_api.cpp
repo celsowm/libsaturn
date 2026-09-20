@@ -9,6 +9,10 @@ namespace {
 bool valid_material(const sat_scene3d_material_t& m) {
     if (m.kind==SAT_SCENE3D_RGB)
         return m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE;
+    if (m.kind==SAT_SCENE3D_INDEXED_TILED)
+        return m.tiled && m.tiled->full && m.tiled->full->valid &&
+            (m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE ||
+             m.color_calc_slot<8u);
     if (m.kind!=SAT_SCENE3D_INDEXED_SOLID &&
         m.kind!=SAT_SCENE3D_INDEXED_TEXTURED) return false;
     return m.texture && m.texture->valid &&
@@ -67,7 +71,8 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
     }
     if (face.projected_safe) {
         sat_distorted_sprite_cmd_t cmd={};
-        cmd.texture=face.material.texture;
+        cmd.texture=face.material.kind==SAT_SCENE3D_INDEXED_TILED
+            ? face.material.tiled->full : face.material.texture;
         for (uint8_t i=0u;i<4u;++i) {
             cmd.x[i]=face.projected.x[i];
             cmd.y[i]=face.projected.y[i];
@@ -84,6 +89,9 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
     p.near_depth=scene.near_depth;
     p.width=scene.width;p.height=scene.height;
     p.color_calc_slot=face.material.color_calc_slot;
+    if (face.material.kind==SAT_SCENE3D_INDEXED_TILED)
+        return sat_draw_indexed_tiled_quad3(
+            &face.world,&p,face.material.tiled,nullptr);
     if (face.material.kind==SAT_SCENE3D_INDEXED_SOLID)
         return sat_draw_indexed_solid_quad3(
             &face.world,&p,face.material.texture);
@@ -130,6 +138,47 @@ extern "C" sat_result_t sat_scene3d_faces_submit_quad(
     if (st!=SAT_OK) return st;
     const uint16_t indices[4]={0u,1u,2u,3u};
     return append(scene,*world,screen,indices,*material,pass);
+}
+
+extern "C" sat_result_t sat_scene3d_faces_submit_box(
+    sat_scene3d_faces_t* scene, const sat_indexed_box3_t* box,
+    uint8_t color_calc_slot, uint16_t pass) {
+    if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    sat_quad3_t faces[3]={};
+    const sat_vdp1_texture_t* textures[3]={};
+    uint8_t count=0u;
+    const sat_result_t st=sat_indexed_box3_faces(
+        box,&scene->eye,faces,textures,&count);
+    if (st!=SAT_OK) return st;
+    if (count>scene->capacity-scene->count) return SAT_ERR_CAPACITY;
+    for (uint8_t i=0u;i<count;++i) {
+        sat_scene3d_material_t material={};
+        material.kind=SAT_SCENE3D_INDEXED_SOLID;
+        material.texture=textures[i];
+        material.color_calc_slot=color_calc_slot;
+        if (!valid_material(material)) return SAT_ERR_INVALID_ARG;
+    }
+    for (uint8_t i=0u;i<count;++i) {
+        sat_scene3d_material_t material={};
+        material.kind=SAT_SCENE3D_INDEXED_SOLID;
+        material.texture=textures[i];
+        material.color_calc_slot=color_calc_slot;
+        const sat_result_t submitted=sat_scene3d_faces_submit_quad(
+            scene,&faces[i],&material,pass);
+        if (submitted!=SAT_OK) return submitted;
+    }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_submit_tiled_quad(
+    sat_scene3d_faces_t* scene, const sat_quad3_t* world,
+    const sat_indexed_tiled_quad3_t* regions,
+    uint8_t color_calc_slot, uint16_t pass) {
+    sat_scene3d_material_t material={};
+    material.kind=SAT_SCENE3D_INDEXED_TILED;
+    material.tiled=regions;
+    material.color_calc_slot=color_calc_slot;
+    return sat_scene3d_faces_submit_quad(scene,world,&material,pass);
 }
 
 extern "C" sat_result_t sat_scene3d_faces_submit_mesh(

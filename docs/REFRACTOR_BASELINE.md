@@ -190,3 +190,5 @@ Likewise a canonical material registry with palette/texture deduplication,
 full-transform immutable instances, global UV-aware polygon subdivision,
 hardware command/time accounting, and emulator validation remain open.
 Do not claim exact ordering for intersecting faces: the VDP1 has no Z-buffer.
+
+- The indexed box renderer and scene-face painter now share a single face/winding generator; tiled indexed deck materials can be queued with the existing pre-uploaded UV-safe quadrant fallback. Skybridge migration and hardware validation are still outstanding.
