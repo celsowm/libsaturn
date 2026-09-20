@@ -209,3 +209,17 @@ palette/texture deduplication and Saturn emulator/hardware frame-time gates
 remain open. A platform can still intersect the camera or another polygon in
 a way that needs explicit scene partitioning. Do not mark full renderer
 unification complete until those are measured.
+
+## Fourteenth slice: single indexed solid resource pool
+
+Skybridge now registers platform, gem and imported pig shade colours through
+`sat_scene3d_solid_pool_t`. The pool deduplicates exact colours, uploads one
+8x8 indexed solid texture per distinct colour, assigns one material handle
+per unique shade and uploads the merged CRAM palette once. Platform/gem
+materials share the canonical pool; pig shade indices are mapped at startup
+to a local immutable material view backed by the SAME pooled texture handles.
+The former distinct fade and pig texture upload loops and duplicated palette
+upload have been removed. The scene painter still has deliberately distinct
+indexed/RGB/tiled effect descriptions because Saturn hardware does not
+support unrestricted alpha or UV clipping. Full animated-model instance
+ownership and visual/hardware gates remain open.

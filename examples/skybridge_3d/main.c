@@ -28,8 +28,7 @@
 #define FADE_PALETTE_BANK 4u
 #define FADE_OPAQUE 255u
 #define FADE_CULLED 254u
-#define PIG_PALETTE_BANK FADE_PALETTE_BANK
-#define PIG_PALETTE_INDEX_BASE (FADE_COLOR_COUNT + 1u)
+#define SCENE_MATERIAL_CAP (FADE_COLOR_COUNT + SKYBRIDGE_PIG_SHADE_COUNT)
 #define FADE_HYSTERESIS SB_F(2)
 #define SOUNDS 6u
 #define SOUND_LEN 2048u
@@ -53,8 +52,8 @@
 _Static_assert(SKYBRIDGE_PIG_VERTEX_COUNT <= PIG_VERTEX_CAP, "pig vertex budget");
 _Static_assert(SKYBRIDGE_PIG_FACE_COUNT <= PIG_FACE_CAP, "pig face budget");
 _Static_assert(SKYBRIDGE_PIG_ANIMATION_COUNT == 3u, "Walk Idle Jump clips required");
-_Static_assert(PIG_PALETTE_INDEX_BASE + SKYBRIDGE_PIG_SHADE_COUNT <= 256u,
-               "pig and fade palette must fit one indexed bank");
+_Static_assert(SCENE_MATERIAL_CAP <= 255u,
+               "shared indexed material pool must fit one palette bank");
 
 static sb_game_t g_game;
 static sat_ascii_font_t g_font;
@@ -66,12 +65,15 @@ static sat_indexed_tiled_quad3_t g_tile_regions[3];
 static uint8_t g_tile_quadrant_pixels[8u*8u];
 static sat_vdp1_texture_t g_cloud_texture;
 static uint8_t g_cloud_pixels[SB_CLOUD_W * SB_CLOUD_H];
-static sat_vdp1_texture_t g_fade_textures[FADE_COLOR_COUNT];
-static uint8_t g_fade_solid_pixels[16u*16u];
-static sat_vdp1_texture_t g_pig_textures[SKYBRIDGE_PIG_SHADE_COUNT];
-static sat_scene3d_material_t g_world_materials[FADE_COLOR_COUNT];
+/* One bounded colour/texture pool across world, gems and pig. Local pig
+ * shade-to-material view keeps the imported animation's immutable shade IDs. */
+static sat_vdp1_texture_t g_solid_textures[SCENE_MATERIAL_CAP];
+static sat_scene3d_material_t g_scene_materials[SCENE_MATERIAL_CAP];
 static sat_scene3d_material_t g_pig_materials[SKYBRIDGE_PIG_SHADE_COUNT];
-static uint8_t g_pig_solid_pixels[8u*8u];
+static uint16_t g_solid_colors[SCENE_MATERIAL_CAP];
+static uint16_t g_fade_material_ids[FADE_COLOR_COUNT];
+static uint8_t g_solid_pixels[8u*8u];
+static sat_scene3d_solid_pool_t g_solid_pool;
 static uint8_t g_active_fade_slot=FADE_OPAQUE;
 static uint8_t g_platform_fade[SB_PLATFORM_COUNT];
 static const sat_fade3d_t g_fade_policy={
@@ -222,15 +224,14 @@ static uint8_t fade_material(uint16_t c) {
         uint32_t distance=(uint32_t)(dr*dr+dg*dg+db*db);
         if(distance<best) {best=distance;chosen=i;if(!distance)break;}
     }
-    return chosen;
+    return (uint8_t)g_fade_material_ids[chosen];
 }
 /* Skybridge only selects a level material; the shared painter owns the
  * camera projection, per-face ordering, clipping and VDP1 submission. */
 static void put_quad(const sat_quad3_t* q, uint16_t c) {
     if(g_world_cmd_full) return;
-    const sat_scene3d_material_t material={
-        SAT_SCENE3D_INDEXED_SOLID,0u,
-        &g_fade_textures[fade_material(c)],0,g_active_fade_slot};
+    sat_scene3d_material_t material=g_scene_materials[fade_material(c)];
+    material.color_calc_slot=g_active_fade_slot;
     const sat_result_t st=sat_scene3d_faces_submit_quad(
         &g_face_scene,q,&material,0u);
     if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
@@ -262,9 +263,9 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
     sat_indexed_box3_t block={0};
     block.top_center=(sat_vec3_t){x,y,z};
     block.half_extents=(sat_vec3_t){hx,hy,hz};
-    block.top_material=&g_fade_textures[fade_material(top)];
-    block.x_material=&g_fade_textures[fade_material(xcolor)];
-    block.z_material=&g_fade_textures[fade_material(zcolor)];
+    block.top_material=g_scene_materials[fade_material(top)].texture;
+    block.x_material=g_scene_materials[fade_material(xcolor)].texture;
+    block.z_material=g_scene_materials[fade_material(zcolor)].texture;
     sat_result_t st=sat_scene3d_faces_submit_box(
         &g_face_scene,&block,g_active_fade_slot,0u);
     if(st==SAT_ERR_CAPACITY) {g_world_cmd_full=1u;return;}
@@ -305,8 +306,8 @@ static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
         SB_F(1)/2);
     const sat_vec3_t position={x,deck_y+SB_GEM_BASE_OFFSET+bob,z};
     const sat_result_t st=sat_scene3d_faces_submit_mesh(
-        &g_face_scene,&g_gem_mesh,&position,g_world_materials,
-        FADE_COLOR_COUNT,g_gem_materials,0u,0u,
+        &g_face_scene,&g_gem_mesh,&position,g_scene_materials,
+        g_solid_pool.count,g_gem_materials,0u,0u,
         g_gem_projected,g_gem_world_vertices);
     if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
     else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
@@ -724,40 +725,24 @@ static void draw_clouds(void) {
                 width[i],height[i],0u));
     }
 }
-static void init_fade_materials(void) {
-    uint16_t palette[256]={0};
-    uint8_t i;
-    for(i=0u;i<FADE_COLOR_COUNT;++i)
-        palette[i+1u]=g_fade_colors[i]; /* Match the RGB-coded CRAM format proven by distance_fade_3d. */
-    sat_example_must(sat_vdp1_set_erase_transparent());
-    sat_example_must(sat_palette_upload_indexed8(palette,FADE_PALETTE_BANK));
-    for(i=0u;i<FADE_COLOR_COUNT;++i) {
-        uint16_t n;
-        for(n=0u;n<256u;++n)g_fade_solid_pixels[n]=(uint8_t)(i+1u);
-        sat_example_must(sat_tex_upload_indexed8_pixels(
-            &g_fade_textures[i],g_fade_solid_pixels,16u,16u,FADE_PALETTE_BANK));
-        g_world_materials[i]=(sat_scene3d_material_t){
-            SAT_SCENE3D_INDEXED_SOLID,0u,&g_fade_textures[i],0,
-            SAT_INDEXED_SOLID_OPAQUE};
+static void init_scene_materials(void) {
+    sat_example_must(sat_scene3d_solid_pool_init(
+        &g_solid_pool,g_scene_materials,g_solid_textures,
+        g_solid_colors,g_solid_pixels,SCENE_MATERIAL_CAP,FADE_PALETTE_BANK));
+    /* Fade colours are registered first; world/gem material selectors share
+     * the same handles and every colour is uploaded once, regardless of
+     * how many platform faces, gems or pig shades reference it. */
+    for(uint16_t i=0u;i<FADE_COLOR_COUNT;++i) {
+        sat_example_must(sat_scene3d_solid_pool_register(
+            &g_solid_pool,g_fade_colors[i],&g_fade_material_ids[i]));
     }
-}
-static void init_pig_materials(void) {
-    uint16_t palette[256]={0};
-    uint16_t i,p;
-    for(i=0u;i<FADE_COLOR_COUNT;++i)
-        palette[i+1u]=g_fade_colors[i];
-    for(i=0u;i<SKYBRIDGE_PIG_SHADE_COUNT;++i)
-        palette[PIG_PALETTE_INDEX_BASE+i]=skybridge_pig_shade_palette[i];
-    sat_example_must(sat_palette_upload_indexed8(palette,PIG_PALETTE_BANK));
-    for(i=0u;i<SKYBRIDGE_PIG_SHADE_COUNT;++i) {
-        for(p=0u;p<sizeof(g_pig_solid_pixels);++p)
-            g_pig_solid_pixels[p]=(uint8_t)(PIG_PALETTE_INDEX_BASE+i);
-        sat_example_must(sat_tex_upload_indexed8_pixels(
-            &g_pig_textures[i],g_pig_solid_pixels,8u,8u,PIG_PALETTE_BANK));
-        g_pig_materials[i]=(sat_scene3d_material_t){
-            SAT_SCENE3D_INDEXED_SOLID,0u,&g_pig_textures[i],0,
-            SAT_INDEXED_SOLID_OPAQUE};
+    for(uint16_t i=0u;i<SKYBRIDGE_PIG_SHADE_COUNT;++i) {
+        uint16_t handle=0u;
+        sat_example_must(sat_scene3d_solid_pool_register(
+            &g_solid_pool,skybridge_pig_shade_palette[i],&handle));
+        g_pig_materials[i]=g_scene_materials[handle];
     }
+    sat_example_must(sat_scene3d_solid_pool_upload_palette(&g_solid_pool));
 }
 static void init_sky(void) {
     uint32_t x,y;
@@ -1000,7 +985,7 @@ int main(void) {
     loading_frame("INITIALIZING WORLD",5u);
     init_tile_texture();
     init_cloud_texture();
-    init_fade_materials();
+    init_scene_materials();
     /* Shared local-space octahedron: zero geometry construction in draw_gem. */
     {
         const sat_vec3_t origin={0,0,0};
@@ -1014,8 +999,7 @@ int main(void) {
     loading_frame("IMPORTING PIG",10u);
     sat_example_must(sat_model_validate(&skybridge_pig_asset));
     sat_example_must(sat_anim_validate(&skybridge_pig_anim_asset));
-    init_pig_materials();
-    sat_example_must(sat_mesh_init(&g_pig_mesh,
+     sat_example_must(sat_mesh_init(&g_pig_mesh,
         g_pig_vertices,PIG_VERTEX_CAP,g_pig_indices,PIG_FACE_CAP));
     sat_example_must(sat_model_copy_to_mesh(&skybridge_pig_asset,&g_pig_mesh));
     sat_example_must(sat_anim_state_init(
