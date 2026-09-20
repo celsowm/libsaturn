@@ -192,3 +192,20 @@ hardware command/time accounting, and emulator validation remain open.
 Do not claim exact ordering for intersecting faces: the VDP1 has no Z-buffer.
 
 - The indexed box renderer and scene-face painter now share a single face/winding generator; tiled indexed deck materials can be queued with the existing pre-uploaded UV-safe quadrant fallback. Skybridge migration and hardware validation are still outstanding.
+
+## Thirteenth slice: Skybridge uses scene-wide face submission
+
+Skybridge now begins one bounded face collector each frame. Existing object
+callbacks handle gameplay visibility/fade and submit geometry, but no longer
+emit the pig, gems, boxes, seesaws, trim, shadows or world quads immediately.
+The game uses the renderer's common box-face generator, typed indexed-sprite
+materials and the existing tiled material fallback; the animated pig projects
+each pose vertex once, while gems share immutable local octahedron geometry.
+All accepted faces are depth-sorted together at flush, before the reserved
+HUD pass. The old explicit object passes are still used to orchestrate stage
+visibility/callbacks, but no longer determine the face painter's occlusion.
+Exact intersection sorting, full static geometry partitioning, canonical
+palette/texture deduplication and Saturn emulator/hardware frame-time gates
+remain open. A platform can still intersect the camera or another polygon in
+a way that needs explicit scene partitioning. Do not mark full renderer
+unification complete until those are measured.

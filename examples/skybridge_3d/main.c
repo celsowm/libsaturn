@@ -45,6 +45,9 @@
 #define GEM_FACE_CAP 8u
 #define PIG_VERTEX_CAP 900u
 #define PIG_FACE_CAP 620u
+/* World faces + animated pig + all gems, with a bounded reserve for deck
+ * subdivision, braces, insets and near-camera clipping planning. */
+#define SCENE_FACE_CAP (PIG_FACE_CAP + SB_PICKUP_COUNT*GEM_FACE_CAP + SB_PLATFORM_COUNT*44u + 128u)
 /* The native GLB goes through tools/import_model.py at build time.
  * Fail visibly instead of silently recompiling an unexpectedly huge pig. */
 _Static_assert(SKYBRIDGE_PIG_VERTEX_COUNT <= PIG_VERTEX_CAP, "pig vertex budget");
@@ -59,12 +62,15 @@ static sat_vdp1_texture_t g_tile_textures[3];
 /* 2x2 8x8 slices of each 16x16 patterned top inset, uploaded at startup.
  * Extra VRAM: 3 themes * 4 tiles * 64 bytes = 768 bytes (INDEX8). */
 static sat_vdp1_texture_t g_tile_quadrants[3][4];
+static sat_indexed_tiled_quad3_t g_tile_regions[3];
 static uint8_t g_tile_quadrant_pixels[8u*8u];
 static sat_vdp1_texture_t g_cloud_texture;
 static uint8_t g_cloud_pixels[SB_CLOUD_W * SB_CLOUD_H];
 static sat_vdp1_texture_t g_fade_textures[FADE_COLOR_COUNT];
 static uint8_t g_fade_solid_pixels[16u*16u];
 static sat_vdp1_texture_t g_pig_textures[SKYBRIDGE_PIG_SHADE_COUNT];
+static sat_scene3d_material_t g_world_materials[FADE_COLOR_COUNT];
+static sat_scene3d_material_t g_pig_materials[SKYBRIDGE_PIG_SHADE_COUNT];
 static uint8_t g_pig_solid_pixels[8u*8u];
 static uint8_t g_active_fade_slot=FADE_OPAQUE;
 static uint8_t g_platform_fade[SB_PLATFORM_COUNT];
@@ -107,28 +113,27 @@ static sat_vec3_t g_eye, g_target, g_camera_anchor;
  * No world-painter/actor-painter arrays or per-game depth math remain. */
 static sat_scene3d_queue_item_t g_scene_items[SCENE_OBJECT_CAP];
 static sat_scene3d_queue_t g_scene;
+/* All visible geometry enters one face painter; object queue retains
+ * only its visibility/fade selection and callback orchestration. */
+static sat_scene3d_face_t g_face_items[SCENE_FACE_CAP] __attribute__((section(".wram_l")));
+static sat_scene3d_faces_t g_face_scene;
 static uint8_t g_stage_ids[SB_PLATFORM_COUNT];
 static uint8_t g_stage_frame_slot[SB_PLATFORM_COUNT];
 /* Imported-and-simplified user GLB: caller-owned model, pose and painter
  * scratch. Static mesh indices are copied ONCE; animated vertices are
  * decoded in place on each frame and then transformed into world space. */
 /* One immutable local-space gem mesh shared by every collectible; the game
- * updates only instance position/bob. Once the unified material renderer is
- * ready, its existing near/screen-safe indexed face submission below can
- * move out of this example as well. */
+ * updates only its instance position/bob. Renderer owns facet submission. */
 static sat_vec3_t g_gem_vertices[GEM_VERTEX_CAP];
 static uint16_t g_gem_indices[GEM_FACE_CAP * 4u];
 static sat_mesh_t g_gem_mesh;
 static uint16_t g_gem_materials[GEM_FACE_CAP];
-static uint16_t g_gem_order[GEM_FACE_CAP];
-static uint32_t g_gem_depth[GEM_FACE_CAP];
+static sat_projected_vertex_t g_gem_projected[GEM_VERTEX_CAP];
+static sat_vec3_t g_gem_world_vertices[GEM_VERTEX_CAP];
 static sat_vec3_t g_pig_vertices[PIG_VERTEX_CAP];
 static uint16_t g_pig_indices[PIG_FACE_CAP*4u];
 static sat_mesh_t g_pig_mesh;
-static uint8_t g_pig_order[PIG_FACE_CAP];
-static uint16_t g_pig_order16[PIG_FACE_CAP];
-static uint32_t g_pig_depth[PIG_FACE_CAP];
-static sat_projected_vertex_t g_pig_projected[PIG_VERTEX_CAP];
+ static sat_projected_vertex_t g_pig_projected[PIG_VERTEX_CAP];
 static uint16_t g_pig_face_textures[PIG_FACE_CAP];
 static sat_anim_state_t g_pig_anim;
 
@@ -219,24 +224,15 @@ static uint8_t fade_material(uint16_t c) {
     }
     return chosen;
 }
-/* World clipping, projection, screen clipping and VDP1 command setup belong
- * to the LibSaturn renderer; this wrapper only chooses the level material. */
-static sat_indexed_solid_render3d_t world_render(uint8_t slot) {
-    sat_indexed_solid_render3d_t render={0};
-    render.view_proj=&g_vp;
-    render.eye=g_eye;
-    render.forward=g_scene.forward;
-    render.near_depth=SB_F(8);
-    render.width=W;
-    render.height=H;
-    render.color_calc_slot=slot;
-    return render;
-}
+/* Skybridge only selects a level material; the shared painter owns the
+ * camera projection, per-face ordering, clipping and VDP1 submission. */
 static void put_quad(const sat_quad3_t* q, uint16_t c) {
     if(g_world_cmd_full) return;
-    const sat_indexed_solid_render3d_t draw=world_render(g_active_fade_slot);
-    const sat_result_t st=sat_draw_indexed_solid_quad3(
-        q,&draw,&g_fade_textures[fade_material(c)]);
+    const sat_scene3d_material_t material={
+        SAT_SCENE3D_INDEXED_SOLID,0u,
+        &g_fade_textures[fade_material(c)],0,g_active_fade_slot};
+    const sat_result_t st=sat_scene3d_faces_submit_quad(
+        &g_face_scene,q,&material,0u);
     if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
     else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
@@ -269,8 +265,8 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
     block.top_material=&g_fade_textures[fade_material(top)];
     block.x_material=&g_fade_textures[fade_material(xcolor)];
     block.z_material=&g_fade_textures[fade_material(zcolor)];
-    sat_indexed_solid_render3d_t draw=world_render(g_active_fade_slot);
-    sat_result_t st=sat_draw_indexed_box3(&block,&draw);
+    sat_result_t st=sat_scene3d_faces_submit_box(
+        &g_face_scene,&block,g_active_fade_slot,0u);
     if(st==SAT_ERR_CAPACITY) {g_world_cmd_full=1u;return;}
     if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
     /* Decorative inset remains level-owned, not a fake collision surface. */
@@ -283,12 +279,8 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
         return;
     }
     const uint8_t theme=trim==1u?0u:(trim==3u?1u:2u);
-    const sat_indexed_tiled_quad3_t regions={
-        &g_tile_textures[theme],
-        {&g_tile_quadrants[theme][0],&g_tile_quadrants[theme][1],
-         &g_tile_quadrants[theme][2],&g_tile_quadrants[theme][3]}
-    };
-    st=sat_draw_indexed_tiled_quad3(&q,&draw,&regions,0);
+    st=sat_scene3d_faces_submit_tiled_quad(
+        &g_face_scene,&q,&g_tile_regions[theme],g_active_fade_slot,0u);
     if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
     else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
@@ -311,25 +303,13 @@ static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
     const int32_t bob=sat_fx16_mul(
         sat_sin_deg(SB_F((int32_t)(g_game.ticks*5u+id*33u)%360)),
         SB_F(1)/2);
-    sat_indexed_solid_mesh3d_draw_t draw={0};
-    draw.render.view_proj=&g_vp;
-    draw.render.eye=g_eye;
-    draw.render.forward=g_scene.forward;
-    draw.render.near_depth=SB_F(8);
-    draw.render.width=W;
-    draw.render.height=H;
-    draw.render.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
-    draw.position=(sat_vec3_t){x,deck_y+SB_GEM_BASE_OFFSET+bob,z};
-    draw.textures=g_fade_textures;
-    draw.texture_count=FADE_COLOR_COUNT;
-    draw.face_materials=g_gem_materials;
-    draw.order=g_gem_order;
-    draw.depth=g_gem_depth;
-    {
-        sat_result_t st=sat_draw_indexed_solid_mesh3(&g_gem_mesh,&draw);
-        if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
-        else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
-    }
+    const sat_vec3_t position={x,deck_y+SB_GEM_BASE_OFFSET+bob,z};
+    const sat_result_t st=sat_scene3d_faces_submit_mesh(
+        &g_face_scene,&g_gem_mesh,&position,g_world_materials,
+        FADE_COLOR_COUNT,g_gem_materials,0u,0u,
+        g_gem_projected,g_gem_world_vertices);
+    if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
+    else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
 /* An actual hinged 3D deck: the two long ends use the SAME 16.16
  * surface-height function as the landing solver. It is a sloped quad,
@@ -505,7 +485,6 @@ static void player_pig(void) {
     if(g_world_cmd_full) return;
     sat_model_transform3d_t pose;
     sat_mat4_t world;
-    sat_mesh_draw_t draw;
     sat_model_transform3d_identity(&pose);
     pose.position=(sat_vec3_t){g_game.x,
         g_game.y-SB_F(1)/2,g_game.z};
@@ -521,20 +500,12 @@ static void player_pig(void) {
     sat_example_must(sat_anim_prepare_model_instance(
         &skybridge_pig_anim_asset,&g_pig_anim,&world,&g_pig_mesh,
         g_pig_face_textures,PIG_FACE_CAP,SKYBRIDGE_PIG_SHADE_COUNT));
-    sat_example_must(sat_model_bind_draw_ex(
-        &skybridge_pig_asset,&g_pig_mesh,g_pig_textures,
-        SKYBRIDGE_PIG_SHADE_COUNT,
-        &g_vp,&g_eye,SAT_RGB555(31,20,25),0,0,
-        SAT_MESH_CULL_BACKFACE|SAT_MESH_SORT,
-        g_pig_order,g_pig_order16,g_pig_depth,&draw));
-    draw.face_texture_indices=g_pig_face_textures;
-    draw.screen=g_pig_projected;
-    draw.vertex_gouraud=0;
-    {
-        const sat_result_t st=sat_draw_mesh(&g_pig_mesh,&draw);
-        if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
-        else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
-    }
+    const sat_result_t st=sat_scene3d_faces_submit_mesh(
+        &g_face_scene,&g_pig_mesh,0,g_pig_materials,
+        SKYBRIDGE_PIG_SHADE_COUNT,g_pig_face_textures,0u,1u,
+        g_pig_projected,0);
+    if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
+    else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
 }
 /* Each platform owns its previous quantized level. Once within two units
  * of a transition, keep the old state until the camera actually crosses
@@ -604,12 +575,12 @@ static void draw_world(void) {
     camera.far_z=SB_F(250);
     camera.view_proj=g_vp;  /* already calculated once in the frame loop */
     sat_example_must(sat_scene3d_queue_begin(&g_scene,&camera));
+    sat_example_must(sat_scene3d_faces_begin(
+        &g_face_scene,&g_vp,&g_eye,&g_scene.forward,SB_F(8),W,H));
 
-    /* The large deck geometry still uses an explicit painter pass, with the
-     * supporting platform drawn after other decks: subdividing intersecting
-     * decks for exact visibility is outside this small Saturn sample.
-     * Pig and gems share pass 2, where the queue sorts them by actual 3D
-     * camera-space depth and the gem can correctly appear IN FRONT. */
+    /* The object passes only choose callback preparation order; every
+     * submitted platform/pig/gem face uses face-painter pass 0. Distinct
+     * polygons are globally ordered regardless of their object callback. */
     for(i=0u;i<SB_PLATFORM_COUNT;++i) {
         const sb_platform_t* p=&sb_course_platforms(&g_game)[i];
         sat_vec3_t center;
@@ -672,6 +643,9 @@ static void draw_world(void) {
             &g_scene,&center,SCENE_PASS_ACTOR,draw_gem_item,&g_stage_ids[i]));
     }
     sat_example_must(sat_scene3d_queue_flush(&g_scene));
+    /* The object callbacks only QUEUE geometry. Faces of decks, pig and
+     * gems now share one far-to-near painter before the protected HUD. */
+    sat_example_must(sat_scene3d_faces_flush(&g_face_scene));
 }
 static void init_tile_texture(void) {
     static const uint8_t banks[3]={3u,5u,6u};
@@ -705,6 +679,9 @@ static void init_tile_texture(void) {
             g_tile_pixels,16u,16u,16u,banks[theme],
             g_tile_quadrants[theme],g_tile_quadrant_pixels,
             sizeof(g_tile_quadrant_pixels)));
+        g_tile_regions[theme].full=&g_tile_textures[theme];
+        for(uint8_t tile=0u;tile<4u;++tile)
+            g_tile_regions[theme].tiles[tile]=&g_tile_quadrants[theme][tile];
     }
 }
 static void init_cloud_texture(void) {
@@ -759,6 +736,9 @@ static void init_fade_materials(void) {
         for(n=0u;n<256u;++n)g_fade_solid_pixels[n]=(uint8_t)(i+1u);
         sat_example_must(sat_tex_upload_indexed8_pixels(
             &g_fade_textures[i],g_fade_solid_pixels,16u,16u,FADE_PALETTE_BANK));
+        g_world_materials[i]=(sat_scene3d_material_t){
+            SAT_SCENE3D_INDEXED_SOLID,0u,&g_fade_textures[i],0,
+            SAT_INDEXED_SOLID_OPAQUE};
     }
 }
 static void init_pig_materials(void) {
@@ -774,6 +754,9 @@ static void init_pig_materials(void) {
             g_pig_solid_pixels[p]=(uint8_t)(PIG_PALETTE_INDEX_BASE+i);
         sat_example_must(sat_tex_upload_indexed8_pixels(
             &g_pig_textures[i],g_pig_solid_pixels,8u,8u,PIG_PALETTE_BANK));
+        g_pig_materials[i]=(sat_scene3d_material_t){
+            SAT_SCENE3D_INDEXED_SOLID,0u,&g_pig_textures[i],0,
+            SAT_INDEXED_SOLID_OPAQUE};
     }
 }
 static void init_sky(void) {
@@ -1003,6 +986,8 @@ int main(void) {
     sb_init(&g_game);
     sat_example_must(sat_scene3d_queue_init(
         &g_scene,g_scene_items,SCENE_OBJECT_CAP));
+    sat_example_must(sat_scene3d_faces_init(
+        &g_face_scene,g_face_items,SCENE_FACE_CAP));
     {uint8_t i;for(i=0u;i<SB_PLATFORM_COUNT;++i) {
         g_stage_ids[i]=i;
         g_platform_fade[i]=FADE_OPAQUE;

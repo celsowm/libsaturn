@@ -59,9 +59,11 @@ def assert_skybridge_uses_renderer_and_overlay_budget() -> None:
     text = source("skybridge_3d")
     for symbol in (
         "sat_mesh_build_octahedron(",
-        "sat_draw_indexed_solid_mesh3(",
-        "sat_draw_indexed_tiled_quad3(",
-        "sat_draw_indexed_box3(",
+        "sat_scene3d_faces_submit_mesh(",
+        "sat_scene3d_faces_submit_quad(",
+        "sat_scene3d_faces_submit_tiled_quad(",
+        "sat_scene3d_faces_submit_box(",
+        "sat_scene3d_faces_flush(",
         "sat_anim_prepare_model_instance(",
         "sat_upload_indexed8_quadrants(",
         "sat_vdp1_reserve_overlay_commands(",
@@ -74,6 +76,12 @@ def assert_skybridge_uses_renderer_and_overlay_budget() -> None:
     )
     assert "sat_clip_quad_screen(" not in text, (
         "Skybridge must not implement independent screen-space clipping"
+    )
+    assert "sat_draw_mesh(" not in text and "sat_draw_indexed_solid_mesh3(" not in text, (
+        "Skybridge must submit all model faces to the shared painter"
+    )
+    assert "sat_draw_indexed_box3(" not in text, (
+        "Box faces belong to the shared face painter"
     )
     assert "pquad(&q,rx,y,bz" not in text, (
         "Box face winding belongs to the renderer, not to Skybridge"
