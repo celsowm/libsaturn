@@ -1,4 +1,5 @@
 #include "saturn/scene3d_faces.h"
+#include "saturn/vdp1_color_calc.h"
 #include "src/core/scene3d_faces_logic.hpp"
 #include "src/core/render3d_logic.hpp"
 
