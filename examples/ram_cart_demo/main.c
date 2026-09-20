@@ -13,8 +13,8 @@ static void line(const char* text, int y) {
         &font, text, 8, y, 8, SAT_COLOR_WHITE, 0u);
 }
 static void number(const char* label, uint32_t value, int y) {
-    char output[40];
-    if (sat_fmt_label_u32(label, value, output, sizeof(output), 0u) == SAT_OK) line(output, y);
+    (void)sat_ascii_font_draw_label_u32(
+        &font, label, value, 8, y, 8, SAT_COLOR_WHITE, 0u);
 }
 int main(void) {
     if (sat_app_init_default() != SAT_OK) return 1;

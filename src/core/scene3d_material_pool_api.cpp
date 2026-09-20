@@ -49,6 +49,43 @@ extern "C" sat_result_t sat_scene3d_solid_pool_register(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_scene3d_solid_pool_find_nearest_in(
+    const sat_scene3d_solid_pool_t* pool, uint16_t rgb555,
+    uint16_t first, uint16_t count, uint16_t* out_material_index) {
+    if (!pool || !pool->colors || !out_material_index)
+        return SAT_ERR_INVALID_ARG;
+    if (static_cast<uint32_t>(first)+count > pool->count)
+        return SAT_ERR_INVALID_ARG;
+    if (!count) return SAT_ERR_NOT_FOUND;
+    uint16_t chosen=first;
+    uint32_t best=0xFFFFFFFFu;
+    for (uint16_t i=first;i<first+count;++i) {
+        const uint16_t candidate=pool->colors[i];
+        const int32_t dr=static_cast<int32_t>(rgb555&31u)-
+                         static_cast<int32_t>(candidate&31u);
+        const int32_t dg=static_cast<int32_t>((rgb555>>5u)&31u)-
+                         static_cast<int32_t>((candidate>>5u)&31u);
+        const int32_t db=static_cast<int32_t>((rgb555>>10u)&31u)-
+                         static_cast<int32_t>((candidate>>10u)&31u);
+        const uint32_t distance=static_cast<uint32_t>(dr*dr+dg*dg+db*db);
+        if (distance<best) {
+            best=distance;
+            chosen=i;
+            if (!distance) break; /* Exact match; nothing can be nearer. */
+        }
+    }
+    *out_material_index=chosen;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_solid_pool_find_nearest(
+    const sat_scene3d_solid_pool_t* pool, uint16_t rgb555,
+    uint16_t* out_material_index) {
+    if (!pool) return SAT_ERR_INVALID_ARG;
+    return sat_scene3d_solid_pool_find_nearest_in(
+        pool,rgb555,0u,pool->count,out_material_index);
+}
+
 extern "C" sat_result_t sat_scene3d_solid_pool_upload_palette(
     const sat_scene3d_solid_pool_t* pool) {
     if (!pool || !pool->materials || !pool->textures || !pool->colors ||

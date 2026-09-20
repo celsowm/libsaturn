@@ -92,10 +92,8 @@ static void label(const char* text, int16_t x, int16_t y) {
 }
 
 static void stat(const char* prefix, uint32_t n, int16_t x, int16_t y) {
-    char text[40];
-    if (sat_fmt_label_u32(prefix, n, text, sizeof(text), 0u) == SAT_OK) {
-        label(text, x, y);
-    }
+    sat_example_must(sat_ascii_font_draw_label_u32(
+        &g_font, prefix, n, x, y, 8u, 0u, 0u));
 }
 
 int main(void) {

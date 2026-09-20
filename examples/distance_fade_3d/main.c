@@ -87,6 +87,10 @@ static demo_mode_t g_mode = DEMO_FADE_8;
 static uint16_t g_visible_count;
 static uint16_t g_culled_count;
 static uint8_t g_last_slot;
+/* One byte per object, remembering the slot it was last drawn at. This is
+ * what sat_fade3d_slot needs to keep an object from flickering between two
+ * slots while the auto-camera drifts across a transition. */
+static uint8_t g_object_fade[OBJECT_COUNT];
 
 static const int16_t kObjectX[OBJECT_COUNT] = {
     -12, 0, 12, -8, 8, -12, 0, 12, -8, 8, -12, 12
@@ -189,6 +193,11 @@ static void compute_camera(void) {
 static void update_input(const sat_pad_state_t* pad) {
     if ((pad->pressed & SAT_PAD_A) != 0u) {
         g_mode = (demo_mode_t)(((uint8_t)g_mode + 1u) % (uint8_t)DEMO_MODE_COUNT);
+        /* The slot stride changes with the mode, so a slot remembered under
+         * the previous mapping no longer means anything. */
+        for (uint16_t o = 0u; o < OBJECT_COUNT; ++o) {
+            g_object_fade[o] = SAT_INDEXED_SOLID_OPAQUE;
+        }
     }
     if ((pad->pressed & SAT_PAD_B) != 0u) {
         g_auto_camera = (uint8_t)!g_auto_camera;
@@ -218,11 +227,21 @@ static void update_input(const sat_pad_state_t* pad) {
     }
 }
 
-static uint8_t slot_for_level(uint8_t level) {
-    if (g_mode == DEMO_FADE_4) {
-        return (uint8_t)(level * 2u); /* 0,2,4,6 */
-    }
-    return level; /* 0..7 */
+/* Four levels are spread across the eight hardware slots (0,2,4,6) so the
+ * coarser mode still reaches full transparency; eight levels map one to one.
+ * The stride, the quantization and the anti-flicker band are all the
+ * library's, so this only describes the demo's intent. */
+static sat_fade3d_slots_t fade_config(void) {
+    sat_fade3d_slots_t cfg = {};
+    cfg.policy.start = FADE_START;
+    cfg.policy.end = FADE_END;
+    cfg.policy.levels = (g_mode == DEMO_FADE_4) ? 4u : 8u;
+    cfg.policy.flags = SAT_FADE3D_CULL_AFTER_END;
+    cfg.hysteresis = FX(4);
+    cfg.base_slot = 0u;
+    cfg.slot_stride = (g_mode == DEMO_FADE_4) ? 2u : 1u;
+    cfg.opaque_before_start = 1u;
+    return cfg;
 }
 
 static void draw_object(uint16_t index) {
@@ -232,8 +251,6 @@ static void draw_object(uint16_t index) {
     sat_projected_vertex_t projected_center;
     sat_quad3_t world;
     sat_quad2_t projected;
-    sat_fade3d_result_t fade_result = {};
-    sat_fade3d_t fade;
     sat_result_t st;
     uint8_t use_color_calc = 0u;
     uint8_t slot = 0u;
@@ -250,18 +267,16 @@ static void draw_object(uint16_t index) {
             return;
         }
     } else if (g_mode == DEMO_FADE_4 || g_mode == DEMO_FADE_8) {
-        fade.start = FADE_START;
-        fade.end = FADE_END;
-        fade.levels = (g_mode == DEMO_FADE_4) ? 4u : 8u;
-        fade.flags = SAT_FADE3D_CULL_AFTER_END;
-        fade.reserved = 0u;
-        st = sat_fade3d_eval(&fade, projected_center.w, &fade_result);
-        if (st != SAT_OK || fade_result.culled != 0u) {
+        const sat_fade3d_slots_t cfg = fade_config();
+        uint8_t resolved = SAT_INDEXED_SOLID_OPAQUE;
+        st = sat_fade3d_slot(&cfg, projected_center.w,
+                             &g_object_fade[index], &resolved);
+        if (st != SAT_OK || resolved == SAT_FADE3D_SLOT_CULLED) {
             ++g_culled_count;
             return;
         }
-        if (projected_center.w > FADE_START) {
-            slot = slot_for_level(fade_result.level);
+        if (resolved != SAT_INDEXED_SOLID_OPAQUE) {
+            slot = resolved;
             use_color_calc = 1u;
             g_last_slot = slot;
         }
@@ -361,6 +376,11 @@ int main(void) {
         &g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, FONT_PALETTE));
     sat_example_must(sat_vdp1_set_erase_transparent());
     init_color_calc();
+    /* Every object starts opaque; sat_fade3d_slot reads this back as the
+     * previous slot when deciding whether a transition has been crossed. */
+    for (uint16_t o = 0u; o < OBJECT_COUNT; ++o) {
+        g_object_fade[o] = SAT_INDEXED_SOLID_OPAQUE;
+    }
 
     for (;;) {
         sat_pad_state_t pad = {0};

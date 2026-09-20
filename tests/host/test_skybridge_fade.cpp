@@ -26,6 +26,47 @@ int main() {
     assert(saturn::core::fade3d::eval(&fade,SB_F(134),&state)==SAT_OK);
     assert(state.culled==1u); /* Cull only after nearly transparent slot 7. */
 
+    /* The example's actual configuration, now that quantization, the
+       level-to-slot mapping and the anti-flicker band are all library-side.
+       Only "the deck under the player stays opaque" is left in the game. */
+    sat_fade3d_slots_t slots={};
+    slots.policy=fade;
+    slots.hysteresis=SB_F(2);
+    slots.base_slot=0u;
+    slots.slot_stride=1u;
+    slots.opaque_before_start=1u;
+    uint8_t resolved=0u;
+    assert(saturn::core::fade3d::slot(
+        &slots,SB_F(30),nullptr,&resolved)==SAT_OK);
+    assert(resolved==SAT_INDEXED_SOLID_OPAQUE); /* Nearer than FADE_START. */
+    assert(saturn::core::fade3d::slot(
+        &slots,SB_F(134),nullptr,&resolved)==SAT_OK);
+    assert(resolved==SAT_FADE3D_SLOT_CULLED);
+    for(int d=67;d<134;++d) {
+        assert(saturn::core::fade3d::slot(
+            &slots,SB_F(d),nullptr,&resolved)==SAT_OK);
+        assert(resolved<8u); /* Every drawn deck lands on a real slot. */
+    }
+
+    /* A deck must not flicker between two slots while the chase camera eases
+       across a transition, which is the whole point of carrying per-deck
+       state. Slot 3 spans depths [92,100) for this policy. */
+    uint8_t deck=SAT_INDEXED_SOLID_OPAQUE;
+    assert(saturn::core::fade3d::slot(&slots,SB_F(96),&deck,&resolved)==SAT_OK);
+    const uint8_t settled=resolved;
+    for(int sweep=0;sweep<3;++sweep) {
+        for(int d=99;d<=101;++d) {
+            assert(saturn::core::fade3d::slot(
+                &slots,SB_F(d),&deck,&resolved)==SAT_OK);
+            assert(resolved==settled);
+        }
+        for(int d=101;d>=99;--d) {
+            assert(saturn::core::fade3d::slot(
+                &slots,SB_F(d),&deck,&resolved)==SAT_OK);
+            assert(resolved==settled);
+        }
+    }
+
     /* Sprite selector 0 remains normal/opaque priority 7, selector 1 fades
        at priority 6. RBG0 in Skybridge is priority 5, so remains blendable. */
     assert(saturn::core::vdp2_color_calc::compose_prisa(7u)==0x0607u);

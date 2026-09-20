@@ -131,6 +131,51 @@ TEST(label_respects_capacity) {
               SAT_ERR_INVALID_ARG);
 }
 
+TEST(fx16_signs_and_decimals) {
+    char buf[24];
+    uint16_t len = 0;
+    ASSERT_EQ(write_fx16(65536, 1u, buf, sizeof(buf), &len), SAT_OK);
+    ASSERT_STR(buf, "1.0");
+    ASSERT_EQ(len, 3);
+    /* The sign must survive a zero integer part: a falling object at -0.3
+     * must not read as 0.3. */
+    ASSERT_EQ(write_fx16(-(65536 / 10 * 3), 1u, buf, sizeof(buf), nullptr), SAT_OK);
+    ASSERT_STR(buf, "-0.2"); /* 0.29999 truncated, not rounded */
+    ASSERT_EQ(write_fx16(-65536, 1u, buf, sizeof(buf), nullptr), SAT_OK);
+    ASSERT_STR(buf, "-1.0");
+    ASSERT_EQ(write_fx16(0, 1u, buf, sizeof(buf), nullptr), SAT_OK);
+    ASSERT_STR(buf, "0.0");
+    /* Zero decimals writes no separator at all. */
+    ASSERT_EQ(write_fx16(-(65536 * 12), 0u, buf, sizeof(buf), nullptr), SAT_OK);
+    ASSERT_STR(buf, "-12");
+    /* Leading zeros inside the fraction are kept. */
+    ASSERT_EQ(write_fx16(65536 + 65536 / 100, 2u, buf, sizeof(buf), nullptr), SAT_OK);
+    ASSERT_STR(buf, "1.00");
+    ASSERT_EQ(write_fx16(65536 * 5 + 65536 / 4, 2u, buf, sizeof(buf), nullptr), SAT_OK);
+    ASSERT_STR(buf, "5.25");
+}
+
+TEST(fx16_truncates_rather_than_rounding_up) {
+    char buf[24];
+    /* 0.99 must not print as "1.0" beside a whole part that still says 0. */
+    ASSERT_EQ(write_fx16(65536 - 1, 1u, buf, sizeof(buf), nullptr), SAT_OK);
+    ASSERT_STR(buf, "0.9");
+    ASSERT_EQ(write_fx16(-(65536 - 1), 2u, buf, sizeof(buf), nullptr), SAT_OK);
+    ASSERT_STR(buf, "-0.99");
+}
+
+TEST(fx16_rejects_bad_arguments) {
+    char buf[24];
+    ASSERT_EQ(write_fx16(0, 1u, nullptr, sizeof(buf), nullptr), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(write_fx16(0, 1u, buf, 0u, nullptr), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(write_fx16(0, 5u, buf, sizeof(buf), nullptr), SAT_ERR_INVALID_ARG);
+    /* "1.0" + NUL needs 4 bytes; 3 is one short and must write nothing. */
+    ASSERT_EQ(write_fx16(65536, 1u, buf, 4u, nullptr), SAT_OK);
+    ASSERT_EQ(write_fx16(65536, 1u, buf, 3u, nullptr), SAT_ERR_CAPACITY);
+    /* Room for the sign alone is not room for the number. */
+    ASSERT_EQ(write_fx16(-65536, 1u, buf, 1u, nullptr), SAT_ERR_CAPACITY);
+}
+
 int main() {
     u32_basic_values();
     u32_exact_capacity_boundary();
@@ -142,7 +187,10 @@ int main() {
     padded_rejects_bad_arguments();
     label_concatenation();
     label_respects_capacity();
+    fx16_signs_and_decimals();
+    fx16_truncates_rather_than_rounding_up();
+    fx16_rejects_bad_arguments();
 
-    printf("PASS: test_fmt_logic.cpp (%d tests)\n", 10);
+    printf("PASS: test_fmt_logic.cpp (%d tests)\n", 13);
     return 0;
 }

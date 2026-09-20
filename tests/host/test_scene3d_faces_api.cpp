@@ -4,6 +4,9 @@
 #include "saturn/scene3d_faces.h"
 
 static uint16_t emitted[64]={};
+/* The slot each emission carried, so an instance-wide override can be checked
+ * face by face rather than only "it drew something". */
+static uint8_t emitted_slot[64]={};
 static uint16_t emitted_count=0;
 static uint16_t project_calls=0;
 static uint16_t projected_vertices=0;
@@ -34,12 +37,14 @@ extern "C" sat_result_t sat_project_vertices(
 }
 extern "C" sat_result_t sat_draw_sprite_distorted(
     const sat_distorted_sprite_cmd_t* cmd) {
+    emitted_slot[emitted_count]=SAT_INDEXED_SOLID_OPAQUE;
     emitted[emitted_count++]=cmd->texture->srca;
     return SAT_OK;
 }
 extern "C" sat_result_t sat_draw_sprite_distorted_color_calc(
     const sat_distorted_sprite_cmd_t* cmd,uint8_t slot) {
     assert(slot<8u);
+    emitted_slot[emitted_count]=slot;
     emitted[emitted_count++]=cmd->texture->srca;
     return SAT_OK;
 }
@@ -157,7 +162,7 @@ int main() {
         &mesh,materials,2u,per_face,&translation,0u,0u};
     const uint16_t calls_before=project_calls;
     assert(sat_scene3d_faces_submit_instance(
-        &scene,&instance,screen,world)==SAT_OK);
+        &scene,&instance,SAT_SCENE3D_SLOT_INHERIT,screen,world)==SAT_OK);
     assert(project_calls==calls_before+1u);
     assert(local[0].z==0);
     assert(scene.count==2u);
@@ -165,15 +170,57 @@ int main() {
     assert(scene.entries[0].world.v[0].z==3*SAT_FX16_ONE);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     assert(emitted_count==2u && emitted[0]==10u && emitted[1]==20u);
+    // INHERIT left both materials on their own opaque slot.
+    assert(emitted_slot[0]==SAT_INDEXED_SOLID_OPAQUE &&
+           emitted_slot[1]==SAT_INDEXED_SOLID_OPAQUE);
+
+    // A distance-faded object fades WHOLE: one slot reaches every face of the
+    // instance, without the shared material table needing a copy per slot.
+    emitted_count=0;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&instance,3u,screen,world)==SAT_OK);
+    assert(scene.count==2u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==2u);
+    assert(emitted_slot[0]==3u && emitted_slot[1]==3u);
+    // The caller's material table is untouched by the override.
+    assert(materials[0].color_calc_slot==SAT_INDEXED_SOLID_OPAQUE &&
+           materials[1].color_calc_slot==SAT_INDEXED_SOLID_OPAQUE);
+
+    // An RGB material has no indexed palette to blend, so a slot override on
+    // one is rejected up front rather than reaching the hardware path, and
+    // rejection stays atomic: nothing is queued.
+    emitted_count=0;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    const sat_scene3d_material_t rgb_materials[2]={
+        {SAT_SCENE3D_RGB,0x1234u,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE},
+        {SAT_SCENE3D_RGB,0x1234u,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE}};
+    sat_scene3d_instance_t rgb_instance=instance;
+    rgb_instance.materials=rgb_materials;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&rgb_instance,3u,screen,world)==SAT_ERR_INVALID_ARG);
+    assert(scene.count==0u);
+    // The same instance is legal while it keeps its own opaque slot.
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&rgb_instance,SAT_SCENE3D_SLOT_INHERIT,screen,world)==SAT_OK);
+    assert(scene.count==2u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
+    emitted_count=0;
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
     const uint16_t bad_indices[2]={0u,2u};
     sat_scene3d_instance_t invalid_instance=instance;
     invalid_instance.face_materials=bad_indices;
     assert(sat_scene3d_faces_submit_instance(
-        &scene,&invalid_instance,screen,world)==SAT_ERR_INVALID_ARG);
+        &scene,&invalid_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_ERR_INVALID_ARG);
     assert(scene.count==0u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    emitted_count=0;
     sat_camera3d_t camera={};
     camera.eye=eye;camera.target=depth_point;camera.view_proj=vp;
     assert(sat_scene3d_faces_begin_camera(

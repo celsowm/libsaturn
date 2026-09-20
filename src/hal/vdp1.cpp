@@ -180,6 +180,14 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     sys_clip.pad = 0;
 }
 
+void command_stats(uint16_t& used, uint16_t& capacity,
+                   uint16_t& overlay_reserved, bool& overlay_pass) {
+    used = g_cmd_count;
+    capacity = g_cmd_capacity;
+    overlay_reserved = g_overlay_reserved;
+    overlay_pass = g_overlay_pass;
+}
+
 sat_result_t reserve_overlay_commands(uint16_t count) {
     if(g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
     if(g_overlay_pass) return SAT_ERR_UNSUPPORTED;

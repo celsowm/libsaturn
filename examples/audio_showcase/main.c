@@ -23,9 +23,8 @@ static void draw_line(const sat_ascii_font_t* font, const char* text, int y) {
 }
 
 static void draw_value(const sat_ascii_font_t* font, const char* label, uint32_t value, int y) {
-    char line[32];
-    sat_example_must(sat_fmt_label_u32(label, value, line, sizeof(line), 0));
-    draw_line(font, line, y);
+    sat_example_must(sat_ascii_font_draw_label_u32(
+        font, label, value, 8, y, 8, 0xFFFFu, 0u));
 }
 
 static const char* selected_name(void) {

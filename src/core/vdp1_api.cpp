@@ -126,6 +126,18 @@ extern "C" sat_result_t sat_vdp1_reserve_overlay_commands(uint16_t count) {
     return saturn::hal::vdp1::reserve_overlay_commands(count);
 }
 
+extern "C" sat_result_t sat_vdp1_command_stats(
+    sat_vdp1_command_stats_t* out) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (out == nullptr) return SAT_ERR_INVALID_ARG;
+    bool overlay_pass = false;
+    saturn::hal::vdp1::command_stats(
+        out->used, out->capacity, out->overlay_reserved, overlay_pass);
+    out->overlay_pass = overlay_pass ? 1u : 0u;
+    out->reserved = 0u;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp1_overlay_begin(void) {
     SAT_TRY(saturn::core::require_initialized());
     return saturn::hal::vdp1::begin_overlay_pass();

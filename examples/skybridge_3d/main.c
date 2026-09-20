@@ -21,15 +21,67 @@
 #define COEF_WORD 0x12000u
 #define SKY_W SB_SKY_W
 #define SKY_H SB_SKY_H
+/* The world palette, declared ONCE. This list both registers the indexed
+ * materials at startup and names them at every draw site.
+ *
+ * It replaces a 36-entry colour table plus a runtime nearest-colour search:
+ * drawing code used to pass a raw RGB555 that was snapped to whichever entry
+ * happened to be closest, so a colour could be authored in one place and
+ * rendered as another. Ten did, most visibly the slick deck's ice blue
+ * (9,26,30), which shipped as the green (12,26,19). Thirteen entries -- the
+ * pink ramp left over from the procedural pig, replaced by the imported GLB's
+ * own shade palette -- were unreachable and merely consumed CRAM.
+ * A name resolves at compile time and cannot drift. X(name, r, g, b) */
+#define SB_WORLD_PALETTE(X) \
+    X(DECK_START_TOP,    24,23,16) \
+    X(DECK_MID_TOP,      12,26,19) \
+    X(DECK_END_TOP,      27,23,16) \
+    X(DECK_ICE_TOP,       9,26,30) \
+    X(DECK_GRIP_TOP,     31,20, 7) \
+    X(COLLAPSE_WARN_A,   31, 8, 5) \
+    X(COLLAPSE_WARN_B,   31,26, 5) \
+    X(STEEL_DARK,        12,14,14) \
+    X(TEAL_DEEP,          6,16,15) \
+    X(STEEL_LIGHT,       17,17,14) \
+    X(TEAL_DARK,          8,19,18) \
+    X(AMBER_TRIM,        24,20,10) \
+    X(MARKER_YELLOW,     31,26, 3) \
+    X(LIFT_FRONT,        31,19, 2) \
+    X(CHECKPOINT_SIDE,   23,16, 3) \
+    X(FINISH_POST_SIDE,  16,12, 3) \
+    X(FINISH_POST_FRONT, 27,20, 4) \
+    X(FINISH_BAR_SIDE,   20,14, 3) \
+    X(FINISH_BAR_FRONT,  27,19, 4) \
+    X(HOLE_RIM,          31,23, 3) \
+    X(SEESAW_TOP_ODD,    25,20, 9) \
+    X(SEESAW_TOP_EVEN,   13,25,25) \
+    X(SEESAW_SIDE_ODD,   17,13, 8) \
+    X(SEESAW_SIDE_EVEN,   8,16,19) \
+    X(SEESAW_HINGE,      31,27, 8) \
+    X(SEESAW_PIVOT_TOP,  22,20,14) \
+    X(SEESAW_PIVOT_FRONT, 18,17,12) \
+    X(PIG_SHADOW,         8,10,10) \
+    X(GEM_BRIGHT,        31,30, 8) \
+    X(GEM_DEEP,          31,13, 3) \
+    X(GEM_MID,           31,23, 4)
+
+enum {
+#define SB_PALETTE_ENUM(name,r,g,b) SB_C_##name,
+    SB_WORLD_PALETTE(SB_PALETTE_ENUM)
+#undef SB_PALETTE_ENUM
+    SB_WORLD_COLOR_COUNT
+};
+static const uint16_t g_world_colors[SB_WORLD_COLOR_COUNT]={
+#define SB_PALETTE_RGB(name,r,g,b) SAT_RGB555(r,g,b),
+    SB_WORLD_PALETTE(SB_PALETTE_RGB)
+#undef SB_PALETTE_RGB
+};
+
 #define FADE_START SB_FADE_START
 #define FADE_END SB_FADE_END
 #define VIEW_LIMIT FADE_END
-#define FADE_COLOR_COUNT 36u
 #define FADE_PALETTE_BANK 4u
-#define FADE_OPAQUE 255u
-#define FADE_CULLED 254u
-#define SCENE_MATERIAL_CAP (FADE_COLOR_COUNT + SKYBRIDGE_PIG_SHADE_COUNT)
-#define FADE_HYSTERESIS SB_F(2)
+#define SCENE_MATERIAL_CAP (SB_WORLD_COLOR_COUNT + SKYBRIDGE_PIG_SHADE_COUNT)
 #define SOUNDS 6u
 #define SOUND_LEN 2048u
 #define MUSIC_LEN 32768u
@@ -67,45 +119,39 @@ static sat_vdp1_texture_t g_solid_textures[SCENE_MATERIAL_CAP];
 static sat_scene3d_material_t g_scene_materials[SCENE_MATERIAL_CAP];
 static sat_scene3d_material_t g_pig_materials[SKYBRIDGE_PIG_SHADE_COUNT];
 static uint16_t g_solid_colors[SCENE_MATERIAL_CAP];
-static uint16_t g_fade_material_ids[FADE_COLOR_COUNT];
 static uint8_t g_solid_pixels[8u*8u];
 static sat_scene3d_solid_pool_t g_solid_pool;
-static uint8_t g_active_fade_slot=FADE_OPAQUE;
+static uint8_t g_active_fade_slot=SAT_INDEXED_SOLID_OPAQUE;
+/* Painter pass of whatever is being submitted right now. Higher passes paint
+ * LAST, so this is the sample's stand-in for a depth buffer the hardware does
+ * not have: a deck top is one large quad whose average depth competes with an
+ * actor standing on it, and once the actor walks far enough along the deck the
+ * quad wins and paints over it from the feet up. Separating them by pass makes
+ * that impossible. See SB_PASS_*. */
+#define SB_PASS_WORLD   0u  /* the other decks */
+#define SB_PASS_SUPPORT 1u  /* the deck under the player */
+#define SB_PASS_ACTOR   2u  /* shadow, player, gems */
+static uint16_t g_active_pass=SB_PASS_WORLD;
+/* One byte per deck, owned here and handed to sat_fade3d_slot, which uses it
+ * to keep a deck on its current slot until the camera has actually crossed
+ * the transition band. */
 static uint8_t g_platform_fade[SB_PLATFORM_COUNT];
-static const sat_fade3d_t g_fade_policy={
-    FADE_START, FADE_END, 8u, SAT_FADE3D_CULL_AFTER_END, 0u
+/* Eight quantized levels onto the eight VDP2 sprite colour-calculation slots,
+ * anything nearer than FADE_START drawn as an ordinary opaque sprite, and a
+ * two-unit anti-flicker band. The library owns all of that; see the game-only
+ * rule left in platform_fade_slot. */
+static const sat_fade3d_slots_t g_fade_slots={
+    {FADE_START, FADE_END, 8u, SAT_FADE3D_CULL_AFTER_END, 0u},
+    SB_F(2), 0u, 1u, 1u, 0u
 };
-static const uint16_t g_fade_colors[FADE_COLOR_COUNT]={
-    SAT_RGB555(24,23,16), SAT_RGB555(12,26,19), SAT_RGB555(27,23,16),
-    SAT_RGB555(31,8,5), SAT_RGB555(31,26,5),
-    SAT_RGB555(12,14,14), SAT_RGB555(6,16,15),
-    SAT_RGB555(17,17,14), SAT_RGB555(8,19,18),
-    SAT_RGB555(24,20,10),
-    SAT_RGB555(31,26,3), SAT_RGB555(23,16,3), SAT_RGB555(31,19,2),
-    SAT_RGB555(16,12,3), SAT_RGB555(27,20,4),
-    SAT_RGB555(20,14,3), SAT_RGB555(27,19,4),
-    SAT_RGB555(31,30,8), SAT_RGB555(31,13,3), SAT_RGB555(31,23,4),
-    SAT_RGB555(31,28,7), SAT_RGB555(31,20,6), SAT_RGB555(31,12,4),
-    SAT_RGB555(31,31,31), SAT_RGB555(8,10,10),
-    SAT_RGB555(29,14,29), SAT_RGB555(19,5,21), SAT_RGB555(26,9,27),
-    SAT_RGB555(31,20,25), SAT_RGB555(29,15,22), SAT_RGB555(24,10,17),
-    SAT_RGB555(31,23,27), SAT_RGB555(31,25,27), SAT_RGB555(26,12,19),
-    SAT_RGB555(17,7,12), SAT_RGB555(3,2,4)
-};
-#define PIG_TOP SAT_RGB555(31,20,25)
-#define PIG_SIDE SAT_RGB555(29,15,22)
-#define PIG_DARK SAT_RGB555(24,10,17)
-#define PIG_HEAD SAT_RGB555(31,23,27)
-#define PIG_SNOUT SAT_RGB555(31,25,27)
-#define PIG_EAR SAT_RGB555(26,12,19)
-#define PIG_HOOF SAT_RGB555(17,7,12)
-#define PIG_BLACK SAT_RGB555(3,2,4)
 static uint8_t g_tile_pixels[16u*16u];
 static uint32_t g_last_ocean_palette_step=0xFFFFFFFFu;
 static uint8_t g_sky[SKY_W * SKY_H] __attribute__((section(".wram_l")));
 static uint16_t g_sky_colors[256], g_sea_colors[256];
 static uint16_t g_map[SAT_VDP2_NBG0_MAP_CELLS] __attribute__((section(".wram_l")));
-static sat_mat4_t g_vp;
+/* One camera. sat_camera3d_update derives the view-projection from it, so the
+ * look_at/perspective/multiply sequence is not spelled out here. */
+static sat_camera3d_t g_camera;
 static sat_vec3_t g_eye, g_target, g_camera_anchor;
 /* One bounded shared painter owns projection and ordering of the visible
  * faces of platforms, player and pickups in the same render pass. */
@@ -135,7 +181,8 @@ static uint16_t g_pig_face_textures[PIG_FACE_CAP];
 static sat_anim_state_t g_pig_anim;
 
 static int16_t g_yaw;
-static uint32_t g_prev_frame, g_frame;
+static sat_step_clock_t g_step_clock;
+static uint32_t g_frame;
 static sat_sound_t g_sounds[SOUNDS];
 static sat_voice_t g_music_voice;
 static const char* const g_sfx_paths[SOUNDS-1u]={
@@ -148,6 +195,15 @@ static uint8_t g_audio_ready;
 static uint8_t g_show_help=1u;
 static uint8_t g_show_debug=0u;
 static uint8_t g_world_cmd_full=0u;
+/* Budget telemetry for the debug overlay. A frame that runs out of face slots
+ * or VDP1 commands drops geometry SILENTLY -- world_ok() treats that as an
+ * optional decoration -- so without these counters a half-drawn character
+ * looks like a clipping or animation bug. Captured before the flush resets
+ * the painter, and before the HUD pass spends its own reserve. */
+static uint16_t g_dbg_faces, g_dbg_face_cap;
+static uint16_t g_dbg_cmds, g_dbg_cmd_cap;
+static uint16_t g_dbg_pig_faces;
+static uint8_t g_dbg_world_full;
 static const sat_vdp2_rbg0_ground_config_t g_ocean = {
     512u, 256u, 160u, HORIZON, 96u, 8u, 96u, COEF_WORD
 };
@@ -155,49 +211,23 @@ static const sat_vdp2_rbg0_ground_config_t g_ocean = {
 /* Boot is a series of completed jobs, not a pretend timed progress bar.
  * VDP1 draws this fullscreen panel independently of whether VDP2 is ready. */
 static void loading_frame(const char* stage, uint8_t percent) {
-    char progress[28];
-    uint16_t width=(uint16_t)((uint32_t)percent*252u/100u);
-    sat_example_must(sat_wait_vblank());
-    sat_example_must(sat_begin_frame());
-    sat_example_must(sat_draw_rect_screen(0,0,W,H,SAT_RGB555(2,7,14)));
-    sat_example_must(sat_draw_rect_screen(34,64,252u,3u,SAT_RGB555(12,26,27)));
-    sat_example_must(sat_ascii_font_draw_text_screen_centered_indexed8(
-        &g_font,"SKYBRIDGE 3D",160,77,8,0u,0u));
-    sat_example_must(sat_ascii_font_draw_text_screen_centered_indexed8(
-        &g_font,stage,160,110,8,0u,0u));
-    sat_example_must(sat_draw_rect_screen(34,137,252u,9u,SAT_RGB555(6,13,17)));
-    if(width>0u) sat_example_must(sat_draw_rect_screen(
-        34,137,width,9u,SAT_RGB555(20,29,19)));
-    sat_example_must(sat_fmt_label_u32("LOADING ",percent,progress,sizeof(progress),0));
-    sat_example_must(sat_ascii_font_draw_text_screen_centered_indexed8(
-        &g_font,progress,160,153,8,0u,0u));
-    sat_example_must(sat_end_frame());
+    sat_example_loading_frame(&g_font,"SKYBRIDGE 3D",stage,percent,W,H);
 }
 static void put_text(const char* text, int x, int y) {
     (void)sat_ascii_font_draw_text_screen_indexed8(
         &g_font, text, x, y, 8, 0u, 0u);
 }
 static void label(const char* title, uint32_t n, int x, int y) {
-    char buf[32];
-    if (sat_fmt_label_u32(title, n, buf, sizeof(buf), 0) == SAT_OK) put_text(buf,x,y);
+    (void)sat_ascii_font_draw_label_u32(&g_font,title,n,x,y,8,0u,0u);
 }
-/* Display signed 16.16 WORLD coordinates, to one decimal place.
- * The small formatter avoids printf/libc and preserves -0.x on a fall. */
+/* Display signed 16.16 WORLD coordinates, to one decimal place. The axis
+ * letter is the only part the HUD still assembles; sat_fmt_fx16 owns the
+ * number, including keeping the sign on -0.x during a fall. */
 static void hud_coord(char axis,int32_t fixed,int x,int y) {
-    char digits[SAT_FMT_U32_MAX];
-    char out[18];
-    uint16_t len=0u,i=0u;
-    int64_t magnitude=fixed<0?-(int64_t)fixed:(int64_t)fixed;
-    uint32_t whole=(uint32_t)(magnitude>>16u);
-    uint32_t tenth=(uint32_t)(((magnitude&0xFFFFLL)*10u)>>16u);
-    if(sat_fmt_u32(whole,digits,sizeof(digits),&len)!=SAT_OK)return;
-    out[i++]=axis;
-    out[i++]=' ';
-    if(fixed<0)out[i++]='-';
-    {uint16_t j;for(j=0u;j<len;++j)out[i++]=digits[j];}
-    out[i++]='.';
-    out[i++]=(char)('0'+tenth);
-    out[i]=0;
+    char out[2u+SAT_FMT_FX16_MAX];
+    out[0]=axis;
+    out[1]=' ';
+    if(sat_fmt_fx16(fixed,1u,out+2,sizeof(out)-2u,0)!=SAT_OK)return;
     put_text(out,x,y);
 }
 /* Sprite Type 0's RGB-coded pixels have different VDP2 interpretation
@@ -208,19 +238,6 @@ static void hud_coord(char axis,int32_t fixed,int x,int y) {
  * Ordinary sprites remain opaque at priority 7; only distant objects
  * explicitly request the faded selector (priority 6, above sea priority 5).
  * The indexed top insets keep their original patterned texture. */
-static uint8_t fade_material(uint16_t c) {
-    uint8_t i, chosen=0u;
-    uint32_t best=0xFFFFFFFFu;
-    for (i=0u;i<FADE_COLOR_COUNT;++i) {
-        uint16_t v=g_fade_colors[i];
-        int32_t dr=(int32_t)(c&31u)-(int32_t)(v&31u);
-        int32_t dg=(int32_t)((c>>5u)&31u)-(int32_t)((v>>5u)&31u);
-        int32_t db=(int32_t)((c>>10u)&31u)-(int32_t)((v>>10u)&31u);
-        uint32_t distance=(uint32_t)(dr*dr+dg*dg+db*db);
-        if(distance<best) {best=distance;chosen=i;if(!distance)break;}
-    }
-    return (uint8_t)g_fade_material_ids[chosen];
-}
 /* Every world submission shares one outcome policy, so it is stated once.
  * A full command list or face queue ends the frame's world pass quietly:
  * the decorations that would follow are optional, and a partially drawn
@@ -234,14 +251,16 @@ static uint8_t world_ok(sat_result_t st) {
 }
 /* Skybridge only selects a level material; the shared painter owns the
  * camera projection, per-face ordering, clipping and VDP1 submission. */
-static void put_quad(const sat_quad3_t* q, uint16_t c) {
+/* `color` is an SB_C_* palette name, i.e. the pool index the startup
+ * registration produced -- no lookup, no snapping. */
+static void put_quad(const sat_quad3_t* q, uint8_t color) {
     if(g_world_cmd_full) return;
-    sat_scene3d_material_t material=g_scene_materials[fade_material(c)];
+    sat_scene3d_material_t material=g_scene_materials[color];
     material.color_calc_slot=g_active_fade_slot;
     world_ok(sat_scene3d_faces_submit_quad(
-        &g_face_scene,q,&material,0u));
+        &g_face_scene,q,&material,g_active_pass));
 }
-static void put_quad_lit(const sat_quad3_t* q, uint16_t c) {
+static void put_quad_lit(const sat_quad3_t* q, uint8_t c) {
     /* Gouraud RGB polygons are incompatible with this VDP2 blend path;
      * use an indexed flat-colored face so near geometry stays solid. */
     put_quad(q,c);
@@ -262,7 +281,7 @@ static void quad_rect_xz(sat_quad3_t* q,int32_t lx,int32_t rx,int32_t z0,int32_t
  * submitted right where it is built; building and submitting separately
  * only invites the two to drift apart. */
 static void put_rect_xz(int32_t lx,int32_t rx,int32_t z0,int32_t z1,
-                        int32_t y,uint16_t c) {
+                        int32_t y,uint8_t c) {
     sat_quad3_t q;
     quad_rect_xz(&q,lx,rx,z0,z1,y);
     put_quad(&q,c);
@@ -271,50 +290,52 @@ static void put_rect_xz(int32_t lx,int32_t rx,int32_t z0,int32_t z1,
 /* Level code describes a box, not its camera-facing vertices or winding.
  * The renderer owns side selection, safe near/screen clipping and materials. */
 static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
-                 uint16_t top,uint16_t xcolor,uint16_t zcolor,uint8_t trim) {
+                 uint8_t top,uint8_t xcolor,uint8_t zcolor,uint8_t trim) {
     if(g_world_cmd_full) return;
     sat_indexed_box3_t block={0};
     block.top_center=(sat_vec3_t){x,y,z};
     block.half_extents=(sat_vec3_t){hx,hy,hz};
-    block.top_material=g_scene_materials[fade_material(top)].texture;
-    block.x_material=g_scene_materials[fade_material(xcolor)].texture;
-    block.z_material=g_scene_materials[fade_material(zcolor)].texture;
+    block.top_material=g_scene_materials[top].texture;
+    block.x_material=g_scene_materials[xcolor].texture;
+    block.z_material=g_scene_materials[zcolor].texture;
     if(!world_ok(sat_scene3d_faces_submit_box(
-            &g_face_scene,&block,g_active_fade_slot,0u))) return;
+            &g_face_scene,&block,g_active_fade_slot,g_active_pass))) return;
     /* Decorative inset remains level-owned, not a fake collision surface. */
     if(g_eye.y<=y || !trim || hx<=SB_F(4) || hz<=SB_F(4)) return;
     sat_quad3_t q;
     quad_rect_xz(&q,x-hx+SB_F(2),x+hx-SB_F(2),
                     z-hz+SB_F(2),z+hz-SB_F(2),y+SB_F(1)/32);
     if(trim==2u) {
-        put_quad(&q,SAT_RGB555(24,20,10));
+        put_quad(&q,SB_C_AMBER_TRIM);
         return;
     }
     const uint8_t theme=trim==1u?0u:(trim==3u?1u:2u);
     world_ok(sat_scene3d_faces_submit_tiled_quad(
-        &g_face_scene,&q,&g_tile_regions[theme],g_active_fade_slot,0u));
+        &g_face_scene,&q,&g_tile_regions[theme],g_active_fade_slot,
+        g_active_pass));
 }
 /* The three deck zones -- start (0-3), middle (4-6) and finish (7-9) --
  * are what every platform tint keys off, so the split lives in one place
  * instead of being re-spelled at each colour decision. */
-static uint16_t deck_tint(uint8_t i,uint16_t start,uint16_t mid,uint16_t end) {
+static uint8_t deck_tint(uint8_t i,uint8_t start,uint8_t mid,uint8_t end) {
     return i<4u?start:(i<7u?mid:end);
 }
-static uint16_t top_color(uint8_t i) {
-    return deck_tint(i,SAT_RGB555(24,23,16),
-                       SAT_RGB555(12,26,19),
-                       SAT_RGB555(27,23,16));
+static uint8_t top_color(uint8_t i) {
+    return deck_tint(i,SB_C_DECK_START_TOP,
+                       SB_C_DECK_MID_TOP,
+                       SB_C_DECK_END_TOP);
 }
 /* Palette-to-material mapping is baked once at initialization. */
-static const uint16_t g_gem_facet_colors[GEM_FACE_CAP]={
-    SAT_RGB555(31,30,8),SAT_RGB555(31,13,3),
-    SAT_RGB555(31,26,3),SAT_RGB555(31,23,4),
-    SAT_RGB555(31,30,8),SAT_RGB555(31,13,3),
-    SAT_RGB555(31,23,4),SAT_RGB555(31,23,4)
+static const uint8_t g_gem_facet_colors[GEM_FACE_CAP]={
+    SB_C_GEM_BRIGHT,SB_C_GEM_DEEP,
+    SB_C_MARKER_YELLOW,SB_C_GEM_MID,
+    SB_C_GEM_BRIGHT,SB_C_GEM_DEEP,
+    SB_C_GEM_MID,SB_C_GEM_MID
 };
 /* The library owns the facet painter and clipping; game logic only positions
  * an instance of the immutable octahedron mesh above its supporting deck. */
-static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
+static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z,
+                     uint8_t color_calc_slot) {
     if(g_world_cmd_full) return;
     const int32_t bob=sat_fx16_mul(
         sat_sin_deg(SB_F((int32_t)(g_game.ticks*5u+id*33u)%360)),
@@ -324,9 +345,14 @@ static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z) {
         &world,x,deck_y+SB_GEM_BASE_OFFSET+bob,z));
     const sat_scene3d_instance_t gem={
         &g_gem_mesh,g_scene_materials,g_solid_pool.count,
-        g_gem_materials,&world,0u,0u};
+        g_gem_materials,&world,SB_PASS_ACTOR,0u};
+    /* A gem fades with the deck that carries it. Before the painter accepted
+     * a per-instance slot this was impossible without one copy of the shared
+     * material table per slot, so the gems stayed opaque over decks that had
+     * already faded most of the way out. */
     world_ok(sat_scene3d_faces_submit_instance(
-        &g_face_scene,&gem,g_gem_projected,g_gem_world_vertices));
+        &g_face_scene,&gem,color_calc_slot,
+        g_gem_projected,g_gem_world_vertices));
 }
 /* An actual hinged 3D deck: the two long ends use the SAME 16.16
  * surface-height function as the landing solver. It is a sloped quad,
@@ -339,10 +365,10 @@ static void draw_seesaw(uint8_t id,const sb_platform_t* p) {
     const int32_t y0=sb_platform_surface_y(&g_game,id,x,bz);
     const int32_t y1=sb_platform_surface_y(&g_game,id,x,fz);
     const int32_t bottom=sb_platform_y(&g_game,id)-SB_F(5);
-    const uint16_t top=(id&1u)?SAT_RGB555(25,20,9):
-                                  SAT_RGB555(13,25,25);
-    const uint16_t side=(id&1u)?SAT_RGB555(17,13,8):
-                                   SAT_RGB555(8,16,19);
+    const uint16_t top=(id&1u)?SB_C_SEESAW_TOP_ODD:
+                                  SB_C_SEESAW_TOP_EVEN;
+    const uint16_t side=(id&1u)?SB_C_SEESAW_SIDE_ODD:
+                                   SB_C_SEESAW_SIDE_EVEN;
     sat_quad3_t q;
     if(g_eye.x>x) {
         pquad(&q,rx,y0,bz,rx,y1,fz,rx,bottom,fz,rx,bottom,bz);
@@ -364,11 +390,11 @@ static void draw_seesaw(uint8_t id,const sb_platform_t* p) {
               rx,sb_platform_y(&g_game,id)+SB_F(1)/20,z-SB_F(1)/3,
               rx,sb_platform_y(&g_game,id)+SB_F(1)/20,z+SB_F(1)/3,
               lx,sb_platform_y(&g_game,id)+SB_F(1)/20,z+SB_F(1)/3);
-        put_quad(&q,SAT_RGB555(31,27,8));
+        put_quad(&q,SB_C_SEESAW_HINGE);
     }
     box3(x,bottom-SB_F(3),z,SB_F(2),SB_F(3),SB_F(2),
-         SAT_RGB555(22,20,14),SAT_RGB555(12,14,14),
-         SAT_RGB555(18,17,12),0u);
+         SB_C_SEESAW_PIVOT_TOP,SB_C_STEEL_DARK,
+         SB_C_SEESAW_PIVOT_FRONT,0u);
 }
 static void stage_box(uint8_t i) {
     const sb_platform_t* p=&sb_course_platforms(&g_game)[i];
@@ -379,13 +405,13 @@ static void stage_box(uint8_t i) {
     int32_t x=sb_platform_x(&g_game,i), z=SB_F(p->z);
     int32_t top_y=sb_platform_y(&g_game,i);
     uint16_t t=top_color(i);
-    if(p->surface==SB_SURFACE_SLICK)t=SAT_RGB555(9,26,30);
-    if(p->surface==SB_SURFACE_GRIP)t=SAT_RGB555(31,20,7);
+    if(p->surface==SB_SURFACE_SLICK)t=SB_C_DECK_ICE_TOP;
+    if(p->surface==SB_SURFACE_GRIP)t=SB_C_DECK_GRIP_TOP;
     if(p->kind==SB_LIFT)
-        t=SAT_RGB555(31,26,3);
+        t=SB_C_MARKER_YELLOW;
     if (p->kind==SB_COLLAPSING && g_game.collapse_ticks>0u &&
         g_game.collapse_ticks<=30u)
-        t=(g_game.ticks&4u)?SAT_RGB555(31,8,5):SAT_RGB555(31,26,5);
+        t=(g_game.ticks&4u)?SB_C_COLLAPSE_WARN_A:SB_C_COLLAPSE_WARN_B;
     {
         /* Course 3 has actual missing geometry, not a dark quad drawn over
          * an intact floor. Use the SAME shared solid slices as ground
@@ -393,10 +419,10 @@ static void stage_box(uint8_t i) {
         const sb_hole_t* hole=sb_platform_hole(&g_game,i);
         sb_deck_slice_t slabs[4];
         uint8_t pieces=sb_deck_slices(&g_game,i,slabs);
-        uint16_t side=p->kind==SB_LIFT?SAT_RGB555(24,20,10):
-            (i<4u?SAT_RGB555(12,14,14):SAT_RGB555(6,16,15));
-        uint16_t front=p->kind==SB_LIFT?SAT_RGB555(31,19,2):
-            (i<4u?SAT_RGB555(17,17,14):SAT_RGB555(8,19,18));
+        uint16_t side=p->kind==SB_LIFT?SB_C_AMBER_TRIM:
+            (i<4u?SB_C_STEEL_DARK:SB_C_TEAL_DEEP);
+        uint16_t front=p->kind==SB_LIFT?SB_C_LIFT_FRONT:
+            (i<4u?SB_C_STEEL_LIGHT:SB_C_TEAL_DARK);
         for(uint8_t part=0u;part<pieces;++part) {
             const sb_deck_slice_t* s=&slabs[part];
             int32_t half_x=(s->max_x-s->min_x)/2;
@@ -414,7 +440,7 @@ static void stage_box(uint8_t i) {
             const int32_t hb=z+SB_F(hole->z_offset-hole->half_z);
             const int32_t hf=z+SB_F(hole->z_offset+hole->half_z);
             const int32_t y=top_y+SB_F(1)/24;
-            const uint16_t warning=SAT_RGB555(31,23,3);
+            const uint16_t warning=SB_C_HOLE_RIM;
             put_rect_xz(hl-SB_F(1),hl,hb,hf,y,warning);
             put_rect_xz(hr,hr+SB_F(1),hb,hf,y,warning);
             put_rect_xz(hl,hr,hb-SB_F(1),hb,y,warning);
@@ -427,9 +453,9 @@ static void stage_box(uint8_t i) {
     if(i==0u || i==3u || i==4u || i==6u || i==9u) {
         int32_t rim_z=z+(g_eye.z<z?-SB_F(p->half_z-3):
                                       SB_F(p->half_z-3));
-        uint16_t metal=deck_tint(i,SAT_RGB555(17,17,14),
-                                   SAT_RGB555(8,19,18),
-                                   SAT_RGB555(24,20,10));
+        uint16_t metal=deck_tint(i,SB_C_STEEL_LIGHT,
+                                   SB_C_TEAL_DARK,
+                                   SB_C_AMBER_TRIM);
         box3(x-SB_F(p->half_x-4),top_y-SB_F(6),rim_z,
              SB_F(2),SB_F(3),SB_F(2),metal,metal,metal,0u);
         box3(x+SB_F(p->half_x-4),top_y-SB_F(6),rim_z,
@@ -441,9 +467,9 @@ static void stage_box(uint8_t i) {
         int32_t sy=top_y+SB_F(1)/24;
         int32_t lx=x-SB_F(p->half_x-1),rx=x+SB_F(p->half_x-1);
         int32_t bz=z-SB_F(p->half_z-1),fz=z+SB_F(p->half_z-1);
-        uint16_t edge_color=deck_tint(i,SAT_RGB555(24,20,10),
-                                        SAT_RGB555(12,26,19),
-                                        SAT_RGB555(31,26,3));
+        uint16_t edge_color=deck_tint(i,SB_C_AMBER_TRIM,
+                                        SB_C_DECK_MID_TOP,
+                                        SB_C_MARKER_YELLOW);
         put_rect_xz(lx,rx,bz,bz+SB_F(1),sy,edge_color);
         put_rect_xz(lx,rx,fz-SB_F(1),fz,sy,edge_color);
     }
@@ -451,21 +477,21 @@ static void stage_box(uint8_t i) {
      * changes with the actual collision top, never a separate animation. */
     if(p->kind==SB_LIFT) {
         box3(x,top_y-SB_F(9),z,SB_F(2),SB_F(4),SB_F(2),
-             SAT_RGB555(24,20,10),SAT_RGB555(12,14,14),
-             SAT_RGB555(17,17,14),0u);
+             SB_C_AMBER_TRIM,SB_C_STEEL_DARK,
+             SB_C_STEEL_LIGHT,0u);
     }
     /* Checkpoints and finish are physically marked, not just HUD text. */
     if (i==3u || i==6u) {
         box3(x-SB_F(7),top_y+SB_F(5),z+SB_F(5),SB_F(1),SB_F(5),SB_F(1),
-             SAT_RGB555(31,26,3),SAT_RGB555(23,16,3),SAT_RGB555(31,19,2),0u);
+             SB_C_MARKER_YELLOW,SB_C_CHECKPOINT_SIDE,SB_C_LIFT_FRONT,0u);
     }
     if (i==9u) {
         box3(x-SB_F(10),top_y+SB_F(9),z+SB_F(5),SB_F(1),SB_F(9),SB_F(1),
-             SAT_RGB555(31,26,3),SAT_RGB555(16,12,3),SAT_RGB555(27,20,4),0u);
+             SB_C_MARKER_YELLOW,SB_C_FINISH_POST_SIDE,SB_C_FINISH_POST_FRONT,0u);
         box3(x+SB_F(10),top_y+SB_F(9),z+SB_F(5),SB_F(1),SB_F(9),SB_F(1),
-             SAT_RGB555(31,26,3),SAT_RGB555(16,12,3),SAT_RGB555(27,20,4),0u);
+             SB_C_MARKER_YELLOW,SB_C_FINISH_POST_SIDE,SB_C_FINISH_POST_FRONT,0u);
         box3(x,top_y+SB_F(19),z+SB_F(5),SB_F(11),SB_F(1),SB_F(1),
-             SAT_RGB555(31,26,3),SAT_RGB555(20,14,3),SAT_RGB555(27,19,4),0u);
+             SB_C_MARKER_YELLOW,SB_C_FINISH_BAR_SIDE,SB_C_FINISH_BAR_FRONT,0u);
     }
 }
 /* Model only: the pig is contained inside the original 4x4x5 fixed-point
@@ -476,13 +502,20 @@ static void stage_box(uint8_t i) {
 /* Preserve the existing collision/contact shadow, not the old procedural
  * pig body. The visible pig now comes exclusively from the user-modified
  * CC BY 4.0 GLB converted by the stock importer at build time. */
-static void pig_shadow(void) {
-    if(g_game.support>=0) {
+static void pig_shadow(const uint8_t* deck_slot) {
+    if(g_game.support>=0 &&
+       deck_slot[(uint8_t)g_game.support]!=SAT_FADE3D_SLOT_CULLED) {
         const int32_t px=g_game.x,pz=g_game.z;
         const int32_t sy=sb_platform_surface_y(
             &g_game,(uint8_t)g_game.support,px,pz)+SB_F(1)/16;
+        /* The shadow is a mark ON the deck, so it takes the deck's slot and
+         * is skipped entirely when the deck itself was not drawn -- a shadow
+         * floating over open sea reads as a bug. */
+        const uint8_t previous=g_active_fade_slot;
+        g_active_fade_slot=deck_slot[(uint8_t)g_game.support];
         put_rect_xz(px-SB_F(2),px+SB_F(2),
-                    pz-SB_F(2),pz+SB_F(2),sy,SAT_RGB555(8,10,10));
+                    pz-SB_F(2),pz+SB_F(2),sy,SB_C_PIG_SHADOW);
+        g_active_fade_slot=previous;
     }
 }
 /* The VDP2 fade setup intentionally makes only indexed Sprite Type 0
@@ -513,51 +546,43 @@ static void player_pig(void) {
      * twice when submitting the pig through the canonical instance path. */
     const sat_scene3d_instance_t pig={
         &g_pig_mesh,g_pig_materials,SKYBRIDGE_PIG_SHADE_COUNT,
-        g_pig_face_textures,0,0u,1u};
-    world_ok(sat_scene3d_faces_submit_instance(
-        &g_face_scene,&pig,g_pig_projected,0));
+        g_pig_face_textures,0,SB_PASS_ACTOR,1u};
+    /* Deliberately SLOT_INHERIT, not a fade slot: the player's character is
+     * the one thing that must stay readable at any camera distance. The gems
+     * around it do fade, through the same parameter. */
+    {
+        const uint16_t before=g_face_scene.count;
+        world_ok(sat_scene3d_faces_submit_instance(
+            &g_face_scene,&pig,SAT_SCENE3D_SLOT_INHERIT,g_pig_projected,0));
+        g_dbg_pig_faces=(uint16_t)(g_face_scene.count-before);
+    }
 }
-/* Each platform owns its previous quantized level. Once within two units
- * of a transition, keep the old state until the camera actually crosses
- * the hysteresis band; don't toggle one object twice as the chase camera
- * eases across a color-calc slot or at the culling boundary. */
+/* The one fade rule that really is the GAME's: whatever the distance says,
+ * the deck under the player's feet stays fully readable. Quantization, the
+ * level-to-slot mapping and the anti-flicker band are the library's, and
+ * g_platform_fade[id] is the per-deck byte sat_fade3d_slot keeps them in. */
 static uint8_t platform_fade_slot(uint8_t id,int32_t depth) {
-    sat_fade3d_result_t result={0};
-    uint8_t prev=g_platform_fade[id],target;
-    int32_t band=FADE_HYSTERESIS;
+    uint8_t slot=SAT_INDEXED_SOLID_OPAQUE;
     if(g_game.support==(int8_t)id) {
-        g_platform_fade[id]=FADE_OPAQUE;
-        return FADE_OPAQUE;
+        g_platform_fade[id]=SAT_INDEXED_SOLID_OPAQUE;
+        return SAT_INDEXED_SOLID_OPAQUE;
     }
-    if(sat_fade3d_eval(&g_fade_policy,depth,&result)!=SAT_OK)
-        return FADE_CULLED;
-    target=result.culled?FADE_CULLED:
-        (depth<=FADE_START?FADE_OPAQUE:result.level);
-    if(prev==FADE_OPAQUE && depth<=FADE_START+band) return prev;
-    if(prev==FADE_CULLED && depth>=FADE_END-band) return prev;
-    if(prev<8u) {
-        int32_t span=(FADE_END-FADE_START)/8;
-        int32_t lo=FADE_START+(int32_t)prev*span-band;
-        int32_t hi=FADE_START+(int32_t)(prev+1u)*span+band;
-        if(depth>=lo && depth<=hi)return prev;
-    }
-    g_platform_fade[id]=target;
-    return target;
+    if(sat_fade3d_slot(&g_fade_slots,depth,
+                       &g_platform_fade[id],&slot)!=SAT_OK)
+        return SAT_FADE3D_SLOT_CULLED;
+    return slot;
 }
 static void draw_world(void) {
-    sat_camera3d_t camera={0};
-    uint8_t visible_decks[SB_PLATFORM_COUNT]={0};
+    /* Each deck's chosen slot, doubling as the visibility flag: CULLED means
+     * the deck was not drawn this frame. Anything sitting ON a deck -- its
+     * gem, the player's contact shadow -- has to fade WITH it, so the slot
+     * has to outlive the loop that picked it. */
+    uint8_t deck_slot[SB_PLATFORM_COUNT];
     uint8_t i;
-    camera.eye=g_eye;
-    camera.target=g_target;
-    camera.up=(sat_vec3_t){0,SB_F(1),0};
-    camera.fov_y=SB_F(55);
-    camera.aspect=(sat_fx16_t)((W*65536u)/H);
-    camera.near_z=SB_F(2);
-    camera.far_z=SB_F(250);
-    camera.view_proj=g_vp;  /* already calculated once in the frame loop */
+    for(i=0u;i<SB_PLATFORM_COUNT;++i)deck_slot[i]=SAT_FADE3D_SLOT_CULLED;
     sat_example_must(sat_scene3d_faces_begin_camera(
-        &g_face_scene,&camera,SB_F(8),W,H));
+        &g_face_scene,&g_camera,SB_F(8),W,H));
+    g_active_pass=SB_PASS_WORLD;
 
     /* All visible faces share render pass zero, independent of which object
      * contributed them. Gameplay visibility/fade still belongs to the game. */
@@ -591,18 +616,21 @@ static void draw_world(void) {
             sb_abs(center.x-g_game.x)>SB_F(160) ||
             sb_abs(center.z-g_game.z)>SB_F(180)))continue;
         slot=platform_fade_slot(i,depth);
-        if(slot==FADE_CULLED)continue;
+        if(slot==SAT_FADE3D_SLOT_CULLED)continue;
         g_active_fade_slot=slot;
+        g_active_pass=(g_game.support==(int8_t)i)?SB_PASS_SUPPORT:SB_PASS_WORLD;
         stage_box(i);
-        visible_decks[i]=1u;
+        deck_slot[i]=slot;
     }
-    g_active_fade_slot=FADE_OPAQUE;
-    pig_shadow();
+    g_active_fade_slot=SAT_INDEXED_SOLID_OPAQUE;
+    g_active_pass=SB_PASS_ACTOR;
+    pig_shadow(deck_slot);
     player_pig();
     for(i=1u;i<=SB_PICKUP_COUNT;++i) {
         sat_vec3_t center;
         sat_fx16_t depth;
-        if(!visible_decks[i] || (g_game.pickups&(1u<<(i-1u))))continue;
+        if(deck_slot[i]==SAT_FADE3D_SLOT_CULLED ||
+           (g_game.pickups&(1u<<(i-1u))))continue;
         center=(sat_vec3_t){
             sb_platform_x(&g_game,i),
             sb_platform_surface_y(&g_game,i,sb_platform_x(&g_game,i),
@@ -615,10 +643,25 @@ static void draw_world(void) {
         draw_gem(i,sb_platform_x(&g_game,i),
                  sb_platform_surface_y(&g_game,i,sb_platform_x(&g_game,i),
                     SB_F(sb_course_platforms(&g_game)[i].z)),
-                 SB_F(sb_course_platforms(&g_game)[i].z));
+                 SB_F(sb_course_platforms(&g_game)[i].z),
+                 deck_slot[i]);
     }
     /* World, pig and gem faces are ordered together before the protected HUD. */
+    g_dbg_faces=g_face_scene.count;
+    g_dbg_face_cap=g_face_scene.capacity;
     sat_example_must(sat_scene3d_faces_flush(&g_face_scene));
+    {
+        /* AFTER the flush: that is where the queued faces actually become
+         * VDP1 commands, so sampling before it always reported an empty list
+         * and hid exactly the exhaustion this row exists to show. Still before
+         * the HUD pass, which spends its own reserved quota. */
+        sat_vdp1_command_stats_t cmd={0};
+        if(sat_vdp1_command_stats(&cmd)==SAT_OK) {
+            g_dbg_cmds=cmd.used;
+            g_dbg_cmd_cap=(uint16_t)(cmd.capacity-cmd.overlay_reserved);
+        }
+        g_dbg_world_full=g_world_cmd_full;
+    }
 }
 static void init_tile_texture(void) {
     static const uint8_t banks[3]={3u,5u,6u};
@@ -702,9 +745,15 @@ static void init_scene_materials(void) {
     /* Fade colours are registered first; world/gem material selectors share
      * the same handles and every colour is uploaded once, regardless of
      * how many platform faces, gems or pig shades reference it. */
-    for(uint16_t i=0u;i<FADE_COLOR_COUNT;++i) {
+    for(uint16_t i=0u;i<SB_WORLD_COLOR_COUNT;++i) {
+        uint16_t handle=0u;
         sat_example_must(sat_scene3d_solid_pool_register(
-            &g_solid_pool,g_fade_colors[i],&g_fade_material_ids[i]));
+            &g_solid_pool,g_world_colors[i],&handle));
+        /* Registration order IS the SB_C_* order, so a palette name can be
+         * used directly as a material index. The pool deduplicates, so two
+         * identical colours in the list would silently shift every later
+         * name; fail loudly instead. */
+        sat_example_must(handle==i?SAT_OK:SAT_ERR_INVALID_ARG);
     }
     for(uint16_t i=0u;i<SKYBRIDGE_PIG_SHADE_COUNT;++i) {
         uint16_t handle=0u;
@@ -808,12 +857,10 @@ static void init_audio(void) {
     sat_example_must(sat_audio_init());
     sat_example_must(sat_audio_set_master_volume(160u));
     for(j=0u;j<SOUNDS-1u;++j) {
-        for(i=0u;i<SOUND_LEN;++i) {
-            int32_t wave=(int32_t)((i*tone_step[j])&63u)-32;
-            int32_t env=(int32_t)((SOUND_LEN-i)*55u/SOUND_LEN);
-            if (j==3u) wave=(int32_t)(((i*73u)^(i>>2u))&63u)-32;
-            g_audio[j][i]=(int8_t)(wave*env/32);
-        }
+        /* The fall cue is the odd one out: noise, not a tone. */
+        sat_example_must(j==3u
+            ? sat_audio_synth_noise(g_audio[j],SOUND_LEN)
+            : sat_audio_synth_blip(g_audio[j],SOUND_LEN,tone_step[j]));
         {
             sat_asset_desc_t asset={0};
             sat_asset_t asset_handle={0};
@@ -831,20 +878,15 @@ static void init_audio(void) {
         loading_frame("REGISTERING AUDIO",(uint8_t)(82u+(j+1u)*2u));
     }
     {
+        /* 8-note, three-second arpeggio, one note per call so the boot panel
+         * can report progress between them. */
         static const uint8_t periods[8]={50u,45u,40u,38u,34u,38u,40u,45u};
-        for (i=0u;i<MUSIC_LEN;++i) {
-            uint32_t note=i/4096u, local=i%4096u;
-            uint32_t period=periods[note];
-            int32_t phase=(int32_t)((local%period)*128u/period);
-            int32_t wave=(phase<64 ? phase : 128-phase)-32;
-            int32_t envelope=(int32_t)(local<160u ? local :
-                (local>3935u ? 4095u-local : 160u));
-            int32_t bass=(int32_t)((i%128u)/2u);
-            bass=(bass<32 ? bass : 64-bass)-16;
-            /* 8-note, three-second arpeggio. Fade notes to zero at boundaries. */
-            g_music[i]=(int8_t)((wave*envelope)/320+bass/4);
-            if ((i&4095u)==4095u)
-                loading_frame("GENERATING MUSIC",(uint8_t)(92u+(i+1u)*6u/MUSIC_LEN));
+        const uint32_t note_len=MUSIC_LEN/8u;
+        for(i=0u;i<8u;++i) {
+            sat_example_must(sat_audio_synth_arpeggio_note(
+                &g_music[i*note_len],note_len,periods[i],i*note_len));
+            loading_frame("GENERATING MUSIC",
+                (uint8_t)(92u+(i+1u)*6u/8u));
         }
     }
     {
@@ -876,7 +918,7 @@ static void start_course(uint8_t course) {
     uint8_t i;
     sb_start_course(&g_game,course);
     g_yaw=0;
-    for(i=0u;i<SB_PLATFORM_COUNT;++i)g_platform_fade[i]=FADE_OPAQUE;
+    for(i=0u;i<SB_PLATFORM_COUNT;++i)g_platform_fade[i]=SAT_INDEXED_SOLID_OPAQUE;
     g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
     sat_example_must(sat_anim_state_init(
         &g_pig_anim,&skybridge_pig_anim_asset,1u));
@@ -919,6 +961,20 @@ static void hud(void) {
             put_text(surface==SB_SURFACE_SLICK?"ICE":
                      surface==SB_SURFACE_GRIP?"GRIP":
                      surface==SB_SURFACE_AIR?"AIR":"NORMAL",197,33);
+        /* Budget row: the two limits that silently eat geometry. F is the
+         * painter queue, C the VDP1 command list, P how many of the character's
+         * faces actually reached the queue. Either budget at its cap explains a
+         * half-drawn frame; all three well under it means the cause is paint
+         * ORDER, not budget. The library lays the cells out, so adding a field
+         * cannot make two of them overlap into an unreadable number. */
+        const sat_debug_field_t budget[3]={
+            {"F ",g_dbg_faces,g_dbg_face_cap},
+            {"C ",g_dbg_cmds,g_dbg_cmd_cap},
+            {"P ",g_dbg_pig_faces,SKYBRIDGE_PIG_FACE_COUNT}};
+        (void)sat_draw_rect_screen(0,45,W,13u,SAT_RGB555(3,8,15));
+        (void)sat_ascii_font_draw_fields(
+            &g_font,budget,3u,7,47,W-14u,8,0u,0u);
+        if(g_dbg_world_full) put_text("FULL",270,47);
     }
     if (g_game.finished) {
         (void)sat_draw_rect_screen(46,76,228u,75u,SAT_RGB555(2,13,16));
@@ -938,14 +994,19 @@ static void hud(void) {
 int main(void) {
     const sat_video_config_t video={W,H,1u,0u};
     const sat_vec3_t up={0,SB_F(1),0};
+    const sat_vec3_t g_game_origin={0,0,0};
+    const sat_vec3_t g_game_origin_ahead={0,0,SB_F(1)};
     sat_pad_state_t pad={0};
     sat_vdp2_scroll_t sky_scroll={0u,0u,31u,0u};
     sat_example_must(sat_init(&video));
     sb_init(&g_game);
+    sat_example_must(sat_camera3d_init(
+        &g_camera,&g_game_origin,&g_game_origin_ahead,&up,SB_F(55),
+        sat_fx16_div(SB_F(W),SB_F(H)),SB_F(2),SB_F(250)));
     sat_example_must(sat_scene3d_faces_init(
         &g_face_scene,g_face_items,g_face_keys,g_face_order,SCENE_FACE_CAP));
     for(uint8_t i=0u;i<SB_PLATFORM_COUNT;++i)
-        g_platform_fade[i]=FADE_OPAQUE;
+        g_platform_fade[i]=SAT_INDEXED_SOLID_OPAQUE;
     g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
     /* Load the first drawable font before expensive procedural generation. */
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
@@ -963,7 +1024,7 @@ int main(void) {
         sat_example_must(sat_mesh_build_octahedron(&g_gem_mesh,&origin,
                          SB_GEM_RADIUS,SB_GEM_HALF_HEIGHT));
         for(uint8_t face=0u;face<GEM_FACE_CAP;++face)
-            g_gem_materials[face]=fade_material(g_gem_facet_colors[face]);
+            g_gem_materials[face]=g_gem_facet_colors[face];
     }
     loading_frame("IMPORTING PIG",10u);
     sat_example_must(sat_model_validate(&skybridge_pig_asset));
@@ -979,9 +1040,10 @@ int main(void) {
     init_sea();
     init_background();
     init_audio();
-    g_prev_frame=sat_frame_count();
+    sat_step_clock_init(&g_step_clock);
     for(;;) {
-        uint32_t now,steps;
+        uint32_t now;
+        uint16_t steps;
         uint16_t pressed,events=0u;
         int32_t fx,fz,rx,rz;
         sat_example_must(sat_wait_vblank());
@@ -999,10 +1061,12 @@ int main(void) {
                         sat_cos_deg(SB_F(g_yaw)));
         sat_example_must(sat_vdp2_layers_commit());
         sat_example_must(sat_pad_poll(&pad));
-        steps=now-g_prev_frame;
-        g_prev_frame=now;
-        if(steps>3u) steps=3u; /* Drop excess catch-up, preserve responsive input. */
-        if (steps==0u) steps=1u;
+        /* Drop excess catch-up, preserve responsive input. sat_step_clock_steps
+         * returns the raw elapsed count, so it can be 0 on a frame that beat
+         * the display; this game always advances at least one tick rather than
+         * freezing the simulation for that frame. */
+        steps=sat_step_clock_steps(&g_step_clock,3u);
+        if(steps==0u) steps=1u;
         /* Pause + X is a deliberate course selector for playing/testing
          * Course 2 without finishing all ten decks of Course 1 first. */
         if(g_game.paused && (pad.pressed&SAT_PAD_X)) {
@@ -1068,13 +1132,9 @@ int main(void) {
             g_target=(sat_vec3_t){g_camera_anchor.x+lx,
                 g_camera_anchor.y+SB_F(5),g_camera_anchor.z+lz};
         }
-        {
-            sat_mat4_t view,projection;
-            sat_example_must(sat_mat4_look_at(&view,&g_eye,&g_target,&up));
-            sat_example_must(sat_mat4_perspective(&projection,SB_F(55),
-                sat_fx16_div(SB_F(W),SB_F(H)),SB_F(2),SB_F(250)));
-            sat_example_must(sat_mat4_multiply(&g_vp,&projection,&view));
-        }
+        g_camera.eye=g_eye;
+        g_camera.target=g_target;
+        sat_example_must(sat_camera3d_update(&g_camera));
         /* Sprite color calculation was configured at startup. The generic
          * VBlank layer replay now preserves both of its priority selectors. */
         sat_example_must(sat_vdp1_set_erase_transparent());

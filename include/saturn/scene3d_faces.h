@@ -109,12 +109,23 @@ typedef struct sat_scene3d_instance {
     uint8_t cull_backfaces;
 } sat_scene3d_instance_t;
 
+/* Every face of the instance takes this slot, exactly as submit_box and
+ * submit_tiled_quad apply one slot to the faces they generate. A whole object
+ * is what distance fade acts on, so the slot belongs to the submission and not
+ * to the shared material table, which would otherwise need one copy per slot.
+ * Distinct from SAT_INDEXED_SOLID_OPAQUE (255), itself a valid slot meaning
+ * "ordinary opaque sprite". */
+#define SAT_SCENE3D_SLOT_INHERIT 254u
+
 /* Projects each world vertex once; copies accepted faces into the queue and
  * retains no pointers to the descriptor, matrix or temporary vertex buffers.
  * screen_scratch holds vertex_count projected points. If world != NULL,
- * world_scratch must hold vertex_count transformed points. */
+ * world_scratch must hold vertex_count transformed points.
+ * color_calc_slot is 0..7, SAT_INDEXED_SOLID_OPAQUE, or
+ * SAT_SCENE3D_SLOT_INHERIT to keep each material's own slot. */
 sat_result_t sat_scene3d_faces_submit_instance(
     sat_scene3d_faces_t* scene, const sat_scene3d_instance_t* instance,
+    uint8_t color_calc_slot,
     sat_projected_vertex_t* screen_scratch, sat_vec3_t* world_scratch);
 
 /* Emits far-to-near, closes the frame even when hardware submission fails.

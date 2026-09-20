@@ -121,6 +121,25 @@ sat_result_t sat_tex_upload_indexed8_pixels(
 sat_result_t sat_vdp1_reserve_overlay_commands(uint16_t count);
 sat_result_t sat_vdp1_overlay_begin(void);
 
+/* Command-list occupancy, for debug overlays and capacity tuning.
+ *
+ * Running out of commands is the one failure a well-behaved caller is
+ * expected to swallow -- draw calls return SAT_ERR_CAPACITY and decorations
+ * are optional -- which also makes it invisible. A frame that silently stops
+ * drawing part of a character looks like a clipping or animation bug, and
+ * there is no way to tell from outside without this. `used` counts commands
+ * issued this frame, excluding the END terminator; `overlay_reserved` is the
+ * quota still withheld from the world pass. */
+typedef struct sat_vdp1_command_stats {
+    uint16_t used;
+    uint16_t capacity;
+    uint16_t overlay_reserved;
+    uint8_t overlay_pass;
+    uint8_t reserved;
+} sat_vdp1_command_stats_t;
+
+sat_result_t sat_vdp1_command_stats(sat_vdp1_command_stats_t* out);
+
 sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd);
 
 sat_result_t sat_draw_sprite_screen(

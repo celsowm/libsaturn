@@ -31,3 +31,13 @@ extern "C" sat_result_t sat_fmt_label_u32(
 ) {
     return write_label_u32(label, value, out, out_size, out_len);
 }
+
+extern "C" sat_result_t sat_fmt_fx16(
+    sat_fx16_t value,
+    uint8_t decimals,
+    char* out,
+    uint16_t out_size,
+    uint16_t* out_len
+) {
+    return write_fx16(value, decimals, out, out_size, out_len);
+}

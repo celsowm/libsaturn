@@ -52,10 +52,8 @@ static void draw_line(const sat_ascii_font_t* font, const char* text, int y) {
 }
 
 static void draw_value(const sat_ascii_font_t* font, const char* label, uint32_t value, int y) {
-    char line[36];
-    if (sat_fmt_label_u32(label, value, line, sizeof(line), 0u) == SAT_OK) {
-        draw_line(font, line, y);
-    }
+    (void)sat_ascii_font_draw_label_u32(
+        font, label, value, 8, y, 8, SAT_COLOR_WHITE, 0u);
 }
 
 static sat_result_t register_cd_tracks(void) {

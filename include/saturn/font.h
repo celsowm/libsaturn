@@ -97,6 +97,21 @@ sat_result_t sat_ascii_font_draw_text_screen_centered_indexed8(
     uint16_t flags
 );
 
+/* "LIVES " + 3 -> "LIVES 3" at a screen position: sat_fmt_label_u32 and
+ * sat_ascii_font_draw_text_screen_indexed8 in one call, with the scratch
+ * buffer owned here. Nearly every HUD pairs those two, and the buffer is
+ * exactly what each caller was sizing by hand. */
+sat_result_t sat_ascii_font_draw_label_u32(
+    const sat_ascii_font_t* font,
+    const char* label,
+    uint32_t value,
+    int screen_x,
+    int screen_y,
+    int char_spacing,
+    uint16_t palette_override,
+    uint16_t flags
+);
+
 const uint8_t* sat_font_ascii_8x8_rows(char c);
 
 sat_result_t sat_font_pack_8x8_glyph_indexed8(
@@ -237,6 +252,33 @@ sat_result_t sat_text_draw_ex(
     int16_t y,
     const sat_text_style_t* style,
     int16_t line_spacing
+);
+
+/* ---- Debug / telemetry rows ----------------------------------------------
+ * A row of "LABEL value" or "LABEL value/limit" cells, laid out evenly across
+ * `width`. Diagnostics grow a field at a time, and hand-placing each one at a
+ * literal x is how a row silently starts overlapping itself -- a value running
+ * into the next label reads as a completely different number. Handing the
+ * layout the fields instead makes that impossible.
+ *
+ * `limit` of 0 prints the value alone. Cells that would not fit are dropped
+ * rather than overlapping, and the call still reports SAT_OK. */
+typedef struct sat_debug_field {
+    const char* label;
+    uint32_t value;
+    uint32_t limit;
+} sat_debug_field_t;
+
+sat_result_t sat_ascii_font_draw_fields(
+    const sat_ascii_font_t* font,
+    const sat_debug_field_t* fields,
+    uint16_t count,
+    int screen_x,
+    int screen_y,
+    uint16_t width,
+    int char_spacing,
+    uint16_t palette_override,
+    uint16_t flags
 );
 
 #ifdef __cplusplus

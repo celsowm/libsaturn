@@ -51,6 +51,26 @@ sat_result_t sat_fmt_label_u32(
     uint16_t* out_len
 );
 
+/* Longest output of sat_fmt_fx16 ("-32768.0000") plus the terminator. */
+#define SAT_FMT_FX16_MAX 12u
+
+/* Signed 16.16 fixed point with `decimals` (0..4) fractional digits, e.g.
+ * -0.3 -> "-0.3". The fraction is TRUNCATED, not rounded, so the printed
+ * digits never disagree with the integer part they follow.
+ *
+ * The sign is written whenever the value is negative, including when the
+ * integer part is zero: a falling object at -0.3 must not read as 0.3.
+ * Reaching for sat_fx16_to_int instead silently discards the fraction, and
+ * assembling the two halves by hand is exactly the buffer arithmetic this
+ * module exists to remove. */
+sat_result_t sat_fmt_fx16(
+    sat_fx16_t value,
+    uint8_t decimals,
+    char* out,
+    uint16_t out_size,
+    uint16_t* out_len
+);
+
 #ifdef __cplusplus
 }
 #endif

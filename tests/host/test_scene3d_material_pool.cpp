@@ -53,6 +53,50 @@ int main() {
     assert(uploaded_colors[1]==0x801fu);
     assert(uploaded_colors[2]==0x83e0u);
     assert(uploaded_colors[3]==0x8000u);
+
+    /* Nearest-colour lookup: the pool already holds the registered colours,
+     * so level code asking for a shade it never registered gets the closest
+     * one without keeping a parallel table of its own.
+     * Registered: 0x801f (r=31,g=0,b=0), 0x83e0 (g=31), 0x8000 (black). */
+    uint16_t nearest=999u;
+    assert(sat_scene3d_solid_pool_find_nearest(&pool,0x801fu,&nearest)==SAT_OK);
+    assert(nearest==0u); /* exact match */
+    assert(sat_scene3d_solid_pool_find_nearest(&pool,0x83e0u,&nearest)==SAT_OK);
+    assert(nearest==1u);
+    /* r=30,g=1,b=0 is one step from the red entry and far from the others. */
+    assert(sat_scene3d_solid_pool_find_nearest(&pool,0x803eu,&nearest)==SAT_OK);
+    assert(nearest==0u);
+    /* Near-black picks the black entry, not either saturated primary. */
+    assert(sat_scene3d_solid_pool_find_nearest(&pool,0x8021u,&nearest)==SAT_OK);
+    assert(nearest==2u);
+    assert(sat_scene3d_solid_pool_find_nearest(&pool,0u,nullptr)==
+           SAT_ERR_INVALID_ARG);
+    /* Restricted to the first two entries, near-black can no longer reach the
+     * black entry and falls back to the nearer of the two primaries. This is
+     * what keeps a world palette from matching against a model's shade ramp
+     * registered into the same pool. */
+    assert(sat_scene3d_solid_pool_find_nearest_in(
+        &pool,0x8021u,0u,2u,&nearest)==SAT_OK);
+    assert(nearest==0u || nearest==1u);
+    assert(sat_scene3d_solid_pool_find_nearest_in(
+        &pool,0x83e0u,1u,2u,&nearest)==SAT_OK);
+    assert(nearest==1u);
+    /* An empty range has no answer; a range past the registered colours is a
+     * caller bug, not a clamp. */
+    assert(sat_scene3d_solid_pool_find_nearest_in(
+        &pool,0x801fu,1u,0u,&nearest)==SAT_ERR_NOT_FOUND);
+    assert(sat_scene3d_solid_pool_find_nearest_in(
+        &pool,0x801fu,2u,2u,&nearest)==SAT_ERR_INVALID_ARG);
+    {
+        /* An empty pool has no answer to give, and must not report index 0. */
+        sat_scene3d_solid_pool_t empty={};
+        uint16_t unused=999u;
+        assert(sat_scene3d_solid_pool_init(
+            &empty,materials,textures,colors,scratch,3u,4u)==SAT_OK);
+        assert(sat_scene3d_solid_pool_find_nearest(&empty,0x801fu,&unused)==
+               SAT_ERR_NOT_FOUND);
+        assert(unused==999u);
+    }
     std::puts("scene3d solid material pool: OK");
     return 0;
 }

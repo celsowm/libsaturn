@@ -128,6 +128,65 @@ inline sat_result_t write_label_u32(
     return SAT_OK;
 }
 
+inline sat_result_t write_fx16(
+    sat_fx16_t value,
+    uint8_t decimals,
+    char* out,
+    uint16_t out_size,
+    uint16_t* out_len
+) {
+    if (out == nullptr || out_size == 0u || decimals > 4u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    /* Negating INT32_MIN overflows, so widen before taking the magnitude --
+     * the same reason write_i32 does it. */
+    const int64_t widened = static_cast<int64_t>(value);
+    const uint64_t magnitude = static_cast<uint64_t>(
+        widened < 0 ? -widened : widened);
+    const uint32_t whole = static_cast<uint32_t>(magnitude >> 16u);
+    uint16_t n = 0;
+    if (value < 0) {
+        if (out_size < 2u) {
+            return SAT_ERR_CAPACITY;
+        }
+        out[0] = '-';
+        n = 1u;
+    }
+    uint16_t len = 0;
+    const sat_result_t st = write_u32(
+        whole, out + n, static_cast<uint16_t>(out_size - n), &len);
+    if (st != SAT_OK) {
+        return st;
+    }
+    n = static_cast<uint16_t>(n + len);
+    if (decimals > 0u) {
+        uint32_t scale = 1u;
+        for (uint8_t i = 0; i < decimals; ++i) {
+            scale *= 10u;
+        }
+        /* Truncate: 0.99 with one decimal is "0.9", never "1.0" beside a
+         * whole part that still says 0. */
+        const uint32_t fraction = static_cast<uint32_t>(
+            ((magnitude & 0xFFFFu) * scale) >> 16u);
+        if (static_cast<uint32_t>(n) + 1u + decimals + 1u > out_size) {
+            return SAT_ERR_CAPACITY;
+        }
+        out[n++] = '.';
+        uint16_t written = 0;
+        const sat_result_t padded = write_u32_padded(
+            fraction, decimals, out + n,
+            static_cast<uint16_t>(out_size - n), &written);
+        if (padded != SAT_OK) {
+            return padded;
+        }
+        n = static_cast<uint16_t>(n + written);
+    }
+    if (out_len != nullptr) {
+        *out_len = n;
+    }
+    return SAT_OK;
+}
+
 }  // namespace saturn::core::fmt
 
 #endif /* SATURN_CORE_FMT_LOGIC_HPP */

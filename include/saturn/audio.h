@@ -168,6 +168,30 @@ sat_result_t sat_music_stats(sat_music_t music, sat_audio_stream_stats_t* out_st
 uint8_t sat_music_is_playing(sat_music_t music);
 uint16_t sat_music_capacity(void);
 
+/* ---- Procedural placeholder audio ----------------------------------------
+ * Real games ship recorded samples. Examples, prototypes and tests need
+ * something audible without an asset pipeline, and every one of them ends up
+ * hand-rolling the same decaying blip -- which is where the off-by-one
+ * envelope and clipping bugs live. All of these write signed 8-bit PCM into
+ * caller-owned storage and allocate nothing. Output is fully deterministic,
+ * so emulator captures stay reproducible. */
+
+/* Descending-pitch sawtooth blip that decays to silence: jumps, pickups, UI
+ * clicks. `step` sets the pitch; larger is higher. */
+sat_result_t sat_audio_synth_blip(int8_t* out, uint32_t count, uint8_t step);
+
+/* Same envelope over a deterministic hash instead of a tone: impacts, falls. */
+sat_result_t sat_audio_synth_noise(int8_t* out, uint32_t count);
+
+/* One note of a triangle-wave melody over a steady bass, with a short attack
+ * and release so consecutive notes do not click. `period` is the wavelength
+ * in samples (smaller is higher). `bass_phase` is the sample index this note
+ * starts at, so the bass line continues across notes; writing a melody is a
+ * loop over periods, which also lets a caller show progress between notes.
+ * Requires count >= 322 (two 160-sample edges). */
+sat_result_t sat_audio_synth_arpeggio_note(
+    int8_t* out, uint32_t count, uint8_t period, uint32_t bass_phase);
+
 #ifdef __cplusplus
 }
 #endif

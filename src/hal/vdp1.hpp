@@ -89,6 +89,8 @@ void set_erase_enabled(bool enable, uint16_t width, uint16_t height);
 void begin_frame(Command* command_buffer, uint16_t capacity);
 /* Caller-owned frame command-buffer partition: protected overlay quota. */
 sat_result_t reserve_overlay_commands(uint16_t count);
+void command_stats(uint16_t& used, uint16_t& capacity,
+                   uint16_t& overlay_reserved, bool& overlay_pass);
 sat_result_t begin_overlay_pass();
 sat_result_t push_user_clip(const UserClipRequest& req);
 sat_result_t push_sprite(const SpriteRequest& req);

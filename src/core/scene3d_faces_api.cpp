@@ -234,6 +234,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_tiled_quad(
 
 extern "C" sat_result_t sat_scene3d_faces_submit_instance(
     sat_scene3d_faces_t* scene, const sat_scene3d_instance_t* instance,
+    uint8_t color_calc_slot,
     sat_projected_vertex_t* screen_scratch, sat_vec3_t* world_scratch) {
     const sat_mesh_t* mesh=instance ? instance->mesh : nullptr;
     const sat_scene3d_material_t* materials=instance ? instance->materials : nullptr;
@@ -246,10 +247,25 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
         return SAT_ERR_INVALID_ARG;
     if (mesh->face_count>scene->capacity-scene->count)
         return SAT_ERR_CAPACITY;
+    /* One submission-wide slot beats one material table per slot: distance
+     * fade acts on a whole object, while the material table is shared by
+     * every object using the colour. Validate the material the face will
+     * ACTUALLY carry, not the one the table holds -- an RGB material is only
+     * legal at SAT_INDEXED_SOLID_OPAQUE, so an override has to be rejected
+     * here rather than reaching emit(). The override is materialized only
+     * when there is one: a 300-face character submitted with
+     * SAT_SCENE3D_SLOT_INHERIT must not pay a struct copy per face. */
+    const bool override_slot=color_calc_slot!=SAT_SCENE3D_SLOT_INHERIT;
     for (uint16_t f=0;f<mesh->face_count;++f) {
-        if (face_materials[f]>=material_count ||
-            !valid_material(materials[face_materials[f]]))
+        if (face_materials[f]>=material_count) return SAT_ERR_INVALID_ARG;
+        const sat_scene3d_material_t& base=materials[face_materials[f]];
+        if (override_slot) {
+            sat_scene3d_material_t overridden=base;
+            overridden.color_calc_slot=color_calc_slot;
+            if (!valid_material(overridden)) return SAT_ERR_INVALID_ARG;
+        } else if (!valid_material(base)) {
             return SAT_ERR_INVALID_ARG;
+        }
         const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
         for (uint8_t c=0;c<4u;++c)
             if (idx[c]>=mesh->vertex_count) return SAT_ERR_INVALID_ARG;
@@ -281,9 +297,15 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
             continue;
         sat_quad3_t quad={};
         for (uint8_t c=0;c<4u;++c) quad.v[c]=world[idx[c]];
-        const sat_result_t st=append(
-            scene,quad,screen_scratch,idx,
-            materials[face_materials[f]],instance->pass);
+        const sat_scene3d_material_t& base=materials[face_materials[f]];
+        sat_result_t st;
+        if (override_slot) {
+            sat_scene3d_material_t overridden=base;
+            overridden.color_calc_slot=color_calc_slot;
+            st=append(scene,quad,screen_scratch,idx,overridden,instance->pass);
+        } else {
+            st=append(scene,quad,screen_scratch,idx,base,instance->pass);
+        }
         if (st!=SAT_OK) return st;
     }
     return SAT_OK;
