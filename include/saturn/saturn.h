@@ -33,6 +33,7 @@
 #include "saturn/cd_block.h"
 #include "saturn/scene3d.h"
 #include "saturn/scene3d_faces.h"
+#include "saturn/scene3d_material_pool.h"
 #include "saturn/fmt.h"
 #include "saturn/font.h"
 #include "saturn/grid.h"
