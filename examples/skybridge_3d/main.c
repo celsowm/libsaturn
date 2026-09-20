@@ -670,19 +670,25 @@ static void draw_clouds(void) {
         int32_t x=sb_scenery_cloud_x(base_x[i],(uint16_t)g_yaw,g_frame);
         int32_t left=x-(int32_t)width[i]/2;
         int32_t right=x+(int32_t)width[i]/2;
-        if(right>0 && left<(int32_t)W)
-            sat_example_must(sat_draw_sprite_scaled_screen(
+        if(right>0 && left<(int32_t)W && !g_world_cmd_full) {
+            const sat_result_t st=sat_draw_sprite_scaled_screen(
                 &g_cloud_texture,(int16_t)x,(int16_t)y[i],
-                width[i],height[i],0u));
+                width[i],height[i],0u);
+            if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
+            else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+        }
         /* Draw the periodic copy when a cloud crosses the 512px seam.
          * Do not wrap every cloud at 320px: that visibly tiles the sky. */
         x-=512;
         left=x-(int32_t)width[i]/2;
         right=x+(int32_t)width[i]/2;
-        if(right>0 && left<(int32_t)W)
-            sat_example_must(sat_draw_sprite_scaled_screen(
+        if(right>0 && left<(int32_t)W && !g_world_cmd_full) {
+            const sat_result_t st=sat_draw_sprite_scaled_screen(
                 &g_cloud_texture,(int16_t)x,(int16_t)y[i],
-                width[i],height[i],0u));
+                width[i],height[i],0u);
+            if(st==SAT_ERR_CAPACITY) g_world_cmd_full=1u;
+            else if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+        }
     }
 }
 static void init_scene_materials(void) {
