@@ -64,6 +64,8 @@ def assert_skybridge_uses_renderer_and_overlay_budget() -> None:
         "sat_scene3d_faces_submit_tiled_quad(",
         "sat_scene3d_faces_submit_box(",
         "sat_scene3d_faces_flush(",
+        "sat_scene3d_faces_begin_camera(",
+        "sat_scene3d_faces_depth(",
         "sat_scene3d_solid_pool_register(",
         "sat_anim_prepare_model_instance(",
         "sat_upload_indexed8_quadrants(",
@@ -77,6 +79,9 @@ def assert_skybridge_uses_renderer_and_overlay_budget() -> None:
     )
     assert "sat_clip_quad_screen(" not in text, (
         "Skybridge must not implement independent screen-space clipping"
+    )
+    assert "sat_scene3d_queue_" not in text, (
+        "Skybridge must submit directly to its single face-scene planner"
     )
     assert "g_fade_textures[" not in text and "g_pig_textures[" not in text, (
         "Scene colour textures must share the canonical deduplicating pool"

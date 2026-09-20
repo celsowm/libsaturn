@@ -235,3 +235,15 @@ into the scene-wide bounded painter. The old translation-only mesh entry point
 was deleted (breaking rewrite, no compatibility alias). Full static-level
 partitioning, palette/texture semantics beyond indexed solids and actual
 stock-hardware frame-time validation remain outstanding.
+
+## Sixteenth slice: Skybridge has one scene painter, no callback queue
+
+Skybridge now begins the canonical `sat_scene3d_faces_t` directly from
+its camera and obtains culling/fade depths through `sat_scene3d_faces_depth`.
+Stage, pig and gem code submit visible faces directly into one scene pass;
+the old `sat_scene3d_queue_t` object anchor sort, draw callbacks and their
+duplicated storage have been deleted from the game. Shared face sorting
+and material/instance paths remain unchanged. This removes an entire
+redundant queue and one extra sorting pass. Exact polygon-intersection
+handling, HW frame-time/VDP1 budget and unrelated WRAMH cross-build
+baseline still need independent validation.

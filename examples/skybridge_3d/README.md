@@ -200,11 +200,23 @@ any object disappears and record two neighboring frames to distinguish
 a game-code stall from a VDP1-frame backlog. Do not label this case a
 collapsing bridge or claim fixed based solely on a host test.
 
-## Pig/gem camera occlusion regression
+## Pig/gem/platform camera occlusion regression
 
-If the player stays at a fixed world XYZ position while only B/C rotates the camera, the octahedral gem can move in front of or behind the pig in screen space. **VDP1 has no Z-buffer**: the older `stage_box()` drew each gem as part of its platform and then unconditionally drew the pig last, so the pig covered *even a gem that was physically closer to the camera*. The LibSaturn scene-object queue accepts the platforms, pig and gems as deferred drawing items. Its callbacks now submit faces into the bounded `sat_scene3d_faces_t` painter, which orders faces from DIFFERENT objects together instead of only ordering one anchor per object. It sorts individual visible faces from platforms, pig and gems together by camera-space depth, including camera pitch. No Skybridge-specific cross-object face sorting loop is required. The pig is not automatically last. All 3D positions, gem hit tests, pickup state, shadow and collision remain unchanged.
+The scene-wide `sat_scene3d_faces_t` painter now directly receives visible
+world/platform faces, animated pig facets and immutable octahedral gem facets.
+The game no longer creates an extra scene-object callback queue, per-object
+painter passes or application depth sorting. Every face uses the same render
+pass; shared LibSaturn code prepares camera depth, per-instance projection,
+materials and global far-to-near face ordering. The gameplay position,
+collision, gem pickup and support state are independent of this draw order.
 
-The reusable host regression `tests/host/test_scene3d_api.cpp` submits two stationary actors from opposite camera positions: reversing the view reverses their painter order, while world positions stay unchanged. It also verifies pitch-sensitive order, stable depth ties, capacity errors, callback reentrancy, explicit passes and queued models. Confirm in the emulator by capturing the same XYZ position with a gem in view, before and after rotating the camera approximately 180 degrees. When the gem is closer, its yellow silhouette should appear over the pink pig where they overlap; when the pig is closer, it should cover the gem. The yellow vertical poles next to some platforms are **checkpoint/finish decorations**, not collectible gems. Platform callbacks retain explicit preparation passes for their fade and support bookkeeping, but their faces now share the same render pass as the pig and gems. Crossed or intersecting polygons can still require subdivision: this painter is not a Z-buffer, and visual/stock-hardware validation remains outstanding.
+VDP1 has no Z-buffer. Crossed or intersecting polygons may still need
+authored subdivision, and large near-camera faces may require expensive
+clipping/rasterization. Test the same player XYZ with B/C orbit: a gem in
+front must overlap the pig; a gem behind must be hidden. Also capture
+platform sidewalls occluding the pig when physically nearer. Verify HUD,
+frame time and command budget on an actual Saturn configuration before
+considering the renderer hardware-validated.
 
 ## Camera-only orbit regression
 

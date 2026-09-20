@@ -33,13 +33,9 @@
 #define SOUNDS 6u
 #define SOUND_LEN 2048u
 #define MUSIC_LEN 32768u
-#define SCENE_OBJECT_CAP (SB_PLATFORM_COUNT + SB_PICKUP_COUNT + 1u)
 /* Enough for the worst HUD/help/debug text + rects, without sacrificing
  * the END command. World overflow must never prevent the HUD pass. */
 #define SB_HUD_COMMAND_RESERVE 192u
-#define SCENE_PASS_WORLD 0u
-#define SCENE_PASS_SUPPORT 1u
-#define SCENE_PASS_ACTOR 2u
 #define GEM_VERTEX_CAP 6u
 #define GEM_FACE_CAP 8u
 #define PIG_VERTEX_CAP 900u
@@ -111,16 +107,11 @@ static uint16_t g_sky_colors[256], g_sea_colors[256];
 static uint16_t g_map[SAT_VDP2_NBG0_MAP_CELLS] __attribute__((section(".wram_l")));
 static sat_mat4_t g_vp;
 static sat_vec3_t g_eye, g_target, g_camera_anchor;
-/* A bounded, caller-owned scene queue: the library sorts and executes it.
- * No world-painter/actor-painter arrays or per-game depth math remain. */
-static sat_scene3d_queue_item_t g_scene_items[SCENE_OBJECT_CAP];
-static sat_scene3d_queue_t g_scene;
-/* All visible geometry enters one face painter; object queue retains
- * only its visibility/fade selection and callback orchestration. */
+/* One bounded shared painter owns projection and ordering of the visible
+ * faces of platforms, player and pickups in the same render pass. */
 static sat_scene3d_face_t g_face_items[SCENE_FACE_CAP] __attribute__((section(".wram_l")));
 static sat_scene3d_faces_t g_face_scene;
-static uint8_t g_stage_ids[SB_PLATFORM_COUNT];
-static uint8_t g_stage_frame_slot[SB_PLATFORM_COUNT];
+
 /* Imported-and-simplified user GLB: caller-owned model, pose and painter
  * scratch. Static mesh indices are copied ONCE; animated vertices are
  * decoded in place on each frame and then transformed into world space. */
@@ -541,34 +532,6 @@ static uint8_t platform_fade_slot(uint8_t id,int32_t depth) {
     g_platform_fade[id]=target;
     return target;
 }
-/* Procedural shapes remain Skybridge-owned; camera depth and painter order
- * are reusable LibSaturn scene-queue responsibilities.  Stage callbacks are
- * invoked only after all entries and fades have been computed this frame. */
-static sat_result_t draw_stage_item(void* user,const sat_camera3d_t* camera) {
-    uint8_t id=*(const uint8_t*)user;
-    (void)camera;
-    g_active_fade_slot=g_stage_frame_slot[id];
-    stage_box(id);
-    return SAT_OK;
-}
-static sat_result_t draw_pig_item(void* user,const sat_camera3d_t* camera) {
-    (void)user;
-    (void)camera;
-    g_active_fade_slot=FADE_OPAQUE;
-    pig_shadow();
-    player_pig();
-    return SAT_OK;
-}
-static sat_result_t draw_gem_item(void* user,const sat_camera3d_t* camera) {
-    uint8_t id=*(const uint8_t*)user;
-    (void)camera;
-    g_active_fade_slot=FADE_OPAQUE;
-    draw_gem(id,sb_platform_x(&g_game,id),
-             sb_platform_surface_y(&g_game,id,sb_platform_x(&g_game,id),
-                SB_F(sb_course_platforms(&g_game)[id].z)),
-             SB_F(sb_course_platforms(&g_game)[id].z));
-    return SAT_OK;
-}
 static void draw_world(void) {
     sat_camera3d_t camera={0};
     uint8_t visible_decks[SB_PLATFORM_COUNT]={0};
@@ -581,13 +544,11 @@ static void draw_world(void) {
     camera.near_z=SB_F(2);
     camera.far_z=SB_F(250);
     camera.view_proj=g_vp;  /* already calculated once in the frame loop */
-    sat_example_must(sat_scene3d_queue_begin(&g_scene,&camera));
-    sat_example_must(sat_scene3d_faces_begin(
-        &g_face_scene,&g_vp,&g_eye,&g_scene.forward,SB_F(8),W,H));
+    sat_example_must(sat_scene3d_faces_begin_camera(
+        &g_face_scene,&camera,SB_F(8),W,H));
 
-    /* The object passes only choose callback preparation order; every
-     * submitted platform/pig/gem face uses face-painter pass 0. Distinct
-     * polygons are globally ordered regardless of their object callback. */
+    /* All visible faces share render pass zero, independent of which object
+     * contributed them. Gameplay visibility/fade still belongs to the game. */
     for(i=0u;i<SB_PLATFORM_COUNT;++i) {
         const sb_platform_t* p=&sb_course_platforms(&g_game)[i];
         sat_vec3_t center;
@@ -612,27 +573,20 @@ static void draw_world(void) {
            sb_abs(g_eye.x-center.x)<SB_F(p->half_x) &&
            sb_abs(g_eye.z-center.z)<SB_F(p->half_z))
             continue;
-        sat_example_must(sat_scene3d_queue_depth(&g_scene,&center,&depth));
+        sat_example_must(sat_scene3d_faces_depth(&g_face_scene,&center,&depth));
         if(g_game.support!=(int8_t)i &&
            (depth < -SB_F(9) ||
             sb_abs(center.x-g_game.x)>SB_F(160) ||
             sb_abs(center.z-g_game.z)>SB_F(180)))continue;
         slot=platform_fade_slot(i,depth);
         if(slot==FADE_CULLED)continue;
-        g_stage_frame_slot[i]=slot;
-        sat_example_must(sat_scene3d_queue_submit_draw(
-            &g_scene,&center,
-            g_game.support==(int8_t)i?SCENE_PASS_SUPPORT:SCENE_PASS_WORLD,
-            draw_stage_item,&g_stage_ids[i]));
+        g_active_fade_slot=slot;
+        stage_box(i);
         visible_decks[i]=1u;
     }
-    {
-        sat_vec3_t center={
-            g_game.x,g_game.y+SB_PLAYER_HEIGHT/2,g_game.z
-        };
-        sat_example_must(sat_scene3d_queue_submit_draw(
-            &g_scene,&center,SCENE_PASS_ACTOR,draw_pig_item,0));
-    }
+    g_active_fade_slot=FADE_OPAQUE;
+    pig_shadow();
+    player_pig();
     for(i=1u;i<=SB_PICKUP_COUNT;++i) {
         sat_vec3_t center;
         sat_fx16_t depth;
@@ -643,15 +597,15 @@ static void draw_world(void) {
                 SB_F(sb_course_platforms(&g_game)[i].z))+SB_GEM_BASE_OFFSET,
             SB_F(sb_course_platforms(&g_game)[i].z)
         };
-        sat_example_must(sat_scene3d_queue_depth(&g_scene,&center,&depth));
+        sat_example_must(sat_scene3d_faces_depth(&g_face_scene,&center,&depth));
         if(depth<=0 || sb_abs(center.x-g_game.x)>SB_F(160) ||
            sb_abs(center.z-g_game.z)>SB_F(180))continue;
-        sat_example_must(sat_scene3d_queue_submit_draw(
-            &g_scene,&center,SCENE_PASS_ACTOR,draw_gem_item,&g_stage_ids[i]));
+        draw_gem(i,sb_platform_x(&g_game,i),
+                 sb_platform_surface_y(&g_game,i,sb_platform_x(&g_game,i),
+                    SB_F(sb_course_platforms(&g_game)[i].z)),
+                 SB_F(sb_course_platforms(&g_game)[i].z));
     }
-    sat_example_must(sat_scene3d_queue_flush(&g_scene));
-    /* The object callbacks only QUEUE geometry. Faces of decks, pig and
-     * gems now share one far-to-near painter before the protected HUD. */
+    /* World, pig and gem faces are ordered together before the protected HUD. */
     sat_example_must(sat_scene3d_faces_flush(&g_face_scene));
 }
 static void init_tile_texture(void) {
@@ -975,14 +929,10 @@ int main(void) {
     sat_vdp2_scroll_t sky_scroll={0u,0u,31u,0u};
     sat_example_must(sat_init(&video));
     sb_init(&g_game);
-    sat_example_must(sat_scene3d_queue_init(
-        &g_scene,g_scene_items,SCENE_OBJECT_CAP));
     sat_example_must(sat_scene3d_faces_init(
         &g_face_scene,g_face_items,SCENE_FACE_CAP));
-    {uint8_t i;for(i=0u;i<SB_PLATFORM_COUNT;++i) {
-        g_stage_ids[i]=i;
+    for(uint8_t i=0u;i<SB_PLATFORM_COUNT;++i)
         g_platform_fade[i]=FADE_OPAQUE;
-    }}
     g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
     /* Load the first drawable font before expensive procedural generation. */
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
