@@ -7,6 +7,9 @@ on:
       - "include/saturn/transform3d.h"
       - "include/saturn/scene3d.h"
       - "src/core/transform3d_api.cpp"
+      - "include/saturn/physics3_transform.h"
+      - "src/core/physics3_transform_api.cpp"
+      - "tests/host/test_physics3_transform.cpp"
       - "src/core/scene_transform3d_api.cpp"
       - "include/saturn/scene.h"
       - "examples/runtime_3d/main.c"
@@ -25,10 +28,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compile and execute hierarchy tests
         run: |
-          make build/tests/test_transform3d build/tests/test_scene_transform3d
+          make build/tests/test_transform3d build/tests/test_scene_transform3d build/tests/test_physics3_transform
           ./build/tests/test_transform3d
           ./build/tests/test_scene_transform3d
+          ./build/tests/test_physics3_transform
       - name: Verify public C header
         run: |
-          printf '#include "saturn/scene.h"\nint main(void) { sat_transform3d_world_t w = {0}; return (int)w.count; }\n' |
+          printf '#include "saturn/scene.h"\n#include "saturn/physics3_transform.h"\nint main(void) { sat_transform3d_world_t w = {0}; return (int)w.count; }\n' |
             gcc -std=c11 -Wall -Wextra -Werror -Iinclude -x c -fsyntax-only -

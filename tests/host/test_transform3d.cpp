@@ -79,9 +79,51 @@ static void reparent_later_created_parent() {
     CHECK(sat_transform3d_set_parent(&world, grandparent, child) == SAT_ERR_INVALID_ARG);
 }
 
+static void exact_local_matrix_and_trs_switch() {
+    sat_transform3d_node_t nodes[3]{};
+    sat_transform3d_world_t w{};
+    uint16_t scratch[3]{};
+    uint16_t parent=0,child=0,grandchild=0;
+    CHECK(sat_transform3d_world_init(&w,nodes,3)==SAT_OK);
+    CHECK(sat_transform3d_create(&w,&parent)==SAT_OK);
+    CHECK(sat_transform3d_create(&w,&child)==SAT_OK);
+    CHECK(sat_transform3d_create(&w,&grandchild)==SAT_OK);
+    CHECK(sat_transform3d_set_parent(&w,child,parent)==SAT_OK);
+    CHECK(sat_transform3d_set_parent(&w,grandchild,child)==SAT_OK);
+    sat_model_transform3d_t local{};
+    sat_model_transform3d_identity(&local);
+    local.position.x=FX(1);
+    CHECK(sat_transform3d_set_local(&w,grandchild,&local)==SAT_OK);
+    sat_mat4_t rot{};
+    CHECK(sat_mat4_rotate_z(&rot,FX(90))==SAT_OK);
+    rot.m[3]=FX(2);
+    CHECK(sat_transform3d_set_local_matrix(&w,parent,&rot)==SAT_OK);
+    CHECK(sat_transform3d_set_local_matrix(&w,child,&rot)==SAT_OK);
+    CHECK(sat_transform3d_get_world(&w,grandchild,&rot)==SAT_ERR_BUSY);
+    CHECK(sat_transform3d_evaluate(&w,scratch,3)==SAT_OK);
+    sat_mat4_t p=matrix(&w,parent), c=matrix(&w,child);
+    CHECK(p.m[3]==FX(2));
+    CHECK(c.m[3]>FX(1) && c.m[3]<FX(3));
+    CHECK(matrix(&w,grandchild).m[3]<c.m[3]);
+    const sat_mat4_t old=matrix(&w,child);
+    sat_mat4_t invalid=rot;
+    invalid.m[15]=0;
+    CHECK(sat_transform3d_set_local_matrix(&w,child,&invalid)==SAT_ERR_INVALID_ARG);
+    CHECK(!w.pending && matrix(&w,child).m[3]==old.m[3]);
+    local.position.x=FX(5);
+    CHECK(sat_transform3d_set_local(&w,child,&local)==SAT_OK);
+    CHECK(!w.nodes[child].use_local_matrix);
+    CHECK(sat_transform3d_evaluate(&w,scratch,3)==SAT_OK);
+    CHECK(matrix(&w,child).m[3]!=old.m[3]);
+    CHECK(sat_transform3d_set_local_matrix(&w,12,&rot)==SAT_ERR_INVALID_ARG);
+    sat_transform3d_world_reset(&w);
+    CHECK(sat_transform3d_create(&w,&parent)==SAT_OK);
+    CHECK(w.nodes[parent].use_local_matrix==0);
+}
 int main() {
     hierarchy_and_cache();
     reparent_later_created_parent();
-    std::puts("test_transform3d: 2 tests passed");
+    exact_local_matrix_and_trs_switch();
+    std::puts("test_transform3d: 3 tests passed");
     return 0;
 }

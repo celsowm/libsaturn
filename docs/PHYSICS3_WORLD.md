@@ -178,3 +178,13 @@ high actor counts can be costly on SH-2. It is opt-in, stack-only and
 allocation-free, but not a broad-phase-accelerated collider; benchmark
 before enabling it on a large stage. The existing numerical/initial-
 penetration limitations of the fixed-point mesh sweep apply.
+
+### Explicit hierarchy synchronization
+
+Use `sat_physics3_sync_sphere_transform` in `physics3_transform.h` to copy
+one sphere's world-space position and quaternion orientation to a ROOT node
+of the existing transform hierarchy. It uses the exact matrix override,
+so the visual node and its descendants update after
+`sat_transform3d_evaluate` without reconstructing Euler angles. This is a
+one-way, post-step operation; parented targets are rejected and no physics
+collision geometry is implicitly transformed or parented.

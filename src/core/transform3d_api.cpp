@@ -34,6 +34,8 @@ extern "C" sat_result_t sat_transform3d_create(
     sat_transform3d_node_t& node = world->nodes[id];
     sat_model_transform3d_identity(&node.local);
     SAT_TRY(sat_mat4_identity(&node.world));
+    node.local_matrix=node.world;
+    node.use_local_matrix=0;
     node.parent = SAT_TRANSFORM3D_ROOT;
     node.dirty = 1;
     node.eval_state = 0;
@@ -71,11 +73,28 @@ extern "C" sat_result_t sat_transform3d_set_local(
     const sat_model_transform3d_t* local) {
     if (!is_live(world, id) || !local) return SAT_ERR_INVALID_ARG;
     world->nodes[id].local = *local;
+    world->nodes[id].use_local_matrix=0;
     world->nodes[id].dirty = 1;
     world->pending = 1;
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_transform3d_set_local_matrix(
+    sat_transform3d_world_t* world,uint16_t id,
+    const sat_mat4_t* local_matrix){
+    if(!is_live(world,id)||!local_matrix)return SAT_ERR_INVALID_ARG;
+    /* The hierarchy already operates on affine model matrices. Guard the
+     * invariant that the final row remains the homogeneous affine row. */
+    if(local_matrix->m[12]||local_matrix->m[13]||
+       local_matrix->m[14]||local_matrix->m[15]!=SAT_FX16_ONE)
+        return SAT_ERR_INVALID_ARG;
+    sat_transform3d_node_t& node=world->nodes[id];
+    node.local_matrix=*local_matrix;
+    node.use_local_matrix=1;
+    node.dirty=1;
+    world->pending=1;
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_transform3d_evaluate(
     sat_transform3d_world_t* world, uint16_t* scratch,
     uint16_t scratch_capacity) {
@@ -114,7 +133,8 @@ extern "C" sat_result_t sat_transform3d_evaluate(
             const bool changed = node.dirty || parent_changed;
             if (changed) {
                 sat_mat4_t local_matrix{};
-                SAT_TRY(sat_model_transform3d_matrix(&node.local, &local_matrix));
+                if(node.use_local_matrix)local_matrix=node.local_matrix;
+                else SAT_TRY(sat_model_transform3d_matrix(&node.local, &local_matrix));
                 if (node.parent == SAT_TRANSFORM3D_ROOT) {
                     node.world = local_matrix;
                 } else {

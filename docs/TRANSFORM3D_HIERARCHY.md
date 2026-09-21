@@ -38,3 +38,23 @@ Run `make test` (includes `test_transform3d`) and build representative
 3D examples. The added host tests cover propagation, cache reuse, cycle
 rejection, capacity, detach/reset, and parents created after children.
 Physical Saturn/emulator frame-time qualification remains pending.
+
+## Exact local matrices and one-way physics synchronization
+
+`sat_transform3d_set_local_matrix` copies an unscaled/scaled affine pose
+without losing quaternion orientation through Euler-angle conversion. This
+mode composes with parent transforms exactly like the existing local TRS mode;
+`sat_transform3d_set_local` switches that node back to TRS. After either
+setter, `evaluate` updates changed nodes and their descendants. The setter
+requires the homogeneous affine last row `[0,0,0,ONE]`; it does not
+orthonormalize arbitrary matrices or compute inverse-parent transforms.
+
+`physics3_transform.h` provides an explicitly called one-way bridge:
+`sat_physics3_sync_sphere_transform(&physics, sphere_id, &hierarchy, node_id)`.
+Call after a successful physics step and before hierarchy evaluation. The
+bridge binds the sphere's exact world model matrix as a **ROOT** node's local
+matrix; children (for example, sphere stripes and attached decorations)
+inherit that motion. A parented target is rejected without mutating the
+hierarchy, because applying a world pose as a child-local pose would double
+its parent transform. The physics world never reads back the visual hierarchy:
+this does not implement automatic collider parenting or moving-mesh physics.

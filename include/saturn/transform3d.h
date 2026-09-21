@@ -14,7 +14,9 @@ extern "C" {
 
 typedef struct sat_transform3d_node {
     sat_model_transform3d_t local;
+    sat_mat4_t local_matrix; /* Exact local pose when use_local_matrix=1. */
     sat_mat4_t world;
+    uint8_t use_local_matrix;
     uint16_t parent;
     uint8_t dirty;
     uint8_t eval_state; /* Internal evaluation scratch; do not write. */
@@ -43,6 +45,15 @@ sat_result_t sat_transform3d_set_parent(
 sat_result_t sat_transform3d_set_local(
     sat_transform3d_world_t* world, uint16_t id,
     const sat_model_transform3d_t* local);
+
+/* Exact row-major local matrix override for quaternion poses, authored
+ * transforms, and arbitrary affine local transforms. Copies the matrix;
+ * subsequent set_local() switches back to the traditional TRS descriptor.
+ * Parent composition and dirty propagation are identical for both modes.
+ * Caller is responsible for using affine/fixed-point-safe matrices. */
+sat_result_t sat_transform3d_set_local_matrix(
+    sat_transform3d_world_t* world, uint16_t id,
+    const sat_mat4_t* local_matrix);
 
 /* scratch must have >= world->count uint16 entries. Evaluates each node
  * parent-first, refreshing descendants when an ancestor changes. No heap,
