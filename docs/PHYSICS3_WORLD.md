@@ -84,3 +84,24 @@ tolerance when testing multi-surface corner cases.
 Mesh contacts are also **discrete** and two-sided, not swept collision or a
 one-way platform. `world_step` preflights caller scratch before movement,
 but the existing solver's general fixed-point overflow limitations remain.
+
+## Opt-in face-interior CCD (limited scope)
+
+`sat_sphere_cast_mesh_faces(mesh, &sphere, &displacement, &hit, &found)`
+queries the earliest radius-offset **face-interior** crossing of a finite
+quad mesh in a fixed-point displacement. `hit.t` is the fractional time of
+impact, `hit.center` is the sphere center and `hit.point` is on the face.
+An initially overlapping sphere is handled by existing contact resolution,
+not by this cast. The query is not a full swept-sphere mesh cast: grazing a
+quad **edge or vertex** from outside is not detected by the interior cast.
+
+`sat_physics3_set_mesh_face_ccd(world, 1)` opts the fixed-tick world into
+a sweep before each discrete step against all registered static meshes. On a
+face-interior crossing, the world places the sphere at contact, resolves the
+incoming velocity, and moves the remaining substep using that velocity.
+When a world contains only static meshes and dynamic spheres, this option
+caps substeps at `max_substeps` rather than rejecting a high-speed tick;
+box/plane/kinematic worlds retain the original capacity rejection contract.
+The sweep scans every mesh face even for grid-backed colliders. High-speed
+contacts on edges, corners, moving boxes and non-mesh colliders remain outside
+its guarantee; this is intentionally **not advertised as complete CCD**.

@@ -25,6 +25,24 @@ typedef struct sat_hit3 {
 } sat_hit3_t;
 typedef struct sat_plane3 { sat_vec3_t point, normal; } sat_plane3_t;
 
+/* First collision against a finite quad FACE INTERIOR during a sphere sweep.
+ * t is in [0, 1] relative to displacement; center is the sphere center at
+ * impact, point is the corresponding point on the face, normal points toward
+ * the approaching sphere. This is not a full edge/corner capsule cast. */
+typedef struct sat_sphere_mesh_face_hit {
+    sat_fx16_t t;
+    sat_vec3_t center, point, normal;
+    uint16_t face;
+} sat_sphere_mesh_face_hit_t;
+
+/* On success, *found is 1 if a face-interior crossing exists, else 0.
+ * Initial overlap and edge/corner-only impacts are delegated to discrete
+ * contact tests; no side effects on mesh/sphere/displacement. */
+sat_result_t sat_sphere_cast_mesh_faces(
+    const sat_mesh_t* mesh, const sat_sphere_t* sphere,
+    const sat_vec3_t* displacement, sat_sphere_mesh_face_hit_t* out,
+    uint8_t* found);
+
 int sat_sphere_overlap(const sat_sphere_t*, const sat_sphere_t*);
 int sat_sphere_sphere_overlap(const sat_sphere_t*, const sat_sphere_t*);
 int sat_aabb3_overlap(const sat_aabb3_t*, const sat_aabb3_t*);

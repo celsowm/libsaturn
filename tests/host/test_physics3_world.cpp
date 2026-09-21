@@ -313,6 +313,44 @@ static void accelerated_mesh_matches_linear_contacts_and_gaps() {
     grid.mesh=&mesh;
     CHECK(sat_physics3_world_step(&accelerated)==SAT_OK);
 }
+
+static void face_interior_ccd_prevents_through_floor() {
+    sat_physics3_actor_t actors[2]{};
+    sat_physics3_world_t w{};
+    sat_contact3_t contacts[1]{};
+    const sat_vec3_t gravity{};
+    CHECK(sat_physics3_world_init(&w,actors,2,gravity,2,3)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(&w,contacts,1)==SAT_OK);
+    sat_vec3_t vertices[4]={
+        {-FX(4),0,-FX(4)},{FX(4),0,-FX(4)},
+        {FX(4),0,FX(4)},{-FX(4),0,FX(4)}
+    };
+    uint16_t indices[4]={0,1,2,3};
+    sat_mesh_t mesh{vertices,indices,4,4,1,1};
+    uint16_t mesh_id=555,ball_id=555;
+    CHECK(sat_physics3_add_mesh(&w,&mesh,&rough,&mesh_id)==SAT_OK);
+    const sat_sphere_t sphere{{0,FX(3),0},FX(1)/2};
+    const sat_vec3_t down{0,-FX(6),0};
+    CHECK(sat_physics3_add_sphere(&w,&sphere,&down,&rough,&ball_id)==SAT_OK);
+    const sat_physics3_actor_t before=read(&w,ball_id);
+    CHECK(sat_physics3_world_step(&w)==SAT_ERR_CAPACITY);
+    CHECK(read(&w,ball_id).sphere.shape.center.y==
+          before.sphere.shape.center.y);
+    CHECK(sat_physics3_set_mesh_face_ccd(&w,1)==SAT_OK);
+    CHECK(sat_physics3_world_step(&w)==SAT_OK);
+    const sat_physics3_actor_t after=read(&w,ball_id);
+    CHECK(after.sphere.shape.center.y>=FX(1)/2-8);
+    CHECK(after.sphere.shape.center.y<=FX(1)/2+8);
+    CHECK(after.sphere.flags & SAT_BODY3_GROUNDED);
+    CHECK(after.sphere.vel.y==0);
+    sat_physics3_world_reset(&w);
+    CHECK(sat_physics3_add_mesh(&w,&mesh,&rough,&mesh_id)==SAT_OK);
+    const sat_sphere_t missed{{FX(9),FX(3),0},FX(1)/2};
+    CHECK(sat_physics3_add_sphere(&w,&missed,&down,&rough,&ball_id)==SAT_OK);
+    CHECK(sat_physics3_world_step(&w)==SAT_OK);
+    CHECK(read(&w,ball_id).sphere.shape.center.y==-FX(3));
+    CHECK(read(&w,ball_id).sphere.flags==0);
+}
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
@@ -322,6 +360,7 @@ int main(){
     finite_mesh_ramp_edge_and_gap();
     mesh_registration_validates_indices_and_contact_capacity();
     accelerated_mesh_matches_linear_contacts_and_gaps();
-    std::puts("test_physics3_world: 8 tests passed");
+    face_interior_ccd_prevents_through_floor();
+    std::puts("test_physics3_world: 9 tests passed");
     return 0;
 }

@@ -36,6 +36,7 @@ typedef struct sat_physics3_world {
     uint16_t count,capacity;
     uint8_t max_substeps; /* 1..64 */
     uint8_t iterations; /* 1..8 */
+    uint8_t mesh_face_ccd; /* Opt-in conservative FACE-INTERIOR crossing guard. */
 } sat_physics3_world_t;
 sat_result_t sat_physics3_world_init(sat_physics3_world_t* world,
     sat_physics3_actor_t* storage,uint16_t capacity,sat_vec3_t gravity,
@@ -85,6 +86,11 @@ sat_result_t sat_physics3_get_actor(const sat_physics3_world_t* world,
 /* Preflights velocity/step capacity before changing ANY actor; uses existing
  * sat_sphere_aabb3_contact / sat_sphere_plane_contact for iterative collision.
  * No sphere/sphere collision or exact swept CCD in this slice. */
+/* Enables finite-mesh face-interior sweeps. With no box/plane colliders,
+ * allows larger velocities than the discrete substep budget by capping the
+ * substeps; this does NOT protect mesh edges, corners or moving objects. */
+sat_result_t sat_physics3_set_mesh_face_ccd(
+    sat_physics3_world_t* world, int enabled);
 sat_result_t sat_physics3_world_step(sat_physics3_world_t* world);
 #ifdef __cplusplus
 }
