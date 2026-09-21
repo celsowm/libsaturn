@@ -203,7 +203,7 @@ generated C/H model
       |
       | upload once (sat_model_upload_textures)
       v
-LibSaturn textured mesh (sat_draw_mesh textured path)
+LibSaturn textured mesh (`sat_scene_submit_instance` canonical path)
       |
       v
 VDP1 distorted sprites
@@ -258,7 +258,7 @@ generated C/H animated model (shared indices/textures + pose stream)
       | textures upload once; per frame:
       | sat_anim_advance + sat_anim_decode -> caller vertices
       v
-VDP1 distorted sprites (same sat_draw_mesh textured path)
+VDP1 distorted sprites (same canonical scene path)
 ```
 
 The generated asset quantizes positions to int16 per axis around a

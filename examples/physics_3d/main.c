@@ -5,16 +5,18 @@
 #include "saturn/color.h"
 #include "saturn/font.h"
 #include "saturn/fmt.h"
+#include "saturn/hud.h"
 #include "saturn/input.h"
 #include "saturn/math3d.h"
 #include "saturn/mesh3d.h"
 #include "saturn/physics.h"
-#include "saturn/render3d.h"
+#include "saturn/scene.h"
 #include "saturn/spatial.h"
 #include "saturn/vdp1.h"
 #include "saturn/example_util.h"
 
 #define BALLS 8
+#define SCENE_FACE_CAPACITY 512u
 #define FX(v) ((sat_fx16_t)((int32_t)(v) * 65536))
 static sat_body3_t g_balls[BALLS];
 static sat_aabb3_t g_boxes[5];
@@ -24,7 +26,14 @@ static uint16_t g_box_indices[5][24];
 static sat_vec3_t g_sphere_vertices[64];
 static uint16_t g_sphere_indices[192];
 static sat_mesh_t g_sphere_mesh;
-static sat_mat4_t g_view_proj;
+static sat_camera3d_t g_camera;
+static sat_scene_t g_scene;
+static sat_hud_t g_hud;
+static sat_scene3d_face_t g_scene_faces[SCENE_FACE_CAPACITY];
+static uint32_t g_scene_keys[SCENE_FACE_CAPACITY];
+static uint16_t g_scene_order[SCENE_FACE_CAPACITY];
+static uint16_t g_face_materials[48];
+static sat_projected_vertex_t g_mesh_screen[64];
 static sat_ascii_font_t g_font;
 static uint16_t g_hit_face;
 static uint16_t g_pair_count;
@@ -65,15 +74,42 @@ static void simulate(const sat_pad_state_t* pad) {
     sat_example_must(sat_spatial_pairs(&g_spatial,g_pairs,32,&g_pair_count));
     for (i=0;i<g_pair_count;++i) sat_body3_separate(&g_balls[g_pairs[i].a],&g_balls[g_pairs[i].b]);
 }
-static void draw_mesh(const sat_mesh_t* m,uint16_t color) { uint16_t i; for(i=0;i<m->face_count;++i){sat_quad3_t q;if(sat_mesh_face_quad(m,i,&q)==SAT_OK) sat_draw_world_polygon(&g_view_proj,&q,color);} }
+static void draw_mesh(const sat_mesh_t* m,uint16_t color,uint16_t pass) {
+    sat_scene3d_material_t material = {};
+    sat_scene3d_instance_t instance = {};
+    material.kind = SAT_SCENE3D_RGB;
+    material.rgb555 = color;
+    material.color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+    instance.mesh = m;
+    instance.materials = &material;
+    instance.material_count = 1u;
+    instance.face_materials = g_face_materials;
+    instance.world = NULL;
+    instance.pass = pass;
+    instance.cull_backfaces = 0u;
+    sat_example_must(sat_scene_submit_instance(
+        &g_scene, &instance, SAT_SCENE3D_SLOT_INHERIT, g_mesh_screen, NULL));
+}
 static void draw_scene(void) {
     uint16_t i;
-    sat_quad3_t floor; sat_quad3_floor(&floor,0,FX(-4),0,FX(95)); sat_draw_world_polygon(&g_view_proj,&floor,SAT_RGB555(3,6,14));
-    for(i=0;i<5;++i) draw_mesh(&g_meshes[i],i==g_hit_face?SAT_RGB555(31,20,4):SAT_RGB555(6,12,27));
-    for(i=0;i<BALLS;++i){sat_mesh_build_sphere(&g_sphere_mesh,&g_balls[i].shape.center,g_balls[i].shape.radius,6,3);draw_mesh(&g_sphere_mesh,i==0?SAT_RGB555(31,26,3):SAT_RGB555(4,24,31));}
+    sat_quad3_t floor;
+    sat_scene3d_material_t floor_material = {};
+    floor_material.kind = SAT_SCENE3D_RGB;
+    floor_material.rgb555 = SAT_RGB555(3,6,14);
+    floor_material.color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+    sat_quad3_floor(&floor,0,FX(-4),0,FX(95));
+    sat_example_must(sat_scene_submit_quad(&g_scene,&floor,&floor_material,0u));
+    for(i=0;i<5;++i) draw_mesh(&g_meshes[i],i==g_hit_face?SAT_RGB555(31,20,4):SAT_RGB555(6,12,27),1u);
+    for(i=0;i<BALLS;++i){sat_mesh_build_sphere(&g_sphere_mesh,&g_balls[i].shape.center,g_balls[i].shape.radius,6,3);draw_mesh(&g_sphere_mesh,i==0?SAT_RGB555(31,26,3):SAT_RGB555(4,24,31),1u);}
 }
-static void hud(void) { char text[40]; sat_example_must(sat_ascii_font_draw_text_screen_indexed8(&g_font,"PHYSICS 3D  MOVE: D-PAD + B",8,4,0,1,0));sat_example_must(sat_fmt_label_u32("BODIES ",BALLS,text,sizeof(text),0));sat_example_must(sat_ascii_font_draw_text_screen_indexed8(&g_font,text,8,14,0,1,0));sat_example_must(sat_fmt_label_u32("PAIRS ",g_pair_count,text,sizeof(text),0));sat_example_must(sat_ascii_font_draw_text_screen_indexed8(&g_font,text,96,14,0,1,0));sat_example_must(sat_fmt_label_u32("HIT FACE ",g_hit_face,text,sizeof(text),0));sat_example_must(sat_ascii_font_draw_text_screen_indexed8(&g_font,text,8,24,0,1,0));sat_example_must(sat_ascii_font_draw_text_screen_indexed8(&g_font,"START: RESET",112,24,0,1,0)); }
+static void hud(void) {
+    sat_example_must(sat_hud_text(&g_hud, "PHYSICS 3D  MOVE: D-PAD + B", 8, 4));
+    sat_example_must(sat_hud_value(&g_hud, "BODIES ", BALLS, 8, 14));
+    sat_example_must(sat_hud_value(&g_hud, "PAIRS ", g_pair_count, 96, 14));
+    sat_example_must(sat_hud_value(&g_hud, "HIT FACE ", g_hit_face, 8, 24));
+    sat_example_must(sat_hud_text(&g_hud, "START: RESET", 112, 24));
+}
 int main(void){sat_vec3_t eye={FX(0),FX(92),FX(135)},center={0,FX(4),0},up={0,FX(1),0};sat_ray3_t ray; sat_step_clock_t clock;uint16_t steps;
-    {sat_mat4_t view,proj;sat_example_must(sat_app_init_default());sat_example_must(sat_ascii_font_init_8x8_indexed8(&g_font,SAT_COLOR_WHITE,SAT_COLOR_BLACK,1));sat_example_must(sat_mat4_look_at(&view,&eye,&center,&up));sat_example_must(sat_mat4_perspective(&proj,FX(42),sat_fx16_div(FX(320),FX(224)),FX(4),FX(500)));sat_example_must(sat_mat4_multiply(&g_view_proj,&proj,&view));sat_example_must(sat_spatial_init(&g_spatial,g_spatial_heads,7,5,5,g_spatial_entries,BALLS*4,g_spatial_stamps,g_footprints,BALLS));}init_scene();sat_step_clock_init(&clock);
-    for(;;){sat_pad_state_t pad={0};sat_example_must(sat_app_frame_begin(SAT_COLOR_BLACK,SAT_COLOR_BLACK,&pad));steps=sat_step_clock_steps(&clock,3);while(steps--)simulate(&pad);ray.origin=eye;ray.dir=(sat_vec3_t){0,FX(-1),FX(-2)};sat_vec3_normalize(&ray.dir,&ray.dir);ray.length=FX(500);g_hit_face=0xFFFF;{sat_hit3_t h;for(uint16_t i=0;i<5;++i)if(sat_raycast_aabb3(&g_boxes[i],&ray,&h)&&g_hit_face==0xFFFF)g_hit_face=i;}draw_scene();hud();sat_example_must(sat_app_frame_end());}
+    {sat_example_must(sat_app_init_default());sat_example_must(sat_ascii_font_init_8x8_indexed8(&g_font,SAT_COLOR_WHITE,SAT_COLOR_BLACK,1));sat_example_must(sat_hud_init(&g_hud,&g_font,SAT_COLOR_WHITE,8u));sat_example_must(sat_camera3d_init(&g_camera,&eye,&center,&up,FX(42),sat_fx16_div(FX(320),FX(224)),FX(4),FX(500)));sat_example_must(sat_scene_init(&g_scene,g_scene_faces,g_scene_keys,g_scene_order,SCENE_FACE_CAPACITY));sat_example_must(sat_spatial_init(&g_spatial,g_spatial_heads,7,5,5,g_spatial_entries,BALLS*4,g_spatial_stamps,g_footprints,BALLS));}init_scene();sat_step_clock_init(&clock);
+    for(;;){sat_pad_state_t pad={0};sat_example_must(sat_app_frame_begin(SAT_COLOR_BLACK,SAT_COLOR_BLACK,&pad));steps=sat_step_clock_steps(&clock,3);while(steps--)simulate(&pad);ray.origin=eye;ray.dir=(sat_vec3_t){0,FX(-1),FX(-2)};sat_vec3_normalize(&ray.dir,&ray.dir);ray.length=FX(500);g_hit_face=0xFFFF;{sat_hit3_t h;for(uint16_t i=0;i<5;++i)if(sat_raycast_aabb3(&g_boxes[i],&ray,&h)&&g_hit_face==0xFFFF)g_hit_face=i;}sat_example_must(sat_scene_begin(&g_scene,&g_camera,FX(4),320u,224u,48u));draw_scene();sat_example_must(sat_scene_flush(&g_scene));hud();sat_example_must(sat_app_frame_end());}
 }

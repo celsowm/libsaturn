@@ -1,0 +1,18 @@
+# Select Course 4 from the pause picker, then ride and jump on the first
+# tilting boards. The debug HUD exposes the signed tilt value when supported.
+0     NONE
+130   START
+145   NONE
+150   X
+170   NONE
+190   X
+210   NONE
+230   X
+250   NONE
+270   START
+285   NONE
+305   UP
+330   UP+A
+337   UP
+370   RIGHT
+390   NONE

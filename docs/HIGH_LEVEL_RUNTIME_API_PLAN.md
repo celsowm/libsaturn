@@ -1002,22 +1002,15 @@ Phase gate:
 
 # Phase 10 — High-level 3D facade for portable game code
 
-### Implementation status — 2026-09-18
+### Implementation status — superseded 2026-09-20
 
-Implemented the initial caller-owned facade in `include/saturn/scene3d.h`:
-
-- `sat_camera3d_t` builds a reusable view-projection matrix from look-at and
-  perspective parameters;
-- `sat_model_transform3d_t` provides position, Euler rotation, scale, and a
-  fixed-point model matrix helper;
-- `sat_scene3d_t` owns no storage and draws compiled models through caller-
-  supplied mesh/index/sort/projection scratch;
-- immediate model drawing reuses `sat_model_copy_to_mesh`,
-  `sat_model_bind_draw_ex`, and `sat_draw_mesh`, so gameplay code does not
-  construct VDP1 commands or manage native addresses.
-
-The facade intentionally remains immediate-mode and single-mesh-at-a-time;
-material upload, animation, and detailed mesh controls remain explicit APIs.
+The original immediate `sat_scene3d_t` facade was removed in the breaking
+runtime cutover. The current game-facing contract is `sat_scene_t` in
+`include/saturn/scene.h`: it owns caller-provided bounded face/key/order
+storage, accepts quads and persistent instances, and flushes through the
+single scene-wide painter in `scene3d_faces.h`. `sat_camera3d_t` remains the
+camera/projection owner, while `sat_vdp1_draw_mesh` is retained only for
+low-level renderer tests and hardware probes.
 
 LibSaturn already has `math3d`, `mesh3d`, `model3d`, `render3d`, and animation facilities. Do not rewrite them to imitate raylib.
 
@@ -1059,8 +1052,8 @@ Implemented the first native acceptance pair:
   rotation/flipping/scaling, dynamic texture updates, millisecond animation,
   controller events, SFX, and streamed music;
 - `examples/runtime_3d` resolves a compiled model through the logical data
-  asset API and draws it through `sat_scene3d_t` with caller-owned camera,
-  transform, sort and projection storage;
+  asset API and submits its persistent instance through `sat_scene_t` with
+  caller-owned camera and scene storage;
 - both examples build to ISO/CUE and pass the modified Ymir harness with
   `bios/saturn_bios_us.bin`.
 

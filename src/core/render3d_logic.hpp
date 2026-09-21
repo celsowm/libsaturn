@@ -483,7 +483,7 @@ inline void sift_down(Index* indices, const uint32_t* keys, uint32_t root, uint3
 }
 
 /* Heapsort: O(n log n) worst case, no scratch. It replaced an insertion sort
- * whose "near-linear on coherent orders" never applied here -- sat_draw_mesh
+ * whose "near-linear on coherent orders" never applied here -- sat_vdp1_draw_mesh
  * rebuilds the list in index order every frame, so the quadratic case was
  * the ordinary one. */
 template <typename Index>
@@ -523,7 +523,7 @@ inline void sort_indices16_desc(uint16_t* indices, const uint32_t* keys, uint32_
 constexpr uint32_t kPaintSkip = 0xFFFFFFFFu;
 constexpr uint32_t kPaintBuckets = 1024u;
 
-/* Farthest-first draw order in O(faces + buckets), for sat_draw_mesh.
+/* Farthest-first draw order in O(faces + buckets), for sat_vdp1_draw_mesh.
  *
  * depth[f] holds face f's key (larger = farther) or kPaintSkip. The live key
  * range is spread over kPaintBuckets by a power-of-two shift -- no divide --

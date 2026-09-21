@@ -95,7 +95,8 @@ was finally identified.
 harness/
   LICENSE          GPL-3.0 (verbatim, from gnu.org)
   README.md        this file
-  CMakeLists.txt    FetchContents Ymir (pinned commit), builds the probe app
+  CMakeLists.txt    FetchContents Ymir (pinned commit), applies debug metrics, builds the probe app
+  ymir_debug_metrics.patch  reproducible Ymir write/cycle instrumentation
   src/probe_main.cpp  links ymir-core; boots an ISO, dumps state to JSON
   src/png_writer.hpp  dependency-free PNG writer for --screenshot
   scripts/*.pad       input timelines for --pad-script
@@ -123,6 +124,15 @@ software would run under.
 `-BootFrames` (default 90) controls how many frames of BIOS-only execution
 run before injection; `-Frames` (default 60) controls how many frames run
 afterward, with our code in control.
+
+For deterministic before/after measurements, the wrapper can pass through
+`-ProfilePc`, `-ProfileCycles`, `-ProfileInstructions` and
+`-ProfileTransfers`. The last option writes CSV columns for VDP1 VRAM, VDP2
+VRAM and VDP2 CRAM words submitted in each frame. The counters are supplied by
+the pinned-Ymir patch at the central VDP memory-write boundary; they are not
+pixel-difference estimates. `-ProfileInstructions` enables Ymir's SH-2 debug
+tracer and counts executed master/slave instructions, while the cycle profile
+reports the fixed emulated system-clock budget for context.
 
 ### Pad polarity
 
@@ -229,9 +239,9 @@ The RAM-expansion mode is independent of the persistent Backup Memory cartridge.
 Run the same demo with three configurations:
 
 ```powershell
-.\harness\run-harness.ps1 ram_cart_demo -Bios .\bios\saturn_bios_us.bin -RamCart 4m -Frames 5
-.\harness\run-harness.ps1 ram_cart_demo -Bios .\bios\saturn_bios_us.bin -RamCart 1m -Frames 5
-.\harness\run-harness.ps1 ram_cart_demo -Bios .\bios\saturn_bios_us.bin -RamCart none -Frames 5
+.\harness\run-harness.ps1 ram_cart_demo -Bios .\bios\saturn_bios_us.bin -RamCart 4m -Frames 60
+.\harness\run-harness.ps1 ram_cart_demo -Bios .\bios\saturn_bios_us.bin -RamCart 1m -Frames 60
+.\harness\run-harness.ps1 ram_cart_demo -Bios .\bios\saturn_bios_us.bin -RamCart none -Frames 60
 ```
 
 The JSON `ram_cartridge.bank_edge_verified` becomes true when the demo's eight-byte

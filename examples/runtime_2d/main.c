@@ -18,6 +18,7 @@
 #include "saturn/input.h"
 #include "saturn/render2d.h"
 #include "saturn/surface.h"
+#include "saturn/sprite_anim.h"
 #include "saturn/time.h"
 
 #define SPRITE_W 64u
@@ -37,6 +38,10 @@ static sat_font_glyph_t g_font_glyphs[FONT_GLYPH_COUNT];
 static int16_t g_tone[256];
 static int16_t g_music_samples[1024];
 static uint8_t g_data_blob[8] = {0x52u, 0x32u, 0x44u, 0x00u, 0x01u, 0x02u, 0x03u, 0x04u};
+static const sat_rect_t g_player_frames[4] = {
+    {0, 0, FRAME_W, FRAME_H}, {16, 0, FRAME_W, FRAME_H},
+    {32, 0, FRAME_W, FRAME_H}, {48, 0, FRAME_W, FRAME_H}
+};
 
 static void build_assets(void) {
     for (uint16_t i = 0u; i < 256u; ++i) {
@@ -162,11 +167,11 @@ static void draw_hud(const sat_font_t* font, uint32_t now, uint32_t event_count,
     sat_example_must(sat_text_draw(font, "ARROWS MOVE  A SFX  B MUSIC  START EXIT", 8, 16, &style));
     sat_example_must(sat_text_draw(font, music_on != 0u ? "MUSIC ON" : "MUSIC OFF", 8, 205, &style));
     sat_example_must(sat_fmt_label_u32("MS ", now, line, sizeof(line), 0));
-    sat_example_must(sat_text_draw(font, line, 224, 5, &style));
+    sat_example_must(sat_text_draw(font, line, 8, 196, &style));
     sat_example_must(sat_fmt_label_u32("EVENTS ", event_count, line, sizeof(line), 0));
-    sat_example_must(sat_text_draw(font, line, 224, 16, &style));
+    sat_example_must(sat_text_draw(font, line, 112, 196, &style));
     sat_example_must(sat_fmt_label_u32("DATA ", data_size, line, sizeof(line), 0));
-    sat_example_must(sat_text_draw(font, line, 224, 205, &style));
+    sat_example_must(sat_text_draw(font, line, 208, 196, &style));
 }
 
 int main(void) {
@@ -176,6 +181,7 @@ int main(void) {
     sat_sound_t sound;
     sat_music_t music;
     sat_surface_t dynamic_surface;
+    sat_sprite_region_anim_t player_anim;
     const void* metadata = 0;
     uint32_t metadata_size = 0u;
     uint32_t event_count = 0u;
@@ -191,10 +197,10 @@ int main(void) {
     sat_example_must(sat_asset_load_data("data/runtime-metadata", &metadata, &metadata_size));
     (void)metadata;
     sat_example_must(sat_texture_load("textures/player-sheet", &player_sheet));
-    sat_example_must(sat_texture_prepare_region(player_sheet, &(sat_rect_t){0, 0, 16u, 16u}));
-    sat_example_must(sat_texture_prepare_region(player_sheet, &(sat_rect_t){16, 0, 16u, 16u}));
-    sat_example_must(sat_texture_prepare_region(player_sheet, &(sat_rect_t){32, 0, 16u, 16u}));
-    sat_example_must(sat_texture_prepare_region(player_sheet, &(sat_rect_t){48, 0, 16u, 16u}));
+    sat_example_must(sat_sprite_region_anim_init(
+        &player_anim, player_sheet, g_player_frames, 4u));
+    for (uint16_t i = 0u; i < 4u; ++i)
+        sat_example_must(sat_texture_prepare_region(player_sheet, &g_player_frames[i]));
     sat_example_must(sat_surface_init(
         &dynamic_surface, g_dynamic_pixels, FRAME_W, FRAME_H, FRAME_W,
         SAT_PIXEL_INDEX8, g_palette, 256u));
@@ -212,8 +218,6 @@ int main(void) {
         const uint32_t elapsed = now - previous_ms;
         previous_ms = now;
         sat_example_must(sat_app_frame_begin(SAT_COLOR_BLUE, SAT_COLOR_BLACK, &pad));
-        sat_example_must(sat_input_poll());
-        sat_example_must(sat_pad_poll_port(0u, &pad));
         sat_event_t event;
         while (sat_event_poll(&event) > 0) ++event_count;
 
@@ -257,7 +261,10 @@ int main(void) {
         params.rotation = (sat_fx16_t)((now % 360u) * 65536u / 360u);
         params.center = (sat_point_t){8, 8};
         params.flip = ((now / 700u) & 1u) != 0u ? SAT_FLIP_X : SAT_FLIP_NONE;
-        const sat_rect_t source = {(int16_t)(((now / 180u) & 3u) * 16u), 0, 16u, 16u};
+        sat_rect_t source;
+        sat_example_must(sat_sprite_region_anim_set(
+            &player_anim, (uint16_t)((now / 180u) & 3u)));
+        sat_example_must(sat_sprite_region_anim_source(&player_anim, &source));
         const sat_rect_t destination = {(int16_t)(player_x - 8), (int16_t)(player_y - 8), 16u, 16u};
         sat_example_must(sat_draw_texture(player_sheet, &source, &destination, &params));
         sat_example_must(sat_draw_texture(dynamic_texture, 0, &(sat_rect_t){72, 72, 32u, 32u}, 0));

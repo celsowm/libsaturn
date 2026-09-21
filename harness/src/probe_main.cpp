@@ -64,6 +64,11 @@ struct ScspFrameSnapshot {
     std::array<ScspSlotSnapshot, 4> stream_slots;
 };
 
+struct InstructionCounter final : ymir::debug::ISH2Tracer {
+    uint64_t count = 0;
+    void ExecuteInstruction(uint32_t, uint16_t, bool) override { ++count; }
+};
+
 uint64_t fnv1a64(const uint8_t* data, size_t size) {
     uint64_t hash = 14695981039346656037ull;
     for (size_t i = 0; i < size; ++i) {
@@ -244,6 +249,9 @@ struct Args {
     std::string dump_wram_high_path; // diagnostic: raw 1MiB High Work RAM dump
     std::string dump_fb_path;        // raw VDP1 display framebuffer, for visual checks
     std::string profile_pc_path;     // one master-SH2 PC sample per frame, for profiling
+    std::string profile_cycles_path; // master-SH2 cycles consumed by each program frame
+    std::string profile_instructions_path; // master/slave SH-2 instructions per frame
+    std::string profile_transfers_path; // VDP1 VRAM, VDP2 VRAM and CRAM words per frame
     std::string pad_script_path;     // frame-indexed input timeline
     std::string backup_ram_path;     // persistent 32 KiB internal Backup RAM image
     std::string backup_cart_path;    // existing external image; mapped copy-on-write
@@ -261,7 +269,7 @@ void print_usage() {
         "usage: probe --iso <path> --bios <path> --bin <path> [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
         "             [--dump-wram-high <path>] [--dump-fb <path>]\n"
-        "             [--profile-pc <path>] [--print-sh2-state]\n"
+        "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
         "             [--backup-ram <path>] [--backup-cart <existing-path>] [--ram-cart none|1m|4m] [--scsp-trace]\n");
@@ -343,6 +351,18 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--profile-pc");
             if (!v) return false;
             out->profile_pc_path = v;
+        } else if (arg == "--profile-cycles") {
+            const char* v = next("--profile-cycles");
+            if (!v) return false;
+            out->profile_cycles_path = v;
+        } else if (arg == "--profile-instructions") {
+            const char* v = next("--profile-instructions");
+            if (!v) return false;
+            out->profile_instructions_path = v;
+        } else if (arg == "--profile-transfers") {
+            const char* v = next("--profile-transfers");
+            if (!v) return false;
+            out->profile_transfers_path = v;
         } else if (arg == "--dump-fb") {
             const char* v = next("--dump-fb");
             if (!v) return false;
@@ -715,6 +735,17 @@ int main(int argc, char** argv) {
     // emulated frames per program frame is exactly the case worth profiling,
     // and there the samples land squarely in whatever is eating the time.
     std::vector<uint32_t> pc_samples;
+    std::vector<uint64_t> cycle_samples;
+    std::vector<std::array<uint64_t, 2>> instruction_samples;
+    std::vector<std::array<uint64_t, 3>> transfer_samples;
+    InstructionCounter master_instructions;
+    InstructionCounter slave_instructions;
+    if (!args.profile_instructions_path.empty()) {
+        saturn->EnableDebugTracing(true);
+        saturn->masterSH2.UseTracer(&master_instructions);
+        saturn->slaveSH2.UseTracer(&slave_instructions);
+    }
+    saturn->VDP.ResetWriteCounters();
     std::vector<ScspFrameSnapshot> scsp_trace;
     bool sampling_pc = false;
     bool taking_screenshots = false;
@@ -723,7 +754,19 @@ int main(int argc, char** argv) {
             // Set before running, so the pad reports the buttons this script
             // line asks for during the frame it names rather than after it.
             g_pad_frame_index = i;
+            const uint64_t cycles_before = saturn->GetCurrentCycleCount();
             saturn->RunFrame();
+            if (!args.profile_cycles_path.empty()) {
+                cycle_samples.push_back(saturn->GetCurrentCycleCount() - cycles_before);
+            }
+            if (!args.profile_instructions_path.empty()) {
+                instruction_samples.push_back({master_instructions.count, slave_instructions.count});
+            }
+            if (!args.profile_transfers_path.empty()) {
+                const auto& writes = saturn->VDP.GetWriteCounters();
+                transfer_samples.push_back({writes.vdp1VRAMWords, writes.vdp2VRAMWords, writes.vdp2CRAMWords});
+                saturn->VDP.ResetWriteCounters();
+            }
             if (args.scsp_trace && g_pad_active) {
                 scsp_trace.push_back(capture_scsp_stream_snapshot(*saturn, i));
             }
@@ -889,6 +932,57 @@ int main(int argc, char** argv) {
             }
             std::fprintf(stderr, "[probe] wrote %zu PC samples to %s\n",
                          pc_samples.size(), args.profile_pc_path.c_str());
+        }
+    }
+
+    if (!args.profile_cycles_path.empty()) {
+        std::ofstream cycles_out(args.profile_cycles_path);
+        if (!cycles_out) {
+            std::fprintf(stderr, "failed to open --profile-cycles output: %s\n", args.profile_cycles_path.c_str());
+        } else {
+            cycles_out << "frame,master_sh2_cycles\n";
+            for (size_t i = 0; i < cycle_samples.size(); ++i) {
+                cycles_out << i << ',' << cycle_samples[i] << "\n";
+            }
+            std::fprintf(stderr, "[probe] wrote %zu cycle samples to %s\n",
+                         cycle_samples.size(), args.profile_cycles_path.c_str());
+        }
+    }
+
+    if (!args.profile_instructions_path.empty()) {
+        std::ofstream instructions_out(args.profile_instructions_path);
+        if (!instructions_out) {
+            std::fprintf(stderr, "failed to open --profile-instructions output: %s\n",
+                         args.profile_instructions_path.c_str());
+        } else {
+            instructions_out << "frame,master_sh2_instructions,slave_sh2_instructions\n";
+            uint64_t prev_master = 0;
+            uint64_t prev_slave = 0;
+            for (size_t i = 0; i < instruction_samples.size(); ++i) {
+                const uint64_t master = instruction_samples[i][0];
+                const uint64_t slave = instruction_samples[i][1];
+                instructions_out << i << ',' << (master - prev_master) << ',' << (slave - prev_slave) << "\n";
+                prev_master = master;
+                prev_slave = slave;
+            }
+            std::fprintf(stderr, "[probe] wrote %zu instruction samples to %s\n",
+                         instruction_samples.size(), args.profile_instructions_path.c_str());
+        }
+    }
+
+    if (!args.profile_transfers_path.empty()) {
+        std::ofstream transfers_out(args.profile_transfers_path);
+        if (!transfers_out) {
+            std::fprintf(stderr, "failed to open --profile-transfers output: %s\n",
+                         args.profile_transfers_path.c_str());
+        } else {
+            transfers_out << "frame,vdp1_vram_words,vdp2_vram_words,vdp2_cram_words\n";
+            for (size_t i = 0; i < transfer_samples.size(); ++i) {
+                transfers_out << i << ',' << transfer_samples[i][0] << ','
+                              << transfer_samples[i][1] << ',' << transfer_samples[i][2] << "\n";
+            }
+            std::fprintf(stderr, "[probe] wrote %zu transfer samples to %s\n",
+                         transfer_samples.size(), args.profile_transfers_path.c_str());
         }
     }
 

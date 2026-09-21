@@ -104,6 +104,13 @@ sat_result_t sat_asset_register(
     const sat_asset_desc_t* desc,
     sat_asset_t* out_asset
 );
+/* Registers a bounded descriptor manifest after validating its capacity and
+ * intra-manifest logical paths. Descriptors and returned handles remain
+ * caller-owned; no heap or background loader is introduced. */
+sat_result_t sat_asset_register_manifest(
+    const sat_asset_desc_t* descs, uint16_t count,
+    sat_asset_t* out_assets
+);
 sat_result_t sat_asset_open(const char* logical_path, sat_asset_t* out_asset);
 sat_result_t sat_asset_info(sat_asset_t asset, sat_asset_info_t* out_info);
 sat_result_t sat_asset_close(sat_asset_t asset);

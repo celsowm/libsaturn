@@ -9,7 +9,7 @@
  *   object view depth
  *       -> sat_fade3d_eval()
  *       -> VDP2 color-calc slot 0..7
- *       -> sat_draw_sprite_distorted_color_calc()
+ *       -> sat_scene_t textured material with the selected color-calc slot
  *       -> VDP1 Type-0 pixel carries selector bits
  *       -> VDP2 blends it with the NBG0 scene
  *
@@ -29,7 +29,7 @@
 #include "saturn/font.h"
 #include "saturn/input.h"
 #include "saturn/math3d.h"
-#include "saturn/render3d.h"
+#include "saturn/scene.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp1_color_calc.h"
 #include "saturn/vdp2.h"
@@ -46,6 +46,7 @@
 #define OBJECT_TEX_W 16u
 #define OBJECT_TEX_H 16u
 #define OBJECT_COUNT 12u
+#define SCENE_FACE_CAPACITY 16u
 
 #define FADE_START FX(100)
 #define FADE_END   FX(220)
@@ -79,7 +80,11 @@ static uint16_t g_object_palette[256];
 static sat_vdp1_texture_t g_object_texture;
 static sat_ascii_font_t g_font;
 
-static sat_mat4_t g_view_proj;
+static sat_camera3d_t g_camera;
+static sat_scene_t g_scene;
+static sat_scene3d_face_t g_scene_faces[SCENE_FACE_CAPACITY];
+static uint32_t g_scene_keys[SCENE_FACE_CAPACITY];
+static uint16_t g_scene_order[SCENE_FACE_CAPACITY];
 static sat_fx16_t g_camera_z;
 static uint8_t g_auto_camera = 1u;
 static uint8_t g_show_hud = 1u;
@@ -177,17 +182,9 @@ static void compute_camera(void) {
     sat_vec3_t eye = {0, FX(5), g_camera_z};
     sat_vec3_t target = {0, FX(5), g_camera_z + FX(100)};
     sat_vec3_t up = {0, SAT_FX16_ONE, 0};
-    sat_mat4_t view;
-    sat_mat4_t proj;
-
-    sat_example_must(sat_mat4_look_at(&view, &eye, &target, &up));
-    sat_example_must(sat_mat4_perspective(
-        &proj,
-        FX(60),
-        sat_fx16_div(FX(SCREEN_W), FX(SCREEN_H)),
-        FX(1),
-        FX(320)));
-    sat_example_must(sat_mat4_multiply(&g_view_proj, &proj, &view));
+    sat_example_must(sat_camera3d_init(
+        &g_camera, &eye, &target, &up, FX(60),
+        sat_fx16_div(FX(SCREEN_W), FX(SCREEN_H)), FX(1), FX(320)));
 }
 
 static void update_input(const sat_pad_state_t* pad) {
@@ -248,28 +245,28 @@ static void draw_object(uint16_t index) {
     const sat_fx16_t x = FX(kObjectX[index]);
     const sat_fx16_t z = FX(kObjectZ[index]);
     const sat_vec3_t center = {x, FX(5), z};
-    sat_projected_vertex_t projected_center;
     sat_quad3_t world;
-    sat_quad2_t projected;
+    sat_scene3d_material_t material = {};
+    sat_fx16_t depth;
     sat_result_t st;
     uint8_t use_color_calc = 0u;
     uint8_t slot = 0u;
 
-    st = sat_project_vertices(&g_view_proj, &center, 1u, &projected_center);
-    if (st != SAT_OK || projected_center.w <= 0) {
+    st = sat_scene_depth(&g_scene, &center, &depth);
+    if (st != SAT_OK || depth <= 0) {
         ++g_culled_count;
         return;
     }
 
     if (g_mode == DEMO_HARD_CUT) {
-        if (projected_center.w >= FADE_END) {
+        if (depth >= FADE_END) {
             ++g_culled_count;
             return;
         }
     } else if (g_mode == DEMO_FADE_4 || g_mode == DEMO_FADE_8) {
         const sat_fade3d_slots_t cfg = fade_config();
         uint8_t resolved = SAT_INDEXED_SOLID_OPAQUE;
-        st = sat_fade3d_slot(&cfg, projected_center.w,
+        st = sat_fade3d_slot(&cfg, depth,
                              &g_object_fade[index], &resolved);
         if (st != SAT_OK || resolved == SAT_FADE3D_SLOT_CULLED) {
             ++g_culled_count;
@@ -283,26 +280,11 @@ static void draw_object(uint16_t index) {
     }
 
     sat_quad3_billboard(&world, x, z, SAT_FX16_ONE, 0, FX(5), FX(10));
-    st = sat_project_quad(&g_view_proj, &world, &projected);
-    if (st != SAT_OK) {
-        ++g_culled_count;
-        return;
-    }
-
-    if (use_color_calc != 0u) {
-        sat_distorted_sprite_cmd_t cmd = {};
-        int i;
-        for (i = 0; i < 4; ++i) {
-            cmd.x[i] = projected.x[i];
-            cmd.y[i] = projected.y[i];
-        }
-        cmd.texture = &g_object_texture;
-        cmd.palette_override = 0u;
-        cmd.flags = 0u;
-        st = sat_draw_sprite_distorted_color_calc(&cmd, slot);
-    } else {
-        st = sat_draw_quad2_sprite(&projected, &g_object_texture, 0u, 0u);
-    }
+    material.kind = SAT_SCENE3D_INDEXED_TEXTURED;
+    material.texture = &g_object_texture;
+    material.color_calc_slot = use_color_calc != 0u
+        ? slot : SAT_INDEXED_SOLID_OPAQUE;
+    st = sat_scene_submit_quad(&g_scene, &world, &material, 0u);
 
     if (st == SAT_OK) {
         ++g_visible_count;
@@ -374,6 +356,9 @@ int main(void) {
         OBJECT_PALETTE));
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
         &g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, FONT_PALETTE));
+    sat_example_must(sat_scene_init(
+        &g_scene, g_scene_faces, g_scene_keys, g_scene_order,
+        SCENE_FACE_CAPACITY));
     sat_example_must(sat_vdp1_set_erase_transparent());
     init_color_calc();
     /* Every object starts opaque; sat_fade3d_slot reads this back as the
@@ -409,10 +394,12 @@ int main(void) {
         g_culled_count = 0u;
         g_last_slot = 0u;
 
-        /* Farthest first: VDP1 has no depth buffer. */
+        sat_example_must(sat_scene_begin(
+            &g_scene, &g_camera, FX(1), SCREEN_W, SCREEN_H, 64u));
         for (i = (int)OBJECT_COUNT - 1; i >= 0; --i) {
             draw_object((uint16_t)i);
         }
+        sat_example_must(sat_scene_flush(&g_scene));
         draw_hud();
 
         sat_example_must(sat_end_frame());

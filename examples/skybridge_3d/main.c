@@ -3,6 +3,7 @@
 #include "saturn/saturn.h"
 #include "saturn/asset.h"
 #include "saturn/scene3d.h"
+#include "saturn/follow_camera3d.h"
 #include "saturn/anim3d.h"
 #include "skybridge_3d/pig_model.h"
 #include "saturn/fade3d.h"
@@ -118,6 +119,8 @@ static uint8_t g_cloud_pixels[SB_CLOUD_W * SB_CLOUD_H];
 static sat_vdp1_texture_t g_solid_textures[SCENE_MATERIAL_CAP];
 static sat_scene3d_material_t g_scene_materials[SCENE_MATERIAL_CAP];
 static sat_scene3d_material_t g_pig_materials[SKYBRIDGE_PIG_SHADE_COUNT];
+static sat_resource_plan_t g_resources;
+static sat_resource_plan_entry_t g_resource_entries[8];
 static uint16_t g_solid_colors[SCENE_MATERIAL_CAP];
 static uint8_t g_solid_pixels[8u*8u];
 static sat_scene3d_solid_pool_t g_solid_pool;
@@ -152,7 +155,8 @@ static uint16_t g_map[SAT_VDP2_NBG0_MAP_CELLS] __attribute__((section(".wram_l")
 /* One camera. sat_camera3d_update derives the view-projection from it, so the
  * look_at/perspective/multiply sequence is not spelled out here. */
 static sat_camera3d_t g_camera;
-static sat_vec3_t g_eye, g_target, g_camera_anchor;
+static sat_vec3_t g_eye, g_target;
+static sat_follow_camera3d_t g_follow_camera;
 /* One bounded shared painter owns projection and ordering of the visible
  * faces of platforms, player and pickups in the same render pass. */
 static sat_scene3d_face_t g_face_items[SCENE_FACE_CAP] __attribute__((section(".wram_l")));
@@ -160,7 +164,7 @@ static sat_scene3d_face_t g_face_items[SCENE_FACE_CAP] __attribute__((section(".
  * never moves the face records themselves. */
 static uint32_t g_face_keys[SCENE_FACE_CAP] __attribute__((section(".wram_l")));
 static uint16_t g_face_order[SCENE_FACE_CAP] __attribute__((section(".wram_l")));
-static sat_scene3d_faces_t g_face_scene;
+static sat_scene_t g_scene;
 
 /* Imported-and-simplified user GLB: caller-owned model, pose and painter
  * scratch. Static mesh indices are copied ONCE; animated vertices are
@@ -171,6 +175,8 @@ static sat_vec3_t g_gem_vertices[GEM_VERTEX_CAP];
 static uint16_t g_gem_indices[GEM_FACE_CAP * 4u];
 static sat_mesh_t g_gem_mesh;
 static uint16_t g_gem_materials[GEM_FACE_CAP];
+static sat_mat4_t g_gem_world[SB_PICKUP_COUNT + 1u];
+static sat_scene3d_instance_t g_gem_instances[SB_PICKUP_COUNT + 1u];
 static sat_projected_vertex_t g_gem_projected[GEM_VERTEX_CAP];
 static sat_vec3_t g_gem_world_vertices[GEM_VERTEX_CAP];
 static sat_vec3_t g_pig_vertices[PIG_VERTEX_CAP];
@@ -179,6 +185,7 @@ static sat_mesh_t g_pig_mesh;
  static sat_projected_vertex_t g_pig_projected[PIG_VERTEX_CAP];
 static uint16_t g_pig_face_textures[PIG_FACE_CAP];
 static sat_anim_state_t g_pig_anim;
+static sat_scene3d_instance_t g_pig_instance;
 
 static int16_t g_yaw;
 static sat_step_clock_t g_step_clock;
@@ -204,9 +211,13 @@ static uint16_t g_dbg_faces, g_dbg_face_cap;
 static uint16_t g_dbg_cmds, g_dbg_cmd_cap;
 static uint16_t g_dbg_pig_faces;
 static uint8_t g_dbg_world_full;
+static sat_result_t g_dbg_scene_status=SAT_OK;
 static const sat_vdp2_rbg0_ground_config_t g_ocean = {
     512u, 256u, 160u, HORIZON, 96u, 8u, 96u, COEF_WORD
 };
+static sat_vdp2_ground_environment_t g_environment;
+static uint16_t g_environment_coefficients[H * 2u];
+static uint16_t g_environment_params[48];
 
 /* Boot is a series of completed jobs, not a pretend timed progress bar.
  * VDP1 draws this fullscreen panel independently of whether VDP2 is ready. */
@@ -257,8 +268,8 @@ static void put_quad(const sat_quad3_t* q, uint8_t color) {
     if(g_world_cmd_full) return;
     sat_scene3d_material_t material=g_scene_materials[color];
     material.color_calc_slot=g_active_fade_slot;
-    world_ok(sat_scene3d_faces_submit_quad(
-        &g_face_scene,q,&material,g_active_pass));
+    world_ok(sat_scene_submit_quad(
+        &g_scene,q,&material,g_active_pass));
 }
 static void put_quad_lit(const sat_quad3_t* q, uint8_t c) {
     /* Gouraud RGB polygons are incompatible with this VDP2 blend path;
@@ -298,8 +309,8 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
     block.top_material=g_scene_materials[top].texture;
     block.x_material=g_scene_materials[xcolor].texture;
     block.z_material=g_scene_materials[zcolor].texture;
-    if(!world_ok(sat_scene3d_faces_submit_box(
-            &g_face_scene,&block,g_active_fade_slot,g_active_pass))) return;
+    if(!world_ok(sat_scene_submit_box(
+            &g_scene,&block,g_active_fade_slot,g_active_pass))) return;
     /* Decorative inset remains level-owned, not a fake collision surface. */
     if(g_eye.y<=y || !trim || hx<=SB_F(4) || hz<=SB_F(4)) return;
     sat_quad3_t q;
@@ -310,8 +321,8 @@ static void box3(int32_t x,int32_t y,int32_t z,int32_t hx,int32_t hy,int32_t hz,
         return;
     }
     const uint8_t theme=trim==1u?0u:(trim==3u?1u:2u);
-    world_ok(sat_scene3d_faces_submit_tiled_quad(
-        &g_face_scene,&q,&g_tile_regions[theme],g_active_fade_slot,
+    world_ok(sat_scene_submit_tiled_quad(
+        &g_scene,&q,&g_tile_regions[theme],g_active_fade_slot,
         g_active_pass));
 }
 /* The three deck zones -- start (0-3), middle (4-6) and finish (7-9) --
@@ -340,18 +351,15 @@ static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z,
     const int32_t bob=sat_fx16_mul(
         sat_sin_deg(SB_F((int32_t)(g_game.ticks*5u+id*33u)%360)),
         SB_F(1)/2);
-    sat_mat4_t world={0};
     sat_example_must(sat_mat4_translate(
-        &world,x,deck_y+SB_GEM_BASE_OFFSET+bob,z));
-    const sat_scene3d_instance_t gem={
-        &g_gem_mesh,g_scene_materials,g_solid_pool.count,
-        g_gem_materials,&world,SB_PASS_ACTOR,0u};
+        &g_gem_world[id],x,deck_y+SB_GEM_BASE_OFFSET+bob,z));
+    g_gem_instances[id].world=&g_gem_world[id];
     /* A gem fades with the deck that carries it. Before the painter accepted
      * a per-instance slot this was impossible without one copy of the shared
      * material table per slot, so the gems stayed opaque over decks that had
      * already faded most of the way out. */
-    world_ok(sat_scene3d_faces_submit_instance(
-        &g_face_scene,&gem,color_calc_slot,
+    world_ok(sat_scene_submit_instance(
+        &g_scene,&g_gem_instances[id],color_calc_slot,
         g_gem_projected,g_gem_world_vertices));
 }
 /* An actual hinged 3D deck: the two long ends use the SAME 16.16
@@ -544,17 +552,21 @@ static void player_pig(void) {
         g_pig_face_textures,PIG_FACE_CAP,SKYBRIDGE_PIG_SHADE_COUNT));
     /* Animated pose already carries the world transform; do not apply it
      * twice when submitting the pig through the canonical instance path. */
-    const sat_scene3d_instance_t pig={
-        &g_pig_mesh,g_pig_materials,SKYBRIDGE_PIG_SHADE_COUNT,
-        g_pig_face_textures,0,SB_PASS_ACTOR,1u};
+    g_pig_instance.mesh=&g_pig_mesh;
+    g_pig_instance.materials=g_pig_materials;
+    g_pig_instance.material_count=SKYBRIDGE_PIG_SHADE_COUNT;
+    g_pig_instance.face_materials=g_pig_face_textures;
+    g_pig_instance.world=0;
+    g_pig_instance.pass=SB_PASS_ACTOR;
+    g_pig_instance.cull_backfaces=1u;
     /* Deliberately SLOT_INHERIT, not a fade slot: the player's character is
      * the one thing that must stay readable at any camera distance. The gems
      * around it do fade, through the same parameter. */
     {
-        const uint16_t before=g_face_scene.count;
-        world_ok(sat_scene3d_faces_submit_instance(
-            &g_face_scene,&pig,SAT_SCENE3D_SLOT_INHERIT,g_pig_projected,0));
-        g_dbg_pig_faces=(uint16_t)(g_face_scene.count-before);
+        const uint16_t before=g_scene.faces.count;
+        world_ok(sat_scene_submit_instance(
+            &g_scene,&g_pig_instance,SAT_SCENE3D_SLOT_INHERIT,g_pig_projected,0));
+        g_dbg_pig_faces=(uint16_t)(g_scene.faces.count-before);
     }
 }
 /* The one fade rule that really is the GAME's: whatever the distance says,
@@ -580,8 +592,18 @@ static void draw_world(void) {
     uint8_t deck_slot[SB_PLATFORM_COUNT];
     uint8_t i;
     for(i=0u;i<SB_PLATFORM_COUNT;++i)deck_slot[i]=SAT_FADE3D_SLOT_CULLED;
-    sat_example_must(sat_scene3d_faces_begin_camera(
-        &g_face_scene,&g_camera,SB_F(8),W,H));
+    g_dbg_scene_status=sat_scene_begin(
+        &g_scene,&g_camera,SB_F(8),W,H,SB_HUD_COMMAND_RESERVE);
+    if(g_dbg_scene_status!=SAT_OK) {
+        sat_vdp1_command_stats_t stats={0};
+        sat_vdp1_command_stats(&stats);
+        put_text("SCENE BEGIN ERROR",48,84);
+        label("ERR",(uint32_t)(-g_dbg_scene_status),48,100);
+        label("CMD",stats.used,48,116);
+        label("CAP",stats.capacity,48,132);
+        label("RES",stats.overlay_reserved,48,148);
+        return;
+    }
     g_active_pass=SB_PASS_WORLD;
 
     /* All visible faces share render pass zero, independent of which object
@@ -610,7 +632,7 @@ static void draw_world(void) {
            sb_abs(g_eye.x-center.x)<SB_F(p->half_x) &&
            sb_abs(g_eye.z-center.z)<SB_F(p->half_z))
             continue;
-        sat_example_must(sat_scene3d_faces_depth(&g_face_scene,&center,&depth));
+        sat_example_must(sat_scene_depth(&g_scene,&center,&depth));
         if(g_game.support!=(int8_t)i &&
            (depth < -SB_F(9) ||
             sb_abs(center.x-g_game.x)>SB_F(160) ||
@@ -637,7 +659,7 @@ static void draw_world(void) {
                 SB_F(sb_course_platforms(&g_game)[i].z))+SB_GEM_BASE_OFFSET,
             SB_F(sb_course_platforms(&g_game)[i].z)
         };
-        sat_example_must(sat_scene3d_faces_depth(&g_face_scene,&center,&depth));
+        sat_example_must(sat_scene_depth(&g_scene,&center,&depth));
         if(depth<=0 || sb_abs(center.x-g_game.x)>SB_F(160) ||
            sb_abs(center.z-g_game.z)>SB_F(180))continue;
         draw_gem(i,sb_platform_x(&g_game,i),
@@ -647,9 +669,9 @@ static void draw_world(void) {
                  deck_slot[i]);
     }
     /* World, pig and gem faces are ordered together before the protected HUD. */
-    g_dbg_faces=g_face_scene.count;
-    g_dbg_face_cap=g_face_scene.capacity;
-    sat_example_must(sat_scene3d_faces_flush(&g_face_scene));
+    g_dbg_faces=g_scene.faces.count;
+    g_dbg_face_cap=g_scene.faces.capacity;
+    sat_example_must(sat_scene_flush(&g_scene));
     {
         /* AFTER the flush: that is where the queued faces actually become
          * VDP1 commands, so sampling before it always reported an empty list
@@ -806,12 +828,13 @@ static void animate_sea_palette(uint32_t tick) {
         &g_sea_colors[48u],8u,48u));
 }
 static void update_rotation(int32_t fx,int32_t fz) {
-    uint16_t p[48];
+    uint16_t* p = g_environment_params;
     /* Keep the sea under a fixed 96px horizon, rotate/scroll sample plane. */
     /* Two slow, non-identical currents slide the textured water plane
      * underneath a fixed world horizon without any per-frame bitmap upload. */
-    sat_vdp2_rbg0_ground_build_params(&g_ocean, (g_game.x>>16)+(int32_t)(g_frame/9u),
-                              (g_game.z>>16)+(int32_t)(g_frame/17u),p);
+    sat_example_must(sat_vdp2_ground_environment_build_params(&g_environment,
+        (g_game.x>>16)+(int32_t)(g_frame/9u),
+        (g_game.z>>16)+(int32_t)(g_frame/17u)));
     p[15]=(uint16_t)((uint32_t)fz&0xFFFFu);
     p[17]=(uint16_t)((uint32_t)fx&0xFFFFu);
     p[21]=(uint16_t)((uint32_t)(-fx)&0xFFFFu);
@@ -821,10 +844,9 @@ static void update_rotation(int32_t fx,int32_t fz) {
     p[16]=(uint16_t)(fx>>16);
     p[20]=(uint16_t)((-fx)>>16);
     p[22]=(uint16_t)(fz>>16);
-    sat_example_must(sat_vdp2_vram_write_words(ROT_WORD,p,48u));
+    sat_example_must(sat_vdp2_ground_environment_commit_params(&g_environment));
 }
 static void init_background(void) {
-    uint16_t coef[H*2u],p[48];
     const sat_vdp2_nbg0_config_t sky = {
         SAT_VDP2_CHAR_SIZE_1X1,SAT_VDP2_COLOR_MODE_256,0x3Bu,0u,0u
     };
@@ -832,17 +854,18 @@ static void init_background(void) {
         SAT_VDP2_RBG0_BITMAP_512x256,SAT_VDP2_COLOR_MODE_256,
         SEA_WORD,ROT_WORD,SAT_COLOR_BLACK,5u,7u
     };
-    uint32_t y;
-    for(y=0u;y<H;++y) sat_vdp2_rbg0_ground_encode_coefficient(&g_ocean,y,
-                      &coef[y*2u],&coef[y*2u+1u]);
-    sat_vdp2_rbg0_ground_build_params(&g_ocean,0,0,p);
+    sat_example_must(sat_vdp2_ground_environment_validate_layout(
+        &g_ocean, &sea, H, SAT_VDP2_VRAM_WORD_CAPACITY, 0u, 512u, 2u));
+    sat_example_must(sat_vdp2_ground_environment_init(&g_environment,
+        &g_ocean, &sea, g_environment_coefficients, H * 2u,
+        g_environment_params, H));
     sat_example_must(sat_vdp2_palette_upload(g_sea_colors,256u,0u));
     sat_example_must(sat_vdp2_palette_upload(g_sky_colors,256u,256u));
     sat_example_must(sat_vdp2_nbg0_init(&sky));
     sat_example_must(sat_vdp2_nbg0_upload_indexed8(g_sky,SKY_W,SKY_H,1u,g_map));
-    sat_example_must(sat_vdp2_vram_write_words(COEF_WORD,coef,H*2u));
-    sat_example_must(sat_vdp2_vram_write_words(ROT_WORD,p,48u));
-    sat_example_must(sat_vdp2_rbg0_mode7_init(&sea));
+    sat_example_must(sat_vdp2_ground_environment_upload_coefficients(&g_environment));
+    sat_example_must(sat_vdp2_ground_environment_build_params(&g_environment,0,0));
+    sat_example_must(sat_vdp2_ground_environment_commit_params(&g_environment));
     sat_example_must(sat_vdp2_nbg0_set_priority(2u));
     sat_example_must(sat_vdp2_rbg0_set_priority(5u));
     sat_example_must(sat_vdp2_sprite_set_priority(7u));
@@ -919,7 +942,8 @@ static void start_course(uint8_t course) {
     sb_start_course(&g_game,course);
     g_yaw=0;
     for(i=0u;i<SB_PLATFORM_COUNT;++i)g_platform_fade[i]=SAT_INDEXED_SOLID_OPAQUE;
-    g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
+    sat_example_must(sat_follow_camera3d_init(
+        &g_follow_camera,&(sat_vec3_t){g_game.x,g_game.y,g_game.z},4u,6u,4u));
     sat_example_must(sat_anim_state_init(
         &g_pig_anim,&skybridge_pig_anim_asset,1u));
 }
@@ -991,6 +1015,32 @@ static void hud(void) {
         put_text("B/C CAMERA  START PAUSE",8,215);
     }
 }
+
+static void plan_resources(void) {
+    sat_example_must(sat_resource_plan_init(
+        &g_resources, g_resource_entries,
+        (uint16_t)(sizeof(g_resource_entries) / sizeof(g_resource_entries[0]))));
+    /* Fixed reservations are checked before uploads and scene activation. */
+    sat_example_must(sat_resource_plan_set_limit(
+        &g_resources, SAT_RESOURCE_WRAM, sizeof(g_face_items) +
+        sizeof(g_face_keys) + sizeof(g_face_order)));
+    sat_example_must(sat_resource_plan_set_limit(
+        &g_resources, SAT_RESOURCE_VDP1_COMMANDS, 1024u * 4u));
+    sat_example_must(sat_resource_plan_set_limit(
+        &g_resources, SAT_RESOURCE_AUDIO_STAGING,
+        SOUNDS * SOUND_LEN + MUSIC_LEN));
+    sat_example_must(sat_resource_plan_add(
+        &g_resources, SAT_RESOURCE_WRAM,
+        sizeof(g_face_items) + sizeof(g_face_keys) + sizeof(g_face_order),
+        2u, 1u));
+    sat_example_must(sat_resource_plan_add(
+        &g_resources, SAT_RESOURCE_VDP1_COMMANDS, 1024u * 4u, 4u, 1u));
+    sat_example_must(sat_resource_plan_add(
+        &g_resources, SAT_RESOURCE_AUDIO_STAGING,
+        SOUNDS * SOUND_LEN + MUSIC_LEN, 2u, 1u));
+    sat_example_must(sat_resource_plan_finalize(&g_resources));
+}
+
 int main(void) {
     const sat_video_config_t video={W,H,1u,0u};
     const sat_vec3_t up={0,SB_F(1),0};
@@ -999,15 +1049,17 @@ int main(void) {
     sat_pad_state_t pad={0};
     sat_vdp2_scroll_t sky_scroll={0u,0u,31u,0u};
     sat_example_must(sat_init(&video));
+    plan_resources();
     sb_init(&g_game);
     sat_example_must(sat_camera3d_init(
         &g_camera,&g_game_origin,&g_game_origin_ahead,&up,SB_F(55),
         sat_fx16_div(SB_F(W),SB_F(H)),SB_F(2),SB_F(250)));
-    sat_example_must(sat_scene3d_faces_init(
-        &g_face_scene,g_face_items,g_face_keys,g_face_order,SCENE_FACE_CAP));
+    sat_example_must(sat_scene_init(
+        &g_scene,g_face_items,g_face_keys,g_face_order,SCENE_FACE_CAP));
     for(uint8_t i=0u;i<SB_PLATFORM_COUNT;++i)
         g_platform_fade[i]=SAT_INDEXED_SOLID_OPAQUE;
-    g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
+    sat_example_must(sat_follow_camera3d_init(
+        &g_follow_camera,&(sat_vec3_t){g_game.x,g_game.y,g_game.z},4u,6u,4u));
     /* Load the first drawable font before expensive procedural generation. */
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
         &g_font,SAT_COLOR_WHITE,SAT_COLOR_BLACK,2u));
@@ -1025,6 +1077,15 @@ int main(void) {
                          SB_GEM_RADIUS,SB_GEM_HALF_HEIGHT));
         for(uint8_t face=0u;face<GEM_FACE_CAP;++face)
             g_gem_materials[face]=g_gem_facet_colors[face];
+        for(uint8_t id=0u;id<=SB_PICKUP_COUNT;++id) {
+            g_gem_instances[id].mesh=&g_gem_mesh;
+            g_gem_instances[id].materials=g_scene_materials;
+            g_gem_instances[id].material_count=g_solid_pool.count;
+            g_gem_instances[id].face_materials=g_gem_materials;
+            g_gem_instances[id].world=&g_gem_world[id];
+            g_gem_instances[id].pass=SB_PASS_ACTOR;
+            g_gem_instances[id].cull_backfaces=0u;
+        }
     }
     loading_frame("IMPORTING PIG",10u);
     sat_example_must(sat_model_validate(&skybridge_pig_asset));
@@ -1117,20 +1178,18 @@ int main(void) {
                     &g_pig_anim,&skybridge_pig_anim_asset,SB_F(1)/60));
         }
         sound_event(events);
-        if (events & SB_EVENT_FALL) {
-            g_camera_anchor=(sat_vec3_t){g_game.x,g_game.y,g_game.z};
-        } else {
-            g_camera_anchor.x+=(g_game.x-g_camera_anchor.x)/4;
-            g_camera_anchor.y+=(g_game.y-g_camera_anchor.y)/6;
-            g_camera_anchor.z+=(g_game.z-g_camera_anchor.z)/4;
-        }
         {
             int32_t ex,ez,lx,lz;
+            const sat_vec3_t desired={g_game.x,g_game.y,g_game.z};
+            sat_vec3_t eye_offset,target_offset;
             sb_camera_offset(fx,fz,&ex,&ez,&lx,&lz);
-            g_eye=(sat_vec3_t){g_camera_anchor.x+ex,
-                g_camera_anchor.y+SB_F(29),g_camera_anchor.z+ez};
-            g_target=(sat_vec3_t){g_camera_anchor.x+lx,
-                g_camera_anchor.y+SB_F(5),g_camera_anchor.z+lz};
+            eye_offset=(sat_vec3_t){ex,SB_F(29),ez};
+            target_offset=(sat_vec3_t){lx,SB_F(5),lz};
+            sat_example_must(sat_follow_camera3d_set_offsets(
+                &g_follow_camera,&eye_offset,&target_offset));
+            sat_example_must(sat_follow_camera3d_step(
+                &g_follow_camera,&desired,(events&SB_EVENT_FALL)?1u:0u,
+                &g_eye,&g_target));
         }
         g_camera.eye=g_eye;
         g_camera.target=g_target;
@@ -1140,8 +1199,7 @@ int main(void) {
         sat_example_must(sat_vdp1_set_erase_transparent());
         sat_example_must(sat_begin_frame());
         g_world_cmd_full=0u;
-        sat_example_must(sat_vdp1_reserve_overlay_commands(
-            SB_HUD_COMMAND_RESERVE));
+        g_dbg_scene_status=SAT_OK;
         draw_clouds();
         draw_world();
         sat_example_must(sat_vdp1_overlay_begin());

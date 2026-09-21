@@ -200,10 +200,10 @@ sat_result_t sat_mesh_face_normal(const sat_mesh_t* mesh, uint16_t face, sat_vec
 
 /* Outward normal with the right direction and an arbitrary length. This is
  * what culling and sat_face_intensity3_scaled want, and it is what
- * sat_draw_mesh uses. */
+ * sat_vdp1_draw_mesh uses. */
 sat_result_t sat_mesh_face_normal_scaled(const sat_mesh_t* mesh, uint16_t face, sat_vec3_t* out);
 
-/* True when the face is turned towards `eye`. This is the test sat_draw_mesh
+/* True when the face is turned towards `eye`. This is the test the native mesh
  * applies for SAT_MESH_CULL_BACKFACE; it is exposed because a program that
  * batches its own geometry still wants the same answer. */
 int sat_mesh_face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t* eye);
@@ -268,7 +268,7 @@ typedef struct sat_mesh_draw {
      * null when SAT_MESH_SORT is not set. Meshes of up to 255 faces sort
      * through the legacy `order` (uint8_t) table; larger meshes -- an
      * animated character near the VDP1 command budget, for example -- sort
-     * through `order16` instead, which sat_draw_mesh selects automatically
+     * through `order16` instead, which the native mesh path selects automatically
      * by face_count. `depth` serves both paths. Splitting a character just
      * to preserve the old uint8_t limit is not required. */
     uint8_t* order;
@@ -298,7 +298,9 @@ typedef struct sat_mesh_draw {
  * SAT_ERR_INVALID_ARG for a malformed request. Faces the camera cannot see --
  * culled, or straddling the near plane -- are skipped without being errors,
  * so a partly off-screen mesh still returns SAT_OK. */
-sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_draw_t* params);
+/* Explicit low-level VDP1 mesh path for focused renderer tests/probes. Normal
+ * games submit through sat_scene_t; this function is not a scene owner. */
+sat_result_t sat_vdp1_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_draw_t* params);
 
 /* Local-space flat indexed model instance. Each face references one uniform
  * INDEX8 texture through face_materials, and the base mesh is never mutated.

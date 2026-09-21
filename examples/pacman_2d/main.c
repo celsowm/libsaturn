@@ -24,6 +24,7 @@
 #include "saturn/grid.h"
 #include "saturn/input.h"
 #include "saturn/vdp1.h"
+#include "saturn/sprite_anim.h"
 #include "saturn/example_util.h"
 
 #include "../common/pacman_game.h"
@@ -140,6 +141,8 @@ static uint8_t g_sprite[SPRITE_DIM * SPRITE_DIM];
 static sat_vdp1_texture_t g_pac_tex[4][PAC_FRAMES];  /* [direction][mouth frame] */
 static sat_vdp1_texture_t g_ghost_tex[PAC_GHOST_COUNT][4]; /* [ghost][direction]  */
 static sat_vdp1_texture_t g_fright_tex[2];           /* blue, and the white flash */
+static sat_sprite_anim_t g_pac_anim;
+static sat_sprite_anim_t g_ghost_anim[PAC_GHOST_COUNT];
 static uint16_t g_actor_palette[256];
 
 /* The ghost outline: dome on top, straight sides, notched skirt. */
@@ -289,6 +292,9 @@ static void build_actor_sprites(void) {
     upload_sprite(&g_fright_tex[0]);
     build_fright(PIX_FLASH, PIX_FRIGHT);
     upload_sprite(&g_fright_tex[1]);
+    sat_example_must(sat_sprite_anim_init(&g_pac_anim, &g_pac_tex[0][0], 4u, PAC_FRAMES));
+    for (i = 0; i < PAC_GHOST_COUNT; ++i)
+        sat_example_must(sat_sprite_anim_init(&g_ghost_anim[i], &g_ghost_tex[i][0], 4u, 1u));
 }
 
 /* SAT_DIR_NONE while stopped against a wall: keep the last real facing so the
@@ -365,8 +371,9 @@ static void render_pac(void) {
     static int last_dir = SAT_DIR_LEFT;
     const int dir = facing((int)g_game.pac.dir, &last_dir);
     const uint8_t frame = kChewFrame[(g_game.frame / 4u) & 3u];
-    draw_actor_sprite(
-        &g_pac_tex[dir][frame], (int)g_game.pac.x, (int)g_game.pac.y);
+    sat_example_must(sat_sprite_anim_set(&g_pac_anim, (uint8_t)dir, frame));
+    draw_actor_sprite(sat_sprite_anim_texture(&g_pac_anim),
+        (int)g_game.pac.x, (int)g_game.pac.y);
 }
 
 static void render_ghosts(void) {
@@ -388,7 +395,8 @@ static void render_ghosts(void) {
              * running out instead of being surprised by it. */
             tex = &g_fright_tex[((g_game.frame / 6u) & 1u) ? 0u : 1u];
         } else {
-            tex = &g_ghost_tex[i][dir];
+            sat_example_must(sat_sprite_anim_set(&g_ghost_anim[i], (uint8_t)dir, 0u));
+            tex = sat_sprite_anim_texture(&g_ghost_anim[i]);
         }
         draw_actor_sprite(tex, (int)a->x, (int)a->y);
     }

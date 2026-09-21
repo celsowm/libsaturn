@@ -3,7 +3,9 @@
 param(
     [string]$Bios,
     [string]$Msys2Root,
-    [int]$Frames = 5
+    # The guest configures the A-bus during its first frame(s); five frames can
+    # stop before the bank-crossing write reaches the cartridge on Ymir.
+    [int]$Frames = 60
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'

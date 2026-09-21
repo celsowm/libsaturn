@@ -44,7 +44,7 @@ return a clear unsupported/capacity error.
 | `Camera3D` | `sat_camera3d_t` |
 | `BeginMode3D` / `EndMode3D` | `sat_scene3d_begin` / `sat_scene3d_end` |
 | `Mesh` / `Model` | generated `sat_model_asset_t` and caller-owned `sat_mesh_t` |
-| `DrawModel*` | `sat_scene3d_draw_model` |
+| `DrawModel*` | `sat_scene_submit_instance` with generated `sat_model_asset_t` bindings |
 | model animation | existing LibSaturn animation APIs |
 
 ## Explicit non-goals

@@ -1,0 +1,16 @@
+# Select Course 3 from the pause picker, then exercise movement and jumps
+# around the first genuine hole piers.
+0     NONE
+130   START
+145   NONE
+150   X
+170   NONE
+190   X
+210   NONE
+230   START
+245   NONE
+265   UP
+285   UP+A
+292   UP
+320   RIGHT
+335   NONE

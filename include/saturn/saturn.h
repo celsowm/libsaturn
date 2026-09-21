@@ -1,8 +1,8 @@
 #ifndef SATURN_SATURN_H
 #define SATURN_SATURN_H
 
-/* Backward-compatible umbrella header.
- * New code should prefer narrow subsystem headers. */
+/* Umbrella header for examples. New code may include narrow subsystem
+ * headers; sat_scene.h is the canonical game-facing 3D frame contract. */
 
 #include "saturn/core.h"
 #include "saturn/geometry2d.h"
@@ -10,8 +10,12 @@
 #include "saturn/memory.h"
 #include "saturn/ram_cart.h"
 #include "saturn/save.h"
+#include "saturn/save_schema.h"
+#include "saturn/resource_plan.h"
+#include "saturn/hud.h"
 #include "saturn/time.h"
 #include "saturn/surface.h"
+#include "saturn/surface3d.h"
 #include "saturn/texture.h"
 #include "saturn/render2d.h"
 #include "saturn/math3d.h"
@@ -32,8 +36,13 @@
 #include "saturn/asset.h"
 #include "saturn/cd_block.h"
 #include "saturn/scene3d.h"
+#include "saturn/follow_camera3d.h"
 #include "saturn/scene3d_faces.h"
 #include "saturn/scene3d_material_pool.h"
+#include "saturn/scene.h"
+#include "saturn/view_cache.h"
+#include "saturn/sprite_anim.h"
+#include "saturn/vdp2_environment.h"
 #include "saturn/fmt.h"
 #include "saturn/font.h"
 #include "saturn/grid.h"

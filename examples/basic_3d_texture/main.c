@@ -3,7 +3,7 @@
  * Shows the compiled model generated from examples/basic_3d_texture/assets/
  * (OBJ + MTL + PNG) through the generic tools/import_model.py pipeline:
  *
- *   OBJ + MTL + PNG -> generated C/H model -> upload once -> sat_draw_mesh
+ *   OBJ + MTL + PNG -> generated C/H model -> upload once -> sat_scene_t
  *   textured path -> VDP1 distorted sprites.
  *
  * The viewer itself is generic: the model center comes from
@@ -30,7 +30,7 @@
 #include "saturn/orbit_camera3d.h"
 #include "saturn/mesh3d.h"
 #include "saturn/model3d.h"
-#include "saturn/render3d.h"
+#include "saturn/scene.h"
 #include "saturn/vdp1.h"
 #include "saturn/example_util.h"
 
@@ -54,10 +54,16 @@ static sat_vec3_t g_mesh_vertices[MODEL_VERTEX_CAP];
 static uint16_t g_mesh_indices[MODEL_FACE_CAP * 4u];
 static sat_mesh_t g_mesh;
 static sat_vdp1_texture_t g_model_textures[MODEL_TEXTURE_CAP];
-static uint8_t g_mesh_order[MODEL_FACE_CAP];
-static uint32_t g_mesh_depth[MODEL_FACE_CAP];
-/* Projection cache for sat_draw_mesh's screen-space path. */
 static sat_projected_vertex_t g_mesh_screen[MODEL_VERTEX_CAP];
+static sat_vec3_t g_mesh_world[MODEL_VERTEX_CAP];
+static sat_scene3d_face_t g_scene_faces[MODEL_FACE_CAP];
+static uint32_t g_scene_keys[MODEL_FACE_CAP];
+static uint16_t g_scene_order[MODEL_FACE_CAP];
+static uint16_t g_face_materials[MODEL_FACE_CAP];
+static sat_scene3d_material_t g_materials[MODEL_TEXTURE_CAP];
+static sat_scene_t g_scene;
+static sat_scene3d_instance_t g_instance;
+static sat_mat4_t g_world;
 
 static sat_orbit_camera3d_t g_orbit;
 static int g_show_hud;
@@ -121,6 +127,22 @@ int main(void) {
     /* One palette upload + one pixel upload per unique texture, once. */
     sat_example_must(sat_model_upload_textures(
         &sonic_model_asset, g_model_textures, MODEL_TEXTURE_CAP));
+    for (uint16_t i = 0u; i < sonic_model_asset.texture_count; ++i) {
+        g_materials[i].kind = SAT_SCENE3D_INDEXED_TEXTURED;
+        g_materials[i].texture = &g_model_textures[i];
+        g_materials[i].color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+    }
+    for (uint16_t i = 0u; i < sonic_model_asset.face_count; ++i)
+        g_face_materials[i] = sonic_model_asset.face_texture_indices[i];
+    sat_example_must(sat_scene_init(
+        &g_scene, g_scene_faces, g_scene_keys, g_scene_order, MODEL_FACE_CAP));
+    g_instance.mesh = &g_mesh;
+    g_instance.materials = g_materials;
+    g_instance.material_count = sonic_model_asset.texture_count;
+    g_instance.face_materials = g_face_materials;
+    g_instance.world = &g_world;
+    g_instance.pass = 0u;
+    g_instance.cull_backfaces = 1u;
 
     /* Static-model bounds use a wider camera and absolute zoom-in floor. */
     sat_example_must(sat_model_compute_bounds(&sonic_model_asset, &mn, &mx));
@@ -144,8 +166,6 @@ int main(void) {
 
     while (1) {
         sat_pad_state_t pad = {0};
-        sat_mesh_draw_t draw;
-
         SAT_PANIC_IF_ERROR(sat_wait_vblank());
         SAT_PANIC_IF_ERROR(sat_vdp2_back_color_set(SAT_COLOR_BLACK));
         SAT_PANIC_IF_ERROR(sat_set_clear_color(SAT_COLOR_BLACK));
@@ -154,16 +174,21 @@ int main(void) {
 
         update_camera_from_inputs(&pad);
 
-        note(sat_model_bind_draw(
-            &sonic_model_asset, &g_mesh,
-            g_model_textures, sonic_model_asset.texture_count,
-            &g_orbit.view_proj, &g_orbit.eye,
-            SAT_RGB555(31, 31, 31), NULL, 0,
-            SAT_MESH_CULL_BACKFACE | SAT_MESH_SORT,
-            g_mesh_order, g_mesh_depth, &draw));
-        draw.screen = g_mesh_screen;
+        sat_model_transform3d_t transform;
+        sat_model_transform3d_identity(&transform);
+        sat_example_must(sat_model_transform3d_matrix(&transform, &g_world));
+        sat_camera3d_t camera = {0};
+        camera.eye = g_orbit.eye;
+        camera.target = g_orbit.target;
+        camera.up = (sat_vec3_t){0, SAT_FX16_ONE, 0};
+        camera.view_proj = g_orbit.view_proj;
+        note(sat_scene_begin(&g_scene, &camera, sat_fx16_from_int(1),
+                             SCREEN_W, SCREEN_H, 96u));
         if (!g_draw_overflow) {
-            note(sat_draw_mesh(&g_mesh, &draw));
+            note(sat_scene_submit_instance(
+                &g_scene, &g_instance, SAT_SCENE3D_SLOT_INHERIT,
+                g_mesh_screen, g_mesh_world));
+            note(sat_scene_flush(&g_scene));
         }
         draw_hud();
 

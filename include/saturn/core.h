@@ -33,7 +33,8 @@ typedef enum sat_result {
     SAT_ERR_UNFORMATTED = -10,
     SAT_ERR_WRITE_PROTECTED = -11,
     SAT_ERR_ALREADY_EXISTS = -12,
-    SAT_ERR_VERIFY_FAILED = -13
+    SAT_ERR_VERIFY_FAILED = -13,
+    SAT_ERR_VERSION = -14
 } sat_result_t;
 
 /* ------------------------------------------------------------------ */

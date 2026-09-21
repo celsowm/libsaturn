@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "saturn/cd.h"
+#include "saturn/file.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,6 +55,19 @@ typedef struct sat_cdfs_file_source {
     sat_cdfs_volume_t* volume;
     sat_cdfs_file_t file;
 } sat_cdfs_file_source_t;
+
+typedef struct sat_cdfs_source_desc {
+    const char* disc_path;
+    const char* source_path;
+    uint32_t expected_size;
+} sat_cdfs_source_desc_t;
+
+/* Resolves every disc path first, then registers the validated source set as
+ * bounded VFS backends. No heap or implicit asset registration is involved. */
+sat_result_t sat_cdfs_register_source_manifest(
+    sat_cdfs_volume_t* volume,
+    const sat_cdfs_source_desc_t* descs, uint16_t count,
+    sat_cdfs_file_source_t* out_sources);
 
 sat_result_t sat_cdfs_file_read_at(
     void* context,

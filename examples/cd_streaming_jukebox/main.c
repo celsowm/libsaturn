@@ -15,6 +15,7 @@
 #include "saturn/file.h"
 #include "saturn/fmt.h"
 #include "saturn/font.h"
+#include "saturn/hud.h"
 #include "cd_streaming_jukebox/jukebox_data.h"
 
 #define TRACK_COUNT CD_JUKEBOX_TRACK_COUNT
@@ -41,19 +42,24 @@ static sat_cd_block_t g_cd_block;
 static sat_cd_device_t g_cd_device;
 static sat_cdfs_volume_t g_volume;
 static sat_cdfs_file_source_t g_sources[TRACK_COUNT];
+static sat_cdfs_source_desc_t g_source_manifest[TRACK_COUNT];
+static sat_asset_desc_t g_asset_manifest[TRACK_COUNT];
+static sat_asset_t g_asset_handles[TRACK_COUNT];
 static sat_music_t g_music;
+static sat_hud_t g_hud;
 static sat_asset_prefetch_t g_prefetch;
 static uint8_t g_prefetch_active;
 static uint8_t g_track_index;
 static uint8_t g_playing;
 
 static void draw_line(const sat_ascii_font_t* font, const char* text, int y) {
-    (void)sat_ascii_font_draw_text_screen_indexed8(font, text, 8, y, 8, SAT_COLOR_WHITE, 0u);
+    (void)font;
+    (void)sat_hud_text(&g_hud, text, 8, y);
 }
 
 static void draw_value(const sat_ascii_font_t* font, const char* label, uint32_t value, int y) {
-    (void)sat_ascii_font_draw_label_u32(
-        font, label, value, 8, y, 8, SAT_COLOR_WHITE, 0u);
+    (void)font;
+    (void)sat_hud_value(&g_hud, label, value, 8, y);
 }
 
 static sat_result_t register_cd_tracks(void) {
@@ -67,27 +73,29 @@ static sat_result_t register_cd_tracks(void) {
     if (status != SAT_OK) return status;
 
     for (uint16_t i = 0u; i < TRACK_COUNT; ++i) {
-        status = sat_cdfs_lookup(&g_volume, g_tracks[i].disc_path, &g_sources[i].file);
-        if (status != SAT_OK) return status;
-        if (g_sources[i].file.size != g_tracks[i].expected_bytes) return SAT_ERR_IO;
-        g_sources[i].volume = &g_volume;
-        status = sat_file_register_backend(
-            g_tracks[i].source_path, g_sources[i].file.size,
-            sat_cdfs_file_read_at, &g_sources[i]);
-        if (status != SAT_OK) return status;
+        g_source_manifest[i] = (sat_cdfs_source_desc_t){
+            g_tracks[i].disc_path, g_tracks[i].source_path, g_tracks[i].expected_bytes};
+    }
+    status = sat_cdfs_register_source_manifest(
+        &g_volume, g_source_manifest, TRACK_COUNT, g_sources);
+    if (status != SAT_OK) return status;
+    for (uint16_t i = 0u; i < TRACK_COUNT; ++i) {
 
-        sat_asset_desc_t asset = {0};
-        asset.logical_path = g_tracks[i].logical_path;
-        asset.source_path = g_tracks[i].source_path;
-        asset.size = g_sources[i].file.size;
-        asset.sample_rate = CD_JUKEBOX_SAMPLE_RATE;
-        asset.sample_count = asset.size / (2u * CD_JUKEBOX_CHANNELS);
-        asset.channels = CD_JUKEBOX_CHANNELS;
-        asset.format = SAT_AUDIO_PCM_S16;
-        asset.kind = SAT_ASSET_STREAM;
-        status = sat_asset_register(&asset, &(sat_asset_t){0});
-        if (status != SAT_OK) return status;
-
+        g_asset_manifest[i] = (sat_asset_desc_t){0};
+        g_asset_manifest[i].logical_path = g_tracks[i].logical_path;
+        g_asset_manifest[i].source_path = g_tracks[i].source_path;
+        g_asset_manifest[i].size = g_sources[i].file.size;
+        g_asset_manifest[i].sample_rate = CD_JUKEBOX_SAMPLE_RATE;
+        g_asset_manifest[i].sample_count = g_sources[i].file.size /
+            (2u * CD_JUKEBOX_CHANNELS);
+        g_asset_manifest[i].channels = CD_JUKEBOX_CHANNELS;
+        g_asset_manifest[i].format = SAT_AUDIO_PCM_S16;
+        g_asset_manifest[i].kind = SAT_ASSET_STREAM;
+    }
+    status = sat_asset_register_manifest(
+        g_asset_manifest, TRACK_COUNT, g_asset_handles);
+    if (status != SAT_OK) return status;
+    for (uint16_t i = 0u; i < TRACK_COUNT; ++i) {
         /* Prove each catalog entry resolves through the mounted CDFS source,
          * while keeping its payload non-resident. */
         uint8_t signature[2] = {0};
@@ -143,6 +151,7 @@ int main(void) {
     if (status == SAT_OK) {
         status = sat_ascii_font_init_8x8_indexed8(&font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u);
     }
+    if (status == SAT_OK) status = sat_hud_init(&g_hud, &font, SAT_COLOR_WHITE, 8u);
 
     for (;;) {
         sat_pad_state_t pad = {0};

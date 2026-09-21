@@ -354,7 +354,7 @@ sat_result_t sat_gouraud_lambert(
 /* Projects `count` world points into native VDP1 coordinates in one call,
  * clamped exactly as sat_project_quad clamps corners. A point at or behind
  * the camera plane comes back with w <= 0 rather than as an error. This is
- * the step sat_draw_mesh's projection cache runs once per draw. */
+ * the step the native mesh projection cache runs once per draw. */
 sat_result_t sat_project_vertices(
     const sat_mat4_t* view_proj,
     const sat_vec3_t* points,
@@ -403,7 +403,7 @@ uint16_t sat_shade_rgb555(uint16_t rgb555, sat_fx16_t intensity);
 sat_fx16_t sat_face_intensity(sat_fx16_t nx, sat_fx16_t nz, sat_fx16_t floor_intensity);
 
 /* Intensity for a face with an arbitrary unit normal, lit by the same light
- * lifted out of the ground plane. This is what sat_draw_mesh applies for
+ * lifted out of the ground plane. This is what the native mesh path applies for
  * SAT_MESH_SHADE, and what a solid built from saturn/mesh3d.h wants: the 2D
  * form above assumes a vertical wall and gives every horizontal surface the
  * same value. */
@@ -412,7 +412,7 @@ sat_fx16_t sat_face_intensity3(const sat_vec3_t* normal, sat_fx16_t floor_intens
 /* Same, for a normal that has direction but no particular length -- the form
  * sat_mesh_face_normal_scaled returns. Dividing the dot product by the length
  * once is cheaper than normalising the vector first, which is why
- * sat_draw_mesh uses this one. */
+ * the native mesh path uses this one. */
 sat_fx16_t sat_face_intensity3_scaled(const sat_vec3_t* normal, sat_fx16_t floor_intensity);
 
 #ifdef __cplusplus

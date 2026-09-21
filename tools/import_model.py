@@ -16,7 +16,7 @@ Pipeline (source UVs never reach the runtime)::
           |
           | upload once (sat_model_upload_textures)
           v
-    LibSaturn textured mesh (sat_draw_mesh textured path)
+    LibSaturn textured mesh (sat_scene_t model/instance path)
           |
           v
     VDP1 distorted sprites

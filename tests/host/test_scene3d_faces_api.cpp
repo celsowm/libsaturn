@@ -53,6 +53,11 @@ extern "C" sat_result_t sat_draw_quad2_polygon(
     emitted[emitted_count++]=color;
     return SAT_OK;
 }
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
+    const sat_quad2_t*, uint16_t color, const uint16_t[4]) {
+    emitted[emitted_count++]=color;
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_draw_indexed_solid_quad3(
     const sat_quad3_t*,const sat_indexed_solid_render3d_t*,
     const sat_vdp1_texture_t* tex) {
@@ -109,11 +114,14 @@ int main() {
     far_tex.valid=near_tex.valid=actor_tex.valid=1u;
     far_tex.srca=10u;near_tex.srca=20u;actor_tex.srca=30u;
     const sat_scene3d_material_t far_mat={
-        SAT_SCENE3D_INDEXED_SOLID,0u,&far_tex,nullptr,SAT_INDEXED_SOLID_OPAQUE};
+        SAT_SCENE3D_INDEXED_SOLID,0u,&far_tex,nullptr,
+        SAT_INDEXED_SOLID_OPAQUE,nullptr};
     const sat_scene3d_material_t near_mat={
-        SAT_SCENE3D_INDEXED_SOLID,0u,&near_tex,nullptr,SAT_INDEXED_SOLID_OPAQUE};
+        SAT_SCENE3D_INDEXED_SOLID,0u,&near_tex,nullptr,
+        SAT_INDEXED_SOLID_OPAQUE,nullptr};
     const sat_scene3d_material_t actor_mat={
-        SAT_SCENE3D_INDEXED_SOLID,0u,&actor_tex,nullptr,SAT_INDEXED_SOLID_OPAQUE};
+        SAT_SCENE3D_INDEXED_SOLID,0u,&actor_tex,nullptr,
+        SAT_INDEXED_SOLID_OPAQUE,nullptr};
     assert(sat_scene3d_faces_init(&scene,storage,keys,order,8u)==SAT_OK);
     assert(sat_scene3d_faces_init(&scene,storage,nullptr,order,8u)==
            SAT_ERR_INVALID_ARG);
@@ -138,6 +146,31 @@ int main() {
     assert(emitted_count==3u && emitted[0]==10u &&
            emitted[1]==30u && emitted[2]==20u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
+
+    // An indexed face outside the safe projected range takes the bounded
+    // renderer fallback rather than silently pretending the clamped sprite
+    // is equivalent. The diagnostic distinguishes that path from culling.
+    emitted_count=0;
+    clipped_count=0;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    sat_quad3_t oversized=quad(2);
+    for (uint8_t i=0u;i<4u;++i) oversized.v[i].x=4000*SAT_FX16_ONE;
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&oversized,&near_mat,0u)==SAT_OK);
+    assert(scene.count==1u && scene.clipped_faces==1u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(scene.fallback_faces==1u && clipped_count==1u);
+
+    // A fully hidden face is counted as culled and never enters storage.
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    const sat_quad3_t hidden=quad(-2);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&hidden,&near_mat,0u)==SAT_OK);
+    assert(scene.count==0u && scene.culled_faces==1u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
     emitted_count=0;
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
@@ -196,8 +229,8 @@ int main() {
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
     const sat_scene3d_material_t rgb_materials[2]={
-        {SAT_SCENE3D_RGB,0x1234u,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE},
-        {SAT_SCENE3D_RGB,0x1234u,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE}};
+        {SAT_SCENE3D_RGB,0x1234u,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE,nullptr},
+        {SAT_SCENE3D_RGB,0x1234u,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE,nullptr}};
     sat_scene3d_instance_t rgb_instance=instance;
     rgb_instance.materials=rgb_materials;
     assert(sat_scene3d_faces_submit_instance(

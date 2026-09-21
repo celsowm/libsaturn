@@ -51,14 +51,18 @@ class SaveBackupPersistenceTests(unittest.TestCase):
     @staticmethod
     def _payload(entry):
         data = bytes(entry.get("data_prefix", []))
-        if len(data) < 16:
+        # sat_save_schema_header_t (16 bytes) prefixes the two-word demo
+        # payload. Saturn stores the multi-byte fields in big-endian order.
+        if len(data) < 24:
             raise AssertionError(f"demo payload prefix too short: {len(data)}")
         return {
             "magic": data[0:4],
             "version": int.from_bytes(data[4:6], "big"),
-            "size": int.from_bytes(data[6:8], "big"),
-            "boot_count": int.from_bytes(data[8:12], "big"),
-            "checksum_seed": int.from_bytes(data[12:16], "big"),
+            "header_size": int.from_bytes(data[6:8], "big"),
+            "payload_size": int.from_bytes(data[8:12], "big"),
+            "checksum": int.from_bytes(data[12:16], "big"),
+            "boot_count": int.from_bytes(data[16:20], "big"),
+            "checksum_seed": int.from_bytes(data[20:24], "big"),
         }
 
     def test_guest_ran_both_times(self):
@@ -84,8 +88,10 @@ class SaveBackupPersistenceTests(unittest.TestCase):
         self.assertEqual(second["magic"], b"LSAV")
         self.assertEqual(first["version"], 1)
         self.assertEqual(second["version"], 1)
-        self.assertEqual(first["size"], 16)
-        self.assertEqual(second["size"], 16)
+        self.assertEqual(first["header_size"], 16)
+        self.assertEqual(second["header_size"], 16)
+        self.assertEqual(first["payload_size"], 8)
+        self.assertEqual(second["payload_size"], 8)
         self.assertEqual(first["checksum_seed"], 0x13579BDF)
         self.assertEqual(second["checksum_seed"], 0x13579BDF)
 

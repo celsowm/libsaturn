@@ -1,0 +1,16 @@
+# Start playback, switch tracks twice, pause and resume.
+0    NONE
+30   C
+31   NONE
+90   Y
+91   NONE
+150  Y
+151  NONE
+210  C
+211  NONE
+240  C
+241  NONE
+# The frame-240 edge pauses after the stream update; resume explicitly a
+# couple of frames later so the acceptance snapshot ends with active channels.
+242  C
+243  NONE

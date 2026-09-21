@@ -1,9 +1,14 @@
 # LibSaturn — Full-Stack API & Examples Refactoring Plan (Breaking Rewrite)
 
-**Status:** IN PROGRESS — shared octahedron/solid quad+box renderers, indexed bitmap streaming, model-viewer orbit camera and animated-instance pose preparation are on main; scene-wide face sorting, canonical material pool, physics/level unification and final hardware validation remain open.  
+**Status:** HISTORICAL EXECUTION RECORD — the repository-wide cutover described here is implemented in the current working tree; current ownership, validation evidence and the remaining stock-Saturn/capture gates are maintained in `docs/EXAMPLE_WIDE_DRY_SOLID_RUNTIME_REFACTOR_PLAN.md` and `docs/RUNTIME_OWNERSHIP_AND_EXAMPLE_LEDGER.md`.
 **Date:** 2026-09-19.  
 **Repository:** `celsowm/libsaturn`; execute coherent, validated slices directly on `main` under `AGENTS.md`.  
 **Policy:** **ZERO backward-compatibility commitment.** There is no compatibility shim, deprecated alias, dual implementation, preserved old layout, old symbol ABI, or old example retained for historical API users. Prefer a single better contract and migrate/remove every repository-owned consumer atomically. Existing external users must adapt to the new version. Hardware correctness, bounded memory, observable behavior and tests are **not** optional.
+
+**Current execution note:** this document preserves the original debt inventory
+and breaking-policy decisions. It is not a live checklist; current slice status
+and evidence live in `docs/EXAMPLE_WIDE_DRY_SOLID_RUNTIME_REFACTOR_PLAN.md` and
+`docs/RUNTIME_OWNERSHIP_AND_EXAMPLE_LEDGER.md`.
 
 ## 0. Authority, objective, and non-negotiable decisions
 

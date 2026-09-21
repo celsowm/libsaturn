@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "saturn/scene3d.h"
+#include "saturn/model3d.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,6 +29,9 @@ typedef struct sat_scene3d_material {
     /* 255 = ordinary opaque sprite; 0..7 = previously configured VDP2 slot.
      * RGB polygon material does not support the indexed-sprite slots. */
     uint8_t color_calc_slot;
+    /* Optional per-vertex Gouraud table. The pointer is read only during
+     * submission and the four selected entries are copied into the face. */
+    const uint16_t* vertex_gouraud;
 } sat_scene3d_material_t;
 
 /* Paint order is NOT a field here: it lives in the scene's parallel key
@@ -38,6 +42,8 @@ typedef struct sat_scene3d_face {
     sat_quad2_t projected;
     sat_scene3d_material_t material;
     uint8_t projected_safe;
+    uint8_t gouraud_valid;
+    uint16_t gouraud[4];
 } sat_scene3d_face_t;
 
 typedef struct sat_scene3d_faces {
@@ -51,6 +57,9 @@ typedef struct sat_scene3d_faces {
     sat_vec3_t eye, forward;
     sat_fx16_t near_depth;
     uint8_t active;
+    uint16_t culled_faces;
+    uint16_t clipped_faces;
+    uint16_t fallback_faces;
 } sat_scene3d_faces_t;
 
 /* All three buffers are caller-owned and must hold `capacity` entries:

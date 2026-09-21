@@ -3,6 +3,11 @@
 Date: 2026-09-19. Base commit: ebda3dc64dbbb6ecabbd2de9c485b06a1d922db7.
 Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md).
 
+> Historical baseline. Its “outstanding” statements describe the state at the
+> base commit and are not current completion claims. For the current migrated
+> ownership, validation and remaining gates, use
+> `docs/RUNTIME_OWNERSHIP_AND_EXAMPLE_LEDGER.md`.
+
 ## Repository audit, verified from main
 
 - Core mesh geometry: `include/saturn/mesh3d.h`, `src/core/mesh3d_logic.hpp`, `src/core/mesh3d_api.cpp`.

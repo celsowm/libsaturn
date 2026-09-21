@@ -30,7 +30,8 @@ The first implementation should prioritize **predictable hardware behavior, zero
 
 The current 3D stack already provides the geometry side of the feature:
 
-- `sat_draw_mesh()` handles culling, projection, painter sorting and VDP1 submission.
+- `sat_vdp1_draw_mesh()` is the explicit low-level path for culling, projection,
+  painter sorting and VDP1 submission; game code uses `sat_scene_t`.
 - `sat_projected_vertex_t::w` already represents view depth in 16.16 units when the projection-cache path is used.
 - textured model faces are submitted as VDP1 distorted sprites.
 - VDP2 is already used by LibSaturn for NBG/RBG backgrounds.
@@ -56,7 +57,8 @@ VDP2 sprite color-calc configuration
 hardware
 ```
 
-The high-level fade feature must not directly write VDP2 registers and `sat_draw_mesh()` must not become responsible for global video configuration.
+The high-level fade feature must not directly write VDP2 registers and the native
+mesh path must not become responsible for global video configuration.
 
 ---
 
@@ -392,11 +394,11 @@ typedef struct sat_mesh_draw {
 
 Existing callers zero-initialize this struct, so the feature remains disabled by default.
 
-Do **not** make `sat_draw_mesh()` configure the global VDP2 ratio table. That belongs to scene/video setup.
+Do **not** make the native mesh path configure the global VDP2 ratio table. That belongs to scene/video setup.
 
 ### Obtaining depth
 
-The fade level should normally be computed once per object before `sat_draw_mesh()`.
+The fade level should normally be computed once per object before native mesh lowering.
 
 Preferred helpers:
 
@@ -467,7 +469,7 @@ sat_project_depth(&view_proj, &object_center, &depth);
 int culled;
 sat_mesh_draw_apply_distance_fade(&draw, &fade, depth, &culled);
 if (!culled) {
-    sat_draw_mesh(&mesh, &draw);
+    sat_vdp1_draw_mesh(&mesh, &draw);
 }
 ```
 

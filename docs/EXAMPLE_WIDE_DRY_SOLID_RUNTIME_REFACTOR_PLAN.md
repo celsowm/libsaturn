@@ -1,8 +1,8 @@
 # LibSaturn — Example-Wide DRY/SOLID Runtime Refactoring Plan
 
-**Status:** PROPOSED — design and execution plan, not an implementation-complete claim.
+**Status:** IMPLEMENTATION COMPLETE; EMULATOR QUALIFICATION COMPLETE; STOCK-SATURN QUALIFICATION OPEN — canonical scene, animation, environment, sprite-state, save-schema, resource-planning and repository-cutover slices are implemented, all 33 examples/build gates pass, and the available modified-Ymir plus Mednafen grid is recorded in the ownership/performance ledgers. The only remaining gate is stock-Saturn hardware memory/visual/timing evidence; this document does not claim that unavailable gate passed.
 **Audit date:** 2026-09-20.
-**Audit snapshot:** `main` tree `b8241dbe3cbcf792e94bb90d9f7f514865c04427`; recheck HEAD before implementation.
+**Audit snapshot:** `main` tree `2dbbd94`; this working tree contains the uncommitted implementation and evidence changes listed in the ownership/performance ledgers.
 **Coverage:** All 33 `examples/*/main.c` entry points, their directly related game/shared headers, current public runtime headers and existing refactor plans.
 **Delivery policy:** Breaking, repository-wide migration; no obligation to retain old high-level signatures, layouts, aliases, shims, or duplicate render paths. Preserve documented *hardware* behavior and deliberately low-level diagnostic access.
 **Relationship to existing plans:** This is a current-state, cross-example execution companion to [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md), [HIGH_LEVEL_RUNTIME_API_PLAN.md](HIGH_LEVEL_RUNTIME_API_PLAN.md), [PUBLIC_API_OWNERSHIP.md](PUBLIC_API_OWNERSHIP.md), and the subsystem plans. It extends their coverage; it does **not** reset already implemented work or claim to supersede hardware reference manuals. At contract freeze, reconcile conflicting old recipes into one canonical API document and remove contradictory status statements.
@@ -19,24 +19,24 @@ Success is **not** a larger convenience-function catalog. Success is deleting re
 - `sat_scene3d_faces_t` already collects faces across multiple objects and orders platform/pig/gem faces in a shared painter. `sat_scene3d_faces_submit_quad`, `submit_box`, `submit_tiled_quad`, and `submit_instance` already exist. The renderer is **not** thereby a depth-buffered scene engine or an all-materials canonical renderer.
 - `sat_scene3d_solid_pool_t` deduplicates indexed solid colors, and Skybridge uses it. Avoid claiming all of its 36 colors still allocate one separately managed user texture each: inspect the **current** pool implementation and actual VRAM/CRAM usage before optimization.
 - `sat_orbit_camera3d_fit_bounds/apply_pad` already replace duplicate Basic 3D model-viewer orbit logic. `sat_anim_prepare_model_instance` already replaces Skybridge/Explorer's earlier game-owned per-vertex transform loops.
-- `sat_vdp2_rbg0_ground_* ` shared math has been promoted to the library. The remaining issue is high-level *environment/transfer/layer coordination*, not merely moving an example header.
+- `sat_vdp2_rbg0_ground_* ` shared math and the bounded environment/transfer/layer coordination are now promoted to the library; raw teaching probes remain deliberately explicit.
 - `sat_app_frame_begin/end`, logical textures/regions, asset registry, music/sound APIs, `sat_body2_*`, spatial hashes, and step-clock helpers already exist. Extend, consolidate, and migrate them rather than introducing parallel versions.
 - Current `docs/EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md` and `docs/REFRACTOR_BASELINE.md` still describe some now-completed slices in historical tense or as outstanding; their status paragraphs/line anchors are not ground truth for current HEAD.
 
-### 0.2 Proven example-side seams remaining on inspected snapshot
+### 0.2 Current seam audit after the migration
 
-| Area | Concrete current evidence | Desired single owner |
+| Area | Current evidence | Owner / boundary |
 | --- | --- | --- |
-| Three 3D APIs | `include/saturn/scene3d.h` immediate `sat_scene3d_t` and `sat_scene3d_queue_t`; `scene3d_faces.h` separate face painter | One canonical scene submission and rendering pipeline; raw HAL/diagnostic interfaces remain explicit |
-| Skybridge instance lifetime | `skybridge_3d/main.c::draw_gem` creates a world matrix and transient instance descriptor per gem; `player_pig` prepares a world-space pose | Persistent instance, transform, animator and material bindings |
-| Skybridge geometry/physics | `stage_box`, `draw_seesaw`, `sb_deck_slices`, `sb_platform_surface_y` | Authored level data + common surface/deck geometry and collider adapter |
-| Skybridge visibility/frame | `platform_fade_slot`, per-platform visibility tests, command-overflow flag, HUD reservation, custom VBlank/audio order | Instance bounds/fade, render budget, frame context |
-| Pac-Man 3D | `bake_scene` caches 16 fixed views; `build_pac` rebuilds wedge, ghosts rebuild boxes and calculate eye quads | Opt-in static-view cache, immutable variants and billboard child instances |
-| Explorer | `build_render_list` insertion-sorts projectable items; `draw_player` still composes local transforms/bind/draw; `write_coefficients/init_layers` own VDP2 setup | Renderer visibility/adaptor + instance transform + VDP2 environment |
-| 2D sprites | `pacman_2d` has direction × frame texture arrays, manual facing/frame dispatch; `runtime_2d` manually prewarms regions | Reusable sprite/atlas animation and explicit prewarm manifest |
-| Sound/storage | `cd_streaming_jukebox::register_cd_tracks` manually mounts, looks up files, registers VFS backends and asset descriptors | Declarative source/asset manifest with bounded streaming lifecycle |
-| HUD/resources | Repeated `draw_text/draw_value/draw_hud` and hand-counted scratch arrays across games | Tiny UI/debug layer; resource plan/arena with explicit ownership and costs |
-| Dynamic images | Voxel display probe manually packs/writes every RBG0 row; runtime2d/voxel terrain use logical dynamic textures | Optional surface presenter with backend-specific capabilities; **keep raw probe raw** |
+| Three 3D APIs | Historical immediate/queue routes are removed from the public code contract; `scene.h` delegates to `scene3d_faces.h` | PASS — raw VDP1 mesh lowering remains explicitly named for focused renderer tests/probes |
+| Skybridge instance lifetime | `g_gem_instances[]` and `g_pig_instance` are initialized once; draw paths update bounded pose/fade state | PASS — persistent instance, transform, animator and material bindings |
+| Skybridge geometry/physics | `stage_box`, `draw_seesaw`, `sb_deck_slices`, `sb_platform_surface_y` consume shared surface/deck math | PASS — authored level data stays local; generic geometry/collider ownership is shared |
+| Skybridge visibility/frame | Fade, visibility, command-overflow/HUD reservation and `sat_follow_camera3d` are integrated | PASS — bounded scene/frame policy owns shared work; game keeps course-specific rules |
+| Pac-Man 3D | `sat_view_cache_t` owns 16 fixed views; immutable actor variants are prepared once and dynamic eyes remain explicit child quads | PASS — generation invalidation and bounded replay are covered; richer billboard child-instance policy remains optional |
+| Explorer | Shared index sort, canonical scene submission for rocks/shadows/drones/Egg, and bounded VDP2 environment controller are active | PASS — authored Egg local pose and landmark overlay presentation remain game-owned |
+| 2D sprites | `pacman_2d` uses `sat_sprite_anim_t`; `runtime_2d` uses `sat_sprite_region_anim_t` with bounded prewarm | PASS — authored procedural atlas generation remains local |
+| Sound/storage | Jukebox uses `sat_cdfs_source_manifest` plus `sat_asset_register_manifest`; music lifecycle and stream counters are bounded | PASS — synchronous CD semantics stay truthful; focused source adapters remain explicit |
+| HUD/resources | `sat_hud_t`, `sat_resource_plan_t`, scene command telemetry and caller-owned scratch are available and used by migrated examples | PASS — optional examples may still use lower-level font/probe calls where that is their teaching purpose |
+| Dynamic images | Voxel display probe manually packs/writes every RBG0 row; runtime2d/voxel terrain use logical dynamic textures | OPTIONAL — a backend-specific surface presenter is not required for the core cutover; **raw probe remains raw** |
 
 ### 0.3 Non-goals and no-fake-abstraction rules
 
@@ -82,19 +82,26 @@ Use a single signed fixed-point convention for local/world/camera coordinates, u
 
 ## 2. Workstream A — one public 3D scene and renderer core [P0]
 
-**Observed:** immediate scene, callback/object queue, and global face painter coexist; games can submit through mutually different planning paths, and callback ordering can still be confused with true per-face occlusion.
+**Observed:** the immediate scene and callback/object queue facades have been
+removed from the public code contract; the current migration surface is the
+canonical scene description plus the renderer's explicit low-level lowering
+path. Remaining acceptance work is cross-object visibility and measured
+capacity/performance validation.
 
 **Refactor/create:**
 
 1. Sketch and compile three representative consumers **before freezing names**: Skybridge mixed platforms/pig/gems; Pac-Man static cached maze + dynamic actors; Explorer chunk-space scenery + animated craft. Confirm every consumer uses one public scene, one material/instance model and explicit environment attachment without fallback to private manual sort/clip.
 2. Define one canonical `sat_scene`-like lifecycle: initialize with bounded scene/frame storage, set camera and optional environment, submit primitives/instances/static-cache views, flush world, reserve/render overlay, finish. The scene exposes explicit native override only for hardware probes/specialized draws.
-3. Consolidate `sat_scene3d_t`, `sat_scene3d_queue_t`, `sat_scene3d_faces_t`, legacy `sat_draw_mesh` convenience and immediate/world polygon paths behind **one implementation of face generation, clipping, projection, ordering, material lowering and command emission**. Choose one public API, not permanent parallel high-level facades.
+3. Keep `sat_scene_t` as the sole game-facing scene submission route. The former `sat_scene3d_queue_t` and `sat_draw_mesh` names are removed; explicit `sat_vdp1_draw_mesh` remains only for low-level renderer tests/probes. Face generation, clipping, projection, ordering, material lowering and command emission must remain owned by one implementation.
 4. Separate per-instance world bounds/camera frustum visibility from per-face sorting. The existing cross-object face painter is the baseline; **preserve**, optimize and integrate it, not regress to per-object-center painting. Sorting is deterministic stable O(n log n) for potentially large queues; budget the actual scratch cost.
 5. Use explicit layer/pass semantics only for artistic overlays and known exceptions; do not draw all actors above all walls to hide sort bugs. For geometrically intersecting faces, expose subdivision/partition policy or an explicit unsupported/diagnostic state. Model depth ranges and supporting-platform/near-eye penetration need conservative policies.
 6. Solid camera-near and viewport clipping, degenerate rejection, winding/backface, VDP1 coordinate boundaries and textured fallback share one renderer pipeline. True UV-preserving clipping is a separately gated feature; if not supported, use a documented safe tiled/opaque fallback without giant distorted sprites.
 7. Make world/actor/critical/HUD command reservations a named frame-budget policy, not local boolean flags scattered through examples. Flush must have deterministic failure atomicity and no double submission.
 
-**Deletion/migration gate:** remove redundant high-level queue/immediate/faces public routes and their separate algorithms *after* all in-repo consumers migrate in one coherent slice; keep explicitly low-level HAL drawing available. No client game computes another actor's painter order or has its own clipping implementation.
+**Deletion/migration gate:** redundant high-level queue/immediate/faces public
+routes and their separate algorithms are now deleted; explicitly low-level
+HAL drawing remains available. No client game computes another actor's painter
+order or has its own clipping implementation.
 
 **Acceptance:** camera-only pig/gem visibility reverses correctly; near-eye platform does not eliminate HUD or collapse frame time; Pac-Man walls/eyes/actors have correct reciprocal visibility across all camera views; order stable across equal-depth entries; invalid capacity never writes beyond buffers; command/CPU/VRAM deltas measured.
 
@@ -123,7 +130,7 @@ Use a single signed fixed-point convention for local/world/camera coordinates, u
 
 1. Keep existing orbit fit/apply-pad functionality; unify it with canonical 3D camera state rather than add another independent camera matrix implementation.
 2. Add small policy/state controllers for orbit, fixed, chase/follow (smoothing, lag, obstruction strategy, snap/reset, offset/look-ahead, camera-relative movement basis). Input binding remains a separate adapter; controllers can be updated without any pad attached.
-3. Replace Skybridge's hand-written chase smoothing/offset/reset/projection; migrate Runtime 3D's hand-written trigonometric orbit to the existing orbit controller; preserve Basic 3D's successful fitted camera usage.
+3. Replace Skybridge's hand-written chase smoothing/offset/reset with `sat_follow_camera3d`; migrate Runtime 3D's hand-written trigonometric orbit to the existing orbit controller; preserve Basic 3D's successful fitted camera usage. Projection remains owned by `sat_camera3d`.
 4. Use imported animated union bounds and configured screen margins/near guards for model framing. Validate camera Y-up and screen-right against authored model axes and Explorer horizon.
 5. Provide explicit `step_clock`/frame orchestration that distinguishes display frame from simulation tick and handles pause/long-frame catch-up and once-only pressed edges.
 
@@ -278,6 +285,16 @@ Audit and update `examples/skybridge_3d/game.h`, `scenery.h`, `examples/infinite
 - Atlas state/direction/frame selection, resource teardown, CD source manifest validation, music lifecycle, save version/failure handling.
 
 ### 15.2 Required emulator/hardware capture grid
+
+Emulator evidence already collected: the modified Ymir debug harness ran the
+canonical Explorer, Physics3D, DistanceFade3D and Pac-Man 3D paths with frame
+captures/input replays, including the Pac-Man 3D 16-angle replay and scene
+telemetry; Mednafen was launched through the project runner for controlled
+Pac-Man 2D, Physics3D and DistanceFade3D smoke runs, with process cleanup
+verified after each run. These results qualify the emulator-facing migration
+and are recorded in `docs/RUNTIME_OWNERSHIP_AND_EXAMPLE_LEDGER.md` and
+`docs/RESOURCE_PERFORMANCE_LEDGER.md`; they do not substitute for the stock
+Saturn portion of this grid.
 
 - Skybridge: pig and gem reverse near/far order on a camera-only turn; Course 1 previous-pier camera penetration at approximately X=7 Z=30/31/32 with jump and HUD always visible; representative elevator, real Course 3 hole, Course 4 seesaw, fall/reset and finish with 0/8 gems.
 - Pac-Man 3D: 16 angles with ghost/pac/eyes alternating behind/in front of walls; pellet occupancy dynamic while cache remains valid.

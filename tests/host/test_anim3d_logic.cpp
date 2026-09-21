@@ -456,11 +456,11 @@ static void wide_sort_draws_big_meshes() {
     draw.depth = depth;
     draw.order16 = order16;
     /* Degenerate view-projection draws nothing but must accept the mesh. */
-    sat_result_t st = sat_draw_mesh(&mesh, &draw);
+    sat_result_t st = sat_vdp1_draw_mesh(&mesh, &draw);
     ASSERT_TRUE(st == SAT_OK || st == SAT_ERR_UNSUPPORTED);
     /* Missing wide scratch is a clean error, not a crash. */
     draw.order16 = nullptr;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &draw), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &draw), SAT_ERR_INVALID_ARG);
     /* sort16 orders farthest-first like the 8-bit form. */
     static uint16_t keys_order[4] = {0, 1, 2, 3};
     static uint32_t keys[4] = {10u, 30u, 20u, 40u};
@@ -492,7 +492,7 @@ static void legacy_small_mesh_unaffected() {
     draw.order = order;
     draw.depth = depth;
     draw.order16 = nullptr;
-    sat_result_t st = sat_draw_mesh(&mesh, &draw);
+    sat_result_t st = sat_vdp1_draw_mesh(&mesh, &draw);
     ASSERT_TRUE(st == SAT_OK || st == SAT_ERR_UNSUPPORTED);
 }
 

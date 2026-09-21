@@ -2,7 +2,9 @@
 # Switch while paused without moving the player, then capture multiple frames.
 # Different gold elevator decks should move up/down while fixed decks remain.
 0    NONE
-70   START
-71   NONE
-75   X
-76   NONE
+130  START
+145  NONE
+150  X
+170  NONE
+190  START
+205  NONE

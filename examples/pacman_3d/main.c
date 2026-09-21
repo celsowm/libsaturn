@@ -26,7 +26,7 @@
  * maze, the board and the pellets always project to the same screen
  * coordinates, so they are projected ONCE -- culled, shaded and depth-sorted
  * there too -- and each frame only replays the corners through
- * sat_draw_quad2_polygon. Projection is four matrix transforms and two
+ * sat_scene_replay_view_item. Projection is four matrix transforms and two
  * 64-bit divides per corner, and this is about 1500 corners; doing it every
  * frame ran the board at roughly a fifth of full rate. Only Pac-Man and the
  * ghosts, which actually move, are projected live.
@@ -48,6 +48,8 @@
 #include "saturn/math3d.h"
 #include "saturn/mesh3d.h"
 #include "saturn/render3d.h"
+#include "saturn/scene.h"
+#include "saturn/view_cache.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
 #include "saturn/video.h"
@@ -140,7 +142,7 @@ static const uint16_t kGhostColors[PAC_GHOST_COUNT] = {
 
 /* Marks a baked quad that is always drawn, as opposed to a pellet that is
  * only drawn while its maze cell still holds one. */
-#define BAKED_ALWAYS 0xFFu
+#define BAKED_ALWAYS 0xFFFFu
 
 typedef struct wall_rect {
     uint8_t col;
@@ -149,18 +151,9 @@ typedef struct wall_rect {
     uint8_t rows;
 } wall_rect_t;
 
-typedef struct baked_quad {
-    sat_quad2_t quad;
-    uint32_t depth; /* squared ground distance from the camera */
-    uint16_t color;
-    uint8_t cell_col; /* BAKED_ALWAYS, or the pellet cell to test */
-    uint8_t cell_row;
-} baked_quad_t;
-
 /* Pac-Man and the ghosts move, so they are projected live and merged into the
  * baked order by depth. */
 typedef struct actor_draw {
-    uint32_t depth;
     int16_t x;
     int16_t z;
     uint16_t color;
@@ -192,8 +185,9 @@ static uint16_t g_rect_count;
  * alternative, re-projecting the maze when the angle changes, costs a full
  * unbaked frame every time and would stutter for as long as a button is
  * held. Baking all of them at startup pays that cost once. */
-static baked_quad_t g_baked[CAM_ANGLES][MAX_BAKED];
-static uint16_t g_baked_count[CAM_ANGLES];
+static sat_view_cache_item_t g_baked[CAM_ANGLES * MAX_BAKED];
+static uint16_t g_baked_counts[CAM_ANGLES];
+static sat_view_cache_t g_view_cache;
 
 /* The board is under everything and never overlaps itself, so it is drawn
  * first as a block rather than taking part in the depth ordering. */
@@ -204,11 +198,28 @@ static uint16_t g_board_count[CAM_ANGLES];
 static sat_vec3_t g_mesh_vertices[MESH_VERTEX_CAP];
 static uint16_t g_mesh_indices[MESH_FACE_CAP * 4u];
 static sat_mesh_t g_mesh;
-static uint8_t g_mesh_order[MESH_FACE_CAP];
-static uint32_t g_mesh_depth[MESH_FACE_CAP];
+#define PAC_MESH_VARIANTS 3u
+static sat_vec3_t g_pac_vertices[PAC_MESH_VARIANTS][MESH_VERTEX_CAP];
+static uint16_t g_pac_indices[PAC_MESH_VARIANTS][MESH_FACE_CAP * 4u];
+static sat_mesh_t g_pac_meshes[PAC_MESH_VARIANTS];
+static sat_vec3_t g_ghost_vertices[MESH_VERTEX_CAP];
+static uint16_t g_ghost_indices[MESH_FACE_CAP * 4u];
+static sat_mesh_t g_ghost_mesh;
+static sat_scene3d_face_t g_scene_faces[64];
+static uint32_t g_scene_keys[64];
+static uint16_t g_scene_order[64];
+static sat_scene_t g_scene;
+static sat_scene3d_material_t g_pac_materials[PAC_MESH_VARIANTS][MESH_FACE_CAP];
+static sat_scene3d_material_t g_ghost_materials[MESH_FACE_CAP];
+static uint16_t g_actor_face_materials[MESH_FACE_CAP];
+static sat_projected_vertex_t g_mesh_screen[MESH_VERTEX_CAP];
+static sat_vec3_t g_mesh_world[MESH_VERTEX_CAP];
+static sat_mat4_t g_actor_world;
+static sat_scene3d_instance_t g_actor_instance;
 
 static sat_mat4_t g_view_proj;
 static sat_vec3_t g_cam_eye;
+static sat_camera3d_t g_camera;
 
 /* Which camera angle is live, and the trig for it. The two sines are kept
  * because the ghosts' eye panels have to face the camera, which stops being
@@ -344,8 +355,6 @@ static sat_fx16_t frame_scale(sat_fx16_t sin_az, sat_fx16_t cos_az) {
  * g_cam_eye describing it. Called once per angle while baking, and again
  * whenever the player turns -- never per frame. */
 static void set_camera(uint16_t angle) {
-    sat_mat4_t view;
-    sat_mat4_t projection;
     sat_vec3_t center;
     sat_vec3_t up = {0, SAT_FX16_ONE, 0};
     const sat_fx16_t degrees = sat_fx16_from_int((int)angle * CAM_STEP_DEGREES);
@@ -367,14 +376,11 @@ static void set_camera(uint16_t angle) {
     center.y = 0;
     center.z = sat_fx16_from_int(BOARD_D / 2);
 
-    sat_example_must(sat_mat4_look_at(&view, &g_cam_eye, &center, &up));
-    sat_example_must(sat_mat4_perspective(
-        &projection,
+    sat_example_must(sat_camera3d_init(&g_camera, &g_cam_eye, &center, &up,
         sat_fx16_from_int(CAM_FOV),
         sat_fx16_div(sat_fx16_from_int(SCREEN_W), sat_fx16_from_int(SCREEN_H)),
-        sat_fx16_from_int(1),
-        sat_fx16_from_int(1200)));
-    sat_example_must(sat_mat4_multiply(&g_view_proj, &projection, &view));
+        sat_fx16_from_int(1), sat_fx16_from_int(1200)));
+    g_view_proj = g_camera.view_proj;
 }
 
 /* ------------------------------------------------------------------ */
@@ -400,6 +406,13 @@ static int32_t quad_area2(const sat_quad2_t* q) {
     return (sum < 0) ? -sum : sum;
 }
 
+/* Static-view baking still needs a stable key once per camera angle. Live
+ * actors use the canonical scene queue and no longer call this helper. */
+static uint32_t depth_at(int x, int z) {
+    return sat_ground_distance_sq(
+        g_cam_eye.x, g_cam_eye.z, sat_fx16_from_int(x), sat_fx16_from_int(z));
+}
+
 /* Quads smaller than this many square pixels are dropped at bake time.
  *
  * A box side face seen nearly edge-on covers no pixels but still costs a
@@ -410,37 +423,28 @@ static int32_t quad_area2(const sat_quad2_t* q) {
  * margin: at eight square pixels it starts eating the pellets themselves. */
 #define MIN_QUAD_AREA2 4
 
-static uint32_t depth_at(int x, int z) {
-    return sat_ground_distance_sq(
-        g_cam_eye.x, g_cam_eye.z, sat_fx16_from_int(x), sat_fx16_from_int(z));
-}
-
 /* Projects one face of the scratch mesh and files it in the baked list.
  * `x`/`z` are the world position the quad sorts by; `col`/`row` are
  * BAKED_ALWAYS for permanent geometry, or the maze cell a pellet belongs to. */
 static void bake_face(uint16_t face, uint16_t color, int x, int z, int col, int row) {
-    baked_quad_t* slot;
     sat_quad3_t quad;
+    sat_quad2_t projected;
+    const uint16_t tag = (col == (int)BAKED_ALWAYS && row == (int)BAKED_ALWAYS)
+        ? BAKED_ALWAYS : (uint16_t)(((col & 0xFF) << 8) | (row & 0xFF));
 
-    if (g_baked_count[g_bake_angle] >= MAX_BAKED) {
-        g_draw_overflow = 1;
-        return;
-    }
     if (sat_mesh_face_quad(&g_mesh, face, &quad) != SAT_OK) {
         return;
     }
-    slot = &g_baked[g_bake_angle][g_baked_count[g_bake_angle]];
-    if (sat_project_quad(&g_view_proj, &quad, &slot->quad) != SAT_OK) {
+    if (sat_project_quad(&g_view_proj, &quad, &projected) != SAT_OK) {
         return; /* behind the camera: nothing to replay later */
     }
-    if (quad_area2(&slot->quad) < MIN_QUAD_AREA2) {
+    if (quad_area2(&projected) < MIN_QUAD_AREA2) {
         return;
     }
-    slot->color = color;
-    slot->depth = depth_at(x, z);
-    slot->cell_col = (uint8_t)col;
-    slot->cell_row = (uint8_t)row;
-    ++g_baked_count[g_bake_angle];
+    if (sat_view_cache_append(&g_view_cache, &projected, depth_at(x, z), color, tag)
+        != SAT_OK) {
+        g_draw_overflow = 1;
+    }
 }
 
 static uint16_t shade_face(uint16_t face, uint16_t color) {
@@ -567,18 +571,8 @@ static void bake_pellets(void) {
  * sat_sort_indices_desc (capped at 255 entries by its uint8 index) is not
  * what this uses. */
 static void sort_baked(void) {
-    baked_quad_t* const list = g_baked[g_bake_angle];
-    const uint16_t count = g_baked_count[g_bake_angle];
-    uint16_t i;
-
-    for (i = 1u; i < count; ++i) {
-        const baked_quad_t value = list[i];
-        int j = (int)i - 1;
-        while (j >= 0 && list[j].depth < value.depth) {
-            list[j + 1] = list[j];
-            --j;
-        }
-        list[j + 1] = value;
+    if (sat_view_cache_sort(&g_view_cache) != SAT_OK) {
+        g_draw_overflow = 1;
     }
 }
 
@@ -607,7 +601,7 @@ static void bake_scene(void) {
     for (g_bake_angle = 0u; g_bake_angle < CAM_ANGLES; ++g_bake_angle) {
         bake_progress(g_bake_angle);
         set_camera(g_bake_angle);
-        g_baked_count[g_bake_angle] = 0;
+        sat_example_must(sat_view_cache_begin(&g_view_cache, g_bake_angle));
         bake_board();
         bake_walls();
         bake_pellets();
@@ -624,7 +618,10 @@ static void bake_scene(void) {
 static void draw_board(void) {
     uint16_t i;
     for (i = 0; i < g_board_count[g_angle]; ++i) {
-        note(sat_draw_quad2_polygon(&g_board[g_angle][i], g_board_colors[g_angle][i]));
+        sat_view_cache_item_t item = {};
+        item.quad = g_board[g_angle][i];
+        item.color = g_board_colors[g_angle][i];
+        note(sat_scene_replay_view_item(&g_scene, &item));
     }
 }
 
@@ -667,41 +664,24 @@ static const uint8_t kMouthGap[] = {0u, 2u, 4u};
 
 #define COLOR_EYE SAT_RGB555(31, 31, 31)
 
-static void submit_mesh(uint16_t color, const uint16_t* face_colors) {
-    /* Zeroed: the fields this does not set -- textures, face_texture_indices,
-     * order16, screen -- must read as absent, not as stack garbage that
-     * sat_draw_mesh would dereference. */
-    sat_mesh_draw_t draw = {0};
-    draw.view_proj = &g_view_proj;
-    draw.eye = g_cam_eye;
-    draw.color = color;
-    draw.face_colors = face_colors;
-    draw.ambient = AMBIENT;
-    draw.flags = SAT_MESH_CULL_BACKFACE | SAT_MESH_SORT | SAT_MESH_SHADE;
-    draw.order = g_mesh_order;
-    draw.depth = g_mesh_depth;
-    note(sat_draw_mesh(&g_mesh, &draw));
-}
-
 /* Paints the inside of the mouth dark.
  *
  * sat_mesh_build_sphere_wedge puts the two cut walls last, so the table is
  * just "body colour everywhere, mouth colour for the tail". Without this the
  * opening is the same yellow as the rest of him and the notch reads as a
  * shading artefact rather than a mouth. */
-static const uint16_t* mouth_colors(uint16_t gap) {
-    static uint16_t colors[MESH_FACE_CAP];
+static void fill_mouth_materials(uint16_t gap, sat_scene3d_material_t* materials,
+                                 uint16_t face_count) {
     const uint16_t walls = (uint16_t)((gap > 0u) ? (2u * PAC_SPHERE_RINGS) : 0u);
-    const uint16_t total = g_mesh.face_count;
     uint16_t i;
 
-    if (walls == 0u || total > MESH_FACE_CAP) {
-        return NULL;
+    for (i = 0; i < face_count; ++i) {
+        materials[i].kind = SAT_SCENE3D_RGB;
+        materials[i].rgb555 = (walls != 0u && i >= (uint16_t)(face_count - walls))
+            ? COLOR_MOUTH : COLOR_PAC;
+        materials[i].color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+        materials[i].vertex_gouraud = NULL;
     }
-    for (i = 0; i < total; ++i) {
-        colors[i] = (i >= (uint16_t)(total - walls)) ? COLOR_MOUTH : COLOR_PAC;
-    }
-    return colors;
 }
 
 /* Quarter turns from +Z to the way an actor is facing. Longitude 0 in the
@@ -733,28 +713,80 @@ static int facing_quarter(int dir) {
  * The opening is only ever fully visible when he is facing towards or away
  * from the camera. Running along a corridor it shows as a notch in the
  * outline, which is honest -- his cheek really is in the way. */
-static void build_pac(const actor_draw_t* actor, uint16_t gap) {
-    sat_vec3_t center;
-    const int quarter = facing_quarter((int)actor->dir);
+static void actor_world_matrix(int x, int z, int dir, sat_mat4_t* out) {
+    sat_mat4_t rotation;
+    sat_mat4_t translation;
+    const int quarter = facing_quarter(dir);
+    const sat_fx16_t degrees = sat_fx16_from_int(quarter * 90);
+
+    note(sat_mat4_rotate_y(&rotation, degrees));
+    note(sat_mat4_translate(&translation, sat_fx16_from_int(x),
+        sat_fx16_from_int(ACTOR_Y), sat_fx16_from_int(z)));
+    note(sat_mat4_multiply(out, &translation, &rotation));
+}
+
+static void submit_actor(const sat_mesh_t* mesh, sat_scene3d_material_t* materials,
+                         int x, int z, int dir) {
+    uint16_t f;
+
+    for (f = 0; f < mesh->face_count; ++f) {
+        g_actor_face_materials[f] = f;
+    }
+    actor_world_matrix(x, z, dir, &g_actor_world);
+    g_actor_instance.mesh = mesh;
+    g_actor_instance.materials = materials;
+    g_actor_instance.material_count = mesh->face_count;
+    g_actor_instance.face_materials = g_actor_face_materials;
+    g_actor_instance.world = &g_actor_world;
+    note(sat_scene_submit_instance(&g_scene, &g_actor_instance,
+        SAT_SCENE3D_SLOT_INHERIT, g_mesh_screen, g_mesh_world));
+}
+
+static void build_pac_mesh(sat_mesh_t* mesh, uint16_t gap) {
+    sat_vec3_t center = {0, 0, 0};
     /* Band boundaries sit every 360/12 = 30 degrees and each quarter turn is
      * three of them, so the gap centres exactly on the facing when it starts
      * half a gap earlier. */
-    const uint16_t start = (uint16_t)(((quarter * (int)PAC_SPHERE_SEGMENTS / 4)
-                                       - ((int)gap / 2)
-                                       + (int)PAC_SPHERE_SEGMENTS)
-                                      % (int)PAC_SPHERE_SEGMENTS);
+    const uint16_t start = (uint16_t)((((int)gap / 2) > 0)
+        ? (PAC_SPHERE_SEGMENTS - (gap / 2)) % PAC_SPHERE_SEGMENTS : 0u);
 
-    center.x = sat_fx16_from_int(actor->x);
-    center.y = sat_fx16_from_int(ACTOR_Y);
-    center.z = sat_fx16_from_int(actor->z);
     note(sat_mesh_build_sphere_wedge(
-        &g_mesh,
+        mesh,
         &center,
         sat_fx16_from_int(PAC_RADIUS),
         PAC_SPHERE_SEGMENTS,
         PAC_SPHERE_RINGS,
         start,
         gap));
+}
+
+static void prepare_actor_meshes(void) {
+    uint16_t i;
+
+    for (i = 0; i < MESH_FACE_CAP; ++i) {
+        g_actor_face_materials[i] = i;
+    }
+    for (i = 0; i < PAC_MESH_VARIANTS; ++i) {
+        const uint16_t gap = kMouthGap[i];
+        note(sat_mesh_init(&g_pac_meshes[i], g_pac_vertices[i], MESH_VERTEX_CAP,
+            g_pac_indices[i], MESH_FACE_CAP));
+        build_pac_mesh(&g_pac_meshes[i], gap);
+        fill_mouth_materials(gap, g_pac_materials[i], g_pac_meshes[i].face_count);
+    }
+    note(sat_mesh_init(&g_ghost_mesh, g_ghost_vertices, MESH_VERTEX_CAP,
+        g_ghost_indices, MESH_FACE_CAP));
+    {
+        sat_vec3_t center = {0, 0, 0};
+        note(sat_mesh_build_box(&g_ghost_mesh, &center,
+            sat_fx16_from_int(GHOST_RADIUS), sat_fx16_from_int(GHOST_HALF_H),
+            sat_fx16_from_int(GHOST_RADIUS)));
+    }
+    for (i = 0; i < MESH_FACE_CAP; ++i) {
+        g_ghost_materials[i].kind = SAT_SCENE3D_RGB;
+        g_ghost_materials[i].rgb555 = COLOR_FRIGHT_A;
+        g_ghost_materials[i].color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+        g_ghost_materials[i].vertex_gouraud = NULL;
+    }
 }
 
 /* White on a coloured body, dark on the white flash: an eye has to contrast
@@ -804,30 +836,31 @@ static void draw_eye(const actor_draw_t* actor, int offset) {
     quad.v[1].x = cx + dx; quad.v[1].y = y0; quad.v[1].z = cz + dz;
     quad.v[2].x = cx + dx; quad.v[2].y = y1; quad.v[2].z = cz + dz;
     quad.v[3].x = cx - dx; quad.v[3].y = y1; quad.v[3].z = cz - dz;
-    note(sat_draw_world_polygon(&g_view_proj, &quad, eye_color(actor->color)));
+    {
+        sat_scene3d_material_t material = {};
+        material.kind = SAT_SCENE3D_RGB;
+        material.rgb555 = eye_color(actor->color);
+        material.color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+        note(sat_scene_submit_quad(&g_scene, &quad, &material, 0u));
+    }
 }
 
 static void draw_actor(const actor_draw_t* actor) {
-    sat_vec3_t center;
-
-    center.x = sat_fx16_from_int(actor->x);
-    center.y = sat_fx16_from_int(ACTOR_Y);
-    center.z = sat_fx16_from_int(actor->z);
-
     if (actor->is_pac) {
-        const uint16_t gap = kMouthGap[kPacChew[(g_game.frame / 5u) & 3u]];
-        build_pac(actor, gap);
-        submit_mesh(actor->color, mouth_colors(gap));
+        const uint16_t variant = kPacChew[(g_game.frame / 5u) & 3u];
+        submit_actor(&g_pac_meshes[variant], g_pac_materials[variant],
+            actor->x, actor->z, actor->dir);
         return;
     }
 
-    note(sat_mesh_build_box(
-        &g_mesh,
-        &center,
-        sat_fx16_from_int(GHOST_RADIUS),
-        sat_fx16_from_int(GHOST_HALF_H),
-        sat_fx16_from_int(GHOST_RADIUS)));
-    submit_mesh(actor->color, NULL);
+    {
+        uint16_t f;
+        for (f = 0; f < g_ghost_mesh.face_count; ++f) {
+            g_ghost_materials[f].rgb555 = actor->color;
+        }
+    }
+    submit_actor(&g_ghost_mesh, g_ghost_materials,
+        actor->x, actor->z, actor->dir);
     draw_eye(actor, -EYE_SPREAD);
     draw_eye(actor, EYE_SPREAD);
 }
@@ -846,8 +879,8 @@ static int actor_facing(const sat_grid_actor_t* a, int slot) {
     return g_last_dir[slot];
 }
 
-/* Collects the movers, farthest first. At most five of them, so a plain
- * insertion sort is the whole algorithm. */
+/* Collects the movers. Their faces enter the canonical scene queue and are
+ * sorted there together, so gameplay does not own painter order. */
 static uint16_t collect_actors(actor_draw_t* out) {
     uint16_t count = 0;
     actor_draw_t pac;
@@ -872,7 +905,6 @@ static uint16_t collect_actors(actor_draw_t* out) {
                     ? COLOR_FRIGHT_B
                     : COLOR_FRIGHT_A;
         }
-        ghost.depth = depth_at(ghost.x, ghost.z);
         out[count++] = ghost;
     }
 
@@ -881,23 +913,12 @@ static uint16_t collect_actors(actor_draw_t* out) {
     pac.is_pac = 1u;
     pac.dir = (int8_t)actor_facing(&g_game.pac, PAC_GHOST_COUNT);
     pac.color = COLOR_PAC;
-    pac.depth = depth_at(pac.x, pac.z);
     out[count++] = pac;
-
-    for (i = 1; i < (int)count; ++i) {
-        const actor_draw_t value = out[i];
-        int j = i - 1;
-        while (j >= 0 && out[j].depth < value.depth) {
-            out[j + 1] = out[j];
-            --j;
-        }
-        out[j + 1] = value;
-    }
     return count;
 }
 
-static int pellet_still_there(const baked_quad_t* baked) {
-    const char cell = pac_game_cell(&g_game, baked->cell_col, baked->cell_row);
+static int pellet_still_there(uint8_t col, uint8_t row) {
+    const char cell = pac_game_cell(&g_game, col, row);
     return cell == '.' || cell == 'o';
 }
 
@@ -913,15 +934,19 @@ static int pellet_still_there(const baked_quad_t* baked) {
  * the depth problem, it is the more correct answer for this scene. */
 static void render_scene(void) {
     actor_draw_t actors[PAC_GHOST_COUNT + 1];
+    const sat_view_cache_item_t* baked = NULL;
+    uint16_t baked_count = 0u;
     uint16_t actor_count;
     uint16_t i;
 
-    for (i = 0; i < g_baked_count[g_angle]; ++i) {
-        const baked_quad_t* baked = &g_baked[g_angle][i];
-        if (baked->cell_col != BAKED_ALWAYS && !pellet_still_there(baked)) {
+    note(sat_view_cache_view(&g_view_cache, g_angle, &baked, &baked_count));
+    for (i = 0; i < baked_count; ++i) {
+        const uint16_t tag = baked[i].tag;
+        if (tag != BAKED_ALWAYS && !pellet_still_there(
+                (uint8_t)(tag >> 8), (uint8_t)tag)) {
             continue;
         }
-        note(sat_draw_quad2_polygon(&baked->quad, baked->color));
+        note(sat_scene_replay_view_item(&g_scene, &baked[i]));
     }
 
     /* Still farthest-first among themselves, so two actors crossing overlap
@@ -1085,6 +1110,14 @@ int main(void) {
         &g_font, SAT_COLOR_WHITE, 0x0000u, HUD_PALETTE));
     sat_example_must(sat_mesh_init(
         &g_mesh, g_mesh_vertices, MESH_VERTEX_CAP, g_mesh_indices, MESH_FACE_CAP));
+    prepare_actor_meshes();
+    g_actor_instance.pass = 0u;
+    g_actor_instance.cull_backfaces = 1u;
+    sat_example_must(sat_view_cache_init(&g_view_cache, g_baked,
+        g_baked_counts, CAM_ANGLES, MAX_BAKED));
+    sat_example_must(sat_view_cache_set_generation(&g_view_cache, 1u));
+    sat_example_must(sat_scene_init(&g_scene, g_scene_faces, g_scene_keys,
+        g_scene_order, 64u));
 
     init_sky();
 
@@ -1100,8 +1133,12 @@ int main(void) {
         pac_game_update(&g_game, &pad);
         update_camera(&pad);
 
+        sat_example_must(sat_scene_begin(&g_scene, &g_camera,
+            SAT_FX16_ONE, SCREEN_W, SCREEN_H, 64u));
+
         draw_board();
         render_scene();
+        sat_example_must(sat_scene_flush(&g_scene));
         render_hud();
 
         SAT_PANIC_IF_ERROR(sat_end_frame());

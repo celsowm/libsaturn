@@ -74,6 +74,28 @@ extern "C" sat_result_t sat_asset_register(
     return SAT_ERR_CAPACITY;
 }
 
+extern "C" sat_result_t sat_asset_register_manifest(
+    const sat_asset_desc_t* descs, uint16_t count, sat_asset_t* out_assets) {
+    if ((!descs && count) || (!out_assets && count) || count == 0u)
+        return SAT_ERR_INVALID_ARG;
+    if (count > sat_asset_capacity() - sat_asset_count()) return SAT_ERR_CAPACITY;
+    for (uint16_t i = 0u; i < count; ++i) {
+        if (!descs[i].logical_path ||
+            (descs[i].data && descs[i].source_path) ||
+            (!descs[i].data && !descs[i].source_path && descs[i].size != 0u))
+            return SAT_ERR_INVALID_ARG;
+        for (uint16_t j = 0u; j < i; ++j) {
+            if (__builtin_strcmp(descs[i].logical_path, descs[j].logical_path) == 0)
+                return SAT_ERR_INVALID_ARG;
+        }
+    }
+    for (uint16_t i = 0u; i < count; ++i) {
+        const sat_result_t status = sat_asset_register(&descs[i], &out_assets[i]);
+        if (status != SAT_OK) return status;
+    }
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_asset_open(const char* logical_path, sat_asset_t* out_asset) {
     if (logical_path == nullptr || out_asset == nullptr) return SAT_ERR_INVALID_ARG;
     char normalized[SAT_FILE_PATH_MAX] = {};

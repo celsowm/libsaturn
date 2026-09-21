@@ -1,5 +1,6 @@
 #include "saturn/scene3d_faces.h"
 #include "saturn/vdp1_color_calc.h"
+#include "src/core/mesh3d_logic.hpp"
 #include "src/core/render3d_logic.hpp"
 
 #include <stdint.h>
@@ -64,7 +65,10 @@ sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
         sum+=depth;
         if (depth>0) visible=true;
     }
-    if (!visible) return SAT_OK;
+    if (!visible) {
+        ++scene->culled_faces;
+        return SAT_OK;
+    }
     if (scene->count>=scene->capacity) return SAT_ERR_CAPACITY;
     sat_scene3d_face_t& item=scene->entries[scene->count];
     item.world=world;
@@ -73,7 +77,14 @@ sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
         item.projected.y[c]=projected[indices[c]].y;
     }
     item.material=material;
+    item.gouraud_valid=material.vertex_gouraud ? 1u : 0u;
+    if (item.gouraud_valid) {
+        for (uint8_t c=0;c<4u;++c)
+            item.gouraud[c]=material.vertex_gouraud[indices[c]];
+        item.material.vertex_gouraud=nullptr;
+    }
     item.projected_safe=safe_projection(*scene,projected,indices)?1u:0u;
+    if (!item.projected_safe) ++scene->clipped_faces;
     scene->keys[scene->count]=painter_key(sum,pass);
     ++scene->count;
     return SAT_OK;
@@ -83,6 +94,9 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
                   const sat_scene3d_face_t& face) {
     if (face.material.kind==SAT_SCENE3D_RGB) {
         if (!face.projected_safe) return SAT_ERR_UNSUPPORTED;
+        if (face.gouraud_valid)
+            return sat_draw_quad2_polygon_gouraud(
+                &face.projected, face.material.rgb555, face.gouraud);
         return sat_draw_quad2_polygon(&face.projected,face.material.rgb555);
     }
     if (face.projected_safe) {
@@ -137,7 +151,9 @@ extern "C" sat_result_t sat_scene3d_faces_begin(
         (!forward->x && !forward->y && !forward->z) ||
         width<2u || height<2u || width>2048u || height>2048u)
         return SAT_ERR_INVALID_ARG;
-    scene->count=0;scene->view_proj=*view_proj;
+    scene->count=0;
+    scene->culled_faces=scene->clipped_faces=scene->fallback_faces=0u;
+    scene->view_proj=*view_proj;
     scene->eye=*eye;scene->forward=*forward;
     scene->near_depth=near_depth;scene->width=width;scene->height=height;
     scene->active=1u;
@@ -294,9 +310,23 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
             screen_scratch[idx[0]].w>0 && screen_scratch[idx[1]].w>0 &&
             screen_scratch[idx[2]].w>0 && screen_scratch[idx[3]].w>0 &&
             saturn::core::render3d::projected_area2(screen_scratch,idx)<=0)
+        {
+            ++scene->culled_faces;
             continue;
+        }
         sat_quad3_t quad={};
         for (uint8_t c=0;c<4u;++c) quad.v[c]=world[idx[c]];
+        /* Keep instance back-face visibility in world space. The projected
+         * area test below is still useful for degenerate/quantized screen
+         * faces, but it is not a substitute for the shared geometric normal
+         * predicate: small perspective faces can round to a screen winding
+         * that disagrees with their actual outward normal. */
+        if (instance->cull_backfaces &&
+            !saturn::core::mesh3d::quad_visible(quad,scene->eye))
+        {
+            ++scene->culled_faces;
+            continue;
+        }
         const sat_scene3d_material_t& base=materials[face_materials[f]];
         sat_result_t st;
         if (override_slot) {
@@ -316,11 +346,13 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
     if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
     scene->active=0u;
     /* Orders indices in O(faces + buckets) and never moves a face record;
-     * the same helper already carries sat_draw_mesh's paint order. */
+     * the same helper already carries the native mesh paint order. */
     const uint32_t ordered=saturn::core::render3d::paint_order_buckets(
         scene->keys,scene->count,scene->order);
     sat_result_t result=SAT_OK;
     for (uint32_t i=0;i<ordered;++i) {
+        if (!scene->entries[scene->order[i]].projected_safe)
+            ++scene->fallback_faces;
         result=emit(*scene,scene->entries[scene->order[i]]);
         if (result==SAT_ERR_UNSUPPORTED) continue;
         if (result!=SAT_OK) break;

@@ -4,17 +4,17 @@
 # its projected position changes naturally, but its world coords do not.
 # Toggle Y debug HUD at frame 70; DECK must stay 1 before and after six taps.
 0    NONE
-70   Y
-71   NONE
-90   B
-91   NONE
-94   B
-95   NONE
-98   B
-99   NONE
-102  B
-103  NONE
-106  B
-107  NONE
-110  B
-111  NONE
+130  Y
+145  NONE
+165  B
+166  NONE
+169  B
+170  NONE
+173  B
+174  NONE
+177  B
+178  NONE
+181  B
+182  NONE
+185  B
+186  NONE

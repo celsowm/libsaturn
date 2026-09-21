@@ -2,6 +2,7 @@
 #define SKYBRIDGE_GAME_H
 
 #include <stdint.h>
+#include "saturn/surface3d.h"
 
 /* Pure, allocation-free, 60 Hz platformer logic; buildable on the host. */
 #define SB_F(n) ((int32_t)(n) * 65536)
@@ -190,6 +191,7 @@ static inline int32_t sb_platform_y_at(const sb_game_t* g,uint8_t id,uint32_t ti
 static inline int32_t sb_platform_y(const sb_game_t* g,uint8_t id) {
     return sb_platform_y_at(g,id,g->ticks);
 }
+static inline int32_t sb_platform_x(const sb_game_t* g,uint8_t id);
 /* A seesaw's deck is a single planar surface. Its signed tilt is exactly
  * the height at the +Z end relative to its hinge; the -Z end has -tilt.
  * Collision, gem placement, shadows and rendered corner vertices must
@@ -197,12 +199,15 @@ static inline int32_t sb_platform_y(const sb_game_t* g,uint8_t id) {
 static inline int32_t sb_platform_surface_y(
     const sb_game_t* g,uint8_t id,int32_t x,int32_t z) {
     const sb_platform_t* p=&sb_course_platforms(g)[id];
-    int32_t base=sb_platform_y(g,id);
-    (void)x;
-    if(p->kind!=SB_SEESAW)return base;
-    int32_t dz=sb_clamp(z-SB_F(p->z),
-                        -SB_F(p->half_z),SB_F(p->half_z));
-    return base+(int32_t)((int64_t)g->seesaw_tilt[id]*dz/SB_F(p->half_z));
+    const sat_surface3d_desc_t surface = {
+        sb_platform_x(g,id), SB_F(p->z), sb_platform_y(g,id),
+        SB_F(p->half_x), SB_F(p->half_z),
+        p->kind==SB_SEESAW ? g->seesaw_tilt[id] : 0,
+        0, 0u
+    };
+    int32_t y = surface.base_y;
+    (void)sat_surface3d_height(&surface,x,z,&y);
+    return y;
 }
 static inline void sb_update_seesaws(sb_game_t* g,int8_t rider) {
     for(uint8_t id=0u;id<SB_PLATFORM_COUNT;++id) {
@@ -238,40 +243,53 @@ static inline const sb_hole_t* sb_platform_hole(const sb_game_t* g,
 static inline uint8_t sb_deck_slices(const sb_game_t* g,uint8_t id,
                                     sb_deck_slice_t out[4]) {
     const sb_platform_t* p=&sb_course_platforms(g)[id];
-    const int32_t cx=sb_platform_x(g,id),cz=SB_F(p->z);
-    const int32_t lx=cx-SB_F(p->half_x),rx=cx+SB_F(p->half_x);
-    const int32_t bz=cz-SB_F(p->half_z),fz=cz+SB_F(p->half_z);
     const sb_hole_t* h=sb_platform_hole(g,id);
-    if(!h) {
-        out[0]=(sb_deck_slice_t){lx,rx,bz,fz};
-        return 1u;
+    sat_surface3d_rect_t hole;
+    sat_surface3d_desc_t surface = {
+        sb_platform_x(g,id), SB_F(p->z), sb_platform_y(g,id),
+        SB_F(p->half_x), SB_F(p->half_z),
+        p->kind==SB_SEESAW ? g->seesaw_tilt[id] : 0,
+        0, 0u
+    };
+    if(h) {
+        hole.min_x=surface.center_x+SB_F(h->x_offset-h->half_x);
+        hole.max_x=surface.center_x+SB_F(h->x_offset+h->half_x);
+        hole.min_z=surface.center_z+SB_F(h->z_offset-h->half_z);
+        hole.max_z=surface.center_z+SB_F(h->z_offset+h->half_z);
+        surface.holes=&hole;
+        surface.hole_count=1u;
     }
-    const int32_t hl=cx+SB_F(h->x_offset-h->half_x);
-    const int32_t hr=cx+SB_F(h->x_offset+h->half_x);
-    const int32_t hb=cz+SB_F(h->z_offset-h->half_z);
-    const int32_t hf=cz+SB_F(h->z_offset+h->half_z);
-    uint8_t count=0u;
-    if(lx<hl)out[count++]=(sb_deck_slice_t){lx,hl,bz,fz};
-    if(hr<rx)out[count++]=(sb_deck_slice_t){hr,rx,bz,fz};
-    if(bz<hb)out[count++]=(sb_deck_slice_t){hl,hr,bz,hb};
-    if(hf<fz)out[count++]=(sb_deck_slice_t){hl,hr,hf,fz};
-    return count;
+    {
+        sat_surface3d_rect_t pieces[4];
+        const uint8_t count=sat_surface3d_split(&surface,pieces);
+        for(uint8_t i=0u;i<count;++i)
+            out[i]=(sb_deck_slice_t){pieces[i].min_x,pieces[i].max_x,
+                                     pieces[i].min_z,pieces[i].max_z};
+        return count;
+    }
 }
 /* No invisible collision over the aperture. Nearly the entire pig's
  * footprint must fit within one solid slab; this conservatively avoids
  * balancing on disconnected strips or standing on empty central space. */
 static inline int sb_deck_footprint(const sb_game_t* g,uint8_t id) {
-    sb_deck_slice_t pieces[4];
-    uint8_t count=sb_deck_slices(g,id,pieces);
-    for(uint8_t i=0u;i<count;++i) {
-        const int32_t inset=SB_PLAYER_HALF-SB_HALF;
-        if(g->x>=pieces[i].min_x+inset &&
-           g->x<=pieces[i].max_x-inset &&
-           g->z>=pieces[i].min_z+inset &&
-           g->z<=pieces[i].max_z-inset)
-            return 1;
+    const sb_platform_t* p=&sb_course_platforms(g)[id];
+    const sb_hole_t* h=sb_platform_hole(g,id);
+    sat_surface3d_rect_t hole;
+    sat_surface3d_desc_t surface = {
+        sb_platform_x(g,id), SB_F(p->z), sb_platform_y(g,id),
+        SB_F(p->half_x), SB_F(p->half_z),
+        p->kind==SB_SEESAW ? g->seesaw_tilt[id] : 0, 0, 0u
+    };
+    if(h) {
+        hole=(sat_surface3d_rect_t){
+            surface.center_x+SB_F(h->x_offset-h->half_x),
+            surface.center_x+SB_F(h->x_offset+h->half_x),
+            surface.center_z+SB_F(h->z_offset-h->half_z),
+            surface.center_z+SB_F(h->z_offset+h->half_z)};
+        surface.holes=&hole; surface.hole_count=1u;
     }
-    return 0;
+    return sat_surface3d_supports_footprint(&surface,g->x,g->z,
+        SB_PLAYER_HALF-SB_HALF,SB_PLAYER_HALF-SB_HALF)!=0u;
 }
 
 static inline int sb_platform_active(const sb_game_t* g, uint8_t id) {

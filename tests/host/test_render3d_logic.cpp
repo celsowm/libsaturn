@@ -829,7 +829,7 @@ TEST(face_intensity3_clamps_its_floor) {
 }
 
 
-/* The scaled form is what sat_draw_mesh actually calls, so it has to agree
+/* The scaled form is what the native mesh path actually calls, so it has to agree
  * with the unit-normal form -- and be indifferent to how long the normal is,
  * since a cross product's length depends on the size of the face. */
 TEST(face_intensity3_scaled_matches_the_unit_form_at_any_length) {

@@ -1,0 +1,35 @@
+# One-frame L presses after the startup bake. Each press advances Pac-Man 3D
+# by one of its sixteen 22.5-degree camera headings; NONE releases it again.
+0     NONE
+180   L
+181   NONE
+190   L
+191   NONE
+200   L
+201   NONE
+210   L
+211   NONE
+220   L
+221   NONE
+230   L
+231   NONE
+240   L
+241   NONE
+250   L
+251   NONE
+260   L
+261   NONE
+270   L
+271   NONE
+280   L
+281   NONE
+290   L
+291   NONE
+300   L
+301   NONE
+310   L
+311   NONE
+320   L
+321   NONE
+330   L
+331   NONE

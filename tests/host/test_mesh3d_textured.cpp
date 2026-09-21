@@ -1,4 +1,4 @@
-/* test_mesh3d_textured.cpp -- host tests for sat_draw_mesh textured path.
+/* test_mesh3d_textured.cpp -- host tests for the native textured mesh path.
  *
  * Links src/core/mesh3d_api.cpp directly and stubs the two VDP1 submit
  * entry points, so the shared culling/sorting/submit logic is exercised
@@ -203,7 +203,7 @@ static void legacy_null_table_draws_polygons_only() {
     reset_stubs();
     sat_vec3_t eye = {0, 0, sat_fx16_from_int(100)};
     sat_mesh_draw_t p = base_draw(eye);
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     ASSERT_EQ(g_polygon_calls, 2);
     ASSERT_EQ(g_sprite_calls, 0);
 }
@@ -220,7 +220,7 @@ static void mixed_textured_and_untextured_faces() {
     p.textures = tex;
     p.texture_count = 1;
     p.face_texture_indices = table;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     ASSERT_EQ(g_sprite_calls, 1);
     ASSERT_EQ(g_polygon_calls, 1);
     ASSERT_TRUE(g_last_sprite_tex == &tex[0]);
@@ -237,7 +237,7 @@ static void invalid_texture_index_returns_error_and_draws_nothing() {
     p.textures = tex;
     p.texture_count = 1;
     p.face_texture_indices = table;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_ERR_INVALID_ARG);
     ASSERT_EQ(g_sprite_calls, 0);
     ASSERT_EQ(g_polygon_calls, 0);
 }
@@ -253,7 +253,7 @@ static void culling_parity_between_paths() {
     reset_stubs();
     sat_mesh_draw_t p = base_draw(eye);
     p.flags = SAT_MESH_CULL_BACKFACE;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     const int poly_calls = g_polygon_calls;
 
     sat_vdp1_texture_t tex[1] = {};
@@ -265,7 +265,7 @@ static void culling_parity_between_paths() {
     q.textures = tex;
     q.texture_count = 1;
     q.face_texture_indices = table;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &q), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &q), SAT_OK);
     /* Same single face survives; only the submit path differs. */
     ASSERT_EQ(poly_calls, 1);
     ASSERT_EQ(g_sprite_calls, 1);
@@ -284,7 +284,7 @@ static void sorting_parity_and_order() {
     p.flags = SAT_MESH_SORT;
     p.order = g_order;
     p.depth = g_depth;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     ASSERT_EQ(g_call_count, 2);
     ASSERT_EQ(g_call_x[0], 40);
     ASSERT_EQ(g_call_x[1], 8);
@@ -299,7 +299,7 @@ static void sorting_parity_and_order() {
     q.textures = tex;
     q.texture_count = 1;
     q.face_texture_indices = table;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &q), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &q), SAT_OK);
     ASSERT_EQ(g_call_count, 2);
     ASSERT_EQ(g_call_x[0], 40);
     ASSERT_EQ(g_call_x[1], 8);
@@ -322,7 +322,7 @@ static void degenerate_triangle_face_draws_textured() {
     p.textures = tex;
     p.texture_count = 1;
     p.face_texture_indices = table;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     ASSERT_EQ(g_sprite_calls, 1);
     ASSERT_EQ(g_polygon_calls, 0);
 }
@@ -339,7 +339,7 @@ static void capacity_error_propagates_but_draws_rest() {
     p.textures = tex;
     p.texture_count = 1;
     p.face_texture_indices = table;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_ERR_CAPACITY);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_ERR_CAPACITY);
     /* The failing face does not cancel the polygon face. */
     ASSERT_EQ(g_sprite_calls, 1);
     ASSERT_EQ(g_polygon_calls, 1);
@@ -370,7 +370,7 @@ static void sub_unit_faces_sort_farthest_first() {
     p.flags = SAT_MESH_SORT;
     p.order = g_order;
     p.depth = g_depth;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     ASSERT_EQ(g_call_count, 2);
     ASSERT_EQ(g_order[0], 1u);
     ASSERT_EQ(g_order[1], 0u);
@@ -397,7 +397,7 @@ static void screen_cache_projects_each_vertex_once() {
     p.flags = SAT_MESH_SORT;
     p.order = g_order;
     p.depth = g_depth;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     const int legacy_count = g_call_count;
     int legacy_x[32];
     for (int i = 0; i < legacy_count; ++i) {
@@ -408,7 +408,7 @@ static void screen_cache_projects_each_vertex_once() {
     static sat_projected_vertex_t screen[kVCap];
     reset_stubs();
     p.screen = screen;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     ASSERT_EQ(g_call_count, legacy_count);
     ASSERT_EQ(g_call_count, 3);
     for (int i = 0; i < legacy_count; ++i) {
@@ -436,7 +436,7 @@ static void screen_cache_skips_faces_behind_camera() {
     reset_stubs();
     sat_mesh_draw_t p = base_draw(eye);
     p.screen = screen;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     ASSERT_EQ(g_call_count, 1);
     ASSERT_EQ(g_project_calls, 5);
 }
@@ -452,13 +452,13 @@ static void screen_cache_culls_like_world_path() {
     reset_stubs();
     sat_mesh_draw_t p = base_draw(eye);
     p.flags = SAT_MESH_CULL_BACKFACE;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     const int world_calls = g_call_count;
 
     static sat_projected_vertex_t screen[kVCap];
     reset_stubs();
     p.screen = screen;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     ASSERT_EQ(g_call_count, world_calls);
     ASSERT_EQ(g_call_count, 2);
 }
@@ -478,7 +478,7 @@ static void vertex_gouraud_follows_face_corners() {
     reset_stubs();
     sat_mesh_draw_t p = base_draw(eye);
     p.vertex_gouraud = gouraud;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     ASSERT_EQ(g_gouraud_calls, 2);
     for (int i = 0; i < 4; ++i) {
         ASSERT_EQ(g_last_gouraud[i], gouraud[last_face[i]]);
@@ -487,7 +487,7 @@ static void vertex_gouraud_follows_face_corners() {
     static sat_projected_vertex_t screen[kVCap];
     reset_stubs();
     p.screen = screen;
-    ASSERT_EQ(sat_draw_mesh(&mesh, &p), SAT_OK);
+    ASSERT_EQ(sat_vdp1_draw_mesh(&mesh, &p), SAT_OK);
     ASSERT_EQ(g_gouraud_calls, 2);
     for (int i = 0; i < 4; ++i) {
         ASSERT_EQ(g_last_gouraud[i], gouraud[last_face[i]]);

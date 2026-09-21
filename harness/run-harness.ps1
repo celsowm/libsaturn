@@ -33,6 +33,9 @@ param(
     [string]$RamCart = 'none',
     [string[]]$Screenshot,
     [string]$ProfilePc,
+    [string]$ProfileCycles,
+    [string]$ProfileInstructions,
+    [string]$ProfileTransfers,
     [switch]$ScspTrace,
     [int]$FbSample = 256,
     [string]$Out
@@ -153,6 +156,15 @@ if ($Screenshot) {
 }
 if ($ProfilePc) {
     $probeArgs += @('--profile-pc', $ProfilePc)
+}
+if ($ProfileCycles) {
+    $probeArgs += @('--profile-cycles', $ProfileCycles)
+}
+if ($ProfileInstructions) {
+    $probeArgs += @('--profile-instructions', $ProfileInstructions)
+}
+if ($ProfileTransfers) {
+    $probeArgs += @('--profile-transfers', $ProfileTransfers)
 }
 # The jukebox acceptance test asserts SCSP double-buffer behavior, so trace it
 # automatically. Other examples can opt in with -ScspTrace.

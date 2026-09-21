@@ -6,7 +6,7 @@
  *
  *   GLB skin + animation -> host skinning -> baked pose frames
  *     + baked/dedup face textures -> generated C/H ->
- *     upload once -> per-frame pose decode -> sat_draw_mesh
+ *     upload once -> per-frame pose decode -> sat_scene_t
  *     textured path -> VDP1 distorted sprites.
  *
  * The viewer itself is generic: the orbit target comes from the baked pose
@@ -37,6 +37,7 @@
 #include "saturn/mesh3d.h"
 #include "saturn/model3d.h"
 #include "saturn/render3d.h"
+#include "saturn/scene.h"
 #include "saturn/vdp1.h"
 #include "saturn/example_util.h"
 
@@ -56,6 +57,7 @@
 #define MODEL_TEXTURE_CAP 32u
 
 static sat_ascii_font_t g_font;
+static sat_scene3d_instance_t g_instance;
 
 static sat_vec3_t g_mesh_vertices[MODEL_VERTEX_CAP];
 static uint16_t g_mesh_indices[MODEL_FACE_CAP * 4u];
@@ -64,12 +66,13 @@ static sat_vdp1_texture_t g_model_textures[MODEL_TEXTURE_CAP];
 /* Narrow order path when the model fits the uint8 table (<=255 faces),
  * wide order16 path otherwise; passing both keeps the call valid either
  * way and lets the importer retune counts without code edits. */
-static uint8_t g_mesh_order[MODEL_FACE_CAP];
-static uint16_t g_mesh_order16[MODEL_FACE_CAP];
-static uint32_t g_mesh_depth[MODEL_FACE_CAP];
-/* Projection cache: every vertex projects once per frame, and culling and
- * sorting then run in screen space. */
 static sat_projected_vertex_t g_mesh_screen[MODEL_VERTEX_CAP];
+static sat_scene3d_face_t g_scene_faces[MODEL_FACE_CAP];
+static uint32_t g_scene_keys[MODEL_FACE_CAP];
+static uint16_t g_scene_order[MODEL_FACE_CAP];
+static sat_scene_t g_scene;
+static sat_scene3d_material_t g_scene_materials[MODEL_FACE_CAP];
+static uint16_t g_face_materials[MODEL_FACE_CAP];
 /* Per-face colors for the current frame, looked up from the baked shades. */
 static uint16_t g_face_colors[MODEL_FACE_CAP];
 static int g_has_shades;
@@ -240,6 +243,23 @@ int main(void) {
     sat_example_must(sat_model_upload_textures(
         &male_walk_asset, g_model_textures, MODEL_TEXTURE_CAP));
     sat_example_must(sat_anim_state_init(&g_anim, &male_walk_anim_asset, 0));
+    sat_example_must(sat_scene_init(&g_scene, g_scene_faces, g_scene_keys,
+        g_scene_order, MODEL_FACE_CAP));
+    g_instance.mesh = &g_mesh;
+    g_instance.materials = g_scene_materials;
+    g_instance.material_count = MODEL_FACE_CAP;
+    g_instance.face_materials = g_face_materials;
+    g_instance.world = NULL;
+    g_instance.pass = 0u;
+    g_instance.cull_backfaces = 1u;
+    {
+        uint16_t f;
+        for (f = 0; f < MODEL_FACE_CAP; ++f) {
+            g_face_materials[f] = f;
+            g_scene_materials[f].kind = SAT_SCENE3D_RGB;
+            g_scene_materials[f].color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+        }
+    }
 
     /* Use UNION bounds across all animation clips, not just the bind pose. */
     anim_bounds(&male_walk_anim_asset, &mn, &mx);
@@ -275,7 +295,6 @@ int main(void) {
 
     while (1) {
         sat_pad_state_t pad = {0};
-        sat_mesh_draw_t draw;
 
         SAT_PANIC_IF_ERROR(sat_wait_vblank());
         SAT_PANIC_IF_ERROR(sat_vdp2_back_color_set(SAT_COLOR_BLACK));
@@ -298,18 +317,23 @@ int main(void) {
         }
         update_fps();
 
-        note(sat_model_bind_draw_ex(
-            &male_walk_asset, &g_mesh,
-            g_model_textures, male_walk_asset.texture_count,
-            &g_orbit.view_proj, &g_orbit.eye,
-            SAT_RGB555(31, 31, 31),
-            g_gouraud ? g_face_base : (g_has_shades ? g_face_colors : NULL), 0,
-            SAT_MESH_CULL_BACKFACE | SAT_MESH_SORT,
-            g_mesh_order, g_mesh_order16, g_mesh_depth, &draw));
-        draw.screen = g_mesh_screen;
-        draw.vertex_gouraud = g_gouraud ? g_vertex_gouraud : NULL;
         if (!g_draw_overflow) {
-            note(sat_draw_mesh(&g_mesh, &draw));
+            uint16_t f;
+            sat_camera3d_t camera = {};
+            camera.eye = g_orbit.eye;
+            camera.target = g_orbit.target;
+            camera.up = (sat_vec3_t){0, SAT_FX16_ONE, 0};
+            camera.view_proj = g_orbit.view_proj;
+            note(sat_scene_begin(&g_scene, &camera, g_orbit.near_z,
+                SCREEN_W, SCREEN_H, 64u));
+            for (f = 0; f < male_walk_asset.face_count; ++f) {
+                g_scene_materials[f].rgb555 = g_gouraud
+                    ? g_face_base[f] : (g_has_shades ? g_face_colors[f] : SAT_RGB555(31,31,31));
+                g_scene_materials[f].vertex_gouraud = g_gouraud ? g_vertex_gouraud : NULL;
+            }
+            note(sat_scene_submit_instance(&g_scene, &g_instance,
+                SAT_SCENE3D_SLOT_INHERIT, g_mesh_screen, NULL));
+            note(sat_scene_flush(&g_scene));
         }
         draw_hud();
 

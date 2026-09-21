@@ -62,7 +62,7 @@ generated C/H model asset
 sat_texture_t runtime handles
           |
           v
-sat_draw_mesh textured path
+sat_vdp1_draw_mesh textured path
           |
           v
 VDP1 distorted sprites

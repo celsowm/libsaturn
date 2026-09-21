@@ -21,6 +21,7 @@
 #define SKY_W EXPLORER_HORIZON_WIDTH
 #define SKY_H EXPLORER_HORIZON_HEIGHT
 #define MAX_RENDER 60
+#define EXPLORER_SCENE_FACE_CAPACITY (EGGMAN_FACE_COUNT + MAX_RENDER * 2u)
 #define FX(v) ((int32_t)((v) * 65536))
 
 /* Clip order matches MODEL_ANIMATION in Makefile.inc. */
@@ -54,8 +55,9 @@ static sat_ascii_font_t g_font;
 static explorer_pos_t g_player;
 static landmark_t g_towers[3], g_portal;
 static render_item_t g_render[MAX_RENDER];
+static uint32_t g_render_keys[MAX_RENDER];
+static uint8_t g_render_order[MAX_RENDER];
 static sat_vdp1_texture_t g_world_texture;
-static sat_mat4_t g_view_proj;
 static uint32_t g_seed = 0x51A7C0DEu, g_frames, g_distance;
 static int32_t g_heading, g_speed, g_heading_delta;
 static uint16_t g_render_count, g_drones;
@@ -78,11 +80,19 @@ static uint32_t g_prev_display_frame;
 static sat_vec3_t g_egg_vertices[EGGMAN_VERTEX_COUNT];
 static uint16_t g_egg_indices[EGGMAN_FACE_COUNT * 4u];
 static sat_mesh_t g_egg_mesh;
+static sat_scene3d_instance_t g_egg_instance;
+static sat_vdp2_ground_environment_t g_environment;
+static uint16_t g_environment_coefficients[224u * 2u];
+static uint16_t g_environment_params[48];
 static sat_vdp1_texture_t g_egg_textures[EGGMAN_TEXTURE_COUNT];
-static uint8_t g_egg_order[EGGMAN_FACE_COUNT];
-static uint16_t g_egg_order16[EGGMAN_FACE_COUNT];
-static uint32_t g_egg_depth[EGGMAN_FACE_COUNT];
 static sat_projected_vertex_t g_egg_screen[EGGMAN_VERTEX_COUNT];
+static sat_vec3_t g_egg_world[EGGMAN_VERTEX_COUNT];
+static sat_scene3d_face_t g_scene_faces[EXPLORER_SCENE_FACE_CAPACITY];
+static uint32_t g_scene_keys[EXPLORER_SCENE_FACE_CAPACITY];
+static uint16_t g_scene_order[EXPLORER_SCENE_FACE_CAPACITY];
+static sat_scene_t g_scene;
+static sat_camera3d_t g_camera;
+static sat_scene3d_material_t g_egg_materials[EGGMAN_TEXTURE_COUNT];
 static sat_anim_state_t g_egg_anim;
 static int32_t g_egg_turn;   /* smoothed turn amount, 16.16 in [-1, 1] */
 static const sat_vec3_t g_camera_eye = {0, FX(34), FX(-42)};
@@ -154,19 +164,33 @@ static void generate_ground(void) {
 }
 
 static void init_textured_3d(void) {
-    sat_vec3_t eye = g_camera_eye, target = {0, FX(18), FX(90)}, up = {0,FX(1),0};
-    sat_mat4_t view, proj;
+    sat_vec3_t target = {0, FX(18), FX(90)}, up = {0,FX(1),0};
     sat_example_must(sat_tex_upload_indexed8(&g_world_texture,spacecraft_pixels,64u,64u,spacecraft_palette,3u));
-    sat_example_must(sat_mat4_look_at(&view,&eye,&target,&up));
-    sat_example_must(sat_mat4_perspective(&proj,FX(56),sat_fx16_div(FX(320),FX(224)),FX(4),FX(1300)));
-    sat_example_must(sat_mat4_multiply(&g_view_proj,&proj,&view));
-
+    sat_example_must(sat_camera3d_init(&g_camera, &g_camera_eye, &target, &up,
+        FX(56), sat_fx16_div(FX(320),FX(224)), FX(4), FX(1300)));
     sat_example_must(sat_model_validate(&eggman_asset));
     sat_example_must(sat_anim_validate(&eggman_anim_asset));
     sat_example_must(sat_mesh_init(&g_egg_mesh, g_egg_vertices, EGGMAN_VERTEX_COUNT,
                                    g_egg_indices, EGGMAN_FACE_COUNT));
     sat_example_must(sat_model_copy_to_mesh(&eggman_asset, &g_egg_mesh));
     sat_example_must(sat_model_upload_textures(&eggman_asset, g_egg_textures, EGGMAN_TEXTURE_COUNT));
+    {
+        uint16_t i;
+        for (i = 0; i < EGGMAN_TEXTURE_COUNT; ++i) {
+            g_egg_materials[i].kind = SAT_SCENE3D_INDEXED_TEXTURED;
+            g_egg_materials[i].texture = &g_egg_textures[i];
+            g_egg_materials[i].color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+        }
+    }
+    sat_example_must(sat_scene_init(&g_scene, g_scene_faces, g_scene_keys,
+        g_scene_order, EXPLORER_SCENE_FACE_CAPACITY));
+    g_egg_instance.mesh = &g_egg_mesh;
+    g_egg_instance.materials = g_egg_materials;
+    g_egg_instance.material_count = EGGMAN_TEXTURE_COUNT;
+    g_egg_instance.face_materials = eggman_asset.face_texture_indices;
+    g_egg_instance.world = NULL;
+    g_egg_instance.pass = 0u;
+    g_egg_instance.cull_backfaces = 1u;
     sat_example_must(sat_anim_state_init(&g_egg_anim, &eggman_anim_asset, EGG_CLIP_IDLE));
 }
 
@@ -213,7 +237,6 @@ static void draw_player(void) {
         sat_fx16_mul(
             sat_sin_deg((sat_fx16_t)((g_frames*6u)%360u)<<16),FX(1)/2);
     sat_mat4_t yaw_matrix,bank_matrix,rotation,translation,world;
-    sat_mesh_draw_t draw;
     sat_example_must(sat_mat4_rotate_y(&yaw_matrix,yaw));
     sat_example_must(sat_mat4_rotate_z(&bank_matrix,bank));
     sat_example_must(sat_mat4_multiply(&rotation,&bank_matrix,&yaw_matrix));
@@ -222,44 +245,34 @@ static void draw_player(void) {
     sat_example_must(sat_mat4_multiply(&world,&translation,&rotation));
     sat_example_must(sat_anim_prepare_model_instance(
         &eggman_anim_asset,&g_egg_anim,&world,&g_egg_mesh,0,0u,0u));
-    if(sat_model_bind_draw_ex(
-        &eggman_asset,&g_egg_mesh,g_egg_textures,eggman_asset.texture_count,
-        &g_view_proj,&g_camera_eye,SAT_RGB555(31,31,31),0,0,
-        SAT_MESH_CULL_BACKFACE|SAT_MESH_SORT,
-        g_egg_order,g_egg_order16,g_egg_depth,&draw)!=SAT_OK) return;
-    draw.screen=g_egg_screen;
-    (void)sat_draw_mesh(&g_egg_mesh,&draw);
-}
-
-static void write_coefficients(void) {
-    uint16_t words[224u * 2u];
-    uint32_t y;
-    for (y = 0; y < 224u; ++y) {
-        if (y <= EXPLORER_HORIZON) { words[y * 2u] = 0x8000u; words[y * 2u + 1u] = 0; }
-        else {
-            uint32_t d = (y - EXPLORER_HORIZON) + 8u;
-            uint32_t k = ((EXPLORER_FOCAL << 16) + d / 2u) / d;
-            words[y * 2u] = (uint16_t)((k >> 16) & 0x7Fu);
-            words[y * 2u + 1u] = (uint16_t)k;
-        }
+    {
+        (void)sat_scene_submit_instance(&g_scene, &g_egg_instance,
+            SAT_SCENE3D_SLOT_INHERIT, g_egg_screen, g_egg_world);
     }
-    sat_example_must(sat_vdp2_vram_write_words(COEF_BASE_WORD, words, 224u * 2u));
 }
 
 static void init_layers(void) {
     sat_vdp2_nbg0_config_t sky = {SAT_VDP2_CHAR_SIZE_1X1, SAT_VDP2_COLOR_MODE_256, 0x3Bu, 0u, 0u};
     sat_vdp2_rbg0_mode7_config_t ground = {SAT_VDP2_RBG0_BITMAP_512x256,
         SAT_VDP2_COLOR_MODE_256, BM_BASE_WORD, RP_BASE_WORD, SAT_COLOR_BLACK, 5u, 7u};
-    uint16_t params[48];
+    sat_vdp2_rbg0_ground_config_t ground_math = {
+        512u, 256u, 160u, EXPLORER_HORIZON, EXPLORER_FOCAL, 8u,
+        EXPLORER_FOCAL, COEF_BASE_WORD};
     generate_ground();
     upload_biome_palettes(0u, 31u);
+    sat_example_must(sat_vdp2_ground_environment_validate_layout(
+        &ground_math, &ground, 224u, SAT_VDP2_VRAM_WORD_CAPACITY, 0u, 512u, 2u));
     sat_example_must(sat_vdp2_nbg0_init(&sky));
     sat_example_must(sat_vdp2_nbg0_upload_indexed8(
         explorer_horizon_pixels, SKY_W, SKY_H, 1u, g_map_scratch));
-    write_coefficients();
-    explorer_build_ground_params(FX(128), FX(128), 0, FX(1), COEF_BASE_WORD, params);
-    sat_example_must(sat_vdp2_vram_write_words(RP_BASE_WORD, params, 48u));
-    sat_example_must(sat_vdp2_rbg0_mode7_init(&ground));
+    sat_example_must(sat_vdp2_ground_environment_init(
+        &g_environment, &ground_math, &ground,
+        g_environment_coefficients, sizeof(g_environment_coefficients) /
+        sizeof(g_environment_coefficients[0]), g_environment_params, 224u));
+    sat_example_must(sat_vdp2_ground_environment_upload_coefficients(&g_environment));
+    explorer_build_ground_params(FX(128), FX(128), 0, FX(1),
+        COEF_BASE_WORD, g_environment_params);
+    sat_example_must(sat_vdp2_ground_environment_commit_params(&g_environment));
     sat_example_must(sat_vdp2_nbg0_set_priority(2u));
     sat_example_must(sat_vdp2_rbg0_set_priority(5u));
     sat_example_must(sat_vdp2_sprite_set_priority(7u));
@@ -383,11 +396,12 @@ static void build_render_list(int32_t sin_h, int32_t cos_h) {
         add_render(g_towers[i].cx, g_towers[i].cz, g_towers[i].lx, g_towers[i].lz, 4u,
                    explorer_biome(g_seed, g_towers[i].cx, g_towers[i].cz), 1u, sin_h, cos_h);
     if (g_portal.active) add_render(g_portal.cx, g_portal.cz, g_portal.lx, g_portal.lz, 5u, g_biome, 1u, sin_h, cos_h);
-    for (i = 1; i < g_render_count; ++i) {
-        render_item_t item = g_render[i]; int j = i - 1;
-        while (j >= 0 && g_render[j].p.depth < item.p.depth) { g_render[j + 1] = g_render[j]; --j; }
-        g_render[j + 1] = item;
+    for (i = 0; i < g_render_count; ++i) {
+        g_render_keys[i] = g_render[i].p.depth > 0
+            ? (uint32_t)g_render[i].p.depth : 0u;
+        g_render_order[i] = i;
     }
+    sat_sort_indices_desc(g_render_order, g_render_keys, g_render_count);
 }
 
 static void draw_landmark(const render_item_t* r) {
@@ -458,16 +472,26 @@ static void draw_rock(const render_item_t* r, int half, int height) {
          * the two overlap. Without it the boulder floats. */
         sat_quad3_t ground;
         sat_quad3_floor(&ground, r->side, 0, r->depth, w);
-        (void)sat_draw_world_polygon(&g_view_proj, &ground, rock_color(r->biome, 0u));
+        sat_scene3d_material_t material = {};
+        material.kind = SAT_SCENE3D_RGB;
+        material.rgb555 = rock_color(r->biome, 0u);
+        material.color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+        sat_example_must(sat_scene_submit_quad(&g_scene, &ground, &material, 0u));
     }
-    (void)sat_draw_world_polygon_gouraud(&g_view_proj, &body, rock_color(r->biome, 1u),
-                                         gouraud);
+    {
+        sat_scene3d_material_t material = {};
+        material.kind = SAT_SCENE3D_RGB;
+        material.rgb555 = rock_color(r->biome, 1u);
+        material.color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+        material.vertex_gouraud = gouraud;
+        sat_example_must(sat_scene_submit_quad(&g_scene, &body, &material, 0u));
+    }
 }
 
 static void draw_world(void) {
     uint16_t i;
     for (i = 0; i < g_render_count; ++i) {
-        render_item_t* r = &g_render[i];
+        render_item_t* r = &g_render[g_render_order[i]];
         if (r->type == 4u || r->type == 5u) {
             draw_landmark(r);
         } else if (r->type == 3u) {
@@ -477,7 +501,11 @@ static void draw_world(void) {
             uint8_t v;
             sat_quad3_billboard(&q, r->side, r->depth, FX(1), 0, FX(12), FX(26));
             for (v = 0; v < 4u; ++v) q.v[v].y += FX(18);
-            (void)sat_draw_world_sprite(&g_view_proj, &q, &g_world_texture, 0, 0);
+            sat_scene3d_material_t material = {};
+            material.kind = SAT_SCENE3D_INDEXED_TEXTURED;
+            material.texture = &g_world_texture;
+            material.color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
+            sat_example_must(sat_scene_submit_quad(&g_scene, &q, &material, 0u));
         } else {
             /* Boulders, not buildings: the old sizes came from a billboard
              * that was mostly transparent texture, so as solid geometry they
@@ -651,8 +679,7 @@ static void update_game(const sat_pad_state_t* pad, uint32_t dt_ticks) {
     g_frames += dt_ticks;
 }
 
-static void draw_player_and_weather(void) {
-    draw_player();
+static void draw_weather(void) {
     if (g_speed > FX(2)) {
         uint8_t i;
         for (i = 0u; i < 5u; ++i) {
@@ -710,8 +737,8 @@ int main(void) {
     init_audio();
     reset_game();
     g_prev_display_frame = sat_frame_count();
-    for (;;) {
-        sat_pad_state_t pad = {0}; uint16_t params[48]; sat_vdp2_scroll_t sky_scroll;
+        for (;;) {
+        sat_pad_state_t pad = {0}; sat_vdp2_scroll_t sky_scroll;
         int32_t sin_h, cos_h;
         uint32_t now_display_frame, dt_ticks;
         sat_example_must(sat_wait_vblank());
@@ -726,8 +753,9 @@ int main(void) {
         update_game(&pad, dt_ticks);
         update_audio_reactive(&pad);
         sin_h = sat_sin_deg(g_heading); cos_h = sat_cos_deg(g_heading);
-        explorer_build_ground_params(g_player.local_x, g_player.local_z, sin_h, cos_h, COEF_BASE_WORD, params);
-        sat_example_must(sat_vdp2_vram_write_words(RP_BASE_WORD, params, 48u));
+        explorer_build_ground_params(g_player.local_x, g_player.local_z, sin_h, cos_h,
+            COEF_BASE_WORD, g_environment_params);
+        sat_example_must(sat_vdp2_ground_environment_commit_params(&g_environment));
         sky_scroll.x_integer = (uint16_t)(((uint32_t)(g_heading >> 16) * SKY_W / 360u) % SKY_W);
         sky_scroll.x_fraction = 0;
         /* Land the panorama's own horizon line on the Mode-7 horizon. The
@@ -747,7 +775,11 @@ int main(void) {
         build_render_list(sin_h, cos_h);
         sat_example_must(sat_begin_frame());
         update_player_animation(dt_ticks);
-        draw_world(); draw_player_and_weather(); draw_hud();
+        sat_example_must(sat_scene_begin(&g_scene, &g_camera, FX(4), 320u, 224u, 48u));
+        draw_world(); draw_player();
+        sat_example_must(sat_scene_flush(&g_scene));
+        draw_weather();
+        draw_hud();
         sat_example_must(sat_end_frame());
     }
 }

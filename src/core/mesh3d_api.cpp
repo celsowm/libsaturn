@@ -359,7 +359,7 @@ extern "C" sat_result_t sat_mesh_transform(sat_mesh_t* mesh, const sat_mat4_t* m
     return transform(mesh, matrix->m);
 }
 
-extern "C" sat_result_t sat_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_draw_t* params) {
+extern "C" sat_result_t sat_vdp1_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_draw_t* params) {
     if (mesh == nullptr || params == nullptr || params->view_proj == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }

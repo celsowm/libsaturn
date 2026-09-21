@@ -5,20 +5,25 @@
 #include "saturn/color.h"
 #include "saturn/fmt.h"
 #include "saturn/font.h"
+#include "saturn/hud.h"
 #include "saturn/save.h"
+#include "saturn/save_schema.h"
 
 #define SAVE_MAGIC 0x4C534156u /* "LSAV" */
 #define SAVE_VERSION 1u
 
 typedef struct demo_payload {
-    uint32_t magic;
-    uint16_t version;
-    uint16_t size;
     uint32_t boot_count;
     uint32_t checksum_seed;
 } demo_payload_t;
 
+typedef struct demo_wire {
+    sat_save_schema_header_t schema;
+    demo_payload_t payload;
+} demo_wire_t;
+
 static sat_ascii_font_t g_font;
+static sat_hud_t g_hud;
 static sat_result_t g_status = SAT_OK;
 static uint8_t g_unformatted = 0u;
 static uint8_t g_deleted = 0u;
@@ -39,48 +44,49 @@ static uint8_t payload_equals(const demo_payload_t* left, const demo_payload_t* 
 }
 
 static void draw_line(const char* text, int y) {
-    (void)sat_ascii_font_draw_text_screen_indexed8(
-        &g_font, text, 8, y, 8, SAT_COLOR_WHITE, 0u);
+    (void)sat_hud_text(&g_hud, text, 8, y);
 }
 
 static void draw_value(const char* label, uint32_t value, int y) {
-    (void)sat_ascii_font_draw_label_u32(
-        &g_font, label, value, 8, y, 8, SAT_COLOR_WHITE, 0u);
+    (void)sat_hud_value(&g_hud, label, value, 8, y);
 }
 
 static sat_result_t write_and_verify_demo(void) {
     sat_save_storage_info_t storage;
     sat_result_t status =
-        sat_save_storage_info(SAT_SAVE_INTERNAL, sizeof(demo_payload_t), &storage);
+        sat_save_storage_info(SAT_SAVE_INTERNAL, sizeof(demo_wire_t), &storage);
     if (status == SAT_ERR_UNFORMATTED) {
         g_unformatted = 1u;
         return status;
     }
     if (status != SAT_OK) return status;
 
-    demo_payload_t payload = {
-        SAVE_MAGIC,
-        SAVE_VERSION,
-        (uint16_t)sizeof(demo_payload_t),
-        1u,
-        0x13579BDFu
-    };
+    demo_payload_t payload = {1u, 0x13579BDFu};
     uint32_t existing_size = 0u;
-    demo_payload_t existing;
+    demo_wire_t existing;
     status = sat_save_read(
         SAT_SAVE_INTERNAL, "LIBSAT_DEMO",
         &existing, sizeof(existing), &existing_size);
     if (status == SAT_OK) {
+        uint32_t existing_payload_size = 0u;
+        status = sat_save_schema_validate(
+            &existing.schema, SAVE_MAGIC, SAVE_VERSION,
+            &existing.payload, sizeof(existing.payload), &existing_payload_size);
         if (existing_size != sizeof(existing) ||
-            existing.magic != SAVE_MAGIC ||
-            existing.version != SAVE_VERSION ||
-            existing.size != sizeof(existing)) {
-            return SAT_ERR_IO;
+            status != SAT_OK || existing_payload_size != sizeof(existing.payload)) {
+            return status == SAT_OK ? SAT_ERR_VERIFY_FAILED : status;
         }
-        payload.boot_count = existing.boot_count + 1u;
+        payload.boot_count = existing.payload.boot_count + 1u;
     } else if (status != SAT_ERR_NOT_FOUND) {
         return status;
     }
+
+    demo_wire_t wire;
+    status = sat_save_schema_encode(
+        &wire.schema, SAVE_MAGIC, SAVE_VERSION,
+        &payload, sizeof(payload));
+    if (status != SAT_OK) return status;
+    wire.payload = payload;
 
     const sat_save_record_t record = {
         "LIBSAT_DEMO",
@@ -89,21 +95,26 @@ static sat_result_t write_and_verify_demo(void) {
         0u
     };
     status = sat_save_write(
-        SAT_SAVE_INTERNAL, &record, &payload, sizeof(payload), 1u);
+        SAT_SAVE_INTERNAL, &record, &wire, sizeof(wire), 1u);
     if (status != SAT_OK) return status;
 
     status = sat_save_verify(
-        SAT_SAVE_INTERNAL, record.name, &payload, sizeof(payload));
+        SAT_SAVE_INTERNAL, record.name, &wire, sizeof(wire));
     if (status != SAT_OK) return status;
 
-    demo_payload_t roundtrip;
+    demo_wire_t roundtrip;
     uint32_t roundtrip_size = 0u;
     status = sat_save_read(
         SAT_SAVE_INTERNAL, record.name,
         &roundtrip, sizeof(roundtrip), &roundtrip_size);
     if (status != SAT_OK) return status;
-    if (roundtrip_size != sizeof(roundtrip) ||
-        !payload_equals(&roundtrip, &payload)) {
+    uint32_t roundtrip_payload_size = 0u;
+    status = sat_save_schema_validate(
+        &roundtrip.schema, SAVE_MAGIC, SAVE_VERSION,
+        &roundtrip.payload, sizeof(roundtrip.payload), &roundtrip_payload_size);
+    if (roundtrip_size != sizeof(roundtrip) || status != SAT_OK ||
+        roundtrip_payload_size != sizeof(roundtrip.payload) ||
+        !payload_equals(&roundtrip.payload, &payload)) {
         return SAT_ERR_VERIFY_FAILED;
     }
 
@@ -128,6 +139,8 @@ static sat_result_t write_and_verify_demo(void) {
 
 int main(void) {
     g_status = sat_app_init_default();
+    if (g_status != SAT_OK) return 1;
+    g_status = sat_hud_init(&g_hud, &g_font, SAT_COLOR_WHITE, 8u);
     if (g_status != SAT_OK) return 1;
 
     g_status = sat_ascii_font_init_8x8_indexed8(

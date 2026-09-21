@@ -14,6 +14,33 @@ uint32_t le32(const uint8_t* p) {
            (static_cast<uint32_t>(p[3]) << 24);
 }
 
+extern "C" sat_result_t sat_cdfs_register_source_manifest(
+    sat_cdfs_volume_t* volume,
+    const sat_cdfs_source_desc_t* descs, uint16_t count,
+    sat_cdfs_file_source_t* out_sources) {
+    if (!volume || !volume->mounted || !descs || !out_sources || count == 0u ||
+        count > SAT_FILE_MOUNT_CAPACITY ||
+        static_cast<uint32_t>(sat_file_mount_count()) + count > SAT_FILE_MOUNT_CAPACITY) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    /* Resolve and validate the complete manifest before changing VFS state. */
+    for (uint16_t i = 0u; i < count; ++i) {
+        if (!descs[i].disc_path || !descs[i].source_path || !descs[i].expected_size ||
+            sat_cdfs_lookup(volume, descs[i].disc_path, &out_sources[i].file) != SAT_OK ||
+            out_sources[i].file.directory || out_sources[i].file.size != descs[i].expected_size) {
+            return SAT_ERR_IO;
+        }
+    }
+    for (uint16_t i = 0u; i < count; ++i) {
+        out_sources[i].volume = volume;
+        const sat_result_t st = sat_file_register_backend(
+            descs[i].source_path, out_sources[i].file.size,
+            sat_cdfs_file_read_at, &out_sources[i]);
+        if (st != SAT_OK) return st;
+    }
+    return SAT_OK;
+}
+
 bool ascii_equal_ci(uint8_t a, char b) {
     if (a >= 'a' && a <= 'z') a = static_cast<uint8_t>(a - ('a' - 'A'));
     if (b >= 'a' && b <= 'z') b = static_cast<char>(b - ('a' - 'A'));
