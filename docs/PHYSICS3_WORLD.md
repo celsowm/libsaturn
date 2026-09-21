@@ -7,12 +7,14 @@ collision engine, scene renderer, or game-specific tilting mechanic.
 ## Supported in this slice
 
 - Caller-owned array of stable actor IDs (reused only by world reset).
-- Static and kinematic axis-aligned boxes; dynamic spheres with per-tick gravity.
+- Static and kinematic axis-aligned boxes, static infinite/two-sided plane slopes,
+  and dynamic spheres with per-tick gravity.
 - Next-tick kinematic targets interpolated through the same bounded substeps
   used for sphere movement, with relative contact velocity.
 - Per-actor friction and restitution [0,1] in 16.16 fixed point. Pairwise
   combination uses the MINIMUM of the two coefficients. Friction damps the
-  X/Z tangent on upward support contacts and acts each contacted substep.
+  tangent to the contact plane on upward support contacts and acts each
+  contacted substep.
 - Multiple box contacts per sphere, up to `iterations` solver passes.
   The existing `SAT_BODY3_GROUNDED` and `SAT_BODY3_HIT_WALL` flags apply.
 - Reproducible update order (actor index, then box index) and explicit
@@ -29,7 +31,7 @@ platforms, and fixed-point overflow near world-coordinate extremes require
 further validation. Rejecting excess motion avoids silently accepting steps
 beyond the user-selected budget but does not guarantee absence of tunneling.
 This slice does NOT simulate dynamic sphere-sphere contacts, oriented boxes,
-mesh contacts, rolling torque/inertia, manifold caching, joints, sensors,
+finite mesh contacts, rolling torque/inertia, manifold caching, joints, sensors,
 broad-phase acceleration or transform-graph synchronization. Friction here
 models arcade tangential damping, not a full Coulomb solver. Exposing these
 limits avoids implicitly promising Monkey Ball's specific rolling physics.

@@ -5,6 +5,8 @@ on:
     paths:
       - "include/saturn/physics3_world.h"
       - "src/core/physics3_world_api.cpp"
+      - "include/saturn/collide3d.h"
+      - "src/core/collide3d_api.cpp"
       - "tests/host/test_physics3_world.cpp"
       - "Makefile"
       - ".github/workflows/physics3-world-host.yml"

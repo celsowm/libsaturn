@@ -119,11 +119,34 @@ static void deterministic_replay(){
         CHECK(x.sphere.flags==y.sphere.flags);
     }
 }
+static void inclined_plane_and_tangent_friction() {
+    sat_physics3_actor_t actors[2]{};
+    sat_physics3_world_t w{};
+    const sat_vec3_t gravity={0,-FX(1)/8,0};
+    CHECK(sat_physics3_world_init(&w,actors,2,gravity,16,3)==SAT_OK);
+    const sat_plane3_t invalid={{0,0,0},{0,0,0}};
+    uint16_t plane_id=555,ball_id=555;
+    CHECK(sat_physics3_add_plane(&w,&invalid,&rough,&plane_id)==SAT_ERR_INVALID_ARG);
+    CHECK(plane_id==555);
+    const sat_plane3_t slope={{0,0,0},{0,SAT_FX16_ONE,SAT_FX16_ONE}};
+    CHECK(sat_physics3_add_plane(&w,&slope,&rough,&plane_id)==SAT_OK);
+    const sat_sphere_t sphere={{0,FX(1),0},FX(1)};
+    CHECK(sat_physics3_add_sphere(&w,&sphere,&zero,&rough,&ball_id)==SAT_OK);
+    CHECK(sat_physics3_world_step(&w)==SAT_OK);
+    const sat_physics3_actor_t b=read(&w,ball_id);
+    CHECK(b.sphere.flags & SAT_BODY3_GROUNDED);
+    CHECK(b.sphere.vel.x==0);
+    CHECK(b.sphere.vel.y>=-2 && b.sphere.vel.y<=2);
+    CHECK(b.sphere.vel.z>=-2 && b.sphere.vel.z<=2);
+    CHECK(sat_physics3_set_kinematic_target(&w,plane_id,&zero)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_add_plane(&w,&slope,&rough,&plane_id)==SAT_ERR_CAPACITY);
+}
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
     moving_platform_and_multiple_balls();
     deterministic_replay();
-    std::puts("test_physics3_world: 4 tests passed");
+    inclined_plane_and_tangent_friction();
+    std::puts("test_physics3_world: 5 tests passed");
     return 0;
 }

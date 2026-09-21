@@ -44,8 +44,9 @@ void resolve(sat_physics3_actor_t& ball,const sat_physics3_actor_t& box,
     }
     if(c.normal.y>45875){
         ball.sphere.flags|=SAT_BODY3_GROUNDED;
-        const F f=SAT_FX16_ONE-mn(ball.material.friction,box.material.friction);
-        relative.x=mul(relative.x,f); relative.z=mul(relative.z,f);
+        const F friction=mn(ball.material.friction,box.material.friction);
+        const V tangent=sub(relative,scale(c.normal,(F)dot(relative,c.normal)));
+        relative=sub(relative,scale(tangent,friction));
     } else ball.sphere.flags|=SAT_BODY3_HIT_WALL;
     ball.sphere.vel=add(relative,box.frame_motion);
 }
@@ -72,6 +73,20 @@ extern "C" sat_result_t sat_physics3_add_box(sat_physics3_world_t* w,
     const uint16_t next=w->count;
     sat_physics3_actor_t& a=w->actors[next];a={};
     a.kind=kind;a.material=*material;a.box=*box;a.target_center=box->center;
+    w->count=(uint16_t)(next+1u);*id=next;return SAT_OK;
+}
+extern "C" sat_result_t sat_physics3_add_plane(
+    sat_physics3_world_t* w,const sat_plane3_t* plane,
+    const sat_physics3_material_t* material,uint16_t* id) {
+    if(!valid(w)||!plane||!material_ok(material)||!id||
+       (!plane->normal.x&&!plane->normal.y&&!plane->normal.z))
+        return SAT_ERR_INVALID_ARG;
+    if(w->count==w->capacity)return SAT_ERR_CAPACITY;
+    const uint16_t next=w->count;
+    sat_physics3_actor_t& a=w->actors[next];a={};
+    a.kind=SAT_PHYSICS3_STATIC_PLANE;
+    a.material=*material;
+    a.plane=*plane;
     w->count=(uint16_t)(next+1u);*id=next;return SAT_OK;
 }
 extern "C" sat_result_t sat_physics3_add_sphere(sat_physics3_world_t* w,
@@ -126,7 +141,8 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
             if(!add_fits(a.sphere.shape.center,v))return SAT_ERR_INVALID_ARG;
             spheres=true;smallest_radius=mn(smallest_radius,a.sphere.shape.radius);
             dynamic_speed=mx(dynamic_speed,greatest(v));
-        }else if(a.kind!=SAT_PHYSICS3_STATIC_BOX)return SAT_ERR_INVALID_ARG;
+        }else if(a.kind!=SAT_PHYSICS3_STATIC_BOX &&
+                 a.kind!=SAT_PHYSICS3_STATIC_PLANE)return SAT_ERR_INVALID_ARG;
     }
     uint16_t steps=1;
     if(spheres){
@@ -164,8 +180,10 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                     const sat_physics3_actor_t& box=w->actors[j];
                     if(box.kind==SAT_PHYSICS3_DYNAMIC_SPHERE)continue;
                     sat_contact3_t c{};
-                    if(!sat_sphere_aabb3_contact(&ball.sphere.shape,&box.box,&c))
-                        continue;
+                    const int contact=box.kind==SAT_PHYSICS3_STATIC_PLANE
+                        ? sat_sphere_plane_contact(&ball.sphere.shape,&box.plane,&c)
+                        : sat_sphere_aabb3_contact(&ball.sphere.shape,&box.box,&c);
+                    if(!contact)continue;
                     resolve(ball,box,c);hit=true;
                 }
                 if(!hit)break;
