@@ -485,6 +485,75 @@ static void free_flight_spin_and_kinematic_relative_rolling() {
           ball.angular_velocity.z>-FX(1)/5);
     CHECK(read(&world,platform_id).box.center.x==platform_target.x);
 }
+
+static void swept_rising_platform_catches_fast_fall() {
+    sat_physics3_actor_t actors[2]{};
+    sat_physics3_world_t world{};
+    CHECK(sat_physics3_world_init(&world,actors,2,zero,2,3)==SAT_OK);
+    const sat_aabb3_t platform{{0,0,0},{FX(3),FX(1)/8,FX(3)}};
+    const sat_sphere_t sphere{{0,FX(4),0},FX(1)/2};
+    const sat_vec3_t fast_fall{0,-FX(8),0};
+    uint16_t platform_id=555,ball_id=555;
+    CHECK(sat_physics3_add_box(&world,SAT_PHYSICS3_KINEMATIC_BOX,
+                              &platform,&rough,&platform_id)==SAT_OK);
+    CHECK(sat_physics3_add_sphere(&world,&sphere,&fast_fall,&rough,
+                                  &ball_id)==SAT_OK);
+    const sat_vec3_t up={0,FX(1),0};
+    CHECK(sat_physics3_set_kinematic_target(&world,platform_id,&up)==SAT_OK);
+    const sat_physics3_actor_t before=read(&world,ball_id);
+    CHECK(sat_physics3_world_step(&world)==SAT_ERR_CAPACITY);
+    CHECK(read(&world,ball_id).sphere.shape.center.y==before.sphere.shape.center.y);
+    CHECK(read(&world,platform_id).box.center.y==0);
+    CHECK(sat_physics3_set_kinematic_box_ccd(&world,1)==SAT_OK);
+    CHECK(sat_physics3_world_step(&world)==SAT_OK);
+    const sat_physics3_actor_t ball=read(&world,ball_id);
+    CHECK(ball.sphere.flags & SAT_BODY3_GROUNDED);
+    CHECK(ball.sphere.shape.center.y>FX(3)/2);
+    CHECK(ball.sphere.shape.center.y<FX(7)/4);
+    CHECK(ball.sphere.vel.y>=FX(1)-32 && ball.sphere.vel.y<=FX(1)+32);
+    CHECK(read(&world,platform_id).box.center.y==FX(1));
+}
+static void swept_translating_wall_pushes_sphere_without_tunneling() {
+    sat_physics3_actor_t actors[2]{};
+    sat_physics3_world_t world{};
+    CHECK(sat_physics3_world_init(&world,actors,2,zero,1,3)==SAT_OK);
+    const sat_aabb3_t wall{{-FX(4),0,0},{FX(1)/8,FX(2),FX(2)}};
+    const sat_sphere_t sphere{{0,0,0},FX(1)/2};
+    uint16_t wall_id=999,ball_id=999;
+    CHECK(sat_physics3_add_box(&world,SAT_PHYSICS3_KINEMATIC_BOX,
+                              &wall,&rough,&wall_id)==SAT_OK);
+    CHECK(sat_physics3_add_sphere(&world,&sphere,&zero,&rough,
+                                  &ball_id)==SAT_OK);
+    const sat_vec3_t right={FX(4),0,0};
+    CHECK(sat_physics3_set_kinematic_target(&world,wall_id,&right)==SAT_OK);
+    CHECK(sat_physics3_set_kinematic_box_ccd(&world,1)==SAT_OK);
+    CHECK(sat_physics3_world_step(&world)==SAT_OK);
+    const sat_physics3_actor_t ball=read(&world,ball_id);
+    CHECK(ball.sphere.flags & SAT_BODY3_HIT_WALL);
+    CHECK(ball.sphere.shape.center.x>FX(4)+FX(1)/2);
+    CHECK(ball.sphere.shape.center.x<FX(5));
+    CHECK(ball.sphere.vel.x>FX(7));
+    CHECK(read(&world,wall_id).box.center.x==FX(4));
+}
+static void discrete_colliders_preserve_capacity_guard_with_swept_platforms() {
+    sat_physics3_actor_t actors[3]{};
+    sat_physics3_world_t world{};
+    CHECK(sat_physics3_world_init(&world,actors,3,zero,1,2)==SAT_OK);
+    const sat_aabb3_t platform{{0,0,0},{FX(3),FX(1)/8,FX(3)}};
+    const sat_aabb3_t static_box{{FX(20),0,0},{FX(1),FX(1),FX(1)}};
+    const sat_sphere_t sphere{{0,FX(4),0},FX(1)/2};
+    const sat_vec3_t fast_fall{0,-FX(8),0};
+    uint16_t id=999;
+    CHECK(sat_physics3_add_box(&world,SAT_PHYSICS3_KINEMATIC_BOX,
+                              &platform,&rough,&id)==SAT_OK);
+    CHECK(sat_physics3_add_box(&world,SAT_PHYSICS3_STATIC_BOX,
+                              &static_box,&rough,&id)==SAT_OK);
+    CHECK(sat_physics3_add_sphere(&world,&sphere,&fast_fall,&rough,
+                                  &id)==SAT_OK);
+    CHECK(sat_physics3_set_kinematic_box_ccd(&world,1)==SAT_OK);
+    CHECK(sat_physics3_world_step(&world)==SAT_ERR_CAPACITY);
+    CHECK(read(&world,id).sphere.shape.center.y==FX(4));
+}
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
@@ -498,6 +567,9 @@ int main(){
     fast_mesh_lip_and_corner_are_not_tunneled();
     opt_in_solid_sphere_rolling_and_orientation();
     free_flight_spin_and_kinematic_relative_rolling();
-    std::puts("test_physics3_world: 12 tests passed");
+    swept_rising_platform_catches_fast_fall();
+    swept_translating_wall_pushes_sphere_without_tunneling();
+    discrete_colliders_preserve_capacity_guard_with_swept_platforms();
+    std::puts("test_physics3_world: 15 tests passed");
     return 0;
 }

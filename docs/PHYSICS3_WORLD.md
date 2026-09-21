@@ -152,3 +152,29 @@ with `sat_scene_submit_instance` while the matrix is still alive. The
 painter copies transformed geometry during submission; there is no implicit
 link between a physics actor and a scene-hierarchy node. Apply authored
 visual scaling in the local mesh (or compose an explicit scale matrix).
+
+## Opt-in CCD against translating kinematic boxes
+
+`sat_physics3_set_kinematic_box_ccd(world, 1)` adds a **relative-motion
+swept-sphere query against the six finite faces of each kinematic AABB**
+during each fixed substep. The query reuses `sat_sphere_cast_mesh` rather
+than approximating a translating box by an infinite plane: finite faces,
+edges, and corners participate. The collision point is transformed back to
+world space at the fractional impact time; the existing contact solver
+applies the box's per-tick velocity before finishing the sphere's remaining
+substep. The box itself continues to its target for the tick.
+
+When *all* colliders in the world are covered by an enabled mesh sweep or
+kinematic-box sweep, requested substeps above `max_substeps` are capped
+instead of failing with `SAT_ERR_CAPACITY`. Static AABBs or infinite
+planes still require the original discrete substep budget; disabling both
+sweep options preserves the previous step-capacity behavior. A mixed world
+may enable both options independently. The kinematic geometry is assumed
+to translate **linearly** between successive targets. Rotating boxes,
+moving meshes and sphere/sphere CCD are not covered.
+
+The current finite-box query tests six faces per sphere/box/substep, so
+high actor counts can be costly on SH-2. It is opt-in, stack-only and
+allocation-free, but not a broad-phase-accelerated collider; benchmark
+before enabling it on a large stage. The existing numerical/initial-
+penetration limitations of the fixed-point mesh sweep apply.
