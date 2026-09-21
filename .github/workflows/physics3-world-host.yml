@@ -1,0 +1,24 @@
+name: Physics 3D world host gate
+on:
+  push:
+    branches: [main]
+    paths:
+      - "include/saturn/physics3_world.h"
+      - "src/core/physics3_world_api.cpp"
+      - "tests/host/test_physics3_world.cpp"
+      - "Makefile"
+      - ".github/workflows/physics3-world-host.yml"
+  workflow_dispatch:
+jobs:
+  physics-world:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and execute bounded physics world tests
+        run: |
+          make build/tests/test_physics3_world
+          ./build/tests/test_physics3_world
+      - name: Check C header compatibility
+        run: |
+          printf '#include "saturn/physics3_world.h"\nint main(void) { sat_physics3_world_t w = {0}; return (int)w.count; }\n' |
+            gcc -std=c11 -Wall -Wextra -Werror -Iinclude -x c -fsyntax-only -

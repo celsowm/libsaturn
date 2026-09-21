@@ -429,6 +429,7 @@ HOST_TEST_EXTRA_test_skybridge_fade := src/core/surface3d_api.cpp
 HOST_TEST_EXTRA_test_collide2d_logic := src/core/collide2d_api.cpp
 HOST_TEST_EXTRA_test_spatial_logic := src/core/spatial_api.cpp src/core/collide2d_api.cpp
 HOST_TEST_EXTRA_test_physics_logic := src/core/collide2d_api.cpp src/core/grid_api.cpp
+HOST_TEST_EXTRA_test_physics3_world := src/core/physics3_world_api.cpp src/core/collide3d_api.cpp
 HOST_TEST_EXTRA_test_collide3d_logic :=
 HOST_TEST_EXTRA_test_spatial3_api := src/core/spatial3_api.cpp src/core/collide3d_api.cpp
 

@@ -50,6 +50,7 @@
 #include "saturn/collide2d.h"
 #include "saturn/spatial.h"
 #include "saturn/physics.h"
+#include "saturn/physics3_world.h"
 #include "saturn/collide3d.h"
 #include "saturn/spatial3.h"
 #include "saturn/vdp1.h"
