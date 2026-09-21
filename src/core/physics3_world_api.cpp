@@ -259,6 +259,34 @@ extern "C" sat_result_t sat_physics3_set_velocity(
         return SAT_ERR_INVALID_ARG;
     w->actors[id].sphere.vel=*velocity;return SAT_OK;
 }
+extern "C" sat_result_t sat_physics3_sphere_model_matrix(
+    const sat_physics3_world_t* world,uint16_t id,sat_mat4_t* out) {
+    if(!live(world,id)||!out||
+       world->actors[id].kind!=SAT_PHYSICS3_DYNAMIC_SPHERE)
+        return SAT_ERR_INVALID_ARG;
+    const sat_physics3_actor_t& actor=world->actors[id];
+    const sat_physics3_quat_t q=actor.orientation;
+    const F xx=mul(q.x,q.x), yy=mul(q.y,q.y), zz=mul(q.z,q.z);
+    const F xy=mul(q.x,q.y), xz=mul(q.x,q.z), yz=mul(q.y,q.z);
+    const F wx=mul(q.w,q.x), wy=mul(q.w,q.y), wz=mul(q.w,q.z);
+    const V p=actor.sphere.shape.center;
+    sat_mat4_t m{};
+    m.m[0]=SAT_FX16_ONE-2*(yy+zz);
+    m.m[1]=2*(xy-wz);
+    m.m[2]=2*(xz+wy);
+    m.m[3]=p.x;
+    m.m[4]=2*(xy+wz);
+    m.m[5]=SAT_FX16_ONE-2*(xx+zz);
+    m.m[6]=2*(yz-wx);
+    m.m[7]=p.y;
+    m.m[8]=2*(xz-wy);
+    m.m[9]=2*(yz+wx);
+    m.m[10]=SAT_FX16_ONE-2*(xx+yy);
+    m.m[11]=p.z;
+    m.m[15]=SAT_FX16_ONE;
+    *out=m;
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_physics3_get_actor(
     const sat_physics3_world_t* w,uint16_t id,sat_physics3_actor_t* out){
     if(!live(w,id)||!out)return SAT_ERR_INVALID_ARG;

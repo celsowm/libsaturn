@@ -102,6 +102,12 @@ sat_result_t sat_physics3_set_angular_velocity(
     const sat_vec3_t* angular_velocity);
 sat_result_t sat_physics3_set_velocity(sat_physics3_world_t* world,
     uint16_t id,const sat_vec3_t* velocity);
+/* Builds an unscaled row-major model matrix (world translation + quaternion
+ * orientation) for a dynamic sphere. Pass the result as instance.world with
+ * a LOCAL-space sphere mesh to sat_scene_submit_instance. Caller owns matrix.
+ * Does not mutate scene hierarchy, physics, or the sphere mesh. */
+sat_result_t sat_physics3_sphere_model_matrix(
+    const sat_physics3_world_t* world, uint16_t sphere_id, sat_mat4_t* out);
 sat_result_t sat_physics3_get_actor(const sat_physics3_world_t* world,
     uint16_t id,sat_physics3_actor_t* out);
 /* Preflights velocity/step capacity before changing ANY actor; uses existing

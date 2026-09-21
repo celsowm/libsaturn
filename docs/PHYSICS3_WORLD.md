@@ -141,3 +141,14 @@ are saturated at ±8 radians/tick to keep the 16.16 integration bounded;
 large speeds/radii near fixed-point limits remain unsupported. Rendering
 orientation and parenting to the transform graph are separate integration
 steps; do not treat the quaternion as an automatically updated scene node.
+
+### Renderer-facing model matrix
+
+`sat_physics3_sphere_model_matrix(world, sphere_id, &matrix)` exports an
+unscaled row-major model matrix from the sphere's quaternion and world-space
+center. When using the canonical painter, set a LOCAL-space sphere mesh on a
+`sat_scene3d_instance_t`, assign `instance.world = &matrix`, and submit
+with `sat_scene_submit_instance` while the matrix is still alive. The
+painter copies transformed geometry during submission; there is no implicit
+link between a physics actor and a scene-hierarchy node. Apply authored
+visual scaling in the local mesh (or compose an explicit scale matrix).

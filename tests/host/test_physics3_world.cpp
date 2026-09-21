@@ -419,6 +419,17 @@ static void opt_in_solid_sphere_rolling_and_orientation() {
     CHECK(ball.angular_velocity.z>-FX(3)/8);
     CHECK(ball.angular_velocity.x==0 && ball.angular_velocity.y==0);
     CHECK(ball.orientation.z<0);
+    sat_mat4_t model{};
+    CHECK(sat_physics3_sphere_model_matrix(
+        &world,ball_id,&model)==SAT_OK);
+    CHECK(model.m[3]==ball.sphere.shape.center.x);
+    CHECK(model.m[7]==ball.sphere.shape.center.y);
+    CHECK(model.m[11]==ball.sphere.shape.center.z);
+    CHECK(model.m[4]<0); /* Spinning along -Z rotates local +X toward -Y. */
+    CHECK(model.m[15]==SAT_FX16_ONE);
+    CHECK(model.m[12]==0 && model.m[13]==0 && model.m[14]==0);
+    CHECK(sat_physics3_sphere_model_matrix(
+        &world,floor_id,&model)==SAT_ERR_INVALID_ARG);
     CHECK(ball.orientation.w<SAT_FX16_ONE && ball.orientation.w>0);
     CHECK(ball.orientation.x==0 && ball.orientation.y==0);
 
