@@ -19,9 +19,9 @@
 
 #include "saturn/app.h"
 #include "saturn/color.h"
-#include "saturn/fmt.h"
 #include "saturn/font.h"
 #include "saturn/grid.h"
+#include "saturn/hud.h"
 #include "saturn/input.h"
 #include "saturn/vdp1.h"
 #include "saturn/sprite_anim.h"
@@ -62,6 +62,7 @@ static const uint16_t kGhostColors[PAC_GHOST_COUNT] = {
 
 static pac_game_t g_game;
 static sat_ascii_font_t g_font;
+static sat_hud_t g_hud;
 
 /* Set when the VDP1 command list fills up. The list holds 1024 commands and a
  * full round needs about 350, so this should never trigger -- but editing the
@@ -69,7 +70,8 @@ static sat_ascii_font_t g_font;
  * console instead of telling anyone why. */
 static int g_draw_overflow;
 
-/* Wall run-length table, built once: the maze walls never move. */
+/* Wall run-length table, rebuilt only when a new stage loads: within a
+ * stage the walls never move. */
 static uint8_t g_run_count[kPacMazeRows];
 static uint8_t g_run_start[kPacMazeRows][kPacMazeCols];
 static uint8_t g_run_len[kPacMazeRows][kPacMazeCols];
@@ -297,15 +299,6 @@ static void build_actor_sprites(void) {
         sat_example_must(sat_sprite_anim_init(&g_ghost_anim[i], &g_ghost_tex[i][0], 4u, 1u));
 }
 
-/* SAT_DIR_NONE while stopped against a wall: keep the last real facing so the
- * sprite does not snap back to a default. */
-static int facing(int dir, int* last) {
-    if (dir != SAT_DIR_NONE) {
-        *last = dir;
-    }
-    return *last;
-}
-
 static void draw_actor_sprite(const sat_vdp1_texture_t* tex, int cx, int cy) {
     if (sat_draw_sprite_scaled_screen(
             tex, (int16_t)cx, (int16_t)cy, ACTOR_PX, ACTOR_PX, 0) != SAT_OK) {
@@ -368,8 +361,7 @@ static void render_maze(void) {
  * animation reads as a mouth rather than a flicker. */
 static void render_pac(void) {
     static const uint8_t kChewFrame[4] = {0, 1, 2, 1};
-    static int last_dir = SAT_DIR_LEFT;
-    const int dir = facing((int)g_game.pac.dir, &last_dir);
+    const int dir = pac_game_facing(&g_game, PAC_SLOT_PAC);
     const uint8_t frame = kChewFrame[(g_game.frame / 4u) & 3u];
     sat_example_must(sat_sprite_anim_set(&g_pac_anim, (uint8_t)dir, frame));
     draw_actor_sprite(sat_sprite_anim_texture(&g_pac_anim),
@@ -377,14 +369,11 @@ static void render_pac(void) {
 }
 
 static void render_ghosts(void) {
-    static int last_dir[PAC_GHOST_COUNT] = {
-        SAT_DIR_LEFT, SAT_DIR_LEFT, SAT_DIR_LEFT, SAT_DIR_LEFT
-    };
     int i;
 
     for (i = 0; i < PAC_GHOST_COUNT; ++i) {
         const sat_grid_actor_t* a = &g_game.ghosts[i].actor;
-        const int dir = facing((int)a->dir, &last_dir[i]);
+        const int dir = pac_game_facing(&g_game, i);
         const sat_vdp1_texture_t* tex;
 
         if (pac_game_ghost_penned(&g_game, i)) {
@@ -402,38 +391,48 @@ static void render_ghosts(void) {
     }
 }
 
+/* Thin wrappers around sat_hud_t, whose job is the same one draw_rect above
+ * already does for rectangles: turn a full command list into the
+ * RENDER LIMIT flag instead of a lost draw call, which sat_hud_t itself has
+ * no opinion on. Font, palette and spacing live in g_hud, set up once in
+ * main(). */
 static void draw_text(const char* text, int x, int y) {
-    if (sat_ascii_font_draw_text_screen_indexed8(
-            &g_font, text, x, y, 0, HUD_PALETTE, 0) != SAT_OK) {
+    if (sat_hud_text(&g_hud, text, x, y) != SAT_OK) {
         g_draw_overflow = 1;
     }
 }
 
 static void draw_text_centered(const char* text, int y) {
-    if (sat_ascii_font_draw_text_screen_centered_indexed8(
-            &g_font, text, SCREEN_W / 2, y, 0, HUD_PALETTE, 0) != SAT_OK) {
+    if (sat_hud_text_centered(&g_hud, text, SCREEN_W / 2, y) != SAT_OK) {
+        g_draw_overflow = 1;
+    }
+}
+
+static void draw_value(const char* label, uint32_t value, int x, int y) {
+    if (sat_hud_value(&g_hud, label, value, x, y) != SAT_OK) {
         g_draw_overflow = 1;
     }
 }
 
 static void render_hud(void) {
-    char text[24];
+    const char* status;
     int i;
 
-    sat_example_must(sat_fmt_label_u32("SCORE ", g_game.score, text, sizeof(text), NULL));
-    draw_text(text, 4, 2);
+    draw_value("SCORE ", g_game.score, 4, 2);
 
     draw_text("LIVES", 232, 2);
     for (i = 0; i < g_game.lives; ++i) {
         draw_rect(280 + (i * 10), 3, 6, 6, COLOR_PAC);
     }
 
-    if (g_game.state == PAC_STATE_WIN) {
-        draw_text_centered("YOU WIN", 104);
-        draw_text_centered("PRESS START", 116);
-    } else if (g_game.state == PAC_STATE_LOSE) {
-        draw_text_centered("GAME OVER", 104);
-        draw_text_centered("PRESS START", 116);
+    /* Message and PRESS START prompt: shared with pacman_3d so the two
+     * examples never say this differently. */
+    status = pac_game_status_text(&g_game);
+    if (status != NULL) {
+        draw_text_centered(status, 104);
+        if (pac_game_status_needs_start(&g_game)) {
+            draw_text_centered("PRESS START", 116);
+        }
     } else if (g_game.frame < 240u) {
         draw_text_centered("DPAD MOVE   START RESET", 214);
     }
@@ -451,6 +450,7 @@ int main(void) {
     SAT_PANIC_IF_ERROR(sat_app_init_default());
     SAT_PANIC_IF_ERROR(sat_ascii_font_init_8x8_indexed8(
         &g_font, SAT_COLOR_WHITE, 0x0000u, HUD_PALETTE));
+    SAT_PANIC_IF_ERROR(sat_hud_init(&g_hud, &g_font, HUD_PALETTE, SAT_ASCII_FONT_GLYPH_WIDTH));
 
     pac_game_init(&g_game, MAZE_X, MAZE_Y);
     build_wall_runs();
@@ -461,6 +461,9 @@ int main(void) {
         SAT_PANIC_IF_ERROR(sat_app_frame_begin(COLOR_BLACK, COLOR_BLACK, &pad));
 
         pac_game_update(&g_game, &pad);
+        if ((g_game.events & PAC_EVENT_STAGE_START) != 0u) {
+            build_wall_runs();
+        }
 
         render_maze();
         render_ghosts();

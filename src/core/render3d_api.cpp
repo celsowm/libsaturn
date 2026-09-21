@@ -30,6 +30,10 @@ extern "C" void sat_quad3_floor(sat_quad3_t* out, sat_fx16_t cx, sat_fx16_t y, s
 extern "C" void sat_quad3_billboard(sat_quad3_t* out, sat_fx16_t cx, sat_fx16_t cz, sat_fx16_t right_x, sat_fx16_t right_z, sat_fx16_t half_w, sat_fx16_t height) {
     make_billboard(out, cx, cz, right_x, right_z, half_w, height);
 }
+extern "C" int32_t sat_quad2_area2(const sat_quad2_t* quad) {
+    if (quad == nullptr) return 0;
+    return quad2_area2(*quad);
+}
 extern "C" sat_result_t sat_project_quad(const sat_mat4_t* view_proj, const sat_quad3_t* quad, sat_quad2_t* out) {
     return project(view_proj, quad, out);
 }
@@ -125,6 +129,16 @@ extern "C" uint16_t sat_gouraud_from_intensity(sat_fx16_t intensity) { return go
 extern "C" sat_result_t sat_gouraud_lambert(const sat_vec3_t* normals, uint16_t count, const sat_vec3_t* light, sat_fx16_t ambient, uint16_t* out_gouraud) {
     if (light == nullptr || (count > 0u && (normals == nullptr || out_gouraud == nullptr))) return SAT_ERR_INVALID_ARG;
     for (uint16_t i = 0; i < count; ++i) out_gouraud[i] = gouraud_lambert_word(normals[i], *light, ambient);
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_gouraud_lambert_highlight(
+    const sat_vec3_t* normals, uint16_t count, const sat_vec3_t* light, sat_fx16_t ambient,
+    sat_fx16_t highlight_start, int32_t highlight_gain, uint16_t* out_gouraud) {
+    if (light == nullptr || (count > 0u && (normals == nullptr || out_gouraud == nullptr))) return SAT_ERR_INVALID_ARG;
+    for (uint16_t i = 0; i < count; ++i) {
+        out_gouraud[i] = gouraud_lambert_highlight_word(
+            normals[i], *light, ambient, highlight_start, highlight_gain);
+    }
     return SAT_OK;
 }
 

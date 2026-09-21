@@ -214,6 +214,29 @@ int sat_mesh_face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_
  * a vertex no face uses gets the zero vector. */
 sat_result_t sat_mesh_vertex_normals(const sat_mesh_t* mesh, sat_vec3_t* out_normals, uint16_t normal_cap);
 
+/* Merges vertices within `epsilon` of each other on every axis, remapping
+ * face indices to match and shrinking vertex_count.
+ *
+ * sat_mesh_build_sphere and sat_mesh_build_sphere_wedge give every ring its
+ * own copy of the pole, and sat_mesh_build_sphere_wedge its own copy of the
+ * seam -- about a third of a sphere's vertices for a typical segment count.
+ * Nothing after building reads across that duplication (each ring's faces
+ * only reference their own copies), so it costs nothing to leave alone
+ * EXCEPT one thing: every vertex of a mesh drawn through
+ * sat_scene_submit_instance is projected once per submission, so a mesh
+ * resubmitted every frame pays for the duplicates every frame. Weld once
+ * after building, not per frame.
+ *
+ * `remap_scratch` must hold at least vertex_count entries (a value from
+ * before the call, since vertex_count changes); pass vertex_cap to always be
+ * safe. Vertex order among the survivors is preserved, so a build step run
+ * afterward that assumes a specific layout (mouth-wall faces being the last
+ * N of a sat_mesh_build_sphere_wedge, for instance) still works -- only the
+ * exact indices shift, and those come from the returned mesh, never from a
+ * hard-coded count. */
+sat_result_t sat_mesh_weld_vertices(
+    sat_mesh_t* mesh, sat_fx16_t epsilon, uint16_t* remap_scratch, uint16_t remap_cap);
+
 /* Translates every vertex. Cheaper than rebuilding when only the position of
  * an already-built primitive changes. */
 sat_result_t sat_mesh_translate(sat_mesh_t* mesh, sat_fx16_t dx, sat_fx16_t dy, sat_fx16_t dz);

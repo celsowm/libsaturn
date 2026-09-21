@@ -352,6 +352,12 @@ extern "C" sat_result_t sat_mesh_translate(sat_mesh_t* mesh, sat_fx16_t dx, sat_
     return translate(mesh, dx, dy, dz);
 }
 
+extern "C" sat_result_t sat_mesh_weld_vertices(
+    sat_mesh_t* mesh, sat_fx16_t epsilon, uint16_t* remap_scratch, uint16_t remap_cap
+) {
+    return weld_vertices(mesh, epsilon, remap_scratch, remap_cap);
+}
+
 extern "C" sat_result_t sat_mesh_transform(sat_mesh_t* mesh, const sat_mat4_t* matrix) {
     if (matrix == nullptr) {
         return SAT_ERR_INVALID_ARG;

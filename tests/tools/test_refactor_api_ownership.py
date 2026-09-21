@@ -22,6 +22,14 @@ def source(example: str) -> str:
     return (ROOT / "examples" / example / "main.c").read_text(encoding="utf-8")
 
 
+def all_sources(example: str) -> str:
+    """Every .c file of an example split across modules."""
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "examples" / example).glob("*.c"))
+    )
+
+
 def assert_no_example_to_example_dependency() -> None:
     for name in GAMES + RBG0_DEMOS:
         text = source(name)
@@ -146,10 +154,12 @@ def assert_legacy_scene_routes_are_gone_from_code() -> None:
 
 
 def assert_pacman_uses_persistent_actor_meshes() -> None:
-    text = source("pacman_3d")
-    assert "prepare_actor_meshes" in text
-    assert "g_pac_meshes" in text and "g_ghost_mesh" in text
-    assert "g_actor_instance.world = &g_actor_world" in text
+    text = all_sources("pacman_3d")
+    # Meshes are built once at init (pac_model.c / ghost_model.c) and posed
+    # per frame through an instance world matrix, never rebuilt per frame.
+    assert "p3d_pac_init" in text and "p3d_ghost_init" in text
+    assert "sat_mesh_build_sphere_wedge" in text
+    assert "instance.world = &world" in text
     assert "build_pac(actor" not in text
     assert "sat_view_cache_begin" in text
     assert "sat_view_cache_sort" in text

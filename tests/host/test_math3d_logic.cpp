@@ -240,6 +240,14 @@ TEST(vec3_length_does_not_overflow_on_long_vectors) {
     ASSERT_NEAR(sat_vec3_length(&v), fx_from_int(5000), 256);
 }
 
+TEST(fx16_abs_negates_only_negative_values) {
+    ASSERT_EQ(sat_fx16_abs(fx_from_int(5)), fx_from_int(5));
+    ASSERT_EQ(sat_fx16_abs(fx_from_int(-5)), fx_from_int(5));
+    ASSERT_EQ(sat_fx16_abs(0), 0);
+    ASSERT_EQ(sat_fx16_abs(1), 1);
+    ASSERT_EQ(sat_fx16_abs(-1), 1);
+}
+
 int main() {
     fx_mul_and_div_roundtrip();
     fx_sqrt_exact();
@@ -260,7 +268,8 @@ int main() {
     vec3_cross_unit_survives_long_edges();
     look_at_survives_a_distant_camera();
     vec3_length_does_not_overflow_on_long_vectors();
+    fx16_abs_negates_only_negative_values();
 
-    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 19);
+    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 20);
     return 0;
 }

@@ -376,6 +376,43 @@ inline sat_result_t translate(sat_mesh_t* mesh, sat_fx16_t dx, sat_fx16_t dy, sa
     return SAT_OK;
 }
 
+/* O(n^2) in the surviving vertex count, which is what makes it cheap to call
+ * once and wrong to call every frame: a few dozen vertices is a few hundred
+ * compares, not a concern at startup, and exactly the cost sat_mesh_weld_vertices
+ * exists to avoid paying every frame instead. */
+inline sat_result_t weld_vertices(
+    sat_mesh_t* mesh, sat_fx16_t epsilon, uint16_t* remap, uint16_t remap_cap
+) {
+    if (mesh == nullptr || mesh->vertices == nullptr || mesh->indices == nullptr ||
+        remap == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (remap_cap < mesh->vertex_count) {
+        return SAT_ERR_CAPACITY;
+    }
+    uint16_t kept = 0u;
+    for (uint16_t v = 0; v < mesh->vertex_count; ++v) {
+        const sat_vec3_t p = mesh->vertices[v];
+        uint16_t k = 0u;
+        for (; k < kept; ++k) {
+            const sat_vec3_t q = mesh->vertices[k];
+            if (sat_fx16_abs(p.x - q.x) < epsilon && sat_fx16_abs(p.y - q.y) < epsilon &&
+                sat_fx16_abs(p.z - q.z) < epsilon) {
+                break;
+            }
+        }
+        if (k == kept) {
+            mesh->vertices[kept++] = p;
+        }
+        remap[v] = k;
+    }
+    for (uint32_t i = 0; i < static_cast<uint32_t>(mesh->face_count) * 4u; ++i) {
+        mesh->indices[i] = remap[mesh->indices[i]];
+    }
+    mesh->vertex_count = kept;
+    return SAT_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Buffer sizing                                                       */
 /* ------------------------------------------------------------------ */

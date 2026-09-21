@@ -248,6 +248,15 @@ void sat_quad3_billboard(
     sat_fx16_t height
 );
 
+/* Twice the signed area of a projected quad, by the shoelace formula -- the
+ * sign follows winding, so a backface has the opposite sign of a front face
+ * and callers that only need "how big" take the magnitude themselves.
+ * Two uses: culling a quad that projects to fewer pixels than it costs to
+ * submit, and picking front-facing corners out of a winding without a normal
+ * (what sat_mesh_face_visible does in world space; this is its screen-space
+ * counterpart, for quads that were never a sat_mesh_t face). */
+int32_t sat_quad2_area2(const sat_quad2_t* quad);
+
 /* ------------------------------------------------------------------ */
 /* Projection and drawing                                              */
 /* ------------------------------------------------------------------ */
@@ -348,6 +357,24 @@ sat_result_t sat_gouraud_lambert(
     uint16_t count,
     const sat_vec3_t* light,
     sat_fx16_t ambient,
+    uint16_t* out_gouraud
+);
+
+/* sat_gouraud_lambert plus a specular highlight, for small actors where an
+ * evenly lit curved surface reads as flat: a shading gradient with a bright
+ * spot on one side is what says "round" at a handful of pixels across.
+ * Past dot(normal, light) > highlight_start, intensity is pushed brighter by
+ * (dot - highlight_start) * highlight_gain instead of only interpolating
+ * towards 1.0 -- gouraud_from_intensity accepts values past SAT_FX16_ONE for
+ * exactly this. highlight_gain is a small integer (2-4 is typical); larger
+ * values narrow the highlight into more of a hard spot. */
+sat_result_t sat_gouraud_lambert_highlight(
+    const sat_vec3_t* normals,
+    uint16_t count,
+    const sat_vec3_t* light,
+    sat_fx16_t ambient,
+    sat_fx16_t highlight_start,
+    int32_t highlight_gain,
     uint16_t* out_gouraud
 );
 

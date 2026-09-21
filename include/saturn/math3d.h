@@ -39,6 +39,13 @@ sat_fx16_t sat_fx16_mul(sat_fx16_t a, sat_fx16_t b);
 sat_fx16_t sat_fx16_div(sat_fx16_t a, sat_fx16_t b);
 sat_fx16_t sat_fx16_sqrt(sat_fx16_t v);
 
+/* A 16.16 value carries no more information negated than an int32_t does, so
+ * this is a plain branch rather than a library call -- the same reason
+ * sat_gouraud_rgb (saturn/vdp1.h) is header-only. */
+static inline sat_fx16_t sat_fx16_abs(sat_fx16_t v) {
+    return (v < 0) ? -v : v;
+}
+
 /* Angles in degrees. */
 sat_fx16_t sat_sin_deg(sat_fx16_t degrees);
 sat_fx16_t sat_cos_deg(sat_fx16_t degrees);

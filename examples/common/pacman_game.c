@@ -1,48 +1,23 @@
 /* Shared Pac-Man simulation. See pacman_game.h for the contract. */
 
-#define PACMAN_MAZE_IMPL
 #include "pacman_game.h"
 #include "saturn/collide2d.h"
 #include "saturn/math3d.h"
 
-/* ------------------------------------------------------------------ */
-/* Spawn cells                                                         */
-/* ------------------------------------------------------------------ */
-/* Every one of these is a verified floor tile of kPacMaze. Spawning an actor
- * on a wall leaves it wedged in the scenery, which is not obvious on screen
- * because it still animates -- it simply never goes anywhere.
+/* Spawn cells, the pen and its door come from the stage layout
+ * (pacman_level.h).
  *
- *   (12,20) sits on the pellet corridor below the ghost pen, so the player's
- *   first move in any direction immediately does something. The blank lane at
- *   row 17 is also floor, but it holds no pellets and dead-ends at both sides,
- *   which makes the game look broken for the first several seconds.
- *   (12..15, 14) are the four interior cells of the pen itself.
- */
-#define PAC_SPAWN_COL 12
-#define PAC_SPAWN_ROW 20
-#define PAC_PEN_ROW 14
-static const uint8_t kGhostSpawnCol[PAC_GHOST_COUNT] = {12, 13, 14, 15};
-
-/* The pen interior, and the corridor tile just outside its door.
- *
- * A ghost inside the pen cannot be steered by the ordinary chase rule. That
- * rule picks whichever legal move lands nearest the target, and the target is
- * Pac-Man, who is almost always BELOW the pen -- so a ghost in the pen walks
- * into its own south wall and stays there. The symptom is subtle enough to
- * miss: the ghosts animate, the game runs, and three of the four simply never
- * appear. (Measured before this fix: ghosts 1, 2 and 3 spent 100% of their
- * released frames inside the pen; only ghost 0 ever escaped, and only because
- * it starts facing the door.)
+ * The pen matters more than it looks. A ghost inside it cannot be steered by
+ * the ordinary chase rule: that rule picks whichever legal move lands nearest
+ * the target, and the target is Pac-Man, who is almost always BELOW the pen
+ * -- so a ghost in the pen walks into its own south wall and stays there. The
+ * symptom is subtle enough to miss: the ghosts animate, the game runs, and
+ * three of the four simply never appear. (Measured before this fix: ghosts 1,
+ * 2 and 3 spent 100% of their released frames inside the pen; only ghost 0
+ * ever escaped, and only because it starts facing the door.)
  *
  * So a penned ghost aims at the tile outside the door instead, until it is
  * out. This is what the arcade game does too. */
-#define PAC_PEN_COL_MIN 11
-#define PAC_PEN_COL_MAX 16
-#define PAC_PEN_ROW_MIN 12
-#define PAC_PEN_ROW_MAX 15
-#define PAC_DOOR_COL_LEFT 13
-#define PAC_DOOR_COL_RIGHT 14
-#define PAC_DOOR_EXIT_ROW 11
 
 /* Scatter corners, one per ghost, so they spread out instead of stacking up
  * on the same tile whenever they are not chasing. */
@@ -99,7 +74,7 @@ int pac_game_is_floor(int col, int row, void* user) {
         col < 0 || col >= kPacMazeCols) {
         return 0;
     }
-    return game->maze[row][col] != '#' ? 1 : 0;
+    return game->maze[row][col] != PAC_CELL_WALL ? 1 : 0;
 }
 
 char pac_game_cell(const pac_game_t* game, int col, int row) {
@@ -119,6 +94,40 @@ int pac_game_ghost_penned(const pac_game_t* game, int index) {
         return 0;
     }
     return game->ghosts[index].release > 0u ? 1 : 0;
+}
+
+int pac_game_facing(const pac_game_t* game, int slot) {
+    if (game == NULL || slot < 0 || slot > PAC_GHOST_COUNT) {
+        return SAT_DIR_NONE;
+    }
+    return game->facing[slot];
+}
+
+const char* pac_game_status_text(const pac_game_t* game) {
+    if (game == NULL) {
+        return NULL;
+    }
+    if (game->level_error != PAC_LEVEL_OK) {
+        return "BROKEN STAGE LAYOUT";
+    }
+    switch (game->state) {
+    case PAC_STATE_WIN:
+        return "YOU WIN";
+    case PAC_STATE_LOSE:
+        return "GAME OVER";
+    case PAC_STATE_STAGE_CLEAR:
+        return "STAGE CLEAR";
+    default:
+        return NULL;
+    }
+}
+
+int pac_game_status_needs_start(const pac_game_t* game) {
+    if (game == NULL) {
+        return 0;
+    }
+    return game->level_error != PAC_LEVEL_OK ||
+           game->state == PAC_STATE_WIN || game->state == PAC_STATE_LOSE;
 }
 
 static int actor_col(const pac_game_t* game, const sat_grid_actor_t* a) {
@@ -142,22 +151,21 @@ static void place_actor(const pac_game_t* game, sat_grid_actor_t* a, int col, in
 /* ------------------------------------------------------------------ */
 
 static void spawn_pac(pac_game_t* game) {
-    place_actor(game, &game->pac, PAC_SPAWN_COL, PAC_SPAWN_ROW, SAT_DIR_LEFT);
+    place_actor(game, &game->pac, game->level.pac_col, game->level.pac_row, SAT_DIR_LEFT);
     game->pac.speed = PAC_SPEED;
+    game->facing[PAC_SLOT_PAC] = SAT_DIR_LEFT;
 }
 
 static void spawn_ghost(pac_game_t* game, int index) {
     pac_ghost_t* ghost = &game->ghosts[index];
-    place_actor(
-        game,
-        &ghost->actor,
-        (int)kGhostSpawnCol[index],
-        PAC_PEN_ROW,
-        (index & 1) ? SAT_DIR_LEFT : SAT_DIR_RIGHT);
+    const int dir = (index & 1) ? SAT_DIR_LEFT : SAT_DIR_RIGHT;
+    place_actor(game, &ghost->actor, game->level.ghost_col[index],
+        game->level.ghost_row[index], dir);
     ghost->actor.speed = PAC_GHOST_SPEED;
     ghost->index = (uint8_t)index;
     ghost->reserved = 0;
     ghost->release = (uint16_t)(index * PAC_RELEASE_STEP);
+    game->facing[index] = (int16_t)dir;
 }
 
 static void spawn_all(pac_game_t* game) {
@@ -167,22 +175,6 @@ static void spawn_all(pac_game_t* game) {
         spawn_ghost(game, i);
     }
     game->fright = 0u;
-}
-
-static void load_maze(pac_game_t* game) {
-    int r;
-    int c;
-    game->pellets = 0;
-    for (r = 0; r < kPacMazeRows; ++r) {
-        for (c = 0; c < kPacMazeCols; ++c) {
-            const char cell = kPacMaze[r][c];
-            game->maze[r][c] = cell;
-            if (cell == '.' || cell == 'o') {
-                ++game->pellets;
-            }
-        }
-        game->maze[r][kPacMazeCols] = '\0';
-    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -207,16 +199,35 @@ void pac_game_init(pac_game_t* game, int16_t origin_x, int16_t origin_y) {
     pac_game_reset(game);
 }
 
+void pac_game_load_stage(pac_game_t* game, uint16_t index) {
+    const pac_stage_t* stage = pac_stage_get(index);
+    if (game == NULL || stage == NULL) {
+        return;
+    }
+    game->stage = index;
+    game->stage_timer = 0u;
+    game->level_error = pac_level_load(stage, game->maze, &game->level);
+    game->events |= PAC_EVENT_STAGE_START;
+    if (game->level_error != PAC_LEVEL_OK) {
+        /* The host test loads every stage, so this is a stage added without
+         * running it. Refusing to play beats a maze with nobody in it. */
+        game->pellets = 0;
+        game->state = PAC_STATE_LOSE;
+        return;
+    }
+    game->pellets = game->level.pellets;
+    game->state = PAC_STATE_PLAY;
+    spawn_all(game);
+}
+
 void pac_game_reset(pac_game_t* game) {
     if (game == NULL) {
         return;
     }
-    load_maze(game);
-    spawn_all(game);
-    game->state = PAC_STATE_PLAY;
     game->score = 0u;
     game->lives = PAC_START_LIVES;
     game->events = 0u;
+    pac_game_load_stage(game, 0u);
 }
 
 /* Loses a life without clearing the maze: pellets already eaten stay eaten. */
@@ -261,13 +272,13 @@ static void eat_here(pac_game_t* game) {
         return;
     }
     cell = game->maze[row][col];
-    if (cell == '.') {
-        game->maze[row][col] = ' ';
+    if (cell == PAC_CELL_PELLET) {
+        game->maze[row][col] = PAC_CELL_EMPTY;
         game->score += PAC_SCORE_PELLET;
         --game->pellets;
         game->events |= PAC_EVENT_PELLET;
-    } else if (cell == 'o') {
-        game->maze[row][col] = ' ';
+    } else if (cell == PAC_CELL_POWER) {
+        game->maze[row][col] = PAC_CELL_EMPTY;
         game->score += PAC_SCORE_POWER;
         --game->pellets;
         game->fright = PAC_FRIGHT_FRAMES;
@@ -295,12 +306,6 @@ static void step_pac(pac_game_t* game) {
  * Targets are allowed to fall outside the maze. sat_grid_chase_dir only
  * scores squared distance, so an unreachable target simply biases movement in
  * its direction, which is exactly the intent. */
-/* True while the ghost is still inside the pen box. */
-static int inside_pen(int col, int row) {
-    return col >= PAC_PEN_COL_MIN && col <= PAC_PEN_COL_MAX &&
-           row >= PAC_PEN_ROW_MIN && row <= PAC_PEN_ROW_MAX;
-}
-
 static void chase_target(const pac_game_t* game, int index, int* out_col, int* out_row) {
     const int pac_col = actor_col(game, &game->pac);
     const int pac_row = actor_row(game, &game->pac);
@@ -371,13 +376,15 @@ static void step_ghost(pac_game_t* game, int index) {
     col = actor_col(game, a);
     row = actor_row(game, a);
 
-    if (inside_pen(col, row)) {
+    if (pac_level_in_pen(&game->level, col, row)) {
         /* Getting out comes before scattering, chasing or fleeing: a ghost
-         * that wanders inside the pen is a ghost that is not in the game. */
-        const int door_col =
-            (col <= PAC_DOOR_COL_LEFT) ? PAC_DOOR_COL_LEFT : PAC_DOOR_COL_RIGHT;
+         * that wanders inside the pen is a ghost that is not in the game.
+         * It aims at the tile above the nearest end of the door. */
+        const pac_level_t* level = &game->level;
+        const int door_col = (col <= level->door_col_min) ? level->door_col_min
+            : (col >= level->door_col_max) ? level->door_col_max : col;
         a->dir = (int16_t)sat_grid_chase_dir(
-            &game->grid, col, row, a->dir, door_col, PAC_DOOR_EXIT_ROW,
+            &game->grid, col, row, a->dir, door_col, level->door_row - 1,
             pac_game_is_floor, game);
         a->want = a->dir;
         sat_grid_actor_step(&game->grid, a, pac_game_is_floor, game);
@@ -441,6 +448,25 @@ static void resolve_collisions(pac_game_t* game) {
     }
 }
 
+/* sat_grid_actor_t::dir goes to SAT_DIR_NONE the instant an actor stops
+ * square against a wall, which reads fine for movement but badly for a
+ * sprite or a model: a mouth or a pair of eyes has no "facing nowhere" to
+ * fall back to and either renderer would have to invent one. Both examples
+ * did invent one, independently, with their own static "last real
+ * direction" -- this is that logic, run once for both. */
+static void update_facing(pac_game_t* game) {
+    int i;
+    if (game->pac.dir != SAT_DIR_NONE) {
+        game->facing[PAC_SLOT_PAC] = game->pac.dir;
+    }
+    for (i = 0; i < PAC_GHOST_COUNT; ++i) {
+        const int16_t dir = game->ghosts[i].actor.dir;
+        if (dir != SAT_DIR_NONE) {
+            game->facing[i] = dir;
+        }
+    }
+}
+
 void pac_game_update(pac_game_t* game, const sat_pad_state_t* pad) {
     int i;
     if (game == NULL) {
@@ -450,6 +476,17 @@ void pac_game_update(pac_game_t* game, const sat_pad_state_t* pad) {
 
     if (pad != NULL && (pad->pressed & SAT_PAD_START)) {
         pac_game_reset(game);
+        ++game->frame;
+        return;
+    }
+    if (game->state == PAC_STATE_STAGE_CLEAR) {
+        /* The cleared maze holds for a moment, so the stage change reads
+         * as an event rather than a cut. */
+        if (game->stage_timer > 0u) {
+            --game->stage_timer;
+        } else {
+            pac_game_load_stage(game, (uint16_t)(game->stage + 1u));
+        }
         ++game->frame;
         return;
     }
@@ -469,10 +506,17 @@ void pac_game_update(pac_game_t* game, const sat_pad_state_t* pad) {
         step_ghost(game, i);
     }
     resolve_collisions(game);
+    update_facing(game);
 
     if (game->state == PAC_STATE_PLAY && game->pellets <= 0) {
-        game->state = PAC_STATE_WIN;
-        game->events |= PAC_EVENT_WIN;
+        if ((uint16_t)(game->stage + 1u) < pac_stage_count()) {
+            game->state = PAC_STATE_STAGE_CLEAR;
+            game->stage_timer = PAC_STAGE_CLEAR_FRAMES;
+            game->events |= PAC_EVENT_STAGE_CLEAR;
+        } else {
+            game->state = PAC_STATE_WIN;
+            game->events |= PAC_EVENT_WIN;
+        }
     }
 
     ++game->frame;

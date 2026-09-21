@@ -112,6 +112,19 @@ EXAMPLE_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(EXAMPLE_SRCS))
 ALL_APP_OBJS := $(EXAMPLE_OBJS) $(EXAMPLE_ASSETS:.c=.o)
 ALL_HEADERS  := $(EXAMPLE_HEADERS)
 
+# Pulls in the per-object dependency files DEPFLAGS (-MMD -MP) writes, so a
+# header edit rebuilds every object that #includes it -- library, example and
+# generated-asset alike -- not just the one .c/.cpp file whose own mtime
+# changed. Without this, `-MMD -MP` writes the .d files but nothing ever
+# reads them, which is worse than not having them at all: it looks like
+# header dependencies are tracked when they are not. A stale object from a
+# shared header (examples/common/pacman_game.h, in the case that found this)
+# links fine and can misbehave at runtime in ways that look nothing like a
+# build problem, while `make` reports the build clean.
+# `-include`, not `include`, so a .d file that does not exist yet (nothing
+# has been built) is skipped instead of stopping the build.
+-include $(LIB_C_OBJS:.o=.d) $(LIB_CPP_OBJS:.o=.d) $(ALL_APP_OBJS:.o=.d)
+
 # Generated asset headers are included by example sources, so make sure they
 # exist before compiling any example object that may include them.
 ifneq ($(strip $(ALL_HEADERS)),)
@@ -424,7 +437,7 @@ HOST_TEST_EXTRA_test_scene_api := src/core/scene_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_scene3d_faces_api := src/core/scene3d_faces_api.cpp
 HOST_TEST_EXTRA_test_scene3d_material_pool := src/core/scene3d_material_pool_api.cpp
 HOST_TEST_EXTRA_test_anim3d_logic := src/core/anim3d_api.cpp src/core/model3d_api.cpp src/core/mesh3d_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c src/core/grid_api.cpp src/core/collide2d_api.cpp src/core/math3d_api.cpp
+HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c examples/common/pacman_level.c examples/common/pacman_stages.c src/core/grid_api.cpp src/core/collide2d_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_skybridge_game := src/core/surface3d_api.cpp
 HOST_TEST_EXTRA_test_skybridge_fade := src/core/surface3d_api.cpp
 HOST_TEST_EXTRA_test_collide2d_logic := src/core/collide2d_api.cpp

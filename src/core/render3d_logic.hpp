@@ -745,6 +745,36 @@ inline uint16_t gouraud_lambert_word(
     return gouraud_from_intensity(floor_value + fx_mul(SAT_FX16_ONE - floor_value, d));
 }
 
+/* gouraud_lambert_word plus a specular push: past `highlight_start` the
+ * corner is driven brighter than the part colour instead of just less dim,
+ * which gouraud_from_intensity can express because its delta goes both
+ * directions. `highlight_gain` is a plain integer scale on the fx16
+ * (d - highlight_start) term, not an fx16 multiplicand -- one 16.16 value
+ * times a small integer count is the ordinary way to scale a fixed-point
+ * quantity by a unitless factor, the same as a loop stepping by `n * unit`. */
+inline uint16_t gouraud_lambert_highlight_word(
+    const sat_vec3_t& normal,
+    const sat_vec3_t& light,
+    sat_fx16_t ambient,
+    sat_fx16_t highlight_start,
+    int32_t highlight_gain
+) {
+    const sat_fx16_t floor_value = clamp_floor(ambient);
+    sat_fx16_t d = saturn::core::math3d::vec3_dot(normal, light);
+    sat_fx16_t intensity;
+    if (d < 0) {
+        d = 0;
+    }
+    if (d > SAT_FX16_ONE) {
+        d = SAT_FX16_ONE;
+    }
+    intensity = floor_value + fx_mul(SAT_FX16_ONE - floor_value, d);
+    if (d > highlight_start) {
+        intensity += (d - highlight_start) * highlight_gain;
+    }
+    return gouraud_from_intensity(intensity);
+}
+
 }  // namespace saturn::core::render3d
 
 #endif /* SATURN_CORE_RENDER3D_LOGIC_HPP */

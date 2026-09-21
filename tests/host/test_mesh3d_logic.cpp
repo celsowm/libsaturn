@@ -407,6 +407,54 @@ TEST(sphere_wedge_gap_removes_the_right_bands) {
     ASSERT_FALSE(found_in_gap);
 }
 
+/* A sphere's pole and seam are duplicated once per ring/segment; welding
+ * must remove exactly those duplicates and leave the winding intact. */
+TEST(weld_vertices_shrinks_a_sphere_and_keeps_winding) {
+    sat_mesh_t mesh = make_mesh();
+    static uint16_t remap[kVertexCap];
+    const sat_vec3_t center = vec3(0, 0, 0);
+    uint16_t before;
+    uint16_t before_faces;
+
+    ASSERT_EQ(build_sphere(&mesh, center, fx_from_int(10), 12, 6), SAT_OK);
+    before = mesh.vertex_count;
+    before_faces = mesh.face_count;
+
+    ASSERT_EQ(weld_vertices(&mesh, fx_from_int(1) / 16, remap, kVertexCap), SAT_OK);
+
+    ASSERT_TRUE(mesh.vertex_count < before);
+    ASSERT_EQ(mesh.face_count, before_faces); /* faces are untouched, only reindexed */
+    for (uint16_t i = 0; i < mesh.vertex_count; ++i) {
+        const sat_vec3_t d = vec3_sub(mesh.vertices[i], center);
+        ASSERT_NEAR(fx_to_int(saturn::core::math3d::vec3_length(d)), 10, 1);
+    }
+    assert_outward(mesh, center, "welded sphere");
+}
+
+/* A quad-only mesh with no coincident vertices (every corner belongs to
+ * exactly one face) must come through unchanged, not just "no crash". */
+TEST(weld_vertices_leaves_a_box_alone) {
+    sat_mesh_t mesh = make_mesh();
+    static uint16_t remap[kVertexCap];
+    const sat_vec3_t center = vec3(0, 0, 0);
+
+    ASSERT_EQ(build_box(&mesh, center, fx_from_int(3), fx_from_int(3), fx_from_int(3)), SAT_OK);
+    const uint16_t before = mesh.vertex_count;
+
+    ASSERT_EQ(weld_vertices(&mesh, fx_from_int(1) / 16, remap, kVertexCap), SAT_OK);
+
+    ASSERT_EQ(mesh.vertex_count, before);
+    assert_outward(mesh, center, "welded box");
+}
+
+TEST(weld_vertices_rejects_undersized_scratch) {
+    sat_mesh_t mesh = make_mesh();
+    uint16_t remap[4];
+
+    ASSERT_EQ(build_box(&mesh, vec3(0, 0, 0), 1, 1, 1), SAT_OK); /* 8 vertices */
+    ASSERT_EQ(weld_vertices(&mesh, fx_from_int(1) / 16, remap, 4u), SAT_ERR_CAPACITY);
+    ASSERT_EQ(mesh.vertex_count, 8u); /* rejected atomically, nothing touched */
+}
 
 /* Orienting a primitive after building it is how a sphere's mouth ends up
  * opening up-and-down instead of side-to-side: build in the canonical pose,
@@ -624,6 +672,9 @@ int main() {
     out_of_range_texture_index_is_invalid();
     texture_selection_shares_culling_with_polygon_path();
     degenerate_triangle_quad_keeps_outward_normal();
-    printf("test_mesh3d_logic: 33 tests passed\n");
+    weld_vertices_shrinks_a_sphere_and_keeps_winding();
+    weld_vertices_leaves_a_box_alone();
+    weld_vertices_rejects_undersized_scratch();
+    printf("test_mesh3d_logic: 36 tests passed\n");
     return 0;
 }
