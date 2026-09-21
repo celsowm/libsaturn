@@ -17,18 +17,20 @@ rather than replacing the scene renderer, camera, physics, or animation systems.
   convention. Do not interpret `world` as a collision pose without checking
   scale and local-space physics requirements.
 - There is no node removal, reparent-preserve-world helper, interpolation,
-  scene integration, renderer ownership, or automatic synchronization with
+  direct renderer ownership, or automatic synchronization with
   physics in this slice. Reset invalidates all IDs; IDs may then be reused.
 - Storage must remain live for the world's lifetime. The application must not
   mutate public node fields or use the same scratch buffer as the node pool.
 
 ## Native consumers
 
-Games can evaluate the graph once after simulation and pass a node's world
-matrix to `sat_scene3d_instance_t.world`. Cameras and physics can consume
-the same matrix after explicit game-side conversions. A later opt-in scene
-adapter may avoid that manual binding; this initial primitive does not introduce
-a parallel scene graph or a second painter.
+Games evaluate the hierarchy once after simulation and submit model instances
+through `sat_scene_submit_transform_instance` in `scene.h`. The opt-in adapter
+binds the evaluated node matrix without mutating the input instance or retaining
+scratch pointers. All polygons still use the canonical `sat_scene_t` painter.
+`examples/runtime_3d` exercises a parent/child hierarchy on Saturn.
+Cameras and physics may consume evaluated matrices after explicit conversions;
+no collider parenting or physics synchronisation is implicit.
 
 ## Validation
 

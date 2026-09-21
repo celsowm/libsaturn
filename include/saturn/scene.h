@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "saturn/scene3d_faces.h"
+#include "saturn/transform3d.h"
 #include "saturn/view_cache.h"
 #include "saturn/vdp1.h"
 
@@ -75,6 +76,15 @@ sat_result_t sat_scene_submit_instance(sat_scene_t* scene,
                                        uint8_t color_calc_slot,
                                        sat_projected_vertex_t* screen_scratch,
                                        sat_vec3_t* world_scratch);
+/* Submit the world transform of a hierarchy node to the canonical painter.
+ * The prototype instance is never modified; no hierarchy/scratch pointers
+ * are retained. Evaluate the transform world after the last mutation first. */
+sat_result_t sat_scene_submit_transform_instance(
+    sat_scene_t* scene, const sat_transform3d_world_t* hierarchy,
+    uint16_t node_id, const sat_scene3d_instance_t* prototype,
+    uint8_t color_calc_slot, sat_projected_vertex_t* screen_scratch,
+    sat_vec3_t* world_scratch);
+
 /* Replays one already projected, already ordered static-view item. The cache
  * owns bake/projection/sort; the scene still owns the VDP1 world-pass
  * emission, command quota and telemetry. Applications may filter tags for

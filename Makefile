@@ -403,6 +403,7 @@ HOST_TEST_EXTRA_test_math3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_orbit_camera3d := src/core/orbit_camera3d_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_follow_camera3d := src/core/follow_camera3d_api.cpp
 HOST_TEST_EXTRA_test_transform3d := src/core/transform3d_api.cpp src/core/scene3d_api.cpp src/core/math3d_api.cpp
+HOST_TEST_EXTRA_test_scene_transform3d := src/core/scene_transform3d_api.cpp src/core/transform3d_api.cpp src/core/scene3d_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_render3d_logic := src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_voxel_terrain := src/core/voxel_terrain_api.cpp src/core/math3d_api.cpp
 HOST_TEST_EXTRA_test_voxel_display_probe :=

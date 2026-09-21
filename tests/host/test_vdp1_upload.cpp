@@ -55,6 +55,13 @@ sat_result_t begin_overlay_pass() {
     ++g_overlay_pass_calls;
     return SAT_OK;
 }
+void command_stats(uint16_t& used, uint16_t& capacity,
+                   uint16_t& overlay_reserved, bool& overlay_pass) {
+    used = 0u;
+    capacity = 64u;
+    overlay_reserved = g_last_reservation;
+    overlay_pass = g_overlay_pass_calls != 0;
+}
 
 sat_result_t push_sprite(const SpriteRequest&) { return SAT_OK; }
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest&) { return SAT_OK; }

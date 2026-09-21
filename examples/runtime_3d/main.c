@@ -17,6 +17,7 @@
 #include "saturn/math3d.h"
 #include "saturn/orbit_camera3d.h"
 #include "saturn/scene.h"
+#include "saturn/transform3d.h"
 #include "saturn/time.h"
 
 #include "runtime_3d/sonic_model.h"
@@ -41,7 +42,10 @@ static sat_vdp1_texture_t g_textures[MODEL_TEXTURE_CAP];
 static sat_ascii_font_t g_font;
 static sat_hud_t g_hud;
 static sat_scene3d_instance_t g_instance;
-static sat_mat4_t g_instance_world;
+static sat_transform3d_node_t g_transform_nodes[2];
+static uint16_t g_transform_scratch[2];
+static sat_transform3d_world_t g_transforms;
+static uint16_t g_model_node;
 
 static void draw_hud(uint32_t now, uint8_t automatic) {
     sat_example_must(sat_hud_text(&g_hud, "LIBSATURN RUNTIME 3D", 8, 5));
@@ -58,6 +62,7 @@ int main(void) {
     sat_camera3d_t camera;
     sat_orbit_camera3d_t orbit;
     sat_model_transform3d_t transform;
+    uint16_t root_node;
     sat_asset_t model_asset_handle;
     const void* model_data = 0;
     uint32_t model_size = 0u;
@@ -80,7 +85,7 @@ int main(void) {
     g_instance.materials = g_materials;
     g_instance.material_count = sonic_model_asset.texture_count;
     g_instance.face_materials = g_face_materials;
-    g_instance.world = &g_instance_world;
+    g_instance.world = 0;
     g_instance.pass = 0u;
     g_instance.cull_backfaces = 1u;
     for (uint16_t i = 0u; i < sonic_model_asset.texture_count; ++i) {
@@ -93,6 +98,12 @@ int main(void) {
         g_face_materials[i] = sonic_model_asset.face_texture_indices[i];
     sat_example_must(sat_scene_init(
         &scene, g_faces, g_keys, g_order, MODEL_FACE_CAP));
+    sat_example_must(sat_transform3d_world_init(
+        &g_transforms, g_transform_nodes, 2u));
+    sat_example_must(sat_transform3d_create(&g_transforms, &root_node));
+    sat_example_must(sat_transform3d_create(&g_transforms, &g_model_node));
+    sat_example_must(sat_transform3d_set_parent(
+        &g_transforms, g_model_node, root_node));
     sat_model_transform3d_identity(&transform);
 
     {
@@ -138,11 +149,15 @@ int main(void) {
         camera.up = (sat_vec3_t){0, SAT_FX16_ONE, 0};
         camera.view_proj = orbit.view_proj;
         transform.rotation_deg.y = sat_fx16_from_int((int32_t)(now / 20u) % 360);
-        sat_example_must(sat_model_transform3d_matrix(&transform, &g_instance_world));
+        sat_example_must(sat_transform3d_set_local(
+            &g_transforms, root_node, &transform));
+        sat_example_must(sat_transform3d_evaluate(
+            &g_transforms, g_transform_scratch, 2u));
         sat_example_must(sat_scene_begin(
             &scene, &camera, sat_fx16_from_int(1), SCREEN_W, SCREEN_H, 96u));
-        sat_example_must(sat_scene_submit_instance(
-            &scene, &g_instance, SAT_SCENE3D_SLOT_INHERIT, g_screen, g_world));
+        sat_example_must(sat_scene_submit_transform_instance(
+            &scene, &g_transforms, g_model_node, &g_instance,
+            SAT_SCENE3D_SLOT_INHERIT, g_screen, g_world));
         sat_example_must(sat_scene_flush(&scene));
         draw_hud(now, orbit.auto_orbit);
         sat_example_must(sat_app_frame_end());
