@@ -37,6 +37,8 @@ typedef struct sat_physics3_actor {
     sat_mesh3_grid_t* mesh_grid; /* Optional caller-owned acceleration grid. */
     sat_vec3_t mesh_offset; /* Kinematic mesh translation, relative to vertex storage. */
     sat_vec3_t mesh_bounds_min,mesh_bounds_max; /* Cached reference AABB extrema. */
+    sat_physics3_quat_t mesh_orientation,mesh_target_orientation;
+    sat_physics3_quat_t mesh_tick_start_orientation; /* Internal substep anchor. */
     sat_vec3_t target_center; /* kinematic target at end of NEXT tick */
     sat_vec3_t frame_motion;  /* displacement per tick, zero for static boxes */
 } sat_physics3_actor_t;
@@ -97,6 +99,15 @@ sat_result_t sat_physics3_add_kinematic_mesh(
     sat_physics3_world_t* world, const sat_mesh_t* mesh,
     sat_mesh3_grid_t* optional_grid, const sat_vec3_t* initial_offset,
     const sat_physics3_material_t* material, uint16_t* out_id);
+/* Optional rotation of a kinematic quad mesh about its local origin.
+ * The input is a unit quaternion (x,y,z,w), where identity is (0,0,0,ONE).
+ * Shortest-path normalized-linear interpolation across bounded substeps;
+ * one tick may rotate at most about 45 degrees. Vertex data and reference
+ * grid remain immutable; collision queries transform the sphere instead.
+ * This first rotational slice is DISCRETE, not swept rotational CCD. */
+sat_result_t sat_physics3_set_kinematic_mesh_orientation_target(
+    sat_physics3_world_t* world, uint16_t mesh_actor_id,
+    const sat_physics3_quat_t* target);
 /* Move an existing kinematic mesh to target_offset at the NEXT tick. */
 sat_result_t sat_physics3_set_kinematic_mesh_target(
     sat_physics3_world_t* world, uint16_t mesh_actor_id,

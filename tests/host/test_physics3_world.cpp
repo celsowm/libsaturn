@@ -701,6 +701,93 @@ static void translating_mesh_validates_grid_and_target_bounds() {
     CHECK(read(&world,id).mesh_offset.x==0);
     CHECK(read(&world,id).mesh==&mesh);
 }
+
+static void tilted_kinematic_mesh_contact_and_grid_match() {
+    sat_vec3_t vertices[4]={
+        {-FX(2),0,-FX(2)},{FX(2),0,-FX(2)},
+        {FX(2),0,FX(2)},{-FX(2),0,FX(2)}
+    };
+    uint16_t indices[4]={0,1,2,3};
+    sat_mesh_t mesh{vertices,indices,4,4,1,1};
+    uint16_t heads[16]{};
+    sat_mesh3_grid_entry_t entries[32]{};
+    uint16_t stamps[1]{};
+    sat_mesh3_grid_t grid{};
+    CHECK(sat_mesh3_grid_init(
+        &grid,&mesh,3,heads,16,entries,32,stamps,1)==SAT_OK);
+    sat_physics3_actor_t storage_a[2]{},storage_b[2]{};
+    sat_physics3_world_t worlds[2]{};
+    sat_contact3_t contacts[2][1]{};
+    const sat_vec3_t gravity{0,-FX(1)/8,0};
+    const sat_physics3_quat_t tilt{0,0,16962,63303}; // 30 degrees around +Z
+    const sat_sphere_t ball{{FX(1),FX(1),0},FX(1)};
+    for(uint8_t k=0;k<2;++k){
+        sat_physics3_world_t& w=worlds[k];
+        CHECK(sat_physics3_world_init(
+            &w,k?storage_b:storage_a,2,gravity,64,3)==SAT_OK);
+        CHECK(sat_physics3_set_mesh_contacts(&w,contacts[k],1)==SAT_OK);
+        uint16_t id=999;
+        CHECK(sat_physics3_add_kinematic_mesh(
+            &w,&mesh,k?&grid:nullptr,&zero,&rough,&id)==SAT_OK&&id==0);
+        CHECK(sat_physics3_add_sphere(
+            &w,&ball,&zero,&rough,&id)==SAT_OK&&id==1);
+        CHECK(sat_physics3_set_kinematic_mesh_orientation_target(
+            &w,0,&tilt)==SAT_OK);
+        CHECK(sat_physics3_world_step(&w)==SAT_OK);
+        const sat_physics3_actor_t platform=read(&w,0);
+        const sat_physics3_actor_t sphere=read(&w,1);
+        CHECK(platform.mesh_orientation.z>FX(1)/5);
+        CHECK(platform.mesh_orientation.w>FX(9)/10);
+        CHECK(sphere.sphere.flags & SAT_BODY3_GROUNDED);
+        CHECK(sphere.sphere.shape.center.x<FX(1));
+        CHECK(sphere.sphere.shape.center.y>FX(1));
+        CHECK(platform.mesh_offset.x==0);
+    }
+    const sat_physics3_actor_t a=read(&worlds[0],1),b=read(&worlds[1],1);
+    CHECK(a.sphere.shape.center.x==b.sphere.shape.center.x);
+    CHECK(a.sphere.shape.center.y==b.sphere.shape.center.y);
+    CHECK(a.sphere.vel.x==b.sphere.vel.x);
+    CHECK(a.sphere.vel.y==b.sphere.vel.y);
+    CHECK(a.sphere.flags==b.sphere.flags);
+    for(uint8_t k=0;k<4;++k)CHECK(vertices[k].y==0);
+}
+static void rotation_rejects_unsafe_budget_and_invalid_targets() {
+    sat_physics3_actor_t actors[2]{};
+    sat_physics3_world_t w{};
+    sat_contact3_t contacts[1]{};
+    sat_vec3_t vertices[4]={
+        {-FX(2),0,-FX(2)},{FX(2),0,-FX(2)},
+        {FX(2),0,FX(2)},{-FX(2),0,FX(2)}
+    };
+    uint16_t indices[4]={0,1,2,3};
+    sat_mesh_t mesh{vertices,indices,4,4,1,1};
+    CHECK(sat_physics3_world_init(&w,actors,2,zero,1,2)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(&w,contacts,1)==SAT_OK);
+    uint16_t mesh_id=999,ball_id=999;
+    CHECK(sat_physics3_add_kinematic_mesh(
+        &w,&mesh,nullptr,&zero,&rough,&mesh_id)==SAT_OK);
+    const sat_sphere_t sphere{{0,FX(1),0},FX(1)};
+    CHECK(sat_physics3_add_sphere(
+        &w,&sphere,&zero,&rough,&ball_id)==SAT_OK);
+    const sat_physics3_quat_t invalid{FX(1),FX(1),0,FX(1)};
+    const sat_physics3_quat_t too_large{0,0,46341,46341}; // 90 degrees
+    const sat_physics3_quat_t tilt{0,0,16962,63303};
+    CHECK(sat_physics3_set_kinematic_mesh_orientation_target(
+        &w,ball_id,&tilt)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_set_kinematic_mesh_orientation_target(
+        &w,mesh_id,&invalid)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_set_kinematic_mesh_orientation_target(
+        &w,mesh_id,&too_large)==SAT_ERR_CAPACITY);
+    CHECK(sat_physics3_set_kinematic_mesh_orientation_target(
+        &w,mesh_id,&tilt)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_face_ccd(&w,1)==SAT_OK);
+    CHECK(sat_physics3_world_step(&w)==SAT_ERR_CAPACITY);
+    CHECK(read(&w,mesh_id).mesh_orientation.w==SAT_FX16_ONE);
+    CHECK(read(&w,ball_id).sphere.shape.center.y==FX(1));
+    w.max_substeps=64;
+    CHECK(sat_physics3_world_step(&w)==SAT_OK);
+    CHECK(read(&w,mesh_id).mesh_orientation.z>FX(1)/5);
+}
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
@@ -720,6 +807,8 @@ int main(){
     translating_finite_mesh_ccd_preserves_geometry();
     translating_mesh_grid_matches_linear_contacts();
     translating_mesh_validates_grid_and_target_bounds();
-    std::puts("test_physics3_world: 18 tests passed");
+    tilted_kinematic_mesh_contact_and_grid_match();
+    rotation_rejects_unsafe_budget_and_invalid_targets();
+    std::puts("test_physics3_world: 20 tests passed");
     return 0;
 }

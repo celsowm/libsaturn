@@ -218,3 +218,30 @@ rotating, deforming or jointed collision meshes, nor does it account for
 position-dependent velocity induced by angular motion. The sweep remains
 a full-mesh scan on both static and translating meshes; benchmarks on real
 SH-2 hardware are still needed before enabling it for large moving stages.
+
+## Rotating and tilting finite meshes — bounded discrete slice
+
+`sat_physics3_set_kinematic_mesh_orientation_target(world, id, &quaternion)`
+sets an **optional local-origin rotation** for an existing translating
+kinematic mesh. The initial orientation is identity. The target must be a
+unit 16.16 quaternion with positive shortest-path dot product corresponding
+to at most about 45 degrees per tick. The world uses normalized linear
+interpolation through its usual bounded substeps; the reference vertices and
+optional grid are never modified or rebuilt. Collision queries inverse-rotate
+the sphere into reference coordinates, then rotate contact normals back to
+world coordinates. Contact resolution accounts for the per-contact-point
+motion induced by rotation and translation, instead of assuming the entire
+platform has one velocity. Read `actor.mesh_orientation` and
+`actor.mesh_offset` to build the matching visual pose independently.
+
+**Rotational CCD is NOT implemented.** When an actor's current/target pose is
+non-identity, the engine explicitly retains the discrete substep capacity
+guard even if `mesh_face_ccd` is enabled. It does not apply the existing
+translation-only sweep to rotating geometry. The initial slice limits
+reference coordinates to +/-128 units for rotational actors and rejects
+large-angle requests; this avoids silently accepting a rotating sweep as
+continuous, but tiny/fast features may still tunnel inside the allowed
+substep budget. Rotational contact velocities are computed from the
+start/end positions of each reference-space contact point over the tick;
+angular acceleration, rotating-mesh edge CCD and deformation are outside
+this slice. Use modest geometry/speeds and test on SH-2 hardware.
