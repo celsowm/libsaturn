@@ -379,6 +379,15 @@ static void fast_mesh_lip_and_corner_are_not_tunneled() {
         const sat_physics3_actor_t ball=read(&world,ball_id);
         CHECK(ball.sphere.shape.center.y>0);
         CHECK(ball.sphere.flags & SAT_BODY3_GROUNDED);
+        if(ball.sphere.vel.y<-4 || ball.sphere.vel.y>4)
+            std::fprintf(stderr,
+                "feature=%u center=(%ld,%ld,%ld) velocity=(%ld,%ld,%ld) flags=%u\\n",
+                (unsigned)feature,
+                (long)ball.sphere.shape.center.x,
+                (long)ball.sphere.shape.center.y,
+                (long)ball.sphere.shape.center.z,
+                (long)ball.sphere.vel.x,(long)ball.sphere.vel.y,
+                (long)ball.sphere.vel.z,(unsigned)ball.sphere.flags);
         CHECK(ball.sphere.vel.y>=-4 && ball.sphere.vel.y<=4);
         CHECK(ball.sphere.shape.center.x>FX(4));
     }
