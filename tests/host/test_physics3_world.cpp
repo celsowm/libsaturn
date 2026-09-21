@@ -387,6 +387,93 @@ static void fast_mesh_lip_and_corner_are_not_tunneled() {
         CHECK(ball.sphere.shape.center.x>FX(4));
     }
 }
+
+static void opt_in_solid_sphere_rolling_and_orientation() {
+    sat_physics3_actor_t storage[2]{};
+    sat_physics3_world_t world{};
+    const sat_vec3_t gravity{0,-FX(1)/8,0};
+    CHECK(sat_physics3_world_init(&world,storage,2,gravity,16,3)==SAT_OK);
+    const sat_aabb3_t floor{{0,0,0},{FX(8),FX(1)/2,FX(8)}};
+    const sat_sphere_t sphere{{0,FX(3)/2,0},FX(1)};
+    const sat_vec3_t linear{FX(1)/2,0,0};
+    uint16_t floor_id,ball_id;
+    CHECK(sat_physics3_add_box(
+        &world,SAT_PHYSICS3_STATIC_BOX,&floor,&rough,&floor_id)==SAT_OK);
+    CHECK(sat_physics3_add_sphere(
+        &world,&sphere,&linear,&rough,&ball_id)==SAT_OK);
+    CHECK(sat_physics3_set_rolling(&world,floor_id,1)==SAT_ERR_INVALID_ARG);
+    const sat_physics3_actor_t initial=read(&world,ball_id);
+    CHECK(initial.rolling_enabled==0);
+    CHECK(initial.orientation.w==SAT_FX16_ONE);
+    CHECK(initial.orientation.x==0 && initial.orientation.y==0 &&
+          initial.orientation.z==0);
+    CHECK(sat_physics3_set_rolling(&world,ball_id,1)==SAT_OK);
+    CHECK(sat_physics3_world_step(&world)==SAT_OK);
+    const sat_physics3_actor_t ball=read(&world,ball_id);
+    CHECK(ball.sphere.flags & SAT_BODY3_GROUNDED);
+    /* Homogeneous solid sphere: 2/7 of the initial contact slip
+     * becomes angular momentum instead of disappearing as legacy drag. */
+    CHECK(ball.sphere.vel.x>FX(1)/3);
+    CHECK(ball.sphere.vel.x<FX(3)/8);
+    CHECK(ball.angular_velocity.z<-FX(1)/3);
+    CHECK(ball.angular_velocity.z>-FX(3)/8);
+    CHECK(ball.angular_velocity.x==0 && ball.angular_velocity.y==0);
+    CHECK(ball.orientation.z<0);
+    CHECK(ball.orientation.w<SAT_FX16_ONE && ball.orientation.w>0);
+    CHECK(ball.orientation.x==0 && ball.orientation.y==0);
+
+    const sat_vec3_t forbidden_spin{FX(9),0,0};
+    CHECK(sat_physics3_set_angular_velocity(
+        &world,ball_id,&forbidden_spin)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_set_angular_velocity(
+        &world,floor_id,&linear)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_set_rolling(&world,ball_id,0)==SAT_OK);
+    const sat_physics3_quat_t previous=read(&world,ball_id).orientation;
+    world.gravity=zero;
+    CHECK(sat_physics3_world_step(&world)==SAT_OK);
+    CHECK(read(&world,ball_id).orientation.z==previous.z);
+    CHECK(read(&world,ball_id).orientation.w==previous.w);
+}
+static void free_flight_spin_and_kinematic_relative_rolling() {
+    sat_physics3_actor_t actors[2]{};
+    sat_physics3_world_t world{};
+    CHECK(sat_physics3_world_init(&world,actors,2,zero,16,3)==SAT_OK);
+    const sat_sphere_t sphere{{0,FX(4),0},FX(1)};
+    const sat_vec3_t spin{0,0,-FX(1)/2};
+    uint16_t ball_id;
+    CHECK(sat_physics3_add_sphere(
+        &world,&sphere,&zero,&rough,&ball_id)==SAT_OK);
+    CHECK(sat_physics3_set_angular_velocity(&world,ball_id,&spin)==SAT_OK);
+    CHECK(sat_physics3_set_rolling(&world,ball_id,1)==SAT_OK);
+    CHECK(sat_physics3_world_step(&world)==SAT_OK);
+    const sat_physics3_actor_t flying=read(&world,ball_id);
+    CHECK(flying.sphere.flags==0);
+    CHECK(flying.angular_velocity.z==spin.z);
+    CHECK(flying.orientation.z<0);
+    CHECK(flying.sphere.shape.center.y==FX(4));
+    sat_physics3_world_reset(&world);
+
+    const sat_aabb3_t platform{{0,0,0},{FX(4),FX(1)/2,FX(4)}};
+    const sat_sphere_t supported{{0,FX(3)/2,0},FX(1)};
+    const sat_vec3_t moving{FX(1)/2,0,0};
+    CHECK(sat_physics3_add_box(
+        &world,SAT_PHYSICS3_KINEMATIC_BOX,&platform,&rough,&ball_id)==SAT_OK);
+    const uint16_t platform_id=ball_id;
+    CHECK(sat_physics3_add_sphere(
+        &world,&supported,&moving,&rough,&ball_id)==SAT_OK);
+    CHECK(sat_physics3_set_rolling(&world,ball_id,1)==SAT_OK);
+    world.gravity={0,-FX(1)/8,0};
+    const sat_vec3_t platform_target{FX(1)/4,0,0};
+    CHECK(sat_physics3_set_kinematic_target(
+        &world,platform_id,&platform_target)==SAT_OK);
+    CHECK(sat_physics3_world_step(&world)==SAT_OK);
+    const sat_physics3_actor_t ball=read(&world,ball_id);
+    CHECK(ball.sphere.flags & SAT_BODY3_GROUNDED);
+    CHECK(ball.sphere.vel.x>FX(2)/5 && ball.sphere.vel.x<FX(9)/20);
+    CHECK(ball.angular_velocity.z<-FX(1)/6 &&
+          ball.angular_velocity.z>-FX(1)/5);
+    CHECK(read(&world,platform_id).box.center.x==platform_target.x);
+}
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
@@ -398,6 +485,8 @@ int main(){
     accelerated_mesh_matches_linear_contacts_and_gaps();
     face_interior_ccd_prevents_through_floor();
     fast_mesh_lip_and_corner_are_not_tunneled();
-    std::puts("test_physics3_world: 10 tests passed");
+    opt_in_solid_sphere_rolling_and_orientation();
+    free_flight_spin_and_kinematic_relative_rolling();
+    std::puts("test_physics3_world: 12 tests passed");
     return 0;
 }

@@ -113,3 +113,31 @@ resolution. Grazing hits narrower than one time unit, large-coordinate
 overflow, moving boxes, sphere/sphere contacts and non-mesh colliders
 remain outside its guarantee. This is intentionally **not a complete
 rigid-body CCD solver**. Keep gameplay coordinates local to the stage.
+
+## Opt-in solid-sphere rolling (angular physics)
+
+Each dynamic sphere keeps an identity-initialized orientation quaternion and
+world-space angular velocity (radians per fixed tick). Existing actors retain
+the earlier arcade tangential damping until explicitly enabled with
+`sat_physics3_set_rolling(world, sphere_id, 1)`. Optional initial spin is set
+with `sat_physics3_set_angular_velocity`. Both states are readable with
+`sat_physics3_get_actor`. Only dynamic spheres with radius >= 1/8 can opt in.
+
+For a homogeneous solid sphere (inertia `I=2/5*m*r²`), a grounded contact
+computes the relative contact-point slip: tangential translation minus
+`radius * (angular_velocity × normal)`. Friction applies coupled impulses:
+`Δv_t=-friction*(2/7)*slip` and
+`Δω=friction*(5/7)/radius*(normal × slip)`. This models transfer of
+translational motion to spin, instead of merely deleting horizontal speed.
+On a moving kinematic box, the solver uses velocity relative to that box.
+Without contact the angular velocity persists; after each substep a normalized
+quaternion is integrated using that angular velocity (world-frame Euler step).
+
+This is a **bounded, arcade-friendly solid-sphere rolling model**, not a
+complete Coulomb/rigid-body solver: there is no torque from wall impacts,
+rolling resistance, contact manifold, rotationally swept contact, or strict
+conservation of energy under solver iterations. Generated angular components
+are saturated at ±8 radians/tick to keep the 16.16 integration bounded;
+large speeds/radii near fixed-point limits remain unsupported. Rendering
+orientation and parenting to the transform graph are separate integration
+steps; do not treat the quaternion as an automatically updated scene node.

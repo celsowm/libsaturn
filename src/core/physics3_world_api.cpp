@@ -1,6 +1,7 @@
 #include "saturn/physics3_world.h"
 #include <limits.h>
 #include "src/core/mesh3d_collision_grid.hpp"
+#include "src/core/math3d_logic.hpp"
 namespace {
 using V=sat_vec3_t;
 using F=sat_fx16_t;
@@ -28,6 +29,52 @@ int64_t ab(int64_t v){return v<0?-v:v;}
 int64_t mx(int64_t a,int64_t b){return a>b?a:b;}
 int64_t greatest(V v){return mx(ab(v.x),mx(ab(v.y),ab(v.z)));}
 F mn(F a,F b){return a<b?a:b;}
+constexpr F kMaxAngular=8*SAT_FX16_ONE;
+constexpr F kMinRollingRadius=SAT_FX16_ONE/8;
+constexpr F kTwoSevenths=(2*SAT_FX16_ONE)/7;
+constexpr F kFiveSevenths=(5*SAT_FX16_ONE)/7;
+F angular_clamp(int64_t value) {
+    return (F)(value>kMaxAngular?kMaxAngular:
+               value<-kMaxAngular?-kMaxAngular:value);
+}
+V cross(V a,V b) {
+    return {(F)(((int64_t)a.y*b.z-(int64_t)a.z*b.y)>>16),
+            (F)(((int64_t)a.z*b.x-(int64_t)a.x*b.z)>>16),
+            (F)(((int64_t)a.x*b.y-(int64_t)a.y*b.x)>>16)};
+}
+bool angular_valid(V v) {
+    return ab(v.x)<=kMaxAngular && ab(v.y)<=kMaxAngular &&
+           ab(v.z)<=kMaxAngular;
+}
+/* Explicit Euler quaternion step in world frame, followed by fixed-point
+ * normalization; no heap, trig, or matrix decomposition required. */
+void rotate_sphere(sat_physics3_actor_t& a,uint16_t steps) {
+    if(!a.rolling_enabled ||
+       (!a.angular_velocity.x&&!a.angular_velocity.y&&!a.angular_velocity.z))
+        return;
+    const sat_physics3_quat_t q=a.orientation;
+    const V omega=a.angular_velocity;
+    const int64_t x=(int64_t)mul(omega.x,q.w)+mul(omega.y,q.z)-mul(omega.z,q.y);
+    const int64_t y=-(int64_t)mul(omega.x,q.z)+mul(omega.y,q.w)+mul(omega.z,q.x);
+    const int64_t z=(int64_t)mul(omega.x,q.y)-mul(omega.y,q.x)+mul(omega.z,q.w);
+    const int64_t w=-(int64_t)mul(omega.x,q.x)-mul(omega.y,q.y)-mul(omega.z,q.z);
+    const int64_t divisor=2u*steps;
+    const int64_t next_x=(int64_t)q.x+x/divisor;
+    const int64_t next_y=(int64_t)q.y+y/divisor;
+    const int64_t next_z=(int64_t)q.z+z/divisor;
+    const int64_t next_w=(int64_t)q.w+w/divisor;
+    const uint64_t length2=(uint64_t)(next_x*next_x)+
+        (uint64_t)(next_y*next_y)+(uint64_t)(next_z*next_z)+
+        (uint64_t)(next_w*next_w);
+    const uint64_t length=saturn::core::math3d::isqrt64(length2);
+    if(!length||length>INT32_MAX)return;
+    const int32_t n=(int32_t)length;
+    const auto normalized=[&](int64_t component)->F {
+        return (F)saturn::core::math3d::div_s64_s32(component<<16,n);
+    };
+    a.orientation={normalized(next_x),normalized(next_y),
+                   normalized(next_z),normalized(next_w)};
+}
 V at(V begin,V end,uint16_t step,uint16_t total){
     return {(F)((int64_t)begin.x+((int64_t)end.x-begin.x)*step/total),
             (F)((int64_t)begin.y+((int64_t)end.y-begin.y)*step/total),
@@ -47,7 +94,29 @@ void resolve(sat_physics3_actor_t& ball,const sat_physics3_actor_t& box,
         ball.sphere.flags|=SAT_BODY3_GROUNDED;
         const F friction=mn(ball.material.friction,box.material.friction);
         const V tangent=sub(relative,scale(c.normal,(F)dot(relative,c.normal)));
-        relative=sub(relative,scale(tangent,friction));
+        if(ball.rolling_enabled){
+            /* Contact point is -radius*normal relative to center; surface
+             * slip includes tangential translation AND angular motion.
+             * For solid-sphere inertia 2/5*m*r^2, an impulse to eliminate
+             * slip contributes -2/7*slip to v and +(5/7)/r*n×slip to omega. */
+            const V surface_spin=scale(cross(ball.angular_velocity,c.normal),
+                                       ball.sphere.shape.radius);
+            const V slip=sub(tangent,surface_spin);
+            const F translation=mul(friction,kTwoSevenths);
+            const F angular=mul(friction,kFiveSevenths);
+            relative=sub(relative,scale(slip,translation));
+            const V torque=cross(c.normal,slip);
+            const F radius=ball.sphere.shape.radius;
+            const V spin_delta={
+                angular_clamp(((int64_t)mul(torque.x,angular)<<16)/radius),
+                angular_clamp(((int64_t)mul(torque.y,angular)<<16)/radius),
+                angular_clamp(((int64_t)mul(torque.z,angular)<<16)/radius)};
+            const V omega=ball.angular_velocity;
+            ball.angular_velocity={
+                angular_clamp((int64_t)omega.x+spin_delta.x),
+                angular_clamp((int64_t)omega.y+spin_delta.y),
+                angular_clamp((int64_t)omega.z+spin_delta.z)};
+        } else relative=sub(relative,scale(tangent,friction));
     } else ball.sphere.flags|=SAT_BODY3_HIT_WALL;
     ball.sphere.vel=add(relative,box.frame_motion);
 }
@@ -154,6 +223,7 @@ extern "C" sat_result_t sat_physics3_add_sphere(sat_physics3_world_t* w,
     sat_physics3_actor_t& a=w->actors[next];a={};
     a.kind=SAT_PHYSICS3_DYNAMIC_SPHERE;a.material=*material;
     a.sphere.shape=*sphere;a.sphere.vel=*velocity;
+    a.orientation={0,0,0,SAT_FX16_ONE};
     w->count=(uint16_t)(next+1u);*id=next;return SAT_OK;
 }
 extern "C" sat_result_t sat_physics3_set_kinematic_target(
@@ -162,6 +232,25 @@ extern "C" sat_result_t sat_physics3_set_kinematic_target(
        w->actors[id].kind!=SAT_PHYSICS3_KINEMATIC_BOX)
         return SAT_ERR_INVALID_ARG;
     w->actors[id].target_center=*center;return SAT_OK;
+}
+extern "C" sat_result_t sat_physics3_set_rolling(
+    sat_physics3_world_t* w,uint16_t id,int enabled){
+    if(!live(w,id)||w->actors[id].kind!=SAT_PHYSICS3_DYNAMIC_SPHERE)
+        return SAT_ERR_INVALID_ARG;
+    sat_physics3_actor_t& a=w->actors[id];
+    if(enabled && (a.sphere.shape.radius<kMinRollingRadius ||
+                   !angular_valid(a.angular_velocity)))
+        return SAT_ERR_INVALID_ARG;
+    a.rolling_enabled=enabled?1u:0u;
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_physics3_set_angular_velocity(
+    sat_physics3_world_t* w,uint16_t id,const V* omega){
+    if(!live(w,id)||!omega ||
+       w->actors[id].kind!=SAT_PHYSICS3_DYNAMIC_SPHERE||
+       !angular_valid(*omega))return SAT_ERR_INVALID_ARG;
+    w->actors[id].angular_velocity=*omega;
+    return SAT_OK;
 }
 extern "C" sat_result_t sat_physics3_set_velocity(
     sat_physics3_world_t* w,uint16_t id,const V* velocity){
@@ -197,7 +286,11 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
             if(!fits(dx)||!fits(dy)||!fits(dz))return SAT_ERR_INVALID_ARG;
             non_mesh_collider=true;
         }else if(a.kind==SAT_PHYSICS3_DYNAMIC_SPHERE){
-            if(a.sphere.shape.radius<=0 || !add_fits(a.sphere.vel,w->gravity))
+            if(a.sphere.shape.radius<=0 ||
+               (a.rolling_enabled &&
+                (a.sphere.shape.radius<kMinRollingRadius ||
+                 !angular_valid(a.angular_velocity))) ||
+               !add_fits(a.sphere.vel,w->gravity))
                 return SAT_ERR_INVALID_ARG;
             const V v=add(a.sphere.vel,w->gravity);
             if(!add_fits(a.sphere.shape.center,v))return SAT_ERR_INVALID_ARG;
@@ -314,6 +407,7 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                 }
                 if(!hit)break;
             }
+            rotate_sphere(ball,steps);
         }
     }
     return SAT_OK;

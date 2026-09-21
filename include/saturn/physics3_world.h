@@ -17,10 +17,19 @@ typedef struct sat_physics3_material {
     sat_fx16_t friction;    /* [0,ONE]; tangent damping on support */
     sat_fx16_t restitution; /* [0,ONE]; normal bounce */
 } sat_physics3_material_t;
+/* Unit rotation quaternion; (0,0,0,ONE) is the identity. Rolling spin is
+ * world-space radians per fixed tick. Renderer can construct a rotation
+ * matrix from this quaternion independently of the physics world. */
+typedef struct sat_physics3_quat {
+    sat_fx16_t x,y,z,w;
+} sat_physics3_quat_t;
 typedef struct sat_physics3_actor {
     sat_physics3_kind_t kind;
     sat_physics3_material_t material;
     sat_body3_t sphere;
+    sat_vec3_t angular_velocity; /* world-space radians per fixed tick */
+    sat_physics3_quat_t orientation;
+    uint8_t rolling_enabled; /* per-sphere opt-in; legacy damping otherwise */
     sat_aabb3_t box;
     sat_plane3_t plane; /* Infinite, two-sided and static. */
     const sat_mesh_t* mesh; /* Borrowed, immutable WORLD-space quad mesh. */
@@ -79,6 +88,18 @@ sat_result_t sat_physics3_add_sphere(sat_physics3_world_t* world,
     const sat_physics3_material_t* material,uint16_t* out_id);
 sat_result_t sat_physics3_set_kinematic_target(sat_physics3_world_t* world,
     uint16_t id,const sat_vec3_t* center);
+/* Solid homogeneous sphere, I=2/5*m*r^2. On upward contacts friction
+ * is an impulse that couples linear surface slip and angular velocity.
+ * No-slip rolling is approached at friction=ONE; friction=0 preserves spin.
+ * This changes contact behavior only for the opted-in sphere. */
+sat_result_t sat_physics3_set_rolling(
+    sat_physics3_world_t* world, uint16_t sphere_id, int enabled);
+/* Angular velocity is in world-space radians per fixed tick.
+ * Components must be inside [-8,+8] radians/tick; the simulation
+ * saturates generated spin at this fixed-point range. */
+sat_result_t sat_physics3_set_angular_velocity(
+    sat_physics3_world_t* world, uint16_t sphere_id,
+    const sat_vec3_t* angular_velocity);
 sat_result_t sat_physics3_set_velocity(sat_physics3_world_t* world,
     uint16_t id,const sat_vec3_t* velocity);
 sat_result_t sat_physics3_get_actor(const sat_physics3_world_t* world,
