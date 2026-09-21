@@ -134,7 +134,8 @@ sat_result_t sat_physics3_get_actor(const sat_physics3_world_t* world,
  * No sphere/sphere collision or exact swept CCD in this slice. */
 /* Enables finite-mesh sweeps (face interior + finite edges + vertices). With no box/plane colliders,
  * allows larger velocities than the discrete substep budget by capping the
- * substeps; this does NOT protect moving objects, sphere/sphere interactions,
+ * substeps; with translating mesh targets this uses relative motion,
+ * but does not cover rotating meshes or sphere/sphere interactions,
  * or numerical grazing cases below the fixed-point time resolution. */
 sat_result_t sat_physics3_set_mesh_face_ccd(
     sat_physics3_world_t* world, int enabled);
@@ -143,7 +144,8 @@ sat_result_t sat_physics3_set_mesh_face_ccd(
  * resolves the hit using the platform's velocity. With only swept colliders
  * present, enables capped substeps instead of rejecting the tick. Static
  * AABB/plane contacts remain discrete and keep the original step budget.
- * Does not support rotating boxes, moving meshes or sphere/sphere CCD. */
+ * Does not support rotating boxes or sphere/sphere CCD;
+ * translating finite meshes have their own mesh sweep option. */
 sat_result_t sat_physics3_set_kinematic_box_ccd(
     sat_physics3_world_t* world, int enabled);
 sat_result_t sat_physics3_world_step(sat_physics3_world_t* world);

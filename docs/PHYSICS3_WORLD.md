@@ -7,7 +7,7 @@ collision engine, scene renderer, or game-specific tilting mechanic.
 ## Supported in this slice
 
 - Caller-owned array of stable actor IDs (reused only by world reset).
-- Static and kinematic axis-aligned boxes, static finite quad meshes,
+- Static and kinematic axis-aligned boxes, static and translating finite quad meshes,
   static infinite/two-sided plane slopes,
   and dynamic spheres with per-tick gravity.
 - Next-tick kinematic targets interpolated through the same bounded substeps
@@ -96,7 +96,8 @@ not by this cast. The query is not a full swept-sphere mesh cast: grazing a
 quad **edge or vertex** from outside is not detected by the interior cast.
 
 `sat_physics3_set_mesh_face_ccd(world, 1)` opts the fixed-tick world into
-a sweep before each discrete step against all registered static meshes. On a
+a sweep before each discrete step against registered static and translating
+quad meshes. On a
 face-interior crossing, the world places the sphere at contact, resolves the
 incoming velocity, and moves the remaining substep using that velocity.
 The optional `sat_sphere_cast_mesh` extends this query to finite faces,
@@ -104,7 +105,8 @@ The optional `sat_sphere_cast_mesh` extends this query to finite faces,
 fuller query when CCD is enabled; the face-only query remains available to
 callers that need specifically a face-interior crossing.
 
-When a world contains only static meshes and dynamic spheres, this option
+When a world contains only finite meshes (static or translating) and dynamic
+spheres, this option
 caps substeps at `max_substeps` rather than rejecting a high-speed tick;
 box/plane/kinematic worlds retain the original capacity rejection contract.
 The sweep scans every mesh face even for grid-backed colliders; face, edge
@@ -171,7 +173,8 @@ planes still require the original discrete substep budget; disabling both
 sweep options preserves the previous step-capacity behavior. A mixed world
 may enable both options independently. The kinematic geometry is assumed
 to translate **linearly** between successive targets. Rotating boxes,
-moving meshes and sphere/sphere CCD are not covered.
+rotating or deforming meshes and sphere/sphere CCD are not covered.
+Translation-only kinematic quad meshes can instead use the mesh sweep option.
 
 The current finite-box query tests six faces per sphere/box/substep, so
 high actor counts can be costly on SH-2. It is opt-in, stack-only and
