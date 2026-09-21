@@ -351,6 +351,38 @@ static void face_interior_ccd_prevents_through_floor() {
     CHECK(read(&w,ball_id).sphere.shape.center.y==-FX(3));
     CHECK(read(&w,ball_id).sphere.flags==0);
 }
+static void fast_mesh_lip_and_corner_are_not_tunneled() {
+    /* A small fixed substep budget cannot catch these outside the quad
+     * with a plane-only cast: the sphere approaches the lip/corner from
+     * above and should hit the finite boundary before it falls through. */
+    for(uint8_t feature=0;feature<2;++feature) {
+        sat_physics3_actor_t actors[2]{};
+        sat_physics3_world_t world{};
+        sat_contact3_t contact[1]{};
+        CHECK(sat_physics3_world_init(&world,actors,2,zero,2,3)==SAT_OK);
+        CHECK(sat_physics3_set_mesh_contacts(&world,contact,1)==SAT_OK);
+        sat_vec3_t vertices[4]={
+            {-FX(4),0,-FX(4)},{FX(4),0,-FX(4)},
+            {FX(4),0,FX(4)},{-FX(4),0,FX(4)}
+        };
+        uint16_t indices[4]={0,1,2,3};
+        sat_mesh_t mesh{vertices,indices,4,4,1,1};
+        uint16_t mesh_id=777,ball_id=777;
+        CHECK(sat_physics3_add_mesh(&world,&mesh,&rough,&mesh_id)==SAT_OK);
+        const sat_sphere_t sphere{{
+            FX(4)+FX(1)/4,FX(3),feature?FX(4)+FX(1)/4:0},FX(1)/2};
+        const sat_vec3_t velocity{0,-FX(6),0};
+        CHECK(sat_physics3_add_sphere(
+            &world,&sphere,&velocity,&rough,&ball_id)==SAT_OK);
+        CHECK(sat_physics3_set_mesh_face_ccd(&world,1)==SAT_OK);
+        CHECK(sat_physics3_world_step(&world)==SAT_OK);
+        const sat_physics3_actor_t ball=read(&world,ball_id);
+        CHECK(ball.sphere.shape.center.y>0);
+        CHECK(ball.sphere.flags & SAT_BODY3_GROUNDED);
+        CHECK(ball.sphere.vel.y>=-4 && ball.sphere.vel.y<=4);
+        CHECK(ball.sphere.shape.center.x>FX(4));
+    }
+}
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
@@ -361,6 +393,7 @@ int main(){
     mesh_registration_validates_indices_and_contact_capacity();
     accelerated_mesh_matches_linear_contacts_and_gaps();
     face_interior_ccd_prevents_through_floor();
-    std::puts("test_physics3_world: 9 tests passed");
+    fast_mesh_lip_and_corner_are_not_tunneled();
+    std::puts("test_physics3_world: 10 tests passed");
     return 0;
 }
