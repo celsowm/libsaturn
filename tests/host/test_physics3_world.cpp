@@ -191,7 +191,7 @@ static void finite_mesh_ramp_edge_and_gap() {
     CHECK(read(&w,ball_id).sphere.flags==0);
     CHECK(read(&w,ball_id).sphere.shape.center.y==FX(1)-FX(1)/8);
     /* A centre near the outer lip still collides with the finite face edge. */
-    const sat_sphere_t edge={{FX(6)+FX(1)/2,FX(1)/2,0},FX(1)};
+    const sat_sphere_t edge={{FX(6)+FX(1)/2,FX(3)/4,0},FX(1)};
     CHECK(sat_physics3_add_sphere(&w,&edge,&zero,&rough,&outside_id)==SAT_OK);
     CHECK(sat_physics3_world_step(&w)==SAT_OK);
     CHECK(read(&w,outside_id).sphere.flags & SAT_BODY3_GROUNDED);

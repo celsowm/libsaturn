@@ -148,7 +148,7 @@ inline bool sphere_quad_contact(const sat_quad3_t& q, const sat_sphere_t& s, sat
     const sat_vec3_t proj = sub(s.center, mul(n, signed_d));
     sat_vec3_t closest = proj;
     if (!inside_quad(q, proj, n)) {
-        sat_fx16_t best = s.radius + 1;
+        sat_fx16_t best = INT32_MAX;
         for (int e = 0; e < 4; ++e) {
             const sat_vec3_t a = q.v[e];
             const sat_vec3_t d = sub(q.v[(e + 1) & 3], a);
