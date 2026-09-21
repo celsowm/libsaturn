@@ -36,6 +36,7 @@
 #include "saturn/asset.h"
 #include "saturn/cd_block.h"
 #include "saturn/scene3d.h"
+#include "saturn/transform3d.h"
 #include "saturn/follow_camera3d.h"
 #include "saturn/scene3d_faces.h"
 #include "saturn/scene3d_material_pool.h"
