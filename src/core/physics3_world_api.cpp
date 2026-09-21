@@ -121,6 +121,39 @@ sat_result_t swept_kinematic_box(const sat_physics3_actor_t& platform,
     }
     return SAT_OK;
 }
+sat_result_t swept_kinematic_mesh(const sat_physics3_actor_t& platform,
+    V start_offset,V end_offset,const sat_sphere_t& sphere,
+    V sphere_delta,sat_sphere_mesh_hit_t* out,uint8_t* found) {
+    if(!out||!found||!platform.mesh)return SAT_ERR_INVALID_ARG;
+    const V motion=sub(end_offset,start_offset);
+    if(!fits((int64_t)sphere.center.x-start_offset.x)||
+       !fits((int64_t)sphere.center.y-start_offset.y)||
+       !fits((int64_t)sphere.center.z-start_offset.z)||
+       !fits((int64_t)sphere_delta.x-motion.x)||
+       !fits((int64_t)sphere_delta.y-motion.y)||
+       !fits((int64_t)sphere_delta.z-motion.z))
+        return SAT_ERR_INVALID_ARG;
+    const sat_sphere_t reference_sphere{
+        sub(sphere.center,start_offset),sphere.radius};
+    const V reference_delta=sub(sphere_delta,motion);
+    sat_sphere_mesh_hit_t hit{};
+    uint8_t has_hit=0;
+    const sat_result_t status=sat_sphere_cast_mesh(
+        platform.mesh,&reference_sphere,&reference_delta,
+        &hit,&has_hit);
+    if(status!=SAT_OK)return status;
+    if(has_hit){
+        const V impact_offset=add(start_offset,scale(motion,hit.t));
+        if(!add_fits(hit.point,impact_offset)||
+           !add_fits(hit.center,impact_offset))
+            return SAT_ERR_INVALID_ARG;
+        hit.point=add(hit.point,impact_offset);
+        hit.center=add(hit.center,impact_offset);
+        *out=hit;
+    }
+    *found=has_hit;
+    return SAT_OK;
+}
 V at(V begin,V end,uint16_t step,uint16_t total){
     return {(F)((int64_t)begin.x+((int64_t)end.x-begin.x)*step/total),
             (F)((int64_t)begin.y+((int64_t)end.y-begin.y)*step/total),
@@ -212,7 +245,8 @@ extern "C" sat_result_t sat_physics3_set_mesh_contacts(
      * buffer still accommodates every registered mesh. */
     for(uint16_t i=0;i<w->count;++i) {
         const sat_physics3_actor_t& a=w->actors[i];
-        if(a.kind==SAT_PHYSICS3_STATIC_MESH &&
+        if((a.kind==SAT_PHYSICS3_STATIC_MESH ||
+            a.kind==SAT_PHYSICS3_KINEMATIC_MESH) &&
            (!a.mesh||a.mesh->face_count>capacity))return SAT_ERR_CAPACITY;
     }
     w->mesh_contacts=storage;
@@ -258,6 +292,52 @@ extern "C" sat_result_t sat_physics3_add_mesh_grid(
     a.mesh=grid->mesh;
     a.mesh_grid=grid;
     w->count=(uint16_t)(next+1u);*id=next;return SAT_OK;
+}
+extern "C" sat_result_t sat_physics3_add_kinematic_mesh(
+    sat_physics3_world_t* w,const sat_mesh_t* mesh,
+    sat_mesh3_grid_t* grid,const V* initial_offset,
+    const sat_physics3_material_t* material,uint16_t* id) {
+    if(!valid(w)||!mesh||!initial_offset||!id||!material_ok(material))
+        return SAT_ERR_INVALID_ARG;
+    if(grid && (!saturn::core::collide3d::mesh3_grid_valid(grid) ||
+                grid->mesh!=mesh || !grid->entry_cap ||
+                grid->entry_count>grid->entry_cap || grid->cell_shift>15u))
+        return SAT_ERR_INVALID_ARG;
+    V low{},high{};
+    if(mesh->vertices && mesh->vertex_count &&
+       mesh->vertex_count<=mesh->vertex_cap){
+        low=mesh->vertices[0];high=low;
+        for(uint16_t i=1;i<mesh->vertex_count;++i){
+            const V p=mesh->vertices[i];
+            if(p.x<low.x)low.x=p.x;if(p.x>high.x)high.x=p.x;
+            if(p.y<low.y)low.y=p.y;if(p.y>high.y)high.y=p.y;
+            if(p.z<low.z)low.z=p.z;if(p.z>high.z)high.z=p.z;
+        }
+        if(!add_fits(low,*initial_offset)||
+           !add_fits(high,*initial_offset))
+            return SAT_ERR_INVALID_ARG;
+    }
+    /* Preserve the same registered-mesh scratch and index validation as
+     * the static path, then enable translation only after success. */
+    const sat_result_t status=sat_physics3_add_mesh(
+        w,mesh,material,id);
+    if(status!=SAT_OK)return status;
+    sat_physics3_actor_t& a=w->actors[*id];
+    a.kind=SAT_PHYSICS3_KINEMATIC_MESH;
+    a.mesh_grid=grid;
+    a.mesh_offset=*initial_offset;
+    a.target_center=*initial_offset;
+    a.mesh_bounds_min=low;
+    a.mesh_bounds_max=high;
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_physics3_set_kinematic_mesh_target(
+    sat_physics3_world_t* w,uint16_t id,const V* target){
+    if(!live(w,id)||!target ||
+       w->actors[id].kind!=SAT_PHYSICS3_KINEMATIC_MESH)
+        return SAT_ERR_INVALID_ARG;
+    w->actors[id].target_center=*target;
+    return SAT_OK;
 }
 extern "C" sat_result_t sat_physics3_add_sphere(sat_physics3_world_t* w,
     const sat_sphere_t* sphere,const V* velocity,
@@ -376,17 +456,33 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
             if(!add_fits(a.sphere.shape.center,v))return SAT_ERR_INVALID_ARG;
             spheres=true;smallest_radius=mn(smallest_radius,a.sphere.shape.radius);
             dynamic_speed=mx(dynamic_speed,greatest(v));
-        }else if(a.kind==SAT_PHYSICS3_STATIC_MESH){
+        }else if(a.kind==SAT_PHYSICS3_STATIC_MESH ||
+                 a.kind==SAT_PHYSICS3_KINEMATIC_MESH){
             if(!w->mesh_face_ccd)needs_discrete_budget=true;
+            if(a.kind==SAT_PHYSICS3_KINEMATIC_MESH){
+                const int64_t dx=(int64_t)a.target_center.x-a.mesh_offset.x;
+                const int64_t dy=(int64_t)a.target_center.y-a.mesh_offset.y;
+                const int64_t dz=(int64_t)a.target_center.z-a.mesh_offset.z;
+                if(!fits(dx)||!fits(dy)||!fits(dz))
+                    return SAT_ERR_INVALID_ARG;
+                kinematic_speed=mx(kinematic_speed,
+                    mx(ab(dx),mx(ab(dy),ab(dz))));
+            }
             if(!a.mesh||!a.mesh->vertices||!a.mesh->indices||
-               !a.mesh->face_count||a.mesh->face_count>a.mesh->face_cap||
+               !a.mesh->face_count||!a.mesh->vertex_count||
+               a.mesh->face_count>a.mesh->face_cap||
                a.mesh->vertex_count>a.mesh->vertex_cap||
                !w->mesh_contacts||
                w->mesh_contact_capacity<a.mesh->face_count||
                (a.mesh_grid &&
                    (!saturn::core::collide3d::mesh3_grid_valid(a.mesh_grid)||
                     a.mesh_grid->mesh!=a.mesh||
-                    a.mesh_grid->entry_count>a.mesh_grid->entry_cap)))
+                    a.mesh_grid->entry_count>a.mesh_grid->entry_cap)) ||
+               (a.kind==SAT_PHYSICS3_KINEMATIC_MESH &&
+                (!add_fits(a.mesh_bounds_min,a.target_center) ||
+                 !add_fits(a.mesh_bounds_max,a.target_center) ||
+                 !add_fits(a.mesh_bounds_min,a.mesh_offset) ||
+                 !add_fits(a.mesh_bounds_max,a.mesh_offset))))
                 return SAT_ERR_INVALID_ARG;
         }else if(a.kind==SAT_PHYSICS3_STATIC_BOX ||
                  a.kind==SAT_PHYSICS3_STATIC_PLANE){
@@ -409,6 +505,8 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
         sat_physics3_actor_t& a=w->actors[i];
         if(a.kind==SAT_PHYSICS3_KINEMATIC_BOX){
             a.frame_motion=sub(a.target_center,a.box.center);
+        }else if(a.kind==SAT_PHYSICS3_KINEMATIC_MESH){
+            a.frame_motion=sub(a.target_center,a.mesh_offset);
         }else if(a.kind==SAT_PHYSICS3_DYNAMIC_SPHERE){
             a.sphere.flags=0;a.sphere.vel=add(a.sphere.vel,w->gravity);
         }
@@ -416,9 +514,13 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
     for(uint16_t step=1;step<=steps;++step){
         for(uint16_t i=0;i<w->count;++i){
             sat_physics3_actor_t& a=w->actors[i];
-            if(a.kind!=SAT_PHYSICS3_KINEMATIC_BOX)continue;
+            if(a.kind!=SAT_PHYSICS3_KINEMATIC_BOX &&
+               a.kind!=SAT_PHYSICS3_KINEMATIC_MESH)continue;
             const V start=sub(a.target_center,a.frame_motion);
-            a.box.center=at(start,a.target_center,step,steps);
+            const V position=at(start,a.target_center,step,steps);
+            if(a.kind==SAT_PHYSICS3_KINEMATIC_BOX)
+                a.box.center=position;
+            else a.mesh_offset=position;
         }
         for(uint16_t i=0;i<w->count;++i){
             sat_physics3_actor_t& ball=w->actors[i];
@@ -439,6 +541,16 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                         status=sat_sphere_cast_mesh(
                             collider.mesh,&ball.sphere.shape,&d,
                             &candidate,&found);
+                    }else if(w->mesh_face_ccd &&
+                             collider.kind==SAT_PHYSICS3_KINEMATIC_MESH){
+                        const V tick_start=sub(
+                            collider.target_center,collider.frame_motion);
+                        const V start_offset=at(
+                            tick_start,collider.target_center,
+                            (uint16_t)(step-1u),steps);
+                        status=swept_kinematic_mesh(
+                            collider,start_offset,collider.mesh_offset,
+                            ball.sphere.shape,d,&candidate,&found);
                     }else if(w->kinematic_box_ccd &&
                              collider.kind==SAT_PHYSICS3_KINEMATIC_BOX){
                         const V tick_start=sub(
@@ -476,14 +588,27 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                 for(uint16_t j=0;j<w->count;++j){
                     const sat_physics3_actor_t& box=w->actors[j];
                     if(box.kind==SAT_PHYSICS3_DYNAMIC_SPHERE)continue;
-                    if(box.kind==SAT_PHYSICS3_STATIC_MESH){
+                    if(box.kind==SAT_PHYSICS3_STATIC_MESH ||
+                       box.kind==SAT_PHYSICS3_KINEMATIC_MESH){
+                        sat_sphere_t reference_sphere=ball.sphere.shape;
+                        if(box.kind==SAT_PHYSICS3_KINEMATIC_MESH){
+                            if(!fits((int64_t)reference_sphere.center.x-
+                                     box.mesh_offset.x) ||
+                               !fits((int64_t)reference_sphere.center.y-
+                                     box.mesh_offset.y) ||
+                               !fits((int64_t)reference_sphere.center.z-
+                                     box.mesh_offset.z))
+                                return SAT_ERR_INVALID_ARG;
+                            reference_sphere.center=sub(
+                                reference_sphere.center,box.mesh_offset);
+                        }
                         uint16_t count=0;
                         const sat_result_t status=box.mesh_grid
                             ? sat_sphere_mesh_contact_grid(
-                                box.mesh_grid,&ball.sphere.shape,w->mesh_contacts,
+                                box.mesh_grid,&reference_sphere,w->mesh_contacts,
                                 w->mesh_contact_capacity,&count)
                             : sat_sphere_mesh_contact(
-                                box.mesh,&ball.sphere.shape,w->mesh_contacts,
+                                box.mesh,&reference_sphere,w->mesh_contacts,
                                 w->mesh_contact_capacity,&count);
                         if(status!=SAT_OK)return status;
                         for(uint16_t k=0;k<count;++k) {

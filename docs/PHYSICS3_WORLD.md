@@ -188,3 +188,30 @@ so the visual node and its descendants update after
 `sat_transform3d_evaluate` without reconstructing Euler angles. This is a
 one-way, post-step operation; parented targets are rejected and no physics
 collision geometry is implicitly transformed or parented.
+
+## Translating finite-mesh platforms
+
+Register an immutable reference-space quad mesh with
+`sat_physics3_add_kinematic_mesh(world, mesh, optional_grid,
+&initial_offset, material, &id)`. Its `mesh_offset` is the world-space
+translation applied to every reference-space vertex; the mesh's vertex and
+index buffers are **never modified**. A supplied grid must index the same
+untransformed mesh and remains caller-owned. Set the next-tick offset with
+`sat_physics3_set_kinematic_mesh_target`. The world caches reference-space AABB extrema when the collider is added,
+so translation-bounds preflight is constant-time per tick. The world moves
+the mesh through the fixed substeps and runs discrete contacts in reference coordinates, then
+resolves each contact with the mesh's world-space frame velocity. Finite
+ramp edges, gaps, and grid-based candidate rejection remain intact.
+
+With `sat_physics3_set_mesh_face_ccd(world, 1)`, the same finite face/edge/
+vertex sweep operates on the *relative motion* of sphere and translating mesh.
+The solver transforms the impact point back into world coordinates at the time
+of contact; mesh geometry and spatial grid are not rebuilt. The existing
+caller-provided contact capacity must fit the largest static **or kinematic**
+mesh face count.
+
+This path supports **translation only**. It does not simulate tilting,
+rotating, deforming or jointed collision meshes, nor does it account for
+position-dependent velocity induced by angular motion. The sweep remains
+a full-mesh scan on both static and translating meshes; benchmarks on real
+SH-2 hardware are still needed before enabling it for large moving stages.

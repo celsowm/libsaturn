@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include "saturn/physics3_world.h"
 
@@ -554,6 +555,152 @@ static void discrete_colliders_preserve_capacity_guard_with_swept_platforms() {
     CHECK(sat_physics3_world_step(&world)==SAT_ERR_CAPACITY);
     CHECK(read(&world,id).sphere.shape.center.y==FX(4));
 }
+
+static void translating_finite_mesh_ccd_preserves_geometry() {
+    sat_physics3_actor_t actors[2]{};
+    sat_physics3_world_t world{};
+    sat_contact3_t contacts[1]{};
+    CHECK(sat_physics3_world_init(&world,actors,2,zero,2,3)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(&world,contacts,1)==SAT_OK);
+    sat_vec3_t vertices[4]={
+        {-FX(3),0,-FX(3)},{FX(3),0,-FX(3)},
+        {FX(3),0,FX(3)},{-FX(3),0,FX(3)}
+    };
+    uint16_t indices[4]={0,1,2,3};
+    sat_mesh_t mesh{vertices,indices,4,4,1,1};
+    const sat_sphere_t sphere{{0,FX(4),0},FX(1)/2};
+    const sat_vec3_t fall{0,-FX(8),0};
+    const sat_vec3_t rising{0,FX(1),0};
+    uint16_t mesh_id=700,ball_id=700;
+    CHECK(sat_physics3_add_kinematic_mesh(
+        &world,&mesh,nullptr,&zero,&rough,&mesh_id)==SAT_OK);
+    CHECK(sat_physics3_add_sphere(
+        &world,&sphere,&fall,&rough,&ball_id)==SAT_OK);
+    CHECK(sat_physics3_set_kinematic_mesh_target(
+        &world,ball_id,&rising)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_set_kinematic_target(
+        &world,mesh_id,&rising)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_set_kinematic_mesh_target(
+        &world,mesh_id,&rising)==SAT_OK);
+    CHECK(sat_physics3_world_step(&world)==SAT_ERR_CAPACITY);
+    CHECK(read(&world,mesh_id).mesh_offset.y==0);
+    CHECK(read(&world,ball_id).sphere.shape.center.y==FX(4));
+    CHECK(sat_physics3_set_mesh_face_ccd(&world,1)==SAT_OK);
+    CHECK(sat_physics3_world_step(&world)==SAT_OK);
+    const sat_physics3_actor_t ball=read(&world,ball_id);
+    const sat_physics3_actor_t platform=read(&world,mesh_id);
+    CHECK(ball.sphere.flags & SAT_BODY3_GROUNDED);
+    CHECK(ball.sphere.shape.center.y>FX(3)/2-16);
+    CHECK(ball.sphere.shape.center.y<FX(3)/2+16);
+    CHECK(ball.sphere.vel.y>=FX(1)-32 && ball.sphere.vel.y<=FX(1)+32);
+    CHECK(platform.mesh_offset.y==FX(1));
+    CHECK(platform.frame_motion.y==FX(1));
+    CHECK(platform.mesh==&mesh && mesh.vertices==vertices);
+    for(int i=0;i<4;++i)CHECK(vertices[i].y==0);
+    CHECK(sat_physics3_set_mesh_contacts(&world,contacts,0)==SAT_ERR_INVALID_ARG);
+    sat_physics3_world_reset(&world);
+    CHECK(sat_physics3_add_kinematic_mesh(
+        &world,&mesh,nullptr,&zero,&rough,&mesh_id)==SAT_OK);
+    const sat_sphere_t gap{{FX(9),FX(4),0},FX(1)/2};
+    CHECK(sat_physics3_add_sphere(
+        &world,&gap,&fall,&rough,&ball_id)==SAT_OK);
+    CHECK(sat_physics3_set_kinematic_mesh_target(
+        &world,mesh_id,&rising)==SAT_OK);
+    CHECK(sat_physics3_world_step(&world)==SAT_OK);
+    CHECK(read(&world,ball_id).sphere.flags==0);
+    CHECK(read(&world,ball_id).sphere.shape.center.y==-FX(4));
+}
+static void translating_mesh_grid_matches_linear_contacts() {
+    sat_vec3_t vertices[8]={
+        {-FX(6),0,-FX(2)},{-FX(2),0,-FX(2)},
+        {-FX(2),0,FX(2)},{-FX(6),0,FX(2)},
+        {FX(2),0,-FX(2)},{FX(6),0,-FX(2)},
+        {FX(6),0,FX(2)},{FX(2),0,FX(2)}
+    };
+    uint16_t indices[8]={0,1,2,3,4,5,6,7};
+    sat_mesh_t mesh{vertices,indices,8,8,2,2};
+    uint16_t heads[16]{};
+    sat_mesh3_grid_entry_t entries[64]{};
+    uint16_t stamps[2]{};
+    sat_mesh3_grid_t grid{};
+    CHECK(sat_mesh3_grid_init(
+        &grid,&mesh,3,heads,16,entries,64,stamps,2)==SAT_OK);
+    sat_physics3_actor_t a[3]{},b[3]{};
+    sat_physics3_world_t linear{},accelerated{};
+    sat_contact3_t contacts_a[2]{},contacts_b[2]{};
+    const sat_vec3_t gravity{0,-FX(1)/8,0};
+    CHECK(sat_physics3_world_init(&linear,a,3,gravity,16,3)==SAT_OK);
+    CHECK(sat_physics3_world_init(&accelerated,b,3,gravity,16,3)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(&linear,contacts_a,2)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(&accelerated,contacts_b,2)==SAT_OK);
+    uint16_t id=700;
+    CHECK(sat_physics3_add_kinematic_mesh(
+        &linear,&mesh,nullptr,&zero,&rough,&id)==SAT_OK && id==0);
+    CHECK(sat_physics3_add_kinematic_mesh(
+        &accelerated,&mesh,&grid,&zero,&rough,&id)==SAT_OK && id==0);
+    const sat_sphere_t supported{{-FX(4),FX(1),0},FX(1)};
+    const sat_sphere_t gap{{0,FX(1),0},FX(1)};
+    sat_physics3_world_t* worlds[2]={&linear,&accelerated};
+    for(sat_physics3_world_t* w : worlds) {
+        CHECK(sat_physics3_add_sphere(
+            w,&supported,&zero,&rough,&id)==SAT_OK && id==1);
+        CHECK(sat_physics3_add_sphere(
+            w,&gap,&zero,&rough,&id)==SAT_OK && id==2);
+    }
+    const sat_vec3_t right{FX(1)/4,0,0};
+    CHECK(sat_physics3_set_kinematic_mesh_target(&linear,0,&right)==SAT_OK);
+    CHECK(sat_physics3_set_kinematic_mesh_target(&accelerated,0,&right)==SAT_OK);
+    CHECK(sat_physics3_world_step(&linear)==SAT_OK);
+    CHECK(sat_physics3_world_step(&accelerated)==SAT_OK);
+    for(uint16_t i=0;i<3;++i){
+        const sat_physics3_actor_t x=read(&linear,i),y=read(&accelerated,i);
+        if(i==0)CHECK(x.mesh_offset.x==y.mesh_offset.x);
+        else {
+            CHECK(x.sphere.shape.center.x==y.sphere.shape.center.x);
+            CHECK(x.sphere.shape.center.y==y.sphere.shape.center.y);
+            CHECK(x.sphere.vel.x==y.sphere.vel.x);
+            CHECK(x.sphere.vel.y==y.sphere.vel.y);
+            CHECK(x.sphere.flags==y.sphere.flags);
+        }
+    }
+    CHECK(read(&accelerated,1).sphere.flags & SAT_BODY3_GROUNDED);
+    CHECK(read(&accelerated,2).sphere.flags==0);
+    sat_mesh_t wrong=mesh;
+    grid.mesh=&wrong;
+    const sat_physics3_actor_t before=read(&accelerated,1);
+    CHECK(sat_physics3_world_step(&accelerated)==SAT_ERR_INVALID_ARG);
+    CHECK(read(&accelerated,1).sphere.shape.center.y==
+          before.sphere.shape.center.y);
+}
+static void translating_mesh_validates_grid_and_target_bounds() {
+    sat_physics3_actor_t actors[1]{};
+    sat_physics3_world_t world{};
+    sat_contact3_t contacts[1]{};
+    sat_vec3_t vertices[4]={
+        {-FX(1),0,-FX(1)},{FX(1),0,-FX(1)},
+        {FX(1),0,FX(1)},{-FX(1),0,FX(1)}
+    };
+    uint16_t indices[4]={0,1,2,3};
+    sat_mesh_t mesh{vertices,indices,4,4,1,1};
+    sat_mesh3_grid_t invalid_grid{};
+    CHECK(sat_physics3_world_init(&world,actors,1,zero,1,2)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(&world,contacts,1)==SAT_OK);
+    uint16_t id=700;
+    CHECK(sat_physics3_add_kinematic_mesh(
+        &world,&mesh,&invalid_grid,&zero,&rough,&id)==SAT_ERR_INVALID_ARG);
+    CHECK(id==700 && world.count==0);
+    const sat_vec3_t huge{INT32_MAX,0,0};
+    CHECK(sat_physics3_add_kinematic_mesh(
+        &world,&mesh,nullptr,&huge,&rough,&id)==SAT_ERR_INVALID_ARG);
+    CHECK(id==700 && world.count==0);
+    CHECK(sat_physics3_add_kinematic_mesh(
+        &world,&mesh,nullptr,&zero,&rough,&id)==SAT_OK);
+    CHECK(sat_physics3_set_kinematic_mesh_target(
+        &world,id,&huge)==SAT_OK);
+    CHECK(sat_physics3_world_step(&world)==SAT_ERR_INVALID_ARG);
+    CHECK(read(&world,id).mesh_offset.x==0);
+    CHECK(read(&world,id).mesh==&mesh);
+}
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
@@ -570,6 +717,9 @@ int main(){
     swept_rising_platform_catches_fast_fall();
     swept_translating_wall_pushes_sphere_without_tunneling();
     discrete_colliders_preserve_capacity_guard_with_swept_platforms();
-    std::puts("test_physics3_world: 15 tests passed");
+    translating_finite_mesh_ccd_preserves_geometry();
+    translating_mesh_grid_matches_linear_contacts();
+    translating_mesh_validates_grid_and_target_bounds();
+    std::puts("test_physics3_world: 18 tests passed");
     return 0;
 }

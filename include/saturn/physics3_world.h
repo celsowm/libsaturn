@@ -11,7 +11,8 @@ typedef enum sat_physics3_kind {
     SAT_PHYSICS3_KINEMATIC_BOX=2,
     SAT_PHYSICS3_DYNAMIC_SPHERE=3,
     SAT_PHYSICS3_STATIC_PLANE=4,
-    SAT_PHYSICS3_STATIC_MESH=5
+    SAT_PHYSICS3_STATIC_MESH=5,
+    SAT_PHYSICS3_KINEMATIC_MESH=6
 } sat_physics3_kind_t;
 typedef struct sat_physics3_material {
     sat_fx16_t friction;    /* [0,ONE]; tangent damping on support */
@@ -34,6 +35,8 @@ typedef struct sat_physics3_actor {
     sat_plane3_t plane; /* Infinite, two-sided and static. */
     const sat_mesh_t* mesh; /* Borrowed, immutable WORLD-space quad mesh. */
     sat_mesh3_grid_t* mesh_grid; /* Optional caller-owned acceleration grid. */
+    sat_vec3_t mesh_offset; /* Kinematic mesh translation, relative to vertex storage. */
+    sat_vec3_t mesh_bounds_min,mesh_bounds_max; /* Cached reference AABB extrema. */
     sat_vec3_t target_center; /* kinematic target at end of NEXT tick */
     sat_vec3_t frame_motion;  /* displacement per tick, zero for static boxes */
 } sat_physics3_actor_t;
@@ -45,7 +48,7 @@ typedef struct sat_physics3_world {
     uint16_t count,capacity;
     uint8_t max_substeps; /* 1..64 */
     uint8_t iterations; /* 1..8 */
-    uint8_t mesh_face_ccd; /* Opt-in face/edge/vertex static mesh sweeps. */
+    uint8_t mesh_face_ccd; /* Opt-in face/edge/vertex mesh sweeps (static + translating). */
     uint8_t kinematic_box_ccd; /* Opt-in moving AABB relative sweep. */
 } sat_physics3_world_t;
 sat_result_t sat_physics3_world_init(sat_physics3_world_t* world,
@@ -83,6 +86,21 @@ sat_result_t sat_physics3_add_mesh(
 sat_result_t sat_physics3_add_mesh_grid(
     sat_physics3_world_t* world, sat_mesh3_grid_t* grid,
     const sat_physics3_material_t* material, uint16_t* out_id);
+
+/* Moving finite quad geometry with a translation-only pose. Mesh vertices
+ * remain immutable in their authored reference coordinate system. The optional
+ * grid indexes THAT untransformed mesh; both are borrowed and never rebuilt.
+ * initial_offset and next target are translations of the entire mesh,
+ * not a vertex edit or world-space mesh copy. Contact scratch still must fit
+ * the mesh's full face_count. No rotation / deformation in this API. */
+sat_result_t sat_physics3_add_kinematic_mesh(
+    sat_physics3_world_t* world, const sat_mesh_t* mesh,
+    sat_mesh3_grid_t* optional_grid, const sat_vec3_t* initial_offset,
+    const sat_physics3_material_t* material, uint16_t* out_id);
+/* Move an existing kinematic mesh to target_offset at the NEXT tick. */
+sat_result_t sat_physics3_set_kinematic_mesh_target(
+    sat_physics3_world_t* world, uint16_t mesh_actor_id,
+    const sat_vec3_t* target_offset);
 
 sat_result_t sat_physics3_add_sphere(sat_physics3_world_t* world,
     const sat_sphere_t* sphere,const sat_vec3_t* velocity,
