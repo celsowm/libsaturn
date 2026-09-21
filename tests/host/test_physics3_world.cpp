@@ -228,6 +228,91 @@ static void mesh_registration_validates_indices_and_contact_capacity() {
     CHECK(sat_physics3_world_step(&w)==SAT_ERR_INVALID_ARG);
     CHECK(read(&w,id).sphere.shape.center.y==before.sphere.shape.center.y);
 }
+
+static void accelerated_mesh_matches_linear_contacts_and_gaps() {
+    sat_physics3_actor_t linear_actors[4]{}, grid_actors[4]{};
+    sat_physics3_world_t linear{}, accelerated{};
+    sat_contact3_t linear_contacts[2]{}, accelerated_contacts[2]{};
+    const sat_vec3_t gravity={0,-FX(1)/8,0};
+    CHECK(sat_physics3_world_init(
+        &linear,linear_actors,4,gravity,16,4)==SAT_OK);
+    CHECK(sat_physics3_world_init(
+        &accelerated,grid_actors,4,gravity,16,4)==SAT_OK);
+
+    sat_vec3_t vertices[8]={
+        {-FX(2),0,-FX(2)},{FX(2),0,-FX(2)},
+        {FX(2),0,FX(2)},{-FX(2),0,FX(2)},
+        {FX(30),0,-FX(2)},{FX(34),0,-FX(2)},
+        {FX(34),0,FX(2)},{FX(30),0,FX(2)}
+    };
+    uint16_t indices[8]={0,1,2,3,4,5,6,7};
+    sat_mesh_t mesh{vertices,indices,8,8,2,2};
+    uint16_t heads[16]{};
+    sat_mesh3_grid_entry_t entries[64]{};
+    uint16_t stamps[2]{};
+    sat_mesh3_grid_t grid{};
+    uint16_t linear_id=777,grid_id=777;
+    CHECK(sat_physics3_add_mesh_grid(
+        &accelerated,&grid,&rough,&grid_id)==SAT_ERR_INVALID_ARG);
+    CHECK(grid_id==777 && accelerated.count==0);
+    CHECK(sat_mesh3_grid_init(
+        &grid,&mesh,3,heads,16,entries,64,stamps,2)==SAT_OK);
+    CHECK(sat_physics3_add_mesh_grid(
+        &accelerated,&grid,&rough,&grid_id)==SAT_ERR_CAPACITY);
+    CHECK(grid_id==777 && accelerated.count==0);
+    CHECK(sat_physics3_set_mesh_contacts(
+        &linear,linear_contacts,2)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(
+        &accelerated,accelerated_contacts,2)==SAT_OK);
+    CHECK(sat_physics3_add_mesh(
+        &linear,&mesh,&rough,&linear_id)==SAT_OK);
+    CHECK(sat_physics3_add_mesh_grid(
+        &accelerated,&grid,&rough,&grid_id)==SAT_OK);
+    CHECK(linear_id==0 && grid_id==0);
+    CHECK(accelerated.actors[grid_id].mesh_grid==&grid);
+    CHECK(accelerated.actors[grid_id].mesh==&mesh);
+    /* The far-away sphere is over the true gap, not a bounding-box floor. */
+    const sat_sphere_t spheres[3]={
+        {{0,FX(1),0},FX(1)},
+        {{FX(16),FX(1),0},FX(1)},
+        {{FX(32),FX(1),0},FX(1)}
+    };
+    for(uint16_t i=0;i<3;++i){
+        uint16_t id_a=777,id_b=777;
+        CHECK(sat_physics3_add_sphere(
+            &linear,&spheres[i],&zero,&rough,&id_a)==SAT_OK);
+        CHECK(sat_physics3_add_sphere(
+            &accelerated,&spheres[i],&zero,&rough,&id_b)==SAT_OK);
+        CHECK(id_a==i+1u && id_b==i+1u);
+    }
+    for(int step=0;step<3;++step){
+        CHECK(sat_physics3_world_step(&linear)==SAT_OK);
+        CHECK(sat_physics3_world_step(&accelerated)==SAT_OK);
+        for(uint16_t id=1;id<=3;++id){
+            const sat_physics3_actor_t a=read(&linear,id);
+            const sat_physics3_actor_t b=read(&accelerated,id);
+            CHECK(a.sphere.shape.center.x==b.sphere.shape.center.x);
+            CHECK(a.sphere.shape.center.y==b.sphere.shape.center.y);
+            CHECK(a.sphere.shape.center.z==b.sphere.shape.center.z);
+            CHECK(a.sphere.vel.x==b.sphere.vel.x);
+            CHECK(a.sphere.vel.y==b.sphere.vel.y);
+            CHECK(a.sphere.flags==b.sphere.flags);
+        }
+        CHECK(read(&accelerated,1).sphere.flags & SAT_BODY3_GROUNDED);
+        CHECK(!(read(&accelerated,2).sphere.flags & SAT_BODY3_GROUNDED));
+        CHECK(read(&accelerated,3).sphere.flags & SAT_BODY3_GROUNDED);
+    }
+
+    /* Replacing a registered grid's mesh must fail before any actor moves. */
+    sat_mesh_t wrong=mesh;
+    const sat_physics3_actor_t before=read(&accelerated,2);
+    grid.mesh=&wrong;
+    CHECK(sat_physics3_world_step(&accelerated)==SAT_ERR_INVALID_ARG);
+    CHECK(read(&accelerated,2).sphere.shape.center.y==
+          before.sphere.shape.center.y);
+    grid.mesh=&mesh;
+    CHECK(sat_physics3_world_step(&accelerated)==SAT_OK);
+}
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
@@ -236,6 +321,7 @@ int main(){
     inclined_plane_and_tangent_friction();
     finite_mesh_ramp_edge_and_gap();
     mesh_registration_validates_indices_and_contact_capacity();
-    std::puts("test_physics3_world: 7 tests passed");
+    accelerated_mesh_matches_linear_contacts_and_gaps();
+    std::puts("test_physics3_world: 8 tests passed");
     return 0;
 }

@@ -1,5 +1,6 @@
 #include "saturn/physics3_world.h"
 #include <limits.h>
+#include "src/core/mesh3d_collision_grid.hpp"
 namespace {
 using V=sat_vec3_t;
 using F=sat_fx16_t;
@@ -120,6 +121,29 @@ extern "C" sat_result_t sat_physics3_add_mesh(
     a.kind=SAT_PHYSICS3_STATIC_MESH;a.material=*material;a.mesh=mesh;
     w->count=(uint16_t)(next+1u);*id=next;return SAT_OK;
 }
+extern "C" sat_result_t sat_physics3_add_mesh_grid(
+    sat_physics3_world_t* w, sat_mesh3_grid_t* grid,
+    const sat_physics3_material_t* material, uint16_t* id) {
+    if(!valid(w)||!id||!material_ok(material)||
+       !saturn::core::collide3d::mesh3_grid_valid(grid)||
+       !grid->mesh->vertices||!grid->mesh->indices||
+       !grid->mesh->face_count||grid->mesh->face_count>grid->mesh->face_cap||
+       grid->mesh->vertex_count>grid->mesh->vertex_cap||
+       grid->entry_count>grid->entry_cap||!grid->entry_cap||
+       !grid->bucket_count||!grid->heads||
+       !grid->mesh->vertex_count||grid->cell_shift>15u)
+        return SAT_ERR_INVALID_ARG;
+    if(!w->mesh_contacts||w->mesh_contact_capacity<grid->mesh->face_count)
+        return SAT_ERR_CAPACITY;
+    if(w->count==w->capacity)return SAT_ERR_CAPACITY;
+    const uint16_t next=w->count;
+    sat_physics3_actor_t& a=w->actors[next];a={};
+    a.kind=SAT_PHYSICS3_STATIC_MESH;
+    a.material=*material;
+    a.mesh=grid->mesh;
+    a.mesh_grid=grid;
+    w->count=(uint16_t)(next+1u);*id=next;return SAT_OK;
+}
 extern "C" sat_result_t sat_physics3_add_sphere(sat_physics3_world_t* w,
     const sat_sphere_t* sphere,const V* velocity,
     const sat_physics3_material_t* material,uint16_t* id){
@@ -177,7 +201,11 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                !a.mesh->face_count||a.mesh->face_count>a.mesh->face_cap||
                a.mesh->vertex_count>a.mesh->vertex_cap||
                !w->mesh_contacts||
-               w->mesh_contact_capacity<a.mesh->face_count)
+               w->mesh_contact_capacity<a.mesh->face_count||
+               (a.mesh_grid &&
+                   (!saturn::core::collide3d::mesh3_grid_valid(a.mesh_grid)||
+                    a.mesh_grid->mesh!=a.mesh||
+                    a.mesh_grid->entry_count>a.mesh_grid->entry_cap)))
                 return SAT_ERR_INVALID_ARG;
         }else if(a.kind!=SAT_PHYSICS3_STATIC_BOX &&
                  a.kind!=SAT_PHYSICS3_STATIC_PLANE)return SAT_ERR_INVALID_ARG;
@@ -219,9 +247,13 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                     if(box.kind==SAT_PHYSICS3_DYNAMIC_SPHERE)continue;
                     if(box.kind==SAT_PHYSICS3_STATIC_MESH){
                         uint16_t count=0;
-                        const sat_result_t status=sat_sphere_mesh_contact(
-                            box.mesh,&ball.sphere.shape,w->mesh_contacts,
-                            w->mesh_contact_capacity,&count);
+                        const sat_result_t status=box.mesh_grid
+                            ? sat_sphere_mesh_contact_grid(
+                                box.mesh_grid,&ball.sphere.shape,w->mesh_contacts,
+                                w->mesh_contact_capacity,&count)
+                            : sat_sphere_mesh_contact(
+                                box.mesh,&ball.sphere.shape,w->mesh_contacts,
+                                w->mesh_contact_capacity,&count);
                         if(status!=SAT_OK)return status;
                         for(uint16_t k=0;k<count;++k) {
                             resolve(ball,box,w->mesh_contacts[k]);

@@ -8,6 +8,8 @@ on:
       - "include/saturn/collide3d.h"
       - "include/saturn/mesh3d.h"
       - "src/core/collide3d_api.cpp"
+      - "src/core/mesh3d_collision_grid.hpp"
+      - "tests/host/test_collide3d_grid.cpp"
       - "tests/host/test_physics3_world.cpp"
       - "Makefile"
       - ".github/workflows/physics3-world-host.yml"
@@ -19,8 +21,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and execute bounded physics world tests
         run: |
-          make build/tests/test_physics3_world
+          make build/tests/test_physics3_world build/tests/test_collide3d_grid
           ./build/tests/test_physics3_world
+          ./build/tests/test_collide3d_grid
       - name: Check C header compatibility
         run: |
           printf '#include "saturn/physics3_world.h"\nint main(void) { sat_physics3_world_t w = {0}; return (int)w.count; }\n' |

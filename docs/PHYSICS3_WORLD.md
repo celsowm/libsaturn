@@ -35,7 +35,7 @@ further validation. Rejecting excess motion avoids silently accepting steps
 beyond the user-selected budget but does not guarantee absence of tunneling.
 This slice does NOT simulate dynamic sphere-sphere contacts, oriented boxes,
 moving mesh contacts, rolling torque/inertia, manifold caching, joints, sensors,
-broad-phase acceleration or transform-graph synchronization. Friction here
+automatic broad-phase selection or transform-graph synchronization. Friction here
 models arcade tangential damping, not a full Coulomb solver. Exposing these
 limits avoids implicitly promising Monkey Ball's specific rolling physics.
 
@@ -63,9 +63,24 @@ alive and the mesh geometry unchanged while registered. Meshes are static and
 world-space: do not mutate vertices or transform them implicitly through the
 renderer. A ramp, ledge or hole should be represented by bounded quad faces.
 
-The first mesh path scans every face at each contact query; use it for small
-stages and correctness tests. The existing `sat_mesh3_grid_t` is not yet
-integrated into the world; its broad phase is the next performance slice.
+For small meshes, `sat_physics3_add_mesh` scans every face. For larger
+immutable meshes, initialize a `sat_mesh3_grid_t` once with
+`sat_mesh3_grid_init` (using caller-owned bucket heads, entries and
+face stamps), then register it with
+`sat_physics3_add_mesh_grid(world, &grid, material, &id)`.
+The world calls the existing `sat_sphere_mesh_contact_grid` during each
+solver iteration to limit narrow-phase testing to nearby faces. It does not
+create another grid, allocate buffers or silently fall back to the linear
+path if the grid is invalid. The grid and its mutable query stamps must remain
+owned by the world while in use; do not rebuild or independently query it
+concurrently with the simulation.
+
+Contact scratch must still fit the **largest registered mesh face count**:
+this initial integration preserves the original complete-contact guarantee.
+A smaller streaming contact buffer and controlled overflow handling are
+separate future work. A grid lookup may return multiple contacts in a
+different order from the linear path; compare outcomes within fixed-point
+tolerance when testing multi-surface corner cases.
 Mesh contacts are also **discrete** and two-sided, not swept collision or a
 one-way platform. `world_step` preflights caller scratch before movement,
 but the existing solver's general fixed-point overflow limitations remain.

@@ -24,6 +24,7 @@ typedef struct sat_physics3_actor {
     sat_aabb3_t box;
     sat_plane3_t plane; /* Infinite, two-sided and static. */
     const sat_mesh_t* mesh; /* Borrowed, immutable WORLD-space quad mesh. */
+    sat_mesh3_grid_t* mesh_grid; /* Optional caller-owned acceleration grid. */
     sat_vec3_t target_center; /* kinematic target at end of NEXT tick */
     sat_vec3_t frame_motion;  /* displacement per tick, zero for static boxes */
 } sat_physics3_actor_t;
@@ -56,9 +57,20 @@ sat_result_t sat_physics3_set_mesh_contacts(
 
 /* Mesh vertices and indices are already in world coordinates, remain immutable,
  * and must outlive the collider. Finite quad faces retain their edges and gaps.
- * The first implementation linearly tests mesh faces, without broad-phase. */
+ * The default path linearly tests mesh faces; add_mesh_grid is opt-in. */
 sat_result_t sat_physics3_add_mesh(
     sat_physics3_world_t* world, const sat_mesh_t* mesh,
+    const sat_physics3_material_t* material, uint16_t* out_id);
+
+/* Registers an existing, initialized spatial grid for an immutable static
+ * world-space mesh. The grid owns its query stamps, so the world borrows it
+ * MUTABLY for the lifetime of the collider. Do not rebuild or independently
+ * query a registered grid concurrently with world_step(). The world does not
+ * build a second grid or allocate; the contact scratch contract is unchanged.
+ * Grid query order may differ from the linear mesh face order when multiple
+ * contacts are present. */
+sat_result_t sat_physics3_add_mesh_grid(
+    sat_physics3_world_t* world, sat_mesh3_grid_t* grid,
     const sat_physics3_material_t* material, uint16_t* out_id);
 
 sat_result_t sat_physics3_add_sphere(sat_physics3_world_t* world,
