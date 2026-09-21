@@ -141,12 +141,101 @@ static void inclined_plane_and_tangent_friction() {
     CHECK(sat_physics3_set_kinematic_target(&w,plane_id,&zero)==SAT_ERR_INVALID_ARG);
     CHECK(sat_physics3_add_plane(&w,&slope,&rough,&plane_id)==SAT_ERR_CAPACITY);
 }
+
+static void finite_mesh_ramp_edge_and_gap() {
+    sat_physics3_actor_t actors[3]{};
+    sat_physics3_world_t w{};
+    sat_contact3_t contacts[2]{};
+    const sat_vec3_t gravity={0,-FX(1)/8,0};
+    CHECK(sat_physics3_world_init(&w,actors,3,gravity,16,4)==SAT_OK);
+    /* Upward-facing quad; its far edge is higher along positive Z. */
+    sat_vec3_t ramp_vertices[4]={
+        {-FX(4),-FX(1),-FX(4)},{FX(4),-FX(1),-FX(4)},
+        {FX(4),FX(1),FX(4)},{-FX(4),FX(1),FX(4)}
+    };
+    uint16_t ramp_indices[4]={0,1,2,3};
+    sat_mesh_t ramp{ramp_vertices,ramp_indices,4,4,1,1};
+    uint16_t mesh_id=777,ball_id=777,outside_id=777;
+    CHECK(sat_physics3_add_mesh(&w,&ramp,&rough,&mesh_id)==SAT_ERR_CAPACITY);
+    CHECK(mesh_id==777 && w.count==0);
+    CHECK(sat_physics3_set_mesh_contacts(&w,contacts,2)==SAT_OK);
+    CHECK(sat_physics3_add_mesh(&w,&ramp,&rough,&mesh_id)==SAT_OK);
+    CHECK(mesh_id==0);
+    const sat_sphere_t on_ramp={{0,FX(1),0},FX(1)};
+    const sat_sphere_t outside={{FX(9),FX(1),0},FX(1)};
+    CHECK(sat_physics3_add_sphere(&w,&on_ramp,&zero,&rough,&ball_id)==SAT_OK);
+    CHECK(sat_physics3_add_sphere(&w,&outside,&zero,&rough,&outside_id)==SAT_OK);
+    CHECK(sat_physics3_world_step(&w)==SAT_OK);
+    CHECK(read(&w,ball_id).sphere.flags & SAT_BODY3_GROUNDED);
+    CHECK(read(&w,outside_id).sphere.flags==0);
+    CHECK(read(&w,outside_id).sphere.shape.center.y==FX(1)-FX(1)/8);
+    const sat_physics3_actor_t before=read(&w,ball_id);
+    /* Caller cannot replace scratch with less than the registered face count. */
+    CHECK(sat_physics3_set_mesh_contacts(&w,contacts,0)==SAT_ERR_INVALID_ARG);
+    CHECK(read(&w,ball_id).sphere.shape.center.y==before.sphere.shape.center.y);
+
+    sat_physics3_world_reset(&w);
+    sat_vec3_t platform_vertices[8]={
+        {-FX(6),0,-FX(2)},{-FX(2),0,-FX(2)},
+        {-FX(2),0,FX(2)},{-FX(6),0,FX(2)},
+        {FX(2),0,-FX(2)},{FX(6),0,-FX(2)},
+        {FX(6),0,FX(2)},{FX(2),0,FX(2)}
+    };
+    uint16_t platform_indices[8]={0,1,2,3,4,5,6,7};
+    sat_mesh_t platforms{platform_vertices,platform_indices,8,8,2,2};
+    CHECK(sat_physics3_add_mesh(&w,&platforms,&rough,&mesh_id)==SAT_OK);
+    /* Unsupported: the centre of the gap is more than one radius from both edges. */
+    const sat_sphere_t gap={{0,FX(1),0},FX(1)};
+    CHECK(sat_physics3_add_sphere(&w,&gap,&zero,&rough,&ball_id)==SAT_OK);
+    CHECK(sat_physics3_world_step(&w)==SAT_OK);
+    CHECK(read(&w,ball_id).sphere.flags==0);
+    CHECK(read(&w,ball_id).sphere.shape.center.y==FX(1)-FX(1)/8);
+    /* A centre near the outer lip still collides with the finite face edge. */
+    const sat_sphere_t edge={{FX(6)+FX(1)/2,FX(1)/2,0},FX(1)};
+    CHECK(sat_physics3_add_sphere(&w,&edge,&zero,&rough,&outside_id)==SAT_OK);
+    CHECK(sat_physics3_world_step(&w)==SAT_OK);
+    CHECK(read(&w,outside_id).sphere.flags & SAT_BODY3_GROUNDED);
+}
+static void mesh_registration_validates_indices_and_contact_capacity() {
+    sat_physics3_actor_t actors[2]{};
+    sat_physics3_world_t w{};
+    sat_contact3_t contacts[2]{};
+    CHECK(sat_physics3_world_init(&w,actors,2,zero,8,2)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(&w,contacts,1)==SAT_OK);
+    sat_vec3_t vertices[8]={
+        {-FX(3),0,-FX(2)},{-FX(1),0,-FX(2)},
+        {-FX(1),0,FX(2)},{-FX(3),0,FX(2)},
+        {FX(1),0,-FX(2)},{FX(3),0,-FX(2)},
+        {FX(3),0,FX(2)},{FX(1),0,FX(2)}
+    };
+    uint16_t indices[8]={0,1,2,3,4,5,6,7};
+    sat_mesh_t mesh{vertices,indices,8,8,2,2};
+    uint16_t id=400;
+    CHECK(sat_physics3_add_mesh(&w,&mesh,&rough,&id)==SAT_ERR_CAPACITY);
+    CHECK(id==400 && w.count==0);
+    CHECK(sat_physics3_set_mesh_contacts(&w,contacts,2)==SAT_OK);
+    indices[7]=9;
+    CHECK(sat_physics3_add_mesh(&w,&mesh,&rough,&id)==SAT_ERR_INVALID_ARG);
+    CHECK(id==400 && w.count==0);
+    indices[7]=7;
+    CHECK(sat_physics3_add_mesh(&w,&mesh,&rough,&id)==SAT_OK);
+    CHECK(id==0);
+    CHECK(sat_physics3_set_mesh_contacts(&w,contacts,1)==SAT_ERR_CAPACITY);
+    const sat_sphere_t ball={{0,FX(4),0},FX(1)};
+    CHECK(sat_physics3_add_sphere(&w,&ball,&zero,&rough,&id)==SAT_OK);
+    const sat_physics3_actor_t before=read(&w,id);
+    w.mesh_contact_capacity=1; /* Demonstrate preflight even if caller tampers. */
+    CHECK(sat_physics3_world_step(&w)==SAT_ERR_INVALID_ARG);
+    CHECK(read(&w,id).sphere.shape.center.y==before.sphere.shape.center.y);
+}
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
     moving_platform_and_multiple_balls();
     deterministic_replay();
     inclined_plane_and_tangent_friction();
-    std::puts("test_physics3_world: 5 tests passed");
+    finite_mesh_ramp_edge_and_gap();
+    mesh_registration_validates_indices_and_contact_capacity();
+    std::puts("test_physics3_world: 7 tests passed");
     return 0;
 }

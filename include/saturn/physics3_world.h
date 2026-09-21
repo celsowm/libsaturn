@@ -10,7 +10,8 @@ typedef enum sat_physics3_kind {
     SAT_PHYSICS3_STATIC_BOX=1,
     SAT_PHYSICS3_KINEMATIC_BOX=2,
     SAT_PHYSICS3_DYNAMIC_SPHERE=3,
-    SAT_PHYSICS3_STATIC_PLANE=4
+    SAT_PHYSICS3_STATIC_PLANE=4,
+    SAT_PHYSICS3_STATIC_MESH=5
 } sat_physics3_kind_t;
 typedef struct sat_physics3_material {
     sat_fx16_t friction;    /* [0,ONE]; tangent damping on support */
@@ -22,11 +23,14 @@ typedef struct sat_physics3_actor {
     sat_body3_t sphere;
     sat_aabb3_t box;
     sat_plane3_t plane; /* Infinite, two-sided and static. */
+    const sat_mesh_t* mesh; /* Borrowed, immutable WORLD-space quad mesh. */
     sat_vec3_t target_center; /* kinematic target at end of NEXT tick */
     sat_vec3_t frame_motion;  /* displacement per tick, zero for static boxes */
 } sat_physics3_actor_t;
 typedef struct sat_physics3_world {
     sat_physics3_actor_t* actors;
+    sat_contact3_t* mesh_contacts; /* Caller-owned shared query scratch. */
+    uint16_t mesh_contact_capacity;
     sat_vec3_t gravity; /* velocity delta per fixed tick */
     uint16_t count,capacity;
     uint8_t max_substeps; /* 1..64 */
@@ -44,6 +48,19 @@ sat_result_t sat_physics3_add_box(sat_physics3_world_t* world,
 sat_result_t sat_physics3_add_plane(sat_physics3_world_t* world,
     const sat_plane3_t* plane, const sat_physics3_material_t* material,
     uint16_t* out_id);
+/* Set shared scratch before adding a mesh. Capacity must be at least the
+ * largest registered mesh face_count, ensuring every contact is retained.
+ * Storage must outlive the world; there is no allocation or hidden fallback. */
+sat_result_t sat_physics3_set_mesh_contacts(
+    sat_physics3_world_t* world, sat_contact3_t* storage, uint16_t capacity);
+
+/* Mesh vertices and indices are already in world coordinates, remain immutable,
+ * and must outlive the collider. Finite quad faces retain their edges and gaps.
+ * The first implementation linearly tests mesh faces, without broad-phase. */
+sat_result_t sat_physics3_add_mesh(
+    sat_physics3_world_t* world, const sat_mesh_t* mesh,
+    const sat_physics3_material_t* material, uint16_t* out_id);
+
 sat_result_t sat_physics3_add_sphere(sat_physics3_world_t* world,
     const sat_sphere_t* sphere,const sat_vec3_t* velocity,
     const sat_physics3_material_t* material,uint16_t* out_id);
@@ -55,7 +72,7 @@ sat_result_t sat_physics3_get_actor(const sat_physics3_world_t* world,
     uint16_t id,sat_physics3_actor_t* out);
 /* Preflights velocity/step capacity before changing ANY actor; uses existing
  * sat_sphere_aabb3_contact / sat_sphere_plane_contact for iterative collision.
- * No sphere/sphere or mesh collision and no exact swept CCD in this slice. */
+ * No sphere/sphere collision or exact swept CCD in this slice. */
 sat_result_t sat_physics3_world_step(sat_physics3_world_t* world);
 #ifdef __cplusplus
 }

@@ -89,6 +89,37 @@ extern "C" sat_result_t sat_physics3_add_plane(
     a.plane=*plane;
     w->count=(uint16_t)(next+1u);*id=next;return SAT_OK;
 }
+extern "C" sat_result_t sat_physics3_set_mesh_contacts(
+    sat_physics3_world_t* w, sat_contact3_t* storage, uint16_t capacity) {
+    if(!valid(w)||!storage||!capacity)return SAT_ERR_INVALID_ARG;
+    /* Changing storage invalidates a prior capacity guarantee unless the new
+     * buffer still accommodates every registered mesh. */
+    for(uint16_t i=0;i<w->count;++i) {
+        const sat_physics3_actor_t& a=w->actors[i];
+        if(a.kind==SAT_PHYSICS3_STATIC_MESH &&
+           (!a.mesh||a.mesh->face_count>capacity))return SAT_ERR_CAPACITY;
+    }
+    w->mesh_contacts=storage;
+    w->mesh_contact_capacity=capacity;
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_physics3_add_mesh(
+    sat_physics3_world_t* w, const sat_mesh_t* mesh,
+    const sat_physics3_material_t* material, uint16_t* id) {
+    if(!valid(w)||!mesh||!id||!material_ok(material)||
+       !mesh->vertices||!mesh->indices||!mesh->vertex_count||
+       !mesh->face_count||mesh->vertex_count>mesh->vertex_cap||
+       mesh->face_count>mesh->face_cap)return SAT_ERR_INVALID_ARG;
+    if(!w->mesh_contacts||w->mesh_contact_capacity<mesh->face_count)
+        return SAT_ERR_CAPACITY;
+    if(w->count==w->capacity)return SAT_ERR_CAPACITY;
+    for(uint32_t f=0;f<(uint32_t)mesh->face_count*4u;++f)
+        if(mesh->indices[f]>=mesh->vertex_count)return SAT_ERR_INVALID_ARG;
+    const uint16_t next=w->count;
+    sat_physics3_actor_t& a=w->actors[next];a={};
+    a.kind=SAT_PHYSICS3_STATIC_MESH;a.material=*material;a.mesh=mesh;
+    w->count=(uint16_t)(next+1u);*id=next;return SAT_OK;
+}
 extern "C" sat_result_t sat_physics3_add_sphere(sat_physics3_world_t* w,
     const sat_sphere_t* sphere,const V* velocity,
     const sat_physics3_material_t* material,uint16_t* id){
@@ -141,6 +172,13 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
             if(!add_fits(a.sphere.shape.center,v))return SAT_ERR_INVALID_ARG;
             spheres=true;smallest_radius=mn(smallest_radius,a.sphere.shape.radius);
             dynamic_speed=mx(dynamic_speed,greatest(v));
+        }else if(a.kind==SAT_PHYSICS3_STATIC_MESH){
+            if(!a.mesh||!a.mesh->vertices||!a.mesh->indices||
+               !a.mesh->face_count||a.mesh->face_count>a.mesh->face_cap||
+               a.mesh->vertex_count>a.mesh->vertex_cap||
+               !w->mesh_contacts||
+               w->mesh_contact_capacity<a.mesh->face_count)
+                return SAT_ERR_INVALID_ARG;
         }else if(a.kind!=SAT_PHYSICS3_STATIC_BOX &&
                  a.kind!=SAT_PHYSICS3_STATIC_PLANE)return SAT_ERR_INVALID_ARG;
     }
@@ -179,6 +217,18 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                 for(uint16_t j=0;j<w->count;++j){
                     const sat_physics3_actor_t& box=w->actors[j];
                     if(box.kind==SAT_PHYSICS3_DYNAMIC_SPHERE)continue;
+                    if(box.kind==SAT_PHYSICS3_STATIC_MESH){
+                        uint16_t count=0;
+                        const sat_result_t status=sat_sphere_mesh_contact(
+                            box.mesh,&ball.sphere.shape,w->mesh_contacts,
+                            w->mesh_contact_capacity,&count);
+                        if(status!=SAT_OK)return status;
+                        for(uint16_t k=0;k<count;++k) {
+                            resolve(ball,box,w->mesh_contacts[k]);
+                            hit=true;
+                        }
+                        continue;
+                    }
                     sat_contact3_t c{};
                     const int contact=box.kind==SAT_PHYSICS3_STATIC_PLANE
                         ? sat_sphere_plane_contact(&ball.sphere.shape,&box.plane,&c)
