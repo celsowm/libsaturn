@@ -85,7 +85,7 @@ Mesh contacts are also **discrete** and two-sided, not swept collision or a
 one-way platform. `world_step` preflights caller scratch before movement,
 but the existing solver's general fixed-point overflow limitations remain.
 
-## Opt-in face-interior CCD (limited scope)
+## Opt-in finite-mesh CCD (limited scope)
 
 `sat_sphere_cast_mesh_faces(mesh, &sphere, &displacement, &hit, &found)`
 queries the earliest radius-offset **face-interior** crossing of a finite
@@ -99,9 +99,17 @@ quad **edge or vertex** from outside is not detected by the interior cast.
 a sweep before each discrete step against all registered static meshes. On a
 face-interior crossing, the world places the sphere at contact, resolves the
 incoming velocity, and moves the remaining substep using that velocity.
+The optional `sat_sphere_cast_mesh` extends this query to finite faces,
+**edges and vertices**, returning the first feature hit. The world uses that
+fuller query when CCD is enabled; the face-only query remains available to
+callers that need specifically a face-interior crossing.
+
 When a world contains only static meshes and dynamic spheres, this option
 caps substeps at `max_substeps` rather than rejecting a high-speed tick;
 box/plane/kinematic worlds retain the original capacity rejection contract.
-The sweep scans every mesh face even for grid-backed colliders. High-speed
-contacts on edges, corners, moving boxes and non-mesh colliders remain outside
-its guarantee; this is intentionally **not advertised as complete CCD**.
+The sweep scans every mesh face even for grid-backed colliders; face, edge
+and vertex impact tests are bounded integer calculations at 16.16 time
+resolution. Grazing hits narrower than one time unit, large-coordinate
+overflow, moving boxes, sphere/sphere contacts and non-mesh colliders
+remain outside its guarantee. This is intentionally **not a complete
+rigid-body CCD solver**. Keep gameplay coordinates local to the stage.

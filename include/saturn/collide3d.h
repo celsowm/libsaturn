@@ -43,6 +43,23 @@ sat_result_t sat_sphere_cast_mesh_faces(
     const sat_vec3_t* displacement, sat_sphere_mesh_face_hit_t* out,
     uint8_t* found);
 
+/* Earliest sphere impact against a finite convex quad mesh, including
+ * interiors, line-segment edges, and vertices. t is 16.16 fraction of the
+ * entire displacement; feature = 0 face, 1 edge, 2 vertex. Mesh is static
+ * and world-space. Initial overlaps belong to discrete contact resolution.
+ * Uses bounded integer convex-distance minimization, not a floating-point
+ * quadratic solver; sub-1/65536-tick grazing contacts may round away. */
+typedef struct sat_sphere_mesh_hit {
+    sat_fx16_t t;
+    sat_vec3_t center, point, normal;
+    uint16_t face;
+    uint8_t feature;
+} sat_sphere_mesh_hit_t;
+sat_result_t sat_sphere_cast_mesh(
+    const sat_mesh_t* mesh, const sat_sphere_t* sphere,
+    const sat_vec3_t* displacement, sat_sphere_mesh_hit_t* out,
+    uint8_t* found);
+
 int sat_sphere_overlap(const sat_sphere_t*, const sat_sphere_t*);
 int sat_sphere_sphere_overlap(const sat_sphere_t*, const sat_sphere_t*);
 int sat_aabb3_overlap(const sat_aabb3_t*, const sat_aabb3_t*);

@@ -252,14 +252,14 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                        (F)(ball.sphere.vel.y/steps),
                        (F)(ball.sphere.vel.z/steps)};
             if(w->mesh_face_ccd){
-                sat_sphere_mesh_face_hit_t earliest{};
+                sat_sphere_mesh_hit_t earliest{};
                 uint16_t hit_actor=0xffffu;
                 for(uint16_t j=0;j<w->count;++j){
                     const sat_physics3_actor_t& collider=w->actors[j];
                     if(collider.kind!=SAT_PHYSICS3_STATIC_MESH)continue;
-                    sat_sphere_mesh_face_hit_t candidate{};
+                    sat_sphere_mesh_hit_t candidate{};
                     uint8_t found=0;
-                    const sat_result_t status=sat_sphere_cast_mesh_faces(
+                    const sat_result_t status=sat_sphere_cast_mesh(
                         collider.mesh,&ball.sphere.shape,&d,
                         &candidate,&found);
                     if(status!=SAT_OK)return status;
@@ -270,7 +270,7 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                     }
                 }
                 if(hit_actor!=0xffffu){
-                    /* Position exactly on the incident offset plane and
+                    /* Position at the impact feature (face, edge or vertex) and
                      * resolve normal velocity before moving the residual
                      * fraction of this fixed substep. */
                     ball.sphere.shape.center=add(
