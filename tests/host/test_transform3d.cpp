@@ -114,7 +114,7 @@ static void exact_local_matrix_and_trs_switch() {
     CHECK(sat_transform3d_set_local(&w,child,&local)==SAT_OK);
     CHECK(!w.nodes[child].use_local_matrix);
     CHECK(sat_transform3d_evaluate(&w,scratch,3)==SAT_OK);
-    CHECK(matrix(&w,child).m[3]!=old.m[3]);
+    CHECK(matrix(&w,child).m[7]!=old.m[7]);
     CHECK(sat_transform3d_set_local_matrix(&w,12,&rot)==SAT_ERR_INVALID_ARG);
     sat_transform3d_world_reset(&w);
     CHECK(sat_transform3d_create(&w,&parent)==SAT_OK);
