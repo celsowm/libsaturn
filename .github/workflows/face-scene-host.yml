@@ -6,9 +6,9 @@ on:
       - 'include/saturn/scene3d_faces.h'
       - 'include/saturn/scene3d_material_pool.h'
       - 'include/saturn/render3d.h'
-      - 'src/core/scene3d_faces_api.cpp'
-      - 'src/core/scene3d_material_pool_api.cpp'
-      - 'src/core/render3d_indexed_api.cpp'
+      - 'src/graphics/3d/scene/faces.cpp'
+      - 'src/graphics/3d/materials/pool.cpp'
+      - 'src/graphics/3d/rendering/indexed.cpp'
       - 'examples/skybridge_3d/**'
       - 'tests/host/test_scene3d_faces_api.cpp'
       - 'tests/host/test_scene3d_material_pool.cpp'
@@ -18,7 +18,7 @@ on:
   pull_request:
     paths:
       - 'include/saturn/scene3d_faces.h'
-      - 'src/core/scene3d_faces_api.cpp'
+      - 'src/graphics/3d/scene/faces.cpp'
       - 'examples/skybridge_3d/**'
       - 'tests/host/test_scene3d_faces_api.cpp'
       - '.github/workflows/face-scene-host.yml'

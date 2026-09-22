@@ -10,7 +10,7 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
 
 ## Repository audit, verified from main
 
-- Core mesh geometry: `include/saturn/mesh3d.h`, `src/core/mesh3d_logic.hpp`, `src/core/mesh3d_api.cpp`.
+- Core mesh geometry: `include/saturn/mesh3d.h`, `src/graphics/3d/geometry/mesh_logic.hpp`, `src/graphics/3d/geometry/mesh.cpp`.
 - Host mesh tests: `tests/host/test_mesh3d_logic.cpp` (29 test invocations at baseline), `tests/host/test_mesh3d_textured.cpp`.
 - Skybridge draw path: `examples/skybridge_3d/main.c`: per-frame manually assembled octahedron; indexed face clipping; 4 courses in `game.h`.
 - Other audit targets: Pac-Man 3D static bake and per-frame primitives, Infinite Explorer world/perspective and model transforms, two duplicated Basic 3D orbit implementations, Distance Fade material plumbing, Pac-Man 2D sprite preparation, RBG0 example cross-includes.

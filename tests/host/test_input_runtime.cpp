@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "src/core/input_runtime.hpp"
+#include "src/input/runtime.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 

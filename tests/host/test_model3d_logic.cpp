@@ -5,7 +5,7 @@
 #include <cstdlib>
 
 #include "saturn/model3d.h"
-#include "src/core/model3d_logic.hpp"
+#include "src/graphics/3d/geometry/model_logic.hpp"
 
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
     fprintf(stderr, "FAIL %s:%d: %s (%ld) != %s (%ld)\n", __FILE__, __LINE__, \

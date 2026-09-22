@@ -6,7 +6,7 @@
 #include <cstring>
 
 #include "saturn/fmt.h"
-#include "src/core/fmt_logic.hpp"
+#include "src/core/runtime/format_logic.hpp"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \

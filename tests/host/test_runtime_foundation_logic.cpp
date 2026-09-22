@@ -5,8 +5,8 @@
 #include "saturn/color.h"
 #include "saturn/geometry2d.h"
 #include "saturn/memory.h"
-#include "src/core/memory_logic.hpp"
-#include "src/core/time_logic.hpp"
+#include "src/core/memory/logic.hpp"
+#include "src/core/runtime/time_logic.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 

@@ -5,7 +5,7 @@
 #include <cstdint>
 
 #include "saturn/core.h"
-#include "src/core/logic.hpp"
+#include "src/core/runtime/logic.hpp"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \

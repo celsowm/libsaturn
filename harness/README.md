@@ -11,7 +11,7 @@ core, to drive end-to-end assertions against built ROMs.
 Rules that keep the two licenses from mixing:
 
 1. **Nothing under `harness/` is compiled into `libsaturn.a`.** The root
-   `Makefile` only globs `src/core/*.cpp` and `src/hal/*.cpp` — `harness/` is
+   `Makefile` recursively discovers implementation files under `src/` — `harness/` is
    invisible to it by construction.
 2. **Nothing under `harness/` may `#include` a libsaturn header or link
    `libsaturn.a`.** The harness treats built `.iso` files as opaque black

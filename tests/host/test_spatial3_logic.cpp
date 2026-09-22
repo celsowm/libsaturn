@@ -2,7 +2,7 @@
 #include <cstdlib>
 
 #include "saturn/spatial3.h"
-#include "src/core/spatial3_logic.hpp"
+#include "src/physics/spatial/3d_logic.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); std::exit(1); } } while (0)
 static sat_fx16_t F(int x) { return static_cast<sat_fx16_t>(x * 65536); }

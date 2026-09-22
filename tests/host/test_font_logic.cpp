@@ -5,7 +5,7 @@
 #include <cstdint>
 
 #include "saturn/font.h"
-#include "src/core/font_logic.hpp"
+#include "src/graphics/2d/font/logic.hpp"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \

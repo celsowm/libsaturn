@@ -5,7 +5,7 @@
 #include <cstdint>
 
 #include "saturn/math3d.h"
-#include "src/core/math3d_logic.hpp"
+#include "src/graphics/3d/geometry/math_logic.hpp"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \

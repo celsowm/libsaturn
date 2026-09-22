@@ -142,9 +142,9 @@ def assert_2d_state_and_manifest_owners_are_used() -> None:
 def assert_legacy_scene_routes_are_gone_from_code() -> None:
     for path in (
         ROOT / "include" / "saturn" / "scene3d.h",
-        ROOT / "src" / "core" / "scene3d_api.cpp",
+        ROOT / "src" / "graphics" / "3d" / "scene" / "api.cpp",
         ROOT / "include" / "saturn" / "mesh3d.h",
-        ROOT / "src" / "core" / "mesh3d_api.cpp",
+        ROOT / "src" / "graphics" / "3d" / "geometry" / "mesh.cpp",
     ):
         text = path.read_text(encoding="utf-8")
         assert "sat_scene3d_queue_" not in text, path

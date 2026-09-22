@@ -2,7 +2,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include "saturn/surface.h"
-#include "src/core/surface_logic.hpp"
+#include "src/graphics/2d/surfaces/logic.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); std::exit(1); } } while (0)
 

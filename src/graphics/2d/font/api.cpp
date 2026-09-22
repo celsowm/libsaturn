@@ -1,0 +1,457 @@
+#include "saturn/font.h"
+#include "saturn/vdp1.h"
+
+#include "src/graphics/2d/font/logic.hpp"
+
+namespace {
+
+static const uint8_t kAscii8x8Font[96][8] = {
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+    {0x18, 0x3C, 0x3C, 0x18, 0x18, 0x00, 0x18, 0x00},
+    {0x6C, 0x6C, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00},
+    {0x6C, 0x6C, 0xFE, 0x6C, 0xFE, 0x6C, 0x6C, 0x00},
+    {0x18, 0x7E, 0xC0, 0x7C, 0x06, 0xFC, 0x18, 0x00},
+    {0x00, 0xC6, 0xCC, 0x18, 0x30, 0x66, 0xC6, 0x00},
+    {0x38, 0x6C, 0x38, 0x76, 0xDC, 0xCC, 0x76, 0x00},
+    {0x18, 0x18, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00},
+    {0x0C, 0x18, 0x30, 0x30, 0x30, 0x18, 0x0C, 0x00},
+    {0x30, 0x18, 0x0C, 0x0C, 0x0C, 0x18, 0x30, 0x00},
+    {0x00, 0x66, 0x3C, 0xFF, 0x3C, 0x66, 0x00, 0x00},
+    {0x00, 0x18, 0x18, 0x7E, 0x18, 0x18, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x30},
+    {0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00},
+    {0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x80, 0x00},
+    {0x7C, 0xC6, 0xCE, 0xDE, 0xF6, 0xE6, 0x7C, 0x00},
+    {0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00},
+    {0x7C, 0xC6, 0x06, 0x1C, 0x30, 0x66, 0xFE, 0x00},
+    {0x7C, 0xC6, 0x06, 0x3C, 0x06, 0xC6, 0x7C, 0x00},
+    {0x1C, 0x3C, 0x6C, 0xCC, 0xFE, 0x0C, 0x1E, 0x00},
+    {0xFE, 0xC0, 0xFC, 0x06, 0x06, 0xC6, 0x7C, 0x00},
+    {0x38, 0x60, 0xC0, 0xFC, 0xC6, 0xC6, 0x7C, 0x00},
+    {0xFE, 0xC6, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00},
+    {0x7C, 0xC6, 0xC6, 0x7C, 0xC6, 0xC6, 0x7C, 0x00},
+    {0x7C, 0xC6, 0xC6, 0x7E, 0x06, 0x0C, 0x78, 0x00},
+    {0x00, 0x18, 0x18, 0x00, 0x00, 0x18, 0x18, 0x00},
+    {0x00, 0x18, 0x18, 0x00, 0x00, 0x18, 0x18, 0x30},
+    {0x0C, 0x18, 0x30, 0x60, 0x30, 0x18, 0x0C, 0x00},
+    {0x00, 0x00, 0x7E, 0x00, 0x7E, 0x00, 0x00, 0x00},
+    {0x60, 0x30, 0x18, 0x0C, 0x18, 0x30, 0x60, 0x00},
+    {0x7C, 0xC6, 0x0C, 0x18, 0x18, 0x00, 0x18, 0x00},
+    {0x7C, 0xC6, 0xDE, 0xDE, 0xDC, 0xC0, 0x7C, 0x00},
+    {0x38, 0x6C, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0x00},
+    {0xFC, 0x66, 0x66, 0x7C, 0x66, 0x66, 0xFC, 0x00},
+    {0x3C, 0x66, 0xC0, 0xC0, 0xC0, 0x66, 0x3C, 0x00},
+    {0xF8, 0x6C, 0x66, 0x66, 0x66, 0x6C, 0xF8, 0x00},
+    {0xFE, 0x62, 0x68, 0x78, 0x68, 0x62, 0xFE, 0x00},
+    {0xFE, 0x62, 0x68, 0x78, 0x68, 0x60, 0xF0, 0x00},
+    {0x3C, 0x66, 0xC0, 0xC0, 0xCE, 0x66, 0x3E, 0x00},
+    {0xC6, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0x00},
+    {0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00},
+    {0x1E, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0x78, 0x00},
+    {0xE6, 0x66, 0x6C, 0x78, 0x6C, 0x66, 0xE6, 0x00},
+    {0xF0, 0x60, 0x60, 0x60, 0x62, 0x66, 0xFE, 0x00},
+    {0xC6, 0xEE, 0xFE, 0xD6, 0xC6, 0xC6, 0xC6, 0x00},
+    {0xC6, 0xE6, 0xF6, 0xDE, 0xCE, 0xC6, 0xC6, 0x00},
+    {0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00},
+    {0xFC, 0x66, 0x66, 0x7C, 0x60, 0x60, 0xF0, 0x00},
+    {0x7C, 0xC6, 0xC6, 0xC6, 0xD6, 0xDE, 0x7C, 0x0E},
+    {0xFC, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0xE6, 0x00},
+    {0x7C, 0xC6, 0xC0, 0x7C, 0x06, 0xC6, 0x7C, 0x00},
+    {0x7E, 0x5A, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00},
+    {0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00},
+    {0xC6, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x10, 0x00},
+    {0xC6, 0xC6, 0xC6, 0xD6, 0xFE, 0xEE, 0xC6, 0x00},
+    {0xC6, 0x6C, 0x38, 0x38, 0x6C, 0xC6, 0xC6, 0x00},
+    {0x66, 0x66, 0x66, 0x3C, 0x18, 0x18, 0x3C, 0x00},
+    {0xFE, 0xC6, 0x8C, 0x18, 0x32, 0x66, 0xFE, 0x00},
+    {0x3C, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3C, 0x00},
+    {0xC0, 0x60, 0x30, 0x18, 0x0C, 0x06, 0x02, 0x00},
+    {0x3C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x3C, 0x00},
+    {0x10, 0x38, 0x6C, 0xC6, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE},
+    {0x30, 0x18, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x78, 0x0C, 0x7C, 0xCC, 0x76, 0x00},
+    {0xE0, 0x60, 0x7C, 0x66, 0x66, 0x66, 0xDC, 0x00},
+    {0x00, 0x00, 0x7C, 0xC6, 0xC0, 0xC6, 0x7C, 0x00},
+    {0x1C, 0x0C, 0x7C, 0xCC, 0xCC, 0xCC, 0x76, 0x00},
+    {0x00, 0x00, 0x7C, 0xC6, 0xFE, 0xC0, 0x7C, 0x00},
+    {0x1C, 0x36, 0x30, 0x78, 0x30, 0x30, 0x78, 0x00},
+    {0x00, 0x00, 0x76, 0xCC, 0xCC, 0x7C, 0x0C, 0x78},
+    {0xE0, 0x60, 0x6C, 0x76, 0x66, 0x66, 0xE6, 0x00},
+    {0x18, 0x00, 0x38, 0x18, 0x18, 0x18, 0x3C, 0x00},
+    {0x06, 0x00, 0x0E, 0x06, 0x06, 0x66, 0x66, 0x3C},
+    {0xE0, 0x60, 0x66, 0x6C, 0x78, 0x6C, 0xE6, 0x00},
+    {0x38, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00},
+    {0x00, 0x00, 0xCC, 0xFE, 0xD6, 0xD6, 0xC6, 0x00},
+    {0x00, 0x00, 0xDC, 0x66, 0x66, 0x66, 0x66, 0x00},
+    {0x00, 0x00, 0x7C, 0xC6, 0xC6, 0xC6, 0x7C, 0x00},
+    {0x00, 0x00, 0xDC, 0x66, 0x66, 0x7C, 0x60, 0xF0},
+    {0x00, 0x00, 0x76, 0xCC, 0xCC, 0x7C, 0x0C, 0x1E},
+    {0x00, 0x00, 0xDC, 0x76, 0x60, 0x60, 0xF0, 0x00},
+    {0x00, 0x00, 0x7C, 0xC0, 0x7C, 0x06, 0xFC, 0x00},
+    {0x30, 0x30, 0x7C, 0x30, 0x30, 0x36, 0x1C, 0x00},
+    {0x00, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0x76, 0x00},
+    {0x00, 0x00, 0xC6, 0xC6, 0x6C, 0x38, 0x10, 0x00},
+    {0x00, 0x00, 0xC6, 0xD6, 0xD6, 0xFE, 0x6C, 0x00},
+    {0x00, 0x00, 0xC6, 0x6C, 0x38, 0x6C, 0xC6, 0x00},
+    {0x00, 0x00, 0xC6, 0xC6, 0xC6, 0x7E, 0x06, 0xFC},
+    {0x00, 0x00, 0xFE, 0x8C, 0x18, 0x32, 0xFE, 0x00},
+    {0x1C, 0x30, 0x30, 0x60, 0x30, 0x30, 0x1C, 0x00},
+    {0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00},
+    {0x70, 0x18, 0x18, 0x0C, 0x18, 0x18, 0x70, 0x00},
+    {0x00, 0x76, 0xDC, 0x00, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x10, 0x38, 0x6C, 0xC6, 0xC6, 0xFE, 0x00}
+};
+
+}  // namespace
+
+static sat_result_t upload_ascii_font_glyph_indexed8(
+    sat_vdp1_texture_t* out_texture,
+    char ch,
+    const uint16_t* palette_rgb555,
+    uint16_t palette_index
+) {
+    uint8_t glyph_pixels[SAT_ASCII_FONT_GLYPH_WIDTH * SAT_ASCII_FONT_GLYPH_HEIGHT] = {};
+    const uint8_t* rows = sat_font_ascii_8x8_rows(ch);
+
+    SAT_TRY(sat_font_pack_8x8_glyph_indexed8(
+        glyph_pixels,
+        SAT_ASCII_FONT_GLYPH_WIDTH,
+        SAT_ASCII_FONT_GLYPH_HEIGHT,
+        0,
+        0,
+        rows,
+        1
+    ));
+
+    return sat_tex_upload_indexed8(
+        out_texture,
+        glyph_pixels,
+        SAT_ASCII_FONT_GLYPH_WIDTH,
+        SAT_ASCII_FONT_GLYPH_HEIGHT,
+        palette_rgb555,
+        palette_index
+    );
+}
+
+static sat_result_t upload_ascii_font_glyph_scaled_indexed8(
+    sat_vdp1_texture_t* out_texture,
+    char ch,
+    const uint16_t* palette_rgb555,
+    uint16_t palette_index,
+    uint8_t scale
+) {
+    if (scale > 8u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const uint16_t glyph_w = static_cast<uint16_t>(SAT_ASCII_FONT_GLYPH_WIDTH) * scale;
+    const uint16_t glyph_h = static_cast<uint16_t>(SAT_ASCII_FONT_GLYPH_HEIGHT) * scale;
+    uint8_t glyph_pixels[64u * 8u] = {};  /* max 64x64 @ scale=8 */
+    const uint8_t* rows = sat_font_ascii_8x8_rows(ch);
+
+    SAT_TRY(sat_font_pack_8x8_glyph_indexed8(
+        glyph_pixels,
+        glyph_w,
+        glyph_h,
+        0,
+        0,
+        rows,
+        scale
+    ));
+
+    return sat_tex_upload_indexed8(
+        out_texture,
+        glyph_pixels,
+        glyph_w,
+        glyph_h,
+        palette_rgb555,
+        palette_index
+    );
+}
+
+extern "C" sat_result_t sat_ascii_font_init_8x8_indexed8(
+    sat_ascii_font_t* out_font,
+    uint16_t fg_rgb555,
+    uint16_t bg_rgb555,
+    uint16_t palette_index
+) {
+    if (out_font == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    uint16_t palette[256] = {};
+    palette[0] = bg_rgb555;
+    palette[1] = fg_rgb555;
+
+    for (uint16_t glyph = 0u; glyph < SAT_ASCII_FONT_GLYPH_COUNT; ++glyph) {
+        SAT_TRY(upload_ascii_font_glyph_indexed8(
+            &out_font->glyphs[glyph],
+            (char)(glyph + 32u),
+            palette,
+            palette_index
+        ));
+    }
+
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_ascii_font_init_scaled_indexed8(
+    sat_ascii_font_t* out_font,
+    uint16_t fg_rgb555,
+    uint16_t bg_rgb555,
+    uint16_t palette_index,
+    uint8_t scale
+) {
+    if (out_font == nullptr || scale == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    uint16_t palette[256] = {};
+    palette[0] = bg_rgb555;
+    palette[1] = fg_rgb555;
+
+    for (uint16_t glyph = 0u; glyph < SAT_ASCII_FONT_GLYPH_COUNT; ++glyph) {
+        SAT_TRY(upload_ascii_font_glyph_scaled_indexed8(
+            &out_font->glyphs[glyph],
+            (char)(glyph + 32u),
+            palette,
+            palette_index,
+            scale
+        ));
+    }
+
+    return SAT_OK;
+}
+
+extern "C" int sat_ascii_font_measure_text_indexed8(const char* text, int char_spacing) {
+    return saturn::core::measure_ascii_text_indexed8_impl(text, char_spacing);
+}
+
+extern "C" int sat_ascii_font_measure_text_scaled_indexed8(const char* text, int char_spacing, uint8_t scale) {
+    return saturn::core::measure_ascii_text_scaled_indexed8_impl(text, char_spacing, scale);
+}
+
+extern "C" sat_result_t sat_ascii_font_draw_text_indexed8(
+    const sat_ascii_font_t* font,
+    const char* text,
+    int x,
+    int y,
+    int char_spacing,
+    uint16_t palette_override,
+    uint16_t flags
+) {
+    if (font == nullptr || text == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    return sat_font_draw_text_ascii_indexed8(
+        font->glyphs,
+        text,
+        x,
+        y,
+        char_spacing,
+        palette_override,
+        flags
+    );
+}
+
+extern "C" sat_result_t sat_ascii_font_draw_text_centered_indexed8(
+    const sat_ascii_font_t* font,
+    const char* text,
+    int center_x,
+    int y,
+    int char_spacing,
+    uint16_t palette_override,
+    uint16_t flags
+) {
+    if (font == nullptr || text == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    const int width = sat_ascii_font_measure_text_indexed8(text, char_spacing);
+    const int x = center_x - (width / 2);
+    return sat_ascii_font_draw_text_indexed8(font, text, x, y, char_spacing, palette_override, flags);
+}
+
+extern "C" const uint8_t* sat_font_ascii_8x8_rows(char c) {
+    const unsigned char code = static_cast<unsigned char>(c);
+    if (code < 32u || code > 127u) {
+        return kAscii8x8Font[0];
+    }
+    return kAscii8x8Font[static_cast<uint16_t>(code - 32u)];
+}
+
+extern "C" sat_result_t sat_font_pack_8x8_glyph_indexed8(
+    uint8_t* pixels,
+    uint16_t width,
+    uint16_t height,
+    uint16_t dst_x,
+    uint16_t dst_y,
+    const uint8_t* glyph_rows,
+    uint8_t scale
+) {
+    return saturn::core::pack_8x8_glyph_indexed8_impl(
+        pixels,
+        width,
+        height,
+        dst_x,
+        dst_y,
+        glyph_rows,
+        scale
+    );
+}
+
+extern "C" sat_result_t sat_font_draw_text_line_indexed8(
+    const sat_vdp1_texture_t* glyph_textures,
+    const char* glyph_chars,
+    uint16_t glyph_count,
+    const char* text,
+    int x,
+    int y,
+    int char_spacing,
+    uint16_t palette_override,
+    uint16_t flags
+) {
+    if (glyph_textures == nullptr || glyph_chars == nullptr || text == nullptr || glyph_count == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    constexpr uint16_t kMissingGlyph = 0xFFFFu;
+    constexpr uint16_t kLinearGlyphThreshold = 8u;
+    uint16_t glyph_lookup[256];
+    const bool use_lookup = glyph_count > kLinearGlyphThreshold;
+    if (use_lookup) {
+        for (uint16_t i = 0u; i < 256u; ++i) glyph_lookup[i] = kMissingGlyph;
+        for (uint16_t i = 0u; i < glyph_count; ++i) {
+            const uint8_t code = static_cast<uint8_t>(glyph_chars[i]);
+            if (glyph_lookup[code] == kMissingGlyph) glyph_lookup[code] = i;
+        }
+    }
+
+    int pen_x = x;
+    for (const char* p = text; *p != '\0'; ++p) {
+        uint16_t glyph_index = 0u;
+        const char ch = *p;
+
+        if (use_lookup) {
+            const uint16_t found = glyph_lookup[static_cast<uint8_t>(ch)];
+            if (found != kMissingGlyph) glyph_index = found;
+        } else {
+            for (uint16_t i = 0u; i < glyph_count; ++i) {
+                if (glyph_chars[i] == ch) {
+                    glyph_index = i;
+                    break;
+                }
+            }
+        }
+
+        const sat_vdp1_texture_t* texture = &glyph_textures[glyph_index];
+        sat_sprite_cmd_t cmd = {
+            (sat_fx16_t)(pen_x * SAT_FX16_ONE),
+            (sat_fx16_t)(y * SAT_FX16_ONE),
+            0u,
+            0u,
+            texture,
+            palette_override,
+            flags
+        };
+
+        sat_result_t st = sat_draw_sprite(&cmd);
+        if (st != SAT_OK) {
+            return st;
+        }
+
+        /* char_spacing is the per-glyph ADVANCE. A non-positive value would
+         * otherwise leave the pen where it is and pile every glyph of the
+         * string onto one another, rendering a solid block; advance by the
+         * glyph's own width instead, so 0 means "glyphs touching". */
+        pen_x += (char_spacing > 0) ? char_spacing : static_cast<int>(texture->width);
+    }
+
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_font_draw_text_ascii_indexed8(
+    const sat_vdp1_texture_t* ascii_textures,
+    const char* text,
+    int x,
+    int y,
+    int char_spacing,
+    uint16_t palette_override,
+    uint16_t flags
+) {
+    if (ascii_textures == nullptr || text == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    int pen_x = x;
+    for (const char* p = text; *p != '\0'; ++p) {
+        const unsigned char code = static_cast<unsigned char>(*p);
+        uint16_t glyph_index = 0u;
+        if (code >= 32u && code <= 127u) {
+            glyph_index = static_cast<uint16_t>(code - 32u);
+        }
+
+        const sat_vdp1_texture_t* texture = &ascii_textures[glyph_index];
+        sat_sprite_cmd_t cmd = {
+            (sat_fx16_t)(pen_x * SAT_FX16_ONE),
+            (sat_fx16_t)(y * SAT_FX16_ONE),
+            0u,
+            0u,
+            texture,
+            palette_override,
+            flags
+        };
+
+        sat_result_t st = sat_draw_sprite(&cmd);
+        if (st != SAT_OK) {
+            return st;
+        }
+
+        /* char_spacing is the per-glyph ADVANCE. A non-positive value would
+         * otherwise leave the pen where it is and pile every glyph of the
+         * string onto one another, rendering a solid block; advance by the
+         * glyph's own width instead, so 0 means "glyphs touching". */
+        pen_x += (char_spacing > 0) ? char_spacing : static_cast<int>(texture->width);
+    }
+
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_font_upload_ascii_8x8_textures_indexed8(
+    sat_vdp1_texture_t* out_textures,
+    uint8_t* glyph_pixels,
+    uint16_t glyph_count,
+    const uint16_t* palette_rgb555,
+    uint16_t palette_index
+) {
+    if (out_textures == nullptr || glyph_pixels == nullptr || palette_rgb555 == nullptr || glyph_count == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    for (uint16_t glyph = 0u; glyph < glyph_count; ++glyph) {
+        const uint8_t* rows = sat_font_ascii_8x8_rows((char)(glyph + 32u));
+        uint8_t* pixels = glyph_pixels + (glyph * 8u * 8u);
+
+        sat_result_t st = sat_font_pack_8x8_glyph_indexed8(
+            pixels,
+            8,
+            8,
+            0,
+            0,
+            rows,
+            1
+        );
+        if (st != SAT_OK) {
+            return st;
+        }
+
+        st = sat_tex_upload_indexed8(&out_textures[glyph], pixels, 8, 8, palette_rgb555, palette_index);
+        if (st != SAT_OK) {
+            return st;
+        }
+    }
+
+    return SAT_OK;
+}

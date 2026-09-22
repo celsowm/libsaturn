@@ -65,13 +65,17 @@ DEPFLAGS    := -MMD -MP
 CXXFLAGS    := $(CFLAGS) -std=c++20 -fno-exceptions -fno-rtti \
                -fno-threadsafe-statics -fno-use-cxa-atexit
 ASFLAGS     := -m2 -mb
-LDFLAGS     := -m2 -mb -nostdlib -Wl,-T,src/core/saturn.ld \
+LDFLAGS     := -m2 -mb -nostdlib -Wl,-T,src/core/startup/saturn.ld \
                -Wl,-Map,$(BUILD_DIR)/$(EXAMPLE).map -Wl,--gc-sections
 
 # -- Biblioteca -------------------------------------------------
-LIB_CPP_SRCS := $(wildcard src/core/*.cpp) $(wildcard src/hal/*.cpp)
-LIB_C_SRCS   := $(wildcard src/core/*.c)
-CRT_SRCS     := $(wildcard src/core/*.s)
+# Source files are intentionally discovered recursively: implementation ownership
+# is expressed by the directory tree, so a shallow wildcard would silently omit
+# every subsystem below src/core, src/graphics, src/audio, and src/hal.
+rwildcard = $(foreach d,$(wildcard $(1)/*),$(call rwildcard,$(d),$(2)) $(wildcard $(d)/$(2)))
+LIB_CPP_SRCS := $(call rwildcard,src,*.cpp)
+LIB_C_SRCS   := $(call rwildcard,src,*.c)
+CRT_SRCS     := $(call rwildcard,src,*.s)
 
 LIB_CPP_OBJS := $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(LIB_CPP_SRCS))
 LIB_C_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(LIB_C_SRCS))
@@ -380,7 +384,7 @@ $(CUE): $(ISO)
 		--cue-output $(CUE)
 
 # -- Host tests -------------------------------------------------
-# tests/host/*.cpp exercise the pure helpers in src/core/logic.hpp. They are
+# tests/host/*.cpp exercise the pure helpers in src/core/runtime/logic.hpp. They are
 # built with the NATIVE compiler (not sh2eb-elf-g++) and run on the host, so
 # they need no Saturn hardware, emulator or BIOS.
 #   make test
@@ -394,60 +398,60 @@ HOST_TOOL_TESTS := $(wildcard tests/tools/*.py)
 # a header (e.g. font glyph tables), and stub out that file's hardware calls
 # themselves (see the extern "C" stubs at the top of test_font_logic.cpp).
 # List such extra sources per test name here.
-HOST_TEST_EXTRA_test_font_logic := src/core/font_api.cpp
+HOST_TEST_EXTRA_test_font_logic := src/graphics/2d/font/api.cpp
 HOST_TEST_EXTRA_test_font_text_logic :=
 HOST_TEST_EXTRA_test_audio_stream_logic :=
-HOST_TEST_EXTRA_test_audio_stream_api := src/core/audio_stream_api.cpp src/core/audio_stream_runtime.cpp
-HOST_TEST_EXTRA_test_music_api := src/core/music_api.cpp src/core/audio_stream_api.cpp src/core/audio_stream_runtime.cpp
-HOST_TEST_EXTRA_test_save_api := src/core/save_api.cpp
-HOST_TEST_EXTRA_test_save_schema := src/core/save_schema_api.cpp
-HOST_TEST_EXTRA_test_resource_plan := src/core/resource_plan_api.cpp
-HOST_TEST_EXTRA_test_hud := src/core/hud_api.cpp
-HOST_TEST_EXTRA_test_sprite_anim := src/core/sprite_anim_api.cpp
-HOST_TEST_EXTRA_test_view_cache := src/core/view_cache_api.cpp
-HOST_TEST_EXTRA_test_surface3d := src/core/surface3d_api.cpp
-HOST_TEST_EXTRA_test_vdp2_environment := src/core/vdp2_environment_api.cpp
-HOST_TEST_EXTRA_test_ram_cart_api := src/core/ram_cart_api.cpp src/core/memory_api.cpp
-HOST_TEST_EXTRA_test_ram_cart_1m := src/core/ram_cart_api.cpp src/core/memory_api.cpp
-HOST_TEST_EXTRA_test_file_asset_logic := src/core/file_api.cpp src/core/asset_api.cpp src/core/file_asset_runtime.cpp src/core/texture_api.cpp src/core/runtime_state.cpp src/core/palette_registry.cpp src/core/texture_runtime.cpp
-HOST_TEST_EXTRA_test_cdfs_logic := src/core/cd_api.cpp src/core/cdfs_api.cpp src/core/file_api.cpp src/core/file_asset_runtime.cpp
-HOST_TEST_EXTRA_test_cd_block_api := src/hal/cd_block.cpp src/core/cd_api.cpp
-HOST_TEST_EXTRA_test_math3d_logic := src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_orbit_camera3d := src/core/orbit_camera3d_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_follow_camera3d := src/core/follow_camera3d_api.cpp
-HOST_TEST_EXTRA_test_transform3d := src/core/transform3d_api.cpp src/core/scene3d_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_physics3_transform := src/core/physics3_transform_api.cpp src/core/physics3_world_api.cpp src/core/transform3d_api.cpp src/core/scene3d_api.cpp src/core/math3d_api.cpp src/core/collide3d_api.cpp src/core/collide3d_sweep_api.cpp src/core/collide3d_sweep_full_api.cpp
-HOST_TEST_EXTRA_test_scene_transform3d := src/core/scene_transform3d_api.cpp src/core/transform3d_api.cpp src/core/scene3d_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_render3d_logic := src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_voxel_terrain := src/core/voxel_terrain_api.cpp src/core/math3d_api.cpp
+HOST_TEST_EXTRA_test_audio_stream_api := src/audio/streaming/api.cpp src/audio/streaming/runtime.cpp
+HOST_TEST_EXTRA_test_music_api := src/audio/playback/music.cpp src/audio/streaming/api.cpp src/audio/streaming/runtime.cpp
+HOST_TEST_EXTRA_test_save_api := src/storage/save/api.cpp
+HOST_TEST_EXTRA_test_save_schema := src/storage/save/schema.cpp
+HOST_TEST_EXTRA_test_resource_plan := src/resources/plan.cpp
+HOST_TEST_EXTRA_test_hud := src/graphics/2d/hud.cpp
+HOST_TEST_EXTRA_test_sprite_anim := src/graphics/2d/sprites/animation.cpp
+HOST_TEST_EXTRA_test_view_cache := src/graphics/3d/scene/view_cache.cpp
+HOST_TEST_EXTRA_test_surface3d := src/graphics/3d/rendering/surface.cpp
+HOST_TEST_EXTRA_test_vdp2_environment := src/graphics/vdp2/environment.cpp
+HOST_TEST_EXTRA_test_ram_cart_api := src/storage/cartridge/api.cpp src/core/memory/api.cpp
+HOST_TEST_EXTRA_test_ram_cart_1m := src/storage/cartridge/api.cpp src/core/memory/api.cpp
+HOST_TEST_EXTRA_test_file_asset_logic := src/storage/files/api.cpp src/resources/assets.cpp src/storage/files/asset_runtime.cpp src/graphics/2d/textures/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp src/graphics/2d/textures/runtime.cpp
+HOST_TEST_EXTRA_test_cdfs_logic := src/storage/cd/api.cpp src/storage/cd/filesystem.cpp src/storage/files/api.cpp src/storage/files/asset_runtime.cpp
+HOST_TEST_EXTRA_test_cd_block_api := src/hal/cd/block.cpp src/storage/cd/api.cpp
+HOST_TEST_EXTRA_test_math3d_logic := src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_orbit_camera3d := src/graphics/3d/camera/orbit.cpp src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_follow_camera3d := src/graphics/3d/camera/follow.cpp
+HOST_TEST_EXTRA_test_transform3d := src/graphics/3d/geometry/transform.cpp src/graphics/3d/scene/api.cpp src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_physics3_transform := src/physics/3d/transform.cpp src/physics/3d/world.cpp src/graphics/3d/geometry/transform.cpp src/graphics/3d/scene/api.cpp src/graphics/3d/geometry/math.cpp src/physics/3d/collision.cpp src/physics/3d/sweep.cpp src/physics/3d/sweep_full.cpp
+HOST_TEST_EXTRA_test_scene_transform3d := src/graphics/3d/scene/transform.cpp src/graphics/3d/geometry/transform.cpp src/graphics/3d/scene/api.cpp src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_render3d_logic := src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_voxel_terrain := src/physics/spatial/voxel_terrain.cpp src/graphics/3d/geometry/math.cpp
 HOST_TEST_EXTRA_test_voxel_display_probe :=
-HOST_TEST_EXTRA_test_render3d_effects := src/core/render3d_api.cpp src/core/math3d_api.cpp src/core/runtime_state.cpp
-HOST_TEST_EXTRA_test_render3d_indexed := src/core/render3d_indexed_api.cpp
-HOST_TEST_EXTRA_test_vdp2_bitmap := src/core/vdp2_bitmap_api.cpp
-HOST_TEST_EXTRA_test_mesh3d_logic := src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_mesh3d_textured := src/core/mesh3d_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_vdp1_upload := src/core/vdp1_api.cpp src/core/runtime_state.cpp src/core/palette_registry.cpp
-HOST_TEST_EXTRA_test_vdp1_clip := src/hal/vdp1.cpp
-HOST_TEST_EXTRA_test_texture_api := src/core/texture_api.cpp src/core/runtime_state.cpp src/core/palette_registry.cpp src/core/texture_runtime.cpp
-HOST_TEST_EXTRA_test_render2d_api := src/core/render2d_api.cpp src/core/render2d_runtime.cpp src/core/texture_api.cpp src/core/texture_runtime.cpp src/core/palette_registry.cpp src/core/runtime_state.cpp
-HOST_TEST_EXTRA_test_input_api := src/core/input_api.cpp src/core/input_runtime.cpp src/core/runtime_state.cpp
-HOST_TEST_EXTRA_test_model3d_logic := src/core/model3d_api.cpp src/core/mesh3d_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_scene3d_api := src/core/scene3d_api.cpp src/core/model3d_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_scene_api := src/core/scene_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_scene3d_faces_api := src/core/scene3d_faces_api.cpp
-HOST_TEST_EXTRA_test_scene3d_material_pool := src/core/scene3d_material_pool_api.cpp
-HOST_TEST_EXTRA_test_anim3d_logic := src/core/anim3d_api.cpp src/core/model3d_api.cpp src/core/mesh3d_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c examples/common/pacman_level.c examples/common/pacman_stages.c src/core/grid_api.cpp src/core/collide2d_api.cpp src/core/math3d_api.cpp
-HOST_TEST_EXTRA_test_skybridge_game := src/core/surface3d_api.cpp
-HOST_TEST_EXTRA_test_skybridge_fade := src/core/surface3d_api.cpp
-HOST_TEST_EXTRA_test_collide2d_logic := src/core/collide2d_api.cpp
-HOST_TEST_EXTRA_test_spatial_logic := src/core/spatial_api.cpp src/core/collide2d_api.cpp
-HOST_TEST_EXTRA_test_physics_logic := src/core/collide2d_api.cpp src/core/grid_api.cpp
-HOST_TEST_EXTRA_test_physics3_world := src/core/physics3_world_api.cpp src/core/collide3d_api.cpp src/core/collide3d_sweep_api.cpp src/core/collide3d_sweep_full_api.cpp
-HOST_TEST_EXTRA_test_collide3d_sweep := src/core/collide3d_sweep_api.cpp
-HOST_TEST_EXTRA_test_collide3d_sweep_full := src/core/collide3d_sweep_full_api.cpp
+HOST_TEST_EXTRA_test_render3d_effects := src/graphics/3d/rendering/api.cpp src/graphics/3d/geometry/math.cpp src/core/runtime/state.cpp
+HOST_TEST_EXTRA_test_render3d_indexed := src/graphics/3d/rendering/indexed.cpp
+HOST_TEST_EXTRA_test_vdp2_bitmap := src/graphics/vdp2/bitmap.cpp
+HOST_TEST_EXTRA_test_mesh3d_logic := src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_mesh3d_textured := src/graphics/3d/geometry/mesh.cpp src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_vdp1_upload := src/graphics/vdp1/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp
+HOST_TEST_EXTRA_test_vdp1_clip := src/hal/vdp1/vdp1.cpp
+HOST_TEST_EXTRA_test_texture_api := src/graphics/2d/textures/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp src/graphics/2d/textures/runtime.cpp
+HOST_TEST_EXTRA_test_render2d_api := src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
+HOST_TEST_EXTRA_test_input_api := src/input/api.cpp src/input/runtime.cpp src/core/runtime/state.cpp
+HOST_TEST_EXTRA_test_model3d_logic := src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/mesh.cpp src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_scene3d_api := src/graphics/3d/scene/api.cpp src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_scene_api := src/graphics/3d/scene/scene.cpp src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_scene3d_faces_api := src/graphics/3d/scene/faces.cpp
+HOST_TEST_EXTRA_test_scene3d_material_pool := src/graphics/3d/materials/pool.cpp
+HOST_TEST_EXTRA_test_anim3d_logic := src/graphics/3d/animation/api.cpp src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/mesh.cpp src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c examples/common/pacman_level.c examples/common/pacman_stages.c src/physics/2d/grid.cpp src/physics/2d/collision.cpp src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_skybridge_game := src/graphics/3d/rendering/surface.cpp
+HOST_TEST_EXTRA_test_skybridge_fade := src/graphics/3d/rendering/surface.cpp
+HOST_TEST_EXTRA_test_collide2d_logic := src/physics/2d/collision.cpp
+HOST_TEST_EXTRA_test_spatial_logic := src/physics/spatial/2d.cpp src/physics/2d/collision.cpp
+HOST_TEST_EXTRA_test_physics_logic := src/physics/2d/collision.cpp src/physics/2d/grid.cpp
+HOST_TEST_EXTRA_test_physics3_world := src/physics/3d/world.cpp src/physics/3d/collision.cpp src/physics/3d/sweep.cpp src/physics/3d/sweep_full.cpp
+HOST_TEST_EXTRA_test_collide3d_sweep := src/physics/3d/sweep.cpp
+HOST_TEST_EXTRA_test_collide3d_sweep_full := src/physics/3d/sweep_full.cpp
 HOST_TEST_EXTRA_test_collide3d_logic :=
-HOST_TEST_EXTRA_test_spatial3_api := src/core/spatial3_api.cpp src/core/collide3d_api.cpp
+HOST_TEST_EXTRA_test_spatial3_api := src/physics/spatial/3d.cpp src/physics/3d/collision.cpp
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp
 	@mkdir -p $(dir $@)

@@ -7,9 +7,9 @@
 #include "saturn/math3d.h"
 #include "saturn/color.h"
 #include "saturn/render3d.h"
-#include "src/core/render3d_logic.hpp"
-#include "src/core/mesh3d_logic.hpp"
-#include "src/core/logic.hpp"
+#include "src/graphics/3d/rendering/logic.hpp"
+#include "src/graphics/3d/geometry/mesh_logic.hpp"
+#include "src/core/runtime/logic.hpp"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \

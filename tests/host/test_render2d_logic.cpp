@@ -1,8 +1,8 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "src/core/render2d_logic.hpp"
-#include "src/core/render2d_runtime.hpp"
+#include "src/graphics/2d/rendering/logic.hpp"
+#include "src/graphics/2d/rendering/runtime.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 

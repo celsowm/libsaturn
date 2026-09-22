@@ -5,7 +5,7 @@
 #include <cstdint>
 
 #include "saturn/grid.h"
-#include "src/core/grid_logic.hpp"
+#include "src/physics/2d/grid_logic.hpp"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \

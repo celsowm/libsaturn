@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Fail the build if a linked Saturn ELF contains static constructors.
 
-Nothing runs them. src/core/crt0.s jumps straight to _main and
-src/core/saturn.ld has no .init_array/.ctors pass, so any C++ global that
+Nothing runs them. src/core/startup/crt0.s jumps straight to _main and
+src/core/startup/saturn.ld has no .init_array/.ctors pass, so any C++ global that
 needs dynamic initialization is left holding whatever .bss holds: zero.
 
 That failure mode is close to invisible. A `volatile uint16_t& TVSTAT =
@@ -71,7 +71,7 @@ def main():
         print("  A namespace-scope global needs dynamic initialization. The "
               "usual cause is a reference or pointer bound to a "
               "reinterpret_cast; make it a macro or an inline accessor so the "
-              "address is materialized at each use. See src/hal/vdp2.cpp.",
+              "address is materialized at each use. See src/hal/vdp2/vdp2.cpp.",
               file=sys.stderr)
         return 1
 

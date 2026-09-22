@@ -4,8 +4,8 @@
 
 #include "saturn/asset.h"
 #include "saturn/audio.h"
-#include "src/core/audio_stream_runtime.hpp"
-#include "src/hal/scsp.hpp"
+#include "src/audio/streaming/runtime.hpp"
+#include "src/hal/scsp/scsp.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 

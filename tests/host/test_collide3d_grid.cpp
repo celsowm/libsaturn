@@ -2,7 +2,7 @@
 #include <cstdlib>
 
 #include "saturn/collide3d.h"
-#include "src/core/mesh3d_collision_grid.hpp"
+#include "src/physics/3d/collision_grid.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); std::exit(1); } } while (0)
 

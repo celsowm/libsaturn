@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "saturn/physics.h"
-#include "src/core/physics_logic.hpp"
+#include "src/physics/2d/logic.hpp"
 #define OK(x) do { if (!(x)) { std::fprintf(stderr,"FAIL %s:%d\n",__FILE__,__LINE__); std::exit(1); } } while(0)
 static sat_fx16_t F(int x){return static_cast<sat_fx16_t>(x*65536);}
 static uint32_t g_frames;

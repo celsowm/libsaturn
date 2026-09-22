@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "src/core/fade3d_logic.hpp"
+#include "src/graphics/3d/rendering/fade_logic.hpp"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \

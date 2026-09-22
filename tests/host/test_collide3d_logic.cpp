@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "saturn/collide3d.h"
-#include "src/core/collide3d_logic.hpp"
+#include "src/physics/3d/collision_logic.hpp"
 #define OK(x) do { if (!(x)) { std::fprintf(stderr,"FAIL %s:%d\n",__FILE__,__LINE__); std::exit(1); } } while(0)
 static sat_fx16_t F(int x){return static_cast<sat_fx16_t>(x*65536);}
 int main(){sat_sphere_t a={{F(10000),F(10000),F(10000)},F(8)},b={{F(10005),F(10000),F(10000)},F(8)};sat_contact3_t c;OK(saturn::core::collide3d::sphere_contact(a,b,c));OK(c.depth>0);

@@ -2,9 +2,9 @@
 #include <cstdlib>
 
 #include "saturn/input.h"
-#include "src/core/input_runtime.hpp"
-#include "src/core/runtime_state.hpp"
-#include "src/hal/smpc.hpp"
+#include "src/input/runtime.hpp"
+#include "src/core/runtime/state.hpp"
+#include "src/hal/smpc/smpc.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 

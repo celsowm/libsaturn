@@ -829,7 +829,7 @@ int main(int argc, char** argv) {
 
     // -- Phase 2: inject the built program directly into work RAM and jump
     // to it -- what the BIOS would have done had its CD read completed.
-    // src/core/crt0.s's _start is self-sufficient (masks IRQs, sets its own
+    // src/core/startup/crt0.s's _start is self-sufficient (masks IRQs, sets its own
     // stack, zeroes BSS, calls _main) and never touches VBR, so nothing more
     // than "resident at the load address with PC pointing there" is needed.
     std::vector<uint8_t> bin = read_file(args.bin_path);
@@ -863,7 +863,7 @@ int main(int argc, char** argv) {
     for (size_t i = 0; i < bin.size(); i++) {
         sh2p.MemWriteByte(static_cast<uint32_t>(load_addr + i), bin[i], /*bypassCache=*/false);
     }
-    sh2p.R(15) = 0x060FFFFCu; // stack top -- matches .Lstack_top in src/core/crt0.s
+    sh2p.R(15) = 0x060FFFFCu; // stack top -- matches .Lstack_top in src/core/startup/crt0.s
     sh2p.PR() = load_addr;    // if _main ever returns, land in crt0's hang loop
     sh2p.PC() = load_addr;    // _start
     sh2p.RefillPipeline();    // PC was changed behind the interpreter's back
@@ -1222,7 +1222,7 @@ int main(int argc, char** argv) {
     j.begin_object();
     // EWDR: the erase write data register. 0x0000 = transparent erase
     // (VDP2 backdrop shows through); (rgb555 | 0x8000) = opaque erase.
-    // See src/hal/vdp1.cpp and docs/sega_saturn_hardware/hard/vdp1/hon/p04_14.md.
+    // See src/hal/vdp1/vdp1.cpp and docs/sega_saturn_hardware/hard/vdp1/hon/p04_14.md.
     j.key("ewdr"); j.value(static_cast<uint64_t>(vdp1_regs.eraseWriteValue));
     j.key("ew_x1"); j.value(static_cast<uint64_t>(vdp1_regs.eraseX1));
     j.key("ew_y1"); j.value(static_cast<uint64_t>(vdp1_regs.eraseY1));

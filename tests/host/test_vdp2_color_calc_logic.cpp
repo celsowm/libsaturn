@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "src/core/vdp2_color_calc_logic.hpp"
+#include "src/graphics/vdp2/color_calc_logic.hpp"
 
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
     std::fprintf(stderr, "FAIL %s:%d: %s != %s\n", __FILE__, __LINE__, #a, #b); \

@@ -3,7 +3,7 @@
 #include <cstring>
 
 #include "saturn/voxel_terrain.h"
-#include "src/core/voxel_terrain_logic.hpp"
+#include "src/physics/spatial/voxel_terrain_logic.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d %s\n", __FILE__, __LINE__, #x); std::exit(1); } } while (0)
 

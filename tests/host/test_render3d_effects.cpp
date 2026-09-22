@@ -2,8 +2,8 @@
 #include <cstdlib>
 
 #include "saturn/render3d.h"
-#include "src/core/runtime_state.hpp"
-#include "src/hal/vdp1.hpp"
+#include "src/core/runtime/state.hpp"
+#include "src/hal/vdp1/vdp1.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 

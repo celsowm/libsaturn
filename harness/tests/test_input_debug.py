@@ -20,7 +20,7 @@ diagnosis was wrong. The program was not stalling -- it was running roughly
 namespace-scope reference bound to a reinterpret_cast needs a static
 constructor, and nothing runs those), so every TVSTAT read returned a constant
 and the VBlank poll burned its whole 2,000,000-iteration timeout each frame.
-Fixed in src/hal/vdp2.cpp; the probe now advances one program frame per
+Fixed in src/hal/vdp2/vdp2.cpp; the probe now advances one program frame per
 emulated frame, and screenshots via --screenshot show complete frames.
 
 Generate the two probe.json files with (requires a Saturn BIOS/IPL image).

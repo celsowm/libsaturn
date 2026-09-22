@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "src/hal/smpc_input_logic.hpp"
+#include "src/hal/smpc/input_logic.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 

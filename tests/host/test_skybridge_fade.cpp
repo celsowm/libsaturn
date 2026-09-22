@@ -1,9 +1,9 @@
 #include <cassert>
 #include <iostream>
 #include "examples/skybridge_3d/game.h"
-#include "src/core/fade3d_logic.hpp"
-#include "src/core/vdp1_color_calc_logic.hpp"
-#include "src/core/vdp2_color_calc_logic.hpp"
+#include "src/graphics/3d/rendering/fade_logic.hpp"
+#include "src/graphics/vdp1/color_calc_logic.hpp"
+#include "src/graphics/vdp2/color_calc_logic.hpp"
 
 /* These are production pure helpers, not a separately reimplemented fade. */
 int main() {

@@ -14,7 +14,7 @@
 
 #include "saturn/math3d.h"
 #include "saturn/mesh3d.h"
-#include "src/core/mesh3d_logic.hpp"
+#include "src/graphics/3d/geometry/mesh_logic.hpp"
 
 #define TEST(name) static void name()
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \

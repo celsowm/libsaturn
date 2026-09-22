@@ -3,7 +3,7 @@
 #include <cstring>
 
 #include "saturn/save.h"
-#include "src/hal/bup.hpp"
+#include "src/hal/storage/backup.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 

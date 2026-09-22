@@ -21,8 +21,23 @@ This repository delivers the `2D Core` MVP:
 ## Main Structure
 
 - `include/saturn/saturn.h`: Public C API.
-- `src/core`: Core implementation, startup and linker script.
-- `src/hal`: Direct hardware register access.
+- `src/core/app`: Application entry points and shared runtime services.
+- `src/core/memory`: Allocation and memory helpers.
+- `src/core/startup`: Bare-metal startup, linker script and C runtime stubs.
+- `src/graphics`: 2D, 3D, VDP1 and VDP2 implementations.
+- `src/audio`: Playback, streaming and synthesis implementations.
+- `src/physics`: 2D/3D collision and spatial algorithms.
+- `src/input`: Input API and SMPC-facing runtime logic.
+- `src/storage`: Files, CD, save data and cartridge-facing services.
+- `src/resources`: Resource and asset management.
+- `src/hal`: Direct hardware register access, grouped by device (`cd`, `scsp`,
+  `scu`, `smpc`, `vdp1`, `vdp2`, and storage hardware).
+- `include/saturn`: Public C headers; these paths and symbols remain stable.
+
+New implementation code belongs under the subsystem that owns its behavior.
+Hardware register access stays in `src/hal`; reusable algorithms stay in the
+owning subsystem; public API entry points remain in `include/saturn` with their
+implementation beside the relevant internal subsystem.
 - `examples/mvp_2d_scene`: MVP validation demo.
 - `examples/red_square`: Red square moved by D-pad.
 - `examples/input_debug`: HUD showing digital pad held/pressed/released state.

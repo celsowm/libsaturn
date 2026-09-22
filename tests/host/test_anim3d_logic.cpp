@@ -5,8 +5,8 @@
 #include <cstdlib>
 
 #include "saturn/anim3d.h"
-#include "src/core/anim3d_logic.hpp"
-#include "src/core/render3d_logic.hpp"
+#include "src/graphics/3d/animation/logic.hpp"
+#include "src/graphics/3d/rendering/logic.hpp"
 
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
     fprintf(stderr, "FAIL %s:%d: %s (%ld) != %s (%ld)\n", __FILE__, __LINE__, \

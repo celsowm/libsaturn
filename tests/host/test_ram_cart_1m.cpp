@@ -2,8 +2,8 @@
 #include <cstdint>
 #include <cstdio>
 #include "saturn/ram_cart.h"
-#include "src/core/ram_cart_logic.hpp"
-#include "src/hal/ram_cart.hpp"
+#include "src/storage/cartridge/logic.hpp"
+#include "src/hal/storage/ram_cart.hpp"
 
 namespace {
 alignas(64) uint8_t dram[2][512u * 1024u] = {};

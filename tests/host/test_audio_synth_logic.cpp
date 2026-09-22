@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <stdint.h>
 
-#include "src/core/audio_synth_logic.hpp"
+#include "src/audio/synthesis/logic.hpp"
 
 using namespace saturn::core::audio_synth;
 

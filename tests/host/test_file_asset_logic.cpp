@@ -4,11 +4,11 @@
 
 #include "saturn/asset.h"
 #include "saturn/file.h"
-#include "src/core/file_asset_runtime.hpp"
-#include "src/core/palette_registry.hpp"
-#include "src/core/runtime_state.hpp"
-#include "src/core/texture_runtime.hpp"
-#include "src/hal/vdp1.hpp"
+#include "src/storage/files/asset_runtime.hpp"
+#include "src/graphics/2d/palette/registry.hpp"
+#include "src/core/runtime/state.hpp"
+#include "src/graphics/2d/textures/runtime.hpp"
+#include "src/hal/vdp1/vdp1.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 

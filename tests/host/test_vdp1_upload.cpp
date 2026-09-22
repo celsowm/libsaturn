@@ -1,6 +1,6 @@
 /* test_vdp1_upload.cpp -- host tests for split palette/texture uploads.
  *
- * Links src/core/vdp1_api.cpp with stubbed HAL upload/push functions so the
+ * Links src/graphics/vdp1/api.cpp with stubbed HAL upload/push functions so the
  * API-layer validation and call routing is exercised without hardware.
  */
 
@@ -9,7 +9,7 @@
 #include <cstdlib>
 
 #include "saturn/vdp1.h"
-#include "src/core/runtime_state.hpp"
+#include "src/core/runtime/state.hpp"
 
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
     fprintf(stderr, "FAIL %s:%d: %s (%ld) != %s (%ld)\n", __FILE__, __LINE__, \
