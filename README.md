@@ -1,389 +1,419 @@
-# libsaturn-1
+# LibSaturn
 
-Bare-metal library for Sega Saturn game development without SGL/libyaul.
+**A modern bare-metal game-development library for the Sega Saturn.**
 
-## MVP Status
+LibSaturn is a C-facing, C++-implemented runtime and game framework built directly on the Saturn hardware — without SGL or libyaul. It is no longer just a minimal 2D experiment: the project now spans a high-level 3D scene stack, VDP1/VDP2 rendering, animation, physics, storage and streaming, save data, RAM expansion, audio, asset tooling, and managed use of both SH-2 processors.
 
-This repository delivers the `2D Core` MVP:
+The goal is to make serious Saturn development feel like working with a coherent game-development platform while preserving explicit control over the machine.
 
-- Bare-metal runtime (startup, linker, frame loop in VBlank).
-- Minimal HAL for VDP1, VDP2, SCU and SMPC.
-- Public C API (`include/saturn/saturn.h`) with internal C++ core.
-- Build pipeline for `ELF -> BIN -> ISO`.
-- Playable 2D demo in `examples/mvp_2d_scene`.
-- Simple movement demo in `examples/red_square`.
-- Controller held/pressed/released debug HUD in `examples/input_debug`.
-- Separate texture demo in `examples/text_sprite`.
-- Procedural 360-degree VDP2 exploration game in `examples/infinite_explorer`,
-  combining an RBG0 infinite ground, an NBG0 panoramic sky and VDP1 gameplay.
-- 8-bit indexed asset converter in `tools/convert_indexed8.py`, with output in `C/H` for embedding in build.
+> **Current direction:** reusable high-level APIs on top of small hardware-specific HALs, deterministic fixed-memory runtime systems, host-side asset baking, and Saturn-specific optimizations rather than hiding the console behind a desktop-style abstraction.
 
-## Main Structure
+## Highlights
 
-- `include/saturn/saturn.h`: Public C API.
-- `src/core/app`: Application entry points and shared runtime services.
-- `src/core/memory`: Allocation and memory helpers.
-- `src/core/startup`: Bare-metal startup, linker script and C runtime stubs.
-- `src/graphics`: 2D, 3D, VDP1 and VDP2 implementations.
-- `src/audio`: Playback, streaming and synthesis implementations.
-- `src/physics`: 2D/3D collision and spatial algorithms.
-- `src/input`: Input API and SMPC-facing runtime logic.
-- `src/storage`: Files, CD, save data and cartridge-facing services.
-- `src/resources`: Resource and asset management.
-- `src/hal`: Direct hardware register access, grouped by device (`cd`, `scsp`,
-  `scu`, `smpc`, `vdp1`, `vdp2`, and storage hardware).
-- `include/saturn`: Public C headers; these paths and symbols remain stable.
+- **Bare-metal Saturn runtime** — startup, linker/runtime support, frame lifecycle, VBlank timing, ELF -> BIN -> ISO build flow.
+- **VDP1 2D rendering** — sprites, scaled/distorted sprites, polygons, polylines, lines, rectangles, indexed textures, palettes, Gouraud shading and color calculation.
+- **High-level 3D stack** — fixed-point math, meshes, models, cameras, transforms, scene submission, global painter ordering, materials, visibility helpers and VDP1 command generation.
+- **3D asset pipeline** — OBJ/MTL/image and animated GLB processing with Saturn-aware texture baking, simplification, palette generation and pose baking.
+- **3D animation** — compact baked pose streams, runtime decoding, playback helpers and optional parallel decode.
+- **Scene/runtime helpers** — transform hierarchies, orbit/follow cameras, reusable surfaces, view caches, sprite animation, HUD and resource planning.
+- **3D physics** — collision queries, spatial acceleration, world stepping, moving/tilting kinematic geometry, rolling-body support and continuous-collision paths.
+- **2D physics** — deterministic fixed-step bodies, tile collision, sweeps, contacts, raycasts and uniform-grid broad phase.
+- **VDP2 environments** — NBG0, RBG0, rotation/Mode-7-style ground, panoramic/infinite environments and color-calculation integration.
+- **Voxel terrain** — reusable Saturn-oriented voxel terrain support.
+- **Audio** — SCSP PCM S8/S16 playback, voices, looping, volume/pan/pitch, music streams and bounded streaming support.
+- **CD and filesystems** — CD Block sector I/O, ISO9660/CDFS, logical file APIs and storage-neutral read paths.
+- **Asset system** — logical asset handles, embedded and non-resident assets, typed loaders, bounded cache and cooperative prefetch.
+- **Save data** — internal Backup RAM through the Saturn Boot ROM BUP services, including status, listing, read/write, verify, delete and format.
+- **RAM expansion cartridges** — 1 MiB / 4 MiB detection and bounded allocation/cache support.
+- **Dual SH-2 support** — low-level Master/Slave infrastructure plus a high-level bounded parallel executor with safe ownership and fallback semantics.
+- **Host tooling and validation** — asset converters, model importers, manifest generation, host tests and automated modified-Ymir runtime probes.
 
-New implementation code belongs under the subsystem that owns its behavior.
-Hardware register access stays in `src/hal`; reusable algorithms stay in the
-owning subsystem; public API entry points remain in `include/saturn` with their
-implementation beside the relevant internal subsystem.
-- `examples/mvp_2d_scene`: MVP validation demo.
-- `examples/red_square`: Red square moved by D-pad.
-- `examples/input_debug`: HUD showing digital pad held/pressed/released state.
-- `scripts`: MSYS2 setup, toolchain build, smoke build and PowerShell automation.
-- `tools`: Utilities (generation of `ip.bin`, asset converter).
+## Why LibSaturn?
 
-## Windows Flow (PowerShell)
+The Sega Saturn is powerful, but its architecture asks the programmer to coordinate several specialized processors and memory domains:
 
-For Windows 10/11, use the PowerShell flow (no need to manually open bash):
-
-```powershell
-.\scripts\bootstrap-msys2.ps1 full
+```text
+                         +------------------+
+                         |     Game Code    |
+                         +---------+--------+
+                                   |
+                    +--------------v--------------+
+                    |       LibSaturn APIs        |
+                    | scene / physics / assets /  |
+                    | audio / input / storage ... |
+                    +--------------+--------------+
+                                   |
+             +---------------------+---------------------+
+             |                     |                     |
+      +------v------+       +------v------+       +------v------+
+      | Master SH-2 |<----->| Slave SH-2  |       |     SCU     |
+      +------+------+       +-------------+       +------+------+
+             |                                           |
+      +------v-------------------------------------------v------+
+      |        VDP1 / VDP2 / SCSP / SMPC / CD / A-Bus         |
+      +---------------------------------------------------------+
 ```
 
-To prepare everything at once (host + toolchain + emulators), use:
+LibSaturn's approach is to expose reusable game-facing systems without pretending the hardware is something it is not. VDP1 remains a command-based quad renderer. VDP2 remains a powerful background processor. Shared SH-2 work has explicit ownership. Runtime systems favor caller-owned or bounded storage. Expensive content transformation is pushed to host tools when that produces a better Saturn runtime.
+
+## Public API
+
+Applications can include the umbrella header:
+
+```c
+#include <saturn/saturn.h>
+```
+
+or include only the subsystem headers they use.
+
+The public API currently covers, among other areas:
+
+| Area | APIs / capabilities |
+|---|---|
+| Core | app lifecycle, memory, time, video, formatting |
+| 2D | geometry, surfaces, textures, rendering, sprite animation |
+| 3D | math, meshes, models, animation, surfaces, renderer, scenes |
+| Scene systems | transforms, cameras, material pools, face queues, view cache |
+| VDP1 | sprites, primitives, textures, palettes, Gouraud, color calculation |
+| VDP2 | backgrounds, RBG0 ground, environment helpers, color calculation |
+| Physics | 2D/3D collision, spatial structures, bodies, physics world |
+| Content | assets, resource plans, fonts, grids, HUD |
+| Audio | PCM voices and streamed music |
+| Storage | CD Block, CDFS, files, Backup RAM, RAM cart |
+| Multiprocessing | low-level Dual SH-2 and high-level parallel tasks |
+
+The public C ABI is intentionally separated from the internal C++ implementation so game code can remain small and predictable.
+
+## 3D Rendering
+
+LibSaturn provides a game-facing 3D layer above VDP1 rather than requiring every project to rebuild projection, sorting, material handling and command generation.
+
+A typical application submits scene objects and lets the library prepare and globally order their faces before VDP1 submission. This matters on the Saturn because VDP1 has **no depth buffer**: ordering is part of the renderer, not an optional convenience.
+
+The stack includes:
+
+- fixed-point vectors, matrices and transforms;
+- camera helpers;
+- mesh/model abstractions;
+- textured and colored faces;
+- scene instances;
+- material pooling;
+- scene-wide painter ordering;
+- clipping/culling helpers;
+- Gouraud data;
+- distance fading through Saturn color calculation;
+- transform hierarchies;
+- reusable geometry/surface helpers;
+- animation integration;
+- optional parallel geometry preparation.
+
+## Saturn-Aware Asset Pipeline
+
+Desktop-style UV meshes cannot be sent directly to VDP1. VDP1 distorted sprites are defined by four screen-space corners and do not provide arbitrary per-vertex UV coordinates.
+
+LibSaturn therefore moves expensive adaptation offline:
+
+```text
+OBJ / MTL / PNG                skinned GLB
+       |                           |
+       +-----------+---------------+
+                   |
+                   v
+          tools/import_model.py
+                   |
+        bake / simplify / quantize
+                   |
+                   v
+       generated Saturn C/H asset
+                   |
+                   v
+      model + scene + VDP1 runtime
+```
+
+The importer can bake source faces into VDP1-compatible rectangular textures, deduplicate textures, generate indexed palettes, enforce Saturn texture limits and produce runtime-ready model data.
+
+For animated GLB assets, skeletal animation is evaluated on the host and emitted as compact baked poses. The Saturn runtime decodes those poses instead of running a general-purpose skeletal animation system every frame.
+
+## Physics and Collision
+
+The physics stack is deterministic and designed around Saturn constraints.
+
+### 2D
+
+- AABB and circle tests;
+- contacts and raycasts;
+- sweeps;
+- fixed-step body movement;
+- tile collision;
+- caller-owned uniform-grid broad phase.
+
+### 3D
+
+- spheres, AABBs, planes, quads and mesh queries;
+- spatial acceleration;
+- body/world stepping;
+- moving kinematic geometry;
+- translation-relative continuous collision;
+- bounded tilting kinematic meshes;
+- pose-relative contacts;
+- scene-renderer integration for physical transforms.
+
+Core math uses 16.16 fixed point, with hardware-aware integer paths where appropriate.
+
+## Dual SH-2 and Parallel Runtime
+
+LibSaturn exposes both levels of Saturn multiprocessing.
+
+### Low-level Dual SH-2 HAL
+
+`saturn/dual_sh2.h` provides explicit Slave lifecycle, signaling, mailbox and shared-state infrastructure for code that needs direct control.
+
+### High-level executor
+
+`saturn/parallel.h` provides a bounded Saturn-specific task runtime:
+
+- fixed caller-provided queue;
+- generation-safe handles;
+- Master, Slave and AUTO policies;
+- cancellation and timeout semantics;
+- explicit buffer ownership;
+- cache-safe shared-memory contracts;
+- Master fallback;
+- worker failure handling.
+
+It is intentionally **not** a desktop thread pool. Hardware ownership remains explicit, and tasks that touch VDP/SCU/SMPC/CD/SCSP registers stay Master-owned.
+
+Current integrations include animation decode and 3D geometry preparation. AUTO policy is driven conservatively by measured behavior rather than assumed multiprocessor speedups.
+
+See [`docs/PARALLEL_RUNTIME_ARCHITECTURE.md`](docs/PARALLEL_RUNTIME_ARCHITECTURE.md) and [`docs/PARALLEL_RUNTIME_BENCHMARKS.md`](docs/PARALLEL_RUNTIME_BENCHMARKS.md).
+
+## VDP2 and Saturn-Specific Environments
+
+LibSaturn is not limited to drawing everything as VDP1 polygons.
+
+The VDP2 stack includes NBG0 and RBG0 support, scrolling, priorities, tiled backgrounds, rotation parameters, coefficient control and reusable RBG0 ground/environment helpers. Examples use these capabilities for panoramic skies and effectively infinite Mode-7-style ground.
+
+This allows game scenes to reserve VDP1 command budget for objects while VDP2 handles large backgrounds and ground planes in parallel with the sprite processor.
+
+## Audio
+
+The SCSP runtime supports practical PCM-oriented game audio:
+
+- signed 8-bit and 16-bit PCM;
+- multiple voices;
+- looping;
+- volume;
+- pan;
+- pitch;
+- voice statistics/stealing;
+- resident sounds;
+- bounded music streams;
+- refill from storage-neutral file backends.
+
+See [`docs/SCSP_AUDIO_STREAMING_GUIDE.md`](docs/SCSP_AUDIO_STREAMING_GUIDE.md).
+
+## CD, Files and Asset Streaming
+
+LibSaturn has a layered storage path instead of assuming all content is compiled into the executable:
+
+```text
+CD Block
+   |
+   v
+ISO9660 / CDFS
+   |
+   v
+logical file API
+   |
+   v
+asset handles
+   |
+   +--> bounded cache
+   +--> cooperative prefetch
+   +--> streamed music
+   +--> typed resident loaders
+```
+
+The CD Block path provides synchronous 2048-byte sector reads and a storage-neutral device adapter. CDFS resolves ISO9660 content, while the logical file/asset layers allow higher-level code to avoid depending on the physical source of the bytes.
+
+## Save Data and RAM Expansion
+
+### Internal Backup RAM
+
+The save API wraps the Saturn Boot ROM BUP services and exposes:
+
+- initialization/status;
+- free-space inspection;
+- directory listing;
+- read;
+- write/overwrite;
+- verify;
+- delete;
+- explicit format.
+
+Initialization never silently formats save memory.
+
+### 1 MiB / 4 MiB RAM cartridges
+
+The RAM-cart layer supports expansion-cartridge detection, two-bank arenas, bounded logical buffers and optional use as asset-cache/VFS backing.
+
+See [`docs/RAM_EXPANSION_CARTRIDGE.md`](docs/RAM_EXPANSION_CARTRIDGE.md).
+
+## Examples
+
+The repository contains focused examples and larger integration demos covering areas such as:
+
+- basic 2D rendering and input;
+- textured sprites and fonts;
+- VDP1/VDP2 composition;
+- textured 3D models;
+- animated 3D models;
+- physics and collision;
+- RBG0 infinite environments;
+- CD Block and streamed audio;
+- Dual SH-2 communication;
+- the high-level parallel runtime;
+- larger scene/gameplay experiments used to drive reusable API design.
+
+Build an example with:
+
+```bash
+make EXAMPLE=<example_name>
+```
+
+On Windows, the helper can launch examples through the configured emulator:
+
+```powershell
+.\run-example.ps1 <example_name> -Emulator mednafen -BiosProfile auto
+```
+
+## Quick Start on Windows
+
+Windows 10/11 is supported through MSYS2, with PowerShell wrappers so the normal workflow does not require manually living in a Bash shell.
+
+Prepare the development environment:
 
 ```powershell
 .\scripts\bootstrap-dev.ps1
 ```
 
-The script tries to locate MSYS2 in this order:
-
-1. `-Msys2Root`
-2. `LIBSATURN_MSYS2_ROOT`
-3. `C:\msys64`
-
-If MSYS2 is not found, it attempts to install via `winget install MSYS2.MSYS2`. If that fails, it displays manual installation instructions.
-
-Available commands:
+or bootstrap host dependencies and the SH-2 toolchain:
 
 ```powershell
-.\scripts\bootstrap-msys2.ps1 host
 .\scripts\bootstrap-msys2.ps1 full
-.\scripts\bootstrap-msys2.ps1 smoke
-.\scripts\bootstrap-msys2.ps1 acceptance
 ```
 
-Useful flags:
-
-```powershell
-.\scripts\bootstrap-msys2.ps1 full -Msys2Root C:\msys64 -LogPath .\build\bootstrap.log
-.\scripts\bootstrap-msys2.ps1 host -NoInstall
-```
-
-## Emulators (Windows)
-
-Prepare the `emulators/` folder and install Mednafen via MSYS2:
-
-```powershell
-.\scripts\download-emulators.ps1
-```
-
-If the package is not available in the current MSYS2 repo, the script attempts to install Mednafen via winget (`MednafenTeam.Mednafen`).
-
-This creates the optional legacy emulator launcher:
-
-- `emulators/mednafen/run-mednafen.ps1`
-
-For Mednafen, keep JP BIOS in `firmware/sega_101.bin` and US/EU BIOS in `firmware/mpr-17933.bin`.
-The launcher attempts to automatically copy from `bios/saturn_bios_jp.bin` and `bios/saturn_bios_us.bin` (or `bios/saturn_bios_eu.bin`).
-By default, the Mednafen launcher uses `region_autodetect=1` with fallback `region_default=na` and forces `ss.h_overscan=0` / `ss.videoip=0` to avoid cutting/artifacts on the license screen.
-
-For the repository's current acceptance flow, use the modified Ymir harness
-with the BIOS dump in `bios/`, for example:
-
-```powershell
-.\harness\run-harness.ps1 runtime_2d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
-```
-
-## Acceptance Checklist
-
-Run the host suite and the modified Ymir probe with the BIOS from `bios/`:
-
-```powershell
-make test
-.\harness\run-harness.ps1 runtime_2d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
-.\harness\run-harness.ps1 runtime_3d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
-.\harness\run-harness.ps1 cd_streaming_jukebox -Bios .\bios\saturn_bios_us.bin -Frames 300 -BootFrames 90
-```
-
-## Host Requirements (MSYS2 Shell)
-
-Run in UCRT64 or MINGW64 shell:
-
-```bash
-bash scripts/bootstrap.sh host
-```
-
-## SH2 Toolchain Build
-
-```bash
-bash scripts/build-toolchain.sh
-```
-
-Shortcut for host + toolchain in one command:
-
-```bash
-bash scripts/bootstrap.sh full
-```
-
-By default installs in `$HOME/saturn-tools` and produces `sh2eb-elf-gcc`.
-
-## MVP Build
+Then build:
 
 ```bash
 make
 ```
 
-Outputs:
-
-- `build/mvp.elf`
-- `build/mvp.bin`
-- `build/mvp.iso`
-- `build/mvp.cue`
-- `build/libsaturn.a`
-
-Boot diagnostics profiles (IP.BIN):
-
-```bash
-make IP_PROFILE=current
-make IP_PROFILE=safe
-make IP_TEMPLATE_KIND=yaul
-make IP_TEMPLATE_KIND=sbl
-```
-
-Each build also generates artifacts named by variant:
-
-- `build/mvp-<ip_profile>.iso`
-- `build/mvp-<ip_profile>.cue`
-
-Automated 1x2 matrix (build + decision):
-
-```powershell
-.\scripts\build-boot-matrix.ps1
-# fill build\boot-matrix-manual-results.csv
-.\scripts\evaluate-boot-matrix.ps1
-```
-
-## Smoke Tests
-
-```bash
-bash scripts/smoke-build.sh
-python -m unittest tests/test_asset_converter.py
-```
-
-## 2D Assets for VDP1
-
-The `tools/convert_indexed8.py` converter generates:
-
-- `.tex8` and `.pal` for inspection/legacy binary.
-- `.h` and `.c` with pixels, palette and metadata to compile in the example.
-
-Example used by the repository:
-
-```bash
-python tools/convert_indexed8.py \
-  --input assets/sonic_head.png \
-  --resize 128 96 \
-  --out-prefix build/generated/text_sprite/sonic_head
-```
-
-The `text_sprite` example reduces `sonic_head.png` to fit in the simple sprite path of VDP1.
-For the `text_sprite` example, `make` automatically calls this generation before compiling the binary.
-
-## 3D Model Pipeline for VDP1
-
-Conventional UV-mapped models cannot go straight to the VDP1: it draws
-distorted sprites from four corners with no per-vertex UVs, no depth buffer
-and no clipper. `tools/import_model.py` therefore bakes every source face
-offline into a canonical rectangular texture:
+Typical outputs include:
 
 ```text
-OBJ + MTL + PNG
-      |
-      | tools/import_model.py
-      v
-generated C/H model
-      |
-      | upload once (sat_model_upload_textures)
-      v
-LibSaturn textured mesh (`sat_scene_submit_instance` canonical path)
-      |
-      v
-VDP1 distorted sprites
+build/mvp.elf
+build/mvp.bin
+build/mvp.iso
+build/mvp.cue
+build/libsaturn.a
 ```
 
-Why bake offline: source UVs are importer input, not runtime state. The
-generated asset holds vertices in Saturn fixed point, quad indices in
-LibSaturn A/B/C/D order, face-to-texture indices into a deduplicated texture
-set, and shared indexed palette(s) -- no OBJ/MTL/PNG parsing on the Saturn,
-no heap, no per-frame uploads.
+The SH-2 toolchain is based on `sh2eb-elf-gcc`.
 
-VDP1 texture constraints (manual 5.1/6.6): width 8..504 in multiples of 8,
-height 1..255. The importer resamples the same UV domain across the legal
-aligned width (never pads with unused columns), enforces the maxima and CLI
-limits (`--max-texture-width/height`, `--texture-scale`), and fails with a
-face/material diagnostic when a face cannot be represented. Baked faces are
-deduplicated after palette mapping (width, height, indexed bytes, palette
-identity, flags), and one shared <=256-entry palette is built
-deterministically (index 0 reserved for transparency when needed; fully
-opaque models use `SAT_SPRITE_FLAG_OPAQUE`). Triangles travel as degenerate
-quads with the duplicated UV matching the duplicated corner.
+## Validation
+
+Host tests:
 
 ```bash
-python tools/import_model.py \
-  --input examples/basic_3d_texture/assets/sonic.obj \
-  --out-prefix build/generated/basic_3d_texture/sonic_model \
-  --symbol sonic_model \
-  --palette-index 1
-make EXAMPLE=basic_3d_texture
-.\run-example.ps1 basic_3d_texture -Emulator mednafen -BiosProfile auto
+make test
 ```
 
-Viewer controls: LEFT/RIGHT orbit yaw, UP/DOWN pitch (clamped), L/R zoom
-out/in, A toggle auto-orbit, B reset, START toggle HUD. The camera orbits an
-immutable model (center from `sat_model_compute_center`); textures upload
-once at startup and frames draw with culling + painter sorting.
-
-## Animated 3D Model Pipeline (GLB)
-
-Skeletal animation never runs on the Saturn. `tools/import_model.py`
-(`--target saturn`) parses skinned GLB on the host, evaluates joint TRS
-channels at the clip's sample rate, and bakes every runtime frame as a pose:
-
-```text
-GLB skin + animation
-      |
-      | tools/import_model.py --target saturn
-      | (gltf parse -> skinning eval -> QEM simplify -> pose bake)
-      v
-generated C/H animated model (shared indices/textures + pose stream)
-      |
-      | textures upload once; per frame:
-      | sat_anim_advance + sat_anim_decode -> caller vertices
-      v
-VDP1 distorted sprites (same canonical scene path)
-```
-
-The generated asset quantizes positions to int16 per axis around a
-scale/bias (decoder: `pos_fx16 = bias + scale*q/32767`), reuses the same
-baked-face texture dedup as the static path, and keeps the simplified mesh
-inside explicit quality gates (animated surface error, silhouette chamfer,
-IoU, no facet flipped past 90 degrees, no crack edges) and Saturn budgets
-(VDP1 commands incl. HUD reserve, VRAM, <=256 KiB pose stream). Any gate
-breach is a hard FAIL with numbers -- the importer never emits a silently
-degraded asset.
-
-Simplification uses worst-pose QEM (MAX over baked poses) with UV-seam and
-material locks, boundary quadrics on borders/seams, crease penalties and an
-exact-duplicate weld pre-pass. Collapses move whole position groups: every
-split copy of a surface point (flat normals, UV seams, palette-swatch UVs)
-moves together, so the surface never tears open. Each face stays within a
-preset angle of its source orientation in every pose, so backface culling
-never opens holes. Only subset collapses are allowed, so surviving vertices
-keep exact source UVs/joints/weights. `--simplify auto`
-searches under `--quality <preset>` within the profile caps;
-`--simplify off|N` force the triangle count.
-
-```bash
-python tools/import_model.py \
-  --input examples/basic_3d_animation/assets/male_basic_walk_30_frames_loop.glb \
-  --target saturn \
-  --out-prefix build/generated/basic_3d_animation/male_walk \
-  --symbol male_walk --palette-index 1 \
-  --simplify auto --quality balanced \
-  --animation all --animation-fps source
-make EXAMPLE=basic_3d_animation
-.\run-example.ps1 basic_3d_animation -Emulator mednafen -BiosProfile auto
-```
-
-The `basic_3d_animation` GLB is a local-only acceptance fixture (see
-`examples/basic_3d_animation/assets/LICENSE.txt`); it is not committed, and
-the build fails with the exact missing path when it is absent. Viewer
-controls: LEFT/RIGHT orbit yaw, UP/DOWN pitch, L/R zoom, A pause/resume
-animation, B reset camera+animation, C auto-orbit, START toggle HUD.
-
-## Runtime validation
-
-The canonical automated runtime validation is the modified Ymir harness. It
-boots the Saturn BIOS for the configured warm-up, injects the built BIN, and
-checks the running program through the harness probe. A real BIOS disc boot is
-not inferred from that direct-injection path.
-
-To switch BIOS/region in the example launcher without editing Mednafen's global config:
+The repository also uses a modified Ymir harness for automated Saturn runtime validation:
 
 ```powershell
-.\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile na
-.\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile jp
-.\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile eu
-.\run-example.ps1 mvp_2d_scene -Emulator mednafen -BiosProfile auto
-.\run-example.ps1 mvp_2d_scene -Emulator mednafen -IpTemplate yaul
-.\run-example.ps1 mvp_2d_scene -Emulator mednafen -IpTemplate sbl
-.\run-example.ps1 red_square -Emulator mednafen -BiosProfile auto
+.\harness\run-harness.ps1 runtime_2d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
+.\harness\run-harness.ps1 runtime_3d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
+.\harness\run-harness.ps1 cd_streaming_jukebox -Bios .\bios\saturn_bios_us.bin -Frames 300 -BootFrames 90
 ```
 
-## Note About IP.BIN
+The harness boots the configured Saturn BIOS, injects the built program and probes the running runtime. Direct injection is a runtime validation path and should not be confused with proving a real optical-disc boot.
 
-The project generates `ip.bin` in `make` from a selectable boot template via `IP_TEMPLATE_KIND`:
-- `yaul` (default): `assets/boot/ip_yaul_template.bin`
-- `sbl`: `assets/boot/ip_sbl_template.bin`
+## Project Structure
 
-In both cases, the build preserves the original text/boot template and only overwrites `1ST_READ` (`0x0F0/0x0F4`).
-Sensitive boot blocks (`0x0100..0x05FF`) and code object area (`0x0E00..0x7FFF`) remain identical to the selected template.
-For boot compatibility, the ISO writes the payload as `0.BIN` (primary) and `1ST_READ.BIN` (alias).
-In Mednafen, prefer opening `build/mvp.cue` instead of `build/mvp.iso`.
-Before public distribution, perform legal/licensing review of boot assets according to your release policy.
-
-## Physics and Collisions
-
-The collision toolkit is deliberately small, deterministic and malloc-free:
-
-| Module | Purpose |
-|---|---|
-| `collide2d.h` / `collide2d_logic.hpp` | 2D boxes, circles, contacts, rays and sweeps |
-| `spatial.h` / `spatial_logic.hpp` | Caller-owned uniform-grid broad phase and pair queries |
-| `physics.h` / `physics_logic.hpp` | Fixed-step clock and arcade 2D body/tile movement |
-| `collide3d.h` / `collide3d_logic.hpp` | 3D spheres, AABBs, planes, quads and mesh rays |
-| `collide3d_api.cpp` | 3D body stepping, mesh contacts and C ABI wrappers |
-
-All positions and velocities are 16.16 fixed point. 2D uses y-down screen/world
-pixels; 3D uses y-up. Overlap is strict: touching an edge is not collision.
-This lets a body rest on a floor while `GROUNDED` is set, and preserves the
-Pac-Man rule `abs(delta) < 6`. Squares and dots are formed in int64 at raw
-2^32 scale. Distance tests compare those squares directly; square roots are
-reserved for requested depths and hit points. Raycasts and sweeps use the
-`div_s64_s32` divide path, which maps to the SH-2 DIVU hardware.
-
-The broad phase takes storage from the caller. Choose a cell size near the
-largest object; the normal cost is O(n + candidate pairs), while the documented
-worst case of every object in one cell is O(n²). Out-of-range coordinates clamp
-to edge cells, and query stamps deduplicate a candidate in constant time.
-
-A minimal platformer loop is:
-
-```c
-sat_step_clock_t clock;
-sat_step_clock_init(&clock);
-for (;;) {
-    uint16_t steps = sat_step_clock_steps(&clock, 4);
-    while (steps--) {
-        sat_body2_step(&player, &params);
-        sat_body2_move_tiles(&player, &grid, tile_at, user);
-    }
-    draw_player(&player);
-}
+```text
+include/saturn/   Public C API
+src/core/         Runtime, startup and memory
+src/graphics/     2D, 3D, VDP1 and VDP2 systems
+src/physics/      Collision, spatial structures and physics
+src/audio/        Playback and streaming
+src/input/        Input runtime
+src/storage/      CD, files, saves and cartridge services
+src/resources/    Asset/resource management
+src/hal/          Hardware-facing implementations
+examples/         Focused examples and integration demos
+tools/            Asset/model/build-time utilities
+scripts/          Bootstrap, build and automation helpers
+harness/          Automated Saturn runtime validation
+docs/             Architecture, hardware notes and engineering plans
 ```
 
-The `physics_2d` and `physics_3d` examples exercise these APIs with static
-storage, broad-phase statistics and a ray-pick HUD.
+The intended layering is:
+
+```text
+game / compatibility layer
+          |
+          v
+high-level LibSaturn API
+          |
+          v
+runtime subsystem
+          |
+          v
+hardware abstraction layer
+          |
+          v
+Saturn hardware / BIOS services
+```
+
+Hardware register access belongs in the HAL. Reusable algorithms belong in their owning subsystem. Game-facing code should not need to reproduce hardware protocol or renderer plumbing that the library can own once.
+
+## Current Scope
+
+LibSaturn already covers a meaningful portion of the systems required by small and medium-sized Saturn games, but it does **not** claim complete Saturn hardware coverage.
+
+Areas that remain incomplete or future-facing include broader Saturn peripheral support, additional VDP2 layers/raster effects, SCU DMA/DSP, richer SCSP DSP/synthesis, a resident 68000 audio service, generic A-Bus devices, external Backup Memory cartridges, NetLink and MPEG hardware.
+
+For a detailed subsystem-by-subsystem audit, see [`docs/LIBSATURN_CURRENT_COVERAGE.md`](docs/LIBSATURN_CURRENT_COVERAGE.md).
+
+## Design Principles
+
+LibSaturn favors:
+
+- **Saturn-native design** over pretending the console is a PC;
+- **high-level reusable APIs** over example-specific hardware code;
+- **bounded and caller-owned memory** over hidden allocation;
+- **deterministic behavior** over opaque runtime machinery;
+- **offline preprocessing** when it saves Saturn CPU/RAM/VRAM;
+- **explicit hardware ownership** in multiprocessor code;
+- **one canonical implementation path** instead of duplicated example logic;
+- **measurement and validation** instead of theoretical performance claims.
+
+## Documentation
+
+Useful starting points:
+
+- [Current hardware/runtime coverage](docs/LIBSATURN_CURRENT_COVERAGE.md)
+- [Parallel runtime architecture](docs/PARALLEL_RUNTIME_ARCHITECTURE.md)
+- [Parallel runtime benchmarks](docs/PARALLEL_RUNTIME_BENCHMARKS.md)
+- [3D physics world](docs/PHYSICS3_WORLD.md)
+- [Transform hierarchy](docs/TRANSFORM3D_HIERARCHY.md)
+- [RAM expansion cartridge](docs/RAM_EXPANSION_CARTRIDGE.md)
+- [SCSP audio streaming](docs/SCSP_AUDIO_STREAMING_GUIDE.md)
+- [Transparency and alpha](docs/TRANSPARENCY_ALPHA.md)
+
+The repository also includes Saturn hardware reference material and engineering plans for subsystems that are still evolving.
+
+---
+
+LibSaturn is an active exploration of how far a clean, modern, reusable game-development stack can push the Sega Saturn without giving up the character of the hardware.
