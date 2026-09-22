@@ -402,6 +402,35 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_scene3d_prepare_batch_slice(
+    const sat_scene3d_prepare_batch_t* source,
+    uint16_t first_item, uint16_t item_count,
+    sat_scene3d_prepare_item_t* slice_items,
+    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t* order,
+    uint16_t capacity, sat_scene3d_prepare_batch_t* out_slice) {
+    if (source == nullptr || out_slice == nullptr ||
+        (source->item_count != 0u && source->items == nullptr) ||
+        first_item > source->item_count ||
+        item_count > static_cast<uint16_t>(source->item_count - first_item) ||
+        (item_count != 0u && slice_items == nullptr)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (item_count != 0u) {
+        for (uint16_t i = 0u; i < item_count; ++i) {
+            slice_items[i] = source->items[first_item + i];
+        }
+    }
+    SAT_TRY(sat_scene3d_prepare_batch_init(
+        out_slice, slice_items, item_count, faces, keys, order, capacity));
+    out_slice->view_proj = source->view_proj;
+    out_slice->eye = source->eye;
+    out_slice->forward = source->forward;
+    out_slice->near_depth = source->near_depth;
+    out_slice->width = source->width;
+    out_slice->height = source->height;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_scene3d_faces_merge_prepared(
     sat_scene3d_faces_t* scene,
     const sat_scene3d_prepare_batch_t* batch) {

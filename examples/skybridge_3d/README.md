@@ -30,6 +30,19 @@ From PowerShell, use the project wrapper:
 
 The BIOS is your own dump and is not included in this repository. Consult `harness/README.md` for the direct-injection harness limitations. An emulator screenshot is a **visual diagnostic**, not proof of correctness on physical hardware.
 
+## Dual-SH2 modes
+
+Skybridge accepts `MASTER`, `SLAVE`, and `AUTO` through `-ParallelMode`.
+`MASTER` is the deterministic baseline. Explicit `SLAVE` dispatches animation
+or, when at least four gems are visible, partitions gem face preparation into
+bounded Master/Slave slices before the Master-owned scene merge. `AUTO` keeps
+geometry on the Master and may dispatch animation while measurements remain
+conservative. Press **Y** in-game to inspect frame time, wait time, task count,
+errors, face budget, and command budget.
+
+See `docs/SKYBRIDGE_PARALLEL_INTEGRATION.md` for the exact reproducible runs
+and the limits of Ymir instruction/cycle measurements.
+
 ## How it works
 
 - `game.h` has a pure, deterministic 60 Hz 16.16 fixed-point gameplay loop and **four compact ten-platform courses** selected by `sb_start_course()`. It is tested directly by `tests/host/test_skybridge_game.cpp`. Collision checks use a bounded array of ten world AABBs and per-axis movement; no hidden heap or physics engine. Course 2's four elevators use a staggered 180-tick triangular vertical motion, and their 16.16 Y is shared by the renderer, the landing/side/ceiling collision and collectible checks. The player is carried by the deck's actual Y delta while grounded and stops being carried as soon as they jump or leave it. A descending/rising landing compares the player's previous feet against the deck's previous top, rather than only against a static height.

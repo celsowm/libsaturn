@@ -68,6 +68,13 @@ before the worker reads them. The worker writes explicit face output and sort
 buffers through uncached aliases; merge then performs one scene-wide stable
 painter pass, preserving source order for equal-depth faces.
 
+`sat_scene3d_prepare_batch_slice` creates a bounded source-order view for a
+partitioned workload. It copies only item descriptors and camera state into
+caller-owned storage; each slice has independent faces, keys, ordering, and
+scratch buffers. A caller can execute the Master slice while the other slice is
+queued on the Slave, then merge the slices in their original source order.
+This is the geometry pattern used by Skybridge's explicit `SLAVE` mode.
+
 ```c
 sat_scene3d_prepare_batch_init(&batch, items, item_count,
                                prepared_faces, prepared_keys,
@@ -81,12 +88,11 @@ sat_scene_prepare_batch_release(&batch, handle);
 
 ## AUTO policy and validation
 
-AUTO currently forces geometry to Master through
-`sat_parallel_submit_master`, while animation remains eligible for Slave
-dispatch. The 12/48/96-object Ymir sweep shows unchanged fixed-cycle samples
-across policies, so there is no evidence for an automatic geometry crossover
-threshold. Runtime statistics are real queue/backend/FRT-tick counters, not a
-speedup claim.
+AUTO currently keeps geometry on the Master while animation remains eligible
+for Slave dispatch. Explicit Skybridge `SLAVE` mode can partition visible gem
+preparation; this is intentionally not enabled by AUTO until a measured
+crossover policy exists. Runtime statistics are real queue/backend/FRT-tick
+counters, not a speedup claim.
 
 The `parallel_runtime` example validates animation against direct decode and
 sampled geometry against synchronous preparation. Geometry validation compares

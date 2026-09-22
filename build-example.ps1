@@ -159,6 +159,14 @@ if ($normalizedExample -eq 'parallel_runtime') {
         $parallelFlags += " PARALLEL_RUNTIME_DEFAULT_MODE=$parallelModeValue"
     }
 }
+if ($normalizedExample -eq 'skybridge_3d' -and $ParallelMode) {
+    $parallelModeValue = switch ($ParallelMode) {
+        'MASTER' { 0 }
+        'SLAVE' { 1 }
+        'AUTO' { 2 }
+    }
+    $parallelFlags += " SAT_SKYBRIDGE_PARALLEL_MODE=$parallelModeValue"
+}
 if ($saturnBin) {
     $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + $parallelFlags + ' all'
 } else {

@@ -10,6 +10,7 @@
 #include "saturn/vdp1_color_calc.h"
 #include "saturn/vdp2_color_calc.h"
 #include "saturn/example_util.h"
+#include "saturn/time.h"
 #include "saturn/vdp2_rbg0_ground.h"
 #include "game.h"
 #include "scenery.h"
@@ -89,6 +90,11 @@ static const uint16_t g_world_colors[SB_WORLD_COLOR_COUNT]={
 /* Enough for the worst HUD/help/debug text + rects, without sacrificing
  * the END command. World overflow must never prevent the HUD pass. */
 #define SB_HUD_COMMAND_RESERVE 192u
+#ifndef SAT_SKYBRIDGE_PARALLEL_MODE
+#define SAT_SKYBRIDGE_PARALLEL_MODE 2
+#endif
+#define SB_PARALLEL_TIMEOUT 60000u
+#define SB_GEM_BATCH_CAP (SB_PICKUP_COUNT * GEM_FACE_CAP)
 #define GEM_VERTEX_CAP 6u
 #define GEM_FACE_CAP 8u
 #define PIG_VERTEX_CAP 900u
@@ -177,15 +183,66 @@ static sat_mesh_t g_gem_mesh;
 static uint16_t g_gem_materials[GEM_FACE_CAP];
 static sat_mat4_t g_gem_world[SB_PICKUP_COUNT + 1u];
 static sat_scene3d_instance_t g_gem_instances[SB_PICKUP_COUNT + 1u];
-static sat_projected_vertex_t g_gem_projected[GEM_VERTEX_CAP];
-static sat_vec3_t g_gem_world_vertices[GEM_VERTEX_CAP];
+static sat_projected_vertex_t g_gem_projected[SB_PICKUP_COUNT + 1u][GEM_VERTEX_CAP];
+static sat_vec3_t g_gem_world_vertices[SB_PICKUP_COUNT + 1u][GEM_VERTEX_CAP];
+static sat_scene3d_prepare_item_t g_gem_batch_items[SB_PICKUP_COUNT];
+static sat_scene3d_prepare_item_t g_gem_master_items[SB_PICKUP_COUNT];
+static sat_scene3d_prepare_item_t g_gem_slave_items[SB_PICKUP_COUNT];
+static sat_scene3d_face_t g_gem_partition_faces[SB_GEM_BATCH_CAP];
+static uint32_t g_gem_partition_keys[SB_GEM_BATCH_CAP];
+static uint16_t g_gem_partition_order[SB_GEM_BATCH_CAP];
+static sat_scene3d_face_t g_gem_master_faces[SB_GEM_BATCH_CAP];
+static uint32_t g_gem_master_keys[SB_GEM_BATCH_CAP];
+static uint16_t g_gem_master_order[SB_GEM_BATCH_CAP];
+static sat_scene3d_face_t g_gem_slave_faces[SB_GEM_BATCH_CAP];
+static uint32_t g_gem_slave_keys[SB_GEM_BATCH_CAP];
+static uint16_t g_gem_slave_order[SB_GEM_BATCH_CAP];
+static sat_scene3d_prepare_batch_t g_gem_partition_batch;
+static sat_scene3d_prepare_batch_t g_gem_master_batch;
+static sat_scene3d_prepare_batch_t g_gem_slave_batch;
+static sat_parallel_handle_t g_gem_slave_handle;
+static uint8_t g_gem_slave_pending;
+static uint8_t g_gem_master_ready;
+static uint8_t g_gem_slave_ready;
 static sat_vec3_t g_pig_vertices[PIG_VERTEX_CAP];
 static uint16_t g_pig_indices[PIG_FACE_CAP*4u];
 static sat_mesh_t g_pig_mesh;
  static sat_projected_vertex_t g_pig_projected[PIG_VERTEX_CAP];
 static uint16_t g_pig_face_textures[PIG_FACE_CAP];
 static sat_anim_state_t g_pig_anim;
+static sat_anim_state_t g_pig_render_anim;
 static sat_scene3d_instance_t g_pig_instance;
+static sat_vec3_t g_pig_pose[2][PIG_VERTEX_CAP];
+static uint8_t g_pig_render_buffer;
+static sat_parallel_handle_t g_pig_anim_handle;
+static uint8_t g_pig_anim_pending;
+
+typedef struct sb_frame_metrics {
+    uint32_t begin_ms;
+    uint32_t input_ms;
+    uint32_t animation_ms;
+    uint32_t physics_ms;
+    uint32_t camera_ms;
+    uint32_t geometry_ms;
+    uint32_t submission_ms;
+    uint32_t independent_master_ms;
+    uint32_t wait_ms;
+    uint32_t merge_ms;
+    uint32_t vdp1_ms;
+    uint32_t hud_ms;
+    uint32_t frame_ms;
+    uint16_t prepared_faces;
+    uint16_t rendered_faces;
+    uint16_t commands;
+    uint16_t task_count;
+    uint16_t failures;
+    uint16_t timeouts;
+    uint16_t over_budget;
+} sb_frame_metrics_t;
+static sb_frame_metrics_t g_metrics;
+static uint32_t g_last_parallel_wait;
+static uint32_t g_last_parallel_submitted;
+static uint32_t g_last_parallel_failed;
 
 static int16_t g_yaw;
 static sat_step_clock_t g_step_clock;
@@ -257,7 +314,11 @@ static void hud_coord(char axis,int32_t fixed,int x,int y) {
  * world pass is closed, so a caller can stop early. */
 static uint8_t world_ok(sat_result_t st) {
     if(st==SAT_ERR_CAPACITY) {g_world_cmd_full=1u;return 0u;}
-    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) sat_example_must(st);
+    if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) {
+        ++g_metrics.failures;
+        g_dbg_scene_status=st;
+        return 0u;
+    }
     return 1u;
 }
 /* Skybridge only selects a level material; the shared painter owns the
@@ -345,23 +406,6 @@ static const uint8_t g_gem_facet_colors[GEM_FACE_CAP]={
 };
 /* The library owns the facet painter and clipping; game logic only positions
  * an instance of the immutable octahedron mesh above its supporting deck. */
-static void draw_gem(uint8_t id,int32_t x,int32_t deck_y,int32_t z,
-                     uint8_t color_calc_slot) {
-    if(g_world_cmd_full) return;
-    const int32_t bob=sat_fx16_mul(
-        sat_sin_deg(SB_F((int32_t)(g_game.ticks*5u+id*33u)%360)),
-        SB_F(1)/2);
-    sat_example_must(sat_mat4_translate(
-        &g_gem_world[id],x,deck_y+SB_GEM_BASE_OFFSET+bob,z));
-    g_gem_instances[id].world=&g_gem_world[id];
-    /* A gem fades with the deck that carries it. Before the painter accepted
-     * a per-instance slot this was impossible without one copy of the shared
-     * material table per slot, so the gems stayed opaque over decks that had
-     * already faded most of the way out. */
-    world_ok(sat_scene_submit_instance(
-        &g_scene,&g_gem_instances[id],color_calc_slot,
-        g_gem_projected,g_gem_world_vertices));
-}
 /* An actual hinged 3D deck: the two long ends use the SAME 16.16
  * surface-height function as the landing solver. It is a sloped quad,
  * not a flat box translated or rotated just for the camera. Only three
@@ -526,6 +570,177 @@ static void pig_shadow(const uint8_t* deck_slot) {
         g_active_fade_slot=previous;
     }
 }
+static void record_parallel_snapshot(void) {
+    sat_parallel_stats_t stats={0};
+    const uint32_t local_failures=g_metrics.failures;
+    if(sat_parallel_stats(&stats)!=SAT_OK)return;
+    g_metrics.task_count=(uint16_t)((stats.submitted-g_last_parallel_submitted)>0xFFFFu
+        ?0xFFFFu:stats.submitted-g_last_parallel_submitted);
+    {
+        const uint32_t failures=local_failures+
+            (stats.failed-g_last_parallel_failed);
+        g_metrics.failures=(uint16_t)(failures>0xFFFFu?0xFFFFu:failures);
+    }
+    g_metrics.wait_ms=stats.master_wait_ticks-g_last_parallel_wait;
+    g_last_parallel_wait=stats.master_wait_ticks;
+    g_last_parallel_submitted=stats.submitted;
+    g_last_parallel_failed=stats.failed;
+}
+
+static void submit_pig_animation(void) {
+    sat_anim_decode_job_t job;
+    const uint8_t write_buffer=(uint8_t)(1u-g_pig_render_buffer);
+    if(g_pig_anim_pending)return;
+    job=(sat_anim_decode_job_t){&skybridge_pig_anim_asset,&g_pig_anim,
+                               g_pig_pose[write_buffer],PIG_VERTEX_CAP,0u};
+    if(sat_anim_decode_async(&job,&g_pig_anim_handle)!=SAT_OK) {
+        ++g_metrics.failures;
+        if(sat_anim_decode(&skybridge_pig_anim_asset,&g_pig_anim,
+                           g_pig_pose[write_buffer],PIG_VERTEX_CAP)!=SAT_OK) {
+            ++g_metrics.failures;
+            return;
+        }
+        g_pig_render_buffer=write_buffer;
+        g_pig_render_anim=g_pig_anim;
+        return;
+    }
+    g_pig_anim_pending=1u;
+}
+
+static void finish_pig_animation(void) {
+    const uint32_t start=sat_time_ms();
+    const uint8_t write_buffer=(uint8_t)(1u-g_pig_render_buffer);
+    if(!g_pig_anim_pending)return;
+    {
+        sat_result_t st=sat_parallel_wait(g_pig_anim_handle,SB_PARALLEL_TIMEOUT);
+        if(st!=SAT_OK && sat_parallel_state(g_pig_anim_handle)==SAT_PARALLEL_RUNNING) {
+            ++g_metrics.timeouts;
+            st=sat_parallel_abort(g_pig_anim_handle,SB_PARALLEL_TIMEOUT);
+        }
+        if(st==SAT_OK && sat_parallel_state(g_pig_anim_handle)==SAT_PARALLEL_COMPLETED) {
+            g_pig_render_buffer=write_buffer;
+            g_pig_render_anim=g_pig_anim;
+        } else ++g_metrics.failures;
+        if(sat_parallel_state(g_pig_anim_handle)!=SAT_PARALLEL_RUNNING)
+            (void)sat_parallel_release(g_pig_anim_handle);
+    }
+    g_pig_anim_pending=0u;
+    g_metrics.wait_ms += sat_time_ms()-start;
+}
+
+static void merge_gem_batch_direct(sat_scene3d_prepare_batch_t* batch) {
+    const uint16_t before=g_scene.faces.count;
+    if(sat_scene3d_faces_merge_prepared(&g_scene.faces,batch)!=SAT_OK) {
+        ++g_metrics.failures;
+        return;
+    }
+    g_scene.submitted_faces=(uint16_t)(g_scene.submitted_faces+
+                                       (g_scene.faces.count-before));
+    g_scene.culled_faces=g_scene.faces.culled_faces;
+    g_scene.clipped_faces=g_scene.faces.clipped_faces;
+    g_metrics.prepared_faces=(uint16_t)(g_metrics.prepared_faces+
+                                        batch->metrics.prepared_faces);
+}
+
+static void prepare_gem_geometry(const uint8_t* deck_slot) {
+    uint8_t id;
+    uint16_t count=0u;
+    const uint32_t start=sat_time_ms();
+    for(id=1u;id<=SB_PICKUP_COUNT;++id) {
+        const sb_platform_t* p=&sb_course_platforms(&g_game)[id];
+        sat_vec3_t center;
+        sat_fx16_t depth;
+        if(deck_slot[id]==SAT_FADE3D_SLOT_CULLED ||
+           (g_game.pickups&(1u<<(id-1u))))continue;
+        center=(sat_vec3_t){sb_platform_x(&g_game,id),
+            sb_platform_surface_y(&g_game,id,sb_platform_x(&g_game,id),SB_F(p->z))+
+            SB_GEM_BASE_OFFSET+sat_fx16_mul(
+                sat_sin_deg(SB_F((int32_t)(g_game.ticks*5u+id*33u)%360)),
+                SB_F(1)/2),SB_F(p->z)};
+        if(sat_scene_depth(&g_scene,&center,&depth)!=SAT_OK || depth<=0 ||
+           sb_abs(center.x-g_game.x)>SB_F(160) ||
+           sb_abs(center.z-g_game.z)>SB_F(180))continue;
+        if(sat_mat4_translate(&g_gem_world[id],center.x,center.y,center.z)!=SAT_OK) {
+            ++g_metrics.failures; continue;
+        }
+        g_gem_instances[id].world=&g_gem_world[id];
+        g_gem_batch_items[count]=(sat_scene3d_prepare_item_t){
+            &g_gem_instances[id],g_gem_projected[id],g_gem_world_vertices[id],
+            deck_slot[id],0u};
+        ++count;
+    }
+    if(count==0u)return;
+    g_gem_partition_batch.items=g_gem_batch_items;
+    g_gem_partition_batch.item_count=count;
+    g_gem_partition_batch.view_proj=g_scene.faces.view_proj;
+    g_gem_partition_batch.eye=g_scene.faces.eye;
+    g_gem_partition_batch.forward=g_scene.faces.forward;
+    g_gem_partition_batch.near_depth=g_scene.faces.near_depth;
+    g_gem_partition_batch.width=g_scene.faces.width;
+    g_gem_partition_batch.height=g_scene.faces.height;
+    {
+        uint16_t split=(uint16_t)(count/2u);
+        const uint8_t can_split=(sat_parallel_mode()==SAT_PARALLEL_SLAVE &&
+                                 sat_parallel_slave_available()!=0u && count>=4u);
+        if(!can_split)split=count;
+        if(sat_scene3d_prepare_batch_slice(&g_gem_partition_batch,0u,split,
+              g_gem_master_items,g_gem_master_faces,g_gem_master_keys,
+              g_gem_master_order,SB_GEM_BATCH_CAP,&g_gem_master_batch)!=SAT_OK) {
+            ++g_metrics.failures; return;
+        }
+        if(split<count) {
+            if(sat_scene3d_prepare_batch_slice(&g_gem_partition_batch,split,
+                  (uint16_t)(count-split),g_gem_slave_items,g_gem_slave_faces,
+                  g_gem_slave_keys,g_gem_slave_order,SB_GEM_BATCH_CAP,
+                  &g_gem_slave_batch)!=SAT_OK) {
+                ++g_metrics.failures; return;
+            }
+            if(sat_scene_prepare_batch_async(&g_scene,&g_gem_slave_batch,
+                                             &g_gem_slave_handle)!=SAT_OK) {
+                ++g_metrics.failures;
+                (void)sat_scene3d_prepare_batch_execute(&g_gem_slave_batch);
+                g_gem_master_ready=1u;
+                g_gem_slave_ready=1u;
+                return;
+            }
+            g_gem_slave_pending=1u;
+        }
+        if(sat_scene3d_prepare_batch_execute(&g_gem_master_batch)!=SAT_OK) {
+            ++g_metrics.failures; return;
+        }
+        g_gem_master_ready=1u;
+    }
+    g_metrics.geometry_ms += sat_time_ms()-start;
+}
+
+static void finish_gem_geometry(void) {
+    if(g_gem_master_ready) {
+        merge_gem_batch_direct(&g_gem_master_batch);
+        g_gem_master_ready=0u;
+    }
+    if(g_gem_slave_ready) {
+        merge_gem_batch_direct(&g_gem_slave_batch);
+        g_gem_slave_ready=0u;
+    }
+    if(!g_gem_slave_pending)return;
+    {
+        const uint32_t start=sat_time_ms();
+        sat_result_t st=sat_parallel_wait(g_gem_slave_handle,SB_PARALLEL_TIMEOUT);
+        if(st!=SAT_OK && sat_parallel_state(g_gem_slave_handle)==SAT_PARALLEL_RUNNING) {
+            ++g_metrics.timeouts;
+            st=sat_parallel_abort(g_gem_slave_handle,SB_PARALLEL_TIMEOUT);
+        }
+        if(st==SAT_OK && sat_parallel_state(g_gem_slave_handle)==SAT_PARALLEL_COMPLETED)
+            merge_gem_batch_direct(&g_gem_slave_batch);
+        else ++g_metrics.failures;
+        if(sat_parallel_state(g_gem_slave_handle)!=SAT_PARALLEL_RUNNING) {
+            if(sat_scene_prepare_batch_release(&g_gem_slave_batch,g_gem_slave_handle)!=SAT_OK)
+                ++g_metrics.failures;
+            g_gem_slave_pending=0u;
+        }
+        g_metrics.wait_ms += sat_time_ms()-start;
+    }
+}
 /* The VDP2 fade setup intentionally makes only indexed Sprite Type 0
  * materials opaque at priority 7. The converter's RGB shade palette is
  * therefore uploaded into the spare entries of the fade bank and each
@@ -544,12 +759,17 @@ static void player_pig(void) {
         (g_game.facing_x>0?SB_F(90):
          (g_game.facing_x<0?SB_F(270):0));
     sat_example_must(sat_model_transform3d_matrix(&pose,&world));
-    /* Each draw decodes an immutable LOCAL frame and applies this frame's
-     * world transform exactly once; no cumulative vertex drift. The API
-     * also maps the imported per-face shade indices to uploaded materials. */
-    sat_example_must(sat_anim_prepare_model_instance(
-        &skybridge_pig_anim_asset,&g_pig_anim,&world,&g_pig_mesh,
-        g_pig_face_textures,PIG_FACE_CAP,SKYBRIDGE_PIG_SHADE_COUNT));
+    /* The Slave only decodes into the alternate local-pose buffer. The
+     * Master owns this mesh and applies the world transform after completion,
+     * so no transformed vertex range is concurrently recycled. */
+    for(uint16_t vertex=0u;vertex<SKYBRIDGE_PIG_VERTEX_COUNT;++vertex)
+        g_pig_mesh.vertices[vertex]=g_pig_pose[g_pig_render_buffer][vertex];
+    if(sat_mesh_transform(&g_pig_mesh,&world)!=SAT_OK ||
+       sat_anim_face_colors(&skybridge_pig_anim_asset,
+        &g_pig_render_anim,g_pig_face_textures,PIG_FACE_CAP)!=SAT_OK) {
+        ++g_metrics.failures;
+        return;
+    }
     /* Animated pose already carries the world transform; do not apply it
      * twice when submitting the pig through the canonical instance path. */
     g_pig_instance.mesh=&g_pig_mesh;
@@ -646,32 +866,23 @@ static void draw_world(void) {
     }
     g_active_fade_slot=SAT_INDEXED_SOLID_OPAQUE;
     g_active_pass=SB_PASS_ACTOR;
+    /* Gema instances are independent of the pig pose. Dispatch their
+     * suffix before the Master finishes the actor preparation. */
+    prepare_gem_geometry(deck_slot);
+    /* The executor owns one Slave at a time. Prefer a useful geometry split
+     * when enough gems are visible; otherwise spend the slot on animation. */
+    if(!g_gem_slave_pending) submit_pig_animation();
+    finish_pig_animation();
     pig_shadow(deck_slot);
     player_pig();
-    for(i=1u;i<=SB_PICKUP_COUNT;++i) {
-        sat_vec3_t center;
-        sat_fx16_t depth;
-        if(deck_slot[i]==SAT_FADE3D_SLOT_CULLED ||
-           (g_game.pickups&(1u<<(i-1u))))continue;
-        center=(sat_vec3_t){
-            sb_platform_x(&g_game,i),
-            sb_platform_surface_y(&g_game,i,sb_platform_x(&g_game,i),
-                SB_F(sb_course_platforms(&g_game)[i].z))+SB_GEM_BASE_OFFSET,
-            SB_F(sb_course_platforms(&g_game)[i].z)
-        };
-        sat_example_must(sat_scene_depth(&g_scene,&center,&depth));
-        if(depth<=0 || sb_abs(center.x-g_game.x)>SB_F(160) ||
-           sb_abs(center.z-g_game.z)>SB_F(180))continue;
-        draw_gem(i,sb_platform_x(&g_game,i),
-                 sb_platform_surface_y(&g_game,i,sb_platform_x(&g_game,i),
-                    SB_F(sb_course_platforms(&g_game)[i].z)),
-                 SB_F(sb_course_platforms(&g_game)[i].z),
-                 deck_slot[i]);
-    }
+    finish_gem_geometry();
     /* World, pig and gem faces are ordered together before the protected HUD. */
     g_dbg_faces=g_scene.faces.count;
     g_dbg_face_cap=g_scene.faces.capacity;
-    sat_example_must(sat_scene_flush(&g_scene));
+    if(sat_scene_flush(&g_scene)!=SAT_OK) {
+        ++g_metrics.failures;
+        g_dbg_scene_status=SAT_ERR_VERIFY_FAILED;
+    }
     {
         /* AFTER the flush: that is where the queued faces actually become
          * VDP1 commands, so sampling before it always reported an empty list
@@ -999,6 +1210,11 @@ static void hud(void) {
         (void)sat_ascii_font_draw_fields(
             &g_font,budget,3u,7,47,W-14u,8,0u,0u);
         if(g_dbg_world_full) put_text("FULL",270,47);
+        (void)sat_draw_rect_screen(0,59,W,13u,SAT_RGB555(3,8,15));
+        label("MS ",g_metrics.frame_ms,7,61);
+        label("WAIT ",g_metrics.wait_ms,66,61);
+        label("TASK ",g_metrics.task_count,151,61);
+        label("ERR ",g_metrics.failures,244,61);
     }
     if (g_game.finished) {
         (void)sat_draw_rect_screen(46,76,228u,75u,SAT_RGB555(2,13,16));
@@ -1048,7 +1264,47 @@ int main(void) {
     const sat_vec3_t g_game_origin_ahead={0,0,SB_F(1)};
     sat_pad_state_t pad={0};
     sat_vdp2_scroll_t sky_scroll={0u,0u,31u,0u};
+    /* Keep immutable asset preparation ahead of SSHON. */
+    {
+        const sat_vec3_t origin={0,0,0};
+        sat_example_must(sat_mesh_init(&g_gem_mesh,g_gem_vertices,GEM_VERTEX_CAP,
+                                      g_gem_indices,GEM_FACE_CAP));
+        sat_example_must(sat_mesh_build_octahedron(&g_gem_mesh,&origin,
+                         SB_GEM_RADIUS,SB_GEM_HALF_HEIGHT));
+        for(uint8_t face=0u;face<GEM_FACE_CAP;++face)
+            g_gem_materials[face]=g_gem_facet_colors[face];
+    }
+    sat_example_must(sat_model_validate(&skybridge_pig_asset));
+    sat_example_must(sat_anim_validate(&skybridge_pig_anim_asset));
+    sat_example_must(sat_mesh_init(&g_pig_mesh,
+        g_pig_vertices,PIG_VERTEX_CAP,g_pig_indices,PIG_FACE_CAP));
+    sat_example_must(sat_model_copy_to_mesh(&skybridge_pig_asset,&g_pig_mesh));
+    sat_example_must(sat_anim_state_init(
+        &g_pig_anim,&skybridge_pig_anim_asset,1u)); /* Idle */
+    {
+        sat_mat4_t identity={0};
+        identity.m[0]=identity.m[5]=identity.m[10]=identity.m[15]=SAT_FX16_ONE;
+        sat_example_must(sat_anim_prepare_model_instance(
+            &skybridge_pig_anim_asset,&g_pig_anim,&identity,&g_pig_mesh,
+            g_pig_face_textures,PIG_FACE_CAP,SKYBRIDGE_PIG_SHADE_COUNT));
+    }
+    g_pig_render_anim=g_pig_anim;
+    sat_example_must(sat_anim_decode(&skybridge_pig_anim_asset,&g_pig_anim,
+                                    g_pig_pose[0],PIG_VERTEX_CAP));
+    g_pig_render_buffer=0u;
+    sat_example_must(sat_scene3d_prepare_batch_init(
+        &g_gem_partition_batch,g_gem_batch_items,0u,
+        g_gem_partition_faces,g_gem_partition_keys,g_gem_partition_order,
+        SB_GEM_BATCH_CAP));
     sat_example_must(sat_init(&video));
+    {
+        const sat_parallel_config_t parallel_config={
+            (sat_parallel_mode_t)SAT_SKYBRIDGE_PARALLEL_MODE,0,0u,0u,
+            SB_PARALLEL_TIMEOUT};
+        sat_example_must(sat_anim_parallel_register());
+        sat_example_must(sat_scene3d_prepare_parallel_register());
+        sat_example_must(sat_parallel_init(&parallel_config));
+    }
     plan_resources();
     sb_init(&g_game);
     sat_example_must(sat_camera3d_init(
@@ -1068,33 +1324,16 @@ int main(void) {
     init_tile_texture();
     init_cloud_texture();
     init_scene_materials();
-    /* Shared local-space octahedron: zero geometry construction in draw_gem. */
-    {
-        const sat_vec3_t origin={0,0,0};
-        sat_example_must(sat_mesh_init(&g_gem_mesh,g_gem_vertices,GEM_VERTEX_CAP,
-                                      g_gem_indices,GEM_FACE_CAP));
-        sat_example_must(sat_mesh_build_octahedron(&g_gem_mesh,&origin,
-                         SB_GEM_RADIUS,SB_GEM_HALF_HEIGHT));
-        for(uint8_t face=0u;face<GEM_FACE_CAP;++face)
-            g_gem_materials[face]=g_gem_facet_colors[face];
-        for(uint8_t id=0u;id<=SB_PICKUP_COUNT;++id) {
-            g_gem_instances[id].mesh=&g_gem_mesh;
-            g_gem_instances[id].materials=g_scene_materials;
-            g_gem_instances[id].material_count=g_solid_pool.count;
-            g_gem_instances[id].face_materials=g_gem_materials;
-            g_gem_instances[id].world=&g_gem_world[id];
-            g_gem_instances[id].pass=SB_PASS_ACTOR;
-            g_gem_instances[id].cull_backfaces=0u;
-        }
+    for(uint8_t id=0u;id<=SB_PICKUP_COUNT;++id) {
+        g_gem_instances[id].mesh=&g_gem_mesh;
+        g_gem_instances[id].materials=g_scene_materials;
+        g_gem_instances[id].material_count=g_solid_pool.count;
+        g_gem_instances[id].face_materials=g_gem_materials;
+        g_gem_instances[id].world=&g_gem_world[id];
+        g_gem_instances[id].pass=SB_PASS_ACTOR;
+        g_gem_instances[id].cull_backfaces=0u;
     }
     loading_frame("IMPORTING PIG",10u);
-    sat_example_must(sat_model_validate(&skybridge_pig_asset));
-    sat_example_must(sat_anim_validate(&skybridge_pig_anim_asset));
-     sat_example_must(sat_mesh_init(&g_pig_mesh,
-        g_pig_vertices,PIG_VERTEX_CAP,g_pig_indices,PIG_FACE_CAP));
-    sat_example_must(sat_model_copy_to_mesh(&skybridge_pig_asset,&g_pig_mesh));
-    sat_example_must(sat_anim_state_init(
-        &g_pig_anim,&skybridge_pig_anim_asset,1u)); /* Idle */
     loading_frame("BUILDING SKY",13u);
     init_sky();
     loading_frame("BUILDING SEA",15u);
@@ -1108,6 +1347,8 @@ int main(void) {
         uint16_t pressed,events=0u;
         int32_t fx,fz,rx,rz;
         sat_example_must(sat_wait_vblank());
+        g_metrics=(sb_frame_metrics_t){0};
+        g_metrics.begin_ms=sat_time_ms();
         /* VDP2's register latch is at VBlank. Apply BOTH layer and sprite
          * priority configuration before the comparatively slow SMPC pad poll,
          * math, audio and VDP1 submissions. The color-calc PRISA selector
@@ -1121,6 +1362,8 @@ int main(void) {
         update_rotation(sat_sin_deg(SB_F(g_yaw)),
                         sat_cos_deg(SB_F(g_yaw)));
         sat_example_must(sat_vdp2_layers_commit());
+        {
+            const uint32_t stage=sat_time_ms();
         sat_example_must(sat_pad_poll(&pad));
         /* Drop excess catch-up, preserve responsive input. sat_step_clock_steps
          * returns the raw elapsed count, so it can be 0 on a frame that beat
@@ -1141,6 +1384,8 @@ int main(void) {
                 start_course((uint8_t)(g_game.course+1u));
             else g_game.paused=(uint8_t)!g_game.paused;
         }
+            g_metrics.input_ms=sat_time_ms()-stage;
+        }
         if(pad.pressed&SAT_PAD_Y)g_show_debug=(uint8_t)!g_show_debug;
         if(pad.pressed&SAT_PAD_B) g_yaw-=15;
         if(pad.pressed&SAT_PAD_C) g_yaw+=15;
@@ -1154,6 +1399,7 @@ int main(void) {
         if (pad.pressed&SAT_PAD_A) pressed|=SB_JUMP;
         {
             uint16_t held=0u;
+            const uint32_t physics_stage=sat_time_ms();
             if(pad.held&SAT_PAD_UP) held|=SB_UP;
             if(pad.held&SAT_PAD_DOWN) held|=SB_DOWN;
             if(pad.held&SAT_PAD_LEFT) held|=SB_LEFT;
@@ -1164,10 +1410,12 @@ int main(void) {
                 events|=sb_tick(&g_game,held,pressed,fx,fz,rx,rz);
                 pressed=0u; /* A pressed edge is delivered once, never per catch-up step. */
             }
+            g_metrics.physics_ms=sat_time_ms()-physics_stage;
         }
         /* Jump=2, Walk=0, Idle=1 in the selected converter clip order.
          * Use actual movement/grounding, not camera yaw, to choose poses. */
         {
+            const uint32_t stage=sat_time_ms();
             uint16_t clip=g_game.support<0?2u:
                 (sb_abs(g_game.vx)+sb_abs(g_game.vz)>SB_F(1)/3?0u:1u);
             if(clip!=g_pig_anim.clip)
@@ -1176,9 +1424,11 @@ int main(void) {
             if(!g_game.paused && !g_game.finished)
                 sat_example_must(sat_anim_advance(
                     &g_pig_anim,&skybridge_pig_anim_asset,SB_F(1)/60));
+            g_metrics.animation_ms=sat_time_ms()-stage;
         }
         sound_event(events);
         {
+            const uint32_t stage=sat_time_ms();
             int32_t ex,ez,lx,lz;
             const sat_vec3_t desired={g_game.x,g_game.y,g_game.z};
             sat_vec3_t eye_offset,target_offset;
@@ -1190,6 +1440,7 @@ int main(void) {
             sat_example_must(sat_follow_camera3d_step(
                 &g_follow_camera,&desired,(events&SB_EVENT_FALL)?1u:0u,
                 &g_eye,&g_target));
+            g_metrics.camera_ms=sat_time_ms()-stage;
         }
         g_camera.eye=g_eye;
         g_camera.target=g_target;
@@ -1200,11 +1451,23 @@ int main(void) {
         sat_example_must(sat_begin_frame());
         g_world_cmd_full=0u;
         g_dbg_scene_status=SAT_OK;
+        {
+            const uint32_t submission_stage=sat_time_ms();
         draw_clouds();
         draw_world();
+            g_metrics.submission_ms=sat_time_ms()-submission_stage;
+        }
+        record_parallel_snapshot();
+        g_metrics.frame_ms=sat_time_ms()-g_metrics.begin_ms;
         sat_example_must(sat_vdp1_overlay_begin());
+        {
+            const uint32_t hud_stage=sat_time_ms();
         hud();
+            g_metrics.hud_ms=sat_time_ms()-hud_stage;
+        }
         sat_example_must(sat_end_frame());
         sat_example_must(sat_audio_update());
+        g_metrics.frame_ms=sat_time_ms()-g_metrics.begin_ms;
+        g_metrics.over_budget=(g_metrics.frame_ms>17u)?1u:0u;
     }
 }

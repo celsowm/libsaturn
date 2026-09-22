@@ -165,6 +165,18 @@ sat_result_t sat_scene3d_prepare_batch_init(
     sat_scene3d_face_t* faces, uint32_t* keys, uint16_t* order,
     uint16_t capacity);
 
+/* Builds a bounded object-range view of an existing batch.  The item
+ * descriptors are copied in source order into caller-owned storage; camera
+ * state and the preparation contract are copied as well.  This is the
+ * reusable partition primitive used when one portion is dispatched to the
+ * Slave and another is prepared concurrently by the Master. */
+sat_result_t sat_scene3d_prepare_batch_slice(
+    const sat_scene3d_prepare_batch_t* source,
+    uint16_t first_item, uint16_t item_count,
+    sat_scene3d_prepare_item_t* slice_items,
+    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t* order,
+    uint16_t capacity, sat_scene3d_prepare_batch_t* out_slice);
+
 /* Pure preparation entry point shared by the Master path and the Slave task.
  * It performs no hardware access and does not sort or emit commands. */
 sat_result_t sat_scene3d_prepare_batch_execute(

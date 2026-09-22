@@ -67,6 +67,11 @@ ifneq ($(strip $(PARALLEL_RUNTIME_DEFAULT_MODE)),)
 CFLAGS      += -DSAT_PARALLEL_RUNTIME_DEFAULT_MODE=$(PARALLEL_RUNTIME_DEFAULT_MODE)
 endif
 endif
+ifeq ($(EXAMPLE),skybridge_3d)
+ifneq ($(strip $(SAT_SKYBRIDGE_PARALLEL_MODE)),)
+CFLAGS      += -DSAT_SKYBRIDGE_PARALLEL_MODE=$(SAT_SKYBRIDGE_PARALLEL_MODE)
+endif
+endif
 # -MMD -MP make the compiler emit a .d file listing every header an object
 # depends on. Without it a header edit leaves stale objects and binaries
 # behind, and a test can "pass" against code that is no longer on disk.

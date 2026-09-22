@@ -375,6 +375,45 @@ int main() {
         assert(batch.order[i]==reference_order[i]);
         assert(same_face(batch.faces[i],reference_faces[i]));
     }
+
+    // Partitioning is a bounded source-order view: the selected descriptors
+    // inherit camera state, while output storage and metrics stay private to
+    // the slice that a second executor may prepare.
+    sat_scene3d_prepare_item_t source_items[3]={
+        prepared_item,prepared_item,prepared_item};
+    sat_scene3d_face_t source_faces[8]={};
+    uint32_t source_keys[8]={};
+    uint16_t source_order[8]={};
+    sat_scene3d_prepare_batch_t source_batch={};
+    assert(sat_scene3d_prepare_batch_init(
+        &source_batch,source_items,3u,source_faces,source_keys,
+        source_order,8u)==SAT_OK);
+    source_batch.view_proj=vp;
+    source_batch.eye=eye;
+    source_batch.forward=forward;
+    source_batch.near_depth=SAT_FX16_ONE;
+    source_batch.width=320u;
+    source_batch.height=224u;
+    sat_scene3d_prepare_item_t slice_items[2]={};
+    sat_scene3d_face_t slice_faces[8]={};
+    uint32_t slice_keys[8]={};
+    uint16_t slice_order[8]={};
+    sat_scene3d_prepare_batch_t slice={};
+    assert(sat_scene3d_prepare_batch_slice(
+        &source_batch,1u,2u,slice_items,slice_faces,slice_keys,
+        slice_order,8u,&slice)==SAT_OK);
+    assert(slice.items==slice_items && slice.item_count==2u);
+    assert(slice.items[0].instance==&instance &&
+           slice.items[1].instance==&instance);
+    assert(slice.view_proj.m[0]==vp.m[0] && slice.width==320u &&
+           slice.height==224u);
+    assert(sat_scene3d_prepare_batch_execute(&slice)==SAT_OK);
+    assert(slice.metrics.source_faces==4u &&
+           slice.metrics.prepared_faces==4u);
+    assert(sat_scene3d_prepare_batch_slice(
+        &source_batch,2u,2u,slice_items,slice_faces,slice_keys,
+        slice_order,8u,&slice)==SAT_ERR_INVALID_ARG);
+
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
     assert(sat_scene3d_faces_merge_prepared(&scene,&batch)==SAT_OK);

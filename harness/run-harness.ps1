@@ -89,7 +89,8 @@ if (-not (Test-Path $binPath)) {
 # entry symbol through Ymir's generic SH-2 reset vector so SSHON still starts
 # the actual guest Slave code.
 $slaveResetEntry = $null
-if ($normalizedExample -eq 'dual_sh2' -or $normalizedExample -eq 'parallel_runtime') {
+if ($normalizedExample -eq 'dual_sh2' -or $normalizedExample -eq 'parallel_runtime' -or
+    $normalizedExample -eq 'skybridge_3d') {
     $elfPath = Join-Path $RepoRoot ("build\examples\{0}.elf" -f $safeName)
     if (-not (Test-Path $elfPath)) {
         throw "Expected $elfPath to resolve _saturn_slave_entry for the Ymir dual-SH2 handoff."
