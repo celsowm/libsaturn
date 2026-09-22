@@ -85,15 +85,16 @@ if (-not (Test-Path $binPath)) {
 }
 
 # Ymir's direct-injection harness does not run the Saturn BIOS's Slave handoff
-# routine. For the dual-SH2 example, provide the entry symbol through Ymir's
-# generic SH-2 reset vector so SSHON still starts the actual guest Slave code.
+# routine. For the dual-SH2 and high-level parallel examples, provide the
+# entry symbol through Ymir's generic SH-2 reset vector so SSHON still starts
+# the actual guest Slave code.
 $slaveResetEntry = $null
-if ($normalizedExample -eq 'dual_sh2') {
+if ($normalizedExample -eq 'dual_sh2' -or $normalizedExample -eq 'parallel_runtime') {
     $elfPath = Join-Path $RepoRoot ("build\examples\{0}.elf" -f $safeName)
     if (-not (Test-Path $elfPath)) {
         throw "Expected $elfPath to resolve _saturn_slave_entry for the Ymir dual-SH2 handoff."
     }
-    $mapPath = Join-Path $RepoRoot 'build\dual_sh2.map'
+    $mapPath = Join-Path $RepoRoot ("build\{0}.map" -f $safeName)
     if (-not (Test-Path $mapPath)) {
         throw "Expected $mapPath to resolve _saturn_slave_entry for the Ymir dual-SH2 handoff."
     }

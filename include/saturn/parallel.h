@@ -29,7 +29,8 @@ typedef uint16_t sat_parallel_task_type_t;
 typedef uint32_t sat_parallel_handle_t;
 
 enum {
-    SAT_PARALLEL_TASK_ANIMATION_DECODE = 1u
+    SAT_PARALLEL_TASK_ANIMATION_DECODE = 1u,
+    SAT_PARALLEL_TASK_SCENE_GEOMETRY = 2u
 };
 
 typedef sat_result_t (*sat_parallel_process_fn)(
@@ -55,6 +56,7 @@ typedef struct sat_parallel_task_slot {
     uint32_t output_address;
     uint32_t output_capacity;
     uint32_t output_size;
+    uint32_t task_ticks;
     int32_t result;
 } sat_parallel_task_slot_t;
 
@@ -76,6 +78,10 @@ typedef struct sat_parallel_stats {
     uint32_t slave_tasks;
     uint32_t master_wait_ticks;
     uint32_t last_task_ticks;
+    uint32_t submission_ticks;
+    uint32_t completion_ticks;
+    uint32_t master_task_ticks;
+    uint32_t slave_task_ticks;
 } sat_parallel_stats_t;
 
 sat_result_t sat_parallel_init(const sat_parallel_config_t* config);

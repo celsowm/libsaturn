@@ -1,9 +1,11 @@
 # parallel_runtime
 
 This example is the high-level dual-SH-2 demonstration. It registers the
-existing baked-animation decoder with `sat_parallel`, submits one immutable
-batch, performs a master-side checksum while the Slave works, and compares the
-result with the direct Master decoder.
+existing baked-animation decoder and the canonical scene geometry batch with
+`sat_parallel`, submits coarse immutable work, performs Master-side checksums
+while the Slave works, and compares the results with the direct Master
+algorithms. Geometry is merged into the normal scene-wide painter before VDP1
+submission; it is not a second renderer.
 
 The A button cycles `MASTER`, `SLAVE`, and `AUTO`. `AUTO` falls back to Master
 when the Slave cannot start. The displayed wait time is the time spent waiting
@@ -18,3 +20,5 @@ Build and run:
 
 The Ymir harness can be used for actual two-CPU execution evidence in the same
 way as `examples/dual_sh2`; instruction counts are not a frame-rate claim.
+The measured comparison is documented in
+`docs/PARALLEL_RUNTIME_BENCHMARKS.md`.

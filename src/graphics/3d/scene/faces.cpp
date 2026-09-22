@@ -1,4 +1,5 @@
 #include "saturn/scene3d_faces.h"
+#include "saturn/parallel.h"
 #include "saturn/vdp1_color_calc.h"
 #include "src/graphics/3d/geometry/mesh_logic.hpp"
 #include "src/graphics/3d/rendering/logic.hpp"
@@ -338,6 +339,83 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
         }
         if (st!=SAT_OK) return st;
     }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_prepare_batch_init(
+    sat_scene3d_prepare_batch_t* batch,
+    const sat_scene3d_prepare_item_t* items, uint16_t item_count,
+    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t* order,
+    uint16_t capacity) {
+    if (batch == nullptr || (item_count != 0u && items == nullptr) ||
+        faces == nullptr || keys == nullptr || order == nullptr ||
+        capacity == 0u) return SAT_ERR_INVALID_ARG;
+    *batch = {};
+    batch->items = items;
+    batch->item_count = item_count;
+    batch->capacity = capacity;
+    batch->faces = faces;
+    batch->keys = keys;
+    batch->order = order;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
+    sat_scene3d_prepare_batch_t* batch) {
+    if (batch == nullptr || batch->faces == nullptr || batch->keys == nullptr ||
+        batch->order == nullptr || batch->capacity == 0u ||
+        (batch->item_count != 0u && batch->items == nullptr) ||
+        batch->near_depth <= 0 || batch->width < 2u || batch->height < 2u ||
+        batch->width > 2048u || batch->height > 2048u ||
+        (batch->forward.x == 0 && batch->forward.y == 0 && batch->forward.z == 0))
+        return SAT_ERR_INVALID_ARG;
+
+    batch->metrics = {};
+    sat_scene3d_faces_t prepared = {};
+    SAT_TRY(sat_scene3d_faces_init(
+        &prepared, batch->faces, batch->keys, batch->order, batch->capacity));
+    SAT_TRY(sat_scene3d_faces_begin(
+        &prepared, &batch->view_proj, &batch->eye, &batch->forward,
+        batch->near_depth, batch->width, batch->height));
+    for (uint16_t i = 0u; i < batch->item_count; ++i) {
+        const sat_scene3d_prepare_item_t& item = batch->items[i];
+        if (item.instance == nullptr || item.instance->mesh == nullptr) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        const uint32_t source = static_cast<uint32_t>(batch->metrics.source_faces) +
+            item.instance->mesh->face_count;
+        batch->metrics.source_faces = source > 0xFFFFu
+            ? 0xFFFFu : static_cast<uint16_t>(source);
+        const sat_result_t st = sat_scene3d_faces_submit_instance(
+            &prepared, item.instance, item.color_calc_slot,
+            item.screen_scratch, item.world_scratch);
+        if (st != SAT_OK) return st;
+    }
+    batch->metrics.prepared_faces = prepared.count;
+    batch->metrics.culled_faces = prepared.culled_faces;
+    batch->metrics.clipped_faces = prepared.clipped_faces;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_merge_prepared(
+    sat_scene3d_faces_t* scene,
+    const sat_scene3d_prepare_batch_t* batch) {
+    if (scene == nullptr || batch == nullptr || !scene->active ||
+        batch->faces == nullptr || batch->keys == nullptr ||
+        batch->metrics.prepared_faces > batch->capacity)
+        return SAT_ERR_INVALID_ARG;
+    if (batch->metrics.prepared_faces > scene->capacity - scene->count)
+        return SAT_ERR_CAPACITY;
+    const uint16_t count = batch->metrics.prepared_faces;
+    for (uint16_t i = 0u; i < count; ++i) {
+        scene->entries[scene->count] = batch->faces[i];
+        scene->keys[scene->count] = batch->keys[i];
+        ++scene->count;
+    }
+    scene->culled_faces = static_cast<uint16_t>(
+        scene->culled_faces + batch->metrics.culled_faces);
+    scene->clipped_faces = static_cast<uint16_t>(
+        scene->clipped_faces + batch->metrics.clipped_faces);
     return SAT_OK;
 }
 

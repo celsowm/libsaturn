@@ -118,6 +118,65 @@ typedef struct sat_scene3d_instance {
     uint8_t cull_backfaces;
 } sat_scene3d_instance_t;
 
+/* A batch item is an immutable instance descriptor plus caller-owned scratch.
+ * Scratch is private to the item and may be written by the selected backend
+ * while the batch is queued or running. It must not be reused until wait(). */
+typedef struct sat_scene3d_prepare_item {
+    const sat_scene3d_instance_t* instance;
+    sat_projected_vertex_t* screen_scratch;
+    sat_vec3_t* world_scratch;
+    uint8_t color_calc_slot;
+    uint8_t reserved;
+} sat_scene3d_prepare_item_t;
+
+typedef struct sat_scene3d_prepare_metrics {
+    uint16_t source_faces;
+    uint16_t prepared_faces;
+    uint16_t culled_faces;
+    uint16_t clipped_faces;
+} sat_scene3d_prepare_metrics_t;
+
+/* Caller-owned batch storage. The worker writes only faces, keys, order
+ * scratch, and metrics; it never writes the scene or VDP1 state. The camera
+ * fields are captured by sat_scene3d_prepare_batch_async(). */
+typedef struct sat_scene3d_prepare_batch {
+    const sat_scene3d_prepare_item_t* items;
+    uint16_t item_count;
+    uint16_t capacity;
+    sat_scene3d_face_t* faces;
+    uint32_t* keys;
+    uint16_t* order;
+    sat_scene3d_prepare_metrics_t metrics;
+    sat_mat4_t view_proj;
+    sat_vec3_t eye;
+    sat_vec3_t forward;
+    sat_fx16_t near_depth;
+    uint16_t width;
+    uint16_t height;
+} sat_scene3d_prepare_batch_t;
+
+sat_result_t sat_scene3d_prepare_batch_init(
+    sat_scene3d_prepare_batch_t* batch,
+    const sat_scene3d_prepare_item_t* items, uint16_t item_count,
+    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t* order,
+    uint16_t capacity);
+
+/* Pure preparation entry point shared by the Master path and the Slave task.
+ * It performs no hardware access and does not sort or emit commands. */
+sat_result_t sat_scene3d_prepare_batch_execute(
+    sat_scene3d_prepare_batch_t* batch);
+
+/* Registers the geometry task type with the existing single Slave owner. */
+sat_result_t sat_scene3d_prepare_parallel_register(void);
+
+/* Merges prepared faces into the caller-owned canonical queue. The merge is
+ * intentionally separate from preparation: callers can submit/prepare other
+ * work on the Master while a batch is running, then merge batches in a stable
+ * source order before the one global scene flush. */
+sat_result_t sat_scene3d_faces_merge_prepared(
+    sat_scene3d_faces_t* scene,
+    const sat_scene3d_prepare_batch_t* batch);
+
 /* Every face of the instance takes this slot, exactly as submit_box and
  * submit_tiled_quad apply one slot to the faces they generate. A whole object
  * is what distance fade acts on, so the slot belongs to the submission and not

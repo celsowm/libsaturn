@@ -2,6 +2,14 @@
 
 #include "src/graphics/3d/animation/logic.hpp"
 
+#if defined(__GNUC__)
+extern "C" sat_result_t sat_parallel_register_task(
+    sat_parallel_task_type_t, sat_parallel_process_fn) __attribute__((weak));
+extern "C" sat_result_t sat_parallel_submit(
+    sat_parallel_task_type_t, const void*, uint32_t, void*, uint32_t,
+    sat_parallel_handle_t*) __attribute__((weak));
+#endif
+
 extern "C" sat_result_t sat_anim_validate(const sat_animated_model_asset* asset) {
     return saturn::core::anim3d::validate(asset);
 }
@@ -129,6 +137,9 @@ sat_result_t parallel_decode(
 }  // namespace
 
 extern "C" sat_result_t sat_anim_parallel_register(void) {
+#if defined(__GNUC__)
+    if (sat_parallel_register_task == nullptr) return SAT_ERR_UNSUPPORTED;
+#endif
     return sat_parallel_register_task(SAT_PARALLEL_TASK_ANIMATION_DECODE,
                                       &parallel_decode);
 }
@@ -137,6 +148,9 @@ extern "C" sat_result_t sat_anim_decode_async(
     const sat_anim_decode_job_t* job, sat_parallel_handle_t* out_handle) {
     if (job == nullptr || out_handle == nullptr || job->output == nullptr ||
         job->vertex_cap == 0u) return SAT_ERR_INVALID_ARG;
+#if defined(__GNUC__)
+    if (sat_parallel_submit == nullptr) return SAT_ERR_UNSUPPORTED;
+#endif
     return sat_parallel_submit(
         SAT_PARALLEL_TASK_ANIMATION_DECODE, job,
         static_cast<uint32_t>(sizeof(*job)), job->output,

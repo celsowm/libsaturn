@@ -7,6 +7,7 @@
 #include "src/hal/dual_sh2/memory.hpp"
 #include "src/hal/sh2/cache.hpp"
 #include "src/hal/sh2/cpu.hpp"
+#include "src/hal/sh2/frt.hpp"
 
 namespace saturn::core::parallel::executor {
 
@@ -32,6 +33,7 @@ struct Runtime {
     uint16_t capacity;
     uint16_t active_index;
     uint8_t active;
+    uint16_t completion_start_tick;
     Registration registrations[kMaxTasks];
     uint16_t registration_count;
     sat_parallel_stats_t stats;
@@ -39,6 +41,10 @@ struct Runtime {
 
 static sat_parallel_task_slot_t g_default_slots[kDefaultSlots];
 static Runtime g_runtime = {};
+
+uint32_t elapsed_ticks(uint16_t start) {
+    return static_cast<uint16_t>(saturn::hal::sh2::frt::counter() - start);
+}
 
 bool range_ok(uint32_t address, uint32_t size) {
     return size != 0u && saturn::hal::sh2::cache::is_supported_work_ram(address, size);
@@ -102,6 +108,9 @@ void finish_slave_message(const sat_dual_sh2_message_t& message) {
         return;
     }
     sat_parallel_task_slot_t& slot = g_runtime.slots[g_runtime.active_index];
+    /* Geometry jobs publish completion metadata in their input descriptor;
+     * invalidate that span as well as the explicit output buffer. */
+    consume_range(slot.input_address, slot.input_size);
     consume_range(slot.output_address, slot.output_capacity);
     consume_range(physical_address(&slot), sizeof(slot));
     if (slot.state == SAT_PARALLEL_RUNNING) {
@@ -109,7 +118,10 @@ void finish_slave_message(const sat_dual_sh2_message_t& message) {
         slot.state = slot.result == SAT_OK ? SAT_PARALLEL_COMPLETED : SAT_PARALLEL_FAILED;
         if (slot.state == SAT_PARALLEL_COMPLETED) ++g_runtime.stats.completed;
         else ++g_runtime.stats.failed;
+        g_runtime.stats.last_task_ticks = slot.task_ticks;
+        g_runtime.stats.slave_task_ticks += slot.task_ticks;
     }
+    g_runtime.stats.completion_ticks += elapsed_ticks(g_runtime.completion_start_tick);
     g_runtime.active = 0u;
 }
 
@@ -121,6 +133,7 @@ sat_result_t execute_master(sat_parallel_task_slot_t& slot) {
     }
     if (g_runtime.stats.queued != 0u) --g_runtime.stats.queued;
     slot.state = SAT_PARALLEL_RUNNING;
+    const uint16_t task_start = saturn::hal::sh2::frt::counter();
     uint32_t output_size = 0u;
     const sat_result_t result = registration->process(
         reinterpret_cast<const void*>(static_cast<uintptr_t>(slot.input_address)),
@@ -129,11 +142,14 @@ sat_result_t execute_master(sat_parallel_task_slot_t& slot) {
         slot.output_capacity,
         &output_size);
     slot.output_size = output_size;
+    slot.task_ticks = elapsed_ticks(task_start);
     slot.result = static_cast<int32_t>(result);
     slot.state = result == SAT_OK ? SAT_PARALLEL_COMPLETED : SAT_PARALLEL_FAILED;
     if (result == SAT_OK) {
         ++g_runtime.stats.completed;
         ++g_runtime.stats.master_tasks;
+        g_runtime.stats.last_task_ticks = slot.task_ticks;
+        g_runtime.stats.master_task_ticks += slot.task_ticks;
     } else {
         ++g_runtime.stats.failed;
     }
@@ -174,6 +190,7 @@ sat_result_t dispatch_one() {
         }
         g_runtime.active = 1u;
         g_runtime.active_index = i;
+        g_runtime.completion_start_tick = saturn::hal::sh2::frt::counter();
         ++g_runtime.stats.slave_tasks;
         return SAT_OK;
     }
@@ -312,12 +329,15 @@ sat_result_t submit(sat_parallel_task_type_t type, const void* input,
         slot.output_address = output_address;
         slot.output_capacity = output_capacity;
         slot.output_size = 0u;
+        slot.task_ticks = 0u;
         slot.result = SAT_ERR_BUSY;
         slot.state = SAT_PARALLEL_QUEUED;
         *out_handle = slot.token;
         ++g_runtime.stats.submitted;
         ++g_runtime.stats.queued;
+        const uint16_t submission_start = saturn::hal::sh2::frt::counter();
         (void)service();
+        g_runtime.stats.submission_ticks += elapsed_ticks(submission_start);
         return SAT_OK;
     }
     return SAT_ERR_CAPACITY;
@@ -351,8 +371,10 @@ sat_result_t wait(sat_parallel_handle_t handle, uint32_t timeout_ticks) {
         SAT_TRY(service());
         if (done(handle) != 0u) return result(handle, nullptr);
         if (g_runtime.active != 0u) {
+            const uint16_t wait_start = saturn::hal::sh2::frt::counter();
             sat_dual_sh2_message_t message = {};
             const sat_result_t waited = sat_dual_sh2_wait_response(&message, timeout_ticks);
+            g_runtime.stats.master_wait_ticks += elapsed_ticks(wait_start);
             if (waited != SAT_OK) return waited;
             finish_slave_message(message);
         } else {
@@ -413,6 +435,7 @@ void slave_entry(void*) {
         Registration* registration = registration_for(shared_slot->type);
         sat_result_t result = SAT_ERR_UNSUPPORTED;
         uint32_t output_size = 0u;
+        const uint16_t task_start = saturn::hal::sh2::frt::counter();
         if (registration != nullptr && registration->process != nullptr) {
             const uint32_t input = shared_slot->input_address;
             const uint32_t output = shared_slot->output_address;
@@ -425,6 +448,8 @@ void slave_entry(void*) {
                 shared_slot->output_capacity,
                 &output_size);
         }
+        shared_slot->task_ticks = static_cast<uint16_t>(
+            saturn::hal::sh2::frt::counter() - task_start);
         shared_slot->output_size = output_size;
         shared_slot->result = static_cast<int32_t>(result);
         shared_slot->state = result == SAT_OK ? SAT_PARALLEL_COMPLETED : SAT_PARALLEL_FAILED;

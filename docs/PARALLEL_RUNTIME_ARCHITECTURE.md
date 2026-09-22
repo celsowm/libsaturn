@@ -147,3 +147,56 @@ measurements.
 5. Submit coarse batches, not one task per vertex/contact.
 6. Let the Master own hardware registers and final scene/resource commits.
 7. Compare Master and Slave output before enabling AUTO for a new workload.
+
+## Geometry batch integration
+
+The geometry milestone keeps the existing scene painter as the only renderer.
+`SAT_PARALLEL_TASK_SCENE_GEOMETRY` is registered by
+`sat_scene3d_prepare_parallel_register()` and uses the same
+`sat_scene3d_faces_submit_instance()` implementation used by synchronous
+scene submission. There is no second clipping, material, or VDP1 command
+implementation.
+
+Applications provision a `sat_scene3d_prepare_batch_t` with immutable
+`sat_scene3d_prepare_item_t` instance descriptors, per-item projection/world
+scratch, face storage, painter keys, and ordering scratch:
+
+```c
+sat_scene3d_prepare_batch_init(&batch, items, item_count,
+                               prepared_faces, prepared_keys,
+                               prepared_order, capacity);
+sat_scene_prepare_batch_async(&scene, &batch, &handle);
+/* Master performs unrelated work here. */
+sat_parallel_wait(handle, timeout);
+sat_scene_merge_prepared_batch(&scene, &batch, handle);
+sat_parallel_release(handle);
+```
+
+The async call captures the active scene camera and view state but does not
+retain or modify the scene. The worker writes only the caller-owned output
+buffers and batch metrics. All item, mesh, material, texture, scratch, and
+batch storage must remain valid until the handle is released. The explicit
+output faces and painter keys are shared Work RAM; the Slave uses uncached
+aliases for those writes and the executor invalidates the batch descriptor
+and output before the Master consumes them.
+
+Preparation is deliberately separate from merge. Batches are merged by the
+application in stable source order, then `sat_scene3d_faces_flush()` performs
+one global pass/depth ordering over Master and Slave faces. Equal-depth faces
+therefore retain the merge order, independent of which CPU completed first.
+The Master remains the sole owner of scene statistics, overlay reservations,
+VDP1 command-budget accounting, command generation, and final submission.
+Output-capacity failure is returned; faces are never silently dropped.
+
+The executor still has one active Slave task and a bounded queue. Geometry is
+submitted as a coarse object batch rather than one task per face. `sat_parallel_stats`
+now exposes FRT-tick submission/completion totals and Master/Slave task-tick
+totals when the target timer is available. These are local timing counters;
+Ymir instruction counts remain a separate diagnostic and are not a speedup
+claim.
+
+AUTO remains conservative and does not use an unmeasured geometry threshold.
+The example exposes MASTER, SLAVE, and AUTO, validates the first prepared
+batch against a synchronous execution, and displays real task, wait,
+submission, frame, face, and validation counters. Physics and asset processing
+are intentionally outside this milestone.

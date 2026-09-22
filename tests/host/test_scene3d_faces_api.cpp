@@ -293,6 +293,48 @@ int main() {
     assert(emitted[4]==101u); // depth 2, nearest of pass 0
     assert(emitted[5]==105u); // pass 1 paints last despite being farthest
 
+    // Batch preparation uses the same instance algorithm and can be merged
+    // into the canonical queue without sorting or emitting independently.
+    sat_scene3d_face_t prepared_faces[8]={};
+    uint32_t prepared_keys[8]={};
+    uint16_t prepared_order[8]={};
+    sat_scene3d_prepare_item_t prepared_item={
+        &instance,screen,world,SAT_SCENE3D_SLOT_INHERIT,0u};
+    sat_scene3d_prepare_batch_t batch={};
+    assert(sat_scene3d_prepare_batch_init(
+        &batch,&prepared_item,1u,prepared_faces,prepared_keys,
+        prepared_order,8u)==SAT_OK);
+    batch.view_proj=vp;
+    batch.eye=eye;
+    batch.forward=forward;
+    batch.near_depth=SAT_FX16_ONE;
+    batch.width=320u;
+    batch.height=224u;
+    assert(sat_scene3d_prepare_batch_execute(&batch)==SAT_OK);
+    assert(batch.metrics.source_faces==2u &&
+           batch.metrics.prepared_faces==2u && batch.metrics.culled_faces==0u);
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_merge_prepared(&scene,&batch)==SAT_OK);
+    assert(scene.count==2u && scene.keys[0]==prepared_keys[0] &&
+           scene.keys[1]==prepared_keys[1]);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
+    sat_scene3d_face_t too_small_faces[1]={};
+    uint32_t too_small_keys[1]={};
+    uint16_t too_small_order[1]={};
+    sat_scene3d_prepare_batch_t too_small={};
+    assert(sat_scene3d_prepare_batch_init(
+        &too_small,&prepared_item,1u,too_small_faces,too_small_keys,
+        too_small_order,1u)==SAT_OK);
+    too_small.view_proj=vp;
+    too_small.eye=eye;
+    too_small.forward=forward;
+    too_small.near_depth=SAT_FX16_ONE;
+    too_small.width=320u;
+    too_small.height=224u;
+    assert(sat_scene3d_prepare_batch_execute(&too_small)==SAT_ERR_CAPACITY);
+
     std::puts("scene3d_faces api: OK");
     return 0;
 }

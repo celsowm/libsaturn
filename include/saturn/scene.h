@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "saturn/scene3d_faces.h"
+#include "saturn/parallel.h"
 #include "saturn/transform3d.h"
 #include "saturn/view_cache.h"
 #include "saturn/vdp1.h"
@@ -76,6 +77,21 @@ sat_result_t sat_scene_submit_instance(sat_scene_t* scene,
                                        uint8_t color_calc_slot,
                                        sat_projected_vertex_t* screen_scratch,
                                        sat_vec3_t* world_scratch);
+
+/* Capture the active scene's immutable camera state and submit one coarse
+ * batch through the existing parallel executor. The batch remains caller-
+ * owned until its handle is complete. In MASTER mode the same function is
+ * executed synchronously by the executor; in SLAVE/AUTO it is non-blocking. */
+sat_result_t sat_scene_prepare_batch_async(
+    sat_scene_t* scene, sat_scene3d_prepare_batch_t* batch,
+    sat_parallel_handle_t* out_handle);
+
+/* Merge a completed batch into the canonical scene-wide painter queue. The
+ * caller chooses the merge order, so task completion order cannot alter equal-
+ * depth tie-breaking. */
+sat_result_t sat_scene_merge_prepared_batch(
+    sat_scene_t* scene, sat_scene3d_prepare_batch_t* batch,
+    sat_parallel_handle_t handle);
 /* Submit the world transform of a hierarchy node to the canonical painter.
  * The prototype instance is never modified; no hierarchy/scratch pointers
  * are retained. Evaluate the transform world after the last mutation first. */
