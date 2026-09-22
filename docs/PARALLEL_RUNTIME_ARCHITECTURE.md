@@ -24,9 +24,11 @@ non-blocking. `sat_parallel_wait` may return `SAT_ERR_TIMEOUT` while the task
 is still `RUNNING`; the timeout does not cancel it or make its buffers reusable.
 The caller must wait again or call `sat_parallel_abort`. Abort stops the Slave
 first, then marks the task failed, invalidates its ranges, cancels queued tasks,
-and returns terminal ownership. `sat_parallel_release` is valid only after a
-terminal state. This ordering prevents late Slave writes from racing with a
-reused output buffer.
+and returns terminal ownership. If abort itself fails, the task remains
+running and all reachable storage stays reserved; the caller must not clear its
+pending bit, dispatch a duplicate writer, or release the handle.
+`sat_parallel_release` is valid only after a terminal state. This ordering
+prevents late Slave writes from racing with a reused output buffer.
 
 ## Memory and cache contract
 

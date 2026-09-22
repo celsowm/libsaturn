@@ -437,6 +437,28 @@ int main() {
     assert(sat_scene3d_prepare_batch_execute(&too_small)==SAT_ERR_CAPACITY);
     assert(too_small.metrics.prepared_faces==0u);
 
+    // Invalid descriptors reset no successful-face count. A caller that
+    // rejects this batch must therefore not merge whatever bytes happened to
+    // remain in its output storage from an earlier frame.
+    sat_scene3d_prepare_item_t invalid_item=prepared_item;
+    invalid_item.instance=nullptr;
+    sat_scene3d_face_t invalid_faces[8]={};
+    uint32_t invalid_keys[8]={};
+    uint16_t invalid_order[8]={};
+    sat_scene3d_prepare_batch_t invalid_batch={};
+    assert(sat_scene3d_prepare_batch_init(
+        &invalid_batch,&invalid_item,1u,invalid_faces,invalid_keys,
+        invalid_order,8u)==SAT_OK);
+    invalid_batch.view_proj=vp;
+    invalid_batch.eye=eye;
+    invalid_batch.forward=forward;
+    invalid_batch.near_depth=SAT_FX16_ONE;
+    invalid_batch.width=320u;
+    invalid_batch.height=224u;
+    invalid_faces[0].world.v[0].x=1234;
+    assert(sat_scene3d_prepare_batch_execute(&invalid_batch)==SAT_ERR_INVALID_ARG);
+    assert(invalid_batch.metrics.prepared_faces==0u);
+
     // A failed merge is atomic: capacity exhaustion never exposes a partial
     // batch to the canonical scene.
     sat_scene3d_face_t one_face[1]={};

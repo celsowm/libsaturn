@@ -70,12 +70,20 @@ No parallel physics, asset processing, or second renderer was implemented.
 Instruction profiling proves useful Slave execution, not speedup. Raw CSVs and
 probe JSONs are generated under `build/` and are intentionally not committed.
 
-## Skybridge smoke workload
+## Skybridge 360-frame workload
 
 The same 90 BIOS frames plus 360-frame `skybridge_smoke.pad` script reached
-gameplay in both modes. The explicit-Slave run recorded 111,754,871 Master
-instructions and 116,181,529 Slave instructions over the 360 program frames;
-355 frames had nonzero Slave samples. This confirms real animation/geometry
-dispatch through the Skybridge runtime. It is not an FPS result: screenshots
-and cycle counts are emulator diagnostics, while physical frame-time and
-visual parity still require a Saturn or a validated emulator capture.
+gameplay in all three policies. The table below sums only the 360 post-boot
+rows from the instruction CSVs; each CSV contains 450 rows in total.
+
+| Policy | Master instructions | Slave instructions | Slave frames |
+|---|---:|---:|---:|
+| MASTER | 108,995,728 | 0 | 0 |
+| SLAVE | 111,506,380 | 116,181,529 | 355 |
+| AUTO | 111,494,967 | 116,181,529 | 355 |
+
+These runs confirm real animation/geometry dispatch through the Skybridge
+runtime and that AUTO currently follows the intended conservative split. They
+are instruction totals from Ymir, not FPS or a hardware speedup claim. The
+probe does not export a pixel comparator or per-type task counters, so visual
+parity and detailed task accounting remain separate validation work.

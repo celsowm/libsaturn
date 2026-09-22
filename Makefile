@@ -460,6 +460,7 @@ HOST_TEST_EXTRA_test_scene_api := src/graphics/3d/scene/scene.cpp src/graphics/3
 HOST_TEST_EXTRA_test_scene3d_faces_api := src/graphics/3d/scene/faces.cpp
 HOST_TEST_EXTRA_test_scene3d_material_pool := src/graphics/3d/materials/pool.cpp
 HOST_TEST_EXTRA_test_anim3d_logic := src/graphics/3d/animation/api.cpp src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/mesh.cpp src/graphics/3d/geometry/math.cpp
+HOST_TEST_EXTRA_test_anim3d_async_lifetime := src/graphics/3d/animation/api.cpp src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/mesh.cpp src/graphics/3d/geometry/math.cpp
 HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c examples/common/pacman_level.c examples/common/pacman_stages.c src/physics/2d/grid.cpp src/physics/2d/collision.cpp src/graphics/3d/geometry/math.cpp
 HOST_TEST_EXTRA_test_skybridge_game := src/graphics/3d/rendering/surface.cpp
 HOST_TEST_EXTRA_test_skybridge_fade := src/graphics/3d/rendering/surface.cpp

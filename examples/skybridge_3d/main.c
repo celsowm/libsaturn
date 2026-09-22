@@ -204,6 +204,10 @@ static sat_parallel_handle_t g_gem_slave_handle;
 static uint8_t g_gem_slave_pending;
 static uint8_t g_gem_master_ready;
 static uint8_t g_gem_slave_ready;
+static uint8_t g_gem_master_merged;
+/* A failed abort/release is an ownership failure, not a normal task error.
+ * Keep all associated storage pinned and stop dispatching until reset. */
+static uint8_t g_parallel_recovery_blocked;
 static sat_vec3_t g_pig_vertices[PIG_VERTEX_CAP];
 static uint16_t g_pig_indices[PIG_FACE_CAP*4u];
 static sat_mesh_t g_pig_mesh;
@@ -211,6 +215,12 @@ static sat_mesh_t g_pig_mesh;
 static uint16_t g_pig_face_textures[PIG_FACE_CAP];
 static sat_anim_state_t g_pig_anim;
 static sat_anim_state_t g_pig_render_anim;
+/* The executor retains the complete input graph until terminal completion and
+ * release. These are deliberately static: a stack descriptor would become
+ * invalid as soon as submit_pig_animation() returned. */
+static sat_anim_decode_job_t g_pig_anim_job;
+static sat_anim_state_t g_pig_anim_job_state;
+static uint8_t g_pig_anim_write_buffer;
 static sat_scene3d_instance_t g_pig_instance;
 static sat_vec3_t g_pig_pose[2][PIG_VERTEX_CAP];
 static uint8_t g_pig_render_buffer;
@@ -230,7 +240,9 @@ typedef struct sb_frame_metrics {
     uint32_t merge_ms;
     uint32_t vdp1_ms;
     uint32_t hud_ms;
+    uint32_t frame_cpu_ms;
     uint32_t frame_ms;
+    uint32_t master_wait_frt_ticks;
     uint16_t prepared_faces;
     uint16_t rendered_faces;
     uint16_t commands;
@@ -243,6 +255,11 @@ static sb_frame_metrics_t g_metrics;
 static uint32_t g_last_parallel_wait;
 static uint32_t g_last_parallel_submitted;
 static uint32_t g_last_parallel_failed;
+
+static void parallel_recovery_failed(void) {
+    g_parallel_recovery_blocked=1u;
+    ++g_metrics.failures;
+}
 
 static int16_t g_yaw;
 static sat_step_clock_t g_step_clock;
@@ -581,19 +598,22 @@ static void record_parallel_snapshot(void) {
             (stats.failed-g_last_parallel_failed);
         g_metrics.failures=(uint16_t)(failures>0xFFFFu?0xFFFFu:failures);
     }
-    g_metrics.wait_ms=stats.master_wait_ticks-g_last_parallel_wait;
+    /* master_wait_ticks is a raw SH-2 FRT delta. Keep it separate from the
+     * millisecond samples collected around the actual wait calls below. */
+    g_metrics.master_wait_frt_ticks=stats.master_wait_ticks-g_last_parallel_wait;
     g_last_parallel_wait=stats.master_wait_ticks;
     g_last_parallel_submitted=stats.submitted;
     g_last_parallel_failed=stats.failed;
 }
 
 static void submit_pig_animation(void) {
-    sat_anim_decode_job_t job;
     const uint8_t write_buffer=(uint8_t)(1u-g_pig_render_buffer);
-    if(g_pig_anim_pending)return;
-    job=(sat_anim_decode_job_t){&skybridge_pig_anim_asset,&g_pig_anim,
-                               g_pig_pose[write_buffer],PIG_VERTEX_CAP,0u};
-    if(sat_anim_decode_async(&job,&g_pig_anim_handle)!=SAT_OK) {
+    if(g_pig_anim_pending || g_parallel_recovery_blocked)return;
+    g_pig_anim_job_state=g_pig_anim;
+    g_pig_anim_write_buffer=write_buffer;
+    g_pig_anim_job=(sat_anim_decode_job_t){&skybridge_pig_anim_asset,
+        &g_pig_anim_job_state,g_pig_pose[write_buffer],PIG_VERTEX_CAP,0u};
+    if(sat_anim_decode_async(&g_pig_anim_job,&g_pig_anim_handle)!=SAT_OK) {
         ++g_metrics.failures;
         if(sat_anim_decode(&skybridge_pig_anim_asset,&g_pig_anim,
                            g_pig_pose[write_buffer],PIG_VERTEX_CAP)!=SAT_OK) {
@@ -607,32 +627,54 @@ static void submit_pig_animation(void) {
     g_pig_anim_pending=1u;
 }
 
+static void prepare_pig_animation_master(void) {
+    const uint8_t write_buffer=(uint8_t)(1u-g_pig_render_buffer);
+    sat_anim_state_t frame_state=g_pig_anim;
+    if(sat_anim_decode(&skybridge_pig_anim_asset,&frame_state,
+                       g_pig_pose[write_buffer],PIG_VERTEX_CAP)!=SAT_OK) {
+        ++g_metrics.failures;
+        return;
+    }
+    g_pig_render_buffer=write_buffer;
+    g_pig_render_anim=frame_state;
+}
+
 static void finish_pig_animation(void) {
     const uint32_t start=sat_time_ms();
-    const uint8_t write_buffer=(uint8_t)(1u-g_pig_render_buffer);
     if(!g_pig_anim_pending)return;
+    if(g_parallel_recovery_blocked)return;
     {
         sat_result_t st=sat_parallel_wait(g_pig_anim_handle,SB_PARALLEL_TIMEOUT);
-        if(st!=SAT_OK && sat_parallel_state(g_pig_anim_handle)==SAT_PARALLEL_RUNNING) {
+        sat_parallel_task_state_t state=sat_parallel_state(g_pig_anim_handle);
+        if(st!=SAT_OK && state==SAT_PARALLEL_RUNNING) {
             ++g_metrics.timeouts;
             st=sat_parallel_abort(g_pig_anim_handle,SB_PARALLEL_TIMEOUT);
+            state=sat_parallel_state(g_pig_anim_handle);
         }
-        if(st==SAT_OK && sat_parallel_state(g_pig_anim_handle)==SAT_PARALLEL_COMPLETED) {
-            g_pig_render_buffer=write_buffer;
-            g_pig_render_anim=g_pig_anim;
+        if(state==SAT_PARALLEL_RUNNING) {
+            /* Neither timeout nor a failed abort returns ownership. Keep the
+             * descriptor, state snapshot and output buffer live. */
+            parallel_recovery_failed();
+            return;
+        }
+        if(st==SAT_OK && state==SAT_PARALLEL_COMPLETED) {
+            g_pig_render_buffer=g_pig_anim_write_buffer;
+            g_pig_render_anim=g_pig_anim_job_state;
         } else ++g_metrics.failures;
-        if(sat_parallel_state(g_pig_anim_handle)!=SAT_PARALLEL_RUNNING)
-            (void)sat_parallel_release(g_pig_anim_handle);
+        if(sat_parallel_release(g_pig_anim_handle)!=SAT_OK) {
+            parallel_recovery_failed();
+            return;
+        }
+        g_pig_anim_pending=0u;
     }
-    g_pig_anim_pending=0u;
     g_metrics.wait_ms += sat_time_ms()-start;
 }
 
-static void merge_gem_batch_direct(sat_scene3d_prepare_batch_t* batch) {
+static uint8_t merge_gem_batch_direct(sat_scene3d_prepare_batch_t* batch) {
     const uint16_t before=g_scene.faces.count;
     if(sat_scene3d_faces_merge_prepared(&g_scene.faces,batch)!=SAT_OK) {
         ++g_metrics.failures;
-        return;
+        return 0u;
     }
     g_scene.submitted_faces=(uint16_t)(g_scene.submitted_faces+
                                        (g_scene.faces.count-before));
@@ -640,12 +682,17 @@ static void merge_gem_batch_direct(sat_scene3d_prepare_batch_t* batch) {
     g_scene.clipped_faces=g_scene.faces.clipped_faces;
     g_metrics.prepared_faces=(uint16_t)(g_metrics.prepared_faces+
                                         batch->metrics.prepared_faces);
+    return 1u;
 }
 
 static void prepare_gem_geometry(const uint8_t* deck_slot) {
     uint8_t id;
     uint16_t count=0u;
     const uint32_t start=sat_time_ms();
+    if(g_parallel_recovery_blocked)return;
+    g_gem_master_ready=0u;
+    g_gem_slave_ready=0u;
+    g_gem_master_merged=0u;
     for(id=1u;id<=SB_PICKUP_COUNT;++id) {
         const sb_platform_t* p=&sb_course_platforms(&g_game)[id];
         sat_vec3_t center;
@@ -698,46 +745,70 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
             if(sat_scene_prepare_batch_async(&g_scene,&g_gem_slave_batch,
                                              &g_gem_slave_handle)!=SAT_OK) {
                 ++g_metrics.failures;
-                (void)sat_scene3d_prepare_batch_execute(&g_gem_slave_batch);
-                g_gem_master_ready=1u;
-                g_gem_slave_ready=1u;
-                return;
+                /* Submission failed before a handle was accepted, so the
+                 * Slave cannot own these buffers. Recover synchronously and
+                 * publish readiness only after execution succeeds. */
+                if(sat_scene3d_prepare_batch_execute(&g_gem_slave_batch)==SAT_OK)
+                    g_gem_slave_ready=1u;
+            } else {
+                g_gem_slave_pending=1u;
             }
-            g_gem_slave_pending=1u;
         }
         if(sat_scene3d_prepare_batch_execute(&g_gem_master_batch)!=SAT_OK) {
-            ++g_metrics.failures; return;
+            ++g_metrics.failures;
+        } else {
+            g_gem_master_ready=1u;
         }
-        g_gem_master_ready=1u;
     }
     g_metrics.geometry_ms += sat_time_ms()-start;
 }
 
 static void finish_gem_geometry(void) {
     if(g_gem_master_ready) {
-        merge_gem_batch_direct(&g_gem_master_batch);
+        g_gem_master_merged=merge_gem_batch_direct(&g_gem_master_batch);
         g_gem_master_ready=0u;
     }
-    if(g_gem_slave_ready) {
+    if(g_gem_slave_ready && g_gem_master_merged) {
         merge_gem_batch_direct(&g_gem_slave_batch);
         g_gem_slave_ready=0u;
     }
+    if(g_gem_slave_ready && !g_gem_master_merged) {
+        ++g_metrics.failures;
+        g_gem_slave_ready=0u;
+    }
     if(!g_gem_slave_pending)return;
+    if(g_parallel_recovery_blocked)return;
     {
         const uint32_t start=sat_time_ms();
         sat_result_t st=sat_parallel_wait(g_gem_slave_handle,SB_PARALLEL_TIMEOUT);
-        if(st!=SAT_OK && sat_parallel_state(g_gem_slave_handle)==SAT_PARALLEL_RUNNING) {
+        sat_parallel_task_state_t state=sat_parallel_state(g_gem_slave_handle);
+        if(st!=SAT_OK && state==SAT_PARALLEL_RUNNING) {
             ++g_metrics.timeouts;
             st=sat_parallel_abort(g_gem_slave_handle,SB_PARALLEL_TIMEOUT);
+            state=sat_parallel_state(g_gem_slave_handle);
         }
-        if(st==SAT_OK && sat_parallel_state(g_gem_slave_handle)==SAT_PARALLEL_COMPLETED)
-            merge_gem_batch_direct(&g_gem_slave_batch);
-        else ++g_metrics.failures;
-        if(sat_parallel_state(g_gem_slave_handle)!=SAT_PARALLEL_RUNNING) {
-            if(sat_scene_prepare_batch_release(&g_gem_slave_batch,g_gem_slave_handle)!=SAT_OK)
+        if(state==SAT_PARALLEL_RUNNING) {
+            parallel_recovery_failed();
+            return;
+        }
+        if(st==SAT_OK && state==SAT_PARALLEL_COMPLETED) {
+            if(!g_gem_master_merged ||
+               sat_scene_merge_prepared_batch(&g_scene,&g_gem_slave_batch,
+                                              g_gem_slave_handle)!=SAT_OK) {
                 ++g_metrics.failures;
-            g_gem_slave_pending=0u;
+            } else {
+                g_metrics.prepared_faces=(uint16_t)(g_metrics.prepared_faces+
+                    g_gem_slave_batch.metrics.prepared_faces);
+            }
+        } else {
+            ++g_metrics.failures;
         }
+        if(sat_scene_prepare_batch_release(&g_gem_slave_batch,
+                                           g_gem_slave_handle)!=SAT_OK) {
+            parallel_recovery_failed();
+            return;
+        }
+        g_gem_slave_pending=0u;
         g_metrics.wait_ms += sat_time_ms()-start;
     }
 }
@@ -869,9 +940,11 @@ static void draw_world(void) {
     /* Gema instances are independent of the pig pose. Dispatch their
      * suffix before the Master finishes the actor preparation. */
     prepare_gem_geometry(deck_slot);
-    /* The executor owns one Slave at a time. Prefer a useful geometry split
-     * when enough gems are visible; otherwise spend the slot on animation. */
-    if(!g_gem_slave_pending) submit_pig_animation();
+    /* The pig must advance on every gameplay frame. If the Slave owns the gem
+     * suffix, decode this frame's immutable animation snapshot on the Master;
+     * otherwise the Slave may decode it asynchronously. */
+    if(g_gem_slave_pending) prepare_pig_animation_master();
+    else submit_pig_animation();
     finish_pig_animation();
     pig_shadow(deck_slot);
     player_pig();
@@ -1211,7 +1284,7 @@ static void hud(void) {
             &g_font,budget,3u,7,47,W-14u,8,0u,0u);
         if(g_dbg_world_full) put_text("FULL",270,47);
         (void)sat_draw_rect_screen(0,59,W,13u,SAT_RGB555(3,8,15));
-        label("MS ",g_metrics.frame_ms,7,61);
+        label("MS ",g_metrics.frame_cpu_ms,7,61);
         label("WAIT ",g_metrics.wait_ms,66,61);
         label("TASK ",g_metrics.task_count,151,61);
         label("ERR ",g_metrics.failures,244,61);
@@ -1458,7 +1531,11 @@ int main(void) {
             g_metrics.submission_ms=sat_time_ms()-submission_stage;
         }
         record_parallel_snapshot();
-        g_metrics.frame_ms=sat_time_ms()-g_metrics.begin_ms;
+        /* The HUD reports this completed CPU-side preparation interval. It is
+         * intentionally sampled before HUD/VBlank work, so it describes the
+         * frame whose diagnostics are on screen rather than a half-built
+         * value from the next frame. */
+        g_metrics.frame_cpu_ms=sat_time_ms()-g_metrics.begin_ms;
         sat_example_must(sat_vdp1_overlay_begin());
         {
             const uint32_t hud_stage=sat_time_ms();
