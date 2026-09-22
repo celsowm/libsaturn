@@ -55,6 +55,15 @@ MEMORY {
     WRAML (rw)  : ORIGIN = 0x00200000, LENGTH = 0x00100000
 }
 
+/* Keep the boot-reserved WRAM-H prefix visible to the linker.  Nothing in the
+ * application is allowed to drift below the BIOS hand-off address. */
+__boot_reserved_start = 0x06000000;
+__boot_reserved_end = 0x06004000;
+ASSERT(__boot_reserved_start == 0x06000000, "invalid Saturn boot base")
+ASSERT(__boot_reserved_end == ORIGIN(WRAMH), "application overlaps boot-reserved WRAM-H")
+ASSERT(0x06000400 + 0x400 <= 0x06001000, "Slave vector table overlaps stack")
+ASSERT(0x06001000 < 0x06002000, "Slave stack overlaps communication area")
+
 SECTIONS {
     /* =========================================================================
      * Section .text: executable code and read-only data
@@ -127,3 +136,5 @@ SECTIONS {
         *(.eh_frame*)        /* C++ exception handling (not used) */
     }
 }
+
+ASSERT(ADDR(.text) == 0x06004000, "application did not start at Saturn load address")

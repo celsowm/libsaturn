@@ -262,6 +262,7 @@ struct Args {
     uint32_t pad_press_at = 0;       // frame index (within --frames) buttons becomes held
     uint32_t pad_release_at = 0;     // frame index buttons becomes released again
     bool scsp_trace = false;          // sample SCSP stream slots/Sound RAM every program frame
+    uint32_t slave_reset_entry = 0;  // Ymir direct-injection compatibility handoff
 };
 
 void print_usage() {
@@ -272,7 +273,8 @@ void print_usage() {
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
-        "             [--backup-ram <path>] [--backup-cart <existing-path>] [--ram-cart none|1m|4m] [--scsp-trace]\n");
+        "             [--backup-ram <path>] [--backup-cart <existing-path>] [--ram-cart none|1m|4m] [--scsp-trace]\n"
+        "             [--slave-reset-entry <address>]\n");
 }
 
 bool parse_vram_range(const std::string& spec, VramRange* out) {
@@ -399,6 +401,10 @@ bool parse_args(int argc, char** argv, Args* out) {
             }
         } else if (arg == "--scsp-trace") {
             out->scsp_trace = true;
+        } else if (arg == "--slave-reset-entry") {
+            const char* v = next("--slave-reset-entry");
+            if (!v) return false;
+            out->slave_reset_entry = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
         } else if (arg == "--dump-vram") {
             const char* v = next("--dump-vram");
             if (!v) return false;
@@ -826,6 +832,25 @@ int main(int argc, char** argv) {
     // images (it stalls in the BIOS's CD driver after disc authentication),
     // so this harness does not depend on the BIOS ever finishing that.
     run_frames(args.boot_frames, 0);
+
+    // The real Saturn BIOS transfers the Slave entry point through its
+    // slave-start protocol. Ymir's SSHON model resets the Slave from the
+    // generic SH-2 reset vector instead, so the dual-SH2 run supplies that
+    // vector in the emulated IPL after BIOS-only execution. This is a
+    // harness-only compatibility handoff; it does not change the guest ROM
+    // or the hardware path exercised by the application.
+    if (args.slave_reset_entry != 0) {
+        auto write_ipl_be32 = [&](size_t offset, uint32_t value) {
+            saturn->mem.IPL[offset + 0] = static_cast<uint8_t>(value >> 24);
+            saturn->mem.IPL[offset + 1] = static_cast<uint8_t>(value >> 16);
+            saturn->mem.IPL[offset + 2] = static_cast<uint8_t>(value >> 8);
+            saturn->mem.IPL[offset + 3] = static_cast<uint8_t>(value);
+        };
+        write_ipl_be32(0x00, args.slave_reset_entry);
+        write_ipl_be32(0x04, 0x06001000u);
+        std::fprintf(stderr, "[probe] Ymir Slave reset-vector handoff: PC=%08X SP=06001000\n",
+                     args.slave_reset_entry);
+    }
 
     // -- Phase 2: inject the built program directly into work RAM and jump
     // to it -- what the BIOS would have done had its CD read completed.

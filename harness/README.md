@@ -134,6 +134,16 @@ pixel-difference estimates. `-ProfileInstructions` enables Ymir's SH-2 debug
 tracer and counts executed master/slave instructions, while the cycle profile
 reports the fixed emulated system-clock budget for context.
 
+The `dual_sh2` example has one additional direct-injection compatibility step.
+Ymir's current `SSHON` implementation resets the Slave from the generic SH-2
+reset vector and does not emulate the Saturn BIOS's vector-`0x94` Slave handoff.
+`run-harness.ps1` resolves `_saturn_slave_entry` from the build map and places
+that address in Ymir's emulated IPL reset vector before the example issues
+`SSHON`. The guest image and its real SMPC/FRT/mailbox path are unchanged; this
+shim only makes the second-CPU bootstrap reachable in the direct-injection
+harness. `harness/tests/test_dual_sh2.py` asserts that both instruction
+counters are non-zero in the same run.
+
 ### Pad polarity
 
 Ymir reports pad state active-low: `peripheral_report.hpp` documents the field

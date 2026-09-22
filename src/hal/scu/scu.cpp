@@ -1,16 +1,11 @@
 #include "src/hal/scu/scu.hpp"
 
+#include "src/hal/sh2/frt.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
 
 namespace saturn::hal::scu {
 
 namespace {
-
-/* SH-2 on-chip free-running timer. Macros rather than references, for the
- * static-constructor reason spelled out in src/hal/vdp1/vdp1.cpp. */
-#define FRT_FRC_H (*reinterpret_cast<volatile uint8_t*>(0xFFFFFE12u))
-#define FRT_FRC_L (*reinterpret_cast<volatile uint8_t*>(0xFFFFFE13u))
-#define FRT_TCR (*reinterpret_cast<volatile uint8_t*>(0xFFFFFE16u))
 
 uint32_t g_frame_counter = 0;
 uint32_t g_display_frames = 0;
@@ -25,9 +20,7 @@ constexpr uint16_t kMinTicksPerFrame = 64u;
 
 /* Reading the high byte latches the low byte, so the pair is consistent. */
 uint16_t read_frc() {
-    const uint16_t hi = FRT_FRC_H;
-    const uint16_t lo = FRT_FRC_L;
-    return static_cast<uint16_t>((hi << 8u) | lo);
+    return saturn::hal::sh2::frt::counter();
 }
 
 uint64_t observe_elapsed_ticks() {
@@ -65,7 +58,10 @@ static void wait_vblank_level(uint16_t level) {
  * tick rate is measured between two real VBLANK edges instead of derived
  * from a clock constant, so the 320/352 dot clocks and PAL need no table. */
 void init_frame_clock() {
-    FRT_TCR = static_cast<uint8_t>((FRT_TCR & 0xFCu) | 0x02u);
+    /* Only the two clock-select bits belong to the frame clock.  Input
+     * capture and compare/overflow enables are intentionally preserved. */
+    saturn::hal::sh2::frt::set_prescaler(
+        saturn::hal::sh2::frt::Prescaler::Divide128);
     wait_vblank_level(0u);
     wait_vblank_level(kVblankFlag);
     const uint16_t start = read_frc();

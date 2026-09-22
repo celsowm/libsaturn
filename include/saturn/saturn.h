@@ -5,6 +5,7 @@
  * headers; sat_scene.h is the canonical game-facing 3D frame contract. */
 
 #include "saturn/core.h"
+#include "saturn/dual_sh2.h"
 #include "saturn/geometry2d.h"
 #include "saturn/color.h"
 #include "saturn/memory.h"

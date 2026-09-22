@@ -4,6 +4,13 @@ import struct
 import sys
 from pathlib import Path
 
+try:
+    from memory_layout import APPLICATION_LOAD_ADDRESS, MASTER_STACK_TOP, SLAVE_STACK_TOP, validate
+except ModuleNotFoundError:  # Imported by the repository's host test loader.
+    from tools.memory_layout import APPLICATION_LOAD_ADDRESS, MASTER_STACK_TOP, SLAVE_STACK_TOP, validate
+
+validate()
+
 
 def _field(value: str, size: int) -> bytes:
     """Encode an IP.BIN fixed-width ASCII field, padding with spaces."""
@@ -27,6 +34,8 @@ def build_ip_bin(*, maker: str, product: str, version: str,
     """
     if first_read_size < 0 or first_read_address < 0 or ip_load_address < 0:
         raise ValueError("addresses and first read size must be non-negative")
+    if slave_stack != SLAVE_STACK_TOP:
+        raise ValueError(f"slave stack must be 0x{SLAVE_STACK_TOP:08X}")
     src = bytearray(0x8000)
     src[0x000:0x010] = b"SEGA SEGASATURN "
     src[0x020:0x030] = _field(maker, 16)
@@ -82,15 +91,21 @@ def main():
             print(f"[gen] ERROR: template too large ({len(tmpl)} > 0x8000)", file=sys.stderr)
             sys.exit(1)
         src = bytearray(tmpl.ljust(0x8000, b"\x00"))
+        template_master_stack = struct.unpack_from(">I", src, 0x0E8)[0]
+        template_slave_stack = struct.unpack_from(">I", src, 0x0EC)[0]
+        if template_master_stack not in (0, MASTER_STACK_TOP):
+            raise ValueError("template master stack conflicts with memory layout")
+        if template_slave_stack not in (0, SLAVE_STACK_TOP):
+            raise ValueError("template slave stack conflicts with memory layout")
         struct.pack_into(">I", src, 0x0F0, load_addr)
         struct.pack_into(">I", src, 0x0F4, first_size)
     else:
         src = bytearray(build_ip_bin(
             maker="SEGA ENTERPRISES", product="T-00000G", version="V1.000",
             date_yyyymmdd="20260311", game_name="LIBSATURN MVP",
-            ip_load_address=load_addr, first_read_address=load_addr,
+            ip_load_address=APPLICATION_LOAD_ADDRESS, first_read_address=load_addr,
             first_read_size=first_size, master_stack=0x060FFFFC,
-            slave_stack=0x06001000))
+            slave_stack=SLAVE_STACK_TOP))
 
     Path(args.output).write_bytes(src)
     print(f"[gen] ip.bin profile={args.profile} size={len(src)} "

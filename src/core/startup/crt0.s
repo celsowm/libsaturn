@@ -47,6 +47,11 @@ _start:
      * ------------------------------------------------------------------- */
     mov.l   .Lstack_top, r15
 
+    /* Make the Master CPU context explicit.  The Slave later receives its
+     * own VBR in slave_entry.s; neither CPU relies on the other's state. */
+    mov.l   .Lmaster_vbr, r0
+    ldc     r0, vbr
+
     /* -------------------------------------------------------------------
      * 3. Zero BSS section (uninitialized global variables)
      * -------------------------------------------------------------------
@@ -106,6 +111,7 @@ hang:
     .align 4
 .Lsr_mask:   .long 0x000000F0   /* Mask: disable all IRQs */
 .Lstack_top: .long 0x060FFFFC   /* Stack top (end of WRAMH) */
+.Lmaster_vbr: .long 0x06000000  /* BIOS-managed Master vector table */
 .Lbss_start: .long __bss_start   /* BSS section start (linker symbol) */
 .Lbss_end:   .long __bss_end     /* BSS section end (linker symbol) */
 .Lwram_l_start: .long __wram_l_start /* .wram_l start (linker symbol) */

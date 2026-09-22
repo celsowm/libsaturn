@@ -20,6 +20,8 @@ constexpr uint32_t kSfTimeoutIters = 1000000u;
 constexpr uint8_t kIntbackCommand = 0x10u;
 constexpr uint8_t kSoundOnCommand = 0x06u;
 constexpr uint8_t kSoundOffCommand = 0x07u;
+constexpr uint8_t kSlaveOnCommand = 0x02u;
+constexpr uint8_t kSlaveOffCommand = 0x03u;
 constexpr uint8_t kResetEnableCommand = 0x19u;
 constexpr uint8_t kResetDisableCommand = 0x1Au;
 
@@ -98,6 +100,16 @@ bool sound_on() {
 bool sound_off() {
     ensure_smpc_control_mode();
     return issue_simple_command(kSoundOffCommand);
+}
+
+bool slave_on() {
+    ensure_smpc_control_mode();
+    return issue_simple_command(kSlaveOnCommand);
+}
+
+bool slave_off() {
+    ensure_smpc_control_mode();
+    return issue_simple_command(kSlaveOffCommand);
 }
 
 bool reset_enable() {

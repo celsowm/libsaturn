@@ -84,6 +84,26 @@ if (-not (Test-Path $binPath)) {
     throw "Expected $binPath alongside $isoPath (the Makefile's ISO rule copies it there) but it's missing."
 }
 
+# Ymir's direct-injection harness does not run the Saturn BIOS's Slave handoff
+# routine. For the dual-SH2 example, provide the entry symbol through Ymir's
+# generic SH-2 reset vector so SSHON still starts the actual guest Slave code.
+$slaveResetEntry = $null
+if ($normalizedExample -eq 'dual_sh2') {
+    $elfPath = Join-Path $RepoRoot ("build\examples\{0}.elf" -f $safeName)
+    if (-not (Test-Path $elfPath)) {
+        throw "Expected $elfPath to resolve _saturn_slave_entry for the Ymir dual-SH2 handoff."
+    }
+    $mapPath = Join-Path $RepoRoot 'build\dual_sh2.map'
+    if (-not (Test-Path $mapPath)) {
+        throw "Expected $mapPath to resolve _saturn_slave_entry for the Ymir dual-SH2 handoff."
+    }
+    $entryLine = Get-Content $mapPath | Where-Object { $_ -match '_saturn_slave_entry$' } | Select-Object -First 1
+    if (-not $entryLine -or $entryLine -notmatch '^\s*0x([0-9A-Fa-f]+)\s+') {
+        throw "Could not resolve _saturn_slave_entry from $mapPath (the ELF is stripped in the normal build)."
+    }
+    $slaveResetEntry = ('0x{0}' -f $matches[1])
+}
+
 # -- Build the harness probe if missing (needs the MSYS2 UCRT64 g++ toolchain
 #    for CMake configure/compile; the resulting probe.exe is statically
 #    linked and runs standalone afterward — see harness/CMakeLists.txt). --
@@ -170,6 +190,9 @@ if ($ProfileTransfers) {
 # automatically. Other examples can opt in with -ScspTrace.
 if ($ScspTrace -or $normalizedExample -eq 'cd_streaming_jukebox') {
     $probeArgs += '--scsp-trace'
+}
+if ($slaveResetEntry) {
+    $probeArgs += @('--slave-reset-entry', $slaveResetEntry)
 }
 & $probeExe @probeArgs
 if ($LASTEXITCODE -ne 0) { throw "probe.exe failed (exit $LASTEXITCODE)" }

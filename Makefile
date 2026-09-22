@@ -38,7 +38,7 @@ TOOLS        := tools
 EXAMPLE      ?= hello_world
 IP_PROFILE   ?= current
 IP_TEMPLATE_KIND ?= yaul
-APP_LOAD_ADDR_HEX := 06004000
+APP_LOAD_ADDR_HEX := $(shell $(PYTHON) tools/memory_layout.py app_load_hex 2>/dev/null || echo 06004000)
 MAX_APP_BIN_BYTES := 983040
 
 VALID_IP_PROFILES  := current safe
@@ -53,6 +53,7 @@ endif
 
 # -- IP template ------------------------------------------------
 IP_TEMPLATE := assets/boot/ip_$(IP_TEMPLATE_KIND)_template.bin
+IP_GENERATED := $(BUILD_DIR)/$(EXAMPLE).IP.BIN
 
 # -- Compilacao -------------------------------------------------
 BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra \
@@ -364,17 +365,21 @@ $(BIN): $(ELF)
 		exit 1; \
 	fi
 
-$(ISO): $(BIN) $(EXAMPLE_ISO_FILES)
+$(IP_GENERATED): $(BIN) $(IP_TEMPLATE) tools/gen_ip_bin.py tools/memory_layout.py
+	$(PYTHON) tools/gen_ip_bin.py --template $(IP_TEMPLATE) --output $@ \
+		--load-addr 0x$(APP_LOAD_ADDR_HEX) --first-read-file $(BIN)
+
+$(ISO): $(BIN) $(IP_GENERATED) $(EXAMPLE_ISO_FILES)
 	@rm -rf $(ISO_ROOT)
 	@mkdir -p $(ISO_ROOT)
 	@cp $(BIN) $(ISO_ROOT)/0.BIN
-	@cp $(IP_TEMPLATE) $(ISO_ROOT)/IP.BIN
+	@cp $(IP_GENERATED) $(ISO_ROOT)/IP.BIN
 	@if [ -n "$(EXAMPLE_ISO_DIR)" ]; then \
 		cp -R "$(EXAMPLE_ISO_DIR)/." "$(ISO_ROOT)/"; \
 	fi
 	$(MKISOFS) -quiet -sysid "SEGA SATURN" -volid "LIBSATURN" \
 		-volset "LIBSATURN" -publisher "LIBSATURN" -preparer "LIBSATURN" \
-		-A "LIBSATURN" -G $(IP_TEMPLATE) -full-iso9660-filenames \
+		-A "LIBSATURN" -G $(IP_GENERATED) -full-iso9660-filenames \
 		-o $@ $(ISO_ROOT)
 
 # -- CUE --------------------------------------------------------
