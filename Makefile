@@ -349,6 +349,7 @@ $(BUILD_DIR)/%.o: %.s
 
 # -- Linkagem ---------------------------------------------------
 $(LIBRARY): $(LIB_CPP_OBJS) $(LIB_C_OBJS)
+	@rm -f $@
 	$(AR) rcs $@ $^
 
 $(ELF): $(CRT_OBJS) $(ALL_APP_OBJS) $(LIBRARY)

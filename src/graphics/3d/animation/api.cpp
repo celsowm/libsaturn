@@ -104,6 +104,45 @@ extern "C" sat_result_t sat_anim_vertex_gouraud(
     return saturn::core::anim3d::vertex_gouraud(asset, state, out_gouraud, gouraud_cap);
 }
 
+namespace {
+
+sat_result_t parallel_decode(
+    const void* input, uint32_t input_size, void* output,
+    uint32_t output_capacity, uint32_t* output_size) {
+    if (input == nullptr || input_size != sizeof(sat_anim_decode_job_t) ||
+        output == nullptr || output_size == nullptr) return SAT_ERR_INVALID_ARG;
+    const sat_anim_decode_job_t* const job =
+        static_cast<const sat_anim_decode_job_t*>(input);
+    if (job->vertex_cap == 0u ||
+        output_capacity < static_cast<uint32_t>(job->vertex_cap) * sizeof(sat_vec3_t)) {
+        return SAT_ERR_CAPACITY;
+    }
+    const sat_result_t result = sat_anim_decode(
+        job->asset, job->state, static_cast<sat_vec3_t*>(output),
+        job->vertex_cap);
+    if (result == SAT_OK) {
+        *output_size = static_cast<uint32_t>(job->vertex_cap) * sizeof(sat_vec3_t);
+    }
+    return result;
+}
+
+}  // namespace
+
+extern "C" sat_result_t sat_anim_parallel_register(void) {
+    return sat_parallel_register_task(SAT_PARALLEL_TASK_ANIMATION_DECODE,
+                                      &parallel_decode);
+}
+
+extern "C" sat_result_t sat_anim_decode_async(
+    const sat_anim_decode_job_t* job, sat_parallel_handle_t* out_handle) {
+    if (job == nullptr || out_handle == nullptr || job->output == nullptr ||
+        job->vertex_cap == 0u) return SAT_ERR_INVALID_ARG;
+    return sat_parallel_submit(
+        SAT_PARALLEL_TASK_ANIMATION_DECODE, job,
+        static_cast<uint32_t>(sizeof(*job)), job->output,
+        static_cast<uint32_t>(job->vertex_cap) * sizeof(sat_vec3_t), out_handle);
+}
+
 extern "C" sat_result_t sat_anim_prepare_model_instance(
     const sat_animated_model_asset_t* asset,
     const sat_anim_state_t* state,

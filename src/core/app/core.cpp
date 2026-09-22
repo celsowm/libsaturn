@@ -1,5 +1,6 @@
 #include "saturn/core.h"
 #include "saturn/audio.h"
+#include "saturn/parallel.h"
 
 #include "src/core/runtime/internal.hpp"
 #include "src/input/runtime.hpp"
@@ -52,6 +53,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
 
 extern "C" sat_result_t sat_shutdown(void) {
     using namespace saturn::core;
+    SAT_TRY(sat_parallel_shutdown(60000u));
     /* Audio is an optional subsystem, but shutdown owns the complete runtime
      * lifecycle when it is active. sat_audio_shutdown() is idempotent, so
      * applications that already shut audio down explicitly remain valid. */

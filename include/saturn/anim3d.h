@@ -7,6 +7,7 @@
 #include "saturn/math3d.h"
 #include "saturn/mesh3d.h"
 #include "saturn/model3d.h"
+#include "saturn/parallel.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -178,6 +179,22 @@ sat_result_t sat_anim_vertex_gouraud(
     const sat_anim_state_t* state,
     uint16_t* out_gouraud,
     uint16_t gouraud_cap
+);
+
+/* Optional high-level runtime integration. The job and its output buffer are
+ * caller-owned and must remain alive until the handle completes. */
+typedef struct sat_anim_decode_job {
+    const sat_animated_model_asset_t* asset;
+    const sat_anim_state_t* state;
+    sat_vec3_t* output;
+    uint16_t vertex_cap;
+    uint16_t reserved;
+} sat_anim_decode_job_t;
+
+sat_result_t sat_anim_parallel_register(void);
+sat_result_t sat_anim_decode_async(
+    const sat_anim_decode_job_t* job,
+    sat_parallel_handle_t* out_handle
 );
 
 #ifdef __cplusplus
