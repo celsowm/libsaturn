@@ -59,6 +59,14 @@ IP_GENERATED := $(BUILD_DIR)/$(EXAMPLE).IP.BIN
 BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra \
                -Iinclude -I. -I$(GENERATED_DIR)
 CFLAGS      := $(BASE_CFLAGS)
+ifeq ($(EXAMPLE),parallel_runtime)
+ifneq ($(strip $(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)),)
+CFLAGS      += -DSAT_PARALLEL_RUNTIME_GEOMETRY_OBJECTS=$(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)
+endif
+ifneq ($(strip $(PARALLEL_RUNTIME_DEFAULT_MODE)),)
+CFLAGS      += -DSAT_PARALLEL_RUNTIME_DEFAULT_MODE=$(PARALLEL_RUNTIME_DEFAULT_MODE)
+endif
+endif
 # -MMD -MP make the compiler emit a .d file listing every header an object
 # depends on. Without it a header edit leaves stale objects and binaries
 # behind, and a test can "pass" against code that is no longer on disk.

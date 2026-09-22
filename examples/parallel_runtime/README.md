@@ -21,6 +21,16 @@ Build and run:
 ```
 
 The Ymir harness can be used for actual two-CPU execution evidence in the same
-way as `examples/dual_sh2`; instruction counts are not a frame-rate claim.
-The measured comparison is documented in
+way as `examples/dual_sh2`; instruction counts are not a frame-rate claim. The
+geometry workload is configurable without source edits:
+
+```powershell
+.\build-example.ps1 parallel_runtime -GeometryObjects 48 -ParallelMode SLAVE
+.\harness\run-harness.ps1 parallel_runtime -Bios .\bios\saturn_bios_us.bin `
+  -Frames 120 -BootFrames 90
+```
+
+For the complete 12/48/96 × MASTER/SLAVE/AUTO sweep, run
+`harness/run-parallel-runtime-sweep.ps1`. It leaves the documented `12/AUTO`
+artifact in `build/examples`. The measured comparison is documented in
 `docs/PARALLEL_RUNTIME_BENCHMARKS.md`.

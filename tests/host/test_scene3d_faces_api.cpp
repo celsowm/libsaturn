@@ -12,6 +12,45 @@ static uint16_t project_calls=0;
 static uint16_t projected_vertices=0;
 static uint16_t clipped_count=0;
 
+static bool same_texture(const sat_vdp1_texture_t* a,
+                         const sat_vdp1_texture_t* b) {
+    if (a == nullptr || b == nullptr) return a == b;
+    return a->srca == b->srca && a->width == b->width &&
+           a->height == b->height && a->palette == b->palette &&
+           a->valid == b->valid;
+}
+
+static bool same_tiled(const sat_indexed_tiled_quad3_t* a,
+                       const sat_indexed_tiled_quad3_t* b) {
+    if (a == nullptr || b == nullptr) return a == b;
+    if (!same_texture(a->full,b->full)) return false;
+    for (uint8_t i=0u;i<4u;++i)
+        if (!same_texture(a->tiles[i],b->tiles[i])) return false;
+    return true;
+}
+
+static bool same_face(const sat_scene3d_face_t& a,
+                      const sat_scene3d_face_t& b) {
+    if (a.projected_safe != b.projected_safe ||
+        a.gouraud_valid != b.gouraud_valid ||
+        a.material.kind != b.material.kind ||
+        a.material.rgb555 != b.material.rgb555 ||
+        a.material.color_calc_slot != b.material.color_calc_slot ||
+        a.material.vertex_gouraud != nullptr ||
+        b.material.vertex_gouraud != nullptr ||
+        !same_texture(a.material.texture, b.material.texture) ||
+        !same_tiled(a.material.tiled, b.material.tiled)) return false;
+    for (uint8_t i=0u;i<4u;++i) {
+        if (a.world.v[i].x != b.world.v[i].x ||
+            a.world.v[i].y != b.world.v[i].y ||
+            a.world.v[i].z != b.world.v[i].z ||
+            a.projected.x[i] != b.projected.x[i] ||
+            a.projected.y[i] != b.projected.y[i] ||
+            (a.gouraud_valid != 0u && a.gouraud[i] != b.gouraud[i])) return false;
+    }
+    return true;
+}
+
 extern "C" void sat_vec3_normalize(sat_vec3_t* out,const sat_vec3_t* in) {
     *out=*in;
     if (in->z>0 && !in->x && !in->y) out->z=SAT_FX16_ONE;
@@ -313,6 +352,29 @@ int main() {
     assert(sat_scene3d_prepare_batch_execute(&batch)==SAT_OK);
     assert(batch.metrics.source_faces==2u &&
            batch.metrics.prepared_faces==2u && batch.metrics.culled_faces==0u);
+    sat_scene3d_face_t reference_faces[8]={};
+    uint32_t reference_keys[8]={};
+    uint16_t reference_order[8]={};
+    sat_scene3d_prepare_batch_t reference_batch={};
+    assert(sat_scene3d_prepare_batch_init(
+        &reference_batch,&prepared_item,1u,reference_faces,reference_keys,
+        reference_order,8u)==SAT_OK);
+    reference_batch.view_proj=vp;
+    reference_batch.eye=eye;
+    reference_batch.forward=forward;
+    reference_batch.near_depth=SAT_FX16_ONE;
+    reference_batch.width=320u;
+    reference_batch.height=224u;
+    assert(sat_scene3d_prepare_batch_execute(&reference_batch)==SAT_OK);
+    assert(reference_batch.metrics.source_faces==batch.metrics.source_faces);
+    assert(reference_batch.metrics.prepared_faces==batch.metrics.prepared_faces);
+    assert(reference_batch.metrics.culled_faces==batch.metrics.culled_faces);
+    assert(reference_batch.metrics.clipped_faces==batch.metrics.clipped_faces);
+    for (uint16_t i=0u;i<batch.metrics.prepared_faces;++i) {
+        assert(batch.keys[i]==reference_keys[i]);
+        assert(batch.order[i]==reference_order[i]);
+        assert(same_face(batch.faces[i],reference_faces[i]));
+    }
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
     assert(sat_scene3d_faces_merge_prepared(&scene,&batch)==SAT_OK);
@@ -334,6 +396,20 @@ int main() {
     too_small.width=320u;
     too_small.height=224u;
     assert(sat_scene3d_prepare_batch_execute(&too_small)==SAT_ERR_CAPACITY);
+    assert(too_small.metrics.prepared_faces==0u);
+
+    // A failed merge is atomic: capacity exhaustion never exposes a partial
+    // batch to the canonical scene.
+    sat_scene3d_face_t one_face[1]={};
+    uint32_t one_key[1]={};
+    uint16_t one_order[1]={};
+    sat_scene3d_faces_t small_scene={};
+    assert(sat_scene3d_faces_init(
+        &small_scene,one_face,one_key,one_order,1u)==SAT_OK);
+    assert(sat_scene3d_faces_begin(
+        &small_scene,&vp,&eye,&forward,SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_merge_prepared(&small_scene,&batch)==SAT_ERR_CAPACITY);
+    assert(small_scene.count==0u);
 
     std::puts("scene3d_faces api: OK");
     return 0;

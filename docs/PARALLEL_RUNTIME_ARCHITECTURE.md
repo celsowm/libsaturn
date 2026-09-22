@@ -1,54 +1,17 @@
 # LibSaturn high-level parallel runtime
 
 The high-level runtime in `saturn/parallel.h` is a small Saturn-specific
-executor, not a desktop thread pool. It has one Master execution context, one
-optional Slave worker, a caller-provisioned fixed queue, and the existing
+executor, not a desktop thread pool. It has one Master context, one optional
+Slave worker, a caller-provisioned fixed queue, and the existing
 `saturn/dual_sh2.h` HAL as its only hardware transport.
 
-## Ownership and initialization
+## Ownership and queue contract
 
-`sat_parallel_init` is the sole owner of the Slave when the high-level runtime
-is enabled. It installs its own entry callback and starts the existing HAL.
-Applications using this runtime must not also call
-`sat_dual_sh2_configure_slave`, `sat_dual_sh2_start`, or `sat_dual_sh2_stop`.
-The low-level API remains available for applications that choose the low-level
-example instead. The two ownership models cannot be active at the same time.
+`sat_parallel_init` owns the Slave while enabled. Applications using it must
+not also call the low-level Slave lifecycle API. `MASTER` never starts the
+Slave, `SLAVE` reports startup failure, and `AUTO` falls back to Master.
 
-`SAT_PARALLEL_MASTER` does not start the Slave. `SAT_PARALLEL_SLAVE` reports
-startup failure to the caller. `SAT_PARALLEL_AUTO` attempts startup and falls
-back to Master execution if startup is unavailable. `sat_shutdown` also shuts
-down an active parallel runtime.
-
-## Public API
-
-```c
-sat_parallel_config_t config = {
-    SAT_PARALLEL_AUTO, 0, 0, 0, 60000
-};
-sat_anim_parallel_register();
-sat_parallel_init(&config);
-
-sat_anim_decode_job_t job = { asset, state, vertices, vertex_cap, 0 };
-sat_parallel_handle_t handle;
-sat_anim_decode_async(&job, &handle);
-
-/* Independent Master work can run here. */
-sat_parallel_service();
-sat_parallel_wait(handle, 60000);
-sat_parallel_release(handle);
-```
-
-Tasks are registered with `sat_parallel_register_task(type, process)`. A
-process function is deliberately a narrow data-processing callback: it gets a
-read-only input span, a writable output span, and an output byte count. The
-executor never transmits arbitrary function pointers in a task message; only a
-registered numeric type is sent, and the Slave dispatches through the shared
-registration table.
-
-## Queue, handles, and state transitions
-
-The queue is bounded and uses no gameplay-time heap allocation. A slot moves
-through:
+The bounded queue uses generation-bearing handles:
 
 ```text
 FREE -> QUEUED -> RUNNING -> COMPLETED
@@ -56,152 +19,82 @@ FREE -> QUEUED -> RUNNING -> COMPLETED
        QUEUED -> CANCELLED
 ```
 
-Handles contain a slot index and a generation. Releasing a terminal slot
-increments the generation, so an old handle cannot address a reused slot.
-Because the low-level transport has one mailbox slot in each direction, only
-one task is running on the Slave at a time; other submissions remain queued.
-
-`sat_parallel_service` is non-blocking: it consumes a currently available
-completion and dispatches at most the next task. `sat_parallel_wait` uses the
-low-level bounded response wait only after independent Master work has been
-given an opportunity to run. A running task is never cancelled or reset.
+Only one task runs on the Slave at a time. `sat_parallel_service` is
+non-blocking. `sat_parallel_wait` may return `SAT_ERR_TIMEOUT` while the task
+is still `RUNNING`; the timeout does not cancel it or make its buffers reusable.
+The caller must wait again or call `sat_parallel_abort`. Abort stops the Slave
+first, then marks the task failed, invalidates its ranges, cancels queued tasks,
+and returns terminal ownership. `sat_parallel_release` is valid only after a
+terminal state. This ordering prevents late Slave writes from racing with a
+reused output buffer.
 
 ## Memory and cache contract
 
-Input and output storage, and the task descriptor itself, are caller-owned and
-must remain valid until completion and release. No task may modify its input or
-reuse its output while the task is queued or running. When the Slave backend is
-possible, the top-level input/output spans must be in Saturn Work RAM and must
-not overlap mutable Master state. Nested pointers in a registered job have the
-same lifetime rule and must point to immutable data or to the job's declared
-output region.
+Input/output storage and the task descriptor are caller-owned and must remain
+valid until completion and release. No task may modify its input or reuse its
+output while queued or running. Slave-capable spans must be in Saturn Work RAM
+and must not overlap mutable Master state.
 
-The executor stores physical Work-RAM addresses in its descriptor. Before
-dispatch it publishes the input and descriptor through the existing SH-2 cache
-line operation; the Slave reads shared metadata and writes output through the
-uncached P2 alias. The Master purges/invalidates the output range before
-consuming it. The runtime does not touch VDP, SCU, SMPC, CD, or SCSP registers.
-
-These rules are why a temporary stack buffer cannot be submitted and then
-returned from its scope. The `parallel_runtime` example waits before its local
-job leaves scope; real asynchronous code should keep jobs in persistent Work
-RAM storage.
+The contract applies to the complete reachable graph, not only the top-level
+job: nested descriptors, arrays, scratch spans, meshes, materials, textures,
+model assets, animation state, and camera data keep the same lifetime. Adapters
+publish/invalidate each reachable range before the worker reads it and use
+uncached aliases for explicit shared output. The executor synchronizes task
+metadata/output on completion and never touches VDP, SCU, SMPC, CD, or SCSP
+registers.
 
 ## Animation integration
 
-`sat_anim_parallel_register` registers `SAT_PARALLEL_TASK_ANIMATION_DECODE`.
-`sat_anim_decode_async` reuses the existing deterministic
-`sat_anim_decode` implementation; there is no Master-specific or Slave-specific
-animation solver. It writes caller-owned vertices and returns the exact same
-fixed-point result as the synchronous API. Animation advancement remains a
-Master-side state mutation and is therefore a natural dependency before
-submission.
+`sat_anim_parallel_register` registers the existing deterministic
+`sat_anim_decode` implementation, so fixed-point output is equivalent. Animation
+advancement remains Master-side state mutation. The example uses two output
+buffers: the active read buffer is never written by the outstanding task, and
+the write buffer is published only after the handle is terminal and validation
+succeeds.
 
-Geometry, final scene composition, VDP1 command buffers, global face ordering,
-and hardware uploads remain Master-owned. The current integration intentionally
-does not move those operations to the Slave.
+## Geometry integration
 
-## Automatic policy and diagnostics
+`SAT_PARALLEL_TASK_SCENE_GEOMETRY` reuses canonical
+`sat_scene3d_prepare_batch_execute`. It is preparation only; scene merge, global
+face ordering, VDP1 command generation, command-budget accounting, and hardware
+submission remain Master-owned.
 
-The initial AUTO policy is conservative: it starts the Slave when possible,
-keeps the measured geometry workload on Master, and lets animation and other
-registered tasks use the normal backend. If startup fails, AUTO falls back to
-Master execution. `sat_parallel_submit_master()` is the explicit subsystem
-escape hatch for a task whose measured crossover is not favorable; it still
-returns a normal queue handle. Applications can select MASTER or SLAVE
-explicitly for regression and benchmark comparisons.
-
-`sat_parallel_stats` reports submissions, queue occupancy, completions,
-failures, cancellations, and the number of tasks executed by each backend.
-These are runtime counters, not fabricated cycle measurements. For complete
-frame timing, measure from frame begin through frame end and report Master wait
-separately, as done by the example and the Ymir instruction profiler.
-
-## Example and validation
-
-Build/run the high-level example with:
-
-```powershell
-.\build-example.ps1 parallel_runtime
-.\run-example.ps1 parallel_runtime -Emulator mednafen -BuildFirst
-```
-
-`examples/dual_sh2` remains the low-level HAL validation. The new example
-cycles through all three policies, renders 32 procedural animated objects,
-submits the baked-animation decoder, performs a Master checksum while the task
-is outstanding, and compares the resulting vertices against a direct Master
-decode. Its success indicator is based on that data comparison and real task
-counters.
-
-Host coverage in `tests/host/test_parallel_queue.cpp` verifies generation-safe
-handles, stale-handle rejection, capacity decoding, and terminal states. The
-target build compiles the actual Slave worker and links it into the normal
-boot image. An emulator run requiring a BIOS is still needed to claim two-CPU
-execution; instruction counts must not be presented as physical frame-rate
-measurements.
-
-## Adding a future workload
-
-1. Keep the algorithm pure and deterministic, preferably in the owning
-   subsystem's existing logic header/source.
-2. Define a fixed-layout caller-owned job and explicit output capacity.
-3. Register one stable task type before starting the runtime.
-4. Validate nested pointers and all ownership dependencies in the subsystem.
-5. Submit coarse batches, not one task per vertex/contact.
-6. Let the Master own hardware registers and final scene/resource commits.
-7. Compare Master and Slave output before enabling AUTO for a new workload.
-
-## Geometry batch integration
-
-The geometry milestone keeps the existing scene painter as the only renderer.
-`SAT_PARALLEL_TASK_SCENE_GEOMETRY` is registered by
-`sat_scene3d_prepare_parallel_register()` and uses the same
-`sat_scene3d_faces_submit_instance()` implementation used by synchronous
-scene submission. There is no second clipping, material, or VDP1 command
-implementation.
-
-Applications provision a `sat_scene3d_prepare_batch_t` with immutable
-`sat_scene3d_prepare_item_t` instance descriptors, per-item projection/world
-scratch, face storage, painter keys, and ordering scratch:
+`sat_scene_prepare_batch_async` captures camera/view state, records a handle and
+pending bit in the batch, and does not retain the scene. The batch owns its
+items, per-item scratch, faces, keys, and ordering storage until
+`sat_scene_prepare_batch_release`. Merge checks the pending handle before
+committing. All nested mesh/material/texture/scratch ranges are synchronized
+before the worker reads them. The worker writes explicit face output and sort
+buffers through uncached aliases; merge then performs one scene-wide stable
+painter pass, preserving source order for equal-depth faces.
 
 ```c
 sat_scene3d_prepare_batch_init(&batch, items, item_count,
                                prepared_faces, prepared_keys,
                                prepared_order, capacity);
 sat_scene_prepare_batch_async(&scene, &batch, &handle);
-/* Master performs unrelated work here. */
+/* Independent Master work. */
 sat_parallel_wait(handle, timeout);
 sat_scene_merge_prepared_batch(&scene, &batch, handle);
-sat_parallel_release(handle);
+sat_scene_prepare_batch_release(&batch, handle);
 ```
 
-The async call captures the active scene camera and view state but does not
-retain or modify the scene. The worker writes only the caller-owned output
-buffers and batch metrics. All item, mesh, material, texture, scratch, and
-batch storage must remain valid until the handle is released. The explicit
-output faces and painter keys are shared Work RAM; the Slave uses uncached
-aliases for those writes and the executor invalidates the batch descriptor
-and output before the Master consumes them.
+## AUTO policy and validation
 
-Preparation is deliberately separate from merge. Batches are merged by the
-application in stable source order, then `sat_scene3d_faces_flush()` performs
-one global pass/depth ordering over Master and Slave faces. Equal-depth faces
-therefore retain the merge order, independent of which CPU completed first.
-The Master remains the sole owner of scene statistics, overlay reservations,
-VDP1 command-budget accounting, command generation, and final submission.
-Output-capacity failure is returned; faces are never silently dropped.
+AUTO currently forces geometry to Master through
+`sat_parallel_submit_master`, while animation remains eligible for Slave
+dispatch. The 12/48/96-object Ymir sweep shows unchanged fixed-cycle samples
+across policies, so there is no evidence for an automatic geometry crossover
+threshold. Runtime statistics are real queue/backend/FRT-tick counters, not a
+speedup claim.
 
-The executor still has one active Slave task and a bounded queue. Geometry is
-submitted as a coarse object batch rather than one task per face. `sat_parallel_stats`
-now exposes FRT-tick submission/completion totals and Master/Slave task-tick
-totals when the target timer is available. These are local timing counters;
-Ymir instruction counts remain a separate diagnostic and are not a speedup
-claim.
+The `parallel_runtime` example validates animation against direct decode and
+sampled geometry against synchronous preparation. Geometry validation compares
+metrics, keys/order, projected/world coordinates, clipping, material semantics,
+texture descriptors, and Gouraud values. Host tests cover generation-safe
+handles, complete face equivalence, global ordering, and atomic merge capacity
+failure. `examples/dual_sh2` remains the low-level HAL validation.
 
-AUTO remains conservative and does not use an unmeasured geometry threshold:
-the current 12-quad example pins geometry to Master through
-`sat_parallel_submit_master()`, while the animation decoder remains eligible
-for Slave dispatch. The example exposes MASTER, SLAVE, and AUTO, validates the
-first prepared batch against a synchronous execution, and displays real task,
-wait, submission, frame, face, and validation counters. Physics and asset
-processing are intentionally outside this milestone.
+Future adapters should keep algorithms pure, use fixed-layout caller-owned
+jobs, validate nested pointers, submit coarse batches, keep hardware ownership
+on Master, and compare Master/Slave results before enabling AUTO.

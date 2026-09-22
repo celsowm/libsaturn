@@ -394,6 +394,11 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
     batch->metrics.prepared_faces = prepared.count;
     batch->metrics.culled_faces = prepared.culled_faces;
     batch->metrics.clipped_faces = prepared.clipped_faces;
+    /* This is diagnostic/local ordering scratch only. Merge deliberately
+     * preserves source order; the canonical scene performs the one global
+     * ordering pass after all batches have been merged. */
+    (void)saturn::core::render3d::paint_order_buckets(
+        batch->keys, batch->metrics.prepared_faces, batch->order);
     return SAT_OK;
 }
 

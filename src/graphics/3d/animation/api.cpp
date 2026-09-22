@@ -8,6 +8,10 @@ extern "C" sat_result_t sat_parallel_register_task(
 extern "C" sat_result_t sat_parallel_submit(
     sat_parallel_task_type_t, const void*, uint32_t, void*, uint32_t,
     sat_parallel_handle_t*) __attribute__((weak));
+extern "C" sat_result_t sat_parallel_cache_sync_range(
+    const void*, uint32_t) __attribute__((weak));
+extern "C" void* sat_parallel_uncached_address(
+    const void*) __attribute__((weak));
 #endif
 
 extern "C" sat_result_t sat_anim_validate(const sat_animated_model_asset* asset) {
@@ -114,6 +118,27 @@ extern "C" sat_result_t sat_anim_vertex_gouraud(
 
 namespace {
 
+void* shared_uncached(const void* pointer) {
+#if defined(__GNUC__)
+    if (sat_parallel_uncached_address != nullptr) {
+        return sat_parallel_uncached_address(pointer);
+    }
+#endif
+    return const_cast<void*>(pointer);
+}
+
+sat_result_t sync_range(const void* pointer, uint32_t size) {
+#if defined(__GNUC__)
+    if (sat_parallel_cache_sync_range != nullptr) {
+        return sat_parallel_cache_sync_range(pointer, size);
+    }
+#else
+    (void)pointer;
+    (void)size;
+#endif
+    return SAT_OK;
+}
+
 sat_result_t parallel_decode(
     const void* input, uint32_t input_size, void* output,
     uint32_t output_capacity, uint32_t* output_size) {
@@ -125,9 +150,37 @@ sat_result_t parallel_decode(
         output_capacity < static_cast<uint32_t>(job->vertex_cap) * sizeof(sat_vec3_t)) {
         return SAT_ERR_CAPACITY;
     }
+    if (job->asset == nullptr || job->state == nullptr) return SAT_ERR_INVALID_ARG;
+
+    /* The executor publishes the job descriptor and the explicit output, but
+     * asset/state are nested pointers. Copy the small mutable descriptors to
+     * the Slave stack and normalize every data pointer used by decode so no
+     * cached Master alias is dereferenced by the worker. */
+    const sat_animated_model_asset_t* const shared_asset =
+        static_cast<const sat_animated_model_asset_t*>(shared_uncached(job->asset));
+    const sat_anim_state_t* const shared_state =
+        static_cast<const sat_anim_state_t*>(shared_uncached(job->state));
+    if (shared_asset == nullptr || shared_state == nullptr ||
+        shared_asset->model == nullptr || shared_asset->animations == nullptr ||
+        shared_state->clip >= shared_asset->animation_count) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    sat_anim_state_t worker_state = *shared_state;
+    sat_animated_model_asset_t worker_asset = *shared_asset;
+    sat_model_asset_t worker_model = *static_cast<const sat_model_asset_t*>(
+        shared_uncached(worker_asset.model));
+    sat_model_animation_asset_t worker_clip =
+        *static_cast<const sat_model_animation_asset_t*>(
+            shared_uncached(&worker_asset.animations[worker_state.clip]));
+    worker_clip.positions = static_cast<const int16_t*>(
+        shared_uncached(worker_clip.positions));
+    worker_asset.model = &worker_model;
+    worker_asset.animations = &worker_clip;
+    worker_asset.animation_count = 1u;
+    worker_state.clip = 0u;
     const sat_result_t result = sat_anim_decode(
-        job->asset, job->state, static_cast<sat_vec3_t*>(output),
-        job->vertex_cap);
+        &worker_asset, &worker_state,
+        static_cast<sat_vec3_t*>(shared_uncached(output)), job->vertex_cap);
     if (result == SAT_OK) {
         *output_size = static_cast<uint32_t>(job->vertex_cap) * sizeof(sat_vec3_t);
     }
@@ -148,9 +201,25 @@ extern "C" sat_result_t sat_anim_decode_async(
     const sat_anim_decode_job_t* job, sat_parallel_handle_t* out_handle) {
     if (job == nullptr || out_handle == nullptr || job->output == nullptr ||
         job->vertex_cap == 0u) return SAT_ERR_INVALID_ARG;
+    if (job->asset == nullptr || job->state == nullptr ||
+        sat_anim_clip_validate(job->asset, job->state->clip) != SAT_OK) {
+        return SAT_ERR_INVALID_ARG;
+    }
 #if defined(__GNUC__)
     if (sat_parallel_submit == nullptr) return SAT_ERR_UNSUPPORTED;
 #endif
+    SAT_TRY(sync_range(job->state, sizeof(*job->state)));
+    SAT_TRY(sync_range(job->asset, sizeof(*job->asset)));
+    SAT_TRY(sync_range(job->asset->model, sizeof(*job->asset->model)));
+    SAT_TRY(sync_range(job->asset->animations, static_cast<uint32_t>(
+        job->asset->animation_count) * sizeof(*job->asset->animations)));
+    const sat_model_animation_asset_t* const clip =
+        &job->asset->animations[job->state->clip];
+    SAT_TRY(sync_range(clip, sizeof(*clip)));
+    const uint32_t frame_base = static_cast<uint32_t>(job->state->frame) *
+        static_cast<uint32_t>(clip->vertex_count) * 3u;
+    SAT_TRY(sync_range(&clip->positions[frame_base], static_cast<uint32_t>(
+        clip->vertex_count) * 3u * sizeof(*clip->positions)));
     return sat_parallel_submit(
         SAT_PARALLEL_TASK_ANIMATION_DECODE, job,
         static_cast<uint32_t>(sizeof(*job)), job->output,

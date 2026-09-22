@@ -96,6 +96,12 @@ uint8_t sat_parallel_slave_available(void);
 sat_result_t sat_parallel_register_task(
     sat_parallel_task_type_t type, sat_parallel_process_fn process);
 
+/* Cache publication/consumption helpers for task adapters. They operate on
+ * the current CPU and are no-ops for non-Work-RAM addresses, which lets
+ * immutable ROM descriptors remain valid task inputs. */
+sat_result_t sat_parallel_cache_sync_range(const void* address, uint32_t size);
+void* sat_parallel_uncached_address(const void* address);
+
 sat_result_t sat_parallel_submit(
     sat_parallel_task_type_t type,
     const void* input,
@@ -121,6 +127,10 @@ uint8_t sat_parallel_done(sat_parallel_handle_t handle);
 sat_parallel_task_state_t sat_parallel_state(sat_parallel_handle_t handle);
 sat_result_t sat_parallel_result(sat_parallel_handle_t handle, uint32_t* out_size);
 sat_result_t sat_parallel_wait(sat_parallel_handle_t handle, uint32_t timeout_ticks);
+/* Safely aborts one running Slave task. The Slave is stopped first, so the
+ * task's input/output storage is not reclaimed while it can still be writing.
+ * Queued tasks are cancelled as part of this runtime-wide recovery operation. */
+sat_result_t sat_parallel_abort(sat_parallel_handle_t handle, uint32_t timeout_ticks);
 sat_result_t sat_parallel_cancel(sat_parallel_handle_t handle);
 sat_result_t sat_parallel_release(sat_parallel_handle_t handle);
 sat_result_t sat_parallel_stats(sat_parallel_stats_t* out_stats);

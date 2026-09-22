@@ -92,6 +92,8 @@ sat_result_t sat_scene_prepare_batch_async(
 sat_result_t sat_scene_merge_prepared_batch(
     sat_scene_t* scene, sat_scene3d_prepare_batch_t* batch,
     sat_parallel_handle_t handle);
+sat_result_t sat_scene_prepare_batch_release(
+    sat_scene3d_prepare_batch_t* batch, sat_parallel_handle_t handle);
 /* Submit the world transform of a hierarchy node to the canonical painter.
  * The prototype instance is never modified; no hierarchy/scratch pointers
  * are retained. Evaluate the transform world after the last mutation first. */

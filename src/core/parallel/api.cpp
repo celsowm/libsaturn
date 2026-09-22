@@ -31,6 +31,15 @@ extern "C" sat_result_t sat_parallel_register_task(
     return saturn::core::parallel::executor::register_task(type, process);
 }
 
+extern "C" sat_result_t sat_parallel_cache_sync_range(
+    const void* address, uint32_t size) {
+    return saturn::core::parallel::executor::cache_sync_range(address, size);
+}
+
+extern "C" void* sat_parallel_uncached_address(const void* address) {
+    return saturn::core::parallel::executor::uncached_address(address);
+}
+
 extern "C" sat_result_t sat_parallel_submit(
     sat_parallel_task_type_t type, const void* input, uint32_t input_size,
     void* output, uint32_t output_capacity, sat_parallel_handle_t* out_handle) {
@@ -63,6 +72,11 @@ extern "C" sat_result_t sat_parallel_result(sat_parallel_handle_t handle, uint32
 
 extern "C" sat_result_t sat_parallel_wait(sat_parallel_handle_t handle, uint32_t timeout_ticks) {
     return saturn::core::parallel::executor::wait(handle, timeout_ticks);
+}
+
+extern "C" sat_result_t sat_parallel_abort(
+    sat_parallel_handle_t handle, uint32_t timeout_ticks) {
+    return saturn::core::parallel::executor::abort_task(handle, timeout_ticks);
 }
 
 extern "C" sat_result_t sat_parallel_cancel(sat_parallel_handle_t handle) {

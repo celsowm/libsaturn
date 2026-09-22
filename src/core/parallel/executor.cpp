@@ -33,6 +33,7 @@ struct Runtime {
     uint16_t capacity;
     uint16_t active_index;
     uint8_t active;
+    sat_result_t active_error;
     uint16_t completion_start_tick;
     Registration registrations[kMaxTasks];
     uint16_t registration_count;
@@ -95,17 +96,23 @@ sat_parallel_task_slot_t* slot_for(sat_parallel_handle_t handle,
 }
 
 void mark_failed(sat_parallel_task_slot_t& slot, sat_result_t result) {
+    if (queue_logic::terminal(static_cast<sat_parallel_task_state_t>(slot.state))) {
+        return;
+    }
     slot.result = static_cast<int32_t>(result);
     slot.state = SAT_PARALLEL_FAILED;
     ++g_runtime.stats.failed;
 }
 
-void finish_slave_message(const sat_dual_sh2_message_t& message) {
-    if (message.command != kCommandComplete || g_runtime.active == 0u) return;
+sat_result_t finish_slave_message(const sat_dual_sh2_message_t& message) {
+    if (g_runtime.active == 0u) return SAT_ERR_BUSY;
+    if (message.command != kCommandComplete) {
+        g_runtime.active_error = SAT_ERR_VERIFY_FAILED;
+        return g_runtime.active_error;
+    }
     if (message.argument0 != g_runtime.slots[g_runtime.active_index].token) {
-        mark_failed(g_runtime.slots[g_runtime.active_index], SAT_ERR_VERIFY_FAILED);
-        g_runtime.active = 0u;
-        return;
+        g_runtime.active_error = SAT_ERR_VERIFY_FAILED;
+        return g_runtime.active_error;
     }
     sat_parallel_task_slot_t& slot = g_runtime.slots[g_runtime.active_index];
     /* Geometry jobs publish completion metadata in their input descriptor;
@@ -123,6 +130,8 @@ void finish_slave_message(const sat_dual_sh2_message_t& message) {
     }
     g_runtime.stats.completion_ticks += elapsed_ticks(g_runtime.completion_start_tick);
     g_runtime.active = 0u;
+    g_runtime.active_error = SAT_OK;
+    return static_cast<sat_result_t>(slot.result);
 }
 
 sat_result_t execute_master(sat_parallel_task_slot_t& slot) {
@@ -214,6 +223,22 @@ sat_result_t register_task(sat_parallel_task_type_t type,
     return SAT_OK;
 }
 
+sat_result_t cache_sync_range(const void* address, uint32_t size) {
+    if (address == nullptr || size == 0u) return SAT_ERR_INVALID_ARG;
+    publish_range(physical_address(address), size);
+    return SAT_OK;
+}
+
+void* uncached_address(const void* address) {
+    if (address == nullptr) return nullptr;
+    const uint32_t physical = physical_address(address);
+    if (physical == 0u) return const_cast<void*>(address);
+    const uint32_t uncached =
+        saturn::hal::dual_sh2::memory::uncached_address(physical);
+    return reinterpret_cast<void*>(static_cast<uintptr_t>(
+        uncached != 0u ? uncached : physical));
+}
+
 sat_result_t init(const sat_parallel_config_t* config) {
     if (g_runtime.initialized != 0u) return SAT_ERR_BUSY;
     sat_parallel_config_t defaults = {SAT_PARALLEL_AUTO, nullptr, 0u, 0u,
@@ -239,6 +264,7 @@ sat_result_t init(const sat_parallel_config_t* config) {
     g_runtime.mode = config->mode;
     g_runtime.backend = SAT_PARALLEL_MASTER;
     g_runtime.active = 0u;
+    g_runtime.active_error = SAT_OK;
     g_runtime.stats = {};
     g_runtime.initialized = 1u;
     if (config->mode == SAT_PARALLEL_MASTER) return SAT_OK;
@@ -284,14 +310,17 @@ sat_result_t shutdown(uint32_t timeout_ticks) {
 
 sat_result_t service() {
     if (g_runtime.initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
+    if (g_runtime.active_error != SAT_OK) return g_runtime.active_error;
     if (g_runtime.active != 0u) {
         sat_dual_sh2_message_t message = {};
         const sat_result_t received = sat_dual_sh2_receive(&message);
-        if (received == SAT_OK) finish_slave_message(message);
+        if (received == SAT_OK) return finish_slave_message(message);
         else if (received != SAT_ERR_NOT_FOUND) {
-            mark_failed(g_runtime.slots[g_runtime.active_index], received);
-            g_runtime.active = 0u;
-            if (g_runtime.mode == SAT_PARALLEL_SLAVE) return received;
+            /* A mailbox error is not proof that the worker stopped. Keep the
+             * slot RUNNING and block dispatch/release until the caller either
+             * receives the completion or uses sat_parallel_abort(). */
+            g_runtime.active_error = received;
+            return received;
         }
     }
     return dispatch_one();
@@ -389,20 +418,58 @@ sat_result_t wait(sat_parallel_handle_t handle, uint32_t timeout_ticks) {
     if (timeout_ticks == 0u) return SAT_ERR_TIMEOUT;
     for (;;) {
         SAT_TRY(service());
+        if (g_runtime.active_error != SAT_OK) return g_runtime.active_error;
         if (done(handle) != 0u) return result(handle, nullptr);
         if (g_runtime.active != 0u) {
             const uint16_t wait_start = saturn::hal::sh2::frt::counter();
             sat_dual_sh2_message_t message = {};
             const sat_result_t waited = sat_dual_sh2_wait_response(&message, timeout_ticks);
             g_runtime.stats.master_wait_ticks += elapsed_ticks(wait_start);
-            if (waited != SAT_OK) return waited;
-            finish_slave_message(message);
+            if (waited == SAT_ERR_TIMEOUT) return waited;
+            if (waited != SAT_OK) {
+                g_runtime.active_error = waited;
+                return waited;
+            }
+            const sat_result_t completed = finish_slave_message(message);
+            if (completed != SAT_OK && g_runtime.active_error != SAT_OK) {
+                return g_runtime.active_error;
+            }
         } else {
             /* Master-only work completes in service(); a queued task that
              * cannot be dispatched is an explicit backend failure. */
             return SAT_ERR_BUSY;
         }
     }
+}
+
+sat_result_t abort_task(sat_parallel_handle_t handle, uint32_t timeout_ticks) {
+    uint16_t index = 0u;
+    sat_parallel_task_slot_t* slot = slot_for(handle, &index);
+    if (slot == nullptr) return SAT_ERR_INVALID_ARG;
+    if (g_runtime.active == 0u || index != g_runtime.active_index ||
+        slot->state != SAT_PARALLEL_RUNNING) return SAT_ERR_BUSY;
+    const sat_result_t stopped = sat_dual_sh2_stop(timeout_ticks);
+    if (stopped != SAT_OK) return stopped;
+
+    /* stop() only returns after the Slave callback has returned and no longer
+     * touches shared Work RAM. It is now safe to invalidate/reclaim storage. */
+    consume_range(slot->input_address, slot->input_size);
+    consume_range(slot->output_address, slot->output_capacity);
+    consume_range(physical_address(slot), sizeof(*slot));
+    mark_failed(*slot, SAT_ERR_TIMEOUT);
+    g_runtime.active = 0u;
+    g_runtime.active_error = SAT_OK;
+    g_runtime.slave_started = 0u;
+    g_runtime.backend = SAT_PARALLEL_MASTER;
+    for (uint16_t i = 0u; i < g_runtime.capacity; ++i) {
+        sat_parallel_task_slot_t& queued = g_runtime.slots[i];
+        if (queued.state != SAT_PARALLEL_QUEUED) continue;
+        queued.state = SAT_PARALLEL_CANCELLED;
+        queued.result = SAT_ERR_BUSY;
+        if (g_runtime.stats.queued != 0u) --g_runtime.stats.queued;
+        ++g_runtime.stats.cancelled;
+    }
+    return SAT_OK;
 }
 
 sat_result_t cancel(sat_parallel_handle_t handle) {

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "saturn/scene3d.h"
 #include "saturn/model3d.h"
+#include "saturn/parallel.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -153,6 +154,9 @@ typedef struct sat_scene3d_prepare_batch {
     sat_fx16_t near_depth;
     uint16_t width;
     uint16_t height;
+    sat_parallel_handle_t handle;
+    uint8_t pending;
+    uint8_t reserved2[3];
 } sat_scene3d_prepare_batch_t;
 
 sat_result_t sat_scene3d_prepare_batch_init(

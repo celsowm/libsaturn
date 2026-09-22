@@ -9,6 +9,12 @@ param(
     [ValidateSet('yaul', 'sbl', 'minimal', 'yaul_fixed', 'region_free', 'minimal_boot', 'correct', 'final')]
     [string]$IpTemplate = 'yaul',
 
+    [ValidateSet(0, 12, 48, 96)]
+    [int]$GeometryObjects = 0,
+
+    [ValidateSet('', 'MASTER', 'SLAVE', 'AUTO')]
+    [string]$ParallelMode = '',
+
     [string]$Msys2Root,
     [switch]$ForceRebuild
 )
@@ -139,10 +145,24 @@ if ($checkResult -eq 'ok') {
 # -- Build via MSYS2 --
 $repoPath = $repoMsysPath.Replace('\', '/')
 $makeFlags = if ($ForceRebuild) { '-B ' } else { '' }
+$parallelFlags = ''
+if ($normalizedExample -eq 'parallel_runtime') {
+    if ($GeometryObjects -ne 0) {
+        $parallelFlags += " PARALLEL_RUNTIME_GEOMETRY_OBJECTS=$GeometryObjects"
+    }
+    if ($ParallelMode) {
+        $parallelModeValue = switch ($ParallelMode) {
+            'MASTER' { 0 }
+            'SLAVE' { 1 }
+            'AUTO' { 2 }
+        }
+        $parallelFlags += " PARALLEL_RUNTIME_DEFAULT_MODE=$parallelModeValue"
+    }
+}
 if ($saturnBin) {
-    $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
+    $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + $parallelFlags + ' all'
 } else {
-    $makeCommand = 'export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + ' all'
+    $makeCommand = 'export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + $parallelFlags + ' all'
 }
 Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand $makeCommand
 
