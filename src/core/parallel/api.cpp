@@ -38,6 +38,13 @@ extern "C" sat_result_t sat_parallel_submit(
         type, input, input_size, output, output_capacity, out_handle);
 }
 
+extern "C" sat_result_t sat_parallel_submit_master(
+    sat_parallel_task_type_t type, const void* input, uint32_t input_size,
+    void* output, uint32_t output_capacity, sat_parallel_handle_t* out_handle) {
+    return saturn::core::parallel::executor::submit_master(
+        type, input, input_size, output, output_capacity, out_handle);
+}
+
 extern "C" sat_result_t sat_parallel_service(void) {
     return saturn::core::parallel::executor::service();
 }

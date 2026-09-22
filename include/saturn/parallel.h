@@ -57,6 +57,8 @@ typedef struct sat_parallel_task_slot {
     uint32_t output_capacity;
     uint32_t output_size;
     uint32_t task_ticks;
+    uint8_t force_master;
+    uint8_t reserved3[3];
     int32_t result;
 } sat_parallel_task_slot_t;
 
@@ -95,6 +97,16 @@ sat_result_t sat_parallel_register_task(
     sat_parallel_task_type_t type, sat_parallel_process_fn process);
 
 sat_result_t sat_parallel_submit(
+    sat_parallel_task_type_t type,
+    const void* input,
+    uint32_t input_size,
+    void* output,
+    uint32_t output_capacity,
+    sat_parallel_handle_t* out_handle);
+
+/* Explicit Master dispatch used by subsystem policies whose measured AUTO
+ * crossover is not favorable. It still returns a normal terminal handle. */
+sat_result_t sat_parallel_submit_master(
     sat_parallel_task_type_t type,
     const void* input,
     uint32_t input_size,

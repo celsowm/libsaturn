@@ -161,7 +161,9 @@ sat_result_t dispatch_one() {
     for (uint16_t i = 0u; i < g_runtime.capacity; ++i) {
         sat_parallel_task_slot_t& slot = g_runtime.slots[i];
         if (slot.state != SAT_PARALLEL_QUEUED) continue;
-        if (g_runtime.backend == SAT_PARALLEL_MASTER) return execute_master(slot);
+        if (slot.force_master != 0u || g_runtime.backend == SAT_PARALLEL_MASTER) {
+            return execute_master(slot);
+        }
         if (g_runtime.slave_started == 0u || sat_dual_sh2_available() == 0u) {
             if (g_runtime.mode == SAT_PARALLEL_AUTO) {
                 return execute_master(slot);
@@ -305,9 +307,11 @@ uint8_t slave_available() {
     return g_runtime.slave_started != 0u && sat_dual_sh2_available() != 0u ? 1u : 0u;
 }
 
-sat_result_t submit(sat_parallel_task_type_t type, const void* input,
-                    uint32_t input_size, void* output, uint32_t output_capacity,
-                    sat_parallel_handle_t* out_handle) {
+sat_result_t submit_impl(sat_parallel_task_type_t type, const void* input,
+                         uint32_t input_size, void* output,
+                         uint32_t output_capacity,
+                         sat_parallel_handle_t* out_handle,
+                         uint8_t force_master) {
     if (g_runtime.initialized == 0u || out_handle == nullptr) return SAT_ERR_NOT_INITIALIZED;
     if (type == 0u || registration_for(type) == nullptr) return SAT_ERR_UNSUPPORTED;
     if ((input == nullptr && input_size != 0u) ||
@@ -330,6 +334,7 @@ sat_result_t submit(sat_parallel_task_type_t type, const void* input,
         slot.output_capacity = output_capacity;
         slot.output_size = 0u;
         slot.task_ticks = 0u;
+        slot.force_master = force_master;
         slot.result = SAT_ERR_BUSY;
         slot.state = SAT_PARALLEL_QUEUED;
         *out_handle = slot.token;
@@ -341,6 +346,21 @@ sat_result_t submit(sat_parallel_task_type_t type, const void* input,
         return SAT_OK;
     }
     return SAT_ERR_CAPACITY;
+}
+
+sat_result_t submit(sat_parallel_task_type_t type, const void* input,
+                    uint32_t input_size, void* output, uint32_t output_capacity,
+                    sat_parallel_handle_t* out_handle) {
+    return submit_impl(type, input, input_size, output, output_capacity,
+                       out_handle, 0u);
+}
+
+sat_result_t submit_master(sat_parallel_task_type_t type, const void* input,
+                           uint32_t input_size, void* output,
+                           uint32_t output_capacity,
+                           sat_parallel_handle_t* out_handle) {
+    return submit_impl(type, input, input_size, output, output_capacity,
+                       out_handle, 1u);
 }
 
 sat_parallel_task_state_t state(sat_parallel_handle_t handle) {

@@ -64,11 +64,19 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
     batch->near_depth = scene->faces.near_depth;
     batch->width = scene->faces.width;
     batch->height = scene->faces.height;
+    const uint32_t output_capacity =
+        static_cast<uint32_t>(batch->capacity) * sizeof(sat_scene3d_face_t);
+    /* The measured crossover for this workload is above the frame budget on
+     * the Saturn. AUTO therefore keeps the Slave available for animation and
+     * other tasks, while geometry is explicitly pinned to Master. */
+    if (sat_parallel_mode() == SAT_PARALLEL_AUTO) {
+        return sat_parallel_submit_master(
+            SAT_PARALLEL_TASK_SCENE_GEOMETRY, batch, sizeof(*batch),
+            batch->faces, output_capacity, out_handle);
+    }
     return sat_parallel_submit(
         SAT_PARALLEL_TASK_SCENE_GEOMETRY, batch, sizeof(*batch),
-        batch->faces,
-        static_cast<uint32_t>(batch->capacity) * sizeof(sat_scene3d_face_t),
-        out_handle);
+        batch->faces, output_capacity, out_handle);
 }
 
 extern "C" sat_result_t sat_scene_merge_prepared_batch(

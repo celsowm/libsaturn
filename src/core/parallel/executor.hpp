@@ -16,6 +16,10 @@ sat_result_t register_task(sat_parallel_task_type_t type,
 sat_result_t submit(sat_parallel_task_type_t type, const void* input,
                     uint32_t input_size, void* output, uint32_t output_capacity,
                     sat_parallel_handle_t* out_handle);
+sat_result_t submit_master(sat_parallel_task_type_t type, const void* input,
+                           uint32_t input_size, void* output,
+                           uint32_t output_capacity,
+                           sat_parallel_handle_t* out_handle);
 uint8_t initialized();
 sat_parallel_mode_t mode();
 sat_parallel_mode_t backend();

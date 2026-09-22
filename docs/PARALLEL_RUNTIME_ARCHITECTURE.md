@@ -103,10 +103,13 @@ does not move those operations to the Slave.
 
 ## Automatic policy and diagnostics
 
-The initial AUTO policy is conservative: it uses the Slave when startup
-succeeds and otherwise uses Master execution. It does not claim an automatic
-speedup or use an unmeasured workload threshold. Applications can select
-MASTER or SLAVE explicitly for regression and benchmark comparisons.
+The initial AUTO policy is conservative: it starts the Slave when possible,
+keeps the measured geometry workload on Master, and lets animation and other
+registered tasks use the normal backend. If startup fails, AUTO falls back to
+Master execution. `sat_parallel_submit_master()` is the explicit subsystem
+escape hatch for a task whose measured crossover is not favorable; it still
+returns a normal queue handle. Applications can select MASTER or SLAVE
+explicitly for regression and benchmark comparisons.
 
 `sat_parallel_stats` reports submissions, queue occupancy, completions,
 failures, cancellations, and the number of tasks executed by each backend.
@@ -195,8 +198,10 @@ totals when the target timer is available. These are local timing counters;
 Ymir instruction counts remain a separate diagnostic and are not a speedup
 claim.
 
-AUTO remains conservative and does not use an unmeasured geometry threshold.
-The example exposes MASTER, SLAVE, and AUTO, validates the first prepared
-batch against a synchronous execution, and displays real task, wait,
-submission, frame, face, and validation counters. Physics and asset processing
-are intentionally outside this milestone.
+AUTO remains conservative and does not use an unmeasured geometry threshold:
+the current 12-quad example pins geometry to Master through
+`sat_parallel_submit_master()`, while the animation decoder remains eligible
+for Slave dispatch. The example exposes MASTER, SLAVE, and AUTO, validates the
+first prepared batch against a synchronous execution, and displays real task,
+wait, submission, frame, face, and validation counters. Physics and asset
+processing are intentionally outside this milestone.
