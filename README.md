@@ -2,11 +2,89 @@
 
 **A modern bare-metal game-development library for the Sega Saturn.**
 
-LibSaturn is a C-facing, C++-implemented runtime and game framework built directly on the Saturn hardware — without SGL or libyaul. It is no longer just a minimal 2D experiment: the project now spans a high-level 3D scene stack, VDP1/VDP2 rendering, animation, physics, storage and streaming, save data, RAM expansion, audio, asset tooling, and managed use of both SH-2 processors.
+LibSaturn is a C-facing, C++-implemented runtime and game framework built directly on the Saturn hardware — without SGL or libyaul. The project spans a high-level 3D scene stack, VDP1/VDP2 rendering, animation, physics, storage and streaming, save data, RAM expansion, audio, asset tooling, and managed use of both SH-2 processors.
 
 The goal is to make serious Saturn development feel like working with a coherent game-development platform while preserving explicit control over the machine.
 
 > **Current direction:** reusable high-level APIs on top of small hardware-specific HALs, deterministic fixed-memory runtime systems, host-side asset baking, and Saturn-specific optimizations rather than hiding the console behind a desktop-style abstraction.
+
+
+## A Different Foundation
+
+Many Saturn development stacks build their abstractions on top of Sega's SGL. LibSaturn takes a different route: its high-level systems are backed by its own runtime and hardware abstraction layers.
+
+<table>
+<tr>
+<th align="center">SGL-based stack</th>
+<th align="center">LibSaturn</th>
+</tr>
+<tr>
+<td valign="top">
+
+<pre>
++-----------------------+
+|       Game Code       |
++-----------+-----------+
+            |
+            v
++-----------------------+
+| Framework / Library   |
+| built around SGL      |
++-----------+-----------+
+            |
+            v
++-----------------------+
+|          SGL          |
+| Sega Game Library     |
++-----------+-----------+
+            |
+            v
++-----------------------+
+| Sega Saturn Hardware  |
++-----------------------+
+</pre>
+
+The framework inherits SGL as a major runtime and rendering foundation.
+
+</td>
+<td valign="top">
+
+<pre>
++-----------------------+
+|       Game Code       |
++-----------+-----------+
+            |
+            v
++-----------------------+
+|   LibSaturn High-     |
+|     Level APIs        |
++-----------+-----------+
+            |
+            v
++-----------------------+
+| LibSaturn Subsystems  |
+| scene / physics /     |
+| assets / audio / ...  |
++-----------+-----------+
+            |
+            v
++-----------------------+
+|    LibSaturn HAL      |
++-----------+-----------+
+            |
+            v
++-----------------------+
+| Sega Saturn Hardware  |
++-----------------------+
+</pre>
+
+LibSaturn owns the stack down to its hardware-facing layers, while still exposing reusable game-oriented APIs.
+
+</td>
+</tr>
+</table>
+
+This distinction is architectural, not an argument for forcing applications to program the Saturn at register level. LibSaturn's high-level scene, physics, asset, audio, storage and parallel APIs exist specifically so game code can stay above the hardware while the library remains free to exploit Saturn-specific behavior underneath.
 
 ## Highlights
 
