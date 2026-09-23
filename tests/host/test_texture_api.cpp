@@ -16,13 +16,16 @@ uint32_t g_texture_uploads = 0u;
 uint32_t g_texture_updates = 0u;
 uint16_t g_last_pitch = 0u;
 sat_result_t g_texture_upload_status = SAT_OK;
+sat_result_t g_palette_upload_status = SAT_OK;
+sat_result_t g_texture_update_status = SAT_OK;
+uint32_t g_fail_texture_update_call = 0u;
 }
 
 namespace saturn::hal::vdp1 {
 
 sat_result_t upload_palette(const uint16_t*, uint16_t) {
     ++g_palette_uploads;
-    return SAT_OK;
+    return g_palette_upload_status;
 }
 
 sat_result_t upload_texture_indexed8_pitched(
@@ -40,6 +43,10 @@ sat_result_t update_texture_indexed8_pitched(
     if (pitch < width || width == 0u || height == 0u) return SAT_ERR_INVALID_ARG;
     ++g_texture_updates;
     g_last_pitch = pitch;
+    if (g_texture_update_status != SAT_OK &&
+        (g_fail_texture_update_call == 0u ||
+         g_texture_updates == g_fail_texture_update_call))
+        return g_texture_update_status;
     return SAT_OK;
 }
 
@@ -57,10 +64,109 @@ static void reset_runtime() {
     g_texture_updates = 0u;
     g_last_pitch = 0u;
     g_texture_upload_status = SAT_OK;
+    g_palette_upload_status = SAT_OK;
+    g_texture_update_status = SAT_OK;
+    g_fail_texture_update_call = 0u;
 }
 
 static void make_palette(uint16_t* palette, uint16_t seed) {
     for (uint16_t i = 0; i < 256u; ++i) palette[i] = static_cast<uint16_t>(seed + i);
+}
+
+static void update_failure_and_recovery() {
+    using namespace saturn::core;
+    reset_runtime();
+
+    uint16_t original_palette[256]{}, new_palette[256]{}, final_palette[256]{};
+    make_palette(original_palette, 0x100u);
+    make_palette(new_palette, 0x200u);
+    make_palette(final_palette, 0x300u);
+    uint8_t original_pixels[32u]{}, new_pixels[32u]{}, final_pixels[32u]{};
+    sat_surface_t original{original_pixels, 8u, 4u, 8u,
+                           SAT_PIXEL_INDEX8, original_palette, 256u};
+    sat_surface_t replacement{new_pixels, 8u, 4u, 8u,
+                              SAT_PIXEL_INDEX8, new_palette, 256u};
+    sat_surface_t final_source{final_pixels, 8u, 4u, 8u,
+                               SAT_PIXEL_INDEX8, final_palette, 256u};
+    sat_texture_t handle{};
+    sat_texture_info_t info{};
+    const sat_rect_t region{0, 0, 8u, 2u};
+    OK(sat_texture_create_from_surface(
+        &handle, &original, SAT_TEXTURE_DYNAMIC) == SAT_OK);
+    OK(sat_texture_prepare_region(handle, &region) == SAT_OK);
+    OK(sat_texture_info(handle, &info) == SAT_OK &&
+       info.health == SAT_TEXTURE_READY);
+    auto* slot = texture_resolve(g_texture_registry, handle);
+    OK(slot != nullptr);
+    auto* prepared = texture_find_region(g_texture_registry, handle, region);
+    OK(prepared != nullptr);
+
+    // Palette rebinding is logical before the hardware upload: its failure
+    // must invalidate every native descriptor without leaking its new bank.
+    g_palette_upload_status = SAT_ERR_IO;
+    OK(sat_texture_update(handle, &replacement) == SAT_ERR_IO);
+    OK(sat_texture_info(handle, &info) == SAT_OK &&
+       info.health == SAT_TEXTURE_NEEDS_RECOVERY);
+    OK(slot->native.valid == 0u && prepared->native.valid == 0u);
+    OK(palette_equal(g_palette_registry.logical_palettes[slot->palette_bank],
+                     new_palette));
+    OK(slot->source.pixels == original_pixels);
+    uint8_t patch_pixels[8u]{};
+    sat_surface_t patch{patch_pixels, 8u, 1u, 8u,
+                        SAT_PIXEL_INDEX8, new_palette, 256u};
+    const sat_rect_t patch_rect{0, 0, 8u, 1u};
+    OK(sat_texture_update_rect(handle, &patch_rect, &patch) == SAT_ERR_BUSY);
+    OK(sat_texture_prepare_region(handle, &region) == SAT_ERR_BUSY);
+    const uint32_t palette_calls = g_palette_uploads;
+    g_palette_upload_status = SAT_OK;
+    OK(sat_texture_update(handle, &replacement) == SAT_OK);
+    OK(g_palette_uploads == palette_calls + 1u); // Force palette repair.
+    OK(sat_texture_info(handle, &info) == SAT_OK &&
+       info.health == SAT_TEXTURE_READY);
+    OK(slot->native.valid == 1u && prepared->native.valid == 1u);
+    OK(slot->source.pixels == new_pixels);
+
+    // Parent VRAM transfer can fail after palette ownership has changed.
+    g_texture_update_status = SAT_ERR_IO;
+    g_fail_texture_update_call = g_texture_updates + 1u;
+    OK(sat_texture_update(handle, &final_source) == SAT_ERR_IO);
+    OK(slot->native.valid == 0u && prepared->native.valid == 0u);
+    OK(palette_equal(g_palette_registry.logical_palettes[slot->palette_bank],
+                     final_palette));
+    OK(slot->source.pixels == new_pixels);
+    g_texture_update_status = SAT_OK;
+    g_fail_texture_update_call = 0u;
+    OK(sat_texture_update(handle, &final_source) == SAT_OK);
+    OK(slot->native.valid == 1u && prepared->native.valid == 1u);
+    OK(slot->source.pixels == final_pixels);
+
+    // A prepared-region refresh can fail AFTER parent VRAM was rewritten.
+    g_texture_update_status = SAT_ERR_IO;
+    g_fail_texture_update_call = g_texture_updates + 2u;
+    OK(sat_texture_update(handle, &final_source) == SAT_ERR_IO);
+    OK(slot->native.valid == 0u && prepared->native.valid == 0u);
+    OK(slot->source.pixels == final_pixels); // Valid recovery source retained.
+    g_texture_update_status = SAT_OK;
+    g_fail_texture_update_call = 0u;
+    OK(sat_texture_update(handle, &final_source) == SAT_OK);
+    OK(slot->native.valid == 1u && prepared->native.valid == 1u);
+
+    // Rect writes mutate caller-owned CPU memory first. A failed parent
+    // upload explicitly invalidates the GPU copy until a full refresh.
+    patch.palette_rgb555 = final_palette;
+    patch_pixels[0] = 42u;
+    g_texture_update_status = SAT_ERR_IO;
+    g_fail_texture_update_call = g_texture_updates + 1u;
+    OK(sat_texture_update_rect(handle, &patch_rect, &patch) == SAT_ERR_IO);
+    OK(final_pixels[0] == 42u && slot->native.valid == 0u &&
+       prepared->native.valid == 0u);
+    g_texture_update_status = SAT_OK;
+    g_fail_texture_update_call = 0u;
+    OK(sat_texture_update(handle, &final_source) == SAT_OK);
+    OK(sat_texture_info(handle, &info) == SAT_OK &&
+       info.health == SAT_TEXTURE_READY);
+    OK(slot->native.valid == 1u && prepared->native.valid == 1u);
+    OK(sat_texture_destroy(handle) == SAT_OK);
 }
 
 int main() {
@@ -217,6 +323,8 @@ int main() {
     g_texture_upload_status = SAT_OK;
     OK(sat_texture_prepare_region(vram_limited, &first_tile) == SAT_OK);
     OK(sat_texture_region_stats(vram_limited, &stats) == SAT_OK && stats.used == 1u);
+
+    update_failure_and_recovery();
 
     reset_runtime();
     OK(palette_claim_external(g_palette_registry, 0u, kCramWordCount) == SAT_OK);

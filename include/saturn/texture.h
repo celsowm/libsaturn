@@ -29,13 +29,21 @@ typedef enum sat_texture_backing_policy {
     SAT_TEXTURE_DYNAMIC = 2
 } sat_texture_backing_policy_t;
 
+/* An in-place VRAM/CRAM update cannot be rolled back after a hardware error.
+ * Dirty textures remain destroyable and may be repaired by a full update.
+ * Neither a dirty parent nor its previously prepared regions may be drawn. */
+typedef enum sat_texture_health {
+    SAT_TEXTURE_READY = 0,
+    SAT_TEXTURE_NEEDS_RECOVERY = 1
+} sat_texture_health_t;
+
 typedef struct sat_texture_info {
     uint16_t width;
     uint16_t height;
     sat_pixel_format_t format;
     sat_texture_backing_policy_t backing_policy;
     uint16_t prepared_region_count;
-    uint16_t reserved;
+    sat_texture_health_t health;
 } sat_texture_info_t;
 
 typedef struct sat_texture_region_stats {
@@ -57,14 +65,21 @@ sat_result_t sat_texture_destroy(sat_texture_t texture);
 sat_result_t sat_texture_info(sat_texture_t texture, sat_texture_info_t* out_info);
 
 /* Replaces the complete texture contents. Width, height and format must match
- * the original texture. PERSISTENT_SOURCE and DYNAMIC textures retain the new
- * source descriptor; prepared regions are invalidated. */
+ * the original texture. PERSISTENT_SOURCE and DYNAMIC retain the non-owning
+ * new source descriptor and refresh prepared regions in place. Hardware
+ * failures can partially change CRAM/VRAM: the handle remains alive but is
+ * marked NEEDS_RECOVERY, and draws/region preparation are rejected. Repeating
+ * this full update with a valid source repairs the parent and all regions.
+ * The caller must keep the new source and palette alive until the update
+ * has completed; a failed in-place update is not an atomic hardware rollback. */
 sat_result_t sat_texture_update(sat_texture_t texture, const sat_surface_t* source);
 
-/* Writes a rectangular update. This is intentionally limited to DYNAMIC
- * textures because the runtime must keep its retained source coherent for
- * later region preparation. source must have exactly destination_rect size and
- * the same format/palette semantics as the texture. */
+/* Writes a rectangular update. This is limited to DYNAMIC textures because
+ * the caller-owned retained source is modified in place before the VRAM
+ * refresh. On a hardware failure that CPU source may already contain the
+ * patch; the texture is marked NEEDS_RECOVERY. Call sat_texture_update with
+ * the full retained source to repair it. A dirty texture rejects partial
+ * updates until repaired. source must match destination_rect and palette. */
 sat_result_t sat_texture_update_rect(
     sat_texture_t texture,
     const sat_rect_t* destination_rect,

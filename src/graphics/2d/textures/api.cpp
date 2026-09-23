@@ -73,6 +73,20 @@ sat_result_t upload_native_from_surface(
     return SAT_OK;
 }
 
+/* A failed update may have written part of CRAM or VRAM. Invalidate every
+ * scene-visible native descriptor, retaining the logical handle, palette
+ * ownership, source and prepared-region descriptors for explicit recovery. */
+void texture_needs_recovery(sat_texture_t texture, TextureSlot& slot) {
+    using namespace saturn::core;
+    slot.native.valid = 0u;
+    for (uint16_t i = 0u; i < kTextureRegionCapacity; ++i) {
+        TextureRegionRecord& record = g_texture_registry.regions[i];
+        if (record.used != 0u && record.owner_slot == texture.slot &&
+            record.owner_generation == texture.generation)
+            record.native.valid = 0u;
+    }
+}
+
 sat_result_t refresh_prepared_regions(sat_texture_t texture, TextureSlot& slot) {
     using namespace saturn::core;
     if (slot.region_count == 0u) return SAT_OK;
@@ -95,6 +109,7 @@ sat_result_t refresh_prepared_regions(sat_texture_t texture, TextureSlot& slot) 
             slot.source.pitch);
         if (st != SAT_OK) return st;
         record.native.palette = slot.palette_bank;
+        record.native.valid = 1u;
     }
     return SAT_OK;
 }
@@ -184,7 +199,8 @@ extern "C" sat_result_t sat_texture_info(sat_texture_t texture, sat_texture_info
     out_info->format = SAT_PIXEL_INDEX8;
     out_info->backing_policy = slot->policy;
     out_info->prepared_region_count = slot->region_count;
-    out_info->reserved = 0u;
+    out_info->health = slot->native.valid != 0u
+        ? SAT_TEXTURE_READY : SAT_TEXTURE_NEEDS_RECOVERY;
     return SAT_OK;
 }
 
@@ -207,9 +223,17 @@ extern "C" sat_result_t sat_texture_update(sat_texture_t texture, const sat_surf
         &palette_bank, &needs_palette_upload);
     if (st != SAT_OK) return st;
 
-    if (needs_palette_upload) {
+    // Rebind may have moved the logical palette or replaced the sole owner's
+    // palette in place. Publish its bank to the slot BEFORE the first hardware
+    // write, so a failed update remains destroyable and recoverable.
+    const bool recovering = slot->native.valid == 0u;
+    slot->palette_bank = static_cast<uint8_t>(palette_bank);
+    if (needs_palette_upload || recovering) {
         st = saturn::hal::vdp1::upload_palette(source->palette_rgb555, palette_bank);
-        if (st != SAT_OK) return st;
+        if (st != SAT_OK) {
+            texture_needs_recovery(texture, *slot);
+            return st;
+        }
     }
 
     st = saturn::hal::vdp1::update_texture_indexed8_pitched(
@@ -218,14 +242,23 @@ extern "C" sat_result_t sat_texture_update(sat_texture_t texture, const sat_surf
         source->width,
         source->height,
         source->pitch);
-    if (st != SAT_OK) return st;
+    if (st != SAT_OK) {
+        texture_needs_recovery(texture, *slot);
+        return st;
+    }
 
-    slot->palette_bank = static_cast<uint8_t>(palette_bank);
     slot->native.palette = palette_bank;
     if (slot->policy != SAT_TEXTURE_UPLOAD_ONLY) {
+        // The full source is retained only after the parent upload succeeds.
+        // If a region refresh fails, the new source remains the recovery input.
         slot->source = *source;
-        return refresh_prepared_regions(texture, *slot);
+        st = refresh_prepared_regions(texture, *slot);
+        if (st != SAT_OK) {
+            texture_needs_recovery(texture, *slot);
+            return st;
+        }
     }
+    slot->native.valid = 1u;
     return SAT_OK;
 }
 
@@ -245,6 +278,7 @@ extern "C" sat_result_t sat_texture_update_rect(
     if (slot->policy != SAT_TEXTURE_DYNAMIC || slot->source.pixels == nullptr) {
         return SAT_ERR_UNSUPPORTED;
     }
+    if (slot->native.valid == 0u) return SAT_ERR_BUSY;
     if (!rect_inside_surface(*destination_rect, slot->source)) return SAT_ERR_INVALID_ARG;
     if (source->width != destination_rect->width || source->height != destination_rect->height) {
         return SAT_ERR_INVALID_ARG;
@@ -269,8 +303,13 @@ extern "C" sat_result_t sat_texture_update_rect(
         slot->source.width,
         slot->source.height,
         slot->source.pitch);
-    if (st != SAT_OK) return st;
-    return refresh_prepared_regions(texture, *slot);
+    if (st != SAT_OK) {
+        texture_needs_recovery(texture, *slot);
+        return st;
+    }
+    st = refresh_prepared_regions(texture, *slot);
+    if (st != SAT_OK) texture_needs_recovery(texture, *slot);
+    return st;
 }
 
 extern "C" sat_result_t sat_texture_prepare_region(sat_texture_t texture, const sat_rect_t* region) {
@@ -283,6 +322,7 @@ extern "C" sat_result_t sat_texture_prepare_region(sat_texture_t texture, const 
     if (slot->policy == SAT_TEXTURE_UPLOAD_ONLY || slot->source.pixels == nullptr) {
         return SAT_ERR_UNSUPPORTED;
     }
+    if (slot->native.valid == 0u) return SAT_ERR_BUSY;
     if (!rect_inside_surface(*region, slot->source) || (region->width & 7u) != 0u) {
         return SAT_ERR_INVALID_ARG;
     }
