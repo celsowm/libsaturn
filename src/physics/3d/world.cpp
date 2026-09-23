@@ -1,7 +1,7 @@
 #include "saturn/physics3_world.h"
 #include <limits.h>
 #include "src/physics/3d/collision_grid.hpp"
-#include "src/graphics/3d/geometry/math_logic.hpp"
+#include "src/core/math3d/logic.hpp"
 namespace {
 using V=sat_vec3_t;
 using F=sat_fx16_t;

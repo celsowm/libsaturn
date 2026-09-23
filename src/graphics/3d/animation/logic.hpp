@@ -12,7 +12,7 @@
 
 #include "saturn/anim3d.h"
 #include "saturn/core.h"
-#include "src/graphics/3d/geometry/math_logic.hpp"
+#include "src/core/math3d/logic.hpp"
 
 namespace saturn::core::anim3d {
 

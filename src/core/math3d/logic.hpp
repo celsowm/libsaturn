@@ -3,8 +3,9 @@
 
 /* Pure, host-testable 3D math for libsaturn.
  *
- * Everything here is plain inline C++ with no hardware access, so the host
- * test suite can link it directly (see tests/host/test_math3d_logic.cpp).
+ * Shared geometry/physics numerical helpers live below graphics; ordinary
+ * host builds use only inline C++ and do not require scene initialization.
+ * The SH-2 divider optimization is conditionally compiled for Saturn.
  * The public C API in include/saturn/math3d.h is a thin wrapper over these
  * helpers.
  *
@@ -54,8 +55,8 @@ inline sat_fx16_t fx_abs(sat_fx16_t v) {
  * On the SH-2 this runs on the on-chip division unit -- a fixed 39-cycle
  * hardware divide -- instead of libgcc's __divdi3, a bit-serial software loop
  * that projection and pose decoding used to call thousands of times a frame.
- * The registers are dereferenced here, never bound to a global, for the
- * static-constructor reason given in src/hal/vdp2/vdp2.cpp. The host build keeps
+ * The registers are dereferenced here, never bound to a global, to avoid
+ * static initialization side effects. The host build keeps
  * the plain operator, which has identical semantics. */
 inline int32_t div_s64_s32(int64_t num, int32_t den) {
 #if defined(__sh__)

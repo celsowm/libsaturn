@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #include "saturn/render2d.h"
-#include "src/graphics/3d/geometry/math_logic.hpp"
+#include "src/core/math3d/logic.hpp"
 
 namespace saturn::core {
 

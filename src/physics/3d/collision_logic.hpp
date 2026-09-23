@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include "saturn/collide3d.h"
-#include "src/graphics/3d/geometry/math_logic.hpp"
+#include "src/core/math3d/logic.hpp"
 #include "src/graphics/3d/geometry/mesh_logic.hpp"
 
 namespace saturn::core::collide3d {

@@ -14,7 +14,7 @@ on:
       - "include/saturn/scene.h"
       - "examples/runtime_3d/main.c"
       - "src/graphics/3d/scene/api.cpp"
-      - "src/graphics/3d/geometry/math.cpp"
+      - "src/core/math3d/api.cpp"
       - "tests/host/test_transform3d.cpp"
       - "tests/host/test_scene_transform3d.cpp"
       - "Makefile"

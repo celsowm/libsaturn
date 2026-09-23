@@ -17,7 +17,7 @@
 
 #include "saturn/core.h"
 #include "saturn/mesh3d.h"
-#include "src/graphics/3d/geometry/math_logic.hpp"
+#include "src/core/math3d/logic.hpp"
 
 namespace saturn::core::mesh3d {
 
