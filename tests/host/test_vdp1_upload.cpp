@@ -63,7 +63,13 @@ void command_stats(uint16_t& used, uint16_t& capacity,
     overlay_pass = g_overlay_pass_calls != 0;
 }
 
-sat_result_t push_sprite(const SpriteRequest&) { return SAT_OK; }
+SpriteRequest g_last_sprite{};
+int g_sprite_calls = 0;
+sat_result_t push_sprite(const SpriteRequest& req) {
+    g_last_sprite = req;
+    ++g_sprite_calls;
+    return SAT_OK;
+}
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest&) { return SAT_OK; }
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest&) { return SAT_OK; }
 sat_result_t push_polygon(const PolygonRequest&) { return SAT_OK; }
@@ -193,6 +199,31 @@ static void texture_capacity_propagates() {
     ASSERT_EQ(g_palette_calls, 1);
 }
 
+static void sprite_screen_uses_active_video_dimensions() {
+    using namespace saturn::hal::vdp1;
+    make_initialized();
+    sat_vdp1_texture_t texture{};
+    texture.valid = 1u;
+    texture.width = 8u;
+    texture.height = 8u;
+    g_sprite_calls = 0;
+
+    saturn::core::g_state.config.width = 320u;
+    saturn::core::g_state.config.height = 224u;
+    ASSERT_EQ(sat_draw_sprite_screen(&texture, 160, 112, 0u, 0u, 0u), SAT_OK);
+    ASSERT_EQ(g_last_sprite.x, -4);
+    ASSERT_EQ(g_last_sprite.y, -4);
+
+    saturn::core::g_state.config.width = 352u;
+    saturn::core::g_state.config.height = 240u;
+    ASSERT_EQ(sat_draw_sprite_screen(&texture, 176, 120, 0u, 0u, 0u), SAT_OK);
+    ASSERT_EQ(g_last_sprite.x, -4);
+    ASSERT_EQ(g_last_sprite.y, -4);
+    ASSERT_EQ(g_last_sprite.width, 8u);
+    ASSERT_EQ(g_last_sprite.height, 8u);
+    ASSERT_EQ(g_sprite_calls, 2);
+}
+
 static void null_args_rejected() {
     reset_hal();
     make_initialized();
@@ -215,7 +246,8 @@ int main() {
     invalid_bank_rejected_without_hal_calls();
     invalid_dims_rejected();
     texture_capacity_propagates();
+    sprite_screen_uses_active_video_dimensions();
     null_args_rejected();
-    printf("PASS: test_vdp1_upload.cpp (8 tests)\n");
+    printf("PASS: test_vdp1_upload.cpp (9 tests)\n");
     return 0;
 }

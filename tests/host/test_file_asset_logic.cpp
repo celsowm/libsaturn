@@ -140,6 +140,53 @@ int main() {
     raw_desc.kind = SAT_ASSET_DATA;
     sat_asset_t raw_asset{};
     OK(sat_asset_register(&raw_desc, &raw_asset) == SAT_OK);
+
+    // A freed earlier slot must not hide a matching path in a later live slot.
+    sat_asset_desc_t hole_desc = raw_desc;
+    hole_desc.logical_path = "data/hole.bin";
+    sat_asset_desc_t late_desc = raw_desc;
+    late_desc.logical_path = "data/late.bin";
+    sat_asset_t hole{}, late{};
+    OK(sat_asset_register(&hole_desc, &hole) == SAT_OK);
+    OK(sat_asset_register(&late_desc, &late) == SAT_OK);
+    OK(sat_asset_close(hole) == SAT_OK);
+    const uint16_t before_duplicate = sat_asset_count();
+    sat_asset_desc_t duplicate_desc = late_desc;
+    duplicate_desc.logical_path = "./data/late.bin";
+    sat_asset_t rejected{0xFFFFu, 0u};
+    OK(sat_asset_register(&duplicate_desc, &rejected) == SAT_ERR_INVALID_ARG);
+    OK(sat_asset_count() == before_duplicate && rejected.slot == 0xFFFFu);
+    sat_asset_t late_opened{};
+    OK(sat_asset_open("./data/late.bin", &late_opened) == SAT_OK &&
+       late_opened.slot == late.slot && late_opened.generation == late.generation);
+
+    // Manifest preflight must reject normalized duplicates and existing paths
+    // without leaving the first manifest entry registered.
+    sat_asset_desc_t manifest[2] = {raw_desc, raw_desc};
+    manifest[0].logical_path = "data/manifest-a.bin";
+    manifest[1].logical_path = "./data/manifest-a.bin";
+    sat_asset_t manifest_handles[2] = {{0xFFFFu, 0u}, {0xFFFFu, 0u}};
+    const uint16_t before_manifest = sat_asset_count();
+    OK(sat_asset_register_manifest(manifest, 2u, manifest_handles) == SAT_ERR_INVALID_ARG);
+    OK(sat_asset_count() == before_manifest && manifest_handles[0].slot == 0xFFFFu);
+    sat_asset_t absent{};
+    OK(sat_asset_open("data/manifest-a.bin", &absent) == SAT_ERR_NOT_FOUND);
+    manifest[1].logical_path = "./data/late.bin";
+    OK(sat_asset_register_manifest(manifest, 2u, manifest_handles) == SAT_ERR_INVALID_ARG);
+    OK(sat_asset_count() == before_manifest &&
+       sat_asset_open("data/manifest-a.bin", &absent) == SAT_ERR_NOT_FOUND);
+    manifest[1].logical_path = "data/../invalid.bin";
+    OK(sat_asset_register_manifest(manifest, 2u, manifest_handles) == SAT_ERR_INVALID_ARG);
+    OK(sat_asset_count() == before_manifest &&
+       sat_asset_open("data/manifest-a.bin", &absent) == SAT_ERR_NOT_FOUND);
+    manifest[1].logical_path = "data/manifest-b.bin";
+    OK(sat_asset_register_manifest(manifest, 2u, manifest_handles) == SAT_OK);
+    OK(sat_asset_open("./data/manifest-b.bin", &absent) == SAT_OK &&
+       absent.slot == manifest_handles[1].slot);
+    OK(sat_asset_close(manifest_handles[0]) == SAT_OK);
+    OK(sat_asset_close(manifest_handles[1]) == SAT_OK);
+    OK(sat_asset_close(late) == SAT_OK);
+
     const void* loaded_data = nullptr;
     uint32_t loaded_size = 0u;
     OK(sat_asset_load_data("data/raw.bin", &loaded_data, &loaded_size) == SAT_OK &&

@@ -186,12 +186,15 @@ extern "C" sat_result_t sat_draw_sprite_screen(
 
     const uint16_t vdp1_w = (width != 0u) ? width : texture->width;
     const uint16_t vdp1_h = (height != 0u) ? height : texture->height;
-    const int16_t vdp1_x = screen_x - 160 - static_cast<int16_t>(vdp1_w / 2);
-    const int16_t vdp1_y = screen_y - 112 - static_cast<int16_t>(vdp1_h / 2);
+    const sat_video_config_t& cfg = g_state.config;
+    const int32_t left = static_cast<int32_t>(screen_x) - static_cast<int32_t>(vdp1_w / 2u);
+    const int32_t top = static_cast<int32_t>(screen_y) - static_cast<int32_t>(vdp1_h / 2u);
+    const int16_t vdp1_x = saturn::internal::screen_to_native(static_cast<int>(left), cfg.width);
+    const int16_t vdp1_y = saturn::internal::screen_to_native(static_cast<int>(top), cfg.height);
 
     sat_sprite_cmd_t cmd = {
-        (sat_fx16_t)((int32_t)vdp1_x << 16),
-        (sat_fx16_t)((int32_t)vdp1_y << 16),
+        static_cast<sat_fx16_t>(static_cast<int32_t>(vdp1_x) * SAT_FX16_ONE),
+        static_cast<sat_fx16_t>(static_cast<int32_t>(vdp1_y) * SAT_FX16_ONE),
         vdp1_w,
         vdp1_h,
         texture,

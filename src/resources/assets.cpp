@@ -6,6 +6,12 @@ namespace {
 
 sat_result_t lookup_asset(const char* logical_path, sat_asset_info_t* out_info);
 
+bool asset_descriptor_valid(const sat_asset_desc_t* desc) {
+    return desc != nullptr && desc->logical_path != nullptr &&
+           !(desc->data != nullptr && desc->source_path != nullptr) &&
+           !(desc->data == nullptr && desc->source_path == nullptr && desc->size != 0u);
+}
+
 sat_result_t normalize_source_path(const char* source_path, char* normalized) {
     return saturn::core::normalize_path(source_path, normalized, SAT_FILE_PATH_MAX);
 }
@@ -29,49 +35,52 @@ extern "C" sat_result_t sat_asset_register(
     const sat_asset_desc_t* desc,
     sat_asset_t* out_asset
 ) {
-    if (desc == nullptr || out_asset == nullptr || desc->logical_path == nullptr ||
-        (desc->data == nullptr && desc->source_path == nullptr && desc->size != 0u) ||
-        (desc->data != nullptr && desc->source_path != nullptr)) return SAT_ERR_INVALID_ARG;
+    if (!asset_descriptor_valid(desc) || out_asset == nullptr) return SAT_ERR_INVALID_ARG;
     char normalized[SAT_FILE_PATH_MAX] = {};
     SAT_TRY(saturn::core::normalize_path(desc->logical_path, normalized, SAT_FILE_PATH_MAX));
     using namespace saturn::core;
+    // Check the complete registry before reusing a hole: a later live slot
+    // may already own the same normalized logical path.
+    uint16_t free_slot = SAT_ASSET_CAPACITY;
     for (uint16_t i = 0u; i < SAT_ASSET_CAPACITY; ++i) {
-        AssetEntry& entry = g_file_asset_runtime.assets[i];
-        if (entry.used != 0u) {
-            if (__builtin_strcmp(entry.path, normalized) == 0) return SAT_ERR_INVALID_ARG;
-            continue;
+        const AssetEntry& candidate = g_file_asset_runtime.assets[i];
+        if (candidate.used != 0u) {
+            if (__builtin_strcmp(candidate.path, normalized) == 0) return SAT_ERR_INVALID_ARG;
+        } else if (free_slot == SAT_ASSET_CAPACITY) {
+            free_slot = i;
         }
-        if (entry.generation == 0u) entry.generation = 1u;
-        uint16_t j = 0u;
-        while (normalized[j] != '\0') {
-            entry.path[j] = normalized[j];
-            ++j;
-        }
-        entry.path[j] = '\0';
-        entry.info.kind = desc->kind;
-        entry.info.source_path = desc->source_path;
-        entry.info.data = desc->data;
-        entry.info.size = desc->size;
-        entry.info.pitch = desc->pitch;
-        entry.info.width = desc->width;
-        entry.info.height = desc->height;
-        entry.info.palette_rgb555 = desc->palette_rgb555;
-        entry.info.palette_count = desc->palette_count;
-        entry.info.sample_rate = desc->sample_rate;
-        entry.info.sample_count = desc->sample_count;
-        entry.info.channels = desc->channels;
-        entry.info.format = desc->format;
-        entry.info.flags = desc->flags;
-        entry.info.glyphs = desc->glyphs;
-        entry.info.glyph_count = desc->glyph_count;
-        entry.info.line_height = desc->line_height;
-        entry.info.fallback_glyph = desc->fallback_glyph;
-        entry.used = 1u;
-        out_asset->slot = i;
-        out_asset->generation = entry.generation;
-        return SAT_OK;
     }
-    return SAT_ERR_CAPACITY;
+    if (free_slot == SAT_ASSET_CAPACITY) return SAT_ERR_CAPACITY;
+    AssetEntry& entry = g_file_asset_runtime.assets[free_slot];
+    if (entry.generation == 0u) entry.generation = 1u;
+    uint16_t j = 0u;
+    while (normalized[j] != '\0') {
+        entry.path[j] = normalized[j];
+        ++j;
+    }
+    entry.path[j] = '\0';
+    entry.info.kind = desc->kind;
+    entry.info.source_path = desc->source_path;
+    entry.info.data = desc->data;
+    entry.info.size = desc->size;
+    entry.info.pitch = desc->pitch;
+    entry.info.width = desc->width;
+    entry.info.height = desc->height;
+    entry.info.palette_rgb555 = desc->palette_rgb555;
+    entry.info.palette_count = desc->palette_count;
+    entry.info.sample_rate = desc->sample_rate;
+    entry.info.sample_count = desc->sample_count;
+    entry.info.channels = desc->channels;
+    entry.info.format = desc->format;
+    entry.info.flags = desc->flags;
+    entry.info.glyphs = desc->glyphs;
+    entry.info.glyph_count = desc->glyph_count;
+    entry.info.line_height = desc->line_height;
+    entry.info.fallback_glyph = desc->fallback_glyph;
+    entry.used = 1u;
+    out_asset->slot = free_slot;
+    out_asset->generation = entry.generation;
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_asset_register_manifest(
@@ -79,14 +88,25 @@ extern "C" sat_result_t sat_asset_register_manifest(
     if ((!descs && count) || (!out_assets && count) || count == 0u)
         return SAT_ERR_INVALID_ARG;
     if (count > sat_asset_capacity() - sat_asset_count()) return SAT_ERR_CAPACITY;
+    // Fully validate the batch, including normalized path collisions with
+    // existing entries, before publishing any handle. The bounded registry
+    // is modified only by the subsequent, non-failing insertion phase.
+    char normalized[SAT_FILE_PATH_MAX] = {};
+    char previous[SAT_FILE_PATH_MAX] = {};
     for (uint16_t i = 0u; i < count; ++i) {
-        if (!descs[i].logical_path ||
-            (descs[i].data && descs[i].source_path) ||
-            (!descs[i].data && !descs[i].source_path && descs[i].size != 0u))
-            return SAT_ERR_INVALID_ARG;
-        for (uint16_t j = 0u; j < i; ++j) {
-            if (__builtin_strcmp(descs[i].logical_path, descs[j].logical_path) == 0)
+        if (!asset_descriptor_valid(&descs[i])) return SAT_ERR_INVALID_ARG;
+        SAT_TRY(saturn::core::normalize_path(
+            descs[i].logical_path, normalized, SAT_FILE_PATH_MAX));
+        for (uint16_t slot = 0u; slot < SAT_ASSET_CAPACITY; ++slot) {
+            const saturn::core::AssetEntry& entry =
+                saturn::core::g_file_asset_runtime.assets[slot];
+            if (entry.used != 0u && __builtin_strcmp(entry.path, normalized) == 0)
                 return SAT_ERR_INVALID_ARG;
+        }
+        for (uint16_t j = 0u; j < i; ++j) {
+            SAT_TRY(saturn::core::normalize_path(
+                descs[j].logical_path, previous, SAT_FILE_PATH_MAX));
+            if (__builtin_strcmp(normalized, previous) == 0) return SAT_ERR_INVALID_ARG;
         }
     }
     for (uint16_t i = 0u; i < count; ++i) {
