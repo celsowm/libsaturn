@@ -270,6 +270,10 @@ endif
 # solid lit polygon faces instead of textures), MODEL_MERGE_RIGID_MESHES,
 # MODEL_LIGHT_DIR (x,y,z),
 # MODEL_AMBIENT, MODEL_DIFFUSE.
+# MODEL_MAX_POSE_STREAM_BYTES can raise the per-asset baked-pose cap when
+# the resulting executable still fits the Saturn work-RAM budget.
+# MODEL_HUD_RESERVE is the example-specific VDP1 command count reserved
+# for text or overlay work that can draw alongside the model.
 # Model generation rebuilds when the GLB, the importer, or any
 # model-pipeline module changes. Simplification/profile OPTION changes are
 # not file dependencies: after editing them, remove the generated prefix
@@ -290,6 +294,8 @@ MODEL_FACE_COLORS         ?= off
 MODEL_LIGHT_DIR           ?= -0.5,0.6,0.8
 MODEL_AMBIENT             ?= 0.35
 MODEL_DIFFUSE             ?= 0.75
+MODEL_MAX_POSE_STREAM_BYTES ?= 262144
+MODEL_HUD_RESERVE           ?= 128
 MODEL_FLIP_FLAGS          :=
 ifeq ($(MODEL_FLIP_X),1)
 MODEL_FLIP_FLAGS += --flip-x
@@ -337,6 +343,8 @@ $(MODEL_OUT_PREFIX).c $(MODEL_OUT_PREFIX).h &: $(MODEL_GLB) $(TOOLS)/import_mode
 		--light-dir=$(MODEL_LIGHT_DIR) \
 		--ambient $(MODEL_AMBIENT) \
 		--diffuse $(MODEL_DIFFUSE) \
+		--max-pose-stream-bytes $(MODEL_MAX_POSE_STREAM_BYTES) \
+		--hud-reserve $(MODEL_HUD_RESERVE) \
 		--report $(MODEL_OUT_PREFIX).report.json \
 		$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG) $(MODEL_MERGE_RIGID_MESHES_FLAG)
 endif

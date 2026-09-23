@@ -1084,6 +1084,8 @@ def import_animated_model(
     quality: str = "balanced",
     max_triangles: int | None = None,
     max_vdp1_commands: int | None = None,
+    max_pose_stream_bytes: int = 256 * 1024,
+    hud_reserve: int = 128,
     animation: str = "all",
     animation_fps: str = "source",
     merge_rigid_meshes: bool = False,
@@ -1188,6 +1190,12 @@ def import_animated_model(
     )
 
     profile = saturn_profile_mod.SaturnProfile()
+    if max_pose_stream_bytes < 1:
+        raise ImportError("--max-pose-stream-bytes must be positive")
+    profile.max_pose_stream_bytes = max_pose_stream_bytes
+    if hud_reserve < 0:
+        raise ImportError("--hud-reserve must not be negative")
+    profile.hud_reserve = hud_reserve
     face_cap = _face_command_cap(
         argparse.Namespace(target="saturn", profile=None, max_triangles=max_triangles,
                            max_vdp1_commands=max_vdp1_commands),
@@ -1498,6 +1506,10 @@ def main() -> int:
                         help="Quality preset: conservative|balanced|aggressive")
     parser.add_argument("--max-triangles", type=int, default=None)
     parser.add_argument("--max-vdp1-commands", type=int, default=None)
+    parser.add_argument("--max-pose-stream-bytes", type=int, default=256 * 1024,
+                        help="Maximum baked animation data stored in Saturn RAM (default: 262144)")
+    parser.add_argument("--hud-reserve", type=int, default=128,
+                        help="VDP1 command budget reserved for this example's HUD (default: 128)")
     parser.add_argument("--animation", default="all",
                         help="Animated clips: all|NAME|INDEX (default all)")
     parser.add_argument("--animation-fps", default="source",
@@ -1581,6 +1593,8 @@ def _main_animated(args) -> int:
             quality=args.quality,
             max_triangles=args.max_triangles,
             max_vdp1_commands=args.max_vdp1_commands,
+            max_pose_stream_bytes=args.max_pose_stream_bytes,
+            hud_reserve=args.hud_reserve,
             animation=args.animation,
             animation_fps=args.animation_fps,
             merge_rigid_meshes=args.merge_rigid_meshes,

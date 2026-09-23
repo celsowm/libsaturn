@@ -73,7 +73,7 @@ class SourceModel:
     """Host-only source representation shared by OBJ and glTF importers.
 
     Positions, normals and animation clips are expressed in SCENE space: the
-    mesh node's rest transform is composed into vertices/normals at import
+    shared mesh-node rest transform is composed into vertices/normals at import
     and its inverse is folded into the skin's inverse bind matrices, so
     host skinning evaluates identically while every consumer (quadrics,
     metrics, baking) works in one consistent frame.
@@ -276,10 +276,12 @@ def from_gltf(
     All mesh primitives merge into one triangle soup; material boundaries
     are recorded per triangle so simplification never merges across them.
     Only skinned triangle meshes with TEXCOORD_0 are accepted for the
-    animated Saturn path by default. With ``merge_rigid_meshes``, multiple
-    unskinned mesh nodes are converted into one synthetic rigid skin: every
-    source mesh becomes one joint, preserving node/ancestor animation while
-    producing the single mesh expected by the Saturn asset pipeline.
+    animated Saturn path by default. Skinned mesh nodes sharing one skin and
+    one rest transform are merged into the canonical triangle soup. With
+    ``merge_rigid_meshes``, multiple unskinned mesh nodes are converted into
+    one synthetic rigid skin: every source mesh becomes one joint, preserving
+    node/ancestor animation while producing the single mesh expected by the
+    Saturn asset pipeline.
     """
     from .gltf import GlbData  # noqa: F401  (type reference only)
 
@@ -322,16 +324,22 @@ def from_gltf(
         model.skin_index = next(iter(skin_indices))
         if model.skin_index < 0 or model.skin_index >= len(skins_doc):
             raise GltfError(f"{source_name}: skin {model.skin_index} out of range")
-        # Multiple mesh nodes sharing one skin would duplicate the surface;
-        # keep the merge deterministic by requiring exactly one mesh node.
-        mesh_ids = sorted({int(nodes[ni]["mesh"]) for ni in skinned_nodes})
-        if len(skinned_nodes) > 1 or len(mesh_ids) > 1:
+        # Multiple primitives can share one skin and mesh-space transform;
+        # concatenate them while preserving their material and skin data.
+        # Distinct transforms need per-node inverse-bind handling and remain
+        # an explicit diagnostic rather than silently misplacing geometry.
+        rest_globals = _node_rest_globals(model.nodes)
+        first_transform = rest_globals[skinned_nodes[0]]
+        if any(
+            any(abs(a - b) > 1e-6 for a, b in zip(first_transform, rest_globals[ni]))
+            for ni in skinned_nodes[1:]
+        ):
             raise GltfError(
-                f"{source_name}: {len(skinned_nodes)} skinned mesh nodes found; "
-                "only a single skinned mesh node is supported initially"
+                f"{source_name}: skinned mesh nodes sharing skin {model.skin_index} "
+                "must have the same rest transform before they can be merged"
             )
         model.mesh_node = skinned_nodes[0]
-        mesh_instances = [(model.mesh_node, int(nodes[model.mesh_node]["mesh"]))]
+        mesh_instances = [(ni, int(nodes[ni]["mesh"])) for ni in skinned_nodes]
     elif plain_nodes:
         mesh_ids = sorted({int(nodes[ni]["mesh"]) for ni in plain_nodes})
         if not merge_rigid_meshes and len(mesh_ids) > 1:
@@ -492,7 +500,7 @@ def from_gltf(
         entry["name"] = str(mat.get("name", f"material_{mi}"))
         entry["doubleSided"] = bool(mat.get("doubleSided", False))
         pbr = mat.get("pbrMetallicRoughness", {})
-        factor = pbr.get("baseColorFactor")
+        factor = pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0])
         if factor is not None:
             if not isinstance(factor, list) or len(factor) < 3:
                 raise GltfError(f"{source_name}: material {mi} has malformed baseColorFactor")
@@ -515,6 +523,23 @@ def from_gltf(
             entry["texture"] = len(model.textures)
             model.textures.append(
                 SourceTexture(width=w, height=h, pixels_rgba=pixels, mime=mime)
+            )
+        else:
+            # glTF materials without a base-color image still have a valid
+            # baseColorFactor (white by default). Represent that albedo as a
+            # 1x1 texture so mixed textured/solid meshes use the same indexed
+            # face baker and shared palette without dropping geometry.
+            rgb = entry.get("rgb", (255, 255, 255))
+            alpha = max(0, min(255, int(round(float(factor[3]) * 255.0)))) \
+                if len(factor) > 3 else 255
+            entry["texture"] = len(model.textures)
+            model.textures.append(
+                SourceTexture(
+                    width=1,
+                    height=1,
+                    pixels_rgba=[(rgb[0], rgb[1], rgb[2], alpha)],
+                    mime="image/x-rgba",
+                )
             )
 
     if model.skins:

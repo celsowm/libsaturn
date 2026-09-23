@@ -1,0 +1,20 @@
+"Tyrannosaurus Rex Lowpoly" by pikabobalex
+Source: https://sketchfab.com/3d-models/tyrannosaurus-rex-lowpoly-516dbe9717554e74b0bfcbb77a431b17
+Short source link: https://skfb.ly/6swQF
+
+Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/
+
+This example redistributes the original GLB and generated Saturn model data
+under that license. The original GLB is kept unchanged. The generated C/H
+model is a converted derivative: geometry is simplified for the Saturn's
+VDP1 budget, textures are baked to indexed color, and animation poses are
+sampled and quantized for runtime playback. These changes were made by the
+LibSaturn project; pikabobalex did not create or endorse the conversion or
+demo.
+
+Attribution and license apply to the artwork and converted model data. The
+example source code is covered by the repository's root LICENSE.
+
+The original GLB is included unmodified. Its SHA-256 is
+207694403B987B6A465107524754D8E0D100174C85B214825E74BEFF492484D1.

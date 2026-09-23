@@ -21,7 +21,9 @@ import import_model
 from test_simplify_cli import build_grid_glb
 
 
-def make_quadrant_glb(tmp: Path) -> Path:
+def make_quadrant_glb(
+    tmp: Path, mesh_node_count: int = 1, untextured_material: bool = False
+) -> Path:
     """Four separate quads over an 8x8 4-quadrant texture (V-convention lock).
 
     Each quad owns its vertices with UVs strictly inside one quadrant, so
@@ -102,18 +104,27 @@ def make_quadrant_glb(tmp: Path) -> Path:
         "accessors": accessors, "bufferViews": views, "buffers": [{"byteLength": len(blob)}],
         "images": [{"bufferView": img_view, "mimeType": "image/png"}],
         "textures": [{"source": 0}],
-        "materials": [{"name": "q", "pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}],
+        "materials": [
+            {"name": "q", "pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}},
+            *([{"name": "solid", "pbrMetallicRoughness": {
+                "baseColorFactor": [0.5, 0.25, 0.125, 1.0]}}]
+              if untextured_material else []),
+        ],
         "meshes": [{"primitives": [{
             "attributes": {"POSITION": pa, "NORMAL": na, "TEXCOORD_0": ua, "JOINTS_0": ja, "WEIGHTS_0": wa},
-            "indices": ia, "material": 0}]}],
-        "nodes": [{"name": "meshnode", "mesh": 0, "skin": 0}, {"name": "j0"}],
-        "skins": [{"joints": [1], "inverseBindMatrices": ba}],
+            "indices": ia, "material": 1 if untextured_material else 0}]} for _ in range(mesh_node_count)],
+        "nodes": [
+            *[{"name": f"meshnode_{i}", "mesh": i, "skin": 0}
+              for i in range(mesh_node_count)],
+            {"name": "j0"},
+        ],
+        "skins": [{"joints": [mesh_node_count], "inverseBindMatrices": ba}],
         "animations": [{
             "name": "still",
             "samplers": [{"input": ta, "output": oa, "interpolation": "LINEAR"}],
-            "channels": [{"sampler": 0, "target": {"node": 1, "path": "translation"}}],
+            "channels": [{"sampler": 0, "target": {"node": mesh_node_count, "path": "translation"}}],
         }],
-        "scenes": [{"nodes": [0]}], "scene": 0,
+        "scenes": [{"nodes": list(range(mesh_node_count))}], "scene": 0,
     }
     raw = json.dumps(doc).encode()
     while len(raw) % 4:
@@ -135,6 +146,38 @@ def run_import_cli(*argv):
 
 
 class AnimatedImportTests(unittest.TestCase):
+    def test_merges_skinned_mesh_nodes_sharing_skin_and_rest_transform(self):
+        from model_pipeline import model as source_model
+        from model_pipeline.gltf import parse_model
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = make_quadrant_glb(Path(tmp), mesh_node_count=3)
+            model = source_model.from_gltf(parse_model(src), source_name="three-mesh fixture")
+
+            self.assertEqual(len(model.vertices), 4 * 4 * 3)
+            self.assertEqual(len(model.triangles), 8 * 3)
+            self.assertEqual(len(model.tri_materials), 8 * 3)
+            self.assertEqual(len(model.skins), 1)
+            self.assertEqual(len(model.joints), len(model.vertices))
+            self.assertEqual(len(model.weights), len(model.vertices))
+
+    def test_untextured_glb_material_is_baked_as_its_base_color(self):
+        from model_pipeline import model as source_model
+        from model_pipeline.gltf import parse_model
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = make_quadrant_glb(Path(tmp), untextured_material=True)
+            model = source_model.from_gltf(parse_model(src), source_name="solid-material fixture")
+            self.assertEqual(model.materials[1]["texture"], 1)
+            self.assertEqual(model.textures[1].width, 1)
+            self.assertEqual(model.textures[1].height, 1)
+
+            result = import_model.import_animated_model(
+                src, simplify="off", hud_reserve=64
+            )
+            self.assertTrue(result.report["result"]["pass"])
+            self.assertEqual(result.report["vdp1"]["command_headroom"], 1973)
+
     def test_end_to_end_grid(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
