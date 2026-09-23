@@ -70,7 +70,7 @@ No parallel physics, asset processing, or second renderer was implemented.
 Instruction profiling proves useful Slave execution, not speedup. Raw CSVs and
 probe JSONs are generated under `build/` and are intentionally not committed.
 
-## Skybridge 360-frame workload
+## Skybridge 360-frame workload (earlier smoke measurement)
 
 The same 90 BIOS frames plus 360-frame `skybridge_smoke.pad` script reached
 gameplay in all three policies. The table below sums only the 360 post-boot
@@ -82,8 +82,75 @@ rows from the instruction CSVs; each CSV contains 450 rows in total.
 | SLAVE | 111,506,380 | 116,181,529 | 355 |
 | AUTO | 111,494,967 | 116,181,529 | 355 |
 
-These runs confirm real animation/geometry dispatch through the Skybridge
-runtime and that AUTO currently follows the intended conservative split. They
-are instruction totals from Ymir, not FPS or a hardware speedup claim. The
-probe does not export a pixel comparator or per-type task counters, so visual
-parity and detailed task accounting remain separate validation work.
+These earlier runs confirm Slave instruction activity, but their identical
+SLAVE/AUTO totals did not identify which task type ran. They are instruction
+totals from Ymir, not FPS or a hardware speedup claim. The dedicated validation
+matrix below adds per-type counters, structured result comparison and explicit
+split coverage; the older aggregate totals should not be used as evidence of a
+gem partition.
+
+## Skybridge correctness, fault and frame-time validation
+
+Run the deterministic validation matrix with:
+
+```powershell
+.\harness\run-skybridge-parallel-validation.ps1 `
+  -Bios .\bios\saturn_bios_us.bin
+```
+
+The route selects the second course and is indexed by game-side pad polls so
+all policies receive identical input despite different emulator pacing. The
+runner builds/runs normal MASTER, SLAVE and AUTO, then MASTER/SLAVE/AUTO with a
+validation-only forced gem split, followed by isolated executor-failure
+profiles. Normal AUTO remains unchanged: its geometry stays on Master. The
+forced-split option and executor hooks are compiled only for this validation
+build and do not alter the public LibSaturn API.
+
+The report requires 360 contiguous gameplay samples per normal and forced
+policy. It checks that frames with at least four visible gems really partition
+items between processors, that per-type counters prove animation and geometry
+dispatch/completion, and that ordered gameplay state, animation pose and merge
+hashes match the MASTER baseline. Separate fault runs check rejected submit,
+worker error, timeout plus successful abort, failed abort while work remains
+active, and release failure after completion. In unsafe recovery cases the
+report requires the task and its buffers to remain pinned, with no later
+duplicate submission or merge.
+
+The completed validation run passed all five isolated fault profiles. In
+particular, the timeout/abort record showed the task transition to `FAILED`
+after the Slave stopped, then synchronous preparation of the two-item suffix
+and a two-batch merge; failed abort and failed release retained their pending
+handles and produced no later submit or merge.
+
+The run used for this report collected 360 matched gameplay records for each
+normal policy. Values below are guest timer milliseconds; the `>17 ms` count is
+the report's nominal 60 Hz budget indicator, not an emulated or hardware frame
+drop assertion.
+
+| Policy | CPU ms median/p95/max | Frame ms median/p95/max | Frames >17 ms | Master instructions | Slave instructions | Geometry Slave frames | Animation Slave frames | Mean Master cycles |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| MASTER | 12 / 14 / 17 | 14 / 15 / 18 | 2 | 80,245,262 | 0 | 0 | 0 | 449,204 |
+| SLAVE | 13 / 15 / 18 | 15 / 16 / 20 | 4 | 73,726,001 | 118,681,108 | 10 | 350 | 449,203 |
+| AUTO | 13 / 15 / 18 | 15 / 16 / 19 | 4 | 73,691,625 | 118,681,097 | 0 | 360 | 449,203 |
+
+On this workload the guest timer samples are mostly in the 12–20 ms range and
+are quantized to whole milliseconds. The explicit-Slave policy placed the
+gem-geometry task on Slave on the 10 frames with four or more visible gems;
+AUTO dispatched animation on Slave but kept all gem geometry on Master. The
+measurements show work distribution, but do not show a timing improvement over
+MASTER. They are not a physical Saturn performance result.
+
+During development, ordered merge hashes first diverged only on four-gem split
+frames. This exposed that geometry preparation normalized and mutated painter
+keys relative to each batch's local depth range. The implementation now derives
+the bucket order without modifying those keys; whole-batch and sliced host
+regressions pass, and the matched 360-sample structured hashes agree across
+normal and forced-split profiles.
+
+Generated artifacts live in `build/skybridge_parallel_validation/`:
+`frame_times.csv` has per-frame game/pose/geometry/task telemetry and matching
+Ymir instruction/cycle observations; `summary.json` gives median, p95, maximum
+`frame_cpu_ms`/`frame_ms`, over-budget counts, per-processor instructions and
+cycle averages. The guest timer is quantized to one millisecond. Ymir's
+instruction and cycle statistics describe emulator work, not physical Saturn
+FPS, so the report does not impose a speedup threshold or claim a speedup.

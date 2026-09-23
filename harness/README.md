@@ -144,6 +144,21 @@ shim only makes the second-CPU bootstrap reachable in the direct-injection
 harness. `harness/tests/test_dual_sh2.py` asserts that both instruction
 counters are non-zero in the same run.
 
+### Skybridge parallel validation
+
+Run `run-skybridge-parallel-validation.ps1 -Bios <your-BIOS-path>` to execute
+the matched 360-gameplay-sample MASTER/SLAVE/AUTO benchmark, validation-only
+forced gem-split profiles, and isolated real-executor fault injections. The
+route and per-frame artifacts are under `scripts/` and
+`build/skybridge_parallel_validation/`, respectively. The generated report
+checks structured gameplay/pose/merge parity, confirms actual per-type task
+dispatch and gem partitioning, and summarizes guest frame timers alongside
+Ymir instruction/cycle observations. Timer quantization and emulator-vs-hardware
+limits are included in the report; these measurements alone do not assert FPS
+or speedup. See
+[`docs/SKYBRIDGE_PARALLEL_INTEGRATION.md`](../docs/SKYBRIDGE_PARALLEL_INTEGRATION.md)
+for the validation scope and interpretation.
+
 ### Pad polarity
 
 Ymir reports pad state active-low: `peripheral_report.hpp` documents the field

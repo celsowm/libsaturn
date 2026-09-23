@@ -55,6 +55,47 @@ uint32_t painter_key(int64_t depth_sum, uint16_t pass) {
            static_cast<uint32_t>(depth);
 }
 
+/* Build the diagnostic/local index order without modifying painter keys.
+ * Prepared batches are merged into a larger scene that performs its own
+ * global bucket pass; rewriting keys against each slice's local depth range
+ * makes partitioned batches sort differently from an unsplit batch. */
+uint32_t paint_order_from_keys(const uint32_t* keys,uint32_t face_count,
+                               uint16_t* out) {
+    using saturn::core::render3d::kPaintBuckets;
+    using saturn::core::render3d::kPaintSkip;
+    uint32_t low=0xFFFFFFFFu,high=0u,live=0u;
+    for(uint32_t face=0u;face<face_count;++face) {
+        const uint32_t key=keys[face];
+        if(key==kPaintSkip)continue;
+        if(key<low)low=key;
+        if(key>high)high=key;
+        ++live;
+    }
+    if(live==0u)return 0u;
+    uint32_t shift=0u;
+    while(((high-low)>>shift)>=kPaintBuckets)++shift;
+
+    uint16_t starts[kPaintBuckets];
+    for(uint32_t bucket=0u;bucket<kPaintBuckets;++bucket)starts[bucket]=0u;
+    for(uint32_t face=0u;face<face_count;++face) {
+        const uint32_t key=keys[face];
+        if(key!=kPaintSkip)++starts[(key-low)>>shift];
+    }
+    uint32_t running=0u;
+    for(uint32_t bucket=kPaintBuckets;bucket-- > 0u;) {
+        const uint16_t count=starts[bucket];
+        starts[bucket]=static_cast<uint16_t>(running);
+        running+=count;
+    }
+    for(uint32_t face=0u;face<face_count;++face) {
+        const uint32_t key=keys[face];
+        if(key==kPaintSkip)continue;
+        const uint32_t bucket=(key-low)>>shift;
+        out[starts[bucket]++]=static_cast<uint16_t>(face);
+    }
+    return live;
+}
+
 sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
                     const sat_projected_vertex_t* projected,
                     const uint16_t indices[4],
@@ -397,8 +438,8 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
     /* This is diagnostic/local ordering scratch only. Merge deliberately
      * preserves source order; the canonical scene performs the one global
      * ordering pass after all batches have been merged. */
-    (void)saturn::core::render3d::paint_order_buckets(
-        batch->keys, batch->metrics.prepared_faces, batch->order);
+    (void)paint_order_from_keys(
+        batch->keys,batch->metrics.prepared_faces,batch->order);
     return SAT_OK;
 }
 

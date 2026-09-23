@@ -1,0 +1,26 @@
+# Frame indices count completed gameplay telemetry records, so identical
+# actions reach the game at the same point even when a policy misses VBlanks.
+# Select the compact second course while paused; its real pickups exercise a
+# four-item split near spawn.
+0    NONE
+80   START
+86   NONE
+92   X
+98   NONE
+104  START
+110  NONE
+120  UP
+128  UP+A
+134  UP
+143  UP+RIGHT
+158  RIGHT
+170  NONE
+188  UP+A
+195  UP
+216  NONE
+238  B
+239  NONE
+256  C
+257  NONE
+350  DOWN
+362  NONE

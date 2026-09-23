@@ -35,11 +35,14 @@ completion, so a busy gem task cannot freeze the character.
 
 A timeout does not mean that the worker stopped. Until completion or a
 successful `sat_parallel_abort`, the input descriptor, nested graph, output,
-scratch, batch `pending` bit, and handle remain protected. A failed abort or
-release enters an explicit safe recovery state and does not dispatch or reuse
-those buffers. A rejected submission has no worker ownership, so its partition
-is retried synchronously; each partition is marked ready only after a successful
-preparation, and failed partitions are never merged.
+scratch, batch `pending` bit, and handle remain protected. A successful abort
+invalidates the task result after the Slave is confirmed offline—even if the
+callback published `COMPLETED` while honoring the stop request—so Skybridge
+recomputes that partition synchronously rather than merging aborted output. A
+failed abort or release enters an explicit safe recovery state and does not
+dispatch or reuse those buffers. A rejected submission has no worker ownership,
+so its partition is retried synchronously; each partition is marked ready only
+after a successful preparation, and failed partitions are never merged.
 
 The executor has one active Slave task. Therefore Skybridge gives geometry
 priority when at least four gems are visible in explicit `SLAVE` mode; on those
@@ -87,10 +90,38 @@ left explicit in the raw counter. The millisecond timer does not claim
 sub-millisecond precision. The row is diagnostic only; it does not change
 scheduling or rendering.
 
-The follow-up regression coverage includes delayed animation dispatch after
-stack activity, invalid geometry descriptors and capacity failures, static
-source checks for pending/abort/release ownership, and equivalent 360-frame
-MASTER/SLAVE/AUTO smoke scripts. The harness checks boot, frame completion,
-Slave activity, and task profiles; it does not provide a reliable automatic
-pixel-by-pixel framebuffer comparator, so the smoke runs are not claimed as
-pixel equivalence proof.
+The regular regression coverage includes delayed animation dispatch after
+stack activity, invalid geometry descriptors and capacity failures, and
+pending/abort/release ownership. The dedicated Skybridge validation build adds
+versioned per-frame telemetry and can force the geometry split even in `AUTO`;
+these switches and executor fault hooks are absent from normal builds. The
+deterministic `skybridge_parallel_validation.pad` route selects the second
+course and drives through gameplay until it produces frames with at least four
+visible gems. The report rejects a run if it does not observe a real
+Master/Slave partition and successful per-type task counters.
+
+Run the full validation matrix (normal policies, forced-split policies, then
+each executor failure in a separate emulator process) with:
+
+```powershell
+.\harness\run-skybridge-parallel-validation.ps1 `
+  -Bios .\bios\saturn_bios_us.bin
+```
+
+The runner writes per-frame telemetry, instruction/cycle samples, and probe
+JSON under `build/skybridge_parallel_validation/`. `frame_times.csv` contains
+the matched first 360 gameplay samples for MASTER, SLAVE, and AUTO, including
+game/animation/merge hashes, item/face partitions, per-type task counts,
+`frame_cpu_ms`, `frame_ms`, and Ymir instruction/cycle counts. `summary.json`
+contains median, p95, maximum and over-budget counts. The report compares the
+ordered game, pose and merge results against MASTER and fails on missing split
+work or any mismatch. Fault runs separately exercise rejected submission,
+worker error, timeout with successful abort, abort failure while the worker is
+still active, and release failure after completion.
+
+The hashes compare structured gameplay and geometry outcomes; they are not a
+pixel-equivalence assertion. `sat_time_ms()` has one-millisecond resolution,
+and emulator instruction/cycle counts are not Saturn wall-clock timings. Treat
+the measurements as workload and scheduling evidence, not as proof of FPS or
+speedup. Production AUTO remains conservative and does not force geometry
+splitting.

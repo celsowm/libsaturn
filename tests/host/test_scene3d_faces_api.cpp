@@ -379,8 +379,18 @@ int main() {
     // Partitioning is a bounded source-order view: the selected descriptors
     // inherit camera state, while output storage and metrics stay private to
     // the slice that a second executor may prepare.
-    sat_scene3d_prepare_item_t source_items[3]={
-        prepared_item,prepared_item,prepared_item};
+    sat_mat4_t source_worlds[3]={translation,translation,translation};
+    sat_scene3d_instance_t source_instances[3]={instance,instance,instance};
+    sat_projected_vertex_t source_screen[3][8]={};
+    sat_vec3_t source_world_vertices[3][8]={};
+    sat_scene3d_prepare_item_t source_items[3]={};
+    for(uint8_t i=0u;i<3u;++i) {
+        source_worlds[i].m[11]=(3u+3u*i)*SAT_FX16_ONE;
+        source_instances[i].world=&source_worlds[i];
+        source_items[i]=(sat_scene3d_prepare_item_t){
+            &source_instances[i],source_screen[i],source_world_vertices[i],
+            SAT_SCENE3D_SLOT_INHERIT,0u};
+    }
     sat_scene3d_face_t source_faces[8]={};
     uint32_t source_keys[8]={};
     uint16_t source_order[8]={};
@@ -394,6 +404,8 @@ int main() {
     source_batch.near_depth=SAT_FX16_ONE;
     source_batch.width=320u;
     source_batch.height=224u;
+    assert(sat_scene3d_prepare_batch_execute(&source_batch)==SAT_OK);
+    assert(source_batch.metrics.prepared_faces==6u);
     sat_scene3d_prepare_item_t slice_items[2]={};
     sat_scene3d_face_t slice_faces[8]={};
     uint32_t slice_keys[8]={};
@@ -403,13 +415,20 @@ int main() {
         &source_batch,1u,2u,slice_items,slice_faces,slice_keys,
         slice_order,8u,&slice)==SAT_OK);
     assert(slice.items==slice_items && slice.item_count==2u);
-    assert(slice.items[0].instance==&instance &&
-           slice.items[1].instance==&instance);
+    assert(slice.items[0].instance==&source_instances[1] &&
+           slice.items[1].instance==&source_instances[2]);
     assert(slice.view_proj.m[0]==vp.m[0] && slice.width==320u &&
            slice.height==224u);
     assert(sat_scene3d_prepare_batch_execute(&slice)==SAT_OK);
     assert(slice.metrics.source_faces==4u &&
            slice.metrics.prepared_faces==4u);
+    /* Local slice ordering must not rewrite keys relative to that slice's
+     * narrower depth range: merging this suffix must be byte-for-byte
+     * equivalent to the corresponding suffix of a whole-batch preparation. */
+    for(uint16_t i=0u;i<slice.metrics.prepared_faces;++i) {
+        assert(slice_keys[i]==source_keys[i+2u]);
+        assert(same_face(slice_faces[i],source_faces[i+2u]));
+    }
     assert(sat_scene3d_prepare_batch_slice(
         &source_batch,2u,2u,slice_items,slice_faces,slice_keys,
         slice_order,8u,&slice)==SAT_ERR_INVALID_ARG);

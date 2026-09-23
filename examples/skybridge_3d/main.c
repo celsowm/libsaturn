@@ -14,6 +14,17 @@
 #include "saturn/vdp2_rbg0_ground.h"
 #include "game.h"
 #include "scenery.h"
+#include "src/core/parallel/test_faults.h"
+
+#ifndef SAT_SKYBRIDGE_VALIDATION
+#define SAT_SKYBRIDGE_VALIDATION 0
+#endif
+#ifndef SAT_SKYBRIDGE_FORCE_GEM_SPLIT
+#define SAT_SKYBRIDGE_FORCE_GEM_SPLIT 0
+#endif
+#ifndef SAT_PARALLEL_TEST_FAULT
+#define SAT_PARALLEL_TEST_FAULT 0
+#endif
 
 #define W 320u
 #define H 224u
@@ -94,6 +105,12 @@ static const uint16_t g_world_colors[SB_WORLD_COLOR_COUNT]={
 #define SAT_SKYBRIDGE_PARALLEL_MODE 2
 #endif
 #define SB_PARALLEL_TIMEOUT 60000u
+#if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_TIMEOUT_ABORT || \
+    SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_ABORT_FAILURE
+#define SB_GEM_WAIT_TIMEOUT 1u
+#else
+#define SB_GEM_WAIT_TIMEOUT SB_PARALLEL_TIMEOUT
+#endif
 #define SB_GEM_BATCH_CAP (SB_PICKUP_COUNT * GEM_FACE_CAP)
 #define GEM_VERTEX_CAP 6u
 #define GEM_FACE_CAP 8u
@@ -250,20 +267,204 @@ typedef struct sb_frame_metrics {
     uint16_t failures;
     uint16_t timeouts;
     uint16_t over_budget;
+    uint16_t visible_gems;
+    uint16_t master_gem_items;
+    uint16_t slave_gem_items;
+    uint16_t master_gem_faces;
+    uint16_t slave_gem_faces;
+    uint16_t gem_merge_batches;
+    uint16_t gem_merged_faces;
+    uint16_t animation_submitted;
+    uint16_t animation_completed;
+    uint16_t animation_failed;
+    uint16_t animation_master_dispatches;
+    uint16_t animation_slave_dispatches;
+    uint16_t geometry_submitted;
+    uint16_t geometry_completed;
+    uint16_t geometry_failed;
+    uint16_t geometry_master_dispatches;
+    uint16_t geometry_slave_dispatches;
+    uint16_t gem_task_state;
+    uint16_t gem_sync_fallback_items;
+    uint32_t gem_merge_hash;
 } sb_frame_metrics_t;
 static sb_frame_metrics_t g_metrics;
 static uint32_t g_last_parallel_wait;
 static uint32_t g_last_parallel_submitted;
 static uint32_t g_last_parallel_failed;
+static uint32_t g_frame;
+
+#if SAT_SKYBRIDGE_VALIDATION
+#define SB_TEST_TELEMETRY_CAPACITY 512u
+#define SB_TEST_TELEMETRY_MAGIC 0x5342544Du
+typedef struct sb_test_telemetry_record {
+    uint32_t serial, frame, game_ticks;
+    uint32_t game_hash, animation_hash, merge_order_hash;
+    uint32_t frame_cpu_ms, frame_ms, wait_ms;
+    uint32_t visible_gems, master_items, slave_items;
+    uint32_t master_faces, slave_faces, merge_batches, merged_faces;
+    uint32_t animation_submitted, animation_completed, animation_failed;
+    uint32_t animation_master, animation_slave;
+    uint32_t geometry_submitted, geometry_completed, geometry_failed;
+    uint32_t geometry_master, geometry_slave;
+    uint32_t timeouts, failures, recovery_blocked, gem_pending;
+    uint32_t gem_task_state, fault_mask, sync_fallback_items;
+    uint32_t game_course, game_pickups, game_paused, game_finished, game_support;
+    uint32_t game_x, game_y, game_z, game_vx, game_vy, game_vz;
+    uint32_t animation_clip, animation_frame, animation_time;
+    uint32_t pad_held, pad_pressed;
+} sb_test_telemetry_record_t;
+typedef struct sb_test_telemetry_block {
+    uint32_t magic, version, record_words, capacity, write_count;
+    sb_test_telemetry_record_t records[SB_TEST_TELEMETRY_CAPACITY];
+} sb_test_telemetry_block_t;
+/* This global is intentionally named and retained so run-harness.ps1 can
+ * resolve its linked WRAM address from the GNU ld map in validation builds. */
+sb_test_telemetry_block_t g_sb_test_telemetry __attribute__((used));
+#endif
 
 static void parallel_recovery_failed(void) {
     g_parallel_recovery_blocked=1u;
     ++g_metrics.failures;
 }
 
+static uint32_t parallel_slave_task_count(void) {
+    sat_parallel_stats_t stats={0};
+    return sat_parallel_stats(&stats)==SAT_OK?stats.slave_tasks:0u;
+}
+
+static uint32_t parallel_master_task_count(void) {
+    sat_parallel_stats_t stats={0};
+    return sat_parallel_stats(&stats)==SAT_OK?stats.master_tasks:0u;
+}
+
+static void record_task_dispatch(uint32_t slave_before,uint32_t master_before,
+                                 uint16_t* slave_count,uint16_t* master_count) {
+    const uint32_t slave_after=parallel_slave_task_count();
+    const uint32_t master_after=parallel_master_task_count();
+    if(slave_after!=slave_before)++*slave_count;
+    else if(master_after!=master_before)++*master_count;
+}
+
+static uint32_t hash_word(uint32_t hash,uint32_t value) {
+    for(uint8_t byte=0u;byte<4u;++byte) {
+        hash^=(value>>(24u-(uint32_t)byte*8u))&0xFFu;
+        hash*=16777619u;
+    }
+    return hash;
+}
+
+static uint32_t hash_scene_face(uint32_t hash,const sat_scene3d_face_t* face,
+                                uint32_t key) {
+    hash=hash_word(hash,key);
+    hash=hash_word(hash,face->projected_safe);
+    hash=hash_word(hash,face->gouraud_valid);
+    hash=hash_word(hash,face->material.kind);
+    hash=hash_word(hash,face->material.rgb555);
+    hash=hash_word(hash,face->material.color_calc_slot);
+    for(uint8_t vertex=0u;vertex<4u;++vertex) {
+        hash=hash_word(hash,(uint32_t)face->world.v[vertex].x);
+        hash=hash_word(hash,(uint32_t)face->world.v[vertex].y);
+        hash=hash_word(hash,(uint32_t)face->world.v[vertex].z);
+        hash=hash_word(hash,(uint16_t)face->projected.x[vertex]);
+        hash=hash_word(hash,(uint16_t)face->projected.y[vertex]);
+        if(face->gouraud_valid)hash=hash_word(hash,face->gouraud[vertex]);
+    }
+    if(face->material.texture!=0) {
+        const sat_vdp1_texture_t* texture=face->material.texture;
+        hash=hash_word(hash,texture->srca);
+        hash=hash_word(hash,texture->width);
+        hash=hash_word(hash,texture->height);
+        hash=hash_word(hash,texture->palette);
+        hash=hash_word(hash,texture->valid);
+    }
+    return hash;
+}
+
+static void record_gem_batch_merge(const sat_scene3d_prepare_batch_t* batch) {
+    uint16_t i;
+    if(g_metrics.gem_merge_hash==0u)g_metrics.gem_merge_hash=2166136261u;
+    for(i=0u;i<batch->metrics.prepared_faces;++i) {
+        g_metrics.gem_merge_hash=hash_scene_face(g_metrics.gem_merge_hash,
+                                                  &batch->faces[i],batch->keys[i]);
+    }
+    ++g_metrics.gem_merge_batches;
+    g_metrics.gem_merged_faces=(uint16_t)(g_metrics.gem_merged_faces+
+                                           batch->metrics.prepared_faces);
+}
+
+#if SAT_SKYBRIDGE_VALIDATION
+static uint32_t game_state_hash(void) {
+    uint32_t hash=2166136261u;
+    hash=hash_word(hash,(uint32_t)g_game.x);hash=hash_word(hash,(uint32_t)g_game.y);
+    hash=hash_word(hash,(uint32_t)g_game.z);hash=hash_word(hash,(uint32_t)g_game.vx);
+    hash=hash_word(hash,(uint32_t)g_game.vy);hash=hash_word(hash,(uint32_t)g_game.vz);
+    hash=hash_word(hash,(uint32_t)g_game.moving_x);hash=hash_word(hash,g_game.ticks);
+    hash=hash_word(hash,g_game.pickups);hash=hash_word(hash,g_game.collapse_ticks);
+    hash=hash_word(hash,g_game.checkpoint);hash=hash_word(hash,g_game.course);
+    hash=hash_word(hash,g_game.coyote);hash=hash_word(hash,g_game.jump_buffer);
+    hash=hash_word(hash,g_game.finished);hash=hash_word(hash,g_game.paused);
+    hash=hash_word(hash,(uint8_t)g_game.facing_x);hash=hash_word(hash,(uint8_t)g_game.facing_z);
+    hash=hash_word(hash,(uint8_t)g_game.support);
+    for(uint8_t i=0u;i<SB_PLATFORM_COUNT;++i)
+        hash=hash_word(hash,(uint32_t)g_game.seesaw_tilt[i]);
+    return hash;
+}
+
+static uint32_t animation_pose_hash(void) {
+    uint32_t hash=2166136261u;
+    const sat_vec3_t* pose=g_pig_pose[g_pig_render_buffer];
+    hash=hash_word(hash,g_pig_render_anim.clip);
+    hash=hash_word(hash,g_pig_render_anim.frame);
+    hash=hash_word(hash,(uint32_t)g_pig_render_anim.time);
+    for(uint16_t i=0u;i<PIG_VERTEX_CAP;++i) {
+        hash=hash_word(hash,(uint32_t)pose[i].x);
+        hash=hash_word(hash,(uint32_t)pose[i].y);
+        hash=hash_word(hash,(uint32_t)pose[i].z);
+    }
+    return hash;
+}
+
+static void initialize_test_telemetry(void) {
+    g_sb_test_telemetry.magic=SB_TEST_TELEMETRY_MAGIC;
+    g_sb_test_telemetry.version=4u;
+    g_sb_test_telemetry.record_words=
+        (uint32_t)(sizeof(sb_test_telemetry_record_t)/sizeof(uint32_t));
+    g_sb_test_telemetry.capacity=SB_TEST_TELEMETRY_CAPACITY;
+    g_sb_test_telemetry.write_count=0u;
+}
+
+static void write_test_telemetry(const sat_pad_state_t* pad) {
+    const uint32_t serial=g_sb_test_telemetry.write_count;
+    sb_test_telemetry_record_t* record=
+        &g_sb_test_telemetry.records[serial%SB_TEST_TELEMETRY_CAPACITY];
+    *record=(sb_test_telemetry_record_t){
+        serial,g_frame,g_game.ticks,game_state_hash(),animation_pose_hash(),
+        g_metrics.gem_merge_hash!=0u?g_metrics.gem_merge_hash:2166136261u,
+        g_metrics.frame_cpu_ms,g_metrics.frame_ms,g_metrics.wait_ms,
+        g_metrics.visible_gems,g_metrics.master_gem_items,g_metrics.slave_gem_items,
+        g_metrics.master_gem_faces,g_metrics.slave_gem_faces,
+        g_metrics.gem_merge_batches,g_metrics.gem_merged_faces,
+        g_metrics.animation_submitted,g_metrics.animation_completed,
+        g_metrics.animation_failed,g_metrics.animation_master_dispatches,
+        g_metrics.animation_slave_dispatches,
+        g_metrics.geometry_submitted,g_metrics.geometry_completed,
+        g_metrics.geometry_failed,g_metrics.geometry_master_dispatches,
+        g_metrics.geometry_slave_dispatches,g_metrics.timeouts,g_metrics.failures,
+        g_parallel_recovery_blocked,g_gem_slave_pending,g_metrics.gem_task_state,
+        sat_parallel_test_fault_fired(),g_metrics.gem_sync_fallback_items,
+        g_game.course,g_game.pickups,g_game.paused,g_game.finished,
+        (uint8_t)g_game.support,(uint32_t)g_game.x,(uint32_t)g_game.y,
+        (uint32_t)g_game.z,(uint32_t)g_game.vx,(uint32_t)g_game.vy,
+        (uint32_t)g_game.vz,g_pig_render_anim.clip,g_pig_render_anim.frame,
+        (uint32_t)g_pig_render_anim.time,pad->held,pad->pressed};
+    __asm__ volatile("" ::: "memory");
+    g_sb_test_telemetry.write_count=serial+1u;
+}
+#endif
+
 static int16_t g_yaw;
 static sat_step_clock_t g_step_clock;
-static uint32_t g_frame;
 static sat_sound_t g_sounds[SOUNDS];
 static sat_voice_t g_music_voice;
 static const char* const g_sfx_paths[SOUNDS-1u]={
@@ -608,6 +809,8 @@ static void record_parallel_snapshot(void) {
 
 static void submit_pig_animation(void) {
     const uint8_t write_buffer=(uint8_t)(1u-g_pig_render_buffer);
+    const uint32_t slave_before=parallel_slave_task_count();
+    const uint32_t master_before=parallel_master_task_count();
     if(g_pig_anim_pending || g_parallel_recovery_blocked)return;
     g_pig_anim_job_state=g_pig_anim;
     g_pig_anim_write_buffer=write_buffer;
@@ -615,6 +818,7 @@ static void submit_pig_animation(void) {
         &g_pig_anim_job_state,g_pig_pose[write_buffer],PIG_VERTEX_CAP,0u};
     if(sat_anim_decode_async(&g_pig_anim_job,&g_pig_anim_handle)!=SAT_OK) {
         ++g_metrics.failures;
+        ++g_metrics.animation_failed;
         if(sat_anim_decode(&skybridge_pig_anim_asset,&g_pig_anim,
                            g_pig_pose[write_buffer],PIG_VERTEX_CAP)!=SAT_OK) {
             ++g_metrics.failures;
@@ -624,6 +828,10 @@ static void submit_pig_animation(void) {
         g_pig_render_anim=g_pig_anim;
         return;
     }
+    ++g_metrics.animation_submitted;
+    record_task_dispatch(slave_before,master_before,
+        &g_metrics.animation_slave_dispatches,
+        &g_metrics.animation_master_dispatches);
     g_pig_anim_pending=1u;
 }
 
@@ -660,7 +868,11 @@ static void finish_pig_animation(void) {
         if(st==SAT_OK && state==SAT_PARALLEL_COMPLETED) {
             g_pig_render_buffer=g_pig_anim_write_buffer;
             g_pig_render_anim=g_pig_anim_job_state;
-        } else ++g_metrics.failures;
+            ++g_metrics.animation_completed;
+        } else {
+            ++g_metrics.failures;
+            ++g_metrics.animation_failed;
+        }
         if(sat_parallel_release(g_pig_anim_handle)!=SAT_OK) {
             parallel_recovery_failed();
             return;
@@ -682,6 +894,7 @@ static uint8_t merge_gem_batch_direct(sat_scene3d_prepare_batch_t* batch) {
     g_scene.clipped_faces=g_scene.faces.clipped_faces;
     g_metrics.prepared_faces=(uint16_t)(g_metrics.prepared_faces+
                                         batch->metrics.prepared_faces);
+    record_gem_batch_merge(batch);
     return 1u;
 }
 
@@ -716,6 +929,7 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
             deck_slot[id],0u};
         ++count;
     }
+    g_metrics.visible_gems=count;
     if(count==0u)return;
     g_gem_partition_batch.items=g_gem_batch_items;
     g_gem_partition_batch.item_count=count;
@@ -727,15 +941,23 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
     g_gem_partition_batch.height=g_scene.faces.height;
     {
         uint16_t split=(uint16_t)(count/2u);
+#if SAT_SKYBRIDGE_FORCE_GEM_SPLIT
+        const uint8_t can_split=(uint8_t)(count>=4u);
+#else
         const uint8_t can_split=(sat_parallel_mode()==SAT_PARALLEL_SLAVE &&
                                  sat_parallel_slave_available()!=0u && count>=4u);
+#endif
         if(!can_split)split=count;
+        g_metrics.master_gem_items=split;
+        g_metrics.slave_gem_items=(uint16_t)(count-split);
         if(sat_scene3d_prepare_batch_slice(&g_gem_partition_batch,0u,split,
               g_gem_master_items,g_gem_master_faces,g_gem_master_keys,
               g_gem_master_order,SB_GEM_BATCH_CAP,&g_gem_master_batch)!=SAT_OK) {
             ++g_metrics.failures; return;
         }
         if(split<count) {
+            const uint32_t slave_before=parallel_slave_task_count();
+            const uint32_t master_before=parallel_master_task_count();
             if(sat_scene3d_prepare_batch_slice(&g_gem_partition_batch,split,
                   (uint16_t)(count-split),g_gem_slave_items,g_gem_slave_faces,
                   g_gem_slave_keys,g_gem_slave_order,SB_GEM_BATCH_CAP,
@@ -745,19 +967,28 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
             if(sat_scene_prepare_batch_async(&g_scene,&g_gem_slave_batch,
                                              &g_gem_slave_handle)!=SAT_OK) {
                 ++g_metrics.failures;
+                ++g_metrics.geometry_failed;
                 /* Submission failed before a handle was accepted, so the
                  * Slave cannot own these buffers. Recover synchronously and
                  * publish readiness only after execution succeeds. */
-                if(sat_scene3d_prepare_batch_execute(&g_gem_slave_batch)==SAT_OK)
+                if(sat_scene3d_prepare_batch_execute(&g_gem_slave_batch)==SAT_OK) {
                     g_gem_slave_ready=1u;
+                    g_metrics.gem_sync_fallback_items=(uint16_t)(count-split);
+                }
             } else {
+                ++g_metrics.geometry_submitted;
+                record_task_dispatch(slave_before,master_before,
+                    &g_metrics.geometry_slave_dispatches,
+                    &g_metrics.geometry_master_dispatches);
                 g_gem_slave_pending=1u;
             }
         }
         if(sat_scene3d_prepare_batch_execute(&g_gem_master_batch)!=SAT_OK) {
             ++g_metrics.failures;
+            ++g_metrics.geometry_failed;
         } else {
             g_gem_master_ready=1u;
+            g_metrics.master_gem_faces=g_gem_master_batch.metrics.prepared_faces;
         }
     }
     g_metrics.geometry_ms += sat_time_ms()-start;
@@ -780,28 +1011,45 @@ static void finish_gem_geometry(void) {
     if(g_parallel_recovery_blocked)return;
     {
         const uint32_t start=sat_time_ms();
-        sat_result_t st=sat_parallel_wait(g_gem_slave_handle,SB_PARALLEL_TIMEOUT);
+        uint8_t sync_fallback_ready=0u;
+        sat_result_t st=sat_parallel_wait(g_gem_slave_handle,SB_GEM_WAIT_TIMEOUT);
         sat_parallel_task_state_t state=sat_parallel_state(g_gem_slave_handle);
+        g_metrics.gem_task_state=(uint16_t)state;
         if(st!=SAT_OK && state==SAT_PARALLEL_RUNNING) {
             ++g_metrics.timeouts;
             st=sat_parallel_abort(g_gem_slave_handle,SB_PARALLEL_TIMEOUT);
             state=sat_parallel_state(g_gem_slave_handle);
+            g_metrics.gem_task_state=(uint16_t)state;
         }
         if(state==SAT_PARALLEL_RUNNING) {
             parallel_recovery_failed();
             return;
         }
         if(st==SAT_OK && state==SAT_PARALLEL_COMPLETED) {
+            ++g_metrics.geometry_completed;
+            g_metrics.slave_gem_faces=g_gem_slave_batch.metrics.prepared_faces;
             if(!g_gem_master_merged ||
                sat_scene_merge_prepared_batch(&g_scene,&g_gem_slave_batch,
                                               g_gem_slave_handle)!=SAT_OK) {
                 ++g_metrics.failures;
+                ++g_metrics.geometry_failed;
             } else {
                 g_metrics.prepared_faces=(uint16_t)(g_metrics.prepared_faces+
                     g_gem_slave_batch.metrics.prepared_faces);
+                record_gem_batch_merge(&g_gem_slave_batch);
             }
         } else {
             ++g_metrics.failures;
+            ++g_metrics.geometry_failed;
+            /* A terminal worker error/aborted task no longer owns the
+             * buffers. Recompute its suffix on the Master, but never do so
+             * while a timed-out worker remains active. */
+            if(state==SAT_PARALLEL_FAILED && g_gem_master_merged &&
+               sat_scene3d_prepare_batch_execute(&g_gem_slave_batch)==SAT_OK) {
+                sync_fallback_ready=1u;
+                g_metrics.gem_sync_fallback_items=
+                    g_gem_slave_batch.item_count;
+            }
         }
         if(sat_scene_prepare_batch_release(&g_gem_slave_batch,
                                            g_gem_slave_handle)!=SAT_OK) {
@@ -809,6 +1057,9 @@ static void finish_gem_geometry(void) {
             return;
         }
         g_gem_slave_pending=0u;
+        if(sync_fallback_ready) {
+            merge_gem_batch_direct(&g_gem_slave_batch);
+        }
         g_metrics.wait_ms += sat_time_ms()-start;
     }
 }
@@ -940,6 +1191,12 @@ static void draw_world(void) {
     /* Gema instances are independent of the pig pose. Dispatch their
      * suffix before the Master finishes the actor preparation. */
     prepare_gem_geometry(deck_slot);
+#if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_TIMEOUT_ABORT
+    /* Keep the injected timeout adjacent to submission, while its real Slave
+     * worker is known to be active. Production and other validation profiles
+     * retain the normal frame schedule below. */
+    finish_gem_geometry();
+#endif
     /* The pig must advance on every gameplay frame. If the Slave owns the gem
      * suffix, decode this frame's immutable animation snapshot on the Master;
      * otherwise the Slave may decode it asynchronously. */
@@ -1337,6 +1594,9 @@ int main(void) {
     const sat_vec3_t g_game_origin_ahead={0,0,SB_F(1)};
     sat_pad_state_t pad={0};
     sat_vdp2_scroll_t sky_scroll={0u,0u,31u,0u};
+#if SAT_SKYBRIDGE_VALIDATION
+    initialize_test_telemetry();
+#endif
     /* Keep immutable asset preparation ahead of SSHON. */
     {
         const sat_vec3_t origin={0,0,0};
@@ -1442,8 +1702,15 @@ int main(void) {
          * returns the raw elapsed count, so it can be 0 on a frame that beat
          * the display; this game always advances at least one tick rather than
          * freezing the simulation for that frame. */
+#if SAT_SKYBRIDGE_VALIDATION
+        /* Profile timing varies with the chosen execution policy under an
+         * emulator. Keep test-route game state comparable while leaving the
+         * production fixed-step catch-up policy unchanged. */
+        steps=1u;
+#else
         steps=sat_step_clock_steps(&g_step_clock,3u);
         if(steps==0u) steps=1u;
+#endif
         /* Pause + X is a deliberate course selector for playing/testing
          * Course 2 without finishing all ten decks of Course 1 first. */
         if(g_game.paused && (pad.pressed&SAT_PAD_X)) {
@@ -1546,5 +1813,8 @@ int main(void) {
         sat_example_must(sat_audio_update());
         g_metrics.frame_ms=sat_time_ms()-g_metrics.begin_ms;
         g_metrics.over_budget=(g_metrics.frame_ms>17u)?1u:0u;
+#if SAT_SKYBRIDGE_VALIDATION
+        write_test_telemetry(&pad);
+#endif
     }
 }

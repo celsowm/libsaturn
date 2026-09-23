@@ -4,10 +4,18 @@
 
 #include "saturn/dual_sh2.h"
 #include "src/core/parallel/queue_logic.hpp"
+#include "src/core/parallel/test_faults.h"
 #include "src/hal/dual_sh2/memory.hpp"
 #include "src/hal/sh2/cache.hpp"
 #include "src/hal/sh2/cpu.hpp"
 #include "src/hal/sh2/frt.hpp"
+
+#ifndef SAT_PARALLEL_TEST_FAULT
+#define SAT_PARALLEL_TEST_FAULT 0
+#endif
+#ifndef SAT_SKYBRIDGE_VALIDATION
+#define SAT_SKYBRIDGE_VALIDATION 0
+#endif
 
 namespace saturn::core::parallel::executor {
 
@@ -42,6 +50,9 @@ struct Runtime {
 
 static sat_parallel_task_slot_t g_default_slots[kDefaultSlots];
 static Runtime g_runtime = {};
+#if SAT_SKYBRIDGE_VALIDATION || SAT_PARALLEL_TEST_FAULT != 0
+static volatile uint32_t g_parallel_test_fault_fired = 0u;
+#endif
 
 uint32_t elapsed_ticks(uint16_t start) {
     return static_cast<uint16_t>(saturn::hal::sh2::frt::counter() - start);
@@ -345,6 +356,15 @@ sat_result_t submit_impl(sat_parallel_task_type_t type, const void* input,
     if (type == 0u || registration_for(type) == nullptr) return SAT_ERR_UNSUPPORTED;
     if ((input == nullptr && input_size != 0u) ||
         (output == nullptr && output_capacity != 0u)) return SAT_ERR_INVALID_ARG;
+#if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_SUBMIT_REJECT
+    if (type == SAT_PARALLEL_TASK_SCENE_GEOMETRY &&
+        (g_parallel_test_fault_fired &
+         (1u << SAT_PARALLEL_TEST_FAULT_SUBMIT_REJECT)) == 0u) {
+        g_parallel_test_fault_fired |=
+            (1u << SAT_PARALLEL_TEST_FAULT_SUBMIT_REJECT);
+        return SAT_ERR_BUSY;
+    }
+#endif
     const uint32_t input_address = input_size != 0u ? physical_address(input) : 0u;
     const uint32_t output_address = output_capacity != 0u ? physical_address(output) : 0u;
     if (input_size != 0u && !range_ok(input_address, input_size)) return SAT_ERR_INVALID_ARG;
@@ -365,6 +385,14 @@ sat_result_t submit_impl(sat_parallel_task_type_t type, const void* input,
         slot.task_ticks = 0u;
         slot.force_master = force_master;
         slot.result = SAT_ERR_BUSY;
+        slot.reserved3[0] = 0u;
+#if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_WORKER_ERROR || \
+    SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_TIMEOUT_ABORT || \
+    SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_ABORT_FAILURE || \
+    SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_RELEASE_FAILURE
+        if (type == SAT_PARALLEL_TASK_SCENE_GEOMETRY)
+            slot.reserved3[0] = SAT_PARALLEL_TEST_FAULT;
+#endif
         slot.state = SAT_PARALLEL_QUEUED;
         *out_handle = slot.token;
         ++g_runtime.stats.submitted;
@@ -420,6 +448,22 @@ sat_result_t wait(sat_parallel_handle_t handle, uint32_t timeout_ticks) {
         SAT_TRY(service());
         if (g_runtime.active_error != SAT_OK) return g_runtime.active_error;
         if (done(handle) != 0u) return result(handle, nullptr);
+#if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_TIMEOUT_ABORT
+        const sat_parallel_task_slot_t* const waiting_slot = slot_for(handle);
+        if (waiting_slot != nullptr && g_runtime.active != 0u &&
+            waiting_slot->state == SAT_PARALLEL_RUNNING &&
+            waiting_slot->type == SAT_PARALLEL_TASK_SCENE_GEOMETRY &&
+            waiting_slot->reserved3[0] == SAT_PARALLEL_TEST_FAULT_TIMEOUT_ABORT &&
+            (g_parallel_test_fault_fired &
+             (1u << SAT_PARALLEL_TEST_FAULT_TIMEOUT_ABORT)) == 0u) {
+            /* Deterministically inject the timeout at the real executor wait
+             * boundary while the worker callback is pinned in its test hook.
+             * The caller then invokes the real abort/stop path. */
+            g_parallel_test_fault_fired |=
+                (1u << SAT_PARALLEL_TEST_FAULT_TIMEOUT_ABORT);
+            return SAT_ERR_TIMEOUT;
+        }
+#endif
         if (g_runtime.active != 0u) {
             const uint16_t wait_start = saturn::hal::sh2::frt::counter();
             sat_dual_sh2_message_t message = {};
@@ -448,6 +492,15 @@ sat_result_t abort_task(sat_parallel_handle_t handle, uint32_t timeout_ticks) {
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
     if (g_runtime.active == 0u || index != g_runtime.active_index ||
         slot->state != SAT_PARALLEL_RUNNING) return SAT_ERR_BUSY;
+#if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_ABORT_FAILURE
+    if (slot->reserved3[0] == SAT_PARALLEL_TEST_FAULT_ABORT_FAILURE &&
+        (g_parallel_test_fault_fired &
+         (1u << SAT_PARALLEL_TEST_FAULT_ABORT_FAILURE)) == 0u) {
+        g_parallel_test_fault_fired |=
+            (1u << SAT_PARALLEL_TEST_FAULT_ABORT_FAILURE);
+        return SAT_ERR_TIMEOUT;
+    }
+#endif
     const sat_result_t stopped = sat_dual_sh2_stop(timeout_ticks);
     if (stopped != SAT_OK) return stopped;
 
@@ -456,7 +509,13 @@ sat_result_t abort_task(sat_parallel_handle_t handle, uint32_t timeout_ticks) {
     consume_range(slot->input_address, slot->input_size);
     consume_range(slot->output_address, slot->output_capacity);
     consume_range(physical_address(slot), sizeof(*slot));
-    mark_failed(*slot, SAT_ERR_TIMEOUT);
+    /* A callback may have observed the stop request and published COMPLETED
+     * just before the Slave reached OFFLINE. Abort was initiated while this
+     * slot was RUNNING, so its output is not a completed task result: once the
+     * worker is confirmed stopped, invalidate that terminal state explicitly. */
+    slot->result = static_cast<int32_t>(SAT_ERR_TIMEOUT);
+    slot->state = SAT_PARALLEL_FAILED;
+    ++g_runtime.stats.failed;
     g_runtime.active = 0u;
     g_runtime.active_error = SAT_OK;
     g_runtime.slave_started = 0u;
@@ -490,6 +549,16 @@ sat_result_t release(sat_parallel_handle_t handle) {
     if (!queue_logic::terminal(static_cast<sat_parallel_task_state_t>(slot->state))) {
         return SAT_ERR_BUSY;
     }
+#if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_RELEASE_FAILURE
+    if (slot->type == SAT_PARALLEL_TASK_SCENE_GEOMETRY &&
+        slot->reserved3[0] == SAT_PARALLEL_TEST_FAULT_RELEASE_FAILURE &&
+        (g_parallel_test_fault_fired &
+         (1u << SAT_PARALLEL_TEST_FAULT_RELEASE_FAILURE)) == 0u) {
+        g_parallel_test_fault_fired |=
+            (1u << SAT_PARALLEL_TEST_FAULT_RELEASE_FAILURE);
+        return SAT_ERR_BUSY;
+    }
+#endif
     slot->state = SAT_PARALLEL_FREE;
     slot->token = 0u;
     slot->generation = queue_logic::next_generation(slot->generation);
@@ -535,6 +604,37 @@ void slave_entry(void*) {
                 shared_slot->output_capacity,
                 &output_size);
         }
+#if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_WORKER_ERROR
+        if (shared_slot->type == SAT_PARALLEL_TASK_SCENE_GEOMETRY &&
+            shared_slot->reserved3[0] == SAT_PARALLEL_TEST_FAULT_WORKER_ERROR &&
+            (g_parallel_test_fault_fired &
+             (1u << SAT_PARALLEL_TEST_FAULT_WORKER_ERROR)) == 0u) {
+            result = SAT_ERR_VERIFY_FAILED;
+            g_parallel_test_fault_fired |=
+                (1u << SAT_PARALLEL_TEST_FAULT_WORKER_ERROR);
+        }
+#endif
+#if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_TIMEOUT_ABORT || \
+    SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_ABORT_FAILURE
+        if (shared_slot->type == SAT_PARALLEL_TASK_SCENE_GEOMETRY &&
+            shared_slot->reserved3[0] == SAT_PARALLEL_TEST_FAULT) {
+#if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_TIMEOUT_ABORT
+            /* The timeout profile's wait hook returns only while this slot is
+             * RUNNING. Keep the real Slave callback active until abort sends
+             * the shutdown request, eliminating a completion/abort race. */
+            uint32_t spin = 0u;
+            while (sat_dual_sh2_slave_stop_requested() == 0u) {
+                __asm__ volatile("nop");
+                if ((++spin & 0xFFu) == 0u &&
+                    sat_dual_sh2_slave_stop_requested() != 0u) break;
+            }
+#else
+            for (uint32_t spin = 0u; spin < 12000000u; ++spin) {
+                __asm__ volatile("nop");
+            }
+#endif
+        }
+#endif
         shared_slot->task_ticks = static_cast<uint16_t>(
             saturn::hal::sh2::frt::counter() - task_start);
         shared_slot->output_size = output_size;
@@ -550,5 +650,11 @@ void slave_entry(void*) {
         (void)sat_dual_sh2_slave_signal_master();
     }
 }
+
+#if SAT_SKYBRIDGE_VALIDATION || SAT_PARALLEL_TEST_FAULT != 0
+extern "C" uint32_t sat_parallel_test_fault_fired(void) {
+    return g_parallel_test_fault_fired;
+}
+#endif
 
 }  // namespace saturn::core::parallel::executor

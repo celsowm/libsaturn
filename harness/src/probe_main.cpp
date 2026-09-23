@@ -162,6 +162,7 @@ std::vector<PadEvent> g_pad_script;
 // the game happens to read the pad.
 uint32_t g_pad_frame_index = 0;
 bool g_pad_use_script = false;
+bool g_pad_script_game_frame = false;
 
 ymir::peripheral::Button button_from_name(const std::string& name) {
     using ymir::peripheral::Button;
@@ -253,6 +254,7 @@ struct Args {
     std::string profile_instructions_path; // master/slave SH-2 instructions per frame
     std::string profile_transfers_path; // VDP1 VRAM, VDP2 VRAM and CRAM words per frame
     std::string pad_script_path;     // frame-indexed input timeline
+    bool pad_script_game_frame = false;
     std::string backup_ram_path;     // persistent 32 KiB internal Backup RAM image
     std::string backup_cart_path;    // existing external image; mapped copy-on-write
     std::string ram_cart = "none";  // none, 1m, 4m: volatile expansion
@@ -263,6 +265,32 @@ struct Args {
     uint32_t pad_release_at = 0;     // frame index buttons becomes released again
     bool scsp_trace = false;          // sample SCSP stream slots/Sound RAM every program frame
     uint32_t slave_reset_entry = 0;  // Ymir direct-injection compatibility handoff
+    uint32_t skybridge_telemetry_address = 0;
+    std::string skybridge_telemetry_csv_path;
+};
+
+constexpr uint32_t kSkybridgeTelemetryMagic = 0x5342544Du;
+constexpr uint32_t kSkybridgeTelemetryVersion = 4u;
+constexpr uint32_t kSkybridgeTelemetryWords = 49u;
+constexpr uint32_t kSkybridgeTelemetryHeaderBytes = 20u;
+
+struct SkybridgeTelemetrySample {
+    uint32_t emulated_frame = 0u;
+    std::array<uint32_t, kSkybridgeTelemetryWords> words{};
+};
+
+constexpr std::array<const char*, kSkybridgeTelemetryWords> kSkybridgeTelemetryNames = {
+    "serial", "frame", "game_ticks", "game_hash", "animation_hash", "merge_order_hash",
+    "frame_cpu_ms", "frame_ms", "wait_ms", "visible_gems", "master_items",
+    "slave_items", "master_faces", "slave_faces", "merge_batches", "merged_faces",
+    "animation_submitted", "animation_completed", "animation_failed",
+    "animation_master", "animation_slave", "geometry_submitted", "geometry_completed",
+    "geometry_failed", "geometry_master", "geometry_slave", "timeouts", "failures",
+    "recovery_blocked", "gem_pending", "gem_task_state", "fault_mask",
+    "sync_fallback_items", "game_course", "game_pickups", "game_paused",
+    "game_finished", "game_support", "game_x", "game_y", "game_z",
+    "game_vx", "game_vy", "game_vz", "animation_clip", "animation_frame",
+    "animation_time", "pad_held", "pad_pressed"
 };
 
 void print_usage() {
@@ -349,6 +377,8 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--pad-script");
             if (!v) return false;
             out->pad_script_path = v;
+        } else if (arg == "--pad-script-game-frame") {
+            out->pad_script_game_frame = true;
         } else if (arg == "--profile-pc") {
             const char* v = next("--profile-pc");
             if (!v) return false;
@@ -405,6 +435,15 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--slave-reset-entry");
             if (!v) return false;
             out->slave_reset_entry = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+        } else if (arg == "--skybridge-telemetry-address") {
+            const char* v = next("--skybridge-telemetry-address");
+            if (!v) return false;
+            out->skybridge_telemetry_address =
+                static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+        } else if (arg == "--skybridge-telemetry-csv") {
+            const char* v = next("--skybridge-telemetry-csv");
+            if (!v) return false;
+            out->skybridge_telemetry_csv_path = v;
         } else if (arg == "--dump-vram") {
             const char* v = next("--dump-vram");
             if (!v) return false;
@@ -425,6 +464,12 @@ bool parse_args(int argc, char** argv, Args* out) {
     }
     if (!out->pad_button.empty() && button_from_name(out->pad_button) == ymir::peripheral::Button::None) {
         std::fprintf(stderr, "unknown --pad-button: %s\n", out->pad_button.c_str());
+        return false;
+    }
+    if ((out->skybridge_telemetry_address == 0u) !=
+        out->skybridge_telemetry_csv_path.empty()) {
+        std::fprintf(stderr,
+            "Skybridge telemetry requires both address and CSV output path\n");
         return false;
     }
     return true;
@@ -659,6 +704,7 @@ int main(int argc, char** argv) {
         std::stable_sort(g_pad_script.begin(), g_pad_script.end(),
                          [](const PadEvent& a, const PadEvent& b) { return a.frame < b.frame; });
         g_pad_use_script = true;
+        g_pad_script_game_frame = args.pad_script_game_frame;
 
         auto& port = saturn->SMPC.GetPeripheralPort1();
         using ReportCb = void (*)(ymir::peripheral::PeripheralReport&, void*);
@@ -668,6 +714,7 @@ int main(int argc, char** argv) {
                 return;
             }
             const ymir::peripheral::Button held = buttons_at_frame(g_pad_frame_index);
+            if (g_pad_script_game_frame) ++g_pad_frame_index;
             report.report.controlPad.buttons = pad_report(held);
             if (held != ymir::peripheral::Button::None) {
                 g_pad_held_observed++;
@@ -744,6 +791,8 @@ int main(int argc, char** argv) {
     std::vector<uint64_t> cycle_samples;
     std::vector<std::array<uint64_t, 2>> instruction_samples;
     std::vector<std::array<uint64_t, 3>> transfer_samples;
+    std::vector<SkybridgeTelemetrySample> skybridge_telemetry_samples;
+    uint32_t last_skybridge_telemetry_count = 0u;
     InstructionCounter master_instructions;
     InstructionCounter slave_instructions;
     if (!args.profile_instructions_path.empty()) {
@@ -759,9 +808,58 @@ int main(int argc, char** argv) {
         for (uint32_t i = 0; i < count; i++) {
             // Set before running, so the pad reports the buttons this script
             // line asks for during the frame it names rather than after it.
-            g_pad_frame_index = i;
+            if (!args.pad_script_game_frame) g_pad_frame_index = i;
             const uint64_t cycles_before = saturn->GetCurrentCycleCount();
             saturn->RunFrame();
+            if (args.skybridge_telemetry_address != 0u) {
+                const uint32_t address = args.skybridge_telemetry_address & 0x0FFF'FFFFu;
+                if (address < 0x0600'0000u || address >= 0x0610'0000u) {
+                    std::fprintf(stderr,
+                        "Skybridge telemetry address is outside High WRAM: %08X\n",
+                        args.skybridge_telemetry_address);
+                    std::exit(EXIT_FAILURE);
+                }
+                const size_t base = static_cast<size_t>(address - 0x0600'0000u);
+                const auto& wram = saturn->mem.WRAMHigh;
+                auto read_wram_be32 = [&](size_t offset) -> uint32_t {
+                    const uint8_t* p = wram.data() + offset;
+                    return (static_cast<uint32_t>(p[0]) << 24u) |
+                           (static_cast<uint32_t>(p[1]) << 16u) |
+                           (static_cast<uint32_t>(p[2]) << 8u) |
+                           static_cast<uint32_t>(p[3]);
+                };
+                if (base + kSkybridgeTelemetryHeaderBytes <= wram.size() &&
+                    read_wram_be32(base) == kSkybridgeTelemetryMagic) {
+                    const uint32_t version = read_wram_be32(base + 4u);
+                    const uint32_t words = read_wram_be32(base + 8u);
+                    const uint32_t capacity = read_wram_be32(base + 12u);
+                    const uint32_t count_now = read_wram_be32(base + 16u);
+                    if (version != kSkybridgeTelemetryVersion ||
+                        words != kSkybridgeTelemetryWords || capacity == 0u ||
+                        base + kSkybridgeTelemetryHeaderBytes +
+                            static_cast<size_t>(capacity) * words * 4u > wram.size()) {
+                        std::fprintf(stderr,
+                            "Unsupported Skybridge telemetry header (v%u, %u words, cap %u)\n",
+                            version, words, capacity);
+                        std::exit(EXIT_FAILURE);
+                    }
+                    const uint32_t first = count_now > capacity &&
+                        count_now - last_skybridge_telemetry_count > capacity
+                            ? count_now - capacity
+                            : last_skybridge_telemetry_count;
+                    for (uint32_t serial = first; serial < count_now; ++serial) {
+                        const uint32_t slot = serial % capacity;
+                        const size_t record_base = base + kSkybridgeTelemetryHeaderBytes +
+                            static_cast<size_t>(slot) * words * 4u;
+                        SkybridgeTelemetrySample sample{};
+                        sample.emulated_frame = frame_offset + i;
+                        for (uint32_t word = 0u; word < words; ++word)
+                            sample.words[word] = read_wram_be32(record_base + word * 4u);
+                        skybridge_telemetry_samples.push_back(sample);
+                    }
+                    last_skybridge_telemetry_count = count_now;
+                }
+            }
             if (!args.profile_cycles_path.empty()) {
                 cycle_samples.push_back(saturn->GetCurrentCycleCount() - cycles_before);
             }
@@ -1011,6 +1109,27 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (!args.skybridge_telemetry_csv_path.empty()) {
+        std::ofstream telemetry_out(args.skybridge_telemetry_csv_path);
+        if (!telemetry_out) {
+            std::fprintf(stderr, "failed to open Skybridge telemetry CSV: %s\n",
+                         args.skybridge_telemetry_csv_path.c_str());
+            return 1;
+        }
+        telemetry_out << "emulated_frame";
+        for (const char* name : kSkybridgeTelemetryNames)
+            telemetry_out << ',' << name;
+        telemetry_out << '\n';
+        for (const auto& sample : skybridge_telemetry_samples) {
+            telemetry_out << sample.emulated_frame;
+            for (uint32_t word : sample.words) telemetry_out << ',' << word;
+            telemetry_out << '\n';
+        }
+        std::fprintf(stderr, "[probe] wrote %zu Skybridge telemetry rows to %s\n",
+                     skybridge_telemetry_samples.size(),
+                     args.skybridge_telemetry_csv_path.c_str());
+    }
+
     // Whole VDP1 display framebuffer, so a run can be checked by looking at
     // the picture rather than only at registers: the --fb-sample window of
     // first-N-bytes cannot tell "drew the maze" from "drew nothing".
@@ -1180,6 +1299,25 @@ int main(int argc, char** argv) {
     j.key("boot_frames"); j.value(static_cast<uint64_t>(args.boot_frames));
     j.key("pc_after_run"); j.value(static_cast<uint64_t>(pc_after_run));
     j.end_object();
+
+    if (args.skybridge_telemetry_address != 0u) {
+        j.key("skybridge_telemetry");
+        j.begin_object();
+        j.key("version"); j.value(static_cast<uint64_t>(kSkybridgeTelemetryVersion));
+        j.key("address"); j.value(static_cast<uint64_t>(args.skybridge_telemetry_address));
+        j.key("samples"); j.begin_array();
+        for (const auto& sample : skybridge_telemetry_samples) {
+            j.begin_object();
+            j.key("emulated_frame"); j.value(static_cast<uint64_t>(sample.emulated_frame));
+            for (uint32_t word = 0u; word < kSkybridgeTelemetryWords; ++word) {
+                j.key(kSkybridgeTelemetryNames[word]);
+                j.value(static_cast<uint64_t>(sample.words[word]));
+            }
+            j.end_object();
+        }
+        j.end_array();
+        j.end_object();
+    }
 
     auto write_scsp_slot = [&](const ScspSlotSnapshot& slot) {
         j.begin_object();

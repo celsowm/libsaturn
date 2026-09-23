@@ -71,6 +71,15 @@ ifeq ($(EXAMPLE),skybridge_3d)
 ifneq ($(strip $(SAT_SKYBRIDGE_PARALLEL_MODE)),)
 CFLAGS      += -DSAT_SKYBRIDGE_PARALLEL_MODE=$(SAT_SKYBRIDGE_PARALLEL_MODE)
 endif
+ifneq ($(strip $(SAT_SKYBRIDGE_VALIDATION)),)
+CFLAGS      += -DSAT_SKYBRIDGE_VALIDATION=1
+endif
+ifneq ($(strip $(SAT_SKYBRIDGE_FORCE_GEM_SPLIT)),)
+CFLAGS      += -DSAT_SKYBRIDGE_FORCE_GEM_SPLIT=1
+endif
+endif
+ifneq ($(strip $(SAT_PARALLEL_TEST_FAULT)),)
+CFLAGS      += -DSAT_PARALLEL_TEST_FAULT=$(SAT_PARALLEL_TEST_FAULT)
 endif
 # -MMD -MP make the compiler emit a .d file listing every header an object
 # depends on. Without it a header edit leaves stale objects and binaries
@@ -147,6 +156,18 @@ ALL_HEADERS  := $(EXAMPLE_HEADERS)
 # exist before compiling any example object that may include them.
 ifneq ($(strip $(ALL_HEADERS)),)
 $(EXAMPLE_OBJS): $(ALL_HEADERS)
+endif
+
+# Skybridge's validation profiles change these translation-unit defines
+# between builds. Make does not otherwise notice command-line CFLAGS changes,
+# so rebuild only the three affected objects instead of requiring a full
+# `make -B` (which needlessly reconverts assets and recompiles the library).
+ifeq ($(EXAMPLE),skybridge_3d)
+.PHONY: skybridge-profile-flags
+skybridge-profile-flags:
+$(BUILD_DIR)/examples/skybridge_3d/main.o \
+$(BUILD_DIR)/src/core/parallel/executor.o \
+$(BUILD_DIR)/src/graphics/3d/scene/parallel.o: skybridge-profile-flags
 endif
 
 # -- Artefatos --------------------------------------------------

@@ -2,6 +2,10 @@
 
 #include "src/hal/dual_sh2/memory.hpp"
 
+#ifndef SAT_SKYBRIDGE_FORCE_GEM_SPLIT
+#define SAT_SKYBRIDGE_FORCE_GEM_SPLIT 0
+#endif
+
 namespace {
 
 void* shared_uncached(void* pointer) {
@@ -139,7 +143,8 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
     const uint32_t output_capacity =
         static_cast<uint32_t>(batch->capacity) * sizeof(sat_scene3d_face_t);
     sat_result_t submitted;
-    if (sat_parallel_mode() == SAT_PARALLEL_AUTO) {
+    if (sat_parallel_mode() == SAT_PARALLEL_AUTO &&
+        SAT_SKYBRIDGE_FORCE_GEM_SPLIT == 0) {
         submitted = sat_parallel_submit_master(
             SAT_PARALLEL_TASK_SCENE_GEOMETRY, batch, sizeof(*batch),
             batch->faces, output_capacity, out_handle);

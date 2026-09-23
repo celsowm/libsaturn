@@ -27,6 +27,7 @@ param(
     [int]$PadPressAt = 0,
     [int]$PadReleaseAt = 0,
     [string]$PadScript,
+    [switch]$PadScriptGameFrame,
     [string]$BackupRam,
     [string]$BackupCart,
     [ValidateSet('none', '1m', '4m')]
@@ -36,6 +37,8 @@ param(
     [string]$ProfileCycles,
     [string]$ProfileInstructions,
     [string]$ProfileTransfers,
+    [switch]$ProfileSkybridgeTelemetry,
+    [string]$SkybridgeTelemetryCsv,
     [switch]$ScspTrace,
     [int]$FbSample = 256,
     [string]$Out
@@ -148,11 +151,42 @@ $probeArgs = @(
     '--fb-sample', $FbSample,
     '--out', $outJson
 )
+if ($ProfileSkybridgeTelemetry) {
+    if ($normalizedExample -ne 'skybridge_3d') {
+        throw '-ProfileSkybridgeTelemetry is available only for skybridge_3d.'
+    }
+    $mapPath = Join-Path $RepoRoot 'build\skybridge_3d.map'
+    if (-not (Test-Path $mapPath -PathType Leaf)) {
+        throw "Skybridge map file not found: $mapPath. Rebuild with -SkybridgeValidation."
+    }
+    $mapText = Get-Content -LiteralPath $mapPath -Raw
+    $symbol = [regex]::Match($mapText, '(?m)^\s*(0x[0-9A-Fa-f]+)\s+_?g_sb_test_telemetry(?:\s|$)')
+    if (-not $symbol.Success) {
+        throw 'g_sb_test_telemetry is absent from the map; build with -SkybridgeValidation.'
+    }
+    $telemetryAddress = [Convert]::ToUInt32($symbol.Groups[1].Value.Substring(2), 16)
+    $telemetryCsv = if ($SkybridgeTelemetryCsv) {
+        $SkybridgeTelemetryCsv
+    } else {
+        Join-Path ([System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($outJson))) `
+            (([System.IO.Path]::GetFileNameWithoutExtension($outJson)) + '_skybridge_telemetry.csv')
+    }
+    $telemetryDir = Split-Path -Parent $telemetryCsv
+    if ($telemetryDir -and -not (Test-Path $telemetryDir)) {
+        New-Item -ItemType Directory -Path $telemetryDir -Force | Out-Null
+    }
+    $probeArgs += @('--skybridge-telemetry-address', ('0x{0:X8}' -f $telemetryAddress),
+                    '--skybridge-telemetry-csv', $telemetryCsv)
+}
 if ($PadButton) {
     $probeArgs += @('--pad-button', $PadButton, '--pad-press-at', $PadPressAt, '--pad-release-at', $PadReleaseAt)
 }
 if ($PadScript) {
     $probeArgs += @('--pad-script', $PadScript)
+}
+if ($PadScriptGameFrame) {
+    if (-not $PadScript) { throw '-PadScriptGameFrame requires -PadScript.' }
+    $probeArgs += '--pad-script-game-frame'
 }
 if ($BackupCart) {
     if (-not (Test-Path $BackupCart -PathType Leaf)) {

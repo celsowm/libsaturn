@@ -15,6 +15,13 @@ param(
     [ValidateSet('', 'MASTER', 'SLAVE', 'AUTO')]
     [string]$ParallelMode = '',
 
+    [switch]$SkybridgeValidation,
+
+    [switch]$ForceGemSplit,
+
+    [ValidateSet('None', 'SubmitReject', 'WorkerError', 'TimeoutAbort', 'AbortFailure', 'ReleaseFailure')]
+    [string]$SkybridgeFault = 'None',
+
     [string]$Msys2Root,
     [switch]$ForceRebuild
 )
@@ -70,6 +77,17 @@ if (-not (Test-Path $exampleMain)) {
         Select-Object -ExpandProperty Name
     $availableText = ($availableExamples | Sort-Object) -join ', '
     throw "Example not found: $exampleMain. Available: $availableText"
+}
+
+if (($SkybridgeValidation -or $ForceGemSplit -or $SkybridgeFault -ne 'None') -and
+    $normalizedExample -ne 'skybridge_3d') {
+    throw 'Skybridge validation options are available only for skybridge_3d.'
+}
+if ($ForceGemSplit -and -not $SkybridgeValidation) {
+    $SkybridgeValidation = $true
+}
+if ($SkybridgeFault -ne 'None') {
+    $SkybridgeValidation = $true
 }
 
 # -- Locate MSYS2 --
@@ -166,6 +184,21 @@ if ($normalizedExample -eq 'skybridge_3d' -and $ParallelMode) {
         'AUTO' { 2 }
     }
     $parallelFlags += " SAT_SKYBRIDGE_PARALLEL_MODE=$parallelModeValue"
+}
+if ($normalizedExample -eq 'skybridge_3d' -and $SkybridgeValidation) {
+    $parallelFlags += ' SAT_SKYBRIDGE_VALIDATION=1'
+    $faultValue = switch ($SkybridgeFault) {
+        'SubmitReject' { 1 }
+        'WorkerError' { 2 }
+        'TimeoutAbort' { 3 }
+        'AbortFailure' { 4 }
+        'ReleaseFailure' { 5 }
+        default { 0 }
+    }
+    $parallelFlags += " SAT_PARALLEL_TEST_FAULT=$faultValue"
+}
+if ($normalizedExample -eq 'skybridge_3d' -and $ForceGemSplit) {
+    $parallelFlags += ' SAT_SKYBRIDGE_FORCE_GEM_SPLIT=1'
 }
 if ($saturnBin) {
     $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + $parallelFlags + ' all'
