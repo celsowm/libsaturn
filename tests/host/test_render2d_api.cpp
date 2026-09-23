@@ -66,6 +66,17 @@ sat_result_t update_texture_indexed8_pitched(
     return SAT_OK;
 }
 
+sat_result_t update_texture_indexed8_rect(
+    uint16_t, const uint8_t* pixels,
+    uint16_t texture_width, uint16_t texture_height, uint16_t pitch,
+    uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
+    return pixels == nullptr || pitch < texture_width || width == 0u ||
+        height == 0u ||
+        static_cast<uint32_t>(x) + width > texture_width ||
+        static_cast<uint32_t>(y) + height > texture_height
+        ? SAT_ERR_INVALID_ARG : SAT_OK;
+}
+
 sat_result_t push_user_clip(const UserClipRequest& req) {
     ++g_user_clip_calls;
     g_last_clip = req;
