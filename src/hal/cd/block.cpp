@@ -211,7 +211,8 @@ extern "C" sat_result_t sat_cd_block_init(
 extern "C" sat_result_t sat_cd_block_set_progress_service(
     sat_cd_block_t* block, sat_cd_block_progress_fn fn, void* context) {
     if (block == nullptr) return SAT_ERR_INVALID_ARG;
-    if (block->progress_active != 0u) return SAT_ERR_BUSY;
+    if (block->progress_active != 0u || block->read_active != 0u)
+        return SAT_ERR_BUSY;
     block->progress = fn;
     block->progress_context = fn != nullptr ? context : nullptr;
     return SAT_OK;
@@ -223,8 +224,16 @@ extern "C" sat_result_t sat_cd_block_read_sectors(
     uint32_t sector_count,
     void* destination
 ) {
-    if (destination == nullptr || sector_count == 0u) return SAT_ERR_INVALID_ARG;
-    return read_impl(block, lba, sector_count, static_cast<uint8_t*>(destination));
+    if (destination == nullptr || sector_count == 0u)
+        return SAT_ERR_INVALID_ARG;
+    if (block == nullptr || block->initialized == 0u)
+        return SAT_ERR_INVALID_ARG;
+    if (block->read_active != 0u) return SAT_ERR_BUSY;
+    block->read_active = 1u;
+    const sat_result_t status = read_impl(
+        block, lba, sector_count, static_cast<uint8_t*>(destination));
+    block->read_active = 0u;
+    return status;
 }
 
 extern "C" sat_result_t sat_cd_block_bind_device(

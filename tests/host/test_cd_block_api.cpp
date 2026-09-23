@@ -32,7 +32,11 @@ int main() {
     // Host-only CD emulation has no ready command; an immediate BUSY does
     // not enter the long wait loop and must not spuriously call progress.
     OK(sat_cd_block_read_sectors(&block, 0u, 1u, sector) == SAT_ERR_BUSY);
-    OK(progress_calls == 0u);
+    OK(progress_calls == 0u && block.read_active == 0u);
+    block.read_active=1u;
+    OK(sat_cd_block_read_sectors(&block,0u,1u,sector)==SAT_ERR_BUSY);
+    OK(sat_cd_block_set_progress_service(&block,nullptr,nullptr)==SAT_ERR_BUSY);
+    block.read_active=0u;
     block.progress_active=1u;
     OK(sat_cd_block_set_progress_service(&block,nullptr,nullptr)==SAT_ERR_BUSY);
     block.progress_active=0u;

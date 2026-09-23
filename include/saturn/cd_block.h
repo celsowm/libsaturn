@@ -32,8 +32,9 @@ extern "C" {
 
 /* Optional service hook invoked periodically during synchronous CD waits.
  * The callback is application-owned, may service audio/input/other bounded
- * work, and MUST NOT start another CD request on the same block. Its return
- * status is advisory (the CD wait reports its own transport result).
+ * work, and must not start another CD request on the same block. Nested
+ * reads return SAT_ERR_BUSY rather than corrupt an in-flight transfer.
+ * Its return status is advisory (the CD wait reports its own transport result).
  * A null hook has no background/linked service dependency. */
 typedef sat_result_t (*sat_cd_block_progress_fn)(void* context);
 
@@ -43,7 +44,8 @@ typedef struct sat_cd_block {
     void* progress_context;
     uint8_t initialized;
     uint8_t progress_active;
-    uint8_t reserved[2];
+    uint8_t read_active;
+    uint8_t reserved;
 } sat_cd_block_t;
 
 /* Initializes the CD Block command/filter state. This does not perform disc
