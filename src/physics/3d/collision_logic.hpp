@@ -5,11 +5,11 @@
 #include <limits.h>
 #include "saturn/collide3d.h"
 #include "src/core/math3d/logic.hpp"
-#include "src/graphics/3d/geometry/mesh_logic.hpp"
+#include "src/core/geometry/mesh_faces.hpp"
 
 namespace saturn::core::collide3d {
 using namespace saturn::core::math3d;
-using saturn::core::mesh3d::quad_normal_scaled;
+using saturn::core::geometry::quad_normal_scaled;
 
 inline sat_vec3_t add(sat_vec3_t a, sat_vec3_t b) { return {a.x+b.x,a.y+b.y,a.z+b.z}; }
 inline sat_vec3_t sub(sat_vec3_t a, sat_vec3_t b) { return {a.x-b.x,a.y-b.y,a.z-b.z}; }
@@ -131,7 +131,7 @@ inline bool ray_mesh(const sat_mesh_t& m, const sat_ray3_t& r, sat_hit3_t& o) {
     int found = 0;
     for (uint16_t i = 0; i < m.face_count; ++i) {
         sat_quad3_t q;
-        if (saturn::core::mesh3d::face_quad(&m, i, &q) != SAT_OK) continue;
+        if (saturn::core::geometry::face_quad(&m, i, &q) != SAT_OK) continue;
         sat_hit3_t h;
         if (ray_quad(q, r, h) && (!found || h.t < o.t)) {
             h.face = i; o = h; found = 1;
@@ -182,7 +182,7 @@ inline sat_result_t sphere_mesh(
     sat_result_t result = SAT_OK;
     for (uint16_t i = 0; i < m.face_count; ++i) {
         sat_quad3_t q;
-        if (saturn::core::mesh3d::face_quad(&m, i, &q) != SAT_OK) continue;
+        if (saturn::core::geometry::face_quad(&m, i, &q) != SAT_OK) continue;
         sat_contact3_t c;
         if (!sphere_quad_contact(q, s, c)) continue;
         if (count >= cap) { result = SAT_ERR_CAPACITY; continue; }

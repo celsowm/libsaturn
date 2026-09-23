@@ -8,8 +8,15 @@ logic = Path("src/core/math3d/logic.hpp")
 assert api.is_file() and logic.is_file()
 assert not old_api.exists() and not old_logic.exists()
 
-for path in [api, logic]:
+for path in [api, logic, Path("src/core/geometry/mesh_faces.hpp")]:
+    assert path.is_file(), path
     assert "src/graphics/" not in path.read_text(), path
+
+# Physics may consume public mesh/quad value types, not the renderer's
+# private mesh-construction implementation or graphics math helpers.
+for path in Path("src/physics").rglob("*"):
+    if path.suffix in (".cpp", ".hpp", ".c", ".h"):
+        assert "src/graphics/" not in path.read_text(), path
 
 for root in ("src", "tests/host"):
     for path in Path(root).rglob("*"):
