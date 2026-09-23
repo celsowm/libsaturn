@@ -1,4 +1,7 @@
 #include "saturn/scene.h"
+#include "src/graphics/3d/scene/frame_result.hpp"
+
+using saturn::core::scene::record_frame_result;
 
 #include "src/hal/dual_sh2/memory.hpp"
 #include "src/hal/sh2/frt.hpp"
@@ -138,23 +141,27 @@ extern "C" sat_result_t sat_scene3d_prepare_parallel_register(void) {
 extern "C" sat_result_t sat_scene_prepare_batch_async(
     sat_scene_t* scene, sat_scene3d_prepare_batch_t* batch,
     sat_parallel_handle_t* out_handle) {
-    if (!scene || !scene->active || !batch || !out_handle ||
-        batch->capacity == 0u || batch->faces == nullptr ||
-        batch->keys == nullptr || batch->order == nullptr ||
+    if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    if (!batch || !out_handle || batch->capacity == 0u ||
+        batch->faces == nullptr || batch->keys == nullptr ||
+        batch->order == nullptr ||
         (batch->item_count != 0u && batch->items == nullptr))
-        return SAT_ERR_INVALID_ARG;
-    SAT_TRY(sat_scene3d_prepare_parallel_register());
+        return record_frame_result(scene,SAT_ERR_INVALID_ARG);
+    // A pending task has not failed: callers can retry after completion.
+    if (batch->pending != 0u) return SAT_ERR_BUSY;
+    const sat_result_t registered=sat_scene3d_prepare_parallel_register();
+    if (registered != SAT_OK) return record_frame_result(scene,registered);
     batch->view_proj = scene->faces.view_proj;
     batch->eye = scene->faces.eye;
     batch->forward = scene->faces.forward;
     batch->near_depth = scene->faces.near_depth;
     batch->width = scene->faces.width;
     batch->height = scene->faces.height;
-    if (batch->pending != 0u) return SAT_ERR_BUSY;
 #if SAT_SKYBRIDGE_VALIDATION || SAT_PARALLEL_RUNTIME_VALIDATION
     const uint16_t publish_start=saturn::hal::sh2::frt::counter();
 #endif
-    SAT_TRY(sync_batch_sources(batch));
+    const sat_result_t published=sync_batch_sources(batch);
+    if (published != SAT_OK) return record_frame_result(scene,published);
 #if SAT_SKYBRIDGE_VALIDATION || SAT_PARALLEL_RUNTIME_VALIDATION
     g_test_input_publish_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-publish_start);
@@ -176,20 +183,22 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
         batch->handle = *out_handle;
         batch->pending = 1u;
     }
-    return submitted;
+    return record_frame_result(scene,submitted);
 }
 
 extern "C" sat_result_t sat_scene_merge_prepared_batch(
     sat_scene_t* scene, sat_scene3d_prepare_batch_t* batch,
     sat_parallel_handle_t handle) {
-    if (!scene || !scene->active || !batch || batch->pending == 0u ||
-        batch->handle != handle) return SAT_ERR_INVALID_ARG;
+    if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    if (!batch || batch->pending == 0u || batch->handle != handle)
+        return record_frame_result(scene,SAT_ERR_INVALID_ARG);
     uint32_t output_size = 0u;
     const sat_result_t result = sat_parallel_result(handle, &output_size);
-    if (result != SAT_OK) return result;
+    if (result == SAT_ERR_BUSY) return SAT_ERR_BUSY;
+    if (result != SAT_OK) return record_frame_result(scene,result);
     if (output_size % sizeof(sat_scene3d_face_t) != 0u ||
         output_size / sizeof(sat_scene3d_face_t) > batch->capacity)
-        return SAT_ERR_VERIFY_FAILED;
+        return record_frame_result(scene,SAT_ERR_VERIFY_FAILED);
     batch->metrics.prepared_faces = static_cast<uint16_t>(
         output_size / sizeof(sat_scene3d_face_t));
     const uint16_t before = scene->faces.count;
@@ -202,7 +211,7 @@ extern "C" sat_result_t sat_scene_merge_prepared_batch(
     } else if (merged == SAT_ERR_CAPACITY) {
         ++scene->rejected_faces;
     }
-    return merged;
+    return record_frame_result(scene,merged);
 }
 
 extern "C" sat_result_t sat_scene_prepare_batch_release(

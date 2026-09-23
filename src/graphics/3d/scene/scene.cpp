@@ -1,12 +1,7 @@
 #include "saturn/scene.h"
+#include "src/graphics/3d/scene/frame_result.hpp"
 
-namespace {
-sat_result_t record_frame_result(sat_scene_t* scene, sat_result_t result) {
-    if (result!=SAT_OK && scene->first_error==SAT_OK)
-        scene->first_error=result;
-    return result;
-}
-} // namespace
+using saturn::core::scene::record_frame_result;
 
 extern "C" sat_result_t sat_scene_requirements(uint16_t face_capacity,
                                                  uint16_t overlay_commands,
@@ -53,7 +48,8 @@ extern "C" sat_result_t sat_scene_begin(sat_scene_t* scene,
     const sat_result_t reserve = sat_vdp1_reserve_overlay_commands(overlay_commands);
     if (reserve != SAT_OK) {
         scene->faces.active = 0;
-        return record_frame_result(scene,reserve);
+        if (scene->first_error == SAT_OK) scene->first_error = reserve;
+        return reserve;
     }
     scene->active = 1;
     return SAT_OK;

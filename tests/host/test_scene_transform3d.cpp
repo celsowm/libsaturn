@@ -54,6 +54,8 @@ int main() {
         &scene, &hierarchy, child, &prototype, SAT_SCENE3D_SLOT_INHERIT,
         screen, world_scratch) == SAT_ERR_BUSY);
     assert(calls == 0);
+    assert(scene.first_error == SAT_ERR_BUSY);
+    scene.first_error = SAT_OK; // This test does not use sat_scene_begin().
     assert(sat_transform3d_evaluate(&hierarchy, scratch, 3) == SAT_OK);
     assert(sat_scene_submit_transform_instance(
         &scene, &hierarchy, child, &prototype, 7, screen, world_scratch) == SAT_OK);
@@ -65,6 +67,8 @@ int main() {
         &scene, &hierarchy, 99, &prototype, 7, screen, world_scratch)
         == SAT_ERR_INVALID_ARG);
     assert(calls == 1);
+    assert(scene.first_error == SAT_ERR_INVALID_ARG);
+    scene.first_error = SAT_OK;
     scene.active = 0;
     assert(sat_scene_submit_transform_instance(
         &scene, &hierarchy, child, &prototype, 7, screen, world_scratch)
@@ -79,6 +83,7 @@ int main() {
     assert(sat_scene_submit_transform_instance(
         &scene, &hierarchy, child, &prototype, 7, screen, world_scratch) == SAT_OK);
     assert(calls == 2 && pos_x == sat_fx16_from_int(9));
+    assert(scene.first_error == SAT_ERR_BUSY);
     std::puts("test_scene_transform3d: passed");
     return 0;
 }
