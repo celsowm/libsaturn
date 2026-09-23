@@ -75,12 +75,13 @@ sat_result_t sat_texture_info(sat_texture_t texture, sat_texture_info_t* out_inf
  * but a failed in-place update is not an atomic hardware rollback. */
 sat_result_t sat_texture_update(sat_texture_t texture, const sat_surface_t* source);
 
-/* Writes a rectangular update. This is limited to DYNAMIC textures because
- * the caller-owned retained source is modified in place before the VRAM
- * refresh. On a hardware failure that CPU source may already contain the
- * patch; the texture is marked NEEDS_RECOVERY. Call sat_texture_update with
- * the full retained source to repair it. A dirty texture rejects partial
- * updates until repaired. source must match destination_rect and palette. */
+/* Writes a rectangular update to a DYNAMIC texture, modifying the retained
+ * caller-owned CPU source before transferring only affected VDP1 rows/columns
+ * and intersecting prepared regions. Odd X boundaries also write the adjacent
+ * byte of the same source row because VRAM writes are 16-bit aligned.
+ * A failed transfer may already have mutated CPU/VRAM data: NEEDS_RECOVERY
+ * blocks further partial writes until a full sat_texture_update repairs it.
+ * source must match destination_rect and the existing texture palette. */
 sat_result_t sat_texture_update_rect(
     sat_texture_t texture,
     const sat_rect_t* destination_rect,

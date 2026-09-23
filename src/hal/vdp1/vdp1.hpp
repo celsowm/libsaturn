@@ -132,6 +132,14 @@ sat_result_t update_texture_indexed8_pitched(
     uint16_t height,
     uint16_t pitch);
 
+/* Rewrites a subrectangle of an existing INDEX8 character pattern without
+ * reallocating VRAM. pixels starts at the full source origin. Odd X bounds
+ * expand to the adjacent 16-bit word, using the same source for both bytes. */
+sat_result_t update_texture_indexed8_rect(
+    uint16_t srca, const uint8_t* pixels,
+    uint16_t texture_width, uint16_t texture_height, uint16_t pitch,
+    uint16_t x, uint16_t y, uint16_t width, uint16_t height);
+
 }  // namespace saturn::hal::vdp1
 
 #endif

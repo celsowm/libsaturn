@@ -625,6 +625,43 @@ sat_result_t update_texture_indexed8_pitched(
     return SAT_OK;
 }
 
+/* INDEX8 patterns are byte-addressed but the VDP1 transfer uses 16-bit
+ * writes. Round odd X bounds outward, retaining the adjacent source byte.
+ * Validate the complete resident texture range before any VRAM write. */
+sat_result_t update_texture_indexed8_rect(
+    uint16_t srca, const uint8_t* pixels,
+    uint16_t texture_width, uint16_t texture_height, uint16_t pitch,
+    uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
+    const sat_result_t st = validate_indexed8_transfer(
+        pixels, texture_width, texture_height, pitch);
+    if (st != SAT_OK) return st;
+    if (width == 0u || height == 0u ||
+        static_cast<uint32_t>(x) + width > texture_width ||
+        static_cast<uint32_t>(y) + height > texture_height)
+        return SAT_ERR_INVALID_ARG;
+    const uint32_t start = static_cast<uint32_t>(srca) << 3u;
+    const uint32_t size =
+        static_cast<uint32_t>(texture_width) * texture_height;
+    if (start < kTextureBase || start + size > g_texture_cursor ||
+        start + size > kVramSize) return SAT_ERR_INVALID_ARG;
+
+    const uint16_t first_x = static_cast<uint16_t>(x & ~1u);
+    const uint16_t end_x = static_cast<uint16_t>(
+        (static_cast<uint32_t>(x) + width + 1u) & ~1u);
+    const uint32_t first_word = start / 2u;
+    for (uint32_t row = y; row < static_cast<uint32_t>(y) + height; ++row) {
+        const uint8_t* source = pixels + row * pitch;
+        const uint32_t dst =
+            first_word + (row * texture_width + first_x) / 2u;
+        for (uint32_t col = first_x; col < end_x; col += 2u)
+            VDP1_VRAM_16[dst + (col - first_x) / 2u] =
+                static_cast<uint16_t>(
+                    (static_cast<uint16_t>(source[col]) << 8u) |
+                     static_cast<uint16_t>(source[col + 1u]));
+    }
+    return SAT_OK;
+}
+
 #if SAT_SKYBRIDGE_VALIDATION
 extern "C" uint32_t sat_vdp1_test_scene_command_hash(void) {
     return g_test_scene_command_hash;

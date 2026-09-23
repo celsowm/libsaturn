@@ -87,6 +87,42 @@ void texture_needs_recovery(sat_texture_t texture, TextureSlot& slot) {
     }
 }
 
+/* Only regions intersecting the updated source rectangle require a VRAM
+ * refresh. The region's own dimensions/pitch determine its native address. */
+sat_result_t refresh_intersecting_regions(
+    sat_texture_t texture, TextureSlot& slot, const sat_rect_t& updated) {
+    using namespace saturn::core;
+    const uint32_t ux0 = static_cast<uint16_t>(updated.x);
+    const uint32_t uy0 = static_cast<uint16_t>(updated.y);
+    const uint32_t ux1 = ux0 + updated.width;
+    const uint32_t uy1 = uy0 + updated.height;
+    for (uint16_t i = 0u; i < kTextureRegionCapacity; ++i) {
+        TextureRegionRecord& record = g_texture_registry.regions[i];
+        if (record.used == 0u || record.owner_slot != texture.slot ||
+            record.owner_generation != texture.generation) continue;
+        const uint32_t rx0 = static_cast<uint16_t>(record.rect.x);
+        const uint32_t ry0 = static_cast<uint16_t>(record.rect.y);
+        const uint32_t rx1 = rx0 + record.rect.width;
+        const uint32_t ry1 = ry0 + record.rect.height;
+        const uint32_t x0 = ux0 > rx0 ? ux0 : rx0;
+        const uint32_t y0 = uy0 > ry0 ? uy0 : ry0;
+        const uint32_t x1 = ux1 < rx1 ? ux1 : rx1;
+        const uint32_t y1 = uy1 < ry1 ? uy1 : ry1;
+        if (x0 >= x1 || y0 >= y1) continue;
+        const uint8_t* pixels = surface_row(
+            slot.source, static_cast<uint16_t>(ry0)) + rx0;
+        const sat_result_t st = saturn::hal::vdp1::update_texture_indexed8_rect(
+            record.native.srca, pixels, record.rect.width,
+            record.rect.height, slot.source.pitch,
+            static_cast<uint16_t>(x0 - rx0),
+            static_cast<uint16_t>(y0 - ry0),
+            static_cast<uint16_t>(x1 - x0),
+            static_cast<uint16_t>(y1 - y0));
+        if (st != SAT_OK) return st;
+    }
+    return SAT_OK;
+}
+
 sat_result_t refresh_prepared_regions(sat_texture_t texture, TextureSlot& slot) {
     using namespace saturn::core;
     if (slot.region_count == 0u) return SAT_OK;
@@ -301,17 +337,18 @@ extern "C" sat_result_t sat_texture_update_rect(
         for (uint16_t x = 0; x < destination_rect->width; ++x) dst[x] = src[x];
     }
 
-    st = saturn::hal::vdp1::update_texture_indexed8_pitched(
+    st = saturn::hal::vdp1::update_texture_indexed8_rect(
         slot->native.srca,
         static_cast<const uint8_t*>(slot->source.pixels),
         slot->source.width,
         slot->source.height,
-        slot->source.pitch);
+        slot->source.pitch,
+        dst_x, dst_y, destination_rect->width, destination_rect->height);
     if (st != SAT_OK) {
         texture_needs_recovery(texture, *slot);
         return st;
     }
-    st = refresh_prepared_regions(texture, *slot);
+    st = refresh_intersecting_regions(texture, *slot, *destination_rect);
     if (st != SAT_OK) texture_needs_recovery(texture, *slot);
     return st;
 }

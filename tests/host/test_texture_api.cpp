@@ -19,6 +19,13 @@ sat_result_t g_texture_upload_status = SAT_OK;
 sat_result_t g_palette_upload_status = SAT_OK;
 sat_result_t g_texture_update_status = SAT_OK;
 uint32_t g_fail_texture_update_call = 0u;
+uint32_t g_rect_updates = 0u;
+uint32_t g_fail_rect_update_call = 0u;
+sat_result_t g_rect_update_status = SAT_OK;
+uint16_t g_rect_x = 0u, g_rect_y = 0u;
+uint16_t g_rect_w = 0u, g_rect_h = 0u;
+uint16_t g_rect_tex_w = 0u, g_rect_tex_h = 0u;
+uint16_t g_rect_srca = 0u;
 }
 
 namespace saturn::hal::vdp1 {
@@ -50,6 +57,27 @@ sat_result_t update_texture_indexed8_pitched(
     return SAT_OK;
 }
 
+sat_result_t update_texture_indexed8_rect(
+    uint16_t srca, const uint8_t* pixels,
+    uint16_t texture_width, uint16_t texture_height, uint16_t pitch,
+    uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
+    if (pixels == nullptr || pitch < texture_width || !width || !height ||
+        static_cast<uint32_t>(x)+width > texture_width ||
+        static_cast<uint32_t>(y)+height > texture_height)
+        return SAT_ERR_INVALID_ARG;
+    ++g_rect_updates;
+    g_last_pitch=pitch;
+    g_rect_srca=srca;
+    g_rect_tex_w=texture_width;
+    g_rect_tex_h=texture_height;
+    g_rect_x=x; g_rect_y=y; g_rect_w=width; g_rect_h=height;
+    if (g_rect_update_status != SAT_OK &&
+        (g_fail_rect_update_call==0u ||
+         g_fail_rect_update_call==g_rect_updates))
+        return g_rect_update_status;
+    return SAT_OK;
+}
+
 }  // namespace saturn::hal::vdp1
 
 static void reset_runtime() {
@@ -67,10 +95,56 @@ static void reset_runtime() {
     g_palette_upload_status = SAT_OK;
     g_texture_update_status = SAT_OK;
     g_fail_texture_update_call = 0u;
+    g_rect_updates = 0u;
+    g_fail_rect_update_call = 0u;
+    g_rect_update_status = SAT_OK;
+    g_rect_x = g_rect_y = g_rect_w = g_rect_h = 0u;
+    g_rect_tex_w = g_rect_tex_h = g_rect_srca = 0u;
 }
 
 static void make_palette(uint16_t* palette, uint16_t seed) {
     for (uint16_t i = 0; i < 256u; ++i) palette[i] = static_cast<uint16_t>(seed + i);
+}
+
+static void only_intersecting_regions_refresh() {
+    using namespace saturn::core;
+    reset_runtime();
+    uint16_t palette[256]{};
+    make_palette(palette,0x400u);
+    uint8_t pixels[16u*8u]{};
+    sat_surface_t surface{pixels,16u,8u,16u,SAT_PIXEL_INDEX8,palette,256u};
+    sat_texture_t handle{};
+    OK(sat_texture_create_from_surface(
+        &handle,&surface,SAT_TEXTURE_DYNAMIC)==SAT_OK);
+    const sat_rect_t a{0,0,8u,4u};
+    const sat_rect_t b{8,0,8u,4u};
+    const sat_rect_t c{0,4,8u,4u};
+    OK(sat_texture_prepare_region(handle,&a)==SAT_OK);
+    OK(sat_texture_prepare_region(handle,&b)==SAT_OK);
+    OK(sat_texture_prepare_region(handle,&c)==SAT_OK);
+    auto* first=texture_find_region(g_texture_registry,handle,a);
+    auto* second=texture_find_region(g_texture_registry,handle,b);
+    auto* third=texture_find_region(g_texture_registry,handle,c);
+    OK(first!=nullptr && second!=nullptr && third!=nullptr);
+    const uint16_t first_srca=first->native.srca;
+    const uint16_t second_srca=second->native.srca;
+    const uint16_t third_srca=third->native.srca;
+    uint8_t patch_pixels[8u]{};
+    patch_pixels[0]=0x5Au;
+    sat_surface_t patch{patch_pixels,2u,2u,4u,SAT_PIXEL_INDEX8,palette,256u};
+    const sat_rect_t dst{3,1,2u,2u};
+    OK(sat_texture_update_rect(handle,&dst,&patch)==SAT_OK);
+    OK(g_rect_updates==2u); // Parent and first region, not second or third.
+    OK(g_texture_updates==0u && g_last_pitch==16u);
+    OK(g_rect_srca==first_srca && g_rect_tex_w==8u &&
+       g_rect_tex_h==4u);
+    OK(g_rect_x==3u && g_rect_y==1u &&
+       g_rect_w==2u && g_rect_h==2u);
+    OK(first->native.srca==first_srca &&
+       second->native.srca==second_srca &&
+       third->native.srca==third_srca);
+    OK(pixels[1u*16u+3u]==0x5Au);
+    OK(sat_texture_destroy(handle)==SAT_OK);
 }
 
 static void update_failure_and_recovery() {
@@ -159,13 +233,13 @@ static void update_failure_and_recovery() {
     // upload explicitly invalidates the GPU copy until a full refresh.
     patch.palette_rgb555 = final_palette;
     patch_pixels[0] = 42u;
-    g_texture_update_status = SAT_ERR_IO;
-    g_fail_texture_update_call = g_texture_updates + 1u;
+    g_rect_update_status = SAT_ERR_IO;
+    g_fail_rect_update_call = g_rect_updates + 1u;
     OK(sat_texture_update_rect(handle, &patch_rect, &patch) == SAT_ERR_IO);
     OK(final_pixels[0] == 42u && slot->native.valid == 0u &&
        prepared->native.valid == 0u);
-    g_texture_update_status = SAT_OK;
-    g_fail_texture_update_call = 0u;
+    g_rect_update_status = SAT_OK;
+    g_fail_rect_update_call = 0u;
     OK(sat_texture_update(handle, &final_source) == SAT_OK);
     OK(sat_texture_info(handle, &info) == SAT_OK &&
        info.health == SAT_TEXTURE_READY);
@@ -227,7 +301,10 @@ int main() {
     sat_surface_t patch{patch_pixels, 2u, 2u, 8u, SAT_PIXEL_INDEX8, palette, 256u};
     const sat_rect_t dst{3, 1, 2, 2};
     OK(sat_texture_update_rect(dynamic, &dst, &patch) == SAT_OK);
-    OK(g_texture_updates == 4u); /* parent + persistent region + parent + dynamic region */
+    OK(g_texture_updates == 2u); /* only the earlier full parent/region update */
+    OK(g_rect_updates == 2u); /* dynamic parent and overlapping prepared region */
+    OK(g_rect_x == 3u && g_rect_y == 1u &&
+       g_rect_w == 2u && g_rect_h == 2u);
     OK(dynamic_pixels[15u] == 7u && dynamic_pixels[16u] == 8u);
     OK(dynamic_pixels[27u] == 9u && dynamic_pixels[28u] == 10u);
 
@@ -329,6 +406,7 @@ int main() {
     OK(sat_texture_region_stats(vram_limited, &stats) == SAT_OK && stats.used == 1u);
 
     update_failure_and_recovery();
+    only_intersecting_regions_refresh();
 
     reset_runtime();
     OK(palette_claim_external(g_palette_registry, 0u, kCramWordCount) == SAT_OK);
