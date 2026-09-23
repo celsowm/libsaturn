@@ -9,13 +9,18 @@ param(
     [ValidateSet('yaul', 'sbl', 'minimal', 'yaul_fixed', 'region_free', 'minimal_boot', 'correct', 'final')]
     [string]$IpTemplate = 'yaul',
 
-    [ValidateSet(0, 12, 48, 96)]
+    [ValidateSet(0, 12, 24, 48, 96, 192)]
     [int]$GeometryObjects = 0,
+
+    [ValidateSet(0, 1, 2, 4)]
+    [int]$GeometryFacesPerObject = 0,
 
     [ValidateSet('', 'MASTER', 'SLAVE', 'AUTO')]
     [string]$ParallelMode = '',
 
     [switch]$SkybridgeValidation,
+
+    [switch]$ParallelRuntimeValidation,
 
     [switch]$ForceGemSplit,
 
@@ -82,6 +87,10 @@ if (-not (Test-Path $exampleMain)) {
 if (($SkybridgeValidation -or $ForceGemSplit -or $SkybridgeFault -ne 'None') -and
     $normalizedExample -ne 'skybridge_3d') {
     throw 'Skybridge validation options are available only for skybridge_3d.'
+}
+if (($ParallelRuntimeValidation -or $GeometryFacesPerObject -ne 0) -and
+    $normalizedExample -ne 'parallel_runtime') {
+    throw 'Parallel runtime validation options are available only for parallel_runtime.'
 }
 if ($ForceGemSplit -and -not $SkybridgeValidation) {
     $SkybridgeValidation = $true
@@ -167,6 +176,12 @@ $parallelFlags = ''
 if ($normalizedExample -eq 'parallel_runtime') {
     if ($GeometryObjects -ne 0) {
         $parallelFlags += " PARALLEL_RUNTIME_GEOMETRY_OBJECTS=$GeometryObjects"
+    }
+    if ($GeometryFacesPerObject -ne 0) {
+        $parallelFlags += " PARALLEL_RUNTIME_FACES_PER_OBJECT=$GeometryFacesPerObject"
+    }
+    if ($ParallelRuntimeValidation) {
+        $parallelFlags += ' SAT_PARALLEL_RUNTIME_VALIDATION=1'
     }
     if ($ParallelMode) {
         $parallelModeValue = switch ($ParallelMode) {

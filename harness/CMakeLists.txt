@@ -52,18 +52,18 @@ FetchContent_MakeAvailable(ymir)
 # is deliberately kept outside the library's public runtime API.
 set(YMIR_DEBUG_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/ymir_debug_metrics.patch")
 execute_process(
-    COMMAND git -C "${ymir_SOURCE_DIR}" apply --unidiff-zero --check --reverse "${YMIR_DEBUG_PATCH}"
+    COMMAND git -C "${ymir_SOURCE_DIR}" apply --check --reverse "${YMIR_DEBUG_PATCH}"
     RESULT_VARIABLE YMIR_DEBUG_PATCH_ALREADY_APPLIED
     OUTPUT_QUIET ERROR_QUIET)
 if(NOT YMIR_DEBUG_PATCH_ALREADY_APPLIED EQUAL 0)
     execute_process(
-        COMMAND git -C "${ymir_SOURCE_DIR}" apply --unidiff-zero --check "${YMIR_DEBUG_PATCH}"
+        COMMAND git -C "${ymir_SOURCE_DIR}" apply --check "${YMIR_DEBUG_PATCH}"
         RESULT_VARIABLE YMIR_DEBUG_PATCH_CHECK)
     if(NOT YMIR_DEBUG_PATCH_CHECK EQUAL 0)
         message(FATAL_ERROR "Ymir debug metrics patch no longer applies cleanly")
     endif()
     execute_process(
-        COMMAND git -C "${ymir_SOURCE_DIR}" apply --unidiff-zero "${YMIR_DEBUG_PATCH}"
+        COMMAND git -C "${ymir_SOURCE_DIR}" apply "${YMIR_DEBUG_PATCH}"
         RESULT_VARIABLE YMIR_DEBUG_PATCH_APPLY)
     if(NOT YMIR_DEBUG_PATCH_APPLY EQUAL 0)
         message(FATAL_ERROR "Failed to apply Ymir debug metrics patch")

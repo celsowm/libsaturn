@@ -1,60 +1,67 @@
 diff --git a/libs/ymir-core/include/ymir/hw/vdp/vdp.hpp b/libs/ymir-core/include/ymir/hw/vdp/vdp.hpp
 --- a/libs/ymir-core/include/ymir/hw/vdp/vdp.hpp
 +++ b/libs/ymir-core/include/ymir/hw/vdp/vdp.hpp
-@@ -41,2 +41,18 @@
+@@ -41,6 +41,14 @@ public:
      VDP(core::Scheduler &scheduler, core::Configuration &config);
      ~VDP();
-+
+ 
 +    struct WriteCounters {
 +        uint64 vdp1VRAMWords = 0;
 +        uint64 vdp2VRAMWords = 0;
 +        uint64 vdp2CRAMWords = 0;
 +    };
++    [[nodiscard]] const WriteCounters &GetWriteCounters() const noexcept { return m_writeCounters; }
++    void ResetWriteCounters() noexcept { m_writeCounters = {}; }
 +
-+    /// @brief Retrieves CPU/DMA words submitted to VDP memory since the last reset.
-+    [[nodiscard]] const WriteCounters &GetWriteCounters() const noexcept {
-+        return m_writeCounters;
-+    }
-+
-+    /// @brief Clears the VDP memory-write counters.
-+    void ResetWriteCounters() noexcept {
-+        m_writeCounters = {};
-+    }
-@@ -445,3 +445,4 @@ class VDP {
+     void Reset(bool hard);
+ 
+     void MapCallbacks(CBHBlankStateChange cbHBlankStateChange, CBVBlankStateChange cbVBlankStateChange,
+@@ -443,6 +451,7 @@ private:
+     uint64 m_VDP1TimingPenaltyCycles; // accumulated cycle penalty
+     bool m_stallVDP1OnVRAMWrites = false;
      bool m_skipEmptyVDP1Table = false; // skip processing empty tables (first 0x400 bytes in VDP1 VRAM == 0x00)
-     uint64 m_VDP1CyclesShift = 2;
 +    WriteCounters m_writeCounters{};
+     uint64 m_VDP1CyclesShift = 2;
  
      void VDP1SwapFramebuffer();
-diff --git a/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp b/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp
---- a/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp
-+++ b/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp
-@@ -336,3 +336,4 @@ FORCE_INLINE T VDP::VDP1ReadVRAM(uint32 address) const {
- template <mem_primitive_16 T>
- FORCE_INLINE void VDP::VDP1WriteVRAM(uint32 address, T value) {
-+    m_writeCounters.vdp1VRAMWords += (sizeof(T) + 1u) / 2u;
-     m_state.mem1.WriteVRAM<T>(address, value,
-@@ -417,3 +417,4 @@ FORCE_INLINE T VDP::VDP2ReadVRAM(uint32 address) const {
- template <mem_primitive_16 T>
- FORCE_INLINE void VDP::VDP2WriteVRAM(uint32 address, T value) {
-+    m_writeCounters.vdp2VRAMWords += (sizeof(T) + 1u) / 2u;
-     m_state.mem2.WriteVRAM<T>(address, value,
-@@ -432,3 +432,4 @@ FORCE_INLINE T VDP::VDP2ReadCRAM(uint32 address) const {
- template <mem_primitive_16 T, bool poke>
- FORCE_INLINE void VDP::VDP2WriteCRAM(uint32 address, T value) {
-+    m_writeCounters.vdp2CRAMWords += (sizeof(T) + 1u) / 2u;
-     m_state.mem2.WriteCRAM<T>(address, value, [&](uint32 address, T value) {
 diff --git a/libs/ymir-core/include/ymir/sys/saturn.hpp b/libs/ymir-core/include/ymir/sys/saturn.hpp
 --- a/libs/ymir-core/include/ymir/sys/saturn.hpp
 +++ b/libs/ymir-core/include/ymir/sys/saturn.hpp
-@@ -230,4 +230,10 @@ public:
+@@ -235,6 +235,10 @@ struct Saturn {
          return (this->*m_stepSSH2Fn)();
      }
  
-+    /// @brief Retrieves the absolute emulated master clock cycle count.
-+    /// @return the current system cycle count
 +    [[nodiscard]] uint64 GetCurrentCycleCount() const noexcept {
 +        return m_scheduler.CurrentCount();
 +    }
 +
      /// @brief Detaches all debug tracers from all components.
+     void DetachAllTracers() {
+         masterSH2.UseTracer(nullptr);
+diff --git a/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp b/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp
+--- a/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp
++++ b/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp
+@@ -336,6 +336,7 @@ FORCE_INLINE T VDP::VDP1ReadVRAM(uint32 address) const {
+ 
+ template <mem_primitive_16 T>
+ FORCE_INLINE void VDP::VDP1WriteVRAM(uint32 address, T value) {
++    m_writeCounters.vdp1VRAMWords += (sizeof(T) + 1u) / 2u;
+     m_state.mem1.WriteVRAM<T>(address, value,
+                               [&](uint32 address, T value) { m_renderer->VDP1WriteVRAM(address, value); });
+     if (m_stallVDP1OnVRAMWrites && m_VDP1CtlState.drawing) {
+@@ -417,6 +418,7 @@ FORCE_INLINE T VDP::VDP2ReadVRAM(uint32 address) const {
+ 
+ template <mem_primitive_16 T>
+ FORCE_INLINE void VDP::VDP2WriteVRAM(uint32 address, T value) {
++    m_writeCounters.vdp2VRAMWords += (sizeof(T) + 1u) / 2u;
+     m_state.mem2.WriteVRAM<T>(address, value,
+                               [&](uint32 address, T value) { m_renderer->VDP2WriteVRAM(address, value); });
+ }
+@@ -432,6 +434,7 @@ FORCE_INLINE T VDP::VDP2ReadCRAM(uint32 address) const {
+ 
+ template <mem_primitive_16 T, bool poke>
+ FORCE_INLINE void VDP::VDP2WriteCRAM(uint32 address, T value) {
++    m_writeCounters.vdp2CRAMWords += (sizeof(T) + 1u) / 2u;
+     m_state.mem2.WriteCRAM<T>(address, value, [&](uint32 address, T value) {
+         m_renderer->VDP2WriteCRAM(address, value);
+         if constexpr (!poke) {

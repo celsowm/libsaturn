@@ -11,8 +11,12 @@
 #define SAT_SKYBRIDGE_FORCE_GEM_SPLIT 0
 #endif
 
+#ifndef SAT_PARALLEL_RUNTIME_VALIDATION
+#define SAT_PARALLEL_RUNTIME_VALIDATION 0
+#endif
+
 namespace {
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_SKYBRIDGE_VALIDATION || SAT_PARALLEL_RUNTIME_VALIDATION
 uint32_t g_test_input_publish_ticks;
 #endif
 
@@ -147,11 +151,11 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
     batch->width = scene->faces.width;
     batch->height = scene->faces.height;
     if (batch->pending != 0u) return SAT_ERR_BUSY;
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_SKYBRIDGE_VALIDATION || SAT_PARALLEL_RUNTIME_VALIDATION
     const uint16_t publish_start=saturn::hal::sh2::frt::counter();
 #endif
     SAT_TRY(sync_batch_sources(batch));
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_SKYBRIDGE_VALIDATION || SAT_PARALLEL_RUNTIME_VALIDATION
     g_test_input_publish_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-publish_start);
 #endif
@@ -214,7 +218,7 @@ extern "C" sat_result_t sat_scene_prepare_batch_release(
     return released;
 }
 
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_SKYBRIDGE_VALIDATION || SAT_PARALLEL_RUNTIME_VALIDATION
 extern "C" uint32_t sat_scene3d_test_input_publish_ticks(void) {
     return g_test_input_publish_ticks;
 }

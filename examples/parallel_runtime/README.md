@@ -30,7 +30,28 @@ geometry workload is configurable without source edits:
   -Frames 120 -BootFrames 90
 ```
 
-For the complete 12/48/96 × MASTER/SLAVE/AUTO sweep, run
-`harness/run-parallel-runtime-sweep.ps1`. It leaves the documented `12/AUTO`
-artifact in `build/examples`. The measured comparison is documented in
+For the expanded executor/geometry evidence matrix, run
+`harness/run-parallel-runtime-sweep.ps1`. It defaults to 360 frames for each
+of MASTER, SLAVE and AUTO, with increasing object counts and 1/2/4 faces per
+object. It writes raw per-frame telemetry, Ymir instruction/cycle CSVs and a
+validated JSON summary under `build/`, then restores the normal 12-object
+AUTO artifact. Supply `-GeometryCases` to select a subset, for example
+`@('12:1','48:1','96:1')`.
+
+The validation-only build runs four executor cases (small/large input-output
+payload crossed with light/heavy work). It records direct callback time,
+submit-call time, Master-observed completion/wait, full submit-to-consume
+pipeline, task dispatch counts and the worker's raw FRT start/end values. No
+timestamps from the two SH-2s are subtracted. The synchronous geometry
+preparation+merge and asynchronous submit/overlap/wait/merge/release paths are
+timed separately with the Master FRT. These validation-profile frame cycles
+include diagnostic work and must not be presented as normal frame performance;
+compare them with the uninstrumented mode runs, and treat the FRT measurements
+as emulator characterization rather than physical Saturn FPS.
+
+The report rejects baseline mismatches, unexpected input face counts, and
+executor output mismatches. It marks a workload as a crossover candidate only
+when the median complete asynchronous path is lower than the median direct
+prepare+merge path; this is a candidate, not a scheduler threshold or a
+speedup claim. The report and raw data are documented in
 `docs/PARALLEL_RUNTIME_BENCHMARKS.md`.

@@ -39,6 +39,8 @@ param(
     [string]$ProfileTransfers,
     [switch]$ProfileSkybridgeTelemetry,
     [string]$SkybridgeTelemetryCsv,
+    [switch]$ProfileParallelRuntimeTelemetry,
+    [string]$ParallelRuntimeTelemetryCsv,
     [switch]$ScspTrace,
     [int]$FbSample = 256,
     [string]$Out
@@ -177,6 +179,33 @@ if ($ProfileSkybridgeTelemetry) {
     }
     $probeArgs += @('--skybridge-telemetry-address', ('0x{0:X8}' -f $telemetryAddress),
                     '--skybridge-telemetry-csv', $telemetryCsv)
+}
+if ($ProfileParallelRuntimeTelemetry) {
+    if ($normalizedExample -ne 'parallel_runtime') {
+        throw '-ProfileParallelRuntimeTelemetry is available only for parallel_runtime.'
+    }
+    $mapPath = Join-Path $RepoRoot 'build\parallel_runtime.map'
+    if (-not (Test-Path -LiteralPath $mapPath -PathType Leaf)) {
+        throw "Parallel runtime map file not found: $mapPath. Rebuild with -ParallelRuntimeValidation."
+    }
+    $mapText = Get-Content -LiteralPath $mapPath -Raw
+    $symbol = [regex]::Match($mapText, '(?m)^\s*(0x[0-9A-Fa-f]+)\s+_?g_parallel_runtime_telemetry(?:\s|$)')
+    if (-not $symbol.Success) {
+        throw 'g_parallel_runtime_telemetry is absent from the map; build with -ParallelRuntimeValidation.'
+    }
+    $telemetryAddress = [Convert]::ToUInt32($symbol.Groups[1].Value.Substring(2), 16)
+    $telemetryCsv = if ($ParallelRuntimeTelemetryCsv) {
+        $ParallelRuntimeTelemetryCsv
+    } else {
+        Join-Path ([System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($outJson))) `
+            (([System.IO.Path]::GetFileNameWithoutExtension($outJson)) + '_parallel_runtime_telemetry.csv')
+    }
+    $telemetryDir = Split-Path -Parent $telemetryCsv
+    if ($telemetryDir -and -not (Test-Path -LiteralPath $telemetryDir)) {
+        New-Item -ItemType Directory -Path $telemetryDir -Force | Out-Null
+    }
+    $probeArgs += @('--parallel-runtime-telemetry-address', ('0x{0:X8}' -f $telemetryAddress),
+                    '--parallel-runtime-telemetry-csv', $telemetryCsv)
 }
 if ($PadButton) {
     $probeArgs += @('--pad-button', $PadButton, '--pad-press-at', $PadPressAt, '--pad-release-at', $PadReleaseAt)

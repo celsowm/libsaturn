@@ -63,20 +63,33 @@ ifeq ($(EXAMPLE),parallel_runtime)
 ifneq ($(strip $(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)),)
 CFLAGS      += -DSAT_PARALLEL_RUNTIME_GEOMETRY_OBJECTS=$(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)
 endif
+ifneq ($(strip $(PARALLEL_RUNTIME_FACES_PER_OBJECT)),)
+CFLAGS      += -DSAT_PARALLEL_RUNTIME_FACES_PER_OBJECT=$(PARALLEL_RUNTIME_FACES_PER_OBJECT)
+endif
 ifneq ($(strip $(PARALLEL_RUNTIME_DEFAULT_MODE)),)
 CFLAGS      += -DSAT_PARALLEL_RUNTIME_DEFAULT_MODE=$(PARALLEL_RUNTIME_DEFAULT_MODE)
+endif
+ifneq ($(strip $(SAT_PARALLEL_RUNTIME_VALIDATION)),)
+CFLAGS      += -DSAT_PARALLEL_RUNTIME_VALIDATION=1
 endif
 endif
 ifeq ($(EXAMPLE),skybridge_3d)
 ifneq ($(strip $(SAT_SKYBRIDGE_PARALLEL_MODE)),)
 CFLAGS      += -DSAT_SKYBRIDGE_PARALLEL_MODE=$(SAT_SKYBRIDGE_PARALLEL_MODE)
 endif
+
 ifneq ($(strip $(SAT_SKYBRIDGE_VALIDATION)),)
 CFLAGS      += -DSAT_SKYBRIDGE_VALIDATION=1
 endif
 ifneq ($(strip $(SAT_SKYBRIDGE_FORCE_GEM_SPLIT)),)
 CFLAGS      += -DSAT_SKYBRIDGE_FORCE_GEM_SPLIT=1
 endif
+endif
+ifeq ($(EXAMPLE),parallel_runtime)
+.PHONY: parallel-runtime-profile-flags
+parallel-runtime-profile-flags:
+$(BUILD_DIR)/examples/parallel_runtime/main.o \
+$(BUILD_DIR)/src/graphics/3d/scene/parallel.o: parallel-runtime-profile-flags
 endif
 ifneq ($(strip $(SAT_PARALLEL_TEST_FAULT)),)
 CFLAGS      += -DSAT_PARALLEL_TEST_FAULT=$(SAT_PARALLEL_TEST_FAULT)

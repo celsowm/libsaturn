@@ -267,6 +267,8 @@ struct Args {
     uint32_t slave_reset_entry = 0;  // Ymir direct-injection compatibility handoff
     uint32_t skybridge_telemetry_address = 0;
     std::string skybridge_telemetry_csv_path;
+    uint32_t parallel_runtime_telemetry_address = 0;
+    std::string parallel_runtime_telemetry_csv_path;
 };
 
 constexpr uint32_t kSkybridgeTelemetryMagic = 0x5342544Du;
@@ -298,6 +300,50 @@ constexpr std::array<const char*, kSkybridgeTelemetryWords> kSkybridgeTelemetryN
     "scene_painter_frt_ticks", "scene_emit_frt_ticks", "scene_command_hash",
     "scene_command_count", "scene_command_capacity",
     "timer_read_overhead_frt_ticks"
+};
+
+constexpr uint32_t kParallelRuntimeTelemetryMagic = 0x5052544Du;
+constexpr uint32_t kParallelRuntimeTelemetryVersion = 2u;
+constexpr uint32_t kParallelRuntimeTelemetryWords = 93u;
+constexpr uint32_t kParallelRuntimeTelemetryHeaderBytes = 20u;
+struct ParallelRuntimeTelemetrySample {
+    uint32_t emulated_frame = 0u;
+    std::array<uint32_t, kParallelRuntimeTelemetryWords> words{};
+};
+constexpr std::array<const char*, kParallelRuntimeTelemetryWords>
+kParallelRuntimeTelemetryNames = {
+    "serial", "frame", "mode", "geometry_objects", "faces_per_object",
+    "source_faces", "prepared_faces", "geometry_match",
+    "geometry_validation_stage", "geometry_validation_index",
+    "master_frt_read_overhead_ticks", "worker_task_ticks", "completion_ticks",
+    "direct_prepare_ticks", "direct_merge_ticks", "direct_total_ticks",
+    "async_submit_ticks", "executor_submit_ticks", "publish_ticks",
+    "master_overlap_ticks", "async_wait_ticks", "async_completion_ticks",
+    "async_merge_ticks", "async_release_ticks", "async_total_ticks",
+    "micro0_payload_bytes", "micro0_iterations", "micro0_direct_ticks",
+    "micro0_submit_ticks", "micro0_executor_submit_ticks", "micro0_master_overlap_ticks",
+    "micro0_wait_ticks", "micro0_completion_ticks", "micro0_release_ticks",
+    "micro0_pipeline_ticks", "micro0_worker_ticks", "micro0_master_tasks",
+    "micro0_slave_tasks", "micro0_output_match", "micro0_worker_frt_start",
+    "micro0_worker_frt_end", "micro0_worker_frt_delta",
+    "micro1_payload_bytes", "micro1_iterations", "micro1_direct_ticks",
+    "micro1_submit_ticks", "micro1_executor_submit_ticks", "micro1_master_overlap_ticks",
+    "micro1_wait_ticks", "micro1_completion_ticks", "micro1_release_ticks",
+    "micro1_pipeline_ticks", "micro1_worker_ticks", "micro1_master_tasks",
+    "micro1_slave_tasks", "micro1_output_match", "micro1_worker_frt_start",
+    "micro1_worker_frt_end", "micro1_worker_frt_delta",
+    "micro2_payload_bytes", "micro2_iterations", "micro2_direct_ticks",
+    "micro2_submit_ticks", "micro2_executor_submit_ticks", "micro2_master_overlap_ticks",
+    "micro2_wait_ticks", "micro2_completion_ticks", "micro2_release_ticks",
+    "micro2_pipeline_ticks", "micro2_worker_ticks", "micro2_master_tasks",
+    "micro2_slave_tasks", "micro2_output_match", "micro2_worker_frt_start",
+    "micro2_worker_frt_end", "micro2_worker_frt_delta",
+    "micro3_payload_bytes", "micro3_iterations", "micro3_direct_ticks",
+    "micro3_submit_ticks", "micro3_executor_submit_ticks", "micro3_master_overlap_ticks",
+    "micro3_wait_ticks", "micro3_completion_ticks", "micro3_release_ticks",
+    "micro3_pipeline_ticks", "micro3_worker_ticks", "micro3_master_tasks",
+    "micro3_slave_tasks", "micro3_output_match", "micro3_worker_frt_start",
+    "micro3_worker_frt_end", "micro3_worker_frt_delta"
 };
 
 void print_usage() {
@@ -451,6 +497,15 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--skybridge-telemetry-csv");
             if (!v) return false;
             out->skybridge_telemetry_csv_path = v;
+        } else if (arg == "--parallel-runtime-telemetry-address") {
+            const char* v = next("--parallel-runtime-telemetry-address");
+            if (!v) return false;
+            out->parallel_runtime_telemetry_address =
+                static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+        } else if (arg == "--parallel-runtime-telemetry-csv") {
+            const char* v = next("--parallel-runtime-telemetry-csv");
+            if (!v) return false;
+            out->parallel_runtime_telemetry_csv_path = v;
         } else if (arg == "--dump-vram") {
             const char* v = next("--dump-vram");
             if (!v) return false;
@@ -477,6 +532,12 @@ bool parse_args(int argc, char** argv, Args* out) {
         out->skybridge_telemetry_csv_path.empty()) {
         std::fprintf(stderr,
             "Skybridge telemetry requires both address and CSV output path\n");
+        return false;
+    }
+    if ((out->parallel_runtime_telemetry_address == 0u) !=
+        out->parallel_runtime_telemetry_csv_path.empty()) {
+        std::fprintf(stderr,
+            "Parallel runtime telemetry requires both address and CSV output path\n");
         return false;
     }
     return true;
@@ -800,6 +861,8 @@ int main(int argc, char** argv) {
     std::vector<std::array<uint64_t, 3>> transfer_samples;
     std::vector<SkybridgeTelemetrySample> skybridge_telemetry_samples;
     uint32_t last_skybridge_telemetry_count = 0u;
+    std::vector<ParallelRuntimeTelemetrySample> parallel_runtime_telemetry_samples;
+    uint32_t last_parallel_runtime_telemetry_count = 0u;
     InstructionCounter master_instructions;
     InstructionCounter slave_instructions;
     if (!args.profile_instructions_path.empty()) {
@@ -865,6 +928,55 @@ int main(int argc, char** argv) {
                         skybridge_telemetry_samples.push_back(sample);
                     }
                     last_skybridge_telemetry_count = count_now;
+                }
+            }
+            if (args.parallel_runtime_telemetry_address != 0u) {
+                const uint32_t address = args.parallel_runtime_telemetry_address & 0x0FFF'FFFFu;
+                if (address < 0x0600'0000u || address >= 0x0610'0000u) {
+                    std::fprintf(stderr,
+                        "Parallel runtime telemetry address is outside High WRAM: %08X\n",
+                        args.parallel_runtime_telemetry_address);
+                    std::exit(EXIT_FAILURE);
+                }
+                const size_t base = static_cast<size_t>(address - 0x0600'0000u);
+                const auto& wram = saturn->mem.WRAMHigh;
+                auto read_wram_be32 = [&](size_t offset) -> uint32_t {
+                    const uint8_t* p = wram.data() + offset;
+                    return (static_cast<uint32_t>(p[0]) << 24u) |
+                           (static_cast<uint32_t>(p[1]) << 16u) |
+                           (static_cast<uint32_t>(p[2]) << 8u) |
+                           static_cast<uint32_t>(p[3]);
+                };
+                if (base + kParallelRuntimeTelemetryHeaderBytes <= wram.size() &&
+                    read_wram_be32(base) == kParallelRuntimeTelemetryMagic) {
+                    const uint32_t version = read_wram_be32(base + 4u);
+                    const uint32_t words = read_wram_be32(base + 8u);
+                    const uint32_t capacity = read_wram_be32(base + 12u);
+                    const uint32_t count_now = read_wram_be32(base + 16u);
+                    if (version != kParallelRuntimeTelemetryVersion ||
+                        words != kParallelRuntimeTelemetryWords || capacity == 0u ||
+                        base + kParallelRuntimeTelemetryHeaderBytes +
+                            static_cast<size_t>(capacity) * words * 4u > wram.size()) {
+                        std::fprintf(stderr,
+                            "Unsupported parallel runtime telemetry header (v%u, %u words, cap %u, base 0x%zX, WRAM %zu bytes)\n",
+                            version, words, capacity, base, wram.size());
+                        std::exit(EXIT_FAILURE);
+                    }
+                    const uint32_t first = count_now > capacity &&
+                        count_now - last_parallel_runtime_telemetry_count > capacity
+                            ? count_now - capacity
+                            : last_parallel_runtime_telemetry_count;
+                    for (uint32_t serial = first; serial < count_now; ++serial) {
+                        const uint32_t slot = serial % capacity;
+                        const size_t record_base = base + kParallelRuntimeTelemetryHeaderBytes +
+                            static_cast<size_t>(slot) * words * 4u;
+                        ParallelRuntimeTelemetrySample sample{};
+                        sample.emulated_frame = frame_offset + i;
+                        for (uint32_t word = 0u; word < words; ++word)
+                            sample.words[word] = read_wram_be32(record_base + word * 4u);
+                        parallel_runtime_telemetry_samples.push_back(sample);
+                    }
+                    last_parallel_runtime_telemetry_count = count_now;
                 }
             }
             if (!args.profile_cycles_path.empty()) {
@@ -1135,6 +1247,34 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "[probe] wrote %zu Skybridge telemetry rows to %s\n",
                      skybridge_telemetry_samples.size(),
                      args.skybridge_telemetry_csv_path.c_str());
+    }
+
+    if (!args.parallel_runtime_telemetry_csv_path.empty()) {
+        if (parallel_runtime_telemetry_samples.empty()) {
+            std::fprintf(stderr,
+                "parallel_runtime telemetry header/records were not observed at 0x%08X; "
+                "check that the validation build reached its frame loop\n",
+                args.parallel_runtime_telemetry_address);
+            return 1;
+        }
+        std::ofstream telemetry_out(args.parallel_runtime_telemetry_csv_path);
+        if (!telemetry_out) {
+            std::fprintf(stderr, "failed to open parallel runtime telemetry CSV: %s\n",
+                         args.parallel_runtime_telemetry_csv_path.c_str());
+            return 1;
+        }
+        telemetry_out << "emulated_frame";
+        for (const char* name : kParallelRuntimeTelemetryNames)
+            telemetry_out << ',' << name;
+        telemetry_out << '\n';
+        for (const auto& sample : parallel_runtime_telemetry_samples) {
+            telemetry_out << sample.emulated_frame;
+            for (uint32_t word : sample.words) telemetry_out << ',' << word;
+            telemetry_out << '\n';
+        }
+        std::fprintf(stderr, "[probe] wrote %zu parallel runtime telemetry rows to %s\n",
+                     parallel_runtime_telemetry_samples.size(),
+                     args.parallel_runtime_telemetry_csv_path.c_str());
     }
 
     // Whole VDP1 display framebuffer, so a run can be checked by looking at

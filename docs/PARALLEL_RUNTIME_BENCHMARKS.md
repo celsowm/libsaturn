@@ -175,3 +175,88 @@ Ymir instruction/cycle observations; `summary.json` gives median, p95, maximum
 cycle averages. The guest timer is quantized to one millisecond. Ymir's
 instruction and cycle statistics describe emulator work, not physical Saturn
 FPS, so the report does not impose a speedup threshold or claim a speedup.
+
+## Executor cost and expanded geometry matrix
+
+The follow-up harness separates two evidence sets. For every geometry case
+and policy it first builds a normal, uninstrumented example and collects 360
+program frames of Ymir Master/Slave instruction counts and Master cycle
+samples. It then builds a validation-only profile (120 frames by default)
+that compares synchronous preparation+merge against the full asynchronous
+submit/independent-Master-work/wait/merge/release path, and measures four
+executor cases crossing 16/512-byte payloads with 64/16,384 callback
+iterations. Set `-DiagnosticFrames` to change only the validation-profile
+sample count. The regular-policy runs and diagnostic runs have distinct file
+names and must not be combined as if they had the same overhead.
+
+The default geometry set is 12/48/96/192 objects at one face each, plus
+48/96/192 objects at two faces and 24/48/96 objects at four faces. The
+validation profile checks each asynchronous result against its synchronous
+baseline every frame and rejects unexpected source-face counts or any
+microbenchmark output mismatch. Raw `*.telemetry.csv`, `*.cycles.csv` and
+`*.instructions.csv` remain in `build/`; the per-workload report is
+`build/parallel_runtime.validation_summary.json`. The report gives median,
+p95 and maximum FRT ticks for complete direct and asynchronous geometry paths,
+and for direct/submit/completion/pipeline microbenchmark components. It reports
+a crossover candidate only if a workload's asynchronous median is lower; it
+does not automatically change `AUTO` or claim a speedup.
+
+The executor probe returns the Slave-local FRT values in its result buffer,
+then validates the modular start/end delta. This avoids subtracting
+unsynchronized CPU clocks. The current Ymir run now observes advancing
+worker-local FRT deltas for every measured callback in SLAVE and AUTO; this
+validates that the worker timer is readable in this harness, not that its
+calibration exactly matches physical hardware. The timer is the Master/worker
+16-bit FRT at `/128`, so intervals must remain below rollover and short
+intervals are quantized. Direct callback time and asynchronous pipeline time
+include different executor/publication costs by design; neither alone is a
+pure count of useful geometry arithmetic.
+
+## Ymir result snapshot (2026-09-23)
+
+The reduced workload sweep used identical generated geometry in all modes:
+12 objects × 1 face, 48 × 2, and 96 × 4. Each normal run recorded 360
+post-boot emulator frames; each validation profile produced 38, 28, and 18
+complete application-frame telemetry records, respectively. All 252 records
+matched the synchronous geometry baseline; the SLAVE and AUTO executor probes
+dispatched measured callbacks to the Slave, and the Slave-local FRT advanced
+in every callback sample. The full raw data and all nine mode/workload results
+are in `build/parallel_runtime.validation_summary.json` and the adjacent CSVs.
+
+The geometry columns are Master-local FRT ticks for synchronous prepare+merge
+and the complete asynchronous submit/overlap/wait/merge/release interval. Each
+cell is median / p95 / maximum. `Δ med` is async median minus direct median.
+
+| Load | Mode | Samples | Direct ticks med/p95/max | Async ticks med/p95/max | Δ med |
+|---|---|---:|---:|---:|---:|
+| 12×1 | MASTER | 38 | 383.5 / 387 / 387 | 953.5 / 958 / 958 | +570 |
+| 12×1 | SLAVE | 38 | 383.5 / 387 / 387 | 856 / 865.15 / 866 | +472.5 |
+| 12×1 | AUTO | 38 | 383.5 / 387 / 387 | 833 / 837 / 837 | +449.5 |
+| 48×2 | MASTER | 28 | 1488 / 1496 / 1496 | 3358 / 3371 / 3371 | +1870 |
+| 48×2 | SLAVE | 28 | 1488 / 1496 / 1496 | 3418 / 3439.5 / 3445 | +1930 |
+| 48×2 | AUTO | 28 | 1488 / 1496 / 1496 | 3241 / 3253.65 / 3254 | +1753 |
+| 96×4 | MASTER | 18 | 4049 / 4066.1 / 4078 | 8038 / 8065.45 / 8085 | +3989 |
+| 96×4 | SLAVE | 18 | 4048.5 / 4066.1 / 4078 | 8768.5 / 8794 / 8794 | +4720 |
+| 96×4 | AUTO | 18 | 4048.5 / 4066.1 / 4078 | 8014.5 / 8042.6 / 8063 | +3966 |
+
+No geometry crossover appeared: the measured asynchronous path was slower than
+the direct path in all nine combinations. Increasing the load raised both
+costs, but did not amortize dispatch, waiting and result handling in this
+example. This supports keeping AUTO geometry on Master; it is not evidence
+that parallelism cannot benefit a different, larger/coarser task.
+
+The isolated microbenchmark also confirms worker-time measurement. At 96×4 in
+SLAVE, the four callback cases (16/512-byte payload × 64/16,384 iterations)
+had direct medians of 8.5, 104, 1156 and 1252 ticks; full submit-to-consume
+pipeline medians were 81, 303.5, 1192 and 1451 ticks. Corresponding Slave-local
+FRT medians were 8, 112, 1156 and 1259 ticks (18 samples each). Even the
+heaviest callback did not make the complete pipeline faster than direct
+execution in this matrix.
+
+Across the uninstrumented 360-frame runs, Ymir reported Master-cycle medians
+of 449,204 and p95 values of 449,206 for all cases; maxima were 449,207–449,209.
+Those counts are per fixed emulator video frame and are nearly constant by
+construction, so they are not an elapsed-frame performance metric. The
+post-boot Master/Slave instruction totals are retained in the JSON report to
+show work distribution, not speedup. These are emulator observations, not
+physical Saturn FPS.
