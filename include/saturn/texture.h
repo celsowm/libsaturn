@@ -71,7 +71,8 @@ sat_result_t sat_texture_info(sat_texture_t texture, sat_texture_info_t* out_inf
  * marked NEEDS_RECOVERY, and draws/region preparation are rejected. Repeating
  * this full update with a valid source repairs the parent and all regions.
  * The caller must keep the new source and palette alive until the update
- * has completed; a failed in-place update is not an atomic hardware rollback. */
+ * has completed. Palette ownership is committed after its successful upload,
+ * but a failed in-place update is not an atomic hardware rollback. */
 sat_result_t sat_texture_update(sat_texture_t texture, const sat_surface_t* source);
 
 /* Writes a rectangular update. This is limited to DYNAMIC textures because

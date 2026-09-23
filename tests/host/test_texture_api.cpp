@@ -101,15 +101,17 @@ static void update_failure_and_recovery() {
     auto* prepared = texture_find_region(g_texture_registry, handle, region);
     OK(prepared != nullptr);
 
-    // Palette rebinding is logical before the hardware upload: its failure
-    // must invalidate every native descriptor without leaking its new bank.
+    // A failed palette upload must invalidate native descriptors WITHOUT
+    // publishing the new logical palette or taking its bank. Physical CRAM
+    // contents may still be partially modified; a full update repairs them.
     g_palette_upload_status = SAT_ERR_IO;
     OK(sat_texture_update(handle, &replacement) == SAT_ERR_IO);
     OK(sat_texture_info(handle, &info) == SAT_OK &&
        info.health == SAT_TEXTURE_NEEDS_RECOVERY);
     OK(slot->native.valid == 0u && prepared->native.valid == 0u);
+    OK(slot->palette_bank == 0u);
     OK(palette_equal(g_palette_registry.logical_palettes[slot->palette_bank],
-                     new_palette));
+                     original_palette));
     OK(slot->source.pixels == original_pixels);
     uint8_t patch_pixels[8u]{};
     sat_surface_t patch{patch_pixels, 8u, 1u, 8u,
@@ -124,6 +126,8 @@ static void update_failure_and_recovery() {
     OK(sat_texture_info(handle, &info) == SAT_OK &&
        info.health == SAT_TEXTURE_READY);
     OK(slot->native.valid == 1u && prepared->native.valid == 1u);
+    OK(palette_equal(g_palette_registry.logical_palettes[slot->palette_bank],
+                     new_palette));
     OK(slot->source.pixels == new_pixels);
 
     // Parent VRAM transfer can fail after palette ownership has changed.

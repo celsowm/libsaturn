@@ -49,6 +49,25 @@ int main() {
     OK(state.logical_refs[bank_a] == 1u);
     OK(state.logical_refs[rebound] == 1u);
 
+    // Planning must never alter refcounts or visible logical color arrays.
+    const uint16_t old_refs=state.logical_refs[rebound];
+    PaletteRebindPlan plan{};
+    OK(palette_prepare_rebind(state,rebound,a,&plan)==SAT_OK);
+    OK(plan.old_bank==rebound && plan.target_bank==bank_a &&
+       !plan.needs_upload);
+    OK(state.logical_refs[rebound]==old_refs &&
+       state.logical_refs[bank_a]==1u &&
+       palette_equal(state.logical_palettes[rebound],b));
+    // The first fully uploaded target is logically committed exactly once.
+    palette_commit_rebind(state,plan,a);
+    OK(state.logical_refs[rebound]==old_refs-1u &&
+       state.logical_refs[bank_a]==2u);
+    // Rebind our additional acquired reference back to the original palette.
+    uint16_t return_bank=0u;
+    OK(palette_rebind_logical(state,bank_a,b,&return_bank,&upload)==SAT_OK);
+    OK(return_bank==rebound && state.logical_refs[bank_a]==1u &&
+       state.logical_refs[rebound]==1u);
+
     OK(palette_release_logical(state, bank_a) == SAT_OK);
     OK((state.logical_mask & static_cast<uint8_t>(1u << bank_a)) == 0u);
 
@@ -60,6 +79,23 @@ int main() {
     OK(rebound_same == rebound);
     OK(upload);
     OK(palette_equal(state.logical_palettes[rebound], c));
+
+    // Sole-owner in-place palette recycling must not publish color metadata
+    // until the simulated full CRAM transfer has succeeded.
+    uint16_t d[256]{};
+    make_palette(d,0x400u);
+    const uint8_t original_mask=state.logical_mask;
+    OK(palette_prepare_rebind(state,rebound,d,&plan)==SAT_OK);
+    OK(plan.old_bank==rebound && plan.target_bank==rebound &&
+       plan.needs_upload);
+    OK(state.logical_mask==original_mask &&
+       palette_equal(state.logical_palettes[rebound],c));
+    // Failure: do not commit. This is *logical* atomicity, not CRAM rollback.
+    OK(palette_equal(state.logical_palettes[rebound],c));
+    OK(palette_prepare_rebind(state,rebound,d,&plan)==SAT_OK);
+    palette_commit_rebind(state,plan,d);
+    OK(state.logical_mask==original_mask &&
+       palette_equal(state.logical_palettes[rebound],d));
 
     PaletteRegistry full{};
     palette_registry_reset(full);

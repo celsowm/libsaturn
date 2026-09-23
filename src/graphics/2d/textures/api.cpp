@@ -216,25 +216,29 @@ extern "C" sat_result_t sat_texture_update(sat_texture_t texture, const sat_surf
         return SAT_ERR_INVALID_ARG;
     }
 
-    uint16_t palette_bank = slot->palette_bank;
-    bool needs_palette_upload = false;
-    st = palette_rebind_logical(
+    PaletteRebindPlan palette_plan{};
+    st = palette_prepare_rebind(
         g_palette_registry, slot->palette_bank, source->palette_rgb555,
-        &palette_bank, &needs_palette_upload);
+        &palette_plan);
     if (st != SAT_OK) return st;
 
-    // Rebind may have moved the logical palette or replaced the sole owner's
-    // palette in place. Publish its bank to the slot BEFORE the first hardware
-    // write, so a failed update remains destroyable and recoverable.
+    // Upload BEFORE changing logical palette ownership. An unsuccessful CRAM
+    // transfer may still be partial, so invalidate the texture and all of its
+    // prepared regions while preserving the previous logical binding.
     const bool recovering = slot->native.valid == 0u;
-    slot->palette_bank = static_cast<uint8_t>(palette_bank);
-    if (needs_palette_upload || recovering) {
-        st = saturn::hal::vdp1::upload_palette(source->palette_rgb555, palette_bank);
+    if (palette_plan.needs_upload || recovering) {
+        st = saturn::hal::vdp1::upload_palette(
+            source->palette_rgb555, palette_plan.target_bank);
         if (st != SAT_OK) {
             texture_needs_recovery(texture, *slot);
             return st;
         }
     }
+    // Serialized, infallible commit after the complete palette transfer.
+    palette_commit_rebind(g_palette_registry, palette_plan,
+                          source->palette_rgb555);
+    const uint16_t palette_bank = palette_plan.target_bank;
+    slot->palette_bank = static_cast<uint8_t>(palette_bank);
 
     st = saturn::hal::vdp1::update_texture_indexed8_pitched(
         slot->native.srca,

@@ -113,9 +113,88 @@ inline sat_result_t palette_release_logical(PaletteRegistry& state, uint16_t ban
     return SAT_OK;
 }
 
-/* Rebind one texture to a new palette. It reuses an identical logical bank,
- * recycles the old bank in place when this texture is its sole owner, or
- * allocates another free bank. On failure the old binding remains unchanged. */
+/* Non-mutating palette update plan. The caller must keep the source palette
+ * alive and serialize prepare -> optional full CRAM upload -> commit with other
+ * palette registry operations. This needs no heap and only a small stack plan.
+ * A failed upload leaves logical ownership/refcounts unchanged; physical
+ * CRAM may nevertheless be partially written, so the texture must be marked
+ * dirty by its caller. */
+struct PaletteRebindPlan {
+    uint16_t old_bank;
+    uint16_t target_bank;
+    bool needs_upload;
+};
+
+inline sat_result_t palette_prepare_rebind(
+    const PaletteRegistry& state,
+    uint16_t old_bank,
+    const uint16_t* palette,
+    PaletteRebindPlan* out_plan
+) {
+    if (old_bank >= kCramBankCount || palette == nullptr || out_plan == nullptr)
+        return SAT_ERR_INVALID_ARG;
+    const uint8_t old_bit = static_cast<uint8_t>(1u << old_bank);
+    if ((state.logical_mask & old_bit) == 0u || state.logical_refs[old_bank] == 0u)
+        return SAT_ERR_INVALID_ARG;
+
+    if (palette_equal(state.logical_palettes[old_bank], palette)) {
+        *out_plan = {old_bank, old_bank, false};
+        return SAT_OK;
+    }
+
+    for (uint16_t bank = 0u; bank < kCramBankCount; ++bank) {
+        if (bank == old_bank) continue;
+        const uint8_t bit = static_cast<uint8_t>(1u << bank);
+        if ((state.logical_mask & bit) != 0u &&
+            palette_equal(state.logical_palettes[bank], palette)) {
+            if (state.logical_refs[bank] == 0xFFFFu) return SAT_ERR_CAPACITY;
+            *out_plan = {old_bank, bank, false};
+            return SAT_OK;
+        }
+    }
+
+    if (state.logical_refs[old_bank] == 1u) {
+        *out_plan = {old_bank, old_bank, true};
+        return SAT_OK;
+    }
+
+    for (uint16_t bank = 0u; bank < kCramBankCount; ++bank) {
+        const uint8_t bit = static_cast<uint8_t>(1u << bank);
+        if (((state.logical_mask | state.external_mask) & bit) == 0u) {
+            *out_plan = {old_bank, bank, true};
+            return SAT_OK;
+        }
+    }
+    return SAT_ERR_CAPACITY;
+}
+
+/* Commit is infallible under the serialized prepare/upload/commit contract;
+ * this does not claim that a previous CRAM transfer can be rolled back. */
+inline void palette_commit_rebind(
+    PaletteRegistry& state,
+    const PaletteRebindPlan& plan,
+    const uint16_t* palette
+) {
+    if (plan.old_bank == plan.target_bank) {
+        if (plan.needs_upload)
+            palette_copy(state.logical_palettes[plan.target_bank], palette);
+        return;
+    }
+
+    const uint8_t target_bit = static_cast<uint8_t>(1u << plan.target_bank);
+    if ((state.logical_mask & target_bit) != 0u) {
+        ++state.logical_refs[plan.target_bank];
+    } else {
+        state.logical_mask = static_cast<uint8_t>(state.logical_mask | target_bit);
+        state.logical_refs[plan.target_bank] = 1u;
+        palette_copy(state.logical_palettes[plan.target_bank], palette);
+    }
+    (void)palette_release_logical(state, plan.old_bank);
+}
+
+/* Retained for registry-only clients: the callback-free primitive performs
+ * both phases synchronously. Texture updates use prepare and commit on either
+ * side of the hardware upload instead. */
 inline sat_result_t palette_rebind_logical(
     PaletteRegistry& state,
     uint16_t old_bank,
@@ -123,46 +202,15 @@ inline sat_result_t palette_rebind_logical(
     uint16_t* out_bank,
     bool* out_needs_upload
 ) {
-    if (old_bank >= kCramBankCount || palette == nullptr || out_bank == nullptr || out_needs_upload == nullptr) {
+    if (out_bank == nullptr || out_needs_upload == nullptr)
         return SAT_ERR_INVALID_ARG;
-    }
-    const uint8_t old_bit = static_cast<uint8_t>(1u << old_bank);
-    if ((state.logical_mask & old_bit) == 0u || state.logical_refs[old_bank] == 0u) {
-        return SAT_ERR_INVALID_ARG;
-    }
-    if (palette_equal(state.logical_palettes[old_bank], palette)) {
-        *out_bank = old_bank;
-        *out_needs_upload = false;
-        return SAT_OK;
-    }
-
-    for (uint16_t bank = 0; bank < kCramBankCount; ++bank) {
-        if (bank == old_bank) continue;
-        const uint8_t bit = static_cast<uint8_t>(1u << bank);
-        if ((state.logical_mask & bit) != 0u && palette_equal(state.logical_palettes[bank], palette)) {
-            if (state.logical_refs[bank] == 0xFFFFu) return SAT_ERR_CAPACITY;
-            ++state.logical_refs[bank];
-            (void)palette_release_logical(state, old_bank);
-            *out_bank = bank;
-            *out_needs_upload = false;
-            return SAT_OK;
-        }
-    }
-
-    if (state.logical_refs[old_bank] == 1u) {
-        palette_copy(state.logical_palettes[old_bank], palette);
-        *out_bank = old_bank;
-        *out_needs_upload = true;
-        return SAT_OK;
-    }
-
-    uint16_t new_bank = 0u;
-    bool needs_upload = false;
-    const sat_result_t st = palette_acquire_logical(state, palette, &new_bank, &needs_upload);
+    PaletteRebindPlan plan{};
+    const sat_result_t st = palette_prepare_rebind(
+        state, old_bank, palette, &plan);
     if (st != SAT_OK) return st;
-    (void)palette_release_logical(state, old_bank);
-    *out_bank = new_bank;
-    *out_needs_upload = needs_upload;
+    palette_commit_rebind(state, plan, palette);
+    *out_bank = plan.target_bank;
+    *out_needs_upload = plan.needs_upload;
     return SAT_OK;
 }
 
