@@ -62,8 +62,17 @@ static void draw_value(const sat_ascii_font_t* font, const char* label, uint32_t
     (void)sat_hud_value(&g_hud, label, value, 8, y);
 }
 
+static sat_result_t service_cd_audio(void* context) {
+    (void)context;
+    return sat_audio_update();
+}
+
 static sat_result_t register_cd_tracks(void) {
     sat_result_t status = sat_cd_block_init(&g_cd_block, SAT_CD_BLOCK_DEFAULT_TIMEOUT);
+    if (status != SAT_OK) return status;
+    /* This example explicitly opts into servicing audio while CD waits.
+     * Bare-metal CD Block users have no implicit audio dependency. */
+    status = sat_cd_block_set_progress_service(&g_cd_block, service_cd_audio, 0);
     if (status != SAT_OK) return status;
     /* A zero sector count means unbounded validation in sat_cd_device_t. The
      * CD Block itself remains bounded by the requested CDFS file extent. */

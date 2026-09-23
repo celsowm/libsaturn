@@ -2,11 +2,6 @@
 
 #include <stddef.h>
 
-// CD transfers are synchronous, but SCSP streaming still needs servicing
-// while the drive is seeking or collecting sectors. Keep this dependency
-// optional so the standalone CD Block host tests need no audio runtime.
-extern "C" sat_result_t sat_audio_update(void) __attribute__((weak));
-
 namespace {
 
 struct Command {
@@ -33,14 +28,19 @@ uint32_t timeout_for(const sat_cd_block_t* block) {
         ? SAT_CD_BLOCK_DEFAULT_TIMEOUT : block->timeout_iterations;
 }
 
-inline void pump_audio() {
-    if (sat_audio_update != nullptr) (void)sat_audio_update();
+/* The HAL knows only this explicit per-block hook, never an audio symbol.
+ * Suppress recursive callbacks during one service invocation. */
+inline void pump_progress(sat_cd_block_t* block) {
+    if (block->progress == nullptr || block->progress_active != 0u) return;
+    block->progress_active = 1u;
+    (void)block->progress(block->progress_context);
+    block->progress_active = 0u;
 }
 
-sat_result_t wait_hirq(const sat_cd_block_t* block, uint16_t mask) {
+sat_result_t wait_hirq(sat_cd_block_t* block, uint16_t mask) {
     for (uint32_t i = 0u; i < timeout_for(block); ++i) {
         if ((read_reg(SAT_CD_BLOCK_HIRQ) & mask) != 0u) return SAT_OK;
-        if ((i & 0x0FFFu) == 0u) pump_audio();
+        if ((i & 0x0FFFu) == 0u) pump_progress(block);
     }
     return SAT_ERR_TIMEOUT;
 }
@@ -62,7 +62,7 @@ Command read_command() {
 }
 
 sat_result_t execute(
-    const sat_cd_block_t* block,
+    sat_cd_block_t* block,
     const Command& command,
     uint16_t wait_flags,
     Command* out_response
@@ -83,7 +83,7 @@ sat_result_t execute(
 }
 
 sat_result_t execute_and_wait(
-    const sat_cd_block_t* block,
+    sat_cd_block_t* block,
     const Command& command,
     uint16_t wait_flags
 ) {
@@ -93,7 +93,7 @@ sat_result_t execute_and_wait(
     return SAT_OK;
 }
 
-sat_result_t get_ready_sectors(const sat_cd_block_t* block, uint16_t* out_count) {
+sat_result_t get_ready_sectors(sat_cd_block_t* block, uint16_t* out_count) {
     if (out_count == nullptr) return SAT_ERR_INVALID_ARG;
     Command response{};
     SAT_TRY(wait_hirq(block, SAT_CD_BLOCK_HIRQ_CMOK));
@@ -155,7 +155,7 @@ sat_result_t read_impl(
 
     uint32_t remaining = sector_count;
     while (remaining != 0u) {
-        pump_audio();
+        pump_progress(block);
         uint16_t ready = 0u;
         for (;;) {
             SAT_TRY(get_ready_sectors(block, &ready));
@@ -169,7 +169,7 @@ sat_result_t read_impl(
             SAT_CD_BLOCK_HIRQ_DRDY));
         SAT_TRY(transfer_words(destination, take * SAT_CD_SECTOR_BYTES));
         SAT_TRY(execute_and_wait(block, {0x0600u, 0u, 0u, 0u}, 0u));
-        pump_audio();
+        pump_progress(block);
         destination += take * SAT_CD_SECTOR_BYTES;
         remaining -= take;
     }
@@ -206,6 +206,15 @@ extern "C" sat_result_t sat_cd_block_init(
     out_block->initialized = 1u;
     return SAT_OK;
 #endif
+}
+
+extern "C" sat_result_t sat_cd_block_set_progress_service(
+    sat_cd_block_t* block, sat_cd_block_progress_fn fn, void* context) {
+    if (block == nullptr) return SAT_ERR_INVALID_ARG;
+    if (block->progress_active != 0u) return SAT_ERR_BUSY;
+    block->progress = fn;
+    block->progress_context = fn != nullptr ? context : nullptr;
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_cd_block_read_sectors(

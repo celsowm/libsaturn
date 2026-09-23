@@ -30,16 +30,32 @@ extern "C" {
 
 #define SAT_CD_BLOCK_DEFAULT_TIMEOUT 0x240000u
 
+/* Optional service hook invoked periodically during synchronous CD waits.
+ * The callback is application-owned, may service audio/input/other bounded
+ * work, and MUST NOT start another CD request on the same block. Its return
+ * status is advisory (the CD wait reports its own transport result).
+ * A null hook has no background/linked service dependency. */
+typedef sat_result_t (*sat_cd_block_progress_fn)(void* context);
+
 typedef struct sat_cd_block {
     uint32_t timeout_iterations;
+    sat_cd_block_progress_fn progress;
+    void* progress_context;
     uint8_t initialized;
-    uint8_t reserved[3];
+    uint8_t progress_active;
+    uint8_t reserved[2];
 } sat_cd_block_t;
 
 /* Initializes the CD Block command/filter state. This does not perform disc
  * authentication and must run after the platform/BIOS has made the block
  * accessible. */
 sat_result_t sat_cd_block_init(sat_cd_block_t* out_block, uint32_t timeout_iterations);
+
+/* Register after init: init resets the whole block. The callback and context
+ * are borrowed, must outlive outstanding CD operations, and can be cleared
+ * with fn == NULL. No L0/L1 CD operation implicitly initializes audio. */
+sat_result_t sat_cd_block_set_progress_service(
+    sat_cd_block_t* block, sat_cd_block_progress_fn fn, void* context);
 
 /* Reads ISO user-data sectors by LBA. The transport converts LBA to the CD
  * Block's FAD address and transfers exactly sector_count * 2048 bytes. */
