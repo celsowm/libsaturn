@@ -30,7 +30,7 @@ sat_result_t cast_faces(const sat_mesh_t& mesh, const sat_sphere_t& sphere,
         static_cast<sat_fx16_t>(nz)};
     for (uint16_t face=0; face<mesh.face_count; ++face) {
         sat_quad3_t q{};
-        if (saturn::core::mesh3d::face_quad(&mesh,face,&q)!=SAT_OK)
+        if (saturn::core::geometry::face_quad(&mesh,face,&q)!=SAT_OK)
             return SAT_ERR_INVALID_ARG;
         const sat_vec3_t n=unit(quad_normal_scaled(q));
         if (!n.x && !n.y && !n.z) continue;

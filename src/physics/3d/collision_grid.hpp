@@ -72,7 +72,7 @@ inline sat_result_t mesh3_grid_init(
     uint64_t required = 0u;
     for (uint16_t face = 0; face < mesh.face_count; ++face) {
         sat_quad3_t q;
-        if (saturn::core::mesh3d::face_quad(&mesh, face, &q) != SAT_OK) {
+        if (saturn::core::geometry::face_quad(&mesh, face, &q) != SAT_OK) {
             return SAT_ERR_INVALID_ARG;
         }
         int32_t x0, y0, z0, x1, y1, z1;
@@ -97,7 +97,7 @@ inline sat_result_t mesh3_grid_init(
 
     for (uint16_t face = 0; face < mesh.face_count; ++face) {
         sat_quad3_t q;
-        (void)saturn::core::mesh3d::face_quad(&mesh, face, &q);
+        (void)saturn::core::geometry::face_quad(&mesh, face, &q);
         int32_t x0, y0, z0, x1, y1, z1;
         mesh3_grid_face_cells(q, cell_shift, x0, y0, z0, x1, y1, z1);
         for (int32_t z = z0; z <= z1; ++z) {
@@ -164,7 +164,7 @@ inline sat_result_t sphere_mesh_grid(
                     grid.stamps[e.face] = grid.query_stamp;
 
                     sat_quad3_t q;
-                    if (saturn::core::mesh3d::face_quad(grid.mesh, e.face, &q) != SAT_OK) continue;
+                    if (saturn::core::geometry::face_quad(grid.mesh, e.face, &q) != SAT_OK) continue;
                     sat_contact3_t c;
                     if (!sphere_quad_contact(q, sphere, c)) continue;
                     if (count >= cap) {

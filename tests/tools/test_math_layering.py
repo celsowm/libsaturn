@@ -16,7 +16,9 @@ for path in [api, logic, Path("src/core/geometry/mesh_faces.hpp")]:
 # private mesh-construction implementation or graphics math helpers.
 for path in Path("src/physics").rglob("*"):
     if path.suffix in (".cpp", ".hpp", ".c", ".h"):
-        assert "src/graphics/" not in path.read_text(), path
+        physics_source = path.read_text()
+        assert "src/graphics/" not in physics_source, path
+        assert "saturn::core::mesh3d::face_quad(" not in physics_source, path
 
 for root in ("src", "tests/host"):
     for path in Path(root).rglob("*"):
