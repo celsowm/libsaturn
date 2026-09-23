@@ -157,7 +157,9 @@ Ymir instruction/cycle observations. Timer quantization and emulator-vs-hardware
 limits are included in the report; these measurements alone do not assert FPS
 or speedup. See
 [`docs/SKYBRIDGE_PARALLEL_INTEGRATION.md`](../docs/SKYBRIDGE_PARALLEL_INTEGRATION.md)
-for the validation scope and interpretation.
+for the validation scope and interpretation, and
+[`docs/PARALLEL_RUNTIME_BENCHMARKS.md`](../docs/PARALLEL_RUNTIME_BENCHMARKS.md)
+for the recorded 360-frame measurements and the current Ymir Slave-FRT limit.
 
 ### Pad polarity
 

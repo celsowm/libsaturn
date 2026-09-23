@@ -1,6 +1,11 @@
 #include "src/hal/vdp1/vdp1.hpp"
 #include "src/core/runtime/logic.hpp"
 #include "saturn/vdp1.h"
+#include "src/graphics/3d/scene/test_metrics.h"
+
+#ifndef SAT_SKYBRIDGE_VALIDATION
+#define SAT_SKYBRIDGE_VALIDATION 0
+#endif
 
 namespace saturn::hal::vdp1 {
 
@@ -52,6 +57,42 @@ uint16_t g_gouraud_count = 0;
 uint32_t g_texture_cursor = kTextureBase;
 uint16_t g_width = 320;
 uint16_t g_height = 224;
+#if SAT_SKYBRIDGE_VALIDATION
+uint32_t g_test_scene_command_hash;
+uint32_t g_test_scene_command_count;
+
+void hash_command_word(uint32_t& hash, uint16_t word) {
+    hash ^= static_cast<uint8_t>(word >> 8u);
+    hash *= 16777619u;
+    hash ^= static_cast<uint8_t>(word);
+    hash *= 16777619u;
+}
+
+void capture_scene_commands() {
+    uint32_t hash = 2166136261u;
+    g_test_scene_command_count = g_cmd_count;
+    hash_command_word(hash, g_cmd_count);
+    for (uint16_t i = 0u; i < g_cmd_count; ++i) {
+        const Command& c = g_cmd_buffer[i];
+        hash_command_word(hash,c.ctrl); hash_command_word(hash,c.link);
+        hash_command_word(hash,c.pmod); hash_command_word(hash,c.colr);
+        hash_command_word(hash,c.srca); hash_command_word(hash,c.size);
+        hash_command_word(hash,static_cast<uint16_t>(c.xa));
+        hash_command_word(hash,static_cast<uint16_t>(c.ya));
+        hash_command_word(hash,static_cast<uint16_t>(c.xb));
+        hash_command_word(hash,static_cast<uint16_t>(c.yb));
+        hash_command_word(hash,static_cast<uint16_t>(c.xc));
+        hash_command_word(hash,static_cast<uint16_t>(c.yc));
+        hash_command_word(hash,static_cast<uint16_t>(c.xd));
+        hash_command_word(hash,static_cast<uint16_t>(c.yd));
+        hash_command_word(hash,c.grda);
+    }
+    hash_command_word(hash,g_gouraud_count);
+    for (uint32_t i = 0u; i < static_cast<uint32_t>(g_gouraud_count) * 4u; ++i)
+        hash_command_word(hash,g_gouraud_words[i]);
+    g_test_scene_command_hash = hash;
+}
+#endif
 
 /* One terminator command is always unavailable to user draw calls. During
  * the world pass, hold additional entries in reserve for the final HUD.
@@ -199,6 +240,10 @@ sat_result_t reserve_overlay_commands(uint16_t count) {
 
 sat_result_t begin_overlay_pass() {
     if(g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
+#if SAT_SKYBRIDGE_VALIDATION
+    /* Hash world commands before diagnostic/game HUD additions. */
+    capture_scene_commands();
+#endif
     g_overlay_pass=true;
     return SAT_OK;
 }
@@ -579,5 +624,19 @@ sat_result_t update_texture_indexed8_pitched(
     write_indexed8_rows(start, pixels, width, height, pitch);
     return SAT_OK;
 }
+
+#if SAT_SKYBRIDGE_VALIDATION
+extern "C" uint32_t sat_vdp1_test_scene_command_hash(void) {
+    return g_test_scene_command_hash;
+}
+
+extern "C" uint32_t sat_vdp1_test_scene_command_count(void) {
+    return g_test_scene_command_count;
+}
+
+extern "C" uint32_t sat_vdp1_test_scene_command_capacity(void) {
+    return g_cmd_capacity;
+}
+#endif
 
 }  // namespace saturn::hal::vdp1

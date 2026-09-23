@@ -15,6 +15,10 @@ extern "C" void saturn_slave_init(void) {
     hal::sh2::set_interrupt_mask(0x0Fu);
     hal::sh2::write_vector_base(core::startup::kSlaveVectorBase);
     hal::sh2::frt::configure_polling();
+    /* Keep local worker-duration measurements at the same nominal rate as
+     * the Master. Durations are measured locally; the counters are not phase
+     * synchronized and must never be subtracted across CPUs. */
+    hal::sh2::frt::set_prescaler(hal::sh2::frt::Prescaler::Divide128);
 
     if (hal::dual_sh2::memory::control()->magic != hal::dual_sh2::memory::kMagic ||
         hal::dual_sh2::memory::status() != hal::dual_sh2::memory::SharedStatus::Starting) {

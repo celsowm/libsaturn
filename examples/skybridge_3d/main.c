@@ -15,6 +15,7 @@
 #include "game.h"
 #include "scenery.h"
 #include "src/core/parallel/test_faults.h"
+#include "src/graphics/3d/scene/test_metrics.h"
 
 #ifndef SAT_SKYBRIDGE_VALIDATION
 #define SAT_SKYBRIDGE_VALIDATION 0
@@ -260,6 +261,12 @@ typedef struct sb_frame_metrics {
     uint32_t frame_cpu_ms;
     uint32_t frame_ms;
     uint32_t master_wait_frt_ticks;
+    uint32_t frame_cpu_frt_ticks, frame_frt_ticks;
+    uint32_t geometry_prepare_frt_ticks, geometry_merge_frt_ticks;
+    uint32_t task_input_publish_frt_ticks, task_submit_frt_ticks;
+    uint32_t task_wait_frt_ticks, task_completion_frt_ticks;
+    uint32_t task_release_frt_ticks, task_master_frt_ticks;
+    uint32_t task_slave_frt_ticks;
     uint16_t prepared_faces;
     uint16_t rendered_faces;
     uint16_t commands;
@@ -292,10 +299,11 @@ static sb_frame_metrics_t g_metrics;
 static uint32_t g_last_parallel_wait;
 static uint32_t g_last_parallel_submitted;
 static uint32_t g_last_parallel_failed;
+static sat_parallel_stats_t g_last_parallel_stats;
 static uint32_t g_frame;
 
 #if SAT_SKYBRIDGE_VALIDATION
-#define SB_TEST_TELEMETRY_CAPACITY 512u
+#define SB_TEST_TELEMETRY_CAPACITY 384u
 #define SB_TEST_TELEMETRY_MAGIC 0x5342544Du
 typedef struct sb_test_telemetry_record {
     uint32_t serial, frame, game_ticks;
@@ -313,6 +321,15 @@ typedef struct sb_test_telemetry_record {
     uint32_t game_x, game_y, game_z, game_vx, game_vy, game_vz;
     uint32_t animation_clip, animation_frame, animation_time;
     uint32_t pad_held, pad_pressed;
+    uint32_t frame_cpu_frt_ticks, frame_frt_ticks;
+    uint32_t geometry_prepare_frt_ticks, geometry_merge_frt_ticks;
+    uint32_t task_input_publish_frt_ticks, task_submit_frt_ticks;
+    uint32_t task_wait_frt_ticks, task_completion_frt_ticks;
+    uint32_t task_release_frt_ticks, task_master_frt_ticks;
+    uint32_t task_slave_frt_ticks;
+    uint32_t scene_painter_frt_ticks, scene_emit_frt_ticks;
+    uint32_t scene_command_hash, scene_command_count, scene_command_capacity;
+    uint32_t timer_read_overhead_frt_ticks;
 } sb_test_telemetry_record_t;
 typedef struct sb_test_telemetry_block {
     uint32_t magic, version, record_words, capacity, write_count;
@@ -321,6 +338,18 @@ typedef struct sb_test_telemetry_block {
 /* This global is intentionally named and retained so run-harness.ps1 can
  * resolve its linked WRAM address from the GNU ld map in validation builds. */
 sb_test_telemetry_block_t g_sb_test_telemetry __attribute__((used));
+static uint32_t g_test_timer_read_overhead_ticks;
+
+static uint16_t sb_test_frt_counter(void) {
+    volatile uint8_t* const high=(volatile uint8_t*)0xFFFFFE12u;
+    volatile uint8_t* const low=(volatile uint8_t*)0xFFFFFE13u;
+    const uint16_t h=*high;
+    return (uint16_t)((h<<8u)|*low);
+}
+
+static uint32_t sb_test_frt_delta(uint16_t start) {
+    return (uint16_t)(sb_test_frt_counter()-start);
+}
 #endif
 
 static void parallel_recovery_failed(void) {
@@ -427,11 +456,19 @@ static uint32_t animation_pose_hash(void) {
 
 static void initialize_test_telemetry(void) {
     g_sb_test_telemetry.magic=SB_TEST_TELEMETRY_MAGIC;
-    g_sb_test_telemetry.version=4u;
+    g_sb_test_telemetry.version=5u;
     g_sb_test_telemetry.record_words=
         (uint32_t)(sizeof(sb_test_telemetry_record_t)/sizeof(uint32_t));
     g_sb_test_telemetry.capacity=SB_TEST_TELEMETRY_CAPACITY;
     g_sb_test_telemetry.write_count=0u;
+    {
+        const uint16_t start=sb_test_frt_counter();
+        volatile uint16_t sample=0u;
+        for(uint16_t i=0u;i<256u;++i)sample^=sb_test_frt_counter();
+        (void)sample;
+        /* Upper bound: includes loop overhead and 256 counter reads. */
+        g_test_timer_read_overhead_ticks=(sb_test_frt_delta(start)+255u)/256u;
+    }
 }
 
 static void write_test_telemetry(const sat_pad_state_t* pad) {
@@ -457,7 +494,16 @@ static void write_test_telemetry(const sat_pad_state_t* pad) {
         (uint8_t)g_game.support,(uint32_t)g_game.x,(uint32_t)g_game.y,
         (uint32_t)g_game.z,(uint32_t)g_game.vx,(uint32_t)g_game.vy,
         (uint32_t)g_game.vz,g_pig_render_anim.clip,g_pig_render_anim.frame,
-        (uint32_t)g_pig_render_anim.time,pad->held,pad->pressed};
+        (uint32_t)g_pig_render_anim.time,pad->held,pad->pressed,
+        g_metrics.frame_cpu_frt_ticks,g_metrics.frame_frt_ticks,
+        g_metrics.geometry_prepare_frt_ticks,g_metrics.geometry_merge_frt_ticks,
+        g_metrics.task_input_publish_frt_ticks,g_metrics.task_submit_frt_ticks,
+        g_metrics.task_wait_frt_ticks,g_metrics.task_completion_frt_ticks,
+        g_metrics.task_release_frt_ticks,g_metrics.task_master_frt_ticks,
+        g_metrics.task_slave_frt_ticks,sat_scene3d_test_painter_ticks(),
+        sat_scene3d_test_emit_ticks(),sat_vdp1_test_scene_command_hash(),
+        sat_vdp1_test_scene_command_count(),
+        sat_vdp1_test_scene_command_capacity(),g_test_timer_read_overhead_ticks};
     __asm__ volatile("" ::: "memory");
     g_sb_test_telemetry.write_count=serial+1u;
 }
@@ -802,6 +848,15 @@ static void record_parallel_snapshot(void) {
     /* master_wait_ticks is a raw SH-2 FRT delta. Keep it separate from the
      * millisecond samples collected around the actual wait calls below. */
     g_metrics.master_wait_frt_ticks=stats.master_wait_ticks-g_last_parallel_wait;
+    g_metrics.task_wait_frt_ticks=stats.master_wait_ticks-
+        g_last_parallel_stats.master_wait_ticks;
+    g_metrics.task_completion_frt_ticks=stats.completion_ticks-
+        g_last_parallel_stats.completion_ticks;
+    g_metrics.task_master_frt_ticks=stats.master_task_ticks-
+        g_last_parallel_stats.master_task_ticks;
+    g_metrics.task_slave_frt_ticks=stats.slave_task_ticks-
+        g_last_parallel_stats.slave_task_ticks;
+    g_last_parallel_stats=stats;
     g_last_parallel_wait=stats.master_wait_ticks;
     g_last_parallel_submitted=stats.submitted;
     g_last_parallel_failed=stats.failed;
@@ -816,7 +871,16 @@ static void submit_pig_animation(void) {
     g_pig_anim_write_buffer=write_buffer;
     g_pig_anim_job=(sat_anim_decode_job_t){&skybridge_pig_anim_asset,
         &g_pig_anim_job_state,g_pig_pose[write_buffer],PIG_VERTEX_CAP,0u};
-    if(sat_anim_decode_async(&g_pig_anim_job,&g_pig_anim_handle)!=SAT_OK) {
+#if SAT_SKYBRIDGE_VALIDATION
+    const uint16_t submit_start=sb_test_frt_counter();
+#endif
+    const sat_result_t submitted=
+        sat_anim_decode_async(&g_pig_anim_job,&g_pig_anim_handle);
+#if SAT_SKYBRIDGE_VALIDATION
+    g_metrics.task_submit_frt_ticks+=(uint16_t)(
+        sb_test_frt_counter()-submit_start);
+#endif
+    if(submitted!=SAT_OK) {
         ++g_metrics.failures;
         ++g_metrics.animation_failed;
         if(sat_anim_decode(&skybridge_pig_anim_asset,&g_pig_anim,
@@ -873,7 +937,15 @@ static void finish_pig_animation(void) {
             ++g_metrics.failures;
             ++g_metrics.animation_failed;
         }
-        if(sat_parallel_release(g_pig_anim_handle)!=SAT_OK) {
+#if SAT_SKYBRIDGE_VALIDATION
+        const uint16_t release_start=sb_test_frt_counter();
+#endif
+        const sat_result_t released=sat_parallel_release(g_pig_anim_handle);
+#if SAT_SKYBRIDGE_VALIDATION
+        g_metrics.task_release_frt_ticks+=(uint16_t)(
+            sb_test_frt_counter()-release_start);
+#endif
+        if(released!=SAT_OK) {
             parallel_recovery_failed();
             return;
         }
@@ -883,8 +955,15 @@ static void finish_pig_animation(void) {
 }
 
 static uint8_t merge_gem_batch_direct(sat_scene3d_prepare_batch_t* batch) {
+#if SAT_SKYBRIDGE_VALIDATION
+    const uint16_t merge_start=sb_test_frt_counter();
+#endif
     const uint16_t before=g_scene.faces.count;
     if(sat_scene3d_faces_merge_prepared(&g_scene.faces,batch)!=SAT_OK) {
+#if SAT_SKYBRIDGE_VALIDATION
+        g_metrics.geometry_merge_frt_ticks+=(uint16_t)(
+            sb_test_frt_counter()-merge_start);
+#endif
         ++g_metrics.failures;
         return 0u;
     }
@@ -895,6 +974,10 @@ static uint8_t merge_gem_batch_direct(sat_scene3d_prepare_batch_t* batch) {
     g_metrics.prepared_faces=(uint16_t)(g_metrics.prepared_faces+
                                         batch->metrics.prepared_faces);
     record_gem_batch_merge(batch);
+#if SAT_SKYBRIDGE_VALIDATION
+    g_metrics.geometry_merge_frt_ticks+=(uint16_t)(
+        sb_test_frt_counter()-merge_start);
+#endif
     return 1u;
 }
 
@@ -902,6 +985,9 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
     uint8_t id;
     uint16_t count=0u;
     const uint32_t start=sat_time_ms();
+#if SAT_SKYBRIDGE_VALIDATION
+    const uint16_t prepare_start=sb_test_frt_counter();
+#endif
     if(g_parallel_recovery_blocked)return;
     g_gem_master_ready=0u;
     g_gem_slave_ready=0u;
@@ -930,7 +1016,13 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
         ++count;
     }
     g_metrics.visible_gems=count;
-    if(count==0u)return;
+    if(count==0u) {
+#if SAT_SKYBRIDGE_VALIDATION
+        g_metrics.geometry_prepare_frt_ticks+=(uint16_t)(
+            sb_test_frt_counter()-prepare_start);
+#endif
+        return;
+    }
     g_gem_partition_batch.items=g_gem_batch_items;
     g_gem_partition_batch.item_count=count;
     g_gem_partition_batch.view_proj=g_scene.faces.view_proj;
@@ -964,8 +1056,20 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
                   &g_gem_slave_batch)!=SAT_OK) {
                 ++g_metrics.failures; return;
             }
-            if(sat_scene_prepare_batch_async(&g_scene,&g_gem_slave_batch,
-                                             &g_gem_slave_handle)!=SAT_OK) {
+#if SAT_SKYBRIDGE_VALIDATION
+            const uint16_t submit_start=sb_test_frt_counter();
+#endif
+            const sat_result_t gem_submit=sat_scene_prepare_batch_async(
+                &g_scene,&g_gem_slave_batch,&g_gem_slave_handle);
+#if SAT_SKYBRIDGE_VALIDATION
+            g_metrics.task_submit_frt_ticks+=(uint16_t)(
+                sb_test_frt_counter()-submit_start);
+#endif
+#if SAT_SKYBRIDGE_VALIDATION
+            g_metrics.task_input_publish_frt_ticks=
+                sat_scene3d_test_input_publish_ticks();
+#endif
+            if(gem_submit!=SAT_OK) {
                 ++g_metrics.failures;
                 ++g_metrics.geometry_failed;
                 /* Submission failed before a handle was accepted, so the
@@ -991,6 +1095,10 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
             g_metrics.master_gem_faces=g_gem_master_batch.metrics.prepared_faces;
         }
     }
+#if SAT_SKYBRIDGE_VALIDATION
+    g_metrics.geometry_prepare_frt_ticks+=(uint16_t)(
+        sb_test_frt_counter()-prepare_start);
+#endif
     g_metrics.geometry_ms += sat_time_ms()-start;
 }
 
@@ -1028,9 +1136,17 @@ static void finish_gem_geometry(void) {
         if(st==SAT_OK && state==SAT_PARALLEL_COMPLETED) {
             ++g_metrics.geometry_completed;
             g_metrics.slave_gem_faces=g_gem_slave_batch.metrics.prepared_faces;
-            if(!g_gem_master_merged ||
-               sat_scene_merge_prepared_batch(&g_scene,&g_gem_slave_batch,
-                                              g_gem_slave_handle)!=SAT_OK) {
+#if SAT_SKYBRIDGE_VALIDATION
+            const uint16_t merge_start=sb_test_frt_counter();
+#endif
+            const sat_result_t merged=(!g_gem_master_merged)?SAT_ERR_BUSY:
+                sat_scene_merge_prepared_batch(&g_scene,&g_gem_slave_batch,
+                                               g_gem_slave_handle);
+#if SAT_SKYBRIDGE_VALIDATION
+            g_metrics.geometry_merge_frt_ticks+=(uint16_t)(
+                sb_test_frt_counter()-merge_start);
+#endif
+            if(merged!=SAT_OK) {
                 ++g_metrics.failures;
                 ++g_metrics.geometry_failed;
             } else {
@@ -1051,8 +1167,16 @@ static void finish_gem_geometry(void) {
                     g_gem_slave_batch.item_count;
             }
         }
-        if(sat_scene_prepare_batch_release(&g_gem_slave_batch,
-                                           g_gem_slave_handle)!=SAT_OK) {
+#if SAT_SKYBRIDGE_VALIDATION
+        const uint16_t release_start=sb_test_frt_counter();
+#endif
+        const sat_result_t released=sat_scene_prepare_batch_release(
+            &g_gem_slave_batch,g_gem_slave_handle);
+#if SAT_SKYBRIDGE_VALIDATION
+        g_metrics.task_release_frt_ticks+=(uint16_t)(
+            sb_test_frt_counter()-release_start);
+#endif
+        if(released!=SAT_OK) {
             parallel_recovery_failed();
             return;
         }
@@ -1679,9 +1803,15 @@ int main(void) {
         uint16_t steps;
         uint16_t pressed,events=0u;
         int32_t fx,fz,rx,rz;
+#if SAT_SKYBRIDGE_VALIDATION
+        uint16_t frame_start_frt;
+#endif
         sat_example_must(sat_wait_vblank());
         g_metrics=(sb_frame_metrics_t){0};
         g_metrics.begin_ms=sat_time_ms();
+#if SAT_SKYBRIDGE_VALIDATION
+        frame_start_frt=sb_test_frt_counter();
+#endif
         /* VDP2's register latch is at VBlank. Apply BOTH layer and sprite
          * priority configuration before the comparatively slow SMPC pad poll,
          * math, audio and VDP1 submissions. The color-calc PRISA selector
@@ -1803,6 +1933,9 @@ int main(void) {
          * frame whose diagnostics are on screen rather than a half-built
          * value from the next frame. */
         g_metrics.frame_cpu_ms=sat_time_ms()-g_metrics.begin_ms;
+#if SAT_SKYBRIDGE_VALIDATION
+        g_metrics.frame_cpu_frt_ticks=sb_test_frt_delta(frame_start_frt);
+#endif
         sat_example_must(sat_vdp1_overlay_begin());
         {
             const uint32_t hud_stage=sat_time_ms();
@@ -1812,6 +1945,9 @@ int main(void) {
         sat_example_must(sat_end_frame());
         sat_example_must(sat_audio_update());
         g_metrics.frame_ms=sat_time_ms()-g_metrics.begin_ms;
+#if SAT_SKYBRIDGE_VALIDATION
+        g_metrics.frame_frt_ticks=sb_test_frt_delta(frame_start_frt);
+#endif
         g_metrics.over_budget=(g_metrics.frame_ms>17u)?1u:0u;
 #if SAT_SKYBRIDGE_VALIDATION
         write_test_telemetry(&pad);

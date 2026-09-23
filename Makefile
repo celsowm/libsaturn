@@ -160,14 +160,16 @@ endif
 
 # Skybridge's validation profiles change these translation-unit defines
 # between builds. Make does not otherwise notice command-line CFLAGS changes,
-# so rebuild only the three affected objects instead of requiring a full
-# `make -B` (which needlessly reconverts assets and recompiles the library).
+# so rebuild only the affected objects instead of requiring a full `make -B`
+# (which needlessly reconverts assets and recompiles the library).
 ifeq ($(EXAMPLE),skybridge_3d)
 .PHONY: skybridge-profile-flags
 skybridge-profile-flags:
 $(BUILD_DIR)/examples/skybridge_3d/main.o \
 $(BUILD_DIR)/src/core/parallel/executor.o \
-$(BUILD_DIR)/src/graphics/3d/scene/parallel.o: skybridge-profile-flags
+$(BUILD_DIR)/src/graphics/3d/scene/parallel.o \
+$(BUILD_DIR)/src/graphics/3d/scene/faces.o \
+$(BUILD_DIR)/src/hal/vdp1/vdp1.o: skybridge-profile-flags
 endif
 
 # -- Artefatos --------------------------------------------------

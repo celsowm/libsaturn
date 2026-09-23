@@ -28,7 +28,9 @@ def test_pig_is_prepared_when_geometry_uses_slave():
 
 
 def test_failed_geometry_submission_never_publishes_unprepared_batch():
-    fallback = MAIN.split("if(sat_scene_prepare_batch_async", 1)[1].split(
+    fallback = MAIN.split(
+        "const sat_result_t gem_submit=sat_scene_prepare_batch_async", 1
+    )[1].split(
         "} else {", 1
     )[0]
     assert "sat_scene3d_prepare_batch_execute(&g_gem_slave_batch)==SAT_OK" in fallback

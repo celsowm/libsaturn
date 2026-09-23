@@ -96,6 +96,13 @@ preparation; this is intentionally not enabled by AUTO until a measured
 crossover policy exists. Runtime statistics are real queue/backend/FRT-tick
 counters, not a speedup claim.
 
+Skybridge's versioned frame telemetry and forced-split/fault profiles are
+validation-build-only and do not change the public API. Its Master FRT samples
+use the 16-bit `/128` counter and modular short-interval deltas. Ymir currently
+does not advance the reported Slave-local task-duration accumulator, so only
+Master-observed completion latency and per-type dispatch/completion counts are
+usable there; no cross-CPU timer subtraction is valid.
+
 The `parallel_runtime` example validates animation against direct decode and
 sampled geometry against synchronous preparation. Geometry validation compares
 metrics, keys/order, projected/world coordinates, clipping, material semantics,

@@ -8,7 +8,16 @@ import math
 from pathlib import Path
 
 
-HASH_FIELDS = ("game_hash", "animation_hash", "merge_order_hash")
+HASH_FIELDS = ("game_hash", "animation_hash", "merge_order_hash",
+               "scene_command_hash", "scene_command_count",
+               "scene_command_capacity")
+TICK_FIELDS = (
+    "frame_cpu_frt_ticks", "frame_frt_ticks", "geometry_prepare_frt_ticks",
+    "geometry_merge_frt_ticks", "task_input_publish_frt_ticks",
+    "task_submit_frt_ticks", "task_wait_frt_ticks", "task_completion_frt_ticks",
+    "task_release_frt_ticks", "task_master_frt_ticks", "task_slave_frt_ticks",
+    "scene_painter_frt_ticks", "scene_emit_frt_ticks",
+)
 FAULTS = {
     "SubmitReject": 1,
     "WorkerError": 2,
@@ -25,8 +34,8 @@ def load_profile(root: Path, name: str, frames: int):
     if not data.get("boot", {}).get("injected"):
         raise AssertionError(f"{name}: ROM was not injected by the probe")
     telemetry = data.get("skybridge_telemetry")
-    if not telemetry or telemetry.get("version") != 4:
-        raise AssertionError(f"{name}: missing version-4 Skybridge telemetry")
+    if not telemetry or telemetry.get("version") != 5:
+        raise AssertionError(f"{name}: missing version-5 Skybridge telemetry")
     samples = telemetry.get("samples", [])
     if len(samples) < frames:
         raise AssertionError(f"{name}: got {len(samples)} gameplay samples, need {frames}")
@@ -152,6 +161,12 @@ def main():
 
     frame_csv = root / "frame_times.csv"
     summary = {"frames_per_mode": args.frames, "timer_resolution_ms": 1,
+               "timer": {"clock": "Master SH-2 FRT", "prescaler": 128,
+                         "counter_bits": 16, "delta_modulus": 65536,
+                         "short_interval_rollover_safe": True,
+                         "measurement_overhead_upper_bound_ticks": max(
+                             row["timer_read_overhead_frt_ticks"]
+                             for row in profiles["bench_MASTER"])},
                "policies": {}, "faults": {}}
     with frame_csv.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=(
@@ -159,6 +174,8 @@ def main():
             "game_x", "game_y", "game_z", "animation_clip", "animation_frame",
             "animation_time", "game_hash", "animation_hash", "merge_order_hash",
             "frame_cpu_ms", "frame_ms", "wait_ms", "visible_gems",
+            *TICK_FIELDS, "scene_command_hash", "scene_command_count",
+            "scene_command_capacity", "timer_read_overhead_frt_ticks",
             "master_items", "slave_items", "master_faces", "slave_faces",
             "merge_batches", "merged_faces", "animation_submitted",
             "animation_completed", "animation_master", "animation_slave",
@@ -201,6 +218,12 @@ def main():
                     "merge_order_hash": row["merge_order_hash"],
                     "frame_cpu_ms": row["frame_cpu_ms"], "frame_ms": row["frame_ms"],
                     "wait_ms": row["wait_ms"], "visible_gems": row["visible_gems"],
+                    **{field: row[field] for field in TICK_FIELDS},
+                    "scene_command_hash": row["scene_command_hash"],
+                    "scene_command_count": row["scene_command_count"],
+                    "scene_command_capacity": row["scene_command_capacity"],
+                    "timer_read_overhead_frt_ticks": row[
+                        "timer_read_overhead_frt_ticks"],
                     "master_items": row["master_items"], "slave_items": row["slave_items"],
                     "master_faces": row["master_faces"], "slave_faces": row["slave_faces"],
                     "merge_batches": row["merge_batches"], "merged_faces": row["merged_faces"],
@@ -228,6 +251,12 @@ def main():
                 "mean_master_sh2_cycles": sum_cycles // args.frames,
                 "geometry_slave_frames": sum(bool(row["geometry_slave"]) for row in samples),
                 "animation_slave_frames": sum(bool(row["animation_slave"]) for row in samples),
+                "timings_frt_ticks": {
+                    field: {"median": percentile([row[field] for row in samples], 0.50),
+                            "p95": percentile([row[field] for row in samples], 0.95),
+                            "max": max((row[field] for row in samples), default=0)}
+                    for field in TICK_FIELDS
+                },
             }
 
     if not args.skip_faults:

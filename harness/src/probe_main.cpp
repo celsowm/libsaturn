@@ -270,8 +270,8 @@ struct Args {
 };
 
 constexpr uint32_t kSkybridgeTelemetryMagic = 0x5342544Du;
-constexpr uint32_t kSkybridgeTelemetryVersion = 4u;
-constexpr uint32_t kSkybridgeTelemetryWords = 49u;
+constexpr uint32_t kSkybridgeTelemetryVersion = 5u;
+constexpr uint32_t kSkybridgeTelemetryWords = 66u;
 constexpr uint32_t kSkybridgeTelemetryHeaderBytes = 20u;
 
 struct SkybridgeTelemetrySample {
@@ -290,7 +290,14 @@ constexpr std::array<const char*, kSkybridgeTelemetryWords> kSkybridgeTelemetryN
     "sync_fallback_items", "game_course", "game_pickups", "game_paused",
     "game_finished", "game_support", "game_x", "game_y", "game_z",
     "game_vx", "game_vy", "game_vz", "animation_clip", "animation_frame",
-    "animation_time", "pad_held", "pad_pressed"
+    "animation_time", "pad_held", "pad_pressed",
+    "frame_cpu_frt_ticks", "frame_frt_ticks", "geometry_prepare_frt_ticks",
+    "geometry_merge_frt_ticks", "task_input_publish_frt_ticks",
+    "task_submit_frt_ticks", "task_wait_frt_ticks", "task_completion_frt_ticks",
+    "task_release_frt_ticks", "task_master_frt_ticks", "task_slave_frt_ticks",
+    "scene_painter_frt_ticks", "scene_emit_frt_ticks", "scene_command_hash",
+    "scene_command_count", "scene_command_capacity",
+    "timer_read_overhead_frt_ticks"
 };
 
 void print_usage() {

@@ -3,10 +3,20 @@
 #include "saturn/vdp1_color_calc.h"
 #include "src/graphics/3d/geometry/mesh_logic.hpp"
 #include "src/graphics/3d/rendering/logic.hpp"
+#include "src/hal/sh2/frt.hpp"
 
 #include <stdint.h>
 
+#ifndef SAT_SKYBRIDGE_VALIDATION
+#define SAT_SKYBRIDGE_VALIDATION 0
+#endif
+
 namespace {
+#if SAT_SKYBRIDGE_VALIDATION
+uint32_t g_test_painter_ticks;
+uint32_t g_test_emit_ticks;
+#endif
+
 bool valid_material(const sat_scene3d_material_t& m) {
     if (m.kind==SAT_SCENE3D_RGB)
         return m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE;
@@ -500,8 +510,16 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
     scene->active=0u;
     /* Orders indices in O(faces + buckets) and never moves a face record;
      * the same helper already carries the native mesh paint order. */
+#if SAT_SKYBRIDGE_VALIDATION
+    const uint16_t painter_start=saturn::hal::sh2::frt::counter();
+#endif
     const uint32_t ordered=saturn::core::render3d::paint_order_buckets(
         scene->keys,scene->count,scene->order);
+#if SAT_SKYBRIDGE_VALIDATION
+    g_test_painter_ticks=static_cast<uint16_t>(
+        saturn::hal::sh2::frt::counter()-painter_start);
+    const uint16_t emit_start=saturn::hal::sh2::frt::counter();
+#endif
     sat_result_t result=SAT_OK;
     for (uint32_t i=0;i<ordered;++i) {
         if (!scene->entries[scene->order[i]].projected_safe)
@@ -510,6 +528,20 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
         if (result==SAT_ERR_UNSUPPORTED) continue;
         if (result!=SAT_OK) break;
     }
+#if SAT_SKYBRIDGE_VALIDATION
+    g_test_emit_ticks=static_cast<uint16_t>(
+        saturn::hal::sh2::frt::counter()-emit_start);
+#endif
     scene->count=0u;
     return result==SAT_ERR_UNSUPPORTED?SAT_OK:result;
 }
+
+#if SAT_SKYBRIDGE_VALIDATION
+extern "C" uint32_t sat_scene3d_test_painter_ticks(void) {
+    return g_test_painter_ticks;
+}
+
+extern "C" uint32_t sat_scene3d_test_emit_ticks(void) {
+    return g_test_emit_ticks;
+}
+#endif

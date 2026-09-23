@@ -111,13 +111,13 @@ each executor failure in a separate emulator process) with:
 The runner writes per-frame telemetry, instruction/cycle samples, and probe
 JSON under `build/skybridge_parallel_validation/`. `frame_times.csv` contains
 the matched first 360 gameplay samples for MASTER, SLAVE, and AUTO, including
-game/animation/merge hashes, item/face partitions, per-type task counts,
-`frame_cpu_ms`, `frame_ms`, and Ymir instruction/cycle counts. `summary.json`
-contains median, p95, maximum and over-budget counts. The report compares the
-ordered game, pose and merge results against MASTER and fails on missing split
-work or any mismatch. Fault runs separately exercise rejected submission,
-worker error, timeout with successful abort, abort failure while the worker is
-still active, and release failure after completion.
+game/animation/merge and VDP1 scene-command hashes, item/face partitions,
+per-type task counters, `frame_cpu_ms`, `frame_ms`, and Ymir instruction/cycle
+counts. `summary.json` contains median, p95, maximum and over-budget counts. The
+report compares ordered structured results against MASTER and fails on missing
+split work or any mismatch. Fault runs separately exercise rejected
+submission, worker error, timeout with successful abort, abort failure while
+the worker is still active, and release failure after completion.
 
 The hashes compare structured gameplay and geometry outcomes; they are not a
 pixel-equivalence assertion. `sat_time_ms()` has one-millisecond resolution,
@@ -125,3 +125,12 @@ and emulator instruction/cycle counts are not Saturn wall-clock timings. Treat
 the measurements as workload and scheduling evidence, not as proof of FPS or
 speedup. Production AUTO remains conservative and does not force geometry
 splitting.
+
+The validation-only Master FRT is 16-bit at `/128`; modular deltas are used for
+short intervals below its approximately 292 ms rollover at nominal SH-2 clock.
+The measured read overhead is at most 3 ticks per sample. Completion latency is
+measured on the Master only; CPU-local timer readings are never subtracted
+across processors. Ymir reports zero Slave-local task-duration ticks even after
+the Slave is set to `/128`, although its task counters and Master-observed
+completion latency advance. Treat that field as unavailable in Ymir, not as
+zero-cost work; hardware or an independent Slave clock must confirm it.

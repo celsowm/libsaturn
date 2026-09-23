@@ -129,16 +129,37 @@ drop assertion.
 
 | Policy | CPU ms median/p95/max | Frame ms median/p95/max | Frames >17 ms | Master instructions | Slave instructions | Geometry Slave frames | Animation Slave frames | Mean Master cycles |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MASTER | 12 / 14 / 17 | 14 / 15 / 18 | 2 | 80,245,262 | 0 | 0 | 0 | 449,204 |
-| SLAVE | 13 / 15 / 18 | 15 / 16 / 20 | 4 | 73,726,001 | 118,681,108 | 10 | 350 | 449,203 |
-| AUTO | 13 / 15 / 18 | 15 / 16 / 19 | 4 | 73,691,625 | 118,681,097 | 0 | 360 | 449,203 |
+| MASTER | 13 / 14 / 17 | 15 / 16 / 19 | 4 | 76,601,927 | 0 | 0 | 0 | 449,204 |
+| SLAVE | 13 / 15 / 18 | 16 / 17 / 20 | 12 | 76,393,421 | 118,681,093 | 10 | 350 | 449,203 |
+| AUTO | 13 / 15 / 18 | 16 / 17 / 20 | 9 | 76,354,381 | 118,681,105 | 0 | 360 | 449,203 |
 
-On this workload the guest timer samples are mostly in the 12–20 ms range and
+On this workload the guest timer samples are mostly in the 13–20 ms range and
 are quantized to whole milliseconds. The explicit-Slave policy placed the
 gem-geometry task on Slave on the 10 frames with four or more visible gems;
 AUTO dispatched animation on Slave but kept all gem geometry on Master. The
 measurements show work distribution, but do not show a timing improvement over
 MASTER. They are not a physical Saturn performance result.
+
+The validation-only v5 telemetry also records per-frame game/pose hashes,
+ordered merge hash, visible and partitioned items/faces, scene command hash and
+count, per-type submit/complete/failure counters, per-CPU dispatch counters,
+frame CPU/frame duration, and guest/emulator cycle and instruction samples.
+The map-resolved telemetry block is isolated to validation builds. The forced
+split profile is separate from these normal-policy timing figures; production
+AUTO remains conservative and does not split gem geometry.
+
+Timing caveats: `frame_cpu_ms` and `frame_ms` use the guest millisecond clock
+and are quantized to 1 ms. The validation-only Master FRT counter is 16-bit,
+uses `/128`, rolls over at 65,536 ticks (about 292 ms at nominal SH-2 clock),
+and measured read overhead is at most 3 ticks per sample in this harness.
+Short frame intervals use modular deltas. Task completion latency is timed on
+the Master clock; per-CPU FRT counters are never subtracted from one another.
+In the Ymir run, the Slave-local task-duration accumulator remained zero even
+after explicitly selecting `/128`, while Master-observed completion latency
+and frame intervals advanced. The report does not interpret that Slave
+duration field as measured work; this is an emulator timer limitation still
+requiring confirmation on hardware or a reliable independent clock. Emulator
+instruction and fixed-cycle counts are not physical FPS or proof of speedup.
 
 During development, ordered merge hashes first diverged only on four-gem split
 frames. This exposed that geometry preparation normalized and mutated painter

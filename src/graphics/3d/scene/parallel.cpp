@@ -1,12 +1,20 @@
 #include "saturn/scene.h"
 
 #include "src/hal/dual_sh2/memory.hpp"
+#include "src/hal/sh2/frt.hpp"
+
+#ifndef SAT_SKYBRIDGE_VALIDATION
+#define SAT_SKYBRIDGE_VALIDATION 0
+#endif
 
 #ifndef SAT_SKYBRIDGE_FORCE_GEM_SPLIT
 #define SAT_SKYBRIDGE_FORCE_GEM_SPLIT 0
 #endif
 
 namespace {
+#if SAT_SKYBRIDGE_VALIDATION
+uint32_t g_test_input_publish_ticks;
+#endif
 
 void* shared_uncached(void* pointer) {
     return sat_parallel_uncached_address(pointer);
@@ -139,7 +147,14 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
     batch->width = scene->faces.width;
     batch->height = scene->faces.height;
     if (batch->pending != 0u) return SAT_ERR_BUSY;
+#if SAT_SKYBRIDGE_VALIDATION
+    const uint16_t publish_start=saturn::hal::sh2::frt::counter();
+#endif
     SAT_TRY(sync_batch_sources(batch));
+#if SAT_SKYBRIDGE_VALIDATION
+    g_test_input_publish_ticks=static_cast<uint16_t>(
+        saturn::hal::sh2::frt::counter()-publish_start);
+#endif
     const uint32_t output_capacity =
         static_cast<uint32_t>(batch->capacity) * sizeof(sat_scene3d_face_t);
     sat_result_t submitted;
@@ -198,3 +213,9 @@ extern "C" sat_result_t sat_scene_prepare_batch_release(
     }
     return released;
 }
+
+#if SAT_SKYBRIDGE_VALIDATION
+extern "C" uint32_t sat_scene3d_test_input_publish_ticks(void) {
+    return g_test_input_publish_ticks;
+}
+#endif
