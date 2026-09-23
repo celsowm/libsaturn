@@ -57,7 +57,7 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 
 **M3 — Rendering integration:** canonical L3 queue for cached/static/dynamic faces, consistent material/instance semantics, bounded command accounting and optional immediate L1 emission. Golden visual/occlusion tests, capacity/failure-injection tests, command-budget tests.
 
-**M4 — Physics/audio/parallel:** broadphase and focused algorithms, audio/SCSP ownership, generic SH-2 executor contracts. Compare correctness/performance with existing baseline on host and emulator.
+**M4 — Physics/audio/parallel:** per-batch conservative/runtime/Master geometry dispatch is implemented: the generic runtime no longer knows Skybridge's force-split compile flag, while the measured conservative AUTO default remains. Remaining work includes broadphase, audio/SCSP ownership, stronger SH-2 executor contracts and correctness/performance comparisons.
 
 **M5 — Breaking migration and cleanup:** update every example/tools/docs to the new contracts, delete old entry points and duplicated engines instead of adding indefinite shims; isolate build artifacts by effective flags; ensure every host/tool test is discovered. Reconcile obsolete plan status sections.
 
@@ -70,4 +70,4 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 - Screen sprite positioning consumes the active configured width/height and reuses the same screen-to-native helper as scaled sprites.
 - Host regressions cover an earlier freed slot, different textual representations of one path, manifest non-mutation on rejected entries, successful valid manifests, and screen centering with two configured resolutions.
 
-**Known limitation:** batch release has no scene argument and therefore cannot record its own failure in the frame; independently initiated low-level operations remain outside the optional L3 contract. Successful face dispatches do not equal physical VDP1 command counts. Render-queue unification, PAL, partial-VRAM recovery, physics complexity and CD/audio coupling remain open.
+**Known limitation:** batch release has no scene argument and therefore cannot record its own failure in the frame; independently initiated low-level operations remain outside the optional L3 contract. Successful face dispatches do not equal physical VDP1 command counts. Render-queue unification, PAL, partial-VRAM recovery, physics complexity, CD/audio coupling and any empirically adaptive geometry dispatch algorithm remain open.

@@ -82,10 +82,12 @@ sat_result_t sat_scene_submit_instance(sat_scene_t* scene,
                                        sat_projected_vertex_t* screen_scratch,
                                        sat_vec3_t* world_scratch);
 
-/* Capture the active scene's immutable camera state and submit one coarse
- * batch through the existing parallel executor. The batch remains caller-
- * owned until its handle is complete. In MASTER mode the same function is
- * executed synchronously by the executor; in SLAVE/AUTO it is non-blocking. */
+/* Capture the active scene's camera and submit a caller-owned batch.
+ * The batch dispatch policy is independent of game build flags:
+ * CONSERVATIVE (zero-init) keeps geometry on Master in runtime AUTO,
+ * RUNTIME delegates to the configured executor, and MASTER always executes
+ * locally. SLAVE/AUTO may complete asynchronously. A pending task's BUSY
+ * status is transient, while a terminal failure is recorded in scene stats. */
 sat_result_t sat_scene_prepare_batch_async(
     sat_scene_t* scene, sat_scene3d_prepare_batch_t* batch,
     sat_parallel_handle_t* out_handle);

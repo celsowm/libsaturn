@@ -81,6 +81,10 @@ This is the geometry pattern used by Skybridge's explicit `SLAVE` mode.
 sat_scene3d_prepare_batch_init(&batch, items, item_count,
                                prepared_faces, prepared_keys,
                                prepared_order, capacity);
+/* Optional: delegate to the configured executor instead of the
+ * conservative AUTO geometry default. Other independent workloads may
+ * select MASTER without changing any library compile flags. */
+batch.dispatch = SAT_SCENE3D_PREPARE_DISPATCH_RUNTIME;
 sat_scene_prepare_batch_async(&scene, &batch, &handle);
 /* Independent Master work. */
 sat_parallel_wait(handle, timeout);

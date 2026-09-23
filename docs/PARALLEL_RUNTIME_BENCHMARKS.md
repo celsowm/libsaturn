@@ -54,11 +54,14 @@ policy, so no unmasked pixel diff is presented as proof.
 
 ## Interpretation and limits
 
-AUTO is intentionally conservative: geometry uses
-`sat_parallel_submit_master()` because the sweep does not show a fixed-cycle
-benefit from moving it to the Slave, while animation remains eligible for
-Slave dispatch. There is no unmeasured workload threshold or adaptive
-scheduler.
+AUTO remains conservative by default for geometry: a zero-initialized
+`sat_scene3d_prepare_batch_t` uses
+`SAT_SCENE3D_PREPARE_DISPATCH_CONSERVATIVE`, selecting Master in AUTO
+based on this measured sweep. A caller may opt into
+`SAT_SCENE3D_PREPARE_DISPATCH_RUNTIME` for per-batch executor selection
+or `SAT_SCENE3D_PREPARE_DISPATCH_MASTER` to force local preparation.
+Skybridge compile flags no longer determine the library's dispatch policy.
+No unmeasured crossover threshold or adaptive scheduler is claimed.
 
 The runtime still has one active Slave task and a bounded queue. A wait timeout
 does not reclaim buffers; callers must wait again or use `sat_parallel_abort`,

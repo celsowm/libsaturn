@@ -483,6 +483,7 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_slice(
     out_slice->near_depth = source->near_depth;
     out_slice->width = source->width;
     out_slice->height = source->height;
+    out_slice->dispatch = source->dispatch;
     return SAT_OK;
 }
 

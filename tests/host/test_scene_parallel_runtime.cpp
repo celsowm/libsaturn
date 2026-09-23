@@ -9,6 +9,8 @@ static sat_result_t sync_status=SAT_OK;
 static sat_result_t merge_status=SAT_OK;
 static uint32_t task_bytes=0u;
 static uint32_t submit_count=0u;
+static uint32_t master_submit_count=0u;
+static sat_parallel_mode_t selected_mode=SAT_PARALLEL_MASTER;
 static sat_parallel_handle_t last_handle=0x1234u;
 
 extern "C" sat_result_t sat_parallel_register_task(
@@ -20,7 +22,7 @@ extern "C" void* sat_parallel_uncached_address(const void* ptr) {
     return const_cast<void*>(ptr);
 }
 extern "C" sat_parallel_mode_t sat_parallel_mode(void) {
-    return SAT_PARALLEL_MASTER;
+    return selected_mode;
 }
 extern "C" sat_result_t sat_parallel_submit(
     sat_parallel_task_type_t,const void*,uint32_t,void*,uint32_t,
@@ -32,6 +34,7 @@ extern "C" sat_result_t sat_parallel_submit(
 extern "C" sat_result_t sat_parallel_submit_master(
     sat_parallel_task_type_t type,const void* in,uint32_t in_size,
     void* out,uint32_t out_capacity,sat_parallel_handle_t* handle) {
+    ++master_submit_count;
     return sat_parallel_submit(type,in,in_size,out,out_capacity,handle);
 }
 extern "C" sat_result_t sat_parallel_result(
@@ -113,6 +116,31 @@ int main() {
     assert(batch.pending==0u);
     assert(sat_scene_merge_prepared_batch(&scene,&batch,handle)==SAT_ERR_INVALID_ARG);
     assert(scene.first_error==SAT_ERR_INVALID_ARG);
+
+    // The default remains conservative in AUTO, with per-batch overrides.
+    scene.first_error=SAT_OK;
+    selected_mode=SAT_PARALLEL_AUTO;
+    const uint32_t first_master=master_submit_count;
+    const uint32_t first_submit=submit_count;
+    batch.dispatch=SAT_SCENE3D_PREPARE_DISPATCH_CONSERVATIVE;
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
+    assert(master_submit_count==first_master+1u &&
+           submit_count==first_submit+1u);
+    assert(sat_scene_prepare_batch_release(&batch,handle)==SAT_OK);
+    batch.dispatch=SAT_SCENE3D_PREPARE_DISPATCH_RUNTIME;
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
+    assert(master_submit_count==first_master+1u &&
+           submit_count==first_submit+2u);
+    assert(sat_scene_prepare_batch_release(&batch,handle)==SAT_OK);
+    batch.dispatch=SAT_SCENE3D_PREPARE_DISPATCH_MASTER;
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
+    assert(master_submit_count==first_master+2u &&
+           submit_count==first_submit+3u);
+    assert(sat_scene_prepare_batch_release(&batch,handle)==SAT_OK);
+    batch.dispatch=static_cast<sat_scene3d_prepare_dispatch_t>(99);
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_ERR_INVALID_ARG);
+    assert(scene.first_error==SAT_ERR_INVALID_ARG &&
+           submit_count==first_submit+3u && batch.pending==0u);
 
     std::puts("scene parallel frame errors: OK");
     return 0;

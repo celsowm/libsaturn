@@ -413,9 +413,11 @@ int main() {
     uint32_t slice_keys[8]={};
     uint16_t slice_order[8]={};
     sat_scene3d_prepare_batch_t slice={};
+    source_batch.dispatch=SAT_SCENE3D_PREPARE_DISPATCH_MASTER;
     assert(sat_scene3d_prepare_batch_slice(
         &source_batch,1u,2u,slice_items,slice_faces,slice_keys,
         slice_order,8u,&slice)==SAT_OK);
+    assert(slice.dispatch==SAT_SCENE3D_PREPARE_DISPATCH_MASTER);
     assert(slice.items==slice_items && slice.item_count==2u);
     assert(slice.items[0].instance==&source_instances[1] &&
            slice.items[1].instance==&source_instances[2]);

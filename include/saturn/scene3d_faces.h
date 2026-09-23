@@ -145,6 +145,16 @@ typedef struct sat_scene3d_prepare_metrics {
     uint16_t clipped_faces;
 } sat_scene3d_prepare_metrics_t;
 
+/* Independent dispatch policy for one batch; zero-init preserves the
+ * measured conservative AUTO behavior without compiling any game-specific
+ * flags into the generic scene runtime. RUNTIME delegates to the configured
+ * executor mode; MASTER explicitly runs locally in every runtime mode. */
+typedef enum sat_scene3d_prepare_dispatch {
+    SAT_SCENE3D_PREPARE_DISPATCH_CONSERVATIVE = 0,
+    SAT_SCENE3D_PREPARE_DISPATCH_RUNTIME = 1,
+    SAT_SCENE3D_PREPARE_DISPATCH_MASTER = 2
+} sat_scene3d_prepare_dispatch_t;
+
 /* Caller-owned batch storage. The worker writes only faces, keys, order
  * scratch, and metrics; it never writes the scene or VDP1 state. The camera
  * fields are captured by sat_scene3d_prepare_batch_async(). */
@@ -162,6 +172,7 @@ typedef struct sat_scene3d_prepare_batch {
     sat_fx16_t near_depth;
     uint16_t width;
     uint16_t height;
+    sat_scene3d_prepare_dispatch_t dispatch;
     sat_parallel_handle_t handle;
     uint8_t pending;
     uint8_t reserved2[3];
@@ -177,7 +188,8 @@ sat_result_t sat_scene3d_prepare_batch_init(
  * descriptors are copied in source order into caller-owned storage; camera
  * state and the preparation contract are copied as well.  This is the
  * reusable partition primitive used when one portion is dispatched to the
- * Slave and another is prepared concurrently by the Master. */
+ * Slave and another is prepared concurrently by the Master. The dispatch
+ * policy is inherited from the source, but each slice may override it. */
 sat_result_t sat_scene3d_prepare_batch_slice(
     const sat_scene3d_prepare_batch_t* source,
     uint16_t first_item, uint16_t item_count,

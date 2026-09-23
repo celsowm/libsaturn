@@ -1059,6 +1059,11 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
 #if SAT_SKYBRIDGE_VALIDATION
             const uint16_t submit_start=sb_test_frt_counter();
 #endif
+#if SAT_SKYBRIDGE_FORCE_GEM_SPLIT
+            /* Exercise the actual runtime-selected Slave/AUTO path without
+             * compiling Skybridge-specific policy into the generic library. */
+            g_gem_slave_batch.dispatch=SAT_SCENE3D_PREPARE_DISPATCH_RUNTIME;
+#endif
             const sat_result_t gem_submit=sat_scene_prepare_batch_async(
                 &g_scene,&g_gem_slave_batch,&g_gem_slave_handle);
 #if SAT_SKYBRIDGE_VALIDATION

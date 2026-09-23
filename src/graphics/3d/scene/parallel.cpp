@@ -10,10 +10,6 @@ using saturn::core::scene::record_frame_result;
 #define SAT_SKYBRIDGE_VALIDATION 0
 #endif
 
-#ifndef SAT_SKYBRIDGE_FORCE_GEM_SPLIT
-#define SAT_SKYBRIDGE_FORCE_GEM_SPLIT 0
-#endif
-
 #ifndef SAT_PARALLEL_RUNTIME_VALIDATION
 #define SAT_PARALLEL_RUNTIME_VALIDATION 0
 #endif
@@ -145,7 +141,10 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
     if (!batch || !out_handle || batch->capacity == 0u ||
         batch->faces == nullptr || batch->keys == nullptr ||
         batch->order == nullptr ||
-        (batch->item_count != 0u && batch->items == nullptr))
+        (batch->item_count != 0u && batch->items == nullptr) ||
+        (batch->dispatch != SAT_SCENE3D_PREPARE_DISPATCH_CONSERVATIVE &&
+         batch->dispatch != SAT_SCENE3D_PREPARE_DISPATCH_RUNTIME &&
+         batch->dispatch != SAT_SCENE3D_PREPARE_DISPATCH_MASTER))
         return record_frame_result(scene,SAT_ERR_INVALID_ARG);
     // A pending task has not failed: callers can retry after completion.
     if (batch->pending != 0u) return SAT_ERR_BUSY;
@@ -168,17 +167,21 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
 #endif
     const uint32_t output_capacity =
         static_cast<uint32_t>(batch->capacity) * sizeof(sat_scene3d_face_t);
-    sat_result_t submitted;
-    if (sat_parallel_mode() == SAT_PARALLEL_AUTO &&
-        SAT_SKYBRIDGE_FORCE_GEM_SPLIT == 0) {
-        submitted = sat_parallel_submit_master(
+    // The batch owns its dispatch policy. The default conservatively keeps
+    // geometry on Master in AUTO mode, matching the measured baseline.
+    // A caller can explicitly delegate to the runtime for Master/Slave/AUTO
+    // or require Master without changing library compile flags.
+    const bool local =
+        batch->dispatch == SAT_SCENE3D_PREPARE_DISPATCH_MASTER ||
+        (batch->dispatch == SAT_SCENE3D_PREPARE_DISPATCH_CONSERVATIVE &&
+         sat_parallel_mode() == SAT_PARALLEL_AUTO);
+    const sat_result_t submitted = local
+        ? sat_parallel_submit_master(
+            SAT_PARALLEL_TASK_SCENE_GEOMETRY, batch, sizeof(*batch),
+            batch->faces, output_capacity, out_handle)
+        : sat_parallel_submit(
             SAT_PARALLEL_TASK_SCENE_GEOMETRY, batch, sizeof(*batch),
             batch->faces, output_capacity, out_handle);
-    } else {
-        submitted = sat_parallel_submit(
-            SAT_PARALLEL_TASK_SCENE_GEOMETRY, batch, sizeof(*batch),
-            batch->faces, output_capacity, out_handle);
-    }
     if (submitted == SAT_OK) {
         batch->handle = *out_handle;
         batch->pending = 1u;
