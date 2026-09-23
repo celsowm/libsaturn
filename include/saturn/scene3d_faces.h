@@ -35,6 +35,9 @@ typedef struct sat_scene3d_material {
     const uint16_t* vertex_gouraud;
 } sat_scene3d_material_t;
 
+/* 12-bit artistic pass in the painter key. Values beyond this fail atomically. */
+#define SAT_SCENE3D_PASS_MAX 4095u
+
 /* Paint order is NOT a field here: it lives in the scene's parallel key
  * array, so ordering a frame moves two-byte indices instead of these
  * multi-word records. */
@@ -61,6 +64,10 @@ typedef struct sat_scene3d_faces {
     uint16_t culled_faces;
     uint16_t clipped_faces;
     uint16_t fallback_faces;
+    /* Successful face-dispatch calls, not physical VDP1 commands. */
+    uint16_t emitted_faces;
+    /* Deliberately skipped unsupported faces. */
+    uint16_t skipped_faces;
 } sat_scene3d_faces_t;
 
 /* All three buffers are caller-owned and must hold `capacity` entries:
@@ -88,7 +95,8 @@ sat_result_t sat_scene3d_faces_depth(
 
 /* Material is copied. Both methods are atomic on invalid input/capacity.
  * pass is an explicit artistic override, NOT an occlusion group: all objects
- * needing physical inter-occlusion must use the same pass. */
+ * needing physical inter-occlusion must use the same pass.
+ * Valid range 0..SAT_SCENE3D_PASS_MAX; larger values fail atomically. */
 sat_result_t sat_scene3d_faces_submit_quad(
     sat_scene3d_faces_t* scene, const sat_quad3_t* world,
     const sat_scene3d_material_t* material, uint16_t pass);
@@ -212,7 +220,10 @@ sat_result_t sat_scene3d_faces_submit_instance(
     uint8_t color_calc_slot,
     sat_projected_vertex_t* screen_scratch, sat_vec3_t* world_scratch);
 
-/* Emits far-to-near, closes the frame even when hardware submission fails.
+/* Emits far-to-near; closes the frame even if hardware submission fails.
+ * emitted_faces counts successful face-dispatch calls; clipped faces may
+ * generate multiple hardware commands. Unsupported skips are counted
+ * separately. Unexpected hardware errors propagate to the caller.
  * Caller manages sat_begin_frame/sat_end_frame and HUD command reservation. */
 sat_result_t sat_scene3d_faces_flush(sat_scene3d_faces_t* scene);
 

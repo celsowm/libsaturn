@@ -53,15 +53,14 @@ bool safe_projection(const sat_scene3d_faces_t& scene,
  * than the 1024 buckets resolve -- and stays clear of kPaintSkip. */
 constexpr uint32_t kFaceDepthBits=20u;
 constexpr uint32_t kFaceDepthMax=(1u<<kFaceDepthBits)-2u;
-constexpr uint32_t kFacePassMax=0xFFFu;
+constexpr uint32_t kFacePassMax=SAT_SCENE3D_PASS_MAX;
 
 uint32_t painter_key(int64_t depth_sum, uint16_t pass) {
     int64_t depth=depth_sum/4/16;
     if (depth<0) depth=0;
     if (depth>static_cast<int64_t>(kFaceDepthMax))
         depth=static_cast<int64_t>(kFaceDepthMax);
-    const uint32_t capped=pass>kFacePassMax?kFacePassMax:pass;
-    return ((kFacePassMax-capped)<<kFaceDepthBits)|
+    return ((kFacePassMax-static_cast<uint32_t>(pass))<<kFaceDepthBits)|
            static_cast<uint32_t>(depth);
 }
 
@@ -205,6 +204,7 @@ extern "C" sat_result_t sat_scene3d_faces_begin(
         return SAT_ERR_INVALID_ARG;
     scene->count=0;
     scene->culled_faces=scene->clipped_faces=scene->fallback_faces=0u;
+    scene->emitted_faces=scene->skipped_faces=0u;
     scene->view_proj=*view_proj;
     scene->eye=*eye;scene->forward=*forward;
     scene->near_depth=near_depth;scene->width=width;scene->height=height;
@@ -249,7 +249,8 @@ extern "C" sat_result_t sat_scene3d_faces_submit_quad(
     sat_scene3d_faces_t* scene, const sat_quad3_t* world,
     const sat_scene3d_material_t* material, uint16_t pass) {
     if (!scene || !scene->active || !world || !material ||
-        !valid_material(*material)) return SAT_ERR_INVALID_ARG;
+        pass>SAT_SCENE3D_PASS_MAX || !valid_material(*material))
+        return SAT_ERR_INVALID_ARG;
     if (scene->count>=scene->capacity) return SAT_ERR_CAPACITY;
     sat_projected_vertex_t screen[4]={};
     const sat_result_t st=sat_project_vertices(
@@ -262,7 +263,8 @@ extern "C" sat_result_t sat_scene3d_faces_submit_quad(
 extern "C" sat_result_t sat_scene3d_faces_submit_box(
     sat_scene3d_faces_t* scene, const sat_indexed_box3_t* box,
     uint8_t color_calc_slot, uint16_t pass) {
-    if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    if (!scene || !scene->active || pass>SAT_SCENE3D_PASS_MAX)
+        return SAT_ERR_INVALID_ARG;
     sat_quad3_t faces[3]={};
     const sat_vdp1_texture_t* textures[3]={};
     uint8_t count=0u;
@@ -308,7 +310,9 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
     const sat_scene3d_material_t* materials=instance ? instance->materials : nullptr;
     const uint16_t material_count=instance ? instance->material_count : 0u;
     const uint16_t* face_materials=instance ? instance->face_materials : nullptr;
-    if (!scene || !scene->active || !instance || !mesh || !mesh->vertices ||
+    if (!scene || !scene->active || !instance ||
+        instance->pass>SAT_SCENE3D_PASS_MAX ||
+        !mesh || !mesh->vertices ||
         !mesh->indices || !screen_scratch ||
         (instance->world && !world_scratch) ||
         (mesh->face_count && (!materials || !face_materials)))
@@ -524,16 +528,23 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
     for (uint32_t i=0;i<ordered;++i) {
         if (!scene->entries[scene->order[i]].projected_safe)
             ++scene->fallback_faces;
-        result=emit(*scene,scene->entries[scene->order[i]]);
-        if (result==SAT_ERR_UNSUPPORTED) continue;
-        if (result!=SAT_OK) break;
+        const sat_result_t emitted=emit(*scene,scene->entries[scene->order[i]]);
+        if (emitted==SAT_ERR_UNSUPPORTED) {
+            ++scene->skipped_faces;
+            continue;
+        }
+        if (emitted!=SAT_OK) {
+            result=emitted;
+            break;
+        }
+        ++scene->emitted_faces;
     }
 #if SAT_SKYBRIDGE_VALIDATION
     g_test_emit_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-emit_start);
 #endif
     scene->count=0u;
-    return result==SAT_ERR_UNSUPPORTED?SAT_OK:result;
+    return result;
 }
 
 #if SAT_SKYBRIDGE_VALIDATION

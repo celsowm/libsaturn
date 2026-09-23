@@ -11,6 +11,7 @@ static uint16_t emitted_count=0;
 static uint16_t project_calls=0;
 static uint16_t projected_vertices=0;
 static uint16_t clipped_count=0;
+static sat_result_t distorted_draw_status=SAT_OK;
 
 static bool same_texture(const sat_vdp1_texture_t* a,
                          const sat_vdp1_texture_t* b) {
@@ -76,6 +77,7 @@ extern "C" sat_result_t sat_project_vertices(
 }
 extern "C" sat_result_t sat_draw_sprite_distorted(
     const sat_distorted_sprite_cmd_t* cmd) {
+    if (distorted_draw_status!=SAT_OK) return distorted_draw_status;
     emitted_slot[emitted_count]=SAT_INDEXED_SOLID_OPAQUE;
     emitted[emitted_count++]=cmd->texture->srca;
     return SAT_OK;
@@ -490,6 +492,58 @@ int main() {
         &small_scene,&vp,&eye,&forward,SAT_FX16_ONE,320u,224u)==SAT_OK);
     assert(sat_scene3d_faces_merge_prepared(&small_scene,&batch)==SAT_ERR_CAPACITY);
     assert(small_scene.count==0u);
+
+    // Passes occupy twelve bits. Reject unrepresentable values before
+    // touching queue storage, even for compound box/instance submissions.
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    const uint16_t invalid_pass=static_cast<uint16_t>(SAT_SCENE3D_PASS_MAX+1u);
+    const sat_quad3_t pass_quad=quad(2);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&pass_quad,&near_mat,invalid_pass)==SAT_ERR_INVALID_ARG);
+    sat_indexed_box3_t pass_box{};
+    assert(sat_scene3d_faces_submit_box(
+        &scene,&pass_box,SAT_INDEXED_SOLID_OPAQUE,invalid_pass)==SAT_ERR_INVALID_ARG);
+    sat_scene3d_instance_t pass_instance=instance;
+    pass_instance.pass=invalid_pass;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&pass_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_ERR_INVALID_ARG);
+    assert(scene.count==0u);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&pass_quad,&near_mat,SAT_SCENE3D_PASS_MAX)==SAT_OK);
+    assert((scene.keys[0]>>20u)==0u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(scene.emitted_faces==1u && scene.skipped_faces==0u);
+
+    // Unsupported projected RGB geometry is an intentional skip, not a
+    // successfully dispatched face; continue emitting the supported face.
+    emitted_count=0;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    sat_scene3d_material_t rgb{};
+    rgb.kind=SAT_SCENE3D_RGB;
+    rgb.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    rgb.rgb555=0x801Fu;
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&oversized,&rgb,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&pass_quad,&near_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(scene.emitted_faces==1u && scene.skipped_faces==1u);
+    assert(emitted_count==1u && emitted[0]==near_tex.srca);
+
+    // An actual HAL rejection cannot count a queued face as emitted.
+    emitted_count=0;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&pass_quad,&near_mat,0u)==SAT_OK);
+    distorted_draw_status=SAT_ERR_CAPACITY;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_CAPACITY);
+    assert(scene.active==0u && scene.emitted_faces==0u);
+    assert(scene.skipped_faces==0u && emitted_count==0u);
+    distorted_draw_status=SAT_OK;
 
     std::puts("scene3d_faces api: OK");
     return 0;

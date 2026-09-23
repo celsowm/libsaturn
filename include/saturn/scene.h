@@ -24,7 +24,9 @@ typedef struct sat_scene_requirements {
 
 typedef struct sat_scene_stats {
     uint16_t submitted_faces;
+    /* Successful face-dispatch calls, not queued faces or hardware commands. */
     uint16_t flushed_faces;
+    uint16_t skipped_faces;
     uint16_t culled_faces;
     uint16_t clipped_faces;
     uint16_t fallback_faces;
@@ -41,6 +43,7 @@ typedef struct sat_scene {
     uint16_t overlay_commands;
     uint16_t submitted_faces;
     uint16_t flushed_faces;
+    uint16_t skipped_faces;
     uint16_t culled_faces;
     uint16_t clipped_faces;
     uint16_t fallback_faces;
@@ -50,6 +53,7 @@ typedef struct sat_scene {
     uint16_t commands_capacity;
     uint8_t active;
     uint8_t flushed;
+    sat_result_t first_error; /* First actionable frame error. */
 } sat_scene_t;
 
 sat_result_t sat_scene_requirements(uint16_t face_capacity,
@@ -109,6 +113,8 @@ sat_result_t sat_scene_submit_transform_instance(
  * mutable occupancy (for example, eaten pellets) before calling this. */
 sat_result_t sat_scene_replay_view_item(
     sat_scene_t* scene, const sat_view_cache_item_t* item);
+/* Ends the frame and returns the first recorded error from its submissions
+ * and flush. Raw VDP1 operations remain independent. */
 sat_result_t sat_scene_flush(sat_scene_t* scene);
 sat_result_t sat_scene_stats(const sat_scene_t* scene, sat_scene_stats_t* out);
 

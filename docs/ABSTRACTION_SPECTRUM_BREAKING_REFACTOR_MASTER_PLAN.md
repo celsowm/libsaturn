@@ -51,7 +51,7 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 
 ## 7. Delivery sequence and test gates
 
-**M1 — Contracts and concrete integrity defects (started):** this plan; regression tests for normalized asset duplicates, atomic manifest preflight, and screen coordinate conversion at multiple active resolutions. Next: frame error/metrics contract, painter-pass validation, texture failure states.
+**M1 — Contracts and concrete integrity defects (in progress):** normalized asset duplicates, manifest preflight and screen-coordinate regressions are implemented. The second slice adds painter-pass validation, accepted/skipped face counts and first-error preservation for direct scene submissions and flush. Next: async/transform error tracking, texture failure states and exact command accounting.
 
 **M2 — Dependency isolation:** shared math out of graphics, cooperative blocking-I/O services, narrow headers, typed assets, bounded memory ownership. Test independent linking of L0/L1 clients without L3 runtime initialization.
 
@@ -70,4 +70,4 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 - Screen sprite positioning consumes the active configured width/height and reuses the same screen-to-native helper as scaled sprites.
 - Host regressions cover an earlier freed slot, different textual representations of one path, manifest non-mutation on rejected entries, successful valid manifests, and screen centering with two configured resolutions.
 
-**Known limitation:** this slice does not yet fix render-queue unification, scene error reporting, PAL support, partial-VRAM recovery, physics complexity, or the CD/audio coupling. Do not infer completion from the existence of this plan.
+**Known limitation:** this slice records direct scene submission/replay/flush errors but does not yet track every error originating from asynchronous batch management or transform helpers. Successful face dispatches do not equal physical VDP1 command counts. Render-queue unification, PAL, partial-VRAM recovery, physics complexity and CD/audio coupling remain open.

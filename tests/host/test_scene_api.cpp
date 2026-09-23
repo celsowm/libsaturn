@@ -4,6 +4,8 @@
 #include "saturn/scene.h"
 
 static uint16_t g_replayed;
+static sat_result_t g_submit_status=SAT_OK;
+static sat_result_t g_flush_status=SAT_OK;
 
 extern "C" sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
@@ -29,7 +31,7 @@ extern "C" sat_result_t sat_scene3d_faces_begin_camera(
 
 extern "C" sat_result_t sat_scene3d_faces_submit_quad(
     sat_scene3d_faces_t*, const sat_quad3_t*,
-    const sat_scene3d_material_t*, uint16_t) { return SAT_OK; }
+    const sat_scene3d_material_t*, uint16_t) { return g_submit_status; }
 extern "C" sat_result_t sat_scene3d_faces_submit_box(
     sat_scene3d_faces_t*, const sat_indexed_box3_t*, uint8_t,
     uint16_t) { return SAT_OK; }
@@ -47,7 +49,9 @@ extern "C" sat_result_t sat_scene3d_faces_depth(
 extern "C" sat_result_t sat_scene3d_faces_flush(sat_scene3d_faces_t* scene) {
     if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
     scene->active = 0u;
-    return SAT_OK;
+    scene->emitted_faces = g_flush_status==SAT_OK ? scene->count : 0u;
+    scene->skipped_faces = 0u;
+    return g_flush_status;
 }
 
 extern "C" sat_result_t sat_vdp1_reserve_overlay_commands(uint16_t) {
@@ -92,6 +96,37 @@ int main() {
     assert(stats.replayed_items == 1u);
     assert(stats.commands_used == 3u && stats.commands_capacity == 64u);
     assert(g_replayed == 1u);
+
+    // Rejected submissions remain visible in the result after flush.
+    assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
+        320u, 224u, 8u)==SAT_OK);
+    sat_quad3_t quad{};
+    sat_scene3d_material_t material{};
+    g_submit_status=SAT_ERR_CAPACITY;
+    assert(sat_scene_submit_quad(&scene,&quad,&material,0u)==SAT_ERR_CAPACITY);
+    sat_scene_stats_t failed{};
+    assert(sat_scene_stats(&scene,&failed)==SAT_OK);
+    assert(failed.result==SAT_ERR_CAPACITY && failed.rejected_faces==1u);
+    g_submit_status=SAT_OK;
+    assert(sat_scene_flush(&scene)==SAT_ERR_CAPACITY);
+    assert(sat_scene_stats(&scene,&failed)==SAT_OK);
+    assert(failed.result==SAT_ERR_CAPACITY && failed.flushed_faces==0u);
+
+    // Hardware rejection does not turn queued-but-unemitted faces into
+    // successfully dispatched faces, and the next begin resets the error.
+    assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
+        320u, 224u, 8u)==SAT_OK);
+    scene.faces.count=2u;
+    g_flush_status=SAT_ERR_CAPACITY;
+    assert(sat_scene_flush(&scene)==SAT_ERR_CAPACITY);
+    assert(sat_scene_stats(&scene,&failed)==SAT_OK);
+    assert(failed.result==SAT_ERR_CAPACITY && failed.flushed_faces==0u);
+    g_flush_status=SAT_OK;
+    assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
+        320u, 224u, 8u)==SAT_OK);
+    assert(sat_scene_stats(&scene,&failed)==SAT_OK && failed.result==SAT_ERR_BUSY);
+    assert(sat_scene_flush(&scene)==SAT_OK);
+    assert(sat_scene_stats(&scene,&failed)==SAT_OK && failed.result==SAT_OK);
 
     std::puts("scene api: OK");
     return 0;

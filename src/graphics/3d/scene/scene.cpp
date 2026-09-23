@@ -1,5 +1,13 @@
 #include "saturn/scene.h"
 
+namespace {
+sat_result_t record_frame_result(sat_scene_t* scene, sat_result_t result) {
+    if (result!=SAT_OK && scene->first_error==SAT_OK)
+        scene->first_error=result;
+    return result;
+}
+} // namespace
+
 extern "C" sat_result_t sat_scene_requirements(uint16_t face_capacity,
                                                  uint16_t overlay_commands,
                                                  sat_scene_requirements_t* out) {
@@ -36,6 +44,8 @@ extern "C" sat_result_t sat_scene_begin(sat_scene_t* scene,
     if (st != SAT_OK) return st;
     scene->overlay_commands = overlay_commands;
     scene->submitted_faces = scene->flushed_faces = scene->rejected_faces = 0;
+    scene->first_error=SAT_OK;
+    scene->skipped_faces=0u;
     scene->culled_faces = scene->clipped_faces = scene->fallback_faces = 0u;
     scene->replayed_items = 0u;
     scene->commands_used = scene->commands_capacity = 0u;
@@ -43,7 +53,7 @@ extern "C" sat_result_t sat_scene_begin(sat_scene_t* scene,
     const sat_result_t reserve = sat_vdp1_reserve_overlay_commands(overlay_commands);
     if (reserve != SAT_OK) {
         scene->faces.active = 0;
-        return reserve;
+        return record_frame_result(scene,reserve);
     }
     scene->active = 1;
     return SAT_OK;
@@ -58,7 +68,7 @@ extern "C" sat_result_t sat_scene_submit_quad(sat_scene_t* scene,
         &scene->faces, quad, material, pass);
     if (st == SAT_OK) ++scene->submitted_faces;
     else if (st == SAT_ERR_CAPACITY) ++scene->rejected_faces;
-    return st;
+    return record_frame_result(scene,st);
 }
 
 extern "C" sat_result_t sat_scene_submit_instance(sat_scene_t* scene,
@@ -72,7 +82,7 @@ extern "C" sat_result_t sat_scene_submit_instance(sat_scene_t* scene,
         &scene->faces, instance, slot, screen, world);
     if (st == SAT_OK) scene->submitted_faces += scene->faces.count - before;
     else if (st == SAT_ERR_CAPACITY) ++scene->rejected_faces;
-    return st;
+    return record_frame_result(scene,st);
 }
 
 extern "C" sat_result_t sat_scene_submit_box(sat_scene_t* scene,
@@ -83,7 +93,7 @@ extern "C" sat_result_t sat_scene_submit_box(sat_scene_t* scene,
     const sat_result_t st = sat_scene3d_faces_submit_box(&scene->faces, box, slot, pass);
     if (st == SAT_OK) scene->submitted_faces += scene->faces.count - before;
     else if (st == SAT_ERR_CAPACITY) ++scene->rejected_faces;
-    return st;
+    return record_frame_result(scene,st);
 }
 
 extern "C" sat_result_t sat_scene_submit_tiled_quad(
@@ -95,7 +105,7 @@ extern "C" sat_result_t sat_scene_submit_tiled_quad(
         &scene->faces, quad, regions, slot, pass);
     if (st == SAT_OK) scene->submitted_faces += scene->faces.count - before;
     else if (st == SAT_ERR_CAPACITY) ++scene->rejected_faces;
-    return st;
+    return record_frame_result(scene,st);
 }
 
 extern "C" sat_result_t sat_scene_depth(const sat_scene_t* scene,
@@ -107,8 +117,10 @@ extern "C" sat_result_t sat_scene_depth(const sat_scene_t* scene,
 
 extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     if (!scene || !scene->active || scene->flushed) return SAT_ERR_INVALID_ARG;
-    scene->flushed_faces = scene->faces.count;
     sat_result_t st = sat_scene3d_faces_flush(&scene->faces);
+    scene->flushed_faces = scene->faces.emitted_faces;
+    scene->skipped_faces = scene->faces.skipped_faces;
+    record_frame_result(scene,st);
     sat_vdp1_command_stats_t commands{};
     const sat_result_t command_status = sat_vdp1_command_stats(&commands);
     if (command_status == SAT_OK) {
@@ -117,9 +129,10 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     } else if (st == SAT_OK) {
         st = command_status;
     }
+    record_frame_result(scene,st);
     scene->active = 0;
     scene->flushed = 1;
-    return st;
+    return scene->first_error;
 }
 
 extern "C" sat_result_t sat_scene_replay_view_item(
@@ -128,7 +141,7 @@ extern "C" sat_result_t sat_scene_replay_view_item(
     const sat_result_t st = sat_draw_quad2_polygon(&item->quad, item->color);
     if (st == SAT_OK) ++scene->replayed_items;
     else if (st == SAT_ERR_CAPACITY) ++scene->rejected_faces;
-    return st;
+    return record_frame_result(scene,st);
 }
 
 extern "C" sat_result_t sat_scene_stats(const sat_scene_t* scene,
@@ -136,6 +149,7 @@ extern "C" sat_result_t sat_scene_stats(const sat_scene_t* scene,
     if (!scene || !out) return SAT_ERR_INVALID_ARG;
     out->submitted_faces = scene->submitted_faces;
     out->flushed_faces = scene->flushed_faces;
+    out->skipped_faces = scene->skipped_faces;
     out->culled_faces = scene->culled_faces;
     out->clipped_faces = scene->clipped_faces;
     out->fallback_faces = scene->fallback_faces;
@@ -144,6 +158,7 @@ extern "C" sat_result_t sat_scene_stats(const sat_scene_t* scene,
     out->rejected_faces = scene->rejected_faces;
     out->commands_used = scene->commands_used;
     out->commands_capacity = scene->commands_capacity;
-    out->result = scene->active ? SAT_ERR_BUSY : SAT_OK;
+    out->result = scene->first_error!=SAT_OK ? scene->first_error :
+        (scene->active ? SAT_ERR_BUSY : SAT_OK);
     return SAT_OK;
 }
