@@ -44,6 +44,7 @@ extern "C" sat_result_t sat_scene_begin(sat_scene_t* scene,
     scene->culled_faces = scene->clipped_faces = scene->fallback_faces = 0u;
     scene->replayed_items = 0u;
     scene->commands_used = scene->commands_capacity = 0u;
+    scene->world_commands = 0u;
     scene->flushed = 0;
     const sat_result_t reserve = sat_vdp1_reserve_overlay_commands(overlay_commands);
     if (reserve != SAT_OK) {
@@ -113,19 +114,31 @@ extern "C" sat_result_t sat_scene_depth(const sat_scene_t* scene,
 
 extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     if (!scene || !scene->active || scene->flushed) return SAT_ERR_INVALID_ARG;
-    sat_result_t st = sat_scene3d_faces_flush(&scene->faces);
+    // Take a command snapshot directly around the synchronous L3 painter.
+    // Unlike total used commands, the delta excludes earlier explicit raw
+    // VDP1 and immediate cached-view submissions in the same video frame.
+    sat_vdp1_command_stats_t before{};
+    const sat_result_t before_status = sat_vdp1_command_stats(&before);
+    record_frame_result(scene,before_status);
+    const sat_result_t st = sat_scene3d_faces_flush(&scene->faces);
     scene->flushed_faces = scene->faces.emitted_faces;
     scene->skipped_faces = scene->faces.skipped_faces;
     record_frame_result(scene,st);
-    sat_vdp1_command_stats_t commands{};
-    const sat_result_t command_status = sat_vdp1_command_stats(&commands);
-    if (command_status == SAT_OK) {
-        scene->commands_used = commands.used;
-        scene->commands_capacity = commands.capacity;
-    } else if (st == SAT_OK) {
-        st = command_status;
+    sat_vdp1_command_stats_t after{};
+    const sat_result_t after_status = sat_vdp1_command_stats(&after);
+    record_frame_result(scene,after_status);
+    if (after_status == SAT_OK) {
+        scene->commands_used = after.used;
+        scene->commands_capacity = after.capacity;
+        if (before_status == SAT_OK) {
+            if (after.used >= before.used) {
+                scene->world_commands = static_cast<uint16_t>(
+                    after.used - before.used);
+            } else {
+                record_frame_result(scene,SAT_ERR_VERIFY_FAILED);
+            }
+        }
     }
-    record_frame_result(scene,st);
     scene->active = 0;
     scene->flushed = 1;
     return scene->first_error;
@@ -154,6 +167,7 @@ extern "C" sat_result_t sat_scene_stats(const sat_scene_t* scene,
     out->rejected_faces = scene->rejected_faces;
     out->commands_used = scene->commands_used;
     out->commands_capacity = scene->commands_capacity;
+    out->world_commands = scene->world_commands;
     out->result = scene->first_error!=SAT_OK ? scene->first_error :
         (scene->active ? SAT_ERR_BUSY : SAT_OK);
     return SAT_OK;

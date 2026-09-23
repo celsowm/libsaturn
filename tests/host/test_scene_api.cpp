@@ -6,6 +6,8 @@
 static uint16_t g_replayed;
 static sat_result_t g_submit_status=SAT_OK;
 static sat_result_t g_flush_status=SAT_OK;
+static uint16_t g_world_commands=0u;
+static uint16_t g_flush_emissions=0u;
 
 extern "C" sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
@@ -51,6 +53,10 @@ extern "C" sat_result_t sat_scene3d_faces_flush(sat_scene3d_faces_t* scene) {
     scene->active = 0u;
     scene->emitted_faces = g_flush_status==SAT_OK ? scene->count : 0u;
     scene->skipped_faces = 0u;
+    // Model the observable VDP1 command counter, not one command per face.
+    // A failed flush may already have emitted part of its workload.
+    g_world_commands=static_cast<uint16_t>(
+        g_world_commands+g_flush_emissions);
     return g_flush_status;
 }
 
@@ -59,7 +65,8 @@ extern "C" sat_result_t sat_vdp1_reserve_overlay_commands(uint16_t) {
 }
 extern "C" sat_result_t sat_vdp1_command_stats(sat_vdp1_command_stats_t* out) {
     if (!out) return SAT_ERR_INVALID_ARG;
-    out->used = static_cast<uint16_t>(g_replayed + 2u);
+    out->used = static_cast<uint16_t>(
+        g_replayed + g_world_commands + 2u);
     out->capacity = 64u;
     out->overlay_reserved = 8u;
     out->overlay_pass = 0u;
@@ -96,6 +103,19 @@ int main() {
     assert(stats.replayed_items == 1u);
     assert(stats.commands_used == 3u && stats.commands_capacity == 64u);
     assert(g_replayed == 1u);
+    assert(stats.world_commands == 0u);
+
+    // The physical world-command delta counts clipping/subdivision output
+    // instead of assuming one hardware command for every accepted face.
+    assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
+        320u, 224u, 8u)==SAT_OK);
+    scene.faces.count=1u;
+    g_flush_emissions=3u;
+    assert(sat_scene_flush(&scene)==SAT_OK);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.flushed_faces==1u && stats.world_commands==3u);
+    assert(stats.commands_used==6u); // replay + 3 scene + 2 pre-existing
+    g_flush_emissions=0u;
 
     // Rejected submissions remain visible in the result after flush.
     assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
@@ -118,10 +138,13 @@ int main() {
         320u, 224u, 8u)==SAT_OK);
     scene.faces.count=2u;
     g_flush_status=SAT_ERR_CAPACITY;
+    g_flush_emissions=1u;
     assert(sat_scene_flush(&scene)==SAT_ERR_CAPACITY);
     assert(sat_scene_stats(&scene,&failed)==SAT_OK);
-    assert(failed.result==SAT_ERR_CAPACITY && failed.flushed_faces==0u);
+    assert(failed.result==SAT_ERR_CAPACITY &&
+           failed.flushed_faces==0u && failed.world_commands==1u);
     g_flush_status=SAT_OK;
+    g_flush_emissions=0u;
     assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
         320u, 224u, 8u)==SAT_OK);
     assert(sat_scene_stats(&scene,&failed)==SAT_OK && failed.result==SAT_ERR_BUSY);
