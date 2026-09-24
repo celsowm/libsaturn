@@ -5,6 +5,7 @@
 
 #include "saturn/math3d.h"
 #include "saturn/render3d.h"
+#include "saturn/scene3d.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,8 +28,19 @@ typedef struct sat_view_cache_stats {
     uint16_t views_ready;
 } sat_view_cache_stats_t;
 
+/* Optional caller-provided slot for EXACT camera/viewport matching. Fixed
+ * 16.16 values and all matrix elements are compared without hashes/collisions.
+ * Each slot is copied on begin_camera, never holds a camera pointer. */
+typedef struct sat_view_cache_camera {
+    sat_camera3d_t camera;
+    sat_fx16_t near_depth;
+    uint16_t width, height;
+    uint8_t valid;
+} sat_view_cache_camera_t;
+
 typedef struct sat_view_cache {
     sat_view_cache_item_t* storage;
+    sat_view_cache_camera_t* cameras; /* NULL for the independent legacy path */
     uint16_t* counts;
     uint16_t view_count;
     uint16_t capacity_per_view;
@@ -42,6 +54,31 @@ typedef struct sat_view_cache {
 sat_result_t sat_view_cache_init(sat_view_cache_t* cache,
     sat_view_cache_item_t* storage, uint16_t* counts,
     uint16_t view_count, uint16_t capacity_per_view);
+/* Opt-in camera safety; the supplied array has at least view_count slots and
+ * lives as long as cache. Binding clears all existing views (no stale reads).
+ * Legacy begin/view remain available when camera matching is unwanted. */
+sat_result_t sat_view_cache_bind_cameras(
+    sat_view_cache_t* cache, sat_view_cache_camera_t* slots,
+    uint16_t slot_count);
+
+/* Begin a view bake with its exact current camera and native viewport.
+ * Every appended quad must use this projection and camera depth. */
+sat_result_t sat_view_cache_begin_camera(
+    sat_view_cache_t* cache, uint16_t view,
+    const sat_camera3d_t* camera, sat_fx16_t near_depth,
+    uint16_t width, uint16_t height);
+
+/* Retrieve only a view baked for exactly this camera/viewport. A stale view
+ * is invalidated and returns NOT_FOUND with NULL/0 outputs, rather than
+ * drawing old native coordinates after a camera rotation or viewport change.
+ * Use begin_camera + append + sort to rebuild it. A legacy begin on a bound
+ * slot deliberately invalidates its camera snapshot. */
+sat_result_t sat_view_cache_view_camera(
+    sat_view_cache_t* cache, uint16_t view,
+    const sat_camera3d_t* camera, sat_fx16_t near_depth,
+    uint16_t width, uint16_t height,
+    const sat_view_cache_item_t** out_items, uint16_t* out_count);
+
 sat_result_t sat_view_cache_set_generation(sat_view_cache_t* cache, uint32_t generation);
 sat_result_t sat_view_cache_begin(sat_view_cache_t* cache, uint16_t view);
 sat_result_t sat_view_cache_append(sat_view_cache_t* cache,

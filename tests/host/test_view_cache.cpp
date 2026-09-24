@@ -43,6 +43,67 @@ int main() {
         OK(sat_view_cache_stats(&cache, &stats) == SAT_OK);
         OK(stats.baked_entries == 0u && stats.cache_hits == 0u && stats.views_ready == 0u);
     }
+    // Camera-bound caches must not return stale projected corners if any
+    // camera matrix, pose, near plane, viewport or content generation changes.
+    sat_view_cache_camera_t cameras[2]={};
+    sat_camera3d_t camera{};
+    camera.eye.z=10*SAT_FX16_ONE;
+    camera.target.z=0;
+    camera.up.y=SAT_FX16_ONE;
+    camera.view_proj.m[0]=SAT_FX16_ONE;
+    OK(sat_view_cache_bind_cameras(&cache,cameras,1u)==SAT_ERR_INVALID_ARG);
+    OK(sat_view_cache_bind_cameras(&cache,cameras,2u)==SAT_OK);
+    OK(sat_view_cache_view_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u,&items,&count)==SAT_ERR_NOT_FOUND);
+    OK(items==nullptr && count==0u);
+    OK(sat_view_cache_begin_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u)==SAT_OK);
+    OK(sat_view_cache_append(&cache,&quad,3u,0x801Fu,5u)==SAT_OK);
+    OK(sat_view_cache_sort(&cache)==SAT_OK);
+    OK(sat_view_cache_view_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u,&items,&count)==SAT_OK);
+    OK(count==1u && items[0].tag==5u);
+    camera.view_proj.m[0]+=1;
+    OK(sat_view_cache_view_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u,&items,&count)==SAT_ERR_NOT_FOUND);
+    OK(items==nullptr && count==0u && cache.counts[0]==0u);
+    camera.view_proj.m[0]-=1;
+    OK(sat_view_cache_view_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u,&items,&count)==SAT_ERR_NOT_FOUND);
+    OK(sat_view_cache_begin_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u)==SAT_OK);
+    OK(sat_view_cache_append(&cache,&quad,3u,50u,5u)==SAT_OK);
+    OK(sat_view_cache_sort(&cache)==SAT_OK);
+    OK(sat_view_cache_view_camera(&cache,0u,&camera,2*SAT_FX16_ONE,
+        320u,224u,&items,&count)==SAT_ERR_NOT_FOUND);
+    OK(sat_view_cache_begin_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u)==SAT_OK);
+    OK(sat_view_cache_append(&cache,&quad,3u,50u,5u)==SAT_OK);
+    OK(sat_view_cache_sort(&cache)==SAT_OK);
+    OK(sat_view_cache_view_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        640u,224u,&items,&count)==SAT_ERR_NOT_FOUND);
+    OK(sat_view_cache_begin_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u)==SAT_OK);
+    OK(sat_view_cache_append(&cache,&quad,3u,50u,5u)==SAT_OK);
+    OK(sat_view_cache_sort(&cache)==SAT_OK);
+    camera.eye.z+=SAT_FX16_ONE;
+    OK(sat_view_cache_view_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u,&items,&count)==SAT_ERR_NOT_FOUND);
+    camera.eye.z-=SAT_FX16_ONE;
+    OK(sat_view_cache_begin_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u)==SAT_OK);
+    OK(sat_view_cache_append(&cache,&quad,3u,50u,5u)==SAT_OK);
+    OK(sat_view_cache_sort(&cache)==SAT_OK);
+    OK(sat_view_cache_set_generation(&cache,3u)==SAT_OK);
+    OK(sat_view_cache_view_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u,&items,&count)==SAT_ERR_NOT_FOUND);
+    OK(cache.counts[0]==0u);
+    // Legacy begin cannot accidentally bless a new bake as camera-matched.
+    OK(sat_view_cache_begin(&cache,0u)==SAT_OK);
+    OK(sat_view_cache_append(&cache,&quad,3u,50u,5u)==SAT_OK);
+    OK(sat_view_cache_sort(&cache)==SAT_OK);
+    OK(sat_view_cache_view_camera(&cache,0u,&camera,SAT_FX16_ONE,
+        320u,224u,&items,&count)==SAT_ERR_NOT_FOUND);
     std::puts("view cache: OK");
     return 0;
 }
