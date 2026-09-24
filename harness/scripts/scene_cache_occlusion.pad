@@ -1,0 +1,8 @@
+# Mixed cached indexed wall / moving RGB face, same painter and pass.
+# Capture at guest frames 55 (actor behind near wall), 105 (actor in
+# front); switch camera only after those two identical-camera captures.
+0   NONE
+130 A
+132 NONE
+160 B
+162 NONE

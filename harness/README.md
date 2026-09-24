@@ -284,3 +284,23 @@ It runs `ram_cart_demo` with none, 1 MiB, and 4 MiB configurations,
 and checks the headless Ymir JSON for both detected capacity and successful
 writes/reads over the boundary between DRAM0 and DRAM1.
 The test requires a user-supplied BIOS and is intentionally not run in CI.
+
+### Cached-texture / dynamic-face visual acceptance (opt in)
+
+The mixed scene has a reproducible headless-Ymir screenshot and depth-occlusion
+regression. Using your own BIOS and the pinned probe on Windows:
+
+```powershell
+.\\harness\\run-scene-cache-occlusion.ps1 -Bios .\\bios\\saturn_bios_us.bin
+```
+
+The script captures four **composited** 320x224 frames at guest frames 55
+(actor behind the near wall), 105 (actor in front), 145 (camera A toggled)
+and 175 (zoom B toggled). A Pillow-based assertion excludes yellow/cyan
+checkerboard and white HUD pixels, then verifies that the in-front actor has
+more visible red pixels than the actor behind the cached wall. It also checks
+that both camera and zoom rebakes change the output. Original PNGs and
+`probe.json` remain under `harness/build/scene_cache_occlusion/` for human
+inspection. The harness's BIOS requirement and direct-injection limitation
+still apply: this suite cannot certify cartridge timing or real hardware.
+A missing BIOS/capture is *skipped*, never reported as visual validation.
