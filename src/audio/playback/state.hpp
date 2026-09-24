@@ -9,6 +9,7 @@
 #include "src/audio/playback/clock.hpp"
 #include "src/audio/playback/sound_registry.hpp"
 #include "src/audio/playback/voice_registry.hpp"
+#include "src/audio/playback/voice_lifetime.hpp"
 #include "src/hal/scsp/scsp.hpp"
 
 /* Private wiring for the resident sound playback service. This is deliberately
@@ -37,7 +38,6 @@ extern uint8_t g_initialized;
 extern saturn::core::audio::clock::State g_audio_clock;
 
 uint8_t volume_to_tl(uint16_t volume);
-uint32_t duration_frames(uint32_t sample_count,uint32_t sample_rate,uint32_t pitch_q16);
 void release_voice(uint16_t slot);
 int32_t choose_voice(uint16_t priority);
 void reset_runtime_state();

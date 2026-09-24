@@ -45,7 +45,8 @@ extern "C" sat_result_t sat_audio_update(void) {
     for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
         VoiceEntry& voice = g_voice_registry.entries[i];
         if (voice.active == 0u || voice.looping != 0u) continue;
-        if (static_cast<int32_t>(now - voice.end_frame) >= 0) release_voice(i);
+        if (saturn::core::audio::voice::lifetime::expired(
+                service_frame,voice.end_frame)) release_voice(i);
     }
     return SAT_OK;
 }

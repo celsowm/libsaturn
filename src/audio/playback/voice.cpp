@@ -1,5 +1,6 @@
 #include "src/audio/playback/state.hpp"
 #include "saturn/video.h"
+#include "src/core/runtime/state.hpp"
 
 using namespace saturn::core::audio::playback;
 
@@ -56,7 +57,18 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
     voice.volume = volume;
     voice.pan = pan;
     voice.start_serial = ++g_start_serial;
-    voice.end_frame = sat_frame_count() + duration_frames(entry->sample_count, entry->sample_rate, pitch_q16);
+    /* Resident voice expiry uses the SAME monotonic service frame as PCM
+     * streaming, including VBlank edges sampled during synchronous CD reads.
+     * Duration is measured in the actual NTSC/PAL display rate, not a hard-
+     * coded 60 Hz assumption. */
+    const uint32_t now=sat_frame_count();
+    const uint32_t start=saturn::core::audio::voice::lifetime::play_start(
+        now,g_audio_clock.service_frame,g_audio_clock.valid!=0u);
+    const uint32_t display_rate=
+        saturn::core::g_state.config.ntsc!=0u?60u:50u;
+    voice.end_frame=start+
+        saturn::core::audio::voice::lifetime::duration_frames(
+            entry->sample_count,entry->sample_rate,pitch_q16,display_rate);
 
     saturn::hal::scsp::key_on(static_cast<uint8_t>(voice_slot));
 
