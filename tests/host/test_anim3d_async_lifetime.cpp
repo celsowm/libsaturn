@@ -33,7 +33,7 @@ extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
     sat_vdp1_texture_t* out, const uint8_t*, uint16_t width, uint16_t height,
     uint16_t palette) {
     out->srca=1u; out->width=width; out->height=height;
-    out->palette=palette; out->valid=1u; out->reserved=0u;
+    out->palette=palette; out->valid=1u; out->format=SAT_VDP1_TEXTURE_INDEXED8;
     return SAT_OK;
 }
 
