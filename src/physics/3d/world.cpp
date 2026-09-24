@@ -1,6 +1,7 @@
 #include "saturn/physics3_world.h"
 #include <limits.h>
 #include "src/physics/3d/collision_grid.hpp"
+#include "src/physics/3d/broadphase.hpp"
 #include "src/core/math3d/logic.hpp"
 namespace {
 using V=sat_vec3_t;
@@ -15,6 +16,18 @@ bool live(const sat_physics3_world_t* w,uint16_t id) {
 bool material_ok(const sat_physics3_material_t* m) {
     return m && m->friction>=0 && m->friction<=SAT_FX16_ONE &&
         m->restitution>=0 && m->restitution<=SAT_FX16_ONE;
+}
+/* Reference mesh vertices are immutable for a registered collider. Cache
+ * extrema once, before any movement, rather than scanning every face for
+ * each sphere/solver iteration. Conservative even with unreferenced verts. */
+void mesh_bounds(const sat_mesh_t& mesh,V& low,V& high) {
+    low=mesh.vertices[0];high=low;
+    for(uint16_t i=1u;i<mesh.vertex_count;++i){
+        const V p=mesh.vertices[i];
+        if(p.x<low.x)low.x=p.x;if(p.x>high.x)high.x=p.x;
+        if(p.y<low.y)low.y=p.y;if(p.y>high.y)high.y=p.y;
+        if(p.z<low.z)low.z=p.z;if(p.z>high.z)high.z=p.z;
+    }
 }
 bool fits(int64_t n) {return n>=INT32_MIN && n<=INT32_MAX;}
 bool add_fits(V a,V b) {return fits((int64_t)a.x+b.x) &&
@@ -348,6 +361,7 @@ extern "C" sat_result_t sat_physics3_add_mesh(
     const uint16_t next=w->count;
     sat_physics3_actor_t& a=w->actors[next];a={};
     a.kind=SAT_PHYSICS3_STATIC_MESH;a.material=*material;a.mesh=mesh;
+    mesh_bounds(*mesh,a.mesh_bounds_min,a.mesh_bounds_max);
     w->count=(uint16_t)(next+1u);*id=next;return SAT_OK;
 }
 extern "C" sat_result_t sat_physics3_add_mesh_grid(
@@ -371,6 +385,7 @@ extern "C" sat_result_t sat_physics3_add_mesh_grid(
     a.material=*material;
     a.mesh=grid->mesh;
     a.mesh_grid=grid;
+    mesh_bounds(*grid->mesh,a.mesh_bounds_min,a.mesh_bounds_max);
     w->count=(uint16_t)(next+1u);*id=next;return SAT_OK;
 }
 extern "C" sat_result_t sat_physics3_add_kinematic_mesh(
@@ -386,13 +401,7 @@ extern "C" sat_result_t sat_physics3_add_kinematic_mesh(
     V low{},high{};
     if(mesh->vertices && mesh->vertex_count &&
        mesh->vertex_count<=mesh->vertex_cap){
-        low=mesh->vertices[0];high=low;
-        for(uint16_t i=1;i<mesh->vertex_count;++i){
-            const V p=mesh->vertices[i];
-            if(p.x<low.x)low.x=p.x;if(p.x>high.x)high.x=p.x;
-            if(p.y<low.y)low.y=p.y;if(p.y>high.y)high.y=p.y;
-            if(p.z<low.z)low.z=p.z;if(p.z>high.z)high.z=p.z;
-        }
+        mesh_bounds(*mesh,low,high);
         if(!add_fits(low,*initial_offset)||
            !add_fits(high,*initial_offset))
             return SAT_ERR_INVALID_ARG;
@@ -683,6 +692,11 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                     sat_result_t status=SAT_OK;
                     if(w->mesh_face_ccd &&
                        collider.kind==SAT_PHYSICS3_STATIC_MESH){
+                        if(!saturn::core::physics3::broadphase::swept_overlaps(
+                             ball.sphere.shape.center,d,
+                             ball.sphere.shape.radius,collider.mesh_bounds_min,
+                             collider.mesh_bounds_max))
+                            continue;
                         status=sat_sphere_cast_mesh(
                             collider.mesh,&ball.sphere.shape,&d,
                             &candidate,&found);
@@ -756,6 +770,16 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                                          reference_sphere.center))
                                 return SAT_ERR_INVALID_ARG;
                         }
+                        /* This conservative AABB includes every authored
+                         * mesh vertex. For moving/rotating meshes we compare
+                         * the already inverse-transformed local sphere. Skip
+                         * the potentially many face/grid queries only if
+                         * separation is certain. */
+                        if(!saturn::core::physics3::broadphase::overlaps(
+                             reference_sphere.center,
+                             reference_sphere.radius,
+                             box.mesh_bounds_min,box.mesh_bounds_max))
+                            continue;
                         uint16_t count=0;
                         const sat_result_t status=box.mesh_grid
                             ? sat_sphere_mesh_contact_grid(

@@ -110,6 +110,28 @@ static void optional_collider_index_matches_full_scan(){
     CHECK(sat_physics3_set_collider_index_scratch(&fast,nullptr,0)==SAT_OK);
     CHECK(fast.collider_indices==nullptr && fast.collider_index_capacity==0u);
 }
+static void mesh_aabb_caches_reference_bounds(){
+    sat_physics3_actor_t actors[3]{};
+    sat_physics3_world_t w{};
+    sat_contact3_t contacts[1]{};
+    CHECK(sat_physics3_world_init(&w,actors,3,zero,16,3)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(&w,contacts,1)==SAT_OK);
+    sat_vec3_t vertices[4]={
+        {-FX(3),FX(1),-FX(2)},{FX(5),FX(1),-FX(2)},
+        {FX(5),FX(1),FX(7)},{-FX(3),FX(1),FX(7)}
+    };
+    uint16_t indices[4]={0,1,2,3};
+    sat_mesh_t mesh{vertices,indices,4,4,1,1};
+    uint16_t id=0u;
+    CHECK(sat_physics3_add_mesh(&w,&mesh,&rough,&id)==SAT_OK);
+    const sat_physics3_actor_t cached=read(&w,id);
+    CHECK(cached.mesh_bounds_min.x==-FX(3));
+    CHECK(cached.mesh_bounds_min.y==FX(1));
+    CHECK(cached.mesh_bounds_min.z==-FX(2));
+    CHECK(cached.mesh_bounds_max.x==FX(5));
+    CHECK(cached.mesh_bounds_max.y==FX(1));
+    CHECK(cached.mesh_bounds_max.z==FX(7));
+}
 static void moving_platform_and_multiple_balls(){
     sat_physics3_actor_t actors[3]{};
     sat_physics3_world_t w{};
@@ -831,6 +853,7 @@ static void rotation_rejects_unsafe_budget_and_invalid_targets() {
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
+    mesh_aabb_caches_reference_bounds();
     optional_collider_index_matches_full_scan();
     moving_platform_and_multiple_balls();
     deterministic_replay();
