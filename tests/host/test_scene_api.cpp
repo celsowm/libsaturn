@@ -8,6 +8,7 @@ static sat_result_t g_submit_status=SAT_OK;
 static sat_result_t g_flush_status=SAT_OK;
 static uint16_t g_world_commands=0u;
 static uint16_t g_flush_emissions=0u;
+static uint16_t g_pending_cached=0u;
 
 extern "C" sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
@@ -28,12 +29,23 @@ extern "C" sat_result_t sat_scene3d_faces_begin_camera(
     if (!scene || scene->active) return SAT_ERR_INVALID_ARG;
     scene->active = 1u;
     scene->count = 0u;
+    g_pending_cached=0u;
     return SAT_OK;
 }
 
 extern "C" sat_result_t sat_scene3d_faces_submit_quad(
     sat_scene3d_faces_t*, const sat_quad3_t*,
     const sat_scene3d_material_t*, uint16_t) { return g_submit_status; }
+extern "C" sat_result_t sat_scene3d_faces_submit_projected_rgb(
+    sat_scene3d_faces_t* scene,const sat_quad2_t* quad,
+    sat_fx16_t camera_depth,uint16_t,uint16_t pass) {
+    if (!scene || !scene->active || !quad || camera_depth<0 ||
+        pass>SAT_SCENE3D_PASS_MAX) return SAT_ERR_INVALID_ARG;
+    if (scene->count>=scene->capacity) return SAT_ERR_CAPACITY;
+    ++scene->count;
+    ++g_pending_cached;
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_scene3d_faces_submit_box(
     sat_scene3d_faces_t*, const sat_indexed_box3_t*, uint8_t,
     uint16_t) { return SAT_OK; }
@@ -51,7 +63,12 @@ extern "C" sat_result_t sat_scene3d_faces_depth(
 extern "C" sat_result_t sat_scene3d_faces_flush(sat_scene3d_faces_t* scene) {
     if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
     scene->active = 0u;
-    scene->emitted_faces = g_flush_status==SAT_OK ? scene->count : 0u;
+    scene->emitted_cached = g_flush_status==SAT_OK ? g_pending_cached : 0u;
+    scene->emitted_faces = g_flush_status==SAT_OK
+        ? static_cast<uint16_t>(scene->count-g_pending_cached) : 0u;
+    if (g_flush_status==SAT_OK) {
+        g_replayed=static_cast<uint16_t>(g_replayed+g_pending_cached);
+    }
     scene->skipped_faces = 0u;
     // Model the observable VDP1 command counter, not one command per face.
     // A failed flush may already have emitted part of its workload.
@@ -116,6 +133,24 @@ int main() {
     assert(stats.flushed_faces==1u && stats.world_commands==3u);
     assert(stats.commands_used==6u); // replay + 3 scene + 2 pre-existing
     g_flush_emissions=0u;
+
+    // Opt-in queued items do not emit before flush; the cache's own depth
+    // is intentionally unrelated to the explicit linear camera_depth.
+    assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    item.depth=0xFFFFFFFFu;
+    assert(sat_scene_queue_view_item(
+        &scene,&item,6*SAT_FX16_ONE,0u)==SAT_OK);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.queued_view_items==1u && stats.replayed_items==0u);
+    assert(stats.submitted_faces==0u && g_replayed==1u);
+    assert(sat_scene_flush(&scene)==SAT_OK);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.queued_view_items==1u && stats.replayed_items==1u);
+    assert(stats.flushed_faces==0u && stats.world_commands==1u);
+    assert(g_replayed==2u);
+    assert(sat_scene_queue_view_item(
+        &scene,&item,6*SAT_FX16_ONE,0u)==SAT_ERR_INVALID_ARG);
 
     // Rejected submissions remain visible in the result after flush.
     assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,

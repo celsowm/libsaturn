@@ -42,7 +42,7 @@ extern "C" sat_result_t sat_scene_begin(sat_scene_t* scene,
     scene->first_error=SAT_OK;
     scene->skipped_faces=0u;
     scene->culled_faces = scene->clipped_faces = scene->fallback_faces = 0u;
-    scene->replayed_items = 0u;
+    scene->replayed_items = scene->queued_view_items = 0u;
     scene->commands_used = scene->commands_capacity = 0u;
     scene->world_commands = 0u;
     scene->flushed = 0;
@@ -123,6 +123,8 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     const sat_result_t st = sat_scene3d_faces_flush(&scene->faces);
     scene->flushed_faces = scene->faces.emitted_faces;
     scene->skipped_faces = scene->faces.skipped_faces;
+    scene->replayed_items = static_cast<uint16_t>(
+        scene->replayed_items + scene->faces.emitted_cached);
     record_frame_result(scene,st);
     sat_vdp1_command_stats_t after{};
     const sat_result_t after_status = sat_vdp1_command_stats(&after);
@@ -144,6 +146,18 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     return scene->first_error;
 }
 
+extern "C" sat_result_t sat_scene_queue_view_item(
+    sat_scene_t* scene, const sat_view_cache_item_t* item,
+    sat_fx16_t camera_depth, uint16_t pass) {
+    if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    const sat_result_t st=sat_scene3d_faces_submit_projected_rgb(
+        &scene->faces, item ? &item->quad : nullptr,
+        camera_depth, item ? item->color : 0u, pass);
+    if (st == SAT_OK) ++scene->queued_view_items;
+    else if (st == SAT_ERR_CAPACITY) ++scene->rejected_faces;
+    return record_frame_result(scene, st);
+}
+
 extern "C" sat_result_t sat_scene_replay_view_item(
     sat_scene_t* scene, const sat_view_cache_item_t* item) {
     if (!scene || !scene->active || !item) return SAT_ERR_INVALID_ARG;
@@ -163,6 +177,7 @@ extern "C" sat_result_t sat_scene_stats(const sat_scene_t* scene,
     out->clipped_faces = scene->clipped_faces;
     out->fallback_faces = scene->fallback_faces;
     out->replayed_items = scene->replayed_items;
+    out->queued_view_items = scene->queued_view_items;
     out->overlay_reserved = scene->overlay_commands;
     out->rejected_faces = scene->rejected_faces;
     out->commands_used = scene->commands_used;

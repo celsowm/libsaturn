@@ -12,6 +12,7 @@ static uint16_t project_calls=0;
 static uint16_t projected_vertices=0;
 static uint16_t clipped_count=0;
 static sat_result_t distorted_draw_status=SAT_OK;
+static sat_result_t polygon_draw_status=SAT_OK;
 
 static bool same_texture(const sat_vdp1_texture_t* a,
                          const sat_vdp1_texture_t* b) {
@@ -33,6 +34,7 @@ static bool same_tiled(const sat_indexed_tiled_quad3_t* a,
 static bool same_face(const sat_scene3d_face_t& a,
                       const sat_scene3d_face_t& b) {
     if (a.projected_safe != b.projected_safe ||
+        a.cached_projected != b.cached_projected ||
         a.gouraud_valid != b.gouraud_valid ||
         a.material.kind != b.material.kind ||
         a.material.rgb555 != b.material.rgb555 ||
@@ -91,6 +93,7 @@ extern "C" sat_result_t sat_draw_sprite_distorted_color_calc(
 }
 extern "C" sat_result_t sat_draw_quad2_polygon(
     const sat_quad2_t*,uint16_t color) {
+    if (polygon_draw_status!=SAT_OK) return polygon_draw_status;
     emitted[emitted_count++]=color;
     return SAT_OK;
 }
@@ -186,7 +189,68 @@ int main() {
     assert(sat_scene3d_faces_depth(&scene,&depth_point,&world_depth)==SAT_ERR_INVALID_ARG);
     assert(emitted_count==3u && emitted[0]==10u &&
            emitted[1]==30u && emitted[2]==20u);
+
     assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
+
+    // Cached RGB quads and dynamic world faces enter the SAME ordered
+    // painter list; the supplied linear depth is in the same 16.16 space
+    // as world-face projected W (not the cache's arbitrary bake sort key).
+    emitted_count=0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    const sat_quad2_t cached_quad{{-5,5,5,-5},{-5,-5,5,5}};
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&near,&near_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_rgb(
+        &scene,&cached_quad,8*SAT_FX16_ONE,0x8ABCu,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&actor,&actor_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&far,&far_mat,0u)==SAT_OK);
+    assert(scene.count==4u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==4u && emitted[0]==10u &&
+           emitted[1]==0x8ABCu && emitted[2]==30u &&
+           emitted[3]==20u);
+    assert(scene.emitted_faces==3u && scene.emitted_cached==1u);
+    assert(scene.fallback_faces==0u && scene.skipped_faces==0u);
+
+    // Equal-depth ties remain stable in original submission order.
+    emitted_count=0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_rgb(
+        &scene,&cached_quad,6*SAT_FX16_ONE,0x8001u,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&actor,&actor_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_rgb(
+        &scene,&cached_quad,6*SAT_FX16_ONE,0x8002u,0u)==SAT_OK);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==3u && emitted[0]==0x8001u &&
+           emitted[1]==30u && emitted[2]==0x8002u);
+    assert(scene.emitted_faces==1u && scene.emitted_cached==2u);
+
+    // Invalid cached requests cannot consume face capacity. A failed
+    // polygon emission must not be counted as a successful cache replay.
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_rgb(
+        &scene,nullptr,SAT_FX16_ONE,3u,0u)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_submit_projected_rgb(
+        &scene,&cached_quad,-1,3u,0u)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_submit_projected_rgb(
+        &scene,&cached_quad,SAT_FX16_ONE,3u,
+        SAT_SCENE3D_PASS_MAX+1u)==SAT_ERR_INVALID_ARG);
+    assert(scene.count==0u);
+    for (uint16_t i=0u;i<8u;++i)
+        assert(sat_scene3d_faces_submit_projected_rgb(
+            &scene,&cached_quad,SAT_FX16_ONE,i,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_rgb(
+        &scene,&cached_quad,SAT_FX16_ONE,9u,0u)==SAT_ERR_CAPACITY);
+    polygon_draw_status=SAT_ERR_CAPACITY;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_CAPACITY);
+    assert(scene.emitted_cached==0u && scene.emitted_faces==0u);
+    polygon_draw_status=SAT_OK;
 
     // An indexed face outside the safe projected range takes the bounded
     // renderer fallback rather than silently pretending the clamped sprite

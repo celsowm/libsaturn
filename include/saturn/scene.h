@@ -35,9 +35,9 @@ typedef struct sat_scene_stats {
     uint16_t rejected_faces;
     uint16_t commands_used;
     uint16_t commands_capacity;
-    /* Actual VDP1 command delta produced by this scene's synchronous face
-     * flush, including commands emitted before an eventual partial failure.
-     * Excludes previously submitted raw VDP1 and cached-view commands.
+    /* Actual VDP1 command delta produced by the synchronous painter flush,
+     * including queued cached items and commands before a partial failure.
+     * Excludes previously submitted raw VDP1 and immediate cached replays.
      * Face count differs when clipping/subdivision emits multiple commands. */
     uint16_t world_commands;
     sat_result_t result;

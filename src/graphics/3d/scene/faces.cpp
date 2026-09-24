@@ -128,6 +128,7 @@ sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
         item.projected.y[c]=projected[indices[c]].y;
     }
     item.material=material;
+    item.cached_projected=0u;
     item.gouraud_valid=material.vertex_gouraud ? 1u : 0u;
     if (item.gouraud_valid) {
         for (uint8_t c=0;c<4u;++c)
@@ -143,6 +144,9 @@ sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
 
 sat_result_t emit(const sat_scene3d_faces_t& scene,
                   const sat_scene3d_face_t& face) {
+    if (face.cached_projected != 0u)
+        return sat_draw_quad2_polygon(
+            &face.projected, face.material.rgb555);
     if (face.material.kind==SAT_SCENE3D_RGB) {
         if (!face.projected_safe) return SAT_ERR_UNSUPPORTED;
         if (face.gouraud_valid)
@@ -204,7 +208,7 @@ extern "C" sat_result_t sat_scene3d_faces_begin(
         return SAT_ERR_INVALID_ARG;
     scene->count=0;
     scene->culled_faces=scene->clipped_faces=scene->fallback_faces=0u;
-    scene->emitted_faces=scene->skipped_faces=0u;
+    scene->emitted_faces=scene->emitted_cached=scene->skipped_faces=0u;
     scene->view_proj=*view_proj;
     scene->eye=*eye;scene->forward=*forward;
     scene->near_depth=near_depth;scene->width=width;scene->height=height;
@@ -258,6 +262,28 @@ extern "C" sat_result_t sat_scene3d_faces_submit_quad(
     if (st!=SAT_OK) return st;
     const uint16_t indices[4]={0u,1u,2u,3u};
     return append(scene,*world,screen,indices,*material,pass);
+}
+
+extern "C" sat_result_t sat_scene3d_faces_submit_projected_rgb(
+    sat_scene3d_faces_t* scene, const sat_quad2_t* projected,
+    sat_fx16_t camera_depth, uint16_t color, uint16_t pass) {
+    if (!scene || !scene->active || !projected ||
+        camera_depth < 0 || pass > SAT_SCENE3D_PASS_MAX)
+        return SAT_ERR_INVALID_ARG;
+    if (scene->count >= scene->capacity) return SAT_ERR_CAPACITY;
+    sat_scene3d_face_t& item=scene->entries[scene->count];
+    item.projected=*projected;
+    item.material={};
+    item.material.kind=SAT_SCENE3D_RGB;
+    item.material.rgb555=color;
+    item.material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    item.projected_safe=1u;
+    item.cached_projected=1u;
+    item.gouraud_valid=0u;
+    scene->keys[scene->count]=painter_key(
+        static_cast<int64_t>(camera_depth)*4,pass);
+    ++scene->count;
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_scene3d_faces_submit_box(
@@ -538,7 +564,10 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
             result=emitted;
             break;
         }
-        ++scene->emitted_faces;
+        if (scene->entries[scene->order[i]].cached_projected != 0u)
+            ++scene->emitted_cached;
+        else
+            ++scene->emitted_faces;
     }
 #if SAT_SKYBRIDGE_VALIDATION
     g_test_emit_ticks=static_cast<uint16_t>(
