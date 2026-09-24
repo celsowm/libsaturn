@@ -29,5 +29,27 @@ int main() {
     assert(p.high_water==0u && p.used==0u);
     assert(p.allocate(101u,120u,5u,4u,&slot,&offset));
     assert(offset==104u && (offset&3u)==0u);
+    // Fragmented RAM: reused metadata slot is inserted in physical offset
+    // order, so one linear gap scan remains deterministic across holes.
+    Pool<5u> fragmented{};
+    fragmented.reset();
+    uint16_t slots[4]={};
+    uint32_t positions[4]={};
+    for(uint16_t i=0u;i<4u;++i)
+        assert(fragmented.allocate(100u,132u,4u,4u,
+            &slots[i],&positions[i]));
+    assert(positions[0]==100u && positions[3]==112u);
+    assert(fragmented.release(slots[1]));
+    assert(fragmented.release(slots[3]));
+    assert(fragmented.allocate(100u,132u,4u,4u,&slot,&offset));
+    assert(slot==slots[1] && offset==104u);
+    assert(fragmented.order[0]==slots[0] &&
+           fragmented.order[1]==slots[1] &&
+           fragmented.order[2]==slots[2]);
+    assert(fragmented.release(slots[0]));
+    assert(fragmented.allocate(100u,132u,8u,4u,&slot,&offset));
+    assert(offset==112u); // Neither the initial 4-byte gap nor middle fit.
+    assert(fragmented.live_count==3u && fragmented.used==16u);
+
     std::puts("audio Sound RAM allocator: OK");
 }

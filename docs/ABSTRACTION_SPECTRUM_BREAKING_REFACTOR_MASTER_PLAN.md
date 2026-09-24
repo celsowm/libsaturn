@@ -83,3 +83,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Physics opt-in type broadphase (first slice):** world_step now supports caller-owned collider-index scratch built in one source-order pass per tick, avoiding dynamic-sphere scans inside every CCD/solver iteration. The default direct world remains unchanged; this is type filtering, not a geometric spatial broadphase.
 
 **Camera-coherent L3 cache path:** the scene can now queue a complete camera-verified preprojected view atomically, checking the scene's camera matrix/eye, the cache's full camera snapshot, baked linear depth flags and face capacity. Cache misses remain recoverable without poisoning the current frame; the lower-level item submission and raw draw paths stay independent.
+
+**Sound RAM allocator complexity:** allocation slots now retain stable IDs in a caller-owned offset-sorted index. The first-fit free-range scan is linear in live blocks (no rescanning all allocations per gap), with O(C) insertion/removal for fixed capacity C; fragmentation ordering and reuse have host regressions.
