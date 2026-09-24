@@ -22,6 +22,22 @@ inline bool overlaps(const sat_vec3_t& center,sat_fx16_t radius,
            (int64_t)center.z-radius<=high.z;
 }
 
+/* AABB half-extents may lie near INT32_MAX; form the expanded
+ * sphere-vs-box interval in int64 rather than overflowing Q16 positions.
+ * This is only a conservative rejection gate before exact narrowphase. */
+inline bool overlaps_box(const sat_vec3_t& center,sat_fx16_t radius,
+                         const sat_vec3_t& box_center,
+                         const sat_vec3_t& box_half) {
+    if(radius<0 || box_half.x<0 || box_half.y<0 || box_half.z<0)
+        return false;
+    return (int64_t)center.x+radius>=(int64_t)box_center.x-box_half.x &&
+           (int64_t)center.x-radius<=(int64_t)box_center.x+box_half.x &&
+           (int64_t)center.y+radius>=(int64_t)box_center.y-box_half.y &&
+           (int64_t)center.y-radius<=(int64_t)box_center.y+box_half.y &&
+           (int64_t)center.z+radius>=(int64_t)box_center.z-box_half.z &&
+           (int64_t)center.z-radius<=(int64_t)box_center.z+box_half.z;
+}
+
 inline bool swept_overlaps(const sat_vec3_t& start,const sat_vec3_t& delta,
                            sat_fx16_t radius,
                            const sat_vec3_t& low,const sat_vec3_t& high) {

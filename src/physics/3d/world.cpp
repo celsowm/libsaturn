@@ -838,6 +838,14 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                         }
                         continue;
                     }
+                    /* Static/kinematic boxes also reject provably distant
+                     * spheres before the narrowphase's per-axis clamps.
+                     * Plane contact is intentionally unbounded. */
+                    if(box.kind!=SAT_PHYSICS3_STATIC_PLANE &&
+                       !saturn::core::physics3::broadphase::overlaps_box(
+                           ball.sphere.shape.center,ball.sphere.shape.radius,
+                           box.box.center,box.box.half))
+                        continue;
                     sat_contact3_t c{};
                     const int contact=box.kind==SAT_PHYSICS3_STATIC_PLANE
                         ? sat_sphere_plane_contact(&ball.sphere.shape,&box.plane,&c)

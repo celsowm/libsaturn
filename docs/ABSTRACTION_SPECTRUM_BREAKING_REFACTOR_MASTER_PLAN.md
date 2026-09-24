@@ -119,3 +119,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Compound box admission transaction:** a multi-face indexed box now restores its original painter count and cull/clip counters if a later face projection fails. Existing queued faces remain untouched; a host regression injects failure on the second box face.
 
 **Mesh instance admission hardening:** instance submission now checks nonzero face and vertex counts against the declared backing capacities before projection/index reads, and restores its own queued face/cull/clip state on any late append error; tests cover malformed mesh capacities and zero counts.
+
+**Finite-box conservative rejection:** iterative sphere/box narrowphase now excludes provably distant static and kinematic AABBs before per-axis contact calculations. A reusable 64-bit inclusive center/half-extents gate preserves touching contacts and avoids fixed-point overflow at coordinate extremes; infinite planes remain unaffected. This saves narrowphase work but does not replace a spatial index or change O(actors × spheres).
