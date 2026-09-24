@@ -297,6 +297,9 @@ int main() {
         320u,224u,8u)==SAT_OK);
     assert(sat_scene_queue_baked_view_item_material(
         &scene,&g_cache_items[0],&textured,0u)==SAT_OK);
+    /* Our mock increments the face count but does not populate materials;
+     * mark the previous face explicitly to verify it is left untouched. */
+    scene.faces.entries[0].material.texture=&tex;
     const uint16_t before_count=scene.faces.count;
     const uint16_t before_queued=scene.queued_view_items;
     const uint16_t fail_on=g_projected_calls+2u;
