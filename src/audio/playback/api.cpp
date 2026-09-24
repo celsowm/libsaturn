@@ -5,6 +5,7 @@
 #include "src/audio/playback/ram_allocator.hpp"
 #include "src/audio/playback/voice_policy.hpp"
 #include "src/audio/playback/clock.hpp"
+#include "src/audio/playback/sound_registry.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/scsp/scsp.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
@@ -22,20 +23,7 @@ constexpr uint16_t kAllocationCapacity = 40u;
 constexpr uint32_t kSoundRamBase = saturn::hal::scsp::kSystemReservedBytes;
 constexpr uint32_t kResidentSoundRamEnd = saturn::core::kAudioStreamRamBase;
 
-struct SoundEntry {
-    uint32_t ram_offset;
-    uint32_t byte_count;
-    uint32_t sample_count;
-    uint32_t sample_rate;
-    uint16_t loop_start;
-    uint16_t loop_end;
-    uint16_t generation;
-    uint16_t allocation_slot;
-    uint8_t format;
-    uint8_t loop;
-    uint8_t used;
-    uint8_t reserved;
-};
+using SoundEntry=saturn::core::audio::sound::Entry;
 
 struct VoiceEntry {
     uint32_t end_frame;
@@ -51,20 +39,13 @@ struct VoiceEntry {
 };
 
 saturn::core::audio::ram::Pool<kAllocationCapacity> g_ram = {};
-SoundEntry g_sounds[kSoundCapacity] = {};
+saturn::core::audio::sound::Registry<kSoundCapacity> g_sound_registry = {};
 VoiceEntry g_voices[kVoiceCapacity] = {};
 uint32_t g_voice_steals = 0u;
 uint32_t g_failed_play_requests = 0u;
 uint32_t g_start_serial = 0u;
 uint8_t g_initialized = 0u;
 saturn::core::audio::clock::State g_audio_clock = {};
-
-SoundEntry* resolve_sound(sat_sound_t sound) {
-    if (sound.slot >= kSoundCapacity) return nullptr;
-    SoundEntry& entry = g_sounds[sound.slot];
-    if (entry.used == 0u || entry.generation != sound.generation) return nullptr;
-    return &entry;
-}
 
 VoiceEntry* resolve_voice(sat_voice_t voice) {
     if (voice.slot >= kVoiceCapacity) return nullptr;
@@ -105,12 +86,7 @@ int32_t choose_voice(uint16_t priority) {
 
 void reset_runtime_state() {
     g_ram.reset();
-    for (uint16_t i = 0; i < kSoundCapacity; ++i) {
-        uint16_t generation = static_cast<uint16_t>(g_sounds[i].generation + 1u);
-        if (generation == 0u) generation = 1u;
-        g_sounds[i] = {};
-        g_sounds[i].generation = generation;
-    }
+    g_sound_registry.reset();
     for (uint16_t i = 0; i < kVoiceCapacity; ++i) {
         uint16_t generation = static_cast<uint16_t>(g_voices[i].generation + 1u);
         if (generation == 0u) generation = 1u;
@@ -180,7 +156,7 @@ extern "C" sat_result_t sat_audio_get_stats(sat_audio_stats_t* out_stats) {
 
     uint16_t sounds = 0u;
     uint16_t voices = 0u;
-    for (uint16_t i = 0; i < kSoundCapacity; ++i) sounds += g_sounds[i].used != 0u ? 1u : 0u;
+    sounds=g_sound_registry.active_count();
     for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) voices += g_voices[i].active != 0u ? 1u : 0u;
 
     out_stats->sound_ram_used = g_ram.used;
@@ -201,13 +177,7 @@ extern "C" sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound
     if (desc->sample_count == 0u || desc->sample_count > 65535u || desc->sample_rate == 0u) return SAT_ERR_INVALID_ARG;
     if (desc->format != SAT_AUDIO_PCM_S8 && desc->format != SAT_AUDIO_PCM_S16) return SAT_ERR_UNSUPPORTED;
 
-    uint16_t sound_slot = kSoundCapacity;
-    for (uint16_t i = 0; i < kSoundCapacity; ++i) {
-        if (g_sounds[i].used == 0u) {
-            sound_slot = i;
-            break;
-        }
-    }
+    const uint16_t sound_slot=g_sound_registry.first_free();
     if (sound_slot == kSoundCapacity) return SAT_ERR_CAPACITY;
 
     const uint32_t bytes_per_sample = desc->format == SAT_AUDIO_PCM_S16 ? 2u : 1u;
@@ -222,12 +192,8 @@ extern "C" sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound
         return SAT_ERR_INVALID_ARG;
     }
 
-    SoundEntry& entry = g_sounds[sound_slot];
-    uint16_t generation = static_cast<uint16_t>(entry.generation + 1u);
-    if (generation == 0u) generation = 1u;
-    entry = {};
-    entry.used = 1u;
-    entry.generation = generation;
+    SoundEntry& entry = *g_sound_registry.activate(sound_slot);
+    const uint16_t generation=entry.generation;
     entry.ram_offset = offset;
     entry.byte_count = byte_count;
     entry.sample_count = desc->sample_count;
@@ -255,21 +221,18 @@ extern "C" sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound
 
 extern "C" sat_result_t sat_sound_unload(sat_sound_t sound) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
-    SoundEntry* entry = resolve_sound(sound);
+    SoundEntry* entry = g_sound_registry.resolve(sound);
     if (entry == nullptr) return SAT_ERR_INVALID_ARG;
 
     sat_sound_stop_all_instances(sound);
     (void)g_ram.release(entry->allocation_slot);
-    uint16_t generation = static_cast<uint16_t>(entry->generation + 1u);
-    if (generation == 0u) generation = 1u;
-    *entry = {};
-    entry->generation = generation;
+    (void)g_sound_registry.invalidate(sound);
     return SAT_OK;
 }
 
 extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_params_t* params, sat_voice_t* out_voice) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
-    SoundEntry* entry = resolve_sound(sound);
+    SoundEntry* entry = g_sound_registry.resolve(sound);
     if (entry == nullptr) return SAT_ERR_INVALID_ARG;
 
     uint16_t volume = SAT_AUDIO_VOLUME_MAX;
@@ -337,7 +300,7 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
 
 extern "C" sat_result_t sat_sound_stop_all_instances(sat_sound_t sound) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
-    if (resolve_sound(sound) == nullptr) return SAT_ERR_INVALID_ARG;
+    if (g_sound_registry.resolve(sound) == nullptr) return SAT_ERR_INVALID_ARG;
     for (uint16_t i = 0; i < kVoiceCapacity; ++i) {
         VoiceEntry& voice = g_voices[i];
         if (voice.active != 0u && voice.sound_slot == sound.slot && voice.sound_generation == sound.generation) {

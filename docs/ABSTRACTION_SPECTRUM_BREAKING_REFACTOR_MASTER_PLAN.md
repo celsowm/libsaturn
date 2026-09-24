@@ -93,3 +93,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Header isolation:** the shared library now compiles without the example-generated-header include path. Build profile behavior, reusable library keys, public artifact exports and the remaining shared source-generation concurrency limitation are documented in `docs/BUILD_PROFILES.md`.
 
 **Audio service-clock separation:** the reconciliation of app frames with polled VBlank edges now lives in a standalone caller-owned clock policy. Host tests exercise held-high VBlank, synchronous-I/O stalls, app-frame catch-up and 32-bit wrap; playback still owns hardware polling and streaming dispatch.
+
+**Sound registry separation:** pure bounded sound-slot generation, stale-handle rejection, activation and invalidation now belong to `sound_registry.hpp`. The playback facade continues to own upload/unload transactions and hardware interactions; host tests cover reuse, reset, out-of-range and generation wrap.
