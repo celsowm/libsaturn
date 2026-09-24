@@ -31,6 +31,8 @@ typedef struct sat_scene_stats {
     uint16_t clipped_faces;
     uint16_t fallback_faces;
     uint16_t replayed_items;
+    /* Accepted deferred cached items, which share world face storage. */
+    uint16_t queued_view_items;
     uint16_t overlay_reserved;
     uint16_t rejected_faces;
     uint16_t commands_used;
@@ -53,6 +55,7 @@ typedef struct sat_scene {
     uint16_t clipped_faces;
     uint16_t fallback_faces;
     uint16_t replayed_items;
+    uint16_t queued_view_items;
     uint16_t rejected_faces;
     uint16_t commands_used;
     uint16_t commands_capacity;
@@ -121,6 +124,16 @@ sat_result_t sat_scene_submit_transform_instance(
  * mutable occupancy (for example, eaten pellets) before calling this. */
 sat_result_t sat_scene_replay_view_item(
     sat_scene_t* scene, const sat_view_cache_item_t* item);
+/* Opt-in joint painter ordering for a previously projected RGB cache item.
+ * camera_depth is the positive LINEAR 16.16 depth of the source geometry
+ * in this camera view, not item.depth (which may encode squared XZ distance).
+ * Copies the quad into one scene face slot; emitted items count as replayed
+ * only after successful flush. Immediate sat_scene_replay_view_item is kept
+ * independent for L1 users who want exact call order instead. */
+sat_result_t sat_scene_queue_view_item(
+    sat_scene_t* scene, const sat_view_cache_item_t* item,
+    sat_fx16_t camera_depth, uint16_t pass);
+
 /* Ends the frame and returns the first recorded error from its submissions
  * and flush. Raw VDP1 operations remain independent. */
 sat_result_t sat_scene_flush(sat_scene_t* scene);
