@@ -6,6 +6,7 @@
 #include "src/audio/playback/voice_policy.hpp"
 #include "src/audio/playback/clock.hpp"
 #include "src/audio/playback/sound_registry.hpp"
+#include "src/audio/playback/voice_registry.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/scsp/scsp.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
@@ -25,34 +26,16 @@ constexpr uint32_t kResidentSoundRamEnd = saturn::core::kAudioStreamRamBase;
 
 using SoundEntry=saturn::core::audio::sound::Entry;
 
-struct VoiceEntry {
-    uint32_t end_frame;
-    uint32_t start_serial;
-    uint16_t generation;
-    uint16_t sound_slot;
-    uint16_t sound_generation;
-    uint16_t priority;
-    uint16_t volume;
-    int16_t pan;
-    uint8_t active;
-    uint8_t looping;
-};
+using VoiceEntry=saturn::core::audio::voice::Entry;
 
 saturn::core::audio::ram::Pool<kAllocationCapacity> g_ram = {};
 saturn::core::audio::sound::Registry<kSoundCapacity> g_sound_registry = {};
-VoiceEntry g_voices[kVoiceCapacity] = {};
+saturn::core::audio::voice::Registry<kVoiceCapacity> g_voice_registry = {};
 uint32_t g_voice_steals = 0u;
 uint32_t g_failed_play_requests = 0u;
 uint32_t g_start_serial = 0u;
 uint8_t g_initialized = 0u;
 saturn::core::audio::clock::State g_audio_clock = {};
-
-VoiceEntry* resolve_voice(sat_voice_t voice) {
-    if (voice.slot >= kVoiceCapacity) return nullptr;
-    VoiceEntry& entry = g_voices[voice.slot];
-    if (entry.active == 0u || entry.generation != voice.generation) return nullptr;
-    return &entry;
-}
 
 uint8_t volume_to_tl(uint16_t volume) {
     if (volume > SAT_AUDIO_VOLUME_MAX) volume = SAT_AUDIO_VOLUME_MAX;
@@ -71,15 +54,16 @@ uint32_t duration_frames(uint32_t sample_count, uint32_t sample_rate, uint32_t p
 }
 
 void release_voice(uint16_t slot) {
-    if (slot >= kVoiceCapacity || g_voices[slot].active == 0u) return;
+    if (slot >= kVoiceCapacity ||
+        g_voice_registry.entries[slot].active == 0u) return;
     saturn::hal::scsp::key_off(static_cast<uint8_t>(slot));
-    g_voices[slot].active = 0u;
+    (void)g_voice_registry.release(slot);
 }
 
 int32_t choose_voice(uint16_t priority) {
     const int32_t selected=saturn::core::audio::voice::choose(
-        g_voices,kResidentVoiceCapacity,priority);
-    if(selected>=0 && g_voices[selected].active!=0u)
+        g_voice_registry.entries,kResidentVoiceCapacity,priority);
+    if(selected>=0 && g_voice_registry.entries[selected].active!=0u)
         ++g_voice_steals;
     return selected;
 }
@@ -87,12 +71,7 @@ int32_t choose_voice(uint16_t priority) {
 void reset_runtime_state() {
     g_ram.reset();
     g_sound_registry.reset();
-    for (uint16_t i = 0; i < kVoiceCapacity; ++i) {
-        uint16_t generation = static_cast<uint16_t>(g_voices[i].generation + 1u);
-        if (generation == 0u) generation = 1u;
-        g_voices[i] = {};
-        g_voices[i].generation = generation;
-    }
+    g_voice_registry.reset();
     g_voice_steals = 0u;
     g_failed_play_requests = 0u;
     g_start_serial = 0u;
@@ -135,7 +114,7 @@ extern "C" sat_result_t sat_audio_update(void) {
     saturn::core::audio_stream_service(
         saturn::core::g_audio_streams, service_frame, display_rate);
     for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
-        VoiceEntry& voice = g_voices[i];
+        VoiceEntry& voice = g_voice_registry.entries[i];
         if (voice.active == 0u || voice.looping != 0u) continue;
         if (static_cast<int32_t>(now - voice.end_frame) >= 0) release_voice(i);
     }
@@ -157,7 +136,7 @@ extern "C" sat_result_t sat_audio_get_stats(sat_audio_stats_t* out_stats) {
     uint16_t sounds = 0u;
     uint16_t voices = 0u;
     sounds=g_sound_registry.active_count();
-    for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) voices += g_voices[i].active != 0u ? 1u : 0u;
+    voices=g_voice_registry.active_count(kResidentVoiceCapacity);
 
     out_stats->sound_ram_used = g_ram.used;
     out_stats->sound_ram_capacity = kResidentSoundRamEnd - kSoundRamBase;
@@ -255,7 +234,7 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
         return SAT_ERR_CAPACITY;
     }
     const uint16_t voice_slot = static_cast<uint16_t>(selected);
-    if (g_voices[voice_slot].active != 0u) release_voice(voice_slot);
+    if (g_voice_registry.entries[voice_slot].active != 0u) release_voice(voice_slot);
 
     saturn::hal::scsp::SlotConfig config = {};
     config.start_address = entry->ram_offset;
@@ -274,12 +253,8 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
         return SAT_ERR_UNSUPPORTED;
     }
 
-    VoiceEntry& voice = g_voices[voice_slot];
-    uint16_t generation = static_cast<uint16_t>(voice.generation + 1u);
-    if (generation == 0u) generation = 1u;
-    voice = {};
-    voice.generation = generation;
-    voice.active = 1u;
+    VoiceEntry& voice = *g_voice_registry.activate(voice_slot);
+    const uint16_t generation=voice.generation;
     voice.looping = entry->loop;
     voice.sound_slot = sound.slot;
     voice.sound_generation = sound.generation;
@@ -302,7 +277,7 @@ extern "C" sat_result_t sat_sound_stop_all_instances(sat_sound_t sound) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
     if (g_sound_registry.resolve(sound) == nullptr) return SAT_ERR_INVALID_ARG;
     for (uint16_t i = 0; i < kVoiceCapacity; ++i) {
-        VoiceEntry& voice = g_voices[i];
+        VoiceEntry& voice = g_voice_registry.entries[i];
         if (voice.active != 0u && voice.sound_slot == sound.slot && voice.sound_generation == sound.generation) {
             release_voice(i);
         }
@@ -312,7 +287,7 @@ extern "C" sat_result_t sat_sound_stop_all_instances(sat_sound_t sound) {
 
 extern "C" sat_result_t sat_voice_stop(sat_voice_t voice) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
-    VoiceEntry* entry = resolve_voice(voice);
+    VoiceEntry* entry = g_voice_registry.resolve(voice);
     if (entry == nullptr) return SAT_ERR_INVALID_ARG;
     release_voice(voice.slot);
     return SAT_OK;
@@ -320,7 +295,7 @@ extern "C" sat_result_t sat_voice_stop(sat_voice_t voice) {
 
 extern "C" sat_result_t sat_voice_set_volume(sat_voice_t voice, uint16_t volume) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
-    VoiceEntry* entry = resolve_voice(voice);
+    VoiceEntry* entry = g_voice_registry.resolve(voice);
     if (entry == nullptr) return SAT_ERR_INVALID_ARG;
     if (volume > SAT_AUDIO_VOLUME_MAX) volume = SAT_AUDIO_VOLUME_MAX;
     entry->volume = volume;
@@ -333,7 +308,7 @@ extern "C" sat_result_t sat_voice_set_volume(sat_voice_t voice, uint16_t volume)
 
 extern "C" sat_result_t sat_voice_set_pan(sat_voice_t voice, int16_t pan) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
-    VoiceEntry* entry = resolve_voice(voice);
+    VoiceEntry* entry = g_voice_registry.resolve(voice);
     if (entry == nullptr) return SAT_ERR_INVALID_ARG;
     if (pan < SAT_AUDIO_PAN_LEFT) pan = SAT_AUDIO_PAN_LEFT;
     if (pan > SAT_AUDIO_PAN_RIGHT) pan = SAT_AUDIO_PAN_RIGHT;
@@ -347,5 +322,5 @@ extern "C" sat_result_t sat_voice_set_pan(sat_voice_t voice, int16_t pan) {
 
 extern "C" uint8_t sat_voice_is_playing(sat_voice_t voice) {
     if (g_initialized == 0u) return 0u;
-    return resolve_voice(voice) != nullptr ? 1u : 0u;
+    return g_voice_registry.resolve(voice) != nullptr ? 1u : 0u;
 }

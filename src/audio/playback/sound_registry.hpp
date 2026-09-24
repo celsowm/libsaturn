@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "saturn/audio.h"
+#include "src/audio/playback/generation.hpp"
 
 /* Pure bounded sound-handle registry. The caller owns the storage and the
  * SCSP upload/release transaction; this registry only owns slot lifetimes,
@@ -28,14 +29,9 @@ template <uint16_t Capacity>
 struct Registry {
     Entry entries[Capacity];
 
-    static uint16_t next_generation(uint16_t current) {
-        const uint16_t generation=static_cast<uint16_t>(current+1u);
-        return generation==0u?1u:generation;
-    }
-
     void reset() {
         for(uint16_t i=0u;i<Capacity;++i) {
-            const uint16_t generation=next_generation(entries[i].generation);
+            const uint16_t generation=saturn::core::audio::next_generation(entries[i].generation);
             entries[i]={};
             entries[i].generation=generation;
         }
@@ -65,7 +61,7 @@ struct Registry {
      * reserved and uploaded the PCM; failure paths never consume a handle. */
     Entry* activate(uint16_t slot) {
         if(slot>=Capacity || entries[slot].used)return nullptr;
-        const uint16_t generation=next_generation(entries[slot].generation);
+        const uint16_t generation=saturn::core::audio::next_generation(entries[slot].generation);
         entries[slot]={};
         entries[slot].used=1u;
         entries[slot].generation=generation;
@@ -77,7 +73,7 @@ struct Registry {
     bool invalidate(sat_sound_t sound) {
         Entry* entry=resolve(sound);
         if(!entry)return false;
-        const uint16_t generation=next_generation(entry->generation);
+        const uint16_t generation=saturn::core::audio::next_generation(entry->generation);
         *entry={};
         entry->generation=generation;
         return true;

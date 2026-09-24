@@ -95,3 +95,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Audio service-clock separation:** the reconciliation of app frames with polled VBlank edges now lives in a standalone caller-owned clock policy. Host tests exercise held-high VBlank, synchronous-I/O stalls, app-frame catch-up and 32-bit wrap; playback still owns hardware polling and streaming dispatch.
 
 **Sound registry separation:** pure bounded sound-slot generation, stale-handle rejection, activation and invalidation now belong to `sound_registry.hpp`. The playback facade continues to own upload/unload transactions and hardware interactions; host tests cover reuse, reset, out-of-range and generation wrap.
+
+**Voice registry separation:** bounded voice-slot identity, handle generation, reset, release and active counts now reside in a pure caller-owned registry. The shared nonzero generation policy serves sound and voice handles; SCSP slot configuration, keying, and frame-expiry scheduling remain hardware orchestration, with host regressions for stale handles, slot reuse and wrap.
