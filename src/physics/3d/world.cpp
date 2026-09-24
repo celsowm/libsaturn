@@ -2,6 +2,7 @@
 #include <limits.h>
 #include "src/physics/3d/collision_grid.hpp"
 #include "src/physics/3d/broadphase.hpp"
+#include "src/physics/3d/world_spatial.hpp"
 #include "src/core/math3d/logic.hpp"
 namespace {
 using V=sat_vec3_t;
@@ -306,13 +307,20 @@ extern "C" sat_result_t sat_physics3_world_init(sat_physics3_world_t* w,
     w->max_substeps=max_substeps;w->iterations=iterations;return SAT_OK;
 }
 extern "C" void sat_physics3_world_reset(sat_physics3_world_t* w){
-    if(valid(w))w->count=0;
+    if(valid(w)){
+        w->count=0;
+        w->spatial_leaf_count=0u;
+        w->spatial_fallback_count=0u;
+        w->spatial_root=UINT32_MAX;
+        w->spatial_queries=0u;
+        w->spatial_candidates_checked=0u;
+    }
 }
 extern "C" sat_result_t sat_physics3_set_collider_index_scratch(
     sat_physics3_world_t* w,uint16_t* indices,uint16_t capacity) {
     if(!valid(w))return SAT_ERR_INVALID_ARG;
     if(!indices) {
-        if(capacity!=0u)return SAT_ERR_INVALID_ARG;
+        if(capacity!=0u || w->spatial_nodes)return SAT_ERR_INVALID_ARG;
         w->collider_indices=nullptr;
         w->collider_index_capacity=0u;
         return SAT_OK;
@@ -320,6 +328,36 @@ extern "C" sat_result_t sat_physics3_set_collider_index_scratch(
     if(capacity<w->capacity)return SAT_ERR_CAPACITY;
     w->collider_indices=indices;
     w->collider_index_capacity=capacity;
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_physics3_set_spatial_broadphase(
+    sat_physics3_world_t* w,sat_physics3_spatial_node_t* nodes,
+    uint32_t node_capacity,uint16_t* candidates,
+    uint16_t candidate_capacity) {
+    if(!valid(w))return SAT_ERR_INVALID_ARG;
+    if(!nodes && !candidates && !node_capacity && !candidate_capacity) {
+        w->spatial_nodes=nullptr;
+        w->spatial_candidates=nullptr;
+        w->spatial_node_capacity=0u;
+        w->spatial_candidate_capacity=0u;
+        w->spatial_leaf_count=0u;
+        w->spatial_fallback_count=0u;
+        w->spatial_root=UINT32_MAX;
+        w->spatial_queries=0u;
+        w->spatial_candidates_checked=0u;
+        return SAT_OK;
+    }
+    if(!nodes || !candidates || !w->collider_indices ||
+       w->collider_index_capacity<w->capacity)return SAT_ERR_INVALID_ARG;
+    if(node_capacity<2u*static_cast<uint32_t>(w->capacity)-1u ||
+       candidate_capacity<w->capacity)return SAT_ERR_CAPACITY;
+    w->spatial_nodes=nodes;
+    w->spatial_candidates=candidates;
+    w->spatial_node_capacity=node_capacity;
+    w->spatial_candidate_capacity=candidate_capacity;
+    w->spatial_leaf_count=0u;
+    w->spatial_fallback_count=0u;
+    w->spatial_root=UINT32_MAX;
     return SAT_OK;
 }
 extern "C" sat_result_t sat_physics3_add_box(sat_physics3_world_t* w,
@@ -656,10 +694,20 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
         steps=static_cast<uint16_t>(required>w->max_substeps
             ? w->max_substeps : required);
     }
-    /* Preserve the original actor order, but avoid reclassifying all
-     * unrelated dynamic spheres in every inner solver/CCD iteration. */
+    /* Structural broadphase is optional. Build a conservative BVH once,
+     * BEFORE mutating any actor; source-ordered fallback holds only planes.
+     * Without a BVH, retain the original typed/full linear behavior. */
     uint16_t collider_count=0u;
-    if(w->collider_indices) {
+    if(w->spatial_nodes) {
+        if(!w->collider_indices ||
+           w->collider_index_capacity<w->capacity ||
+           !w->spatial_candidates ||
+           w->spatial_candidate_capacity<w->capacity ||
+           w->spatial_node_capacity<
+               2u*static_cast<uint32_t>(w->capacity)-1u)
+            return SAT_ERR_CAPACITY;
+        saturn::core::physics3::spatial::build(*w);
+    } else if(w->collider_indices) {
         if(w->collider_index_capacity<w->count)return SAT_ERR_CAPACITY;
         for(uint16_t i=0;i<w->count;++i)
             if(w->actors[i].kind!=SAT_PHYSICS3_DYNAMIC_SPHERE)
@@ -701,9 +749,16 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
             if(w->mesh_face_ccd||w->kinematic_box_ccd){
                 sat_sphere_mesh_hit_t earliest{};
                 uint16_t hit_actor=0xffffu;
-                const uint16_t span=w->collider_indices?collider_count:w->count;
-                for(uint16_t k=0;k<span;++k){
-                    const uint16_t j=w->collider_indices?w->collider_indices[k]:k;
+                const uint16_t spatial_count=w->spatial_nodes
+                    ? saturn::core::physics3::spatial::query(
+                        *w,ball.sphere.shape.center,d,ball.sphere.shape.radius)
+                    : 0u;
+                saturn::core::physics3::spatial::Cursor candidates{
+                    *w,spatial_count,w->spatial_nodes?
+                    w->spatial_fallback_count:collider_count,0u,0u,0u};
+                uint16_t j=0u;
+                while(candidates.next(j)){
+                    if(w->spatial_nodes)++w->spatial_candidates_checked;
                     const sat_physics3_actor_t& collider=w->actors[j];
                     sat_sphere_mesh_hit_t candidate{};
                     uint8_t found=0;
@@ -765,9 +820,17 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
             }else ball.sphere.shape.center=add(ball.sphere.shape.center,d);
             for(uint8_t iteration=0;iteration<w->iterations;++iteration){
                 bool hit=false;
-                const uint16_t span=w->collider_indices?collider_count:w->count;
-                for(uint16_t k=0;k<span;++k){
-                    const uint16_t j=w->collider_indices?w->collider_indices[k]:k;
+                const V stationary={0,0,0};
+                const uint16_t spatial_count=w->spatial_nodes
+                    ? saturn::core::physics3::spatial::query(
+                        *w,ball.sphere.shape.center,stationary,
+                        ball.sphere.shape.radius):0u;
+                saturn::core::physics3::spatial::Cursor candidates{
+                    *w,spatial_count,w->spatial_nodes?
+                    w->spatial_fallback_count:collider_count,0u,0u,0u};
+                uint16_t j=0u;
+                while(candidates.next(j)){
+                    if(w->spatial_nodes)++w->spatial_candidates_checked;
                     const sat_physics3_actor_t& box=w->actors[j];
                     if(box.kind==SAT_PHYSICS3_DYNAMIC_SPHERE)continue;
                     if(box.kind==SAT_PHYSICS3_STATIC_MESH ||

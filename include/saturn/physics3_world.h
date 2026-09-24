@@ -42,6 +42,15 @@ typedef struct sat_physics3_actor {
     sat_vec3_t target_center; /* kinematic target at end of NEXT tick */
     sat_vec3_t frame_motion;  /* displacement per tick, zero for static boxes */
 } sat_physics3_actor_t;
+/* One node per finite collider plus one per internal BVH branch.
+ * Six 64-bit world-coordinate limits preserve touching contacts even at
+ * Q16.16 extremes. The caller owns a [2 * world.capacity - 1] node pool. */
+typedef struct sat_physics3_spatial_node {
+    int64_t low_x,low_y,low_z,high_x,high_y,high_z;
+    uint32_t left,right; /* Internal child indices; ignored for leaves. */
+    uint16_t actor_id;   /* 0xffffu on internal branches. */
+} sat_physics3_spatial_node_t;
+
 typedef struct sat_physics3_world {
     sat_physics3_actor_t* actors;
     sat_contact3_t* mesh_contacts; /* Caller-owned shared query scratch. */
@@ -50,6 +59,19 @@ typedef struct sat_physics3_world {
      * indices are compacted once per tick; no per-ball dynamic-body scan. */
     uint16_t* collider_indices;
     uint16_t collider_index_capacity;
+    /* Optional deterministic BVH over finite non-sphere colliders, rebuilt
+     * ONCE per tick from immutable/static and swept kinematic world bounds.
+     * Caller-owned node and query arrays; a plane stays in collider_indices.
+     * When absent the legacy linear and typed-collider paths are unchanged. */
+    sat_physics3_spatial_node_t* spatial_nodes;
+    uint16_t* spatial_candidates;
+    uint32_t spatial_node_capacity;
+    uint16_t spatial_candidate_capacity;
+    uint16_t spatial_leaf_count;
+    uint16_t spatial_fallback_count;
+    uint32_t spatial_root;
+    uint32_t spatial_queries; /* Per-tick diagnostic counters. */
+    uint32_t spatial_candidates_checked;
     sat_vec3_t gravity; /* velocity delta per fixed tick */
     uint16_t count,capacity;
     uint8_t max_substeps; /* 1..64 */
@@ -80,6 +102,21 @@ sat_result_t sat_physics3_set_mesh_contacts(
  * Does not replace the independent mesh-grid spatial broadphase. */
 sat_result_t sat_physics3_set_collider_index_scratch(
     sat_physics3_world_t* world, uint16_t* indices, uint16_t capacity);
+
+/* Opt-in BVH over static/kinematic boxes and finite meshes; infinite planes
+ * remain a small, source-ordered fallback. Must first bind collider scratch
+ * with >=world.capacity slots; nodes need >=2*capacity-1 elements (uint32
+ * capacity), candidates need >=capacity IDs. NULL/0 detaches all BVH storage.
+ * Any failed bind leaves the previous configuration unchanged. The index is
+ * rebuilt before actor mutation on each successful world_step; moving boxes
+ * and translating/rotating meshes use conservative FULL-TICK swept bounds,
+ * so CCD and iterative contact queries cannot miss a moving collider.
+ * Candidate IDs are ordered by original actor ID before narrowphase.
+ * No heap allocation, globals, game dependency, or hardware access. */
+sat_result_t sat_physics3_set_spatial_broadphase(
+    sat_physics3_world_t* world,
+    sat_physics3_spatial_node_t* nodes,uint32_t node_capacity,
+    uint16_t* candidates,uint16_t candidate_capacity);
 
 /* Mesh vertices and indices are already in world coordinates, remain immutable,
  * and must outlive the collider. Finite quad faces retain their edges and gaps.

@@ -132,6 +132,76 @@ static void mesh_aabb_caches_reference_bounds(){
     CHECK(cached.mesh_bounds_max.y==FX(1));
     CHECK(cached.mesh_bounds_max.z==FX(7));
 }
+static void structural_spatial_bvh_matches_linear_world() {
+    sat_physics3_actor_t a[5]{},b[5]{};
+    sat_physics3_world_t linear{},indexed{};
+    const sat_vec3_t gravity={0,-FX(1)/8,0};
+    CHECK(sat_physics3_world_init(&linear,a,5,gravity,32,3)==SAT_OK);
+    CHECK(sat_physics3_world_init(&indexed,b,5,gravity,32,3)==SAT_OK);
+    sat_physics3_spatial_node_t nodes[9]{};
+    uint16_t fallback[5]{},candidates[5]{};
+    CHECK(sat_physics3_set_spatial_broadphase(
+        &indexed,nodes,9,candidates,5)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_set_collider_index_scratch(
+        &indexed,fallback,4)==SAT_ERR_CAPACITY);
+    CHECK(sat_physics3_set_collider_index_scratch(
+        &indexed,fallback,5)==SAT_OK);
+    CHECK(sat_physics3_set_spatial_broadphase(
+        &indexed,nodes,8,candidates,5)==SAT_ERR_CAPACITY);
+    CHECK(sat_physics3_set_spatial_broadphase(
+        &indexed,nodes,9,candidates,4)==SAT_ERR_CAPACITY);
+    CHECK(indexed.spatial_nodes==nullptr);
+    CHECK(sat_physics3_set_spatial_broadphase(
+        &indexed,nodes,9,candidates,5)==SAT_OK);
+    CHECK(sat_physics3_set_collider_index_scratch(
+        &indexed,nullptr,0)==SAT_ERR_INVALID_ARG);
+
+    sat_physics3_world_t* worlds[2]={&linear,&indexed};
+    for(sat_physics3_world_t* w:worlds) {
+        uint16_t id=999u;
+        const sat_sphere_t sphere{{0,FX(3)/2,0},FX(1)};
+        CHECK(sat_physics3_add_sphere(w,&sphere,&zero,&rough,&id)==SAT_OK &&
+              id==0u);
+        const sat_aabb3_t distant={{FX(100),0,0},{FX(1),FX(1),FX(1)}};
+        CHECK(sat_physics3_add_box(
+            w,SAT_PHYSICS3_STATIC_BOX,&distant,&rough,&id)==SAT_OK && id==1u);
+        const sat_aabb3_t floor={{0,0,0},{FX(5),FX(1)/2,FX(5)}};
+        CHECK(sat_physics3_add_box(
+            w,SAT_PHYSICS3_STATIC_BOX,&floor,&rough,&id)==SAT_OK && id==2u);
+        const sat_aabb3_t moving={{FX(3),0,0},{FX(1)/2,FX(1)/2,FX(1)/2}};
+        CHECK(sat_physics3_add_box(
+            w,SAT_PHYSICS3_KINEMATIC_BOX,&moving,&rough,&id)==SAT_OK && id==3u);
+        const sat_plane3_t plane={{0,-FX(20),0},{0,SAT_FX16_ONE,0}};
+        CHECK(sat_physics3_add_plane(
+            w,&plane,&rough,&id)==SAT_OK && id==4u);
+        const sat_vec3_t target={FX(2),0,0};
+        CHECK(sat_physics3_set_kinematic_target(w,3u,&target)==SAT_OK);
+        CHECK(sat_physics3_set_kinematic_box_ccd(w,1)==SAT_OK);
+    }
+    for(int frame=0;frame<5;++frame) {
+        CHECK(sat_physics3_world_step(&linear)==SAT_OK);
+        CHECK(sat_physics3_world_step(&indexed)==SAT_OK);
+        const sat_physics3_actor_t x=read(&linear,0u),y=read(&indexed,0u);
+        CHECK(x.sphere.shape.center.x==y.sphere.shape.center.x);
+        CHECK(x.sphere.shape.center.y==y.sphere.shape.center.y);
+        CHECK(x.sphere.vel.x==y.sphere.vel.x);
+        CHECK(x.sphere.vel.y==y.sphere.vel.y);
+        CHECK(x.sphere.flags==y.sphere.flags);
+        CHECK(read(&linear,3u).box.center.x==read(&indexed,3u).box.center.x);
+        CHECK(indexed.spatial_leaf_count==3u &&
+              indexed.spatial_fallback_count==1u);
+        CHECK(indexed.spatial_queries>0u);
+        /* The far static box is excluded from per-ball narrowphase. */
+        CHECK(indexed.spatial_candidates_checked<
+              indexed.spatial_queries*4u);
+    }
+    sat_physics3_world_reset(&indexed);
+    CHECK(indexed.spatial_leaf_count==0u && indexed.spatial_queries==0u);
+    CHECK(sat_physics3_set_spatial_broadphase(
+        &indexed,nullptr,0u,nullptr,0u)==SAT_OK);
+    CHECK(sat_physics3_set_collider_index_scratch(
+        &indexed,nullptr,0u)==SAT_OK);
+}
 static void moving_platform_and_multiple_balls(){
     sat_physics3_actor_t actors[3]{};
     sat_physics3_world_t w{};
@@ -907,6 +977,7 @@ int main(){
     floor_contact_and_bounce();
     mesh_aabb_caches_reference_bounds();
     optional_collider_index_matches_full_scan();
+    structural_spatial_bvh_matches_linear_world();
     moving_platform_and_multiple_balls();
     deterministic_replay();
     inclined_plane_and_tangent_friction();
@@ -926,6 +997,6 @@ int main(){
     translating_mesh_validates_grid_and_target_bounds();
     tilted_kinematic_mesh_contact_and_grid_match();
     rotation_rejects_unsafe_budget_and_invalid_targets();
-    std::puts("test_physics3_world: 22 tests passed");
+    std::puts("test_physics3_world: 23 tests passed");
     return 0;
 }
