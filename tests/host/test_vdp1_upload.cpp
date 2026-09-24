@@ -70,6 +70,21 @@ sat_result_t begin_overlay_pass() {
     ++g_overlay_pass_calls;
     return SAT_OK;
 }
+sat_result_t command_checkpoint(sat_vdp1_command_checkpoint_t* out) {
+    if (!out) return SAT_ERR_INVALID_ARG;
+    out->frame_serial=1u;
+    out->used=2u;
+    out->gouraud_tables=0u;
+    out->overlay_reserved=g_last_reservation;
+    out->overlay_pass=g_overlay_pass_calls!=0?1u:0u;
+    out->reserved=0u;
+    return SAT_OK;
+}
+sat_result_t command_rollback(
+    const sat_vdp1_command_checkpoint_t* checkpoint) {
+    return checkpoint && checkpoint->frame_serial==1u
+        ? SAT_OK:SAT_ERR_INVALID_ARG;
+}
 void command_stats(uint16_t& used, uint16_t& capacity,
                    uint16_t& overlay_reserved, bool& overlay_pass) {
     used = 0u;
@@ -122,6 +137,12 @@ static void overlay_budget_api_routes_into_hal() {
     ASSERT_EQ(g_last_reservation,192u);
     ASSERT_EQ(sat_vdp1_overlay_begin(),SAT_OK);
     ASSERT_EQ(g_overlay_pass_calls,1);
+    sat_vdp1_command_checkpoint_t mark{};
+    ASSERT_EQ(sat_vdp1_command_checkpoint(&mark),SAT_OK);
+    ASSERT_EQ(mark.used,2u);
+    ASSERT_EQ(mark.overlay_reserved,192u);
+    ASSERT_EQ(sat_vdp1_command_rollback(&mark),SAT_OK);
+    ASSERT_EQ(sat_vdp1_command_checkpoint(nullptr),SAT_ERR_INVALID_ARG);
 }
 
 static void combined_upload_calls_palette_once_and_texture_once() {
