@@ -37,6 +37,21 @@ extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp1_upload_lut(
+    const uint16_t*,uint16_t* out_lut) {
+    if (!out_lut) return SAT_ERR_INVALID_ARG;
+    *out_lut=4u;
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_tex_upload_lut4_pixels(
+    sat_vdp1_texture_t* out,const uint8_t*,uint16_t w,uint16_t h,
+    uint16_t lut) {
+    if (!out) return SAT_ERR_INVALID_ARG;
+    out->srca=1u;out->width=w;out->height=h;out->palette=lut;
+    out->valid=1u;out->format=SAT_VDP1_TEXTURE_LUT4;
+    return SAT_OK;
+}
+
 static const void* captured_input;
 static void* captured_output;
 static uint32_t captured_output_capacity;
