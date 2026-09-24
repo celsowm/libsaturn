@@ -33,6 +33,9 @@ typedef struct sat_scene_stats {
     uint16_t replayed_items;
     /* Accepted deferred cached items, which share world face storage. */
     uint16_t queued_view_items;
+    /* Queued faces withheld when the exact one-command projected subset
+     * alone exceeds the remaining VDP1 world command quota. */
+    uint16_t budget_blocked_faces;
     uint16_t overlay_reserved;
     uint16_t rejected_faces;
     uint16_t commands_used;
@@ -56,6 +59,7 @@ typedef struct sat_scene {
     uint16_t fallback_faces;
     uint16_t replayed_items;
     uint16_t queued_view_items;
+    uint16_t budget_blocked_faces;
     uint16_t rejected_faces;
     uint16_t commands_used;
     uint16_t commands_capacity;
@@ -159,8 +163,14 @@ sat_result_t sat_scene_queue_baked_view_item_material(
     sat_scene_t* scene, const sat_view_cache_item_t* item,
     const sat_scene3d_material_t* material, uint16_t pass);
 
-/* Ends the frame and returns the first recorded error from its submissions
- * and flush. Raw VDP1 operations remain independent. */
+/* Before painter emission, checks the VDP1 command budget against all
+ * already-safe projected faces (cached + world): each needs exactly one
+ * command. If even that subset will not fit with the HUD reservation and
+ * END terminator, closes the frame queue with SAT_ERR_CAPACITY and emits
+ * NOTHING. fallback clipped faces may need multiple commands and still
+ * fail partway through; the public result and actual command delta expose
+ * that partial failure. Raw VDP1 operations remain independent. */
+
 sat_result_t sat_scene_flush(sat_scene_t* scene);
 sat_result_t sat_scene_stats(const sat_scene_t* scene, sat_scene_stats_t* out);
 

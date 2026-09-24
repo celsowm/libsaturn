@@ -10,6 +10,9 @@ static uint16_t g_world_commands=0u;
 static uint16_t g_flush_emissions=0u;
 static uint16_t g_pending_cached=0u;
 static sat_scene3d_material_kind_t g_cached_material_kind=SAT_SCENE3D_RGB;
+static uint16_t g_command_capacity=64u;
+static uint16_t g_hud_reserved=8u;
+static uint16_t g_flush_calls=0u;
 
 extern "C" sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
@@ -77,6 +80,7 @@ extern "C" sat_result_t sat_scene3d_faces_depth(
     return SAT_OK;
 }
 extern "C" sat_result_t sat_scene3d_faces_flush(sat_scene3d_faces_t* scene) {
+    ++g_flush_calls;
     if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
     scene->active = 0u;
     scene->emitted_cached = g_flush_status==SAT_OK ? g_pending_cached : 0u;
@@ -100,8 +104,8 @@ extern "C" sat_result_t sat_vdp1_command_stats(sat_vdp1_command_stats_t* out) {
     if (!out) return SAT_ERR_INVALID_ARG;
     out->used = static_cast<uint16_t>(
         g_replayed + g_world_commands + 2u);
-    out->capacity = 64u;
-    out->overlay_reserved = 8u;
+    out->capacity = g_command_capacity;
+    out->overlay_reserved = g_hud_reserved;
     out->overlay_pass = 0u;
     out->reserved = 0u;
     return SAT_OK;
@@ -209,6 +213,36 @@ int main() {
     assert(sat_scene_stats(&scene,&stats)==SAT_OK);
     assert(stats.queued_view_items==1u && stats.replayed_items==1u);
     assert(g_replayed==4u);
+
+    // Budget admission considers *all* already projected cached AND world
+    // faces, leaving an END slot and the HUD reserve. No face may be emitted
+    // if even that exact one-command subset does not fit.
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    const uint16_t flush_calls_before=g_flush_calls;
+    const uint16_t replayed_before=g_replayed;
+    g_command_capacity=15u; // 9 used + 1 END + 4 HUD leaves 1 slot
+    g_hud_reserved=4u;
+    scene.faces.entries[0].projected_safe=1u;
+    assert(sat_scene_queue_baked_view_item_material(
+        &scene,&item,&textured,0u)==SAT_OK);
+    scene.faces.entries[1].projected_safe=1u;
+    scene.faces.count=2u;
+    assert(sat_scene_flush(&scene)==SAT_ERR_CAPACITY);
+    assert(g_flush_calls==flush_calls_before && g_replayed==replayed_before);
+    assert(!scene.faces.active && scene.faces.count==0u);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.budget_blocked_faces==2u && stats.flushed_faces==0u);
+    assert(stats.replayed_items==0u && stats.world_commands==0u);
+    assert(stats.result==SAT_ERR_CAPACITY);
+    // The next frame resets the terminal admission error and blocked count.
+    g_command_capacity=64u;
+    g_hud_reserved=8u;
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.budget_blocked_faces==0u && stats.result==SAT_ERR_BUSY);
+    assert(sat_scene_flush(&scene)==SAT_OK);
 
     // Rejected submissions remain visible in the result after flush.
     assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,

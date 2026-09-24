@@ -43,6 +43,7 @@ extern "C" sat_result_t sat_scene_begin(sat_scene_t* scene,
     scene->skipped_faces=0u;
     scene->culled_faces = scene->clipped_faces = scene->fallback_faces = 0u;
     scene->replayed_items = scene->queued_view_items = 0u;
+    scene->budget_blocked_faces=0u;
     scene->commands_used = scene->commands_capacity = 0u;
     scene->world_commands = 0u;
     scene->flushed = 0;
@@ -120,7 +121,33 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     sat_vdp1_command_stats_t before{};
     const sat_result_t before_status = sat_vdp1_command_stats(&before);
     record_frame_result(scene,before_status);
-    const sat_result_t st = sat_scene3d_faces_flush(&scene->faces);
+    /* The normal safe projected path emits one command per face. If that
+     * exact subset already exceeds the remaining world budget, avoid
+     * issuing a misleading partial frame, preserving the HUD reservation.
+     * Clipped/fallback geometry has variable emission cost; this is an
+     * admission lower-bound gate, not a guarantee that every flush fits. */
+    uint32_t guaranteed_commands=0u;
+    for (uint16_t i=0u;i<scene->faces.count;++i)
+        if (scene->faces.entries[i].projected_safe!=0u)
+            ++guaranteed_commands;
+    sat_result_t st=SAT_OK;
+    bool insufficient=false;
+    if (before_status==SAT_OK) {
+        const uint32_t reserved=before.overlay_pass!=0u
+            ? 0u : before.overlay_reserved;
+        const uint32_t occupied=static_cast<uint32_t>(before.used)+
+            reserved+1u; /* hardware END slot */
+        insufficient=occupied>before.capacity ||
+            guaranteed_commands>static_cast<uint32_t>(before.capacity)-occupied;
+    }
+    if (insufficient) {
+        scene->budget_blocked_faces=scene->faces.count;
+        scene->faces.active=0u;
+        scene->faces.count=0u;
+        st=SAT_ERR_CAPACITY;
+    } else {
+        st=sat_scene3d_faces_flush(&scene->faces);
+    }
     scene->flushed_faces = scene->faces.emitted_faces;
     scene->skipped_faces = scene->faces.skipped_faces;
     scene->replayed_items = static_cast<uint16_t>(
@@ -201,6 +228,7 @@ extern "C" sat_result_t sat_scene_stats(const sat_scene_t* scene,
     out->fallback_faces = scene->fallback_faces;
     out->replayed_items = scene->replayed_items;
     out->queued_view_items = scene->queued_view_items;
+    out->budget_blocked_faces = scene->budget_blocked_faces;
     out->overlay_reserved = scene->overlay_commands;
     out->rejected_faces = scene->rejected_faces;
     out->commands_used = scene->commands_used;
