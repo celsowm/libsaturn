@@ -49,8 +49,17 @@ typedef struct sat_scene3d_face {
     uint8_t gouraud_valid;
     /* Preprojected cache entry (RGB or indexed), no world fallback. */
     uint8_t cached_projected;
+    /* Optional generation-checked texture owner. Zero generation means the
+     * independent raw/borrowed L1 path; a bound owner is preflighted before
+     * any VDP1 emission, including after release + reuse of the same slot. */
+    uint16_t owner_slot;
+    uint16_t owner_generation;
     uint16_t gouraud[4];
 } sat_scene3d_face_t;
+
+typedef sat_result_t (*sat_scene3d_owner_validate_fn)(
+    void* context,uint16_t slot,uint16_t generation,
+    const sat_vdp1_texture_t* expected_native);
 
 typedef struct sat_scene3d_faces {
     sat_scene3d_face_t* entries;
@@ -62,6 +71,11 @@ typedef struct sat_scene3d_faces {
     sat_mat4_t view_proj;
     sat_vec3_t eye, forward;
     sat_fx16_t near_depth;
+    /* Optional scene-wide ownership verifier, injected by an L3 adapter.
+     * Its context must remain live through flush. No dependency on a texture
+     * manager is imposed on low-level face submission or bare scene drawing. */
+    sat_scene3d_owner_validate_fn validate_owner;
+    void* owner_context;
     uint8_t active;
     uint16_t culled_faces;
     uint16_t clipped_faces;
@@ -80,6 +94,12 @@ typedef struct sat_scene3d_faces {
 sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
     uint32_t* keys, uint16_t* order, uint16_t capacity);
+
+/* Configure the optional owner verifier only while no frame is active.
+ * A checked face without a verifier rejects flush before any drawing. */
+sat_result_t sat_scene3d_faces_bind_owner_validator(
+    sat_scene3d_faces_t* scene,
+    sat_scene3d_owner_validate_fn validate,void* context);
 
 sat_result_t sat_scene3d_faces_begin(
     sat_scene3d_faces_t* scene, const sat_mat4_t* view_proj,
@@ -259,8 +279,10 @@ sat_result_t sat_scene3d_faces_submit_instance(
  * commands. If a texture became invalid after submission, the entire queued
  * painter is rejected atomically with SAT_ERR_INVALID_ARG and zero emissions.
  * This cannot guard against overwriting still-valid VRAM or dangling pointers:
- * callers must retain texture/tiled descriptors AND their VRAM ownership
- * until flush. Hardware command errors may still be partial and irreversible.
+ * raw callers must retain texture/tiled descriptors AND their VRAM ownership
+ * until the hardware finishes consuming commands. Opt-in generation-checked
+ * owners detect release/reuse at flush, but do not lock VRAM after emission.
+ * Hardware command errors may still be partial and irreversible.
  * Emits far-to-near; closes the frame even if hardware submission fails.
  * emitted_faces counts successful face-dispatch calls; clipped faces may
  * generate multiple hardware commands. Unsupported skips are counted

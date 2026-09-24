@@ -17,6 +17,12 @@ for path in generic_paths:
     assert "SAT_PROFILE_METRICS" in code, f"{path}: generic profiling gate missing"
 
 faces = (root / "src/graphics/3d/scene/faces.cpp").read_text(encoding="utf-8")
+assert "g_texture_registry" not in faces, "low-level painter must not own the logical texture registry"
+assert "src/graphics/2d/textures/runtime.hpp" not in faces, (
+    "logical texture ownership belongs to the opt-in managed scene adapter"
+)
+managed = (root / "src/graphics/3d/scene/managed_texture.cpp").read_text(encoding="utf-8")
+assert "texture_resolve(" in managed and "validate_managed_texture(" in managed
 assert "paint_order_from_keys(" not in faces, "local painter-sort implementation was reintroduced"
 assert faces.count("paint_order_buckets(") == 1, "scene should sort global face queue only once"
 batch = (root / "include/saturn/scene3d_faces.h").read_text(encoding="utf-8")

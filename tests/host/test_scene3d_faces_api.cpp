@@ -143,6 +143,14 @@ static sat_quad3_t quad(int32_t z) {
                           {-unit,unit,depth}}};
     return q;
 }
+static uint16_t verified_owner_generation=0u;
+static sat_result_t validate_owner_for_test(
+    void*,uint16_t slot,uint16_t generation,
+    const sat_vdp1_texture_t* expected) {
+    return slot==0u && generation==verified_owner_generation &&
+           expected && expected->valid ? SAT_OK:SAT_ERR_INVALID_ARG;
+}
+
 int main() {
     sat_scene3d_faces_t scene={};
     sat_scene3d_face_t storage[8]={};
@@ -731,6 +739,42 @@ int main() {
     assert(scene.active==0u && scene.emitted_faces==0u);
     assert(scene.skipped_faces==0u && emitted_count==0u);
     distorted_draw_status=SAT_OK;
+
+    // Raw L1 remains independent, while a stamped owner is always checked
+    // BEFORE even a farther valid face can be emitted. Slot reuse may leave
+    // the raw texture descriptor valid, so the generation matters.
+    emitted_count=0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_bind_owner_validator(
+        &scene,validate_owner_for_test,nullptr)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,2*SAT_FX16_ONE,&near_mat,0u)==SAT_OK);
+    scene.entries[0].owner_slot=0u;
+    scene.entries[0].owner_generation=5u;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
+    assert(emitted_count==0u && scene.count==0u && !scene.active);
+
+    assert(sat_scene3d_faces_bind_owner_validator(
+        &scene,validate_owner_for_test,nullptr)==SAT_OK);
+    verified_owner_generation=6u; // Same native descriptor, recycled owner.
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,2*SAT_FX16_ONE,&near_mat,0u)==SAT_OK);
+    scene.entries[0].owner_slot=0u;
+    scene.entries[0].owner_generation=5u;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
+    assert(emitted_count==0u && scene.count==0u);
+
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,2*SAT_FX16_ONE,&near_mat,0u)==SAT_OK);
+    scene.entries[0].owner_slot=0u;
+    scene.entries[0].owner_generation=6u;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==1u && emitted[0]==near_tex.srca);
 
     std::puts("scene3d_faces api: OK");
     return 0;

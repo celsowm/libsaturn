@@ -578,6 +578,7 @@ HOST_TEST_EXTRA_test_input_api := src/input/api.cpp src/input/runtime.cpp src/co
 HOST_TEST_EXTRA_test_model3d_logic := src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/model_upload.cpp src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_scene3d_api := src/graphics/3d/scene/api.cpp src/graphics/3d/geometry/model.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_scene_api := src/graphics/3d/scene/scene.cpp src/core/math3d/api.cpp
+HOST_TEST_EXTRA_test_scene_managed_texture := src/graphics/3d/scene/managed_texture.cpp
 HOST_TEST_EXTRA_test_scene_parallel_runtime := src/graphics/3d/scene/parallel.cpp
 HOST_TEST_EXTRA_test_scene3d_faces_api := src/graphics/3d/scene/faces.cpp
 HOST_TEST_EXTRA_test_scene3d_material_pool := src/graphics/3d/materials/pool.cpp

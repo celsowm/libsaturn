@@ -87,6 +87,8 @@ sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
         item.projected.y[c]=projected[indices[c]].y;
     }
     item.material=material;
+    item.owner_slot=0u;
+    item.owner_generation=0u;
     item.cached_projected=0u;
     item.gouraud_valid=material.vertex_gouraud ? 1u : 0u;
     if (item.gouraud_valid) {
@@ -152,6 +154,15 @@ extern "C" sat_result_t sat_scene3d_faces_init(
     *scene={};
     scene->entries=storage;scene->keys=keys;scene->order=order;
     scene->capacity=capacity;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_bind_owner_validator(
+    sat_scene3d_faces_t* scene,
+    sat_scene3d_owner_validate_fn validate,void* context) {
+    if(!scene || scene->active)return SAT_ERR_INVALID_ARG;
+    scene->validate_owner=validate;
+    scene->owner_context=validate?context:nullptr;
     return SAT_OK;
 }
 
@@ -234,6 +245,8 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
     sat_scene3d_face_t& item=scene->entries[scene->count];
     item.projected=*projected;
     item.material=*material;
+    item.owner_slot=0u;
+    item.owner_generation=0u;
     /* A cached projected tile never needs fallback/UV clipping. Bake its
      * full preuploaded texture directly into the copied material descriptor,
      * so the caller's tiled object can expire immediately after submission.
@@ -518,7 +531,13 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
      * an ordinary descriptor validity gate, NOT a VRAM ownership lock: the
      * caller must still keep valid texture storage/residency until flush. */
     for (uint16_t i=0u;i<scene->count;++i) {
-        if (!valid_material(scene->entries[i].material)) {
+        const sat_scene3d_face_t& entry=scene->entries[i];
+        if (!valid_material(entry.material) ||
+            (entry.owner_generation!=0u &&
+             (!scene->validate_owner ||
+              scene->validate_owner(scene->owner_context,
+                  entry.owner_slot,entry.owner_generation,
+                  entry.material.texture)!=SAT_OK))) {
             scene->count=0u;
             return SAT_ERR_INVALID_ARG;
         }

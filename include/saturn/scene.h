@@ -7,6 +7,7 @@
 #include "saturn/transform3d.h"
 #include "saturn/view_cache.h"
 #include "saturn/vdp1.h"
+#include "saturn/texture.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -173,6 +174,19 @@ sat_result_t sat_scene_queue_camera_view_material(
     sat_scene_t* scene, sat_view_cache_t* cache, uint16_t view,
     const sat_camera3d_t* camera,
     const sat_scene3d_material_t* material,uint16_t pass);
+
+/* L3 managed-texture path for a camera-verified baked view. An opt-in
+ * sat_texture_t is checked on enqueue AND again before any painter emission,
+ * detecting stale handles even when the same underlying texture slot has
+ * been released and reused with a new, otherwise valid native descriptor.
+ * Call sat_scene_bind_managed_textures once after scene_init, before begin.
+ * The logical texture must remain alive and ready until the VDP1 has consumed
+ * its submitted commands; this is not a VRAM pin/eviction manager.
+ * Raw L1 materials and direct drawing retain their independent contracts. */
+sat_result_t sat_scene_bind_managed_textures(sat_scene_t* scene);
+sat_result_t sat_scene_queue_managed_camera_view(
+    sat_scene_t* scene,sat_view_cache_t* cache,uint16_t view,
+    const sat_camera3d_t* camera,sat_texture_t owner,uint16_t pass);
 
 /* Before painter emission, checks the VDP1 command budget against all
  * already-safe projected faces (cached + world): each needs exactly one
