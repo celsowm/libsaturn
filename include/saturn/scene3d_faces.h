@@ -47,7 +47,7 @@ typedef struct sat_scene3d_face {
     sat_scene3d_material_t material;
     uint8_t projected_safe;
     uint8_t gouraud_valid;
-    /* Preprojected RGB command which skips world fallback and projection. */
+    /* Preprojected cache entry (RGB or indexed), no world fallback. */
     uint8_t cached_projected;
     uint16_t gouraud[4];
 } sat_scene3d_face_t;
@@ -68,7 +68,7 @@ typedef struct sat_scene3d_faces {
     uint16_t fallback_faces;
     /* Successful face-dispatch calls, not physical VDP1 commands. */
     uint16_t emitted_faces;
-    /* Successful projected cached-RGB hardware commands, not world faces. */
+    /* Successful preprojected cache-item emissions, not world faces. */
     uint16_t emitted_cached;
     /* Deliberately skipped unsupported faces. */
     uint16_t skipped_faces;
@@ -105,10 +105,21 @@ sat_result_t sat_scene3d_faces_submit_quad(
     sat_scene3d_faces_t* scene, const sat_quad3_t* world,
     const sat_scene3d_material_t* material, uint16_t pass);
 
-/* Opt-in preprojected RGB entry in the SAME painter queue as world geometry.
- * camera_depth is positive linear 16.16 view depth; the view cache's own
- * item.depth is an arbitrary, potentially squared, application sort key.
- * Caller owns camera/view coherence; native VDP1 coordinates, no reproject. */
+/* Preprojected cache entry in the SAME painter queue as world geometry.
+ * Any valid RGB/indexed-solid/indexed-textured/indexed-tiled material is
+ * accepted. Indexed-tiled uses its preuploaded full texture: there is no
+ * geometry/UV clipping of a projected cached sprite at flush.
+ * The material descriptor is copied; borrowed VRAM texture/tiled storage
+ * must remain resident until flush. Gouraud pointers are not accepted for
+ * projected cache entries. camera_depth is positive linear 16.16 view depth,
+ * NOT the cache's arbitrary (often squared) application sort key.
+ * Caller owns camera/view coherence, native VDP1 coords, and clipping. */
+sat_result_t sat_scene3d_faces_submit_projected_material(
+    sat_scene3d_faces_t* scene, const sat_quad2_t* projected,
+    sat_fx16_t camera_depth, const sat_scene3d_material_t* material,
+    uint16_t pass);
+
+/* Convenience RGB-only version of the same projected material path. */
 sat_result_t sat_scene3d_faces_submit_projected_rgb(
     sat_scene3d_faces_t* scene, const sat_quad2_t* projected,
     sat_fx16_t camera_depth, uint16_t color, uint16_t pass);

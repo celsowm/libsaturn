@@ -144,9 +144,8 @@ sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
 
 sat_result_t emit(const sat_scene3d_faces_t& scene,
                   const sat_scene3d_face_t& face) {
-    if (face.cached_projected != 0u)
-        return sat_draw_quad2_polygon(
-            &face.projected, face.material.rgb555);
+    /* Projected cache items use these SAME RGB/indexed emission paths as
+     * world faces; projected_safe forbids any world-space fallback. */
     if (face.material.kind==SAT_SCENE3D_RGB) {
         if (!face.projected_safe) return SAT_ERR_UNSUPPORTED;
         if (face.gouraud_valid)
@@ -264,19 +263,18 @@ extern "C" sat_result_t sat_scene3d_faces_submit_quad(
     return append(scene,*world,screen,indices,*material,pass);
 }
 
-extern "C" sat_result_t sat_scene3d_faces_submit_projected_rgb(
+extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
     sat_scene3d_faces_t* scene, const sat_quad2_t* projected,
-    sat_fx16_t camera_depth, uint16_t color, uint16_t pass) {
-    if (!scene || !scene->active || !projected ||
-        camera_depth < 0 || pass > SAT_SCENE3D_PASS_MAX)
+    sat_fx16_t camera_depth, const sat_scene3d_material_t* material,
+    uint16_t pass) {
+    if (!scene || !scene->active || !projected || !material ||
+        camera_depth < 0 || pass > SAT_SCENE3D_PASS_MAX ||
+        material->vertex_gouraud != nullptr || !valid_material(*material))
         return SAT_ERR_INVALID_ARG;
     if (scene->count >= scene->capacity) return SAT_ERR_CAPACITY;
     sat_scene3d_face_t& item=scene->entries[scene->count];
     item.projected=*projected;
-    item.material={};
-    item.material.kind=SAT_SCENE3D_RGB;
-    item.material.rgb555=color;
-    item.material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    item.material=*material;
     item.projected_safe=1u;
     item.cached_projected=1u;
     item.gouraud_valid=0u;
@@ -284,6 +282,15 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_rgb(
         static_cast<int64_t>(camera_depth)*4,pass);
     ++scene->count;
     return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_submit_projected_rgb(
+    sat_scene3d_faces_t* scene, const sat_quad2_t* projected,
+    sat_fx16_t camera_depth, uint16_t color, uint16_t pass) {
+    const sat_scene3d_material_t material={
+        SAT_SCENE3D_RGB,color,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE,nullptr};
+    return sat_scene3d_faces_submit_projected_material(
+        scene,projected,camera_depth,&material,pass);
 }
 
 extern "C" sat_result_t sat_scene3d_faces_submit_box(

@@ -134,6 +134,19 @@ sat_result_t sat_scene_queue_view_item(
     sat_scene_t* scene, const sat_view_cache_item_t* item,
     sat_fx16_t camera_depth, uint16_t pass);
 
+/* Queues a projected cache item with any valid RGB or indexed scene material
+ * into the same bounded far-to-near painter as world faces. Its projected
+ * corners and material descriptor are copied, while indexed texture/tiled
+ * backing remains caller-owned and must stay valid until flush. The cached
+ * view must match the current camera: source geometry, clipping and linear
+ * camera_depth are explicitly supplied by the caller. For indexed tiled
+ * materials, only the full preuploaded texture is drawn (no UV clipping).
+ * The item's RGB color is ignored when a material is explicitly supplied. */
+sat_result_t sat_scene_queue_view_item_material(
+    sat_scene_t* scene, const sat_view_cache_item_t* item,
+    sat_fx16_t camera_depth, const sat_scene3d_material_t* material,
+    uint16_t pass);
+
 /* Ends the frame and returns the first recorded error from its submissions
  * and flush. Raw VDP1 operations remain independent. */
 sat_result_t sat_scene_flush(sat_scene_t* scene);

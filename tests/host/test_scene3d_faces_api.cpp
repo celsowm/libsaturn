@@ -215,6 +215,70 @@ int main() {
     assert(scene.emitted_faces==3u && scene.emitted_cached==1u);
     assert(scene.fallback_faces==0u && scene.skipped_faces==0u);
 
+    // A preprojected indexed sprite occupies the SAME painter depth interval
+    // as dynamic world actors, with no redundant projection at flush.
+    emitted_count=0u;
+    project_calls=0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    sat_scene3d_material_t cached_mat=actor_mat;
+    cached_mat.kind=SAT_SCENE3D_INDEXED_TEXTURED;
+    cached_mat.color_calc_slot=2u;
+    const uint16_t cached_texture_srca=actor_tex.srca;
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&near,&near_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,8*SAT_FX16_ONE,&cached_mat,0u)==SAT_OK);
+    cached_mat.texture=nullptr; // the queued descriptor was copied
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&actor,&actor_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&far,&far_mat,0u)==SAT_OK);
+    assert(project_calls==3u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(project_calls==3u);
+    assert(emitted_count==4u && emitted[0]==10u &&
+           emitted[1]==cached_texture_srca &&
+           emitted[2]==30u && emitted[3]==20u);
+    assert(emitted_slot[1]==2u && emitted_slot[2]==SAT_INDEXED_SOLID_OPAQUE);
+    assert(scene.emitted_faces==3u && scene.emitted_cached==1u);
+
+    // The same cached quad can draw the preuploaded full image of a tiled
+    // material; it never performs projected-UV re-clipping.
+    emitted_count=0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    sat_indexed_tiled_quad3_t tiled{};
+    tiled.full=&near_tex;
+    const sat_scene3d_material_t tiled_material={
+        SAT_SCENE3D_INDEXED_TILED,0u,nullptr,&tiled,3u,nullptr};
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,3*SAT_FX16_ONE,&tiled_material,0u)==SAT_OK);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==1u && emitted[0]==near_tex.srca);
+    assert(emitted_slot[0]==3u && scene.emitted_cached==1u);
+
+    // Invalid texture/slot/Gouraud descriptors never enter cache storage.
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    cached_mat=actor_mat;
+    cached_mat.texture=nullptr;
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,SAT_FX16_ONE,&cached_mat,0u)==SAT_ERR_INVALID_ARG);
+    cached_mat=actor_mat;
+    cached_mat.color_calc_slot=8u;
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,SAT_FX16_ONE,&cached_mat,0u)==SAT_ERR_INVALID_ARG);
+    cached_mat=actor_mat;
+    uint16_t gouraud[4]={1u,2u,3u,4u};
+    cached_mat.vertex_gouraud=gouraud;
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,SAT_FX16_ONE,&cached_mat,0u)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,SAT_FX16_ONE,nullptr,0u)==SAT_ERR_INVALID_ARG);
+    assert(scene.count==0u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
     // Equal-depth ties remain stable in original submission order.
     emitted_count=0u;
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
@@ -251,6 +315,19 @@ int main() {
     assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_CAPACITY);
     assert(scene.emitted_cached==0u && scene.emitted_faces==0u);
     polygon_draw_status=SAT_OK;
+
+    // Physical rejection of a cached indexed sprite does not count it as
+    // emitted; no RGB fallback may falsely turn the failure into success.
+    emitted_count=0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,3*SAT_FX16_ONE,&actor_mat,0u)==SAT_OK);
+    distorted_draw_status=SAT_ERR_CAPACITY;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_CAPACITY);
+    assert(scene.emitted_cached==0u && scene.emitted_faces==0u);
+    assert(emitted_count==0u);
+    distorted_draw_status=SAT_OK;
 
     // An indexed face outside the safe projected range takes the bounded
     // renderer fallback rather than silently pretending the clamped sprite

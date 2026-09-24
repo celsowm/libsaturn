@@ -9,6 +9,7 @@ static sat_result_t g_flush_status=SAT_OK;
 static uint16_t g_world_commands=0u;
 static uint16_t g_flush_emissions=0u;
 static uint16_t g_pending_cached=0u;
+static sat_scene3d_material_kind_t g_cached_material_kind=SAT_SCENE3D_RGB;
 
 extern "C" sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
@@ -42,6 +43,21 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_rgb(
     if (!scene || !scene->active || !quad || camera_depth<0 ||
         pass>SAT_SCENE3D_PASS_MAX) return SAT_ERR_INVALID_ARG;
     if (scene->count>=scene->capacity) return SAT_ERR_CAPACITY;
+    ++scene->count;
+    ++g_pending_cached;
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
+    sat_scene3d_faces_t* scene,const sat_quad2_t* quad,
+    sat_fx16_t camera_depth,const sat_scene3d_material_t* material,
+    uint16_t pass) {
+    if (!scene || !scene->active || !quad || !material ||
+        camera_depth<0 || pass>SAT_SCENE3D_PASS_MAX ||
+        (material->kind!=SAT_SCENE3D_RGB &&
+         (!material->texture || !material->texture->valid)))
+        return SAT_ERR_INVALID_ARG;
+    if (scene->count>=scene->capacity) return SAT_ERR_CAPACITY;
+    g_cached_material_kind=material->kind;
     ++scene->count;
     ++g_pending_cached;
     return SAT_OK;
@@ -151,6 +167,26 @@ int main() {
     assert(g_replayed==2u);
     assert(sat_scene_queue_view_item(
         &scene,&item,6*SAT_FX16_ONE,0u)==SAT_ERR_INVALID_ARG);
+
+    // The opt-in material path copies a preprojected textured cache item,
+    // shares face capacity, and emits only as part of the scene flush.
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    sat_vdp1_texture_t tex{};
+    tex.valid=1u;tex.srca=71u;
+    const sat_scene3d_material_t textured={
+        SAT_SCENE3D_INDEXED_TEXTURED,0u,&tex,nullptr,2u,nullptr};
+    assert(sat_scene_queue_view_item_material(
+        &scene,&item,3*SAT_FX16_ONE,&textured,0u)==SAT_OK);
+    assert(g_cached_material_kind==SAT_SCENE3D_INDEXED_TEXTURED);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.queued_view_items==1u && stats.replayed_items==0u);
+    assert(g_replayed==2u);
+    assert(sat_scene_flush(&scene)==SAT_OK);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.queued_view_items==1u && stats.replayed_items==1u);
+    assert(stats.flushed_faces==0u && stats.world_commands==1u);
+    assert(g_replayed==3u);
 
     // Rejected submissions remain visible in the result after flush.
     assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,

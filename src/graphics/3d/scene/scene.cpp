@@ -158,6 +158,19 @@ extern "C" sat_result_t sat_scene_queue_view_item(
     return record_frame_result(scene, st);
 }
 
+extern "C" sat_result_t sat_scene_queue_view_item_material(
+    sat_scene_t* scene, const sat_view_cache_item_t* item,
+    sat_fx16_t camera_depth, const sat_scene3d_material_t* material,
+    uint16_t pass) {
+    if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    const sat_result_t st=sat_scene3d_faces_submit_projected_material(
+        &scene->faces,item ? &item->quad : nullptr,
+        camera_depth,material,pass);
+    if (st == SAT_OK) ++scene->queued_view_items;
+    else if (st == SAT_ERR_CAPACITY) ++scene->rejected_faces;
+    return record_frame_result(scene,st);
+}
+
 extern "C" sat_result_t sat_scene_replay_view_item(
     sat_scene_t* scene, const sat_view_cache_item_t* item) {
     if (!scene || !scene->active || !item) return SAT_ERR_INVALID_ARG;
