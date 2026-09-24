@@ -33,7 +33,7 @@ for filename,symbols in owners.items():
                 assert marker not in body, f"{other}: {symbol} belongs to {filename}"
     subprocess.run(
         ["g++","-std=c++20","-Wall","-Wextra","-Werror",
-         "-Iinclude","-I.","-fsyntax-only",str(base/name)],
+         "-Iinclude","-I.","-fsyntax-only",str(base/filename)],
         cwd=root,check=True,
     )
 print("audio playback split: ownership and four C++ compile gates OK")
