@@ -15,6 +15,8 @@
 #include "saturn/scene.h"
 #include "saturn/scene3d.h"
 #include "saturn/vdp1.h"
+#include "saturn/texture.h"
+#include "saturn/surface.h"
 #include "saturn/view_cache.h"
 
 #define SCREEN_W 320u
@@ -35,7 +37,7 @@ static uint16_t g_cache_counts[VIEW_COUNT];
 static sat_view_cache_camera_t g_cache_cameras[VIEW_COUNT];
 static sat_camera3d_t g_camera;
 static sat_ascii_font_t g_font;
-static sat_vdp1_texture_t g_checker;
+static sat_texture_t g_checker;
 static uint8_t g_checker_pixels[8u * 8u];
 static uint16_t g_checker_palette[256u];
 static sat_quad3_t g_static_world[CACHE_FACES];
@@ -68,8 +70,12 @@ static void initialize_checker(void) {
     g_checker_palette[0]=SAT_COLOR_BLACK;
     g_checker_palette[1]=SAT_RGB555(25,29,6);
     g_checker_palette[2]=SAT_RGB555(5,19,30);
-    sat_example_must(sat_tex_upload_indexed8(
-        &g_checker,g_checker_pixels,8u,8u,g_checker_palette,1u));
+    sat_surface_t surface={0};
+    sat_example_must(sat_surface_init(
+        &surface,g_checker_pixels,8u,8u,8u,SAT_PIXEL_INDEX8,
+        g_checker_palette,256u));
+    sat_example_must(sat_texture_create_from_surface(
+        &g_checker,&surface,SAT_TEXTURE_UPLOAD_ONLY));
 }
 
 static void bake_current_view(void) {
@@ -93,11 +99,10 @@ static void bake_current_view(void) {
 }
 
 static void draw_cached_static(void) {
-    const sat_scene3d_material_t static_material={
-        SAT_SCENE3D_INDEXED_TEXTURED,0u,&g_checker,0,
-        SAT_INDEXED_SOLID_OPAQUE,0};
-    sat_example_must(sat_scene_queue_camera_view_material(
-        &g_scene,&g_cache,g_view,&g_camera,&static_material,0u));
+    /* The logical owner is revalidated when the painter flushes. A recycled
+     * texture slot cannot silently render a different wall image. */
+    sat_example_must(sat_scene_queue_managed_camera_view(
+        &g_scene,&g_cache,g_view,&g_camera,g_checker,0u));
 }
 
 static void draw_actor(void) {
@@ -136,6 +141,7 @@ int main(void) {
     initialize_checker();
     sat_example_must(sat_scene_init(
         &g_scene,g_scene_faces,g_scene_keys,g_scene_order,SCENE_FACES));
+    sat_example_must(sat_scene_bind_managed_textures(&g_scene));
     sat_example_must(sat_view_cache_init(
         &g_cache,g_cache_items,g_cache_counts,VIEW_COUNT,CACHE_FACES));
     sat_example_must(sat_view_cache_bind_cameras(
