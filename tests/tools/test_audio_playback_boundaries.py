@@ -25,7 +25,7 @@ for filename in pure:
     ):
         assert forbidden not in source, f"{filename}: pure policy depends on {forbidden}"
 
-facade = (base / "api.cpp").read_text(encoding="utf-8")
+state = (base / "state.hpp").read_text(encoding="utf-8")
 for dependency in (
     '#include "src/audio/playback/ram_allocator.hpp"',
     '#include "src/audio/playback/voice_policy.hpp"',
@@ -33,7 +33,12 @@ for dependency in (
     '#include "src/audio/playback/sound_registry.hpp"',
     '#include "src/audio/playback/voice_registry.hpp"',
 ):
-    assert dependency in facade, f"audio facade missing {dependency}"
-for leaked in ("g_audio_last_vblank", "g_audio_clock_valid", "g_sounds[", "g_voices["):
-    assert leaked not in facade, f"audio facade reintroduced {leaked}"
+    assert dependency in state, f"audio state composition missing {dependency}"
+for unit in ("api.cpp", "sound.cpp", "voice.cpp", "state.cpp"):
+    source=(base / unit).read_text(encoding="utf-8")
+    assert '#include "src/audio/playback/state.hpp"' in source, (
+        f"{unit}: playback units must share the private state contract"
+    )
+    for leaked in ("g_audio_last_vblank", "g_audio_clock_valid", "g_sounds[", "g_voices["):
+        assert leaked not in source, f"{unit}: reintroduced {leaked}"
 print("audio pure-policy/runtime boundaries: OK")
