@@ -258,6 +258,43 @@ int main() {
     assert(emitted_count==1u && emitted[0]==near_tex.srca);
     assert(emitted_slot[0]==3u && scene.emitted_cached==1u);
 
+    // A cached texture can be evicted AFTER submission. Preflight must
+    // reject the entire frame before drawing even the valid farther wall,
+    // not issue one hardware command and then discover stale residency.
+    emitted_count=0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&far,&far_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,3*SAT_FX16_ONE,&actor_mat,0u)==SAT_OK);
+    actor_tex.valid=0u;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
+    assert(emitted_count==0u && scene.emitted_faces==0u &&
+           scene.emitted_cached==0u && scene.count==0u && !scene.active);
+    actor_tex.valid=1u;
+
+    // This applies equally to borrowed tiled texture residency; retaining a
+    // valid tiled descriptor does not make an invalid full texture drawable.
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,3*SAT_FX16_ONE,&tiled_material,0u)==SAT_OK);
+    near_tex.valid=0u;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
+    assert(emitted_count==0u && scene.emitted_cached==0u);
+    near_tex.valid=1u;
+
+    // Prepared/world faces use the SAME material validity gate.
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&far,&far_mat,0u)==SAT_OK);
+    far_tex.valid=0u;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
+    assert(emitted_count==0u && scene.emitted_faces==0u);
+    far_tex.valid=1u;
+
     // Invalid texture/slot/Gouraud descriptors never enter cache storage.
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);

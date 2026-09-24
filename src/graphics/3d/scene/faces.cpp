@@ -546,6 +546,18 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
     sat_scene3d_faces_t* scene) {
     if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
     scene->active=0u;
+    /* Revalidate borrowed material residency before *any* VDP1 command.
+     * A texture may have been released or marked invalid between submit and
+     * flush, including in an async-prepared batch. Refuse the entire scene
+     * instead of painting an invalid image over earlier valid faces. This is
+     * an ordinary descriptor validity gate, NOT a VRAM ownership lock: the
+     * caller must still keep valid texture storage/residency until flush. */
+    for (uint16_t i=0u;i<scene->count;++i) {
+        if (!valid_material(scene->entries[i].material)) {
+            scene->count=0u;
+            return SAT_ERR_INVALID_ARG;
+        }
+    }
     /* Orders indices in O(faces + buckets) and never moves a face record;
      * the same helper already carries the native mesh paint order. */
 #if SAT_SKYBRIDGE_VALIDATION

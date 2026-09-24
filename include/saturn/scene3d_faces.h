@@ -255,7 +255,13 @@ sat_result_t sat_scene3d_faces_submit_instance(
     uint8_t color_calc_slot,
     sat_projected_vertex_t* screen_scratch, sat_vec3_t* world_scratch);
 
-/* Emits far-to-near; closes the frame even if hardware submission fails.
+/* Revalidates all borrowed material descriptors before emitting ANY VDP1
+ * commands. If a texture became invalid after submission, the entire queued
+ * painter is rejected atomically with SAT_ERR_INVALID_ARG and zero emissions.
+ * This cannot guard against overwriting still-valid VRAM or dangling pointers:
+ * callers must retain texture/tiled descriptors AND their VRAM ownership
+ * until flush. Hardware command errors may still be partial and irreversible.
+ * Emits far-to-near; closes the frame even if hardware submission fails.
  * emitted_faces counts successful face-dispatch calls; clipped faces may
  * generate multiple hardware commands. Unsupported skips are counted
  * separately. Unexpected hardware errors propagate to the caller.
