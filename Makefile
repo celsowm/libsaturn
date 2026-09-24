@@ -70,7 +70,7 @@ ifneq ($(strip $(PARALLEL_RUNTIME_DEFAULT_MODE)),)
 CFLAGS      += -DSAT_PARALLEL_RUNTIME_DEFAULT_MODE=$(PARALLEL_RUNTIME_DEFAULT_MODE)
 endif
 ifneq ($(strip $(SAT_PARALLEL_RUNTIME_VALIDATION)),)
-CFLAGS      += -DSAT_PARALLEL_RUNTIME_VALIDATION=1
+CFLAGS      += -DSAT_PARALLEL_RUNTIME_VALIDATION=1 -DSAT_PROFILE_METRICS=1
 endif
 endif
 ifeq ($(EXAMPLE),skybridge_3d)
@@ -79,7 +79,7 @@ CFLAGS      += -DSAT_SKYBRIDGE_PARALLEL_MODE=$(SAT_SKYBRIDGE_PARALLEL_MODE)
 endif
 
 ifneq ($(strip $(SAT_SKYBRIDGE_VALIDATION)),)
-CFLAGS      += -DSAT_SKYBRIDGE_VALIDATION=1
+CFLAGS      += -DSAT_SKYBRIDGE_VALIDATION=1 -DSAT_PROFILE_METRICS=1
 endif
 ifneq ($(strip $(SAT_SKYBRIDGE_FORCE_GEM_SPLIT)),)
 CFLAGS      += -DSAT_SKYBRIDGE_FORCE_GEM_SPLIT=1
@@ -171,18 +171,21 @@ ifneq ($(strip $(ALL_HEADERS)),)
 $(EXAMPLE_OBJS): $(ALL_HEADERS)
 endif
 
-# Skybridge's validation profiles change these translation-unit defines
-# between builds. Make does not otherwise notice command-line CFLAGS changes,
-# so rebuild only the affected objects instead of requiring a full `make -B`
-# (which needlessly reconverts assets and recompiles the library).
-ifeq ($(EXAMPLE),skybridge_3d)
-.PHONY: skybridge-profile-flags
-skybridge-profile-flags:
-$(BUILD_DIR)/examples/skybridge_3d/main.o \
+# Profiling is a reusable library feature: the game owns its own validation
+# selection, while generic modules know only SAT_PROFILE_METRICS. Make cannot
+# detect changed command-line flags, so rebuild profiling translation units.
+ifneq ($(filter skybridge_3d parallel_runtime,$(EXAMPLE)),)
+.PHONY: profile-flags
+profile-flags:
 $(BUILD_DIR)/src/core/parallel/executor.o \
 $(BUILD_DIR)/src/graphics/3d/scene/parallel.o \
 $(BUILD_DIR)/src/graphics/3d/scene/faces.o \
-$(BUILD_DIR)/src/hal/vdp1/vdp1.o: skybridge-profile-flags
+$(BUILD_DIR)/src/hal/vdp1/vdp1.o: profile-flags
+ifeq ($(EXAMPLE),skybridge_3d)
+$(BUILD_DIR)/examples/skybridge_3d/main.o: profile-flags
+else
+$(BUILD_DIR)/examples/parallel_runtime/main.o: profile-flags
+endif
 endif
 
 # -- Artefatos --------------------------------------------------

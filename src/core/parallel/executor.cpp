@@ -13,8 +13,8 @@
 #ifndef SAT_PARALLEL_TEST_FAULT
 #define SAT_PARALLEL_TEST_FAULT 0
 #endif
-#ifndef SAT_SKYBRIDGE_VALIDATION
-#define SAT_SKYBRIDGE_VALIDATION 0
+#ifndef SAT_PROFILE_METRICS
+#define SAT_PROFILE_METRICS 0
 #endif
 
 namespace saturn::core::parallel::executor {
@@ -50,7 +50,7 @@ struct Runtime {
 
 static sat_parallel_task_slot_t g_default_slots[kDefaultSlots];
 static Runtime g_runtime = {};
-#if SAT_SKYBRIDGE_VALIDATION || SAT_PARALLEL_TEST_FAULT != 0
+#if SAT_PROFILE_METRICS || SAT_PARALLEL_TEST_FAULT != 0
 static volatile uint32_t g_parallel_test_fault_fired = 0u;
 #endif
 
@@ -652,7 +652,7 @@ void slave_entry(void*) {
     }
 }
 
-#if SAT_SKYBRIDGE_VALIDATION || SAT_PARALLEL_TEST_FAULT != 0
+#if SAT_PROFILE_METRICS || SAT_PARALLEL_TEST_FAULT != 0
 extern "C" uint32_t sat_parallel_test_fault_fired(void) {
     return g_parallel_test_fault_fired;
 }

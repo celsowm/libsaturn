@@ -7,12 +7,12 @@
 
 #include <stdint.h>
 
-#ifndef SAT_SKYBRIDGE_VALIDATION
-#define SAT_SKYBRIDGE_VALIDATION 0
+#ifndef SAT_PROFILE_METRICS
+#define SAT_PROFILE_METRICS 0
 #endif
 
 namespace {
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_PROFILE_METRICS
 uint32_t g_test_painter_ticks;
 uint32_t g_test_emit_ticks;
 #endif
@@ -569,12 +569,12 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
     }
     /* Orders indices in O(faces + buckets) and never moves a face record;
      * the same helper already carries the native mesh paint order. */
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_PROFILE_METRICS
     const uint16_t painter_start=saturn::hal::sh2::frt::counter();
 #endif
     const uint32_t ordered=saturn::core::render3d::paint_order_buckets(
         scene->keys,scene->count,scene->order);
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_PROFILE_METRICS
     g_test_painter_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-painter_start);
     const uint16_t emit_start=saturn::hal::sh2::frt::counter();
@@ -597,7 +597,7 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
         else
             ++scene->emitted_faces;
     }
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_PROFILE_METRICS
     g_test_emit_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-emit_start);
 #endif
@@ -605,7 +605,7 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
     return result;
 }
 
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_PROFILE_METRICS
 extern "C" uint32_t sat_scene3d_test_painter_ticks(void) {
     return g_test_painter_ticks;
 }

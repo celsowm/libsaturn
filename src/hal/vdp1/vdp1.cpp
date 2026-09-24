@@ -3,8 +3,8 @@
 #include "saturn/vdp1.h"
 #include "src/graphics/3d/scene/test_metrics.h"
 
-#ifndef SAT_SKYBRIDGE_VALIDATION
-#define SAT_SKYBRIDGE_VALIDATION 0
+#ifndef SAT_PROFILE_METRICS
+#define SAT_PROFILE_METRICS 0
 #endif
 
 namespace saturn::hal::vdp1 {
@@ -57,7 +57,7 @@ uint16_t g_gouraud_count = 0;
 uint32_t g_texture_cursor = kTextureBase;
 uint16_t g_width = 320;
 uint16_t g_height = 224;
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_PROFILE_METRICS
 uint32_t g_test_scene_command_hash;
 uint32_t g_test_scene_command_count;
 
@@ -240,7 +240,7 @@ sat_result_t reserve_overlay_commands(uint16_t count) {
 
 sat_result_t begin_overlay_pass() {
     if(g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_PROFILE_METRICS
     /* Hash world commands before diagnostic/game HUD additions. */
     capture_scene_commands();
 #endif
@@ -693,7 +693,7 @@ sat_result_t update_texture_indexed8_rect(
     return SAT_OK;
 }
 
-#if SAT_SKYBRIDGE_VALIDATION
+#if SAT_PROFILE_METRICS
 extern "C" uint32_t sat_vdp1_test_scene_command_hash(void) {
     return g_test_scene_command_hash;
 }
