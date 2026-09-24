@@ -3,8 +3,8 @@
 
 /* Pure, host-testable quad-mesh construction.
  *
- * No hardware access, so tests/host/test_mesh3d_logic.cpp links this
- * directly. Only sat_vdp1_draw_mesh, in mesh3d_api.cpp, touches the VDP1.
+ * No hardware access: mesh C entry points live in
+ * src/core/geometry/mesh_api.cpp, separately from opt-in VDP1 drawing.
  *
  * The winding contract is stated in include/saturn/mesh3d.h: corners run
  * A, B, C, D as a VDP1 quad does, and the outward normal is

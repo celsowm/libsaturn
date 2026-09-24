@@ -1,6 +1,6 @@
 /* test_mesh3d_textured.cpp -- host tests for the native textured mesh path.
  *
- * Links src/graphics/3d/geometry/mesh.cpp directly and stubs the two VDP1 submit
+ * Links the opt-in renderer and standalone geometry C API while stubbing VDP1 submit
  * entry points, so the shared culling/sorting/submit logic is exercised
  * without real hardware.
  */

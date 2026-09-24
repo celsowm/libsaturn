@@ -1,7 +1,7 @@
 #include "saturn/scene3d_faces.h"
 #include "saturn/parallel.h"
 #include "saturn/vdp1_color_calc.h"
-#include "src/graphics/3d/geometry/mesh_logic.hpp"
+#include "src/core/geometry/mesh_logic.hpp"
 #include "src/graphics/3d/rendering/logic.hpp"
 #include "src/hal/sh2/frt.hpp"
 

@@ -8,7 +8,9 @@ logic = Path("src/core/math3d/logic.hpp")
 assert api.is_file() and logic.is_file()
 assert not old_api.exists() and not old_logic.exists()
 
-for path in [api, logic, Path("src/core/geometry/mesh_faces.hpp")]:
+for path in [api, logic, Path("src/core/geometry/mesh_faces.hpp"),
+             Path("src/core/geometry/mesh_logic.hpp"),
+             Path("src/core/geometry/mesh_api.cpp")]:
     assert path.is_file(), path
     assert "src/graphics/" not in path.read_text(), path
 
@@ -46,6 +48,16 @@ assert "typedef struct sat_quad3" in Path("include/saturn/geometry3d.h").read_te
 assert "typedef struct sat_quad3" not in Path("include/saturn/render3d.h").read_text()
 assert "typedef struct sat_mesh" in mesh_header
 assert "typedef struct sat_mesh_draw" not in mesh_header
+
+old_mesh = Path("src/graphics/3d/geometry/mesh_logic.hpp")
+assert not old_mesh.exists()
+assert 'extern "C" sat_result_t sat_mesh_init(' not in Path(
+    "src/graphics/3d/geometry/mesh.cpp").read_text()
+assert 'extern "C" sat_result_t sat_mesh_init(' in Path(
+    "src/core/geometry/mesh_api.cpp").read_text()
+for path in Path("src").rglob("*"):
+    if path.suffix in (".cpp", ".hpp", ".c", ".h"):
+        assert str(old_mesh) not in path.read_text(), path
 
 makefile = Path("Makefile").read_text()
 assert str(old_api) not in makefile

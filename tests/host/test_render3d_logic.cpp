@@ -8,7 +8,7 @@
 #include "saturn/color.h"
 #include "saturn/render3d.h"
 #include "src/graphics/3d/rendering/logic.hpp"
-#include "src/graphics/3d/geometry/mesh_logic.hpp"
+#include "src/core/geometry/mesh_logic.hpp"
 #include "src/core/runtime/logic.hpp"
 
 #define TEST(name) static void name()

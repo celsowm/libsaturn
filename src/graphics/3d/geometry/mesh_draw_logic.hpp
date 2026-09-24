@@ -2,7 +2,7 @@
 #define SATURN_CORE_MESH3D_DRAW_LOGIC_HPP
 
 #include "saturn/mesh3d_draw.h"
-#include "src/graphics/3d/geometry/mesh_logic.hpp"
+#include "src/core/geometry/mesh_logic.hpp"
 
 namespace saturn::core::mesh3d {
 
