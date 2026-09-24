@@ -382,8 +382,8 @@ int main() {
     assert(sat_scene_stats(&scene,&failed)==SAT_OK);
     assert(failed.result==SAT_ERR_CAPACITY && failed.flushed_faces==0u);
 
-    // Hardware rejection does not turn queued-but-unemitted faces into
-    // successfully dispatched faces, and the next begin resets the error.
+    // Hardware rejection rolls back staged commands rather than counting
+    // queued-but-undispatched faces; the next begin resets the error.
     assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
         320u, 224u, 8u)==SAT_OK);
     scene.faces.count=2u;
@@ -392,7 +392,7 @@ int main() {
     assert(sat_scene_flush(&scene)==SAT_ERR_CAPACITY);
     assert(sat_scene_stats(&scene,&failed)==SAT_OK);
     assert(failed.result==SAT_ERR_CAPACITY &&
-           failed.flushed_faces==0u && failed.world_commands==1u);
+           failed.flushed_faces==0u && failed.world_commands==0u);
     g_flush_status=SAT_OK;
     g_flush_emissions=0u;
     assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
