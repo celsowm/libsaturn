@@ -91,3 +91,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Build-profile isolation:** all game and asset objects plus ROM artifacts have variant-specific paths keyed by effective C/C++/ASM compiler flags and boot profile; reusable library objects depend only on generic metric/fault flags. Public `build/<example>.iso` and other root artifacts are republished from the selected variant, never used as build inputs. Generated asset C/H source staging is still per example, while compiled asset objects are per variant.
 
 **Header isolation:** the shared library now compiles without the example-generated-header include path. Build profile behavior, reusable library keys, public artifact exports and the remaining shared source-generation concurrency limitation are documented in `docs/BUILD_PROFILES.md`.
+
+**Audio service-clock separation:** the reconciliation of app frames with polled VBlank edges now lives in a standalone caller-owned clock policy. Host tests exercise held-high VBlank, synchronous-I/O stalls, app-frame catch-up and 32-bit wrap; playback still owns hardware polling and streaming dispatch.

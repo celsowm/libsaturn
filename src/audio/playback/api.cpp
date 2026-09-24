@@ -4,6 +4,7 @@
 #include "src/audio/streaming/runtime.hpp"
 #include "src/audio/playback/ram_allocator.hpp"
 #include "src/audio/playback/voice_policy.hpp"
+#include "src/audio/playback/clock.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/scsp/scsp.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
@@ -56,10 +57,7 @@ uint32_t g_voice_steals = 0u;
 uint32_t g_failed_play_requests = 0u;
 uint32_t g_start_serial = 0u;
 uint8_t g_initialized = 0u;
-uint32_t g_audio_service_frame = 0u;
-uint32_t g_audio_last_app_frame = 0u;
-uint8_t g_audio_last_vblank = 0u;
-uint8_t g_audio_clock_valid = 0u;
+saturn::core::audio::clock::State g_audio_clock = {};
 
 SoundEntry* resolve_sound(sat_sound_t sound) {
     if (sound.slot >= kSoundCapacity) return nullptr;
@@ -122,10 +120,7 @@ void reset_runtime_state() {
     g_voice_steals = 0u;
     g_failed_play_requests = 0u;
     g_start_serial = 0u;
-    g_audio_service_frame = 0u;
-    g_audio_last_app_frame = 0u;
-    g_audio_last_vblank = 0u;
-    g_audio_clock_valid = 0u;
+    g_audio_clock.reset();
 }
 
 }  // namespace
@@ -159,31 +154,10 @@ extern "C" sat_result_t sat_audio_update(void) {
     const uint32_t now = sat_frame_count();
     const uint8_t vblank =
         (saturn::hal::vdp2::read_tvstat() & 0x0008u) != 0u ? 1u : 0u;
-    if (g_audio_clock_valid == 0u) {
-        g_audio_service_frame = now;
-        g_audio_last_app_frame = now;
-        g_audio_clock_valid = 1u;
-    } else if (now != g_audio_last_app_frame) {
-        // sat_frame_count() catches up missed display frames when the app
-        // returns to its normal VBlank path. Those same frames may already
-        // have advanced g_audio_service_frame through TVSTAT while a
-        // synchronous CD read was pumping audio. Reconcile the two clocks
-        // instead of adding the elapsed interval a second time: double
-        // counting can make the stream scheduler overwrite an SCSP buffer
-        // half that is still being played.
-        if (static_cast<int32_t>(now - g_audio_service_frame) > 0) {
-            g_audio_service_frame = now;
-        }
-        g_audio_last_app_frame = now;
-    } else if (vblank != 0u && g_audio_last_vblank == 0u) {
-        // CD Block waits pump this function while the application frame is
-        // stalled. Count real VBlank edges so streaming time still advances.
-        ++g_audio_service_frame;
-    }
-    g_audio_last_vblank = vblank;
+    const uint32_t service_frame=g_audio_clock.tick(now,vblank);
     const uint32_t display_rate = saturn::core::g_state.config.ntsc != 0u ? 60u : 50u;
     saturn::core::audio_stream_service(
-        saturn::core::g_audio_streams, g_audio_service_frame, display_rate);
+        saturn::core::g_audio_streams, service_frame, display_rate);
     for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
         VoiceEntry& voice = g_voices[i];
         if (voice.active == 0u || voice.looping != 0u) continue;
