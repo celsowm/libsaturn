@@ -64,11 +64,9 @@ int main() {
     scene.faces.height=224u;
     sat_scene3d_face_t storage[2]{};
     uint32_t keys[2]{};
-    uint16_t order[2]{};
     sat_scene3d_prepare_batch_t batch{};
     batch.faces=storage;
     batch.keys=keys;
-    batch.order=order;
     batch.capacity=2u;
     sat_parallel_handle_t handle=0u;
 

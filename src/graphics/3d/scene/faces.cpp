@@ -64,47 +64,6 @@ uint32_t painter_key(int64_t depth_sum, uint16_t pass) {
            static_cast<uint32_t>(depth);
 }
 
-/* Build the diagnostic/local index order without modifying painter keys.
- * Prepared batches are merged into a larger scene that performs its own
- * global bucket pass; rewriting keys against each slice's local depth range
- * makes partitioned batches sort differently from an unsplit batch. */
-uint32_t paint_order_from_keys(const uint32_t* keys,uint32_t face_count,
-                               uint16_t* out) {
-    using saturn::core::render3d::kPaintBuckets;
-    using saturn::core::render3d::kPaintSkip;
-    uint32_t low=0xFFFFFFFFu,high=0u,live=0u;
-    for(uint32_t face=0u;face<face_count;++face) {
-        const uint32_t key=keys[face];
-        if(key==kPaintSkip)continue;
-        if(key<low)low=key;
-        if(key>high)high=key;
-        ++live;
-    }
-    if(live==0u)return 0u;
-    uint32_t shift=0u;
-    while(((high-low)>>shift)>=kPaintBuckets)++shift;
-
-    uint16_t starts[kPaintBuckets];
-    for(uint32_t bucket=0u;bucket<kPaintBuckets;++bucket)starts[bucket]=0u;
-    for(uint32_t face=0u;face<face_count;++face) {
-        const uint32_t key=keys[face];
-        if(key!=kPaintSkip)++starts[(key-low)>>shift];
-    }
-    uint32_t running=0u;
-    for(uint32_t bucket=kPaintBuckets;bucket-- > 0u;) {
-        const uint16_t count=starts[bucket];
-        starts[bucket]=static_cast<uint16_t>(running);
-        running+=count;
-    }
-    for(uint32_t face=0u;face<face_count;++face) {
-        const uint32_t key=keys[face];
-        if(key==kPaintSkip)continue;
-        const uint32_t bucket=(key-low)>>shift;
-        out[starts[bucket]++]=static_cast<uint16_t>(face);
-    }
-    return live;
-}
-
 sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
                     const sat_projected_vertex_t* projected,
                     const uint16_t indices[4],
@@ -442,25 +401,23 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
 extern "C" sat_result_t sat_scene3d_prepare_batch_init(
     sat_scene3d_prepare_batch_t* batch,
     const sat_scene3d_prepare_item_t* items, uint16_t item_count,
-    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t* order,
-    uint16_t capacity) {
+    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t capacity) {
     if (batch == nullptr || (item_count != 0u && items == nullptr) ||
-        faces == nullptr || keys == nullptr || order == nullptr ||
-        capacity == 0u) return SAT_ERR_INVALID_ARG;
+        faces == nullptr || keys == nullptr || capacity == 0u)
+        return SAT_ERR_INVALID_ARG;
     *batch = {};
     batch->items = items;
     batch->item_count = item_count;
     batch->capacity = capacity;
     batch->faces = faces;
     batch->keys = keys;
-    batch->order = order;
     return SAT_OK;
 }
 
 extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
     sat_scene3d_prepare_batch_t* batch) {
     if (batch == nullptr || batch->faces == nullptr || batch->keys == nullptr ||
-        batch->order == nullptr || batch->capacity == 0u ||
+        batch->capacity == 0u ||
         (batch->item_count != 0u && batch->items == nullptr) ||
         batch->near_depth <= 0 || batch->width < 2u || batch->height < 2u ||
         batch->width > 2048u || batch->height > 2048u ||
@@ -468,9 +425,12 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
         return SAT_ERR_INVALID_ARG;
 
     batch->metrics = {};
+    /* Batch preparation owns no painter ordering array: it only writes
+     * face/key pairs for the final scene to sort once after merge. */
     sat_scene3d_faces_t prepared = {};
-    SAT_TRY(sat_scene3d_faces_init(
-        &prepared, batch->faces, batch->keys, batch->order, batch->capacity));
+    prepared.entries=batch->faces;
+    prepared.keys=batch->keys;
+    prepared.capacity=batch->capacity;
     SAT_TRY(sat_scene3d_faces_begin(
         &prepared, &batch->view_proj, &batch->eye, &batch->forward,
         batch->near_depth, batch->width, batch->height));
@@ -491,11 +451,7 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
     batch->metrics.prepared_faces = prepared.count;
     batch->metrics.culled_faces = prepared.culled_faces;
     batch->metrics.clipped_faces = prepared.clipped_faces;
-    /* This is diagnostic/local ordering scratch only. Merge deliberately
-     * preserves source order; the canonical scene performs the one global
-     * ordering pass after all batches have been merged. */
-    (void)paint_order_from_keys(
-        batch->keys,batch->metrics.prepared_faces,batch->order);
+    /* Preserve source order; the final painter sorts exactly once. */
     return SAT_OK;
 }
 
@@ -503,8 +459,8 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_slice(
     const sat_scene3d_prepare_batch_t* source,
     uint16_t first_item, uint16_t item_count,
     sat_scene3d_prepare_item_t* slice_items,
-    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t* order,
-    uint16_t capacity, sat_scene3d_prepare_batch_t* out_slice) {
+    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t capacity,
+    sat_scene3d_prepare_batch_t* out_slice) {
     if (source == nullptr || out_slice == nullptr ||
         (source->item_count != 0u && source->items == nullptr) ||
         first_item > source->item_count ||
@@ -518,7 +474,7 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_slice(
         }
     }
     SAT_TRY(sat_scene3d_prepare_batch_init(
-        out_slice, slice_items, item_count, faces, keys, order, capacity));
+        out_slice, slice_items, item_count, faces, keys, capacity));
     out_slice->view_proj = source->view_proj;
     out_slice->eye = source->eye;
     out_slice->forward = source->forward;

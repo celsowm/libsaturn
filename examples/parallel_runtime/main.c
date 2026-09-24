@@ -95,10 +95,8 @@ static sat_vec3_t g_geometry_scratch[GEOMETRY_OBJECT_COUNT][4];
 static sat_scene3d_prepare_item_t g_geometry_items[GEOMETRY_OBJECT_COUNT];
 static sat_scene3d_face_t g_geometry_faces[GEOMETRY_FACE_CAP];
 static uint32_t g_geometry_keys[GEOMETRY_FACE_CAP];
-static uint16_t g_geometry_order[GEOMETRY_FACE_CAP];
 static sat_scene3d_face_t g_geometry_reference_faces[GEOMETRY_FACE_CAP];
 static uint32_t g_geometry_reference_keys[GEOMETRY_FACE_CAP];
-static uint16_t g_geometry_reference_order[GEOMETRY_FACE_CAP];
 static sat_scene3d_prepare_batch_t g_geometry_batch;
 static sat_scene3d_prepare_batch_t g_geometry_reference_batch;
 static sat_parallel_handle_t g_geometry_handle;
@@ -430,12 +428,12 @@ static void make_geometry_scene(void) {
     }
     sat_example_must(sat_scene3d_prepare_batch_init(
         &g_geometry_batch, g_geometry_items, GEOMETRY_OBJECT_COUNT,
-        g_geometry_faces, g_geometry_keys, g_geometry_order,
+        g_geometry_faces, g_geometry_keys,
         GEOMETRY_FACE_CAP));
     sat_example_must(sat_scene3d_prepare_batch_init(
         &g_geometry_reference_batch, g_geometry_items, GEOMETRY_OBJECT_COUNT,
         g_geometry_reference_faces, g_geometry_reference_keys,
-        g_geometry_reference_order, GEOMETRY_FACE_CAP));
+        GEOMETRY_FACE_CAP));
     sat_example_must(sat_scene_init(
         &g_reference_scene, g_reference_scene_faces, g_reference_scene_keys,
         g_reference_scene_order, GEOMETRY_FACE_CAP));
@@ -516,8 +514,7 @@ static void validate_geometry_output(void) {
         return;
     }
     for (uint16_t i = 0u; i < g_geometry_batch.metrics.prepared_faces; ++i) {
-        if (g_geometry_keys[i] != g_geometry_reference_keys[i] ||
-            g_geometry_order[i] != g_geometry_reference_order[i]) {
+        if (g_geometry_keys[i] != g_geometry_reference_keys[i]) {
             g_geometry_validation = 0u;
 #if SAT_PARALLEL_RUNTIME_VALIDATION
             g_geometry_validation_stage=4u;

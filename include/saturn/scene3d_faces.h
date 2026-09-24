@@ -180,8 +180,8 @@ typedef enum sat_scene3d_prepare_dispatch {
     SAT_SCENE3D_PREPARE_DISPATCH_MASTER = 2
 } sat_scene3d_prepare_dispatch_t;
 
-/* Caller-owned batch storage. The worker writes only faces, keys, order
- * scratch, and metrics; it never writes the scene or VDP1 state. The camera
+/* Caller-owned batch storage. The worker writes only faces, keys and
+ * metrics; it never sorts or writes the scene/VDP1 state. The camera
  * fields are captured by sat_scene3d_prepare_batch_async(). */
 typedef struct sat_scene3d_prepare_batch {
     const sat_scene3d_prepare_item_t* items;
@@ -189,7 +189,6 @@ typedef struct sat_scene3d_prepare_batch {
     uint16_t capacity;
     sat_scene3d_face_t* faces;
     uint32_t* keys;
-    uint16_t* order;
     sat_scene3d_prepare_metrics_t metrics;
     sat_mat4_t view_proj;
     sat_vec3_t eye;
@@ -206,8 +205,7 @@ typedef struct sat_scene3d_prepare_batch {
 sat_result_t sat_scene3d_prepare_batch_init(
     sat_scene3d_prepare_batch_t* batch,
     const sat_scene3d_prepare_item_t* items, uint16_t item_count,
-    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t* order,
-    uint16_t capacity);
+    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t capacity);
 
 /* Builds a bounded object-range view of an existing batch.  The item
  * descriptors are copied in source order into caller-owned storage; camera
@@ -219,8 +217,8 @@ sat_result_t sat_scene3d_prepare_batch_slice(
     const sat_scene3d_prepare_batch_t* source,
     uint16_t first_item, uint16_t item_count,
     sat_scene3d_prepare_item_t* slice_items,
-    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t* order,
-    uint16_t capacity, sat_scene3d_prepare_batch_t* out_slice);
+    sat_scene3d_face_t* faces, uint32_t* keys, uint16_t capacity,
+    sat_scene3d_prepare_batch_t* out_slice);
 
 /* Pure preparation entry point shared by the Master path and the Slave task.
  * It performs no hardware access and does not sort or emit commands. */

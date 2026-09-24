@@ -98,8 +98,6 @@ sat_result_t sync_batch_outputs(const sat_scene3d_prepare_batch_t* batch) {
     if (batch == nullptr) return SAT_ERR_INVALID_ARG;
     SAT_TRY(sync_range(batch->keys, static_cast<uint32_t>(batch->capacity) *
         sizeof(*batch->keys)));
-    SAT_TRY(sync_range(batch->order, static_cast<uint32_t>(batch->capacity) *
-        sizeof(*batch->order)));
     if (batch->items == nullptr) return SAT_OK;
     for (uint16_t i = 0u; i < batch->item_count; ++i) {
         const sat_scene3d_prepare_item_t& item = batch->items[i];
@@ -130,13 +128,11 @@ sat_result_t prepare_batch_task(
      * cannot retain an older descriptor or mesh/material array. */
     SAT_TRY(sync_batch_sources(shared));
 
-    /* The explicit executor output is the only buffer guaranteed to be
-     * uncached on the Slave. Use the same alias for the parallel sort keys;
+    /* The executor output and face keys use uncached Slave aliases;
      * source descriptors remain immutable and may be read normally. */
     sat_scene3d_prepare_batch_t worker = *shared;
     worker.faces = static_cast<sat_scene3d_face_t*>(output);
     worker.keys = static_cast<uint32_t*>(shared_uncached(shared->keys));
-    worker.order = static_cast<uint16_t*>(shared_uncached(shared->order));
     const sat_result_t result = sat_scene3d_prepare_batch_execute(&worker);
     SAT_TRY(sync_batch_outputs(shared));
     if (result == SAT_OK) {
@@ -160,7 +156,6 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
     if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
     if (!batch || !out_handle || batch->capacity == 0u ||
         batch->faces == nullptr || batch->keys == nullptr ||
-        batch->order == nullptr ||
         (batch->item_count != 0u && batch->items == nullptr) ||
         (batch->dispatch != SAT_SCENE3D_PREPARE_DISPATCH_CONSERVATIVE &&
          batch->dispatch != SAT_SCENE3D_PREPARE_DISPATCH_RUNTIME &&

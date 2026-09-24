@@ -208,13 +208,10 @@ static sat_scene3d_prepare_item_t g_gem_master_items[SB_PICKUP_COUNT];
 static sat_scene3d_prepare_item_t g_gem_slave_items[SB_PICKUP_COUNT];
 static sat_scene3d_face_t g_gem_partition_faces[SB_GEM_BATCH_CAP];
 static uint32_t g_gem_partition_keys[SB_GEM_BATCH_CAP];
-static uint16_t g_gem_partition_order[SB_GEM_BATCH_CAP];
 static sat_scene3d_face_t g_gem_master_faces[SB_GEM_BATCH_CAP];
 static uint32_t g_gem_master_keys[SB_GEM_BATCH_CAP];
-static uint16_t g_gem_master_order[SB_GEM_BATCH_CAP];
 static sat_scene3d_face_t g_gem_slave_faces[SB_GEM_BATCH_CAP];
 static uint32_t g_gem_slave_keys[SB_GEM_BATCH_CAP];
-static uint16_t g_gem_slave_order[SB_GEM_BATCH_CAP];
 static sat_scene3d_prepare_batch_t g_gem_partition_batch;
 static sat_scene3d_prepare_batch_t g_gem_master_batch;
 static sat_scene3d_prepare_batch_t g_gem_slave_batch;
@@ -1044,7 +1041,7 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
         g_metrics.slave_gem_items=(uint16_t)(count-split);
         if(sat_scene3d_prepare_batch_slice(&g_gem_partition_batch,0u,split,
               g_gem_master_items,g_gem_master_faces,g_gem_master_keys,
-              g_gem_master_order,SB_GEM_BATCH_CAP,&g_gem_master_batch)!=SAT_OK) {
+              SB_GEM_BATCH_CAP,&g_gem_master_batch)!=SAT_OK) {
             ++g_metrics.failures; return;
         }
         if(split<count) {
@@ -1052,7 +1049,7 @@ static void prepare_gem_geometry(const uint8_t* deck_slot) {
             const uint32_t master_before=parallel_master_task_count();
             if(sat_scene3d_prepare_batch_slice(&g_gem_partition_batch,split,
                   (uint16_t)(count-split),g_gem_slave_items,g_gem_slave_faces,
-                  g_gem_slave_keys,g_gem_slave_order,SB_GEM_BATCH_CAP,
+                  g_gem_slave_keys,SB_GEM_BATCH_CAP,
                   &g_gem_slave_batch)!=SAT_OK) {
                 ++g_metrics.failures; return;
             }
@@ -1756,7 +1753,7 @@ int main(void) {
     g_pig_render_buffer=0u;
     sat_example_must(sat_scene3d_prepare_batch_init(
         &g_gem_partition_batch,g_gem_batch_items,0u,
-        g_gem_partition_faces,g_gem_partition_keys,g_gem_partition_order,
+        g_gem_partition_faces,g_gem_partition_keys,
         SB_GEM_BATCH_CAP));
     sat_example_must(sat_init(&video));
     {

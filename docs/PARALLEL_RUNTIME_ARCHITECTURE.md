@@ -72,15 +72,15 @@ painter pass, preserving source order for equal-depth faces.
 
 `sat_scene3d_prepare_batch_slice` creates a bounded source-order view for a
 partitioned workload. It copies only item descriptors and camera state into
-caller-owned storage; each slice has independent faces, keys, ordering, and
-scratch buffers. A caller can execute the Master slice while the other slice is
+caller-owned storage; each slice has independent faces, keys and vertex
+scratch buffers; only the final scene owns the painter ordering array. A caller can execute the Master slice while the other slice is
 queued on the Slave, then merge the slices in their original source order.
 This is the geometry pattern used by Skybridge's explicit `SLAVE` mode.
 
 ```c
 sat_scene3d_prepare_batch_init(&batch, items, item_count,
                                prepared_faces, prepared_keys,
-                               prepared_order, capacity);
+                               capacity);
 /* Optional: delegate to the configured executor instead of the
  * conservative AUTO geometry default. Other independent workloads may
  * select MASTER without changing any library compile flags. */

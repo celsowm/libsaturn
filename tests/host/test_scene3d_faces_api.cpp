@@ -524,13 +524,13 @@ int main() {
     // into the canonical queue without sorting or emitting independently.
     sat_scene3d_face_t prepared_faces[8]={};
     uint32_t prepared_keys[8]={};
-    uint16_t prepared_order[8]={};
+
     sat_scene3d_prepare_item_t prepared_item={
         &instance,screen,world,SAT_SCENE3D_SLOT_INHERIT,0u};
     sat_scene3d_prepare_batch_t batch={};
     assert(sat_scene3d_prepare_batch_init(
         &batch,&prepared_item,1u,prepared_faces,prepared_keys,
-        prepared_order,8u)==SAT_OK);
+        8u)==SAT_OK);
     batch.view_proj=vp;
     batch.eye=eye;
     batch.forward=forward;
@@ -542,11 +542,11 @@ int main() {
            batch.metrics.prepared_faces==2u && batch.metrics.culled_faces==0u);
     sat_scene3d_face_t reference_faces[8]={};
     uint32_t reference_keys[8]={};
-    uint16_t reference_order[8]={};
+
     sat_scene3d_prepare_batch_t reference_batch={};
     assert(sat_scene3d_prepare_batch_init(
         &reference_batch,&prepared_item,1u,reference_faces,reference_keys,
-        reference_order,8u)==SAT_OK);
+        8u)==SAT_OK);
     reference_batch.view_proj=vp;
     reference_batch.eye=eye;
     reference_batch.forward=forward;
@@ -560,7 +560,6 @@ int main() {
     assert(reference_batch.metrics.clipped_faces==batch.metrics.clipped_faces);
     for (uint16_t i=0u;i<batch.metrics.prepared_faces;++i) {
         assert(batch.keys[i]==reference_keys[i]);
-        assert(batch.order[i]==reference_order[i]);
         assert(same_face(batch.faces[i],reference_faces[i]));
     }
 
@@ -581,11 +580,11 @@ int main() {
     }
     sat_scene3d_face_t source_faces[8]={};
     uint32_t source_keys[8]={};
-    uint16_t source_order[8]={};
+
     sat_scene3d_prepare_batch_t source_batch={};
     assert(sat_scene3d_prepare_batch_init(
         &source_batch,source_items,3u,source_faces,source_keys,
-        source_order,8u)==SAT_OK);
+        8u)==SAT_OK);
     source_batch.view_proj=vp;
     source_batch.eye=eye;
     source_batch.forward=forward;
@@ -597,12 +596,12 @@ int main() {
     sat_scene3d_prepare_item_t slice_items[2]={};
     sat_scene3d_face_t slice_faces[8]={};
     uint32_t slice_keys[8]={};
-    uint16_t slice_order[8]={};
+
     sat_scene3d_prepare_batch_t slice={};
     source_batch.dispatch=SAT_SCENE3D_PREPARE_DISPATCH_MASTER;
     assert(sat_scene3d_prepare_batch_slice(
         &source_batch,1u,2u,slice_items,slice_faces,slice_keys,
-        slice_order,8u,&slice)==SAT_OK);
+        8u,&slice)==SAT_OK);
     assert(slice.dispatch==SAT_SCENE3D_PREPARE_DISPATCH_MASTER);
     assert(slice.items==slice_items && slice.item_count==2u);
     assert(slice.items[0].instance==&source_instances[1] &&
@@ -621,7 +620,7 @@ int main() {
     }
     assert(sat_scene3d_prepare_batch_slice(
         &source_batch,2u,2u,slice_items,slice_faces,slice_keys,
-        slice_order,8u,&slice)==SAT_ERR_INVALID_ARG);
+        8u,&slice)==SAT_ERR_INVALID_ARG);
 
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
@@ -632,11 +631,11 @@ int main() {
 
     sat_scene3d_face_t too_small_faces[1]={};
     uint32_t too_small_keys[1]={};
-    uint16_t too_small_order[1]={};
+
     sat_scene3d_prepare_batch_t too_small={};
     assert(sat_scene3d_prepare_batch_init(
         &too_small,&prepared_item,1u,too_small_faces,too_small_keys,
-        too_small_order,1u)==SAT_OK);
+        1u)==SAT_OK);
     too_small.view_proj=vp;
     too_small.eye=eye;
     too_small.forward=forward;
@@ -653,11 +652,11 @@ int main() {
     invalid_item.instance=nullptr;
     sat_scene3d_face_t invalid_faces[8]={};
     uint32_t invalid_keys[8]={};
-    uint16_t invalid_order[8]={};
+
     sat_scene3d_prepare_batch_t invalid_batch={};
     assert(sat_scene3d_prepare_batch_init(
         &invalid_batch,&invalid_item,1u,invalid_faces,invalid_keys,
-        invalid_order,8u)==SAT_OK);
+        8u)==SAT_OK);
     invalid_batch.view_proj=vp;
     invalid_batch.eye=eye;
     invalid_batch.forward=forward;

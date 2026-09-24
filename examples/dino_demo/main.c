@@ -95,7 +95,6 @@ static uint16_t g_half_first[2] DINO_WRAM_L;
 static sat_projected_vertex_t g_slave_screen[MODEL_VERTEX_CAP];
 static sat_scene3d_face_t g_slave_faces[SLAVE_FACES] DINO_WRAM_L;
 static uint32_t g_slave_keys[SLAVE_FACES];
-static uint16_t g_slave_order[SLAVE_FACES];
 static sat_scene3d_prepare_item_t g_slave_item DINO_WRAM_L;
 static sat_scene3d_prepare_batch_t g_slave_batch DINO_WRAM_L;
 static sat_parallel_handle_t g_slave_handle DINO_WRAM_L;
@@ -374,7 +373,7 @@ int main(void) {
     g_slave_item.screen_scratch = g_slave_screen;
     g_slave_item.color_calc_slot = SAT_SCENE3D_SLOT_INHERIT;
     sat_example_must(sat_scene3d_prepare_batch_init(&g_slave_batch, &g_slave_item, 1u,
-        g_slave_faces, g_slave_keys, g_slave_order, SLAVE_FACES));
+        g_slave_faces, g_slave_keys, SLAVE_FACES));
     g_slave_batch.dispatch = SAT_SCENE3D_PREPARE_DISPATCH_RUNTIME;
     {
         uint16_t f;
