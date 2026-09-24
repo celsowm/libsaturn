@@ -10,12 +10,8 @@ using saturn::core::scene::record_frame_result;
 #define SAT_PROFILE_METRICS 0
 #endif
 
-#ifndef SAT_PARALLEL_RUNTIME_VALIDATION
-#define SAT_PARALLEL_RUNTIME_VALIDATION 0
-#endif
-
 namespace {
-#if SAT_PROFILE_METRICS || SAT_PARALLEL_RUNTIME_VALIDATION
+#if SAT_PROFILE_METRICS
 uint32_t g_test_input_publish_ticks;
 #endif
 
@@ -171,12 +167,12 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
     batch->near_depth = scene->faces.near_depth;
     batch->width = scene->faces.width;
     batch->height = scene->faces.height;
-#if SAT_PROFILE_METRICS || SAT_PARALLEL_RUNTIME_VALIDATION
+#if SAT_PROFILE_METRICS
     const uint16_t publish_start=saturn::hal::sh2::frt::counter();
 #endif
     const sat_result_t published=sync_batch_sources(batch);
     if (published != SAT_OK) return record_frame_result(scene,published);
-#if SAT_PROFILE_METRICS || SAT_PARALLEL_RUNTIME_VALIDATION
+#if SAT_PROFILE_METRICS
     g_test_input_publish_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-publish_start);
 #endif
@@ -245,7 +241,7 @@ extern "C" sat_result_t sat_scene_prepare_batch_release(
     return released;
 }
 
-#if SAT_PROFILE_METRICS || SAT_PARALLEL_RUNTIME_VALIDATION
+#if SAT_PROFILE_METRICS
 extern "C" uint32_t sat_scene3d_test_input_publish_ticks(void) {
     return g_test_input_publish_ticks;
 }

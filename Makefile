@@ -30,7 +30,6 @@ MKISOFS     := $(shell command -v mkisofs 2>/dev/null || command -v genisoimage 
 
 # -- Paths ------------------------------------------------------
 BUILD_DIR    := build
-ISO_ROOT     := iso_root
 GENERATED_DIR := $(BUILD_DIR)/generated
 TOOLS        := tools
 
@@ -53,7 +52,7 @@ endif
 
 # -- IP template ------------------------------------------------
 IP_TEMPLATE := assets/boot/ip_$(IP_TEMPLATE_KIND)_template.bin
-IP_GENERATED := $(BUILD_DIR)/$(EXAMPLE).IP.BIN
+IP_GENERATED = $(OUTPUT_DIR)/$(EXAMPLE).IP.BIN
 
 # -- Compilacao -------------------------------------------------
 BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra \
@@ -85,12 +84,6 @@ ifneq ($(strip $(SAT_SKYBRIDGE_FORCE_GEM_SPLIT)),)
 CFLAGS      += -DSAT_SKYBRIDGE_FORCE_GEM_SPLIT=1
 endif
 endif
-ifeq ($(EXAMPLE),parallel_runtime)
-.PHONY: parallel-runtime-profile-flags
-parallel-runtime-profile-flags:
-$(BUILD_DIR)/examples/parallel_runtime/main.o \
-$(BUILD_DIR)/src/graphics/3d/scene/parallel.o: parallel-runtime-profile-flags
-endif
 ifneq ($(strip $(SAT_PARALLEL_TEST_FAULT)),)
 CFLAGS      += -DSAT_PARALLEL_TEST_FAULT=$(SAT_PARALLEL_TEST_FAULT)
 endif
@@ -101,8 +94,40 @@ DEPFLAGS    := -MMD -MP
 CXXFLAGS    := $(CFLAGS) -std=c++20 -fno-exceptions -fno-rtti \
                -fno-threadsafe-statics -fno-use-cxa-atexit
 ASFLAGS     := -m2 -mb
-LDFLAGS     := -m2 -mb -nostdlib -Wl,-T,src/core/startup/saturn.ld \
-               -Wl,-Map,$(BUILD_DIR)/$(EXAMPLE).map -Wl,--gc-sections
+
+# Only generic switches affect reusable library objects. Game-specific
+# defines never enter generic translation units, and profile changes select
+# different object/archive paths instead of touching every .o on each build.
+LIB_PROFILE_METRICS := 0
+ifeq ($(EXAMPLE),skybridge_3d)
+ifneq ($(strip $(SAT_SKYBRIDGE_VALIDATION)),)
+LIB_PROFILE_METRICS := 1
+endif
+endif
+ifeq ($(EXAMPLE),parallel_runtime)
+ifneq ($(strip $(SAT_PARALLEL_RUNTIME_VALIDATION)),)
+LIB_PROFILE_METRICS := 1
+endif
+endif
+ifneq ($(strip $(SAT_PROFILE_METRICS)),)
+LIB_PROFILE_METRICS := 1
+endif
+LIB_FAULT_MODE := $(if $(strip $(SAT_PARALLEL_TEST_FAULT)),$(SAT_PARALLEL_TEST_FAULT),0)
+LIB_CFLAGS := $(BASE_CFLAGS) -DSAT_PROFILE_METRICS=$(LIB_PROFILE_METRICS) \
+              -DSAT_PARALLEL_TEST_FAULT=$(LIB_FAULT_MODE)
+LIB_CXXFLAGS := $(LIB_CFLAGS) -std=c++20 -fno-exceptions -fno-rtti \
+                -fno-threadsafe-statics -fno-use-cxa-atexit
+LIB_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
+    "$(LIB_CFLAGS)" "$(LIB_CXXFLAGS)" "$(ASFLAGS)")
+EXAMPLE_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
+    "$(EXAMPLE)" "$(IP_PROFILE)" "$(IP_TEMPLATE_KIND)" "$(CFLAGS)" \
+    "$(CXXFLAGS)" "$(ASFLAGS)" "$(LIB_PROFILE_KEY)")
+LIB_OBJ_ROOT := $(BUILD_DIR)/objects/library/$(LIB_PROFILE_KEY)
+APP_OBJ_ROOT := $(BUILD_DIR)/objects/examples/$(EXAMPLE)/$(EXAMPLE_PROFILE_KEY)
+OUTPUT_DIR := $(BUILD_DIR)/variants/$(EXAMPLE)/$(EXAMPLE_PROFILE_KEY)
+ISO_ROOT := $(OUTPUT_DIR)/iso_root
+LDFLAGS := -m2 -mb -nostdlib -Wl,-T,src/core/startup/saturn.ld \
+           -Wl,-Map,$(OUTPUT_DIR)/$(EXAMPLE).map -Wl,--gc-sections
 
 # -- Biblioteca -------------------------------------------------
 # Source files are intentionally discovered recursively: implementation ownership
@@ -113,11 +138,11 @@ LIB_CPP_SRCS := $(call rwildcard,src,*.cpp)
 LIB_C_SRCS   := $(call rwildcard,src,*.c)
 CRT_SRCS     := $(call rwildcard,src,*.s)
 
-LIB_CPP_OBJS := $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(LIB_CPP_SRCS))
-LIB_C_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(LIB_C_SRCS))
-CRT_OBJS     := $(patsubst %.s,$(BUILD_DIR)/%.o,$(CRT_SRCS))
+LIB_CPP_OBJS := $(patsubst %.cpp,$(LIB_OBJ_ROOT)/%.o,$(LIB_CPP_SRCS))
+LIB_C_OBJS   := $(patsubst %.c,$(LIB_OBJ_ROOT)/%.o,$(LIB_C_SRCS))
+CRT_OBJS     := $(patsubst %.s,$(APP_OBJ_ROOT)/%.o,$(CRT_SRCS))
 
-LIBRARY := $(BUILD_DIR)/libsaturn.a
+LIBRARY := $(LIB_OBJ_ROOT)/libsaturn.a
 
 # -- Example (automatic discovery) ----------------------------
 # Each example can have a Makefile.inc defining:
@@ -147,9 +172,10 @@ endif
 
 # Computed after the include so Makefile.inc can contribute to it.
 EXAMPLE_SRCS    := $(wildcard $(EXAMPLE_DIR)/*.c) $(EXAMPLE_COMMON_SRCS)
-EXAMPLE_OBJS    := $(patsubst %.c,$(BUILD_DIR)/%.o,$(EXAMPLE_SRCS))
+EXAMPLE_OBJS    := $(patsubst %.c,$(APP_OBJ_ROOT)/%.o,$(EXAMPLE_SRCS))
+EXAMPLE_ASSET_OBJS := $(patsubst %.c,$(APP_OBJ_ROOT)/%.o,$(EXAMPLE_ASSETS))
 
-ALL_APP_OBJS := $(EXAMPLE_OBJS) $(EXAMPLE_ASSETS:.c=.o)
+ALL_APP_OBJS := $(EXAMPLE_OBJS) $(EXAMPLE_ASSET_OBJS)
 ALL_HEADERS  := $(EXAMPLE_HEADERS)
 
 # Pulls in the per-object dependency files DEPFLAGS (-MMD -MP) writes, so a
@@ -171,28 +197,14 @@ ifneq ($(strip $(ALL_HEADERS)),)
 $(EXAMPLE_OBJS): $(ALL_HEADERS)
 endif
 
-# Profiling is a reusable library feature: the game owns its own validation
-# selection, while generic modules know only SAT_PROFILE_METRICS. Make cannot
-# detect changed command-line flags, so rebuild profiling translation units.
-ifneq ($(filter skybridge_3d parallel_runtime,$(EXAMPLE)),)
-.PHONY: profile-flags
-profile-flags:
-$(BUILD_DIR)/src/core/parallel/executor.o \
-$(BUILD_DIR)/src/graphics/3d/scene/parallel.o \
-$(BUILD_DIR)/src/graphics/3d/scene/faces.o \
-$(BUILD_DIR)/src/hal/vdp1/vdp1.o: profile-flags
-ifeq ($(EXAMPLE),skybridge_3d)
-$(BUILD_DIR)/examples/skybridge_3d/main.o: profile-flags
-else
-$(BUILD_DIR)/examples/parallel_runtime/main.o: profile-flags
-endif
-endif
+# Game profiles are isolated by object/artifact paths rather than phony
+# prerequisites that force recompilation of unchanged library code.
 
 # -- Artefatos --------------------------------------------------
-ELF := $(BUILD_DIR)/$(EXAMPLE).elf
-BIN := $(BUILD_DIR)/$(EXAMPLE).bin
-ISO := $(BUILD_DIR)/$(EXAMPLE).iso
-CUE := $(BUILD_DIR)/$(EXAMPLE).cue
+ELF := $(OUTPUT_DIR)/$(EXAMPLE).elf
+BIN := $(OUTPUT_DIR)/$(EXAMPLE).bin
+ISO := $(OUTPUT_DIR)/$(EXAMPLE).iso
+CUE := $(OUTPUT_DIR)/$(EXAMPLE).cue
 
 # -- Available examples ---------------------------------------
 EXAMPLES := $(filter-out common,$(notdir $(wildcard examples/*)))
@@ -200,6 +212,11 @@ EXAMPLES := $(filter-out common,$(notdir $(wildcard examples/*)))
 .PHONY: all clean dirs check-tools examples-all list-examples bake test
 
 all: check-tools dirs $(ELF) $(ISO) $(CUE) $(LIBRARY)
+	@# Compatibility exports are never inputs to a cached variant's build.
+	@cp $(ELF) $(BUILD_DIR)/$(EXAMPLE).elf
+	@cp $(BIN) $(BUILD_DIR)/$(EXAMPLE).bin
+	@cp $(ISO) $(BUILD_DIR)/$(EXAMPLE).iso
+	@cp $(CUE) $(BUILD_DIR)/$(EXAMPLE).cue
 
 # -- Verificacoes -----------------------------------------------
 check-tools:
@@ -210,7 +227,7 @@ check-tools:
 	@echo "[profiles] EXAMPLE=$(EXAMPLE) IP_PROFILE=$(IP_PROFILE) IP_TEMPLATE=$(IP_TEMPLATE_KIND)"
 
 dirs:
-	@mkdir -p $(BUILD_DIR) $(GENERATED_DIR) $(ISO_ROOT)
+	@mkdir -p $(BUILD_DIR) $(GENERATED_DIR) $(ISO_ROOT) $(OUTPUT_DIR)
 	@mkdir -p $(dir $(LIB_CPP_OBJS)) $(dir $(LIB_C_OBJS)) $(dir $(CRT_OBJS))
 	@mkdir -p $(dir $(EXAMPLE_OBJS)) $(dir $(ALL_APP_OBJS))
 
@@ -436,25 +453,35 @@ endif
 
 # -- Compilation -------------------------------------------------
 # Rule for C files (examples, library, generated assets)
-$(BUILD_DIR)/%.o: %.c
+$(LIB_OBJ_ROOT)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LIB_CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(LIB_OBJ_ROOT)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(LIB_CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(APP_OBJ_ROOT)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/%.o: %.cpp
+$(APP_OBJ_ROOT)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/%.o: %.s
+$(APP_OBJ_ROOT)/%.o: %.s
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -c $< -o $@
 
 # -- Linkagem ---------------------------------------------------
 $(LIBRARY): $(LIB_CPP_OBJS) $(LIB_C_OBJS)
+	@mkdir -p $(dir $@)
 	@rm -f $@
 	$(AR) rcs $@ $^
 
 $(ELF): $(CRT_OBJS) $(ALL_APP_OBJS) $(LIBRARY)
-	$(CXX) $(LDFLAGS) -o $@ $(CRT_OBJS) $(ALL_APP_OBJS) -L$(BUILD_DIR) -lsaturn -lgcc
+	@mkdir -p $(dir $@)
+	$(CXX) $(LDFLAGS) -o $@ $(CRT_OBJS) $(ALL_APP_OBJS) -L$(LIB_OBJ_ROOT) -lsaturn -lgcc
 	@# crt0 never runs static constructors, so a global needing one is left
 	@# null and fails in ways that look like a hardware bug. Catch it here.
 	$(PYTHON) $(TOOLS)/check_no_init_array.py $@
@@ -468,10 +495,12 @@ $(BIN): $(ELF)
 	fi
 
 $(IP_GENERATED): $(BIN) $(IP_TEMPLATE) tools/gen_ip_bin.py tools/memory_layout.py
+	@mkdir -p $(dir $@)
 	$(PYTHON) tools/gen_ip_bin.py --template $(IP_TEMPLATE) --output $@ \
 		--load-addr 0x$(APP_LOAD_ADDR_HEX) --first-read-file $(BIN)
 
 $(ISO): $(BIN) $(IP_GENERATED) $(EXAMPLE_ISO_FILES)
+	@mkdir -p $(dir $@)
 	@rm -rf $(ISO_ROOT)
 	@mkdir -p $(ISO_ROOT)
 	@cp $(BIN) $(ISO_ROOT)/0.BIN
@@ -581,6 +610,14 @@ test: $(HOST_TEST_BINS)
 	done
 
 # -- Alvos utilitarios ------------------------------------------
+.PHONY: print-build-paths
+print-build-paths:
+	@echo library=$(LIB_OBJ_ROOT)
+	@echo objects=$(APP_OBJ_ROOT)
+	@echo artifacts=$(OUTPUT_DIR)
+	@echo profile=$(LIB_PROFILE_METRICS)
+	@echo fault=$(LIB_FAULT_MODE)
+
 list-examples:
 	@echo "Available examples:"
 	@for e in $(EXAMPLES); do echo "  $$e"; done
@@ -592,4 +629,4 @@ examples-all:
 	done
 
 clean:
-	rm -rf $(BUILD_DIR) $(ISO_ROOT)
+	rm -rf $(BUILD_DIR)
