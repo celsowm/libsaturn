@@ -56,8 +56,10 @@ IP_GENERATED = $(OUTPUT_DIR)/$(EXAMPLE).IP.BIN
 
 # -- Compilacao -------------------------------------------------
 BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra \
-               -Iinclude -I. -I$(GENERATED_DIR)
-CFLAGS      := $(BASE_CFLAGS)
+               -Iinclude -I.
+# Generated model/asset headers are example-local inputs, never part of
+# generic library compilation or its cache key.
+CFLAGS      := $(BASE_CFLAGS) -I$(GENERATED_DIR)
 ifeq ($(EXAMPLE),parallel_runtime)
 ifneq ($(strip $(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)),)
 CFLAGS      += -DSAT_PARALLEL_RUNTIME_GEOMETRY_OBJECTS=$(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)

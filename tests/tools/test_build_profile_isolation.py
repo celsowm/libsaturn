@@ -41,6 +41,8 @@ assert sky_default["objects"].startswith("build/objects/examples/skybridge_3d/")
 assert not any(" " in p for p in sky_default.values()), "build paths must remain shell-safe"
 makefile = (root / "Makefile").read_text(encoding="utf-8")
 assert "profile-flags:" not in makefile, "phony forcing profiler rebuilds remains"
+assert "CFLAGS      := $(BASE_CFLAGS) -I$(GENERATED_DIR)" in makefile, "example missing generated headers"
+assert "LIB_CFLAGS := $(BASE_CFLAGS)" in makefile, "library unexpectedly consumes example flags"
 assert "cp $(ISO) $(BUILD_DIR)/$(EXAMPLE).iso" in makefile, "variant alias is missing"
 key_tool = root / "tools" / "build_variant_key.py"
 key_a = subprocess.check_output([sys.executable, str(key_tool), "x", "y"], text=True).strip()

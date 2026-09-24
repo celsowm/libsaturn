@@ -89,3 +89,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Audio voice policy (first slice):** free-slot selection, priority-based stealing and oldest-voice tie-breaking now live in a standalone pure policy, with host regressions. SCSP key-on/off, voice lifetimes, sound registry and clock remain in the audio service and are still candidates for independent modules.
 
 **Build-profile isolation:** all game and asset objects plus ROM artifacts have variant-specific paths keyed by effective C/C++/ASM compiler flags and boot profile; reusable library objects depend only on generic metric/fault flags. Public `build/<example>.iso` and other root artifacts are republished from the selected variant, never used as build inputs. Generated asset C/H source staging is still per example, while compiled asset objects are per variant.
+
+**Header isolation:** the shared library now compiles without the example-generated-header include path. Build profile behavior, reusable library keys, public artifact exports and the remaining shared source-generation concurrency limitation are documented in `docs/BUILD_PROFILES.md`.

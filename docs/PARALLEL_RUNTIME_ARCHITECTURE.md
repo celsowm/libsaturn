@@ -63,12 +63,12 @@ submission remain Master-owned.
 
 `sat_scene_prepare_batch_async` captures camera/view state, records a handle and
 pending bit in the batch, and does not retain the scene. The batch owns its
-items, per-item scratch, faces, keys, and ordering storage until
+items, per-item scratch, faces and depth keys until
 `sat_scene_prepare_batch_release`. Merge checks the pending handle before
 committing. All nested mesh/material/texture/scratch ranges are synchronized
-before the worker reads them. The worker writes explicit face output and sort
-buffers through uncached aliases; merge then performs one scene-wide stable
-painter pass, preserving source order for equal-depth faces.
+before the worker reads them. The worker writes face output and depth keys
+through uncached aliases; **only the final scene** allocates painter-order
+scratch and performs the stable global pass, preserving source order on ties.
 
 `sat_scene3d_prepare_batch_slice` creates a bounded source-order view for a
 partitioned workload. It copies only item descriptors and camera state into
@@ -109,7 +109,7 @@ usable there; no cross-CPU timer subtraction is valid.
 
 The `parallel_runtime` example validates animation against direct decode and
 sampled geometry against synchronous preparation. Geometry validation compares
-metrics, keys/order, projected/world coordinates, clipping, material semantics,
+metrics, depth keys, projected/world coordinates, clipping, material semantics,
 texture descriptors, and Gouraud values. Host tests cover generation-safe
 handles, complete face equivalence, global ordering, and atomic merge capacity
 failure. `examples/dual_sh2` remains the low-level HAL validation.
