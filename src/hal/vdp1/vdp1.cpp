@@ -54,6 +54,8 @@ uint16_t g_overlay_reserved = 0;
 bool g_overlay_pass = false;
 uint16_t g_gouraud_words[kGouraudTableCapacity * 4u];
 uint16_t g_gouraud_count = 0;
+uint32_t g_frame_serial=0u;
+bool g_frame_submitted=true;
 uint32_t g_texture_cursor = kTextureBase;
 uint16_t g_width = 320;
 uint16_t g_height = 224;
@@ -165,6 +167,9 @@ void set_erase_enabled(bool enable, uint16_t width, uint16_t height) {
 }
 
 void begin_frame(Command* command_buffer, uint16_t capacity) {
+    ++g_frame_serial;
+    if(g_frame_serial==0u)g_frame_serial=1u;
+    g_frame_submitted=false;
     g_cmd_buffer = command_buffer;
     g_cmd_capacity = capacity;
     g_cmd_count = 0;
@@ -227,6 +232,35 @@ void command_stats(uint16_t& used, uint16_t& capacity,
     capacity = g_cmd_capacity;
     overlay_reserved = g_overlay_reserved;
     overlay_pass = g_overlay_pass;
+}
+
+sat_result_t command_checkpoint(sat_vdp1_command_checkpoint_t* out) {
+    if(!out) return SAT_ERR_INVALID_ARG;
+    if(!g_cmd_buffer || g_frame_submitted)return SAT_ERR_NOT_INITIALIZED;
+    out->frame_serial=g_frame_serial;
+    out->used=g_cmd_count;
+    out->gouraud_tables=g_gouraud_count;
+    out->overlay_reserved=g_overlay_reserved;
+    out->overlay_pass=g_overlay_pass?1u:0u;
+    out->reserved=0u;
+    return SAT_OK;
+}
+
+sat_result_t command_rollback(
+    const sat_vdp1_command_checkpoint_t* checkpoint) {
+    if(!checkpoint)return SAT_ERR_INVALID_ARG;
+    if(!g_cmd_buffer || g_frame_submitted || !g_frame_serial ||
+       checkpoint->frame_serial!=g_frame_serial ||
+       checkpoint->used>g_cmd_count ||
+       checkpoint->gouraud_tables>g_gouraud_count ||
+       checkpoint->overlay_reserved!=g_overlay_reserved ||
+       checkpoint->overlay_pass!=(g_overlay_pass?1u:0u))
+        return SAT_ERR_INVALID_ARG;
+    /* All draw calls append commands and Gouraud words to WORK RAM. The
+     * later submit() is the only path writing them to VDP1 VRAM. */
+    g_cmd_count=checkpoint->used;
+    g_gouraud_count=checkpoint->gouraud_tables;
+    return SAT_OK;
 }
 
 sat_result_t reserve_overlay_commands(uint16_t count) {
@@ -551,6 +585,7 @@ void submit() {
     for (uint32_t i = 0; i < gouraud_words; ++i) {
         VDP1_VRAM_16[gouraud_word_base + i] = g_gouraud_words[i];
     }
+    g_frame_submitted=true;
 }
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index) {

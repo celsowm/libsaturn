@@ -188,13 +188,13 @@ sat_result_t sat_scene_queue_managed_camera_view(
     sat_scene_t* scene,sat_view_cache_t* cache,uint16_t view,
     const sat_camera3d_t* camera,sat_texture_t owner,uint16_t pass);
 
-/* Before painter emission, checks the VDP1 command budget against all
- * already-safe projected faces (cached + world): each needs exactly one
- * command. If even that subset will not fit with the HUD reservation and
- * END terminator, closes the frame queue with SAT_ERR_CAPACITY and emits
- * NOTHING. fallback clipped faces may need multiple commands and still
- * fail partway through; the public result and actual command delta expose
- * that partial failure. Raw VDP1 operations remain independent. */
+/* The L3 frame preflights its exact one-command projected subset against
+ * VDP1 capacity/HUD reservation. A frame-local WORK-RAM checkpoint also
+ * rewinds any partial commands/Gouraud tables if a variable-cost clipped
+ * face or hardware writer fails during flush; older raw commands survive.
+ * This atomicity covers the staged command list only, not external VDP2
+ * state changes or VRAM commands that hardware already consumed.
+ * The independent L1 faces_flush/raw-VPD1 path retains its direct semantics. */
 
 sat_result_t sat_scene_flush(sat_scene_t* scene);
 sat_result_t sat_scene_stats(const sat_scene_t* scene, sat_scene_stats_t* out);

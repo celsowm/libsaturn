@@ -168,6 +168,28 @@ typedef struct sat_vdp1_command_stats {
 
 sat_result_t sat_vdp1_command_stats(sat_vdp1_command_stats_t* out);
 
+/* Transaction on the current frame's STAGED WORK-RAM command list only.
+ * Capture before a group of scene draws; on any error, rollback discards
+ * every command and Gouraud table appended since the checkpoint, while
+ * preserving commands emitted earlier in the frame and the HUD reservation.
+ * A checkpoint is valid only within the same not-yet-submitted frame, and
+ * only while the overlay-pass/reservation state is unchanged. Uploads to
+ * VRAM, framebuffer work already submitted, and external VDP2 register
+ * changes CANNOT be rolled back by this command-list operation. */
+typedef struct sat_vdp1_command_checkpoint {
+    uint32_t frame_serial;
+    uint16_t used;
+    uint16_t gouraud_tables;
+    uint16_t overlay_reserved;
+    uint8_t overlay_pass;
+    uint8_t reserved;
+} sat_vdp1_command_checkpoint_t;
+
+sat_result_t sat_vdp1_command_checkpoint(
+    sat_vdp1_command_checkpoint_t* out);
+sat_result_t sat_vdp1_command_rollback(
+    const sat_vdp1_command_checkpoint_t* checkpoint);
+
 sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd);
 
 sat_result_t sat_draw_sprite_screen(

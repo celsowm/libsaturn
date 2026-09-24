@@ -140,13 +140,34 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
         insufficient=occupied>before.capacity ||
             guaranteed_commands>static_cast<uint32_t>(before.capacity)-occupied;
     }
-    if (insufficient) {
-        scene->budget_blocked_faces=scene->faces.count;
+    if (insufficient || before_status!=SAT_OK) {
+        if(insufficient)scene->budget_blocked_faces=scene->faces.count;
         scene->faces.active=0u;
         scene->faces.count=0u;
-        st=SAT_ERR_CAPACITY;
+        st=insufficient?SAT_ERR_CAPACITY:before_status;
     } else {
-        st=sat_scene3d_faces_flush(&scene->faces);
+        /* The actual number of clipped/fallback commands may exceed the
+         * lower-bound admission estimate. Stage a frame-local checkpoint:
+         * on a draw failure discard the ENTIRE scene's newly staged VDP1
+         * commands and Gouraud tables, retaining prior raw draws and HUD
+         * capacity. No hardware VRAM writes are reverted by this operation. */
+        sat_vdp1_command_checkpoint_t checkpoint{};
+        const sat_result_t marked=sat_vdp1_command_checkpoint(&checkpoint);
+        if(marked!=SAT_OK) {
+            scene->faces.active=0u;
+            scene->faces.count=0u;
+            st=marked;
+        } else {
+            st=sat_scene3d_faces_flush(&scene->faces);
+            if(st!=SAT_OK) {
+                const sat_result_t rolled=sat_vdp1_command_rollback(
+                    &checkpoint);
+                if(rolled==SAT_OK) {
+                    scene->faces.emitted_faces=0u;
+                    scene->faces.emitted_cached=0u;
+                } else record_frame_result(scene,rolled);
+            }
+        }
     }
     scene->flushed_faces = scene->faces.emitted_faces;
     scene->skipped_faces = scene->faces.skipped_faces;

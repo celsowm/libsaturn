@@ -167,6 +167,18 @@ extern "C" sat_result_t sat_vdp1_command_stats(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp1_command_checkpoint(
+    sat_vdp1_command_checkpoint_t* out) {
+    SAT_TRY(saturn::core::require_initialized());
+    return saturn::hal::vdp1::command_checkpoint(out);
+}
+
+extern "C" sat_result_t sat_vdp1_command_rollback(
+    const sat_vdp1_command_checkpoint_t* checkpoint) {
+    SAT_TRY(saturn::core::require_initialized());
+    return saturn::hal::vdp1::command_rollback(checkpoint);
+}
+
 extern "C" sat_result_t sat_vdp1_overlay_begin(void) {
     SAT_TRY(saturn::core::require_initialized());
     return saturn::hal::vdp1::begin_overlay_pass();

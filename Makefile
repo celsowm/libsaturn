@@ -572,6 +572,7 @@ HOST_TEST_EXTRA_test_geometry_link_isolation := src/core/geometry/mesh_api.cpp s
 HOST_TEST_EXTRA_test_mesh3d_textured := src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_vdp1_upload := src/graphics/vdp1/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp
 HOST_TEST_EXTRA_test_vdp1_clip := src/hal/vdp1/vdp1.cpp
+HOST_TEST_EXTRA_test_vdp1_checkpoint := src/hal/vdp1/vdp1.cpp
 HOST_TEST_EXTRA_test_texture_api := src/graphics/2d/textures/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp src/graphics/2d/textures/runtime.cpp
 HOST_TEST_EXTRA_test_render2d_api := src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
 HOST_TEST_EXTRA_test_input_api := src/input/api.cpp src/input/runtime.cpp src/core/runtime/state.cpp

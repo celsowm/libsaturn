@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "saturn/core.h"
+#include "saturn/vdp1.h"
 
 namespace saturn::hal::vdp1 {
 
@@ -92,6 +93,8 @@ void set_erase_enabled(bool enable, uint16_t width, uint16_t height);
 void begin_frame(Command* command_buffer, uint16_t capacity);
 /* Caller-owned frame command-buffer partition: protected overlay quota. */
 sat_result_t reserve_overlay_commands(uint16_t count);
+sat_result_t command_checkpoint(sat_vdp1_command_checkpoint_t* out);
+sat_result_t command_rollback(const sat_vdp1_command_checkpoint_t* checkpoint);
 void command_stats(uint16_t& used, uint16_t& capacity,
                    uint16_t& overlay_reserved, bool& overlay_pass);
 sat_result_t begin_overlay_pass();

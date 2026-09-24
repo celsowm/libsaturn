@@ -13,6 +13,8 @@ static sat_scene3d_material_kind_t g_cached_material_kind=SAT_SCENE3D_RGB;
 static uint16_t g_command_capacity=64u;
 static uint16_t g_hud_reserved=8u;
 static uint16_t g_flush_calls=0u;
+static uint16_t g_checkpoint_calls=0u;
+static uint16_t g_rollback_calls=0u;
 static sat_result_t g_cache_lookup=SAT_OK;
 static uint16_t g_cache_count=0u;
 static sat_view_cache_item_t g_cache_items[2]={};
@@ -117,6 +119,29 @@ extern "C" sat_result_t sat_scene3d_faces_flush(sat_scene3d_faces_t* scene) {
     g_world_commands=static_cast<uint16_t>(
         g_world_commands+g_flush_emissions);
     return g_flush_status;
+}
+
+extern "C" sat_result_t sat_vdp1_command_checkpoint(
+    sat_vdp1_command_checkpoint_t* out) {
+    if(!out)return SAT_ERR_INVALID_ARG;
+    ++g_checkpoint_calls;
+    out->used=static_cast<uint16_t>(g_replayed+g_world_commands+2u);
+    out->frame_serial=1u;
+    out->overlay_reserved=g_hud_reserved;
+    out->gouraud_tables=0u;
+    out->overlay_pass=0u;
+    out->reserved=0u;
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_vdp1_command_rollback(
+    const sat_vdp1_command_checkpoint_t* checkpoint) {
+    if(!checkpoint || checkpoint->frame_serial!=1u)
+        return SAT_ERR_INVALID_ARG;
+    ++g_rollback_calls;
+    const uint32_t base=static_cast<uint32_t>(g_replayed)+2u;
+    if(checkpoint->used<base)return SAT_ERR_VERIFY_FAILED;
+    g_world_commands=static_cast<uint16_t>(checkpoint->used-base);
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_vdp1_reserve_overlay_commands(uint16_t) {
@@ -317,6 +342,30 @@ int main() {
     assert(sat_scene_stats(&scene,&stats)==SAT_OK);
     assert(stats.budget_blocked_faces==0u && stats.result==SAT_ERR_BUSY);
     assert(sat_scene_flush(&scene)==SAT_OK);
+
+    // Variable-cost fallback can exhaust the remaining commands even when
+    // the projected-face lower-bound fit. Roll back its *entire* staged world
+    // batch, but preserve the raw commands that predated the checkpoint.
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    scene.faces.count=3u;
+    for(uint16_t i=0u;i<3u;++i)
+        scene.faces.entries[i].projected_safe=0u;
+    const uint16_t used_before_failure=static_cast<uint16_t>(
+        g_replayed+g_world_commands+2u);
+    const uint16_t checkpoints_before=g_checkpoint_calls;
+    const uint16_t rollbacks_before=g_rollback_calls;
+    g_flush_emissions=2u;
+    g_flush_status=SAT_ERR_CAPACITY;
+    assert(sat_scene_flush(&scene)==SAT_ERR_CAPACITY);
+    assert(g_checkpoint_calls==checkpoints_before+1u);
+    assert(g_rollback_calls==rollbacks_before+1u);
+    assert(g_replayed+g_world_commands+2u==used_before_failure);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.world_commands==0u && stats.flushed_faces==0u);
+    assert(stats.result==SAT_ERR_CAPACITY);
+    g_flush_emissions=0u;
+    g_flush_status=SAT_OK;
 
     // Rejected submissions remain visible in the result after flush.
     assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
