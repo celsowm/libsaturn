@@ -274,11 +274,18 @@ endif
 # the resulting executable still fits the Saturn work-RAM budget.
 # MODEL_HUD_RESERVE is the example-specific VDP1 command count reserved
 # for text or overlay work that can draw alongside the model.
-# Model generation rebuilds when the GLB, the importer, or any
-# model-pipeline module changes. Simplification/profile OPTION changes are
-# not file dependencies: after editing them, remove the generated prefix
-# (or touch the GLB) to force a rebuild.
+# A lightweight signature check runs for each model build. It hashes input
+# contents, referenced sidecars, importer options and conversion tools; the
+# expensive import runs only when that signature or an output changes.
 MODEL_PIPELINE_SRCS := $(wildcard $(TOOLS)/model_pipeline/*.py)
+MODEL_IMPORT_SRCS := $(TOOLS)/import_model.py $(TOOLS)/saturn_asset_common.py $(MODEL_PIPELINE_SRCS)
+MODEL_IMPORT_INCREMENTAL_FLAG := --incremental
+MODEL_IMPORT_FORCE_FLAG :=
+ifneq ($(findstring B,$(firstword $(MAKEFLAGS))),)
+MODEL_IMPORT_FORCE_FLAG := --force-import
+endif
+.PHONY: FORCE_MODEL_IMPORT_SIGNATURE
+FORCE_MODEL_IMPORT_SIGNATURE:
 ifdef MODEL_GLB
 MODEL_SYMBOL              ?= $(notdir $(MODEL_OUT_PREFIX))
 MODEL_SCALE               ?= 1.0
@@ -296,6 +303,7 @@ MODEL_AMBIENT             ?= 0.35
 MODEL_DIFFUSE             ?= 0.75
 MODEL_MAX_POSE_STREAM_BYTES ?= 262144
 MODEL_HUD_RESERVE           ?= 128
+MODEL_SIGNATURE_FILE := $(MODEL_OUT_PREFIX).signature.json
 MODEL_FLIP_FLAGS          :=
 ifeq ($(MODEL_FLIP_X),1)
 MODEL_FLIP_FLAGS += --flip-x
@@ -319,34 +327,39 @@ MODEL_MERGE_RIGID_MESHES_FLAG := --merge-rigid-meshes
 else
 MODEL_MERGE_RIGID_MESHES_FLAG :=
 endif
-$(MODEL_OUT_PREFIX).c $(MODEL_OUT_PREFIX).h &: $(MODEL_GLB) $(TOOLS)/import_model.py $(MODEL_PIPELINE_SRCS)
+MODEL_IMPORT_ARGS = \
+	--input $(MODEL_GLB) \
+	--target saturn \
+	--out-prefix $(MODEL_OUT_PREFIX) \
+	--symbol $(MODEL_SYMBOL) \
+	--scale $(MODEL_SCALE) \
+	--palette-index $(MODEL_PALETTE_INDEX) \
+	--max-texture-width $(MODEL_MAX_TEXTURE_WIDTH) \
+	--max-texture-height $(MODEL_MAX_TEXTURE_HEIGHT) \
+	--texture-scale $(MODEL_TEXTURE_SCALE) \
+	--simplify $(MODEL_SIMPLIFY) \
+	--quality $(MODEL_QUALITY) \
+	--animation $(MODEL_ANIMATION) \
+	--animation-fps $(MODEL_ANIMATION_FPS) \
+	--face-colors $(MODEL_FACE_COLORS) \
+	--light-dir=$(MODEL_LIGHT_DIR) \
+	--ambient $(MODEL_AMBIENT) \
+	--diffuse $(MODEL_DIFFUSE) \
+	--max-pose-stream-bytes $(MODEL_MAX_POSE_STREAM_BYTES) \
+	--hud-reserve $(MODEL_HUD_RESERVE) \
+	--report $(MODEL_OUT_PREFIX).report.json \
+	$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG) $(MODEL_MERGE_RIGID_MESHES_FLAG)
+$(MODEL_SIGNATURE_FILE): FORCE_MODEL_IMPORT_SIGNATURE $(MODEL_GLB) $(MODEL_IMPORT_SRCS)
+	@mkdir -p $(dir $@)
+	$(PYTHON) $(TOOLS)/import_model.py $(MODEL_IMPORT_ARGS) \
+		--signature-only --signature-file $@
+$(MODEL_OUT_PREFIX).c $(MODEL_OUT_PREFIX).h $(MODEL_OUT_PREFIX).report.json $(MODEL_OUT_PREFIX).import.json &: $(MODEL_GLB) $(MODEL_IMPORT_SRCS) $(MODEL_SIGNATURE_FILE)
 	@if [ ! -f "$(MODEL_GLB)" ]; then \
 		echo "error: animated source GLB missing: $(MODEL_GLB)"; \
 		echo "Provide the example GLB (see its assets/LICENSE.txt) or build with repository fixtures."; \
 		exit 1; fi
 	@mkdir -p $(dir $@)
-	$(PYTHON) $(TOOLS)/import_model.py \
-		--input $(MODEL_GLB) \
-		--target saturn \
-		--out-prefix $(MODEL_OUT_PREFIX) \
-		--symbol $(MODEL_SYMBOL) \
-		--scale $(MODEL_SCALE) \
-		--palette-index $(MODEL_PALETTE_INDEX) \
-		--max-texture-width $(MODEL_MAX_TEXTURE_WIDTH) \
-		--max-texture-height $(MODEL_MAX_TEXTURE_HEIGHT) \
-		--texture-scale $(MODEL_TEXTURE_SCALE) \
-		--simplify $(MODEL_SIMPLIFY) \
-		--quality $(MODEL_QUALITY) \
-		--animation $(MODEL_ANIMATION) \
-		--animation-fps $(MODEL_ANIMATION_FPS) \
-		--face-colors $(MODEL_FACE_COLORS) \
-		--light-dir=$(MODEL_LIGHT_DIR) \
-		--ambient $(MODEL_AMBIENT) \
-		--diffuse $(MODEL_DIFFUSE) \
-		--max-pose-stream-bytes $(MODEL_MAX_POSE_STREAM_BYTES) \
-		--hud-reserve $(MODEL_HUD_RESERVE) \
-		--report $(MODEL_OUT_PREFIX).report.json \
-		$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG) $(MODEL_MERGE_RIGID_MESHES_FLAG)
+	$(PYTHON) $(TOOLS)/import_model.py $(MODEL_IMPORT_ARGS) $(MODEL_IMPORT_INCREMENTAL_FLAG) $(MODEL_IMPORT_FORCE_FLAG)
 endif
 # Generic 3D model generation via tools/import_model.py.
 # An example opts in by defining MODEL_OBJ in its Makefile.inc, e.g.:
@@ -363,6 +376,7 @@ MODEL_TEXTURE_SCALE       ?= 1.0
 MODEL_PALETTE_INDEX       ?= 1
 MODEL_MAX_TEXTURE_WIDTH   ?= 504
 MODEL_MAX_TEXTURE_HEIGHT  ?= 255
+MODEL_SIGNATURE_FILE := $(MODEL_OUT_PREFIX).signature.json
 MODEL_FLIP_FLAGS          :=
 ifeq ($(MODEL_FLIP_X),1)
 MODEL_FLIP_FLAGS += --flip-x
@@ -376,18 +390,23 @@ endif
 ifeq ($(MODEL_REVERSE_WINDING),1)
 MODEL_FLIP_FLAGS += --reverse-winding
 endif
-$(MODEL_OUT_PREFIX).c $(MODEL_OUT_PREFIX).h &: $(MODEL_OBJ) $(TOOLS)/import_model.py
+MODEL_IMPORT_ARGS = \
+	--input $(MODEL_OBJ) \
+	--out-prefix $(MODEL_OUT_PREFIX) \
+	--symbol $(MODEL_SYMBOL) \
+	--scale $(MODEL_SCALE) \
+	--palette-index $(MODEL_PALETTE_INDEX) \
+	--max-texture-width $(MODEL_MAX_TEXTURE_WIDTH) \
+	--max-texture-height $(MODEL_MAX_TEXTURE_HEIGHT) \
+	--texture-scale $(MODEL_TEXTURE_SCALE) \
+	$(MODEL_FLIP_FLAGS)
+$(MODEL_SIGNATURE_FILE): FORCE_MODEL_IMPORT_SIGNATURE $(MODEL_OBJ) $(MODEL_IMPORT_SRCS)
 	@mkdir -p $(dir $@)
-	$(PYTHON) $(TOOLS)/import_model.py \
-		--input $(MODEL_OBJ) \
-		--out-prefix $(MODEL_OUT_PREFIX) \
-		--symbol $(MODEL_SYMBOL) \
-		--scale $(MODEL_SCALE) \
-		--palette-index $(MODEL_PALETTE_INDEX) \
-		--max-texture-width $(MODEL_MAX_TEXTURE_WIDTH) \
-		--max-texture-height $(MODEL_MAX_TEXTURE_HEIGHT) \
-		--texture-scale $(MODEL_TEXTURE_SCALE) \
-		$(MODEL_FLIP_FLAGS)
+	$(PYTHON) $(TOOLS)/import_model.py $(MODEL_IMPORT_ARGS) \
+		--signature-only --signature-file $@
+$(MODEL_OUT_PREFIX).c $(MODEL_OUT_PREFIX).h $(MODEL_OUT_PREFIX).import.json &: $(MODEL_OBJ) $(MODEL_IMPORT_SRCS) $(MODEL_SIGNATURE_FILE)
+	@mkdir -p $(dir $@)
+	$(PYTHON) $(TOOLS)/import_model.py $(MODEL_IMPORT_ARGS) $(MODEL_IMPORT_INCREMENTAL_FLAG) $(MODEL_IMPORT_FORCE_FLAG)
 endif
 
 # -- Compilation -------------------------------------------------
