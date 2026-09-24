@@ -275,6 +275,15 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
     sat_scene3d_face_t& item=scene->entries[scene->count];
     item.projected=*projected;
     item.material=*material;
+    /* A cached projected tile never needs fallback/UV clipping. Bake its
+     * full preuploaded texture directly into the copied material descriptor,
+     * so the caller's tiled object can expire immediately after submission.
+     * Only the actual texture and its VRAM backing must live until flush. */
+    if (material->kind==SAT_SCENE3D_INDEXED_TILED) {
+        item.material.kind=SAT_SCENE3D_INDEXED_TEXTURED;
+        item.material.texture=material->tiled->full;
+        item.material.tiled=nullptr;
+    }
     item.projected_safe=1u;
     item.cached_projected=1u;
     item.gouraud_valid=0u;

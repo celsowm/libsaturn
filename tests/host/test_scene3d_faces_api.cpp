@@ -254,6 +254,12 @@ int main() {
         SAT_SCENE3D_INDEXED_TILED,0u,nullptr,&tiled,3u,nullptr};
     assert(sat_scene3d_faces_submit_projected_material(
         &scene,&cached_quad,3*SAT_FX16_ONE,&tiled_material,0u)==SAT_OK);
+    assert(scene.entries[0].material.kind==SAT_SCENE3D_INDEXED_TEXTURED);
+    assert(scene.entries[0].material.texture==&near_tex);
+    assert(scene.entries[0].material.tiled==nullptr);
+    /* The original tiled descriptor may be reused before flush. Its copied
+     * full texture is still valid, so the queued sprite must draw unchanged. */
+    tiled.full=nullptr;
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     assert(emitted_count==1u && emitted[0]==near_tex.srca);
     assert(emitted_slot[0]==3u && scene.emitted_cached==1u);
@@ -274,12 +280,14 @@ int main() {
            scene.emitted_cached==0u && scene.count==0u && !scene.active);
     actor_tex.valid=1u;
 
-    // This applies equally to borrowed tiled texture residency; retaining a
-    // valid tiled descriptor does not make an invalid full texture drawable.
+    // Projected tiled material was normalized at submit. Its full texture
+    // is still borrowed and must remain resident until the queued flush.
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
+    tiled.full=&near_tex;
     assert(sat_scene3d_faces_submit_projected_material(
         &scene,&cached_quad,3*SAT_FX16_ONE,&tiled_material,0u)==SAT_OK);
+    tiled.full=nullptr;
     near_tex.valid=0u;
     assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
     assert(emitted_count==0u && scene.emitted_cached==0u);

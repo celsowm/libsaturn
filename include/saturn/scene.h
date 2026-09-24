@@ -136,8 +136,10 @@ sat_result_t sat_scene_queue_view_item(
 
 /* Queues a projected cache item with any valid RGB or indexed scene material
  * into the same bounded far-to-near painter as world faces. Its projected
- * corners and material descriptor are copied, while indexed texture/tiled
- * backing remains caller-owned and must stay valid until flush. The cached
+ * corners and material descriptor are copied; tiled cache materials are
+ * normalized to their preuploaded full texture at submit. The tiled
+ * descriptor may then expire, but texture/VRAM backing remains caller-owned
+ * and must stay valid through flush. The cached
  * view must match the current camera: source geometry, clipping and linear
  * camera_depth are explicitly supplied by the caller. For indexed tiled
  * materials, only the full preuploaded texture is drawn (no UV clipping).

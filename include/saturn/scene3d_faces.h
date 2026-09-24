@@ -109,8 +109,10 @@ sat_result_t sat_scene3d_faces_submit_quad(
  * Any valid RGB/indexed-solid/indexed-textured/indexed-tiled material is
  * accepted. Indexed-tiled uses its preuploaded full texture: there is no
  * geometry/UV clipping of a projected cached sprite at flush.
- * The material descriptor is copied; borrowed VRAM texture/tiled storage
- * must remain resident until flush. Gouraud pointers are not accepted for
+ * The descriptor is copied. Projected tiled materials are reduced at submit
+ * to their preuploaded full texture (the tiled descriptor need not survive
+ * the call); the chosen texture and its VRAM backing must remain valid
+ * through flush. Gouraud pointers are not accepted for
  * projected cache entries. camera_depth is positive linear 16.16 view depth,
  * NOT the cache's arbitrary (often squared) application sort key.
  * Caller owns camera/view coherence, native VDP1 coords, and clipping. */
