@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "saturn/mesh3d.h"
+#include "saturn/mesh3d_draw.h"
 #include "saturn/vdp1_color_calc.h"
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"FAIL %s:%d: %s\n",__FILE__,__LINE__,#x); exit(1); } } while (0)

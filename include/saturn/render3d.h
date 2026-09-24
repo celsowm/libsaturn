@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #include "saturn/core.h"
-#include "saturn/math3d.h"
+#include "saturn/geometry3d.h"
 #include "saturn/vdp1.h"
 
 #ifdef __cplusplus
@@ -25,10 +25,6 @@ extern "C" {
  * Corner order matches the VDP1 command: A(top-left), B(top-right),
  * C(bottom-right), D(bottom-left). The texture, if any, maps onto it.
  */
-
-typedef struct sat_quad3 {
-    sat_vec3_t v[4];
-} sat_quad3_t;
 
 /* Projected corners in NATIVE VDP1 coordinates (0,0 = screen centre). */
 typedef struct sat_quad2 {

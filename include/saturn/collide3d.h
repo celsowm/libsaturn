@@ -2,7 +2,6 @@
 #define SATURN_COLLIDE3D_H
 
 #include <stdint.h>
-#include "saturn/math3d.h"
 #include "saturn/mesh3d.h"
 
 #ifdef __cplusplus

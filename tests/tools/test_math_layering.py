@@ -33,6 +33,20 @@ for path in (Path("src/physics/3d/world.cpp"),
              Path("src/physics/3d/collision_logic.hpp")):
     assert '#include "src/core/math3d/logic.hpp"' in path.read_text(), path
 
+# Public physics headers must not import the VDP1 renderer transitively.
+mesh_header = Path("include/saturn/mesh3d.h").read_text()
+collision_header = Path("include/saturn/collide3d.h").read_text()
+renderer_header = Path("include/saturn/mesh3d_draw.h").read_text()
+assert '#include "saturn/render3d.h"' not in mesh_header
+assert '#include "saturn/vdp1.h"' not in mesh_header
+assert '#include "saturn/mesh3d_draw.h"' not in mesh_header
+assert '#include "saturn/mesh3d.h"' in collision_header
+assert '#include "saturn/render3d.h"' in renderer_header
+assert "typedef struct sat_quad3" in Path("include/saturn/geometry3d.h").read_text()
+assert "typedef struct sat_quad3" not in Path("include/saturn/render3d.h").read_text()
+assert "typedef struct sat_mesh" in mesh_header
+assert "typedef struct sat_mesh_draw" not in mesh_header
+
 makefile = Path("Makefile").read_text()
 assert str(old_api) not in makefile
 assert str(api) in makefile

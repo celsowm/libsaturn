@@ -23,6 +23,7 @@
 #include "saturn/math3d.h"
 #include "saturn/orbit_camera3d.h"
 #include "saturn/mesh3d.h"
+#include "saturn/mesh3d_draw.h"
 #include "saturn/model3d.h"
 #include "saturn/anim3d.h"
 #include "saturn/render3d.h"

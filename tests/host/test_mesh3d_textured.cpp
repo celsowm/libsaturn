@@ -10,7 +10,7 @@
 #include <cstdlib>
 
 #include "saturn/math3d.h"
-#include "saturn/mesh3d.h"
+#include "saturn/mesh3d_draw.h"
 
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
     fprintf(stderr, "FAIL %s:%d: %s (%ld) != %s (%ld)\n", __FILE__, __LINE__, \

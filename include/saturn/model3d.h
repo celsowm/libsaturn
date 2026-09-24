@@ -5,7 +5,7 @@
 
 #include "saturn/core.h"
 #include "saturn/math3d.h"
-#include "saturn/mesh3d.h"
+#include "saturn/mesh3d_draw.h"
 #include "saturn/vdp1.h"
 
 #ifdef __cplusplus
