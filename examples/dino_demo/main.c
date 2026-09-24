@@ -173,6 +173,7 @@ static void draw_hud(void) {
     }
     draw_text("T-REX WALK  L/R ROT  X/Y ZOOM", 4, 4);
     draw_text("A PAUSE B RESET C AUTO START HUD", 4, 14);
+    draw_text("made using celsowm/libsaturn", 48, 210);
     if (g_draw_overflow) {
         draw_text("RENDER LIMIT", 4, 24);
     }
