@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-/* Pure, caller-owned audio service clock. sat_frame_count() advances during
+/* Pure, caller-owned audio service clock. The app-frame counter advances during
  * ordinary frames, while CD Block waits may pump audio while the app's frame
  * number is stalled. Count rising VBlank edges then reconcile (never add)
  * the next app-frame observation, avoiding duplicate stream consumption.
