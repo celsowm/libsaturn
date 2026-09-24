@@ -29,7 +29,7 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
         return SAT_ERR_CAPACITY;
     }
     const uint16_t voice_slot = static_cast<uint16_t>(selected);
-    if (g_voice_registry.entries[voice_slot].active != 0u) release_voice(voice_slot);
+    const bool replacing=g_voice_registry.entries[voice_slot].active!=0u;
 
     saturn::hal::scsp::SlotConfig config = {};
     config.start_address = entry->ram_offset;
@@ -43,9 +43,18 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
     config.total_level = volume_to_tl(volume);
     config.direct_level = 7u;
     config.pan = saturn::hal::scsp::encode_pan(pan);
+    /* configure_slot validates BEFORE touching SCSP state and keys off the
+     * selected slot only on success. Do not invalidate an old voice or count
+     * a steal if hardware rejects the replacement. Calling release_voice
+     * beforehand made failed play requests destructively stop good audio. */
     if (!saturn::hal::scsp::configure_slot(static_cast<uint8_t>(voice_slot), config)) {
         ++g_failed_play_requests;
         return SAT_ERR_UNSUPPORTED;
+    }
+    if (replacing) {
+        /* Hardware already keyed off during successful configure_slot. */
+        (void)g_voice_registry.release(voice_slot);
+        ++g_voice_steals;
     }
 
     VoiceEntry& voice = *g_voice_registry.activate(voice_slot);

@@ -538,6 +538,7 @@ HOST_TOOL_TESTS := $(wildcard tests/tools/*.py)
 # List such extra sources per test name here.
 HOST_TEST_EXTRA_test_font_logic := src/graphics/2d/font/api.cpp
 HOST_TEST_EXTRA_test_font_text_logic :=
+HOST_TEST_EXTRA_test_audio_voice_transaction := src/audio/playback/state.cpp src/audio/playback/voice.cpp
 HOST_TEST_EXTRA_test_audio_stream_logic :=
 HOST_TEST_EXTRA_test_audio_stream_api := src/audio/streaming/api.cpp src/audio/streaming/runtime.cpp
 HOST_TEST_EXTRA_test_music_api := src/audio/playback/music.cpp src/audio/streaming/api.cpp src/audio/streaming/runtime.cpp

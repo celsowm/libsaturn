@@ -25,11 +25,8 @@ void release_voice(uint16_t slot) {
 }
 
 int32_t choose_voice(uint16_t priority) {
-    const int32_t selected=saturn::core::audio::voice::choose(
+    return saturn::core::audio::voice::choose(
         g_voice_registry.entries,kResidentVoiceCapacity,priority);
-    if(selected>=0 && g_voice_registry.entries[selected].active!=0u)
-        ++g_voice_steals;
-    return selected;
 }
 
 void reset_runtime_state() {
