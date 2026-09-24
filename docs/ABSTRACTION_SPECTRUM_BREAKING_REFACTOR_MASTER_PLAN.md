@@ -79,3 +79,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Pure-model link isolation:** VDP1 texture uploads now live in an optional `model_upload.cpp` unit; validation/geometry/animation tests link only `model.cpp`. The model-upload host test links the upload unit and supplies mocks for the INDEX8 and LUT4 hardware functions.
 
 **Audio separation (first slice):** the bounded Sound RAM allocator is now an independent caller-owned pool, with standalone host tests for alignment, fragmentation, allocation slots, release and accounting. Sound/voice/clock orchestration still needs full splitting into separate compilation units.
+
+**Physics opt-in type broadphase (first slice):** world_step now supports caller-owned collider-index scratch built in one source-order pass per tick, avoiding dynamic-sphere scans inside every CCD/solver iteration. The default direct world remains unchanged; this is type filtering, not a geometric spatial broadphase.

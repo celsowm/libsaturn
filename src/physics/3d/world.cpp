@@ -277,6 +277,20 @@ extern "C" sat_result_t sat_physics3_world_init(sat_physics3_world_t* w,
 extern "C" void sat_physics3_world_reset(sat_physics3_world_t* w){
     if(valid(w))w->count=0;
 }
+extern "C" sat_result_t sat_physics3_set_collider_index_scratch(
+    sat_physics3_world_t* w,uint16_t* indices,uint16_t capacity) {
+    if(!valid(w))return SAT_ERR_INVALID_ARG;
+    if(!indices) {
+        if(capacity!=0u)return SAT_ERR_INVALID_ARG;
+        w->collider_indices=nullptr;
+        w->collider_index_capacity=0u;
+        return SAT_OK;
+    }
+    if(capacity<w->capacity)return SAT_ERR_CAPACITY;
+    w->collider_indices=indices;
+    w->collider_index_capacity=capacity;
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_physics3_add_box(sat_physics3_world_t* w,
     sat_physics3_kind_t kind,const sat_aabb3_t* box,
     const sat_physics3_material_t* material,uint16_t* id){
@@ -615,6 +629,15 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
         steps=static_cast<uint16_t>(required>w->max_substeps
             ? w->max_substeps : required);
     }
+    /* Preserve the original actor order, but avoid reclassifying all
+     * unrelated dynamic spheres in every inner solver/CCD iteration. */
+    uint16_t collider_count=0u;
+    if(w->collider_indices) {
+        if(w->collider_index_capacity<w->count)return SAT_ERR_CAPACITY;
+        for(uint16_t i=0;i<w->count;++i)
+            if(w->actors[i].kind!=SAT_PHYSICS3_DYNAMIC_SPHERE)
+                w->collider_indices[collider_count++]=i;
+    }
     for(uint16_t i=0;i<w->count;++i){
         sat_physics3_actor_t& a=w->actors[i];
         if(a.kind==SAT_PHYSICS3_KINEMATIC_BOX){
@@ -651,7 +674,9 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
             if(w->mesh_face_ccd||w->kinematic_box_ccd){
                 sat_sphere_mesh_hit_t earliest{};
                 uint16_t hit_actor=0xffffu;
-                for(uint16_t j=0;j<w->count;++j){
+                const uint16_t span=w->collider_indices?collider_count:w->count;
+                for(uint16_t k=0;k<span;++k){
+                    const uint16_t j=w->collider_indices?w->collider_indices[k]:k;
                     const sat_physics3_actor_t& collider=w->actors[j];
                     sat_sphere_mesh_hit_t candidate{};
                     uint8_t found=0;
@@ -708,7 +733,9 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
             }else ball.sphere.shape.center=add(ball.sphere.shape.center,d);
             for(uint8_t iteration=0;iteration<w->iterations;++iteration){
                 bool hit=false;
-                for(uint16_t j=0;j<w->count;++j){
+                const uint16_t span=w->collider_indices?collider_count:w->count;
+                for(uint16_t k=0;k<span;++k){
+                    const uint16_t j=w->collider_indices?w->collider_indices[k]:k;
                     const sat_physics3_actor_t& box=w->actors[j];
                     if(box.kind==SAT_PHYSICS3_DYNAMIC_SPHERE)continue;
                     if(box.kind==SAT_PHYSICS3_STATIC_MESH ||

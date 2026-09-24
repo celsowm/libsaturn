@@ -70,6 +70,46 @@ static void floor_contact_and_bounce(){
     CHECK(ball.sphere.flags & SAT_BODY3_GROUNDED);
     CHECK(ball.sphere.vel.y==FX(1)/2);
 }
+static void optional_collider_index_matches_full_scan(){
+    sat_physics3_actor_t slow_actors[5]{}, fast_actors[5]{};
+    sat_physics3_world_t slow{},fast{};
+    uint16_t scratch[5]={};
+    CHECK(sat_physics3_world_init(&slow,slow_actors,5,zero,16,3)==SAT_OK);
+    CHECK(sat_physics3_world_init(&fast,fast_actors,5,zero,16,3)==SAT_OK);
+    CHECK(sat_physics3_set_collider_index_scratch(&fast,scratch,4)==SAT_ERR_CAPACITY);
+    CHECK(sat_physics3_set_collider_index_scratch(&fast,nullptr,1)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_set_collider_index_scratch(&fast,scratch,5)==SAT_OK);
+    const sat_sphere_t a{{0,FX(3)/2,0},FX(1)};
+    const sat_sphere_t b{{FX(2),FX(3)/2,0},FX(1)};
+    const sat_aabb3_t floor{{0,0,0},{FX(5),FX(1)/2,FX(5)}};
+    const sat_vec3_t gravity{0,-FX(1)/8,0};
+    slow.gravity=fast.gravity=gravity;
+    uint16_t id=0u;
+    /* A dynamic sphere comes first: type filtering must preserve the
+     * original collider IDs and tie order, not compact in kind order. */
+    sat_physics3_world_t* worlds[2]={&slow,&fast};
+    for(sat_physics3_world_t* w:worlds) {
+        CHECK(sat_physics3_add_sphere(w,&a,&zero,&rough,&id)==SAT_OK && id==0u);
+        CHECK(sat_physics3_add_box(
+            w,SAT_PHYSICS3_STATIC_BOX,&floor,&rough,&id)==SAT_OK && id==1u);
+        CHECK(sat_physics3_add_sphere(w,&b,&zero,&rough,&id)==SAT_OK && id==2u);
+    }
+    for(uint16_t frame=0u;frame<6u;++frame) {
+        CHECK(sat_physics3_world_step(&slow)==SAT_OK);
+        CHECK(sat_physics3_world_step(&fast)==SAT_OK);
+        for(uint16_t i=0u;i<3u;++i) {
+            const sat_physics3_actor_t x=read(&slow,i),y=read(&fast,i);
+            CHECK(x.kind==y.kind);
+            CHECK(x.sphere.shape.center.x==y.sphere.shape.center.x);
+            CHECK(x.sphere.shape.center.y==y.sphere.shape.center.y);
+            CHECK(x.sphere.vel.x==y.sphere.vel.x);
+            CHECK(x.sphere.vel.y==y.sphere.vel.y);
+            CHECK(x.sphere.flags==y.sphere.flags);
+        }
+    }
+    CHECK(sat_physics3_set_collider_index_scratch(&fast,nullptr,0)==SAT_OK);
+    CHECK(fast.collider_indices==nullptr && fast.collider_index_capacity==0u);
+}
 static void moving_platform_and_multiple_balls(){
     sat_physics3_actor_t actors[3]{};
     sat_physics3_world_t w{};
@@ -791,6 +831,7 @@ static void rotation_rejects_unsafe_budget_and_invalid_targets() {
 int main(){
     validation_and_capacity();
     floor_contact_and_bounce();
+    optional_collider_index_matches_full_scan();
     moving_platform_and_multiple_balls();
     deterministic_replay();
     inclined_plane_and_tangent_friction();
@@ -809,6 +850,6 @@ int main(){
     translating_mesh_validates_grid_and_target_bounds();
     tilted_kinematic_mesh_contact_and_grid_match();
     rotation_rejects_unsafe_budget_and_invalid_targets();
-    std::puts("test_physics3_world: 20 tests passed");
+    std::puts("test_physics3_world: 21 tests passed");
     return 0;
 }

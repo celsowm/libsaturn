@@ -46,6 +46,10 @@ typedef struct sat_physics3_world {
     sat_physics3_actor_t* actors;
     sat_contact3_t* mesh_contacts; /* Caller-owned shared query scratch. */
     uint16_t mesh_contact_capacity;
+    /* Optional caller-owned, capacity-sized index buffer. Stable collider
+     * indices are compacted once per tick; no per-ball dynamic-body scan. */
+    uint16_t* collider_indices;
+    uint16_t collider_index_capacity;
     sat_vec3_t gravity; /* velocity delta per fixed tick */
     uint16_t count,capacity;
     uint8_t max_substeps; /* 1..64 */
@@ -70,6 +74,12 @@ sat_result_t sat_physics3_add_plane(sat_physics3_world_t* world,
  * Storage must outlive the world; there is no allocation or hidden fallback. */
 sat_result_t sat_physics3_set_mesh_contacts(
     sat_physics3_world_t* world, sat_contact3_t* storage, uint16_t capacity);
+/* Optional type-based candidate list for worlds with many dynamic spheres.
+ * Requires >= world.capacity uint16 entries and lifetime through world_step;
+ * NULL/0 detaches. Preserves original actor order and collision semantics.
+ * Does not replace the independent mesh-grid spatial broadphase. */
+sat_result_t sat_physics3_set_collider_index_scratch(
+    sat_physics3_world_t* world, uint16_t* indices, uint16_t capacity);
 
 /* Mesh vertices and indices are already in world coordinates, remain immutable,
  * and must outlive the collider. Finite quad faces retain their edges and gaps.
