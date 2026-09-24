@@ -188,6 +188,28 @@ int main() {
     assert(stats.flushed_faces==0u && stats.world_commands==1u);
     assert(g_replayed==3u);
 
+    // The DRY baked path refuses legacy items without a linear W, rather
+    // than misinterpreting an arbitrary cache sort key as painter depth.
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    item.camera_depth_valid=0u;
+    assert(sat_scene_queue_baked_view_item_material(
+        &scene,&item,&textured,0u)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.queued_view_items==0u && stats.result==SAT_ERR_INVALID_ARG);
+    assert(sat_scene_flush(&scene)==SAT_ERR_INVALID_ARG);
+    assert(g_replayed==3u);
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    item.camera_depth=3*SAT_FX16_ONE;
+    item.camera_depth_valid=1u;
+    assert(sat_scene_queue_baked_view_item_material(
+        &scene,&item,&textured,0u)==SAT_OK);
+    assert(sat_scene_flush(&scene)==SAT_OK);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.queued_view_items==1u && stats.replayed_items==1u);
+    assert(g_replayed==4u);
+
     // Rejected submissions remain visible in the result after flush.
     assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
         320u, 224u, 8u)==SAT_OK);

@@ -39,7 +39,6 @@ static sat_vdp1_texture_t g_checker;
 static uint8_t g_checker_pixels[8u * 8u];
 static uint16_t g_checker_palette[256u];
 static sat_quad3_t g_static_world[CACHE_FACES];
-static sat_vec3_t g_static_centers[CACHE_FACES];
 static uint16_t g_frame;
 static uint16_t g_view;
 static uint8_t g_zoom;
@@ -87,15 +86,9 @@ static void bake_current_view(void) {
      * matching view return NOT_FOUND, never stale native VDP1 coordinates. */
     sat_example_must(sat_view_cache_begin_camera(
         &g_cache,g_view,&g_camera,NEAR_DEPTH,SCREEN_W,SCREEN_H));
-    for (uint16_t i=0u;i<CACHE_FACES;++i) {
-        sat_quad2_t projected={0};
-        sat_example_must(sat_project_quad(
-            &g_camera.view_proj,&g_static_world[i],&projected));
-        /* Cache's historical depth field is not camera-linear. The scene
-         * computes its own 16.16 painter depth from source centers below. */
-        sat_example_must(sat_view_cache_append(
-            &g_cache,&projected,0u,0u,i));
-    }
+    for (uint16_t i=0u;i<CACHE_FACES;++i)
+        sat_example_must(sat_view_cache_append_world(
+            &g_cache,&g_static_world[i],0u,i));
     sat_example_must(sat_view_cache_sort(&g_cache));
 }
 
@@ -108,13 +101,9 @@ static void draw_cached_static(void) {
     const sat_scene3d_material_t static_material={
         SAT_SCENE3D_INDEXED_TEXTURED,0u,&g_checker,0,
         SAT_INDEXED_SOLID_OPAQUE,0};
-    for (uint16_t i=0u;i<count;++i) {
-        sat_fx16_t linear_depth=0;
-        sat_example_must(sat_scene_depth(
-            &g_scene,&g_static_centers[items[i].tag],&linear_depth));
-        sat_example_must(sat_scene_queue_view_item_material(
-            &g_scene,&items[i],linear_depth,&static_material,0u));
-    }
+    for (uint16_t i=0u;i<count;++i)
+        sat_example_must(sat_scene_queue_baked_view_item_material(
+            &g_scene,&items[i],&static_material,0u));
 }
 
 static void draw_actor(void) {
@@ -169,8 +158,6 @@ int main(void) {
     g_static_world[1]=make_front_quad(
         SAT_FX16_ONE,3*SAT_FX16_ONE/4,
         SAT_FX16_ONE,3*SAT_FX16_ONE/2);
-    g_static_centers[0]=(sat_vec3_t){-SAT_FX16_ONE/2,0,-SAT_FX16_ONE};
-    g_static_centers[1]=(sat_vec3_t){SAT_FX16_ONE,0,3*SAT_FX16_ONE/2};
 
     for (;;) {
         sat_pad_state_t pad={0};

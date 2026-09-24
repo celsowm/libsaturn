@@ -20,6 +20,10 @@ typedef struct sat_view_cache_item {
     uint32_t depth;
     uint16_t color;
     uint16_t tag;
+    /* Populated only by append_world: true linear 16.16 camera depth,
+     * distinct from the legacy arbitrary uint32_t bake-order key. */
+    sat_fx16_t camera_depth;
+    uint8_t camera_depth_valid;
 } sat_view_cache_item_t;
 
 typedef struct sat_view_cache_stats {
@@ -83,6 +87,16 @@ sat_result_t sat_view_cache_set_generation(sat_view_cache_t* cache, uint32_t gen
 sat_result_t sat_view_cache_begin(sat_view_cache_t* cache, uint16_t view);
 sat_result_t sat_view_cache_append(sat_view_cache_t* cache,
     const sat_quad2_t* quad, uint32_t depth, uint16_t color, uint16_t tag);
+
+/* For a camera-bound bake, projects one fully visible world quad exactly
+ * once and stores both native VDP1 corners and its average camera-space W.
+ * Unlike append(), this provides a comparable linear depth for the joint
+ * scene painter. Near-plane crossings, unsafe off-screen projections and
+ * capacity exhaustion are rejected without mutating the cache. The caller
+ * owns world geometry only until this call returns; no pointer is retained. */
+sat_result_t sat_view_cache_append_world(
+    sat_view_cache_t* cache, const sat_quad3_t* world,
+    uint16_t color, uint16_t tag);
 sat_result_t sat_view_cache_sort(sat_view_cache_t* cache);
 sat_result_t sat_view_cache_view(sat_view_cache_t* cache, uint16_t view,
     const sat_view_cache_item_t** out_items, uint16_t* out_count);

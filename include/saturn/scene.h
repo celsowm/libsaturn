@@ -149,6 +149,16 @@ sat_result_t sat_scene_queue_view_item_material(
     sat_fx16_t camera_depth, const sat_scene3d_material_t* material,
     uint16_t pass);
 
+/* DRY path for camera-bound items produced by sat_view_cache_append_world.
+ * Uses the baked linear W, eliminating per-frame re-projection, manual
+ * painter key arithmetic or one sat_scene_depth call per static face.
+ * Requires camera_depth_valid, else fails without consuming a face slot.
+ * Obtain the item with view_camera using this scene's active camera to
+ * prevent submitting a stale projected view. */
+sat_result_t sat_scene_queue_baked_view_item_material(
+    sat_scene_t* scene, const sat_view_cache_item_t* item,
+    const sat_scene3d_material_t* material, uint16_t pass);
+
 /* Ends the frame and returns the first recorded error from its submissions
  * and flush. Raw VDP1 operations remain independent. */
 sat_result_t sat_scene_flush(sat_scene_t* scene);

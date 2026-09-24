@@ -171,6 +171,16 @@ extern "C" sat_result_t sat_scene_queue_view_item_material(
     return record_frame_result(scene,st);
 }
 
+extern "C" sat_result_t sat_scene_queue_baked_view_item_material(
+    sat_scene_t* scene,const sat_view_cache_item_t* item,
+    const sat_scene3d_material_t* material,uint16_t pass) {
+    if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    if (!item || item->camera_depth_valid==0u)
+        return record_frame_result(scene,SAT_ERR_INVALID_ARG);
+    return sat_scene_queue_view_item_material(
+        scene,item,item->camera_depth,material,pass);
+}
+
 extern "C" sat_result_t sat_scene_replay_view_item(
     sat_scene_t* scene, const sat_view_cache_item_t* item) {
     if (!scene || !scene->active || !item) return SAT_ERR_INVALID_ARG;

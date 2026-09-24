@@ -11,9 +11,11 @@ invalidates only its own cached view and triggers a new bake; switching back
 to an unchanged view reuses its projected geometry.
 
 No application-authored painter keys or manual VDP1 commands are involved:
-the example uses `sat_scene_depth` and `sat_scene_queue_view_item_material`
-for cached faces, `sat_scene_submit_quad` for the moving actor, and exactly
-one `sat_scene_flush` per frame. Direct L1 drawing remains available elsewhere.
+the example uses `sat_view_cache_append_world` to bake native projected
+corners **and their comparable linear depths once**, then uses
+`sat_scene_queue_baked_view_item_material` for cached faces and
+`sat_scene_submit_quad` for the moving actor. It needs no per-frame static
+depth calculation and invokes exactly one `sat_scene_flush` per frame. Direct L1 drawing remains available elsewhere.
 
 Build: `make EXAMPLE=scene_cache_occlusion all`.
 
