@@ -117,6 +117,15 @@ sat_result_t swept_kinematic_box(const sat_physics3_actor_t& platform,
        !fits((int64_t)sphere_delta.z-motion.z))
         return SAT_ERR_INVALID_ARG;
     const V relative_delta=sub(sphere_delta,motion);
+    /* One conservative sweep in the moving box's START coordinate frame
+     * avoids constructing/iterating six polygon casts for remote actors.
+     * Relative motion includes the box translation; touching stays eligible.
+     * Keep all overflow/preflight checks above this cheap early exit. */
+    if(!saturn::core::physics3::broadphase::swept_overlaps(
+         sphere.center,relative_delta,sphere.radius,low,high)) {
+        *found=0u;
+        return SAT_OK;
+    }
     sat_sphere_mesh_hit_t candidate{};
     uint8_t has_hit=0;
     const sat_result_t status=sat_sphere_cast_mesh(
@@ -149,6 +158,15 @@ sat_result_t swept_kinematic_mesh(const sat_physics3_actor_t& platform,
     const sat_sphere_t reference_sphere{
         sub(sphere.center,start_offset),sphere.radius};
     const V reference_delta=sub(sphere_delta,motion);
+    /* Kinematic translation is removed from both the sphere and sweep:
+     * compare against the immutable REFERENCE-space mesh AABB rather than
+     * inflating an evolving world-space bound at every substep. */
+    if(!saturn::core::physics3::broadphase::swept_overlaps(
+         reference_sphere.center,reference_delta,reference_sphere.radius,
+         platform.mesh_bounds_min,platform.mesh_bounds_max)) {
+        *found=0u;
+        return SAT_OK;
+    }
     sat_sphere_mesh_hit_t hit{};
     uint8_t has_hit=0;
     const sat_result_t status=sat_sphere_cast_mesh(

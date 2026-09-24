@@ -598,6 +598,58 @@ static void swept_translating_wall_pushes_sphere_without_tunneling() {
     CHECK(ball.sphere.vel.x>FX(7));
     CHECK(read(&world,wall_id).box.center.x==FX(4));
 }
+static void distant_kinematic_sweeps_preserve_free_flight(){
+    // An intentionally large per-tick displacement exercises the opt-in CCD
+    // path with a distant translating box. Its reference-space AABB must be
+    // rejected without reporting a wall hit or disturbing the platform.
+    {
+        sat_physics3_actor_t actors[2]{};
+        sat_physics3_world_t w{};
+        CHECK(sat_physics3_world_init(&w,actors,2,zero,1,2)==SAT_OK);
+        const sat_aabb3_t distant{{FX(100),0,0},{FX(1),FX(1),FX(1)}};
+        const sat_sphere_t ball{{0,0,0},FX(1)/2};
+        const sat_vec3_t fast{FX(8),0,0};
+        const sat_vec3_t moved{FX(101),0,0};
+        uint16_t box_id=999,ball_id=999;
+        CHECK(sat_physics3_add_box(&w,SAT_PHYSICS3_KINEMATIC_BOX,
+                                   &distant,&rough,&box_id)==SAT_OK);
+        CHECK(sat_physics3_add_sphere(&w,&ball,&fast,&rough,&ball_id)==SAT_OK);
+        CHECK(sat_physics3_set_kinematic_target(&w,box_id,&moved)==SAT_OK);
+        CHECK(sat_physics3_set_kinematic_box_ccd(&w,1)==SAT_OK);
+        CHECK(sat_physics3_world_step(&w)==SAT_OK);
+        CHECK(read(&w,ball_id).sphere.shape.center.x==FX(8));
+        CHECK(read(&w,ball_id).sphere.flags==0u);
+        CHECK(read(&w,box_id).box.center.x==moved.x);
+    }
+    // The same remote geometry is stored in immutable LOCAL coordinates.
+    // Translation-relative sweeping must not accidentally compare against
+    // the mesh's unshifted AABB in world coordinates.
+    {
+        sat_physics3_actor_t actors[2]{};
+        sat_physics3_world_t w{};
+        sat_contact3_t contacts[1]{};
+        CHECK(sat_physics3_world_init(&w,actors,2,zero,1,2)==SAT_OK);
+        CHECK(sat_physics3_set_mesh_contacts(&w,contacts,1)==SAT_OK);
+        sat_vec3_t vertices[4]={
+            {-FX(2),0,-FX(2)},{FX(2),0,-FX(2)},
+            {FX(2),0,FX(2)},{-FX(2),0,FX(2)}};
+        uint16_t indices[4]={0,1,2,3};
+        sat_mesh_t mesh{vertices,indices,4,4,1,1};
+        const sat_vec3_t start{FX(100),0,0},moved{FX(101),0,0};
+        const sat_sphere_t ball{{0,FX(2),0},FX(1)/2};
+        const sat_vec3_t fast{FX(8),0,0};
+        uint16_t mesh_id=999,ball_id=999;
+        CHECK(sat_physics3_add_kinematic_mesh(&w,&mesh,nullptr,
+                &start,&rough,&mesh_id)==SAT_OK);
+        CHECK(sat_physics3_add_sphere(&w,&ball,&fast,&rough,&ball_id)==SAT_OK);
+        CHECK(sat_physics3_set_kinematic_mesh_target(&w,mesh_id,&moved)==SAT_OK);
+        CHECK(sat_physics3_set_mesh_face_ccd(&w,1)==SAT_OK);
+        CHECK(sat_physics3_world_step(&w)==SAT_OK);
+        CHECK(read(&w,ball_id).sphere.shape.center.x==FX(8));
+        CHECK(read(&w,ball_id).sphere.flags==0u);
+        CHECK(read(&w,mesh_id).mesh_offset.x==moved.x);
+    }
+}
 static void discrete_colliders_preserve_capacity_guard_with_swept_platforms() {
     sat_physics3_actor_t actors[3]{};
     sat_physics3_world_t world{};
@@ -867,12 +919,13 @@ int main(){
     free_flight_spin_and_kinematic_relative_rolling();
     swept_rising_platform_catches_fast_fall();
     swept_translating_wall_pushes_sphere_without_tunneling();
+    distant_kinematic_sweeps_preserve_free_flight();
     discrete_colliders_preserve_capacity_guard_with_swept_platforms();
     translating_finite_mesh_ccd_preserves_geometry();
     translating_mesh_grid_matches_linear_contacts();
     translating_mesh_validates_grid_and_target_bounds();
     tilted_kinematic_mesh_contact_and_grid_match();
     rotation_rejects_unsafe_budget_and_invalid_targets();
-    std::puts("test_physics3_world: 21 tests passed");
+    std::puts("test_physics3_world: 22 tests passed");
     return 0;
 }
