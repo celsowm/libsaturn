@@ -15,6 +15,9 @@ constexpr uint32_t kLineBytes = 16u;
 uint8_t control_register();
 void purge_all(Mode mode);
 bool invalidate_line(uint32_t cached_address);
+/* Invalidates every line overlapping [address, address + size). Returns
+ * false, touching nothing, unless the whole span is cacheable Work RAM. */
+bool invalidate_range(uint32_t cached_address, uint32_t size);
 bool is_supported_work_ram(uint32_t address, uint32_t size = 1u);
 uint32_t cache_through(uint32_t address);
 uint32_t purge_alias(uint32_t address);

@@ -22,7 +22,8 @@ from test_simplify_cli import build_grid_glb
 
 
 def make_quadrant_glb(
-    tmp: Path, mesh_node_count: int = 1, untextured_material: bool = False
+    tmp: Path, mesh_node_count: int = 1, untextured_material: bool = False,
+    spacing: float = 2.0,
 ) -> Path:
     """Four separate quads over an 8x8 4-quadrant texture (V-convention lock).
 
@@ -55,7 +56,7 @@ def make_quadrant_glb(
     ]
     pos, nrm, uv, jnt, wgt, idx = [], [], [], [], [], []
     for k in range(4):
-        ox, oy = (k % 2) * 2.0, (k // 2) * 2.0
+        ox, oy = (k % 2) * spacing, (k // 2) * spacing
         base = len(pos)
         for (px, py), (u, v) in zip(
             ((0, 0), (1, 0), (1, 1), (0, 1)), quad_uvs[k]

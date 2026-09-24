@@ -43,6 +43,21 @@ sat_result_t upload_texture_indexed8(const uint8_t*, uint16_t, uint16_t, uint16_
     return SAT_OK;
 }
 
+int g_lut_calls = 0;
+int g_lut4_calls = 0;
+
+sat_result_t upload_lut(const uint16_t*, uint16_t* out_colr) {
+    ++g_lut_calls;
+    *out_colr = 0x2A04u;
+    return SAT_OK;
+}
+
+sat_result_t upload_texture_lut4(const uint8_t*, uint16_t, uint16_t, uint16_t* out_srca) {
+    ++g_lut4_calls;
+    *out_srca = 0x3456u;
+    return SAT_OK;
+}
+
 int g_reserved_calls = 0;
 int g_overlay_pass_calls = 0;
 uint16_t g_last_reservation = 0;
@@ -238,8 +253,33 @@ static void null_args_rejected() {
     ASSERT_EQ(sat_palette_upload_indexed8(nullptr, 0), SAT_ERR_INVALID_ARG);
 }
 
+static void lut4_upload_records_table_and_format() {
+    using namespace saturn::hal::vdp1;
+    reset_hal();
+    make_initialized();
+    const uint16_t lut[16] = {};
+    uint16_t handle = 0u;
+    ASSERT_EQ(sat_vdp1_upload_lut(lut, &handle), SAT_OK);
+    ASSERT_EQ(handle, 0x2A04u);
+    uint8_t pixels[8 * 4 / 2] = {};
+    sat_vdp1_texture_t tex = {};
+    ASSERT_EQ(sat_tex_upload_lut4_pixels(&tex, pixels, 8, 4, handle), SAT_OK);
+    ASSERT_EQ(tex.srca, 0x3456u);
+    ASSERT_EQ(tex.palette, 0x2A04u);
+    ASSERT_EQ(tex.format, SAT_VDP1_TEXTURE_LUT4);
+    ASSERT_EQ(tex.valid, 1u);
+    /* A table can never sit at VRAM 0; bad sizes never reach the HAL. */
+    ASSERT_EQ(sat_tex_upload_lut4_pixels(&tex, pixels, 8, 4, 0u), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(sat_tex_upload_lut4_pixels(&tex, pixels, 12, 4, handle), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(g_lut4_calls, 1);
+    /* Indexed uploads keep reporting the indexed format. */
+    ASSERT_EQ(sat_tex_upload_indexed8_pixels(&tex, pixels, 8, 1, 0), SAT_OK);
+    ASSERT_EQ(tex.format, SAT_VDP1_TEXTURE_INDEXED8);
+}
+
 int main() {
     overlay_budget_api_routes_into_hal();
+    lut4_upload_records_table_and_format();
     combined_upload_calls_palette_once_and_texture_once();
     pixels_only_skips_palette_upload();
     palette_only_uploads_no_texture();
@@ -248,6 +288,6 @@ int main() {
     texture_capacity_propagates();
     sprite_screen_uses_active_video_dimensions();
     null_args_rejected();
-    printf("PASS: test_vdp1_upload.cpp (9 tests)\n");
+    printf("PASS: test_vdp1_upload.cpp (10 tests)\n");
     return 0;
 }

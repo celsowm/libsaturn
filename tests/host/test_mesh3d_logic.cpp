@@ -557,6 +557,44 @@ TEST(texture_selection_shares_culling_with_polygon_path) {
     }
 }
 
+/* quad_visible takes the sign of dot(normal, eye - centre) exactly for
+ * normals under 2^50; check it against 128-bit arithmetic, including faces
+ * seen almost edge-on, collapsed corners and very long edges. */
+TEST(quad_visible_matches_exact_facing_test) {
+    uint32_t seed = 12345u;
+    auto next = [&seed](int32_t range) {
+        seed = seed * 1103515245u + 12345u;
+        return static_cast<int32_t>((seed >> 8) % static_cast<uint32_t>(2 * range + 1)) - range;
+    };
+    for (int t = 0; t < 20000; ++t) {
+        const int32_t scale = 1 << (t % 22);
+        sat_quad3_t q;
+        for (int i = 0; i < 4; ++i)
+            q.v[i] = vec3(next(1000) * (scale / 8 + 1), next(1000) * (scale / 8 + 1),
+                          next(1000) * (scale / 8 + 1));
+        if (t % 5 == 0) q.v[1] = q.v[0];
+        if (t % 7 == 0) q.v[3] = q.v[2];
+        sat_vec3_t eye = vec3(next(1000) * scale, next(1000) * scale, next(1000) * scale);
+        if (t % 3 == 0) {  /* parallelogram viewed from its own plane +- 1 */
+            q.v[3] = vec3(q.v[0].x + q.v[2].x - q.v[1].x, q.v[0].y + q.v[2].y - q.v[1].y,
+                          q.v[0].z + q.v[2].z - q.v[1].z);
+            eye = quad_center(q);
+            eye.x += next(1);
+        }
+        int64_t n[3];
+        cross_raw(vec3_sub(q.v[3], q.v[0]), vec3_sub(q.v[1], q.v[0]), n);
+        if ((n[0] | n[1] | n[2]) == 0)
+            cross_raw(vec3_sub(q.v[3], q.v[0]), vec3_sub(q.v[2], q.v[0]), n);
+        if ((n[0] | n[1] | n[2]) == 0)
+            cross_raw(vec3_sub(q.v[2], q.v[0]), vec3_sub(q.v[1], q.v[0]), n);
+        const sat_vec3_t v = vec3_sub(eye, quad_center(q));
+        const __int128 dot = static_cast<__int128>(n[0]) * v.x +
+                             static_cast<__int128>(n[1]) * v.y +
+                             static_cast<__int128>(n[2]) * v.z;
+        ASSERT_EQ(quad_visible(q, eye) ? 1 : 0, dot > 0 ? 1 : 0);
+    }
+}
+
 TEST(degenerate_triangle_quad_keeps_outward_normal) {
     sat_mesh_t mesh = make_mesh();
     /* Triangle in the z=0 plane facing +Z, carried as A,B,C,C. With
@@ -672,9 +710,10 @@ int main() {
     out_of_range_texture_index_is_invalid();
     texture_selection_shares_culling_with_polygon_path();
     degenerate_triangle_quad_keeps_outward_normal();
+    quad_visible_matches_exact_facing_test();
     weld_vertices_shrinks_a_sphere_and_keeps_winding();
     weld_vertices_leaves_a_box_alone();
     weld_vertices_rejects_undersized_scratch();
-    printf("test_mesh3d_logic: 36 tests passed\n");
+    printf("test_mesh3d_logic: 37 tests passed\n");
     return 0;
 }

@@ -95,7 +95,7 @@ if (-not (Test-Path $binPath)) {
 # the actual guest Slave code.
 $slaveResetEntry = $null
 if ($normalizedExample -eq 'dual_sh2' -or $normalizedExample -eq 'parallel_runtime' -or
-    $normalizedExample -eq 'skybridge_3d') {
+    $normalizedExample -eq 'skybridge_3d' -or $normalizedExample -eq 'dino_demo') {
     $elfPath = Join-Path $RepoRoot ("build\examples\{0}.elf" -f $safeName)
     if (-not (Test-Path $elfPath)) {
         throw "Expected $elfPath to resolve _saturn_slave_entry for the Ymir dual-SH2 handoff."

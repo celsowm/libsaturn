@@ -31,13 +31,17 @@ inline sat_result_t validate(const sat_model_asset_t* asset) {
         if (asset->textures == nullptr) {
             return SAT_ERR_INVALID_ARG;
         }
-        if (asset->palette_count == 0u || asset->palettes_rgb555 == nullptr) {
-            return SAT_ERR_INVALID_ARG;
+        /* Indexed8 textures need a palette (checked per texture below);
+         * an asset of LUT4 textures only may carry none. */
+        if (asset->palette_count > 0u) {
+            if (asset->palettes_rgb555 == nullptr || asset->palette_base >= 8u) {
+                return SAT_ERR_INVALID_ARG;
+            }
+            if ((uint32_t)asset->palette_base + (uint32_t)asset->palette_count > 8u) {
+                return SAT_ERR_INVALID_ARG;
+            }
         }
-        if (asset->palette_base >= 8u) {
-            return SAT_ERR_INVALID_ARG;
-        }
-        if ((uint32_t)asset->palette_base + (uint32_t)asset->palette_count > 8u) {
+        if (asset->lut_count > 0u && asset->luts_rgb555 == nullptr) {
             return SAT_ERR_INVALID_ARG;
         }
     }
@@ -81,7 +85,8 @@ inline sat_result_t validate(const sat_model_asset_t* asset) {
         if (tex->width > 504u || tex->height > 255u) {
             return SAT_ERR_INVALID_ARG;
         }
-        if (tex->palette_slot >= asset->palette_count) {
+        const bool lut4 = (tex->flags & SAT_MODEL_TEXTURE_LUT4) != 0u;
+        if (tex->palette_slot >= (lut4 ? asset->lut_count : asset->palette_count)) {
             return SAT_ERR_INVALID_ARG;
         }
         if (tex->pixel_count != (uint32_t)tex->width * (uint32_t)tex->height) {
@@ -137,9 +142,11 @@ inline uint32_t texture_bytes(const sat_model_asset_t* asset) {
     if (asset == nullptr || asset->textures == nullptr) {
         return 0u;
     }
-    uint32_t total = 0u;
+    uint32_t total = static_cast<uint32_t>(asset->lut_count) * 32u;
     for (uint16_t t = 0; t < asset->texture_count; ++t) {
-        total += asset->textures[t].pixel_count;
+        const sat_model_texture_asset_t& tex = asset->textures[t];
+        total += (tex.flags & SAT_MODEL_TEXTURE_LUT4) != 0u
+            ? tex.pixel_count / 2u : tex.pixel_count;
     }
     return total;
 }
@@ -148,9 +155,11 @@ inline uint32_t vram_estimate_bytes(const sat_model_asset_t* asset) {
     if (asset == nullptr || asset->textures == nullptr) {
         return 0u;
     }
-    uint32_t total = 0u;
+    uint32_t total = static_cast<uint32_t>(asset->lut_count) * 32u;
     for (uint16_t t = 0; t < asset->texture_count; ++t) {
-        const uint32_t size = asset->textures[t].pixel_count;
+        const sat_model_texture_asset_t& tex = asset->textures[t];
+        const uint32_t size = (tex.flags & SAT_MODEL_TEXTURE_LUT4) != 0u
+            ? tex.pixel_count / 2u : tex.pixel_count;
         total += (size + 7u) & ~7u;
     }
     return total;

@@ -60,4 +60,17 @@ bool invalidate_line(uint32_t cached_address) {
     return true;
 }
 
+bool invalidate_range(uint32_t cached_address, uint32_t size) {
+    if (size == 0u || !is_supported_work_ram(cached_address, size)) return false;
+    /* One range check, then one associative-purge write per line. */
+    const uint32_t end = cached_address + size;
+    for (uint32_t line = cached_address & ~(kLineBytes - 1u); line < end;
+         line += kLineBytes) {
+        *reinterpret_cast<volatile uint16_t*>(
+            line | saturn::core::startup::kCachePurgeBit) = 0u;
+    }
+    compiler_barrier();
+    return true;
+}
+
 }  // namespace saturn::hal::sh2::cache

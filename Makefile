@@ -269,7 +269,16 @@ endif
 # MODEL_REVERSE_WINDING, MODEL_GENERATE_LODS, MODEL_FACE_COLORS (off|auto|on:
 # solid lit polygon faces instead of textures), MODEL_MERGE_RIGID_MESHES,
 # MODEL_LIGHT_DIR (x,y,z),
-# MODEL_AMBIENT, MODEL_DIFFUSE.
+# MODEL_AMBIENT, MODEL_DIFFUSE. MODEL_MERGE_QUADS (off|on) draws adjacent
+# triangle pairs as one VDP1 quad; MODEL_QUAD_MAX_TEXEL_ERROR and
+# MODEL_QUAD_MAX_FOLD_DEG bound what a merge may change.
+# MODEL_MATERIAL_WEIGHTS is a space-separated NAME=W list; W below 1 spends
+# fewer simplified triangles on that material. MODEL_WELD_VERTICES (off|on)
+# drops the UV-split vertex copies a textured model never needs at runtime.
+# MODEL_TEXTURE_FORMAT (indexed8|lut4): lut4 bakes 4-bit texels with a
+# 15-color VDP1 lookup table per face, half the VRAM of indexed8.
+# MODEL_LOCALITY_ORDER (off|on) orders faces along the model and vertices by
+# first use, so a face list split between CPUs splits its vertices too.
 # MODEL_MAX_POSE_STREAM_BYTES can raise the per-asset baked-pose cap when
 # the resulting executable still fits the Saturn work-RAM budget.
 # MODEL_HUD_RESERVE is the example-specific VDP1 command count reserved
@@ -303,6 +312,12 @@ MODEL_AMBIENT             ?= 0.35
 MODEL_DIFFUSE             ?= 0.75
 MODEL_MAX_POSE_STREAM_BYTES ?= 262144
 MODEL_HUD_RESERVE           ?= 128
+MODEL_MERGE_QUADS           ?= off
+MODEL_QUAD_MAX_TEXEL_ERROR  ?= 1.0
+MODEL_QUAD_MAX_FOLD_DEG     ?= 30
+MODEL_WELD_VERTICES         ?= off
+MODEL_TEXTURE_FORMAT        ?= indexed8
+MODEL_LOCALITY_ORDER        ?= off
 MODEL_SIGNATURE_FILE := $(MODEL_OUT_PREFIX).signature.json
 MODEL_FLIP_FLAGS          :=
 ifeq ($(MODEL_FLIP_X),1)
@@ -347,6 +362,13 @@ MODEL_IMPORT_ARGS = \
 	--diffuse $(MODEL_DIFFUSE) \
 	--max-pose-stream-bytes $(MODEL_MAX_POSE_STREAM_BYTES) \
 	--hud-reserve $(MODEL_HUD_RESERVE) \
+	--merge-quads $(MODEL_MERGE_QUADS) \
+	--quad-max-texel-error $(MODEL_QUAD_MAX_TEXEL_ERROR) \
+	--quad-max-fold-deg $(MODEL_QUAD_MAX_FOLD_DEG) \
+	$(foreach w,$(MODEL_MATERIAL_WEIGHTS),--material-weight $(w)) \
+	--weld-vertices $(MODEL_WELD_VERTICES) \
+	--texture-format $(MODEL_TEXTURE_FORMAT) \
+	--locality-order $(MODEL_LOCALITY_ORDER) \
 	--report $(MODEL_OUT_PREFIX).report.json \
 	$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG) $(MODEL_MERGE_RIGID_MESHES_FLAG)
 $(MODEL_SIGNATURE_FILE): FORCE_MODEL_IMPORT_SIGNATURE $(MODEL_GLB) $(MODEL_IMPORT_SRCS)

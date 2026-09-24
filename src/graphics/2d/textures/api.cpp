@@ -69,7 +69,7 @@ sat_result_t upload_native_from_surface(
     out_native->height = source.height;
     out_native->palette = palette_bank;
     out_native->valid = 1u;
-    out_native->reserved = 0u;
+    out_native->format = SAT_VDP1_TEXTURE_INDEXED8;
     return SAT_OK;
 }
 

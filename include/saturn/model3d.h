@@ -29,13 +29,17 @@ extern "C" {
  * sat_vdp1_texture_t[] / sat_mesh_t storage. The library never allocates.
  */
 
+/* sat_model_texture_asset_t::flags bit: the texture is LUT4 (two texels
+ * per byte) and palette_slot indexes sat_model_asset_t::luts_rgb555. */
+#define SAT_MODEL_TEXTURE_LUT4 0x8000u
+
 typedef struct sat_model_texture_asset {
-    const uint8_t* pixels; /* indexed8, pixel_count == width*height bytes */
+    const uint8_t* pixels; /* indexed8: width*height bytes; LUT4: half that */
     uint16_t width;        /* VDP1-legal: multiple of 8, 8..504 */
     uint16_t height;       /* VDP1-legal: 1..255 */
-    uint16_t palette_slot; /* index into the asset palette list (usually 0) */
-    uint16_t flags;        /* SAT_SPRITE_FLAG_OPAQUE when fully opaque */
-    uint32_t pixel_count;  /* width * height, for size metadata */
+    uint16_t palette_slot; /* palette index (indexed8) or LUT index (LUT4) */
+    uint16_t flags;        /* SAT_SPRITE_FLAG_OPAQUE, SAT_MODEL_TEXTURE_LUT4 */
+    uint32_t pixel_count;  /* width * height texels, for size metadata */
 } sat_model_texture_asset_t;
 
 typedef struct sat_model_asset {
@@ -67,6 +71,10 @@ typedef struct sat_model_asset {
      * The baked per-vertex corrections (sat_anim_vertex_gouraud) brighten or
      * darken it towards each corner. Null when not baked. */
     const uint8_t* face_base_shades;
+    /* LUT4 textures: lut_count tables of 16 RGB555 entries, uploaded to VDP1
+     * VRAM by sat_model_upload_textures. Zero for indexed8-only assets. */
+    const uint16_t* luts_rgb555;
+    uint16_t lut_count;
 } sat_model_asset_t;
 
 /* Validates a compiled-model descriptor without touching hardware.

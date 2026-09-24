@@ -206,6 +206,26 @@ TEST(sprite_pmod_opaque_flag) {
     ASSERT_EQ(compose_sprite_pmod(0xFFFEu), 0x01A0);
 }
 
+TEST(sprite_lut4_selects_lookup_table_mode) {
+    using namespace saturn::core;
+    /* Color mode 001B + ECD: a 0xF nibble must not end the line. */
+    ASSERT_EQ(compose_sprite_pmod(0, SAT_VDP1_TEXTURE_LUT4), 0x0088);
+    ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_OPAQUE, SAT_VDP1_TEXTURE_LUT4), 0x00C8);
+    /* CMDCOLR carries the table address / 8 as-is, not a shifted bank. */
+    ASSERT_EQ(compose_sprite_colr(0x1234, SAT_VDP1_TEXTURE_LUT4), 0x1234);
+    ASSERT_EQ(compose_sprite_colr(3, SAT_VDP1_TEXTURE_INDEXED8), 0x0300);
+
+    sat_vdp1_texture_t tex = {};
+    tex.valid = 1; tex.width = 16; tex.height = 8; tex.srca = 0x2000;
+    tex.palette = 0x2A00; tex.format = SAT_VDP1_TEXTURE_LUT4;
+    sat_distorted_sprite_cmd_t cmd = {};
+    cmd.texture = &tex;
+    ResolvedDistortedSprite out = {};
+    ASSERT_EQ(resolve_distorted_sprite_cmd(&cmd, &out), SAT_OK);
+    ASSERT_EQ(out.format, SAT_VDP1_TEXTURE_LUT4);
+    ASSERT_EQ(out.palette, 0x2A00);
+}
+
 TEST(user_clip_pmod_enables_inside_clip_only) {
     using namespace saturn::core;
     const uint16_t sprite = compose_inside_user_clip_pmod(compose_sprite_pmod(0), true);
@@ -288,6 +308,7 @@ int main() {
     resolve_distorted_sprite_cmd_defaults();
     sprite_pmod_base_matches_normal_sprite();
     sprite_pmod_opaque_flag();
+    sprite_lut4_selects_lookup_table_mode();
     user_clip_pmod_enables_inside_clip_only();
     sprite_colr_shifts_bank_to_high_byte();
     sprite_cmd_select_values();

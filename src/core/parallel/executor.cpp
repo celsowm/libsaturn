@@ -74,6 +74,7 @@ void publish_range(uint32_t address, uint32_t size) {
     if (size == 0u) return;
     const uint32_t end = address + size;
     if (end < address) return;
+    if (saturn::hal::sh2::cache::invalidate_range(address, size)) return;
     for (uint32_t line = address & ~(saturn::hal::sh2::cache::kLineBytes - 1u);
          line < end; line += saturn::hal::sh2::cache::kLineBytes) {
         (void)saturn::hal::sh2::cache::invalidate_line(line);

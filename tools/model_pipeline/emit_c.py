@@ -65,6 +65,8 @@ def emit_animated_c_h(
     nt = len(static_result.textures)
     na = len(animations)
     has_palette = bool(static_result.palette_rgb555)
+    luts = list(getattr(static_result, "luts_rgb555", None) or [])
+    nl = len(luts) // 16
     shade = list(getattr(static_result, "shade_palette_rgb555", None) or [])
     base = list(getattr(static_result, "face_base_shades", None) or [])
 
@@ -89,6 +91,8 @@ def emit_animated_c_h(
         header_lines.append(f"extern const sat_model_texture_asset_t {sym}_textures[{nt}];")
     if has_palette:
         header_lines.append("extern const uint16_t " + f"{sym}_palette[256];")
+    if nl:
+        header_lines.append(f"extern const uint16_t {sym}_luts[{nl * 16}];")
     if shade:
         header_lines.append(f"extern const uint16_t {sym}_shade_palette[{len(shade)}];")
     if base:
@@ -164,7 +168,7 @@ def emit_animated_c_h(
         for i, tex in enumerate(static_result.textures):
             parts.append(
                 f"    {{{sym}_tex{i}_pixels, {tex['width']}u, {tex['height']}u, "
-                f"0u, {tex['flags']}u, {tex['pixel_count']}u}},"
+                f"{tex.get('palette_slot', 0)}u, {tex['flags']}u, {tex['pixel_count']}u}},"
             )
         parts.append("};")
         parts.append("")
@@ -173,6 +177,11 @@ def emit_animated_c_h(
         body = format_word_array(static_result.palette_rgb555)
         if body:
             parts.append(body)
+        parts.append("};")
+        parts.append("")
+    if nl:
+        parts.append(f"const uint16_t {sym}_luts[{nl * 16}] = {{")
+        parts.append(format_word_array(luts))
         parts.append("};")
         parts.append("")
     if shade:
@@ -199,7 +208,9 @@ def emit_animated_c_h(
     parts.append("    0u,")
     parts.append(f"    {sym}_shade_palette," if shade else "    0,")
     parts.append(f"    {len(shade)}u,")
-    parts.append(f"    {sym}_face_base_shades" if base else "    0")
+    parts.append(f"    {sym}_face_base_shades," if base else "    0,")
+    parts.append(f"    {sym}_luts," if nl else "    0,")
+    parts.append(f"    {nl}u")
     parts.append("};")
     parts.append("")
     for i, anim in enumerate(animations):

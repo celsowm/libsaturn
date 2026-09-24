@@ -34,6 +34,7 @@ struct SpriteRequest {
     uint16_t srca;
     uint16_t palette;
     uint16_t flags;
+    uint16_t format;
     bool user_clip;
 };
 
@@ -45,6 +46,7 @@ struct ScaledSpriteRequest {
     uint16_t srca;
     uint16_t palette;
     uint16_t flags;
+    uint16_t format;
     bool user_clip;
 };
 
@@ -56,6 +58,7 @@ struct DistortedSpriteRequest {
     uint16_t srca;
     uint16_t palette;
     uint16_t flags;
+    uint16_t format;
     bool user_clip;
 };
 
@@ -117,6 +120,17 @@ sat_result_t upload_texture_indexed8_pitched(
     uint16_t* out_srca);
 
 sat_result_t upload_texture_indexed8(
+    const uint8_t* pixels,
+    uint16_t width,
+    uint16_t height,
+    uint16_t* out_srca);
+
+/* Allocates and writes a 16-entry color lookup table; *out_colr is the
+ * CMDCOLR value (VRAM address / 8, 32-byte aligned, never 0). */
+sat_result_t upload_lut(const uint16_t* lut_rgb555, uint16_t* out_colr);
+
+/* Allocates and writes a 4 bits-per-texel character pattern. */
+sat_result_t upload_texture_lut4(
     const uint8_t* pixels,
     uint16_t width,
     uint16_t height,

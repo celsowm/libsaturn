@@ -15,13 +15,24 @@ extern "C" {
 /* Hardware-facing representation. srca is a VDP1 VRAM character address and
  * palette is a CRAM bank. Game-facing/runtime texture APIs must not expose
  * this structure. */
+/* Character pattern formats.
+ *
+ * INDEXED8: one byte per texel, a color bank (`palette`) in VDP2 CRAM.
+ * LUT4: four bits per texel, leftmost texel in the high nibble, looked up in
+ *   a 16-entry RGB555 table in VDP1 VRAM (`palette` holds the table address
+ *   / 8, as CMDCOLR takes it). Half the VRAM of INDEXED8, a palette per
+ *   texture instead of a shared bank, and the texels reach the framebuffer
+ *   as RGB codes. */
+#define SAT_VDP1_TEXTURE_INDEXED8 0u
+#define SAT_VDP1_TEXTURE_LUT4 1u
+
 typedef struct sat_vdp1_texture {
     uint16_t srca;
     uint16_t width;
     uint16_t height;
     uint16_t palette;
     uint16_t valid;
-    uint16_t reserved;
+    uint16_t format; /* SAT_VDP1_TEXTURE_INDEXED8 (0) or SAT_VDP1_TEXTURE_LUT4 */
 } sat_vdp1_texture_t;
 
 /* Sprite flags                                                        */
@@ -106,6 +117,23 @@ sat_result_t sat_tex_upload_indexed8_pixels(
     uint16_t width,
     uint16_t height,
     uint16_t palette_index
+);
+
+/* Uploads a 16-entry RGB555 color lookup table to VDP1 VRAM and returns its
+ * CMDCOLR handle for sat_tex_upload_lut4_pixels. Entries are written to the
+ * framebuffer as-is: give them the RGB bit (0x8000) to mix with color-bank
+ * sprites. Tables may be shared by any number of LUT4 textures. */
+sat_result_t sat_vdp1_upload_lut(const uint16_t* lut_rgb555, uint16_t* out_lut);
+
+/* Uploads a LUT4 character pattern: width * height / 2 bytes, two texels per
+ * byte with the leftmost in the high nibble. `lut` is a handle returned by
+ * sat_vdp1_upload_lut. Width is a multiple of 8 as for INDEXED8. */
+sat_result_t sat_tex_upload_lut4_pixels(
+    sat_vdp1_texture_t* out_texture,
+    const uint8_t* pixels,
+    uint16_t width,
+    uint16_t height,
+    uint16_t lut
 );
 
 /* Call immediately after sat_begin_frame to reserve command-list slots for

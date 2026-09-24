@@ -46,6 +46,11 @@ class SimplificationOptions:
     preserve_boundaries: bool = True
     animation_weight: float = 1.0
     silhouette_weight: float = 1.0
+    # Collapse-cost multiplier per material index (default 1.0). Below 1.0
+    # spends fewer triangles on that material: small solid details such as
+    # teeth keep their shape at a fraction of the source density, leaving
+    # the triangle budget to the textured surface.
+    material_weights: dict[int, float] | None = None
 
 
 @dataclass
@@ -554,6 +559,10 @@ def simplify(
             g_sil[keep] + g_sil[drop]
         ) * 0.5 * opts.silhouette_weight
         mult *= 1.0 + imp
+        if opts.material_weights:
+            # The most protected material touching either end decides, so a
+            # boundary with a full-weight material is never cheapened.
+            mult *= max(opts.material_weights.get(m, 1.0) for m in drop_mats | keep_mats)
         return cost * mult, remap
 
     seq = itertools.count()

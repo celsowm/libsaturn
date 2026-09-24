@@ -359,16 +359,25 @@ constexpr uint16_t kVdp1SpritePmodBase = 0x00A0u;
 
 /* Composes CMDPMOD for a scaled/distorted sprite. bit 6 = opaque flag,
  * mirrored from SAT_SPRITE_FLAG_OPAQUE, forcing every texel to be drawn. */
-inline uint16_t compose_sprite_pmod(uint16_t flags) {
+/* LUT4 keeps end codes disabled (a 0xF nibble would otherwise end the line)
+ * and selects color mode 001B, lookup table. */
+constexpr uint16_t kVdp1SpritePmodLut4Base = 0x0088u;
+
+inline uint16_t compose_sprite_pmod(uint16_t flags,
+                                    uint16_t format = SAT_VDP1_TEXTURE_INDEXED8) {
     return static_cast<uint16_t>(
-        kVdp1SpritePmodBase |
+        (format == SAT_VDP1_TEXTURE_LUT4 ? kVdp1SpritePmodLut4Base
+                                         : kVdp1SpritePmodBase) |
         ((flags & SAT_SPRITE_FLAG_OPAQUE) != 0u ? 0x0040u : 0u) |
         ((flags & SAT_SPRITE_FLAG_MESH) != 0u ? 0x0100u : 0u));
 }
 
 /* Composes CMDCOLR for a sprite-family command. Color mode 100B uses the
- * 16-bit color bank number in bits 15..8, hence the << 8. */
-inline uint16_t compose_sprite_colr(uint16_t palette) {
+ * 16-bit color bank number in bits 15..8, hence the << 8. In lookup-table
+ * mode `palette` already is the table address / 8. */
+inline uint16_t compose_sprite_colr(uint16_t palette,
+                                    uint16_t format = SAT_VDP1_TEXTURE_INDEXED8) {
+    if (format == SAT_VDP1_TEXTURE_LUT4) return palette;
     return static_cast<uint16_t>(palette << 8u);
 }
 
@@ -391,6 +400,7 @@ struct ResolvedScaledSprite {
     uint16_t srca;
     uint16_t palette;
     uint16_t flags;
+    uint16_t format;
 };
 
 inline sat_result_t resolve_scaled_sprite_cmd(
@@ -412,6 +422,7 @@ inline sat_result_t resolve_scaled_sprite_cmd(
     out->srca = cmd->texture->srca;
     out->palette = (cmd->palette_override != 0u) ? cmd->palette_override : cmd->texture->palette;
     out->flags = cmd->flags;
+    out->format = cmd->texture->format;
     return SAT_OK;
 }
 
@@ -423,6 +434,7 @@ struct ResolvedDistortedSprite {
     uint16_t srca;
     uint16_t palette;
     uint16_t flags;
+    uint16_t format;
 };
 
 inline sat_result_t resolve_distorted_sprite_cmd(
@@ -444,6 +456,7 @@ inline sat_result_t resolve_distorted_sprite_cmd(
     out->srca = cmd->texture->srca;
     out->palette = (cmd->palette_override != 0u) ? cmd->palette_override : cmd->texture->palette;
     out->flags = cmd->flags;
+    out->format = cmd->texture->format;
     return SAT_OK;
 }
 
@@ -456,6 +469,7 @@ struct ResolvedSprite {
     uint16_t srca;
     uint16_t palette;
     uint16_t flags;
+    uint16_t format;
 };
 
 inline sat_result_t resolve_sprite_cmd(
@@ -477,6 +491,7 @@ inline sat_result_t resolve_sprite_cmd(
     out->srca = cmd->texture->srca;
     out->palette = (cmd->palette_override != 0u) ? cmd->palette_override : cmd->texture->palette;
     out->flags = cmd->flags;
+    out->format = cmd->texture->format;
     return SAT_OK;
 }
 

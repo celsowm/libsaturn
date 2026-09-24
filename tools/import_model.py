@@ -58,6 +58,7 @@ from model_pipeline import lod as lod_mod
 from model_pipeline import metrics as metrics_mod
 from model_pipeline import model as srcmodel
 from model_pipeline import pose_bake
+from model_pipeline import quad_merge as quad_merge_mod
 from model_pipeline import saturn_profile as saturn_profile_mod
 from model_pipeline import silhouette as sil_mod
 from model_pipeline import simplification as simp_mod
@@ -765,6 +766,49 @@ def _quantize_colors(
     return ranked + tail
 
 
+def quantize_face_lut4(
+    rgba: list[tuple[int, int, int, int]], width: int, height: int,
+) -> tuple[list[int], bytes]:
+    """One baked face as a LUT4 texture: (16 RGB555 entries, packed texels).
+
+    Each face gets its own palette, fitted to the few colors a small patch of
+    the source texture actually holds, instead of sharing one 256-color bank
+    across the whole model. Texel code 0 is left unused: with the sprite's
+    transparency code active it would punch a hole, so a face keeps 15
+    colors. Colors are reduced to RGB555 first -- the hardware cannot show
+    the difference, and it lets a face with few distinct colors keep them
+    exactly. Entries are sorted so faces with the same colors share a table.
+    Texels pack two per byte, leftmost in the high nibble.
+    """
+    from PIL import Image
+
+    rgb555 = [rgb888_to_rgb555(r, g, b) for (r, g, b, _a) in rgba]
+    distinct = sorted(set(rgb555))
+    if len(distinct) <= 15:
+        colors = distinct
+        index_of = {c: i for i, c in enumerate(colors)}
+        codes = [index_of[c] for c in rgb555]
+    else:
+        img = Image.new("RGB", (width, height))
+        img.putdata([(r, g, b) for (r, g, b, _a) in rgba])
+        q = img.quantize(colors=15, method=Image.Quantize.MEDIANCUT, kmeans=2,
+                         dither=Image.Dither.NONE)
+        pal = q.getpalette() or []
+        indices = list(q.tobytes())  # mode "P": one palette index per byte
+        raw = {i: rgb888_to_rgb555(pal[i * 3], pal[i * 3 + 1], pal[i * 3 + 2])
+               for i in set(indices)}
+        colors = sorted(set(raw.values()))
+        index_of = {c: i for i, c in enumerate(colors)}
+        codes = [index_of[raw[i]] for i in indices]
+    lut = [colors[0]] + colors + [colors[-1]] * (15 - len(colors))
+    packed = bytearray()
+    for y in range(height):
+        row = codes[y * width:(y + 1) * width]
+        for x in range(0, width, 2):
+            packed.append(((row[x] + 1) << 4) | (row[x + 1] + 1))
+    return lut, bytes(packed)
+
+
 def map_faces_to_indices(
     baked_rgba: list[list[tuple[int, int, int, int]]],
     face_sizes: list[tuple[int, int]],
@@ -838,6 +882,8 @@ class ImportResult:
     shade_palette_rgb555: list[int] | None = None
     # Solid-color assets: each face's Gouraud base shade (palette index).
     face_base_shades: list[int] | None = None
+    # LUT4 assets: 16 RGB555 entries per table, flattened.
+    luts_rgb555: list[int] | None = None
 
 
 def import_model(
@@ -1089,7 +1135,9 @@ def emit_c_h(
     parts.append("    0u,")
     parts.append("    0,")
     parts.append("    0u,")
-    parts.append("    0")
+    parts.append("    0,")
+    parts.append("    0,")
+    parts.append("    0u")
     parts.append("};")
     parts.append("")
     source_path.write_text("\n".join(parts), encoding="utf-8")
@@ -1260,6 +1308,109 @@ def _glb_winding(tris, uvs, reverse_winding):
     return quads, quad_uvs
 
 
+def _polygon_winding(polys, uvs, reverse_winding):
+    """Source CCW triangles and merged quads to LibSaturn A/B/C/D faces.
+
+    Same convention as _glb_winding: the default reverses to clockwise,
+    and a triangle repeats its last corner so its baked rectangle collapses
+    with the geometric quad.
+    """
+    quads, quad_uvs = [], []
+    for poly in polys:
+        order = list(poly) if reverse_winding else [poly[0]] + list(reversed(poly[1:]))
+        if len(order) == 3:
+            order.append(order[2])
+        quads.append(tuple(order))
+        quad_uvs.append(tuple(uvs[i] for i in order))
+    return quads, quad_uvs
+
+
+def _cheapest_rotation(quad, quad_uv, img_w, img_h, texture_scale, max_w, max_h):
+    """Cyclic corner rotation whose baked rectangle needs the fewest texels.
+
+    Every rotation draws the same outline and keeps the winding; it only
+    decides which edge runs along the texture rows. Ties keep the original
+    order so output stays deterministic.
+    """
+    best = None
+    for r in range(4):
+        q = quad[r:] + quad[:r]
+        uv = quad_uv[r:] + quad_uv[:r]
+        w, h = estimate_face_size(uv, img_w, img_h, texture_scale)
+        w = max(8, ((w + 7) // 8) * 8)
+        if w > max_w or h > max_h:
+            continue
+        if best is None or w * h < best[0]:
+            best = (w * h, q, uv)
+    if best is None:
+        return quad, quad_uv
+    return best[1], best[2]
+
+
+def _resolve_material_weights(model, specs) -> dict[int, float]:
+    """``NAME=W`` / ``INDEX=W`` strings to {material index: weight}."""
+    weights: dict[int, float] = {}
+    names = [m.get("name") for m in model.materials]
+    for spec in specs or []:
+        key, sep, value = spec.rpartition("=")
+        if not sep or not key:
+            raise ImportError(f"--material-weight expects NAME=WEIGHT (got {spec!r})")
+        try:
+            weight = float(value)
+        except ValueError:
+            raise ImportError(f"--material-weight {spec!r}: weight is not a number")
+        if weight <= 0.0:
+            raise ImportError(f"--material-weight {spec!r}: weight must be positive")
+        if key in names:
+            index = names.index(key)
+        elif key.isdigit() and int(key) < len(names):
+            index = int(key)
+        else:
+            raise ImportError(f"--material-weight {spec!r}: no material {key!r} "
+                              f"(have: {', '.join(str(n) for n in names)})")
+        weights[index] = weight
+    return weights
+
+
+def _locality_order(quads, face_texture_indices, vertices_fx, animations, positions):
+    """Reorder faces along the model's longest axis and vertices by first use.
+
+    Any contiguous run of faces then touches a mostly contiguous run of
+    vertices, so a caller that splits the face list between CPUs can hand
+    each one a vertex window instead of the whole pose to project. Returns
+    the reordered (quads, face_texture_indices, vertices_fx) and rewrites the
+    animation pose streams in place.
+    """
+    lo = [min(p[a] for p in positions) for a in range(3)]
+    hi = [max(p[a] for p in positions) for a in range(3)]
+    axis = max(range(3), key=lambda a: hi[a] - lo[a])
+    key = [sum(positions[i][axis] for i in q) / 4.0 for q in quads]
+    face_order = sorted(range(len(quads)), key=lambda f: (key[f], f))
+    new_of: dict[int, int] = {}
+    for f in face_order:
+        for i in quads[f]:
+            if i not in new_of:
+                new_of[i] = len(new_of)
+    for i in range(len(vertices_fx)):  # unreferenced vertices keep a slot
+        if i not in new_of:
+            new_of[i] = len(new_of)
+    old_at = [0] * len(new_of)
+    for old, new in new_of.items():
+        old_at[new] = old
+    for anim in animations:
+        nv = anim["vertex_count"]
+        stream = anim["stream"]
+        out: list[int] = []
+        for frame in range(anim["frame_count"]):
+            base = frame * nv * 3
+            for old in old_at:
+                out.extend(stream[base + old * 3: base + old * 3 + 3])
+        anim["stream"] = out
+    return ([tuple(new_of[i] for i in quads[f]) for f in face_order],
+            [face_texture_indices[f] for f in face_order],
+            [vertices_fx[old] for old in old_at])
+
+
 def import_animated_model(
     glb_path: Path,
     scale: float = 1.0,
@@ -1289,6 +1440,13 @@ def import_animated_model(
     light_dir=(-0.5, 0.6, 0.8),
     ambient: float = 0.35,
     diffuse: float = 0.75,
+    merge_quads: bool = False,
+    quad_max_texel_error: float = 1.0,
+    quad_max_fold_deg: float = 30.0,
+    material_weights: list[str] | None = None,
+    weld_vertices: bool = False,
+    texture_format: str = "indexed8",
+    locality_order: bool = False,
 ) -> AnimatedImportResult:
     if palette_index < 0 or palette_index > 7:
         raise ImportError(f"--palette-index must be in 0..7 (got {palette_index})")
@@ -1304,6 +1462,17 @@ def import_animated_model(
         raise ImportError(f"--texture-scale must be positive (got {texture_scale})")
     if scale <= 0.0:
         raise ImportError(f"--scale must be positive (got {scale})")
+    if texture_format not in ("indexed8", "lut4"):
+        raise ImportError(f"--texture-format must be indexed8|lut4 (got {texture_format!r})")
+    if locality_order and face_colors != "off":
+        raise ImportError("--locality-order is for textured faces; solid-color "
+                          "shade streams are baked in source face order")
+    if weld_vertices and face_colors != "off":
+        raise ImportError("--weld-vertices is for textured faces; --face-colors "
+                          "already welds and bakes per-vertex light")
+    if merge_quads and face_colors != "off":
+        raise ImportError("--merge-quads needs textured faces (--face-colors off): "
+                          "solid-color shades are baked per triangle")
     if quality not in metrics_mod.QUALITY_PRESETS:
         raise ImportError(f"unknown --quality {quality!r}")
 
@@ -1315,6 +1484,7 @@ def import_animated_model(
     except gltf_mod.GltfError as exc:
         raise ImportError(str(exc))
     stats = srcmodel.source_stats(model)
+    material_weight_map = _resolve_material_weights(model, material_weights)
     # Solid-color mode replaces the model BEFORE importance, poses and
     # simplification: every later stage then works on the welded vertices.
     color_report: dict = {"mode": face_colors, "enabled": False}
@@ -1398,7 +1568,8 @@ def import_animated_model(
             model, anim_importance=anim_imp, sil_importance=sil_imp,
             options=simp_mod.SimplificationOptions(
                 target_triangles=len(model.triangles), quality=quality,
-                animation_weight=animation_weight, silhouette_weight=silhouette_weight),
+                animation_weight=animation_weight, silhouette_weight=silhouette_weight,
+                material_weights=material_weight_map),
             pose_positions=all_poses,
         )
         quality_report = metrics_mod.evaluate_candidate(
@@ -1423,7 +1594,8 @@ def import_animated_model(
                 model, first_clip, requested, quality,
                 simp_mod.SimplificationOptions(
                     target_triangles=requested, quality=quality,
-                    animation_weight=animation_weight, silhouette_weight=silhouette_weight),
+                    animation_weight=animation_weight, silhouette_weight=silhouette_weight,
+                    material_weights=material_weight_map),
                 anim_importance=anim_imp, sil_importance=sil_imp,
                 times=metric_times, pose_positions=all_poses,
                 # An explicit numeric --simplify target is a floor: honor the
@@ -1433,7 +1605,9 @@ def import_animated_model(
         except gltf_mod.GltfError as exc:
             raise ImportError(str(exc))
     delivered = len(simp.triangles)
-    if face_cap is not None and delivered > face_cap:
+    # Merged quads are checked against the command cap once they exist: a
+    # pair costs one command, so the triangle count may exceed the cap.
+    if face_cap is not None and delivered > face_cap and not merge_quads:
         raise ImportError(saturn_profile_mod.format_hard_failure(
             delivered, face_cap,
             f"smallest {quality}-valid mesh has {delivered} triangles"))
@@ -1450,13 +1624,37 @@ def import_animated_model(
     # Bake per-clip pose frames on the shared simplified topology.
     simp_view = metrics_mod.simplified_as_source(simp, model)
     animations: list[dict] = []
+    all_frames: list = []
+    clip_frames: dict[int, list] = {}
+    for ci in clip_ids:
+        frames = anim_eval.bake_clip_poses(simp_view, model.clips[ci], per_clip_times[ci])
+        clip_frames[ci] = [[_flip(p) for p in frame] for frame in frames]
+        all_frames.extend(clip_frames[ci])
+    # Runtime vertices: every simplified vertex, or one per point that moves
+    # identically in every frame. Faces bake their textures from source UVs
+    # at import time, so the Saturn never needs a UV-split copy.
+    runtime_of = list(range(len(simp.positions)))
+    runtime_src = list(range(len(simp.positions)))
+    if weld_vertices:
+        runtime_src = []
+        seen: dict[tuple, int] = {}
+        for vi, p in enumerate(simp.positions):
+            key = (tuple(round(c, 7) for c in p),) + tuple(
+                tuple(round(c, 7) for c in frame[vi]) for frame in all_frames)
+            if key not in seen:
+                seen[key] = len(runtime_src)
+                runtime_src.append(vi)
+            runtime_of[vi] = seen[key]
+    weld_report = {"enabled": bool(weld_vertices),
+                   "vertices_before": len(simp.positions),
+                   "vertices_after": len(runtime_src)}
     for ci in clip_ids:
         clip = model.clips[ci]
         times = per_clip_times[ci]
-        frames = anim_eval.bake_clip_poses(simp_view, clip, times)
-        frames = [[_flip(p) for p in frame] for frame in frames]
+        frames = clip_frames[ci]
         baked = pose_bake.quantize_frames(
-            frames, scale=scale, bbox_diagonal=simp_view.bbox_diagonal() * scale)
+            [[frame[vi] for vi in runtime_src] for frame in frames],
+            scale=scale, bbox_diagonal=simp_view.bbox_diagonal() * scale)
         if face_levels:
             baked["shades"] = face_color_mod.bake_shades(
                 frames, simp.triangles, simp.tri_materials, face_levels, light,
@@ -1476,9 +1674,31 @@ def import_animated_model(
     # Static geometry: bind pose with flips/scale, LibSaturn winding.
     bind = [_flip(p) for p in simp.positions]
     bind = [(x * scale, y * scale, z * scale) for (x, y, z) in bind]
-    quads, quad_uvs = _glb_winding(simp.triangles, simp.uvs, reverse_winding)
+    quad_report = {"enabled": False}
+    if merge_quads:
+        texel_scales = {}
+        for mt, mat in enumerate(model.materials):
+            if "texture" in mat:
+                tex = model.textures[mat["texture"]]
+                texel_scales[mt] = (tex.width * texture_scale, tex.height * texture_scale)
+        polys, poly_materials, quad_report = quad_merge_mod.merge_quads(
+            simp.triangles, simp.tri_materials, simp.uvs,
+            [_flip(p) for p in simp.positions], all_frames, texel_scales,
+            quad_merge_mod.QuadMergeOptions(
+                max_texel_error=quad_max_texel_error, max_fold_deg=quad_max_fold_deg))
+        quads, quad_uvs = _polygon_winding(polys, simp.uvs, reverse_winding)
+        face_materials = poly_materials
+        delivered = len(quads)
+        if face_cap is not None and delivered > face_cap:
+            raise ImportError(saturn_profile_mod.format_hard_failure(
+                delivered, face_cap,
+                f"{len(simp.triangles)} triangles merge to {delivered} faces"))
+    else:
+        quads, quad_uvs = _glb_winding(simp.triangles, simp.uvs, reverse_winding)
+        face_materials = simp.tri_materials
     # Compact bind arrays in simplified order (simp.positions already is).
-    vertices_fx = [(float_to_fx16(x), float_to_fx16(y), float_to_fx16(z)) for (x, y, z) in bind]
+    vertices_fx = [(float_to_fx16(x), float_to_fx16(y), float_to_fx16(z))
+                   for (x, y, z) in (bind[vi] for vi in runtime_src)]
     for i, (x, y, z) in enumerate(vertices_fx):
         if not -(2**31) <= x < 2**31 or not -(2**31) <= y < 2**31 or not -(2**31) <= z < 2**31:
             raise ImportError(f"vertex {i} overflows 16.16 fixed point (reduce --scale)")
@@ -1491,7 +1711,7 @@ def import_animated_model(
     for qi, ((a, b, c, d), (ua, ub, uc, ud)) in enumerate(zip(quads, quad_uvs)):
         if face_levels:
             break
-        mt = simp.tri_materials[qi]
+        mt = face_materials[qi]
         mat = model.materials[mt] if mt < len(model.materials) else {}
         if "texture" not in mat:
             raise ImportError(
@@ -1500,6 +1720,11 @@ def import_animated_model(
                 "on every material)"
             )
         tex = model.textures[mat["texture"]]
+        if merge_quads:
+            (a, b, c, d), (ua, ub, uc, ud) = _cheapest_rotation(
+                (a, b, c, d), (ua, ub, uc, ud), tex.width, tex.height, texture_scale,
+                max_texture_width, max_texture_height)
+            quads[qi] = (a, b, c, d)
         est_w, est_h = estimate_face_size((ua, ub, uc, ud), tex.width, tex.height, texture_scale)
         out_w, out_h = conform_size(est_w, est_h, max_texture_width, max_texture_height,
                                     mat.get("name"), qi)
@@ -1511,11 +1736,27 @@ def import_animated_model(
     shade_palette = None
     face_base = None
     has_transparency = False
+    luts: list[tuple[int, ...]] = []
+    face_luts: list[int] = []
     if face_levels:
         palette_rgb555: list[int] = []
         indexed_faces: list = []
         shade_palette = face_color_mod.shade_palette(base_colors, face_levels, ambient, diffuse)
         face_base = face_color_mod.face_base_shades(simp.tri_materials, face_levels)
+    elif texture_format == "lut4":
+        if any(a < 128 for face in baked_rgba for (_, _, _, a) in face):
+            raise ImportError("--texture-format lut4 needs opaque textures")
+        palette_rgb555 = []
+        indexed_faces = []
+        lut_of: dict[tuple[int, ...], int] = {}
+        for rgba, (w, h) in zip(baked_rgba, face_sizes):
+            lut, packed = quantize_face_lut4(rgba, w, h)
+            key = tuple(lut)
+            if key not in lut_of:
+                lut_of[key] = len(luts)
+                luts.append(key)
+            face_luts.append(lut_of[key])
+            indexed_faces.append(packed)
     else:
         palette_rgb888, has_transparency, _ = build_shared_palette(baked_rgba)
         indexed_faces = map_faces_to_indices(baked_rgba, face_sizes, palette_rgb888)
@@ -1526,20 +1767,31 @@ def import_animated_model(
             palette_rgb555.append(0x0000)
         palette_rgb555 = palette_rgb555[:256]
     opaque_flag = 0x0001 if not has_transparency else 0x0000
+    if luts:
+        opaque_flag |= 0x8000  # SAT_MODEL_TEXTURE_LUT4
     unique: list[dict] = []
     key_to_index: dict[tuple, int] = {}
     face_texture_indices: list[int] = [0xFFFF] * len(quads) if face_levels else []
-    for (w, h), pixels in zip(face_sizes, indexed_faces):
-        key = (w, h, bytes(pixels), 0, opaque_flag)
+    for fi, ((w, h), pixels) in enumerate(zip(face_sizes, indexed_faces)):
+        slot = face_luts[fi] if luts else 0
+        key = (w, h, bytes(pixels), slot, opaque_flag)
         if key in key_to_index:
             face_texture_indices.append(key_to_index[key])
         else:
             idx = len(unique)
             key_to_index[key] = idx
             unique.append({"width": w, "height": h, "pixels": bytes(pixels),
-                           "flags": opaque_flag, "pixel_count": w * h})
+                           "flags": opaque_flag, "pixel_count": w * h,
+                           "palette_slot": slot})
             face_texture_indices.append(idx)
+    luts_rgb555 = [c for lut in luts for c in lut]
 
+    # Faces baked from simplified-vertex UVs; now point them at runtime ones.
+    quads = [tuple(runtime_of[i] for i in q) for q in quads]
+    if locality_order:
+        quads, face_texture_indices, vertices_fx = _locality_order(
+            quads, face_texture_indices, vertices_fx, animations,
+            [all_frames[0][vi] for vi in runtime_src])
     static = ImportResult(
         vertices_fx=vertices_fx,
         indices_abcd=quads,
@@ -1550,9 +1802,12 @@ def import_animated_model(
         stats={},
         shade_palette_rgb555=shade_palette,
         face_base_shades=face_base,
+        luts_rgb555=luts_rgb555,
     )
-    indexed_bytes = sum(t["pixel_count"] for t in unique)
-    vram_est = sum(((t["pixel_count"] + 7) & ~7) for t in unique)
+    # VRAM per texture is its stored bytes; each LUT is another 32.
+    texture_sizes = [len(t["pixels"]) for t in unique] + [32] * len(luts)
+    indexed_bytes = sum(texture_sizes)
+    vram_est = sum(((n + 7) & ~7) for n in texture_sizes)
     largest = max((t["width"] * t["height"], t["width"], t["height"]) for t in unique) if unique else (0, 0, 0)
     shade_bytes = sum(len(a.get("shades") or []) for a in animations)
     gouraud_bytes = sum(len(a.get("vertex_gouraud") or []) for a in animations)
@@ -1564,7 +1819,7 @@ def import_animated_model(
     pose_bytes = sum(a["pose_bytes"] for a in animations) + shade_bytes + gouraud_bytes
     resource_report = saturn_profile_mod.check_resources(
         profile, faces=delivered, texture_payload_bytes=indexed_bytes,
-        texture_sizes=[t["pixel_count"] for t in unique],
+        texture_sizes=texture_sizes,
         pose_stream_bytes=pose_bytes)
     if not resource_report["passed"]:
         raise ImportError(saturn_profile_mod.format_hard_failure(
@@ -1608,6 +1863,8 @@ def import_animated_model(
             "clip_durations": {model.clips[ci].name: model.clips[ci].duration for ci in clip_ids},
         },
         "simplification": {**simp.report, "quality_preset": quality},
+        "quad_merge": quad_report,
+        "vertex_weld": weld_report,
         "animation_quality": quality_report,
         "saturn_animation": [
             {
@@ -1627,6 +1884,8 @@ def import_animated_model(
         "textures": {
             "baked_faces": len(baked_rgba),
             "unique_textures": len(unique),
+            "format": texture_format if not face_levels else "none",
+            "luts": len(luts),
             "indexed_pixel_bytes": indexed_bytes,
             "palette_bytes": 512,
             "estimated_vram_bytes": vram_est,
@@ -1664,6 +1923,13 @@ def print_animated_stats(report: dict) -> None:
               f"shade bytes {colors['shade_bytes']}, Gouraud bytes {colors['gouraud_bytes']}")
     elif colors.get("mode", "off") != "off":
         print(f"face colors: not used ({colors.get('reason')})")
+    quads = report.get("quad_merge", {})
+    if quads.get("enabled"):
+        print(f"quad merge: {quads['source_triangles']} triangles -> {quads['polygons']} faces "
+              f"({quads['merged_quads']} quads, {quads['single_triangles']} triangles)")
+    weld = report.get("vertex_weld", {})
+    if weld.get("enabled"):
+        print(f"vertex weld: {weld['vertices_before']} -> {weld['vertices_after']} runtime vertices")
     print(f"unique textures: {report['textures']['unique_textures']}")
     print(f"texture VRAM estimate: {report['textures']['estimated_vram_bytes']}")
     vdp1 = report["vdp1"]
@@ -1721,6 +1987,28 @@ def main() -> int:
                         help="Baked light floor for --face-colors (linear)")
     parser.add_argument("--diffuse", type=float, default=0.75,
                         help="Baked directional light strength for --face-colors (linear)")
+    parser.add_argument("--merge-quads", default="off", choices=("off", "on"),
+                        help="Animated GLB: draw adjacent triangle pairs as one VDP1 quad "
+                             "when the texture mapping and fold allow it (default off)")
+    parser.add_argument("--quad-max-texel-error", type=float, default=1.0,
+                        help="Largest baked-texel shift a merged quad may introduce (default 1.0)")
+    parser.add_argument("--quad-max-fold-deg", type=float, default=30.0,
+                        help="Largest fold between merged triangles in any frame (default 30)")
+    parser.add_argument("--locality-order", default="off", choices=("off", "on"),
+                        help="Animated GLB, textured: order faces along the longest axis and "
+                             "vertices by first use, so a split face list touches split "
+                             "vertex ranges (default off)")
+    parser.add_argument("--texture-format", default="indexed8", choices=("indexed8", "lut4"),
+                        help="Animated GLB textures: indexed8 (one shared 256-color bank) or "
+                             "lut4 (4 bits per texel, 15 colors per face in VDP1 lookup "
+                             "tables: half the VRAM) (default indexed8)")
+    parser.add_argument("--weld-vertices", default="off", choices=("off", "on"),
+                        help="Animated GLB, textured: store one runtime vertex per point "
+                             "that moves identically in every frame, dropping UV-split "
+                             "copies (default off)")
+    parser.add_argument("--material-weight", action="append", default=[],
+                        help="Animated GLB: NAME=W or INDEX=W simplification cost weight for "
+                             "one material; below 1 spends fewer triangles on it (repeatable)")
     parser.add_argument("--report", default=None, help="JSON report path (animated path)")
     parser.add_argument("--incremental", action="store_true",
                         help="Skip import when inputs, options, tools and outputs match")
@@ -1851,6 +2139,13 @@ def _main_animated(args) -> int:
             light_dir=args.light_dir,
             ambient=args.ambient,
             diffuse=args.diffuse,
+            merge_quads=args.merge_quads == "on",
+            quad_max_texel_error=args.quad_max_texel_error,
+            quad_max_fold_deg=args.quad_max_fold_deg,
+            material_weights=args.material_weight,
+            weld_vertices=args.weld_vertices == "on",
+            texture_format=args.texture_format,
+            locality_order=args.locality_order == "on",
         )
         header_path, source_path = emit_anim.emit_animated_c_h(
             result.static, result.animations, Path(args.out_prefix), args.symbol)

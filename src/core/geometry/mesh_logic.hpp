@@ -181,11 +181,55 @@ inline sat_result_t face_normal(const sat_mesh_t* mesh, uint16_t face, sat_vec3_
     return SAT_OK;
 }
 
+/* Full 64-bit cross product, the unscaled form of vec3_cross_scaled. */
+inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) {
+    out[0] = (static_cast<int64_t>(a.y) * b.z) - (static_cast<int64_t>(a.z) * b.y);
+    out[1] = (static_cast<int64_t>(a.z) * b.x) - (static_cast<int64_t>(a.x) * b.z);
+    out[2] = (static_cast<int64_t>(a.x) * b.y) - (static_cast<int64_t>(a.y) * b.x);
+}
+
 /* A face is visible when its outward normal has a component towards the eye,
  * i.e. dot(normal, eye - center) > 0. The scaled normal is enough: scaling by
- * a positive factor cannot change the sign. */
+ * a positive factor cannot change the sign.
+ *
+ * Backface culling asks this of every face every frame, and scaling the
+ * normal on the SH-2 walks three 64-bit values down one bit at a time. For
+ * normals under 2^50 (edges up to about 256 units) the sign is taken
+ * exactly instead: each component splits into n = hi * 2^24 + lo with
+ * 0 <= lo < 2^24, both partial dots fit in 64 bits, and after carrying lo's
+ * whole multiples of 2^24 into hi, the remainder can no longer outweigh a
+ * nonzero hi. Larger normals take the scaled path. */
 inline bool quad_visible(const sat_quad3_t& quad, const sat_vec3_t& eye) {
-    return vec3_dot_raw(quad_normal_scaled(quad), vec3_sub(eye, quad_center(quad))) > 0;
+    int64_t n[3];
+    cross_raw(vec3_sub(quad.v[3], quad.v[0]), vec3_sub(quad.v[1], quad.v[0]), n);
+    if ((n[0] | n[1] | n[2]) == 0) {
+        /* B collapsed onto A: the face is the triangle A, C, D. */
+        cross_raw(vec3_sub(quad.v[3], quad.v[0]), vec3_sub(quad.v[2], quad.v[0]), n);
+    }
+    if ((n[0] | n[1] | n[2]) == 0) {
+        /* D collapsed onto A: the face is the triangle A, B, C. */
+        cross_raw(vec3_sub(quad.v[2], quad.v[0]), vec3_sub(quad.v[1], quad.v[0]), n);
+    }
+    constexpr int64_t kExactLimit = static_cast<int64_t>(1) << 50;
+    for (int i = 0; i < 3; ++i) {
+        if (n[i] >= kExactLimit || n[i] <= -kExactLimit) {
+            return vec3_dot_raw(quad_normal_scaled(quad),
+                                vec3_sub(eye, quad_center(quad))) > 0;
+        }
+    }
+    const sat_vec3_t v = vec3_sub(eye, quad_center(quad));
+    const int32_t w[3] = {v.x, v.y, v.z};
+    int64_t hi = 0;
+    int64_t lo = 0;
+    for (int i = 0; i < 3; ++i) {
+        /* Both halves fit 32 bits, so each product is one 32x32 multiply. */
+        const int32_t h = static_cast<int32_t>(n[i] >> 24);         /* |h| < 2^26 */
+        const int32_t l = static_cast<int32_t>(n[i] & 0xFFFFFF);    /* 0..2^24-1 */
+        hi += static_cast<int64_t>(h) * w[i];
+        lo += static_cast<int64_t>(l) * w[i];
+    }
+    hi += lo >> 24;
+    return hi > 0 || (hi == 0 && (lo & 0xFFFFFF) != 0);
 }
 
 inline bool face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t& eye) {

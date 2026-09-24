@@ -9,6 +9,8 @@ sat_result_t packed_palette_for(const T* cmd, uint8_t slot, uint16_t* out) {
     if (cmd == nullptr || out == nullptr || cmd->texture == nullptr || cmd->texture->valid == 0u) {
         return SAT_ERR_INVALID_ARG;
     }
+    /* The VDP2 slot rides in color-bank bits a lookup table does not have. */
+    if (cmd->texture->format != SAT_VDP1_TEXTURE_INDEXED8) return SAT_ERR_UNSUPPORTED;
     const uint16_t bank = (cmd->palette_override != 0u)
         ? cmd->palette_override
         : cmd->texture->palette;

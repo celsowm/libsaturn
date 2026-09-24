@@ -629,6 +629,7 @@ def search_upward(
             preserve_boundaries=opts.preserve_boundaries if opts else True,
             animation_weight=opts.animation_weight if opts else 1.0,
             silhouette_weight=opts.silhouette_weight if opts else 1.0,
+            material_weights=opts.material_weights if opts else None,
         )
         simp = simp_mod.simplify(
             source,

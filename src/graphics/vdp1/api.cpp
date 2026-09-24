@@ -51,7 +51,7 @@ extern "C" sat_result_t sat_tex_upload_indexed8(
     out_texture->height = height;
     out_texture->palette = palette_index;
     out_texture->valid = 1;
-    out_texture->reserved = 0;
+    out_texture->format = SAT_VDP1_TEXTURE_INDEXED8;
     return SAT_OK;
 }
 
@@ -117,7 +117,36 @@ extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
     out_texture->height = height;
     out_texture->palette = palette_index;
     out_texture->valid = 1;
-    out_texture->reserved = 0;
+    out_texture->format = SAT_VDP1_TEXTURE_INDEXED8;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp1_upload_lut(const uint16_t* lut_rgb555, uint16_t* out_lut) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (lut_rgb555 == nullptr || out_lut == nullptr) return SAT_ERR_INVALID_ARG;
+    return saturn::hal::vdp1::upload_lut(lut_rgb555, out_lut);
+}
+
+extern "C" sat_result_t sat_tex_upload_lut4_pixels(
+    sat_vdp1_texture_t* out_texture,
+    const uint8_t* pixels,
+    uint16_t width,
+    uint16_t height,
+    uint16_t lut
+) {
+    using namespace saturn::core;
+    SAT_TRY(require_initialized());
+    /* A table can never sit at VRAM 0 (the command list starts there). */
+    if (out_texture == nullptr || pixels == nullptr || lut == 0u) return SAT_ERR_INVALID_ARG;
+    SAT_TRY(validate_indexed8_texture_dims(width, height));
+    uint16_t srca = 0;
+    SAT_TRY(saturn::hal::vdp1::upload_texture_lut4(pixels, width, height, &srca));
+    out_texture->srca = srca;
+    out_texture->width = width;
+    out_texture->height = height;
+    out_texture->palette = lut;
+    out_texture->valid = 1;
+    out_texture->format = SAT_VDP1_TEXTURE_LUT4;
     return SAT_OK;
 }
 
@@ -164,6 +193,7 @@ extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd) {
     req.srca = resolved.srca;
     req.palette = resolved.palette;
     req.flags = resolved.flags;
+    req.format = resolved.format;
     return saturn::hal::vdp1::push_sprite(req);
 }
 
@@ -227,6 +257,7 @@ extern "C" sat_result_t sat_draw_sprite_scaled(const sat_scaled_sprite_cmd_t* cm
     req.srca = resolved.srca;
     req.palette = resolved.palette;
     req.flags = resolved.flags;
+    req.format = resolved.format;
     return saturn::hal::vdp1::push_scaled_sprite(req);
 }
 
@@ -285,6 +316,7 @@ extern "C" sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd
     req.srca = resolved.srca;
     req.palette = resolved.palette;
     req.flags = resolved.flags;
+    req.format = resolved.format;
     return saturn::hal::vdp1::push_distorted_sprite(req);
 }
 

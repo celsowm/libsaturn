@@ -295,8 +295,8 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     cmd.ctrl = 0x0000;
     cmd.link = 0;
     cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
-        saturn::core::compose_sprite_pmod(req.flags), req.user_clip);
-    cmd.colr = saturn::core::compose_sprite_colr(req.palette);
+        saturn::core::compose_sprite_pmod(req.flags, req.format), req.user_clip);
+    cmd.colr = saturn::core::compose_sprite_colr(req.palette, req.format);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);
     // VDP1 sprite corners: coordinates are in pixels (0 = center of screen)
@@ -329,8 +329,8 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdScaledSprite, false);
     cmd.link = 0;
     cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
-        saturn::core::compose_sprite_pmod(req.flags), req.user_clip);
-    cmd.colr = saturn::core::compose_sprite_colr(req.palette);
+        saturn::core::compose_sprite_pmod(req.flags, req.format), req.user_clip);
+    cmd.colr = saturn::core::compose_sprite_colr(req.palette, req.format);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);
     /* Two-coordinate rectangle: A top-left, C bottom-right. B and D are filled
@@ -364,8 +364,8 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdDistortedSprite, false);
     cmd.link = 0;
     cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
-        saturn::core::compose_sprite_pmod(req.flags), req.user_clip);
-    cmd.colr = saturn::core::compose_sprite_colr(req.palette);
+        saturn::core::compose_sprite_pmod(req.flags, req.format), req.user_clip);
+    cmd.colr = saturn::core::compose_sprite_colr(req.palette, req.format);
     cmd.srca = req.srca;
     cmd.size = static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height);
     cmd.xa = req.x[0];
@@ -610,6 +610,37 @@ sat_result_t upload_texture_indexed8_pitched(
 sat_result_t upload_texture_indexed8(
     const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t* out_srca) {
     return upload_texture_indexed8_pitched(pixels, width, height, width, out_srca);
+}
+
+sat_result_t upload_lut(const uint16_t* lut_rgb555, uint16_t* out_colr) {
+    if (lut_rgb555 == nullptr || out_colr == nullptr) return SAT_ERR_INVALID_ARG;
+    constexpr uint32_t kLutBytes = 32u;
+    g_texture_cursor = (g_texture_cursor + (kLutBytes - 1u)) & ~(kLutBytes - 1u);
+    if (g_texture_cursor + kLutBytes > kVramSize) return SAT_ERR_CAPACITY;
+    const uint32_t start = g_texture_cursor;
+    for (uint32_t i = 0u; i < 16u; ++i) {
+        VDP1_VRAM_16[start / 2u + i] = lut_rgb555[i];
+    }
+    *out_colr = static_cast<uint16_t>(start >> 3u);
+    g_texture_cursor += kLutBytes;
+    return SAT_OK;
+}
+
+sat_result_t upload_texture_lut4(
+    const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t* out_srca) {
+    if (out_srca == nullptr) return SAT_ERR_INVALID_ARG;
+    /* Same geometry rules as INDEXED8, at half a byte per texel. */
+    const sat_result_t st = validate_indexed8_transfer(pixels, width, height, width);
+    if (st != SAT_OK) return st;
+    const uint32_t size = static_cast<uint32_t>(width) * height / 2u;
+    g_texture_cursor = (g_texture_cursor + 7u) & ~7u;
+    if (g_texture_cursor + size > kVramSize) return SAT_ERR_CAPACITY;
+    const uint32_t start = g_texture_cursor;
+    write_indexed8_rows(start, pixels, static_cast<uint16_t>(width / 2u), height,
+                        static_cast<uint16_t>(width / 2u));
+    *out_srca = static_cast<uint16_t>(start >> 3u);
+    g_texture_cursor += size;
+    return SAT_OK;
 }
 
 sat_result_t update_texture_indexed8_pitched(

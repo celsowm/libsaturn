@@ -55,9 +55,25 @@ sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch) {
             mesh->vertex_count) * sizeof(*item.screen_scratch)));
         SAT_TRY(sync_range(item.world_scratch, static_cast<uint32_t>(
             mesh->vertex_count) * sizeof(*item.world_scratch)));
+        /* Materials usually point at consecutive entries of one texture
+         * table and share one Gouraud table. Sync each contiguous texture
+         * run and each distinct table once: a model with a baked texture
+         * per face has over a thousand materials, and one sync call per
+         * descriptor cost several frames of time on both CPUs. */
+        const sat_vdp1_texture_t* run = nullptr;
+        uint32_t run_count = 0u;
+        const uint16_t* last_gouraud = nullptr;
         for (uint16_t m = 0u; m < instance->material_count; ++m) {
             const sat_scene3d_material_t& material = instance->materials[m];
-            SAT_TRY(sync_range(material.texture, sizeof(*material.texture)));
+            if (material.texture != nullptr) {
+                if (run != nullptr && material.texture == run + run_count) {
+                    ++run_count;
+                } else {
+                    SAT_TRY(sync_range(run, run_count * sizeof(*run)));
+                    run = material.texture;
+                    run_count = 1u;
+                }
+            }
             SAT_TRY(sync_range(material.tiled, sizeof(*material.tiled)));
             if (material.tiled != nullptr) {
                 SAT_TRY(sync_range(material.tiled->full,
@@ -67,9 +83,13 @@ sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch) {
                         sizeof(*material.tiled->tiles[tile])));
                 }
             }
-            SAT_TRY(sync_range(material.vertex_gouraud, static_cast<uint32_t>(
-                mesh->vertex_count) * sizeof(*material.vertex_gouraud)));
+            if (material.vertex_gouraud != last_gouraud) {
+                SAT_TRY(sync_range(material.vertex_gouraud, static_cast<uint32_t>(
+                    mesh->vertex_count) * sizeof(*material.vertex_gouraud)));
+                last_gouraud = material.vertex_gouraud;
+            }
         }
+        SAT_TRY(sync_range(run, run_count * sizeof(*run)));
     }
     return SAT_OK;
 }
