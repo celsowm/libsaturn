@@ -13,7 +13,7 @@ to an unchanged view reuses its projected geometry.
 No application-authored painter keys or manual VDP1 commands are involved:
 the example uses `sat_view_cache_append_world` to bake native projected
 corners **and their comparable linear depths once**, then uses
-`sat_scene_queue_baked_view_item_material` for cached faces and
+`sat_scene_queue_camera_view_material` for the whole validated view and
 `sat_scene_submit_quad` for the moving actor. It needs no per-frame static
 depth calculation and invokes exactly one `sat_scene_flush` per frame. Direct L1 drawing remains available elsewhere.
 

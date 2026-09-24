@@ -208,6 +208,46 @@ extern "C" sat_result_t sat_scene_queue_baked_view_item_material(
         scene,item,item->camera_depth,material,pass);
 }
 
+extern "C" sat_result_t sat_scene_queue_camera_view_material(
+    sat_scene_t* scene,sat_view_cache_t* cache,uint16_t view,
+    const sat_camera3d_t* camera,const sat_scene3d_material_t* material,
+    uint16_t pass) {
+    if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    if (!camera || !cache || !material || pass>SAT_SCENE3D_PASS_MAX)
+        return record_frame_result(scene,SAT_ERR_INVALID_ARG);
+    const sat_scene3d_faces_t& faces=scene->faces;
+    if (faces.eye.x!=camera->eye.x ||
+        faces.eye.y!=camera->eye.y ||
+        faces.eye.z!=camera->eye.z)
+        return record_frame_result(scene,SAT_ERR_INVALID_ARG);
+    for (uint8_t i=0u;i<16u;++i)
+        if (faces.view_proj.m[i]!=camera->view_proj.m[i])
+            return record_frame_result(scene,SAT_ERR_INVALID_ARG);
+
+    const sat_view_cache_item_t* items=nullptr;
+    uint16_t count=0u;
+    const sat_result_t found=sat_view_cache_view_camera(
+        cache,view,camera,faces.near_depth,faces.width,faces.height,
+        &items,&count);
+    /* NOT_FOUND is an ordinary cache miss: clients can rebake in-frame. */
+    if (found==SAT_ERR_NOT_FOUND) return found;
+    if (found!=SAT_OK) return record_frame_result(scene,found);
+    if ((count!=0u && !items) ||
+        count>static_cast<uint16_t>(faces.capacity-faces.count)) {
+        ++scene->rejected_faces;
+        return record_frame_result(scene,SAT_ERR_CAPACITY);
+    }
+    for (uint16_t i=0u;i<count;++i)
+        if (!items[i].camera_depth_valid || items[i].camera_depth<0)
+            return record_frame_result(scene,SAT_ERR_INVALID_ARG);
+    for (uint16_t i=0u;i<count;++i) {
+        const sat_result_t st=sat_scene_queue_baked_view_item_material(
+            scene,&items[i],material,pass);
+        if (st!=SAT_OK) return st;
+    }
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_scene_replay_view_item(
     sat_scene_t* scene, const sat_view_cache_item_t* item) {
     if (!scene || !scene->active || !item) return SAT_ERR_INVALID_ARG;

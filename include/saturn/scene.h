@@ -163,6 +163,17 @@ sat_result_t sat_scene_queue_baked_view_item_material(
     sat_scene_t* scene, const sat_view_cache_item_t* item,
     const sat_scene3d_material_t* material, uint16_t pass);
 
+/* L3 camera-coherent queue path for a full baked view sharing ONE material.
+ * Rejects any scene/camera mismatch before fetching the view. A cache miss
+ * returns NOT_FOUND without poisoning the frame, allowing a rebake/retry.
+ * Validates ALL baked depth flags and capacity before enqueuing anything:
+ * no partial queue on stale/mixed legacy view data or insufficient storage.
+ * The explicit per-item L1/L2 paths above remain independent. */
+sat_result_t sat_scene_queue_camera_view_material(
+    sat_scene_t* scene, sat_view_cache_t* cache, uint16_t view,
+    const sat_camera3d_t* camera,
+    const sat_scene3d_material_t* material,uint16_t pass);
+
 /* Before painter emission, checks the VDP1 command budget against all
  * already-safe projected faces (cached + world): each needs exactly one
  * command. If even that subset will not fit with the HUD reservation and

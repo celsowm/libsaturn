@@ -13,6 +13,20 @@ static sat_scene3d_material_kind_t g_cached_material_kind=SAT_SCENE3D_RGB;
 static uint16_t g_command_capacity=64u;
 static uint16_t g_hud_reserved=8u;
 static uint16_t g_flush_calls=0u;
+static sat_result_t g_cache_lookup=SAT_OK;
+static uint16_t g_cache_count=0u;
+static sat_view_cache_item_t g_cache_items[2]={};
+static uint16_t g_cache_queries=0u;
+
+extern "C" sat_result_t sat_view_cache_view_camera(
+    sat_view_cache_t*,uint16_t,const sat_camera3d_t*,
+    sat_fx16_t,uint16_t,uint16_t,
+    const sat_view_cache_item_t** out,uint16_t* count) {
+    ++g_cache_queries;
+    *out=g_cache_lookup==SAT_OK?g_cache_items:nullptr;
+    *count=g_cache_lookup==SAT_OK?g_cache_count:0u;
+    return g_cache_lookup;
+}
 
 extern "C" sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
@@ -28,11 +42,16 @@ extern "C" sat_result_t sat_scene3d_faces_init(
 }
 
 extern "C" sat_result_t sat_scene3d_faces_begin_camera(
-    sat_scene3d_faces_t* scene, const sat_camera3d_t*, sat_fx16_t,
-    uint16_t, uint16_t) {
+    sat_scene3d_faces_t* scene, const sat_camera3d_t* camera, sat_fx16_t near_depth,
+    uint16_t width, uint16_t height) {
     if (!scene || scene->active) return SAT_ERR_INVALID_ARG;
     scene->active = 1u;
     scene->count = 0u;
+    scene->view_proj=camera->view_proj;
+    scene->eye=camera->eye;
+    scene->near_depth=near_depth;
+    scene->width=width;
+    scene->height=height;
     /* Mirror the real painter's begin(): frame telemetry cannot leak into
      * a budget-rejected frame that never invokes the mocked flush(). */
     scene->emitted_faces=scene->emitted_cached=scene->skipped_faces=0u;
@@ -217,6 +236,58 @@ int main() {
     assert(stats.queued_view_items==1u && stats.replayed_items==1u);
     assert(g_replayed==4u);
 
+    // L3 view submission verifies scene-camera coherence and cache identity
+    // before queueing, and validates capacity/depth over the ENTIRE view.
+    sat_view_cache_t cache{};
+    g_cache_items[0].camera_depth=3*SAT_FX16_ONE;
+    g_cache_items[1].camera_depth=5*SAT_FX16_ONE;
+    g_cache_items[0].camera_depth_valid=1u;
+    g_cache_items[1].camera_depth_valid=1u;
+    g_cache_count=2u;
+    g_cache_lookup=SAT_ERR_NOT_FOUND;
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    assert(sat_scene_queue_camera_view_material(
+        &scene,&cache,0u,&camera,&textured,0u)==SAT_ERR_NOT_FOUND);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.result==SAT_ERR_BUSY && stats.queued_view_items==0u);
+    g_cache_lookup=SAT_OK;
+    assert(sat_scene_queue_camera_view_material(
+        &scene,&cache,0u,&camera,&textured,0u)==SAT_OK);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.queued_view_items==2u && scene.faces.count==2u);
+    assert(sat_scene_flush(&scene)==SAT_OK);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.replayed_items==2u);
+
+    sat_camera3d_t wrong_camera=camera;
+    wrong_camera.eye.x+=SAT_FX16_ONE;
+    const uint16_t queried=g_cache_queries;
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    assert(sat_scene_queue_camera_view_material(
+        &scene,&cache,0u,&wrong_camera,&textured,0u)==SAT_ERR_INVALID_ARG);
+    assert(g_cache_queries==queried && scene.faces.count==0u);
+    assert(sat_scene_flush(&scene)==SAT_ERR_INVALID_ARG);
+
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    g_cache_items[1].camera_depth_valid=0u;
+    assert(sat_scene_queue_camera_view_material(
+        &scene,&cache,0u,&camera,&textured,0u)==SAT_ERR_INVALID_ARG);
+    assert(scene.faces.count==0u && scene.queued_view_items==0u);
+    assert(sat_scene_flush(&scene)==SAT_ERR_INVALID_ARG);
+    g_cache_items[1].camera_depth_valid=1u;
+
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    g_cache_count=5u;
+    assert(sat_scene_queue_camera_view_material(
+        &scene,&cache,0u,&camera,&textured,0u)==SAT_ERR_CAPACITY);
+    assert(scene.faces.count==0u && scene.rejected_faces==1u);
+    assert(sat_scene_flush(&scene)==SAT_ERR_CAPACITY);
+    g_cache_count=0u;
+
     // Budget admission considers *all* already projected cached AND world
     // faces, leaving an END slot and the HUD reserve. No face may be emitted
     // if even that exact one-command subset does not fit.
@@ -224,7 +295,7 @@ int main() {
         320u,224u,8u)==SAT_OK);
     const uint16_t flush_calls_before=g_flush_calls;
     const uint16_t replayed_before=g_replayed;
-    g_command_capacity=15u; // 9 used + 1 END + 4 HUD leaves 1 slot
+    g_command_capacity=15u; // already used commands + END + HUD exceed quota
     g_hud_reserved=4u;
     scene.faces.entries[0].projected_safe=1u;
     assert(sat_scene_queue_baked_view_item_material(

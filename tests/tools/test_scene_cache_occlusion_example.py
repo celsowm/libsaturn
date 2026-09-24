@@ -5,7 +5,7 @@ from pathlib import Path
 source = "examples/scene_cache_occlusion/main.c"
 text = Path(source).read_text(encoding="utf-8")
 assert "sat_view_cache_append_world(" in text
-assert "sat_scene_queue_baked_view_item_material(" in text
+assert "sat_scene_queue_camera_view_material(" in text
 assert "sat_scene_depth(" not in text
 assert "sat_project_quad(" not in text
 result = subprocess.run(

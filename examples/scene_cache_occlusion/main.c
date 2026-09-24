@@ -93,17 +93,11 @@ static void bake_current_view(void) {
 }
 
 static void draw_cached_static(void) {
-    const sat_view_cache_item_t* items=0;
-    uint16_t count=0u;
-    sat_example_must(sat_view_cache_view_camera(
-        &g_cache,g_view,&g_camera,NEAR_DEPTH,SCREEN_W,SCREEN_H,
-        &items,&count));
     const sat_scene3d_material_t static_material={
         SAT_SCENE3D_INDEXED_TEXTURED,0u,&g_checker,0,
         SAT_INDEXED_SOLID_OPAQUE,0};
-    for (uint16_t i=0u;i<count;++i)
-        sat_example_must(sat_scene_queue_baked_view_item_material(
-            &g_scene,&items[i],&static_material,0u));
+    sat_example_must(sat_scene_queue_camera_view_material(
+        &g_scene,&g_cache,g_view,&g_camera,&static_material,0u));
 }
 
 static void draw_actor(void) {
