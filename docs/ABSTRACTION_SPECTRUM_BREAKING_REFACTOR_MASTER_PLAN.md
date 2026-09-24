@@ -75,3 +75,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Skybridge decoupling (profiling):** generic executor, scene preparation, painter and VDP1 no longer inspect the game-specific `SAT_SKYBRIDGE_VALIDATION`; they are built with opt-in `SAT_PROFILE_METRICS`. The game's own validation switch remains game-local. A future build variant isolation pass should eliminate flag-triggered shared object rebuilds entirely.
 
 **Batch painter DRY cleanup:** generic parallel preparation no longer allocates, publishes, or computes local ordering buffers. Source-order faces and depth keys merge once into the final painter; every example and host test now uses the reduced breaking batch contract.
+
+**Pure-model link isolation:** VDP1 texture uploads now live in an optional `model_upload.cpp` unit; validation/geometry/animation tests link only `model.cpp`. The model-upload host test links the upload unit and supplies mocks for the INDEX8 and LUT4 hardware functions.
