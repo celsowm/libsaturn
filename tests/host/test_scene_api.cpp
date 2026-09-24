@@ -33,6 +33,9 @@ extern "C" sat_result_t sat_scene3d_faces_begin_camera(
     if (!scene || scene->active) return SAT_ERR_INVALID_ARG;
     scene->active = 1u;
     scene->count = 0u;
+    /* Mirror the real painter's begin(): frame telemetry cannot leak into
+     * a budget-rejected frame that never invokes the mocked flush(). */
+    scene->emitted_faces=scene->emitted_cached=scene->skipped_faces=0u;
     g_pending_cached=0u;
     return SAT_OK;
 }
