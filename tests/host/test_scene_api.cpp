@@ -19,6 +19,8 @@ static sat_result_t g_cache_lookup=SAT_OK;
 static uint16_t g_cache_count=0u;
 static sat_view_cache_item_t g_cache_items[2]={};
 static uint16_t g_cache_queries=0u;
+static uint16_t g_projected_calls=0u;
+static uint16_t g_projected_fail_at=0u;
 
 extern "C" sat_result_t sat_view_cache_view_camera(
     sat_view_cache_t*,uint16_t,const sat_camera3d_t*,
@@ -84,6 +86,9 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
          (!material->texture || !material->texture->valid)))
         return SAT_ERR_INVALID_ARG;
     if (scene->count>=scene->capacity) return SAT_ERR_CAPACITY;
+    ++g_projected_calls;
+    if(g_projected_fail_at && g_projected_calls==g_projected_fail_at)
+        return SAT_ERR_INVALID_ARG;
     g_cached_material_kind=material->kind;
     ++scene->count;
     ++g_pending_cached;
@@ -284,6 +289,29 @@ int main() {
     assert(sat_scene_flush(&scene)==SAT_OK);
     assert(sat_scene_stats(&scene,&stats)==SAT_OK);
     assert(stats.replayed_items==2u);
+
+    // An unexpected late failure on the SECOND material emission must not
+    // leave the first cached face behind or modify older queued geometry.
+    // This is a queue transaction (no VDP1 commands have been issued yet).
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    assert(sat_scene_queue_baked_view_item_material(
+        &scene,&g_cache_items[0],&textured,0u)==SAT_OK);
+    const uint16_t before_count=scene.faces.count;
+    const uint16_t before_queued=scene.queued_view_items;
+    const uint16_t fail_on=g_projected_calls+2u;
+    g_projected_fail_at=fail_on;
+    assert(sat_scene_queue_camera_view_material(
+        &scene,&cache,0u,&camera,&textured,0u)==SAT_ERR_INVALID_ARG);
+    g_projected_fail_at=0u;
+    assert(g_projected_calls==fail_on);
+    assert(scene.faces.count==before_count);
+    assert(scene.queued_view_items==before_queued);
+    assert(scene.faces.entries[0].material.texture==&tex);
+    /* The mocked painter tracks accepted test submissions separately; the
+     * real painter consumes only the restored scene.faces.count. */
+    g_pending_cached=before_count;
+    assert(sat_scene_flush(&scene)==SAT_ERR_INVALID_ARG);
 
     sat_camera3d_t wrong_camera=camera;
     wrong_camera.eye.x+=SAT_FX16_ONE;

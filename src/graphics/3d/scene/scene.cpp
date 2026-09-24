@@ -277,10 +277,21 @@ extern "C" sat_result_t sat_scene_queue_camera_view_material(
     for (uint16_t i=0u;i<count;++i)
         if (!items[i].camera_depth_valid || items[i].camera_depth<0)
             return record_frame_result(scene,SAT_ERR_INVALID_ARG);
+    /* Capacity and baked depths are preflighted above, but an individual
+     * material submission may still fail (e.g. a borrowed descriptor was
+     * invalidated after admission). Preserve the entire-view contract:
+     * rewind only this view's face/key span, never pre-existing queued faces.
+     * Keep the first frame error/rejection telemetry for the caller. */
+    const uint16_t original_count=scene->faces.count;
+    const uint16_t original_queued=scene->queued_view_items;
     for (uint16_t i=0u;i<count;++i) {
         const sat_result_t st=sat_scene_queue_baked_view_item_material(
             scene,&items[i],material,pass);
-        if (st!=SAT_OK) return st;
+        if (st!=SAT_OK) {
+            scene->faces.count=original_count;
+            scene->queued_view_items=original_queued;
+            return st;
+        }
     }
     return SAT_OK;
 }
