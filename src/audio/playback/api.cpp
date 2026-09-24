@@ -3,6 +3,7 @@
 #include "saturn/video.h"
 #include "src/audio/streaming/runtime.hpp"
 #include "src/audio/playback/ram_allocator.hpp"
+#include "src/audio/playback/voice_policy.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/scsp/scsp.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
@@ -97,21 +98,11 @@ void release_voice(uint16_t slot) {
 }
 
 int32_t choose_voice(uint16_t priority) {
-    for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
-        if (g_voices[i].active == 0u) return static_cast<int32_t>(i);
-    }
-
-    int32_t best = -1;
-    for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
-        const VoiceEntry& v = g_voices[i];
-        if (v.looping != 0u || v.priority > priority) continue;
-        if (best < 0 || v.priority < g_voices[best].priority ||
-            (v.priority == g_voices[best].priority && v.start_serial < g_voices[best].start_serial)) {
-            best = static_cast<int32_t>(i);
-        }
-    }
-    if (best >= 0) ++g_voice_steals;
-    return best;
+    const int32_t selected=saturn::core::audio::voice::choose(
+        g_voices,kResidentVoiceCapacity,priority);
+    if(selected>=0 && g_voices[selected].active!=0u)
+        ++g_voice_steals;
+    return selected;
 }
 
 void reset_runtime_state() {

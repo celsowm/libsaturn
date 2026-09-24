@@ -85,3 +85,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Camera-coherent L3 cache path:** the scene can now queue a complete camera-verified preprojected view atomically, checking the scene's camera matrix/eye, the cache's full camera snapshot, baked linear depth flags and face capacity. Cache misses remain recoverable without poisoning the current frame; the lower-level item submission and raw draw paths stay independent.
 
 **Sound RAM allocator complexity:** allocation slots now retain stable IDs in a caller-owned offset-sorted index. The first-fit free-range scan is linear in live blocks (no rescanning all allocations per gap), with O(C) insertion/removal for fixed capacity C; fragmentation ordering and reuse have host regressions.
+
+**Audio voice policy (first slice):** free-slot selection, priority-based stealing and oldest-voice tie-breaking now live in a standalone pure policy, with host regressions. SCSP key-on/off, voice lifetimes, sound registry and clock remain in the audio service and are still candidates for independent modules.
