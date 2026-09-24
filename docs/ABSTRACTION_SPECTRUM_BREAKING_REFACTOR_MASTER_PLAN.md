@@ -115,3 +115,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Whole-view camera snapshot integrity:** the canonical scene keeps copies of target, up and lens parameters in addition to its painter-owned eye and view-projection matrix. The L3 cache bridge rejects a camera mutated after scene begin even when its matrix/eye remain unchanged, eliminating mixed forward-depth keys across cached and dynamic faces. Host regressions cover target and aspect drift before cache lookup.
 
 **Camera-view queue transaction:** full-view queue admission now restores its original face and queued-item counts when any individual baked material enqueue unexpectedly fails, preserving previously queued geometry. This closes the partial-queue case after initial depth/capacity preflight; host regression injects failure on the second view item.
+
+**Compound box admission transaction:** a multi-face indexed box now restores its original painter count and cull/clip counters if a later face projection fails. Existing queued faces remain untouched; a host regression injects failure on the second box face.

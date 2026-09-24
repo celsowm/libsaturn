@@ -148,6 +148,8 @@ sat_result_t sat_scene3d_faces_submit_projected_rgb(
 
 /* Reuses the renderer's box-face generator, not application-authored winding.
  * Each wall/top enters the global painter independently. */
+/* Compound submission is queue-atomic: later projection failure restores
+ * the pre-existing face span and admission statistics without VDP1 emission. */
 sat_result_t sat_scene3d_faces_submit_box(
     sat_scene3d_faces_t* scene, const sat_indexed_box3_t* box,
     uint8_t color_calc_slot, uint16_t pass);

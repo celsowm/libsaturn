@@ -293,6 +293,13 @@ extern "C" sat_result_t sat_scene3d_faces_submit_box(
         material.color_calc_slot=color_calc_slot;
         if (!valid_material(material)) return SAT_ERR_INVALID_ARG;
     }
+    /* A compound box is ONE queue operation. Individual faces may project
+     * successfully before a later projection returns an error; revert only
+     * this box's queue/culling statistics, preserving older scene entries.
+     * No VDP1 commands have been emitted at this stage. */
+    const uint16_t previous_count=scene->count;
+    const uint16_t previous_culled=scene->culled_faces;
+    const uint16_t previous_clipped=scene->clipped_faces;
     for (uint8_t i=0u;i<count;++i) {
         sat_scene3d_material_t material={};
         material.kind=SAT_SCENE3D_INDEXED_SOLID;
@@ -300,7 +307,12 @@ extern "C" sat_result_t sat_scene3d_faces_submit_box(
         material.color_calc_slot=color_calc_slot;
         const sat_result_t submitted=sat_scene3d_faces_submit_quad(
             scene,&faces[i],&material,pass);
-        if (submitted!=SAT_OK) return submitted;
+        if (submitted!=SAT_OK) {
+            scene->count=previous_count;
+            scene->culled_faces=previous_culled;
+            scene->clipped_faces=previous_clipped;
+            return submitted;
+        }
     }
     return SAT_OK;
 }

@@ -9,6 +9,7 @@ static uint16_t emitted[64]={};
 static uint8_t emitted_slot[64]={};
 static uint16_t emitted_count=0;
 static uint16_t project_calls=0;
+static uint16_t project_fail_call=0u;
 static uint16_t projected_vertices=0;
 static uint16_t clipped_count=0;
 static sat_result_t distorted_draw_status=SAT_OK;
@@ -69,6 +70,8 @@ extern "C" sat_result_t sat_project_vertices(
     const sat_mat4_t* vp, const sat_vec3_t* points,
     uint16_t count, sat_projected_vertex_t* out) {
     ++project_calls;
+    if(project_fail_call && project_calls==project_fail_call)
+        return SAT_ERR_UNSUPPORTED;
     projected_vertices=static_cast<uint16_t>(projected_vertices+count);
     for (uint16_t i=0;i<count;++i) {
         out[i].x=static_cast<int16_t>(points[i].x>>16);
@@ -710,6 +713,32 @@ int main() {
     assert((scene.keys[0]>>20u)==0u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     assert(scene.emitted_faces==1u && scene.skipped_faces==0u);
+
+    // A box's second face can fail projection AFTER its first face was
+    // admitted. The compound operation must restore the previous queue and
+    // all admission telemetry rather than leak an untracked orphan face.
+    emitted_count=0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(
+        &scene,&near,&near_mat,0u)==SAT_OK);
+    const uint16_t pre_count=scene.count;
+    const uint16_t pre_culled=scene.culled_faces;
+    const uint16_t pre_clipped=scene.clipped_faces;
+    const uint32_t pre_key=scene.keys[0];
+    const sat_scene3d_face_t pre_face=scene.entries[0];
+    sat_indexed_box3_t box_for_failure{};
+    box_for_failure.x_material=&near_tex;
+    box_for_failure.z_material=&far_tex;
+    project_fail_call=static_cast<uint16_t>(project_calls+2u);
+    assert(sat_scene3d_faces_submit_box(
+        &scene,&box_for_failure,SAT_INDEXED_SOLID_OPAQUE,0u)==SAT_ERR_UNSUPPORTED);
+    project_fail_call=0u;
+    assert(scene.count==pre_count);
+    assert(scene.culled_faces==pre_culled && scene.clipped_faces==pre_clipped);
+    assert(scene.keys[0]==pre_key && same_face(scene.entries[0],pre_face));
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==1u && emitted[0]==near_tex.srca);
 
     // Unsupported projected RGB geometry is an intentional skip, not a
     // successfully dispatched face; continue emitting the supported face.
