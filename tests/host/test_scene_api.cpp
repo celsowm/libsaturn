@@ -295,6 +295,28 @@ int main() {
     assert(g_cache_queries==queried && scene.faces.count==0u);
     assert(sat_scene_flush(&scene)==SAT_ERR_INVALID_ARG);
 
+    /* Matrix and eye can remain bitwise identical while target/up/lens
+     * fields are changed without calling camera_update(). In that case
+     * the scene's depth-forward belongs to its original camera: NEVER
+     * submit a view validated against the mutated camera. */
+    sat_camera3d_t changed_target=camera;
+    changed_target.target.x+=SAT_FX16_ONE;
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    assert(sat_scene_queue_camera_view_material(
+        &scene,&cache,0u,&changed_target,&textured,0u)==SAT_ERR_INVALID_ARG);
+    assert(g_cache_queries==queried && scene.faces.count==0u);
+    assert(sat_scene_flush(&scene)==SAT_ERR_INVALID_ARG);
+
+    sat_camera3d_t changed_lens=camera;
+    changed_lens.aspect+=SAT_FX16_ONE;
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
+        320u,224u,8u)==SAT_OK);
+    assert(sat_scene_queue_camera_view_material(
+        &scene,&cache,0u,&changed_lens,&textured,0u)==SAT_ERR_INVALID_ARG);
+    assert(g_cache_queries==queried && scene.faces.count==0u);
+    assert(sat_scene_flush(&scene)==SAT_ERR_INVALID_ARG);
+
     assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,
         320u,224u,8u)==SAT_OK);
     g_cache_items[1].camera_depth_valid=0u;

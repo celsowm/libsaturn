@@ -51,6 +51,13 @@ typedef struct sat_scene_stats {
 
 typedef struct sat_scene {
     sat_scene3d_faces_t faces;
+    /* Snapshot the camera fields not already stored by the painter. The
+     * painter owns copies of eye/view_proj; the L3 whole-view adapter checks
+     * these remaining fields, avoiding stale view/depth from a camera with
+     * the same matrix but a changed target or projection configuration. */
+    sat_vec3_t camera_target;
+    sat_vec3_t camera_up;
+    sat_fx16_t camera_fov_y, camera_aspect, camera_near_z, camera_far_z;
     uint16_t overlay_commands;
     uint16_t submitted_faces;
     uint16_t flushed_faces;
@@ -165,7 +172,8 @@ sat_result_t sat_scene_queue_baked_view_item_material(
     const sat_scene3d_material_t* material, uint16_t pass);
 
 /* L3 camera-coherent queue path for a full baked view sharing ONE material.
- * Rejects any scene/camera mismatch before fetching the view. A cache miss
+ * Rejects any scene/camera mismatch across EVERY public camera field,
+ * including target, up and projection settings, before fetching the view. A cache miss
  * returns NOT_FOUND without poisoning the frame, allowing a rebake/retry.
  * Validates ALL baked depth flags and capacity before enqueuing anything:
  * no partial queue on stale/mixed legacy view data or insufficient storage.

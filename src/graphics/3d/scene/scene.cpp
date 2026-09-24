@@ -37,6 +37,12 @@ extern "C" sat_result_t sat_scene_begin(sat_scene_t* scene,
     const sat_result_t st = sat_scene3d_faces_begin_camera(
         &scene->faces, camera, near_depth, width, height);
     if (st != SAT_OK) return st;
+    scene->camera_target=camera->target;
+    scene->camera_up=camera->up;
+    scene->camera_fov_y=camera->fov_y;
+    scene->camera_aspect=camera->aspect;
+    scene->camera_near_z=camera->near_z;
+    scene->camera_far_z=camera->far_z;
     scene->overlay_commands = overlay_commands;
     scene->submitted_faces = scene->flushed_faces = scene->rejected_faces = 0;
     scene->first_error=SAT_OK;
@@ -239,7 +245,17 @@ extern "C" sat_result_t sat_scene_queue_camera_view_material(
     const sat_scene3d_faces_t& faces=scene->faces;
     if (faces.eye.x!=camera->eye.x ||
         faces.eye.y!=camera->eye.y ||
-        faces.eye.z!=camera->eye.z)
+        faces.eye.z!=camera->eye.z ||
+        scene->camera_target.x!=camera->target.x ||
+        scene->camera_target.y!=camera->target.y ||
+        scene->camera_target.z!=camera->target.z ||
+        scene->camera_up.x!=camera->up.x ||
+        scene->camera_up.y!=camera->up.y ||
+        scene->camera_up.z!=camera->up.z ||
+        scene->camera_fov_y!=camera->fov_y ||
+        scene->camera_aspect!=camera->aspect ||
+        scene->camera_near_z!=camera->near_z ||
+        scene->camera_far_z!=camera->far_z)
         return record_frame_result(scene,SAT_ERR_INVALID_ARG);
     for (uint8_t i=0u;i<16u;++i)
         if (faces.view_proj.m[i]!=camera->view_proj.m[i])
