@@ -490,6 +490,27 @@ int main() {
         &scene,&invalid_instance,SAT_SCENE3D_SLOT_INHERIT,
         screen,world)==SAT_ERR_INVALID_ARG);
     assert(scene.count==0u);
+    sat_mesh_t malformed_mesh=mesh;
+    sat_scene3d_instance_t malformed_instance=instance;
+    malformed_instance.mesh=&malformed_mesh;
+    malformed_mesh.vertex_cap=7u;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&malformed_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_ERR_INVALID_ARG);
+    malformed_mesh=mesh;malformed_mesh.face_cap=1u;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&malformed_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_ERR_INVALID_ARG);
+    malformed_mesh=mesh;malformed_mesh.vertex_count=0u;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&malformed_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_ERR_INVALID_ARG);
+    malformed_mesh=mesh;malformed_mesh.face_count=0u;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&malformed_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_ERR_INVALID_ARG);
+    assert(scene.count==0u && scene.culled_faces==0u &&
+           scene.clipped_faces==0u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     emitted_count=0;
     sat_camera3d_t camera={};

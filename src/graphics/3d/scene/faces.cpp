@@ -338,8 +338,11 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
     const uint16_t* face_materials=instance ? instance->face_materials : nullptr;
     if (!scene || !scene->active || !instance ||
         instance->pass>SAT_SCENE3D_PASS_MAX ||
-        !mesh || !mesh->vertices ||
-        !mesh->indices || !screen_scratch ||
+        !mesh || !mesh->vertices || !mesh->indices ||
+        !mesh->vertex_count || !mesh->face_count ||
+        mesh->vertex_count>mesh->vertex_cap ||
+        mesh->face_count>mesh->face_cap ||
+        !screen_scratch ||
         (instance->world && !world_scratch) ||
         (mesh->face_count && (!materials || !face_materials)))
         return SAT_ERR_INVALID_ARG;
@@ -384,8 +387,11 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
     const sat_result_t projected=sat_project_vertices(
         &scene->view_proj,world,mesh->vertex_count,screen_scratch);
     if (projected!=SAT_OK) return projected;
-    /* After complete preflight all accepted faces are copied into queue
-     * storage, never retaining world_scratch or projected scratch pointers. */
+    /* Preserve queue atomicity if a future append path fails after other
+     * instance faces have already been appended or culled. */
+    const uint16_t previous_count=scene->count;
+    const uint16_t previous_culled=scene->culled_faces;
+    const uint16_t previous_clipped=scene->clipped_faces;
     for (uint16_t f=0;f<mesh->face_count;++f) {
         const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
         if (instance->cull_backfaces &&
@@ -418,7 +424,12 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
         } else {
             st=append(scene,quad,screen_scratch,idx,base,instance->pass);
         }
-        if (st!=SAT_OK) return st;
+        if (st!=SAT_OK) {
+            scene->count=previous_count;
+            scene->culled_faces=previous_culled;
+            scene->clipped_faces=previous_clipped;
+            return st;
+        }
     }
     return SAT_OK;
 }

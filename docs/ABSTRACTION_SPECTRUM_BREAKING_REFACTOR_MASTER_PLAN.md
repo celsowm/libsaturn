@@ -117,3 +117,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Camera-view queue transaction:** full-view queue admission now restores its original face and queued-item counts when any individual baked material enqueue unexpectedly fails, preserving previously queued geometry. This closes the partial-queue case after initial depth/capacity preflight; host regression injects failure on the second view item.
 
 **Compound box admission transaction:** a multi-face indexed box now restores its original painter count and cull/clip counters if a later face projection fails. Existing queued faces remain untouched; a host regression injects failure on the second box face.
+
+**Mesh instance admission hardening:** instance submission now checks nonzero face and vertex counts against the declared backing capacities before projection/index reads, and restores its own queued face/cull/clip state on any late append error; tests cover malformed mesh capacities and zero counts.

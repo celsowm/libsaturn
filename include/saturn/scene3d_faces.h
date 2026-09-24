@@ -160,7 +160,10 @@ sat_result_t sat_scene3d_faces_submit_tiled_quad(
     const sat_indexed_tiled_quad3_t* regions,
     uint8_t color_calc_slot, uint16_t pass);
 
-/* Shared mesh instance: world==NULL means an already-prepared world pose
+/* Shared mesh instance: validates nonempty mesh counts against declared
+ * buffer capacities before reading vertices/indices; restores previous
+ * queue/cull/clip counts if any face of the compound operation fails.
+ * world==NULL means an already-prepared world pose
  * (e.g. animated pig); a non-null full world matrix instantiates an immutable
  * LOCAL mesh (e.g. gems). Material bindings and culling belong to the instance,
  * while the scene owns camera projection, face ordering and command emission. */
