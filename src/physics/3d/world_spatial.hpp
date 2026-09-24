@@ -55,7 +55,7 @@ inline void mesh_bounds(const Actor& actor,Node& out) {
     const int64_t radius=
         max64(abs64(low.x),abs64(high.x))+
         max64(abs64(low.y),abs64(high.y))+
-        max64(abs64(low.z),abs64(high.z));
+        max64(abs64(low.z),abs64(high.z))+64; /* Q16 rotation rounding margin. */
     out.low_x=min64(start.x,end.x)-radius;
     out.low_y=min64(start.y,end.y)-radius;
     out.low_z=min64(start.z,end.z)-radius;

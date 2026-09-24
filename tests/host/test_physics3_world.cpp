@@ -902,6 +902,9 @@ static void tilted_kinematic_mesh_contact_and_grid_match() {
     sat_physics3_actor_t storage_a[2]{},storage_b[2]{};
     sat_physics3_world_t worlds[2]{};
     sat_contact3_t contacts[2][1]{};
+    /* Compose world BVH and per-mesh face grid for the rotated platform. */
+    sat_physics3_spatial_node_t bvh_nodes[3]{};
+    uint16_t bvh_fallback[2]{},bvh_candidates[2]{};
     const sat_vec3_t gravity{0,-FX(1)/8,0};
     const sat_physics3_quat_t tilt{0,0,16962,63303}; // 30 degrees around +Z
     const sat_sphere_t ball{{FX(1),FX(1),0},FX(1)};
@@ -910,6 +913,12 @@ static void tilted_kinematic_mesh_contact_and_grid_match() {
         CHECK(sat_physics3_world_init(
             &w,k?storage_b:storage_a,2,gravity,64,3)==SAT_OK);
         CHECK(sat_physics3_set_mesh_contacts(&w,contacts[k],1)==SAT_OK);
+        if(k!=0u) {
+            CHECK(sat_physics3_set_collider_index_scratch(
+                &w,bvh_fallback,2u)==SAT_OK);
+            CHECK(sat_physics3_set_spatial_broadphase(
+                &w,bvh_nodes,3u,bvh_candidates,2u)==SAT_OK);
+        }
         uint16_t id=999;
         CHECK(sat_physics3_add_kinematic_mesh(
             &w,&mesh,k?&grid:nullptr,&zero,&rough,&id)==SAT_OK&&id==0);
@@ -918,6 +927,10 @@ static void tilted_kinematic_mesh_contact_and_grid_match() {
         CHECK(sat_physics3_set_kinematic_mesh_orientation_target(
             &w,0,&tilt)==SAT_OK);
         CHECK(sat_physics3_world_step(&w)==SAT_OK);
+        if(k!=0u) {
+            CHECK(w.spatial_leaf_count==1u && w.spatial_fallback_count==0u);
+            CHECK(w.spatial_queries>0u && w.spatial_candidates_checked>0u);
+        }
         const sat_physics3_actor_t platform=read(&w,0);
         const sat_physics3_actor_t sphere=read(&w,1);
         CHECK(platform.mesh_orientation.z>FX(1)/5);
