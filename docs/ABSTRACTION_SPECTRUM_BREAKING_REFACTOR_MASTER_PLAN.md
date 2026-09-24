@@ -77,3 +77,5 @@ Split world stepping into integration, kinematic motion, broadphase, narrowphase
 **Batch painter DRY cleanup:** generic parallel preparation no longer allocates, publishes, or computes local ordering buffers. Source-order faces and depth keys merge once into the final painter; every example and host test now uses the reduced breaking batch contract.
 
 **Pure-model link isolation:** VDP1 texture uploads now live in an optional `model_upload.cpp` unit; validation/geometry/animation tests link only `model.cpp`. The model-upload host test links the upload unit and supplies mocks for the INDEX8 and LUT4 hardware functions.
+
+**Audio separation (first slice):** the bounded Sound RAM allocator is now an independent caller-owned pool, with standalone host tests for alignment, fragmentation, allocation slots, release and accounting. Sound/voice/clock orchestration still needs full splitting into separate compilation units.

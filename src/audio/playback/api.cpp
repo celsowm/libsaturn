@@ -2,6 +2,7 @@
 
 #include "saturn/video.h"
 #include "src/audio/streaming/runtime.hpp"
+#include "src/audio/playback/ram_allocator.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/scsp/scsp.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
@@ -18,12 +19,6 @@ constexpr uint16_t kResidentVoiceCapacity = kVoiceCapacity - saturn::core::kAudi
 constexpr uint16_t kAllocationCapacity = 40u;
 constexpr uint32_t kSoundRamBase = saturn::hal::scsp::kSystemReservedBytes;
 constexpr uint32_t kResidentSoundRamEnd = saturn::core::kAudioStreamRamBase;
-
-struct AllocationEntry {
-    uint32_t offset;
-    uint32_t size;
-    uint8_t used;
-};
 
 struct SoundEntry {
     uint32_t ram_offset;
@@ -53,11 +48,9 @@ struct VoiceEntry {
     uint8_t looping;
 };
 
-AllocationEntry g_allocations[kAllocationCapacity] = {};
+saturn::core::audio::ram::Pool<kAllocationCapacity> g_ram = {};
 SoundEntry g_sounds[kSoundCapacity] = {};
 VoiceEntry g_voices[kVoiceCapacity] = {};
-uint32_t g_sound_ram_used = 0u;
-uint32_t g_sound_ram_high_water = 0u;
 uint32_t g_voice_steals = 0u;
 uint32_t g_failed_play_requests = 0u;
 uint32_t g_start_serial = 0u;
@@ -66,64 +59,6 @@ uint32_t g_audio_service_frame = 0u;
 uint32_t g_audio_last_app_frame = 0u;
 uint8_t g_audio_last_vblank = 0u;
 uint8_t g_audio_clock_valid = 0u;
-
-uint32_t align_up(uint32_t value, uint32_t alignment) {
-    return (value + alignment - 1u) & ~(alignment - 1u);
-}
-
-bool ranges_overlap(uint32_t a0, uint32_t a1, uint32_t b0, uint32_t b1) {
-    return a0 < b1 && b0 < a1;
-}
-
-bool ram_allocate(uint32_t size, uint32_t alignment, uint16_t* out_slot, uint32_t* out_offset) {
-    if (out_slot == nullptr || out_offset == nullptr || size == 0u) return false;
-
-    uint16_t metadata_slot = kAllocationCapacity;
-    for (uint16_t i = 0; i < kAllocationCapacity; ++i) {
-        if (g_allocations[i].used == 0u) {
-            metadata_slot = i;
-            break;
-        }
-    }
-    if (metadata_slot == kAllocationCapacity) return false;
-
-    uint32_t candidate = align_up(kSoundRamBase, alignment);
-    while (candidate <= kResidentSoundRamEnd && size <= (kResidentSoundRamEnd - candidate)) {
-        bool collision = false;
-        uint32_t bump_to = candidate;
-        for (uint16_t i = 0; i < kAllocationCapacity; ++i) {
-            if (g_allocations[i].used == 0u) continue;
-            const uint32_t begin = g_allocations[i].offset;
-            const uint32_t end = begin + g_allocations[i].size;
-            if (ranges_overlap(candidate, candidate + size, begin, end)) {
-                const uint32_t bumped = align_up(end, alignment);
-                if (bumped > bump_to) bump_to = bumped;
-                collision = true;
-            }
-        }
-        if (!collision) {
-            AllocationEntry& entry = g_allocations[metadata_slot];
-            entry.offset = candidate;
-            entry.size = size;
-            entry.used = 1u;
-            g_sound_ram_used += size;
-            if (g_sound_ram_used > g_sound_ram_high_water) g_sound_ram_high_water = g_sound_ram_used;
-            *out_slot = metadata_slot;
-            *out_offset = candidate;
-            return true;
-        }
-        if (bump_to <= candidate) return false;
-        candidate = bump_to;
-    }
-    return false;
-}
-
-void ram_free(uint16_t slot) {
-    if (slot >= kAllocationCapacity || g_allocations[slot].used == 0u) return;
-    if (g_sound_ram_used >= g_allocations[slot].size) g_sound_ram_used -= g_allocations[slot].size;
-    else g_sound_ram_used = 0u;
-    g_allocations[slot] = {};
-}
 
 SoundEntry* resolve_sound(sat_sound_t sound) {
     if (sound.slot >= kSoundCapacity) return nullptr;
@@ -180,7 +115,7 @@ int32_t choose_voice(uint16_t priority) {
 }
 
 void reset_runtime_state() {
-    for (uint16_t i = 0; i < kAllocationCapacity; ++i) g_allocations[i] = {};
+    g_ram.reset();
     for (uint16_t i = 0; i < kSoundCapacity; ++i) {
         uint16_t generation = static_cast<uint16_t>(g_sounds[i].generation + 1u);
         if (generation == 0u) generation = 1u;
@@ -193,8 +128,6 @@ void reset_runtime_state() {
         g_voices[i] = {};
         g_voices[i].generation = generation;
     }
-    g_sound_ram_used = 0u;
-    g_sound_ram_high_water = 0u;
     g_voice_steals = 0u;
     g_failed_play_requests = 0u;
     g_start_serial = 0u;
@@ -285,9 +218,9 @@ extern "C" sat_result_t sat_audio_get_stats(sat_audio_stats_t* out_stats) {
     for (uint16_t i = 0; i < kSoundCapacity; ++i) sounds += g_sounds[i].used != 0u ? 1u : 0u;
     for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) voices += g_voices[i].active != 0u ? 1u : 0u;
 
-    out_stats->sound_ram_used = g_sound_ram_used;
+    out_stats->sound_ram_used = g_ram.used;
     out_stats->sound_ram_capacity = kResidentSoundRamEnd - kSoundRamBase;
-    out_stats->sound_ram_high_water = g_sound_ram_high_water;
+    out_stats->sound_ram_high_water = g_ram.high_water;
     out_stats->voice_steals = g_voice_steals;
     out_stats->failed_play_requests = g_failed_play_requests;
     out_stats->resident_sounds = sounds;
@@ -316,10 +249,11 @@ extern "C" sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound
     const uint32_t byte_count = desc->sample_count * bytes_per_sample;
     uint16_t allocation_slot = 0u;
     uint32_t offset = 0u;
-    if (!ram_allocate(byte_count, 2u, &allocation_slot, &offset)) return SAT_ERR_CAPACITY;
+    if (!g_ram.allocate(kSoundRamBase,kResidentSoundRamEnd,byte_count,
+                        2u,&allocation_slot,&offset)) return SAT_ERR_CAPACITY;
 
     if (!saturn::hal::scsp::upload(offset, desc->samples, byte_count)) {
-        ram_free(allocation_slot);
+        (void)g_ram.release(allocation_slot);
         return SAT_ERR_INVALID_ARG;
     }
 
@@ -360,7 +294,7 @@ extern "C" sat_result_t sat_sound_unload(sat_sound_t sound) {
     if (entry == nullptr) return SAT_ERR_INVALID_ARG;
 
     sat_sound_stop_all_instances(sound);
-    ram_free(entry->allocation_slot);
+    (void)g_ram.release(entry->allocation_slot);
     uint16_t generation = static_cast<uint16_t>(entry->generation + 1u);
     if (generation == 0u) generation = 1u;
     *entry = {};
