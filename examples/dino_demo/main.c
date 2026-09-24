@@ -16,9 +16,9 @@
  * submits the mesh with backface culling + painter sorting.
  *
  * Controls (held state for smooth motion, presses for toggles):
- *   LEFT/RIGHT orbit yaw around the model
+ *   L / R      orbit yaw around the model
  *   UP/DOWN    orbit pitch (clamped)
- *   L / R      zoom out / zoom in
+ *   X / Y      zoom in / zoom out
  *   A          pause/resume animation
  *   B          reset yaw, pitch, zoom and animation
  *   C          toggle automatic slow orbit
@@ -135,7 +135,16 @@ static void anim_bounds(const sat_animated_model_asset_t *asset,
 
 /* Game-specific HUD and animator semantics stay outside camera math. */
 static void update_camera_from_inputs(const sat_pad_state_t* pad) {
-    sat_example_must(sat_orbit_camera3d_apply_pad(&g_orbit,pad,SAT_PAD_C));
+    sat_pad_state_t camera_pad = *pad;
+    /* Adapt the shared viewer controls for the Saturn pad layout requested
+     * here: shoulder buttons orbit, X/Y zoom. Keep D-pad pitch and C toggle. */
+    camera_pad.held &= (uint16_t)~(SAT_PAD_LEFT | SAT_PAD_RIGHT |
+                                   SAT_PAD_L | SAT_PAD_R);
+    if ((pad->held & SAT_PAD_L) != 0u) camera_pad.held |= SAT_PAD_LEFT;
+    if ((pad->held & SAT_PAD_R) != 0u) camera_pad.held |= SAT_PAD_RIGHT;
+    if ((pad->held & SAT_PAD_X) != 0u) camera_pad.held |= SAT_PAD_R;
+    if ((pad->held & SAT_PAD_Y) != 0u) camera_pad.held |= SAT_PAD_L;
+    sat_example_must(sat_orbit_camera3d_apply_pad(&g_orbit,&camera_pad,SAT_PAD_C));
     if((pad->pressed&SAT_PAD_START)!=0u)
         g_show_hud=!g_show_hud;
     if((pad->pressed&SAT_PAD_B)!=0u) {
@@ -162,7 +171,7 @@ static void draw_hud(void) {
     if (!g_show_hud) {
         return;
     }
-    draw_text("T-REX WALK  D-PAD CAM  L/R ZOOM", 4, 4);
+    draw_text("T-REX WALK  L/R ROT  X/Y ZOOM", 4, 4);
     draw_text("A PAUSE B RESET C AUTO START HUD", 4, 14);
     if (g_draw_overflow) {
         draw_text("RENDER LIMIT", 4, 24);

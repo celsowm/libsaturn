@@ -5,9 +5,10 @@ It converts the attributed walking GLB into a bounded, baked animated model
 and runs it through the Saturn's VDP1 painter path.
 
 The dinosaur starts in a large side view against a dark screen, with its
-original warm texture and a compact control display. LEFT/RIGHT orbit,
-UP/DOWN change the viewing angle, L/R zoom, A pauses the walk, B resets the
-camera, and C toggles slow automatic orbit. START hides or restores the text.
+original warm texture and a compact control display. L/R rotate the camera,
+UP/DOWN change the viewing angle, X zooms in, and Y zooms out. A pauses the
+walk, B resets the camera, and C toggles slow automatic orbit. START hides or
+restores the text.
 
 Build with `.\build-example.ps1 dino_demo`. Run it in Ymir's modified
 integration harness with `.\harness\run-harness.ps1 dino_demo -Bios <your-BIOS>`.
