@@ -134,7 +134,10 @@ bool start_seamless_loop(AudioStreamSlot& slot, uint32_t frame_now, uint32_t dis
     config.pan = slot.pan;
     if (!saturn::hal::scsp::configure_slot(slot.scsp_slot, config)) return false;
 
-    saturn::hal::scsp::key_on(slot.scsp_slot);
+    // Keyed on by the service's single KYONEX once every stream starting in
+    // this pass is armed: uploading the next stream's two halves takes
+    // milliseconds, which would otherwise skew stereo channels apart.
+    saturn::hal::scsp::arm_key_on(slot.scsp_slot);
     slot.hardware_playing = 1u;
     slot.seamless_loop = 1u;
     slot.playback_start_frame = frame_now;
@@ -155,6 +158,7 @@ void audio_stream_service(
     uint32_t frame_now,
     uint32_t display_rate
 ) {
+    bool armed = false;
     for (uint16_t i = 0u; i < kAudioStreamCapacity; ++i) {
         AudioStreamSlot& slot = registry.slots[i];
         if (slot.used == 0u || slot.ring.paused != 0u) continue;
@@ -206,6 +210,7 @@ void audio_stream_service(
         }
 
         if (start_seamless_loop(slot, frame_now, display_rate)) {
+            armed = true;
             continue;
         }
 
@@ -243,6 +248,7 @@ void audio_stream_service(
             frame_now + stream_playback_duration(frames, slot.sample_rate, display_rate);
         slot.playback_buffer ^= 1u;
     }
+    if (armed) saturn::hal::scsp::execute_key_transitions();
 }
 
 }  // namespace saturn::core

@@ -6,6 +6,9 @@ Run after:
     $env:LIBSATURN_PROBE_JSON = 'harness/build/probe.json'
     python -m unittest harness.tests.test_cd_streaming_jukebox
 
+For the seek path, run with ``-Frames 1100 -PadScript
+harness\scripts\jukebox_seek.pad -PadScriptGameFrame``.
+
 The harness automatically enables per-frame SCSP tracing for this example.
 """
 
@@ -63,6 +66,24 @@ class CdStreamingJukeboxTests(unittest.TestCase):
         self.assertEqual(right["start_address"], 0x74000)
         self.assertEqual(left["direct_pan"], 0x1F)
         self.assertEqual(right["direct_pan"], 0x0F)
+
+    def test_stereo_channels_play_in_phase(self):
+        # Both channel slots are keyed on by one KYONEX, so whenever both are
+        # playing they read the same sample (mod the 8192-sample loop), also
+        # after a seek (harness/scripts/jukebox_seek.pad) restarts them.
+        loop = 2 * self.probe["scsp"]["stream_half_samples"]
+        checked = 0
+        for frame in self.probe["scsp"].get("trace", []):
+            slots = {slot["index"]: slot for slot in frame["stream_slots"]}
+            left, right = slots[28], slots[29]
+            if not (left["active"] and left["key_on"] and right["active"] and right["key_on"]):
+                continue
+            skew = (left["curr_sample"] - right["curr_sample"]) % loop
+            skew = min(skew, loop - skew)
+            self.assertLessEqual(
+                skew, 4, f"L/R slots {skew} samples apart at frame {frame['frame']}")
+            checked += 1
+        self.assertGreater(checked, 20)
 
     def test_refills_modify_only_the_inactive_scsp_half(self):
         scsp = self.probe["scsp"]

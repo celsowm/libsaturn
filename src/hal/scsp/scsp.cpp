@@ -74,6 +74,27 @@ inline uint8_t clamp_u8(uint32_t value, uint8_t max_value) {
     return static_cast<uint8_t>(value > max_value ? max_value : value);
 }
 
+/* Waits longer than one 44.1 kHz SCSP sample period: with the calibrated
+ * FRT, eight /128 ticks are comfortably longer. */
+void wait_one_sample() {
+    if (saturn::hal::scu::ticks_per_frame() != 0u) {
+        const uint64_t start = saturn::hal::scu::elapsed_ticks();
+        while (saturn::hal::scu::elapsed_ticks() - start < 8u) {
+        }
+    } else {
+        // Frame-clock calibration can fail on a non-advancing display. In
+        // that degraded case, repeated volatile SCSP reads provide a bounded
+        // settling delay without introducing another timer dependency.
+        volatile uint16_t* status =
+            reinterpret_cast<volatile uint16_t*>(kSlotStatusAddress);
+        uint16_t discard = 0u;
+        for (uint16_t i = 0u; i < 256u; ++i) {
+            discard = *status;
+        }
+        (void)discard;
+    }
+}
+
 inline void execute_key_transition(uint8_t slot) {
     *slot_word(slot, 0x00u) = g_slot_control[slot];
     *slot_word(slot, 0x00u) = static_cast<uint16_t>(g_slot_control[slot] | kKeyOnExecute);
@@ -130,24 +151,9 @@ bool read_current_sample_block(uint8_t slot, uint8_t* out_block) {
     // p04_28: writing MSLC selects the monitored slot; reading the same word
     // returns CA in bits 7..10, where one CA unit is 4096 samples. The monitor
     // value is latched by the SCSP slot pipeline, so do not trust an immediate
-    // read after changing MSLC. With the calibrated FRT, eight /128 ticks are
-    // comfortably longer than one 44.1 kHz SCSP sample period.
+    // read after changing MSLC.
     *status = static_cast<uint16_t>(static_cast<uint16_t>(slot) << 11u);
-
-    if (saturn::hal::scu::ticks_per_frame() != 0u) {
-        const uint64_t start = saturn::hal::scu::elapsed_ticks();
-        while (saturn::hal::scu::elapsed_ticks() - start < 8u) {
-        }
-    } else {
-        // Frame-clock calibration can fail on a non-advancing display. In
-        // that degraded case, repeated volatile SCSP reads provide a bounded
-        // settling delay without introducing another timer dependency.
-        uint16_t discard = 0u;
-        for (uint16_t i = 0u; i < 256u; ++i) {
-            discard = *status;
-        }
-        (void)discard;
-    }
+    wait_one_sample();
 
     const uint16_t value = *status;
     *out_block = static_cast<uint8_t>((value >> 7u) & 0x0Fu);
@@ -261,6 +267,21 @@ void key_on(uint8_t slot) {
     if (!g_ready || slot >= kSlotCount) return;
     g_slot_control[slot] = static_cast<uint16_t>(g_slot_control[slot] | kKeyOnBit);
     execute_key_transition(slot);
+}
+
+void arm_key_on(uint8_t slot) {
+    if (!g_ready || slot >= kSlotCount) return;
+    // KYONEX is latched and applied at the next sample: one still pending
+    // (e.g. configure_slot's own key-off) would key this slot on right now.
+    wait_one_sample();
+    g_slot_control[slot] = static_cast<uint16_t>(g_slot_control[slot] | kKeyOnBit);
+    *slot_word(slot, 0x00u) = g_slot_control[slot];
+}
+
+void execute_key_transitions() {
+    if (!g_ready) return;
+    // KYONEX written through any slot applies every slot's KYONB.
+    *slot_word(0u, 0x00u) = static_cast<uint16_t>(g_slot_control[0u] | kKeyOnExecute);
 }
 
 void key_off(uint8_t slot) {

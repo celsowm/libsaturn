@@ -41,6 +41,15 @@ bool configure_slot(uint8_t slot, const SlotConfig& config) {
     return true;
 }
 void key_on(uint8_t) { ++g_key_on_count; }
+static uint32_t g_armed_pending = 0u;
+static uint32_t g_armed_at_execute = 0u;
+static uint32_t g_execute_count = 0u;
+void arm_key_on(uint8_t) { ++g_key_on_count; ++g_armed_pending; }
+void execute_key_transitions() {
+    ++g_execute_count;
+    g_armed_at_execute = g_armed_pending;
+    g_armed_pending = 0u;
+}
 void key_off(uint8_t) { ++g_key_off_count; }
 bool read_current_sample_block(uint8_t, uint8_t* out_block) {
     if (out_block == nullptr) return false;
@@ -220,6 +229,32 @@ int main() {
 
     sat_audio_spec_t stereo = {22050u, 4u, 2u, SAT_AUDIO_PCM_S16, 0u};
     OK(sat_audio_stream_open(&overflow, &stereo, storage, sizeof(storage)) == SAT_ERR_INVALID_ARG);
+    // Two streams primed together (a stereo pair) key on with ONE KYONEX
+    // after both uploads, not one after the other.
+    {
+        saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+        static uint8_t left_storage[16384u];
+        static uint8_t right_storage[16384u];
+        static uint8_t frames[16384u];
+        sat_audio_stream_t left{};
+        sat_audio_stream_t right{};
+        OK(sat_audio_stream_open(&left, &seamless_spec, left_storage, sizeof(left_storage)) == SAT_OK);
+        OK(sat_audio_stream_open(&right, &seamless_spec, right_storage, sizeof(right_storage)) == SAT_OK);
+        OK(sat_audio_stream_write(left, frames, 8192u) == SAT_OK);
+        OK(sat_audio_stream_write(right, frames, 8192u) == SAT_OK);
+        saturn::hal::scsp::g_execute_count = 0u;
+        saturn::hal::scsp::g_armed_pending = 0u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 0u, 60u);
+        OK(saturn::hal::scsp::g_execute_count == 1u);
+        OK(saturn::hal::scsp::g_armed_at_execute == 2u);
+        sat_audio_stream_stats_t left_stats{};
+        sat_audio_stream_stats_t right_stats{};
+        OK(sat_audio_stream_stats(left, &left_stats) == SAT_OK && left_stats.playing == 1u);
+        OK(sat_audio_stream_stats(right, &right_stats) == SAT_OK && right_stats.playing == 1u);
+        // Steady state arms nothing, so it executes nothing.
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 1u, 60u);
+        OK(saturn::hal::scsp::g_execute_count == 1u);
+    }
     std::puts("audio stream api: OK");
     return 0;
 }

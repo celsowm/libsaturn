@@ -69,6 +69,8 @@ namespace saturn::hal::scsp {
 bool upload(uint32_t, const void*, uint32_t) { return true; }
 bool configure_slot(uint8_t, const SlotConfig&) { return true; }
 void key_on(uint8_t) {}
+void arm_key_on(uint8_t) {}
+void execute_key_transitions() {}
 void key_off(uint8_t) {}
 bool read_current_sample_block(uint8_t, uint8_t* out_block) {
     if (out_block == nullptr) return false;

@@ -35,6 +35,10 @@ bool configure_slot(uint8_t slot, const SlotConfig& config);
 // sample offset in the SCSP's native 4096-sample units.
 bool read_current_sample_block(uint8_t slot, uint8_t* out_block);
 void key_on(uint8_t slot);
+// Sets KYONB without KYONEX; execute_key_transitions() then keys on every
+// armed slot on the same sample, e.g. both channels of a stereo stream.
+void arm_key_on(uint8_t slot);
+void execute_key_transitions();
 void key_off(uint8_t slot);
 // TL=0xFF: silences a slot whose envelope release may still read Sound RAM.
 void mute_slot(uint8_t slot);
