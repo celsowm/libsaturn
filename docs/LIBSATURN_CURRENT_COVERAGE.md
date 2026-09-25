@@ -98,7 +98,7 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | Area | Status | Current coverage | Major gaps / next territory | Evidence |
 |---|---|---|---|---|
 | Bare-metal startup/runtime | **SUBSTANTIAL** | Startup, linker/runtime integration, initialization and game-oriented frame lifecycle. | More system services and richer platform introspection. | `src/core/startup`, `src/core/runtime`, `include/saturn/core.h`, `include/saturn/app.h` |
-| Frame timing / VBlank | **SUBSTANTIAL** | Begin/end frame, VBlank wait, display-frame counter calibrated from SH-2 timing. | Broader interrupt/timer abstraction. | `include/saturn/video.h`, `src/hal/scu/scu.*` |
+| Frame timing / VBlank | **SUBSTANTIAL** | Begin/end frame; VBlank wait driven by the VBlank-IN interrupt (polling fallback when a host never delivers it); exact display-frame count; `sat_time_ms` observed every frame, so it stays exact through long busy work. | PAL (sat_init still rejects it). | `include/saturn/video.h`, `include/saturn/time.h`, `src/hal/scu/scu.*` |
 | VDP1 sprites | **SUBSTANTIAL** | Normal, scaled and distorted sprites; screen/native coordinate helpers. | Additional command/state abstractions and broader hardware modes. | `include/saturn/vdp1.h` |
 | VDP1 primitives | **SUBSTANTIAL** | Polygon, polyline, line and rectangle helpers. | More generalized render-state control. | `include/saturn/vdp1.h` |
 | VDP1 textures/palettes | **SUBSTANTIAL** | Indexed-8 texture upload, palette upload, texture VRAM management paths. | More source formats and runtime streaming/upload strategies. | `include/saturn/vdp1.h` |
@@ -118,7 +118,7 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | 3D Control Pad / analog | **NOT EXPOSED** | No public analog-axis/device-type API. | Analog stick, analog triggers and automatic device identification. | Current `input.h` is digital-pad-oriented. |
 | Multitap / peripheral family | **NOT EXPOSED** | No general peripheral framework. | Multitap, mouse, wheel, Mission Stick, Twin Stick, Virtua Gun and other SMPC peripherals. | No corresponding public module. |
 | SMPC system services | **MINIMAL** | Current HAL covers digital pad access and sound CPU on/off operations. | RTC/time, region/language/system status, peripheral enumeration and other SMPC commands. | `src/hal/smpc.*` |
-| SCU interrupts/frame support | **MINIMAL** | Interrupt initialization and frame/VBlank timing support. | General interrupt-controller API and broader SCU services. | `src/hal/scu.*` |
+| SCU interrupts | **SUBSTANTIAL** | All 14 internal sources (VBlank-IN/OUT, HBlank-IN, timers 0/1, DSP end, sound request, SMPC, PAD, DMA 0-2 end, DMA illegal, sprite draw end) with per-source handlers and counts, IMS shadow restored by every handler, SR mask lowered only to the lowest enabled level, timer 0 line / timer 1 dot setup. Ymir and Mednafen acceptance (`harness/run-irq-demo.ps1`). | A-bus external interrupts (cartridge devices) stay masked. Handlers run in interrupt context: no frame or draw calls. | `include/saturn/irq.h`, `src/hal/scu/irq.*`, `examples/irq_demo` |
 | SCU DMA | **NOT EXPOSED** | No first-class LibSaturn DMA API. | DMA channels, queued transfers, RAM<->VRAM/CRAM/SCSP workflows and asynchronous completion. | Sega SCU docs are present; no corresponding public runtime subsystem. |
 | SCU DSP | **DOCS ONLY** | SCU DSP manuals are present in the repository. | Program loading, assembler/tooling integration, dispatch, synchronization and useful DSP kernels. | `docs/sega_saturn_hardware/hard/scu_` |
 | SCSP PCM playback | **PARTIAL** | PCM S8/S16 sounds, resident sound data, bounded music streams, looping, voices, volume, pan, pitch and voice statistics/stealing. | Richer envelopes/modulation, effects, synthesis and long-run/CD hardware validation. | `include/saturn/audio.h`, `src/hal/scsp.*`, `src/audio/playback/music.cpp` |
@@ -168,7 +168,7 @@ Likely first workloads:
 
 ### SCU
 
-Current status: **MINIMAL** for interrupts/frame timing, otherwise largely unexplored.
+Current status: **SUBSTANTIAL** for interrupts and frame timing (`saturn/irq.h`); DMA and DSP are not exposed yet.
 
 The two major opportunities are:
 

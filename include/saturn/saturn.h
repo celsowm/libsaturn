@@ -16,6 +16,7 @@
 #include "saturn/resource_plan.h"
 #include "saturn/hud.h"
 #include "saturn/time.h"
+#include "saturn/irq.h"
 #include "saturn/surface.h"
 #include "saturn/surface3d.h"
 #include "saturn/texture.h"

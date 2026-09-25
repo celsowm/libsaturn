@@ -5,7 +5,14 @@
 
 namespace saturn::hal::scu {
 
+/* Starts SCU interrupts (VBlank-IN first); polling stays the fallback.
+ * Call after init_frame_clock. */
 void init_interrupts();
+void shutdown_interrupts();
+/* VBlank-IN handler work: keeps the frame clock observed every frame. */
+void on_vblank_in();
+/* Times VBlank-IN stopped arriving and wait_vblank went back to polling. */
+uint32_t irq_fallbacks();
 /* Calibrates the display-frame clock; needs the display already enabled. */
 void init_frame_clock();
 void wait_vblank();

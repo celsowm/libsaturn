@@ -43,6 +43,9 @@ param(
     [string]$ParallelRuntimeTelemetryCsv,
     [switch]$ScspTrace,
     [int]$FbSample = 256,
+    # Work RAM High (0x06000000, 1 MiB) at the end of the run, for tests
+    # that read a guest results struct through the map file.
+    [string]$DumpWramHigh,
     [string]$Out
 )
 
@@ -238,6 +241,9 @@ if ($Screenshot) {
     foreach ($shot in $Screenshot) {
         $probeArgs += @('--screenshot', $shot)
     }
+}
+if ($DumpWramHigh) {
+    $probeArgs += @('--dump-wram-high', $DumpWramHigh)
 }
 if ($ProfilePc) {
     $probeArgs += @('--profile-pc', $ProfilePc)
