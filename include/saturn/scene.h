@@ -95,6 +95,10 @@ sat_result_t sat_scene_submit_quad_split(sat_scene_t* scene, const sat_quad3_t* 
                                          const sat_scene3d_material_t* material,
                                          uint16_t pass, const sat_plane3_t* planes,
                                          uint8_t plane_count);
+/* sat_scene3d_capture_begin/end on the scene's painter; captured faces count
+ * as submitted. */
+sat_result_t sat_scene_capture_begin(sat_scene_t* scene, uint16_t pass);
+sat_result_t sat_scene_capture_end(sat_scene_t* scene);
 sat_result_t sat_scene_submit_box(sat_scene_t* scene, const sat_indexed_box3_t* box,
                                   uint8_t color_calc_slot, uint16_t pass);
 sat_result_t sat_scene_submit_tiled_quad(sat_scene_t* scene, const sat_quad3_t* quad,

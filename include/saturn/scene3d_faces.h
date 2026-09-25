@@ -352,6 +352,23 @@ sat_result_t sat_scene3d_faces_submit_instance(
  * Caller manages sat_begin_frame/sat_end_frame and HUD command reservation. */
 sat_result_t sat_scene3d_faces_flush(sat_scene3d_faces_t* scene);
 
+/* Opt-in capture of direct draws into the painter. While a capture is open
+ * the render3d.h world-quad draws -- sat_draw_polygon_quad3, its _gouraud
+ * form, sat_draw_indexed_solid_quad3, sat_draw_indexed_textured_quad3 and
+ * sat_draw_indexed_tiled_quad3 (and so sat_draw_indexed_box3 and
+ * sat_draw_indexed_solid_mesh3, which draw through them) -- queue each quad
+ * into this scene at `pass` instead of drawing it at once, so it sorts with
+ * the scene's faces rather than landing on top of or under all of them.
+ * The draw's own camera parameters are NOT used: the scene's camera projects
+ * the quad, so they must describe the same view. Its colour-calc slot is
+ * kept. The draw returns the queue result (SAT_ERR_CAPACITY when full); the
+ * textured/tiled out counts read 1 for a queued quad.
+ * One capture at a time, on the Master; a flush of the capturing scene
+ * returns SAT_ERR_BUSY until sat_scene3d_capture_end. out_captured
+ * (optional) receives the faces queued during the capture. */
+sat_result_t sat_scene3d_capture_begin(sat_scene3d_faces_t* scene, uint16_t pass);
+sat_result_t sat_scene3d_capture_end(sat_scene3d_faces_t* scene, uint16_t* out_captured);
+
 #ifdef __cplusplus
 }
 #endif

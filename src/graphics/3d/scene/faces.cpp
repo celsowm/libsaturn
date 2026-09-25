@@ -3,6 +3,7 @@
 #include "saturn/vdp1_color_calc.h"
 #include "src/core/geometry/mesh_logic.hpp"
 #include "src/graphics/3d/rendering/logic.hpp"
+#include "src/graphics/3d/scene/capture.hpp"
 #include "src/hal/sh2/frt.hpp"
 
 #include <stdint.h>
@@ -12,6 +13,14 @@
 #endif
 
 namespace {
+/* The scene direct draws queue into, if any (sat_scene3d_capture_begin). */
+struct Capture {
+    sat_scene3d_faces_t* scene;
+    uint16_t pass;
+    uint16_t first;
+};
+Capture g_capture{};
+
 #if SAT_PROFILE_METRICS
 uint32_t g_test_painter_ticks;
 uint32_t g_test_emit_ticks;
@@ -682,9 +691,39 @@ extern "C" sat_result_t sat_scene3d_faces_merge_prepared(
     return SAT_OK;
 }
 
+namespace saturn::graphics::scene3d {
+bool capture_quad(const sat_quad3_t& quad, const sat_scene3d_material_t& material,
+                  sat_result_t* result) {
+    if (g_capture.scene==nullptr) return false;
+    *result=sat_scene3d_faces_submit_quad(g_capture.scene,&quad,&material,
+                                          g_capture.pass);
+    return true;
+}
+} // namespace saturn::graphics::scene3d
+
+extern "C" sat_result_t sat_scene3d_capture_begin(
+    sat_scene3d_faces_t* scene, uint16_t pass) {
+    if (!scene || !scene->active || pass>SAT_SCENE3D_PASS_MAX)
+        return SAT_ERR_INVALID_ARG;
+    if (g_capture.scene!=nullptr) return SAT_ERR_BUSY;
+    g_capture=Capture{scene,pass,scene->count};
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_capture_end(
+    sat_scene3d_faces_t* scene, uint16_t* out_captured) {
+    if (!scene || g_capture.scene!=scene) return SAT_ERR_INVALID_ARG;
+    if (out_captured)
+        *out_captured=static_cast<uint16_t>(scene->count-g_capture.first);
+    g_capture=Capture{};
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_scene3d_faces_flush(
     sat_scene3d_faces_t* scene) {
     if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    /* Flushing draws through the very functions a capture redirects. */
+    if (g_capture.scene==scene) return SAT_ERR_BUSY;
     scene->active=0u;
     /* Revalidate borrowed material residency before *any* VDP1 command.
      * A texture may have been released or marked invalid between submit and

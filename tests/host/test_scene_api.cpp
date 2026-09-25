@@ -97,6 +97,14 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
 extern "C" sat_result_t sat_scene3d_faces_submit_box(
     sat_scene3d_faces_t*, const sat_indexed_box3_t*, uint8_t,
     uint16_t) { return SAT_OK; }
+/* A capture reports three queued faces when it ends. */
+extern "C" sat_result_t sat_scene3d_capture_begin(sat_scene3d_faces_t*, uint16_t) {
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_scene3d_capture_end(sat_scene3d_faces_t*, uint16_t* out) {
+    if (out) *out=3u;
+    return SAT_OK;
+}
 /* Every split call queues two pieces. */
 extern "C" sat_result_t sat_scene3d_faces_submit_quad_split(
     sat_scene3d_faces_t* scene, const sat_quad3_t*,
@@ -442,6 +450,16 @@ int main() {
         assert(sat_scene_stats(&scene,&split)==SAT_OK);
         assert(split.submitted_faces==before+2u);
         scene.faces.count=static_cast<uint16_t>(scene.faces.count-2u);
+    }
+    // Faces queued by captured direct draws count as submitted too.
+    {
+        sat_scene_stats_t captured{};
+        assert(sat_scene_stats(&scene,&captured)==SAT_OK);
+        const uint32_t before=captured.submitted_faces;
+        assert(sat_scene_capture_begin(&scene,1u)==SAT_OK);
+        assert(sat_scene_capture_end(&scene)==SAT_OK);
+        assert(sat_scene_stats(&scene,&captured)==SAT_OK);
+        assert(captured.submitted_faces==before+3u);
     }
     g_submit_status=SAT_ERR_CAPACITY;
     assert(sat_scene_submit_quad(&scene,&quad,&material,0u)==SAT_ERR_CAPACITY);

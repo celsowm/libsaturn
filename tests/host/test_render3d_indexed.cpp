@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include "saturn/mesh3d_draw.h"
 #include "saturn/vdp1_color_calc.h"
+#include "src/graphics/3d/scene/capture.hpp"
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"FAIL %s:%d: %s\n",__FILE__,__LINE__,#x); exit(1); } } while (0)
 #define EQ(a,b) CHECK((a)==(b))
@@ -116,7 +117,26 @@ extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
     return g_polygon_status;
 }
 
+/* The scene side of sat_scene3d_capture_begin (faces.cpp), recorded. */
+static bool g_capturing;
+static int g_captured;
+static sat_scene3d_material_t g_captured_material;
+static sat_result_t g_capture_status=SAT_OK;
+namespace saturn::graphics::scene3d {
+bool capture_quad(const sat_quad3_t&,const sat_scene3d_material_t& material,
+                  sat_result_t* result) {
+    if(!g_capturing) return false;
+    ++g_captured;
+    g_captured_material=material;
+    *result=g_capture_status;
+    return true;
+}
+}
+
 static void reset() {
+    g_capturing=false;
+    g_captured=0;
+    g_capture_status=SAT_OK;
     g_polygons=0;
     g_gouraud_polygons=0;
     g_polygon_color=0u;
@@ -605,6 +625,54 @@ static void grid_texture_rejects_bad_descriptors() {
     EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_ERR_INVALID_ARG);
     EQ(g_project_calls,0);
 }
+/* Inside a capture every world-quad draw queues its quad with the material
+ * it would have drawn, and draws nothing itself. */
+static void direct_draws_queue_into_an_open_capture() {
+    reset();
+    const sat_quad3_t q=quad(3,12);
+    sat_indexed_solid_render3d_t p=render();
+    p.color_calc_slot=3u;
+    const uint16_t g[4]={1u,2u,3u,4u};
+    const sat_indexed_tiled_quad3_t regions=tiled_regions();
+    uint8_t out=0u;
+    g_capturing=true;
+
+    EQ(sat_draw_polygon_quad3(&q,&p,0x8123u),SAT_OK);
+    EQ(g_captured_material.kind,SAT_SCENE3D_RGB);
+    EQ(g_captured_material.rgb555,0x8123u);
+    EQ(g_captured_material.color_calc_slot,SAT_INDEXED_SOLID_OPAQUE);
+    CHECK(g_captured_material.vertex_gouraud==nullptr);
+    EQ(sat_draw_polygon_quad3_gouraud(&q,&p,0x8124u,g),SAT_OK);
+    CHECK(g_captured_material.vertex_gouraud==g);
+    EQ(sat_draw_indexed_solid_quad3(&q,&p,&g_texture[1]),SAT_OK);
+    EQ(g_captured_material.kind,SAT_SCENE3D_INDEXED_SOLID);
+    CHECK(g_captured_material.texture==&g_texture[1]);
+    EQ(g_captured_material.color_calc_slot,3u);
+    EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[0],&out),SAT_OK);
+    EQ(out,1u);
+    EQ(g_captured_material.kind,SAT_SCENE3D_INDEXED_TEXTURED);
+    out=0u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&out),SAT_OK);
+    EQ(out,1u);
+    EQ(g_captured_material.kind,SAT_SCENE3D_INDEXED_TILED);
+    CHECK(g_captured_material.tiled==&regions);
+    EQ(g_captured,5);
+    EQ(g_polygons+g_gouraud_polygons+g_opaque+g_faded,0);
+    EQ(g_near_calls+g_project_calls,0);
+
+    /* Invalid input is still refused before any queueing. */
+    EQ(sat_draw_polygon_quad3(nullptr,&p,0x8123u),SAT_ERR_INVALID_ARG);
+    EQ(g_captured,5);
+    /* A full queue is the draw's result; nothing counts as drawn. */
+    g_capture_status=SAT_ERR_CAPACITY;
+    out=0u;
+    EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[0],&out),SAT_ERR_CAPACITY);
+    EQ(out,0u);
+    /* Closed capture: straight to the VDP1 again. */
+    g_capturing=false;
+    EQ(sat_draw_indexed_solid_quad3(&q,&p,&g_texture[1]),SAT_OK);
+    EQ(g_faded,1);
+}
 static void mesh_uses_immutable_geometry_and_sorts_depth() {
     reset();
     sat_vec3_t vertices[8];
@@ -722,11 +790,12 @@ int main() {
     grid_texture_keeps_every_uncut_cell_and_fills_the_cut_one();
     tiled_quadrants_fill_a_cut_quadrant_with_its_colour();
     grid_texture_rejects_bad_descriptors();
+    direct_draws_queue_into_an_open_capture();
     mesh_uses_immutable_geometry_and_sorts_depth();
     mesh_invalid_face_or_material_is_atomic();
     indexed_box_owns_visibility_winding_and_material_selection();
     indexed_box_rejects_bad_geometry_before_emitting();
     indexed_box_propagates_capacity_without_attempting_other_faces();
-    puts("test_render3d_indexed: 23 tests passed");
+    puts("test_render3d_indexed: 24 tests passed");
     return 0;
 }

@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <stdint.h>
 #include "saturn/scene3d_faces.h"
+#include "src/graphics/3d/scene/capture.hpp"
 
 static uint16_t emitted[64]={};
 /* The slot each emission carried, so an instance-wide override can be checked
@@ -273,8 +274,62 @@ static void split_faces_sort_by_their_own_depth() {
     emitted_count=0u;
 }
 
+/* A capture queues what the direct draws hand it at the capture's pass, and
+ * the scene cannot flush (its own draws would be captured) until it ends. */
+static void capture_queues_draws_at_its_pass() {
+    using saturn::graphics::scene3d::capture_quad;
+    sat_scene3d_faces_t scene={};
+    sat_scene3d_face_t storage[4]={};
+    uint32_t keys[4]={};
+    uint16_t order[4]={};
+    sat_mat4_t vp={};
+    vp.m[0]=SAT_FX16_ONE;
+    const sat_vec3_t eye={0,0,0};
+    const sat_vec3_t forward={0,0,SAT_FX16_ONE};
+    const sat_scene3d_material_t hud={
+        SAT_SCENE3D_RGB,0x8222u,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE,nullptr};
+    const sat_scene3d_material_t world={
+        SAT_SCENE3D_RGB,0x8333u,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE,nullptr};
+    const sat_quad3_t near_q=quad(2),far_q=quad(10);
+    sat_result_t result=SAT_ERR_BUSY;
+
+    assert(sat_scene3d_faces_init(&scene,storage,keys,order,4u)==SAT_OK);
+    assert(!capture_quad(near_q,hud,&result));  /* nothing open */
+    assert(sat_scene3d_capture_begin(&scene,3u)==SAT_ERR_INVALID_ARG); /* not begun */
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_capture_begin(&scene,SAT_SCENE3D_PASS_MAX+1u)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_submit_quad(&scene,&far_q,&world,0u)==SAT_OK);
+    assert(sat_scene3d_capture_begin(&scene,3u)==SAT_OK);
+    assert(sat_scene3d_capture_begin(&scene,3u)==SAT_ERR_BUSY);
+    assert(capture_quad(near_q,hud,&result) && result==SAT_OK);
+    assert(scene.count==2u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_BUSY);
+    assert(scene.active);
+    uint16_t captured=0u;
+    assert(sat_scene3d_capture_end(&scene,&captured)==SAT_OK && captured==1u);
+    assert(sat_scene3d_capture_end(&scene,&captured)==SAT_ERR_INVALID_ARG);
+    assert(!capture_quad(near_q,hud,&result));
+    emitted_count=0u;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    /* Captured at pass 3: after the pass-0 face even though it is nearer
+     * the camera only because of the pass, and with its own colour. */
+    assert(emitted_count==2u && emitted[0]==0x8333u && emitted[1]==0x8222u);
+
+    /* A full queue is reported to the draw. */
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_capture_begin(&scene,0u)==SAT_OK);
+    for (int i=0;i<4;++i) assert(capture_quad(far_q,world,&result) && result==SAT_OK);
+    assert(capture_quad(far_q,world,&result) && result==SAT_ERR_CAPACITY);
+    assert(sat_scene3d_capture_end(&scene,&captured)==SAT_OK && captured==4u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    emitted_count=0u;
+}
+
 int main() {
     split_faces_sort_by_their_own_depth();
+    capture_queues_draws_at_its_pass();
     sat_scene3d_faces_t scene={};
     sat_scene3d_face_t storage[8]={};
     uint32_t keys[8]={};

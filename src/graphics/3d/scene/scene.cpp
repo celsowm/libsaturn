@@ -75,6 +75,19 @@ extern "C" sat_result_t sat_scene_submit_quad(sat_scene_t* scene,
     return record_frame_result(scene,st);
 }
 
+extern "C" sat_result_t sat_scene_capture_begin(sat_scene_t* scene, uint16_t pass) {
+    if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    return sat_scene3d_capture_begin(&scene->faces, pass);
+}
+
+extern "C" sat_result_t sat_scene_capture_end(sat_scene_t* scene) {
+    if (!scene) return SAT_ERR_INVALID_ARG;
+    uint16_t captured = 0u;
+    const sat_result_t st = sat_scene3d_capture_end(&scene->faces, &captured);
+    if (st == SAT_OK) scene->submitted_faces += captured;
+    return st;
+}
+
 extern "C" sat_result_t sat_scene_submit_quad_split(
     sat_scene_t* scene, const sat_quad3_t* quad,
     const sat_scene3d_material_t* material, uint16_t pass,

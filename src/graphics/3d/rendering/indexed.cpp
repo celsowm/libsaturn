@@ -1,8 +1,25 @@
 #include "saturn/mesh3d_draw.h"
 #include "saturn/vdp1_color_calc.h"
 #include "src/graphics/3d/rendering/logic.hpp"
+#include "src/graphics/3d/scene/capture.hpp"
 
 namespace {
+
+/* A direct draw inside sat_scene3d_capture_begin/end queues into the scene
+ * instead (see scene3d_faces.h); true when it did, with its result. */
+bool captured(const sat_quad3_t* quad, sat_scene3d_material_kind_t kind,
+              uint16_t rgb555, const sat_vdp1_texture_t* texture,
+              const sat_indexed_tiled_quad3_t* tiled, uint8_t slot,
+              const uint16_t* gouraud, sat_result_t* result) {
+    sat_scene3d_material_t material={};
+    material.kind=kind;
+    material.rgb555=rgb555;
+    material.texture=texture;
+    material.tiled=tiled;
+    material.color_calc_slot=slot;
+    material.vertex_gouraud=gouraud;
+    return saturn::graphics::scene3d::capture_quad(*quad,material,result);
+}
 
 bool valid_camera(const sat_indexed_solid_render3d_t* p) {
     return p != nullptr && p->view_proj != nullptr &&
@@ -76,6 +93,10 @@ extern "C" sat_result_t sat_draw_indexed_solid_quad3(
 ) {
     if (quad==nullptr || texture==nullptr || !valid_render(p))
         return SAT_ERR_INVALID_ARG;
+    sat_result_t queued;
+    if (captured(quad,SAT_SCENE3D_INDEXED_SOLID,0u,texture,nullptr,
+                 p->color_calc_slot,nullptr,&queued))
+        return queued;
     return for_each_visible_piece(quad,p,[&](const sat_quad3_t&,const sat_quad2_t&,
                                              const sat_quad2_t& piece) {
         sat_distorted_sprite_cmd_t cmd={};
@@ -96,6 +117,10 @@ extern "C" sat_result_t sat_draw_polygon_quad3(
 ) {
     if (quad==nullptr || !valid_camera(p))
         return SAT_ERR_INVALID_ARG;
+    sat_result_t queued;
+    if (captured(quad,SAT_SCENE3D_RGB,rgb555,nullptr,nullptr,
+                 SAT_INDEXED_SOLID_OPAQUE,nullptr,&queued))
+        return queued;
     return for_each_visible_piece(quad,p,[rgb555](const sat_quad3_t&,const sat_quad2_t&,
                                                   const sat_quad2_t& piece) {
         return sat_draw_quad2_polygon(&piece,rgb555);
@@ -178,6 +203,10 @@ extern "C" sat_result_t sat_draw_polygon_quad3_gouraud(
 ) {
     if (quad==nullptr || gouraud==nullptr || !valid_camera(p))
         return SAT_ERR_INVALID_ARG;
+    sat_result_t queued;
+    if (captured(quad,SAT_SCENE3D_RGB,rgb555,nullptr,nullptr,
+                 SAT_INDEXED_SOLID_OPAQUE,gouraud,&queued))
+        return queued;
     const int drop=dominant_axis(*quad);
     Point2 original[4];
     for (int k=0;k<4;++k) original[k]=flat_point(quad->v[k],drop);
@@ -286,6 +315,12 @@ extern "C" sat_result_t sat_draw_indexed_textured_quad3(
     if(quad==nullptr || texture==nullptr || !valid_render(p) ||
        p->width<2u || p->height<2u || p->width>2048u || p->height>2048u)
         return SAT_ERR_INVALID_ARG;
+    sat_result_t queued;
+    if(captured(quad,SAT_SCENE3D_INDEXED_TEXTURED,0u,texture,nullptr,
+                p->color_calc_slot,nullptr,&queued)) {
+        if(queued==SAT_OK && out_drawn!=nullptr) *out_drawn=1u;
+        return queued;
+    }
 
     /* A distorted VDP1 sprite carries no independent UVs at its corners.
      * In particular, one "clipped" triangle may still have a count of one,
@@ -423,6 +458,12 @@ extern "C" sat_result_t sat_draw_indexed_tiled_quad3(
     if(out_submitted!=nullptr) *out_submitted=0u;
     if(quad==nullptr || !valid_render(params) || !valid_tiled_regions(regions))
         return SAT_ERR_INVALID_ARG;
+    sat_result_t queued;
+    if(captured(quad,SAT_SCENE3D_INDEXED_TILED,0u,nullptr,regions,
+                params->color_calc_slot,nullptr,&queued)) {
+        if(queued==SAT_OK && out_submitted!=nullptr) *out_submitted=1u;
+        return queued;
+    }
     uint8_t drawn=0u;
     sat_result_t st=sat_draw_indexed_textured_quad3(
         quad,params,regions->full,&drawn);
