@@ -236,18 +236,38 @@ extern "C" sat_result_t sat_music_resume(sat_music_t music) {
     return sat_music_play(music);
 }
 
+namespace {
+
+/* Keys off both channels, drops everything buffered and moves the source
+ * cursor, leaving the track stopped. */
+sat_result_t rewind_to(MusicSlot& slot, uint32_t position_bytes) {
+    SAT_TRY(sat_audio_stream_pause(slot.stream));
+    SAT_TRY(sat_audio_stream_flush(slot.stream));
+    if (slot.channels == 2u) {
+        SAT_TRY(sat_audio_stream_pause(slot.stream_r));
+        SAT_TRY(sat_audio_stream_flush(slot.stream_r));
+    }
+    slot.position_bytes = position_bytes;
+    slot.playing = 0u;
+    return SAT_OK;
+}
+
+}  // namespace
+
 extern "C" sat_result_t sat_music_stop(sat_music_t music) {
     MusicSlot* slot = resolve(music);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
-    SAT_TRY(sat_audio_stream_pause(slot->stream));
-    SAT_TRY(sat_audio_stream_flush(slot->stream));
-    if (slot->channels == 2u) {
-        SAT_TRY(sat_audio_stream_pause(slot->stream_r));
-        SAT_TRY(sat_audio_stream_flush(slot->stream_r));
-    }
-    slot->position_bytes = 0u;
-    slot->playing = 0u;
-    return SAT_OK;
+    return rewind_to(*slot, 0u);
+}
+
+extern "C" sat_result_t sat_music_seek(sat_music_t music, uint32_t frame) {
+    MusicSlot* slot = resolve(music);
+    if (slot == nullptr || frame >= slot->sample_count) return SAT_ERR_INVALID_ARG;
+    const uint8_t was_playing = slot->playing;
+    const uint32_t frame_bytes = bytes_per_sample(slot->format) * slot->channels;
+    SAT_TRY(rewind_to(*slot, frame * frame_bytes));
+    // Restarting re-primes both channels from the new position in lockstep.
+    return was_playing != 0u ? sat_music_play(music) : SAT_OK;
 }
 
 extern "C" sat_result_t sat_music_update(sat_music_t music) {

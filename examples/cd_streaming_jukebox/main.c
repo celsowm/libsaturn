@@ -179,6 +179,11 @@ int main(void) {
                 if (status == SAT_OK) g_playing = 1u;
             }
         }
+        if (status == SAT_OK && (pad.pressed & SAT_PAD_B) != 0u) {
+            sat_music_info_t info;
+            status = sat_music_info(g_music, &info);
+            if (status == SAT_OK) status = sat_music_seek(g_music, info.sample_count / 2u);
+        }
         if (status == SAT_OK) status = sat_asset_prefetch_update();
         if (status == SAT_OK && g_playing != 0u) status = sat_music_update(g_music);
         if (status == SAT_OK) status = sat_audio_update();
@@ -191,7 +196,7 @@ int main(void) {
             } else {
                 draw_line(&font, "CD STREAMING JUKEBOX", 8);
                 draw_line(&font, g_tracks[g_track_index].title, 28);
-                draw_line(&font, "X/Y TRACK  C PLAY/PAUSE", 48);
+                draw_line(&font, "X/Y TRACK C PAUSE B SEEK", 48);
                 draw_line(&font, "CD BLOCK -> CDFS -> VFS", 60);
                 draw_value(&font, "CACHE HITS ", cache.hits, 88);
                 draw_value(&font, "CACHE MISSES ", cache.misses, 100);

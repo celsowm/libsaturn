@@ -161,6 +161,10 @@ sat_result_t sat_music_play(sat_music_t music);
 sat_result_t sat_music_pause(sat_music_t music);
 sat_result_t sat_music_resume(sat_music_t music);
 sat_result_t sat_music_stop(sat_music_t music);
+/* Moves playback to `frame` (0..sample_count-1). A playing track restarts
+ * there after re-priming both channels; a paused or stopped one starts there
+ * on the next sat_music_play. The buffered audio is dropped either way. */
+sat_result_t sat_music_seek(sat_music_t music, uint32_t frame);
 sat_result_t sat_music_update(sat_music_t music);
 sat_result_t sat_music_close(sat_music_t music);
 sat_result_t sat_music_info(sat_music_t music, sat_music_info_t* out_info);

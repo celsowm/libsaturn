@@ -17,6 +17,8 @@ bool g_stereo = false;
  * from the CD progress callback does when only the left CA changed half. */
 uint32_t g_skew_left_on_read = 0u;
 uint32_t g_reads = 0u;
+/* Offset of the first CD read since the test last cleared it. */
+int64_t g_first_offset = -1;
 }
 
 extern "C" uint8_t sat_audio_is_initialized(void) {
@@ -54,6 +56,7 @@ extern "C" sat_result_t sat_asset_read_at(
         OK(left.used != 0u && left.ring.buffered_frames >= 4096u);
         saturn::core::audio_stream_consume(left.ring, 4096u);
     }
+    if (g_first_offset < 0) g_first_offset = offset;
     const uint32_t available = static_cast<uint32_t>(sizeof(g_samples)) - offset;
     const uint32_t count = bytes < available ? bytes : available;
     std::memcpy(destination, reinterpret_cast<const uint8_t*>(g_samples) + offset, count);
@@ -132,6 +135,25 @@ int main() {
     OK(sat_music_stats(skewed, &stats) == SAT_OK && stats.buffered_frames == 32768u - 4096u);
     g_skew_left_on_read = 0u;
     OK(sat_music_close(skewed) == SAT_OK);
+
+    // Seek restarts a playing stereo track at the requested frame, both
+    // channels primed together from the new source offset.
+    sat_music_t seeking{};
+    OK(sat_music_open(&seeking, "music/cd-stereo.satstream") == SAT_OK);
+    OK(sat_music_play(seeking) == SAT_OK);
+    g_first_offset = -1;
+    OK(sat_music_seek(seeking, 1000u) == SAT_OK && sat_music_is_playing(seeking) != 0u);
+    OK(g_first_offset == 1000 * 4);
+    OK(left.buffered_frames == left.capacity_frames &&
+       right.buffered_frames == right.capacity_frames);
+    OK(sat_music_seek(seeking, 2048u) == SAT_ERR_INVALID_ARG);
+    // A paused track only moves its cursor; the read happens on play.
+    OK(sat_music_pause(seeking) == SAT_OK);
+    g_first_offset = -1;
+    OK(sat_music_seek(seeking, 10u) == SAT_OK && sat_music_is_playing(seeking) == 0u);
+    OK(g_first_offset == -1 && left.buffered_frames == 0u && right.buffered_frames == 0u);
+    OK(sat_music_play(seeking) == SAT_OK && g_first_offset == 10 * 4);
+    OK(sat_music_close(seeking) == SAT_OK);
     std::puts("music api: OK");
     return 0;
 }

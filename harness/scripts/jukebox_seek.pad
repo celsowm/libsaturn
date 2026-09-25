@@ -1,0 +1,13 @@
+# The jukebox starts playing. Seek to mid-track twice while playing, pause,
+# seek while paused, then resume so the snapshot ends with active channels.
+0    NONE
+120  B
+121  NONE
+200  B
+201  NONE
+260  C
+261  NONE
+280  B
+281  NONE
+300  C
+301  NONE
