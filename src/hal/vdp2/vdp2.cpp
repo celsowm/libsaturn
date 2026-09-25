@@ -74,6 +74,9 @@ uint16_t g_last_nbg0_scxdn0_written = 0x0000u;
 uint16_t g_last_nbg0_scyin0_written = 0x0000u;
 uint16_t g_last_nbg0_scydn0_written = 0x0000u;
 uint16_t g_last_prisa_written = 0x0606u;
+/* CCCTL carries the screen-global CCMD bit (ratio vs add), which a frame's
+ * draws claim; replayed with PRISA so a layers commit never loses it. */
+uint16_t g_last_ccctl_written = 0x0000u;
 bool g_nbg0_configured = false;
 /* Hi-res (640/704 wide) state: the VDP1 framebuffer is 8 bits/pixel, which
  * VDP2 must read as sprite type C, and its codes index one 256-colour CRAM
@@ -332,6 +335,7 @@ inline void write_fx16_pair(volatile uint16_t* vram, uint32_t word_offset, doubl
  */
 void reset_color_ops() {
     CCCTL = 0x0000u;   /* no colour calculation on any layer */
+    g_last_ccctl_written = 0x0000u;
     SFCCMD = 0x0000u;  /* no special colour calculation modes */
     CLOFEN = 0x0000u;  /* colour offset disabled for every layer */
     CLOFSL = 0x0000u;  /* ... and both offset registers select A */
@@ -893,6 +897,7 @@ void commit_layers() {
     /* Sprite priority decides whether the VDP1's output is in front of the
      * VDP2 layers, so it is replayed whether or not NBG0 is in use. */
     PRISA = g_last_prisa_written;
+    CCCTL = g_last_ccctl_written;
     if (g_hires) {
         SPCTL = sprite_type_bits();
         CRAOFB = g_sprite_craofb;
@@ -938,6 +943,11 @@ void set_nbg0_priority(uint8_t priority) {
 void set_sprite_priority(uint8_t priority) {
     PRISA = saturn::core::compose_sprite_priority(priority);
     g_last_prisa_written = PRISA;
+}
+
+void set_color_calc_control(uint16_t ccctl) {
+    g_last_ccctl_written = ccctl;
+    CCCTL = ccctl;
 }
 
 void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority) {

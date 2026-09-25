@@ -4,6 +4,7 @@
 #include "src/core/runtime/state.hpp"
 #include "src/hal/scu/scu.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
+#include "src/hal/vdp2/color_calc.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
 
 extern "C" sat_result_t sat_begin_frame(void) {
@@ -13,6 +14,7 @@ extern "C" sat_result_t sat_begin_frame(void) {
         return st;
     }
     saturn::hal::vdp1::begin_frame(g_state.command_buffer, saturn::internal::kCmdCapacity);
+    saturn::hal::vdp2_color_calc::begin_frame();
     g_render2d_runtime.clip_dirty = g_render2d_runtime.current.clip_enabled;
     return render2d_ensure_clip(g_state.config.width, g_state.config.height);
 }

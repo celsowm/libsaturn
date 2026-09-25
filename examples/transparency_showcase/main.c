@@ -1,6 +1,8 @@
 /* Native Saturn transparency comparison: VDP1 RGB blend, VDP2 sprite
  * color calculation, and VDP1 checkerboard mesh. No external assets.
- * START exits; A cycles the VDP2 sprite alpha preset samples. */
+ * START exits; A cycles the VDP2 sprite alpha preset samples; B switches to
+ * the second page (additive blend, which cannot share a frame with ratio
+ * alpha: the VDP2 add/ratio mode is one bit for the whole screen). */
 #include <stdint.h>
 
 #include "saturn/app.h"
@@ -101,6 +103,7 @@ int main(void) {
     const sat_rect_t right = {220, 80, 72u, 72u};
     const uint8_t alpha_samples[3] = {64u, 128u, 192u};
     uint8_t alpha_index = 1u;
+    uint8_t page = 0u;
 
     for (;;) {
         sat_pad_state_t pad = {0};
@@ -110,6 +113,7 @@ int main(void) {
         if ((pad.pressed & SAT_PAD_A) != 0u) {
             alpha_index = (uint8_t)((alpha_index + 1u) % 3u);
         }
+        if ((pad.pressed & SAT_PAD_B) != 0u) page ^= 1u;
         sat_example_must(sat_vdp2_layers_commit());
         /* Generic VDP2 layer commit replays PRISA: replay the sprite-specific
          * color-calculation priority/ratio state afterwards, in the VBlank. */
@@ -122,6 +126,18 @@ int main(void) {
             &rgb_base, sat_color_rgba(23u, 90u, 215u, 255u)));
         sat_example_must(sat_fill_rect(
             &rgb_half, sat_color_rgba(255u, 180u, 28u, 128u)));
+
+        if (page != 0u) {
+            /* Additive: sprite + NBG0 per channel, saturating. */
+            sat_draw_params_t added = sat_draw_params_default();
+            added.blend_mode = SAT_BLEND_ADD;
+            sat_example_must(sat_draw_texture(sprite, 0, &middle, &added));
+            draw_text("SATURN BLEND MODES", 8, 8);
+            draw_text("VDP2 ADD", 122, 58);
+            draw_text("B: PAGE  START: EXIT", 8, 185);
+            sat_example_must(sat_end_frame());
+            continue;
+        }
 
         /* Indexed8 sprite + VDP2 NBG0: not VDP1 framebuffer half-blending. */
         sat_draw_params_t blended = sat_draw_params_default();
@@ -139,7 +155,7 @@ int main(void) {
         draw_text("VDP1 RGB 50%", 8, 58);
         draw_text("VDP2 ALPHA", 114, 58);
         draw_text("VDP1 MESH", 220, 58);
-        draw_text("A: ALPHA STEP  START: EXIT", 8, 185);
+        draw_text("A: ALPHA  B: PAGE  START: EXIT", 8, 185);
         char label[36];
         if (sat_fmt_label_u32("SPRITE A ", alpha_samples[alpha_index],
                 label, sizeof(label), 0u) == SAT_OK) draw_text(label, 112, 162);

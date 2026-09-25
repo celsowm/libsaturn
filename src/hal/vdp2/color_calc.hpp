@@ -13,6 +13,10 @@ void disable();
 void commit();
 sat_result_t select_alpha_slot(uint8_t alpha, uint8_t* out_slot, uint8_t* out_alpha);
 void set_strict_alpha(bool strict);
+/* Frame-scoped claim on CCMD (ratio vs add); see sat_vdp2_sprite_color_calc_claim_mode. */
+sat_result_t claim_mode(uint8_t mode);
+/* Called by sat_begin_frame: a new frame may claim either mode again. */
+void begin_frame();
 
 }  // namespace saturn::hal::vdp2_color_calc
 

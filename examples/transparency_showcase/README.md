@@ -14,7 +14,15 @@ source-only brightness changes. The VDP1 erase is transparent, allowing the
 VDP2 background to show. The middle sample must reveal NBG0 colors through
 the sprite, whereas the left sample only blends two VDP1 RGB primitives.
 
-A cycles sprite alpha 64/128/192. START exits.
+A cycles sprite alpha 64/128/192. B switches to the second page, which
+shows the other blend modes:
+
+- Middle: the same sprite with `SAT_BLEND_ADD` -- sprite + NBG0 per channel,
+  saturating (VDP2 colour-calculation add mode, CCCTL CCMD). Add and ratio
+  alpha cannot share a frame: the mode is one bit for the whole screen, and
+  the second of the two in one frame returns `SAT_ERR_BUSY`.
+
+START exits.
 
 Build: `make IP_TEMPLATE_KIND=sbl EXAMPLE=transparency_showcase all`.
 Run in a Saturn emulator with your own BIOS, then compare with real hardware.

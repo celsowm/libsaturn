@@ -58,6 +58,13 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_set_strict_alpha(uint8_t stri
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_sprite_color_calc_claim_mode(
+    sat_vdp2_color_calc_mode_t mode) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (static_cast<uint32_t>(mode) > SAT_VDP2_COLOR_CALC_ADD) return SAT_ERR_INVALID_ARG;
+    return saturn::hal::vdp2_color_calc::claim_mode(static_cast<uint8_t>(mode));
+}
+
 extern "C" sat_result_t sat_vdp2_sprite_color_calc_commit(void) {
     sat_result_t st = saturn::core::require_initialized();
     if (st != SAT_OK) {

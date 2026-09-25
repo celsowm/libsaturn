@@ -2,6 +2,7 @@
 #include <cstdlib>
 
 #include "saturn/render2d.h"
+#include "saturn/vdp2_color_calc.h"
 #include "src/graphics/2d/palette/registry.hpp"
 #include "src/graphics/2d/rendering/runtime.hpp"
 #include "src/core/runtime/state.hpp"
@@ -24,6 +25,9 @@ uint32_t g_line_calls = 0u;
 bool g_alpha_configured = false;
 uint8_t g_alpha_slot = 4u;
 uint8_t g_alpha_requested = 0u;
+int g_claimed_mode = -1;
+uint32_t g_claims = 0u;
+sat_result_t g_claim_result = SAT_OK;
 saturn::hal::vdp1::SpriteRequest g_last_sprite{};
 saturn::hal::vdp1::ScaledSpriteRequest g_last_scaled{};
 saturn::hal::vdp1::DistortedSpriteRequest g_last_distorted{};
@@ -39,6 +43,15 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_alpha_slot(
     if (!g_alpha_configured) return SAT_ERR_NOT_INITIALIZED;
     g_alpha_requested = alpha;
     *out_slot = g_alpha_slot;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_sprite_color_calc_claim_mode(
+    sat_vdp2_color_calc_mode_t mode) {
+    if (!g_alpha_configured) return SAT_ERR_NOT_INITIALIZED;
+    ++g_claims;
+    if (g_claim_result != SAT_OK) return g_claim_result;
+    g_claimed_mode = static_cast<int>(mode);
     return SAT_OK;
 }
 
@@ -155,6 +168,9 @@ static void reset_runtime() {
     g_alpha_configured = false;
     g_alpha_slot = 4u;
     g_alpha_requested = 0u;
+    g_claimed_mode = -1;
+    g_claims = 0u;
+    g_claim_result = SAT_OK;
 }
 
 int main() {
@@ -257,6 +273,7 @@ int main() {
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &alpha) == SAT_OK);
     OK(g_alpha_requested == 128u);
     OK(g_last_sprite.palette == (0x0040u | (4u << 3u)));
+    OK(g_claimed_mode == SAT_VDP2_COLOR_CALC_RATIO);
     const uint32_t sprites_before_skip = g_sprite_calls;
     alpha.tint.a = 0u;
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &alpha) == SAT_OK);
@@ -270,6 +287,34 @@ int main() {
     alpha.rotation = static_cast<sat_fx16_t>(30 << 16);
     OK(sat_draw_texture(persistent, &src, &scaled_dst, &alpha) == SAT_OK);
     OK(g_last_distorted.palette == (0x0040u | (4u << 3u)));
+
+    /* ADD: colour-calc selector with the add mode claimed for the frame. */
+    sat_draw_params_t add = sat_draw_params_default();
+    add.blend_mode = SAT_BLEND_ADD;
+    const uint32_t sprites_before_add = g_sprite_calls;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_OK);
+    OK(g_sprite_calls == sprites_before_add + 1u);
+    OK(g_claimed_mode == SAT_VDP2_COLOR_CALC_ADD);
+    OK(g_last_sprite.palette == 0x0040u);
+    add.tint.a = 0u;
+    const uint32_t claims_before_skip = g_claims;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_OK);
+    OK(g_sprite_calls == sprites_before_add + 1u);
+    OK(g_claims == claims_before_skip);
+    add.tint.a = 100u;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_ERR_UNSUPPORTED);
+    /* A frame already claimed for ratio refuses ADD without drawing. */
+    add.tint.a = 255u;
+    g_claim_result = SAT_ERR_BUSY;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_ERR_BUSY);
+    OK(g_sprite_calls == sprites_before_add + 1u);
+    alpha.rotation = 0;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &alpha) == SAT_ERR_BUSY);
+    g_claim_result = SAT_OK;
+    /* Without colour calculation configured ADD cannot happen. */
+    g_alpha_configured = false;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_ERR_NOT_INITIALIZED);
+    g_alpha_configured = true;
     std::puts("render2d api: OK");
     return 0;
 }

@@ -76,6 +76,10 @@ inline sat_result_t validate_render2d_params(const sat_draw_params_t* params) {
         params->reserved != 0u) return SAT_ERR_INVALID_ARG;
     if (!render2d_neutral_rgb(params->tint)) return SAT_ERR_UNSUPPORTED;
     if (params->blend_mode == SAT_BLEND_ALPHA) return SAT_OK;
+    /* Additive at full strength: tint.a is 0 (skip) or 255. */
+    if (params->blend_mode == SAT_BLEND_ADD) {
+        return params->tint.a == 0u || params->tint.a == 255u ? SAT_OK : SAT_ERR_UNSUPPORTED;
+    }
     if (params->blend_mode != SAT_BLEND_NONE || !render2d_neutral_tint(params->tint)) {
         return SAT_ERR_UNSUPPORTED;
     }

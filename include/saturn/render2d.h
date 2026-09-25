@@ -119,8 +119,14 @@ sat_result_t sat_draw_line(sat_point_t start, sat_point_t end, sat_color_t color
  * sprites with a VDP2 background, NOT overlapping VDP1 sprites.
  * The alpha snaps to the nearest configured ratio (query the result with
  * sat_vdp2_sprite_color_calc_alpha_slot); strict alpha refuses instead.
+ * SAT_BLEND_ADD adds the sprite to the VDP2 image below it, saturating per
+ * channel (VDP2 colour-calculation add mode), with the same set-up and the
+ * same priority rule as ALPHA; tint.a is 0 (skip) or 255. The add/ratio mode
+ * is one bit for the whole screen: in a frame that already drew an
+ * intermediate-alpha sprite or a colour-calc fade, ADD returns SAT_ERR_BUSY,
+ * and the reverse (see sat_vdp2_sprite_color_calc_claim_mode).
  * SAT_SPRITE_FLAG_MESH is also supported (checkerboard, not color blending).
- * ADD, SUBTRACT and non-neutral RGB tint remain unsupported. */
+ * SUBTRACT and non-neutral RGB tint remain unsupported. */
 sat_result_t sat_draw_texture(
     sat_texture_t texture,
     const sat_rect_t* src,

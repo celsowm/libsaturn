@@ -120,6 +120,8 @@ void set_sprite_priority(uint8_t priority);
 /* Keeps the generic VDP2 VBlank replay's PRISA shadow in sync with the
  * sprite color-calculation selector 0 (ordinary) and selector 1 (faded). */
 void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority);
+/* Writes CCCTL and the shadow commit_layers() replays each frame. */
+void set_color_calc_control(uint16_t ccctl);
 
 // Rotation parameter table upload
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count);

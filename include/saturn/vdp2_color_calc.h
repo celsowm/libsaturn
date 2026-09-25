@@ -24,6 +24,15 @@ extern "C" {
  *
  * Hardware ratio values are 0..31: 0 is essentially all top/sprite image;
  * 31 is all second/background image. */
+/* How the colour-calculated sprites mix with the image below them. RATIO
+ * uses the per-slot ratio table (alpha, distance fades); ADD sums the two
+ * images as they are and saturates (VDP2 CCCTL CCMD). The mode is one bit for
+ * the whole screen, so a frame is either all ratio or all add. */
+typedef enum sat_vdp2_color_calc_mode {
+    SAT_VDP2_COLOR_CALC_RATIO = 0,
+    SAT_VDP2_COLOR_CALC_ADD = 1
+} sat_vdp2_color_calc_mode_t;
+
 typedef struct sat_vdp2_sprite_color_calc_config {
     uint8_t enabled;
     uint8_t normal_priority;
@@ -67,6 +76,15 @@ sat_result_t sat_vdp2_sprite_color_calc_alpha_slot(
 /* Opt-in (default 0): refuse, rather than snap, alphas no slot approximates
  * within 2 hardware ratio units. Applies to sat_draw_texture's ALPHA blend. */
 sat_result_t sat_vdp2_sprite_color_calc_set_strict_alpha(uint8_t strict);
+
+/* Claims the colour-calculation mode for the frame being drawn. Library draws
+ * that select a colour-calc slot claim for themselves (ratio for alpha and
+ * sat_draw_sprite*_color_calc, add for SAT_BLEND_ADD); the first claim of a
+ * frame wins, and a claim of the other mode returns SAT_ERR_BUSY until the
+ * next sat_begin_frame. The mode is written with the frame and latched at the
+ * VBlank that displays it. NOT_INITIALIZED while colour calculation is
+ * disabled. */
+sat_result_t sat_vdp2_sprite_color_calc_claim_mode(sat_vdp2_color_calc_mode_t mode);
 
 sat_result_t sat_vdp2_sprite_color_calc_commit(void);
 

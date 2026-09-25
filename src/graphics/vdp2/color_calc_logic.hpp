@@ -9,6 +9,37 @@ namespace saturn::core::vdp2_color_calc {
 
 constexpr uint16_t kCcctlSpriteEnable = 0x0040u;
 constexpr uint16_t kSpctlConditionEqual = 0x1000u; /* SPCCCS = 01B */
+/* CCCTL CCMD (bit 8): 1 adds the top and second images as they are, ignoring
+ * every ratio register (VDP2 manual 12.1). One bit for the whole screen. */
+constexpr uint16_t kCcctlAddAsIs = 0x0100u;
+
+inline uint16_t compose_ccctl(bool enabled, uint8_t mode) {
+    if (!enabled) return 0u;
+    return static_cast<uint16_t>(
+        kCcctlSpriteEnable | (mode == SAT_VDP2_COLOR_CALC_ADD ? kCcctlAddAsIs : 0u));
+}
+
+/* Frame-scoped claim on the screen-global mode. Every draw that selects the
+ * colour-calculated sprite priority claims the mode it needs; the first claim
+ * of a frame wins and a claim of the other mode is refused with BUSY, so a
+ * frame can never show additive sprites with ratio fades silently turned
+ * additive too (or the reverse). */
+struct ModeClaim {
+    uint8_t claimed;
+    uint8_t mode;
+};
+
+inline sat_result_t claim_mode(ModeClaim& claim, uint8_t mode) {
+    if (mode > SAT_VDP2_COLOR_CALC_ADD) return SAT_ERR_INVALID_ARG;
+    if (claim.claimed != 0u && claim.mode != mode) return SAT_ERR_BUSY;
+    claim.claimed = 1u;
+    claim.mode = mode;
+    return SAT_OK;
+}
+
+inline void claim_reset(ModeClaim& claim) {
+    claim.claimed = 0u;
+}
 
 inline sat_result_t validate_config(const sat_vdp2_sprite_color_calc_config_t* config) {
     if (config == nullptr || config->enabled > 1u) {

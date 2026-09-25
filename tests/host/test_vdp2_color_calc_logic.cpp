@@ -62,6 +62,24 @@ int main() {
     /* Strict still accepts a slot within two units of the target. */
     ASSERT_EQ(choose_alpha_slot(136u, ratios, true, &slot, &actual), SAT_OK);
 
+    /* CCMD: one screen-global bit, claimed per frame. */
+    using saturn::core::vdp2_color_calc::compose_ccctl;
+    using saturn::core::vdp2_color_calc::ModeClaim;
+    using saturn::core::vdp2_color_calc::claim_mode;
+    using saturn::core::vdp2_color_calc::claim_reset;
+    ASSERT_EQ(compose_ccctl(true, SAT_VDP2_COLOR_CALC_RATIO), 0x0040u);
+    ASSERT_EQ(compose_ccctl(true, SAT_VDP2_COLOR_CALC_ADD), 0x0140u);
+    ASSERT_EQ(compose_ccctl(false, SAT_VDP2_COLOR_CALC_ADD), 0x0000u);
+    ModeClaim claim = {0u, 0u};
+    ASSERT_EQ(claim_mode(claim, SAT_VDP2_COLOR_CALC_RATIO), SAT_OK);
+    ASSERT_EQ(claim_mode(claim, SAT_VDP2_COLOR_CALC_RATIO), SAT_OK);
+    ASSERT_EQ(claim_mode(claim, SAT_VDP2_COLOR_CALC_ADD), SAT_ERR_BUSY);
+    ASSERT_EQ(claim.mode, SAT_VDP2_COLOR_CALC_RATIO);
+    claim_reset(claim);  /* next frame */
+    ASSERT_EQ(claim_mode(claim, SAT_VDP2_COLOR_CALC_ADD), SAT_OK);
+    ASSERT_EQ(claim_mode(claim, SAT_VDP2_COLOR_CALC_RATIO), SAT_ERR_BUSY);
+    ASSERT_EQ(claim_mode(claim, 2u), SAT_ERR_INVALID_ARG);
+
     std::puts("test_vdp2_color_calc_logic: OK");
     return 0;
 }

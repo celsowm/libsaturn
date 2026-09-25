@@ -15,7 +15,6 @@ constexpr uint16_t kTvstatVblank = 0x0008u;
     (*reinterpret_cast<volatile uint16_t*>(kUncached | (kVdp2Base + (offset))))
 
 #define SPCTL VDP2_REG16(0x0E0u)
-#define CCCTL VDP2_REG16(0x0ECu)
 #define CCRSA VDP2_REG16(0x100u)
 #define CCRSB VDP2_REG16(0x102u)
 #define CCRSC VDP2_REG16(0x104u)
@@ -25,6 +24,12 @@ uint8_t g_enabled = 0u;
 uint8_t g_normal_priority = 6u;
 uint8_t g_ratio[8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
 uint8_t g_strict_alpha = 0u;
+uint8_t g_mode = SAT_VDP2_COLOR_CALC_RATIO;
+saturn::core::vdp2_color_calc::ModeClaim g_claim = {0u, 0u};
+
+uint16_t current_ccctl() {
+    return saturn::core::vdp2_color_calc::compose_ccctl(g_enabled != 0u, g_mode);
+}
 
 /* VDP2 configuration registers are latched during VBlank.  A caller can
  * easily spend most of that short window in SMPC polling before reaching a
@@ -60,14 +65,14 @@ void commit() {
          * its old all-opaque 0x0707 shadow and cause a per-frame fade blink. */
         saturn::hal::vdp2::set_sprite_priority_pair(
             g_normal_priority, fade_priority);
-        CCCTL = kCcctlSpriteEnable;
+        saturn::hal::vdp2::set_color_calc_control(current_ccctl());
     } else {
         /* Default condition, SPCCEN below disabled; type 0, or type C in
          * hi-res, where the framebuffer is 8 bits/pixel. */
         SPCTL = saturn::hal::vdp2::sprite_type_bits();
         saturn::hal::vdp2::set_sprite_priority_pair(
             g_normal_priority, g_normal_priority);
-        CCCTL = 0u;
+        saturn::hal::vdp2::set_color_calc_control(0u);
     }
 }
 
@@ -97,8 +102,27 @@ void set_strict_alpha(bool strict) {
     g_strict_alpha = strict ? 1u : 0u;
 }
 
+sat_result_t claim_mode(uint8_t mode) {
+    if (g_enabled == 0u) return SAT_ERR_NOT_INITIALIZED;
+    const sat_result_t st = saturn::core::vdp2_color_calc::claim_mode(g_claim, mode);
+    if (st != SAT_OK) return st;
+    if (g_mode != mode) {
+        /* CCCTL is latched at VBlank, the same one that shows the frame now
+         * being drawn, and commit_layers() replays it from here on. */
+        g_mode = mode;
+        saturn::hal::vdp2::set_color_calc_control(current_ccctl());
+    }
+    return SAT_OK;
+}
+
+void begin_frame() {
+    saturn::core::vdp2_color_calc::claim_reset(g_claim);
+}
+
 void disable() {
     g_enabled = 0u;
+    g_mode = SAT_VDP2_COLOR_CALC_RATIO;
+    saturn::core::vdp2_color_calc::claim_reset(g_claim);
     commit();
 }
 

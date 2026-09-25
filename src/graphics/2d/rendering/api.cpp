@@ -276,8 +276,15 @@ extern "C" sat_result_t sat_draw_texture(
         if (effective.tint.a != 255u) {
             uint8_t slot_id = 0u;
             SAT_TRY(sat_vdp2_sprite_color_calc_alpha_slot(effective.tint.a, &slot_id, nullptr));
+            SAT_TRY(sat_vdp2_sprite_color_calc_claim_mode(SAT_VDP2_COLOR_CALC_RATIO));
             SAT_TRY(vdp1_color_calc::encode_palette_selector(native->palette, slot_id, &palette));
         }
+    } else if (effective.blend_mode == SAT_BLEND_ADD) {
+        if (effective.tint.a == 0u) return SAT_OK;
+        /* Add mode ignores the ratio registers, so any slot selects the
+         * colour-calculated priority; slot 0 it is. */
+        SAT_TRY(sat_vdp2_sprite_color_calc_claim_mode(SAT_VDP2_COLOR_CALC_ADD));
+        SAT_TRY(vdp1_color_calc::encode_palette_selector(native->palette, 0u, &palette));
     }
     const sat_camera2d_t& camera = g_render2d_runtime.current.camera;
     if (effective.rotation != 0 || effective.flip != SAT_FLIP_NONE ||
