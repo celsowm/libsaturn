@@ -38,6 +38,31 @@ EXAMPLE      ?= hello_world
 IP_PROFILE   ?= current
 IP_TEMPLATE_KIND ?= yaul
 APP_LOAD_ADDR_HEX := $(shell $(PYTHON) tools/memory_layout.py app_load_hex 2>/dev/null || echo 06004000)
+
+# -- Per-example build lock ----------------------------------------
+# Every build of one example shares build/generated/<example>/ (model import
+# staging), and builds whose settings differ only in MODEL_* values share
+# their variant directory and the build/<example>.* exports too. Two such
+# builds running at once would overwrite each other's inputs mid-build. A
+# plain `make EXAMPLE=x [all]` therefore re-runs itself under an flock on
+# build/locks/<example>.lock: builds of one example serialize, different
+# examples still build in parallel. LIBSATURN_EXAMPLE_LOCKED marks the
+# locked run; without flock the build runs unlocked, as it always did.
+LIBSATURN_LOCK_TRAMPOLINE :=
+ifeq ($(LIBSATURN_EXAMPLE_LOCKED),)
+ifneq ($(shell command -v flock 2>/dev/null),)
+ifeq ($(filter-out all,$(or $(MAKECMDGOALS),all)),)
+LIBSATURN_LOCK_TRAMPOLINE := 1
+.PHONY: all
+all:
+	@mkdir -p $(BUILD_DIR)/locks
+	@LIBSATURN_EXAMPLE_LOCKED=1 flock $(BUILD_DIR)/locks/$(EXAMPLE).lock \
+		$(MAKE) --no-print-directory all
+endif
+endif
+endif
+
+ifeq ($(LIBSATURN_LOCK_TRAMPOLINE),)
 MAX_APP_BIN_BYTES := 983040
 
 VALID_IP_PROFILES  := current safe
@@ -650,3 +675,5 @@ examples-all:
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+endif # LIBSATURN_LOCK_TRAMPOLINE

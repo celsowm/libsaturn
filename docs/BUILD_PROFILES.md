@@ -33,7 +33,10 @@ Use `make clean` to remove all variants.
 **Scope:** conversion source staging under `build/generated/<example>/`
 is shared across variants of the same example. A changed model-import
 signature regenerates those inputs, and each variant has independent compiled
-objects. Do not run concurrent builds of the *same example* with different
-model-import settings in one checkout: the asset generator and public exported
-names are shared. The final ISO tree, link map, object archives, and ROMs
-themselves are profile-specific.
+objects. MODEL_* settings are not part of the variant key, so builds that
+differ only in them also share the variant directory and the exported names.
+`make EXAMPLE=<x>` (goal `all`) therefore holds `build/locks/<x>.lock`
+(`flock`) for the whole build: concurrent builds of the same example run one
+after the other, each complete, while different examples still build in
+parallel. The final ISO tree, link map, object archives, and ROMs themselves
+are profile-specific.
