@@ -12,12 +12,12 @@ static sat_ascii_font_t g_font;
 
 static void draw_line(const char* text, int y) {
     (void)sat_ascii_font_draw_text_screen_indexed8(
-        &g_font, text, 8, y, 8, SAT_COLOR_WHITE, 0u);
+        &g_font, text, 8, y, 8, 0u, 0u);
 }
 
 static void draw_value(const char* label, uint32_t value, int y) {
     (void)sat_ascii_font_draw_label_u32(
-        &g_font, label, value, 8, y, 8, SAT_COLOR_WHITE, 0u);
+        &g_font, label, value, 8, y, 8, 0u, 0u);
 }
 
 int main(void) {

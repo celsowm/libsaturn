@@ -65,7 +65,7 @@ static void prepare_assets(void) {
 
 static void draw_text(const char* text, int16_t x, int16_t y) {
     (void)sat_ascii_font_draw_text_screen_indexed8(
-        &font, text, x, y, 8u, SAT_COLOR_WHITE, 0u);
+        &font, text, x, y, 8u, 0u, 0u);
 }
 
 int main(void) {

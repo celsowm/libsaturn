@@ -10,11 +10,11 @@ static sat_ascii_font_t font;
 
 static void line(const char* text, int y) {
     (void)sat_ascii_font_draw_text_screen_indexed8(
-        &font, text, 8, y, 8, SAT_COLOR_WHITE, 0u);
+        &font, text, 8, y, 8, 0u, 0u);
 }
 static void number(const char* label, uint32_t value, int y) {
     (void)sat_ascii_font_draw_label_u32(
-        &font, label, value, 8, y, 8, SAT_COLOR_WHITE, 0u);
+        &font, label, value, 8, y, 8, 0u, 0u);
 }
 int main(void) {
     if (sat_app_init_default() != SAT_OK) return 1;
