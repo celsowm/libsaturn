@@ -2,6 +2,13 @@
 #include <cstdlib>
 
 #include "src/hal/vdp1/vdp1.hpp"
+#include "src/hal/scu/scu.hpp"
+
+// wait_draw_end's frame clock; these tests never submit.
+namespace saturn::hal::scu {
+uint16_t ticks_per_frame() { return 0u; }
+uint64_t elapsed_ticks() { return 0u; }
+}
 #include "saturn/vdp1.h"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)

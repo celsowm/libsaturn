@@ -1,6 +1,13 @@
 #include <cassert>
 #include <cstdio>
 #include "src/hal/vdp1/vdp1.hpp"
+#include "src/hal/scu/scu.hpp"
+
+// wait_draw_end's frame clock; these tests never submit.
+namespace saturn::hal::scu {
+uint16_t ticks_per_frame() { return 0u; }
+uint64_t elapsed_ticks() { return 0u; }
+}
 
 int main() {
     namespace vd=saturn::hal::vdp1;

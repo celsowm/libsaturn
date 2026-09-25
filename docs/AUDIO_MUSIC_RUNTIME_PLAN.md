@@ -624,7 +624,7 @@ sat_music_stats
 
 Support full-track looping first. Add intro+loop and sample-accurate loop points only when the physical format/backend can deliver them without gaps.
 
-Seek may initially return `SAT_ERR_UNSUPPORTED`.
+`sat_music_seek` is implemented: it restarts a playing track at a frame after re-priming both channels in lockstep, and moves the cursor of a paused or stopped one.
 
 Phase gate:
 
