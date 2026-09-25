@@ -23,7 +23,15 @@ extern "C" sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound
         return SAT_ERR_INVALID_ARG;
     }
 
-    SoundEntry& entry = *g_sound_registry.activate(sound_slot);
+    SoundEntry* const activated = g_sound_registry.activate(sound_slot);
+    if (activated == nullptr) {
+        /* first_free() just returned this slot, but the registry can refuse;
+         * without this check GCC isolates the null path into an abort()
+         * call the runtime does not provide, and nothing links. */
+        (void)g_ram.release(allocation_slot);
+        return SAT_ERR_CAPACITY;
+    }
+    SoundEntry& entry = *activated;
     const uint16_t generation=entry.generation;
     entry.ram_offset = offset;
     entry.byte_count = byte_count;

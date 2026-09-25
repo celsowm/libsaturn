@@ -57,7 +57,16 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
         ++g_voice_steals;
     }
 
-    VoiceEntry& voice = *g_voice_registry.activate(voice_slot);
+    VoiceEntry* const activated = g_voice_registry.activate(voice_slot);
+    if (activated == nullptr) {
+        /* Unreachable while choose_voice() returns a free or released slot,
+         * but the registry can refuse; without this check GCC isolates the
+         * null path into an abort() call the runtime does not provide. */
+        saturn::hal::scsp::key_off(static_cast<uint8_t>(voice_slot));
+        ++g_failed_play_requests;
+        return SAT_ERR_CAPACITY;
+    }
+    VoiceEntry& voice = *activated;
     const uint16_t generation=voice.generation;
     voice.looping = entry->loop;
     voice.sound_slot = sound.slot;
