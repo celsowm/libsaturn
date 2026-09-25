@@ -187,6 +187,10 @@ int main(void) {
         if (status == SAT_OK) status = sat_asset_prefetch_update();
         if (status == SAT_OK && g_playing != 0u) status = sat_music_update(g_music);
         if (status == SAT_OK) status = sat_audio_update();
+        /* Audio serviced from inside a CD wait must not fail silently. */
+        if (status == SAT_OK && g_cd_block.progress_error_count != 0u) {
+            status = g_cd_block.progress_last_error;
+        }
 
         if (status == SAT_OK) {
             sat_asset_cache_stats_t cache;

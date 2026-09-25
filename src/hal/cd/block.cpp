@@ -2,6 +2,8 @@
 
 #include <stddef.h>
 
+#include "src/hal/cd/progress.hpp"
+
 namespace {
 
 struct Command {
@@ -28,14 +30,7 @@ uint32_t timeout_for(const sat_cd_block_t* block) {
         ? SAT_CD_BLOCK_DEFAULT_TIMEOUT : block->timeout_iterations;
 }
 
-/* The HAL knows only this explicit per-block hook, never an audio symbol.
- * Suppress recursive callbacks during one service invocation. */
-inline void pump_progress(sat_cd_block_t* block) {
-    if (block->progress == nullptr || block->progress_active != 0u) return;
-    block->progress_active = 1u;
-    (void)block->progress(block->progress_context);
-    block->progress_active = 0u;
-}
+using saturn::hal::cd::pump_progress;
 
 sat_result_t wait_hirq(sat_cd_block_t* block, uint16_t mask) {
     for (uint32_t i = 0u; i < timeout_for(block); ++i) {
