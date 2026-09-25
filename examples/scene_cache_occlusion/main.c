@@ -31,6 +31,8 @@ static sat_scene_t g_scene;
 static sat_scene3d_face_t g_scene_faces[SCENE_FACES];
 static uint32_t g_scene_keys[SCENE_FACES];
 static uint16_t g_scene_order[SCENE_FACES];
+/* One owner span per managed view queued in a frame. */
+static sat_scene3d_owner_span_t g_owner_spans[1];
 static sat_view_cache_t g_cache;
 static sat_view_cache_item_t g_cache_items[VIEW_COUNT * CACHE_FACES];
 static uint16_t g_cache_counts[VIEW_COUNT];
@@ -141,7 +143,8 @@ int main(void) {
     initialize_checker();
     sat_example_must(sat_scene_init(
         &g_scene,g_scene_faces,g_scene_keys,g_scene_order,SCENE_FACES));
-    sat_example_must(sat_scene_bind_managed_textures(&g_scene));
+    sat_example_must(sat_scene_bind_managed_textures(
+        &g_scene,g_owner_spans,1u));
     sat_example_must(sat_view_cache_init(
         &g_cache,g_cache_items,g_cache_counts,VIEW_COUNT,CACHE_FACES));
     sat_example_must(sat_view_cache_bind_cameras(

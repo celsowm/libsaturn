@@ -198,26 +198,36 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
  * exactly instead: each component splits into n = hi * 2^24 + lo with
  * 0 <= lo < 2^24, both partial dots fit in 64 bits, and after carrying lo's
  * whole multiples of 2^24 into hi, the remainder can no longer outweigh a
- * nonzero hi. Larger normals take the scaled path. */
-inline bool quad_visible(const sat_quad3_t& quad, const sat_vec3_t& eye) {
+ * nonzero hi. Larger normals take the scaled path.
+ *
+ * The corners are taken by reference, so a caller holding shared vertex
+ * arrays need not copy them into a sat_quad3_t first. */
+inline bool quad_visible(const sat_vec3_t& a, const sat_vec3_t& b,
+                         const sat_vec3_t& c, const sat_vec3_t& d,
+                         const sat_vec3_t& eye) {
     int64_t n[3];
-    cross_raw(vec3_sub(quad.v[3], quad.v[0]), vec3_sub(quad.v[1], quad.v[0]), n);
+    cross_raw(vec3_sub(d, a), vec3_sub(b, a), n);
     if ((n[0] | n[1] | n[2]) == 0) {
         /* B collapsed onto A: the face is the triangle A, C, D. */
-        cross_raw(vec3_sub(quad.v[3], quad.v[0]), vec3_sub(quad.v[2], quad.v[0]), n);
+        cross_raw(vec3_sub(d, a), vec3_sub(c, a), n);
     }
     if ((n[0] | n[1] | n[2]) == 0) {
         /* D collapsed onto A: the face is the triangle A, B, C. */
-        cross_raw(vec3_sub(quad.v[2], quad.v[0]), vec3_sub(quad.v[1], quad.v[0]), n);
+        cross_raw(vec3_sub(c, a), vec3_sub(b, a), n);
     }
     constexpr int64_t kExactLimit = static_cast<int64_t>(1) << 50;
     for (int i = 0; i < 3; ++i) {
         if (n[i] >= kExactLimit || n[i] <= -kExactLimit) {
+            const sat_quad3_t quad = {{a, b, c, d}};
             return vec3_dot_raw(quad_normal_scaled(quad),
                                 vec3_sub(eye, quad_center(quad))) > 0;
         }
     }
-    const sat_vec3_t v = vec3_sub(eye, quad_center(quad));
+    const sat_vec3_t centre = vec3(
+        static_cast<sat_fx16_t>((static_cast<int64_t>(a.x) + b.x + c.x + d.x) / 4),
+        static_cast<sat_fx16_t>((static_cast<int64_t>(a.y) + b.y + c.y + d.y) / 4),
+        static_cast<sat_fx16_t>((static_cast<int64_t>(a.z) + b.z + c.z + d.z) / 4));
+    const sat_vec3_t v = vec3_sub(eye, centre);
     const int32_t w[3] = {v.x, v.y, v.z};
     int64_t hi = 0;
     int64_t lo = 0;
@@ -230,6 +240,10 @@ inline bool quad_visible(const sat_quad3_t& quad, const sat_vec3_t& eye) {
     }
     hi += lo >> 24;
     return hi > 0 || (hi == 0 && (lo & 0xFFFFFF) != 0);
+}
+
+inline bool quad_visible(const sat_quad3_t& quad, const sat_vec3_t& eye) {
+    return quad_visible(quad.v[0], quad.v[1], quad.v[2], quad.v[3], eye);
 }
 
 inline bool face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t& eye) {

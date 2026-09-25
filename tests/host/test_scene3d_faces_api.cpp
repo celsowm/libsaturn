@@ -45,9 +45,11 @@ static bool same_face(const sat_scene3d_face_t& a,
         !same_texture(a.material.texture, b.material.texture) ||
         !same_tiled(a.material.tiled, b.material.tiled)) return false;
     for (uint8_t i=0u;i<4u;++i) {
-        if (a.world.v[i].x != b.world.v[i].x ||
-            a.world.v[i].y != b.world.v[i].y ||
-            a.world.v[i].z != b.world.v[i].z ||
+        // world is carried only for the clipping fallback.
+        if ((!a.projected_safe &&
+             (a.world.v[i].x != b.world.v[i].x ||
+              a.world.v[i].y != b.world.v[i].y ||
+              a.world.v[i].z != b.world.v[i].z)) ||
             a.projected.x[i] != b.projected.x[i] ||
             a.projected.y[i] != b.projected.y[i] ||
             (a.gouraud_valid != 0u && a.gouraud[i] != b.gouraud[i])) return false;
@@ -437,8 +439,10 @@ int main() {
     assert(project_calls==calls_before+1u);
     assert(local[0].z==0);
     assert(scene.count==2u);
-    world[0].z=99*SAT_FX16_ONE; // queued faces own their world-space copies
-    assert(scene.entries[0].world.v[0].z==3*SAT_FX16_ONE);
+    // Projected-safe faces keep only screen corners: the caller's world
+    // scratch is free to change after submission.
+    assert(scene.entries[0].projected_safe==1u);
+    world[0].z=99*SAT_FX16_ONE;
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     assert(emitted_count==2u && emitted[0]==10u && emitted[1]==20u);
     // INHERIT left both materials on their own opaque slot.
@@ -790,41 +794,74 @@ int main() {
     assert(scene.skipped_faces==0u && emitted_count==0u);
     distorted_draw_status=SAT_OK;
 
-    // Raw L1 remains independent, while a stamped owner is always checked
+    // Raw L1 remains independent, while an owner span is always checked
     // BEFORE even a farther valid face can be emitted. Slot reuse may leave
     // the raw texture descriptor valid, so the generation matters.
+    sat_scene3d_owner_span_t spans[1]={};
     emitted_count=0u;
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
     assert(sat_scene3d_faces_bind_owner_validator(
-        &scene,validate_owner_for_test,nullptr)==SAT_ERR_INVALID_ARG);
+        &scene,validate_owner_for_test,nullptr,spans,1u)==SAT_ERR_INVALID_ARG);
     assert(sat_scene3d_faces_submit_projected_material(
         &scene,&cached_quad,2*SAT_FX16_ONE,&near_mat,0u)==SAT_OK);
-    scene.entries[0].owner_slot=0u;
-    scene.entries[0].owner_generation=5u;
+    // No verifier bound: marking is refused, and the raw face still draws.
+    assert(sat_scene3d_faces_mark_owner(
+        &scene,0u,1u,0u,5u,&near_tex)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_owner_span_available(&scene)==0u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==1u);
+
+    // A verifier needs span storage.
+    assert(sat_scene3d_faces_bind_owner_validator(
+        &scene,validate_owner_for_test,nullptr,nullptr,1u)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_bind_owner_validator(
+        &scene,validate_owner_for_test,nullptr,spans,0u)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_bind_owner_validator(
+        &scene,validate_owner_for_test,nullptr,spans,1u)==SAT_OK);
+    verified_owner_generation=6u; // Same native descriptor, recycled owner.
+    emitted_count=0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,2*SAT_FX16_ONE,&near_mat,0u)==SAT_OK);
+    // Spans must cover queued faces only and have at least one face.
+    assert(sat_scene3d_faces_mark_owner(
+        &scene,0u,2u,0u,5u,&near_tex)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_mark_owner(
+        &scene,0u,0u,0u,5u,&near_tex)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_owner_span_available(&scene)==1u);
+    assert(sat_scene3d_faces_mark_owner(
+        &scene,0u,1u,0u,5u,&near_tex)==SAT_OK);
+    assert(sat_scene3d_faces_owner_span_available(&scene)==0u);
+    assert(sat_scene3d_faces_mark_owner(
+        &scene,0u,1u,0u,5u,&near_tex)==SAT_ERR_CAPACITY);
     assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
     assert(emitted_count==0u && scene.count==0u && !scene.active);
 
-    assert(sat_scene3d_faces_bind_owner_validator(
-        &scene,validate_owner_for_test,nullptr)==SAT_OK);
-    verified_owner_generation=6u; // Same native descriptor, recycled owner.
+    // The current generation passes, and begin() clears last frame's spans.
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(scene.owner_span_count==0u);
     assert(sat_scene3d_faces_submit_projected_material(
         &scene,&cached_quad,2*SAT_FX16_ONE,&near_mat,0u)==SAT_OK);
-    scene.entries[0].owner_slot=0u;
-    scene.entries[0].owner_generation=5u;
-    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
-    assert(emitted_count==0u && scene.count==0u);
-
-    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
-        SAT_FX16_ONE,320u,224u)==SAT_OK);
-    assert(sat_scene3d_faces_submit_projected_material(
-        &scene,&cached_quad,2*SAT_FX16_ONE,&near_mat,0u)==SAT_OK);
-    scene.entries[0].owner_slot=0u;
-    scene.entries[0].owner_generation=6u;
+    assert(sat_scene3d_faces_mark_owner(
+        &scene,0u,1u,0u,6u,&near_tex)==SAT_OK);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     assert(emitted_count==1u && emitted[0]==near_tex.srca);
+
+    // A span left beyond the queue (e.g. after an external rollback) is
+    // rejected instead of validating faces that no longer exist.
+    emitted_count=0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(
+        &scene,&cached_quad,2*SAT_FX16_ONE,&near_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_mark_owner(
+        &scene,0u,1u,0u,6u,&near_tex)==SAT_OK);
+    scene.count=0u;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
+    assert(emitted_count==0u);
 
     std::puts("scene3d_faces api: OK");
     return 0;

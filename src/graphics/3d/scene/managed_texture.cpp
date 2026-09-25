@@ -18,11 +18,13 @@ sat_result_t validate_managed_texture(
 
 } // namespace
 
-extern "C" sat_result_t sat_scene_bind_managed_textures(sat_scene_t* scene) {
-    if (!scene || !scene->faces.entries || !scene->faces.capacity)
+extern "C" sat_result_t sat_scene_bind_managed_textures(
+    sat_scene_t* scene,sat_scene3d_owner_span_t* spans,uint16_t span_capacity) {
+    if (!scene || !scene->faces.entries || !scene->faces.capacity ||
+        !spans || !span_capacity)
         return SAT_ERR_INVALID_ARG;
     return sat_scene3d_faces_bind_owner_validator(
-        &scene->faces,validate_managed_texture,nullptr);
+        &scene->faces,validate_managed_texture,nullptr,spans,span_capacity);
 }
 
 extern "C" sat_result_t sat_scene_queue_managed_camera_view(
@@ -35,6 +37,10 @@ extern "C" sat_result_t sat_scene_queue_managed_camera_view(
         saturn::core::g_texture_registry,owner);
     if (!slot || !slot->native.valid)
         return SAT_ERR_INVALID_ARG;
+    /* Check span room first, so a full span table never leaves an admitted
+     * view without its owner record. */
+    if (!sat_scene3d_faces_owner_span_available(&scene->faces))
+        return SAT_ERR_CAPACITY;
     const sat_scene3d_material_t material={
         SAT_SCENE3D_INDEXED_TEXTURED,0u,&slot->native,nullptr,
         SAT_INDEXED_SOLID_OPAQUE,nullptr};
@@ -42,12 +48,13 @@ extern "C" sat_result_t sat_scene_queue_managed_camera_view(
     const sat_result_t status=sat_scene_queue_camera_view_material(
         scene,cache,view,camera,&material,pass);
     if (status!=SAT_OK)return status;
-    /* The facade's whole-view admission is atomic. Stamp every newly
-     * accepted face with the generation observed at submission; a recycled
-     * registry slot can no longer silently substitute another native image. */
-    for (uint16_t i=first;i<scene->faces.count;++i) {
-        scene->faces.entries[i].owner_slot=owner.slot;
-        scene->faces.entries[i].owner_generation=owner.generation;
-    }
-    return SAT_OK;
+    /* The facade's whole-view admission is atomic, so the accepted faces are
+     * one contiguous run: record the generation observed at submission once
+     * for all of them. A recycled registry slot can no longer silently
+     * substitute another native image, and no face record carries owner
+     * data. */
+    const uint16_t count=static_cast<uint16_t>(scene->faces.count-first);
+    if (count==0u) return SAT_OK;
+    return sat_scene3d_faces_mark_owner(&scene->faces,first,count,
+        owner.slot,owner.generation,&slot->native);
 }

@@ -389,9 +389,12 @@ static uint32_t hash_scene_face(uint32_t hash,const sat_scene3d_face_t* face,
     hash=hash_word(hash,face->material.rgb555);
     hash=hash_word(hash,face->material.color_calc_slot);
     for(uint8_t vertex=0u;vertex<4u;++vertex) {
-        hash=hash_word(hash,(uint32_t)face->world.v[vertex].x);
-        hash=hash_word(hash,(uint32_t)face->world.v[vertex].y);
-        hash=hash_word(hash,(uint32_t)face->world.v[vertex].z);
+        /* world is stored only for the clipping fallback. */
+        if(!face->projected_safe) {
+            hash=hash_word(hash,(uint32_t)face->world.v[vertex].x);
+            hash=hash_word(hash,(uint32_t)face->world.v[vertex].y);
+            hash=hash_word(hash,(uint32_t)face->world.v[vertex].z);
+        }
         hash=hash_word(hash,(uint16_t)face->projected.x[vertex]);
         hash=hash_word(hash,(uint16_t)face->projected.y[vertex]);
         if(face->gouraud_valid)hash=hash_word(hash,face->gouraud[vertex]);
@@ -1410,8 +1413,16 @@ static void draw_clouds(void) {
     static const uint8_t width[6]={68u,52u,79u,60u,55u,72u};
     static const uint8_t height[6]={15u,12u,18u,14u,12u,16u};
     uint8_t i,copy;
+#if SAT_SKYBRIDGE_VALIDATION
+    /* Clouds are world VDP1 commands, so the cross-profile scene hash would
+     * otherwise compare display-frame pacing instead of rendering: drive
+     * them from the gameplay tick every profile shares. */
+    const uint32_t cloud_clock=g_game.ticks;
+#else
+    const uint32_t cloud_clock=g_frame;
+#endif
     for(i=0u;i<6u;++i) {
-        const int32_t x=sb_scenery_cloud_x(base_x[i],(uint16_t)g_yaw,g_frame);
+        const int32_t x=sb_scenery_cloud_x(base_x[i],(uint16_t)g_yaw,cloud_clock);
         /* Each cloud is drawn at its own position and once more one full
          * 512px period to the left, so a cloud straddling the seam stays
          * whole. Wrapping every cloud at 320px instead would visibly tile

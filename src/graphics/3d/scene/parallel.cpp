@@ -215,6 +215,14 @@ extern "C" sat_result_t sat_scene_merge_prepared_batch(
         return record_frame_result(scene,SAT_ERR_VERIFY_FAILED);
     batch->metrics.prepared_faces = static_cast<uint16_t>(
         output_size / sizeof(sat_scene3d_face_t));
+    /* The worker wrote the keys through an uncached alias, and completion
+     * invalidates only the face output on this CPU. Lines of the key array
+     * left in this cache by an earlier merge would otherwise feed stale
+     * painter keys into the sort. */
+    const sat_result_t keys_synced = sync_range(batch->keys,
+        static_cast<uint32_t>(batch->metrics.prepared_faces) *
+        sizeof(*batch->keys));
+    if (keys_synced != SAT_OK) return record_frame_result(scene,keys_synced);
     const uint16_t before = scene->faces.count;
     const sat_result_t merged = sat_scene3d_faces_merge_prepared(&scene->faces, batch);
     if (merged == SAT_OK) {

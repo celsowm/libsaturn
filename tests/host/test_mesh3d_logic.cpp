@@ -592,6 +592,9 @@ TEST(quad_visible_matches_exact_facing_test) {
                              static_cast<__int128>(n[1]) * v.y +
                              static_cast<__int128>(n[2]) * v.z;
         ASSERT_EQ(quad_visible(q, eye) ? 1 : 0, dot > 0 ? 1 : 0);
+        /* The corner-reference overload the scene uses must agree. */
+        ASSERT_EQ(quad_visible(q.v[0], q.v[1], q.v[2], q.v[3], eye) ? 1 : 0,
+                  dot > 0 ? 1 : 0);
     }
 }
 

@@ -64,7 +64,12 @@ uint32_t painter_key(int64_t depth_sum, uint16_t pass) {
            static_cast<uint32_t>(depth);
 }
 
-sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
+/* `corners` point at the face's four world-space vertices. They are copied
+ * into the record only when the face needs the clipping fallback: a
+ * projected-safe face never reads `world`, and every byte a record carries
+ * is written (uncached, on the Slave) and copied again on merge. */
+sat_result_t append(sat_scene3d_faces_t* scene,
+                    const sat_vec3_t* const corners[4],
                     const sat_projected_vertex_t* projected,
                     const uint16_t indices[4],
                     const sat_scene3d_material_t& material, uint16_t pass) {
@@ -81,14 +86,11 @@ sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
     }
     if (scene->count>=scene->capacity) return SAT_ERR_CAPACITY;
     sat_scene3d_face_t& item=scene->entries[scene->count];
-    item.world=world;
     for (uint8_t c=0;c<4u;++c) {
         item.projected.x[c]=projected[indices[c]].x;
         item.projected.y[c]=projected[indices[c]].y;
     }
     item.material=material;
-    item.owner_slot=0u;
-    item.owner_generation=0u;
     item.cached_projected=0u;
     item.gouraud_valid=material.vertex_gouraud ? 1u : 0u;
     if (item.gouraud_valid) {
@@ -97,10 +99,27 @@ sat_result_t append(sat_scene3d_faces_t* scene, const sat_quad3_t& world,
         item.material.vertex_gouraud=nullptr;
     }
     item.projected_safe=safe_projection(*scene,projected,indices)?1u:0u;
-    if (!item.projected_safe) ++scene->clipped_faces;
+    if (!item.projected_safe) {
+        for (uint8_t c=0;c<4u;++c) item.world.v[c]=*corners[c];
+        ++scene->clipped_faces;
+    }
     scene->keys[scene->count]=painter_key(sum,pass);
     ++scene->count;
     return SAT_OK;
+}
+
+/* Copies the fields a queued face actually carries: `gouraud` only when
+ * valid and `world` only for the clipping fallback, about half of the
+ * record for an ordinary projected-safe face. */
+void copy_face(sat_scene3d_face_t& dst, const sat_scene3d_face_t& src) {
+    dst.projected=src.projected;
+    dst.material=src.material;
+    dst.projected_safe=src.projected_safe;
+    dst.gouraud_valid=src.gouraud_valid;
+    dst.cached_projected=src.cached_projected;
+    if (src.gouraud_valid)
+        for (uint8_t c=0;c<4u;++c) dst.gouraud[c]=src.gouraud[c];
+    if (!src.projected_safe) dst.world=src.world;
 }
 
 sat_result_t emit(const sat_scene3d_faces_t& scene,
@@ -159,10 +178,34 @@ extern "C" sat_result_t sat_scene3d_faces_init(
 
 extern "C" sat_result_t sat_scene3d_faces_bind_owner_validator(
     sat_scene3d_faces_t* scene,
-    sat_scene3d_owner_validate_fn validate,void* context) {
+    sat_scene3d_owner_validate_fn validate,void* context,
+    sat_scene3d_owner_span_t* spans,uint16_t span_capacity) {
     if(!scene || scene->active)return SAT_ERR_INVALID_ARG;
+    if(validate && (!spans || !span_capacity))return SAT_ERR_INVALID_ARG;
     scene->validate_owner=validate;
     scene->owner_context=validate?context:nullptr;
+    scene->owner_spans=validate?spans:nullptr;
+    scene->owner_span_capacity=validate?span_capacity:0u;
+    scene->owner_span_count=0u;
+    return SAT_OK;
+}
+
+extern "C" uint8_t sat_scene3d_faces_owner_span_available(
+    const sat_scene3d_faces_t* scene) {
+    return scene && scene->validate_owner &&
+           scene->owner_span_count<scene->owner_span_capacity ? 1u : 0u;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_mark_owner(
+    sat_scene3d_faces_t* scene,uint16_t first,uint16_t count,
+    uint16_t slot,uint16_t generation,const sat_vdp1_texture_t* native) {
+    if(!scene || !scene->active || !scene->validate_owner || !native ||
+       !count || static_cast<uint32_t>(first)+count>scene->count)
+        return SAT_ERR_INVALID_ARG;
+    if(scene->owner_span_count>=scene->owner_span_capacity)
+        return SAT_ERR_CAPACITY;
+    scene->owner_spans[scene->owner_span_count++]=
+        sat_scene3d_owner_span_t{first,count,slot,generation,native};
     return SAT_OK;
 }
 
@@ -176,6 +219,7 @@ extern "C" sat_result_t sat_scene3d_faces_begin(
         width<2u || height<2u || width>2048u || height>2048u)
         return SAT_ERR_INVALID_ARG;
     scene->count=0;
+    scene->owner_span_count=0u;
     scene->culled_faces=scene->clipped_faces=scene->fallback_faces=0u;
     scene->emitted_faces=scene->emitted_cached=scene->skipped_faces=0u;
     scene->view_proj=*view_proj;
@@ -230,7 +274,9 @@ extern "C" sat_result_t sat_scene3d_faces_submit_quad(
         &scene->view_proj,world->v,4u,screen);
     if (st!=SAT_OK) return st;
     const uint16_t indices[4]={0u,1u,2u,3u};
-    return append(scene,*world,screen,indices,*material,pass);
+    const sat_vec3_t* const corners[4]={
+        &world->v[0],&world->v[1],&world->v[2],&world->v[3]};
+    return append(scene,corners,screen,indices,*material,pass);
 }
 
 extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
@@ -245,8 +291,6 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
     sat_scene3d_face_t& item=scene->entries[scene->count];
     item.projected=*projected;
     item.material=*material;
-    item.owner_slot=0u;
-    item.owner_generation=0u;
     /* A cached projected tile never needs fallback/UV clipping. Bake its
      * full preuploaded texture directly into the copied material descriptor,
      * so the caller's tiled object can expire immediately after submission.
@@ -402,15 +446,16 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
             ++scene->culled_faces;
             continue;
         }
-        sat_quad3_t quad={};
-        for (uint8_t c=0;c<4u;++c) quad.v[c]=world[idx[c]];
+        const sat_vec3_t* const corners[4]={
+            &world[idx[0]],&world[idx[1]],&world[idx[2]],&world[idx[3]]};
         /* Keep instance back-face visibility in world space. The projected
          * area test below is still useful for degenerate/quantized screen
          * faces, but it is not a substitute for the shared geometric normal
          * predicate: small perspective faces can round to a screen winding
          * that disagrees with their actual outward normal. */
         if (instance->cull_backfaces &&
-            !saturn::core::mesh3d::quad_visible(quad,scene->eye))
+            !saturn::core::mesh3d::quad_visible(
+                *corners[0],*corners[1],*corners[2],*corners[3],scene->eye))
         {
             ++scene->culled_faces;
             continue;
@@ -420,9 +465,9 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
         if (override_slot) {
             sat_scene3d_material_t overridden=base;
             overridden.color_calc_slot=color_calc_slot;
-            st=append(scene,quad,screen_scratch,idx,overridden,instance->pass);
+            st=append(scene,corners,screen_scratch,idx,overridden,instance->pass);
         } else {
-            st=append(scene,quad,screen_scratch,idx,base,instance->pass);
+            st=append(scene,corners,screen_scratch,idx,base,instance->pass);
         }
         if (st!=SAT_OK) {
             scene->count=previous_count;
@@ -532,7 +577,7 @@ extern "C" sat_result_t sat_scene3d_faces_merge_prepared(
         return SAT_ERR_CAPACITY;
     const uint16_t count = batch->metrics.prepared_faces;
     for (uint16_t i = 0u; i < count; ++i) {
-        scene->entries[scene->count] = batch->faces[i];
+        copy_face(scene->entries[scene->count], batch->faces[i]);
         scene->keys[scene->count] = batch->keys[i];
         ++scene->count;
     }
@@ -553,14 +598,22 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
      * instead of painting an invalid image over earlier valid faces. This is
      * an ordinary descriptor validity gate, NOT a VRAM ownership lock: the
      * caller must still keep valid texture storage/residency until flush. */
+    /* Generation-checked owners are verified once per managed view, not per
+     * face: a released or recycled owner rejects the whole scene here. */
+    for (uint16_t s=0u;s<scene->owner_span_count;++s) {
+        const sat_scene3d_owner_span_t& span=scene->owner_spans[s];
+        if (static_cast<uint32_t>(span.first)+span.count>scene->count ||
+            !scene->validate_owner ||
+            scene->validate_owner(scene->owner_context,span.slot,
+                span.generation,span.native)!=SAT_OK) {
+            scene->count=0u;
+            scene->owner_span_count=0u;
+            return SAT_ERR_INVALID_ARG;
+        }
+    }
+    scene->owner_span_count=0u;
     for (uint16_t i=0u;i<scene->count;++i) {
-        const sat_scene3d_face_t& entry=scene->entries[i];
-        if (!valid_material(entry.material) ||
-            (entry.owner_generation!=0u &&
-             (!scene->validate_owner ||
-              scene->validate_owner(scene->owner_context,
-                  entry.owner_slot,entry.owner_generation,
-                  entry.material.texture)!=SAT_OK))) {
+        if (!valid_material(scene->entries[i].material)) {
             scene->count=0u;
             return SAT_ERR_INVALID_ARG;
         }

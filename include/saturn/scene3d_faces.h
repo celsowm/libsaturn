@@ -40,26 +40,38 @@ typedef struct sat_scene3d_material {
 
 /* Paint order is NOT a field here: it lives in the scene's parallel key
  * array, so ordering a frame moves two-byte indices instead of these
- * multi-word records. */
+ * multi-word records.
+ *
+ * Every field a merge, flush or emission reads comes first; `world` is last
+ * and is written, copied and read ONLY when projected_safe == 0 (the
+ * clipping fallback). For a projected-safe face its contents are
+ * unspecified. Records are written by the Slave through uncached memory and
+ * copied again on merge, so every byte here costs per face, per frame. */
 typedef struct sat_scene3d_face {
-    sat_quad3_t world;
     sat_quad2_t projected;
     sat_scene3d_material_t material;
     uint8_t projected_safe;
     uint8_t gouraud_valid;
     /* Preprojected cache entry (RGB or indexed), no world fallback. */
     uint8_t cached_projected;
-    /* Optional generation-checked texture owner. Zero generation means the
-     * independent raw/borrowed L1 path; a bound owner is preflighted before
-     * any VDP1 emission, including after release + reuse of the same slot. */
-    uint16_t owner_slot;
-    uint16_t owner_generation;
     uint16_t gouraud[4];
+    sat_quad3_t world;
 } sat_scene3d_face_t;
 
 typedef sat_result_t (*sat_scene3d_owner_validate_fn)(
     void* context,uint16_t slot,uint16_t generation,
     const sat_vdp1_texture_t* expected_native);
+
+/* One generation-checked texture owner for a contiguous run of queued faces
+ * (a whole managed view). Validated once per span at flush, so ordinary
+ * faces carry no owner data at all. */
+typedef struct sat_scene3d_owner_span {
+    uint16_t first;
+    uint16_t count;
+    uint16_t slot;
+    uint16_t generation;
+    const sat_vdp1_texture_t* native;
+} sat_scene3d_owner_span_t;
 
 typedef struct sat_scene3d_faces {
     sat_scene3d_face_t* entries;
@@ -76,6 +88,10 @@ typedef struct sat_scene3d_faces {
      * manager is imposed on low-level face submission or bare scene drawing. */
     sat_scene3d_owner_validate_fn validate_owner;
     void* owner_context;
+    /* Caller-owned owner spans, bound with the verifier; reset each begin. */
+    sat_scene3d_owner_span_t* owner_spans;
+    uint16_t owner_span_capacity;
+    uint16_t owner_span_count;
     uint8_t active;
     uint16_t culled_faces;
     uint16_t clipped_faces;
@@ -96,10 +112,23 @@ sat_result_t sat_scene3d_faces_init(
     uint32_t* keys, uint16_t* order, uint16_t capacity);
 
 /* Configure the optional owner verifier only while no frame is active.
- * A checked face without a verifier rejects flush before any drawing. */
+ * `spans` (caller-owned, `span_capacity` entries) holds one record per
+ * owner-checked run of faces per frame. A NULL verifier unbinds both. */
 sat_result_t sat_scene3d_faces_bind_owner_validator(
     sat_scene3d_faces_t* scene,
-    sat_scene3d_owner_validate_fn validate,void* context);
+    sat_scene3d_owner_validate_fn validate,void* context,
+    sat_scene3d_owner_span_t* spans,uint16_t span_capacity);
+
+/* Marks already-queued faces [first, first + count) as owned by
+ * (slot, generation) referencing `native`. The verifier checks the owner
+ * once before any VDP1 emission; a stale owner rejects the whole flush.
+ * Needs a bound verifier; SAT_ERR_CAPACITY when the span storage is full
+ * (check sat_scene3d_faces_owner_span_available() before queueing). */
+sat_result_t sat_scene3d_faces_mark_owner(
+    sat_scene3d_faces_t* scene,uint16_t first,uint16_t count,
+    uint16_t slot,uint16_t generation,const sat_vdp1_texture_t* native);
+uint8_t sat_scene3d_faces_owner_span_available(
+    const sat_scene3d_faces_t* scene);
 
 sat_result_t sat_scene3d_faces_begin(
     sat_scene3d_faces_t* scene, const sat_mat4_t* view_proj,
