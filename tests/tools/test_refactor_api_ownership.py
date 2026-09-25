@@ -19,7 +19,11 @@ RBG0_DEMOS = ("vdp2_rbg0_ground", "vdp2_nbg0_rbg0_combo")
 
 
 def source(example: str) -> str:
-    return (ROOT / "examples" / example / "main.c").read_text(encoding="utf-8")
+    """An example's own code: main.c plus any modules and local headers it is
+    split into, so a rule cannot pass just because code moved out of main.c."""
+    folder = ROOT / "examples" / example
+    paths = sorted(folder.glob("*.c")) + sorted(folder.glob("*.h"))
+    return "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
 
 def all_sources(example: str) -> str:

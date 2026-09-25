@@ -5,8 +5,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MAIN = (ROOT / "examples" / "skybridge_3d" / "main.c").read_text(
-    encoding="utf-8"
+# Skybridge is split by concern (pig.c, gems.c, world.c, ...); the lifecycle
+# rules hold across every module of the example.
+MAIN = "\n".join(
+    path.read_text(encoding="utf-8")
+    for path in sorted((ROOT / "examples" / "skybridge_3d").glob("*.c"))
 )
 DOC = (ROOT / "docs" / "SKYBRIDGE_PARALLEL_INTEGRATION.md").read_text(
     encoding="utf-8"
