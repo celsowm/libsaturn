@@ -49,8 +49,9 @@ bool safe_projection(const sat_scene3d_faces_t& scene,
 
 /* One unsigned painter key: pass ascending in the high bits, then camera
  * depth far-to-near in the low bits, which is exactly the order
- * paint_order_buckets emits. Depth keeps 1/4096 of a world unit -- finer
- * than the 1024 buckets resolve -- and stays clear of kPaintSkip. */
+ * paint_order_grouped_buckets emits. Depth keeps 1/4096 of a world unit --
+ * finer than the buckets resolve -- and stays clear of kPaintSkip; faces
+ * beyond 256 world units saturate and keep submission order. */
 constexpr uint32_t kFaceDepthBits=20u;
 constexpr uint32_t kFaceDepthMax=(1u<<kFaceDepthBits)-2u;
 constexpr uint32_t kFacePassMax=SAT_SCENE3D_PASS_MAX;
@@ -623,8 +624,10 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
 #if SAT_PROFILE_METRICS
     const uint16_t painter_start=saturn::hal::sh2::frt::counter();
 #endif
-    const uint32_t ordered=saturn::core::render3d::paint_order_buckets(
-        scene->keys,scene->count,scene->order);
+    /* Each pass buckets its own depth span: with one global span, two live
+     * passes alone would widen every bucket to 2^20/1024 depth units. */
+    const uint32_t ordered=saturn::core::render3d::paint_order_grouped_buckets(
+        scene->keys,scene->count,scene->order,kFaceDepthBits);
 #if SAT_PROFILE_METRICS
     g_test_painter_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-painter_start);

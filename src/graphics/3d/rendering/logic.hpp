@@ -534,6 +534,53 @@ constexpr uint32_t kPaintBuckets = 1024u;
  * O(n log n) indirect key comparisons doing it, which an unbiased profile put
  * at most of an animated character's frame. depth[] is overwritten with
  * bucket numbers. Returns the number of faces written to out[]. */
+namespace paint_detail {
+
+/* Smallest shift that fits `span` into `buckets` (>= 1) buckets. */
+inline uint32_t range_shift(uint32_t span, uint32_t buckets) {
+    uint32_t shift = 0u;
+    while ((span >> shift) >= buckets) {
+        ++shift;
+    }
+    return shift;
+}
+
+/* Counting pass shared by the painter orders: bucket_of(key) maps every live
+ * key below kPaintBuckets, higher buckets paint first, and faces keep
+ * ascending index inside a bucket. keys[] is overwritten with buckets. */
+template <typename Index, typename BucketOf>
+inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
+                       BucketOf bucket_of) {
+    /* face_count fits uint16_t, so every running position does too. */
+    uint16_t start[kPaintBuckets];
+    for (uint32_t b = 0; b < kPaintBuckets; ++b) {
+        start[b] = 0u;
+    }
+    for (uint32_t f = 0; f < face_count; ++f) {
+        if (keys[f] == kPaintSkip) {
+            continue;
+        }
+        const uint32_t bucket = bucket_of(keys[f]);
+        keys[f] = bucket;
+        ++start[bucket];
+    }
+    uint32_t running = 0u;
+    for (uint32_t b = kPaintBuckets; b-- > 0u;) {
+        const uint32_t n = start[b];
+        start[b] = static_cast<uint16_t>(running);
+        running += n;
+    }
+    for (uint32_t f = 0; f < face_count; ++f) {
+        const uint32_t bucket = keys[f];
+        if (bucket == kPaintSkip) {
+            continue;
+        }
+        out[start[bucket]++] = static_cast<Index>(f);
+    }
+}
+
+} // namespace paint_detail
+
 template <typename Index>
 inline uint32_t paint_order_buckets(uint32_t* depth, uint32_t face_count, Index* out) {
     uint32_t lo = 0xFFFFFFFFu;
@@ -555,36 +602,120 @@ inline uint32_t paint_order_buckets(uint32_t* depth, uint32_t face_count, Index*
     if (live == 0u) {
         return 0u;
     }
-    uint32_t shift = 0u;
-    while (((hi - lo) >> shift) >= kPaintBuckets) {
-        ++shift;
-    }
-    /* face_count fits uint16_t, so every running position does too. */
-    uint16_t start[kPaintBuckets];
-    for (uint32_t b = 0; b < kPaintBuckets; ++b) {
-        start[b] = 0u;
-    }
+    const uint32_t shift = paint_detail::range_shift(hi - lo, kPaintBuckets);
+    paint_detail::distribute(depth, face_count, out,
+        [lo, shift](uint32_t key) { return (key - lo) >> shift; });
+    return live;
+}
+
+/* Most distinct key groups paint_order_grouped_buckets resolves on its own. */
+constexpr uint32_t kPaintMaxGroups = 8u;
+
+/* paint_order_buckets for keys that carry a group (a painter pass) above
+ * `group_shift` (1..31) and depth below it: groups paint strictly in
+ * descending group order, and each group spreads only ITS OWN depth span
+ * over a share of the buckets proportional to its face count. The global
+ * spread instead gives every bucket at least 2^group_shift / 1024 of depth as
+ * soon as two groups are live. One group is exactly paint_order_buckets;
+ * more than kPaintMaxGroups fall back to it (coarser, still in order). */
+template <typename Index>
+inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
+                                            Index* out, uint32_t group_shift) {
+    struct Group {
+        uint32_t id, lo, hi, count, base, shift;
+    };
+    uint32_t lo = 0xFFFFFFFFu;
+    uint32_t hi = 0u;
+    uint32_t live = 0u;
     for (uint32_t f = 0; f < face_count; ++f) {
-        if (depth[f] == kPaintSkip) {
+        const uint32_t key = keys[f];
+        if (key == kPaintSkip) {
             continue;
         }
-        const uint32_t bucket = (depth[f] - lo) >> shift;
-        depth[f] = bucket;
-        ++start[bucket];
+        if (key < lo) {
+            lo = key;
+        }
+        if (key > hi) {
+            hi = key;
+        }
+        ++live;
     }
-    uint32_t running = 0u;
-    for (uint32_t b = kPaintBuckets; b-- > 0u;) {
-        const uint32_t n = start[b];
-        start[b] = static_cast<uint16_t>(running);
-        running += n;
+    if (live == 0u) {
+        return 0u;
     }
-    for (uint32_t f = 0; f < face_count; ++f) {
-        const uint32_t bucket = depth[f];
-        if (bucket == kPaintSkip) {
+    /* One group -- nearly every scene -- costs exactly paint_order_buckets;
+     * only a scene with several live groups pays the second scan. */
+    Group groups[kPaintMaxGroups];
+    uint32_t group_count = 0u;
+    bool global_spread = (lo >> group_shift) == (hi >> group_shift);
+    const uint32_t low_mask = (1u << group_shift) - 1u;
+    uint32_t last = 0u;
+    for (uint32_t f = 0; !global_spread && f < face_count; ++f) {
+        const uint32_t key = keys[f];
+        if (key == kPaintSkip) {
             continue;
         }
-        out[start[bucket]++] = static_cast<Index>(f);
+        const uint32_t id = key >> group_shift;
+        const uint32_t low = key & low_mask;
+        /* Passes arrive in runs, so the last group usually matches. */
+        if (group_count == 0u || groups[last].id != id) {
+            uint32_t g = 0u;
+            while (g < group_count && groups[g].id != id) {
+                ++g;
+            }
+            if (g == group_count) {
+                if (group_count == kPaintMaxGroups) {
+                    global_spread = true;
+                    continue;
+                }
+                groups[g] = Group{id, low, low, 0u, 0u, 0u};
+                ++group_count;
+            }
+            last = g;
+        }
+        Group& group = groups[last];
+        group.lo = low < group.lo ? low : group.lo;
+        group.hi = low > group.hi ? low : group.hi;
+        ++group.count;
     }
+    if (global_spread) {
+        const uint32_t shift = paint_detail::range_shift(hi - lo, kPaintBuckets);
+        paint_detail::distribute(keys, face_count, out,
+            [lo, shift](uint32_t key) { return (key - lo) >> shift; });
+        return live;
+    }
+    /* Ascending id; the highest (farthest) group takes the highest buckets. */
+    for (uint32_t i = 1u; i < group_count; ++i) {
+        const Group g = groups[i];
+        uint32_t j = i;
+        while (j > 0u && groups[j - 1u].id > g.id) {
+            groups[j] = groups[j - 1u];
+            --j;
+        }
+        groups[j] = g;
+    }
+    /* Shares sum to at most group_count + (kPaintBuckets - group_count). */
+    uint32_t base = 0u;
+    for (uint32_t g = 0u; g < group_count; ++g) {
+        const uint32_t share = 1u + static_cast<uint32_t>(
+            (static_cast<uint64_t>(kPaintBuckets - group_count) * groups[g].count) / live);
+        groups[g].base = base;
+        groups[g].shift = paint_detail::range_shift(groups[g].hi - groups[g].lo, share);
+        base += share;
+    }
+    last = 0u;
+    paint_detail::distribute(keys, face_count, out,
+        [&groups, group_count, group_shift, low_mask, &last](uint32_t key) {
+            const uint32_t id = key >> group_shift;
+            if (groups[last].id != id) {
+                last = 0u;
+                while (last + 1u < group_count && groups[last].id != id) {
+                    ++last;
+                }
+            }
+            const Group& group = groups[last];
+            return group.base + (((key & low_mask) - group.lo) >> group.shift);
+        });
     return live;
 }
 

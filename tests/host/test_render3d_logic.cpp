@@ -710,6 +710,78 @@ TEST(bucket_paint_order_is_complete_and_farthest_first) {
     }
 }
 
+/* Pass-grouped painter order: groups strictly farthest-first, and each group
+ * resolves its own depth span instead of sharing one global spread. */
+TEST(grouped_paint_order_resolves_depth_per_pass) {
+    const uint32_t kShift = 20u;
+    /* Two passes; in the far pass two faces differ by 256 depth units (1/16
+     * world unit at 1/4096). The global spread has 2^21 / 1024 = 2048 units
+     * per bucket, so paint_order_buckets keeps their index order. */
+    uint32_t keys[4] = {
+        (3u << kShift) | 1000u,   /* far pass, nearer */
+        (3u << kShift) | 1256u,   /* far pass, farther: must paint first */
+        (2u << kShift) | 5000u,
+        (2u << kShift) | 90000u,
+    };
+    uint32_t work[4];
+    uint16_t out[4];
+    for (uint32_t i = 0; i < 4u; ++i) work[i] = keys[i];
+    ASSERT_EQ(paint_order_buckets(work, 4u, out), 4u);
+    ASSERT_EQ(out[0], 0u); /* old global spread: index order inside a bucket */
+    for (uint32_t i = 0; i < 4u; ++i) work[i] = keys[i];
+    ASSERT_EQ(paint_order_grouped_buckets(work, 4u, out, kShift), 4u);
+    ASSERT_EQ(out[0], 1u);
+    ASSERT_EQ(out[1], 0u);
+    ASSERT_EQ(out[2], 3u);
+    ASSERT_EQ(out[3], 2u);
+
+    /* Randomized: complete, groups farthest first, and within a group the
+     * order matches that group's own bucket spread. Also: one group is
+     * byte-identical to paint_order_buckets, and >8 groups fall back to it. */
+    static uint32_t rkeys[700];
+    static uint32_t rwork[700];
+    static uint32_t rwork2[700];
+    static uint16_t rout[700];
+    static uint16_t rout2[700];
+    static uint8_t seen[700];
+    const uint32_t group_counts[] = {1u, 2u, 3u, 8u, 9u, 12u};
+    uint32_t seed = 777u;
+    for (uint32_t c = 0; c < sizeof(group_counts) / sizeof(group_counts[0]); ++c) {
+        const uint32_t groups = group_counts[c];
+        const uint32_t n = 700u;
+        uint32_t live = 0u;
+        for (uint32_t i = 0; i < n; ++i) {
+            seed = seed * 1103515245u + 12345u;
+            const uint32_t g = 100u + (seed >> 8) % groups;
+            seed = seed * 1103515245u + 12345u;
+            rkeys[i] = ((seed >> 4) % 9u == 0u) ? kPaintSkip
+                : ((g << kShift) | ((seed >> 5) % 300000u));
+            rwork[i] = rwork2[i] = rkeys[i];
+            if (rkeys[i] != kPaintSkip) ++live;
+        }
+        ASSERT_EQ(paint_order_grouped_buckets(rwork, n, rout, kShift), live);
+        for (uint32_t i = 0; i < n; ++i) seen[i] = 0u;
+        for (uint32_t i = 0; i < live; ++i) {
+            ASSERT_TRUE(rkeys[rout[i]] != kPaintSkip);
+            ASSERT_EQ(seen[rout[i]], 0u);
+            seen[rout[i]] = 1u;
+            if (i + 1u < live && groups <= kPaintMaxGroups) {
+                const uint32_t g0 = rkeys[rout[i]] >> kShift;
+                const uint32_t g1 = rkeys[rout[i + 1u]] >> kShift;
+                ASSERT_TRUE(g0 >= g1);
+                /* rwork holds the bucket numbers: non-increasing, and index
+                 * order inside one bucket. */
+                ASSERT_TRUE(rwork[rout[i]] > rwork[rout[i + 1u]] ||
+                    (rwork[rout[i]] == rwork[rout[i + 1u]] && rout[i] < rout[i + 1u]));
+            }
+        }
+        if (groups == 1u || groups > kPaintMaxGroups) {
+            ASSERT_EQ(paint_order_buckets(rwork2, n, rout2), live);
+            for (uint32_t i = 0; i < live; ++i) ASSERT_EQ(rout[i], rout2[i]);
+        }
+    }
+}
+
 TEST(sort_handles_degenerate_counts) {
     uint8_t idx[1] = {0};
     const uint32_t keys[1] = {7u};
@@ -883,9 +955,10 @@ int main() {
     project_vertex_matches_project_native();
     screen_area_culling_matches_world_culling();
     bucket_paint_order_is_complete_and_farthest_first();
+    grouped_paint_order_resolves_depth_per_pass();
     diagonal_area_equals_shoelace();
     gouraud_table_words_and_light();
     vertex_normals_point_out_of_a_box();
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 36);
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 37);
     return 0;
 }
