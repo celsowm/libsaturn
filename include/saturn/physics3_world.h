@@ -184,7 +184,10 @@ sat_result_t sat_physics3_add_kinematic_mesh(
  * Shortest-path normalized-linear interpolation across bounded substeps;
  * one tick may rotate at most about 45 degrees. Vertex data and reference
  * grid remain immutable; collision queries transform the sphere instead.
- * This first rotational slice is DISCRETE, not swept rotational CCD. */
+ * Contacts are discrete unless mesh-face CCD is on: then each substep also
+ * sweeps the sphere through the mesh's reference frame (a conservative,
+ * radius-inflated chord of its curved path), so rotation faster than the
+ * substep budget is accepted instead of rejected with SAT_ERR_CAPACITY. */
 sat_result_t sat_physics3_set_kinematic_mesh_orientation_target(
     sat_physics3_world_t* world, uint16_t mesh_actor_id,
     const sat_physics3_quat_t* target);
@@ -226,9 +229,10 @@ sat_result_t sat_physics3_get_actor(const sat_physics3_world_t* world,
  * there is no swept sphere/sphere CCD. */
 /* Enables finite-mesh sweeps (face interior + finite edges + vertices). With no box/plane colliders,
  * allows larger velocities than the discrete substep budget by capping the
- * substeps; with translating mesh targets this uses relative motion,
- * but does not cover rotating meshes or sphere/sphere interactions,
- * or numerical grazing cases below the fixed-point time resolution. */
+ * substeps; with translating mesh targets this uses relative motion, and
+ * rotating meshes are swept conservatively in their reference frame. It does
+ * not cover sphere/sphere interactions or numerical grazing cases below the
+ * fixed-point time resolution. */
 sat_result_t sat_physics3_set_mesh_face_ccd(
     sat_physics3_world_t* world, int enabled);
 /* Continuous relative sweeps against linearly translated kinematic AABBs.

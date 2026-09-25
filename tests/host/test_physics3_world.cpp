@@ -977,13 +977,53 @@ static void rotation_rejects_unsafe_budget_and_invalid_targets() {
         &w,mesh_id,&too_large)==SAT_ERR_CAPACITY);
     CHECK(sat_physics3_set_kinematic_mesh_orientation_target(
         &w,mesh_id,&tilt)==SAT_OK);
-    CHECK(sat_physics3_set_mesh_face_ccd(&w,1)==SAT_OK);
+    // Without mesh CCD, rotation beyond the substep budget is rejected
+    // atomically; the rotational sweep is what may accept it.
     CHECK(sat_physics3_world_step(&w)==SAT_ERR_CAPACITY);
     CHECK(read(&w,mesh_id).mesh_orientation.w==SAT_FX16_ONE);
     CHECK(read(&w,ball_id).sphere.shape.center.y==FX(1));
     w.max_substeps=64;
     CHECK(sat_physics3_world_step(&w)==SAT_OK);
     CHECK(read(&w,mesh_id).mesh_orientation.z>FX(1)/5);
+}
+/* A paddle swinging 45 degrees in ONE tick sweeps ~3.5 units past a resting
+ * sphere of radius 0.5: far beyond two substeps. Without CCD the tick is
+ * rejected; with the rotational sweep it is accepted and the sphere ends on
+ * the leading side of the paddle, carried along, never tunnelled. */
+static void rotational_ccd_catches_fast_paddle(){
+    for(int ccd=0;ccd<2;++ccd){
+        sat_physics3_actor_t actors[2]{};
+        sat_physics3_world_t w{};
+        sat_contact3_t contacts[1]{};
+        static sat_vec3_t vertices[4]={
+            {0,0,-FX(1)},{FX(8),0,-FX(1)},{FX(8),0,FX(1)},{0,0,FX(1)}};
+        static uint16_t indices[4]={0,1,2,3};
+        static sat_mesh_t paddle{vertices,indices,4,4,1,1};
+        CHECK(sat_physics3_world_init(&w,actors,2,zero,2,2)==SAT_OK);
+        CHECK(sat_physics3_set_mesh_contacts(&w,contacts,1)==SAT_OK);
+        uint16_t mesh_id=0,ball_id=0;
+        CHECK(sat_physics3_add_kinematic_mesh(&w,&paddle,nullptr,&zero,&rough,&mesh_id)==SAT_OK);
+        // Midway (11.25 deg) between the two substep poses, 0.87 units from
+        // each: only the sweep, not a discrete contact, can catch it.
+        const sat_sphere_t sphere{{287310,57150,0},FX(1)/2};
+        CHECK(sat_physics3_add_sphere(&w,&sphere,&zero,&rough,&ball_id)==SAT_OK);
+        const sat_physics3_quat_t swing{0,0,25080,60547}; // +45 degrees about Z
+        CHECK(sat_physics3_set_kinematic_mesh_orientation_target(&w,mesh_id,&swing)==SAT_OK);
+        if(!ccd){
+            CHECK(sat_physics3_world_step(&w)==SAT_ERR_CAPACITY);
+            continue;
+        }
+        CHECK(sat_physics3_set_mesh_face_ccd(&w,1)==SAT_OK);
+        CHECK(sat_physics3_world_step(&w)==SAT_OK);
+        const sat_physics3_actor_t ball=read(&w,ball_id);
+        // Height above the paddle's final plane (rotate back by 45 degrees).
+        const int64_t c=46341,s=46341;
+        const int64_t local_y=(-(int64_t)ball.sphere.shape.center.x*s+
+                               (int64_t)ball.sphere.shape.center.y*c)>>16;
+        CHECK(local_y>=FX(1)/2-FX(1)/16);
+        CHECK(ball.sphere.flags!=0);
+        CHECK(ball.sphere.vel.y>0);  // pushed along by the paddle
+    }
 }
 /* Two spheres approach along x with no gravity; returns both actors after
  * `ticks`, plus the contacts counted. */
@@ -1114,6 +1154,7 @@ static void sphere_sphere_contacts(){
 int main(){
     sphere_sphere_contacts();
     one_way_platforms();
+    rotational_ccd_catches_fast_paddle();
     validation_and_capacity();
     floor_contact_and_bounce();
     mesh_aabb_caches_reference_bounds();
@@ -1138,6 +1179,6 @@ int main(){
     translating_mesh_validates_grid_and_target_bounds();
     tilted_kinematic_mesh_contact_and_grid_match();
     rotation_rejects_unsafe_budget_and_invalid_targets();
-    std::puts("test_physics3_world: 25 tests passed");
+    std::puts("test_physics3_world: 26 tests passed");
     return 0;
 }

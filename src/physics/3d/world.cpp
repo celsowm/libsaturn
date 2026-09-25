@@ -256,6 +256,100 @@ V at(V begin,V end,uint16_t step,uint16_t total){
             (F)((int64_t)begin.y+((int64_t)end.y-begin.y)*step/total),
             (F)((int64_t)begin.z+((int64_t)end.z-begin.z)*step/total)};
 }
+int64_t l1(V v){return ab(v.x)+ab(v.y)+ab(v.z);}
+/* Rotational CCD for one substep of a rotating kinematic mesh. In the mesh's
+ * reference frame the sphere centre follows a curve. The substep is split
+ * into k pieces; each piece sweeps the straight chord between its local end
+ * points with the radius grown by a bound on how far the curve can leave the
+ * chord: lever*theta^2/8 for the rotation plus |chord|*theta/2 for rotation
+ * during the sphere's own motion, per piece. theta <= pi*|dq| bounds the
+ * piece's rotation angle. Both terms shrink with 1/k^2, and k (<= 16) keeps
+ * the growth under a quarter of the radius, so the grown sphere does not
+ * start inside a face it is still clear of. A hit may come early, never
+ * late. It is returned in world space at the piece's end pose, with the
+ * contact point's motion over the whole tick (as discrete rotating-mesh
+ * contacts use) and t measured over the whole substep. */
+sat_result_t swept_rotating_mesh(const sat_physics3_actor_t& mesh,
+    uint16_t step,uint16_t steps,const sat_sphere_t& sphere,V delta,
+    sat_sphere_mesh_hit_t* out,V* out_motion,uint8_t* found){
+    *found=0u;
+    const V tick_start=sub(mesh.target_center,mesh.frame_motion);
+    const V start_offset=at(tick_start,mesh.target_center,(uint16_t)(step-1u),steps);
+    const V end_offset=mesh.mesh_offset;
+    sat_physics3_quat_t start_q{};
+    if(!q_lerp(mesh.mesh_tick_start_orientation,mesh.mesh_target_orientation,
+               (uint16_t)(step-1u),steps,start_q))return SAT_ERR_INVALID_ARG;
+    const sat_physics3_quat_t end_q=mesh.mesh_orientation;
+    const V end_world=add(sphere.center,delta);
+    if(!add_fits(sphere.center,delta))return SAT_ERR_INVALID_ARG;
+    /* Local position of the sphere centre at piece boundary i of k. */
+    const auto local_at=[&](uint16_t i,uint16_t k,V& local)->bool{
+        sat_physics3_quat_t q{};
+        if(!q_lerp(start_q,end_q,i,k,q))return false;
+        const V offset=at(start_offset,end_offset,i,k);
+        const V center=at(sphere.center,end_world,i,k);
+        if(!fits((int64_t)center.x-offset.x)||!fits((int64_t)center.y-offset.y)||
+           !fits((int64_t)center.z-offset.z))return false;
+        return q_rotate(q_inverse(q),sub(center,offset),local);
+    };
+    V first_local{},last_local{};
+    if(!local_at(0u,1u,first_local)||!local_at(1u,1u,last_local))
+        return SAT_ERR_INVALID_ARG;
+    const int64_t dqx=(int64_t)end_q.x-start_q.x,dqy=(int64_t)end_q.y-start_q.y;
+    const int64_t dqz=(int64_t)end_q.z-start_q.z,dqw=(int64_t)end_q.w-start_q.w;
+    const int64_t dq=(int64_t)saturn::core::math3d::isqrt64(
+        (uint64_t)(dqx*dqx)+(uint64_t)(dqy*dqy)+(uint64_t)(dqz*dqz)+(uint64_t)(dqw*dqw));
+    const int64_t theta=(dq*205887)>>16;  // pi*|dq|, fx16
+    const int64_t lever=mx(l1(first_local),l1(last_local));
+    const int64_t chord=l1(sub(last_local,first_local));
+    const int64_t growth=((((lever*theta)>>16)*theta)>>16)/8+((chord*theta)>>16)/2;
+    uint16_t k=1u;
+    while(k<16u && growth>(int64_t)(sphere.radius/4)*k*k)++k;
+    const int64_t margin=growth/((int64_t)k*k)+1;
+    if(!fits((int64_t)sphere.radius+margin))return SAT_ERR_INVALID_ARG;
+    V from=first_local;
+    for(uint16_t i=0u;i<k;++i){
+        V to{};
+        if(!local_at((uint16_t)(i+1u),k,to))return SAT_ERR_INVALID_ARG;
+        const V piece=sub(to,from);
+        const sat_sphere_t swept{from,(F)(sphere.radius+margin)};
+        if(saturn::core::physics3::broadphase::swept_overlaps(
+               swept.center,piece,swept.radius,mesh.mesh_bounds_min,mesh.mesh_bounds_max)){
+            sat_sphere_mesh_hit_t hit{};
+            uint8_t has_hit=0u;
+            const sat_result_t status=sat_sphere_cast_mesh(
+                mesh.mesh,&swept,&piece,&hit,&has_hit);
+            if(status!=SAT_OK)return status;
+            if(has_hit){
+                sat_physics3_quat_t q{};
+                if(!q_lerp(start_q,end_q,(uint16_t)(i+1u),k,q))return SAT_ERR_INVALID_ARG;
+                const V offset=at(start_offset,end_offset,(uint16_t)(i+1u),k);
+                V point{},normal{},before_p{},after_p{};
+                if(!q_rotate(q,hit.point,point)||!q_rotate(q,hit.normal,normal)||
+                   !q_rotate(mesh.mesh_tick_start_orientation,hit.point,before_p)||
+                   !q_rotate(mesh.mesh_target_orientation,hit.point,after_p)||
+                   !add_fits(point,offset)||!add_fits(before_p,tick_start)||
+                   !add_fits(after_p,mesh.target_center))
+                    return SAT_ERR_INVALID_ARG;
+                const V before=add(before_p,tick_start);
+                const V after=add(after_p,mesh.target_center);
+                if(!fits((int64_t)after.x-before.x)||!fits((int64_t)after.y-before.y)||
+                   !fits((int64_t)after.z-before.z))
+                    return SAT_ERR_INVALID_ARG;
+                hit.t=(F)(((int64_t)i*SAT_FX16_ONE+hit.t)/k);
+                hit.point=add(point,offset);
+                hit.normal=normal;
+                hit.center=add(hit.point,scale(normal,sphere.radius));
+                *out=hit;
+                *out_motion=sub(after,before);
+                *found=1u;
+                return SAT_OK;
+            }
+        }
+        from=to;
+    }
+    return SAT_OK;
+}
 void resolve(sat_physics3_actor_t& ball,const sat_physics3_actor_t& box,
              const sat_contact3_t& c,const V* surface_motion=nullptr) {
     ball.sphere.shape.center=add(ball.sphere.shape.center,scale(c.normal,c.depth));
@@ -736,9 +830,10 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                 const bool rotated=!q_equal(a.mesh_orientation,q_identity())||
                     !q_equal(a.mesh_target_orientation,q_identity());
                 if(rotated){
-                    /* Rotational CCD is not implemented: NEVER silently
-                     * accept high-speed motion under the translational guard. */
-                    needs_discrete_budget=true;
+                    /* Without mesh CCD, NEVER silently accept high-speed
+                     * rotation under the translational guard; with it, the
+                     * rotational sweep covers what the substeps skip. */
+                    if(!w->mesh_face_ccd)needs_discrete_budget=true;
                     if(!mesh_local_radius_bounded(a.mesh_bounds_min,
                                                    a.mesh_bounds_max))
                         return SAT_ERR_CAPACITY;
@@ -859,6 +954,8 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
             if(w->mesh_face_ccd||w->kinematic_box_ccd){
                 sat_sphere_mesh_hit_t earliest{};
                 uint16_t hit_actor=0xffffu;
+                V earliest_motion{};
+                bool earliest_has_motion=false;
                 const uint16_t spatial_count=w->spatial_nodes
                     ? saturn::core::physics3::spatial::query(
                         *w,ball.sphere.shape.center,d,ball.sphere.shape.radius)
@@ -873,6 +970,8 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                     sat_sphere_mesh_hit_t candidate{};
                     uint8_t found=0;
                     sat_result_t status=SAT_OK;
+                    V candidate_motion{};
+                    bool candidate_has_motion=false;
                     if(w->mesh_face_ccd &&
                        collider.kind==SAT_PHYSICS3_STATIC_MESH){
                         if(!saturn::core::physics3::broadphase::swept_overlaps(
@@ -896,6 +995,11 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                         status=swept_kinematic_mesh(
                             collider,start_offset,collider.mesh_offset,
                             ball.sphere.shape,d,&candidate,&found);
+                    }else if(w->mesh_face_ccd &&
+                             collider.kind==SAT_PHYSICS3_KINEMATIC_MESH){
+                        status=swept_rotating_mesh(collider,step,steps,
+                            ball.sphere.shape,d,&candidate,&candidate_motion,&found);
+                        candidate_has_motion=true;
                     }else if(w->kinematic_box_ccd &&
                              collider.kind==SAT_PHYSICS3_KINEMATIC_BOX){
                         const V tick_start=sub(
@@ -914,6 +1018,8 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                                  candidate.t<earliest.t)){
                         earliest=candidate;
                         hit_actor=j;
+                        earliest_motion=candidate_motion;
+                        earliest_has_motion=candidate_has_motion;
                     }
                 }
                 if(hit_actor!=0xffffu){
@@ -924,7 +1030,8 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                         earliest.point,
                         scale(earliest.normal,ball.sphere.shape.radius));
                     const sat_contact3_t impact{earliest.normal,0};
-                    resolve(ball,w->actors[hit_actor],impact);
+                    resolve(ball,w->actors[hit_actor],impact,
+                            earliest_has_motion?&earliest_motion:nullptr);
                     const F remaining=(F)((SAT_FX16_ONE-earliest.t)/steps);
                     ball.sphere.shape.center=add(
                         ball.sphere.shape.center,

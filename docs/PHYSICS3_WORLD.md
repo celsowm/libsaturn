@@ -201,7 +201,12 @@ planes still require the original discrete substep budget; disabling both
 sweep options preserves the previous step-capacity behavior. A mixed world
 may enable both options independently. The kinematic geometry is assumed
 to translate **linearly** between successive targets. Rotating boxes,
-rotating or deforming meshes and sphere/sphere CCD are not covered.
+deforming meshes and sphere/sphere CCD are not covered. Rotating kinematic
+meshes are swept in their reference frame: each substep is split into up to
+16 pieces whose chords, with the sphere grown by a bound on the curve's
+deviation (under a quarter of its radius), are cast against the mesh. The hit
+may come slightly early, never late, and fast rotation is accepted with a
+capped substep count instead of rejected with SAT_ERR_CAPACITY.
 Translation-only kinematic quad meshes can instead use the mesh sweep option.
 
 The current finite-box query tests six faces per sphere/box/substep, so

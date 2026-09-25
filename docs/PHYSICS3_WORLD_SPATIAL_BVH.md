@@ -25,7 +25,8 @@ Static boxes and meshes use world bounds. Moving boxes use the union of the
 current and full-tick target AABB. Translating meshes use their registered
 reference bounds at both offsets. Rotating meshes use a conservative L1
 local radius around the mesh origin over the entire translation interval,
-including all intermediate orientations; rotational *CCD* remains unsupported.
+including all intermediate orientations; with mesh-face CCD on, rotating
+meshes are also swept rotationally (see `PHYSICS3_WORLD.md`).
 Infinite planes are never indexed: they form a small, source-ordered fallback.
 Dynamic spheres are query bodies, not collider candidates; opt-in
 sphere/sphere contacts use their own sweep-and-prune order instead
