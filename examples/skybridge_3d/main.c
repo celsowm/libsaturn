@@ -1176,7 +1176,7 @@ static void finish_gem_geometry(void) {
         const uint16_t release_start=sb_test_frt_counter();
 #endif
         const sat_result_t released=sat_scene_prepare_batch_release(
-            &g_gem_slave_batch,g_gem_slave_handle);
+            &g_scene,&g_gem_slave_batch,g_gem_slave_handle);
 #if SAT_SKYBRIDGE_VALIDATION
         g_metrics.task_release_frt_ticks+=(uint16_t)(
             sb_test_frt_counter()-release_start);

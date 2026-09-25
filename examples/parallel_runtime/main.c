@@ -606,7 +606,7 @@ static void cycle_backend(void) {
         }
         if (sat_parallel_state(g_geometry_handle) != SAT_PARALLEL_RUNNING) {
             if (sat_scene_prepare_batch_release(
-                    &g_geometry_batch, g_geometry_handle) != SAT_OK) ++g_errors;
+                    NULL, &g_geometry_batch, g_geometry_handle) != SAT_OK) ++g_errors;
             g_geometry_handle_valid = 0u;
         } else safe_to_switch = 0u;
     }
@@ -829,7 +829,7 @@ int main(void) {
                 timing_start = prt_frt_counter();
 #endif
                 if (sat_scene_prepare_batch_release(
-                        &g_geometry_batch, g_geometry_handle) != SAT_OK) ++g_errors;
+                        &g_scene, &g_geometry_batch, g_geometry_handle) != SAT_OK) ++g_errors;
 #if SAT_PARALLEL_RUNTIME_VALIDATION
                 g_prt_async_release_ticks = prt_frt_delta(timing_start);
 #endif

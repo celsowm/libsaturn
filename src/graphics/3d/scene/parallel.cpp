@@ -237,16 +237,17 @@ extern "C" sat_result_t sat_scene_merge_prepared_batch(
 }
 
 extern "C" sat_result_t sat_scene_prepare_batch_release(
-    sat_scene3d_prepare_batch_t* batch, sat_parallel_handle_t handle) {
-    if (batch == nullptr || batch->pending == 0u || batch->handle != handle) {
-        return SAT_ERR_INVALID_ARG;
+    sat_scene_t* scene, sat_scene3d_prepare_batch_t* batch,
+    sat_parallel_handle_t handle) {
+    sat_result_t released = SAT_ERR_INVALID_ARG;
+    if (batch != nullptr && batch->pending != 0u && batch->handle == handle) {
+        released = sat_parallel_release(handle);
+        if (released == SAT_OK) {
+            batch->pending = 0u;
+            batch->handle = 0u;
+        }
     }
-    const sat_result_t released = sat_parallel_release(handle);
-    if (released == SAT_OK) {
-        batch->pending = 0u;
-        batch->handle = 0u;
-    }
-    return released;
+    return record_frame_result(scene, released);
 }
 
 #if SAT_PROFILE_METRICS

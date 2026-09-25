@@ -296,7 +296,7 @@ static void submit_model(void) {
             note(sat_scene_merge_prepared_batch(&g_scene, &g_slave_batch, g_slave_handle));
             slave_done = 1;
         }
-        (void)sat_scene_prepare_batch_release(&g_slave_batch, g_slave_handle);
+        (void)sat_scene_prepare_batch_release(&g_scene, &g_slave_batch, g_slave_handle);
     }
     if (!slave_done) {
         note(sat_scene_submit_instance(&g_scene, &g_half[1],

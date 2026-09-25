@@ -89,7 +89,7 @@ sat_scene_prepare_batch_async(&scene, &batch, &handle);
 /* Independent Master work. */
 sat_parallel_wait(handle, timeout);
 sat_scene_merge_prepared_batch(&scene, &batch, handle);
-sat_scene_prepare_batch_release(&batch, handle);
+sat_scene_prepare_batch_release(&scene, &batch, handle);
 ```
 
 ## AUTO policy and validation

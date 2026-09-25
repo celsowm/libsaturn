@@ -110,8 +110,15 @@ int main() {
     assert(sat_scene_merge_prepared_batch(&scene,&batch,handle)==SAT_OK);
     assert(scene.faces.count==1u && scene.submitted_faces==1u);
     assert(scene.first_error==SAT_OK);
-    assert(sat_scene_prepare_batch_release(&batch,handle)==SAT_OK);
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
     assert(batch.pending==0u);
+    // A failed release lands in the frame like any other error; NULL scene
+    // (teardown) only returns it.
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_ERR_INVALID_ARG);
+    assert(scene.first_error==SAT_ERR_INVALID_ARG);
+    scene.first_error=SAT_OK;
+    assert(sat_scene_prepare_batch_release(nullptr,&batch,handle)==SAT_ERR_INVALID_ARG);
+    assert(scene.first_error==SAT_OK);
     assert(sat_scene_merge_prepared_batch(&scene,&batch,handle)==SAT_ERR_INVALID_ARG);
     assert(scene.first_error==SAT_ERR_INVALID_ARG);
 
@@ -124,17 +131,17 @@ int main() {
     assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
     assert(master_submit_count==first_master+1u &&
            submit_count==first_submit+1u);
-    assert(sat_scene_prepare_batch_release(&batch,handle)==SAT_OK);
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
     batch.dispatch=SAT_SCENE3D_PREPARE_DISPATCH_RUNTIME;
     assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
     assert(master_submit_count==first_master+1u &&
            submit_count==first_submit+2u);
-    assert(sat_scene_prepare_batch_release(&batch,handle)==SAT_OK);
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
     batch.dispatch=SAT_SCENE3D_PREPARE_DISPATCH_MASTER;
     assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
     assert(master_submit_count==first_master+2u &&
            submit_count==first_submit+3u);
-    assert(sat_scene_prepare_batch_release(&batch,handle)==SAT_OK);
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
     batch.dispatch=static_cast<sat_scene3d_prepare_dispatch_t>(99);
     assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_ERR_INVALID_ARG);
     assert(scene.first_error==SAT_ERR_INVALID_ARG &&
