@@ -20,16 +20,30 @@ int main() {
     params.blend_mode = SAT_BLEND_ALPHA;
     params.tint.a = 128u;
     OK(validate_render2d_params(&params) == SAT_OK);
+    /* ADD takes any alpha (it scales the added colour); SUBTRACT, the
+     * VDP1 shadow, only 0 or 255 and no RGB tint; NONE only full alpha. */
     params.blend_mode = SAT_BLEND_ADD;
+    OK(validate_render2d_params(&params) == SAT_OK);
+    params.blend_mode = SAT_BLEND_SUBTRACT;
     OK(validate_render2d_params(&params) == SAT_ERR_UNSUPPORTED);
+    params.tint.a = 255u;
+    OK(validate_render2d_params(&params) == SAT_OK);
+    params.tint.g = 0u;
+    OK(validate_render2d_params(&params) == SAT_ERR_UNSUPPORTED);
+    params = sat_draw_params_default();
+    params.tint.a = 128u;
+    OK(validate_render2d_params(&params) == SAT_ERR_UNSUPPORTED);
+    params.blend_mode = 4u;
+    OK(validate_render2d_params(&params) == SAT_ERR_INVALID_ARG);
     params = sat_draw_params_default();
     params.flags = SAT_SPRITE_FLAG_MESH;
     OK(validate_render2d_params(&params) == SAT_OK);
     params.flags = 0x8000u;
     OK(validate_render2d_params(&params) == SAT_ERR_INVALID_ARG);
     params = sat_draw_params_default();
+    /* RGB tint draws through a palette variant bank. */
     params.tint.r = 254u;
-    OK(validate_render2d_params(&params) == SAT_ERR_UNSUPPORTED);
+    OK(validate_render2d_params(&params) == SAT_OK);
 
     uint16_t direct = 0u;
     OK(render2d_color_to_direct_rgb555(sat_color_rgba(255u, 0u, 0u, 255u), &direct) == SAT_OK);

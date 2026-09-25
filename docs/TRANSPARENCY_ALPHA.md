@@ -1,11 +1,20 @@
 # Transparency and alpha blending on Saturn
 
-Status: VDP1 native effects, discrete 2D shape alpha and VDP2 indexed-sprite
-alpha via eight shared hardware ratio slots are implemented. Automatic
-per-pixel RGBA asset conversion is not implemented; do not infer shader
-semantics from the presence of `SAT_BLEND_ALPHA` in an enum.
+Status: VDP1 native effects, discrete 2D shape alpha, VDP2 indexed-sprite
+alpha via eight shared hardware ratio slots, additive sprites (VDP2 add
+mode), the VDP1 shadow as SUBTRACT, the VDP2 colour offset and per-sprite RGB
+tint are implemented. Automatic per-pixel RGBA asset conversion is not
+implemented; do not infer shader semantics from the `SAT_BLEND_*` names.
 
-## Four distinct mechanisms
+| `sat_draw_texture` | Saturn mechanism | Mixes with |
+|---|---|---|
+| `SAT_BLEND_ALPHA` | VDP2 colour calculation, ratio mode | the VDP2 layer below |
+| `SAT_BLEND_ADD` | VDP2 colour calculation, add mode (CCCTL CCMD) | the VDP2 layer below |
+| `SAT_BLEND_SUBTRACT` | VDP1 shadow (CMDPMOD 001B) | RGB VDP1 pixels already drawn |
+| `tint.rgb` | palette variant bank (palette x tint) | nothing: the sprite's own colours |
+| layer-wide darken/tint/fade | VDP2 colour offset (`vdp2_color_offset.h`) | a whole layer, or all sprites |
+
+## Distinct mechanisms
 
 1. **Color key**: for indexed8 sprites, pixel index 0 can remain transparent,
    unless `SAT_SPRITE_FLAG_OPAQUE` turns on SPD. Importers reserve index 0
@@ -28,6 +37,25 @@ semantics from the presence of `SAT_BLEND_ALPHA` in an enum.
    5-bit color-ratio registers. This is the mechanism used by
    `distance_fade_3d`. It does not alpha-blend two arbitrary overlapping
    VDP1 primitives.
+5. **VDP2 add mode**: CCCTL CCMD=1 makes the same colour-calculated sprites
+   add to the image below as they are, saturating per channel; the ratio
+   registers are ignored. CCMD is one bit for the whole screen, so ratio
+   (alpha, fades) and add cannot share a frame: every draw that selects a
+   colour-calc slot claims its mode (`sat_vdp2_sprite_color_calc_claim_mode`)
+   and the other mode gets `SAT_ERR_BUSY` until the next `sat_begin_frame`.
+6. **VDP1 shadow**: CMDPMOD colour calculation 001B. The sprite draws
+   nothing; each framebuffer pixel under its opaque texels is halved -- only
+   RGB (MSB 1) pixels. Palette pixels and the VDP2 layers behind are left
+   alone. This is `SAT_BLEND_SUBTRACT`: a real dst - src does not exist.
+7. **VDP2 colour offset**: a signed -256..255 per channel added to whole
+   layers (or the whole sprite layer) after colour calculation, clamped. The
+   layer-wide subtract, fade and tint (`sat_vdp2_color_offset_set/_enable`).
+8. **Palette variant tint**: Gouraud and every other per-pixel VDP1 colour
+   operation need RGB pixels, and textures are INDEX8. `tint.rgb` therefore
+   draws the sprite through a variant CRAM bank holding its palette times
+   the tint -- exact per palette entry. At most four variants, each taking
+   one of the eight CRAM banks; one unused for two frames is recycled (CRAM
+   is read at display time), else a new tint returns `SAT_ERR_CAPACITY`.
 
 ## Shape alpha API
 
@@ -64,8 +92,16 @@ rewriting global state per sprite; it can coexist with the 3D distance-fade
 table **if** that table offers a ratio near the requested alpha. The table
 has only eight shared entries, so configuring it for 2D alpha may change
 the appearance of preexisting distance-fade sprites. No configuration yields
-SAT_ERR_NOT_INITIALIZED and missing ratios yield SAT_ERR_UNSUPPORTED.
+SAT_ERR_NOT_INITIALIZED. The request snaps to the nearest configured ratio:
+`sat_vdp2_sprite_color_calc_alpha_slot(alpha, &slot, &actual)` reports the
+alpha really shown, `(31 - ratio) * 8` (128 gives 120 on the preset). With
+`sat_vdp2_sprite_color_calc_set_strict_alpha(1)` a ratio more than 2 units
+off returns SAT_ERR_UNSUPPORTED instead.
 Alpha 0 skips and 255 draws normally, independent of VDP2 config.
+
+Configuring colour calculation keeps SPCTL's SPCLMD bit (palette and RGB
+sprite data mixed). Before 2026-09-25 it cleared it, and every RGB VDP1
+pixel vanished while colour calculation was configured.
 
 VDP2 color calculation cannot blend one VDP1 sprite over another sprite
 already in the same VDP1 framebuffer. This path is for the lower-priority
