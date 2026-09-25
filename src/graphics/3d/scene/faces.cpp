@@ -47,12 +47,12 @@ bool safe_projection(const sat_scene3d_faces_t& scene,
     return true;
 }
 
-/* One unsigned painter key: pass ascending in the high bits, then camera
- * depth far-to-near in the low bits, which is exactly the order
+/* One unsigned painter key: pass ascending in the high 8 bits, then camera
+ * depth far-to-near in the low 24, which is exactly the order
  * paint_order_grouped_buckets emits. Depth keeps 1/4096 of a world unit --
  * finer than the buckets resolve -- and stays clear of kPaintSkip; faces
- * beyond 256 world units saturate and keep submission order. */
-constexpr uint32_t kFaceDepthBits=20u;
+ * beyond 4096 world units saturate and keep submission order. */
+constexpr uint32_t kFaceDepthBits=24u;
 constexpr uint32_t kFaceDepthMax=(1u<<kFaceDepthBits)-2u;
 constexpr uint32_t kFacePassMax=SAT_SCENE3D_PASS_MAX;
 

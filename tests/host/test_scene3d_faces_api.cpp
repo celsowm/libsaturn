@@ -562,6 +562,21 @@ int main() {
     assert(emitted[4]==101u); // depth 2, nearest of pass 0
     assert(emitted[5]==105u); // pass 1 paints last despite being farthest
 
+    // Far faces still order by depth: 300 and 1000 units apart once tied
+    // (the key saturated at 256 units), leaving submission order.
+    emitted_count=0;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    const int32_t far_depth[2]={300,1000};
+    for (uint16_t i=0;i<2u;++i) {
+        const sat_quad3_t q=quad(far_depth[i]);
+        assert(sat_scene3d_faces_submit_quad(
+            &scene,&q,&order_mat[i],0u)==SAT_OK);
+    }
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==2u);
+    assert(emitted[0]==101u && emitted[1]==100u); // 1000 units paints first
+
     // Batch preparation uses the same instance algorithm and can be merged
     // into the canonical queue without sorting or emitting independently.
     sat_scene3d_face_t prepared_faces[8]={};

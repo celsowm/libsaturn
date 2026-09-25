@@ -35,8 +35,10 @@ typedef struct sat_scene3d_material {
     const uint16_t* vertex_gouraud;
 } sat_scene3d_material_t;
 
-/* 12-bit artistic pass in the painter key. Values beyond this fail atomically. */
-#define SAT_SCENE3D_PASS_MAX 4095u
+/* 8-bit artistic pass in the painter key, leaving 24 bits of depth (faces
+ * order by depth out to 4096 world units). Values beyond this fail
+ * atomically. */
+#define SAT_SCENE3D_PASS_MAX 255u
 
 /* Paint order is NOT a field here: it lives in the scene's parallel key
  * array, so ordering a frame moves two-byte indices instead of these
