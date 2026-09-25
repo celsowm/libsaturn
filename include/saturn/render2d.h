@@ -125,8 +125,14 @@ sat_result_t sat_draw_line(sat_point_t start, sat_point_t end, sat_color_t color
  * is one bit for the whole screen: in a frame that already drew an
  * intermediate-alpha sprite or a colour-calc fade, ADD returns SAT_ERR_BUSY,
  * and the reverse (see sat_vdp2_sprite_color_calc_claim_mode).
+ * SAT_BLEND_SUBTRACT is the VDP1 shadow: the sprite draws nothing itself,
+ * and every RGB pixel already in the framebuffer under one of its opaque
+ * texels loses half its brightness (dst - dst/2). Palette pixels and the
+ * VDP2 layers behind are untouched; darken a whole layer (or all sprites)
+ * with sat_vdp2_color_offset_set instead. tint.a is 0 (skip) or 255.
+ * A true dst - src subtraction is not a Saturn operation.
  * SAT_SPRITE_FLAG_MESH is also supported (checkerboard, not color blending).
- * SUBTRACT and non-neutral RGB tint remain unsupported. */
+ * Non-neutral RGB tint remains unsupported. */
 sat_result_t sat_draw_texture(
     sat_texture_t texture,
     const sat_rect_t* src,

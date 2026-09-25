@@ -203,7 +203,24 @@ TEST(sprite_pmod_base_matches_normal_sprite) {
 TEST(sprite_pmod_opaque_flag) {
     using namespace saturn::core;
     ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_OPAQUE), 0x00E0);
-    ASSERT_EQ(compose_sprite_pmod(0xFFFEu), 0x01A0);
+    /* Every flag but OPAQUE: mesh (bit 8) and shadow (colour calc 001B). */
+    ASSERT_EQ(compose_sprite_pmod(0xFFFEu), 0x01A1);
+}
+
+TEST(sprite_pmod_shadow_flag) {
+    using namespace saturn::core;
+    ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_SHADOW), 0x00A1);
+    /* The HAL must accept it on a palette sprite (only its shape is used),
+     * alone or with mesh, but not with the RGB-only half modes. */
+    ASSERT_EQ(validate_indexed8_sprite_effects(SAT_SPRITE_FLAG_SHADOW), SAT_OK);
+    ASSERT_EQ(validate_indexed8_sprite_effects(
+        SAT_SPRITE_FLAG_SHADOW | SAT_SPRITE_FLAG_MESH), SAT_OK);
+    ASSERT_EQ(validate_indexed8_sprite_effects(
+        SAT_SPRITE_FLAG_SHADOW | SAT_SPRITE_FLAG_HALF_LUMINANCE), SAT_ERR_UNSUPPORTED);
+    /* Polygons keep refusing it: not offered there. */
+    ASSERT_EQ(validate_polygon_effects(0x8000u, SAT_SPRITE_FLAG_SHADOW), SAT_ERR_INVALID_ARG);
+    /* The half-transparency flags stay polygon-only: sprites ignore them. */
+    ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_HALF_TRANSPARENT), 0x00A0);
 }
 
 TEST(sprite_lut4_selects_lookup_table_mode) {

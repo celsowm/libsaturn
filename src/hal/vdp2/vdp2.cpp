@@ -77,6 +77,8 @@ uint16_t g_last_prisa_written = 0x0606u;
 /* CCCTL carries the screen-global CCMD bit (ratio vs add), which a frame's
  * draws claim; replayed with PRISA so a layers commit never loses it. */
 uint16_t g_last_ccctl_written = 0x0000u;
+/* Colour offset: CLOFEN, CLOFSL, then COAR/G/B and COBR/G/B. */
+uint16_t g_last_color_offset_written[8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
 bool g_nbg0_configured = false;
 /* Hi-res (640/704 wide) state: the VDP1 framebuffer is 8 bits/pixel, which
  * VDP2 must read as sprite type C, and its codes index one 256-colour CRAM
@@ -336,6 +338,7 @@ inline void write_fx16_pair(volatile uint16_t* vram, uint32_t word_offset, doubl
 void reset_color_ops() {
     CCCTL = 0x0000u;   /* no colour calculation on any layer */
     g_last_ccctl_written = 0x0000u;
+    for (uint16_t& word : g_last_color_offset_written) word = 0u;
     SFCCMD = 0x0000u;  /* no special colour calculation modes */
     CLOFEN = 0x0000u;  /* colour offset disabled for every layer */
     CLOFSL = 0x0000u;  /* ... and both offset registers select A */
@@ -900,6 +903,14 @@ void commit_layers() {
      * VDP2 layers, so it is replayed whether or not NBG0 is in use. */
     PRISA = g_last_prisa_written;
     CCCTL = g_last_ccctl_written;
+    CLOFEN = g_last_color_offset_written[0];
+    CLOFSL = g_last_color_offset_written[1];
+    COAR = g_last_color_offset_written[2];
+    COAG = g_last_color_offset_written[3];
+    COAB = g_last_color_offset_written[4];
+    COBR = g_last_color_offset_written[5];
+    COBG = g_last_color_offset_written[6];
+    COBB = g_last_color_offset_written[7];
     if (g_hires) {
         SPCTL = sprite_type_bits();
         CRAOFB = g_sprite_craofb;
@@ -950,6 +961,29 @@ void set_sprite_priority(uint8_t priority) {
 void set_color_calc_control(uint16_t ccctl) {
     g_last_ccctl_written = ccctl;
     CCCTL = ccctl;
+}
+
+void set_color_offset(uint8_t bank, uint16_t r, uint16_t g, uint16_t b) {
+    uint16_t* words = &g_last_color_offset_written[bank == 0u ? 2u : 5u];
+    words[0] = r;
+    words[1] = g;
+    words[2] = b;
+    if (bank == 0u) {
+        COAR = r;
+        COAG = g;
+        COAB = b;
+    } else {
+        COBR = r;
+        COBG = g;
+        COBB = b;
+    }
+}
+
+void set_color_offset_layers(uint16_t clofen, uint16_t clofsl) {
+    g_last_color_offset_written[0] = clofen;
+    g_last_color_offset_written[1] = clofsl;
+    CLOFEN = clofen;
+    CLOFSL = clofsl;
 }
 
 void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority) {

@@ -271,6 +271,7 @@ extern "C" sat_result_t sat_draw_texture(
 
     const sat_draw_params_t effective = params != nullptr ? *params : sat_draw_params_default();
     uint16_t palette = native->palette;
+    uint16_t flags = effective.flags;
     if (effective.blend_mode == SAT_BLEND_ALPHA) {
         if (effective.tint.a == 0u) return SAT_OK;
         if (effective.tint.a != 255u) {
@@ -285,6 +286,11 @@ extern "C" sat_result_t sat_draw_texture(
          * colour-calculated priority; slot 0 it is. */
         SAT_TRY(sat_vdp2_sprite_color_calc_claim_mode(SAT_VDP2_COLOR_CALC_ADD));
         SAT_TRY(vdp1_color_calc::encode_palette_selector(native->palette, 0u, &palette));
+    } else if (effective.blend_mode == SAT_BLEND_SUBTRACT) {
+        if (effective.tint.a == 0u) return SAT_OK;
+        /* VDP1 shadow: the sprite's opaque texels halve the RGB pixels
+         * already drawn under them. */
+        flags = static_cast<uint16_t>(flags | SAT_SPRITE_FLAG_SHADOW);
     }
     const sat_camera2d_t& camera = g_render2d_runtime.current.camera;
     if (effective.rotation != 0 || effective.flip != SAT_FLIP_NONE ||
@@ -313,7 +319,7 @@ extern "C" sat_result_t sat_draw_texture(
         request.height = native->height;
         request.srca = native->srca;
         request.palette = palette;
-        request.flags = effective.flags;
+        request.flags = flags;
         request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
         return saturn::hal::vdp1::push_distorted_sprite(request);
     }
@@ -336,7 +342,7 @@ extern "C" sat_result_t sat_draw_texture(
         request.height = native->height;
         request.srca = native->srca;
         request.palette = palette;
-        request.flags = effective.flags;
+        request.flags = flags;
         request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
         return saturn::hal::vdp1::push_sprite(request);
     }
@@ -350,7 +356,7 @@ extern "C" sat_result_t sat_draw_texture(
     request.height = native->height;
     request.srca = native->srca;
     request.palette = palette;
-    request.flags = effective.flags;
+    request.flags = flags;
     request.user_clip = g_render2d_runtime.current.clip_enabled != 0u;
     return saturn::hal::vdp1::push_scaled_sprite(request);
 }

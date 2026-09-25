@@ -14,13 +14,21 @@ source-only brightness changes. The VDP1 erase is transparent, allowing the
 VDP2 background to show. The middle sample must reveal NBG0 colors through
 the sprite, whereas the left sample only blends two VDP1 RGB primitives.
 
-A cycles sprite alpha 64/128/192. B switches to the second page, which
-shows the other blend modes:
+A cycles sprite alpha 64/128/192. B steps through two more pages. The
+second shows the other blend modes:
 
 - Middle: the same sprite with `SAT_BLEND_ADD` -- sprite + NBG0 per channel,
   saturating (VDP2 colour-calculation add mode, CCCTL CCMD). Add and ratio
   alpha cannot share a frame: the mode is one bit for the whole screen, and
   the second of the two in one frame returns `SAT_ERR_BUSY`.
+- Lower left: the sprite with `SAT_BLEND_SUBTRACT` -- the VDP1 shadow. It
+  draws nothing itself; the RGB rectangle under its opaque texels drops to
+  half brightness, while the part over bare NBG0 is untouched (shadow only
+  darkens RGB framebuffer pixels).
+
+The third page applies VDP2 colour offset A = -64 to NBG0 alone
+(`sat_vdp2_color_offset_set` / `_enable`): every background pixel loses 64
+per channel, clamped at 0, while the VDP1 rectangles keep their colour.
 
 START exits.
 

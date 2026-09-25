@@ -1,8 +1,9 @@
 /* Native Saturn transparency comparison: VDP1 RGB blend, VDP2 sprite
  * color calculation, and VDP1 checkerboard mesh. No external assets.
- * START exits; A cycles the VDP2 sprite alpha preset samples; B switches to
- * the second page (additive blend, which cannot share a frame with ratio
- * alpha: the VDP2 add/ratio mode is one bit for the whole screen). */
+ * START exits; A cycles the VDP2 sprite alpha preset samples; B steps
+ * through the pages: ratio alpha, then ADD/SUBTRACT (additive cannot share
+ * a frame with ratio alpha: the VDP2 add/ratio mode is one bit for the whole
+ * screen), then the layer-wide VDP2 colour offset. */
 #include <stdint.h>
 
 #include "saturn/app.h"
@@ -15,6 +16,7 @@
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
 #include "saturn/vdp2_color_calc.h"
+#include "saturn/vdp2_color_offset.h"
 #include "saturn/video.h"
 
 #define BG_W 64u
@@ -101,6 +103,9 @@ int main(void) {
     const sat_rect_t rgb_half = {36, 96, 64u, 56u};
     const sat_rect_t middle = {120, 80, 72u, 72u};
     const sat_rect_t right = {220, 80, 72u, 72u};
+    /* Half over the RGB base rectangle, half over bare NBG0. */
+    const sat_rect_t shadow = {64, 116, 64u, 64u};
+    const sat_vdp2_color_offset_t darken = {-64, -64, -64};
     const uint8_t alpha_samples[3] = {64u, 128u, 192u};
     uint8_t alpha_index = 1u;
     uint8_t page = 0u;
@@ -113,7 +118,17 @@ int main(void) {
         if ((pad.pressed & SAT_PAD_A) != 0u) {
             alpha_index = (uint8_t)((alpha_index + 1u) % 3u);
         }
-        if ((pad.pressed & SAT_PAD_B) != 0u) page ^= 1u;
+        if ((pad.pressed & SAT_PAD_B) != 0u) {
+            page = (uint8_t)((page + 1u) % 3u);
+            /* Layer-wide SUBTRACT: offset A takes 64 off every NBG0 pixel. */
+            if (page == 2u) {
+                sat_example_must(sat_vdp2_color_offset_set(SAT_VDP2_COLOR_OFFSET_A, &darken));
+                sat_example_must(sat_vdp2_color_offset_enable(
+                    SAT_VDP2_LAYER_NBG0, SAT_VDP2_COLOR_OFFSET_A));
+            } else {
+                sat_example_must(sat_vdp2_color_offset_disable(SAT_VDP2_LAYER_NBG0));
+            }
+        }
         sat_example_must(sat_vdp2_layers_commit());
         /* Generic VDP2 layer commit replays PRISA: replay the sprite-specific
          * color-calculation priority/ratio state afterwards, in the VBlank. */
@@ -127,13 +142,26 @@ int main(void) {
         sat_example_must(sat_fill_rect(
             &rgb_half, sat_color_rgba(255u, 180u, 28u, 128u)));
 
-        if (page != 0u) {
+        if (page == 1u) {
             /* Additive: sprite + NBG0 per channel, saturating. */
             sat_draw_params_t added = sat_draw_params_default();
             added.blend_mode = SAT_BLEND_ADD;
             sat_example_must(sat_draw_texture(sprite, 0, &middle, &added));
+            /* SUBTRACT (VDP1 shadow): halves the RGB rectangle under the
+             * sprite's opaque texels; the bare NBG0 part stays untouched. */
+            sat_draw_params_t shaded = sat_draw_params_default();
+            shaded.blend_mode = SAT_BLEND_SUBTRACT;
+            sat_example_must(sat_draw_texture(sprite, 0, &shadow, &shaded));
             draw_text("SATURN BLEND MODES", 8, 8);
+            draw_text("VDP1 SHADOW", 8, 58);
             draw_text("VDP2 ADD", 122, 58);
+            draw_text("B: PAGE  START: EXIT", 8, 185);
+            sat_example_must(sat_end_frame());
+            continue;
+        }
+        if (page == 2u) {
+            draw_text("SATURN COLOUR OFFSET", 8, 8);
+            draw_text("NBG0 OFFSET -64", 8, 58);
             draw_text("B: PAGE  START: EXIT", 8, 185);
             sat_example_must(sat_end_frame());
             continue;

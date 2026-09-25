@@ -48,6 +48,11 @@ typedef struct sat_vdp1_texture {
 /* CMDPMOD color calculation 010B: halves RGB source brightness, without
  * mixing with the underlying framebuffer. */
 #define SAT_SPRITE_FLAG_HALF_LUMINANCE 0x0008u
+/* CMDPMOD color calculation 001B (shadow), for sprites: the sprite draws
+ * nothing itself; every framebuffer pixel under one of its opaque texels
+ * is halved in brightness -- if that pixel is RGB (MSB 1). Palette pixels
+ * and empty (VDP2-only) pixels are left as they are. */
+#define SAT_SPRITE_FLAG_SHADOW 0x0010u
 
 /* ------------------------------------------------------------------ */
 /* Sprite command                                                      */

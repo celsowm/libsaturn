@@ -315,6 +315,32 @@ int main() {
     g_alpha_configured = false;
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_ERR_NOT_INITIALIZED);
     g_alpha_configured = true;
+
+    /* SUBTRACT: VDP1 shadow on the sprite, no colour-calc selector. */
+    sat_draw_params_t subtract = sat_draw_params_default();
+    subtract.blend_mode = SAT_BLEND_SUBTRACT;
+    subtract.flags = SAT_SPRITE_FLAG_MESH;
+    const uint32_t claims_before_subtract = g_claims;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &subtract) == SAT_OK);
+    OK(g_last_sprite.flags == (SAT_SPRITE_FLAG_MESH | SAT_SPRITE_FLAG_SHADOW));
+    OK(g_last_sprite.palette == 0u);
+    OK(g_claims == claims_before_subtract);
+    OK(sat_draw_texture(persistent, &src, &scaled_dst, &subtract) == SAT_OK);
+    OK((g_last_scaled.flags & SAT_SPRITE_FLAG_SHADOW) != 0u);
+    subtract.rotation = static_cast<sat_fx16_t>(30 << 16);
+    OK(sat_draw_texture(persistent, &src, &scaled_dst, &subtract) == SAT_OK);
+    OK((g_last_distorted.flags & SAT_SPRITE_FLAG_SHADOW) != 0u);
+    const uint32_t sprites_before_sub_skip = g_sprite_calls;
+    subtract.rotation = 0;
+    subtract.tint.a = 0u;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &subtract) == SAT_OK);
+    OK(g_sprite_calls == sprites_before_sub_skip);
+    subtract.tint.a = 128u;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &subtract) == SAT_ERR_UNSUPPORTED);
+    /* The shadow flag is the blend's to set, not the caller's. */
+    sat_draw_params_t raw_shadow = sat_draw_params_default();
+    raw_shadow.flags = SAT_SPRITE_FLAG_SHADOW;
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &raw_shadow) == SAT_ERR_INVALID_ARG);
     std::puts("render2d api: OK");
     return 0;
 }

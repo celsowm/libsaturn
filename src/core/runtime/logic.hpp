@@ -298,8 +298,10 @@ inline sat_result_t validate_polygon_effects(uint16_t color, uint16_t flags) {
     return SAT_OK;
 }
 
+/* Shadow is the one colour calculation a palette sprite can use: the VDP1
+ * takes only its shape from the texture and halves the RGB pixels below. */
 inline sat_result_t validate_indexed8_sprite_effects(uint16_t flags) {
-    if ((flags & ~kVdp1EffectFlags) != 0u ||
+    if ((flags & ~(kVdp1EffectFlags | SAT_SPRITE_FLAG_SHADOW)) != 0u ||
         (flags & kVdp1HalfFlags) == kVdp1HalfFlags) return SAT_ERR_INVALID_ARG;
     if ((flags & kVdp1HalfFlags) != 0u) return SAT_ERR_UNSUPPORTED;
     return SAT_OK;
@@ -369,7 +371,8 @@ inline uint16_t compose_sprite_pmod(uint16_t flags,
         (format == SAT_VDP1_TEXTURE_LUT4 ? kVdp1SpritePmodLut4Base
                                          : kVdp1SpritePmodBase) |
         ((flags & SAT_SPRITE_FLAG_OPAQUE) != 0u ? 0x0040u : 0u) |
-        ((flags & SAT_SPRITE_FLAG_MESH) != 0u ? 0x0100u : 0u));
+        ((flags & SAT_SPRITE_FLAG_MESH) != 0u ? 0x0100u : 0u) |
+        ((flags & SAT_SPRITE_FLAG_SHADOW) != 0u ? 0x0001u : 0u));
 }
 
 /* Composes CMDCOLR for a sprite-family command. Color mode 100B uses the

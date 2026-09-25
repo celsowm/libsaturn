@@ -122,6 +122,10 @@ void set_sprite_priority(uint8_t priority);
 void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority);
 /* Writes CCCTL and the shadow commit_layers() replays each frame. */
 void set_color_calc_control(uint16_t ccctl);
+/* Colour offset A (bank 0) or B (bank 1), 9-bit encoded channels, and the
+ * per-layer enable/select words; commit_layers() replays all of them. */
+void set_color_offset(uint8_t bank, uint16_t r, uint16_t g, uint16_t b);
+void set_color_offset_layers(uint16_t clofen, uint16_t clofsl);
 
 // Rotation parameter table upload
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count);
