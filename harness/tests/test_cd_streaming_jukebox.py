@@ -3,7 +3,7 @@ r"""Acceptance assertions for the CD -> CDFS -> VFS music example.
 Run after:
 
     .\harness\run-harness.ps1 cd_streaming_jukebox -Bios .\bios\saturn_bios_us.bin -Frames 300
-    $env:LIBSATURN_PROBE_JSON = 'harness/build/cd_streaming_jukebox.json'
+    $env:LIBSATURN_PROBE_JSON = 'harness/build/probe.json'
     python -m unittest harness.tests.test_cd_streaming_jukebox
 
 The harness automatically enables per-frame SCSP tracing for this example.

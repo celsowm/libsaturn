@@ -24,7 +24,8 @@ assert "src/graphics/2d/textures/runtime.hpp" not in faces, (
 managed = (root / "src/graphics/3d/scene/managed_texture.cpp").read_text(encoding="utf-8")
 assert "texture_resolve(" in managed and "validate_managed_texture(" in managed
 assert "paint_order_from_keys(" not in faces, "local painter-sort implementation was reintroduced"
-assert faces.count("paint_order_buckets(") == 1, "scene should sort global face queue only once"
+sorts = faces.count("paint_order_buckets(") + faces.count("paint_order_grouped_buckets(")
+assert sorts == 1, "scene should sort global face queue only once"
 batch = (root / "include/saturn/scene3d_faces.h").read_text(encoding="utf-8")
 start = batch.index("typedef struct sat_scene3d_prepare_batch {")
 end = batch.index("} sat_scene3d_prepare_batch_t;", start)
