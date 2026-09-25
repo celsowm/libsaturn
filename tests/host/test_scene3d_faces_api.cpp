@@ -120,6 +120,13 @@ extern "C" sat_result_t sat_draw_polygon_quad3(
     emitted[emitted_count++]=rgb555;
     return SAT_OK;
 }
+extern "C" sat_result_t sat_draw_polygon_quad3_gouraud(
+    const sat_quad3_t*,const sat_indexed_solid_render3d_t*,uint16_t rgb555,
+    const uint16_t*) {
+    ++clipped_count;
+    emitted[emitted_count++]=rgb555;
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_draw_indexed_textured_quad3(
     const sat_quad3_t*,const sat_indexed_solid_render3d_t*,
     const sat_vdp1_texture_t* tex,uint8_t* drawn) {

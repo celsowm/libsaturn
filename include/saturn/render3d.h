@@ -99,6 +99,13 @@ sat_result_t sat_draw_polygon_quad3(
     const sat_indexed_solid_render3d_t* params,
     uint16_t rgb555
 );
+/* sat_draw_polygon_quad3 keeping per-corner Gouraud: every clipped corner
+ * gets the table value interpolated at its position (in the quad's plane
+ * for the near clip, in screen space for the screen clip, which is how the
+ * VDP1 interpolates). gouraud[] uses the RGB555 table format of saturn/vdp1.h. */
+sat_result_t sat_draw_polygon_quad3_gouraud(
+    const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* params,
+    uint16_t rgb555, const uint16_t gouraud[4]);
 
 /* Axis-aligned deck/block instance, described without app-side quad winding.
  * top_center.y is the WALKABLE TOP (the solid extends by 2*half_height

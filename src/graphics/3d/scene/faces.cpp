@@ -153,9 +153,12 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
     p.near_depth=scene.near_depth;
     p.width=scene.width;p.height=scene.height;
     p.color_calc_slot=face.material.color_calc_slot;
-    /* A clipped RGB face loses its Gouraud: the pieces carry no colours. */
+    /* A clipped Gouraud face keeps its shading: each piece corner gets the
+     * table value interpolated at its position. */
     if (face.material.kind==SAT_SCENE3D_RGB)
-        return sat_draw_polygon_quad3(&face.world,&p,face.material.rgb555);
+        return face.gouraud_valid
+            ? sat_draw_polygon_quad3_gouraud(&face.world,&p,face.material.rgb555,face.gouraud)
+            : sat_draw_polygon_quad3(&face.world,&p,face.material.rgb555);
     if (face.material.kind==SAT_SCENE3D_INDEXED_TILED)
         return sat_draw_indexed_tiled_quad3(
             &face.world,&p,face.material.tiled,nullptr);

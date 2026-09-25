@@ -29,6 +29,19 @@ extern "C" sat_result_t sat_clip_quad_near(
     sat_fx16_t,sat_quad3_t out[4],uint8_t* count) {
     ++g_near_calls;
     if(g_clip_mode==2) return SAT_ERR_BUSY;
+    if(g_clip_mode==3) {
+        /* Like a real near clip through the middle of edges 0-1 and 3-2:
+         * keeps corners 0 and 3, cuts 1 and 2 halfway. */
+        *count=1u;
+        out[0]=*quad;
+        out[0].v[1].x=(quad->v[0].x+quad->v[1].x)/2;
+        out[0].v[1].y=(quad->v[0].y+quad->v[1].y)/2;
+        out[0].v[1].z=(quad->v[0].z+quad->v[1].z)/2;
+        out[0].v[2].x=(quad->v[3].x+quad->v[2].x)/2;
+        out[0].v[2].y=(quad->v[3].y+quad->v[2].y)/2;
+        out[0].v[2].z=(quad->v[3].z+quad->v[2].z)/2;
+        return SAT_OK;
+    }
     *count=(g_clip_mode==1)?0u:1u;
     if(*count!=0u) out[0]=*quad;
     return SAT_OK;
@@ -84,6 +97,8 @@ extern "C" sat_result_t sat_draw_sprite_distorted_color_calc(
 }
 
 static int g_polygons;
+static int g_gouraud_polygons;
+static uint16_t g_last_gouraud[4];
 static uint16_t g_polygon_color;
 static sat_result_t g_polygon_status=SAT_OK;
 extern "C" sat_result_t sat_draw_quad2_polygon(
@@ -93,8 +108,17 @@ extern "C" sat_result_t sat_draw_quad2_polygon(
     return g_polygon_status;
 }
 
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
+    const sat_quad2_t*,uint16_t color,const uint16_t gouraud[4]) {
+    ++g_gouraud_polygons;
+    g_polygon_color=color;
+    for(int i=0;i<4;++i) g_last_gouraud[i]=gouraud[i];
+    return g_polygon_status;
+}
+
 static void reset() {
     g_polygons=0;
+    g_gouraud_polygons=0;
     g_polygon_color=0u;
     g_polygon_status=SAT_OK;
     g_near_calls=g_project_calls=g_screen_calls=g_opaque=g_faded=0;
@@ -186,6 +210,30 @@ static void rgb_polygon_clips_like_solid_quads() {
     EQ(sat_draw_polygon_quad3(nullptr,&p,0x801Fu),SAT_ERR_INVALID_ARG);
     p.near_depth=0;
     EQ(sat_draw_polygon_quad3(&q,&p,0x801Fu),SAT_ERR_INVALID_ARG);
+}
+/* A near clip halfway along the quad gives the cut corners the colour
+ * halfway between their neighbours, per RGB channel; the kept corners
+ * keep theirs. */
+static void gouraud_survives_clipping() {
+    reset();
+    sat_quad3_t q=quad(0,12);
+    sat_indexed_solid_render3d_t p=render();
+    /* Red rises 0 -> 30 along edge 0-1, blue 30 -> 0 along edge 3-2. */
+    const uint16_t g[4]={0x0000u,0x001Eu,0x0000u,(uint16_t)(30u<<10)};
+    EQ(sat_draw_polygon_quad3_gouraud(&q,&p,0x801Fu,g),SAT_OK);
+    EQ(g_gouraud_polygons,1);
+    EQ(g_last_gouraud[0],g[0]); /* unclipped: exactly the input */
+    EQ(g_last_gouraud[1],g[1]);
+    g_clip_mode=3;
+    EQ(sat_draw_polygon_quad3_gouraud(&q,&p,0x801Fu,g),SAT_OK);
+    EQ(g_gouraud_polygons,2);
+    EQ(g_polygon_color,0x801Fu);
+    EQ(g_last_gouraud[0],0x0000u);
+    EQ(g_last_gouraud[1],0x000Fu);           /* red 15 = half of 30 */
+    EQ(g_last_gouraud[2],(uint16_t)(15u<<10)); /* blue 15 = half of 30 */
+    EQ(g_last_gouraud[3],(uint16_t)(30u<<10));
+    g_clip_mode=0;
+    EQ(sat_draw_polygon_quad3_gouraud(&q,&p,0x801Fu,nullptr),SAT_ERR_INVALID_ARG);
 }
 static sat_indexed_solid_mesh3d_draw_t mesh_params(
     const uint16_t* mats,uint16_t* order,uint32_t* depth) {
@@ -526,6 +574,7 @@ int main() {
     faded_quad_and_multiple_screen_triangles();
     invisible_and_hardware_errors();
     rgb_polygon_clips_like_solid_quads();
+    gouraud_survives_clipping();
     patterned_texture_draws_only_with_original_four_corners();
     patterned_texture_invalid_input_and_command_failure();
     quadrant_upload_owns_correct_source_rows_and_palette();
@@ -540,6 +589,6 @@ int main() {
     indexed_box_owns_visibility_winding_and_material_selection();
     indexed_box_rejects_bad_geometry_before_emitting();
     indexed_box_propagates_capacity_without_attempting_other_faces();
-    puts("test_render3d_indexed: 18 tests passed");
+    puts("test_render3d_indexed: 19 tests passed");
     return 0;
 }

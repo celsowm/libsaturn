@@ -17,8 +17,9 @@ bool valid_render(const sat_indexed_solid_render3d_t* p) {
 }
 
 /* Near clip, project and screen clip one world quad, handing every visible
- * piece to draw(piece). A piece the projector or a draw call reports as
- * UNSUPPORTED is skipped; any other error stops the quad. */
+ * piece to draw(near_piece, projected_near_piece, visible_piece). A piece the
+ * projector or a draw call reports as UNSUPPORTED is skipped; any other
+ * error stops the quad. */
 template <typename Draw>
 sat_result_t for_each_visible_piece(const sat_quad3_t* quad,
                                     const sat_indexed_solid_render3d_t* p,
@@ -40,7 +41,7 @@ sat_result_t for_each_visible_piece(const sat_quad3_t* quad,
         if(st==SAT_ERR_UNSUPPORTED) continue;
         if(st!=SAT_OK) return st;
         for(uint8_t i=0u;i<visible_count;++i) {
-            st=draw(visible[i]);
+            st=draw(pieces[piece],projected,visible[i]);
             if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) return st;
         }
     }
@@ -75,7 +76,8 @@ extern "C" sat_result_t sat_draw_indexed_solid_quad3(
 ) {
     if (quad==nullptr || texture==nullptr || !valid_render(p))
         return SAT_ERR_INVALID_ARG;
-    return for_each_visible_piece(quad,p,[&](const sat_quad2_t& piece) {
+    return for_each_visible_piece(quad,p,[&](const sat_quad3_t&,const sat_quad2_t&,
+                                             const sat_quad2_t& piece) {
         sat_distorted_sprite_cmd_t cmd={};
         for(uint8_t v=0u;v<4u;++v) {
             cmd.x[v]=piece.x[v];
@@ -94,8 +96,106 @@ extern "C" sat_result_t sat_draw_polygon_quad3(
 ) {
     if (quad==nullptr || !valid_camera(p))
         return SAT_ERR_INVALID_ARG;
-    return for_each_visible_piece(quad,p,[rgb555](const sat_quad2_t& piece) {
+    return for_each_visible_piece(quad,p,[rgb555](const sat_quad3_t&,const sat_quad2_t&,
+                                                  const sat_quad2_t& piece) {
         return sat_draw_quad2_polygon(&piece,rgb555);
+    });
+}
+
+namespace {
+
+struct Point2 { int64_t x, y; };
+
+int64_t area2(Point2 a, Point2 b, Point2 c) {
+    return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+}
+
+/* One RGB555 Gouraud channel (5 bits at `shift`), weighted by w[] / total. */
+uint16_t blend_channel(const uint16_t g[3], const int64_t w[3], int64_t total,
+                       uint32_t shift) {
+    int64_t sum=0;
+    for (int k=0;k<3;++k) sum+=w[k]*static_cast<int64_t>((g[k]>>shift)&0x1Fu);
+    int64_t value=(sum+total/2)/total;
+    if (value<0) value=0;
+    if (value>31) value=31;
+    return static_cast<uint16_t>(value<<shift);
+}
+
+/* Gouraud value at p inside the quad corner[0..3] carrying g[0..3]: the
+ * barycentric blend in whichever of triangles (0,1,2) / (0,2,3) holds p
+ * (clip points lie on the quad or its edges). Outside both by rounding,
+ * the nearer triangle's clamped weights are used. */
+uint16_t blend_gouraud(const Point2 corner[4], const uint16_t g[4], Point2 p) {
+    static const int kTri[2][3]={{0,1,2},{0,2,3}};
+    int best=-1;
+    int64_t best_w[3]={0,0,0}, best_total=0, best_deficit=INT64_MAX;
+    for (int t=0;t<2;++t) {
+        const Point2 a=corner[kTri[t][0]], b=corner[kTri[t][1]], c=corner[kTri[t][2]];
+        int64_t total=area2(a,b,c);
+        if (total==0) continue;
+        int64_t w[3]={area2(p,b,c),area2(a,p,c),area2(a,b,p)};
+        if (total<0) { total=-total; for (int k=0;k<3;++k) w[k]=-w[k]; }
+        int64_t deficit=0;
+        for (int k=0;k<3;++k) if (w[k]<0) { deficit-=w[k]; w[k]=0; }
+        if (deficit<best_deficit) {
+            best=t; best_deficit=deficit; best_total=w[0]+w[1]+w[2];
+            for (int k=0;k<3;++k) best_w[k]=w[k];
+        }
+    }
+    if (best<0 || best_total==0) return g[0];
+    const uint16_t tri[3]={g[kTri[best][0]],g[kTri[best][1]],g[kTri[best][2]]};
+    return static_cast<uint16_t>((g[0]&0x8000u) |
+        blend_channel(tri,best_w,best_total,0u) |
+        blend_channel(tri,best_w,best_total,5u) |
+        blend_channel(tri,best_w,best_total,10u));
+}
+
+/* The axis to drop to see the quad face-on: its largest normal component,
+ * computed in 1/256-unit steps so the products stay inside 64 bits. */
+int dominant_axis(const sat_quad3_t& q) {
+    const int64_t ax=(q.v[1].x-static_cast<int64_t>(q.v[0].x))>>8;
+    const int64_t ay=(q.v[1].y-static_cast<int64_t>(q.v[0].y))>>8;
+    const int64_t az=(q.v[1].z-static_cast<int64_t>(q.v[0].z))>>8;
+    const int64_t bx=(q.v[2].x-static_cast<int64_t>(q.v[0].x))>>8;
+    const int64_t by=(q.v[2].y-static_cast<int64_t>(q.v[0].y))>>8;
+    const int64_t bz=(q.v[2].z-static_cast<int64_t>(q.v[0].z))>>8;
+    const int64_t nx=ay*bz-az*by, ny=az*bx-ax*bz, nz=ax*by-ay*bx;
+    const int64_t mx=nx<0?-nx:nx, my=ny<0?-ny:ny, mz=nz<0?-nz:nz;
+    return (mx>=my && mx>=mz)?0:(my>=mz)?1:2;
+}
+
+Point2 flat_point(const sat_vec3_t& v, int drop) {
+    const int64_t x=static_cast<int64_t>(v.x)>>8, y=static_cast<int64_t>(v.y)>>8,
+                  z=static_cast<int64_t>(v.z)>>8;
+    return drop==0 ? Point2{y,z} : drop==1 ? Point2{x,z} : Point2{x,y};
+}
+
+} // namespace
+
+extern "C" sat_result_t sat_draw_polygon_quad3_gouraud(
+    const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* p,
+    uint16_t rgb555, const uint16_t gouraud[4]
+) {
+    if (quad==nullptr || gouraud==nullptr || !valid_camera(p))
+        return SAT_ERR_INVALID_ARG;
+    const int drop=dominant_axis(*quad);
+    Point2 original[4];
+    for (int k=0;k<4;++k) original[k]=flat_point(quad->v[k],drop);
+    return for_each_visible_piece(quad,p,[&](const sat_quad3_t& near_piece,
+                                             const sat_quad2_t& projected,
+                                             const sat_quad2_t& piece) {
+        // Colours at the near-clipped corners, interpolated in the quad's
+        // own plane; then at the screen-clipped corners, in screen space,
+        // which is how the VDP1 interpolates Gouraud anyway.
+        uint16_t near_g[4];
+        for (int k=0;k<4;++k)
+            near_g[k]=blend_gouraud(original,gouraud,flat_point(near_piece.v[k],drop));
+        Point2 screen[4];
+        for (int k=0;k<4;++k) screen[k]=Point2{projected.x[k],projected.y[k]};
+        uint16_t piece_g[4];
+        for (int k=0;k<4;++k)
+            piece_g[k]=blend_gouraud(screen,near_g,Point2{piece.x[k],piece.y[k]});
+        return sat_draw_quad2_polygon_gouraud(&piece,rgb555,piece_g);
     });
 }
 
