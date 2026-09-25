@@ -153,6 +153,8 @@ sat_result_t sat_physics3_set_mass(
 
 /* Mesh vertices and indices are already in world coordinates, remain immutable,
  * and must outlive the collider. Finite quad faces retain their edges and gaps.
+ * Each face must span less than 32768 units on every axis (a longer edge
+ * cannot be represented in 16.16); larger faces are SAT_ERR_INVALID_ARG.
  * The default path linearly tests mesh faces; add_mesh_grid is opt-in. */
 sat_result_t sat_physics3_add_mesh(
     sat_physics3_world_t* world, const sat_mesh_t* mesh,

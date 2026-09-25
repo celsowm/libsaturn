@@ -85,7 +85,14 @@ different order from the linear path; compare outcomes within fixed-point
 tolerance when testing multi-surface corner cases.
 Mesh contacts are also **discrete** and two-sided, not swept collision or a
 one-way platform. `world_step` preflights caller scratch before movement,
-but the existing solver's general fixed-point overflow limitations remain.
+and its contact math uses 64-bit intermediates. Measured on the host
+(2026-09-25): box, plane, 45-degree slope, mesh (with and without CCD) and
+sphere/sphere contacts all rest exactly at offsets up to 20,000 units from the
+origin, and on single mesh faces up to 32,766 units across. A face whose edge
+reaches 32,768 units cannot be represented in 16.16 and is rejected at
+registration. The remaining limits are the substep budget (fast, small
+spheres are refused with SAT_ERR_CAPACITY unless a CCD path covers them) and
+the +/-8 radian/tick spin cap.
 
 ## Opt-in finite-mesh CCD (limited scope)
 
@@ -168,7 +175,8 @@ complete Coulomb/rigid-body solver: there is no torque from wall impacts,
 rolling resistance, contact manifold, rotationally swept contact, or strict
 conservation of energy under solver iterations. Generated angular components
 are saturated at ±8 radians/tick to keep the 16.16 integration bounded;
-large speeds/radii near fixed-point limits remain unsupported. Rendering
+radii and speeds are bounded by the substep budget (see the measured
+ranges above). Rendering
 orientation and parenting to the transform graph are separate integration
 steps; do not treat the quaternion as an automatically updated scene node.
 

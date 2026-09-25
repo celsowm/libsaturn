@@ -31,6 +31,25 @@ void mesh_bounds(const sat_mesh_t& mesh,V& low,V& high) {
     }
 }
 bool fits(int64_t n) {return n>=INT32_MIN && n<=INT32_MAX;}
+/* Face math subtracts vertices in 16.16, so every face must span less than
+ * 32768 units per axis: a longer edge wraps and the face silently stops
+ * colliding. Whole meshes may be larger; only single faces are bounded. */
+bool faces_fit(const sat_mesh_t& mesh){
+    for(uint32_t f=0;f<mesh.face_count;++f){
+        const sat_vec3_t& first=mesh.vertices[mesh.indices[f*4u]];
+        int64_t lo[3]={first.x,first.y,first.z},hi[3]={first.x,first.y,first.z};
+        for(uint32_t k=1;k<4u;++k){
+            const sat_vec3_t& p=mesh.vertices[mesh.indices[f*4u+k]];
+            const int64_t c[3]={p.x,p.y,p.z};
+            for(int axis=0;axis<3;++axis){
+                if(c[axis]<lo[axis])lo[axis]=c[axis];
+                if(c[axis]>hi[axis])hi[axis]=c[axis];
+            }
+        }
+        for(int axis=0;axis<3;++axis)if(!fits(hi[axis]-lo[axis]))return false;
+    }
+    return true;
+}
 bool add_fits(V a,V b) {return fits((int64_t)a.x+b.x) &&
     fits((int64_t)a.y+b.y) && fits((int64_t)a.z+b.z);}
 V add(V a,V b){return {a.x+b.x,a.y+b.y,a.z+b.z};}
@@ -613,6 +632,7 @@ extern "C" sat_result_t sat_physics3_add_mesh(
     if(w->count==w->capacity)return SAT_ERR_CAPACITY;
     for(uint32_t f=0;f<(uint32_t)mesh->face_count*4u;++f)
         if(mesh->indices[f]>=mesh->vertex_count)return SAT_ERR_INVALID_ARG;
+    if(!faces_fit(*mesh))return SAT_ERR_INVALID_ARG;
     const uint16_t next=w->count;
     sat_physics3_actor_t& a=w->actors[next];a={};
     a.kind=SAT_PHYSICS3_STATIC_MESH;a.material=*material;a.mesh=mesh;
@@ -629,7 +649,8 @@ extern "C" sat_result_t sat_physics3_add_mesh_grid(
        grid->mesh->vertex_count>grid->mesh->vertex_cap||
        grid->entry_count>grid->entry_cap||!grid->entry_cap||
        !grid->bucket_count||!grid->heads||
-       !grid->mesh->vertex_count||grid->cell_shift>15u)
+       !grid->mesh->vertex_count||grid->cell_shift>15u||
+       !faces_fit(*grid->mesh))
         return SAT_ERR_INVALID_ARG;
     if(!w->mesh_contacts||w->mesh_contact_capacity<grid->mesh->face_count)
         return SAT_ERR_CAPACITY;

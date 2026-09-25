@@ -1081,6 +1081,51 @@ static sat_fx16_t one_way_run(bool mesh,bool one_way,bool* out_grounded){
     *out_grounded=(end.sphere.flags & SAT_BODY3_GROUNDED)!=0;
     return end.sphere.shape.center.y;
 }
+/* Contacts hold far from the origin and on faces thousands of units wide;
+ * a face whose edge cannot be represented in 16.16 is refused up front. */
+static void far_coordinates_and_face_limit(){
+    const int32_t bases[3]={0,5000,20000};
+    for(int b=0;b<3;++b){
+        sat_physics3_actor_t actors[3]{};
+        sat_contact3_t contacts[1]{};
+        uint16_t order[3]{};
+        sat_physics3_world_t w{};
+        const sat_vec3_t gravity={0,-FX(1)/8,0};
+        CHECK(sat_physics3_world_init(&w,actors,3,gravity,16,3)==SAT_OK);
+        CHECK(sat_physics3_set_mesh_contacts(&w,contacts,1)==SAT_OK);
+        CHECK(sat_physics3_set_sphere_pairs(&w,order,3)==SAT_OK);
+        const sat_fx16_t o=FX(bases[b]);
+        static sat_vec3_t floor_v[4];
+        static uint16_t floor_i[4]={0,3,2,1};
+        static sat_mesh_t floor{floor_v,floor_i,4,4,1,1};
+        floor_v[0]={o-FX(8000),o,o-FX(8000)};floor_v[1]={o+FX(8000),o,o-FX(8000)};
+        floor_v[2]={o+FX(8000),o,o+FX(8000)};floor_v[3]={o-FX(8000),o,o+FX(8000)};
+        uint16_t floor_id=0,a=0,c=0;
+        CHECK(sat_physics3_add_mesh(&w,&floor,&rough,&floor_id)==SAT_OK);
+        const sat_sphere_t left={{o-FX(3),o+FX(1),o},FX(1)};
+        const sat_sphere_t right={{o+FX(3),o+FX(1),o},FX(1)};
+        const sat_vec3_t va={FX(1)/4,0,0},vb={-FX(1)/4,0,0};
+        CHECK(sat_physics3_add_sphere(&w,&left,&va,&rough,&a)==SAT_OK);
+        CHECK(sat_physics3_add_sphere(&w,&right,&vb,&rough,&c)==SAT_OK);
+        for(int i=0;i<60;++i)CHECK(sat_physics3_world_step(&w)==SAT_OK);
+        const sat_physics3_actor_t la=read(&w,a),rc=read(&w,c);
+        CHECK(la.sphere.shape.center.y==o+FX(1) && (la.sphere.flags & SAT_BODY3_GROUNDED));
+        CHECK(rc.sphere.shape.center.x-la.sphere.shape.center.x>=FX(2)-FX(1)/64);
+    }
+    sat_physics3_actor_t actors[1]{};
+    sat_contact3_t contacts[1]{};
+    sat_physics3_world_t w{};
+    CHECK(sat_physics3_world_init(&w,actors,1,zero,16,3)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(&w,contacts,1)==SAT_OK);
+    static sat_vec3_t wide_v[4]={{-FX(16384),0,-FX(4)},{FX(16384),0,-FX(4)},
+                                 {FX(16384),0,FX(4)},{-FX(16384),0,FX(4)}};
+    static uint16_t wide_i[4]={0,3,2,1};
+    static sat_mesh_t wide{wide_v,wide_i,4,4,1,1};
+    uint16_t id=77;
+    CHECK(sat_physics3_add_mesh(&w,&wide,&rough,&id)==SAT_ERR_INVALID_ARG && id==77);
+    wide_v[1].x=wide_v[2].x=FX(16383);
+    CHECK(sat_physics3_add_mesh(&w,&wide,&rough,&id)==SAT_OK);
+}
 static void one_way_platforms(){
     for(int mesh=0;mesh<2;++mesh){
         bool grounded=false;
@@ -1154,6 +1199,7 @@ static void sphere_sphere_contacts(){
 int main(){
     sphere_sphere_contacts();
     one_way_platforms();
+    far_coordinates_and_face_limit();
     rotational_ccd_catches_fast_paddle();
     validation_and_capacity();
     floor_contact_and_bounce();
@@ -1179,6 +1225,6 @@ int main(){
     translating_mesh_validates_grid_and_target_bounds();
     tilted_kinematic_mesh_contact_and_grid_match();
     rotation_rejects_unsafe_budget_and_invalid_targets();
-    std::puts("test_physics3_world: 26 tests passed");
+    std::puts("test_physics3_world: 27 tests passed");
     return 0;
 }
