@@ -22,6 +22,9 @@ uint32_t g_fail_texture_update_call = 0u;
 uint32_t g_rect_updates = 0u;
 uint32_t g_fail_rect_update_call = 0u;
 sat_result_t g_rect_update_status = SAT_OK;
+/* Preflight verdict: stands for a range the real HAL would reject. */
+sat_result_t g_check_status = SAT_OK;
+uint32_t g_check_calls = 0u;
 uint16_t g_rect_x = 0u, g_rect_y = 0u;
 uint16_t g_rect_w = 0u, g_rect_h = 0u;
 uint16_t g_rect_tex_w = 0u, g_rect_tex_h = 0u;
@@ -55,6 +58,17 @@ sat_result_t update_texture_indexed8_pitched(
          g_texture_updates == g_fail_texture_update_call))
         return g_texture_update_status;
     return SAT_OK;
+}
+
+sat_result_t check_texture_indexed8_update(uint16_t, uint16_t, uint16_t, uint16_t) {
+    ++g_check_calls;
+    return g_check_status;
+}
+
+sat_result_t check_texture_indexed8_rect(
+    uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t) {
+    ++g_check_calls;
+    return g_check_status;
 }
 
 sat_result_t update_texture_indexed8_rect(
@@ -98,6 +112,8 @@ static void reset_runtime() {
     g_rect_updates = 0u;
     g_fail_rect_update_call = 0u;
     g_rect_update_status = SAT_OK;
+    g_check_status = SAT_OK;
+    g_check_calls = 0u;
     g_rect_x = g_rect_y = g_rect_w = g_rect_h = 0u;
     g_rect_tex_w = g_rect_tex_h = g_rect_srca = 0u;
 }
@@ -244,6 +260,48 @@ static void update_failure_and_recovery() {
     OK(sat_texture_info(handle, &info) == SAT_OK &&
        info.health == SAT_TEXTURE_READY);
     OK(slot->native.valid == 1u && prepared->native.valid == 1u);
+    OK(sat_texture_destroy(handle) == SAT_OK);
+}
+
+/* A transfer the HAL would reject is refused before ANY write: palette,
+ * VRAM, retained source and health all stay as they were. */
+static void rejected_update_changes_nothing() {
+    using namespace saturn::core;
+    reset_runtime();
+    uint16_t palette[256]{}, other_palette[256]{};
+    make_palette(palette, 0x100u);
+    make_palette(other_palette, 0x500u);
+    uint8_t pixels[32u]{}, other_pixels[32u]{};
+    sat_surface_t source{pixels, 8u, 4u, 8u, SAT_PIXEL_INDEX8, palette, 256u};
+    sat_surface_t replacement{other_pixels, 8u, 4u, 8u, SAT_PIXEL_INDEX8, other_palette, 256u};
+    sat_texture_t handle{};
+    OK(sat_texture_create_from_surface(&handle, &source, SAT_TEXTURE_DYNAMIC) == SAT_OK);
+    const sat_rect_t region{0, 0, 8u, 2u};
+    OK(sat_texture_prepare_region(handle, &region) == SAT_OK);
+    auto* slot = texture_resolve(g_texture_registry, handle);
+    OK(slot != nullptr);
+    const uint32_t palette_calls = g_palette_uploads;
+    const uint32_t texture_calls = g_texture_updates;
+    const uint32_t rect_calls = g_rect_updates;
+
+    g_check_status = SAT_ERR_INVALID_ARG;
+    OK(sat_texture_update(handle, &replacement) == SAT_ERR_INVALID_ARG);
+    OK(g_palette_uploads == palette_calls && g_texture_updates == texture_calls);
+    OK(palette_equal(g_palette_registry.logical_palettes[slot->palette_bank], palette));
+    OK(slot->source.pixels == pixels && slot->native.valid == 1u);
+
+    uint8_t patch_pixels[8u] = {9u, 9u, 9u, 9u, 9u, 9u, 9u, 9u};
+    sat_surface_t patch{patch_pixels, 8u, 1u, 8u, SAT_PIXEL_INDEX8, palette, 256u};
+    const sat_rect_t patch_rect{0, 0, 8u, 1u};
+    OK(sat_texture_update_rect(handle, &patch_rect, &patch) == SAT_ERR_INVALID_ARG);
+    OK(pixels[0] == 0u && g_rect_updates == rect_calls && slot->native.valid == 1u);
+    sat_texture_info_t info{};
+    OK(sat_texture_info(handle, &info) == SAT_OK && info.health == SAT_TEXTURE_READY);
+
+    // With the preflight passing, the same calls go through.
+    g_check_status = SAT_OK;
+    OK(sat_texture_update_rect(handle, &patch_rect, &patch) == SAT_OK && pixels[0] == 9u);
+    OK(sat_texture_update(handle, &replacement) == SAT_OK);
     OK(sat_texture_destroy(handle) == SAT_OK);
 }
 
@@ -406,6 +464,7 @@ int main() {
     OK(sat_texture_region_stats(vram_limited, &stats) == SAT_OK && stats.used == 1u);
 
     update_failure_and_recovery();
+    rejected_update_changes_nothing();
     only_intersecting_regions_refresh();
 
     reset_runtime();

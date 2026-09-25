@@ -139,6 +139,15 @@ sat_result_t upload_texture_lut4(
     uint16_t height,
     uint16_t* out_srca);
 
+/* Every check update_texture_indexed8_pitched / _rect perform before
+ * writing, without writing: callers preflight a multi-transfer update so it
+ * fails before its first write rather than halfway through. */
+sat_result_t check_texture_indexed8_update(
+    uint16_t srca, uint16_t width, uint16_t height, uint16_t pitch);
+sat_result_t check_texture_indexed8_rect(
+    uint16_t srca, uint16_t texture_width, uint16_t texture_height, uint16_t pitch,
+    uint16_t x, uint16_t y, uint16_t width, uint16_t height);
+
 /* Rewrites an already allocated character pattern in place. The caller must
  * pass the original width/height; the range is checked against the texture
  * arena already allocated by this HAL. */

@@ -695,16 +695,46 @@ sat_result_t upload_texture_lut4(
     return SAT_OK;
 }
 
-sat_result_t update_texture_indexed8_pitched(
-    uint16_t srca, const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t pitch) {
-    const sat_result_t st = validate_indexed8_transfer(pixels, width, height, pitch);
-    if (st != SAT_OK) return st;
+namespace {
+
+/* The texture must lie wholly inside the arena this HAL has allocated. */
+bool resident_texture(uint16_t srca, uint16_t width, uint16_t height) {
     const uint32_t start = static_cast<uint32_t>(srca) << 3u;
     const uint32_t size = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
-    if (start < kTextureBase || start + size > g_texture_cursor || start + size > kVramSize) {
+    return start >= kTextureBase && start + size <= g_texture_cursor &&
+           start + size <= kVramSize;
+}
+
+}  // namespace
+
+sat_result_t check_texture_indexed8_update(
+    uint16_t srca, uint16_t width, uint16_t height, uint16_t pitch) {
+    // Any non-null pointer: the caller's pixels are checked where they are passed.
+    static const uint8_t kProbe = 0u;
+    const sat_result_t st = validate_indexed8_transfer(&kProbe, width, height, pitch);
+    if (st != SAT_OK) return st;
+    return resident_texture(srca, width, height) ? SAT_OK : SAT_ERR_INVALID_ARG;
+}
+
+sat_result_t check_texture_indexed8_rect(
+    uint16_t srca, uint16_t texture_width, uint16_t texture_height, uint16_t pitch,
+    uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
+    const sat_result_t st =
+        check_texture_indexed8_update(srca, texture_width, texture_height, pitch);
+    if (st != SAT_OK) return st;
+    if (width == 0u || height == 0u ||
+        static_cast<uint32_t>(x) + width > texture_width ||
+        static_cast<uint32_t>(y) + height > texture_height)
         return SAT_ERR_INVALID_ARG;
-    }
-    write_indexed8_rows(start, pixels, width, height, pitch);
+    return SAT_OK;
+}
+
+sat_result_t update_texture_indexed8_pitched(
+    uint16_t srca, const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t pitch) {
+    if (pixels == nullptr) return SAT_ERR_INVALID_ARG;
+    const sat_result_t st = check_texture_indexed8_update(srca, width, height, pitch);
+    if (st != SAT_OK) return st;
+    write_indexed8_rows(static_cast<uint32_t>(srca) << 3u, pixels, width, height, pitch);
     return SAT_OK;
 }
 
@@ -715,18 +745,11 @@ sat_result_t update_texture_indexed8_rect(
     uint16_t srca, const uint8_t* pixels,
     uint16_t texture_width, uint16_t texture_height, uint16_t pitch,
     uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
-    const sat_result_t st = validate_indexed8_transfer(
-        pixels, texture_width, texture_height, pitch);
+    if (pixels == nullptr) return SAT_ERR_INVALID_ARG;
+    const sat_result_t st = check_texture_indexed8_rect(
+        srca, texture_width, texture_height, pitch, x, y, width, height);
     if (st != SAT_OK) return st;
-    if (width == 0u || height == 0u ||
-        static_cast<uint32_t>(x) + width > texture_width ||
-        static_cast<uint32_t>(y) + height > texture_height)
-        return SAT_ERR_INVALID_ARG;
     const uint32_t start = static_cast<uint32_t>(srca) << 3u;
-    const uint32_t size =
-        static_cast<uint32_t>(texture_width) * texture_height;
-    if (start < kTextureBase || start + size > g_texture_cursor ||
-        start + size > kVramSize) return SAT_ERR_INVALID_ARG;
 
     const uint16_t first_x = static_cast<uint16_t>(x & ~1u);
     const uint16_t end_x = static_cast<uint16_t>(

@@ -123,6 +123,33 @@ sat_result_t refresh_intersecting_regions(
     return SAT_OK;
 }
 
+/* Runs the HAL's own checks for every region transfer an update will make,
+ * so a rejected update returns before its first CRAM/VRAM or source write.
+ * `updated` null means a full update (every region), otherwise only regions
+ * intersecting it. */
+sat_result_t preflight_regions(sat_texture_t texture, uint16_t pitch,
+                               const sat_rect_t* updated) {
+    using namespace saturn::core;
+    for (uint16_t i = 0u; i < kTextureRegionCapacity; ++i) {
+        const TextureRegionRecord& record = g_texture_registry.regions[i];
+        if (record.used == 0u || record.owner_slot != texture.slot ||
+            record.owner_generation != texture.generation) continue;
+        if (updated != nullptr) {
+            const int32_t x0 = updated->x > record.rect.x ? updated->x : record.rect.x;
+            const int32_t y0 = updated->y > record.rect.y ? updated->y : record.rect.y;
+            const int32_t ux1 = updated->x + updated->width;
+            const int32_t uy1 = updated->y + updated->height;
+            const int32_t rx1 = record.rect.x + record.rect.width;
+            const int32_t ry1 = record.rect.y + record.rect.height;
+            if (x0 >= (ux1 < rx1 ? ux1 : rx1) || y0 >= (uy1 < ry1 ? uy1 : ry1)) continue;
+        }
+        const sat_result_t st = saturn::hal::vdp1::check_texture_indexed8_update(
+            record.native.srca, record.rect.width, record.rect.height, pitch);
+        if (st != SAT_OK) return st;
+    }
+    return SAT_OK;
+}
+
 sat_result_t refresh_prepared_regions(sat_texture_t texture, TextureSlot& slot) {
     using namespace saturn::core;
     if (slot.region_count == 0u) return SAT_OK;
@@ -257,6 +284,14 @@ extern "C" sat_result_t sat_texture_update(sat_texture_t texture, const sat_surf
         g_palette_registry, slot->palette_bank, source->palette_rgb555,
         &palette_plan);
     if (st != SAT_OK) return st;
+    // Reject before the palette upload: a rejected update changes nothing.
+    st = saturn::hal::vdp1::check_texture_indexed8_update(
+        slot->native.srca, source->width, source->height, source->pitch);
+    if (st != SAT_OK) return st;
+    if (slot->policy != SAT_TEXTURE_UPLOAD_ONLY) {
+        st = preflight_regions(texture, source->pitch, nullptr);
+        if (st != SAT_OK) return st;
+    }
 
     // Upload BEFORE changing logical palette ownership. An unsuccessful CRAM
     // transfer may still be partial, so invalidate the texture and all of its
@@ -331,6 +366,13 @@ extern "C" sat_result_t sat_texture_update_rect(
 
     const uint16_t dst_x = static_cast<uint16_t>(destination_rect->x);
     const uint16_t dst_y = static_cast<uint16_t>(destination_rect->y);
+    // Every transfer is checked before the caller-owned source changes.
+    st = saturn::hal::vdp1::check_texture_indexed8_rect(
+        slot->native.srca, slot->source.width, slot->source.height, slot->source.pitch,
+        dst_x, dst_y, destination_rect->width, destination_rect->height);
+    if (st != SAT_OK) return st;
+    st = preflight_regions(texture, slot->source.pitch, destination_rect);
+    if (st != SAT_OK) return st;
     for (uint16_t y = 0; y < destination_rect->height; ++y) {
         uint8_t* dst = surface_row(slot->source, static_cast<uint16_t>(dst_y + y)) + dst_x;
         const uint8_t* src = surface_row(*source, y);

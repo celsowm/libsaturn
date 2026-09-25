@@ -29,9 +29,13 @@ typedef enum sat_texture_backing_policy {
     SAT_TEXTURE_DYNAMIC = 2
 } sat_texture_backing_policy_t;
 
-/* An in-place VRAM/CRAM update cannot be rolled back after a hardware error.
- * Dirty textures remain destroyable and may be repaired by a full update.
- * Neither a dirty parent nor its previously prepared regions may be drawn. */
+/* Updates check every CRAM/VRAM transfer they will make before the first
+ * write, so a rejected update returns an error and changes nothing. Only a
+ * transfer failing after that preflight (none can with today's CPU copies)
+ * leaves a partial write: an in-place update cannot be rolled back, so the
+ * texture is marked NEEDS_RECOVERY. Dirty textures remain destroyable and
+ * may be repaired by a full update. Neither a dirty parent nor its
+ * previously prepared regions may be drawn. */
 typedef enum sat_texture_health {
     SAT_TEXTURE_READY = 0,
     SAT_TEXTURE_NEEDS_RECOVERY = 1
@@ -68,7 +72,8 @@ sat_result_t sat_texture_info(sat_texture_t texture, sat_texture_info_t* out_inf
  * the original texture. PERSISTENT_SOURCE and DYNAMIC retain the non-owning
  * new source descriptor and refresh prepared regions in place. Hardware
  * failures can partially change CRAM/VRAM: the handle remains alive but is
- * marked NEEDS_RECOVERY, and draws/region preparation are rejected. Repeating
+ * marked NEEDS_RECOVERY, and draws/region preparation are rejected (a
+ * preflight rejection changes nothing, see sat_texture_health). Repeating
  * this full update with a valid source repairs the parent and all regions.
  * The caller must keep the new source and palette alive until the update
  * has completed. Palette ownership is committed after its successful upload,
@@ -79,8 +84,10 @@ sat_result_t sat_texture_update(sat_texture_t texture, const sat_surface_t* sour
  * caller-owned CPU source before transferring only affected VDP1 rows/columns
  * and intersecting prepared regions. Odd X boundaries also write the adjacent
  * byte of the same source row because VRAM writes are 16-bit aligned.
- * A failed transfer may already have mutated CPU/VRAM data: NEEDS_RECOVERY
- * blocks further partial writes until a full sat_texture_update repairs it.
+ * The source is modified only after every transfer passed its preflight; a
+ * transfer failing after that may already have mutated CPU/VRAM data:
+ * NEEDS_RECOVERY blocks further partial writes until a full
+ * sat_texture_update repairs it.
  * source must match destination_rect and the existing texture palette. */
 sat_result_t sat_texture_update_rect(
     sat_texture_t texture,

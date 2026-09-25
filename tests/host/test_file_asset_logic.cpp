@@ -23,6 +23,9 @@ sat_result_t upload_texture_indexed8_pitched(
     return SAT_OK;
 }
 
+sat_result_t check_texture_indexed8_update(uint16_t, uint16_t, uint16_t, uint16_t) { return SAT_OK; }
+sat_result_t check_texture_indexed8_rect(
+    uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t) { return SAT_OK; }
 sat_result_t update_texture_indexed8_pitched(
     uint16_t, const uint8_t*, uint16_t width, uint16_t height, uint16_t pitch) {
     return width == 0u || height == 0u || pitch < width ? SAT_ERR_INVALID_ARG : SAT_OK;
