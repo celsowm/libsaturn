@@ -13,6 +13,10 @@ namespace {
 int16_t g_samples[4096] = {};
 bool g_physical = false;
 bool g_stereo = false;
+/* Nonzero: the Nth CD read plays the left channel ahead, as a service run
+ * from the CD progress callback does when only the left CA changed half. */
+uint32_t g_skew_left_on_read = 0u;
+uint32_t g_reads = 0u;
 }
 
 extern "C" uint8_t sat_audio_is_initialized(void) {
@@ -44,6 +48,11 @@ extern "C" sat_result_t sat_asset_read_at(
     const char*, uint32_t offset, void* destination, uint32_t bytes, uint32_t* out_read) {
     if (destination == nullptr || out_read == nullptr || offset > sizeof(g_samples)) {
         return SAT_ERR_INVALID_ARG;
+    }
+    if (g_skew_left_on_read != 0u && ++g_reads == g_skew_left_on_read) {
+        saturn::core::AudioStreamSlot& left = saturn::core::g_audio_streams.slots[0];
+        OK(left.used != 0u && left.ring.buffered_frames >= 4096u);
+        saturn::core::audio_stream_consume(left.ring, 4096u);
     }
     const uint32_t available = static_cast<uint32_t>(sizeof(g_samples)) - offset;
     const uint32_t count = bytes < available ? bytes : available;
@@ -107,6 +116,22 @@ int main() {
     OK(sat_music_update(stereo) == SAT_OK);
     OK(sat_music_stop(stereo) == SAT_OK && sat_music_is_playing(stereo) == 0u);
     OK(sat_music_close(stereo) == SAT_OK);
+
+    // Priming must end when one channel is full, even if a service during a
+    // CD read left the other channel with room feed() cannot fill alone.
+    g_reads = 0u;
+    g_skew_left_on_read = 3u;
+    sat_music_t skewed{};
+    OK(sat_music_open(&skewed, "music/cd-stereo.satstream") == SAT_OK);
+    OK(sat_music_play(skewed) == SAT_OK);
+    OK(g_reads >= 3u);
+    const saturn::core::AudioStreamRing& left = saturn::core::g_audio_streams.slots[0].ring;
+    const saturn::core::AudioStreamRing& right = saturn::core::g_audio_streams.slots[1].ring;
+    OK(left.capacity_frames - left.buffered_frames == 4096u);
+    OK(right.buffered_frames == right.capacity_frames);
+    OK(sat_music_stats(skewed, &stats) == SAT_OK && stats.buffered_frames == 32768u - 4096u);
+    g_skew_left_on_read = 0u;
+    OK(sat_music_close(skewed) == SAT_OK);
     std::puts("music api: OK");
     return 0;
 }

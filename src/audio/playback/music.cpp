@@ -78,14 +78,20 @@ void deinterleave_stereo(const uint8_t* interleaved, uint8_t* split,
     }
 }
 
-sat_result_t feed(MusicSlot& slot) {
-    if (slot.playing == 0u) return SAT_OK;
-    const uint8_t stereo = slot.channels == 2u ? 1u : 0u;
+/* Frames every channel can take: stereo writes both rings in lockstep. */
+uint32_t writable_frames(const MusicSlot& slot) {
     uint32_t frames = sat_audio_stream_available(slot.stream);
-    if (stereo != 0u) {
+    if (slot.channels == 2u) {
         const uint32_t available_r = sat_audio_stream_available(slot.stream_r);
         if (available_r < frames) frames = available_r;
     }
+    return frames;
+}
+
+sat_result_t feed(MusicSlot& slot) {
+    if (slot.playing == 0u) return SAT_OK;
+    const uint8_t stereo = slot.channels == 2u ? 1u : 0u;
+    uint32_t frames = writable_frames(slot);
     if (frames > kMusicFeedFrames) frames = kMusicFeedFrames;
     const uint32_t sample_bytes = bytes_per_sample(slot.format);
     const uint32_t frame_bytes = sample_bytes * slot.channels;
@@ -207,8 +213,11 @@ extern "C" sat_result_t sat_music_play(sat_music_t music) {
     slot->playing = 1u;
     // Prime the entire software ring before key-on. CD-backed music otherwise
     // starts with only the two SCSP halves and immediately exhausts them on
-    // the first seek/cache fill.
-    while (sat_audio_stream_available(slot->stream) != 0u) {
+    // the first seek/cache fill. A CD read may run the audio service, which
+    // can refill one channel before the other; priming stops when either is
+    // full, since feed() cannot write only the emptier one and a left-only
+    // gap would otherwise spin here without ever reading (or servicing) again.
+    while (writable_frames(*slot) != 0u) {
         SAT_TRY(feed(*slot));
     }
     return SAT_OK;
