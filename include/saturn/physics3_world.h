@@ -34,6 +34,9 @@ typedef struct sat_physics3_actor {
     /* Sphere/sphere contacts only: relative mass (fx16). 0 means ONE, so
      * zero-initialised actors weigh the same. */
     sat_fx16_t mass;
+    /* Colliders only: nonzero makes a jump-through platform (see
+     * sat_physics3_set_one_way). */
+    uint8_t one_way;
     sat_aabb3_t box;
     sat_plane3_t plane; /* Infinite, two-sided and static. */
     const sat_mesh_t* mesh; /* Borrowed, immutable WORLD-space quad mesh. */
@@ -136,6 +139,13 @@ sat_result_t sat_physics3_set_spatial_broadphase(
  * restores the exact previous behaviour. */
 sat_result_t sat_physics3_set_sphere_pairs(
     sat_physics3_world_t* world, uint16_t* order, uint16_t capacity);
+/* Jump-through platform: a one-way box or mesh resolves a contact only when
+ * the contact normal points up (+Y) and the sphere is not moving away from
+ * it, so a sphere rising through the underside or side passes and lands on
+ * top once it comes back down. Applies to discrete contacts and CCD hits.
+ * Planes and dynamic spheres are rejected. */
+sat_result_t sat_physics3_set_one_way(
+    sat_physics3_world_t* world, uint16_t collider_id, int enabled);
 /* Relative mass of a dynamic sphere for sphere/sphere contacts,
  * 0 < mass <= 4096.0. */
 sat_result_t sat_physics3_set_mass(

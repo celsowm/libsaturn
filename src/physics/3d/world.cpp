@@ -297,6 +297,10 @@ void resolve(sat_physics3_actor_t& ball,const sat_physics3_actor_t& box,
     } else ball.sphere.flags|=SAT_BODY3_HIT_WALL;
     ball.sphere.vel=add(relative,motion);
 }
+/* A one-way collider only holds a sphere coming down onto its top. */
+bool one_way_passes(const sat_physics3_actor_t& collider,V normal,V relative){
+    return collider.one_way && (normal.y<=0 || dot(relative,normal)>0);
+}
 constexpr F kMaxPairRadius=8192*SAT_FX16_ONE;
 F pair_mass(const sat_physics3_actor_t& a){return a.mass>0?a.mass:SAT_FX16_ONE;}
 /* One sweep-and-prune pass over the dynamic spheres. The order array keeps
@@ -380,6 +384,15 @@ extern "C" sat_result_t sat_physics3_set_sphere_pairs(
     if(capacity<w->capacity)return SAT_ERR_CAPACITY;
     for(uint16_t i=0;i<capacity;++i)order[i]=0xffffu;
     w->sphere_pair_order=order;w->sphere_pair_capacity=capacity;
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_physics3_set_one_way(
+    sat_physics3_world_t* w,uint16_t id,int enabled){
+    if(!live(w,id))return SAT_ERR_INVALID_ARG;
+    const sat_physics3_kind_t kind=w->actors[id].kind;
+    if(kind==SAT_PHYSICS3_DYNAMIC_SPHERE||kind==SAT_PHYSICS3_STATIC_PLANE)
+        return SAT_ERR_INVALID_ARG;
+    w->actors[id].one_way=enabled?1u:0u;
     return SAT_OK;
 }
 extern "C" sat_result_t sat_physics3_set_mass(
@@ -894,6 +907,9 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                             ball.sphere.shape,d,&candidate,&found);
                     }else continue;
                     if(status!=SAT_OK)return status;
+                    if(found && one_way_passes(collider,candidate.normal,
+                                               sub(d,collider.frame_motion)))
+                        found=0;
                     if(found && (hit_actor==0xffffu ||
                                  candidate.t<earliest.t)){
                         earliest=candidate;
@@ -992,8 +1008,15 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                                    !fits((int64_t)after.z-before.z))
                                     return SAT_ERR_INVALID_ARG;
                                 const V point_motion=sub(after,before);
+                                if(one_way_passes(box,c.normal,
+                                       sub(ball.sphere.vel,point_motion)))
+                                    continue;
                                 resolve(ball,box,c,&point_motion);
-                            }else resolve(ball,box,c);
+                            }else{
+                                if(one_way_passes(box,c.normal,ball.sphere.vel))
+                                    continue;
+                                resolve(ball,box,c);
+                            }
                             hit=true;
                         }
                         continue;
@@ -1011,6 +1034,9 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                         ? sat_sphere_plane_contact(&ball.sphere.shape,&box.plane,&c)
                         : sat_sphere_aabb3_contact(&ball.sphere.shape,&box.box,&c);
                     if(!contact)continue;
+                    if(one_way_passes(box,c.normal,
+                                      sub(ball.sphere.vel,box.frame_motion)))
+                        continue;
                     resolve(ball,box,c);hit=true;
                 }
                 if(!hit)break;

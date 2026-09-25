@@ -111,6 +111,15 @@ When a world contains only finite meshes (static or translating) and dynamic
 spheres, this option
 caps substeps at `max_substeps` rather than rejecting a high-speed tick;
 box/plane/kinematic worlds retain the original capacity rejection contract.
+### One-way platforms
+
+`sat_physics3_set_one_way(world, collider_id, 1)` turns a box or mesh
+(static or kinematic) into a jump-through platform: a contact or CCD hit is
+resolved only when its normal points up (+Y) and the sphere is not moving
+away from the surface relative to the platform's motion. A sphere rising
+through the underside or an edge passes, then lands on top once it falls
+back. Planes and spheres cannot be one-way.
+
 ### Sphere/sphere contacts (opt-in)
 
 `sat_physics3_set_sphere_pairs(world, order, capacity)` binds a caller-owned

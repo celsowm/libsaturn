@@ -1013,6 +1013,45 @@ static PairRun run_pair(bool enable,const sat_physics3_material_t& material,
 static bool near(sat_fx16_t v,sat_fx16_t want,sat_fx16_t tolerance){
     return v>=want-tolerance && v<=want+tolerance;
 }
+/* A sphere launched up through a one-way box and a one-way mesh passes
+ * through both, then lands on top of each; the same colliders without the
+ * flag stop it underneath. */
+static sat_fx16_t one_way_run(bool mesh,bool one_way,bool* out_grounded){
+    sat_physics3_actor_t actors[2]{};
+    sat_contact3_t contacts[1]{};
+    sat_physics3_world_t w{};
+    const sat_vec3_t gravity={0,-FX(1)/32,0};
+    CHECK(sat_physics3_world_init(&w,actors,2,gravity,16,3)==SAT_OK);
+    CHECK(sat_physics3_set_mesh_contacts(&w,contacts,1)==SAT_OK);
+    static sat_vec3_t top[4]={{-FX(4),FX(4),-FX(4)},{FX(4),FX(4),-FX(4)},
+                              {FX(4),FX(4),FX(4)},{-FX(4),FX(4),FX(4)}};
+    static uint16_t indices[4]={0,1,2,3};
+    static sat_mesh_t slab{top,indices,4,4,1,1};
+    const sat_aabb3_t box={{0,FX(4),0},{FX(4),FX(1)/4,FX(4)}};
+    uint16_t platform=0,ball=0;
+    if(mesh)CHECK(sat_physics3_add_mesh(&w,&slab,&rough,&platform)==SAT_OK);
+    else CHECK(sat_physics3_add_box(&w,SAT_PHYSICS3_STATIC_BOX,&box,&rough,&platform)==SAT_OK);
+    if(one_way)CHECK(sat_physics3_set_one_way(&w,platform,1)==SAT_OK);
+    const sat_sphere_t start={{0,FX(1),0},FX(1)};
+    const sat_vec3_t jump={0,FX(1)/2,0};
+    CHECK(sat_physics3_add_sphere(&w,&start,&jump,&rough,&ball)==SAT_OK);
+    CHECK(sat_physics3_set_one_way(&w,ball,1)==SAT_ERR_INVALID_ARG);
+    for(uint16_t i=0;i<120;++i)CHECK(sat_physics3_world_step(&w)==SAT_OK);
+    const sat_physics3_actor_t end=read(&w,ball);
+    *out_grounded=(end.sphere.flags & SAT_BODY3_GROUNDED)!=0;
+    return end.sphere.shape.center.y;
+}
+static void one_way_platforms(){
+    for(int mesh=0;mesh<2;++mesh){
+        bool grounded=false;
+        const sat_fx16_t landed=one_way_run(mesh!=0,true,&grounded);
+        // Resting on top: the box's top face is 4.25, the mesh's 4.
+        const sat_fx16_t surface=mesh?FX(4):FX(4)+FX(1)/4;
+        CHECK(grounded && landed>=surface+FX(1)-FX(1)/16 && landed<=surface+FX(1)+FX(1)/16);
+        const sat_fx16_t blocked=one_way_run(mesh!=0,false,&grounded);
+        CHECK(blocked<FX(4));  // a solid platform keeps it underneath
+    }
+}
 static void sphere_sphere_contacts(){
     const sat_fx16_t tol=FX(1)/64;
     // Disabled (the default): the spheres pass through each other.
@@ -1074,6 +1113,7 @@ static void sphere_sphere_contacts(){
 }
 int main(){
     sphere_sphere_contacts();
+    one_way_platforms();
     validation_and_capacity();
     floor_contact_and_bounce();
     mesh_aabb_caches_reference_bounds();
@@ -1098,6 +1138,6 @@ int main(){
     translating_mesh_validates_grid_and_target_bounds();
     tilted_kinematic_mesh_contact_and_grid_match();
     rotation_rejects_unsafe_budget_and_invalid_targets();
-    std::puts("test_physics3_world: 23 tests passed");
+    std::puts("test_physics3_world: 25 tests passed");
     return 0;
 }
