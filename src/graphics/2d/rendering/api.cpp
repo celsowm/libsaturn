@@ -1,5 +1,6 @@
 #include "saturn/render2d.h"
 
+#include "src/graphics/2d/palette/tint.hpp"
 #include "src/graphics/2d/rendering/logic.hpp"
 #include "src/graphics/vdp1/color_calc_logic.hpp"
 #include "saturn/vdp2_color_calc.h"
@@ -127,6 +128,13 @@ extern "C" uint16_t sat_render2d_stack_capacity(void) {
 
 extern "C" uint16_t sat_render2d_stack_depth(void) {
     return saturn::core::g_render2d_runtime.depth;
+}
+
+extern "C" sat_result_t sat_render2d_release_tints(void) {
+    using namespace saturn::core;
+    SAT_TRY(require_initialized());
+    tint_release_all(g_tint_cache, g_palette_registry);
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_fill_rect(const sat_rect_t* rect, sat_color_t color) {
@@ -270,24 +278,51 @@ extern "C" sat_result_t sat_draw_texture(
     if (st != SAT_OK) return st;
 
     const sat_draw_params_t effective = params != nullptr ? *params : sat_draw_params_default();
-    uint16_t palette = native->palette;
     uint16_t flags = effective.flags;
+    if (effective.tint.a == 0u && effective.blend_mode != SAT_BLEND_NONE) return SAT_OK;
+
+    /* RGB tint: draw through a palette variant multiplied by the tint. For
+     * ADD the alpha scales the added colour too, which is exactly
+     * dst + src * a. */
+    uint16_t bank = native->palette;
+    uint8_t tint_r = effective.tint.r;
+    uint8_t tint_g = effective.tint.g;
+    uint8_t tint_b = effective.tint.b;
+    if (effective.blend_mode == SAT_BLEND_ADD && effective.tint.a != 255u) {
+        const uint8_t a = effective.tint.a;
+        tint_r = static_cast<uint8_t>((static_cast<uint32_t>(tint_r) * a + 127u) / 255u);
+        tint_g = static_cast<uint8_t>((static_cast<uint32_t>(tint_g) * a + 127u) / 255u);
+        tint_b = static_cast<uint8_t>((static_cast<uint32_t>(tint_b) * a + 127u) / 255u);
+    }
+    if (tint_r != 255u || tint_g != 255u || tint_b != 255u) {
+        /* Hi-res sprites take their bank from CRAOFB for the whole screen. */
+        if (g_state.config.width >= 640u || native->format != SAT_VDP1_TEXTURE_INDEXED8) {
+            return SAT_ERR_UNSUPPORTED;
+        }
+        static uint16_t s_tint_scratch[kCramBankEntries];
+        SAT_TRY(tint_acquire(
+            g_tint_cache, g_palette_registry, native->palette, tint_r, tint_g, tint_b,
+            s_tint_scratch,
+            [](const uint16_t* palette, uint16_t variant) {
+                return saturn::hal::vdp1::upload_palette(palette, variant);
+            },
+            &bank));
+    }
+
+    uint16_t palette = bank;
     if (effective.blend_mode == SAT_BLEND_ALPHA) {
-        if (effective.tint.a == 0u) return SAT_OK;
         if (effective.tint.a != 255u) {
             uint8_t slot_id = 0u;
             SAT_TRY(sat_vdp2_sprite_color_calc_alpha_slot(effective.tint.a, &slot_id, nullptr));
             SAT_TRY(sat_vdp2_sprite_color_calc_claim_mode(SAT_VDP2_COLOR_CALC_RATIO));
-            SAT_TRY(vdp1_color_calc::encode_palette_selector(native->palette, slot_id, &palette));
+            SAT_TRY(vdp1_color_calc::encode_palette_selector(bank, slot_id, &palette));
         }
     } else if (effective.blend_mode == SAT_BLEND_ADD) {
-        if (effective.tint.a == 0u) return SAT_OK;
         /* Add mode ignores the ratio registers, so any slot selects the
          * colour-calculated priority; slot 0 it is. */
         SAT_TRY(sat_vdp2_sprite_color_calc_claim_mode(SAT_VDP2_COLOR_CALC_ADD));
-        SAT_TRY(vdp1_color_calc::encode_palette_selector(native->palette, 0u, &palette));
+        SAT_TRY(vdp1_color_calc::encode_palette_selector(bank, 0u, &palette));
     } else if (effective.blend_mode == SAT_BLEND_SUBTRACT) {
-        if (effective.tint.a == 0u) return SAT_OK;
         /* VDP1 shadow: the sprite's opaque texels halve the RGB pixels
          * already drawn under them. */
         flags = static_cast<uint16_t>(flags | SAT_SPRITE_FLAG_SHADOW);

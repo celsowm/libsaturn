@@ -110,8 +110,19 @@ sat_result_t sat_draw_line(sat_point_t start, sat_point_t end, sat_color_t color
  *
  * dst is required and its width/height must be non-zero. Scaling, X/Y flip,
  * rotation around params.center, and the current Camera2D are supported.
- * params == NULL is equivalent to sat_draw_params_default(). The current
- * Neutral RGB tint and SAT_BLEND_NONE draw normally. SAT_BLEND_ALPHA
+ * params == NULL is equivalent to sat_draw_params_default().
+ * tint.rgb multiplies the texture's colours, per sprite: the sprite is drawn
+ * through a variant CRAM bank holding its palette times the tint (exact per
+ * palette entry, rounded to 5 bits). Variants are shared between sprites
+ * with the same palette and tint, rebuilt when the texture's palette
+ * changes, and take one of the 8 CRAM banks each; at most 4 exist, and one
+ * is only recycled after two frames unused (CRAM is read when the frame is
+ * displayed), so a fifth distinct tint in a frame returns SAT_ERR_CAPACITY,
+ * as does a tint with no free bank. sat_render2d_release_tints() hands the
+ * banks back (call it when no tinted sprite is on screen). Hi-res refuses
+ * tint (UNSUPPORTED): its sprites share one bank. Layer-wide tint is the
+ * VDP2 colour offset, sat_vdp2_color_offset_set.
+ * With SAT_BLEND_NONE tint.a must be 255. SAT_BLEND_ALPHA
  * interprets tint.a as 0 (skip), 255 (normal), or intermediate alpha via a
  * preconfigured VDP2 sprite color-calculation ratio slot. Call
  * sat_vdp2_sprite_color_calc_configure_alpha() first, and keep the VDP2
@@ -121,7 +132,8 @@ sat_result_t sat_draw_line(sat_point_t start, sat_point_t end, sat_color_t color
  * sat_vdp2_sprite_color_calc_alpha_slot); strict alpha refuses instead.
  * SAT_BLEND_ADD adds the sprite to the VDP2 image below it, saturating per
  * channel (VDP2 colour-calculation add mode), with the same set-up and the
- * same priority rule as ALPHA; tint.a is 0 (skip) or 255. The add/ratio mode
+ * same priority rule as ALPHA; tint.a scales the added colour (dst +
+ * src * tint * a, through the palette variant; 0 skips). The add/ratio mode
  * is one bit for the whole screen: in a frame that already drew an
  * intermediate-alpha sprite or a colour-calc fade, ADD returns SAT_ERR_BUSY,
  * and the reverse (see sat_vdp2_sprite_color_calc_claim_mode).
@@ -129,16 +141,20 @@ sat_result_t sat_draw_line(sat_point_t start, sat_point_t end, sat_color_t color
  * and every RGB pixel already in the framebuffer under one of its opaque
  * texels loses half its brightness (dst - dst/2). Palette pixels and the
  * VDP2 layers behind are untouched; darken a whole layer (or all sprites)
- * with sat_vdp2_color_offset_set instead. tint.a is 0 (skip) or 255.
+ * with sat_vdp2_color_offset_set instead. tint.a is 0 (skip) or 255 and
+ * tint.rgb must be white (a shadow has no colour to tint).
  * A true dst - src subtraction is not a Saturn operation.
- * SAT_SPRITE_FLAG_MESH is also supported (checkerboard, not color blending).
- * Non-neutral RGB tint remains unsupported. */
+ * SAT_SPRITE_FLAG_MESH is also supported (checkerboard, not color blending). */
 sat_result_t sat_draw_texture(
     sat_texture_t texture,
     const sat_rect_t* src,
     const sat_rect_t* dst,
     const sat_draw_params_t* params
 );
+
+/* Releases every tint variant bank (see sat_draw_texture's tint). The caller
+ * guarantees no sprite drawn with a tint is still queued or displayed. */
+sat_result_t sat_render2d_release_tints(void);
 
 #ifdef __cplusplus
 }

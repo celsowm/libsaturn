@@ -16,6 +16,9 @@ struct PaletteRegistry {
     uint8_t logical_mask;
     uint16_t logical_refs[kCramBankCount];
     uint16_t logical_palettes[kCramBankCount][kCramBankEntries];
+    /* Bumped whenever a bank's logical palette is (re)written, so a copy
+     * derived from it (a tint variant) can tell it is stale. */
+    uint16_t generation[kCramBankCount];
 };
 
 extern PaletteRegistry g_palette_registry;
@@ -25,6 +28,7 @@ inline void palette_registry_reset(PaletteRegistry& state) {
     state.logical_mask = 0u;
     for (uint16_t bank = 0; bank < kCramBankCount; ++bank) {
         state.logical_refs[bank] = 0u;
+        state.generation[bank] = 0u;
     }
 }
 
@@ -92,6 +96,7 @@ inline sat_result_t palette_acquire_logical(
             state.logical_mask = static_cast<uint8_t>(state.logical_mask | bit);
             state.logical_refs[bank] = 1u;
             palette_copy(state.logical_palettes[bank], palette);
+            ++state.generation[bank];
             *out_bank = bank;
             *out_needs_upload = true;
             return SAT_OK;
@@ -176,8 +181,10 @@ inline void palette_commit_rebind(
     const uint16_t* palette
 ) {
     if (plan.old_bank == plan.target_bank) {
-        if (plan.needs_upload)
+        if (plan.needs_upload) {
             palette_copy(state.logical_palettes[plan.target_bank], palette);
+            ++state.generation[plan.target_bank];
+        }
         return;
     }
 
@@ -188,6 +195,7 @@ inline void palette_commit_rebind(
         state.logical_mask = static_cast<uint8_t>(state.logical_mask | target_bit);
         state.logical_refs[plan.target_bank] = 1u;
         palette_copy(state.logical_palettes[plan.target_bank], palette);
+        ++state.generation[plan.target_bank];
     }
     (void)palette_release_logical(state, plan.old_bank);
 }

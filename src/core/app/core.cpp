@@ -5,6 +5,7 @@
 #include "src/core/runtime/internal.hpp"
 #include "src/input/runtime.hpp"
 #include "src/graphics/2d/palette/registry.hpp"
+#include "src/graphics/2d/palette/tint.hpp"
 #include "src/storage/files/asset_runtime.hpp"
 #include "src/graphics/2d/rendering/runtime.hpp"
 #include "src/core/runtime/state.hpp"
@@ -35,6 +36,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     input_runtime_reset(g_input_runtime);
     file_asset_runtime_reset(g_file_asset_runtime);
     palette_registry_reset(g_palette_registry);
+    tint_cache_reset(g_tint_cache);
     texture_registry_reset(g_texture_registry);
     render2d_runtime_reset(g_render2d_runtime);
 
@@ -64,6 +66,7 @@ extern "C" sat_result_t sat_shutdown(void) {
     input_runtime_reset(g_input_runtime);
     file_asset_runtime_reset(g_file_asset_runtime);
     palette_registry_reset(g_palette_registry);
+    tint_cache_reset(g_tint_cache);
     texture_registry_reset(g_texture_registry);
     render2d_runtime_reset(g_render2d_runtime);
     g_state.initialized = false;

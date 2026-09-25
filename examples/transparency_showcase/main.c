@@ -160,8 +160,17 @@ int main(void) {
             continue;
         }
         if (page == 2u) {
-            draw_text("SATURN COLOUR OFFSET", 8, 8);
+            /* Per-sprite tint: each draws through a palette variant bank
+             * (palette x tint); the sprite layer has no colour offset. */
+            sat_draw_params_t red = sat_draw_params_default();
+            red.tint = sat_color_rgba(255u, 64u, 64u, 255u);
+            sat_example_must(sat_draw_texture(sprite, 0, &middle, &red));
+            sat_draw_params_t teal = sat_draw_params_default();
+            teal.tint = sat_color_rgba(64u, 255u, 192u, 255u);
+            sat_example_must(sat_draw_texture(sprite, 0, &right, &teal));
+            draw_text("SATURN OFFSET + TINT", 8, 8);
             draw_text("NBG0 OFFSET -64", 8, 58);
+            draw_text("TINT", 140, 160);
             draw_text("B: PAGE  START: EXIT", 8, 185);
             sat_example_must(sat_end_frame());
             continue;

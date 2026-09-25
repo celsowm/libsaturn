@@ -4,6 +4,7 @@
 #include "saturn/render2d.h"
 #include "saturn/vdp2_color_calc.h"
 #include "src/graphics/2d/palette/registry.hpp"
+#include "src/graphics/2d/palette/tint.hpp"
 #include "src/graphics/2d/rendering/runtime.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/graphics/2d/textures/runtime.hpp"
@@ -14,6 +15,8 @@
 namespace {
 uint16_t g_next_srca = 0x2000u;
 uint32_t g_palette_uploads = 0u;
+uint16_t g_last_palette[256]{};
+uint16_t g_last_palette_bank = 0xFFFFu;
 uint32_t g_texture_uploads = 0u;
 uint32_t g_user_clip_calls = 0u;
 uint32_t g_sprite_calls = 0u;
@@ -57,8 +60,10 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_claim_mode(
 
 namespace saturn::hal::vdp1 {
 
-sat_result_t upload_palette(const uint16_t*, uint16_t) {
+sat_result_t upload_palette(const uint16_t* palette, uint16_t bank) {
     ++g_palette_uploads;
+    for (uint16_t i = 0u; i < 256u; ++i) g_last_palette[i] = palette[i];
+    g_last_palette_bank = bank;
     return SAT_OK;
 }
 
@@ -146,6 +151,7 @@ static void reset_runtime() {
     g_state.config.height = 224u;
     g_state.config.ntsc = 1u;
     palette_registry_reset(g_palette_registry);
+    tint_cache_reset(g_tint_cache);
     texture_registry_reset(g_texture_registry);
     render2d_runtime_reset(g_render2d_runtime);
     g_next_srca = 0x2000u;
@@ -301,13 +307,15 @@ int main() {
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_OK);
     OK(g_sprite_calls == sprites_before_add + 1u);
     OK(g_claims == claims_before_skip);
+    /* Partial ADD scales a palette variant by a (checked with tint below). */
     add.tint.a = 100u;
-    OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_ERR_UNSUPPORTED);
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_OK);
+    OK(sat_render2d_release_tints() == SAT_OK);
     /* A frame already claimed for ratio refuses ADD without drawing. */
     add.tint.a = 255u;
     g_claim_result = SAT_ERR_BUSY;
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_ERR_BUSY);
-    OK(g_sprite_calls == sprites_before_add + 1u);
+    OK(g_sprite_calls == sprites_before_add + 2u);
     alpha.rotation = 0;
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &alpha) == SAT_ERR_BUSY);
     g_claim_result = SAT_OK;
@@ -315,6 +323,90 @@ int main() {
     g_alpha_configured = false;
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &add) == SAT_ERR_NOT_INITIALIZED);
     g_alpha_configured = true;
+
+    /* Per-sprite tint: drawn through a variant bank = palette x tint. */
+    uint16_t tint_palette[256]{};
+    tint_palette[1] = SAT_RGB555(31u, 31u, 31u);
+    tint_palette[2] = SAT_RGB555(20u, 10u, 4u);
+    sat_surface_t tint_surface{pixels, 16u, 8u, 16u, SAT_PIXEL_INDEX8, tint_palette, 256u};
+    sat_texture_t tinted{};
+    OK(sat_texture_create_from_surface(&tinted, &tint_surface, SAT_TEXTURE_UPLOAD_ONLY) == SAT_OK);
+    sat_texture_info_t tinted_info{};
+    OK(sat_texture_info(tinted, &tinted_info) == SAT_OK);
+    const uint16_t source_bank = g_last_palette_bank;
+    OK(source_bank != 0xFFFFu);
+    sat_draw_params_t tint = sat_draw_params_default();
+    tint.tint = sat_color_rgba(255u, 128u, 0u, 255u);
+    uint32_t uploads = g_palette_uploads;
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &tint) == SAT_OK);
+    OK(g_palette_uploads == uploads + 1u);
+    const uint16_t orange_bank = g_last_palette_bank;
+    OK(orange_bank != source_bank && orange_bank < 8u);
+    OK(g_last_sprite.palette == orange_bank);
+    OK(g_last_palette[1] == SAT_RGB555(31u, 16u, 0u));
+    OK(g_last_palette[2] == SAT_RGB555(20u, 5u, 0u));
+    OK(g_last_palette[0] == 0u);
+    /* Same texture + tint: the cached variant, no CRAM traffic. */
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &tint) == SAT_OK);
+    OK(g_palette_uploads == uploads + 1u);
+    OK(g_last_sprite.palette == orange_bank);
+    /* Tint + ALPHA: the variant bank carries the colour-calc slot. */
+    tint.blend_mode = SAT_BLEND_ALPHA;
+    tint.tint.a = 128u;
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &tint) == SAT_OK);
+    OK(g_last_sprite.palette == (0x0040u | (4u << 3u) | orange_bank));
+    /* ADD at half alpha: the added colour is the palette scaled by a. */
+    sat_draw_params_t half_add = sat_draw_params_default();
+    half_add.blend_mode = SAT_BLEND_ADD;
+    half_add.tint.a = 128u;
+    uploads = g_palette_uploads;
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &half_add) == SAT_OK);
+    OK(g_palette_uploads == uploads + 1u);
+    OK(g_last_palette[1] == SAT_RGB555(16u, 16u, 16u));
+    OK(g_last_sprite.palette == (0x0040u | g_last_palette_bank));
+    /* Four variants at most; a fifth distinct tint in the same frame (and
+     * the one after: CRAM is read at display) finds no bank to recycle. */
+    sat_draw_params_t green = sat_draw_params_default();
+    green.tint = sat_color_rgba(0u, 255u, 0u, 255u);
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &green) == SAT_OK);
+    sat_draw_params_t blue = sat_draw_params_default();
+    blue.tint = sat_color_rgba(0u, 0u, 255u, 255u);
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &blue) == SAT_OK);
+    sat_draw_params_t grey = sat_draw_params_default();
+    grey.tint = sat_color_rgba(10u, 10u, 10u, 255u);
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &grey) == SAT_ERR_CAPACITY);
+    tint_cache_begin_frame(g_tint_cache);
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &blue) == SAT_OK);
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &grey) == SAT_ERR_CAPACITY);
+    tint_cache_begin_frame(g_tint_cache);
+    /* Two frames on, the least recently used variant (orange) is recycled. */
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &grey) == SAT_OK);
+    OK(g_last_palette[1] == SAT_RGB555(1u, 1u, 1u));
+    /* The source palette changed: the variant is rebuilt from the new one. */
+    uploads = g_palette_uploads;
+    g_palette_registry.logical_palettes[source_bank][1] = SAT_RGB555(0u, 31u, 0u);
+    ++g_palette_registry.generation[source_bank];
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &blue) == SAT_OK);
+    OK(g_palette_uploads == uploads + 1u);
+    OK(g_last_palette[1] == SAT_RGB555(0u, 0u, 0u));
+    /* Tint rules: NONE needs full alpha; a shadow has no colour to tint;
+     * hi-res sprites share one bank. */
+    sat_draw_params_t faint = sat_draw_params_default();
+    faint.tint.a = 128u;
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &faint) == SAT_ERR_UNSUPPORTED);
+    sat_draw_params_t tinted_shadow = sat_draw_params_default();
+    tinted_shadow.blend_mode = SAT_BLEND_SUBTRACT;
+    tinted_shadow.tint.g = 0u;
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &tinted_shadow) == SAT_ERR_UNSUPPORTED);
+    g_state.config.width = 640u;
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &green) == SAT_ERR_UNSUPPORTED);
+    g_state.config.width = 320u;
+    /* Release hands every variant bank back to the registry. */
+    const uint8_t mask_with_variants = g_palette_registry.logical_mask;
+    OK(sat_render2d_release_tints() == SAT_OK);
+    OK(g_palette_registry.logical_mask ==
+       (1u << 0u | 1u << source_bank));
+    OK(mask_with_variants != g_palette_registry.logical_mask);
 
     /* SUBTRACT: VDP1 shadow on the sprite, no colour-calc selector. */
     sat_draw_params_t subtract = sat_draw_params_default();

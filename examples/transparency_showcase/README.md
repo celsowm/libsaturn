@@ -29,6 +29,9 @@ second shows the other blend modes:
 The third page applies VDP2 colour offset A = -64 to NBG0 alone
 (`sat_vdp2_color_offset_set` / `_enable`): every background pixel loses 64
 per channel, clamped at 0, while the VDP1 rectangles keep their colour.
+It also draws the sprite twice with an RGB tint (`params.tint`): each draw
+goes through a variant CRAM bank holding the palette times the tint, so the
+two sprites show red and teal versions of the same texture.
 
 START exits.
 

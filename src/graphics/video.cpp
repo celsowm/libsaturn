@@ -1,5 +1,6 @@
 #include "saturn/video.h"
 
+#include "src/graphics/2d/palette/tint.hpp"
 #include "src/graphics/2d/rendering/runtime.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/scu/scu.hpp"
@@ -15,6 +16,7 @@ extern "C" sat_result_t sat_begin_frame(void) {
     }
     saturn::hal::vdp1::begin_frame(g_state.command_buffer, saturn::internal::kCmdCapacity);
     saturn::hal::vdp2_color_calc::begin_frame();
+    tint_cache_begin_frame(g_tint_cache);
     g_render2d_runtime.clip_dirty = g_render2d_runtime.current.clip_enabled;
     return render2d_ensure_clip(g_state.config.width, g_state.config.height);
 }

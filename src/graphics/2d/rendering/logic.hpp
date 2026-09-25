@@ -74,16 +74,17 @@ inline sat_result_t validate_render2d_params(const sat_draw_params_t* params) {
     if (params->blend_mode > SAT_BLEND_SUBTRACT) return SAT_ERR_INVALID_ARG;
     if ((params->flags & ~SAT_SPRITE_FLAG_MESH) != 0u ||
         params->reserved != 0u) return SAT_ERR_INVALID_ARG;
-    if (!render2d_neutral_rgb(params->tint)) return SAT_ERR_UNSUPPORTED;
-    if (params->blend_mode == SAT_BLEND_ALPHA) return SAT_OK;
-    /* ADD and SUBTRACT at full strength: tint.a is 0 (skip) or 255. */
-    if (params->blend_mode == SAT_BLEND_ADD || params->blend_mode == SAT_BLEND_SUBTRACT) {
+    /* RGB tint rides on a palette variant, and ADD's alpha scales that
+     * variant too; ALPHA uses a ratio slot. The shadow draws no colour, so
+     * SUBTRACT has nothing to tint, and NONE has no alpha to give. */
+    if (params->blend_mode == SAT_BLEND_ALPHA || params->blend_mode == SAT_BLEND_ADD) {
+        return SAT_OK;
+    }
+    if (params->blend_mode == SAT_BLEND_SUBTRACT) {
+        if (!render2d_neutral_rgb(params->tint)) return SAT_ERR_UNSUPPORTED;
         return params->tint.a == 0u || params->tint.a == 255u ? SAT_OK : SAT_ERR_UNSUPPORTED;
     }
-    if (params->blend_mode != SAT_BLEND_NONE || !render2d_neutral_tint(params->tint)) {
-        return SAT_ERR_UNSUPPORTED;
-    }
-    return SAT_OK;
+    return params->tint.a == 255u ? SAT_OK : SAT_ERR_UNSUPPORTED;
 }
 
 inline sat_result_t resolve_render2d_clip(
