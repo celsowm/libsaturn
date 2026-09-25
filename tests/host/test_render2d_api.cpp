@@ -60,6 +60,7 @@ sat_result_t upload_texture_indexed8_pitched(
     return SAT_OK;
 }
 
+bool wait_draw_end() { return true; }
 sat_result_t check_texture_indexed8_update(uint16_t, uint16_t, uint16_t, uint16_t) { return SAT_OK; }
 sat_result_t check_texture_indexed8_rect(
     uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t) { return SAT_OK; }

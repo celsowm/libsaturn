@@ -1,4 +1,5 @@
 #include "src/hal/vdp1/vdp1.hpp"
+#include "src/hal/scu/scu.hpp"
 #include "src/core/runtime/logic.hpp"
 #include "saturn/vdp1.h"
 #include "src/graphics/3d/scene/test_metrics.h"
@@ -26,6 +27,7 @@ constexpr uintptr_t kUncached = 0x20000000u;
 #define EWDR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00006u))
 #define EWLR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00008u))
 #define EWRR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D0000Au))
+#define EDSR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00010u))
 /* These are macros rather than reference variables on purpose: a reference or
  * pointer bound to a reinterpret_cast is dynamically initialized, and this
  * build runs no static constructors (crt0.s calls _main directly and the
@@ -56,6 +58,11 @@ uint16_t g_gouraud_words[kGouraudTableCapacity * 4u];
 uint16_t g_gouraud_count = 0;
 uint32_t g_frame_serial=0u;
 bool g_frame_submitted=true;
+/* Set once a command list has been handed to the VDP1: before that, only
+ * init's lone END list exists and there is no drawing to wait for. */
+bool g_list_submitted=false;
+uint32_t g_draw_waits=0u;
+uint32_t g_draw_timeouts=0u;
 uint32_t g_texture_cursor = kTextureBase;
 uint16_t g_width = 320;
 uint16_t g_height = 224;
@@ -569,10 +576,42 @@ sat_result_t push_line_gouraud(const LineRequest& req, const uint16_t* gouraud) 
     return shade_last_command(push_line(req), grda);
 }
 
+bool wait_draw_end() {
+    // EDSR bit 1 (CEF) is cleared when the VDP1 starts drawing a list and set
+    // when it reaches the END command (VDP1 manual, EDSR).
+    constexpr uint16_t kCef = 0x0002u;
+    if (!g_list_submitted || (EDSR & kCef) != 0u) return true;
+    ++g_draw_waits;
+    const uint32_t frame_ticks = saturn::hal::scu::ticks_per_frame();
+    if (frame_ticks != 0u) {
+        const uint64_t start = saturn::hal::scu::elapsed_ticks();
+        while ((EDSR & kCef) == 0u) {
+            if (saturn::hal::scu::elapsed_ticks() - start > 2u * frame_ticks) {
+                ++g_draw_timeouts;
+                return false;
+            }
+        }
+        return true;
+    }
+    // Uncalibrated frame clock: a bounded register poll instead.
+    for (uint32_t i = 0u; i < 0x100000u; ++i) {
+        if ((EDSR & kCef) != 0u) return true;
+    }
+    ++g_draw_timeouts;
+    return false;
+}
+
+uint32_t draw_waits() { return g_draw_waits; }
+uint32_t draw_timeouts() { return g_draw_timeouts; }
+
 void submit() {
     if (g_cmd_buffer == nullptr) {
         return;
     }
+    // Never rewrite the command table while the VDP1 still reads the
+    // previous one. On timeout the frame is submitted anyway (counted):
+    // dropping it would stall the game on a wedged VDP1.
+    (void)wait_draw_end();
     if (g_cmd_count >= g_cmd_capacity) {
         g_cmd_count = static_cast<uint16_t>(g_cmd_capacity - 1u);
     }
@@ -603,6 +642,7 @@ void submit() {
         VDP1_VRAM_16[gouraud_word_base + i] = g_gouraud_words[i];
     }
     g_frame_submitted=true;
+    g_list_submitted=true;
 }
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index) {
@@ -779,6 +819,14 @@ extern "C" uint32_t sat_vdp1_test_scene_command_count(void) {
 
 extern "C" uint32_t sat_vdp1_test_scene_command_capacity(void) {
     return g_cmd_capacity;
+}
+
+extern "C" uint32_t sat_vdp1_test_draw_waits(void) {
+    return g_draw_waits;
+}
+
+extern "C" uint32_t sat_vdp1_test_draw_timeouts(void) {
+    return g_draw_timeouts;
 }
 #endif
 

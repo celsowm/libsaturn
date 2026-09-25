@@ -25,6 +25,9 @@ sat_result_t g_rect_update_status = SAT_OK;
 /* Preflight verdict: stands for a range the real HAL would reject. */
 sat_result_t g_check_status = SAT_OK;
 uint32_t g_check_calls = 0u;
+/* false: the VDP1 is still drawing when the wait gives up. */
+bool g_draw_ends = true;
+uint32_t g_draw_end_waits = 0u;
 uint16_t g_rect_x = 0u, g_rect_y = 0u;
 uint16_t g_rect_w = 0u, g_rect_h = 0u;
 uint16_t g_rect_tex_w = 0u, g_rect_tex_h = 0u;
@@ -58,6 +61,11 @@ sat_result_t update_texture_indexed8_pitched(
          g_texture_updates == g_fail_texture_update_call))
         return g_texture_update_status;
     return SAT_OK;
+}
+
+bool wait_draw_end() {
+    ++g_draw_end_waits;
+    return g_draw_ends;
 }
 
 sat_result_t check_texture_indexed8_update(uint16_t, uint16_t, uint16_t, uint16_t) {
@@ -114,6 +122,8 @@ static void reset_runtime() {
     g_rect_update_status = SAT_OK;
     g_check_status = SAT_OK;
     g_check_calls = 0u;
+    g_draw_ends = true;
+    g_draw_end_waits = 0u;
     g_rect_x = g_rect_y = g_rect_w = g_rect_h = 0u;
     g_rect_tex_w = g_rect_tex_h = g_rect_srca = 0u;
 }
@@ -298,8 +308,18 @@ static void rejected_update_changes_nothing() {
     sat_texture_info_t info{};
     OK(sat_texture_info(handle, &info) == SAT_OK && info.health == SAT_TEXTURE_READY);
 
-    // With the preflight passing, the same calls go through.
+    // A VDP1 still drawing from the texture blocks the rewrite: BUSY, and
+    // again nothing changed. The preflight ran first, so the wait did too.
     g_check_status = SAT_OK;
+    g_draw_ends = false;
+    OK(sat_texture_update(handle, &replacement) == SAT_ERR_BUSY);
+    OK(sat_texture_update_rect(handle, &patch_rect, &patch) == SAT_ERR_BUSY);
+    OK(g_draw_end_waits == 2u);
+    OK(g_palette_uploads == palette_calls && g_texture_updates == texture_calls);
+    OK(pixels[0] == 0u && g_rect_updates == rect_calls && slot->native.valid == 1u);
+    g_draw_ends = true;
+
+    // With the preflight passing, the same calls go through.
     OK(sat_texture_update_rect(handle, &patch_rect, &patch) == SAT_OK && pixels[0] == 9u);
     OK(sat_texture_update(handle, &replacement) == SAT_OK);
     OK(sat_texture_destroy(handle) == SAT_OK);

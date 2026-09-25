@@ -292,6 +292,8 @@ extern "C" sat_result_t sat_texture_update(sat_texture_t texture, const sat_surf
         st = preflight_regions(texture, source->pitch, nullptr);
         if (st != SAT_OK) return st;
     }
+    // The last submitted list may still be drawing from this texture.
+    if (!saturn::hal::vdp1::wait_draw_end()) return SAT_ERR_BUSY;
 
     // Upload BEFORE changing logical palette ownership. An unsuccessful CRAM
     // transfer may still be partial, so invalidate the texture and all of its
@@ -373,6 +375,7 @@ extern "C" sat_result_t sat_texture_update_rect(
     if (st != SAT_OK) return st;
     st = preflight_regions(texture, slot->source.pitch, destination_rect);
     if (st != SAT_OK) return st;
+    if (!saturn::hal::vdp1::wait_draw_end()) return SAT_ERR_BUSY;
     for (uint16_t y = 0; y < destination_rect->height; ++y) {
         uint8_t* dst = surface_row(slot->source, static_cast<uint16_t>(dst_y + y)) + dst_x;
         const uint8_t* src = surface_row(*source, y);

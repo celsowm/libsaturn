@@ -139,6 +139,15 @@ sat_result_t upload_texture_lut4(
     uint16_t height,
     uint16_t* out_srca);
 
+/* Waits until the VDP1 has finished drawing the last submitted command list
+ * (EDSR.CEF), bounded to about two frames; false on timeout. True at once
+ * when it is idle or nothing was submitted yet. Call before rewriting VRAM
+ * that list may read: the command table (submit() does) or a texture. */
+bool wait_draw_end();
+/* How often wait_draw_end found drawing in progress, and gave up. */
+uint32_t draw_waits();
+uint32_t draw_timeouts();
+
 /* Every check update_texture_indexed8_pitched / _rect perform before
  * writing, without writing: callers preflight a multi-transfer update so it
  * fails before its first write rather than halfway through. */

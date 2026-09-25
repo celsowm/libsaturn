@@ -13,6 +13,9 @@ uint32_t sat_scene3d_test_input_publish_ticks(void);
 uint32_t sat_vdp1_test_scene_command_hash(void);
 uint32_t sat_vdp1_test_scene_command_count(void);
 uint32_t sat_vdp1_test_scene_command_capacity(void);
+/* Submits/texture writes that found the VDP1 still drawing; and gave up. */
+uint32_t sat_vdp1_test_draw_waits(void);
+uint32_t sat_vdp1_test_draw_timeouts(void);
 
 #if defined(__cplusplus)
 }
