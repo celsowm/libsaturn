@@ -985,7 +985,95 @@ static void rotation_rejects_unsafe_budget_and_invalid_targets() {
     CHECK(sat_physics3_world_step(&w)==SAT_OK);
     CHECK(read(&w,mesh_id).mesh_orientation.z>FX(1)/5);
 }
+/* Two spheres approach along x with no gravity; returns both actors after
+ * `ticks`, plus the contacts counted. */
+struct PairRun { sat_physics3_actor_t a,b; uint16_t contacts; };
+static PairRun run_pair(bool enable,const sat_physics3_material_t& material,
+                        sat_fx16_t mass_b,uint16_t ticks){
+    sat_physics3_actor_t actors[2]{};
+    uint16_t order[2]{};
+    sat_physics3_world_t w{};
+    CHECK(sat_physics3_world_init(&w,actors,2,zero,8,2)==SAT_OK);
+    if(enable)CHECK(sat_physics3_set_sphere_pairs(&w,order,2)==SAT_OK);
+    const sat_sphere_t left={{-FX(3),0,0},FX(1)};
+    const sat_sphere_t right={{FX(3),0,0},FX(1)};
+    const sat_vec3_t va={FX(1)/2,0,0};
+    const sat_vec3_t vb={mass_b==SAT_FX16_ONE?-FX(1)/2:0,0,0};
+    uint16_t a=0,b=0;
+    CHECK(sat_physics3_add_sphere(&w,&left,&va,&material,&a)==SAT_OK);
+    CHECK(sat_physics3_add_sphere(&w,&right,&vb,&material,&b)==SAT_OK);
+    if(mass_b!=SAT_FX16_ONE)CHECK(sat_physics3_set_mass(&w,b,mass_b)==SAT_OK);
+    uint16_t contacts=0;
+    for(uint16_t i=0;i<ticks;++i){
+        CHECK(sat_physics3_world_step(&w)==SAT_OK);
+        contacts=(uint16_t)(contacts+w.sphere_pair_contacts);
+    }
+    return {read(&w,a),read(&w,b),contacts};
+}
+static bool near(sat_fx16_t v,sat_fx16_t want,sat_fx16_t tolerance){
+    return v>=want-tolerance && v<=want+tolerance;
+}
+static void sphere_sphere_contacts(){
+    const sat_fx16_t tol=FX(1)/64;
+    // Disabled (the default): the spheres pass through each other.
+    PairRun off=run_pair(false,bouncy,SAT_FX16_ONE,12);
+    CHECK(off.contacts==0 && off.a.sphere.shape.center.x>off.b.sphere.shape.center.x);
+    // Equal masses, elastic: the velocities swap; momentum is conserved.
+    PairRun elastic=run_pair(true,bouncy,SAT_FX16_ONE,12);
+    CHECK(elastic.contacts>0);
+    CHECK(near(elastic.a.sphere.vel.x,-FX(1)/2,tol) && near(elastic.b.sphere.vel.x,FX(1)/2,tol));
+    CHECK(near(elastic.a.sphere.vel.x+elastic.b.sphere.vel.x,0,tol));
+    CHECK(elastic.b.sphere.shape.center.x-elastic.a.sphere.shape.center.x>=FX(2)-tol);
+    // Perfectly inelastic: both stop, touching.
+    PairRun dead=run_pair(true,rough,SAT_FX16_ONE,12);
+    CHECK(near(dead.a.sphere.vel.x,0,tol) && near(dead.b.sphere.vel.x,0,tol));
+    CHECK(near(dead.b.sphere.shape.center.x-dead.a.sphere.shape.center.x,FX(2),tol));
+    // Mass 3 at rest, elastic: v_a' = (1-3)/4 * 0.5, v_b' = 2/4 * 0.5.
+    PairRun heavy=run_pair(true,bouncy,3*SAT_FX16_ONE,16);
+    CHECK(near(heavy.a.sphere.vel.x,-FX(1)/4,tol) && near(heavy.b.sphere.vel.x,FX(1)/4,tol));
+    CHECK(near(heavy.a.sphere.vel.x+3*heavy.b.sphere.vel.x,FX(1)/2,3*tol));
+    // Deterministic replay.
+    PairRun again=run_pair(true,bouncy,3*SAT_FX16_ONE,16);
+    CHECK(again.a.sphere.shape.center.x==heavy.a.sphere.shape.center.x &&
+          again.b.sphere.vel.x==heavy.b.sphere.vel.x);
+
+    // A sphere resting on a sphere resting on the floor stays stacked.
+    sat_physics3_actor_t actors[3]{};
+    uint16_t order[3]{};
+    sat_physics3_world_t w{};
+    const sat_vec3_t gravity={0,-FX(1)/32,0};
+    CHECK(sat_physics3_world_init(&w,actors,3,gravity,8,3)==SAT_OK);
+    CHECK(sat_physics3_set_sphere_pairs(&w,order,2)==SAT_ERR_CAPACITY);
+    CHECK(sat_physics3_set_sphere_pairs(&w,order,3)==SAT_OK);
+    const sat_aabb3_t floor={{0,-FX(1),0},{FX(8),FX(1),FX(8)}};
+    const sat_sphere_t low={{0,FX(1),0},FX(1)};
+    const sat_sphere_t high={{0,FX(3)+FX(1)/4,0},FX(1)};
+    uint16_t floor_id,low_id,high_id;
+    CHECK(sat_physics3_add_box(&w,SAT_PHYSICS3_STATIC_BOX,&floor,&rough,&floor_id)==SAT_OK);
+    CHECK(sat_physics3_add_sphere(&w,&low,&zero,&rough,&low_id)==SAT_OK);
+    CHECK(sat_physics3_add_sphere(&w,&high,&zero,&rough,&high_id)==SAT_OK);
+    CHECK(sat_physics3_set_mass(&w,floor_id,SAT_FX16_ONE)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_set_mass(&w,low_id,0)==SAT_ERR_INVALID_ARG);
+    for(uint16_t i=0;i<240;++i)CHECK(sat_physics3_world_step(&w)==SAT_OK);
+    const sat_physics3_actor_t bottom=read(&w,low_id),top=read(&w,high_id);
+    CHECK(near(bottom.sphere.shape.center.y,FX(1),FX(1)/8));
+    CHECK(near(top.sphere.shape.center.y-bottom.sphere.shape.center.y,FX(2),FX(1)/8));
+    CHECK(near(top.sphere.shape.center.x,0,FX(1)/64));
+    // Radii beyond the pair limit are rejected while pairs are enabled.
+    sat_physics3_actor_t big_actors[1]{};
+    uint16_t big_order[1]{};
+    sat_physics3_world_t big{};
+    CHECK(sat_physics3_world_init(&big,big_actors,1,zero,8,1)==SAT_OK);
+    CHECK(sat_physics3_set_sphere_pairs(&big,big_order,1)==SAT_OK);
+    const sat_sphere_t huge={{0,0,0},FX(9000)};
+    uint16_t huge_id;
+    CHECK(sat_physics3_add_sphere(&big,&huge,&zero,&rough,&huge_id)==SAT_OK);
+    CHECK(sat_physics3_world_step(&big)==SAT_ERR_INVALID_ARG);
+    CHECK(sat_physics3_set_sphere_pairs(&big,nullptr,0)==SAT_OK);
+    CHECK(sat_physics3_world_step(&big)==SAT_OK);
+}
 int main(){
+    sphere_sphere_contacts();
     validation_and_capacity();
     floor_contact_and_bounce();
     mesh_aabb_caches_reference_bounds();

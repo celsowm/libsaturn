@@ -27,8 +27,9 @@ reference bounds at both offsets. Rotating meshes use a conservative L1
 local radius around the mesh origin over the entire translation interval,
 including all intermediate orientations; rotational *CCD* remains unsupported.
 Infinite planes are never indexed: they form a small, source-ordered fallback.
-Dynamic spheres are query bodies, not collider candidates (sphere/sphere
-collision is not part of this world).
+Dynamic spheres are query bodies, not collider candidates; opt-in
+sphere/sphere contacts use their own sweep-and-prune order instead
+(`sat_physics3_set_sphere_pairs`).
 
 The BVH is rebuilt once per successful tick *after validation and before
 actor mutation*, rather than once per solver iteration. Every CCD query

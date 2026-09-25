@@ -33,7 +33,9 @@ detection: narrow geometry, high speed, corner configurations, fast-moving
 platforms, and fixed-point overflow near world-coordinate extremes require
 further validation. Rejecting excess motion avoids silently accepting steps
 beyond the user-selected budget but does not guarantee absence of tunneling.
-This slice does NOT simulate dynamic sphere-sphere contacts, oriented boxes,
+Dynamic spheres collide with each other only when a sweep-order array is
+bound with `sat_physics3_set_sphere_pairs` (see "Sphere/sphere contacts"
+below). This slice does NOT simulate oriented boxes,
 moving mesh contacts, rolling torque/inertia, manifold caching, joints, sensors,
 automatic broad-phase selection or transform-graph synchronization. Friction here
 models arcade tangential damping, not a full Coulomb solver. Exposing these
@@ -109,10 +111,27 @@ When a world contains only finite meshes (static or translating) and dynamic
 spheres, this option
 caps substeps at `max_substeps` rather than rejecting a high-speed tick;
 box/plane/kinematic worlds retain the original capacity rejection contract.
+### Sphere/sphere contacts (opt-in)
+
+`sat_physics3_set_sphere_pairs(world, order, capacity)` binds a caller-owned
+`uint16_t` array of at least `world.capacity` entries. Each substep, after
+every sphere has moved and resolved its collider contacts, the spheres are
+sorted by their low x extent (insertion sort over last substep's order,
+ties by actor ID) and swept, so only pairs overlapping on x reach the
+narrowphase. An overlapping pair is separated along the centre line, each
+sphere moving in inverse proportion to its `mass` (`sat_physics3_set_mass`,
+0 < mass <= 4096, default 1), and an approaching pair receives an impulse
+with the smaller restitution of the two. Distances use 64-bit squares, so
+radii must stay below 8192 units while pairs are enabled. Contacts are
+discrete: two small, fast spheres can still pass through each other within
+one substep, and there is no friction or spin transfer between spheres.
+`world.sphere_pair_contacts` counts the tick's pair contacts. Unbound, the
+world behaves exactly as before.
+
 The sweep scans every mesh face even for grid-backed colliders; face, edge
 and vertex impact tests are bounded integer calculations at 16.16 time
 resolution. Grazing hits narrower than one time unit, large-coordinate
-overflow, moving boxes, sphere/sphere contacts and non-mesh colliders
+overflow, moving boxes, sphere/sphere sweeps and non-mesh colliders
 remain outside its guarantee. This is intentionally **not a complete
 rigid-body CCD solver**. Keep gameplay coordinates local to the stage.
 

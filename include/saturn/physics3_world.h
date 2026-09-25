@@ -31,6 +31,9 @@ typedef struct sat_physics3_actor {
     sat_vec3_t angular_velocity; /* world-space radians per fixed tick */
     sat_physics3_quat_t orientation;
     uint8_t rolling_enabled; /* per-sphere opt-in; legacy damping otherwise */
+    /* Sphere/sphere contacts only: relative mass (fx16). 0 means ONE, so
+     * zero-initialised actors weigh the same. */
+    sat_fx16_t mass;
     sat_aabb3_t box;
     sat_plane3_t plane; /* Infinite, two-sided and static. */
     const sat_mesh_t* mesh; /* Borrowed, immutable WORLD-space quad mesh. */
@@ -72,6 +75,11 @@ typedef struct sat_physics3_world {
     uint32_t spatial_root;
     uint32_t spatial_queries; /* Per-tick diagnostic counters. */
     uint32_t spatial_candidates_checked;
+    /* Optional sphere/sphere contacts: caller-owned sweep order, one entry
+     * per actor. NULL keeps spheres passing through each other. */
+    uint16_t* sphere_pair_order;
+    uint16_t sphere_pair_capacity;
+    uint16_t sphere_pair_contacts; /* Per-tick diagnostic counter. */
     sat_vec3_t gravity; /* velocity delta per fixed tick */
     uint16_t count,capacity;
     uint8_t max_substeps; /* 1..64 */
@@ -117,6 +125,21 @@ sat_result_t sat_physics3_set_spatial_broadphase(
     sat_physics3_world_t* world,
     sat_physics3_spatial_node_t* nodes,uint32_t node_capacity,
     uint16_t* candidates,uint16_t candidate_capacity);
+
+/* Opt-in sphere/sphere collision. `order` (>= world.capacity entries,
+ * outliving the world) holds the dynamic spheres sorted by their low x
+ * extent; each substep re-sorts it (insertion sort, stable by actor ID) and
+ * sweeps it, so only pairs overlapping on x reach the narrowphase. Contacts
+ * separate the pair along the centre line in inverse proportion to `mass`
+ * and apply a restitution impulse (the smaller restitution of the two).
+ * Radii must stay below 8192 units while enabled. NULL/0 detaches and
+ * restores the exact previous behaviour. */
+sat_result_t sat_physics3_set_sphere_pairs(
+    sat_physics3_world_t* world, uint16_t* order, uint16_t capacity);
+/* Relative mass of a dynamic sphere for sphere/sphere contacts,
+ * 0 < mass <= 4096.0. */
+sat_result_t sat_physics3_set_mass(
+    sat_physics3_world_t* world, uint16_t sphere_id, sat_fx16_t mass);
 
 /* Mesh vertices and indices are already in world coordinates, remain immutable,
  * and must outlive the collider. Finite quad faces retain their edges and gaps.
@@ -189,7 +212,8 @@ sat_result_t sat_physics3_get_actor(const sat_physics3_world_t* world,
     uint16_t id,sat_physics3_actor_t* out);
 /* Preflights velocity/step capacity before changing ANY actor; uses existing
  * sat_sphere_aabb3_contact / sat_sphere_plane_contact for iterative collision.
- * No sphere/sphere collision or exact swept CCD in this slice. */
+ * Sphere/sphere contacts are discrete and opt-in (sat_physics3_set_sphere_pairs);
+ * there is no swept sphere/sphere CCD. */
 /* Enables finite-mesh sweeps (face interior + finite edges + vertices). With no box/plane colliders,
  * allows larger velocities than the discrete substep budget by capping the
  * substeps; with translating mesh targets this uses relative motion,

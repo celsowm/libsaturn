@@ -297,7 +297,99 @@ void resolve(sat_physics3_actor_t& ball,const sat_physics3_actor_t& box,
     } else ball.sphere.flags|=SAT_BODY3_HIT_WALL;
     ball.sphere.vel=add(relative,motion);
 }
+constexpr F kMaxPairRadius=8192*SAT_FX16_ONE;
+F pair_mass(const sat_physics3_actor_t& a){return a.mass>0?a.mass:SAT_FX16_ONE;}
+/* One sweep-and-prune pass over the dynamic spheres. The order array keeps
+ * last substep's order, so the insertion sort is nearly linear; ties keep
+ * actor order, making the pass deterministic. */
+void collide_sphere_pairs(sat_physics3_world_t& w){
+    uint16_t n=0u;
+    uint16_t* const order=w.sphere_pair_order;
+    // Rebuild the membership only if a sphere was added/removed since.
+    for(uint16_t i=0;i<w.count;++i)
+        if(w.actors[i].kind==SAT_PHYSICS3_DYNAMIC_SPHERE)++n;
+    bool same=true;
+    for(uint16_t i=0;i<n && same;++i)
+        same=order[i]<w.count &&
+             w.actors[order[i]].kind==SAT_PHYSICS3_DYNAMIC_SPHERE;
+    if(!same){
+        n=0u;
+        for(uint16_t i=0;i<w.count;++i)
+            if(w.actors[i].kind==SAT_PHYSICS3_DYNAMIC_SPHERE)order[n++]=i;
+    }
+    const auto low_x=[&](uint16_t id)->int64_t{
+        const sat_sphere_t& s=w.actors[id].sphere.shape;
+        return (int64_t)s.center.x-s.radius;
+    };
+    for(uint16_t i=1;i<n;++i){
+        const uint16_t id=order[i];
+        const int64_t key=low_x(id);
+        uint16_t j=i;
+        while(j>0 && (low_x(order[j-1])>key ||
+                      (low_x(order[j-1])==key && order[j-1]>id))){
+            order[j]=order[j-1];--j;
+        }
+        order[j]=id;
+    }
+    for(uint16_t i=0;i<n;++i){
+        sat_physics3_actor_t& a=w.actors[order[i]];
+        const int64_t a_high=(int64_t)a.sphere.shape.center.x+a.sphere.shape.radius;
+        for(uint16_t k=i+1;k<n;++k){
+            sat_physics3_actor_t& b=w.actors[order[k]];
+            if(low_x(order[k])>a_high)break;
+            const int64_t rsum=(int64_t)a.sphere.shape.radius+b.sphere.shape.radius;
+            const int64_t dx=(int64_t)b.sphere.shape.center.x-a.sphere.shape.center.x;
+            const int64_t dy=(int64_t)b.sphere.shape.center.y-a.sphere.shape.center.y;
+            const int64_t dz=(int64_t)b.sphere.shape.center.z-a.sphere.shape.center.z;
+            if(ab(dy)>=rsum || ab(dz)>=rsum || ab(dx)>=rsum)continue;
+            // Each axis is below rsum < 2^30, so the sum of squares fits.
+            const uint64_t d2=(uint64_t)(dx*dx)+(uint64_t)(dy*dy)+(uint64_t)(dz*dz);
+            if(d2>=(uint64_t)(rsum*rsum))continue;
+            const int64_t dist=(int64_t)saturn::core::math3d::isqrt64(d2);
+            // Coincident centres: separate along +Y, deterministically.
+            const V normal=dist==0 ? V{0,SAT_FX16_ONE,0} :
+                V{(F)((dx<<16)/dist),(F)((dy<<16)/dist),(F)((dz<<16)/dist)};
+            const int64_t depth=rsum-dist;
+            const int64_t ma=pair_mass(a),mb=pair_mass(b),mt=ma+mb;
+            // Heavier bodies move less: a takes mb/(ma+mb) of the depth.
+            const F push_a=(F)(depth*mb/mt),push_b=(F)(depth-depth*mb/mt);
+            a.sphere.shape.center=sub(a.sphere.shape.center,scale(normal,push_a));
+            b.sphere.shape.center=add(b.sphere.shape.center,scale(normal,push_b));
+            const int64_t vn=dot(sub(b.sphere.vel,a.sphere.vel),normal);
+            if(vn<0){
+                const F rest=mn(a.material.restitution,b.material.restitution);
+                const int64_t j=(vn*(SAT_FX16_ONE+(int64_t)rest))>>16;
+                a.sphere.vel=add(a.sphere.vel,scale(normal,(F)(j*mb/mt)));
+                b.sphere.vel=sub(b.sphere.vel,scale(normal,(F)(j*ma/mt)));
+            }
+            a.sphere.flags|=SAT_BODY3_HIT_WALL;
+            b.sphere.flags|=SAT_BODY3_HIT_WALL;
+            if(w.sphere_pair_contacts!=UINT16_MAX)++w.sphere_pair_contacts;
+        }
+    }
+}
 } // namespace
+extern "C" sat_result_t sat_physics3_set_sphere_pairs(
+    sat_physics3_world_t* w,uint16_t* order,uint16_t capacity){
+    if(!valid(w))return SAT_ERR_INVALID_ARG;
+    if(!order){
+        if(capacity!=0u)return SAT_ERR_INVALID_ARG;
+        w->sphere_pair_order=nullptr;w->sphere_pair_capacity=0u;
+        return SAT_OK;
+    }
+    if(capacity<w->capacity)return SAT_ERR_CAPACITY;
+    for(uint16_t i=0;i<capacity;++i)order[i]=0xffffu;
+    w->sphere_pair_order=order;w->sphere_pair_capacity=capacity;
+    return SAT_OK;
+}
+extern "C" sat_result_t sat_physics3_set_mass(
+    sat_physics3_world_t* w,uint16_t id,F mass){
+    // The cap keeps impulse*mass inside 64 bits.
+    if(!live(w,id)||mass<=0||mass>4096*SAT_FX16_ONE||
+       w->actors[id].kind!=SAT_PHYSICS3_DYNAMIC_SPHERE)return SAT_ERR_INVALID_ARG;
+    w->actors[id].mass=mass;
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_physics3_world_init(sat_physics3_world_t* w,
     sat_physics3_actor_t* storage,uint16_t capacity,V gravity,
     uint8_t max_substeps,uint8_t iterations){
@@ -615,6 +707,8 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
                 return SAT_ERR_INVALID_ARG;
             const V v=add(a.sphere.vel,w->gravity);
             if(!add_fits(a.sphere.shape.center,v))return SAT_ERR_INVALID_ARG;
+            if(w->sphere_pair_order && a.sphere.shape.radius>=kMaxPairRadius)
+                return SAT_ERR_INVALID_ARG;
             spheres=true;smallest_radius=mn(smallest_radius,a.sphere.shape.radius);
             dynamic_speed=mx(dynamic_speed,greatest(v));
         }else if(a.kind==SAT_PHYSICS3_STATIC_MESH ||
@@ -698,6 +792,9 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
      * BEFORE mutating any actor; source-ordered fallback holds only planes.
      * Without a BVH, retain the original typed/full linear behavior. */
     uint16_t collider_count=0u;
+    w->sphere_pair_contacts=0u;
+    if(w->sphere_pair_order && w->sphere_pair_capacity<w->count)
+        return SAT_ERR_CAPACITY;
     if(w->spatial_nodes) {
         if(!w->collider_indices ||
            w->collider_index_capacity<w->capacity ||
@@ -920,6 +1017,7 @@ extern "C" sat_result_t sat_physics3_world_step(sat_physics3_world_t* w){
             }
             rotate_sphere(ball,steps);
         }
+        if(w->sphere_pair_order)collide_sphere_pairs(*w);
     }
     return SAT_OK;
 }
