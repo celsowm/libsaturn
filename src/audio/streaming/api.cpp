@@ -76,16 +76,33 @@ bool stream_can_loop_seamlessly(const AudioStreamSlot& slot, uint32_t display_ra
         (static_cast<uint64_t>(kAudioStreamChunkFrames) * display_rate) / 2u;
 }
 
-uint32_t upload_stream_chunk(AudioStreamSlot& slot, uint8_t buffer_index, uint32_t frames) {
-    const uint32_t copied = audio_stream_copy_out(slot.ring, slot.staging, frames);
+/* Copies frames from skip_frames past the read cursor into one Sound RAM
+ * half WITHOUT consuming them; the caller consumes only once every transfer
+ * it depends on has succeeded, so a failed upload leaves the ring intact. */
+uint32_t transfer_stream_chunk(AudioStreamSlot& slot, uint8_t buffer_index,
+                               uint32_t skip_frames, uint32_t frames) {
+    const uint32_t copied =
+        audio_stream_peek(slot.ring, skip_frames, slot.staging, frames);
     if (copied == 0u) return 0u;
     const uint32_t bytes_per_sample = slot.format == SAT_AUDIO_PCM_S16 ? 2u : 1u;
     const uint32_t byte_count = copied * bytes_per_sample;
     const uint32_t buffer_offset = slot.sound_ram_offset +
         static_cast<uint32_t>(buffer_index) * kAudioStreamChunkBytes;
     if (!saturn::hal::scsp::upload(buffer_offset, slot.staging, byte_count)) return 0u;
-    slot.consumed_frames += copied;
-    ++slot.refill_count;
+    return copied;
+}
+
+void commit_stream_chunks(AudioStreamSlot& slot, uint32_t frames, uint32_t chunks) {
+    audio_stream_consume(slot.ring, frames);
+    slot.consumed_frames += frames;
+    slot.refill_count += chunks;
+}
+
+uint32_t upload_stream_chunk(AudioStreamSlot& slot, uint8_t buffer_index, uint32_t frames) {
+    if (frames > slot.ring.buffered_frames) ++slot.ring.underrun_count;
+    const uint32_t copied = transfer_stream_chunk(slot, buffer_index, 0u, frames);
+    if (copied == 0u) return 0u;
+    commit_stream_chunks(slot, copied, 1u);
     return copied;
 }
 
@@ -95,10 +112,13 @@ bool start_seamless_loop(AudioStreamSlot& slot, uint32_t frame_now, uint32_t dis
         return false;
     }
 
-    if (upload_stream_chunk(slot, 0u, kAudioStreamChunkFrames) != kAudioStreamChunkFrames ||
-        upload_stream_chunk(slot, 1u, kAudioStreamChunkFrames) != kAudioStreamChunkFrames) {
+    if (transfer_stream_chunk(slot, 0u, 0u, kAudioStreamChunkFrames) !=
+            kAudioStreamChunkFrames ||
+        transfer_stream_chunk(slot, 1u, kAudioStreamChunkFrames,
+                              kAudioStreamChunkFrames) != kAudioStreamChunkFrames) {
         return false;
     }
+    commit_stream_chunks(slot, 2u * kAudioStreamChunkFrames, 2u);
 
     saturn::hal::scsp::SlotConfig config{};
     config.start_address = slot.sound_ram_offset;

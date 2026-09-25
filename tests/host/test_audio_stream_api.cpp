@@ -22,8 +22,17 @@ static uint32_t g_key_on_count = 0u;
 static uint32_t g_key_off_count = 0u;
 static uint8_t g_current_sample_block = 0u;
 
-bool upload(uint32_t, const void*, uint32_t) {
+/* 1-based upload call to fail (0 = never); the next calls succeed again. */
+static uint32_t g_upload_fail_at = 0u;
+static uint8_t g_last_upload_head[4] = {};
+static uint32_t g_last_upload_offset = 0u;
+
+bool upload(uint32_t offset, const void* data, uint32_t byte_count) {
     ++g_upload_count;
+    if (g_upload_fail_at != 0u && g_upload_count == g_upload_fail_at) return false;
+    const uint8_t* bytes = static_cast<const uint8_t*>(data);
+    for (uint32_t i = 0u; i < 4u && i < byte_count; ++i) g_last_upload_head[i] = bytes[i];
+    g_last_upload_offset = offset;
     return true;
 }
 bool configure_slot(uint8_t slot, const SlotConfig& config) {
@@ -154,6 +163,60 @@ int main() {
     OK(saturn::hal::scsp::g_key_off_count == 0u);
     OK(sat_audio_stream_close(seamless) == SAT_OK);
     OK(saturn::hal::scsp::g_key_off_count == 1u);
+
+    // A failed Sound RAM transfer must not consume the ring: the retry
+    // uploads the very same samples.
+    {
+        saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+        static uint8_t data[16384u];
+        static uint8_t refill[8192u];
+        for (uint32_t i = 0u; i < sizeof(data); ++i) data[i] = static_cast<uint8_t>(i * 7u + 3u);
+        for (uint32_t i = 0u; i < sizeof(refill); ++i) refill[i] = static_cast<uint8_t>(0xA0u + (i & 0x0Fu));
+        sat_audio_stream_t retry{};
+        OK(sat_audio_stream_open(
+            &retry, &seamless_spec, seamless_storage, sizeof(seamless_storage)) == SAT_OK);
+        OK(sat_audio_stream_write(retry, data, 8192u) == SAT_OK);
+
+        // Seamless start: the SECOND half fails after the first was sent.
+        saturn::hal::scsp::g_upload_count = 0u;
+        saturn::hal::scsp::g_key_on_count = 0u;
+        saturn::hal::scsp::g_upload_fail_at = 2u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 0u, 60u);
+        OK(sat_audio_stream_stats(retry, &stats) == SAT_OK);
+        OK(stats.playing == 0u && stats.consumed_frames == 0u && stats.refill_count == 0u);
+        OK(sat_audio_stream_buffered(retry) == 8192u);
+        OK(saturn::hal::scsp::g_key_on_count == 0u);
+
+        saturn::hal::scsp::g_upload_fail_at = 0u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 1u, 60u);
+        OK(sat_audio_stream_stats(retry, &stats) == SAT_OK);
+        OK(stats.playing == 1u && stats.consumed_frames == 8192u && stats.refill_count == 2u);
+        OK(sat_audio_stream_buffered(retry) == 0u);
+        // The second half carries frame 4096 onwards, not what followed it.
+        OK(saturn::hal::scsp::g_last_upload_head[0] == data[8192u] &&
+           saturn::hal::scsp::g_last_upload_head[3] == data[8195u]);
+
+        // Steady-state refill fails once, then retries the same chunk.
+        OK(sat_audio_stream_write(retry, refill, 4096u) == SAT_OK);
+        saturn::hal::scsp::g_current_sample_block = 1u;
+        saturn::hal::scsp::g_upload_fail_at = saturn::hal::scsp::g_upload_count + 1u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 30u, 60u);
+        OK(sat_audio_stream_stats(retry, &stats) == SAT_OK);
+        OK(stats.consumed_frames == 8192u && stats.refill_count == 2u);
+        OK(sat_audio_stream_buffered(retry) == 4096u);
+        const uint32_t underruns = stats.underrun_count;
+
+        saturn::hal::scsp::g_upload_fail_at = 0u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 31u, 60u);
+        OK(sat_audio_stream_stats(retry, &stats) == SAT_OK);
+        OK(stats.consumed_frames == 12288u && stats.refill_count == 3u);
+        OK(stats.underrun_count == underruns);
+        OK(sat_audio_stream_buffered(retry) == 0u);
+        OK(saturn::hal::scsp::g_last_upload_head[0] == refill[0] &&
+           saturn::hal::scsp::g_last_upload_head[3] == refill[3]);
+        OK(sat_audio_stream_close(retry) == SAT_OK);
+        saturn::hal::scsp::g_current_sample_block = 0u;
+    }
 
     sat_audio_spec_t stereo = {22050u, 4u, 2u, SAT_AUDIO_PCM_S16, 0u};
     OK(sat_audio_stream_open(&overflow, &stereo, storage, sizeof(storage)) == SAT_ERR_INVALID_ARG);

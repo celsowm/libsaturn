@@ -150,30 +150,49 @@ inline void audio_stream_copy_in(
     audio_stream_update_fill_stats(ring);
 }
 
-inline uint32_t audio_stream_copy_out(
-    AudioStreamRing& ring,
+/* Copies up to frame_count frames starting skip_frames past the read cursor
+ * without consuming them, so a failed transfer loses nothing. Returns the
+ * frames copied: fewer when fewer are buffered past skip_frames. */
+inline uint32_t audio_stream_peek(
+    const AudioStreamRing& ring,
+    uint32_t skip_frames,
     uint8_t* destination,
     uint32_t frame_count
 ) {
-    if (frame_count > ring.buffered_frames) {
-        ++ring.underrun_count;
-        frame_count = ring.buffered_frames;
-    }
+    if (skip_frames >= ring.buffered_frames) return 0u;
+    const uint32_t available = ring.buffered_frames - skip_frames;
+    if (frame_count > available) frame_count = available;
+    const uint32_t start = (ring.read_frame + skip_frames) % ring.capacity_frames;
     const uint32_t first_frames =
-        frame_count < (ring.capacity_frames - ring.read_frame)
-            ? frame_count : (ring.capacity_frames - ring.read_frame);
+        frame_count < (ring.capacity_frames - start)
+            ? frame_count : (ring.capacity_frames - start);
     const uint32_t first_bytes = first_frames * ring.frame_bytes;
     for (uint32_t i = 0u; i < first_bytes; ++i) {
-        destination[i] = ring.buffer[ring.read_frame * ring.frame_bytes + i];
+        destination[i] = ring.buffer[start * ring.frame_bytes + i];
     }
     const uint32_t remaining_frames = frame_count - first_frames;
     for (uint32_t i = 0u; i < remaining_frames * ring.frame_bytes; ++i) {
         destination[first_bytes + i] = ring.buffer[i];
     }
+    return frame_count;
+}
+
+/* Releases frames already delivered; frame_count <= buffered_frames. */
+inline void audio_stream_consume(AudioStreamRing& ring, uint32_t frame_count) {
     ring.read_frame = (ring.read_frame + frame_count) % ring.capacity_frames;
     ring.buffered_frames -= frame_count;
     audio_stream_update_fill_stats(ring);
-    return frame_count;
+}
+
+inline uint32_t audio_stream_copy_out(
+    AudioStreamRing& ring,
+    uint8_t* destination,
+    uint32_t frame_count
+) {
+    if (frame_count > ring.buffered_frames) ++ring.underrun_count;
+    const uint32_t copied = audio_stream_peek(ring, 0u, destination, frame_count);
+    audio_stream_consume(ring, copied);
+    return copied;
 }
 
 /* Hardware-facing service implemented in audio_stream_api.cpp. Large streams
