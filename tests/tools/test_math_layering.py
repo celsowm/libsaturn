@@ -27,8 +27,8 @@ for root in ("src", "tests/host"):
         if path.suffix not in (".cpp", ".hpp", ".c", ".h"):
             continue
         content = path.read_text()
-        assert str(old_api) not in content, path
-        assert str(old_logic) not in content, path
+        assert old_api.as_posix() not in content, path
+        assert old_logic.as_posix() not in content, path
 
 for path in (Path("src/physics/3d/world.cpp"),
              Path("src/physics/2d/collision_logic.hpp"),
@@ -57,9 +57,9 @@ assert 'extern "C" sat_result_t sat_mesh_init(' in Path(
     "src/core/geometry/mesh_api.cpp").read_text()
 for path in Path("src").rglob("*"):
     if path.suffix in (".cpp", ".hpp", ".c", ".h"):
-        assert str(old_mesh) not in path.read_text(), path
+        assert old_mesh.as_posix() not in path.read_text(), path
 
 makefile = Path("Makefile").read_text()
-assert str(old_api) not in makefile
-assert str(api) in makefile
+assert old_api.as_posix() not in makefile
+assert api.as_posix() in makefile
 print("core math dependency contract: OK")
