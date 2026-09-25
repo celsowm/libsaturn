@@ -408,8 +408,13 @@ void set_horizontal_resolution(uint16_t width) {
     else if (width == 704u) hreso = 3u;
     g_hires = hreso >= 2u;
     TVMD = static_cast<uint16_t>((TVMD & 0xFFF8u) | hreso);
-    SPCTL = sprite_type_bits();
-    CRAOFB = g_sprite_craofb;
+    /* Only hi-res needs a different sprite format. At 320/352 the library
+     * has never written SPCTL/CRAOFB at init; writing SPCTL = 0 there would
+     * switch sprite data to palette-only and turn every RGB colour black. */
+    if (g_hires) {
+        SPCTL = sprite_type_bits();
+        CRAOFB = g_sprite_craofb;
+    }
 }
 
 bool hires() {
@@ -890,8 +895,8 @@ void commit_layers() {
     PRISA = g_last_prisa_written;
     if (g_hires) {
         SPCTL = sprite_type_bits();
+        CRAOFB = g_sprite_craofb;
     }
-    CRAOFB = g_sprite_craofb;
     commit_rbg0_config();
 }
 

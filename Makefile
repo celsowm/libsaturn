@@ -222,6 +222,8 @@ all: check-tools dirs $(ELF) $(ISO) $(CUE) $(LIBRARY)
 	@cp $(BIN) $(BUILD_DIR)/$(EXAMPLE).bin
 	@cp $(ISO) $(BUILD_DIR)/$(EXAMPLE).iso
 	@cp $(CUE) $(BUILD_DIR)/$(EXAMPLE).cue
+	@# The harness reads symbol addresses (e.g. Skybridge telemetry) here.
+	@cp $(OUTPUT_DIR)/$(EXAMPLE).map $(BUILD_DIR)/$(EXAMPLE).map
 
 # -- Verificacoes -----------------------------------------------
 check-tools:
