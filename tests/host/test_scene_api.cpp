@@ -97,6 +97,14 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
 extern "C" sat_result_t sat_scene3d_faces_submit_box(
     sat_scene3d_faces_t*, const sat_indexed_box3_t*, uint8_t,
     uint16_t) { return SAT_OK; }
+/* Every split call queues two pieces. */
+extern "C" sat_result_t sat_scene3d_faces_submit_quad_split(
+    sat_scene3d_faces_t* scene, const sat_quad3_t*,
+    const sat_scene3d_material_t*, uint16_t, const sat_plane3_t*, uint8_t) {
+    if (scene->count+2u>scene->capacity) return SAT_ERR_CAPACITY;
+    scene->count=static_cast<uint16_t>(scene->count+2u);
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_scene3d_faces_submit_tiled_quad(
     sat_scene3d_faces_t*, const sat_quad3_t*,
     const sat_indexed_tiled_quad3_t*, uint8_t,
@@ -425,6 +433,16 @@ int main() {
         320u, 224u, 8u)==SAT_OK);
     sat_quad3_t quad{};
     sat_scene3d_material_t material{};
+    // A split face counts every piece it queued as submitted.
+    {
+        sat_scene_stats_t split{};
+        assert(sat_scene_stats(&scene,&split)==SAT_OK);
+        const uint32_t before=split.submitted_faces;
+        assert(sat_scene_submit_quad_split(&scene,&quad,&material,0u,nullptr,0u)==SAT_OK);
+        assert(sat_scene_stats(&scene,&split)==SAT_OK);
+        assert(split.submitted_faces==before+2u);
+        scene.faces.count=static_cast<uint16_t>(scene.faces.count-2u);
+    }
     g_submit_status=SAT_ERR_CAPACITY;
     assert(sat_scene_submit_quad(&scene,&quad,&material,0u)==SAT_ERR_CAPACITY);
     sat_scene_stats_t failed{};

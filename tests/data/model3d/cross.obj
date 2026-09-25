@@ -1,0 +1,24 @@
+# Two quads passing through each other along the y axis (x=0, z=0), plus a
+# floor at y=-1 that both only touch. --split-intersections must split the
+# pair into four pieces and leave the floor alone.
+mtllib test.mtl
+v -1.0 1.0 0.0
+v 1.0 1.0 0.0
+v 1.0 -1.0 0.0
+v -1.0 -1.0 0.0
+v 0.0 1.0 -1.0
+v 0.0 1.0 1.0
+v 0.0 -1.0 1.0
+v 0.0 -1.0 -1.0
+v -1.0 -1.0 -1.0
+v 1.0 -1.0 -1.0
+v 1.0 -1.0 1.0
+v -1.0 -1.0 1.0
+vt 0.0 0.5
+vt 1.0 0.5
+vt 1.0 1.0
+vt 0.0 1.0
+usemtl TestMat
+f 4/1 3/2 2/3 1/4
+f 8/1 7/2 6/3 5/4
+f 9/1 10/2 11/3 12/4

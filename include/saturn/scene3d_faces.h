@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "saturn/scene3d.h"
 #include "saturn/model3d.h"
+#include "saturn/collide3d.h"
 #include "saturn/parallel.h"
 
 #ifdef __cplusplus
@@ -155,6 +156,31 @@ sat_result_t sat_scene3d_faces_depth(
 sat_result_t sat_scene3d_faces_submit_quad(
     sat_scene3d_faces_t* scene, const sat_quad3_t* world,
     const sat_scene3d_material_t* material, uint16_t pass);
+
+/* sat_scene3d_faces_submit_quad, cut along up to SAT_SCENE3D_SPLIT_PLANES_MAX
+ * planes first; every piece enters the painter as its own face with its own
+ * depth. Two uses:
+ *  - faces that pass THROUGH each other (a pig's leg through a deck): cut
+ *    each along the other's plane and every piece lies on one side, which a
+ *    per-face order can draw correctly. No pass or depth key can do that.
+ *  - a large face under a small object (a deck under an actor): cut the deck
+ *    along the object's bounding planes, so the piece under the object sorts
+ *    by where the object is, not by the deck's far-away centre. This is what
+ *    authored passes were used for.
+ * A piece wholly on one side of a plane is kept whole; a straddling piece is
+ * clipped into a quad plus at most one triangle per side. Normals should be
+ * unit length (as sat_plane3_t elsewhere). At most SAT_SCENE3D_SPLIT_PIECES_MAX
+ * pieces; more returns SAT_ERR_CAPACITY. Solid materials only: a textured or
+ * per-vertex Gouraud face would lose its UVs or shading in the cut, so those
+ * return SAT_ERR_UNSUPPORTED (bake the split offline with
+ * tools/import_model.py --split-intersections instead). Queue-atomic like
+ * sat_scene3d_faces_submit_box. */
+#define SAT_SCENE3D_SPLIT_PLANES_MAX 4u
+#define SAT_SCENE3D_SPLIT_PIECES_MAX 16u
+sat_result_t sat_scene3d_faces_submit_quad_split(
+    sat_scene3d_faces_t* scene, const sat_quad3_t* world,
+    const sat_scene3d_material_t* material, uint16_t pass,
+    const sat_plane3_t* planes, uint8_t plane_count);
 
 /* Preprojected cache entry in the SAME painter queue as world geometry.
  * Any valid RGB/indexed-solid/indexed-textured/indexed-tiled material is

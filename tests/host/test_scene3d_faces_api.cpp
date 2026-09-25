@@ -169,7 +169,112 @@ static sat_result_t validate_owner_for_test(
            expected && expected->valid ? SAT_OK:SAT_ERR_INVALID_ARG;
 }
 
+static sat_vec3_t v3(double x,double y,double z) {
+    return sat_vec3_t{static_cast<sat_fx16_t>(x*SAT_FX16_ONE),
+                      static_cast<sat_fx16_t>(y*SAT_FX16_ONE),
+                      static_cast<sat_fx16_t>(z*SAT_FX16_ONE)};
+}
+
+/* sat_scene3d_faces_submit_quad_split with the real near clipper. The stub
+ * projection puts a point's depth in w = z. */
+static void split_faces_sort_by_their_own_depth() {
+    sat_scene3d_faces_t scene={};
+    sat_scene3d_face_t storage[24]={};
+    uint32_t keys[24]={};
+    uint16_t order[24]={};
+    sat_mat4_t vp={};
+    vp.m[0]=SAT_FX16_ONE;
+    const sat_vec3_t eye={0,0,0};
+    const sat_vec3_t forward={0,0,SAT_FX16_ONE};
+    sat_vdp1_texture_t actor_tex={};
+    actor_tex.valid=1u;
+    actor_tex.srca=30u;
+    const sat_scene3d_material_t actor_mat={
+        SAT_SCENE3D_INDEXED_SOLID,0u,&actor_tex,nullptr,
+        SAT_INDEXED_SOLID_OPAQUE,nullptr};
+    const sat_scene3d_material_t deck_mat={
+        SAT_SCENE3D_RGB,0x8111u,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE,nullptr};
+    /* A deck running from z=2 to z=20 under an actor standing at z=16. */
+    const sat_quad3_t deck={{v3(-1,-1,2),v3(1,-1,2),v3(1,-1,20),v3(-1,-1,20)}};
+    const sat_quad3_t actor={{v3(-1,-1,16),v3(1,-1,16),v3(1,1,16),v3(-1,1,16)}};
+    const sat_plane3_t actor_front={v3(0,0,15),v3(0,0,1)};
+
+    /* Whole, the deck sorts by its centre (z=11) and paints over the actor. */
+    assert(sat_scene3d_faces_init(&scene,storage,keys,order,24u)==SAT_OK);
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    emitted_count=0u;
+    assert(sat_scene3d_faces_submit_quad(&scene,&deck,&deck_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(&scene,&actor,&actor_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==2u && emitted[0]==30u && emitted[1]==0x8111u);
+
+    /* Cut at the actor's front: the far piece paints first, then the
+     * actor, then the near piece. One quad per side, no triangles. */
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    emitted_count=0u;
+    assert(sat_scene3d_faces_submit_quad_split(
+        &scene,&deck,&deck_mat,0u,&actor_front,1u)==SAT_OK);
+    assert(scene.count==2u);
+    assert(sat_scene3d_faces_submit_quad(&scene,&actor,&actor_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(emitted_count==3u && emitted[0]==0x8111u &&
+           emitted[1]==30u && emitted[2]==0x8111u);
+
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    /* A plane the face does not cross keeps it whole and unchanged. */
+    const sat_plane3_t beyond={v3(0,0,30),v3(0,0,1)};
+    assert(sat_scene3d_faces_submit_quad_split(
+        &scene,&deck,&deck_mat,0u,&beyond,1u)==SAT_OK);
+    assert(scene.count==1u);
+    assert(storage[0].projected.x[2]==1 && storage[0].projected.y[2]==-1);
+    /* Cutting a corner off: a triangle one side, a pentagon (quad plus
+     * triangle) the other. */
+    const sat_quad3_t wall={{v3(-1,-1,10),v3(1,-1,10),v3(1,1,10),v3(-1,1,10)}};
+    const sat_plane3_t corner={v3(0.5,0.5,0),v3(0.70710678,0.70710678,0)};
+    assert(sat_scene3d_faces_submit_quad_split(
+        &scene,&wall,&deck_mat,0u,&corner,1u)==SAT_OK);
+    assert(scene.count==1u+3u);
+    /* Four planes: three columns cuts and one row cut make a 4x2 grid. */
+    const sat_plane3_t grid[4]={
+        {v3(-0.5,0,0),v3(1,0,0)},{v3(0,0,0),v3(1,0,0)},
+        {v3(0.5,0,0),v3(1,0,0)},{v3(0,0,0),v3(0,1,0)}};
+    assert(sat_scene3d_faces_submit_quad_split(
+        &scene,&wall,&deck_mat,0u,grid,4u)==SAT_OK);
+    assert(scene.count==4u+8u);
+
+    /* The cut drops UVs and per-vertex shading: refuse, don't smear. */
+    sat_scene3d_material_t textured=actor_mat;
+    textured.kind=SAT_SCENE3D_INDEXED_TEXTURED;
+    assert(sat_scene3d_faces_submit_quad_split(
+        &scene,&wall,&textured,0u,&corner,1u)==SAT_ERR_UNSUPPORTED);
+    const uint16_t gouraud[4]={0u,0u,0u,0u};
+    sat_scene3d_material_t shaded=deck_mat;
+    shaded.vertex_gouraud=gouraud;
+    assert(sat_scene3d_faces_submit_quad_split(
+        &scene,&wall,&shaded,0u,&corner,1u)==SAT_ERR_UNSUPPORTED);
+    const sat_plane3_t flat={v3(0,0,0),v3(0,0,0)};
+    assert(sat_scene3d_faces_submit_quad_split(
+        &scene,&wall,&deck_mat,0u,&flat,1u)==SAT_ERR_INVALID_ARG);
+    const sat_plane3_t five[5]={grid[0],grid[1],grid[2],grid[3],corner};
+    assert(sat_scene3d_faces_submit_quad_split(
+        &scene,&wall,&deck_mat,0u,five,5u)==SAT_ERR_INVALID_ARG);
+    assert(scene.count==12u);
+
+    /* Pieces beyond the queue: nothing is queued at all. */
+    for (uint16_t i=scene.count;i<23u;++i)
+        assert(sat_scene3d_faces_submit_quad(&scene,&wall,&deck_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad_split(
+        &scene,&deck,&deck_mat,0u,&actor_front,1u)==SAT_ERR_CAPACITY);
+    assert(scene.count==23u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    emitted_count=0u;
+}
+
 int main() {
+    split_faces_sort_by_their_own_depth();
     sat_scene3d_faces_t scene={};
     sat_scene3d_face_t storage[8]={};
     uint32_t keys[8]={};

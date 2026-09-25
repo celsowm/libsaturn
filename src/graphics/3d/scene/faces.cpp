@@ -285,6 +285,94 @@ extern "C" sat_result_t sat_scene3d_faces_submit_quad(
     return append(scene,corners,screen,indices,*material,pass);
 }
 
+namespace {
+
+/* One side of a straddling piece, as the near clipper's fan re-paired into
+ * quads (a clipped convex polygon's fan quads are convex and planar), so a
+ * cut costs a quad and at most one triangle rather than up to four
+ * triangles. Returns false when out would exceed its capacity. */
+bool clip_side(const sat_quad3_t& piece,const sat_plane3_t& plane,bool front,
+               sat_quad3_t* out,uint8_t& count) {
+    const sat_vec3_t dir=front ? plane.normal : sat_vec3_t{
+        -plane.normal.x,-plane.normal.y,-plane.normal.z};
+    sat_quad3_t fan[4];
+    uint8_t fan_count=0u;
+    if (saturn::core::render3d::clip_world_quad_near(
+            &piece,&plane.point,&dir,1,fan,&fan_count)!=SAT_OK)
+        return false;
+    for (uint8_t i=0u;i<fan_count;i=static_cast<uint8_t>(i+2u)) {
+        if (count>=SAT_SCENE3D_SPLIT_PIECES_MAX) return false;
+        sat_quad3_t& q=out[count++];
+        q=fan[i];
+        if (i+1u<fan_count) q.v[3]=fan[i+1u].v[2];
+    }
+    return true;
+}
+
+} // namespace
+
+extern "C" sat_result_t sat_scene3d_faces_submit_quad_split(
+    sat_scene3d_faces_t* scene, const sat_quad3_t* world,
+    const sat_scene3d_material_t* material, uint16_t pass,
+    const sat_plane3_t* planes, uint8_t plane_count) {
+    if (!scene || !scene->active || !world || !material ||
+        pass>SAT_SCENE3D_PASS_MAX || !valid_material(*material) ||
+        plane_count>SAT_SCENE3D_SPLIT_PLANES_MAX || (plane_count && !planes))
+        return SAT_ERR_INVALID_ARG;
+    for (uint8_t p=0u;p<plane_count;++p) {
+        const sat_vec3_t& n=planes[p].normal;
+        if (!n.x && !n.y && !n.z) return SAT_ERR_INVALID_ARG;
+    }
+    if (material->kind==SAT_SCENE3D_INDEXED_TEXTURED ||
+        material->kind==SAT_SCENE3D_INDEXED_TILED ||
+        material->vertex_gouraud!=nullptr)
+        return SAT_ERR_UNSUPPORTED;
+
+    sat_quad3_t pieces[2][SAT_SCENE3D_SPLIT_PIECES_MAX];
+    uint8_t counts[2]={1u,0u};
+    uint8_t cur=0u;
+    pieces[0][0]=*world;
+    for (uint8_t p=0u;p<plane_count;++p) {
+        const uint8_t next=static_cast<uint8_t>(cur^1u);
+        counts[next]=0u;
+        for (uint8_t i=0u;i<counts[cur];++i) {
+            const sat_quad3_t& piece=pieces[cur][i];
+            bool any_front=false,any_back=false;
+            for (uint8_t v=0u;v<4u;++v) {
+                const int64_t d=saturn::core::render3d::world_view_depth(
+                    piece.v[v],planes[p].point,planes[p].normal);
+                any_front=any_front || d>0;
+                any_back=any_back || d<0;
+            }
+            if (!(any_front && any_back)) {
+                if (counts[next]>=SAT_SCENE3D_SPLIT_PIECES_MAX)
+                    return SAT_ERR_CAPACITY;
+                pieces[next][counts[next]++]=piece;
+                continue;
+            }
+            if (!clip_side(piece,planes[p],true,pieces[next],counts[next]) ||
+                !clip_side(piece,planes[p],false,pieces[next],counts[next]))
+                return SAT_ERR_CAPACITY;
+        }
+        cur=next;
+    }
+    if (counts[cur]>scene->capacity-scene->count) return SAT_ERR_CAPACITY;
+    const uint16_t previous_count=scene->count;
+    const uint16_t previous_culled=scene->culled_faces;
+    const uint16_t previous_clipped=scene->clipped_faces;
+    for (uint8_t i=0u;i<counts[cur];++i) {
+        const sat_result_t st=sat_scene3d_faces_submit_quad(
+            scene,&pieces[cur][i],material,pass);
+        if (st!=SAT_OK) {
+            scene->count=previous_count;
+            scene->culled_faces=previous_culled;
+            scene->clipped_faces=previous_clipped;
+            return st;
+        }
+    }
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
     sat_scene3d_faces_t* scene, const sat_quad2_t* projected,
     sat_fx16_t camera_depth, const sat_scene3d_material_t* material,

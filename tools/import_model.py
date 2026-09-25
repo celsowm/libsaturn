@@ -62,6 +62,7 @@ from model_pipeline import quad_merge as quad_merge_mod
 from model_pipeline import saturn_profile as saturn_profile_mod
 from model_pipeline import silhouette as sil_mod
 from model_pipeline import simplification as simp_mod
+from model_pipeline import intersections as intersections_mod
 from saturn_asset_common import (
     asset_header_guard,
     asset_symbol_prefix,
@@ -986,6 +987,60 @@ class ImportResult:
     luts_rgb555: list[int] | None = None
 
 
+def split_intersecting_faces(
+    verts: list[tuple[float, float, float]],
+    faces: list[BakedFaceInput],
+    face_images: list,
+    max_faces: int,
+):
+    """Split faces that pass through each other (see model_pipeline.intersections).
+
+    Returns (verts, faces, face_images, report). Faces that need no split keep
+    their exact BakedFaceInput, so a model without intersections is emitted
+    bit-identically; pieces reuse an existing vertex when a corner lands on
+    one exactly and append a new vertex otherwise.
+    """
+    work = []
+    for i, face in enumerate(faces):
+        count = 3 if face.is_triangle else 4
+        work.append(intersections_mod.Face(
+            [(verts[face.vert_ids[k]], face.uvs[k]) for k in range(count)], i))
+    originals = {id(f): i for i, f in enumerate(work)}
+    try:
+        pieces, report = intersections_mod.split_intersections(work, max_faces)
+    except intersections_mod.SplitBudgetError as exc:
+        raise ImportError(f"--split-intersections: {exc}; raise --split-face-budget") from exc
+    if report["splits"] == 0:
+        return verts, faces, face_images, report
+
+    verts = list(verts)
+    vertex_ids = {v: i for i, v in enumerate(verts)}
+    out_faces: list[BakedFaceInput] = []
+    out_images = []
+    for piece in pieces:
+        source = faces[piece.source]
+        if id(piece) in originals:
+            out_faces.append(source)
+            out_images.append(face_images[piece.source])
+            continue
+        for corners in intersections_mod.to_corner_lists(piece):
+            ids = []
+            for pos, _ in corners:
+                if pos not in vertex_ids:
+                    vertex_ids[pos] = len(verts)
+                    verts.append(pos)
+                ids.append(vertex_ids[pos])
+            uvs = [uv for _, uv in corners]
+            if len(corners) == 3:
+                ids.append(ids[2])
+                uvs.append(uvs[2])
+            out_faces.append(BakedFaceInput(
+                tuple(ids), tuple(uvs), source.mtl, source.lineno, len(corners) == 3))
+            out_images.append(face_images[piece.source])
+    report["emitted_faces"] = len(out_faces)
+    return verts, out_faces, out_images, report
+
+
 def import_model(
     obj_path: Path,
     scale: float = 1.0,
@@ -998,6 +1053,8 @@ def import_model(
     max_texture_height: int = VDP1_MAX_TEXTURE_HEIGHT,
     texture_scale: float = 1.0,
     sampling: str = "nearest",
+    split_intersections: bool = False,
+    split_face_budget: int | None = None,
 ) -> ImportResult:
     if palette_index < 0 or palette_index > 7:
         raise ImportError(f"--palette-index must be in 0..7 (got {palette_index})")
@@ -1037,6 +1094,11 @@ def import_model(
         model, reverse_winding, flip_x, flip_y, flip_z
     )
     verts = apply_scale(verts, scale)
+    split_report = None
+    if split_intersections:
+        budget = split_face_budget if split_face_budget is not None else 4 * len(baked_inputs)
+        verts, baked_inputs, face_images, split_report = split_intersecting_faces(
+            verts, baked_inputs, face_images, budget)
 
     # Bake every face to RGBA at its estimated resolution.
     baked_rgba: list[list[tuple[int, int, int, int]]] = []
@@ -1110,6 +1172,8 @@ def import_model(
         "largest_baked_texture": (largest[1], largest[2]) if unique else (0, 0),
         "has_transparency": has_transparency,
     }
+    if split_report is not None:
+        stats["split_intersections"] = split_report
 
     return ImportResult(
         vertices_fx=vertices_fx,
@@ -1276,6 +1340,10 @@ def print_stats(stats: dict) -> None:
     print(f"estimated VDP1 VRAM usage: {stats['estimated_vram_usage']}")
     lw, lh = stats["largest_baked_texture"]
     print(f"largest baked texture: {lw}x{lh}")
+    split = stats.get("split_intersections")
+    if split is not None:
+        print(f"intersection splits: {split['splits']} "
+              f"({split['input_faces']} -> {split.get('emitted_faces', split['output_faces'])} faces)")
 
 
 # ----------------------------------------------------------------------
@@ -2147,6 +2215,12 @@ def main() -> int:
     parser.add_argument("--material-weight", action="append", default=[],
                         help="Animated GLB: NAME=W or INDEX=W simplification cost weight for "
                              "one material; below 1 spends fewer triangles on it (repeatable)")
+    parser.add_argument("--split-intersections", action="store_true",
+                        help="OBJ static path: split faces that pass through each other so the "
+                             "VDP1 painter can order the pieces (no depth buffer)")
+    parser.add_argument("--split-face-budget", type=int, default=None,
+                        help="Face count the split may grow to (default 4x the input faces); "
+                             "exceeding it is an error, never a silent partial split")
     parser.add_argument("--report", default=None, help="JSON report path (animated path)")
     parser.add_argument("--incremental", action="store_true",
                         help="Skip import when inputs, options, tools and outputs match")
@@ -2203,6 +2277,10 @@ def main() -> int:
             print(f"UP-TO-DATE: {paths['source']} + {paths['header']}")
             return 0
 
+    if suffix in (".glb", ".gltf") and args.split_intersections:
+        print("import_model: error: --split-intersections applies to the static OBJ path; "
+              "animated faces move every frame", file=sys.stderr)
+        return 1
     if suffix in (".glb", ".gltf"):
         result_code = _main_animated(args)
         if result_code == 0 and args.incremental and signature is not None:
@@ -2225,6 +2303,8 @@ def main() -> int:
             max_texture_height=args.max_texture_height,
             texture_scale=args.texture_scale,
             sampling=args.sampling,
+            split_intersections=args.split_intersections,
+            split_face_budget=args.split_face_budget,
         )
         header_path, source_path = emit_c_h(result, Path(args.out_prefix), args.symbol)
     except ImportError as exc:

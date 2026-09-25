@@ -75,6 +75,19 @@ extern "C" sat_result_t sat_scene_submit_quad(sat_scene_t* scene,
     return record_frame_result(scene,st);
 }
 
+extern "C" sat_result_t sat_scene_submit_quad_split(
+    sat_scene_t* scene, const sat_quad3_t* quad,
+    const sat_scene3d_material_t* material, uint16_t pass,
+    const sat_plane3_t* planes, uint8_t plane_count) {
+    if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
+    const uint16_t before = scene->faces.count;
+    const sat_result_t st = sat_scene3d_faces_submit_quad_split(
+        &scene->faces, quad, material, pass, planes, plane_count);
+    if (st == SAT_OK) scene->submitted_faces += scene->faces.count - before;
+    else if (st == SAT_ERR_CAPACITY) ++scene->rejected_faces;
+    return record_frame_result(scene,st);
+}
+
 extern "C" sat_result_t sat_scene_submit_instance(sat_scene_t* scene,
                                                     const sat_scene3d_instance_t* instance,
                                                     uint8_t slot,
