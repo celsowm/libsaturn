@@ -61,7 +61,9 @@ void commit() {
             g_normal_priority, fade_priority);
         CCCTL = kCcctlSpriteEnable;
     } else {
-        SPCTL = 0u; /* Type 0, default condition; SPCCEN below is disabled. */
+        /* Default condition, SPCCEN below disabled; type 0, or type C in
+         * hi-res, where the framebuffer is 8 bits/pixel. */
+        SPCTL = saturn::hal::vdp2::sprite_type_bits();
         saturn::hal::vdp2::set_sprite_priority_pair(
             g_normal_priority, g_normal_priority);
         CCCTL = 0u;

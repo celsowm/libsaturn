@@ -20,8 +20,12 @@
  * while the Master prepares the other, and the Master merges both into one
  * painter queue. While the Master then sorts and emits, the Slave decodes
  * the next pose into the second pose buffer. Faces whose baked texture is a
- * single colour (teeth and claws) draw as plain RGB polygons: same look, no
+ * single colour (teeth and claws) draw as plain polygons: same look, no
  * texture fetch.
+ *
+ * DINO_HIRES (Makefile.inc, on by default) runs 640x224: VDP1 writes 8-bit
+ * palette codes, the model's lookup tables hold codes of one shared
+ * palette, and a solid face's "colour" is its palette code.
  *
  * Controls (held state for smooth motion, presses for toggles):
  *   L / R      orbit yaw around the model
@@ -47,11 +51,25 @@
 #include "saturn/render3d.h"
 #include "saturn/scene.h"
 #include "saturn/vdp1.h"
+#include "saturn/vdp2.h"
 #include "saturn/example_util.h"
 
 #include "dino_demo/trex_model.h"
 
+/* DINO_HIRES (set by Makefile.inc) runs the 640x224 hi-res mode: twice the
+ * horizontal pixels, 8-bit VDP1 output indexing the model's one shared
+ * palette. The display is still 4:3, so projection keeps the 320-wide
+ * aspect and only the viewport doubles. */
+#ifndef DINO_HIRES
+#define DINO_HIRES 0
+#endif
+#if DINO_HIRES
+#define SCREEN_W 640
+#else
 #define SCREEN_W 320
+#endif
+#define DISPLAY_ASPECT_W 320
+#define HUD_X(x) ((x) * SCREEN_W / DISPLAY_ASPECT_W)
 #define SCREEN_H 224
 #define MODEL_START_YAW_DEG 90
 
@@ -310,9 +328,37 @@ static uint16_t solid_texture_color(const sat_model_texture_asset_t *t) {
     return first != 0u ? trex_asset.palettes_rgb555[first] : 0u;
 }
 
+/* Hi-res pixels are half as wide, so the HUD font doubles each glyph
+ * horizontally (16x8) to keep the text the same size on screen. */
+static void init_font(void) {
+#if DINO_HIRES
+    uint16_t palette[256] = {0};
+    uint16_t glyph;
+
+    palette[0] = SAT_COLOR_BLACK;
+    palette[1] = SAT_COLOR_WHITE;
+    for (glyph = 0u; glyph < SAT_ASCII_FONT_GLYPH_COUNT; ++glyph) {
+        uint8_t tall[16u * 16u] = {0};
+        uint8_t wide[16u * 8u];
+        uint16_t i;
+
+        sat_example_must(sat_font_pack_8x8_glyph_indexed8(tall, 16u, 16u, 0u, 0u,
+            sat_font_ascii_8x8_rows((char)(glyph + 32u)), 2u));
+        for (i = 0u; i < 16u * 8u; ++i) {
+            wide[i] = tall[(i / 16u) * 32u + (i % 16u)];
+        }
+        sat_example_must(sat_tex_upload_indexed8(&g_font.glyphs[glyph], wide,
+            16u, 8u, palette, FONT_PALETTE));
+    }
+#else
+    SAT_PANIC_IF_ERROR(sat_ascii_font_init_8x8_indexed8(
+        &g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, FONT_PALETTE));
+#endif
+}
+
 static void draw_text(const char *text, int x, int y) {
     sat_result_t st = sat_ascii_font_draw_text_screen_indexed8(
-        &g_font, text, x, y, 8, 0, 0);
+        &g_font, text, HUD_X(x), y, HUD_X(8), 0, 0);
     (void)st;
 }
 
@@ -334,8 +380,7 @@ int main(void) {
     sat_vec3_t mx = {0, 0, 0};
 
     SAT_PANIC_IF_ERROR(sat_init(&video));
-    SAT_PANIC_IF_ERROR(sat_ascii_font_init_8x8_indexed8(
-        &g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, FONT_PALETTE));
+    init_font();
     g_ntsc = (int)video.ntsc;
 
     sat_example_must(sat_model_validate(&trex_asset));
@@ -346,6 +391,17 @@ int main(void) {
     /* One palette upload + one pixel upload per unique texture, once. */
     sat_example_must(sat_model_upload_textures(
         &trex_asset, g_model_textures, MODEL_TEXTURE_CAP));
+#if DINO_HIRES
+    {
+        /* Every hi-res sprite code indexes the model's palette bank; the
+         * importer leaves code 1 free for the font's foreground texel. */
+        const uint16_t white = SAT_COLOR_WHITE;
+        sat_example_must(sat_vdp2_sprite_palette_bank_set(
+            (uint8_t)trex_asset.palette_base));
+        sat_example_must(sat_vdp2_palette_upload(
+            &white, 1u, (uint16_t)(trex_asset.palette_base * 256u + 1u)));
+    }
+#endif
     sat_example_must(sat_anim_state_init(&g_anim, &trex_anim_asset, 0));
     sat_example_must(sat_scene_init(&g_scene, g_scene_faces, g_scene_keys,
         g_scene_order, MODEL_FACE_CAP));
@@ -401,7 +457,7 @@ int main(void) {
         fit.near_plane_factor=SAT_FX16_ONE/8;
         fit.near_plane_floor=1;
         fit.fov_y=sat_fx16_from_int(60);
-        fit.aspect=sat_fx16_div(sat_fx16_from_int(SCREEN_W),sat_fx16_from_int(SCREEN_H));
+        fit.aspect=sat_fx16_div(sat_fx16_from_int(DISPLAY_ASPECT_W),sat_fx16_from_int(SCREEN_H));
         fit.far_z=sat_fx16_from_int(2000);
         fit.pitch_min_deg=-60;
         fit.pitch_max_deg=60;
@@ -423,6 +479,11 @@ int main(void) {
         sat_pad_state_t pad = {0};
 
         SAT_PANIC_IF_ERROR(sat_wait_vblank());
+#if DINO_HIRES
+        /* VDP2 latches its registers per frame; replay the hi-res sprite
+         * type and palette bank inside VBlank. */
+        SAT_PANIC_IF_ERROR(sat_vdp2_layers_commit());
+#endif
         SAT_PANIC_IF_ERROR(sat_vdp2_back_color_set(SAT_COLOR_BLACK));
         SAT_PANIC_IF_ERROR(sat_set_clear_color(SAT_COLOR_BLACK));
         SAT_PANIC_IF_ERROR(sat_begin_frame());

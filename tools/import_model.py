@@ -646,8 +646,10 @@ def bake_face_rgba(
     out_h: int,
     sampling: str,
 ) -> list[tuple[int, int, int, int]]:
+    if sampling == "area":
+        return _bake_face_area(uvs, img_w, img_h, img_pixels, out_w, out_h)
     if sampling != "nearest":
-        raise ImportError(f"Unknown --sampling '{sampling}' (supported: nearest)")
+        raise ImportError(f"Unknown --sampling '{sampling}' (supported: nearest, area)")
     (au, av), (bu, bv), (cu, cv), (du, dv) = uvs
     out: list[tuple[int, int, int, int]] = []
     for y in range(out_h):
@@ -685,6 +687,67 @@ def bake_face_rgba(
                 iy = img_h - 1
             out.append(img_pixels[iy * img_w + ix])
     return out
+
+
+_LINEAR_CACHE: dict[int, tuple] = {}
+
+
+def _linear_image(img_w: int, img_h: int, img_pixels) -> "np.ndarray":
+    import numpy as np
+
+    key = id(img_pixels)
+    hit = _LINEAR_CACHE.get(key)
+    if hit is None or hit[0] is not img_pixels:
+        srgb = np.asarray(img_pixels, dtype=np.float64).reshape(img_h, img_w, 4)
+        lin = srgb.copy()
+        lin[..., :3] = (srgb[..., :3] / 255.0) ** 2.2
+        lin[..., 3] /= 255.0
+        hit = (img_pixels, lin)
+        _LINEAR_CACHE[key] = hit
+    return hit[1]
+
+
+def _bake_face_area(uvs, img_w, img_h, img_pixels, out_w, out_h):
+    """Box-filtered bake: each output texel averages the source area it covers.
+
+    The VDP1 samples textures nearest-neighbour with no mipmapping, so a face
+    baked at more texels than it covers on screen shimmers into speckle
+    noise. Baking at the on-screen size (see --texel-extent) with this filter
+    is the offline equivalent of a mip level. Samples are bilinear source
+    fetches on a k x k grid per texel, averaged in linear light.
+    """
+    import numpy as np
+
+    lin = _linear_image(img_w, img_h, img_pixels)
+    (au, av), (bu, bv), (cu, cv), (du, dv) = uvs
+    src_w, src_h = estimate_face_size(uvs, img_w, img_h, 1.0)
+    ratio = max(src_w / out_w, src_h / out_h, 1.0)
+    k = int(min(8, max(2, math.ceil(ratio * 1.5))))
+    sub = (np.arange(k) + 0.5) / k
+    s = ((np.arange(out_w)[:, None] + sub[None, :]) / out_w).reshape(-1)
+    t = ((np.arange(out_h)[:, None] + sub[None, :]) / out_h).reshape(-1)
+    S, T = np.meshgrid(s, t)
+    top_u = au + (bu - au) * S
+    top_v = av + (bv - av) * S
+    bot_u = du + (cu - du) * S
+    bot_v = dv + (cv - dv) * S
+    u = np.clip(top_u + (bot_u - top_u) * T, 0.0, 1.0)
+    v = np.clip(top_v + (bot_v - top_v) * T, 0.0, 1.0)
+    fx = u * (img_w - 1)
+    fy = (1.0 - v) * (img_h - 1)
+    x0 = np.clip(np.floor(fx).astype(int), 0, img_w - 1)
+    y0 = np.clip(np.floor(fy).astype(int), 0, img_h - 1)
+    x1 = np.minimum(x0 + 1, img_w - 1)
+    y1 = np.minimum(y0 + 1, img_h - 1)
+    wx = (fx - x0)[..., None]
+    wy = (fy - y0)[..., None]
+    val = ((lin[y0, x0] * (1 - wx) + lin[y0, x1] * wx) * (1 - wy)
+           + (lin[y1, x0] * (1 - wx) + lin[y1, x1] * wx) * wy)
+    val = val.reshape(out_h, k, out_w, k, 4).mean(axis=(1, 3))
+    rgb = np.clip(np.round((val[..., :3] ** (1 / 2.2)) * 255.0), 0, 255).astype(int)
+    alpha = np.clip(np.round(val[..., 3] * 255.0), 0, 255).astype(int)
+    out = np.concatenate([rgb, alpha[..., None]], axis=-1).reshape(-1, 4)
+    return [tuple(int(c) for c in px) for px in out]
 
 
 # ----------------------------------------------------------------------
@@ -807,6 +870,43 @@ def quantize_face_lut4(
         for x in range(0, width, 2):
             packed.append(((row[x] + 1) << 4) | (row[x + 1] + 1))
     return lut, bytes(packed)
+
+
+def _lut_code_palette(baked_rgba, lo: int, hi: int):
+    """One shared palette in codes lo..hi, and a LUT4 entry -> code mapper.
+
+    An 8-bit/pixel VDP1 framebuffer (the 640/704-wide hi-res modes) keeps
+    only the low byte of what a lookup table yields, which VDP2 then reads as
+    a colour-RAM index: RGB table entries are not allowed there. The whole
+    model therefore shares one palette of hi - lo + 1 colours, and each face's
+    15-colour table holds the codes of its nearest palette colours. Codes
+    outside lo..hi stay free for the transparent code 0, the sprite shadow
+    code and whatever the program draws next to the model.
+    Returns (256-entry RGB555 palette, mapper from an RGB555 LUT entry).
+    """
+    opaque = [(r, g, b) for face in baked_rgba for (r, g, b, _a) in face]
+    count = hi - lo + 1
+    distinct = sorted(set(opaque))
+    entries = distinct if len(distinct) <= count else _quantize_colors(opaque, count)
+    entries = entries[:count]
+    palette = [0x0000] * 256
+    for i, (r, g, b) in enumerate(entries):
+        palette[lo + i] = rgb888_to_rgb555(r, g, b)
+    cache: dict[int, int] = {}
+
+    def snap(c555: int) -> int:
+        hit = cache.get(c555)
+        if hit is None:
+            r = (c555 & 0x1F) << 3
+            g = ((c555 >> 5) & 0x1F) << 3
+            b = ((c555 >> 10) & 0x1F) << 3
+            best = min(range(len(entries)), key=lambda i: (
+                (entries[i][0] - r) ** 2 + (entries[i][1] - g) ** 2
+                + (entries[i][2] - b) ** 2))
+            hit = cache[c555] = lo + best
+        return hit
+
+    return palette, snap
 
 
 def map_faces_to_indices(
@@ -1447,6 +1547,8 @@ def import_animated_model(
     weld_vertices: bool = False,
     texture_format: str = "indexed8",
     locality_order: bool = False,
+    texel_extent: float | None = None,
+    lut_codes: tuple[int, int] | None = None,
 ) -> AnimatedImportResult:
     if palette_index < 0 or palette_index > 7:
         raise ImportError(f"--palette-index must be in 0..7 (got {palette_index})")
@@ -1462,6 +1564,14 @@ def import_animated_model(
         raise ImportError(f"--texture-scale must be positive (got {texture_scale})")
     if scale <= 0.0:
         raise ImportError(f"--scale must be positive (got {scale})")
+    if lut_codes is not None:
+        lo, hi = lut_codes
+        if texture_format != "lut4":
+            raise ImportError("--lut-codes needs --texture-format lut4")
+        if not 1 <= lo <= hi <= 255:
+            raise ImportError(f"--lut-codes must be LO-HI within 1..255 (got {lo}-{hi})")
+    if texel_extent is not None and texel_extent <= 0.0:
+        raise ImportError(f"--texel-extent must be positive (got {texel_extent})")
     if texture_format not in ("indexed8", "lut4"):
         raise ImportError(f"--texture-format must be indexed8|lut4 (got {texture_format!r})")
     if locality_order and face_colors != "off":
@@ -1708,6 +1818,13 @@ def import_animated_model(
     baked_rgba: list = []
     face_sizes: list[tuple[int, int]] = []
     face_mtls: list[str] = []
+    texel_density = None
+    if texel_extent is not None:
+        # Texels per world unit such that the bind pose's longest extent spans
+        # texel_extent texels: a face never bakes more texels than it covers
+        # on screen when the model spans that many pixels.
+        span = max(max(p[i] for p in bind) - min(p[i] for p in bind) for i in range(3))
+        texel_density = texel_extent / max(span, 1e-9)
     for qi, ((a, b, c, d), (ua, ub, uc, ud)) in enumerate(zip(quads, quad_uvs)):
         if face_levels:
             break
@@ -1726,6 +1843,12 @@ def import_animated_model(
                 max_texture_width, max_texture_height)
             quads[qi] = (a, b, c, d)
         est_w, est_h = estimate_face_size((ua, ub, uc, ud), tex.width, tex.height, texture_scale)
+        if texel_density is not None:
+            pa, pb, pc, pd = (bind[i] for i in (a, b, c, d))
+            world_w = max(math.dist(pa, pb), math.dist(pd, pc)) * texel_density
+            world_h = max(math.dist(pa, pd), math.dist(pb, pc)) * texel_density
+            est_w = max(1, min(est_w, math.ceil(world_w)))
+            est_h = max(1, min(est_h, math.ceil(world_h)))
         out_w, out_h = conform_size(est_w, est_h, max_texture_width, max_texture_height,
                                     mat.get("name"), qi)
         baked_rgba.append(bake_face_rgba((ua, ub, uc, ud), tex.width, tex.height,
@@ -1749,8 +1872,13 @@ def import_animated_model(
         palette_rgb555 = []
         indexed_faces = []
         lut_of: dict[tuple[int, ...], int] = {}
+        snap = None
+        if lut_codes is not None:
+            palette_rgb555, snap = _lut_code_palette(baked_rgba, *lut_codes)
         for rgba, (w, h) in zip(baked_rgba, face_sizes):
             lut, packed = quantize_face_lut4(rgba, w, h)
+            if snap is not None:
+                lut = [snap(c) for c in lut]
             key = tuple(lut)
             if key not in lut_of:
                 lut_of[key] = len(luts)
@@ -1955,7 +2083,17 @@ def main() -> int:
     parser.add_argument("--max-texture-height", type=int, default=VDP1_MAX_TEXTURE_HEIGHT)
     parser.add_argument("--texture-scale", type=float, default=1.0,
                         help="Global baked-texture resolution scale")
-    parser.add_argument("--sampling", default="nearest", help="Bake sampling mode (nearest)")
+    parser.add_argument("--sampling", default="nearest", choices=("nearest", "area"),
+                        help="Bake sampling: nearest source texel, or area (box-filtered "
+                             "average of the source each baked texel covers)")
+    parser.add_argument("--lut-codes", default=None, metavar="LO-HI",
+                        help="Animated GLB, lut4: tables hold VDP2 palette codes LO..HI of "
+                             "one shared palette instead of RGB (8-bit/pixel hi-res "
+                             "framebuffers)")
+    parser.add_argument("--texel-extent", type=float, default=None,
+                        help="Animated GLB: cap each face's baked texels at its world size, "
+                             "scaled so the model's longest extent spans N texels (match "
+                             "the on-screen size; pair with --sampling area)")
     parser.add_argument("--target", default=None,
                         help="Compilation target; 'saturn' enables the animated GLB path")
     parser.add_argument("--simplify", default="auto",
@@ -2100,6 +2238,16 @@ def main() -> int:
     return 0
 
 
+def _parse_lut_codes(text):
+    if text is None:
+        return None
+    try:
+        lo, hi = (int(v) for v in text.split("-"))
+    except ValueError:
+        raise ImportError(f"--lut-codes must be LO-HI (got {text!r})")
+    return lo, hi
+
+
 def _main_animated(args) -> int:
     if args.target not in (None, "saturn"):
         print(f"import_model: error: unknown --target {args.target!r} (have: saturn)",
@@ -2122,6 +2270,8 @@ def _main_animated(args) -> int:
             max_texture_height=args.max_texture_height,
             texture_scale=args.texture_scale,
             sampling=args.sampling,
+            texel_extent=args.texel_extent,
+            lut_codes=_parse_lut_codes(args.lut_codes),
             simplify=args.simplify,
             quality=args.quality,
             max_triangles=args.max_triangles,

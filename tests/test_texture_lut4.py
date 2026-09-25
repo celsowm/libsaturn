@@ -71,6 +71,35 @@ class Lut4ImportTests(unittest.TestCase):
                              sum(len(t["pixels"]) for t in static.textures)
                              + 32 * (len(static.luts_rgb555) // 16))
 
+    def test_lut_codes_index_one_shared_palette(self):
+        expected = [rgb888_to_rgb555(*c) for c in
+                    ((255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0))]
+        with tempfile.TemporaryDirectory() as tmp:
+            src = make_quadrant_glb(Path(tmp))
+            result = import_model.import_animated_model(
+                src, simplify="off", texture_format="lut4", lut_codes=(2, 253),
+                palette_index=1)
+            static = result.static
+            pal = static.palette_rgb555
+            self.assertEqual(len(pal), 256)
+            self.assertEqual(static.palette_base, 1)
+            self.assertEqual([pal[0], pal[1], pal[254], pal[255]], [0, 0, 0, 0])
+            for k, want in enumerate(expected):
+                for face in (2 * k, 2 * k + 1):
+                    tex = static.textures[static.face_texture_indices[face]]
+                    lut = static.luts_rgb555[tex["palette_slot"] * 16:][:16]
+                    self.assertTrue(all(2 <= code <= 253 for code in lut))
+                    self.assertEqual({pal[lut[c]] for c in unpack(tex["pixels"])}, {want})
+
+    def test_lut_codes_need_lut4_and_a_legal_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = make_quadrant_glb(Path(tmp))
+            with self.assertRaises(import_model.ImportError):
+                import_model.import_animated_model(src, simplify="off", lut_codes=(2, 253))
+            with self.assertRaises(import_model.ImportError):
+                import_model.import_animated_model(
+                    src, simplify="off", texture_format="lut4", lut_codes=(0, 253))
+
     def test_lut4_c_compiles(self):
         cc = shutil.which("g++") or shutil.which("gcc") or shutil.which("cc") or shutil.which("clang")
         if cc is None:

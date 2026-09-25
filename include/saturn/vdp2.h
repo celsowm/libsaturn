@@ -128,6 +128,10 @@ sat_result_t sat_vdp2_nbg0_upload_indexed8(
 /* Palette & VRAM                                                      */
 /* ------------------------------------------------------------------ */
 sat_result_t sat_vdp2_palette_upload(const uint16_t* palette_rgb555, uint16_t count, uint16_t offset);
+/* Hi-res (640/704-wide) modes only: the 256-colour CRAM bank (0-7, word
+ * offset bank * 256) that the 8-bit VDP1 framebuffer codes index. Replayed
+ * by sat_vdp2_layers_commit(). */
+sat_result_t sat_vdp2_sprite_palette_bank_set(uint8_t bank);
 sat_result_t sat_vdp2_vram_write_words(uint32_t word_offset, const uint16_t* words, uint32_t word_count);
 
 /* Pixel generator for an INDEX8 VDP2 bitmap. The callback is invoked once

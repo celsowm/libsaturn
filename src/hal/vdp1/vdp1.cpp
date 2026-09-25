@@ -59,6 +59,15 @@ bool g_frame_submitted=true;
 uint32_t g_texture_cursor = kTextureBase;
 uint16_t g_width = 320;
 uint16_t g_height = 224;
+/* 640/704-wide hi-res: TVMR TVM = 001, an 8 bits/pixel framebuffer. */
+bool g_hires = false;
+
+/* EWRR for a full-screen erase. X3 counts 8-pixel units at 16 bits/pixel and
+ * 16-pixel units at 8 bits/pixel (VDP1 manual 4.4); Y3 is the last line. */
+uint16_t full_erase_ewrr(uint16_t width, uint16_t height) {
+    const uint16_t unit = g_hires ? 16u : 8u;
+    return static_cast<uint16_t>(((width / unit) << 9u) | (height - 1u));
+}
 #if SAT_PROFILE_METRICS
 uint32_t g_test_scene_command_hash;
 uint32_t g_test_scene_command_count;
@@ -118,9 +127,10 @@ inline void copy_words_to_vram(const Command* src, uint32_t count_commands) {
 void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     g_width = width;
     g_height = height;
+    g_hires = width >= 640u;
     g_texture_cursor = kTextureBase;
 
-    TVMR = 0x0000;
+    TVMR = g_hires ? 0x0001u : 0x0000u;
     FBCR = 0x0000;
     PTMR = 0x0000;
     // Transparent erase. In the 16bpp framebuffer bit15 = 1 is the RGB code,
@@ -134,7 +144,7 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     // EWRR bit15..9 = X3 (units of 8 px, actual X3 = value*8 - 1),
     // bit8..0 = Y3, the last erased line, hence height - 1.
     EWLR = 0x0000;
-    EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | (height - 1u));
+    EWRR = full_erase_ewrr(width, height);
 
     VDP1_VRAM_32[0] = 0x80000000u;
     VDP1_VRAM_32[1] = 0x00000000u;
@@ -147,6 +157,13 @@ void set_clear_color(uint16_t rgb555) {
     // Sets bit 15, the RGB code, producing an OPAQUE erase in the given color.
     // This covers the VDP2 backdrop and any VDP2 layer below the sprite layer.
     // Use set_erase_transparent() to restore the see-through default.
+    // An 8 bits/pixel hi-res framebuffer holds no RGB: EWDR there is two
+    // palette codes, so the erase stays transparent and the VDP2 backdrop
+    // provides the colour.
+    if (g_hires) {
+        EWDR = 0x0000u;
+        return;
+    }
     EWDR = static_cast<uint16_t>(rgb555 | 0x8000u);
 }
 
@@ -159,7 +176,7 @@ void set_erase_transparent() {
 void set_erase_enabled(bool enable, uint16_t width, uint16_t height) {
     if (enable) {
         EWLR = 0x0000;
-        EWRR = static_cast<uint16_t>(((width / 8u) << 9u) | (height - 1u));
+        EWRR = full_erase_ewrr(width, height);
     } else {
         EWLR = 0x0000;
         EWRR = 0x0000;

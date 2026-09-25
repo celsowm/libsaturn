@@ -29,6 +29,13 @@ enum ColorMode {
 // Basic initialization
 void init_ntsc_320x224();
 uint16_t read_tvstat();
+/* After init: 320, 352, 640 or 704. 640/704 are the hi-res modes whose
+ * VDP1 framebuffer is 8 bits/pixel (sprite type C). */
+void set_horizontal_resolution(uint16_t width);
+bool hires();
+uint16_t sprite_type_bits();
+/* The 256-colour CRAM bank hi-res sprite codes index (CRAOFB SPCAOS). */
+void set_sprite_palette_bank(uint8_t bank);
 
 // NBG0 configuration
 void configure_nbg0_character(CharacterSize char_size, ColorMode color_mode);

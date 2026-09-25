@@ -121,15 +121,7 @@ LIB_CXXFLAGS := $(LIB_CFLAGS) -std=c++20 -fno-exceptions -fno-rtti \
                 -fno-threadsafe-statics -fno-use-cxa-atexit
 LIB_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
     "$(LIB_CFLAGS)" "$(LIB_CXXFLAGS)" "$(ASFLAGS)")
-EXAMPLE_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
-    "$(EXAMPLE)" "$(IP_PROFILE)" "$(IP_TEMPLATE_KIND)" "$(CFLAGS)" \
-    "$(CXXFLAGS)" "$(ASFLAGS)" "$(LIB_PROFILE_KEY)")
 LIB_OBJ_ROOT := $(BUILD_DIR)/objects/library/$(LIB_PROFILE_KEY)
-APP_OBJ_ROOT := $(BUILD_DIR)/objects/examples/$(EXAMPLE)/$(EXAMPLE_PROFILE_KEY)
-OUTPUT_DIR := $(BUILD_DIR)/variants/$(EXAMPLE)/$(EXAMPLE_PROFILE_KEY)
-ISO_ROOT := $(OUTPUT_DIR)/iso_root
-LDFLAGS := -m2 -mb -nostdlib -Wl,-T,src/core/startup/saturn.ld \
-           -Wl,-Map,$(OUTPUT_DIR)/$(EXAMPLE).map -Wl,--gc-sections
 
 # -- Biblioteca -------------------------------------------------
 # Source files are intentionally discovered recursively: implementation ownership
@@ -142,8 +134,6 @@ CRT_SRCS     := $(call rwildcard,src,*.s)
 
 LIB_CPP_OBJS := $(patsubst %.cpp,$(LIB_OBJ_ROOT)/%.o,$(LIB_CPP_SRCS))
 LIB_C_OBJS   := $(patsubst %.c,$(LIB_OBJ_ROOT)/%.o,$(LIB_C_SRCS))
-CRT_OBJS     := $(patsubst %.s,$(APP_OBJ_ROOT)/%.o,$(CRT_SRCS))
-
 LIBRARY := $(LIB_OBJ_ROOT)/libsaturn.a
 
 # -- Example (automatic discovery) ----------------------------
@@ -171,6 +161,19 @@ EXAMPLE_INC := $(EXAMPLE_DIR)/Makefile.inc
 ifneq ($(wildcard $(EXAMPLE_INC)),)
   include $(EXAMPLE_INC)
 endif
+
+# Example objects and outputs are keyed after the include, so flags an
+# example's Makefile.inc adds (dino_demo's -DDINO_HIRES) select their own
+# object directory instead of reusing objects built without them.
+EXAMPLE_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
+    "$(EXAMPLE)" "$(IP_PROFILE)" "$(IP_TEMPLATE_KIND)" "$(CFLAGS)" \
+    "$(CXXFLAGS)" "$(ASFLAGS)" "$(LIB_PROFILE_KEY)")
+APP_OBJ_ROOT := $(BUILD_DIR)/objects/examples/$(EXAMPLE)/$(EXAMPLE_PROFILE_KEY)
+OUTPUT_DIR := $(BUILD_DIR)/variants/$(EXAMPLE)/$(EXAMPLE_PROFILE_KEY)
+ISO_ROOT := $(OUTPUT_DIR)/iso_root
+LDFLAGS := -m2 -mb -nostdlib -Wl,-T,src/core/startup/saturn.ld \
+           -Wl,-Map,$(OUTPUT_DIR)/$(EXAMPLE).map -Wl,--gc-sections
+CRT_OBJS     := $(patsubst %.s,$(APP_OBJ_ROOT)/%.o,$(CRT_SRCS))
 
 # Computed after the include so Makefile.inc can contribute to it.
 EXAMPLE_SRCS    := $(wildcard $(EXAMPLE_DIR)/*.c) $(EXAMPLE_COMMON_SRCS)
@@ -301,6 +304,11 @@ endif
 # 15-color VDP1 lookup table per face, half the VRAM of indexed8.
 # MODEL_LOCALITY_ORDER (off|on) orders faces along the model and vertices by
 # first use, so a face list split between CPUs splits its vertices too.
+# MODEL_SAMPLING (nearest|area) and MODEL_TEXEL_EXTENT (texels across the
+# model's longest extent, empty for none) bake each face at no more texels
+# than it covers on screen, box-filtered: the VDP1 has no mipmapping.
+# MODEL_LUT_CODES (LO-HI, empty for RGB): lut4 tables hold codes LO..HI of
+# one shared palette, for the 8 bits/pixel hi-res framebuffer.
 # MODEL_MAX_POSE_STREAM_BYTES can raise the per-asset baked-pose cap when
 # the resulting executable still fits the Saturn work-RAM budget.
 # MODEL_HUD_RESERVE is the example-specific VDP1 command count reserved
@@ -340,6 +348,8 @@ MODEL_QUAD_MAX_FOLD_DEG     ?= 30
 MODEL_WELD_VERTICES         ?= off
 MODEL_TEXTURE_FORMAT        ?= indexed8
 MODEL_LOCALITY_ORDER        ?= off
+MODEL_SAMPLING              ?= nearest
+MODEL_TEXEL_EXTENT          ?=
 MODEL_SIGNATURE_FILE := $(MODEL_OUT_PREFIX).signature.json
 MODEL_FLIP_FLAGS          :=
 ifeq ($(MODEL_FLIP_X),1)
@@ -391,6 +401,9 @@ MODEL_IMPORT_ARGS = \
 	--weld-vertices $(MODEL_WELD_VERTICES) \
 	--texture-format $(MODEL_TEXTURE_FORMAT) \
 	--locality-order $(MODEL_LOCALITY_ORDER) \
+	--sampling $(MODEL_SAMPLING) \
+	$(if $(MODEL_TEXEL_EXTENT),--texel-extent $(MODEL_TEXEL_EXTENT)) \
+	$(if $(MODEL_LUT_CODES),--lut-codes $(MODEL_LUT_CODES)) \
 	--report $(MODEL_OUT_PREFIX).report.json \
 	$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG) $(MODEL_MERGE_RIGID_MESHES_FLAG)
 $(MODEL_SIGNATURE_FILE): FORCE_MODEL_IMPORT_SIGNATURE $(MODEL_GLB) $(MODEL_IMPORT_SRCS)

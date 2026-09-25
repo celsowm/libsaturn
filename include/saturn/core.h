@@ -40,6 +40,16 @@ typedef enum sat_result {
 /* ------------------------------------------------------------------ */
 /* Video config (needed early by core init)                            */
 /* ------------------------------------------------------------------ */
+/* width 320, or 640/704 for hi-res; height 224, NTSC.
+ *
+ * Hi-res doubles the horizontal resolution, and the VDP1 framebuffer drops
+ * to 8 bits/pixel. VDP1 output is then palette codes 0-255 into one
+ * 256-colour CRAM bank (sat_vdp2_sprite_palette_bank_set()): code 0 is
+ * transparent, 0xFE is the sprite shadow code, and RGB textures, RGB
+ * polygon colours, Gouraud shading and VDP1 colour calculation are not
+ * available (VDP1 manual 1.3, 6.4). Polygon colours and LUT4 table entries
+ * write their low byte as the code; indexed textures write their texel.
+ * sat_set_clear_color() leaves the erase transparent: set the backdrop. */
 typedef struct sat_video_config {
     uint16_t width;
     uint16_t height;

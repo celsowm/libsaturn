@@ -75,6 +75,11 @@ uint16_t g_last_nbg0_scyin0_written = 0x0000u;
 uint16_t g_last_nbg0_scydn0_written = 0x0000u;
 uint16_t g_last_prisa_written = 0x0606u;
 bool g_nbg0_configured = false;
+/* Hi-res (640/704 wide) state: the VDP1 framebuffer is 8 bits/pixel, which
+ * VDP2 must read as sprite type C, and its codes index one 256-colour CRAM
+ * bank chosen by CRAOFB. Both are replayed by commit_layers(). */
+bool g_hires = false;
+uint16_t g_sprite_craofb = 0u;
 
 /* VDP2 control registers are WRITE-ONLY on hardware. Only TVSTAT, VRSIZE,
  * HCNT and VCNT can be read back; everything else returns 0 (mednafen) or
@@ -188,6 +193,8 @@ RegRef reg() {
 #define BKTAU reg<0x0AC>()
 #define BKTAL reg<0x0AE>()
 #define PRISA reg<0x0F0>()
+#define SPCTL reg<0x0E0>()
+#define CRAOFB reg<0x0E6>()
 #define PRINA reg<0x0F8>()
 
 /* Colour-operation registers. The library does not use any of them, which is
@@ -391,6 +398,34 @@ void init_ntsc_320x224() {
 
     set_backdrop_color(0x0000);
     TVMD = static_cast<uint16_t>(kTvmdDisp | kTvmdBdclmd);
+}
+
+void set_horizontal_resolution(uint16_t width) {
+    /* TVMD HRESO: 0 = 320, 1 = 352, 2 = 640, 3 = 704 (normal NTSC). */
+    uint16_t hreso = 0u;
+    if (width == 352u) hreso = 1u;
+    else if (width == 640u) hreso = 2u;
+    else if (width == 704u) hreso = 3u;
+    g_hires = hreso >= 2u;
+    TVMD = static_cast<uint16_t>((TVMD & 0xFFF8u) | hreso);
+    SPCTL = sprite_type_bits();
+    CRAOFB = g_sprite_craofb;
+}
+
+bool hires() {
+    return g_hires;
+}
+
+uint16_t sprite_type_bits() {
+    /* Type C: all 8 framebuffer bits are dot colour (bit 7 doubles as the
+     * priority-register select, and PRISA gives both registers the same
+     * priority), so a hi-res sprite can use palette codes 0-255. */
+    return g_hires ? 0x000Cu : 0x0000u;
+}
+
+void set_sprite_palette_bank(uint8_t bank) {
+    g_sprite_craofb = static_cast<uint16_t>((bank & 0x07u) << 4u);
+    CRAOFB = g_sprite_craofb;
 }
 
 uint16_t read_tvstat() {
@@ -853,6 +888,10 @@ void commit_layers() {
     /* Sprite priority decides whether the VDP1's output is in front of the
      * VDP2 layers, so it is replayed whether or not NBG0 is in use. */
     PRISA = g_last_prisa_written;
+    if (g_hires) {
+        SPCTL = sprite_type_bits();
+    }
+    CRAOFB = g_sprite_craofb;
     commit_rbg0_config();
 }
 

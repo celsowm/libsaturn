@@ -177,6 +177,22 @@ extern "C" sat_result_t sat_vdp2_palette_upload(const uint16_t* palette_rgb555, 
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_sprite_palette_bank_set(uint8_t bank) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (bank > 7u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (!saturn::hal::vdp2::hires()) {
+        return SAT_ERR_UNSUPPORTED;
+    }
+    saturn::hal::vdp2::set_sprite_palette_bank(bank);
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp2_vram_write_words(uint32_t word_offset, const uint16_t* words, uint32_t word_count) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();
