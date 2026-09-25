@@ -173,8 +173,9 @@ void player_pig(void) {
     for(uint16_t vertex=0u;vertex<SKYBRIDGE_PIG_VERTEX_COUNT;++vertex)
         g_pig_mesh.vertices[vertex]=g_pig_pose[g_pig_render_buffer][vertex];
     if(sat_mesh_transform(&g_pig_mesh,&world)!=SAT_OK ||
-       sat_anim_face_colors(&skybridge_pig_anim_asset,
-        &g_pig_render_anim,g_pig_face_textures,PIG_FACE_CAP)!=SAT_OK) {
+       sat_anim_face_materials(&skybridge_pig_anim_asset,
+        &g_pig_render_anim,g_pig_face_textures,PIG_FACE_CAP,
+        SKYBRIDGE_PIG_SHADE_COUNT)!=SAT_OK) {
         ++g_metrics.failures;
         return;
     }

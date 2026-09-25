@@ -267,6 +267,43 @@ inline sat_result_t face_colors(
     return SAT_OK;
 }
 
+inline sat_result_t face_materials(
+    const sat_animated_model_asset* asset,
+    const sat_anim_state_t* state,
+    uint16_t* out,
+    uint16_t cap,
+    uint16_t material_count
+) {
+    if (asset == nullptr || state == nullptr || out == nullptr ||
+        material_count == 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (validate_clip(asset, state->clip) != SAT_OK) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const sat_model_animation_asset* anim = clip_at(asset, state->clip);
+    const sat_model_asset* model = asset->model;
+    if (state->frame >= anim->frame_count) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (anim->face_shades == nullptr) {
+        return SAT_ERR_UNSUPPORTED;
+    }
+    if (cap < model->face_count) {
+        return SAT_ERR_CAPACITY;
+    }
+    const uint8_t* shade =
+        &anim->face_shades[static_cast<uint32_t>(state->frame) * model->face_count];
+    /* Preflight: a table smaller than any shade leaves out untouched. */
+    for (uint16_t f = 0; f < model->face_count; ++f) {
+        if (shade[f] >= material_count) return SAT_ERR_INVALID_ARG;
+    }
+    for (uint16_t f = 0; f < model->face_count; ++f) {
+        out[f] = shade[f];
+    }
+    return SAT_OK;
+}
+
 inline sat_result_t vertex_gouraud(
     const sat_animated_model_asset* asset,
     const sat_anim_state_t* state,

@@ -382,6 +382,39 @@ static void face_colors_follow_baked_shades() {
     ASSERT_EQ(sat_anim_face_colors(&a, &st, out, 1), SAT_ERR_UNSUPPORTED);
 }
 
+/* Shade INDICES, not colours: the per-face material table of an instance
+ * submission. Skybridge once filled that table from face_colors and every
+ * face of its pig failed validation, so the pig was never drawn. */
+static void face_materials_follow_baked_shades() {
+    static uint16_t shade_pal[3] = {0x8000u, 0x801Fu, 0xFC00u};
+    static uint8_t shades[3] = {1, 2, 0}; /* 3 frames x 1 face */
+    sat_model_asset_t model = kModel;
+    model.shade_palette_rgb555 = shade_pal;
+    model.shade_palette_count = 3;
+    sat_model_animation_asset_t clips[1] = {kLoopClip};
+    clips[0].face_shades = shades;
+    sat_animated_model_asset_t a = {&model, clips, 1, 0};
+    ASSERT_EQ(sat_anim_validate(&a), SAT_OK);
+
+    sat_anim_state_t st = {};
+    ASSERT_EQ(sat_anim_state_init(&st, &a, 0), SAT_OK);
+    uint16_t out[1] = {0xFFFFu};
+    ASSERT_EQ(sat_anim_face_materials(&a, &st, out, 1, 3), SAT_OK);
+    ASSERT_EQ(out[0], 1u);
+    st.frame = 1;
+    ASSERT_EQ(sat_anim_face_materials(&a, &st, out, 1, 3), SAT_OK);
+    ASSERT_EQ(out[0], 2u);
+    /* A material table smaller than a shade used this frame: no write. */
+    out[0] = 0xFFFFu;
+    ASSERT_EQ(sat_anim_face_materials(&a, &st, out, 1, 2), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(out[0], 0xFFFFu);
+    ASSERT_EQ(sat_anim_face_materials(&a, &st, out, 0, 3), SAT_ERR_CAPACITY);
+    ASSERT_EQ(sat_anim_face_materials(&a, &st, nullptr, 1, 3), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(sat_anim_face_materials(&a, &st, out, 1, 0), SAT_ERR_INVALID_ARG);
+    clips[0].face_shades = nullptr;
+    ASSERT_EQ(sat_anim_face_materials(&a, &st, out, 1, 3), SAT_ERR_UNSUPPORTED);
+}
+
 /* Baked Gouraud: one white table entry per vertex per frame. */
 static void vertex_gouraud_follows_baked_levels() {
     static uint8_t levels[3 * 2] = {16, 31, 0, 20, 5, 16}; /* 3 frames x 2 verts */
@@ -590,12 +623,13 @@ int main() {
     decode_capacity_and_malformed();
     divide_free_decode_is_exact();
     face_colors_follow_baked_shades();
+    face_materials_follow_baked_shades();
     vertex_gouraud_follows_baked_levels();
     wide_sort_draws_big_meshes();
     legacy_small_mesh_unaffected();
     decode_feeds_mesh_and_bind();
     prepared_animated_instance_keeps_bind_indices_and_no_transform_drift();
     prepared_animated_instance_rejects_bad_shades_before_pose_mutation();
-    printf("PASS: test_anim3d_logic.cpp (19 tests)\n");
+    printf("PASS: test_anim3d_logic.cpp (20 tests)\n");
     return 0;
 }

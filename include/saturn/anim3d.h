@@ -169,6 +169,21 @@ sat_result_t sat_anim_face_colors(
     uint16_t color_cap
 );
 
+/* Fills out_materials[face] with every face's baked shade INDEX for the
+ * current frame: the per-face material table of sat_scene3d_instance_t,
+ * when materials[i] was registered from shade_palette_rgb555[i]. Colours
+ * (sat_anim_face_colors) are not indices; storing them there fails every
+ * face. It does not touch the pose, so a pose decoded elsewhere (the Slave)
+ * pairs with it. A shade >= material_count is SAT_ERR_INVALID_ARG before
+ * any write; SAT_ERR_UNSUPPORTED when the clip has no baked shades. */
+sat_result_t sat_anim_face_materials(
+    const sat_animated_model_asset_t* asset,
+    const sat_anim_state_t* state,
+    uint16_t* out_materials,
+    uint16_t material_cap,
+    uint16_t material_count
+);
+
 /* Fills out_gouraud[vertex] with every vertex's baked Gouraud table entry
  * for the current frame, ready for sat_mesh_draw_t::vertex_gouraud (draw
  * with sat_model_face_base_colors as the face colors). Returns
