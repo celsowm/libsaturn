@@ -140,11 +140,34 @@ inline bool ray_mesh(const sat_mesh_t& m, const sat_ray3_t& r, sat_hit3_t& o) {
     return found;
 }
 
+/* True when the sphere's bounding box misses the quad's on some axis: every
+ * point of the quad is then more than one radius away. Pure comparisons,
+ * so most faces of a mesh are rejected before any normal, square root or
+ * division (on the SH-2 those made this test ~100 us per face). */
+inline bool sphere_misses_quad_bounds(const sat_quad3_t& q, const sat_sphere_t& s) {
+    const int64_t c[3] = {s.center.x, s.center.y, s.center.z};
+    for (int axis = 0; axis < 3; ++axis) {
+        int64_t lo = INT64_MAX, hi = INT64_MIN;
+        for (int i = 0; i < 4; ++i) {
+            const int64_t v = axis == 0 ? q.v[i].x : axis == 1 ? q.v[i].y : q.v[i].z;
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
+        }
+        if (c[axis] + s.radius < lo || c[axis] - s.radius > hi) return true;
+    }
+    return false;
+}
+
 inline bool sphere_quad_contact(const sat_quad3_t& q, const sat_sphere_t& s, sat_contact3_t& c) {
+    if (sphere_misses_quad_bounds(q, s)) return false;
     const sat_vec3_t n = unit(quad_normal_scaled(q));
     if (!n.x && !n.y && !n.z) return false;
     const sat_fx16_t signed_d =
         static_cast<sat_fx16_t>(vec3_dot_raw(sub(s.center, q.v[0]), n) >> 16);
+    /* The closest point is at least the plane distance away. Two units of
+     * slack cover the rounded normal, so this rejects only faces the full
+     * test below would also reject. */
+    if (ab(signed_d) >= static_cast<int64_t>(s.radius) + 2) return false;
     const sat_vec3_t proj = sub(s.center, mul(n, signed_d));
     sat_vec3_t closest = proj;
     if (!inside_quad(q, proj, n)) {

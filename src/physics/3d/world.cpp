@@ -25,9 +25,12 @@ void mesh_bounds(const sat_mesh_t& mesh,V& low,V& high) {
     low=mesh.vertices[0];high=low;
     for(uint16_t i=1u;i<mesh.vertex_count;++i){
         const V p=mesh.vertices[i];
-        if(p.x<low.x)low.x=p.x;if(p.x>high.x)high.x=p.x;
-        if(p.y<low.y)low.y=p.y;if(p.y>high.y)high.y=p.y;
-        if(p.z<low.z)low.z=p.z;if(p.z>high.z)high.z=p.z;
+        if(p.x<low.x)low.x=p.x;
+        if(p.x>high.x)high.x=p.x;
+        if(p.y<low.y)low.y=p.y;
+        if(p.y>high.y)high.y=p.y;
+        if(p.z<low.z)low.z=p.z;
+        if(p.z>high.z)high.z=p.z;
     }
 }
 bool fits(int64_t n) {return n>=INT32_MIN && n<=INT32_MAX;}

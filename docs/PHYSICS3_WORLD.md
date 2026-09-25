@@ -118,6 +118,33 @@ When a world contains only finite meshes (static or translating) and dynamic
 spheres, this option
 caps substeps at `max_substeps` rather than rejecting a high-speed tick;
 box/plane/kinematic worlds retain the original capacity rejection contract.
+### Measured SH-2 cost
+
+`examples/physics3_bench` builds a 16x16-quad floor (256 faces, 128 units
+across), 16 static boxes and 8 or 32 unit spheres, lets them land, then
+times `sat_physics3_world_step` per step (Ymir, 2026-09-25; the harness
+acceptance `harness/tests/test_physics3_bench.py` checks every configuration
+returns SAT_OK):
+
+| Spheres | Configuration | ms per step |
+|---|---|---|
+| 8 | linear scan, plain floor mesh | 71 |
+| 8 | BVH, plain floor mesh | 71 |
+| 32 | linear or BVH, plain floor mesh | ~92 |
+| 32 | BVH, floor registered with its mesh grid | 17 |
+| 32 | BVH + grid + mesh-face CCD | 132 |
+| 32 | BVH + grid + CCD + sphere/sphere | 133 |
+
+The floor mesh dominates: without its grid every resting sphere tests all
+256 faces each iteration of each substep, and the BVH cannot help because
+the floor is one collider. Register large meshes with `sat_physics3_add_mesh_grid`.
+Mesh-face CCD costs several times the discrete path; enable it only where
+tunnelling is possible. Before the sphere/quad bounds and plane-distance
+rejects (same results, host-verified by state hash) these were 157 and
+39 ms. `sat_time_ms` loses 16-bit FRT wraps across calls more than ~292 ms
+apart, so the benchmark times each step separately; the 32-sphere
+plain-mesh rows (longest step 130 ms) are within that limit.
+
 ### One-way platforms
 
 `sat_physics3_set_one_way(world, collider_id, 1)` turns a box or mesh
