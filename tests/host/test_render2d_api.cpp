@@ -34,7 +34,7 @@ saturn::hal::vdp1::UserClipRequest g_last_clip{};
 }
 
 extern "C" sat_result_t sat_vdp2_sprite_color_calc_alpha_slot(
-    uint8_t alpha, uint8_t* out_slot) {
+    uint8_t alpha, uint8_t* out_slot, uint8_t*) {
     if (out_slot == nullptr) return SAT_ERR_INVALID_ARG;
     if (!g_alpha_configured) return SAT_ERR_NOT_INITIALIZED;
     g_alpha_requested = alpha;

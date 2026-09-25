@@ -11,7 +11,8 @@ void configure(const sat_vdp2_sprite_color_calc_config_t& config);
 void set_ratio(uint8_t slot, uint8_t ratio);
 void disable();
 void commit();
-sat_result_t select_alpha_slot(uint8_t alpha, uint8_t* out_slot);
+sat_result_t select_alpha_slot(uint8_t alpha, uint8_t* out_slot, uint8_t* out_alpha);
+void set_strict_alpha(bool strict);
 
 }  // namespace saturn::hal::vdp2_color_calc
 

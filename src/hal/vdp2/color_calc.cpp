@@ -24,6 +24,7 @@ constexpr uint16_t kTvstatVblank = 0x0008u;
 uint8_t g_enabled = 0u;
 uint8_t g_normal_priority = 6u;
 uint8_t g_ratio[8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+uint8_t g_strict_alpha = 0u;
 
 /* VDP2 configuration registers are latched during VBlank.  A caller can
  * easily spend most of that short window in SMPC polling before reaching a
@@ -86,9 +87,14 @@ void set_ratio(uint8_t slot, uint8_t ratio) {
     commit();
 }
 
-sat_result_t select_alpha_slot(uint8_t alpha, uint8_t* out_slot) {
+sat_result_t select_alpha_slot(uint8_t alpha, uint8_t* out_slot, uint8_t* out_alpha) {
     if (g_enabled == 0u) return SAT_ERR_NOT_INITIALIZED;
-    return saturn::core::vdp2_color_calc::choose_alpha_slot(alpha, g_ratio, out_slot);
+    return saturn::core::vdp2_color_calc::choose_alpha_slot(
+        alpha, g_ratio, g_strict_alpha != 0u, out_slot, out_alpha);
+}
+
+void set_strict_alpha(bool strict) {
+    g_strict_alpha = strict ? 1u : 0u;
 }
 
 void disable() {

@@ -275,7 +275,7 @@ extern "C" sat_result_t sat_draw_texture(
         if (effective.tint.a == 0u) return SAT_OK;
         if (effective.tint.a != 255u) {
             uint8_t slot_id = 0u;
-            SAT_TRY(sat_vdp2_sprite_color_calc_alpha_slot(effective.tint.a, &slot_id));
+            SAT_TRY(sat_vdp2_sprite_color_calc_alpha_slot(effective.tint.a, &slot_id, nullptr));
             SAT_TRY(vdp1_color_calc::encode_palette_selector(native->palette, slot_id, &palette));
         }
     }

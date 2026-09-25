@@ -30,16 +30,37 @@ int main() {
 
     const uint8_t ratios[8] = {0u, 4u, 8u, 12u, 16u, 20u, 24u, 31u};
     uint8_t slot = 0xFFu;
+    uint8_t actual = 0u;
     using saturn::core::vdp2_color_calc::choose_alpha_slot;
-    ASSERT_EQ(choose_alpha_slot(128u, ratios, &slot), SAT_OK);
+    using saturn::core::vdp2_color_calc::ratio_to_alpha;
+    ASSERT_EQ(choose_alpha_slot(128u, ratios, false, &slot, &actual), SAT_OK);
     ASSERT_EQ(slot, 4u); // background ratio 16 => approximately 50% alpha
-    ASSERT_EQ(choose_alpha_slot(1u, ratios, &slot), SAT_OK);
+    ASSERT_EQ(actual, 120u); // ratio 16 keeps 15/32 of the sprite
+    ASSERT_EQ(choose_alpha_slot(1u, ratios, false, &slot, nullptr), SAT_OK);
     ASSERT_EQ(slot, 7u);
-    ASSERT_EQ(choose_alpha_slot(0u, ratios, &slot), SAT_ERR_INVALID_ARG);
-    ASSERT_EQ(choose_alpha_slot(255u, ratios, &slot), SAT_ERR_INVALID_ARG);
-    ASSERT_EQ(choose_alpha_slot(128u, ratios, nullptr), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(choose_alpha_slot(0u, ratios, false, &slot, nullptr), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(choose_alpha_slot(255u, ratios, false, &slot, nullptr), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(choose_alpha_slot(128u, ratios, false, nullptr, nullptr), SAT_ERR_INVALID_ARG);
+
+    /* Ratio -> alpha: the ends of the hardware table (31:1 and 0:32). */
+    ASSERT_EQ(ratio_to_alpha(0u), 248u);
+    ASSERT_EQ(ratio_to_alpha(15u), 128u);
+    ASSERT_EQ(ratio_to_alpha(31u), 0u);
+
+    /* A table with no middle slot: the default snaps to the nearest ratio and
+     * reports what the hardware will really show; strict refuses instead. */
     const uint8_t no_middle[8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 31u};
-    ASSERT_EQ(choose_alpha_slot(128u, no_middle, &slot), SAT_ERR_UNSUPPORTED);
+    ASSERT_EQ(choose_alpha_slot(128u, no_middle, true, &slot, &actual), SAT_ERR_UNSUPPORTED);
+    slot = 0xFFu;
+    actual = 0u;
+    ASSERT_EQ(choose_alpha_slot(128u, no_middle, false, &slot, &actual), SAT_OK);
+    ASSERT_EQ(slot, 0u);
+    ASSERT_EQ(actual, 248u);
+    ASSERT_EQ(choose_alpha_slot(60u, no_middle, false, &slot, &actual), SAT_OK);
+    ASSERT_EQ(slot, 7u);
+    ASSERT_EQ(actual, 0u);
+    /* Strict still accepts a slot within two units of the target. */
+    ASSERT_EQ(choose_alpha_slot(136u, ratios, true, &slot, &actual), SAT_OK);
 
     std::puts("test_vdp2_color_calc_logic: OK");
     return 0;

@@ -45,10 +45,17 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_configure_alpha(uint8_t norma
 }
 
 extern "C" sat_result_t sat_vdp2_sprite_color_calc_alpha_slot(
-    uint8_t alpha, uint8_t* out_slot) {
+    uint8_t alpha, uint8_t* out_slot, uint8_t* out_alpha) {
     SAT_TRY(saturn::core::require_initialized());
     if (out_slot == nullptr || alpha == 0u || alpha == 255u) return SAT_ERR_INVALID_ARG;
-    return saturn::hal::vdp2_color_calc::select_alpha_slot(alpha, out_slot);
+    return saturn::hal::vdp2_color_calc::select_alpha_slot(alpha, out_slot, out_alpha);
+}
+
+extern "C" sat_result_t sat_vdp2_sprite_color_calc_set_strict_alpha(uint8_t strict) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (strict > 1u) return SAT_ERR_INVALID_ARG;
+    saturn::hal::vdp2_color_calc::set_strict_alpha(strict != 0u);
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_vdp2_sprite_color_calc_commit(void) {

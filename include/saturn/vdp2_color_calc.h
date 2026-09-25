@@ -54,10 +54,19 @@ sat_result_t sat_vdp2_sprite_color_calc_set_ratio(
 sat_result_t sat_vdp2_sprite_color_calc_configure_alpha(uint8_t normal_priority);
 
 /* Pick the nearest *existing* slot for alpha 1..254 without changing the
- * global eight-ratio table. Returns NOT_INITIALIZED if color calc is disabled,
- * UNSUPPORTED if the nearest value deviates >2 hardware ratio units.
- * 0 (skip) and 255 (opaque) are handled by the caller. */
-sat_result_t sat_vdp2_sprite_color_calc_alpha_slot(uint8_t alpha, uint8_t* out_slot);
+ * global eight-ratio table. Hardware ratios are 1/32 steps and the table holds
+ * only eight of them, so the requested alpha is snapped: out_alpha (optional)
+ * receives the alpha the hardware really shows, (31 - ratio) * 8 (ratio 16 of
+ * the alpha preset gives 120 for a requested 128). Returns NOT_INITIALIZED if
+ * color calc is disabled. 0 (skip) and 255 (opaque) are handled by the caller.
+ * Under sat_vdp2_sprite_color_calc_set_strict_alpha(1) a slot more than 2
+ * hardware ratio units from the request returns UNSUPPORTED instead. */
+sat_result_t sat_vdp2_sprite_color_calc_alpha_slot(
+    uint8_t alpha, uint8_t* out_slot, uint8_t* out_alpha);
+
+/* Opt-in (default 0): refuse, rather than snap, alphas no slot approximates
+ * within 2 hardware ratio units. Applies to sat_draw_texture's ALPHA blend. */
+sat_result_t sat_vdp2_sprite_color_calc_set_strict_alpha(uint8_t strict);
 
 sat_result_t sat_vdp2_sprite_color_calc_commit(void);
 
