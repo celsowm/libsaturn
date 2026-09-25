@@ -76,7 +76,7 @@ def assert_skybridge_uses_renderer_and_overlay_budget() -> None:
         "sat_scene_depth(",
         "sat_scene3d_solid_pool_register(",
         "sat_anim_prepare_model_instance(",
-        "sat_upload_indexed8_quadrants(",
+        "sat_upload_indexed8_grid(",
         "sat_vdp1_overlay_begin(",
         "sat_vdp2_bitmap_upload_indexed8(",
     ):

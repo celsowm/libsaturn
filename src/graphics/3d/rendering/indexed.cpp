@@ -339,22 +339,50 @@ inline sat_vec3_t tile_center(const sat_quad3_t& q) {
         tile_midpoint(q.v[0],q.v[2]),
         tile_midpoint(q.v[1],q.v[3]));
 }
+inline bool valid_grid(uint8_t grid) {
+    return grid==2u || grid==4u || grid==8u;
+}
+inline const sat_vdp1_texture_t* tiled_cell(
+    const sat_indexed_tiled_quad3_t& regions,uint8_t cell) {
+    return regions.grid==0u ? regions.tiles[cell] : &regions.cells[cell];
+}
 inline bool valid_tiled_regions(const sat_indexed_tiled_quad3_t* regions) {
     if(regions==nullptr || regions->full==nullptr ||
        regions->full->valid==0u ||
-       regions->full->width<16u || (regions->full->width&15u)!=0u ||
-       regions->full->height<2u || (regions->full->height&1u)!=0u)
+       (regions->grid!=0u && (!valid_grid(regions->grid) ||
+                              regions->cells==nullptr)))
         return false;
     const sat_vdp1_texture_t& whole=*regions->full;
-    for(uint8_t i=0u;i<4u;++i) {
-        const sat_vdp1_texture_t* tile=regions->tiles[i];
+    const uint8_t n=regions->grid==0u ? 2u : regions->grid;
+    if(whole.width==0u || whole.width%(8u*n)!=0u ||
+       whole.height<n || whole.height%n!=0u)
+        return false;
+    for(uint8_t i=0u;i<n*n;++i) {
+        const sat_vdp1_texture_t* tile=tiled_cell(*regions,i);
         if(tile==nullptr || tile->valid==0u ||
-           tile->width!=whole.width/2u ||
-           tile->height!=whole.height/2u ||
+           tile->width!=whole.width/n ||
+           tile->height!=whole.height/n ||
            tile->palette!=whole.palette)
             return false;
     }
     return true;
+}
+
+/* Point (col/n, row/n) of the bilinear patch over quad corners TL, TR, BR,
+ * BL. Shared cell edges evaluate the same (col,row), so cells tile without
+ * cracks. */
+sat_vec3_t grid_point(const sat_quad3_t& q,uint8_t n,uint8_t col,uint8_t row) {
+    auto axis=[&](sat_fx16_t tl,sat_fx16_t tr,sat_fx16_t br,sat_fx16_t bl) {
+        const int64_t top=static_cast<int64_t>(tl)*(n-col)+
+                          static_cast<int64_t>(tr)*col;
+        const int64_t bottom=static_cast<int64_t>(bl)*(n-col)+
+                             static_cast<int64_t>(br)*col;
+        return static_cast<sat_fx16_t>((top*(n-row)+bottom*row)/(n*n));
+    };
+    return sat_vec3_t{
+        axis(q.v[0].x,q.v[1].x,q.v[2].x,q.v[3].x),
+        axis(q.v[0].y,q.v[1].y,q.v[2].y,q.v[3].y),
+        axis(q.v[0].z,q.v[1].z,q.v[2].z,q.v[3].z)};
 }
 }
 
@@ -404,26 +432,94 @@ extern "C" sat_result_t sat_draw_indexed_tiled_quad3(
         return SAT_OK;
     }
 
-    /* UV regions correspond to these exact midpoint-bounded quads. Caller
-     * must supply a planar affine surface for the intended texel mapping. */
+    /* UV regions correspond to these exact subdivision quads. Caller
+     * must supply a planar affine surface for the intended texel mapping.
+     * The 2x2 tiles[] keep their original midpoint split. */
+    const uint8_t n=regions->grid==0u ? 2u : regions->grid;
+    const bool fill=regions->cell_rgb555!=nullptr &&
+                    params->color_calc_slot==SAT_INDEXED_SOLID_OPAQUE;
     const sat_vec3_t ab=tile_midpoint(quad->v[0],quad->v[1]);
     const sat_vec3_t bc=tile_midpoint(quad->v[1],quad->v[2]);
     const sat_vec3_t cd=tile_midpoint(quad->v[2],quad->v[3]);
     const sat_vec3_t da=tile_midpoint(quad->v[3],quad->v[0]);
     const sat_vec3_t center=tile_center(*quad);
-    const sat_quad3_t sub[4]={
+    const sat_quad3_t quadrant[4]={
         {{quad->v[0],ab,center,da}}, /* TL */
         {{ab,quad->v[1],bc,center}}, /* TR */
         {{da,center,cd,quad->v[3]}}, /* BL */
         {{center,bc,quad->v[2],cd}}  /* BR */
     };
-    for(uint8_t i=0u;i<4u;++i) {
+    for(uint8_t i=0u;i<n*n;++i) {
+        const uint8_t row=static_cast<uint8_t>(i/n),col=static_cast<uint8_t>(i%n);
+        sat_quad3_t cell;
+        if(regions->grid==0u) {
+            cell=quadrant[i];
+        } else {
+            cell.v[0]=grid_point(*quad,n,col,row);
+            cell.v[1]=grid_point(*quad,n,static_cast<uint8_t>(col+1u),row);
+            cell.v[2]=grid_point(*quad,n,static_cast<uint8_t>(col+1u),
+                                 static_cast<uint8_t>(row+1u));
+            cell.v[3]=grid_point(*quad,n,col,static_cast<uint8_t>(row+1u));
+        }
         drawn=0u;
         st=sat_draw_indexed_textured_quad3(
-            &sub[i],params,regions->tiles[i],&drawn);
+            &cell,params,tiled_cell(*regions,i),&drawn);
         if(st!=SAT_OK) return st;
         if(out_submitted!=nullptr)
             *out_submitted=static_cast<uint8_t>(*out_submitted+drawn);
+        /* A cut cell: clip it as a solid of its average colour rather than
+         * stretch its texture over the visible piece. */
+        if(drawn==0u && fill && regions->cell_rgb555[i]!=0u) {
+            st=sat_draw_polygon_quad3(&cell,params,regions->cell_rgb555[i]);
+            if(st!=SAT_OK) return st;
+        }
+    }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_upload_indexed8_grid(
+    const uint8_t* pixels,uint16_t width,uint16_t height,
+    uint16_t source_pitch,uint16_t palette_bank,uint8_t grid,
+    sat_vdp1_texture_t* cells,uint8_t* scratch,uint32_t scratch_capacity,
+    const uint16_t* palette_rgb555,uint16_t* out_cell_rgb555
+) {
+    if(pixels==nullptr || cells==nullptr || scratch==nullptr ||
+       !valid_grid(grid) ||
+       width==0u || width>504u || width%(8u*grid)!=0u ||
+       height<grid || height>255u || height%grid!=0u ||
+       source_pitch<width ||
+       (out_cell_rgb555!=nullptr && palette_rgb555==nullptr))
+        return SAT_ERR_INVALID_ARG;
+    const uint16_t cell_w=static_cast<uint16_t>(width/grid);
+    const uint16_t cell_h=static_cast<uint16_t>(height/grid);
+    if(scratch_capacity<static_cast<uint32_t>(cell_w)*cell_h)
+        return SAT_ERR_CAPACITY;
+    for(uint8_t row=0u;row<grid;++row) for(uint8_t col=0u;col<grid;++col) {
+        uint32_t sum[3]={0u,0u,0u},opaque=0u;
+        for(uint16_t py=0u;py<cell_h;++py) for(uint16_t px=0u;px<cell_w;++px) {
+            const uint8_t index=pixels[
+                (static_cast<uint32_t>(row)*cell_h+py)*source_pitch+
+                static_cast<uint32_t>(col)*cell_w+px];
+            scratch[static_cast<uint32_t>(py)*cell_w+px]=index;
+            if(out_cell_rgb555!=nullptr && index!=0u) {
+                const uint16_t rgb=palette_rgb555[index];
+                sum[0]+=rgb&0x1Fu;
+                sum[1]+=(rgb>>5)&0x1Fu;
+                sum[2]+=(rgb>>10)&0x1Fu;
+                ++opaque;
+            }
+        }
+        const uint8_t cell=static_cast<uint8_t>(row*grid+col);
+        if(out_cell_rgb555!=nullptr) {
+            out_cell_rgb555[cell]=opaque==0u ? 0u : static_cast<uint16_t>(
+                0x8000u |
+                ((sum[0]+opaque/2u)/opaque) |
+                (((sum[1]+opaque/2u)/opaque)<<5) |
+                (((sum[2]+opaque/2u)/opaque)<<10));
+        }
+        const sat_result_t st=sat_tex_upload_indexed8_pixels(
+            &cells[cell],scratch,cell_w,cell_h,palette_bank);
+        if(st!=SAT_OK) return st;
     }
     return SAT_OK;
 }

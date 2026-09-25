@@ -135,6 +135,9 @@ static sat_vdp1_texture_t g_tile_textures[3];
  * Extra VRAM: 3 themes * 4 tiles * 64 bytes = 768 bytes (INDEX8). */
 static sat_vdp1_texture_t g_tile_quadrants[3][4];
 static sat_indexed_tiled_quad3_t g_tile_regions[3];
+/* Average colour of each slice: a slice cut by the near plane is drawn as a
+ * clipped solid of this colour instead of leaving a hole in the pattern. */
+static uint16_t g_tile_quadrant_rgb[3][4];
 static uint8_t g_tile_quadrant_pixels[8u*8u];
 static sat_vdp1_texture_t g_cloud_texture;
 static uint8_t g_cloud_pixels[SB_CLOUD_W * SB_CLOUD_H];
@@ -1383,13 +1386,14 @@ static void init_tile_texture(void) {
             &g_tile_textures[theme],g_tile_pixels,16u,16u,palette,banks[theme]));
         /* The renderer's asset preparation owns source-region packing.
          * No example-local crop/stride logic, and no per-frame VRAM writes. */
-        sat_example_must(sat_upload_indexed8_quadrants(
-            g_tile_pixels,16u,16u,16u,banks[theme],
+        sat_example_must(sat_upload_indexed8_grid(
+            g_tile_pixels,16u,16u,16u,banks[theme],2u,
             g_tile_quadrants[theme],g_tile_quadrant_pixels,
-            sizeof(g_tile_quadrant_pixels)));
+            sizeof(g_tile_quadrant_pixels),palette,g_tile_quadrant_rgb[theme]));
         g_tile_regions[theme].full=&g_tile_textures[theme];
-        for(uint8_t tile=0u;tile<4u;++tile)
-            g_tile_regions[theme].tiles[tile]=&g_tile_quadrants[theme][tile];
+        g_tile_regions[theme].grid=2u;
+        g_tile_regions[theme].cells=g_tile_quadrants[theme];
+        g_tile_regions[theme].cell_rgb555=g_tile_quadrant_rgb[theme];
     }
 }
 static void init_cloud_texture(void) {

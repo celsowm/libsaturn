@@ -19,9 +19,9 @@ static sat_result_t g_submit_status=SAT_OK;
 static sat_vdp1_texture_t g_texture[2]={{10,8,8,4,1,0},{20,8,8,4,1,0}};
 static sat_mat4_t g_matrix={};
 static int g_upload_calls;
-static uint16_t g_uploaded_palette[4];
-static uint16_t g_uploaded_width[4],g_uploaded_height[4];
-static uint8_t g_upload_bytes[4][64];
+static uint16_t g_uploaded_palette[16];
+static uint16_t g_uploaded_width[16],g_uploaded_height[16];
+static uint8_t g_upload_bytes[16][64];
 static sat_result_t g_upload_status=SAT_OK;
 
 extern "C" sat_result_t sat_clip_quad_near(
@@ -69,7 +69,7 @@ extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
 ) {
     const int n=g_upload_calls++;
     if(g_upload_status!=SAT_OK) return g_upload_status;
-    CHECK(n<4);
+    CHECK(n<16);
     CHECK(static_cast<uint32_t>(width)*height<=64u);
     g_uploaded_width[n]=width;
     g_uploaded_height[n]=height;
@@ -471,6 +471,140 @@ static void tiled_texture_propagates_capacity_without_faking_success() {
     EQ(submitted,0u);
     EQ(g_opaque,1);
 }
+/* 32x8 source in a 4x4 grid: cell k holds index k+1, except cell 5 (all
+ * transparent) and cell 6 (indices 1 and 3 alternating). Palette entry i is
+ * red i, blue 31-i. */
+static void grid_upload_splits_cells_and_averages_colour() {
+    reset();
+    uint8_t pixels[32u*8u]={0};
+    for(uint8_t y=0u;y<8u;++y) for(uint8_t x=0u;x<32u;++x) {
+        const uint8_t cell=static_cast<uint8_t>((y/2u)*4u+x/8u);
+        uint8_t v=static_cast<uint8_t>(cell+1u);
+        if(cell==5u) v=0u;
+        if(cell==6u) v=((x+y)&1u)?3u:1u;
+        pixels[y*32u+x]=v;
+    }
+    uint16_t palette[256]={0};
+    for(uint16_t i=0u;i<256u;++i)
+        palette[i]=static_cast<uint16_t>((i&31u)|(((31u-(i&31u))&31u)<<10));
+    sat_vdp1_texture_t cells[16]={};
+    uint16_t colours[16]={0};
+    uint8_t scratch[16]={0};
+    g_upload_calls=0;
+    EQ(sat_upload_indexed8_grid(pixels,32u,8u,32u,6u,4u,cells,scratch,
+                                sizeof(scratch),palette,colours),SAT_OK);
+    EQ(g_upload_calls,16);
+    for(uint8_t cell=0u;cell<16u;++cell) {
+        EQ(cells[cell].width,8u);
+        EQ(cells[cell].height,2u);
+        EQ(g_uploaded_palette[cell],6u);
+        const uint8_t row=cell/4u,col=cell%4u;
+        for(uint8_t y=0u;y<2u;++y) for(uint8_t x=0u;x<8u;++x)
+            EQ(g_upload_bytes[cell][y*8u+x],
+               pixels[(row*2u+y)*32u+col*8u+x]);
+    }
+    EQ(colours[0],(uint16_t)(0x8000u|1u|(30u<<10)));
+    EQ(colours[15],(uint16_t)(0x8000u|16u|(15u<<10)));
+    EQ(colours[5],0u);                                /* all transparent */
+    EQ(colours[6],(uint16_t)(0x8000u|2u|(29u<<10)));  /* mean of 1 and 3 */
+
+    g_upload_calls=0;
+    EQ(sat_upload_indexed8_grid(pixels,32u,8u,32u,6u,3u,cells,scratch,
+                                sizeof(scratch),palette,colours),SAT_ERR_INVALID_ARG);
+    EQ(sat_upload_indexed8_grid(pixels,24u,8u,32u,6u,4u,cells,scratch,
+                                sizeof(scratch),palette,colours),SAT_ERR_INVALID_ARG);
+    EQ(sat_upload_indexed8_grid(pixels,32u,8u,32u,6u,4u,cells,scratch,
+                                sizeof(scratch),nullptr,colours),SAT_ERR_INVALID_ARG);
+    EQ(sat_upload_indexed8_grid(pixels,32u,8u,32u,6u,4u,cells,scratch,
+                                15u,palette,colours),SAT_ERR_CAPACITY);
+    EQ(g_upload_calls,0);
+}
+
+static sat_vdp1_texture_t g_grid_cells[16];
+static uint16_t g_grid_colours[16];
+static sat_indexed_tiled_quad3_t grid_regions() {
+    static sat_vdp1_texture_t whole={400u,32u,8u,4u,1u,0u};
+    for(uint8_t i=0u;i<16u;++i) {
+        g_grid_cells[i]=(sat_vdp1_texture_t){
+            static_cast<uint16_t>(300u+i),8u,2u,4u,1u,0u};
+        g_grid_colours[i]=static_cast<uint16_t>(0x8000u+i);
+    }
+    sat_indexed_tiled_quad3_t p={};
+    p.full=&whole;
+    p.grid=4u;
+    p.cells=g_grid_cells;
+    return p;
+}
+static void grid_texture_keeps_every_uncut_cell_and_fills_the_cut_one() {
+    reset();
+    sat_quad3_t q=quad(3,12);
+    const sat_indexed_solid_render3d_t p=render();
+    sat_indexed_tiled_quad3_t regions=grid_regions();
+    uint8_t submitted=99u;
+    /* Whole face safe: the full texture, once. */
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
+    EQ(submitted,1u);
+    EQ(g_srca[0],400u);
+
+    /* Only corner TL behind the near plane: a 2x2 split would lose a
+     * quarter of the face, the 4x4 grid loses one cell of sixteen. */
+    reset();
+    q.v[0].z=FX(7);
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
+    EQ(submitted,15u);
+    EQ(g_opaque,15);
+    for(uint8_t i=0u;i<15u;++i) EQ(g_srca[i],(uint16_t)(301u+i));
+    EQ(g_polygons,0);  /* no colours: the cut cell stays a hole */
+
+    reset();
+    regions.cell_rgb555=g_grid_colours;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
+    EQ(submitted,15u);
+    EQ(g_polygons,1);
+    EQ(g_polygon_color,0x8000u);  /* cell 0's colour */
+
+    /* Translucent faces never fill: an RGB polygon has no colour-calc slot. */
+    reset();
+    sat_indexed_solid_render3d_t faded=render();
+    faded.color_calc_slot=2u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&faded,&regions,&submitted),SAT_OK);
+    EQ(g_faded,15);
+    EQ(g_polygons,0);
+}
+static void tiled_quadrants_fill_a_cut_quadrant_with_its_colour() {
+    reset();
+    sat_quad3_t q=quad(3,12);
+    q.v[0].z=FX(7);
+    const sat_indexed_solid_render3d_t p=render();
+    sat_indexed_tiled_quad3_t regions=tiled_regions();
+    static const uint16_t colours[4]={0x8011u,0x8012u,0x8013u,0x8014u};
+    regions.cell_rgb555=colours;
+    uint8_t submitted=99u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
+    EQ(submitted,3u);
+    EQ(g_srca[0],102u);
+    EQ(g_polygons,1);
+    EQ(g_polygon_color,0x8011u);
+}
+static void grid_texture_rejects_bad_descriptors() {
+    reset();
+    const sat_quad3_t q=quad(3,12);
+    const sat_indexed_solid_render3d_t p=render();
+    uint8_t submitted=99u;
+    sat_indexed_tiled_quad3_t regions=grid_regions();
+    regions.grid=3u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_ERR_INVALID_ARG);
+    regions=grid_regions();
+    regions.cells=nullptr;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_ERR_INVALID_ARG);
+    regions=grid_regions();
+    g_grid_cells[9].width=16u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_ERR_INVALID_ARG);
+    regions=grid_regions();
+    g_grid_cells[9].palette=5u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_ERR_INVALID_ARG);
+    EQ(g_project_calls,0);
+}
 static void mesh_uses_immutable_geometry_and_sorts_depth() {
     reset();
     sat_vec3_t vertices[8];
@@ -584,11 +718,15 @@ int main() {
     tiled_texture_preserves_regions_at_screen_boundary();
     tiled_texture_rejects_inconsistent_region_dimensions();
     tiled_texture_propagates_capacity_without_faking_success();
+    grid_upload_splits_cells_and_averages_colour();
+    grid_texture_keeps_every_uncut_cell_and_fills_the_cut_one();
+    tiled_quadrants_fill_a_cut_quadrant_with_its_colour();
+    grid_texture_rejects_bad_descriptors();
     mesh_uses_immutable_geometry_and_sorts_depth();
     mesh_invalid_face_or_material_is_atomic();
     indexed_box_owns_visibility_winding_and_material_selection();
     indexed_box_rejects_bad_geometry_before_emitting();
     indexed_box_propagates_capacity_without_attempting_other_faces();
-    puts("test_render3d_indexed: 19 tests passed");
+    puts("test_render3d_indexed: 23 tests passed");
     return 0;
 }

@@ -180,13 +180,44 @@ sat_result_t sat_draw_indexed_textured_quad3(
  * textured polygon clipping or perspective-correct UV mapping.
  *
  * Prepare/upload regions during asset initialization, not per frame.
- * out_submitted (optional) is 0..4. On a hardware submission failure, prior
- * successful tiles may already have been sent; out_submitted counts only
- * successful commands. The caller should reserve at most four commands. */
+ * out_submitted (optional) counts the textured commands sent, 0..N*N. On a
+ * hardware submission failure, prior successful cells may already have been
+ * sent; out_submitted counts only successful commands.
+ *
+ * Finer grid: set grid to 2, 4 or 8 and cells to N*N row-major textures
+ * (sat_upload_indexed8_grid) instead of tiles[]; the face is split
+ * bilinearly into the same N x N cells, so a near-plane crossing loses only
+ * the cells it actually cuts. The full texture width must divide into cells
+ * a multiple of 8 wide.
+ *
+ * Cut cells: with cell_rgb555 set (N*N entries, 4 for tiles[]), a cell that
+ * cannot be drawn whole is near/screen clipped as a solid polygon of its
+ * colour (sat_upload_indexed8_grid computes the average) instead of leaving
+ * a hole; an entry of 0 keeps the hole. Only for opaque faces: an RGB
+ * polygon has no colour-calc slot. Each cut cell costs up to 4 near pieces,
+ * each up to 6 screen pieces, on top of the N*N textured commands. */
 typedef struct sat_indexed_tiled_quad3 {
     const sat_vdp1_texture_t* full;
     const sat_vdp1_texture_t* tiles[4]; /* TL, TR, BL, BR */
+    uint8_t grid;                        /* 0: tiles[] (2x2); 2, 4 or 8: cells */
+    const sat_vdp1_texture_t* cells;     /* grid*grid, row-major */
+    const uint16_t* cell_rgb555;         /* optional cut-cell colours */
 } sat_indexed_tiled_quad3_t;
+
+/* sat_upload_indexed8_quadrants for an N x N grid (2, 4 or 8): uploads the
+ * N*N cells row-major into cells[] (each width/N x height/N, width/N a
+ * multiple of 8). With palette_rgb555 (256 entries) and out_cell_rgb555 (N*N)
+ * it also stores each cell's average colour over its non-zero (opaque)
+ * pixels, 0 for a fully transparent cell. scratch needs one cell's bytes.
+ * Input/capacity failures upload nothing. */
+sat_result_t sat_upload_indexed8_grid(
+    const uint8_t* pixels,
+    uint16_t width, uint16_t height, uint16_t source_pitch,
+    uint16_t palette_bank, uint8_t grid,
+    sat_vdp1_texture_t* cells,
+    uint8_t* scratch, uint32_t scratch_capacity,
+    const uint16_t* palette_rgb555, uint16_t* out_cell_rgb555
+);
 
 /* Offline/loading-time region preparation for the tiled renderer, no heap.
  * Packs four contiguous quadrant pixel buffers and uploads 4 native INDEX8

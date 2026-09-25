@@ -466,6 +466,12 @@ static uint8_t equal_tiled(const sat_indexed_tiled_quad3_t* a,
                            const sat_indexed_tiled_quad3_t* b) {
     if (a == 0 || b == 0) return a == b ? 1u : 0u;
     if (equal_texture(a->full, b->full) == 0u) return 0u;
+    if (a->grid != b->grid || a->cell_rgb555 != b->cell_rgb555) return 0u;
+    if (a->grid != 0u) {
+        for (uint8_t i = 0u; i < a->grid * a->grid; ++i)
+            if (equal_texture(&a->cells[i], &b->cells[i]) == 0u) return 0u;
+        return 1u;
+    }
     for (uint8_t i = 0u; i < 4u; ++i)
         if (equal_texture(a->tiles[i], b->tiles[i]) == 0u) return 0u;
     return 1u;
