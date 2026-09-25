@@ -269,6 +269,11 @@ void key_off(uint8_t slot) {
     execute_key_transition(slot);
 }
 
+void mute_slot(uint8_t slot) {
+    if (!g_ready || slot >= kSlotCount) return;
+    *slot_word(slot, 0x0Cu) = 0x00FFu;
+}
+
 void set_slot_level_pan(uint8_t slot, uint8_t total_level, uint8_t direct_level, uint8_t pan) {
     if (!g_ready || slot >= kSlotCount) return;
     *slot_word(slot, 0x0Cu) = static_cast<uint16_t>(total_level);

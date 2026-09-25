@@ -12,6 +12,8 @@ static bool configure_ok=false;
 static uint32_t key_off_count=0u;
 static uint32_t key_on_count=0u;
 static uint32_t configure_count=0u;
+static uint32_t mute_count=0u;
+static uint32_t muted_before_off=0u;
 
 extern "C" uint32_t sat_frame_count(void) { return frame; }
 namespace saturn::hal::scsp {
@@ -22,6 +24,7 @@ bool configure_slot(uint8_t, const SlotConfig&) {
     return true;
 }
 void key_off(uint8_t) {++key_off_count;}
+void mute_slot(uint8_t) {++mute_count; muted_before_off=key_off_count+1u;}
 void key_on(uint8_t) {++key_on_count;}
 uint8_t encode_pan(int16_t) {return 0u;}
 void set_slot_level_pan(uint8_t,uint8_t,uint8_t,uint8_t) {}
@@ -78,6 +81,8 @@ int main() {
     g_audio_clock.last_app_frame=100u;
     assert(sat_voice_stop(new_handle)==SAT_OK);
     const uint32_t off_after_stop=key_off_count;
+    // A stopped voice is muted before its KEY_OFF release tail can read RAM.
+    assert(mute_count==1u && muted_before_off==off_after_stop);
     assert(sat_sound_play(sound_handle,&params,&new_handle)==SAT_OK);
     assert(g_voice_registry.entries[0].end_frame==250u);
     assert(g_voice_steals==1u);

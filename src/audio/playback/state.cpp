@@ -20,6 +20,10 @@ uint8_t volume_to_tl(uint16_t volume) {
 void release_voice(uint16_t slot) {
     if (slot >= kVoiceCapacity ||
         g_voice_registry.entries[slot].active == 0u) return;
+    /* KEY_OFF only starts the envelope release, and the slot keeps reading
+     * Sound RAM until attenuation peaks. Mute first so a caller that frees
+     * and reuses this voice's sample RAM cannot make the tail audible. */
+    saturn::hal::scsp::mute_slot(static_cast<uint8_t>(slot));
     saturn::hal::scsp::key_off(static_cast<uint8_t>(slot));
     (void)g_voice_registry.release(slot);
 }

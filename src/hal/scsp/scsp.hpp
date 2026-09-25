@@ -36,6 +36,8 @@ bool configure_slot(uint8_t slot, const SlotConfig& config);
 bool read_current_sample_block(uint8_t slot, uint8_t* out_block);
 void key_on(uint8_t slot);
 void key_off(uint8_t slot);
+// TL=0xFF: silences a slot whose envelope release may still read Sound RAM.
+void mute_slot(uint8_t slot);
 void set_slot_level_pan(uint8_t slot, uint8_t total_level, uint8_t direct_level, uint8_t pan);
 void stop_all_slots();
 void set_master_volume(uint8_t level);
