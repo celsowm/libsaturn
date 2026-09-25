@@ -59,7 +59,7 @@ void commit() {
         const uint8_t fade_priority = static_cast<uint8_t>(g_normal_priority - 1u);
         /* Type 0 + equality against selector-1's priority. Ordinary sprites
          * keep selector 0 and therefore do not satisfy the condition. */
-        SPCTL = compose_spctl(fade_priority);
+        SPCTL = compose_spctl(fade_priority, saturn::hal::vdp2::sprite_type_bits());
         /* Share PRISA with the generic VDP2 layer replay. A direct write
          * here fixes only one VBlank; the next layers_commit() would restore
          * its old all-opaque 0x0707 shadow and cause a per-frame fade blink. */
@@ -67,8 +67,8 @@ void commit() {
             g_normal_priority, fade_priority);
         saturn::hal::vdp2::set_color_calc_control(current_ccctl());
     } else {
-        /* Default condition, SPCCEN below disabled; type 0, or type C in
-         * hi-res, where the framebuffer is 8 bits/pixel. */
+        /* Default condition, SPCCEN below disabled; type 0 with RGB mixed
+         * in, or type C in hi-res, where the framebuffer is 8 bits/pixel. */
         SPCTL = saturn::hal::vdp2::sprite_type_bits();
         saturn::hal::vdp2::set_sprite_priority_pair(
             g_normal_priority, g_normal_priority);

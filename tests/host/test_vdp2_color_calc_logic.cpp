@@ -16,7 +16,9 @@ int main() {
     }
 
     ASSERT_EQ(saturn::core::vdp2_color_calc::validate_config(&cfg), SAT_OK);
-    ASSERT_EQ(saturn::core::vdp2_color_calc::compose_spctl(5u), 0x1500u);
+    /* SPCLMD stays set: RGB sprite pixels must survive colour calc. */
+    ASSERT_EQ(saturn::core::vdp2_color_calc::compose_spctl(5u), 0x1520u);
+    ASSERT_EQ(saturn::core::vdp2_color_calc::compose_spctl(5u, 0x000Cu), 0x150Cu);
     ASSERT_EQ(saturn::core::vdp2_color_calc::compose_prisa(6u), 0x0506u);
     ASSERT_EQ(saturn::core::vdp2_color_calc::compose_prisa_disabled(6u), 0x0606u);
     ASSERT_EQ(saturn::core::vdp2_color_calc::compose_ratio_pair(0u, 31u), 0x1F00u);

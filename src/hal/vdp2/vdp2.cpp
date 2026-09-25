@@ -428,8 +428,10 @@ bool hires() {
 uint16_t sprite_type_bits() {
     /* Type C: all 8 framebuffer bits are dot colour (bit 7 doubles as the
      * priority-register select, and PRISA gives both registers the same
-     * priority), so a hi-res sprite can use palette codes 0-255. */
-    return g_hires ? 0x000Cu : 0x0000u;
+     * priority), so a hi-res sprite can use palette codes 0-255. Otherwise
+     * type 0 with SPCLMD set: palette and RGB pixels mixed, as the BIOS
+     * leaves it (SPCTL = 0 would drop every RGB pixel). */
+    return g_hires ? 0x000Cu : 0x0020u;
 }
 
 void set_sprite_palette_bank(uint8_t bank) {

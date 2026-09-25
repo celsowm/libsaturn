@@ -101,9 +101,17 @@ inline sat_result_t choose_alpha_slot(
     return SAT_OK;
 }
 
-inline uint16_t compose_spctl(uint8_t color_calc_priority) {
-    /* Type 0, palette-only mode, equality condition. */
+/* SPCTL SPCLMD (bit 5): palette and RGB sprite data mixed. Without it the
+ * VDP2 reads an RGB pixel (MSB 1) as palette data and it vanishes, so every
+ * RGB polygon disappeared the moment colour calculation was configured.
+ * Must stay clear at 8 bits/dot (hi-res type C). */
+constexpr uint16_t kSpctlMixedRgb = 0x0020u;
+
+inline uint16_t compose_spctl(uint8_t color_calc_priority,
+                              uint16_t sprite_format_bits = kSpctlMixedRgb) {
+    /* Sprite type/colour mode from the caller, equality condition. */
     return static_cast<uint16_t>(
+        sprite_format_bits |
         kSpctlConditionEqual |
         (static_cast<uint16_t>(color_calc_priority & 0x07u) << 8u));
 }
