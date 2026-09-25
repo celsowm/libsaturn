@@ -46,6 +46,25 @@ inline bool terminal(sat_parallel_task_state_t state) {
            state == SAT_PARALLEL_CANCELLED;
 }
 
+/* Accounts a Slave's completion message for the active slot. The Slave
+ * publishes COMPLETED/FAILED into the shared slot BEFORE it signals, so the
+ * Master finds either RUNNING or that terminal state; both are this task's
+ * own completion. (Abort clears the active task first, so a late message
+ * never reaches here.) The message's result is authoritative. */
+inline bool apply_slave_completion(sat_parallel_task_slot_t& slot, sat_result_t result,
+                                   sat_parallel_stats_t& stats) {
+    const auto state = static_cast<sat_parallel_task_state_t>(slot.state);
+    if (state != SAT_PARALLEL_RUNNING && state != SAT_PARALLEL_COMPLETED &&
+        state != SAT_PARALLEL_FAILED) return false;
+    slot.result = static_cast<int32_t>(result);
+    slot.state = result == SAT_OK ? SAT_PARALLEL_COMPLETED : SAT_PARALLEL_FAILED;
+    if (result == SAT_OK) ++stats.completed;
+    else ++stats.failed;
+    stats.last_task_ticks = slot.task_ticks;
+    stats.slave_task_ticks += slot.task_ticks;
+    return true;
+}
+
 }  // namespace saturn::core::parallel::queue_logic
 
 #endif

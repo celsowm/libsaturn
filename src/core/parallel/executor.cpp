@@ -132,14 +132,8 @@ sat_result_t finish_slave_message(const sat_dual_sh2_message_t& message) {
     consume_range(slot.input_address, slot.input_size);
     consume_range(slot.output_address, slot.output_capacity);
     consume_range(physical_address(&slot), sizeof(slot));
-    if (slot.state == SAT_PARALLEL_RUNNING) {
-        slot.result = static_cast<int32_t>(static_cast<sat_result_t>(message.argument1));
-        slot.state = slot.result == SAT_OK ? SAT_PARALLEL_COMPLETED : SAT_PARALLEL_FAILED;
-        if (slot.state == SAT_PARALLEL_COMPLETED) ++g_runtime.stats.completed;
-        else ++g_runtime.stats.failed;
-        g_runtime.stats.last_task_ticks = slot.task_ticks;
-        g_runtime.stats.slave_task_ticks += slot.task_ticks;
-    }
+    (void)queue_logic::apply_slave_completion(
+        slot, static_cast<sat_result_t>(message.argument1), g_runtime.stats);
     g_runtime.stats.completion_ticks += elapsed_ticks(g_runtime.completion_start_tick);
     g_runtime.active = 0u;
     g_runtime.active_error = SAT_OK;

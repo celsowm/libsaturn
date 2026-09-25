@@ -102,10 +102,11 @@ counters, not a speedup claim.
 
 Skybridge's versioned frame telemetry and forced-split/fault profiles are
 validation-build-only and do not change the public API. Its Master FRT samples
-use the 16-bit `/128` counter and modular short-interval deltas. Ymir currently
-does not advance the reported Slave-local task-duration accumulator, so only
-Master-observed completion latency and per-type dispatch/completion counts are
-usable there; no cross-CPU timer subtraction is valid.
+use the 16-bit `/128` counter and modular short-interval deltas. The
+Slave-local task-duration accumulator (`slave_task_ticks`) measures the
+callback on the Slave's own FRT; it read zero before 2026-09-25 because the
+Master skipped completions the Slave had already marked COMPLETED. No
+cross-CPU timer subtraction is valid.
 
 The `parallel_runtime` example validates animation against direct decode and
 sampled geometry against synchronous preparation. Geometry validation compares

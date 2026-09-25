@@ -157,12 +157,15 @@ uses `/128`, rolls over at 65,536 ticks (about 292 ms at nominal SH-2 clock),
 and measured read overhead is at most 3 ticks per sample in this harness.
 Short frame intervals use modular deltas. Task completion latency is timed on
 the Master clock; per-CPU FRT counters are never subtracted from one another.
-In the Ymir run, the Slave-local task-duration accumulator remained zero even
-after explicitly selecting `/128`, while Master-observed completion latency
-and frame intervals advanced. The report does not interpret that Slave
-duration field as measured work; this is an emulator timer limitation still
-requiring confirmation on hardware or a reliable independent clock. Emulator
-instruction and fixed-cycle counts are not physical FPS or proof of speedup.
+In the Ymir run recorded here, the Slave-local task-duration accumulator
+remained zero while Master-observed completion latency advanced. That was an
+executor bug, not the emulator's timer: the Slave publishes COMPLETED into the
+shared slot before signalling, and the Master only accounted a completion it
+still saw as RUNNING, so `completed` and `slave_task_ticks` never moved
+(fixed 2026-09-25; dino_demo now reports about 2,990 Slave FRT ticks per task
+against about 4,800 ticks of Master-observed latency). The numbers in this
+report predate the fix. Emulator instruction and fixed-cycle counts are not
+physical FPS or proof of speedup.
 
 During development, ordered merge hashes first diverged only on four-gem split
 frames. This exposed that geometry preparation normalized and mutated painter

@@ -130,7 +130,7 @@ The validation-only Master FRT is 16-bit at `/128`; modular deltas are used for
 short intervals below its approximately 292 ms rollover at nominal SH-2 clock.
 The measured read overhead is at most 3 ticks per sample. Completion latency is
 measured on the Master only; CPU-local timer readings are never subtracted
-across processors. Ymir reports zero Slave-local task-duration ticks even after
-the Slave is set to `/128`, although its task counters and Master-observed
-completion latency advance. Treat that field as unavailable in Ymir, not as
-zero-cost work; hardware or an independent Slave clock must confirm it.
+across processors. Slave-local task-duration ticks read zero before
+2026-09-25 because of an executor accounting bug (completions the Slave had
+already marked COMPLETED were skipped), not an emulator limit; runs recorded
+before that date carry the zero.
