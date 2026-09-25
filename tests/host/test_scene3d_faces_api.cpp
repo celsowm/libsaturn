@@ -114,6 +114,12 @@ extern "C" sat_result_t sat_draw_indexed_solid_quad3(
     emitted[emitted_count++]=tex->srca;
     return SAT_OK;
 }
+extern "C" sat_result_t sat_draw_polygon_quad3(
+    const sat_quad3_t*,const sat_indexed_solid_render3d_t*,uint16_t rgb555) {
+    ++clipped_count;
+    emitted[emitted_count++]=rgb555;
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_draw_indexed_textured_quad3(
     const sat_quad3_t*,const sat_indexed_solid_render3d_t*,
     const sat_vdp1_texture_t* tex,uint8_t* drawn) {
@@ -765,8 +771,8 @@ int main() {
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     assert(emitted_count==1u && emitted[0]==near_tex.srca);
 
-    // Unsupported projected RGB geometry is an intentional skip, not a
-    // successfully dispatched face; continue emitting the supported face.
+    // RGB geometry the projection cannot draw directly is clipped in world
+    // space like indexed faces, not skipped.
     emitted_count=0;
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
@@ -779,8 +785,11 @@ int main() {
     assert(sat_scene3d_faces_submit_quad(
         &scene,&pass_quad,&near_mat,0u)==SAT_OK);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
-    assert(scene.emitted_faces==1u && scene.skipped_faces==1u);
-    assert(emitted_count==1u && emitted[0]==near_tex.srca);
+    assert(scene.emitted_faces==2u && scene.skipped_faces==0u);
+    assert(scene.fallback_faces==1u);
+    assert(emitted_count==2u);
+    assert((emitted[0]==0x801Fu && emitted[1]==near_tex.srca) ||
+           (emitted[1]==0x801Fu && emitted[0]==near_tex.srca));
 
     // An actual HAL rejection cannot count a queued face as emitted.
     emitted_count=0;

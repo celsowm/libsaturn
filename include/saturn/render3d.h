@@ -90,6 +90,16 @@ sat_result_t sat_draw_indexed_solid_quad3(
     const sat_vdp1_texture_t* uniform_indexed8_texture
 );
 
+/* Flat RGB counterpart of sat_draw_indexed_solid_quad3: the same near and
+ * screen clipping, each visible piece drawn as a sat_draw_quad2_polygon.
+ * params->color_calc_slot is ignored. There is no per-vertex colour, so a
+ * Gouraud face drawn through here comes out flat in `rgb555`. */
+sat_result_t sat_draw_polygon_quad3(
+    const sat_quad3_t* quad,
+    const sat_indexed_solid_render3d_t* params,
+    uint16_t rgb555
+);
+
 /* Axis-aligned deck/block instance, described without app-side quad winding.
  * top_center.y is the WALKABLE TOP (the solid extends by 2*half_height
  * below it); half_extents is positive for all three axes.

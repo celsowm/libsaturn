@@ -127,8 +127,7 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
                   const sat_scene3d_face_t& face) {
     /* Projected cache items use these SAME RGB/indexed emission paths as
      * world faces; projected_safe forbids any world-space fallback. */
-    if (face.material.kind==SAT_SCENE3D_RGB) {
-        if (!face.projected_safe) return SAT_ERR_UNSUPPORTED;
+    if (face.material.kind==SAT_SCENE3D_RGB && face.projected_safe) {
         if (face.gouraud_valid)
             return sat_draw_quad2_polygon_gouraud(
                 &face.projected, face.material.rgb555, face.gouraud);
@@ -154,6 +153,9 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
     p.near_depth=scene.near_depth;
     p.width=scene.width;p.height=scene.height;
     p.color_calc_slot=face.material.color_calc_slot;
+    /* A clipped RGB face loses its Gouraud: the pieces carry no colours. */
+    if (face.material.kind==SAT_SCENE3D_RGB)
+        return sat_draw_polygon_quad3(&face.world,&p,face.material.rgb555);
     if (face.material.kind==SAT_SCENE3D_INDEXED_TILED)
         return sat_draw_indexed_tiled_quad3(
             &face.world,&p,face.material.tiled,nullptr);

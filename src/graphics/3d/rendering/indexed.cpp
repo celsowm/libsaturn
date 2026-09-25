@@ -4,12 +4,47 @@
 
 namespace {
 
-bool valid_render(const sat_indexed_solid_render3d_t* p) {
+bool valid_camera(const sat_indexed_solid_render3d_t* p) {
     return p != nullptr && p->view_proj != nullptr &&
            p->near_depth > 0 && p->width != 0u && p->height != 0u &&
-           (p->forward.x != 0 || p->forward.y != 0 || p->forward.z != 0) &&
+           (p->forward.x != 0 || p->forward.y != 0 || p->forward.z != 0);
+}
+
+bool valid_render(const sat_indexed_solid_render3d_t* p) {
+    return valid_camera(p) &&
            (p->color_calc_slot == SAT_INDEXED_SOLID_OPAQUE ||
             p->color_calc_slot < 8u);
+}
+
+/* Near clip, project and screen clip one world quad, handing every visible
+ * piece to draw(piece). A piece the projector or a draw call reports as
+ * UNSUPPORTED is skipped; any other error stops the quad. */
+template <typename Draw>
+sat_result_t for_each_visible_piece(const sat_quad3_t* quad,
+                                    const sat_indexed_solid_render3d_t* p,
+                                    Draw draw) {
+    sat_quad3_t pieces[4];
+    uint8_t piece_count=0u;
+    sat_result_t st=sat_clip_quad_near(
+        quad,&p->eye,&p->forward,p->near_depth,pieces,&piece_count);
+    if(st!=SAT_OK) return st;
+    for(uint8_t piece=0u;piece<piece_count;++piece) {
+        sat_quad2_t projected;
+        sat_quad2_t visible[6];
+        uint8_t visible_count=0u;
+        st=sat_project_quad(p->view_proj,&pieces[piece],&projected);
+        if(st==SAT_ERR_UNSUPPORTED) continue;
+        if(st!=SAT_OK) return st;
+        st=sat_clip_quad_screen(&projected,p->width,p->height,visible,
+                                &visible_count);
+        if(st==SAT_ERR_UNSUPPORTED) continue;
+        if(st!=SAT_OK) return st;
+        for(uint8_t i=0u;i<visible_count;++i) {
+            st=draw(visible[i]);
+            if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) return st;
+        }
+    }
+    return SAT_OK;
 }
 
 uint32_t face_depth(const sat_quad3_t& quad,
@@ -40,36 +75,28 @@ extern "C" sat_result_t sat_draw_indexed_solid_quad3(
 ) {
     if (quad==nullptr || texture==nullptr || !valid_render(p))
         return SAT_ERR_INVALID_ARG;
-    sat_quad3_t pieces[4];
-    uint8_t piece_count=0u;
-    sat_result_t st=sat_clip_quad_near(
-        quad,&p->eye,&p->forward,p->near_depth,pieces,&piece_count);
-    if(st!=SAT_OK) return st;
-    for(uint8_t piece=0u;piece<piece_count;++piece) {
-        sat_quad2_t projected;
-        sat_quad2_t visible[6];
-        uint8_t visible_count=0u;
-        st=sat_project_quad(p->view_proj,&pieces[piece],&projected);
-        if(st==SAT_ERR_UNSUPPORTED) continue;
-        if(st!=SAT_OK) return st;
-        st=sat_clip_quad_screen(&projected,p->width,p->height,visible,
-                                &visible_count);
-        if(st==SAT_ERR_UNSUPPORTED) continue;
-        if(st!=SAT_OK) return st;
-        for(uint8_t i=0u;i<visible_count;++i) {
-            sat_distorted_sprite_cmd_t cmd={};
-            for(uint8_t v=0u;v<4u;++v) {
-                cmd.x[v]=visible[i].x[v];
-                cmd.y[v]=visible[i].y[v];
-            }
-            cmd.texture=texture;
-            st=p->color_calc_slot==SAT_INDEXED_SOLID_OPAQUE
-                ? sat_draw_sprite_distorted(&cmd)
-                : sat_draw_sprite_distorted_color_calc(&cmd,p->color_calc_slot);
-            if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) return st;
+    return for_each_visible_piece(quad,p,[&](const sat_quad2_t& piece) {
+        sat_distorted_sprite_cmd_t cmd={};
+        for(uint8_t v=0u;v<4u;++v) {
+            cmd.x[v]=piece.x[v];
+            cmd.y[v]=piece.y[v];
         }
-    }
-    return SAT_OK;
+        cmd.texture=texture;
+        return p->color_calc_slot==SAT_INDEXED_SOLID_OPAQUE
+            ? sat_draw_sprite_distorted(&cmd)
+            : sat_draw_sprite_distorted_color_calc(&cmd,p->color_calc_slot);
+    });
+}
+
+extern "C" sat_result_t sat_draw_polygon_quad3(
+    const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* p,
+    uint16_t rgb555
+) {
+    if (quad==nullptr || !valid_camera(p))
+        return SAT_ERR_INVALID_ARG;
+    return for_each_visible_piece(quad,p,[rgb555](const sat_quad2_t& piece) {
+        return sat_draw_quad2_polygon(&piece,rgb555);
+    });
 }
 
 namespace {
