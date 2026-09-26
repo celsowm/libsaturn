@@ -67,6 +67,15 @@ sat_result_t sat_cd_block_init(sat_cd_block_t* out_block, uint32_t timeout_itera
 sat_result_t sat_cd_block_set_progress_service(
     sat_cd_block_t* block, sat_cd_block_progress_fn fn, void* context);
 
+/* Runs one CD Block command: writes the four command registers, waits for
+ * CMOK and returns the four response registers untouched (the status byte is
+ * the caller's to read: 0xFF is a legitimate answer to some commands). Waits
+ * for nothing else, so a command that raises HIRQ flags later is polled by
+ * the caller. SAT_ERR_BUSY when the block is not ready for a command,
+ * SAT_ERR_TIMEOUT when it never answers. */
+sat_result_t sat_cd_block_command(
+    sat_cd_block_t* block, const uint16_t command[4], uint16_t response[4]);
+
 /* Reads ISO user-data sectors by LBA. The transport converts LBA to the CD
  * Block's FAD address and transfers exactly sector_count * 2048 bytes. */
 sat_result_t sat_cd_block_read_sectors(

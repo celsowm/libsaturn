@@ -203,6 +203,24 @@ extern "C" sat_result_t sat_cd_block_init(
 #endif
 }
 
+extern "C" sat_result_t sat_cd_block_command(
+    sat_cd_block_t* block, const uint16_t command[4], uint16_t response[4]
+) {
+    if (block == nullptr || block->initialized == 0u || command == nullptr || response == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if ((read_reg(SAT_CD_BLOCK_HIRQ) & SAT_CD_BLOCK_HIRQ_CMOK) == 0u) return SAT_ERR_BUSY;
+    write_reg(SAT_CD_BLOCK_HIRQ, static_cast<uint16_t>(~SAT_CD_BLOCK_HIRQ_CMOK));
+    write_command({command[0], command[1], command[2], command[3]});
+    SAT_TRY(wait_hirq(block, SAT_CD_BLOCK_HIRQ_CMOK));
+    const Command answer = read_command();
+    response[0] = answer.cr1;
+    response[1] = answer.cr2;
+    response[2] = answer.cr3;
+    response[3] = answer.cr4;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_cd_block_set_progress_service(
     sat_cd_block_t* block, sat_cd_block_progress_fn fn, void* context) {
     if (block == nullptr) return SAT_ERR_INVALID_ARG;
