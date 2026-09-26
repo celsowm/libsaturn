@@ -74,9 +74,9 @@ inline sat_result_t validate_video_config(const sat_video_config_t* config) {
     if (config == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
-    /* Accept any resolution; only NTSC is validated here. */
-    if (config->ntsc == 0u) {
-        return SAT_ERR_UNSUPPORTED;
+    /* Accept any resolution; the standard is PAL, NTSC or automatic. */
+    if (config->ntsc > SAT_VIDEO_AUTO) {
+        return SAT_ERR_INVALID_ARG;
     }
     return SAT_OK;
 }

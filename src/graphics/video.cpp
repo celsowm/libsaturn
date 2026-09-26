@@ -31,6 +31,14 @@ extern "C" sat_result_t sat_end_frame(void) {
     return SAT_OK;
 }
 
+extern "C" uint8_t sat_video_is_pal(void) {
+    return (saturn::hal::vdp2::read_tvstat() & 0x0001u) != 0u ? 1u : 0u;
+}
+
+extern "C" uint8_t sat_video_is_ntsc_timing(void) {
+    return saturn::core::g_state.config.ntsc != 0u ? 1u : 0u;
+}
+
 extern "C" sat_result_t sat_wait_vblank(void) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();

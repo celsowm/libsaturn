@@ -13,6 +13,7 @@ import re
 import struct
 import unittest
 
+FRAME_HZ = float(os.environ.get("LIBSATURN_FRAME_HZ", "60"))
 MAGIC = 0x49525131  # "IRQ1"
 FIELDS = (
     "magic active busy_done busy_ms busy_vblanks vblank_in vblank_out "
@@ -48,11 +49,12 @@ class IrqDemoTests(unittest.TestCase):
         self.assertEqual(self.r["active"], 1, "sat_init fell back to polling")
 
     def test_time_counts_through_a_busy_wait(self):
-        # 90 VBlank-IN at 60 Hz with nothing reading the clock. Losing FRT
+        # 90 VBlank-IN at the console's frame rate (60 Hz NTSC, 50 Hz PAL: run
+        # with LIBSATURN_FRAME_HZ=50) with nothing reading the clock. Losing FRT
         # wraps (the bug) reads about 255 ms here.
         self.assertEqual(self.r["busy_done"], 1)
         self.assertEqual(self.r["busy_vblanks"], BUSY_VBLANKS)
-        self.assertAlmostEqual(self.r["busy_ms"], BUSY_VBLANKS * 1000 / 60, delta=20)
+        self.assertAlmostEqual(self.r["busy_ms"], BUSY_VBLANKS * 1000 / FRAME_HZ, delta=20)
 
     def test_every_frame_source_fires_once_per_frame(self):
         frames = self.r["vblank_in"]

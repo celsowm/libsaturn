@@ -40,7 +40,15 @@ typedef enum sat_result {
 /* ------------------------------------------------------------------ */
 /* Video config (needed early by core init)                            */
 /* ------------------------------------------------------------------ */
-/* width 320, or 640/704 for hi-res; height 224, NTSC.
+/* width 320, or 640/704 for hi-res; height 224.
+ *
+ * `ntsc` picks the frame-rate the library's time base assumes: SAT_VIDEO_NTSC
+ * (60 frames per second), SAT_VIDEO_PAL (50) or SAT_VIDEO_AUTO, which reads the
+ * console's own standard from VDP2 TVSTAT (sat_video_is_pal()). The picture
+ * is always the 224-line mode, which a PAL console shows at 50 Hz with borders;
+ * the 240 and 256-line PAL modes are not offered. sat_time_ms(), the audio
+ * clock and every frame-based duration follow the chosen rate, so a program
+ * that hard-codes SAT_VIDEO_NTSC runs slow on a PAL console.
  *
  * Hi-res doubles the horizontal resolution, and the VDP1 framebuffer drops
  * to 8 bits/pixel. VDP1 output is then palette codes 0-255 into one
@@ -50,6 +58,10 @@ typedef enum sat_result {
  * available (VDP1 manual 1.3, 6.4). Polygon colours and LUT4 table entries
  * write their low byte as the code; indexed textures write their texel.
  * sat_set_clear_color() leaves the erase transparent: set the backdrop. */
+#define SAT_VIDEO_PAL 0u
+#define SAT_VIDEO_NTSC 1u
+#define SAT_VIDEO_AUTO 2u
+
 typedef struct sat_video_config {
     uint16_t width;
     uint16_t height;

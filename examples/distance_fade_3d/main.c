@@ -341,7 +341,7 @@ static void draw_hud(void) {
 }
 
 int main(void) {
-    sat_video_config_t video = {SCREEN_W, SCREEN_H, 1u, 0u};
+    sat_video_config_t video = {SCREEN_W, SCREEN_H, SAT_VIDEO_AUTO, 0u};
 
     sat_example_must(sat_init(&video));
     build_procedural_assets();

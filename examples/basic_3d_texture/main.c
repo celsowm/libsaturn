@@ -112,7 +112,7 @@ static void draw_hud(void) {
 }
 
 int main(void) {
-    sat_video_config_t video = {SCREEN_W, SCREEN_H, 1u, 0u};
+    sat_video_config_t video = {SCREEN_W, SCREEN_H, SAT_VIDEO_AUTO, 0u};
     sat_vec3_t mn;
     sat_vec3_t mx;
 

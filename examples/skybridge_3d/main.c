@@ -53,7 +53,7 @@ static void plan_resources(void) {
 }
 
 int main(void) {
-    const sat_video_config_t video={W,H,1u,0u};
+    const sat_video_config_t video={W,H,SAT_VIDEO_AUTO,0u};
     const sat_vec3_t up={0,SB_F(1),0};
     const sat_vec3_t g_game_origin={0,0,0};
     const sat_vec3_t g_game_origin_ahead={0,0,SB_F(1)};

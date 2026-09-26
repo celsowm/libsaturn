@@ -33,9 +33,15 @@ TEST(validate_video_config_null) {
     ASSERT_EQ(saturn::core::validate_video_config(nullptr), SAT_ERR_INVALID_ARG);
 }
 
-TEST(validate_video_config_ntsc_zero) {
-    sat_video_config_t cfg = {320, 224, 0, 0};
-    ASSERT_EQ(saturn::core::validate_video_config(&cfg), SAT_ERR_UNSUPPORTED);
+TEST(validate_video_config_standards) {
+    sat_video_config_t cfg = {320, 224, SAT_VIDEO_PAL, 0};
+    ASSERT_EQ(saturn::core::validate_video_config(&cfg), SAT_OK);
+    cfg.ntsc = SAT_VIDEO_NTSC;
+    ASSERT_EQ(saturn::core::validate_video_config(&cfg), SAT_OK);
+    cfg.ntsc = SAT_VIDEO_AUTO;
+    ASSERT_EQ(saturn::core::validate_video_config(&cfg), SAT_OK);
+    cfg.ntsc = 3;
+    ASSERT_EQ(saturn::core::validate_video_config(&cfg), SAT_ERR_INVALID_ARG);
 }
 
 TEST(validate_video_config_valid) {
@@ -64,7 +70,7 @@ int main() {
     fx16_to_int_one();
     fx16_to_int_negative_one();
     validate_video_config_null();
-    validate_video_config_ntsc_zero();
+    validate_video_config_standards();
     validate_video_config_valid();
     compute_map_base_words();
     compute_map_row_offset();

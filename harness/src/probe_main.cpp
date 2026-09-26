@@ -334,6 +334,7 @@ struct Args {
     std::string dump_wram_high_path; // diagnostic: raw 1MiB High Work RAM dump
     std::string dump_sound_ram_path; // diagnostic: raw 512KiB SCSP Sound RAM dump
     std::string dump_audio_path;     // SCSP output from the program start, stereo int16 little-endian
+    bool pal = false;                // run the console in the PAL video standard (50 Hz)
     std::string dump_fb_path;        // raw VDP1 display framebuffer, for visual checks
     std::string profile_pc_path;     // one master-SH2 PC sample per frame, for profiling
     std::string profile_cycles_path; // master-SH2 cycles consumed by each program frame
@@ -439,7 +440,7 @@ void print_usage() {
     std::fprintf(stderr,
         "usage: probe --iso <path> --bios <path> --bin <path> [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
-        "             [--dump-wram-high <path>] [--dump-sound-ram <path>] [--dump-audio <path>] [--dump-fb <path>]\n"
+        "             [--dump-wram-high <path>] [--dump-sound-ram <path>] [--dump-audio <path>] [--pal] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
         "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
@@ -500,6 +501,8 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--dump-sound-ram");
             if (!v) return false;
             out->dump_sound_ram_path = v;
+        } else if (arg == "--pal") {
+            out->pal = true;
         } else if (arg == "--dump-audio") {
             const char* v = next("--dump-audio");
             if (!v) return false;
@@ -880,6 +883,7 @@ int main(int argc, char** argv) {
     }
     saturn->LoadDisc(std::move(disc));
     saturn->UsePreferredRegion();
+    if (args.pal) saturn->SetVideoStandard(ymir::core::config::sys::VideoStandard::PAL);
     if (!args.pad_script_path.empty()) {
         // A whole play session as a text file: "FRAME BUTTONS" per line, the
         // buttons held from that program frame until the next line. Comments

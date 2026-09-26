@@ -24,7 +24,7 @@ FIELDS = (["magic", "audio_status", "start_status", "running", "base_tick", "mar
           ["frames"])
 MAILBOX = 0x800
 SPACING = 20
-NTSC_FRAME_HZ = 59.94
+NTSC_FRAME_HZ = float(os.environ.get("LIBSATURN_FRAME_HZ", "59.94"))   # 50 for a PAL run
 TICK_HZ = 44100.0 / 256.0
 
 

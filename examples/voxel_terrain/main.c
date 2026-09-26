@@ -146,7 +146,7 @@ static void hud(void) {
 }
 
 int main(void) {
-    sat_video_config_t video = {320u, 224u, 1u, 0u};
+    sat_video_config_t video = {320u, 224u, SAT_VIDEO_AUTO, 0u};
     sat_example_must(sat_init(&video));
     make_world();
     sat_example_must(sat_texture_create_from_surface(

@@ -16,6 +16,13 @@ sat_result_t sat_begin_frame(void);
 sat_result_t sat_end_frame(void);
 sat_result_t sat_wait_vblank(void);
 
+/* 1 when the console runs the PAL standard (VDP2 TVSTAT bit 0), 0 for NTSC.
+ * Readable at any time, before sat_init as well. */
+uint8_t sat_video_is_pal(void);
+/* 1 when the library's time base is 60 frames per second, 0 for 50. This is
+ * the standard sat_init resolved (SAT_VIDEO_AUTO becomes the console's own). */
+uint8_t sat_video_is_ntsc_timing(void);
+
 /* Display frames (VBlanks) elapsed since sat_init.
  *
  * Unlike counting sat_wait_vblank calls, this keeps counting while the

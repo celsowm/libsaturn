@@ -90,7 +90,7 @@ static void frame_begin(sat_pad_state_t* pad) {
 }
 
 int main(void) {
-    sat_video_config_t video = {P3D_SCREEN_W, P3D_SCREEN_H, 1u, 0u};
+    sat_video_config_t video = {P3D_SCREEN_W, P3D_SCREEN_H, SAT_VIDEO_AUTO, 0u};
 
     SAT_PANIC_IF_ERROR(sat_init(&video));
     p3d_hud_init();

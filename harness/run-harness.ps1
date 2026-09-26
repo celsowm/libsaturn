@@ -54,6 +54,8 @@ param(
     [string]$DumpSoundRam,
     # SCSP output from the program start, stereo int16 little-endian
     [string]$DumpAudio,
+    # Run the emulated console at the PAL 50 Hz standard (use a PAL BIOS: saturn_bios_eu.bin)
+    [switch]$Pal,
     [string]$Out
 )
 
@@ -264,6 +266,9 @@ if ($DumpWramHigh) {
 }
 if ($DumpSoundRam) {
     $probeArgs += @('--dump-sound-ram', $DumpSoundRam)
+}
+if ($Pal -or $env:LIBSATURN_PAL -eq '1') {
+    $probeArgs += @('--pal')
 }
 if ($DumpAudio) {
     $probeArgs += @('--dump-audio', $DumpAudio)

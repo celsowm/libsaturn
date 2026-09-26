@@ -29,8 +29,8 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
         config->height != saturn::internal::kDefaultHeight) {
         return SAT_ERR_UNSUPPORTED;
     }
-    if (config->ntsc == 0u) {
-        return SAT_ERR_UNSUPPORTED;
+    if (config->ntsc > SAT_VIDEO_AUTO) {
+        return SAT_ERR_INVALID_ARG;
     }
 
     input_runtime_reset(g_input_runtime);
@@ -41,6 +41,9 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     render2d_runtime_reset(g_render2d_runtime);
 
     g_state.config = *config;
+    if (config->ntsc == SAT_VIDEO_AUTO) {
+        g_state.config.ntsc = sat_video_is_pal() != 0u ? SAT_VIDEO_PAL : SAT_VIDEO_NTSC;
+    }
     g_state.clear_color = 0x0000;
     g_state.nbg0_map_plane_index = 0x003Bu;
     g_state.nbg0_map_width = 64u;

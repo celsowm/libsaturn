@@ -133,7 +133,7 @@ static void draw_hud(void) {
 }
 
 int main(void) {
-    const sat_video_config_t video={SCREEN_W,SCREEN_H,1u,0u};
+    const sat_video_config_t video={SCREEN_W,SCREEN_H,SAT_VIDEO_AUTO,0u};
     const sat_vec3_t eye={0,0,10*SAT_FX16_ONE};
     const sat_vec3_t target={0,0,0};
     const sat_vec3_t up={0,SAT_FX16_ONE,0};

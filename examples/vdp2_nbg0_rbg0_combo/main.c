@@ -138,7 +138,7 @@ static void init_layers(void) {
 }
 
 int main(void) {
-    const sat_video_config_t video = {320u, 224u, 1u, 0u};
+    const sat_video_config_t video = {320u, 224u, SAT_VIDEO_AUTO, 0u};
     /* Scanlines 0..HORIZON (inclusive) are transparent in the Mode-7 table:
      * HORIZON + 1 sky rows. Scrolling by one less than that would wrap the
      * horizon scanline to the image's top row -- a dark line at the seam. */

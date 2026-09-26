@@ -9,17 +9,20 @@
 #include "saturn/color.h"
 #include "saturn/font.h"
 #include "saturn/scsp_dsp.h"
+#include "saturn/time.h"
 #include "saturn/video.h"
 
 #define DSP_DEMO_MAGIC 0x44535031u /* "DSP1" */
 #define CLICK_SAMPLES 64u
-#define ECHO_START_FRAME 10u
-#define ECHO_CLICK_FRAME 40u
-#define ECHO_SNAPSHOT_FRAME 55u
-#define REVERB_START_FRAME 90u
-#define REVERB_CLICK_FRAME 100u
+/* The sequence is timed in milliseconds, so it is the same at 60 and 50 frames per second, and it
+ * repeats so a recording of any length holds a whole one. */
+#define ECHO_START_MS 150u
+#define ECHO_CLICK_MS 700u
+#define ECHO_SNAPSHOT_MS 950u   /* 250 ms after the click: the ring holds the writes at 100 and 200 ms */
+#define REVERB_START_MS 1500u
+#define REVERB_CLICK_MS 1700u
+#define CYCLE_MS 3000u
 #define RING_WORDS 8192u
-#define CYCLE_FRAMES 150u /* the sequence repeats, so a recording of any length holds a whole one */
 
 typedef struct dsp_demo_results {
     uint32_t magic;
@@ -65,6 +68,9 @@ int main(void) {
     sat_sound_desc_t desc = {0};
     sat_effect_info_t info = {0};
     uint32_t have_click = 0u;
+    uint32_t start_ms = 0u;
+    uint32_t last_phase = 0u;
+    uint32_t fired = 0u;   /* which events of this cycle have run */
 
     if (sat_app_init_default() != SAT_OK) return 1;
     if (sat_ascii_font_init_8x8_indexed8(&font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u) != SAT_OK) return 1;
@@ -81,14 +87,18 @@ int main(void) {
     g_dsp_demo.audio_status = (uint32_t)(-sat_audio_init());
     if (g_dsp_demo.audio_status == 0u && sat_sound_create(&click_sound, &desc) == SAT_OK) have_click = 1u;
 
+    start_ms = sat_time_ms();
     for (;;) {
         sat_pad_state_t pad = {0};
         if (sat_app_frame_begin(SAT_COLOR_BLACK, SAT_COLOR_GREEN, &pad) != SAT_OK) break;
         ++g_dsp_demo.frames;
-        const uint32_t phase = ((g_dsp_demo.frames - 1u) % CYCLE_FRAMES) + 1u;
+        const uint32_t phase = (sat_time_ms() - start_ms) % CYCLE_MS;
+        if (phase < last_phase) fired = 0u;   /* a new cycle */
+        last_phase = phase;
 
         if (have_click != 0u) {
-            if (phase == ECHO_START_FRAME) {
+            if (phase >= ECHO_START_MS && (fired & 1u) == 0u) {
+                fired |= 1u;
                 sat_effect_echo_params_t echo = {0};
                 echo.delay_ms = 100u;
                 echo.feedback = SAT_FX16_ONE / 2;
@@ -102,17 +112,20 @@ int main(void) {
                 g_dsp_demo.echo_ring_bytes = info.ring_bytes;
                 g_dsp_demo.echo_delay_samples = info.delay_samples;
             }
-            if (phase == ECHO_CLICK_FRAME) {
+            if (phase >= ECHO_CLICK_MS && (fired & 2u) == 0u) {
+                fired |= 2u;
                 g_dsp_demo.echo_click_status = (uint32_t)(-play_click());
             }
-            if (phase == ECHO_SNAPSHOT_FRAME) {
-                /* 15 frames after the click: the ring holds the second and third writes of the line */
+            if (phase >= ECHO_SNAPSHOT_MS && (fired & 4u) == 0u) {
+                fired |= 4u;
+                /* 250 ms after the click: the ring holds the second and third writes of the line */
                 g_dsp_demo.snapshot_status = (uint32_t)(-sat_effect_read_ring(0u, g_echo_ring, RING_WORDS));
                 g_dsp_demo.stop_status = (uint32_t)(-sat_effect_stop());
                 (void)sat_effect_info(&info);
                 g_dsp_demo.kind_after_stop = info.kind;
             }
-            if (phase == REVERB_START_FRAME) {
+            if (phase >= REVERB_START_MS && (fired & 8u) == 0u) {
+                fired |= 8u;
                 sat_effect_reverb_params_t reverb = {0};
                 reverb.feedback = (sat_fx16_t)(SAT_FX16_ONE * 78 / 100);
                 reverb.wet = SAT_FX16_ONE / 4;
@@ -122,7 +135,8 @@ int main(void) {
                 g_dsp_demo.reverb_kind = info.kind;
                 g_dsp_demo.reverb_ring_bytes = info.ring_bytes;
             }
-            if (phase == REVERB_CLICK_FRAME) {
+            if (phase >= REVERB_CLICK_MS && (fired & 16u) == 0u) {
+                fired |= 16u;
                 g_dsp_demo.reverb_click_status = (uint32_t)(-play_click());
             }
         }

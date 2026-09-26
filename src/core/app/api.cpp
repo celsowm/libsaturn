@@ -1,7 +1,7 @@
 #include "saturn/app.h"
 
 extern "C" sat_result_t sat_app_init_default(void) {
-    sat_video_config_t cfg = {320, 224, 1, 0};
+    sat_video_config_t cfg = {320, 224, SAT_VIDEO_AUTO, 0};
     return sat_init(&cfg);
 }
 

@@ -57,7 +57,7 @@ static void draw_hud(uint32_t now, uint8_t automatic) {
 }
 
 int main(void) {
-    const sat_video_config_t video = {SCREEN_W, SCREEN_H, 1u, 0u};
+    const sat_video_config_t video = {SCREEN_W, SCREEN_H, SAT_VIDEO_AUTO, 0u};
     sat_scene_t scene;
     sat_camera3d_t camera;
     sat_orbit_camera3d_t orbit;

@@ -71,7 +71,7 @@ static void draw_text(const char* text, int16_t x, int16_t y) {
 }
 
 int main(void) {
-    sat_video_config_t video = {320u, 224u, 1u, 0u};
+    sat_video_config_t video = {320u, 224u, SAT_VIDEO_AUTO, 0u};
     sat_example_must(sat_init(&video));
     prepare_assets();
 

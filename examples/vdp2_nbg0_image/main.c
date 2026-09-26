@@ -155,7 +155,7 @@ static sat_result_t upload_image_as_tiles(const sat_indexed8_asset_t* asset) {
 }
 
 int main(void) {
-    const sat_video_config_t video_cfg = {320, 224, 1, 0};
+    const sat_video_config_t video_cfg = {320, 224, SAT_VIDEO_AUTO, 0u};
     const uint16_t max_scroll_x = (bg_asset.width > video_cfg.width)
         ? (uint16_t)(bg_asset.width - video_cfg.width)
         : 0u;

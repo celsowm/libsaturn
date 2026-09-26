@@ -225,14 +225,14 @@ static void draw_hud(void) {
 }
 
 int main(void) {
-    sat_video_config_t video = {SCREEN_W, SCREEN_H, 1u, 0u};
+    sat_video_config_t video = {SCREEN_W, SCREEN_H, SAT_VIDEO_AUTO, 0u};
     sat_vec3_t mn = {0, 0, 0};
     sat_vec3_t mx = {0, 0, 0};
 
     SAT_PANIC_IF_ERROR(sat_init(&video));
     SAT_PANIC_IF_ERROR(sat_ascii_font_init_8x8_indexed8(
         &g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, FONT_PALETTE));
-    g_ntsc = (int)video.ntsc;
+    g_ntsc = (int)sat_video_is_ntsc_timing();
 
     sat_example_must(sat_model_validate(&male_walk_asset));
     sat_example_must(sat_anim_validate(&male_walk_anim_asset));
