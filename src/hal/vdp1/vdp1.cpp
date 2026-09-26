@@ -1,4 +1,5 @@
 #include "src/hal/vdp1/vdp1.hpp"
+#include "src/hal/scu/dma.hpp"
 #include "src/hal/scu/scu.hpp"
 #include "src/core/runtime/logic.hpp"
 #include "saturn/vdp1.h"
@@ -650,10 +651,9 @@ sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_ind
         return SAT_ERR_INVALID_ARG;
     }
     const uint32_t base = static_cast<uint32_t>(palette_index) * 256u;
-    for (uint32_t i = 0; i < 256u; ++i) {
-        VDP2_CRAM[base + i] = palette_rgb555[i];
-    }
-    return SAT_OK;
+    /* 512 bytes of colour RAM: SCU-DMA when the palette is longword aligned. */
+    return scu::dma::copy(const_cast<uint16_t*>(VDP2_CRAM) + base,
+                          palette_rgb555, 256u * sizeof(uint16_t));
 }
 
 namespace {
@@ -667,19 +667,20 @@ sat_result_t validate_indexed8_transfer(
     return SAT_OK;
 }
 
-void write_indexed8_rows(
+/* Pixel bytes are stored in memory order, which is what both the old 16-bit
+ * packing and a DMA byte stream produce. A pitch equal to the width is one
+ * contiguous block; otherwise one copy per row. */
+sat_result_t write_indexed8_rows(
     uint32_t start, const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t pitch) {
-    const uint32_t words_per_row = width / 2u;
-    const uint32_t first_word = start / 2u;
-    for (uint16_t y = 0u; y < height; ++y) {
-        const uint8_t* row = pixels + static_cast<uint32_t>(y) * pitch;
-        const uint32_t dst = first_word + static_cast<uint32_t>(y) * words_per_row;
-        for (uint32_t x = 0u; x < words_per_row; ++x) {
-            const uint16_t hi = row[x * 2u];
-            const uint16_t lo = row[x * 2u + 1u];
-            VDP1_VRAM_16[dst + x] = static_cast<uint16_t>((hi << 8u) | lo);
-        }
+    uint8_t* vram = reinterpret_cast<uint8_t*>(kUncached | 0x05C00000u) + start;
+    if (pitch == width) {
+        return scu::dma::copy(vram, pixels, static_cast<uint32_t>(width) * height);
     }
+    for (uint16_t y = 0u; y < height; ++y) {
+        SAT_TRY(scu::dma::copy(vram + static_cast<uint32_t>(y) * width,
+                               pixels + static_cast<uint32_t>(y) * pitch, width));
+    }
+    return SAT_OK;
 }
 
 }  // namespace
@@ -693,7 +694,8 @@ sat_result_t upload_texture_indexed8_pitched(
     g_texture_cursor = (g_texture_cursor + 7u) & ~7u;
     if (g_texture_cursor + size > kVramSize) return SAT_ERR_CAPACITY;
     const uint32_t start = g_texture_cursor;
-    write_indexed8_rows(start, pixels, width, height, pitch);
+    /* The arena cursor moves only once the bytes landed. */
+    SAT_TRY(write_indexed8_rows(start, pixels, width, height, pitch));
     *out_srca = static_cast<uint16_t>(start >> 3u);
     g_texture_cursor += size;
     return SAT_OK;
@@ -728,8 +730,8 @@ sat_result_t upload_texture_lut4(
     g_texture_cursor = (g_texture_cursor + 7u) & ~7u;
     if (g_texture_cursor + size > kVramSize) return SAT_ERR_CAPACITY;
     const uint32_t start = g_texture_cursor;
-    write_indexed8_rows(start, pixels, static_cast<uint16_t>(width / 2u), height,
-                        static_cast<uint16_t>(width / 2u));
+    SAT_TRY(write_indexed8_rows(start, pixels, static_cast<uint16_t>(width / 2u), height,
+                                static_cast<uint16_t>(width / 2u)));
     *out_srca = static_cast<uint16_t>(start >> 3u);
     g_texture_cursor += size;
     return SAT_OK;
@@ -774,8 +776,7 @@ sat_result_t update_texture_indexed8_pitched(
     if (pixels == nullptr) return SAT_ERR_INVALID_ARG;
     const sat_result_t st = check_texture_indexed8_update(srca, width, height, pitch);
     if (st != SAT_OK) return st;
-    write_indexed8_rows(static_cast<uint32_t>(srca) << 3u, pixels, width, height, pitch);
-    return SAT_OK;
+    return write_indexed8_rows(static_cast<uint32_t>(srca) << 3u, pixels, width, height, pitch);
 }
 
 /* INDEX8 patterns are byte-addressed but the VDP1 transfer uses 16-bit

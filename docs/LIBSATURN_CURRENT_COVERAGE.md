@@ -42,7 +42,6 @@ The largest Saturn hardware areas still missing as first-class LibSaturn subsyst
 - generic cartridge/A-Bus access beyond the volatile RAM-expansion driver;
 - 3D Control Pad analog input and the broader Saturn peripheral family;
 - higher-level Slave SH-2 scheduling/job execution;
-- SCU DMA;
 - SCU DSP;
 - advanced SCSP DSP/effects/synthesis and a resident 68000 sound driver;
 - broader SMPC system services;
@@ -119,7 +118,7 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | Multitap / peripheral family | **NOT EXPOSED** | No general peripheral framework. | Multitap, mouse, wheel, Mission Stick, Twin Stick, Virtua Gun and other SMPC peripherals. | No corresponding public module. |
 | SMPC system services | **MINIMAL** | Current HAL covers digital pad access and sound CPU on/off operations. | RTC/time, region/language/system status, peripheral enumeration and other SMPC commands. | `src/hal/smpc.*` |
 | SCU interrupts | **SUBSTANTIAL** | All 14 internal sources (VBlank-IN/OUT, HBlank-IN, timers 0/1, DSP end, sound request, SMPC, PAD, DMA 0-2 end, DMA illegal, sprite draw end) with per-source handlers and counts, IMS shadow restored by every handler, SR mask lowered only to the lowest enabled level, timer 0 line / timer 1 dot setup. Ymir and Mednafen acceptance (`harness/run-irq-demo.ps1`). | A-bus external interrupts (cartridge devices) stay masked. Handlers run in interrupt context: no frame or draw calls. | `include/saturn/irq.h`, `src/hal/scu/irq.*`, `examples/irq_demo` |
-| SCU DMA | **NOT EXPOSED** | No first-class LibSaturn DMA API. | DMA channels, queued transfers, RAM<->VRAM/CRAM/SCSP workflows and asynchronous completion. | Sega SCU docs are present; no corresponding public runtime subsystem. |
+| SCU DMA | **SUBSTANTIAL** | `sat_dma_*`: levels 0-2, direct and indirect (up to 16 entries per start), asynchronous start / busy / wait with the DMA-end interrupt, forced stop and `SAT_ERR_TIMEOUT` when a transfer never ends (so `NEEDS_RECOVERY` is reachable again). The routes the SCU manual forbids (A-bus writes, VDP2 reads, Work RAM-L, RAM to RAM, B-bus to B-bus) are refused with `SAT_ERR_UNSUPPORTED`; `sat_dma_copy` falls back to the CPU for them and for copies under 64 bytes. Library uploads go through it: VDP1 textures, VDP2 colour-RAM palettes, VDP2 VRAM blocks and Sound RAM samples. Destination Work RAM is invalidated in the cache after a transfer. Host tests for the routing/encoding logic and the API; Ymir (9/9) and Mednafen acceptance (`harness/run-dma-demo.ps1`). Mednafen: 512 KiB into VDP1 VRAM takes 108 ms by CPU and 11 ms by DMA. | SH-2 on-chip DMAC not exposed; DSP-side DMA; the CD block / A-bus as a DMA source is untested; the per-frame VDP1 command list is still copied by the CPU (step C6). Ymir charges DMA no CPU time, so only Mednafen gives a timing. | `include/saturn/dma.h`, `src/hal/scu/dma*`, `examples/dma_demo` |
 | SCU DSP | **DOCS ONLY** | SCU DSP manuals are present in the repository. | Program loading, assembler/tooling integration, dispatch, synchronization and useful DSP kernels. | `docs/sega_saturn_hardware/hard/scu_` |
 | SCSP PCM playback | **PARTIAL** | PCM S8/S16 sounds, resident sound data, bounded music streams, looping, voices, volume, pan, pitch and voice statistics/stealing. | Richer envelopes/modulation, effects, synthesis and long-run/CD hardware validation. | `include/saturn/audio.h`, `src/hal/scsp.*`, `src/audio/playback/music.cpp` |
 | SCSP DSP / effects | **NOT EXPOSED** | Internal SCSP initialization touches DSP state, but there is no supported public DSP effects API. | Reverb, chorus/delay-style effects, mixer programs, DSP program loading and routing. | `src/hal/scsp.*`; Sega SCSP docs under `docs/sega_saturn_hardware`. |
@@ -168,11 +167,11 @@ Likely first workloads:
 
 ### SCU
 
-Current status: **SUBSTANTIAL** for interrupts and frame timing (`saturn/irq.h`); DMA and DSP are not exposed yet.
+Current status: **SUBSTANTIAL** for interrupts and frame timing (`saturn/irq.h`) and for SCU DMA (`saturn/dma.h`); the DSP is not exposed yet.
 
 The two major opportunities are:
 
-1. **SCU DMA** — remove bulk memory transfer work from the SH-2s.
+1. **SCU DMA** — done for uploads (`saturn/dma.h`); the per-frame VDP1 command list is next.
 2. **SCU DSP** — expose the Saturn's dedicated calculation unit through a safe runtime/tooling layer.
 
 The repository already contains Sega SCU documentation for DMA, interrupts and DSP, so the missing piece is implementation rather than reference material.

@@ -1,6 +1,7 @@
 #include "src/hal/vdp2/vdp2.hpp"
 
 #include "src/core/runtime/logic.hpp"
+#include "src/hal/scu/dma.hpp"
 
 namespace saturn::hal::vdp2 {
 
@@ -636,6 +637,11 @@ void write_vram_words(uint32_t word_offset, const uint16_t* words, uint32_t word
     if (words == nullptr || word_count == 0u) {
         return;
     }
+    /* SCU-DMA for longword-aligned blocks of 64 bytes or more, halfword CPU
+     * writes otherwise. A DMA that fails leaves the copy incomplete; this
+     * void HAL call has no channel to report it, so the CPU redoes it. */
+    void* dst = const_cast<uint16_t*>(VDP2_VRAM_16) + word_offset;
+    if (scu::dma::copy(dst, words, word_count * 2u) == SAT_OK) return;
     for (uint32_t i = 0; i < word_count; ++i) {
         VDP2_VRAM_16[word_offset + i] = words[i];
     }

@@ -1,6 +1,7 @@
 #include "src/hal/scsp/scsp.hpp"
 
 #include "src/hal/smpc/smpc.hpp"
+#include "src/hal/scu/dma.hpp"
 #include "src/hal/scu/scu.hpp"
 
 namespace saturn::hal::scsp {
@@ -170,6 +171,14 @@ bool upload(uint32_t offset, const void* data, uint32_t byte_count) {
     // bytes explicitly so this also works for signed PCM8 payloads.
     const uint8_t* src = static_cast<const uint8_t*>(data);
     uint32_t i = 0u;
+    /* The longword-aligned bulk goes by SCU-DMA (the byte stream is the same
+     * big-endian image the halfword loop below writes); the tail and any
+     * transfer DMA cannot take stay on the CPU. */
+    const uint32_t bulk = byte_count & ~3u;
+    if (bulk != 0u &&
+        scu::dma::copy(const_cast<uint16_t*>(sound_ram_word(offset)), src, bulk) == SAT_OK) {
+        i = bulk;
+    }
     for (; i + 1u < byte_count; i += 2u) {
         const uint16_t word = static_cast<uint16_t>(
             (static_cast<uint16_t>(src[i]) << 8) | src[i + 1u]
