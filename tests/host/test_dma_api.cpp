@@ -44,6 +44,10 @@ sat_result_t copy(void*, const void*, uint32_t bytes) {
     g_last_bytes = bytes;
     return g_next;
 }
+sat_result_t copy_sh2(void*, const void*, uint32_t bytes) {
+    g_last_bytes = bytes;
+    return g_next;
+}
 Stats stats() { return g_stats; }
 }
 
@@ -54,6 +58,7 @@ int main() {
     /* Nothing before sat_init. */
     g_state = {};
     assert(sat_dma_copy(buf, buf, 64u) == SAT_ERR_NOT_INITIALIZED);
+    assert(sat_dma_copy_sh2(buf, buf, 128u) == SAT_ERR_NOT_INITIALIZED);
     assert(sat_dma_start(0u, buf, buf, 64u) == SAT_ERR_NOT_INITIALIZED);
     assert(sat_dma_wait(0u) == SAT_ERR_NOT_INITIALIZED);
     assert(sat_dma_busy(0u) == 0);
@@ -62,7 +67,10 @@ int main() {
     assert(sat_dma_copy(buf, buf, 64u) == SAT_OK && g_copies == 1u && g_last_bytes == 64u);
     g_next = SAT_ERR_TIMEOUT;
     assert(sat_dma_copy(buf, buf, 64u) == SAT_ERR_TIMEOUT);
+    g_next = SAT_ERR_UNSUPPORTED;
+    assert(sat_dma_copy_sh2(buf, buf, 200u) == SAT_ERR_UNSUPPORTED && g_last_bytes == 200u);
     g_next = SAT_OK;
+    assert(sat_dma_copy_sh2(buf, buf, 128u) == SAT_OK);
 
     /* Direct and list starts reach the HAL with the same shape. */
     assert(sat_dma_start(2u, buf, buf, 128u) == SAT_OK);
@@ -93,10 +101,13 @@ int main() {
     /* Statistics and the switch pass through. */
     g_stats.scu_transfers = 7u;
     g_stats.bytes_cpu = 99u;
-    g_stats.last_path = Path::Cpu;
+    g_stats.sh2_copies = 3u;
+    g_stats.bytes_sh2 = 4096u;
+    g_stats.last_path = Path::Sh2;
     sat_dma_stats_t out{};
     sat_dma_get_stats(&out);
-    assert(out.scu_transfers == 7u && out.bytes_cpu == 99u && out.last_path == SAT_DMA_PATH_CPU);
+    assert(out.scu_transfers == 7u && out.bytes_cpu == 99u && out.last_path == SAT_DMA_PATH_SH2);
+    assert(out.sh2_copies == 3u && out.bytes_sh2 == 4096u);
     sat_dma_get_stats(nullptr);
     sat_dma_set_enabled(0);
     assert(!g_enabled);

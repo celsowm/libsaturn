@@ -8,13 +8,15 @@
 
 namespace saturn::hal::scu::dma {
 
-enum class Path : uint8_t { None, Scu, Cpu };
+enum class Path : uint8_t { None, Scu, Cpu, Sh2 };
 
 struct Stats {
     uint32_t scu_transfers;  /* completed SCU-DMA jobs (a list counts once) */
     uint32_t cpu_copies;     /* copy() calls served by the CPU */
+    uint32_t sh2_copies;     /* copy() calls served by the SH-2 DMAC */
     uint32_t bytes_scu;
     uint32_t bytes_cpu;
+    uint32_t bytes_sh2;
     uint32_t timeouts;       /* waits that hit the bound; DMA was force-stopped */
     uint32_t illegal;        /* DMA-illegal interrupt status seen */
     Path last_path;
@@ -49,6 +51,10 @@ sat_result_t wait(uint8_t level);
  * SAT_ERR_TIMEOUT / SAT_ERR_IO report a DMA that failed (the destination is
  * then undefined). */
 sat_result_t copy(void* dst, const void* src, uint32_t bytes);
+
+/* Work RAM to Work RAM through the on-chip DMAC (channel 0), waiting for it.
+ * Never chosen by copy(): on Mednafen it is slower than the CPU loop. */
+sat_result_t copy_sh2(void* dst, const void* src, uint32_t bytes);
 
 Stats stats();
 

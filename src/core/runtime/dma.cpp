@@ -18,6 +18,11 @@ extern "C" sat_result_t sat_dma_copy(void* dst, const void* src, uint32_t bytes)
     return dma::copy(dst, src, bytes);
 }
 
+extern "C" sat_result_t sat_dma_copy_sh2(void* dst, const void* src, uint32_t bytes) {
+    SAT_TRY(saturn::core::require_initialized());
+    return dma::copy_sh2(dst, src, bytes);
+}
+
 extern "C" int sat_dma_scu_capable(const void* dst, const void* src, uint32_t bytes) {
     if (dst == nullptr || src == nullptr || bytes == 0u || (bytes & 3u) != 0u) return 0;
     const uint32_t s = logic::physical(src);
@@ -68,8 +73,10 @@ extern "C" void sat_dma_get_stats(sat_dma_stats_t* out_stats) {
     const dma::Stats s = dma::stats();
     out_stats->scu_transfers = s.scu_transfers;
     out_stats->cpu_copies = s.cpu_copies;
+    out_stats->sh2_copies = s.sh2_copies;
     out_stats->bytes_scu = s.bytes_scu;
     out_stats->bytes_cpu = s.bytes_cpu;
+    out_stats->bytes_sh2 = s.bytes_sh2;
     out_stats->timeouts = s.timeouts;
     out_stats->illegal = s.illegal;
     out_stats->last_path = static_cast<sat_dma_path_t>(s.last_path);

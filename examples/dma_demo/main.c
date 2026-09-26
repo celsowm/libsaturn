@@ -1,7 +1,8 @@
-/* SCU DMA acceptance: every legal route, an indirect list, read-back,
- * cache coherence, the CPU fallback and a timing comparison. Each check
- * reads the destination back and compares it with what the CPU path
- * produces, so the result does not depend on how fast the emulator is. */
+/* DMA acceptance: every legal SCU route, an indirect list, read-back, cache
+ * coherence, the CPU fallback, the opt-in SH-2 DMAC for Work RAM to Work RAM
+ * (the route the SCU refuses) and timing comparisons. Each check reads the
+ * destination back and compares it with what the CPU path produces, so the
+ * result does not depend on how fast the emulator is. */
 #include <stdint.h>
 #include "saturn/app.h"
 #include "saturn/color.h"
@@ -33,9 +34,16 @@ typedef struct dma_demo_results {
     uint32_t cache_coherent;
     uint32_t illegal_rejected;
     uint32_t ram_copy_on_cpu;
+    uint32_t ram_copy_on_sh2;
+    uint32_t sh2_refuses_misfits;
+    uint32_t low_ram_on_sh2;
+    uint32_t sh2_cache_coherent;
+    uint32_t sh2_overlap_down;
     uint32_t small_copy_on_cpu;
     uint32_t cpu_ms;
     uint32_t dma_ms;
+    uint32_t ram_cpu_ms;
+    uint32_t ram_sh2_ms;
     uint32_t scu_transfers;
     uint32_t timeouts;
     uint32_t illegal;
@@ -45,6 +53,8 @@ volatile dma_demo_results_t g_dma_demo;
 
 static uint32_t g_src[WORDS] __attribute__((aligned(16)));
 static uint32_t g_back[WORDS] __attribute__((aligned(16)));
+/* Work RAM Low: the SCU cannot reach it, the SH-2's DMAC can. */
+static uint32_t g_low[1024] __attribute__((section(".wram_l"), aligned(16)));
 static volatile uint32_t g_end_irqs;
 
 static sat_ascii_font_t font;
@@ -152,16 +162,44 @@ static void cache_coherence(void) {
 
 static void fallbacks(void) {
     sat_dma_stats_t s;
-    /* Work RAM-H to itself is not a legal route: refused, then copied by CPU. */
+    /* Work RAM-H to itself is not an SCU route: refused there. */
     g_dma_demo.illegal_rejected =
         sat_dma_start(0u, g_src, g_back, 256u) == SAT_ERR_UNSUPPORTED &&
         sat_dma_start(0u, (void*)VDP2_SCRATCH, g_back, 256u) == SAT_ERR_UNSUPPORTED &&
         sat_dma_start(0u, g_src, (void*)VDP1_SCRATCH, 6u) == SAT_ERR_INVALID_ARG &&
         sat_dma_start(1u, g_src, (void*)VDP1_SCRATCH, 0x2000u) == SAT_ERR_INVALID_ARG;
     fill_pattern(5u);
+    /* sat_dma_copy leaves it to the CPU (the DMAC is slower); the SH-2's DMAC
+     * only runs when asked for. */
     (void)sat_dma_copy(g_back, g_src, 1024u);
     sat_dma_get_stats(&s);
-    g_dma_demo.ram_copy_on_cpu = s.last_path == SAT_DMA_PATH_CPU && words_equal(g_src, g_back, 256u);
+    g_dma_demo.ram_copy_on_cpu =
+        s.last_path == SAT_DMA_PATH_CPU && words_equal(g_src, g_back, 256u);
+    for (uint32_t i = 0u; i < 1024u; ++i) g_back[i] = 0u;
+    g_dma_demo.ram_copy_on_sh2 =
+        sat_dma_copy_sh2(g_back, g_src, 1024u) == SAT_OK &&
+        words_equal(g_src, g_back, 256u);
+    sat_dma_get_stats(&s);
+    g_dma_demo.ram_copy_on_sh2 = g_dma_demo.ram_copy_on_sh2 && s.last_path == SAT_DMA_PATH_SH2;
+    g_dma_demo.sh2_refuses_misfits =
+        sat_dma_copy_sh2(g_back, g_src, 64u) == SAT_ERR_UNSUPPORTED &&
+        sat_dma_copy_sh2((void*)VDP1_SCRATCH, g_src, 1024u) == SAT_ERR_UNSUPPORTED;
+    g_dma_demo.low_ram_on_sh2 =
+        sat_dma_copy_sh2(g_low, g_src, sizeof g_low) == SAT_OK &&
+        words_equal(g_src, g_low, 1024u);
+    /* The DMAC writes behind the cache too. */
+    for (uint32_t i = 0u; i < 1024u; ++i) g_back[i] = 0xA5A5A5A5u;
+    uint32_t sum = 0u;
+    for (uint32_t i = 0u; i < 1024u; ++i) sum += g_back[i];
+    (void)sum;
+    (void)sat_dma_copy_sh2(g_back, g_low, sizeof g_low);
+    g_dma_demo.sh2_cache_coherent = words_equal(g_src, g_back, 1024u);
+    /* Moving down inside one buffer: a forward burst is safe there. */
+    for (uint32_t i = 0u; i < 512u; ++i) g_back[i] = g_src[i];
+    (void)sat_dma_copy_sh2(&g_back[0], &g_back[64], 512u * 4u - 64u * 4u);
+    uint8_t moved = 1u;
+    for (uint32_t i = 0u; i < 512u - 64u; ++i) moved = moved && g_back[i] == g_src[i + 64u];
+    g_dma_demo.sh2_overlap_down = moved;
     (void)sat_dma_copy((void*)VDP1_SCRATCH, g_src, 32u);
     sat_dma_get_stats(&s);
     g_dma_demo.small_copy_on_cpu =
@@ -171,6 +209,15 @@ static void fallbacks(void) {
 static uint32_t timed_uploads(void) {
     const uint32_t start = sat_time_ms();
     for (uint32_t i = 0u; i < BENCH_ROUNDS; ++i) (void)sat_dma_copy((void*)VDP1_SCRATCH, g_src, BYTES);
+    return sat_time_ms() - start;
+}
+
+static uint32_t timed_ram_copies(int use_dmac) {
+    const uint32_t start = sat_time_ms();
+    for (uint32_t i = 0u; i < BENCH_ROUNDS; ++i) {
+        if (use_dmac) (void)sat_dma_copy_sh2(g_back, g_src, BYTES);
+        else (void)sat_dma_copy(g_back, g_src, BYTES);
+    }
     return sat_time_ms() - start;
 }
 
@@ -187,8 +234,10 @@ static void run_tests(void) {
     fill_pattern(6u);
     sat_dma_set_enabled(0);
     g_dma_demo.cpu_ms = timed_uploads();
+    g_dma_demo.ram_cpu_ms = timed_ram_copies(0);
     sat_dma_set_enabled(1);
     g_dma_demo.dma_ms = timed_uploads();
+    g_dma_demo.ram_sh2_ms = timed_ram_copies(1);
     sat_dma_stats_t s;
     sat_dma_get_stats(&s);
     g_dma_demo.scu_transfers = s.scu_transfers;
@@ -201,7 +250,10 @@ static uint32_t all_ok(void) {
     return g_dma_demo.direct_vdp1 && g_dma_demo.direct_vdp2 && g_dma_demo.direct_scsp &&
            g_dma_demo.matches_cpu_path && g_dma_demo.readback && g_dma_demo.indirect &&
            g_dma_demo.cache_coherent && g_dma_demo.illegal_rejected &&
-           g_dma_demo.ram_copy_on_cpu && g_dma_demo.small_copy_on_cpu &&
+           g_dma_demo.ram_copy_on_cpu && g_dma_demo.ram_copy_on_sh2 &&
+           g_dma_demo.sh2_refuses_misfits && g_dma_demo.low_ram_on_sh2 &&
+           g_dma_demo.sh2_cache_coherent && g_dma_demo.sh2_overlap_down &&
+           g_dma_demo.small_copy_on_cpu &&
            g_dma_demo.timeouts == 0u && g_dma_demo.illegal == 0u;
 }
 
@@ -232,6 +284,8 @@ int main(void) {
             line("CACHE OK     ", g_dma_demo.cache_coherent, 112);
             line("CPU MS       ", g_dma_demo.cpu_ms, 136);
             line("DMA MS       ", g_dma_demo.dma_ms, 152);
+            line("RAM CPU MS   ", g_dma_demo.ram_cpu_ms, 168);
+            line("RAM DMAC MS  ", g_dma_demo.ram_sh2_ms, 184);
         }
         (void)sat_app_frame_end();
         if ((pad.pressed & SAT_PAD_START) != 0u) break;

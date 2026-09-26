@@ -1,6 +1,7 @@
 #include "src/hal/scu/dma.hpp"
 
 #include "src/hal/sh2/cache.hpp"
+#include "src/hal/sh2/dmac.hpp"
 
 namespace saturn::hal::scu::dma {
 
@@ -215,6 +216,17 @@ sat_result_t copy(void* dst, const void* src, uint32_t bytes) {
     }
     g_stats.bytes_scu += bytes;
     g_stats.last_path = Path::Scu;
+    return SAT_OK;
+}
+
+sat_result_t copy_sh2(void* dst, const void* src, uint32_t bytes) {
+    if (bytes == 0u) return SAT_OK;
+    if (dst == nullptr || src == nullptr) return SAT_ERR_INVALID_ARG;
+    if (!sh2::dmac::can_copy(dst, src, bytes)) return SAT_ERR_UNSUPPORTED;
+    SAT_TRY(sh2::dmac::copy(dst, src, bytes));
+    ++g_stats.sh2_copies;
+    g_stats.bytes_sh2 += bytes;
+    g_stats.last_path = Path::Sh2;
     return SAT_OK;
 }
 

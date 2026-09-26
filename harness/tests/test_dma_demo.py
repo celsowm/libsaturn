@@ -17,7 +17,8 @@ MAGIC = 0x444D4131  # "DMA1"
 FIELDS = (
     "magic done irq_active direct_vdp1 direct_vdp2 direct_scsp matches_cpu_path "
     "readback indirect indirect_end_irq cache_coherent illegal_rejected "
-    "ram_copy_on_cpu small_copy_on_cpu cpu_ms dma_ms scu_transfers timeouts illegal"
+    "ram_copy_on_cpu ram_copy_on_sh2 sh2_refuses_misfits low_ram_on_sh2 sh2_cache_coherent sh2_overlap_down "
+    "small_copy_on_cpu cpu_ms dma_ms ram_cpu_ms ram_sh2_ms scu_transfers timeouts illegal"
 ).split()
 WRAM_HIGH = 0x06000000
 
@@ -67,10 +68,19 @@ class DmaDemoTests(unittest.TestCase):
     def test_work_ram_destination_is_not_stale_in_the_cache(self):
         self.assertEqual(self.r["cache_coherent"], 1)
 
-    def test_illegal_routes_are_refused_and_small_copies_use_the_cpu(self):
+    def test_illegal_scu_routes_are_refused_and_small_copies_use_the_cpu(self):
         self.assertEqual(self.r["illegal_rejected"], 1)
-        self.assertEqual(self.r["ram_copy_on_cpu"], 1)
         self.assertEqual(self.r["small_copy_on_cpu"], 1)
+
+    def test_work_ram_copies_stay_on_the_cpu_unless_the_sh2_dmac_is_asked_for(self):
+        self.assertEqual(self.r["ram_copy_on_cpu"], 1)
+        self.assertEqual(self.r["ram_copy_on_sh2"], 1)
+        self.assertEqual(self.r["sh2_refuses_misfits"], 1)
+        self.assertEqual(self.r["low_ram_on_sh2"], 1)  # Work RAM Low, unreachable by the SCU
+        self.assertEqual(self.r["sh2_overlap_down"], 1)
+
+    def test_sh2_dmac_destination_is_not_stale_in_the_cache(self):
+        self.assertEqual(self.r["sh2_cache_coherent"], 1)
 
     def test_no_dma_failed(self):
         self.assertEqual(self.r["timeouts"], 0)
@@ -81,6 +91,11 @@ class DmaDemoTests(unittest.TestCase):
         # 16 rounds of 32 KiB into VDP1 VRAM; both numbers are reported.
         print("cpu_ms=%d dma_ms=%d" % (self.r["cpu_ms"], self.r["dma_ms"]))
         self.assertLessEqual(self.r["dma_ms"], self.r["cpu_ms"])
+
+    def test_sh2_dmac_timing_is_reported(self):
+        # Ymir undercharges DMA, so it reads faster there; Mednafen measures the
+        # DMAC slower than the CPU loop, which is why sat_dma_copy never picks it.
+        print("ram_cpu_ms=%d ram_sh2_ms=%d" % (self.r["ram_cpu_ms"], self.r["ram_sh2_ms"]))
 
 
 if __name__ == "__main__":

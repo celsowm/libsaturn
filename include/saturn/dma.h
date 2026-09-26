@@ -27,14 +27,17 @@ extern "C" {
 typedef enum sat_dma_path {
     SAT_DMA_PATH_NONE = 0, /* nothing copied yet */
     SAT_DMA_PATH_SCU = 1,
-    SAT_DMA_PATH_CPU = 2
+    SAT_DMA_PATH_CPU = 2,
+    SAT_DMA_PATH_SH2 = 3  /* sat_dma_copy_sh2 */
 } sat_dma_path_t;
 
 typedef struct sat_dma_stats {
     uint32_t scu_transfers; /* SCU jobs finished (an indirect list counts once) */
     uint32_t cpu_copies;    /* sat_dma_copy calls the CPU served */
+    uint32_t sh2_copies;    /* sat_dma_copy_sh2 calls that finished */
     uint32_t bytes_scu;
     uint32_t bytes_cpu;
+    uint32_t bytes_sh2;
     uint32_t timeouts;      /* waits that hit the bound and force-stopped DMA */
     uint32_t illegal;       /* the SCU flagged an illegal transfer */
     sat_dma_path_t last_path;
@@ -46,11 +49,22 @@ typedef struct sat_dma_transfer {
     uint32_t bytes;
 } sat_dma_transfer_t;
 
-/* Copies and waits, on level 0 when the route is legal and worth it (64 bytes
- * or more, longword aligned), else with the CPU; the result is the same
- * either way. Sizes above 1 MiB are split. SAT_ERR_TIMEOUT or SAT_ERR_IO mean
- * a DMA that did not finish: the destination is then undefined. */
+/* Copies and waits, on SCU level 0 when the route is legal and worth it (64
+ * bytes or more, longword aligned), else with the CPU; the result is the same
+ * either way. Sizes above 1 MiB are split. Source and destination must not
+ * overlap (memcpy rules). SAT_ERR_TIMEOUT or SAT_ERR_IO mean a DMA that did
+ * not finish: the destination is then undefined. */
 sat_result_t sat_dma_copy(void* dst, const void* src, uint32_t bytes);
+
+/* Work RAM (either half) to Work RAM through this SH-2's own DMAC, channel 0:
+ * the one route the SCU refuses. 128 bytes or more, longword aligned, and not
+ * overlapping upward (moving down inside a buffer is fine). Waits, and
+ * invalidates the destination in the cache. Opt-in only: it bypasses the
+ * cache and the CPU stays stalled, and on Mednafen it copies slower than the
+ * plain CPU loop (about 52 ms against 38 ms for 512 KiB), so sat_dma_copy
+ * never picks it. SAT_ERR_UNSUPPORTED when the copy does not fit those rules,
+ * SAT_ERR_TIMEOUT / SAT_ERR_IO when the channel failed. */
+sat_result_t sat_dma_copy_sh2(void* dst, const void* src, uint32_t bytes);
 
 /* 1 when sat_dma_copy would use the SCU for this copy, else 0. */
 int sat_dma_scu_capable(const void* dst, const void* src, uint32_t bytes);
