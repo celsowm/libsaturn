@@ -32,7 +32,7 @@ LibSaturn is already strongest in the areas needed to render and run small-to-me
 - sprite/VDP2 color-calculation support used by distance fading;
 - fixed-point math, models, animation, collision, spatial and physics helpers;
 - basic PCM playback through the SCSP;
-- digital pad input;
+- controller input across the SMPC peripheral family (digital and 3D pads, mouse, keyboard, multitap) and the RTC;
 - host-side asset conversion and model baking;
 - ELF -> BIN -> ISO build flow.
 
@@ -40,11 +40,9 @@ The largest Saturn hardware areas still missing as first-class LibSaturn subsyst
 
 - Backup RAM/save support;
 - generic cartridge/A-Bus access beyond the volatile RAM-expansion driver;
-- 3D Control Pad analog input and the broader Saturn peripheral family;
 - higher-level Slave SH-2 scheduling/job execution;
 - SCU DSP;
 - advanced SCSP DSP/effects/synthesis and a resident 68000 sound driver;
-- broader SMPC system services;
 - the remaining VDP2 layers and raster/line effects;
 - NetLink/communications and optional MPEG hardware.
 
@@ -113,10 +111,10 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | VDP2 RBG0 | **PARTIAL** | Bitmap configuration, rotation parameters, coefficient control, matrix/viewpoint/center/scaling helpers and Mode-7-style setup. | More complete rotation modes, coefficient workflows and advanced compositing. | `include/saturn/vdp2.h` |
 | VDP2 advanced raster effects | **NOT EXPOSED** | No broad public abstraction for the full family of per-line/raster effects. | Line scroll, vertical cell scroll, line color, windows, mosaic and richer per-line effects. | No corresponding first-class public module in the current umbrella API. |
 | VDP2 remaining normal backgrounds | **NOT EXPOSED** | Public normal-background API is centered on NBG0. | NBG1, NBG2, NBG3 and generalized layer configuration. | `include/saturn/vdp2.h` |
-| Digital pad | **PARTIAL** | Held/pressed/released state and digital Saturn pad buttons. | Device discovery, multiple controller types, analog axes and richer port model. | `include/saturn/input.h` |
-| 3D Control Pad / analog | **NOT EXPOSED** | No public analog-axis/device-type API. | Analog stick, analog triggers and automatic device identification. | Current `input.h` is digital-pad-oriented. |
-| Multitap / peripheral family | **NOT EXPOSED** | No general peripheral framework. | Multitap, mouse, wheel, Mission Stick, Twin Stick, Virtua Gun and other SMPC peripherals. | No corresponding public module. |
-| SMPC system services | **MINIMAL** | Current HAL covers digital pad access and sound CPU on/off operations. | RTC/time, region/language/system status, peripheral enumeration and other SMPC commands. | `src/hal/smpc.*` |
+| Digital pad | **SUBSTANTIAL** | Held/pressed/released state and digital Saturn pad buttons for every port and every tap behind a multitap; connect/disconnect and button events with the tap in the event; device discovery (`sat_input_device_info`). One INTBACK now serves both ports. | Devices are read on `sat_input_poll` / `sat_pad_poll_port`, not from an SMPC interrupt. | `include/saturn/input.h`, `src/hal/smpc/peripheral_logic.hpp` |
+| 3D Control Pad / analog | **SUBSTANTIAL** | `sat_pad_analog`: X, Y and the two analog triggers of a 3D Control Pad in analog mode (digital mode reads as a plain pad), the third axis of a three-axis stick, axis events. Ymir (scripted axis values) and Mednafen (device kinds) acceptance in `harness/run-input-devices.ps1`. | Racing wheel and six-axis Mission Stick data are parsed as generic axes only; nothing reads the pad's mode switch. | `sat_pad_analog`, `sat_analog_state_t` |
+| Multitap / peripheral family | **PARTIAL** | Sega 6-player adapter and Sega Tap: the full INTBACK with CONTINUE requests reads every 32-byte chunk and files up to six devices per port (`sat_pad_tap_state`, `tap` in events). Shuttle Mouse and keyboard (`sat_mouse_read` accumulates motion, `sat_keyboard_read` reports keys and locks). Host tests on recorded byte streams; Ymir mouse; Mednafen 6-player adapter (`TAPS 111111`), mouse and keyboard kinds. | Light guns are reported as `SAT_DEVICE_UNKNOWN` (their protocol runs in SH-2 direct mode and needs the VDP2 latch); no emulator here drives a keyboard's keys or a multitap's individual pads with scripted input, so those decoders are host-tested only. | `include/saturn/input.h` |
+| SMPC system services | **SUBSTANTIAL** | `saturn/smpc.h`: status block (RTC, cartridge and area code, system status), `sat_rtc_get` / `sat_rtc_set` (SETTIME with the weekday derived and impossible dates refused before any write), the four battery-backed bytes (SETSMEM and a status read-back), reset enable/disable, sound and Slave on/off. Ymir round trips restore the clock and SMEM. | The manual marks MSHON, CDON/CDOFF, SYSRES and CKCHG352/320 as prohibited for applications, so they are deliberately not exposed; NMIREQ is not exposed either (the Master has no NMI handler of ours). | `include/saturn/smpc.h`, `src/hal/smpc/*` |
 | SCU interrupts | **SUBSTANTIAL** | All 14 internal sources (VBlank-IN/OUT, HBlank-IN, timers 0/1, DSP end, sound request, SMPC, PAD, DMA 0-2 end, DMA illegal, sprite draw end) with per-source handlers and counts, IMS shadow restored by every handler, SR mask lowered only to the lowest enabled level, timer 0 line / timer 1 dot setup. Ymir and Mednafen acceptance (`harness/run-irq-demo.ps1`). | A-bus external interrupts (cartridge devices) stay masked. Handlers run in interrupt context: no frame or draw calls. | `include/saturn/irq.h`, `src/hal/scu/irq.*`, `examples/irq_demo` |
 | SCU DMA | **SUBSTANTIAL** | `sat_dma_*`: levels 0-2, direct and indirect (up to 16 entries per start), asynchronous start / busy / wait with the DMA-end interrupt, forced stop and `SAT_ERR_TIMEOUT` when a transfer never ends (so `NEEDS_RECOVERY` is reachable again). The routes the SCU manual forbids (A-bus writes, VDP2 reads, Work RAM-L, RAM to RAM, B-bus to B-bus) are refused with `SAT_ERR_UNSUPPORTED`; `sat_dma_copy` falls back to the CPU for them and for copies under 64 bytes. Library uploads go through it: VDP1 textures, VDP2 colour-RAM palettes, VDP2 VRAM blocks and Sound RAM samples. Destination Work RAM is invalidated in the cache after a transfer. Host tests for the routing/encoding logic and the API; Ymir (9/9) and Mednafen acceptance (`harness/run-dma-demo.ps1`). Mednafen: 512 KiB into VDP1 VRAM takes 108 ms by CPU and 11 ms by DMA. | The SH-2 on-chip DMAC is exposed only as the explicit `sat_dma_copy_sh2` (Work RAM to Work RAM, including Work RAM-L): Mednafen measures it slower than the CPU loop (53 ms against 38 ms for 512 KiB), so `sat_dma_copy` never picks it. DSP-side DMA; the CD block / A-bus as a DMA source is untested; the per-frame VDP1 command and Gouraud tables go by DMA only when `sat_dma_set_command_list(1)` is set (default off: see the master plan for the measurements). Ymir charges DMA no CPU time, so only Mednafen gives a timing. | `include/saturn/dma.h`, `src/hal/scu/dma*`, `examples/dma_demo` |
 | SCU DSP | **DOCS ONLY** | SCU DSP manuals are present in the repository. | Program loading, assembler/tooling integration, dispatch, synchronization and useful DSP kernels. | `docs/sega_saturn_hardware/hard/scu_` |
@@ -234,23 +232,11 @@ A 68k-backed sound service would also let audio continue with less Master SH-2 i
 
 ### SMPC and peripherals
 
-Current status: **MINIMAL**.
+Current status: **SUBSTANTIAL**.
 
-Digital pad polling exists, but the current public input model is not yet a general Saturn peripheral model. There is no public concept of device type or analog axes.
+`saturn/input.h` identifies what is plugged in (`sat_input_device_info`: digital pad, 3D Control Pad, mouse, keyboard, unknown), reads a 3D pad's analog stick and triggers, a mouse's motion and a keyboard's keys, and addresses every device behind a multitap by port and tap. The SMPC parser is pure (`src/hal/smpc/peripheral_logic.hpp`) and host-tested on recorded byte streams; the HAL runs one INTBACK for both ports and continues through as many 32-byte chunks as the SMPC reports. `saturn/smpc.h` covers the real-time clock, cartridge and area code, and the four battery-backed bytes.
 
-Important unexposed devices/features include:
-
-- 3D Control Pad;
-- analog triggers;
-- Multitap;
-- mouse;
-- Racing Wheel;
-- Mission Stick;
-- Twin Stick;
-- Virtua Gun and other light-gun-style devices;
-- broader SMPC status/system commands.
-
-A generic device API here would also make future SDL/raylib compatibility layers much cleaner.
+Still not covered: light guns (SH-2 direct mode with the VDP2 latch), racing wheel and Mission Stick beyond generic axes, the multitap individual-pad and keyboard-key paths on an emulator with scripted input (only host-tested), and the SMPC commands the manual prohibits for applications.
 
 ### CD Block
 

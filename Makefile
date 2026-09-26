@@ -619,6 +619,7 @@ HOST_TEST_EXTRA_test_render2d_api := src/graphics/2d/rendering/api.cpp src/graph
 HOST_TEST_EXTRA_test_input_api := src/input/api.cpp src/input/runtime.cpp src/core/runtime/state.cpp
 HOST_TEST_EXTRA_test_irq_api := src/core/runtime/irq.cpp src/core/runtime/state.cpp
 HOST_TEST_EXTRA_test_dma_api := src/core/runtime/dma.cpp src/core/runtime/state.cpp
+HOST_TEST_EXTRA_test_smpc_api := src/core/runtime/smpc.cpp src/core/runtime/state.cpp
 HOST_TEST_EXTRA_test_model3d_logic := src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/model_upload.cpp src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_scene3d_api := src/graphics/3d/scene/api.cpp src/graphics/3d/geometry/model.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_scene_api := src/graphics/3d/scene/scene.cpp src/core/math3d/api.cpp

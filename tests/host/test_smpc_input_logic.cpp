@@ -8,23 +8,17 @@
 int main() {
     using namespace saturn::hal::smpc;
 
-    OK(intback_mode_for_port(0u) == 0xCAu);
-    OK(intback_mode_for_port(1u) == 0x3Au);
-    OK(intback_mode_for_port(2u) == 0u);
-
+    /* Buttons are active low: a cleared bit is a pressed button. */
+    OK(translate_standard_pad(0xFFu, 0xFFu) == 0u);
     const uint8_t d1 = static_cast<uint8_t>(0xFFu & ~0x80u & ~0x04u);
-    DigitalPadSample sample = decode_direct_digital_pad(0xF1u, 0x02u, d1, 0xFFu);
-    OK(sample.connected);
-    OK(sample.held == (SAT_PAD_RIGHT | SAT_PAD_A));
-
-    sample = decode_direct_digital_pad(0xF0u, 0x02u, d1, 0xFFu);
-    OK(!sample.connected && sample.held == 0u);
-
-    sample = decode_direct_digital_pad(0xF1u, 0x12u, d1, 0xFFu);
-    OK(!sample.connected && sample.held == 0u);
-
-    sample = decode_direct_digital_pad(0xF1u, 0x01u, d1, 0xFFu);
-    OK(!sample.connected && sample.held == 0u);
+    OK(translate_standard_pad(d1, 0xFFu) == (SAT_PAD_RIGHT | SAT_PAD_A));
+    OK(translate_standard_pad(0x00u, 0xFFu) ==
+       (SAT_PAD_RIGHT | SAT_PAD_LEFT | SAT_PAD_DOWN | SAT_PAD_UP | SAT_PAD_START |
+        SAT_PAD_A | SAT_PAD_B | SAT_PAD_C));
+    OK(translate_standard_pad(0xFFu, 0x00u) ==
+       (SAT_PAD_R | SAT_PAD_X | SAT_PAD_Y | SAT_PAD_Z | SAT_PAD_L));
+    /* The three low bits of the second byte are not buttons. */
+    OK(translate_standard_pad(0xFFu, 0xF8u) == 0u);
 
     std::puts("smpc input logic: OK");
     return 0;

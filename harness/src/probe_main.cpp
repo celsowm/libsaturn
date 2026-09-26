@@ -164,6 +164,36 @@ uint32_t g_pad_frame_index = 0;
 bool g_pad_use_script = false;
 bool g_pad_script_game_frame = false;
 
+// --port-device / --device-script: what is plugged into each port and its
+// value timeline. A script line is "FRAME PORT key=value ..." (PORT 1 or 2);
+// the keys given replace those fields of that port's state from that
+// emulated frame onward, the others persist:
+//   buttons=UP+A   held buttons          analog=0|1   3D pad analog mode
+//   x= y= l= r=    3D pad axes (0..255)  dx= dy=      mouse counts per report
+//   left= middle= right= start=          mouse buttons (0|1)
+struct DeviceKeys {
+    ymir::peripheral::Button buttons = ymir::peripheral::Button::None;  // "down" mask
+    bool analog = true;
+    uint8_t x = 0x80, y = 0x80, l = 0, r = 0;
+    int16_t dx = 0, dy = 0;
+    bool left = false, middle = false, right = false, start = false;
+};
+struct DevicePoint {
+    uint32_t frame;
+    uint8_t port;  // 0 or 1
+    DeviceKeys keys;
+};
+std::vector<DevicePoint> g_device_script;
+
+DeviceKeys device_keys_at(uint32_t frame, uint8_t port) {
+    DeviceKeys keys;
+    for (const DevicePoint& p : g_device_script) {
+        if (p.frame > frame) break;
+        if (p.port == port) keys = p.keys;
+    }
+    return keys;
+}
+
 ymir::peripheral::Button button_from_name(const std::string& name) {
     using ymir::peripheral::Button;
     if (name == "UP") return Button::Up;
@@ -225,6 +255,60 @@ ymir::peripheral::Button pad_report(ymir::peripheral::Button down) {
         static_cast<uint16_t>(Button::All) & ~static_cast<uint16_t>(down));
 }
 
+// Fills one port's report from its device-script state. Ymir hands the
+// peripheral type in `report.type`; the port number is the callback context.
+void device_report(ymir::peripheral::PeripheralReport& report, void* context) {
+    using namespace ymir::peripheral;
+    const uint8_t port = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(context));
+    const DeviceKeys keys = g_pad_active ? device_keys_at(g_pad_frame_index, port) : DeviceKeys{};
+    switch (report.type) {
+    case PeripheralType::ControlPad:
+        report.report.controlPad.buttons = pad_report(keys.buttons);
+        break;
+    case PeripheralType::AnalogPad:
+        report.report.analogPad.buttons = pad_report(keys.buttons);
+        report.report.analogPad.analog = keys.analog;
+        report.report.analogPad.x = keys.x;
+        report.report.analogPad.y = keys.y;
+        report.report.analogPad.l = keys.l;
+        report.report.analogPad.r = keys.r;
+        break;
+    case PeripheralType::ShuttleMouse:
+        report.report.shuttleMouse.start = keys.start;
+        report.report.shuttleMouse.left = keys.left;
+        report.report.shuttleMouse.middle = keys.middle;
+        report.report.shuttleMouse.right = keys.right;
+        report.report.shuttleMouse.x = keys.dx;
+        report.report.shuttleMouse.y = keys.dy;
+        break;
+    default:
+        break;
+    }
+}
+
+// Applies "key=value" to `keys`. False on an unknown key or bad value.
+bool apply_device_field(DeviceKeys& keys, const std::string& field) {
+    const size_t eq = field.find('=');
+    if (eq == std::string::npos) return false;
+    const std::string key = field.substr(0, eq);
+    const std::string value = field.substr(eq + 1);
+    const long number = std::strtol(value.c_str(), nullptr, 0);
+    if (key == "buttons") keys.buttons = buttons_from_spec(value);
+    else if (key == "analog") keys.analog = number != 0;
+    else if (key == "x") keys.x = static_cast<uint8_t>(number);
+    else if (key == "y") keys.y = static_cast<uint8_t>(number);
+    else if (key == "l") keys.l = static_cast<uint8_t>(number);
+    else if (key == "r") keys.r = static_cast<uint8_t>(number);
+    else if (key == "dx") keys.dx = static_cast<int16_t>(number);
+    else if (key == "dy") keys.dy = static_cast<int16_t>(number);
+    else if (key == "left") keys.left = number != 0;
+    else if (key == "middle") keys.middle = number != 0;
+    else if (key == "right") keys.right = number != 0;
+    else if (key == "start") keys.start = number != 0;
+    else return false;
+    return true;
+}
+
 // Buttons held at a given program frame: the most recent script entry at or
 // before it.
 ymir::peripheral::Button buttons_at_frame(uint32_t frame) {
@@ -254,6 +338,8 @@ struct Args {
     std::string profile_instructions_path; // master/slave SH-2 instructions per frame
     std::string profile_transfers_path; // VDP1 VRAM, VDP2 VRAM and CRAM words per frame
     std::string pad_script_path;     // frame-indexed input timeline
+    std::string device_script_path;  // per-port device values, see g_device_script
+    std::string port_device[2];      // "pad", "analog", "mouse", "none"; empty = unchanged
     bool pad_script_game_frame = false;
     std::string backup_ram_path;     // persistent 32 KiB internal Backup RAM image
     std::string backup_cart_path;    // existing external image; mapped copy-on-write
@@ -353,6 +439,7 @@ void print_usage() {
         "             [--dump-wram-high <path>] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
+        "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
         "             [--backup-ram <path>] [--backup-cart <existing-path>] [--ram-cart none|1m|4m] [--scsp-trace]\n"
         "             [--slave-reset-entry <address>]\n");
@@ -430,6 +517,19 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--pad-script");
             if (!v) return false;
             out->pad_script_path = v;
+        } else if (arg == "--device-script") {
+            const char* v = next("--device-script");
+            if (!v) return false;
+            out->device_script_path = v;
+        } else if (arg == "--port-device") {
+            const char* v = next("--port-device");
+            if (!v) return false;
+            const std::string spec = v;
+            if (spec.size() < 3 || spec[1] != ':' || (spec[0] != '1' && spec[0] != '2')) {
+                std::fprintf(stderr, "invalid --port-device spec: %s (want 1|2:pad|analog|mouse|none)\n", v);
+                return false;
+            }
+            out->port_device[spec[0] - '1'] = spec.substr(2);
         } else if (arg == "--pad-script-game-frame") {
             out->pad_script_game_frame = true;
         } else if (arg == "--profile-pc") {
@@ -827,6 +927,52 @@ int main(int argc, char** argv) {
             }));
         }
         port.ConnectControlPad();
+    }
+
+    if (!args.device_script_path.empty() || !args.port_device[0].empty() || !args.port_device[1].empty()) {
+        if (!args.device_script_path.empty()) {
+            std::ifstream script(args.device_script_path);
+            if (!script) {
+                std::fprintf(stderr, "failed to open --device-script: %s\n", args.device_script_path.c_str());
+                return 1;
+            }
+            DeviceKeys state[2];
+            std::string line;
+            while (std::getline(script, line)) {
+                const size_t hash = line.find('#');
+                if (hash != std::string::npos) line = line.substr(0, hash);
+                std::istringstream ls(line);
+                uint32_t frame = 0;
+                int port = 0;
+                if (!(ls >> frame >> port) || (port != 1 && port != 2)) continue;
+                std::string field;
+                while (ls >> field) {
+                    if (!apply_device_field(state[port - 1], field)) {
+                        std::fprintf(stderr, "bad --device-script field: %s\n", field.c_str());
+                        return 1;
+                    }
+                }
+                g_device_script.push_back({frame, static_cast<uint8_t>(port - 1), state[port - 1]});
+            }
+            std::stable_sort(g_device_script.begin(), g_device_script.end(),
+                             [](const DevicePoint& a, const DevicePoint& b) { return a.frame < b.frame; });
+        }
+        for (int idx = 0; idx < 2; ++idx) {
+            if (args.port_device[idx].empty()) continue;
+            auto& port = idx == 0 ? saturn->SMPC.GetPeripheralPort1() : saturn->SMPC.GetPeripheralPort2();
+            port.SetPeripheralReportCallback(ymir::peripheral::CBPeripheralReport{
+                reinterpret_cast<void*>(static_cast<uintptr_t>(idx)), device_report});
+            const std::string& type = args.port_device[idx];
+            if (type == "pad") port.ConnectControlPad();
+            else if (type == "analog") port.ConnectAnalogPad();
+            else if (type == "mouse") port.ConnectShuttleMouse();
+            else if (type == "none") port.DisconnectPeripherals();
+            else {
+                std::fprintf(stderr, "unknown --port-device type: %s\n", type.c_str());
+                return 1;
+            }
+            std::fprintf(stderr, "[probe] port %d: %s\n", idx + 1, type.c_str());
+        }
     }
 
     // Latest composited video frame (VDP1 sprites over VDP2 layers), copied

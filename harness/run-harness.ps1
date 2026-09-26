@@ -28,6 +28,10 @@ param(
     [int]$PadReleaseAt = 0,
     [string]$PadScript,
     [switch]$PadScriptGameFrame,
+    # "1:analog", "2:mouse" ...: what is plugged into each port, and a timeline of
+    # its values (see the probe's --device-script).
+    [string[]]$PortDevice,
+    [string]$DeviceScript,
     [string]$BackupRam,
     [string]$BackupCart,
     [ValidateSet('none', '1m', '4m')]
@@ -213,6 +217,8 @@ if ($ProfileParallelRuntimeTelemetry) {
 if ($PadButton) {
     $probeArgs += @('--pad-button', $PadButton, '--pad-press-at', $PadPressAt, '--pad-release-at', $PadReleaseAt)
 }
+foreach ($d in $PortDevice) { $probeArgs += @('--port-device', $d) }
+if ($DeviceScript) { $probeArgs += @('--device-script', $DeviceScript) }
 if ($PadScript) {
     $probeArgs += @('--pad-script', $PadScript)
 }

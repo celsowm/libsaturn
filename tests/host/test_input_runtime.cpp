@@ -18,12 +18,12 @@ int main() {
 
     input_apply_pad_sample(runtime, 0u, false, 0u);
     OK(runtime.count == 0u);
-    OK(runtime.pads[0].connected == 0u);
+    OK(runtime.pads[0][0].connected == 0u);
 
     input_apply_pad_sample(runtime, 0u, true, SAT_PAD_A | SAT_PAD_RIGHT);
-    OK(runtime.pads[0].connected == 1u);
-    OK(runtime.pads[0].held == (SAT_PAD_A | SAT_PAD_RIGHT));
-    OK(runtime.pads[0].pressed == (SAT_PAD_A | SAT_PAD_RIGHT));
+    OK(runtime.pads[0][0].connected == 1u);
+    OK(runtime.pads[0][0].held == (SAT_PAD_A | SAT_PAD_RIGHT));
+    OK(runtime.pads[0][0].pressed == (SAT_PAD_A | SAT_PAD_RIGHT));
     OK(runtime.count == 3u);
 
     sat_event_t event = pop(runtime);
@@ -34,25 +34,25 @@ int main() {
     OK(event.type == SAT_EVENT_BUTTON_DOWN && event.control == SAT_PAD_RIGHT);
 
     input_apply_pad_sample(runtime, 0u, true, SAT_PAD_A | SAT_PAD_B);
-    OK(runtime.pads[0].pressed == SAT_PAD_B);
-    OK(runtime.pads[0].released == SAT_PAD_RIGHT);
+    OK(runtime.pads[0][0].pressed == SAT_PAD_B);
+    OK(runtime.pads[0][0].released == SAT_PAD_RIGHT);
     event = pop(runtime);
     OK(event.type == SAT_EVENT_BUTTON_DOWN && event.control == SAT_PAD_B);
     event = pop(runtime);
     OK(event.type == SAT_EVENT_BUTTON_UP && event.control == SAT_PAD_RIGHT);
 
     input_apply_pad_sample(runtime, 1u, true, SAT_PAD_C);
-    OK(runtime.pads[1].held == SAT_PAD_C);
-    OK(runtime.pads[0].held == (SAT_PAD_A | SAT_PAD_B));
+    OK(runtime.pads[1][0].held == SAT_PAD_C);
+    OK(runtime.pads[0][0].held == (SAT_PAD_A | SAT_PAD_B));
     event = pop(runtime);
     OK(event.type == SAT_EVENT_PAD_CONNECTED && event.port == 1u);
     event = pop(runtime);
     OK(event.type == SAT_EVENT_BUTTON_DOWN && event.port == 1u && event.control == SAT_PAD_C);
 
     input_apply_pad_sample(runtime, 0u, false, 0u);
-    OK(runtime.pads[0].connected == 0u);
-    OK(runtime.pads[0].held == 0u);
-    OK(runtime.pads[0].released == (SAT_PAD_A | SAT_PAD_B));
+    OK(runtime.pads[0][0].connected == 0u);
+    OK(runtime.pads[0][0].held == 0u);
+    OK(runtime.pads[0][0].released == (SAT_PAD_A | SAT_PAD_B));
     event = pop(runtime);
     OK(event.type == SAT_EVENT_BUTTON_UP && event.control == SAT_PAD_A);
     event = pop(runtime);
