@@ -333,6 +333,7 @@ struct Args {
     uint32_t fb_sample_count = 16; // first N bytes of the VDP1 display framebuffer
     std::string dump_wram_high_path; // diagnostic: raw 1MiB High Work RAM dump
     std::string dump_sound_ram_path; // diagnostic: raw 512KiB SCSP Sound RAM dump
+    std::string dump_audio_path;     // SCSP output from the program start, stereo int16 little-endian
     std::string dump_fb_path;        // raw VDP1 display framebuffer, for visual checks
     std::string profile_pc_path;     // one master-SH2 PC sample per frame, for profiling
     std::string profile_cycles_path; // master-SH2 cycles consumed by each program frame
@@ -438,7 +439,7 @@ void print_usage() {
     std::fprintf(stderr,
         "usage: probe --iso <path> --bios <path> --bin <path> [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
-        "             [--dump-wram-high <path>] [--dump-sound-ram <path>] [--dump-fb <path>]\n"
+        "             [--dump-wram-high <path>] [--dump-sound-ram <path>] [--dump-audio <path>] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
         "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
@@ -499,6 +500,10 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--dump-sound-ram");
             if (!v) return false;
             out->dump_sound_ram_path = v;
+        } else if (arg == "--dump-audio") {
+            const char* v = next("--dump-audio");
+            if (!v) return false;
+            out->dump_audio_path = v;
         } else if (arg == "--dump-wram-high") {
             const char* v = next("--dump-wram-high");
             if (!v) return false;
@@ -1031,6 +1036,21 @@ int main(int argc, char** argv) {
              sink->pixels.assign(fb, fb + static_cast<size_t>(width) * height);
          }});
 
+    // The SCSP output from the moment the program is injected (the BIOS logo chime is not kept).
+    struct AudioSink {
+        bool recording = false;
+        std::vector<int16_t> samples;
+    };
+    AudioSink audio;
+    if (!args.dump_audio_path.empty()) {
+        saturn->SCSP.SetSampleCallback({&audio, [](sint16 left, sint16 right, void* ctx) {
+                                            AudioSink* sink = static_cast<AudioSink*>(ctx);
+                                            if (!sink->recording) return;
+                                            sink->samples.push_back(left);
+                                            sink->samples.push_back(right);
+                                        }});
+    }
+
     bool trace_frames = std::getenv("PROBE_TRACE_FRAMES") != nullptr;
     auto& sh2p = saturn->masterSH2.GetProbe();
     // One PC sample per emulated frame. Coarse, but a program that needs many
@@ -1295,7 +1315,9 @@ int main(int argc, char** argv) {
     g_pad_active = true;
     sampling_pc = !args.profile_pc_path.empty();
     taking_screenshots = !args.screenshots.empty();
+    audio.recording = true;
     run_frames(args.frames, args.boot_frames);
+    audio.recording = false;
 
     const uint32_t pc_after_run = sh2p.PC();
     const ScspFrameSnapshot scsp_final =
@@ -1483,6 +1505,18 @@ int main(int argc, char** argv) {
                             static_cast<std::streamsize>(saturn->mem.WRAMHigh.size()));
             std::fprintf(stderr, "wrote %zu bytes of High WRAM to %s\n", saturn->mem.WRAMHigh.size(),
                          args.dump_wram_high_path.c_str());
+        }
+    }
+
+    if (!args.dump_audio_path.empty()) {
+        std::ofstream audio_out(args.dump_audio_path, std::ios::binary);
+        if (!audio_out) {
+            std::fprintf(stderr, "failed to open --dump-audio output: %s\n", args.dump_audio_path.c_str());
+        } else {
+            audio_out.write(reinterpret_cast<const char*>(audio.samples.data()),
+                            static_cast<std::streamsize>(audio.samples.size() * sizeof(int16_t)));
+            std::fprintf(stderr, "wrote %zu stereo samples to %s\n", audio.samples.size() / 2,
+                         args.dump_audio_path.c_str());
         }
     }
 

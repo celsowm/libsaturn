@@ -2,6 +2,7 @@
 #include "saturn/video.h"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
+#include "saturn/scsp_dsp.h"
 
 namespace saturn::core {
 void music_runtime_reset();
@@ -21,6 +22,7 @@ extern "C" sat_result_t sat_audio_init(void) {
 
 extern "C" sat_result_t sat_audio_shutdown(void) {
     if (g_initialized == 0u) return SAT_OK;
+    (void)sat_effect_stop();
     saturn::hal::scsp::shutdown();
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     saturn::core::music_runtime_reset();

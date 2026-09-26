@@ -24,6 +24,8 @@ struct SlotConfig {
 };
 
 bool init();
+// Busy-waits at least `count` output samples (44.1 kHz) of the SCSP.
+void wait_samples(uint32_t count);
 void shutdown();
 bool is_ready();
 
@@ -55,6 +57,12 @@ void mute_slot(uint8_t slot);
 void set_slot_level_pan(uint8_t slot, uint8_t total_level, uint8_t direct_level, uint8_t pan);
 void stop_all_slots();
 void set_master_volume(uint8_t level);
+// DSP routing. A slot sends its output to MIXS 0 at `level` (0 = none, 7 = full);
+// slots configured later start with the default send. EFREG n comes back through slot
+// n's effect level and pan (slot register 0x16, low byte), whatever plays on that slot.
+void set_default_effect_send(uint8_t level);
+void set_effect_send(uint8_t slot, uint8_t level);
+void set_effect_return(uint8_t efreg, uint8_t level, uint8_t pan);
 
 uint16_t encode_pitch(uint32_t sample_rate, uint32_t pitch_scale_q16);
 uint8_t encode_pan(int16_t pan);

@@ -595,6 +595,7 @@ HOST_TEST_EXTRA_test_ram_cart_api := src/storage/cartridge/api.cpp src/core/memo
 HOST_TEST_EXTRA_test_ram_cart_1m := src/storage/cartridge/api.cpp src/core/memory/api.cpp
 HOST_TEST_EXTRA_test_abus_api := src/storage/cartridge/abus.cpp
 HOST_TEST_EXTRA_test_scu_dsp_api := src/core/runtime/scu_dsp.cpp
+HOST_TEST_EXTRA_test_scsp_dsp_api := src/audio/playback/state.cpp src/audio/effects/api.cpp
 HOST_TEST_EXTRA_test_file_asset_logic := src/storage/files/api.cpp src/resources/assets.cpp src/storage/files/asset_runtime.cpp src/graphics/2d/textures/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp src/graphics/2d/textures/runtime.cpp
 HOST_TEST_EXTRA_test_cdfs_logic := src/storage/cd/api.cpp src/storage/cd/filesystem.cpp src/storage/files/api.cpp src/storage/files/asset_runtime.cpp
 HOST_TEST_EXTRA_test_cd_block_api := src/hal/cd/block.cpp src/storage/cd/api.cpp

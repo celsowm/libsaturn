@@ -1,5 +1,7 @@
 #include "src/hal/scsp/scsp.hpp"
 
+#include "src/hal/scsp/dsp_logic.hpp"
+
 #include "src/hal/smpc/smpc.hpp"
 #include "src/hal/scu/dma.hpp"
 #include "src/hal/scu/scu.hpp"
@@ -27,6 +29,24 @@ bool g_ready = false;
 // cannot be read-modified-written safely. Keep the programmed state here and
 // use it whenever a key transition needs KYONEX.
 uint16_t g_slot_control[kSlotCount] = {};
+// Slot register 0x14 (send to the DSP) and the low byte of 0x16 (return of EFREG n
+// through slot n) sit beside fields the voice code writes, so they are shadowed and
+// merged into every write of those registers.
+uint8_t g_default_send = 0u;
+uint8_t g_slot_send[kSlotCount] = {};
+uint8_t g_effect_return[16] = {};
+uint16_t g_direct_bits[kSlotCount] = {};   // DISDL and DIPAN, the top byte of 0x16
+
+inline uint16_t send_word_for(uint8_t slot) {
+    return dsp_logic::send_word(g_slot_send[slot], 0u);
+}
+
+inline uint16_t direct_word_for(uint8_t slot, uint8_t direct_level, uint8_t pan) {
+    g_direct_bits[slot] = static_cast<uint16_t>(
+        (static_cast<uint16_t>(direct_level > 7u ? 7u : direct_level) << 13) |
+        (static_cast<uint16_t>(pan & 0x1Fu) << 8));
+    return static_cast<uint16_t>(g_direct_bits[slot] | (slot < 16u ? g_effect_return[slot] : 0u));
+}
 
 inline volatile uint16_t* slot_word(uint8_t slot, uint32_t offset) {
     return reinterpret_cast<volatile uint16_t*>(
@@ -71,10 +91,6 @@ inline void clear_slot_registers() {
     }
 }
 
-inline uint8_t clamp_u8(uint32_t value, uint8_t max_value) {
-    return static_cast<uint8_t>(value > max_value ? max_value : value);
-}
-
 /* Waits longer than one 44.1 kHz SCSP sample period: with the calibrated
  * FRT, eight /128 ticks are comfortably longer. */
 void wait_one_sample() {
@@ -103,6 +119,10 @@ inline void execute_key_transition(uint8_t slot) {
 
 }  // namespace
 
+void wait_samples(uint32_t count) {
+    for (uint32_t i = 0u; i < count; ++i) wait_one_sample();
+}
+
 bool init() {
     if (g_ready) {
         return true;
@@ -118,7 +138,13 @@ bool init() {
     clear_sound_ram(0u, kSystemReservedBytes);
     install_idle_68k_stub();
     clear_slot_registers();
-    for (uint8_t slot = 0u; slot < kSlotCount; ++slot) g_slot_control[slot] = 0u;
+    for (uint8_t slot = 0u; slot < kSlotCount; ++slot) {
+        g_slot_control[slot] = 0u;
+        g_slot_send[slot] = 0u;
+        g_direct_bits[slot] = 0u;
+    }
+    for (uint8_t i = 0u; i < 16u; ++i) g_effect_return[i] = 0u;
+    g_default_send = 0u;
     clear_dsp_program();
 
     if (!smpc::sound_on()) {
@@ -285,11 +311,9 @@ bool configure_slot(uint8_t slot, const SlotConfig& config) {
     *slot_word(slot, 0x0Eu) = 0u;
     *slot_word(slot, 0x10u) = encode_pitch(config.sample_rate, config.pitch_scale_q16);
     *slot_word(slot, 0x12u) = 0u;
-    *slot_word(slot, 0x14u) = 0u;
-    *slot_word(slot, 0x16u) = static_cast<uint16_t>(
-        (static_cast<uint16_t>(clamp_u8(config.direct_level, 7u)) << 13) |
-        (static_cast<uint16_t>(config.pan & 0x1Fu) << 8)
-    );
+    g_slot_send[slot] = g_default_send;
+    *slot_word(slot, 0x14u) = send_word_for(slot);
+    *slot_word(slot, 0x16u) = direct_word_for(slot, config.direct_level, config.pan);
     return true;
 }
 
@@ -328,10 +352,24 @@ void mute_slot(uint8_t slot) {
 void set_slot_level_pan(uint8_t slot, uint8_t total_level, uint8_t direct_level, uint8_t pan) {
     if (!g_ready || slot >= kSlotCount) return;
     *slot_word(slot, 0x0Cu) = static_cast<uint16_t>(total_level);
-    *slot_word(slot, 0x16u) = static_cast<uint16_t>(
-        (static_cast<uint16_t>(clamp_u8(direct_level, 7u)) << 13) |
-        (static_cast<uint16_t>(pan & 0x1Fu) << 8)
-    );
+    *slot_word(slot, 0x16u) = direct_word_for(slot, direct_level, pan);
+}
+
+void set_default_effect_send(uint8_t level) {
+    g_default_send = level > dsp_logic::kMaxLevel ? dsp_logic::kMaxLevel : level;
+}
+
+void set_effect_send(uint8_t slot, uint8_t level) {
+    if (!g_ready || slot >= kSlotCount) return;
+    g_slot_send[slot] = level > dsp_logic::kMaxLevel ? dsp_logic::kMaxLevel : level;
+    *slot_word(slot, 0x14u) = send_word_for(slot);
+}
+
+void set_effect_return(uint8_t efreg, uint8_t level, uint8_t pan) {
+    if (efreg >= 16u) return;
+    g_effect_return[efreg] = static_cast<uint8_t>(dsp_logic::return_bits(level, pan));
+    if (!g_ready) return;
+    *slot_word(efreg, 0x16u) = static_cast<uint16_t>(g_direct_bits[efreg] | g_effect_return[efreg]);
 }
 
 void set_master_volume(uint8_t level) {

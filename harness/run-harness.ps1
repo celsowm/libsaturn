@@ -52,6 +52,8 @@ param(
     # that read a guest results struct through the map file.
     [string]$DumpWramHigh,
     [string]$DumpSoundRam,
+    # SCSP output from the program start, stereo int16 little-endian
+    [string]$DumpAudio,
     [string]$Out
 )
 
@@ -262,6 +264,9 @@ if ($DumpWramHigh) {
 }
 if ($DumpSoundRam) {
     $probeArgs += @('--dump-sound-ram', $DumpSoundRam)
+}
+if ($DumpAudio) {
+    $probeArgs += @('--dump-audio', $DumpAudio)
 }
 if ($ProfilePc) {
     $probeArgs += @('--profile-pc', $ProfilePc)
