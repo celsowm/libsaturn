@@ -41,7 +41,7 @@ The largest Saturn hardware areas still missing as first-class LibSaturn subsyst
 - Backup RAM/save support;
 - ROM cartridges and other A-Bus expansion hardware beyond detection and raw reads;
 - Slave SH-2 work beyond the task queue (physics and other subsystems on the Slave);
-- SCU DSP;
+- more SCU DSP kernels (only a batch 3x3 transform ships);
 - advanced SCSP DSP/effects/synthesis and a resident 68000 sound driver;
 - the remaining VDP2 layers and raster/line effects;
 - NetLink/communications and optional MPEG hardware.
@@ -117,7 +117,7 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | SMPC system services | **SUBSTANTIAL** | `saturn/smpc.h`: status block (RTC, cartridge and area code, system status), `sat_rtc_get` / `sat_rtc_set` (SETTIME with the weekday derived and impossible dates refused before any write), the four battery-backed bytes (SETSMEM and a status read-back), reset enable/disable, sound and Slave on/off. Ymir round trips restore the clock and SMEM. | The manual marks MSHON, CDON/CDOFF, SYSRES and CKCHG352/320 as prohibited for applications, so they are deliberately not exposed; NMIREQ is not exposed either (the Master has no NMI handler of ours). | `include/saturn/smpc.h`, `src/hal/smpc/*` |
 | SCU interrupts | **SUBSTANTIAL** | All 14 internal sources (VBlank-IN/OUT, HBlank-IN, timers 0/1, DSP end, sound request, SMPC, PAD, DMA 0-2 end, DMA illegal, sprite draw end) with per-source handlers and counts, IMS shadow restored by every handler, SR mask lowered only to the lowest enabled level, timer 0 line / timer 1 dot setup. Ymir and Mednafen acceptance (`harness/run-irq-demo.ps1`). | A-bus external interrupts (cartridge devices) stay masked. Handlers run in interrupt context: no frame or draw calls. | `include/saturn/irq.h`, `src/hal/scu/irq.*`, `examples/irq_demo` |
 | SCU DMA | **SUBSTANTIAL** | `sat_dma_*`: levels 0-2, direct and indirect (up to 16 entries per start), asynchronous start / busy / wait with the DMA-end interrupt, forced stop and `SAT_ERR_TIMEOUT` when a transfer never ends (so `NEEDS_RECOVERY` is reachable again). The routes the SCU manual forbids (A-bus writes, VDP2 reads, Work RAM-L, RAM to RAM, B-bus to B-bus) are refused with `SAT_ERR_UNSUPPORTED`; `sat_dma_copy` falls back to the CPU for them and for copies under 64 bytes. Library uploads go through it: VDP1 textures, VDP2 colour-RAM palettes, VDP2 VRAM blocks and Sound RAM samples. Destination Work RAM is invalidated in the cache after a transfer. Host tests for the routing/encoding logic and the API; Ymir (9/9) and Mednafen acceptance (`harness/run-dma-demo.ps1`). Mednafen: 512 KiB into VDP1 VRAM takes 108 ms by CPU and 11 ms by DMA. | The SH-2 on-chip DMAC is exposed only as the explicit `sat_dma_copy_sh2` (Work RAM to Work RAM, including Work RAM-L): Mednafen measures it slower than the CPU loop (53 ms against 38 ms for 512 KiB), so `sat_dma_copy` never picks it. DSP-side DMA; the CD block / A-bus as a DMA source is untested; the per-frame VDP1 command and Gouraud tables go by DMA only when `sat_dma_set_command_list(1)` is set (default off: see the master plan for the measurements). Ymir charges DMA no CPU time, so only Mednafen gives a timing. | `include/saturn/dma.h`, `src/hal/scu/dma*`, `examples/dma_demo` |
-| SCU DSP | **DOCS ONLY** | SCU DSP manuals are present in the repository. | Program loading, assembler/tooling integration, dispatch, synchronization and useful DSP kernels. | `docs/sega_saturn_hardware/hard/scu_` |
+| SCU DSP | **PARTIAL** | `saturn/scu_dsp.h`: program and data RAM access through the ports (refused while a program runs), start/stop/status/wait, and a built-in batch 3x3 transform (integer vectors times a 16.16 matrix, 21 vectors per run) in two forms: the CPU moves the data, or the DSP DMAs it in and out of Work RAM itself so the SH-2 only writes a few parameters. `tools/scu_dsp.py` assembles Sega mnemonics (parallel ALU/X/Y/D1 operations, MVI, DMA/DMAH with address addition, JMP, BTM/LPS, END/ENDI, ORG/EQU/IF/IFDEF, `-D`) and simulates programs on the host with the Ymir core semantics. The transform matches the SH-2 int64 path word for word on the host simulator, on Ymir and on Mednafen (`harness/run-scu-dsp.ps1`). | Only one kernel; no speed claim (emulator DSP timing is approximate: with the CPU moving the data the DSP took about 1.7-2x the SH-2's time, with DSP DMA about the same, but the SH-2 is free during a run); DSP DMA to A-Bus/B-Bus is not exercised; the DSP-end interrupt is available through `sat_irq` but the API polls. | `include/saturn/scu_dsp.h`, `src/hal/scu/dsp*`, `src/core/runtime/scu_dsp.cpp`, `tools/scu_dsp.py`, `examples/scu_dsp_demo` |
 | SCSP PCM playback | **PARTIAL** | PCM S8/S16 sounds, resident sound data, bounded music streams, looping, voices, volume, pan, pitch and voice statistics/stealing. | Richer envelopes/modulation, effects, synthesis and long-run/CD hardware validation. | `include/saturn/audio.h`, `src/hal/scsp.*`, `src/audio/playback/music.cpp` |
 | SCSP DSP / effects | **NOT EXPOSED** | Internal SCSP initialization touches DSP state, but there is no supported public DSP effects API. | Reverb, chorus/delay-style effects, mixer programs, DSP program loading and routing. | `src/hal/scsp.*`; Sega SCSP docs under `docs/sega_saturn_hardware`. |
 | SCSP synthesis / envelopes / LFO | **NOT EXPOSED** | Public audio API is centered on PCM voices. | Hardware envelope generators, LFO/modulation and richer slot synthesis. | `include/saturn/audio.h` |
@@ -165,12 +165,12 @@ Likely first workloads:
 
 ### SCU
 
-Current status: **SUBSTANTIAL** for interrupts and frame timing (`saturn/irq.h`) and for SCU DMA (`saturn/dma.h`); the DSP is not exposed yet.
+Current status: **SUBSTANTIAL** for interrupts and frame timing (`saturn/irq.h`) and for SCU DMA (`saturn/dma.h`); the SCU DSP has a first API (`saturn/scu_dsp.h`) and a batch transform kernel.
 
 The two major opportunities are:
 
 1. **SCU DMA** — done for uploads (`saturn/dma.h`); the per-frame VDP1 command list is an opt-in switch (`sat_dma_set_command_list`), because the measurements disagree between emulators.
-2. **SCU DSP** — expose the Saturn's dedicated calculation unit through a safe runtime/tooling layer.
+2. **SCU DSP** — exposed through `saturn/scu_dsp.h` and `tools/scu_dsp.py`; more kernels are the open part.
 
 The repository already contains Sega SCU documentation for DMA, interrupts and DSP, so the missing piece is implementation rather than reference material.
 
