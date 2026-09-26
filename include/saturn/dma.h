@@ -87,6 +87,16 @@ int sat_dma_busy(uint8_t level);
 /* Waits for the level; SAT_ERR_TIMEOUT after forcing it to stop. */
 sat_result_t sat_dma_wait(uint8_t level);
 
+/* Sends each frame's VDP1 command table and Gouraud tables to VRAM by SCU-DMA
+ * (sat_end_frame) instead of CPU stores. Default 0: the result is the same
+ * either way, and the speed depends on the machine. Measured with a
+ * 400-command table: Mednafen copies it in 0.30 ms by DMA against 1.45 ms by
+ * CPU, but Ymir with both SH-2s busy (dino_demo, ~760 commands per frame) takes
+ * 667 FRT ticks by DMA against 380 by CPU per submit and drops from 20.0 to
+ * 18.5 fps, because the DMA shares Work RAM-H with the Slave. Turn it on for
+ * single-CPU programs with big command tables, and measure. */
+void sat_dma_set_command_list(int enabled);
+
 /* 0 makes sat_dma_copy and the library's own uploads use the CPU only, for
  * comparing the two paths. Default 1. */
 void sat_dma_set_enabled(int enabled);

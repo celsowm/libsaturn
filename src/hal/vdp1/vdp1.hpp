@@ -108,6 +108,10 @@ sat_result_t push_line(const LineRequest& req);
 sat_result_t push_polygon_gouraud(const PolygonRequest& req, const uint16_t* gouraud);
 sat_result_t push_polyline_gouraud(const PolygonRequest& req, const uint16_t* gouraud);
 sat_result_t push_line_gouraud(const LineRequest& req, const uint16_t* gouraud);
+/* Copies the command and Gouraud tables to VRAM with SCU-DMA instead of CPU
+ * stores. Default off: see saturn/dma.h. */
+void set_submit_dma(bool enabled);
+bool submit_dma();
 void submit();
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index);

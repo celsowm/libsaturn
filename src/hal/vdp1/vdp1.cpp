@@ -55,13 +55,14 @@ uint16_t g_cmd_capacity = 0;
 uint16_t g_cmd_count = 0;
 uint16_t g_overlay_reserved = 0;
 bool g_overlay_pass = false;
-uint16_t g_gouraud_words[kGouraudTableCapacity * 4u];
+alignas(4) uint16_t g_gouraud_words[kGouraudTableCapacity * 4u];
 uint16_t g_gouraud_count = 0;
 uint32_t g_frame_serial=0u;
 bool g_frame_submitted=true;
 /* Set once a command list has been handed to the VDP1: before that, only
  * init's lone END list exists and there is no drawing to wait for. */
 bool g_list_submitted=false;
+bool g_submit_dma=false;
 uint32_t g_draw_waits=0u;
 uint32_t g_draw_timeouts=0u;
 uint32_t g_texture_cursor = kTextureBase;
@@ -602,6 +603,9 @@ bool wait_draw_end() {
     return false;
 }
 
+void set_submit_dma(bool enabled) { g_submit_dma = enabled; }
+bool submit_dma() { return g_submit_dma; }
+
 uint32_t draw_waits() { return g_draw_waits; }
 uint32_t draw_timeouts() { return g_draw_timeouts; }
 
@@ -635,12 +639,31 @@ void submit() {
     end.grda = 0;
     end.pad = 0;
 
-    copy_words_to_vram(g_cmd_buffer, g_cmd_count);
+    if (g_submit_dma) {
+        /* Command table and Gouraud tables by SCU-DMA. A DMA that fails is
+         * redone by the CPU: the table must be complete before the VDP1
+         * draws. */
+        void* const vram = reinterpret_cast<void*>(kUncached | 0x05C00000u);
+        if (scu::dma::copy(vram, g_cmd_buffer, g_cmd_count * sizeof(Command)) != SAT_OK) {
+            copy_words_to_vram(g_cmd_buffer, g_cmd_count);
+        }
+        const uint32_t gouraud_word_base = kCommandAreaBytes / 2u;
+        const uint32_t gouraud_words = static_cast<uint32_t>(g_gouraud_count) * 4u;
+        if (gouraud_words != 0u &&
+            scu::dma::copy(const_cast<uint16_t*>(VDP1_VRAM_16) + gouraud_word_base,
+                           g_gouraud_words, gouraud_words * sizeof(uint16_t)) != SAT_OK) {
+            for (uint32_t i = 0; i < gouraud_words; ++i) {
+                VDP1_VRAM_16[gouraud_word_base + i] = g_gouraud_words[i];
+            }
+        }
+    } else {
+        copy_words_to_vram(g_cmd_buffer, g_cmd_count);
 
-    const uint32_t gouraud_word_base = kCommandAreaBytes / 2u;
-    const uint32_t gouraud_words = static_cast<uint32_t>(g_gouraud_count) * 4u;
-    for (uint32_t i = 0; i < gouraud_words; ++i) {
-        VDP1_VRAM_16[gouraud_word_base + i] = g_gouraud_words[i];
+        const uint32_t gouraud_word_base = kCommandAreaBytes / 2u;
+        const uint32_t gouraud_words = static_cast<uint32_t>(g_gouraud_count) * 4u;
+        for (uint32_t i = 0; i < gouraud_words; ++i) {
+            VDP1_VRAM_16[gouraud_word_base + i] = g_gouraud_words[i];
+        }
     }
     g_frame_submitted=true;
     g_list_submitted=true;

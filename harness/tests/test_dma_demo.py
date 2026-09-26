@@ -18,7 +18,7 @@ FIELDS = (
     "magic done irq_active direct_vdp1 direct_vdp2 direct_scsp matches_cpu_path "
     "readback indirect indirect_end_irq cache_coherent illegal_rejected "
     "ram_copy_on_cpu ram_copy_on_sh2 sh2_refuses_misfits low_ram_on_sh2 sh2_cache_coherent sh2_overlap_down "
-    "small_copy_on_cpu cpu_ms dma_ms ram_cpu_ms ram_sh2_ms scu_transfers timeouts illegal"
+    "small_copy_on_cpu cpu_ms dma_ms ram_cpu_ms ram_sh2_ms frame_cpu_ms frame_dma_ms scu_transfers timeouts illegal"
 ).split()
 WRAM_HIGH = 0x06000000
 
@@ -91,6 +91,11 @@ class DmaDemoTests(unittest.TestCase):
         # 16 rounds of 32 KiB into VDP1 VRAM; both numbers are reported.
         print("cpu_ms=%d dma_ms=%d" % (self.r["cpu_ms"], self.r["dma_ms"]))
         self.assertLessEqual(self.r["dma_ms"], self.r["cpu_ms"])
+
+    def test_command_table_copy_timing_is_reported(self):
+        # 64 x 400 VDP1 commands: the per-frame copy submit() used to do by CPU.
+        print("frame_cpu_ms=%d frame_dma_ms=%d" % (self.r["frame_cpu_ms"], self.r["frame_dma_ms"]))
+        self.assertLessEqual(self.r["frame_dma_ms"], self.r["frame_cpu_ms"])
 
     def test_sh2_dmac_timing_is_reported(self):
         # Ymir undercharges DMA, so it reads faster there; Mednafen measures the

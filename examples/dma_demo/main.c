@@ -18,6 +18,10 @@
 #define VDP2_SCRATCH 0x25E60000u
 #define SCSP_SCRATCH 0x25A60000u
 #define BENCH_ROUNDS 16u
+/* A 400-command VDP1 frame: what submit() copies into VRAM every frame. */
+#define FRAME_COMMANDS 400u
+#define FRAME_BYTES (FRAME_COMMANDS * 32u)
+#define FRAME_ROUNDS 64u
 
 /* Read by harness/tests/test_dma_demo.py from a Work RAM dump. */
 typedef struct dma_demo_results {
@@ -44,6 +48,8 @@ typedef struct dma_demo_results {
     uint32_t dma_ms;
     uint32_t ram_cpu_ms;
     uint32_t ram_sh2_ms;
+    uint32_t frame_cpu_ms;
+    uint32_t frame_dma_ms;
     uint32_t scu_transfers;
     uint32_t timeouts;
     uint32_t illegal;
@@ -221,6 +227,21 @@ static uint32_t timed_ram_copies(int use_dmac) {
     return sat_time_ms() - start;
 }
 
+/* 64 frames' worth of a 400-command table: the old submit() loop (32-bit
+ * stores through the uncached alias) against sat_dma_copy. */
+static uint32_t timed_frame_copies(int use_dma) {
+    volatile uint32_t* vram = (volatile uint32_t*)VDP1_SCRATCH;
+    const uint32_t start = sat_time_ms();
+    for (uint32_t i = 0u; i < FRAME_ROUNDS; ++i) {
+        if (use_dma) {
+            (void)sat_dma_copy((void*)VDP1_SCRATCH, g_src, FRAME_BYTES);
+        } else {
+            for (uint32_t w = 0u; w < FRAME_BYTES / 4u; ++w) vram[w] = g_src[w];
+        }
+    }
+    return sat_time_ms() - start;
+}
+
 static void run_tests(void) {
     g_dma_demo.irq_active = (uint32_t)sat_irq_active();
     if (g_dma_demo.irq_active) {
@@ -238,11 +259,16 @@ static void run_tests(void) {
     sat_dma_set_enabled(1);
     g_dma_demo.dma_ms = timed_uploads();
     g_dma_demo.ram_sh2_ms = timed_ram_copies(1);
+    g_dma_demo.frame_cpu_ms = timed_frame_copies(0);
+    g_dma_demo.frame_dma_ms = timed_frame_copies(1);
     sat_dma_stats_t s;
     sat_dma_get_stats(&s);
     g_dma_demo.scu_transfers = s.scu_transfers;
     g_dma_demo.timeouts = s.timeouts;
     g_dma_demo.illegal = s.illegal;
+    /* From here every frame's command table and Gouraud tables go by DMA: the
+     * screen below must keep rendering exactly as before. */
+    sat_dma_set_command_list(1);
     g_dma_demo.done = 1u;
 }
 
@@ -286,6 +312,8 @@ int main(void) {
             line("DMA MS       ", g_dma_demo.dma_ms, 152);
             line("RAM CPU MS   ", g_dma_demo.ram_cpu_ms, 168);
             line("RAM DMAC MS  ", g_dma_demo.ram_sh2_ms, 184);
+            line("64 FRM CPU   ", g_dma_demo.frame_cpu_ms, 200);
+            line("64 FRM DMA   ", g_dma_demo.frame_dma_ms, 216);
         }
         (void)sat_app_frame_end();
         if ((pad.pressed & SAT_PAD_START) != 0u) break;
