@@ -332,6 +332,7 @@ struct Args {
     std::vector<VramRange> vdp2_vram_ranges;
     uint32_t fb_sample_count = 16; // first N bytes of the VDP1 display framebuffer
     std::string dump_wram_high_path; // diagnostic: raw 1MiB High Work RAM dump
+    std::string dump_sound_ram_path; // diagnostic: raw 512KiB SCSP Sound RAM dump
     std::string dump_fb_path;        // raw VDP1 display framebuffer, for visual checks
     std::string profile_pc_path;     // one master-SH2 PC sample per frame, for profiling
     std::string profile_cycles_path; // master-SH2 cycles consumed by each program frame
@@ -437,7 +438,7 @@ void print_usage() {
     std::fprintf(stderr,
         "usage: probe --iso <path> --bios <path> --bin <path> [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
-        "             [--dump-wram-high <path>] [--dump-fb <path>]\n"
+        "             [--dump-wram-high <path>] [--dump-sound-ram <path>] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
         "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
@@ -494,6 +495,10 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--fb-sample");
             if (!v) return false;
             out->fb_sample_count = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+        } else if (arg == "--dump-sound-ram") {
+            const char* v = next("--dump-sound-ram");
+            if (!v) return false;
+            out->dump_sound_ram_path = v;
         } else if (arg == "--dump-wram-high") {
             const char* v = next("--dump-wram-high");
             if (!v) return false;
@@ -1481,6 +1486,20 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (!args.dump_sound_ram_path.empty()) {
+        std::ostringstream sound_ram_stream;
+        saturn->SCSP.DumpWRAM(sound_ram_stream);
+        const std::string sound_ram_bytes = sound_ram_stream.str();
+        std::ofstream sound_out(args.dump_sound_ram_path, std::ios::binary);
+        if (!sound_out) {
+            std::fprintf(stderr, "failed to open --dump-sound-ram output: %s\n", args.dump_sound_ram_path.c_str());
+        } else {
+            sound_out.write(sound_ram_bytes.data(), static_cast<std::streamsize>(sound_ram_bytes.size()));
+            std::fprintf(stderr, "wrote %zu bytes of Sound RAM to %s\n", sound_ram_bytes.size(),
+                         args.dump_sound_ram_path.c_str());
+        }
+    }
+
     auto& probe = saturn->VDP.GetProbe();
     const auto& vdp1_regs = probe.GetVDP1Regs();
     const auto& vdp2_regs = probe.GetVDP2Regs();
@@ -1691,6 +1710,25 @@ int main(int argc, char** argv) {
     j.key("scsp");
     j.begin_object();
     j.key("stream_half_samples"); j.value(static_cast<uint64_t>(4096u));
+    // Every slot as the SCSP holds it at the end of the run.
+    j.key("slots");
+    j.begin_array();
+    {
+        const auto& all_slots = saturn->SCSP.GetProbe().GetSlots();
+        for (uint32_t i = 0; i < all_slots.size(); ++i) {
+            const auto& slot = all_slots[i];
+            j.begin_object();
+            j.key("index"); j.value(static_cast<uint64_t>(i));
+            j.key("active"); j.value(slot.active);
+            j.key("key_on"); j.value(slot.keyOnBit);
+            j.key("start_address"); j.value(static_cast<uint64_t>(slot.startAddress));
+            j.key("total_level"); j.value(static_cast<uint64_t>(slot.totalLevel));
+            j.key("octave"); j.value(static_cast<uint64_t>(slot.octave));
+            j.key("fns"); j.value(static_cast<uint64_t>(slot.freqNumSwitch ^ 0x400u));
+            j.end_object();
+        }
+    }
+    j.end_array();
     j.key("stream_slots");
     j.begin_array();
     for (const auto& slot : scsp_final.stream_slots) {

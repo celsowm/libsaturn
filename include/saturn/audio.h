@@ -90,7 +90,14 @@ typedef struct sat_sound_play_params {
     uint16_t priority;
     uint16_t flags;
     sat_fx16_t pitch;
+    /* With SAT_SOUND_PLAY_AT_TICK: the sound driver tick (saturn/sound_driver.h)
+     * the voice is keyed on at. The voice is configured now and started by the
+     * 68000 when the tick comes. If the driver is not running the sound starts
+     * at once. */
+    uint32_t start_tick;
 } sat_sound_play_params_t;
+
+#define SAT_SOUND_PLAY_AT_TICK ((uint16_t)0x0001u)
 
 typedef struct sat_audio_stats {
     uint32_t sound_ram_used;

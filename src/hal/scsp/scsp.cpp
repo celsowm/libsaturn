@@ -204,6 +204,27 @@ void clear_sound_ram(uint32_t offset, uint32_t byte_count) {
     }
 }
 
+uint16_t sound_word(uint32_t byte_offset) {
+    return *sound_ram_word(byte_offset);
+}
+
+void set_sound_word(uint32_t byte_offset, uint16_t value) {
+    write_sound_word(byte_offset, value);
+}
+
+bool restore_idle_68k() {
+    if (!smpc::sound_off()) return false;
+    install_idle_68k_stub();
+    return smpc::sound_on();
+}
+
+uint16_t timed_key_word(uint8_t slot, bool on) {
+    if (slot >= kSlotCount) return 0u;
+    g_slot_control[slot] = on ? static_cast<uint16_t>(g_slot_control[slot] | kKeyOnBit)
+                              : static_cast<uint16_t>(g_slot_control[slot] & ~kKeyOnBit);
+    return static_cast<uint16_t>(g_slot_control[slot] | kKeyOnExecute);
+}
+
 uint16_t encode_pitch(uint32_t sample_rate, uint32_t pitch_scale_q16) {
     if (sample_rate == 0u || pitch_scale_q16 == 0u) {
         return 0u;

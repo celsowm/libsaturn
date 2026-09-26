@@ -1,4 +1,5 @@
 #include "src/audio/playback/state.hpp"
+#include "src/hal/scsp/driver.hpp"
 #include "saturn/video.h"
 #include "src/core/runtime/state.hpp"
 
@@ -88,7 +89,25 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
         saturn::core::audio::voice::lifetime::duration_frames(
             entry->sample_count,entry->sample_rate,pitch_q16,display_rate);
 
-    saturn::hal::scsp::key_on(static_cast<uint8_t>(voice_slot));
+    if (params != nullptr && (params->flags & SAT_SOUND_PLAY_AT_TICK) != 0u &&
+        saturn::hal::scsp::driver::running()) {
+        /* the 68000 keys it on when the tick comes; the voice lives from then */
+        const uint32_t now_tick = saturn::hal::scsp::driver::tick();
+        if (params->start_tick > now_tick) {
+            const uint32_t wait_ms = saturn::hal::scsp::driver_logic::ms_from_ticks(params->start_tick - now_tick);
+            voice.end_frame += (wait_ms * display_rate + 999u) / 1000u;
+        }
+        const uint16_t key_word = saturn::hal::scsp::timed_key_word(static_cast<uint8_t>(voice_slot), true);
+        if (!saturn::hal::scsp::driver::push_write(params->start_tick, static_cast<uint32_t>(voice_slot) * 0x20u,
+                                                   key_word)) {
+            (void)g_voice_registry.release(voice_slot);
+            saturn::hal::scsp::key_off(static_cast<uint8_t>(voice_slot));
+            ++g_failed_play_requests;
+            return SAT_ERR_CAPACITY;
+        }
+    } else {
+        saturn::hal::scsp::key_on(static_cast<uint8_t>(voice_slot));
+    }
 
     if (out_voice != nullptr) {
         out_voice->slot = voice_slot;

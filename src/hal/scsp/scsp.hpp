@@ -28,6 +28,12 @@ void shutdown();
 bool is_ready();
 
 bool upload(uint32_t offset, const void* data, uint32_t byte_count);
+// One 16-bit word of Sound RAM (the SH-2 accesses it in 16-bit units).
+uint16_t sound_word(uint32_t byte_offset);
+void set_sound_word(uint32_t byte_offset, uint16_t value);
+// Puts the idle 68000 stub back (reset vectors and a BRA.S -2) and restarts the
+// sound CPU, e.g. after the resident driver was stopped.
+bool restore_idle_68k();
 void clear_sound_ram(uint32_t offset, uint32_t byte_count);
 
 bool configure_slot(uint8_t slot, const SlotConfig& config);
@@ -40,6 +46,10 @@ void key_on(uint8_t slot);
 void arm_key_on(uint8_t slot);
 void execute_key_transitions();
 void key_off(uint8_t slot);
+// A key transition executed later by the sound driver: updates the shadow of the
+// slot control word and returns the word (with KYONEX) to write to slot register
+// 0x00 at that time. The KYONB bit is set for `on`, cleared otherwise.
+uint16_t timed_key_word(uint8_t slot, bool on);
 // TL=0xFF: silences a slot whose envelope release may still read Sound RAM.
 void mute_slot(uint8_t slot);
 void set_slot_level_pan(uint8_t slot, uint8_t total_level, uint8_t direct_level, uint8_t pan);

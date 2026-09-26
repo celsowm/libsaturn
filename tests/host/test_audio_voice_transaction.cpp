@@ -28,6 +28,12 @@ void mute_slot(uint8_t) {++mute_count; muted_before_off=key_off_count+1u;}
 void key_on(uint8_t) {++key_on_count;}
 uint8_t encode_pan(int16_t) {return 0u;}
 void set_slot_level_pan(uint8_t,uint8_t,uint8_t,uint8_t) {}
+uint16_t timed_key_word(uint8_t, bool) {return 0u;}
+namespace driver {
+bool running() {return false;}
+uint32_t tick() {return 0u;}
+bool push_write(uint32_t, uint32_t, uint16_t) {return false;}
+}
 }
 
 int main() {

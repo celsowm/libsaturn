@@ -1,0 +1,134 @@
+/* LibSaturn resident sound driver for the SCSP's Motorola 68000.
+ *
+ * The SH-2 fills a ring of timestamped register writes in Sound RAM; the 68000
+ * executes each one when its tick comes due, so the timing does not depend on
+ * how late the SH-2 gets to its frame. The tick is SCSP timer A running free at
+ * one interrupt per 256 samples (44100 / 256 = 172.27 Hz, 5.805 ms).
+ *
+ * Assembled with GNU as for the 68000 (see tools/build_sound_driver.py); the
+ * image is checked in as sound_driver_image.h.
+ *
+ * Sound RAM, as the 68000 sees it (the SH-2 sees the same bytes at 0x25A00000):
+ *   0x0000  vector table
+ *   0x0100  code
+ *   0x0800  mailbox (below); SCSP registers are at 0x100000 for the 68000.
+ */
+        .equ    STACK_TOP,   0x0A000
+
+        .equ    SCSP,        0x100000
+        .equ    R_TIMER_A,   0x100418           /* TACTL[10:8] TIMA[7:0] */
+        .equ    R_SCIEB,     0x10041E
+        .equ    R_SCIRE,     0x100422
+        .equ    R_SCILV0,    0x100424
+        .equ    R_SCILV1,    0x100426
+        .equ    R_SCILV2,    0x100428
+
+        /* mailbox */
+        .equ    MBOX,        0x0800
+        .equ    M_MAGIC,     MBOX+0x00          /* long  'SDRV' */
+        .equ    M_VERSION,   MBOX+0x04          /* word */
+        .equ    M_FLAGS,     MBOX+0x06          /* word  bit 0: running */
+        .equ    M_HEARTBEAT, MBOX+0x08          /* word  main loop passes */
+        .equ    M_TICK,      MBOX+0x0C          /* long  ticks since start */
+        .equ    M_HEAD,      MBOX+0x10          /* word  next free slot (SH-2 writes) */
+        .equ    M_TAIL,      MBOX+0x12          /* word  next slot to run (68000) */
+        .equ    M_EXECUTED,  MBOX+0x14          /* word  events run */
+        .equ    M_MAXLATE,   MBOX+0x16          /* word  worst (tick - due) seen */
+        .equ    M_CONTROL,   MBOX+0x18          /* word  SH-2 command: 1 = clear counters */
+        .equ    M_LATE_LAST, MBOX+0x1A          /* word  tick - due of the last event */
+        .equ    M_RING,      MBOX+0x40          /* 64 events of 8 bytes */
+        .equ    M_LOG,       MBOX+0x300         /* 64 records of 4 bytes: tick, lateness */
+        .equ    RING_MASK,   63
+
+        .text
+        .org    0
+vectors:
+        .long   STACK_TOP               /* 0: initial SSP */
+        .long   start                   /* 1: initial PC */
+        .rept   26                      /* 2-27: faults and traps nobody handles */
+        .long   fault
+        .endr
+        .long   timer_isr               /* 28: level 4 autovector (0x70) */
+        .rept   35                      /* 29-63 */
+        .long   fault
+        .endr
+
+        .org    0x0100
+fault:  bra.s   fault
+
+start:  move.w  #0x2700,%sr
+        move.l  #0x53445256,M_MAGIC     /* 'SDRV' */
+        move.w  #1,M_VERSION
+        move.w  #0,M_HEARTBEAT
+        move.l  #0,M_TICK
+        move.w  #0,M_EXECUTED
+        move.w  #0,M_MAXLATE
+        move.w  #0,M_CONTROL
+        move.w  #0,M_LATE_LAST
+        /* timer A interrupts the sound CPU at level 4 (100b: bit 6 of SCILV2) */
+        move.w  #0x0040,R_SCIRE
+        move.w  #0x0000,R_SCILV0
+        move.w  #0x0000,R_SCILV1
+        move.w  #0x0040,R_SCILV2
+        move.w  #0x0040,R_SCIEB
+        move.w  #1,M_FLAGS
+        moveq   #-1,%d4                 /* last tick the main loop saw */
+        move.w  #0x2000,%sr             /* interrupts on */
+        move.w  #0x0000,R_TIMER_A       /* TACTL 0 (every sample), TIMA 0: 256 counts, then free running */
+
+main:   move.w  M_TICK+2,%d0            /* a new tick since the last pass? (no STOP: not every core */
+        cmp.w   %d4,%d0                 /* resumes after it the way the 68000 does) */
+        beq.s   main
+        move.w  %d0,%d4
+        addq.w  #1,M_HEARTBEAT          /* one per tick seen by the main loop */
+        move.w  M_CONTROL,%d0
+        beq.s   main
+        clr.w   M_CONTROL
+        move.w  #0,M_EXECUTED
+        move.w  #0,M_MAXLATE
+        bra.s   main
+
+/* Timer A: one tick. Runs every event that has come due, in ring order. */
+timer_isr:
+        movem.l %d0-%d3/%a0-%a1,-(%sp)
+        move.w  #0x0040,R_SCIRE         /* acknowledge */
+        addq.w  #1,M_TICK+2             /* 32-bit tick as two words: carry into the high word */
+        bcc.s   1f
+        addq.w  #1,M_TICK
+1:
+next:   move.w  M_TAIL,%d0
+        cmp.w   M_HEAD,%d0
+        beq.s   done
+        move.w  %d0,%d3                 /* keep the index */
+        lsl.w   #3,%d0
+        lea     M_RING,%a0
+        adda.w  %d0,%a0
+        move.l  (%a0),%d1               /* due tick */
+        move.l  M_TICK,%d2
+        cmp.l   %d1,%d2
+        bcs.s   done                    /* tick < due: not yet */
+        sub.l   %d1,%d2                 /* lateness in ticks */
+        move.w  4(%a0),%d0
+        btst    #15,%d0
+        bne.s   logged                  /* bit 15: a marker, nothing to write */
+        andi.w  #0x0FFE,%d0
+        lea     SCSP,%a1
+        move.w  6(%a0),(%a1,%d0.w)      /* the SCSP register write */
+logged: move.w  M_EXECUTED,%d0
+        andi.w  #RING_MASK,%d0
+        lsl.w   #2,%d0
+        lea     M_LOG,%a1
+        adda.w  %d0,%a1
+        move.w  M_TICK+2,(%a1)+         /* when it ran */
+        move.w  %d2,(%a1)               /* how late */
+        move.w  %d2,M_LATE_LAST
+        cmp.w   M_MAXLATE,%d2
+        bls.s   1f
+        move.w  %d2,M_MAXLATE
+1:      addq.w  #1,M_EXECUTED
+        addq.w  #1,%d3
+        andi.w  #RING_MASK,%d3
+        move.w  %d3,M_TAIL
+        bra.s   next
+done:   movem.l (%sp)+,%d0-%d3/%a0-%a1
+        rte
