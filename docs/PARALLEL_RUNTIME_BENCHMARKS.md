@@ -63,7 +63,7 @@ or `SAT_SCENE3D_PREPARE_DISPATCH_MASTER` to force local preparation.
 Skybridge compile flags no longer determine the library's dispatch policy.
 No unmeasured crossover threshold or adaptive scheduler is claimed.
 
-The runtime still has one active Slave task and a bounded queue. A wait timeout
+The runtime keeps at most one active Slave dispatch (a single task or a batch of up to four) and a bounded queue, ranked by priority and dependencies. A wait timeout
 does not reclaim buffers; callers must wait again or use `sat_parallel_abort`,
 which stops the worker before marking the task failed and cancelling queued
 tasks. Geometry and animation adapters publish/invalidate complete nested input

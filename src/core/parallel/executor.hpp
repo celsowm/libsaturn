@@ -18,6 +18,11 @@ void* uncached_address(const void* address);
 sat_result_t submit(sat_parallel_task_type_t type, const void* input,
                     uint32_t input_size, void* output, uint32_t output_capacity,
                     sat_parallel_handle_t* out_handle);
+sat_result_t submit_ex(const sat_parallel_submit_desc_t* desc,
+                       sat_parallel_handle_t* out_handle);
+sat_result_t parallel_for(uint32_t begin, uint32_t end, uint32_t min_grain,
+                          sat_parallel_range_fn fn, void* context,
+                          void* output, uint32_t output_bytes);
 sat_result_t submit_master(sat_parallel_task_type_t type, const void* input,
                            uint32_t input_size, void* output,
                            uint32_t output_capacity,

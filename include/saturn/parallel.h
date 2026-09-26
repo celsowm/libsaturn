@@ -30,8 +30,17 @@ typedef uint32_t sat_parallel_handle_t;
 
 enum {
     SAT_PARALLEL_TASK_ANIMATION_DECODE = 1u,
-    SAT_PARALLEL_TASK_SCENE_GEOMETRY = 2u
+    SAT_PARALLEL_TASK_SCENE_GEOMETRY = 2u,
+    /* Reserved: the library's own range task behind sat_parallel_for(). */
+    SAT_PARALLEL_TASK_RANGE = 3u
 };
+
+/* Queue priority: 0..3, higher runs first, equal priorities run in submission
+ * order. sat_parallel_submit() uses SAT_PARALLEL_PRIORITY_NORMAL. */
+#define SAT_PARALLEL_PRIORITY_LOW ((uint8_t)0)
+#define SAT_PARALLEL_PRIORITY_NORMAL ((uint8_t)1)
+#define SAT_PARALLEL_PRIORITY_HIGH ((uint8_t)2)
+#define SAT_PARALLEL_PRIORITY_URGENT ((uint8_t)3)
 
 typedef sat_result_t (*sat_parallel_process_fn)(
     const void* input,
@@ -47,7 +56,7 @@ typedef sat_result_t (*sat_parallel_process_fn)(
 typedef struct sat_parallel_task_slot {
     uint16_t generation;
     uint8_t state;
-    uint8_t reserved;
+    uint8_t priority;
     uint16_t type;
     uint16_t reserved2;
     uint32_t token;
@@ -60,6 +69,8 @@ typedef struct sat_parallel_task_slot {
     uint8_t force_master;
     uint8_t reserved3[3];
     int32_t result;
+    uint32_t depends_on;   /* handle this task waits for, 0 for none */
+    uint32_t order;        /* submission sequence (FIFO within a priority) */
 } sat_parallel_task_slot_t;
 
 typedef struct sat_parallel_config {
@@ -84,6 +95,9 @@ typedef struct sat_parallel_stats {
     uint32_t completion_ticks;
     uint32_t master_task_ticks;
     uint32_t slave_task_ticks;
+    uint32_t slave_signals;        /* execute messages sent to the Slave */
+    uint32_t batched_tasks;        /* tasks that travelled in a multi-task batch */
+    uint32_t dependency_cancels;   /* tasks cancelled because their dependency failed */
 } sat_parallel_stats_t;
 
 sat_result_t sat_parallel_init(const sat_parallel_config_t* config);
@@ -109,6 +123,46 @@ sat_result_t sat_parallel_submit(
     void* output,
     uint32_t output_capacity,
     sat_parallel_handle_t* out_handle);
+
+/* Submission with a priority and a dependency. `depends_on` (0 for none) is a
+ * handle from this runtime that must stay unreleased until this task is
+ * finished: the task does not start before it completed, and is CANCELLED with
+ * SAT_ERR_NOT_FOUND if it failed, was cancelled or is gone. Ready tasks are
+ * taken in priority order, and up to four go to the Slave in one signal (a
+ * batch it runs in order, so a dependency queued in the same batch runs first).
+ * force_master keeps the task on the Master. */
+typedef struct sat_parallel_submit_desc {
+    sat_parallel_task_type_t type;
+    uint8_t priority;              /* SAT_PARALLEL_PRIORITY_*, 0..3 */
+    uint8_t force_master;
+    const void* input;
+    uint32_t input_size;
+    void* output;
+    uint32_t output_capacity;
+    sat_parallel_handle_t depends_on;
+} sat_parallel_submit_desc_t;
+
+sat_result_t sat_parallel_submit_ex(
+    const sat_parallel_submit_desc_t* desc, sat_parallel_handle_t* out_handle);
+
+/* Data-parallel loop: runs fn over [begin, end) split between the two CPUs, the
+ * Master taking the first half and the Slave the second, and returns when both
+ * are done. Ranges smaller than 2 * min_grain, or a runtime without a Slave,
+ * run entirely on the Master. Rules for fn: it is called as fn(context, first,
+ * last) for a sub-range, must touch only data belonging to that sub-range, and
+ * must not call library functions the Slave may not use (drawing, VDP and SCU
+ * access). Memory written by the Slave lands in Work RAM (the SH-2 cache is
+ * write-through); pass the written span as (output, output_bytes) and the
+ * Master drops its stale cache lines for it after the join. Data read by fn that
+ * the Master wrote just before the call is safe: the caches are write-through and
+ * the Slave's cache is purged first when it is enabled. Returns the Slave task's
+ * error (the Master half has still run) if the Slave half failed. */
+typedef void (*sat_parallel_range_fn)(void* context, uint32_t begin, uint32_t end);
+
+sat_result_t sat_parallel_for(
+    uint32_t begin, uint32_t end, uint32_t min_grain,
+    sat_parallel_range_fn fn, void* context,
+    void* output, uint32_t output_bytes);
 
 /* Explicit Master dispatch used by subsystem policies whose measured AUTO
  * crossover is not favorable. It still returns a normal terminal handle. */

@@ -47,6 +47,18 @@ extern "C" sat_result_t sat_parallel_submit(
         type, input, input_size, output, output_capacity, out_handle);
 }
 
+extern "C" sat_result_t sat_parallel_submit_ex(
+    const sat_parallel_submit_desc_t* desc, sat_parallel_handle_t* out_handle) {
+    return saturn::core::parallel::executor::submit_ex(desc, out_handle);
+}
+
+extern "C" sat_result_t sat_parallel_for(
+    uint32_t begin, uint32_t end, uint32_t min_grain,
+    sat_parallel_range_fn fn, void* context, void* output, uint32_t output_bytes) {
+    return saturn::core::parallel::executor::parallel_for(
+        begin, end, min_grain, fn, context, output, output_bytes);
+}
+
 extern "C" sat_result_t sat_parallel_submit_master(
     sat_parallel_task_type_t type, const void* input, uint32_t input_size,
     void* output, uint32_t output_capacity, sat_parallel_handle_t* out_handle) {
