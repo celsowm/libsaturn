@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "src/hal/vdp2/compose_logic.hpp"
 #include "src/hal/vdp2/nbg_logic.hpp"
 
 namespace saturn::hal::vdp2 {
@@ -159,6 +160,19 @@ void set_line_color_screen(uint32_t table_word_offset);
 /* LNCLEN: bit n inserts the line colour screen under NBGn (bit 4 RBG0, bit 5 sprites). */
 void set_line_color_layers(uint16_t layer_mask);
 void commit_raster_tables();
+
+/* Windows W0/W1 (rectangles or per-line tables), per-screen window control,
+ * mosaic and per-screen colour calculation. Replayed by commit_layers(). The
+ * setters return false for an argument the hardware cannot express. */
+bool set_window(uint8_t index, const compose::Window& window);
+void clear_window(uint8_t index);
+bool window_in_use(uint8_t index);
+bool set_screen_window(uint8_t screen, const compose::ScreenWindow& config);
+bool set_mosaic(uint8_t width, uint8_t height, uint8_t screen_mask);
+bool mosaic_blocks_vcs(uint8_t layer);
+/* Screen 0-3 NBG0-NBG3, 4 RBG0, 5 line colour screen, 6 back screen (ratio only). */
+bool set_screen_color_calc(uint8_t screen, bool enabled, uint8_t ratio);
+void commit_compose();
 
 // Rotation parameter table upload
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count);

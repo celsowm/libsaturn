@@ -87,6 +87,17 @@ uint32_t g_back_lines_word = 0u;
 bool g_line_color = false;
 uint32_t g_line_color_word = 0u;
 uint16_t g_lncl_layers = 0u;
+/* Composition: windows, mosaic and per-screen colour calculation. These are
+ * write-only registers replayed by commit_layers() once anything sets them. */
+bool g_compose_used = false;
+compose::Window g_window[2];
+bool g_window_on[2];
+compose::ScreenWindow g_screen_window[compose::kScreenCount];
+uint8_t g_mosaic_w = 1u;
+uint8_t g_mosaic_h = 1u;
+uint8_t g_mosaic_mask = 0u;
+uint16_t g_cc_layer_bits = 0u;
+compose::ScreenRatios g_cc_ratios;
 /* Hi-res (640/704 wide) state: the VDP1 framebuffer is 8 bits/pixel, which
  * VDP2 must read as sprite type C, and its codes index one 256-colour CRAM
  * bank chosen by CRAOFB. Both are replayed by commit_layers(). */
@@ -355,6 +366,25 @@ void reset_color_ops() {
     COBR = 0x0000u;
     COBG = 0x0000u;
     COBB = 0x0000u;
+    /* Windows, mosaic and per-screen ratios: the BIOS may leave them set too. */
+    g_compose_used = false;
+    for (bool& on : g_window_on) on = false;
+    for (compose::ScreenWindow& s : g_screen_window) s = compose::ScreenWindow{};
+    g_mosaic_w = g_mosaic_h = 1u;
+    g_mosaic_mask = 0u;
+    g_cc_layer_bits = 0u;
+    g_cc_ratios = compose::ScreenRatios{};
+    reg<0x0D0>() = 0x0000u;
+    reg<0x0D2>() = 0x0000u;
+    reg<0x0D4>() = 0x0000u;
+    reg<0x0D6>() = 0x0000u;
+    reg<0x0D8>() = 0x0000u;
+    reg<0x0DC>() = 0x0000u;
+    reg<0x022>() = 0x0000u;
+    reg<0x108>() = 0x0000u;
+    reg<0x10A>() = 0x0000u;
+    reg<0x10C>() = 0x0000u;
+    reg<0x10E>() = 0x0000u;
 }
 
 void init_ntsc_320x224() {
@@ -1050,6 +1080,109 @@ void commit_raster_tables() {
     write_raster_tables();
 }
 
+void commit_compose() {
+    if (!g_compose_used) return;
+    for (uint8_t w = 0u; w < 2u; ++w) {
+        const uint32_t base = 0x0C0u + 8u * w;
+        uint16_t pos[4];
+        compose::encode_rect(g_window[w].rect, g_hires, pos);
+        set_reg(base + 0u, pos[0]);
+        set_reg(base + 2u, pos[1]);
+        set_reg(base + 4u, pos[2]);
+        set_reg(base + 6u, pos[3]);
+        uint16_t upper = 0u, lower = 0u;
+        if (g_window_on[w] && g_window[w].line) {
+            compose::encode_line_table(g_window[w].line_table, &upper, &lower);
+        }
+        set_reg(0x0D8u + 4u * w, upper);
+        set_reg(0x0DAu + 4u * w, lower);
+    }
+    uint16_t wctl[4];
+    compose::compose_wctl(g_screen_window, wctl);
+    for (uint8_t i = 0u; i < 4u; ++i) set_reg(0x0D0u + 2u * i, wctl[i]);
+    set_reg(0x022u, compose::compose_mzctl(g_mosaic_w, g_mosaic_h, g_mosaic_mask));
+    uint16_t ratios[4];
+    compose::compose_ratios(g_cc_ratios, ratios);
+    for (uint8_t i = 0u; i < 4u; ++i) set_reg(0x108u + 2u * i, ratios[i]);
+    CCCTL = static_cast<uint16_t>(g_last_ccctl_written | g_cc_layer_bits);
+}
+
+bool set_window(uint8_t index, const compose::Window& window) {
+    if (index > 1u || !compose::rect_valid(window.rect)) return false;
+    if (window.line && !compose::line_table_valid(window.line_table)) return false;
+    g_window[index] = window;
+    g_window_on[index] = true;
+    g_compose_used = true;
+    commit_compose();
+    return true;
+}
+
+void clear_window(uint8_t index) {
+    if (index > 1u) return;
+    g_window_on[index] = false;
+    g_window[index] = compose::Window{};
+    /* Screens that used it stop using it. */
+    for (compose::ScreenWindow& s : g_screen_window) {
+        if (index == 0u) s.w0 = compose::kAreaOff;
+        else s.w1 = compose::kAreaOff;
+    }
+    g_compose_used = true;
+    commit_compose();
+}
+
+bool window_in_use(uint8_t index) {
+    return index < 2u && g_window_on[index];
+}
+
+bool set_screen_window(uint8_t screen, const compose::ScreenWindow& config) {
+    if (screen >= compose::kScreenCount) return false;
+    if (config.w0 > compose::kAreaOutside || config.w1 > compose::kAreaOutside) return false;
+    /* A screen cannot use a window that was never defined. */
+    if ((config.w0 != compose::kAreaOff && !g_window_on[0]) ||
+        (config.w1 != compose::kAreaOff && !g_window_on[1])) {
+        return false;
+    }
+    g_screen_window[screen] = config;
+    g_compose_used = true;
+    commit_compose();
+    return true;
+}
+
+bool set_mosaic(uint8_t width, uint8_t height, uint8_t screen_mask) {
+    if (!compose::mosaic_valid(width, height)) return false;
+    /* Mosaic on NBG0/NBG1 takes the vertical cell scroll away. */
+    for (uint8_t i = 0u; i < 2u; ++i) {
+        if ((screen_mask & (1u << i)) != 0u && g_nbg_used[i] && g_nbg_layer[i].vcs) return false;
+    }
+    g_mosaic_w = width;
+    g_mosaic_h = height;
+    g_mosaic_mask = static_cast<uint8_t>(screen_mask & 0x1Fu);
+    g_compose_used = true;
+    commit_compose();
+    return true;
+}
+
+bool mosaic_blocks_vcs(uint8_t layer) {
+    return layer < 2u && (g_mosaic_mask & (1u << layer)) != 0u;
+}
+
+bool set_screen_color_calc(uint8_t screen, bool enabled, uint8_t ratio) {
+    /* 0-3 NBG0-NBG3, 4 RBG0, 5 line colour screen, 6 back screen (ratio only). */
+    if (screen > 6u || ratio > compose::kMaxRatio) return false;
+    if (screen < 4u) g_cc_ratios.nbg[screen] = ratio;
+    else if (screen == 4u) g_cc_ratios.rbg0 = ratio;
+    else if (screen == 5u) g_cc_ratios.line_color = ratio;
+    else g_cc_ratios.back = ratio;
+    if (screen <= 5u) {
+        const uint16_t bit = static_cast<uint16_t>(1u << screen);
+        g_cc_layer_bits = enabled ? static_cast<uint16_t>(g_cc_layer_bits | bit)
+                                  : static_cast<uint16_t>(g_cc_layer_bits & ~bit);
+    }
+    g_compose_used = true;
+    commit_compose();
+    return true;
+}
+
 void set_backdrop_lines(uint32_t table_word_offset) {
     g_back_lines = true;
     g_back_lines_word = table_word_offset & 0x0007FFFFu;
@@ -1177,7 +1310,7 @@ void commit_layers() {
     /* Sprite priority decides whether the VDP1's output is in front of the
      * VDP2 layers, so it is replayed whether or not NBG0 is in use. */
     PRISA = g_last_prisa_written;
-    CCCTL = g_last_ccctl_written;
+    CCCTL = static_cast<uint16_t>(g_last_ccctl_written | g_cc_layer_bits);
     CLOFEN = g_last_color_offset_written[0];
     CLOFSL = g_last_color_offset_written[1];
     COAR = g_last_color_offset_written[2];
@@ -1196,6 +1329,7 @@ void commit_layers() {
         commit_rbg0_config();
     }
     commit_raster_tables();
+    commit_compose();
 }
 
 void set_rbg0_param_mode(RBG0ParamMode mode) {
@@ -1240,7 +1374,7 @@ void set_sprite_priority(uint8_t priority) {
 
 void set_color_calc_control(uint16_t ccctl) {
     g_last_ccctl_written = ccctl;
-    CCCTL = ccctl;
+    CCCTL = static_cast<uint16_t>(ccctl | g_cc_layer_bits);
 }
 
 void set_color_offset(uint8_t bank, uint16_t r, uint16_t g, uint16_t b) {

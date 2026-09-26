@@ -91,6 +91,8 @@ extern "C" sat_result_t sat_vdp2_layer_configure(const sat_vdp2_layer_config_t* 
     } else if (!layer.bitmap && config->char_base_address != 0u) {
         return SAT_ERR_INVALID_ARG;   /* 2-word names carry the whole character number */
     }
+    /* Mosaic on NBG0/NBG1 takes the vertical cell scroll away. */
+    if (layer.vcs && hal::mosaic_blocks_vcs(config->layer)) return SAT_ERR_UNSUPPORTED;
     /* A layer already configured keeps its zoom and its line scroll. */
     nbg::Layer previous{};
     if (hal::nbg_layer(config->layer, &previous)) {
