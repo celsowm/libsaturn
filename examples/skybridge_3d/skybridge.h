@@ -131,10 +131,14 @@ _Static_assert(SCENE_MATERIAL_CAP <= 255u,
  * not have: a deck top is one large quad whose average depth competes with an
  * actor standing on it, and once the actor walks far enough along the deck the
  * quad wins and paints over it from the feet up. Separating them by pass makes
- * that impossible. See SB_PASS_*. */
-#define SB_PASS_WORLD   0u  /* the other decks */
-#define SB_PASS_SUPPORT 1u  /* the deck under the player */
-#define SB_PASS_ACTOR   2u  /* shadow, player, gems */
+ * that impossible. See SB_PASS_*.
+ * All decks share one pass, the deck under the player included: a third pass
+ * for it (which used to exist) painted that deck over nearer decks it has no
+ * business covering, and the painter's depth order already gets the decks right
+ * (40 frames along the validation pad script are pixel-identical without it,
+ * except one where a far pier's side face used to show through a nearer deck). */
+#define SB_PASS_WORLD   0u  /* every deck */
+#define SB_PASS_ACTOR   1u  /* shadow, player, gems */
 
 typedef struct sb_frame_metrics {
     uint32_t begin_ms;

@@ -376,7 +376,6 @@ void draw_world(void) {
         slot=platform_fade_slot(i,depth);
         if(slot==SAT_FADE3D_SLOT_CULLED)continue;
         g_active_fade_slot=slot;
-        g_active_pass=(g_game.support==(int8_t)i)?SB_PASS_SUPPORT:SB_PASS_WORLD;
         stage_box(i);
         deck_slot[i]=slot;
     }
