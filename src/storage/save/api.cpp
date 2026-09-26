@@ -14,9 +14,22 @@ bool g_save_initialized = false;
 saturn::hal::bup::Config g_save_configs[3] = {};
 
 // BUP function device is a configuration-table index, NOT BupConfig.unit_id.
-// Config[0] has unit_id=1 (internal). External selector remains disabled until
-// the cartridge-side BIOS contract has been validated on emulator/hardware.
+// Config[0] has unit_id=1 (internal). The cartridge is the Config entry (1 or
+// 2) whose unit_id is 2 and that has partitions; its index is the selector, the
+// same numbering as Sega's device argument (1 memory cartridge, 2 serial).
 constexpr uint32_t kBiosInternalDeviceIndex = 0u;
+constexpr uint16_t kBupExternalUnitId = 2u;
+
+/* Config index of the connected backup cartridge, or 0 when there is none. */
+uint32_t cartridge_config_index() {
+    for (uint32_t i = 1u; i < 3u; ++i) {
+        if (g_save_configs[i].unit_id == kBupExternalUnitId &&
+            g_save_configs[i].partitions != 0u) {
+            return i;
+        }
+    }
+    return 0u;
+}
 
 sat_result_t map_result(Result result) {
     switch (result) {
@@ -40,8 +53,14 @@ sat_result_t map_device(sat_save_device_t device, uint32_t* out_device) {
         case SAT_SAVE_INTERNAL:
             *out_device = kBiosInternalDeviceIndex;
             return SAT_OK;
-        case SAT_SAVE_BACKUP_CARTRIDGE:
-            return SAT_ERR_UNSUPPORTED;
+        case SAT_SAVE_BACKUP_CARTRIDGE: {
+            // A missing cartridge is refused here, before any BIOS call can
+            // touch storage or format anything.
+            const uint32_t index = cartridge_config_index();
+            if (index == 0u) return SAT_ERR_NOT_CONNECTED;
+            *out_device = index;
+            return SAT_OK;
+        }
     }
     return SAT_ERR_INVALID_ARG;
 }
@@ -164,17 +183,14 @@ extern "C" sat_result_t sat_save_device_info(
     }
 
     if (device == SAT_SAVE_BACKUP_CARTRIDGE) {
-        // BUP_Init returns three configuration entries. Discover the
-        // cartridge by *unit ID*, not by assuming its callable BIOS index.
-        // The latter remains intentionally disabled until runtime validation.
-        for (uint32_t i = 1u; i < 3u; ++i) {
-            if (g_save_configs[i].unit_id != 2u ||
-                g_save_configs[i].partitions == 0u) continue;
+        // BUP_Init returns three configuration entries; the cartridge is the
+        // one with unit ID 2.
+        const uint32_t i = cartridge_config_index();
+        if (i != 0u) {
             out_info->connected = 1u;
             out_info->partition_count = static_cast<uint8_t>(
                 g_save_configs[i].partitions > 255u
                     ? 255u : g_save_configs[i].partitions);
-            break;
         }
         return SAT_OK;
     }
@@ -223,8 +239,11 @@ extern "C" sat_result_t sat_save_list(
     Stat storage{};
     SAT_TRY(stat_device(bios_device, 0u, &storage));
 
-    const char* effective_pattern =
-        pattern == nullptr || pattern[0] == '\0' ? "*" : pattern;
+    // BUP_Dir lists every file for an empty name and does not treat "*" as a
+    // wildcard (measured on Ymir and Mednafen: "*" matches nothing).
+    const bool all = pattern == nullptr || pattern[0] == '\0' ||
+                     (pattern[0] == '*' && pattern[1] == '\0');
+    const char* effective_pattern = all ? "" : pattern;
 
     if (capacity > SAT_SAVE_LIST_MAX) return SAT_ERR_CAPACITY;
 

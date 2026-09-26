@@ -25,6 +25,18 @@ static uint32_t g_stat_calls = 0u;
 static uint32_t g_directory_calls = 0u;
 static uint16_t g_cart_index = 0xFFFFu;
 static uint16_t g_cart_partitions = 0u;
+static uint32_t g_last_device = 0xFFFFu;
+static uint32_t g_device_calls[3] = {0u, 0u, 0u};
+
+// Every BIOS call must name a device that exists: the internal 0, or the
+// cartridge's Config index. The BIOS-side selector is what these record.
+static bool device_ok(uint32_t device) {
+    if (device >= 3u) return false;
+    if (device != 0u && device != g_cart_index) return false;
+    g_last_device = device;
+    ++g_device_calls[device];
+    return true;
+}
 static Dir g_dir = {};
 static Stat g_stat = {32768u, 512u, 64u, 30000u, 480u, 12u};
 
@@ -44,21 +56,23 @@ Result init(Config out_configs[3]) {
 Result select_partition(uint32_t, uint16_t) { return Result::Ok; }
 
 Result format(uint32_t device) {
-    OK(device == 0u);
+    OK(device_ok(device));
     ++g_format_calls;
     return g_format_result;
 }
 
 Result stat(uint32_t device, uint32_t, Stat* out_stat) {
-    OK(device == 0u);
+    OK(device_ok(device));
     ++g_stat_calls;
     if (g_stat_result != Result::Ok) return g_stat_result;
     *out_stat = g_stat;
     return Result::Ok;
 }
 
-int32_t directory(uint32_t device, const char*, uint16_t capacity, Dir* out_entries) {
-    OK(device == 0u);
+static char g_last_pattern[16] = {};
+int32_t directory(uint32_t device, const char* pattern, uint16_t capacity, Dir* out_entries) {
+    OK(device_ok(device));
+    std::strncpy(g_last_pattern, pattern, sizeof(g_last_pattern) - 1u);
     ++g_directory_calls;
     g_last_directory_capacity = capacity;
     if (capacity != 0u && out_entries != nullptr && g_directory_count != 0) {
@@ -72,14 +86,14 @@ int32_t directory(uint32_t device, const char*, uint16_t capacity, Dir* out_entr
 }
 
 Result write(uint32_t device, Dir*, const void*, uint8_t overwrite) {
-    OK(device == 0u);
+    OK(device_ok(device));
     ++g_write_calls;
     g_last_overwrite = overwrite;
     return g_write_result;
 }
 
 Result read(uint32_t device, const char*, void* data) {
-    OK(device == 0u);
+    OK(device_ok(device));
     if (g_read_result == Result::Ok) {
         static const uint8_t payload[4] = {1u, 2u, 3u, 4u};
         std::memcpy(data, payload, sizeof(payload));
@@ -88,12 +102,12 @@ Result read(uint32_t device, const char*, void* data) {
 }
 
 Result remove(uint32_t device, const char*) {
-    OK(device == 0u);
+    OK(device_ok(device));
     return g_remove_result;
 }
 
 Result verify(uint32_t device, const char*, const void*) {
-    OK(device == 0u);
+    OK(device_ok(device));
     return g_verify_result;
 }
 
@@ -134,8 +148,10 @@ int main() {
     OK(sat_save_init() == SAT_OK);
     OK(sat_save_device_info(SAT_SAVE_BACKUP_CARTRIDGE, &device_info) == SAT_OK &&
        device_info.connected == 1u && device_info.partition_count == 3u);
-    OK(sat_save_storage_info(SAT_SAVE_BACKUP_CARTRIDGE, 0u, &info) ==
-       SAT_ERR_UNSUPPORTED);
+    // The cartridge is now a real device: its BIOS selector is its Config index,
+    // never the unit ID and never the internal 0.
+    OK(sat_save_storage_info(SAT_SAVE_BACKUP_CARTRIDGE, 0u, &info) == SAT_OK);
+    OK(g_last_device == 2u && g_device_calls[0] == 0u && g_device_calls[2] == 1u);
     g_cart_index = 1u;
     g_cart_partitions = 2u;
     OK(sat_save_init() == SAT_OK);
@@ -148,7 +164,7 @@ int main() {
     g_cart_index = 0xFFFFu;
     g_cart_partitions = 0u;
     OK(sat_save_init() == SAT_OK);
-    OK(g_stat_calls == 0u && g_directory_calls == 0u &&
+    OK(g_stat_calls == 1u /* only the explicit cartridge storage_info */ && g_directory_calls == 0u &&
        g_write_calls == 0u && g_format_calls == 0u);
 
     OK(sat_save_storage_info(SAT_SAVE_INTERNAL, 128u, &info) == SAT_OK);
@@ -174,6 +190,11 @@ int main() {
     uint16_t total = 0u;
     g_directory_count = -3;
     OK(sat_save_list(SAT_SAVE_INTERNAL, "*", entries, 2u, &total) == SAT_OK);
+    // BUP_Dir has no wildcard: "*", empty and null all mean an empty name (every file).
+    OK(g_last_pattern[0] == 0);
+    OK(sat_save_list(SAT_SAVE_INTERNAL, nullptr, entries, 2u, &total) == SAT_OK && g_last_pattern[0] == 0);
+    OK(sat_save_list(SAT_SAVE_INTERNAL, "SAVE_A", entries, 2u, &total) == SAT_OK);
+    OK(std::strcmp(g_last_pattern, "SAVE_A") == 0);
     OK(total == 3u && std::strcmp(entries[0].name, "SAVE_A") == 0 &&
        std::strcmp(entries[0].comment, "slot one") == 0 &&
        entries[0].data_size == 4u && entries[0].block_size == 2u);
@@ -233,8 +254,47 @@ int main() {
     g_format_result = Result::Ok;
     OK(sat_save_format(SAT_SAVE_INTERNAL) == SAT_OK && g_format_calls == 1u);
 
-    OK(sat_save_storage_info(SAT_SAVE_BACKUP_CARTRIDGE, 0u, &info) ==
-       SAT_ERR_UNSUPPORTED);
+    // No cartridge: refused before any BIOS call (no stat, no format, no write).
+    {
+        const uint32_t stats = g_stat_calls, dirs = g_directory_calls, writes = g_write_calls,
+                       formats = g_format_calls;
+        OK(g_cart_index == 0xFFFFu);
+        OK(sat_save_storage_info(SAT_SAVE_BACKUP_CARTRIDGE, 0u, &info) == SAT_ERR_NOT_CONNECTED);
+        OK(sat_save_format(SAT_SAVE_BACKUP_CARTRIDGE) == SAT_ERR_NOT_CONNECTED);
+        OK(sat_save_delete(SAT_SAVE_BACKUP_CARTRIDGE, "SAVE_A") == SAT_ERR_NOT_CONNECTED);
+        sat_save_record_t rec{"SAVE_A", "cmt", SAT_SAVE_ENGLISH, 0u};
+        OK(sat_save_write(SAT_SAVE_BACKUP_CARTRIDGE, &rec, payload, sizeof(payload), 1u) ==
+           SAT_ERR_NOT_CONNECTED);
+        OK(g_stat_calls == stats && g_directory_calls == dirs && g_write_calls == writes &&
+           g_format_calls == formats);
+    }
+
+    // With a cartridge every operation goes to its selector, and the internal
+    // device keeps using 0.
+    g_cart_index = 1u;
+    g_cart_partitions = 1u;
+    OK(sat_save_init() == SAT_OK);
+    {
+        for (uint32_t& c : g_device_calls) c = 0u;
+        sat_save_entry_t entries[2] = {};
+        uint16_t total = 0u;
+        uint8_t buffer[8] = {};
+        uint32_t size = 0u;
+        sat_save_record_t rec{"SAVE_A", "cmt", SAT_SAVE_ENGLISH, 0u};
+        g_directory_count = 1;
+        OK(sat_save_storage_info(SAT_SAVE_BACKUP_CARTRIDGE, 0u, &info) == SAT_OK);
+        OK(sat_save_list(SAT_SAVE_BACKUP_CARTRIDGE, "*", entries, 2u, &total) == SAT_OK);
+        OK(sat_save_write(SAT_SAVE_BACKUP_CARTRIDGE, &rec, payload, sizeof(payload), 1u) == SAT_OK);
+        OK(sat_save_read(SAT_SAVE_BACKUP_CARTRIDGE, "SAVE_A", buffer, sizeof(buffer), &size) == SAT_OK);
+        OK(sat_save_verify(SAT_SAVE_BACKUP_CARTRIDGE, "SAVE_A", payload, sizeof(payload)) == SAT_OK);
+        OK(sat_save_delete(SAT_SAVE_BACKUP_CARTRIDGE, "SAVE_A") == SAT_OK);
+        OK(sat_save_format(SAT_SAVE_BACKUP_CARTRIDGE) == SAT_OK);
+        OK(g_device_calls[0] == 0u && g_device_calls[1] > 6u);
+        // ... and an internal call afterwards does not drift to the cartridge.
+        for (uint32_t& c : g_device_calls) c = 0u;
+        OK(sat_save_storage_info(SAT_SAVE_INTERNAL, 0u, &info) == SAT_OK);
+        OK(g_device_calls[0] >= 1u && g_device_calls[1] == 0u);
+    }
 
     std::puts("save api: OK");
     return 0;

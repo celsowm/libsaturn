@@ -21,9 +21,11 @@ extern "C" {
  * BupConfig.unit_id is BUP_MAIN_UNIT (1), a separate namespace. */
 typedef enum sat_save_device {
     SAT_SAVE_INTERNAL = 0,
-    /* Reserved for the persistent Backup Memory cartridge. The initial
-     * implementation intentionally returns SAT_ERR_UNSUPPORTED for it until
-     * device detection and cartridge acceptance are proven. */
+    /* The persistent Backup Memory cartridge, through the same BIOS Backup
+     * Library calls as the internal memory. Its BIOS selector is the
+     * BUP_Init configuration entry whose unit_id is 2. With no cartridge every
+     * call returns SAT_ERR_NOT_CONNECTED before any BIOS call is made.
+     * Nothing is ever migrated or formatted implicitly. */
     SAT_SAVE_BACKUP_CARTRIDGE = 1
 } sat_save_device_t;
 
@@ -67,8 +69,7 @@ typedef struct sat_save_storage_info {
 } sat_save_storage_info_t;
 
 /* Snapshot of BUP_Init device configuration, not a hot-plug detector.
- * It does not query capacity or perform any read/write on the medium.
- * The cartridge remains unsupported for sat_save_read/write/format/etc. */
+ * It does not query capacity or perform any read/write on the medium. */
 typedef struct sat_save_device_info {
     uint8_t connected;
     uint8_t partition_count;
@@ -91,7 +92,8 @@ sat_result_t sat_save_storage_info(
     uint32_t prospective_data_size,
     sat_save_storage_info_t* out_info);
 
-/* List matching records. A null/empty pattern means "*".
+/* List matching records. A null or empty pattern, or "*", lists everything
+ * (the BIOS has no wildcard: it lists all files for an empty name).
  * out_total receives the total number of matches even when capacity is
  * smaller; entries contains min(*out_total, capacity) records.
  * capacity must not exceed SAT_SAVE_LIST_MAX. */

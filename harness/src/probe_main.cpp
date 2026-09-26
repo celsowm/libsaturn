@@ -343,6 +343,7 @@ struct Args {
     bool pad_script_game_frame = false;
     std::string backup_ram_path;     // persistent 32 KiB internal Backup RAM image
     std::string backup_cart_path;    // existing external image; mapped copy-on-write
+    std::string backup_cart_fixture; // throwaway external image; created formatted, guest writes persist
     std::string ram_cart = "none";  // none, 1m, 4m: volatile expansion
     std::vector<std::pair<uint32_t, std::string>> screenshots;  // frame -> PNG path
     bool print_sh2_state = false;    // diagnostic: master SH2 PC/registers to stderr
@@ -441,7 +442,7 @@ void print_usage() {
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
         "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
-        "             [--backup-ram <path>] [--backup-cart <existing-path>] [--ram-cart none|1m|4m] [--scsp-trace]\n"
+        "             [--backup-ram <path>] [--backup-cart <existing-path>] [--backup-cart-fixture <path>] [--ram-cart none|1m|4m] [--scsp-trace]\n"
         "             [--slave-reset-entry <address>]\n");
 }
 
@@ -574,6 +575,10 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--backup-cart");
             if (!v) return false;
             out->backup_cart_path = v;
+        } else if (arg == "--backup-cart-fixture") {
+            const char* v = next("--backup-cart-fixture");
+            if (!v) return false;
+            out->backup_cart_fixture = v;
         } else if (arg == "--ram-cart") {
             const char* v = next("--ram-cart");
             if (!v) return false;
@@ -787,7 +792,11 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (args.ram_cart != "none" && !args.backup_cart_path.empty()) {
+    if (!args.backup_cart_fixture.empty() && !args.backup_cart_path.empty()) {
+        std::fprintf(stderr, "--backup-cart and --backup-cart-fixture are mutually exclusive\n");
+        return 1;
+    }
+    if (args.ram_cart != "none" && (!args.backup_cart_path.empty() || !args.backup_cart_fixture.empty())) {
         std::fprintf(stderr, "a Backup Memory cart and DRAM expansion cannot occupy the same slot\n");
         return 1;
     }
@@ -803,7 +812,28 @@ int main(int argc, char** argv) {
 
     ymir::cart::BackupMemoryCartridge* backup_cart = nullptr;
     uint64_t backup_cart_before_hash = 0u;
-    if (!args.backup_cart_path.empty()) {
+    if (!args.backup_cart_fixture.empty()) {
+        // Throwaway fixture: created and formatted when missing (4 Mbit), guest
+        // writes persist so a second process sees them. Never point this at a
+        // user's real cartridge image.
+        ymir::bup::BackupMemory cart_image;
+        std::error_code cart_error;
+        cart_image.CreateFrom(args.backup_cart_fixture, /*copyOnWrite=*/false, cart_error,
+                              ymir::bup::BackupMemorySize::_4Mbit);
+        if (cart_error) {
+            std::fprintf(stderr, "failed to create backup cartridge fixture %s: %s\n",
+                         args.backup_cart_fixture.c_str(), cart_error.message().c_str());
+            return 1;
+        }
+        const auto bytes_before = cart_image.ReadAll();
+        backup_cart_before_hash = fnv1a64(bytes_before.data(), bytes_before.size());
+        backup_cart = saturn->InsertCartridge<ymir::cart::BackupMemoryCartridge>(
+            std::move(cart_image));
+        if (backup_cart == nullptr) {
+            std::fprintf(stderr, "failed to insert backup cartridge fixture\n");
+            return 1;
+        }
+    } else if (!args.backup_cart_path.empty()) {
         // Read-only diagnostic path: never create, resize or format images;
         // never persist guest writes to a user-supplied cartridge image.
         ymir::bup::BackupMemory cart_image;
@@ -1499,6 +1529,13 @@ int main(int argc, char** argv) {
     j.key("backup_memory");
     j.begin_object();
     j.key("enabled"); j.value(!args.backup_ram_path.empty());
+    if (!args.backup_ram_path.empty()) {
+        // Whole-image hash so a test can show cartridge-only work left the
+        // internal memory byte-identical.
+        auto& internal_image = saturn->mem.GetInternalBackupRAM();
+        const auto internal_bytes = internal_image.ReadAll();
+        j.key("raw_hash"); j.value(fnv1a64(internal_bytes.data(), internal_bytes.size()));
+    }
     j.key("path"); j.value(args.backup_ram_path);
     if (!args.backup_ram_path.empty()) {
         auto& backup = saturn->mem.GetInternalBackupRAM();
@@ -1550,12 +1587,12 @@ int main(int argc, char** argv) {
     j.key("backup_cartridge");
     j.begin_object();
     j.key("enabled"); j.value(backup_cart != nullptr);
-    j.key("path"); j.value(args.backup_cart_path);
+    j.key("path"); j.value(args.backup_cart_fixture.empty() ? args.backup_cart_path : args.backup_cart_fixture);
     if (backup_cart != nullptr) {
         auto& image = backup_cart->GetBackupMemory();
         const auto bytes_after = image.ReadAll();
         const uint64_t after_hash = fnv1a64(bytes_after.data(), bytes_after.size());
-        j.key("copy_on_write"); j.value(true);
+        j.key("copy_on_write"); j.value(args.backup_cart_fixture.empty());
         j.key("header_valid"); j.value(image.IsHeaderValid());
         j.key("size"); j.value(static_cast<uint64_t>(image.Size()));
         j.key("block_size"); j.value(static_cast<uint64_t>(image.GetBlockSize()));
@@ -1571,6 +1608,20 @@ int main(int argc, char** argv) {
             j.key("filename"); j.value(info.header.filename);
             j.key("comment"); j.value(info.header.comment);
             j.key("data_size"); j.value(static_cast<uint64_t>(info.size));
+            const auto exported = image.Export(info.header.filename);
+            j.key("data_hash");
+            j.value(exported
+                ? fnv1a64(exported->data.data(), exported->data.size())
+                : static_cast<uint64_t>(0u));
+            j.key("data_prefix");
+            j.begin_array();
+            if (exported) {
+                const size_t prefix = std::min<size_t>(64u, exported->data.size());
+                for (size_t i = 0; i < prefix; ++i) {
+                    j.value(static_cast<uint64_t>(exported->data[i]));
+                }
+            }
+            j.end_array();
             j.end_object();
         }
         j.end_array();

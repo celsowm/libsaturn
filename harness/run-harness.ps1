@@ -34,6 +34,7 @@ param(
     [string]$DeviceScript,
     [string]$BackupRam,
     [string]$BackupCart,
+    [string]$BackupCartFixture,
     [ValidateSet('none', '1m', '4m')]
     [string]$RamCart = 'none',
     [string[]]$Screenshot,
@@ -232,8 +233,14 @@ if ($BackupCart) {
     }
     $probeArgs += @('--backup-cart', (Resolve-Path $BackupCart).Path)
 }
+if ($BackupCartFixture) {
+    if ($BackupCart) { throw "-BackupCart and -BackupCartFixture are mutually exclusive" }
+    if (-not [System.IO.Path]::IsPathRooted($BackupCartFixture)) { $BackupCartFixture = Join-Path (Split-Path -Parent $PSScriptRoot) $BackupCartFixture }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $BackupCartFixture) | Out-Null
+    $probeArgs += @('--backup-cart-fixture', $BackupCartFixture)
+}
 if ($RamCart -ne 'none') {
-    if ($BackupCart) { throw "Backup cart and RAM expansion share one cartridge slot" }
+    if ($BackupCart -or $BackupCartFixture) { throw "Backup cart and RAM expansion share one cartridge slot" }
     $probeArgs += @('--ram-cart', $RamCart)
 }
 if ($backupRamPath) {

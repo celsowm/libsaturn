@@ -39,7 +39,7 @@ LibSaturn is already strongest in the areas needed to render and run small-to-me
 The largest Saturn hardware areas still missing as first-class LibSaturn subsystems are:
 
 - Backup RAM/save support;
-- generic cartridge/A-Bus access beyond the volatile RAM-expansion driver;
+- ROM cartridges and other A-Bus expansion hardware beyond detection and raw reads;
 - higher-level Slave SH-2 scheduling/job execution;
 - SCU DSP;
 - advanced SCSP DSP/effects/synthesis and a resident 68000 sound driver;
@@ -125,9 +125,9 @@ This is a useful high-level picture of what LibSaturn currently treats as suppor
 | CD Block runtime I/O | **PARTIAL** | Hardware-specific synchronous 2048-byte sector reads, bounded command polling, LBA/FAD conversion, a `sat_cd_device_t` adapter, plus modified-Ymir BIOS-harness validation of both a PVD probe and CD-resident PCM playback are exposed. | Authentication policy, asynchronous I/O, seek/read scheduling and richer error/status reporting. | `include/saturn/cd_block.h`, `src/hal/cd/block.cpp`, `examples/cd_block_probe`, `examples/cd_streaming_jukebox` |
 | CDFS / VFS | **PARTIAL** | Read-only logical paths, bounded handles, caller-backed blobs, caller-owned `read_at` backends, ISO9660 PVD/directory lookup, CDFS-to-VFS file adapters, non-resident music refill and cooperative asset prefetch/cache through the VFS path are public. `cd_streaming_jukebox` stages public-domain PCM as ISO files and joins this complete route. | Transparent manifest-driven CD registration and a genuinely non-blocking storage backend remain outside the current synchronous CD contract. | `include/saturn/cd.h`, `include/saturn/cdfs.h`, `include/saturn/file.h`, `include/saturn/asset.h`, `src/storage/cd/filesystem.cpp`, `src/resources/assets.cpp`, `examples/cd_streaming_jukebox` |
 | Asset streaming | **PARTIAL** | File reads support partial backend transfers; typed resident loading, bounded embedded/non-resident logical music streams, fixed-block cache, cache diagnostics and cooperative prefetch require no whole-file allocation. | Texture/model/map streaming and general typed non-resident loaders. | `include/saturn/file.h`, `include/saturn/asset.h`, `src/resources/assets.cpp`, `src/audio/playback/music.cpp` |
-| Backup RAM / save data | **PARTIAL** | Public internal-Backup-RAM save API over the Boot ROM BUP library: init, status/free-space, directory listing, read, write/overwrite, verify, delete and explicit format. Mutating BIOS calls are protected by SMPC reset-disable/reset-enable critical sections. | Emulator persistence acceptance, Backup Memory cartridge support, RTC convenience metadata and optional versioned/CRC payload helpers. | `include/saturn/save.h`, `src/storage/save/api.cpp`, `src/hal/storage/backup.*`, `tests/host/test_save_api.cpp` |
+| Backup RAM / save data | **PARTIAL** | Public internal-Backup-RAM save API over the Boot ROM BUP library: init, status/free-space, directory listing, read, write/overwrite, verify, delete and explicit format. Mutating BIOS calls are protected by SMPC reset-disable/reset-enable critical sections. `SAT_SAVE_BACKUP_CARTRIDGE` drives the same calls at the cartridge's BUP_Init configuration index (unit ID 2); with no cartridge every call is refused before any BIOS call. Verified with a fresh Ymir process reopening a throwaway 4 Mbit cartridge image (record count 1 then 2, internal image byte-identical, `harness/run-save-cartridge.ps1`) and on Mednafen. BUP_Dir has no wildcard: an empty name lists everything, and the old "*" listed nothing. | Backup Memory cartridge: partition selection (the one-partition case works), hardware acceptance on a real cartridge. RTC convenience metadata and optional versioned/CRC payload helpers. | `include/saturn/save.h`, `src/storage/save/api.cpp`, `src/hal/storage/backup.*`, `tests/host/test_save_api.cpp` |
 | RAM cartridge | **PARTIAL** | Volatile 1 MiB / 4 MiB ID detection, two-bank arenas and offset-based logical buffers, optional cart-backed asset cache/VFS bridge, demo and host tests. | Emulator / physical-hardware acceptance; multi-bank cache and DMA tuning. | `include/saturn/ram_cart.h`, `src/hal/storage/ram_cart.cpp`, `src/storage/cartridge/api.cpp`, `docs/RAM_EXPANSION_CARTRIDGE.md` |
-| Generic cartridge / A-Bus | **NOT EXPOSED** | No general A-Bus/cartridge framework. | ROM carts, expansion hardware, bus probing and safe mapped access abstractions. | No corresponding public module. |
+| Generic cartridge / A-Bus | **PARTIAL** | `saturn/abus.h`: ID-byte detection (none, 1 MiB / 4 MiB DRAM, Backup Memory with its capacity, unknown), bounds-checked byte reads of chip selects 0 and 1, writes only into the DRAM banks of a RAM expansion. A Backup Memory cartridge is never touched raw. Ymir with an empty slot, both DRAM carts and a backup cartridge (`harness/run-abus.ps1`); Mednafen agrees. | ROM cartridge drivers, other expansion hardware (CS2 belongs to the CD block). | `include/saturn/abus.h`, `src/storage/cartridge/abus*`, `src/hal/storage/abus.*`, `examples/abus_demo` |
 | Slave SH-2 | **PARTIAL** | Public low-level lifecycle, dedicated Slave entry, FRT signaling, cache-through shared control block, directional one-slot mailbox, timeout/restart state, example and host protocol tests. | Interrupt-driven reception, bulk-buffer ownership helpers, physical Saturn validation and any higher-level scheduling remain outside this layer. | `include/saturn/dual_sh2.h`, `src/hal/dual_sh2/`, `src/hal/sh2/`, `examples/dual_sh2`, `docs/DUAL_SH2_LOW_LEVEL.md` |
 | Runtime filesystem-independent asset API | **PARTIAL** | Bounded logical asset handles, metadata, caller-owned partial reads, typed texture/font/sound loaders, bounded non-resident music refill, fixed cache/prefetch service, and generated C registration for embedded/physical manifest entries are independent of the current storage representation. | Concrete RAM-cart backend and non-resident typed texture/model/map loaders. | `include/saturn/asset.h`, `src/resources/assets.cpp`, `src/audio/playback/music.cpp`, `tools/generate_asset_manifest.py`, `tools/generate_asset_registry.py` |
 | Formatting / fonts / utility drawing | **PARTIAL** | Formatting, font and grid helpers are public. | Broader UI/text layout and asset-backed fonts if desired. | `include/saturn/fmt.h`, `include/saturn/font.h`, `include/saturn/grid.h` |
@@ -276,7 +276,7 @@ This would remove the assumption that important game assets need to be compiled 
 
 ### Backup RAM and cartridge expansion
 
-Current status: **PARTIAL** for internal Backup RAM and for volatile RAM expansion. External persistent Backup Memory cartridge support remains separate and is not yet implemented.
+Current status: **PARTIAL** for internal Backup RAM, the external Backup Memory cartridge and volatile RAM expansion. The cartridge is emulator-verified on Ymir and Mednafen; real hardware is pending the checklist.
 
 The internal save path now wraps the Saturn Boot ROM BUP library rather than
 reimplementing Sega's on-media allocation format. The public API can inspect
@@ -288,11 +288,7 @@ Two distinct areas remain separate in the architecture:
 - **Backup RAM/save storage**: persistent game data, directory records, free-space handling and robust versioned saves.
 - **RAM cartridge**: volatile expansion memory usable for caches/assets/game-specific data.
 
-Backup Memory cartridge support belongs to the save subsystem but is deliberately
-deferred until device detection and emulator/hardware acceptance are proven.
-The volatile 1 MiB / 4 MiB RAM-expansion driver now provides detection, two-bank
-allocations, bounded asset-cache backing and a VFS bridge. A later generic
-cartridge/A-Bus layer may support other hardware without coupling it to saves.
+Backup Memory cartridge support belongs to the save subsystem and reuses the internal operations at the cartridge's BIOS selector. The volatile 1 MiB / 4 MiB RAM-expansion driver provides detection, two-bank allocations, bounded asset-cache backing and a VFS bridge, and `saturn/abus.h` is the small shared layer that identifies whatever is in the slot without coupling the two.
 
 ## Host-side tooling coverage
 

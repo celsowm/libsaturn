@@ -1,6 +1,6 @@
 # Backup Memory cartridge support plan
 
-Status: PLANNED / NOT IMPLEMENTED. Scope: persistent Saturn Backup Memory cartridge
+Status: IMPLEMENTED on emulators (2026-09-26): device mapping, `SAT_SAVE_BACKUP_CARTRIDGE`, a writable probe fixture and a two-process Ymir acceptance (`harness/run-save-cartridge.ps1`); Mednafen agrees. Real-hardware Phase 5 and multi-partition selection remain open. The original plan text below is kept for those. Scope: persistent Saturn Backup Memory cartridge
 through the BIOS Backup Library (BUP), **not** the volatile 1 MiB/4 MiB RAM
 expansion cartridge and not a generic A-Bus memory allocator.
 
