@@ -19,6 +19,7 @@
 #include "saturn/irq.h"
 #include "saturn/dma.h"
 #include "saturn/smpc.h"
+#include "saturn/vdp2_layers.h"
 #include "saturn/surface.h"
 #include "saturn/surface3d.h"
 #include "saturn/texture.h"

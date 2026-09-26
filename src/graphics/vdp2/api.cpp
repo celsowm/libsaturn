@@ -11,6 +11,11 @@ extern "C" sat_result_t sat_vdp2_nbg0_init(const sat_vdp2_nbg0_config_t* config)
     if (st != SAT_OK) {
         return st;
     }
+    /* The layer manager (saturn/vdp2_layers.h) owns NBG0 and the cycle
+     * registers once it is used. */
+    if (saturn::hal::vdp2::nbg_active()) {
+        return SAT_ERR_BUSY;
+    }
 
     st = validate_nbg0_config(config);
     if (st != SAT_OK) {
@@ -311,6 +316,9 @@ extern "C" sat_result_t sat_vdp2_rbg0_init(const sat_vdp2_rbg0_config_t* config)
     sat_result_t st = require_initialized();
     if (st != SAT_OK) {
         return st;
+    }
+    if (saturn::hal::vdp2::nbg_active()) {
+        return SAT_ERR_BUSY;
     }
     st = validate_rbg0_config(config);
     if (st != SAT_OK) {

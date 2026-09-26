@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "src/hal/vdp2/nbg_logic.hpp"
+
 namespace saturn::hal::vdp2 {
 
 // Screen modes
@@ -126,6 +128,28 @@ void set_color_calc_control(uint16_t ccctl);
  * per-layer enable/select words; commit_layers() replays all of them. */
 void set_color_offset(uint8_t bank, uint16_t r, uint16_t g, uint16_t b);
 void set_color_offset_layers(uint16_t clofen, uint16_t clofsl);
+
+/* ---- NBG0..NBG3 layers (nbg_logic.hpp) ------------------------------ */
+enum class NbgResult : uint8_t {
+    Ok, Busy, BadLayer, BadFormat, BadPlane, BadReduction, NoCyclePattern
+};
+/* True once any layer was configured; commit_layers() then replays them
+ * instead of the legacy NBG0/RBG0 registers. */
+bool nbg_active();
+/* Validates the layer with the others, plans the VRAM cycle patterns and
+ * writes the registers; nothing changes when it fails. Busy while the legacy
+ * NBG0 API or RBG0 is in use. */
+NbgResult nbg_configure(uint8_t index, const nbg::Layer& layer);
+void nbg_release(uint8_t index);
+bool nbg_layer(uint8_t index, nbg::Layer* out);
+/* Integer parts 11 bits; fractions 8 bits in bits 15-8 (NBG0/NBG1 only use them). */
+void nbg_set_scroll(uint8_t index, uint16_t x_int, uint16_t x_frac, uint16_t y_int, uint16_t y_frac);
+/* Coordinate increments (NBG0/NBG1): integer 3 bits, fraction 8 bits in bits 15-8. */
+void nbg_set_zoom_increment(uint8_t index, uint16_t x_int, uint16_t x_frac, uint16_t y_int,
+                            uint16_t y_frac);
+/* The cycle pattern registers last planned: A0L A0U A1L A1U B0L B0U B1L B1U. */
+uint16_t nbg_cycle_word(uint8_t i);
+void commit_nbg_layers();
 
 // Rotation parameter table upload
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count);

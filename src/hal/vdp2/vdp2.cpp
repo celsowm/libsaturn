@@ -898,12 +898,227 @@ void commit_nbg0_config() {
     PRINA = g_last_nbg0_prina_written;
 }
 
+/* ------------------------------------------------------------------ */
+/* NBG0..NBG3 layers (nbg_logic.hpp)                                   */
+/* ------------------------------------------------------------------ */
+
+namespace {
+
+constexpr uint32_t kOffBgon = 0x020u;
+constexpr uint32_t kOffChctla = 0x028u;
+constexpr uint32_t kOffChctlb = 0x02Au;
+constexpr uint32_t kOffBmpna = 0x02Cu;
+constexpr uint32_t kOffPncn = 0x030u;      /* + 2 * layer */
+constexpr uint32_t kOffPlsz = 0x03Au;
+constexpr uint32_t kOffMpofn = 0x03Cu;
+constexpr uint32_t kOffMpabn = 0x040u;     /* + 4 * layer (AB), +2 (CD) */
+constexpr uint32_t kOffScroll0 = 0x070u;   /* NBG0: SCXIN SCXDN SCYIN SCYDN ZMXIN ZMXDN ZMYIN ZMYDN */
+constexpr uint32_t kOffScroll1 = 0x080u;
+constexpr uint32_t kOffScrollN2 = 0x090u;  /* SCXN2 SCYN2 SCXN3 SCYN3 */
+constexpr uint32_t kOffZmctl = 0x098u;
+constexpr uint32_t kOffScrctl = 0x09Au;
+constexpr uint32_t kOffPrinb = 0x0FAu;
+
+inline void set_reg(uint32_t offset, uint16_t value) {
+    RegRef reg_ref(offset);   /* not RegRef(offset) = value: that parses as a declaration */
+    reg_ref = value;
+}
+
+inline uint16_t get_reg(uint32_t offset) {
+    return static_cast<uint16_t>(RegRef(offset));
+}
+
+/* Replaces only the bits in `mask`. */
+inline void merge_reg(uint32_t offset, uint16_t mask, uint16_t bits) {
+    set_reg(offset, static_cast<uint16_t>((get_reg(offset) & ~mask) | (bits & mask)));
+}
+
+struct NbgScroll {
+    uint16_t x_int, x_frac, y_int, y_frac;         /* frac: 8 bits in bits 15-8 */
+    uint16_t zx_int, zx_frac, zy_int, zy_frac;     /* coordinate increments (NBG0/1) */
+};
+
+nbg::Layer g_nbg_layer[nbg::kLayerCount];
+bool g_nbg_used[nbg::kLayerCount];
+NbgScroll g_nbg_scroll[nbg::kLayerCount];
+nbg::Plan g_nbg_plan;
+bool g_nbg_active = false;
+
+inline bool vram_split_a() { return (get_reg(0x00Eu) & 0x0100u) != 0u; }
+inline bool vram_split_b() { return (get_reg(0x00Eu) & 0x0200u) != 0u; }
+
+void nbg_write_all() {
+    nbg::Layer live[nbg::kLayerCount];
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
+        live[i] = g_nbg_layer[i];
+        live[i].enabled = g_nbg_used[i] && g_nbg_layer[i].enabled;
+    }
+    const nbg::Registers r = nbg::compose(live);
+    uint16_t owned_bgon = 0u;
+    uint16_t owned_chctla = 0u, owned_chctlb = 0u, owned_bmpna = 0u, owned_plsz = 0u;
+    uint16_t owned_mpofn = 0u, owned_zmctl = 0u, owned_scrctl = 0u;
+    uint16_t owned_prina = 0u, owned_prinb = 0u;
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
+        if (!g_nbg_used[i]) continue;
+        owned_bgon = static_cast<uint16_t>(owned_bgon | (1u << i) | (1u << (8u + i)));
+        owned_plsz = static_cast<uint16_t>(owned_plsz | (3u << (2u * i)));
+        owned_mpofn = static_cast<uint16_t>(owned_mpofn | (7u << (4u * i)));
+        if (i == 0u) { owned_chctla |= 0x007Fu; owned_bmpna |= 0x0037u; owned_zmctl |= 0x0003u; owned_scrctl |= 0x003Fu; }
+        if (i == 1u) { owned_chctla |= 0x3F00u; owned_bmpna |= 0x3700u; owned_zmctl |= 0x0300u; owned_scrctl |= 0x3F00u; }
+        if (i == 2u) owned_chctlb |= 0x0003u;
+        if (i == 3u) owned_chctlb |= 0x0030u;
+        if (i == 0u) owned_prina |= 0x0007u;
+        if (i == 1u) owned_prina |= 0x0700u;
+        if (i == 2u) owned_prinb |= 0x0007u;
+        if (i == 3u) owned_prinb |= 0x0700u;
+    }
+    /* The VRAM cycle pattern first: a layer must be fetchable the moment it is shown. */
+    set_vram_cycle_pattern(0u, g_nbg_plan.cyc[0], g_nbg_plan.cyc[1]);
+    set_vram_cycle_pattern(1u, g_nbg_plan.cyc[2], g_nbg_plan.cyc[3]);
+    set_vram_cycle_pattern(2u, g_nbg_plan.cyc[4], g_nbg_plan.cyc[5]);
+    set_vram_cycle_pattern(3u, g_nbg_plan.cyc[6], g_nbg_plan.cyc[7]);
+    merge_reg(kOffChctla, owned_chctla, r.chctla);
+    merge_reg(kOffChctlb, owned_chctlb, r.chctlb);
+    merge_reg(kOffBmpna, owned_bmpna, r.bmpna);
+    merge_reg(kOffPlsz, owned_plsz, r.plsz);
+    merge_reg(kOffMpofn, owned_mpofn, r.mpofn);
+    merge_reg(kOffPrinb, owned_prinb, r.prinb);
+    merge_reg(0x0F8u, owned_prina, r.prina);
+    merge_reg(kOffZmctl, owned_zmctl, r.zmctl);
+    merge_reg(kOffScrctl, owned_scrctl, r.scrctl);
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
+        if (!g_nbg_used[i]) continue;
+        set_reg(static_cast<uint32_t>(kOffPncn + 2u * i), r.pncn[i]);
+        set_reg(static_cast<uint32_t>(kOffMpabn + 4u * i), r.mpab[i]);
+        set_reg(static_cast<uint32_t>(kOffMpabn + 4u * i + 2u), r.mpcd[i]);
+        const NbgScroll& s = g_nbg_scroll[i];
+        if (i <= 1u) {
+            const uint32_t base = i == 0u ? kOffScroll0 : kOffScroll1;
+            set_reg(base + 0u, static_cast<uint16_t>(s.x_int & 0x07FFu));
+            set_reg(base + 2u, s.x_frac);
+            set_reg(base + 4u, static_cast<uint16_t>(s.y_int & 0x07FFu));
+            set_reg(base + 6u, s.y_frac);
+            set_reg(base + 8u, static_cast<uint16_t>(s.zx_int & 0x0007u));
+            set_reg(base + 10u, s.zx_frac);
+            set_reg(base + 12u, static_cast<uint16_t>(s.zy_int & 0x0007u));
+            set_reg(base + 14u, s.zy_frac);
+        } else {
+            const uint32_t base = kOffScrollN2 + 4u * (i - 2u);
+            set_reg(base + 0u, static_cast<uint16_t>(s.x_int & 0x07FFu));
+            set_reg(base + 2u, static_cast<uint16_t>(s.y_int & 0x07FFu));
+        }
+    }
+    merge_reg(kOffBgon, owned_bgon, static_cast<uint16_t>(r.bgon_on | r.bgon_opaque_zero));
+    g_last_rbg0_bgon_written = get_reg(kOffBgon);
+}
+
+}  // namespace
+
+bool nbg_active() {
+    return g_nbg_active;
+}
+
+NbgResult nbg_configure(uint8_t index, const nbg::Layer& layer) {
+    if (index >= nbg::kLayerCount) return NbgResult::BadLayer;
+    /* The legacy NBG0 API and RBG0 keep their own cycle patterns and replay
+     * shadows; the two managers cannot share the VRAM cycle registers. */
+    if (g_nbg0_configured || (BGON & 0x0010u) != 0u) return NbgResult::Busy;
+    nbg::Layer trial[nbg::kLayerCount];
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
+        trial[i] = g_nbg_layer[i];
+        trial[i].enabled = g_nbg_used[i] && g_nbg_layer[i].enabled;
+    }
+    trial[index] = layer;
+    const nbg::Status st = nbg::validate(index, layer, vram_split_a(), vram_split_b());
+    if (st != nbg::Status::Ok) {
+        switch (st) {
+            case nbg::Status::BadLayer: return NbgResult::BadLayer;
+            case nbg::Status::BadFormat: return NbgResult::BadFormat;
+            case nbg::Status::BadReduction: return NbgResult::BadReduction;
+            default: return NbgResult::BadPlane;
+        }
+    }
+    const nbg::Plan plan = nbg::plan_cycles(trial, vram_split_a(), vram_split_b());
+    if (plan.status != nbg::Status::Ok) {
+        return plan.status == nbg::Status::NoCyclePattern ? NbgResult::NoCyclePattern
+                                                          : NbgResult::BadPlane;
+    }
+    if (!g_nbg_used[index]) {
+        g_nbg_scroll[index] = {};
+        g_nbg_scroll[index].zx_int = 1u;      /* coordinate increment 1.0: no zoom */
+        g_nbg_scroll[index].zy_int = 1u;
+    }
+    g_nbg_layer[index] = layer;
+    g_nbg_used[index] = true;
+    g_nbg_plan = plan;
+    g_nbg_active = true;
+    g_nbg0_configured = false;
+    nbg_write_all();
+    return NbgResult::Ok;
+}
+
+void nbg_release(uint8_t index) {
+    if (index >= nbg::kLayerCount || !g_nbg_used[index]) return;
+    g_nbg_layer[index].enabled = false;
+    nbg::Layer trial[nbg::kLayerCount];
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
+        trial[i] = g_nbg_layer[i];
+        trial[i].enabled = g_nbg_used[i] && g_nbg_layer[i].enabled;
+    }
+    const nbg::Plan plan = nbg::plan_cycles(trial, vram_split_a(), vram_split_b());
+    if (plan.status == nbg::Status::Ok) g_nbg_plan = plan;
+    nbg_write_all();
+    g_nbg_used[index] = false;
+    bool any = false;
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) any = any || g_nbg_used[i];
+    g_nbg_active = any;
+}
+
+bool nbg_layer(uint8_t index, nbg::Layer* out) {
+    if (index >= nbg::kLayerCount || !g_nbg_used[index] || out == nullptr) return false;
+    *out = g_nbg_layer[index];
+    return true;
+}
+
+void nbg_set_scroll(uint8_t index, uint16_t x_int, uint16_t x_frac, uint16_t y_int, uint16_t y_frac) {
+    if (index >= nbg::kLayerCount || !g_nbg_used[index]) return;
+    NbgScroll& s = g_nbg_scroll[index];
+    s.x_int = x_int;
+    s.x_frac = static_cast<uint16_t>(x_frac & 0xFF00u);
+    s.y_int = y_int;
+    s.y_frac = static_cast<uint16_t>(y_frac & 0xFF00u);
+    nbg_write_all();
+}
+
+void nbg_set_zoom_increment(uint8_t index, uint16_t x_int, uint16_t x_frac, uint16_t y_int,
+                            uint16_t y_frac) {
+    if (index > 1u || !g_nbg_used[index]) return;
+    NbgScroll& s = g_nbg_scroll[index];
+    s.zx_int = x_int;
+    s.zx_frac = static_cast<uint16_t>(x_frac & 0xFF00u);
+    s.zy_int = y_int;
+    s.zy_frac = static_cast<uint16_t>(y_frac & 0xFF00u);
+    nbg_write_all();
+}
+
+uint16_t nbg_cycle_word(uint8_t i) {
+    return i < 8u ? g_nbg_plan.cyc[i] : 0u;
+}
+
+void commit_nbg_layers() {
+    if (g_nbg_active) nbg_write_all();
+}
+
 void commit_layers() {
-    /* NBG0 first: commit_rbg0_config() rewrites RAMCTL and the VRAM cycle
-     * patterns, which decide whether NBG0's bank is reachable at all, so it
-     * must have the last word on those. */
-    if (g_nbg0_configured) {
-        commit_nbg0_config();
+    /* The NBG layer manager and the legacy NBG0/RBG0 replay both drive the VRAM
+     * cycle registers and BGON, so only one of them runs. */
+    if (!g_nbg_active) {
+        /* NBG0 first: commit_rbg0_config() rewrites RAMCTL and the VRAM cycle
+         * patterns, which decide whether NBG0's bank is reachable at all, so it
+         * must have the last word on those. */
+        if (g_nbg0_configured) {
+            commit_nbg0_config();
+        }
     }
     /* Sprite priority decides whether the VDP1's output is in front of the
      * VDP2 layers, so it is replayed whether or not NBG0 is in use. */
@@ -921,7 +1136,11 @@ void commit_layers() {
         SPCTL = sprite_type_bits();
         CRAOFB = g_sprite_craofb;
     }
-    commit_rbg0_config();
+    if (g_nbg_active) {
+        commit_nbg_layers();
+    } else {
+        commit_rbg0_config();
+    }
 }
 
 void set_rbg0_param_mode(RBG0ParamMode mode) {
