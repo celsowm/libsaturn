@@ -281,7 +281,7 @@ static void vertical_cell_scroll_reads_are_ordered() {
     l[0].vcs_address = 0x1F000u;
     l[1] = cell(Colors::C16, 0x02000u, 0x08u);
     l[1].vcs = true;
-    l[1].vcs_address = 0x1F100u;
+    l[1].vcs_address = 0x1F000u;   /* one table, entries alternating */
     const Plan plan = plan_cycles(l, true, true);
     assert(plan.status == Status::Ok);
     int t0 = -1, t1 = -1;
@@ -305,6 +305,55 @@ static void reduction_sets_zmctl() {
     assert(r.zmctl == (0x0001u | (2u << 8u)));
 }
 
+static void line_scroll_registers_and_table_geometry() {
+    Layer l[kLayerCount]{};
+    l[0] = cell(Colors::C16, 0x00000u, 0x04u);
+    l[0].ls_h = true;
+    l[0].ls_zoom = true;
+    l[0].ls_interval = 2u;               /* every 4 lines */
+    l[0].ls_address = 0x1E000u;
+    l[1] = cell(Colors::C16, 0x02000u, 0x08u);
+    l[1].ls_h = l[1].ls_v = true;
+    l[1].ls_address = 0x71234u & ~3u;
+    l[1].vcs = true;
+    l[1].vcs_address = 0x1F000u;
+    assert(validate(0u, l[0], true, true) == Status::Ok && validate(1u, l[1], true, true) == Status::Ok);
+    const Registers r = compose(l);
+    /* NBG0: LSCX bit 1, LZMX bit 3, interval 2 at bits 5-4. NBG1: VCSC, LSCX, LSCY. */
+    assert((r.scrctl & 0x00FFu) == (0x02u | 0x08u | (2u << 4u)));
+    assert(((r.scrctl >> 8u) & 0xFFu) == (0x01u | 0x02u | 0x04u));
+    /* Word addresses: 0x1E000 bytes is word 0xF000. */
+    assert(r.lsta_u[0] == 0u && r.lsta_l[0] == 0xF000u);
+    assert(r.lsta_u[1] == 3u && r.lsta_l[1] == 0x891Au);   /* 0x71234 bytes = word 0x3891A */
+    assert(r.vcsta_u == 0u && r.vcsta_l == 0xF800u);    /* 0x1F000 bytes = word 0xF800 */
+    /* Table sizes: two words per enabled field, one entry per interval. */
+    assert(line_scroll_entry_words(true, false, false) == 2u);
+    assert(line_scroll_entry_words(true, true, true) == 6u);
+    assert(line_scroll_entries(224u, 0u) == 224u && line_scroll_entries(224u, 2u) == 56u);
+    assert(line_scroll_entries(225u, 3u) == 29u);
+    /* Values: integer part 11 bits, 8 fraction bits in bits 15-8. */
+    uint16_t i = 0u, f = 0u;
+    encode_scroll(0x00058000, &i, &f);
+    assert(i == 5u && f == 0x8000u);
+    encode_scroll(-0x00010000, &i, &f);
+    assert(i == 0x07FFu && f == 0u);
+    encode_increment(0x00018000u, &i, &f);
+    assert(i == 1u && f == 0x8000u);
+    assert(vcs_word_offset(3u, 0u, false) == 6u);
+    assert(vcs_word_offset(3u, 0u, true) == 12u && vcs_word_offset(3u, 1u, true) == 14u);
+    /* NBG2/NBG3 have no line scroll; the two layers share one cell scroll table. */
+    Layer bad = cell(Colors::C16, 0u, kAllBanks);
+    bad.ls_h = true;
+    assert(validate(2u, bad, true, true) == Status::BadFormat);
+    bad = cell(Colors::C16, 0u, kAllBanks);
+    bad.ls_h = true;
+    bad.ls_address = 2u;                 /* not long-word aligned */
+    assert(validate(0u, bad, true, true) == Status::BadPlane);
+    l[0].vcs = true;
+    l[0].vcs_address = 0x1F100u;
+    assert(plan_cycles(l, true, true).status == Status::BadPlane);
+}
+
 int main() {
     geometry_follows_the_tables();
     banks_follow_the_vram_split();
@@ -321,6 +370,7 @@ int main() {
     free_slots_follow_the_cpu_access_rule();
     vertical_cell_scroll_reads_are_ordered();
     reduction_sets_zmctl();
+    line_scroll_registers_and_table_geometry();
     std::printf("PASS: test_vdp2_nbg_logic.cpp\n");
     return 0;
 }

@@ -1,5 +1,7 @@
 #include "saturn/vdp2_layers.h"
 
+#include "saturn/math3d.h"
+
 #include "src/core/runtime/state.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
 
@@ -89,9 +91,16 @@ extern "C" sat_result_t sat_vdp2_layer_configure(const sat_vdp2_layer_config_t* 
     } else if (!layer.bitmap && config->char_base_address != 0u) {
         return SAT_ERR_INVALID_ARG;   /* 2-word names carry the whole character number */
     }
-    /* A layer already configured keeps its zoom. */
+    /* A layer already configured keeps its zoom and its line scroll. */
     nbg::Layer previous{};
-    if (hal::nbg_layer(config->layer, &previous)) layer.reduction = previous.reduction;
+    if (hal::nbg_layer(config->layer, &previous)) {
+        layer.reduction = previous.reduction;
+        layer.ls_h = previous.ls_h;
+        layer.ls_v = previous.ls_v;
+        layer.ls_zoom = previous.ls_zoom;
+        layer.ls_interval = previous.ls_interval;
+        layer.ls_address = previous.ls_address;
+    }
     return to_result(hal::nbg_configure(config->layer, layer));
 }
 
@@ -165,5 +174,184 @@ extern "C" sat_result_t sat_vdp2_layer_cycle_patterns(uint16_t out_registers[8])
     SAT_TRY(saturn::core::require_initialized());
     if (out_registers == nullptr) return SAT_ERR_INVALID_ARG;
     for (uint8_t i = 0u; i < 8u; ++i) out_registers[i] = hal::nbg_cycle_word(i);
+    return SAT_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* Raster effects                                                      */
+/* ------------------------------------------------------------------ */
+
+namespace {
+
+constexpr uint32_t kChunkWords = 64u;
+
+/* Writes `words` at a byte address through the validated VRAM writer. */
+sat_result_t write_table(uint32_t byte_address, const uint16_t* words, uint32_t count) {
+    return sat_vdp2_vram_write_words(byte_address / 2u, words, count);
+}
+
+uint32_t entry_words(const nbg::Layer& l) {
+    return nbg::line_scroll_entry_words(l.ls_h, l.ls_v, l.ls_zoom);
+}
+
+/* Appends one entry's words for the layer's enabled fields. */
+uint32_t encode_entry(const nbg::Layer& l, const sat_vdp2_line_scroll_entry_t& e, uint16_t* out) {
+    uint32_t n = 0u;
+    if (l.ls_h) { nbg::encode_scroll(e.x, &out[n], &out[n + 1u]); n += 2u; }
+    if (l.ls_v) { nbg::encode_scroll(e.y, &out[n], &out[n + 1u]); n += 2u; }
+    if (l.ls_zoom) { nbg::encode_increment(e.zoom, &out[n], &out[n + 1u]); n += 2u; }
+    return n;
+}
+
+}  // namespace
+
+extern "C" uint32_t sat_vdp2_line_scroll_table_bytes(const sat_vdp2_line_scroll_config_t* config,
+                                                     uint32_t lines) {
+    if (config == nullptr || config->interval > 3u) return 0u;
+    const uint32_t words = nbg::line_scroll_entry_words(config->horizontal != 0u,
+                                                        config->vertical != 0u, config->zoom != 0u);
+    return nbg::line_scroll_entries(lines, config->interval) * words * 2u;
+}
+
+extern "C" sat_result_t sat_vdp2_layer_line_scroll_enable(const sat_vdp2_line_scroll_config_t* config) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (config == nullptr || static_cast<uint32_t>(config->layer) > 1u || config->interval > 3u ||
+        (config->horizontal == 0u && config->vertical == 0u && config->zoom == 0u)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    nbg::Layer current{};
+    if (!hal::nbg_layer(config->layer, &current)) return SAT_ERR_NOT_FOUND;
+    current.ls_h = config->horizontal != 0u;
+    current.ls_v = config->vertical != 0u;
+    current.ls_zoom = config->zoom != 0u;
+    current.ls_interval = config->interval;
+    current.ls_address = config->table_address;
+    return to_result(hal::nbg_configure(config->layer, current));
+}
+
+extern "C" sat_result_t sat_vdp2_layer_line_scroll_disable(sat_vdp2_layer_t layer) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (static_cast<uint32_t>(layer) > 1u) return SAT_ERR_INVALID_ARG;
+    nbg::Layer current{};
+    if (!hal::nbg_layer(static_cast<uint8_t>(layer), &current)) return SAT_ERR_NOT_FOUND;
+    current.ls_h = current.ls_v = current.ls_zoom = false;
+    return to_result(hal::nbg_configure(static_cast<uint8_t>(layer), current));
+}
+
+extern "C" sat_result_t sat_vdp2_line_scroll_write(sat_vdp2_layer_t layer, uint32_t first_entry,
+                                                   const sat_vdp2_line_scroll_entry_t* entries,
+                                                   uint32_t count) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (static_cast<uint32_t>(layer) > 1u || entries == nullptr) return SAT_ERR_INVALID_ARG;
+    nbg::Layer l{};
+    if (!hal::nbg_layer(static_cast<uint8_t>(layer), &l)) return SAT_ERR_NOT_FOUND;
+    const uint32_t per = entry_words(l);
+    if (per == 0u) return SAT_ERR_UNSUPPORTED;
+    uint16_t chunk[kChunkWords];
+    uint32_t used = 0u;
+    uint32_t address = l.ls_address + first_entry * per * 2u;
+    for (uint32_t i = 0u; i < count; ++i) {
+        if (used + per > kChunkWords) {
+            SAT_TRY(write_table(address, chunk, used));
+            address += used * 2u;
+            used = 0u;
+        }
+        used += encode_entry(l, entries[i], chunk + used);
+    }
+    if (used != 0u) SAT_TRY(write_table(address, chunk, used));
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_line_scroll_fill_wave(sat_vdp2_layer_t layer, uint32_t lines,
+                                                       int32_t amplitude, uint32_t period_lines,
+                                                       int32_t phase_degrees) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (static_cast<uint32_t>(layer) > 1u || period_lines == 0u) return SAT_ERR_INVALID_ARG;
+    nbg::Layer l{};
+    if (!hal::nbg_layer(static_cast<uint8_t>(layer), &l)) return SAT_ERR_NOT_FOUND;
+    if (!l.ls_h) return SAT_ERR_UNSUPPORTED;
+    const uint32_t entries = nbg::line_scroll_entries(lines, l.ls_interval);
+    const uint32_t step_lines = 1u << l.ls_interval;
+    /* 360 degrees per period, in 16.16. */
+    const int64_t per_line = (360ll << 16) / static_cast<int64_t>(period_lines);
+    for (uint32_t first = 0u; first < entries;) {
+        sat_vdp2_line_scroll_entry_t batch[16];
+        uint32_t n = 0u;
+        for (; n < 16u && first + n < entries; ++n) {
+            const int64_t angle = static_cast<int64_t>(phase_degrees) +
+                                  per_line * static_cast<int64_t>((first + n) * step_lines);
+            const int32_t wrapped = static_cast<int32_t>(angle % (360ll << 16));
+            const sat_fx16_t s = sat_sin_deg(wrapped);
+            batch[n].x = static_cast<int32_t>((static_cast<int64_t>(s) * amplitude) >> 16);
+            batch[n].y = 0;
+            batch[n].zoom = 0x10000u;
+        }
+        SAT_TRY(sat_vdp2_line_scroll_write(layer, first, batch, n));
+        first += n;
+    }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_vertical_cell_scroll_write(sat_vdp2_layer_t layer, uint32_t first_cell,
+                                                            const int32_t* values, uint32_t count) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (static_cast<uint32_t>(layer) > 1u || values == nullptr) return SAT_ERR_INVALID_ARG;
+    nbg::Layer l{};
+    if (!hal::nbg_layer(static_cast<uint8_t>(layer), &l)) return SAT_ERR_NOT_FOUND;
+    if (!l.vcs) return SAT_ERR_UNSUPPORTED;
+    nbg::Layer other{};
+    const bool both = hal::nbg_layer(static_cast<uint8_t>(1u - static_cast<uint32_t>(layer)), &other) &&
+                      other.enabled && other.vcs;
+    uint16_t pair[2];
+    for (uint32_t i = 0u; i < count; ++i) {
+        nbg::encode_scroll(values[i], &pair[0], &pair[1]);
+        const uint32_t word = nbg::vcs_word_offset(first_cell + i, static_cast<uint8_t>(layer), both);
+        SAT_TRY(write_table(l.vcs_address + word * 2u, pair, 2u));
+    }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_back_screen_set_lines(uint32_t table_address, const uint16_t* rgb555,
+                                                       uint32_t count) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (rgb555 == nullptr || count == 0u || (table_address & 1u) != 0u) return SAT_ERR_INVALID_ARG;
+    uint16_t chunk[kChunkWords];
+    uint32_t address = table_address;
+    for (uint32_t done = 0u; done < count;) {
+        const uint32_t n = count - done < kChunkWords ? count - done : kChunkWords;
+        for (uint32_t i = 0u; i < n; ++i) chunk[i] = static_cast<uint16_t>(rgb555[done + i] & 0x7FFFu);
+        SAT_TRY(write_table(address, chunk, n));
+        address += n * 2u;
+        done += n;
+    }
+    hal::set_backdrop_lines(table_address / 2u);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_line_color_screen_set(uint32_t table_address,
+                                                       const uint16_t* cram_indices, uint32_t count) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (cram_indices == nullptr || count == 0u || (table_address & 1u) != 0u) return SAT_ERR_INVALID_ARG;
+    uint16_t chunk[kChunkWords];
+    uint32_t address = table_address;
+    for (uint32_t done = 0u; done < count;) {
+        const uint32_t n = count - done < kChunkWords ? count - done : kChunkWords;
+        for (uint32_t i = 0u; i < n; ++i) chunk[i] = static_cast<uint16_t>(cram_indices[done + i] & 0x07FFu);
+        SAT_TRY(write_table(address, chunk, n));
+        address += n * 2u;
+        done += n;
+    }
+    hal::set_line_color_screen(table_address / 2u);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_layer_set_line_color_insert(sat_vdp2_layer_t layer, uint8_t enabled) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (!valid_layer(layer)) return SAT_ERR_INVALID_ARG;
+    /* LNCLEN keeps one bit per screen; the layers own bits 0-3. */
+    static uint16_t mask = 0u;
+    const uint16_t bit = static_cast<uint16_t>(1u << static_cast<uint32_t>(layer));
+    mask = enabled != 0u ? static_cast<uint16_t>(mask | bit) : static_cast<uint16_t>(mask & ~bit);
+    hal::set_line_color_layers(mask);
     return SAT_OK;
 }

@@ -81,6 +81,12 @@ uint16_t g_last_ccctl_written = 0x0000u;
 /* Colour offset: CLOFEN, CLOFSL, then COAR/G/B and COBR/G/B. */
 uint16_t g_last_color_offset_written[8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
 bool g_nbg0_configured = false;
+/* Per-line raster tables (set_backdrop_lines, set_line_color_screen). */
+bool g_back_lines = false;
+uint32_t g_back_lines_word = 0u;
+bool g_line_color = false;
+uint32_t g_line_color_word = 0u;
+uint16_t g_lncl_layers = 0u;
 /* Hi-res (640/704 wide) state: the VDP1 framebuffer is 8 bits/pixel, which
  * VDP2 must read as sprite type C, and its codes index one 256-colour CRAM
  * bank chosen by CRAOFB. Both are replayed by commit_layers(). */
@@ -628,6 +634,7 @@ void set_map_offset(uint16_t offset) {
 }
 
 void set_backdrop_color(uint16_t rgb555) {
+    g_back_lines = false;
     set_backdrop_table_word_offset(kBackdropTableWordOffset);
     VDP2_VRAM_16[kBackdropTableWordOffset] = static_cast<uint16_t>(rgb555 & 0x7FFFu);
     TVMD = static_cast<uint16_t>(TVMD | kTvmdBdclmd);
@@ -1008,11 +1015,58 @@ void nbg_write_all() {
             set_reg(base + 2u, static_cast<uint16_t>(s.y_int & 0x07FFu));
         }
     }
+    /* Vertical cell scroll table (shared) and each layer's line scroll table. */
+    if (r.vcsta_u != 0u || r.vcsta_l != 0u) {
+        set_reg(0x09Cu, r.vcsta_u);
+        set_reg(0x09Eu, r.vcsta_l);
+    }
+    for (uint8_t i = 0u; i < 2u; ++i) {
+        if (!g_nbg_used[i]) continue;
+        if (r.lsta_u[i] == 0u && r.lsta_l[i] == 0u) continue;
+        set_reg(static_cast<uint32_t>(0x0A0u + 4u * i), r.lsta_u[i]);
+        set_reg(static_cast<uint32_t>(0x0A2u + 4u * i), r.lsta_l[i]);
+    }
     merge_reg(kOffBgon, owned_bgon, static_cast<uint16_t>(r.bgon_on | r.bgon_opaque_zero));
     g_last_rbg0_bgon_written = get_reg(kOffBgon);
 }
 
+/* Raster tables: back screen colour per line, line colour screen. */
+
+void write_raster_tables() {
+    if (g_back_lines) {
+        set_reg(0x0ACu, static_cast<uint16_t>(0x8000u | ((g_back_lines_word >> 16u) & 7u)));
+        set_reg(0x0AEu, static_cast<uint16_t>(g_back_lines_word & 0xFFFFu));
+    }
+    if (g_line_color) {
+        set_reg(0x0A8u, static_cast<uint16_t>(0x8000u | ((g_line_color_word >> 16u) & 7u)));
+        set_reg(0x0AAu, static_cast<uint16_t>(g_line_color_word & 0xFFFFu));
+    }
+    if (g_lncl_layers != 0u || g_line_color) set_reg(0x0E8u, g_lncl_layers);
+}
+
 }  // namespace
+
+void commit_raster_tables() {
+    write_raster_tables();
+}
+
+void set_backdrop_lines(uint32_t table_word_offset) {
+    g_back_lines = true;
+    g_back_lines_word = table_word_offset & 0x0007FFFFu;
+    write_raster_tables();
+    TVMD = static_cast<uint16_t>(TVMD | kTvmdBdclmd);
+}
+
+void set_line_color_screen(uint32_t table_word_offset) {
+    g_line_color = true;
+    g_line_color_word = table_word_offset & 0x0007FFFFu;
+    write_raster_tables();
+}
+
+void set_line_color_layers(uint16_t layer_mask) {
+    g_lncl_layers = static_cast<uint16_t>(layer_mask & 0x003Fu);
+    write_raster_tables();
+}
 
 bool nbg_active() {
     return g_nbg_active;
@@ -1141,6 +1195,7 @@ void commit_layers() {
     } else {
         commit_rbg0_config();
     }
+    commit_raster_tables();
 }
 
 void set_rbg0_param_mode(RBG0ParamMode mode) {

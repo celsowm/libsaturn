@@ -151,6 +151,15 @@ void nbg_set_zoom_increment(uint8_t index, uint16_t x_int, uint16_t x_frac, uint
 uint16_t nbg_cycle_word(uint8_t i);
 void commit_nbg_layers();
 
+/* Per-line raster tables. Word offsets are VDP2 VRAM word addresses; the
+ * tables are replayed by commit_layers(). A later set_backdrop_color() goes
+ * back to a single back screen colour. */
+void set_backdrop_lines(uint32_t table_word_offset);
+void set_line_color_screen(uint32_t table_word_offset);
+/* LNCLEN: bit n inserts the line colour screen under NBGn (bit 4 RBG0, bit 5 sprites). */
+void set_line_color_layers(uint16_t layer_mask);
+void commit_raster_tables();
+
 // Rotation parameter table upload
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count);
 

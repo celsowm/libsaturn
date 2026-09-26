@@ -106,6 +106,74 @@ sat_result_t sat_vdp2_layer_set_scroll(sat_vdp2_layer_t layer, int32_t x, int32_
  * SAT_ERR_CAPACITY; the range is 1/4 to 8 times. */
 sat_result_t sat_vdp2_layer_set_zoom(sat_vdp2_layer_t layer, uint32_t zoom_x, uint32_t zoom_y);
 
+/* ------------------------------------------------------------------ */
+/* Raster effects: tables the VDP2 reads while it draws each line       */
+/* ------------------------------------------------------------------ */
+
+/* Line scroll (NBG0, NBG1): a table in VRAM gives, for every line or group of
+ * 2, 4 or 8 lines, any of a horizontal scroll, a vertical scroll and a
+ * horizontal coordinate increment (zoom), added to the layer's own scroll
+ * registers. An entry holds the enabled fields in that order, two 16-bit
+ * words each. The table needs no cycle pattern, but it must not overlap
+ * anything else in VRAM. */
+typedef struct sat_vdp2_line_scroll_config {
+    uint8_t layer;           /* SAT_VDP2_NBG0 or SAT_VDP2_NBG1, already configured */
+    uint8_t horizontal;      /* entries carry a horizontal scroll */
+    uint8_t vertical;        /* ... a vertical scroll */
+    uint8_t zoom;            /* ... a horizontal coordinate increment */
+    uint8_t interval;        /* 0..3: a new entry every 1, 2, 4 or 8 lines */
+    uint8_t reserved0;
+    uint16_t reserved1;
+    uint32_t table_address;  /* byte address in VDP2 VRAM, even */
+} sat_vdp2_line_scroll_config_t;
+
+typedef struct sat_vdp2_line_scroll_entry {
+    int32_t x;               /* horizontal scroll, 16.16 fixed point */
+    int32_t y;               /* vertical scroll, 16.16 */
+    uint32_t zoom;           /* horizontal coordinate increment, 16.16 (0x10000: 1:1) */
+} sat_vdp2_line_scroll_entry_t;
+
+/* Bytes a table needs for `lines` display lines. */
+uint32_t sat_vdp2_line_scroll_table_bytes(const sat_vdp2_line_scroll_config_t* config, uint32_t lines);
+
+sat_result_t sat_vdp2_layer_line_scroll_enable(const sat_vdp2_line_scroll_config_t* config);
+sat_result_t sat_vdp2_layer_line_scroll_disable(sat_vdp2_layer_t layer);
+
+/* Writes entries (only the enabled fields are stored) starting at entry
+ * `first_entry`. */
+sat_result_t sat_vdp2_line_scroll_write(sat_vdp2_layer_t layer, uint32_t first_entry,
+                                        const sat_vdp2_line_scroll_entry_t* entries, uint32_t count);
+
+/* Fills the whole table for `lines` lines with a horizontal sine wave:
+ * `amplitude` in 16.16 dots, one period every `period_lines` lines, starting
+ * at `phase_degrees` (16.16). The other enabled fields get 0 and 1:1. The
+ * classic water and heat-haze wobble, at no CPU cost per frame beyond
+ * rewriting the phase. */
+sat_result_t sat_vdp2_line_scroll_fill_wave(sat_vdp2_layer_t layer, uint32_t lines,
+                                            int32_t amplitude, uint32_t period_lines,
+                                            int32_t phase_degrees);
+
+/* Vertical cell scroll: one vertical scroll per 8-dot column (the layer must
+ * have been configured with vertical_cell_scroll = 1 and a table address).
+ * NBG0 and NBG1 share one table, their entries alternating: the layer decides
+ * which slot is written. Values are 16.16, relative to the layer's scroll. */
+sat_result_t sat_vdp2_vertical_cell_scroll_write(sat_vdp2_layer_t layer, uint32_t first_cell,
+                                                 const int32_t* values, uint32_t count);
+
+/* Back screen colour per line (RGB555, one word per line, at least the
+ * display height). The single-colour sat_vdp2_set_backdrop_color, and the
+ * sat_app_frame_begin helper that calls it every frame, switch back to one
+ * colour. */
+sat_result_t sat_vdp2_back_screen_set_lines(uint32_t table_address, const uint16_t* rgb555,
+                                            uint32_t count);
+
+/* Line colour screen: a colour RAM index per line, used as the colour a layer
+ * is blended with. The blend needs colour calculation enabled for that layer;
+ * sat_vdp2_layer_set_line_color_insert selects which layers get it. */
+sat_result_t sat_vdp2_line_color_screen_set(uint32_t table_address, const uint16_t* cram_indices,
+                                            uint32_t count);
+sat_result_t sat_vdp2_layer_set_line_color_insert(sat_vdp2_layer_t layer, uint8_t enabled);
+
 /* The eight cycle pattern registers last written: A0L A0U A1L A1U B0L B0U
  * B1L B1U. For tests and debugging. */
 sat_result_t sat_vdp2_layer_cycle_patterns(uint16_t out_registers[8]);

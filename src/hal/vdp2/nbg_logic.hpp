@@ -44,6 +44,12 @@ struct Layer {
     uint32_t plane_address[4]; /* cell: pattern name tables A..D; bitmap: [0] = bitmap base */
     uint8_t char_banks;        /* banks holding character data (cell format) */
     uint32_t vcs_address;      /* vertical cell scroll table (byte address) */
+    /* Line scroll (NBG0, NBG1): a table in VRAM with, per line or group of
+     * lines, any of a horizontal scroll, a vertical scroll and a horizontal
+     * coordinate increment, in that order. */
+    bool ls_h, ls_v, ls_zoom;
+    uint8_t ls_interval;       /* 0..3: the table advances every 1, 2, 4, 8 lines */
+    uint32_t ls_address;       /* byte address of the line scroll table */
 };
 
 enum class Status : uint8_t {
@@ -139,6 +145,12 @@ inline Status validate(uint8_t index, const Layer& l, bool split_a, bool split_b
         if (l.colors != Colors::C16 && l.colors != Colors::C256) return Status::BadFormat;
     }
     if (l.reduction > 2u) return Status::BadReduction;
+    /* Long-word tables: the registers hold word addresses with bit 0 fixed at 0. */
+    if (l.vcs && ((l.vcs_address & 3u) != 0u || l.vcs_address >= kVramBytes)) return Status::BadPlane;
+    if (l.ls_h || l.ls_v || l.ls_zoom) {
+        if (index >= 2u || l.ls_interval > 3u) return Status::BadFormat;
+        if ((l.ls_address & 3u) != 0u || l.ls_address >= kVramBytes) return Status::BadPlane;
+    }
     if (l.bitmap) {
         if (l.bitmap_size > 3u) return Status::BadFormat;
         const uint32_t bytes = bitmap_bytes(l.bitmap_size, l.colors);
@@ -164,6 +176,38 @@ inline Status validate(uint8_t index, const Layer& l, bool split_a, bool split_b
     return Status::Ok;
 }
 
+/* ---- line scroll and vertical cell scroll tables (manual 5.3) ---------- */
+
+/* Words in one line scroll table entry: two per enabled field. */
+inline uint32_t line_scroll_entry_words(bool h, bool v, bool zoom) {
+    return 2u * ((h ? 1u : 0u) + (v ? 1u : 0u) + (zoom ? 1u : 0u));
+}
+
+/* Entries a table needs for `lines` display lines at the interval. */
+inline uint32_t line_scroll_entries(uint32_t lines, uint8_t interval) {
+    const uint32_t step = 1u << interval;
+    return (lines + step - 1u) / step;
+}
+
+/* A scroll value in 16.16 fixed point as the two table words: the integer
+ * part (11 bits, wrapping) and the fraction's top 8 bits in bits 15-8. */
+inline void encode_scroll(int32_t value, uint16_t* integer_word, uint16_t* fraction_word) {
+    *integer_word = static_cast<uint16_t>((value >> 16) & 0x07FF);
+    *fraction_word = static_cast<uint16_t>(((value >> 8) & 0xFF) << 8u);
+}
+
+/* A coordinate increment in 16.16: 3 integer bits, 8 fraction bits. */
+inline void encode_increment(uint32_t value, uint16_t* integer_word, uint16_t* fraction_word) {
+    *integer_word = static_cast<uint16_t>((value >> 16) & 0x7u);
+    *fraction_word = static_cast<uint16_t>(((value >> 8) & 0xFFu) << 8u);
+}
+
+/* Vertical cell scroll table: one 32-bit value per 8-dot cell column,
+ * NBG0 and NBG1 alternating when both use it. Word offset of a cell's entry. */
+inline uint32_t vcs_word_offset(uint32_t cell, uint8_t layer, bool both) {
+    return both ? (cell * 2u + (layer != 0u ? 1u : 0u)) * 2u : cell * 2u;
+}
+
 /* ---- register composition ---------------------------------------------- */
 
 struct Registers {
@@ -178,6 +222,8 @@ struct Registers {
     uint16_t prina, prinb;
     uint16_t zmctl;
     uint16_t scrctl;
+    uint16_t vcsta_u, vcsta_l;   /* vertical cell scroll table (shared by NBG0 and NBG1) */
+    uint16_t lsta_u[2], lsta_l[2];   /* line scroll tables of NBG0 and NBG1 */
 };
 
 inline uint16_t char_color_field(Colors c) {
@@ -241,8 +287,26 @@ inline Registers compose(const Layer layers[kLayerCount]) {
         if (layers[i].reduction == 1u) r.zmctl = static_cast<uint16_t>(r.zmctl | (1u << (8u * i)));
         if (layers[i].reduction == 2u) r.zmctl = static_cast<uint16_t>(r.zmctl | (2u << (8u * i)));
     }
-    if (layers[0].enabled && layers[0].vcs) r.scrctl = static_cast<uint16_t>(r.scrctl | 0x0001u);
-    if (layers[1].enabled && layers[1].vcs) r.scrctl = static_cast<uint16_t>(r.scrctl | 0x0100u);
+    for (uint8_t i = 0u; i < 2u; ++i) {
+        const Layer& l = layers[i];
+        if (!l.enabled) continue;
+        uint16_t bits = 0u;
+        if (l.vcs) bits |= 0x01u;
+        if (l.ls_h) bits |= 0x02u;
+        if (l.ls_v) bits |= 0x04u;
+        if (l.ls_zoom) bits |= 0x08u;
+        if (l.ls_h || l.ls_v || l.ls_zoom) {
+            bits |= static_cast<uint16_t>((l.ls_interval & 3u) << 4u);
+            /* The registers take a word address (byte address / 2). */
+            r.lsta_u[i] = static_cast<uint16_t>(((l.ls_address >> 1u) >> 16u) & 7u);
+            r.lsta_l[i] = static_cast<uint16_t>((l.ls_address >> 1u) & 0xFFFEu);
+        }
+        r.scrctl = static_cast<uint16_t>(r.scrctl | (bits << (8u * i)));
+        if (l.vcs && r.vcsta_l == 0u && r.vcsta_u == 0u) {
+            r.vcsta_u = static_cast<uint16_t>(((l.vcs_address >> 1u) >> 16u) & 7u);
+            r.vcsta_l = static_cast<uint16_t>((l.vcs_address >> 1u) & 0xFFFEu);
+        }
+    }
     return r;
 }
 
@@ -369,6 +433,12 @@ inline Plan plan_cycles(const Layer layers[kLayerCount], bool split_a, bool spli
                         const Reserved* reserved = nullptr) {
     using namespace detail;
     Plan plan{};
+    /* NBG0 and NBG1 read one vertical cell scroll table between them. */
+    if (layers[0].enabled && layers[0].vcs && layers[1].enabled && layers[1].vcs &&
+        layers[0].vcs_address != layers[1].vcs_address) {
+        plan.status = Status::BadPlane;
+        return plan;
+    }
     Request req[kMaxRequests];
     uint8_t count = 0u;
     int8_t vcs_first = -1;
