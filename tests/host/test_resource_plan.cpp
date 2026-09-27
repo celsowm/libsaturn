@@ -20,6 +20,16 @@ int main() {
     uint32_t limit = 0u;
     OK(sat_resource_plan_usage(&plan, SAT_RESOURCE_MAIN_RAM, &bytes, &limit) == SAT_OK);
     OK(bytes == 64u && limit == 100u);
+    /* The RAM cartridge is a budgeted resource of its own. */
+    sat_resource_plan_entry_t cart_entries[2] = {};
+    sat_resource_plan_t cart_plan{};
+    OK(sat_resource_plan_init(&cart_plan, cart_entries, 2u) == SAT_OK);
+    OK(sat_resource_plan_set_limit(&cart_plan, SAT_RESOURCE_RAM_CART, 4u * 1024u * 1024u) == SAT_OK);
+    OK(sat_resource_plan_add(&cart_plan, SAT_RESOURCE_RAM_CART, 3u * 1024u * 1024u, 32u, 1u) == SAT_OK);
+    OK(sat_resource_plan_add(&cart_plan, SAT_RESOURCE_RAM_CART, 2u * 1024u * 1024u, 32u, 1u) == SAT_ERR_CAPACITY);
+    OK(sat_resource_plan_usage(&cart_plan, SAT_RESOURCE_RAM_CART, &bytes, &limit) == SAT_OK);
+    OK(bytes == 3u * 1024u * 1024u && limit == 4u * 1024u * 1024u);
+    OK(sat_resource_plan_set_limit(&cart_plan, SAT_RESOURCE_KIND_COUNT, 1u) == SAT_ERR_INVALID_ARG);
     std::puts("resource plan: OK");
     return 0;
 }

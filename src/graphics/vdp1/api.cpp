@@ -121,6 +121,16 @@ extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp1_vram_reserve(uint32_t bytes, uint32_t* out_offset) {
+    SAT_TRY(saturn::core::require_initialized());
+    return saturn::hal::vdp1::reserve_texture_region(bytes, out_offset);
+}
+
+extern "C" sat_result_t sat_vdp1_vram_write(uint32_t offset, const void* src, uint32_t bytes) {
+    SAT_TRY(saturn::core::require_initialized());
+    return saturn::hal::vdp1::write_texture_region(offset, src, bytes);
+}
+
 extern "C" sat_result_t sat_vdp1_upload_lut(const uint16_t* lut_rgb555, uint16_t* out_lut) {
     SAT_TRY(saturn::core::require_initialized());
     if (lut_rgb555 == nullptr || out_lut == nullptr) return SAT_ERR_INVALID_ARG;

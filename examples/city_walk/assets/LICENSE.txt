@@ -1,0 +1,17 @@
+Low Poly City Game-Ready
+========================
+
+Author:  costoWRLD  (https://sketchfab.com/wrld_poly)
+Source:  https://sketchfab.com/3d-models/low-poly-city-game-ready-c7e3a158515c4e9da31ae52c30403cef
+License: CC-BY-4.0  (http://creativecommons.org/licenses/by/4.0/)
+
+This file (low_poly_city.glb) is a redistribution of the above model, compressed
+with glTF-Transform v4.4.2 (KHR_draco_mesh_compression + EXT_texture_webp).
+sha256: bfc5003400794182edafaabb0726c7364c8bbc516596530d2b04b99ba94bc8a0
+
+Attribution is REQUIRED by CC-BY-4.0 wherever this asset or anything derived from
+it is shown, including the city_walk demo's on-screen credits and its README.
+
+The derived artifacts produced by tools/city_chunker.py (CITY.BIN and the decoded
+intermediate GLB under build/generated/city_walk/) are derivative works of this
+model and carry the same license and attribution requirement.

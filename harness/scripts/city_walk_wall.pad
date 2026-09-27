@@ -1,0 +1,19 @@
+# city_walk: jump to the seventh viewpoint (six X presses), which faces a
+# building 17.5 units ahead, then walk straight at it for a long time. With
+# collision the walker stops just short of the wall: the position freezes and
+# `collisions` keeps counting, instead of ending up inside or behind it.
+0    NONE
+250  X
+252  NONE
+262  X
+264  NONE
+274  X
+276  NONE
+286  X
+288  NONE
+298  X
+300  NONE
+310  X
+312  NONE
+340  UP
+700  NONE

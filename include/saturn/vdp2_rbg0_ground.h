@@ -62,6 +62,16 @@ static inline uint16_t sat_vdp2_rbg0_ground_kast_word(uint32_t coef_base_word) {
     return (uint16_t)(byte_addr / 4u);
 }
 
+/* KTAOF offset (parameter A, bits 2..0) that goes with that KAst. KAst holds
+ * only the low 16 bits of byte_address / 4, i.e. the first 256 KiB of VRAM;
+ * the table address is ((KTAOF << 16) | KAst) * 4. A table in bank B0 or B1
+ * (above VRAM byte 0x3FFFF, where it has to be once a 512x512 8 bpp bitmap
+ * fills A0 and A1) needs a non-zero offset, or the VDP2 reads its
+ * coefficients out of the bitmap. */
+static inline uint16_t sat_vdp2_rbg0_ground_ktaof(uint32_t coef_base_word) {
+    return (uint16_t)(((coef_base_word * 2u / 4u) >> 16) & 0x7u);
+}
+
 /* Sign-extends the low 13 bits of a rotation-table word (the Mx/My/Px/Py/etc.
  * integer field width per p06_30.md Figure 6.2).
  */

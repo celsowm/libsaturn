@@ -15,6 +15,9 @@ static uint16_t projected_vertices=0;
 static uint16_t clipped_count=0;
 static sat_result_t distorted_draw_status=SAT_OK;
 static sat_result_t polygon_draw_status=SAT_OK;
+/* 0: the textured-quad stub reports the sprite as not drawable (a corner
+ * behind the near plane), the case a fallback colour exists for. */
+static uint8_t textured_drawable=1u;
 
 static bool same_texture(const sat_vdp1_texture_t* a,
                          const sat_vdp1_texture_t* b) {
@@ -131,8 +134,8 @@ extern "C" sat_result_t sat_draw_polygon_quad3_gouraud(
 extern "C" sat_result_t sat_draw_indexed_textured_quad3(
     const sat_quad3_t*,const sat_indexed_solid_render3d_t*,
     const sat_vdp1_texture_t* tex,uint8_t* drawn) {
-    if(drawn) *drawn=1u;
-    emitted[emitted_count++]=tex->srca;
+    if(drawn) *drawn=textured_drawable;
+    if(textured_drawable) emitted[emitted_count++]=tex->srca;
     return SAT_OK;
 }
 extern "C" sat_result_t sat_draw_indexed_tiled_quad3(
@@ -574,6 +577,39 @@ int main() {
     assert(scene.count==1u && scene.clipped_faces==1u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     assert(scene.fallback_faces==1u && clipped_count==1u);
+
+    // A textured face the sprite path cannot draw whole (a corner behind the
+    // near plane) is dropped without a fallback colour, and drawn as a
+    // clipped solid polygon of that colour with one.
+    {
+        sat_vdp1_texture_t wall_tex={};
+        wall_tex.valid=1u;wall_tex.srca=77u;
+        sat_scene3d_material_t wall_mat={
+            SAT_SCENE3D_INDEXED_TEXTURED,0u,&wall_tex,nullptr,
+            SAT_INDEXED_SOLID_OPAQUE,nullptr};
+        textured_drawable=0u;
+        for (uint16_t fallback=0u;fallback<2u;++fallback) {
+            wall_mat.rgb555=fallback ? 0x8123u : 0u;
+            emitted_count=0;
+            clipped_count=0;
+            assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+                SAT_FX16_ONE,320u,224u)==SAT_OK);
+            assert(sat_scene3d_faces_submit_quad(
+                &scene,&oversized,&wall_mat,0u)==SAT_OK);
+            assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+            if (fallback) assert(emitted_count==1u && emitted[0]==0x8123u && clipped_count==1u);
+            else assert(emitted_count==0u && clipped_count==0u);
+        }
+        // A drawable textured face ignores the fallback colour.
+        textured_drawable=1u;
+        emitted_count=0;
+        assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+            SAT_FX16_ONE,320u,224u)==SAT_OK);
+        assert(sat_scene3d_faces_submit_quad(
+            &scene,&oversized,&wall_mat,0u)==SAT_OK);
+        assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+        assert(emitted_count==1u && emitted[0]==77u);
+    }
 
     // A fully hidden face is counted as culled and never enters storage.
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,

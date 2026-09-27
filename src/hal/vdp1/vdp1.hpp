@@ -152,6 +152,12 @@ bool wait_draw_end();
 uint32_t draw_waits();
 uint32_t draw_timeouts();
 
+/* Texture VRAM an application streams into itself (sat_vdp1_vram_*):
+ * reserve takes an 8-byte aligned span from the upload arena; write copies
+ * into [kTextureBase, arena cursor) after the VDP1 finished its last list. */
+sat_result_t reserve_texture_region(uint32_t bytes, uint32_t* out_offset);
+sat_result_t write_texture_region(uint32_t offset, const void* src, uint32_t bytes);
+
 /* Every check update_texture_indexed8_pitched / _rect perform before
  * writing, without writing: callers preflight a multi-transfer update so it
  * fails before its first write rather than halfway through. */

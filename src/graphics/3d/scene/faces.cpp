@@ -174,9 +174,15 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
     if (face.material.kind==SAT_SCENE3D_INDEXED_SOLID)
         return sat_draw_indexed_solid_quad3(
             &face.world,&p,face.material.texture);
-    /* Textured UVs cannot be arbitrarily clipped on VDP1. */
-    return sat_draw_indexed_textured_quad3(
-        &face.world,&p,face.material.texture,nullptr);
+    /* Textured UVs cannot be arbitrarily clipped on VDP1. A face the sprite
+     * path cannot draw whole falls back to its solid colour, clipped, when
+     * the material names one, instead of leaving a hole at the camera. */
+    uint8_t drawn=0u;
+    const sat_result_t textured=sat_draw_indexed_textured_quad3(
+        &face.world,&p,face.material.texture,&drawn);
+    if (textured==SAT_OK && !drawn && face.material.rgb555!=0u)
+        return sat_draw_polygon_quad3(&face.world,&p,face.material.rgb555);
+    return textured;
 }
 } // namespace
 

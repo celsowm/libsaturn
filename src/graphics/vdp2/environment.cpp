@@ -81,6 +81,11 @@ extern "C" sat_result_t sat_vdp2_ground_environment_upload_coefficients(
     if (st != SAT_OK) return st;
     const sat_result_t mode7 = sat_vdp2_rbg0_mode7_init(&environment->mode7);
     if (mode7 != SAT_OK) return mode7;
+    /* mode7_init leaves the coefficient offset at 0; a table above the first
+     * 256 KiB of VRAM needs its high address bits there. */
+    const sat_result_t offset = sat_vdp2_rbg0_set_ktaof(
+        sat_vdp2_rbg0_ground_ktaof(environment->ground.coef_base_word));
+    if (offset != SAT_OK) return offset;
     environment->initialized = 1u;
     return SAT_OK;
 }

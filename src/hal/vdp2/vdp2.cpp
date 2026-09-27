@@ -723,46 +723,32 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
      * dedicated RAMCTL usage class.
      */
     uint16_t ramctl = g_nbg0_configured ? static_cast<uint16_t>(RAMCTL | 0x1100u) : 0x1100u;
-    const uint16_t bitmap_bank_id = static_cast<uint16_t>((bitmap_base_word >> 16u) & 0x0003u);
-    switch (bitmap_bank_id) {
-    case 0u:  // VRAM-A0
-        ramctl = static_cast<uint16_t>(ramctl | 0x0003u);
-        break;
-    case 1u:  // VRAM-A1
-        ramctl = static_cast<uint16_t>(ramctl | 0x000Cu);
-        break;
-    case 2u:  // VRAM-B0
-        ramctl = static_cast<uint16_t>(ramctl | 0x0030u);
-        break;
-    case 3u:  // VRAM-B1
-        ramctl = static_cast<uint16_t>(ramctl | 0x00C0u);
-        break;
-    default:
-        break;
+    /* RDBS field of one bank (2 bits each, A0 lowest): 11 = character /
+     * bitmap data of a rotation layer, 01 = coefficient table. A bitmap that
+     * outgrows one 128 KiB bank (512x512 at 8 bpp fills A0 and A1) needs
+     * EVERY bank it spans marked, or RBG0 reads the second half as nothing.
+     * Each field is set exactly, not OR-ed onto what it held before, so a
+     * bank that used to hold something else cannot end up as "bitmap". */
+    const auto set_bank = [&ramctl](uint16_t bank, uint16_t value) {
+        const uint16_t shift = static_cast<uint16_t>((bank & 0x0003u) * 2u);
+        ramctl = static_cast<uint16_t>((ramctl & ~(0x0003u << shift)) | (value << shift));
+    };
+    const uint32_t bitmap_words = saturn::core::rbg0_bitmap_word_size(
+        static_cast<sat_vdp2_rbg0_bitmap_size_t>(bitmap_size));
+    const uint16_t first_bank = static_cast<uint16_t>((bitmap_base_word >> 16u) & 0x0003u);
+    const uint16_t bank_count = static_cast<uint16_t>((bitmap_words + 0xFFFFu) >> 16u);
+    for (uint16_t b = 0u; b < bank_count && first_bank + b < 4u; ++b) {
+        set_bank(static_cast<uint16_t>(first_bank + b), 0x0003u);
     }
-
-    const uint16_t rot_bank_id = static_cast<uint16_t>((rot_param_base_word >> 16u) & 0x0003u);
-    switch (rot_bank_id) {
-    case 0u:  // VRAM-A0
-        ramctl = static_cast<uint16_t>(ramctl | 0x0001u);
-        break;
-    case 1u:  // VRAM-A1
-        ramctl = static_cast<uint16_t>(ramctl | 0x0004u);
-        break;
-    case 2u:  // VRAM-B0
-        ramctl = static_cast<uint16_t>(ramctl | 0x0010u);
-        break;
-    case 3u:  // VRAM-B1
-        ramctl = static_cast<uint16_t>(ramctl | 0x0040u);
-        break;
-    default:
-        break;
-    }
+    /* The coefficient table follows the rotation parameters in their bank. */
+    set_bank(static_cast<uint16_t>((rot_param_base_word >> 16u) & 0x0003u), 0x0001u);
 
     RAMCTL = ramctl;
     g_last_rbg0_ramctl_written = ramctl;
 
-    ensure_rbg0_bank_fetch_visible(bitmap_base_word, true);
+    for (uint16_t b = 0u; b < bank_count && first_bank + b < 4u; ++b) {
+        ensure_rbg0_bank_fetch_visible(bitmap_base_word + (static_cast<uint32_t>(b) << 16u), true);
+    }
     ensure_rbg0_bank_fetch_visible(rot_param_base_word, false);
 
     /* Configure CHCTLB for RBG0.

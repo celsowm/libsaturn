@@ -109,7 +109,8 @@ if (-not (Test-Path $binPath)) {
 $slaveResetEntry = $null
 if ($normalizedExample -eq 'dual_sh2' -or $normalizedExample -eq 'parallel_runtime' -or
     $normalizedExample -eq 'skybridge_3d' -or $normalizedExample -eq 'dino_demo' -or
-    $normalizedExample -eq 'parallel_sched_demo') {
+    $normalizedExample -eq 'parallel_sched_demo' -or
+    $normalizedExample -eq 'city_walk') {
     $elfPath = Join-Path $RepoRoot ("build\examples\{0}.elf" -f $safeName)
     if (-not (Test-Path $elfPath)) {
         throw "Expected $elfPath to resolve _saturn_slave_entry for the Ymir dual-SH2 handoff."

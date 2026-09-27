@@ -1,0 +1,13 @@
+# city_walk: visit each street viewpoint with X and stand still for a while.
+# Used to compare the VDP2 ground against the VDP1 buildings at known spots.
+0    NONE
+260  X
+261  NONE
+330  X
+331  NONE
+400  X
+401  NONE
+470  X
+471  NONE
+540  X
+541  NONE

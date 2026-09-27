@@ -141,6 +141,24 @@ sat_result_t sat_tex_upload_lut4_pixels(
     uint16_t lut
 );
 
+/* Streamed texture VRAM. The upload calls above allocate from a one-way
+ * arena: right for assets that live all game, wrong for a world that pages
+ * cells in and out and wants fixed VDP1 slots for their textures, rewritten
+ * as the cells change. sat_vdp1_vram_reserve takes `bytes` from the same
+ * arena once (8-byte aligned; it is released only by the next sat_init) and
+ * returns its VDP1 VRAM byte offset, so a pattern at byte `o` of the region
+ * has srca (offset + o) / 8: fill a sat_vdp1_texture_t with it yourself. */
+sat_result_t sat_vdp1_vram_reserve(uint32_t bytes, uint32_t* out_offset);
+
+/* Copies `bytes` from `src` (any readable memory, the RAM cart included) to
+ * reserved texture VRAM at byte `offset`. It first waits for the VDP1 to
+ * finish the last submitted command list, so a pattern that list still reads
+ * is never overwritten mid-draw: call it where the frame waits anyway, e.g.
+ * just before sat_end_frame. A range outside the texture arena that has been
+ * reserved or uploaded so far is refused with SAT_ERR_INVALID_ARG, nothing
+ * written; SAT_ERR_TIMEOUT if the VDP1 never finished. */
+sat_result_t sat_vdp1_vram_write(uint32_t offset, const void* src, uint32_t bytes);
+
 /* Call immediately after sat_begin_frame to reserve command-list slots for
  * an overlay/HUD drawn AFTER the world. In the world pass the shared VDP1
  * writer enforces this reservation for every sprite/polygon/line command;

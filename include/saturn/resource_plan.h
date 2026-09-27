@@ -18,7 +18,10 @@ typedef enum sat_resource_kind {
     SAT_RESOURCE_VDP2_VRAM = 4,
     SAT_RESOURCE_CRAM = 5,
     SAT_RESOURCE_AUDIO_STAGING = 6,
-    SAT_RESOURCE_KIND_COUNT = 7
+    /* RAM expansion cartridge bytes: what a program stages into it (see
+     * saturn/ram_cart.h). Its limit is the cartridge's capacity, 0 when absent. */
+    SAT_RESOURCE_RAM_CART = 7,
+    SAT_RESOURCE_KIND_COUNT = 8
 } sat_resource_kind_t;
 
 typedef struct sat_resource_plan_entry {

@@ -724,6 +724,26 @@ sat_result_t upload_texture_indexed8_pitched(
     return SAT_OK;
 }
 
+sat_result_t reserve_texture_region(uint32_t bytes, uint32_t* out_offset) {
+    if (out_offset == nullptr || bytes == 0u) return SAT_ERR_INVALID_ARG;
+    const uint32_t start = (g_texture_cursor + 7u) & ~7u;
+    const uint32_t size = (bytes + 7u) & ~7u;
+    if (start + size > kVramSize || start + size < start) return SAT_ERR_CAPACITY;
+    g_texture_cursor = start + size;
+    *out_offset = start;
+    return SAT_OK;
+}
+
+sat_result_t write_texture_region(uint32_t offset, const void* src, uint32_t bytes) {
+    if (src == nullptr || bytes == 0u) return SAT_ERR_INVALID_ARG;
+    if (offset < kTextureBase || offset + bytes > g_texture_cursor || offset + bytes < offset) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (!wait_draw_end()) return SAT_ERR_TIMEOUT;
+    uint8_t* vram = reinterpret_cast<uint8_t*>(kUncached | 0x05C00000u) + offset;
+    return scu::dma::copy(vram, src, bytes);
+}
+
 sat_result_t upload_texture_indexed8(
     const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t* out_srca) {
     return upload_texture_indexed8_pitched(pixels, width, height, width, out_srca);

@@ -45,6 +45,18 @@ sat_result_t upload_texture_indexed8(const uint8_t*, uint16_t, uint16_t, uint16_
 
 int g_lut_calls = 0;
 int g_lut4_calls = 0;
+int g_region_writes = 0;
+
+sat_result_t reserve_texture_region(uint32_t bytes, uint32_t* out_offset) {
+    if (out_offset == nullptr || bytes == 0u) return SAT_ERR_INVALID_ARG;
+    *out_offset = 0x14000u;
+    return SAT_OK;
+}
+
+sat_result_t write_texture_region(uint32_t, const void*, uint32_t) {
+    ++g_region_writes;
+    return SAT_OK;
+}
 
 sat_result_t upload_lut(const uint16_t*, uint16_t* out_colr) {
     ++g_lut_calls;

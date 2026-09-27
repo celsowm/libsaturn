@@ -1,0 +1,8 @@
+# city_walk: stand still while the city loads and primes, then run forward
+# across several chunks (which must page), turn about 90 degrees and run on.
+# The program reads no input before its first frame, so the script starts late.
+0    NONE
+300  UP+B
+650  LEFT
+700  UP+B
+1000 NONE

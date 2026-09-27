@@ -24,6 +24,11 @@ typedef enum sat_scene3d_material_kind {
 
 typedef struct sat_scene3d_material {
     sat_scene3d_material_kind_t kind;
+    /* RGB: the polygon colour. INDEXED_TEXTURED: optional fallback colour
+     * (0 = none). A distorted sprite cannot be clipped, so a textured face
+     * with a corner behind the near plane is otherwise dropped whole; with a
+     * fallback it is drawn as a near-clipped solid polygon of this colour
+     * instead (opaque: an RGB polygon has no colour-calc slot). */
     uint16_t rgb555;
     const sat_vdp1_texture_t* texture;
     /* Only used for INDEXED_TILED; descriptor must survive until flush. */
