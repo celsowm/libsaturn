@@ -43,11 +43,11 @@ MODEL_LOCALITY_ORDER     := on
 # view ~260, max zoom ~570) and box-filter the source down to that.
 MODEL_SAMPLING           := area
 MODEL_TEXEL_EXTENT       := 400
-# DINO_HIRES=1: 640x224 hi-res. The VDP1 framebuffer is then 8 bits/pixel,
+# DINO_HIRES=1: optional 640x224 hi-res. The VDP1 framebuffer is then 8 bits/pixel,
 # so lookup tables hold codes of one shared palette (0 transparent, 1 the
 # HUD's white, 254 the sprite shadow code), and faces bake more texels
 # for the doubled horizontal resolution.
-DINO_HIRES               ?= 1
+DINO_HIRES               ?= 0
 ifeq ($(DINO_HIRES),1)
 MODEL_LUT_CODES          := 2-253
 MODEL_TEXEL_EXTENT       := 480
@@ -57,9 +57,10 @@ EXAMPLE_ASSETS            := $(MODEL_OUT_PREFIX).c
 EXAMPLE_HEADERS           := $(MODEL_OUT_PREFIX).h
 
 # Declare a CD-backed music stream. The shared build converts its source to
-# S16BE PCM and generates the matching metadata header automatically.
+# blocked IMA ADPCM and generates the matching metadata header automatically.
 EXAMPLE_AUDIO_STREAMS := bone_and_plastic
 EXAMPLE_AUDIO_bone_and_plastic_SOURCE := examples/$(EXAMPLE)/audio-src/Bone_and_Plastic.ogg
-EXAMPLE_AUDIO_bone_and_plastic_DISC_PATH := audio/bone_and_plastic.pcm
+EXAMPLE_AUDIO_bone_and_plastic_DISC_PATH := audio/bone_and_plastic.adpcm
 EXAMPLE_AUDIO_bone_and_plastic_SAMPLE_RATE := 22050
 EXAMPLE_AUDIO_bone_and_plastic_CHANNELS := 2
+EXAMPLE_AUDIO_bone_and_plastic_FORMAT := ima_adpcm

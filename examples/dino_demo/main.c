@@ -23,7 +23,7 @@
  * single colour (teeth and claws) draw as plain polygons: same look, no
  * texture fetch.
  *
- * DINO_HIRES (Makefile.inc, on by default) runs 640x224: VDP1 writes 8-bit
+ * DINO_HIRES (Makefile.inc, optional) runs 640x224: VDP1 writes 8-bit
  * palette codes, the model's lookup tables hold codes of one shared
  * palette, and a solid face's "colour" is its palette code.
  *
@@ -34,7 +34,7 @@
  *   A          pause/resume animation
  *   B          reset yaw, pitch, zoom and animation
  *   C          toggle automatic slow orbit
- *   START      toggle the help HUD
+ *   START      toggle the expanded help overlay
  */
 #include <stdint.h>
 
@@ -184,8 +184,8 @@ static sat_result_t init_music(void) {
     if (st != SAT_OK) return st;
 
     g_music_source_desc = (sat_cdfs_source_desc_t){
-        "audio/bone_and_plastic.pcm",
-        "disc/audio/bone_and_plastic.pcm",
+        "audio/bone_and_plastic.adpcm",
+        "disc/audio/bone_and_plastic.adpcm",
         SAT_AUDIO_BONE_AND_PLASTIC_BYTES
     };
     st = sat_cdfs_register_source_manifest(
@@ -194,12 +194,12 @@ static sat_result_t init_music(void) {
 
     g_music_asset_desc = (sat_asset_desc_t){0};
     g_music_asset_desc.logical_path = "music/bone-and-plastic";
-    g_music_asset_desc.source_path = "disc/audio/bone_and_plastic.pcm";
+    g_music_asset_desc.source_path = "disc/audio/bone_and_plastic.adpcm";
     g_music_asset_desc.size = g_music_source.file.size;
     g_music_asset_desc.sample_rate = SAT_AUDIO_BONE_AND_PLASTIC_SAMPLE_RATE;
     g_music_asset_desc.sample_count = SAT_AUDIO_BONE_AND_PLASTIC_SAMPLE_COUNT;
     g_music_asset_desc.channels = SAT_AUDIO_BONE_AND_PLASTIC_CHANNELS;
-    g_music_asset_desc.format = SAT_AUDIO_PCM_S16;
+    g_music_asset_desc.format = SAT_AUDIO_BONE_AND_PLASTIC_FORMAT;
     g_music_asset_desc.kind = SAT_ASSET_STREAM;
     st = sat_asset_register(&g_music_asset_desc, &g_music_asset);
     if (st != SAT_OK) return st;
@@ -459,35 +459,37 @@ static void draw_text(const char *text, int x, int y) {
 
 static void draw_hud(void) {
     char line[SAT_FMT_U32_MAX + 16u];
+    const int offset = g_show_hud ? 20 : 0;
 
-    if (!g_show_hud) {
-        return;
+    if (g_show_hud) {
+        draw_text("T-REX WALK  L/R ROT  X/Y ZOOM", 4, 4);
+        draw_text("A PAUSE B RESET C AUTO START HUD", 4, 14);
+        draw_text("made using celsowm/libsaturn", 48, 210);
+    } else {
+        draw_text("START HELP", 236, 4);
     }
-    draw_text("T-REX WALK  L/R ROT  X/Y ZOOM", 4, 4);
-    draw_text("A PAUSE B RESET C AUTO START HUD", 4, 14);
     if (sat_fmt_label_u32("FACES ", g_render_faces,
                           line, sizeof(line), 0) == SAT_OK) {
-        draw_text(line, 4, 24);
+        draw_text(line, 4, 4 + offset);
     }
     if (sat_fmt_label_u32("WORLD CMD ", g_vdp1_commands,
                           line, sizeof(line), 0) == SAT_OK) {
-        draw_text(line, 4, 34);
+        draw_text(line, 4, 14 + offset);
     }
     if (sat_fmt_label_u32("AUDIO UNDERRUNS ", g_music_underruns,
                           line, sizeof(line), 0) == SAT_OK) {
-        draw_text(line, 4, 44);
+        draw_text(line, 4, 24 + offset);
     }
     if (sat_fmt_label_u32("FPS ", g_fps,
                           line, sizeof(line), 0) == SAT_OK) {
-        draw_text(line, 4, 54);
+        draw_text(line, 4, 34 + offset);
     }
     if (g_draw_overflow) {
-        draw_text("RENDER LIMIT", 4, 64);
+        draw_text("RENDER LIMIT", 4, 44 + offset);
     }
     if (g_music_error != SAT_OK) {
-        draw_text("MUSIC STREAM ERROR", 4, 74);
+        draw_text("MUSIC STREAM ERROR", 4, 54 + offset);
     }
-    draw_text("made using celsowm/libsaturn", 48, 210);
 }
 
 int main(void) {
@@ -581,7 +583,7 @@ int main(void) {
         g_orbit.yaw_deg = MODEL_START_YAW_DEG;
         sat_example_must(sat_orbit_camera3d_update(&g_orbit));
     }
-    g_show_hud = 1;
+    g_show_hud = 0;
     g_draw_overflow = 0;
     g_render_faces = 0u;
     g_vdp1_commands = 0u;

@@ -1,27 +1,113 @@
 #!/usr/bin/env python3
-"""Convert an audio source into raw S16BE PCM and a C metadata header.
+"""Convert an audio source to a CD stream and emit matching C metadata.
 
-The input format is selected by FFmpeg from its filename/content. This is a
-generic build helper for CD-backed ``sat_music`` assets; examples declare the
-source, output path, sample rate and channel count in their Makefile.inc.
+S16BE keeps the original PCM path. IMA ADPCM stores independently decodable
+1024-frame blocks, then sat_music expands each block to S16BE in RAM.
 """
 
 from __future__ import annotations
 
 import argparse
 import re
+import struct
 import subprocess
+import sys
+from array import array
 from pathlib import Path
+
+
+BLOCK_FRAMES = 1024
+STEP_TABLE = (
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31,
+    34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118,
+    130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371,
+    408, 449, 494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166,
+    1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024,
+    3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845,
+    8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500,
+    20350, 22385, 24623, 27086, 29794, 32767,
+)
+INDEX_DELTA = (-1, -1, -1, -1, 2, 4, 6, 8)
+
+
+def block_bytes(channels: int) -> int:
+    payload = ((BLOCK_FRAMES - 1) * channels + 1) // 2
+    return (4 * channels + payload + 3) & ~3
+
+
+def encode_sample(sample: int, predictor: int, index: int) -> tuple[int, int, int]:
+    step = STEP_TABLE[index]
+    difference = sample - predictor
+    code = 0
+    if difference < 0:
+        code = 8
+        difference = -difference
+    magnitude = 0
+    if difference >= step:
+        magnitude |= 4
+        difference -= step
+    if difference >= step >> 1:
+        magnitude |= 2
+        difference -= step >> 1
+    if difference >= step >> 2:
+        magnitude |= 1
+    code |= magnitude
+    delta = step >> 3
+    if magnitude & 4:
+        delta += step
+    if magnitude & 2:
+        delta += step >> 1
+    if magnitude & 1:
+        delta += step >> 2
+    predictor += -delta if code & 8 else delta
+    predictor = max(-32768, min(32767, predictor))
+    index = max(0, min(88, index + INDEX_DELTA[magnitude]))
+    return code, predictor, index
+
+
+def encode_adpcm(pcm: bytes, channels: int) -> bytes:
+    samples = array("h")
+    samples.frombytes(pcm)
+    if sys.byteorder != "big":
+        samples.byteswap()
+    frames = len(samples) // channels
+    size = block_bytes(channels)
+    output = bytearray(((frames + BLOCK_FRAMES - 1) // BLOCK_FRAMES) * size)
+    previous_index = [0] * channels
+    for block in range((frames + BLOCK_FRAMES - 1) // BLOCK_FRAMES):
+        start_frame = block * BLOCK_FRAMES
+        block_start = block * size
+        for channel in range(channels):
+            first = samples[start_frame * channels + channel]
+            struct.pack_into(">hBB", output, block_start + 4 * channel,
+                             first, previous_index[channel], 0)
+        predictors = [samples[start_frame * channels + c] for c in range(channels)]
+        nibble_number = 0
+        for frame in range(1, BLOCK_FRAMES):
+            for channel in range(channels):
+                source_frame = min(start_frame + frame, frames - 1)
+                sample = samples[source_frame * channels + channel]
+                code, predictors[channel], previous_index[channel] = encode_sample(
+                    sample, predictors[channel], previous_index[channel]
+                )
+                at = block_start + 4 * channels + nibble_number // 2
+                if nibble_number & 1:
+                    output[at] |= code
+                else:
+                    output[at] = code << 4
+                nibble_number += 1
+    return bytes(output)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
-    parser.add_argument("--output-pcm", required=True, type=Path)
+    parser.add_argument("--output-audio", required=True, type=Path)
     parser.add_argument("--output-header", required=True, type=Path)
     parser.add_argument("--name", required=True)
     parser.add_argument("--sample-rate", required=True, type=int)
     parser.add_argument("--channels", required=True, type=int)
+    parser.add_argument("--format", choices=("s16be", "ima_adpcm"), default="s16be")
     parser.add_argument("--ffmpeg", default="ffmpeg")
     args = parser.parse_args()
 
@@ -30,47 +116,44 @@ def main() -> int:
     if not args.input.is_file():
         parser.error(f"audio source not found: {args.input}")
 
-    args.output_pcm.parent.mkdir(parents=True, exist_ok=True)
+    args.output_audio.parent.mkdir(parents=True, exist_ok=True)
     args.output_header.parent.mkdir(parents=True, exist_ok=True)
     command = [
-        args.ffmpeg,
-        "-v", "error", "-y", "-i", str(args.input),
+        args.ffmpeg, "-v", "error", "-i", str(args.input),
         "-ar", str(args.sample_rate), "-ac", str(args.channels),
-        "-c:a", "pcm_s16be", "-f", "s16be", str(args.output_pcm),
+        "-c:a", "pcm_s16be", "-f", "s16be", "-",
     ]
     try:
-        subprocess.run(command, check=True)
+        pcm = subprocess.run(command, check=True, stdout=subprocess.PIPE).stdout
     except FileNotFoundError:
         parser.error(f"FFmpeg executable not found: {args.ffmpeg}")
     except subprocess.CalledProcessError as exc:
         parser.error(f"FFmpeg failed with exit code {exc.returncode}")
 
-    byte_count = args.output_pcm.stat().st_size
     frame_bytes = args.channels * 2
-    if byte_count == 0 or byte_count % frame_bytes:
-        args.output_pcm.unlink(missing_ok=True)
-        parser.error(
-            f"invalid S16BE output length {byte_count}; expected a nonzero "
-            f"multiple of {frame_bytes} bytes"
-        )
-
+    if not pcm or len(pcm) % frame_bytes:
+        parser.error(f"invalid S16BE output length {len(pcm)}")
+    sample_count = len(pcm) // frame_bytes
+    encoded = encode_adpcm(pcm, args.channels) if args.format == "ima_adpcm" else pcm
+    args.output_audio.write_bytes(encoded)
     prefix = "SAT_AUDIO_" + re.sub(r"[^A-Za-z0-9]+", "_", args.name).strip("_").upper()
     guard = prefix + "_H"
-    sample_count = byte_count // frame_bytes
+    format_macro = "SAT_AUDIO_IMA_ADPCM" if args.format == "ima_adpcm" else "SAT_AUDIO_PCM_S16"
     args.output_header.write_text(
         "\n".join([
             f"#ifndef {guard}", f"#define {guard}", "",
             f"#define {prefix}_SAMPLE_RATE {args.sample_rate}u",
             f"#define {prefix}_CHANNELS {args.channels}u",
             f"#define {prefix}_SAMPLE_COUNT {sample_count}u",
-            f"#define {prefix}_BYTES {byte_count}u",
+            f"#define {prefix}_BYTES {len(encoded)}u",
+            f"#define {prefix}_FORMAT {format_macro}",
             "", f"#endif /* {guard} */", "",
         ]),
         encoding="ascii",
     )
     print(
-        f"[audio] {args.name}: {sample_count} frames, {byte_count} bytes, "
-        f"{args.sample_rate} Hz, {args.channels} channel(s), S16BE"
+        f"[audio] {args.name}: {sample_count} frames, {len(encoded)} bytes, "
+        f"{args.sample_rate} Hz, {args.channels} channel(s), {args.format}"
     )
     return 0
 

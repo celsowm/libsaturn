@@ -7,8 +7,8 @@ and runs it through the Saturn's VDP1 painter path.
 The dinosaur starts in a large side view against a dark screen, with its
 original warm texture and a compact control display. L/R rotate the camera,
 UP/DOWN change the viewing angle, X zooms in, and Y zooms out. A pauses the
-walk, B resets the camera, and C toggles slow automatic orbit. START hides or
-restores the text.
+walk, B resets the camera, and C toggles slow automatic orbit. START opens or
+closes the full help overlay; the performance counters remain visible.
 
 ## How it stays close to the source
 
@@ -31,17 +31,17 @@ restores the text.
 - **One vertex per moving point.** UV-split vertex copies are welded
   (`MODEL_WELD_VERTICES`), about 1300 runtime vertices instead of 1900.
 
-## Hi-res
+## Display modes
 
-The demo runs the Saturn's 640x224 hi-res mode (`DINO_HIRES`, on by
-default): twice the horizontal pixels on the same 4:3 screen. The VDP1
+The demo defaults to 320x224 to leave the VDP1 enough time to finish each
+frame while music streams from the CD. Set `DINO_HIRES=1` when building to
+use 640x224: twice the horizontal pixels on the same 4:3 screen. The VDP1
 framebuffer is then 8 bits per pixel and can only hold palette codes, so the
 whole model shares one palette of 252 colors (`MODEL_LUT_CODES 2-253`),
 each face's lookup table holds the codes of its 15 colors, and faces bake
 at `MODEL_TEXEL_EXTENT 480`. Code 0 is transparent, code 1 is the HUD's
 white and 254 is the sprite shadow code. The HUD font doubles each glyph
-horizontally so the text keeps its size. It costs about 1-2 fps against
-the 320x224 build, which `DINO_HIRES=0` restores.
+horizontally so the text keeps its size.
 
 ## Both SH-2s
 
@@ -49,8 +49,7 @@ The face list is split between the CPUs: the Slave prepares 40% of the faces
 while the Master prepares the rest, and the Master merges both into one
 painter queue. `MODEL_LOCALITY_ORDER` orders faces along the body so each
 half projects only its own window of vertices. While the Master sorts and
-emits, the Slave decodes the next pose. In Ymir the hi-res build runs at about
-18 fps from the side and 15 fps in the busiest views (320x224: 20 and 15).
+emits, the Slave decodes the next pose. The HUD reports the measured game FPS.
 
 Build with `.\build-example.ps1 dino_demo`. Run it in Ymir's modified
 integration harness with `.\harness\run-harness.ps1 dino_demo -Bios <your-BIOS>`
@@ -61,7 +60,8 @@ The original GLB, its CC BY 4.0 attribution, and conversion details are in
 
 The demo also loops `Bone_and_Plastic` from the CD. Its source OGG is kept in
 `audio-src/`; `build-example.ps1 dino_demo` converts it to 22.05 kHz stereo
-S16BE PCM and stages it in the ISO as a CD-backed stream. This generic build
-step uses FFmpeg, so install it or set `FFMPEG` to its executable path. Other
-examples can opt in by declaring their source and stream format in
+IMA ADPCM and stages it in the ISO. `sat_music` expands the blocks to PCM16
+for the SCSP. The smaller disc stream reduces CD stalls during rendering.
+The shared build step uses FFmpeg, so install it or set `FFMPEG` to its
+executable path. Other examples can choose S16BE or IMA ADPCM in
 `Makefile.inc`.

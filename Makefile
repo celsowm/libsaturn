@@ -167,7 +167,7 @@ LIBRARY := $(LIB_OBJ_ROOT)/libsaturn.a
 #   EXAMPLE_HEADERS = generated headers
 #   EXAMPLE_ISO_DIR = directory whose contents are copied into the ISO root
 #   EXAMPLE_ISO_FILES = generated/checked-in files required by that directory
-#   EXAMPLE_AUDIO_STREAMS = names of sources converted to CD-backed S16BE PCM
+#   EXAMPLE_AUDIO_STREAMS = names of sources converted to CD-backed audio
 #   EXAMPLE_DEPS    = dependencies for generation
 #   EXAMPLE_RESIZE  = width height (e.g. 320 224)
 #   EXAMPLE_INPUT   = original image path
@@ -190,23 +190,21 @@ endif
 
 # Optional generic audio asset pipeline. An example declares each stream's
 # source, ISO-relative path, sample rate and channels; the normal build then
-# converts it with FFmpeg, emits metadata for C, and stages PCM into the ISO.
+# converts it with FFmpeg, emits metadata for C, and stages it in the ISO.
 FFMPEG ?= ffmpeg
 ifneq ($(strip $(EXAMPLE_AUDIO_STREAMS)),)
-ifeq ($(strip $(EXAMPLE_ISO_DIR)),)
-EXAMPLE_ISO_DIR := $(GENERATED_DIR)/$(EXAMPLE)/iso
-endif
 define AUDIO_STREAM_RULE
-AUDIO_$(1)_PCM := $(EXAMPLE_ISO_DIR)/$(EXAMPLE_AUDIO_$(1)_DISC_PATH)
+AUDIO_$(1)_FILE := $(GENERATED_DIR)/$(EXAMPLE)/audio/$(EXAMPLE_AUDIO_$(1)_DISC_PATH)
 AUDIO_$(1)_HEADER := $(GENERATED_DIR)/$(EXAMPLE)/audio_$(1).h
 EXAMPLE_HEADERS += $$(AUDIO_$(1)_HEADER)
-EXAMPLE_ISO_FILES += $$(AUDIO_$(1)_PCM)
-$$(AUDIO_$(1)_PCM) $$(AUDIO_$(1)_HEADER) &: $(EXAMPLE_AUDIO_$(1)_SOURCE) tools/convert_audio.py
-	@mkdir -p $$(dir $$(AUDIO_$(1)_PCM)) $$(dir $$(AUDIO_$(1)_HEADER))
+EXAMPLE_ISO_FILES += $$(AUDIO_$(1)_FILE)
+$$(AUDIO_$(1)_FILE) $$(AUDIO_$(1)_HEADER) &: $(EXAMPLE_AUDIO_$(1)_SOURCE) tools/convert_audio.py
+	@mkdir -p $$(dir $$(AUDIO_$(1)_FILE)) $$(dir $$(AUDIO_$(1)_HEADER))
 	$$(PYTHON) tools/convert_audio.py --input "$(EXAMPLE_AUDIO_$(1)_SOURCE)" \
-		--output-pcm "$$(AUDIO_$(1)_PCM)" --output-header "$$(AUDIO_$(1)_HEADER)" \
+		--output-audio "$$(AUDIO_$(1)_FILE)" --output-header "$$(AUDIO_$(1)_HEADER)" \
 		--name "$(1)" --sample-rate "$(EXAMPLE_AUDIO_$(1)_SAMPLE_RATE)" \
-		--channels "$(EXAMPLE_AUDIO_$(1)_CHANNELS)" --ffmpeg "$(FFMPEG)"
+		--channels "$(EXAMPLE_AUDIO_$(1)_CHANNELS)" \
+		--format "$(or $(EXAMPLE_AUDIO_$(1)_FORMAT),s16be)" --ffmpeg "$(FFMPEG)"
 endef
 $(foreach audio,$(EXAMPLE_AUDIO_STREAMS),$(eval $(call AUDIO_STREAM_RULE,$(audio))))
 endif
@@ -581,6 +579,9 @@ $(ISO): $(APP_BIN) $(IP_GENERATED) $(EXAMPLE_ISO_FILES) tools/check_iso.py
 	@if [ -n "$(EXAMPLE_ISO_DIR)" ]; then \
 		cp -R "$(EXAMPLE_ISO_DIR)/." "$(ISO_ROOT)/"; \
 	fi
+ifneq ($(strip $(EXAMPLE_AUDIO_STREAMS)),)
+	@$(foreach audio,$(EXAMPLE_AUDIO_STREAMS),install -D "$(AUDIO_$(audio)_FILE)" "$(ISO_ROOT)/$(EXAMPLE_AUDIO_$(audio)_DISC_PATH)";)
+endif
 	$(MKISOFS) -quiet -sysid "SEGA SATURN" -volid "LIBSATURN" \
 		-volset "LIBSATURN" -publisher "LIBSATURN" -preparer "LIBSATURN" \
 		-A "LIBSATURN" -G $(IP_GENERATED) -full-iso9660-filenames \

@@ -17,7 +17,9 @@ extern "C" {
 
 typedef enum sat_audio_format {
     SAT_AUDIO_PCM_S8 = 0,
-    SAT_AUDIO_PCM_S16 = 1
+    SAT_AUDIO_PCM_S16 = 1,
+    /* Blocked 4-bit IMA ADPCM source for sat_music; decoded to S16 streams. */
+    SAT_AUDIO_IMA_ADPCM = 2
 } sat_audio_format_t;
 
 typedef struct sat_sound {
@@ -159,9 +161,10 @@ sat_result_t sat_audio_stream_stats(
     sat_audio_stream_stats_t* out_stats
 );
 
-/* Preconverted streamable PCM from the logical asset registry. Runtime
- * decoding of OGG/MP3 is intentionally out of scope. The initial music
- * runtime loops the complete asset and uses a fixed internal pool of two
+/* Preconverted PCM or blocked IMA ADPCM from the logical asset registry.
+ * ADPCM blocks contain 1024 frames; the runtime expands them to S16BE before
+ * writing the SCSP stream rings. OGG/MP3 decoding remains a build step.
+ * Music loops the complete asset and uses a fixed internal pool of two
  * streams; use sat_music_capacity() to size content budgets. */
 sat_result_t sat_music_open(sat_music_t* out_music, const char* logical_path);
 sat_result_t sat_music_play(sat_music_t music);

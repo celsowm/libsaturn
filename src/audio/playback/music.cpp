@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include "saturn/asset.h"
+#include "src/audio/playback/ima_adpcm.hpp"
 #include "src/audio/streaming/runtime.hpp"
 
 namespace {
@@ -25,6 +26,8 @@ struct MusicSlot {
     uint32_t sample_count;
     uint32_t sample_rate;
     uint32_t position_bytes;
+    uint32_t position_frame;
+    uint32_t decoded_block;
     uint8_t channels;
     uint8_t format;
     uint8_t playing;
@@ -35,6 +38,7 @@ struct MusicSlot {
     uint8_t staging[kMusicFeedBytes];
     // Deinterleaved L/R channel frames for stereo feeds.
     uint8_t staging_split[kMusicFeedBytes];
+    uint8_t encoded[saturn::core::audio::ima_adpcm::kMaxBlockBytes];
 };
 
 /* ~288 KB of ring and staging buffers. Charging that to Work RAM High
@@ -106,8 +110,54 @@ uint32_t writable_frames(const MusicSlot& slot) {
     return frames;
 }
 
+sat_result_t feed_adpcm(MusicSlot& slot) {
+    namespace codec = saturn::core::audio::ima_adpcm;
+    uint32_t frames = writable_frames(slot);
+    if (frames > kMusicFeedFrames) frames = kMusicFeedFrames;
+    const uint32_t encoded_bytes = codec::block_bytes(slot.channels);
+    while (frames != 0u) {
+        const uint32_t block = slot.position_frame / codec::kBlockFrames;
+        const uint32_t in_block = slot.position_frame % codec::kBlockFrames;
+        if (slot.decoded_block != block) {
+            const uint8_t* source = nullptr;
+            if (slot.data != nullptr) {
+                source = slot.data + block * encoded_bytes;
+            } else {
+                uint32_t read = 0u;
+                const sat_result_t st = sat_asset_read_at(
+                    slot.logical_path, block * encoded_bytes,
+                    slot.encoded, encoded_bytes, &read);
+                if (st != SAT_OK || read != encoded_bytes) {
+                    return st == SAT_OK ? SAT_ERR_IO : st;
+                }
+                source = slot.encoded;
+            }
+            if (!codec::decode_block(source, slot.channels, slot.staging_split)) {
+                return SAT_ERR_IO;
+            }
+            slot.decoded_block = block;
+        }
+        uint32_t take = codec::kBlockFrames - in_block;
+        if (take > slot.sample_count - slot.position_frame) {
+            take = slot.sample_count - slot.position_frame;
+        }
+        if (take > frames) take = frames;
+        SAT_TRY(write_channel(slot, 0u,
+            slot.staging_split + in_block * 2u, take));
+        if (slot.channels == 2u) {
+            SAT_TRY(write_channel(slot, 1u,
+                slot.staging_split + codec::kChannelBytes + in_block * 2u, take));
+        }
+        slot.position_frame += take;
+        if (slot.position_frame == slot.sample_count) slot.position_frame = 0u;
+        frames -= take;
+    }
+    return SAT_OK;
+}
+
 sat_result_t feed(MusicSlot& slot) {
     if (slot.playing == 0u) return SAT_OK;
+    if (slot.format == SAT_AUDIO_IMA_ADPCM) return feed_adpcm(slot);
     const uint8_t stereo = slot.channels == 2u ? 1u : 0u;
     uint32_t frames = writable_frames(slot);
     if (frames > kMusicFeedFrames) frames = kMusicFeedFrames;
@@ -170,14 +220,29 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
     if (info.kind != SAT_ASSET_STREAM ||
         (info.data == nullptr && info.source_path == nullptr) || info.sample_rate == 0u ||
         (info.channels != 1u && info.channels != 2u)) return SAT_ERR_UNSUPPORTED;
-    const uint32_t sample_bytes = bytes_per_sample(info.format);
+    const uint8_t compressed = info.format == SAT_AUDIO_IMA_ADPCM ? 1u : 0u;
+    const uint32_t sample_bytes = compressed != 0u ? 2u : bytes_per_sample(info.format);
     const uint32_t frame_bytes = sample_bytes * info.channels;
-    if (sample_bytes == 0u || info.size == 0u || info.size % frame_bytes != 0u) {
-        return SAT_ERR_INVALID_ARG;
+    if (sample_bytes == 0u || info.size == 0u) return SAT_ERR_INVALID_ARG;
+    uint32_t sample_count;
+    if (compressed != 0u) {
+        namespace codec = saturn::core::audio::ima_adpcm;
+        sample_count = info.sample_count;
+        const uint64_t blocks =
+            (static_cast<uint64_t>(sample_count) + codec::kBlockFrames - 1u) /
+            codec::kBlockFrames;
+        if (sample_count == 0u ||
+            blocks * codec::block_bytes(info.channels) != info.size) {
+            return SAT_ERR_INVALID_ARG;
+        }
+    } else {
+        if (info.size % frame_bytes != 0u) return SAT_ERR_INVALID_ARG;
+        sample_count = info.sample_count == 0u
+            ? info.size / frame_bytes : info.sample_count;
+        if (sample_count == 0u || sample_count > info.size / frame_bytes) {
+            return SAT_ERR_INVALID_ARG;
+        }
     }
-    const uint32_t sample_count = info.sample_count == 0u
-        ? info.size / frame_bytes : info.sample_count;
-    if (sample_count == 0u || sample_count > info.size / frame_bytes) return SAT_ERR_INVALID_ARG;
 
     for (uint16_t i = 0u; i < SAT_MUSIC_CAPACITY; ++i) {
         MusicSlot& slot = g_music[i];
@@ -189,7 +254,8 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
             ++path_length;
         }
         sat_audio_spec_t spec = {
-            info.sample_rate, SAT_MUSIC_BUFFER_FRAMES, 1u, info.format, 0u};
+            info.sample_rate, SAT_MUSIC_BUFFER_FRAMES, 1u,
+            compressed != 0u ? SAT_AUDIO_PCM_S16 : info.format, 0u};
         const sat_result_t st = sat_audio_stream_open(
             &slot.stream, &spec, slot.buffer, sizeof(slot.buffer));
         if (st != SAT_OK) return st;
@@ -216,6 +282,8 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
         slot.sample_count = sample_count;
         slot.sample_rate = info.sample_rate;
         slot.position_bytes = 0u;
+        slot.position_frame = 0u;
+        slot.decoded_block = 0xFFFFFFFFu;
         slot.channels = info.channels;
         slot.format = info.format;
         slot.playing = 0u;
@@ -264,14 +332,19 @@ namespace {
 
 /* Keys off both channels, drops everything buffered and moves the source
  * cursor, leaving the track stopped. */
-sat_result_t rewind_to(MusicSlot& slot, uint32_t position_bytes) {
+sat_result_t rewind_to(MusicSlot& slot, uint32_t frame) {
     SAT_TRY(sat_audio_stream_pause(slot.stream));
     SAT_TRY(sat_audio_stream_flush(slot.stream));
     if (slot.channels == 2u) {
         SAT_TRY(sat_audio_stream_pause(slot.stream_r));
         SAT_TRY(sat_audio_stream_flush(slot.stream_r));
     }
-    slot.position_bytes = position_bytes;
+    if (slot.format == SAT_AUDIO_IMA_ADPCM) {
+        slot.position_frame = frame;
+        slot.decoded_block = 0xFFFFFFFFu;
+    } else {
+        slot.position_bytes = frame * bytes_per_sample(slot.format) * slot.channels;
+    }
     slot.playing = 0u;
     return SAT_OK;
 }
@@ -288,8 +361,7 @@ extern "C" sat_result_t sat_music_seek(sat_music_t music, uint32_t frame) {
     MusicSlot* slot = resolve(music);
     if (slot == nullptr || frame >= slot->sample_count) return SAT_ERR_INVALID_ARG;
     const uint8_t was_playing = slot->playing;
-    const uint32_t frame_bytes = bytes_per_sample(slot->format) * slot->channels;
-    SAT_TRY(rewind_to(*slot, frame * frame_bytes));
+    SAT_TRY(rewind_to(*slot, frame));
     // Restarting re-primes both channels from the new position in lockstep.
     return was_playing != 0u ? sat_music_play(music) : SAT_OK;
 }
@@ -316,6 +388,8 @@ extern "C" sat_result_t sat_music_close(sat_music_t music) {
     slot->logical_path[0] = '\0';
     slot->payload_bytes = 0u;
     slot->playing = 0u;
+    slot->position_frame = 0u;
+    slot->decoded_block = 0xFFFFFFFFu;
     return SAT_OK;
 }
 
@@ -384,6 +458,8 @@ void music_runtime_reset() {
         slot.payload_bytes = 0u;
         slot.playing = 0u;
         slot.position_bytes = 0u;
+        slot.position_frame = 0u;
+        slot.decoded_block = 0xFFFFFFFFu;
     }
 }
 

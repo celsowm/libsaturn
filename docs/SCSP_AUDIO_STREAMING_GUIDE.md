@@ -85,6 +85,13 @@ sounds like harsh full-spectrum noise; a wrong PITCH value changes pitch/tempo;
 rewriting the active SCSP half produces periodic bursts, metallic corruption or
 apparently "exploded" music.
 
+For CPU-heavy scenes, `sat_music` can also read 1024-frame IMA ADPCM blocks
+from the disc. The build converts the source and emits the exact frame count;
+the runtime decodes each block into planar S16BE before writing the same
+software rings used by PCM tracks. Each block begins with an exact predictor
+and step index per channel, so seeking and looping need no previous block.
+The SCSP slot format and refill rules above are unchanged.
+
 ## Scheduler / hardware phase rule
 
 Steady-state double-buffer phase is owned by the SCSP, not by VBlank math.
