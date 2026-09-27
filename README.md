@@ -391,13 +391,18 @@ Typical outputs include:
 
 ```text
 build/mvp.elf
-build/mvp.bin
-build/mvp.iso
+build/mvp.app.bin   # SH-2 executable for the harness
+build/mvp.iso       # ISO9660 intermediate (2048-byte sectors)
+build/mvp.bin       # distributable raw MODE1/2352 disc track
 build/mvp.cue
 build/libsaturn.a
 ```
 
 The SH-2 toolchain is based on `sh2eb-elf-gcc`.
+
+For a Saroo, other ODE, or a burned disc, copy the matching `.bin` and `.cue`
+files together and open the CUE. The `.iso` remains available for filesystem
+inspection and the automated harness, but is not the distribution image.
 
 ## Validation
 

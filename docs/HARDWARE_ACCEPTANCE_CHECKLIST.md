@@ -10,11 +10,13 @@ counts as a pass, and what to write down.
 ## Getting a disc
 
 ```powershell
-.\build-example.ps1 -Example <name>      # -> build\examples\<name>.iso and .cue
+.\build-example.ps1 -Example <name>      # -> build\examples\<name>.bin and .cue
 ```
 
-Burn the ISO with the `.cue` (a Saturn-bootable disc or an ODE such as a
-Satiator/Rhea/Phoebe that boots the image). The examples boot through the
+Copy or burn the matching `.bin` and `.cue` together (a Saturn-bootable disc
+or an ODE such as Saroo/Satiator/Rhea/Phoebe). The `.bin` is a raw
+`MODE1/2352` track with EDC/ECC; the similarly named `.iso` is only the
+2048-byte/sector intermediate for inspection and harness use. The examples boot through the
 regular IPL, need no cartridge unless the table says so, and print their
 counters on screen. Use a fresh backup RAM / cartridge for the save items: they
 format and erase.

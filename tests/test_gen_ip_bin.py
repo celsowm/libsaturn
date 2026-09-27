@@ -103,6 +103,34 @@ class GenIpBinTests(unittest.TestCase):
 
         self.assertEqual(struct.unpack(">I", raw[0x0F4:0x0F8])[0], 321)
 
+    def test_safe_profile_zeros_size_even_with_first_read_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            out_path = tmp_path / "ip.bin"
+            first_read = tmp_path / "0.BIN"
+            first_read.write_bytes(bytes([0xAA]) * 321)
+
+            result = subprocess.run(
+                [
+                    "python",
+                    str(TOOL),
+                    "--output",
+                    str(out_path),
+                    "--profile",
+                    "safe",
+                    "--first-read-file",
+                    str(first_read),
+                ],
+                cwd=REPO,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            raw = out_path.read_bytes()
+
+        self.assertEqual(struct.unpack(">I", raw[0x0F4:0x0F8])[0], 0)
+
     def test_rejects_stub_that_overlaps_area_code_table(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

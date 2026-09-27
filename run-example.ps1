@@ -33,8 +33,7 @@ $safeName = ($normalizedExample -replace '[\\/]', '_')
 $cuePath = Join-Path $RepoRoot ("build\examples\{0}.cue" -f $safeName)
 $isoPath = Join-Path $RepoRoot ("build\examples\{0}.iso" -f $safeName)
 
-$requiresCue = $Emulator -eq 'mednafen' -or $Emulator -eq 'yabasanshiro'
-if ($BuildFirst -or -not (Test-Path $isoPath) -or ($requiresCue -and -not (Test-Path $cuePath))) {
+if ($BuildFirst -or -not (Test-Path $isoPath) -or -not (Test-Path $cuePath)) {
     $buildScript = Join-Path $RepoRoot 'build-example.ps1'
     if (-not (Test-Path $buildScript)) {
         throw "Build script not found: $buildScript"
@@ -72,7 +71,7 @@ if (-not (Test-Path $launcher)) {
     throw "Emulator launcher not found: $launcher. Run .\scripts\download-emulators.ps1."
 }
 
-$gamePath = if ($requiresCue) { $cuePath } else { $isoPath }
+$gamePath = $cuePath
 if (-not (Test-Path $gamePath)) {
     throw "Example disc image not found: $gamePath"
 }

@@ -232,8 +232,9 @@ endif
 
 # -- Artefatos --------------------------------------------------
 ELF := $(OUTPUT_DIR)/$(EXAMPLE).elf
-BIN := $(OUTPUT_DIR)/$(EXAMPLE).bin
+APP_BIN := $(OUTPUT_DIR)/$(EXAMPLE).app.bin
 ISO := $(OUTPUT_DIR)/$(EXAMPLE).iso
+DISC_BIN := $(OUTPUT_DIR)/$(EXAMPLE).bin
 CUE := $(OUTPUT_DIR)/$(EXAMPLE).cue
 
 # -- Available examples ---------------------------------------
@@ -241,11 +242,12 @@ EXAMPLES := $(filter-out common,$(notdir $(wildcard examples/*)))
 
 .PHONY: all clean dirs check-tools examples-all list-examples bake test
 
-all: check-tools dirs $(ELF) $(ISO) $(CUE) $(LIBRARY)
+all: check-tools dirs $(ELF) $(DISC_BIN) $(CUE) $(LIBRARY)
 	@# Compatibility exports are never inputs to a cached variant's build.
 	@cp $(ELF) $(BUILD_DIR)/$(EXAMPLE).elf
-	@cp $(BIN) $(BUILD_DIR)/$(EXAMPLE).bin
+	@cp $(APP_BIN) $(BUILD_DIR)/$(EXAMPLE).app.bin
 	@cp $(ISO) $(BUILD_DIR)/$(EXAMPLE).iso
+	@cp $(DISC_BIN) $(BUILD_DIR)/$(EXAMPLE).bin
 	@cp $(CUE) $(BUILD_DIR)/$(EXAMPLE).cue
 	@# The harness reads symbol addresses (e.g. Skybridge telemetry) here.
 	@cp $(OUTPUT_DIR)/$(EXAMPLE).map $(BUILD_DIR)/$(EXAMPLE).map
@@ -528,24 +530,27 @@ $(ELF): $(CRT_OBJS) $(ALL_APP_OBJS) $(LIBRARY)
 	@# null and fails in ways that look like a hardware bug. Catch it here.
 	$(PYTHON) $(TOOLS)/check_no_init_array.py $@
 
-$(BIN): $(ELF)
+$(APP_BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
 	@size=$$(wc -c < $@); \
 	if [ $$size -gt $(MAX_APP_BIN_BYTES) ]; then \
-		echo "Error: $(BIN) is $$size bytes; maximum is $(MAX_APP_BIN_BYTES) bytes"; \
+		echo "Error: $(APP_BIN) is $$size bytes; maximum is $(MAX_APP_BIN_BYTES) bytes"; \
 		exit 1; \
 	fi
 
-$(IP_GENERATED): $(BIN) $(IP_TEMPLATE) tools/gen_ip_bin.py tools/memory_layout.py
+$(IP_GENERATED): $(APP_BIN) $(IP_TEMPLATE) tools/gen_ip_bin.py tools/check_ip_bin.py tools/memory_layout.py
 	@mkdir -p $(dir $@)
 	$(PYTHON) tools/gen_ip_bin.py --template $(IP_TEMPLATE) --output $@ \
-		--load-addr 0x$(APP_LOAD_ADDR_HEX) --first-read-file $(BIN)
+		--profile $(IP_PROFILE) --load-addr 0x$(APP_LOAD_ADDR_HEX) --first-read-file $(APP_BIN)
+	$(PYTHON) tools/check_ip_bin.py --ip-bin $@ --template $(IP_TEMPLATE) \
+		--expected-size $$(wc -c < $(APP_BIN)) --profile $(IP_PROFILE) \
+		--load-addr 0x$(APP_LOAD_ADDR_HEX)
 
-$(ISO): $(BIN) $(IP_GENERATED) $(EXAMPLE_ISO_FILES)
+$(ISO): $(APP_BIN) $(IP_GENERATED) $(EXAMPLE_ISO_FILES) tools/check_iso.py
 	@mkdir -p $(dir $@)
 	@rm -rf $(ISO_ROOT)
 	@mkdir -p $(ISO_ROOT)
-	@cp $(BIN) $(ISO_ROOT)/0.BIN
+	@cp $(APP_BIN) $(ISO_ROOT)/0.BIN
 	@cp $(IP_GENERATED) $(ISO_ROOT)/IP.BIN
 	@if [ -n "$(EXAMPLE_ISO_DIR)" ]; then \
 		cp -R "$(EXAMPLE_ISO_DIR)/." "$(ISO_ROOT)/"; \
@@ -554,12 +559,20 @@ $(ISO): $(BIN) $(IP_GENERATED) $(EXAMPLE_ISO_FILES)
 		-volset "LIBSATURN" -publisher "LIBSATURN" -preparer "LIBSATURN" \
 		-A "LIBSATURN" -G $(IP_GENERATED) -full-iso9660-filenames \
 		-o $@ $(ISO_ROOT)
+	$(PYTHON) tools/check_iso.py --iso $@ --expected-size $$(wc -c < $(APP_BIN)) \
+		--profile $(IP_PROFILE) --load-addr 0x$(APP_LOAD_ADDR_HEX)
+
+# The ISO is a useful intermediate for filesystem inspection and the harness,
+# but the public BIN/CUE pair is the raw Mode 1 image expected by ODEs.
+$(DISC_BIN): $(ISO) tools/iso_to_raw.py
+	$(PYTHON) tools/iso_to_raw.py --iso $(ISO) --output $@
 
 # -- CUE --------------------------------------------------------
-$(CUE): $(ISO)
+$(CUE): $(DISC_BIN) tools/gen_cue.py tools/check_disc_image.py tools/iso_to_raw.py
 	$(PYTHON) $(TOOLS)/gen_cue.py \
-		--iso-name $(EXAMPLE).iso \
+		--bin-name $(EXAMPLE).bin \
 		--cue-output $(CUE)
+	$(PYTHON) tools/check_disc_image.py --iso $(ISO) --bin $(DISC_BIN) --cue $(CUE)
 
 # -- Host tests -------------------------------------------------
 # tests/host/*.cpp exercise the pure helpers in src/core/runtime/logic.hpp. They are

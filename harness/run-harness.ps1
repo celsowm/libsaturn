@@ -5,7 +5,7 @@
 # N frames and writes harness/build/probe.json for harness/tests/*.py.
 #
 # The probe boots a real BIOS for -BootFrames (letting hardware init run),
-# then injects the example's .bin directly into work RAM and jumps to it —
+# then injects the example's .app.bin directly into work RAM and jumps to it —
 # it does NOT wait for the BIOS to load the disc itself. See
 # harness/README.md for why: Ymir's CD block does not currently complete a
 # real BIOS disc boot for these images.
@@ -81,7 +81,7 @@ if ($normalizedExample -match '^(examples[\\/])(.+)$') {
 }
 $safeName = ($normalizedExample -replace '[\\/]', '_')
 $isoPath = Join-Path $RepoRoot ("build\examples\{0}.iso" -f $safeName)
-$binPath = Join-Path $RepoRoot ("build\examples\{0}.bin" -f $safeName)
+$binPath = Join-Path $RepoRoot ("build\examples\{0}.app.bin" -f $safeName)
 $backupRamPath = if ($BackupRam) {
     $BackupRam
 } elseif ($normalizedExample -eq 'save_backup_demo') {
@@ -99,7 +99,7 @@ if (-not (Test-Path $isoPath)) {
     if ($LASTEXITCODE -ne 0) { throw "Failed to build example: $normalizedExample" }
 }
 if (-not (Test-Path $binPath)) {
-    throw "Expected $binPath alongside $isoPath (the Makefile's ISO rule copies it there) but it's missing."
+    throw "Expected executable $binPath alongside $isoPath but it's missing."
 }
 
 # Ymir's direct-injection harness does not run the Saturn BIOS's Slave handoff

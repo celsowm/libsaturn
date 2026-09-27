@@ -10,7 +10,7 @@ variant root.
 ```text
 build/objects/library/<library-key>/libsaturn.a
 build/objects/examples/<example>/<variant-key>/{examples,build/generated,...}/*.o
-build/variants/<example>/<variant-key>/<example>.{elf,bin,iso,cue}
+build/variants/<example>/<variant-key>/<example>.{elf,app.bin,iso,bin,cue}
 ```
 
 Use `make -s print-build-paths EXAMPLE=skybridge_3d` to inspect the

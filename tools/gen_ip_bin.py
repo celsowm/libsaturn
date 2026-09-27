@@ -79,10 +79,12 @@ def main():
     load_addr = int(args.load_addr, 16)
     if args.entry:
         load_addr = int(args.entry, 16)
-    if args.first_read_file:
+    if args.profile == "safe":
+        first_size = 0
+    elif args.first_read_file:
         first_size = Path(args.first_read_file).stat().st_size
     elif args.app_size is not None:
-        first_size = 0 if args.profile == "safe" else args.app_size
+        first_size = args.app_size
     else:
         first_size = 0
     if args.template:

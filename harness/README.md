@@ -31,7 +31,7 @@ this directory entirely — it has no effect on that build.
 
 A headless probe that boots a real Saturn BIOS inside Ymir's emulator core,
 runs it for `--boot-frames` frames of hardware init, then **injects the
-example's `.bin` directly into work RAM and jumps to it** — the ISO is still
+example's `.app.bin` directly into work RAM and jumps to it** — the ISO is still
 loaded (for its IP.BIN header, which supplies the load address) but the BIOS
 is never relied on to read the program off the emulated disc. It then runs
 for `--frames` more frames and dumps VDP1/VDP2 registers, requested VRAM

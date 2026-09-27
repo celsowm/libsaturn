@@ -232,20 +232,24 @@ $safeName = $normalizedExample -replace '[\\/]', '_'
 $isoSource = Join-Path $RepoRoot "build\$normalizedExample.iso"
 $cueSource = Join-Path $RepoRoot "build\$normalizedExample.cue"
 $binSource = Join-Path $RepoRoot "build\$normalizedExample.bin"
+$appBinSource = Join-Path $RepoRoot "build\$normalizedExample.app.bin"
 $elfSource = Join-Path $RepoRoot "build\$normalizedExample.elf"
 
 $isoTarget = Join-Path $exampleBuildDir "$safeName.iso"
 $cueTarget = Join-Path $exampleBuildDir "$safeName.cue"
 $binTarget = Join-Path $exampleBuildDir "$safeName.bin"
+$appBinTarget = Join-Path $exampleBuildDir "$safeName.app.bin"
 $elfTarget = Join-Path $exampleBuildDir "$safeName.elf"
 
 if (Test-Path $isoSource) { Copy-Item $isoSource $isoTarget -Force }
 if (Test-Path $cueSource) { Copy-Item $cueSource $cueTarget -Force }
 if (Test-Path $binSource) { Copy-Item $binSource $binTarget -Force }
+if (Test-Path $appBinSource) { Copy-Item $appBinSource $appBinTarget -Force }
 if (Test-Path $elfSource) { Copy-Item $elfSource $elfTarget -Force }
 
 Write-Host "[build-example] Artifacts:"
 Write-Host "  $isoTarget"
 Write-Host "  $cueTarget"
 Write-Host "  $binTarget"
+Write-Host "  $appBinTarget"
 Write-Host "  $elfTarget"

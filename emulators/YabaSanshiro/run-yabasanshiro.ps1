@@ -8,7 +8,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$defaultIso = Join-Path $repoRoot 'build\mvp.iso'
+$defaultCue = Join-Path $repoRoot 'build\mvp.cue'
 $exePath = Join-Path $PSScriptRoot 'yabasanshiro.exe'
 $transPath = Join-Path $PSScriptRoot 'trans'
 $fallbackTransPath = Join-Path $repoRoot '.external\JoEngine\Emulators\YabaSanshiro\trans'
@@ -26,7 +26,7 @@ if (-not (Test-Path $exePath)) {
     throw "YabaSanshiro not found at $exePath. Copy yabasanshiro.exe to this folder."
 }
 
-$targetIso = if ($GamePath) { [System.IO.Path]::GetFullPath($GamePath) } else { $defaultIso }
+$targetIso = if ($GamePath) { [System.IO.Path]::GetFullPath($GamePath) } else { $defaultCue }
 if (-not (Test-Path $targetIso)) {
     throw "ISO not found: $targetIso"
 }
@@ -51,8 +51,11 @@ if (-not (Test-Path $bkramPath)) {
 
 $selectedBios = $biosCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 $cliArgs = @('--autostart')
-if ($targetExt -eq '.bin') {
+if ($targetIso.ToLowerInvariant().EndsWith('.app.bin')) {
     $cliArgs += "--binary=$($targetIso):$bootAddress"
+}
+elseif ($targetExt -eq '.bin') {
+    throw 'A raw disc .bin must be opened through its matching .cue. Only .app.bin is a direct RAM executable.'
 }
 else {
     $cliArgs += "--iso=$targetIso"
