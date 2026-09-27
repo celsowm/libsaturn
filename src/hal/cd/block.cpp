@@ -13,6 +13,8 @@ struct Command {
     uint16_t cr4;
 };
 
+using CdWord = uint16_t __attribute__((may_alias));
+
 #if defined(__sh__) || defined(__SH2__)
 volatile uint16_t& reg(uint32_t address) {
     return *reinterpret_cast<volatile uint16_t*>(address);
@@ -104,6 +106,13 @@ sat_result_t transfer_words(
     if ((bytes & 1u) != 0u) return SAT_ERR_INVALID_ARG;
 #if defined(__sh__) || defined(__SH2__)
     volatile uint16_t* dtr = &reg(SAT_CD_BLOCK_DTR);
+    if ((reinterpret_cast<uintptr_t>(destination) & 1u) == 0u) {
+        // The SH-2 is big-endian, as are the CD Block's data words. Store
+        // each word directly instead of splitting it into two byte writes.
+        CdWord* output = reinterpret_cast<CdWord*>(destination);
+        for (uint32_t i = 0u; i < bytes / 2u; ++i) output[i] = *dtr;
+        return SAT_OK;
+    }
 #endif
     for (uint32_t i = 0u; i < bytes; i += 2u) {
 #if defined(__sh__) || defined(__SH2__)

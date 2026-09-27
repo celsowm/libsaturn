@@ -62,6 +62,8 @@ void file_asset_runtime_reset(FileAssetRuntime& runtime) {
 
 namespace {
 
+using CopyWord = uint32_t __attribute__((may_alias));
+
 uint16_t find_mount(const FileAssetRuntime& runtime, const char* source_path) {
     for (uint16_t i = 0u; i < SAT_FILE_MOUNT_CAPACITY; ++i) {
         if (runtime.mounts[i].used != 0u &&
@@ -181,9 +183,17 @@ sat_result_t asset_cache_read_at(
         // repeated the cache scan and source-path strcmp for every output
         // byte, turning an 8 KiB music feed into tens of thousands of string
         // comparisons on the SH-2 and causing periodic audio starvation.
-        for (uint32_t i = 0u; i < count; ++i) {
-            output[i] = cached_block->data[in_block + i];
+        const uint8_t* source = cached_block->data + in_block;
+        uint32_t copied = 0u;
+        if (((reinterpret_cast<uintptr_t>(output) |
+              reinterpret_cast<uintptr_t>(source)) & 3u) == 0u) {
+            CopyWord* out_words = reinterpret_cast<CopyWord*>(output);
+            const CopyWord* in_words = reinterpret_cast<const CopyWord*>(source);
+            const uint32_t words = count / 4u;
+            for (uint32_t i = 0u; i < words; ++i) out_words[i] = in_words[i];
+            copied = words * 4u;
         }
+        for (; copied < count; ++copied) output[copied] = source[copied];
         output += count;
         offset += count;
         remaining -= count;

@@ -84,8 +84,6 @@
 #define MODEL_VERTEX_CAP TREX_VERTEX_COUNT
 #define MODEL_FACE_CAP TREX_FACE_COUNT
 #define MODEL_TEXTURE_CAP TREX_TEXTURE_COUNT
-#define DINO_PREFETCH_BYTES \
-    (SAT_ASSET_CACHE_BLOCK_BYTES * SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY)
 
 /* Frame scratch and upload handles are writable, zero-initialized data.
  * The large face records live in WRAM-L so the baked model tables and
@@ -143,6 +141,9 @@ static uint8_t g_pose_read DINO_WRAM_L;
 static uint16_t g_render_faces DINO_WRAM_L;
 static uint16_t g_vdp1_commands DINO_WRAM_L;
 static uint32_t g_music_underruns DINO_WRAM_L;
+static uint32_t g_frame_window_start DINO_WRAM_L;
+static uint32_t g_frame_window_rendered DINO_WRAM_L;
+static uint32_t g_fps DINO_WRAM_L;
 
 static sat_cd_block_t g_cd_block;
 static sat_cd_device_t g_cd_device;
@@ -152,10 +153,8 @@ static sat_cdfs_source_desc_t g_music_source_desc;
 static sat_asset_desc_t g_music_asset_desc;
 static sat_asset_t g_music_asset;
 static sat_music_t g_music;
-static sat_asset_prefetch_t g_music_prefetch;
 static sat_result_t g_music_error;
 static int g_music_ready;
-static int g_music_prefetch_active;
 
 #define PARALLEL_TIMEOUT 60000u
 
@@ -205,20 +204,6 @@ static sat_result_t init_music(void) {
     st = sat_asset_register(&g_music_asset_desc, &g_music_asset);
     if (st != SAT_OK) return st;
 
-    /* Warm the first cache block before playback, then keep the bounded
-     * prefetch moving while frames run. CD-backed reads can otherwise stall
-     * the startup fill and let the SCSP consume its stream ring too early. */
-    {
-        uint8_t signature[2];
-        uint32_t read = 0u;
-        st = sat_asset_read_at(g_music_asset_desc.logical_path, 0u,
-                               signature, sizeof(signature), &read);
-        if (st != SAT_OK || read != sizeof(signature)) return SAT_ERR_IO;
-    }
-    st = sat_asset_prefetch_submit(g_music_asset_desc.logical_path, 0u,
-                                   DINO_PREFETCH_BYTES, &g_music_prefetch);
-    if (st != SAT_OK) return st;
-    g_music_prefetch_active = 1;
     st = sat_music_open(&g_music, g_music_asset_desc.logical_path);
     if (st != SAT_OK) return st;
     st = sat_music_play(g_music);
@@ -232,13 +217,6 @@ static void update_music(void) {
     sat_audio_stream_stats_t stats;
 
     if (!g_music_ready || g_music_error != SAT_OK) return;
-    if (g_music_prefetch_active) {
-        st = sat_asset_prefetch_update();
-        if (st != SAT_OK) {
-            g_music_error = st;
-            return;
-        }
-    }
     st = sat_music_update(g_music);
     if (st == SAT_OK) st = sat_audio_update();
     if (st == SAT_OK) st = sat_music_stats(g_music, &stats);
@@ -499,11 +477,15 @@ static void draw_hud(void) {
                           line, sizeof(line), 0) == SAT_OK) {
         draw_text(line, 4, 44);
     }
+    if (sat_fmt_label_u32("FPS ", g_fps,
+                          line, sizeof(line), 0) == SAT_OK) {
+        draw_text(line, 4, 54);
+    }
     if (g_draw_overflow) {
-        draw_text("RENDER LIMIT", 4, 54);
+        draw_text("RENDER LIMIT", 4, 64);
     }
     if (g_music_error != SAT_OK) {
-        draw_text("MUSIC STREAM ERROR", 4, 64);
+        draw_text("MUSIC STREAM ERROR", 4, 74);
     }
     draw_text("made using celsowm/libsaturn", 48, 210);
 }
@@ -606,7 +588,6 @@ int main(void) {
     g_music_underruns = 0u;
     g_music_error = SAT_OK;
     g_music_ready = 0;
-    g_music_prefetch_active = 0;
     sat_example_must(init_music());
     /* The Slave decodes poses; without it every decode runs on the Master. */
     if (sat_anim_parallel_register() == SAT_OK) {
@@ -616,10 +597,23 @@ int main(void) {
     g_pose_read = 0u;
     g_job_pending = 0;
     g_tick = sat_frame_count();
+    g_frame_window_start = g_tick;
+    g_frame_window_rendered = 0u;
+    g_fps = 0u;
     while (1) {
         sat_pad_state_t pad = {0};
+        uint32_t display_frames;
 
         SAT_PANIC_IF_ERROR(sat_wait_vblank());
+        display_frames = sat_frame_count() - g_frame_window_start;
+        ++g_frame_window_rendered;
+        if (display_frames >= (g_ntsc != 0 ? 60u : 50u)) {
+            const uint32_t rate = g_ntsc != 0 ? 60u : 50u;
+            g_fps = (g_frame_window_rendered * rate + display_frames / 2u) /
+                    display_frames;
+            g_frame_window_start = sat_frame_count();
+            g_frame_window_rendered = 0u;
+        }
 #if DINO_HIRES
         /* VDP2 latches its registers per frame; replay the hi-res sprite
          * type and palette bank inside VBlank. */
@@ -649,6 +643,11 @@ int main(void) {
             update_render_stats();
         } else {
             request_pose();
+        }
+        /* A busy render can cross a VBlank after the first audio service.
+         * Observe the SCSP again before waiting for the next display frame. */
+        if (g_music_ready && g_music_error == SAT_OK) {
+            g_music_error = sat_audio_update();
         }
         draw_hud();
 

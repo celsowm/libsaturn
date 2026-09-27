@@ -7,6 +7,22 @@
 
 namespace saturn::core {
 
+using StreamCopyWord = uint32_t __attribute__((may_alias));
+
+inline void stream_copy_bytes(uint8_t* destination, const uint8_t* source,
+                              uint32_t bytes) {
+    uint32_t copied = 0u;
+    if (((reinterpret_cast<uintptr_t>(destination) |
+          reinterpret_cast<uintptr_t>(source)) & 3u) == 0u) {
+        StreamCopyWord* out = reinterpret_cast<StreamCopyWord*>(destination);
+        const StreamCopyWord* in = reinterpret_cast<const StreamCopyWord*>(source);
+        const uint32_t words = bytes / 4u;
+        for (uint32_t i = 0u; i < words; ++i) out[i] = in[i];
+        copied = words * 4u;
+    }
+    for (; copied < bytes; ++copied) destination[copied] = source[copied];
+}
+
 constexpr uint16_t kAudioStreamCapacity = 4u;
 constexpr uint8_t kAudioStreamScspSlotBase = 28u;
 // Each half spans several display frames at common music rates, leaving
@@ -138,13 +154,11 @@ inline void audio_stream_copy_in(
         frame_count < (ring.capacity_frames - ring.write_frame)
             ? frame_count : (ring.capacity_frames - ring.write_frame);
     const uint32_t first_bytes = first_frames * ring.frame_bytes;
-    for (uint32_t i = 0u; i < first_bytes; ++i) {
-        ring.buffer[ring.write_frame * ring.frame_bytes + i] = source[i];
-    }
+    stream_copy_bytes(ring.buffer + ring.write_frame * ring.frame_bytes,
+                      source, first_bytes);
     const uint32_t remaining_frames = frame_count - first_frames;
-    for (uint32_t i = 0u; i < remaining_frames * ring.frame_bytes; ++i) {
-        ring.buffer[i] = source[first_bytes + i];
-    }
+    stream_copy_bytes(ring.buffer, source + first_bytes,
+                      remaining_frames * ring.frame_bytes);
     ring.write_frame = (ring.write_frame + frame_count) % ring.capacity_frames;
     ring.buffered_frames += frame_count;
     audio_stream_update_fill_stats(ring);
@@ -167,13 +181,11 @@ inline uint32_t audio_stream_peek(
         frame_count < (ring.capacity_frames - start)
             ? frame_count : (ring.capacity_frames - start);
     const uint32_t first_bytes = first_frames * ring.frame_bytes;
-    for (uint32_t i = 0u; i < first_bytes; ++i) {
-        destination[i] = ring.buffer[start * ring.frame_bytes + i];
-    }
+    stream_copy_bytes(destination, ring.buffer + start * ring.frame_bytes,
+                      first_bytes);
     const uint32_t remaining_frames = frame_count - first_frames;
-    for (uint32_t i = 0u; i < remaining_frames * ring.frame_bytes; ++i) {
-        destination[first_bytes + i] = ring.buffer[i];
-    }
+    stream_copy_bytes(destination + first_bytes, ring.buffer,
+                      remaining_frames * ring.frame_bytes);
     return frame_count;
 }
 

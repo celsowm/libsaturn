@@ -8,7 +8,12 @@
 namespace {
 
 constexpr uint32_t kMusicFeedFrames = 2048u;
+// A renderer may submit fewer than eleven frames per second while the SCSP
+// still consumes 22050 samples each second. Refill several chunks per update
+// so a slow display frame cannot permanently starve the software ring.
+constexpr uint32_t kMusicUpdateFeedLimit = 4u;
 constexpr uint32_t kMusicFeedBytes = kMusicFeedFrames * 2u * 2u;
+using MusicCopyHalf = uint16_t __attribute__((may_alias));
 
 struct MusicSlot {
     sat_audio_stream_t stream;
@@ -70,6 +75,19 @@ void deinterleave_stereo(const uint8_t* interleaved, uint8_t* split,
                          uint32_t frame_count, uint32_t sample_bytes) {
     uint8_t* left = split;
     uint8_t* right = split + frame_count * sample_bytes;
+    if (sample_bytes == 2u &&
+        ((reinterpret_cast<uintptr_t>(interleaved) |
+          reinterpret_cast<uintptr_t>(split)) & 1u) == 0u) {
+        const MusicCopyHalf* source =
+            reinterpret_cast<const MusicCopyHalf*>(interleaved);
+        MusicCopyHalf* out_left = reinterpret_cast<MusicCopyHalf*>(left);
+        MusicCopyHalf* out_right = reinterpret_cast<MusicCopyHalf*>(right);
+        for (uint32_t i = 0u; i < frame_count; ++i) {
+            out_left[i] = source[i * 2u];
+            out_right[i] = source[i * 2u + 1u];
+        }
+        return;
+    }
     for (uint32_t i = 0u; i < frame_count; ++i) {
         for (uint32_t b = 0u; b < sample_bytes; ++b) {
             left[i * sample_bytes + b] = interleaved[(i * 2u) * sample_bytes + b];
@@ -175,6 +193,9 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
         const sat_result_t st = sat_audio_stream_open(
             &slot.stream, &spec, slot.buffer, sizeof(slot.buffer));
         if (st != SAT_OK) return st;
+        // CD reads pump sat_audio_update(). Keep an unopened music stream
+        // silent until both channel rings have been primed by music_play().
+        (void)sat_audio_stream_pause(slot.stream);
         const uint8_t stereo = info.channels == 2u ? 1u : 0u;
         if (stereo != 0u) {
             const sat_result_t st_r = sat_audio_stream_open(
@@ -183,6 +204,7 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
                 (void)sat_audio_stream_close(slot.stream);
                 return st_r;
             }
+            (void)sat_audio_stream_pause(slot.stream_r);
             // A stereo track is two mono SCSP slots panned hard L/R.
             (void)sat_audio_stream_set_pan(slot.stream, SAT_AUDIO_PAN_LEFT);
             (void)sat_audio_stream_set_pan(slot.stream_r, SAT_AUDIO_PAN_RIGHT);
@@ -208,18 +230,20 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
 extern "C" sat_result_t sat_music_play(sat_music_t music) {
     MusicSlot* slot = resolve(music);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
+    if (slot->playing != 0u) return SAT_OK;
+    slot->playing = 1u;
+    // CD reads may service audio during priming, so both streams stay paused
+    // until their software rings are full. They then start together on the
+    // next audio update.
+    while (writable_frames(*slot) != 0u) {
+        const sat_result_t st = feed(*slot);
+        if (st != SAT_OK) {
+            slot->playing = 0u;
+            return st;
+        }
+    }
     SAT_TRY(sat_audio_stream_resume(slot->stream));
     if (slot->channels == 2u) SAT_TRY(sat_audio_stream_resume(slot->stream_r));
-    slot->playing = 1u;
-    // Prime the entire software ring before key-on. CD-backed music otherwise
-    // starts with only the two SCSP halves and immediately exhausts them on
-    // the first seek/cache fill. A CD read may run the audio service, which
-    // can refill one channel before the other; priming stops when either is
-    // full, since feed() cannot write only the emptier one and a left-only
-    // gap would otherwise spin here without ever reading (or servicing) again.
-    while (writable_frames(*slot) != 0u) {
-        SAT_TRY(feed(*slot));
-    }
     return SAT_OK;
 }
 
@@ -273,7 +297,11 @@ extern "C" sat_result_t sat_music_seek(sat_music_t music, uint32_t frame) {
 extern "C" sat_result_t sat_music_update(sat_music_t music) {
     MusicSlot* slot = resolve(music);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
-    return feed(*slot);
+    for (uint32_t i = 0u; i < kMusicUpdateFeedLimit; ++i) {
+        if (slot->playing == 0u || writable_frames(*slot) == 0u) break;
+        SAT_TRY(feed(*slot));
+    }
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_music_close(sat_music_t music) {
