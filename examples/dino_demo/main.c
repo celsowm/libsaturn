@@ -40,8 +40,13 @@
 
 #include "saturn/anim3d.h"
 #include "saturn/app.h"
+#include "saturn/asset.h"
+#include "saturn/audio.h"
+#include "saturn/cd_block.h"
+#include "saturn/cdfs.h"
 #include "saturn/color.h"
 #include "saturn/font.h"
+#include "saturn/fmt.h"
 #include "saturn/input.h"
 #include "saturn/math3d.h"
 #include "saturn/orbit_camera3d.h"
@@ -54,6 +59,7 @@
 #include "saturn/vdp2.h"
 #include "saturn/example_util.h"
 
+#include "dino_demo/audio_bone_and_plastic.h"
 #include "dino_demo/trex_model.h"
 
 /* DINO_HIRES (set by Makefile.inc) runs the 640x224 hi-res mode: twice the
@@ -78,6 +84,8 @@
 #define MODEL_VERTEX_CAP TREX_VERTEX_COUNT
 #define MODEL_FACE_CAP TREX_FACE_COUNT
 #define MODEL_TEXTURE_CAP TREX_TEXTURE_COUNT
+#define DINO_PREFETCH_BYTES \
+    (SAT_ASSET_CACHE_BLOCK_BYTES * SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY)
 
 /* Frame scratch and upload handles are writable, zero-initialized data.
  * The large face records live in WRAM-L so the baked model tables and
@@ -132,12 +140,121 @@ static sat_anim_decode_job_t g_job DINO_WRAM_L;
 static sat_parallel_handle_t g_job_handle DINO_WRAM_L;
 static int g_job_pending DINO_WRAM_L;
 static uint8_t g_pose_read DINO_WRAM_L;
+static uint16_t g_render_faces DINO_WRAM_L;
+static uint16_t g_vdp1_commands DINO_WRAM_L;
+static uint32_t g_music_underruns DINO_WRAM_L;
+
+static sat_cd_block_t g_cd_block;
+static sat_cd_device_t g_cd_device;
+static sat_cdfs_volume_t g_cd_volume;
+static sat_cdfs_file_source_t g_music_source;
+static sat_cdfs_source_desc_t g_music_source_desc;
+static sat_asset_desc_t g_music_asset_desc;
+static sat_asset_t g_music_asset;
+static sat_music_t g_music;
+static sat_asset_prefetch_t g_music_prefetch;
+static sat_result_t g_music_error;
+static int g_music_ready;
+static int g_music_prefetch_active;
 
 #define PARALLEL_TIMEOUT 60000u
 
 static void note(sat_result_t st) {
     if (st != SAT_OK && st != SAT_ERR_UNSUPPORTED) {
         g_draw_overflow = 1;
+    }
+}
+
+static sat_result_t service_audio_during_cd(void *context) {
+    (void)context;
+    return sat_audio_update();
+}
+
+static sat_result_t init_music(void) {
+    sat_result_t st = sat_audio_init();
+
+    if (st != SAT_OK) return st;
+    st = sat_cd_block_init(&g_cd_block, SAT_CD_BLOCK_DEFAULT_TIMEOUT);
+    if (st != SAT_OK) return st;
+    st = sat_cd_block_set_progress_service(
+        &g_cd_block, service_audio_during_cd, 0);
+    if (st != SAT_OK) return st;
+    st = sat_cd_block_bind_device(&g_cd_block, &g_cd_device, 0u);
+    if (st != SAT_OK) return st;
+    st = sat_cdfs_mount(&g_cd_volume, &g_cd_device);
+    if (st != SAT_OK) return st;
+
+    g_music_source_desc = (sat_cdfs_source_desc_t){
+        "audio/bone_and_plastic.pcm",
+        "disc/audio/bone_and_plastic.pcm",
+        SAT_AUDIO_BONE_AND_PLASTIC_BYTES
+    };
+    st = sat_cdfs_register_source_manifest(
+        &g_cd_volume, &g_music_source_desc, 1u, &g_music_source);
+    if (st != SAT_OK) return st;
+
+    g_music_asset_desc = (sat_asset_desc_t){0};
+    g_music_asset_desc.logical_path = "music/bone-and-plastic";
+    g_music_asset_desc.source_path = "disc/audio/bone_and_plastic.pcm";
+    g_music_asset_desc.size = g_music_source.file.size;
+    g_music_asset_desc.sample_rate = SAT_AUDIO_BONE_AND_PLASTIC_SAMPLE_RATE;
+    g_music_asset_desc.sample_count = SAT_AUDIO_BONE_AND_PLASTIC_SAMPLE_COUNT;
+    g_music_asset_desc.channels = SAT_AUDIO_BONE_AND_PLASTIC_CHANNELS;
+    g_music_asset_desc.format = SAT_AUDIO_PCM_S16;
+    g_music_asset_desc.kind = SAT_ASSET_STREAM;
+    st = sat_asset_register(&g_music_asset_desc, &g_music_asset);
+    if (st != SAT_OK) return st;
+
+    /* Warm the first cache block before playback, then keep the bounded
+     * prefetch moving while frames run. CD-backed reads can otherwise stall
+     * the startup fill and let the SCSP consume its stream ring too early. */
+    {
+        uint8_t signature[2];
+        uint32_t read = 0u;
+        st = sat_asset_read_at(g_music_asset_desc.logical_path, 0u,
+                               signature, sizeof(signature), &read);
+        if (st != SAT_OK || read != sizeof(signature)) return SAT_ERR_IO;
+    }
+    st = sat_asset_prefetch_submit(g_music_asset_desc.logical_path, 0u,
+                                   DINO_PREFETCH_BYTES, &g_music_prefetch);
+    if (st != SAT_OK) return st;
+    g_music_prefetch_active = 1;
+    st = sat_music_open(&g_music, g_music_asset_desc.logical_path);
+    if (st != SAT_OK) return st;
+    st = sat_music_play(g_music);
+    if (st != SAT_OK) return st;
+    g_music_ready = 1;
+    return SAT_OK;
+}
+
+static void update_music(void) {
+    sat_result_t st;
+    sat_audio_stream_stats_t stats;
+
+    if (!g_music_ready || g_music_error != SAT_OK) return;
+    if (g_music_prefetch_active) {
+        st = sat_asset_prefetch_update();
+        if (st != SAT_OK) {
+            g_music_error = st;
+            return;
+        }
+    }
+    st = sat_music_update(g_music);
+    if (st == SAT_OK) st = sat_audio_update();
+    if (st == SAT_OK) st = sat_music_stats(g_music, &stats);
+    if (st == SAT_OK) g_music_underruns = stats.underrun_count;
+    if (st == SAT_OK && g_cd_block.progress_error_count != 0u) {
+        st = g_cd_block.progress_last_error;
+    }
+    if (st != SAT_OK) g_music_error = st;
+}
+
+static void update_render_stats(void) {
+    sat_scene_stats_t stats;
+
+    if (sat_scene_stats(&g_scene, &stats) == SAT_OK) {
+        g_render_faces = stats.flushed_faces;
+        g_vdp1_commands = stats.world_commands;
     }
 }
 
@@ -363,15 +480,32 @@ static void draw_text(const char *text, int x, int y) {
 }
 
 static void draw_hud(void) {
+    char line[SAT_FMT_U32_MAX + 16u];
+
     if (!g_show_hud) {
         return;
     }
     draw_text("T-REX WALK  L/R ROT  X/Y ZOOM", 4, 4);
     draw_text("A PAUSE B RESET C AUTO START HUD", 4, 14);
-    draw_text("made using celsowm/libsaturn", 48, 210);
-    if (g_draw_overflow) {
-        draw_text("RENDER LIMIT", 4, 24);
+    if (sat_fmt_label_u32("FACES ", g_render_faces,
+                          line, sizeof(line), 0) == SAT_OK) {
+        draw_text(line, 4, 24);
     }
+    if (sat_fmt_label_u32("WORLD CMD ", g_vdp1_commands,
+                          line, sizeof(line), 0) == SAT_OK) {
+        draw_text(line, 4, 34);
+    }
+    if (sat_fmt_label_u32("AUDIO UNDERRUNS ", g_music_underruns,
+                          line, sizeof(line), 0) == SAT_OK) {
+        draw_text(line, 4, 44);
+    }
+    if (g_draw_overflow) {
+        draw_text("RENDER LIMIT", 4, 54);
+    }
+    if (g_music_error != SAT_OK) {
+        draw_text("MUSIC STREAM ERROR", 4, 64);
+    }
+    draw_text("made using celsowm/libsaturn", 48, 210);
 }
 
 int main(void) {
@@ -467,6 +601,13 @@ int main(void) {
     }
     g_show_hud = 1;
     g_draw_overflow = 0;
+    g_render_faces = 0u;
+    g_vdp1_commands = 0u;
+    g_music_underruns = 0u;
+    g_music_error = SAT_OK;
+    g_music_ready = 0;
+    g_music_prefetch_active = 0;
+    sat_example_must(init_music());
     /* The Slave decodes poses; without it every decode runs on the Master. */
     if (sat_anim_parallel_register() == SAT_OK) {
         sat_parallel_config_t config = {SAT_PARALLEL_AUTO, 0, 0u, 0u, PARALLEL_TIMEOUT};
@@ -488,6 +629,7 @@ int main(void) {
         SAT_PANIC_IF_ERROR(sat_set_clear_color(SAT_COLOR_BLACK));
         SAT_PANIC_IF_ERROR(sat_begin_frame());
         SAT_PANIC_IF_ERROR(sat_pad_poll(&pad));
+        update_music();
 
         update_camera_from_inputs(&pad);
         update_animation_from_inputs(&pad);
@@ -504,6 +646,7 @@ int main(void) {
             submit_model();
             request_pose();
             note(sat_scene_flush(&g_scene));
+            update_render_stats();
         } else {
             request_pose();
         }

@@ -116,6 +116,18 @@ if (-not $shellPath) {
 $repoMsysPath = Convert-ToMsysPath -WindowsPath $RepoRoot
 $hostPythonPath = (Get-Command python).Source
 $hostPythonMsysPath = Convert-ToMsysPath -WindowsPath $hostPythonPath
+$ffmpegCommand = if ($env:FFMPEG) { $null } else { Get-Command ffmpeg -ErrorAction SilentlyContinue }
+$ffmpegFlags = ''
+if ($env:FFMPEG) {
+    $ffmpegPath = $env:FFMPEG.Replace('\', '/')
+    $ffmpegFlags = " FFMPEG='$ffmpegPath'"
+} elseif ($ffmpegCommand -and $ffmpegCommand.Source) {
+    # The build runs under MSYS2 but the audio converter runs with Windows
+    # Python. Pass FFmpeg's native path so both the Make preflight and Python
+    # subprocess can resolve it even when MSYS2 does not inherit Windows PATH.
+    $ffmpegPath = $ffmpegCommand.Source.Replace('\', '/')
+    $ffmpegFlags = " FFMPEG='$ffmpegPath'"
+}
 Write-Host "[build-example] Building example: $normalizedExample"
 
 # Auto-detect SH2 toolchain
@@ -216,9 +228,9 @@ if ($normalizedExample -eq 'skybridge_3d' -and $ForceGemSplit) {
     $parallelFlags += ' SAT_SKYBRIDGE_FORCE_GEM_SPLIT=1'
 }
 if ($saturnBin) {
-    $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + $parallelFlags + ' all'
+    $makeCommand = 'export PATH="' + $saturnBin + ':$PATH" && export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + $parallelFlags + $ffmpegFlags + ' all'
 } else {
-    $makeCommand = 'export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + $parallelFlags + ' all'
+    $makeCommand = 'export PYTHON="' + $hostPythonMsysPath + '" && cd "' + $repoPath + '" && make ' + $makeFlags + 'EXAMPLE=' + $normalizedExample + ' IP_PROFILE=' + $IpProfile + ' IP_TEMPLATE_KIND=' + $IpTemplate + $parallelFlags + $ffmpegFlags + ' all'
 }
 Invoke-Msys2Command -ShellPath $shellPath -ScriptCommand $makeCommand
 

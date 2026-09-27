@@ -167,6 +167,7 @@ LIBRARY := $(LIB_OBJ_ROOT)/libsaturn.a
 #   EXAMPLE_HEADERS = generated headers
 #   EXAMPLE_ISO_DIR = directory whose contents are copied into the ISO root
 #   EXAMPLE_ISO_FILES = generated/checked-in files required by that directory
+#   EXAMPLE_AUDIO_STREAMS = names of sources converted to CD-backed S16BE PCM
 #   EXAMPLE_DEPS    = dependencies for generation
 #   EXAMPLE_RESIZE  = width height (e.g. 320 224)
 #   EXAMPLE_INPUT   = original image path
@@ -185,6 +186,29 @@ EXAMPLE_COMMON_SRCS :=
 EXAMPLE_INC := $(EXAMPLE_DIR)/Makefile.inc
 ifneq ($(wildcard $(EXAMPLE_INC)),)
   include $(EXAMPLE_INC)
+endif
+
+# Optional generic audio asset pipeline. An example declares each stream's
+# source, ISO-relative path, sample rate and channels; the normal build then
+# converts it with FFmpeg, emits metadata for C, and stages PCM into the ISO.
+FFMPEG ?= ffmpeg
+ifneq ($(strip $(EXAMPLE_AUDIO_STREAMS)),)
+ifeq ($(strip $(EXAMPLE_ISO_DIR)),)
+EXAMPLE_ISO_DIR := $(GENERATED_DIR)/$(EXAMPLE)/iso
+endif
+define AUDIO_STREAM_RULE
+AUDIO_$(1)_PCM := $(EXAMPLE_ISO_DIR)/$(EXAMPLE_AUDIO_$(1)_DISC_PATH)
+AUDIO_$(1)_HEADER := $(GENERATED_DIR)/$(EXAMPLE)/audio_$(1).h
+EXAMPLE_HEADERS += $$(AUDIO_$(1)_HEADER)
+EXAMPLE_ISO_FILES += $$(AUDIO_$(1)_PCM)
+$$(AUDIO_$(1)_PCM) $$(AUDIO_$(1)_HEADER) &: $(EXAMPLE_AUDIO_$(1)_SOURCE) tools/convert_audio.py
+	@mkdir -p $$(dir $$(AUDIO_$(1)_PCM)) $$(dir $$(AUDIO_$(1)_HEADER))
+	$$(PYTHON) tools/convert_audio.py --input "$(EXAMPLE_AUDIO_$(1)_SOURCE)" \
+		--output-pcm "$$(AUDIO_$(1)_PCM)" --output-header "$$(AUDIO_$(1)_HEADER)" \
+		--name "$(1)" --sample-rate "$(EXAMPLE_AUDIO_$(1)_SAMPLE_RATE)" \
+		--channels "$(EXAMPLE_AUDIO_$(1)_CHANNELS)" --ffmpeg "$(FFMPEG)"
+endef
+$(foreach audio,$(EXAMPLE_AUDIO_STREAMS),$(eval $(call AUDIO_STREAM_RULE,$(audio))))
 endif
 
 # Example objects and outputs are keyed after the include, so flags an
@@ -258,6 +282,8 @@ check-tools:
 		echo "Error: $(CC) not found in PATH"; exit 1; fi
 	@if [ -z "$(MKISOFS)" ]; then \
 		echo "Error: mkisofs/genisoimage/xorrisofs not found"; exit 1; fi
+	@if [ -n "$(EXAMPLE_AUDIO_STREAMS)" ] && ! $(PYTHON) -c 'import shutil,sys; sys.exit(0 if shutil.which(sys.argv[1]) else 1)' "$(FFMPEG)"; then \
+		echo "Error: FFmpeg not found (set FFMPEG=/path/to/ffmpeg)"; exit 1; fi
 	@echo "[profiles] EXAMPLE=$(EXAMPLE) IP_PROFILE=$(IP_PROFILE) IP_TEMPLATE=$(IP_TEMPLATE_KIND)"
 
 dirs:

@@ -10,7 +10,7 @@ MODEL_TEXTURE_SCALE      := 1.0
 MODEL_PALETTE_INDEX      := 1
 MODEL_MAX_TEXTURE_WIDTH  := 504
 MODEL_MAX_TEXTURE_HEIGHT := 255
-MODEL_SIMPLIFY           := 2400
+MODEL_SIMPLIFY           := 2140
 MODEL_QUALITY            := balanced
 MODEL_ANIMATION          := all
 MODEL_ANIMATION_FPS      := 15
@@ -55,3 +55,11 @@ CFLAGS                   += -DDINO_HIRES=1
 endif
 EXAMPLE_ASSETS            := $(MODEL_OUT_PREFIX).c
 EXAMPLE_HEADERS           := $(MODEL_OUT_PREFIX).h
+
+# Declare a CD-backed music stream. The shared build converts its source to
+# S16BE PCM and generates the matching metadata header automatically.
+EXAMPLE_AUDIO_STREAMS := bone_and_plastic
+EXAMPLE_AUDIO_bone_and_plastic_SOURCE := examples/$(EXAMPLE)/audio-src/Bone_and_Plastic.ogg
+EXAMPLE_AUDIO_bone_and_plastic_DISC_PATH := audio/bone_and_plastic.pcm
+EXAMPLE_AUDIO_bone_and_plastic_SAMPLE_RATE := 22050
+EXAMPLE_AUDIO_bone_and_plastic_CHANNELS := 2

@@ -21,8 +21,10 @@ restores the text.
 - **15 colors per face.** Texels are 4-bit with a VDP1 lookup table per face
   (`MODEL_TEXTURE_FORMAT lut4`), fitted to that face's patch of the texture.
 - **Quads, not triangles.** Adjacent triangle pairs whose texture mapping and
-  fold survive the change draw as one VDP1 quad (`MODEL_MERGE_QUADS`): 2400
-  simplified triangles become about 1670 commands.
+  fold survive the change draw as one VDP1 quad (`MODEL_MERGE_QUADS`).
+- **Lower face count for hardware.** The current target is 2140 simplified
+  triangles, yielding at least 10% fewer faces than the original build. The
+  HUD reports dispatched faces and VDP1 world commands for each frame.
 - **Triangles where they show.** The 46 teeth and claws are a third of the
   source mesh but a few pixels on screen; `MODEL_MATERIAL_WEIGHTS` spends
   that budget on the textured body. Solid-color faces draw as RGB polygons.
@@ -56,3 +58,10 @@ integration harness with `.\harness\run-harness.ps1 dino_demo -Bios <your-BIOS>`
 without it everything runs on the Master at about 12 fps).
 The original GLB, its CC BY 4.0 attribution, and conversion details are in
 [`assets/LICENSE.txt`](assets/LICENSE.txt).
+
+The demo also loops `Bone_and_Plastic` from the CD. Its source OGG is kept in
+`audio-src/`; `build-example.ps1 dino_demo` converts it to 22.05 kHz stereo
+S16BE PCM and stages it in the ISO as a CD-backed stream. This generic build
+step uses FFmpeg, so install it or set `FFMPEG` to its executable path. Other
+examples can opt in by declaring their source and stream format in
+`Makefile.inc`.
