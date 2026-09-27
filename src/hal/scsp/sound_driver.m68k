@@ -36,8 +36,16 @@
         .equ    M_MAXLATE,   MBOX+0x16          /* word  worst (tick - due) seen */
         .equ    M_CONTROL,   MBOX+0x18          /* word  SH-2 command: 1 = clear counters */
         .equ    M_LATE_LAST, MBOX+0x1A          /* word  tick - due of the last event */
+        .equ    M_SCORE_ON,   MBOX+0x1C          /* word  autonomous score enabled */
+        .equ    M_SCORE_COUNT,MBOX+0x1E          /* word  event count */
+        .equ    M_SCORE_INDEX,MBOX+0x20          /* word  next score event */
+        .equ    M_SCORE_BASE,MBOX+0x24           /* long  start tick of current pass */
+        .equ    M_SCORE_LOOP,MBOX+0x28           /* long  ticks per pass */
+        .equ    M_SCORE_LOOPS,MBOX+0x2C          /* word  completed passes */
+        .equ    M_SCORE_EXEC, MBOX+0x2E          /* word  score writes performed */
         .equ    M_RING,      MBOX+0x40          /* 64 events of 8 bytes */
         .equ    M_LOG,       MBOX+0x300         /* 64 records of 4 bytes: tick, lateness */
+        .equ    SCORE,       0x1000             /* up to 1024 events of 8 bytes */
         .equ    RING_MASK,   63
 
         .text
@@ -58,7 +66,7 @@ fault:  bra.s   fault
 
 start:  move.w  #0x2700,%sr
         move.l  #0x53445256,M_MAGIC     /* 'SDRV' */
-        move.w  #1,M_VERSION
+        move.w  #2,M_VERSION
         move.w  #0,M_HEARTBEAT
         move.l  #0,M_TICK
         move.w  #0,M_EXECUTED
@@ -130,5 +138,36 @@ logged: move.w  M_EXECUTED,%d0
         andi.w  #RING_MASK,%d3
         move.w  %d3,M_TAIL
         bra.s   next
-done:   movem.l (%sp)+,%d0-%d3/%a0-%a1
+done:   tst.w   M_SCORE_ON
+        beq.s   finish
+score_next:
+        move.w  M_SCORE_INDEX,%d0
+        cmp.w   M_SCORE_COUNT,%d0
+        bcc.s   score_wrap
+        lsl.w   #3,%d0
+        lea     SCORE,%a0
+        adda.w  %d0,%a0
+        move.l  (%a0),%d1
+        add.l   M_SCORE_BASE,%d1
+        move.l  M_TICK,%d2
+        cmp.l   %d1,%d2
+        bcs.s   finish
+        move.w  4(%a0),%d0
+        andi.w  #0x0FFE,%d0
+        lea     SCSP,%a1
+        move.w  6(%a0),(%a1,%d0.w)
+        addq.w  #1,M_SCORE_INDEX
+        addq.w  #1,M_SCORE_EXEC
+        bra.s   score_next
+score_wrap:
+        move.l  M_SCORE_BASE,%d1
+        add.l   M_SCORE_LOOP,%d1
+        move.l  M_TICK,%d2
+        cmp.l   %d1,%d2
+        bcs.s   finish
+        move.l  %d1,M_SCORE_BASE
+        clr.w   M_SCORE_INDEX
+        addq.w  #1,M_SCORE_LOOPS
+        bra.s   score_next
+finish: movem.l (%sp)+,%d0-%d3/%a0-%a1
         rte

@@ -55,11 +55,20 @@
 #include "saturn/model3d.h"
 #include "saturn/render3d.h"
 #include "saturn/scene.h"
+#include "saturn/sound_driver.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
 #include "saturn/example_util.h"
 
+#ifndef DINO_MUSIC_68K
+#define DINO_MUSIC_68K 0
+#endif
+
+#if !DINO_MUSIC_68K
 #include "dino_demo/audio_bone_and_plastic.h"
+#else
+#include "music_68k.h"
+#endif
 #include "dino_demo/trex_model.h"
 
 /* DINO_HIRES (set by Makefile.inc) runs the 640x224 hi-res mode: twice the
@@ -141,6 +150,8 @@ static uint8_t g_pose_read DINO_WRAM_L;
 static uint16_t g_render_faces DINO_WRAM_L;
 static uint16_t g_vdp1_commands DINO_WRAM_L;
 static uint32_t g_music_underruns DINO_WRAM_L;
+static uint32_t g_music_events DINO_WRAM_L;
+static uint32_t g_music_loops DINO_WRAM_L;
 static uint32_t g_frame_window_start DINO_WRAM_L;
 static uint32_t g_frame_window_rendered DINO_WRAM_L;
 static uint32_t g_fps DINO_WRAM_L;
@@ -148,11 +159,13 @@ static uint32_t g_fps DINO_WRAM_L;
 static sat_cd_block_t g_cd_block;
 static sat_cd_device_t g_cd_device;
 static sat_cdfs_volume_t g_cd_volume;
+#if !DINO_MUSIC_68K
 static sat_cdfs_file_source_t g_music_source;
 static sat_cdfs_source_desc_t g_music_source_desc;
 static sat_asset_desc_t g_music_asset_desc;
 static sat_asset_t g_music_asset;
 static sat_music_t g_music;
+#endif
 static sat_result_t g_music_error;
 static int g_music_ready;
 
@@ -183,6 +196,13 @@ static sat_result_t init_music(void) {
     st = sat_cdfs_mount(&g_cd_volume, &g_cd_device);
     if (st != SAT_OK) return st;
 
+#if DINO_MUSIC_68K
+    st = dino_music_68k_start(&g_cd_volume);
+    if (st != SAT_OK) return st;
+    g_music_ready = 1;
+    return SAT_OK;
+#else
+
     g_music_source_desc = (sat_cdfs_source_desc_t){
         "audio/bone_and_plastic.adpcm",
         "disc/audio/bone_and_plastic.adpcm",
@@ -210,10 +230,23 @@ static sat_result_t init_music(void) {
     if (st != SAT_OK) return st;
     g_music_ready = 1;
     return SAT_OK;
+#endif
 }
 
 static void update_music(void) {
     sat_result_t st;
+#if DINO_MUSIC_68K
+    sat_sound_driver_info_t info;
+    if (!g_music_ready || g_music_error != SAT_OK) return;
+    st = sat_sound_driver_info(&info);
+    if (st == SAT_OK && info.score_running == 0u) st = SAT_ERR_IO;
+    if (st == SAT_OK) {
+        g_music_events = info.score_executed;
+        g_music_loops = info.score_loops;
+    } else {
+        g_music_error = st;
+    }
+#else
     sat_audio_stream_stats_t stats;
 
     if (!g_music_ready || g_music_error != SAT_OK) return;
@@ -225,6 +258,7 @@ static void update_music(void) {
         st = g_cd_block.progress_last_error;
     }
     if (st != SAT_OK) g_music_error = st;
+#endif
 }
 
 static void update_render_stats(void) {
@@ -476,19 +510,30 @@ static void draw_hud(void) {
                           line, sizeof(line), 0) == SAT_OK) {
         draw_text(line, 4, 14 + offset);
     }
+#if DINO_MUSIC_68K
+    if (sat_fmt_label_u32("68K EVENTS ", g_music_events,
+                          line, sizeof(line), 0) == SAT_OK) {
+        draw_text(line, 4, 24 + offset);
+    }
+    if (sat_fmt_label_u32("68K LOOPS ", g_music_loops,
+                          line, sizeof(line), 0) == SAT_OK) {
+        draw_text(line, 4, 34 + offset);
+    }
+#else
     if (sat_fmt_label_u32("AUDIO UNDERRUNS ", g_music_underruns,
                           line, sizeof(line), 0) == SAT_OK) {
         draw_text(line, 4, 24 + offset);
     }
+#endif
     if (sat_fmt_label_u32("FPS ", g_fps,
                           line, sizeof(line), 0) == SAT_OK) {
-        draw_text(line, 4, 34 + offset);
+        draw_text(line, 4, 44 + offset);
     }
     if (g_draw_overflow) {
-        draw_text("RENDER LIMIT", 4, 44 + offset);
+        draw_text("RENDER LIMIT", 4, 54 + offset);
     }
     if (g_music_error != SAT_OK) {
-        draw_text("MUSIC STREAM ERROR", 4, 54 + offset);
+        draw_text("MUSIC ERROR", 4, 64 + offset);
     }
 }
 
@@ -529,7 +574,7 @@ int main(void) {
     g_instance.face_materials = trex_asset.face_texture_indices;
     g_instance.world = NULL;
     g_instance.pass = 0u;
-    g_instance.cull_backfaces = 1u;
+    g_instance.cull_backfaces = 0u;
     g_half_mesh[0] = g_mesh;
     g_half_mesh[0].face_count = MASTER_FACES;
     g_half_mesh[1] = g_mesh;
@@ -648,7 +693,7 @@ int main(void) {
         }
         /* A busy render can cross a VBlank after the first audio service.
          * Observe the SCSP again before waiting for the next display frame. */
-        if (g_music_ready && g_music_error == SAT_OK) {
+        if (!DINO_MUSIC_68K && g_music_ready && g_music_error == SAT_OK) {
             g_music_error = sat_audio_update();
         }
         draw_hud();

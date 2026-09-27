@@ -92,6 +92,23 @@ software rings used by PCM tracks. Each block begins with an exact predictor
 and step index per channel, so seeking and looping need no previous block.
 The SCSP slot format and refill rules above are unchanged.
 
+## Resident 68000 scores
+
+For music built from a small resident sample bank, the sound driver can run a
+sorted score of up to 1024 SCSP register writes in Sound RAM. The SH-2 uploads
+the samples and score once; timer A then advances the score on the SCSP 68000
+every 256 output samples. `sat_sound_driver_score_load` starts a looping pass
+two ticks after publication, and the 68000 repeats it using the requested
+loop length. `sat_sound_driver_info` reports the current event index, completed
+loops and writes performed. This path has no steady-state CD traffic or PCM
+decoding. The SCSP still renders the short resident PCM waveforms; the 68000
+controls their timing, pitch and level.
+
+The dino demo defaults to this path and keeps its complete ADPCM recording as
+an alternate build (`DINO_MUSIC_68K=0`). Its resident timbres are short clips
+from that recording, converted and loop-crossfaded by the generic audio build
+step. The small bank is read from CD only during startup.
+
 ## Scheduler / hardware phase rule
 
 Steady-state double-buffer phase is owned by the SCSP, not by VBlank math.

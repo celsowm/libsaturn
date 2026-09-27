@@ -58,9 +58,54 @@ EXAMPLE_HEADERS           := $(MODEL_OUT_PREFIX).h
 
 # Declare a CD-backed music stream. The shared build converts its source to
 # blocked IMA ADPCM and generates the matching metadata header automatically.
+DINO_MUSIC_68K ?= 1
+ifeq ($(DINO_MUSIC_68K),1)
+CFLAGS += -DDINO_MUSIC_68K=1
+EXAMPLE_AUDIO_STREAMS := dino_drone dino_figure dino_impact dino_signal
+else
 EXAMPLE_AUDIO_STREAMS := bone_and_plastic
+endif
 EXAMPLE_AUDIO_bone_and_plastic_SOURCE := examples/$(EXAMPLE)/audio-src/Bone_and_Plastic.ogg
 EXAMPLE_AUDIO_bone_and_plastic_DISC_PATH := audio/bone_and_plastic.adpcm
 EXAMPLE_AUDIO_bone_and_plastic_SAMPLE_RATE := 22050
 EXAMPLE_AUDIO_bone_and_plastic_CHANNELS := 2
 EXAMPLE_AUDIO_bone_and_plastic_FORMAT := ima_adpcm
+
+# The alternative resident soundtrack uses short seamless samples from the
+# original recording. The 68000 drives their levels and pitch from Sound RAM;
+# playback never reads the CD after these samples are loaded at boot.
+EXAMPLE_AUDIO_dino_drone_SOURCE := $(EXAMPLE_AUDIO_bone_and_plastic_SOURCE)
+EXAMPLE_AUDIO_dino_drone_DISC_PATH := audio/dino_drone.s8
+EXAMPLE_AUDIO_dino_drone_SAMPLE_RATE := 11025
+EXAMPLE_AUDIO_dino_drone_CHANNELS := 1
+EXAMPLE_AUDIO_dino_drone_FORMAT := s8
+EXAMPLE_AUDIO_dino_drone_START_MS := 2000
+EXAMPLE_AUDIO_dino_drone_DURATION_MS := 2800
+EXAMPLE_AUDIO_dino_drone_LOOP_CROSSFADE_MS := 180
+
+EXAMPLE_AUDIO_dino_figure_SOURCE := $(EXAMPLE_AUDIO_bone_and_plastic_SOURCE)
+EXAMPLE_AUDIO_dino_figure_DISC_PATH := audio/dino_figure.s8
+EXAMPLE_AUDIO_dino_figure_SAMPLE_RATE := 11025
+EXAMPLE_AUDIO_dino_figure_CHANNELS := 1
+EXAMPLE_AUDIO_dino_figure_FORMAT := s8
+EXAMPLE_AUDIO_dino_figure_START_MS := 30000
+EXAMPLE_AUDIO_dino_figure_DURATION_MS := 2400
+EXAMPLE_AUDIO_dino_figure_LOOP_CROSSFADE_MS := 160
+
+EXAMPLE_AUDIO_dino_impact_SOURCE := $(EXAMPLE_AUDIO_bone_and_plastic_SOURCE)
+EXAMPLE_AUDIO_dino_impact_DISC_PATH := audio/dino_impact.s8
+EXAMPLE_AUDIO_dino_impact_SAMPLE_RATE := 11025
+EXAMPLE_AUDIO_dino_impact_CHANNELS := 1
+EXAMPLE_AUDIO_dino_impact_FORMAT := s8
+EXAMPLE_AUDIO_dino_impact_START_MS := 55000
+EXAMPLE_AUDIO_dino_impact_DURATION_MS := 1800
+EXAMPLE_AUDIO_dino_impact_LOOP_CROSSFADE_MS := 120
+
+EXAMPLE_AUDIO_dino_signal_SOURCE := $(EXAMPLE_AUDIO_bone_and_plastic_SOURCE)
+EXAMPLE_AUDIO_dino_signal_DISC_PATH := audio/dino_signal.s8
+EXAMPLE_AUDIO_dino_signal_SAMPLE_RATE := 11025
+EXAMPLE_AUDIO_dino_signal_CHANNELS := 1
+EXAMPLE_AUDIO_dino_signal_FORMAT := s8
+EXAMPLE_AUDIO_dino_signal_START_MS := 39000
+EXAMPLE_AUDIO_dino_signal_DURATION_MS := 1600
+EXAMPLE_AUDIO_dino_signal_LOOP_CROSSFADE_MS := 120

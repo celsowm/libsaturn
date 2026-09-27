@@ -16,6 +16,17 @@ struct Info {
     uint16_t executed;
     uint16_t max_lateness;
     uint16_t last_lateness;
+    uint16_t score_event_count;
+    uint16_t score_index;
+    uint16_t score_loops;
+    uint16_t score_executed;
+    bool score_running;
+};
+
+struct ScoreEvent {
+    uint32_t tick;
+    uint16_t register_offset;
+    uint16_t value;
 };
 
 /* Puts the driver image into Sound RAM, clears its mailbox, releases the 68000
@@ -41,6 +52,9 @@ bool read_log(uint32_t index, uint16_t* out_tick, uint16_t* out_lateness);
 
 /* Tells the driver to clear its executed/lateness counters. */
 void clear_counters();
+
+bool score_load(const ScoreEvent* events, uint16_t count, uint32_t loop_ticks);
+void score_stop();
 
 }  // namespace saturn::hal::scsp::driver
 

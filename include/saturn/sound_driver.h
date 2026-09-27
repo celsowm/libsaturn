@@ -36,7 +36,25 @@ typedef struct sat_sound_driver_info {
     uint16_t last_lateness_ticks;
     uint16_t reserved1;
     uint32_t tick;              /* ticks since the driver started */
+    uint16_t score_event_count;
+    uint16_t score_index;
+    uint16_t score_loops;
+    uint16_t score_executed;
+    uint8_t score_running;
+    uint8_t reserved2[3];
 } sat_sound_driver_info_t;
+
+/* Sorted register writes for an autonomous looping score. Times are relative
+ * to the beginning of each pass, in 68000 timer ticks. Wavetable samples can
+ * be loaded once into Sound RAM with sat_sound_create; no CD read or SH-2
+ * update is needed while the 68000 plays the score. */
+typedef struct sat_sound_score_event {
+    uint32_t tick;
+    uint16_t register_offset;
+    uint16_t value;
+} sat_sound_score_event_t;
+
+#define SAT_SOUND_SCORE_MAX_EVENTS 1024u
 
 /* Stops the 68000, loads the driver into Sound RAM, restarts it and waits for
  * its first ticks. The audio system must be initialised (sat_audio_init).
@@ -73,6 +91,13 @@ sat_result_t sat_sound_driver_schedule_marker(uint32_t due_tick);
 sat_result_t sat_sound_driver_read_log(uint32_t index, uint16_t* out_tick, uint16_t* out_lateness);
 
 sat_result_t sat_sound_driver_clear_counters(void);
+
+/* Replaces the current score. Events must be sorted, each tick must be less
+ * than loop_ticks, and register offsets must be even and below 0x1000.
+ * Playback begins two driver ticks after the score is copied. */
+sat_result_t sat_sound_driver_score_load(
+    const sat_sound_score_event_t* events, uint16_t count, uint32_t loop_ticks);
+sat_result_t sat_sound_driver_score_stop(void);
 
 #ifdef __cplusplus
 }

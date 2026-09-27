@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Convert an audio source to a CD stream and emit matching C metadata.
 
-S16BE keeps the original PCM path. IMA ADPCM stores independently decodable
-1024-frame blocks, then sat_music expands each block to S16BE in RAM.
+S16BE keeps the original PCM path. S8 supplies small resident SCSP samples;
+optional clipping and loop crossfade prepare seamless sample banks. IMA ADPCM
+stores independently decodable 1024-frame blocks, then sat_music expands each
+block to S16BE in RAM.
 """
 
 from __future__ import annotations
@@ -99,6 +101,29 @@ def encode_adpcm(pcm: bytes, channels: int) -> bytes:
     return bytes(output)
 
 
+def loop_crossfade(pcm: bytes, channels: int, frames_to_blend: int) -> bytes:
+    if frames_to_blend == 0:
+        return pcm
+    samples = array("h")
+    samples.frombytes(pcm)
+    if sys.byteorder != "big":
+        samples.byteswap()
+    frames = len(samples) // channels
+    if frames_to_blend * 2 >= frames:
+        raise ValueError("loop crossfade must be shorter than half the clip")
+    output = samples[frames_to_blend * channels:]
+    tail_start = (frames - 2 * frames_to_blend) * channels
+    for frame in range(frames_to_blend):
+        for channel in range(channels):
+            at = tail_start + frame * channels + channel
+            head = samples[frame * channels + channel]
+            output[at] = (output[at] * (frames_to_blend - frame - 1) +
+                          head * (frame + 1)) // frames_to_blend
+    if sys.byteorder != "big":
+        output.byteswap()
+    return output.tobytes()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
@@ -107,7 +132,10 @@ def main() -> int:
     parser.add_argument("--name", required=True)
     parser.add_argument("--sample-rate", required=True, type=int)
     parser.add_argument("--channels", required=True, type=int)
-    parser.add_argument("--format", choices=("s16be", "ima_adpcm"), default="s16be")
+    parser.add_argument("--format", choices=("s16be", "s8", "ima_adpcm"), default="s16be")
+    parser.add_argument("--start-ms", type=int, default=0)
+    parser.add_argument("--duration-ms", type=int, default=0)
+    parser.add_argument("--loop-crossfade-ms", type=int, default=0)
     parser.add_argument("--ffmpeg", default="ffmpeg")
     args = parser.parse_args()
 
@@ -115,6 +143,8 @@ def main() -> int:
         parser.error("sample rate must be positive and channels must be 1 or 2")
     if not args.input.is_file():
         parser.error(f"audio source not found: {args.input}")
+    if min(args.start_ms, args.duration_ms, args.loop_crossfade_ms) < 0:
+        parser.error("clip times must be nonnegative")
 
     args.output_audio.parent.mkdir(parents=True, exist_ok=True)
     args.output_header.parent.mkdir(parents=True, exist_ok=True)
@@ -133,12 +163,26 @@ def main() -> int:
     frame_bytes = args.channels * 2
     if not pcm or len(pcm) % frame_bytes:
         parser.error(f"invalid S16BE output length {len(pcm)}")
+    first_frame = args.start_ms * args.sample_rate // 1000
+    end_frame = len(pcm) // frame_bytes
+    if args.duration_ms:
+        end_frame = min(end_frame, first_frame + args.duration_ms * args.sample_rate // 1000)
+    if first_frame >= end_frame:
+        parser.error("audio clip is empty")
+    pcm = pcm[first_frame * frame_bytes:end_frame * frame_bytes]
+    try:
+        pcm = loop_crossfade(pcm, args.channels,
+                             args.loop_crossfade_ms * args.sample_rate // 1000)
+    except ValueError as exc:
+        parser.error(str(exc))
     sample_count = len(pcm) // frame_bytes
-    encoded = encode_adpcm(pcm, args.channels) if args.format == "ima_adpcm" else pcm
+    encoded = (encode_adpcm(pcm, args.channels) if args.format == "ima_adpcm"
+               else pcm[0::2] if args.format == "s8" else pcm)
     args.output_audio.write_bytes(encoded)
     prefix = "SAT_AUDIO_" + re.sub(r"[^A-Za-z0-9]+", "_", args.name).strip("_").upper()
     guard = prefix + "_H"
-    format_macro = "SAT_AUDIO_IMA_ADPCM" if args.format == "ima_adpcm" else "SAT_AUDIO_PCM_S16"
+    format_macro = {"ima_adpcm": "SAT_AUDIO_IMA_ADPCM",
+                    "s8": "SAT_AUDIO_PCM_S8", "s16be": "SAT_AUDIO_PCM_S16"}[args.format]
     args.output_header.write_text(
         "\n".join([
             f"#ifndef {guard}", f"#define {guard}", "",

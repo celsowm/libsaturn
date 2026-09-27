@@ -42,6 +42,11 @@ extern "C" sat_result_t sat_sound_driver_info(sat_sound_driver_info_t* out_info)
     out_info->max_lateness_ticks = info.max_lateness;
     out_info->last_lateness_ticks = info.last_lateness;
     out_info->tick = info.tick;
+    out_info->score_event_count = info.score_event_count;
+    out_info->score_index = info.score_index;
+    out_info->score_loops = info.score_loops;
+    out_info->score_executed = info.score_executed;
+    out_info->score_running = info.score_running ? 1u : 0u;
     return SAT_OK;
 }
 
@@ -83,5 +88,29 @@ extern "C" sat_result_t sat_sound_driver_read_log(uint32_t index, uint16_t* out_
 extern "C" sat_result_t sat_sound_driver_clear_counters(void) {
     if (!hal::running()) return SAT_ERR_NOT_INITIALIZED;
     hal::clear_counters();
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_sound_driver_score_load(
+    const sat_sound_score_event_t* events, uint16_t count, uint32_t loop_ticks) {
+    if (!hal::running()) return SAT_ERR_NOT_INITIALIZED;
+    if (events == nullptr || count == 0u || count > SAT_SOUND_SCORE_MAX_EVENTS ||
+        loop_ticks == 0u) return SAT_ERR_INVALID_ARG;
+    uint32_t previous = 0u;
+    for (uint16_t i = 0u; i < count; ++i) {
+        if (!logic::register_ok(events[i].register_offset) ||
+            events[i].tick < previous || events[i].tick >= loop_ticks) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        previous = events[i].tick;
+    }
+    static_assert(sizeof(sat_sound_score_event_t) == sizeof(hal::ScoreEvent));
+    return hal::score_load(reinterpret_cast<const hal::ScoreEvent*>(events),
+                           count, loop_ticks) ? SAT_OK : SAT_ERR_INVALID_ARG;
+}
+
+extern "C" sat_result_t sat_sound_driver_score_stop(void) {
+    if (!hal::running()) return SAT_ERR_NOT_INITIALIZED;
+    hal::score_stop();
     return SAT_OK;
 }

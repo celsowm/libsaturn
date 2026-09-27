@@ -204,7 +204,11 @@ $$(AUDIO_$(1)_FILE) $$(AUDIO_$(1)_HEADER) &: $(EXAMPLE_AUDIO_$(1)_SOURCE) tools/
 		--output-audio "$$(AUDIO_$(1)_FILE)" --output-header "$$(AUDIO_$(1)_HEADER)" \
 		--name "$(1)" --sample-rate "$(EXAMPLE_AUDIO_$(1)_SAMPLE_RATE)" \
 		--channels "$(EXAMPLE_AUDIO_$(1)_CHANNELS)" \
-		--format "$(or $(EXAMPLE_AUDIO_$(1)_FORMAT),s16be)" --ffmpeg "$(FFMPEG)"
+		--format "$(or $(EXAMPLE_AUDIO_$(1)_FORMAT),s16be)" \
+		--start-ms "$(or $(EXAMPLE_AUDIO_$(1)_START_MS),0)" \
+		--duration-ms "$(or $(EXAMPLE_AUDIO_$(1)_DURATION_MS),0)" \
+		--loop-crossfade-ms "$(or $(EXAMPLE_AUDIO_$(1)_LOOP_CROSSFADE_MS),0)" \
+		--ffmpeg "$(FFMPEG)"
 endef
 $(foreach audio,$(EXAMPLE_AUDIO_STREAMS),$(eval $(call AUDIO_STREAM_RULE,$(audio))))
 endif

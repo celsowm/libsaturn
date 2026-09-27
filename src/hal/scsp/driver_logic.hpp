@@ -22,16 +22,25 @@ constexpr uint32_t kExecutedOffset = kMailbox + 0x14u;
 constexpr uint32_t kMaxLateOffset = kMailbox + 0x16u;
 constexpr uint32_t kControlOffset = kMailbox + 0x18u;
 constexpr uint32_t kLastLateOffset = kMailbox + 0x1Au;
+constexpr uint32_t kScoreOnOffset = kMailbox + 0x1Cu;
+constexpr uint32_t kScoreCountOffset = kMailbox + 0x1Eu;
+constexpr uint32_t kScoreIndexOffset = kMailbox + 0x20u;
+constexpr uint32_t kScoreBaseOffset = kMailbox + 0x24u;
+constexpr uint32_t kScoreLoopOffset = kMailbox + 0x28u;
+constexpr uint32_t kScoreLoopsOffset = kMailbox + 0x2Cu;
+constexpr uint32_t kScoreExecutedOffset = kMailbox + 0x2Eu;
 constexpr uint32_t kRingOffset = kMailbox + 0x40u;
 constexpr uint32_t kLogOffset = kMailbox + 0x300u;
 constexpr uint32_t kMailboxBytes = 0x400u;               /* cleared before the driver starts */
+constexpr uint32_t kScoreOffset = 0x1000u;
+constexpr uint16_t kScoreMaxEvents = 1024u;
 
 constexpr uint32_t kRingEntries = 64u;
 constexpr uint32_t kRingMask = kRingEntries - 1u;
 constexpr uint32_t kEntryBytes = 8u;
 constexpr uint32_t kLogEntries = 64u;
 constexpr uint32_t kMagic = 0x53445256u;                 /* 'SDRV' */
-constexpr uint16_t kVersion = 1u;
+constexpr uint16_t kVersion = 2u;
 
 constexpr uint16_t kMarkerBit = 0x8000u;                 /* an event that only takes a timestamp */
 

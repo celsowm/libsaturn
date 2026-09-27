@@ -21,7 +21,7 @@ FIELDS = (["magic", "audio_status", "start_status", "running", "base_tick", "mar
            "play_start_tick", "key_off_status", "voice_a_slot", "voice_b_slot", "tick_a", "frame_a", "tick_b",
            "frame_b", "heartbeat", "executed", "max_lateness", "queued_at_end"] +
           ["log_tick%d" % i for i in range(MARKERS + 3)] + ["log_late%d" % i for i in range(MARKERS + 3)] +
-          ["frames"])
+          ["frames", "score_status", "score_loops", "score_executed", "score_event_count"])
 MAILBOX = 0x800
 SPACING = 20
 NTSC_FRAME_HZ = float(os.environ.get("LIBSATURN_FRAME_HZ", "59.94"))   # 50 for a PAL run
@@ -62,9 +62,16 @@ class SoundDriverTests(unittest.TestCase):
         r = self.r
         self.assertEqual((r["audio_status"], r["start_status"], r["running"]), (0, 0, 1))
         self.assertEqual(struct.unpack(">I", self.sram[MAILBOX:MAILBOX + 4])[0], 0x53445256)   # 'SDRV'
-        self.assertEqual(w16(self.sram, MAILBOX + 4), 1)                                       # version
+        self.assertEqual(w16(self.sram, MAILBOX + 4), 2)                                       # version
         self.assertEqual(w16(self.sram, MAILBOX + 6) & 1, 1)                                   # running
         self.assertGreater(r["heartbeat"], 100)                                                 # the 68000 kept waking
+
+    def test_the_autonomous_score_repeats_without_sh2_updates(self):
+        r = self.r
+        self.assertEqual((r["score_status"], r["score_event_count"]), (0, 2))
+        self.assertGreater(r["score_loops"], 20)
+        self.assertIn(r["score_executed"] - 2 * r["score_loops"], (0, 1, 2))
+        self.assertEqual(w16(self.sram, MAILBOX + 0x1C), 1)  # enabled
 
     def test_every_event_ran_on_its_tick(self):
         r = self.r

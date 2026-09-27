@@ -34,7 +34,7 @@ closes the full help overlay; the performance counters remain visible.
 ## Display modes
 
 The demo defaults to 320x224 to leave the VDP1 enough time to finish each
-frame while music streams from the CD. Set `DINO_HIRES=1` when building to
+frame. Set `DINO_HIRES=1` when building to
 use 640x224: twice the horizontal pixels on the same 4:3 screen. The VDP1
 framebuffer is then 8 bits per pixel and can only hold palette codes, so the
 whole model shares one palette of 252 colors (`MODEL_LUT_CODES 2-253`),
@@ -58,10 +58,17 @@ without it everything runs on the Master at about 12 fps).
 The original GLB, its CC BY 4.0 attribution, and conversion details are in
 [`assets/LICENSE.txt`](assets/LICENSE.txt).
 
-The demo also loops `Bone_and_Plastic` from the CD. Its source OGG is kept in
-`audio-src/`; `build-example.ps1 dino_demo` converts it to 22.05 kHz stereo
-IMA ADPCM and stages it in the ISO. `sat_music` expands the blocks to PCM16
-for the SCSP. The smaller disc stream reduces CD stalls during rendering.
-The shared build step uses FFmpeg, so install it or set `FFMPEG` to its
-executable path. Other examples can choose S16BE or IMA ADPCM in
-`Makefile.inc`.
+The default soundtrack is a 96-second sparse score played autonomously by the
+SCSP's 68000. The build takes four short timbres from the original
+`audio-src/Bone_and_Plastic.ogg`, converts them to 11.025 kHz mono PCM8, and
+loads them into Sound RAM at boot. The 68000 then changes their level and
+pitch on its own timer. There are no CD reads, decoding jobs or SH-2 music
+updates during gameplay. The musical events remain sparse: low drone, hollow
+figure, isolated impacts and a few high signals. These are samples from the
+original recording rather than chip waveforms.
+
+The full recording remains available in 22.05 kHz stereo IMA ADPCM. Set the
+environment variable `DINO_MUSIC_68K=0` when building to use the CD stream
+instead; its underrun counter replaces the 68000 event/loop counters on the
+HUD. The build converts and stages the selected option automatically using FFmpeg.
+The shared build supports S16BE, S8 and IMA ADPCM in other examples too.

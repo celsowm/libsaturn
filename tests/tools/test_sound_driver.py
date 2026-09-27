@@ -33,13 +33,18 @@ class SoundDriverLayoutTests(unittest.TestCase):
         pairs = {"M_MAGIC": "kMagicOffset", "M_VERSION": "kVersionOffset", "M_FLAGS": "kFlagsOffset",
                  "M_HEARTBEAT": "kHeartbeatOffset", "M_TICK": "kTickOffset", "M_HEAD": "kHeadOffset",
                  "M_TAIL": "kTailOffset", "M_EXECUTED": "kExecutedOffset", "M_MAXLATE": "kMaxLateOffset",
-                 "M_CONTROL": "kControlOffset", "M_LATE_LAST": "kLastLateOffset", "M_RING": "kRingOffset",
+                 "M_CONTROL": "kControlOffset", "M_LATE_LAST": "kLastLateOffset",
+                 "M_SCORE_ON": "kScoreOnOffset", "M_SCORE_COUNT": "kScoreCountOffset",
+                 "M_SCORE_INDEX": "kScoreIndexOffset", "M_SCORE_BASE": "kScoreBaseOffset",
+                 "M_SCORE_LOOP": "kScoreLoopOffset", "M_SCORE_LOOPS": "kScoreLoopsOffset",
+                 "M_SCORE_EXEC": "kScoreExecutedOffset", "M_RING": "kRingOffset",
                  "M_LOG": "kLogOffset"}
         for asm_name, cpp_name in pairs.items():
             found = re.search(r"%s = kMailbox \+ (0x[0-9A-Fa-f]+)u" % cpp_name, logic)
             self.assertIsNotNone(found, cpp_name)
             self.assertEqual(eq[asm_name], int(found.group(1), 16), asm_name)
-        self.assertIn("RING_MASK,   63", open(SOURCE, encoding="utf-8").read())
+        with open(SOURCE, encoding="utf-8") as stream:
+            self.assertIn("RING_MASK,   63", stream.read())
         self.assertIn("kRingEntries = 64u", logic)
 
     def test_the_checked_in_image_is_current(self):

@@ -38,6 +38,10 @@ typedef struct driver_demo_results {
     uint32_t log_ticks[MARKERS + 3u];   /* the tick each scheduled event ran at */
     uint32_t log_late[MARKERS + 3u];
     uint32_t frames;
+    uint32_t score_status;
+    uint32_t score_loops;
+    uint32_t score_executed;
+    uint32_t score_event_count;
 } driver_demo_results_t;
 
 volatile driver_demo_results_t g_driver_demo;
@@ -75,6 +79,13 @@ int main(void) {
     if (g_driver_demo.audio_status == 0u) {
         g_driver_demo.start_status = (uint32_t)(-sat_sound_driver_start());
         g_driver_demo.running = sat_sound_driver_running();
+    }
+    if (g_driver_demo.running != 0u) {
+        const sat_sound_score_event_t score[2] = {
+            {0u, (uint16_t)(27u * 0x20u + 0x0Cu), 255u},
+            {5u, (uint16_t)(27u * 0x20u + 0x0Cu), 255u}
+        };
+        g_driver_demo.score_status = (uint32_t)(-sat_sound_driver_score_load(score, 2u, 20u));
     }
     if (g_driver_demo.running != 0u && sat_sound_create(&tone, &desc) == SAT_OK) {
         base = sat_sound_driver_tick() + 10u;
@@ -118,6 +129,9 @@ int main(void) {
             g_driver_demo.executed = info.executed;
             g_driver_demo.max_lateness = info.max_lateness_ticks;
             g_driver_demo.queued_at_end = info.queued;
+            g_driver_demo.score_loops = info.score_loops;
+            g_driver_demo.score_executed = info.score_executed;
+            g_driver_demo.score_event_count = info.score_event_count;
             for (uint32_t i = 0u; i < MARKERS + 3u; ++i) {
                 uint16_t t = 0u, late = 0u;
                 (void)sat_sound_driver_read_log(i, &t, &late);

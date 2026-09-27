@@ -83,6 +83,11 @@ bool read_info(Info* out) {
     out->executed = word(logic::kExecutedOffset);
     out->max_lateness = word(logic::kMaxLateOffset);
     out->last_lateness = word(logic::kLastLateOffset);
+    out->score_running = word(logic::kScoreOnOffset) != 0u;
+    out->score_event_count = word(logic::kScoreCountOffset);
+    out->score_index = word(logic::kScoreIndexOffset);
+    out->score_loops = word(logic::kScoreLoopsOffset);
+    out->score_executed = word(logic::kScoreExecutedOffset);
     return true;
 }
 
@@ -124,6 +129,40 @@ bool read_log(uint32_t index, uint16_t* out_tick, uint16_t* out_lateness) {
 
 void clear_counters() {
     if (g_running) set_word(logic::kControlOffset, 1u);
+}
+
+bool score_load(const ScoreEvent* events, uint16_t count, uint32_t loop_ticks) {
+    if (!g_running || events == nullptr || count == 0u ||
+        count > logic::kScoreMaxEvents || loop_ticks == 0u) return false;
+    uint32_t previous = 0u;
+    for (uint16_t i = 0u; i < count; ++i) {
+        if (!logic::register_ok(events[i].register_offset) ||
+            events[i].tick < previous || events[i].tick >= loop_ticks) return false;
+        previous = events[i].tick;
+    }
+    set_word(logic::kScoreOnOffset, 0u);
+    for (uint16_t i = 0u; i < count; ++i) {
+        const uint32_t offset = logic::kScoreOffset + static_cast<uint32_t>(i) * 8u;
+        set_word(offset, static_cast<uint16_t>(events[i].tick >> 16u));
+        set_word(offset + 2u, static_cast<uint16_t>(events[i].tick));
+        set_word(offset + 4u, events[i].register_offset);
+        set_word(offset + 6u, events[i].value);
+    }
+    const uint32_t base = read_tick() + 2u;
+    set_word(logic::kScoreCountOffset, count);
+    set_word(logic::kScoreIndexOffset, 0u);
+    set_word(logic::kScoreBaseOffset, static_cast<uint16_t>(base >> 16u));
+    set_word(logic::kScoreBaseOffset + 2u, static_cast<uint16_t>(base));
+    set_word(logic::kScoreLoopOffset, static_cast<uint16_t>(loop_ticks >> 16u));
+    set_word(logic::kScoreLoopOffset + 2u, static_cast<uint16_t>(loop_ticks));
+    set_word(logic::kScoreLoopsOffset, 0u);
+    set_word(logic::kScoreExecutedOffset, 0u);
+    set_word(logic::kScoreOnOffset, 1u);
+    return true;
+}
+
+void score_stop() {
+    if (g_running) set_word(logic::kScoreOnOffset, 0u);
 }
 
 }  // namespace saturn::hal::scsp::driver
