@@ -151,10 +151,7 @@ static uint32_t g_prt_serial;
 static uint32_t g_prt_completion_before, g_prt_submission_before;
 
 static uint16_t prt_frt_counter(void) {
-    volatile uint8_t* const high=(volatile uint8_t*)0xFFFFFE12u;
-    volatile uint8_t* const low=(volatile uint8_t*)0xFFFFFE13u;
-    const uint16_t h=*high;
-    return (uint16_t)((h<<8u)|*low);
+    return sat_time_frc();
 }
 static uint32_t prt_frt_delta(uint16_t start) {
     return (uint16_t)(prt_frt_counter()-start);

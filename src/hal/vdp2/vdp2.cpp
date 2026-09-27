@@ -2,6 +2,7 @@
 
 #include "src/core/runtime/logic.hpp"
 #include "src/hal/scu/dma.hpp"
+#include "src/hal/vdp2/rbg0_logic.hpp"
 
 namespace saturn::hal::vdp2 {
 
@@ -23,10 +24,6 @@ constexpr uint32_t kBackdropTableWordOffset = 0x3FFFFu;
  * E   = CPU read/write
  * F   = No access
  */
-constexpr uint16_t kRbg0BitmapCyclePatternLo = 0x9E9Eu;  /* Bitmap read + CPU */
-constexpr uint16_t kRbg0BitmapCyclePatternHi = 0x9E9Eu;
-constexpr uint16_t kRbg0ParamCyclePatternLo = 0x8E8Eu;   /* Param read + CPU */
-constexpr uint16_t kRbg0ParamCyclePatternHi = 0x8E8Eu;
 uint16_t g_nbg0_map_plane_index = kNbg0MapPlaneAIndex;
 uint16_t g_last_rbg0_bgon_written = 0x0000u;
 uint16_t g_last_rbg0_ramctl_written = 0x0000u;
@@ -48,6 +45,8 @@ uint16_t g_last_rbg0_cycle_b0l = 0xEEEEu;
 uint16_t g_last_rbg0_cycle_b0u = 0xEEEEu;
 uint16_t g_last_rbg0_cycle_b1l = 0xEEEEu;
 uint16_t g_last_rbg0_cycle_b1u = 0xEEEEu;
+uint8_t g_rbg0_bitmap_bank_mask = 0u;
+uint8_t g_rbg0_parameter_bank = 0xFFu;
 /* NBG0 register shadows.
  *
  * The VDP2 latches most of its configuration registers once per frame, so a
@@ -278,19 +277,6 @@ inline void set_vram_cycle_pattern(uint16_t bank_id, uint16_t low_pattern, uint1
     }
 }
 
-inline void ensure_rbg0_bank_fetch_visible(uint32_t word_offset, bool is_bitmap_bank) {
-    const uint16_t bank_id = static_cast<uint16_t>((word_offset >> 16u) & 0x0003u);
-    /* Use cycle patterns with RBG0 bitmap read (9) or parameter read (8)
-     * alternated with CPU access (E) so the VDP2 can fetch data while the
-     * CPU can still update tables during VBlank.
-     */
-    if (is_bitmap_bank) {
-        set_vram_cycle_pattern(bank_id, kRbg0BitmapCyclePatternLo, kRbg0BitmapCyclePatternHi);
-    } else {
-        set_vram_cycle_pattern(bank_id, kRbg0ParamCyclePatternLo, kRbg0ParamCyclePatternHi);
-    }
-}
-
 constexpr double kPi = 3.141592653589793238462643383279502884;
 
 inline double wrap_degrees(double degrees) {
@@ -390,6 +376,8 @@ void reset_color_ops() {
 void init_ntsc_320x224() {
     TVMD = 0x0000;
     g_nbg0_configured = false;
+    g_rbg0_bitmap_bank_mask = 0u;
+    g_rbg0_parameter_bank = 0xFFu;
     VRSIZE = 0x0000;
     /* Mirror the JoEngine baseline VDP2 setup for NBG0 cell format.
      * This keeps the register state consistent with the working benchmark.
@@ -717,39 +705,33 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
         return;
     }
 
-    /* Configure RAMCTL usage bits for the bank that stores the bitmap.
-     * Only the selected bitmap bank needs to be marked as bitmap data.
-     * Rotation parameters are addressed through RPTA and do not use a
-     * dedicated RAMCTL usage class.
-     */
-    uint16_t ramctl = g_nbg0_configured ? static_cast<uint16_t>(RAMCTL | 0x1100u) : 0x1100u;
-    /* RDBS field of one bank (2 bits each, A0 lowest): 11 = character /
-     * bitmap data of a rotation layer, 01 = coefficient table. A bitmap that
-     * outgrows one 128 KiB bank (512x512 at 8 bpp fills A0 and A1) needs
-     * EVERY bank it spans marked, or RBG0 reads the second half as nothing.
-     * Each field is set exactly, not OR-ed onto what it held before, so a
-     * bank that used to hold something else cannot end up as "bitmap". */
-    const auto set_bank = [&ramctl](uint16_t bank, uint16_t value) {
-        const uint16_t shift = static_cast<uint16_t>((bank & 0x0003u) * 2u);
-        ramctl = static_cast<uint16_t>((ramctl & ~(0x0003u << shift)) | (value << shift));
-    };
     const uint32_t bitmap_words = saturn::core::rbg0_bitmap_word_size(
         static_cast<sat_vdp2_rbg0_bitmap_size_t>(bitmap_size));
-    const uint16_t first_bank = static_cast<uint16_t>((bitmap_base_word >> 16u) & 0x0003u);
-    const uint16_t bank_count = static_cast<uint16_t>((bitmap_words + 0xFFFFu) >> 16u);
-    for (uint16_t b = 0u; b < bank_count && first_bank + b < 4u; ++b) {
-        set_bank(static_cast<uint16_t>(first_bank + b), 0x0003u);
-    }
-    /* The coefficient table follows the rotation parameters in their bank. */
-    set_bank(static_cast<uint16_t>((rot_param_base_word >> 16u) & 0x0003u), 0x0001u);
+    const uint16_t ramctl = rbg0::compose_ramctl(
+        g_nbg0_configured ? RAMCTL : 0x0000u,
+        g_nbg0_configured,
+        g_rbg0_bitmap_bank_mask, g_rbg0_parameter_bank,
+        bitmap_base_word, bitmap_words, rot_param_base_word);
 
     RAMCTL = ramctl;
     g_last_rbg0_ramctl_written = ramctl;
 
-    for (uint16_t b = 0u; b < bank_count && first_bank + b < 4u; ++b) {
-        ensure_rbg0_bank_fetch_visible(bitmap_base_word + (static_cast<uint32_t>(b) << 16u), true);
+    const uint16_t previous_low[4] = {
+        g_last_rbg0_cycle_a0l, g_last_rbg0_cycle_a1l,
+        g_last_rbg0_cycle_b0l, g_last_rbg0_cycle_b1l};
+    const uint16_t previous_high[4] = {
+        g_last_rbg0_cycle_a0u, g_last_rbg0_cycle_a1u,
+        g_last_rbg0_cycle_b0u, g_last_rbg0_cycle_b1u};
+    const rbg0::CyclePlan cycle_plan = rbg0::make_cycle_plan(
+        previous_low, previous_high,
+        bitmap_base_word, bitmap_words, rot_param_base_word);
+    for (uint16_t bank = 0u; bank < 4u; ++bank) {
+        if (cycle_plan.changed[bank]) {
+            set_vram_cycle_pattern(bank, cycle_plan.low[bank], cycle_plan.high[bank]);
+        }
     }
-    ensure_rbg0_bank_fetch_visible(rot_param_base_word, false);
+    g_rbg0_bitmap_bank_mask = rbg0::bitmap_bank_mask(bitmap_base_word, bitmap_words);
+    g_rbg0_parameter_bank = rbg0::bank_of(rot_param_base_word);
 
     /* Configure CHCTLB for RBG0.
      * R0CHCN uses bits 14..12, R0BMEN is bit 9 and R0BMSZ is bit 10.

@@ -3,6 +3,7 @@
 #include "src/core/runtime/state.hpp"
 #include "src/core/runtime/time_logic.hpp"
 #include "src/hal/scu/scu.hpp"
+#include "src/hal/sh2/frt.hpp"
 
 extern "C" uint32_t sat_time_ms(void) {
     using namespace saturn::core;
@@ -14,6 +15,18 @@ extern "C" uint32_t sat_time_ms(void) {
         saturn::hal::scu::elapsed_ticks(),
         saturn::hal::scu::ticks_per_frame(),
         frames_per_second);
+}
+
+extern "C" uint64_t sat_time_ticks(void) {
+    using namespace saturn::core;
+    if (!g_state.initialized || saturn::hal::scu::ticks_per_frame() == 0u) {
+        return 0u;
+    }
+    return saturn::hal::scu::elapsed_ticks();
+}
+
+extern "C" uint16_t sat_time_frc(void) {
+    return saturn::hal::sh2::frt::counter();
 }
 
 extern "C" sat_result_t sat_delay_ms(uint32_t ms) {

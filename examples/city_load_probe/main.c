@@ -18,6 +18,7 @@
 #include "saturn/cd_block.h"
 #include "saturn/cdfs.h"
 #include "saturn/color.h"
+#include "saturn/time.h"
 #include "saturn/core.h"
 #include "saturn/ram_cart.h"
 #include "saturn/video.h"
@@ -114,10 +115,7 @@ static void read32(uint32_t* dst, const volatile uint32_t* src, uint32_t bytes) 
 }
 
 static uint16_t frt_now(void) {
-    /* FRC high latches low; the library runs the FRT at the prescaler sat_init chose. */
-    uint16_t high = *(volatile uint8_t*)0xFFFFFE12u;
-    uint16_t low = *(volatile uint8_t*)0xFFFFFE13u;
-    return (uint16_t)((high << 8) | low);
+    return sat_time_frc();
 }
 
 static uint32_t elapsed(uint16_t since) {

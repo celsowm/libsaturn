@@ -6,6 +6,7 @@
 #include "saturn/color.h"
 #include "saturn/font.h"
 #include "saturn/scu_dsp.h"
+#include "saturn/time.h"
 
 #include "dma_probe_r1w1.h"
 #include "dma_probe_r1w2.h"
@@ -53,10 +54,7 @@ static uint32_t g_probe_src[PROBE_WORDS] __attribute__((aligned(16)));
 static uint32_t g_probe_dst[PROBE_WORDS] __attribute__((aligned(16)));
 
 static uint16_t frt_counter(void) {
-    volatile uint8_t* const high = (volatile uint8_t*)0xFFFFFE12u;
-    volatile uint8_t* const low = (volatile uint8_t*)0xFFFFFE13u;
-    const uint16_t h = *high;
-    return (uint16_t)((h << 8u) | *low);
+    return sat_time_frc();
 }
 
 /* The path the DSP replaces: three 64-bit products per output component. */

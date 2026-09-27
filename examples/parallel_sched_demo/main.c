@@ -13,6 +13,7 @@
 #include "saturn/color.h"
 #include "saturn/font.h"
 #include "saturn/parallel.h"
+#include "saturn/time.h"
 
 #define SCHED_DEMO_MAGIC 0x53434831u /* "SCH1" */
 #define TASK_ORDER 0x7E01u
@@ -79,10 +80,7 @@ static order_output_t g_output[16];
 static sat_parallel_handle_t g_handle[16];
 
 static uint16_t frt_counter(void) {
-    volatile uint8_t* const high = (volatile uint8_t*)0xFFFFFE12u;
-    volatile uint8_t* const low = (volatile uint8_t*)0xFFFFFE13u;
-    const uint16_t h = *high;
-    return (uint16_t)((h << 8u) | *low);
+    return sat_time_frc();
 }
 
 /* The Slave's stack lives below the program image; the Master's does not. */

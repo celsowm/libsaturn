@@ -14,6 +14,7 @@
 #include "saturn/scene3d_faces.h"
 #include "saturn/scene3d_material_pool.h"
 #include "saturn/math3d.h"
+#include "saturn/time.h"
 
 #include "city_format.h"
 #include "city_grid.h"
@@ -114,12 +115,10 @@ typedef struct city_telemetry {
 #define CITY_TELEMETRY_MAGIC 0x43495459u /* "CITY" */
 extern volatile city_telemetry_t g_city;
 
-/* Free-running timer, read directly: sat_frame_count() floors per call, so
- * summing short operations with it gives 0 (see the R3 probe). */
+/* Free-running timer: sat_frame_count() floors per call, so summing short
+ * operations with it gives 0 (see the R3 probe). */
 static inline uint16_t city_frt_now(void) {
-    uint16_t high = *(volatile uint8_t*)0xFFFFFE12u;
-    uint16_t low = *(volatile uint8_t*)0xFFFFFE13u;
-    return (uint16_t)((high << 8) | low);
+    return sat_time_frc();
 }
 
 /* telemetry.c ------------------------------------------------------------- */

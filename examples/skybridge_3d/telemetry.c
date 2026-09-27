@@ -40,10 +40,7 @@ sb_test_telemetry_block_t g_sb_test_telemetry __attribute__((used));
 static uint32_t g_test_timer_read_overhead_ticks;
 
 uint16_t sb_test_frt_counter(void) {
-    volatile uint8_t* const high=(volatile uint8_t*)0xFFFFFE12u;
-    volatile uint8_t* const low=(volatile uint8_t*)0xFFFFFE13u;
-    const uint16_t h=*high;
-    return (uint16_t)((h<<8u)|*low);
+    return sat_time_frc();
 }
 
 uint32_t sb_test_frt_delta(uint16_t start) {

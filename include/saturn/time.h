@@ -16,6 +16,17 @@ extern "C" {
  * at least every ~0.3 s or that span is lost. */
 uint32_t sat_time_ms(void);
 
+/* Extended free-running timer ticks elapsed since sat_init(). The value uses
+ * the SH-2 FRT prescaler selected by the runtime and is not converted to a
+ * wall-clock unit. Returns zero before initialization or if the frame-clock
+ * calibration failed. */
+uint64_t sat_time_ticks(void);
+
+/* Raw 16-bit SH-2 FRT counter. Reading the high byte latches the low byte;
+ * subtract two readings as uint16_t to measure short intervals across wrap.
+ * This value has no sat_init() origin and is not extended by the library. */
+uint16_t sat_time_frc(void);
+
 /* Busy-waits for at least the requested duration. */
 sat_result_t sat_delay_ms(uint32_t ms);
 

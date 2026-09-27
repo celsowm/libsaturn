@@ -34,6 +34,8 @@ int main() {
         == SAT_ERR_CAPACITY);
     /* Coefficient table address: KAst carries the low 16 bits of byte / 4,
      * KTAOF the rest. A1 needs no offset; B0 (behind a 512x512 bitmap) does. */
+    OK(sat_vdp2_rbg0_ground_ktaof(0x1FFFFu) == 0u);
+    OK(sat_vdp2_rbg0_ground_ktaof(0x20000u) == 1u);
     OK(sat_vdp2_rbg0_ground_kast_word(0x12000u) == 0x9000u && sat_vdp2_rbg0_ground_ktaof(0x12000u) == 0u);
     OK(sat_vdp2_rbg0_ground_kast_word(0x22000u) == 0x1000u && sat_vdp2_rbg0_ground_ktaof(0x22000u) == 1u);
     OK(sat_vdp2_rbg0_ground_ktaof(0x3F000u) == 1u);
