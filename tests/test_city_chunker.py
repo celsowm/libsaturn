@@ -388,6 +388,16 @@ class ChunkerBehaviourTests(unittest.TestCase):
             self.assertIn("city_grid.h", run.stderr)
 
 
+class FacadeTextureBudgetTests(unittest.TestCase):
+    def test_close_facade_never_silently_drops_below_density_floor(self):
+        # At 2 texels/unit this 100x100 facade needs ~40 KiB, above the 28 KiB
+        # close slot. The old planner silently dropped to ~1 texel/unit.
+        quad = np.array([[0., 0., 0.], [100., 0., 0.],
+                         [100., 100., 0.], [0., 100., 0.]])
+        with self.assertRaisesRegex(GltfError, "facade floor"):
+            city_chunker._texture_plan([(quad, 0, 0)], 0, 0.0)
+
+
 class FacadeTextureSamplingTests(unittest.TestCase):
     def test_baker_samples_source_uv_per_pixel_not_one_centroid_colour(self):
         from model_pipeline import facades

@@ -72,9 +72,15 @@ jobs:
                       f"chunk {chunk} LOD{lod}: {item['textures']} textures, "
                       f"expected {expected_textures} after foliage dedup"
                   )
-                  rates[lod].append(item["texture_rate"])
+                  if item["faces"] > item.get("foliage", 0):
+                      rates[lod].append(item["texture_rate"])
                   if item.get("foliage", 0):
                       foliage_widths[lod].append(item["foliage_texture_min_width"])
+          facade_floors = [2.0, 1.0, 0.5]
+          for lod, values in enumerate(rates):
+              if values:
+                  assert min(values) >= facade_floors[lod], (
+                      lod, min(values), facade_floors[lod])
           floors = [32, 24, 16]
           for lod, values in enumerate(foliage_widths):
               if values:

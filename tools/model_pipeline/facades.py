@@ -60,20 +60,23 @@ class FacadeBaker:
         mat = self.materials[mi]
         from . import chunking as ch
 
-        factor = np.asarray(mat.base_linear, dtype=np.float64)
+        # Solid source materials already have their exact per-triangle shaded
+        # colour in self.colours. Rebuilding them only from baseColorFactor
+        # erases signs, plaques and trim that use separate solid materials.
+        # Per-pixel reconstruction is only needed for a real source image.
         if mat.image is None:
-            linear = np.broadcast_to(factor, w0.shape + (3,)).copy()
-        else:
-            if self.uv is None:
-                return None
-            tuv = self.uv[tri_index]
-            u = np.mod(w0 * tuv[0, 0] + w1 * tuv[1, 0] + w2 * tuv[2, 0], 1.0)
-            v = np.mod(w0 * tuv[0, 1] + w1 * tuv[1, 1] + w2 * tuv[2, 1], 1.0)
-            ih, iw = mat.image.shape[:2]
-            ix = np.clip((u * iw).astype(np.int64), 0, iw - 1)
-            iy = np.clip((v * ih).astype(np.int64), 0, ih - 1)
-            texel = mat.image[iy, ix, :3].astype(np.float64) / 255.0
-            linear = ch._srgb_decode(texel) * factor
+            return None
+        factor = np.asarray(mat.base_linear, dtype=np.float64)
+        if self.uv is None:
+            return None
+        tuv = self.uv[tri_index]
+        u = np.mod(w0 * tuv[0, 0] + w1 * tuv[1, 0] + w2 * tuv[2, 0], 1.0)
+        v = np.mod(w0 * tuv[0, 1] + w1 * tuv[1, 1] + w2 * tuv[2, 1], 1.0)
+        ih, iw = mat.image.shape[:2]
+        ix = np.clip((u * iw).astype(np.int64), 0, iw - 1)
+        iy = np.clip((v * ih).astype(np.int64), 0, ih - 1)
+        texel = mat.image[iy, ix, :3].astype(np.float64) / 255.0
+        linear = ch._srgb_decode(texel) * factor
 
         if not mat.unlit:
             linear *= self.light_factor[tri_index]
