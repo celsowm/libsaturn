@@ -152,7 +152,7 @@ sat_result_t city_loader_run(uint8_t* staging, uint32_t staging_bytes,
                              city_progress_fn progress);
 
 /* residency.c ------------------------------------------------------------- */
-/* 9 x 4096 + 25 x 1536 + 49 x 1024 = 122.5 KiB: the only geometry ever in
+/* 9 x 5664 + 25 x 1536 + 49 x 1024 = 136.3 KiB: the only geometry ever in
  * work RAM, as raw big-endian blobs (their decoded form is 1.5-2x larger). The
  * loader borrows its first 64 KiB as CD staging while the pool is still empty. */
 #define CITY_POOL_BYTES (9u * CITY_SLOT_BYTES_LOD0 + 25u * CITY_SLOT_BYTES_LOD1 +                          49u * CITY_SLOT_BYTES_LOD2)
