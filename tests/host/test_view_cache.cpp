@@ -156,6 +156,33 @@ int main() {
     OK(items[0].depth==static_cast<uint32_t>(8*SAT_FX16_ONE));
     OK(items[0].quad.x[0]==-1 && items[0].quad.y[0]==-1);
 
+    // An unsorted finalize is O(1) and preserves source order for the global
+    // scene painter, which will perform the only ordering pass.
+    {
+        sat_view_cache_item_t finish_storage[3]={};
+        uint16_t finish_counts[1]={};
+        sat_view_cache_t finish_cache{};
+        const sat_view_cache_item_t* finish_items=nullptr;
+        uint16_t finish_count=0u;
+        OK(sat_view_cache_init(
+            &finish_cache,finish_storage,finish_counts,1u,3u)==SAT_OK);
+        OK(sat_view_cache_begin(&finish_cache,0u)==SAT_OK);
+        OK(sat_view_cache_append(
+            &finish_cache,&quad,2u,20u,0u)==SAT_OK);
+        OK(sat_view_cache_append(
+            &finish_cache,&quad,9u,90u,0u)==SAT_OK);
+        OK(sat_view_cache_append(
+            &finish_cache,&quad,5u,50u,0u)==SAT_OK);
+        OK(sat_view_cache_finish(&finish_cache)==SAT_OK);
+        OK(sat_view_cache_finish(&finish_cache)==SAT_ERR_INVALID_ARG);
+        OK(sat_view_cache_view(
+            &finish_cache,0u,&finish_items,&finish_count)==SAT_OK);
+        OK(finish_count==3u);
+        OK(finish_items[0].color==20u &&
+           finish_items[1].color==90u &&
+           finish_items[2].color==50u);
+    }
+
     // A legacy append never confers a fabricated linear W to its item.
     OK(sat_view_cache_begin_camera(&cache,0u,&camera,SAT_FX16_ONE,
         320u,224u)==SAT_OK);

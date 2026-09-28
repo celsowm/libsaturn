@@ -14,7 +14,8 @@ to an unchanged view reuses its projected geometry.
 
 No application-authored painter keys or manual VDP1 commands are involved:
 the example uses `sat_view_cache_append_world` to bake native projected
-corners **and their comparable linear depths once**, then uses
+corners **and their comparable linear depths once**, closes that bake with
+`sat_view_cache_finish` in O(1) without a redundant local sort, then uses
 `sat_scene_queue_managed_camera_view` for the whole validated view (its
 texture owner is recorded once per view and checked once at flush) and
 `sat_scene_submit_quad` for the moving actor. It needs no per-frame static

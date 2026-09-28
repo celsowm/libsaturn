@@ -12,14 +12,20 @@ extern "C" {
 #endif
 
 /* Immutable, caller-owned finite camera-view cache. Entries are copied into
- * the cache during bake; runtime replay never projects or sorts them. A
- * generation change invalidates every view before a new bake. The application
- * may use tag for occupancy metadata. */
+ * the cache during bake; runtime replay never projects them. A bake may end
+ * in stable far-to-near order with sat_view_cache_sort(), for direct replay,
+ * or stay in source order with sat_view_cache_finish(), for a scene painter
+ * that will order the combined cached/dynamic queue once. A generation change
+ * invalidates every view before a new bake. The application may use tag for
+ * occupancy metadata. */
 typedef struct sat_view_cache_item {
     sat_quad2_t quad;
     uint32_t depth;
     uint16_t color;
     uint16_t tag;
+    /* Internal insertion ordinal used only to preserve stable equal-depth
+     * ordering in the allocation-free O(n log n) direct-replay sort. */
+    uint16_t bake_order;
     /* Populated only by append_world: true linear 16.16 camera depth,
      * distinct from the legacy arbitrary uint32_t bake-order key. */
     sat_fx16_t camera_depth;
@@ -75,8 +81,10 @@ sat_result_t sat_view_cache_begin_camera(
 /* Retrieve only a view baked for exactly this camera/viewport. A stale view
  * is invalidated and returns NOT_FOUND with NULL/0 outputs, rather than
  * drawing old native coordinates after a camera rotation or viewport change.
- * Use begin_camera + append + sort to rebuild it. A legacy begin on a bound
- * slot deliberately invalidates its camera snapshot. */
+ * Use begin_camera + append + sort to rebuild it for direct replay, or
+ * begin_camera + append + finish when a scene painter will order the whole
+ * cached/dynamic queue. A legacy begin on a bound slot deliberately
+ * invalidates its camera snapshot. */
 sat_result_t sat_view_cache_view_camera(
     sat_view_cache_t* cache, uint16_t view,
     const sat_camera3d_t* camera, sat_fx16_t near_depth,
@@ -97,6 +105,15 @@ sat_result_t sat_view_cache_append(sat_view_cache_t* cache,
 sat_result_t sat_view_cache_append_world(
     sat_view_cache_t* cache, const sat_quad3_t* world,
     uint16_t color, uint16_t tag);
+
+/* Finalize the current bake without ordering it. O(1). Use this when the
+ * complete view will enter sat_scene_t, whose global painter orders cached
+ * and dynamic geometry together. sat_view_cache_view() then exposes source
+ * order; callers that replay items directly must use sat_view_cache_sort(). */
+sat_result_t sat_view_cache_finish(sat_view_cache_t* cache);
+
+/* Finalize the current bake in stable far-to-near order for direct replay.
+ * Allocation-free O(n log n); equal-depth items keep append order. */
 sat_result_t sat_view_cache_sort(sat_view_cache_t* cache);
 sat_result_t sat_view_cache_view(sat_view_cache_t* cache, uint16_t view,
     const sat_view_cache_item_t** out_items, uint16_t* out_count);

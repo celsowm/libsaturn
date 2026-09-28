@@ -19,6 +19,42 @@ bool valid_camera_request(const sat_camera3d_t* camera,
     return camera && near_depth>0 && width>=2u && height>=2u &&
         width<=2048u && height<=2048u;
 }
+
+/* Direct replay wants descending depth and stable append order for ties.
+ * Recording the append ordinal in each item lets an ordinary in-place
+ * heapsort provide that stable semantic without an O(n) scratch array. */
+bool view_item_before(
+    const sat_view_cache_item_t& a,const sat_view_cache_item_t& b) {
+    return a.depth>b.depth ||
+        (a.depth==b.depth && a.bake_order<b.bake_order);
+}
+
+void view_item_sift_down(
+    sat_view_cache_item_t* list,uint32_t root,uint32_t end) {
+    const sat_view_cache_item_t value=list[root];
+    for (;;) {
+        uint32_t child=root*2u+1u;
+        if (child>=end) break;
+        if (child+1u<end && view_item_before(list[child],list[child+1u]))
+            ++child;
+        if (!view_item_before(value,list[child])) break;
+        list[root]=list[child];
+        root=child;
+    }
+    list[root]=value;
+}
+
+void sort_view_items(sat_view_cache_item_t* list,uint32_t count) {
+    if (count<2u) return;
+    for (uint32_t i=count/2u;i>0u;--i)
+        view_item_sift_down(list,i-1u,count);
+    for (uint32_t end=count-1u;end>0u;--end) {
+        const sat_view_cache_item_t last=list[0];
+        list[0]=list[end];
+        list[end]=last;
+        view_item_sift_down(list,0u,end);
+    }
+}
 }
 
 
@@ -130,10 +166,17 @@ extern "C" sat_result_t sat_view_cache_append(sat_view_cache_t* cache,
     item.depth = depth;
     item.color = color;
     item.tag = tag;
+    item.bake_order=count;
     item.camera_depth=0;
     item.camera_depth_valid=0u;
     ++count;
     ++cache->baked_entries;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_view_cache_finish(sat_view_cache_t* cache) {
+    if (!cache || !cache->active) return SAT_ERR_INVALID_ARG;
+    cache->active=0u;
     return SAT_OK;
 }
 
@@ -142,17 +185,8 @@ extern "C" sat_result_t sat_view_cache_sort(sat_view_cache_t* cache) {
     sat_view_cache_item_t* list = cache->storage +
         static_cast<uint32_t>(cache->current_view) * cache->capacity_per_view;
     const uint16_t count = cache->counts[cache->current_view];
-    for (uint16_t i = 1u; i < count; ++i) {
-        const sat_view_cache_item_t value = list[i];
-        int j = static_cast<int>(i) - 1;
-        while (j >= 0 && list[j].depth < value.depth) {
-            list[j + 1] = list[j];
-            --j;
-        }
-        list[j + 1] = value;
-    }
-    cache->active = 0u;
-    return SAT_OK;
+    sort_view_items(list,count);
+    return sat_view_cache_finish(cache);
 }
 
 extern "C" sat_result_t sat_view_cache_view(sat_view_cache_t* cache, uint16_t view,

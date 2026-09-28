@@ -97,7 +97,9 @@ static void bake_current_view(void) {
     for (uint16_t i=0u;i<CACHE_FACES;++i)
         sat_example_must(sat_view_cache_append_world(
             &g_cache,&g_static_world[i],0u,i));
-    sat_example_must(sat_view_cache_sort(&g_cache));
+    /* The global scene painter will sort these cached faces together with
+     * dynamic geometry, so do not pay for a separate cache ordering pass. */
+    sat_example_must(sat_view_cache_finish(&g_cache));
 }
 
 static void draw_cached_static(void) {
