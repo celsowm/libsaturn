@@ -90,7 +90,6 @@ def build_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_of):
     block face to its shaded material. Raises when even the coarsest level
     overflows a LOD's caps."""
     result = {"lods": {}, "boxes": []}
-    foliage_items = list(foliage_items or [])
     first = 0
     c = blocks.CHUNK_CELLS
     window = (slice(cz * c, (cz + 1) * c), slice(cx * c, (cx + 1) * c))
@@ -270,6 +269,7 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
     texture slot. Texels stay RGB here; the caller quantises them once the
     whole city's palette is known."""
     result = {"lods": {}, "boxes": []}
+    foliage_items = list(foliage_items or [])
     first = 0
     c = blocks.CHUNK_CELLS
     window = (slice(cz * c, (cz + 1) * c), slice(cx * c, (cx + 1) * c))
