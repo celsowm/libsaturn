@@ -693,7 +693,12 @@ static void header_parse_rejects_bad_fields() {
     bad = raw; bad[5] = 4; /* future version */
     CHECK(city_header_parse(bad.data(), 128, &h) == SAT_ERR_VERSION);
     /* A texture block bigger than the slot's VDP1 VRAM is refused. */
-    bad = raw; bad[0x6E] = 0x40; bad[0x6F] = 0x01; /* max_texture_bytes[0] = 16385 */
+    bad = raw;
+    {
+        const uint16_t too_much_texture = (uint16_t)(CITY_TEX_BYTES_LOD0 + 1u);
+        bad[0x6E] = (uint8_t)(too_much_texture >> 8);
+        bad[0x6F] = (uint8_t)too_much_texture;
+    }
     CHECK(city_header_parse(bad.data(), 128, &h) == SAT_OK);
     CHECK(city_header_check_caps(&h) == SAT_ERR_CAPACITY);
     /* A texture palette must sit between the TOC and the blobs. */
@@ -708,7 +713,12 @@ static void header_parse_rejects_bad_fields() {
     bad = raw; bad[0x27] = 0x10; /* unaligned blob_base */
     CHECK(city_header_parse(bad.data(), 128, &h) == SAT_ERR_INVALID_ARG);
     /* Caps larger than the runtime was built for are refused, not truncated. */
-    bad = raw; bad[0x39] = 0xFF; bad[0x38] = 0x01; /* max_vertices[0] = 511 */
+    bad = raw;
+    {
+        const uint16_t too_many_vertices = (uint16_t)(CITY_LOD0_VERTS + 1u);
+        bad[0x38] = (uint8_t)(too_many_vertices >> 8);
+        bad[0x39] = (uint8_t)too_many_vertices;
+    }
     CHECK(city_header_parse(bad.data(), 128, &h) == SAT_OK);
     CHECK(city_header_check_caps(&h) == SAT_ERR_CAPACITY);
 }
