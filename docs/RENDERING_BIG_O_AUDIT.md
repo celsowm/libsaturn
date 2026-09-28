@@ -35,7 +35,7 @@ The scene painter remains a painter's algorithm, not a Z-buffer. Intersecting po
 | Exact public index sort | **O(N log N)** | `sat_sort_indices_desc` / `sat_sort_indices16_desc`; intentionally retained when an exact key sort is explicitly requested. |
 | Solid-material exact register/dedup | **O(log M)** worst case | Embedded AVL index; full construction is O(M log M), capacity <= 255. |
 | Solid-material nearest-colour query | **O(M)** | Intentionally scans candidates because the query is RGB-distance nearest-neighbour, not exact-key lookup. |
-| city_walk cell ordering | **O(N log N)** | Deterministic heap sort by distance then (cz,cx). |
+| city_walk cell ordering | **O(N + 256)** | Four stable 8-bit radix passes over fixed-width dist2; source order supplies the (cz,cx) tie-break. |
 | city_walk budget adjustment | **O(N * L)**, effectively O(N) | One far-to-near degradation pass and one drop pass; L = 3 fixed LOD levels. |
 
 F = faces, V = vertices, C = cached entries, M = registered solid materials, N = planner/render items.
@@ -93,7 +93,7 @@ The nearest-colour API remains linear because it compares RGB distance against t
 
 Commit `0a65569` removed two quadratic patterns.
 
-1. Cell ordering changed from insertion sort to deterministic heap sort: O(N log N).
+1. Cell ordering first moved off quadratic insertion sort, then to a stable fixed-width radix order: O(N + 256), preserving exact distance and (cz,cx) tie order.
 2. Budget adjustment no longer restarts a reverse scan after every downgrade/drop. Because a cell can degrade at most one LOD step, one far-to-near degradation pass followed by one far-to-near drop pass preserves the policy in O(N * L), with L fixed at 3.
 
 ### Explorer projected-item painter

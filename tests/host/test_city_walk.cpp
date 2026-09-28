@@ -278,10 +278,19 @@ static void plan_orders_nearest_first_with_highest_pass_nearest() {
     CHECK(plan.items[0].pass == plan.count - 1);
     CHECK(plan.items[plan.count - 1].pass == 0);
     int32_t previous = -1;
+    int16_t previous_cz = -32768;
+    int16_t previous_cx = -32768;
     for (int i = 0; i < plan.count; ++i) {
         int32_t d2 = city_cell_dist2(plan.items[i].chunk_x - 8, plan.items[i].chunk_z - 8, &pos);
         CHECK(d2 >= previous);
+        if (d2 == previous) {
+            CHECK(plan.items[i].chunk_z > previous_cz ||
+                  (plan.items[i].chunk_z == previous_cz &&
+                   plan.items[i].chunk_x > previous_cx));
+        }
         previous = d2;
+        previous_cz = plan.items[i].chunk_z;
+        previous_cx = plan.items[i].chunk_x;
         if (i > 0) CHECK(plan.items[i].pass < plan.items[i - 1].pass);
         CHECK(plan.items[i].pass <= 255);
     }

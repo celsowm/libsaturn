@@ -303,40 +303,33 @@ typedef struct city_cell {
     int32_t dist2; /* squared units from player to the chunk centre */
 } city_cell_t;
 
-/* Total deterministic ordering for frame cells: nearest first, then (cz,cx).
- * A max-heap gives O(N log N) worst-case without scratch. CITY_MAX_DRAW_ITEMS
- * is small today, but keeping the planner non-quadratic prevents ring growth
- * from turning a content-size change into a frame-time cliff. */
-static inline int city_cell_less(const city_cell_t* a, const city_cell_t* b) {
-    return a->dist2 < b->dist2 ||
-           (a->dist2 == b->dist2 &&
-            (a->cz < b->cz || (a->cz == b->cz && a->cx < b->cx)));
-}
-
-static inline void city_cell_sift_down(
-    city_cell_t* cells, int root, int end) {
-    city_cell_t value = cells[root];
-    for (;;) {
-        int child = root * 2 + 1;
-        if (child >= end) break;
-        if (child + 1 < end &&
-            city_cell_less(&cells[child], &cells[child + 1])) ++child;
-        if (!city_cell_less(&value, &cells[child])) break;
-        cells[root] = cells[child];
-        root = child;
-    }
-    cells[root] = value;
-}
-
+/* The source loops append cells in deterministic (cz,cx) order. A stable
+ * radix sort by dist2 therefore gives the exact total order we want:
+ * nearest first, with equal distances retaining (cz,cx). Four 8-bit passes
+ * over a fixed-width uint32 key cost O(4*(N+256)) == O(N+256), with bounded
+ * stack scratch and no comparison-sort N log N term as the ring grows. */
 static inline void city_cells_sort(city_cell_t* cells, int count) {
+    city_cell_t scratch[CITY_MAX_DRAW_ITEMS];
+    uint16_t bucket[256];
     if (count < 2) return;
-    for (int i = count / 2; i > 0; --i)
-        city_cell_sift_down(cells, i - 1, count);
-    for (int end = count - 1; end > 0; --end) {
-        city_cell_t tmp = cells[0];
-        cells[0] = cells[end];
-        cells[end] = tmp;
-        city_cell_sift_down(cells, 0, end);
+    for (uint8_t pass = 0u; pass < 4u; ++pass) {
+        const uint8_t shift = (uint8_t)(pass * 8u);
+        uint16_t running = 0u;
+        for (uint16_t b = 0u; b < 256u; ++b) bucket[b] = 0u;
+        for (int i = 0; i < count; ++i) {
+            const uint8_t key=(uint8_t)(((uint32_t)cells[i].dist2 >> shift)&0xFFu);
+            ++bucket[key];
+        }
+        for (uint16_t b = 0u; b < 256u; ++b) {
+            const uint16_t n=bucket[b];
+            bucket[b]=running;
+            running=(uint16_t)(running+n);
+        }
+        for (int i = 0; i < count; ++i) {
+            const uint8_t key=(uint8_t)(((uint32_t)cells[i].dist2 >> shift)&0xFFu);
+            scratch[bucket[key]++]=cells[i];
+        }
+        for (int i = 0; i < count; ++i) cells[i]=scratch[i];
     }
 }
 
