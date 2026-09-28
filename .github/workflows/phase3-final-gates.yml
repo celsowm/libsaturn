@@ -64,9 +64,13 @@ jobs:
                   item = row.get(f"lod{lod}")
                   if not item:
                       continue
-                  assert item["textures"] == item["faces"], (
-                      f"chunk {chunk} LOD{lod}: {item['textures']} textures for "
-                      f"{item['faces']} faces"
+                  expected_textures = (
+                      item["faces"] - item.get("foliage", 0) +
+                      item.get("foliage_unique_textures", 0)
+                  )
+                  assert item["textures"] == expected_textures, (
+                      f"chunk {chunk} LOD{lod}: {item['textures']} textures, "
+                      f"expected {expected_textures} after foliage dedup"
                   )
                   rates[lod].append(item["texture_rate"])
                   if item.get("foliage", 0):
