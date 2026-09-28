@@ -641,7 +641,7 @@ static void crc32_matches_the_standard_vector() {
 static std::vector<uint8_t> make_header(uint32_t ground_bytes = 0, uint32_t blob_base = 0x6000) {
     std::vector<uint8_t> h;
     put32(h, CITY_MAGIC);
-    put16(h, 2); put16(h, 0);                      /* version, flags */
+    put16(h, CITY_VERSION); put16(h, 0);           /* version, flags */
     put16(h, 16); put16(h, 16);                    /* grid */
     put32(h, (uint32_t)(-128 << 16)); put32(h, (uint32_t)(-320 << 16));
     put16(h, 32); put16(h, 64);                    /* chunk units, quant */
@@ -688,7 +688,9 @@ static void header_parse_rejects_bad_fields() {
     CHECK(city_header_parse(bad.data(), 128, &h) == SAT_ERR_INVALID_ARG);
     bad = raw; bad[5] = 1; /* version 1: no facade textures, 12-byte TOC */
     CHECK(city_header_parse(bad.data(), 128, &h) == SAT_ERR_VERSION);
-    bad = raw; bad[5] = 3;
+    bad = raw; bad[5] = 2; /* version 2: textures without cutout/billboard flags */
+    CHECK(city_header_parse(bad.data(), 128, &h) == SAT_ERR_VERSION);
+    bad = raw; bad[5] = 4; /* future version */
     CHECK(city_header_parse(bad.data(), 128, &h) == SAT_ERR_VERSION);
     /* A texture block bigger than the slot's VDP1 VRAM is refused. */
     bad = raw; bad[0x6E] = 0x40; bad[0x6F] = 0x01; /* max_texture_bytes[0] = 16385 */

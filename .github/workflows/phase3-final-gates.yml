@@ -53,6 +53,10 @@ jobs:
           import json
           from pathlib import Path
           report = json.loads(Path("/tmp/city-walk-ci/city.report.json").read_text())
+          foliage = report["foliage"]
+          assert foliage["items"] == 480, foliage
+          assert foliage["source_mask"] == 302, foliage
+          assert foliage["mesh_impostors"] == 178, foliage
           rates = [[], [], []]
           for chunk, row in report["per_chunk"].items():
               for lod in range(3):
@@ -65,6 +69,7 @@ jobs:
                   )
                   rates[lod].append(item["texture_rate"])
           print("real city archive bytes:", report["archive"]["total_bytes"])
+          print("foliage:", foliage)
           for lod, values in enumerate(rates):
               if values:
                   print(f"LOD{lod} texture rate range: {min(values)}..{max(values)}")
