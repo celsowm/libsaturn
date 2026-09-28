@@ -443,8 +443,10 @@ class FacadeOrientationTests(unittest.TestCase):
         colours = np.array([[110, 110, 110], [110, 110, 110],
                             [240, 20, 20], [240, 20, 20]], dtype=np.uint8)
         baker = facades.FacadeBaker(pos, colours)
-        corners = np.array([[4., 0., 14.], [12., 0., 14.],
-                            [12., 9., 14.], [4., 9., 14.]])
+        # Runtime distorted-sprite order A,B,C,D uses
+        # cross(D-A, B-A) as the outward normal. This winding faces +Z.
+        corners = np.array([[4., 0., 14.], [4., 9., 14.],
+                            [12., 9., 14.], [12., 0., 14.]])
         image = baker.bake(corners, 64, 72, np.array([110, 110, 110]))
         red = ((image[..., 0] > 180) &
                (image[..., 0] > image[..., 1] * 3) &
