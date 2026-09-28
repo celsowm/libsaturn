@@ -149,7 +149,7 @@ class WalkTests(unittest.TestCase):
         self.assertGreater(t["max_textured_faces"], 50, "no textured face was drawn")
         # The arena sits after the command/Gouraud area and the solid pool.
         self.assertGreaterEqual(t["texture_vram_base"], 80 * 1024)
-        self.assertLessEqual(t["texture_vram_base"] + 350_720, 512 * 1024)
+        self.assertLessEqual(t["texture_vram_base"] + 410_624, 512 * 1024)
 
     def test_face_and_command_budgets_hold(self):
         self.assertGreater(self.t["max_world_faces"], 50, "nothing was drawn")
