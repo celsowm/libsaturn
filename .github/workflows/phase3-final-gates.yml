@@ -10,6 +10,7 @@ on:
       - "examples/**"
       - "tests/**"
       - "scripts/**"
+      - "tools/**"
       - .github/workflows/phase3-final-gates.yml
   workflow_dispatch:
 
@@ -24,15 +25,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential texinfo bison flex wget xz-utils genisoimage python3-pil
 
-      # Pig import_model.py quality metrics require numpy; ensure the same
-      # Python executable used by Makefile sees numpy and Pillow.
+      # Model import and city asset-pipeline tests share this interpreter.
       - name: Set up Python for model import
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install model importer dependencies
-        run: python -m pip install numpy pillow
+        run: python -m pip install -r tools/requirements-city.txt
+
+      - name: Run city asset pipeline tests
+        run: python tests/test_city_chunker.py
 
       - name: Run host tests
         run: make test
