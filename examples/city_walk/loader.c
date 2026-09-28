@@ -162,6 +162,13 @@ sat_result_t city_loader_run(uint8_t* staging, uint32_t staging_bytes,
             g_archive.bank[1] = (uint8_t*)sat_ram_cart_alloc(region - CITY_BANK_BYTES + 32u, 32u);
             if (g_archive.bank[1] == 0) return SAT_ERR_CAPACITY;
         }
+        {
+            sat_ram_cart_info_t info = {SAT_RAM_CART_NONE, 0u, 0u, 0u};
+            st = sat_ram_cart_info(&info);
+            if (st != SAT_OK) return st;
+            g_city.cart_free_bytes = info.free_bytes;
+            g_city.cart_used_bytes = info.capacity - info.free_bytes;
+        }
     }
 
     for (uint32_t off = 0u; off < g_archive.header.total_bytes; off += SPAN_BYTES) {

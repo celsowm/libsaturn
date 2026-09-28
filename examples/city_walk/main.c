@@ -56,7 +56,8 @@ static sat_result_t plan_resources(void) {
     if ((st = sat_resource_plan_add(&g_resources, SAT_RESOURCE_CRAM, 4u * 512u, 2u, 1u)) != SAT_OK) return st;
     /* VDP1 commands: the face budget, the HUD reserve, the clip slack and the frame's setup. */
     if ((st = sat_resource_plan_add(&g_resources, SAT_RESOURCE_VDP1_COMMANDS,
-                                    CITY_FACE_CAP + 96u + 48u + 3u, 1u, 1u)) != SAT_OK) return st;
+                                    CITY_FACE_CAP + CITY_HUD_COMMANDS + 48u + 3u,
+                                    1u, 1u)) != SAT_OK) return st;
     /* Work RAM (.wram_l): the residency rings and everything the renderer owns. */
     if ((st = sat_resource_plan_add(&g_resources, SAT_RESOURCE_WRAM,
                                     CITY_POOL_BYTES + render_wram_bytes(), 32u, 1u)) != SAT_OK) return st;

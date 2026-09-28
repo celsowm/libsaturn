@@ -35,7 +35,6 @@
 #include "city_walk.h"
 
 #define CITY_SCENE_FACES 640u /* CITY_FACE_CAP plus room for the near-plane splits */
-#define CITY_HUD_COMMANDS 96u
 #define CITY_FOV_DEG 55
 #define CITY_FAR_UNITS 140
 

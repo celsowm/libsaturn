@@ -201,6 +201,11 @@ Tests, all runnable without hardware except the harness scenarios:
 To see a view without a console: `python tools/city_preview.py
 build/generated/city_walk/iso/CITY.BIN --eye 3,7 --local 8,8 --yaw 0 --out x.png`.
 
+The in-game diagnostic HUD shows frame/render pressure, actual RAM-cart allocator
+usage/free space, residency loads/evictions, texture upload traffic, Slave SH-2
+status and the current chunk/yaw. Cart usage is allocator usage, not the full
+CITY.BIN size: ground/header/TOC data live elsewhere.
+
 ## Files
 
 | | |

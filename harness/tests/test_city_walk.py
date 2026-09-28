@@ -33,7 +33,7 @@ MAP = REPO / "build" / "city_walk.map"
 CITY_DATA = REPO / "build" / "generated" / "city_walk" / "city_data.h"
 
 FACE_CAP = 500
-COMMAND_CAP = 660  # face cap + HUD reserve + clip slack + setup
+COMMAND_CAP = 711  # face cap + 160 HUD commands + clip slack + setup
 PRIME_SLOTS = 83   # 9 + 25 + 49 ring slots
 NBG0_BIT, RBG0_BIT = 1 << 0, 1 << 4
 
@@ -106,6 +106,9 @@ class WalkTests(unittest.TestCase):
     def test_archive_was_streamed_intact_to_a_4mb_cart(self):
         self.assertEqual(self.t["cart_type"], 4)
         self.assertEqual(self.t["cart_capacity"], 4 * 1024 * 1024)
+        self.assertGreater(self.t["cart_used_bytes"], 0)
+        self.assertEqual(self.t["cart_used_bytes"] + self.t["cart_free_bytes"],
+                         self.t["cart_capacity"])
         self.assertEqual(self.t["archive_bytes"], header_constant("CITY_ARCHIVE_BYTES"))
         self.assertEqual(self.t["blob_base"], header_constant("CITY_BLOB_BASE"))
         self.assertEqual(self.t["material_count"], header_constant("CITY_MATERIAL_COUNT"))

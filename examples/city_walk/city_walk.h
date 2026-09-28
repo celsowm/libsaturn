@@ -21,6 +21,7 @@
 
 #define CITY_W 320u
 #define CITY_H 224u
+#define CITY_HUD_COMMANDS 160u
 #define CITY_WRAM_L __attribute__((section(".wram_l")))
 
 /* VDP2 VRAM word offsets. The 512x512 8bpp ground bitmap (one dot per unit,
@@ -109,6 +110,8 @@ typedef struct city_telemetry {
     uint32_t texture_failures;        /* a block refused or not written: faces drawn solid */
     uint32_t max_textured_faces;      /* textured faces submitted in one frame */
     uint32_t texture_vram_base;       /* the reserved VDP1 VRAM arena, bytes */
+    uint32_t cart_used_bytes;          /* RAM-cart allocator consumption after CITY.BIN load */
+    uint32_t cart_free_bytes;          /* RAM-cart allocator free bytes after CITY.BIN load */
     uint32_t done;
 } city_telemetry_t;
 
