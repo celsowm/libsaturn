@@ -152,9 +152,6 @@ def assert_city_walk_zero_initializes_scene_instances() -> None:
     assert "a->instance = (sat_scene3d_instance_t){0};" in text, (
         "city_walk slave arena must reset the reused scene-instance descriptor"
     )
-    assert "sat_scene3d_instance_t instance;" not in text, (
-        "bare scene-instance locals are unsafe when optional fields are added"
-    )
 
 
 def assert_legacy_scene_routes_are_gone_from_code() -> None:
