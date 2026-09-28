@@ -84,10 +84,12 @@ sat_result_t sat_vdp1_draw_mesh(const sat_mesh_t* mesh, const sat_mesh_draw_t* p
 
 /* Local-space flat indexed model instance. Each face references one uniform
  * INDEX8 texture through face_materials, and the base mesh is never mutated.
- * The library validates the full face/material table, sorts by camera depth,
+ * The library validates the full face/material table, orders camera depth with
+ * the same stable 1024-bucket painter used by the scene (O(F + 1024)),
  * translates each face and uses the same near/screen-safe indexed quad path.
- * order/depth are caller-owned arrays of mesh->face_count entries. This
- * painter is not an exact Z-buffer for intersecting scene geometry. */
+ * order/depth are caller-owned arrays of mesh->face_count entries; depth is
+ * destructive scratch and contains bucket ids after the call. This painter is
+ * not an exact Z-buffer for intersecting scene geometry. */
 typedef struct sat_indexed_solid_mesh3d_draw {
     sat_indexed_solid_render3d_t render;
     sat_vec3_t position;

@@ -696,6 +696,33 @@ static void mesh_uses_immutable_geometry_and_sorts_depth() {
     EQ(vertices[0].x,unchanged.x);
     EQ(vertices[0].z,unchanged.z);
 }
+static void mesh_bucket_painter_keeps_equal_depth_source_order() {
+    reset();
+    sat_vec3_t vertices[12]={};
+    uint16_t indices[12]={
+        0u,1u,2u,3u,4u,5u,6u,7u,8u,9u,10u,11u};
+    const sat_quad3_t a=quad(1,20),b=quad(5,20),c=quad(9,20);
+    for(int v=0;v<4;++v) {
+        vertices[v]=a.v[v];
+        vertices[v+4]=b.v[v];
+        vertices[v+8]=c.v[v];
+    }
+    sat_mesh_t mesh={vertices,indices,12u,12u,3u,3u};
+    uint16_t mats[3]={0u,1u,0u},order[3]={99u,99u,99u};
+    uint32_t depths[3]={0u,0u,0u};
+    sat_indexed_solid_mesh3d_draw_t p=mesh_params(mats,order,depths);
+    EQ(sat_draw_indexed_solid_mesh3(&mesh,&p),SAT_OK);
+    EQ(g_opaque,3);
+    EQ(order[0],0u);
+    EQ(order[1],1u);
+    EQ(order[2],2u);
+    EQ(g_x[0],1u);
+    EQ(g_x[1],5u);
+    EQ(g_x[2],9u);
+    /* Equal depths collapse into one bucket; depth[] is documented scratch. */
+    EQ(depths[0],depths[1]);
+    EQ(depths[1],depths[2]);
+}
 static void mesh_invalid_face_or_material_is_atomic() {
     reset();
     sat_vec3_t vertices[8]={};
@@ -792,10 +819,11 @@ int main() {
     grid_texture_rejects_bad_descriptors();
     direct_draws_queue_into_an_open_capture();
     mesh_uses_immutable_geometry_and_sorts_depth();
+    mesh_bucket_painter_keeps_equal_depth_source_order();
     mesh_invalid_face_or_material_is_atomic();
     indexed_box_owns_visibility_winding_and_material_selection();
     indexed_box_rejects_bad_geometry_before_emitting();
     indexed_box_propagates_capacity_without_attempting_other_faces();
-    puts("test_render3d_indexed: 24 tests passed");
+    puts("test_render3d_indexed: 25 tests passed");
     return 0;
 }

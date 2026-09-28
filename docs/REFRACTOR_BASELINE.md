@@ -38,8 +38,8 @@ Plan: [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API
   conservatively unchanged.
 - `sat_draw_indexed_solid_mesh3` renders one immutable mesh with per-instance
   translation and per-face indexed materials. It pre-validates all indices,
-  uses caller-owned scratch for O(n log n) painter sorting, then shares the
-  same clipping and indexed VDP2 fade path.
+  uses caller-owned scratch with the stable O(n + 1024) bucket painter, then
+  shares the same clipping and indexed VDP2 fade path.
 - Skybridge's `draw_gem` no longer manually generates triangles, selects
   facet draw order or calls the raw VDP1 emitter. Its eight gem face materials
   are mapped once at startup; all pickups reuse the same local mesh.

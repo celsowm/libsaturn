@@ -590,10 +590,14 @@ extern "C" sat_result_t sat_draw_indexed_solid_mesh3(
         p->depth[face]=face_depth(quad,*p);
         p->order[face]=face;
     }
-    /* Deterministic O(n log n) sort with no heap allocation. */
-    saturn::core::render3d::sort_indices16_desc(
-        p->order,p->depth,mesh->face_count);
-    for(uint16_t i=0u;i<mesh->face_count;++i) {
+    /* Use the same stable counting-bucket painter as the canonical scene.
+     * depth[] is scratch and may be overwritten with bucket ids. This removes
+     * the O(F log F) indirect heapsort from the low-level probe path without
+     * adding storage: O(F + 1024), ascending source-face order inside a
+     * quantized depth bucket. */
+    const uint32_t ordered=saturn::core::render3d::paint_order_buckets(
+        p->depth,mesh->face_count,p->order);
+    for(uint32_t i=0u;i<ordered;++i) {
         const uint16_t face=p->order[i];
         const uint16_t* ix=&mesh->indices[static_cast<uint32_t>(face)*4u];
         sat_quad3_t quad;
