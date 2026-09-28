@@ -152,6 +152,8 @@ param(
     [string]$GamePath,
     [ValidateSet('auto', 'jp', 'na', 'eu')]
     [string]$Region = 'auto',
+    [ValidateSet('auto', 'none', 'backup', 'extram1', 'extram4', 'cs1ram16')]
+    [string]$Cart = 'extram4',
     [string[]]$ExtraArgs
 )
 
@@ -229,12 +231,15 @@ if ($Region -eq 'auto') {
 else {
     $regionArgs = @('-ss.region_autodetect', '0', '-ss.region_default', $Region)
 }
- $videoArgs = @('-ss.h_overscan', '0', '-ss.videoip', '0')
+$videoArgs = @('-ss.h_overscan', '0', '-ss.videoip', '0')
+$cartArgs = @('-ss.cart', $Cart)
 Write-Host "[run-mednafen] Region: $Region"
+Write-Host "[run-mednafen] Saturn cart: $Cart"
 Write-Host "[run-mednafen] Region args: $($regionArgs -join ' ')"
+Write-Host "[run-mednafen] Cart args: $($cartArgs -join ' ')"
 Write-Host "[run-mednafen] Video args: $($videoArgs -join ' ')"
-Write-Host "[run-mednafen] Executing: $exePath -force_module ss $($regionArgs -join ' ') $($videoArgs -join ' ') $targetImage"
-& $exePath '-force_module' 'ss' @regionArgs @videoArgs $targetImage @ExtraArgs
+Write-Host "[run-mednafen] Executing: $exePath -force_module ss $($regionArgs -join ' ') $($cartArgs -join ' ') $($videoArgs -join ' ') $targetImage"
+& $exePath '-force_module' 'ss' @regionArgs @cartArgs @videoArgs $targetImage @ExtraArgs
 exit $LASTEXITCODE
 '@
 $mednafenLauncherContent = $mednafenLauncherContent.Replace('__MEDNAFEN_EXE__', $mednafenExeLiteral)

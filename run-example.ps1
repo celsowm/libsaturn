@@ -9,6 +9,9 @@ param(
     [ValidateSet('auto', 'na', 'jp', 'eu')]
     [string]$BiosProfile = 'auto',
 
+    [ValidateSet('auto', 'none', 'backup', 'extram1', 'extram4', 'cs1ram16')]
+    [string]$MednafenCart = 'extram4',
+
     [ValidateSet('current', 'safe')]
     [string]$IpProfile = 'current',
 
@@ -79,7 +82,8 @@ Write-Host "[run-example] Running $normalizedExample on $Emulator"
 Write-Host "[run-example] Disc image: $gamePath"
 if ($Emulator -eq 'mednafen') {
     Write-Host "[run-example] BIOS profile: $BiosProfile"
-    & $launcher -GamePath $gamePath -Region $BiosProfile -ExtraArgs $ExtraArgs
+    Write-Host "[run-example] Mednafen Saturn cart: $MednafenCart"
+    & $launcher -GamePath $gamePath -Region $BiosProfile -Cart $MednafenCart -ExtraArgs $ExtraArgs
 }
 else {
     & $launcher -GamePath $gamePath -ExtraArgs $ExtraArgs

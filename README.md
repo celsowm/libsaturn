@@ -365,6 +365,10 @@ On Windows, the helper can launch examples through the configured emulator:
 .\run-example.ps1 <example_name> -Emulator mednafen -BiosProfile auto
 ```
 
+Mednafen starts with a 4 MiB expansion RAM cartridge (`-ss.cart extram4`).
+Choose another supported setting with `-MednafenCart`, for example
+`-MednafenCart auto` to let Mednafen select a cartridge per game.
+
 ## Quick Start on Windows
 
 Windows 10/11 is supported through MSYS2, with PowerShell wrappers so the normal workflow does not require manually living in a Bash shell.
