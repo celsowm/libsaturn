@@ -872,6 +872,10 @@ def check_gates(info: dict, report: dict, opts) -> list[str]:
         failures.append(f"{info['max_collision_boxes']} collision boxes > {emit_bin.LOD2_BOX_CAP}")
     if info["material_count"] > emit_bin.MATERIAL_MAX:
         failures.append(f"{info['material_count']} materials > {emit_bin.MATERIAL_MAX}")
+    if info["blob_region_bytes"] + emit_bin.CART_READ_SLACK > emit_bin.CART_BYTES:
+        failures.append(
+            f"cart blob region {info['blob_region_bytes']} B + "
+            f"{emit_bin.CART_READ_SLACK} B slack > 4 MiB RAM cart")
     if info["total_bytes"] > opts.max_archive_bytes:
         failures.append(f"archive {info['total_bytes']} B > --max-archive-bytes {opts.max_archive_bytes}")
     if report["chunks"]["clamped_coordinates"]:
@@ -965,7 +969,8 @@ def main(argv=None) -> int:
     ap.add_argument("--ground-upd", type=lambda t: tuple(int(v) for v in t.split(",")), default="1,2",
                     help="world units per ground-bitmap dot in x,z (default 1,2: a 512x256 bitmap)")
     ap.add_argument("--ground-fill", choices=("auto", "none"), default="auto")
-    ap.add_argument("--max-archive-bytes", type=int, default=2097152)
+    ap.add_argument("--max-archive-bytes", type=int, default=emit_bin.MAX_ARCHIVE_BYTES,
+                    help="whole CITY.BIN cap; cart capacity is gated separately on blob_region")
     ap.add_argument("--max-truncated-faces", type=int, default=0)
     ap.add_argument("--jobs", type=int, default=max(1, min(8, (multiprocessing.cpu_count() or 2) - 1)))
     ap.add_argument("--report", type=Path)

@@ -208,6 +208,11 @@ usage/free space, residency loads/evictions, texture upload traffic, Slave SH-2
 status and the current chunk/yaw. Cart usage is allocator usage, not the full
 CITY.BIN size: ground/header/TOC data live elsewhere.
 
+The 4 MiB RAM cart is intentionally allowed to use both physical 2 MiB banks.
+The packer gates the **blob region** (plus read slack) against 4 MiB and still
+forbids any individual blob/texture block from crossing a bank boundary; the
+whole CITY.BIN can therefore exceed 2 MiB without implying 2+ MiB of cart use.
+
 ## Files
 
 | | |

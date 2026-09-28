@@ -28,4 +28,4 @@ $(CITY_ISO_DIR)/CITY.BIN $(CITY_GEN_DIR)/city_data.h &: $(CITY_TOOLS) $(CITY_GLB
 		--cache-dir $(CITY_GEN_DIR) --incremental \
 		--lod-caps 384:176,144:64,48:24 --face-budget 600 --ground-upd 1,1 \
 		--light-dir=-0.5,0.6,0.8 --ambient 0.42 --diffuse 0.60 \
-		--max-archive-bytes 2097152 --report $(CITY_GEN_DIR)/city.report.json
+		--max-archive-bytes 4718592 --report $(CITY_GEN_DIR)/city.report.json

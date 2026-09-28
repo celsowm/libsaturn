@@ -836,8 +836,11 @@ static void slot_sizes_match_the_documented_byte_budget() {
     /* Residency footprint promised in the plan: 122.5 KiB. */
     uint32_t total = 9 * CITY_SLOT_BYTES_LOD0 + 25 * CITY_SLOT_BYTES_LOD1 + 49 * CITY_SLOT_BYTES_LOD2;
     CHECK(total == 122u * 1024u + 512u);
-    /* The worst archive still fits one 2 MiB bank. */
+    /* Geometry-only worst case fits one bank; streamed texture blocks may use
+     * the second bank. The loader and packer treat the 4 MiB cart as two
+     * separate 2 MiB allocation domains and never let one blob straddle them. */
     CHECK(256u * (CITY_SLOT_BYTES_LOD0 + CITY_SLOT_BYTES_LOD1 + CITY_SLOT_BYTES_LOD2) < CITY_BANK_BYTES);
+    CHECK(2u * CITY_BANK_BYTES == 4u * 1024u * 1024u);
 }
 
 

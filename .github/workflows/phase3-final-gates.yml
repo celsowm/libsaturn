@@ -48,7 +48,7 @@ jobs:
             --cache-dir /tmp/city-walk-ci/cache --incremental \
             --lod-caps 384:176,144:64,48:24 --face-budget 600 --ground-upd 1,1 \
             --light-dir=-0.5,0.6,0.8 --ambient 0.42 --diffuse 0.60 \
-            --max-archive-bytes 2097152 --report /tmp/city-walk-ci/city.report.json
+            --max-archive-bytes 4718592 --report /tmp/city-walk-ci/city.report.json
           python - <<'PY'
           import json
           from pathlib import Path
@@ -79,7 +79,9 @@ jobs:
           for lod, values in enumerate(foliage_widths):
               if values:
                   assert min(values) >= floors[lod], (lod, min(values), floors[lod])
+          assert report["archive"]["blob_region_bytes"] + 32 <= 4 * 1024 * 1024
           print("real city archive bytes:", report["archive"]["total_bytes"])
+          print("cart blob region bytes:", report["archive"]["blob_region_bytes"])
           print("foliage:", foliage)
           for lod, values in enumerate(rates):
               if values:
