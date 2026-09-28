@@ -228,7 +228,9 @@ sat_result_t sat_scene3d_faces_submit_tiled_quad(
  * world==NULL means an already-prepared world pose
  * (e.g. animated pig); a non-null full world matrix instantiates an immutable
  * LOCAL mesh (e.g. gems). Material bindings and culling belong to the instance,
- * while the scene owns camera projection, face ordering and command emission. */
+ * while the scene owns camera projection, face ordering and command emission.
+ * An optional conservative bounds pointer can reject a whole off-frustum
+ * instance before vertex transformation/projection and per-face validation. */
 typedef struct sat_scene3d_instance {
     const sat_mesh_t* mesh;
     const sat_scene3d_material_t* materials;
@@ -239,6 +241,14 @@ typedef struct sat_scene3d_instance {
     uint8_t cull_backfaces;
     /* Optional per-face mask: a nonzero byte draws that face from either side. */
     const uint8_t* double_sided_faces;
+    /* Optional conservative AABB used for an O(1)-sized frustum rejection
+     * before per-face work. When world != NULL the box is in LOCAL mesh
+     * space and is transformed by world; when world == NULL it is already in
+     * WORLD space, like the mesh vertices. The box is borrowed only for the
+     * submission call. A fully rejected bounded instance deliberately skips
+     * O(face_count) face-table validation; immutable assets should therefore
+     * be validated when they are built/loaded, not every frame. */
+    const sat_aabb3_t* bounds;
 } sat_scene3d_instance_t;
 
 /* A batch item is an immutable instance descriptor plus caller-owned scratch.

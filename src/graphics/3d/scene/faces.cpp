@@ -56,6 +56,70 @@ bool safe_projection(const sat_scene3d_faces_t& scene,
     return true;
 }
 
+/* Conservative homogeneous-frustum reject for one optional instance AABB.
+ * Eight corners are constant work regardless of mesh size. With a world
+ * transform, compose VP*world once so each corner pays one matrix-vector
+ * transform. A box that straddles any plane stays visible; only a box whose
+ * every corner lies outside the same clip plane is rejected. */
+sat_result_t instance_bounds_visible(
+    const sat_scene3d_faces_t& scene,const sat_scene3d_instance_t& instance,
+    bool* out_visible) {
+    if (!out_visible || !instance.bounds) return SAT_ERR_INVALID_ARG;
+    const sat_aabb3_t& bounds=*instance.bounds;
+    if (bounds.half.x<0 || bounds.half.y<0 || bounds.half.z<0)
+        return SAT_ERR_INVALID_ARG;
+    const int64_t lo64[3]={
+        static_cast<int64_t>(bounds.center.x)-bounds.half.x,
+        static_cast<int64_t>(bounds.center.y)-bounds.half.y,
+        static_cast<int64_t>(bounds.center.z)-bounds.half.z};
+    const int64_t hi64[3]={
+        static_cast<int64_t>(bounds.center.x)+bounds.half.x,
+        static_cast<int64_t>(bounds.center.y)+bounds.half.y,
+        static_cast<int64_t>(bounds.center.z)+bounds.half.z};
+    for (uint8_t axis=0u;axis<3u;++axis)
+        if (lo64[axis]<INT32_MIN || hi64[axis]>INT32_MAX)
+            return SAT_ERR_INVALID_ARG;
+    const sat_fx16_t lo[3]={
+        static_cast<sat_fx16_t>(lo64[0]),static_cast<sat_fx16_t>(lo64[1]),
+        static_cast<sat_fx16_t>(lo64[2])};
+    const sat_fx16_t hi[3]={
+        static_cast<sat_fx16_t>(hi64[0]),static_cast<sat_fx16_t>(hi64[1]),
+        static_cast<sat_fx16_t>(hi64[2])};
+
+    sat_fx16_t combined[16];
+    const sat_fx16_t* clip_matrix=scene.view_proj.m;
+    if (instance.world) {
+        saturn::core::math3d::mat4_multiply(
+            combined,scene.view_proj.m,instance.world->m);
+        clip_matrix=combined;
+    }
+
+    uint8_t outside_all=0x3Fu;
+    for (uint8_t corner=0u;corner<8u;++corner) {
+        const sat_vec4_t clip=saturn::core::math3d::mat4_transform_vec4(
+            clip_matrix,
+            (corner&1u)?hi[0]:lo[0],
+            (corner&2u)?hi[1]:lo[1],
+            (corner&4u)?hi[2]:lo[2],
+            SAT_FX16_ONE);
+        const int64_t x=clip.x,y=clip.y,z=clip.z,w=clip.w;
+        uint8_t outside=0u;
+        if (x < -w) outside|=1u<<0u;
+        if (x >  w) outside|=1u<<1u;
+        if (y < -w) outside|=1u<<2u;
+        if (y >  w) outside|=1u<<3u;
+        if (z < -w) outside|=1u<<4u;
+        if (z >  w) outside|=1u<<5u;
+        outside_all=static_cast<uint8_t>(outside_all&outside);
+        if (outside_all==0u) {
+            *out_visible=true;
+            return SAT_OK;
+        }
+    }
+    *out_visible=false;
+    return SAT_OK;
+}
+
 /* One unsigned painter key: pass ascending in the high 8 bits, then camera
  * depth far-to-near in the low 24, which is exactly the order
  * paint_order_grouped_buckets emits. Depth keeps 1/4096 of a world unit --
@@ -499,6 +563,19 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
         (instance->world && !world_scratch) ||
         (mesh->face_count && (!materials || !face_materials)))
         return SAT_ERR_INVALID_ARG;
+    if (instance->bounds) {
+        bool visible=true;
+        const sat_result_t bounds_status=
+            instance_bounds_visible(*scene,*instance,&visible);
+        if (bounds_status!=SAT_OK) return bounds_status;
+        if (!visible) {
+            const uint32_t total=static_cast<uint32_t>(scene->culled_faces)+
+                mesh->face_count;
+            scene->culled_faces=static_cast<uint16_t>(
+                total>0xFFFFu ? 0xFFFFu : total);
+            return SAT_OK;
+        }
+    }
     if (mesh->face_count>scene->capacity-scene->count)
         return SAT_ERR_CAPACITY;
     /* One submission-wide slot beats one material table per slot: distance

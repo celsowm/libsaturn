@@ -658,6 +658,64 @@ int main() {
     assert(emitted_slot[0]==SAT_INDEXED_SOLID_OPAQUE &&
            emitted_slot[1]==SAT_INDEXED_SOLID_OPAQUE);
 
+    // Optional bounds reject a whole instance before the O(V+F) path. The
+    // local AABB encloses this mesh; VP scales it into clip space. Moving it
+    // far right puts all eight corners outside the same right plane, so no
+    // vertex projection or face admission occurs.
+    emitted_count=0u;
+    sat_mat4_t bounds_vp={};
+    bounds_vp.m[0]=SAT_FX16_ONE/4;
+    bounds_vp.m[5]=SAT_FX16_ONE/4;
+    bounds_vp.m[10]=SAT_FX16_ONE/16;
+    bounds_vp.m[15]=SAT_FX16_ONE;
+    assert(sat_scene3d_faces_begin(&scene,&bounds_vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    const sat_aabb3_t local_bounds={
+        {0,0,2*SAT_FX16_ONE},
+        {SAT_FX16_ONE,SAT_FX16_ONE,2*SAT_FX16_ONE}};
+    sat_mat4_t bounded_world={};
+    bounded_world.m[0]=SAT_FX16_ONE;
+    bounded_world.m[5]=SAT_FX16_ONE;
+    bounded_world.m[10]=SAT_FX16_ONE;
+    bounded_world.m[15]=SAT_FX16_ONE;
+    bounded_world.m[3]=20*SAT_FX16_ONE;
+    bounded_world.m[11]=3*SAT_FX16_ONE;
+    sat_scene3d_instance_t bounded_instance=instance;
+    bounded_instance.world=&bounded_world;
+    bounded_instance.bounds=&local_bounds;
+    const uint16_t bounded_calls=project_calls;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&bounded_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_OK);
+    assert(project_calls==bounded_calls);
+    assert(scene.count==0u && scene.culled_faces==mesh.face_count);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
+    // The same bound intersecting the frustum falls through to the existing
+    // exact vertex/face path and therefore projects the mesh once.
+    assert(sat_scene3d_faces_begin(&scene,&bounds_vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    bounded_world.m[3]=0;
+    const uint16_t visible_calls=project_calls;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&bounded_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_OK);
+    assert(project_calls==visible_calls+1u && scene.count==2u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
+    // Invalid bounds fail before touching projection/storage.
+    assert(sat_scene3d_faces_begin(&scene,&bounds_vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    sat_aabb3_t invalid_bounds=local_bounds;
+    invalid_bounds.half.x=-1;
+    bounded_instance.bounds=&invalid_bounds;
+    const uint16_t invalid_bound_calls=project_calls;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&bounded_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_ERR_INVALID_ARG);
+    assert(project_calls==invalid_bound_calls && scene.count==0u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
     // A distance-faded object fades WHOLE: one slot reaches every face of the
     // instance, without the shared material table needing a copy per slot.
     emitted_count=0;
