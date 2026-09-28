@@ -12,14 +12,26 @@ extern "C" {
  * identical RGB555 colours across world, props and animated models. Every
  * unique colour receives ONE 8x8 INDEX8 texture and ONE palette entry; a
  * repeated colour returns its original handle without VRAM/CRAM upload.
+ * Registration uses an embedded AVL index: O(log M) worst-case lookup/insert
+ * and O(M log M) construction instead of repeatedly scanning O(M).
  * The application selects the CRAM bank and owns all memory and slot policy.
  * 255 colours max because INDEX8 palette index zero is transparent. */
+#define SAT_SCENE3D_SOLID_POOL_MAX 255u
+#define SAT_SCENE3D_SOLID_POOL_NO_NODE 255u
+
 typedef struct sat_scene3d_solid_pool {
     sat_scene3d_material_t* materials;
     sat_vdp1_texture_t* textures;
     uint16_t* colors;
     uint8_t* pixels; /* caller-owned 8x8 temporary upload buffer */
     uint16_t count, capacity, palette_bank;
+    /* AVL metadata is indexed by material handle, so it stores no duplicate
+     * colour key and requires no heap or extra caller buffer. At the maximum
+     * 255-entry pool this costs 765 bytes plus one root byte. */
+    uint8_t tree_left[SAT_SCENE3D_SOLID_POOL_MAX];
+    uint8_t tree_right[SAT_SCENE3D_SOLID_POOL_MAX];
+    uint8_t tree_height[SAT_SCENE3D_SOLID_POOL_MAX];
+    uint8_t tree_root;
 } sat_scene3d_solid_pool_t;
 
 sat_result_t sat_scene3d_solid_pool_init(
@@ -29,6 +41,7 @@ sat_result_t sat_scene3d_solid_pool_init(
     uint16_t* color_storage, uint8_t pixels[64],
     uint16_t capacity, uint16_t palette_bank);
 
+/* Exact duplicate detection and insertion are O(log M) worst-case. */
 sat_result_t sat_scene3d_solid_pool_register(
     sat_scene3d_solid_pool_t* pool, uint16_t rgb555,
     uint16_t* out_material_index);

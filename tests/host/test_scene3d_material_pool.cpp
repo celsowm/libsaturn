@@ -5,14 +5,14 @@
 static uint16_t upload_count=0;
 static uint16_t palette_count=0;
 static uint16_t last_bank=0;
-static uint16_t pixel_indices[8]={};
+static uint16_t pixel_indices[16]={};
 static uint16_t uploaded_colors[256]={};
 
 extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
     sat_vdp1_texture_t* texture,const uint8_t* pixels,
     uint16_t width,uint16_t height,uint16_t bank) {
     assert(width==8u && height==8u && bank==4u);
-    assert(upload_count<8u);
+    assert(upload_count<16u);
     for (uint16_t i=1;i<64u;++i) assert(pixels[i]==pixels[0]);
     pixel_indices[upload_count]=pixels[0];
     texture->valid=1u;
@@ -97,6 +97,33 @@ int main() {
                SAT_ERR_NOT_FOUND);
         assert(unused==999u);
     }
+    {
+        /* Adversarial sorted insertion would make an ordinary BST linear.
+         * The AVL index must stay shallow and duplicates must remain upload-free. */
+        upload_count=0u;
+        sat_scene3d_solid_pool_t sorted={};
+        sat_scene3d_material_t sorted_materials[8]={};
+        sat_vdp1_texture_t sorted_textures[8]={};
+        uint16_t sorted_colors[8]={};
+        uint8_t sorted_scratch[64]={};
+        assert(sat_scene3d_solid_pool_init(
+            &sorted,sorted_materials,sorted_textures,sorted_colors,
+            sorted_scratch,8u,4u)==SAT_OK);
+        for(uint16_t i=0u;i<8u;++i) {
+            uint16_t handle=999u;
+            assert(sat_scene3d_solid_pool_register(
+                &sorted,static_cast<uint16_t>(0x8000u|i),&handle)==SAT_OK);
+            assert(handle==i);
+        }
+        assert(sorted.count==8u && upload_count==8u);
+        assert(sorted.tree_root!=SAT_SCENE3D_SOLID_POOL_NO_NODE);
+        assert(sorted.tree_height[sorted.tree_root]<=4u);
+        uint16_t duplicate=999u;
+        assert(sat_scene3d_solid_pool_register(
+            &sorted,0x8003u,&duplicate)==SAT_OK);
+        assert(duplicate==3u && upload_count==8u);
+    }
+
     std::puts("scene3d solid material pool: OK");
     return 0;
 }

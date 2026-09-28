@@ -1,5 +1,82 @@
 #include "saturn/scene3d_material_pool.h"
 
+namespace {
+
+constexpr uint8_t kNoNode=SAT_SCENE3D_SOLID_POOL_NO_NODE;
+
+uint8_t node_height(const sat_scene3d_solid_pool_t& pool,uint8_t node) {
+    return node==kNoNode ? 0u : pool.tree_height[node];
+}
+
+void refresh_height(sat_scene3d_solid_pool_t& pool,uint8_t node) {
+    const uint8_t left=node_height(pool,pool.tree_left[node]);
+    const uint8_t right=node_height(pool,pool.tree_right[node]);
+    pool.tree_height[node]=static_cast<uint8_t>((left>right?left:right)+1u);
+}
+
+int balance_factor(const sat_scene3d_solid_pool_t& pool,uint8_t node) {
+    return static_cast<int>(node_height(pool,pool.tree_left[node]))-
+           static_cast<int>(node_height(pool,pool.tree_right[node]));
+}
+
+uint8_t rotate_right(sat_scene3d_solid_pool_t& pool,uint8_t root) {
+    const uint8_t child=pool.tree_left[root];
+    const uint8_t middle=pool.tree_right[child];
+    pool.tree_right[child]=root;
+    pool.tree_left[root]=middle;
+    refresh_height(pool,root);
+    refresh_height(pool,child);
+    return child;
+}
+
+uint8_t rotate_left(sat_scene3d_solid_pool_t& pool,uint8_t root) {
+    const uint8_t child=pool.tree_right[root];
+    const uint8_t middle=pool.tree_left[child];
+    pool.tree_left[child]=root;
+    pool.tree_right[root]=middle;
+    refresh_height(pool,root);
+    refresh_height(pool,child);
+    return child;
+}
+
+/* AVL recursion is bounded by log2(255) after every insertion: at most a
+ * handful of frames on the SH-2 stack, while keeping all metadata compact. */
+uint8_t insert_node(sat_scene3d_solid_pool_t& pool,uint8_t root,uint8_t node) {
+    if (root==kNoNode) return node;
+    if (pool.colors[node]<pool.colors[root])
+        pool.tree_left[root]=insert_node(pool,pool.tree_left[root],node);
+    else
+        pool.tree_right[root]=insert_node(pool,pool.tree_right[root],node);
+
+    refresh_height(pool,root);
+    const int balance=balance_factor(pool,root);
+    if (balance>1) {
+        const uint8_t left=pool.tree_left[root];
+        if (pool.colors[node]>pool.colors[left])
+            pool.tree_left[root]=rotate_left(pool,left);
+        return rotate_right(pool,root);
+    }
+    if (balance<-1) {
+        const uint8_t right=pool.tree_right[root];
+        if (pool.colors[node]<pool.colors[right])
+            pool.tree_right[root]=rotate_right(pool,right);
+        return rotate_left(pool,root);
+    }
+    return root;
+}
+
+uint8_t find_exact(const sat_scene3d_solid_pool_t& pool,uint16_t rgb555) {
+    uint8_t node=pool.tree_root;
+    while (node!=kNoNode) {
+        const uint16_t key=pool.colors[node];
+        if (rgb555==key) return node;
+        node=rgb555<key ? pool.tree_left[node] : pool.tree_right[node];
+    }
+    return kNoNode;
+}
+
+} // namespace
+
 extern "C" sat_result_t sat_scene3d_solid_pool_init(
     sat_scene3d_solid_pool_t* pool,
     sat_scene3d_material_t* material_storage,
@@ -7,9 +84,11 @@ extern "C" sat_result_t sat_scene3d_solid_pool_init(
     uint16_t* color_storage, uint8_t pixels[64],
     uint16_t capacity, uint16_t palette_bank) {
     if (!pool || !material_storage || !texture_storage || !color_storage ||
-        !pixels || !capacity || capacity>255u || palette_bank>=8u)
+        !pixels || !capacity || capacity>SAT_SCENE3D_SOLID_POOL_MAX ||
+        palette_bank>=8u)
         return SAT_ERR_INVALID_ARG;
     *pool={};
+    pool->tree_root=kNoNode;
     pool->materials=material_storage;
     pool->textures=texture_storage;
     pool->colors=color_storage;
@@ -25,11 +104,10 @@ extern "C" sat_result_t sat_scene3d_solid_pool_register(
     if (!pool || !pool->materials || !pool->textures || !pool->colors ||
         !pool->pixels || !out_material_index || !pool->capacity)
         return SAT_ERR_INVALID_ARG;
-    for (uint16_t i=0;i<pool->count;++i) {
-        if (pool->colors[i]==rgb555) {
-            *out_material_index=i;
-            return SAT_OK;
-        }
+    const uint8_t existing=find_exact(*pool,rgb555);
+    if (existing!=kNoNode) {
+        *out_material_index=existing;
+        return SAT_OK;
     }
     if (pool->count>=pool->capacity) return SAT_ERR_CAPACITY;
     const uint16_t index=pool->count;
@@ -44,6 +122,11 @@ extern "C" sat_result_t sat_scene3d_solid_pool_register(
     material.texture=&pool->textures[index];
     material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
     pool->materials[index]=material;
+    pool->tree_left[index]=kNoNode;
+    pool->tree_right[index]=kNoNode;
+    pool->tree_height[index]=1u;
+    pool->tree_root=insert_node(
+        *pool,pool->tree_root,static_cast<uint8_t>(index));
     pool->count=static_cast<uint16_t>(index+1u);
     *out_material_index=index;
     return SAT_OK;
