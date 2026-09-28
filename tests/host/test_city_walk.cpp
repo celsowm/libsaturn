@@ -762,12 +762,13 @@ static void toc_read_indexes_chunk_major_lod_minor() {
 }
 
 /* A texture block: u16 count, u16 0, count x {w, h, offset/8, 0}, texels. */
-static std::vector<uint8_t> make_texture_block(uint16_t count, uint16_t w, uint16_t h) {
+static std::vector<uint8_t> make_texture_block(uint16_t count, uint16_t w, uint16_t h,
+                                               uint16_t flags = 0u) {
     std::vector<uint8_t> b;
     put16(b, count); put16(b, 0);
     uint32_t at = (4u + 8u * count + 7u) & ~7u;
     for (uint16_t i = 0; i < count; ++i) {
-        put16(b, w); put16(b, h); put16(b, (uint16_t)(at / 8u)); put16(b, 0);
+        put16(b, w); put16(b, h); put16(b, (uint16_t)(at / 8u)); put16(b, flags);
         at += ((uint32_t)w * h + 7u) & ~7u;
     }
     b.resize(at, 0x33);
@@ -779,7 +780,16 @@ static void texture_blocks_are_checked_entry_by_entry() {
     std::vector<uint8_t> ok = make_texture_block(3, 16, 10);
     CHECK(city_texture_block_check(ok.data(), (uint32_t)ok.size(), 176, &count) == SAT_OK && count == 3);
     city_texture_entry_t t = city_texture_entry(ok.data(), 2);
-    CHECK(t.width == 16 && t.height == 10 && t.offset8 * 8u == 32u + 2u * 160u);
+    CHECK(t.width == 16 && t.height == 10 && t.offset8 * 8u == 32u + 2u * 160u &&
+          t.flags == 0u);
+    std::vector<uint8_t> flagged = make_texture_block(
+        1, 16, 10, CITY_TEXTURE_FLAG_CUTOUT | CITY_TEXTURE_FLAG_BILLBOARD);
+    CHECK(city_texture_block_check(flagged.data(), (uint32_t)flagged.size(), 176, &count) == SAT_OK);
+    t = city_texture_entry(flagged.data(), 0);
+    CHECK(t.flags == (CITY_TEXTURE_FLAG_CUTOUT | CITY_TEXTURE_FLAG_BILLBOARD));
+    flagged[10] = 0x80;
+    CHECK(city_texture_block_check(flagged.data(), (uint32_t)flagged.size(), 176, &count) ==
+          SAT_ERR_INVALID_ARG);
     /* More textures than the slot's faces, a truncated block, a width that is
      * not a VDP1 size, a texture reaching past the block, an empty table. */
     CHECK(city_texture_block_check(ok.data(), (uint32_t)ok.size(), 2, &count) == SAT_ERR_INVALID_ARG);

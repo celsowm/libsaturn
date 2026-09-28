@@ -22,10 +22,10 @@
  *           u16 texture_bytes | u16 0
  * BLOB      header(32) | vertices(6 * vc) | faces(10 * fc) | collision(12 * n)
  *
- * FACADES (version 2). Walls are blocks whose faces carry textures baked from
+ * FACADES (version 2; flags added in version 3). Walls are blocks whose faces carry textures baked from
  * the source model. A blob's texture block follows it, 32-byte aligned and in
  * the same cart bank:
- *   u16 count | u16 0 | count x {u16 width, u16 height, u16 texel_offset/8, u16 0}
+ *   u16 count | u16 0 | count x {u16 width, u16 height, u16 texel_offset/8, u16 flags}
  *   | INDEX8 texels, each 8-byte aligned, offsets from the block start
  * It is copied as is into the slot's VDP1 VRAM, so a texture's character
  * address is (slot VRAM + 8 * texel_offset/8) / 8. Byte 9 of a face is its
@@ -42,13 +42,16 @@
 
 #define CITY_MAGIC 0x43545931u /* "CTY1" */
 #define CITY_BLOB_MAGIC 0x43484E4Bu /* "CHNK" */
-#define CITY_VERSION 2u
+#define CITY_VERSION 3u
 #define CITY_HEADER_BYTES 128u
 #define CITY_TOC_ENTRY_BYTES 16u
 #define CITY_TEXTURE_TABLE_HEADER 4u
 #define CITY_TEXTURE_ENTRY_BYTES 8u
 #define CITY_TEXTURE_MAX_WIDTH 504u
 #define CITY_TEXTURE_MAX_HEIGHT 255u
+#define CITY_TEXTURE_FLAG_CUTOUT 0x0001u
+#define CITY_TEXTURE_FLAG_BILLBOARD 0x0002u
+#define CITY_TEXTURE_FLAG_MASK (CITY_TEXTURE_FLAG_CUTOUT | CITY_TEXTURE_FLAG_BILLBOARD)
 #define CITY_TOC_ENTRIES (CITY_CHUNK_COUNT * CITY_LOD_COUNT)
 #define CITY_MATERIAL_ENTRY_BYTES 4u
 #define CITY_MATERIAL_MAX 240u
@@ -114,6 +117,7 @@ typedef struct city_toc_entry {
 typedef struct city_texture_entry {
     uint16_t width, height;
     uint16_t offset8; /* texel offset from the block start, in 8-byte units */
+    uint16_t flags;   /* CUTOUT/BILLBOARD in archive v3 */
 } city_texture_entry_t;
 
 typedef struct city_blob_header {
@@ -305,8 +309,10 @@ static inline sat_result_t city_texture_block_check(const uint8_t* block, uint32
     for (uint16_t i = 0u; i < count; ++i) {
         const uint8_t* e = block + CITY_TEXTURE_TABLE_HEADER + (uint32_t)i * CITY_TEXTURE_ENTRY_BYTES;
         uint32_t w = city_be16(e), h = city_be16(e + 2), at = (uint32_t)city_be16(e + 4) * 8u;
+        uint16_t flags = city_be16(e + 6);
         if ((w & 7u) != 0u || w < 8u || w > CITY_TEXTURE_MAX_WIDTH || h == 0u ||
-            h > CITY_TEXTURE_MAX_HEIGHT || at < table_end || at + w * h > bytes) {
+            h > CITY_TEXTURE_MAX_HEIGHT || (flags & ~CITY_TEXTURE_FLAG_MASK) != 0u ||
+            at < table_end || at + w * h > bytes) {
             return SAT_ERR_INVALID_ARG;
         }
     }
@@ -320,6 +326,7 @@ static inline city_texture_entry_t city_texture_entry(const uint8_t* block, uint
     t.width = city_be16(e);
     t.height = city_be16(e + 2);
     t.offset8 = city_be16(e + 4);
+    t.flags = city_be16(e + 6);
     return t;
 }
 

@@ -142,6 +142,7 @@ static void load_texture_table(uint16_t slot, const uint8_t* block, uint16_t byt
         table[i].width8 = (uint8_t)(t.width / 8u);
         table[i].height = (uint8_t)t.height;
         table[i].offset8 = t.offset8;
+        table[i].flags = t.flags;
     }
     g_pending.active = 1;
     g_pending.slot = slot;

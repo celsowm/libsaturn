@@ -49,6 +49,7 @@ typedef struct slave_arena {
     uint16_t indices[SLAVE_FACE_CAP * 4u];
     uint16_t face_materials[SLAVE_FACE_CAP];
     uint8_t face_textures[SLAVE_FACE_CAP];
+    uint8_t double_sided_faces[SLAVE_FACE_CAP];
     sat_scene3d_material_t materials[SLAVE_FACE_CAP];
     sat_projected_vertex_t screen[SLAVE_VERT_CAP];
     sat_mesh_t mesh;
@@ -62,6 +63,7 @@ static sat_vec3_t g_verts[CITY_LOD0_VERTS] CITY_WRAM_L;
 static uint16_t g_indices[CITY_LOD0_FACES * 4u] CITY_WRAM_L;
 static uint16_t g_face_materials[CITY_LOD0_FACES] CITY_WRAM_L;
 static uint8_t g_face_textures[CITY_LOD0_FACES] CITY_WRAM_L;
+static uint8_t g_double_sided_faces[CITY_LOD0_FACES] CITY_WRAM_L;
 static sat_scene3d_material_t g_item_materials[CITY_LOD0_FACES] CITY_WRAM_L;
 /* Texture descriptors for one frame: at most one per submitted face. */
 static sat_vdp1_texture_t g_tex_desc[CITY_SCENE_FACES] CITY_WRAM_L;
@@ -111,7 +113,8 @@ static struct {
 uint32_t render_wram_bytes(void) {
     return (uint32_t)(sizeof(g_faces) + sizeof(g_keys) + sizeof(g_order) + sizeof(g_verts) +
                       sizeof(g_indices) + sizeof(g_face_materials) + sizeof(g_screen) +
-                      sizeof(g_face_textures) + sizeof(g_item_materials) + sizeof(g_tex_desc) +
+                      sizeof(g_face_textures) + sizeof(g_double_sided_faces) +
+                      sizeof(g_item_materials) + sizeof(g_tex_desc) +
                       sizeof(g_arena) + sizeof(g_items) + sizeof(g_slave_faces) +
                       sizeof(g_slave_keys));
 }
@@ -198,10 +201,36 @@ static void note_decode_failure(uint32_t site, sat_result_t st, const city_draw_
 /* Decodes one plan item into `mesh` and builds its per-face material table
  * in `table` (face_materials then index it one to one). Returns SAT_OK or the
  * decode error. */
+static void billboard_face(sat_mesh_t* mesh, uint16_t face, sat_fx16_t right_x,
+                           sat_fx16_t right_z) {
+    uint16_t* idx = mesh->indices + (uint32_t)face * 4u;
+    sat_vec3_t* a = &mesh->vertices[idx[0]];
+    sat_vec3_t* b = &mesh->vertices[idx[1]];
+    sat_vec3_t* c = &mesh->vertices[idx[2]];
+    sat_vec3_t* d = &mesh->vertices[idx[3]];
+    const sat_fx16_t cx = (sat_fx16_t)(((int64_t)a->x + b->x + c->x + d->x) / 4);
+    const sat_fx16_t cz = (sat_fx16_t)(((int64_t)a->z + b->z + c->z + d->z) / 4);
+    sat_fx16_t width = b->x - a->x;
+    if (width < 0) width = -width;
+    if (width == 0) {
+        width = b->z - a->z;
+        if (width < 0) width = -width;
+    }
+    const sat_fx16_t half = width / 2;
+    const sat_fx16_t hx = sat_fx16_mul(right_x, half);
+    const sat_fx16_t hz = sat_fx16_mul(right_z, half);
+    const sat_fx16_t top_a = a->y, top_b = b->y;
+    const sat_fx16_t bottom_c = c->y, bottom_d = d->y;
+    a->x = cx - hx; a->z = cz - hz; a->y = top_a;
+    b->x = cx + hx; b->z = cz + hz; b->y = top_b;
+    c->x = cx + hx; c->z = cz + hz; c->y = bottom_c;
+    d->x = cx - hx; d->z = cz - hz; d->y = bottom_d;
+}
+
 static sat_result_t decode_item(const city_draw_item_t* item, const city_view_t* view,
                                 sat_mesh_t* mesh, uint16_t* face_materials,
-                                uint8_t* face_textures, sat_scene3d_material_t* table,
-                                uint16_t face_cap) {
+                                uint8_t* face_textures, uint8_t* double_sided_faces,
+                                sat_scene3d_material_t* table, uint16_t face_cap) {
     uint16_t bytes, pool_count;
     const uint8_t* blob = residency_slot_blob(item->slot, &bytes);
     const sat_scene3d_material_t* pool = materials_table(&pool_count);
@@ -216,6 +245,9 @@ static sat_result_t decode_item(const city_draw_item_t* item, const city_view_t*
         g_archive.header.material_count, g_material_map, mesh, face_materials, face_cap,
         255u, face_textures);
     if (st != SAT_OK) return st;
+    for (uint16_t f = 0u; f < mesh->face_count; ++f) double_sided_faces[f] = 0u;
+    const sat_fx16_t right_x = -sat_cos_deg(view->yaw);
+    const sat_fx16_t right_z = sat_sin_deg(view->yaw);
     for (uint16_t f = 0u; f < mesh->face_count; ++f) {
         const uint16_t handle = face_materials[f];
         const uint8_t tex = face_textures[f];
@@ -229,11 +261,18 @@ static sat_result_t decode_item(const city_draw_item_t* item, const city_view_t*
             d->valid = 1u;
             d->format = SAT_VDP1_TEXTURE_INDEXED8;
             table[f].kind = SAT_SCENE3D_INDEXED_TEXTURED;
-            table[f].rgb555 = materials_rgb(handle); /* near-plane fallback */
+            table[f].rgb555 = (t->flags & CITY_TEXTURE_FLAG_CUTOUT) != 0u
+                                  ? 0u : materials_rgb(handle);
             table[f].texture = d;
             table[f].tiled = 0;
             table[f].color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
             table[f].vertex_gouraud = 0;
+            if ((t->flags & CITY_TEXTURE_FLAG_BILLBOARD) != 0u) {
+                billboard_face(mesh, f, right_x, right_z);
+                double_sided_faces[f] = 1u;
+            } else if ((t->flags & CITY_TEXTURE_FLAG_CUTOUT) != 0u) {
+                double_sided_faces[f] = 1u;
+            }
             ++g_frame_textured;
         } else {
             table[f] = pool[handle < pool_count ? handle : 0u];
@@ -306,7 +345,8 @@ void render_frame(const city_view_t* view) {
             a->mesh.vertex_count = a->mesh.face_count = 0u;
             t_mark = city_frt_now();
             sat_result_t st = decode_item(item, view, &a->mesh, a->face_materials,
-                                          a->face_textures, a->materials, SLAVE_FACE_CAP);
+                                          a->face_textures, a->double_sided_faces,
+                                          a->materials, SLAVE_FACE_CAP);
             if (st != SAT_OK) {
                 note_decode_failure(1u, st, item);
                 on_slave[i] = 1u; /* dropped: neither CPU draws it */
@@ -324,6 +364,7 @@ void render_frame(const city_view_t* view) {
             a->instance.world = 0;
             a->instance.pass = item->pass;
             a->instance.cull_backfaces = 1u;
+            a->instance.double_sided_faces = a->double_sided_faces;
             g_items[slave_count].instance = &a->instance;
             g_items[slave_count].screen_scratch = a->screen;
             g_items[slave_count].world_scratch = 0;
@@ -349,7 +390,8 @@ void render_frame(const city_view_t* view) {
         if (on_slave[i]) continue;
         t_mark = city_frt_now();
         sat_result_t st = decode_item(&g_plan.items[i], view, &g_mesh, g_face_materials,
-                                      g_face_textures, g_item_materials, CITY_LOD0_FACES);
+                                      g_face_textures, g_double_sided_faces,
+                                      g_item_materials, CITY_LOD0_FACES);
         if (st != SAT_OK) {
             note_decode_failure(2u, st, &g_plan.items[i]);
             continue;
@@ -362,6 +404,7 @@ void render_frame(const city_view_t* view) {
         instance.world = 0;
         instance.pass = g_plan.items[i].pass;
         instance.cull_backfaces = 1u;
+        instance.double_sided_faces = g_double_sided_faces;
         t_mark = city_frt_now();
         (void)sat_scene_submit_instance(&g_scene, &instance, fade_slot(&g_plan.items[i]), g_screen, 0);
         g_city.t_submit += (uint16_t)(city_frt_now() - t_mark);

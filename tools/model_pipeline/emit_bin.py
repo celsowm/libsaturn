@@ -6,7 +6,7 @@ parser, so neither side can drift silently.
 
     header(128) | materials | TOC(16 * 256 * 3) | ground | palette | texture palette | blobs
 
-Version 2 adds facade textures. A blob may be followed (32-byte aligned, same
+Version 2 added facade textures. Version 3 uses the texture-entry reserved word for CUTOUT/BILLBOARD flags. A blob may be followed (32-byte aligned, same
 2 MiB bank) by its texture block, whose size the TOC entry carries:
 
     u16 count, u16 0 | count x {u16 width, u16 height, u16 texel_offset / 8, u16 0}
@@ -27,13 +27,16 @@ from .gltf import GltfError
 
 MAGIC = 0x43545931  # "CTY1"
 BLOB_MAGIC = 0x43484E4B  # "CHNK"
-VERSION = 2
+VERSION = 3
 HEADER_BYTES = 128
 TOC_ENTRY_BYTES = 16
 TEXTURE_ENTRY_BYTES = 8
 TEXTURE_TABLE_HEADER = 4
 TEXTURE_MAX_WIDTH = 504  # VDP1: width a multiple of 8, at most 504
 TEXTURE_MAX_HEIGHT = 255
+TEXTURE_FLAG_CUTOUT = 0x0001
+TEXTURE_FLAG_BILLBOARD = 0x0002
+TEXTURE_FLAG_MASK = TEXTURE_FLAG_CUTOUT | TEXTURE_FLAG_BILLBOARD
 GRID_X = 16
 GRID_Z = 16
 CHUNK_COUNT = GRID_X * GRID_Z
@@ -73,8 +76,8 @@ class BlobSpec:
     vertices: list  # (x, y, z) int16 ticks, chunk-local
     faces: list  # (a, b, c, d, material)
     boxes: list = field(default_factory=list)  # (cx, cy, cz, hx, hy, hz) int16 ticks
-    # (width, height, texels bytes) INDEXED8; faces may carry a 6th element,
-    # the texture index + 1 (0 = solid).
+    # (width, height, texels bytes[, flags]) INDEXED8; faces may carry a 6th
+    # element, the texture index + 1 (0 = solid).
     textures: list = field(default_factory=list)
 
 
@@ -143,12 +146,21 @@ def pack_textures(spec: BlobSpec) -> bytes:
     cursor = align(TEXTURE_TABLE_HEADER + TEXTURE_ENTRY_BYTES * count, 8)
     table = bytearray(struct.pack(">HH", count, 0))
     texels = bytearray()
-    for w, h, data in spec.textures:
+    for texture in spec.textures:
+        if len(texture) == 3:
+            w, h, data = texture
+            flags = 0
+        elif len(texture) == 4:
+            w, h, data, flags = texture
+        else:
+            raise GltfError(f"chunk {spec.chunk_index}: invalid texture tuple")
         if w % 8 or not 8 <= w <= TEXTURE_MAX_WIDTH or not 1 <= h <= TEXTURE_MAX_HEIGHT:
             raise GltfError(f"chunk {spec.chunk_index}: texture {w}x{h} is not a VDP1 size")
         if len(data) != w * h:
             raise GltfError(f"chunk {spec.chunk_index}: texture {w}x{h} has {len(data)} texels")
-        table += struct.pack(">HHHH", w, h, cursor // 8, 0)
+        if flags & ~TEXTURE_FLAG_MASK:
+            raise GltfError(f"chunk {spec.chunk_index}: texture flags 0x{flags:04x} unsupported")
+        table += struct.pack(">HHHH", w, h, cursor // 8, flags)
         texels += data
         cursor += len(data)
         pad = align(cursor, 8) - cursor

@@ -147,7 +147,7 @@ class ArchiveLayoutTests(unittest.TestCase):
     def test_header_is_big_endian_at_documented_offsets(self):
         raw = self.raw
         self.assertEqual(raw[0:4], b"CTY1")
-        self.assertEqual(struct.unpack_from(">H", raw, 0x04)[0], 2)  # version 2: facades
+        self.assertEqual(struct.unpack_from(">H", raw, 0x04)[0], emit_bin.VERSION)
         self.assertEqual(struct.unpack_from(">HH", raw, 0x08), (16, 16))
         self.assertEqual(struct.unpack_from(">i", raw, 0x0C)[0], -128 << 16)
         self.assertEqual(struct.unpack_from(">i", raw, 0x10)[0], -320 << 16)

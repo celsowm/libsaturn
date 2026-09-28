@@ -81,18 +81,21 @@ def read_archive(data: bytes) -> dict:
         faces = [struct.unpack_from(">4HBB", data, base + f_off + 10 * i) for i in range(fc)]
         boxes = [struct.unpack_from(">6h", data, base + c_off + 12 * i) for i in range(c_n)]
         textures = []
+        texture_flags = []
         if e["tex_bytes"]:
             # The texture block follows the blob, 32-byte aligned.
             tb = base + (e["bytes"] + 31) // 32 * 32
             (count,) = struct.unpack_from(">H", data, tb)
             for i in range(count):
-                w, h, off8, _r = struct.unpack_from(">HHHH", data, tb + 4 + 8 * i)
+                w, h, off8, flags = struct.unpack_from(">HHHH", data, tb + 4 + 8 * i)
                 texels = np.frombuffer(data, dtype=np.uint8, count=w * h,
                                        offset=tb + off8 * 8).reshape(h, w)
                 textures.append(texels)
+                texture_flags.append(flags)
         blobs[key] = dict(magic=magic, chunk_index=chunk_index, lod=lod, flags=bflags,
                           vertices=verts, faces=faces, boxes=boxes, bbox=bbox,
-                          offsets=(v_off, f_off, c_off), entry=e, textures=textures)
+                          offsets=(v_off, f_off, c_off), entry=e, textures=textures,
+                          texture_flags=texture_flags)
     ground = None
     if g_bytes:
         bitmap = np.frombuffer(data, dtype=np.uint8, count=g_bytes, offset=g_off).reshape(g_h, g_w)

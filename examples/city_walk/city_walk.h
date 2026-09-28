@@ -169,6 +169,7 @@ typedef struct city_slot_texture {
     uint8_t width8;  /* width / 8 */
     uint8_t height;
     uint16_t offset8;
+    uint16_t flags;
 } city_slot_texture_t;
 uint16_t residency_slot_textures(uint16_t slot, const city_slot_texture_t** out_table,
                                  uint32_t* out_vram_base);
