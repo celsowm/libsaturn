@@ -44,7 +44,7 @@ from model_pipeline import chunking as ch  # noqa: E402
 from model_pipeline import draco, emit_bin, gltf  # noqa: E402
 from model_pipeline.gltf import GltfError  # noqa: E402
 
-CHUNKER_VERSION = 7
+CHUNKER_VERSION = 8
 EYE_UNITS = 2.0  # examples/city_walk/player.c EYE_HEIGHT_FX: the RBG0 ground's focal
 # Finest block level each LOD may start from (blocks.LEVELS index). A LOD never
 # takes a finer level than the LOD before it.
@@ -146,7 +146,13 @@ def build_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_of):
 # cannot cover EVERY facade in the slot, _fit_textures keeps halving the rate
 # until the dimensions stop shrinking. Geometry detail may outrank texel
 # density, but a nearer LOD must never lose texture coverage altogether.
-FACADE_DENSITIES = ((4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5), (2.0, 1.5, 1.0, 0.75, 0.5), (1.0, 0.75, 0.5, 0.375, 0.25))
+FACADE_DENSITIES = (
+    (8.0, 6.0, 4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5),
+    (2.0, 1.5, 1.0, 0.75, 0.5),
+    (1.0, 0.75, 0.5, 0.375, 0.25),
+)
+ARCH_TEXTURE_COLORS = 224
+FOLIAGE_TEXTURE_COLORS = 31
 # Facade subdivision candidates, finest first. A close VDP1 distorted sprite
 # is unsafe not only when it crosses the near plane: a corner projected beyond
 # the renderer's bounded off-screen window also forces the whole textured quad
@@ -400,8 +406,8 @@ def _worker_cache(name, path):
 
 
 def quantise_textures(results, log=print):
-    """One 255-colour palette; index 0 is reserved for cutout transparency."""
-    samples = []
+    """INDEX8 palette with architecture protected from foliage colour pressure."""
+    arch_samples, foliage_samples = [], []
 
     def unpack(tex):
         if isinstance(tex, tuple):
@@ -411,18 +417,36 @@ def quantise_textures(results, log=print):
     for res in results.values():
         for data in res["lods"].values():
             for tex in data.get("textures", []):
-                image, _flags = unpack(tex)
+                image, flags = unpack(tex)
                 rgb = image[..., :3]
                 if image.shape[-1] == 4:
                     rgb = rgb[image[..., 3] != 0]
-                if rgb.size:
-                    samples.append(rgb.reshape(-1, 3)[::3])
-    if not samples:
+                if not rgb.size:
+                    continue
+                target = foliage_samples if flags & emit_bin.TEXTURE_FLAG_BILLBOARD else arch_samples
+                target.append(rgb.reshape(-1, 3)[::3])
+
+    if not arch_samples and not foliage_samples:
         return None
-    palette = facades.build_palette(np.concatenate(samples), 255)
+    if arch_samples and foliage_samples:
+        ac, fc = ARCH_TEXTURE_COLORS, FOLIAGE_TEXTURE_COLORS
+    elif arch_samples:
+        ac, fc = 255, 0
+    else:
+        ac, fc = 0, 255
+
+    ap = (facades.build_palette(np.concatenate(arch_samples), ac)
+          if ac else np.empty((0, 3), dtype=np.uint8))
+    fp = (facades.build_palette(np.concatenate(foliage_samples), fc)
+          if fc else np.empty((0, 3), dtype=np.uint8))
+    palette = np.concatenate([ap, fp], axis=0)
     keys = np.arange(32768)
     key_rgb = np.stack([(keys & 31), (keys >> 5) & 31, (keys >> 10) & 31], axis=1) * 255 // 31
-    lut = ch.nearest_palette(key_rgb.astype(np.uint8), palette).astype(np.uint8) + 1
+    alut = (ch.nearest_palette(key_rgb.astype(np.uint8), ap).astype(np.uint8) + 1
+            if len(ap) else None)
+    flut = (ch.nearest_palette(key_rgb.astype(np.uint8), fp).astype(np.uint8) + 1 + len(ap)
+            if len(fp) else None)
+
     for res in results.values():
         for data in res["lods"].values():
             out = []
@@ -431,15 +455,21 @@ def quantise_textures(results, log=print):
                 rgb = image[..., :3]
                 t = rgb.astype(np.int64) * 31 // 255
                 key = t[..., 0] | (t[..., 1] << 5) | (t[..., 2] << 10)
+                lut = flut if flags & emit_bin.TEXTURE_FLAG_BILLBOARD else alut
+                if lut is None:
+                    lut = alut if alut is not None else flut
                 idx = lut[key]
                 if image.shape[-1] == 4:
                     idx = idx.copy()
                     idx[image[..., 3] == 0] = 0
                 out.append((image.shape[1], image.shape[0], idx.tobytes(), flags))
             data["textures"] = out
-    rgb555 = [int((int(r) * 31 // 255) | ((int(g) * 31 // 255) << 5) | ((int(b) * 31 // 255) << 10))
+
+    rgb555 = [int((int(r) * 31 // 255) |
+                  ((int(g) * 31 // 255) << 5) |
+                  ((int(b) * 31 // 255) << 10))
               for r, g, b in palette.tolist()]
-    log(f"  texture palette: {len(rgb555)} colours")
+    log(f"  texture palette: {len(ap)} architecture + {len(fp)} foliage colours")
     return [0] + rgb555
 
 
@@ -701,7 +731,9 @@ def build_city(glb_path: Path, opts: argparse.Namespace, log=print):
         baker_path = work / "baker.pkl"
         foliage_path = work / "foliage.pkl"
         levels_path.write_bytes(pickle.dumps(block_levels))
-        baker_path.write_bytes(pickle.dumps(facades.FacadeBaker(tris.pos[visible], shaded)))
+        baker_path.write_bytes(pickle.dumps(facades.FacadeBaker(
+            tris.pos[visible], shaded, tris.uv[visible], tris.material[visible], materials,
+            lit_n, light, opts.ambient, opts.diffuse)))
         foliage_path.write_bytes(pickle.dumps(foliage_by_chunk))
         shading = (base, levels, light, opts.ambient, opts.diffuse, dir_level)
         jobs = [(str(levels_path), cx, cz, ch.ORIGIN_X + cx * ch.CHUNK_UNITS,

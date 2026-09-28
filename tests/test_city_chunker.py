@@ -387,6 +387,31 @@ class ChunkerBehaviourTests(unittest.TestCase):
             self.assertIn("city_grid.h", run.stderr)
 
 
+class FacadeTextureSamplingTests(unittest.TestCase):
+    def test_baker_samples_source_uv_per_pixel_not_one_centroid_colour(self):
+        from model_pipeline import facades
+        from model_pipeline.chunking import MaterialInfo
+
+        pos = np.array([[[0., 0., 0.], [4., 0., 0.], [0., 4., 0.]]])
+        uv = np.array([[[0., 0.], [1., 0.], [0., 1.]]])
+        image = np.array([
+            [[255, 0, 0, 255], [0, 255, 0, 255]],
+            [[0, 0, 255, 255], [255, 255, 0, 255]],
+        ], dtype=np.uint8)
+        mat = MaterialInfo("wall", (1.0, 1.0, 1.0), image=image)
+        baker = facades.FacadeBaker(
+            pos, np.array([[128, 128, 128]], dtype=np.uint8),
+            uv, np.array([0]), [mat], np.array([[0., 0., 1.]]),
+            (0., 0., 1.), 1.0, 0.0)
+        corners = np.array([[0., 0., 0.], [4., 0., 0.],
+                            [4., 4., 0.], [0., 4., 0.]])
+        out = baker.bake(corners, 32, 32, np.array([0, 0, 0]))
+        colours = np.unique(out.reshape(-1, 3), axis=0)
+        self.assertGreater(len(colours), 4)
+        self.assertGreater(int(out[..., 0].max()) - int(out[..., 0].min()), 100)
+        self.assertGreater(int(out[..., 1].max()) - int(out[..., 1].min()), 100)
+
+
 class FacadeOrientationTests(unittest.TestCase):
     """The VDP1 draws texel (0, 0) of a distorted sprite at the face's corner
     A, (w, 0) at B and (0, h) at D. A red plaque on one corner of a grey wall

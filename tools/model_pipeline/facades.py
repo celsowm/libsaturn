@@ -10,6 +10,11 @@ case analysis and no mirroring.
 
 Only geometry inside a thin slab around the face counts (``INSET`` behind it,
 ``OUTSET`` in front), so a building across the street never lands on this one.
+Textured source triangles keep their real glTF UVs: each supersample interpolates
+UV barycentrically and samples the source baseColorTexture before lighting.
+That preserves windows, brick, signs and facade trim instead of reducing each
+triangle to one centroid colour.
+
 Texels are supersampled 2x2 and averaged: a texture drawn at a quarter of its
 size on screen would otherwise sparkle (the VDP1 samples, it does not filter).
 """
@@ -26,12 +31,56 @@ SUPERSAMPLE = 2
 
 
 class FacadeBaker:
-    def __init__(self, pos: np.ndarray, colours: np.ndarray):
-        """``pos`` (N, 3, 3) world triangles, ``colours`` (N, 3) shaded sRGB."""
+    def __init__(self, pos: np.ndarray, colours: np.ndarray, uv: np.ndarray | None = None,
+                 material_ids: np.ndarray | None = None, materials=None,
+                 normals: np.ndarray | None = None, light=None,
+                 ambient: float = 1.0, diffuse: float = 0.0):
+        """Source triangles plus glTF material state for per-pixel UV sampling."""
         self.pos = pos
         self.colours = colours
+        self.uv = uv
+        self.material_ids = material_ids
+        self.materials = materials
         self.lo = pos.min(axis=1)
         self.hi = pos.max(axis=1)
+        self.light_factor = np.ones(len(pos), dtype=np.float64)
+        if normals is not None and light is not None:
+            l_vec = np.asarray(light, dtype=np.float64)
+            l_vec /= max(float(np.linalg.norm(l_vec)), 1e-12)
+            self.light_factor = ambient + diffuse * np.clip(
+                np.asarray(normals, dtype=np.float64) @ l_vec, 0.0, 1.0)
+
+    def _source_rgb(self, tri_index: int, w0: np.ndarray, w1: np.ndarray,
+                    w2: np.ndarray) -> np.ndarray | None:
+        if self.materials is None or self.material_ids is None:
+            return None
+        mi = int(self.material_ids[tri_index])
+        if mi < 0 or mi >= len(self.materials):
+            return None
+        mat = self.materials[mi]
+        from . import chunking as ch
+
+        factor = np.asarray(mat.base_linear, dtype=np.float64)
+        if mat.image is None:
+            linear = np.broadcast_to(factor, w0.shape + (3,)).copy()
+        else:
+            if self.uv is None:
+                return None
+            tuv = self.uv[tri_index]
+            u = np.mod(w0 * tuv[0, 0] + w1 * tuv[1, 0] + w2 * tuv[2, 0], 1.0)
+            v = np.mod(w0 * tuv[0, 1] + w1 * tuv[1, 1] + w2 * tuv[2, 1], 1.0)
+            ih, iw = mat.image.shape[:2]
+            ix = np.clip((u * iw).astype(np.int64), 0, iw - 1)
+            iy = np.clip((v * ih).astype(np.int64), 0, ih - 1)
+            texel = mat.image[iy, ix, :3].astype(np.float64) / 255.0
+            linear = ch._srgb_decode(texel) * factor
+
+        if not mat.unlit:
+            linear *= self.light_factor[tri_index]
+        if mat.emissive is not None:
+            linear += np.asarray(mat.emissive, dtype=np.float64)
+        return np.clip(np.rint(ch._srgb_encode(np.clip(linear, 0.0, 1.0)) * 255.0),
+                       0, 255).astype(np.uint8)
 
     def bake(self, corners: np.ndarray, width: int, height: int,
              fallback: np.ndarray) -> np.ndarray:
@@ -84,8 +133,15 @@ class FacadeBaker:
                 inside &= (z >= -INSET) & (z <= OUTSET)
                 zb = depth[y0:y1, x0:x1]
                 win = inside & (z > zb)
+                if not win.any():
+                    continue
                 zb[win] = z[win]
-                img[y0:y1, x0:x1][win] = self.colours[idx[t]]
+                src = self._source_rgb(int(idx[t]), w0, w1, w2)
+                patch = img[y0:y1, x0:x1]
+                if src is None:
+                    patch[win] = self.colours[idx[t]]
+                else:
+                    patch[win] = src[win]
         img = img.reshape(height, SUPERSAMPLE, width, SUPERSAMPLE, 3).mean(axis=(1, 3))
         return np.clip(np.rint(img), 0, 255).astype(np.uint8)
 
