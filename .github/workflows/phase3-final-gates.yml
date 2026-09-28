@@ -37,6 +37,39 @@ jobs:
       - name: Run city asset pipeline tests
         run: python tests/test_city_chunker.py
 
+      - name: Build real city archive and verify facade coverage
+        run: |
+          rm -rf /tmp/city-walk-ci
+          mkdir -p /tmp/city-walk-ci/iso
+          python tools/city_chunker.py \
+            --input examples/city_walk/assets/low_poly_city.glb \
+            --out-bin /tmp/city-walk-ci/iso/CITY.BIN \
+            --out-h /tmp/city-walk-ci/city_data.h \
+            --cache-dir /tmp/city-walk-ci/cache --incremental \
+            --lod-caps 384:176,144:64,48:24 --face-budget 600 --ground-upd 1,1 \
+            --light-dir=-0.5,0.6,0.8 --ambient 0.42 --diffuse 0.60 \
+            --max-archive-bytes 2097152 --report /tmp/city-walk-ci/city.report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("/tmp/city-walk-ci/city.report.json").read_text())
+          rates = [[], [], []]
+          for chunk, row in report["per_chunk"].items():
+              for lod in range(3):
+                  item = row.get(f"lod{lod}")
+                  if not item:
+                      continue
+                  assert item["textures"] == item["faces"], (
+                      f"chunk {chunk} LOD{lod}: {item['textures']} textures for "
+                      f"{item['faces']} faces"
+                  )
+                  rates[lod].append(item["texture_rate"])
+          print("real city archive bytes:", report["archive"]["total_bytes"])
+          for lod, values in enumerate(rates):
+              if values:
+                  print(f"LOD{lod} texture rate range: {min(values)}..{max(values)}")
+          PY
+
       - name: Run host tests
         run: make test
 
