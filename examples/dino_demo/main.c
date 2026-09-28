@@ -93,6 +93,8 @@
 #define MODEL_VERTEX_CAP TREX_VERTEX_COUNT
 #define MODEL_FACE_CAP TREX_FACE_COUNT
 #define MODEL_TEXTURE_CAP TREX_TEXTURE_COUNT
+_Static_assert(MODEL_FACE_CAP == 1499u,
+    "Recheck the dino jaw face mask after changing the imported mesh");
 
 /* Frame scratch and upload handles are writable, zero-initialized data.
  * The large face records live in WRAM-L so the baked model tables and
@@ -110,6 +112,7 @@ static sat_scene3d_instance_t g_instance DINO_WRAM_L;
 /* Two pose buffers: the Master draws one while the Slave decodes the next. */
 static sat_vec3_t g_pose[2][MODEL_VERTEX_CAP];
 static uint16_t g_mesh_indices[MODEL_FACE_CAP * 4u] DINO_WRAM_L;
+static uint8_t g_double_sided_faces[MODEL_FACE_CAP] DINO_WRAM_L;
 static sat_mesh_t g_mesh DINO_WRAM_L;
 static sat_vdp1_texture_t g_model_textures[MODEL_TEXTURE_CAP] DINO_WRAM_L;
 static sat_projected_vertex_t g_mesh_screen[MODEL_VERTEX_CAP];
@@ -574,7 +577,13 @@ int main(void) {
     g_instance.face_materials = trex_asset.face_texture_indices;
     g_instance.world = NULL;
     g_instance.pass = 0u;
-    g_instance.cull_backfaces = 0u;
+    g_instance.cull_backfaces = 1u;
+    /* Three adjacent throat/mandible faces are visible from their back side
+     * in the default side view. The IDs belong to this imported mesh. */
+    g_double_sided_faces[329u] = 1u;
+    g_double_sided_faces[429u] = 1u;
+    g_double_sided_faces[494u] = 1u;
+    g_instance.double_sided_faces = g_double_sided_faces;
     g_half_mesh[0] = g_mesh;
     g_half_mesh[0].face_count = MASTER_FACES;
     g_half_mesh[1] = g_mesh;
@@ -588,6 +597,7 @@ int main(void) {
     g_half[1] = g_instance;
     g_half[1].mesh = &g_half_mesh[1];
     g_half[1].face_materials = &trex_asset.face_texture_indices[MASTER_FACES];
+    g_half[1].double_sided_faces = &g_double_sided_faces[MASTER_FACES];
     g_slave_item.instance = &g_half[1];
     g_slave_item.screen_scratch = g_slave_screen;
     g_slave_item.color_calc_slot = SAT_SCENE3D_SLOT_INHERIT;

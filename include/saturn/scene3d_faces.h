@@ -237,6 +237,8 @@ typedef struct sat_scene3d_instance {
     const sat_mat4_t* world; /* NULL: mesh vertices already in world space */
     uint16_t pass;
     uint8_t cull_backfaces;
+    /* Optional per-face mask: a nonzero byte draws that face from either side. */
+    const uint8_t* double_sided_faces;
 } sat_scene3d_instance_t;
 
 /* A batch item is an immutable instance descriptor plus caller-owned scratch.

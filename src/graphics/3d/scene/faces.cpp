@@ -547,7 +547,9 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
     const uint16_t previous_clipped=scene->clipped_faces;
     for (uint16_t f=0;f<mesh->face_count;++f) {
         const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
-        if (instance->cull_backfaces &&
+        const bool cull_face=instance->cull_backfaces &&
+            (!instance->double_sided_faces || !instance->double_sided_faces[f]);
+        if (cull_face &&
             screen_scratch[idx[0]].w>0 && screen_scratch[idx[1]].w>0 &&
             screen_scratch[idx[2]].w>0 && screen_scratch[idx[3]].w>0 &&
             saturn::core::render3d::projected_area2(screen_scratch,idx)<=0)
@@ -562,7 +564,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
          * faces, but it is not a substitute for the shared geometric normal
          * predicate: small perspective faces can round to a screen winding
          * that disagrees with their actual outward normal. */
-        if (instance->cull_backfaces &&
+        if (cull_face &&
             !saturn::core::mesh3d::quad_visible(
                 *corners[0],*corners[1],*corners[2],*corners[3],scene->eye))
         {
