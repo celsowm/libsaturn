@@ -94,7 +94,10 @@ def sample_times_for_importance(clip, max_samples: int = 64) -> list[float]:
 
 
 def compute_animation_importance(
-    model: SourceModel, clip, times: list[float] | None = None
+    model: SourceModel,
+    clip,
+    times: list[float] | None = None,
+    poses: list | None = None,
 ) -> list[float]:
     """Per-vertex animation importance in [0, 1] from generic motion signals.
 
@@ -117,7 +120,11 @@ def compute_animation_importance(
         return [0.0] * len(model.vertices)
     np = _require_numpy()
     rest = np.asarray(model.vertices, dtype=np.float64)
-    poses = [np.asarray(p, dtype=np.float64) for p in bake_clip_poses(model, clip, times)]
+    if poses is None:
+        poses = bake_clip_poses(model, clip, times)
+    elif len(poses) != len(times):
+        raise GltfError("precomputed animation poses do not match sample times")
+    poses = [np.asarray(p, dtype=np.float64) for p in poses]
 
     n = len(model.vertices)
     disp_range = np.zeros(n)
@@ -188,13 +195,19 @@ def simplified_as_source(simplified, template: SourceModel) -> SourceModel:
     return view
 
 
-def posed_bbox_diagonal(model: SourceModel, clip, times: list[float]) -> float:
+def posed_bbox_diagonal(
+    model: SourceModel, clip, times: list[float], pose_positions: list | None = None
+) -> float:
     """Bounding-box diagonal over all sampled poses (scale normalization)."""
     from .animation import bake_clip_poses
 
     np = _require_numpy()
     all_pts = [np.asarray(model.vertices, dtype=np.float64)]
-    if clip is not None and model.is_skinned:
+    if pose_positions is not None:
+        if len(pose_positions) != len(times):
+            raise GltfError("precomputed animation poses do not match sample times")
+        all_pts.extend(np.asarray(p, dtype=np.float64) for p in pose_positions)
+    elif clip is not None and model.is_skinned:
         all_pts.extend(
             np.asarray(p, dtype=np.float64) for p in bake_clip_poses(model, clip, times)
         )
@@ -282,6 +295,7 @@ def surface_error_stats(
     clip,
     times: list[float] | None = None,
     tri_chunk: int = 64,
+    source_poses: list | None = None,
 ) -> dict:
     """Nearest-point animated surface error over sampled poses.
 
@@ -297,7 +311,9 @@ def surface_error_stats(
     simp_view = simplified_as_source(simplified, source)
     if not simplified.triangles or not simplified.positions:
         raise GltfError("simplification produced an empty mesh")
-    diag = posed_bbox_diagonal(source, clip, times)
+    diag = posed_bbox_diagonal(source, clip, times, source_poses)
+    if source_poses is not None and len(source_poses) != len(times):
+        raise GltfError("precomputed animation poses do not match sample times")
 
     # Deterministic extra surface samples: barycenters of an even subset of
     # faces. They are interpolated from POSED corners per time step (the
@@ -309,13 +325,14 @@ def surface_error_stats(
     dists_all = []
     worst = {"time": 0.0, "vertex": None, "error": 0.0}
     n_src_verts = len(source.vertices)
-    for t in times:
+    for frame_index, t in enumerate(times):
         if clip is not None and simp_view.is_skinned:
             simp_pose = np.asarray(
                 bake_clip_poses(simp_view, clip, [t])[0], dtype=np.float64
             )
             src_pose = np.asarray(
-                bake_clip_poses(source, clip, [t])[0], dtype=np.float64
+                source_poses[frame_index] if source_poses is not None
+                else bake_clip_poses(source, clip, [t])[0], dtype=np.float64
             )
             if sample_tris:
                 tri_idx = np.asarray(sample_tris, dtype=np.int64)
@@ -366,7 +383,7 @@ def surface_error_stats(
     }
 
 
-def normal_error_stats(source, simplified, clip, times=None) -> dict | None:
+def normal_error_stats(source, simplified, clip, times=None, source_poses=None) -> dict | None:
     """Angular deviation (degrees) of simplified facets vs covered surface.
 
     For each simplified triangle, the source triangles around its corners
@@ -411,9 +428,14 @@ def normal_error_stats(source, simplified, clip, times=None) -> dict | None:
             cand.update(adjacency.get(pos_key(simplified.positions[x]), ()))
         cover.append(sorted(cand))
     angs = []
-    for t in times:
+    if source_poses is not None and len(source_poses) != len(times):
+        raise GltfError("precomputed animation poses do not match sample times")
+    for frame_index, t in enumerate(times):
         if clip is not None and source.is_skinned:
-            sp = np.asarray(bake_clip_poses(source, clip, [t])[0], dtype=np.float64)
+            sp = np.asarray(
+                source_poses[frame_index] if source_poses is not None
+                else bake_clip_poses(source, clip, [t])[0], dtype=np.float64
+            )
             pp = np.asarray(
                 bake_clip_poses(simp_view, clip, [t])[0], dtype=np.float64
             )
@@ -523,6 +545,7 @@ def evaluate_candidate(
     preset="balanced",
     times: list[float] | None = None,
     silhouette_views: int = 16,
+    source_poses: list | None = None,
 ) -> dict:
     """Full quality report for one simplified candidate plus PASS/FAIL."""
     from . import silhouette as sil_mod
@@ -531,12 +554,81 @@ def evaluate_candidate(
     preset = preset_dict
     if times is None:
         times = sample_times_for_importance(clip) if clip is not None else [0.0]
-    surf = surface_error_stats(source, simplified, clip, times)
-    norm = normal_error_stats(source, simplified, clip, times)
+    if (simplified.positions == source.vertices
+            and simplified.triangles == source.triangles
+            and simplified.joints == source.joints
+            and simplified.weights == source.weights):
+        # The unchanged topology is an exact quality result. Running the
+        # nearest-triangle distance and silhouette rasterizers here would
+        # spend most of an unsimplified import proving every point matches
+        # itself, frame by frame.
+        integrity = integrity_report(source, simplified)
+        diag = posed_bbox_diagonal(source, clip, times, source_poses)
+        step = max(1, len(source.triangles) // 512)
+        surface_samples = (len(source.vertices) + len(source.triangles[::step])) * len(times)
+        surf = {
+            "mean": 0.0,
+            "rms": 0.0,
+            "p95": 0.0,
+            "max": 0.0,
+            "samples": surface_samples,
+            "bbox_diagonal": diag,
+            "worst": {"time": 0.0, "vertex": None, "error": 0.0},
+        }
+        if source.normals is not None and simplified.normals is not None:
+            norm = {
+                "flipped_facets": 0,
+                "mean_deg": 0.0,
+                "p95_deg": 0.0,
+                "max_deg": 0.0,
+                "samples": len(source.triangles) * len(times),
+            }
+        else:
+            norm = None
+        sil_times = times[:: max(1, len(times) // 8)][:8] if times else [0.0]
+        sil = {
+            "iou_mean": 1.0,
+            "iou_min": 1.0,
+            "chamfer_px_mean": 0.0,
+            "chamfer_px_max": 0.0,
+            "coverage_mean": 1.0,
+            "coverage_min": 1.0,
+            "mask_size": 48,
+            "views": silhouette_views,
+            "poses": len(sil_times),
+            "worst": {"iou": 1.0, "view": 0, "time": 0.0},
+            "worst_chamfer": {"chamfer_px": 0.0, "view": 0, "time": 0.0},
+        }
+        failing = []
+        if integrity["uv_violations"]:
+            failing.append(f"{integrity['uv_violations']} UV integrity violations")
+        if integrity["material_violations"]:
+            failing.append(f"{integrity['material_violations']} material violations")
+        if integrity["crack_edges"]:
+            failing.append(
+                f"{integrity['crack_edges']} crack edges "
+                "(surface torn open between vertex copies)"
+            )
+        return {
+            "preset": preset_name,
+            "surface": surf,
+            "normals": norm,
+            "silhouette": sil,
+            "integrity": integrity,
+            "sampled_poses": len(times),
+            "passed": not failing,
+            "failing_gates": failing,
+        }
+    surf = surface_error_stats(source, simplified, clip, times, source_poses=source_poses)
+    norm = normal_error_stats(source, simplified, clip, times, source_poses=source_poses)
     integrity = integrity_report(source, simplified)
     sil_poses = times[:: max(1, len(times) // 8)][:8] if times else [0.0]
     sil = sil_mod.silhouette_iou(
-        source, simplified, clip, sil_poses, n_views=silhouette_views
+        source, simplified, clip, sil_poses, n_views=silhouette_views,
+        source_poses=(
+            [source_poses[times.index(t)] for t in sil_poses]
+            if source_poses is not None else None
+        ),
     )
     failing: list[str] = []
     if surf["max"] > preset["max_surface_error"]:
@@ -596,6 +688,7 @@ def search_upward(
     pose_positions: list | None = None,
     max_steps: int = 8,
     enforce_floor: bool = False,
+    source_poses: list | None = None,
 ) -> tuple:
     """Smallest triangle count in [requested, source] passing quality gates.
 
@@ -638,7 +731,9 @@ def search_upward(
             options=o,
             pose_positions=pose_positions,
         )
-        rep = evaluate_candidate(source, simp, clip, preset, times)
+        rep = evaluate_candidate(
+            source, simp, clip, preset, times, source_poses=source_poses
+        )
         return simp, rep
 
     lo = min(requested_triangles, len(source.triangles))

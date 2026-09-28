@@ -132,6 +132,44 @@ HINGE_TIMES = [0.0, 0.25, 0.5, 0.75, 1.0]
 
 
 class AnimationAwareTests(unittest.TestCase):
+    def test_exact_source_candidate_uses_equivalent_quality_metrics(self):
+        m = build_hinge()
+        clip = m.clips[0]
+        poses = bake_clip_poses(m, clip, HINGE_TIMES)
+        full = simp_mod.simplify(
+            m,
+            options=simp_mod.SimplificationOptions(target_triangles=len(m.triangles)),
+            pose_positions=poses,
+        )
+        self.assertEqual(full.positions, m.vertices)
+        self.assertEqual(full.triangles, m.triangles)
+
+        actual = metrics_mod.evaluate_candidate(
+            m, full, clip, "balanced", HINGE_TIMES, 8, source_poses=poses
+        )
+        surface = metrics_mod.surface_error_stats(
+            m, full, clip, HINGE_TIMES, source_poses=poses
+        )
+        normals = metrics_mod.normal_error_stats(
+            m, full, clip, HINGE_TIMES, source_poses=poses
+        )
+        sil_times = HINGE_TIMES[:: max(1, len(HINGE_TIMES) // 8)][:8]
+        sil_poses = [poses[HINGE_TIMES.index(t)] for t in sil_times]
+        silhouette = sil_mod.silhouette_iou(
+            m, full, clip, sil_times, n_views=8, source_poses=sil_poses
+        )
+
+        self.assertEqual(actual["surface"]["samples"], surface["samples"])
+        self.assertEqual(actual["surface"]["bbox_diagonal"], surface["bbox_diagonal"])
+        for key in ("mean", "rms", "p95", "max"):
+            self.assertAlmostEqual(actual["surface"][key], surface[key], delta=1e-12)
+        self.assertAlmostEqual(
+            actual["surface"]["worst"]["error"], surface["worst"]["error"], delta=1e-12
+        )
+        self.assertEqual(actual["normals"], normals)
+        self.assertEqual(actual["silhouette"], silhouette)
+        self.assertEqual(actual["integrity"], metrics_mod.integrity_report(m, full))
+
     def test_importance_marks_hinge(self):
         m = build_hinge()
         imp = metrics_mod.compute_animation_importance(m, m.clips[0], HINGE_TIMES)

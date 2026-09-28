@@ -243,6 +243,7 @@ def silhouette_iou(
     times: list[float] | None = None,
     n_views: int = 16,
     size: int = 48,
+    source_poses: list | None = None,
 ) -> dict:
     """Mask-IoU comparison of source vs simplified silhouettes.
 
@@ -270,9 +271,14 @@ def silhouette_iou(
     coverages = []
     worst = {"iou": 1.0, "view": 0, "time": 0.0}
     worst_chamfer = {"chamfer_px": 0.0, "view": 0, "time": 0.0}
-    for t in times:
+    if source_poses is not None and len(source_poses) != len(times):
+        raise GltfError("precomputed animation poses do not match sample times")
+    for frame_index, t in enumerate(times):
         if clip is not None and simp_view.is_skinned:
-            sp = bake_clip_poses(source, clip, [t])[0]
+            sp = (
+                source_poses[frame_index] if source_poses is not None
+                else bake_clip_poses(source, clip, [t])[0]
+            )
             pp = bake_clip_poses(simp_view, clip, [t])[0]
         else:
             sp, pp = source.vertices, simplified.positions

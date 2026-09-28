@@ -147,6 +147,43 @@ def run_import_cli(*argv):
 
 
 class AnimatedImportTests(unittest.TestCase):
+    def test_parallel_pose_bake_matches_serial_and_generated_files(self):
+        from model_pipeline import animation as anim_eval
+        from model_pipeline import emit_c
+        from model_pipeline import model as source_model
+        from model_pipeline.gltf import parse_model
+
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            src = make_quadrant_glb(directory)
+            model = source_model.from_gltf(parse_model(src), source_name="parallel fixture")
+            clip = model.clips[0]
+            times = anim_eval.clip_sample_times(clip)
+
+            serial_poses = anim_eval.bake_clips_poses(
+                model, [(clip, times)], workers=1
+            )[0]
+            parallel_poses = anim_eval.bake_clips_poses(
+                model, [(clip, times)], workers=2
+            )[0]
+            self.assertEqual(parallel_poses, serial_poses)
+            self.assertEqual(anim_eval._automatic_worker_count(model, len(times)), 1)
+
+            serial = import_model.import_animated_model(
+                src, simplify="off", pose_workers=1
+            )
+            parallel = import_model.import_animated_model(
+                src, simplify="off", pose_workers=2
+            )
+            serial_paths = emit_c.emit_animated_c_h(
+                serial.static, serial.animations, directory / "serial" / "model", "fixture"
+            )
+            parallel_paths = emit_c.emit_animated_c_h(
+                parallel.static, parallel.animations, directory / "parallel" / "model", "fixture"
+            )
+            self.assertEqual(serial_paths[0].read_bytes(), parallel_paths[0].read_bytes())
+            self.assertEqual(serial_paths[1].read_bytes(), parallel_paths[1].read_bytes())
+
     def test_merges_skinned_mesh_nodes_sharing_skin_and_rest_transform(self):
         from model_pipeline import model as source_model
         from model_pipeline.gltf import parse_model

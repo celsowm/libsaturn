@@ -14,7 +14,11 @@ the pose-baking stage, where quantization error is measured and reported.
 from __future__ import annotations
 
 import bisect
+import multiprocessing
 import math
+import os
+import sys
+from concurrent.futures import ProcessPoolExecutor
 
 from .gltf import GltfError, trs_to_matrix
 from .model import AnimationClip, SourceModel
@@ -25,6 +29,50 @@ IDENTITY = [
     0.0, 0.0, 1.0, 0.0,
     0.0, 0.0, 0.0, 1.0,
 ]
+
+# Process startup is significant for small assets. The cut-off is expressed
+# in vertex-frame evaluations, the dominant Python work in linear-blend
+# skinning. Keep a conservative worker cap to bound memory on large hosts.
+_PARALLEL_MIN_VERTEX_FRAMES = 1_500_000
+_PARALLEL_MAX_WORKERS = 2
+_POSE_WORKER_MODEL = None
+_POSE_WORKER_CLIPS = None
+
+
+def _init_pose_worker(vertices, joints, weights, nodes, skins, skin_index, clips):
+    """Install only data needed for skinning, excluding GLB and texture data."""
+    global _POSE_WORKER_MODEL, _POSE_WORKER_CLIPS
+    from .model import SourceModel
+
+    _POSE_WORKER_MODEL = SourceModel(
+        vertices=vertices,
+        joints=joints,
+        weights=weights,
+        nodes=nodes,
+        skins=skins,
+        skin_index=skin_index,
+    )
+    _POSE_WORKER_CLIPS = clips
+
+
+def _evaluate_pose_worker(task):
+    clip_index, _frame_index, time = task
+    return evaluate_positions(
+        _POSE_WORKER_MODEL, _POSE_WORKER_CLIPS[clip_index], time
+    )
+
+
+def _automatic_worker_count(model, frame_count: int) -> int:
+    work = len(model.vertices) * frame_count
+    if (not model.is_skinned or work < _PARALLEL_MIN_VERTEX_FRAMES
+            or frame_count < 4):
+        return 1
+    main_file = getattr(sys.modules.get("__main__"), "__file__", None)
+    if not main_file or str(main_file).startswith("<"):
+        # Spawn cannot import stdin/interactive entry points safely.
+        return 1
+    cpus = os.cpu_count() or 1
+    return max(1, min(cpus, _PARALLEL_MAX_WORKERS, frame_count))
 
 
 def mat_mult(a: list[float] | tuple, b: list[float] | tuple) -> list[float]:
@@ -225,12 +273,72 @@ def clip_sample_times(clip: AnimationClip) -> list[float]:
 
 
 def bake_clip_poses(
-    model: SourceModel, clip: AnimationClip, times: list[float] | None = None
+    model: SourceModel,
+    clip: AnimationClip,
+    times: list[float] | None = None,
+    *,
+    workers: int | None = None,
 ) -> list[list[tuple[float, float, float]]]:
-    """Bake skinned positions for each sample time (host float)."""
+    """Bake skinned positions for each sample time (host float).
+
+    ``workers=None`` selects parallelism automatically; 1 forces serial
+    evaluation and values above 1 are useful for controlled comparisons.
+    Results always retain input-time order.
+    """
     if times is None:
         times = clip_sample_times(clip)
-    return [evaluate_positions(model, clip, t) for t in times]
+    if workers is None:
+        workers = _automatic_worker_count(model, len(times))
+    if workers <= 1 or len(times) < 2:
+        return [evaluate_positions(model, clip, t) for t in times]
+    return bake_clips_poses(model, [(clip, times)], workers=workers)[0]
+
+
+def bake_clips_poses(
+    model: SourceModel,
+    clip_times: list[tuple[AnimationClip, list[float]]],
+    *,
+    workers: int | None = None,
+) -> list[list[list[tuple[float, float, float]]]]:
+    """Bake several clips in one ordered process pool when work is large.
+
+    A worker receives only the geometry and skinning data it needs. The
+    original parsed GLB, source JSON and decoded textures stay in the parent.
+    """
+    frame_count = sum(len(times) for _clip, times in clip_times)
+    if workers is None:
+        workers = _automatic_worker_count(model, frame_count)
+    if workers <= 1 or frame_count < 2:
+        return [
+            [evaluate_positions(model, clip, t) for t in times]
+            for clip, times in clip_times
+        ]
+
+    results = [[None] * len(times) for _clip, times in clip_times]
+    tasks = [
+        (clip_index, frame_index, time)
+        for clip_index, (_clip, times) in enumerate(clip_times)
+        for frame_index, time in enumerate(times)
+    ]
+    clips = tuple(clip for clip, _times in clip_times)
+    with ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_init_pose_worker,
+        initargs=(
+            model.vertices,
+            model.joints,
+            model.weights,
+            model.nodes,
+            model.skins,
+            model.skin_index,
+            clips,
+        ),
+    ) as pool:
+        for task, pose in zip(tasks, pool.map(_evaluate_pose_worker, tasks)):
+            clip_index, frame_index, _time = task
+            results[clip_index][frame_index] = pose
+    return results
 
 
 def loop_pose_distance(
