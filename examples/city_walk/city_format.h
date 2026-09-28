@@ -68,20 +68,20 @@
 /* Per-LOD blob capacities compiled into the runtime. The archive header
  * records what the chunker actually used, and city_header_check_caps refuses a
  * mismatch instead of truncating. */
-#define CITY_LOD0_VERTS 384u
-#define CITY_LOD0_FACES 176u
+#define CITY_LOD0_VERTS 512u
+#define CITY_LOD0_FACES 256u
 #define CITY_LOD1_VERTS 144u
 #define CITY_LOD1_FACES 64u
 #define CITY_LOD2_VERTS 48u
 #define CITY_LOD2_FACES 24u
 #define CITY_LOD2_BOXES 24u
-#define CITY_SLOT_BYTES_LOD0 4096u
+#define CITY_SLOT_BYTES_LOD0 5664u
 #define CITY_SLOT_BYTES_LOD1 1536u
 #define CITY_SLOT_BYTES_LOD2 1024u
 /* VDP1 VRAM per ring slot for its texture block. */
-#define CITY_TEX_BYTES_LOD0 16384u
-#define CITY_TEX_BYTES_LOD1 5120u
-#define CITY_TEX_BYTES_LOD2 1536u
+#define CITY_TEX_BYTES_LOD0 28672u
+#define CITY_TEX_BYTES_LOD1 4096u
+#define CITY_TEX_BYTES_LOD2 1024u
 
 typedef struct city_header {
     uint16_t version, flags;
