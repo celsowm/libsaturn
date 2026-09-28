@@ -44,11 +44,11 @@ from model_pipeline import chunking as ch  # noqa: E402
 from model_pipeline import draco, emit_bin, gltf  # noqa: E402
 from model_pipeline.gltf import GltfError  # noqa: E402
 
-CHUNKER_VERSION = 8
+CHUNKER_VERSION = 9
 EYE_UNITS = 2.0  # examples/city_walk/player.c EYE_HEIGHT_FX: the RBG0 ground's focal
 # Finest block level each LOD may start from (blocks.LEVELS index). A LOD never
 # takes a finer level than the LOD before it.
-LOD_FIRST_LEVEL = (0, 2, 4)
+LOD_FIRST_LEVEL = (0, 3, 5)
 # Share of the finest level's built-up area a LOD must keep. LOD2 sits 80-112
 # units away, already faded into the sky: there, scattered props may go.
 LOD_MIN_AREA = (0.5, 0.25, 0.0)
@@ -990,7 +990,7 @@ def main(argv=None) -> int:
     ap.add_argument("--grid", default="16x16")
     ap.add_argument("--chunk-units", type=int, default=32)
     ap.add_argument("--grid-origin", default="-128,-320")
-    ap.add_argument("--lod-caps", type=parse_caps, default="384:176,144:64,48:24", dest="caps")
+    ap.add_argument("--lod-caps", type=parse_caps, default="512:256,144:64,48:24", dest="caps")
     ap.add_argument("--face-budget", type=int, default=600)
     ap.add_argument("--light-dir", default="-0.5,0.6,0.8")
     ap.add_argument("--ambient", type=float, default=0.42)
