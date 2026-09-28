@@ -46,7 +46,7 @@ jobs:
             --out-bin /tmp/city-walk-ci/iso/CITY.BIN \
             --out-h /tmp/city-walk-ci/city_data.h \
             --cache-dir /tmp/city-walk-ci/cache --incremental \
-            --lod-caps 384:176,144:64,48:24 --face-budget 600 --ground-upd 1,1 \
+            --lod-caps 512:256,144:64,48:24 --face-budget 600 --ground-upd 1,1 \
             --light-dir=-0.5,0.6,0.8 --ambient 0.42 --diffuse 0.60 \
             --max-archive-bytes 4718592 --report /tmp/city-walk-ci/city.report.json
           python - <<'PY'
@@ -83,6 +83,9 @@ jobs:
           print("real city archive bytes:", report["archive"]["total_bytes"])
           print("cart blob region bytes:", report["archive"]["blob_region_bytes"])
           print("foliage:", foliage)
+          print("block level histogram:", report["chunks"]["block_level_histogram_by_lod"])
+          assert report["chunks"]["block_level_histogram_by_lod"][0][0] > 0, (
+              "the superfine LOD0 building level was never selected")
           for lod, values in enumerate(rates):
               if values:
                   print(f"LOD{lod} texture rate range: {min(values)}..{max(values)}")
