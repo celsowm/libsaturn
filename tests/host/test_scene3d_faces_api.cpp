@@ -745,20 +745,6 @@ int main() {
     assert(project_calls==stale_binding_calls && scene.count==0u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
 
-    // RGB capability is captured by the validated binding so a non-opaque
-    // submission-wide indexed slot stays rejected without a per-face walk.
-    sat_scene3d_instance_binding_t rgb_binding={};
-    assert(sat_scene3d_instance_binding_init(
-        &rgb_binding,&mesh,rgb_materials,2u,per_face)==SAT_OK);
-    assert(rgb_binding.has_rgb);
-    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
-        SAT_FX16_ONE,320u,224u)==SAT_OK);
-    rgb_instance.validated_binding=&rgb_binding;
-    assert(sat_scene3d_faces_submit_instance(
-        &scene,&rgb_instance,3u,screen,world)==SAT_ERR_INVALID_ARG);
-    assert(scene.count==0u);
-    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
-
     // A distance-faded object fades WHOLE: one slot reaches every face of the
     // instance, without the shared material table needing a copy per slot.
     emitted_count=0;
@@ -792,6 +778,20 @@ int main() {
     assert(sat_scene3d_faces_submit_instance(
         &scene,&rgb_instance,SAT_SCENE3D_SLOT_INHERIT,screen,world)==SAT_OK);
     assert(scene.count==2u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
+    // RGB capability is captured by the validated binding so a non-opaque
+    // submission-wide indexed slot stays rejected without a per-face walk.
+    sat_scene3d_instance_binding_t rgb_binding={};
+    assert(sat_scene3d_instance_binding_init(
+        &rgb_binding,&mesh,rgb_materials,2u,per_face)==SAT_OK);
+    assert(rgb_binding.has_rgb);
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    rgb_instance.validated_binding=&rgb_binding;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&rgb_instance,3u,screen,world)==SAT_ERR_INVALID_ARG);
+    assert(scene.count==0u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
 
     emitted_count=0;
