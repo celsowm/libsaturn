@@ -716,6 +716,49 @@ int main() {
     assert(project_calls==invalid_bound_calls && scene.count==0u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
 
+    // Immutable topology can pay the full O(F) validation once and carry an
+    // O(1) identity snapshot on subsequent submissions.
+    sat_scene3d_instance_binding_t validated_binding={};
+    assert(sat_scene3d_instance_binding_init(
+        &validated_binding,&mesh,materials,2u,per_face)==SAT_OK);
+    assert(validated_binding.valid && !validated_binding.has_rgb);
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    sat_scene3d_instance_t validated_instance=instance;
+    validated_instance.validated_binding=&validated_binding;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&validated_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_OK);
+    assert(scene.count==2u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
+    // A token is not a blind trust flag: descriptor identity/count changes
+    // reject before projection rather than reusing a stale validation.
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    sat_mesh_t rebound_mesh=mesh;
+    validated_instance.mesh=&rebound_mesh;
+    const uint16_t stale_binding_calls=project_calls;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&validated_instance,SAT_SCENE3D_SLOT_INHERIT,
+        screen,world)==SAT_ERR_INVALID_ARG);
+    assert(project_calls==stale_binding_calls && scene.count==0u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
+    // RGB capability is captured by the validated binding so a non-opaque
+    // submission-wide indexed slot stays rejected without a per-face walk.
+    sat_scene3d_instance_binding_t rgb_binding={};
+    assert(sat_scene3d_instance_binding_init(
+        &rgb_binding,&mesh,rgb_materials,2u,per_face)==SAT_OK);
+    assert(rgb_binding.has_rgb);
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+        SAT_FX16_ONE,320u,224u)==SAT_OK);
+    rgb_instance.validated_binding=&rgb_binding;
+    assert(sat_scene3d_faces_submit_instance(
+        &scene,&rgb_instance,3u,screen,world)==SAT_ERR_INVALID_ARG);
+    assert(scene.count==0u);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
     // A distance-faded object fades WHOLE: one slot reaches every face of the
     // instance, without the shared material table needing a copy per slot.
     emitted_count=0;

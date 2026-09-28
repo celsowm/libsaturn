@@ -6,6 +6,8 @@
 static sat_vec3_t g_gem_vertices[GEM_VERTEX_CAP];
 static uint16_t g_gem_indices[GEM_FACE_CAP * 4u];
 static sat_mesh_t g_gem_mesh;
+static sat_scene3d_instance_binding_t g_gem_binding;
+static sat_aabb3_t g_gem_bounds;
 static uint16_t g_gem_materials[GEM_FACE_CAP];
 static sat_mat4_t g_gem_world[SB_PICKUP_COUNT + 1u];
 static sat_scene3d_instance_t g_gem_instances[SB_PICKUP_COUNT + 1u];
@@ -44,6 +46,8 @@ void gems_init_mesh(void) {
                                       g_gem_indices,GEM_FACE_CAP));
         sat_example_must(sat_mesh_build_octahedron(&g_gem_mesh,&origin,
                          SB_GEM_RADIUS,SB_GEM_HALF_HEIGHT));
+        g_gem_bounds=(sat_aabb3_t){
+            origin,{SB_GEM_RADIUS,SB_GEM_HALF_HEIGHT,SB_GEM_RADIUS}};
         for(uint8_t face=0u;face<GEM_FACE_CAP;++face)
             g_gem_materials[face]=g_gem_facet_colors[face];
     }
@@ -57,6 +61,9 @@ void gems_init_batches(void) {
 }
 
 void gems_bind_materials(void) {
+    sat_example_must(sat_scene3d_instance_binding_init(
+        &g_gem_binding,&g_gem_mesh,g_scene_materials,
+        g_solid_pool.count,g_gem_materials));
     for(uint8_t id=0u;id<=SB_PICKUP_COUNT;++id) {
         g_gem_instances[id].mesh=&g_gem_mesh;
         g_gem_instances[id].materials=g_scene_materials;
@@ -65,6 +72,8 @@ void gems_bind_materials(void) {
         g_gem_instances[id].world=&g_gem_world[id];
         g_gem_instances[id].pass=SB_PASS_ACTOR;
         g_gem_instances[id].cull_backfaces=0u;
+        g_gem_instances[id].bounds=&g_gem_bounds;
+        g_gem_instances[id].validated_binding=&g_gem_binding;
     }
 }
 

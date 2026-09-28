@@ -222,6 +222,34 @@ sat_result_t sat_scene3d_faces_submit_tiled_quad(
     const sat_indexed_tiled_quad3_t* regions,
     uint8_t color_calc_slot, uint16_t pass);
 
+/* A validated immutable topology snapshot. Building one costs O(face_count)
+ * once; a matching instance may then skip that same index/material-map walk
+ * every frame. Vertex POSITIONS may change in place (animated poses), but the
+ * mesh descriptor/buffers/counts, material table identity and face_materials
+ * contents must remain unchanged. Dynamic material maps should leave this
+ * fast path unused. Material residency is still rechecked before flush. */
+typedef struct sat_scene3d_instance_binding {
+    const sat_mesh_t* mesh;
+    const sat_vec3_t* vertices;
+    const uint16_t* indices;
+    uint16_t vertex_cap;
+    uint16_t vertex_count;
+    uint16_t face_cap;
+    uint16_t face_count;
+    const sat_scene3d_material_t* materials;
+    uint16_t material_count;
+    const uint16_t* face_materials;
+    uint8_t has_rgb;
+    uint8_t valid;
+} sat_scene3d_instance_binding_t;
+
+sat_result_t sat_scene3d_instance_binding_init(
+    sat_scene3d_instance_binding_t* out,
+    const sat_mesh_t* mesh,
+    const sat_scene3d_material_t* materials,
+    uint16_t material_count,
+    const uint16_t* face_materials);
+
 /* Shared mesh instance: validates nonempty mesh counts against declared
  * buffer capacities before reading vertices/indices; restores previous
  * queue/cull/clip counts if any face of the compound operation fails.
@@ -249,6 +277,10 @@ typedef struct sat_scene3d_instance {
      * O(face_count) face-table validation; immutable assets should therefore
      * be validated when they are built/loaded, not every frame. */
     const sat_aabb3_t* bounds;
+    /* Optional O(1) proof that immutable index/material topology was already
+     * validated. Any pointer/count mismatch rejects submission rather than
+     * silently falling back to a potentially stale token. */
+    const sat_scene3d_instance_binding_t* validated_binding;
 } sat_scene3d_instance_t;
 
 /* A batch item is an immutable instance descriptor plus caller-owned scratch.
@@ -348,7 +380,9 @@ sat_result_t sat_scene3d_faces_merge_prepared(
  * screen_scratch holds vertex_count projected points. If world != NULL,
  * world_scratch must hold vertex_count transformed points.
  * color_calc_slot is 0..7, SAT_INDEXED_SOLID_OPAQUE, or
- * SAT_SCENE3D_SLOT_INHERIT to keep each material's own slot. */
+ * SAT_SCENE3D_SLOT_INHERIT to keep each material's own slot. A matching
+ * validated_binding removes the separate O(face_count) topology preflight;
+ * the visible-face walk itself remains O(face_count). */
 sat_result_t sat_scene3d_faces_submit_instance(
     sat_scene3d_faces_t* scene, const sat_scene3d_instance_t* instance,
     uint8_t color_calc_slot,

@@ -545,6 +545,63 @@ extern "C" sat_result_t sat_scene3d_faces_submit_tiled_quad(
     return sat_scene3d_faces_submit_quad(scene,world,&material,pass);
 }
 
+extern "C" sat_result_t sat_scene3d_instance_binding_init(
+    sat_scene3d_instance_binding_t* out,const sat_mesh_t* mesh,
+    const sat_scene3d_material_t* materials,uint16_t material_count,
+    const uint16_t* face_materials) {
+    if (!out) return SAT_ERR_INVALID_ARG;
+    *out={};
+    if (!mesh || !mesh->vertices || !mesh->indices ||
+        !mesh->vertex_count || !mesh->face_count ||
+        mesh->vertex_count>mesh->vertex_cap ||
+        mesh->face_count>mesh->face_cap ||
+        !materials || !material_count || !face_materials)
+        return SAT_ERR_INVALID_ARG;
+    bool has_rgb=false;
+    for (uint16_t f=0u;f<mesh->face_count;++f) {
+        const uint16_t material_index=face_materials[f];
+        if (material_index>=material_count ||
+            !valid_material(materials[material_index]))
+            return SAT_ERR_INVALID_ARG;
+        has_rgb=has_rgb || materials[material_index].kind==SAT_SCENE3D_RGB;
+        const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
+        for (uint8_t c=0u;c<4u;++c)
+            if (idx[c]>=mesh->vertex_count) return SAT_ERR_INVALID_ARG;
+    }
+    out->mesh=mesh;
+    out->vertices=mesh->vertices;
+    out->indices=mesh->indices;
+    out->vertex_cap=mesh->vertex_cap;
+    out->vertex_count=mesh->vertex_count;
+    out->face_cap=mesh->face_cap;
+    out->face_count=mesh->face_count;
+    out->materials=materials;
+    out->material_count=material_count;
+    out->face_materials=face_materials;
+    out->has_rgb=has_rgb?1u:0u;
+    out->valid=1u;
+    return SAT_OK;
+}
+
+namespace {
+bool binding_matches(
+    const sat_scene3d_instance_binding_t& binding,
+    const sat_scene3d_instance_t& instance) {
+    const sat_mesh_t* mesh=instance.mesh;
+    return binding.valid!=0u && mesh!=nullptr &&
+        binding.mesh==mesh &&
+        binding.vertices==mesh->vertices &&
+        binding.indices==mesh->indices &&
+        binding.vertex_cap==mesh->vertex_cap &&
+        binding.vertex_count==mesh->vertex_count &&
+        binding.face_cap==mesh->face_cap &&
+        binding.face_count==mesh->face_count &&
+        binding.materials==instance.materials &&
+        binding.material_count==instance.material_count &&
+        binding.face_materials==instance.face_materials;
+}
+}
+
 extern "C" sat_result_t sat_scene3d_faces_submit_instance(
     sat_scene3d_faces_t* scene, const sat_scene3d_instance_t* instance,
     uint8_t color_calc_slot,
@@ -576,6 +633,10 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
             return SAT_OK;
         }
     }
+    const sat_scene3d_instance_binding_t* binding=instance->validated_binding;
+    const bool prevalidated=binding!=nullptr;
+    if (prevalidated && !binding_matches(*binding,*instance))
+        return SAT_ERR_INVALID_ARG;
     if (mesh->face_count>scene->capacity-scene->count)
         return SAT_ERR_CAPACITY;
     /* One submission-wide slot beats one material table per slot: distance
@@ -587,19 +648,31 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
      * when there is one: a 300-face character submitted with
      * SAT_SCENE3D_SLOT_INHERIT must not pay a struct copy per face. */
     const bool override_slot=color_calc_slot!=SAT_SCENE3D_SLOT_INHERIT;
-    for (uint16_t f=0;f<mesh->face_count;++f) {
-        if (face_materials[f]>=material_count) return SAT_ERR_INVALID_ARG;
-        const sat_scene3d_material_t& base=materials[face_materials[f]];
-        if (override_slot) {
-            sat_scene3d_material_t overridden=base;
-            overridden.color_calc_slot=color_calc_slot;
-            if (!valid_material(overridden)) return SAT_ERR_INVALID_ARG;
-        } else if (!valid_material(base)) {
+    if (prevalidated) {
+        /* Topology/material-map safety was paid once. Only the submission-wide
+         * slot can make an otherwise-valid binding illegal without mutation. */
+        if (override_slot &&
+            color_calc_slot!=SAT_INDEXED_SOLID_OPAQUE &&
+            color_calc_slot>=8u)
             return SAT_ERR_INVALID_ARG;
+        if (override_slot && binding->has_rgb &&
+            color_calc_slot!=SAT_INDEXED_SOLID_OPAQUE)
+            return SAT_ERR_INVALID_ARG;
+    } else {
+        for (uint16_t f=0;f<mesh->face_count;++f) {
+            if (face_materials[f]>=material_count) return SAT_ERR_INVALID_ARG;
+            const sat_scene3d_material_t& base=materials[face_materials[f]];
+            if (override_slot) {
+                sat_scene3d_material_t overridden=base;
+                overridden.color_calc_slot=color_calc_slot;
+                if (!valid_material(overridden)) return SAT_ERR_INVALID_ARG;
+            } else if (!valid_material(base)) {
+                return SAT_ERR_INVALID_ARG;
+            }
+            const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
+            for (uint8_t c=0;c<4u;++c)
+                if (idx[c]>=mesh->vertex_count) return SAT_ERR_INVALID_ARG;
         }
-        const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
-        for (uint8_t c=0;c<4u;++c)
-            if (idx[c]>=mesh->vertex_count) return SAT_ERR_INVALID_ARG;
     }
     const sat_vec3_t* world=mesh->vertices;
     if (instance->world) {

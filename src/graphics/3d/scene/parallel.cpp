@@ -36,6 +36,8 @@ sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch) {
         const sat_scene3d_instance_t* const instance = item.instance;
         SAT_TRY(sync_range(instance, sizeof(*instance)));
         SAT_TRY(sync_range(instance->bounds, sizeof(*instance->bounds)));
+        SAT_TRY(sync_range(instance->validated_binding,
+            sizeof(*instance->validated_binding)));
         const sat_mesh_t* const mesh = instance->mesh;
         if (mesh == nullptr) return SAT_ERR_INVALID_ARG;
         SAT_TRY(sync_range(mesh, sizeof(*mesh)));
