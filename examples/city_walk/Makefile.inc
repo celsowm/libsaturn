@@ -26,6 +26,6 @@ $(CITY_ISO_DIR)/CITY.BIN $(CITY_GEN_DIR)/city_data.h &: $(CITY_TOOLS) $(CITY_GLB
 	$(PYTHON) tools/city_chunker.py --input $(CITY_GLB) \
 		--out-bin $(CITY_ISO_DIR)/CITY.BIN --out-h $(CITY_GEN_DIR)/city_data.h \
 		--cache-dir $(CITY_GEN_DIR) --incremental \
-		--lod-caps 384:176,144:64,48:24 --face-budget 600 --ground-upd 1,1 \
+		--lod-caps 512:256,144:64,48:24 --face-budget 600 --ground-upd 1,1 \
 		--light-dir=-0.5,0.6,0.8 --ambient 0.42 --diffuse 0.60 \
 		--max-archive-bytes 4718592 --report $(CITY_GEN_DIR)/city.report.json
