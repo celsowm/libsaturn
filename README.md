@@ -500,3 +500,44 @@ The repository also includes Saturn hardware reference material and engineering 
 ---
 
 LibSaturn is an active exploration of how far a clean, modern, reusable game-development stack can push the Sega Saturn without giving up the character of the hardware.
+
+## Thanks
+
+LibSaturn learns from the work of the Saturn development community. The
+projects below are reference checkouts when present under the ignored
+`.external/` directory; they are not linked into the LibSaturn runtime.
+Ymir is used by the separate integration harness.
+
+Special thanks to the SegaXtreme Discord community for testing LibSaturn and
+sharing so much knowledge about Sega Saturn development.
+
+### External libraries and projects
+
+- [Jo Engine](https://github.com/Johannes-Fetz/JoEngine) — Johannes Fetz;
+  MIT. Saturn engine and examples consulted for comparison.
+- [libyaul](https://github.com/yaul-org/libyaul) — Israel Jacquez and
+  contributors; MIT. Saturn SDK reference; LibSaturn accesses the hardware
+  directly and does not link libyaul.
+- [SaturnMathPP](https://github.com/robertoduarte/SaturnMathPP) — Roberto
+  Duarte; MIT. Saturn math library reference.
+- [SaturnRingLib](https://github.com/ReyeMe/SaturnRingLib) — ReyeMe and
+  contributors. SGL wrapper reviewed as a point of comparison; see the
+  upstream repository for its license and contributor credits.
+- [SGDK](https://github.com/Stephane-D/SGDK) — Stephane Dallongeville;
+  MIT. Mega Drive development kit consulted for 68000 audio-driver ideas.
+
+### Emulators
+
+- [Ymir](https://github.com/StrikerX3/Ymir) — StrikerX3 and contributors;
+  GPL-3.0. Its pinned emulator core powers the automated integration
+  harness. The harness has its own GPL-3.0 license boundary; see
+  [`harness/README.md`](harness/README.md).
+- [Mednafen](https://mednafen.github.io/) — used through the optional launcher
+  in `emulators/mednafen/`.
+- [Kronos](https://github.com/FCare/yabause) — François Caron and contributors;
+  GPL-2.0-or-later. Optional manual testing launcher in `emulators/kronos/`.
+- [Yaba Sanshiro](https://github.com/devmiyax/yabause) — DevMiyax and
+  contributors; GPL-2.0. Optional manual testing launcher in
+  `emulators/YabaSanshiro/`.
+
+The emulator launchers and setup notes are in [`emulators/README.md`](emulators/README.md).
