@@ -414,60 +414,59 @@ class FacadeTextureSamplingTests(unittest.TestCase):
 
 
 class FacadeOrientationTests(unittest.TestCase):
-    """The VDP1 draws texel (0, 0) of a distorted sprite at the face's corner
-    A, (w, 0) at B and (0, h) at D. A red plaque on one corner of a grey wall
-    must come back, through exactly that mapping, where it is in the world;
-    a transposed or mirrored bake would put it on another corner."""
+    """Keep facade mapping and the new close-shell geometry as separate gates."""
 
-    @classmethod
-    def setUpClass(cls):
-        # Grey box x 4..12, z 4..14, 9 tall; a red plaque proud of its +Z face
-        # (z = 14..14.3) near x = 5, high up (y 7..8).
+    def test_baked_detail_lands_at_the_same_world_corner(self):
+        from model_pipeline import facades
+
+        # Target +Z wall: x 4..12, y 0..9. A red 1x1 plaque sits near its
+        # upper-left corner, 0.3 units proud. The baker projects along Z.
+        wall = np.array([
+            [[4., 0., 14.], [12., 0., 14.], [12., 9., 14.]],
+            [[4., 0., 14.], [12., 9., 14.], [4., 9., 14.]],
+        ])
+        plaque = np.array([
+            [[4.5, 7., 14.3], [5.5, 7., 14.3], [5.5, 8., 14.3]],
+            [[4.5, 7., 14.3], [5.5, 8., 14.3], [4.5, 8., 14.3]],
+        ])
+        pos = np.concatenate([wall, plaque])
+        colours = np.array([[110, 110, 110], [110, 110, 110],
+                            [240, 20, 20], [240, 20, 20]], dtype=np.uint8)
+        baker = facades.FacadeBaker(pos, colours)
+        corners = np.array([[4., 0., 14.], [12., 0., 14.],
+                            [12., 9., 14.], [4., 9., 14.]])
+        image = baker.bake(corners, 64, 72, np.array([110, 110, 110]))
+        red = ((image[..., 0] > 180) &
+               (image[..., 0] > image[..., 1] * 3) &
+               (image[..., 0] > image[..., 2] * 3))
+        rows, cols = np.nonzero(red)
+        self.assertGreater(len(rows), 8, "the plaque disappeared from the facade bake")
+        u = (cols + 0.5) / image.shape[1]
+        t = (rows + 0.5) / image.shape[0]
+        points = (corners[0] + (corners[1] - corners[0]) * u[:, None] +
+                  (corners[3] - corners[0]) * t[:, None])
+        p = points.mean(axis=0)
+        self.assertAlmostEqual(p[0], 5.0, delta=0.2)
+        self.assertAlmostEqual(p[1], 7.5, delta=0.2)
+        self.assertAlmostEqual(p[2], 14.0, delta=0.02)
+
+    def test_superfine_lod_keeps_the_protruding_detail_as_geometry(self):
         glb = make_glb([
             (plane_up(X0, Z0, X0 + 32, Z0 + 32, 0.0), 0),
             (cuboid(X0 + 4, 0.0, Z0 + 4, X0 + 12, 9.0, Z0 + 14), 0),
             (cuboid(X0 + 4.5, 7.0, Z0 + 14, X0 + 5.5, 8.0, Z0 + 14.3), 1),
         ])
-        cls.tmp = tempfile.TemporaryDirectory()
-        cls.res = Run(cls.tmp.name, glb)
-        assert cls.res.code == 0, cls.res.stderr
-        cls.archive = cls.res.archive()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.tmp.cleanup()
-
-    def test_texels_land_where_the_geometry_is(self):
-        blob = self.archive["blobs"][(CZ0 * 16 + CX0, 0)]
-        pal = self.archive["texture_palette"]
-        v = blob["vertices"].astype(np.float64) / 64.0
-        found = []
-        for a, b, c, d, _m, tex in blob["faces"]:
-            if not tex:
-                continue
-            A, B, D = v[a], v[b], v[d]
-            image = blob["textures"][tex - 1]
-            h, w = image.shape
-            rgb = np.array([[((pal[i] & 31) << 3, ((pal[i] >> 5) & 31) << 3,
-                              ((pal[i] >> 10) & 31) << 3)
-                             for i in row] for row in image], dtype=np.int64)
-            # Lighting/palette allocation may darken red, but the plaque must
-            # remain strongly red-dominant. Reconstruct every candidate texel
-            # in world space, then select the wall it belongs to.
-            red = ((rgb[..., 0] > 80) &
-                   (rgb[..., 0] > rgb[..., 1] * 2) &
-                   (rgb[..., 0] > rgb[..., 2] * 2))
-            for row, col in zip(*np.nonzero(red)):
-                u, t = (col + 0.5) / w, (row + 0.5) / h
-                p = A + (B - A) * u + (D - A) * t
-                if abs(p[2] - 14.0) <= 0.75:
-                    found.append(p)
-        self.assertTrue(found, "the red plaque is in no texture near the +Z wall")
-        p = np.mean(found, axis=0)
-        self.assertAlmostEqual(p[0], 5.0, delta=0.8)  # x: left end of the wall
-        self.assertAlmostEqual(p[1] + self.archive["header"]["world_min_y"] / 65536.0,
-                               7.5, delta=0.8)
-        self.assertAlmostEqual(p[2], 14.0, delta=0.75)
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Run(tmp, glb)
+            self.assertEqual(run.code, 0, run.stderr)
+            archive = run.archive()
+            blob = archive["blobs"][(CZ0 * 16 + CX0, 0)]
+            v = blob["vertices"].astype(np.float64) / 64.0
+            self.assertGreater(float(v[:, 2].max()), 14.0,
+                               "the close LOD flattened the facade protrusion")
+            rep = json.loads(run.report.read_text())
+            self.assertEqual(rep["per_chunk"][str(CZ0 * 16 + CX0)]["lod0"]["level"], 0,
+                             "the synthetic close building did not use the superfine shell")
 
 
 class PackerTests(unittest.TestCase):
