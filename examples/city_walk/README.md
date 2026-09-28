@@ -163,7 +163,9 @@ hardware. The CD figure is bounded by physics: a 2x drive delivers at most
   exists. The lots of the western blocks really are near-white in the source.
 * Vegetation is kept out of the architectural block sampler. The source's
   302 alpha-masked TreeSpriteAtlas objects preserve a real atlas card as an
-  INDEX8 cutout billboard; the 178 dense low-poly vegetation objects
+  INDEX8 cutout billboard. Near/mid/far foliage has a 32/24/16-pixel minimum
+  card width, and identical cards are deduplicated within a resident chunk so
+  quality is not traded for duplicate VRAM. The 178 dense low-poly vegetation objects
   (74k+ source triangles) are orthographically baked to one transparent
   low-poly impostor each. Both cost one VDP1 face per visible plant.
 * Blocks are boxes under their textures: pitched roofs and overhangs are

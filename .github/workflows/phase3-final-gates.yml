@@ -58,6 +58,7 @@ jobs:
           assert foliage["source_mask"] == 302, foliage
           assert foliage["mesh_impostors"] == 178, foliage
           rates = [[], [], []]
+          foliage_widths = [[], [], []]
           for chunk, row in report["per_chunk"].items():
               for lod in range(3):
                   item = row.get(f"lod{lod}")
@@ -68,11 +69,19 @@ jobs:
                       f"{item['faces']} faces"
                   )
                   rates[lod].append(item["texture_rate"])
+                  if item.get("foliage", 0):
+                      foliage_widths[lod].append(item["foliage_texture_min_width"])
+          floors = [32, 24, 16]
+          for lod, values in enumerate(foliage_widths):
+              if values:
+                  assert min(values) >= floors[lod], (lod, min(values), floors[lod])
           print("real city archive bytes:", report["archive"]["total_bytes"])
           print("foliage:", foliage)
           for lod, values in enumerate(rates):
               if values:
                   print(f"LOD{lod} texture rate range: {min(values)}..{max(values)}")
+              if foliage_widths[lod]:
+                  print(f"LOD{lod} foliage min width: {min(foliage_widths[lod])}")
           PY
 
       - name: Run host tests

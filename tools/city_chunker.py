@@ -304,9 +304,19 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
         first = li
         if not quads and not selected_foliage:
             continue
-        foliage_textures = [foliage.texture_for_lod(item, lod) for item in selected_foliage]
-        textures, face_texture, texture_rate = _fit_textures(
-            tiled, lod, baker, ground_y, fallback_rgb, foliage_textures)
+        # Foliage has a visual resolution floor. If that does not fit this
+        # slot, discard the smallest billboard(s) rather than silently turning
+        # every nearby tree back into an 8 px sprite.
+        while True:
+            foliage_textures, foliage_refs = foliage.texture_set_for_lod(selected_foliage, lod)
+            try:
+                textures, face_texture, texture_rate = _fit_textures(
+                    tiled, lod, baker, ground_y, fallback_rgb, foliage_textures)
+                break
+            except GltfError:
+                if not selected_foliage:
+                    raise
+                selected_foliage = selected_foliage[:-1]
         world = tv + np.array([0.0, ground_y, 0.0])
         q, clamped = _quantize(world, x0, z0, base_y)
         rt = []
@@ -324,6 +334,7 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
         foliage_encoded = textures[facade_texture_count:]
         foliage_texture_base = len(kept_textures)
         kept_textures.extend(foliage_encoded)
+        foliage_widths = [tex[0].shape[1] for tex in foliage_textures]
         out_vertices = q.tolist()
         for fi, item in enumerate(selected_foliage):
             fq, fc = _quantize(foliage.world_quad(item), x0, z0, base_y)
@@ -331,13 +342,16 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
             vi = len(out_vertices)
             out_vertices.extend(fq.tolist())
             rt.append((vi, vi + 1, vi + 2, vi + 3, 0,
-                       foliage_texture_base + fi + 1))
+                       foliage_texture_base + foliage_refs[fi]))
         textures = kept_textures
         if rt:
             result["lods"][lod] = {"vertices": out_vertices, "faces": rt, "level": li,
                                    "clamped": clamped, "textures": textures,
                                    "texture_rate": texture_rate,
-                                   "foliage": len(selected_foliage)}
+                                   "foliage": len(selected_foliage),
+                                   "foliage_unique_textures": len(foliage_textures),
+                                   "foliage_texture_min_width":
+                                       min(foliage_widths) if foliage_widths else 0}
     lod0_level = result["lods"].get(0, {}).get("level", LOD_FIRST_LEVEL[0])
     boxes = blocks.chunk_boxes(levels[lod0_level], cx, cz, ground_y, emit_bin.LOD2_BOX_CAP)
     scale = emit_bin.QUANT_SCALE
@@ -728,7 +742,11 @@ def build_city(glb_path: Path, opts: argparse.Namespace, log=print):
             row[f"lod{lod}"] = {"faces": len(data["faces"]), "vertices": len(data["vertices"]),
                                 "level": data["level"], "textures": len(spec.textures),
                                 "texture_rate": data.get("texture_rate", 0.0),
-                                "foliage": data.get("foliage", 0)}
+                                "foliage": data.get("foliage", 0),
+                                "foliage_unique_textures":
+                                    data.get("foliage_unique_textures", 0),
+                                "foliage_texture_min_width":
+                                    data.get("foliage_texture_min_width", 0)}
             clamped += data["clamped"]
         per_chunk[chunk] = row
     archive, info = emit_bin.pack_archive(

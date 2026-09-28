@@ -20,9 +20,16 @@ from . import chunking as ch
 from . import emit_bin
 
 
-LOD_RATES = (2.0, 1.0, 0.5)
+# Screen-facing foliage needs a minimum pixel footprint. The old 2/1/0.5
+# texels-per-unit rule turned a two-unit-wide near tree into an 8 px sprite.
+# Keep close cards crisp first; overloaded chunks drop the smallest foliage
+# item before going below these per-LOD floors.
+LOD_TEXELS_PER_UNIT = (8.0, 5.0, 3.0)
+LOD_MIN_WIDTH = (32, 24, 16)
+LOD_MAX_WIDTH = (64, 48, 32)
+LOD_MAX_HEIGHT = (128, 96, 64)
 LOD_MAX_ITEMS = (255, 8, 2)
-MAX_SOURCE_PIXELS = 64
+MAX_SOURCE_PIXELS = 128
 
 
 @dataclass
@@ -198,18 +205,43 @@ def select_for_lod(items: list[Billboard], lod: int, count: int | None = None):
 
 
 def texture_for_lod(item: Billboard, lod: int):
-    """RGBA cutout image at a bounded Saturn-friendly per-LOD density."""
+    """RGBA cutout with a real visual floor instead of tiny world-space texels."""
     height_units = max(item.top_y - item.bottom_y, 0.25)
-    rate = LOD_RATES[lod]
-    w = max(8, int(math.ceil(item.width * rate / 8.0)) * 8)
-    h = max(1, int(math.ceil(height_units * rate)))
-    w = min(w, 64)
-    h = min(h, 96)
+    width_units = max(item.width, 0.25)
+    rate = LOD_TEXELS_PER_UNIT[lod]
+    requested = int(math.ceil(width_units * rate / 8.0)) * 8
+    w = min(LOD_MAX_WIDTH[lod], max(LOD_MIN_WIDTH[lod], requested))
+    # Preserve the world-space aspect when the width floor lifts a small tree;
+    # otherwise a 32 px-wide card could remain only 8 px tall.
+    aspect_h = int(math.ceil(w * height_units / width_units))
+    density_h = int(math.ceil(height_units * rate))
+    h = min(LOD_MAX_HEIGHT[lod], max(8, aspect_h, density_h))
     image = Image.fromarray(item.rgba, "RGBA").resize((w, h), Image.Resampling.LANCZOS)
     rgba = np.asarray(image).copy()
     rgba[..., 3] = np.where(rgba[..., 3] >= 96, 255, 0).astype(np.uint8)
     flags = emit_bin.TEXTURE_FLAG_CUTOUT | emit_bin.TEXTURE_FLAG_BILLBOARD
     return rgba, flags
+
+
+def texture_set_for_lod(items: list[Billboard], lod: int):
+    """Unique textures plus 1-based per-item references.
+
+    Repeated source cards are common in the city. Keeping one copy per chunk
+    buys resolution without spending the slot's VRAM again for identical trees.
+    """
+    unique = []
+    refs = []
+    lookup = {}
+    for item in items:
+        rgba, flags = texture_for_lod(item, lod)
+        key = (rgba.shape[1], rgba.shape[0], flags, rgba.tobytes())
+        index = lookup.get(key)
+        if index is None:
+            index = len(unique) + 1
+            lookup[key] = index
+            unique.append((rgba, flags))
+        refs.append(index)
+    return unique, refs
 
 
 def world_quad(item: Billboard) -> np.ndarray:

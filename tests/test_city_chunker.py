@@ -26,6 +26,7 @@ import city_chunker  # noqa: E402
 import city_preview  # noqa: E402
 from model_pipeline import chunking as ch  # noqa: E402
 from model_pipeline import emit_bin  # noqa: E402
+from model_pipeline import foliage  # noqa: E402
 from model_pipeline.gltf import GltfError  # noqa: E402
 
 # Chunk (4,4) spans x 0..32, z -192..-160; chunk (5,4) x 32..64.
@@ -312,6 +313,24 @@ class ArchiveLayoutTests(unittest.TestCase):
         self.assertEqual(rep["chunks"]["clamped_coordinates"], 0)
         self.assertGreater(rep["surface"]["tall_fraction"], 0.0)
         self.assertGreater(rep["ground"]["triangles"], 0)
+
+
+class FoliageQualityTests(unittest.TestCase):
+    def test_near_foliage_has_a_real_pixel_floor_and_deduplicates(self):
+        rgba = np.zeros((64, 32, 4), dtype=np.uint8)
+        rgba[4:-4, 4:-4] = (40, 180, 60, 255)
+        item = foliage.Billboard(
+            node=1, chunk=0, center_x=0.0, center_z=0.0,
+            bottom_y=0.0, top_y=4.0, width=2.0,
+            rgba=rgba, source_kind="source_mask")
+        tex, flags = foliage.texture_for_lod(item, 0)
+        self.assertGreaterEqual(tex.shape[1], 32)
+        self.assertGreaterEqual(tex.shape[0], 32)
+        self.assertEqual(flags, emit_bin.TEXTURE_FLAG_CUTOUT |
+                                emit_bin.TEXTURE_FLAG_BILLBOARD)
+        unique, refs = foliage.texture_set_for_lod([item, item], 0)
+        self.assertEqual(len(unique), 1)
+        self.assertEqual(refs, [1, 1])
 
 
 class ChunkerBehaviourTests(unittest.TestCase):
