@@ -72,8 +72,13 @@ renderer then falls back to a coarser level of detail instead of waiting.
     bake runs in the face's own A->B / A->D frame, which is how a VDP1
     distorted sprite maps its texels, so no wall comes out mirrored (a test
     places a red plaque on one corner and finds it there);
-  - walls are cut into pieces of at most 8 units (LOD0) or 16 (LOD1): VDP1
-    texture mapping is affine, and short pieces keep it from warping.
+  - facade pieces are cut in **both axes** near the player. LOD0 first tries
+    4x4-unit patches and LOD1 starts at 8x4; dense chunks progressively fall
+    back through larger/one-axis cuts until the hard face/vertex caps fit.
+    This is not just texture-warp control: a close tall distorted sprite can
+    project a remote corner beyond VDP1's safe off-screen range, and without
+    vertical cuts the renderer must replace that whole facade with its solid
+    fallback colour.
 * **Three levels of detail** per chunk: the finest block level (coarser levels
   join close neighbours, then drop slivers) whose faces fit 176 / 64 / 24, with
   textures at the densest rate (4 texels per unit at LOD0, down to 0.25 at

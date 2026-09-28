@@ -142,19 +142,34 @@ def build_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_of):
 
 # Texels per unit to try, densest first, until a chunk's block fits its slot.
 FACADE_DENSITIES = ((4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5), (2.0, 1.5, 1.0, 0.75, 0.5), (1.0, 0.75, 0.5, 0.375, 0.25))
-# Wall piece lengths to try per LOD, shortest first (None: uncut).
-FACADE_TILES = ((8.0, 16.0, None), (16.0, None), (None,))
+# Facade subdivision candidates, finest first. A close VDP1 distorted sprite
+# is unsafe not only when it crosses the near plane: a corner projected beyond
+# the renderer's bounded off-screen window also forces the whole textured quad
+# to its solid fallback. The old city only cut walls horizontally, so a tall
+# facade could suddenly become one flat-colour slab as the player approached.
+#
+# Try small independently baked rectangles first, then progressively recover
+# the old horizontal-only policy when a dense chunk would exceed its hard face
+# or vertex cap. LOD2 is distant enough to stay unsplit.
+FACADE_SPLITS = (
+    ((4.0, 4.0), (8.0, 4.0), (4.0, 8.0), (8.0, 8.0),
+     (8.0, 16.0), (8.0, None), (16.0, 8.0), (16.0, 16.0),
+     (16.0, None), (None, None)),
+    ((8.0, 4.0), (16.0, 4.0), (8.0, 8.0), (16.0, 8.0),
+     (16.0, 16.0), (16.0, None), (None, None)),
+    ((None, None),),
+)
 
 
-def _tiled_faces(verts, faces, tile):
+def _tiled_faces(verts, faces, horizontal_tile, vertical_tile):
     """Block faces -> (runtime corners A B C D as world points, colour,
-    direction), walls cut into pieces of at most ``tile`` units."""
+    direction), adaptively cut in both screen-relevant axes."""
     out = []
     for corners, colour, direction in faces:
         a, b, c, d = ch.to_runtime_face(corners)
         quad = verts[[a, b, c, d]]
-        pieces = [quad] if tile is None else facades.split_face(
-            quad, tile, tile if direction == blocks.UP else None)
+        pieces = ([quad] if horizontal_tile is None and vertical_tile is None
+                  else facades.split_face(quad, horizontal_tile, vertical_tile))
         out.extend((piece, colour, direction) for piece in pieces)
     return out
 
@@ -237,8 +252,8 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
             if built * blocks.CELL * blocks.CELL >= 16.0 and kept < LOD_MIN_AREA[lod] * built:
                 continue
             verts, faces = blocks.chunk_faces(levels[li], cx, cz, EYE_UNITS)
-            for tile in FACADE_TILES[lod]:
-                tiled = _tiled_faces(verts, faces, tile)
+            for horizontal_tile, vertical_tile in FACADE_SPLITS[lod]:
+                tiled = _tiled_faces(verts, faces, horizontal_tile, vertical_tile)
                 tv, quads = _index_faces(tiled)
                 if len(quads) <= face_cap and len(tv) <= vert_cap:
                     chosen = (li, tiled, tv, quads)

@@ -101,7 +101,12 @@ tools/city_chunker.py --> CITY.BIN (disc) --> RAM cart --> ring slots (WRAM-L)
   Measured against a z-buffered render of the GLB (`tools/city_fidelity.py`):
   per-chunk QEM 33%, per-object QEM 33%, plain blocks 31%, textured blocks 26-28%
   of 4x4 blocks visibly different; the metric punishes a one-pixel shift of a
-  window pattern, so the pictures are the real judge.
+  window pattern, so the pictures are the real judge. Facade subdivision is
+  two-dimensional near the camera: LOD0 first tries 4x4-unit independently
+  baked patches and LOD1 starts at 8x4, then each falls back through coarser
+  candidates when the chunk caps demand it. This prevents one tall close wall
+  from losing its whole texture merely because one projected corner exceeds
+  the renderer's safe distorted-sprite window.
 * **Library changes this needed.** `sat_vdp1_vram_reserve` / `sat_vdp1_vram_write`
   (fixed VDP1 texture spans a program streams into, write waits for the last
   list); a textured face with a corner behind the near plane falls back to its

@@ -203,18 +203,23 @@ class ArchiveLayoutTests(unittest.TestCase):
         box_faces = [f for f in blob["faces"]
                      if verts[list(f[:4])].max(axis=0)[1] > 1 * 64 and
                      verts[list(f[:4])].max(axis=0)[0] < 13 * 64]
-        # The box becomes one block: four walls, the two 10-unit ones cut into
-        # 8-unit pieces (VDP1 texture mapping is affine, shorter pieces warp
-        # less). Its 9-unit top is above the 2-unit eye, which can never see
-        # it, so no roof face is spent on it.
-        self.assertEqual(len(box_faces), 6, "a tall block is four walls in six pieces")
-        # Every wall piece carries a facade texture baked from the source.
+        # LOD0 first tries 4x4 facade patches. The 8-unit sides become 2x3
+        # patches and the 10-unit sides 3x3 for this 9-unit-tall block:
+        # 2*(2*3) + 2*(3*3) = 30. A near camera can therefore reject one
+        # projected patch without flattening the whole building facade.
+        self.assertEqual(len(box_faces), 30,
+                         "LOD0 should select the 4x4 near-safe facade split")
         self.assertTrue(all(f[5] > 0 for f in box_faces), "an untextured wall")
         self.assertEqual(len(blob["textures"]), len(blob["faces"]))
         for f in box_faces:
             a, b, c, d = f[:4]
             self.assertEqual(len({a, b, c, d}), 4, "box faces are true quads")
-            middle = verts[[a, b, c, d]].astype(np.float64).mean(axis=0)
+            pts = verts[[a, b, c, d]]
+            self.assertLessEqual(int(np.ptp(pts[:, 1])), 4 * 64,
+                                 "LOD0 facade patch is too tall")
+            self.assertLessEqual(max(int(np.ptp(pts[:, 0])), int(np.ptp(pts[:, 2]))),
+                                 4 * 64, "LOD0 facade patch is too wide")
+            middle = pts.astype(np.float64).mean(axis=0)            middle = verts[[a, b, c, d]].astype(np.float64).mean(axis=0)
             self.assertGreater(float(face_normal(verts, f) @ (middle - centre)), 0.0,
                                f"face {f} winds inward")
 

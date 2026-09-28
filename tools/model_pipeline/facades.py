@@ -100,16 +100,22 @@ def texture_size(corners: np.ndarray, texels_per_unit: float,
     return max(8, min(w, max_width)), max(1, min(h, max_height))
 
 
-def split_face(corners: np.ndarray, tile_units: float, vertical_tile_units: float | None = None):
-    """Cut a rectangle A, B, C, D into pieces at most ``tile_units`` along its
-    horizontal edges and ``vertical_tile_units`` (None: uncut) along vertical
-    ones. Pieces keep the A, B, C, D order.
+def split_face(corners: np.ndarray, tile_units: float | None,
+               vertical_tile_units: float | None = None):
+    """Cut rectangle A, B, C, D into independently textured pieces.
 
-    VDP1 texture mapping is affine across a quad, so a long wall seen at a
-    grazing angle warps; shorter pieces keep the warp small, and a piece that
-    crosses the near plane (which a sprite cannot clip) is a small patch of
-    fallback colour instead of a whole wall. Depth varies along a wall, not up
-    it, for a level camera: height needs no cut."""
+    Horizontal edges use tile_units and vertical edges use
+    vertical_tile_units; None leaves that axis unsplit. Pieces keep A, B, C, D
+    order.
+
+    Short horizontal pieces reduce affine VDP1 texture warp. Vertical cutting
+    is also required near the camera: even with a level view, a tall wall can
+    project a top or bottom corner beyond the renderer's bounded off-screen
+    window. In that case an ordinary distorted sprite cannot be submitted
+    safely and the material falls back to a solid polygon. Smaller separately
+    baked patches confine that fallback to the actually unsafe part.
+    """
+
     a, b, d = corners[0], corners[1], corners[3]
 
     def pieces(edge):
