@@ -80,9 +80,12 @@ renderer then falls back to a coarser level of detail instead of waiting.
     vertical cuts the renderer must replace that whole facade with its solid
     fallback colour.
 * **Three levels of detail** per chunk: the finest block level (coarser levels
-  join close neighbours, then drop slivers) whose faces fit 176 / 64 / 24, with
-  textures at the densest rate (4 texels per unit at LOD0, down to 0.25 at
-  LOD2) that fits the slot's VDP1 VRAM: 16 / 5 / 1.5 KiB. A level may not lose
+  join close neighbours, then drop slivers) whose faces fit 176 / 64 / 24.
+  Every facade face keeps a texture: the baker starts at 4 texels/unit for
+  LOD0 (down to 1 at LOD2) and lowers texel density as far as necessary before
+  it will sacrifice coverage. Thus moving closer cannot select a richer mesh
+  whose walls are suddenly solid. Fixed VDP1 texture slots are 16 / 5 / 1.5
+  KiB. A level may not lose
   more than half of a chunk's buildings at LOD0 (a quarter at LOD1); thin props
   may vanish at LOD2, 80+ units away. Rings of 3x3 / 5x5 / 7x7
   chunks around the player hold them, in fixed, direct-mapped slots: no

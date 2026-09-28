@@ -106,7 +106,11 @@ tools/city_chunker.py --> CITY.BIN (disc) --> RAM cart --> ring slots (WRAM-L)
   baked patches and LOD1 starts at 8x4, then each falls back through coarser
   candidates when the chunk caps demand it. This prevents one tall close wall
   from losing its whole texture merely because one projected corner exceeds
-  the renderer's safe distorted-sprite window.
+  the renderer's safe distorted-sprite window. Texture budgeting also preserves
+  **coverage before resolution**: if the preferred rate does not fit the fixed
+  16/5/1.5 KiB slot, the baker keeps reducing texels-per-unit until every face
+  has a texture. The former "largest faces only" fallback was removed because
+  it could make LOD0 visually worse than LOD1 when approaching a building.
 * **Library changes this needed.** `sat_vdp1_vram_reserve` / `sat_vdp1_vram_write`
   (fixed VDP1 texture spans a program streams into, write waits for the last
   list); a textured face with a corner behind the near plane falls back to its

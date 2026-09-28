@@ -223,6 +223,13 @@ class ArchiveLayoutTests(unittest.TestCase):
             self.assertGreater(float(face_normal(verts, f) @ (middle - centre)), 0.0,
                                f"face {f} winds inward")
 
+    def test_every_facade_face_keeps_a_texture_at_every_lod(self):
+        for (chunk, lod), blob in self.archive["blobs"].items():
+            self.assertEqual(len(blob["textures"]), len(blob["faces"]),
+                             f"chunk {chunk} LOD{lod} lost facade texture coverage")
+            self.assertTrue(all(face[5] > 0 for face in blob["faces"]),
+                            f"chunk {chunk} LOD{lod} contains a solid fallback face")
+
     def test_triangles_repeat_their_last_corner(self):
         for blob in self.archive["blobs"].values():
             for a, b, c, d, _m, _r in blob["faces"]:

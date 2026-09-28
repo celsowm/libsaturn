@@ -140,7 +140,10 @@ def build_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_of):
 # Facades: blocks whose walls carry textures baked from the source
 # ---------------------------------------------------------------------------
 
-# Texels per unit to try, densest first, until a chunk's block fits its slot.
+# Preferred texels per unit, densest first. If even the last preferred rate
+# cannot cover EVERY facade in the slot, _fit_textures keeps halving the rate
+# until the dimensions stop shrinking. Geometry detail may outrank texel
+# density, but a nearer LOD must never lose texture coverage altogether.
 FACADE_DENSITIES = ((4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5), (2.0, 1.5, 1.0, 0.75, 0.5), (1.0, 0.75, 0.5, 0.375, 0.25))
 # Facade subdivision candidates, finest first. A close VDP1 distorted sprite
 # is unsafe not only when it crosses the near plane: a corner projected beyond
@@ -192,45 +195,60 @@ def _index_faces(tiled):
 
 
 def _fit_textures(tiled, lod, baker, ground_y, fallback_rgb):
-    """Bake textures for one chunk LOD within LOD_TEXTURE_BYTES[lod]: the
-    densest texel rate that fits, else the largest faces first. Returns
-    ``(textures_rgb, face_texture)``, face_texture[i] = index + 1 or 0."""
+    """Bake one texture for every facade face within the fixed LOD VRAM slot.
+
+    Prefer the documented texel rates. If none covers all faces, keep reducing
+    density until the rounded VDP1 texture dimensions stop shrinking. Dropping
+    texture coverage is not a valid LOD policy: a closer, more detailed LOD
+    must not turn a facade into a flat solid that was textured farther away.
+    """
     budget = emit_bin.LOD_TEXTURE_BYTES[lod]
     if not budget or not tiled:
-        return [], [0] * len(tiled)
+        return [], [0] * len(tiled), 0.0
     worlds = [piece + np.array([0.0, ground_y, 0.0]) for piece, _c, _d in tiled]
 
     def cost(sizes):
-        head = emit_bin.align(emit_bin.TEXTURE_TABLE_HEADER + emit_bin.TEXTURE_ENTRY_BYTES * len(sizes), 8)
+        head = emit_bin.align(emit_bin.TEXTURE_TABLE_HEADER +
+                              emit_bin.TEXTURE_ENTRY_BYTES * len(sizes), 8)
         return head + sum(emit_bin.align(w * h, 8) for w, h in sizes)
 
-    order = list(range(len(tiled)))
-    chosen = None
+    if len(tiled) > 255:
+        raise GltfError(f"LOD{lod}: {len(tiled)} facade textures exceed the 255-entry table")
+
+    chosen_sizes = None
+    chosen_rate = 0.0
     for rate in FACADE_DENSITIES[lod]:
         sizes = [facades.texture_size(w, rate) for w in worlds]
-        if cost(sizes) <= budget and len(sizes) <= 255:
-            chosen = (order, sizes)
+        if cost(sizes) <= budget:
+            chosen_sizes, chosen_rate = sizes, rate
             break
-    if chosen is None:
-        # Even the sparsest rate overflows: texture the biggest faces only.
-        rate = FACADE_DENSITIES[lod][-1]
-        area = [float(np.linalg.norm(w[1] - w[0]) * np.linalg.norm(w[3] - w[0])) for w in worlds]
-        order = sorted(range(len(tiled)), key=lambda i: (-area[i], i))
-        picked, sizes = [], []
-        for i in order:
-            size = facades.texture_size(worlds[i], rate)
-            if len(picked) < 255 and cost(sizes + [size]) <= budget:
-                picked.append(i)
-                sizes.append(size)
-        chosen = (sorted(picked), [facades.texture_size(worlds[i], rate) for i in sorted(picked)])
-    faces_with, sizes = chosen
+
+    if chosen_sizes is None:
+        rate = FACADE_DENSITIES[lod][-1] * 0.5
+        previous = None
+        while True:
+            sizes = [facades.texture_size(w, rate) for w in worlds]
+            if cost(sizes) <= budget:
+                chosen_sizes, chosen_rate = sizes, rate
+                break
+            if sizes == previous:
+                break
+            previous = sizes
+            rate *= 0.5
+
+    if chosen_sizes is None:
+        minimum = cost(previous or [facades.texture_size(w, 0.0) for w in worlds])
+        raise GltfError(
+            f"LOD{lod}: all {len(tiled)} facade textures need at least {minimum} B, "
+            f"slot budget is {budget} B")
+
     textures = []
-    face_texture = [0] * len(tiled)
-    for i, (w, h) in zip(faces_with, sizes):
-        _p, colour, direction = tiled[i]
+    face_texture = []
+    for i, (w, h) in enumerate(chosen_sizes):
+        _piece, colour, direction = tiled[i]
         textures.append(baker.bake(worlds[i], w, h, fallback_rgb(colour, direction)))
-        face_texture[i] = len(textures)
-    return textures, face_texture
+        face_texture.append(i + 1)
+    return textures, face_texture, chosen_rate
 
 
 def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_of,
@@ -267,7 +285,8 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
         first = li
         if not quads:
             continue
-        textures, face_texture = _fit_textures(tiled, lod, baker, ground_y, fallback_rgb)
+        textures, face_texture, texture_rate = _fit_textures(
+            tiled, lod, baker, ground_y, fallback_rgb)
         world = tv + np.array([0.0, ground_y, 0.0])
         q, clamped = _quantize(world, x0, z0, base_y)
         rt = []
@@ -284,7 +303,8 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
         textures = kept_textures
         if rt:
             result["lods"][lod] = {"vertices": q.tolist(), "faces": rt, "level": li,
-                                   "clamped": clamped, "textures": textures}
+                                   "clamped": clamped, "textures": textures,
+                                   "texture_rate": texture_rate}
     lod0_level = result["lods"].get(0, {}).get("level", LOD_FIRST_LEVEL[0])
     boxes = blocks.chunk_boxes(levels[lod0_level], cx, cz, ground_y, emit_bin.LOD2_BOX_CAP)
     scale = emit_bin.QUANT_SCALE
@@ -638,7 +658,8 @@ def build_city(glb_path: Path, opts: argparse.Namespace, log=print):
                 textures=data.get("textures", []))
             blobs[(chunk, lod)] = spec
             row[f"lod{lod}"] = {"faces": len(data["faces"]), "vertices": len(data["vertices"]),
-                                "level": data["level"], "textures": len(spec.textures)}
+                                "level": data["level"], "textures": len(spec.textures),
+                                "texture_rate": data.get("texture_rate", 0.0)}
             clamped += data["clamped"]
         per_chunk[chunk] = row
     archive, info = emit_bin.pack_archive(
