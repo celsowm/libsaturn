@@ -60,11 +60,12 @@ BLOB_FLAG_COLLISION = 0x01
 
 # The caps the runtime is compiled with (city_format.h); the archive header
 # records what was actually used so the loader can refuse a mismatch.
-LOD_VERT_CAP = (384, 144, 48)
-LOD_FACE_CAP = (176, 64, 24)
-LOD_SLOT_BYTES = (4096, 1536, 1024)
-# VDP1 VRAM per ring slot for a LOD's texture block (0 = that LOD is untextured).
-LOD_TEXTURE_BYTES = (16384, 5120, 1536)
+LOD_VERT_CAP = (512, 144, 48)
+LOD_FACE_CAP = (256, 64, 24)
+LOD_SLOT_BYTES = (5664, 1536, 1024)
+# Spend VDP1 VRAM where the player can inspect it. Middle/far rings are already
+# smaller on screen and fading, so move their bytes to the close ring.
+LOD_TEXTURE_BYTES = (28672, 4096, 1024)
 LOD2_BOX_CAP = 24
 
 
