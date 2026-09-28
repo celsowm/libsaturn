@@ -31,6 +31,7 @@ The scene painter remains a painter's algorithm, not a Z-buffer. Intersecting po
 | Cache -> canonical scene | **O(1) cache finalization** | `sat_view_cache_finish`; the scene performs the one ordering pass later. |
 | Direct cache replay ordering | **O(C log C)** | Allocation-free stable heapsort; retained for callers that require a preordered cache. |
 | Low-level indexed solid mesh ordering | **O(F + 1024)** | Uses the same bucket painter instead of the old wide heapsort. |
+| Public bucket paint-order | **O(N + 1024)** | `sat_paint_order_buckets8/16`; generates stable approximate painter order and destructively reuses keys as scratch. |
 | Exact public index sort | **O(N log N)** | `sat_sort_indices_desc` / `sat_sort_indices16_desc`; intentionally retained when an exact key sort is explicitly requested. |
 | Solid-material exact register/dedup | **O(log M)** worst case | Embedded AVL index; full construction is O(M log M), capacity <= 255. |
 | Solid-material nearest-colour query | **O(M)** | Intentionally scans candidates because the query is RGB-distance nearest-neighbour, not exact-key lookup. |
@@ -95,13 +96,21 @@ Commit `0a65569` removed two quadratic patterns.
 1. Cell ordering changed from insertion sort to deterministic heap sort: O(N log N).
 2. Budget adjustment no longer restarts a reverse scan after every downgrade/drop. Because a cell can degrade at most one LOD step, one far-to-near degradation pass followed by one far-to-near drop pass preserves the policy in O(N * L), with L fixed at 3.
 
+### Explorer projected-item painter
+
+The follow-up migration exposes `sat_paint_order_buckets8/16()` as the public
+bounded paint-order primitive and moves `infinite_explorer` from the exact
+O(N log N) heapsort to O(N + 1024), preserving source order inside a bucket.
+
 ## Intentional superlinear work that remains
 
 ### Exact index sorting
 
 `sat_sort_indices_desc()` and `sat_sort_indices16_desc()` remain O(N log N). They are explicit exact-sort utilities and do not back the canonical scene painter anymore.
 
-`infinite_explorer` still uses the 8-bit exact sorter for at most `MAX_RENDER == 60` projected items. This is bounded and not currently the dominant render path; migrating it to an exposed bucket-order helper is optional if profiling identifies it as meaningful.
+`infinite_explorer` now uses `sat_paint_order_buckets8()`, so the exact
+sort utilities have no known canonical-example frame-path dependency. They
+remain available for callers whose keys require exact ordering.
 
 ### Vertex welding
 

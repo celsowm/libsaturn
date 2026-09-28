@@ -457,6 +457,21 @@ void sat_sort_indices_desc(uint8_t* indices, const uint32_t* keys, uint16_t coun
 /* Wide form for meshes past the 255-face limit; `count` may reach 65535. */
 void sat_sort_indices16_desc(uint16_t* indices, const uint32_t* keys, uint32_t count);
 
+/* Stable approximate painter ordering in O(count + 1024), shared with the
+ * canonical scene. Unlike sat_sort_indices*_desc, these functions GENERATE
+ * the output order from source indices 0..count-1 and destructively reuse
+ * keys[] as bucket scratch. Larger keys paint first; keys close enough to
+ * land in one bucket keep ascending source index. SAT_PAINT_ORDER_SKIP omits
+ * an entry. out_live receives the number of generated indices.
+ *
+ * The 8-bit form accepts at most 255 source entries; the wide form at most
+ * 65535. The fixed 1024-bucket table uses about 2 KiB of stack per call. */
+#define SAT_PAINT_ORDER_SKIP 0xFFFFFFFFu
+sat_result_t sat_paint_order_buckets8(
+    uint32_t* keys, uint16_t count, uint8_t* out_order, uint16_t* out_live);
+sat_result_t sat_paint_order_buckets16(
+    uint32_t* keys, uint32_t count, uint16_t* out_order, uint32_t* out_live);
+
 /* Squared distance between two points on the ground plane, in world units.
  * Saturates rather than overflowing on far-apart points. */
 uint32_t sat_ground_distance_sq(sat_fx16_t ax, sat_fx16_t az, sat_fx16_t bx, sat_fx16_t bz);

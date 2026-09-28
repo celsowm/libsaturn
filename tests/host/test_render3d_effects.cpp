@@ -57,6 +57,29 @@ int main() {
     OK(sat_quad2_area2(&quad) == 800);
     OK(sat_quad2_area2(nullptr) == 0);
 
+    /* Public bucket painter: farthest key first, stable source order for an
+     * equal-depth bucket, and explicit skip entries omitted. */
+    {
+        uint32_t keys[5]={10u,SAT_PAINT_ORDER_SKIP,30u,20u,20u};
+        uint8_t order[5]={99u,99u,99u,99u,99u};
+        uint16_t live=99u;
+        OK(sat_paint_order_buckets8(keys,5u,order,&live)==SAT_OK);
+        OK(live==4u);
+        OK(order[0]==2u && order[1]==3u && order[2]==4u && order[3]==0u);
+        OK(keys[1]==SAT_PAINT_ORDER_SKIP);
+        OK(sat_paint_order_buckets8(nullptr,1u,order,&live)==SAT_ERR_INVALID_ARG);
+        OK(live==0u);
+        OK(sat_paint_order_buckets8(nullptr,0u,nullptr,&live)==SAT_OK);
+        OK(live==0u);
+        uint16_t wide_order[5]={};
+        uint32_t wide_live=0u;
+        uint32_t wide_keys[5]={10u,SAT_PAINT_ORDER_SKIP,30u,20u,20u};
+        OK(sat_paint_order_buckets16(
+            wide_keys,5u,wide_order,&wide_live)==SAT_OK);
+        OK(wide_live==4u && wide_order[0]==2u && wide_order[1]==3u &&
+           wide_order[2]==4u && wide_order[3]==0u);
+    }
+
     /* sat_gouraud_lambert_highlight: a normal turned away from the highlight
      * threshold matches plain sat_gouraud_lambert exactly (the highlight term
      * only ever adds, never subtracts); a normal facing the light dead-on

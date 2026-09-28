@@ -399,9 +399,13 @@ static void build_render_list(int32_t sin_h, int32_t cos_h) {
     for (i = 0; i < g_render_count; ++i) {
         g_render_keys[i] = g_render[i].p.depth > 0
             ? (uint32_t)g_render[i].p.depth : 0u;
-        g_render_order[i] = i;
     }
-    sat_sort_indices_desc(g_render_order, g_render_keys, g_render_count);
+    {
+        uint16_t live=0u;
+        sat_example_must(sat_paint_order_buckets8(
+            g_render_keys,g_render_count,g_render_order,&live));
+        g_render_count=live;
+    }
 }
 
 static void draw_landmark(const render_item_t* r) {

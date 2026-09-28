@@ -139,7 +139,8 @@ def assert_2d_state_and_manifest_owners_are_used() -> None:
     assert "sat_vdp2_ground_environment_init(" in explorer
     assert "sat_vdp2_ground_environment_commit_params(" in explorer
     assert "sat_vdp2_vram_write_words(" not in explorer
-    assert "sat_sort_indices_desc(" in explorer
+    assert "sat_paint_order_buckets8(" in explorer
+    assert "sat_sort_indices_desc(" not in explorer
     assert "while (j >= 0 && g_render[j].p.depth < item.p.depth)" not in explorer
 
 
