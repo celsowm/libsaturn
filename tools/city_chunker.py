@@ -38,12 +38,13 @@ import pickle  # noqa: E402
 
 from model_pipeline import blocks  # noqa: E402
 from model_pipeline import facades  # noqa: E402
+from model_pipeline import foliage  # noqa: E402
 from model_pipeline import object_lod  # noqa: E402
 from model_pipeline import chunking as ch  # noqa: E402
 from model_pipeline import draco, emit_bin, gltf  # noqa: E402
 from model_pipeline.gltf import GltfError  # noqa: E402
 
-CHUNKER_VERSION = 6
+CHUNKER_VERSION = 7
 EYE_UNITS = 2.0  # examples/city_walk/player.c EYE_HEIGHT_FX: the RBG0 ground's focal
 # Finest block level each LOD may start from (blocks.LEVELS index). A LOD never
 # takes a finer level than the LOD before it.
@@ -89,6 +90,7 @@ def build_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_of):
     block face to its shaded material. Raises when even the coarsest level
     overflows a LOD's caps."""
     result = {"lods": {}, "boxes": []}
+    foliage_items = list(foliage_items or [])
     first = 0
     c = blocks.CHUNK_CELLS
     window = (slice(cz * c, (cz + 1) * c), slice(cx * c, (cx + 1) * c))
@@ -194,65 +196,70 @@ def _index_faces(tiled):
     return np.array(verts, dtype=np.float64).reshape(-1, 3), quads
 
 
-def _fit_textures(tiled, lod, baker, ground_y, fallback_rgb):
-    """Bake one texture for every facade face within the fixed LOD VRAM slot.
-
-    Prefer the documented texel rates. If none covers all faces, keep reducing
-    density until the rounded VDP1 texture dimensions stop shrinking. Dropping
-    texture coverage is not a valid LOD policy: a closer, more detailed LOD
-    must not turn a facade into a flat solid that was textured farther away.
-    """
+def _fit_textures(tiled, lod, baker, ground_y, fallback_rgb, extra_textures=None):
+    """Bake every facade plus already-baked foliage inside one fixed VRAM slot."""
     budget = emit_bin.LOD_TEXTURE_BYTES[lod]
-    if not budget or not tiled:
-        return [], [0] * len(tiled), 0.0
+    extra_textures = list(extra_textures or [])
     worlds = [piece + np.array([0.0, ground_y, 0.0]) for piece, _c, _d in tiled]
 
+    def image_of(tex):
+        return tex[0] if isinstance(tex, tuple) else tex
+
+    extra_sizes = [(image_of(tex).shape[1], image_of(tex).shape[0]) for tex in extra_textures]
+
     def cost(sizes):
+        all_sizes = list(sizes) + extra_sizes
         head = emit_bin.align(emit_bin.TEXTURE_TABLE_HEADER +
-                              emit_bin.TEXTURE_ENTRY_BYTES * len(sizes), 8)
-        return head + sum(emit_bin.align(w * h, 8) for w, h in sizes)
+                              emit_bin.TEXTURE_ENTRY_BYTES * len(all_sizes), 8)
+        return head + sum(emit_bin.align(w * h, 8) for w, h in all_sizes)
 
-    if len(tiled) > 255:
-        raise GltfError(f"LOD{lod}: {len(tiled)} facade textures exceed the 255-entry table")
+    total_count = len(tiled) + len(extra_textures)
+    if total_count > 255:
+        raise GltfError(f"LOD{lod}: {total_count} textures exceed the 255-entry table")
+    if not budget or total_count == 0:
+        return [], [0] * len(tiled), 0.0
 
-    chosen_sizes = None
+    chosen_sizes = []
     chosen_rate = 0.0
-    for rate in FACADE_DENSITIES[lod]:
-        sizes = [facades.texture_size(w, rate) for w in worlds]
-        if cost(sizes) <= budget:
-            chosen_sizes, chosen_rate = sizes, rate
-            break
-
-    if chosen_sizes is None:
-        rate = FACADE_DENSITIES[lod][-1] * 0.5
-        previous = None
-        while True:
+    if tiled:
+        chosen_sizes = None
+        for rate in FACADE_DENSITIES[lod]:
             sizes = [facades.texture_size(w, rate) for w in worlds]
             if cost(sizes) <= budget:
                 chosen_sizes, chosen_rate = sizes, rate
                 break
-            if sizes == previous:
-                break
-            previous = sizes
-            rate *= 0.5
-
-    if chosen_sizes is None:
-        minimum = cost(previous or [facades.texture_size(w, 0.0) for w in worlds])
-        raise GltfError(
-            f"LOD{lod}: all {len(tiled)} facade textures need at least {minimum} B, "
-            f"slot budget is {budget} B")
+        if chosen_sizes is None:
+            rate = FACADE_DENSITIES[lod][-1] * 0.5
+            previous = None
+            while True:
+                sizes = [facades.texture_size(w, rate) for w in worlds]
+                if cost(sizes) <= budget:
+                    chosen_sizes, chosen_rate = sizes, rate
+                    break
+                if sizes == previous:
+                    break
+                previous = sizes
+                rate *= 0.5
+        if chosen_sizes is None:
+            minimum = cost(previous or [facades.texture_size(w, 0.0) for w in worlds])
+            raise GltfError(
+                f"LOD{lod}: facade + foliage textures need at least {minimum} B, "
+                f"slot budget is {budget} B")
+    elif cost([]) > budget:
+        raise GltfError(f"LOD{lod}: foliage textures do not fit {budget} B slot")
 
     textures = []
     face_texture = []
     for i, (w, h) in enumerate(chosen_sizes):
-        _piece, colour, direction = tiled[i]
+        _p, colour, direction = tiled[i]
         textures.append(baker.bake(worlds[i], w, h, fallback_rgb(colour, direction)))
         face_texture.append(i + 1)
+    textures.extend(extra_textures)
     return textures, face_texture, chosen_rate
 
 
 def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_of,
-                       baker, fallback_rgb):
+                       baker, fallback_rgb, foliage_items=None):
     """Like build_chunk, with facade textures on the LODs that have a VDP1
     texture slot. Texels stay RGB here; the caller quantises them once the
     whole city's palette is known."""
@@ -264,17 +271,29 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
     for lod in range(emit_bin.LOD_COUNT):
         face_cap, vert_cap = caps[lod]
         start = max(first, LOD_FIRST_LEVEL[lod])
+        candidates = foliage.select_for_lod(foliage_items, lod)
         chosen = None
-        for li in range(start, len(levels)):
-            kept = int((levels[li].region[window] > 0).sum())
-            if built * blocks.CELL * blocks.CELL >= 16.0 and kept < LOD_MIN_AREA[lod] * built:
+        selected_foliage = []
+        # Preserve as much foliage as possible without violating the existing
+        # hard building caps. Each billboard costs exactly 1 face + 4 vertices.
+        for foliage_count in range(len(candidates), -1, -1):
+            selected_foliage = candidates[:foliage_count]
+            building_face_cap = face_cap - foliage_count
+            building_vert_cap = vert_cap - 4 * foliage_count
+            if building_face_cap < 0 or building_vert_cap < 0:
                 continue
-            verts, faces = blocks.chunk_faces(levels[li], cx, cz, EYE_UNITS)
-            for horizontal_tile, vertical_tile in FACADE_SPLITS[lod]:
-                tiled = _tiled_faces(verts, faces, horizontal_tile, vertical_tile)
-                tv, quads = _index_faces(tiled)
-                if len(quads) <= face_cap and len(tv) <= vert_cap:
-                    chosen = (li, tiled, tv, quads)
+            for li in range(start, len(levels)):
+                kept = int((levels[li].region[window] > 0).sum())
+                if built * blocks.CELL * blocks.CELL >= 16.0 and kept < LOD_MIN_AREA[lod] * built:
+                    continue
+                verts, faces = blocks.chunk_faces(levels[li], cx, cz, EYE_UNITS)
+                for horizontal_tile, vertical_tile in FACADE_SPLITS[lod]:
+                    tiled = _tiled_faces(verts, faces, horizontal_tile, vertical_tile)
+                    tv, quads = _index_faces(tiled)
+                    if len(quads) <= building_face_cap and len(tv) <= building_vert_cap:
+                        chosen = (li, tiled, tv, quads)
+                        break
+                if chosen is not None:
                     break
             if chosen is not None:
                 break
@@ -283,10 +302,11 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
                             f"{face_cap} faces / {vert_cap} vertices")
         li, tiled, tv, quads = chosen
         first = li
-        if not quads:
+        if not quads and not selected_foliage:
             continue
+        foliage_textures = [foliage.texture_for_lod(item, lod) for item in selected_foliage]
         textures, face_texture, texture_rate = _fit_textures(
-            tiled, lod, baker, ground_y, fallback_rgb)
+            tiled, lod, baker, ground_y, fallback_rgb, foliage_textures)
         world = tv + np.array([0.0, ground_y, 0.0])
         q, clamped = _quantize(world, x0, z0, base_y)
         rt = []
@@ -300,11 +320,24 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
                 kept_textures.append(textures[tex - 1])
                 tex = renumber[tex]
             rt.append((a, b, cc, d, material_of(colour, direction), tex))
+        facade_texture_count = len(tiled)
+        foliage_encoded = textures[facade_texture_count:]
+        foliage_texture_base = len(kept_textures)
+        kept_textures.extend(foliage_encoded)
+        out_vertices = q.tolist()
+        for fi, item in enumerate(selected_foliage):
+            fq, fc = _quantize(foliage.world_quad(item), x0, z0, base_y)
+            clamped += fc
+            vi = len(out_vertices)
+            out_vertices.extend(fq.tolist())
+            rt.append((vi, vi + 1, vi + 2, vi + 3, 0,
+                       foliage_texture_base + fi + 1))
         textures = kept_textures
         if rt:
-            result["lods"][lod] = {"vertices": q.tolist(), "faces": rt, "level": li,
+            result["lods"][lod] = {"vertices": out_vertices, "faces": rt, "level": li,
                                    "clamped": clamped, "textures": textures,
-                                   "texture_rate": texture_rate}
+                                   "texture_rate": texture_rate,
+                                   "foliage": len(selected_foliage)}
     lod0_level = result["lods"].get(0, {}).get("level", LOD_FIRST_LEVEL[0])
     boxes = blocks.chunk_boxes(levels[lod0_level], cx, cz, ground_y, emit_bin.LOD2_BOX_CAP)
     scale = emit_bin.QUANT_SCALE
@@ -317,9 +350,11 @@ def build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_
 
 
 def _facade_job(job):
-    (levels_path, cx, cz, x0, z0, base_y, ground_y, caps, shading, baker_path) = job
+    (levels_path, cx, cz, x0, z0, base_y, ground_y, caps, shading,
+     baker_path, foliage_path) = job
     levels = _worker_cache("levels", levels_path)
     baker = _worker_cache("baker", baker_path)
+    foliage_by_chunk = _worker_cache("foliage", foliage_path)
     base, levels_n, light, amb, dif, dir_level = shading
 
     def material_of(colour, direction):
@@ -332,9 +367,10 @@ def _facade_job(job):
         k = amb + dif * max(0.0, float(n @ l_vec))
         return np.clip(np.rint(ch._srgb_encode(np.clip(lin * k, 0, 1)) * 255), 0, 255)
 
-    return (cz * emit_bin.GRID_X + cx,
+    chunk = cz * emit_bin.GRID_X + cx
+    return (chunk,
             build_facade_chunk(levels, cx, cz, x0, z0, base_y, ground_y, caps, material_of,
-                               baker, fallback_rgb))
+                               baker, fallback_rgb, foliage_by_chunk.get(chunk, [])))
 
 
 _WORKER: dict = {}
@@ -350,14 +386,23 @@ def _worker_cache(name, path):
 
 
 def quantise_textures(results, log=print):
-    """One 255-colour palette for every texel in the city (index 0 unused, so
-    no texel is ever the VDP1 transparent code), then every texture mapped
-    through a 32K-entry RGB555 lookup."""
+    """One 255-colour palette; index 0 is reserved for cutout transparency."""
     samples = []
+
+    def unpack(tex):
+        if isinstance(tex, tuple):
+            return tex[0], int(tex[1])
+        return tex, 0
+
     for res in results.values():
         for data in res["lods"].values():
             for tex in data.get("textures", []):
-                samples.append(tex.reshape(-1, 3)[::3])
+                image, _flags = unpack(tex)
+                rgb = image[..., :3]
+                if image.shape[-1] == 4:
+                    rgb = rgb[image[..., 3] != 0]
+                if rgb.size:
+                    samples.append(rgb.reshape(-1, 3)[::3])
     if not samples:
         return None
     palette = facades.build_palette(np.concatenate(samples), 255)
@@ -368,10 +413,15 @@ def quantise_textures(results, log=print):
         for data in res["lods"].values():
             out = []
             for tex in data.get("textures", []):
-                t = tex.astype(np.int64) * 31 // 255
+                image, flags = unpack(tex)
+                rgb = image[..., :3]
+                t = rgb.astype(np.int64) * 31 // 255
                 key = t[..., 0] | (t[..., 1] << 5) | (t[..., 2] << 10)
                 idx = lut[key]
-                out.append((tex.shape[1], tex.shape[0], idx.tobytes()))
+                if image.shape[-1] == 4:
+                    idx = idx.copy()
+                    idx[image[..., 3] == 0] = 0
+                out.append((image.shape[1], image.shape[0], idx.tobytes(), flags))
             data["textures"] = out
     rgb555 = [int((int(r) * 31 // 255) | ((int(g) * 31 // 255) << 5) | ((int(b) * 31 // 255) << 10))
               for r, g, b in palette.tolist()]
@@ -527,13 +577,17 @@ def build_city(glb_path: Path, opts: argparse.Namespace, log=print):
     report: dict = {"tool_version": CHUNKER_VERSION, "source_triangles": int(len(tris.pos))}
     mask_materials = {i for i, m in enumerate(materials) if m.alpha_mode == ch.ALPHA_MASK}
     masked = np.isin(tris.material, list(mask_materials)) if mask_materials else np.zeros(len(keep), bool)
+    foliage_materials = foliage.foliage_material_ids(materials)
+    foliage_mask = (np.isin(tris.material, list(foliage_materials))
+                    if foliage_materials else np.zeros(len(keep), bool))
     degenerate = areas <= 1e-9
     ground_y = ch.estimate_ground_y(tris, normals, areas)
     ground = ch.classify_ground(tris, normals, ground_y) & ~degenerate & ~masked
     under = ch.underground_mask(tris, ground_y) & ~ground
-    visible = keep & ~masked & ~degenerate & ~under
+    visible = keep & ~foliage_mask & ~degenerate & ~under
     report["dropped"] = {
         "alpha_mask_materials": int(masked.sum()),
+        "foliage_source_triangles": int(foliage_mask.sum()),
         "transparent_texels": int((~keep & ~masked).sum()),
         "degenerate": int(degenerate.sum()),
         "underground": int((under & ~masked & ~degenerate).sum()),
@@ -541,8 +595,17 @@ def build_city(glb_path: Path, opts: argparse.Namespace, log=print):
     report["ground"] = {"ground_y": ground_y, "triangles": int(ground.sum())}
     world_min_y = int(math.floor(tris.pos[:, :, 1].min()))
     world_max_y = int(math.ceil(tris.pos[:, :, 1].max()))
-    log(f"  {len(tris.pos)} triangles; ground_y={ground_y:.3f}; {int(visible.sum())} visible, "
-        f"{int(under.sum())} underground, {int(masked.sum())} alpha-mask dropped")
+    foliage_by_chunk = foliage.build_billboards(tris, materials, rgb, foliage_materials)
+    foliage_items = sum(len(items) for items in foliage_by_chunk.values())
+    source_mask_items = sum(
+        item.source_kind == "source_mask" for items in foliage_by_chunk.values() for item in items)
+    mesh_impostors = foliage_items - source_mask_items
+    report["foliage"] = {"items": foliage_items, "source_mask": source_mask_items,
+                         "mesh_impostors": mesh_impostors,
+                         "chunks": len(foliage_by_chunk)}
+    log(f"  {len(tris.pos)} triangles; ground_y={ground_y:.3f}; {int(visible.sum())} architectural, "
+        f"{int(under.sum())} underground; foliage {foliage_items} objects "
+        f"({source_mask_items} source cards, {mesh_impostors} mesh impostors)")
 
     # --- palette: one base palette, shaded per block face direction --------
     levels = opts.levels
@@ -607,8 +670,11 @@ def build_city(glb_path: Path, opts: argparse.Namespace, log=print):
     todo = []
     for chunk in range(emit_bin.CHUNK_COUNT):
         cx, cz = chunk % emit_bin.GRID_X, chunk // emit_bin.GRID_X
-        c = blocks.CHUNK_CELLS
-        if not (block_levels[0].region[cz * c:(cz + 1) * c, cx * c:(cx + 1) * c] > 0).any():
+        cell_count = blocks.CHUNK_CELLS
+        has_blocks = (block_levels[0].region[
+            cz * cell_count:(cz + 1) * cell_count,
+            cx * cell_count:(cx + 1) * cell_count] > 0).any()
+        if not has_blocks and chunk not in foliage_by_chunk:
             continue
         todo.append((cx, cz))
     if opts.geometry == "facades":
@@ -619,12 +685,14 @@ def build_city(glb_path: Path, opts: argparse.Namespace, log=print):
         work.mkdir(parents=True, exist_ok=True)
         levels_path = work / "levels.pkl"
         baker_path = work / "baker.pkl"
+        foliage_path = work / "foliage.pkl"
         levels_path.write_bytes(pickle.dumps(block_levels))
         baker_path.write_bytes(pickle.dumps(facades.FacadeBaker(tris.pos[visible], shaded)))
+        foliage_path.write_bytes(pickle.dumps(foliage_by_chunk))
         shading = (base, levels, light, opts.ambient, opts.diffuse, dir_level)
         jobs = [(str(levels_path), cx, cz, ch.ORIGIN_X + cx * ch.CHUNK_UNITS,
                  ch.ORIGIN_Z + cz * ch.CHUNK_UNITS, world_min_y, ground_y, caps, shading,
-                 str(baker_path)) for cx, cz in todo]
+                 str(baker_path), str(foliage_path)) for cx, cz in todo]
         if opts.jobs > 1 and len(jobs) > 1:
             with multiprocessing.Pool(opts.jobs) as pool:
                 produced = pool.map(_facade_job, jobs, chunksize=1)
@@ -659,7 +727,8 @@ def build_city(glb_path: Path, opts: argparse.Namespace, log=print):
             blobs[(chunk, lod)] = spec
             row[f"lod{lod}"] = {"faces": len(data["faces"]), "vertices": len(data["vertices"]),
                                 "level": data["level"], "textures": len(spec.textures),
-                                "texture_rate": data.get("texture_rate", 0.0)}
+                                "texture_rate": data.get("texture_rate", 0.0),
+                                "foliage": data.get("foliage", 0)}
             clamped += data["clamped"]
         per_chunk[chunk] = row
     archive, info = emit_bin.pack_archive(

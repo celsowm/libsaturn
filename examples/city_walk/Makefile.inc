@@ -14,6 +14,7 @@ CITY_TOOLS := tools/city_chunker.py \
 	tools/model_pipeline/model.py \
 	tools/model_pipeline/blocks.py \
 	tools/model_pipeline/facades.py \
+	tools/model_pipeline/foliage.py \
 	tools/model_pipeline/face_colors.py
 
 EXAMPLE_HEADERS := $(CITY_GEN_DIR)/city_data.h

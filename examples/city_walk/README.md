@@ -161,8 +161,11 @@ hardware. The CD figure is bounded by physics: a 2x drive delivers at most
   slab far below. The ground plane fills the slab's rectangle with that colour
   and real street, kerb, crosswalk and lawn data paint over it where it
   exists. The lots of the western blocks really are near-white in the source.
-* The 1208 triangles of the model's alpha-masked tree-sprite cards were dropped:
-  as opaque faces they became solid green squares.
+* Vegetation is kept out of the architectural block sampler. The source's
+  302 alpha-masked TreeSpriteAtlas objects preserve a real atlas card as an
+  INDEX8 cutout billboard; the 178 dense low-poly vegetation objects
+  (74k+ source triangles) are orthographically baked to one transparent
+  low-poly impostor each. Both cost one VDP1 face per visible plant.
 * Blocks are boxes under their textures: pitched roofs and overhangs are
   flat pictures on the wall, and lamp posts, traffic-light poles and thin trees
   (under 1 unit wide) are gone. Distant small houses may merge into one block.
