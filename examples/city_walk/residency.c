@@ -11,7 +11,7 @@
  * coarser resident LOD and is counted as a pop-in.
  *
  * Facade textures. Every slot also owns a fixed span of VDP1 VRAM, reserved
- * once (9 x 16 KiB + 25 x 5 KiB + 49 x 1.5 KiB = 350 KiB). A blob's texture
+ * once (9 x 28 KiB + 25 x 4 KiB + 49 x 1 KiB = 401 KiB). A blob's texture
  * block goes there unchanged, so a texture's character address is the span
  * plus its offset. The copy waits until just before sat_end_frame: the VDP1
  * may still be drawing the previous list, which could read the texels this
