@@ -219,7 +219,7 @@ class ArchiveLayoutTests(unittest.TestCase):
                                  "LOD0 facade patch is too tall")
             self.assertLessEqual(max(int(np.ptp(pts[:, 0])), int(np.ptp(pts[:, 2]))),
                                  4 * 64, "LOD0 facade patch is too wide")
-            middle = pts.astype(np.float64).mean(axis=0)            middle = verts[[a, b, c, d]].astype(np.float64).mean(axis=0)
+            middle = pts.astype(np.float64).mean(axis=0)
             self.assertGreater(float(face_normal(verts, f) @ (middle - centre)), 0.0,
                                f"face {f} winds inward")
 
