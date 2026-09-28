@@ -303,6 +303,43 @@ typedef struct city_cell {
     int32_t dist2; /* squared units from player to the chunk centre */
 } city_cell_t;
 
+/* Total deterministic ordering for frame cells: nearest first, then (cz,cx).
+ * A max-heap gives O(N log N) worst-case without scratch. CITY_MAX_DRAW_ITEMS
+ * is small today, but keeping the planner non-quadratic prevents ring growth
+ * from turning a content-size change into a frame-time cliff. */
+static inline int city_cell_less(const city_cell_t* a, const city_cell_t* b) {
+    return a->dist2 < b->dist2 ||
+           (a->dist2 == b->dist2 &&
+            (a->cz < b->cz || (a->cz == b->cz && a->cx < b->cx)));
+}
+
+static inline void city_cell_sift_down(
+    city_cell_t* cells, int root, int end) {
+    city_cell_t value = cells[root];
+    for (;;) {
+        int child = root * 2 + 1;
+        if (child >= end) break;
+        if (child + 1 < end &&
+            city_cell_less(&cells[child], &cells[child + 1])) ++child;
+        if (!city_cell_less(&value, &cells[child])) break;
+        cells[root] = cells[child];
+        root = child;
+    }
+    cells[root] = value;
+}
+
+static inline void city_cells_sort(city_cell_t* cells, int count) {
+    if (count < 2) return;
+    for (int i = count / 2; i > 0; --i)
+        city_cell_sift_down(cells, i - 1, count);
+    for (int end = count - 1; end > 0; --end) {
+        city_cell_t tmp = cells[0];
+        cells[0] = cells[end];
+        cells[end] = tmp;
+        city_cell_sift_down(cells, 0, end);
+    }
+}
+
 /* Integer square root, rounded down. */
 static inline uint32_t city_isqrt(uint32_t value) {
     uint32_t root = 0u;
@@ -352,19 +389,10 @@ static inline void city_plan_frame(const city_residency_t* res, const city_pos_t
             cell.cx = (int16_t)(pos->chunk_x + dx);
             cell.cz = (int16_t)(pos->chunk_z + dz);
             cell.dist2 = city_cell_dist2(dx, dz, pos);
-            /* Insertion sort, ascending; ties break on (cz, cx) so the
-             * order is deterministic. */
-            int at = n++;
-            while (at > 0 && (cells[at - 1].dist2 > cell.dist2 ||
-                   (cells[at - 1].dist2 == cell.dist2 &&
-                    (cells[at - 1].cz > cell.cz ||
-                     (cells[at - 1].cz == cell.cz && cells[at - 1].cx > cell.cx))))) {
-                cells[at] = cells[at - 1];
-                --at;
-            }
-            cells[at] = cell;
+            cells[n++] = cell;
         }
     }
+    city_cells_sort(cells, n);
 
     /* Pick every cell's LOD as if there were no budget, nearest first. */
     struct { int16_t cell; int8_t wanted, chosen; uint16_t slot; uint8_t alive; } cand[CITY_MAX_DRAW_ITEMS];
@@ -403,36 +431,34 @@ static inline void city_plan_frame(const city_residency_t* res, const city_pos_t
      * keep their detail and the horizon thins out before the street does,
      * instead of nearest-first greed eating the whole budget and leaving holes
      * at the far end. */
-    while (total > face_budget) {
-        int pick = -1;
-        int next_slot = -1;
-        int next_lod = -1;
-        for (int j = m - 1; j >= 0 && pick < 0; --j) {
-            int limit = cand[j].wanted + 1;
-            if (!cand[j].alive) continue;
-            if (limit > CITY_LOD_COUNT - 1) limit = CITY_LOD_COUNT - 1;
-            for (int lod = cand[j].chosen + 1; lod <= limit; ++lod) {
-                int ns = city_res_lookup(res, (uint8_t)lod, cells[cand[j].cell].cx,
-                                         cells[cand[j].cell].cz, pos->chunk_x, pos->chunk_z);
-                if (ns >= 0) { pick = j; next_slot = ns; next_lod = lod; break; }
-            }
-        }
-        if (pick >= 0) {
-            total -= res->slots[cand[pick].slot].faces;
-            total += res->slots[next_slot].faces;
-            cand[pick].chosen = (int8_t)next_lod;
-            cand[pick].slot = (uint16_t)next_slot;
+    /* Each candidate can degrade at most once: chosen may advance only as far
+     * as wanted+1. The old loop restarted a reverse scan after every single
+     * change, making the planner O(N^2). One far-to-near degradation pass
+     * visits candidates in exactly the same priority order; if that is still
+     * over budget, one far-to-near drop pass reproduces the old policy. */
+    for (int j = m - 1; j >= 0 && total > face_budget; --j) {
+        int limit = cand[j].wanted + 1;
+        if (!cand[j].alive) continue;
+        if (limit > CITY_LOD_COUNT - 1) limit = CITY_LOD_COUNT - 1;
+        for (int lod = cand[j].chosen + 1; lod <= limit; ++lod) {
+            int ns = city_res_lookup(res, (uint8_t)lod,
+                                     cells[cand[j].cell].cx,
+                                     cells[cand[j].cell].cz,
+                                     pos->chunk_x, pos->chunk_z);
+            if (ns < 0) continue;
+            total -= res->slots[cand[j].slot].faces;
+            total += res->slots[ns].faces;
+            cand[j].chosen = (int8_t)lod;
+            cand[j].slot = (uint16_t)ns;
             ++out->degraded;
-            continue;
+            break;
         }
-        for (int j = m - 1; j >= 0; --j) {
-            if (cand[j].alive) {
-                total -= res->slots[cand[j].slot].faces;
-                cand[j].alive = 0u;
-                ++out->budget_skipped;
-                break;
-            }
-        }
+    }
+    for (int j = m - 1; j >= 0 && total > face_budget; --j) {
+        if (!cand[j].alive) continue;
+        total -= res->slots[cand[j].slot].faces;
+        cand[j].alive = 0u;
+        ++out->budget_skipped;
     }
 
     for (int j = 0; j < m; ++j) {
