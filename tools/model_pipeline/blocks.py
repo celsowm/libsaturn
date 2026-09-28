@@ -197,6 +197,9 @@ class LevelSpec:
 # Coarser levels join neighbours before they remove slivers, so a dense block
 # of small buildings becomes one big block instead of disappearing.
 LEVELS = (
+    # Street-near shell: preserve half-unit recesses and narrow architectural
+    # volumes. Dense chunks automatically fall back to the old levels below.
+    LevelSpec(0, 1, 0.5, 0.25),
     LevelSpec(0, 2, 1.0, 1.0),
     LevelSpec(0, 2, 1.5, 2.0),
     LevelSpec(2, 3, 2.0, 4.0),
