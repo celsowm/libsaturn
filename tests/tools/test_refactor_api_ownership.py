@@ -144,6 +144,19 @@ def assert_2d_state_and_manifest_owners_are_used() -> None:
     assert "while (j >= 0 && g_render[j].p.depth < item.p.depth)" not in explorer
 
 
+def assert_city_walk_zero_initializes_scene_instances() -> None:
+    text = source("city_walk")
+    assert "sat_scene3d_instance_t instance = {0};" in text, (
+        "city_walk master instance must zero optional scene-instance pointers"
+    )
+    assert "a->instance = (sat_scene3d_instance_t){0};" in text, (
+        "city_walk slave arena must reset the reused scene-instance descriptor"
+    )
+    assert "sat_scene3d_instance_t instance;" not in text, (
+        "bare scene-instance locals are unsafe when optional fields are added"
+    )
+
+
 def assert_legacy_scene_routes_are_gone_from_code() -> None:
     for path in (
         ROOT / "include" / "saturn" / "scene3d.h",
@@ -220,6 +233,7 @@ def main() -> None:
     assert_shared_orbit_camera_is_used()
     assert_skybridge_uses_renderer_and_overlay_budget()
     assert_2d_state_and_manifest_owners_are_used()
+    assert_city_walk_zero_initializes_scene_instances()
     assert_legacy_scene_routes_are_gone_from_code()
     assert_pacman_uses_persistent_actor_meshes()
     assert_skybridge_uses_shared_surface_math()
@@ -230,7 +244,7 @@ def main() -> None:
     explorer = source("infinite_explorer")
     assert "sat_anim_prepare_model_instance(" in explorer
     assert "for (i = 0; i < EGGMAN_VERTEX_COUNT;" not in explorer
-    print("PASS: test_refactor_api_ownership.py (14 architecture gates)")
+    print("PASS: test_refactor_api_ownership.py (15 architecture gates)")
 
 
 if __name__ == "__main__":

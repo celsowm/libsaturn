@@ -313,6 +313,10 @@ void render_frame(const city_view_t* view) {
                 continue;
             }
             g_city.t_decode += (uint16_t)(city_frt_now() - t_mark);
+            /* sat_scene3d_instance_t has optional pointer fields. Reset the
+             * reused descriptor before filling the required ones so adding a
+             * new optional field cannot turn stale WRAM into a live pointer. */
+            a->instance = (sat_scene3d_instance_t){0};
             a->instance.mesh = &a->mesh;
             a->instance.materials = a->materials;
             a->instance.material_count = a->mesh.face_count;
@@ -339,7 +343,9 @@ void render_frame(const city_view_t* view) {
 
     /* Master share: everything the Slave did not take. */
     for (uint16_t i = 0u; i < g_plan.count; ++i) {
-        sat_scene3d_instance_t instance;
+        /* Zero-init is required: optional fields such as bounds,
+         * double_sided_faces and validated_binding must default to NULL. */
+        sat_scene3d_instance_t instance = {0};
         if (on_slave[i]) continue;
         t_mark = city_frt_now();
         sat_result_t st = decode_item(&g_plan.items[i], view, &g_mesh, g_face_materials,

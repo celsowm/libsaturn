@@ -258,7 +258,10 @@ sat_result_t sat_scene3d_instance_binding_init(
  * LOCAL mesh (e.g. gems). Material bindings and culling belong to the instance,
  * while the scene owns camera projection, face ordering and command emission.
  * An optional conservative bounds pointer can reject a whole off-frustum
- * instance before vertex transformation/projection and per-face validation. */
+ * instance before vertex transformation/projection and per-face validation.
+ * Zero-initialize the whole descriptor before assigning required fields:
+ * every optional pointer is NULL-by-default, and future trailing optional
+ * fields must not inherit indeterminate stack data. */
 typedef struct sat_scene3d_instance {
     const sat_mesh_t* mesh;
     const sat_scene3d_material_t* materials;
