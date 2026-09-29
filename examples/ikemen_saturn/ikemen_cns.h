@@ -63,7 +63,12 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_VEL_MUL,
     IK_CNS_CTRL_POS_SET,
     IK_CNS_CTRL_CHANGE_ANIM_BY_VX,
-    IK_CNS_CTRL_CHANGE_ANIM_IF_END_FROM
+    IK_CNS_CTRL_CHANGE_ANIM_IF_END_FROM,
+    IK_CNS_CTRL_CAPTURE_COMMAND_AXIS,
+    IK_CNS_CTRL_JUMP_LAUNCH,
+    IK_CNS_CTRL_AIR_JUMP_LAUNCH,
+    IK_CNS_CTRL_CHANGE_ANIM_IF_EXISTS,
+    IK_CNS_CTRL_CHANGE_ANIM_DESCENT_IF_EXISTS
 } ik_cns_controller_type_t;
 
 enum {
@@ -108,6 +113,13 @@ typedef struct ik_cns_constants {
     int16_t jump_fwd_q8;
     int16_t run_jump_fwd_x_q8;
     int16_t run_jump_fwd_y_q8;
+
+    int16_t air_jump_neu_x_q8;
+    int16_t air_jump_neu_y_q8;
+    int16_t air_jump_back_q8;
+    int16_t air_jump_fwd_q8;
+    int16_t air_jump_num;
+    int16_t air_jump_height;
 
     int16_t yaccel_q8;
     int16_t stand_friction_q8;
@@ -195,6 +207,10 @@ typedef struct ik_cns_playsnd {
  *   PosSet: x/y in Q8.8 relative to the stage floor for y
  *   ChangeAnimByVx: neutral action (or -1) / forward action; back=forward+1
  *   ChangeAnimIfEndFrom: source action / destination action
+ *   CaptureCommandAxis: remembers holdback/holdfwd in the current state
+ *   JumpLaunch/AirJumpLaunch: use compiled Velocity constants and remembered axis
+ *   ChangeAnimIfExists: preferred action / fallback action
+ *   ChangeAnimDescentIfExists: Y threshold / first ascending action
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
