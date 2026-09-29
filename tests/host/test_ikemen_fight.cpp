@@ -986,6 +986,140 @@ int main() {
         EQ(v->state,5110);
     }
 
+    /* A is not enough for an opponent already in the fall graph; F is
+     * the explicit juggle permission. Build one host-only HitDef on top of
+     * the real fixture so the only changing input is hitflag. */
+    {
+        constexpr unsigned state_count=
+            (unsigned)(sizeof(k_states)/sizeof(k_states[0]));
+        constexpr unsigned hitdef_count=
+            (unsigned)(sizeof(k_hitdefs)/sizeof(k_hitdefs[0]));
+        ik_cns_state_t states[state_count+1];
+        ik_cns_hitdef_t hitdefs[hitdef_count+1];
+        for(unsigned i=0;i<state_count;++i) states[i]=k_states[i];
+        for(unsigned i=0;i<hitdef_count;++i) hitdefs[i]=k_hitdefs[i];
+
+        states[state_count]=k_states[0];
+        states[state_count].number=900;
+        states[state_count].anim=200;
+        states[state_count].hitdef_ofs=(uint16_t)hitdef_count;
+        states[state_count].hitdef_count=1u;
+        states[state_count].controller_count=0u;
+
+        hitdefs[hitdef_count]=k_hitdefs[0];
+        hitdefs[hitdef_count].state_number=900;
+        hitdefs[hitdef_count].trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hitdefs[hitdef_count].trigger_value=0;
+        hitdefs[hitdef_count].damage=1;
+        hitdefs[hitdef_count].pause_p1=0u;
+        hitdefs[hitdef_count].pause_p2=0u;
+        hitdefs[hitdef_count].guard_flags=0u;
+
+        ik_cns_asset_t asset=k_cns;
+        asset.states=states;
+        asset.state_count=(uint16_t)(state_count+1);
+        asset.hitdefs=hitdefs;
+        asset.hitdef_count=(uint16_t)(hitdef_count+1);
+
+        hitdefs[hitdef_count].hit_flags=IK_CNS_HIT_AIR;
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        g.fighters[1].state=5050;
+        g.fighters[1].anim=5050;
+        g.fighters[1].on_ground=0;
+        g.fighters[1].gethit_fall=1u;
+        g.fighters[1].y=150;
+        g.fighters[1].y_q8=150*256;
+        ik_fight_controls_t p1{}; request(&p1,900);
+        ik_fight_controls_t p2{};
+        for(int i=0;i<8;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,0u);
+
+        hitdefs[hitdef_count].hit_flags=IK_CNS_HIT_FALL;
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        g.fighters[1].state=5050;
+        g.fighters[1].anim=5050;
+        g.fighters[1].on_ground=0;
+        g.fighters[1].gethit_fall=1u;
+        g.fighters[1].y=150;
+        g.fighters[1].y_q8=150*256;
+        p1={}; request(&p1,900);
+        p2={};
+        for(int i=0;i<8 && g.hits_p1==0u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,1u);
+    }
+
+    /* hitflag '+' requires a get-hit state; '-' rejects it. */
+    {
+        constexpr unsigned state_count=
+            (unsigned)(sizeof(k_states)/sizeof(k_states[0]));
+        constexpr unsigned hitdef_count=
+            (unsigned)(sizeof(k_hitdefs)/sizeof(k_hitdefs[0]));
+        ik_cns_state_t states[state_count+1];
+        ik_cns_hitdef_t hitdefs[hitdef_count+1];
+        for(unsigned i=0;i<state_count;++i) states[i]=k_states[i];
+        for(unsigned i=0;i<hitdef_count;++i) hitdefs[i]=k_hitdefs[i];
+        states[state_count]=k_states[0];
+        states[state_count].number=901;
+        states[state_count].anim=200;
+        states[state_count].hitdef_ofs=(uint16_t)hitdef_count;
+        states[state_count].hitdef_count=1u;
+        states[state_count].controller_count=0u;
+        hitdefs[hitdef_count]=k_hitdefs[0];
+        hitdefs[hitdef_count].state_number=901;
+        hitdefs[hitdef_count].trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hitdefs[hitdef_count].trigger_value=0;
+        hitdefs[hitdef_count].damage=1;
+        hitdefs[hitdef_count].pause_p1=0u;
+        hitdefs[hitdef_count].pause_p2=0u;
+        hitdefs[hitdef_count].guard_flags=0u;
+        ik_cns_asset_t asset=k_cns;
+        asset.states=states;
+        asset.state_count=(uint16_t)(state_count+1);
+        asset.hitdefs=hitdefs;
+        asset.hitdef_count=(uint16_t)(hitdef_count+1);
+
+        hitdefs[hitdef_count].hit_flags=
+            IK_CNS_HIT_STAND|IK_CNS_HIT_ONLY_GETHIT;
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        ik_fight_controls_t p1{}; request(&p1,901);
+        ik_fight_controls_t p2{};
+        for(int i=0;i<8;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,0u);
+
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        g.fighters[1].state=5001;
+        g.fighters[1].anim=5001;
+        g.fighters[1].on_ground=1;
+        p1={}; request(&p1,901); p2={};
+        for(int i=0;i<8 && g.hits_p1==0u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,1u);
+
+        hitdefs[hitdef_count].hit_flags=
+            IK_CNS_HIT_STAND|IK_CNS_HIT_NOT_GETHIT;
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        g.fighters[1].state=5001;
+        g.fighters[1].anim=5001;
+        g.fighters[1].on_ground=1;
+        p1={}; request(&p1,901); p2={};
+        for(int i=0;i<8;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,0u);
+    }
+
     /* A liedown launch with down.bounce=0 still enters the falling
      * graph, but state 5100 receives fall.yVel=0 and goes straight back to
      * 5110 without the 5101 ground bounce. */
