@@ -187,6 +187,8 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->hitdef_hit_mask = 0u;
     f->attack_id = 0;
     f->move_contact = 0;
+    f->target_index = -1;
+    f->bound_to = -1;
 }
 
 int ik_fight_max_hp(const ik_fight_t* fight) {
@@ -524,6 +526,49 @@ static void apply_guard(ik_fight_t* fight, int victim,
             fight->ko_freeze = IK_KO_FREEZE_FRAMES;
         }
     }
+}
+
+static void apply_throw(ik_fight_t* fight, int attacker,
+                        const ik_cns_hitdef_t* hitdef) {
+    if (!fight || !hitdef || attacker < 0 || attacker > 1) return;
+    const int victim = attacker ^ 1;
+    ik_fighter_t* a = &fight->fighters[attacker];
+    ik_fighter_t* v = &fight->fighters[victim];
+
+    a->target_index = (int8_t)victim;
+    v->bound_to = (int8_t)attacker;
+    a->move_contact = 1u;
+
+    if (hitdef->p1_facing != 0) {
+        const int8_t toward = v->x >= a->x ? 1 : -1;
+        a->facing = hitdef->p1_facing > 0 ? toward : (int8_t)-toward;
+    }
+    if (hitdef->p2_facing != 0) {
+        const int8_t toward = a->x >= v->x ? 1 : -1;
+        v->facing = hitdef->p2_facing > 0 ? toward : (int8_t)-toward;
+    }
+    if (hitdef->p1_spr_priority != -128) {
+        a->spr_priority = hitdef->p1_spr_priority;
+    }
+
+    v->gethit_fall =
+        (uint8_t)((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u);
+    v->gethit_fall_x_q8 = hitdef->fall_x_velocity_q8;
+    v->gethit_fall_y_q8 = hitdef->fall_y_velocity_q8;
+    v->gethit_fall_x_set = hitdef->fall_x_velocity_set;
+    v->gethit_fall_recover = hitdef->fall_recover;
+    v->gethit_fall_recover_time = hitdef->fall_recover_time;
+
+    if (hitdef->p2_state_no >= 0) {
+        enter_state(fight, v, hitdef->p2_state_no);
+    }
+    if (hitdef->p1_state_no >= 0) {
+        enter_state(fight, a, hitdef->p1_state_no);
+    }
+
+    fight->events |= IK_EVENT_HIT;
+    if (attacker == 0) ++fight->hits_p1;
+    else ++fight->hits_p2;
 }
 
 static void apply_damage(ik_fight_t* fight, int victim,
@@ -1427,7 +1472,9 @@ void ik_fight_update(ik_fight_t* fight,
         ik_fighter_t* v = &fight->fighters[victim];
         const ik_fight_controls_t* victim_controls =
             victim == 0 ? p1 : p2;
-        if (can_guard_hit(fight, v, victim_controls, hitdef)) {
+        if ((hitdef->flags & IK_CNS_HITDEF_THROW) != 0u) {
+            apply_throw(fight, atk, hitdef);
+        } else if (can_guard_hit(fight, v, victim_controls, hitdef)) {
             apply_guard(fight, victim, victim_controls, hitdef);
         } else {
             apply_damage(fight, victim, hitdef);
