@@ -1,9 +1,8 @@
 # ikemen_saturn - Ikemen GO screenpack assets (KFM + stage0) on Saturn.
 # Real sprites/palettes converted offline by tools/ikemen_sff from the
 # Ikemen-GO-Screenpack repo (see README for attribution). The runtime
-# consumes only generated tables (examples/common/ikemen_anim.h contract).
-# Fight logic stays in examples/common/ikemen_fight.c for host tests.
-EXAMPLE_COMMON_SRCS = examples/common/ikemen_fight.c examples/common/ikemen_anim.c
+# consumes only generated tables (examples/ikemen_saturn/ikemen_anim.h contract).
+# Fight logic stays in examples/ikemen_saturn/ikemen_fight.c for host tests.
 
 IKEMEN_GEN_DIR := $(GENERATED_DIR)/ikemen_saturn
 KFM_FRAMES_C := $(IKEMEN_GEN_DIR)/kfm_frames.c

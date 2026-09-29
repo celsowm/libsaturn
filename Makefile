@@ -175,12 +175,10 @@ LIBRARY := $(LIB_OBJ_ROOT)/libsaturn.a
 EXAMPLE_DIR     := examples/$(EXAMPLE)
 EXAMPLE_HEADERS :=
 
-# Shared sources under examples/common/ are OPT-IN: an example asks for them
-# by name in its Makefile.inc, e.g.
-#   EXAMPLE_COMMON_SRCS = examples/common/pacman_game.c
-# Globbing examples/common/*.c instead would link every shared source into
-# every example, so adding one game's helper would grow hello_world.
-EXAMPLE_COMMON_SRCS :=
+# Additional sources outside an example's own directory are opt-in.
+# This is for family-owned code shared by multiple runnable examples, e.g.
+# pacman_2d and pacman_3d both consume examples/pacman/.
+EXAMPLE_EXTRA_SRCS :=
 
 # Include example config if it exists
 EXAMPLE_INC := $(EXAMPLE_DIR)/Makefile.inc
@@ -227,7 +225,7 @@ LDFLAGS := -m2 -mb -nostdlib -Wl,-T,src/core/startup/saturn.ld \
 CRT_OBJS     := $(patsubst %.s,$(APP_OBJ_ROOT)/%.o,$(CRT_SRCS))
 
 # Computed after the include so Makefile.inc can contribute to it.
-EXAMPLE_SRCS    := $(wildcard $(EXAMPLE_DIR)/*.c) $(EXAMPLE_COMMON_SRCS)
+EXAMPLE_SRCS    := $(wildcard $(EXAMPLE_DIR)/*.c) $(EXAMPLE_EXTRA_SRCS)
 EXAMPLE_OBJS    := $(patsubst %.c,$(APP_OBJ_ROOT)/%.o,$(EXAMPLE_SRCS))
 EXAMPLE_ASSET_OBJS := $(patsubst %.c,$(APP_OBJ_ROOT)/%.o,$(EXAMPLE_ASSETS))
 
@@ -240,7 +238,7 @@ ALL_HEADERS  := $(EXAMPLE_HEADERS)
 # changed. Without this, `-MMD -MP` writes the .d files but nothing ever
 # reads them, which is worse than not having them at all: it looks like
 # header dependencies are tracked when they are not. A stale object from a
-# shared header (examples/common/pacman_game.h, in the case that found this)
+# shared header (examples/pacman/pacman_game.h, in the case that found this)
 # links fine and can misbehave at runtime in ways that look nothing like a
 # build problem, while `make` reports the build clean.
 # `-include`, not `include`, so a .d file that does not exist yet (nothing
@@ -264,7 +262,7 @@ DISC_BIN := $(OUTPUT_DIR)/$(EXAMPLE).bin
 CUE := $(OUTPUT_DIR)/$(EXAMPLE).cue
 
 # -- Available examples ---------------------------------------
-EXAMPLES := $(filter-out common,$(notdir $(wildcard examples/*)))
+EXAMPLES := $(patsubst examples/%/main.c,%,$(wildcard examples/*/main.c))
 
 .PHONY: all clean dirs check-tools examples-all list-examples bake test
 
@@ -679,7 +677,7 @@ HOST_TEST_EXTRA_test_scene3d_faces_api := src/graphics/3d/scene/faces.cpp
 HOST_TEST_EXTRA_test_scene3d_material_pool := src/graphics/3d/materials/pool.cpp
 HOST_TEST_EXTRA_test_anim3d_logic := src/graphics/3d/animation/api.cpp src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_anim3d_async_lifetime := src/graphics/3d/animation/api.cpp src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
-HOST_TEST_EXTRA_test_pacman_game := examples/common/pacman_game.c examples/common/pacman_level.c examples/common/pacman_stages.c src/physics/2d/grid.cpp src/physics/2d/collision.cpp src/core/math3d/api.cpp
+HOST_TEST_EXTRA_test_pacman_game := examples/pacman/pacman_game.c examples/pacman/pacman_level.c examples/pacman/pacman_stages.c src/physics/2d/grid.cpp src/physics/2d/collision.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_skybridge_game := src/graphics/3d/rendering/surface.cpp
 HOST_TEST_EXTRA_test_skybridge_fade := src/graphics/3d/rendering/surface.cpp
 HOST_TEST_EXTRA_test_collide2d_logic := src/physics/2d/collision.cpp
@@ -690,15 +688,15 @@ HOST_TEST_EXTRA_test_collide3d_sweep := src/physics/3d/sweep.cpp
 HOST_TEST_EXTRA_test_collide3d_sweep_full := src/physics/3d/sweep_full.cpp
 HOST_TEST_EXTRA_test_collide3d_logic :=
 HOST_TEST_EXTRA_test_spatial3_api := src/physics/spatial/3d.cpp src/physics/3d/collision.cpp
-HOST_TEST_EXTRA_test_ikemen_fight := examples/common/ikemen_fight.c
-HOST_TEST_EXTRA_test_ikemen_anim := examples/common/ikemen_anim.c
+HOST_TEST_EXTRA_test_ikemen_fight := examples/ikemen_saturn/ikemen_fight.c
+HOST_TEST_EXTRA_test_ikemen_anim := examples/ikemen_saturn/ikemen_anim.c
 # End-to-end asset-contract test: needs the generated Ikemen tables, which
 # exist once the screenpack clone is present and the example has been built
 # (its Makefile.inc owns the generation rules). Skipped otherwise.
 ifeq ($(wildcard build/generated/ikemen_saturn/kfm_frames.c),)
 HOST_TEST_SRCS := $(filter-out tests/host/test_ikemen_assets.cpp,$(HOST_TEST_SRCS))
 else
-HOST_TEST_EXTRA_test_ikemen_assets := build/generated/ikemen_saturn/kfm_frames.c build/generated/ikemen_saturn/stage0_plane.c examples/common/ikemen_anim.c src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/api.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
+HOST_TEST_EXTRA_test_ikemen_assets := build/generated/ikemen_saturn/kfm_frames.c build/generated/ikemen_saturn/stage0_plane.c examples/ikemen_saturn/ikemen_anim.c src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/api.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
 endif
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp

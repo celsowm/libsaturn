@@ -8,7 +8,7 @@
 #include "saturn/video.h"
 #include "saturn/example_util.h"
 
-#include "../common/pacman_stages.h"
+#include "../pacman/pacman_stages.h"
 #include "p3d_config.h"
 #include "render_status.h"
 

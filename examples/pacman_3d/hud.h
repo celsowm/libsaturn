@@ -5,7 +5,7 @@
 
 #include <stdint.h>
 
-#include "../common/pacman_game.h"
+#include "../pacman/pacman_game.h"
 
 void p3d_hud_init(void);
 

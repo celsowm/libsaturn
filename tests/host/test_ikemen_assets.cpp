@@ -18,7 +18,7 @@
 #include "src/graphics/2d/textures/runtime.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
 
-#include "examples/common/ikemen_anim.h"
+#include "examples/ikemen_saturn/ikemen_anim.h"
 #include "ikemen_saturn/kfm_frames.h"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)

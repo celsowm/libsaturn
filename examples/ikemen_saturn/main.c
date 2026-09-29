@@ -7,8 +7,8 @@
  * players), the stage as a VDP2 NBG0 plane, and P2 differentiated by a
  * draw-time palette override (sat_render2d_set_palette) so both
  * fighters share one pixel copy in VDP1 VRAM. Fight logic lives in
- * examples/common/ikemen_fight.c, animation sampling in
- * examples/common/ikemen_anim.c (both host-tested).
+ * examples/ikemen_saturn/ikemen_fight.c, animation sampling in
+ * examples/ikemen_saturn/ikemen_anim.c (both host-tested).
  */
 #include <stdint.h>
 
@@ -26,8 +26,8 @@
 #include "saturn/vdp2.h"
 #include "saturn/video.h"
 
-#include "../common/ikemen_anim.h"
-#include "../common/ikemen_fight.h"
+#include "ikemen_anim.h"
+#include "ikemen_fight.h"
 #include "ikemen_saturn/kfm_frames.h"
 #include "ikemen_saturn/stage0_plane.h"
 

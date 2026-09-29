@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <cstdint>
 
-#include "examples/common/ikemen_fight.h"
+#include "examples/ikemen_saturn/ikemen_fight.h"
 
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
     fprintf(stderr, "FAIL %d: %s (%ld) != %s (%ld)\n", __LINE__, \

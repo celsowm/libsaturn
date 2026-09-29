@@ -7,7 +7,7 @@
 
 #include "saturn/scene.h"
 
-#include "../common/pacman_game.h"
+#include "../pacman/pacman_game.h"
 #include "camera.h"
 
 /* Needs the VDP1 up: the ghosts upload their face textures. */

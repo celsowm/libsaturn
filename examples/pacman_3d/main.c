@@ -1,8 +1,8 @@
 /* pacman_3d - Pac-Man on a 3D board for Sega Saturn (libsaturn).
  *
  * Same game as examples/pacman_2d, same code driving it: every rule lives in
- * examples/common/pacman_game.c and every stage layout in
- * examples/common/pacman_stages.c. This example only decides how to look at
+ * examples/pacman/pacman_game.c and every stage layout in
+ * examples/pacman/pacman_stages.c. This example only decides how to look at
  * it. The maze pixels the 2D example treats as screen X and Y are treated
  * here as world X and Z.
  *
@@ -39,7 +39,7 @@
 #include "saturn/video.h"
 #include "saturn/example_util.h"
 
-#include "../common/pacman_game.h"
+#include "../pacman/pacman_game.h"
 #include "actors.h"
 #include "board.h"
 #include "camera.h"

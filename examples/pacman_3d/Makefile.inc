@@ -1,7 +1,7 @@
 # pacman_3d - the maze is flat-shaded polygons, the stages come from
-# examples/common/pacman_stages.c.
-EXAMPLE_COMMON_SRCS = examples/common/pacman_game.c examples/common/pacman_level.c \
-                      examples/common/pacman_stages.c
+# examples/pacman/pacman_stages.c.
+EXAMPLE_EXTRA_SRCS = examples/pacman/pacman_game.c examples/pacman/pacman_level.c \
+                      examples/pacman/pacman_stages.c
 
 # Starfield for the VDP2 NBG0 layer behind the board. Regenerate the source
 # PNG from the original photo with tools/make_starfield.py; it is committed

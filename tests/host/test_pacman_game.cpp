@@ -1,6 +1,6 @@
 /* test_pacman_game.cpp — host tests for the shared Pac-Man simulation.
  *
- * examples/common/pacman_game.c is the single simulation both the pacman_2d
+ * examples/pacman/pacman_game.c is the single simulation both the pacman_2d
  * and pacman_3d examples render, so proving it here proves the gameplay for
  * both without an emulator. In particular this covers the class of bug that
  * is invisible in a screenshot but fatal in play: an actor spawned inside a
@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include "examples/common/pacman_game.h"
+#include "examples/pacman/pacman_game.h"
 #include "saturn/collide2d.h"
 #include "saturn/math3d.h"
 

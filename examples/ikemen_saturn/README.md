@@ -23,7 +23,7 @@ Makefile rules).
 Conversion happens offline in `tools/ikemen_sff` (SFF v2 container,
 LZ5/RLE/PNG-indexed codecs, AIR frame times, stage composition with
 palette merge). The runtime consumes only generated tables through the
-`examples/common/ikemen_anim.h` frame-table contract -- it never parses
+`examples/ikemen_saturn/ikemen_anim.h` frame-table contract -- it never parses
 SFF itself.
 
 ## Scope (v1 subset)

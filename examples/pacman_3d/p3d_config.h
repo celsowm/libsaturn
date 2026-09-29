@@ -7,7 +7,7 @@
 
 #include "saturn/color.h"
 
-#include "../common/pacman_maze.h"
+#include "../pacman/pacman_maze.h"
 
 #define P3D_SCREEN_W 320
 #define P3D_SCREEN_H 224

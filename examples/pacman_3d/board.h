@@ -19,7 +19,7 @@
 
 #include "saturn/scene.h"
 
-#include "../common/pacman_game.h"
+#include "../pacman/pacman_game.h"
 
 /* Called once per baked angle, before it is baked. */
 typedef void (*p3d_bake_progress_fn)(uint16_t done, uint16_t total);

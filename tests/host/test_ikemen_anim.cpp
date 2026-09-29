@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "examples/common/ikemen_anim.h"
+#include "examples/ikemen_saturn/ikemen_anim.h"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 

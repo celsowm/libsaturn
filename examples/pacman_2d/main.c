@@ -1,7 +1,7 @@
 /* pacman_2d - playable top-down Pac-Man for Sega Saturn (libsaturn), no sound.
  *
  * This file is only a renderer. Every rule -- movement, ghost AI, pellets,
- * scoring, lives -- lives in examples/common/pacman_game.c, which the
+ * scoring, lives -- lives in examples/pacman/pacman_game.c, which the
  * pacman_3d example drives with exactly the same calls. Running the two side
  * by side shows the same game from two points of view.
  *
@@ -27,7 +27,7 @@
 #include "saturn/sprite_anim.h"
 #include "saturn/example_util.h"
 
-#include "../common/pacman_game.h"
+#include "../pacman/pacman_game.h"
 
 #define SCREEN_W 320
 #define SCREEN_H 224

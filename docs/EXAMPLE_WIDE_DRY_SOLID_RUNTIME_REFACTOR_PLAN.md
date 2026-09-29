@@ -251,7 +251,7 @@ Do not silently omit small examples. Each row must be marked **canonical**, **fe
 
 ### 13.1 Supporting file migration
 
-Audit and update `examples/skybridge_3d/game.h`, `scenery.h`, `examples/infinite_explorer/explorer_logic.h`, `examples/common/pacman_game.{c,h}`, `pacman_maze.h`, each `Makefile.inc`, generated model headers/manifests and build/import scripts. The fact that a helper appears in a game header does not automatically make it reusable: distinguish generic algorithm from authored gameplay.
+Audit and update `examples/skybridge_3d/game.h`, `scenery.h`, `examples/infinite_explorer/explorer_logic.h`, `examples/pacman/pacman_game.{c,h}`, `pacman_maze.h`, each `Makefile.inc`, generated model headers/manifests and build/import scripts. The fact that a helper appears in a game header does not automatically make it reusable: distinguish generic algorithm from authored gameplay.
 
 ## 14. Implementation order — coherent, measurable, directly on main
 
