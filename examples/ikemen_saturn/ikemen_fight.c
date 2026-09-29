@@ -725,9 +725,11 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f,
     const ik_cns_constants_t* c = constants_for(fight);
     const ik_cns_state_t* spec = state_spec(fight, f->state);
     const int32_t gravity =
-        (spec && spec->air_accel_q8 != 0)
-            ? spec->air_accel_q8
-            : (c ? c->yaccel_q8 : (IK_CNS_Q8_ONE / 2));
+        (spec && spec->owns_air_accel)
+            ? 0
+            : (spec && spec->air_accel_q8 != 0)
+                ? spec->air_accel_q8
+                : (c ? c->yaccel_q8 : (IK_CNS_Q8_ONE / 2));
     const int32_t floor_q8 = (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE;
     const int32_t land_level_q8 = spec ? spec->land_level_q8 : 0;
 
