@@ -13,72 +13,15 @@ character data on Saturn hardware.
 * START: reset round (training convenience)
 * P2 pad (optional): controls P2; unplugged = idle training dummy
 
-## Offline compilation
+## Source checkouts
 
-The Saturn does not parse Ikemen formats at runtime:
+The build consumes reference data from two ignored `.external/` checkouts:
 
-* `tools/ikemen_sff`: SFF/AIR sprites, timings and Clsn1/Clsn2
-* `tools/ikemen_snd.py`: SND/WAV samples
-* `tools/ikemen_cmd.py`: KFM CMD command grammar and buffers
-* `tools/ikemen_state_rules.py`: selected KFM `[State -1]` ChangeState
-  predicates compiled to compact postfix bytecode
-* `tools/ikemen_cns.py`: KFM constants, Statedefs, HitDefs, PlaySnd and
-  compact supported state controllers
+* `.external/Ikemen-GO-Screenpack`: KFM character, Training Room, common/fight assets
+* `.external/Ikemen-GO`: `data/common1.cns.zss`
 
-Generated tables live under `build/generated/ikemen_saturn/`.
-
-## Current fidelity
-
-The playable normal attacks now use the original KFM data for states:
-
-* 200 / 210: standing light / strong punch
-* 230 / 240: standing light / strong kick
-* 400 / 410: crouching light / strong punch
-* 430 / 440: crouching light / strong kick
-* 600 / 610: jumping light / strong punch
-* 630 / 640: jumping light / strong kick
-
-For those states, damage, hit pause, hit time, knockback, AIR collision boxes,
-animation timing and the supported controllers come from the source data
-instead of duplicate gameplay constants.
-
-The CNS runtime now executes these controller forms:
-
-* `ChangeState` with Time / AnimElem / AnimTime=0 triggers
-* `CtrlSet`
-* `PosAdd`
-* `SprPriority`
-* KFM's `Width` AnimElem range form
-* KFM's move-contact `ChangeAnim` window, including `ignorehitpause`
-
-State 210 now expands its push width only during the original AnimElem window
-and skips the contact-linger animation with the original move-contact
-`ChangeAnim`. State 410's two HitDefs are tracked independently, so both hits
-can connect.
-State 440 preserves its fall flag and vertical launch instead of flattening the
-sweep into horizontal knockback. The four jumping normals now retain Physics=A,
-including gravity/velocity while attacking, state 600's Time=17 CtrlSet and the
-original light-air-attack contact cancels into the two strong air attacks.
-
-KFM `[Data]`, `[Size]`, `[Velocity]` and `[Movement]` values are compiled
-to fixed-point Q8.8. Walking, jump launch, gravity, friction, body height and
-default player push widths consume those original constants.
-
-The CMD runtime still compiles the complete `kfm.cmd` list and implements
-facing-relative B/F, signed input ages, `/`, `~`, `# Ikemen Saturn (training subset)
-
-Kung Fu Man vs Kung Fu Man training demo using the original Ikemen/MUGEN
-character data on Saturn hardware.
-
-## Controls
-
-* D-pad: movement / crouch / jump, relative to facing
-* X/Y: light/strong punch
-* A/B: light/strong kick
-* Down + X/Y/A/B: the four crouching normals
-* In the air, X/Y/A/B: light/strong punch and light/strong kick
-* START: reset round (training convenience)
-* P2 pad (optional): controls P2; unplugged = idle training dummy
+Neither project is linked into the Saturn runtime. Their text/binary formats are
+compiled offline into bounded C tables.
 
 ## Offline compilation
 
@@ -89,14 +32,14 @@ The Saturn does not parse Ikemen formats at runtime:
 * `tools/ikemen_cmd.py`: KFM CMD command grammar and buffers
 * `tools/ikemen_state_rules.py`: selected KFM `[State -1]` ChangeState
   predicates compiled to compact postfix bytecode
-* `tools/ikemen_cns.py`: KFM constants, Statedefs, HitDefs, PlaySnd and
-  compact supported state controllers
+* `tools/ikemen_cns.py`: KFM CNS plus the supported `common1.cns.zss`
+  subset lowered into compact state/controller tables
 
 Generated tables live under `build/generated/ikemen_saturn/`.
 
 ## Current fidelity
 
-The playable normal attacks now use the original KFM data for states:
+The playable normal attacks use the original KFM data for:
 
 * 200 / 210: standing light / strong punch
 * 230 / 240: standing light / strong kick
@@ -105,66 +48,82 @@ The playable normal attacks now use the original KFM data for states:
 * 600 / 610: jumping light / strong punch
 * 630 / 640: jumping light / strong kick
 
-For those states, damage, hit pause, hit time, knockback, AIR collision boxes,
-animation timing and the supported controllers come from the source data
-instead of duplicate gameplay constants.
+Damage, hit pause, hit time, ground/air knockback, AIR collision boxes,
+animation timing and supported controllers come from the source data rather
+than duplicate gameplay constants. State 210 keeps its original Width window
+and contact ChangeAnim, state 410 tracks its two HitDefs independently, state
+440 preserves fall/vertical launch, and aerial normals use the air branch of
+HitDef against airborne victims.
 
-The CNS runtime now executes these controller forms:
+The CMD runtime compiles the complete `kfm.cmd` command grammar, including
+facing-relative B/F, hold/release, `$`, `+`, `|`, `>`, timing, buffering
+and duplicate command variants. The normal attacks plus run-forward/back
+`[State -1]` gates are compiled to a small postfix predicate VM instead of
+being rewritten as KFM-specific C branches.
 
-* `ChangeState` with Time / AnimElem / AnimTime=0 triggers
-* `CtrlSet`
-* `PosAdd`
-* `SprPriority`
-* KFM's `Width` AnimElem range form
-* KFM's move-contact `ChangeAnim` window, including `ignorehitpause`
+The first `common1` locomotion slice is also data-driven. The generated CNS
+asset now contains states:
 
-State 210 now expands its push width only during the original AnimElem window
-and skips the contact-linger animation with the original move-contact
-`ChangeAnim`. State 410's two HitDefs are tracked independently, so both hits
-can connect.
-State 440 preserves its fall flag and vertical launch instead of flattening the
-sweep into horizontal knockback. The four jumping normals now retain Physics=A,
-including gravity/velocity while attacking, state 600's Time=17 CtrlSet and the
-original light-air-attack contact cancels into the two strong air attacks.
+* 0: stand
+* 10 / 11 / 12: stand-to-crouch, crouch, crouch-to-stand
+* 20: walk
+* 52: jump landing
+* 100: run forward
+* 105 / 106: hop backward and hop-back landing
+
+The generic runtime now supports contextual command/velocity triggers plus
+`VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity and
+state-specific landing targets. Ground physics selects the compiled stand or
+crouch friction values. Air attacks and hop-back can land into the compiled
+common landing states instead of being forced directly to idle.
 
 KFM `[Data]`, `[Size]`, `[Velocity]` and `[Movement]` values are compiled
-to fixed-point Q8.8. Walking, jump launch, gravity, friction, body height and
-default player push widths consume those original constants.
+to Q8.8, including walk/run/jump/run-jump velocities, gravity, friction,
+thresholds, body height and push widths.
 
-, `+`, `|`, `>`,
-timing/buffering and duplicate command variants. The normal-attack
-`[State -1]` ChangeState gates are now compiled too: command equality,
-state type/state number, ctrl, movecontact and time predicates execute from a
-small postfix rule VM instead of being rewritten as KFM-specific C branches.
+## Runtime controller coverage
+
+The generic CNS runtime currently executes:
+
+* `ChangeState`
+* `CtrlSet`
+* `PosAdd` / `PosSet`
+* `VelSet` / `VelMul`
+* `SprPriority`
+* `Width`
+* `ChangeAnim` plus the common locomotion animation selectors
+* Time, AnimElem, AnimTime, movecontact, command-state and velocity/floor triggers
+
+Unsupported selected behavior is reported or listed in the compiler JSON
+rather than silently treated as fully compatible. The current common lowering
+still records deferred presentation/engine behavior such as `AssertSpecial`
+and `MakeDust`.
 
 ## Texture residency
 
-The selected AIR subset now references more than 64 unique KFM sprites, while
-LibSaturn intentionally exposes 64 logical texture slots. The example therefore
-no longer pre-uploads the whole character. A bounded 32-entry LRU working set
-uploads frame textures from ROM on demand and pins both fighters' current
-textures before emitting VDP1 commands, preventing an eviction from
-invalidating the current command list.
+The selected AIR subset references more than 64 unique KFM sprites, while
+LibSaturn intentionally exposes 64 logical texture slots. The example uses a
+bounded 32-entry LRU working set, uploads frame textures from ROM on demand and
+pins both fighters' current textures before emitting VDP1 commands.
 
 ## Still deferred
 
-This is not yet a full CNS/common-state VM. Important remaining pieces include:
+This is not yet a complete Ikemen common-state VM. The next important pieces are:
 
-* full common1 state flow (stand↔crouch transitions, jump start/landing,
-  run/hop, guards and complete get-hit/knockdown/recovery states)
+* common states 40/45/50/51 for jump start, air jump and the full jump flow
+* guards and the complete get-hit/knockdown/bounce/lying/recovery graph
 * throws, specials and supers
-* guard semantics and the remaining HitDef fields
+* remaining HitDef semantics, guard/chip/reversal/juggle behavior
 * fightfx sparks/effects, motif/lifebar flow and full round presentation
-* generic PlaySnd dispatch from compiled CNS instead of the current small
-  sound binding layer
-
-Unsupported selected controllers are reported by the CNS compiler rather than
-silently approximated.
+* generic PlaySnd dispatch for all compiled states
+* stage DEF execution instead of the current simplified stage runtime
 
 ## Assets and attribution
 
 Sprites, palettes, sounds and Training Room content come from
-[Ikemen-GO-Screenpack](https://github.com/ikemen-engine/Ikemen-GO-Screenpack)
-(Kung Fu Man / Elecbyte / Ikemen GO authors; see that repository's licence).
-The source checkout stays under `.external/`; generated tables are rebuilt
-locally.
+[Ikemen-GO-Screenpack](https://github.com/ikemen-engine/Ikemen-GO-Screenpack).
+Common-state source data comes from
+[Ikemen-GO](https://github.com/ikemen-engine/Ikemen-GO).
+Kung Fu Man originates from Elecbyte; see the upstream repositories for their
+licensing and attribution details. Source checkouts remain under
+`.external/`; generated tables are rebuilt locally.
