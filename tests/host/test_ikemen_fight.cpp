@@ -143,6 +143,11 @@ static void tick(ik_fight_t* g, const ik_fight_controls_t* p) {
     ik_fight_update(g,p,nullptr,&k_table);
 }
 
+static void request(ik_fight_controls_t* p, int16_t state) {
+    p->requested_state=state;
+    p->has_state_request=1u;
+}
+
 static void idle(ik_fight_t* g,int n) {
     ik_fight_controls_t p{};
     for(int i=0;i<n;++i) tick(g,&p);
@@ -173,7 +178,7 @@ int main() {
     {
         ik_fight_init(&g,&k_cns); place(&g,100,150);
         const int hp=g.fighters[1].hp;
-        ik_fight_controls_t p{}; p.x=1;
+        ik_fight_controls_t p{}; request(&p,IK_STATE_PUNCH);
         tick(&g,&p); idle(&g,3);
         EQ(hp-g.fighters[1].hp,23);
         EQ(g.hits_p1,1u);
@@ -183,7 +188,7 @@ int main() {
      * and AnimTime=0 returns to common crouch state 11. */
     {
         ik_fight_init(&g,&k_cns); place(&g,100,170);
-        ik_fight_controls_t p{}; p.down=1; p.x=1;
+        ik_fight_controls_t p{}; p.down=1; request(&p,IK_STATE_CROUCH_PUNCH);
         tick(&g,&p);
         EQ(g.fighters[0].state,IK_STATE_CROUCH_PUNCH);
         idle(&g,6);
@@ -198,7 +203,7 @@ int main() {
     {
         ik_fight_init(&g,&k_cns); place(&g,100,145);
         const int hp=g.fighters[1].hp;
-        ik_fight_controls_t p{}; p.down=1; p.y=1;
+        ik_fight_controls_t p{}; p.down=1; request(&p,IK_STATE_CROUCH_STRONG_PUNCH);
         tick(&g,&p);
         for(int i=0;i<40 && g.hits_p1<2u;++i) idle(&g,1);
         EQ(g.hits_p1,2u);
@@ -208,7 +213,7 @@ int main() {
     /* State 240 PosAdd at AnimElem 7 moves forward relative to facing. */
     {
         ik_fight_init(&g,&k_cns); place(&g,80,220);
-        ik_fight_controls_t p{}; p.b=1;
+        ik_fight_controls_t p{}; request(&p,IK_STATE_STRONG_KICK);
         tick(&g,&p);
         const int32_t before=g.fighters[0].x_q8;
         for(int i=0;i<14;++i) idle(&g,1);
@@ -219,7 +224,7 @@ int main() {
      * HitDef into horizontal-only knockback. */
     {
         ik_fight_init(&g,&k_cns); place(&g,100,145);
-        ik_fight_controls_t p{}; p.down=1; p.b=1;
+        ik_fight_controls_t p{}; p.down=1; request(&p,IK_STATE_CROUCH_STRONG_KICK);
         tick(&g,&p);
         for(int i=0;i<5 && g.hits_p1==0u;++i) idle(&g,1);
         EQ(g.hits_p1,1u);
@@ -236,7 +241,7 @@ int main() {
         EQ(g.fighters[0].state,IK_STATE_JUMP);
         EQ(g.fighters[0].on_ground,0);
 
-        p={}; p.x=1;
+        p={}; request(&p,IK_STATE_JUMP_PUNCH);
         const int hp=g.fighters[1].hp;
         tick(&g,&p);
         EQ(g.fighters[0].state,IK_STATE_JUMP_PUNCH);
@@ -244,7 +249,7 @@ int main() {
         EQ(g.fighters[0].move_contact,1);
 
         idle(&g,8);
-        p={}; p.y=1;
+        p={}; request(&p,IK_STATE_JUMP_STRONG_PUNCH);
         tick(&g,&p);
         EQ(g.fighters[0].state,IK_STATE_JUMP_STRONG_PUNCH);
         EQ(g.fighters[0].on_ground,0);
@@ -260,7 +265,7 @@ int main() {
 
         ik_fight_controls_t p{}; p.up=1;
         tick(&g,&p);
-        p={}; p.x=1;
+        p={}; request(&p,IK_STATE_JUMP_PUNCH);
         tick(&g,&p);
 
         EQ(g.hits_p1,1u);
@@ -276,7 +281,7 @@ int main() {
         ik_fight_init(&g,&k_cns); place(&g,60,260);
         ik_fight_controls_t p{}; p.up=1;
         tick(&g,&p);
-        p={}; p.x=1;
+        p={}; request(&p,IK_STATE_JUMP_PUNCH);
         tick(&g,&p);
         EQ(g.fighters[0].ctrl,0);
         idle(&g,17);
