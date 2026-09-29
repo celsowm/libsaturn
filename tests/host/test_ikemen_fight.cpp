@@ -1057,6 +1057,97 @@ int main() {
         EQ(g.fighters[0].vy_q8,-2074);
     }
 
+    /* StateDef juggle points are spent when a hit starts fall, then gate
+     * subsequent hits against falling/downed targets. */
+    {
+        constexpr unsigned state_count=
+            (unsigned)(sizeof(k_states)/sizeof(k_states[0]));
+        constexpr unsigned hitdef_count=
+            (unsigned)(sizeof(k_hitdefs)/sizeof(k_hitdefs[0]));
+        ik_cns_state_t states[state_count+1];
+        ik_cns_hitdef_t hitdefs[hitdef_count+1];
+        for(unsigned i=0;i<state_count;++i) states[i]=k_states[i];
+        for(unsigned i=0;i<hitdef_count;++i) hitdefs[i]=k_hitdefs[i];
+
+        states[state_count]=k_states[0];
+        states[state_count].number=902;
+        states[state_count].anim=200;
+        states[state_count].hitdef_ofs=(uint16_t)hitdef_count;
+        states[state_count].hitdef_count=1u;
+        states[state_count].controller_count=0u;
+        states[state_count].juggle=5;
+        states[state_count].has_juggle=1u;
+
+        hitdefs[hitdef_count]=k_hitdefs[0];
+        hitdefs[hitdef_count].state_number=902;
+        hitdefs[hitdef_count].trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hitdefs[hitdef_count].trigger_value=0;
+        hitdefs[hitdef_count].damage=1;
+        hitdefs[hitdef_count].pause_p1=0u;
+        hitdefs[hitdef_count].pause_p2=0u;
+        hitdefs[hitdef_count].guard_flags=0u;
+        hitdefs[hitdef_count].flags=IK_CNS_HITDEF_FALL;
+        hitdefs[hitdef_count].hit_flags=IK_CNS_HIT_DEFAULT;
+        hitdefs[hitdef_count].air_juggle=0u;
+
+        ik_cns_asset_t asset=k_cns;
+        asset.states=states;
+        asset.state_count=(uint16_t)(state_count+1);
+        asset.hitdefs=hitdefs;
+        asset.hitdef_count=(uint16_t)(hitdef_count+1);
+        asset.constants.air_juggle=15;
+
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        ik_fight_controls_t p1{}; request(&p1,902);
+        ik_fight_controls_t p2{};
+        for(int i=0;i<8 && g.hits_p1==0u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].gethit_fall,1u);
+        EQ(g.fighters[1].juggle_points,10);
+
+        /* Exactly enough points permits one more juggle and consumes them. */
+        g.fighters[1].state=5050;
+        g.fighters[1].anim=5050;
+        g.fighters[1].on_ground=0;
+        g.fighters[1].gethit_fall=1u;
+        g.fighters[1].juggle_points=5;
+        g.fighters[1].x=145;
+        g.fighters[1].x_q8=145*256;
+        g.fighters[1].y=150;
+        g.fighters[1].y_q8=150*256;
+        g.fighters[0].x=100;
+        g.fighters[0].x_q8=100*256;
+        p1={}; request(&p1,902); p2={};
+        for(int i=0;i<8 && g.hits_p1<2u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,2u);
+        EQ(g.fighters[1].juggle_points,0);
+
+        /* No remaining budget: the same persistent-F hitflag attack misses. */
+        g.fighters[1].state=5050;
+        g.fighters[1].anim=5050;
+        g.fighters[1].on_ground=0;
+        g.fighters[1].gethit_fall=1u;
+        g.fighters[1].x=145;
+        g.fighters[1].x_q8=145*256;
+        g.fighters[1].y=150;
+        g.fighters[1].y_q8=150*256;
+        g.fighters[0].x=100;
+        g.fighters[0].x_q8=100*256;
+        p1={}; request(&p1,902); p2={};
+        for(int i=0;i<8;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,2u);
+        EQ(g.fighters[1].juggle_points,0);
+    }
+
     /* Default hitflag=MAF must not hit a liedown opponent. D is what
      * opts an attack into OTG/downed hits. */
     {
