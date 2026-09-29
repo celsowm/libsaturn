@@ -154,7 +154,11 @@ int main() {
 
     ik_command_state_init(&state);
     sample(&state,SAT_PAD_X);
-    ik_state_rule_context_t ctx{0,1,1,1,0,0};
+    ik_state_rule_context_t ctx{};
+    ctx.state_no=0;
+    ctx.state_time=1;
+    ctx.state_type=1;
+    ctx.ctrl=1;
     int16_t requested=0;
     OK(ik_command_eval_state_change(
         &state,&k_asset,&rule_asset,&ctx,&requested));
@@ -168,9 +172,60 @@ int main() {
 
     ik_command_state_init(&state);
     sample(&state,SAT_PAD_X);
-    ctx={200,7,1,0,0,0};
+    ctx={};
+    ctx.state_no=200;
+    ctx.state_time=7;
+    ctx.state_type=1;
     OK(ik_command_eval_state_change(
         &state,&k_asset,&rule_asset,&ctx,&requested));
+
+    static const ik_state_rule_instr_t throw_code[] = {
+        {IK_CMD_RULE_COMMAND_ACTIVE,0u,CMD_X,0},
+        {IK_CMD_RULE_STATE_TYPE_EQ,0u,1,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+        {IK_CMD_RULE_CTRL,0u,0,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+        {IK_CMD_RULE_STATE_NO_NE,0u,100,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+        {IK_CMD_RULE_P2_BODY_DIST_X_LT,0u,3,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+        {IK_CMD_RULE_P2_STATE_TYPE_EQ,0u,1,0},
+        {IK_CMD_RULE_P2_STATE_TYPE_EQ,0u,2,0},
+        {IK_CMD_RULE_OR,0u,0,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+        {IK_CMD_RULE_P2_MOVE_TYPE_NE,0u,3,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+    };
+    static const ik_state_rule_t throw_rules[] = {
+        {0u,(uint8_t)(sizeof(throw_code)/sizeof(throw_code[0])),800,0u}
+    };
+    static const ik_state_rule_asset_t throw_asset = {
+        throw_code,(uint16_t)(sizeof(throw_code)/sizeof(throw_code[0])),
+        throw_rules,1u
+    };
+
+    ik_command_state_init(&state);
+    sample(&state,SAT_PAD_X);
+    ctx={};
+    ctx.state_no=0;
+    ctx.state_time=1;
+    ctx.state_type=1;
+    ctx.ctrl=1;
+    ctx.p2_body_dist_x=2;
+    ctx.p2_state_type=1;
+    ctx.p2_move_type=1;
+    requested=0;
+    OK(ik_command_eval_state_change(
+        &state,&k_asset,&throw_asset,&ctx,&requested));
+    OK(requested==800);
+
+    ctx.p2_body_dist_x=3;
+    OK(!ik_command_eval_state_change(
+        &state,&k_asset,&throw_asset,&ctx,&requested));
+    ctx.p2_body_dist_x=2;
+    ctx.p2_move_type=3;
+    OK(!ik_command_eval_state_change(
+        &state,&k_asset,&throw_asset,&ctx,&requested));
 
     std::puts("[test] ikemen_command OK");
     return 0;
