@@ -369,6 +369,39 @@ static const ik_cns_hitdef_t* active_hitdef(const ik_fight_t* fight,
     return hitdef;
 }
 
+static int hitdef_allows_target(const ik_fight_t* fight,
+                                const ik_fighter_t* victim,
+                                const ik_cns_hitdef_t* hitdef) {
+    if (!victim || !hitdef) return 0;
+
+    const uint8_t flags = hitdef->hit_flags != 0u
+        ? hitdef->hit_flags
+        : IK_CNS_HIT_DEFAULT;
+    const ik_cns_state_t* spec = state_spec(fight, victim->state);
+    const int gethit =
+        (spec && spec->move_type == IK_CNS_MOVE_HIT) ||
+        victim->state == IK_STATE_HIT ||
+        victim->state == IK_STATE_KO;
+
+    if ((flags & IK_CNS_HIT_ONLY_GETHIT) != 0u && !gethit) return 0;
+    if ((flags & IK_CNS_HIT_NOT_GETHIT) != 0u && gethit) return 0;
+
+    switch ((ik_cns_state_type_t)ik_fight_state_type(fight, victim)) {
+        case IK_CNS_STATE_LIEDOWN:
+            return (flags & IK_CNS_HIT_DOWN) != 0u;
+        case IK_CNS_STATE_AIR:
+            return victim->gethit_fall
+                ? (flags & IK_CNS_HIT_FALL) != 0u
+                : (flags & IK_CNS_HIT_AIR) != 0u;
+        case IK_CNS_STATE_CROUCH:
+            return (flags & IK_CNS_HIT_CROUCH) != 0u;
+        case IK_CNS_STATE_STAND:
+        case IK_CNS_STATE_UNCHANGED:
+        default:
+            return (flags & IK_CNS_HIT_STAND) != 0u;
+    }
+}
+
 static int guard_threat(const ik_fight_t* fight,
                         const ik_frame_table_t* frames,
                         int victim,
@@ -378,7 +411,8 @@ static int guard_threat(const ik_fight_t* fight,
     const ik_fighter_t* a = &fight->fighters[victim ^ 1];
     const ik_cns_hitdef_t* hitdef =
         active_hitdef(fight, frames, a, 0);
-    if (!hitdef || hitdef->guard_flags == 0u) return 0;
+    if (!hitdef || hitdef->guard_flags == 0u ||
+        !hitdef_allows_target(fight, v, hitdef)) return 0;
 
     int dx = (int)a->x - (int)v->x;
     if (dx < 0) dx = -dx;
@@ -1277,6 +1311,7 @@ void ik_fight_update(ik_fight_t* fight,
         const ik_cns_hitdef_t* hitdef =
             active_hitdef(fight, frames, a, &local_hitdef);
         if (!hitdef || local_hitdef >= 32u) continue;
+        if (!hitdef_allows_target(fight, v, hitdef)) continue;
         const uint32_t bit = (uint32_t)1u << local_hitdef;
         if ((a->hitdef_hit_mask & bit) != 0u) continue;
         if (!fighter_clsn_overlap(frames, a, v)) continue;
