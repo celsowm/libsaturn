@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "ikemen_anim.h"
+#include "ikemen_cns.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,22 +15,8 @@ extern "C" {
 #define IK_FLOOR_Y 180
 #define IK_STAGE_MIN_X 24
 #define IK_STAGE_MAX_X 296
-#define IK_WALK_SPEED 2
-#define IK_JUMP_VELOCITY (-11)
-#define IK_GRAVITY 1
 #define IK_MAX_HP 1000
 #define IK_ROUND_TIME_FRAMES (99u * 60u)
-
-#define IK_PUNCH_DAMAGE 23
-#define IK_PUNCH_HITSTUN 11u
-#define IK_PUNCH_HITPAUSE 8u
-#define IK_PUNCH_GROUND_VELOCITY 4
-
-#define IK_KICK_DAMAGE 26
-#define IK_KICK_HITSTUN 14u
-#define IK_KICK_HITPAUSE 12u
-#define IK_KICK_GROUND_VELOCITY 5
-
 #define IK_KO_FREEZE_FRAMES 120
 
 typedef enum ik_state {
@@ -38,7 +25,9 @@ typedef enum ik_state {
     IK_STATE_JUMP = 40,
     IK_STATE_CROUCH = 50,
     IK_STATE_PUNCH = 200,
+    IK_STATE_STRONG_PUNCH = 210,
     IK_STATE_KICK = 230,
+    IK_STATE_STRONG_KICK = 240,
     IK_STATE_HIT = 500,
     IK_STATE_KO = 510,
     IK_STATE_GUARD = 550
@@ -69,8 +58,10 @@ typedef struct ik_fight_controls {
 typedef struct ik_fighter {
     int16_t x;
     int16_t y;
-    int16_t vx;
-    int16_t vy;
+    int32_t x_q8;
+    int32_t y_q8;
+    int32_t vx_q8;
+    int32_t vy_q8;
     int8_t facing;
     int8_t on_ground;
     int16_t state;
@@ -80,10 +71,12 @@ typedef struct ik_fighter {
     uint16_t hit_pause;
     uint8_t attack_has_hit;
     uint8_t attack_id;
+    uint8_t move_contact;
 } ik_fighter_t;
 
 typedef struct ik_fight {
     ik_fighter_t fighters[2];
+    const ik_cns_asset_t* cns;
     uint32_t frame;
     uint32_t timer_frames;
     uint16_t events;
@@ -94,14 +87,15 @@ typedef struct ik_fight {
     uint32_t ko_freeze;
 } ik_fight_t;
 
-void ik_fight_init(ik_fight_t* fight);
+void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns);
 void ik_fight_reset(ik_fight_t* fight);
-int ik_action_for_state(int16_t state);
+int ik_action_for_state(const ik_cns_asset_t* cns, int16_t state);
 void ik_fight_update(ik_fight_t* fight,
                      const ik_fight_controls_t* p1,
                      const ik_fight_controls_t* p2,
                      const ik_frame_table_t* frames);
 
+int ik_fight_max_hp(const ik_fight_t* fight);
 int ik_body_half_w(const ik_fighter_t* f);
 int ik_body_h(const ik_fighter_t* f);
 void ik_body_box(const ik_fighter_t* f, int* out_left, int* out_top,

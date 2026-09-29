@@ -15,8 +15,10 @@ extern "C" {
 typedef struct ik_audio {
     sat_sound_t punch_whiff;
     sat_sound_t kick_whiff;
+    sat_sound_t strong_punch_whiff;
     sat_sound_t punch_hit;
     sat_sound_t kick_hit;
+    sat_sound_t strong_hit;
 } ik_audio_t;
 
 sat_result_t ik_audio_init(ik_audio_t* audio);

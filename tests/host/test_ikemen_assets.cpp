@@ -136,7 +136,7 @@ int main() {
     OK(p2.generation != 0u);
 
     /* Draw both players across every action at several times. */
-    static const int actions[] = {0, 11, 20, 41, 105, 120, 130, 200, 210, 230};
+    static const int actions[] = {0, 11, 20, 41, 105, 120, 130, 200, 210, 230, 240};
     for (int action : actions) {
         for (uint32_t t = 0u; t < 40u; t += 7u) {
             const ik_frame_t* frame = ik_frame_at_time(&table, action, t);

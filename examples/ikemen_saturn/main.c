@@ -30,6 +30,7 @@
 #include "ikemen_command.h"
 #include "ikemen_fight.h"
 #include "ikemen_saturn/kfm_commands.h"
+#include "ikemen_saturn/kfm_cns.h"
 #include "ikemen_saturn/kfm_frames.h"
 #include "ikemen_saturn/stage0_plane.h"
 
@@ -117,9 +118,10 @@ static void fighters_init(void) {
     sat_example_must(sat_palette_register(kfm_palette_alt1, &g_p2_palette));
 }
 
-static void draw_fighter(const ik_fighter_t* f, int player) {
+static void draw_fighter(const ik_cns_asset_t* cns,
+                         const ik_fighter_t* f, int player) {
     const ik_frame_t* frame = ik_frame_at_time(
-        &g_kfm_table, ik_action_for_state(f->state), f->state_time);
+        &g_kfm_table, ik_action_for_state(cns, f->state), f->state_time);
     if (frame == 0) {
         frame = ik_frame_at_time(&g_kfm_table, 0, 0u);
         if (frame == 0) return;
@@ -212,9 +214,9 @@ static void draw_bars(const ik_fight_t* fight) {
     const uint16_t p1_fg = SAT_BGR555(28u, 6u, 6u);
     const uint16_t p2_fg = SAT_BGR555(6u, 12u, 28u);
     sat_example_must(sat_hud_bar(&g_hud, 12, 10, 120, 8,
-        (uint32_t)fight->fighters[0].hp, IK_MAX_HP, bar_bg, p1_fg));
+        (uint32_t)fight->fighters[0].hp, (uint32_t)ik_fight_max_hp(fight), bar_bg, p1_fg));
     sat_example_must(sat_hud_bar(&g_hud, 188, 10, 120, 8,
-        (uint32_t)fight->fighters[1].hp, IK_MAX_HP, bar_bg, p2_fg));
+        (uint32_t)fight->fighters[1].hp, (uint32_t)ik_fight_max_hp(fight), bar_bg, p2_fg));
     sat_example_must(sat_hud_text(&g_hud, "P1", 12, 22));
     sat_example_must(sat_hud_text(&g_hud, "P2 DUMMY", 236, 22));
     {
@@ -229,7 +231,7 @@ static void draw_bars(const ik_fight_t* fight) {
         const char* status = ik_fight_status_text(fight);
         if (status) sat_example_must(sat_hud_text_centered(&g_hud, status, 160, 100));
         else sat_example_must(sat_hud_text_centered(&g_hud,
-            "X PUNCH A KICK  D-PAD MOVE  START RESET", 160, 208));
+            "X/Y PUNCH A/B KICK  D-PAD MOVE  START RESET", 160, 208));
     }
     sat_example_must(sat_hud_value(&g_hud, "HITS P1 ", fight->hits_p1, 12, 196));
     sat_example_must(sat_hud_value(&g_hud, "HITS P2 ", fight->hits_p2, 200, 196));
@@ -251,7 +253,7 @@ int main(void) {
     fighters_init();
     sat_example_must(ik_audio_init(&audio));
 
-    ik_fight_init(&fight);
+    ik_fight_init(&fight, &kfm_cns);
     ik_command_state_init(&g_command_states[0]);
     ik_command_state_init(&g_command_states[1]);
 
@@ -294,8 +296,8 @@ int main(void) {
 
         /* VDP1 draws fighters + FX + HUD; the stage is VDP2. */
         stage_scroll_for_fight(&fight);
-        draw_fighter(&fight.fighters[0], 1);
-        draw_fighter(&fight.fighters[1], 2);
+        draw_fighter(fight.cns, &fight.fighters[0], 1);
+        draw_fighter(fight.cns, &fight.fighters[1], 2);
         draw_bars(&fight);
 
         sat_example_must(sat_app_frame_end());

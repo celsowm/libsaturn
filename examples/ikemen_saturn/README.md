@@ -6,8 +6,8 @@ with real Ikemen GO screenpack assets.
 ## Controls
 
 * D-pad: forward/back / crouch / jump, interpreted relative to facing
-* X: KFM standing light punch (CMD `"x"`)
-* A: KFM standing light kick (CMD `"a"`)
+* X/Y: KFM standing light/strong punch
+* A/B: KFM standing light/strong kick
 * START: reset round (training-demo convenience; KFM's taunt state is not wired yet)
 * P2 pad (optional): controls P2; unplugged = idle training dummy
 
@@ -33,19 +33,24 @@ consumes generated tables and never parses the source text/container formats.
   Runtime matching supports facing-relative B/F, signed input ages, `/`,
   `~`, `$`, `+`, `|`, `>`, command timing/buffering, duplicate-name
   variants and repeated-direction auto-greater expansion.
-* A CNS compiler now emits KFM constants, selected Statedef metadata, HitDefs
-  and PlaySnd controllers. Fractional velocity/physics values are stored Q8.8
-  so the Saturn runtime can consume the original values without float math.
-* The first compiled CNS slice is states 200, 210, 230 and 240. Controllers
-  outside the currently executable subset are reported explicitly by the
-  compiler rather than silently approximated.
-* The currently playable state machine still executes idle/walk/jump/crouch,
-  standing light punch 200, standing light kick 230, hit and KO. Wiring the
-  generated CNS tables into the fight runtime is the next layer; there is no
-  claim yet that the full CNS/common-state VM has been ported.
+* The CNS compiler emits KFM constants, selected Statedef metadata, HitDefs
+  and PlaySnd controllers. Fractional velocity/physics values are Q8.8 so
+  values such as walk 2.4, gravity .44 and strong-punch knockback -5.5 are
+  retained without floating point on SH-2.
+* Standing normals 200, 210, 230 and 240 now execute from the generated CNS
+  state/HitDef data: X = 200, Y = 210, A = 230 and B = 240. Damage, hit pause,
+  hit time, velocity and HitDef activation no longer come from duplicate
+  constants in `ikemen_fight.c`.
+* Ground walking, jump launch and gravity now consume the original KFM
+  `[Velocity]` / `[Movement]` values in Q8.8 rather than the previous
+  integer approximations.
+* KFM's documented 200/230 -> 210/240 normal cancels are wired at their CMD
+  state-time gates. More complex CNS controllers such as Width, ChangeAnim,
+  PosAdd and SprPriority are still deferred and are reported by the compiler.
 * Stage0 is the real Training Room image on VDP2 NBG0. P2 uses a draw-time
   palette override while both fighters share one VDP1 pixel copy.
-* Audio uses samples extracted from KFM/common SND. Stage0 has no BGM entry.
+* Audio includes the original whiff/hit samples for all four standing normals.
+  Stage0 has no BGM entry.
 
 ## Runtime constraints
 
