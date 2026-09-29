@@ -119,6 +119,9 @@ int ik_cns_controller_trigger_context_now(
         case IK_CNS_TRIGGER_HIT_NO_LAUNCH:
             return context->hit_launch == 0u;
 
+        case IK_CNS_TRIGGER_NOT_ALIVE:
+            return context->alive == 0u;
+
         default:
             return ik_cns_trigger_now(
                 controller->trigger_kind, controller->trigger_value,
@@ -137,6 +140,7 @@ int ik_cns_controller_trigger_now(const ik_cns_controller_t* controller,
         state_time, anim_element, anim_element_time,
         0, 0, 0, 0, 0, 0u,
         0u, 0u, 0u, 0u,
+        1u,
         (uint8_t)(anim_ended != 0),
         (uint8_t)(move_contact != 0)
     };
