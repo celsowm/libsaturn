@@ -792,25 +792,30 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         if (controls->recovery) command_mask |= IK_CNS_COMMAND_RECOVERY;
     }
     const ik_cns_controller_context_t context = {
-        f->state_time,
-        elem,
-        elem_time,
-        f->anim,
-        f->vx_q8,
-        f->vy_q8,
-        f->y_q8,
-        (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE,
-        command_mask,
-        f->hitstun,
-        f->hit_slide_time,
-        f->hit_ctrl_time,
-        (uint8_t)(f->gethit_fall || f->gethit_vy_q8 != 0 ||
-                  !f->on_ground),
-        (uint8_t)(f->hp > 0),
-        (uint8_t)(anim_ended != 0),
-        f->move_contact
+        .state_time = f->state_time,
+        .anim_element = elem,
+        .anim_element_time = elem_time,
+        .anim = f->anim,
+        .vx_q8 = f->vx_q8,
+        .vy_q8 = f->vy_q8,
+        .y_q8 = f->y_q8,
+        .floor_y_q8 = (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE,
+        .command_mask = command_mask,
+        .hitstun = f->hitstun,
+        .hit_slide_time = f->hit_slide_time,
+        .hit_ctrl_time = f->hit_ctrl_time,
+        .fall_time = f->fall_time,
+        .state_axis = f->state_axis,
+        .hit_launch = (uint8_t)(
+            f->gethit_fall || f->gethit_vy_q8 != 0 || !f->on_ground),
+        .alive = (uint8_t)(f->hp > 0),
+        .can_recover = (uint8_t)(
+            f->gethit_fall_recover &&
+            f->fall_time >= f->gethit_fall_recover_time),
+        .is_bound = (uint8_t)(f->bound_to >= 0),
+        .anim_ended = (uint8_t)(anim_ended != 0),
+        .move_contact = f->move_contact
     };
-
     for (uint8_t i = 0u; i < state->controller_count; ++i) {
         const uint16_t index = (uint16_t)(state->controller_ofs + i);
         if (index >= fight->cns->controller_count) break;
@@ -1103,6 +1108,76 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     f->anim_time = 0u;
                     enter_state(fight, f, 5081);
                 }
+                return 1;
+
+            case IK_CNS_CTRL_TARGET_BIND:
+                if (f->target_index >= 0 && f->target_index < 2) {
+                    ik_fighter_t* target =
+                        &fight->fighters[(int)f->target_index];
+                    target->bound_to =
+                        (int8_t)(f == &fight->fighters[0] ? 0 : 1);
+                    target->x_q8 =
+                        f->x_q8 + (int32_t)f->facing * ctrl->value0;
+                    target->y_q8 = f->y_q8 + ctrl->value1;
+                    target->vx_q8 = 0;
+                    target->vy_q8 = 0;
+                    sync_position(target);
+                }
+                break;
+
+            case IK_CNS_CTRL_TARGET_FACING:
+                if (f->target_index >= 0 && f->target_index < 2) {
+                    ik_fighter_t* target =
+                        &fight->fighters[(int)f->target_index];
+                    target->facing = (int8_t)(
+                        f->facing * (ctrl->value0 < 0 ? -1 : 1));
+                }
+                break;
+
+            case IK_CNS_CTRL_TARGET_LIFE_ADD:
+                if (f->target_index >= 0 && f->target_index < 2) {
+                    const int target_index = f->target_index;
+                    ik_fighter_t* target = &fight->fighters[target_index];
+                    int hp = (int)target->hp + ctrl->value0;
+                    const int max_hp = ik_fight_max_hp(fight);
+                    if (hp > max_hp) hp = max_hp;
+                    if (hp <= 0) {
+                        hp = 0;
+                        fight->winner =
+                            (uint8_t)((target_index ^ 1) + 1);
+                        fight->events |= IK_EVENT_KO;
+                    }
+                    target->hp = (int16_t)hp;
+                }
+                break;
+
+            case IK_CNS_CTRL_TARGET_STATE:
+                if (f->target_index >= 0 && f->target_index < 2) {
+                    const int target_index = f->target_index;
+                    ik_fighter_t* target = &fight->fighters[target_index];
+                    target->bound_to = -1;
+                    enter_state(fight, target, ctrl->value0);
+                    f->target_index = -1;
+                }
+                break;
+
+            case IK_CNS_CTRL_TURN:
+                f->facing = (int8_t)-f->facing;
+                break;
+
+            case IK_CNS_CTRL_CHANGE_ANIM2:
+                f->anim = ctrl->value0;
+                f->anim_time = anim_element_start_tick(
+                    frames, f->anim,
+                    (uint16_t)(ctrl->value1 < 1 ? 1 : ctrl->value1));
+                break;
+
+            case IK_CNS_CTRL_SELF_STATE:
+                if (f->bound_to >= 0 && f->bound_to < 2) {
+                    fight->fighters[(int)f->bound_to].target_index = -1;
+                }
+                f->bound_to = -1;
+                enter_state(fight, f, ctrl->value0);
                 return 1;
 
             case IK_CNS_CTRL_FALL_RECOVERY: {
