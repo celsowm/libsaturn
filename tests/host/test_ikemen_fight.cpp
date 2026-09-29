@@ -46,8 +46,14 @@ static const ik_frame_t k_frames[] = {
     F(5011,0,2,0,0),
     F(5020,0,2,0,0),
     F(5030,0,2,0,0),
+    F(5035,0,2,0,0),
     F(5040,0,2,0,0),
     F(5050,0,2,0,0),
+    F(5070,0,2,0,0),
+    F(5100,0,2,0,0),
+    F(5160,0,4,0,0),
+    F(5110,0,0,0,0),
+    F(5120,0,3,0,0),
 
     F(200,0,2,0,0), F(200,1,1,0,0), F(200,2,4,1,1),
     F(200,3,3,0,0), F(200,4,2,0,0),
@@ -95,7 +101,8 @@ static const ik_cns_hitdef_t k_hitdefs[] = {
     {410,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,37,0,4,12,12,IK_CNS_GROUND_LOW,12,17,17,-1024,0,-768,-1024,1,-10,-55,5,2,6,0,0},
     {410,IK_CNS_TRIGGER_ANIM_ELEM_EQ,4,36,0,4,12,12,IK_CNS_GROUND_HIGH,12,17,17,-1792,0,-768,-1024,-1,-10,-83,5,2,6,0,0},
     {430,IK_CNS_TRIGGER_TIME_EQ,0,28,0,4,12,12,IK_CNS_GROUND_LOW,6,10,10,-1280,0,-512,-768,0,-10,-8,5,1,6,0,0},
-    {440,IK_CNS_TRIGGER_TIME_EQ,0,72,0,4,12,12,IK_CNS_GROUND_TRIP,10,17,17,-384,-512,-307,-768,1,-5,-10,5,2,6,0,IK_CNS_HITDEF_FALL},
+    {440,IK_CNS_TRIGGER_TIME_EQ,0,72,0,4,12,12,IK_CNS_GROUND_TRIP,10,17,17,-384,-512,-307,-768,1,-5,-10,5,2,6,0,IK_CNS_HITDEF_FALL,
+     IK_CNS_GUARD_CROUCH,10,17,17,-1280,-461,-384,2,2,0,-1152,0,1,4},
     {600,IK_CNS_TRIGGER_TIME_EQ,0,20,0,3,7,8,IK_CNS_GROUND_HIGH,5,8,14,-1024,0,-333,-768,0,-10,-58,5,0,6,0,0},
     {610,IK_CNS_TRIGGER_TIME_EQ,0,72,0,4,12,12,IK_CNS_GROUND_HIGH,12,14,14,-1536,0,-768,-1024,1,-10,-55,5,3,6,0,0},
     {630,IK_CNS_TRIGGER_TIME_EQ,0,26,0,3,8,8,IK_CNS_GROUND_HIGH,6,10,14,-1024,0,-512,-768,1,-5,-35,5,0,6,0,0},
@@ -212,6 +219,48 @@ static const ik_cns_controller_t k_ctrls[] = {
      1,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
     {5030,IK_CNS_CTRL_HIT_RECOVER_STATE,IK_CNS_TRIGGER_HIT_OVER,
      0,0,0,0,0u},
+    {5030,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
+     0,0,5035,0,0u},
+    {5035,IK_CNS_CTRL_HIT_RECOVER_STATE,IK_CNS_TRIGGER_HIT_OVER,
+     0,0,0,0,0u},
+    {5035,IK_CNS_CTRL_HIT_RECOVER_STATE,IK_CNS_TRIGGER_ANIM_END,
+     0,0,0,0,0u},
+    {5070,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,5071,0,0u},
+    {5071,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
+    {5100,IK_CNS_CTRL_POS_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+    {5100,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+    {5100,IK_CNS_CTRL_VEL_MUL,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,192,0,IK_CNS_CTRL_AXIS_X},
+    {5100,IK_CNS_CTRL_FALL_GROUND_BRANCH,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,5110,0,0u},
+    {5100,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
+     0,0,5101,0,0u},
+    {5101,IK_CNS_CTRL_FALL_BOUNCE_VEL,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,0u},
+    {5101,IK_CNS_CTRL_POS_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,5120,IK_CNS_CTRL_AXIS_Y},
+    {5101,IK_CNS_CTRL_POS_ADD,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,0u},
+    {5110,IK_CNS_CTRL_POS_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+    {5110,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+    {5110,IK_CNS_CTRL_VEL_MUL,IK_CNS_TRIGGER_ALWAYS,
+     0,0,218,0,IK_CNS_CTRL_AXIS_X},
+    {5110,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_ABS_VX_LT_Q8,
+     13,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {5110,IK_CNS_CTRL_POS_ADD_VEL,IK_CNS_TRIGGER_ALWAYS,
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {5110,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
+     60,0,5120,0,0u},
+    {5120,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {5120,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
+     0,0,0,1,IK_CNS_CTRL_HAS_CTRL},
 };
 
 #define S(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_STAND,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt,0}
@@ -264,18 +313,33 @@ static const ik_cns_state_t k_states[] = {
     {5020,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
      0,0,1u,0u,0u,0u,0u,45u,2u,0},
     {5030,5030,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,47u,2u,0},
+     0,0,0u,0u,0u,0u,0u,47u,3u,0,0,6400},
+    {5035,5035,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,50u,2u,0,0,6400},
     {5040,5040,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     1,0,0u,0u,0u,0u,0u,49u,0u,52},
+     1,0,0u,0u,0u,0u,0u,52u,0u,52,0,0},
     {5050,5050,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,49u,0u,52},
+     0,0,0u,0u,0u,0u,0u,52u,0u,5100,0,6400},
+    {5070,5070,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,1u,0u,0u,0u,0u,52u,1u,0,0,0},
+    {5071,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,53u,1u,5110,0,3840},
+    {5100,5100,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,54u,5u,0,0,0},
+    {5101,5160,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,59u,3u,5110,102,3072},
+    {5110,5110,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,62u,6u,0,0,0},
+    {5120,5120,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,68u,2u,0,0,0},
 };
 #undef S
 #undef C
 #undef A
 
 static const ik_cns_asset_t k_cns = {
-    {1000,15,16,12,12,60,160,614,-563,1178,0,-1152,-973,0,-2150,-653,640,1024,-2074,0,-2074,-653,640,1,35,113,218,210,512,13},
+    {1000,15,16,12,12,60,160,614,-563,1178,0,-1152,-973,0,-2150,-653,640,1024,-2074,0,-2074,-653,640,1,35,113,218,210,512,13,
+     60,6400,3840,0,5120,102,3072,13},
     k_states,(uint16_t)(sizeof(k_states)/sizeof(k_states[0])),
     k_hitdefs,13u,
     nullptr,0u,
@@ -527,9 +591,54 @@ int main() {
         for(int i=0;i<5 && g.hits_p1==0u;++i) idle(&g,1);
         EQ(g.hits_p1,1u);
         EQ(g.fighters[1].on_ground,0);
-        EQ(g.fighters[1].state,5000);
+        EQ(g.fighters[1].state,5070);
         OK(g.fighters[1].gethit_vy_q8<0);
+        EQ(g.fighters[1].gethit_fall_y_q8,-1152);
         EQ(g.fighters[1].vy_q8,0);
+
+        for(int i=0;i<160 && g.fighters[1].state!=5110;++i) idle(&g,1);
+        EQ(g.fighters[1].state,5110);
+        EQ(g.fighters[1].on_ground,1);
+    }
+
+    /* Falling state 5050 reaches 5100, applies the default MUGEN
+     * fall.yvelocity bounce, lies down, then enters get-up 5120. */
+    {
+        ik_fight_init(&g,&k_cns);
+        ik_fighter_t* f=&g.fighters[1];
+        f->state=5050;
+        f->anim=5050;
+        f->state_time=0u;
+        f->anim_time=0u;
+        f->on_ground=0;
+        f->ctrl=0;
+        f->y=170;
+        f->y_q8=170*256;
+        f->vx_q8=512;
+        f->vy_q8=512;
+        f->gethit_fall=1u;
+        f->gethit_fall_y_q8=-1152;
+        f->gethit_fall_x_set=0u;
+
+        for(int i=0;i<80 && f->state!=5101;++i) idle(&g,1);
+        EQ(f->state,5101);
+        idle(&g,1);
+        EQ(f->on_ground,0);
+        EQ(f->vy_q8,-1050);
+        OK(f->y_q8>IK_FLOOR_Y*256);
+
+        for(int i=0;i<100 && f->state!=5110;++i) idle(&g,1);
+        EQ(f->state,5110);
+        EQ(f->on_ground,1);
+
+        int saw_getup=0;
+        for(int i=0;i<90 && f->state!=IK_STATE_IDLE;++i) {
+            idle(&g,1);
+            if(f->state==5120) saw_getup=1;
+        }
+        OK(saw_getup);
+        EQ(f->state,IK_STATE_IDLE);
+        EQ(f->ctrl,1);
     }
 
     /* Jump normals are compiled CNS states with Physics=A. They remain
