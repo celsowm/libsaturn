@@ -9,6 +9,7 @@ character data on Saturn hardware.
 * X/Y: light/strong punch
 * A/B: light/strong kick
 * Down + X/Y/A/B: the four crouching normals
+* In the air, X/Y/A/B: light/strong punch and light/strong kick
 * START: reset round (training convenience)
 * P2 pad (optional): controls P2; unplugged = idle training dummy
 
@@ -32,6 +33,8 @@ The playable normal attacks now use the original KFM data for states:
 * 230 / 240: standing light / strong kick
 * 400 / 410: crouching light / strong punch
 * 430 / 440: crouching light / strong kick
+* 600 / 610: jumping light / strong punch
+* 630 / 640: jumping light / strong kick
 
 For those states, damage, hit pause, hit time, knockback, AIR collision boxes,
 animation timing and the supported controllers come from the source data
@@ -51,7 +54,9 @@ and skips the contact-linger animation with the original move-contact
 `ChangeAnim`. State 410's two HitDefs are tracked independently, so both hits
 can connect.
 State 440 preserves its fall flag and vertical launch instead of flattening the
-sweep into horizontal knockback.
+sweep into horizontal knockback. The four jumping normals now retain Physics=A,
+including gravity/velocity while attacking, state 600's Time=17 CtrlSet and the
+original light-air-attack contact cancels into the two strong air attacks.
 
 KFM `[Data]`, `[Size]`, `[Velocity]` and `[Movement]` values are compiled
 to fixed-point Q8.8. Walking, jump launch, gravity, friction, body height and
@@ -77,7 +82,7 @@ This is not yet a full CNS/common-state VM. Important remaining pieces include:
 
 * full common1 state flow (stand↔crouch transitions, jump start/landing,
   run/hop, guards and complete get-hit/knockdown/recovery states)
-* aerial normals, throws, specials and supers
+* throws, specials and supers
 * guard semantics and the remaining HitDef fields
 * fightfx sparks/effects, motif/lifebar flow and full round presentation
 * generic PlaySnd dispatch from compiled CNS instead of the current small

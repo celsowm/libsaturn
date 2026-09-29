@@ -26,6 +26,8 @@ static void play_attack_sound(const ik_audio_t* audio, int16_t state, int hit) {
         switch (state) {
             case IK_STATE_PUNCH:
             case IK_STATE_CROUCH_PUNCH:
+            case IK_STATE_JUMP_PUNCH:
+            case IK_STATE_JUMP_KICK:
                 sound = audio->punch_hit;
                 break;
             case IK_STATE_KICK:
@@ -38,6 +40,10 @@ static void play_attack_sound(const ik_audio_t* audio, int16_t state, int hit) {
             case IK_STATE_CROUCH_STRONG_KICK:
                 sound = audio->strong_hit;
                 break;
+            case IK_STATE_JUMP_STRONG_PUNCH:
+            case IK_STATE_JUMP_STRONG_KICK:
+                sound = audio->air_strong_hit;
+                break;
             default:
                 return;
         }
@@ -47,10 +53,14 @@ static void play_attack_sound(const ik_audio_t* audio, int16_t state, int hit) {
             case IK_STATE_CROUCH_PUNCH:
             case IK_STATE_CROUCH_STRONG_PUNCH:
             case IK_STATE_CROUCH_KICK:
+            case IK_STATE_JUMP_PUNCH:
+            case IK_STATE_JUMP_KICK:
                 sound = audio->punch_whiff;
                 break;
             case IK_STATE_KICK:
             case IK_STATE_STRONG_KICK:
+            case IK_STATE_JUMP_STRONG_PUNCH:
+            case IK_STATE_JUMP_STRONG_KICK:
                 sound = audio->kick_whiff;
                 break;
             case IK_STATE_STRONG_PUNCH:
@@ -87,7 +97,10 @@ sat_result_t ik_audio_init(ik_audio_t* audio) {
     if (st != SAT_OK) return st;
     st = create_pcm_sound(&audio->kick_hit, &kfm_sounds_kick_hit);
     if (st != SAT_OK) return st;
-    return create_pcm_sound(&audio->strong_hit, &kfm_sounds_strong_hit);
+    st = create_pcm_sound(&audio->strong_hit, &kfm_sounds_strong_hit);
+    if (st != SAT_OK) return st;
+    return create_pcm_sound(
+        &audio->air_strong_hit, &kfm_sounds_air_strong_hit);
 }
 
 void ik_audio_process_fight(ik_audio_t* audio, const ik_fight_t* fight) {
@@ -101,12 +114,16 @@ void ik_audio_process_fight(ik_audio_t* audio, const ik_fight_t* fight) {
         if ((state == IK_STATE_PUNCH ||
              state == IK_STATE_CROUCH_PUNCH ||
              state == IK_STATE_CROUCH_STRONG_PUNCH ||
-             state == IK_STATE_CROUCH_KICK) && time == 1u) {
+             state == IK_STATE_CROUCH_KICK ||
+             state == IK_STATE_JUMP_PUNCH ||
+             state == IK_STATE_JUMP_KICK) && time == 1u) {
             play_attack_sound(audio, state, 0);
         } else if ((state == IK_STATE_STRONG_PUNCH ||
                     state == IK_STATE_KICK ||
                     state == IK_STATE_STRONG_KICK ||
-                    state == IK_STATE_CROUCH_STRONG_KICK) && time == 2u) {
+                    state == IK_STATE_CROUCH_STRONG_KICK ||
+                    state == IK_STATE_JUMP_STRONG_PUNCH ||
+                    state == IK_STATE_JUMP_STRONG_KICK) && time == 2u) {
             play_attack_sound(audio, state, 0);
         }
     }
@@ -121,7 +138,11 @@ void ik_audio_process_fight(ik_audio_t* audio, const ik_fight_t* fight) {
                 state == IK_STATE_CROUCH_PUNCH ||
                 state == IK_STATE_CROUCH_STRONG_PUNCH ||
                 state == IK_STATE_CROUCH_KICK ||
-                state == IK_STATE_CROUCH_STRONG_KICK) {
+                state == IK_STATE_CROUCH_STRONG_KICK ||
+                state == IK_STATE_JUMP_PUNCH ||
+                state == IK_STATE_JUMP_STRONG_PUNCH ||
+                state == IK_STATE_JUMP_KICK ||
+                state == IK_STATE_JUMP_STRONG_KICK) {
                 play_attack_sound(audio, state, 1);
                 break;
             }

@@ -31,27 +31,26 @@ static void set_position(ik_fighter_t* f, int16_t x, int16_t y) {
     f->y_q8 = (int32_t)y * IK_CNS_Q8_ONE;
 }
 
-static int is_attack_state(int16_t state) {
-    switch (state) {
-        case IK_STATE_PUNCH:
-        case IK_STATE_STRONG_PUNCH:
-        case IK_STATE_KICK:
-        case IK_STATE_STRONG_KICK:
-        case IK_STATE_CROUCH_PUNCH:
-        case IK_STATE_CROUCH_STRONG_PUNCH:
-        case IK_STATE_CROUCH_KICK:
-        case IK_STATE_CROUCH_STRONG_KICK:
-            return 1;
-        default:
-            return 0;
-    }
+static const ik_cns_state_t* state_spec(const ik_fight_t* fight,
+                                        int16_t state) {
+    return ik_cns_find_state(fight ? fight->cns : 0, state);
 }
 
-static int is_crouch_attack(int16_t state) {
-    return state == IK_STATE_CROUCH_PUNCH ||
-           state == IK_STATE_CROUCH_STRONG_PUNCH ||
-           state == IK_STATE_CROUCH_KICK ||
-           state == IK_STATE_CROUCH_STRONG_KICK;
+static int is_attack_state(const ik_fight_t* fight, int16_t state) {
+    const ik_cns_state_t* spec = state_spec(fight, state);
+    return spec && spec->move_type == IK_CNS_MOVE_ATTACK;
+}
+
+static int is_crouch_attack(const ik_fight_t* fight, int16_t state) {
+    const ik_cns_state_t* spec = state_spec(fight, state);
+    return spec && spec->move_type == IK_CNS_MOVE_ATTACK &&
+           spec->state_type == IK_CNS_STATE_CROUCH;
+}
+
+static int is_air_attack(const ik_fight_t* fight, int16_t state) {
+    const ik_cns_state_t* spec = state_spec(fight, state);
+    return spec && spec->move_type == IK_CNS_MOVE_ATTACK &&
+           spec->state_type == IK_CNS_STATE_AIR;
 }
 
 int ik_action_for_state(const ik_cns_asset_t* cns, int16_t state) {
@@ -84,7 +83,7 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     f->move_contact = 0u;
     f->hitdef_hit_mask = 0u;
 
-    if (is_attack_state(state)) ++f->attack_id;
+    if (is_attack_state(fight, state)) ++f->attack_id;
 
     if (spec) {
         f->ctrl = spec->ctrl;
@@ -286,7 +285,8 @@ static const ik_cns_hitdef_t* active_hitdef(const ik_fight_t* fight,
                                             const ik_frame_table_t* frames,
                                             const ik_fighter_t* fighter,
                                             uint8_t* out_local_index) {
-    if (!fight || !fight->cns || !fighter || !is_attack_state(fighter->state)) {
+    if (!fight || !fight->cns || !fighter ||
+        !is_attack_state(fight, fighter->state)) {
         return 0;
     }
 
@@ -468,6 +468,25 @@ static int try_attack_cancel(ik_fight_t* fight, ik_fighter_t* f,
                              const ik_fight_controls_t* controls) {
     if (!controls) return 0;
 
+    /* KFM state -1 air-chain rules. These are command gates, not move
+     * implementations: the move data itself still comes from compiled CNS. */
+    if (f->state == IK_STATE_JUMP_PUNCH &&
+        f->state_time >= 7u && controls->x) {
+        enter_state(fight, f, IK_STATE_JUMP_PUNCH);
+        return 1;
+    }
+    if ((f->state == IK_STATE_JUMP_PUNCH ||
+         f->state == IK_STATE_JUMP_KICK) && f->move_contact) {
+        if (controls->y) {
+            enter_state(fight, f, IK_STATE_JUMP_STRONG_PUNCH);
+            return 1;
+        }
+        if (controls->b) {
+            enter_state(fight, f, IK_STATE_JUMP_STRONG_KICK);
+            return 1;
+        }
+    }
+
     if (f->state == IK_STATE_PUNCH && f->state_time > 5u) {
         if (controls->y) { enter_state(fight, f, IK_STATE_STRONG_PUNCH); return 1; }
         if (controls->b) { enter_state(fight, f, IK_STATE_STRONG_KICK); return 1; }
@@ -501,7 +520,27 @@ static int try_attack_cancel(ik_fight_t* fight, ik_fighter_t* f,
 
 static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
                                      const ik_fight_controls_t* controls) {
-    if (!controls || !f->ctrl || !f->on_ground) return 0;
+    if (!controls || !f->ctrl) return 0;
+
+    if (!f->on_ground) {
+        if (controls->x) {
+            enter_state(fight, f, IK_STATE_JUMP_PUNCH);
+            return 1;
+        }
+        if (controls->y) {
+            enter_state(fight, f, IK_STATE_JUMP_STRONG_PUNCH);
+            return 1;
+        }
+        if (controls->a) {
+            enter_state(fight, f, IK_STATE_JUMP_KICK);
+            return 1;
+        }
+        if (controls->b) {
+            enter_state(fight, f, IK_STATE_JUMP_STRONG_KICK);
+            return 1;
+        }
+        return 0;
+    }
 
     if (controls->down) {
         if (controls->y) {
@@ -536,8 +575,8 @@ static void step_fighter(ik_fight_t* fight, int index,
     /* Width is a one-tick controller in MUGEN/Ikemen. Reset to the
      * character constants before evaluating the current tick's controllers. */
     if (c) {
-        f->push_back = c->ground_back;
-        f->push_front = c->ground_front;
+        f->push_back = f->on_ground ? c->ground_back : c->air_back;
+        f->push_front = f->on_ground ? c->ground_front : c->air_front;
         f->body_height = c->height;
     }
 
@@ -568,16 +607,30 @@ static void step_fighter(ik_fight_t* fight, int index,
                 f->vx_q8 = 0;
             }
         }
-    } else if (is_attack_state(f->state)) {
+    } else if (is_attack_state(fight, f->state)) {
         if (try_attack_cancel(fight, f, controls)) return;
         if (f->ctrl && dispatch_controlled_input(fight, f, controls)) return;
 
+        if (is_air_attack(fight, f->state)) {
+            /* Physics=A continues while the attack animation runs. Landing is
+             * still approximated by common idle until common1 state 52 lands. */
+            step_air(fight, f, 1);
+            return;
+        }
+
         const uint32_t duration = ik_action_duration_ticks(frames, f->anim);
         if (duration > 0u && f->anim_time >= duration) {
-            enter_state(fight, f,
-                        is_crouch_attack(f->state) ? IK_STATE_CROUCH : IK_STATE_IDLE);
+            enter_state(
+                fight, f,
+                is_crouch_attack(fight, f->state)
+                    ? IK_STATE_CROUCH
+                    : IK_STATE_IDLE);
         }
     } else if (!f->on_ground) {
+        if (!is_dummy && controls &&
+            dispatch_controlled_input(fight, f, controls)) {
+            return;
+        }
         step_air(fight, f, 1);
     } else if (!is_dummy && controls) {
         if (dispatch_controlled_input(fight, f, controls)) return;

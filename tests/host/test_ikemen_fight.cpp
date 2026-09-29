@@ -17,6 +17,7 @@ static const ik_clsn_box_t k_boxes[] = {
 static const ik_frame_t k_frames[] = {
     F(0,0,0,0,0),
     F(11,0,0,0,0),
+    F(41,0,0,0,0),
     F(105,0,0,0,0),
 
     F(200,0,2,0,0), F(200,1,1,0,0), F(200,2,4,1,1),
@@ -41,6 +42,11 @@ static const ik_frame_t k_frames[] = {
 
     F(440,0,2,0,0), F(440,1,2,0,0), F(440,2,4,2,1),
     F(440,3,3,0,0),
+
+    F(600,0,4,1,1), F(600,1,4,0,0),
+    F(610,0,4,1,1), F(610,1,4,0,0),
+    F(630,0,4,1,1), F(630,1,4,0,0),
+    F(640,0,4,1,1), F(640,1,4,0,0),
 };
 #undef F
 
@@ -59,6 +65,10 @@ static const ik_cns_hitdef_t k_hitdefs[] = {
     {410,IK_CNS_TRIGGER_ANIM_ELEM_EQ,4,36,0,4,12,12,IK_CNS_GROUND_HIGH,12,17,17,-1792,0,-768,-1024,-1,-10,-83,5,2,6,0,0},
     {430,IK_CNS_TRIGGER_TIME_EQ,0,28,0,4,12,12,IK_CNS_GROUND_LOW,6,10,10,-1280,0,-512,-768,0,-10,-8,5,1,6,0,0},
     {440,IK_CNS_TRIGGER_TIME_EQ,0,72,0,4,12,12,IK_CNS_GROUND_TRIP,10,17,17,-384,-512,-307,-768,1,-5,-10,5,2,6,0,IK_CNS_HITDEF_FALL},
+    {600,IK_CNS_TRIGGER_TIME_EQ,0,20,0,3,7,8,IK_CNS_GROUND_HIGH,5,8,14,-1024,0,-333,-768,0,-10,-58,5,0,6,0,0},
+    {610,IK_CNS_TRIGGER_TIME_EQ,0,72,0,4,12,12,IK_CNS_GROUND_HIGH,12,14,14,-1536,0,-768,-1024,1,-10,-55,5,3,6,0,0},
+    {630,IK_CNS_TRIGGER_TIME_EQ,0,26,0,3,8,8,IK_CNS_GROUND_HIGH,6,10,14,-1024,0,-512,-768,1,-5,-35,5,0,6,0,0},
+    {640,IK_CNS_TRIGGER_TIME_EQ,0,70,0,4,12,12,IK_CNS_GROUND_HIGH,12,15,15,-1792,0,-768,-1024,1,-10,-40,5,3,6,0,0},
 };
 
 static const ik_cns_controller_t k_ctrls[] = {
@@ -94,10 +104,14 @@ static const ik_cns_controller_t k_ctrls[] = {
      0,0,11,1,IK_CNS_CTRL_HAS_CTRL},
     {440,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,11,1,IK_CNS_CTRL_HAS_CTRL},
+
+    {600,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     17,0,1,0,0u},
 };
 
 #define S(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_STAND,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt}
 #define C(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_CROUCH,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt}
+#define A(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_AIR,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt}
 
 static const ik_cns_state_t k_states[] = {
     S(200,200,0,1,0,1),
@@ -108,16 +122,21 @@ static const ik_cns_state_t k_states[] = {
     C(410,410,5,2,10,1),
     C(430,430,7,1,11,1),
     C(440,440,8,1,12,1),
+    A(600,600,9,1,13,1),
+    A(610,610,10,1,14,0),
+    A(630,630,11,1,14,0),
+    A(640,640,12,1,14,0),
 };
 #undef S
 #undef C
+#undef A
 
 static const ik_cns_asset_t k_cns = {
     {1000,15,16,12,12,60,614,-563,1178,0,-1152,-973,0,-2150,-653,640,113,218,210,512,13},
-    k_states,8u,
-    k_hitdefs,9u,
+    k_states,12u,
+    k_hitdefs,13u,
     nullptr,0u,
-    k_ctrls,13u
+    k_ctrls,14u
 };
 
 static void tick(ik_fight_t* g, const ik_fight_controls_t* p) {
@@ -206,6 +225,43 @@ int main() {
         EQ(g.hits_p1,1u);
         EQ(g.fighters[1].on_ground,0);
         OK(g.fighters[1].vy_q8<0);
+    }
+
+    /* Jump normals are compiled CNS states with Physics=A. They remain
+     * airborne while attacking and use their original Time=0 HitDefs. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        ik_fight_controls_t p{}; p.up=1;
+        tick(&g,&p);
+        EQ(g.fighters[0].state,IK_STATE_JUMP);
+        EQ(g.fighters[0].on_ground,0);
+
+        p={}; p.x=1;
+        const int hp=g.fighters[1].hp;
+        tick(&g,&p);
+        EQ(g.fighters[0].state,IK_STATE_JUMP_PUNCH);
+        EQ(hp-g.fighters[1].hp,20);
+        EQ(g.fighters[0].move_contact,1);
+
+        idle(&g,8);
+        p={}; p.y=1;
+        tick(&g,&p);
+        EQ(g.fighters[0].state,IK_STATE_JUMP_STRONG_PUNCH);
+        EQ(g.fighters[0].on_ground,0);
+    }
+
+    /* State 600's original CtrlSet at Time=17 is executed by the generic
+     * controller runtime, allowing new controlled air input afterwards. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,60,260);
+        ik_fight_controls_t p{}; p.up=1;
+        tick(&g,&p);
+        p={}; p.x=1;
+        tick(&g,&p);
+        EQ(g.fighters[0].ctrl,0);
+        idle(&g,17);
+        EQ(g.fighters[0].ctrl,1);
+        EQ(g.fighters[0].state,IK_STATE_JUMP_PUNCH);
     }
 
     std::puts("[test] ikemen_fight OK");
