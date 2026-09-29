@@ -280,6 +280,10 @@ assert common_rows[151]["controller_count"] == 4
 assert common_rows[155]["controller_count"] == 2
 assert common_rows[5000]["controller_count"] == 3
 assert common_rows[5001]["controller_count"] == 3
+state_5001_ctrls = [
+    c for c in report["controllers"] if c["state_number"] == 5001
+]
+assert state_5001_ctrls[1]["trigger_kind"] == "IK_CNS_TRIGGER_HIT_SLIDE_GE"
 assert common_rows[5020]["controller_count"] == 2
 assert common_rows[5030]["controller_count"] == 3
 assert common_rows[5030]["land_level_q8"] == 25 * 256
@@ -302,6 +306,7 @@ assert common_rows[5201]["land_state"] == 52
 assert common_rows[5201]["controller_count"] == 2
 assert common_rows[5210]["land_state"] == 52
 assert common_rows[5210]["air_motion_start"] == 4
+assert common_rows[5210]["land_ctrl"] == 1
 assert common_rows[5210]["air_accel_q8"] == round(.35 * 256)
 assert common_rows[5210]["controller_count"] == 7
 assert report["common_deferred"][100] == ["AssertSpecial noWalk/noAutoTurn"]
