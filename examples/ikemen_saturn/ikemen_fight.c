@@ -178,6 +178,8 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->gethit_fall_recover = 1u;
     f->gethit_fall_recover_time = 4u;
     f->fall_time = 0u;
+    f->juggle_points =
+        (int16_t)((c && c->air_juggle > 0) ? c->air_juggle : 15);
     f->guard_type = IK_CNS_STATE_STAND;
     f->push_back = c ? c->ground_back : 15;
     f->push_front = c ? c->ground_front : 16;
@@ -402,6 +404,33 @@ static int hitdef_allows_target(const ik_fight_t* fight,
     }
 }
 
+static int juggle_cost(const ik_fight_t* fight,
+                       const ik_fighter_t* attacker,
+                       const ik_cns_hitdef_t* hitdef) {
+    int cost = hitdef ? hitdef->air_juggle : 0;
+    const ik_cns_state_t* state =
+        attacker ? state_spec(fight, attacker->state) : 0;
+    if (state && state->has_juggle && state->juggle > 0) {
+        cost += state->juggle;
+    }
+    return cost < 0 ? 0 : cost;
+}
+
+static int is_juggle_target(const ik_fight_t* fight,
+                            const ik_fighter_t* victim) {
+    if (!victim) return 0;
+    return victim->gethit_fall ||
+           ik_fight_state_type(fight, victim) == IK_CNS_STATE_LIEDOWN;
+}
+
+static int juggle_allows_target(const ik_fight_t* fight,
+                                const ik_fighter_t* attacker,
+                                const ik_fighter_t* victim,
+                                const ik_cns_hitdef_t* hitdef) {
+    if (!is_juggle_target(fight, victim)) return 1;
+    return juggle_cost(fight, attacker, hitdef) <= victim->juggle_points;
+}
+
 static int guard_threat(const ik_fight_t* fight,
                         const ik_frame_table_t* frames,
                         int victim,
@@ -522,6 +551,8 @@ static void apply_damage(ik_fight_t* fight, int victim,
         : airborne
             ? (int16_t)hitdef->air_hit_time
             : (int16_t)hitdef->ground_hit_time;
+    const int was_juggle_target = is_juggle_target(fight, v);
+    const int attack_juggle = juggle_cost(fight, a, hitdef);
     const int downed_launch = downed && velocity_y != 0;
     const int launch = airborne || downed_launch ||
         (hitdef->flags & IK_CNS_HITDEF_FALL) != 0u ||
@@ -557,6 +588,19 @@ static void apply_damage(ik_fight_t* fight, int victim,
     v->gethit_fall_recover = hitdef->fall_recover;
     v->gethit_fall_recover_time = hitdef->fall_recover_time;
     v->fall_time = 0u;
+
+    if (was_juggle_target) {
+        v->juggle_points = (int16_t)(
+            v->juggle_points > attack_juggle
+                ? v->juggle_points - attack_juggle
+                : 0);
+    } else if ((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u) {
+        const ik_cns_constants_t* c = constants_for(fight);
+        const int initial = (c && c->air_juggle > 0) ? c->air_juggle : 15;
+        v->juggle_points =
+            (int16_t)(initial > attack_juggle ? initial - attack_juggle : 0);
+    }
+
     a->hit_pause = hitdef->pause_p1;
 
     if (launch) v->on_ground = 0;
@@ -1320,6 +1364,7 @@ void ik_fight_update(ik_fight_t* fight,
             active_hitdef(fight, frames, a, &local_hitdef);
         if (!hitdef || local_hitdef >= 32u) continue;
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
+        if (!juggle_allows_target(fight, a, v, hitdef)) continue;
         const uint32_t bit = (uint32_t)1u << local_hitdef;
         if ((a->hitdef_hit_mask & bit) != 0u) continue;
         if (!fighter_clsn_overlap(frames, a, v)) continue;
