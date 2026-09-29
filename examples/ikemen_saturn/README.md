@@ -79,6 +79,7 @@ asset now contains states:
 * 5070 / 5071: trip shake and knock-away
 * 5100 / 5101: fall ground impact and bounce
 * 5110 / 5120: lying down and get-up
+* 5200 / 5201 / 5210: ground and air fall recovery driven by the CMD recovery command
 
 The generic runtime now supports contextual command/velocity triggers plus
 `VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity,
@@ -124,8 +125,8 @@ pins both fighters' current textures before emitting VDP1 commands.
 
 This is not yet a complete Ikemen common-state VM. The next important pieces are:
 
-* the remaining get-hit graph: downed re-hit states 5080/5081,
-  defeated lying state 5150 and 5200/5201/5210 recovery states
+* the remaining get-hit graph: downed re-hit states 5080/5081
+  and defeated lying state 5150
 * exact remaining guard semantics such as conditional air-guard landing,
   complete inGuardDist behavior and guard.kill
 * throws, specials and supers
