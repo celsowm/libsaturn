@@ -362,6 +362,7 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
 
     return {
         "life": integer(data.get("life"), 1000),
+        "air_juggle": integer(data.get("airjuggle"), 15),
         "ground_back": integer(size.get("ground.back"), 15),
         "ground_front": integer(size.get("ground.front"), 16),
         "air_back": integer(size.get("air.back"), 12),
@@ -698,6 +699,7 @@ def parse_state(
                     "down_velocity_x_q8": q8(down_x),
                     "down_velocity_y_q8": q8(down_y),
                     "down_bounce": integer(ctrl.get("down.bounce"), 0),
+                    "air_juggle": integer(ctrl.get("air.juggle"), 0),
                 }
             )
 
@@ -748,6 +750,8 @@ def parse_state(
         "playsnd_count": len(sounds),
         "controller_ofs": controller_ofs,
         "controller_count": len(controllers),
+        "juggle": integer(sd.get("juggle"), 0),
+        "has_juggle": int(sd.get("juggle") is not None),
         "unsupported_controllers": sorted(set(unsupported)),
     }
 
@@ -881,6 +885,8 @@ def compile_common_states(
             "land_level_q8": 0,
             "air_motion_start": 0,
             "land_ctrl": 0,
+            "juggle": 0,
+            "has_juggle": 0,
             "unsupported_controllers": [],
         }
 
@@ -1727,7 +1733,8 @@ def emit(
         f"{r.get('land_state', 0)}, "
         f"{r.get('air_accel_q8', 0)}, {r.get('land_level_q8', 0)}, "
         f"{r.get('air_motion_start', 0)}u, "
-        f"{r.get('land_ctrl', 0)}u"
+        f"{r.get('land_ctrl', 0)}u, "
+        f"{r.get('juggle', 0)}, {r.get('has_juggle', 0)}u"
         "},"
         for r in state_rows
     ]
@@ -1758,7 +1765,7 @@ def emit(
         f"{h['down_hit_time']}u, "
         f"{h['down_velocity_x_q8']}, {h['down_velocity_y_q8']}, "
         f"{h['down_bounce']}u, {h['hit_flags']}, "
-        f"{h['priority_type']}"
+        f"{h['priority_type']}, {h['air_juggle']}u"
         "},"
         for h in hitdefs
     ]
@@ -1836,7 +1843,8 @@ const ik_cns_asset_t {ident}_cns = {{
         {const['air_gethit_airrecover_up_q8']},
         {const['air_gethit_airrecover_down_q8']},
         {const['air_gethit_airrecover_threshold_q8']},
-        {const['air_gethit_airrecover_yaccel_q8']}
+        {const['air_gethit_airrecover_yaccel_q8']},
+        {const['air_juggle']}
     }},
     {ident}_states, {len(state_rows)}u,
     {ident}_hitdefs, {len(hitdefs)}u,
