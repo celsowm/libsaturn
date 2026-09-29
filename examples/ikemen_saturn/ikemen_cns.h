@@ -47,7 +47,8 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_HIT_CTRL_TIME,
     IK_CNS_TRIGGER_HIT_OVER,
     IK_CNS_TRIGGER_HIT_LAUNCH,
-    IK_CNS_TRIGGER_HIT_NO_LAUNCH
+    IK_CNS_TRIGGER_HIT_NO_LAUNCH,
+    IK_CNS_TRIGGER_NOT_ALIVE
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -84,7 +85,8 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_FALL_GROUND_BRANCH,
     IK_CNS_CTRL_POS_ADD_VEL,
     IK_CNS_CTRL_VEL_ADD,
-    IK_CNS_CTRL_FALL_RECOVERY
+    IK_CNS_CTRL_FALL_RECOVERY,
+    IK_CNS_CTRL_DOWNED_HIT_BRANCH
 } ik_cns_controller_type_t;
 
 enum {
@@ -286,6 +288,7 @@ typedef struct ik_cns_playsnd {
  *   FallBounceVel: apply HitDef fall velocity for the ground bounce
  *   FallGroundBranch: skip bounce when HitDef fall.yvelocity is zero
  *   PosAddVel: integrate selected velocity axes for Physics=N states
+ *   DownedHitBranch: select downed hit anim/state from stored get-hit Y velocity
  *   VelAdd: add Q8.8 velocity on selected axes
  *   FallRecovery: enter ground/air fall recovery using compiled thresholds
  */
@@ -314,6 +317,7 @@ typedef struct ik_cns_controller_context {
     uint16_t hit_slide_time;
     uint16_t hit_ctrl_time;
     uint8_t hit_launch;
+    uint8_t alive;
     uint8_t anim_ended;
     uint8_t move_contact;
 } ik_cns_controller_context_t;
