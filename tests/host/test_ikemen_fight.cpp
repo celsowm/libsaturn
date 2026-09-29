@@ -54,6 +54,8 @@ static const ik_frame_t k_frames[] = {
     F(5160,0,4,0,0),
     F(5110,0,0,0,0),
     F(5120,0,3,0,0),
+    F(5200,0,3,0,0),
+    F(5210,0,0,0,0),
 
     F(200,0,2,0,0), F(200,1,1,0,0), F(200,2,4,1,1),
     F(200,3,3,0,0), F(200,4,2,0,0),
@@ -447,6 +449,60 @@ static const ik_cns_asset_t k_common_cns = {
     (uint16_t)(sizeof(k_common_ctrls)/sizeof(k_common_ctrls[0]))
 };
 
+static const ik_cns_controller_t k_recovery_ctrls[] = {
+    {5050,IK_CNS_CTRL_FALL_RECOVERY,IK_CNS_TRIGGER_ALWAYS,
+     0,0,0,0,0u},
+    {5200,IK_CNS_CTRL_CHANGE_ANIM_IF_END_FROM,IK_CNS_TRIGGER_ALWAYS,
+     0,0,5035,5050,0u},
+    {5201,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,-38,-896,
+     IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y|IK_CNS_CTRL_LOCAL_X},
+    {5201,IK_CNS_CTRL_POS_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+    {5210,IK_CNS_CTRL_VEL_MUL,IK_CNS_TRIGGER_TIME_EQ,
+     4,0,128,51,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
+    {5210,IK_CNS_CTRL_VEL_ADD,IK_CNS_TRIGGER_TIME_EQ,
+     4,0,0,-1152,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
+    {5210,IK_CNS_CTRL_VEL_ADD,IK_CNS_TRIGGER_COMMAND_ACTIVE,
+     IK_CNS_COMMAND_HOLD_UP,0,0,-512,IK_CNS_CTRL_AXIS_Y},
+    {5210,IK_CNS_CTRL_VEL_ADD,IK_CNS_TRIGGER_COMMAND_ACTIVE,
+     IK_CNS_COMMAND_HOLD_DOWN,0,0,384,IK_CNS_CTRL_AXIS_Y},
+    {5210,IK_CNS_CTRL_VEL_ADD,IK_CNS_TRIGGER_COMMAND_ACTIVE,
+     IK_CNS_COMMAND_HOLD_FWD,0,0,0,
+     IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_LOCAL_X},
+    {5210,IK_CNS_CTRL_VEL_ADD,IK_CNS_TRIGGER_COMMAND_ACTIVE,
+     IK_CNS_COMMAND_HOLD_BACK,0,-256,0,
+     IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_LOCAL_X},
+    {5210,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     20,0,1,0,0u},
+};
+
+static const ik_cns_state_t k_recovery_states[] = {
+    {5050,5050,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,0u,1u,5100,0,6400,0u},
+    {5200,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,1u,1u,5201,0,2560,0u},
+    {5201,5200,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_AIR,
+     0,0,0u,0u,0u,0u,0u,2u,2u,52,0,0,0u},
+    {5210,5210,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,4u,7u,52,90,0,4u},
+};
+
+static const ik_cns_asset_t k_recovery_cns = {
+    {1000,15,16,12,12,60,160,614,-563,1178,0,-1152,-973,
+     0,-2150,-653,640,1024,-2074,
+     0,-2074,-653,640,1,35,
+     113,218,210,512,13,
+     60,6400,3840,0,5120,102,3072,13,
+     -38,-896,-5120,2560,128,51,0,-1152,-256,0,-512,384,-256,90},
+    k_recovery_states,
+    (uint16_t)(sizeof(k_recovery_states)/sizeof(k_recovery_states[0])),
+    nullptr,0u,
+    nullptr,0u,
+    k_recovery_ctrls,
+    (uint16_t)(sizeof(k_recovery_ctrls)/sizeof(k_recovery_ctrls[0]))
+};
+
 static void tick(ik_fight_t* g, const ik_fight_controls_t* p) {
     ik_fight_update(g,p,nullptr,&k_table);
 }
@@ -827,6 +883,68 @@ int main() {
         EQ(g.fighters[0].state,50);
         EQ(g.fighters[0].vx_q8,640);
         EQ(g.fighters[0].vy_q8,-2074);
+    }
+
+    /* Recovery command uses the compiled common thresholds. Near the
+     * ground it enters 5200 and subsequently reaches ground recovery 5201. */
+    {
+        ik_fight_init(&g,&k_recovery_cns);
+        ik_fighter_t* f=&g.fighters[0];
+        f->state=5050;
+        f->anim=5050;
+        f->on_ground=0;
+        f->ctrl=0;
+        f->y=165;
+        f->y_q8=165*256;
+        f->vy_q8=100;
+        f->gethit_fall=1u;
+        f->gethit_fall_recover=1u;
+        f->gethit_fall_recover_time=4u;
+        f->fall_time=4u;
+
+        ik_fight_controls_t p{}; p.recovery=1;
+        tick(&g,&p);
+        EQ(f->state,5200);
+
+        p={};
+        for(int i=0;i<30 && f->state!=5201;++i) tick(&g,&p);
+        EQ(f->state,5201);
+    }
+
+    /* Mid-air recovery enters 5210. Physics=N stays frozen for four frames,
+     * then compiled recovery multipliers/additions and directional input run. */
+    {
+        ik_fight_init(&g,&k_recovery_cns);
+        ik_fighter_t* f=&g.fighters[0];
+        f->state=5050;
+        f->anim=5050;
+        f->on_ground=0;
+        f->ctrl=0;
+        f->y=140;
+        f->y_q8=140*256;
+        f->vy_q8=0;
+        f->gethit_fall=1u;
+        f->gethit_fall_recover=1u;
+        f->gethit_fall_recover_time=4u;
+        f->fall_time=4u;
+
+        ik_fight_controls_t p{}; p.recovery=1;
+        tick(&g,&p);
+        EQ(f->state,5210);
+        const int32_t x0=f->x_q8;
+        const int32_t y0=f->y_q8;
+
+        p={};
+        tick(&g,&p);
+        tick(&g,&p);
+        tick(&g,&p);
+        EQ(f->x_q8,x0);
+        EQ(f->y_q8,y0);
+
+        p={}; p.up=1;
+        tick(&g,&p);
+        EQ(f->vy_q8,-1574);
+        OK(f->y_q8<y0);
     }
 
     std::puts("[test] ikemen_fight OK");
