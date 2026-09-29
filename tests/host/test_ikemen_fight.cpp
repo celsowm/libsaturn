@@ -117,11 +117,11 @@ static const ik_cns_hitdef_t k_hitdefs[] = {
     {201,IK_CNS_TRIGGER_TIME_EQ,0,0,0,4,0,0,IK_CNS_GROUND_HIGH,0,10,10,
      0,0,-512,-768,-1,0,0,-1,-1,-1,-1,0u,
      0u,1u,0u,0u,0u,0,0,0,0u,0u,
-     -256,-1152,1u,1u,4u,0u,-512,-768,0u},
+     -256,-1152,1u,1u,4u,0u,-512,-768,0u,IK_CNS_HIT_DEFAULT|IK_CNS_HIT_DOWN},
     {202,IK_CNS_TRIGGER_TIME_EQ,0,0,0,4,0,0,IK_CNS_GROUND_HIGH,0,10,10,
      0,0,-512,-768,-1,0,0,-1,-1,-1,-1,0u,
      0u,1u,0u,0u,0u,0,0,0,0u,0u,
-     -256,-1152,1u,1u,4u,0u,-512,-768,1u},
+     -256,-1152,1u,1u,4u,0u,-512,-768,1u,IK_CNS_HIT_DEFAULT|IK_CNS_HIT_DOWN},
 };
 
 static const ik_cns_controller_t k_ctrls[] = {
@@ -537,7 +537,7 @@ static const ik_cns_hitdef_t k_downed_hitdefs[] = {
      -1024,0,-358,-768,
      0,-10,-76,5,0,6,0,0u,
      0u,1u,0u,0u,0u,0,0,0,0u,0u,
-     0,-1152,0u,1u,4u,22u,-1280,0}
+     0,-1152,0u,1u,4u,22u,-1280,0,0u,IK_CNS_HIT_DEFAULT|IK_CNS_HIT_DOWN}
 };
 
 static const ik_cns_controller_t k_downed_ctrls[] = {
@@ -965,6 +965,25 @@ int main() {
         EQ(g.fighters[0].state,50);
         EQ(g.fighters[0].vx_q8,640);
         EQ(g.fighters[0].vy_q8,-2074);
+    }
+
+    /* Default hitflag=MAF must not hit a liedown opponent. D is what
+     * opts an attack into OTG/downed hits. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        ik_fighter_t* v=&g.fighters[1];
+        v->state=5110; v->anim=5110; v->on_ground=1; v->ctrl=0;
+        const int hp=v->hp;
+
+        ik_fight_controls_t p1{}; request(&p1,IK_STATE_PUNCH);
+        ik_fight_controls_t p2{};
+        for(int i=0;i<12;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,0u);
+        EQ(v->hp,hp);
+        EQ(v->state,5110);
     }
 
     /* A liedown launch with down.bounce=0 still enters the falling
