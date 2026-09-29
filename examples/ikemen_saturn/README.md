@@ -8,7 +8,7 @@ with real Ikemen GO screenpack assets.
 * D-pad: walk / crouch / jump (UP)
 * A/X: punch, B/Y: kick
 * START: reset round
-* P2 pad (optional): controls dummy; unplugged = AI stand/guard dummy
+* P2 pad (optional): controls P2; unplugged = idle training dummy
 
 ## Assets and attribution
 
