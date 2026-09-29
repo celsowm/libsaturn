@@ -441,7 +441,7 @@ assert throw_rows[800]["unsupported_controllers"] == []
 assert throw_rows[810]["unsupported_controllers"] == []
 assert throw_rows[820]["unsupported_controllers"] == []
 assert throw_rows[821]["unsupported_controllers"] == []
-assert throw_rows[810]["controller_count"] == 11
+assert throw_rows[810]["controller_count"] == 13
 assert throw_rows[820]["controller_count"] == 2
 assert throw_rows[821]["controller_count"] == 4
 
