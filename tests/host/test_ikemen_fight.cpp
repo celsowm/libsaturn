@@ -50,10 +50,13 @@ static const ik_frame_t k_frames[] = {
     F(5040,0,2,0,0),
     F(5050,0,2,0,0),
     F(5070,0,2,0,0),
+    F(5080,0,2,0,0),
+    F(5090,0,2,0,0),
     F(5100,0,2,0,0),
     F(5160,0,4,0,0),
     F(5110,0,0,0,0),
     F(5120,0,3,0,0),
+    F(5150,0,0,0,0),
     F(5200,0,3,0,0),
     F(5210,0,0,0,0),
 
@@ -503,6 +506,56 @@ static const ik_cns_asset_t k_recovery_cns = {
     (uint16_t)(sizeof(k_recovery_ctrls)/sizeof(k_recovery_ctrls[0]))
 };
 
+static const ik_cns_hitdef_t k_downed_hitdefs[] = {
+    {200,IK_CNS_TRIGGER_TIME_EQ,0,
+     23,0,3u,0u,0u,
+     IK_CNS_GROUND_HIGH,3u,3u,3u,
+     -1024,0,-358,-768,
+     0,-10,-76,5,0,6,0,0u}
+};
+
+static const ik_cns_controller_t k_downed_ctrls[] = {
+    {5080,IK_CNS_CTRL_DOWNED_HIT_BRANCH,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,0u},
+    {5081,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {5081,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_HIT_OVER,
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {5081,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_OVER,
+     0,0,5110,0,0u},
+    {5110,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_NOT_ALIVE,
+     0,0,5150,0,0u},
+};
+
+static const ik_cns_state_t k_downed_states[] = {
+    {200,200,0,0,0,
+     IK_CNS_STATE_STAND,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_STAND,
+     0,2,0u,0u,1u,0u,0u,0u,0u,0,0,0,0u},
+    {5080,-1,0,0,0,
+     IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,1u,0u,0u,0u,0u,0u,1u,0,0,0,0u},
+    {5081,-1,0,0,0,
+     IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_CROUCH,
+     0,0,0u,0u,0u,0u,0u,1u,3u,0,0,0,0u},
+    {5110,5110,0,0,0,
+     IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,4u,1u,0,0,0,0u},
+    {5150,5150,0,0,0,
+     IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,-3,0u,0u,0u,0u,0u,5u,0u,0,0,0,0u},
+};
+
+static const ik_cns_asset_t k_downed_cns = {
+    {1000,15,16,12,12,60,160},
+    k_downed_states,
+    (uint16_t)(sizeof(k_downed_states)/sizeof(k_downed_states[0])),
+    k_downed_hitdefs,
+    (uint16_t)(sizeof(k_downed_hitdefs)/sizeof(k_downed_hitdefs[0])),
+    nullptr,0u,
+    k_downed_ctrls,
+    (uint16_t)(sizeof(k_downed_ctrls)/sizeof(k_downed_ctrls[0]))
+};
+
 static void tick(ik_fight_t* g, const ik_fight_controls_t* p) {
     ik_fight_update(g,p,nullptr,&k_table);
 }
@@ -883,6 +936,57 @@ int main() {
         EQ(g.fighters[0].state,50);
         EQ(g.fighters[0].vx_q8,640);
         EQ(g.fighters[0].vy_q8,-2074);
+    }
+
+    /* A hit against a liedown fighter enters 5080. With zero Y hit
+     * velocity the compiled branch selects 5081, then returns to 5110. */
+    {
+        ik_fight_init(&g,&k_downed_cns);
+        place(&g,100,145);
+        ik_fighter_t* v=&g.fighters[1];
+        v->state=5110;
+        v->anim=5110;
+        v->on_ground=1;
+        v->ctrl=0;
+
+        ik_fight_controls_t p1{}; request(&p1,200);
+        ik_fight_controls_t p2{};
+        for(int i=0;i<20 && g.hits_p1==0u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,1u);
+        EQ(v->state,5080);
+        EQ(v->gethit_vy_q8,0);
+
+        for(int i=0;i<20 && v->state!=5081;++i) {
+            tick2(&g,&p1,&p2);
+        }
+        EQ(v->state,5081);
+
+        for(int i=0;i<20 && v->state!=5110;++i) {
+            tick2(&g,&p1,&p2);
+        }
+        EQ(v->state,5110);
+    }
+
+    /* A defeated fighter already lying down follows the common
+     * !alive branch into 5150 before the round is finalized. */
+    {
+        ik_fight_init(&g,&k_downed_cns);
+        ik_fighter_t* v=&g.fighters[1];
+        v->state=5110;
+        v->anim=5110;
+        v->on_ground=1;
+        v->ctrl=0;
+        v->hp=0;
+
+        ik_fight_controls_t p{};
+        tick(&g,&p);
+        EQ(v->state,5150);
+        EQ(v->spr_priority,-3);
+        EQ(g.round_over,1u);
+        EQ(g.winner,1u);
     }
 
     /* Recovery command uses the compiled common thresholds. Near the
