@@ -529,6 +529,7 @@ static void apply_guard(ik_fight_t* fight, int victim,
 }
 
 static void apply_throw(ik_fight_t* fight, int attacker,
+                        const ik_fight_controls_t* attacker_controls,
                         const ik_cns_hitdef_t* hitdef) {
     if (!fight || !hitdef || attacker < 0 || attacker > 1) return;
     const int victim = attacker ^ 1;
@@ -564,6 +565,13 @@ static void apply_throw(ik_fight_t* fight, int attacker,
     }
     if (hitdef->p1_state_no >= 0) {
         enter_state(fight, a, hitdef->p1_state_no);
+        /* KFM state 810 snapshots command="holdfwd" at Time=0. The throw
+         * changes state during collision resolution, so preserve that entry
+         * input in the generic state-axis scratch immediately. */
+        if (attacker_controls) {
+            if (attacker_controls->forward) a->state_axis = 1;
+            else if (attacker_controls->back) a->state_axis = -1;
+        }
     }
 
     fight->events |= IK_EVENT_HIT;
@@ -1556,7 +1564,9 @@ void ik_fight_update(ik_fight_t* fight,
         const ik_fight_controls_t* victim_controls =
             victim == 0 ? p1 : p2;
         if ((hitdef->flags & IK_CNS_HITDEF_THROW) != 0u) {
-            apply_throw(fight, atk, hitdef);
+            const ik_fight_controls_t* attacker_controls =
+                atk == 0 ? p1 : p2;
+            apply_throw(fight, atk, attacker_controls, hitdef);
         } else if (can_guard_hit(fight, v, victim_controls, hitdef)) {
             apply_guard(fight, victim, victim_controls, hitdef);
         } else {
