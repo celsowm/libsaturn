@@ -410,7 +410,8 @@ static void start_jump(ik_fight_t* fight, ik_fighter_t* f,
     }
 }
 
-static void step_air(ik_fight_t* fight, ik_fighter_t* f, int allow_land_idle) {
+static void step_air(ik_fight_t* fight, ik_fighter_t* f,
+                     int allow_land_transition) {
     const ik_cns_constants_t* c = constants_for(fight);
     const int32_t gravity = c ? c->yaccel_q8 : (IK_CNS_Q8_ONE / 2);
 
@@ -420,18 +421,25 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f, int allow_land_idle) {
     f->x_q8 = clamp_q8(f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
 
     if (f->y_q8 >= (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE) {
+        const ik_cns_state_t* spec = state_spec(fight, f->state);
         f->y_q8 = (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE;
         f->vy_q8 = 0;
         f->on_ground = 1;
-        if (allow_land_idle) {
-            f->vx_q8 = 0;
-            enter_state(fight, f, IK_STATE_IDLE);
+        if (allow_land_transition) {
+            int16_t target = IK_STATE_IDLE;
+            if (spec && spec->land_state != 0) {
+                target = spec->land_state;
+            } else if (ik_cns_find_state(fight ? fight->cns : 0, 52)) {
+                target = 52;
+            }
+            enter_state(fight, f, target);
         }
     }
     sync_position(f);
 }
 
 static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
+                                   const ik_fight_controls_t* controls,
                                    const ik_frame_table_t* frames,
                                    int hit_pause_only) {
     if (!fight || !fight->cns || !f) return 0;
@@ -443,6 +451,27 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
     int anim_ended = 0;
     anim_position(frames, f, &elem, &elem_time, &anim_ended);
 
+    uint16_t command_mask = 0u;
+    if (controls) {
+        if (controls->forward) command_mask |= IK_CNS_COMMAND_HOLD_FWD;
+        if (controls->back) command_mask |= IK_CNS_COMMAND_HOLD_BACK;
+        if (controls->up) command_mask |= IK_CNS_COMMAND_HOLD_UP;
+        if (controls->down) command_mask |= IK_CNS_COMMAND_HOLD_DOWN;
+    }
+    const ik_cns_controller_context_t context = {
+        f->state_time,
+        elem,
+        elem_time,
+        f->anim,
+        f->vx_q8,
+        f->vy_q8,
+        f->y_q8,
+        (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE,
+        command_mask,
+        (uint8_t)(anim_ended != 0),
+        f->move_contact
+    };
+
     for (uint8_t i = 0u; i < state->controller_count; ++i) {
         const uint16_t index = (uint16_t)(state->controller_ofs + i);
         if (index >= fight->cns->controller_count) break;
@@ -451,9 +480,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
             (ctrl->flags & IK_CNS_CTRL_IGNORE_HIT_PAUSE) == 0u) {
             continue;
         }
-        if (!ik_cns_controller_trigger_now(
-                ctrl, f->state_time, elem, elem_time, anim_ended,
-                f->move_contact != 0u)) {
+        if (!ik_cns_controller_trigger_context_now(ctrl, &context)) {
             continue;
         }
 
@@ -494,6 +521,60 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 break;
             }
 
+            case IK_CNS_CTRL_VEL_SET:
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_X) != 0u) {
+                    int32_t vx = ctrl->value0;
+                    if ((ctrl->flags & IK_CNS_CTRL_LOCAL_X) != 0u) {
+                        vx *= f->facing;
+                    }
+                    f->vx_q8 = vx;
+                }
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_Y) != 0u) {
+                    f->vy_q8 = ctrl->value1;
+                }
+                break;
+
+            case IK_CNS_CTRL_VEL_MUL:
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_X) != 0u) {
+                    f->vx_q8 =
+                        (f->vx_q8 * (int32_t)ctrl->value0) / IK_CNS_Q8_ONE;
+                }
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_Y) != 0u) {
+                    f->vy_q8 =
+                        (f->vy_q8 * (int32_t)ctrl->value1) / IK_CNS_Q8_ONE;
+                }
+                break;
+
+            case IK_CNS_CTRL_POS_SET:
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_X) != 0u) {
+                    f->x_q8 = ctrl->value0;
+                }
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_Y) != 0u) {
+                    f->y_q8 =
+                        (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE + ctrl->value1;
+                }
+                sync_position(f);
+                break;
+
+            case IK_CNS_CTRL_CHANGE_ANIM_BY_VX: {
+                const int32_t local_vx = f->vx_q8 * f->facing;
+                int16_t action = ctrl->value0;
+                if (local_vx > 0) action = ctrl->value1;
+                else if (local_vx < 0) action = (int16_t)(ctrl->value1 + 1);
+                if (action >= 0 && action != f->anim) {
+                    f->anim = action;
+                    f->anim_time = 0u;
+                }
+                break;
+            }
+
+            case IK_CNS_CTRL_CHANGE_ANIM_IF_END_FROM:
+                if (f->anim == ctrl->value0 && anim_ended) {
+                    f->anim = ctrl->value1;
+                    f->anim_time = 0u;
+                }
+                break;
+
             default:
                 break;
         }
@@ -514,9 +595,18 @@ static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
 
     if (!f->ctrl || !f->on_ground) return 0;
     if (controls->down) {
-        if (f->state != IK_STATE_CROUCH) {
-            enter_state(fight, f, IK_STATE_CROUCH);
+        const int16_t crouch_state =
+            ik_cns_find_state(fight ? fight->cns : 0, 10)
+                ? 10
+                : IK_STATE_CROUCH;
+        if (f->state != IK_STATE_CROUCH && f->state != crouch_state) {
+            enter_state(fight, f, crouch_state);
         }
+        return 1;
+    }
+    if (!controls->down && f->state == IK_STATE_CROUCH &&
+        ik_cns_find_state(fight ? fight->cns : 0, 12)) {
+        enter_state(fight, f, 12);
         return 1;
     }
     if (controls->up) {
