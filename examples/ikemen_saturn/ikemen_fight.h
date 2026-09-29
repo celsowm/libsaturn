@@ -83,9 +83,13 @@ typedef struct ik_fighter {
     int8_t spr_priority;
 
     int16_t state;
+    int16_t prev_state;
     uint16_t state_time;
     int16_t anim;
     uint16_t anim_time;
+    int8_t state_axis;
+    uint8_t air_jumps_used;
+    uint8_t up_latched;
 
     int16_t hp;
     uint16_t hitstun;
