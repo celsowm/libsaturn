@@ -96,13 +96,13 @@ static const ik_frame_table_t k_table = {
 };
 
 static const ik_cns_hitdef_t k_hitdefs[] = {
-    {200,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,23,0,3,8,8,IK_CNS_GROUND_HIGH,5,11,15,-1024,0,-358,-768,0,-10,-76,5,0,6,0,0,
+    {200,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,23,5,3,8,8,IK_CNS_GROUND_HIGH,5,11,15,-1024,0,-358,-768,0,-10,-76,5,0,6,0,0,
      IK_CNS_GUARD_STAND|IK_CNS_GUARD_CROUCH|IK_CNS_GUARD_AIR,1,5,11,11,-1024,-537,-384,1,1},
     {210,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,57,0,4,12,12,IK_CNS_GROUND_HIGH,12,16,16,-1408,0,-640,-1024,1,-10,-70,5,2,6,0,IK_CNS_HITDEF_FORCE_NO_FALL},
     {230,IK_CNS_TRIGGER_TIME_EQ,0,26,0,4,12,12,IK_CNS_GROUND_LOW,10,14,14,-1280,0,-640,-896,0,-10,-37,5,1,6,0,0},
     {240,IK_CNS_TRIGGER_TIME_EQ,0,63,0,4,12,12,IK_CNS_GROUND_LOW,12,17,17,-1536,0,-563,-819,1,-10,-60,5,2,6,0,0},
-    {400,IK_CNS_TRIGGER_TIME_EQ,0,23,0,3,10,11,IK_CNS_GROUND_LOW,4,9,9,-1024,0,-384,-768,0,-10,-42,5,0,6,0,0,
-     IK_CNS_GUARD_CROUCH,1,4,9,9,-1024,-576,-384},
+    {400,IK_CNS_TRIGGER_TIME_EQ,0,23,5,3,10,11,IK_CNS_GROUND_LOW,4,9,9,-1024,0,-384,-768,0,-10,-42,5,0,6,0,0,
+     IK_CNS_GUARD_CROUCH,0,4,9,9,-1024,-576,-384},
     {410,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,37,0,4,12,12,IK_CNS_GROUND_LOW,12,17,17,-1024,0,-768,-1024,1,-10,-55,5,2,6,0,0},
     {410,IK_CNS_TRIGGER_ANIM_ELEM_EQ,4,36,0,4,12,12,IK_CNS_GROUND_HIGH,12,17,17,-1792,0,-768,-1024,-1,-10,-83,5,2,6,0,0},
     {430,IK_CNS_TRIGGER_TIME_EQ,0,28,0,4,12,12,IK_CNS_GROUND_LOW,6,10,10,-1280,0,-512,-768,0,-10,-8,5,1,6,0,0},
@@ -615,7 +615,7 @@ int main() {
      * rather than the legacy damage state and does not count as a hit. */
     {
         ik_fight_init(&g,&k_cns); place(&g,100,145);
-        const int hp=g.fighters[1].hp;
+        g.fighters[1].hp=3;
         ik_fight_controls_t p1{}; request(&p1,IK_STATE_PUNCH);
         ik_fight_controls_t p2{}; p2.back=1;
         for(int i=0;i<12 && !(g.events&IK_EVENT_GUARD);++i) {
@@ -623,7 +623,8 @@ int main() {
             p1.has_state_request=0u;
         }
         OK((g.events&IK_EVENT_GUARD)!=0u);
-        EQ(g.fighters[1].hp,hp);
+        EQ(g.fighters[1].hp,0);
+        OK((g.events&IK_EVENT_KO)!=0u);
         EQ(g.hits_p1,0u);
         EQ(g.fighters[1].guard_type,IK_CNS_STATE_STAND);
         OK(g.fighters[1].state==150 || g.fighters[1].state==151);
@@ -643,6 +644,7 @@ int main() {
         EQ(g.hits_p1,1u);
 
         ik_fight_init(&g,&k_cns); place(&g,100,145);
+        g.fighters[1].hp=3;
         p1={}; request(&p1,IK_STATE_CROUCH_PUNCH);
         p2={}; p2.back=1; p2.down=1;
         for(int i=0;i<8 && !(g.events&IK_EVENT_GUARD);++i) {
@@ -650,7 +652,8 @@ int main() {
             p1.has_state_request=0u;
         }
         OK((g.events&IK_EVENT_GUARD)!=0u);
-        EQ(g.fighters[1].hp,1000);
+        EQ(g.fighters[1].hp,1);
+        OK((g.events&IK_EVENT_KO)==0u);
         EQ(g.fighters[1].guard_type,IK_CNS_STATE_CROUCH);
         EQ(g.fighters[1].state,152);
     }
