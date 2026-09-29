@@ -360,6 +360,28 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
         "crouch_friction_threshold_q8": q8(
             number(movement.get("crouch.friction.threshold"), .05)
         ),
+        "liedown_time": integer(data.get("liedown.time"), 60),
+        "air_gethit_groundlevel_q8": q8(
+            number(movement.get("air.gethit.groundlevel"), 25)
+        ),
+        "air_gethit_trip_groundlevel_q8": q8(
+            number(movement.get("air.gethit.trip.groundlevel"), 15)
+        ),
+        "down_bounce_offset_x_q8": q8(
+            pair(movement.get("down.bounce.offset"), 0, 20)[0]
+        ),
+        "down_bounce_offset_y_q8": q8(
+            pair(movement.get("down.bounce.offset"), 0, 20)[1]
+        ),
+        "down_bounce_yaccel_q8": q8(
+            number(movement.get("down.bounce.yaccel"), .4)
+        ),
+        "down_bounce_groundlevel_q8": q8(
+            number(movement.get("down.bounce.groundlevel"), 12)
+        ),
+        "down_friction_threshold_q8": q8(
+            number(movement.get("down.friction.threshold"), .05)
+        ),
     }
 
 
@@ -515,6 +537,9 @@ def parse_state(
                 ax * 1.5,
                 ay / 2.0,
             )
+            fall_x_text = ctrl.get("fall.xvelocity")
+            fall_x = number(fall_x_text, 0)
+            fall_y = number(ctrl.get("fall.yvelocity"), -4.5)
             sparkx, sparky = pair(ctrl.get("sparkxy"), 0, 0)
             hs = sound_pair(ctrl.get("hitsound"))
             gs = sound_pair(ctrl.get("guardsound"))
@@ -588,6 +613,13 @@ def parse_state(
                     "anim_type": anim_type_code(ctrl.get("animtype")),
                     "air_anim_type": anim_type_code(
                         ctrl.get("air.animtype", ctrl.get("animtype", "light"))
+                    ),
+                    "fall_x_velocity_q8": q8(fall_x),
+                    "fall_y_velocity_q8": q8(fall_y),
+                    "fall_x_velocity_set": int(fall_x_text is not None),
+                    "fall_recover": integer(ctrl.get("fall.recover"), 1),
+                    "fall_recover_time": integer(
+                        ctrl.get("fall.recovertime"), 4
                     ),
                 }
             )
@@ -766,6 +798,8 @@ def compile_common_states(
             "controller_ofs": 0,
             "controller_count": 0,
             "land_state": land_state,
+            "air_accel_q8": 0,
+            "land_level_q8": 0,
             "unsupported_controllers": [],
         }
 
@@ -1329,7 +1363,8 @@ def emit(
         f"{r['hitdef_ofs']}u, {r['hitdef_count']}u, "
         f"{r['playsnd_ofs']}u, {r['playsnd_count']}u, "
         f"{r['controller_ofs']}u, {r['controller_count']}u, "
-        f"{r.get('land_state', 0)}"
+        f"{r.get('land_state', 0)}, "
+        f"{r.get('air_accel_q8', 0)}, {r.get('land_level_q8', 0)}"
         "},"
         for r in state_rows
     ]
@@ -1352,7 +1387,10 @@ def emit(
         f"{h['guard_velocity_x_q8']}, "
         f"{h['air_guard_velocity_x_q8']}, "
         f"{h['air_guard_velocity_y_q8']}, "
-        f"{h['anim_type']}u, {h['air_anim_type']}u"
+        f"{h['anim_type']}u, {h['air_anim_type']}u, "
+        f"{h['fall_x_velocity_q8']}, {h['fall_y_velocity_q8']}, "
+        f"{h['fall_x_velocity_set']}u, {h['fall_recover']}u, "
+        f"{h['fall_recover_time']}u"
         "},"
         for h in hitdefs
     ]
@@ -1408,7 +1446,15 @@ const ik_cns_asset_t {ident}_cns = {{
         {const['yaccel_q8']}, {const['stand_friction_q8']},
         {const['crouch_friction_q8']},
         {const['stand_friction_threshold_q8']},
-        {const['crouch_friction_threshold_q8']}
+        {const['crouch_friction_threshold_q8']},
+        {const['liedown_time']},
+        {const['air_gethit_groundlevel_q8']},
+        {const['air_gethit_trip_groundlevel_q8']},
+        {const['down_bounce_offset_x_q8']},
+        {const['down_bounce_offset_y_q8']},
+        {const['down_bounce_yaccel_q8']},
+        {const['down_bounce_groundlevel_q8']},
+        {const['down_friction_threshold_q8']}
     }},
     {ident}_states, {len(state_rows)}u,
     {ident}_hitdefs, {len(hitdefs)}u,
