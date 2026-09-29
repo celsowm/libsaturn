@@ -153,6 +153,22 @@ def q8(value: float) -> int:
     return result
 
 
+def anim_type_code(text: str | None) -> int:
+    value = (text or "light").strip().lower()
+    mapping = {
+        "light": 0,
+        "medium": 1,
+        "med": 1,
+        "hard": 2,
+        "heavy": 2,
+        "back": 3,
+        "up": 4,
+        "diagup": 5,
+        "diag-up": 5,
+    }
+    return mapping.get(value, 0)
+
+
 def guard_mask(text: str | None) -> str:
     value = (text or "").strip().upper()
     bits: list[str] = []
@@ -569,6 +585,10 @@ def parse_state(
                     "guard_velocity_x_q8": q8(guardx),
                     "air_guard_velocity_x_q8": q8(agx),
                     "air_guard_velocity_y_q8": q8(agy),
+                    "anim_type": anim_type_code(ctrl.get("animtype")),
+                    "air_anim_type": anim_type_code(
+                        ctrl.get("air.animtype", ctrl.get("animtype", "light"))
+                    ),
                 }
             )
 
@@ -697,6 +717,7 @@ def compile_common_states(
     supported = {
         0, 10, 11, 12, 20, 40, 45, 50, 51, 52, 100, 105, 106,
         120, 130, 131, 132, 140, 150, 151, 152, 153, 154, 155,
+        5000, 5001, 5010, 5011, 5020, 5030, 5040, 5050,
     }
     unsupported = sorted(set(selected) - supported)
     if unsupported:
@@ -1093,6 +1114,133 @@ def compile_common_states(
                 ),
             ]
 
+        elif n == 5000:
+            row = state_row(5000, -1, 0)
+            row["has_velset"] = 1
+            cs += [
+                _common_ctrl(
+                    5000, "IK_CNS_CTRL_GET_HIT_ANIM",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                ),
+                _common_ctrl(
+                    5000, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_LAUNCH", 0, 0, 5030, 0,
+                ),
+                _common_ctrl(
+                    5000, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_NO_LAUNCH", 0, 0, 5001, 0,
+                ),
+            ]
+            deferred[n] = ["ForceFeedback", "StateTypeSet for launch"]
+
+        elif n == 5001:
+            row = state_row(5001, -1, 0)
+            cs += [
+                _common_ctrl(
+                    5001, "IK_CNS_CTRL_HIT_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5001, "IK_CNS_CTRL_VEL_MUL",
+                    "IK_CNS_TRIGGER_HIT_SLIDE_TIME", 0, 0, q8(.6), 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5001, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_OVER", 0, 0, 0, 1,
+                    "IK_CNS_CTRL_HAS_CTRL",
+                ),
+            ]
+            deferred[n] = ["DefenceMulSet"]
+
+        elif n == 5010:
+            row = state_row(5010, -1, 0)
+            row["has_velset"] = 1
+            cs += [
+                _common_ctrl(
+                    5010, "IK_CNS_CTRL_GET_HIT_ANIM",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 1, 0,
+                ),
+                _common_ctrl(
+                    5010, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_LAUNCH", 0, 0, 5030, 0,
+                ),
+                _common_ctrl(
+                    5010, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_NO_LAUNCH", 0, 0, 5011, 0,
+                ),
+            ]
+            deferred[n] = ["ForceFeedback", "StateTypeSet for launch"]
+
+        elif n == 5011:
+            row = state_row(5011, -1, 0)
+            cs += [
+                _common_ctrl(
+                    5011, "IK_CNS_CTRL_HIT_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5011, "IK_CNS_CTRL_VEL_MUL",
+                    "IK_CNS_TRIGGER_HIT_SLIDE_TIME", 0, 0, q8(.6), 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5011, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_OVER", 0, 0, 11, 1,
+                    "IK_CNS_CTRL_HAS_CTRL",
+                ),
+            ]
+            deferred[n] = ["DefenceMulSet"]
+
+        elif n == 5020:
+            row = state_row(5020, -1, 0)
+            row["has_velset"] = 1
+            cs += [
+                _common_ctrl(
+                    5020, "IK_CNS_CTRL_GET_HIT_ANIM",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 2, 0,
+                ),
+                _common_ctrl(
+                    5020, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 5030, 0,
+                ),
+            ]
+            deferred[n] = ["ForceFeedback"]
+
+        elif n == 5030:
+            row = state_row(5030, 5030, 0)
+            row["land_state"] = 0
+            cs += [
+                _common_ctrl(
+                    5030, "IK_CNS_CTRL_HIT_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    5030, "IK_CNS_CTRL_HIT_RECOVER_STATE",
+                    "IK_CNS_TRIGGER_HIT_OVER",
+                ),
+            ]
+            deferred[n] = [
+                "selfAnimExist 5030",
+                "air.gethit.groundlevel transition",
+                "AnimTime -> 5035",
+            ]
+
+        elif n == 5040:
+            row = state_row(5040, 5040, 1, land_state=52)
+            deferred[n] = ["alive=false -> 5050", "moveTypeSet"]
+
+        elif n == 5050:
+            row = state_row(5050, 5050, 0, land_state=52)
+            deferred[n] = [
+                "fall recovery",
+                "5100 knockdown landing graph",
+                "animation variants",
+            ]
+
         elif n == 106:
             row = state_row(106, 47, 0)
             cs += [
@@ -1203,7 +1351,8 @@ def emit(
         f"{h['guard_hit_time']}u, {h['guard_ctrl_time']}u, "
         f"{h['guard_velocity_x_q8']}, "
         f"{h['air_guard_velocity_x_q8']}, "
-        f"{h['air_guard_velocity_y_q8']}"
+        f"{h['air_guard_velocity_y_q8']}, "
+        f"{h['anim_type']}u, {h['air_anim_type']}u"
         "},"
         for h in hitdefs
     ]
