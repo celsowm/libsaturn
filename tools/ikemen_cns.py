@@ -989,7 +989,7 @@ def compile_common_states(
             ))
 
         elif n == 132:
-            row = state_row(132, 132, 0, land_state=52)
+            row = state_row(132, 132, 0, land_state=130)
 
         elif n == 140:
             row = state_row(140, -1, 1)
