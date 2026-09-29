@@ -172,10 +172,13 @@ COMMON = r"""
 [StateDef 5035; type: A; movetype: H; physics: N;]
 [StateDef 5070; type: A; movetype: H; physics: N; velset: 0, 0;]
 [StateDef 5071; type: A; movetype: H; physics: N;]
+[StateDef 5080; type: L; movetype: H; physics: N; velset: 0, 0;]
+[StateDef 5081; type: L; movetype: H; physics: C;]
 [StateDef 5100; type: L; movetype: H; physics: N;]
 [StateDef 5101; type: L; movetype: H; physics: N;]
 [StateDef 5110; type: L; movetype: H; physics: N;]
 [StateDef 5120; type: L; movetype: I; physics: N;]
+[StateDef 5150; type: L; movetype: H; physics: N; sprpriority: -3; ctrl: 0;]
 [StateDef 5200; type: A; movetype: H; physics: N;]
 [StateDef 5201; type: A; movetype: H; physics: A; anim: 5200;]
 [StateDef 5210; type: A; movetype: I; physics: N; anim: 5210; ctrl: 0;]
@@ -192,7 +195,8 @@ with tempfile.TemporaryDirectory() as td:
         common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
                  120,130,131,132,140,150,151,152,153,154,155,
                  5000,5001,5010,5011,5020,5030,5035,5040,5050,
-                 5070,5071,5100,5101,5110,5120,5200,5201,5210]
+                 5070,5071,5080,5081,5100,5101,5110,5120,5150,
+                 5200,5201,5210]
     )
 
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
@@ -203,7 +207,7 @@ assert report["constants"]["air_jump_neu_y_q8"] == round(-8.1 * 256)
 assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
-assert len(report["states"]) == 43
+assert len(report["states"]) == 46
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -262,6 +266,11 @@ assert common_rows[50]["land_state"] == 52
 assert common_rows[51]["land_state"] == 52
 assert common_rows[52]["anim"] == 47
 assert common_rows[105]["land_state"] == 106
+assert common_rows[5080]["controller_count"] == 1
+assert common_rows[5081]["controller_count"] == 3
+assert common_rows[5110]["controller_count"] == 7
+assert common_rows[5150]["spr_priority"] == -3
+assert common_rows[5150]["controller_count"] == 3
 assert common_rows[120]["controller_count"] == 2
 assert common_rows[132]["land_state"] == 130
 assert common_rows[140]["ctrl"] == 1
