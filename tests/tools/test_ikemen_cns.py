@@ -221,6 +221,8 @@ assert hit["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_EQ"
 assert hit["trigger_value"] == 3
 assert hit["damage"] == 23
 assert hit["pause_p1"] == 8
+assert hit["priority"] == 3
+assert hit["priority_type"] == "IK_CNS_PRIORITY_HIT"
 assert hit["ground_velocity_x_q8"] == -4 * 256
 assert hit["guard_flags"] == "IK_CNS_GUARD_STAND | IK_CNS_GUARD_CROUCH | IK_CNS_GUARD_AIR"
 assert hit["hit_flags"] == "IK_CNS_HIT_STAND | IK_CNS_HIT_CROUCH | IK_CNS_HIT_AIR | IK_CNS_HIT_FALL"
