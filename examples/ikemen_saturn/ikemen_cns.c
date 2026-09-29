@@ -107,6 +107,9 @@ int ik_cns_controller_trigger_context_now(
         case IK_CNS_TRIGGER_HIT_SLIDE_TIME:
             return context->state_time == context->hit_slide_time;
 
+        case IK_CNS_TRIGGER_HIT_SLIDE_GE:
+            return context->state_time >= context->hit_slide_time;
+
         case IK_CNS_TRIGGER_HIT_CTRL_TIME:
             return context->state_time == context->hit_ctrl_time;
 
