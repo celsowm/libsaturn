@@ -96,6 +96,7 @@ air.velocity = -1.4,-3
 air.hittime = 15
 down.velocity = -5,0
 down.hittime = 22
+down.bounce = 1
 
 [State 200, Snd]
 type = PlaySnd
@@ -236,6 +237,7 @@ assert hit["fall_recover_time"] == 4
 assert hit["down_hit_time"] == 22
 assert hit["down_velocity_x_q8"] == -5 * 256
 assert hit["down_velocity_y_q8"] == 0
+assert hit["down_bounce"] == 1
 
 controllers = report["controllers"]
 assert controllers[0]["type"] == "IK_CNS_CTRL_SPR_PRIORITY"
