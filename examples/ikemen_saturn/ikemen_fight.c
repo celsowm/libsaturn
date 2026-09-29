@@ -599,8 +599,9 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f,
             } else if (ik_cns_find_state(fight ? fight->cns : 0, 52)) {
                 target = 52;
             }
+            const uint8_t landing_ctrl = spec ? spec->land_ctrl : 0u;
             enter_state(fight, f, target);
-            if (target == 5040) f->ctrl = 1;
+            if (target == 5040 || landing_ctrl) f->ctrl = 1;
         }
     }
     sync_position(f);
