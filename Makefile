@@ -692,10 +692,15 @@ HOST_TEST_EXTRA_test_ikemen_fight := examples/ikemen_saturn/ikemen_fight.c examp
 HOST_TEST_EXTRA_test_ikemen_command := examples/ikemen_saturn/ikemen_command.c
 HOST_TEST_EXTRA_test_ikemen_cns := examples/ikemen_saturn/ikemen_cns.c
 HOST_TEST_EXTRA_test_ikemen_anim := examples/ikemen_saturn/ikemen_anim.c
-# End-to-end asset-contract test: needs the generated Ikemen tables, which
-# exist once the screenpack clone is present and the example has been built
-# (its Makefile.inc owns the generation rules). Skipped otherwise.
-ifeq ($(wildcard build/generated/ikemen_saturn/kfm_frames.c),)
+# End-to-end asset-contract test: needs a complete generated Ikemen asset
+# set. A partially populated build/generated directory can exist after other
+# pipeline steps, so checking only kfm_frames.c is not sufficient.
+IKEMEN_HOST_ASSETS_READY := $(and \
+	$(wildcard build/generated/ikemen_saturn/kfm_frames.c), \
+	$(wildcard build/generated/ikemen_saturn/kfm_frames.h), \
+	$(wildcard build/generated/ikemen_saturn/stage0_plane.c), \
+	$(wildcard build/generated/ikemen_saturn/stage0_plane.h))
+ifeq ($(IKEMEN_HOST_ASSETS_READY),)
 HOST_TEST_SRCS := $(filter-out tests/host/test_ikemen_assets.cpp,$(HOST_TEST_SRCS))
 else
 HOST_TEST_EXTRA_test_ikemen_assets := build/generated/ikemen_saturn/kfm_frames.c build/generated/ikemen_saturn/stage0_plane.c examples/ikemen_saturn/ikemen_anim.c src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/api.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
