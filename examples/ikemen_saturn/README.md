@@ -72,14 +72,21 @@ asset now contains states:
 * 52: jump landing
 * 100: run forward
 * 105 / 106: hop backward and hop-back landing
+* 120 / 130 / 131 / 132 / 140: guard start, stand/crouch/air guard and guard end
+* 150-155: stand/crouch/air guard-hit flow
+* 5000 / 5001 / 5010 / 5011: stand/crouch get-hit shake and knockback
+* 5020 / 5030 / 5040 / 5050: first air get-hit/fall recovery slice
 
 The generic runtime now supports contextual command/velocity triggers plus
 `VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity,
 remembered jump direction, `prevStateNo` run-jump selection, compiled
-air-jump limits and state-specific landing targets. Ground physics selects the
-compiled stand or crouch friction values. Jump, air-jump, air attacks and
-hop-back land through the compiled common flow instead of being forced
-directly to idle.
+air-jump limits and state-specific landing targets. HitDefs also preserve
+guard flags, guard/air-guard velocities, guard timing and animation type.
+Standing, crouching and air guard hits enter the common 150-155 graph, while
+normal damage begins in the common 5000+ get-hit graph instead of the old
+single synthetic hit state. Ground physics selects the compiled stand or
+crouch friction values. Jump, air-jump, air attacks and hop-back land through
+the compiled common flow instead of being forced directly to idle.
 
 KFM `[Data]`, `[Size]`, `[Velocity]` and `[Movement]` values are compiled
 to Q8.8, including walk/run/jump/run-jump velocities, gravity, friction,
@@ -114,9 +121,13 @@ pins both fighters' current textures before emitting VDP1 commands.
 
 This is not yet a complete Ikemen common-state VM. The next important pieces are:
 
-* guards and the complete get-hit/knockdown/bounce/lying/recovery graph
+* the rest of the get-hit graph: 5035, trip/downed states, ground bounce,
+  lying/get-up and 5200/5210 recovery states
+* exact remaining guard semantics such as conditional air-guard landing,
+  complete inGuardDist behavior and guard.kill
 * throws, specials and supers
-* remaining HitDef semantics, guard/chip/reversal/juggle behavior
+* remaining HitDef semantics such as hitflag, priority clashes,
+  down.velocity/down.hittime, reversal and juggle behavior
 * fightfx sparks/effects, motif/lifebar flow and full round presentation
 * generic PlaySnd dispatch for all compiled states
 * stage DEF execution instead of the current simplified stage runtime
