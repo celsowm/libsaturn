@@ -138,6 +138,7 @@ enum {
 
 typedef struct ik_cns_constants {
     int16_t life;
+    int16_t air_juggle;
 
     int16_t ground_back;
     int16_t ground_front;
@@ -221,6 +222,8 @@ typedef struct ik_cns_state {
     int16_t land_level_q8;
     uint16_t air_motion_start;
     uint8_t land_ctrl;
+    int16_t juggle;
+    uint8_t has_juggle;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
@@ -275,6 +278,7 @@ typedef struct ik_cns_hitdef {
     uint8_t down_bounce;
     uint8_t hit_flags;
     uint8_t priority_type;
+    uint8_t air_juggle;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
