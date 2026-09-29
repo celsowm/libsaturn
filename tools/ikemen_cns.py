@@ -786,7 +786,7 @@ def compile_common_states(
         0, 10, 11, 12, 20, 40, 45, 50, 51, 52, 100, 105, 106,
         120, 130, 131, 132, 140, 150, 151, 152, 153, 154, 155,
         5000, 5001, 5010, 5011, 5020, 5030, 5035, 5040, 5050,
-        5070, 5071, 5100, 5101, 5110, 5120,
+        5070, 5071, 5080, 5081, 5100, 5101, 5110, 5120, 5150,
         5200, 5201, 5210,
     }
     unsupported = sorted(set(selected) - supported)
@@ -1347,6 +1347,33 @@ def compile_common_states(
                 "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y",
             ))
 
+        elif n == 5080:
+            row = state_row(5080, -1, 0)
+            row["has_velset"] = 1
+            cs.append(_common_ctrl(
+                5080, "IK_CNS_CTRL_DOWNED_HIT_BRANCH",
+                "IK_CNS_TRIGGER_TIME_EQ", 1,
+            ))
+
+        elif n == 5081:
+            row = state_row(5081, -1, 0)
+            cs += [
+                _common_ctrl(
+                    5081, "IK_CNS_CTRL_HIT_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5081, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_HIT_OVER", 0, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5081, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_OVER", 0, 0, 5110, 0,
+                ),
+            ]
+
         elif n == 5100:
             row = state_row(5100, 5100, 0)
             cs += [
@@ -1429,6 +1456,10 @@ def compile_common_states(
                 ),
                 _common_ctrl(
                     5110, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_NOT_ALIVE", 0, 0, 5150, 0,
+                ),
+                _common_ctrl(
+                    5110, "IK_CNS_CTRL_CHANGE_STATE",
                     "IK_CNS_TRIGGER_TIME_EQ", const["liedown_time"],
                     0, 5120, 0,
                 ),
@@ -1450,6 +1481,31 @@ def compile_common_states(
                 ),
             ]
             deferred[n] = ["NotHitBy get-up invulnerability", "HitFallSet"]
+
+        elif n == 5150:
+            row = state_row(5150, -1, 0, spr=-3)
+            cs += [
+                _common_ctrl(
+                    5150, "IK_CNS_CTRL_VEL_MUL",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, q8(.85), 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5150, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_ABS_VX_LT_Q8",
+                    const["down_friction_threshold_q8"], 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5150, "IK_CNS_CTRL_POS_ADD_VEL",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+            ]
+            deferred[n] = [
+                "NotHitBy defeated invulnerability",
+                "MatchOver animation variant",
+            ]
 
         elif n == 5200:
             row = state_row(5200, -1, 0, land_state=5201)
