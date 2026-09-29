@@ -13,7 +13,6 @@
 #include <stdint.h>
 
 #include "saturn/app.h"
-#include "saturn/audio.h"
 #include "saturn/color.h"
 #include "saturn/example_util.h"
 #include "saturn/font.h"
@@ -27,6 +26,7 @@
 #include "saturn/video.h"
 
 #include "ikemen_anim.h"
+#include "ikemen_audio.h"
 #include "ikemen_fight.h"
 #include "ikemen_saturn/kfm_frames.h"
 #include "ikemen_saturn/stage0_plane.h"
@@ -48,8 +48,6 @@ static sat_texture_t g_frame_textures[KFM_FRAME_COUNT];
 static uint32_t g_frame_texture_count;
 static sat_palette_t g_p2_palette;
 static uint16_t g_map_scratch[SAT_VDP2_NBG0_MAP_CELLS];
-static int8_t g_hit_sound[256];
-static int8_t g_whiff_sound[256];
 static sat_ascii_font_t g_font;
 static sat_hud_t g_hud;
 
@@ -219,12 +217,10 @@ static void draw_bars(const ik_fight_t* fight) {
 }
 
 int main(void) {
-    sat_sound_t hit_sfx = {0, 0};
-    sat_sound_t whiff_sfx = {0, 0};
+    ik_audio_t audio = {0};
     ik_fight_t fight;
 
     sat_example_must(sat_app_init_default());
-    sat_example_must(sat_audio_init());
     /* VDP2 stage first: NBG0 plane behind the VDP1 sprite layer, with a
      * transparent VDP1 erase so the background shows through. */
     stage_init();
@@ -234,20 +230,7 @@ int main(void) {
     sat_example_must(sat_hud_init(&g_hud, &g_font, 1u, 8));
 
     fighters_init();
-
-    sat_example_must(sat_audio_synth_noise(g_hit_sound, sizeof(g_hit_sound)));
-    sat_example_must(sat_audio_synth_blip(g_whiff_sound, sizeof(g_whiff_sound), 3u));
-    {
-        sat_sound_desc_t desc = {0};
-        desc.samples = g_hit_sound;
-        desc.sample_count = sizeof(g_hit_sound);
-        desc.sample_rate = 11025u;
-        desc.format = SAT_AUDIO_PCM_S8;
-        sat_example_must(sat_sound_create(&hit_sfx, &desc));
-        desc.samples = g_whiff_sound;
-        desc.sample_count = sizeof(g_whiff_sound);
-        sat_example_must(sat_sound_create(&whiff_sfx, &desc));
-    }
+    sat_example_must(ik_audio_init(&audio));
 
     ik_fight_init(&fight);
 
@@ -269,19 +252,13 @@ int main(void) {
         if (sat_pad_poll_port(1u, &pad2) == SAT_OK && pad2.connected) have_p2 = 1;
 
         {
-            uint16_t before_p1 = fight.fighters[0].state;
+            const int16_t before_states[2] = {
+                fight.fighters[0].state, fight.fighters[1].state
+            };
             ik_fight_update(&fight, &pad1, have_p2 ? &pad2 : 0);
-            /* Whiff cue when a new attack starts. */
-            if (fight.fighters[0].state != before_p1 &&
-                (fight.fighters[0].state == IK_STATE_PUNCH ||
-                 fight.fighters[0].state == IK_STATE_KICK)) {
-                (void)sat_sound_play(whiff_sfx, 0, 0);
-            }
-            if ((fight.events & IK_EVENT_HIT) != 0u) {
-                (void)sat_sound_play(hit_sfx, 0, 0);
-            }
+            ik_audio_process_fight(&audio, &fight, before_states);
         }
-        sat_example_must(sat_audio_update());
+        sat_example_must(ik_audio_update());
 
         /* VDP1 draws fighters + FX + HUD; the stage is VDP2. */
         stage_scroll_for_fight(&fight);

@@ -22,9 +22,10 @@ Makefile rules).
 
 Conversion happens offline in `tools/ikemen_sff` (SFF v2 container,
 LZ5/RLE/PNG-indexed codecs, AIR frame times, stage composition with
-palette merge). The runtime consumes only generated tables through the
+palette merge) and `tools/ikemen_snd.py` (Elecbyte SND containers with
+embedded WAV samples). The runtime consumes only generated tables through the
 `examples/ikemen_saturn/ikemen_anim.h` frame-table contract -- it never parses
-SFF itself.
+SFF or SND itself.
 
 ## Scope (v1 subset)
 
@@ -41,15 +42,17 @@ SFF itself.
   registered KFM palette (1,4) -- both fighters share one pixel copy in
   VDP1 VRAM and still get distinct colours (the lib's palette-variant
   tints compose on top for the hit flash).
-* Audio: procedural SFX blip/noise; BGM via `tools/convert_audio.py`
-  still pending.
+* Audio: real KFM attack samples from `chars/kfm/kfm.snd` (0,0 punch,
+  0,1 kick) plus the matching common hit samples from `data/common.snd`
+  (5,0 light hit, 5,1 medium hit), converted offline to mono signed 8-bit PCM.
+  Stage0 intentionally has an empty `bgmusic` entry, so there is no BGM to port.
 
 ## Budgets (measured)
 
-* VDP1 cmds: 2 fighters + 2 shadows + 2 attack flashes + HUD << 2048.
+* VDP1 cmds: 2 fighters + 2 mesh shadows + HUD << 2048.
 * Textures: 50 unique KFM sprites (~264KB INDEX8, shared by both
   players) + HUD font atlas; 51/64 slots.
 * CRAM: font bank 1 (external), stage bank 4 (external), KFM (1,1)
   and (1,4) logical banks, tint variants on demand.
-* Audio: 2 resident S8 SFX; 28-voice pool untouched.
+* Audio: 4 resident S8 SFX; 28-voice pool otherwise untouched.
 * RAM: generated tables in ROM; 4MB cart NOT required.
