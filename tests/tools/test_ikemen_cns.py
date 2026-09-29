@@ -29,6 +29,7 @@ run.back = -4.5,-3.8
 jump.neu = 0,-8.4
 jump.back = -2.55
 jump.fwd = 2.5
+runjump.fwd = 4,-8.1
 
 [Movement]
 yaccel = .44
@@ -105,14 +106,34 @@ value = 0
 ctrl = 1
 """
 
+COMMON = r"""
+[StateDef 0; type: S; physics: S; sprpriority: 0;]
+[StateDef 10; type: C; physics: C; anim: 10;]
+[StateDef 11; type: C; physics: C; anim: 11; sprpriority: 0;]
+[StateDef 12; type: S; physics: S; anim: 12;]
+[StateDef 20; type: S; physics: S; sprpriority: 0;]
+[StateDef 52; type: S; physics: S; ctrl: 0; anim: 47;]
+[StateDef 100; type: S; physics: S; anim: 100; sprpriority: 1;]
+[StateDef 105; type: A; physics: A; ctrl: 0; anim: 105; sprpriority: 1;]
+[StateDef 106; type: S; physics: S; ctrl: 0; anim: 47;]
+"""
+
 with tempfile.TemporaryDirectory() as td:
     root = Path(td)
     source = root / "kfm.cns"
+    common = root / "common1.cns.zss"
     source.write_text(SOURCE, encoding="utf-8")
-    report = emit(source, [200], root / "kfm_cns", "kfm")
+    common.write_text(COMMON, encoding="utf-8")
+    report = emit(
+        source, [200], root / "kfm_cns", "kfm",
+        common, [0,10,11,12,20,52,100,105,106]
+    )
 
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
 assert report["constants"]["yaccel_q8"] == round(.44 * 256)
+assert report["constants"]["run_jump_fwd_x_q8"] == 4 * 256
+assert report["constants"]["run_jump_fwd_y_q8"] == round(-8.1 * 256)
+assert len(report["states"]) == 10
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -150,3 +171,9 @@ assert controllers[5]["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_END"
 assert controllers[5]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
 
 print("ikemen CNS compiler: OK")
+
+common_rows = {row["number"]: row for row in report["states"][1:]}
+assert common_rows[20]["controller_count"] == 3
+assert common_rows[52]["anim"] == 47
+assert common_rows[105]["land_state"] == 106
+assert report["common_deferred"][100] == ["AssertSpecial noWalk/noAutoTurn"]
