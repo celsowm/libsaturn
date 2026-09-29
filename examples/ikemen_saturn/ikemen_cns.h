@@ -253,6 +253,7 @@ typedef struct ik_cns_hitdef {
     uint16_t down_hit_time;
     int16_t down_velocity_x_q8;
     int16_t down_velocity_y_q8;
+    uint8_t down_bounce;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
