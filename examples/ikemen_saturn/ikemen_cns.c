@@ -38,13 +38,10 @@ int ik_cns_trigger_now(uint8_t trigger_kind, int16_t trigger_value,
     }
 }
 
-int ik_cns_controller_trigger_now(const ik_cns_controller_t* controller,
-                                  uint16_t state_time,
-                                  uint16_t anim_element,
-                                  uint16_t anim_element_time,
-                                  int anim_ended,
-                                  int move_contact) {
-    if (!controller) return 0;
+int ik_cns_controller_trigger_context_now(
+    const ik_cns_controller_t* controller,
+    const ik_cns_controller_context_t* context) {
+    if (!controller || !context) return 0;
 
     switch ((ik_cns_trigger_kind_t)controller->trigger_kind) {
         case IK_CNS_TRIGGER_ANIM_ELEM_RANGE: {
@@ -57,11 +54,12 @@ int ik_cns_controller_trigger_now(const ik_cns_controller_t* controller,
                                    controller->trigger_value
                                ? controller->trigger_value + 1
                                : controller->trigger_value2);
-            return anim_element >= first && anim_element < last;
+            return context->anim_element >= first &&
+                   context->anim_element < last;
         }
 
         case IK_CNS_TRIGGER_MOVE_CONTACT_ELEM_WINDOW: {
-            if (!move_contact) return 0;
+            if (!context->move_contact) return 0;
             const uint16_t first =
                 (uint16_t)(controller->trigger_value < 1
                                ? 1
@@ -72,16 +70,61 @@ int ik_cns_controller_trigger_now(const ik_cns_controller_t* controller,
                                ? controller->trigger_value + 1
                                : controller->trigger_value2);
 
-            if (anim_element == first) return anim_element_time > 0u;
-            if (anim_element > first && anim_element < last) return 1;
-            return anim_element == last && anim_element_time == 0u;
+            if (context->anim_element == first) {
+                return context->anim_element_time > 0u;
+            }
+            if (context->anim_element > first &&
+                context->anim_element < last) {
+                return 1;
+            }
+            return context->anim_element == last &&
+                   context->anim_element_time == 0u;
         }
+
+        case IK_CNS_TRIGGER_COMMAND_ACTIVE:
+            return (context->command_mask &
+                    (uint16_t)controller->trigger_value) != 0u;
+
+        case IK_CNS_TRIGGER_COMMAND_INACTIVE:
+            return (context->command_mask &
+                    (uint16_t)controller->trigger_value) == 0u;
+
+        case IK_CNS_TRIGGER_ABS_VX_LT_Q8: {
+            const int32_t limit = controller->trigger_value < 0
+                ? -(int32_t)controller->trigger_value
+                : (int32_t)controller->trigger_value;
+            return context->vx_q8 < limit && context->vx_q8 > -limit;
+        }
+
+        case IK_CNS_TRIGGER_VY_GT_Q8_AT_FLOOR:
+            return context->vy_q8 > controller->trigger_value &&
+                   context->y_q8 >= context->floor_y_q8;
+
+        case IK_CNS_TRIGGER_ANIM_EQ_AND_END:
+            return context->anim == controller->trigger_value &&
+                   context->anim_ended != 0;
 
         default:
             return ik_cns_trigger_now(
                 controller->trigger_kind, controller->trigger_value,
-                state_time, anim_element, anim_element_time, anim_ended);
+                context->state_time, context->anim_element,
+                context->anim_element_time, context->anim_ended);
     }
+}
+
+int ik_cns_controller_trigger_now(const ik_cns_controller_t* controller,
+                                  uint16_t state_time,
+                                  uint16_t anim_element,
+                                  uint16_t anim_element_time,
+                                  int anim_ended,
+                                  int move_contact) {
+    const ik_cns_controller_context_t context = {
+        state_time, anim_element, anim_element_time,
+        0, 0, 0, 0, 0, 0u,
+        (uint8_t)(anim_ended != 0),
+        (uint8_t)(move_contact != 0)
+    };
+    return ik_cns_controller_trigger_context_now(controller, &context);
 }
 
 /* HitDef is stateful: once a HitDef trigger has run it remains the current
