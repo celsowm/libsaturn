@@ -21,6 +21,14 @@ command = y
 name = "holddown"
 command = /$D
 time = 1
+[Command]
+name = "holdfwd"
+command = /$F
+time = 1
+[Command]
+name = "holdback"
+command = /$B
+time = 1
 
 [Statedef -1]
 
@@ -33,6 +41,22 @@ trigger1 = statetype = S
 trigger1 = ctrl
 trigger2 = stateno = 200
 trigger2 = time > 6
+
+[State -1, Kung Fu Throw]
+type = ChangeState
+value = 800
+triggerall = command = "y"
+triggerall = statetype = S
+triggerall = ctrl
+triggerall = stateno != 100
+trigger1 = command = "holdfwd"
+trigger1 = p2bodydist X < 3
+trigger1 = (p2statetype = S) || (p2statetype = C)
+trigger1 = p2movetype != H
+trigger2 = command = "holdback"
+trigger2 = p2bodydist X < 5
+trigger2 = (p2statetype = S) || (p2statetype = C)
+trigger2 = p2movetype != H
 
 [State -1, Jump Strong Punch]
 type = ChangeState
@@ -47,17 +71,22 @@ trigger2 = movecontact
 with tempfile.TemporaryDirectory() as td:
     path = Path(td) / "test.cmd"
     path.write_text(SOURCE, encoding="utf-8")
-    rules, diagnostics = parse_state_rules(path, {200, 610})
+    rules, diagnostics = parse_state_rules(path, {200, 610, 800})
 
 assert diagnostics == []
-assert [r.target for r in rules] == [200, 610]
+assert [r.target for r in rules] == [200, 800, 610]
 ops200 = [i.op for i in rules[0].code]
 assert ops200.count("command_active") == 1
 assert ops200.count("command_inactive") == 1
 assert "state_type_eq" in ops200
 assert "state_time_gt" in ops200
 assert ops200[-1] == "and"
-ops610 = [i.op for i in rules[1].code]
+ops800 = [i.op for i in rules[1].code]
+assert ops800.count("p2_body_dist_x_lt") == 2
+assert ops800.count("p2_state_type_eq") == 4
+assert ops800.count("p2_move_type_ne") == 2
+assert "state_no_ne" in ops800
+ops610 = [i.op for i in rules[2].code]
 assert ops610.count("state_no_eq") == 2
 assert "move_contact" in ops610
 assert ops610.count("or") >= 2
