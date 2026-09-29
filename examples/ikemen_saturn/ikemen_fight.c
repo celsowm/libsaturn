@@ -178,12 +178,11 @@ static uint32_t attack_duration(const ik_frame_table_t* frames, int16_t state) {
     return state == IK_STATE_PUNCH ? 12u : 15u;
 }
 
-static void step_fighter(ik_fight_t* fight, int index, const sat_pad_state_t* pad,
+static void step_fighter(ik_fight_t* fight, int index,
+                         const ik_fight_controls_t* controls,
                          int is_dummy, const ik_frame_table_t* frames) {
     ik_fighter_t* f = &fight->fighters[index];
     ik_fighter_t* foe = &fight->fighters[index ^ 1];
-    const uint16_t held = pad ? pad->held : 0u;
-    const uint16_t pressed = pad ? pad->pressed : 0u;
 
     if (f->hit_pause > 0u) {
         f->hit_pause--;
@@ -218,9 +217,9 @@ static void step_fighter(ik_fight_t* fight, int index, const sat_pad_state_t* pa
     } else if (!f->on_ground) {
         f->vy = (int16_t)(f->vy + IK_GRAVITY);
         f->y = (int16_t)(f->y + f->vy);
-        if (!is_dummy) {
-            if ((held & SAT_PAD_LEFT) != 0u) f->x--;
-            if ((held & SAT_PAD_RIGHT) != 0u) f->x++;
+        if (!is_dummy && controls) {
+            if (controls->back) f->x = (int16_t)(f->x - f->facing);
+            if (controls->forward) f->x = (int16_t)(f->x + f->facing);
         }
         if (f->y >= IK_FLOOR_Y) {
             f->y = IK_FLOOR_Y;
@@ -230,32 +229,36 @@ static void step_fighter(ik_fight_t* fight, int index, const sat_pad_state_t* pa
             f->state_time = 0;
         }
         f->x = clamp16(f->x, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
-    } else if (!is_dummy) {
+    } else if (!is_dummy && controls) {
         int moved = 0;
-        if ((held & SAT_PAD_LEFT) != 0u) {
-            f->x = clamp16((int16_t)(f->x - IK_WALK_SPEED),
-                           IK_STAGE_MIN_X, IK_STAGE_MAX_X);
+        if (controls->back) {
+            f->x = clamp16(
+                (int16_t)(f->x - f->facing * IK_WALK_SPEED),
+                IK_STAGE_MIN_X, IK_STAGE_MAX_X);
             moved = 1;
         }
-        if ((held & SAT_PAD_RIGHT) != 0u) {
-            f->x = clamp16((int16_t)(f->x + IK_WALK_SPEED),
-                           IK_STAGE_MIN_X, IK_STAGE_MAX_X);
+        if (controls->forward) {
+            f->x = clamp16(
+                (int16_t)(f->x + f->facing * IK_WALK_SPEED),
+                IK_STAGE_MIN_X, IK_STAGE_MAX_X);
             moved = 1;
         }
-        if ((pressed & SAT_PAD_UP) != 0u) {
+        if (controls->up) {
             f->vy = IK_JUMP_VELOCITY;
             f->on_ground = 0;
             f->state = IK_STATE_JUMP;
             f->state_time = 0;
-        } else if ((held & SAT_PAD_DOWN) != 0u) {
+        } else if (controls->down) {
             if (f->state != IK_STATE_CROUCH) f->state_time = 0;
             f->state = IK_STATE_CROUCH;
-        } else if ((pressed & (SAT_PAD_A | SAT_PAD_X)) != 0u) {
+        } else if (controls->x) {
+            /* KFM CMD: standing light punch is button x -> state 200. */
             f->state = IK_STATE_PUNCH;
             f->state_time = 0;
             f->attack_has_hit = 0;
             f->attack_id++;
-        } else if ((pressed & (SAT_PAD_B | SAT_PAD_Y)) != 0u) {
+        } else if (controls->a) {
+            /* KFM CMD: standing light kick is button a -> state 230. */
             f->state = IK_STATE_KICK;
             f->state_time = 0;
             f->attack_has_hit = 0;
@@ -292,11 +295,11 @@ static void step_fighter(ik_fight_t* fight, int index, const sat_pad_state_t* pa
 }
 
 void ik_fight_update(ik_fight_t* fight,
-                     const sat_pad_state_t* p1_pad,
-                     const sat_pad_state_t* p2_pad,
+                     const ik_fight_controls_t* p1,
+                     const ik_fight_controls_t* p2,
                      const ik_frame_table_t* frames) {
     if (!fight) return;
-    if (p1_pad && ((p1_pad->pressed & SAT_PAD_START) != 0u)) {
+    if (p1 && p1->start) {
         ik_fight_reset(fight);
         return;
     }
@@ -319,9 +322,9 @@ void ik_fight_update(ik_fight_t* fight,
         }
     }
 
-    const int dummy = (p2_pad == 0);
-    step_fighter(fight, 0, p1_pad, 0, frames);
-    step_fighter(fight, 1, p2_pad, dummy, frames);
+    const int dummy = (p2 == 0);
+    step_fighter(fight, 0, p1, 0, frames);
+    step_fighter(fight, 1, p2, dummy, frames);
 
     for (int atk = 0; atk < 2; ++atk) {
         ik_fighter_t* a = &fight->fighters[atk];

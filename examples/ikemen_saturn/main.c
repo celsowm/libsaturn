@@ -27,7 +27,9 @@
 
 #include "ikemen_anim.h"
 #include "ikemen_audio.h"
+#include "ikemen_command.h"
 #include "ikemen_fight.h"
+#include "ikemen_saturn/kfm_commands.h"
 #include "ikemen_saturn/kfm_frames.h"
 #include "ikemen_saturn/stage0_plane.h"
 
@@ -50,6 +52,7 @@ static sat_palette_t g_p2_palette;
 static uint16_t g_map_scratch[SAT_VDP2_NBG0_MAP_CELLS];
 static sat_ascii_font_t g_font;
 static sat_hud_t g_hud;
+static ik_command_state_t g_command_states[2];
 
 static const ik_frame_table_t g_kfm_table = {
     kfm_frames, KFM_FRAME_COUNT, kfm_clsn_boxes, KFM_CLSN_BOX_COUNT
@@ -173,6 +176,37 @@ static void draw_fighter(const ik_fighter_t* f, int player) {
      * over the VDP2 stage turns into an opaque brown block on real hardware. */
 }
 
+static void controls_from_commands(uint32_t player,
+                                  ik_fight_controls_t* controls) {
+    if (!controls || player >= 2u) return;
+    *controls = (ik_fight_controls_t){0};
+    const ik_command_state_t* state = &g_command_states[player];
+
+    controls->forward = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_HOLDFWD);
+    controls->back = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_HOLDBACK);
+    controls->up = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_HOLDUP);
+    controls->down = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_HOLDDOWN);
+
+    controls->a = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_A);
+    controls->b = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_B);
+    controls->c = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_C);
+    controls->x = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_X);
+    controls->y = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_Y);
+    controls->z = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_Z);
+    controls->start = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_START);
+}
+
 static void draw_bars(const ik_fight_t* fight) {
     const uint16_t bar_bg = SAT_BGR555(6u, 6u, 8u);
     const uint16_t p1_fg = SAT_BGR555(28u, 6u, 6u);
@@ -195,7 +229,7 @@ static void draw_bars(const ik_fight_t* fight) {
         const char* status = ik_fight_status_text(fight);
         if (status) sat_example_must(sat_hud_text_centered(&g_hud, status, 160, 100));
         else sat_example_must(sat_hud_text_centered(&g_hud,
-            "A/X PUNCH B/Y KICK UP JUMP START RESET", 160, 208));
+            "X PUNCH A KICK  D-PAD MOVE  START RESET", 160, 208));
     }
     sat_example_must(sat_hud_value(&g_hud, "HITS P1 ", fight->hits_p1, 12, 196));
     sat_example_must(sat_hud_value(&g_hud, "HITS P2 ", fight->hits_p2, 200, 196));
@@ -218,6 +252,8 @@ int main(void) {
     sat_example_must(ik_audio_init(&audio));
 
     ik_fight_init(&fight);
+    ik_command_state_init(&g_command_states[0]);
+    ik_command_state_init(&g_command_states[1]);
 
     for (;;) {
         sat_pad_state_t pad1 = {0};
@@ -236,7 +272,23 @@ int main(void) {
         sat_example_must(sat_pad_poll(&pad1));
         if (sat_pad_poll_port(1u, &pad2) == SAT_OK && pad2.connected) have_p2 = 1;
 
-        ik_fight_update(&fight, &pad1, have_p2 ? &pad2 : 0, &g_kfm_table);
+        ik_fight_controls_t p1_controls = {0};
+        ik_fight_controls_t p2_controls = {0};
+
+        ik_command_update(
+            &g_command_states[0], &kfm_commands, &pad1,
+            fight.fighters[0].facing, fight.fighters[0].hit_pause != 0u);
+        controls_from_commands(0u, &p1_controls);
+
+        if (have_p2) {
+            ik_command_update(
+                &g_command_states[1], &kfm_commands, &pad2,
+                fight.fighters[1].facing, fight.fighters[1].hit_pause != 0u);
+            controls_from_commands(1u, &p2_controls);
+        }
+
+        ik_fight_update(
+            &fight, &p1_controls, have_p2 ? &p2_controls : 0, &g_kfm_table);
         ik_audio_process_fight(&audio, &fight);
         sat_example_must(ik_audio_update());
 

@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#include "saturn/input.h"
 #include "ikemen_anim.h"
 
 #ifdef __cplusplus
@@ -53,6 +52,20 @@ typedef enum ik_event {
     IK_EVENT_RESET = 1u << 3
 } ik_event_t;
 
+typedef struct ik_fight_controls {
+    uint8_t forward;
+    uint8_t back;
+    uint8_t up;
+    uint8_t down;
+    uint8_t a;
+    uint8_t b;
+    uint8_t c;
+    uint8_t x;
+    uint8_t y;
+    uint8_t z;
+    uint8_t start;
+} ik_fight_controls_t;
+
 typedef struct ik_fighter {
     int16_t x;
     int16_t y;
@@ -85,8 +98,8 @@ void ik_fight_init(ik_fight_t* fight);
 void ik_fight_reset(ik_fight_t* fight);
 int ik_action_for_state(int16_t state);
 void ik_fight_update(ik_fight_t* fight,
-                     const sat_pad_state_t* p1_pad,
-                     const sat_pad_state_t* p2_pad,
+                     const ik_fight_controls_t* p1,
+                     const ik_fight_controls_t* p2,
                      const ik_frame_table_t* frames);
 
 int ik_body_half_w(const ik_fighter_t* f);

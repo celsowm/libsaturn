@@ -689,6 +689,7 @@ HOST_TEST_EXTRA_test_collide3d_sweep_full := src/physics/3d/sweep_full.cpp
 HOST_TEST_EXTRA_test_collide3d_logic :=
 HOST_TEST_EXTRA_test_spatial3_api := src/physics/spatial/3d.cpp src/physics/3d/collision.cpp
 HOST_TEST_EXTRA_test_ikemen_fight := examples/ikemen_saturn/ikemen_fight.c examples/ikemen_saturn/ikemen_anim.c
+HOST_TEST_EXTRA_test_ikemen_command := examples/ikemen_saturn/ikemen_command.c
 HOST_TEST_EXTRA_test_ikemen_anim := examples/ikemen_saturn/ikemen_anim.c
 # End-to-end asset-contract test: needs the generated Ikemen tables, which
 # exist once the screenpack clone is present and the example has been built

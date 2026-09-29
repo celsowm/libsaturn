@@ -7,19 +7,6 @@
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) {     std::fprintf(stderr, "FAIL %d: %s (%ld) != %s (%ld)\n", __LINE__,                  #a, (long)(a), #b, (long)(b)); std::exit(1); } } while (0)
 #define ASSERT_TRUE(c) do { if (!(c)) {     std::fprintf(stderr, "FAIL %d: %s\n", __LINE__, #c); std::exit(1); } } while (0)
 
-static sat_pad_state_t held(uint16_t b) {
-    sat_pad_state_t p = {};
-    p.held = b;
-    return p;
-}
-
-static sat_pad_state_t pressed(uint16_t b) {
-    sat_pad_state_t p = {};
-    p.held = b;
-    p.pressed = b;
-    return p;
-}
-
 /* Compact copy of the KFM AIR geometry relevant to standing light punch/kick.
  * The important regression is reach: punch Clsn1 extends to +61 from the
  * player axis, not the old synthetic +30 rectangle. */
@@ -57,7 +44,7 @@ static const ik_frame_table_t k_table = {
     sizeof(k_boxes) / sizeof(k_boxes[0])
 };
 
-static void tick(ik_fight_t* g, const sat_pad_state_t* p1) {
+static void tick(ik_fight_t* g, const ik_fight_controls_t* p1) {
     ik_fight_update(g, p1, nullptr, &k_table);
 }
 
@@ -73,7 +60,8 @@ int main() {
 
     {
         const int16_t x0 = g.fighters[0].x;
-        sat_pad_state_t p = held(SAT_PAD_RIGHT);
+        ik_fight_controls_t p = {};
+        p.forward = 1u;
         tick(&g, &p);
         ASSERT_TRUE(g.fighters[0].x > x0);
     }
@@ -86,9 +74,10 @@ int main() {
         g.fighters[1].x = 150;
         const int hp0 = g.fighters[1].hp;
 
-        sat_pad_state_t attack = pressed(SAT_PAD_A);
+        ik_fight_controls_t attack = {};
+        attack.x = 1u;
         tick(&g, &attack);
-        sat_pad_state_t idle = {};
+        ik_fight_controls_t idle = {};
         tick(&g, &idle); /* Time 1 */
         tick(&g, &idle); /* Time 2 */
         tick(&g, &idle); /* Time 3 -> AIR element 3 / Clsn1 */
@@ -105,9 +94,10 @@ int main() {
         g.fighters[0].x = 100;
         g.fighters[1].x = 180;
         const int hp0 = g.fighters[1].hp;
-        sat_pad_state_t attack = pressed(SAT_PAD_A);
+        ik_fight_controls_t attack = {};
+        attack.x = 1u;
         tick(&g, &attack);
-        sat_pad_state_t idle = {};
+        ik_fight_controls_t idle = {};
         for (int i = 0; i < 12; ++i) tick(&g, &idle);
         ASSERT_EQ(g.fighters[1].hp, hp0);
     }
@@ -118,9 +108,10 @@ int main() {
         g.fighters[0].x = 100;
         g.fighters[1].x = 150;
         const int hp0 = g.fighters[1].hp;
-        sat_pad_state_t attack = pressed(SAT_PAD_B);
+        ik_fight_controls_t attack = {};
+        attack.a = 1u;
         tick(&g, &attack);
-        sat_pad_state_t idle = {};
+        ik_fight_controls_t idle = {};
         for (int i = 0; i < 4; ++i) tick(&g, &idle);
         ASSERT_EQ(hp0 - g.fighters[1].hp, IK_KICK_DAMAGE);
         ASSERT_EQ(g.hits_p1, 1u);
@@ -134,16 +125,18 @@ int main() {
         g.fighters[1].hp = 20;
         g.fighters[0].x = 100;
         g.fighters[1].x = 150;
-        sat_pad_state_t attack = pressed(SAT_PAD_B);
+        ik_fight_controls_t attack = {};
+        attack.a = 1u;
         tick(&g, &attack);
-        sat_pad_state_t idle = {};
+        ik_fight_controls_t idle = {};
         for (int i = 0; i < 4; ++i) tick(&g, &idle);
         ASSERT_TRUE(g.round_over);
         ASSERT_EQ(g.winner, 1);
     }
 
     {
-        sat_pad_state_t reset = pressed(SAT_PAD_START);
+        ik_fight_controls_t reset = {};
+        reset.start = 1u;
         tick(&g, &reset);
         ASSERT_TRUE(!g.round_over);
         ASSERT_EQ(g.fighters[0].hp, IK_MAX_HP);

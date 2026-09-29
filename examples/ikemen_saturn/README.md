@@ -5,9 +5,10 @@ with real Ikemen GO screenpack assets.
 
 ## Controls
 
-* D-pad: walk / crouch / jump (UP)
-* A/X: punch, B/Y: kick
-* START: reset round
+* D-pad: forward/back / crouch / jump, interpreted relative to facing
+* X: KFM standing light punch (CMD "x")
+* A: KFM standing light kick (CMD "a")
+* START: reset round (training-demo convenience; KFM's taunt state is not wired yet)
 * P2 pad (optional): controls P2; unplugged = idle training dummy
 
 ## Assets and attribution
@@ -21,16 +22,54 @@ tables under `build/generated/ikemen_saturn/` (rebuilt by the example's
 Makefile rules).
 
 Conversion happens offline in `tools/ikemen_sff` (SFF v2 container,
-LZ5/RLE/PNG-indexed codecs, AIR frame times, stage composition with
-palette merge) and `tools/ikemen_snd.py` (Elecbyte SND containers with
-embedded WAV samples). The runtime consumes only generated tables through the
-`examples/ikemen_saturn/ikemen_anim.h` frame-table contract -- it never parses
-SFF or SND itself.
+LZ5/RLE/PNG-indexed codecs, AIR frame times, collision boxes and stage
+composition), `tools/ikemen_snd.py` (Elecbyte SND containers with embedded
+WAV samples), and `tools/ikemen_cmd.py` (the real KFM CMD command grammar).
+The runtime consumes generated tables; it never parses SFF, AIR, SND or CMD
+text on the Saturn.
 
 ## Scope (v1 subset)
 
 * States: idle, walk, vertical jump, crouch, standing light punch (200),
   standing light kick (230), hit, KO and guard. Full CNS/Lua VM is NOT ported.
+* Input no longer hard-codes Saturn buttons. The build compiles the complete
+  `kfm.cmd` command list into bounded tables and the Saturn runtime implements
+  Ikemen-style signed input ages, B/F facing normalization, `/`, `~`, `# Ikemen Saturn (training subset)
+
+Kung Fu Man vs Kung Fu Man training demo proving LibSaturn 2D capacity
+with real Ikemen GO screenpack assets.
+
+## Controls
+
+* D-pad: forward/back / crouch / jump, interpreted relative to facing
+* X: KFM standing light punch (CMD "x")
+* A: KFM standing light kick (CMD "a")
+* START: reset round (training-demo convenience; KFM's taunt state is not wired yet)
+* P2 pad (optional): controls P2; unplugged = idle training dummy
+
+## Assets and attribution
+
+Sprites, palettes and the stage come from the
+[Ikemen-GO-Screenpack](https://github.com/ikemen-engine/Ikemen-GO-Screenpack)
+(Kung Fu Man and the stage0 "Training Room", Elecbyte/Ikemen GO authors;
+see that repo's LICENCE.txt). `.external/Ikemen-GO-Screenpack` is a local
+clone; nothing from it enters the repo tree -- only the generated C
+tables under `build/generated/ikemen_saturn/` (rebuilt by the example's
+Makefile rules).
+
+Conversion happens offline in `tools/ikemen_sff` (SFF v2 container,
+LZ5/RLE/PNG-indexed codecs, AIR frame times, collision boxes and stage
+composition), `tools/ikemen_snd.py` (Elecbyte SND containers with embedded
+WAV samples), and `tools/ikemen_cmd.py` (the real KFM CMD command grammar).
+The runtime consumes generated tables; it never parses SFF, AIR, SND or CMD
+text on the Saturn.
+
+## Scope (v1 subset)
+
+,
+  `+`, `|`, `>`, command timing/buffering, duplicate-name variants and
+  the documented F,F auto-greater expansion. All KFM commands are recognized;
+  state -1 currently consumes only the commands needed by the subset above.
 * Rendering and collision both sample the real KFM AIR actions. Crouch uses
   action 11, vertical jump 41, punch 200 and kick 230.
 * Hit registration is AIR-native: generated per-frame Clsn1 attack boxes are
@@ -61,4 +100,5 @@ SFF or SND itself.
 * CRAM: font bank 1 (external), stage bank 4 (external), KFM (1,1)
   and (1,4) logical banks, tint variants on demand.
 * Audio: 4 resident S8 SFX; 28-voice pool otherwise untouched.
-* RAM: generated tables in ROM; 4MB cart NOT required.
+* RAM: generated sprite/audio/command tables in ROM; command matcher state is
+  fixed-capacity and allocation-free; 4MB cart NOT required.
