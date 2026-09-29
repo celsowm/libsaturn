@@ -84,6 +84,20 @@ type = CtrlSet
 trigger1 = Time = 6
 value = 1
 
+[State 200, Width]
+type = Width
+trigger1 = (AnimElemTime (2) >= 0) && (AnimElemTime (7) < 0)
+value = 15,0
+
+[State 200, Skip Contact]
+type = ChangeAnim
+trigger1 = AnimElemTime(5) > 0 && AnimElemTime(6) <= 0
+trigger1 = movecontact
+ignorehitpause = 1
+persistent = 0
+value = 200
+elem = 6
+
 [State 200, End]
 type = ChangeState
 trigger1 = AnimTime = 0
@@ -101,7 +115,7 @@ assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
 assert report["constants"]["yaccel_q8"] == round(.44 * 256)
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
-assert report["states"][0]["controller_count"] == 4
+assert report["states"][0]["controller_count"] == 6
 assert report["states"][0]["unsupported_controllers"] == []
 
 hit = report["hitdefs"][0]
@@ -116,8 +130,23 @@ assert controllers[0]["type"] == "IK_CNS_CTRL_SPR_PRIORITY"
 assert controllers[1]["type"] == "IK_CNS_CTRL_POS_ADD"
 assert controllers[1]["value0"] == 12 * 256
 assert controllers[2]["type"] == "IK_CNS_CTRL_CTRL_SET"
-assert controllers[3]["type"] == "IK_CNS_CTRL_CHANGE_STATE"
-assert controllers[3]["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_END"
-assert controllers[3]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
+assert controllers[3]["type"] == "IK_CNS_CTRL_WIDTH"
+assert controllers[3]["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_RANGE"
+assert controllers[3]["trigger_value"] == 2
+assert controllers[3]["trigger_value2"] == 7
+assert controllers[3]["value0"] == 15
+assert controllers[3]["value1"] == 0
+
+assert controllers[4]["type"] == "IK_CNS_CTRL_CHANGE_ANIM"
+assert controllers[4]["trigger_kind"] == "IK_CNS_TRIGGER_MOVE_CONTACT_ELEM_WINDOW"
+assert controllers[4]["trigger_value"] == 5
+assert controllers[4]["trigger_value2"] == 6
+assert controllers[4]["value0"] == 200
+assert controllers[4]["value1"] == 6
+assert controllers[4]["flags"] == "IK_CNS_CTRL_IGNORE_HIT_PAUSE"
+
+assert controllers[5]["type"] == "IK_CNS_CTRL_CHANGE_STATE"
+assert controllers[5]["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_END"
+assert controllers[5]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
 
 print("ikemen CNS compiler: OK")

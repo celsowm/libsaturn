@@ -27,9 +27,14 @@ static const ik_cns_hitdef_t k_hitdefs[] = {
 };
 
 static const ik_cns_controller_t k_controllers[] = {
-    {200, IK_CNS_CTRL_CTRL_SET, IK_CNS_TRIGGER_TIME_EQ, 6, 1, 0, 0u},
-    {200, IK_CNS_CTRL_CHANGE_STATE, IK_CNS_TRIGGER_ANIM_END, 0, 0, 1,
-     IK_CNS_CTRL_HAS_CTRL},
+    {200, IK_CNS_CTRL_CTRL_SET, IK_CNS_TRIGGER_TIME_EQ, 6, 0, 1, 0, 0u},
+    {200, IK_CNS_CTRL_CHANGE_STATE, IK_CNS_TRIGGER_ANIM_END,
+     0, 0, 0, 1, IK_CNS_CTRL_HAS_CTRL},
+    {210, IK_CNS_CTRL_WIDTH, IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
+     2, 7, 15, 0, 0u},
+    {210, IK_CNS_CTRL_CHANGE_ANIM,
+     IK_CNS_TRIGGER_MOVE_CONTACT_ELEM_WINDOW,
+     5, 6, 210, 6, IK_CNS_CTRL_IGNORE_HIT_PAUSE},
 };
 
 static const ik_cns_state_t k_states[] = {
@@ -49,7 +54,7 @@ static const ik_cns_asset_t k_asset = {
     k_states, 2u,
     k_hitdefs, 3u,
     nullptr, 0u,
-    k_controllers, 2u
+    k_controllers, 4u
 };
 
 int main() {
@@ -70,6 +75,24 @@ int main() {
         IK_CNS_TRIGGER_ANIM_ELEM_EQ, 3, 5u, 3u, 1u, 0));
     OK(ik_cns_trigger_now(
         IK_CNS_TRIGGER_ANIM_END, 0, 9u, 5u, 2u, 1));
+
+    OK(ik_cns_controller_trigger_now(
+        &k_controllers[2], 0u, 2u, 0u, 0, 0));
+    OK(ik_cns_controller_trigger_now(
+        &k_controllers[2], 0u, 6u, 3u, 0, 0));
+    OK(!ik_cns_controller_trigger_now(
+        &k_controllers[2], 0u, 7u, 0u, 0, 0));
+
+    OK(!ik_cns_controller_trigger_now(
+        &k_controllers[3], 0u, 5u, 0u, 0, 1));
+    OK(ik_cns_controller_trigger_now(
+        &k_controllers[3], 0u, 5u, 1u, 0, 1));
+    OK(ik_cns_controller_trigger_now(
+        &k_controllers[3], 0u, 6u, 0u, 0, 1));
+    OK(!ik_cns_controller_trigger_now(
+        &k_controllers[3], 0u, 6u, 1u, 0, 1));
+    OK(!ik_cns_controller_trigger_now(
+        &k_controllers[3], 0u, 5u, 2u, 0, 0));
 
     OK(ik_cns_q8_to_int(-5 * IK_CNS_Q8_ONE - 128) == -5);
 

@@ -236,6 +236,29 @@ static void anim_position(const ik_frame_table_t* frames,
     if (out_ended) *out_ended = ended;
 }
 
+static uint16_t anim_element_start_tick(const ik_frame_table_t* frames,
+                                        int16_t action,
+                                        uint16_t element) {
+    uint32_t first = 0u;
+    uint32_t count = 0u;
+    uint32_t total = 0u;
+
+    if (!frames || element < 1u ||
+        !ik_frames_bounds(frames, action, &first, &count) ||
+        element > count) {
+        return 0u;
+    }
+
+    for (uint16_t i = 1u; i < element; ++i) {
+        const uint16_t ticks =
+            ik_frame_ticks(&frames->frames[first + (uint32_t)(i - 1u)]);
+        if (ticks == 0u) break;
+        total += ticks;
+    }
+
+    return (uint16_t)(total > 65535u ? 65535u : total);
+}
+
 static int fighter_clsn_overlap(const ik_frame_table_t* frames,
                                 const ik_fighter_t* attacker,
                                 const ik_fighter_t* victim) {
@@ -372,7 +395,8 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f, int allow_land_idle) {
 }
 
 static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
-                                   const ik_frame_table_t* frames) {
+                                   const ik_frame_table_t* frames,
+                                   int hit_pause_only) {
     if (!fight || !fight->cns || !f) return 0;
     const ik_cns_state_t* state = ik_cns_find_state(fight->cns, f->state);
     if (!state || !fight->cns->controllers) return 0;
@@ -386,8 +410,13 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         const uint16_t index = (uint16_t)(state->controller_ofs + i);
         if (index >= fight->cns->controller_count) break;
         const ik_cns_controller_t* ctrl = &fight->cns->controllers[index];
-        if (!ik_cns_trigger_now(ctrl->trigger_kind, ctrl->trigger_value,
-                                f->state_time, elem, elem_time, anim_ended)) {
+        if (hit_pause_only &&
+            (ctrl->flags & IK_CNS_CTRL_IGNORE_HIT_PAUSE) == 0u) {
+            continue;
+        }
+        if (!ik_cns_controller_trigger_now(
+                ctrl, f->state_time, elem, elem_time, anim_ended,
+                f->move_contact != 0u)) {
             continue;
         }
 
@@ -411,6 +440,23 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
             case IK_CNS_CTRL_SPR_PRIORITY:
                 f->spr_priority = (int8_t)ctrl->value0;
                 break;
+
+            case IK_CNS_CTRL_CHANGE_ANIM:
+                f->anim = ctrl->value0;
+                f->anim_time = anim_element_start_tick(
+                    frames, f->anim,
+                    (uint16_t)(ctrl->value1 < 1 ? 1 : ctrl->value1));
+                return 0;
+
+            case IK_CNS_CTRL_WIDTH: {
+                const ik_cns_constants_t* c = constants_for(fight);
+                const int16_t base_front = c ? c->ground_front : 16;
+                const int16_t base_back = c ? c->ground_back : 15;
+                f->push_front = (int16_t)(base_front + ctrl->value0);
+                f->push_back = (int16_t)(base_back + ctrl->value1);
+                break;
+            }
+
             default:
                 break;
         }
@@ -487,7 +533,16 @@ static void step_fighter(ik_fight_t* fight, int index,
     ik_fighter_t* foe = &fight->fighters[index ^ 1];
     const ik_cns_constants_t* c = constants_for(fight);
 
+    /* Width is a one-tick controller in MUGEN/Ikemen. Reset to the
+     * character constants before evaluating the current tick's controllers. */
+    if (c) {
+        f->push_back = c->ground_back;
+        f->push_front = c->ground_front;
+        f->body_height = c->height;
+    }
+
     if (f->hit_pause > 0u) {
+        (void)process_cns_controllers(fight, f, frames, 1);
         f->hit_pause--;
         return;
     }
@@ -498,7 +553,7 @@ static void step_fighter(ik_fight_t* fight, int index,
 
     if (f->state == IK_STATE_KO) return;
 
-    if (process_cns_controllers(fight, f, frames)) return;
+    if (process_cns_controllers(fight, f, frames, 0)) return;
 
     if (f->hitstun > 0u) {
         f->hitstun--;

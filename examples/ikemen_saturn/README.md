@@ -43,8 +43,13 @@ The CNS runtime now executes these controller forms:
 * `CtrlSet`
 * `PosAdd`
 * `SprPriority`
+* KFM's `Width` AnimElem range form
+* KFM's move-contact `ChangeAnim` window, including `ignorehitpause`
 
-State 410's two HitDefs are tracked independently, so both hits can connect.
+State 210 now expands its push width only during the original AnimElem window
+and skips the contact-linger animation with the original move-contact
+`ChangeAnim`. State 410's two HitDefs are tracked independently, so both hits
+can connect.
 State 440 preserves its fall flag and vertical launch instead of flattening the
 sweep into horizontal knockback.
 
@@ -70,7 +75,6 @@ invalidating the current command list.
 
 This is not yet a full CNS/common-state VM. Important remaining pieces include:
 
-* state 210's `Width` and move-contact `ChangeAnim`
 * full common1 state flow (stand↔crouch transitions, jump start/landing,
   run/hop, guards and complete get-hit/knockdown/recovery states)
 * aerial normals, throws, specials and supers

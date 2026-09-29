@@ -35,7 +35,9 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ALWAYS = 0,
     IK_CNS_TRIGGER_TIME_EQ,
     IK_CNS_TRIGGER_ANIM_ELEM_EQ,
-    IK_CNS_TRIGGER_ANIM_END
+    IK_CNS_TRIGGER_ANIM_END,
+    IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
+    IK_CNS_TRIGGER_MOVE_CONTACT_ELEM_WINDOW
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -49,7 +51,9 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_CHANGE_STATE = 1,
     IK_CNS_CTRL_CTRL_SET,
     IK_CNS_CTRL_POS_ADD,
-    IK_CNS_CTRL_SPR_PRIORITY
+    IK_CNS_CTRL_SPR_PRIORITY,
+    IK_CNS_CTRL_CHANGE_ANIM,
+    IK_CNS_CTRL_WIDTH
 } ik_cns_controller_type_t;
 
 enum {
@@ -58,7 +62,8 @@ enum {
 };
 
 enum {
-    IK_CNS_CTRL_HAS_CTRL = 1u << 0
+    IK_CNS_CTRL_HAS_CTRL = 1u << 0,
+    IK_CNS_CTRL_IGNORE_HIT_PAUSE = 1u << 1
 };
 
 typedef struct ik_cns_constants {
@@ -148,17 +153,27 @@ typedef struct ik_cns_playsnd {
     int16_t item;
 } ik_cns_playsnd_t;
 
-/* Compact controller record. Meaning of values:
- * ChangeState: value0=state, value1=ctrl when HAS_CTRL is set
- * CtrlSet:     value0=ctrl
- * PosAdd:      value0=x Q8.8, value1=y Q8.8
- * SprPriority: value0=priority
+/* Compact controller record.
+ *
+ * trigger_value / trigger_value2:
+ *   simple triggers: primary value / 0
+ *   ANIM_ELEM_RANGE: inclusive first element / exclusive last element
+ *   MOVE_CONTACT_ELEM_WINDOW: first/last AnimElemTime element numbers
+ *
+ * value0 / value1:
+ *   ChangeState: target state / ctrl
+ *   CtrlSet: ctrl / 0
+ *   PosAdd: x / y in Q8.8
+ *   SprPriority: priority / 0
+ *   ChangeAnim: action / 1-based element
+ *   Width: front/back additions in pixels (MUGEN value shorthand)
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
     uint8_t type;
     uint8_t trigger_kind;
     int16_t trigger_value;
+    int16_t trigger_value2;
     int16_t value0;
     int16_t value1;
     uint8_t flags;
@@ -184,6 +199,13 @@ const ik_cns_state_t* ik_cns_find_state(const ik_cns_asset_t* asset,
 int ik_cns_trigger_now(uint8_t trigger_kind, int16_t trigger_value,
                        uint16_t state_time, uint16_t anim_element,
                        uint16_t anim_element_time, int anim_ended);
+
+int ik_cns_controller_trigger_now(const ik_cns_controller_t* controller,
+                                  uint16_t state_time,
+                                  uint16_t anim_element,
+                                  uint16_t anim_element_time,
+                                  int anim_ended,
+                                  int move_contact);
 
 const ik_cns_hitdef_t* ik_cns_active_hitdef(const ik_cns_asset_t* asset,
                                             int16_t state_number,
