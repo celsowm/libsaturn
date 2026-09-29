@@ -99,6 +99,9 @@ typedef struct ik_fighter {
     uint16_t hit_ctrl_time;
     int32_t gethit_vx_q8;
     int32_t gethit_vy_q8;
+    uint8_t gethit_ground_type;
+    uint8_t gethit_anim_type;
+    uint8_t gethit_fall;
     uint8_t guard_type;
 
     int16_t push_back;
