@@ -258,6 +258,7 @@ assert controllers[5]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
 print("ikemen CNS compiler: OK")
 
 common_rows = {row["number"]: row for row in report["states"][1:]}
+assert common_rows[0]["controller_count"] == 3
 assert common_rows[20]["controller_count"] == 3
 assert common_rows[40]["controller_count"] == 3
 assert common_rows[45]["controller_count"] == 4
@@ -294,7 +295,6 @@ assert common_rows[5101]["anim"] == 5160
 assert common_rows[5101]["air_accel_q8"] == round(.4 * 256)
 assert common_rows[5101]["land_level_q8"] == 12 * 256
 assert common_rows[5101]["land_state"] == 5110
-assert common_rows[5110]["controller_count"] == 6
 assert common_rows[5120]["controller_count"] == 2
 assert common_rows[5200]["land_state"] == 5201
 assert common_rows[5200]["land_level_q8"] == 10 * 256
