@@ -237,6 +237,7 @@ typedef struct ik_cns_state {
     uint8_t land_ctrl;
     int16_t juggle;
     uint8_t has_juggle;
+    uint8_t owns_air_accel;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
