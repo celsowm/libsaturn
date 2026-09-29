@@ -235,6 +235,7 @@ typedef struct ik_cns_hitdef {
     uint8_t flags;
 
     uint8_t guard_flags;
+    uint8_t guard_kill;
     uint8_t guard_slide_time;
     uint8_t guard_hit_time;
     uint8_t guard_ctrl_time;
