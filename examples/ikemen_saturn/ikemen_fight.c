@@ -129,6 +129,10 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
         f->spr_priority = spec->spr_priority;
         if (spec->state_type == IK_CNS_STATE_AIR) {
             f->on_ground = 0;
+        } else if (spec->state_type == IK_CNS_STATE_STAND ||
+                   spec->state_type == IK_CNS_STATE_CROUCH ||
+                   spec->state_type == IK_CNS_STATE_LIEDOWN) {
+            f->on_ground = 1;
         }
         if (spec->has_velset) {
             f->vx_q8 = spec->velset_x_q8;
@@ -168,6 +172,11 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->gethit_ground_type = IK_CNS_GROUND_NORMAL;
     f->gethit_anim_type = 0u;
     f->gethit_fall = 0u;
+    f->gethit_fall_x_q8 = 0;
+    f->gethit_fall_y_q8 = -1152;
+    f->gethit_fall_x_set = 0u;
+    f->gethit_fall_recover = 1u;
+    f->gethit_fall_recover_time = 4u;
     f->guard_type = IK_CNS_STATE_STAND;
     f->push_back = c ? c->ground_back : 15;
     f->push_front = c ? c->ground_front : 16;
@@ -467,6 +476,11 @@ static void apply_damage(ik_fight_t* fight, int victim,
         : hitdef->anim_type;
     v->gethit_fall =
         (uint8_t)((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u);
+    v->gethit_fall_x_q8 = hitdef->fall_x_velocity_q8;
+    v->gethit_fall_y_q8 = hitdef->fall_y_velocity_q8;
+    v->gethit_fall_x_set = hitdef->fall_x_velocity_set;
+    v->gethit_fall_recover = hitdef->fall_recover;
+    v->gethit_fall_recover_time = hitdef->fall_recover_time;
     a->hit_pause = hitdef->pause_p1;
 
     if (launch) v->on_ground = 0;
@@ -484,7 +498,10 @@ static void apply_damage(ik_fight_t* fight, int victim,
         fight->ko_freeze = IK_KO_FREEZE_FRAMES;
     } else {
         int16_t target = IK_STATE_HIT;
-        if (airborne && ik_cns_find_state(fight->cns, 5020)) {
+        if (!airborne && hitdef->ground_type == IK_CNS_GROUND_TRIP &&
+            ik_cns_find_state(fight->cns, 5070)) {
+            target = 5070;
+        } else if (airborne && ik_cns_find_state(fight->cns, 5020)) {
             target = 5020;
         } else if (victim_type == IK_CNS_STATE_CROUCH &&
                    ik_cns_find_state(fight->cns, 5010)) {
@@ -532,22 +549,32 @@ static void apply_ground_velocity(ik_fighter_t* f,
 static void step_air(ik_fight_t* fight, ik_fighter_t* f,
                      int allow_land_transition) {
     const ik_cns_constants_t* c = constants_for(fight);
-    const int32_t gravity = c ? c->yaccel_q8 : (IK_CNS_Q8_ONE / 2);
+    const ik_cns_state_t* spec = state_spec(fight, f->state);
+    const int32_t gravity =
+        (spec && spec->air_accel_q8 != 0)
+            ? spec->air_accel_q8
+            : (c ? c->yaccel_q8 : (IK_CNS_Q8_ONE / 2));
+    const int32_t floor_q8 = (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE;
+    const int32_t land_level_q8 = spec ? spec->land_level_q8 : 0;
 
     f->vy_q8 += gravity;
     f->x_q8 += f->vx_q8;
     f->y_q8 += f->vy_q8;
     f->x_q8 = clamp_q8(f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
 
-    if (f->y_q8 >= (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE) {
-        const ik_cns_state_t* spec = state_spec(fight, f->state);
-        f->y_q8 = (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE;
-        f->vy_q8 = 0;
-        f->on_ground = 1;
-        f->air_jumps_used = 0u;
-        if (allow_land_transition) {
+    if (f->vy_q8 > 0 && f->y_q8 >= floor_q8 + land_level_q8) {
+        const int hit_owned_landing =
+            spec && spec->move_type == IK_CNS_MOVE_HIT &&
+            (spec->land_state != 0 || f->state == 5030 ||
+             f->state == 5035);
+        if (allow_land_transition || hit_owned_landing) {
             int16_t target = IK_STATE_IDLE;
-            if (f->state == 5030 &&
+            f->y_q8 = floor_q8;
+            f->vy_q8 = 0;
+            f->on_ground = 1;
+            f->air_jumps_used = 0u;
+
+            if ((f->state == 5030 || f->state == 5035) &&
                 ik_cns_find_state(fight ? fight->cns : 0,
                                   f->gethit_fall ? 5050 : 5040)) {
                 target = f->gethit_fall ? 5050 : 5040;
@@ -839,6 +866,36 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 if (!f->gethit_fall) f->ctrl = 1;
                 return 1;
             }
+
+            case IK_CNS_CTRL_FALL_BOUNCE_VEL:
+                if (f->gethit_fall_x_set) {
+                    f->vx_q8 =
+                        (int32_t)f->facing * f->gethit_fall_x_q8;
+                } else {
+                    f->vx_q8 = (f->vx_q8 * 3) / 4;
+                }
+                f->vy_q8 = f->gethit_fall_y_q8;
+                f->on_ground = 0;
+                break;
+
+            case IK_CNS_CTRL_FALL_GROUND_BRANCH:
+                if (f->gethit_fall_y_q8 == 0) {
+                    enter_state(fight, f, ctrl->value0);
+                    return 1;
+                }
+                break;
+
+            case IK_CNS_CTRL_POS_ADD_VEL:
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_X) != 0u) {
+                    f->x_q8 += f->vx_q8;
+                    f->x_q8 = clamp_q8(
+                        f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
+                }
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_Y) != 0u) {
+                    f->y_q8 += f->vy_q8;
+                }
+                sync_position(f);
+                break;
 
             default:
                 break;
