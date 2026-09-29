@@ -53,6 +53,18 @@ static int is_air_attack(const ik_fight_t* fight, int16_t state) {
            spec->state_type == IK_CNS_STATE_AIR;
 }
 
+uint8_t ik_fight_state_type(const ik_fight_t* fight,
+                            const ik_fighter_t* fighter) {
+    if (!fighter) return IK_CNS_STATE_UNCHANGED;
+    const ik_cns_state_t* spec = state_spec(fight, fighter->state);
+    if (spec && spec->state_type != IK_CNS_STATE_UNCHANGED) {
+        return (uint8_t)spec->state_type;
+    }
+    if (!fighter->on_ground) return IK_CNS_STATE_AIR;
+    if (fighter->state == IK_STATE_CROUCH) return IK_CNS_STATE_CROUCH;
+    return IK_CNS_STATE_STAND;
+}
+
 int ik_action_for_state(const ik_cns_asset_t* cns, int16_t state) {
     const ik_cns_state_t* spec = ik_cns_find_state(cns, state);
     if (spec) return spec->anim;
@@ -475,104 +487,28 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
     return 0;
 }
 
-static int try_attack_cancel(ik_fight_t* fight, ik_fighter_t* f,
-                             const ik_fight_controls_t* controls) {
-    if (!controls) return 0;
-
-    /* KFM state -1 air-chain rules. These are command gates, not move
-     * implementations: the move data itself still comes from compiled CNS. */
-    if (f->state == IK_STATE_JUMP_PUNCH &&
-        f->state_time >= 7u && controls->x) {
-        enter_state(fight, f, IK_STATE_JUMP_PUNCH);
-        return 1;
-    }
-    if ((f->state == IK_STATE_JUMP_PUNCH ||
-         f->state == IK_STATE_JUMP_KICK) && f->move_contact) {
-        if (controls->y) {
-            enter_state(fight, f, IK_STATE_JUMP_STRONG_PUNCH);
-            return 1;
-        }
-        if (controls->b) {
-            enter_state(fight, f, IK_STATE_JUMP_STRONG_KICK);
-            return 1;
-        }
-    }
-
-    if (f->state == IK_STATE_PUNCH && f->state_time > 5u) {
-        if (controls->y) { enter_state(fight, f, IK_STATE_STRONG_PUNCH); return 1; }
-        if (controls->b) { enter_state(fight, f, IK_STATE_STRONG_KICK); return 1; }
-    }
-    if (f->state == IK_STATE_KICK && f->state_time > 6u) {
-        if (controls->y) { enter_state(fight, f, IK_STATE_STRONG_PUNCH); return 1; }
-        if (controls->b) { enter_state(fight, f, IK_STATE_STRONG_KICK); return 1; }
-    }
-
-    if ((f->state == IK_STATE_CROUCH_PUNCH ||
-         f->state == IK_STATE_CROUCH_KICK) && controls->down) {
-        const int gate = f->state_time > 9u ||
-                         (f->move_contact && f->state_time > 5u);
-        if (gate) {
-            if (controls->y) {
-                enter_state(fight, f, IK_STATE_CROUCH_STRONG_PUNCH);
-                return 1;
-            }
-            if (controls->a) {
-                enter_state(fight, f, IK_STATE_CROUCH_KICK);
-                return 1;
-            }
-            if (controls->b) {
-                enter_state(fight, f, IK_STATE_CROUCH_STRONG_KICK);
-                return 1;
-            }
-        }
-    }
-    return 0;
-}
-
 static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
                                      const ik_fight_controls_t* controls) {
-    if (!controls || !f->ctrl) return 0;
+    if (!controls) return 0;
 
-    if (!f->on_ground) {
-        if (controls->x) {
-            enter_state(fight, f, IK_STATE_JUMP_PUNCH);
-            return 1;
-        }
-        if (controls->y) {
-            enter_state(fight, f, IK_STATE_JUMP_STRONG_PUNCH);
-            return 1;
-        }
-        if (controls->a) {
-            enter_state(fight, f, IK_STATE_JUMP_KICK);
-            return 1;
-        }
-        if (controls->b) {
-            enter_state(fight, f, IK_STATE_JUMP_STRONG_KICK);
-            return 1;
-        }
-        return 0;
+    /* State -1 gates execute before ctrl: legal cancels can intentionally
+     * ChangeState while the current attack still has ctrl = 0. */
+    if (controls->has_state_request) {
+        enter_state(fight, f, controls->requested_state);
+        return 1;
     }
 
+    if (!f->ctrl || !f->on_ground) return 0;
     if (controls->down) {
-        if (controls->y) {
-            enter_state(fight, f, IK_STATE_CROUCH_STRONG_PUNCH);
-        } else if (controls->b) {
-            enter_state(fight, f, IK_STATE_CROUCH_STRONG_KICK);
-        } else if (controls->x) {
-            enter_state(fight, f, IK_STATE_CROUCH_PUNCH);
-        } else if (controls->a) {
-            enter_state(fight, f, IK_STATE_CROUCH_KICK);
-        } else if (f->state != IK_STATE_CROUCH) {
+        if (f->state != IK_STATE_CROUCH) {
             enter_state(fight, f, IK_STATE_CROUCH);
         }
         return 1;
     }
-
-    if (controls->y) { enter_state(fight, f, IK_STATE_STRONG_PUNCH); return 1; }
-    if (controls->b) { enter_state(fight, f, IK_STATE_STRONG_KICK); return 1; }
-    if (controls->x) { enter_state(fight, f, IK_STATE_PUNCH); return 1; }
-    if (controls->a) { enter_state(fight, f, IK_STATE_KICK); return 1; }
-    if (controls->up) { start_jump(fight, f, controls); return 1; }
+    if (controls->up) {
+        start_jump(fight, f, controls);
+        return 1;
+    }
     return 0;
 }
 
@@ -619,8 +555,7 @@ static void step_fighter(ik_fight_t* fight, int index,
             }
         }
     } else if (is_attack_state(fight, f->state)) {
-        if (try_attack_cancel(fight, f, controls)) return;
-        if (f->ctrl && dispatch_controlled_input(fight, f, controls)) return;
+        if (dispatch_controlled_input(fight, f, controls)) return;
 
         if (is_air_attack(fight, f->state)) {
             /* Physics=A continues while the attack animation runs. Landing is
