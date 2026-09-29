@@ -310,15 +310,26 @@ static void apply_damage(ik_fight_t* fight, int victim,
     ik_fighter_t* v = &fight->fighters[victim];
     ik_fighter_t* a = &fight->fighters[victim ^ 1];
 
+    const int airborne = !v->on_ground;
+    const int16_t hit_time = airborne
+        ? hitdef->air_hit_time
+        : hitdef->ground_hit_time;
+    const int16_t velocity_x = airborne
+        ? hitdef->air_velocity_x_q8
+        : hitdef->ground_velocity_x_q8;
+    const int16_t velocity_y = airborne
+        ? hitdef->air_velocity_y_q8
+        : hitdef->ground_velocity_y_q8;
+
     v->hp = (int16_t)(v->hp - hitdef->damage);
-    v->hitstun = hitdef->ground_hit_time;
+    v->hitstun = (uint16_t)(hit_time < 0 ? 0 : hit_time);
     v->hit_pause = hitdef->pause_p2;
     a->hit_pause = hitdef->pause_p1;
 
-    v->vx_q8 = (int32_t)v->facing * hitdef->ground_velocity_x_q8;
-    v->vy_q8 = hitdef->ground_velocity_y_q8;
-    if ((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u ||
-        hitdef->ground_velocity_y_q8 < 0) {
+    v->vx_q8 = (int32_t)v->facing * velocity_x;
+    v->vy_q8 = velocity_y;
+    if (airborne || (hitdef->flags & IK_CNS_HITDEF_FALL) != 0u ||
+        velocity_y < 0) {
         v->on_ground = 0;
     }
 

@@ -250,6 +250,26 @@ int main() {
         EQ(g.fighters[0].on_ground,0);
     }
 
+    /* Airborne victims consume air.hittime / air.velocity rather than the
+     * ground HitDef branch. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        g.fighters[1].on_ground=0;
+        g.fighters[1].y=150;
+        g.fighters[1].y_q8=150*256;
+
+        ik_fight_controls_t p{}; p.up=1;
+        tick(&g,&p);
+        p={}; p.x=1;
+        tick(&g,&p);
+
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].hitstun,14u);
+        EQ(g.fighters[1].vx_q8,333);
+        EQ(g.fighters[1].vy_q8,-768);
+        EQ(g.fighters[1].on_ground,0);
+    }
+
     /* State 600's original CtrlSet at Time=17 is executed by the generic
      * controller runtime, allowing new controlled air input afterwards. */
     {
