@@ -628,6 +628,7 @@ def parse_state(
                     "guard_sound_item": gs[1],
                     "flags": " | ".join(flags) if flags else "0u",
                     "guard_flags": guard_mask(ctrl.get("guardflag")),
+                    "guard_kill": integer(ctrl.get("guard.kill"), 1),
                     "guard_slide_time": integer(
                         ctrl.get("guard.slidetime"),
                         integer(ctrl.get("ground.slidetime"), 0),
@@ -1704,7 +1705,8 @@ def emit(
         f"{h['hit_sound_group']}, {h['hit_sound_item']}, "
         f"{h['guard_sound_group']}, {h['guard_sound_item']}, "
         f"{h['flags']}, "
-        f"{h['guard_flags']}, {h['guard_slide_time']}u, "
+        f"{h['guard_flags']}, {h['guard_kill']}u, "
+        f"{h['guard_slide_time']}u, "
         f"{h['guard_hit_time']}u, {h['guard_ctrl_time']}u, "
         f"{h['guard_velocity_x_q8']}, "
         f"{h['air_guard_velocity_x_q8']}, "
