@@ -970,6 +970,40 @@ int main() {
         EQ(v->state,5110);
     }
 
+    /* A real fatal HitDef against a liedown fighter stays in the common
+     * graph: apply_damage enters 5080, then 5081/5110/5150. It must not
+     * jump to the synthetic IK_STATE_KO fallback. */
+    {
+        ik_fight_init(&g,&k_downed_cns);
+        place(&g,100,145);
+        ik_fighter_t* v=&g.fighters[1];
+        v->state=5110;
+        v->anim=5110;
+        v->on_ground=1;
+        v->ctrl=0;
+        v->hp=20;
+
+        ik_fight_controls_t p1{}; request(&p1,200);
+        ik_fight_controls_t p2{};
+        for(int i=0;i<20 && v->hp>0;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+
+        EQ(v->hp,0);
+        EQ(v->state,5080);
+        EQ(g.round_over,0u);
+        OK(v->state!=IK_STATE_KO);
+        OK((g.events&IK_EVENT_KO)!=0u);
+
+        for(int i=0;i<40 && !g.round_over;++i) {
+            tick2(&g,&p1,&p2);
+        }
+        EQ(v->state,5150);
+        EQ(g.round_over,1u);
+        EQ(g.winner,1u);
+    }
+
     /* A defeated fighter already lying down follows the common
      * !alive branch into 5150 before the round is finalized. */
     {
