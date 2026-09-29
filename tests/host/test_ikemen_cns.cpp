@@ -40,16 +40,16 @@ static const ik_cns_controller_t k_controllers[] = {
 static const ik_cns_state_t k_states[] = {
     {200, 200, 10, 0, 0,
      IK_CNS_STATE_STAND, IK_CNS_MOVE_ATTACK, IK_CNS_PHYS_STAND,
-     0, 2, 1u, 0u, 1u, 0u, 0u, 0u, 2u},
+     0, 2, 1u, 0u, 1u, 0u, 0u, 0u, 2u, 0},
     {410, 410, 25, 0, 0,
      IK_CNS_STATE_CROUCH, IK_CNS_MOVE_ATTACK, IK_CNS_PHYS_CROUCH,
-     0, 2, 0u, 1u, 2u, 0u, 0u, 2u, 0u},
+     0, 2, 0u, 1u, 2u, 0u, 0u, 2u, 0u, 0},
 };
 
 static const ik_cns_asset_t k_asset = {
     {1000, 15, 16, 12, 12, 60,
      614, -563, 1178, 0, -1152, -973,
-     0, -2150, -653, 640,
+     0, -2150, -653, 640, 1024, -2074,
      113, 218, 210, 512, 13},
     k_states, 2u,
     k_hitdefs, 3u,
@@ -93,6 +93,19 @@ int main() {
         &k_controllers[3], 0u, 6u, 1u, 0, 1));
     OK(!ik_cns_controller_trigger_now(
         &k_controllers[3], 0u, 5u, 2u, 0, 0));
+
+    {
+        const ik_cns_controller_t command_ctrl = {
+            20, IK_CNS_CTRL_VEL_SET, IK_CNS_TRIGGER_COMMAND_ACTIVE,
+            IK_CNS_COMMAND_HOLD_FWD, 0, 614, 0,
+            IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_LOCAL_X
+        };
+        ik_cns_controller_context_t ctx{};
+        ctx.command_mask = IK_CNS_COMMAND_HOLD_FWD;
+        OK(ik_cns_controller_trigger_context_now(&command_ctrl, &ctx));
+        ctx.command_mask = 0u;
+        OK(!ik_cns_controller_trigger_context_now(&command_ctrl, &ctx));
+    }
 
     OK(ik_cns_q8_to_int(-5 * IK_CNS_Q8_ONE - 128) == -5);
 
