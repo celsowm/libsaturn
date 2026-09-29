@@ -620,6 +620,9 @@ def parse_state(
                 flags.append("IK_CNS_HITDEF_FALL")
             if integer(ctrl.get("forcenofall"), 0):
                 flags.append("IK_CNS_HITDEF_FORCE_NO_FALL")
+            attr_parts = [p.strip().upper() for p in (ctrl.get("attr") or "").split(",")]
+            if len(attr_parts) > 1 and attr_parts[1].endswith("T"):
+                flags.append("IK_CNS_HITDEF_THROW")
 
             hitdefs.append(
                 {
@@ -700,6 +703,12 @@ def parse_state(
                     "down_velocity_y_q8": q8(down_y),
                     "down_bounce": integer(ctrl.get("down.bounce"), 0),
                     "air_juggle": integer(ctrl.get("air.juggle"), 0),
+                    "p1_state_no": integer(ctrl.get("p1stateno"), -1),
+                    "p2_state_no": integer(ctrl.get("p2stateno"), -1),
+                    "guard_dist": integer(ctrl.get("guard.dist"), -1),
+                    "p1_facing": integer(ctrl.get("p1facing"), 0),
+                    "p2_facing": integer(ctrl.get("p2facing"), 0),
+                    "p1_spr_priority": integer(ctrl.get("p1sprpriority"), -128),
                 }
             )
 
@@ -1765,7 +1774,9 @@ def emit(
         f"{h['down_hit_time']}u, "
         f"{h['down_velocity_x_q8']}, {h['down_velocity_y_q8']}, "
         f"{h['down_bounce']}u, {h['hit_flags']}, "
-        f"{h['priority_type']}, {h['air_juggle']}u"
+        f"{h['priority_type']}, {h['air_juggle']}u, "
+        f"{h['p1_state_no']}, {h['p2_state_no']}, {h['guard_dist']}, "
+        f"{h['p1_facing']}, {h['p2_facing']}, {h['p1_spr_priority']}"
         "},"
         for h in hitdefs
     ]
