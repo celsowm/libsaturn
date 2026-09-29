@@ -183,6 +183,28 @@ def guard_mask(text: str | None) -> str:
     return " | ".join(dict.fromkeys(bits)) if bits else "0u"
 
 
+def hit_mask(text: str | None) -> str:
+    value = (text or "MAF").strip().upper()
+    bits: list[str] = []
+    if "H" in value:
+        bits.append("IK_CNS_HIT_STAND")
+    if "L" in value:
+        bits.append("IK_CNS_HIT_CROUCH")
+    if "M" in value:
+        bits += ["IK_CNS_HIT_STAND", "IK_CNS_HIT_CROUCH"]
+    if "A" in value:
+        bits.append("IK_CNS_HIT_AIR")
+    if "F" in value:
+        bits.append("IK_CNS_HIT_FALL")
+    if "D" in value:
+        bits.append("IK_CNS_HIT_DOWN")
+    if "+" in value:
+        bits.append("IK_CNS_HIT_ONLY_GETHIT")
+    if "-" in value:
+        bits.append("IK_CNS_HIT_NOT_GETHIT")
+    return " | ".join(dict.fromkeys(bits)) if bits else "0u"
+
+
 def sound_pair(
     text: str | None,
     default: tuple[int, int] = (-1, -1),
@@ -631,6 +653,7 @@ def parse_state(
                     "flags": " | ".join(flags) if flags else "0u",
                     "guard_flags": guard_mask(ctrl.get("guardflag")),
                     "guard_kill": integer(ctrl.get("guard.kill"), 1),
+                    "hit_flags": hit_mask(ctrl.get("hitflag")),
                     "guard_slide_time": integer(
                         ctrl.get("guard.slidetime"),
                         integer(ctrl.get("ground.slidetime"), 0),
@@ -1723,7 +1746,7 @@ def emit(
         f"{h['fall_recover_time']}u, "
         f"{h['down_hit_time']}u, "
         f"{h['down_velocity_x_q8']}, {h['down_velocity_y_q8']}, "
-        f"{h['down_bounce']}u"
+        f"{h['down_bounce']}u, {h['hit_flags']}"
         "},"
         for h in hitdefs
     ]
