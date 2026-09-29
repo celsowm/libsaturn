@@ -67,15 +67,19 @@ asset now contains states:
 * 0: stand
 * 10 / 11 / 12: stand-to-crouch, crouch, crouch-to-stand
 * 20: walk
+* 40 / 45: jump and air-jump startup
+* 50 / 51: upward/downward jump flow
 * 52: jump landing
 * 100: run forward
 * 105 / 106: hop backward and hop-back landing
 
 The generic runtime now supports contextual command/velocity triggers plus
-`VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity and
-state-specific landing targets. Ground physics selects the compiled stand or
-crouch friction values. Air attacks and hop-back can land into the compiled
-common landing states instead of being forced directly to idle.
+`VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity,
+remembered jump direction, `prevStateNo` run-jump selection, compiled
+air-jump limits and state-specific landing targets. Ground physics selects the
+compiled stand or crouch friction values. Jump, air-jump, air attacks and
+hop-back land through the compiled common flow instead of being forced
+directly to idle.
 
 KFM `[Data]`, `[Size]`, `[Velocity]` and `[Movement]` values are compiled
 to Q8.8, including walk/run/jump/run-jump velocities, gravity, friction,
@@ -110,7 +114,6 @@ pins both fighters' current textures before emitting VDP1 commands.
 
 This is not yet a complete Ikemen common-state VM. The next important pieces are:
 
-* common states 40/45/50/51 for jump start, air jump and the full jump flow
 * guards and the complete get-hit/knockdown/bounce/lying/recovery graph
 * throws, specials and supers
 * remaining HitDef semantics, guard/chip/reversal/juggle behavior
