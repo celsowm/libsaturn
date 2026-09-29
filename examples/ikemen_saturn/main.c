@@ -169,6 +169,7 @@ static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
 static void draw_fighter(const ik_frame_t* frame,
                          sat_texture_t texture,
                          const ik_fighter_t* f,
+                         const ik_cns_asset_t* cns,
                          int player) {
     if (!frame || !f) return;
 
@@ -184,7 +185,10 @@ static void draw_fighter(const ik_frame_t* frame,
     sat_draw_params_t params = sat_draw_params_default();
     if (flip_h) params.flip = SAT_FLIP_X;
     if (flip_v) params.flip = (uint8_t)(params.flip | SAT_FLIP_Y);
-    if (f->state == IK_STATE_HIT && ((f->state_time & 2u) != 0u)) {
+    const ik_cns_state_t* state = ik_cns_find_state(cns, f->state);
+    if (((state && state->move_type == IK_CNS_MOVE_HIT) ||
+         f->state == IK_STATE_HIT) &&
+        ((f->state_time & 2u) != 0u)) {
         params.tint.r = 255u;
         params.tint.g = 120u;
         params.tint.b = 120u;
@@ -237,9 +241,9 @@ static void draw_fighters(const ik_fight_t* fight) {
     }
 
     draw_fighter(frames[first], textures[first],
-                 &fight->fighters[first], first + 1);
+                 &fight->fighters[first], fight->cns, first + 1);
     draw_fighter(frames[second], textures[second],
-                 &fight->fighters[second], second + 1);
+                 &fight->fighters[second], fight->cns, second + 1);
 }
 
 static void controls_from_commands(uint32_t player,
