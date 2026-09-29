@@ -138,7 +138,6 @@ enum {
 
 typedef struct ik_cns_constants {
     int16_t life;
-    int16_t air_juggle;
 
     int16_t ground_back;
     int16_t ground_front;
@@ -197,6 +196,7 @@ typedef struct ik_cns_constants {
     int16_t air_gethit_airrecover_down_q8;
     int16_t air_gethit_airrecover_threshold_q8;
     int16_t air_gethit_airrecover_yaccel_q8;
+    int16_t air_juggle;
 } ik_cns_constants_t;
 
 typedef struct ik_cns_state {
