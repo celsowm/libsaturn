@@ -88,7 +88,9 @@ static int default_ctrl_for_state(int16_t state) {
 static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     const ik_cns_state_t* spec = ik_cns_find_state(fight ? fight->cns : 0, state);
     const int16_t previous_anim = f->anim;
+    const int16_t previous_state = f->state;
 
+    f->prev_state = previous_state;
     f->state = state;
     f->state_time = 0u;
     f->anim = (spec && spec->anim < 0)
@@ -97,6 +99,7 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     f->anim_time = 0u;
     f->move_contact = 0u;
     f->hitdef_hit_mask = 0u;
+    f->state_axis = 0;
 
     if (is_attack_state(fight, state)) ++f->attack_id;
 
@@ -125,9 +128,13 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->facing = facing;
     f->on_ground = 1;
     f->state = IK_STATE_IDLE;
+    f->prev_state = IK_STATE_IDLE;
     f->state_time = 0;
     f->anim = 0;
     f->anim_time = 0;
+    f->state_axis = 0;
+    f->air_jumps_used = 0u;
+    f->up_latched = 0u;
     f->ctrl = 1;
     f->spr_priority = 0;
     f->hp = (int16_t)hp;
@@ -390,26 +397,6 @@ static void apply_ground_velocity(ik_fighter_t* f,
     sync_position(f);
 }
 
-static void start_jump(ik_fight_t* fight, ik_fighter_t* f,
-                       const ik_fight_controls_t* controls) {
-    const ik_cns_constants_t* c = constants_for(fight);
-    enter_state(fight, f, IK_STATE_JUMP);
-    f->on_ground = 0;
-    if (c) {
-        if (controls && controls->forward) {
-            f->vx_q8 = (int32_t)f->facing * c->jump_fwd_q8;
-        } else if (controls && controls->back) {
-            f->vx_q8 = (int32_t)f->facing * c->jump_back_q8;
-        } else {
-            f->vx_q8 = (int32_t)f->facing * c->jump_neu_x_q8;
-        }
-        f->vy_q8 = c->jump_neu_y_q8;
-    } else {
-        f->vx_q8 = 0;
-        f->vy_q8 = -8 * IK_CNS_Q8_ONE;
-    }
-}
-
 static void step_air(ik_fight_t* fight, ik_fighter_t* f,
                      int allow_land_transition) {
     const ik_cns_constants_t* c = constants_for(fight);
@@ -425,6 +412,7 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f,
         f->y_q8 = (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE;
         f->vy_q8 = 0;
         f->on_ground = 1;
+        f->air_jumps_used = 0u;
         if (allow_land_transition) {
             int16_t target = IK_STATE_IDLE;
             if (spec && spec->land_state != 0) {
@@ -575,6 +563,73 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 }
                 break;
 
+            case IK_CNS_CTRL_CAPTURE_COMMAND_AXIS:
+                if ((command_mask & IK_CNS_COMMAND_HOLD_BACK) != 0u) {
+                    f->state_axis = -1;
+                } else if ((command_mask & IK_CNS_COMMAND_HOLD_FWD) != 0u) {
+                    f->state_axis = 1;
+                }
+                break;
+
+            case IK_CNS_CTRL_JUMP_LAUNCH: {
+                const ik_cns_constants_t* c = constants_for(fight);
+                if (!c) break;
+                int32_t vx = c->jump_neu_x_q8;
+                if (f->state_axis < 0) {
+                    vx = c->jump_back_q8;
+                } else if (f->state_axis > 0) {
+                    vx = (f->prev_state == 100)
+                        ? c->run_jump_fwd_x_q8
+                        : c->jump_fwd_q8;
+                }
+                f->vx_q8 = (int32_t)f->facing * vx;
+                f->vy_q8 = c->jump_neu_y_q8;
+                break;
+            }
+
+            case IK_CNS_CTRL_AIR_JUMP_LAUNCH: {
+                const ik_cns_constants_t* c = constants_for(fight);
+                if (!c) break;
+                int32_t vx = c->air_jump_neu_x_q8;
+                if (f->state_axis < 0) vx = c->air_jump_back_q8;
+                else if (f->state_axis > 0) vx = c->air_jump_fwd_q8;
+                f->vx_q8 = (int32_t)f->facing * vx;
+                f->vy_q8 = c->air_jump_neu_y_q8;
+                break;
+            }
+
+            case IK_CNS_CTRL_CHANGE_ANIM_IF_EXISTS: {
+                uint32_t first = 0u;
+                uint32_t count = 0u;
+                int16_t action = ctrl->value1;
+                if (frames && ik_frames_bounds(
+                        frames, ctrl->value0, &first, &count) && count > 0u) {
+                    action = ctrl->value0;
+                }
+                if (f->anim != action) {
+                    f->anim = action;
+                    f->anim_time = 0u;
+                }
+                break;
+            }
+
+            case IK_CNS_CTRL_CHANGE_ANIM_DESCENT_IF_EXISTS: {
+                const int16_t first_action = ctrl->value1;
+                if (f->vy_q8 > ctrl->value0 &&
+                    f->anim >= first_action &&
+                    f->anim <= (int16_t)(first_action + 2)) {
+                    uint32_t first = 0u;
+                    uint32_t count = 0u;
+                    const int16_t action = (int16_t)(f->anim + 3);
+                    if (frames && ik_frames_bounds(
+                            frames, action, &first, &count) && count > 0u) {
+                        f->anim = action;
+                        f->anim_time = 0u;
+                    }
+                }
+                break;
+            }
+
             default:
                 break;
         }
@@ -593,7 +648,23 @@ static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
         return 1;
     }
 
-    if (!f->ctrl || !f->on_ground) return 0;
+    if (!f->on_ground) {
+        const ik_cns_constants_t* c = constants_for(fight);
+        if (f->ctrl && controls->up && !f->up_latched && c &&
+            c->air_jump_num > 0 &&
+            f->air_jumps_used < (uint8_t)c->air_jump_num &&
+            ((int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE - f->y_q8) >=
+                (int32_t)c->air_jump_height * IK_CNS_Q8_ONE &&
+            ik_cns_find_state(fight ? fight->cns : 0, 45)) {
+            enter_state(fight, f, 45);
+            f->air_jumps_used++;
+            f->up_latched = 1u;
+            return 1;
+        }
+        return 0;
+    }
+
+    if (!f->ctrl) return 0;
     if (controls->down) {
         const int16_t crouch_state =
             ik_cns_find_state(fight ? fight->cns : 0, 10)
@@ -609,8 +680,10 @@ static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
         enter_state(fight, f, 12);
         return 1;
     }
-    if (controls->up) {
-        start_jump(fight, f, controls);
+    if (controls->up &&
+        ik_cns_find_state(fight ? fight->cns : 0, IK_STATE_JUMP)) {
+        enter_state(fight, f, IK_STATE_JUMP);
+        f->up_latched = 1u;
         return 1;
     }
     return 0;
@@ -622,6 +695,10 @@ static void step_fighter(ik_fight_t* fight, int index,
     ik_fighter_t* f = &fight->fighters[index];
     ik_fighter_t* foe = &fight->fighters[index ^ 1];
     const ik_cns_constants_t* c = constants_for(fight);
+
+    if (controls && !controls->up) {
+        f->up_latched = 0u;
+    }
 
     /* Width is a one-tick controller in MUGEN/Ikemen. Reset to the
      * character constants before evaluating the current tick's controllers. */
