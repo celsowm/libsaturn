@@ -1304,6 +1304,15 @@ void ik_fight_update(ik_fight_t* fight,
     step_fighter(fight, 0, p1, 0, frames);
     step_fighter(fight, 1, p2, dummy, frames);
 
+    const ik_cns_hitdef_t* candidates[2] = {0, 0};
+    uint32_t candidate_bits[2] = {0u, 0u};
+    uint8_t candidate_local[2] = {0u, 0u};
+    uint8_t lands[2] = {0u, 0u};
+    uint8_t consume[2] = {0u, 0u};
+
+    /* Gather both contacts before changing either fighter's state. This is
+     * required for MUGEN priority/trade semantics: the old loop applied P1
+     * first, which could erase P2's simultaneous active HitDef. */
     for (int atk = 0; atk < 2; ++atk) {
         ik_fighter_t* a = &fight->fighters[atk];
         ik_fighter_t* v = &fight->fighters[atk ^ 1];
@@ -1316,8 +1325,63 @@ void ik_fight_update(ik_fight_t* fight,
         if ((a->hitdef_hit_mask & bit) != 0u) continue;
         if (!fighter_clsn_overlap(frames, a, v)) continue;
 
-        a->hitdef_hit_mask |= bit;
+        candidates[atk] = hitdef;
+        candidate_bits[atk] = bit;
+        candidate_local[atk] = local_hitdef;
+        lands[atk] = 1u;
+    }
+
+    if (candidates[0] && candidates[1]) {
+        const uint8_t p0 =
+            candidates[0]->priority ? candidates[0]->priority : 4u;
+        const uint8_t p1v =
+            candidates[1]->priority ? candidates[1]->priority : 4u;
+
+        if (p0 > p1v) {
+            lands[1] = 0u;
+            consume[1] = 1u;
+        } else if (p1v > p0) {
+            lands[0] = 0u;
+            consume[0] = 1u;
+        } else {
+            const uint8_t t0 = candidates[0]->priority_type;
+            const uint8_t t1 = candidates[1]->priority_type;
+
+            if (t0 == IK_CNS_PRIORITY_DODGE ||
+                t1 == IK_CNS_PRIORITY_DODGE) {
+                /* Equal-priority no-hit tie: both HitDefs stay enabled. */
+                lands[0] = lands[1] = 0u;
+            } else if (t0 == IK_CNS_PRIORITY_HIT &&
+                       t1 == IK_CNS_PRIORITY_HIT) {
+                /* True trade. */
+            } else if (t0 == IK_CNS_PRIORITY_HIT &&
+                       t1 == IK_CNS_PRIORITY_MISS) {
+                lands[1] = 0u;
+                consume[1] = 1u;
+            } else if (t1 == IK_CNS_PRIORITY_HIT &&
+                       t0 == IK_CNS_PRIORITY_MISS) {
+                lands[0] = 0u;
+                consume[0] = 1u;
+            } else {
+                /* Miss/Miss is also a no-hit tie; leave both active. */
+                lands[0] = lands[1] = 0u;
+            }
+        }
+    }
+
+    for (int atk = 0; atk < 2; ++atk) {
+        if (consume[atk] && candidate_bits[atk] != 0u) {
+            fight->fighters[atk].hitdef_hit_mask |= candidate_bits[atk];
+        }
+    }
+
+    for (int atk = 0; atk < 2; ++atk) {
+        const ik_cns_hitdef_t* hitdef = candidates[atk];
+        if (!lands[atk] || !hitdef) continue;
+
+        fight->fighters[atk].hitdef_hit_mask |= candidate_bits[atk];
         const int victim = atk ^ 1;
+        ik_fighter_t* v = &fight->fighters[victim];
         const ik_fight_controls_t* victim_controls =
             victim == 0 ? p1 : p2;
         if (can_guard_hit(fight, v, victim_controls, hitdef)) {
