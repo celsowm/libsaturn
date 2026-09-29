@@ -749,7 +749,8 @@ def compile_common_states(
     supported = {
         0, 10, 11, 12, 20, 40, 45, 50, 51, 52, 100, 105, 106,
         120, 130, 131, 132, 140, 150, 151, 152, 153, 154, 155,
-        5000, 5001, 5010, 5011, 5020, 5030, 5040, 5050,
+        5000, 5001, 5010, 5011, 5020, 5030, 5035, 5040, 5050,
+        5070, 5071, 5100, 5101, 5110, 5120,
     }
     unsupported = sorted(set(selected) - supported)
     if unsupported:
@@ -1245,7 +1246,7 @@ def compile_common_states(
 
         elif n == 5030:
             row = state_row(5030, 5030, 0)
-            row["land_state"] = 0
+            row["land_level_q8"] = const["air_gethit_groundlevel_q8"]
             cs += [
                 _common_ctrl(
                     5030, "IK_CNS_CTRL_HIT_VEL_SET",
@@ -1256,11 +1257,25 @@ def compile_common_states(
                     5030, "IK_CNS_CTRL_HIT_RECOVER_STATE",
                     "IK_CNS_TRIGGER_HIT_OVER",
                 ),
+                _common_ctrl(
+                    5030, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_ANIM_END", 0, 0, 5035, 0,
+                ),
             ]
-            deferred[n] = [
-                "selfAnimExist 5030",
-                "air.gethit.groundlevel transition",
-                "AnimTime -> 5035",
+            deferred[n] = ["selfAnimExist 5030"]
+
+        elif n == 5035:
+            row = state_row(5035, 5035, 0)
+            row["land_level_q8"] = const["air_gethit_groundlevel_q8"]
+            cs += [
+                _common_ctrl(
+                    5035, "IK_CNS_CTRL_HIT_RECOVER_STATE",
+                    "IK_CNS_TRIGGER_HIT_OVER",
+                ),
+                _common_ctrl(
+                    5035, "IK_CNS_CTRL_HIT_RECOVER_STATE",
+                    "IK_CNS_TRIGGER_ANIM_END",
+                ),
             ]
 
         elif n == 5040:
@@ -1268,12 +1283,131 @@ def compile_common_states(
             deferred[n] = ["alive=false -> 5050", "moveTypeSet"]
 
         elif n == 5050:
-            row = state_row(5050, 5050, 0, land_state=52)
-            deferred[n] = [
-                "fall recovery",
-                "5100 knockdown landing graph",
-                "animation variants",
+            row = state_row(5050, 5050, 0, land_state=5100)
+            row["land_level_q8"] = const["air_gethit_groundlevel_q8"]
+            deferred[n] = ["fall recovery input", "animation variants"]
+
+        elif n == 5070:
+            row = state_row(5070, 5070, 0)
+            row["has_velset"] = 1
+            cs.append(_common_ctrl(
+                5070, "IK_CNS_CTRL_CHANGE_STATE",
+                "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 5071, 0,
+            ))
+            deferred[n] = ["ForceFeedback"]
+
+        elif n == 5071:
+            row = state_row(5071, -1, 0, land_state=5110)
+            row["land_level_q8"] = const["air_gethit_trip_groundlevel_q8"]
+            cs.append(_common_ctrl(
+                5071, "IK_CNS_CTRL_HIT_VEL_SET",
+                "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y",
+            ))
+
+        elif n == 5100:
+            row = state_row(5100, 5100, 0)
+            cs += [
+                _common_ctrl(
+                    5100, "IK_CNS_CTRL_POS_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    5100, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    5100, "IK_CNS_CTRL_VEL_MUL",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, q8(.75), 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5100, "IK_CNS_CTRL_FALL_GROUND_BRANCH",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 5110, 0,
+                ),
+                _common_ctrl(
+                    5100, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_ANIM_END", 0, 0, 5101, 0,
+                ),
             ]
+            deferred[n] = ["FallEnvShake", "HitFallDamage", "ground effect"]
+
+        elif n == 5101:
+            row = state_row(5101, 5160, 0, land_state=5110)
+            row["air_accel_q8"] = const["down_bounce_yaccel_q8"]
+            row["land_level_q8"] = const["down_bounce_groundlevel_q8"]
+            cs += [
+                _common_ctrl(
+                    5101, "IK_CNS_CTRL_FALL_BOUNCE_VEL",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1,
+                ),
+                _common_ctrl(
+                    5101, "IK_CNS_CTRL_POS_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0,
+                    const["down_bounce_offset_y_q8"],
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    5101, "IK_CNS_CTRL_POS_ADD",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
+                    const["down_bounce_offset_x_q8"], 0,
+                ),
+            ]
+
+        elif n == 5110:
+            row = state_row(5110, 5110, 0)
+            cs += [
+                _common_ctrl(
+                    5110, "IK_CNS_CTRL_POS_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    5110, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    5110, "IK_CNS_CTRL_VEL_MUL",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, q8(.85), 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5110, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_ABS_VX_LT_Q8",
+                    const["down_friction_threshold_q8"], 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5110, "IK_CNS_CTRL_POS_ADD_VEL",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5110, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_TIME_EQ", const["liedown_time"],
+                    0, 5120, 0,
+                ),
+            ]
+            deferred[n] = ["FallEnvShake", "HitFallDamage", "ground effect"]
+
+        elif n == 5120:
+            row = state_row(5120, 5120, 0)
+            cs += [
+                _common_ctrl(
+                    5120, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    5120, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_ANIM_END", 0, 0, 0, 1,
+                    "IK_CNS_CTRL_HAS_CTRL",
+                ),
+            ]
+            deferred[n] = ["NotHitBy get-up invulnerability", "HitFallSet"]
 
         elif n == 106:
             row = state_row(106, 47, 0)
