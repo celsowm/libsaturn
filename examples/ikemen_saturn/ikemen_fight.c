@@ -87,10 +87,13 @@ static int default_ctrl_for_state(int16_t state) {
 
 static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     const ik_cns_state_t* spec = ik_cns_find_state(fight ? fight->cns : 0, state);
+    const int16_t previous_anim = f->anim;
 
     f->state = state;
     f->state_time = 0u;
-    f->anim = (int16_t)ik_action_for_state(fight ? fight->cns : 0, state);
+    f->anim = (spec && spec->anim < 0)
+        ? previous_anim
+        : (int16_t)ik_action_for_state(fight ? fight->cns : 0, state);
     f->anim_time = 0u;
     f->move_contact = 0u;
     f->hitdef_hit_mask = 0u;
