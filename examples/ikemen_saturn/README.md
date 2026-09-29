@@ -86,8 +86,9 @@ The generic runtime now supports contextual command/velocity triggers plus
 `VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity,
 remembered jump direction, `prevStateNo` run-jump selection, compiled
 air-jump limits and state-specific landing targets. HitDefs also preserve
-guard flags, guard/air-guard velocities, guard timing, animation type and
-`guard.kill` chip-KO semantics.
+guard flags, guard/air-guard velocities, guard timing, animation type,
+`guard.kill` chip-KO semantics, and the dedicated `down.velocity` /
+`down.hittime` branch used when striking a liedown opponent.
 Standing, crouching and air guard hits enter the common 150-155 graph, while
 normal damage begins in the common 5000+ get-hit graph instead of the old
 single synthetic hit state. Ground physics selects the compiled stand or
@@ -133,7 +134,7 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   complete inGuardDist behavior
 * throws, specials and supers
 * remaining HitDef semantics such as hitflag, priority clashes,
-  down.velocity/down.hittime, reversal and juggle behavior
+  down.bounce, reversal and juggle behavior
 * fightfx sparks/effects, motif/lifebar flow and full round presentation
 * generic PlaySnd dispatch for all compiled states
 * stage DEF execution instead of the current simplified stage runtime
