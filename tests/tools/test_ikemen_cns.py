@@ -13,6 +13,7 @@ from tools.ikemen_cns import emit  # noqa: E402
 SOURCE = r"""
 [Data]
 life = 1000
+liedown.time = 60
 
 [Size]
 ground.back = 15
@@ -43,6 +44,12 @@ stand.friction = .85
 crouch.friction = .82
 stand.friction.threshold = 2
 crouch.friction.threshold = .05
+air.gethit.groundlevel = 25
+air.gethit.trip.groundlevel = 15
+down.bounce.offset = 0,20
+down.bounce.yaccel = .4
+down.bounce.groundlevel = 12
+down.friction.threshold = .05
 
 [Statedef 200]
 type = S
@@ -151,6 +158,13 @@ COMMON = r"""
 [StateDef 5030; type: A; movetype: H; physics: N; ctrl: 0;]
 [StateDef 5040; type: A; movetype: H; physics: N;]
 [StateDef 5050; type: A; movetype: H; physics: N;]
+[StateDef 5035; type: A; movetype: H; physics: N;]
+[StateDef 5070; type: A; movetype: H; physics: N; velset: 0, 0;]
+[StateDef 5071; type: A; movetype: H; physics: N;]
+[StateDef 5100; type: L; movetype: H; physics: N;]
+[StateDef 5101; type: L; movetype: H; physics: N;]
+[StateDef 5110; type: L; movetype: H; physics: N;]
+[StateDef 5120; type: L; movetype: I; physics: N;]
 """
 
 with tempfile.TemporaryDirectory() as td:
@@ -163,7 +177,8 @@ with tempfile.TemporaryDirectory() as td:
         source, [200], root / "kfm_cns", "kfm",
         common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
                  120,130,131,132,140,150,151,152,153,154,155,
-                 5000,5001,5010,5011,5020,5030,5040,5050]
+                 5000,5001,5010,5011,5020,5030,5035,5040,5050,
+                 5070,5071,5100,5101,5110,5120]
     )
 
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
@@ -174,7 +189,7 @@ assert report["constants"]["air_jump_neu_y_q8"] == round(-8.1 * 256)
 assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
-assert len(report["states"]) == 33
+assert len(report["states"]) == 40
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -193,6 +208,10 @@ assert hit["guard_hit_time"] == 9
 assert hit["guard_ctrl_time"] == 8
 assert hit["anim_type"] == 1
 assert hit["air_anim_type"] == 1
+assert hit["fall_y_velocity_q8"] == round(-4.5 * 256)
+assert hit["fall_x_velocity_set"] == 0
+assert hit["fall_recover"] == 1
+assert hit["fall_recover_time"] == 4
 
 controllers = report["controllers"]
 assert controllers[0]["type"] == "IK_CNS_CTRL_SPR_PRIORITY"
@@ -238,8 +257,26 @@ assert common_rows[155]["controller_count"] == 2
 assert common_rows[5000]["controller_count"] == 3
 assert common_rows[5001]["controller_count"] == 3
 assert common_rows[5020]["controller_count"] == 2
-assert common_rows[5030]["controller_count"] == 2
+assert common_rows[5030]["controller_count"] == 3
+assert common_rows[5030]["land_level_q8"] == 25 * 256
+assert common_rows[5035]["controller_count"] == 2
 assert common_rows[5040]["land_state"] == 52
-assert common_rows[5050]["land_state"] == 52
+assert common_rows[5050]["land_state"] == 5100
+assert common_rows[5050]["land_level_q8"] == 25 * 256
+assert common_rows[5071]["land_state"] == 5110
+assert common_rows[5071]["land_level_q8"] == 15 * 256
+assert common_rows[5100]["controller_count"] == 5
+assert common_rows[5101]["anim"] == 5160
+assert common_rows[5101]["air_accel_q8"] == round(.4 * 256)
+assert common_rows[5101]["land_level_q8"] == 12 * 256
+assert common_rows[5101]["land_state"] == 5110
+assert common_rows[5110]["controller_count"] == 6
+assert common_rows[5120]["controller_count"] == 2
 assert report["common_deferred"][100] == ["AssertSpecial noWalk/noAutoTurn"]
 assert report["common_deferred"][150] == ["ForceFeedback"]
+assert report["constants"]["liedown_time"] == 60
+assert report["constants"]["air_gethit_groundlevel_q8"] == 25 * 256
+assert report["constants"]["air_gethit_trip_groundlevel_q8"] == 15 * 256
+assert report["constants"]["down_bounce_offset_y_q8"] == 20 * 256
+assert report["constants"]["down_bounce_yaccel_q8"] == round(.4 * 256)
+assert report["constants"]["down_bounce_groundlevel_q8"] == 12 * 256
