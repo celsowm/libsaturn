@@ -94,6 +94,8 @@ ground.hittime = 11
 ground.velocity = -4
 air.velocity = -1.4,-3
 air.hittime = 15
+down.velocity = -5,0
+down.hittime = 22
 
 [State 200, Snd]
 type = PlaySnd
@@ -231,6 +233,9 @@ assert hit["fall_y_velocity_q8"] == round(-4.5 * 256)
 assert hit["fall_x_velocity_set"] == 0
 assert hit["fall_recover"] == 1
 assert hit["fall_recover_time"] == 4
+assert hit["down_hit_time"] == 22
+assert hit["down_velocity_x_q8"] == -5 * 256
+assert hit["down_velocity_y_q8"] == 0
 
 controllers = report["controllers"]
 assert controllers[0]["type"] == "IK_CNS_CTRL_SPR_PRIORITY"
