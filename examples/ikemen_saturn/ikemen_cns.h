@@ -249,6 +249,10 @@ typedef struct ik_cns_hitdef {
     uint8_t fall_x_velocity_set;
     uint8_t fall_recover;
     uint8_t fall_recover_time;
+
+    uint16_t down_hit_time;
+    int16_t down_velocity_x_q8;
+    int16_t down_velocity_y_q8;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
