@@ -153,6 +153,20 @@ def q8(value: float) -> int:
     return result
 
 
+def guard_mask(text: str | None) -> str:
+    value = (text or "").strip().upper()
+    bits: list[str] = []
+    if "H" in value:
+        bits.append("IK_CNS_GUARD_STAND")
+    if "L" in value:
+        bits.append("IK_CNS_GUARD_CROUCH")
+    if "M" in value:
+        bits += ["IK_CNS_GUARD_STAND", "IK_CNS_GUARD_CROUCH"]
+    if "A" in value:
+        bits.append("IK_CNS_GUARD_AIR")
+    return " | ".join(dict.fromkeys(bits)) if bits else "0u"
+
+
 def sound_pair(
     text: str | None,
     default: tuple[int, int] = (-1, -1),
@@ -302,6 +316,7 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
         "air_back": integer(size.get("air.back"), 12),
         "air_front": integer(size.get("air.front"), 12),
         "height": integer(size.get("height"), 60),
+        "attack_dist": integer(size.get("attack.dist"), 160),
         "walk_fwd_q8": q8(number(vel.get("walk.fwd"), 2.4)),
         "walk_back_q8": q8(number(vel.get("walk.back"), -2.2)),
         "run_fwd_x_q8": q8(run_fwd[0]),
@@ -478,6 +493,12 @@ def parse_state(
             pause1, pause2 = pair(ctrl.get("pausetime"), 0, 0)
             gx, gy = pair(ctrl.get("ground.velocity"), 0, 0)
             ax, ay = pair(ctrl.get("air.velocity"), gx, gy)
+            guardx = number(ctrl.get("guard.velocity"), gx)
+            agx, agy = pair(
+                ctrl.get("airguard.velocity"),
+                ax * 1.5,
+                ay / 2.0,
+            )
             sparkx, sparky = pair(ctrl.get("sparkxy"), 0, 0)
             hs = sound_pair(ctrl.get("hitsound"))
             gs = sound_pair(ctrl.get("guardsound"))
@@ -529,6 +550,25 @@ def parse_state(
                     "guard_sound_group": gs[0],
                     "guard_sound_item": gs[1],
                     "flags": " | ".join(flags) if flags else "0u",
+                    "guard_flags": guard_mask(ctrl.get("guardflag")),
+                    "guard_slide_time": integer(
+                        ctrl.get("guard.slidetime"),
+                        integer(ctrl.get("ground.slidetime"), 0),
+                    ),
+                    "guard_hit_time": integer(
+                        ctrl.get("guard.hittime"),
+                        integer(ctrl.get("ground.hittime"), 0),
+                    ),
+                    "guard_ctrl_time": integer(
+                        ctrl.get("guard.ctrltime"),
+                        integer(
+                            ctrl.get("guard.hittime"),
+                            integer(ctrl.get("ground.hittime"), 0),
+                        ),
+                    ),
+                    "guard_velocity_x_q8": q8(guardx),
+                    "air_guard_velocity_x_q8": q8(agx),
+                    "air_guard_velocity_y_q8": q8(agy),
                 }
             )
 
@@ -654,7 +694,10 @@ def compile_common_states(
     if missing:
         raise ValueError(f"missing common Statedef(s): {missing}")
 
-    supported = {0, 10, 11, 12, 20, 40, 45, 50, 51, 52, 100, 105, 106}
+    supported = {
+        0, 10, 11, 12, 20, 40, 45, 50, 51, 52, 100, 105, 106,
+        120, 130, 131, 132, 140, 150, 151, 152, 153, 154, 155,
+    }
     unsupported = sorted(set(selected) - supported)
     if unsupported:
         raise ValueError(
@@ -680,6 +723,9 @@ def compile_common_states(
             integer(source[n].metadata.get("sprpriority"), 0)
             if spr is None else spr
         )
+        move_type = MOVE_TYPE.get(meta(n, "movetype", "I"))
+        if move_type is None:
+            raise ValueError(f"common state {n}: unsupported move type")
         return {
             "number": n,
             "anim": anim,
@@ -687,7 +733,7 @@ def compile_common_states(
             "velset_x_q8": 0,
             "velset_y_q8": 0,
             "state_type": stype,
-            "move_type": "IK_CNS_MOVE_IDLE",
+            "move_type": move_type,
             "physics": physics,
             "ctrl": ctrl,
             "spr_priority": priority,
@@ -913,6 +959,140 @@ def compile_common_states(
                 ),
             ]
 
+        elif n == 120:
+            row = state_row(120, -1, 0)
+            cs += [
+                _common_ctrl(
+                    120, "IK_CNS_CTRL_GUARD_ANIM_BY_TYPE",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 120, 0,
+                ),
+                _common_ctrl(
+                    120, "IK_CNS_CTRL_GUARD_STATE_BY_TYPE",
+                    "IK_CNS_TRIGGER_ANIM_END", 0, 0, 130, 0,
+                ),
+            ]
+
+        elif n == 130:
+            row = state_row(130, 130, 0)
+            cs.append(_common_ctrl(
+                130, "IK_CNS_CTRL_CHANGE_STATE",
+                "IK_CNS_TRIGGER_COMMAND_ACTIVE",
+                "IK_CNS_COMMAND_HOLD_DOWN", 0, 131, 0,
+            ))
+
+        elif n == 131:
+            row = state_row(131, 131, 0)
+            cs.append(_common_ctrl(
+                131, "IK_CNS_CTRL_CHANGE_STATE",
+                "IK_CNS_TRIGGER_COMMAND_INACTIVE",
+                "IK_CNS_COMMAND_HOLD_DOWN", 0, 130, 0,
+            ))
+
+        elif n == 132:
+            row = state_row(132, 132, 0, land_state=52)
+
+        elif n == 140:
+            row = state_row(140, -1, 1)
+            cs += [
+                _common_ctrl(
+                    140, "IK_CNS_CTRL_GUARD_ANIM_BY_TYPE",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 140, 0,
+                ),
+                _common_ctrl(
+                    140, "IK_CNS_CTRL_GUARD_END",
+                    "IK_CNS_TRIGGER_ANIM_END",
+                ),
+            ]
+
+        elif n == 150:
+            row = state_row(150, 150, 0)
+            row["has_velset"] = 1
+            cs.append(_common_ctrl(
+                150, "IK_CNS_CTRL_CHANGE_STATE",
+                "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 151, 0,
+            ))
+            deferred[n] = ["ForceFeedback"]
+
+        elif n == 151:
+            row = state_row(151, 150, 0)
+            cs += [
+                _common_ctrl(
+                    151, "IK_CNS_CTRL_HIT_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    151, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_HIT_SLIDE_TIME", 0, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    151, "IK_CNS_CTRL_CTRL_SET",
+                    "IK_CNS_TRIGGER_HIT_CTRL_TIME", 0, 0, 1, 0,
+                ),
+                _common_ctrl(
+                    151, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_OVER", 0, 0, 130, 1,
+                    "IK_CNS_CTRL_HAS_CTRL",
+                ),
+            ]
+
+        elif n == 152:
+            row = state_row(152, 151, 0)
+            row["has_velset"] = 1
+            cs.append(_common_ctrl(
+                152, "IK_CNS_CTRL_CHANGE_STATE",
+                "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 153, 0,
+            ))
+            deferred[n] = ["ForceFeedback"]
+
+        elif n == 153:
+            row = state_row(153, 151, 0)
+            cs += [
+                _common_ctrl(
+                    153, "IK_CNS_CTRL_HIT_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    153, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_HIT_SLIDE_TIME", 0, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    153, "IK_CNS_CTRL_CTRL_SET",
+                    "IK_CNS_TRIGGER_HIT_CTRL_TIME", 0, 0, 1, 0,
+                ),
+                _common_ctrl(
+                    153, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_OVER", 0, 0, 131, 1,
+                    "IK_CNS_CTRL_HAS_CTRL",
+                ),
+            ]
+
+        elif n == 154:
+            row = state_row(154, 152, 0)
+            row["has_velset"] = 1
+            cs.append(_common_ctrl(
+                154, "IK_CNS_CTRL_CHANGE_STATE",
+                "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 155, 0,
+            ))
+            deferred[n] = ["ForceFeedback"]
+
+        elif n == 155:
+            row = state_row(155, 152, 0, land_state=52)
+            cs += [
+                _common_ctrl(
+                    155, "IK_CNS_CTRL_HIT_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    155, "IK_CNS_CTRL_CTRL_SET",
+                    "IK_CNS_TRIGGER_HIT_CTRL_TIME", 0, 0, 1, 0,
+                ),
+            ]
+
         elif n == 106:
             row = state_row(106, 47, 0)
             cs += [
@@ -1018,7 +1198,12 @@ def emit(
         f"{h['spark_no']}, {h['spark_x']}, {h['spark_y']}, "
         f"{h['hit_sound_group']}, {h['hit_sound_item']}, "
         f"{h['guard_sound_group']}, {h['guard_sound_item']}, "
-        f"{h['flags']}"
+        f"{h['flags']}, "
+        f"{h['guard_flags']}, {h['guard_slide_time']}u, "
+        f"{h['guard_hit_time']}u, {h['guard_ctrl_time']}u, "
+        f"{h['guard_velocity_x_q8']}, "
+        f"{h['air_guard_velocity_x_q8']}, "
+        f"{h['air_guard_velocity_y_q8']}"
         "},"
         for h in hitdefs
     ]
@@ -1061,6 +1246,7 @@ const ik_cns_asset_t {ident}_cns = {{
         {const['life']},
         {const['ground_back']}, {const['ground_front']},
         {const['air_back']}, {const['air_front']}, {const['height']},
+        {const['attack_dist']},
         {const['walk_fwd_q8']}, {const['walk_back_q8']},
         {const['run_fwd_x_q8']}, {const['run_fwd_y_q8']},
         {const['run_back_x_q8']}, {const['run_back_y_q8']},
