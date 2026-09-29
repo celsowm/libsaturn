@@ -28,6 +28,7 @@ KFM_AIR := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.air
 KFM_SND := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.snd
 KFM_CMD := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.cmd
 KFM_CNS := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.cns
+COMMON_CNS_ZSS := .external/Ikemen-GO/data/common1.cns.zss
 COMMON_SND := .external/Ikemen-GO-Screenpack/data/common.snd
 STAGE0_SFF := .external/Ikemen-GO-Screenpack/stages/stage0.sff
 
@@ -35,7 +36,7 @@ $(KFM_FRAMES_C) $(KFM_FRAMES_H) &: $(KFM_SFF) $(KFM_AIR) $(IKEMEN_SFF_TOOL_SRCS)
 	@mkdir -p $(IKEMEN_GEN_DIR)
 	$(PYTHON) -m tools.ikemen_sff char \
 		--sff $(KFM_SFF) --air $(KFM_AIR) \
-		--actions 0,11,20,41,105,120,130,200,210,230,240,400,410,430,440,600,610,630,640 \
+		--actions 0,10,11,12,20,21,41,47,100,105,120,130,200,210,230,240,400,410,430,440,600,610,630,640 \
 		--palettes "1,1;1,4" \
 		--out-prefix $(IKEMEN_GEN_DIR)/kfm --symbol kfm
 
@@ -69,13 +70,14 @@ $(KFM_STATE_RULES_C) $(KFM_STATE_RULES_H) &: $(KFM_CMD) $(IKEMEN_STATE_RULE_TOOL
 	@mkdir -p $(IKEMEN_GEN_DIR)
 	$(PYTHON) $(IKEMEN_STATE_RULE_TOOL) \
 		--cmd $(KFM_CMD) \
-		--targets 200,210,230,240,400,410,430,440,600,610,630,640 \
+		--targets 100,105,200,210,230,240,400,410,430,440,600,610,630,640 \
 		--out-prefix $(IKEMEN_GEN_DIR)/kfm_state_rules --symbol kfm
 
-$(KFM_CNS_C) $(KFM_CNS_H) &: $(KFM_CNS) $(IKEMEN_CNS_TOOL)
+$(KFM_CNS_C) $(KFM_CNS_H) &: $(KFM_CNS) $(COMMON_CNS_ZSS) $(IKEMEN_CNS_TOOL)
 	@mkdir -p $(IKEMEN_GEN_DIR)
 	$(PYTHON) $(IKEMEN_CNS_TOOL) \
 		--cns $(KFM_CNS) --states 200,210,230,240,400,410,430,440,600,610,630,640 \
+		--common-zss $(COMMON_CNS_ZSS) --common-states 0,10,11,12,20,52,100,105,106 \
 		--out-prefix $(IKEMEN_GEN_DIR)/kfm_cns --symbol kfm
 
 EXAMPLE_ASSETS := $(KFM_FRAMES_C) $(STAGE0_PLANE_C) $(KFM_SOUNDS_C) $(KFM_COMMANDS_C) $(KFM_STATE_RULES_C) $(KFM_CNS_C)
