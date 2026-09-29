@@ -408,9 +408,17 @@ static void apply_guard(ik_fight_t* fight, int victim,
     ik_fighter_t* a = &fight->fighters[victim ^ 1];
     const uint8_t type = guard_type_for(fight, v, controls);
 
+    int guard_ko = 0;
     if (hitdef->guard_damage > 0) {
         v->hp = (int16_t)(v->hp - hitdef->guard_damage);
-        if (v->hp < 1) v->hp = 1;
+        if (v->hp <= 0) {
+            if (hitdef->guard_kill) {
+                v->hp = 0;
+                guard_ko = 1;
+            } else {
+                v->hp = 1;
+            }
+        }
     }
 
     v->hit_pause = hitdef->pause_p2;
@@ -441,7 +449,18 @@ static void apply_guard(ik_fight_t* fight, int victim,
                     type == IK_CNS_STATE_CROUCH ? 131 :
                     type == IK_CNS_STATE_AIR ? 132 : 130);
     }
+
     fight->events |= IK_EVENT_GUARD;
+    if (guard_ko) {
+        fight->winner = (uint8_t)((victim ^ 1) + 1);
+        fight->events |= IK_EVENT_KO;
+        if (!ik_cns_find_state(fight->cns, 5050)) {
+            enter_state(fight, v, IK_STATE_KO);
+            fight->round_over = 1;
+            fight->events |= IK_EVENT_ROUND_OVER;
+            fight->ko_freeze = IK_KO_FREEZE_FRAMES;
+        }
+    }
 }
 
 static void apply_damage(ik_fight_t* fight, int victim,
