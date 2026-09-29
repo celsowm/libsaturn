@@ -159,13 +159,20 @@ static void draw_fighter(const ik_fighter_t* f, int player) {
         params.tint.r = 255u; params.tint.g = 120u; params.tint.b = 120u;
     }
 
-    /* Shadow under the fighter, still a flat dark rect. */
+    /* Half-transparent VDP1 RGB cannot blend with a VDP2-only pixel:
+     * it replaces the stage color and becomes a solid bar. Mesh is a true
+     * hardware coverage effect, so use a small trapezoid for the floor shadow. */
     {
-        const int hw = ik_body_half_w(f);
-        sat_example_must(sat_fill_rect(
-            &(sat_rect_t){(int16_t)(f->x - hw), FLOOR_SCREEN_Y - 2,
-                          (uint16_t)(hw * 2), 4u},
-            sat_color_rgba(8u, 8u, 10u, 128u)));
+        const int hw = ik_body_half_w(f) + 4;
+        const sat_polygon_cmd_t shadow = {
+            {(int16_t)(f->x - hw), (int16_t)(f->x + hw),
+             (int16_t)(f->x + hw - 3), (int16_t)(f->x - hw + 3)},
+            {FLOOR_SCREEN_Y - 2, FLOOR_SCREEN_Y - 2,
+             FLOOR_SCREEN_Y + 2, FLOOR_SCREEN_Y + 2},
+            SAT_RGB555(2u, 2u, 4u),
+            SAT_SPRITE_FLAG_MESH
+        };
+        sat_example_must(sat_vdp1_draw_polygon(&shadow));
     }
 
     /* P2 draws through the registered (1,4) palette: same pixels, one
@@ -179,16 +186,8 @@ static void draw_fighter(const ik_fighter_t* f, int player) {
         sat_example_must(sat_render2d_set_palette(sat_palette_none()));
     }
 
-    /* Attack reach flash. */
-    {
-        int al, at, ar, ab;
-        if (ik_attack_box(f, &al, &at, &ar, &ab)) {
-            sat_example_must(sat_fill_rect(
-                &(sat_rect_t){(int16_t)al, (int16_t)at,
-                              (uint16_t)(ar - al), (uint16_t)(ab - at)},
-                sat_color_rgba(30u, 18u, 4u, 128u)));
-        }
-    }
+    /* Attack boxes stay simulation-only. A half-transparent VDP1 rectangle
+     * over the VDP2 stage turns into an opaque brown block on real hardware. */
 }
 
 static void draw_bars(const ik_fight_t* fight) {
