@@ -71,6 +71,11 @@ typedef enum ik_cmd_rule_op {
     IK_CMD_RULE_STATE_TIME_LE,
     IK_CMD_RULE_CTRL,
     IK_CMD_RULE_MOVE_CONTACT,
+    IK_CMD_RULE_P2_BODY_DIST_X_LT,
+    IK_CMD_RULE_P2_STATE_TYPE_EQ,
+    IK_CMD_RULE_P2_STATE_TYPE_NE,
+    IK_CMD_RULE_P2_MOVE_TYPE_EQ,
+    IK_CMD_RULE_P2_MOVE_TYPE_NE,
     IK_CMD_RULE_NOT,
     IK_CMD_RULE_AND,
     IK_CMD_RULE_OR
@@ -145,9 +150,12 @@ typedef struct ik_state_rule_asset {
 typedef struct ik_state_rule_context {
     int16_t state_no;
     uint16_t state_time;
+    int16_t p2_body_dist_x;
     uint8_t state_type;
     uint8_t ctrl;
     uint8_t move_contact;
+    uint8_t p2_state_type;
+    uint8_t p2_move_type;
     uint8_t reserved;
 } ik_state_rule_context_t;
 
