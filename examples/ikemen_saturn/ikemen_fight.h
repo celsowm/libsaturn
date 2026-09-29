@@ -66,6 +66,7 @@ typedef struct ik_fight_controls {
     uint8_t y;
     uint8_t z;
     uint8_t start;
+    uint8_t recovery;
     int16_t requested_state;
     uint8_t has_state_request;
 } ik_fight_controls_t;
@@ -107,6 +108,7 @@ typedef struct ik_fighter {
     uint8_t gethit_fall_x_set;
     uint8_t gethit_fall_recover;
     uint8_t gethit_fall_recover_time;
+    uint16_t fall_time;
     uint8_t guard_type;
 
     int16_t push_back;
