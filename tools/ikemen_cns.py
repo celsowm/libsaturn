@@ -839,6 +839,7 @@ def compile_common_states(
             "air_accel_q8": 0,
             "land_level_q8": 0,
             "air_motion_start": 0,
+            "land_ctrl": 0,
             "unsupported_controllers": [],
         }
 
@@ -1219,7 +1220,7 @@ def compile_common_states(
                 ),
                 _common_ctrl(
                     5001, "IK_CNS_CTRL_VEL_MUL",
-                    "IK_CNS_TRIGGER_HIT_SLIDE_TIME", 0, 0, q8(.6), 0,
+                    "IK_CNS_TRIGGER_HIT_SLIDE_GE", 0, 0, q8(.6), 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
@@ -1259,7 +1260,7 @@ def compile_common_states(
                 ),
                 _common_ctrl(
                     5011, "IK_CNS_CTRL_VEL_MUL",
-                    "IK_CNS_TRIGGER_HIT_SLIDE_TIME", 0, 0, q8(.6), 0,
+                    "IK_CNS_TRIGGER_HIT_SLIDE_GE", 0, 0, q8(.6), 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
@@ -1541,6 +1542,7 @@ def compile_common_states(
 
         elif n == 5210:
             row = state_row(5210, 5210, 0, land_state=52)
+            row["land_ctrl"] = 1
             row["air_accel_q8"] = const["air_gethit_airrecover_yaccel_q8"]
             row["air_motion_start"] = 4
             cs += [
@@ -1683,7 +1685,8 @@ def emit(
         f"{r['controller_ofs']}u, {r['controller_count']}u, "
         f"{r.get('land_state', 0)}, "
         f"{r.get('air_accel_q8', 0)}, {r.get('land_level_q8', 0)}, "
-        f"{r.get('air_motion_start', 0)}u"
+        f"{r.get('air_motion_start', 0)}u, "
+        f"{r.get('land_ctrl', 0)}u"
         "},"
         for r in state_rows
     ]
