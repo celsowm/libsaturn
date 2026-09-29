@@ -20,6 +20,7 @@ ground.front = 16
 air.back = 12
 air.front = 12
 height = 60
+attack.dist = 160
 
 [Velocity]
 walk.fwd = 2.4
@@ -57,6 +58,11 @@ sprpriority = 2
 type = HitDef
 trigger1 = AnimElem = 3
 damage = 23, 0
+guardflag = MA
+guard.velocity = -3
+guard.slidetime = 7
+guard.hittime = 9
+guard.ctrltime = 8
 priority = 3, Hit
 pausetime = 8, 8
 sparkno = 0
@@ -125,6 +131,17 @@ COMMON = r"""
 [StateDef 100; type: S; physics: S; anim: 100; sprpriority: 1;]
 [StateDef 105; type: A; physics: A; ctrl: 0; anim: 105; sprpriority: 1;]
 [StateDef 106; type: S; physics: S; ctrl: 0; anim: 47;]
+[StateDef 120; type: U; physics: U;]
+[StateDef 130; type: S; physics: S;]
+[StateDef 131; type: C; physics: C;]
+[StateDef 132; type: A; physics: N;]
+[StateDef 140; type: U; physics: U; ctrl: 1;]
+[StateDef 150; type: S; movetype: H; physics: N; velset: 0, 0;]
+[StateDef 151; type: S; movetype: H; physics: S; anim: 150;]
+[StateDef 152; type: C; movetype: H; physics: N; velset: 0, 0;]
+[StateDef 153; type: C; movetype: H; physics: C; anim: 151;]
+[StateDef 154; type: A; movetype: H; physics: N; velset: 0, 0;]
+[StateDef 155; type: A; movetype: H; physics: N; anim: 152;]
 """
 
 with tempfile.TemporaryDirectory() as td:
@@ -135,7 +152,8 @@ with tempfile.TemporaryDirectory() as td:
     common.write_text(COMMON, encoding="utf-8")
     report = emit(
         source, [200], root / "kfm_cns", "kfm",
-        common, [0,10,11,12,20,40,45,50,51,52,100,105,106]
+        common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
+                 120,130,131,132,140,150,151,152,153,154,155]
     )
 
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
@@ -145,7 +163,8 @@ assert report["constants"]["run_jump_fwd_y_q8"] == round(-8.1 * 256)
 assert report["constants"]["air_jump_neu_y_q8"] == round(-8.1 * 256)
 assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
-assert len(report["states"]) == 14
+assert report["constants"]["attack_dist"] == 160
+assert len(report["states"]) == 25
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -157,6 +176,11 @@ assert hit["trigger_value"] == 3
 assert hit["damage"] == 23
 assert hit["pause_p1"] == 8
 assert hit["ground_velocity_x_q8"] == -4 * 256
+assert hit["guard_flags"] == "IK_CNS_GUARD_STAND | IK_CNS_GUARD_CROUCH | IK_CNS_GUARD_AIR"
+assert hit["guard_velocity_x_q8"] == -3 * 256
+assert hit["guard_slide_time"] == 7
+assert hit["guard_hit_time"] == 9
+assert hit["guard_ctrl_time"] == 8
 
 controllers = report["controllers"]
 assert controllers[0]["type"] == "IK_CNS_CTRL_SPR_PRIORITY"
@@ -193,4 +217,11 @@ assert common_rows[50]["land_state"] == 52
 assert common_rows[51]["land_state"] == 52
 assert common_rows[52]["anim"] == 47
 assert common_rows[105]["land_state"] == 106
+assert common_rows[120]["controller_count"] == 2
+assert common_rows[132]["land_state"] == 130
+assert common_rows[140]["ctrl"] == 1
+assert common_rows[150]["move_type"] == "IK_CNS_MOVE_HIT"
+assert common_rows[151]["controller_count"] == 4
+assert common_rows[155]["controller_count"] == 2
 assert report["common_deferred"][100] == ["AssertSpecial noWalk/noAutoTurn"]
+assert report["common_deferred"][150] == ["ForceFeedback"]
