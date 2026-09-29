@@ -81,6 +81,8 @@ asset now contains states:
 * 5080 / 5081: downed re-hit shake and knockback
 * 5110 / 5120 / 5150: lying down, get-up and defeated lying state
 * 5200 / 5201 / 5210: ground and air fall recovery driven by the CMD recovery command
+* 800 / 810 / 820 / 821: Kung Fu Throw capture, target binding, throw damage
+  and custom thrown-air state
 
 The generic runtime now supports contextual command/velocity triggers plus
 `VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity,
@@ -91,7 +93,11 @@ guard flags, guard/air-guard velocities, guard timing, animation type,
 `down.hittime` branch used when striking a liedown opponent.
 Standing, crouching and air guard hits enter the common 150-155 graph, while
 normal damage begins in the common 5000+ get-hit graph instead of the old
-single synthetic hit state. Ground physics selects the compiled stand or
+single synthetic hit state. HitDef target filtering now honors H/L/M/A/F/D
+plus the +/- get-hit modifiers. Simultaneous contacts are gathered before
+state changes so numeric priority and Hit/Miss/Dodge clashes can trade or
+suppress hits correctly. KFM's [Data] airjuggle budget, StateDef juggle cost
+and HitDef air.juggle cost are tracked across falling/downed targets. Ground physics selects the compiled stand or
 crouch friction values. Jump, air-jump, air attacks and hop-back land through
 the compiled common flow instead of being forced directly to idle.
 
@@ -132,9 +138,10 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   HitFallDamage, ground effects, NotHitBy and MatchOver animation variants
 * exact remaining guard semantics such as conditional air-guard landing,
   complete inGuardDist behavior
-* throws, specials and supers
-* remaining HitDef semantics such as hitflag, priority clashes,
-  down.bounce, reversal and juggle behavior
+* remaining throw edge cases across different character AIR/state owners,
+  plus specials and supers
+* remaining HitDef semantics such as reversal, hitonce/chain IDs,
+  corner-push and advanced attr interactions
 * fightfx sparks/effects, motif/lifebar flow and full round presentation
 * generic PlaySnd dispatch for all compiled states
 * stage DEF execution instead of the current simplified stage runtime
