@@ -109,9 +109,9 @@ static const ik_cns_controller_t k_ctrls[] = {
      17,0,1,0,0u},
 };
 
-#define S(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_STAND,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt}
-#define C(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_CROUCH,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt}
-#define A(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_AIR,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt}
+#define S(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_STAND,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt,0}
+#define C(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_CROUCH,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt,0}
+#define A(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_AIR,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt,0}
 
 static const ik_cns_state_t k_states[] = {
     S(200,200,0,1,0,1),
@@ -132,7 +132,7 @@ static const ik_cns_state_t k_states[] = {
 #undef A
 
 static const ik_cns_asset_t k_cns = {
-    {1000,15,16,12,12,60,614,-563,1178,0,-1152,-973,0,-2150,-653,640,113,218,210,512,13},
+    {1000,15,16,12,12,60,614,-563,1178,0,-1152,-973,0,-2150,-653,640,1024,-2074,113,218,210,512,13},
     k_states,12u,
     k_hitdefs,13u,
     nullptr,0u,
