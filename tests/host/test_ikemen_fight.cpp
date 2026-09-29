@@ -112,6 +112,16 @@ static const ik_cns_hitdef_t k_hitdefs[] = {
     {610,IK_CNS_TRIGGER_TIME_EQ,0,72,0,4,12,12,IK_CNS_GROUND_HIGH,12,14,14,-1536,0,-768,-1024,1,-10,-55,5,3,6,0,0},
     {630,IK_CNS_TRIGGER_TIME_EQ,0,26,0,3,8,8,IK_CNS_GROUND_HIGH,6,10,14,-1024,0,-512,-768,1,-5,-35,5,0,6,0,0},
     {640,IK_CNS_TRIGGER_TIME_EQ,0,70,0,4,12,12,IK_CNS_GROUND_HIGH,12,15,15,-1792,0,-768,-1024,1,-10,-40,5,3,6,0,0},
+
+    /* Host-only downed launch fixtures: same launch, bounce disabled/enabled. */
+    {201,IK_CNS_TRIGGER_TIME_EQ,0,0,0,4,0,0,IK_CNS_GROUND_HIGH,0,10,10,
+     0,0,-512,-768,-1,0,0,-1,-1,-1,-1,0u,
+     0u,1u,0u,0u,0u,0,0,0,0u,0u,
+     -256,-1152,1u,1u,4u,0u,-512,-768,0u},
+    {202,IK_CNS_TRIGGER_TIME_EQ,0,0,0,4,0,0,IK_CNS_GROUND_HIGH,0,10,10,
+     0,0,-512,-768,-1,0,0,-1,-1,-1,-1,0u,
+     0u,1u,0u,0u,0u,0,0,0,0u,0u,
+     -256,-1152,1u,1u,4u,0u,-512,-768,1u},
 };
 
 static const ik_cns_controller_t k_ctrls[] = {
@@ -266,6 +276,14 @@ static const ik_cns_controller_t k_ctrls[] = {
      1,0,0,0,IK_CNS_CTRL_AXIS_X},
     {5120,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,0,1,IK_CNS_CTRL_HAS_CTRL},
+    {5080,IK_CNS_CTRL_DOWNED_HIT_BRANCH,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,0u},
+    {5081,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {5081,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_HIT_OVER,
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {5081,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_OVER,
+     0,0,5110,0,0u},
 };
 
 #define S(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_STAND,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt,0}
@@ -274,6 +292,8 @@ static const ik_cns_controller_t k_ctrls[] = {
 
 static const ik_cns_state_t k_states[] = {
     S(200,200,0,1,0,1),
+    S(201,200,13,1,70,0),
+    S(202,200,14,1,70,0),
     S(210,210,1,1,1,4),
     S(230,230,2,1,5,1),
     S(240,240,3,1,6,2),
@@ -337,6 +357,10 @@ static const ik_cns_state_t k_states[] = {
      0,0,0u,0u,0u,0u,0u,62u,6u,0,0,0},
     {5120,5120,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
      0,0,0u,0u,0u,0u,0u,68u,2u,0,0,0},
+    {5080,-1,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,1u,0u,0u,0u,0u,70u,1u,0,0,0},
+    {5081,-1,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_CROUCH,
+     0,0,0u,0u,0u,0u,0u,71u,3u,0,0,0},
 };
 #undef S
 #undef C
@@ -346,7 +370,7 @@ static const ik_cns_asset_t k_cns = {
     {1000,15,16,12,12,60,160,614,-563,1178,0,-1152,-973,0,-2150,-653,640,1024,-2074,0,-2074,-653,640,1,35,113,218,210,512,13,
      60,6400,3840,0,5120,102,3072,13},
     k_states,(uint16_t)(sizeof(k_states)/sizeof(k_states[0])),
-    k_hitdefs,13u,
+    k_hitdefs,15u,
     nullptr,0u,
     k_ctrls,(uint16_t)(sizeof(k_ctrls)/sizeof(k_ctrls[0]))
 };
@@ -941,6 +965,66 @@ int main() {
         EQ(g.fighters[0].state,50);
         EQ(g.fighters[0].vx_q8,640);
         EQ(g.fighters[0].vy_q8,-2074);
+    }
+
+    /* A liedown launch with down.bounce=0 still enters the falling
+     * graph, but state 5100 receives fall.yVel=0 and goes straight back to
+     * 5110 without the 5101 ground bounce. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        ik_fighter_t* v=&g.fighters[1];
+        v->state=5110; v->anim=5110; v->on_ground=1; v->ctrl=0;
+
+        ik_fight_controls_t p1{}; request(&p1,201);
+        ik_fight_controls_t p2{};
+        for(int i=0;i<12 && g.hits_p1==0u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,1u);
+        EQ(v->state,5080);
+        EQ(v->gethit_vy_q8,-768);
+        EQ(v->gethit_fall,1u);
+        EQ(v->gethit_fall_y_q8,0);
+
+        int saw_bounce=0;
+        for(int i=0;i<180 && v->state!=5110;++i) {
+            tick2(&g,&p1,&p2);
+            if(v->state==5101) saw_bounce=1;
+        }
+        EQ(v->state,5110);
+        EQ(saw_bounce,0);
+    }
+
+    /* The identical liedown launch with down.bounce=1 preserves
+     * fall.x/yvelocity and therefore executes exactly one 5101 bounce. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        ik_fighter_t* v=&g.fighters[1];
+        v->state=5110; v->anim=5110; v->on_ground=1; v->ctrl=0;
+
+        ik_fight_controls_t p1{}; request(&p1,202);
+        ik_fight_controls_t p2{};
+        for(int i=0;i<12 && g.hits_p1==0u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        EQ(g.hits_p1,1u);
+        EQ(v->gethit_fall,1u);
+        EQ(v->gethit_fall_y_q8,-1152);
+        EQ(v->gethit_fall_x_q8,-256);
+        EQ(v->gethit_fall_x_set,1u);
+
+        int bounce_count=0;
+        int was_bounce=0;
+        for(int i=0;i<220 && (v->state!=5110 || bounce_count==0);++i) {
+            tick2(&g,&p1,&p2);
+            const int now=v->state==5101;
+            if(now && !was_bounce) ++bounce_count;
+            was_bounce=now;
+        }
+        EQ(bounce_count,1);
+        EQ(v->state,5110);
     }
 
     /* A hit against a liedown fighter enters 5080. With zero Y hit
