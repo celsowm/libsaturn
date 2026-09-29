@@ -324,6 +324,9 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
     jump_neu = pair(vel.get("jump.neu"))
     run_jump_fwd = pair(vel.get("runjump.fwd"), 4.0, -8.1)
     air_jump_neu = pair(vel.get("airjump.neu"), 0.0, -8.1)
+    ground_recover = pair(vel.get("air.gethit.groundrecover"), -.15, -3.5)
+    air_recover_mul = pair(vel.get("air.gethit.airrecover.mul"), .5, .2)
+    air_recover_add = pair(vel.get("air.gethit.airrecover.add"), 0, -4.5)
 
     return {
         "life": integer(data.get("life"), 1000),
@@ -381,6 +384,39 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
         ),
         "down_friction_threshold_q8": q8(
             number(movement.get("down.friction.threshold"), .05)
+        ),
+        "air_gethit_groundrecover_x_q8": q8(ground_recover[0]),
+        "air_gethit_groundrecover_y_q8": q8(ground_recover[1]),
+        "air_gethit_groundrecover_threshold_q8": q8(
+            number(
+                movement.get("air.gethit.groundrecover.ground.threshold"),
+                -20,
+            )
+        ),
+        "air_gethit_groundrecover_groundlevel_q8": q8(
+            number(movement.get("air.gethit.groundrecover.groundlevel"), 10)
+        ),
+        "air_gethit_airrecover_mul_x_q8": q8(air_recover_mul[0]),
+        "air_gethit_airrecover_mul_y_q8": q8(air_recover_mul[1]),
+        "air_gethit_airrecover_add_x_q8": q8(air_recover_add[0]),
+        "air_gethit_airrecover_add_y_q8": q8(air_recover_add[1]),
+        "air_gethit_airrecover_back_q8": q8(
+            number(vel.get("air.gethit.airrecover.back"), -1)
+        ),
+        "air_gethit_airrecover_fwd_q8": q8(
+            number(vel.get("air.gethit.airrecover.fwd"), 0)
+        ),
+        "air_gethit_airrecover_up_q8": q8(
+            number(vel.get("air.gethit.airrecover.up"), -2)
+        ),
+        "air_gethit_airrecover_down_q8": q8(
+            number(vel.get("air.gethit.airrecover.down"), 1.5)
+        ),
+        "air_gethit_airrecover_threshold_q8": q8(
+            number(movement.get("air.gethit.airrecover.threshold"), -1)
+        ),
+        "air_gethit_airrecover_yaccel_q8": q8(
+            number(movement.get("air.gethit.airrecover.yaccel"), .35)
         ),
     }
 
@@ -751,6 +787,7 @@ def compile_common_states(
         120, 130, 131, 132, 140, 150, 151, 152, 153, 154, 155,
         5000, 5001, 5010, 5011, 5020, 5030, 5035, 5040, 5050,
         5070, 5071, 5100, 5101, 5110, 5120,
+        5200, 5201, 5210,
     }
     unsupported = sorted(set(selected) - supported)
     if unsupported:
@@ -801,6 +838,7 @@ def compile_common_states(
             "land_state": land_state,
             "air_accel_q8": 0,
             "land_level_q8": 0,
+            "air_motion_start": 0,
             "unsupported_controllers": [],
         }
 
@@ -1285,7 +1323,11 @@ def compile_common_states(
         elif n == 5050:
             row = state_row(5050, 5050, 0, land_state=5100)
             row["land_level_q8"] = const["air_gethit_groundlevel_q8"]
-            deferred[n] = ["fall recovery input", "animation variants"]
+            cs.append(_common_ctrl(
+                5050, "IK_CNS_CTRL_FALL_RECOVERY",
+                "IK_CNS_TRIGGER_ALWAYS",
+            ))
+            deferred[n] = ["fall animation variants"]
 
         elif n == 5070:
             row = state_row(5070, 5070, 0)
@@ -1409,6 +1451,89 @@ def compile_common_states(
             ]
             deferred[n] = ["NotHitBy get-up invulnerability", "HitFallSet"]
 
+        elif n == 5200:
+            row = state_row(5200, -1, 0, land_state=5201)
+            row["land_level_q8"] = const[
+                "air_gethit_groundrecover_groundlevel_q8"
+            ]
+            cs.append(_common_ctrl(
+                5200, "IK_CNS_CTRL_CHANGE_ANIM_IF_END_FROM",
+                "IK_CNS_TRIGGER_ALWAYS", 0, 0, 5035, 5050,
+            ))
+
+        elif n == 5201:
+            row = state_row(5201, 5200, 0, land_state=52)
+            cs += [
+                _common_ctrl(
+                    5201, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
+                    const["air_gethit_groundrecover_x_q8"],
+                    const["air_gethit_groundrecover_y_q8"],
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y | "
+                    "IK_CNS_CTRL_LOCAL_X",
+                ),
+                _common_ctrl(
+                    5201, "IK_CNS_CTRL_POS_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+            ]
+            deferred[n] = ["Turn by P2Dist", "PalFX", "Explod", "NotHitBy"]
+
+        elif n == 5210:
+            row = state_row(5210, 5210, 0, land_state=52)
+            row["air_accel_q8"] = const["air_gethit_airrecover_yaccel_q8"]
+            row["air_motion_start"] = 4
+            cs += [
+                _common_ctrl(
+                    5210, "IK_CNS_CTRL_VEL_MUL",
+                    "IK_CNS_TRIGGER_TIME_EQ", 4, 0,
+                    const["air_gethit_airrecover_mul_x_q8"],
+                    const["air_gethit_airrecover_mul_y_q8"],
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    5210, "IK_CNS_CTRL_VEL_ADD",
+                    "IK_CNS_TRIGGER_TIME_EQ", 4, 0,
+                    const["air_gethit_airrecover_add_x_q8"],
+                    const["air_gethit_airrecover_add_y_q8"],
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    5210, "IK_CNS_CTRL_VEL_ADD",
+                    "IK_CNS_TRIGGER_COMMAND_ACTIVE",
+                    "IK_CNS_COMMAND_HOLD_UP", 0, 0,
+                    const["air_gethit_airrecover_up_q8"],
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    5210, "IK_CNS_CTRL_VEL_ADD",
+                    "IK_CNS_TRIGGER_COMMAND_ACTIVE",
+                    "IK_CNS_COMMAND_HOLD_DOWN", 0, 0,
+                    const["air_gethit_airrecover_down_q8"],
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    5210, "IK_CNS_CTRL_VEL_ADD",
+                    "IK_CNS_TRIGGER_COMMAND_ACTIVE",
+                    "IK_CNS_COMMAND_HOLD_FWD", 0,
+                    const["air_gethit_airrecover_fwd_q8"], 0,
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_LOCAL_X",
+                ),
+                _common_ctrl(
+                    5210, "IK_CNS_CTRL_VEL_ADD",
+                    "IK_CNS_TRIGGER_COMMAND_ACTIVE",
+                    "IK_CNS_COMMAND_HOLD_BACK", 0,
+                    const["air_gethit_airrecover_back_q8"], 0,
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_LOCAL_X",
+                ),
+                _common_ctrl(
+                    5210, "IK_CNS_CTRL_CTRL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 20, 0, 1, 0,
+                ),
+            ]
+            deferred[n] = ["Turn by P2Dist", "PalFX", "NotHitBy"]
+
         elif n == 106:
             row = state_row(106, 47, 0)
             cs += [
@@ -1498,7 +1623,8 @@ def emit(
         f"{r['playsnd_ofs']}u, {r['playsnd_count']}u, "
         f"{r['controller_ofs']}u, {r['controller_count']}u, "
         f"{r.get('land_state', 0)}, "
-        f"{r.get('air_accel_q8', 0)}, {r.get('land_level_q8', 0)}"
+        f"{r.get('air_accel_q8', 0)}, {r.get('land_level_q8', 0)}, "
+        f"{r.get('air_motion_start', 0)}u"
         "},"
         for r in state_rows
     ]
@@ -1588,7 +1714,21 @@ const ik_cns_asset_t {ident}_cns = {{
         {const['down_bounce_offset_y_q8']},
         {const['down_bounce_yaccel_q8']},
         {const['down_bounce_groundlevel_q8']},
-        {const['down_friction_threshold_q8']}
+        {const['down_friction_threshold_q8']},
+        {const['air_gethit_groundrecover_x_q8']},
+        {const['air_gethit_groundrecover_y_q8']},
+        {const['air_gethit_groundrecover_threshold_q8']},
+        {const['air_gethit_groundrecover_groundlevel_q8']},
+        {const['air_gethit_airrecover_mul_x_q8']},
+        {const['air_gethit_airrecover_mul_y_q8']},
+        {const['air_gethit_airrecover_add_x_q8']},
+        {const['air_gethit_airrecover_add_y_q8']},
+        {const['air_gethit_airrecover_back_q8']},
+        {const['air_gethit_airrecover_fwd_q8']},
+        {const['air_gethit_airrecover_up_q8']},
+        {const['air_gethit_airrecover_down_q8']},
+        {const['air_gethit_airrecover_threshold_q8']},
+        {const['air_gethit_airrecover_yaccel_q8']}
     }},
     {ident}_states, {len(state_rows)}u,
     {ident}_hitdefs, {len(hitdefs)}u,
