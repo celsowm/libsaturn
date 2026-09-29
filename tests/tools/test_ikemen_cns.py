@@ -14,6 +14,7 @@ SOURCE = r"""
 [Data]
 life = 1000
 liedown.time = 60
+airjuggle = 15
 
 [Size]
 ground.back = 15
@@ -70,6 +71,7 @@ velset = 0,0
 ctrl = 0
 anim = 200
 poweradd = 10
+juggle = 5
 sprpriority = 2
 
 [State 200, Hit]
@@ -97,6 +99,7 @@ air.hittime = 15
 down.velocity = -5,0
 down.hittime = 22
 down.bounce = 1
+air.juggle = 2
 
 [State 200, Snd]
 type = PlaySnd
@@ -210,10 +213,13 @@ assert report["constants"]["air_jump_neu_y_q8"] == round(-8.1 * 256)
 assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
+assert report["constants"]["air_juggle"] == 15
 assert len(report["states"]) == 46
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
+assert report["states"][0]["juggle"] == 5
+assert report["states"][0]["has_juggle"] == 1
 assert report["states"][0]["unsupported_controllers"] == []
 
 hit = report["hitdefs"][0]
@@ -241,6 +247,7 @@ assert hit["down_hit_time"] == 22
 assert hit["down_velocity_x_q8"] == -5 * 256
 assert hit["down_velocity_y_q8"] == 0
 assert hit["down_bounce"] == 1
+assert hit["air_juggle"] == 2
 
 controllers = report["controllers"]
 assert controllers[0]["type"] == "IK_CNS_CTRL_SPR_PRIORITY"
