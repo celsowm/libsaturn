@@ -37,7 +37,12 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ANIM_ELEM_EQ,
     IK_CNS_TRIGGER_ANIM_END,
     IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
-    IK_CNS_TRIGGER_MOVE_CONTACT_ELEM_WINDOW
+    IK_CNS_TRIGGER_MOVE_CONTACT_ELEM_WINDOW,
+    IK_CNS_TRIGGER_COMMAND_ACTIVE,
+    IK_CNS_TRIGGER_COMMAND_INACTIVE,
+    IK_CNS_TRIGGER_ABS_VX_LT_Q8,
+    IK_CNS_TRIGGER_VY_GT_Q8_AT_FLOOR,
+    IK_CNS_TRIGGER_ANIM_EQ_AND_END
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -53,7 +58,12 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_POS_ADD,
     IK_CNS_CTRL_SPR_PRIORITY,
     IK_CNS_CTRL_CHANGE_ANIM,
-    IK_CNS_CTRL_WIDTH
+    IK_CNS_CTRL_WIDTH,
+    IK_CNS_CTRL_VEL_SET,
+    IK_CNS_CTRL_VEL_MUL,
+    IK_CNS_CTRL_POS_SET,
+    IK_CNS_CTRL_CHANGE_ANIM_BY_VX,
+    IK_CNS_CTRL_CHANGE_ANIM_IF_END_FROM
 } ik_cns_controller_type_t;
 
 enum {
@@ -63,7 +73,17 @@ enum {
 
 enum {
     IK_CNS_CTRL_HAS_CTRL = 1u << 0,
-    IK_CNS_CTRL_IGNORE_HIT_PAUSE = 1u << 1
+    IK_CNS_CTRL_IGNORE_HIT_PAUSE = 1u << 1,
+    IK_CNS_CTRL_AXIS_X = 1u << 2,
+    IK_CNS_CTRL_AXIS_Y = 1u << 3,
+    IK_CNS_CTRL_LOCAL_X = 1u << 4
+};
+
+enum {
+    IK_CNS_COMMAND_HOLD_FWD = 1u << 0,
+    IK_CNS_COMMAND_HOLD_BACK = 1u << 1,
+    IK_CNS_COMMAND_HOLD_UP = 1u << 2,
+    IK_CNS_COMMAND_HOLD_DOWN = 1u << 3
 };
 
 typedef struct ik_cns_constants {
@@ -86,6 +106,8 @@ typedef struct ik_cns_constants {
     int16_t jump_neu_y_q8;
     int16_t jump_back_q8;
     int16_t jump_fwd_q8;
+    int16_t run_jump_fwd_x_q8;
+    int16_t run_jump_fwd_y_q8;
 
     int16_t yaccel_q8;
     int16_t stand_friction_q8;
@@ -112,6 +134,7 @@ typedef struct ik_cns_state {
     uint8_t playsnd_count;
     uint16_t controller_ofs;
     uint8_t controller_count;
+    int16_t land_state;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
@@ -167,6 +190,11 @@ typedef struct ik_cns_playsnd {
  *   SprPriority: priority / 0
  *   ChangeAnim: action / 1-based element
  *   Width: front/back additions in pixels (MUGEN value shorthand)
+ *   VelSet: x/y in Q8.8; AXIS_X/AXIS_Y select written axes
+ *   VelMul: x/y multipliers in Q8.8; AXIS_X/AXIS_Y select axes
+ *   PosSet: x/y in Q8.8 relative to the stage floor for y
+ *   ChangeAnimByVx: neutral action (or -1) / forward action; back=forward+1
+ *   ChangeAnimIfEndFrom: source action / destination action
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
@@ -178,6 +206,20 @@ typedef struct ik_cns_controller {
     int16_t value1;
     uint8_t flags;
 } ik_cns_controller_t;
+
+typedef struct ik_cns_controller_context {
+    uint16_t state_time;
+    uint16_t anim_element;
+    uint16_t anim_element_time;
+    int16_t anim;
+    int32_t vx_q8;
+    int32_t vy_q8;
+    int32_t y_q8;
+    int32_t floor_y_q8;
+    uint16_t command_mask;
+    uint8_t anim_ended;
+    uint8_t move_contact;
+} ik_cns_controller_context_t;
 
 typedef struct ik_cns_asset {
     ik_cns_constants_t constants;
@@ -206,6 +248,9 @@ int ik_cns_controller_trigger_now(const ik_cns_controller_t* controller,
                                   uint16_t anim_element_time,
                                   int anim_ended,
                                   int move_contact);
+int ik_cns_controller_trigger_context_now(
+    const ik_cns_controller_t* controller,
+    const ik_cns_controller_context_t* context);
 
 const ik_cns_hitdef_t* ik_cns_active_hitdef(const ik_cns_asset_t* asset,
                                             int16_t state_number,
