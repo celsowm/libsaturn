@@ -102,6 +102,19 @@ enum {
 };
 
 enum {
+    IK_CNS_HIT_STAND = 1u << 0,
+    IK_CNS_HIT_CROUCH = 1u << 1,
+    IK_CNS_HIT_AIR = 1u << 2,
+    IK_CNS_HIT_FALL = 1u << 3,
+    IK_CNS_HIT_DOWN = 1u << 4,
+    IK_CNS_HIT_ONLY_GETHIT = 1u << 5,
+    IK_CNS_HIT_NOT_GETHIT = 1u << 6,
+    IK_CNS_HIT_DEFAULT =
+        IK_CNS_HIT_STAND | IK_CNS_HIT_CROUCH |
+        IK_CNS_HIT_AIR | IK_CNS_HIT_FALL
+};
+
+enum {
     IK_CNS_CTRL_HAS_CTRL = 1u << 0,
     IK_CNS_CTRL_IGNORE_HIT_PAUSE = 1u << 1,
     IK_CNS_CTRL_AXIS_X = 1u << 2,
@@ -254,6 +267,7 @@ typedef struct ik_cns_hitdef {
     int16_t down_velocity_x_q8;
     int16_t down_velocity_y_q8;
     uint8_t down_bounce;
+    uint8_t hit_flags;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
