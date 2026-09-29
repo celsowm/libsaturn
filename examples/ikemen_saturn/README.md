@@ -75,7 +75,10 @@ asset now contains states:
 * 120 / 130 / 131 / 132 / 140: guard start, stand/crouch/air guard and guard end
 * 150-155: stand/crouch/air guard-hit flow
 * 5000 / 5001 / 5010 / 5011: stand/crouch get-hit shake and knockback
-* 5020 / 5030 / 5040 / 5050: first air get-hit/fall recovery slice
+* 5020 / 5030 / 5035 / 5040 / 5050: air get-hit/fall transition
+* 5070 / 5071: trip shake and knock-away
+* 5100 / 5101: fall ground impact and bounce
+* 5110 / 5120: lying down and get-up
 
 The generic runtime now supports contextual command/velocity triggers plus
 `VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity,
@@ -121,8 +124,8 @@ pins both fighters' current textures before emitting VDP1 commands.
 
 This is not yet a complete Ikemen common-state VM. The next important pieces are:
 
-* the rest of the get-hit graph: 5035, trip/downed states, ground bounce,
-  lying/get-up and 5200/5210 recovery states
+* the remaining get-hit graph: downed re-hit states 5080/5081,
+  defeated lying state 5150 and 5200/5201/5210 recovery states
 * exact remaining guard semantics such as conditional air-guard landing,
   complete inGuardDist behavior and guard.kill
 * throws, specials and supers
