@@ -42,7 +42,10 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_COMMAND_INACTIVE,
     IK_CNS_TRIGGER_ABS_VX_LT_Q8,
     IK_CNS_TRIGGER_VY_GT_Q8_AT_FLOOR,
-    IK_CNS_TRIGGER_ANIM_EQ_AND_END
+    IK_CNS_TRIGGER_ANIM_EQ_AND_END,
+    IK_CNS_TRIGGER_HIT_SLIDE_TIME,
+    IK_CNS_TRIGGER_HIT_CTRL_TIME,
+    IK_CNS_TRIGGER_HIT_OVER
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -68,12 +71,22 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_JUMP_LAUNCH,
     IK_CNS_CTRL_AIR_JUMP_LAUNCH,
     IK_CNS_CTRL_CHANGE_ANIM_IF_EXISTS,
-    IK_CNS_CTRL_CHANGE_ANIM_DESCENT_IF_EXISTS
+    IK_CNS_CTRL_CHANGE_ANIM_DESCENT_IF_EXISTS,
+    IK_CNS_CTRL_GUARD_ANIM_BY_TYPE,
+    IK_CNS_CTRL_GUARD_STATE_BY_TYPE,
+    IK_CNS_CTRL_GUARD_END,
+    IK_CNS_CTRL_HIT_VEL_SET
 } ik_cns_controller_type_t;
 
 enum {
     IK_CNS_HITDEF_FALL = 1u << 0,
     IK_CNS_HITDEF_FORCE_NO_FALL = 1u << 1
+};
+
+enum {
+    IK_CNS_GUARD_STAND = 1u << 0,
+    IK_CNS_GUARD_CROUCH = 1u << 1,
+    IK_CNS_GUARD_AIR = 1u << 2
 };
 
 enum {
@@ -99,6 +112,7 @@ typedef struct ik_cns_constants {
     int16_t air_back;
     int16_t air_front;
     int16_t height;
+    int16_t attack_dist;
 
     int16_t walk_fwd_q8;
     int16_t walk_back_q8;
@@ -178,6 +192,14 @@ typedef struct ik_cns_hitdef {
     int16_t guard_sound_group;
     int16_t guard_sound_item;
     uint8_t flags;
+
+    uint8_t guard_flags;
+    uint8_t guard_slide_time;
+    uint8_t guard_hit_time;
+    uint8_t guard_ctrl_time;
+    int16_t guard_velocity_x_q8;
+    int16_t air_guard_velocity_x_q8;
+    int16_t air_guard_velocity_y_q8;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
@@ -211,6 +233,10 @@ typedef struct ik_cns_playsnd {
  *   JumpLaunch/AirJumpLaunch: use compiled Velocity constants and remembered axis
  *   ChangeAnimIfExists: preferred action / fallback action
  *   ChangeAnimDescentIfExists: Y threshold / first ascending action
+ *   GuardAnimByType: base stand action; crouch=base+1, air=base+2
+ *   GuardStateByType: base stand state; crouch=base+1, air=base+2
+ *   GuardEnd: return to stand/crouch/air locomotion after guard end
+ *   HitVelSet: stored get-hit X/Y velocity, selected by AXIS flags
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
@@ -233,6 +259,9 @@ typedef struct ik_cns_controller_context {
     int32_t y_q8;
     int32_t floor_y_q8;
     uint16_t command_mask;
+    uint16_t hitstun;
+    uint16_t hit_slide_time;
+    uint16_t hit_ctrl_time;
     uint8_t anim_ended;
     uint8_t move_contact;
 } ik_cns_controller_context_t;
