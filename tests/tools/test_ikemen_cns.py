@@ -140,6 +140,166 @@ type = ChangeState
 trigger1 = AnimTime = 0
 value = 0
 ctrl = 1
+
+[Statedef 800]
+type = S
+movetype = A
+physics = S
+juggle = 0
+velset = 0,0
+ctrl = 0
+anim = 800
+sprpriority = 2
+
+[State 800, Throw]
+type = HitDef
+trigger1 = Time = 0
+attr = S, NT
+hitflag = M-
+priority = 1, Miss
+sparkno = -1
+p1sprpriority = 1
+p1facing = 1
+p2facing = 1
+p1stateno = 810
+p2stateno = 820
+guard.dist = 0
+fall = 1
+
+[State 800, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+
+[Statedef 810]
+type = S
+movetype = A
+physics = N
+anim = 810
+
+[State 810, Hold]
+type = VarSet
+trigger1 = Time = 0
+var(2) = command = "holdfwd"
+
+[State 810, Grab]
+type = PlaySnd
+trigger1 = AnimElem = 2
+value = 1,1
+
+[State 810, Bind 1]
+type = TargetBind
+trigger1 = AnimElemTime(2) < 0
+pos = 28,0
+
+[State 810, Width]
+type = Width
+trigger1 = AnimElemTime(2) >= 0 && AnimElemTime(12) < 0
+edge = 60,0
+
+[State 810, Bind 2]
+type = TargetBind
+trigger1 = AnimElemTime(2) >= 0 && AnimElemTime(5) < 0
+pos = 58,0
+
+[State 810, Turn]
+type = Turn
+trigger1 = var(2)
+trigger1 = AnimElem = 6
+
+[State 810, Pos]
+type = PosAdd
+trigger1 = var(2)
+trigger1 = AnimElem = 6
+x = -37
+
+[State 810, Face]
+type = TargetFacing
+trigger1 = var(2)
+trigger1 = AnimElem = 6
+value = -1
+
+[State 810, Bind 6]
+type = TargetBind
+trigger1 = AnimElemTime(6) >= 0 && AnimElemTime(7) < 0
+pos = 41,-60
+
+[State 810, Bind 11]
+type = TargetBind
+trigger1 = AnimElem = 11
+pos = -50,-50
+
+[State 810, Hurt]
+type = TargetLifeAdd
+trigger1 = AnimElem = 11
+value = -78
+
+[State 810, Throw]
+type = TargetState
+trigger1 = AnimElem = 11
+value = 821
+
+[State 810, Turn End]
+type = Turn
+trigger1 = AnimElem = 12
+
+[State 810, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+
+[Statedef 820]
+type = A
+movetype = H
+physics = N
+velset = 0,0
+
+[State 820, Anim]
+type = ChangeAnim2
+trigger1 = Time = 0
+value = 820
+
+[State 820, Escape]
+type = SelfState
+trigger1 = !gethitvar(isbound)
+value = 5050
+
+[Statedef 821]
+type = A
+movetype = H
+physics = N
+velset = 2.8,-7
+poweradd = 40
+
+[State 821, Gravity]
+type = VelAdd
+trigger1 = 1
+y = .4
+
+[State 821, Ground Recover]
+type = ChangeState
+triggerall = Vel Y > 0
+triggerall = Pos Y >= -20
+triggerall = alive
+triggerall = CanRecover
+trigger1 = Command = "recovery"
+value = 5200
+
+[State 821, Air Recover]
+type = SelfState
+triggerall = Vel Y > 0
+triggerall = alive
+triggerall = CanRecover
+trigger1 = Command = "recovery"
+value = 5210
+
+[State 821, Ground]
+type = SelfState
+trigger1 = Vel Y > 0
+trigger1 = Pos Y >= 0
+value = 5100
 """
 
 COMMON = r"""
@@ -197,7 +357,7 @@ with tempfile.TemporaryDirectory() as td:
     source.write_text(SOURCE, encoding="utf-8")
     common.write_text(COMMON, encoding="utf-8")
     report = emit(
-        source, [200], root / "kfm_cns", "kfm",
+        source, [200,800,810,820,821], root / "kfm_cns", "kfm",
         common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
                  120,130,131,132,140,150,151,152,153,154,155,
                  5000,5001,5010,5011,5020,5030,5035,5040,5050,
@@ -214,7 +374,7 @@ assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
 assert report["constants"]["air_juggle"] == 15
-assert len(report["states"]) == 46
+assert len(report["states"]) == 50
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -275,7 +435,26 @@ assert controllers[5]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
 
 print("ikemen CNS compiler: OK")
 
-common_rows = {row["number"]: row for row in report["states"][1:]}
+throw_rows = {row["number"]: row for row in report["states"][:5]}
+common_rows = {row["number"]: row for row in report["states"][5:]}
+assert throw_rows[800]["unsupported_controllers"] == []
+assert throw_rows[810]["unsupported_controllers"] == []
+assert throw_rows[820]["unsupported_controllers"] == []
+assert throw_rows[821]["unsupported_controllers"] == []
+assert throw_rows[810]["controller_count"] == 11
+assert throw_rows[820]["controller_count"] == 2
+assert throw_rows[821]["controller_count"] == 4
+
+throw_hit = report["hitdefs"][1]
+assert throw_hit["flags"] == "IK_CNS_HITDEF_FALL | IK_CNS_HITDEF_THROW"
+assert throw_hit["hit_flags"] == "IK_CNS_HIT_STAND | IK_CNS_HIT_CROUCH | IK_CNS_HIT_NOT_GETHIT"
+assert throw_hit["priority"] == 1
+assert throw_hit["priority_type"] == "IK_CNS_PRIORITY_MISS"
+assert throw_hit["p1_state_no"] == 810
+assert throw_hit["p2_state_no"] == 820
+assert throw_hit["p1_facing"] == 1
+assert throw_hit["p2_facing"] == 1
+assert throw_hit["p1_spr_priority"] == 1
 assert common_rows[0]["controller_count"] == 3
 assert common_rows[20]["controller_count"] == 3
 assert common_rows[40]["controller_count"] == 3
