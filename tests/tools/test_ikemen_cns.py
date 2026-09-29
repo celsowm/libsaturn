@@ -30,8 +30,13 @@ jump.neu = 0,-8.4
 jump.back = -2.55
 jump.fwd = 2.5
 runjump.fwd = 4,-8.1
+airjump.neu = 0,-8.1
+airjump.back = -2.55
+airjump.fwd = 2.5
 
 [Movement]
+airjump.num = 1
+airjump.height = 35
 yaccel = .44
 stand.friction = .85
 crouch.friction = .82
@@ -112,6 +117,10 @@ COMMON = r"""
 [StateDef 11; type: C; physics: C; anim: 11; sprpriority: 0;]
 [StateDef 12; type: S; physics: S; anim: 12;]
 [StateDef 20; type: S; physics: S; sprpriority: 0;]
+[StateDef 40; type: S; physics: S; anim: 40; ctrl: 0; sprpriority: 1; facep2: 1;]
+[StateDef 45; type: A; physics: N; ctrl: 0; velset: 0, 0;]
+[StateDef 50; type: A; physics: A;]
+[StateDef 51; type: A; physics: A;]
 [StateDef 52; type: S; physics: S; ctrl: 0; anim: 47;]
 [StateDef 100; type: S; physics: S; anim: 100; sprpriority: 1;]
 [StateDef 105; type: A; physics: A; ctrl: 0; anim: 105; sprpriority: 1;]
@@ -126,14 +135,17 @@ with tempfile.TemporaryDirectory() as td:
     common.write_text(COMMON, encoding="utf-8")
     report = emit(
         source, [200], root / "kfm_cns", "kfm",
-        common, [0,10,11,12,20,52,100,105,106]
+        common, [0,10,11,12,20,40,45,50,51,52,100,105,106]
     )
 
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
 assert report["constants"]["yaccel_q8"] == round(.44 * 256)
 assert report["constants"]["run_jump_fwd_x_q8"] == 4 * 256
 assert report["constants"]["run_jump_fwd_y_q8"] == round(-8.1 * 256)
-assert len(report["states"]) == 10
+assert report["constants"]["air_jump_neu_y_q8"] == round(-8.1 * 256)
+assert report["constants"]["air_jump_num"] == 1
+assert report["constants"]["air_jump_height"] == 35
+assert len(report["states"]) == 14
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -174,6 +186,11 @@ print("ikemen CNS compiler: OK")
 
 common_rows = {row["number"]: row for row in report["states"][1:]}
 assert common_rows[20]["controller_count"] == 3
+assert common_rows[40]["controller_count"] == 3
+assert common_rows[45]["controller_count"] == 4
+assert common_rows[45]["has_velset"] == 1
+assert common_rows[50]["land_state"] == 52
+assert common_rows[51]["land_state"] == 52
 assert common_rows[52]["anim"] == 47
 assert common_rows[105]["land_state"] == 106
 assert report["common_deferred"][100] == ["AssertSpecial noWalk/noAutoTurn"]
