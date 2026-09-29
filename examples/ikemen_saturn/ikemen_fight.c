@@ -500,8 +500,11 @@ static void apply_damage(ik_fight_t* fight, int victim,
         fight->ko_freeze = IK_KO_FREEZE_FRAMES;
     } else {
         int16_t target = IK_STATE_HIT;
-        if (!airborne && hitdef->ground_type == IK_CNS_GROUND_TRIP &&
-            ik_cns_find_state(fight->cns, 5070)) {
+        if (victim_type == IK_CNS_STATE_LIEDOWN &&
+            ik_cns_find_state(fight->cns, 5080)) {
+            target = 5080;
+        } else if (!airborne && hitdef->ground_type == IK_CNS_GROUND_TRIP &&
+                   ik_cns_find_state(fight->cns, 5070)) {
             target = 5070;
         } else if (airborne && ik_cns_find_state(fight->cns, 5020)) {
             target = 5020;
@@ -633,6 +636,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         f->hit_ctrl_time,
         (uint8_t)(f->gethit_fall || f->gethit_vy_q8 != 0 ||
                   !f->on_ground),
+        (uint8_t)(f->hp > 0),
         (uint8_t)(anim_ended != 0),
         f->move_contact
     };
@@ -917,6 +921,19 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     f->vy_q8 += ctrl->value1;
                 }
                 break;
+
+            case IK_CNS_CTRL_DOWNED_HIT_BRANCH:
+                if (f->gethit_vy_q8 != 0 &&
+                    ik_cns_find_state(fight->cns, 5030)) {
+                    f->anim = 5090;
+                    f->anim_time = 0u;
+                    enter_state(fight, f, 5030);
+                } else if (ik_cns_find_state(fight->cns, 5081)) {
+                    f->anim = 5080;
+                    f->anim_time = 0u;
+                    enter_state(fight, f, 5081);
+                }
+                return 1;
 
             case IK_CNS_CTRL_FALL_RECOVERY: {
                 const ik_cns_constants_t* c = constants_for(fight);
