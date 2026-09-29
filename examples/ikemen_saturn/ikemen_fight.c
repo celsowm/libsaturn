@@ -1294,7 +1294,9 @@ static void step_fighter(ik_fight_t* fight, int index,
 
     f->state_time++;
     f->anim_time++;
-    f->facing = (foe->x >= f->x) ? 1 : -1;
+    if (f->ctrl && f->bound_to < 0) {
+        f->facing = (foe->x >= f->x) ? 1 : -1;
+    }
     if (f->gethit_fall && f->fall_time < 65535u) {
         f->fall_time++;
     }
@@ -1320,6 +1322,10 @@ static void step_fighter(ik_fight_t* fight, int index,
     }
 
     if (process_cns_controllers(fight, f, controls, frames, 0)) return;
+
+    /* TargetBind owns the bound player's transform. Physics=N thrown states
+     * must not drift after the attacker's bind controller positioned them. */
+    if (f->bound_to >= 0) return;
 
     if (f->hitstun > 0u) {
         f->hitstun--;
