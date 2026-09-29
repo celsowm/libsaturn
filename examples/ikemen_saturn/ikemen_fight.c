@@ -578,9 +578,21 @@ static void apply_throw(ik_fight_t* fight, int attacker,
     else ++fight->hits_p2;
 }
 
+static void release_bound_target(ik_fight_t* fight, int owner) {
+    if (!fight || owner < 0 || owner > 1) return;
+    ik_fighter_t* f = &fight->fighters[owner];
+    if (f->target_index < 0 || f->target_index > 1) return;
+    ik_fighter_t* target = &fight->fighters[(int)f->target_index];
+    if (target->bound_to == owner) target->bound_to = -1;
+    f->target_index = -1;
+}
+
 static void apply_damage(ik_fight_t* fight, int victim,
                          const ik_cns_hitdef_t* hitdef) {
     ik_fighter_t* v = &fight->fighters[victim];
+    /* Losing a throw owner releases its bound target. State 820's compiled
+     * !isbound SelfState then returns the target to its own fall graph. */
+    release_bound_target(fight, victim);
     ik_fighter_t* a = &fight->fighters[victim ^ 1];
 
     const uint8_t victim_type = ik_fight_state_type(fight, v);
