@@ -131,6 +131,47 @@ int main() {
     sample(&state, 0u, 1, 0);
     OK(!ik_command_active(&state, &k_asset, CMD_X));
 
+    static const ik_state_rule_instr_t rule_code[] = {
+        {IK_CMD_RULE_COMMAND_ACTIVE,0u,CMD_X,0},
+        {IK_CMD_RULE_COMMAND_INACTIVE,0u,CMD_HOLDDOWN,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+        {IK_CMD_RULE_STATE_TYPE_EQ,0u,1,0},
+        {IK_CMD_RULE_CTRL,0u,0,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+        {IK_CMD_RULE_STATE_NO_EQ,0u,200,0},
+        {IK_CMD_RULE_STATE_TIME_GT,0u,6,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+        {IK_CMD_RULE_OR,0u,0,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+    };
+    static const ik_state_rule_t rules[] = {
+        {0u,(uint8_t)(sizeof(rule_code)/sizeof(rule_code[0])),200,0u}
+    };
+    static const ik_state_rule_asset_t rule_asset = {
+        rule_code,(uint16_t)(sizeof(rule_code)/sizeof(rule_code[0])),
+        rules,1u
+    };
+
+    ik_command_state_init(&state);
+    sample(&state,SAT_PAD_X);
+    ik_state_rule_context_t ctx{0,1,1,1,0,0};
+    int16_t requested=0;
+    OK(ik_command_eval_state_change(
+        &state,&k_asset,&rule_asset,&ctx,&requested));
+    OK(requested==200);
+
+    ik_command_state_init(&state);
+    sample(&state,SAT_PAD_DOWN|SAT_PAD_X);
+    requested=0;
+    OK(!ik_command_eval_state_change(
+        &state,&k_asset,&rule_asset,&ctx,&requested));
+
+    ik_command_state_init(&state);
+    sample(&state,SAT_PAD_X);
+    ctx={200,7,1,0,0,0};
+    OK(ik_command_eval_state_change(
+        &state,&k_asset,&rule_asset,&ctx,&requested));
+
     std::puts("[test] ikemen_command OK");
     return 0;
 }
