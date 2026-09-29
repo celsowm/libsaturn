@@ -242,6 +242,9 @@ def simple_trigger(section: Section) -> tuple[str, int, int]:
 
     expr = triggers[0].strip()
 
+    if expr == "1":
+        return "IK_CNS_TRIGGER_ALWAYS", 0, 0
+
     m = re.fullmatch(r"Time\s*=\s*(-?\d+)", expr, flags=re.I)
     if m:
         return "IK_CNS_TRIGGER_TIME_EQ", int(m.group(1)), 0
@@ -327,6 +330,55 @@ def controller_trigger(
     ctype: str,
 ) -> tuple[str, int, int]:
     triggers = ctrl.all("trigger1")
+
+    if ctype in ("width", "targetbind") and len(triggers) == 1:
+        parsed = _anim_elem_range_trigger(triggers[0])
+        if parsed is not None:
+            return "IK_CNS_TRIGGER_ANIM_ELEM_RANGE", parsed[0], parsed[1]
+
+    if ctype == "targetbind" and len(triggers) == 1:
+        m = re.fullmatch(
+            r"AnimElemTime\s*\(\s*(\d+)\s*\)\s*<\s*0",
+            _strip_outer_parens(triggers[0]),
+            flags=re.I,
+        )
+        if m:
+            return "IK_CNS_TRIGGER_ANIM_ELEM_BEFORE", int(m.group(1)), 0
+
+    if ctype in ("turn", "posadd", "targetfacing") and len(triggers) == 2:
+        normalized = [_strip_outer_parens(t) for t in triggers]
+        if any(re.fullmatch(r"var\(\s*2\s*\)", t, flags=re.I)
+               for t in normalized):
+            elem = next((
+                re.fullmatch(r"AnimElem\s*=\s*(\d+)", t, flags=re.I)
+                for t in normalized
+                if re.fullmatch(r"AnimElem\s*=\s*(\d+)", t, flags=re.I)
+            ), None)
+            if elem:
+                return (
+                    "IK_CNS_TRIGGER_STATE_AXIS_FWD_ANIM_ELEM_EQ",
+                    int(elem.group(1)), 0,
+                )
+
+    if ctype == "selfstate":
+        if len(triggers) == 1 and re.fullmatch(
+            r"!\s*gethitvar\s*\(\s*isbound\s*\)",
+            triggers[0], flags=re.I
+        ):
+            return "IK_CNS_TRIGGER_NOT_BOUND", 0, 0
+        target = integer(ctrl.get("value"), -1)
+        trigger_all = ctrl.all("triggerall")
+        if target == 5200 and trigger_all:
+            return "IK_CNS_TRIGGER_THROW_GROUND_RECOVERY", q8(-20), 0
+        if target == 5210 and trigger_all:
+            return "IK_CNS_TRIGGER_THROW_AIR_RECOVERY", 0, 0
+        normalized = [_strip_outer_parens(t) for t in triggers]
+        if (len(normalized) == 2 and
+            any(re.fullmatch(r"Vel\s+Y\s*>\s*0", t, flags=re.I)
+                for t in normalized) and
+            any(re.fullmatch(r"Pos\s+Y\s*>=\s*0", t, flags=re.I)
+                for t in normalized)):
+            return "IK_CNS_TRIGGER_VY_GT_Q8_AT_FLOOR", 0, 0
 
     if ctype == "width" and len(triggers) == 1:
         parsed = _anim_elem_range_trigger(triggers[0])
@@ -466,7 +518,16 @@ def compile_runtime_controller(
         "posadd",
         "sprpriority",
         "changeanim",
+        "changeanim2",
         "width",
+        "varset",
+        "targetbind",
+        "targetfacing",
+        "targetlifeadd",
+        "targetstate",
+        "turn",
+        "selfstate",
+        "veladd",
     }
     if ctype not in supported:
         return None
@@ -545,7 +606,130 @@ def compile_runtime_controller(
             "flags": flag_expr(),
         }
 
-    width_front, width_back = pair(ctrl.get("value"), 0, 0)
+    if ctype == "changeanim2":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_CHANGE_ANIM2",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("value")),
+            "value1": 1,
+            "flags": flag_expr(),
+        }
+
+    if ctype == "varset":
+        var2 = ctrl.get("var(2)")
+        if var2 is None or not re.fullmatch(
+            r'command\s*=\s*"holdfwd"', var2.strip(), flags=re.I
+        ):
+            return None
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_CAPTURE_COMMAND_AXIS",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": 0,
+            "value1": 0,
+            "flags": flag_expr(),
+        }
+
+    if ctype == "targetbind":
+        x, y = pair(ctrl.get("pos"), 0, 0)
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_TARGET_BIND",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": q8(x),
+            "value1": q8(y),
+            "flags": flag_expr(),
+        }
+
+    if ctype == "targetfacing":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_TARGET_FACING",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("value"), 1),
+            "value1": 0,
+            "flags": flag_expr(),
+        }
+
+    if ctype == "targetlifeadd":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_TARGET_LIFE_ADD",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("value")),
+            "value1": 0,
+            "flags": flag_expr(),
+        }
+
+    if ctype == "targetstate":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_TARGET_STATE",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("value")),
+            "value1": 0,
+            "flags": flag_expr(),
+        }
+
+    if ctype == "turn":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_TURN",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": 0,
+            "value1": 0,
+            "flags": flag_expr(),
+        }
+
+    if ctype == "selfstate":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_SELF_STATE",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("value")),
+            "value1": 0,
+            "flags": flag_expr(),
+        }
+
+    if ctype == "veladd":
+        x = number(ctrl.get("x"), 0)
+        y = number(ctrl.get("y"), 0)
+        axis: list[str] = []
+        if ctrl.get("x") is not None:
+            axis.append("IK_CNS_CTRL_AXIS_X")
+        if ctrl.get("y") is not None:
+            axis.append("IK_CNS_CTRL_AXIS_Y")
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_VEL_ADD",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": q8(x),
+            "value1": q8(y),
+            "flags": " | ".join(axis + flags) if axis or flags else "0u",
+        }
+
+    width_front, width_back = pair(
+        ctrl.get("value", ctrl.get("edge")), 0, 0
+    )
     if int(width_front) != width_front or int(width_back) != width_back:
         raise ValueError(
             f"[{ctrl.name}] Width value must be integral in the Saturn subset"
