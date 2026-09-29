@@ -283,12 +283,23 @@ static void controls_from_commands(uint32_t player,
     {
         const uint16_t projected_time = (uint16_t)(
             fighter->state_time + (fighter->hit_pause == 0u ? 1u : 0u));
+        const ik_fighter_t* p2 = &fight->fighters[player ^ 1u];
+        const ik_cns_state_t* p2_state =
+            ik_cns_find_state(fight->cns, p2->state);
+        int body_dist_x =
+            ((int)p2->x - (int)fighter->x) * (int)fighter->facing -
+            fighter->push_front - p2->push_front;
+        if (body_dist_x < -32768) body_dist_x = -32768;
+        if (body_dist_x > 32767) body_dist_x = 32767;
         const ik_state_rule_context_t context = {
             fighter->state,
             projected_time,
+            (int16_t)body_dist_x,
             ik_fight_state_type(fight, fighter),
             (uint8_t)(fighter->ctrl != 0),
             fighter->move_contact,
+            ik_fight_state_type(fight, p2),
+            (uint8_t)(p2_state ? p2_state->move_type : IK_CNS_MOVE_IDLE),
             0u
         };
         int16_t requested = 0;
