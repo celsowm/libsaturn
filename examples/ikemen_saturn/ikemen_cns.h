@@ -79,7 +79,9 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_GUARD_END,
     IK_CNS_CTRL_HIT_VEL_SET,
     IK_CNS_CTRL_GET_HIT_ANIM,
-    IK_CNS_CTRL_HIT_RECOVER_STATE
+    IK_CNS_CTRL_HIT_RECOVER_STATE,
+    IK_CNS_CTRL_FALL_BOUNCE_VEL,
+    IK_CNS_CTRL_FALL_GROUND_BRANCH
 } ik_cns_controller_type_t;
 
 enum {
@@ -144,6 +146,15 @@ typedef struct ik_cns_constants {
     int16_t crouch_friction_q8;
     int16_t stand_friction_threshold_q8;
     int16_t crouch_friction_threshold_q8;
+
+    int16_t liedown_time;
+    int16_t air_gethit_groundlevel_q8;
+    int16_t air_gethit_trip_groundlevel_q8;
+    int16_t down_bounce_offset_x_q8;
+    int16_t down_bounce_offset_y_q8;
+    int16_t down_bounce_yaccel_q8;
+    int16_t down_bounce_groundlevel_q8;
+    int16_t down_friction_threshold_q8;
 } ik_cns_constants_t;
 
 typedef struct ik_cns_state {
@@ -165,6 +176,8 @@ typedef struct ik_cns_state {
     uint16_t controller_ofs;
     uint8_t controller_count;
     int16_t land_state;
+    int16_t air_accel_q8;
+    int16_t land_level_q8;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
@@ -206,6 +219,11 @@ typedef struct ik_cns_hitdef {
     int16_t air_guard_velocity_y_q8;
     uint8_t anim_type;
     uint8_t air_anim_type;
+    int16_t fall_x_velocity_q8;
+    int16_t fall_y_velocity_q8;
+    uint8_t fall_x_velocity_set;
+    uint8_t fall_recover;
+    uint8_t fall_recover_time;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
@@ -245,6 +263,8 @@ typedef struct ik_cns_playsnd {
  *   HitVelSet: stored get-hit X/Y velocity, selected by AXIS flags
  *   GetHitAnim: choose common get-hit animation from stored HitDef metadata
  *   HitRecoverState: branch to 5040/5050 according to fall state
+ *   FallBounceVel: apply HitDef fall velocity for the ground bounce
+ *   FallGroundBranch: skip bounce when HitDef fall.yvelocity is zero
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
