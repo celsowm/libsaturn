@@ -488,7 +488,8 @@ static void apply_damage(ik_fight_t* fight, int victim,
         : airborne
             ? (int16_t)hitdef->air_hit_time
             : (int16_t)hitdef->ground_hit_time;
-    const int launch = airborne || (downed && velocity_y != 0) ||
+    const int downed_launch = downed && velocity_y != 0;
+    const int launch = airborne || downed_launch ||
         (hitdef->flags & IK_CNS_HITDEF_FALL) != 0u ||
         velocity_y != 0;
 
@@ -505,11 +506,20 @@ static void apply_damage(ik_fight_t* fight, int victim,
     v->gethit_anim_type = airborne
         ? hitdef->air_anim_type
         : hitdef->anim_type;
-    v->gethit_fall =
-        (uint8_t)((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u);
+    /* A liedown victim launched by down.velocity always enters the fall
+     * graph so it returns to a downed state on landing. down.bounce only
+     * controls whether state 5100 receives a non-zero fall Y velocity and
+     * therefore proceeds through the single 5101 ground bounce. */
+    v->gethit_fall = (uint8_t)(
+        ((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u) || downed_launch);
     v->gethit_fall_x_q8 = hitdef->fall_x_velocity_q8;
-    v->gethit_fall_y_q8 = hitdef->fall_y_velocity_q8;
-    v->gethit_fall_x_set = hitdef->fall_x_velocity_set;
+    v->gethit_fall_y_q8 =
+        (downed_launch && !hitdef->down_bounce)
+            ? 0
+            : hitdef->fall_y_velocity_q8;
+    v->gethit_fall_x_set =
+        (uint8_t)(hitdef->fall_x_velocity_set &&
+                  (!downed_launch || hitdef->down_bounce));
     v->gethit_fall_recover = hitdef->fall_recover;
     v->gethit_fall_recover_time = hitdef->fall_recover_time;
     v->fall_time = 0u;
