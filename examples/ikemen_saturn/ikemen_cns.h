@@ -45,7 +45,9 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ANIM_EQ_AND_END,
     IK_CNS_TRIGGER_HIT_SLIDE_TIME,
     IK_CNS_TRIGGER_HIT_CTRL_TIME,
-    IK_CNS_TRIGGER_HIT_OVER
+    IK_CNS_TRIGGER_HIT_OVER,
+    IK_CNS_TRIGGER_HIT_LAUNCH,
+    IK_CNS_TRIGGER_HIT_NO_LAUNCH
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -75,7 +77,9 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_GUARD_ANIM_BY_TYPE,
     IK_CNS_CTRL_GUARD_STATE_BY_TYPE,
     IK_CNS_CTRL_GUARD_END,
-    IK_CNS_CTRL_HIT_VEL_SET
+    IK_CNS_CTRL_HIT_VEL_SET,
+    IK_CNS_CTRL_GET_HIT_ANIM,
+    IK_CNS_CTRL_HIT_RECOVER_STATE
 } ik_cns_controller_type_t;
 
 enum {
@@ -200,6 +204,8 @@ typedef struct ik_cns_hitdef {
     int16_t guard_velocity_x_q8;
     int16_t air_guard_velocity_x_q8;
     int16_t air_guard_velocity_y_q8;
+    uint8_t anim_type;
+    uint8_t air_anim_type;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
@@ -237,6 +243,8 @@ typedef struct ik_cns_playsnd {
  *   GuardStateByType: base stand state; crouch=base+1, air=base+2
  *   GuardEnd: return to stand/crouch/air locomotion after guard end
  *   HitVelSet: stored get-hit X/Y velocity, selected by AXIS flags
+ *   GetHitAnim: choose common get-hit animation from stored HitDef metadata
+ *   HitRecoverState: branch to 5040/5050 according to fall state
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
@@ -262,6 +270,7 @@ typedef struct ik_cns_controller_context {
     uint16_t hitstun;
     uint16_t hit_slide_time;
     uint16_t hit_ctrl_time;
+    uint8_t hit_launch;
     uint8_t anim_ended;
     uint8_t move_contact;
 } ik_cns_controller_context_t;
