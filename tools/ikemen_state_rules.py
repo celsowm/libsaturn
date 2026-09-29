@@ -17,6 +17,7 @@ TOKEN_RE = re.compile(
     r'(?P<ident>[A-Za-z_][A-Za-z0-9_.]*))'
 )
 STATE_TYPE_VALUE = {"S": 1, "C": 2, "A": 3, "L": 4}
+MOVE_TYPE_VALUE = {"I": 1, "A": 2, "H": 3}
 OP = {
     "command_active": "IK_CMD_RULE_COMMAND_ACTIVE",
     "command_inactive": "IK_CMD_RULE_COMMAND_INACTIVE",
@@ -32,6 +33,11 @@ OP = {
     "state_time_le": "IK_CMD_RULE_STATE_TIME_LE",
     "ctrl": "IK_CMD_RULE_CTRL",
     "move_contact": "IK_CMD_RULE_MOVE_CONTACT",
+    "p2_body_dist_x_lt": "IK_CMD_RULE_P2_BODY_DIST_X_LT",
+    "p2_state_type_eq": "IK_CMD_RULE_P2_STATE_TYPE_EQ",
+    "p2_state_type_ne": "IK_CMD_RULE_P2_STATE_TYPE_NE",
+    "p2_move_type_eq": "IK_CMD_RULE_P2_MOVE_TYPE_EQ",
+    "p2_move_type_ne": "IK_CMD_RULE_P2_MOVE_TYPE_NE",
     "not": "IK_CMD_RULE_NOT",
     "and": "IK_CMD_RULE_AND",
     "or": "IK_CMD_RULE_OR",
@@ -151,6 +157,18 @@ class Parser:
         if name == "movecontact":
             return [Insn("move_contact")]
 
+        if name == "p2bodydist":
+            axis_kind, axis = self._take()
+            if axis_kind != "ident" or axis.lower() != "x":
+                raise ValueError("only p2bodydist X is supported")
+            _, cmpop = self._take()
+            if cmpop != "<":
+                raise ValueError("p2bodydist X currently supports only <")
+            kind, value = self._take()
+            if kind != "number":
+                raise ValueError("p2bodydist X comparison requires an integer")
+            return [Insn("p2_body_dist_x_lt", int(value))]
+
         _, cmpop = self._take()
         if cmpop not in ("=", "!=", ">", ">=", "<", "<="):
             raise ValueError(f"unsupported comparator {cmpop!r}")
@@ -177,6 +195,26 @@ class Parser:
             if cmpop == "!=":
                 return [Insn("state_type_ne", STATE_TYPE_VALUE[value.upper()])]
             raise ValueError("statetype supports only = and !=")
+
+        if name == "p2statetype":
+            kind, value = self._take()
+            if kind != "ident" or value.upper() not in STATE_TYPE_VALUE:
+                raise ValueError(f"unsupported p2statetype {value!r}")
+            if cmpop == "=":
+                return [Insn("p2_state_type_eq", STATE_TYPE_VALUE[value.upper()])]
+            if cmpop == "!=":
+                return [Insn("p2_state_type_ne", STATE_TYPE_VALUE[value.upper()])]
+            raise ValueError("p2statetype supports only = and !=")
+
+        if name == "p2movetype":
+            kind, value = self._take()
+            if kind != "ident" or value.upper() not in MOVE_TYPE_VALUE:
+                raise ValueError(f"unsupported p2movetype {value!r}")
+            if cmpop == "=":
+                return [Insn("p2_move_type_eq", MOVE_TYPE_VALUE[value.upper()])]
+            if cmpop == "!=":
+                return [Insn("p2_move_type_ne", MOVE_TYPE_VALUE[value.upper()])]
+            raise ValueError("p2movetype supports only = and !=")
 
         if name == "stateno" and self._peek("["):
             if cmpop not in ("=", "!="):
