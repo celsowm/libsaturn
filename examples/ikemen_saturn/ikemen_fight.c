@@ -489,16 +489,7 @@ static void apply_damage(ik_fight_t* fight, int victim,
 
     a->move_contact = 1u;
 
-    if (v->hp <= 0) {
-        v->hp = 0;
-        v->vx_q8 = (int32_t)v->facing * velocity_x;
-        v->vy_q8 = velocity_y;
-        enter_state(fight, v, IK_STATE_KO);
-        fight->round_over = 1;
-        fight->winner = (uint8_t)((victim ^ 1) + 1);
-        fight->events |= (uint16_t)(IK_EVENT_HIT | IK_EVENT_KO | IK_EVENT_ROUND_OVER);
-        fight->ko_freeze = IK_KO_FREEZE_FRAMES;
-    } else {
+    {
         int16_t target = IK_STATE_HIT;
         if (victim_type == IK_CNS_STATE_LIEDOWN &&
             ik_cns_find_state(fight->cns, 5080)) {
@@ -522,8 +513,23 @@ static void apply_damage(ik_fight_t* fight, int victim,
             v->vx_q8 = (int32_t)v->facing * velocity_x;
             v->vy_q8 = velocity_y;
         }
-        enter_state(fight, v, target);
-        fight->events |= IK_EVENT_HIT;
+
+        if (v->hp <= 0) {
+            v->hp = 0;
+            fight->winner = (uint8_t)((victim ^ 1) + 1);
+            fight->events |= (uint16_t)(IK_EVENT_HIT | IK_EVENT_KO);
+        } else {
+            fight->events |= IK_EVENT_HIT;
+        }
+
+        if (target == IK_STATE_HIT && v->hp <= 0) {
+            enter_state(fight, v, IK_STATE_KO);
+            fight->round_over = 1;
+            fight->events |= IK_EVENT_ROUND_OVER;
+            fight->ko_freeze = IK_KO_FREEZE_FRAMES;
+        } else {
+            enter_state(fight, v, target);
+        }
     }
 
     if ((victim ^ 1) == 0) fight->hits_p1++;
@@ -1242,6 +1248,18 @@ void ik_fight_update(ik_fight_t* fight,
             apply_guard(fight, victim, victim_controls, hitdef);
         } else {
             apply_damage(fight, victim, hitdef);
+        }
+    }
+
+    if (!fight->round_over) {
+        for (int i = 0; i < 2; ++i) {
+            if (fight->fighters[i].hp <= 0 &&
+                fight->fighters[i].state == 5150) {
+                fight->round_over = 1;
+                fight->winner = (uint8_t)((i ^ 1) + 1);
+                fight->events |= IK_EVENT_ROUND_OVER;
+                break;
+            }
         }
     }
 }
