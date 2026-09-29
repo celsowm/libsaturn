@@ -548,10 +548,6 @@ static void apply_throw(ik_fight_t* fight, int attacker,
         const int8_t toward = a->x >= v->x ? 1 : -1;
         v->facing = hitdef->p2_facing > 0 ? toward : (int8_t)-toward;
     }
-    if (hitdef->p1_spr_priority != -128) {
-        a->spr_priority = hitdef->p1_spr_priority;
-    }
-
     v->gethit_fall =
         (uint8_t)((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u);
     v->gethit_fall_x_q8 = hitdef->fall_x_velocity_q8;
@@ -565,6 +561,9 @@ static void apply_throw(ik_fight_t* fight, int attacker,
     }
     if (hitdef->p1_state_no >= 0) {
         enter_state(fight, a, hitdef->p1_state_no);
+        if (hitdef->p1_spr_priority != -128) {
+            a->spr_priority = hitdef->p1_spr_priority;
+        }
         /* KFM state 810 snapshots command="holdfwd" at Time=0. The throw
          * changes state during collision resolution, so preserve that entry
          * input in the generic state-axis scratch immediately. */
@@ -1379,7 +1378,11 @@ static void step_fighter(ik_fight_t* fight, int index,
             dispatch_controlled_input(fight, f, controls)) {
             return;
         }
-        step_air(fight, f, 1);
+        const ik_cns_state_t* air_spec = state_spec(fight, f->state);
+        const int custom_landing =
+            air_spec && air_spec->physics == IK_CNS_PHYS_NONE &&
+            air_spec->owns_air_accel;
+        step_air(fight, f, custom_landing ? 0 : 1);
     } else if (f->on_ground) {
         const ik_cns_state_t* spec = state_spec(fight, f->state);
 
