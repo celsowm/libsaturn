@@ -21,7 +21,10 @@ static const ik_frame_t k_frames[] = {
     F(12,0,2,0,0),
     F(20,0,4,0,0),
     F(21,0,4,0,0),
+    F(40,0,2,0,0),
     F(41,0,0,0,0),
+    F(42,0,0,0,0),
+    F(43,0,0,0,0),
     F(47,0,3,0,0),
     F(100,0,4,0,0),
     F(105,0,4,0,0),
@@ -138,7 +141,7 @@ static const ik_cns_state_t k_states[] = {
 #undef A
 
 static const ik_cns_asset_t k_cns = {
-    {1000,15,16,12,12,60,614,-563,1178,0,-1152,-973,0,-2150,-653,640,1024,-2074,113,218,210,512,13},
+    {1000,15,16,12,12,60,614,-563,1178,0,-1152,-973,0,-2150,-653,640,1024,-2074,0,-2074,-653,640,1,35,113,218,210,512,13},
     k_states,12u,
     k_hitdefs,13u,
     nullptr,0u,
@@ -187,6 +190,27 @@ static const ik_cns_controller_t k_common_ctrls[] = {
      1,0,0,0,IK_CNS_CTRL_AXIS_Y},
     {106,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
      7,0,0,1,IK_CNS_CTRL_HAS_CTRL},
+
+    {40,IK_CNS_CTRL_CAPTURE_COMMAND_AXIS,IK_CNS_TRIGGER_ALWAYS,
+     0,0,0,0,0u},
+    {40,IK_CNS_CTRL_JUMP_LAUNCH,IK_CNS_TRIGGER_ANIM_END,
+     0,0,0,0,0u},
+    {40,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
+     0,0,50,1,IK_CNS_CTRL_HAS_CTRL},
+
+    {45,IK_CNS_CTRL_CHANGE_ANIM_IF_EXISTS,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,44,41,0u},
+    {45,IK_CNS_CTRL_CAPTURE_COMMAND_AXIS,IK_CNS_TRIGGER_ALWAYS,
+     0,0,0,0,0u},
+    {45,IK_CNS_CTRL_AIR_JUMP_LAUNCH,IK_CNS_TRIGGER_TIME_EQ,
+     2,0,0,0,0u},
+    {45,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
+     2,0,50,1,IK_CNS_CTRL_HAS_CTRL},
+
+    {50,IK_CNS_CTRL_CHANGE_ANIM_BY_VX,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,41,42,0u},
+    {50,IK_CNS_CTRL_CHANGE_ANIM_DESCENT_IF_EXISTS,IK_CNS_TRIGGER_ALWAYS,
+     0,0,-512,41,0u},
 };
 
 static const ik_cns_state_t k_common_states[] = {
@@ -194,6 +218,14 @@ static const ik_cns_state_t k_common_states[] = {
      1,0,0u,0u,0u,0u,0u,0u,2u,0},
     {20,-1,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,
      1,0,0u,0u,0u,0u,0u,2u,3u,0},
+    {40,40,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,
+     0,1,0u,0u,0u,0u,0u,16u,3u,0},
+    {45,41,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
+     0,0,1u,0u,0u,0u,0u,19u,4u,0},
+    {50,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_AIR,
+     0,0,0u,0u,0u,0u,0u,23u,2u,52},
+    {51,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_AIR,
+     0,0,0u,0u,0u,0u,0u,25u,0u,52},
     {52,47,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,
      0,0,0u,0u,0u,0u,0u,5u,4u,0},
     {100,100,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,
@@ -206,7 +238,9 @@ static const ik_cns_state_t k_common_states[] = {
 
 static const ik_cns_asset_t k_common_cns = {
     {1000,15,16,12,12,60,614,-563,1178,0,-1152,-973,
-     0,-2150,-653,640,1024,-2074,113,218,210,512,13},
+     0,-2150,-653,640,1024,-2074,
+     0,-2074,-653,640,1,35,
+     113,218,210,512,13},
     k_common_states,
     (uint16_t)(sizeof(k_common_states)/sizeof(k_common_states[0])),
     nullptr,0u,
@@ -312,12 +346,10 @@ int main() {
      * airborne while attacking and use their original Time=0 HitDefs. */
     {
         ik_fight_init(&g,&k_cns); place(&g,100,145);
-        ik_fight_controls_t p{}; p.up=1;
-        tick(&g,&p);
-        EQ(g.fighters[0].state,IK_STATE_JUMP);
-        EQ(g.fighters[0].on_ground,0);
-
-        p={}; request(&p,IK_STATE_JUMP_PUNCH);
+        g.fighters[0].state=IK_STATE_JUMP;
+        g.fighters[0].on_ground=0;
+        g.fighters[0].vy_q8=-2150;
+        ik_fight_controls_t p{}; request(&p,IK_STATE_JUMP_PUNCH);
         const int hp=g.fighters[1].hp;
         tick(&g,&p);
         EQ(g.fighters[0].state,IK_STATE_JUMP_PUNCH);
@@ -339,9 +371,10 @@ int main() {
         g.fighters[1].y=150;
         g.fighters[1].y_q8=150*256;
 
-        ik_fight_controls_t p{}; p.up=1;
-        tick(&g,&p);
-        p={}; request(&p,IK_STATE_JUMP_PUNCH);
+        g.fighters[0].state=IK_STATE_JUMP;
+        g.fighters[0].on_ground=0;
+        g.fighters[0].vy_q8=-2150;
+        ik_fight_controls_t p{}; request(&p,IK_STATE_JUMP_PUNCH);
         tick(&g,&p);
 
         EQ(g.hits_p1,1u);
@@ -355,9 +388,10 @@ int main() {
      * controller runtime, allowing new controlled air input afterwards. */
     {
         ik_fight_init(&g,&k_cns); place(&g,60,260);
-        ik_fight_controls_t p{}; p.up=1;
-        tick(&g,&p);
-        p={}; request(&p,IK_STATE_JUMP_PUNCH);
+        g.fighters[0].state=IK_STATE_JUMP;
+        g.fighters[0].on_ground=0;
+        g.fighters[0].vy_q8=-2150;
+        ik_fight_controls_t p{}; request(&p,IK_STATE_JUMP_PUNCH);
         tick(&g,&p);
         EQ(g.fighters[0].ctrl,0);
         idle(&g,17);
@@ -418,18 +452,79 @@ int main() {
         EQ(g.fighters[0].state,IK_STATE_IDLE);
     }
 
-    /* Legacy jump launch now lands through compiled common state 52. */
+    /* Common1 owns jump startup, remembers direction until AnimTime=0,
+     * launches into state 50, and lands through state 52. */
     {
         ik_fight_init(&g,&k_common_cns);
-        ik_fight_controls_t p{}; p.up=1;
+        ik_fight_controls_t p{}; p.up=1; p.forward=1;
         tick(&g,&p);
-        EQ(g.fighters[0].state,IK_STATE_JUMP);
+        EQ(g.fighters[0].state,40);
+        EQ(g.fighters[0].on_ground,1);
+
+        p={}; p.forward=1;
+        tick(&g,&p);
         p={};
+        tick(&g,&p);
+        EQ(g.fighters[0].state,50);
+        EQ(g.fighters[0].on_ground,0);
+        EQ(g.fighters[0].vx_q8,640);
+        EQ(g.fighters[0].vy_q8,-2150);
+
         for(int i=0;i<80 && g.fighters[0].state!=52;++i) tick(&g,&p);
         EQ(g.fighters[0].state,52);
         EQ(g.fighters[0].on_ground,1);
         idle(&g,3);
         EQ(g.fighters[0].state,IK_STATE_IDLE);
+    }
+
+    /* Jumping directly out of run uses runjump.fwd.x via prevStateNo=100. */
+    {
+        ik_fight_init(&g,&k_common_cns);
+        ik_fight_controls_t p{}; p.forward=1; request(&p,100);
+        tick(&g,&p);
+        p={}; p.forward=1; p.up=1;
+        tick(&g,&p);
+        EQ(g.fighters[0].state,40);
+        EQ(g.fighters[0].prev_state,100);
+
+        p={}; p.forward=1;
+        tick(&g,&p);
+        p={};
+        tick(&g,&p);
+        EQ(g.fighters[0].state,50);
+        EQ(g.fighters[0].vx_q8,1024);
+    }
+
+    /* Air jump requires release/re-press, the configured height threshold,
+     * and consumes the compiled airjump.num budget. */
+    {
+        ik_fight_init(&g,&k_common_cns);
+        ik_fight_controls_t p{}; p.up=1;
+        tick(&g,&p);
+        p={};
+        tick(&g,&p);
+        tick(&g,&p);
+        EQ(g.fighters[0].state,50);
+
+        for(int i=0;i<20 &&
+            ((int32_t)IK_FLOOR_Y*256-g.fighters[0].y_q8)<35*256;++i) {
+            tick(&g,&p);
+        }
+        OK(((int32_t)IK_FLOOR_Y*256-g.fighters[0].y_q8)>=35*256);
+
+        p={}; p.up=1; p.forward=1;
+        tick(&g,&p);
+        EQ(g.fighters[0].state,45);
+        EQ(g.fighters[0].air_jumps_used,1u);
+        EQ(g.fighters[0].vx_q8,0);
+        EQ(g.fighters[0].vy_q8,0);
+
+        p={}; p.forward=1;
+        tick(&g,&p);
+        tick(&g,&p);
+        EQ(g.fighters[0].state,50);
+        EQ(g.fighters[0].vx_q8,640);
+        EQ(g.fighters[0].vy_q8,-2074);
     }
 
     std::puts("[test] ikemen_fight OK");
