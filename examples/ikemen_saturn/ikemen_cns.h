@@ -81,7 +81,8 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_GET_HIT_ANIM,
     IK_CNS_CTRL_HIT_RECOVER_STATE,
     IK_CNS_CTRL_FALL_BOUNCE_VEL,
-    IK_CNS_CTRL_FALL_GROUND_BRANCH
+    IK_CNS_CTRL_FALL_GROUND_BRANCH,
+    IK_CNS_CTRL_POS_ADD_VEL
 } ik_cns_controller_type_t;
 
 enum {
@@ -265,6 +266,7 @@ typedef struct ik_cns_playsnd {
  *   HitRecoverState: branch to 5040/5050 according to fall state
  *   FallBounceVel: apply HitDef fall velocity for the ground bounce
  *   FallGroundBranch: skip bounce when HitDef fall.yvelocity is zero
+ *   PosAddVel: integrate selected velocity axes for Physics=N states
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
