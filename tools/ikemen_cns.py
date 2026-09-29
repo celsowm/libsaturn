@@ -169,6 +169,16 @@ def anim_type_code(text: str | None) -> int:
     return mapping.get(value, 0)
 
 
+def priority_type_code(text: str | None) -> str:
+    value = (text or "4, Hit").split(",", 1)
+    kind = value[1].strip().lower() if len(value) > 1 else "hit"
+    if kind in ("miss", "m"):
+        return "IK_CNS_PRIORITY_MISS"
+    if kind in ("dodge", "d"):
+        return "IK_CNS_PRIORITY_DODGE"
+    return "IK_CNS_PRIORITY_HIT"
+
+
 def guard_mask(text: str | None) -> str:
     value = (text or "").strip().upper()
     bits: list[str] = []
@@ -621,6 +631,7 @@ def parse_state(
                         (ctrl.get("priority") or "4").split(",", 1)[0],
                         4,
                     ),
+                    "priority_type": priority_type_code(ctrl.get("priority")),
                     "pause_p1": int(pause1),
                     "pause_p2": int(pause2),
                     "ground_type": GROUND_TYPE.get(
@@ -1746,7 +1757,8 @@ def emit(
         f"{h['fall_recover_time']}u, "
         f"{h['down_hit_time']}u, "
         f"{h['down_velocity_x_q8']}, {h['down_velocity_y_q8']}, "
-        f"{h['down_bounce']}u, {h['hit_flags']}"
+        f"{h['down_bounce']}u, {h['hit_flags']}, "
+        f"{h['priority_type']}"
         "},"
         for h in hitdefs
     ]
