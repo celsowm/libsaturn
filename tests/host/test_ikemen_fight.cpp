@@ -488,7 +488,7 @@ static const ik_cns_state_t k_recovery_states[] = {
     {5201,5200,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_AIR,
      0,0,0u,0u,0u,0u,0u,2u,2u,52,0,0,0u},
     {5210,5210,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,4u,7u,52,90,0,4u},
+     0,0,0u,0u,0u,0u,0u,4u,7u,52,90,0,4u,1u},
 };
 
 static const ik_cns_asset_t k_recovery_cns = {
@@ -1083,6 +1083,14 @@ int main() {
         tick(&g,&p);
         EQ(f->vy_q8,-1574);
         OK(f->y_q8<y0);
+
+        f->y=IK_FLOOR_Y;
+        f->y_q8=IK_FLOOR_Y*256;
+        f->vy_q8=100;
+        p={};
+        tick(&g,&p);
+        EQ(f->state,52);
+        EQ(f->ctrl,1);
     }
 
     std::puts("[test] ikemen_fight OK");
