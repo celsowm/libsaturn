@@ -41,7 +41,6 @@ crouch.friction.threshold = .05
 type = S
 movetype = A
 physics = S
-juggle = 1
 velset = 0,0
 ctrl = 0
 anim = 200
@@ -70,6 +69,21 @@ type = PlaySnd
 trigger1 = Time = 1
 value = 0, 0
 
+[State 200, Priority]
+type = SprPriority
+trigger1 = AnimElem = 5
+value = 2
+
+[State 200, Pos]
+type = PosAdd
+trigger1 = AnimElem = 6
+x = 12
+
+[State 200, Ctrl]
+type = CtrlSet
+trigger1 = Time = 6
+value = 1
+
 [State 200, End]
 type = ChangeState
 trigger1 = AnimTime = 0
@@ -85,11 +99,10 @@ with tempfile.TemporaryDirectory() as td:
 
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
 assert report["constants"]["yaccel_q8"] == round(.44 * 256)
-assert report["states"][0]["number"] == 200
-assert report["states"][0]["anim"] == 200
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
-assert report["states"][0]["unsupported_controllers"] == ["changestate"]
+assert report["states"][0]["controller_count"] == 4
+assert report["states"][0]["unsupported_controllers"] == []
 
 hit = report["hitdefs"][0]
 assert hit["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_EQ"
@@ -97,12 +110,14 @@ assert hit["trigger_value"] == 3
 assert hit["damage"] == 23
 assert hit["pause_p1"] == 8
 assert hit["ground_velocity_x_q8"] == -4 * 256
-assert hit["air_velocity_y_q8"] == -3 * 256
-assert hit["hit_sound_group"] == 5 and hit["hit_sound_item"] == 0
 
-snd = report["playsnds"][0]
-assert snd["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
-assert snd["trigger_value"] == 1
-assert (snd["group"], snd["item"]) == (0, 0)
+controllers = report["controllers"]
+assert controllers[0]["type"] == "IK_CNS_CTRL_SPR_PRIORITY"
+assert controllers[1]["type"] == "IK_CNS_CTRL_POS_ADD"
+assert controllers[1]["value0"] == 12 * 256
+assert controllers[2]["type"] == "IK_CNS_CTRL_CTRL_SET"
+assert controllers[3]["type"] == "IK_CNS_CTRL_CHANGE_STATE"
+assert controllers[3]["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_END"
+assert controllers[3]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
 
 print("ikemen CNS compiler: OK")

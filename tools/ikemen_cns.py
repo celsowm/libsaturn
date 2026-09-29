@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """Compile the deterministic KFM CNS subset needed by the Saturn runtime.
 
-This is intentionally an offline compiler, not a text parser on the Saturn.
-It emits:
-  * [Data]/[Size]/[Velocity]/[Movement] constants in Q8.8 where fractional;
-  * selected Statedef metadata;
-  * HitDef controllers with simple Time/AnimElem activation;
-  * PlaySnd controllers with simple Time/AnimElem activation.
+The Saturn never parses CNS text. This offline compiler emits:
+* character constants ([Data]/[Size]/[Velocity]/[Movement]);
+* selected Statedef metadata;
+* HitDef and PlaySnd records;
+* compact runtime controllers (ChangeState, CtrlSet, PosAdd, SprPriority).
 
-Unsupported expressions in selected states fail loudly instead of silently
-changing game behavior. More controller kinds can be added without changing
-the generated asset ABI.
+Unsupported controllers/triggers are reported instead of approximated.
 """
 
 from __future__ import annotations
@@ -24,33 +21,22 @@ from pathlib import Path
 Q8 = 256
 
 STATE_TYPE = {
-    "S": "IK_CNS_STATE_STAND",
-    "C": "IK_CNS_STATE_CROUCH",
-    "A": "IK_CNS_STATE_AIR",
-    "L": "IK_CNS_STATE_LIEDOWN",
+    "S": "IK_CNS_STATE_STAND", "C": "IK_CNS_STATE_CROUCH",
+    "A": "IK_CNS_STATE_AIR", "L": "IK_CNS_STATE_LIEDOWN",
     "U": "IK_CNS_STATE_UNCHANGED",
 }
-
 MOVE_TYPE = {
-    "I": "IK_CNS_MOVE_IDLE",
-    "A": "IK_CNS_MOVE_ATTACK",
-    "H": "IK_CNS_MOVE_HIT",
-    "U": "IK_CNS_MOVE_UNCHANGED",
+    "I": "IK_CNS_MOVE_IDLE", "A": "IK_CNS_MOVE_ATTACK",
+    "H": "IK_CNS_MOVE_HIT", "U": "IK_CNS_MOVE_UNCHANGED",
 }
-
 PHYSICS = {
-    "N": "IK_CNS_PHYS_NONE",
-    "S": "IK_CNS_PHYS_STAND",
-    "C": "IK_CNS_PHYS_CROUCH",
-    "A": "IK_CNS_PHYS_AIR",
+    "N": "IK_CNS_PHYS_NONE", "S": "IK_CNS_PHYS_STAND",
+    "C": "IK_CNS_PHYS_CROUCH", "A": "IK_CNS_PHYS_AIR",
     "U": "IK_CNS_PHYS_NONE",
 }
-
 GROUND_TYPE = {
-    "normal": "IK_CNS_GROUND_NORMAL",
-    "high": "IK_CNS_GROUND_HIGH",
-    "low": "IK_CNS_GROUND_LOW",
-    "trip": "IK_CNS_GROUND_TRIP",
+    "normal": "IK_CNS_GROUND_NORMAL", "high": "IK_CNS_GROUND_HIGH",
+    "low": "IK_CNS_GROUND_LOW", "trip": "IK_CNS_GROUND_TRIP",
 }
 
 
@@ -100,18 +86,16 @@ def collect_states(sections: list[Section]) -> tuple[dict[str, Section], list[St
     globals_: dict[str, Section] = {}
     states: list[State] = []
     current: State | None = None
-
     for section in sections:
         m = re.fullmatch(r"Statedef\s+(-?\d+)", section.name, flags=re.I)
         if m:
             current = State(int(m.group(1)), section, [])
             states.append(current)
-            continue
-        if re.match(r"State\s+", section.name, flags=re.I):
+        elif re.match(r"State\s+", section.name, flags=re.I):
             if current is not None:
                 current.controllers.append(section)
-            continue
-        globals_[section.name.lower()] = section
+        else:
+            globals_[section.name.lower()] = section
     return globals_, states
 
 
@@ -167,9 +151,7 @@ def trigger(section: Section) -> tuple[str, int]:
     if not triggers:
         return "IK_CNS_TRIGGER_ALWAYS", 0
     if len(triggers) != 1:
-        raise ValueError(
-            f"[{section.name}] selected subset requires one trigger1, got {triggers!r}"
-        )
+        raise ValueError(f"[{section.name}] unsupported trigger conjunction {triggers!r}")
     expr = triggers[0].strip()
     m = re.fullmatch(r"Time\s*=\s*(-?\d+)", expr, flags=re.I)
     if m:
@@ -177,6 +159,8 @@ def trigger(section: Section) -> tuple[str, int]:
     m = re.fullmatch(r"AnimElem\s*=\s*(\d+)", expr, flags=re.I)
     if m:
         return "IK_CNS_TRIGGER_ANIM_ELEM_EQ", int(m.group(1))
+    if re.fullmatch(r"AnimTime\s*=\s*0", expr, flags=re.I):
+        return "IK_CNS_TRIGGER_ANIM_END", 0
     raise ValueError(f"[{section.name}] unsupported trigger expression {expr!r}")
 
 
@@ -185,11 +169,9 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
     size = globals_.get("size", Section("Size"))
     vel = globals_.get("velocity", Section("Velocity"))
     movement = globals_.get("movement", Section("Movement"))
-
     run_fwd = pair(vel.get("run.fwd"))
     run_back = pair(vel.get("run.back"))
     jump_neu = pair(vel.get("jump.neu"))
-
     return {
         "life": integer(data.get("life"), 1000),
         "ground_back": integer(size.get("ground.back"), 15),
@@ -199,27 +181,64 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
         "height": integer(size.get("height"), 60),
         "walk_fwd_q8": q8(number(vel.get("walk.fwd"), 2.4)),
         "walk_back_q8": q8(number(vel.get("walk.back"), -2.2)),
-        "run_fwd_x_q8": q8(run_fwd[0]),
-        "run_fwd_y_q8": q8(run_fwd[1]),
-        "run_back_x_q8": q8(run_back[0]),
-        "run_back_y_q8": q8(run_back[1]),
-        "jump_neu_x_q8": q8(jump_neu[0]),
-        "jump_neu_y_q8": q8(jump_neu[1]),
+        "run_fwd_x_q8": q8(run_fwd[0]), "run_fwd_y_q8": q8(run_fwd[1]),
+        "run_back_x_q8": q8(run_back[0]), "run_back_y_q8": q8(run_back[1]),
+        "jump_neu_x_q8": q8(jump_neu[0]), "jump_neu_y_q8": q8(jump_neu[1]),
         "jump_back_q8": q8(number(vel.get("jump.back"), -2.55)),
         "jump_fwd_q8": q8(number(vel.get("jump.fwd"), 2.5)),
         "yaccel_q8": q8(number(movement.get("yaccel"), .44)),
         "stand_friction_q8": q8(number(movement.get("stand.friction"), .85)),
         "crouch_friction_q8": q8(number(movement.get("crouch.friction"), .82)),
-        "stand_friction_threshold_q8": q8(
-            number(movement.get("stand.friction.threshold"), 2.0)
-        ),
-        "crouch_friction_threshold_q8": q8(
-            number(movement.get("crouch.friction.threshold"), .05)
-        ),
+        "stand_friction_threshold_q8":
+            q8(number(movement.get("stand.friction.threshold"), 2.0)),
+        "crouch_friction_threshold_q8":
+            q8(number(movement.get("crouch.friction.threshold"), .05)),
     }
 
 
-def parse_state(state: State, hitdef_ofs: int, sound_ofs: int):
+def compile_runtime_controller(state_no: int, ctrl: Section) -> dict | None:
+    ctype = (ctrl.get("type", "") or "").strip().lower()
+    if ctype not in ("changestate", "ctrlset", "posadd", "sprpriority"):
+        return None
+    trig_kind, trig_value = trigger(ctrl)
+
+    if ctype == "changestate":
+        has_ctrl = ctrl.get("ctrl") is not None
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_CHANGE_STATE",
+            "trigger_kind": trig_kind, "trigger_value": trig_value,
+            "value0": integer(ctrl.get("value")),
+            "value1": integer(ctrl.get("ctrl"), 0),
+            "flags": "IK_CNS_CTRL_HAS_CTRL" if has_ctrl else "0u",
+        }
+    if ctype == "ctrlset":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_CTRL_SET",
+            "trigger_kind": trig_kind, "trigger_value": trig_value,
+            "value0": integer(ctrl.get("value")),
+            "value1": 0, "flags": "0u",
+        }
+    if ctype == "posadd":
+        x, y = pair(ctrl.get("x"), 0, 0)
+        if ctrl.get("y") is not None:
+            y = number(ctrl.get("y"))
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_POS_ADD",
+            "trigger_kind": trig_kind, "trigger_value": trig_value,
+            "value0": q8(x), "value1": q8(y), "flags": "0u",
+        }
+    return {
+        "state_number": state_no,
+        "type": "IK_CNS_CTRL_SPR_PRIORITY",
+        "trigger_kind": trig_kind, "trigger_value": trig_value,
+        "value0": integer(ctrl.get("value")), "value1": 0, "flags": "0u",
+    }
+
+
+def parse_state(state: State, hitdef_ofs: int, sound_ofs: int, controller_ofs: int):
     sd = state.statedef
     state_type = STATE_TYPE.get((sd.get("type", "U") or "U").strip().upper())
     move_type = MOVE_TYPE.get((sd.get("movetype", "U") or "U").strip().upper())
@@ -229,10 +248,11 @@ def parse_state(state: State, hitdef_ofs: int, sound_ofs: int):
 
     vx, vy = pair(sd.get("velset"))
     has_velset = sd.get("velset") is not None
+    hitdefs: list[dict] = []
+    sounds: list[dict] = []
+    controllers: list[dict] = []
+    unsupported: list[str] = []
 
-    hitdefs = []
-    sounds = []
-    unsupported = []
     for ctrl in state.controllers:
         ctype = (ctrl.get("type", "") or "").strip().lower()
         if ctype == "hitdef":
@@ -251,33 +271,23 @@ def parse_state(state: State, hitdef_ofs: int, sound_ofs: int):
                 flags.append("IK_CNS_HITDEF_FORCE_NO_FALL")
             hitdefs.append({
                 "state_number": state.number,
-                "trigger_kind": trig_kind,
-                "trigger_value": trig_value,
-                "damage": int(damage),
-                "guard_damage": int(guard_damage),
+                "trigger_kind": trig_kind, "trigger_value": trig_value,
+                "damage": int(damage), "guard_damage": int(guard_damage),
                 "priority": integer((ctrl.get("priority") or "4").split(",", 1)[0], 4),
-                "pause_p1": int(pause1),
-                "pause_p2": int(pause2),
+                "pause_p1": int(pause1), "pause_p2": int(pause2),
                 "ground_type": GROUND_TYPE.get(
                     (ctrl.get("ground.type", "normal") or "normal").strip().lower(),
-                    "IK_CNS_GROUND_NORMAL",
-                ),
+                    "IK_CNS_GROUND_NORMAL"),
                 "ground_slide_time": integer(ctrl.get("ground.slidetime"), 0),
                 "ground_hit_time": integer(ctrl.get("ground.hittime"), 0),
                 "air_hit_time": integer(
-                    ctrl.get("air.hittime"), integer(ctrl.get("ground.hittime"), 0)
-                ),
-                "ground_velocity_x_q8": q8(gx),
-                "ground_velocity_y_q8": q8(gy),
-                "air_velocity_x_q8": q8(ax),
-                "air_velocity_y_q8": q8(ay),
+                    ctrl.get("air.hittime"), integer(ctrl.get("ground.hittime"), 0)),
+                "ground_velocity_x_q8": q8(gx), "ground_velocity_y_q8": q8(gy),
+                "air_velocity_x_q8": q8(ax), "air_velocity_y_q8": q8(ay),
                 "spark_no": integer(ctrl.get("sparkno"), -1),
-                "spark_x": int(sparkx),
-                "spark_y": int(sparky),
-                "hit_sound_group": hs[0],
-                "hit_sound_item": hs[1],
-                "guard_sound_group": gs[0],
-                "guard_sound_item": gs[1],
+                "spark_x": int(sparkx), "spark_y": int(sparky),
+                "hit_sound_group": hs[0], "hit_sound_item": hs[1],
+                "guard_sound_group": gs[0], "guard_sound_item": gs[1],
                 "flags": " | ".join(flags) if flags else "0u",
             })
         elif ctype == "playsnd":
@@ -285,53 +295,59 @@ def parse_state(state: State, hitdef_ofs: int, sound_ofs: int):
             group, item = sound_pair(ctrl.get("value"))
             sounds.append({
                 "state_number": state.number,
-                "trigger_kind": trig_kind,
-                "trigger_value": trig_value,
-                "group": group,
-                "item": item,
+                "trigger_kind": trig_kind, "trigger_value": trig_value,
+                "group": group, "item": item,
             })
-        elif ctype:
-            unsupported.append(ctype)
+        else:
+            try:
+                compiled = compile_runtime_controller(state.number, ctrl)
+            except ValueError:
+                compiled = None
+            if compiled is not None:
+                controllers.append(compiled)
+            elif ctype:
+                unsupported.append(ctype)
+
+    if len(hitdefs) > 32:
+        raise ValueError(f"state {state.number}: more than 32 HitDefs are not supported")
 
     state_row = {
         "number": state.number,
         "anim": integer(sd.get("anim"), state.number),
         "power_add": integer(sd.get("poweradd"), 0),
-        "velset_x_q8": q8(vx),
-        "velset_y_q8": q8(vy),
-        "state_type": state_type,
-        "move_type": move_type,
-        "physics": physics,
+        "velset_x_q8": q8(vx), "velset_y_q8": q8(vy),
+        "state_type": state_type, "move_type": move_type, "physics": physics,
         "ctrl": integer(sd.get("ctrl"), 0),
         "spr_priority": integer(sd.get("sprpriority"), 0),
         "has_velset": int(has_velset),
-        "hitdef_ofs": hitdef_ofs,
-        "hitdef_count": len(hitdefs),
-        "playsnd_ofs": sound_ofs,
-        "playsnd_count": len(sounds),
+        "hitdef_ofs": hitdef_ofs, "hitdef_count": len(hitdefs),
+        "playsnd_ofs": sound_ofs, "playsnd_count": len(sounds),
+        "controller_ofs": controller_ofs, "controller_count": len(controllers),
         "unsupported_controllers": sorted(set(unsupported)),
     }
-    return state_row, hitdefs, sounds
+    return state_row, hitdefs, sounds, controllers
 
 
 def emit(path: Path, selected: list[int], out_prefix: Path, symbol: str) -> dict:
-    sections = parse_sections(path)
-    globals_, states = collect_states(sections)
+    globals_, states = collect_states(parse_sections(path))
     by_number = {state.number: state for state in states}
-
     missing = [n for n in selected if n not in by_number]
     if missing:
         raise ValueError(f"missing Statedef(s): {missing}")
 
     const = constants(globals_)
-    state_rows = []
-    hitdefs = []
-    sounds = []
+    state_rows: list[dict] = []
+    hitdefs: list[dict] = []
+    sounds: list[dict] = []
+    controllers: list[dict] = []
+
     for number_ in selected:
-        row, hs, ss = parse_state(by_number[number_], len(hitdefs), len(sounds))
+        row, hs, ss, cs = parse_state(
+            by_number[number_], len(hitdefs), len(sounds), len(controllers))
         state_rows.append(row)
         hitdefs.extend(hs)
         sounds.extend(ss)
+        controllers.extend(cs)
 
     ident = re.sub(r"[^A-Za-z0-9_]", "_", symbol)
     macro = ident.upper()
@@ -343,11 +359,11 @@ def emit(path: Path, selected: list[int], out_prefix: Path, symbol: str) -> dict
         f"{r['state_type']}, {r['move_type']}, {r['physics']}, "
         f"{r['ctrl']}, {r['spr_priority']}, {r['has_velset']}u, "
         f"{r['hitdef_ofs']}u, {r['hitdef_count']}u, "
-        f"{r['playsnd_ofs']}u, {r['playsnd_count']}u"
+        f"{r['playsnd_ofs']}u, {r['playsnd_count']}u, "
+        f"{r['controller_ofs']}u, {r['controller_count']}u"
         "},"
         for r in state_rows
     ]
-
     hit_lines = [
         "    {"
         f"{h['state_number']}, {h['trigger_kind']}, {h['trigger_value']}, "
@@ -359,21 +375,22 @@ def emit(path: Path, selected: list[int], out_prefix: Path, symbol: str) -> dict
         f"{h['air_velocity_x_q8']}, {h['air_velocity_y_q8']}, "
         f"{h['spark_no']}, {h['spark_x']}, {h['spark_y']}, "
         f"{h['hit_sound_group']}, {h['hit_sound_item']}, "
-        f"{h['guard_sound_group']}, {h['guard_sound_item']}, "
-        f"{h['flags']}"
+        f"{h['guard_sound_group']}, {h['guard_sound_item']}, {h['flags']}"
         "},"
         for h in hitdefs
     ]
-
     sound_lines = [
-        "    {"
-        f"{p['state_number']}, {p['trigger_kind']}, {p['trigger_value']}, "
-        f"{p['group']}, {p['item']}"
-        "},"
+        f"    {{{p['state_number']}, {p['trigger_kind']}, {p['trigger_value']}, "
+        f"{p['group']}, {p['item']}}},"
         for p in sounds
     ]
+    controller_lines = [
+        f"    {{{c['state_number']}, {c['type']}, {c['trigger_kind']}, "
+        f"{c['trigger_value']}, {c['value0']}, {c['value1']}, {c['flags']}}},"
+        for c in controllers
+    ]
 
-    c = f"""/* Auto-generated by tools/ikemen_cns.py. */
+    generated_c = f"""/* Auto-generated by tools/ikemen_cns.py. */
 #include "examples/ikemen_saturn/ikemen_cns.h"
 #include "{out_prefix.name}.h"
 
@@ -387,6 +404,10 @@ static const ik_cns_hitdef_t {ident}_hitdefs[{max(1, len(hit_lines))}] = {{
 
 static const ik_cns_playsnd_t {ident}_playsnds[{max(1, len(sound_lines))}] = {{
 {chr(10).join(sound_lines) if sound_lines else '    {0},'}
+}};
+
+static const ik_cns_controller_t {ident}_controllers[{max(1, len(controller_lines))}] = {{
+{chr(10).join(controller_lines) if controller_lines else '    {0},'}
 }};
 
 const ik_cns_asset_t {ident}_cns = {{
@@ -406,35 +427,33 @@ const ik_cns_asset_t {ident}_cns = {{
     }},
     {ident}_states, {len(state_rows)}u,
     {ident}_hitdefs, {len(hitdefs)}u,
-    {ident}_playsnds, {len(sounds)}u
+    {ident}_playsnds, {len(sounds)}u,
+    {ident}_controllers, {len(controllers)}u
 }};
 """
 
-    h = f"""/* Auto-generated by tools/ikemen_cns.py. */
+    generated_h = f"""/* Auto-generated by tools/ikemen_cns.py. */
 #pragma once
-
 #include "examples/ikemen_saturn/ikemen_cns.h"
 
 #define {macro}_CNS_STATE_COUNT {len(state_rows)}u
 #define {macro}_CNS_HITDEF_COUNT {len(hitdefs)}u
 #define {macro}_CNS_PLAYSND_COUNT {len(sounds)}u
+#define {macro}_CNS_CONTROLLER_COUNT {len(controllers)}u
 
 extern const ik_cns_asset_t {ident}_cns;
 """
 
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
-    out_prefix.with_suffix(".c").write_text(c, encoding="utf-8")
-    out_prefix.with_suffix(".h").write_text(h, encoding="utf-8")
+    out_prefix.with_suffix(".c").write_text(generated_c, encoding="utf-8")
+    out_prefix.with_suffix(".h").write_text(generated_h, encoding="utf-8")
 
     report = {
-        "states": state_rows,
-        "constants": const,
-        "hitdefs": hitdefs,
-        "playsnds": sounds,
+        "states": state_rows, "constants": const, "hitdefs": hitdefs,
+        "playsnds": sounds, "controllers": controllers,
     }
     out_prefix.with_suffix(".json").write_text(
-        json.dumps(report, indent=2), encoding="utf-8"
-    )
+        json.dumps(report, indent=2), encoding="utf-8")
     return report
 
 
@@ -454,7 +473,8 @@ def main(argv: list[str] | None = None) -> int:
     }
     print(
         f"[ikemen_cns] {args.symbol}: states={len(report['states'])} "
-        f"hitdefs={len(report['hitdefs'])} playsnds={len(report['playsnds'])}"
+        f"hitdefs={len(report['hitdefs'])} playsnds={len(report['playsnds'])} "
+        f"controllers={len(report['controllers'])}"
     )
     if unsupported:
         print(f"[ikemen_cns] deferred controllers: {unsupported}")

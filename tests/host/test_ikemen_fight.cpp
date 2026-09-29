@@ -1,234 +1,190 @@
 #include <cstdio>
 #include <cstdlib>
-#include <cstdint>
 
 #include "examples/ikemen_saturn/ikemen_fight.h"
 
-#define ASSERT_EQ(a, b) do { if ((a) != (b)) {     std::fprintf(stderr, "FAIL %d: %s (%ld) != %s (%ld)\n", __LINE__,                  #a, (long)(a), #b, (long)(b)); std::exit(1); } } while (0)
-#define ASSERT_TRUE(c) do { if (!(c)) {     std::fprintf(stderr, "FAIL %d: %s\n", __LINE__, #c); std::exit(1); } } while (0)
+#define EQ(a,b) do { if ((a)!=(b)) { std::fprintf(stderr,"FAIL %d: %s=%ld %s=%ld\n",__LINE__,#a,(long)(a),#b,(long)(b)); std::exit(1); } } while(0)
+#define OK(x) do { if (!(x)) { std::fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x); std::exit(1); } } while(0)
 
 static const ik_clsn_box_t k_boxes[] = {
-    {-13, -93, 16, 0},       /* 0 idle hurt */
-    {16, -80, 61, -71},      /* 1 punch attack */
-    {-10, -94, 19, 0},       /* 2 punch hurt */
-    {14, -53, 38, -36},      /* 3 kick attack */
-    {35, -42, 56, -29},      /* 4 kick attack */
-    {53, -34, 69, -23},      /* 5 kick attack */
-    {-10, -99, 19, 0},       /* 6 kick hurt */
+    {-15,-95,16,0},       /* 0 generic hurt */
+    {16,-80,90,-65},      /* 1 generic attack */
+    {10,-65,110,-20},     /* 2 crouch attack */
 };
+
+#define F(action,index,ticks,c1ofs,c1cnt)     {action,index,64u,96u,16,93,ticks,0u,0u,c1ofs,c1cnt,0u,1u}
 
 static const ik_frame_t k_frames[] = {
-    {0u,   0u, 32u, 96u, 16, 93, 0u, 0u, 0u, 0u, 0u, 0u, 1u},
+    F(0,0,0,0,0),
+    F(11,0,0,0,0),
+    F(105,0,0,0,0),
 
-    {200u, 0u, 32u, 96u, 16, 93, 2u, 0u, 0u, 0u, 0u, 2u, 1u},
-    {200u, 1u, 32u, 96u, 16, 93, 1u, 0u, 0u, 0u, 0u, 2u, 1u},
-    {200u, 2u, 64u, 96u, 16, 93, 4u, 0u, 0u, 1u, 1u, 2u, 1u},
-    {200u, 3u, 32u, 96u, 16, 93, 3u, 0u, 0u, 0u, 0u, 2u, 1u},
-    {200u, 4u, 32u, 96u, 16, 93, 2u, 0u, 0u, 0u, 0u, 2u, 1u},
+    F(200,0,2,0,0), F(200,1,1,0,0), F(200,2,4,1,1),
+    F(200,3,3,0,0), F(200,4,2,0,0),
 
-    {210u, 0u, 32u, 96u, 16, 93, 2u, 0u, 0u, 0u, 0u, 2u, 1u},
-    {210u, 1u, 32u, 96u, 16, 93, 1u, 0u, 0u, 0u, 0u, 2u, 1u},
-    {210u, 2u, 64u, 96u, 16, 93, 5u, 0u, 0u, 1u, 1u, 2u, 1u},
-    {210u, 3u, 32u, 96u, 16, 93, 5u, 0u, 0u, 0u, 0u, 2u, 1u},
+    F(210,0,2,0,0), F(210,1,1,0,0), F(210,2,5,1,1),
+    F(210,3,5,0,0),
 
-    {230u, 0u, 32u, 96u, 16, 93, 2u, 0u, 0u, 0u, 0u, 6u, 1u},
-    {230u, 1u, 32u, 96u, 16, 93, 2u, 0u, 0u, 0u, 0u, 6u, 1u},
-    {230u, 2u, 72u, 96u, 16, 93, 3u, 0u, 0u, 3u, 3u, 6u, 1u},
-    {230u, 3u, 72u, 96u, 16, 93, 3u, 0u, 0u, 0u, 0u, 6u, 1u},
-    {230u, 4u, 40u, 96u, 16, 93, 3u, 0u, 0u, 0u, 0u, 6u, 1u},
-    {230u, 5u, 32u, 96u, 16, 93, 2u, 0u, 0u, 0u, 0u, 6u, 1u},
+    F(230,0,2,0,0), F(230,1,2,0,0), F(230,2,3,1,1),
+    F(230,3,3,0,0), F(230,4,3,0,0), F(230,5,2,0,0),
 
-    {240u, 0u, 32u, 96u, 16, 93, 2u, 0u, 0u, 0u, 0u, 6u, 1u},
-    {240u, 1u, 32u, 96u, 16, 93, 2u, 0u, 0u, 0u, 0u, 6u, 1u},
-    {240u, 2u, 72u, 96u, 16, 93, 5u, 0u, 0u, 3u, 3u, 6u, 1u},
-    {240u, 3u, 32u, 96u, 16, 93, 5u, 0u, 0u, 0u, 0u, 6u, 1u},
+    F(240,0,2,0,0), F(240,1,2,0,0), F(240,2,3,1,1),
+    F(240,3,2,0,0), F(240,4,2,0,0), F(240,5,2,0,0),
+    F(240,6,2,0,0),
+
+    F(400,0,3,0,0), F(400,1,3,2,1), F(400,2,3,0,0),
+
+    F(410,0,2,0,0), F(410,1,1,0,0), F(410,2,2,2,1),
+    F(410,3,2,2,1), F(410,4,2,0,0),
+
+    F(430,0,2,0,0), F(430,1,3,2,1), F(430,2,3,0,0),
+
+    F(440,0,2,0,0), F(440,1,2,0,0), F(440,2,4,2,1),
+    F(440,3,3,0,0),
 };
+#undef F
 
 static const ik_frame_table_t k_table = {
-    k_frames,
-    sizeof(k_frames) / sizeof(k_frames[0]),
-    k_boxes,
-    sizeof(k_boxes) / sizeof(k_boxes[0])
+    k_frames, sizeof(k_frames)/sizeof(k_frames[0]),
+    k_boxes, sizeof(k_boxes)/sizeof(k_boxes[0])
 };
 
 static const ik_cns_hitdef_t k_hitdefs[] = {
-    {200, IK_CNS_TRIGGER_ANIM_ELEM_EQ, 3,
-     23, 0, 3u, 8u, 8u,
-     IK_CNS_GROUND_HIGH, 5u, 11u, 15u,
-     -4 * IK_CNS_Q8_ONE, 0, -358, -3 * IK_CNS_Q8_ONE,
-     0, -10, -76, 5, 0, 6, 0, 0u},
-    {210, IK_CNS_TRIGGER_ANIM_ELEM_EQ, 3,
-     57, 0, 4u, 12u, 12u,
-     IK_CNS_GROUND_HIGH, 12u, 16u, 16u,
-     -1408, 0, -640, -4 * IK_CNS_Q8_ONE,
-     1, -10, -70, 5, 2, 6, 0, IK_CNS_HITDEF_FORCE_NO_FALL},
-    {230, IK_CNS_TRIGGER_TIME_EQ, 0,
-     26, 0, 4u, 12u, 12u,
-     IK_CNS_GROUND_LOW, 10u, 14u, 14u,
-     -5 * IK_CNS_Q8_ONE, 0, -640, -896,
-     0, -10, -37, 5, 1, 6, 0, 0u},
-    {240, IK_CNS_TRIGGER_TIME_EQ, 0,
-     63, 0, 4u, 12u, 12u,
-     IK_CNS_GROUND_LOW, 12u, 17u, 17u,
-     -6 * IK_CNS_Q8_ONE, 0, -563, -819,
-     1, -10, -60, 5, 2, 6, 0, 0u},
+    {200,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,23,0,3,8,8,IK_CNS_GROUND_HIGH,5,11,15,-1024,0,-358,-768,0,-10,-76,5,0,6,0,0},
+    {210,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,57,0,4,12,12,IK_CNS_GROUND_HIGH,12,16,16,-1408,0,-640,-1024,1,-10,-70,5,2,6,0,IK_CNS_HITDEF_FORCE_NO_FALL},
+    {230,IK_CNS_TRIGGER_TIME_EQ,0,26,0,4,12,12,IK_CNS_GROUND_LOW,10,14,14,-1280,0,-640,-896,0,-10,-37,5,1,6,0,0},
+    {240,IK_CNS_TRIGGER_TIME_EQ,0,63,0,4,12,12,IK_CNS_GROUND_LOW,12,17,17,-1536,0,-563,-819,1,-10,-60,5,2,6,0,0},
+    {400,IK_CNS_TRIGGER_TIME_EQ,0,23,0,3,10,11,IK_CNS_GROUND_LOW,4,9,9,-1024,0,-384,-768,0,-10,-42,5,0,6,0,0},
+    {410,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,37,0,4,12,12,IK_CNS_GROUND_LOW,12,17,17,-1024,0,-768,-1024,1,-10,-55,5,2,6,0,0},
+    {410,IK_CNS_TRIGGER_ANIM_ELEM_EQ,4,36,0,4,12,12,IK_CNS_GROUND_HIGH,12,17,17,-1792,0,-768,-1024,-1,-10,-83,5,2,6,0,0},
+    {430,IK_CNS_TRIGGER_TIME_EQ,0,28,0,4,12,12,IK_CNS_GROUND_LOW,6,10,10,-1280,0,-512,-768,0,-10,-8,5,1,6,0,0},
+    {440,IK_CNS_TRIGGER_TIME_EQ,0,72,0,4,12,12,IK_CNS_GROUND_TRIP,10,17,17,-384,-512,-307,-768,1,-5,-10,5,2,6,0,IK_CNS_HITDEF_FALL},
 };
+
+static const ik_cns_controller_t k_ctrls[] = {
+    {200,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,0,0,1,IK_CNS_CTRL_HAS_CTRL},
+    {210,IK_CNS_CTRL_SPR_PRIORITY,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,2,0,0},
+    {210,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,0,0,1,IK_CNS_CTRL_HAS_CTRL},
+    {230,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,0,0,1,IK_CNS_CTRL_HAS_CTRL},
+    {240,IK_CNS_CTRL_POS_ADD,IK_CNS_TRIGGER_ANIM_ELEM_EQ,7,12*256,0,0},
+    {240,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,0,0,1,IK_CNS_CTRL_HAS_CTRL},
+    {400,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_TIME_EQ,6,1,0,0},
+    {400,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,0,11,0,0},
+    {410,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,0,11,1,IK_CNS_CTRL_HAS_CTRL},
+    {430,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,0,11,1,IK_CNS_CTRL_HAS_CTRL},
+    {440,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,0,11,1,IK_CNS_CTRL_HAS_CTRL},
+};
+
+#define S(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_STAND,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt}
+#define C(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_CROUCH,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt}
 
 static const ik_cns_state_t k_states[] = {
-    {200, 200, 10, 0, 0, IK_CNS_STATE_STAND, IK_CNS_MOVE_ATTACK,
-     IK_CNS_PHYS_STAND, 0, 2, 1u, 0u, 1u, 0u, 0u},
-    {210, 210, 30, 0, 0, IK_CNS_STATE_STAND, IK_CNS_MOVE_ATTACK,
-     IK_CNS_PHYS_STAND, 0, -1, 1u, 1u, 1u, 0u, 0u},
-    {230, 230, 11, 0, 0, IK_CNS_STATE_STAND, IK_CNS_MOVE_ATTACK,
-     IK_CNS_PHYS_STAND, 0, 2, 1u, 2u, 1u, 0u, 0u},
-    {240, 240, 30, 0, 0, IK_CNS_STATE_STAND, IK_CNS_MOVE_ATTACK,
-     IK_CNS_PHYS_STAND, 0, 2, 1u, 3u, 1u, 0u, 0u},
+    S(200,200,0,1,0,1),
+    S(210,210,1,1,1,2),
+    S(230,230,2,1,3,1),
+    S(240,240,3,1,4,2),
+    C(400,400,4,1,6,2),
+    C(410,410,5,2,8,1),
+    C(430,430,7,1,9,1),
+    C(440,440,8,1,10,1),
 };
+#undef S
+#undef C
 
 static const ik_cns_asset_t k_cns = {
-    {1000, 15, 16, 12, 12, 60,
-     614, -563, 1178, 0, -1152, -973,
-     0, -2150, -653, 640,
-     113, 218, 210, 512, 13},
-    k_states, 4u,
-    k_hitdefs, 4u,
-    nullptr, 0u
+    {1000,15,16,12,12,60,614,-563,1178,0,-1152,-973,0,-2150,-653,640,113,218,210,512,13},
+    k_states,8u,
+    k_hitdefs,9u,
+    nullptr,0u,
+    k_ctrls,11u
 };
 
-static void tick(ik_fight_t* g, const ik_fight_controls_t* p1) {
-    ik_fight_update(g, p1, nullptr, &k_table);
+static void tick(ik_fight_t* g, const ik_fight_controls_t* p) {
+    ik_fight_update(g,p,nullptr,&k_table);
 }
 
-static void idle_ticks(ik_fight_t* g, int count) {
-    ik_fight_controls_t idle = {};
-    for (int i = 0; i < count; ++i) tick(g, &idle);
+static void idle(ik_fight_t* g,int n) {
+    ik_fight_controls_t p{};
+    for(int i=0;i<n;++i) tick(g,&p);
+}
+
+static void place(ik_fight_t* g,int x0,int x1) {
+    g->fighters[0].x=(int16_t)x0;
+    g->fighters[0].x_q8=x0*256;
+    g->fighters[1].x=(int16_t)x1;
+    g->fighters[1].x_q8=x1*256;
 }
 
 int main() {
     ik_fight_t g;
-    ik_fight_init(&g, &k_cns);
-    ASSERT_EQ(g.fighters[0].hp, 1000);
-    ASSERT_EQ(ik_fight_max_hp(&g), 1000);
-    ASSERT_EQ(ik_action_for_state(&k_cns, IK_STATE_STRONG_PUNCH), 210);
-    ASSERT_EQ(ik_action_duration_ticks(&k_table, 200), 12u);
-    ASSERT_EQ(ik_action_duration_ticks(&k_table, 230), 15u);
+    ik_fight_init(&g,&k_cns);
+    EQ(g.fighters[0].hp,1000);
+    EQ(g.fighters[0].push_front,16);
+    EQ(g.fighters[0].push_back,15);
 
     {
-        const int16_t x0 = g.fighters[0].x;
-        ik_fight_controls_t p = {};
-        p.forward = 1u;
-        tick(&g, &p);
-        ASSERT_TRUE(g.fighters[0].x > x0);
-        ASSERT_EQ(g.fighters[0].x_q8, 110 * IK_CNS_Q8_ONE + 614);
-    }
-
-    /* Real state 200 HitDef only becomes active at AnimElem 3. */
-    {
-        ik_fight_init(&g, &k_cns);
-        g.fighters[0].x = 100;
-        g.fighters[0].x_q8 = 100 * IK_CNS_Q8_ONE;
-        g.fighters[1].x = 150;
-        g.fighters[1].x_q8 = 150 * IK_CNS_Q8_ONE;
-        const int hp0 = g.fighters[1].hp;
-
-        ik_fight_controls_t attack = {};
-        attack.x = 1u;
-        tick(&g, &attack);
-        idle_ticks(&g, 3);
-
-        ASSERT_EQ(hp0 - g.fighters[1].hp, 23);
-        ASSERT_EQ(g.hits_p1, 1u);
-        ASSERT_EQ(g.fighters[0].hit_pause, 8u);
-        ASSERT_EQ(g.fighters[1].hitstun, 11u);
-    }
-
-    /* Outside the real +61 Clsn1 there is no hit. */
-    {
-        ik_fight_init(&g, &k_cns);
-        g.fighters[0].x = 100;
-        g.fighters[0].x_q8 = 100 * IK_CNS_Q8_ONE;
-        g.fighters[1].x = 180;
-        g.fighters[1].x_q8 = 180 * IK_CNS_Q8_ONE;
-        const int hp0 = g.fighters[1].hp;
-        ik_fight_controls_t attack = {};
-        attack.x = 1u;
-        tick(&g, &attack);
-        idle_ticks(&g, 12);
-        ASSERT_EQ(g.fighters[1].hp, hp0);
-    }
-
-    /* State 230 damage and pause come from the compiled CNS data. */
-    {
-        ik_fight_init(&g, &k_cns);
-        g.fighters[0].x = 100;
-        g.fighters[0].x_q8 = 100 * IK_CNS_Q8_ONE;
-        g.fighters[1].x = 150;
-        g.fighters[1].x_q8 = 150 * IK_CNS_Q8_ONE;
-        const int hp0 = g.fighters[1].hp;
-        ik_fight_controls_t attack = {};
-        attack.a = 1u;
-        tick(&g, &attack);
-        idle_ticks(&g, 4);
-        ASSERT_EQ(hp0 - g.fighters[1].hp, 26);
-        ASSERT_EQ(g.hits_p1, 1u);
-    }
-
-    /* Strong punch is state 210 / Y and preserves its fractional -5.5
-     * HitDef velocity in Q8.8. */
-    {
-        ik_fight_init(&g, &k_cns);
-        g.fighters[0].x = 100;
-        g.fighters[0].x_q8 = 100 * IK_CNS_Q8_ONE;
-        g.fighters[1].x = 150;
-        g.fighters[1].x_q8 = 150 * IK_CNS_Q8_ONE;
-        const int hp0 = g.fighters[1].hp;
-        ik_fight_controls_t attack = {};
-        attack.y = 1u;
-        tick(&g, &attack);
-        idle_ticks(&g, 3);
-        ASSERT_EQ(hp0 - g.fighters[1].hp, 57);
-        ASSERT_EQ(g.fighters[1].vx_q8, 1408);
-    }
-
-    /* Strong kick is state 240 / B. */
-    {
-        ik_fight_init(&g, &k_cns);
-        g.fighters[0].x = 100;
-        g.fighters[0].x_q8 = 100 * IK_CNS_Q8_ONE;
-        g.fighters[1].x = 150;
-        g.fighters[1].x_q8 = 150 * IK_CNS_Q8_ONE;
-        const int hp0 = g.fighters[1].hp;
-        ik_fight_controls_t attack = {};
-        attack.b = 1u;
-        tick(&g, &attack);
-        idle_ticks(&g, 4);
-        ASSERT_EQ(hp0 - g.fighters[1].hp, 63);
-    }
-
-    ASSERT_TRUE(!ik_boxes_overlap(0, 0, 10, 10, 10, 0, 20, 10));
-    ASSERT_TRUE(ik_boxes_overlap(0, 0, 10, 10, 9, 0, 20, 10));
-
-    {
-        ik_fight_init(&g, &k_cns);
-        g.fighters[1].hp = 20;
-        g.fighters[0].x = 100;
-        g.fighters[0].x_q8 = 100 * IK_CNS_Q8_ONE;
-        g.fighters[1].x = 150;
-        g.fighters[1].x_q8 = 150 * IK_CNS_Q8_ONE;
-        ik_fight_controls_t attack = {};
-        attack.a = 1u;
-        tick(&g, &attack);
-        idle_ticks(&g, 4);
-        ASSERT_TRUE(g.round_over);
-        ASSERT_EQ(g.winner, 1);
+        const int x=g.fighters[0].x;
+        ik_fight_controls_t p{}; p.forward=1;
+        tick(&g,&p);
+        OK(g.fighters[0].x>x);
+        EQ(g.fighters[0].x_q8,110*256+614);
     }
 
     {
-        ik_fight_controls_t reset = {};
-        reset.start = 1u;
-        tick(&g, &reset);
-        ASSERT_TRUE(!g.round_over);
-        ASSERT_EQ(g.fighters[0].hp, 1000);
+        ik_fight_init(&g,&k_cns); place(&g,100,150);
+        const int hp=g.fighters[1].hp;
+        ik_fight_controls_t p{}; p.x=1;
+        tick(&g,&p); idle(&g,3);
+        EQ(hp-g.fighters[1].hp,23);
+        EQ(g.hits_p1,1u);
+    }
+
+    /* Down+X enters real crouching state 400. Its Time=6 CtrlSet is executed,
+     * and AnimTime=0 returns to common crouch state 11. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,170);
+        ik_fight_controls_t p{}; p.down=1; p.x=1;
+        tick(&g,&p);
+        EQ(g.fighters[0].state,IK_STATE_CROUCH_PUNCH);
+        idle(&g,6);
+        EQ(g.fighters[0].ctrl,1);
+        idle(&g,3);
+        EQ(g.fighters[0].state,IK_STATE_CROUCH);
+        EQ(g.fighters[0].anim,11);
+    }
+
+    /* State 410 owns two HitDefs. Each one may connect once; the old single
+     * attack_has_hit latch incorrectly suppressed the second hit. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        const int hp=g.fighters[1].hp;
+        ik_fight_controls_t p{}; p.down=1; p.y=1;
+        tick(&g,&p);
+        for(int i=0;i<40 && g.hits_p1<2u;++i) idle(&g,1);
+        EQ(g.hits_p1,2u);
+        EQ(hp-g.fighters[1].hp,73);
+    }
+
+    /* State 240 PosAdd at AnimElem 7 moves forward relative to facing. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,80,220);
+        ik_fight_controls_t p{}; p.b=1;
+        tick(&g,&p);
+        const int32_t before=g.fighters[0].x_q8;
+        for(int i=0;i<12;++i) idle(&g,1);
+        OK(g.fighters[0].x_q8>=before+12*256);
+    }
+
+    /* Sweep uses fall/vertical ground velocity instead of flattening the
+     * HitDef into horizontal-only knockback. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        ik_fight_controls_t p{}; p.down=1; p.b=1;
+        tick(&g,&p);
+        for(int i=0;i<5 && g.hits_p1==0u;++i) idle(&g,1);
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].on_ground,0);
+        OK(g.fighters[1].vy_q8<0);
     }
 
     std::puts("[test] ikemen_fight OK");

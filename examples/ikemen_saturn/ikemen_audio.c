@@ -23,17 +23,45 @@ static void play_attack_sound(const ik_audio_t* audio, int16_t state, int hit) {
     sat_sound_t sound = {0u, 0u};
 
     if (hit) {
-        if (state == IK_STATE_PUNCH) sound = audio->punch_hit;
-        else if (state == IK_STATE_KICK) sound = audio->kick_hit;
-        else if (state == IK_STATE_STRONG_PUNCH ||
-                 state == IK_STATE_STRONG_KICK) sound = audio->strong_hit;
-        else return;
+        switch (state) {
+            case IK_STATE_PUNCH:
+            case IK_STATE_CROUCH_PUNCH:
+                sound = audio->punch_hit;
+                break;
+            case IK_STATE_KICK:
+            case IK_STATE_CROUCH_KICK:
+                sound = audio->kick_hit;
+                break;
+            case IK_STATE_STRONG_PUNCH:
+            case IK_STATE_STRONG_KICK:
+            case IK_STATE_CROUCH_STRONG_PUNCH:
+            case IK_STATE_CROUCH_STRONG_KICK:
+                sound = audio->strong_hit;
+                break;
+            default:
+                return;
+        }
     } else {
-        if (state == IK_STATE_PUNCH) sound = audio->punch_whiff;
-        else if (state == IK_STATE_KICK ||
-                 state == IK_STATE_STRONG_KICK) sound = audio->kick_whiff;
-        else if (state == IK_STATE_STRONG_PUNCH) sound = audio->strong_punch_whiff;
-        else return;
+        switch (state) {
+            case IK_STATE_PUNCH:
+            case IK_STATE_CROUCH_PUNCH:
+            case IK_STATE_CROUCH_STRONG_PUNCH:
+            case IK_STATE_CROUCH_KICK:
+                sound = audio->punch_whiff;
+                break;
+            case IK_STATE_KICK:
+            case IK_STATE_STRONG_KICK:
+                sound = audio->kick_whiff;
+                break;
+            case IK_STATE_STRONG_PUNCH:
+                sound = audio->strong_punch_whiff;
+                break;
+            case IK_STATE_CROUCH_STRONG_KICK:
+                sound = audio->sweep_whiff;
+                break;
+            default:
+                return;
+        }
     }
 
     (void)sat_sound_play(sound, 0, 0);
@@ -53,6 +81,8 @@ sat_result_t ik_audio_init(ik_audio_t* audio) {
     st = create_pcm_sound(
         &audio->strong_punch_whiff, &kfm_sounds_strong_punch_whiff);
     if (st != SAT_OK) return st;
+    st = create_pcm_sound(&audio->sweep_whiff, &kfm_sounds_sweep_whiff);
+    if (st != SAT_OK) return st;
     st = create_pcm_sound(&audio->punch_hit, &kfm_sounds_punch_hit);
     if (st != SAT_OK) return st;
     st = create_pcm_sound(&audio->kick_hit, &kfm_sounds_kick_hit);
@@ -63,32 +93,35 @@ sat_result_t ik_audio_init(ik_audio_t* audio) {
 void ik_audio_process_fight(ik_audio_t* audio, const ik_fight_t* fight) {
     if (audio == 0 || fight == 0) return;
 
-    /* These timings come from the compiled KFM CNS slice:
-     *   200: PlaySnd Time=1 value=0,0
-     *   210: PlaySnd Time=2 value=0,4
-     *   230: PlaySnd Time=2 value=0,1
-     *   240: PlaySnd Time=2 value=0,1
-     * The sound assets themselves are extracted from the original SND files. */
     for (int i = 0; i < 2; ++i) {
         const ik_fighter_t* fighter = &fight->fighters[i];
-        if (fighter->state == IK_STATE_PUNCH && fighter->state_time == 1u) {
-            play_attack_sound(audio, IK_STATE_PUNCH, 0);
-        } else if (fighter->state == IK_STATE_STRONG_PUNCH &&
-                   fighter->state_time == 2u) {
-            play_attack_sound(audio, IK_STATE_STRONG_PUNCH, 0);
-        } else if ((fighter->state == IK_STATE_KICK ||
-                    fighter->state == IK_STATE_STRONG_KICK) &&
-                   fighter->state_time == 2u) {
-            play_attack_sound(audio, fighter->state, 0);
+        const int16_t state = fighter->state;
+        const uint16_t time = fighter->state_time;
+
+        if ((state == IK_STATE_PUNCH ||
+             state == IK_STATE_CROUCH_PUNCH ||
+             state == IK_STATE_CROUCH_STRONG_PUNCH ||
+             state == IK_STATE_CROUCH_KICK) && time == 1u) {
+            play_attack_sound(audio, state, 0);
+        } else if ((state == IK_STATE_STRONG_PUNCH ||
+                    state == IK_STATE_KICK ||
+                    state == IK_STATE_STRONG_KICK ||
+                    state == IK_STATE_CROUCH_STRONG_KICK) && time == 2u) {
+            play_attack_sound(audio, state, 0);
         }
     }
 
     if ((fight->events & IK_EVENT_HIT) != 0u) {
         for (int i = 0; i < 2; ++i) {
             const int16_t state = fight->fighters[i].state;
-            if (state == IK_STATE_PUNCH || state == IK_STATE_KICK ||
+            if (state == IK_STATE_PUNCH ||
                 state == IK_STATE_STRONG_PUNCH ||
-                state == IK_STATE_STRONG_KICK) {
+                state == IK_STATE_KICK ||
+                state == IK_STATE_STRONG_KICK ||
+                state == IK_STATE_CROUCH_PUNCH ||
+                state == IK_STATE_CROUCH_STRONG_PUNCH ||
+                state == IK_STATE_CROUCH_KICK ||
+                state == IK_STATE_CROUCH_STRONG_KICK) {
                 play_attack_sound(audio, state, 1);
                 break;
             }

@@ -21,13 +21,20 @@ extern "C" {
 
 typedef enum ik_state {
     IK_STATE_IDLE = 0,
+    IK_STATE_CROUCH = 11,
     IK_STATE_WALK = 20,
     IK_STATE_JUMP = 40,
-    IK_STATE_CROUCH = 50,
+
     IK_STATE_PUNCH = 200,
     IK_STATE_STRONG_PUNCH = 210,
     IK_STATE_KICK = 230,
     IK_STATE_STRONG_KICK = 240,
+
+    IK_STATE_CROUCH_PUNCH = 400,
+    IK_STATE_CROUCH_STRONG_PUNCH = 410,
+    IK_STATE_CROUCH_KICK = 430,
+    IK_STATE_CROUCH_STRONG_KICK = 440,
+
     IK_STATE_HIT = 500,
     IK_STATE_KO = 510,
     IK_STATE_GUARD = 550
@@ -62,14 +69,26 @@ typedef struct ik_fighter {
     int32_t y_q8;
     int32_t vx_q8;
     int32_t vy_q8;
+
     int8_t facing;
     int8_t on_ground;
+    int8_t ctrl;
+    int8_t spr_priority;
+
     int16_t state;
     uint16_t state_time;
+    int16_t anim;
+    uint16_t anim_time;
+
     int16_t hp;
     uint16_t hitstun;
     uint16_t hit_pause;
-    uint8_t attack_has_hit;
+
+    int16_t push_back;
+    int16_t push_front;
+    int16_t body_height;
+
+    uint32_t hitdef_hit_mask;
     uint8_t attack_id;
     uint8_t move_contact;
 } ik_fighter_t;

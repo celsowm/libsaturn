@@ -1,60 +1,91 @@
 # Ikemen Saturn (training subset)
 
-Kung Fu Man vs Kung Fu Man training demo proving LibSaturn 2D capacity
-with real Ikemen GO screenpack assets.
+Kung Fu Man vs Kung Fu Man training demo using the original Ikemen/MUGEN
+character data on Saturn hardware.
 
 ## Controls
 
-* D-pad: forward/back / crouch / jump, interpreted relative to facing
-* X/Y: KFM standing light/strong punch
-* A/B: KFM standing light/strong kick
-* START: reset round (training-demo convenience; KFM's taunt state is not wired yet)
+* D-pad: movement / crouch / jump, relative to facing
+* X/Y: light/strong punch
+* A/B: light/strong kick
+* Down + X/Y/A/B: the four crouching normals
+* START: reset round (training convenience)
 * P2 pad (optional): controls P2; unplugged = idle training dummy
+
+## Offline compilation
+
+The Saturn does not parse Ikemen formats at runtime:
+
+* `tools/ikemen_sff`: SFF/AIR sprites, timings and Clsn1/Clsn2
+* `tools/ikemen_snd.py`: SND/WAV samples
+* `tools/ikemen_cmd.py`: KFM CMD command grammar and buffers
+* `tools/ikemen_cns.py`: KFM constants, Statedefs, HitDefs, PlaySnd and
+  compact supported state controllers
+
+Generated tables live under `build/generated/ikemen_saturn/`.
+
+## Current fidelity
+
+The playable normal attacks now use the original KFM data for states:
+
+* 200 / 210: standing light / strong punch
+* 230 / 240: standing light / strong kick
+* 400 / 410: crouching light / strong punch
+* 430 / 440: crouching light / strong kick
+
+For those states, damage, hit pause, hit time, knockback, AIR collision boxes,
+animation timing and the supported controllers come from the source data
+instead of duplicate gameplay constants.
+
+The CNS runtime now executes these controller forms:
+
+* `ChangeState` with Time / AnimElem / AnimTime=0 triggers
+* `CtrlSet`
+* `PosAdd`
+* `SprPriority`
+
+State 410's two HitDefs are tracked independently, so both hits can connect.
+State 440 preserves its fall flag and vertical launch instead of flattening the
+sweep into horizontal knockback.
+
+KFM `[Data]`, `[Size]`, `[Velocity]` and `[Movement]` values are compiled
+to fixed-point Q8.8. Walking, jump launch, gravity, friction, body height and
+default player push widths consume those original constants.
+
+The CMD runtime still compiles the complete `kfm.cmd` list and implements
+facing-relative B/F, signed input ages, `/`, `~`, `$`, `+`, `|`, `>`,
+timing/buffering and duplicate command variants. Standing and crouching normal
+chain gates are wired from the KFM state -1 rules.
+
+## Texture residency
+
+The selected AIR subset now references more than 64 unique KFM sprites, while
+LibSaturn intentionally exposes 64 logical texture slots. The example therefore
+no longer pre-uploads the whole character. A bounded 32-entry LRU working set
+uploads frame textures from ROM on demand and pins both fighters' current
+textures before emitting VDP1 commands, preventing an eviction from
+invalidating the current command list.
+
+## Still deferred
+
+This is not yet a full CNS/common-state VM. Important remaining pieces include:
+
+* state 210's `Width` and move-contact `ChangeAnim`
+* full common1 state flow (stand↔crouch transitions, jump start/landing,
+  run/hop, guards and complete get-hit/knockdown/recovery states)
+* aerial normals, throws, specials and supers
+* guard semantics and the remaining HitDef fields
+* fightfx sparks/effects, motif/lifebar flow and full round presentation
+* generic PlaySnd dispatch from compiled CNS instead of the current small
+  sound binding layer
+
+Unsupported selected controllers are reported by the CNS compiler rather than
+silently approximated.
 
 ## Assets and attribution
 
-Sprites, palettes and the stage come from the
+Sprites, palettes, sounds and Training Room content come from
 [Ikemen-GO-Screenpack](https://github.com/ikemen-engine/Ikemen-GO-Screenpack)
-(Kung Fu Man and the stage0 "Training Room", Elecbyte/Ikemen GO authors;
-see that repo's LICENCE.txt). `.external/Ikemen-GO-Screenpack` is a local
-clone; nothing from it enters the repo tree -- only generated C tables under
-`build/generated/ikemen_saturn/`.
-
-Conversion happens offline in `tools/ikemen_sff` (SFF/AIR),
-`tools/ikemen_snd.py` (SND), `tools/ikemen_cmd.py` (CMD), and
-`tools/ikemen_cns.py` (the deterministic CNS subset). The Saturn runtime
-consumes generated tables and never parses the source text/container formats.
-
-## Scope
-
-* Rendering and collision sample the real KFM AIR actions and generated
-  per-frame Clsn1/Clsn2 boxes, including facing and AIR flips.
-* The complete `kfm.cmd` command list is compiled into bounded tables.
-  Runtime matching supports facing-relative B/F, signed input ages, `/`,
-  `~`, `$`, `+`, `|`, `>`, command timing/buffering, duplicate-name
-  variants and repeated-direction auto-greater expansion.
-* The CNS compiler emits KFM constants, selected Statedef metadata, HitDefs
-  and PlaySnd controllers. Fractional velocity/physics values are Q8.8 so
-  values such as walk 2.4, gravity .44 and strong-punch knockback -5.5 are
-  retained without floating point on SH-2.
-* Standing normals 200, 210, 230 and 240 now execute from the generated CNS
-  state/HitDef data: X = 200, Y = 210, A = 230 and B = 240. Damage, hit pause,
-  hit time, velocity and HitDef activation no longer come from duplicate
-  constants in `ikemen_fight.c`.
-* Ground walking, jump launch and gravity now consume the original KFM
-  `[Velocity]` / `[Movement]` values in Q8.8 rather than the previous
-  integer approximations.
-* KFM's documented 200/230 -> 210/240 normal cancels are wired at their CMD
-  state-time gates. More complex CNS controllers such as Width, ChangeAnim,
-  PosAdd and SprPriority are still deferred and are reported by the compiler.
-* Stage0 is the real Training Room image on VDP2 NBG0. P2 uses a draw-time
-  palette override while both fighters share one VDP1 pixel copy.
-* Audio includes the original whiff/hit samples for all four standing normals.
-  Stage0 has no BGM entry.
-
-## Runtime constraints
-
-* Generated asset/command/CNS tables live in ROM.
-* Command matcher state is fixed-capacity and allocation-free.
-* CNS fractional fields use Q8.8; no floating point is required on Saturn.
-* 4 MB expansion RAM is not required.
+(Kung Fu Man / Elecbyte / Ikemen GO authors; see that repository's licence).
+The source checkout stays under `.external/`; generated tables are rebuilt
+locally.

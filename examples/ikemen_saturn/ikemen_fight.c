@@ -32,8 +32,26 @@ static void set_position(ik_fighter_t* f, int16_t x, int16_t y) {
 }
 
 static int is_attack_state(int16_t state) {
-    return state == IK_STATE_PUNCH || state == IK_STATE_STRONG_PUNCH ||
-           state == IK_STATE_KICK || state == IK_STATE_STRONG_KICK;
+    switch (state) {
+        case IK_STATE_PUNCH:
+        case IK_STATE_STRONG_PUNCH:
+        case IK_STATE_KICK:
+        case IK_STATE_STRONG_KICK:
+        case IK_STATE_CROUCH_PUNCH:
+        case IK_STATE_CROUCH_STRONG_PUNCH:
+        case IK_STATE_CROUCH_KICK:
+        case IK_STATE_CROUCH_STRONG_KICK:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static int is_crouch_attack(int16_t state) {
+    return state == IK_STATE_CROUCH_PUNCH ||
+           state == IK_STATE_CROUCH_STRONG_PUNCH ||
+           state == IK_STATE_CROUCH_KICK ||
+           state == IK_STATE_CROUCH_STRONG_KICK;
 }
 
 int ik_action_for_state(const ik_cns_asset_t* cns, int16_t state) {
@@ -51,24 +69,39 @@ int ik_action_for_state(const ik_cns_asset_t* cns, int16_t state) {
     }
 }
 
+static int default_ctrl_for_state(int16_t state) {
+    return state == IK_STATE_IDLE || state == IK_STATE_WALK ||
+           state == IK_STATE_CROUCH || state == IK_STATE_JUMP;
+}
+
 static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     const ik_cns_state_t* spec = ik_cns_find_state(fight ? fight->cns : 0, state);
+
     f->state = state;
     f->state_time = 0u;
+    f->anim = (int16_t)ik_action_for_state(fight ? fight->cns : 0, state);
+    f->anim_time = 0u;
     f->move_contact = 0u;
+    f->hitdef_hit_mask = 0u;
 
-    if (is_attack_state(state)) {
-        f->attack_has_hit = 0u;
-        ++f->attack_id;
-    }
+    if (is_attack_state(state)) ++f->attack_id;
 
-    if (spec && spec->has_velset) {
-        f->vx_q8 = spec->velset_x_q8;
-        f->vy_q8 = spec->velset_y_q8;
+    if (spec) {
+        f->ctrl = spec->ctrl;
+        f->spr_priority = spec->spr_priority;
+        if (spec->has_velset) {
+            f->vx_q8 = spec->velset_x_q8;
+            f->vy_q8 = spec->velset_y_q8;
+        }
+    } else {
+        f->ctrl = (int8_t)default_ctrl_for_state(state);
+        f->spr_priority = 0;
     }
 }
 
-static void fighter_spawn(ik_fighter_t* f, int16_t x, int8_t facing, int hp) {
+static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
+                          int16_t x, int8_t facing, int hp) {
+    const ik_cns_constants_t* c = constants_for(fight);
     set_position(f, x, IK_FLOOR_Y);
     f->vx_q8 = 0;
     f->vy_q8 = 0;
@@ -76,10 +109,17 @@ static void fighter_spawn(ik_fighter_t* f, int16_t x, int8_t facing, int hp) {
     f->on_ground = 1;
     f->state = IK_STATE_IDLE;
     f->state_time = 0;
+    f->anim = 0;
+    f->anim_time = 0;
+    f->ctrl = 1;
+    f->spr_priority = 0;
     f->hp = (int16_t)hp;
     f->hitstun = 0;
     f->hit_pause = 0;
-    f->attack_has_hit = 0;
+    f->push_back = c ? c->ground_back : 15;
+    f->push_front = c ? c->ground_front : 16;
+    f->body_height = c ? c->height : 60;
+    f->hitdef_hit_mask = 0u;
     f->attack_id = 0;
     f->move_contact = 0;
 }
@@ -95,8 +135,8 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     if (!fight) return;
     fight->cns = cns;
     const int hp = ik_fight_max_hp(fight);
-    fighter_spawn(&fight->fighters[0], 110, 1, hp);
-    fighter_spawn(&fight->fighters[1], 210, -1, hp);
+    fighter_spawn(fight, &fight->fighters[0], 110, 1, hp);
+    fighter_spawn(fight, &fight->fighters[1], 210, -1, hp);
     fight->frame = 0;
     fight->timer_frames = IK_ROUND_TIME_FRAMES;
     fight->events = IK_EVENT_NONE;
@@ -119,24 +159,28 @@ void ik_fight_reset(ik_fight_t* fight) {
 }
 
 int ik_body_half_w(const ik_fighter_t* f) {
-    if (!f) return 10;
-    if (f->state == IK_STATE_CROUCH) return 12;
-    return 10;
+    if (!f) return 16;
+    return (f->push_front > f->push_back) ? f->push_front : f->push_back;
 }
 
 int ik_body_h(const ik_fighter_t* f) {
-    if (!f) return 48;
-    if (f->state == IK_STATE_CROUCH) return 32;
-    if (!f->on_ground) return 44;
-    return 48;
+    return f ? f->body_height : 60;
 }
 
 void ik_body_box(const ik_fighter_t* f, int* l, int* t, int* r, int* b) {
-    const int hw = ik_body_half_w(f);
-    const int h = ik_body_h(f);
-    if (l) *l = (int)f->x - hw;
-    if (t) *t = (int)f->y - h;
-    if (r) *r = (int)f->x + hw;
+    if (!f) return;
+    int left;
+    int right;
+    if (f->facing >= 0) {
+        left = (int)f->x - f->push_back;
+        right = (int)f->x + f->push_front;
+    } else {
+        left = (int)f->x - f->push_front;
+        right = (int)f->x + f->push_back;
+    }
+    if (l) *l = left;
+    if (t) *t = (int)f->y - f->body_height;
+    if (r) *r = right;
     if (b) *b = (int)f->y;
 }
 
@@ -145,44 +189,70 @@ int ik_boxes_overlap(int l0, int t0, int r0, int b0,
     return (l0 < r1) && (l1 < r0) && (t0 < b1) && (t1 < b0);
 }
 
-static const ik_frame_t* fighter_frame(const ik_fight_t* fight,
-                                       const ik_frame_table_t* frames,
+static const ik_frame_t* fighter_frame(const ik_frame_table_t* frames,
                                        const ik_fighter_t* fighter) {
     if (!frames || !fighter) return 0;
-    return ik_frame_at_time(
-        frames, ik_action_for_state(fight ? fight->cns : 0, fighter->state),
-        fighter->state_time);
+    return ik_frame_at_time(frames, fighter->anim, fighter->anim_time);
 }
 
-static uint16_t fighter_anim_element(const ik_fight_t* fight,
-                                     const ik_frame_table_t* frames,
-                                     const ik_fighter_t* fighter) {
-    const ik_frame_t* frame = fighter_frame(fight, frames, fighter);
-    return frame ? (uint16_t)(frame->index + 1u) : 1u;
+static void anim_position(const ik_frame_table_t* frames,
+                          const ik_fighter_t* fighter,
+                          uint16_t* out_element,
+                          uint16_t* out_element_time,
+                          int* out_ended) {
+    uint32_t first = 0u;
+    uint32_t count = 0u;
+    uint16_t element = 1u;
+    uint16_t element_time = 0u;
+    int ended = 0;
+
+    if (!frames || !fighter ||
+        !ik_frames_bounds(frames, fighter->anim, &first, &count) ||
+        count == 0u) {
+        if (out_element) *out_element = element;
+        if (out_element_time) *out_element_time = element_time;
+        if (out_ended) *out_ended = 0;
+        return;
+    }
+
+    const uint32_t duration = ik_action_duration_ticks(frames, fighter->anim);
+    if (duration > 0u && fighter->anim_time >= duration) ended = 1;
+
+    uint32_t remaining = fighter->anim_time;
+    if (duration > 0u && remaining >= duration) remaining = duration - 1u;
+
+    for (uint32_t i = 0u; i < count; ++i) {
+        const uint16_t ticks = ik_frame_ticks(&frames->frames[first + i]);
+        if (ticks == 0u || remaining < ticks) {
+            element = (uint16_t)(i + 1u);
+            element_time = (uint16_t)remaining;
+            break;
+        }
+        remaining -= ticks;
+    }
+
+    if (out_element) *out_element = element;
+    if (out_element_time) *out_element_time = element_time;
+    if (out_ended) *out_ended = ended;
 }
 
-static int fighter_clsn_overlap(const ik_fight_t* fight,
-                                const ik_frame_table_t* frames,
+static int fighter_clsn_overlap(const ik_frame_table_t* frames,
                                 const ik_fighter_t* attacker,
                                 const ik_fighter_t* victim) {
-    const ik_frame_t* af = fighter_frame(fight, frames, attacker);
-    const ik_frame_t* vf = fighter_frame(fight, frames, victim);
+    const ik_frame_t* af = fighter_frame(frames, attacker);
+    const ik_frame_t* vf = fighter_frame(frames, victim);
     if (!af || !vf || af->clsn1_count == 0u || vf->clsn2_count == 0u) return 0;
 
     for (uint16_t ai = 0u; ai < af->clsn1_count; ++ai) {
         int al, at, ar, ab;
         if (!ik_frame_clsn_world(frames, af, IK_CLSN_ATTACK, ai,
                                  attacker->x, attacker->y, attacker->facing,
-                                 &al, &at, &ar, &ab)) {
-            continue;
-        }
+                                 &al, &at, &ar, &ab)) continue;
         for (uint16_t vi = 0u; vi < vf->clsn2_count; ++vi) {
             int vl, vt, vr, vb;
             if (!ik_frame_clsn_world(frames, vf, IK_CLSN_HURT, vi,
                                      victim->x, victim->y, victim->facing,
-                                     &vl, &vt, &vr, &vb)) {
-                continue;
-            }
+                                     &vl, &vt, &vr, &vb)) continue;
             if (ik_boxes_overlap(al, at, ar, ab, vl, vt, vr, vb)) return 1;
         }
     }
@@ -191,13 +261,25 @@ static int fighter_clsn_overlap(const ik_fight_t* fight,
 
 static const ik_cns_hitdef_t* active_hitdef(const ik_fight_t* fight,
                                             const ik_frame_table_t* frames,
-                                            const ik_fighter_t* fighter) {
+                                            const ik_fighter_t* fighter,
+                                            uint8_t* out_local_index) {
     if (!fight || !fight->cns || !fighter || !is_attack_state(fighter->state)) {
         return 0;
     }
-    return ik_cns_active_hitdef(
-        fight->cns, fighter->state, fighter->state_time,
-        fighter_anim_element(fight, frames, fighter));
+
+    uint16_t element = 1u;
+    anim_position(frames, fighter, &element, 0, 0);
+    const ik_cns_hitdef_t* hitdef = ik_cns_active_hitdef(
+        fight->cns, fighter->state, fighter->state_time, element);
+    if (!hitdef) return 0;
+
+    const ik_cns_state_t* state = ik_cns_find_state(fight->cns, fighter->state);
+    if (!state) return 0;
+    const uint32_t global = (uint32_t)(hitdef - fight->cns->hitdefs);
+    if (global < state->hitdef_ofs ||
+        global >= (uint32_t)state->hitdef_ofs + state->hitdef_count) return 0;
+    if (out_local_index) *out_local_index = (uint8_t)(global - state->hitdef_ofs);
+    return hitdef;
 }
 
 static void apply_damage(ik_fight_t* fight, int victim,
@@ -210,10 +292,12 @@ static void apply_damage(ik_fight_t* fight, int victim,
     v->hit_pause = hitdef->pause_p2;
     a->hit_pause = hitdef->pause_p1;
 
-    /* HitDef velocities are in the target's local facing coordinates.
-     * A negative X therefore always knocks the target away from the attacker. */
     v->vx_q8 = (int32_t)v->facing * hitdef->ground_velocity_x_q8;
     v->vy_q8 = hitdef->ground_velocity_y_q8;
+    if ((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u ||
+        hitdef->ground_velocity_y_q8 < 0) {
+        v->on_ground = 0;
+    }
 
     a->move_contact = 1u;
 
@@ -228,16 +312,9 @@ static void apply_damage(ik_fight_t* fight, int victim,
         enter_state(fight, v, IK_STATE_HIT);
         fight->events |= IK_EVENT_HIT;
     }
+
     if ((victim ^ 1) == 0) fight->hits_p1++;
     else fight->hits_p2++;
-}
-
-static uint32_t attack_duration(const ik_fight_t* fight,
-                                const ik_frame_table_t* frames,
-                                int16_t state) {
-    const uint32_t exact = ik_action_duration_ticks(
-        frames, ik_action_for_state(fight ? fight->cns : 0, state));
-    return exact != 0u ? exact : 1u;
 }
 
 static void apply_ground_velocity(ik_fighter_t* f,
@@ -258,7 +335,6 @@ static void start_jump(ik_fight_t* fight, ik_fighter_t* f,
     const ik_cns_constants_t* c = constants_for(fight);
     enter_state(fight, f, IK_STATE_JUMP);
     f->on_ground = 0;
-
     if (c) {
         if (controls && controls->forward) {
             f->vx_q8 = (int32_t)f->facing * c->jump_fwd_q8;
@@ -274,7 +350,7 @@ static void start_jump(ik_fight_t* fight, ik_fighter_t* f,
     }
 }
 
-static void step_air(ik_fight_t* fight, ik_fighter_t* f) {
+static void step_air(ik_fight_t* fight, ik_fighter_t* f, int allow_land_idle) {
     const ik_cns_constants_t* c = constants_for(fight);
     const int32_t gravity = c ? c->yaccel_q8 : (IK_CNS_Q8_ONE / 2);
 
@@ -286,11 +362,60 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f) {
     if (f->y_q8 >= (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE) {
         f->y_q8 = (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE;
         f->vy_q8 = 0;
-        f->vx_q8 = 0;
         f->on_ground = 1;
-        enter_state(fight, f, IK_STATE_IDLE);
+        if (allow_land_idle) {
+            f->vx_q8 = 0;
+            enter_state(fight, f, IK_STATE_IDLE);
+        }
     }
     sync_position(f);
+}
+
+static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
+                                   const ik_frame_table_t* frames) {
+    if (!fight || !fight->cns || !f) return 0;
+    const ik_cns_state_t* state = ik_cns_find_state(fight->cns, f->state);
+    if (!state || !fight->cns->controllers) return 0;
+
+    uint16_t elem = 1u;
+    uint16_t elem_time = 0u;
+    int anim_ended = 0;
+    anim_position(frames, f, &elem, &elem_time, &anim_ended);
+
+    for (uint8_t i = 0u; i < state->controller_count; ++i) {
+        const uint16_t index = (uint16_t)(state->controller_ofs + i);
+        if (index >= fight->cns->controller_count) break;
+        const ik_cns_controller_t* ctrl = &fight->cns->controllers[index];
+        if (!ik_cns_trigger_now(ctrl->trigger_kind, ctrl->trigger_value,
+                                f->state_time, elem, elem_time, anim_ended)) {
+            continue;
+        }
+
+        switch ((ik_cns_controller_type_t)ctrl->type) {
+            case IK_CNS_CTRL_CHANGE_STATE: {
+                const int has_ctrl = (ctrl->flags & IK_CNS_CTRL_HAS_CTRL) != 0u;
+                const int16_t target = ctrl->value0;
+                enter_state(fight, f, target);
+                if (has_ctrl) f->ctrl = (int8_t)(ctrl->value1 != 0);
+                return 1;
+            }
+            case IK_CNS_CTRL_CTRL_SET:
+                f->ctrl = (int8_t)(ctrl->value0 != 0);
+                break;
+            case IK_CNS_CTRL_POS_ADD:
+                f->x_q8 += (int32_t)f->facing * ctrl->value0;
+                f->y_q8 += ctrl->value1;
+                f->x_q8 = clamp_q8(f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
+                sync_position(f);
+                break;
+            case IK_CNS_CTRL_SPR_PRIORITY:
+                f->spr_priority = (int8_t)ctrl->value0;
+                break;
+            default:
+                break;
+        }
+    }
+    return 0;
 }
 
 static int try_attack_cancel(ik_fight_t* fight, ik_fighter_t* f,
@@ -298,25 +423,60 @@ static int try_attack_cancel(ik_fight_t* fight, ik_fighter_t* f,
     if (!controls) return 0;
 
     if (f->state == IK_STATE_PUNCH && f->state_time > 5u) {
-        if (controls->y) {
-            enter_state(fight, f, IK_STATE_STRONG_PUNCH);
-            return 1;
-        }
-        if (controls->b) {
-            enter_state(fight, f, IK_STATE_STRONG_KICK);
-            return 1;
-        }
+        if (controls->y) { enter_state(fight, f, IK_STATE_STRONG_PUNCH); return 1; }
+        if (controls->b) { enter_state(fight, f, IK_STATE_STRONG_KICK); return 1; }
     }
     if (f->state == IK_STATE_KICK && f->state_time > 6u) {
-        if (controls->y) {
-            enter_state(fight, f, IK_STATE_STRONG_PUNCH);
-            return 1;
-        }
-        if (controls->b) {
-            enter_state(fight, f, IK_STATE_STRONG_KICK);
-            return 1;
+        if (controls->y) { enter_state(fight, f, IK_STATE_STRONG_PUNCH); return 1; }
+        if (controls->b) { enter_state(fight, f, IK_STATE_STRONG_KICK); return 1; }
+    }
+
+    if ((f->state == IK_STATE_CROUCH_PUNCH ||
+         f->state == IK_STATE_CROUCH_KICK) && controls->down) {
+        const int gate = f->state_time > 9u ||
+                         (f->move_contact && f->state_time > 5u);
+        if (gate) {
+            if (controls->y) {
+                enter_state(fight, f, IK_STATE_CROUCH_STRONG_PUNCH);
+                return 1;
+            }
+            if (controls->a) {
+                enter_state(fight, f, IK_STATE_CROUCH_KICK);
+                return 1;
+            }
+            if (controls->b) {
+                enter_state(fight, f, IK_STATE_CROUCH_STRONG_KICK);
+                return 1;
+            }
         }
     }
+    return 0;
+}
+
+static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
+                                     const ik_fight_controls_t* controls) {
+    if (!controls || !f->ctrl || !f->on_ground) return 0;
+
+    if (controls->down) {
+        if (controls->y) {
+            enter_state(fight, f, IK_STATE_CROUCH_STRONG_PUNCH);
+        } else if (controls->b) {
+            enter_state(fight, f, IK_STATE_CROUCH_STRONG_KICK);
+        } else if (controls->x) {
+            enter_state(fight, f, IK_STATE_CROUCH_PUNCH);
+        } else if (controls->a) {
+            enter_state(fight, f, IK_STATE_CROUCH_KICK);
+        } else if (f->state != IK_STATE_CROUCH) {
+            enter_state(fight, f, IK_STATE_CROUCH);
+        }
+        return 1;
+    }
+
+    if (controls->y) { enter_state(fight, f, IK_STATE_STRONG_PUNCH); return 1; }
+    if (controls->b) { enter_state(fight, f, IK_STATE_STRONG_KICK); return 1; }
+    if (controls->x) { enter_state(fight, f, IK_STATE_PUNCH); return 1; }
+    if (controls->a) { enter_state(fight, f, IK_STATE_KICK); return 1; }
+    if (controls->up) { start_jump(fight, f, controls); return 1; }
     return 0;
 }
 
@@ -333,27 +493,41 @@ static void step_fighter(ik_fight_t* fight, int index,
     }
 
     f->state_time++;
+    f->anim_time++;
     f->facing = (foe->x >= f->x) ? 1 : -1;
 
     if (f->state == IK_STATE_KO) return;
 
+    if (process_cns_controllers(fight, f, frames)) return;
+
     if (f->hitstun > 0u) {
         f->hitstun--;
-        if (c) apply_ground_velocity(f, c);
+        if (!f->on_ground) {
+            step_air(fight, f, 0);
+        } else if (c) {
+            apply_ground_velocity(f, c);
+        }
         if (f->hitstun == 0u && f->state == IK_STATE_HIT) {
-            enter_state(fight, f, IK_STATE_IDLE);
-            f->vx_q8 = 0;
+            if (f->on_ground) {
+                enter_state(fight, f, IK_STATE_IDLE);
+                f->vx_q8 = 0;
+            }
         }
     } else if (is_attack_state(f->state)) {
-        if (!try_attack_cancel(fight, f, controls) &&
-            f->state_time >= attack_duration(fight, frames, f->state)) {
-            enter_state(fight, f, IK_STATE_IDLE);
+        if (try_attack_cancel(fight, f, controls)) return;
+        if (f->ctrl && dispatch_controlled_input(fight, f, controls)) return;
+
+        const uint32_t duration = ik_action_duration_ticks(frames, f->anim);
+        if (duration > 0u && f->anim_time >= duration) {
+            enter_state(fight, f,
+                        is_crouch_attack(f->state) ? IK_STATE_CROUCH : IK_STATE_IDLE);
         }
     } else if (!f->on_ground) {
-        step_air(fight, f);
+        step_air(fight, f, 1);
     } else if (!is_dummy && controls) {
-        int moved = 0;
+        if (dispatch_controlled_input(fight, f, controls)) return;
 
+        int moved = 0;
         if (controls->back) {
             const int32_t speed = c ? c->walk_back_q8 : -2 * IK_CNS_Q8_ONE;
             f->x_q8 += (int32_t)f->facing * speed;
@@ -367,19 +541,7 @@ static void step_fighter(ik_fight_t* fight, int index,
         f->x_q8 = clamp_q8(f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
         sync_position(f);
 
-        if (controls->up) {
-            start_jump(fight, f, controls);
-        } else if (controls->down) {
-            if (f->state != IK_STATE_CROUCH) enter_state(fight, f, IK_STATE_CROUCH);
-        } else if (controls->y) {
-            enter_state(fight, f, IK_STATE_STRONG_PUNCH);
-        } else if (controls->b) {
-            enter_state(fight, f, IK_STATE_STRONG_KICK);
-        } else if (controls->x) {
-            enter_state(fight, f, IK_STATE_PUNCH);
-        } else if (controls->a) {
-            enter_state(fight, f, IK_STATE_KICK);
-        } else if (moved) {
+        if (moved) {
             if (f->state != IK_STATE_WALK) enter_state(fight, f, IK_STATE_WALK);
         } else if (f->state != IK_STATE_IDLE) {
             enter_state(fight, f, IK_STATE_IDLE);
@@ -426,7 +588,8 @@ void ik_fight_update(ik_fight_t* fight,
         fight->timer_frames--;
         if (fight->timer_frames == 0u) {
             fight->round_over = 1;
-            fight->winner = (fight->fighters[0].hp >= fight->fighters[1].hp) ? 1u : 2u;
+            fight->winner =
+                (fight->fighters[0].hp >= fight->fighters[1].hp) ? 1u : 2u;
             fight->events |= IK_EVENT_ROUND_OVER;
             return;
         }
@@ -439,11 +602,15 @@ void ik_fight_update(ik_fight_t* fight,
     for (int atk = 0; atk < 2; ++atk) {
         ik_fighter_t* a = &fight->fighters[atk];
         ik_fighter_t* v = &fight->fighters[atk ^ 1];
-        const ik_cns_hitdef_t* hitdef = active_hitdef(fight, frames, a);
-        if (!hitdef || a->attack_has_hit) continue;
-        if (!fighter_clsn_overlap(fight, frames, a, v)) continue;
+        uint8_t local_hitdef = 0u;
+        const ik_cns_hitdef_t* hitdef =
+            active_hitdef(fight, frames, a, &local_hitdef);
+        if (!hitdef || local_hitdef >= 32u) continue;
+        const uint32_t bit = (uint32_t)1u << local_hitdef;
+        if ((a->hitdef_hit_mask & bit) != 0u) continue;
+        if (!fighter_clsn_overlap(frames, a, v)) continue;
 
-        a->attack_has_hit = 1u;
+        a->hitdef_hit_mask |= bit;
         apply_damage(fight, atk ^ 1, hitdef);
     }
 }

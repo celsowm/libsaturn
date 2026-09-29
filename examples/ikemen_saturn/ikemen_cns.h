@@ -34,7 +34,8 @@ typedef enum ik_cns_physics {
 typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ALWAYS = 0,
     IK_CNS_TRIGGER_TIME_EQ,
-    IK_CNS_TRIGGER_ANIM_ELEM_EQ
+    IK_CNS_TRIGGER_ANIM_ELEM_EQ,
+    IK_CNS_TRIGGER_ANIM_END
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -44,9 +45,20 @@ typedef enum ik_cns_ground_type {
     IK_CNS_GROUND_TRIP
 } ik_cns_ground_type_t;
 
+typedef enum ik_cns_controller_type {
+    IK_CNS_CTRL_CHANGE_STATE = 1,
+    IK_CNS_CTRL_CTRL_SET,
+    IK_CNS_CTRL_POS_ADD,
+    IK_CNS_CTRL_SPR_PRIORITY
+} ik_cns_controller_type_t;
+
 enum {
     IK_CNS_HITDEF_FALL = 1u << 0,
     IK_CNS_HITDEF_FORCE_NO_FALL = 1u << 1
+};
+
+enum {
+    IK_CNS_CTRL_HAS_CTRL = 1u << 0
 };
 
 typedef struct ik_cns_constants {
@@ -93,6 +105,8 @@ typedef struct ik_cns_state {
     uint8_t hitdef_count;
     uint16_t playsnd_ofs;
     uint8_t playsnd_count;
+    uint16_t controller_ofs;
+    uint8_t controller_count;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
@@ -134,6 +148,22 @@ typedef struct ik_cns_playsnd {
     int16_t item;
 } ik_cns_playsnd_t;
 
+/* Compact controller record. Meaning of values:
+ * ChangeState: value0=state, value1=ctrl when HAS_CTRL is set
+ * CtrlSet:     value0=ctrl
+ * PosAdd:      value0=x Q8.8, value1=y Q8.8
+ * SprPriority: value0=priority
+ */
+typedef struct ik_cns_controller {
+    int16_t state_number;
+    uint8_t type;
+    uint8_t trigger_kind;
+    int16_t trigger_value;
+    int16_t value0;
+    int16_t value1;
+    uint8_t flags;
+} ik_cns_controller_t;
+
 typedef struct ik_cns_asset {
     ik_cns_constants_t constants;
     const ik_cns_state_t* states;
@@ -142,18 +172,23 @@ typedef struct ik_cns_asset {
     uint16_t hitdef_count;
     const ik_cns_playsnd_t* playsnds;
     uint16_t playsnd_count;
+    const ik_cns_controller_t* controllers;
+    uint16_t controller_count;
 } ik_cns_asset_t;
 
 int16_t ik_cns_q8_from_int(int16_t value);
 int16_t ik_cns_q8_to_int(int32_t value);
 const ik_cns_state_t* ik_cns_find_state(const ik_cns_asset_t* asset,
                                         int16_t state_number);
+
+int ik_cns_trigger_now(uint8_t trigger_kind, int16_t trigger_value,
+                       uint16_t state_time, uint16_t anim_element,
+                       uint16_t anim_element_time, int anim_ended);
+
 const ik_cns_hitdef_t* ik_cns_active_hitdef(const ik_cns_asset_t* asset,
                                             int16_t state_number,
                                             uint16_t state_time,
                                             uint16_t anim_element);
-int ik_cns_trigger_fires(uint8_t trigger_kind, int16_t trigger_value,
-                         uint16_t state_time, uint16_t anim_element);
 
 #ifdef __cplusplus
 }

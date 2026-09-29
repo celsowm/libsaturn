@@ -32,7 +32,7 @@ $(KFM_FRAMES_C) $(KFM_FRAMES_H) &: $(KFM_SFF) $(KFM_AIR) $(IKEMEN_SFF_TOOL_SRCS)
 	@mkdir -p $(IKEMEN_GEN_DIR)
 	$(PYTHON) -m tools.ikemen_sff char \
 		--sff $(KFM_SFF) --air $(KFM_AIR) \
-		--actions 0,11,20,41,105,120,130,200,210,230,240 \
+		--actions 0,11,20,41,105,120,130,200,210,230,240,400,410,430,440 \
 		--palettes "1,1;1,4" \
 		--out-prefix $(IKEMEN_GEN_DIR)/kfm --symbol kfm
 
@@ -50,6 +50,7 @@ $(KFM_SOUNDS_C) $(KFM_SOUNDS_H) &: $(KFM_SND) $(COMMON_SND) $(IKEMEN_SND_TOOL)
 		--sound punch_whiff $(KFM_SND) 0 0 \
 		--sound kick_whiff $(KFM_SND) 0 1 \
 		--sound strong_punch_whiff $(KFM_SND) 0 4 \
+		--sound sweep_whiff $(KFM_SND) 0 2 \
 		--sound punch_hit $(COMMON_SND) 5 0 \
 		--sound kick_hit $(COMMON_SND) 5 1 \
 		--sound strong_hit $(COMMON_SND) 5 2
@@ -63,7 +64,7 @@ $(KFM_COMMANDS_C) $(KFM_COMMANDS_H) &: $(KFM_CMD) $(IKEMEN_CMD_TOOL)
 $(KFM_CNS_C) $(KFM_CNS_H) &: $(KFM_CNS) $(IKEMEN_CNS_TOOL)
 	@mkdir -p $(IKEMEN_GEN_DIR)
 	$(PYTHON) $(IKEMEN_CNS_TOOL) \
-		--cns $(KFM_CNS) --states 200,210,230,240 \
+		--cns $(KFM_CNS) --states 200,210,230,240,400,410,430,440 \
 		--out-prefix $(IKEMEN_GEN_DIR)/kfm_cns --symbol kfm
 
 EXAMPLE_ASSETS := $(KFM_FRAMES_C) $(STAGE0_PLANE_C) $(KFM_SOUNDS_C) $(KFM_COMMANDS_C) $(KFM_CNS_C)
