@@ -50,7 +50,8 @@ typedef enum ik_event {
     IK_EVENT_HIT = 1u << 0,
     IK_EVENT_KO = 1u << 1,
     IK_EVENT_ROUND_OVER = 1u << 2,
-    IK_EVENT_RESET = 1u << 3
+    IK_EVENT_RESET = 1u << 3,
+    IK_EVENT_GUARD = 1u << 4
 } ik_event_t;
 
 typedef struct ik_fight_controls {
@@ -94,6 +95,11 @@ typedef struct ik_fighter {
     int16_t hp;
     uint16_t hitstun;
     uint16_t hit_pause;
+    uint16_t hit_slide_time;
+    uint16_t hit_ctrl_time;
+    int32_t gethit_vx_q8;
+    int32_t gethit_vy_q8;
+    uint8_t guard_type;
 
     int16_t push_back;
     int16_t push_front;
