@@ -292,6 +292,7 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
     run_fwd = pair(vel.get("run.fwd"))
     run_back = pair(vel.get("run.back"))
     jump_neu = pair(vel.get("jump.neu"))
+    run_jump_fwd = pair(vel.get("runjump.fwd"), 4.0, -8.1)
 
     return {
         "life": integer(data.get("life"), 1000),
@@ -310,6 +311,8 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
         "jump_neu_y_q8": q8(jump_neu[1]),
         "jump_back_q8": q8(number(vel.get("jump.back"), -2.55)),
         "jump_fwd_q8": q8(number(vel.get("jump.fwd"), 2.5)),
+        "run_jump_fwd_x_q8": q8(run_jump_fwd[0]),
+        "run_jump_fwd_y_q8": q8(run_jump_fwd[1]),
         "yaccel_q8": q8(number(movement.get("yaccel"), .44)),
         "stand_friction_q8": q8(number(movement.get("stand.friction"), .85)),
         "crouch_friction_q8": q8(number(movement.get("crouch.friction"), .82)),
@@ -575,11 +578,319 @@ def parse_state(
     return state_row, hitdefs, sounds, controllers
 
 
+
+@dataclass
+class ZssState:
+    number: int
+    metadata: dict[str, str]
+    body: str
+
+
+def parse_zss_states(path: Path) -> dict[int, ZssState]:
+    text = path.read_text(encoding="utf-8-sig", errors="strict")
+    matches = list(re.finditer(
+        r"\[StateDef\s+(-?\d+)\s*;([^\]]*)\]",
+        text,
+        flags=re.I,
+    ))
+    states: dict[int, ZssState] = {}
+    for i, match in enumerate(matches):
+        number_ = int(match.group(1))
+        meta: dict[str, str] = {}
+        for part in match.group(2).split(";"):
+            part = part.strip()
+            if not part or ":" not in part:
+                continue
+            key, value = part.split(":", 1)
+            meta[key.strip().lower()] = value.strip()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        states[number_] = ZssState(number_, meta, text[match.end():end])
+    return states
+
+
+def _common_ctrl(
+    state_no: int,
+    ctype: str,
+    trigger_kind: str = "IK_CNS_TRIGGER_ALWAYS",
+    trigger_value: int | str = 0,
+    trigger_value2: int | str = 0,
+    value0: int | str = 0,
+    value1: int | str = 0,
+    flags: str = "0u",
+) -> dict:
+    return {
+        "state_number": state_no,
+        "type": ctype,
+        "trigger_kind": trigger_kind,
+        "trigger_value": trigger_value,
+        "trigger_value2": trigger_value2,
+        "value0": value0,
+        "value1": value1,
+        "flags": flags,
+    }
+
+
+def compile_common_states(
+    path: Path,
+    selected: list[int],
+    const: dict[str, int],
+    controller_ofs: int,
+) -> tuple[list[dict], list[dict], dict[int, list[str]]]:
+    """Lower the first common1.zss locomotion subset to generic CNS ops.
+
+    This is deliberately strict: only states whose ZSS semantics have an
+    explicit lowering below are accepted. Source-state presence is verified,
+    and deferred presentation-only behavior is surfaced in the JSON report.
+    """
+    source = parse_zss_states(path)
+    missing = [n for n in selected if n not in source]
+    if missing:
+        raise ValueError(f"missing common Statedef(s): {missing}")
+
+    supported = {0, 10, 11, 12, 20, 52, 100, 105, 106}
+    unsupported = sorted(set(selected) - supported)
+    if unsupported:
+        raise ValueError(
+            "common1 states do not have a Saturn lowering yet: "
+            f"{unsupported}"
+        )
+
+    def meta(n: int, key: str, default: str) -> str:
+        return source[n].metadata.get(key, default).strip().upper()
+
+    def state_row(
+        n: int,
+        anim: int,
+        ctrl: int,
+        land_state: int = 0,
+        spr: int | None = None,
+    ) -> dict:
+        stype = STATE_TYPE.get(meta(n, "type", "U"))
+        physics = PHYSICS.get(meta(n, "physics", "N"))
+        if stype is None or physics is None:
+            raise ValueError(f"common state {n}: unsupported StateDef metadata")
+        priority = (
+            integer(source[n].metadata.get("sprpriority"), 0)
+            if spr is None else spr
+        )
+        return {
+            "number": n,
+            "anim": anim,
+            "power_add": 0,
+            "velset_x_q8": 0,
+            "velset_y_q8": 0,
+            "state_type": stype,
+            "move_type": "IK_CNS_MOVE_IDLE",
+            "physics": physics,
+            "ctrl": ctrl,
+            "spr_priority": priority,
+            "has_velset": 0,
+            "hitdef_ofs": 0,
+            "hitdef_count": 0,
+            "playsnd_ofs": 0,
+            "playsnd_count": 0,
+            "controller_ofs": 0,
+            "controller_count": 0,
+            "land_state": land_state,
+            "unsupported_controllers": [],
+        }
+
+    rows: list[dict] = []
+    controllers: list[dict] = []
+    deferred: dict[int, list[str]] = {}
+
+    for n in selected:
+        begin = controller_ofs + len(controllers)
+        cs: list[dict] = []
+        row: dict
+
+        if n == 0:
+            row = state_row(0, 0, 1)
+            cs += [
+                _common_ctrl(
+                    0, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 4, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    0, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_ABS_VX_LT_Q8",
+                    const["stand_friction_threshold_q8"], 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+            ]
+            deferred[n] = ["alive=false -> state 5050"]
+
+        elif n == 10:
+            row = state_row(10, 10, 0)
+            cs += [
+                _common_ctrl(
+                    10, "IK_CNS_CTRL_VEL_MUL",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, q8(.75), 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    10, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_ABS_VX_LT_Q8",
+                    const["crouch_friction_threshold_q8"], 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    10, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_ANIM_END", 0, 0, 11, 0,
+                ),
+            ]
+
+        elif n == 11:
+            row = state_row(11, 11, 1)
+            cs += [
+                _common_ctrl(
+                    11, "IK_CNS_CTRL_CHANGE_ANIM_IF_END_FROM",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 6, 11,
+                ),
+                _common_ctrl(
+                    11, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_ABS_VX_LT_Q8",
+                    const["crouch_friction_threshold_q8"], 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+            ]
+
+        elif n == 12:
+            row = state_row(12, 12, 0)
+            cs.append(_common_ctrl(
+                12, "IK_CNS_CTRL_CHANGE_STATE",
+                "IK_CNS_TRIGGER_ANIM_END", 0, 0, 0, 0,
+            ))
+
+        elif n == 20:
+            row = state_row(20, -1, 1)
+            cs += [
+                _common_ctrl(
+                    20, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_COMMAND_ACTIVE",
+                    "IK_CNS_COMMAND_HOLD_BACK", 0,
+                    const["walk_back_q8"], 0,
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_LOCAL_X",
+                ),
+                _common_ctrl(
+                    20, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_COMMAND_ACTIVE",
+                    "IK_CNS_COMMAND_HOLD_FWD", 0,
+                    const["walk_fwd_q8"], 0,
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_LOCAL_X",
+                ),
+                _common_ctrl(
+                    20, "IK_CNS_CTRL_CHANGE_ANIM_BY_VX",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, -1, 20,
+                ),
+            ]
+
+        elif n == 52:
+            row = state_row(52, 47, 0)
+            cs += [
+                _common_ctrl(
+                    52, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    52, "IK_CNS_CTRL_POS_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    52, "IK_CNS_CTRL_CTRL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 3, 0, 1, 0,
+                ),
+                _common_ctrl(
+                    52, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_ABS_VX_LT_Q8",
+                    const["stand_friction_threshold_q8"], 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    52, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_ANIM_END", 0, 0, 0, 1,
+                    "IK_CNS_CTRL_HAS_CTRL",
+                ),
+            ]
+
+        elif n == 100:
+            row = state_row(100, 100, 1)
+            cs += [
+                _common_ctrl(
+                    100, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0,
+                    const["run_fwd_x_q8"], 0,
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_LOCAL_X",
+                ),
+                _common_ctrl(
+                    100, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_COMMAND_INACTIVE",
+                    "IK_CNS_COMMAND_HOLD_FWD", 0, 0, 0,
+                ),
+            ]
+            deferred[n] = ["AssertSpecial noWalk/noAutoTurn"]
+
+        elif n == 105:
+            row = state_row(105, 105, 0, land_state=106)
+            cs += [
+                _common_ctrl(
+                    105, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
+                    const["run_back_x_q8"], const["run_back_y_q8"],
+                    "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y | "
+                    "IK_CNS_CTRL_LOCAL_X",
+                ),
+                _common_ctrl(
+                    105, "IK_CNS_CTRL_CTRL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 2, 0, 1, 0,
+                ),
+            ]
+
+        elif n == 106:
+            row = state_row(106, 47, 0)
+            cs += [
+                _common_ctrl(
+                    106, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_ABS_VX_LT_Q8",
+                    const["stand_friction_threshold_q8"], 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_X",
+                ),
+                _common_ctrl(
+                    106, "IK_CNS_CTRL_VEL_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    106, "IK_CNS_CTRL_POS_SET",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                _common_ctrl(
+                    106, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_TIME_EQ", 7, 0, 0, 1,
+                    "IK_CNS_CTRL_HAS_CTRL",
+                ),
+            ]
+            deferred[n] = ["MakeDust at Time=2"]
+
+        row["controller_ofs"] = begin
+        row["controller_count"] = len(cs)
+        rows.append(row)
+        controllers.extend(cs)
+
+    return rows, controllers, deferred
+
+
 def emit(
     path: Path,
     selected: list[int],
     out_prefix: Path,
     symbol: str,
+    common_zss: Path | None = None,
+    common_selected: list[int] | None = None,
 ) -> dict:
     globals_, states = collect_states(parse_sections(path))
     by_number = {state.number: state for state in states}
@@ -606,6 +917,14 @@ def emit(
         sounds.extend(ss)
         controllers.extend(cs)
 
+    common_deferred: dict[int, list[str]] = {}
+    if common_zss is not None and common_selected:
+        common_rows, common_ctrls, common_deferred = compile_common_states(
+            common_zss, common_selected, const, len(controllers)
+        )
+        state_rows.extend(common_rows)
+        controllers.extend(common_ctrls)
+
     ident = re.sub(r"[^A-Za-z0-9_]", "_", symbol)
     macro = ident.upper()
 
@@ -617,7 +936,8 @@ def emit(
         f"{r['ctrl']}, {r['spr_priority']}, {r['has_velset']}u, "
         f"{r['hitdef_ofs']}u, {r['hitdef_count']}u, "
         f"{r['playsnd_ofs']}u, {r['playsnd_count']}u, "
-        f"{r['controller_ofs']}u, {r['controller_count']}u"
+        f"{r['controller_ofs']}u, {r['controller_count']}u, "
+        f"{r.get('land_state', 0)}"
         "},"
         for r in state_rows
     ]
@@ -682,6 +1002,7 @@ const ik_cns_asset_t {ident}_cns = {{
         {const['run_back_x_q8']}, {const['run_back_y_q8']},
         {const['jump_neu_x_q8']}, {const['jump_neu_y_q8']},
         {const['jump_back_q8']}, {const['jump_fwd_q8']},
+        {const['run_jump_fwd_x_q8']}, {const['run_jump_fwd_y_q8']},
         {const['yaccel_q8']}, {const['stand_friction_q8']},
         {const['crouch_friction_q8']},
         {const['stand_friction_threshold_q8']},
@@ -717,6 +1038,7 @@ extern const ik_cns_asset_t {ident}_cns;
         "hitdefs": hitdefs,
         "playsnds": sounds,
         "controllers": controllers,
+        "common_deferred": common_deferred,
     }
     out_prefix.with_suffix(".json").write_text(
         json.dumps(report, indent=2),
@@ -729,6 +1051,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cns", required=True, type=Path)
     parser.add_argument("--states", required=True)
+    parser.add_argument("--common-zss", type=Path)
+    parser.add_argument("--common-states", default="")
     parser.add_argument("--out-prefix", required=True, type=Path)
     parser.add_argument("--symbol", required=True)
     args = parser.parse_args(argv)
@@ -739,11 +1063,19 @@ def main(argv: list[str] | None = None) -> int:
         if value.strip()
     ]
 
+    common_selected = [
+        int(value.strip())
+        for value in args.common_states.split(",")
+        if value.strip()
+    ]
+
     report = emit(
         args.cns,
         selected,
         args.out_prefix,
         args.symbol,
+        args.common_zss,
+        common_selected,
     )
 
     unsupported = {
