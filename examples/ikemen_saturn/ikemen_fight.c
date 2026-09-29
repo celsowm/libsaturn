@@ -100,6 +100,9 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     if (spec) {
         f->ctrl = spec->ctrl;
         f->spr_priority = spec->spr_priority;
+        if (spec->state_type == IK_CNS_STATE_AIR) {
+            f->on_ground = 0;
+        }
         if (spec->has_velset) {
             f->vx_q8 = spec->velset_x_q8;
             f->vy_q8 = spec->velset_y_q8;
@@ -364,12 +367,20 @@ static void apply_damage(ik_fight_t* fight, int victim,
 }
 
 static void apply_ground_velocity(ik_fighter_t* f,
-                                  const ik_cns_constants_t* c) {
+                                  const ik_cns_constants_t* c,
+                                  int physics) {
     if (!f || !c) return;
+    const int crouch = physics == IK_CNS_PHYS_CROUCH;
+    const int16_t friction = crouch
+        ? c->crouch_friction_q8
+        : c->stand_friction_q8;
+    const int16_t threshold = crouch
+        ? c->crouch_friction_threshold_q8
+        : c->stand_friction_threshold_q8;
+
     f->x_q8 += f->vx_q8;
-    f->vx_q8 = (f->vx_q8 * c->stand_friction_q8) / IK_CNS_Q8_ONE;
-    if (f->vx_q8 < c->stand_friction_threshold_q8 &&
-        f->vx_q8 > -c->stand_friction_threshold_q8) {
+    f->vx_q8 = (f->vx_q8 * friction) / IK_CNS_Q8_ONE;
+    if (f->vx_q8 < threshold && f->vx_q8 > -threshold) {
         f->vx_q8 = 0;
     }
     f->x_q8 = clamp_q8(f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
@@ -546,7 +557,7 @@ static void step_fighter(ik_fight_t* fight, int index,
         if (!f->on_ground) {
             step_air(fight, f, 0);
         } else if (c) {
-            apply_ground_velocity(f, c);
+            apply_ground_velocity(f, c, IK_CNS_PHYS_STAND);
         }
         if (f->hitstun == 0u && f->state == IK_STATE_HIT) {
             if (f->on_ground) {
@@ -578,30 +589,59 @@ static void step_fighter(ik_fight_t* fight, int index,
             return;
         }
         step_air(fight, f, 1);
-    } else if (!is_dummy && controls) {
-        if (dispatch_controlled_input(fight, f, controls)) return;
+    } else if (f->on_ground) {
+        const ik_cns_state_t* spec = state_spec(fight, f->state);
 
-        int moved = 0;
-        if (controls->back) {
-            const int32_t speed = c ? c->walk_back_q8 : -2 * IK_CNS_Q8_ONE;
-            f->x_q8 += (int32_t)f->facing * speed;
-            moved = 1;
-        }
-        if (controls->forward) {
-            const int32_t speed = c ? c->walk_fwd_q8 : 2 * IK_CNS_Q8_ONE;
-            f->x_q8 += (int32_t)f->facing * speed;
-            moved = 1;
-        }
-        f->x_q8 = clamp_q8(f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
-        sync_position(f);
+        if (!is_dummy && controls) {
+            if (dispatch_controlled_input(fight, f, controls)) return;
 
-        if (moved) {
-            if (f->state != IK_STATE_WALK) enter_state(fight, f, IK_STATE_WALK);
-        } else if (f->state != IK_STATE_IDLE) {
+            /* Common state 0 owns the transition into walk state 20. Once
+             * inside a compiled common state its controllers/physics own the
+             * state lifetime; the legacy fallback is only for missing data. */
+            if (spec && f->state == IK_STATE_IDLE &&
+                (controls->forward || controls->back) &&
+                ik_cns_find_state(fight ? fight->cns : 0, IK_STATE_WALK)) {
+                enter_state(fight, f, IK_STATE_WALK);
+                return;
+            }
+
+            if (spec && f->state == IK_STATE_WALK &&
+                !controls->forward && !controls->back) {
+                enter_state(fight, f, IK_STATE_IDLE);
+                return;
+            }
+        }
+
+        if (spec && (spec->physics == IK_CNS_PHYS_STAND ||
+                     spec->physics == IK_CNS_PHYS_CROUCH)) {
+            if (c) apply_ground_velocity(f, c, spec->physics);
+        } else if (!spec && !is_dummy && controls) {
+            int moved = 0;
+            if (controls->back) {
+                const int32_t speed =
+                    c ? c->walk_back_q8 : -2 * IK_CNS_Q8_ONE;
+                f->x_q8 += (int32_t)f->facing * speed;
+                moved = 1;
+            }
+            if (controls->forward) {
+                const int32_t speed =
+                    c ? c->walk_fwd_q8 : 2 * IK_CNS_Q8_ONE;
+                f->x_q8 += (int32_t)f->facing * speed;
+                moved = 1;
+            }
+            f->x_q8 = clamp_q8(
+                f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
+            sync_position(f);
+            if (moved) {
+                if (f->state != IK_STATE_WALK) {
+                    enter_state(fight, f, IK_STATE_WALK);
+                }
+            } else if (f->state != IK_STATE_IDLE) {
+                enter_state(fight, f, IK_STATE_IDLE);
+            }
+        } else if (!spec && f->state != IK_STATE_IDLE) {
             enter_state(fight, f, IK_STATE_IDLE);
         }
-    } else {
-        if (f->state != IK_STATE_IDLE) enter_state(fight, f, IK_STATE_IDLE);
     }
 
     {
