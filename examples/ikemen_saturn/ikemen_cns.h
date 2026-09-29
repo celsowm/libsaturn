@@ -44,6 +44,7 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_VY_GT_Q8_AT_FLOOR,
     IK_CNS_TRIGGER_ANIM_EQ_AND_END,
     IK_CNS_TRIGGER_HIT_SLIDE_TIME,
+    IK_CNS_TRIGGER_HIT_SLIDE_GE,
     IK_CNS_TRIGGER_HIT_CTRL_TIME,
     IK_CNS_TRIGGER_HIT_OVER,
     IK_CNS_TRIGGER_HIT_LAUNCH,
@@ -200,6 +201,7 @@ typedef struct ik_cns_state {
     int16_t air_accel_q8;
     int16_t land_level_q8;
     uint16_t air_motion_start;
+    uint8_t land_ctrl;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
