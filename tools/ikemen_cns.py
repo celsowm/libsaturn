@@ -360,8 +360,8 @@ def controller_trigger(
                     int(elem.group(1)), 0,
                 )
 
-    if ctype == "selfstate":
-        if len(triggers) == 1 and re.fullmatch(
+    if ctype in ("selfstate", "changestate"):
+        if ctype == "selfstate" and len(triggers) == 1 and re.fullmatch(
             r"!\s*gethitvar\s*\(\s*isbound\s*\)",
             triggers[0], flags=re.I
         ):
@@ -373,7 +373,7 @@ def controller_trigger(
         if target == 5210 and trigger_all:
             return "IK_CNS_TRIGGER_THROW_AIR_RECOVERY", 0, 0
         normalized = [_strip_outer_parens(t) for t in triggers]
-        if (len(normalized) == 2 and
+        if (ctype == "selfstate" and len(normalized) == 2 and
             any(re.fullmatch(r"Vel\s+Y\s*>\s*0", t, flags=re.I)
                 for t in normalized) and
             any(re.fullmatch(r"Pos\s+Y\s*>=\s*0", t, flags=re.I)
