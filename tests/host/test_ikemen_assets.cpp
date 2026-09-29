@@ -73,7 +73,19 @@ int main() {
     texture_registry_reset(g_texture_registry);
     render2d_runtime_reset(g_render2d_runtime);
 
-    const ik_frame_table_t table = {kfm_frames, KFM_FRAME_COUNT};
+    const ik_frame_table_t table = {
+        kfm_frames, KFM_FRAME_COUNT, kfm_clsn_boxes, KFM_CLSN_BOX_COUNT
+    };
+
+    OK(KFM_CLSN_BOX_COUNT > 0u);
+    bool saw_attack_clsn = false;
+    bool saw_hurt_clsn = false;
+    for (uint32_t i = 0u; i < table.count; ++i) {
+        saw_attack_clsn = saw_attack_clsn || table.frames[i].clsn1_count != 0u;
+        saw_hurt_clsn = saw_hurt_clsn || table.frames[i].clsn2_count != 0u;
+    }
+    OK(saw_attack_clsn);
+    OK(saw_hurt_clsn);
 
     /* Asset contract: VDP1-legal texture geometry for every frame. */
     for (uint32_t i = 0u; i < table.count; ++i) {
@@ -124,7 +136,7 @@ int main() {
     OK(p2.generation != 0u);
 
     /* Draw both players across every action at several times. */
-    static const int actions[] = {0, 20, 40, 42, 105, 120, 130, 200, 210, 230};
+    static const int actions[] = {0, 11, 20, 41, 105, 120, 130, 200, 210, 230};
     for (int action : actions) {
         for (uint32_t t = 0u; t < 40u; t += 7u) {
             const ik_frame_t* frame = ik_frame_at_time(&table, action, t);

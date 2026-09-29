@@ -29,11 +29,17 @@ SFF or SND itself.
 
 ## Scope (v1 subset)
 
-* States: idle 0, walk 20, jump 40, crouch 50, punch 200, kick 210,
-  hit 500, KO 510, guard 550. Full CNS/Lua VM is NOT ported.
-* Sim state -> KFM AIR action: 0/20/40, jump->42, punch->200,
-  kick->230, hit->105, KO->120 (lying), guard->130.
-* AIR interpolation, reflections, per-frame rotation: dropped.
+* States: idle, walk, vertical jump, crouch, standing light punch (200),
+  standing light kick (230), hit, KO and guard. Full CNS/Lua VM is NOT ported.
+* Rendering and collision both sample the real KFM AIR actions. Crouch uses
+  action 11, vertical jump 41, punch 200 and kick 230.
+* Hit registration is AIR-native: generated per-frame Clsn1 attack boxes are
+  tested against the opponent's generated per-frame Clsn2 hurt boxes, including
+  facing/AIR flips. There are no synthetic punch/kick range rectangles.
+* The supported punch/kick use the original KFM CNS damage, hit pause, hit time,
+  animation duration and ground hit velocity (state 200: 23 damage, 8/8 pause,
+  11 hit time; state 230: 26 damage, 12/12 pause, 14 hit time).
+* AIR interpolation, reflections and per-frame rotation remain outside this subset.
 * Stage: real stage0 image as a 320x224 indexed8 NBG0 plane on VDP2
   (palette bank 4, priority 2 under the VDP1 sprite layer at 7),
   transparent VDP1 erase, scroll follows the fighters' midpoint at

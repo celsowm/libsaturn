@@ -46,18 +46,17 @@ sat_result_t ik_audio_init(ik_audio_t* audio) {
     return create_pcm_sound(&audio->kick_hit, &kfm_sounds_kick_hit);
 }
 
-void ik_audio_process_fight(
-    ik_audio_t* audio,
-    const ik_fight_t* fight,
-    const int16_t previous_states[2]
-) {
-    if (audio == 0 || fight == 0 || previous_states == 0) return;
+void ik_audio_process_fight(ik_audio_t* audio, const ik_fight_t* fight) {
+    if (audio == 0 || fight == 0) return;
 
+    /* Match the KFM CNS PlaySnd triggers: state 200 at Time=1,
+     * state 230 at Time=2. */
     for (int i = 0; i < 2; ++i) {
-        const int16_t state = fight->fighters[i].state;
-        if (state != previous_states[i] &&
-            (state == IK_STATE_PUNCH || state == IK_STATE_KICK)) {
-            play_attack_sound(audio, state, 0);
+        const ik_fighter_t* fighter = &fight->fighters[i];
+        if (fighter->state == IK_STATE_PUNCH && fighter->state_time == 1u) {
+            play_attack_sound(audio, IK_STATE_PUNCH, 0);
+        } else if (fighter->state == IK_STATE_KICK && fighter->state_time == 2u) {
+            play_attack_sound(audio, IK_STATE_KICK, 0);
         }
     }
 

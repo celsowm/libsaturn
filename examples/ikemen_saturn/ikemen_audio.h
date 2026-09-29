@@ -20,11 +20,7 @@ typedef struct ik_audio {
 } ik_audio_t;
 
 sat_result_t ik_audio_init(ik_audio_t* audio);
-void ik_audio_process_fight(
-    ik_audio_t* audio,
-    const ik_fight_t* fight,
-    const int16_t previous_states[2]
-);
+void ik_audio_process_fight(ik_audio_t* audio, const ik_fight_t* fight);
 sat_result_t ik_audio_update(void);
 
 #ifdef __cplusplus

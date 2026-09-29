@@ -52,23 +52,8 @@ static sat_ascii_font_t g_font;
 static sat_hud_t g_hud;
 
 static const ik_frame_table_t g_kfm_table = {
-    kfm_frames, KFM_FRAME_COUNT
+    kfm_frames, KFM_FRAME_COUNT, kfm_clsn_boxes, KFM_CLSN_BOX_COUNT
 };
-
-/* Fight state -> KFM AIR action (sim state ids differ from MUGEN's). */
-static int action_for_state(uint16_t state) {
-    switch (state) {
-        case IK_STATE_WALK: return 20;
-        case IK_STATE_CROUCH: return 40;
-        case IK_STATE_JUMP: return 42;
-        case IK_STATE_PUNCH: return 200;
-        case IK_STATE_KICK: return 230;
-        case IK_STATE_HIT: return 105;
-        case IK_STATE_KO: return 120;
-        case IK_STATE_GUARD: return 130;
-        default: return 0;
-    }
-}
 
 static void stage_init(void) {
     {
@@ -131,7 +116,7 @@ static void fighters_init(void) {
 
 static void draw_fighter(const ik_fighter_t* f, int player) {
     const ik_frame_t* frame = ik_frame_at_time(
-        &g_kfm_table, action_for_state(f->state), f->state_time);
+        &g_kfm_table, ik_action_for_state(f->state), f->state_time);
     if (frame == 0) {
         frame = ik_frame_at_time(&g_kfm_table, 0, 0u);
         if (frame == 0) return;
@@ -251,13 +236,8 @@ int main(void) {
         sat_example_must(sat_pad_poll(&pad1));
         if (sat_pad_poll_port(1u, &pad2) == SAT_OK && pad2.connected) have_p2 = 1;
 
-        {
-            const int16_t before_states[2] = {
-                fight.fighters[0].state, fight.fighters[1].state
-            };
-            ik_fight_update(&fight, &pad1, have_p2 ? &pad2 : 0);
-            ik_audio_process_fight(&audio, &fight, before_states);
-        }
+        ik_fight_update(&fight, &pad1, have_p2 ? &pad2 : 0, &g_kfm_table);
+        ik_audio_process_fight(&audio, &fight);
         sat_example_must(ik_audio_update());
 
         /* VDP1 draws fighters + FX + HUD; the stage is VDP2. */

@@ -1,9 +1,46 @@
 #include "ikemen_fight.h"
 
+typedef struct ik_move_hitdef {
+    int16_t state;
+    int16_t damage;
+    uint16_t hitstun;
+    uint16_t hitpause;
+    int16_t ground_velocity;
+} ik_move_hitdef_t;
+
+static const ik_move_hitdef_t k_punch_hitdef = {
+    IK_STATE_PUNCH, IK_PUNCH_DAMAGE, IK_PUNCH_HITSTUN,
+    IK_PUNCH_HITPAUSE, IK_PUNCH_GROUND_VELOCITY
+};
+static const ik_move_hitdef_t k_kick_hitdef = {
+    IK_STATE_KICK, IK_KICK_DAMAGE, IK_KICK_HITSTUN,
+    IK_KICK_HITPAUSE, IK_KICK_GROUND_VELOCITY
+};
+
 static int16_t clamp16(int16_t v, int16_t lo, int16_t hi) {
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
+}
+
+static const ik_move_hitdef_t* hitdef_for_state(int16_t state) {
+    if (state == IK_STATE_PUNCH) return &k_punch_hitdef;
+    if (state == IK_STATE_KICK) return &k_kick_hitdef;
+    return 0;
+}
+
+int ik_action_for_state(int16_t state) {
+    switch (state) {
+        case IK_STATE_WALK: return 20;
+        case IK_STATE_CROUCH: return 11;
+        case IK_STATE_JUMP: return 41;
+        case IK_STATE_PUNCH: return 200;
+        case IK_STATE_KICK: return 230;
+        case IK_STATE_HIT: return 105;
+        case IK_STATE_KO: return 120;
+        case IK_STATE_GUARD: return 130;
+        default: return 0;
+    }
 }
 
 static void fighter_spawn(ik_fighter_t* f, int16_t x, int8_t facing) {
@@ -17,6 +54,7 @@ static void fighter_spawn(ik_fighter_t* f, int16_t x, int8_t facing) {
     f->state_time = 0;
     f->hp = IK_MAX_HP;
     f->hitstun = 0;
+    f->hit_pause = 0;
     f->attack_has_hit = 0;
     f->attack_id = 0;
 }
@@ -37,8 +75,8 @@ void ik_fight_init(ik_fight_t* fight) {
 
 void ik_fight_reset(ik_fight_t* fight) {
     if (!fight) return;
-    uint32_t h1 = fight->hits_p1;
-    uint32_t h2 = fight->hits_p2;
+    const uint32_t h1 = fight->hits_p1;
+    const uint32_t h2 = fight->hits_p2;
     ik_fight_init(fight);
     fight->hits_p1 = h1;
     fight->hits_p2 = h2;
@@ -59,106 +97,125 @@ int ik_body_h(const ik_fighter_t* f) {
 }
 
 void ik_body_box(const ik_fighter_t* f, int* l, int* t, int* r, int* b) {
-    int hw = ik_body_half_w(f);
-    int h = ik_body_h(f);
-    int left = (int)f->x - hw;
-    int top = (int)f->y - h;
-    int right = (int)f->x + hw;
-    int bottom = (int)f->y;
-    if (l) *l = left;
-    if (t) *t = top;
-    if (r) *r = right;
-    if (b) *b = bottom;
-}
-
-int ik_attack_box(const ik_fighter_t* f, int* l, int* t, int* r, int* b) {
-    if (!f) return 0;
-    if (f->state != IK_STATE_PUNCH && f->state != IK_STATE_KICK) return 0;
-    /* Active only in the middle of the swing. */
-    if (f->state_time < 4 || f->state_time >= 4 + IK_ATTACK_ACTIVE_FRAMES) return 0;
-    int range = (f->state == IK_STATE_PUNCH) ? IK_PUNCH_RANGE : IK_KICK_RANGE;
-    int top = (int)f->y - ((f->state == IK_STATE_PUNCH) ? 40 : 30);
-    int bottom = top + 14;
-    int left, right;
-    if (f->facing >= 0) {
-        left = (int)f->x + 6;
-        right = (int)f->x + range;
-    } else {
-        left = (int)f->x - range;
-        right = (int)f->x - 6;
-    }
-    if (l) *l = left;
-    if (t) *t = top;
-    if (r) *r = right;
-    if (b) *b = bottom;
-    return 1;
+    const int hw = ik_body_half_w(f);
+    const int h = ik_body_h(f);
+    if (l) *l = (int)f->x - hw;
+    if (t) *t = (int)f->y - h;
+    if (r) *r = (int)f->x + hw;
+    if (b) *b = (int)f->y;
 }
 
 int ik_boxes_overlap(int l0, int t0, int r0, int b0,
                      int l1, int t1, int r1, int b1) {
-    /* Strict: touching edges are not a hit. */
     return (l0 < r1) && (l1 < r0) && (t0 < b1) && (t1 < b0);
 }
 
-static void apply_damage(ik_fight_t* fight, int victim, int damage) {
-    ik_fighter_t* v = &fight->fighters[victim];
-    int attacker = victim ^ 1;
-    /* Training guard: dummy blocks with no damage every 4th second. */
-    if (victim == 1 && ((fight->frame / 240u) & 1u) != 0u) {
-        v->state = IK_STATE_GUARD;
-        v->state_time = 0;
-        v->hitstun = 6;
-        return;
+static const ik_frame_t* fighter_frame(const ik_frame_table_t* frames,
+                                       const ik_fighter_t* fighter) {
+    if (!frames || !fighter) return 0;
+    return ik_frame_at_time(
+        frames, ik_action_for_state(fighter->state), fighter->state_time);
+}
+
+static int fighter_clsn_overlap(const ik_frame_table_t* frames,
+                                const ik_fighter_t* attacker,
+                                const ik_fighter_t* victim) {
+    const ik_frame_t* af = fighter_frame(frames, attacker);
+    const ik_frame_t* vf = fighter_frame(frames, victim);
+    if (!af || !vf || af->clsn1_count == 0u || vf->clsn2_count == 0u) return 0;
+
+    for (uint16_t ai = 0u; ai < af->clsn1_count; ++ai) {
+        int al, at, ar, ab;
+        if (!ik_frame_clsn_world(frames, af, IK_CLSN_ATTACK, ai,
+                                 attacker->x, attacker->y, attacker->facing,
+                                 &al, &at, &ar, &ab)) {
+            continue;
+        }
+        for (uint16_t vi = 0u; vi < vf->clsn2_count; ++vi) {
+            int vl, vt, vr, vb;
+            if (!ik_frame_clsn_world(frames, vf, IK_CLSN_HURT, vi,
+                                     victim->x, victim->y, victim->facing,
+                                     &vl, &vt, &vr, &vb)) {
+                continue;
+            }
+            if (ik_boxes_overlap(al, at, ar, ab, vl, vt, vr, vb)) return 1;
+        }
     }
-    v->hp = (int16_t)(v->hp - damage);
+    return 0;
+}
+
+static void apply_damage(ik_fight_t* fight, int victim,
+                         const ik_move_hitdef_t* hitdef) {
+    ik_fighter_t* v = &fight->fighters[victim];
+    ik_fighter_t* a = &fight->fighters[victim ^ 1];
+
+    v->hp = (int16_t)(v->hp - hitdef->damage);
+    v->hitstun = hitdef->hitstun;
+    v->hit_pause = hitdef->hitpause;
+    a->hit_pause = hitdef->hitpause;
+    v->vx = (int16_t)(a->facing * hitdef->ground_velocity);
+
     if (v->hp <= 0) {
         v->hp = 0;
         v->state = IK_STATE_KO;
         v->state_time = 0;
         fight->round_over = 1;
-        fight->winner = (uint8_t)(attacker + 1);
+        fight->winner = (uint8_t)((victim ^ 1) + 1);
         fight->events |= (uint16_t)(IK_EVENT_HIT | IK_EVENT_KO | IK_EVENT_ROUND_OVER);
         fight->ko_freeze = IK_KO_FREEZE_FRAMES;
     } else {
         v->state = IK_STATE_HIT;
         v->state_time = 0;
-        v->hitstun = IK_HITSTUN_FRAMES;
         fight->events |= IK_EVENT_HIT;
     }
-    if (attacker == 0) fight->hits_p1++;
+    if ((victim ^ 1) == 0) fight->hits_p1++;
     else fight->hits_p2++;
 }
 
+static uint32_t attack_duration(const ik_frame_table_t* frames, int16_t state) {
+    const uint32_t exact = ik_action_duration_ticks(frames, ik_action_for_state(state));
+    if (exact != 0u) return exact;
+    return state == IK_STATE_PUNCH ? 12u : 15u;
+}
+
 static void step_fighter(ik_fight_t* fight, int index, const sat_pad_state_t* pad,
-                         int is_dummy) {
+                         int is_dummy, const ik_frame_table_t* frames) {
     ik_fighter_t* f = &fight->fighters[index];
     ik_fighter_t* foe = &fight->fighters[index ^ 1];
-    uint16_t held = pad ? pad->held : 0u;
-    uint16_t pressed = pad ? pad->pressed : 0u;
+    const uint16_t held = pad ? pad->held : 0u;
+    const uint16_t pressed = pad ? pad->pressed : 0u;
+
+    if (f->hit_pause > 0u) {
+        f->hit_pause--;
+        return;
+    }
 
     f->state_time++;
-
-    /* Face the opponent. */
     f->facing = (foe->x >= f->x) ? 1 : -1;
 
     if (f->state == IK_STATE_KO) return;
 
-    if (f->hitstun > 0) {
+    if (f->hitstun > 0u) {
         f->hitstun--;
-        if (f->hitstun == 0 && f->state == IK_STATE_HIT) {
+        f->x = clamp16((int16_t)(f->x + f->vx), IK_STAGE_MIN_X, IK_STAGE_MAX_X);
+        if (f->vx > 0) {
+            f->vx = (int16_t)((f->vx * 85) / 100);
+            if (f->vx < 2) f->vx = 0;
+        } else if (f->vx < 0) {
+            f->vx = (int16_t)((f->vx * 85) / 100);
+            if (f->vx > -2) f->vx = 0;
+        }
+        if (f->hitstun == 0u && f->state == IK_STATE_HIT) {
             f->state = IK_STATE_IDLE;
             f->state_time = 0;
+            f->vx = 0;
         }
-        /* Knockback drift while stunned. */
-        f->x = clamp16((int16_t)(f->x - f->facing * 1), IK_STAGE_MIN_X, IK_STAGE_MAX_X);
     } else if (f->state == IK_STATE_PUNCH || f->state == IK_STATE_KICK) {
-        uint16_t dur = (f->state == IK_STATE_PUNCH) ? 16u : 20u;
-        if (f->state_time >= dur) {
+        if (f->state_time >= attack_duration(frames, f->state)) {
             f->state = IK_STATE_IDLE;
             f->state_time = 0;
         }
     } else if (!f->on_ground) {
-        /* Airborne: gravity + drift. */
         f->vy = (int16_t)(f->vy + IK_GRAVITY);
         f->y = (int16_t)(f->y + f->vy);
         if (!is_dummy) {
@@ -176,11 +233,13 @@ static void step_fighter(ik_fight_t* fight, int index, const sat_pad_state_t* pa
     } else if (!is_dummy) {
         int moved = 0;
         if ((held & SAT_PAD_LEFT) != 0u) {
-            f->x = clamp16((int16_t)(f->x - IK_WALK_SPEED), IK_STAGE_MIN_X, IK_STAGE_MAX_X);
+            f->x = clamp16((int16_t)(f->x - IK_WALK_SPEED),
+                           IK_STAGE_MIN_X, IK_STAGE_MAX_X);
             moved = 1;
         }
         if ((held & SAT_PAD_RIGHT) != 0u) {
-            f->x = clamp16((int16_t)(f->x + IK_WALK_SPEED), IK_STAGE_MIN_X, IK_STAGE_MAX_X);
+            f->x = clamp16((int16_t)(f->x + IK_WALK_SPEED),
+                           IK_STAGE_MIN_X, IK_STAGE_MAX_X);
             moved = 1;
         }
         if ((pressed & SAT_PAD_UP) != 0u) {
@@ -189,13 +248,14 @@ static void step_fighter(ik_fight_t* fight, int index, const sat_pad_state_t* pa
             f->state = IK_STATE_JUMP;
             f->state_time = 0;
         } else if ((held & SAT_PAD_DOWN) != 0u) {
+            if (f->state != IK_STATE_CROUCH) f->state_time = 0;
             f->state = IK_STATE_CROUCH;
-        } else if (((pressed & SAT_PAD_A) != 0u) || ((pressed & SAT_PAD_X) != 0u)) {
+        } else if ((pressed & (SAT_PAD_A | SAT_PAD_X)) != 0u) {
             f->state = IK_STATE_PUNCH;
             f->state_time = 0;
             f->attack_has_hit = 0;
             f->attack_id++;
-        } else if (((pressed & SAT_PAD_B) != 0u) || ((pressed & SAT_PAD_Y) != 0u)) {
+        } else if ((pressed & (SAT_PAD_B | SAT_PAD_Y)) != 0u) {
             f->state = IK_STATE_KICK;
             f->state_time = 0;
             f->attack_has_hit = 0;
@@ -205,29 +265,23 @@ static void step_fighter(ik_fight_t* fight, int index, const sat_pad_state_t* pa
                 f->state = IK_STATE_WALK;
                 f->state_time = 0;
             }
-        } else {
-            if (f->state != IK_STATE_IDLE && f->state != IK_STATE_GUARD) {
-                f->state = IK_STATE_IDLE;
-                f->state_time = 0;
-            }
+        } else if (f->state != IK_STATE_IDLE) {
+            f->state = IK_STATE_IDLE;
+            f->state_time = 0;
         }
     } else {
-        /* Training dummy: idle breathing, guard window handled in damage. */
-        if (f->state != IK_STATE_GUARD) {
-            f->state = IK_STATE_IDLE;
-        } else if (f->state_time > 30) {
+        if (f->state != IK_STATE_IDLE) {
             f->state = IK_STATE_IDLE;
             f->state_time = 0;
         }
     }
 
-    /* Pushboxes: never let bodies interpenetrate. */
     {
         int l0, t0, r0, b0, l1, t1, r1, b1;
         ik_body_box(f, &l0, &t0, &r0, &b0);
         ik_body_box(foe, &l1, &t1, &r1, &b1);
         if (ik_boxes_overlap(l0, t0, r0, b0, l1, t1, r1, b1)) {
-            int16_t mid = (int16_t)((f->x + foe->x) / 2);
+            const int16_t mid = (int16_t)((f->x + foe->x) / 2);
             if (f->x <= foe->x) {
                 f->x = clamp16((int16_t)(f->x - 1), IK_STAGE_MIN_X, mid);
             } else {
@@ -237,63 +291,60 @@ static void step_fighter(ik_fight_t* fight, int index, const sat_pad_state_t* pa
     }
 }
 
-void ik_fight_update(ik_fight_t* fight, const sat_pad_state_t* p1_pad,
-                     const sat_pad_state_t* p2_pad) {
+void ik_fight_update(ik_fight_t* fight,
+                     const sat_pad_state_t* p1_pad,
+                     const sat_pad_state_t* p2_pad,
+                     const ik_frame_table_t* frames) {
     if (!fight) return;
-    /* START on P1 resets (training convenience). */
     if (p1_pad && ((p1_pad->pressed & SAT_PAD_START) != 0u)) {
         ik_fight_reset(fight);
         return;
     }
+
     fight->events = IK_EVENT_NONE;
     if (fight->round_over) {
-        if (fight->ko_freeze > 0) fight->ko_freeze--;
+        if (fight->ko_freeze > 0u) fight->ko_freeze--;
         fight->frame++;
         return;
     }
+
     fight->frame++;
-    if (fight->timer_frames > 0) {
+    if (fight->timer_frames > 0u) {
         fight->timer_frames--;
-        if (fight->timer_frames == 0) {
+        if (fight->timer_frames == 0u) {
             fight->round_over = 1;
-            if (fight->fighters[0].hp >= fight->fighters[1].hp) fight->winner = 1;
-            else fight->winner = 2;
+            fight->winner = (fight->fighters[0].hp >= fight->fighters[1].hp) ? 1u : 2u;
             fight->events |= IK_EVENT_ROUND_OVER;
             return;
         }
     }
 
-    int dummy = (p2_pad == NULL);
-    step_fighter(fight, 0, p1_pad, 0);
-    step_fighter(fight, 1, p2_pad, dummy);
+    const int dummy = (p2_pad == 0);
+    step_fighter(fight, 0, p1_pad, 0, frames);
+    step_fighter(fight, 1, p2_pad, dummy, frames);
 
-    /* Resolve active attack boxes vs body boxes (both directions). */
-    for (int atk = 0; atk < 2; atk++) {
+    for (int atk = 0; atk < 2; ++atk) {
         ik_fighter_t* a = &fight->fighters[atk];
         ik_fighter_t* v = &fight->fighters[atk ^ 1];
-        if (a->attack_has_hit) continue;
-        int al, at, ar, ab, vl, vt, vr, vb;
-        if (!ik_attack_box(a, &al, &at, &ar, &ab)) continue;
-        ik_body_box(v, &vl, &vt, &vr, &vb);
-        if (ik_boxes_overlap(al, at, ar, ab, vl, vt, vr, vb)) {
-            int dmg = (a->state == IK_STATE_PUNCH) ? IK_PUNCH_DAMAGE : IK_KICK_DAMAGE;
-            a->attack_has_hit = 1;
-            apply_damage(fight, atk ^ 1, dmg);
-        }
+        const ik_move_hitdef_t* hitdef = hitdef_for_state(a->state);
+        if (!hitdef || a->attack_has_hit) continue;
+        if (!fighter_clsn_overlap(frames, a, v)) continue;
+
+        a->attack_has_hit = 1u;
+        apply_damage(fight, atk ^ 1, hitdef);
     }
 }
 
 const char* ik_fight_status_text(const ik_fight_t* fight) {
-    if (!fight) return NULL;
+    if (!fight) return 0;
     if (fight->round_over) {
         if (fight->winner == 1) return "P1 WINS - START RESETS";
         if (fight->winner == 2) return "P2 WINS - START RESETS";
         return "TIME OVER - START RESETS";
     }
-    return NULL;
+    return 0;
 }
 
 int ik_fight_status_needs_start(const ik_fight_t* fight) {
-    if (!fight) return 0;
-    return fight->round_over != 0;
+    return fight != 0 && fight->round_over != 0;
 }

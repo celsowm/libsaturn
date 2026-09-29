@@ -105,7 +105,7 @@ def cmd_char(args) -> int:
                 action=action, index=idx, width=padded_w, height=node.height,
                 ax=node.xoff + left, ay=node.yoff, ticks=fr.time,
                 flip_h=fr.flip_h, flip_v=fr.flip_v,
-                sprite_key=key, clsn2=list(fr.clsn2) or list(act.clsn2_default)))
+                sprite_key=key, clsn1=list(fr.clsn1), clsn2=list(fr.clsn2)))
     if not frames:
         raise SystemExit("[ikemen_sff] no frames resolved", 2)
 
@@ -128,8 +128,10 @@ def cmd_char(args) -> int:
         "frames": len(frames),
         "unique_sprites": len(sprite_pixels),
         "pixel_bytes": blob,
-        "clsn_default": {str(a): actions[a].clsn2_default
-                          for a in args.actions if a in actions},
+        "clsn1_default": {str(a): actions[a].clsn1_default
+                           for a in args.actions if a in actions},
+        "clsn2_default": {str(a): actions[a].clsn2_default
+                           for a in args.actions if a in actions},
         "missing": missing,
     }
     (out_prefix.parent / f"{out_prefix.name}.json").write_text(
