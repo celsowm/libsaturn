@@ -865,8 +865,11 @@ def compile_common_states(
                     const["stand_friction_threshold_q8"], 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
+                _common_ctrl(
+                    0, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_NOT_ALIVE", 0, 0, 5050, 0,
+                ),
             ]
-            deferred[n] = ["alive=false -> state 5050"]
 
         elif n == 10:
             row = state_row(10, 10, 0)
