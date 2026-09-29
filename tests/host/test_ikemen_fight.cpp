@@ -511,7 +511,9 @@ static const ik_cns_hitdef_t k_downed_hitdefs[] = {
      23,0,3u,0u,0u,
      IK_CNS_GROUND_HIGH,3u,3u,3u,
      -1024,0,-358,-768,
-     0,-10,-76,5,0,6,0,0u}
+     0,-10,-76,5,0,6,0,0u,
+     0u,1u,0u,0u,0u,0,0,0,0u,0u,
+     0,-1152,0u,1u,4u,22u,-1280,0}
 };
 
 static const ik_cns_controller_t k_downed_ctrls[] = {
@@ -960,14 +962,17 @@ int main() {
         }
         EQ(g.hits_p1,1u);
         EQ(v->state,5080);
+        EQ(v->gethit_vx_q8,-1280);
         EQ(v->gethit_vy_q8,0);
+        EQ(v->hitstun,22u);
+        EQ(v->hit_slide_time,22u);
 
         for(int i=0;i<20 && v->state!=5081;++i) {
             tick2(&g,&p1,&p2);
         }
         EQ(v->state,5081);
 
-        for(int i=0;i<20 && v->state!=5110;++i) {
+        for(int i=0;i<40 && v->state!=5110;++i) {
             tick2(&g,&p1,&p2);
         }
         EQ(v->state,5110);
