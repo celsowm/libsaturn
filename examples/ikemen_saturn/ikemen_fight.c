@@ -469,24 +469,35 @@ static void apply_damage(ik_fight_t* fight, int victim,
     ik_fighter_t* a = &fight->fighters[victim ^ 1];
 
     const uint8_t victim_type = ik_fight_state_type(fight, v);
+    const int downed = victim_type == IK_CNS_STATE_LIEDOWN;
     const int airborne = !v->on_ground || victim_type == IK_CNS_STATE_AIR;
-    const int16_t hit_time = airborne
-        ? hitdef->air_hit_time
-        : hitdef->ground_hit_time;
-    const int16_t velocity_x = airborne
-        ? hitdef->air_velocity_x_q8
-        : hitdef->ground_velocity_x_q8;
-    const int16_t velocity_y = airborne
-        ? hitdef->air_velocity_y_q8
-        : hitdef->ground_velocity_y_q8;
-    const int launch = airborne ||
+    const int16_t velocity_x = downed
+        ? hitdef->down_velocity_x_q8
+        : airborne
+            ? hitdef->air_velocity_x_q8
+            : hitdef->ground_velocity_x_q8;
+    const int16_t velocity_y = downed
+        ? hitdef->down_velocity_y_q8
+        : airborne
+            ? hitdef->air_velocity_y_q8
+            : hitdef->ground_velocity_y_q8;
+    const int16_t hit_time = downed
+        ? (velocity_y == 0
+            ? (int16_t)hitdef->down_hit_time
+            : (int16_t)hitdef->air_hit_time)
+        : airborne
+            ? (int16_t)hitdef->air_hit_time
+            : (int16_t)hitdef->ground_hit_time;
+    const int launch = airborne || (downed && velocity_y != 0) ||
         (hitdef->flags & IK_CNS_HITDEF_FALL) != 0u ||
         velocity_y != 0;
 
     v->hp = (int16_t)(v->hp - hitdef->damage);
     v->hitstun = (uint16_t)(hit_time < 0 ? 0 : hit_time);
     v->hit_pause = hitdef->pause_p2;
-    v->hit_slide_time = hitdef->ground_slide_time;
+    v->hit_slide_time = downed && velocity_y == 0
+        ? hitdef->down_hit_time
+        : hitdef->ground_slide_time;
     v->hit_ctrl_time = (uint16_t)(hit_time < 0 ? 0 : hit_time);
     v->gethit_vx_q8 = velocity_x;
     v->gethit_vy_q8 = velocity_y;
