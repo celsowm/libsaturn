@@ -58,6 +58,7 @@ sprpriority = 2
 type = HitDef
 trigger1 = AnimElem = 3
 damage = 23, 0
+animtype = Medium
 guardflag = MA
 guard.velocity = -3
 guard.slidetime = 7
@@ -142,6 +143,14 @@ COMMON = r"""
 [StateDef 153; type: C; movetype: H; physics: C; anim: 151;]
 [StateDef 154; type: A; movetype: H; physics: N; velset: 0, 0;]
 [StateDef 155; type: A; movetype: H; physics: N; anim: 152;]
+[StateDef 5000; type: S; movetype: H; physics: N; velset: 0, 0;]
+[StateDef 5001; type: S; movetype: H; physics: S;]
+[StateDef 5010; type: C; movetype: H; physics: N; velset: 0, 0;]
+[StateDef 5011; type: C; movetype: H; physics: C;]
+[StateDef 5020; type: A; movetype: H; physics: N; velset: 0, 0;]
+[StateDef 5030; type: A; movetype: H; physics: N; ctrl: 0;]
+[StateDef 5040; type: A; movetype: H; physics: N;]
+[StateDef 5050; type: A; movetype: H; physics: N;]
 """
 
 with tempfile.TemporaryDirectory() as td:
@@ -153,7 +162,8 @@ with tempfile.TemporaryDirectory() as td:
     report = emit(
         source, [200], root / "kfm_cns", "kfm",
         common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
-                 120,130,131,132,140,150,151,152,153,154,155]
+                 120,130,131,132,140,150,151,152,153,154,155,
+                 5000,5001,5010,5011,5020,5030,5040,5050]
     )
 
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
@@ -164,7 +174,7 @@ assert report["constants"]["air_jump_neu_y_q8"] == round(-8.1 * 256)
 assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
-assert len(report["states"]) == 25
+assert len(report["states"]) == 33
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -181,6 +191,8 @@ assert hit["guard_velocity_x_q8"] == -3 * 256
 assert hit["guard_slide_time"] == 7
 assert hit["guard_hit_time"] == 9
 assert hit["guard_ctrl_time"] == 8
+assert hit["anim_type"] == 1
+assert hit["air_anim_type"] == 1
 
 controllers = report["controllers"]
 assert controllers[0]["type"] == "IK_CNS_CTRL_SPR_PRIORITY"
@@ -223,5 +235,11 @@ assert common_rows[140]["ctrl"] == 1
 assert common_rows[150]["move_type"] == "IK_CNS_MOVE_HIT"
 assert common_rows[151]["controller_count"] == 4
 assert common_rows[155]["controller_count"] == 2
+assert common_rows[5000]["controller_count"] == 3
+assert common_rows[5001]["controller_count"] == 3
+assert common_rows[5020]["controller_count"] == 2
+assert common_rows[5030]["controller_count"] == 2
+assert common_rows[5040]["land_state"] == 52
+assert common_rows[5050]["land_state"] == 52
 assert report["common_deferred"][100] == ["AssertSpecial noWalk/noAutoTurn"]
 assert report["common_deferred"][150] == ["ForceFeedback"]
