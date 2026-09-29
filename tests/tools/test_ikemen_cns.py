@@ -223,6 +223,7 @@ assert hit["damage"] == 23
 assert hit["pause_p1"] == 8
 assert hit["ground_velocity_x_q8"] == -4 * 256
 assert hit["guard_flags"] == "IK_CNS_GUARD_STAND | IK_CNS_GUARD_CROUCH | IK_CNS_GUARD_AIR"
+assert hit["hit_flags"] == "IK_CNS_HIT_STAND | IK_CNS_HIT_CROUCH | IK_CNS_HIT_AIR | IK_CNS_HIT_FALL"
 assert hit["guard_kill"] == 1
 assert hit["guard_velocity_x_q8"] == -3 * 256
 assert hit["guard_slide_time"] == 7
