@@ -101,6 +101,12 @@ enum {
     IK_CNS_GUARD_AIR = 1u << 2
 };
 
+typedef enum ik_cns_priority_type {
+    IK_CNS_PRIORITY_HIT = 0,
+    IK_CNS_PRIORITY_MISS,
+    IK_CNS_PRIORITY_DODGE
+} ik_cns_priority_type_t;
+
 enum {
     IK_CNS_HIT_STAND = 1u << 0,
     IK_CNS_HIT_CROUCH = 1u << 1,
@@ -268,6 +274,7 @@ typedef struct ik_cns_hitdef {
     int16_t down_velocity_y_q8;
     uint8_t down_bounce;
     uint8_t hit_flags;
+    uint8_t priority_type;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
