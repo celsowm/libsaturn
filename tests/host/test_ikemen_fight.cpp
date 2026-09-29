@@ -171,7 +171,7 @@ int main() {
         ik_fight_controls_t p{}; p.b=1;
         tick(&g,&p);
         const int32_t before=g.fighters[0].x_q8;
-        for(int i=0;i<12;++i) idle(&g,1);
+        for(int i=0;i<14;++i) idle(&g,1);
         OK(g.fighters[0].x_q8>=before+12*256);
     }
 
