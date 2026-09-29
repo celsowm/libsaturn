@@ -277,6 +277,8 @@ static void controls_from_commands(uint32_t player,
         state, &kfm_commands, KFM_CMD_Z);
     controls->start = (uint8_t)ik_command_active(
         state, &kfm_commands, KFM_CMD_START);
+    controls->recovery = (uint8_t)ik_command_active(
+        state, &kfm_commands, KFM_CMD_RECOVERY);
 
     {
         const uint16_t projected_time = (uint16_t)(
