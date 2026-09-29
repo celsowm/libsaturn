@@ -637,6 +637,96 @@ int main() {
         OK(g.fighters[1].state==5001 || g.fighters[1].state==0);
     }
 
+    /* Equal-priority Hit/Hit attacks trade: contacts are gathered before
+     * either fighter is moved into a get-hit state. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        ik_fight_controls_t p1{}; request(&p1,IK_STATE_PUNCH);
+        ik_fight_controls_t p2{}; request(&p2,IK_STATE_PUNCH);
+        for(int i=0;i<12 && g.hits_p1==0u && g.hits_p2==0u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+            p2.has_state_request=0u;
+        }
+        EQ(g.hits_p1,1u);
+        EQ(g.hits_p2,1u);
+        EQ(g.fighters[0].hp,977);
+        EQ(g.fighters[1].hp,977);
+    }
+
+    /* Numeric priority wins before the equal-priority class tiebreaker. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        ik_fight_controls_t p1{}; request(&p1,IK_STATE_PUNCH);
+        ik_fight_controls_t p2{}; request(&p2,IK_STATE_STRONG_PUNCH);
+        for(int i=0;i<16 && g.hits_p2==0u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+            p2.has_state_request=0u;
+        }
+        EQ(g.hits_p1,0u);
+        EQ(g.hits_p2,1u);
+        EQ(g.fighters[0].hp,943);
+        EQ(g.fighters[1].hp,1000);
+    }
+
+    /* Equal priority Hit vs Miss: Hit lands, Miss is deactivated. */
+    {
+        constexpr unsigned hitdef_count=
+            (unsigned)(sizeof(k_hitdefs)/sizeof(k_hitdefs[0]));
+        ik_cns_hitdef_t hitdefs[hitdef_count];
+        for(unsigned i=0;i<hitdef_count;++i) hitdefs[i]=k_hitdefs[i];
+        hitdefs[0].priority=3u;
+        hitdefs[0].priority_type=IK_CNS_PRIORITY_HIT;
+        hitdefs[1].priority=3u;
+        hitdefs[1].priority_type=IK_CNS_PRIORITY_MISS;
+        ik_cns_asset_t asset=k_cns;
+        asset.hitdefs=hitdefs;
+
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        ik_fight_controls_t p1{}; request(&p1,IK_STATE_PUNCH);
+        ik_fight_controls_t p2{}; request(&p2,IK_STATE_STRONG_PUNCH);
+        for(int i=0;i<16 && g.hits_p1==0u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+            p2.has_state_request=0u;
+        }
+        EQ(g.hits_p1,1u);
+        EQ(g.hits_p2,0u);
+        EQ(g.fighters[0].hp,1000);
+        EQ(g.fighters[1].hp,977);
+    }
+
+    /* Equal priority Hit vs Dodge: neither connects and the no-hit tie does
+     * not consume either persistent HitDef. */
+    {
+        constexpr unsigned hitdef_count=
+            (unsigned)(sizeof(k_hitdefs)/sizeof(k_hitdefs[0]));
+        ik_cns_hitdef_t hitdefs[hitdef_count];
+        for(unsigned i=0;i<hitdef_count;++i) hitdefs[i]=k_hitdefs[i];
+        hitdefs[0].priority=3u;
+        hitdefs[0].priority_type=IK_CNS_PRIORITY_HIT;
+        hitdefs[1].priority=3u;
+        hitdefs[1].priority_type=IK_CNS_PRIORITY_DODGE;
+        ik_cns_asset_t asset=k_cns;
+        asset.hitdefs=hitdefs;
+
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        ik_fight_controls_t p1{}; request(&p1,IK_STATE_PUNCH);
+        ik_fight_controls_t p2{}; request(&p2,IK_STATE_STRONG_PUNCH);
+        for(int i=0;i<10;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+            p2.has_state_request=0u;
+        }
+        EQ(g.hits_p1,0u);
+        EQ(g.hits_p2,0u);
+        EQ(g.fighters[0].hp,1000);
+        EQ(g.fighters[1].hp,1000);
+        EQ(g.fighters[0].hitdef_hit_mask,0u);
+        EQ(g.fighters[1].hitdef_hit_mask,0u);
+    }
+
     /* MA guardflag blocks standing. Guard hit enters common 150/151
      * rather than the legacy damage state and does not count as a hit. */
     {
