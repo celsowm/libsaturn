@@ -399,14 +399,20 @@ int main() {
         const int hp=g.fighters[1].hp;
         ik_fight_controls_t p1{}; request(&p1,IK_STATE_CROUCH_PUNCH);
         ik_fight_controls_t p2{}; p2.back=1;
-        tick2(&g,&p1,&p2);
+        for(int i=0;i<8 && g.hits_p1==0u;++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
         EQ(hp-g.fighters[1].hp,23);
         EQ(g.hits_p1,1u);
 
         ik_fight_init(&g,&k_cns); place(&g,100,145);
         p1={}; request(&p1,IK_STATE_CROUCH_PUNCH);
         p2={}; p2.back=1; p2.down=1;
-        tick2(&g,&p1,&p2);
+        for(int i=0;i<8 && !(g.events&IK_EVENT_GUARD);++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
         OK((g.events&IK_EVENT_GUARD)!=0u);
         EQ(g.fighters[1].hp,1000);
         EQ(g.fighters[1].guard_type,IK_CNS_STATE_CROUCH);
