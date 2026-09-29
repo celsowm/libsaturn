@@ -1306,7 +1306,6 @@ void ik_fight_update(ik_fight_t* fight,
 
     const ik_cns_hitdef_t* candidates[2] = {0, 0};
     uint32_t candidate_bits[2] = {0u, 0u};
-    uint8_t candidate_local[2] = {0u, 0u};
     uint8_t lands[2] = {0u, 0u};
     uint8_t consume[2] = {0u, 0u};
 
@@ -1327,7 +1326,6 @@ void ik_fight_update(ik_fight_t* fight,
 
         candidates[atk] = hitdef;
         candidate_bits[atk] = bit;
-        candidate_local[atk] = local_hitdef;
         lands[atk] = 1u;
     }
 
