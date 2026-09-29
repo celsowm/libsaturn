@@ -56,6 +56,26 @@ enum {
     IK_CMD_PATTERN_BUFFER_HITPAUSE = 1u << 0
 };
 
+typedef enum ik_cmd_rule_op {
+    IK_CMD_RULE_COMMAND_ACTIVE = 1,
+    IK_CMD_RULE_COMMAND_INACTIVE,
+    IK_CMD_RULE_STATE_TYPE_EQ,
+    IK_CMD_RULE_STATE_TYPE_NE,
+    IK_CMD_RULE_STATE_NO_EQ,
+    IK_CMD_RULE_STATE_NO_NE,
+    IK_CMD_RULE_STATE_NO_RANGE,
+    IK_CMD_RULE_STATE_TIME_EQ,
+    IK_CMD_RULE_STATE_TIME_GT,
+    IK_CMD_RULE_STATE_TIME_GE,
+    IK_CMD_RULE_STATE_TIME_LT,
+    IK_CMD_RULE_STATE_TIME_LE,
+    IK_CMD_RULE_CTRL,
+    IK_CMD_RULE_MOVE_CONTACT,
+    IK_CMD_RULE_NOT,
+    IK_CMD_RULE_AND,
+    IK_CMD_RULE_OR
+} ik_cmd_rule_op_t;
+
 typedef struct ik_cmd_key_spec {
     uint8_t key;
     uint8_t flags;
@@ -101,6 +121,36 @@ typedef struct ik_command_asset {
     uint16_t name_count;
 } ik_command_asset_t;
 
+typedef struct ik_state_rule_instr {
+    uint8_t op;
+    uint8_t reserved;
+    int16_t value0;
+    int16_t value1;
+} ik_state_rule_instr_t;
+
+typedef struct ik_state_rule {
+    uint16_t instruction_ofs;
+    uint8_t instruction_count;
+    int16_t target_state;
+    uint8_t reserved;
+} ik_state_rule_t;
+
+typedef struct ik_state_rule_asset {
+    const ik_state_rule_instr_t* instructions;
+    uint16_t instruction_count;
+    const ik_state_rule_t* rules;
+    uint16_t rule_count;
+} ik_state_rule_asset_t;
+
+typedef struct ik_state_rule_context {
+    int16_t state_no;
+    uint16_t state_time;
+    uint8_t state_type;
+    uint8_t ctrl;
+    uint8_t move_contact;
+    uint8_t reserved;
+} ik_state_rule_context_t;
+
 typedef struct ik_command_pattern_state {
     uint16_t completed_mask;
     uint8_t step_timer[IK_CMD_MAX_STEPS_PER_PATTERN];
@@ -123,6 +173,11 @@ uint16_t ik_command_find(const ik_command_asset_t* asset, const char* name);
 int ik_command_active(const ik_command_state_t* state,
                       const ik_command_asset_t* asset,
                       uint16_t name_id);
+int ik_command_eval_state_change(const ik_command_state_t* state,
+                                 const ik_command_asset_t* commands,
+                                 const ik_state_rule_asset_t* rules,
+                                 const ik_state_rule_context_t* context,
+                                 int16_t* out_state);
 void ik_command_update(ik_command_state_t* state,
                        const ik_command_asset_t* asset,
                        const sat_pad_state_t* pad,
