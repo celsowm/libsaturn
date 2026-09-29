@@ -663,6 +663,7 @@ def parse_state(
                     "down_hit_time": down_hit_time,
                     "down_velocity_x_q8": q8(down_x),
                     "down_velocity_y_q8": q8(down_y),
+                    "down_bounce": integer(ctrl.get("down.bounce"), 0),
                 }
             )
 
@@ -1721,7 +1722,8 @@ def emit(
         f"{h['fall_x_velocity_set']}u, {h['fall_recover']}u, "
         f"{h['fall_recover_time']}u, "
         f"{h['down_hit_time']}u, "
-        f"{h['down_velocity_x_q8']}, {h['down_velocity_y_q8']}"
+        f"{h['down_velocity_x_q8']}, {h['down_velocity_y_q8']}, "
+        f"{h['down_bounce']}u"
         "},"
         for h in hitdefs
     ]
