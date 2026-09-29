@@ -125,6 +125,37 @@ int ik_cns_controller_trigger_context_now(
         case IK_CNS_TRIGGER_NOT_ALIVE:
             return context->alive == 0u;
 
+        case IK_CNS_TRIGGER_ANIM_ELEM_BEFORE:
+            return context->anim_element <
+                   (uint16_t)(controller->trigger_value < 1
+                                  ? 1
+                                  : controller->trigger_value);
+
+        case IK_CNS_TRIGGER_STATE_AXIS_FWD_ANIM_ELEM_EQ:
+            return context->state_axis > 0 &&
+                   context->anim_element ==
+                       (uint16_t)(controller->trigger_value < 1
+                                      ? 1
+                                      : controller->trigger_value) &&
+                   context->anim_element_time == 0u;
+
+        case IK_CNS_TRIGGER_NOT_BOUND:
+            return context->is_bound == 0u;
+
+        case IK_CNS_TRIGGER_THROW_GROUND_RECOVERY:
+            return context->alive != 0u &&
+                   context->can_recover != 0u &&
+                   (context->command_mask & IK_CNS_COMMAND_RECOVERY) != 0u &&
+                   context->vy_q8 > 0 &&
+                   context->y_q8 >=
+                       context->floor_y_q8 + controller->trigger_value;
+
+        case IK_CNS_TRIGGER_THROW_AIR_RECOVERY:
+            return context->alive != 0u &&
+                   context->can_recover != 0u &&
+                   (context->command_mask & IK_CNS_COMMAND_RECOVERY) != 0u &&
+                   context->vy_q8 > 0;
+
         default:
             return ik_cns_trigger_now(
                 controller->trigger_kind, controller->trigger_value,
@@ -140,12 +171,13 @@ int ik_cns_controller_trigger_now(const ik_cns_controller_t* controller,
                                   int anim_ended,
                                   int move_contact) {
     const ik_cns_controller_context_t context = {
-        state_time, anim_element, anim_element_time,
-        0, 0, 0, 0, 0, 0u,
-        0u, 0u, 0u, 0u,
-        1u,
-        (uint8_t)(anim_ended != 0),
-        (uint8_t)(move_contact != 0)
+        .state_time = state_time,
+        .anim_element = anim_element,
+        .anim_element_time = anim_element_time,
+        .alive = 1u,
+        .can_recover = 1u,
+        .anim_ended = (uint8_t)(anim_ended != 0),
+        .move_contact = (uint8_t)(move_contact != 0)
     };
     return ik_cns_controller_trigger_context_now(controller, &context);
 }
