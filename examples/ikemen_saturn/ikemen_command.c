@@ -501,3 +501,102 @@ void ik_command_update(ik_command_state_t* state,
         }
     }
 }
+
+
+static int eval_state_rule(const ik_command_state_t* state,
+                           const ik_command_asset_t* commands,
+                           const ik_state_rule_asset_t* asset,
+                           const ik_state_rule_t* rule,
+                           const ik_state_rule_context_t* context) {
+    int stack[24];
+    uint8_t sp = 0u;
+    if (!state || !commands || !asset || !rule || !context) return 0;
+
+    for (uint8_t i = 0u; i < rule->instruction_count; ++i) {
+        const uint16_t index = (uint16_t)(rule->instruction_ofs + i);
+        if (index >= asset->instruction_count) return 0;
+        const ik_state_rule_instr_t* ins = &asset->instructions[index];
+        int value = 0;
+
+        switch ((ik_cmd_rule_op_t)ins->op) {
+            case IK_CMD_RULE_COMMAND_ACTIVE:
+                value = ik_command_active(state, commands, (uint16_t)ins->value0);
+                break;
+            case IK_CMD_RULE_COMMAND_INACTIVE:
+                value = !ik_command_active(state, commands, (uint16_t)ins->value0);
+                break;
+            case IK_CMD_RULE_STATE_TYPE_EQ:
+                value = context->state_type == (uint8_t)ins->value0;
+                break;
+            case IK_CMD_RULE_STATE_TYPE_NE:
+                value = context->state_type != (uint8_t)ins->value0;
+                break;
+            case IK_CMD_RULE_STATE_NO_EQ:
+                value = context->state_no == ins->value0;
+                break;
+            case IK_CMD_RULE_STATE_NO_NE:
+                value = context->state_no != ins->value0;
+                break;
+            case IK_CMD_RULE_STATE_NO_RANGE:
+                value = context->state_no >= ins->value0 &&
+                        context->state_no <= ins->value1;
+                break;
+            case IK_CMD_RULE_STATE_TIME_EQ:
+                value = context->state_time == (uint16_t)ins->value0;
+                break;
+            case IK_CMD_RULE_STATE_TIME_GT:
+                value = context->state_time > (uint16_t)ins->value0;
+                break;
+            case IK_CMD_RULE_STATE_TIME_GE:
+                value = context->state_time >= (uint16_t)ins->value0;
+                break;
+            case IK_CMD_RULE_STATE_TIME_LT:
+                value = context->state_time < (uint16_t)ins->value0;
+                break;
+            case IK_CMD_RULE_STATE_TIME_LE:
+                value = context->state_time <= (uint16_t)ins->value0;
+                break;
+            case IK_CMD_RULE_CTRL:
+                value = context->ctrl != 0u;
+                break;
+            case IK_CMD_RULE_MOVE_CONTACT:
+                value = context->move_contact != 0u;
+                break;
+            case IK_CMD_RULE_NOT:
+                if (sp < 1u) return 0;
+                stack[sp - 1u] = !stack[sp - 1u];
+                continue;
+            case IK_CMD_RULE_AND:
+                if (sp < 2u) return 0;
+                stack[sp - 2u] = stack[sp - 2u] && stack[sp - 1u];
+                --sp;
+                continue;
+            case IK_CMD_RULE_OR:
+                if (sp < 2u) return 0;
+                stack[sp - 2u] = stack[sp - 2u] || stack[sp - 1u];
+                --sp;
+                continue;
+            default:
+                return 0;
+        }
+
+        if (sp >= (uint8_t)(sizeof(stack) / sizeof(stack[0]))) return 0;
+        stack[sp++] = value;
+    }
+    return sp == 1u && stack[0] != 0;
+}
+
+int ik_command_eval_state_change(const ik_command_state_t* state,
+                                 const ik_command_asset_t* commands,
+                                 const ik_state_rule_asset_t* rules,
+                                 const ik_state_rule_context_t* context,
+                                 int16_t* out_state) {
+    if (!state || !commands || !rules || !context || !out_state) return 0;
+    for (uint16_t i = 0u; i < rules->rule_count; ++i) {
+        if (eval_state_rule(state, commands, rules, &rules->rules[i], context)) {
+            *out_state = rules->rules[i].target_state;
+            return 1;
+        }
+    }
+    return 0;
+}
