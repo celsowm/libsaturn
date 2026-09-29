@@ -576,6 +576,8 @@ def parse_state(
             fall_x_text = ctrl.get("fall.xvelocity")
             fall_x = number(fall_x_text, 0)
             fall_y = number(ctrl.get("fall.yvelocity"), -4.5)
+            down_x, down_y = pair(ctrl.get("down.velocity"), ax, ay)
+            down_hit_time = integer(ctrl.get("down.hittime"), 0)
             sparkx, sparky = pair(ctrl.get("sparkxy"), 0, 0)
             hs = sound_pair(ctrl.get("hitsound"))
             gs = sound_pair(ctrl.get("guardsound"))
@@ -658,6 +660,9 @@ def parse_state(
                     "fall_recover_time": integer(
                         ctrl.get("fall.recovertime"), 4
                     ),
+                    "down_hit_time": down_hit_time,
+                    "down_velocity_x_q8": q8(down_x),
+                    "down_velocity_y_q8": q8(down_y),
                 }
             )
 
@@ -1714,7 +1719,9 @@ def emit(
         f"{h['anim_type']}u, {h['air_anim_type']}u, "
         f"{h['fall_x_velocity_q8']}, {h['fall_y_velocity_q8']}, "
         f"{h['fall_x_velocity_set']}u, {h['fall_recover']}u, "
-        f"{h['fall_recover_time']}u"
+        f"{h['fall_recover_time']}u, "
+        f"{h['down_hit_time']}u, "
+        f"{h['down_velocity_x_q8']}, {h['down_velocity_y_q8']}"
         "},"
         for h in hitdefs
     ]
