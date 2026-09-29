@@ -109,6 +109,7 @@ typedef struct ik_fighter {
     uint8_t gethit_fall_recover;
     uint8_t gethit_fall_recover_time;
     uint16_t fall_time;
+    int16_t juggle_points;
     uint8_t guard_type;
 
     int16_t push_back;
