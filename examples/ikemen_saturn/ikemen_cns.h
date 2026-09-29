@@ -92,7 +92,8 @@ typedef enum ik_cns_controller_type {
 
 enum {
     IK_CNS_HITDEF_FALL = 1u << 0,
-    IK_CNS_HITDEF_FORCE_NO_FALL = 1u << 1
+    IK_CNS_HITDEF_FORCE_NO_FALL = 1u << 1,
+    IK_CNS_HITDEF_THROW = 1u << 2
 };
 
 enum {
@@ -279,6 +280,13 @@ typedef struct ik_cns_hitdef {
     uint8_t hit_flags;
     uint8_t priority_type;
     uint8_t air_juggle;
+
+    int16_t p1_state_no;
+    int16_t p2_state_no;
+    int16_t guard_dist;
+    int8_t p1_facing;
+    int8_t p2_facing;
+    int8_t p1_spr_priority;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
