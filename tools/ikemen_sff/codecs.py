@@ -110,8 +110,9 @@ def _decode_lz5(data: bytes, width: int, height: int) -> bytes:
                 if i < len(src) - 1:
                     i += 1
             else:
-                # Top two bits of d feed the rebuilt distance byte.
-                rebuilt |= d & (0xC0 >> rbc)
+                # Go's '&' and '>>' have the same precedence and evaluate
+                # left-to-right: Ikemen's "d & 0xc0 >> rbc" means this.
+                rebuilt |= (d & 0xC0) >> rbc
                 rbc += 2
                 n = d & 0x3F
                 if rbc < 8:

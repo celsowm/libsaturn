@@ -138,8 +138,9 @@ def cmd_char(args) -> int:
     if args.png_dir:
         for key, pixels in list(sprite_pixels.items())[:args.png_limit]:
             node = nodes[key]
+            padded_w = (node.width + 7) & ~7
             _png_dump_indexed(Path(args.png_dir) / f"{key[0]}_{key[1]}.png",
-                              pixels, node.width, node.height, main_palette)
+                              pixels, padded_w, node.height, main_palette)
     print(f"[ikemen_sff] char {args.symbol}: frames={len(frames)} "
           f"unique={len(sprite_pixels)} pixels={blob}B missing={missing or 'none'}")
     return 0

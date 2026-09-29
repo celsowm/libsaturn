@@ -10,12 +10,13 @@ KFM_FRAMES_C := $(IKEMEN_GEN_DIR)/kfm_frames.c
 KFM_FRAMES_H := $(IKEMEN_GEN_DIR)/kfm_frames.h
 STAGE0_PLANE_C := $(IKEMEN_GEN_DIR)/stage0_plane.c
 STAGE0_PLANE_H := $(IKEMEN_GEN_DIR)/stage0_plane.h
+IKEMEN_SFF_TOOL_SRCS := $(wildcard tools/ikemen_sff/*.py)
 
 KFM_SFF := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.sff
 KFM_AIR := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.air
 STAGE0_SFF := .external/Ikemen-GO-Screenpack/stages/stage0.sff
 
-$(KFM_FRAMES_C) $(KFM_FRAMES_H) &: $(KFM_SFF) $(KFM_AIR) tools/ikemen_sff/__main__.py
+$(KFM_FRAMES_C) $(KFM_FRAMES_H) &: $(KFM_SFF) $(KFM_AIR) $(IKEMEN_SFF_TOOL_SRCS)
 	@mkdir -p $(IKEMEN_GEN_DIR)
 	$(PYTHON) -m tools.ikemen_sff char \
 		--sff $(KFM_SFF) --air $(KFM_AIR) \
@@ -23,7 +24,7 @@ $(KFM_FRAMES_C) $(KFM_FRAMES_H) &: $(KFM_SFF) $(KFM_AIR) tools/ikemen_sff/__main
 		--palettes "1,1;1,4" \
 		--out-prefix $(IKEMEN_GEN_DIR)/kfm --symbol kfm
 
-$(STAGE0_PLANE_C) $(STAGE0_PLANE_H) &: $(STAGE0_SFF) tools/ikemen_sff/__main__.py
+$(STAGE0_PLANE_C) $(STAGE0_PLANE_H) &: $(STAGE0_SFF) $(IKEMEN_SFF_TOOL_SRCS)
 	@mkdir -p $(IKEMEN_GEN_DIR)
 	$(PYTHON) -m tools.ikemen_sff stage \
 		--sff $(STAGE0_SFF) \
