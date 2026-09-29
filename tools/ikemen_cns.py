@@ -293,6 +293,7 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
     run_back = pair(vel.get("run.back"))
     jump_neu = pair(vel.get("jump.neu"))
     run_jump_fwd = pair(vel.get("runjump.fwd"), 4.0, -8.1)
+    air_jump_neu = pair(vel.get("airjump.neu"), 0.0, -8.1)
 
     return {
         "life": integer(data.get("life"), 1000),
@@ -313,6 +314,12 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
         "jump_fwd_q8": q8(number(vel.get("jump.fwd"), 2.5)),
         "run_jump_fwd_x_q8": q8(run_jump_fwd[0]),
         "run_jump_fwd_y_q8": q8(run_jump_fwd[1]),
+        "air_jump_neu_x_q8": q8(air_jump_neu[0]),
+        "air_jump_neu_y_q8": q8(air_jump_neu[1]),
+        "air_jump_back_q8": q8(number(vel.get("airjump.back"), -2.55)),
+        "air_jump_fwd_q8": q8(number(vel.get("airjump.fwd"), 2.5)),
+        "air_jump_num": integer(movement.get("airjump.num"), 0),
+        "air_jump_height": integer(movement.get("airjump.height"), 35),
         "yaccel_q8": q8(number(movement.get("yaccel"), .44)),
         "stand_friction_q8": q8(number(movement.get("stand.friction"), .85)),
         "crouch_friction_q8": q8(number(movement.get("crouch.friction"), .82)),
@@ -647,7 +654,7 @@ def compile_common_states(
     if missing:
         raise ValueError(f"missing common Statedef(s): {missing}")
 
-    supported = {0, 10, 11, 12, 20, 52, 100, 105, 106}
+    supported = {0, 10, 11, 12, 20, 40, 45, 50, 51, 52, 100, 105, 106}
     unsupported = sorted(set(selected) - supported)
     if unsupported:
         raise ValueError(
@@ -785,6 +792,63 @@ def compile_common_states(
                     "IK_CNS_TRIGGER_ALWAYS", 0, 0, -1, 20,
                 ),
             ]
+
+        elif n == 40:
+            row = state_row(40, 40, 0, spr=1)
+            cs += [
+                _common_ctrl(
+                    40, "IK_CNS_CTRL_CAPTURE_COMMAND_AXIS",
+                    "IK_CNS_TRIGGER_ALWAYS",
+                ),
+                _common_ctrl(
+                    40, "IK_CNS_CTRL_JUMP_LAUNCH",
+                    "IK_CNS_TRIGGER_ANIM_END",
+                ),
+                _common_ctrl(
+                    40, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_ANIM_END", 0, 0, 50, 1,
+                    "IK_CNS_CTRL_HAS_CTRL",
+                ),
+            ]
+
+        elif n == 45:
+            row = state_row(45, 41, 0)
+            row["has_velset"] = 1
+            cs += [
+                _common_ctrl(
+                    45, "IK_CNS_CTRL_CHANGE_ANIM_IF_EXISTS",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 44, 41,
+                ),
+                _common_ctrl(
+                    45, "IK_CNS_CTRL_CAPTURE_COMMAND_AXIS",
+                    "IK_CNS_TRIGGER_ALWAYS",
+                ),
+                _common_ctrl(
+                    45, "IK_CNS_CTRL_AIR_JUMP_LAUNCH",
+                    "IK_CNS_TRIGGER_TIME_EQ", 2,
+                ),
+                _common_ctrl(
+                    45, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_TIME_EQ", 2, 0, 50, 1,
+                    "IK_CNS_CTRL_HAS_CTRL",
+                ),
+            ]
+
+        elif n == 50:
+            row = state_row(50, -1, 0, land_state=52)
+            cs += [
+                _common_ctrl(
+                    50, "IK_CNS_CTRL_CHANGE_ANIM_BY_VX",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 41, 42,
+                ),
+                _common_ctrl(
+                    50, "IK_CNS_CTRL_CHANGE_ANIM_DESCENT_IF_EXISTS",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, q8(-2), 41,
+                ),
+            ]
+
+        elif n == 51:
+            row = state_row(51, -1, 0, land_state=52)
 
         elif n == 52:
             row = state_row(52, 47, 0)
@@ -1003,6 +1067,9 @@ const ik_cns_asset_t {ident}_cns = {{
         {const['jump_neu_x_q8']}, {const['jump_neu_y_q8']},
         {const['jump_back_q8']}, {const['jump_fwd_q8']},
         {const['run_jump_fwd_x_q8']}, {const['run_jump_fwd_y_q8']},
+        {const['air_jump_neu_x_q8']}, {const['air_jump_neu_y_q8']},
+        {const['air_jump_back_q8']}, {const['air_jump_fwd_q8']},
+        {const['air_jump_num']}, {const['air_jump_height']},
         {const['yaccel_q8']}, {const['stand_friction_q8']},
         {const['crouch_friction_q8']},
         {const['stand_friction_threshold_q8']},
