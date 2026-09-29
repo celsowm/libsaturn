@@ -28,6 +28,18 @@ static const ik_frame_t k_frames[] = {
     F(47,0,3,0,0),
     F(100,0,4,0,0),
     F(105,0,4,0,0),
+    F(120,0,2,0,0),
+    F(121,0,2,0,0),
+    F(122,0,2,0,0),
+    F(130,0,0,0,0),
+    F(131,0,0,0,0),
+    F(132,0,0,0,0),
+    F(140,0,2,0,0),
+    F(141,0,2,0,0),
+    F(142,0,2,0,0),
+    F(150,0,2,0,0),
+    F(151,0,2,0,0),
+    F(152,0,2,0,0),
 
     F(200,0,2,0,0), F(200,1,1,0,0), F(200,2,4,1,1),
     F(200,3,3,0,0), F(200,4,2,0,0),
@@ -65,11 +77,13 @@ static const ik_frame_table_t k_table = {
 };
 
 static const ik_cns_hitdef_t k_hitdefs[] = {
-    {200,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,23,0,3,8,8,IK_CNS_GROUND_HIGH,5,11,15,-1024,0,-358,-768,0,-10,-76,5,0,6,0,0},
+    {200,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,23,0,3,8,8,IK_CNS_GROUND_HIGH,5,11,15,-1024,0,-358,-768,0,-10,-76,5,0,6,0,0,
+     IK_CNS_GUARD_STAND|IK_CNS_GUARD_CROUCH|IK_CNS_GUARD_AIR,5,11,11,-1024,-537,-384},
     {210,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,57,0,4,12,12,IK_CNS_GROUND_HIGH,12,16,16,-1408,0,-640,-1024,1,-10,-70,5,2,6,0,IK_CNS_HITDEF_FORCE_NO_FALL},
     {230,IK_CNS_TRIGGER_TIME_EQ,0,26,0,4,12,12,IK_CNS_GROUND_LOW,10,14,14,-1280,0,-640,-896,0,-10,-37,5,1,6,0,0},
     {240,IK_CNS_TRIGGER_TIME_EQ,0,63,0,4,12,12,IK_CNS_GROUND_LOW,12,17,17,-1536,0,-563,-819,1,-10,-60,5,2,6,0,0},
-    {400,IK_CNS_TRIGGER_TIME_EQ,0,23,0,3,10,11,IK_CNS_GROUND_LOW,4,9,9,-1024,0,-384,-768,0,-10,-42,5,0,6,0,0},
+    {400,IK_CNS_TRIGGER_TIME_EQ,0,23,0,3,10,11,IK_CNS_GROUND_LOW,4,9,9,-1024,0,-384,-768,0,-10,-42,5,0,6,0,0,
+     IK_CNS_GUARD_CROUCH,4,9,9,-1024,-576,-384},
     {410,IK_CNS_TRIGGER_ANIM_ELEM_EQ,3,37,0,4,12,12,IK_CNS_GROUND_LOW,12,17,17,-1024,0,-768,-1024,1,-10,-55,5,2,6,0,0},
     {410,IK_CNS_TRIGGER_ANIM_ELEM_EQ,4,36,0,4,12,12,IK_CNS_GROUND_HIGH,12,17,17,-1792,0,-768,-1024,-1,-10,-83,5,2,6,0,0},
     {430,IK_CNS_TRIGGER_TIME_EQ,0,28,0,4,12,12,IK_CNS_GROUND_LOW,6,10,10,-1280,0,-512,-768,0,-10,-8,5,1,6,0,0},
@@ -116,6 +130,45 @@ static const ik_cns_controller_t k_ctrls[] = {
 
     {600,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_TIME_EQ,
      17,0,1,0,0u},
+
+    {120,IK_CNS_CTRL_GUARD_ANIM_BY_TYPE,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,120,0,0u},
+    {120,IK_CNS_CTRL_GUARD_STATE_BY_TYPE,IK_CNS_TRIGGER_ANIM_END,
+     0,0,130,0,0u},
+    {130,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_COMMAND_ACTIVE,
+     IK_CNS_COMMAND_HOLD_DOWN,0,131,0,0u},
+    {131,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_COMMAND_INACTIVE,
+     IK_CNS_COMMAND_HOLD_DOWN,0,130,0,0u},
+    {140,IK_CNS_CTRL_GUARD_ANIM_BY_TYPE,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,140,0,0u},
+    {140,IK_CNS_CTRL_GUARD_END,IK_CNS_TRIGGER_ANIM_END,
+     0,0,0,0,0u},
+    {150,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,151,0,0u},
+    {151,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {151,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_HIT_SLIDE_TIME,
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {151,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_HIT_CTRL_TIME,
+     0,0,1,0,0u},
+    {151,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_OVER,
+     0,0,130,1,IK_CNS_CTRL_HAS_CTRL},
+    {152,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,153,0,0u},
+    {153,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {153,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_HIT_SLIDE_TIME,
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
+    {153,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_HIT_CTRL_TIME,
+     0,0,1,0,0u},
+    {153,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_OVER,
+     0,0,131,1,IK_CNS_CTRL_HAS_CTRL},
+    {154,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,155,0,0u},
+    {155,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
+     1,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
+    {155,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_HIT_CTRL_TIME,
+     0,0,1,0,0u},
 };
 
 #define S(no,anim,hoff,hcnt,coff,ccnt)     {no,anim,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_ATTACK,IK_CNS_PHYS_STAND,0,2,0u,hoff,hcnt,0u,0u,coff,ccnt,0}
@@ -135,17 +188,39 @@ static const ik_cns_state_t k_states[] = {
     A(610,610,10,1,14,0),
     A(630,630,11,1,14,0),
     A(640,640,12,1,14,0),
+    {120,-1,0,0,0,IK_CNS_STATE_UNCHANGED,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,14u,2u,0},
+    {130,130,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,
+     0,0,0u,0u,0u,0u,0u,16u,1u,0},
+    {131,131,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_CROUCH,
+     0,0,0u,0u,0u,0u,0u,17u,1u,0},
+    {132,132,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,18u,0u,130},
+    {140,-1,0,0,0,IK_CNS_STATE_UNCHANGED,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
+     1,0,0u,0u,0u,0u,0u,18u,2u,0},
+    {150,150,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,1u,0u,0u,0u,0u,20u,1u,0},
+    {151,150,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_HIT,IK_CNS_PHYS_STAND,
+     0,0,0u,0u,0u,0u,0u,21u,4u,0},
+    {152,151,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,1u,0u,0u,0u,0u,25u,1u,0},
+    {153,151,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_HIT,IK_CNS_PHYS_CROUCH,
+     0,0,0u,0u,0u,0u,0u,26u,4u,0},
+    {154,152,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,1u,0u,0u,0u,0u,30u,1u,0},
+    {155,152,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
+     0,0,0u,0u,0u,0u,0u,31u,2u,52},
 };
 #undef S
 #undef C
 #undef A
 
 static const ik_cns_asset_t k_cns = {
-    {1000,15,16,12,12,60,614,-563,1178,0,-1152,-973,0,-2150,-653,640,1024,-2074,0,-2074,-653,640,1,35,113,218,210,512,13},
-    k_states,12u,
+    {1000,15,16,12,12,60,160,614,-563,1178,0,-1152,-973,0,-2150,-653,640,1024,-2074,0,-2074,-653,640,1,35,113,218,210,512,13},
+    k_states,(uint16_t)(sizeof(k_states)/sizeof(k_states[0])),
     k_hitdefs,13u,
     nullptr,0u,
-    k_ctrls,14u
+    k_ctrls,(uint16_t)(sizeof(k_ctrls)/sizeof(k_ctrls[0]))
 };
 
 
@@ -237,7 +312,7 @@ static const ik_cns_state_t k_common_states[] = {
 };
 
 static const ik_cns_asset_t k_common_cns = {
-    {1000,15,16,12,12,60,614,-563,1178,0,-1152,-973,
+    {1000,15,16,12,12,60,160,614,-563,1178,0,-1152,-973,
      0,-2150,-653,640,1024,-2074,
      0,-2074,-653,640,1,35,
      113,218,210,512,13},
@@ -251,6 +326,12 @@ static const ik_cns_asset_t k_common_cns = {
 
 static void tick(ik_fight_t* g, const ik_fight_controls_t* p) {
     ik_fight_update(g,p,nullptr,&k_table);
+}
+
+static void tick2(ik_fight_t* g,
+                  const ik_fight_controls_t* p1,
+                  const ik_fight_controls_t* p2) {
+    ik_fight_update(g,p1,p2,&k_table);
 }
 
 static void request(ik_fight_controls_t* p, int16_t state) {
@@ -292,6 +373,44 @@ int main() {
         tick(&g,&p); idle(&g,3);
         EQ(hp-g.fighters[1].hp,23);
         EQ(g.hits_p1,1u);
+    }
+
+    /* MA guardflag blocks standing. Guard hit enters common 150/151
+     * rather than the legacy damage state and does not count as a hit. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        const int hp=g.fighters[1].hp;
+        ik_fight_controls_t p1{}; request(&p1,IK_STATE_PUNCH);
+        ik_fight_controls_t p2{}; p2.back=1;
+        for(int i=0;i<12 && !(g.events&IK_EVENT_GUARD);++i) {
+            tick2(&g,&p1,&p2);
+            p1.has_state_request=0u;
+        }
+        OK((g.events&IK_EVENT_GUARD)!=0u);
+        EQ(g.fighters[1].hp,hp);
+        EQ(g.hits_p1,0u);
+        EQ(g.fighters[1].guard_type,IK_CNS_STATE_STAND);
+        OK(g.fighters[1].state==150 || g.fighters[1].state==151);
+    }
+
+    /* L guardflag cannot be blocked standing but can be blocked crouching. */
+    {
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        const int hp=g.fighters[1].hp;
+        ik_fight_controls_t p1{}; request(&p1,IK_STATE_CROUCH_PUNCH);
+        ik_fight_controls_t p2{}; p2.back=1;
+        tick2(&g,&p1,&p2);
+        EQ(hp-g.fighters[1].hp,23);
+        EQ(g.hits_p1,1u);
+
+        ik_fight_init(&g,&k_cns); place(&g,100,145);
+        p1={}; request(&p1,IK_STATE_CROUCH_PUNCH);
+        p2={}; p2.back=1; p2.down=1;
+        tick2(&g,&p1,&p2);
+        OK((g.events&IK_EVENT_GUARD)!=0u);
+        EQ(g.fighters[1].hp,1000);
+        EQ(g.fighters[1].guard_type,IK_CNS_STATE_CROUCH);
+        EQ(g.fighters[1].state,152);
     }
 
     /* Down+X enters real crouching state 400. Its Time=6 CtrlSet is executed,
