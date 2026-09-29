@@ -945,6 +945,11 @@ def parse_state(
         "controller_count": len(controllers),
         "juggle": integer(sd.get("juggle"), 0),
         "has_juggle": int(sd.get("juggle") is not None),
+        "owns_air_accel": int(any(
+            c["type"] == "IK_CNS_CTRL_VEL_ADD" and
+            "IK_CNS_CTRL_AXIS_Y" in c["flags"]
+            for c in controllers
+        )),
         "unsupported_controllers": sorted(set(unsupported)),
     }
 
@@ -1080,6 +1085,7 @@ def compile_common_states(
             "land_ctrl": 0,
             "juggle": 0,
             "has_juggle": 0,
+            "owns_air_accel": 0,
             "unsupported_controllers": [],
         }
 
@@ -1927,7 +1933,8 @@ def emit(
         f"{r.get('air_accel_q8', 0)}, {r.get('land_level_q8', 0)}, "
         f"{r.get('air_motion_start', 0)}u, "
         f"{r.get('land_ctrl', 0)}u, "
-        f"{r.get('juggle', 0)}, {r.get('has_juggle', 0)}u"
+        f"{r.get('juggle', 0)}, {r.get('has_juggle', 0)}u, "
+        f"{r.get('owns_air_accel', 0)}u"
         "},"
         for r in state_rows
     ]
