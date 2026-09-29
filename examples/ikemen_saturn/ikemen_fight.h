@@ -102,6 +102,11 @@ typedef struct ik_fighter {
     uint8_t gethit_ground_type;
     uint8_t gethit_anim_type;
     uint8_t gethit_fall;
+    int16_t gethit_fall_x_q8;
+    int16_t gethit_fall_y_q8;
+    uint8_t gethit_fall_x_set;
+    uint8_t gethit_fall_recover;
+    uint8_t gethit_fall_recover_time;
     uint8_t guard_type;
 
     int16_t push_back;
