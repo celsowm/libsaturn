@@ -87,6 +87,15 @@ static const ik_frame_t k_frames[] = {
     F(610,0,4,1,1), F(610,1,4,0,0),
     F(630,0,4,1,1), F(630,1,4,0,0),
     F(640,0,4,1,1), F(640,1,4,0,0),
+
+    F(800,0,2,1,1),
+    F(810,0,1,0,0), F(810,1,1,0,0), F(810,2,1,0,0),
+    F(810,3,1,0,0), F(810,4,1,0,0), F(810,5,1,0,0),
+    F(810,6,1,0,0), F(810,7,1,0,0), F(810,8,1,0,0),
+    F(810,9,1,0,0), F(810,10,1,0,0), F(810,11,1,0,0),
+    F(810,12,1,0,0), F(810,13,1,0,0), F(810,14,1,0,0),
+    F(820,0,0,0,0),
+    F(821,0,0,0,0),
 };
 #undef F
 
@@ -1447,6 +1456,184 @@ int main() {
         EQ(v->spr_priority,-3);
         EQ(g.round_over,1u);
         EQ(g.winner,1u);
+    }
+
+    /* KFM throw capture: state 800's throw HitDef binds P2, changes both
+     * states, 810 drives target offsets, element 11 removes 78 life and
+     * releases P2 into 821. 821 owns its .4 VelAdd so gravity is not doubled. */
+    {
+        ik_cns_hitdef_t throw_hit{};
+        throw_hit.state_number=800;
+        throw_hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        throw_hit.trigger_value=0;
+        throw_hit.priority=1u;
+        throw_hit.flags=IK_CNS_HITDEF_FALL|IK_CNS_HITDEF_THROW;
+        throw_hit.hit_flags=
+            IK_CNS_HIT_STAND|IK_CNS_HIT_CROUCH|IK_CNS_HIT_NOT_GETHIT;
+        throw_hit.priority_type=IK_CNS_PRIORITY_MISS;
+        throw_hit.p1_state_no=810;
+        throw_hit.p2_state_no=820;
+        throw_hit.guard_dist=0;
+        throw_hit.p1_facing=1;
+        throw_hit.p2_facing=1;
+        throw_hit.p1_spr_priority=1;
+        throw_hit.fall_recover=1u;
+        throw_hit.fall_recover_time=4u;
+        throw_hit.fall_y_velocity_q8=-1152;
+
+        ik_cns_controller_t ctrls[] = {
+            {810,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
+             2,5,58*256,0,0u},
+            {810,IK_CNS_CTRL_TURN,
+             IK_CNS_TRIGGER_STATE_AXIS_FWD_ANIM_ELEM_EQ,
+             6,0,0,0,0u},
+            {810,IK_CNS_CTRL_POS_ADD,
+             IK_CNS_TRIGGER_STATE_AXIS_FWD_ANIM_ELEM_EQ,
+             6,0,-37*256,0,0u},
+            {810,IK_CNS_CTRL_TARGET_FACING,
+             IK_CNS_TRIGGER_STATE_AXIS_FWD_ANIM_ELEM_EQ,
+             6,0,-1,0,0u},
+            {810,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
+             6,7,41*256,-60*256,0u},
+            {810,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
+             7,8,25*256,-75*256,0u},
+            {810,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
+             8,9,15*256,-90*256,0u},
+            {810,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
+             9,10,-5*256,-96*256,0u},
+            {810,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
+             10,11,-14*256,-90*256,0u},
+            {810,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ANIM_ELEM_EQ,
+             11,0,-50*256,-50*256,0u},
+            {810,IK_CNS_CTRL_TARGET_LIFE_ADD,IK_CNS_TRIGGER_ANIM_ELEM_EQ,
+             11,0,-78,0,0u},
+            {810,IK_CNS_CTRL_TARGET_STATE,IK_CNS_TRIGGER_ANIM_ELEM_EQ,
+             11,0,821,0,0u},
+            {810,IK_CNS_CTRL_TURN,IK_CNS_TRIGGER_ANIM_ELEM_EQ,
+             12,0,0,0,0u},
+            {810,IK_CNS_CTRL_POS_ADD,IK_CNS_TRIGGER_ANIM_ELEM_EQ,
+             15,0,-10*256,0,0u},
+            {810,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
+             0,0,0,1,IK_CNS_CTRL_HAS_CTRL},
+
+            {820,IK_CNS_CTRL_CHANGE_ANIM2,IK_CNS_TRIGGER_TIME_EQ,
+             0,0,820,1,0u},
+            {820,IK_CNS_CTRL_SELF_STATE,IK_CNS_TRIGGER_NOT_BOUND,
+             0,0,5050,0,0u},
+
+            {821,IK_CNS_CTRL_VEL_ADD,IK_CNS_TRIGGER_ALWAYS,
+             0,0,0,102,IK_CNS_CTRL_AXIS_Y},
+            {821,IK_CNS_CTRL_CHANGE_STATE,
+             IK_CNS_TRIGGER_THROW_GROUND_RECOVERY,
+             -20*256,0,5200,0,0u},
+            {821,IK_CNS_CTRL_SELF_STATE,
+             IK_CNS_TRIGGER_THROW_AIR_RECOVERY,
+             0,0,5210,0,0u},
+            {821,IK_CNS_CTRL_SELF_STATE,
+             IK_CNS_TRIGGER_VY_GT_Q8_AT_FLOOR,
+             0,0,5100,0,0u},
+        };
+
+        ik_cns_state_t states[5]{};
+        states[0].number=800;
+        states[0].anim=800;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_ATTACK;
+        states[0].physics=IK_CNS_PHYS_STAND;
+        states[0].spr_priority=2;
+        states[0].hitdef_count=1u;
+
+        states[1].number=810;
+        states[1].anim=810;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_ATTACK;
+        states[1].physics=IK_CNS_PHYS_NONE;
+        states[1].controller_ofs=0u;
+        states[1].controller_count=15u;
+
+        states[2].number=820;
+        states[2].anim=820;
+        states[2].state_type=IK_CNS_STATE_AIR;
+        states[2].move_type=IK_CNS_MOVE_HIT;
+        states[2].physics=IK_CNS_PHYS_NONE;
+        states[2].has_velset=1u;
+        states[2].controller_ofs=15u;
+        states[2].controller_count=2u;
+
+        states[3].number=821;
+        states[3].anim=821;
+        states[3].state_type=IK_CNS_STATE_AIR;
+        states[3].move_type=IK_CNS_MOVE_HIT;
+        states[3].physics=IK_CNS_PHYS_NONE;
+        states[3].has_velset=1u;
+        states[3].velset_x_q8=717;
+        states[3].velset_y_q8=-1792;
+        states[3].controller_ofs=17u;
+        states[3].controller_count=4u;
+        states[3].owns_air_accel=1u;
+
+        states[4].number=5100;
+        states[4].anim=5100;
+        states[4].state_type=IK_CNS_STATE_LIEDOWN;
+        states[4].move_type=IK_CNS_MOVE_HIT;
+        states[4].physics=IK_CNS_PHYS_NONE;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.constants.attack_dist=160;
+        asset.constants.yaccel_q8=113;
+        asset.constants.air_juggle=15;
+        asset.states=states;
+        asset.state_count=5u;
+        asset.hitdefs=&throw_hit;
+        asset.hitdef_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=
+            (uint16_t)(sizeof(ctrls)/sizeof(ctrls[0]));
+
+        ik_fight_init(&g,&asset);
+        place(&g,100,132);
+        ik_fight_controls_t p1{};
+        p1.forward=1;
+        request(&p1,800);
+        ik_fight_controls_t p2{};
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[0].state,810);
+        EQ(g.fighters[1].state,820);
+        EQ(g.fighters[0].target_index,1);
+        EQ(g.fighters[1].bound_to,0);
+        EQ(g.fighters[0].state_axis,1);
+        EQ(g.fighters[0].spr_priority,1);
+        EQ(g.hits_p1,1u);
+
+        p1={};
+        int saw_release=0;
+        for(int i=0;i<14;++i) {
+            tick2(&g,&p1,&p2);
+            if(g.fighters[1].state==821) {
+                saw_release=1;
+                break;
+            }
+        }
+        OK(saw_release);
+        EQ(g.fighters[1].hp,922);
+        EQ(g.fighters[1].bound_to,-1);
+        EQ(g.fighters[0].target_index,-1);
+        EQ(g.fighters[1].state,821);
+        EQ(g.fighters[1].vx_q8,717);
+        /* 821 runs one .4 VelAdd (102 Q8) before integrating; no +yaccel. */
+        EQ(g.fighters[1].vy_q8,-1690);
+
+        for(int i=0;i<100 && g.fighters[1].state!=5100;++i) {
+            tick2(&g,&p1,&p2);
+        }
+        EQ(g.fighters[1].state,5100);
     }
 
     /* Recovery command uses the compiled common thresholds. Near the
