@@ -23,6 +23,7 @@
 #include "ikemen_command.h"
 #include "ikemen_fight.h"
 #include "ikemen_saturn/kfm_commands.h"
+#include "ikemen_saturn/kfm_state_rules.h"
 #include "ikemen_saturn/kfm_cns.h"
 #include "ikemen_saturn/kfm_frames.h"
 #include "ikemen_saturn/stage0_plane.h"
@@ -242,8 +243,10 @@ static void draw_fighters(const ik_fight_t* fight) {
 }
 
 static void controls_from_commands(uint32_t player,
+                                   const ik_fight_t* fight,
+                                   const ik_fighter_t* fighter,
                                    ik_fight_controls_t* controls) {
-    if (!controls || player >= 2u) return;
+    if (!controls || !fight || !fighter || player >= 2u) return;
     *controls = (ik_fight_controls_t){0};
     const ik_command_state_t* state = &g_command_states[player];
 
@@ -270,6 +273,26 @@ static void controls_from_commands(uint32_t player,
         state, &kfm_commands, KFM_CMD_Z);
     controls->start = (uint8_t)ik_command_active(
         state, &kfm_commands, KFM_CMD_START);
+
+    {
+        const uint16_t projected_time = (uint16_t)(
+            fighter->state_time + (fighter->hit_pause == 0u ? 1u : 0u));
+        const ik_state_rule_context_t context = {
+            fighter->state,
+            projected_time,
+            ik_fight_state_type(fight, fighter),
+            (uint8_t)(fighter->ctrl != 0),
+            fighter->move_contact,
+            0u
+        };
+        int16_t requested = 0;
+        if (ik_command_eval_state_change(
+                state, &kfm_commands, &kfm_state_rules,
+                &context, &requested)) {
+            controls->requested_state = requested;
+            controls->has_state_request = 1u;
+        }
+    }
 }
 
 static void draw_bars(const ik_fight_t* fight) {
@@ -356,14 +379,16 @@ int main(void) {
             &g_command_states[0], &kfm_commands, &pad1,
             fight.fighters[0].facing,
             fight.fighters[0].hit_pause != 0u);
-        controls_from_commands(0u, &p1_controls);
+        controls_from_commands(
+            0u, &fight, &fight.fighters[0], &p1_controls);
 
         if (have_p2) {
             ik_command_update(
                 &g_command_states[1], &kfm_commands, &pad2,
                 fight.fighters[1].facing,
                 fight.fighters[1].hit_pause != 0u);
-            controls_from_commands(1u, &p2_controls);
+            controls_from_commands(
+                1u, &fight, &fight.fighters[1], &p2_controls);
         }
 
         ik_fight_update(
