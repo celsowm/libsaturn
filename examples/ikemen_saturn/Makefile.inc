@@ -13,14 +13,18 @@ KFM_SOUNDS_C := $(IKEMEN_GEN_DIR)/kfm_sounds.c
 KFM_SOUNDS_H := $(IKEMEN_GEN_DIR)/kfm_sounds.h
 KFM_COMMANDS_C := $(IKEMEN_GEN_DIR)/kfm_commands.c
 KFM_COMMANDS_H := $(IKEMEN_GEN_DIR)/kfm_commands.h
+KFM_CNS_C := $(IKEMEN_GEN_DIR)/kfm_cns.c
+KFM_CNS_H := $(IKEMEN_GEN_DIR)/kfm_cns.h
 IKEMEN_SFF_TOOL_SRCS := $(wildcard tools/ikemen_sff/*.py)
 IKEMEN_SND_TOOL := tools/ikemen_snd.py
 IKEMEN_CMD_TOOL := tools/ikemen_cmd.py
+IKEMEN_CNS_TOOL := tools/ikemen_cns.py
 
 KFM_SFF := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.sff
 KFM_AIR := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.air
 KFM_SND := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.snd
 KFM_CMD := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.cmd
+KFM_CNS := .external/Ikemen-GO-Screenpack/chars/kfm/kfm.cns
 COMMON_SND := .external/Ikemen-GO-Screenpack/data/common.snd
 STAGE0_SFF := .external/Ikemen-GO-Screenpack/stages/stage0.sff
 
@@ -54,5 +58,11 @@ $(KFM_COMMANDS_C) $(KFM_COMMANDS_H) &: $(KFM_CMD) $(IKEMEN_CMD_TOOL)
 		--cmd $(KFM_CMD) \
 		--out-prefix $(IKEMEN_GEN_DIR)/kfm_commands --symbol kfm
 
-EXAMPLE_ASSETS := $(KFM_FRAMES_C) $(STAGE0_PLANE_C) $(KFM_SOUNDS_C) $(KFM_COMMANDS_C)
-EXAMPLE_HEADERS += $(KFM_FRAMES_H) $(STAGE0_PLANE_H) $(KFM_SOUNDS_H) $(KFM_COMMANDS_H)
+$(KFM_CNS_C) $(KFM_CNS_H) &: $(KFM_CNS) $(IKEMEN_CNS_TOOL)
+	@mkdir -p $(IKEMEN_GEN_DIR)
+	$(PYTHON) $(IKEMEN_CNS_TOOL) \
+		--cns $(KFM_CNS) --states 200,210,230,240 \
+		--out-prefix $(IKEMEN_GEN_DIR)/kfm_cns --symbol kfm
+
+EXAMPLE_ASSETS := $(KFM_FRAMES_C) $(STAGE0_PLANE_C) $(KFM_SOUNDS_C) $(KFM_COMMANDS_C) $(KFM_CNS_C)
+EXAMPLE_HEADERS += $(KFM_FRAMES_H) $(STAGE0_PLANE_H) $(KFM_SOUNDS_H) $(KFM_COMMANDS_H) $(KFM_CNS_H)
