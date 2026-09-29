@@ -103,6 +103,27 @@ extern "C" sat_result_t sat_render2d_get_camera(sat_camera2d_t* out_camera) {
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_render2d_set_palette(sat_palette_t palette) {
+    using namespace saturn::core;
+    const sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    if (palette.generation != 0u &&
+        !palette_handle_valid(g_palette_registry, palette.bank, palette.generation)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    g_render2d_runtime.current.palette_override = palette;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_render2d_get_palette(sat_palette_t* out_palette) {
+    using namespace saturn::core;
+    const sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    if (out_palette == nullptr) return SAT_ERR_INVALID_ARG;
+    *out_palette = g_render2d_runtime.current.palette_override;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_render2d_set_clip(const sat_rect_t* clip) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();
@@ -281,10 +302,18 @@ extern "C" sat_result_t sat_draw_texture(
     uint16_t flags = effective.flags;
     if (effective.tint.a == 0u && effective.blend_mode != SAT_BLEND_NONE) return SAT_OK;
 
-    /* RGB tint: draw through a palette variant multiplied by the tint. For
-     * ADD the alpha scales the added colour too, which is exactly
-     * dst + src * a. */
+    /* Palette override: resolve color codes against a registered palette
+     * instead of the texture's own bank. Tint variants must derive from the
+     * effective palette, so the override decision happens first. */
     uint16_t bank = native->palette;
+    const sat_palette_t override = g_render2d_runtime.current.palette_override;
+    if (override.generation != 0u) {
+        if (native->format != SAT_VDP1_TEXTURE_INDEXED8) return SAT_ERR_UNSUPPORTED;
+        if (!palette_handle_valid(g_palette_registry, override.bank, override.generation)) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        bank = override.bank;
+    }
     uint8_t tint_r = effective.tint.r;
     uint8_t tint_g = effective.tint.g;
     uint8_t tint_b = effective.tint.b;
@@ -301,7 +330,7 @@ extern "C" sat_result_t sat_draw_texture(
         }
         static uint16_t s_tint_scratch[kCramBankEntries];
         SAT_TRY(tint_acquire(
-            g_tint_cache, g_palette_registry, native->palette, tint_r, tint_g, tint_b,
+            g_tint_cache, g_palette_registry, bank, tint_r, tint_g, tint_b,
             s_tint_scratch,
             [](const uint16_t* palette, uint16_t variant) {
                 return saturn::hal::vdp1::upload_palette(palette, variant);

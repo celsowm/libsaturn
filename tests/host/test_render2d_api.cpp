@@ -433,6 +433,52 @@ int main() {
     sat_draw_params_t raw_shadow = sat_draw_params_default();
     raw_shadow.flags = SAT_SPRITE_FLAG_SHADOW;
     OK(sat_draw_texture(persistent, nullptr, &full_dst, &raw_shadow) == SAT_ERR_INVALID_ARG);
+
+    /* Draw-time palette override: register a distinct palette, draw the
+     * same texture through it, then restore per-texture behaviour. */
+    uint16_t override_palette[256]{};
+    override_palette[1] = SAT_RGB555(0u, 31u, 0u);
+    sat_palette_t override_handle{};
+    const uint32_t uploads_before_register = g_palette_uploads;
+    OK(sat_palette_register(override_palette, &override_handle) == SAT_OK);
+    OK(g_palette_uploads == uploads_before_register + 1u);
+    OK(override_handle.generation != 0u);
+    OK(override_handle.bank != 0u);
+    uint16_t override_bank = 0xFFFFu;
+    OK(sat_palette_bank(override_handle, &override_bank) == SAT_OK);
+    OK(override_bank == override_handle.bank);
+    /* Content dedup: registering the same palette shares the bank. */
+    sat_palette_t same_handle{};
+    OK(sat_palette_register(override_palette, &same_handle) == SAT_OK);
+    OK(same_handle.bank == override_handle.bank);
+    OK(same_handle.generation == override_handle.generation);
+    OK(sat_palette_unregister(same_handle) == SAT_OK);
+    OK(sat_palette_bank(override_handle, &override_bank) == SAT_OK);
+
+    OK(sat_render2d_set_palette(override_handle) == SAT_OK);
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, nullptr) == SAT_OK);
+    OK(g_last_sprite.palette == override_handle.bank);
+    /* Stale handles (bank freed and the override not refreshed) fail the
+     * draw instead of resolving to an unrelated palette. */
+    OK(sat_palette_unregister(override_handle) == SAT_OK);
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, nullptr) == SAT_ERR_INVALID_ARG);
+    OK(sat_render2d_set_palette(override_handle) == SAT_ERR_INVALID_ARG);
+    /* Render state: push saves the override, pop restores it. */
+    OK(sat_palette_register(override_palette, &override_handle) == SAT_OK);
+    OK(sat_render2d_set_palette(override_handle) == SAT_OK);
+    OK(sat_render2d_push() == SAT_OK);
+    OK(sat_render2d_set_palette(sat_palette_none()) == SAT_OK);
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, nullptr) == SAT_OK);
+    OK(g_last_sprite.palette == 0u);
+    OK(sat_render2d_pop() == SAT_OK);
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, nullptr) == SAT_OK);
+    OK(g_last_sprite.palette == override_handle.bank);
+    OK(sat_render2d_set_palette(sat_palette_none()) == SAT_OK);
+    OK(sat_draw_texture(persistent, nullptr, &full_dst, nullptr) == SAT_OK);
+    OK(g_last_sprite.palette == 0u);
+    OK(sat_render2d_reset() == SAT_OK);
+    OK(sat_palette_unregister(override_handle) == SAT_OK);
+
     std::puts("render2d api: OK");
     return 0;
 }

@@ -12,6 +12,9 @@ constexpr uint16_t kRender2DStackCapacity = 8u;
 struct Render2DState {
     sat_camera2d_t camera;
     sat_rect_t clip;
+    /* Draw-time palette override; sat_palette_none() selects each
+     * texture's own palette. */
+    sat_palette_t palette_override;
     uint8_t clip_enabled;
     uint8_t reserved[3];
 };
@@ -42,6 +45,7 @@ inline bool render2d_camera_is_identity(const sat_camera2d_t& camera) {
 inline void render2d_runtime_reset(Render2DRuntime& runtime) {
     runtime.current.camera = sat_camera2d_default();
     runtime.current.clip = {0, 0, 0u, 0u};
+    runtime.current.palette_override = sat_palette_none();
     runtime.current.clip_enabled = 0u;
     runtime.current.reserved[0] = 0u;
     runtime.current.reserved[1] = 0u;

@@ -6,6 +6,7 @@
 #include "saturn/color.h"
 #include "saturn/core.h"
 #include "saturn/geometry2d.h"
+#include "saturn/palette.h"
 #include "saturn/texture.h"
 #include "saturn/vdp1.h"
 
@@ -91,6 +92,18 @@ sat_result_t sat_render2d_get_camera(sat_camera2d_t* out_camera);
 sat_result_t sat_render2d_set_clip(const sat_rect_t* clip);
 uint16_t sat_render2d_stack_capacity(void);
 uint16_t sat_render2d_stack_depth(void);
+
+/* Draw-time palette override for subsequent indexed8 texture draws: the
+ * sprite's color codes resolve against the registered palette instead of
+ * the texture's own bank, sharing one pixel copy in VDP1 VRAM between
+ * differently paletted users. sat_palette_none() restores per-texture
+ * behaviour. The handle must stay registered while it is selected or
+ * queued for display; a stale handle fails the draw with
+ * SAT_ERR_INVALID_ARG. Non-indexed8 textures refuse the override with
+ * SAT_ERR_UNSUPPORTED. The override is render state: push/pop/reset
+ * save and restore it like camera and clip. */
+sat_result_t sat_render2d_set_palette(sat_palette_t palette);
+sat_result_t sat_render2d_get_palette(sat_palette_t* out_palette);
 
 /* Shape alpha is discrete on this VDP1 RGB framebuffer: 255 = opaque,
  * 128 = native half-transparency against an *already drawn RGB VDP1 pixel*,

@@ -118,6 +118,22 @@ inline sat_result_t palette_release_logical(PaletteRegistry& state, uint16_t ban
     return SAT_OK;
 }
 
+/* A (bank, generation) pair identifies one logical registration lifetime.
+ * generation 0 is never handed out (the first write bumps it to 1), so a
+ * zeroed pair means "no palette". Validating against the current
+ * generation rejects handles from a registration whose bank was freed
+ * and reused since. */
+inline bool palette_handle_valid(
+    const PaletteRegistry& state,
+    uint16_t bank,
+    uint16_t generation
+) {
+    if (generation == 0u || bank >= kCramBankCount) return false;
+    const uint8_t bit = static_cast<uint8_t>(1u << bank);
+    if ((state.logical_mask & bit) == 0u) return false;
+    return state.generation[bank] == generation;
+}
+
 /* Non-mutating palette update plan. The caller must keep the source palette
  * alive and serialize prepare -> optional full CRAM upload -> commit with other
  * palette registry operations. This needs no heap and only a small stack plan.

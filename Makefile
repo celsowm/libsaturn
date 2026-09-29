@@ -611,7 +611,7 @@ $(CUE): $(DISC_BIN) tools/gen_cue.py tools/check_disc_image.py tools/iso_to_raw.
 # they need no Saturn hardware, emulator or BIOS.
 #   make test
 HOST_CXX       ?= g++
-HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -I.
+HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -I. -Ibuild/generated
 HOST_TEST_SRCS := $(wildcard tests/host/*.cpp)
 HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(BUILD_DIR)/tests/%,$(HOST_TEST_SRCS))
 HOST_TOOL_TESTS := $(wildcard tests/tools/*.py)
@@ -665,7 +665,7 @@ HOST_TEST_EXTRA_test_vdp1_clip := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_sc
 HOST_TEST_EXTRA_test_vdp1_checkpoint := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp
 HOST_TEST_EXTRA_test_vdp1_vram_region := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp
 HOST_TEST_EXTRA_test_texture_api := src/graphics/2d/textures/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp src/graphics/2d/textures/runtime.cpp
-HOST_TEST_EXTRA_test_render2d_api := src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
+HOST_TEST_EXTRA_test_render2d_api := src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/api.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
 HOST_TEST_EXTRA_test_input_api := src/input/api.cpp src/input/runtime.cpp src/core/runtime/state.cpp
 HOST_TEST_EXTRA_test_irq_api := src/core/runtime/irq.cpp src/core/runtime/state.cpp
 HOST_TEST_EXTRA_test_dma_api := src/core/runtime/dma.cpp src/core/runtime/state.cpp
@@ -690,6 +690,16 @@ HOST_TEST_EXTRA_test_collide3d_sweep := src/physics/3d/sweep.cpp
 HOST_TEST_EXTRA_test_collide3d_sweep_full := src/physics/3d/sweep_full.cpp
 HOST_TEST_EXTRA_test_collide3d_logic :=
 HOST_TEST_EXTRA_test_spatial3_api := src/physics/spatial/3d.cpp src/physics/3d/collision.cpp
+HOST_TEST_EXTRA_test_ikemen_fight := examples/common/ikemen_fight.c
+HOST_TEST_EXTRA_test_ikemen_anim := examples/common/ikemen_anim.c
+# End-to-end asset-contract test: needs the generated Ikemen tables, which
+# exist once the screenpack clone is present and the example has been built
+# (its Makefile.inc owns the generation rules). Skipped otherwise.
+ifeq ($(wildcard build/generated/ikemen_saturn/kfm_frames.c),)
+HOST_TEST_SRCS := $(filter-out tests/host/test_ikemen_assets.cpp,$(HOST_TEST_SRCS))
+else
+HOST_TEST_EXTRA_test_ikemen_assets := build/generated/ikemen_saturn/kfm_frames.c build/generated/ikemen_saturn/stage0_plane.c examples/common/ikemen_anim.c src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/api.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
+endif
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp
 	@mkdir -p $(dir $@)
