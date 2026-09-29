@@ -82,7 +82,9 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_HIT_RECOVER_STATE,
     IK_CNS_CTRL_FALL_BOUNCE_VEL,
     IK_CNS_CTRL_FALL_GROUND_BRANCH,
-    IK_CNS_CTRL_POS_ADD_VEL
+    IK_CNS_CTRL_POS_ADD_VEL,
+    IK_CNS_CTRL_VEL_ADD,
+    IK_CNS_CTRL_FALL_RECOVERY
 } ik_cns_controller_type_t;
 
 enum {
@@ -108,7 +110,8 @@ enum {
     IK_CNS_COMMAND_HOLD_FWD = 1u << 0,
     IK_CNS_COMMAND_HOLD_BACK = 1u << 1,
     IK_CNS_COMMAND_HOLD_UP = 1u << 2,
-    IK_CNS_COMMAND_HOLD_DOWN = 1u << 3
+    IK_CNS_COMMAND_HOLD_DOWN = 1u << 3,
+    IK_CNS_COMMAND_RECOVERY = 1u << 4
 };
 
 typedef struct ik_cns_constants {
@@ -156,6 +159,21 @@ typedef struct ik_cns_constants {
     int16_t down_bounce_yaccel_q8;
     int16_t down_bounce_groundlevel_q8;
     int16_t down_friction_threshold_q8;
+
+    int16_t air_gethit_groundrecover_x_q8;
+    int16_t air_gethit_groundrecover_y_q8;
+    int16_t air_gethit_groundrecover_threshold_q8;
+    int16_t air_gethit_groundrecover_groundlevel_q8;
+    int16_t air_gethit_airrecover_mul_x_q8;
+    int16_t air_gethit_airrecover_mul_y_q8;
+    int16_t air_gethit_airrecover_add_x_q8;
+    int16_t air_gethit_airrecover_add_y_q8;
+    int16_t air_gethit_airrecover_back_q8;
+    int16_t air_gethit_airrecover_fwd_q8;
+    int16_t air_gethit_airrecover_up_q8;
+    int16_t air_gethit_airrecover_down_q8;
+    int16_t air_gethit_airrecover_threshold_q8;
+    int16_t air_gethit_airrecover_yaccel_q8;
 } ik_cns_constants_t;
 
 typedef struct ik_cns_state {
@@ -179,6 +197,7 @@ typedef struct ik_cns_state {
     int16_t land_state;
     int16_t air_accel_q8;
     int16_t land_level_q8;
+    uint16_t air_motion_start;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
@@ -267,6 +286,8 @@ typedef struct ik_cns_playsnd {
  *   FallBounceVel: apply HitDef fall velocity for the ground bounce
  *   FallGroundBranch: skip bounce when HitDef fall.yvelocity is zero
  *   PosAddVel: integrate selected velocity axes for Physics=N states
+ *   VelAdd: add Q8.8 velocity on selected axes
+ *   FallRecovery: enter ground/air fall recovery using compiled thresholds
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
