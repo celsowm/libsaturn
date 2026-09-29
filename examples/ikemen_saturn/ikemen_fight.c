@@ -528,7 +528,7 @@ static void step_fighter(ik_fight_t* fight, int index,
     }
 
     if (f->hit_pause > 0u) {
-        (void)process_cns_controllers(fight, f, frames, 1);
+        (void)process_cns_controllers(fight, f, controls, frames, 1);
         f->hit_pause--;
         return;
     }
@@ -539,7 +539,7 @@ static void step_fighter(ik_fight_t* fight, int index,
 
     if (f->state == IK_STATE_KO) return;
 
-    if (process_cns_controllers(fight, f, frames, 0)) return;
+    if (process_cns_controllers(fight, f, controls, frames, 0)) return;
 
     if (f->hitstun > 0u) {
         f->hitstun--;
@@ -558,8 +558,8 @@ static void step_fighter(ik_fight_t* fight, int index,
         if (dispatch_controlled_input(fight, f, controls)) return;
 
         if (is_air_attack(fight, f->state)) {
-            /* Physics=A continues while the attack animation runs. Landing is
-             * still approximated by common idle until common1 state 52 lands. */
+            /* Physics=A continues while the attack animation runs. If the
+             * common1 landing state is compiled, landing transitions to it. */
             step_air(fight, f, 1);
             return;
         }
