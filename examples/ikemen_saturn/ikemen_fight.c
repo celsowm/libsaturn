@@ -53,6 +53,27 @@ static int is_air_attack(const ik_fight_t* fight, int16_t state) {
            spec->state_type == IK_CNS_STATE_AIR;
 }
 
+static int is_active_guard_state(int16_t state) {
+    return state == 120 || state == 130 || state == 131 || state == 132;
+}
+
+static uint8_t guard_type_for(const ik_fight_t* fight,
+                              const ik_fighter_t* f,
+                              const ik_fight_controls_t* controls) {
+    if (!f || !f->on_ground) return IK_CNS_STATE_AIR;
+    if ((controls && controls->down) ||
+        ik_fight_state_type(fight, f) == IK_CNS_STATE_CROUCH) {
+        return IK_CNS_STATE_CROUCH;
+    }
+    return IK_CNS_STATE_STAND;
+}
+
+static uint8_t guard_mask_for_type(uint8_t state_type) {
+    if (state_type == IK_CNS_STATE_AIR) return IK_CNS_GUARD_AIR;
+    if (state_type == IK_CNS_STATE_CROUCH) return IK_CNS_GUARD_CROUCH;
+    return IK_CNS_GUARD_STAND;
+}
+
 uint8_t ik_fight_state_type(const ik_fight_t* fight,
                             const ik_fighter_t* fighter) {
     if (!fighter) return IK_CNS_STATE_UNCHANGED;
@@ -140,6 +161,11 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->hp = (int16_t)hp;
     f->hitstun = 0;
     f->hit_pause = 0;
+    f->hit_slide_time = 0;
+    f->hit_ctrl_time = 0;
+    f->gethit_vx_q8 = 0;
+    f->gethit_vy_q8 = 0;
+    f->guard_type = IK_CNS_STATE_STAND;
     f->push_back = c ? c->ground_back : 15;
     f->push_front = c ? c->ground_front : 16;
     f->body_height = c ? c->height : 60;
@@ -330,6 +356,81 @@ static const ik_cns_hitdef_t* active_hitdef(const ik_fight_t* fight,
     return hitdef;
 }
 
+static int guard_threat(const ik_fight_t* fight,
+                        const ik_frame_table_t* frames,
+                        int victim,
+                        const ik_fight_controls_t* controls) {
+    if (!fight || !fight->cns) return 0;
+    const ik_fighter_t* v = &fight->fighters[victim];
+    const ik_fighter_t* a = &fight->fighters[victim ^ 1];
+    const ik_cns_hitdef_t* hitdef =
+        active_hitdef(fight, frames, a, 0);
+    if (!hitdef || hitdef->guard_flags == 0u) return 0;
+
+    int dx = (int)a->x - (int)v->x;
+    if (dx < 0) dx = -dx;
+    if (dx > fight->cns->constants.attack_dist) return 0;
+
+    const uint8_t type = guard_type_for(fight, v, controls);
+    return (hitdef->guard_flags & guard_mask_for_type(type)) != 0u;
+}
+
+static int can_guard_hit(const ik_fight_t* fight,
+                         const ik_fighter_t* victim,
+                         const ik_fight_controls_t* controls,
+                         const ik_cns_hitdef_t* hitdef) {
+    if (!fight || !victim || !hitdef || hitdef->guard_flags == 0u) return 0;
+    if ((!controls || !controls->back) &&
+        !is_active_guard_state(victim->state)) {
+        return 0;
+    }
+    const uint8_t type = guard_type_for(fight, victim, controls);
+    return (hitdef->guard_flags & guard_mask_for_type(type)) != 0u;
+}
+
+static void apply_guard(ik_fight_t* fight, int victim,
+                        const ik_fight_controls_t* controls,
+                        const ik_cns_hitdef_t* hitdef) {
+    ik_fighter_t* v = &fight->fighters[victim];
+    ik_fighter_t* a = &fight->fighters[victim ^ 1];
+    const uint8_t type = guard_type_for(fight, v, controls);
+
+    if (hitdef->guard_damage > 0) {
+        v->hp = (int16_t)(v->hp - hitdef->guard_damage);
+        if (v->hp < 1) v->hp = 1;
+    }
+
+    v->hit_pause = hitdef->pause_p2;
+    a->hit_pause = hitdef->pause_p1;
+    v->hitstun = hitdef->guard_hit_time;
+    v->hit_slide_time = hitdef->guard_slide_time;
+    v->hit_ctrl_time = hitdef->guard_ctrl_time;
+    v->guard_type = type;
+
+    if (type == IK_CNS_STATE_AIR) {
+        v->gethit_vx_q8 = hitdef->air_guard_velocity_x_q8;
+        v->gethit_vy_q8 = hitdef->air_guard_velocity_y_q8;
+    } else {
+        v->gethit_vx_q8 = hitdef->guard_velocity_x_q8;
+        v->gethit_vy_q8 = 0;
+    }
+
+    a->move_contact = 1u;
+
+    int16_t state = 150;
+    if (type == IK_CNS_STATE_CROUCH) state = 152;
+    else if (type == IK_CNS_STATE_AIR) state = 154;
+
+    if (ik_cns_find_state(fight->cns, state)) {
+        enter_state(fight, v, state);
+    } else {
+        enter_state(fight, v,
+                    type == IK_CNS_STATE_CROUCH ? 131 :
+                    type == IK_CNS_STATE_AIR ? 132 : 130);
+    }
+    fight->events |= IK_EVENT_GUARD;
+}
+
 static void apply_damage(ik_fight_t* fight, int victim,
                          const ik_cns_hitdef_t* hitdef) {
     ik_fighter_t* v = &fight->fighters[victim];
@@ -456,6 +557,9 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         f->y_q8,
         (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE,
         command_mask,
+        f->hitstun,
+        f->hit_slide_time,
+        f->hit_ctrl_time,
         (uint8_t)(anim_ended != 0),
         f->move_contact
     };
@@ -630,6 +734,43 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 break;
             }
 
+            case IK_CNS_CTRL_GUARD_ANIM_BY_TYPE: {
+                int16_t action = ctrl->value0;
+                if (f->guard_type == IK_CNS_STATE_CROUCH) action++;
+                else if (f->guard_type == IK_CNS_STATE_AIR) action += 2;
+                if (f->anim != action) {
+                    f->anim = action;
+                    f->anim_time = 0u;
+                }
+                break;
+            }
+
+            case IK_CNS_CTRL_GUARD_STATE_BY_TYPE: {
+                int16_t target = ctrl->value0;
+                if (f->guard_type == IK_CNS_STATE_CROUCH) target++;
+                else if (f->guard_type == IK_CNS_STATE_AIR) target += 2;
+                enter_state(fight, f, target);
+                return 1;
+            }
+
+            case IK_CNS_CTRL_GUARD_END: {
+                int16_t target = 0;
+                if (f->guard_type == IK_CNS_STATE_CROUCH) target = 11;
+                else if (f->guard_type == IK_CNS_STATE_AIR) target = 50;
+                enter_state(fight, f, target);
+                f->ctrl = 1;
+                return 1;
+            }
+
+            case IK_CNS_CTRL_HIT_VEL_SET:
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_X) != 0u) {
+                    f->vx_q8 = (int32_t)f->facing * f->gethit_vx_q8;
+                }
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_Y) != 0u) {
+                    f->vy_q8 = f->gethit_vy_q8;
+                }
+                break;
+
             default:
                 break;
         }
@@ -720,6 +861,24 @@ static void step_fighter(ik_fight_t* fight, int index,
 
     if (f->state == IK_STATE_KO) return;
 
+    if (!is_dummy && controls && f->hitstun == 0u) {
+        const int threat = guard_threat(fight, frames, index, controls);
+        if (controls->back && threat && f->ctrl &&
+            !is_attack_state(fight, f->state) &&
+            !is_active_guard_state(f->state) && f->state != 140 &&
+            ik_cns_find_state(fight->cns, 120)) {
+            f->guard_type = guard_type_for(fight, f, controls);
+            enter_state(fight, f, 120);
+            return;
+        }
+        if (is_active_guard_state(f->state) &&
+            (!controls->back || !threat) &&
+            ik_cns_find_state(fight->cns, 140)) {
+            enter_state(fight, f, 140);
+            return;
+        }
+    }
+
     if (process_cns_controllers(fight, f, controls, frames, 0)) return;
 
     if (f->hitstun > 0u) {
@@ -727,7 +886,13 @@ static void step_fighter(ik_fight_t* fight, int index,
         if (!f->on_ground) {
             step_air(fight, f, 0);
         } else if (c) {
-            apply_ground_velocity(f, c, IK_CNS_PHYS_STAND);
+            const ik_cns_state_t* hit_spec = state_spec(fight, f->state);
+            const int physics = hit_spec ? hit_spec->physics : IK_CNS_PHYS_STAND;
+            apply_ground_velocity(
+                f, c,
+                physics == IK_CNS_PHYS_CROUCH
+                    ? IK_CNS_PHYS_CROUCH
+                    : IK_CNS_PHYS_STAND);
         }
         if (f->hitstun == 0u && f->state == IK_STATE_HIT) {
             if (f->on_ground) {
@@ -875,7 +1040,14 @@ void ik_fight_update(ik_fight_t* fight,
         if (!fighter_clsn_overlap(frames, a, v)) continue;
 
         a->hitdef_hit_mask |= bit;
-        apply_damage(fight, atk ^ 1, hitdef);
+        const int victim = atk ^ 1;
+        const ik_fight_controls_t* victim_controls =
+            victim == 0 ? p1 : p2;
+        if (can_guard_hit(fight, v, victim_controls, hitdef)) {
+            apply_guard(fight, victim, victim_controls, hitdef);
+        } else {
+            apply_damage(fight, victim, hitdef);
+        }
     }
 }
 
