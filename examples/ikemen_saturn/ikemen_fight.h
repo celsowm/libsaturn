@@ -65,6 +65,8 @@ typedef struct ik_fight_controls {
     uint8_t y;
     uint8_t z;
     uint8_t start;
+    int16_t requested_state;
+    uint8_t has_state_request;
 } ik_fight_controls_t;
 
 typedef struct ik_fighter {
@@ -114,6 +116,8 @@ typedef struct ik_fight {
 void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns);
 void ik_fight_reset(ik_fight_t* fight);
 int ik_action_for_state(const ik_cns_asset_t* cns, int16_t state);
+uint8_t ik_fight_state_type(const ik_fight_t* fight,
+                            const ik_fighter_t* fighter);
 void ik_fight_update(ik_fight_t* fight,
                      const ik_fight_controls_t* p1,
                      const ik_fight_controls_t* p2,
