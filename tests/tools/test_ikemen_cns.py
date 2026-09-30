@@ -452,6 +452,141 @@ type = ChangeState
 trigger1 = AnimTime = 0
 value = 0
 ctrl = 1
+
+[Statedef 1020]
+type = S
+movetype = A
+physics = N
+juggle = 6
+poweradd = -330
+velset = 0,0
+anim = 1020
+ctrl = 0
+sprpriority = 2
+
+[State 1020, Friction]
+type = VelMul
+trigger1 = 1
+x = .85 * ifelse (AnimElemTime(6) < 0, 1, .8)
+
+[State 1020, Afterimage]
+type = AfterImage
+trigger1 = Time = 0
+length = 13
+
+[State 1020, AfterimageTime]
+type = AfterImageTime
+trigger1 = AnimElemTime(8) < 0
+time = 2
+
+[State 1020, PalFX]
+type = PalFX
+trigger1 = Time = 0
+time = 20
+
+[State 1020, Snd]
+type = PlaySnd
+trigger1 = Time = 2
+value = 0,3
+
+[State 1020, Pos2]
+type = PosAdd
+trigger1 = AnimElem = 2
+x = 20
+
+[State 1020, Pos3]
+type = PosAdd
+trigger1 = AnimElem = 3
+trigger2 = AnimElem = 12
+x = 10
+
+[State 1020, Pos4]
+type = PosAdd
+trigger1 = AnimElem = 4
+x = 5
+
+[State 1020, Vel4]
+type = VelSet
+trigger1 = AnimElem = 4
+x = 13
+
+[State 1020, Hit]
+type = HitDef
+trigger1 = AnimElem = 4
+attr = S, SA
+animtype = Hard
+damage = 95,5
+priority = 4
+guardflag = MA
+pausetime = 8,7
+ground.type = Low
+ground.slidetime = 20
+ground.hittime = 22
+ground.velocity = -8,-7
+guard.velocity = -7
+air.velocity = -8,-7
+airguard.velocity = -5,-4
+fall = 1
+p2stateno = 1025
+p2facing = 1
+
+[State 1020, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+
+[Statedef 1025]
+type = A
+movetype = H
+physics = N
+velset = 0,0
+
+[State 1025, Anim]
+type = ChangeAnim2
+trigger1 = 1
+value = 1025
+
+[State 1025, State]
+type = ChangeState
+trigger1 = HitShakeOver = 1
+value = 1026
+
+[Statedef 1026]
+type = A
+movetype = H
+physics = N
+
+[State 1026, Velocity]
+type = HitVelSet
+trigger1 = Time = 0
+x = 1
+y = 1
+
+[State 1026, Gravity]
+type = VelAdd
+trigger1 = 1
+y = .45
+
+[State 1026, No scroll]
+type = ScreenBound
+triggerall = Pos y < -15
+trigger1 = BackEdgeBodyDist < 65
+trigger2 = FrontEdgeBodyDist < 65
+value = 1
+movecamera = 0,1
+
+[State 1026, Hit wall]
+type = ChangeState
+triggerall = Pos y < -15
+trigger1 = BackEdgeBodyDist <= 20
+trigger2 = FrontEdgeBodyDist <= 20
+value = 1027
+
+[State 1026, Hit ground]
+type = SelfState
+trigger1 = (Vel y > 0) && (Pos y >= 0)
+value = 5100
 """
 
 COMMON = r"""
@@ -509,7 +644,7 @@ with tempfile.TemporaryDirectory() as td:
     source.write_text(SOURCE, encoding="utf-8")
     common.write_text(COMMON, encoding="utf-8")
     report = emit(
-        source, [200,800,810,820,821,1000,1010], root / "kfm_cns", "kfm",
+        source, [200,800,810,820,821,1000,1010,1020,1025,1026], root / "kfm_cns", "kfm",
         common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
                  120,130,131,132,140,150,151,152,153,154,155,
                  5000,5001,5010,5011,5020,5030,5035,5040,5050,
@@ -526,7 +661,7 @@ assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
 assert report["constants"]["air_juggle"] == 15
-assert len(report["states"]) == 52
+assert len(report["states"]) == 55
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -587,9 +722,9 @@ assert controllers[5]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
 
 print("ikemen CNS compiler: OK")
 
-source_rows = {row["number"]: row for row in report["states"][:7]}
+source_rows = {row["number"]: row for row in report["states"][:10]}
 throw_rows = source_rows
-common_rows = {row["number"]: row for row in report["states"][7:]}
+common_rows = {row["number"]: row for row in report["states"][10:]}
 assert throw_rows[800]["unsupported_controllers"] == []
 assert throw_rows[810]["unsupported_controllers"] == []
 assert throw_rows[820]["unsupported_controllers"] == []
@@ -645,6 +780,55 @@ vel5 = next(c for c in palm1010_ctrls if c["type"] == "IK_CNS_CTRL_VEL_SET")
 assert vel5["value0"] == 4 * 256
 assert "IK_CNS_CTRL_AXIS_X" in vel5["flags"]
 assert "IK_CNS_CTRL_LOCAL_X" in vel5["flags"]
+
+assert source_rows[1020]["power_add"] == -330
+assert source_rows[1020]["juggle"] == 6
+assert source_rows[1020]["controller_count"] == 6
+assert source_rows[1020]["unsupported_controllers"] == [
+    "afterimage", "afterimagetime", "palfx"
+]
+fast_hit = report["hitdefs"][6]
+assert fast_hit["damage"] == 95
+assert fast_hit["guard_damage"] == 5
+assert fast_hit["p2_state_no"] == 1025
+assert fast_hit["p2_facing"] == 1
+assert fast_hit["flags"] == "IK_CNS_HITDEF_FALL"
+
+fast_ctrls = [
+    c for c in report["controllers"] if c["state_number"] == 1020
+]
+friction = next(
+    c for c in fast_ctrls
+    if c["type"] == "IK_CNS_CTRL_VEL_MUL_X_BY_ANIM_ELEM"
+)
+assert friction["trigger_value"] == 6
+assert friction["value0"] == round(.85 * 256)
+assert friction["value1"] == round(.85 * .8 * 256)
+
+assert source_rows[1025]["anim"] == -1
+assert source_rows[1025]["controller_count"] == 2
+assert source_rows[1025]["unsupported_controllers"] == []
+state1025_ctrls = [
+    c for c in report["controllers"] if c["state_number"] == 1025
+]
+assert state1025_ctrls[1]["trigger_kind"] == "IK_CNS_TRIGGER_HIT_SHAKE_OVER"
+
+assert source_rows[1026]["anim"] == -1
+assert source_rows[1026]["controller_count"] == 3
+assert source_rows[1026]["owns_air_accel"] == 1
+assert source_rows[1026]["unsupported_controllers"] == [
+    "changestate", "screenbound"
+]
+state1026_ctrls = [
+    c for c in report["controllers"] if c["state_number"] == 1026
+]
+hitvel = next(
+    c for c in state1026_ctrls if c["type"] == "IK_CNS_CTRL_HIT_VEL_SET"
+)
+assert hitvel["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
+assert hitvel["trigger_value"] == 1
+assert "IK_CNS_CTRL_AXIS_X" in hitvel["flags"]
+assert "IK_CNS_CTRL_AXIS_Y" in hitvel["flags"]
 
 assert common_rows[0]["controller_count"] == 3
 assert common_rows[20]["controller_count"] == 3
