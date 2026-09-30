@@ -461,7 +461,7 @@ def controller_trigger(
 
     trigger_all = ctrl.all("triggerall")
 
-    if ctype == "changestate" and len(triggers) == 2:
+    if ctype == "changestate" and len(triggers) in (2, 3):
         normalized = [_strip_outer_parens(t) for t in triggers]
         cmd = next((
             t for t in normalized
@@ -475,7 +475,12 @@ def controller_trigger(
             for t in normalized
             if re.fullmatch(r"Vel\s+y\s*<\s*(-?\d+(?:\.\d+)?)", t, flags=re.I)
         ), None)
-        if cmd is not None and vy:
+        time_ok = all(
+            re.fullmatch(r"Time\s*>\s*0", t, flags=re.I)
+            for t in normalized
+            if t != cmd and (not vy or t != vy.group(0))
+        )
+        if cmd is not None and vy and time_ok:
             return (
                 "IK_CNS_TRIGGER_COMMAND_ANY_VY_LT_Q8",
                 (1 << 5) | (1 << 6),
@@ -554,6 +559,15 @@ def controller_trigger(
                 "IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT",
                 int(m.group(1)), 0,
             )
+
+    if len(triggers) == 1:
+        m = re.fullmatch(
+            r"Vel\s+Y\s*>=\s*(-?\d+(?:\.\d+)?)",
+            _strip_outer_parens(triggers[0]),
+            flags=re.I,
+        )
+        if m:
+            return "IK_CNS_TRIGGER_VY_GE_Q8", q8(float(m.group(1))), 0
 
     if len(triggers) == 1 and re.fullmatch(
         r"HitShakeOver\s*=\s*1",
