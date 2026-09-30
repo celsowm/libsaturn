@@ -2042,6 +2042,22 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         .move_contact = f->move_contact,
         .move_hit = f->move_hit
     };
+    if (!hit_pause_only && fight->cns->playsnds) {
+        for (uint8_t i = 0u; i < state->playsnd_count; ++i) {
+            const uint16_t index =
+                (uint16_t)(state->playsnd_ofs + i);
+            if (index >= fight->cns->playsnd_count) break;
+            const ik_cns_playsnd_t* sound =
+                &fight->cns->playsnds[index];
+            if (ik_cns_trigger_now(
+                    sound->trigger_kind, sound->trigger_value,
+                    f->state_time, elem, elem_time, anim_ended)) {
+                queue_sound_event(
+                    fight, sound->group, sound->item);
+            }
+        }
+    }
+
     for (uint8_t i = 0u; i < state->controller_count; ++i) {
         const uint16_t index = (uint16_t)(state->controller_ofs + i);
         if (index >= fight->cns->controller_count) break;
