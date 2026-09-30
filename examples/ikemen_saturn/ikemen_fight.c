@@ -3185,6 +3185,99 @@ static void step_fighter(ik_fight_t* fight, int index,
     }
 }
 
+static void resolve_paused_owner_contact(
+    ik_fight_t* fight,
+    int attacker_index,
+    const ik_fight_controls_t* p1,
+    const ik_fight_controls_t* p2,
+    const ik_frame_table_t* p1_frames,
+    const ik_frame_table_t* p2_frames
+) {
+    if (!fight || attacker_index < 0 || attacker_index > 1) return;
+
+    const int victim_index = attacker_index ^ 1;
+    ik_fighter_t* attacker = &fight->fighters[attacker_index];
+    ik_fighter_t* victim = &fight->fighters[victim_index];
+    const ik_frame_table_t* attacker_frames =
+        attacker_index == 0 ? p1_frames : p2_frames;
+    const ik_frame_table_t* victim_frames =
+        victim_index == 0 ? p1_frames : p2_frames;
+    const ik_fight_controls_t* victim_controls =
+        victim_index == 0 ? p1 : p2;
+
+    uint8_t local_hitdef = 0u;
+    const ik_cns_hitdef_t* hitdef =
+        active_hitdef(
+            fight, attacker_frames, attacker, victim, &local_hitdef);
+    if (!hitdef || local_hitdef >= 32u) return;
+    if (!hitdef_allows_target(fight, victim, hitdef)) return;
+    if (fighter_not_hit_by_blocks(
+            fight, victim,
+            reversal_state_bit(fight, attacker), hitdef)) {
+        return;
+    }
+
+    const uint32_t bit = (uint32_t)1u << local_hitdef;
+    if ((attacker->hitdef_hit_mask & bit) != 0u) return;
+
+    const ik_cns_reversaldef_t* reversal =
+        active_reversaldef(fight, victim, attacker, hitdef);
+    if (reversal && fighter_reversal_clsn_overlap(
+            victim_frames, attacker_frames, victim, attacker)) {
+        attacker->hitdef_hit_mask |= bit;
+        attacker->move_contact = 1u;
+        attacker->hit_pause = reversal->pause_p2;
+        victim->hit_pause = reversal->pause_p1;
+        if (reversal->p2_spr_priority != -128) {
+            attacker->spr_priority = reversal->p2_spr_priority;
+        }
+        if (reversal->p1_state_no >= 0) {
+            enter_state(fight, victim, reversal->p1_state_no);
+        }
+        if (reversal->p1_spr_priority != -128) {
+            victim->spr_priority = reversal->p1_spr_priority;
+        }
+        queue_reversal_effect(fight, victim, reversal);
+        queue_sound_event(
+            fight, reversal->hit_sound_group, reversal->hit_sound_item);
+        fight->events |= IK_EVENT_GUARD;
+        return;
+    }
+
+    const ik_cns_hitoverride_t* override =
+        active_hitoverride(fight, victim, hitdef);
+    if (override && override->target_state >= 0 &&
+        fighter_clsn_overlap(
+            attacker_frames, victim_frames, attacker, victim)) {
+        attacker->hitdef_hit_mask |= bit;
+        attacker->move_contact = 1u;
+        enter_state(fight, victim, override->target_state);
+        return;
+    }
+
+    if (!juggle_allows_target(
+            fight, attacker, victim, hitdef)) {
+        return;
+    }
+    if (!fighter_clsn_overlap(
+            attacker_frames, victim_frames, attacker, victim)) {
+        return;
+    }
+
+    attacker->hitdef_hit_mask |= bit;
+    if ((hitdef->flags & IK_CNS_HITDEF_THROW) != 0u) {
+        const ik_fight_controls_t* attacker_controls =
+            attacker_index == 0 ? p1 : p2;
+        apply_throw(
+            fight, attacker_index, attacker_controls, hitdef);
+    } else if (can_guard_hit(
+                   fight, victim, victim_controls, hitdef)) {
+        apply_guard(fight, victim_index, victim_controls, hitdef);
+    } else {
+        apply_damage(fight, victim_index, hitdef);
+    }
+}
+
 static void resolve_projectile_trades(
     ik_fight_t* fight,
     const ik_frame_table_t* p1_frames,
