@@ -1968,6 +1968,7 @@ def compile_explod_controller(
     supported_keys = {
         "type", "anim", "postype", "pos", "velocity", "accel",
         "removetime", "sprpriority", "persistent", "ignorehitpause",
+        "ownpal", "pausemovetime", "supermovetime",
     }
     for key, _ in ctrl.values:
         lowered = key.strip().lower()
@@ -1996,6 +1997,9 @@ def compile_explod_controller(
         "remove_time": integer(ctrl.get("removetime"), -1),
         "spr_priority": integer(ctrl.get("sprpriority"), 0),
         "postype": "IK_CNS_HELPER_POS_P1",
+        "ownpal": integer(ctrl.get("ownpal"), 0),
+        "pause_move_time": max(0, integer(ctrl.get("pausemovetime"), 0)),
+        "super_move_time": max(0, integer(ctrl.get("supermovetime"), 0)),
     }
     controller = {
         "state_number": state_no,
@@ -3594,7 +3598,9 @@ def emit(
         f"{e['anim_no']}, {e['pos_x_q8']}, {e['pos_y_q8']}, "
         f"{e['vel_x_q8']}, {e['vel_y_q8']}, "
         f"{e['accel_x_q8']}, {e['accel_y_q8']}, "
-        f"{e['remove_time']}, {e['spr_priority']}, {e['postype']}"
+        f"{e['remove_time']}, {e['spr_priority']}, {e['postype']}, "
+        f"{e.get('ownpal', 0)}u, {e.get('pause_move_time', 0)}u, "
+        f"{e.get('super_move_time', 0)}u"
         "},"
         for e in explods
     ]
