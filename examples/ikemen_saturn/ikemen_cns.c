@@ -167,6 +167,9 @@ int ik_cns_controller_trigger_context_now(
                                        ? 1
                                        : controller->trigger_value2));
 
+        case IK_CNS_TRIGGER_HIT_SHAKE_OVER:
+            return context->hit_pause == 0u;
+
         default:
             return ik_cns_trigger_now(
                 controller->trigger_kind, controller->trigger_value,
