@@ -64,6 +64,11 @@ int ik_entity_runtime_spawn_projectile(
     int32_t vel_y_q8,
     ik_entity_handle_t* out_handle);
 
+void ik_entity_runtime_step_paused(
+    ik_entity_runtime_t* runtime,
+    uint8_t owner_player,
+    int super_pause);
+
 void ik_entity_runtime_step(ik_entity_runtime_t* runtime);
 
 #ifdef __cplusplus
