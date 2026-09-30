@@ -726,6 +726,51 @@ static void step_one(
     if (!freeze_y) entity->y_q8 += entity->vy_q8;
 }
 
+void ik_entity_runtime_step_paused(
+    ik_entity_runtime_t* runtime,
+    uint8_t owner_player,
+    int super_pause
+) {
+    if (!runtime || !runtime->pool || !runtime->cns ||
+        owner_player >= 2u) {
+        return;
+    }
+
+    ik_entity_handle_t snapshot[IK_ENTITY_CAPACITY];
+    uint8_t count = 0u;
+    for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
+        const ik_entity_t* entity = &runtime->pool->entities[slot];
+        if ((entity->type != IK_ENTITY_HELPER &&
+             entity->type != IK_ENTITY_PROJECTILE &&
+             entity->type != IK_ENTITY_EXPLOD) ||
+            entity->owner_player != owner_player) {
+            continue;
+        }
+
+        const uint8_t budget = super_pause
+            ? entity->super_move_time
+            : entity->pause_move_time;
+        if (budget == 0u) continue;
+
+        snapshot[count].slot = slot;
+        snapshot[count].generation =
+            runtime->pool->generations[slot];
+        ++count;
+    }
+
+    for (uint8_t i = 0u; i < count; ++i) {
+        ik_entity_t* entity =
+            ik_entity_get(runtime->pool, snapshot[i]);
+        if (!entity) continue;
+        uint8_t* budget = super_pause
+            ? &entity->super_move_time
+            : &entity->pause_move_time;
+        if (*budget == 0u) continue;
+        --(*budget);
+        step_one(runtime, snapshot[i]);
+    }
+}
+
 void ik_entity_runtime_step(ik_entity_runtime_t* runtime) {
     if (!runtime || !runtime->pool || !runtime->cns) return;
 
