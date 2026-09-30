@@ -1958,17 +1958,29 @@ def parse_state(
             })
 
         elif ctype == "playsnd":
-            trig_kind, trig_value, _ = simple_trigger(ctrl)
             group, item = sound_pair(ctrl.get("value"))
-            sounds.append(
-                {
-                    "state_number": state.number,
-                    "trigger_kind": trig_kind,
-                    "trigger_value": trig_value,
-                    "group": group,
-                    "item": item,
-                }
-            )
+            trigger_exprs: list[str] = []
+            for trigger_index in range(1, 9):
+                trigger_exprs.extend(ctrl.all(f"trigger{trigger_index}"))
+            if not trigger_exprs:
+                trigger_exprs = ["1"]
+            try:
+                for expr in trigger_exprs:
+                    probe = Section(
+                        ctrl.name, [("trigger1", expr)]
+                    )
+                    trig_kind, trig_value, _ = simple_trigger(probe)
+                    sounds.append(
+                        {
+                            "state_number": state.number,
+                            "trigger_kind": trig_kind,
+                            "trigger_value": trig_value,
+                            "group": group,
+                            "item": item,
+                        }
+                    )
+            except ValueError:
+                unsupported.append("playsnd")
 
         elif ctype == "helper":
             try:
