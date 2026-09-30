@@ -1771,6 +1771,7 @@ def parse_state(
     sound_ofs: int,
     controller_ofs: int,
     helper_ofs: int,
+    explod_ofs: int,
     default_spark_no: int = -1,
     default_guard_spark_no: int = 40,
 ):
@@ -1795,6 +1796,7 @@ def parse_state(
     sounds: list[dict] = []
     controllers: list[dict] = []
     helpers: list[dict] = []
+    explods: list[dict] = []
     reversals: list[dict] = []
     hitoverrides: list[dict] = []
     open_reversal: dict | None = None
@@ -2146,6 +2148,20 @@ def parse_state(
             else:
                 unsupported.append(ctype)
 
+        elif ctype == "explod":
+            try:
+                compiled_explod = compile_explod_controller(
+                    state.number, ctrl, explod_ofs + len(explods)
+                )
+            except ValueError:
+                compiled_explod = None
+            if compiled_explod is not None:
+                controller, explod = compiled_explod
+                controllers.append(controller)
+                explods.append(explod)
+            else:
+                unsupported.append(ctype)
+
         else:
             try:
                 compiled = compile_runtime_controller(state.number, ctrl)
@@ -2208,7 +2224,7 @@ def parse_state(
     }
 
     return (
-        state_row, hitdefs, sounds, controllers, helpers,
+        state_row, hitdefs, sounds, controllers, helpers, explods,
         reversals, hitoverrides
     )
 
