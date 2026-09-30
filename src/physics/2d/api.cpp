@@ -14,6 +14,10 @@ extern "C" sat_result_t sat_body2_move_tiles(sat_body2_t* b, const sat_grid_t* g
     sat_tile_fn fn, void* user) {
     return b && g ? move_tiles(*b, *g, fn, user) : SAT_ERR_INVALID_ARG;
 }
+extern "C" sat_result_t sat_body2_move_tiles_surface(sat_body2_t* b, const sat_grid_t* g,
+    sat_tile_surface_fn fn, void* user) {
+    return b && g ? move_tiles_surface(*b, *g, fn, user) : SAT_ERR_INVALID_ARG;
+}
 extern "C" sat_result_t sat_body2_move_boxes(sat_body2_t* b, const sat_box2_t* boxes, uint16_t count) {
     return b ? move_boxes(*b, boxes, count) : SAT_ERR_INVALID_ARG;
 }
