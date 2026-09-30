@@ -254,6 +254,11 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->env_shake_phase = 0u;
     fight->effect_count = 0u;
     fight->sound_count = 0u;
+    if (fight->env_shake_time > 0u) {
+        --fight->env_shake_time;
+        fight->env_shake_phase =
+            (uint16_t)(fight->env_shake_phase + fight->env_shake_freq);
+    }
 }
 
 void ik_fight_bind_entities(
@@ -1691,6 +1696,10 @@ static void apply_damage_from_entity(
                   (!downed_launch || hitdef->down_bounce));
     v->gethit_fall_recover = hitdef->fall_recover;
     v->gethit_fall_recover_time = hitdef->fall_recover_time;
+    v->gethit_fall_damage = hitdef->fall_damage;
+    v->gethit_fall_envshake_time = hitdef->fall_envshake_time;
+    v->gethit_fall_envshake_ampl = hitdef->fall_envshake_ampl;
+    v->gethit_fall_envshake_freq = hitdef->fall_envshake_freq;
     v->fall_time = 0u;
 
     if (was_juggle_target) {
@@ -1708,6 +1717,12 @@ static void apply_damage_from_entity(
     }
 
     attacker->hit_pause = hitdef->pause_p1;
+    if (hitdef->envshake_time > 0u) {
+        fight->env_shake_time = hitdef->envshake_time;
+        fight->env_shake_ampl = hitdef->envshake_ampl;
+        fight->env_shake_freq = hitdef->envshake_freq;
+        fight->env_shake_phase = 0u;
+    }
     attacker->move_contact = 1u;
     if (launch) v->on_ground = 0;
 
@@ -2062,6 +2077,45 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 /* Stop source-order evaluation on the frame Pause starts. */
                 return 1;
             }
+
+            case IK_CNS_CTRL_ENV_SHAKE:
+                fight->env_shake_time = (uint16_t)(
+                    ctrl->value0 < 0 ? 0 :
+                    ctrl->value0 > 65535 ? 65535 : ctrl->value0);
+                fight->env_shake_ampl = (int16_t)ctrl->value1;
+                fight->env_shake_freq = 60u;
+                fight->env_shake_phase = 0u;
+                break;
+
+            case IK_CNS_CTRL_HIT_FALL_DAMAGE:
+                if (f->gethit_fall_damage > 0) {
+                    f->hp = (int16_t)(
+                        f->hp > f->gethit_fall_damage
+                            ? f->hp - f->gethit_fall_damage
+                            : 0);
+                    f->gethit_fall_damage = 0;
+                    if (f->hp == 0) {
+                        fight->winner = (uint8_t)(
+                            fighter_player_index(fight, f) ^ 1u);
+                        ++fight->winner;
+                        fight->events |=
+                            (uint16_t)(IK_EVENT_HIT | IK_EVENT_KO);
+                    }
+                }
+                break;
+
+            case IK_CNS_CTRL_FALL_ENV_SHAKE:
+                if (f->gethit_fall_envshake_time > 0u) {
+                    fight->env_shake_time =
+                        f->gethit_fall_envshake_time;
+                    fight->env_shake_ampl =
+                        f->gethit_fall_envshake_ampl;
+                    fight->env_shake_freq =
+                        f->gethit_fall_envshake_freq;
+                    fight->env_shake_phase = 0u;
+                    f->gethit_fall_envshake_time = 0u;
+                }
+                break;
 
             case IK_CNS_CTRL_NOT_HIT_BY:
                 f->not_hit_by_mask = (uint8_t)(ctrl->value0 & 0xff);
