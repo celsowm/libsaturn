@@ -2727,6 +2727,52 @@ int main() {
         EQ(g.fighters[0].state,3051);
     }
 
+    /* AfterImage initializes trail parameters and AfterImageTime rearms the
+     * short keepalive without recreating renderer history. */
+    {
+        const ik_cns_controller_t ctrls[] = {
+            {3060,IK_CNS_CTRL_AFTER_IMAGE,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,2,13,0u,1,2},
+            {3060,IK_CNS_CTRL_AFTER_IMAGE_TIME,IK_CNS_TRIGGER_ALWAYS,
+             0,0,2,0,0u},
+        };
+        ik_cns_state_t state{};
+        state.number=3060;
+        state.anim=0;
+        state.state_type=IK_CNS_STATE_STAND;
+        state.move_type=IK_CNS_MOVE_ATTACK;
+        state.physics=IK_CNS_PHYS_NONE;
+        state.controller_count=2u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=&state;
+        asset.state_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=2u;
+
+        ik_fight_init(&g,&asset);
+        g.fighters[0].state=3060;
+        g.fighters[0].anim=0;
+        g.fighters[0].ctrl=0;
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[0].afterimage_length,13u);
+        EQ(g.fighters[0].afterimage_timegap,1u);
+        EQ(g.fighters[0].afterimage_framegap,2u);
+        OK(g.fighters[0].afterimage_time>0u);
+
+        tick2(&g,&p1,&p2);
+        OK(g.fighters[0].afterimage_time>0u);
+    }
+
     /* HitFallDamage consumes stored HitDef fall.damage once and replays the
      * authored fall environment shake on ground impact. */
     {
