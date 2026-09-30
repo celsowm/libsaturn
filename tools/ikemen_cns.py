@@ -361,6 +361,23 @@ def simple_trigger(section: Section) -> tuple[str, int, int]:
     if m:
         return "IK_CNS_TRIGGER_ANIM_ELEM_EQ", int(m.group(1)), 0
 
+    m = re.fullmatch(
+        r"AnimElemTime\s*\(\s*(\d+)\s*\)\s*=\s*(-?\d+)",
+        expr,
+        flags=re.I,
+    )
+    if m:
+        elem = int(m.group(1))
+        offset = int(m.group(2))
+        if elem < 1 or elem > 255 or offset < -128 or offset > 127:
+            raise ValueError(
+                f"[{section.name}] AnimElemTime packed trigger out of range"
+            )
+        packed = (elem << 8) | (offset & 0xff)
+        if packed >= 32768:
+            packed -= 65536
+        return "IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED", packed, 0
+
     if re.fullmatch(r"AnimTime\s*=\s*0", expr, flags=re.I):
         return "IK_CNS_TRIGGER_ANIM_END", 0, 0
 
@@ -504,6 +521,26 @@ def controller_trigger(
 ) -> tuple[str, int, int]:
     triggers = ctrl.all("trigger1")
     trigger2 = ctrl.all("trigger2")
+    trigger3 = ctrl.all("trigger3")
+
+    anim_or = triggers + trigger2 + trigger3
+    if 2 <= len(anim_or) <= 3:
+        elems: list[int] = []
+        for expr in anim_or:
+            m = re.fullmatch(
+                r"AnimElem\s*=\s*(\d+)",
+                _strip_outer_parens(expr),
+                flags=re.I,
+            )
+            if not m:
+                elems = []
+                break
+            elems.append(int(m.group(1)))
+        if elems and all(1 <= e <= 15 for e in elems):
+            mask = 0
+            for elem in elems:
+                mask |= 1 << (elem - 1)
+            return "IK_CNS_TRIGGER_ANIM_ELEM_MASK", mask, 0
 
     if len(triggers) == 1 and len(trigger2) == 1:
         m0 = re.fullmatch(
@@ -686,6 +723,24 @@ def controller_trigger(
             )
 
     if len(triggers) == 1:
+        m = re.fullmatch(
+            r"AnimElemTime\s*\(\s*(\d+)\s*\)\s*=\s*\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\]",
+            _strip_outer_parens(triggers[0]),
+            flags=re.I,
+        )
+        if m:
+            elem = int(m.group(1))
+            first = int(m.group(2))
+            last = int(m.group(3))
+            if not (1 <= elem <= 32767 and -128 <= first <= 127 and -128 <= last <= 127):
+                raise ValueError(
+                    f"[{ctrl.name}] AnimElemTime range trigger out of range"
+                )
+            packed = ((first & 0xff) << 8) | (last & 0xff)
+            if packed >= 32768:
+                packed -= 65536
+            return "IK_CNS_TRIGGER_ANIM_ELEM_TIME_RANGE", elem, packed
+
         m = re.fullmatch(
             r"AnimElemTime\s*\(\s*(\d+)\s*\)\s*<\s*0",
             _strip_outer_parens(triggers[0]),
