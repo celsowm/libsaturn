@@ -191,6 +191,44 @@ int main() {
     EQ(shot->x_q8,134*IK_ENTITY_Q8_ONE);
     EQ(shot->remove_time,4);
 
+    ik_cns_projectile_t pause_spec=projectile_spec;
+    pause_spec.id=43;
+    pause_spec.remove_time=10;
+    pause_spec.pause_move_time=2u;
+    pause_spec.super_move_time=1u;
+    ik_entity_handle_t paused_projectile{};
+    OK(ik_entity_runtime_spawn_projectile_spec(
+        &runtime,p1,&pause_spec,&paused_projectile));
+    const ik_entity_t* paused=
+        ik_entity_get_const(&pool,paused_projectile);
+    OK(paused!=nullptr);
+    const int32_t paused_x0=paused->x_q8;
+
+    ik_entity_runtime_step_paused(&runtime,0u,0);
+    paused=ik_entity_get_const(&pool,paused_projectile);
+    OK(paused!=nullptr);
+    OK(paused->x_q8>paused_x0);
+    EQ(paused->pause_move_time,1u);
+    const int32_t paused_x1=paused->x_q8;
+
+    ik_entity_runtime_step_paused(&runtime,0u,0);
+    paused=ik_entity_get_const(&pool,paused_projectile);
+    OK(paused!=nullptr);
+    OK(paused->x_q8>paused_x1);
+    EQ(paused->pause_move_time,0u);
+    const int32_t paused_x2=paused->x_q8;
+
+    ik_entity_runtime_step_paused(&runtime,0u,0);
+    paused=ik_entity_get_const(&pool,paused_projectile);
+    OK(paused!=nullptr);
+    EQ(paused->x_q8,paused_x2);
+
+    ik_entity_runtime_step_paused(&runtime,0u,1);
+    paused=ik_entity_get_const(&pool,paused_projectile);
+    OK(paused!=nullptr);
+    OK(paused->x_q8>paused_x2);
+    EQ(paused->super_move_time,0u);
+
     std::puts("[test] ikemen_entity_runtime OK");
     return 0;
 }
