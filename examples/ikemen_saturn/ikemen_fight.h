@@ -119,6 +119,7 @@ typedef struct ik_fighter {
     uint32_t hitdef_hit_mask;
     uint8_t attack_id;
     uint8_t move_contact;
+    int8_t active_hitdef_local;
     int8_t target_index;
     int8_t bound_to;
 } ik_fighter_t;
