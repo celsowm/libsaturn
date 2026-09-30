@@ -15,9 +15,9 @@ static const ik_frame_table_t k_table = {
 
 static const ik_cns_controller_t k_ctrls[] = {
     {200,IK_CNS_CTRL_VAR_SET,IK_CNS_TRIGGER_TIME_EQ,
-     0,0,3,10,0u},
+     1,0,3,10,0u},
     {200,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     0,0,256,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_LOCAL_X},
+     1,0,256,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_LOCAL_X},
     {200,IK_CNS_CTRL_DESTROY_SELF,IK_CNS_TRIGGER_TIME_EQ,
      2,0,0,0,0u},
 };
@@ -87,15 +87,10 @@ int main() {
     ik_entity_runtime_step(&runtime);
     spawned=ik_entity_get_const(&pool,helper);
     OK(spawned!=nullptr);
-    EQ(spawned->state_time,0u);
+    EQ(spawned->state_time,1u);
     EQ(spawned->vars[3],10);
     EQ(spawned->vx_q8,-256);
     EQ(spawned->x_q8,110*IK_ENTITY_Q8_ONE-256);
-
-    ik_entity_runtime_step(&runtime);
-    spawned=ik_entity_get_const(&pool,helper);
-    OK(spawned!=nullptr);
-    EQ(spawned->state_time,1u);
 
     ik_entity_runtime_step(&runtime);
     OK(ik_entity_get_const(&pool,helper)==nullptr);

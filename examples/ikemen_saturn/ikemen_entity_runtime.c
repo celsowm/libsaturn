@@ -114,8 +114,8 @@ int ik_entity_runtime_enter_state(
     const int16_t previous_anim = entity->anim_no;
     entity->prev_state_no = entity->state_no;
     entity->state_no = state_no;
-    entity->state_time = 65535u;
-    entity->anim_time = 65535u;
+    entity->state_time = 0u;
+    entity->anim_time = 0u;
     entity->move_contact = 0u;
 
     if (spec) {
