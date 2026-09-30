@@ -60,6 +60,15 @@ command = y
 [Command]
 name = "QCB_xy"
 command = x+y
+[Command]
+name = "QCF_a"
+command = x
+[Command]
+name = "QCF_b"
+command = y
+[Command]
+name = "QCF_ab"
+command = x+y
 
 [Statedef -1]
 
@@ -170,6 +179,25 @@ trigger1 = ctrl
 trigger2 = stateno = 600 || stateno = 630
 trigger2 = movecontact
 
+[State -1, Far Kung Fu Zankou]
+type = ChangeState
+value = 1420
+triggerall = command = "QCF_ab"
+triggerall = power >= 330
+trigger1 = var(1)
+
+[State -1, Light Kung Fu Zankou]
+type = ChangeState
+value = 1400
+triggerall = command = "QCF_a"
+trigger1 = var(1)
+
+[State -1, Strong Kung Fu Zankou]
+type = ChangeState
+value = 1410
+triggerall = command = "QCF_b"
+trigger1 = var(1)
+
 [State -1, High Blocking]
 type = ChangeState
 value = 1300
@@ -205,7 +233,7 @@ trigger2 = time > 0
 with tempfile.TemporaryDirectory() as td:
     path = Path(td) / "test.cmd"
     path.write_text(SOURCE, encoding="utf-8")
-    rules, diagnostics = parse_state_rules(path, {200, 610, 800, 1000, 1010, 1020, 1100, 1110, 1120, 1200, 1210, 1220, 1300, 1320, 1340})
+    rules, diagnostics = parse_state_rules(path, {200, 610, 800, 1000, 1010, 1020, 1100, 1110, 1120, 1200, 1210, 1220, 1300, 1320, 1340, 1400, 1410, 1420})
     out_prefix = Path(td) / "generated_rules"
     emit(rules, diagnostics, out_prefix, "test")
     emitted_c = out_prefix.with_suffix(".c").read_text(encoding="utf-8")
@@ -217,7 +245,7 @@ with tempfile.TemporaryDirectory() as td:
     assert "STATE_RULE_INSTRUCTION_COUNT" in emitted_h
 
 assert diagnostics == []
-assert [r.target for r in rules] == [1020, 1000, 1010, 1120, 1100, 1110, 1220, 1200, 1210, 200, 800, 610, 1300, 1320, 1340]
+assert [r.target for r in rules] == [1020, 1000, 1010, 1120, 1100, 1110, 1220, 1200, 1210, 200, 800, 610, 1420, 1400, 1410, 1300, 1320, 1340]
 ops200 = [i.op for i in rules[9].code]
 assert ops200.count("command_active") == 1
 assert ops200.count("command_inactive") == 1
@@ -258,6 +286,18 @@ assert ops610.count("state_no_eq") == 2
 assert "move_contact" in ops610
 assert ops610.count("or") >= 2
 by_target = {r.target: r for r in rules}
+ops1420 = [i.op for i in by_target[1420].code]
+assert "power_ge" in ops1420
+assert "ctrl" in ops1420
+assert "move_contact" in ops1420
+ops1400 = [i.op for i in by_target[1400].code]
+assert "power_ge" not in ops1400
+assert "ctrl" in ops1400
+assert "move_contact" in ops1400
+ops1410 = [i.op for i in by_target[1410].code]
+assert "power_ge" not in ops1410
+assert "ctrl" in ops1410
+assert "move_contact" in ops1410
 ops1300 = [i.op for i in by_target[1300].code]
 assert ops1300.count("command_active") == 1
 assert ops1300.count("command_inactive") == 1
