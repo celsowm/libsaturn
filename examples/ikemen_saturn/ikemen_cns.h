@@ -123,6 +123,7 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_VAR_SET,
     IK_CNS_CTRL_VAR_ADD,
     IK_CNS_CTRL_HELPER,
+    IK_CNS_CTRL_EXPLOD,
     IK_CNS_CTRL_DESTROY_SELF,
     IK_CNS_CTRL_PAUSE,
     IK_CNS_CTRL_SUPER_PAUSE,
@@ -524,6 +525,19 @@ typedef struct ik_cns_controller_context {
     uint8_t move_hit;
 } ik_cns_controller_context_t;
 
+typedef struct ik_cns_explod {
+    int16_t anim_no;
+    int32_t pos_x_q8;
+    int32_t pos_y_q8;
+    int32_t vel_x_q8;
+    int32_t vel_y_q8;
+    int32_t accel_x_q8;
+    int32_t accel_y_q8;
+    int16_t remove_time;
+    int8_t spr_priority;
+    uint8_t postype;
+} ik_cns_explod_t;
+
 typedef struct ik_cns_helper {
     int32_t id;
     int16_t state_no;
@@ -547,6 +561,8 @@ typedef struct ik_cns_asset {
     uint16_t controller_count;
     const ik_cns_helper_t* helpers;
     uint16_t helper_count;
+    const ik_cns_explod_t* explods;
+    uint16_t explod_count;
     const ik_cns_reversaldef_t* reversals;
     uint16_t reversal_count;
     const ik_cns_hitoverride_t* hitoverrides;
