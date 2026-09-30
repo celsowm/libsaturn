@@ -411,6 +411,107 @@ static int fighter_clsn_overlap(
     return 0;
 }
 
+static int fighter_reversal_clsn_overlap(
+    const ik_frame_table_t* defender_frames,
+    const ik_frame_table_t* attacker_frames,
+    const ik_fighter_t* defender,
+    const ik_fighter_t* attacker
+) {
+    const ik_frame_t* df = fighter_frame(defender_frames, defender);
+    const ik_frame_t* af = fighter_frame(attacker_frames, attacker);
+    if (!df || !af || df->clsn1_count == 0u || af->clsn1_count == 0u) {
+        return 0;
+    }
+
+    for (uint16_t di = 0u; di < df->clsn1_count; ++di) {
+        int dl, dt, dr, db;
+        if (!ik_frame_clsn_world(
+                defender_frames, df, IK_CLSN_ATTACK, di,
+                defender->x, defender->y, defender->facing,
+                &dl, &dt, &dr, &db)) {
+            continue;
+        }
+        for (uint16_t ai = 0u; ai < af->clsn1_count; ++ai) {
+            int al, at, ar, ab;
+            if (!ik_frame_clsn_world(
+                    attacker_frames, af, IK_CLSN_ATTACK, ai,
+                    attacker->x, attacker->y, attacker->facing,
+                    &al, &at, &ar, &ab)) {
+                continue;
+            }
+            if (ik_boxes_overlap(dl, dt, dr, db, al, at, ar, ab)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static uint8_t reversal_state_bit(
+    const ik_fight_t* fight,
+    const ik_fighter_t* attacker
+) {
+    switch ((ik_cns_state_type_t)ik_fight_state_type(fight, attacker)) {
+        case IK_CNS_STATE_STAND:
+            return IK_CNS_REVERSAL_STATE_STAND;
+        case IK_CNS_STATE_CROUCH:
+            return IK_CNS_REVERSAL_STATE_CROUCH;
+        case IK_CNS_STATE_AIR:
+            return IK_CNS_REVERSAL_STATE_AIR;
+        default:
+            return 0u;
+    }
+}
+
+static const ik_cns_reversaldef_t* active_reversaldef(
+    const ik_fight_t* fight,
+    const ik_fighter_t* defender,
+    const ik_fighter_t* attacker
+) {
+    if (!fight || !fight->cns || !defender || !attacker ||
+        !fight->cns->reversals) {
+        return 0;
+    }
+
+    const ik_cns_state_t* state =
+        ik_cns_find_state(fight->cns, defender->state);
+    if (!state || state->reversal_count == 0u) return 0;
+
+    const uint8_t attacker_bit = reversal_state_bit(fight, attacker);
+    for (uint8_t i = 0u; i < state->reversal_count; ++i) {
+        const uint16_t index = (uint16_t)(state->reversal_ofs + i);
+        if (index >= fight->cns->reversal_count) break;
+        const ik_cns_reversaldef_t* reversal =
+            &fight->cns->reversals[index];
+        if (defender->state_time < reversal->start_time ||
+            defender->state_time >= reversal->end_time) {
+            continue;
+        }
+        if ((reversal->attacker_state_mask & attacker_bit) == 0u) {
+            continue;
+        }
+        return reversal;
+    }
+    return 0;
+}
+
+static void queue_reversal_effect(
+    ik_fight_t* fight,
+    const ik_fighter_t* defender,
+    const ik_cns_reversaldef_t* reversal
+) {
+    if (!fight || !defender || !reversal || reversal->spark_no < 0 ||
+        fight->effect_count >= IK_MAX_EFFECT_EVENTS) {
+        return;
+    }
+    ik_effect_event_t* effect =
+        &fight->effect_events[fight->effect_count++];
+    effect->action = reversal->spark_no;
+    effect->x = (int16_t)(
+        defender->x + (int16_t)defender->facing * reversal->spark_x);
+    effect->y = (int16_t)(defender->y + reversal->spark_y);
+}
+
 static void entity_anim_position(
     const ik_frame_table_t* frames,
     const ik_entity_t* entity,
@@ -1978,7 +2079,12 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     f->vx_q8 += vx;
                 }
                 if ((ctrl->flags & IK_CNS_CTRL_AXIS_Y) != 0u) {
-                    f->vy_q8 += ctrl->value1;
+                    const ik_cns_constants_t* c = constants_for(fight);
+                    const int32_t add_y =
+                        (ctrl->flags & IK_CNS_CTRL_USE_YACCEL) != 0u && c
+                            ? c->yaccel_q8
+                            : ctrl->value1;
+                    f->vy_q8 += add_y;
                 }
                 break;
 
@@ -2507,6 +2613,7 @@ void ik_fight_update(ik_fight_t* fight,
     }
 
     const ik_cns_hitdef_t* candidates[2] = {0, 0};
+    const ik_cns_reversaldef_t* reversals[2] = {0, 0};
     uint32_t candidate_bits[2] = {0u, 0u};
     uint8_t lands[2] = {0u, 0u};
     uint8_t consume[2] = {0u, 0u};
@@ -2526,9 +2633,20 @@ void ik_fight_update(ik_fight_t* fight,
             active_hitdef(fight, attacker_frames, a, v, &local_hitdef);
         if (!hitdef || local_hitdef >= 32u) continue;
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
-        if (!juggle_allows_target(fight, a, v, hitdef)) continue;
         const uint32_t bit = (uint32_t)1u << local_hitdef;
         if ((a->hitdef_hit_mask & bit) != 0u) continue;
+
+        const ik_cns_reversaldef_t* reversal =
+            active_reversaldef(fight, v, a);
+        if (reversal && fighter_reversal_clsn_overlap(
+                victim_frames, attacker_frames, v, a)) {
+            reversals[atk] = reversal;
+            candidate_bits[atk] = bit;
+            consume[atk] = 1u;
+            continue;
+        }
+
+        if (!juggle_allows_target(fight, a, v, hitdef)) continue;
         if (!fighter_clsn_overlap(
                 attacker_frames, victim_frames, a, v)) continue;
 
@@ -2579,6 +2697,27 @@ void ik_fight_update(ik_fight_t* fight,
         if (consume[atk] && candidate_bits[atk] != 0u) {
             fight->fighters[atk].hitdef_hit_mask |= candidate_bits[atk];
         }
+    }
+
+    for (int atk = 0; atk < 2; ++atk) {
+        const ik_cns_reversaldef_t* reversal = reversals[atk];
+        if (!reversal) continue;
+
+        ik_fighter_t* attacker = &fight->fighters[atk];
+        ik_fighter_t* defender = &fight->fighters[atk ^ 1];
+        attacker->hit_pause = reversal->pause_p2;
+        defender->hit_pause = reversal->pause_p1;
+        if (reversal->p2_spr_priority != -128) {
+            attacker->spr_priority = reversal->p2_spr_priority;
+        }
+        if (reversal->p1_state_no >= 0) {
+            enter_state(fight, defender, reversal->p1_state_no);
+        }
+        if (reversal->p1_spr_priority != -128) {
+            defender->spr_priority = reversal->p1_spr_priority;
+        }
+        queue_reversal_effect(fight, defender, reversal);
+        fight->events |= IK_EVENT_GUARD;
     }
 
     for (int atk = 0; atk < 2; ++atk) {
