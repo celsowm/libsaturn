@@ -38,6 +38,11 @@ OP = {
     "p2_state_type_ne": "IK_CMD_RULE_P2_STATE_TYPE_NE",
     "p2_move_type_eq": "IK_CMD_RULE_P2_MOVE_TYPE_EQ",
     "p2_move_type_ne": "IK_CMD_RULE_P2_MOVE_TYPE_NE",
+    "power_eq": "IK_CMD_RULE_POWER_EQ",
+    "power_gt": "IK_CMD_RULE_POWER_GT",
+    "power_ge": "IK_CMD_RULE_POWER_GE",
+    "power_lt": "IK_CMD_RULE_POWER_LT",
+    "power_le": "IK_CMD_RULE_POWER_LE",
     "not": "IK_CMD_RULE_NOT",
     "and": "IK_CMD_RULE_AND",
     "or": "IK_CMD_RULE_OR",
@@ -100,10 +105,16 @@ def _tokenize(expr: str) -> list[tuple[str, str]]:
 
 
 class Parser:
-    def __init__(self, expr: str, command_ids: dict[str, int]):
+    def __init__(
+        self,
+        expr: str,
+        command_ids: dict[str, int],
+        variables: dict[int, list[Insn]] | None = None,
+    ):
         self.tokens = _tokenize(expr)
         self.i = 0
         self.command_ids = command_ids
+        self.variables = variables or {}
 
     def _peek(self, value: str | None = None) -> bool:
         if self.i >= len(self.tokens):
@@ -156,6 +167,17 @@ class Parser:
             return [Insn("ctrl")]
         if name == "movecontact":
             return [Insn("move_contact")]
+
+        if name == "var":
+            self._take("(")
+            kind, value = self._take()
+            self._take(")")
+            if kind != "number":
+                raise ValueError("var() index must be an integer")
+            index = int(value)
+            if index not in self.variables:
+                raise ValueError(f"unsupported variable predicate var({index})")
+            return list(self.variables[index])
 
         if name == "p2bodydist":
             axis_kind, axis = self._take()
@@ -250,6 +272,14 @@ class Parser:
             if opname is None:
                 raise ValueError("time != is not supported")
             return [Insn(opname, n)]
+        if name == "power":
+            opname = {
+                "=": "power_eq", ">": "power_gt", ">=": "power_ge",
+                "<": "power_lt", "<=": "power_le",
+            }.get(cmpop)
+            if opname is None:
+                raise ValueError("power != is not supported")
+            return [Insn(opname, n)]
         raise ValueError(f"unsupported predicate {name!r}")
 
 
@@ -273,13 +303,80 @@ def _or_join(parts: list[list[Insn]]) -> list[Insn]:
     return out
 
 
+def _predicate_code(
+    pairs: list[tuple[str, str]],
+    command_ids: dict[str, int],
+    variables: dict[int, list[Insn]],
+) -> list[Insn]:
+    trigger_all = [v for k, v in pairs if k == "triggerall"]
+    groups: dict[int, list[str]] = {}
+    for key, value in pairs:
+        m = re.fullmatch(r"trigger(\d+)", key)
+        if m:
+            groups.setdefault(int(m.group(1)), []).append(value)
+    if not groups:
+        raise ValueError("no trigger groups")
+
+    all_code = _and_join([
+        Parser(x, command_ids, variables).parse() for x in trigger_all
+    ])
+    group_code = _or_join([
+        _and_join([
+            Parser(x, command_ids, variables).parse() for x in groups[n]
+        ])
+        for n in sorted(groups)
+    ])
+    return (
+        group_code
+        if not all_code
+        else all_code + group_code + [Insn("and")]
+    )
+
+
 def parse_state_rules(path: Path, targets: set[int]) -> tuple[list[Rule], list[str]]:
     cmd = parse_cmd(path)
     command_ids = {name: i for i, name in enumerate(cmd.names)}
+    sections = _state_sections(path)
     rules: list[Rule] = []
     diagnostics: list[str] = []
+    variables: dict[int, list[Insn]] = {}
 
-    for header, pairs in _state_sections(path):
+    # Inline derived State -1 variables such as KFM's var(1) combo gate.
+    # A VarSet to 1 is a pure boolean predicate here; the matching reset to
+    # zero is implicit because the generated ChangeState rule re-evaluates it
+    # every frame instead of storing mutable CMD variables at runtime.
+    for header, pairs in sections:
+        if not re.match(r"^state\s+-1(?:\s*,|$)", header, re.I):
+            continue
+        types = [v for k, v in pairs if k == "type"]
+        if not types or types[-1].strip().lower() != "varset":
+            continue
+        assignment = next(
+            (
+                (int(m.group(1)), v)
+                for k, v in pairs
+                for m in [re.fullmatch(r"var\((\d+)\)", k)]
+                if m
+            ),
+            None,
+        )
+        if assignment is None:
+            continue
+        index, raw_value = assignment
+        try:
+            enabled = int(raw_value, 0)
+        except ValueError:
+            continue
+        if enabled != 1:
+            continue
+        try:
+            variables[index] = _predicate_code(
+                pairs, command_ids, variables
+            )
+        except ValueError as exc:
+            raise ValueError(f"{header}: {exc}") from exc
+
+    for header, pairs in sections:
         if not re.match(r"^state\s+-1(?:\s*,|$)", header, re.I):
             continue
         values = [v for k, v in pairs if k == "value"]
@@ -294,22 +391,8 @@ def parse_state_rules(path: Path, targets: set[int]) -> tuple[list[Rule], list[s
         if target not in targets:
             continue
 
-        trigger_all = [v for k, v in pairs if k == "triggerall"]
-        groups: dict[int, list[str]] = {}
-        for key, value in pairs:
-            m = re.fullmatch(r"trigger(\d+)", key)
-            if m:
-                groups.setdefault(int(m.group(1)), []).append(value)
-        if not groups:
-            raise ValueError(f"{header}: no trigger groups")
-
         try:
-            all_code = _and_join([Parser(x, command_ids).parse() for x in trigger_all])
-            group_code = _or_join([
-                _and_join([Parser(x, command_ids).parse() for x in groups[n]])
-                for n in sorted(groups)
-            ])
-            code = group_code if not all_code else all_code + group_code + [Insn("and")]
+            code = _predicate_code(pairs, command_ids, variables)
         except ValueError as exc:
             raise ValueError(f"{header}: {exc}") from exc
 
