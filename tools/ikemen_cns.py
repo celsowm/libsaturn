@@ -548,8 +548,10 @@ def controller_trigger(
     trigger2 = ctrl.all("trigger2")
     trigger3 = ctrl.all("trigger3")
 
-    anim_or = triggers + trigger2 + trigger3
-    if 2 <= len(anim_or) <= 3:
+    anim_or: list[str] = []
+    for trigger_index in range(1, 9):
+        anim_or.extend(ctrl.all(f"trigger{trigger_index}"))
+    if 2 <= len(anim_or):
         elems: list[int] = []
         for expr in anim_or:
             m = re.fullmatch(
@@ -561,11 +563,17 @@ def controller_trigger(
                 elems = []
                 break
             elems.append(int(m.group(1)))
-        if elems and all(1 <= e <= 15 for e in elems):
+        if elems and all(1 <= e <= 32 for e in elems):
             mask = 0
             for elem in elems:
                 mask |= 1 << (elem - 1)
-            return "IK_CNS_TRIGGER_ANIM_ELEM_MASK", mask, 0
+            lo = mask & 0xffff
+            hi = (mask >> 16) & 0xffff
+            if lo >= 32768:
+                lo -= 65536
+            if hi >= 32768:
+                hi -= 65536
+            return "IK_CNS_TRIGGER_ANIM_ELEM_MASK", lo, hi
 
     if len(triggers) == 1 and len(trigger2) == 1:
         m0 = re.fullmatch(
@@ -584,6 +592,16 @@ def controller_trigger(
                 int(m0.group(1)),
                 int(m1.group(1)),
             )
+
+    if len(triggers) == 1:
+        value = _strip_outer_parens(triggers[0])
+        m = re.fullmatch(
+            r"AnimElem\s*=\s*(\d+)\s*,\s*>=\s*0",
+            value,
+            flags=re.I,
+        )
+        if m:
+            return "IK_CNS_TRIGGER_ANIM_ELEM_FROM", int(m.group(1)), 0
 
     if ctype in ("width", "targetbind") and len(triggers) == 1:
         parsed = _anim_elem_range_trigger(triggers[0])
