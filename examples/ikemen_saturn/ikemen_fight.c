@@ -737,7 +737,10 @@ static void apply_damage(ik_fight_t* fight, int victim,
 
     {
         int16_t target = IK_STATE_HIT;
-        if (victim_type == IK_CNS_STATE_LIEDOWN &&
+        if (hitdef->p2_state_no >= 0 &&
+            ik_cns_find_state(fight->cns, hitdef->p2_state_no)) {
+            target = hitdef->p2_state_no;
+        } else if (victim_type == IK_CNS_STATE_LIEDOWN &&
             ik_cns_find_state(fight->cns, 5080)) {
             target = 5080;
         } else if (!airborne && hitdef->ground_type == IK_CNS_GROUND_TRIP &&
@@ -750,6 +753,12 @@ static void apply_damage(ik_fight_t* fight, int victim,
             target = 5010;
         } else if (ik_cns_find_state(fight->cns, 5000)) {
             target = 5000;
+        }
+
+        if (hitdef->p2_facing != 0) {
+            const int8_t toward = a->x >= v->x ? 1 : -1;
+            v->facing =
+                hitdef->p2_facing > 0 ? toward : (int8_t)-toward;
         }
 
         if (target != IK_STATE_HIT) {
@@ -776,6 +785,11 @@ static void apply_damage(ik_fight_t* fight, int victim,
         } else {
             enter_state(fight, v, target);
         }
+    }
+
+    if (hitdef->p1_state_no >= 0 &&
+        ik_cns_find_state(fight->cns, hitdef->p1_state_no)) {
+        enter_state(fight, a, hitdef->p1_state_no);
     }
 
     if ((victim ^ 1) == 0) fight->hits_p1++;
