@@ -1531,6 +1531,67 @@ y = Const(movement.yaccel)
         root / "blocking_cns", "blocking"
     )
 
+    intro_source = root / "intro.cns"
+    intro_source.write_text(r"""
+[Statedef 191]
+type = S
+ctrl = 0
+anim = 190
+velset = 0,0
+
+[State 191, Freeze]
+type = ChangeAnim
+trigger1 = RoundState = 0
+value = 190
+
+[State 191, Intro]
+type = AssertSpecial
+trigger1 = 1
+flag = Intro
+
+[State 191, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+
+[State 191, Wood 1]
+type = Explod
+trigger1 = RoundState != 0
+persistent = 0
+anim = 191
+postype = p1
+pos = 260,-90
+velocity = -4.2,-7
+accel = 0,.32
+removetime = 48
+
+[State 191, Wood 2]
+type = Explod
+trigger1 = AnimElemTime(7) = 1
+anim = 192
+postype = p1
+pos = 60,-70
+velocity = 2,-4
+accel = 0,.32
+removetime = 35
+
+[State 191, Snd 1]
+type = PlaySnd
+trigger1 = AnimElem = 7
+value = F5,2
+volume = -40
+
+[State 191, Snd 2]
+type = PlaySnd
+trigger1 = AnimElemTime(7) = 3
+value = F5,3
+volume = -80
+""", encoding="utf-8")
+    intro_report = emit(
+        intro_source, [191],
+        root / "intro_cns", "intro"
+    )
+
     zankou_source = root / "zankou.cns"
     zankou_source.write_text(r"""
 [Statedef 1400]
@@ -1815,6 +1876,32 @@ ctrl = 1
         super_source, [3000, 3050, 3051],
         root / "super_cns", "supers"
     )
+
+intro_row = intro_report["states"][0]
+assert intro_row["number"] == 191
+assert intro_row["unsupported_controllers"] == []
+intro_ctrls = intro_report["controllers"]
+assert intro_ctrls[0]["type"] == "IK_CNS_CTRL_CHANGE_ANIM"
+assert intro_ctrls[0]["trigger_kind"] == "IK_CNS_TRIGGER_ROUND_STATE_EQ"
+assert intro_ctrls[1]["type"] == "IK_CNS_CTRL_ASSERT_INTRO"
+assert intro_ctrls[2]["type"] == "IK_CNS_CTRL_CHANGE_STATE"
+intro_explod_ctrls = [
+    c for c in intro_ctrls if c["type"] == "IK_CNS_CTRL_EXPLOD"
+]
+assert len(intro_explod_ctrls) == 2
+assert intro_explod_ctrls[0]["trigger_kind"] == "IK_CNS_TRIGGER_ROUND_STATE_NE"
+assert intro_explod_ctrls[0]["value1"] == 1
+assert intro_explod_ctrls[1]["trigger_kind"] == (
+    "IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED"
+)
+assert len(intro_report["explods"]) == 2
+assert intro_report["explods"][0]["anim_no"] == 191
+assert intro_report["explods"][1]["anim_no"] == 192
+assert len(intro_report["playsnds"]) == 2
+assert intro_report["playsnds"][0]["group"] == 5
+assert intro_report["playsnds"][0]["item"] == 2
+assert intro_report["playsnds"][1]["group"] == 5
+assert intro_report["playsnds"][1]["item"] == 3
 
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
 assert report["constants"]["yaccel_q8"] == round(.44 * 256)
