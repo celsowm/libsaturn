@@ -33,7 +33,7 @@
 #define IK_FRAME_TEXTURE_CACHE_SIZE 32u
 
 typedef struct ik_frame_texture_cache_entry {
-    uint32_t pixel_ofs;
+    uint16_t sprite_index;
     uint32_t last_use;
     uint32_t pin_epoch;
     sat_texture_t texture;
@@ -44,6 +44,8 @@ static ik_frame_texture_cache_entry_t
     g_frame_cache[IK_FRAME_TEXTURE_CACHE_SIZE];
 static uint32_t g_frame_cache_clock;
 static uint32_t g_frame_cache_epoch;
+static uint8_t g_frame_decode_scratch[KFM_MAX_SPRITE_BYTES]
+    __attribute__((section(".wram_l")));
 
 static sat_palette_t g_p2_palette;
 static uint16_t g_map_scratch[SAT_VDP2_NBG0_MAP_CELLS];
@@ -100,10 +102,11 @@ static const ik_frame_t* current_frame(const ik_fighter_t* f) {
 }
 
 /* KFM now needs more than LibSaturn's 64 logical texture slots when all
- * standing+crouching actions are generated. Keep the source pixels in ROM and
- * upload only a bounded working set. Both fighters' current frames are pinned
- * before any VDP1 command is emitted, so an LRU eviction can never invalidate
- * a texture referenced by the current frame's command list. */
+ * standing+crouching actions are generated. Keep each source sprite in its
+ * compact SFF representation and decode only a cache miss into WRAM-L before
+ * uploading it to VDP1. Both fighters' current frames are pinned before any
+ * VDP1 command is emitted, so an LRU eviction can never invalidate a texture
+ * referenced by the current frame's command list. */
 static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
                                           uint32_t epoch,
                                           sat_texture_t* out_texture) {
@@ -114,7 +117,7 @@ static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
 
     for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
         ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
-        if (e->used && e->pixel_ofs == frame->pixel_ofs) {
+        if (e->used && e->sprite_index == frame->sprite_index) {
             e->last_use = g_frame_cache_clock;
             e->pin_epoch = epoch;
             *out_texture = e->texture;
@@ -144,10 +147,18 @@ static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
         *e = (ik_frame_texture_cache_entry_t){0};
     }
 
+    if (frame->sprite_index >= KFM_SPRITE_COUNT) return SAT_ERR_INVALID_ARG;
+    if (!ik_sprite_decode(
+            &kfm_sprites[frame->sprite_index],
+            kfm_sprite_data, KFM_SPRITE_DATA_BYTES,
+            g_frame_decode_scratch, sizeof(g_frame_decode_scratch))) {
+        return SAT_ERR_IO;
+    }
+
     sat_surface_t surface;
     sat_result_t st = sat_surface_init(
         &surface,
-        (uint8_t*)kfm_pixels + frame->pixel_ofs,
+        g_frame_decode_scratch,
         frame->w, frame->h, frame->w, SAT_PIXEL_INDEX8,
         kfm_palette_main, 256u);
     if (st != SAT_OK) return st;
@@ -158,7 +169,7 @@ static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
     if (st != SAT_OK) return st;
 
     e->used = 1u;
-    e->pixel_ofs = frame->pixel_ofs;
+    e->sprite_index = frame->sprite_index;
     e->last_use = g_frame_cache_clock;
     e->pin_epoch = epoch;
     e->texture = tex;
