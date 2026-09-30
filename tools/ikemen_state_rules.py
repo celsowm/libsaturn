@@ -18,6 +18,17 @@ TOKEN_RE = re.compile(
 )
 STATE_TYPE_VALUE = {"S": 1, "C": 2, "A": 3, "L": 4}
 MOVE_TYPE_VALUE = {"I": 1, "A": 2, "H": 3}
+ATTACK_ATTR_VALUE = {
+    "NA": 1 << 0,
+    "SA": 1 << 1,
+    "HA": 1 << 2,
+    "NP": 1 << 3,
+    "SP": 1 << 4,
+    "HP": 1 << 5,
+    "NT": 1 << 6,
+    "ST": 1 << 7,
+    "HT": 1 << 8,
+}
 
 
 @dataclass(frozen=True)
@@ -174,6 +185,34 @@ class Parser:
         _, cmpop = self._take()
         if cmpop not in ("=", "!=", ">", ">=", "<", "<="):
             raise ValueError(f"unsupported comparator {cmpop!r}")
+
+        if name == "hitdefattr":
+            if cmpop != "=":
+                raise ValueError("hitdefattr currently supports only =")
+            kinds: list[str] = []
+            first_kind, first_value = self._take()
+            if first_kind != "ident":
+                raise ValueError("hitdefattr state class must be an identifier")
+            state_class = first_value.upper()
+            if not state_class or any(ch not in "SCA" for ch in state_class):
+                raise ValueError(
+                    f"unsupported hitdefattr state class {first_value!r}"
+                )
+            while self._peek(","):
+                self._take(",")
+                kind, value = self._take()
+                if kind != "ident" or value.upper() not in ATTACK_ATTR_VALUE:
+                    raise ValueError(
+                        f"unsupported hitdefattr attack attr {value!r}"
+                    )
+                kinds.append(value.upper())
+            if not kinds:
+                raise ValueError("hitdefattr requires attack attributes")
+            parts = [
+                [Insn("active_hit_attr_eq", ATTACK_ATTR_VALUE[value])]
+                for value in kinds
+            ]
+            return _or_join(parts)
 
         if name == "command":
             kind, value = self._take()
@@ -438,6 +477,8 @@ def _lower_instruction(insn: Insn) -> list[VmInsn]:
         "power_ge": ("IK_EXPR_FIELD_POWER", self_r, "IK_EXPR_GE"),
         "power_lt": ("IK_EXPR_FIELD_POWER", self_r, "IK_EXPR_LT"),
         "power_le": ("IK_EXPR_FIELD_POWER", self_r, "IK_EXPR_LE"),
+        "active_hit_attr_eq": (
+            "IK_EXPR_FIELD_ACTIVE_HIT_ATTR", self_r, "IK_EXPR_EQ"),
     }
     if insn.op in simple:
         field, redirect, compare_op = simple[insn.op]
