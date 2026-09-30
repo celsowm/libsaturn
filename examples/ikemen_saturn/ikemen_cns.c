@@ -32,13 +32,17 @@ int ik_cns_trigger_now(uint8_t trigger_kind, int16_t trigger_value,
                        (uint16_t)(trigger_value < 1 ? 1 : trigger_value) &&
                    anim_element_time == 0u;
         case IK_CNS_TRIGGER_ANIM_ELEM_MASK: {
-            if (anim_element == 0u || anim_element > 15u ||
+            if (anim_element == 0u || anim_element > 32u ||
                 anim_element_time != 0u) {
                 return 0;
             }
-            const uint16_t mask = (uint16_t)trigger_value;
-            return (mask & (uint16_t)(1u << (anim_element - 1u))) != 0u;
+            const uint32_t mask =
+                (uint32_t)(uint16_t)trigger_value;
+            return (mask & (1u << (anim_element - 1u))) != 0u;
         }
+        case IK_CNS_TRIGGER_ANIM_ELEM_FROM:
+            return anim_element >=
+                   (uint16_t)(trigger_value < 1 ? 1 : trigger_value);
         case IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED: {
             const uint16_t packed = (uint16_t)trigger_value;
             const uint16_t elem = (uint16_t)(packed >> 8);
@@ -189,14 +193,23 @@ int ik_cns_controller_trigger_context_now(
                    (context->command_mask & IK_CNS_COMMAND_RECOVERY) != 0u &&
                    context->vy_q8 > 0;
 
-        case IK_CNS_TRIGGER_ANIM_ELEM_MASK:
+        case IK_CNS_TRIGGER_ANIM_ELEM_MASK: {
             if (context->anim_element == 0u ||
-                context->anim_element > 15u ||
+                context->anim_element > 32u ||
                 context->anim_element_time != 0u) {
                 return 0;
             }
-            return (((uint16_t)controller->trigger_value) &
-                    (uint16_t)(1u << (context->anim_element - 1u))) != 0u;
+            const uint32_t mask =
+                (uint32_t)(uint16_t)controller->trigger_value |
+                ((uint32_t)(uint16_t)controller->trigger_value2 << 16);
+            return (mask & (1u << (context->anim_element - 1u))) != 0u;
+        }
+
+        case IK_CNS_TRIGGER_ANIM_ELEM_FROM:
+            return context->anim_element >=
+                   (uint16_t)(controller->trigger_value < 1
+                                  ? 1
+                                  : controller->trigger_value);
 
         case IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED: {
             const uint16_t packed =
