@@ -440,7 +440,7 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
             hitdef->trigger_kind, hitdef->trigger_value,
             fighter->state_time, element, element_time, anim_ended);
         const int secondary_now =
-            hitdef->trigger2_kind != 255u &&
+            hitdef->has_trigger2 &&
             ik_cns_trigger_now(
                 hitdef->trigger2_kind, hitdef->trigger2_value,
                 fighter->state_time, element, element_time, anim_ended);
@@ -720,7 +720,7 @@ static void apply_damage(ik_fight_t* fight, int victim,
         velocity_y != 0;
 
     int damage = hitdef->damage;
-    if (hitdef->alt_damage >= 0 &&
+    if (hitdef->has_alt_damage &&
         a->prev_state == hitdef->alt_damage_prev_state) {
         damage = hitdef->alt_damage;
     }
