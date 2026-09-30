@@ -3175,6 +3175,7 @@ void ik_fight_update(ik_fight_t* fight,
     }
 
     fight->events = IK_EVENT_NONE;
+    fight->intro_asserted = 0u;
     if (fight->round_over) {
         if (fight->ko_freeze > 0u) fight->ko_freeze--;
         fight->frame++;
@@ -3195,7 +3196,7 @@ void ik_fight_update(ik_fight_t* fight,
     }
 
     fight->frame++;
-    if (fight->timer_frames > 0u) {
+    if (fight->round_state >= 2u && fight->timer_frames > 0u) {
         fight->timer_frames--;
         if (fight->timer_frames == 0u) {
             fight->round_over = 1;
@@ -3209,6 +3210,14 @@ void ik_fight_update(ik_fight_t* fight,
     const int dummy = (p2 == 0);
     step_fighter(fight, 0, p1, 0, p1_frames, p2_frames);
     step_fighter(fight, 1, p2, dummy, p2_frames, p1_frames);
+
+    if (fight->round_state == 0u) {
+        /* Give RoundState=0 one authored pre-intro tick, then let the
+         * character's AssertSpecial Intro controller hold the intro. */
+        fight->round_state = 1u;
+    } else if (fight->round_state == 1u && !fight->intro_asserted) {
+        fight->round_state = 2u;
+    }
 
     if (fight->entities) {
         sync_player_entities(fight);
