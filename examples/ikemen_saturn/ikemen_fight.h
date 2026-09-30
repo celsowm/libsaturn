@@ -21,6 +21,7 @@ extern "C" {
 #define IK_ROUND_TIME_FRAMES (99u * 60u)
 #define IK_KO_FREEZE_FRAMES 120
 #define IK_MAX_EFFECT_EVENTS 2
+#define IK_MAX_SOUND_EVENTS 4
 
 typedef enum ik_state {
     IK_STATE_IDLE = 0,
@@ -62,6 +63,11 @@ typedef struct ik_effect_event {
     int16_t x;
     int16_t y;
 } ik_effect_event_t;
+
+typedef struct ik_sound_event {
+    int16_t group;
+    int16_t item;
+} ik_sound_event_t;
 
 typedef struct ik_fight_controls {
     uint8_t forward;
@@ -160,6 +166,8 @@ typedef struct ik_fight {
     int8_t pause_owner;
     ik_effect_event_t effect_events[IK_MAX_EFFECT_EVENTS];
     uint8_t effect_count;
+    ik_sound_event_t sound_events[IK_MAX_SOUND_EVENTS];
+    uint8_t sound_count;
 } ik_fight_t;
 
 void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns);
