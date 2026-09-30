@@ -2296,9 +2296,21 @@ after3000 = next(
     c for c in super3000 if c["type"] == "IK_CNS_CTRL_AFTER_IMAGE"
 )
 assert after3000["value0"] == 2
-assert after3000["value1"] == 10
+assert after3000["value1"] == 20
 assert after3000["value2"] == 1
-assert after3000["value3"] == 1
+assert after3000["value3"] == 4
+assert (after3000["value4"] & 0xff) == 30
+assert ((after3000["value4"] >> 8) & 0xff) == 30
+assert ((after3000["value4"] >> 16) & 0xff) == 30
+assert (after3000["value5"] & 0xff) == 120
+assert ((after3000["value5"] >> 8) & 0xff) == 120
+assert ((after3000["value5"] >> 16) & 0xff) == 220
+assert (after3000["value6"] & 0xff) == 10
+assert ((after3000["value6"] >> 8) & 0xff) == 10
+assert ((after3000["value6"] >> 16) & 0xff) == 25
+assert (after3000["value7"] & 0xff) == round(.65 * 255)
+assert ((after3000["value7"] >> 8) & 0xff) == round(.65 * 255)
+assert ((after3000["value7"] >> 16) & 0xff) == round(.75 * 255)
 superpause3000 = next(
     c for c in super3000 if c["type"] == "IK_CNS_CTRL_SUPER_PAUSE"
 )
