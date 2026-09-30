@@ -2603,7 +2603,7 @@ static void step_fighter(ik_fight_t* fight, int index,
     }
 }
 
-static void resolve_helper_contacts(
+static void resolve_entity_contacts(
     ik_fight_t* fight,
     const ik_fight_controls_t* p1,
     const ik_fight_controls_t* p2,
@@ -2612,23 +2612,24 @@ static void resolve_helper_contacts(
 ) {
     if (!fight || !fight->entities || !fight->cns) return;
 
-    ik_entity_handle_t helpers[IK_ENTITY_CAPACITY];
-    uint8_t helper_count = 0u;
+    ik_entity_handle_t attackers[IK_ENTITY_CAPACITY];
+    uint8_t attacker_count = 0u;
     for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
         const ik_entity_t* entity = &fight->entities->entities[slot];
-        if (entity->type != IK_ENTITY_HELPER ||
+        if ((entity->type != IK_ENTITY_HELPER &&
+             entity->type != IK_ENTITY_PROJECTILE) ||
             entity->owner_player >= 2u) {
             continue;
         }
-        helpers[helper_count].slot = slot;
-        helpers[helper_count].generation =
+        attackers[attacker_count].slot = slot;
+        attackers[attacker_count].generation =
             fight->entities->generations[slot];
-        ++helper_count;
+        ++attacker_count;
     }
 
-    for (uint8_t n = 0u; n < helper_count; ++n) {
+    for (uint8_t n = 0u; n < attacker_count; ++n) {
         ik_entity_t* attacker =
-            ik_entity_get(fight->entities, helpers[n]);
+            ik_entity_get(fight->entities, attackers[n]);
         if (!attacker || attacker->owner_player >= 2u) continue;
 
         const int victim = (int)(attacker->owner_player ^ 1u);
@@ -2644,7 +2645,7 @@ static void resolve_helper_contacts(
                 fight, attacker_frames, attacker, v, &local_hitdef);
         if (!hitdef || local_hitdef >= 32u) continue;
 
-        /* Helper throws require generic target/bind ownership first.
+        /* Dynamic-entity throws require generic target/bind ownership first.
          * Reject rather than silently treating a throw as a normal strike. */
         if ((hitdef->flags & IK_CNS_HITDEF_THROW) != 0u) continue;
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
@@ -2660,16 +2661,34 @@ static void resolve_helper_contacts(
             continue;
         }
 
+        const ik_cns_hitoverride_t* override =
+            active_hitoverride(fight, v, hitdef);
+        if (override && override->target_state >= 0) {
+            attacker->hitdef_hit_mask |= bit;
+            attacker->move_contact = 1u;
+            enter_state(fight, v, override->target_state);
+            if (attacker->type == IK_ENTITY_PROJECTILE) {
+                (void)ik_entity_destroy(
+                    fight->entities, attackers[n]);
+            }
+            continue;
+        }
+
         attacker->hitdef_hit_mask |= bit;
         const ik_fight_controls_t* victim_controls =
             victim == 0 ? p1 : p2;
         if (can_guard_hit(fight, v, victim_controls, hitdef)) {
             apply_guard_from_entity(
-                fight, helpers[n], victim, victim_controls, hitdef);
+                fight, attackers[n], victim, victim_controls, hitdef);
         } else {
             apply_damage_from_entity(
-                fight, helpers[n], victim, hitdef,
+                fight, attackers[n], victim, hitdef,
                 p1_frames, p2_frames);
+        }
+
+        if (attacker->type == IK_ENTITY_PROJECTILE) {
+            (void)ik_entity_destroy(
+                fight->entities, attackers[n]);
         }
 
         if (fight->round_over) return;
@@ -2891,7 +2910,7 @@ void ik_fight_update(ik_fight_t* fight,
     }
 
     if (!fight->round_over) {
-        resolve_helper_contacts(
+        resolve_entity_contacts(
             fight, p1, p2, p1_frames, p2_frames);
     }
 
