@@ -2351,7 +2351,7 @@ assert zankou_rows[1400]["power_add"] == 50
 assert zankou_rows[1400]["juggle"] == 4
 assert zankou_rows[1420]["power_add"] == -330
 assert zankou_rows[1420]["juggle"] == 6
-assert zankou_rows[1420]["unsupported_controllers"] == ["palfx"]
+assert zankou_rows[1420]["unsupported_controllers"] == []
 zankou_hits = zankou_report["hitdefs"]
 assert zankou_hits[0]["attack_attr_mask"] == "IK_CNS_ATTR_SPECIAL_ATTACK"
 assert zankou_hits[1]["trigger_kind"] == (
@@ -2384,6 +2384,16 @@ aftertime1420 = next(
 )
 assert aftertime1420["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_BEFORE"
 assert aftertime1420["trigger_value"] == 8
+palfx1420 = next(
+    c for c in zankou_1420 if c["type"] == "IK_CNS_CTRL_PAL_FX"
+)
+assert palfx1420["value0"] == 20
+assert (palfx1420["value1"] & 0xff) == 32
+assert ((palfx1420["value1"] >> 8) & 0xff) == 16
+assert (palfx1420["value2"] & 0xff) == 64
+assert ((palfx1420["value2"] >> 8) & 0xff) == 32
+assert ((palfx1420["value2"] >> 16) & 0xff) == 5
+assert palfx1420["value3"] == 3
 dash1420 = next(c for c in zankou_1420 if c["type"] == "IK_CNS_CTRL_VEL_SET")
 assert dash1420["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_TIME_RANGE"
 assert dash1420["trigger_value"] == 3
