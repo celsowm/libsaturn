@@ -274,7 +274,9 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->ko_freeze = 0;
     fight->pause_time = 0u;
     fight->pause_move_time = 0u;
+    fight->pause_end_cmd_buffer_time = 0u;
     fight->pause_owner = -1;
+    fight->pause_is_super = 0u;
     fight->env_shake_time = 0u;
     fight->env_shake_ampl = 0;
     fight->env_shake_freq = 60u;
@@ -2177,7 +2179,13 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 f->power = (int16_t)power;
                 fight->pause_time = (uint16_t)(
                     ctrl->value0 > 65535 ? 65535 : ctrl->value0);
-                fight->pause_move_time = 0u;
+                fight->pause_move_time = (uint16_t)(
+                    ctrl->value4 < 0 ? 0 :
+                    ctrl->value4 > 65535 ? 65535 : ctrl->value4);
+                fight->pause_end_cmd_buffer_time = (uint16_t)(
+                    ctrl->value5 < 0 ? 0 :
+                    ctrl->value5 > 65535 ? 65535 : ctrl->value5);
+                fight->pause_is_super = 1u;
                 fight->pause_owner =
                     (int8_t)fighter_player_index(fight, f);
                 if ((ctrl->flags & IK_CNS_CTRL_SUPER_DARKEN) != 0u) {
@@ -2209,6 +2217,10 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 fight->pause_move_time = (uint16_t)(
                     ctrl->value1 < 0 ? 0 :
                     ctrl->value1 > 65535 ? 65535 : ctrl->value1);
+                fight->pause_end_cmd_buffer_time = (uint16_t)(
+                    ctrl->value2 < 0 ? 0 :
+                    ctrl->value2 > 65535 ? 65535 : ctrl->value2);
+                fight->pause_is_super = 0u;
                 fight->pause_owner =
                     (int8_t)fighter_player_index(fight, f);
                 /* Internal state ticks are post-entry numbered. Pause fired
@@ -3267,6 +3279,8 @@ void ik_fight_update(ik_fight_t* fight,
         if (fight->pause_time == 0u) {
             fight->pause_owner = -1;
             fight->pause_move_time = 0u;
+            fight->pause_end_cmd_buffer_time = 0u;
+            fight->pause_is_super = 0u;
         }
         fight->frame++;
         return;
