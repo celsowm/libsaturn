@@ -206,6 +206,52 @@ int ik_entity_runtime_spawn_helper(
     return 1;
 }
 
+int ik_entity_runtime_spawn_explod(
+    ik_entity_runtime_t* runtime,
+    ik_entity_handle_t parent_handle,
+    const ik_cns_explod_t* explod,
+    ik_entity_handle_t* out_handle
+) {
+    if (!runtime || !runtime->pool || !explod || !out_handle) {
+        return 0;
+    }
+
+    const ik_entity_t* parent =
+        ik_entity_get_const(runtime->pool, parent_handle);
+    if (!parent || parent->owner_player >= 2u) return 0;
+
+    ik_entity_handle_t spawned = ik_entity_invalid_handle();
+    if (!ik_entity_spawn(
+            runtime->pool, IK_ENTITY_EXPLOD, 0,
+            parent->owner_player, parent_handle, &spawned)) {
+        return 0;
+    }
+
+    ik_entity_t* entity = ik_entity_get(runtime->pool, spawned);
+    if (!entity) {
+        (void)ik_entity_destroy(runtime->pool, spawned);
+        return 0;
+    }
+
+    entity->x_q8 =
+        parent->x_q8 + (int32_t)parent->facing * explod->pos_x_q8;
+    entity->y_q8 = parent->y_q8 + explod->pos_y_q8;
+    entity->vx_q8 = (int32_t)parent->facing * explod->vel_x_q8;
+    entity->vy_q8 = explod->vel_y_q8;
+    entity->ax_q8 = (int32_t)parent->facing * explod->accel_x_q8;
+    entity->ay_q8 = explod->accel_y_q8;
+    entity->facing = parent->facing;
+    entity->anim_no = explod->anim_no;
+    entity->anim_time = 0u;
+    entity->state_time = 0u;
+    entity->remove_time = explod->remove_time;
+    entity->spr_priority = explod->spr_priority;
+    entity->life = 1;
+
+    *out_handle = spawned;
+    return 1;
+}
+
 int ik_entity_runtime_spawn_projectile(
     ik_entity_runtime_t* runtime,
     ik_entity_handle_t parent_handle,
@@ -484,9 +530,35 @@ static void step_one(
     ik_entity_handle_t handle
 ) {
     ik_entity_t* entity = ik_entity_get(runtime->pool, handle);
-    if (!entity ||
-        (entity->type != IK_ENTITY_HELPER &&
-         entity->type != IK_ENTITY_PROJECTILE)) {
+    if (!entity) return;
+
+    if (entity->type == IK_ENTITY_EXPLOD) {
+        ++entity->state_time;
+        ++entity->anim_time;
+        entity->x_q8 += entity->vx_q8;
+        entity->y_q8 += entity->vy_q8;
+        entity->vx_q8 += entity->ax_q8;
+        entity->vy_q8 += entity->ay_q8;
+
+        if (entity->remove_time > 0) {
+            --entity->remove_time;
+            if (entity->remove_time == 0) {
+                (void)ik_entity_destroy(runtime->pool, handle);
+                return;
+            }
+        } else if (entity->remove_time == 0) {
+            const ik_frame_table_t* frames = frames_for(runtime, entity);
+            const uint32_t duration =
+                ik_action_duration_ticks(frames, entity->anim_no);
+            if (duration > 0u && entity->anim_time >= duration) {
+                (void)ik_entity_destroy(runtime->pool, handle);
+            }
+        }
+        return;
+    }
+
+    if (entity->type != IK_ENTITY_HELPER &&
+        entity->type != IK_ENTITY_PROJECTILE) {
         return;
     }
 
@@ -552,7 +624,8 @@ void ik_entity_runtime_step(ik_entity_runtime_t* runtime) {
     for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
         const ik_entity_t* entity = &runtime->pool->entities[slot];
         if (entity->type != IK_ENTITY_HELPER &&
-            entity->type != IK_ENTITY_PROJECTILE) {
+            entity->type != IK_ENTITY_PROJECTILE &&
+            entity->type != IK_ENTITY_EXPLOD) {
             continue;
         }
         snapshot[count].slot = slot;
