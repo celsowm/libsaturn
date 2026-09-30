@@ -103,6 +103,44 @@ int main() {
     OK(ik_entity_get_const(&pool,helper)==nullptr);
     EQ(ik_entity_count_type(&pool,IK_ENTITY_HELPER),0u);
 
+    const ik_cns_explod_t explod_spec={
+        200,
+        20*IK_ENTITY_Q8_ONE,-10*IK_ENTITY_Q8_ONE,
+        2*IK_ENTITY_Q8_ONE,-4*IK_ENTITY_Q8_ONE,
+        0,82,
+        3,1,IK_CNS_HELPER_POS_P1
+    };
+    ik_entity_handle_t explod{};
+    OK(ik_entity_runtime_spawn_explod(
+        &runtime,p1,&explod_spec,&explod));
+    const ik_entity_t* visual=ik_entity_get_const(&pool,explod);
+    OK(visual!=nullptr);
+    EQ(visual->type,IK_ENTITY_EXPLOD);
+    EQ(visual->x_q8,120*IK_ENTITY_Q8_ONE);
+    EQ(visual->y_q8,40*IK_ENTITY_Q8_ONE);
+    EQ(visual->vx_q8,2*IK_ENTITY_Q8_ONE);
+    EQ(visual->vy_q8,-4*IK_ENTITY_Q8_ONE);
+    EQ(visual->ay_q8,82);
+    EQ(visual->remove_time,3);
+    EQ(visual->spr_priority,1);
+
+    ik_entity_runtime_step(&runtime);
+    visual=ik_entity_get_const(&pool,explod);
+    OK(visual!=nullptr);
+    EQ(visual->x_q8,122*IK_ENTITY_Q8_ONE);
+    EQ(visual->y_q8,36*IK_ENTITY_Q8_ONE);
+    EQ(visual->vy_q8,-4*IK_ENTITY_Q8_ONE+82);
+    EQ(visual->remove_time,2);
+
+    ik_entity_runtime_step(&runtime);
+    visual=ik_entity_get_const(&pool,explod);
+    OK(visual!=nullptr);
+    EQ(visual->remove_time,1);
+
+    ik_entity_runtime_step(&runtime);
+    OK(ik_entity_get_const(&pool,explod)==nullptr);
+    EQ(ik_entity_count_type(&pool,IK_ENTITY_EXPLOD),0u);
+
     std::puts("[test] ikemen_entity_runtime OK");
     return 0;
 }
