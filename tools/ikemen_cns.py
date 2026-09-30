@@ -3442,9 +3442,9 @@ const ik_cns_asset_t {ident}_cns = {{
     {ident}_playsnds, {len(sounds)}u,
     {ident}_controllers, {len(controllers)}u,
     {ident}_helpers, {len(helpers)}u,
-    {ident}_explods, {len(explods)}u,
     {ident}_reversals, {len(reversals)}u,
-    {ident}_hitoverrides, {len(hitoverrides)}u
+    {ident}_hitoverrides, {len(hitoverrides)}u,
+    {ident}_explods, {len(explods)}u
 }};
 """
 
