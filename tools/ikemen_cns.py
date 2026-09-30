@@ -1001,6 +1001,8 @@ def compile_runtime_controller(
         "superpause",
         "nothitby",
         "envshake",
+        "afterimage",
+        "afterimagetime",
     }
     if ctype not in supported:
         return None
@@ -1013,6 +1015,32 @@ def compile_runtime_controller(
 
     def flag_expr() -> str:
         return " | ".join(flags) if flags else "0u"
+
+    if ctype == "afterimage":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_AFTER_IMAGE",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("time"), 1),
+            "value1": integer(ctrl.get("length"), 10),
+            "value2": integer(ctrl.get("timegap"), 1),
+            "value3": integer(ctrl.get("framegap"), 1),
+            "flags": flag_expr(),
+        }
+
+    if ctype == "afterimagetime":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_AFTER_IMAGE_TIME",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("time"), 1),
+            "value1": 0,
+            "flags": flag_expr(),
+        }
 
     if ctype == "envshake":
         return {
