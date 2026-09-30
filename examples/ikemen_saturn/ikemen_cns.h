@@ -121,6 +121,7 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_HELPER,
     IK_CNS_CTRL_DESTROY_SELF,
     IK_CNS_CTRL_PAUSE,
+    IK_CNS_CTRL_SUPER_PAUSE,
     IK_CNS_CTRL_NOT_HIT_BY
 } ik_cns_controller_type_t;
 
@@ -449,6 +450,7 @@ typedef struct ik_cns_playsnd {
  *   VelAdd: add Q8.8 velocity on selected axes
  *   FallRecovery: enter ground/air fall recovery using compiled thresholds
  *   Pause: global pause ticks / owner movetime ticks
+ *   SuperPause: global super-pause ticks / power delta
  *   NotHitBy: incoming attacker state-type mask / duration ticks
  */
 typedef struct ik_cns_controller {
