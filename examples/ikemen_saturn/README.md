@@ -134,8 +134,12 @@ ticks before animation element 4 using the AIR element start tick, while its
 second HitDef activates on element 4. AfterImage/AfterImageTime now use a
 generic per-fighter history ring with authored length, TimeGap and FrameGap;
 the renderer draws the trail behind the fighter with additive blending.
-KFM's exact PalBright/PalContrast/PalAdd/PalMul colour transform is still an
-approximation in the Saturn trail tint, while PalFX remains deferred.
+The trail tint now comes from the authored PalBright/PalContrast/PalAdd/PalMul
+parameters instead of a fixed colour. Saturn's indexed-sprite tint path cannot
+reproduce the full per-palette Elecbyte transform exactly, so this remains an
+approximation of the original palette math rather than a hard-coded KFM colour.
+PalFX add/sinadd is compiled and executed per fighter with deterministic cycle
+phase and rendered as RGB modulation, covering KFM's yellow blink effects.
 
 The two KFM supers are also entered from the original State -1 rules. The
 expression VM now exposes the currently active HitDef attribute, so
@@ -151,9 +155,8 @@ is carried into common fall states and applied once by HitFallDamage.
 AfterImage/AfterImageTime now continue the authored trail through their real
 AnimElemTime/AnimTime/velocity keepalive triggers. PlaySnd, SuperPause sound,
 HitDef hitsound and guardsound all feed the same generic fight sound-event
-path, including multi-branch PlaySnd controllers. Remaining super gaps are the
-exact afterimage palette transform, PalFX and exact full-screen darken parity
-(currently the stage layer is darkened).
+path, including multi-branch PlaySnd controllers. Remaining super gaps are exact Elecbyte palette-transform parity and exact
+full-screen darken parity (currently the stage layer is darkened).
 
 KFM's Blocking commands are compiled from the original State -1 rules rather
 than dispatched through a KFM-only input branch. ReversalDef windows are
@@ -324,8 +327,8 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   authored usage
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
-* remaining super presentation semantics: exact AfterImage palette math,
-  PalFX and exact full-screen SuperPause darken parity
+* remaining super presentation semantics: exact Elecbyte palette math and
+  exact full-screen SuperPause darken parity
 * remaining fightfx families (blood, shockwaves and dust),
   motif/lifebar flow and full round presentation
 * broader sound-bank/channel semantics beyond the KFM/common sounds currently
