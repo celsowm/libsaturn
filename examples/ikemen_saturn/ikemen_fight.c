@@ -212,6 +212,10 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->afterimage_length = 0u;
     f->afterimage_timegap = 1u;
     f->afterimage_framegap = 1u;
+    f->afterimage_bright_rgb = 0u;
+    f->afterimage_contrast_rgb = 0x00ffffffu;
+    f->afterimage_add_rgb = 0u;
+    f->afterimage_mul_rgb = 0x00ffffffu;
     f->palfx_time = 0u;
     f->palfx_add_r = 0;
     f->palfx_add_g = 0;
@@ -2175,6 +2179,10 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 f->afterimage_framegap = (uint8_t)(
                     ctrl->value3 <= 0 ? 1 :
                     ctrl->value3 > 255 ? 255 : ctrl->value3);
+                f->afterimage_bright_rgb = (uint32_t)ctrl->value4;
+                f->afterimage_contrast_rgb = (uint32_t)ctrl->value5;
+                f->afterimage_add_rgb = (uint32_t)ctrl->value6;
+                f->afterimage_mul_rgb = (uint32_t)ctrl->value7;
                 break;
 
             case IK_CNS_CTRL_AFTER_IMAGE_TIME:
