@@ -505,14 +505,57 @@ static const ik_cns_reversaldef_t* active_reversaldef(
         if (index >= fight->cns->reversal_count) break;
         const ik_cns_reversaldef_t* reversal =
             &fight->cns->reversals[index];
-        if (defender->state_time < reversal->start_time ||
-            defender->state_time >= reversal->end_time) {
+        const uint16_t authored_time =
+            defender->state_time > 0u
+                ? (uint16_t)(defender->state_time - 1u)
+                : 0u;
+        if (authored_time < reversal->start_time ||
+            authored_time >= reversal->end_time) {
             continue;
         }
         if ((reversal->attacker_state_mask & attacker_bit) == 0u) {
             continue;
         }
         return reversal;
+    }
+    return 0;
+}
+
+static const ik_cns_hitoverride_t* active_hitoverride(
+    const ik_fight_t* fight,
+    const ik_fighter_t* victim,
+    const ik_cns_hitdef_t* incoming
+) {
+    if (!fight || !fight->cns || !victim || !incoming ||
+        !fight->cns->hitoverrides ||
+        incoming->attack_attr_mask == 0u) {
+        return 0;
+    }
+
+    const ik_cns_state_t* state =
+        ik_cns_find_state(fight->cns, victim->state);
+    if (!state || state->hitoverride_count == 0u) return 0;
+
+    const uint8_t self_bit = reversal_state_bit(fight, victim);
+    const uint16_t authored_time =
+        victim->state_time > 0u
+            ? (uint16_t)(victim->state_time - 1u)
+            : 0u;
+    for (uint8_t i = 0u; i < state->hitoverride_count; ++i) {
+        const uint16_t index = (uint16_t)(state->hitoverride_ofs + i);
+        if (index >= fight->cns->hitoverride_count) break;
+        const ik_cns_hitoverride_t* override =
+            &fight->cns->hitoverrides[index];
+        if (authored_time < override->start_time ||
+            authored_time >= override->end_time) {
+            continue;
+        }
+        if ((override->self_state_mask & self_bit) == 0u) continue;
+        if ((override->incoming_attr_mask &
+             incoming->attack_attr_mask) == 0u) {
+            continue;
+        }
+        return override;
     }
     return 0;
 }
@@ -2698,6 +2741,7 @@ void ik_fight_update(ik_fight_t* fight,
 
     const ik_cns_hitdef_t* candidates[2] = {0, 0};
     const ik_cns_reversaldef_t* reversals[2] = {0, 0};
+    const ik_cns_hitoverride_t* overrides[2] = {0, 0};
     uint32_t candidate_bits[2] = {0u, 0u};
     uint8_t lands[2] = {0u, 0u};
     uint8_t consume[2] = {0u, 0u};
@@ -2726,6 +2770,16 @@ void ik_fight_update(ik_fight_t* fight,
         if (reversal && fighter_reversal_clsn_overlap(
                 victim_frames, attacker_frames, v, a)) {
             reversals[atk] = reversal;
+            candidate_bits[atk] = bit;
+            consume[atk] = 1u;
+            continue;
+        }
+
+        const ik_cns_hitoverride_t* override =
+            active_hitoverride(fight, v, hitdef);
+        if (override && fighter_clsn_overlap(
+                attacker_frames, victim_frames, a, v)) {
+            overrides[atk] = override;
             candidate_bits[atk] = bit;
             consume[atk] = 1u;
             continue;
@@ -2782,6 +2836,15 @@ void ik_fight_update(ik_fight_t* fight,
         if (consume[atk] && candidate_bits[atk] != 0u) {
             fight->fighters[atk].hitdef_hit_mask |= candidate_bits[atk];
         }
+    }
+
+    for (int atk = 0; atk < 2; ++atk) {
+        const ik_cns_hitoverride_t* override = overrides[atk];
+        if (!override || override->target_state < 0) continue;
+        ik_fighter_t* attacker = &fight->fighters[atk];
+        ik_fighter_t* victim = &fight->fighters[atk ^ 1];
+        attacker->move_contact = 1u;
+        enter_state(fight, victim, override->target_state);
     }
 
     for (int atk = 0; atk < 2; ++atk) {
