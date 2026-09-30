@@ -2015,6 +2015,7 @@ def parse_state(
     controller_ofs: int,
     helper_ofs: int,
     explod_ofs: int,
+    projectile_ofs: int,
     default_spark_no: int = -1,
     default_guard_spark_no: int = 40,
 ):
@@ -2411,7 +2412,7 @@ def parse_state(
                 compiled_projectile = compile_projectile_controller(
                     state.number,
                     ctrl,
-                    len(projectiles),
+                    projectile_ofs + len(projectiles),
                     hitdef_ofs + len(hitdefs),
                     default_spark_no,
                     default_guard_spark_no,
