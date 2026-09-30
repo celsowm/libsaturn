@@ -285,6 +285,12 @@ static int process_controllers(
         .state_time = entity->state_time,
         .anim_element = elem,
         .anim_element_time = elem_time,
+        .anim_ticks_remaining = (uint16_t)(
+            ik_action_duration_ticks(frames, entity->anim_no) > entity->anim_time
+                ? (ik_action_duration_ticks(frames, entity->anim_no) - entity->anim_time > 65535u
+                    ? 65535u
+                    : ik_action_duration_ticks(frames, entity->anim_no) - entity->anim_time)
+                : 0u),
         .anim = entity->anim_no,
         .vx_q8 = entity->vx_q8,
         .vy_q8 = entity->vy_q8,
