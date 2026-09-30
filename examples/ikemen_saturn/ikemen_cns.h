@@ -182,6 +182,18 @@ enum {
 };
 
 enum {
+    IK_CNS_ATTR_NORMAL_ATTACK = 1u << 0,
+    IK_CNS_ATTR_SPECIAL_ATTACK = 1u << 1,
+    IK_CNS_ATTR_HYPER_ATTACK = 1u << 2,
+    IK_CNS_ATTR_NORMAL_PROJECTILE = 1u << 3,
+    IK_CNS_ATTR_SPECIAL_PROJECTILE = 1u << 4,
+    IK_CNS_ATTR_HYPER_PROJECTILE = 1u << 5,
+    IK_CNS_ATTR_NORMAL_THROW = 1u << 6,
+    IK_CNS_ATTR_SPECIAL_THROW = 1u << 7,
+    IK_CNS_ATTR_HYPER_THROW = 1u << 8
+};
+
+enum {
     IK_CNS_COMMAND_HOLD_FWD = 1u << 0,
     IK_CNS_COMMAND_HOLD_BACK = 1u << 1,
     IK_CNS_COMMAND_HOLD_UP = 1u << 2,
@@ -283,6 +295,8 @@ typedef struct ik_cns_state {
     uint8_t hitdef_persist;
     uint16_t reversal_ofs;
     uint8_t reversal_count;
+    uint16_t hitoverride_ofs;
+    uint8_t hitoverride_count;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
@@ -357,6 +371,7 @@ typedef struct ik_cns_hitdef {
     int16_t ground_cornerpush_veloff_q8;
     int16_t trigger2_spark_y;
     int16_t guard_spark_no;
+    uint16_t attack_attr_mask;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_reversaldef {
@@ -375,6 +390,15 @@ typedef struct ik_cns_reversaldef {
     int8_t p1_spr_priority;
     int8_t p2_spr_priority;
 } ik_cns_reversaldef_t;
+
+typedef struct ik_cns_hitoverride {
+    int16_t state_number;
+    uint16_t start_time;
+    uint16_t end_time;
+    uint8_t self_state_mask;
+    uint16_t incoming_attr_mask;
+    int16_t target_state;
+} ik_cns_hitoverride_t;
 
 typedef struct ik_cns_playsnd {
     int16_t state_number;
@@ -485,6 +509,8 @@ typedef struct ik_cns_asset {
     uint16_t helper_count;
     const ik_cns_reversaldef_t* reversals;
     uint16_t reversal_count;
+    const ik_cns_hitoverride_t* hitoverrides;
+    uint16_t hitoverride_count;
 } ik_cns_asset_t;
 
 int16_t ik_cns_q8_from_int(int16_t value);
