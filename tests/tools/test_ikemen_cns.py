@@ -939,6 +939,211 @@ value = 1055
 type = ChangeState
 trigger1 = Vel Y > 0 && Pos Y >= -10
 value = 1052
+
+[Statedef 1100]
+type = S
+movetype = A
+physics = S
+juggle = 4
+poweradd = 55
+velset = 0,0
+anim = 1100
+ctrl = 0
+sprpriority = 2
+
+[State 1100, Width]
+type = Width
+trigger1 = AnimElemTime(4) >= 0 && AnimElemTime(13) < 0
+value = 5,0
+
+[State 1100, Snd]
+type = PlaySnd
+trigger1 = AnimElem = 4
+value = 0,2
+
+[State 1100, First]
+type = HitDef
+trigger1 = Time = 0
+attr = S, SA
+animtype = Med
+damage = 52,4
+priority = 5
+guardflag = MA
+pausetime = 4,8
+ground.type = Low
+ground.slidetime = 15
+ground.hittime = 20
+ground.velocity = -3
+air.velocity = -2,-2
+p2facing = 1
+forcestand = 1
+
+[State 1100, Second]
+type = HitDef
+trigger1 = AnimElem = 7
+attr = S, SA
+animtype = Up
+damage = 55,4
+priority = 5
+guardflag = MA
+pausetime = 12,12
+ground.type = Low
+ground.slidetime = 15
+ground.hittime = 20
+ground.velocity = -1,-9.5
+air.velocity = -1,-7.5
+p2facing = 1
+fall = 1
+fall.recovertime = 40
+yaccel = .4
+
+[State 1100, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+
+[Statedef 1110]
+type = S
+movetype = A
+physics = S
+juggle = 4
+poweradd = 60
+velset = 0,0
+anim = 1110
+ctrl = 0
+sprpriority = 2
+
+[State 1110, Width]
+type = Width
+trigger1 = AnimElemTime(4) >= 0 && AnimElemTime(14) < 0
+value = 5,0
+
+[State 1110, Snd]
+type = PlaySnd
+trigger1 = AnimElem = 4
+value = 0,2
+
+[State 1110, First]
+type = HitDef
+trigger1 = Time = 0
+attr = S, SA
+animtype = Med
+damage = 57,4
+priority = 5
+guardflag = MA
+pausetime = 4,8
+ground.type = Low
+ground.slidetime = 15
+ground.hittime = 20
+ground.velocity = -3
+air.velocity = -2,-2
+p2facing = 1
+forcestand = 1
+
+[State 1110, Second]
+type = HitDef
+trigger1 = AnimElem = 7
+attr = S, SA
+animtype = Up
+damage = 60,4
+priority = 5
+guardflag = MA
+pausetime = 12,12
+ground.type = Low
+ground.slidetime = 15
+ground.hittime = 20
+ground.velocity = -1,-10.5
+air.velocity = -1,-8.5
+p2facing = 1
+fall = 1
+fall.recovertime = 50
+yaccel = .4
+
+[State 1110, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+
+[Statedef 1120]
+type = S
+movetype = A
+physics = S
+juggle = 6
+poweradd = -330
+velset = 0,0
+anim = 1120
+ctrl = 0
+sprpriority = 2
+
+[State 1120, Width]
+type = Width
+trigger1 = AnimElemTime(4) >= 0 && AnimElemTime(14) < 0
+value = 5,0
+
+[State 1120, Afterimage]
+type = AfterImage
+trigger1 = Time = 0
+length = 13
+
+[State 1120, AfterimageTime]
+type = AfterImageTime
+trigger1 = AnimTime < -2
+time = 2
+
+[State 1120, PalFX]
+type = PalFX
+trigger1 = Time = 0
+time = 20
+
+[State 1120, Snd]
+type = PlaySnd
+trigger1 = AnimElem = 4
+value = 0,2
+
+[State 1120, Rehit]
+type = HitDef
+trigger1 = Time = 0
+trigger2 = AnimElem = 4
+attr = S, SA
+animtype = Med
+damage = 30,4
+priority = 5
+guardflag = MA
+pausetime = 6,10
+ground.type = Low
+ground.slidetime = 18
+ground.hittime = 23
+ground.velocity = -3
+air.velocity = -2,-2
+p2facing = 1
+forcestand = 1
+
+[State 1120, Finish]
+type = HitDef
+trigger1 = AnimElem = 7
+attr = S, SA
+animtype = Up
+damage = 68,4
+priority = 5
+guardflag = MA
+pausetime = 12,12
+ground.type = Low
+ground.slidetime = 18
+ground.hittime = 23
+ground.velocity = -1.2,-11
+air.velocity = -1.2,-9
+p2facing = 1
+fall = 1
+fall.recovertime = 60
+yaccel = .4
+
+[State 1120, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
 """
 
 COMMON = r"""
@@ -996,7 +1201,7 @@ with tempfile.TemporaryDirectory() as td:
     source.write_text(SOURCE, encoding="utf-8")
     common.write_text(COMMON, encoding="utf-8")
     report = emit(
-        source, [200,800,810,820,821,1000,1010,1020,1025,1026,1027,1028,1050,1051,1052,1055,1056,1060,1061], root / "kfm_cns", "kfm",
+        source, [200,800,810,820,821,1000,1010,1020,1025,1026,1027,1028,1050,1051,1052,1055,1056,1060,1061,1100,1110,1120], root / "kfm_cns", "kfm",
         common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
                  120,130,131,132,140,150,151,152,153,154,155,
                  5000,5001,5010,5011,5020,5030,5035,5040,5050,
@@ -1013,7 +1218,7 @@ assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
 assert report["constants"]["air_juggle"] == 15
-assert len(report["states"]) == 64
+assert len(report["states"]) == 67
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -1074,9 +1279,9 @@ assert controllers[5]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
 
 print("ikemen CNS compiler: OK")
 
-source_rows = {row["number"]: row for row in report["states"][:19]}
+source_rows = {row["number"]: row for row in report["states"][:22]}
 throw_rows = source_rows
-common_rows = {row["number"]: row for row in report["states"][19:]}
+common_rows = {row["number"]: row for row in report["states"][22:]}
 assert throw_rows[800]["unsupported_controllers"] == []
 assert throw_rows[810]["unsupported_controllers"] == []
 assert throw_rows[820]["unsupported_controllers"] == []
@@ -1288,6 +1493,53 @@ assert source_rows[1061]["hitdef_persist"] == 1
 assert source_rows[1061]["controller_count"] == 3
 assert source_rows[1061]["owns_air_accel"] == 1
 assert source_rows[1061]["unsupported_controllers"] == []
+
+for upper in (1100, 1110):
+    assert source_rows[upper]["hitdef_count"] == 2
+    assert source_rows[upper]["controller_count"] == 2
+    assert source_rows[upper]["playsnd_count"] == 1
+    assert source_rows[upper]["unsupported_controllers"] == []
+
+upper1100 = [
+    h for h in report["hitdefs"] if h["state_number"] == 1100
+]
+assert len(upper1100) == 2
+assert upper1100[0]["damage"] == 52
+assert "IK_CNS_HITDEF_FORCE_STAND" in upper1100[0]["flags"]
+assert upper1100[0]["p2_facing"] == 1
+assert upper1100[1]["damage"] == 55
+assert "IK_CNS_HITDEF_FALL" in upper1100[1]["flags"]
+assert upper1100[1]["fall_recover_time"] == 40
+assert upper1100[1]["yaccel_q8"] == round(.4 * 256)
+
+upper1110 = [
+    h for h in report["hitdefs"] if h["state_number"] == 1110
+]
+assert upper1110[0]["damage"] == 57
+assert upper1110[1]["damage"] == 60
+assert upper1110[1]["fall_recover_time"] == 50
+assert upper1110[1]["yaccel_q8"] == round(.4 * 256)
+
+assert source_rows[1120]["power_add"] == -330
+assert source_rows[1120]["juggle"] == 6
+assert source_rows[1120]["hitdef_count"] == 2
+assert source_rows[1120]["controller_count"] == 2
+assert source_rows[1120]["unsupported_controllers"] == [
+    "afterimage", "afterimagetime", "palfx"
+]
+upper1120 = [
+    h for h in report["hitdefs"] if h["state_number"] == 1120
+]
+assert upper1120[0]["damage"] == 30
+assert upper1120[0]["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
+assert upper1120[0]["trigger_value"] == 0
+assert upper1120[0]["has_trigger2"] == 1
+assert upper1120[0]["trigger2_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_EQ"
+assert upper1120[0]["trigger2_value"] == 4
+assert "IK_CNS_HITDEF_FORCE_STAND" in upper1120[0]["flags"]
+assert upper1120[1]["damage"] == 68
+assert upper1120[1]["fall_recover_time"] == 60
+assert upper1120[1]["yaccel_q8"] == round(.4 * 256)
 
 assert common_rows[0]["controller_count"] == 3
 assert common_rows[20]["controller_count"] == 3
