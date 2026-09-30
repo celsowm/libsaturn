@@ -2243,6 +2243,7 @@ def parse_state(
                     ),
                 }
             )
+            direct_hitdef_count += 1
 
         elif ctype == "reversaldef":
             attr = (ctrl.get("reversal.attr") or "").strip()
@@ -2369,8 +2370,6 @@ def parse_state(
                 "incoming_attr_mask": incoming_mask,
                 "target_state": integer(ctrl.get("stateno"), -1),
             })
-
-            direct_hitdef_count += 1
 
         elif ctype == "playsnd":
             group, item = sound_pair(ctrl.get("value"))
