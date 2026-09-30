@@ -2302,6 +2302,7 @@ assert success3050["trigger_kind"] == "IK_CNS_TRIGGER_MOVE_HIT"
 assert success3050["value0"] == 3051
 assert super_report["hitdefs"][0]["attack_attr_mask"] == "IK_CNS_ATTR_HYPER_ATTACK"
 assert super_report["hitdefs"][2]["attack_attr_mask"] == "IK_CNS_ATTR_HYPER_ATTACK"
+assert super_report["hitdefs"][2]["fall_damage"] == 0
 
 assert len(zankou_report["states"]) == 2
 zankou_rows = {row["number"]: row for row in zankou_report["states"]}
