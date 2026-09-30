@@ -1094,7 +1094,35 @@ def compile_runtime_controller(
         sin_parts = _split_top_level(ctrl.get("sinadd") or "0,0,0,1")
         while len(sin_parts) < 4:
             sin_parts.append("0")
-        cycle = max(1, integer(sin_parts[3], 1))
+        sin_cycle = max(1, integer(sin_parts[3], 1))
+
+        mul_parts = _split_top_level(ctrl.get("mul") or "256,256,256")
+        while len(mul_parts) < 3:
+            mul_parts.append("256")
+        mul_values = [
+            max(0, min(511, integer(part, 256)))
+            for part in mul_parts[:3]
+        ]
+        mul_packed = (
+            (mul_values[0] & 0x1ff) |
+            ((mul_values[1] & 0x1ff) << 9) |
+            ((mul_values[2] & 0x1ff) << 18)
+        )
+
+        sinmul_parts = _split_top_level(ctrl.get("sinmul") or "0,0,0,1")
+        while len(sinmul_parts) < 4:
+            sinmul_parts.append("0")
+        sinmul_values = [
+            max(-255, min(255, integer(part, 0)))
+            for part in sinmul_parts[:3]
+        ]
+        sinmul_packed = (
+            (sinmul_values[0] & 0x1ff) |
+            ((sinmul_values[1] & 0x1ff) << 9) |
+            ((sinmul_values[2] & 0x1ff) << 18)
+        )
+        sinmul_cycle = max(1, integer(sinmul_parts[3], 1))
+
         return {
             "state_number": state_no,
             "type": "IK_CNS_CTRL_PAL_FX",
@@ -1104,7 +1132,10 @@ def compile_runtime_controller(
             "value0": integer(ctrl.get("time"), 1),
             "value1": pack_rgb(ctrl.get("add")),
             "value2": pack_rgb(",".join(sin_parts[:3])),
-            "value3": cycle,
+            "value3": sin_cycle,
+            "value4": mul_packed,
+            "value5": sinmul_packed,
+            "value6": sinmul_cycle,
             "flags": flag_expr(),
         }
 
