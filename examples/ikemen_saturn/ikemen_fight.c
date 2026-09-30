@@ -3177,8 +3177,8 @@ static void resolve_entity_contacts(
                 reversal->hit_sound_item);
             fight->events |= IK_EVENT_GUARD;
             if (attacker->type == IK_ENTITY_PROJECTILE) {
-                (void)ik_entity_destroy(
-                    fight->entities, attackers[n]);
+                (void)projectile_contact_consumed(
+                    fight, attackers[n], 1);
             }
             continue;
         }
@@ -3190,8 +3190,8 @@ static void resolve_entity_contacts(
             attacker->move_contact = 1u;
             enter_state(fight, v, override->target_state);
             if (attacker->type == IK_ENTITY_PROJECTILE) {
-                (void)ik_entity_destroy(
-                    fight->entities, attackers[n]);
+                (void)projectile_contact_consumed(
+                    fight, attackers[n], 0);
             }
             continue;
         }
@@ -3209,8 +3209,8 @@ static void resolve_entity_contacts(
         }
 
         if (attacker->type == IK_ENTITY_PROJECTILE) {
-            (void)ik_entity_destroy(
-                fight->entities, attackers[n]);
+            (void)projectile_contact_consumed(
+                fight, attackers[n], 0);
         }
 
         if (fight->round_over) return;
