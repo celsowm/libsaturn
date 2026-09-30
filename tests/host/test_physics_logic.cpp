@@ -49,6 +49,9 @@ static void slope_surface_geometry() {
         saturn::core::physics::slope_preset(SAT_TILE_SLOPE_UP);
     OK(saturn::core::physics::surface_top(grid, 2, 3, legacy, F(20), top));
     OK(top == F(28));
+    const sat_fx16_t subpixel_x = F(20) + 123;
+    OK(saturn::core::physics::surface_top(grid, 2, 3, legacy, subpixel_x, top));
+    OK(top == F(32) - (subpixel_x - F(16)));
 
     const sat_tile_surface_t shallow =
         {0, SAT_FX16_ONE, SAT_FX16_ONE, SAT_FX16_ONE / 2};
