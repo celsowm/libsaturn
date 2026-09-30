@@ -3372,6 +3372,104 @@ int main() {
         OK(ik_entity_get_const(&pool,projectile)==nullptr);
     }
 
+    /* Projectile priority trades decrement both projectiles before either
+     * can contact a fighter. Priority 2 survives priority 1 with value 1. */
+    {
+        ik_cns_hitdef_t hit{};
+        hit.state_number=951;
+        hit.trigger_kind=IK_CNS_TRIGGER_ALWAYS;
+        hit.damage=1;
+        hit.priority=4u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.attack_attr_mask=IK_CNS_ATTR_NORMAL_PROJECTILE;
+
+        ik_cns_state_t state{};
+        state.number=0;
+        state.anim=0;
+        state.state_type=IK_CNS_STATE_STAND;
+        state.move_type=IK_CNS_MOVE_IDLE;
+        state.physics=IK_CNS_PHYS_NONE;
+        state.ctrl=1;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=&state;
+        asset.state_count=1u;
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+
+        ik_entity_pool_t pool{};
+        ik_entity_pool_init(&pool);
+        ik_entity_handle_t p1_entity{};
+        ik_entity_handle_t p2_entity{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,1,0u,
+            ik_entity_invalid_handle(),&p1_entity));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,2,1u,
+            ik_entity_invalid_handle(),&p2_entity));
+
+        ik_fight_init(&g,&asset);
+        ik_fight_bind_entities(&g,&pool,p1_entity,p2_entity);
+        place(&g,60,260);
+        ik_entity_t* root0=ik_entity_get(&pool,p1_entity);
+        ik_entity_t* root1=ik_entity_get(&pool,p2_entity);
+        OK(root0!=nullptr); OK(root1!=nullptr);
+        root0->x_q8=60*IK_CNS_Q8_ONE;
+        root0->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
+        root0->facing=1;
+        root1->x_q8=260*IK_CNS_Q8_ONE;
+        root1->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
+        root1->facing=-1;
+
+        ik_cns_projectile_t p0{};
+        p0.id=1;
+        p0.anim_no=910;
+        p0.hit_anim_no=-1;
+        p0.remove_anim_no=-1;
+        p0.cancel_anim_no=-1;
+        p0.hitdef_global=0;
+        p0.pos_x_q8=100*IK_CNS_Q8_ONE;
+        p0.velmul_x_q8=IK_CNS_Q8_ONE;
+        p0.velmul_y_q8=IK_CNS_Q8_ONE;
+        p0.remove_time=-1;
+        p0.edge_bound=200;
+        p0.stage_bound=200;
+        p0.hits=1u;
+        p0.priority=2u;
+        p0.remove_on_hit=0u;
+
+        ik_cns_projectile_t p1spec=p0;
+        p1spec.id=2;
+        p1spec.priority=1u;
+
+        ik_entity_runtime_t runtime{};
+        ik_entity_runtime_init(
+            &runtime,&pool,&asset,&k_table,&k_table);
+        ik_entity_handle_t h0{};
+        ik_entity_handle_t h1{};
+        OK(ik_entity_runtime_spawn_projectile_spec(
+            &runtime,p1_entity,&p0,&h0));
+        OK(ik_entity_runtime_spawn_projectile_spec(
+            &runtime,p2_entity,&p1spec,&h1));
+
+        ik_fight_controls_t c0{};
+        ik_fight_controls_t c1{};
+        tick2(&g,&c0,&c1);
+
+        const ik_entity_t* surviving=
+            ik_entity_get_const(&pool,h0);
+        OK(surviving!=nullptr);
+        EQ(surviving->projectile_priority,1u);
+        OK(ik_entity_get_const(&pool,h1)==nullptr);
+        EQ(ik_entity_count_type(&pool,IK_ENTITY_PROJECTILE),1u);
+    }
+
     /* A player Helper controller must allocate a real entity, execute that
      * helper's CNS on the shared runtime, and let DestroySelf retire the
      * generational handle without touching either root player. */
