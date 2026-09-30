@@ -587,6 +587,115 @@ value = 1027
 type = SelfState
 trigger1 = (Vel y > 0) && (Pos y >= 0)
 value = 5100
+
+[Statedef 1027]
+type = A
+movetype = H
+physics = N
+
+[State 1027, Turn]
+type = Turn
+trigger1 = (Time = 0) && (FrontEdgeBodyDist <= 30)
+
+[State 1027, Pos]
+type = PosAdd
+trigger1 = Time = 0
+x = 15 - BackEdgeBodyDist
+
+[State 1027, Stop moving]
+type = PosFreeze
+trigger1 = 1
+x = 1
+y = 1
+
+[State 1027, No scroll]
+type = ScreenBound
+trigger1 = 1
+value = 1
+movecamera = 0,1
+
+[State 1027, Spark]
+type = Explod
+trigger1 = Time = 0
+anim = F72
+pos = 0,0
+
+[State 1027, Anim]
+type = ChangeAnim2
+trigger1 = Time = 0
+value = 1027
+
+[State 1027, Sound]
+type = PlaySnd
+trigger1 = Time = 0
+value = F7,0
+
+[State 1027, State]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 1028
+
+[Statedef 1028]
+type = A
+movetype = H
+physics = N
+
+[State 1028, No normal]
+type = NotHitBy
+trigger1 = 1
+value = , NA, NP
+
+[State 1028, Vel Y]
+type = VelSet
+trigger1 = Time = 0
+y = -6
+
+[State 1028, Vel X]
+type = VelSet
+trigger1 = Time = 0
+x = 1.6
+
+[State 1028, Turn]
+type = Turn
+trigger1 = (Time = 0) && (BackEdgeDist < 30)
+
+[State 1028, Gravity]
+type = VelAdd
+trigger1 = 1
+y = .35
+
+[State 1028, Anim 5050]
+type = ChangeAnim
+trigger1 = Time = 0
+trigger1 = !SelfAnimExist(5052)
+value = 5050
+
+[State 1028, Anim 5052]
+type = ChangeAnim
+trigger1 = Time = 0
+trigger1 = SelfAnimExist(5052)
+value = 5052
+
+[State 1028, Anim 5060]
+type = ChangeAnim
+trigger1 = Vel Y > -2
+trigger1 = Anim = 5050
+trigger1 = SelfAnimExist(5060)
+persistent = 0
+value = 5060
+
+[State 1028, Anim 5062]
+type = ChangeAnim
+trigger1 = Vel Y > -2
+trigger1 = Anim = 5052
+trigger1 = SelfAnimExist(5062)
+persistent = 0
+value = 5062
+
+[State 1028, Hit ground]
+type = SelfState
+trigger1 = (Vel y > 0) && (Pos y >= 0)
+value = 5100
 """
 
 COMMON = r"""
@@ -644,7 +753,7 @@ with tempfile.TemporaryDirectory() as td:
     source.write_text(SOURCE, encoding="utf-8")
     common.write_text(COMMON, encoding="utf-8")
     report = emit(
-        source, [200,800,810,820,821,1000,1010,1020,1025,1026], root / "kfm_cns", "kfm",
+        source, [200,800,810,820,821,1000,1010,1020,1025,1026,1027,1028], root / "kfm_cns", "kfm",
         common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
                  120,130,131,132,140,150,151,152,153,154,155,
                  5000,5001,5010,5011,5020,5030,5035,5040,5050,
@@ -661,7 +770,7 @@ assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
 assert report["constants"]["air_juggle"] == 15
-assert len(report["states"]) == 55
+assert len(report["states"]) == 57
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -722,9 +831,9 @@ assert controllers[5]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
 
 print("ikemen CNS compiler: OK")
 
-source_rows = {row["number"]: row for row in report["states"][:10]}
+source_rows = {row["number"]: row for row in report["states"][:12]}
 throw_rows = source_rows
-common_rows = {row["number"]: row for row in report["states"][10:]}
+common_rows = {row["number"]: row for row in report["states"][12:]}
 assert throw_rows[800]["unsupported_controllers"] == []
 assert throw_rows[810]["unsupported_controllers"] == []
 assert throw_rows[820]["unsupported_controllers"] == []
@@ -814,11 +923,9 @@ state1025_ctrls = [
 assert state1025_ctrls[1]["trigger_kind"] == "IK_CNS_TRIGGER_HIT_SHAKE_OVER"
 
 assert source_rows[1026]["anim"] == -1
-assert source_rows[1026]["controller_count"] == 3
+assert source_rows[1026]["controller_count"] == 4
 assert source_rows[1026]["owns_air_accel"] == 1
-assert source_rows[1026]["unsupported_controllers"] == [
-    "changestate", "screenbound"
-]
+assert source_rows[1026]["unsupported_controllers"] == ["screenbound"]
 state1026_ctrls = [
     c for c in report["controllers"] if c["state_number"] == 1026
 ]
@@ -829,6 +936,57 @@ assert hitvel["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
 assert hitvel["trigger_value"] == 1
 assert "IK_CNS_CTRL_AXIS_X" in hitvel["flags"]
 assert "IK_CNS_CTRL_AXIS_Y" in hitvel["flags"]
+wall_branch = next(
+    c for c in state1026_ctrls
+    if c["type"] == "IK_CNS_CTRL_CHANGE_STATE"
+)
+assert wall_branch["trigger_kind"] == "IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE"
+assert wall_branch["trigger_value"] == -15 * 256
+assert wall_branch["trigger_value2"] == 20
+assert wall_branch["value0"] == 1027
+
+assert source_rows[1027]["anim"] == -1
+assert source_rows[1027]["controller_count"] == 5
+assert source_rows[1027]["playsnd_count"] == 1
+assert source_rows[1027]["unsupported_controllers"] == [
+    "explod", "screenbound"
+]
+state1027_ctrls = [
+    c for c in report["controllers"] if c["state_number"] == 1027
+]
+turn1027 = next(c for c in state1027_ctrls if c["type"] == "IK_CNS_CTRL_TURN")
+assert turn1027["trigger_kind"] == "IK_CNS_TRIGGER_STATE_ENTRY_FRONT_EDGE_BODY_LE"
+pos1027 = next(
+    c for c in state1027_ctrls
+    if c["type"] == "IK_CNS_CTRL_POS_ADD_FROM_BACK_EDGE"
+)
+assert pos1027["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
+assert pos1027["trigger_value"] == 1
+assert pos1027["value0"] == 15 * 256
+freeze1027 = next(
+    c for c in state1027_ctrls if c["type"] == "IK_CNS_CTRL_POS_FREEZE"
+)
+assert "IK_CNS_CTRL_AXIS_X" in freeze1027["flags"]
+assert "IK_CNS_CTRL_AXIS_Y" in freeze1027["flags"]
+
+assert source_rows[1028]["anim"] == -1
+assert source_rows[1028]["controller_count"] == 5
+assert source_rows[1028]["owns_air_accel"] == 1
+assert source_rows[1028]["unsupported_controllers"] == [
+    "changeanim", "nothitby"
+]
+state1028_ctrls = [
+    c for c in report["controllers"] if c["state_number"] == 1028
+]
+velsets1028 = [
+    c for c in state1028_ctrls if c["type"] == "IK_CNS_CTRL_VEL_SET"
+]
+assert len(velsets1028) == 2
+assert all(c["trigger_value"] == 1 for c in velsets1028)
+assert any(c["value1"] == -6 * 256 for c in velsets1028)
+assert any(c["value0"] == round(1.6 * 256) for c in velsets1028)
+turn1028 = next(c for c in state1028_ctrls if c["type"] == "IK_CNS_CTRL_TURN")
+assert turn1028["trigger_kind"] == "IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT"
 
 assert common_rows[0]["controller_count"] == 3
 assert common_rows[20]["controller_count"] == 3
