@@ -777,6 +777,16 @@ static void apply_damage(ik_fight_t* fight, int victim,
 
     a->move_contact = 1u;
 
+    if (!airborne && !downed &&
+        hitdef->ground_cornerpush_veloff_q8 != 0) {
+        int left=0, top=0, right=0, bottom=0;
+        ik_body_box(v, &left, &top, &right, &bottom);
+        if (left <= IK_STAGE_MIN_X || right >= IK_STAGE_MAX_X) {
+            a->vx_q8 =
+                (int32_t)a->facing * hitdef->ground_cornerpush_veloff_q8;
+        }
+    }
+
     {
         int16_t target = IK_STATE_HIT;
         if (hitdef->p2_state_no >= 0 &&
