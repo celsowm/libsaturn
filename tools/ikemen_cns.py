@@ -232,6 +232,18 @@ def guard_mask(text: str | None) -> str:
     return " | ".join(dict.fromkeys(bits)) if bits else "0u"
 
 
+def no_hit_by_state_mask(text: str | None) -> str:
+    value = (text or "").split(",", 1)[0].strip().upper()
+    bits: list[str] = []
+    if "S" in value:
+        bits.append("IK_CNS_REVERSAL_STATE_STAND")
+    if "C" in value:
+        bits.append("IK_CNS_REVERSAL_STATE_CROUCH")
+    if "A" in value:
+        bits.append("IK_CNS_REVERSAL_STATE_AIR")
+    return " | ".join(dict.fromkeys(bits)) if bits else "0u"
+
+
 def reversal_state_mask(text: str | None) -> str:
     """Compile the state-type half of ReversalDef.attr.
 
@@ -825,6 +837,8 @@ def compile_runtime_controller(
         "hitvelset",
         "posfreeze",
         "destroyself",
+        "pause",
+        "nothitby",
     }
     if ctype not in supported:
         return None
@@ -837,6 +851,33 @@ def compile_runtime_controller(
 
     def flag_expr() -> str:
         return " | ".join(flags) if flags else "0u"
+
+    if ctype == "pause":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_PAUSE",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("time"), 0),
+            "value1": integer(ctrl.get("movetime"), 0),
+            "flags": flag_expr(),
+        }
+
+    if ctype == "nothitby":
+        mask = no_hit_by_state_mask(ctrl.get("value"))
+        if mask == "0u":
+            return None
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_NOT_HIT_BY",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": mask,
+            "value1": integer(ctrl.get("time"), 1),
+            "flags": flag_expr(),
+        }
 
     if ctype == "changestate":
         has_ctrl = ctrl.get("ctrl") is not None
