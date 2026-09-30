@@ -1009,6 +1009,16 @@ static const ik_cns_hitdef_t* active_entity_hitdef(
 ) {
     if (!fight || !fight->cns || !entity || !victim) return 0;
 
+    if (entity->type == IK_ENTITY_PROJECTILE &&
+        entity->state_no < 0 &&
+        entity->active_hitdef_global >= 0 &&
+        entity->active_hitdef_global < (int16_t)fight->cns->hitdef_count) {
+        if (entity->projectile_hit_cooldown > 0u) return 0;
+        if (out_local_index) *out_local_index = 0u;
+        return &fight->cns->hitdefs[
+            (uint16_t)entity->active_hitdef_global];
+    }
+
     const ik_cns_state_t* state =
         ik_cns_find_state(fight->cns, entity->state_no);
     if (!state || state->move_type != IK_CNS_MOVE_ATTACK ||
@@ -1081,6 +1091,53 @@ static const ik_cns_hitdef_t* active_entity_hitdef(
     }
     return &fight->cns->hitdefs[
         (uint16_t)entity->active_hitdef_global];
+}
+
+static int projectile_contact_consumed(
+    ik_fight_t* fight,
+    ik_entity_handle_t handle,
+    int canceled
+) {
+    if (!fight || !fight->entities) return 1;
+    ik_entity_t* projectile =
+        ik_entity_get(fight->entities, handle);
+    if (!projectile || projectile->type != IK_ENTITY_PROJECTILE) {
+        return 1;
+    }
+
+    if (canceled && projectile->projectile_cancel_anim_no >= 0) {
+        projectile->anim_no = projectile->projectile_cancel_anim_no;
+        projectile->anim_time = 0u;
+    } else if (!canceled &&
+               projectile->projectile_hit_anim_no >= 0) {
+        projectile->anim_no = projectile->projectile_hit_anim_no;
+        projectile->anim_time = 0u;
+    }
+
+    if (projectile->projectile_hits_left > 0u) {
+        --projectile->projectile_hits_left;
+    }
+    if (projectile->projectile_remove_on_hit ||
+        projectile->projectile_hits_left == 0u) {
+        if (projectile->projectile_remove_anim_no >= 0) {
+            projectile->anim_no =
+                projectile->projectile_remove_anim_no;
+            projectile->anim_time = 0u;
+            projectile->move_type = IK_CNS_MOVE_IDLE;
+            projectile->active_hitdef_global = -1;
+            projectile->remove_time = 0;
+            return 0;
+        }
+        (void)ik_entity_destroy(fight->entities, handle);
+        return 1;
+    }
+
+    projectile->projectile_hit_cooldown =
+        projectile->projectile_miss_time;
+    if (projectile->projectile_hit_cooldown == 0u) {
+        projectile->hitdef_hit_mask = 0u;
+    }
+    return 0;
 }
 
 static int hitdef_allows_target(const ik_fight_t* fight,
