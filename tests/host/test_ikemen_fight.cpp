@@ -2476,6 +2476,76 @@ int main() {
         EQ(g.fighters[0].ctrl,1);
     }
 
+    /* Pause.movetime advances only the owner while the opponent and round
+     * timer remain frozen. Once movetime is exhausted the owner freezes too. */
+    {
+        const ik_cns_controller_t ctrls[] = {
+            {936,IK_CNS_CTRL_PAUSE,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,3,2,0u},
+        };
+        ik_cns_state_t states[2]{};
+        states[0].number=936;
+        states[0].anim=0;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_IDLE;
+        states[0].physics=IK_CNS_PHYS_NONE;
+        states[0].controller_count=1u;
+
+        states[1].number=0;
+        states[1].anim=0;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_IDLE;
+        states[1].physics=IK_CNS_PHYS_NONE;
+        states[1].ctrl=1;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=2u;
+        asset.controllers=ctrls;
+        asset.controller_count=1u;
+
+        ik_fight_init(&g,&asset);
+        g.fighters[0].state=936;
+        g.fighters[0].anim=0;
+        g.fighters[0].ctrl=0;
+        g.fighters[1].state=0;
+        g.fighters[1].anim=0;
+        const uint32_t timer=g.timer_frames;
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+        EQ(g.pause_time,3u);
+        EQ(g.pause_move_time,2u);
+        EQ(g.fighters[0].state_time,0u);
+        const uint16_t foe_time=g.fighters[1].state_time;
+        EQ(g.timer_frames,timer-1u);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.pause_time,2u);
+        EQ(g.pause_move_time,1u);
+        EQ(g.fighters[0].state_time,1u);
+        EQ(g.fighters[1].state_time,foe_time);
+        EQ(g.timer_frames,timer-1u);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.pause_time,1u);
+        EQ(g.pause_move_time,0u);
+        EQ(g.fighters[0].state_time,2u);
+        EQ(g.fighters[1].state_time,foe_time);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.pause_time,0u);
+        EQ(g.fighters[0].state_time,2u);
+        EQ(g.fighters[1].state_time,foe_time);
+    }
+
     /* NotHitBy is evaluated before contact resolution. A one-tick SCA
      * window therefore rejects a standing attack without consuming damage. */
     {
