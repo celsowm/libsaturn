@@ -2619,6 +2619,114 @@ int main() {
         EQ(g.fighters[0].move_contact,1u);
     }
 
+    /* SuperPause freezes the fight at the authored controller tick and
+     * applies its power delta exactly once. */
+    {
+        const ik_cns_controller_t ctrls[] = {
+            {3000,IK_CNS_CTRL_SUPER_PAUSE,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,30,-1000,0u},
+        };
+        ik_cns_state_t state{};
+        state.number=3000;
+        state.anim=0;
+        state.state_type=IK_CNS_STATE_STAND;
+        state.move_type=IK_CNS_MOVE_ATTACK;
+        state.physics=IK_CNS_PHYS_STAND;
+        state.controller_count=1u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=&state;
+        asset.state_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=1u;
+
+        ik_fight_init(&g,&asset);
+        g.fighters[0].state=3000;
+        g.fighters[0].anim=0;
+        g.fighters[0].power=1000;
+        g.fighters[0].ctrl=0;
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+
+        tick2(&g,&p1,&p2);
+        EQ(g.pause_time,30u);
+        EQ(g.fighters[0].power,0);
+        EQ(g.fighters[0].state_time,0u);
+        tick2(&g,&p1,&p2);
+        EQ(g.pause_time,29u);
+        EQ(g.fighters[0].power,0);
+    }
+
+    /* MoveHit is distinct from MoveContact: a real damaging contact arms the
+     * 3050 -> 3051 success transition on the next controller tick. */
+    {
+        ik_cns_hitdef_t hit{};
+        hit.state_number=3050;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.damage=10;
+        hit.priority=4u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.attack_attr_mask=IK_CNS_ATTR_HYPER_ATTACK;
+
+        const ik_cns_controller_t ctrls[] = {
+            {3050,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_MOVE_HIT,
+             0,0,3051,0,0u},
+        };
+
+        ik_cns_state_t states[2]{};
+        states[0].number=3050;
+        states[0].anim=910;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_ATTACK;
+        states[0].physics=IK_CNS_PHYS_NONE;
+        states[0].hitdef_count=1u;
+        states[0].controller_count=1u;
+
+        states[1].number=3051;
+        states[1].anim=0;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_ATTACK;
+        states[1].physics=IK_CNS_PHYS_STAND;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=2u;
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=1u;
+
+        ik_fight_init(&g,&asset);
+        place(&g,100,145);
+        g.fighters[0].state=3050;
+        g.fighters[0].anim=910;
+        g.fighters[0].ctrl=0;
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[0].state,3050);
+        EQ(g.fighters[0].move_contact,1u);
+        EQ(g.fighters[0].move_hit,1u);
+        EQ(g.fighters[1].hp,990);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[0].state,3051);
+    }
+
     /* Dynamic helper attacks participate in ReversalDef before the normal
      * entity hit/guard path. AA matches physical NA/SA/HA, not projectiles. */
     {
