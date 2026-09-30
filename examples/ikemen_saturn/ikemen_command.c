@@ -577,6 +577,21 @@ static int eval_state_rule(const ik_command_state_t* state,
             case IK_CMD_RULE_P2_MOVE_TYPE_NE:
                 value = context->p2_move_type != (uint8_t)ins->value0;
                 break;
+            case IK_CMD_RULE_POWER_EQ:
+                value = context->power == ins->value0;
+                break;
+            case IK_CMD_RULE_POWER_GT:
+                value = context->power > ins->value0;
+                break;
+            case IK_CMD_RULE_POWER_GE:
+                value = context->power >= ins->value0;
+                break;
+            case IK_CMD_RULE_POWER_LT:
+                value = context->power < ins->value0;
+                break;
+            case IK_CMD_RULE_POWER_LE:
+                value = context->power <= ins->value0;
+                break;
             case IK_CMD_RULE_NOT:
                 if (sp < 1u) return 0;
                 stack[sp - 1u] = !stack[sp - 1u];
