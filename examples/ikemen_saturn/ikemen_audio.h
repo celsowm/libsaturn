@@ -17,10 +17,17 @@ typedef struct ik_audio {
     sat_sound_t kick_whiff;
     sat_sound_t strong_punch_whiff;
     sat_sound_t sweep_whiff;
+    sat_sound_t special_whiff;
+    sat_sound_t throw_voice;
+    sat_sound_t throw_slam;
+    sat_sound_t landing;
+    sat_sound_t knee_voice;
+    sat_sound_t super_pause;
     sat_sound_t punch_hit;
     sat_sound_t kick_hit;
     sat_sound_t strong_hit;
     sat_sound_t air_strong_hit;
+    sat_sound_t heavy_hit;
     sat_sound_t reversal_hit;
 } ik_audio_t;
 
