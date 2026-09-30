@@ -130,6 +130,22 @@ def integer(text: str | None, default: int = 0) -> int:
     return int(value)
 
 
+def _split_top_level(text: str) -> list[str]:
+    parts: list[str] = []
+    start = 0
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(text[start:i].strip())
+            start = i + 1
+    parts.append(text[start:].strip())
+    return parts
+
+
 def pair(
     text: str | None,
     default_x: float = 0.0,
@@ -138,12 +154,35 @@ def pair(
     if text is None:
         return default_x, default_y
 
-    parts = [p.strip() for p in text.split(",")]
+    parts = _split_top_level(text)
     if len(parts) == 1:
         return number(parts[0]), default_y
     if len(parts) != 2:
         raise ValueError(f"expected scalar or pair, got {text!r}")
     return number(parts[0]), number(parts[1])
+
+
+def spark_pair(text: str | None) -> tuple[float, float, float]:
+    if text is None:
+        return 0.0, 0.0, 0.0
+    parts = _split_top_level(text)
+    if len(parts) != 2:
+        raise ValueError(f"expected spark pair, got {text!r}")
+    x = number(parts[0])
+    try:
+        y = number(parts[1])
+        return x, y, y
+    except ValueError:
+        m = re.fullmatch(
+            r"ifelse\s*\(\s*Time\s*=\s*0\s*,\s*"
+            r"([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*,\s*"
+            r"([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\)",
+            parts[1],
+            flags=re.I,
+        )
+        if not m:
+            raise
+        return x, float(m.group(1)), float(m.group(2))
 
 
 def q8(value: float) -> int:
@@ -1151,7 +1190,7 @@ def parse_state(
             fall_y = number(ctrl.get("fall.yvelocity"), -4.5)
             down_x, down_y = pair(ctrl.get("down.velocity"), ax, ay)
             down_hit_time = integer(ctrl.get("down.hittime"), 0)
-            sparkx, sparky = pair(ctrl.get("sparkxy"), 0, 0)
+            sparkx, sparky, spark2y = spark_pair(ctrl.get("sparkxy"))
             hs = sound_pair(ctrl.get("hitsound"))
             gs = sound_pair(ctrl.get("guardsound"))
 
@@ -1208,6 +1247,7 @@ def parse_state(
                     "spark_no": integer(ctrl.get("sparkno"), -1),
                     "spark_x": int(sparkx),
                     "spark_y": int(sparky),
+                    "trigger2_spark_y": int(spark2y),
                     "hit_sound_group": hs[0],
                     "hit_sound_item": hs[1],
                     "guard_sound_group": gs[0],
@@ -2347,7 +2387,8 @@ def emit(
         f"{h['trigger2_kind']}, {h['trigger2_value']}, "
         f"{h['yaccel_q8']}, {h['has_trigger2']}u, "
         f"{h['has_alt_damage']}u, "
-        f"{h['ground_cornerpush_veloff_q8']}"
+        f"{h['ground_cornerpush_veloff_q8']}, "
+        f"{h['trigger2_spark_y']}"
         "},"
         for h in hitdefs
     ]
