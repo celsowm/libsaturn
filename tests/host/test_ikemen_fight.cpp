@@ -2544,6 +2544,80 @@ int main() {
         EQ(g.fighters[1].not_hit_by_time,0u);
     }
 
+    /* HitOverride is a contact fallback, not generic invulnerability.
+     * A projectile-class incoming HitDef is redirected into the authored
+     * state without applying ordinary damage. */
+    {
+        ik_cns_hitdef_t hit{};
+        hit.state_number=910;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.damage=99;
+        hit.priority=4u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.attack_attr_mask=IK_CNS_ATTR_NORMAL_PROJECTILE;
+
+        const ik_cns_hitoverride_t overrides[] = {
+            {932,0u,5u,IK_CNS_REVERSAL_STATE_STAND,
+             IK_CNS_ATTR_NORMAL_PROJECTILE|
+             IK_CNS_ATTR_SPECIAL_PROJECTILE|
+             IK_CNS_ATTR_HYPER_PROJECTILE,
+             933},
+        };
+
+        ik_cns_state_t states[3]{};
+        states[0].number=910;
+        states[0].anim=910;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_ATTACK;
+        states[0].physics=IK_CNS_PHYS_NONE;
+        states[0].hitdef_count=1u;
+
+        states[1].number=932;
+        states[1].anim=0;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_IDLE;
+        states[1].physics=IK_CNS_PHYS_STAND;
+        states[1].hitoverride_count=1u;
+
+        states[2].number=933;
+        states[2].anim=0;
+        states[2].state_type=IK_CNS_STATE_STAND;
+        states[2].move_type=IK_CNS_MOVE_IDLE;
+        states[2].physics=IK_CNS_PHYS_STAND;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=3u;
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+        asset.hitoverrides=overrides;
+        asset.hitoverride_count=1u;
+
+        ik_fight_init(&g,&asset);
+        place(&g,100,145);
+        g.fighters[0].state=910;
+        g.fighters[0].anim=910;
+        g.fighters[0].ctrl=0;
+        g.fighters[1].state=932;
+        g.fighters[1].anim=0;
+        g.fighters[1].ctrl=0;
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[1].state,933);
+        EQ(g.fighters[1].hp,1000);
+        EQ(g.hits_p1,0u);
+        EQ(g.fighters[0].move_contact,1u);
+    }
+
     /* A player Helper controller must allocate a real entity, execute that
      * helper's CNS on the shared runtime, and let DestroySelf retire the
      * generational handle without touching either root player. */
