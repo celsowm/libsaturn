@@ -696,6 +696,249 @@ value = 5062
 type = SelfState
 trigger1 = (Vel y > 0) && (Pos y >= 0)
 value = 5100
+
+[Statedef 1050]
+type = S
+movetype = A
+physics = S
+juggle = 4
+poweradd = 55
+velset = 0,0
+anim = 1050
+ctrl = 0
+sprpriority = 2
+
+[State 1050, Snd]
+type = PlaySnd
+trigger1 = Time = 1
+value = 0,2
+
+[State 1050, Disabled Pos]
+type = null;PosAdd
+trigger1 = AnimElem = 2
+x = 15
+
+[State 1050, Pos]
+type = PosAdd
+trigger1 = AnimElem = 4
+x = 20
+
+[State 1050, Hit]
+type = HitDef
+trigger1 = Time = 0
+attr = A, SA
+animtype = Medium
+damage = 80,4
+priority = 5
+guardflag = MA
+pausetime = 12,12
+ground.type = Low
+ground.slidetime = 20
+ground.hittime = 22
+ground.velocity = -3.5,-7
+air.velocity = -3.5,-7
+fall = 1
+
+[State 1050, Jump]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 1051
+
+[Statedef 1051]
+type = A
+movetype = A
+physics = N
+velset = 2,-6
+anim = 1051
+hitdefpersist = 1
+
+[State 1051, Gravity]
+type = VelAdd
+trigger1 = 1
+y = .45
+
+[State 1051, Kick]
+type = ChangeState
+trigger1 = Command = "a" || Command = "b"
+trigger1 = Vel y < -1
+value = 1055
+
+[State 1051, Land]
+type = ChangeState
+trigger1 = Vel Y > 0 && Pos Y >= -10
+value = 1052
+
+[Statedef 1052]
+type = S
+movetype = I
+physics = S
+anim = 1052
+sprpriority = 1
+velset = 0,0
+
+[State 1052, Ground]
+type = PosSet
+trigger1 = Time = 0
+y = 0
+
+[State 1052, Land sound]
+type = PlaySnd
+trigger1 = Time = 0
+value = 40,0
+
+[State 1052, Early ctrl]
+type = CtrlSet
+trigger1 = AnimElem = 3, -1
+value = 1
+
+[State 1052, Back]
+type = PosAdd
+trigger1 = AnimElem = 4
+x = -15
+
+[State 1052, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+
+[Statedef 1055]
+type = A
+movetype = A
+physics = N
+anim = 1055
+
+[State 1055, Snd1]
+type = PlaySnd
+trigger1 = Time = 0
+value = 100,0
+
+[State 1055, Snd2]
+type = PlaySnd
+trigger1 = Time = 0
+value = 0,1
+
+[State 1055, Pos]
+type = PosAdd
+trigger1 = Time = 0
+x = 10
+y = -10
+
+[State 1055, Gravity]
+type = VelAdd
+trigger1 = 1
+y = .45
+
+[State 1055, Hit]
+type = HitDef
+trigger1 = Time = 0
+attr = A, SA
+animtype = Med
+damage = 35 + (prevstateno = 1061)*5, 2
+priority = 4
+guardflag = MA
+pausetime = 12,12
+ground.type = High
+ground.slidetime = 15
+ground.hittime = 18
+ground.velocity = -6
+air.velocity = -4,-5
+air.fall = 1
+
+[State 1055, Land]
+type = ChangeState
+trigger1 = Vel Y > 0 && Pos Y >= -5
+value = 1056
+
+[Statedef 1056]
+type = S
+movetype = I
+physics = S
+anim = 1056
+sprpriority = 1
+velset = 0,0
+
+[State 1056, Ground]
+type = PosSet
+trigger1 = Time = 0
+y = 0
+
+[State 1056, Snd]
+type = PlaySnd
+trigger1 = Time = 0
+value = 40,0
+
+[State 1056, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+
+[Statedef 1060]
+type = S
+movetype = A
+physics = S
+juggle = 4
+poweradd = 60
+velset = 0,0
+anim = 1060
+ctrl = 0
+sprpriority = 2
+
+[State 1060, Pos2]
+type = PosAdd
+trigger1 = AnimElem = 2
+x = 6
+
+[State 1060, Pos4]
+type = PosAdd
+trigger1 = AnimElem = 4
+x = 21
+
+[State 1060, Hit]
+type = HitDef
+trigger1 = Time = 0
+attr = A, SA
+animtype = Medium
+damage = 90,4
+priority = 5
+guardflag = MA
+pausetime = 12,12
+ground.type = Low
+ground.slidetime = 20
+ground.hittime = 22
+ground.velocity = -3.5,-7.5
+air.velocity = -3.5,-7.5
+fall = 1
+
+[State 1060, Jump]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 1061
+
+[Statedef 1061]
+type = A
+movetype = A
+physics = N
+velset = 2.5,-7.5
+anim = 1061
+hitdefpersist = 1
+
+[State 1061, Gravity]
+type = VelAdd
+trigger1 = 1
+y = .45
+
+[State 1061, Kick]
+type = ChangeState
+trigger1 = Command = "a" || Command = "b"
+trigger1 = Vel y < -1
+value = 1055
+
+[State 1061, Land]
+type = ChangeState
+trigger1 = Vel Y > 0 && Pos Y >= -10
+value = 1052
 """
 
 COMMON = r"""
@@ -753,7 +996,7 @@ with tempfile.TemporaryDirectory() as td:
     source.write_text(SOURCE, encoding="utf-8")
     common.write_text(COMMON, encoding="utf-8")
     report = emit(
-        source, [200,800,810,820,821,1000,1010,1020,1025,1026,1027,1028], root / "kfm_cns", "kfm",
+        source, [200,800,810,820,821,1000,1010,1020,1025,1026,1027,1028,1050,1051,1052,1055,1056,1060,1061], root / "kfm_cns", "kfm",
         common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
                  120,130,131,132,140,150,151,152,153,154,155,
                  5000,5001,5010,5011,5020,5030,5035,5040,5050,
@@ -770,7 +1013,7 @@ assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
 assert report["constants"]["air_juggle"] == 15
-assert len(report["states"]) == 57
+assert len(report["states"]) == 64
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -831,9 +1074,9 @@ assert controllers[5]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
 
 print("ikemen CNS compiler: OK")
 
-source_rows = {row["number"]: row for row in report["states"][:12]}
+source_rows = {row["number"]: row for row in report["states"][:19]}
 throw_rows = source_rows
-common_rows = {row["number"]: row for row in report["states"][12:]}
+common_rows = {row["number"]: row for row in report["states"][19:]}
 assert throw_rows[800]["unsupported_controllers"] == []
 assert throw_rows[810]["unsupported_controllers"] == []
 assert throw_rows[820]["unsupported_controllers"] == []
@@ -987,6 +1230,64 @@ assert any(c["value1"] == -6 * 256 for c in velsets1028)
 assert any(c["value0"] == round(1.6 * 256) for c in velsets1028)
 turn1028 = next(c for c in state1028_ctrls if c["type"] == "IK_CNS_CTRL_TURN")
 assert turn1028["trigger_kind"] == "IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT"
+
+assert source_rows[1050]["power_add"] == 55
+assert source_rows[1050]["hitdef_count"] == 1
+assert source_rows[1050]["controller_count"] == 2
+assert source_rows[1050]["unsupported_controllers"] == ["null"]
+assert source_rows[1051]["hitdef_persist"] == 1
+assert source_rows[1051]["has_velset"] == 1
+assert source_rows[1051]["velset_x_q8"] == 2 * 256
+assert source_rows[1051]["velset_y_q8"] == -6 * 256
+assert source_rows[1051]["controller_count"] == 3
+assert source_rows[1051]["owns_air_accel"] == 1
+assert source_rows[1051]["unsupported_controllers"] == []
+knee1051 = [
+    c for c in report["controllers"] if c["state_number"] == 1051
+]
+kick_branch = next(c for c in knee1051 if c["value0"] == 1055)
+assert kick_branch["trigger_kind"] == "IK_CNS_TRIGGER_COMMAND_ANY_VY_LT_Q8"
+assert kick_branch["trigger_value"] == (1 << 5) | (1 << 6)
+assert kick_branch["trigger_value2"] == -256
+land_branch = next(c for c in knee1051 if c["value0"] == 1052)
+assert land_branch["trigger_kind"] == "IK_CNS_TRIGGER_VY_GT_Q8_AT_LEVEL"
+assert land_branch["trigger_value"] == -10 * 256
+assert land_branch["trigger_value2"] == 0
+
+assert source_rows[1052]["controller_count"] == 3
+assert source_rows[1052]["playsnd_count"] == 1
+assert source_rows[1052]["unsupported_controllers"] == ["ctrlset"]
+ground1052 = next(
+    c for c in report["controllers"]
+    if c["state_number"] == 1052 and c["type"] == "IK_CNS_CTRL_POS_SET"
+)
+assert ground1052["trigger_value"] == 1
+assert ground1052["value1"] == 0
+assert "IK_CNS_CTRL_AXIS_Y" in ground1052["flags"]
+
+assert source_rows[1055]["hitdef_count"] == 1
+assert source_rows[1055]["controller_count"] == 3
+assert source_rows[1055]["owns_air_accel"] == 1
+assert source_rows[1055]["unsupported_controllers"] == []
+kick_hit = next(
+    h for h in report["hitdefs"] if h["state_number"] == 1055
+)
+assert kick_hit["damage"] == 35
+assert kick_hit["alt_damage"] == 40
+assert kick_hit["alt_damage_prev_state"] == 1061
+assert "IK_CNS_HITDEF_AIR_FALL" in kick_hit["flags"]
+
+assert source_rows[1056]["controller_count"] == 2
+assert source_rows[1056]["unsupported_controllers"] == []
+
+assert source_rows[1060]["power_add"] == 60
+assert source_rows[1060]["hitdef_count"] == 1
+assert source_rows[1060]["controller_count"] == 3
+assert source_rows[1060]["unsupported_controllers"] == []
+assert source_rows[1061]["hitdef_persist"] == 1
+assert source_rows[1061]["controller_count"] == 3
+assert source_rows[1061]["owns_air_accel"] == 1
+assert source_rows[1061]["unsupported_controllers"] == []
 
 assert common_rows[0]["controller_count"] == 3
 assert common_rows[20]["controller_count"] == 3
