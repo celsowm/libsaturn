@@ -135,9 +135,9 @@ bookkeeping tick so authored Time=1 controllers remain reachable after the
 freeze. HitOverride is also compiled as a typed contact window instead of being
 collapsed into invulnerability: incoming NA/SA/HA/NP/SP/HP/throw attributes are
 preserved on HitDefs and matched after ReversalDef. KFM's AP fallback therefore
-has the correct runtime representation and contact semantics; exercising that
-specific fallback against a real projectile still depends on the remaining
-Projectile entity/contact implementation.
+has the correct runtime representation and contact semantics. Projectile
+entities now participate in the dynamic runtime and contact pass, so that AP
+fallback is exercised end-to-end against a real projectile-class HitDef.
 
 The generic runtime now supports contextual command/velocity triggers plus
 `VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity,
@@ -207,10 +207,14 @@ texture cache, and players/helpers are stably ordered together by
 implemented (for example scaling/remappal/player/projectile helper types)
 instead of silently accepting incompatible semantics.
 
-Projectile and Explod already have pool kinds but do not execute their own
-controllers yet. Helpers now also own persistent/re-armable HitDef state,
-CLSN1 contact against the opposing fighter, anti-repeat hit masks, hitpause,
-movecontact, juggle cost, damage/guard application and p1stateno transitions.
+Projectile and Explod already have pool kinds. Projectiles now execute through
+the same dynamic state/physics step as Helpers, can be spawned from the generic
+entity runtime API, render through the owner's SFF/AIR path, expose typed
+projectile HitDefs, participate in CLSN1-vs-CLSN2 contact and HitOverride AP,
+and are consumed on contact. Explod remains presentation-only infrastructure.
+Helpers also own persistent/re-armable HitDef state, CLSN1 contact against the
+opposing fighter, anti-repeat hit masks, hitpause, movecontact, juggle cost,
+damage/guard application and p1stateno transitions.
 Helper throws remain deferred until target/bind ownership is generalized, and
 helper-vs-player priority/trade arbitration is still resolved in separate
 passes rather than one global Ikemen contact queue.
@@ -278,9 +282,10 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   complete inGuardDist behavior
 * remaining throw edge cases across different character state/CNS owners;
   AIR ownership is now per fighter, while Zankou and supers are still deferred
-* remaining Blocking edge cases are now mostly entity arbitration:
-  projectile/helper ReversalDef and HitOverride contacts, plus broader Pause
-  movetime/endcmdbuftime compatibility beyond KFM's current authored usage
+* remaining Blocking edge cases are now mostly advanced entity arbitration:
+  Helper ReversalDef/HitOverride and projectile ReversalDef; projectile
+  HitOverride AP is now exercised end-to-end. Broader Pause
+  movetime/endcmdbuftime compatibility remains beyond KFM's authored usage
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
 * remaining fightfx families (blood, shockwaves, dust and supers),
