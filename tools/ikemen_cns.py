@@ -624,6 +624,22 @@ def controller_trigger(
 
     if ctype == "afterimagetime" and len(triggers) == 1:
         value = _strip_outer_parens(triggers[0])
+
+        m = re.fullmatch(
+            r"AnimElemTime\s*\(\s*(\d+)\s*\)\s*<\s*0",
+            value,
+            flags=re.I,
+        )
+        if m:
+            return "IK_CNS_TRIGGER_ANIM_ELEM_BEFORE", int(m.group(1)), 0
+
+        m = re.fullmatch(
+            r"AnimElemTime\s*\(\s*(\d+)\s*\)\s*>=\s*0",
+            value,
+            flags=re.I,
+        )
+        if m:
+            return "IK_CNS_TRIGGER_ANIM_ELEM_FROM", int(m.group(1)), 0
         m = re.fullmatch(
             r"Vel\s+Y\s*<\s*(-?\d+(?:\.\d+)?)",
             value,
