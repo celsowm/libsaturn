@@ -225,6 +225,14 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->palfx_sin_b = 0;
     f->palfx_cycle = 1u;
     f->palfx_phase = 0u;
+    f->palfx_mul_r = 256u;
+    f->palfx_mul_g = 256u;
+    f->palfx_mul_b = 256u;
+    f->palfx_sinmul_r = 0;
+    f->palfx_sinmul_g = 0;
+    f->palfx_sinmul_b = 0;
+    f->palfx_sinmul_cycle = 1u;
+    f->palfx_sinmul_phase = 0u;
     f->active_hitdef_local = -1;
     f->active_hitdef_global = -1;
     f->active_hitdef_secondary = 0u;
@@ -2163,6 +2171,23 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     ctrl->value3 <= 0 ? 1 :
                     ctrl->value3 > 65535 ? 65535 : ctrl->value3);
                 f->palfx_phase = 0u;
+                {
+                    const uint32_t mul = (uint32_t)ctrl->value4;
+                    const uint32_t sinmul = (uint32_t)ctrl->value5;
+                    f->palfx_mul_r = (uint16_t)(mul & 0x1ffu);
+                    f->palfx_mul_g = (uint16_t)((mul >> 9) & 0x1ffu);
+                    f->palfx_mul_b = (uint16_t)((mul >> 18) & 0x1ffu);
+                    f->palfx_sinmul_r =
+                        (int16_t)((int32_t)(sinmul << 23) >> 23);
+                    f->palfx_sinmul_g =
+                        (int16_t)((int32_t)(sinmul << 14) >> 23);
+                    f->palfx_sinmul_b =
+                        (int16_t)((int32_t)(sinmul << 5) >> 23);
+                }
+                f->palfx_sinmul_cycle = (uint16_t)(
+                    ctrl->value6 <= 0 ? 1 :
+                    ctrl->value6 > 65535 ? 65535 : ctrl->value6);
+                f->palfx_sinmul_phase = 0u;
                 break;
             }
 
@@ -2774,6 +2799,7 @@ static void step_fighter(ik_fight_t* fight, int index,
     if (f->palfx_time > 0u) {
         --f->palfx_time;
         ++f->palfx_phase;
+        ++f->palfx_sinmul_phase;
     }
 
     if (f->not_hit_by_time > 0u) {
