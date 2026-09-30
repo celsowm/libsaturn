@@ -3389,6 +3389,10 @@ void ik_fight_update(ik_fight_t* fight,
     fight->events = IK_EVENT_NONE;
     fight->intro_asserted = 0u;
     if (fight->round_over) {
+        if (p1 && p1->start && fight->ko_freeze == 0u) {
+            ik_fight_reset(fight);
+            return;
+        }
         if (fight->ko_freeze > 0u) fight->ko_freeze--;
         fight->frame++;
         return;
