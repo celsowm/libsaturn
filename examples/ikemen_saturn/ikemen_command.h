@@ -76,6 +76,11 @@ typedef enum ik_cmd_rule_op {
     IK_CMD_RULE_P2_STATE_TYPE_NE,
     IK_CMD_RULE_P2_MOVE_TYPE_EQ,
     IK_CMD_RULE_P2_MOVE_TYPE_NE,
+    IK_CMD_RULE_POWER_EQ,
+    IK_CMD_RULE_POWER_GT,
+    IK_CMD_RULE_POWER_GE,
+    IK_CMD_RULE_POWER_LT,
+    IK_CMD_RULE_POWER_LE,
     IK_CMD_RULE_NOT,
     IK_CMD_RULE_AND,
     IK_CMD_RULE_OR
@@ -151,6 +156,7 @@ typedef struct ik_state_rule_context {
     int16_t state_no;
     uint16_t state_time;
     int16_t p2_body_dist_x;
+    int16_t power;
     uint8_t state_type;
     uint8_t ctrl;
     uint8_t move_contact;
