@@ -626,7 +626,8 @@ static void afterimage_capture(
 
 static void draw_afterimages(
     uint8_t player,
-    const ik_fighter_t* fighter
+    const ik_fighter_t* fighter,
+    int darken
 ) {
     if (player >= 2u || !fighter || fighter->afterimage_time == 0u) return;
     const uint8_t count = g_afterimage_count[player];
@@ -686,6 +687,11 @@ static void draw_afterimages(
             params.tint.g = clamp_u8_int((cg * mg) / 255 + bg + ag);
             params.tint.b = clamp_u8_int((cb * mb) / 255 + bb + ab);
         }
+        if (darken) {
+            params.tint.r = (uint8_t)((params.tint.r * 160u) / 255u);
+            params.tint.g = (uint8_t)((params.tint.g * 160u) / 255u);
+            params.tint.b = (uint8_t)((params.tint.b * 160u) / 255u);
+        }
 
         sat_example_must(sat_draw_texture(
             texture, 0,
@@ -735,7 +741,8 @@ static void apply_fighter_palfx(
 static void draw_fighter(const ik_frame_t* frame,
                          sat_texture_t texture,
                          const ik_fighter_t* f,
-                         const ik_cns_asset_t* cns) {
+                         const ik_cns_asset_t* cns,
+                         int darken) {
     if (!frame || !f) return;
 
     const int flip_h = (f->facing < 0) !=
@@ -759,6 +766,11 @@ static void draw_fighter(const ik_frame_t* frame,
         params.tint.b = 120u;
     }
     apply_fighter_palfx(f, &params);
+    if (darken) {
+        params.tint.r = (uint8_t)((params.tint.r * 160u) / 255u);
+        params.tint.g = (uint8_t)((params.tint.g * 160u) / 255u);
+        params.tint.b = (uint8_t)((params.tint.b * 160u) / 255u);
+    }
 
     {
         const int hw = ik_body_half_w(f) + 4;
@@ -779,7 +791,8 @@ static void draw_fighter(const ik_frame_t* frame,
 
 static void draw_helper_entity(const ik_frame_t* frame,
                                sat_texture_t texture,
-                               const ik_entity_t* entity) {
+                               const ik_entity_t* entity,
+                               int darken) {
     if (!frame || !entity) return;
 
     const int flip_h = (entity->facing < 0) !=
@@ -802,6 +815,11 @@ static void draw_helper_entity(const ik_frame_t* frame,
         params.blend_mode = SAT_BLEND_ADD;
     } else if ((frame->flags & IK_FRAME_FLAG_BLEND_SUBTRACT) != 0u) {
         params.blend_mode = SAT_BLEND_SUBTRACT;
+    }
+    if (darken) {
+        params.tint.r = 160u;
+        params.tint.g = 160u;
+        params.tint.b = 160u;
     }
 
     sat_example_must(sat_draw_texture(
@@ -839,7 +857,9 @@ static void draw_combat_entities(const ik_fight_t* fight) {
             player, &fight->fighters[player], fighter_frames[player]);
     }
     for (uint8_t player = 0u; player < 2u; ++player) {
-        draw_afterimages(player, &fight->fighters[player]);
+        draw_afterimages(
+            player, &fight->fighters[player],
+            fight->super_darken_time > 0u);
     }
 
     for (uint8_t player = 0u; player < 2u; ++player) {
@@ -909,10 +929,12 @@ static void draw_combat_entities(const ik_fight_t* fight) {
         const ik_combat_render_item_t* item = &items[i];
         if (item->helper) {
             draw_helper_entity(
-                item->frame, item->texture, item->entity);
+                item->frame, item->texture, item->entity,
+                fight->super_darken_time > 0u);
         } else {
             draw_fighter(
-                item->frame, item->texture, item->fighter, fight->cns);
+                item->frame, item->texture, item->fighter, fight->cns,
+                fight->super_darken_time > 0u);
         }
     }
 }
