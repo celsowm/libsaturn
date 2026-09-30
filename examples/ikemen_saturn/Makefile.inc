@@ -88,10 +88,17 @@ $(KFM_SOUNDS_C) $(KFM_SOUNDS_H) &: $(KFM_SND) $(COMMON_SND) $(IKEMEN_SND_TOOL)
 		--sound kick_whiff $(KFM_SND) 0 1 \
 		--sound strong_punch_whiff $(KFM_SND) 0 4 \
 		--sound sweep_whiff $(KFM_SND) 0 2 \
+		--sound special_whiff $(KFM_SND) 0 3 \
+		--sound throw_voice $(KFM_SND) 1 1 \
+		--sound throw_slam $(KFM_SND) 800 0 \
+		--sound landing $(KFM_SND) 40 0 \
+		--sound knee_voice $(KFM_SND) 100 0 \
+		--sound super_pause $(KFM_SND) 20 0 \
 		--sound punch_hit $(COMMON_SND) 5 0 \
 		--sound kick_hit $(COMMON_SND) 5 1 \
 		--sound strong_hit $(COMMON_SND) 5 2 \
 		--sound air_strong_hit $(COMMON_SND) 5 3 \
+		--sound heavy_hit $(COMMON_SND) 5 4 \
 		--sound reversal_hit $(COMMON_SND) 6 0
 
 $(KFM_COMMANDS_C) $(KFM_COMMANDS_H) &: $(KFM_CMD) $(IKEMEN_CMD_TOOL)
