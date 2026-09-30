@@ -120,6 +120,14 @@ typedef enum ik_cns_priority_type {
     IK_CNS_PRIORITY_DODGE
 } ik_cns_priority_type_t;
 
+typedef enum ik_cns_p2_dist_op {
+    IK_CNS_P2_DIST_NONE = 0,
+    IK_CNS_P2_DIST_LT,
+    IK_CNS_P2_DIST_LE,
+    IK_CNS_P2_DIST_GT,
+    IK_CNS_P2_DIST_GE
+} ik_cns_p2_dist_op_t;
+
 enum {
     IK_CNS_HIT_STAND = 1u << 0,
     IK_CNS_HIT_CROUCH = 1u << 1,
@@ -300,6 +308,8 @@ typedef struct ik_cns_hitdef {
     int8_t p1_facing;
     int8_t p2_facing;
     int8_t p1_spr_priority;
+    uint8_t p2_body_dist_op;
+    int16_t p2_body_dist_x;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
