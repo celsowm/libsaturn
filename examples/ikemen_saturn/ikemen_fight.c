@@ -119,8 +119,11 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
         : (int16_t)ik_action_for_state(fight ? fight->cns : 0, state);
     f->anim_time = 0u;
     f->move_contact = 0u;
-    f->hitdef_hit_mask = 0u;
-    f->active_hitdef_local = -1;
+    if (!(spec && spec->hitdef_persist)) {
+        f->hitdef_hit_mask = 0u;
+        f->active_hitdef_local = -1;
+        f->active_hitdef_global = -1;
+    }
     f->state_axis = 0;
 
     if (is_attack_state(fight, state)) ++f->attack_id;
@@ -194,6 +197,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->attack_id = 0;
     f->move_contact = 0;
     f->active_hitdef_local = -1;
+    f->active_hitdef_global = -1;
     f->pos_freeze_x = 0u;
     f->pos_freeze_y = 0u;
     f->target_index = -1;
@@ -399,8 +403,21 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
 
     const ik_cns_state_t* state =
         ik_cns_find_state(fight->cns, fighter->state);
-    if (!state || !fight->cns->hitdefs || state->hitdef_count == 0u) {
-        fighter->active_hitdef_local = -1;
+    if (!state || !fight->cns->hitdefs) return 0;
+
+    if (state->hitdef_count == 0u) {
+        if (state->hitdef_persist &&
+            fighter->active_hitdef_global >= 0 &&
+            fighter->active_hitdef_global < (int16_t)fight->cns->hitdef_count) {
+            if (out_local_index) {
+                *out_local_index = (uint8_t)(
+                    fighter->active_hitdef_local < 0
+                        ? 0
+                        : fighter->active_hitdef_local);
+            }
+            return &fight->cns->hitdefs[
+                (uint16_t)fighter->active_hitdef_global];
+        }
         return 0;
     }
 
@@ -425,18 +442,21 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
         }
         if (!hitdef_p2_dist_allows(hitdef, p2_dist)) continue;
         fighter->active_hitdef_local = (int8_t)i;
+        fighter->active_hitdef_global = (int16_t)global;
     }
 
-    if (fighter->active_hitdef_local < 0 ||
-        fighter->active_hitdef_local >= (int8_t)state->hitdef_count) {
+    if (fighter->active_hitdef_global < 0 ||
+        fighter->active_hitdef_global >= (int16_t)fight->cns->hitdef_count) {
         return 0;
     }
-
-    const uint8_t local = (uint8_t)fighter->active_hitdef_local;
-    const uint16_t global = (uint16_t)(state->hitdef_ofs + local);
-    if (global >= fight->cns->hitdef_count) return 0;
-    if (out_local_index) *out_local_index = local;
-    return &fight->cns->hitdefs[global];
+    if (out_local_index) {
+        *out_local_index = (uint8_t)(
+            fighter->active_hitdef_local < 0
+                ? 0
+                : fighter->active_hitdef_local);
+    }
+    return &fight->cns->hitdefs[
+        (uint16_t)fighter->active_hitdef_global];
 }
 
 static int hitdef_allows_target(const ik_fight_t* fight,
@@ -688,7 +708,12 @@ static void apply_damage(ik_fight_t* fight, int victim,
         (hitdef->flags & IK_CNS_HITDEF_FALL) != 0u ||
         velocity_y != 0;
 
-    v->hp = (int16_t)(v->hp - hitdef->damage);
+    int damage = hitdef->damage;
+    if (hitdef->alt_damage >= 0 &&
+        a->prev_state == hitdef->alt_damage_prev_state) {
+        damage = hitdef->alt_damage;
+    }
+    v->hp = (int16_t)(v->hp - damage);
     v->hitstun = (uint16_t)(hit_time < 0 ? 0 : hit_time);
     v->hit_pause = hitdef->pause_p2;
     v->hit_slide_time = downed && velocity_y == 0
@@ -706,7 +731,10 @@ static void apply_damage(ik_fight_t* fight, int victim,
      * controls whether state 5100 receives a non-zero fall Y velocity and
      * therefore proceeds through the single 5101 ground bounce. */
     v->gethit_fall = (uint8_t)(
-        ((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u) || downed_launch);
+        ((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u) ||
+        (airborne &&
+         (hitdef->flags & IK_CNS_HITDEF_AIR_FALL) != 0u) ||
+        downed_launch);
     v->gethit_fall_x_q8 = hitdef->fall_x_velocity_q8;
     v->gethit_fall_y_q8 =
         (downed_launch && !hitdef->down_bounce)
@@ -891,6 +919,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         if (controls->up) command_mask |= IK_CNS_COMMAND_HOLD_UP;
         if (controls->down) command_mask |= IK_CNS_COMMAND_HOLD_DOWN;
         if (controls->recovery) command_mask |= IK_CNS_COMMAND_RECOVERY;
+        if (controls->a) command_mask |= IK_CNS_COMMAND_A;
+        if (controls->b) command_mask |= IK_CNS_COMMAND_B;
     }
     const int back_body_dist =
         f->facing > 0
