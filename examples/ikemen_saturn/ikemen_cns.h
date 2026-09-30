@@ -66,7 +66,8 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ANIM_ELEM_AFTER,
     IK_CNS_TRIGGER_ANIM_ELEM_MASK,
     IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED,
-    IK_CNS_TRIGGER_ANIM_ELEM_TIME_RANGE
+    IK_CNS_TRIGGER_ANIM_ELEM_TIME_RANGE,
+    IK_CNS_TRIGGER_MOVE_HIT
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -486,6 +487,7 @@ typedef struct ik_cns_controller_context {
     uint8_t is_bound;
     uint8_t anim_ended;
     uint8_t move_contact;
+    uint8_t move_hit;
 } ik_cns_controller_context_t;
 
 typedef struct ik_cns_helper {
