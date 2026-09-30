@@ -110,6 +110,12 @@ static const ik_frame_t k_frames[] = {
     F(910,0,2,1,1),
     F(911,0,4,1,1),
     F(915,0,4,1,1),
+
+    /* Upper runtime fixtures. */
+    F(920,0,1,1,1), F(920,1,1,1,1), F(920,2,1,1,1),
+    F(920,3,1,1,1), F(920,4,2,1,1),
+    F(921,0,3,1,1),
+    F(922,0,3,1,1),
 };
 #undef F
 
@@ -2041,6 +2047,193 @@ int main() {
         EQ(g.hits_p1,1u);
         EQ(g.fighters[1].hp,960);
         EQ(g.fighters[0].prev_state,1061);
+    }
+
+    /* Fast Upper reuses one HitDef controller: Time=0 hits once, then
+     * trigger2=AnimElem 4 rearms that same local HitDef for exactly one
+     * additional contact. It must not become active every subsequent tick. */
+    {
+        constexpr unsigned state_count=
+            (unsigned)(sizeof(k_states)/sizeof(k_states[0]));
+        ik_cns_state_t states[state_count+1];
+        for(unsigned i=0;i<state_count;++i) states[i]=k_states[i];
+
+        states[state_count]=k_states[0];
+        states[state_count].number=920;
+        states[state_count].anim=920;
+        states[state_count].power_add=-330;
+        states[state_count].hitdef_ofs=0u;
+        states[state_count].hitdef_count=1u;
+        states[state_count].playsnd_count=0u;
+        states[state_count].controller_count=0u;
+
+        ik_cns_hitdef_t hit{};
+        hit.state_number=920;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.trigger2_kind=IK_CNS_TRIGGER_ANIM_ELEM_EQ;
+        hit.trigger2_value=4;
+        hit.has_trigger2=1u;
+        hit.damage=30;
+        hit.priority=5u;
+        hit.ground_type=IK_CNS_GROUND_LOW;
+        hit.ground_hit_time=1u;
+        hit.air_hit_time=1u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.guard_kill=1u;
+        hit.p1_state_no=-1;
+        hit.p2_state_no=-1;
+        hit.guard_dist=-1;
+        hit.p1_spr_priority=-128;
+        hit.fall_recover=1u;
+
+        ik_cns_asset_t asset=k_cns;
+        asset.states=states;
+        asset.state_count=(uint16_t)(state_count+1);
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+
+        ik_fight_init(&g,&asset);
+        place(&g,100,145);
+        g.fighters[0].power=330;
+        ik_fight_controls_t p1{}; request(&p1,920);
+        ik_fight_controls_t p2{};
+
+        tick2(&g,&p1,&p2);
+        p1.has_state_request=0u;
+        EQ(g.fighters[0].power,0);
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].hp,970);
+
+        for(int i=0;i<8;++i) tick2(&g,&p1,&p2);
+        EQ(g.hits_p1,2u);
+        EQ(g.fighters[1].hp,940);
+        EQ(g.fighters[0].hitdef_hit_mask,1u);
+    }
+
+    /* forcestand changes only the ground get-hit branch: the same crouching
+     * victim normally enters 5010, while the Upper version enters 5000. */
+    {
+        constexpr unsigned state_count=
+            (unsigned)(sizeof(k_states)/sizeof(k_states[0]));
+        ik_cns_state_t states[state_count+1];
+        for(unsigned i=0;i<state_count;++i) states[i]=k_states[i];
+        states[state_count]=k_states[0];
+        states[state_count].number=921;
+        states[state_count].anim=921;
+        states[state_count].hitdef_ofs=0u;
+        states[state_count].hitdef_count=1u;
+        states[state_count].playsnd_count=0u;
+        states[state_count].controller_count=0u;
+
+        ik_cns_hitdef_t hit{};
+        hit.state_number=921;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.damage=1;
+        hit.priority=5u;
+        hit.ground_type=IK_CNS_GROUND_LOW;
+        hit.ground_hit_time=10u;
+        hit.air_hit_time=10u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.guard_kill=1u;
+        hit.p1_state_no=-1;
+        hit.p2_state_no=-1;
+        hit.guard_dist=-1;
+        hit.p1_spr_priority=-128;
+        hit.fall_recover=1u;
+
+        ik_cns_asset_t asset=k_cns;
+        asset.states=states;
+        asset.state_count=(uint16_t)(state_count+1);
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        g.fighters[1].state=11;
+        g.fighters[1].anim=11;
+        g.fighters[1].on_ground=1;
+        g.fighters[1].ctrl=0;
+        ik_fight_controls_t p1{}; request(&p1,921);
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[1].state,5010);
+
+        hit.flags=IK_CNS_HITDEF_FORCE_STAND;
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        g.fighters[1].state=11;
+        g.fighters[1].anim=11;
+        g.fighters[1].on_ground=1;
+        g.fighters[1].ctrl=0;
+        p1={}; request(&p1,921); p2={};
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[1].state,5000);
+    }
+
+    /* Upper yaccel=.4 follows the victim into the compiled air get-hit graph
+     * and overrides the character's default .44 gravity for that hit. */
+    {
+        constexpr unsigned state_count=
+            (unsigned)(sizeof(k_states)/sizeof(k_states[0]));
+        ik_cns_state_t states[state_count+1];
+        for(unsigned i=0;i<state_count;++i) states[i]=k_states[i];
+        states[state_count]=k_states[0];
+        states[state_count].number=922;
+        states[state_count].anim=922;
+        states[state_count].hitdef_ofs=0u;
+        states[state_count].hitdef_count=1u;
+        states[state_count].playsnd_count=0u;
+        states[state_count].controller_count=0u;
+
+        ik_cns_hitdef_t hit{};
+        hit.state_number=922;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.damage=1;
+        hit.priority=5u;
+        hit.ground_type=IK_CNS_GROUND_LOW;
+        hit.ground_hit_time=20u;
+        hit.air_hit_time=20u;
+        hit.ground_velocity_x_q8=-256;
+        hit.ground_velocity_y_q8=-4*256;
+        hit.air_velocity_x_q8=-256;
+        hit.air_velocity_y_q8=-4*256;
+        hit.flags=IK_CNS_HITDEF_FALL;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.guard_kill=1u;
+        hit.p1_state_no=-1;
+        hit.p2_state_no=-1;
+        hit.guard_dist=-1;
+        hit.p1_spr_priority=-128;
+        hit.fall_recover=1u;
+        hit.yaccel_q8=102;
+
+        ik_cns_asset_t asset=k_cns;
+        asset.states=states;
+        asset.state_count=(uint16_t)(state_count+1);
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        ik_fight_controls_t p1{}; request(&p1,922);
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].gethit_yaccel_q8,102);
+
+        ik_fighter_t* v=&g.fighters[1];
+        v->state=5030;
+        v->anim=5030;
+        v->state_time=0u;
+        v->anim_time=0u;
+        v->on_ground=0;
+        v->y=100;
+        v->y_q8=100*256;
+        v->vy_q8=0;
+        v->hitstun=10u;
+        p1={}; p2={};
+        tick2(&g,&p1,&p2);
+        EQ(v->vy_q8,-1024+102);
     }
 
     /* Recovery command uses the compiled common thresholds. Near the
