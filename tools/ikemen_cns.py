@@ -259,6 +259,54 @@ def simple_trigger(section: Section) -> tuple[str, int, int]:
     raise ValueError(f"[{section.name}] unsupported trigger expression {expr!r}")
 
 
+def hitdef_trigger(section: Section) -> tuple[str, int, str, int]:
+    triggers = section.all("trigger1")
+    if not triggers:
+        return "IK_CNS_TRIGGER_ALWAYS", 0, "IK_CNS_P2_DIST_NONE", 0
+
+    base: str | None = None
+    base_value = 0
+    dist_op = "IK_CNS_P2_DIST_NONE"
+    dist_value = 0
+
+    for expr in triggers:
+        value = _strip_outer_parens(expr)
+        m = re.fullmatch(
+            r"p2bodydist\s+X\s*(<|<=|>|>=)\s*(-?\d+)",
+            value,
+            flags=re.I,
+        )
+        if m:
+            if dist_op != "IK_CNS_P2_DIST_NONE":
+                raise ValueError(
+                    f"[{section.name}] multiple p2bodydist predicates"
+                )
+            dist_op = {
+                "<": "IK_CNS_P2_DIST_LT",
+                "<=": "IK_CNS_P2_DIST_LE",
+                ">": "IK_CNS_P2_DIST_GT",
+                ">=": "IK_CNS_P2_DIST_GE",
+            }[m.group(1)]
+            dist_value = int(m.group(2))
+            continue
+
+        probe = Section(section.name, [("trigger1", expr)])
+        kind, trigger_value, _ = simple_trigger(probe)
+        if base is not None:
+            raise ValueError(
+                f"[{section.name}] unsupported HitDef trigger conjunction"
+            )
+        base = kind
+        base_value = trigger_value
+
+    return (
+        base or "IK_CNS_TRIGGER_ALWAYS",
+        base_value,
+        dist_op,
+        dist_value,
+    )
+
+
 def _strip_outer_parens(text: str) -> str:
     value = text.strip()
     while value.startswith("(") and value.endswith(")"):
@@ -778,7 +826,7 @@ def parse_state(
         ctype = (ctrl.get("type", "") or "").strip().lower()
 
         if ctype == "hitdef":
-            trig_kind, trig_value, _ = simple_trigger(ctrl)
+            trig_kind, trig_value, p2_dist_op, p2_dist_x = hitdef_trigger(ctrl)
 
             damage, guard_damage = pair(ctrl.get("damage"), 0, 0)
             pause1, pause2 = pair(ctrl.get("pausetime"), 0, 0)
@@ -893,6 +941,8 @@ def parse_state(
                     "p1_facing": integer(ctrl.get("p1facing"), 0),
                     "p2_facing": integer(ctrl.get("p2facing"), 0),
                     "p1_spr_priority": integer(ctrl.get("p1sprpriority"), -128),
+                    "p2_body_dist_op": p2_dist_op,
+                    "p2_body_dist_x": p2_dist_x,
                 }
             )
 
@@ -1967,7 +2017,8 @@ def emit(
         f"{h['down_bounce']}u, {h['hit_flags']}, "
         f"{h['priority_type']}, {h['air_juggle']}u, "
         f"{h['p1_state_no']}, {h['p2_state_no']}, {h['guard_dist']}, "
-        f"{h['p1_facing']}, {h['p2_facing']}, {h['p1_spr_priority']}"
+        f"{h['p1_facing']}, {h['p2_facing']}, {h['p1_spr_priority']}, "
+        f"{h['p2_body_dist_op']}, {h['p2_body_dist_x']}"
         "},"
         for h in hitdefs
     ]
