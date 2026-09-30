@@ -73,6 +73,8 @@ typedef struct ik_entity {
     uint8_t projectile_hit_cooldown;
     uint8_t projectile_priority;
     uint8_t projectile_remove_on_hit;
+    int16_t projectile_velmul_x_q8;
+    int16_t projectile_velmul_y_q8;
     uint8_t pause_move_time;
     uint8_t super_move_time;
 
