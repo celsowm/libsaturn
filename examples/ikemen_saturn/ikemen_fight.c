@@ -252,12 +252,16 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->env_shake_ampl = 0;
     fight->env_shake_freq = 60u;
     fight->env_shake_phase = 0u;
+    fight->super_darken_time = 0u;
     fight->effect_count = 0u;
     fight->sound_count = 0u;
     if (fight->env_shake_time > 0u) {
         --fight->env_shake_time;
         fight->env_shake_phase =
             (uint16_t)(fight->env_shake_phase + fight->env_shake_freq);
+    }
+    if (fight->super_darken_time > 0u) {
+        --fight->super_darken_time;
     }
 }
 
@@ -2053,6 +2057,22 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 fight->pause_move_time = 0u;
                 fight->pause_owner =
                     (int8_t)fighter_player_index(fight, f);
+                if ((ctrl->flags & IK_CNS_CTRL_SUPER_DARKEN) != 0u) {
+                    fight->super_darken_time = fight->pause_time;
+                }
+                if (ctrl->value2 >= 0 &&
+                    fight->effect_count < IK_MAX_EFFECT_EVENTS) {
+                    const int16_t px = (int16_t)(
+                        ((uint32_t)ctrl->value3 >> 16) & 0xffffu);
+                    const int16_t py = (int16_t)(
+                        (uint32_t)ctrl->value3 & 0xffffu);
+                    ik_effect_event_t* effect =
+                        &fight->effect_events[fight->effect_count++];
+                    effect->action = (int16_t)ctrl->value2;
+                    effect->x = (int16_t)(
+                        f->x + (int16_t)f->facing * px);
+                    effect->y = (int16_t)(f->y + py);
+                }
                 if (f->state_time > 0u) --f->state_time;
                 if (f->anim_time > 0u) --f->anim_time;
                 return 1;
