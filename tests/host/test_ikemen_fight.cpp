@@ -2689,6 +2689,11 @@ int main() {
         ik_fight_init(&g,&asset);
         ik_fight_bind_entities(&g,&pool,p1_entity,p2_entity);
         place(&g,100,145);
+        ik_entity_t* root0=ik_entity_get(&pool,p1_entity);
+        ik_entity_t* root1=ik_entity_get(&pool,p2_entity);
+        OK(root0!=nullptr); OK(root1!=nullptr);
+        root0->x_q8=100*IK_CNS_Q8_ONE; root0->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE; root0->facing=1;
+        root1->x_q8=145*IK_CNS_Q8_ONE; root1->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE; root1->facing=-1;
         g.fighters[1].state=932;
         g.fighters[1].anim=0;
         g.fighters[1].ctrl=0;
