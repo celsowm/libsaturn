@@ -125,6 +125,10 @@ typedef struct ik_fighter {
     uint8_t gethit_fall_x_set;
     uint8_t gethit_fall_recover;
     uint8_t gethit_fall_recover_time;
+    int16_t gethit_fall_damage;
+    uint16_t gethit_fall_envshake_time;
+    int16_t gethit_fall_envshake_ampl;
+    uint16_t gethit_fall_envshake_freq;
     uint16_t fall_time;
     int16_t juggle_points;
     uint8_t guard_type;
@@ -166,6 +170,10 @@ typedef struct ik_fight {
     uint16_t pause_time;
     uint16_t pause_move_time;
     int8_t pause_owner;
+    uint16_t env_shake_time;
+    int16_t env_shake_ampl;
+    uint16_t env_shake_freq;
+    uint16_t env_shake_phase;
     ik_effect_event_t effect_events[IK_MAX_EFFECT_EVENTS];
     uint8_t effect_count;
     ik_sound_event_t sound_events[IK_MAX_SOUND_EVENTS];
