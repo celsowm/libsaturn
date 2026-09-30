@@ -18,65 +18,6 @@ static sat_result_t create_pcm_sound(
     return sat_sound_create(out_sound, &desc);
 }
 
-static void play_attack_sound(const ik_audio_t* audio, int16_t state, int hit) {
-    if (audio == 0) return;
-    sat_sound_t sound = {0u, 0u};
-
-    if (hit) {
-        switch (state) {
-            case IK_STATE_PUNCH:
-            case IK_STATE_CROUCH_PUNCH:
-            case IK_STATE_JUMP_PUNCH:
-            case IK_STATE_JUMP_KICK:
-                sound = audio->punch_hit;
-                break;
-            case IK_STATE_KICK:
-            case IK_STATE_CROUCH_KICK:
-                sound = audio->kick_hit;
-                break;
-            case IK_STATE_STRONG_PUNCH:
-            case IK_STATE_STRONG_KICK:
-            case IK_STATE_CROUCH_STRONG_PUNCH:
-            case IK_STATE_CROUCH_STRONG_KICK:
-                sound = audio->strong_hit;
-                break;
-            case IK_STATE_JUMP_STRONG_PUNCH:
-            case IK_STATE_JUMP_STRONG_KICK:
-                sound = audio->air_strong_hit;
-                break;
-            default:
-                return;
-        }
-    } else {
-        switch (state) {
-            case IK_STATE_PUNCH:
-            case IK_STATE_CROUCH_PUNCH:
-            case IK_STATE_CROUCH_STRONG_PUNCH:
-            case IK_STATE_CROUCH_KICK:
-            case IK_STATE_JUMP_PUNCH:
-            case IK_STATE_JUMP_KICK:
-                sound = audio->punch_whiff;
-                break;
-            case IK_STATE_KICK:
-            case IK_STATE_STRONG_KICK:
-            case IK_STATE_JUMP_STRONG_PUNCH:
-            case IK_STATE_JUMP_STRONG_KICK:
-                sound = audio->kick_whiff;
-                break;
-            case IK_STATE_STRONG_PUNCH:
-                sound = audio->strong_punch_whiff;
-                break;
-            case IK_STATE_CROUCH_STRONG_KICK:
-                sound = audio->sweep_whiff;
-                break;
-            default:
-                return;
-        }
-    }
-
-    (void)sat_sound_play(sound, 0, 0);
-}
-
 sat_result_t ik_audio_init(ik_audio_t* audio) {
     if (audio == 0) return SAT_ERR_INVALID_ARG;
     *audio = (ik_audio_t){0};
@@ -164,48 +105,6 @@ void ik_audio_process_fight(ik_audio_t* audio, const ik_fight_t* fight) {
         }
     }
 
-    for (int i = 0; i < 2; ++i) {
-        const ik_fighter_t* fighter = &fight->fighters[i];
-        const int16_t state = fighter->state;
-        const uint16_t time = fighter->state_time;
-
-        if ((state == IK_STATE_PUNCH ||
-             state == IK_STATE_CROUCH_PUNCH ||
-             state == IK_STATE_CROUCH_STRONG_PUNCH ||
-             state == IK_STATE_CROUCH_KICK ||
-             state == IK_STATE_JUMP_PUNCH ||
-             state == IK_STATE_JUMP_KICK) && time == 1u) {
-            play_attack_sound(audio, state, 0);
-        } else if ((state == IK_STATE_STRONG_PUNCH ||
-                    state == IK_STATE_KICK ||
-                    state == IK_STATE_STRONG_KICK ||
-                    state == IK_STATE_CROUCH_STRONG_KICK ||
-                    state == IK_STATE_JUMP_STRONG_PUNCH ||
-                    state == IK_STATE_JUMP_STRONG_KICK) && time == 2u) {
-            play_attack_sound(audio, state, 0);
-        }
-    }
-
-    if ((fight->events & IK_EVENT_HIT) != 0u) {
-        for (int i = 0; i < 2; ++i) {
-            const int16_t state = fight->fighters[i].state;
-            if (state == IK_STATE_PUNCH ||
-                state == IK_STATE_STRONG_PUNCH ||
-                state == IK_STATE_KICK ||
-                state == IK_STATE_STRONG_KICK ||
-                state == IK_STATE_CROUCH_PUNCH ||
-                state == IK_STATE_CROUCH_STRONG_PUNCH ||
-                state == IK_STATE_CROUCH_KICK ||
-                state == IK_STATE_CROUCH_STRONG_KICK ||
-                state == IK_STATE_JUMP_PUNCH ||
-                state == IK_STATE_JUMP_STRONG_PUNCH ||
-                state == IK_STATE_JUMP_KICK ||
-                state == IK_STATE_JUMP_STRONG_KICK) {
-                play_attack_sound(audio, state, 1);
-                break;
-            }
-        }
-    }
 }
 
 sat_result_t ik_audio_update(void) {
