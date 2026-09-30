@@ -3185,6 +3185,73 @@ static void step_fighter(ik_fight_t* fight, int index,
     }
 }
 
+static void resolve_projectile_trades(
+    ik_fight_t* fight,
+    const ik_frame_table_t* p1_frames,
+    const ik_frame_table_t* p2_frames
+) {
+    if (!fight || !fight->entities) return;
+
+    for (uint8_t a_slot = 0u; a_slot < IK_ENTITY_CAPACITY; ++a_slot) {
+        ik_entity_t* a = &fight->entities->entities[a_slot];
+        if (a->type != IK_ENTITY_PROJECTILE ||
+            a->owner_player >= 2u ||
+            a->active_hitdef_global < 0 ||
+            a->projectile_priority == 0u) {
+            continue;
+        }
+
+        for (uint8_t b_slot = (uint8_t)(a_slot + 1u);
+             b_slot < IK_ENTITY_CAPACITY; ++b_slot) {
+            ik_entity_t* b = &fight->entities->entities[b_slot];
+            if (b->type != IK_ENTITY_PROJECTILE ||
+                b->owner_player >= 2u ||
+                b->owner_player == a->owner_player ||
+                b->active_hitdef_global < 0 ||
+                b->projectile_priority == 0u) {
+                continue;
+            }
+
+            const ik_frame_table_t* a_frames =
+                a->owner_player == 0u ? p1_frames : p2_frames;
+            const ik_frame_table_t* b_frames =
+                b->owner_player == 0u ? p1_frames : p2_frames;
+            if (!entity_attack_clsn_overlap(a_frames, b_frames, a, b)) {
+                continue;
+            }
+
+            ik_entity_handle_t ah = {
+                a_slot, fight->entities->generations[a_slot]
+            };
+            ik_entity_handle_t bh = {
+                b_slot, fight->entities->generations[b_slot]
+            };
+
+            if (a->projectile_priority > 0u) {
+                --a->projectile_priority;
+            }
+            if (b->projectile_priority > 0u) {
+                --b->projectile_priority;
+            }
+
+            const int cancel_a = a->projectile_priority == 0u;
+            const int cancel_b = b->projectile_priority == 0u;
+            if (cancel_a) {
+                (void)projectile_contact_consumed(fight, ah, 1);
+            }
+            if (cancel_b) {
+                (void)projectile_contact_consumed(fight, bh, 1);
+            }
+
+            a = ik_entity_get(fight->entities, ah);
+            if (!a || a->type != IK_ENTITY_PROJECTILE ||
+                a->active_hitdef_global < 0) {
+                break;
+            }
+        }
+    }
+}
+
 static void resolve_entity_contacts(
     ik_fight_t* fight,
     const ik_fight_controls_t* p1,
