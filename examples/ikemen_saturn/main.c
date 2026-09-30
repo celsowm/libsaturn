@@ -626,6 +626,18 @@ static void afterimage_capture(
 
 static uint8_t clamp_u8_int(int value);
 
+static int afterimage_mul_at(
+    int initial,
+    int factor_q8,
+    uint8_t step
+) {
+    int value = initial;
+    for (uint8_t i = 0u; i < step; ++i) {
+        value = (value * factor_q8) / 255;
+    }
+    return value;
+}
+
 static void draw_afterimages(
     uint8_t player,
     const ik_fighter_t* fighter,
@@ -685,9 +697,20 @@ static void draw_afterimages(
             const int mr = (int)(mul & 0xffu);
             const int mg = (int)((mul >> 8) & 0xffu);
             const int mb = (int)((mul >> 16) & 0xffu);
-            params.tint.r = clamp_u8_int((cr * mr) / 255 + br + ar);
-            params.tint.g = clamp_u8_int((cg * mg) / 255 + bg + ag);
-            params.tint.b = clamp_u8_int((cb * mb) / 255 + bb + ab);
+            const uint8_t palette_step =
+                (uint8_t)(step / framegap - 1u);
+            const int eff_add_r = br + ar * palette_step;
+            const int eff_add_g = bg + ag * palette_step;
+            const int eff_add_b = bb + ab * palette_step;
+            const int eff_mul_r =
+                afterimage_mul_at(cr, mr, palette_step);
+            const int eff_mul_g =
+                afterimage_mul_at(cg, mg, palette_step);
+            const int eff_mul_b =
+                afterimage_mul_at(cb, mb, palette_step);
+            params.tint.r = clamp_u8_int(eff_mul_r + eff_add_r);
+            params.tint.g = clamp_u8_int(eff_mul_g + eff_add_g);
+            params.tint.b = clamp_u8_int(eff_mul_b + eff_add_b);
         }
         if (darken) {
             params.tint.r = (uint8_t)((params.tint.r * 160u) / 255u);
