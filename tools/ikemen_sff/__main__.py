@@ -65,6 +65,32 @@ def _pad_sprite(pixels: bytes, width: int, height: int):
     return bytes(out), padded, left
 
 
+def _runtime_sprite_asset(container: sff_mod.SffContainer,
+                          node: sff_mod.SpriteNode) -> emit_mod.SpriteAsset:
+    source = container.sprite_data(node)
+    raw = decode(node, source)
+    if len(raw) != node.width * node.height:
+        raise ValueError(f"sprite {(node.group, node.number)} decoded size mismatch")
+
+    if node.fmt in (sff_mod.FORMAT_RAW, sff_mod.FORMAT_LZ5):
+        payload = source
+        runtime_format = node.fmt
+    else:
+        payload = raw
+        runtime_format = sff_mod.FORMAT_RAW
+
+    padded_w = (node.width + 7) & ~7
+    left = (padded_w - node.width) // 2
+    return emit_mod.SpriteAsset(
+        width=node.width,
+        height=node.height,
+        padded_width=padded_w,
+        left_pad=left,
+        format=runtime_format,
+        data=bytes(payload),
+    )
+
+
 def cmd_char(args) -> int:
     container = sff_mod.load(Path(args.sff))
     actions = air_mod.parse(Path(args.air))
@@ -78,7 +104,7 @@ def cmd_char(args) -> int:
         alt_palettes[f"alt{i}"] = words
 
     frames: list[emit_mod.FrameAsset] = []
-    sprite_pixels: dict[tuple[int, int], bytes] = {}
+    sprite_assets: dict[tuple[int, int], emit_mod.SpriteAsset] = {}
     missing: list[str] = []
     for action in args.actions:
         act = actions.get(action)
@@ -91,19 +117,16 @@ def cmd_char(args) -> int:
                 missing.append(f"{action}:{fr.group},{fr.number}")
                 continue
             key = (fr.group, fr.number)
-            if key not in sprite_pixels:
+            if key not in sprite_assets:
                 try:
-                    raw = decode(node, container.sprite_data(node))
+                    sprite_assets[key] = _runtime_sprite_asset(container, node)
                 except UnsupportedCodec as exc:
                     raise SystemExit(f"[ikemen_sff] {key}: {exc}", 2)
-                padded, padded_w, left = _pad_sprite(raw, node.width, node.height)
-                sprite_pixels[key] = padded
-            else:
-                padded_w = (node.width + 7) & ~7
-                left = (padded_w - node.width) // 2
+            sprite = sprite_assets[key]
             frames.append(emit_mod.FrameAsset(
-                action=action, index=idx, width=padded_w, height=node.height,
-                ax=node.xoff + left, ay=node.yoff, ticks=fr.time,
+                action=action, index=idx,
+                width=sprite.padded_width, height=node.height,
+                ax=node.xoff + sprite.left_pad, ay=node.yoff, ticks=fr.time,
                 flip_h=fr.flip_h, flip_v=fr.flip_v,
                 sprite_key=key, clsn1=list(fr.clsn1), clsn2=list(fr.clsn2)))
     if not frames:
@@ -111,14 +134,16 @@ def cmd_char(args) -> int:
 
     names = {"main": main_palette, **alt_palettes}
     c_text, h_text = emit_mod.emit_frames(
-        args.out_prefix, args.symbol, frames, sprite_pixels, names,
+        args.out_prefix, args.symbol, frames, sprite_assets, names,
         Path(args.sff).name)
     out_prefix = Path(args.out_prefix)
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     (out_prefix.parent / f"{out_prefix.name}_frames.c").write_text(c_text, encoding="utf-8")
     (out_prefix.parent / f"{out_prefix.name}_frames.h").write_text(h_text, encoding="utf-8")
 
-    blob = sum(len(p) for p in sprite_pixels.values())
+    raw_blob = sum(s.padded_width * s.height for s in sprite_assets.values())
+    packed_blob = sum(len(s.data) for s in sprite_assets.values())
+    max_sprite = max(s.padded_width * s.height for s in sprite_assets.values())
     manifest = {
         "symbol": args.symbol,
         "sff": args.sff,
@@ -126,8 +151,10 @@ def cmd_char(args) -> int:
         "actions": {str(a): len(actions[a].frames)
                     for a in args.actions if a in actions},
         "frames": len(frames),
-        "unique_sprites": len(sprite_pixels),
-        "pixel_bytes": blob,
+        "unique_sprites": len(sprite_assets),
+        "pixel_bytes": raw_blob,
+        "packed_pixel_bytes": packed_blob,
+        "max_sprite_bytes": max_sprite,
         "clsn1_default": {str(a): actions[a].clsn1_default
                            for a in args.actions if a in actions},
         "clsn2_default": {str(a): actions[a].clsn2_default
@@ -138,13 +165,15 @@ def cmd_char(args) -> int:
         json.dumps(manifest, indent=2), encoding="utf-8")
 
     if args.png_dir:
-        for key, pixels in list(sprite_pixels.items())[:args.png_limit]:
+        for key in list(sprite_assets)[:args.png_limit]:
             node = nodes[key]
-            padded_w = (node.width + 7) & ~7
+            raw = decode(node, container.sprite_data(node))
+            pixels, padded_w, _ = _pad_sprite(raw, node.width, node.height)
             _png_dump_indexed(Path(args.png_dir) / f"{key[0]}_{key[1]}.png",
                               pixels, padded_w, node.height, main_palette)
     print(f"[ikemen_sff] char {args.symbol}: frames={len(frames)} "
-          f"unique={len(sprite_pixels)} pixels={blob}B missing={missing or 'none'}")
+          f"unique={len(sprite_assets)} raw={raw_blob}B packed={packed_blob}B "
+          f"missing={missing or 'none'}")
     return 0
 
 
