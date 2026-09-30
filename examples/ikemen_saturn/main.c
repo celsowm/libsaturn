@@ -292,16 +292,16 @@ static void controls_from_commands(uint32_t player,
         if (body_dist_x < -32768) body_dist_x = -32768;
         if (body_dist_x > 32767) body_dist_x = 32767;
         const ik_state_rule_context_t context = {
-            fighter->state,
-            projected_time,
-            (int16_t)body_dist_x,
-            fighter->power,
-            ik_fight_state_type(fight, fighter),
-            (uint8_t)(fighter->ctrl != 0),
-            fighter->move_contact,
-            ik_fight_state_type(fight, p2),
-            (uint8_t)(p2_state ? p2_state->move_type : IK_CNS_MOVE_IDLE),
-            0u
+            .state_no = fighter->state,
+            .state_time = projected_time,
+            .p2_body_dist_x = (int16_t)body_dist_x,
+            .power = fighter->power,
+            .state_type = ik_fight_state_type(fight, fighter),
+            .ctrl = (uint8_t)(fighter->ctrl != 0),
+            .move_contact = fighter->move_contact,
+            .p2_state_type = ik_fight_state_type(fight, p2),
+            .p2_move_type =
+                (uint8_t)(p2_state ? p2_state->move_type : IK_CNS_MOVE_IDLE)
         };
         int16_t requested = 0;
         if (ik_command_eval_state_change(
