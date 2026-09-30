@@ -226,6 +226,7 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->hits_p1 = 0;
     fight->hits_p2 = 0;
     fight->ko_freeze = 0;
+    fight->effect_count = 0u;
 }
 
 void ik_fight_reset(ik_fight_t* fight) {
@@ -568,6 +569,12 @@ static int can_guard_hit(const ik_fight_t* fight,
     return (hitdef->guard_flags & guard_mask_for_type(type)) != 0u;
 }
 
+static void queue_hit_effect(ik_fight_t* fight,
+                             const ik_fighter_t* attacker,
+                             const ik_fighter_t* victim,
+                             const ik_cns_hitdef_t* hitdef,
+                             int16_t action);
+
 static void apply_guard(ik_fight_t* fight, int victim,
                         const ik_fight_controls_t* controls,
                         const ik_cns_hitdef_t* hitdef) {
@@ -617,6 +624,7 @@ static void apply_guard(ik_fight_t* fight, int victim,
                     type == IK_CNS_STATE_AIR ? 132 : 130);
     }
 
+    queue_hit_effect(fight, a, v, hitdef, 40);
     fight->events |= IK_EVENT_GUARD;
     if (guard_ko) {
         fight->winner = (uint8_t)((victim ^ 1) + 1);
@@ -675,9 +683,26 @@ static void apply_throw(ik_fight_t* fight, int attacker,
         }
     }
 
+    queue_hit_effect(fight, a, v, hitdef, hitdef->spark_no);
     fight->events |= IK_EVENT_HIT;
     if (attacker == 0) ++fight->hits_p1;
     else ++fight->hits_p2;
+}
+
+static void queue_hit_effect(ik_fight_t* fight,
+                             const ik_fighter_t* attacker,
+                             const ik_fighter_t* victim,
+                             const ik_cns_hitdef_t* hitdef,
+                             int16_t action) {
+    if (!fight || !attacker || !victim || !hitdef || action < 0 ||
+        fight->effect_count >= IK_MAX_EFFECT_EVENTS) return;
+    ik_effect_event_t* effect =
+        &fight->effect_events[fight->effect_count++];
+    effect->action = action;
+    effect->x = (int16_t)(
+        victim->x + (int16_t)attacker->facing * hitdef->spark_x);
+    /* MUGEN sparkxy: X is relative to P2, Y is relative to P1. */
+    effect->y = (int16_t)(attacker->y + hitdef->spark_y);
 }
 
 static void release_bound_target(ik_fight_t* fight, int owner) {
@@ -827,6 +852,7 @@ static void apply_damage(ik_fight_t* fight, int victim,
             v->vy_q8 = velocity_y;
         }
 
+        queue_hit_effect(fight, a, v, hitdef, hitdef->spark_no);
         if (v->hp <= 0) {
             v->hp = 0;
             fight->winner = (uint8_t)((victim ^ 1) + 1);
@@ -1685,6 +1711,7 @@ void ik_fight_update(ik_fight_t* fight,
                      const ik_frame_table_t* p2_frames) {
     if (!fight || !p1_frames) return;
     if (!p2_frames) p2_frames = p1_frames;
+    fight->effect_count = 0u;
     if (p1 && p1->start) {
         ik_fight_reset(fight);
         return;

@@ -13,8 +13,9 @@ smaller content profile.
 
 Packed P1 and P2 sprite payloads are generated as KFM_SPR.BIN and KFM_ZSS.BIN,
 staged on the ISO, copied once at boot into separate resident cartridge slots,
-and kept there for the fight. A third generic cart slot is reserved for
-fightfx. Internal WRAM is reserved for hot simulation state plus bounded
+and kept there for the fight. Legacy MUGEN fight effects are compiled from
+fightfx.sff/fightfx.air into FIGHTFX.BIN and occupy the third cart slot.
+Internal WRAM is reserved for hot simulation state plus bounded
 I/O/decode/prefetch scratch; VDP1 VRAM remains a 32-entry texture working set.
 
 Mednafen's normal LibSaturn launcher already defaults to the 4 MiB cart:
@@ -188,9 +189,17 @@ to 32 animation ticks per fighter and stages the next distinct packed sprite
 into a small per-player WRAM-L prefetch buffer. A predicted cache hit avoids
 the cart read on the transition frame.
 
-The cart store itself is generic and currently defines P1, P2 and FIGHTFX
-slots. FIGHTFX is reserved but not populated yet; no incomplete effects
-compiler is being hidden behind the API.
+The cart store defines P1, P2 and FIGHTFX slots. The fightfx compiler keeps
+the SFF palette selected by every referenced sprite instead of forcing one
+global palette, and AIR additive drawtypes are emitted as Saturn additive
+blend flags. HitDef sparkno/sparkxy data drives actions 0..3 at the authored
+impact position; guard contacts use fightfx action 40. Up to two contact
+events may be emitted by simulation in one tick so trade sparks are preserved.
+
+The shared texture LRU keys effects with the FIGHTFX asset slot and bounds
+resident fightfx textures to three entries, preventing effect palette churn
+from consuming every CRAM bank needed by fighters, text and tint variants.
+
 ## Still deferred
 
 This is not yet a complete Ikemen common-state VM. The next important pieces are:
@@ -204,7 +213,8 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   and supers are still deferred
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
-* fightfx sparks/effects, motif/lifebar flow and full round presentation
+* remaining fightfx families (blood, shockwaves, dust and supers),
+  motif/lifebar flow and full round presentation
 * generic PlaySnd dispatch for all compiled states
 * stage DEF execution instead of the current simplified stage runtime
 

@@ -17,6 +17,7 @@
 #include "src/hal/vdp1/vdp1.hpp"
 
 #include "examples/ikemen_saturn/ikemen_anim.h"
+#include "ikemen_saturn/fightfx_frames.h"
 #include "ikemen_saturn/kfm_frames.h"
 #include "ikemen_saturn/kfm_zss_frames.h"
 
@@ -115,9 +116,12 @@ int main() {
         "build/generated/ikemen_saturn/iso/KFM_SPR.BIN");
     const std::vector<uint8_t> zss_blob = load_sprite_blob(
         "build/generated/ikemen_saturn/iso/KFM_ZSS.BIN");
+    const std::vector<uint8_t> fightfx_blob = load_sprite_blob(
+        "build/generated/ikemen_saturn/iso/FIGHTFX.BIN");
 
     OK(sprite_blob.size() == KFM_SPRITE_DATA_BYTES);
     OK(zss_blob.size() == KFM_ZSS_SPRITE_DATA_BYTES);
+    OK(fightfx_blob.size() == FIGHTFX_SPRITE_DATA_BYTES);
     OK(KFM_CLSN_BOX_COUNT > 0u);
     bool saw_attack = false;
     bool saw_hurt = false;
@@ -159,6 +163,29 @@ int main() {
             static_cast<uint32_t>(zss_blob.size()),
             zss_scratch, sizeof(zss_scratch)) != 0);
         OK(KFM_ZSS_SPRITE_DATA_BYTES < KFM_ZSS_RAW_PIXELS_BYTES);
+    }
+
+    {
+        const ik_frame_table_t fx_table = {
+            fightfx_frames, FIGHTFX_FRAME_COUNT,
+            fightfx_clsn_boxes, FIGHTFX_CLSN_BOX_COUNT
+        };
+        const ik_frame_t* spark = ik_frame_at_time(&fx_table, 0, 0u);
+        const ik_frame_t* guard = ik_frame_at_time(&fx_table, 40, 0u);
+        OK(spark != nullptr && guard != nullptr);
+        OK((spark->flags & IK_FRAME_FLAG_BLEND_ADD) != 0u);
+        OK((guard->flags & IK_FRAME_FLAG_BLEND_ADD) != 0u);
+        OK(spark->sprite_index < FIGHTFX_SPRITE_COUNT);
+        const ik_sprite_source_t& source =
+            fightfx_sprites[spark->sprite_index];
+        OK(source.palette_index < FIGHTFX_PALETTE_COUNT);
+        OK(source.data_size <=
+           FIGHTFX_SPRITE_DATA_BYTES - source.data_ofs);
+        static uint8_t fx_scratch[FIGHTFX_MAX_SPRITE_BYTES];
+        OK(ik_sprite_decode(
+            &source, fightfx_blob.data(),
+            static_cast<uint32_t>(fightfx_blob.size()),
+            fx_scratch, sizeof(fx_scratch)) != 0);
     }
 
     uint32_t unique = 0u;

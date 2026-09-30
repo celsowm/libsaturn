@@ -680,6 +680,9 @@ int main() {
         }
         EQ(g.hits_p1,1u);
         EQ(g.hits_p2,1u);
+        EQ(g.effect_count,2u);
+        EQ(g.effect_events[0].action,0);
+        EQ(g.effect_events[1].action,0);
         EQ(g.fighters[0].hp,977);
         EQ(g.fighters[1].hp,977);
     }

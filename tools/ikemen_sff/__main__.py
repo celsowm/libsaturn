@@ -4,6 +4,8 @@ Modes:
   char   --sff K.sff --air K.air --actions 0,20,40 --palettes 1,4
            Emits <prefix>_frames.c/.h (metadata + palettes) and a packed
            sprite payload binary selected by --sprite-bin.
+  fx     --sff fightfx.sff --air fightfx.air --actions 0,1,2,3,40
+           Preserves each referenced sprite's SFF palette and AIR drawtype.
   stage  --sff S.sff --layers "0,0:start0,0:tile;0,1:start0,185:tile"
            Emits <prefix>_plane.c/.h (320x224 indexed canvas + palette).
 
@@ -131,7 +133,8 @@ def cmd_char(args) -> int:
                 width=sprite.padded_width, height=node.height,
                 ax=node.xoff + sprite.left_pad, ay=node.yoff, ticks=fr.time,
                 flip_h=fr.flip_h, flip_v=fr.flip_v,
-                sprite_key=key, clsn1=list(fr.clsn1), clsn2=list(fr.clsn2)))
+                sprite_key=key, blend_mode=fr.blend_mode,
+                clsn1=list(fr.clsn1), clsn2=list(fr.clsn2)))
     if not frames:
         raise SystemExit("[ikemen_sff] no frames resolved", 2)
 
@@ -185,6 +188,99 @@ def cmd_char(args) -> int:
           f"unique={len(sprite_assets)} raw={raw_blob}B packed={packed_blob}B "
           f"missing={missing or 'none'}")
     return 0
+
+
+def cmd_fx(args) -> int:
+    container = sff_mod.load(Path(args.sff))
+    actions = air_mod.parse(Path(args.air))
+    nodes = {(n.group, n.number): n for n in container.sprite_nodes()}
+
+    frames: list[emit_mod.FrameAsset] = []
+    sprite_assets: dict[tuple[int, int], emit_mod.SpriteAsset] = {}
+    palette_slots: dict[tuple[int, ...], int] = {}
+    palette_words: list[list[int]] = []
+    missing: list[str] = []
+
+    for action in args.actions:
+        act = actions.get(action)
+        if act is None or not act.frames:
+            missing.append(str(action))
+            continue
+        for idx, fr in enumerate(act.frames):
+            node = nodes.get((fr.group, fr.number))
+            if node is None:
+                missing.append(f"{action}:{fr.group},{fr.number}")
+                continue
+            key = (fr.group, fr.number)
+            if key not in sprite_assets:
+                try:
+                    sprite = _runtime_sprite_asset(container, node)
+                except UnsupportedCodec as exc:
+                    raise SystemExit(f"[ikemen_sff] {key}: {exc}", 2)
+                words = pal_mod.materialize_index(container, node.palette_index)
+                pal_key = tuple(words)
+                palette_index = palette_slots.get(pal_key)
+                if palette_index is None:
+                    palette_index = len(palette_words)
+                    palette_slots[pal_key] = palette_index
+                    palette_words.append(words)
+                sprite.palette_index = palette_index
+                sprite_assets[key] = sprite
+
+            sprite = sprite_assets[key]
+            frames.append(emit_mod.FrameAsset(
+                action=action, index=idx,
+                width=sprite.padded_width, height=node.height,
+                ax=node.xoff + sprite.left_pad, ay=node.yoff, ticks=fr.time,
+                flip_h=fr.flip_h, flip_v=fr.flip_v,
+                sprite_key=key, blend_mode=fr.blend_mode,
+                clsn1=list(fr.clsn1), clsn2=list(fr.clsn2)))
+
+    if not frames:
+        raise SystemExit("[ikemen_sff] no effect frames resolved", 2)
+    if len(palette_words) > 0xFFFF:
+        raise SystemExit("[ikemen_sff] too many effect palettes", 2)
+
+    names = {f"p{i}": words for i, words in enumerate(palette_words)}
+    c_text, h_text, sprite_blob = emit_mod.emit_frames(
+        args.out_prefix, args.symbol, frames, sprite_assets, names,
+        Path(args.sff).name)
+
+    out_prefix = Path(args.out_prefix)
+    out_prefix.parent.mkdir(parents=True, exist_ok=True)
+    (out_prefix.parent / f"{out_prefix.name}_frames.c").write_text(
+        c_text, encoding="utf-8")
+    (out_prefix.parent / f"{out_prefix.name}_frames.h").write_text(
+        h_text, encoding="utf-8")
+    sprite_bin = Path(args.sprite_bin) if args.sprite_bin else (
+        out_prefix.parent / f"{out_prefix.name}_sprites.bin")
+    sprite_bin.parent.mkdir(parents=True, exist_ok=True)
+    sprite_bin.write_bytes(sprite_blob)
+
+    manifest = {
+        "symbol": args.symbol,
+        "sff": args.sff,
+        "air": args.air,
+        "actions": {str(a): len(actions[a].frames)
+                    for a in args.actions if a in actions},
+        "frames": len(frames),
+        "unique_sprites": len(sprite_assets),
+        "palettes": len(palette_words),
+        "sprite_blob": str(sprite_bin),
+        "stored_pixel_bytes": len(sprite_blob),
+        "max_sprite_bytes": max(
+            s.padded_width * s.height for s in sprite_assets.values()),
+        "max_sprite_source_bytes": max(
+            len(s.data) for s in sprite_assets.values()),
+        "missing": missing,
+    }
+    (out_prefix.parent / f"{out_prefix.name}.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8")
+    print(f"[ikemen_sff] fx {args.symbol}: frames={len(frames)} "
+          f"unique={len(sprite_assets)} palettes={len(palette_words)} "
+          f"stored={len(sprite_blob)}B missing={missing or 'none'}")
+    return 0
+
 
 
 def cmd_stage(args) -> int:
@@ -257,6 +353,17 @@ def main(argv=None) -> int:
     char.add_argument("--png-dir")
     char.add_argument("--png-limit", type=int, default=8)
     char.set_defaults(fn=cmd_char)
+
+    fx = sub.add_parser("fx")
+    fx.add_argument("--sff", required=True)
+    fx.add_argument("--air", required=True)
+    fx.add_argument("--actions", type=_parse_actions, required=True,
+                    help="comma-separated AIR action numbers")
+    fx.add_argument("--out-prefix", required=True)
+    fx.add_argument("--symbol", required=True)
+    fx.add_argument("--sprite-bin",
+                    help="packed runtime effect sprite payload binary output")
+    fx.set_defaults(fn=cmd_fx)
 
     st = sub.add_parser("stage")
     st.add_argument("--sff", required=True)

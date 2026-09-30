@@ -26,6 +26,10 @@ _CLSN_COUNT = re.compile(r"^\s*Clsn([12])\s*:\s*(\d+)", re.I)
 
 Box = tuple[int, int, int, int]
 
+AIR_BLEND_NONE = 0
+AIR_BLEND_ADD = 1
+AIR_BLEND_SUBTRACT = 2
+
 
 @dataclass
 class AirFrame:
@@ -36,6 +40,7 @@ class AirFrame:
     time: int
     flip_h: bool = False
     flip_v: bool = False
+    blend_mode: int = AIR_BLEND_NONE
     clsn1: list[Box] = field(default_factory=list)
     clsn2: list[Box] = field(default_factory=list)
 
@@ -137,12 +142,17 @@ def parse(path: Path) -> dict[int, AirAction]:
         if m:
             rest = m.group(6)
             flip_h = flip_v = False
+            blend_mode = AIR_BLEND_NONE
             for token in rest.split(","):
                 token = token.strip().upper()
                 if token in ("H", "HV"):
                     flip_h = True
                 if token in ("V", "HV"):
                     flip_v = True
+                if token.startswith("A"):
+                    blend_mode = AIR_BLEND_ADD
+                elif token.startswith("S"):
+                    blend_mode = AIR_BLEND_SUBTRACT
 
             effective1 = (
                 list(current.clsn1_default)
@@ -155,7 +165,7 @@ def parse(path: Path) -> dict[int, AirAction]:
             current.frames.append(AirFrame(
                 int(m.group(1)), int(m.group(2)),
                 int(m.group(3)), int(m.group(4)), int(m.group(5)),
-                flip_h, flip_v, effective1, effective2,
+                flip_h, flip_v, blend_mode, effective1, effective2,
             ))
             pending = {1: None, 2: None}
             collecting_kind = 0

@@ -16,6 +16,7 @@
 #include "saturn/texture.h"
 #include "saturn/time.h"
 #include "saturn/vdp2.h"
+#include "saturn/vdp2_color_calc.h"
 #include "saturn/video.h"
 
 #include "ikemen_anim.h"
@@ -26,6 +27,7 @@
 #include "ikemen_saturn/kfm_commands.h"
 #include "ikemen_saturn/kfm_state_rules.h"
 #include "ikemen_saturn/kfm_cns.h"
+#include "ikemen_saturn/fightfx_frames.h"
 #include "ikemen_saturn/kfm_frames.h"
 #include "ikemen_saturn/kfm_zss_frames.h"
 #include "ikemen_saturn/stage0_plane.h"
@@ -33,11 +35,16 @@
 #define STAGE_PALETTE_ID 4u
 #define FLOOR_SCREEN_Y 178
 #define IK_FRAME_TEXTURE_CACHE_SIZE 32u
+#define IK_EFFECT_INSTANCE_COUNT 4u
+#define IK_EFFECT_TEXTURE_CACHE_LIMIT 3u
 #define IK_ASSET_LOAD_CHUNK_BYTES (64u * 1024u)
 #define IK_PREFETCH_LOOKAHEAD_TICKS 32u
-#define IK_MAX_SPRITE_SOURCE_BYTES \
+#define IK_CHARACTER_MAX_SPRITE_SOURCE_BYTES \
     ((KFM_MAX_SPRITE_SOURCE_BYTES > KFM_ZSS_MAX_SPRITE_SOURCE_BYTES) ? \
          KFM_MAX_SPRITE_SOURCE_BYTES : KFM_ZSS_MAX_SPRITE_SOURCE_BYTES)
+#define IK_MAX_SPRITE_SOURCE_BYTES \
+    ((IK_CHARACTER_MAX_SPRITE_SOURCE_BYTES > FIGHTFX_MAX_SPRITE_SOURCE_BYTES) ? \
+         IK_CHARACTER_MAX_SPRITE_SOURCE_BYTES : FIGHTFX_MAX_SPRITE_SOURCE_BYTES)
 #define IK_ASSET_IO_SCRATCH_BYTES \
     ((IK_MAX_SPRITE_SOURCE_BYTES > IK_ASSET_LOAD_CHUNK_BYTES) ? \
          IK_MAX_SPRITE_SOURCE_BYTES : IK_ASSET_LOAD_CHUNK_BYTES)
@@ -66,19 +73,33 @@ typedef struct ik_character_runtime {
     uint8_t asset_slot;
 } ik_character_runtime_t;
 
+typedef struct ik_effect_instance {
+    int16_t action;
+    int16_t x;
+    int16_t y;
+    uint16_t age;
+    uint8_t active;
+} ik_effect_instance_t;
+
 static ik_frame_texture_cache_entry_t
     g_frame_cache[IK_FRAME_TEXTURE_CACHE_SIZE];
 static uint32_t g_frame_cache_clock;
 static uint32_t g_frame_cache_epoch;
 static ik_asset_store_t g_asset_store;
 static ik_sprite_prefetch_t g_prefetch[2];
+static ik_effect_instance_t g_effect_instances[IK_EFFECT_INSTANCE_COUNT];
+static uint8_t g_effect_cursor;
 static uint8_t g_asset_io_scratch[IK_ASSET_IO_SCRATCH_BYTES]
     __attribute__((section(".wram_l"), aligned(32)));
 static uint8_t g_prefetch_data[2][IK_MAX_SPRITE_SOURCE_BYTES]
     __attribute__((section(".wram_l"), aligned(32)));
-static uint8_t g_frame_decode_scratch[
-    (KFM_MAX_SPRITE_BYTES > KFM_ZSS_MAX_SPRITE_BYTES)
-        ? KFM_MAX_SPRITE_BYTES : KFM_ZSS_MAX_SPRITE_BYTES]
+#define IK_CHARACTER_MAX_SPRITE_BYTES \
+    ((KFM_MAX_SPRITE_BYTES > KFM_ZSS_MAX_SPRITE_BYTES) ? \
+         KFM_MAX_SPRITE_BYTES : KFM_ZSS_MAX_SPRITE_BYTES)
+#define IK_MAX_SPRITE_BYTES \
+    ((IK_CHARACTER_MAX_SPRITE_BYTES > FIGHTFX_MAX_SPRITE_BYTES) ? \
+         IK_CHARACTER_MAX_SPRITE_BYTES : FIGHTFX_MAX_SPRITE_BYTES)
+static uint8_t g_frame_decode_scratch[IK_MAX_SPRITE_BYTES]
     __attribute__((section(".wram_l"), aligned(32)));
 
 static uint16_t g_map_scratch[SAT_VDP2_NBG0_MAP_CELLS];
@@ -92,6 +113,10 @@ static const ik_frame_table_t g_kfm_table = {
 static const ik_frame_table_t g_kfm_zss_table = {
     kfm_zss_frames, KFM_ZSS_FRAME_COUNT,
     kfm_zss_clsn_boxes, KFM_ZSS_CLSN_BOX_COUNT
+};
+static const ik_frame_table_t g_fightfx_table = {
+    fightfx_frames, FIGHTFX_FRAME_COUNT,
+    fightfx_clsn_boxes, FIGHTFX_CLSN_BOX_COUNT
 };
 static const ik_character_runtime_t g_characters[2] = {
     {&g_kfm_table, kfm_sprites, kfm_palette_main,
@@ -157,6 +182,10 @@ static void fighters_init(void) {
     for (uint32_t i = 0u; i < 2u; ++i) {
         g_prefetch[i] = (ik_sprite_prefetch_t){0};
     }
+    for (uint32_t i = 0u; i < IK_EFFECT_INSTANCE_COUNT; ++i) {
+        g_effect_instances[i] = (ik_effect_instance_t){0};
+    }
+    g_effect_cursor = 0u;
     g_frame_cache_clock = 0u;
     g_frame_cache_epoch = 0u;
 }
@@ -212,15 +241,37 @@ static sat_result_t frame_texture_resolve(uint32_t player,
 
     uint32_t victim = IK_FRAME_TEXTURE_CACHE_SIZE;
     uint32_t oldest = 0xFFFFFFFFu;
+    uint32_t effect_entries = 0u;
     for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
-        ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
-        if (!e->used) {
-            victim = i;
-            break;
+        const ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
+        if (e->used && e->asset_slot == IK_ASSET_SLOT_FIGHTFX) {
+            ++effect_entries;
         }
-        if (e->pin_epoch != epoch && e->last_use < oldest) {
-            oldest = e->last_use;
-            victim = i;
+    }
+
+    if (effect_entries >= IK_EFFECT_TEXTURE_CACHE_LIMIT) {
+        for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
+            ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
+            if (e->used && e->asset_slot == IK_ASSET_SLOT_FIGHTFX &&
+                e->pin_epoch != epoch && e->last_use < oldest) {
+                oldest = e->last_use;
+                victim = i;
+            }
+        }
+    }
+
+    if (victim >= IK_FRAME_TEXTURE_CACHE_SIZE) {
+        oldest = 0xFFFFFFFFu;
+        for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
+            ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
+            if (!e->used) {
+                victim = i;
+                break;
+            }
+            if (e->pin_epoch != epoch && e->last_use < oldest) {
+                oldest = e->last_use;
+                victim = i;
+            }
         }
     }
     if (victim >= IK_FRAME_TEXTURE_CACHE_SIZE) return SAT_ERR_BUSY;
@@ -328,6 +379,156 @@ static sat_result_t prefetch_next_frame(
     g_prefetch[player].asset_slot = character->asset_slot;
     g_prefetch[player].valid = 1u;
     return SAT_OK;
+}
+
+static sat_result_t effect_texture_resolve(const ik_frame_t* frame,
+                                           uint32_t epoch,
+                                           sat_texture_t* out_texture) {
+    if (!frame || !out_texture ||
+        frame->sprite_index >= FIGHTFX_SPRITE_COUNT) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    ++g_frame_cache_clock;
+    if (g_frame_cache_clock == 0u) g_frame_cache_clock = 1u;
+
+    for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
+        ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
+        if (e->used && e->asset_slot == IK_ASSET_SLOT_FIGHTFX &&
+            e->sprite_index == frame->sprite_index) {
+            e->last_use = g_frame_cache_clock;
+            e->pin_epoch = epoch;
+            *out_texture = e->texture;
+            return SAT_OK;
+        }
+    }
+
+    uint32_t victim = IK_FRAME_TEXTURE_CACHE_SIZE;
+    uint32_t oldest = 0xFFFFFFFFu;
+    for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
+        ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
+        if (!e->used) {
+            victim = i;
+            break;
+        }
+        if (e->pin_epoch != epoch && e->last_use < oldest) {
+            oldest = e->last_use;
+            victim = i;
+        }
+    }
+    if (victim >= IK_FRAME_TEXTURE_CACHE_SIZE) return SAT_ERR_BUSY;
+
+    ik_frame_texture_cache_entry_t* e = &g_frame_cache[victim];
+    if (e->used) {
+        SAT_TRY(sat_texture_destroy(e->texture));
+        *e = (ik_frame_texture_cache_entry_t){0};
+    }
+
+    const ik_sprite_source_t* source =
+        &fightfx_sprites[frame->sprite_index];
+    if (source->data_size > sizeof(g_asset_io_scratch) ||
+        source->palette_index >= FIGHTFX_PALETTE_COUNT) {
+        return SAT_ERR_CAPACITY;
+    }
+    SAT_TRY(ik_asset_store_read_sprite(
+        &g_asset_store, IK_ASSET_SLOT_FIGHTFX, source,
+        g_asset_io_scratch, (uint32_t)sizeof(g_asset_io_scratch)));
+
+    ik_sprite_source_t local_source = *source;
+    local_source.data_ofs = 0u;
+    if (!ik_sprite_decode(
+            &local_source, g_asset_io_scratch, source->data_size,
+            g_frame_decode_scratch, sizeof(g_frame_decode_scratch))) {
+        return SAT_ERR_IO;
+    }
+
+    sat_surface_t surface;
+    SAT_TRY(sat_surface_init(
+        &surface, g_frame_decode_scratch,
+        frame->w, frame->h, frame->w, SAT_PIXEL_INDEX8,
+        fightfx_palettes[source->palette_index], 256u));
+
+    sat_texture_t texture = {0u, 0u};
+    SAT_TRY(sat_texture_create_from_surface(
+        &texture, &surface, SAT_TEXTURE_UPLOAD_ONLY));
+
+    e->used = 1u;
+    e->asset_slot = IK_ASSET_SLOT_FIGHTFX;
+    e->sprite_index = frame->sprite_index;
+    e->last_use = g_frame_cache_clock;
+    e->pin_epoch = epoch;
+    e->texture = texture;
+    *out_texture = texture;
+    return SAT_OK;
+}
+
+static void spawn_effect_events(const ik_fight_t* fight) {
+    if (!fight) return;
+    for (uint32_t i = 0u; i < fight->effect_count; ++i) {
+        const ik_effect_event_t* event = &fight->effect_events[i];
+        if (!ik_frames_bounds(&g_fightfx_table, event->action, 0, 0)) {
+            continue;
+        }
+
+        uint32_t slot = IK_EFFECT_INSTANCE_COUNT;
+        for (uint32_t j = 0u; j < IK_EFFECT_INSTANCE_COUNT; ++j) {
+            if (!g_effect_instances[j].active) {
+                slot = j;
+                break;
+            }
+        }
+        if (slot >= IK_EFFECT_INSTANCE_COUNT) {
+            slot = g_effect_cursor++ % IK_EFFECT_INSTANCE_COUNT;
+        }
+
+        g_effect_instances[slot].action = event->action;
+        g_effect_instances[slot].x = event->x;
+        g_effect_instances[slot].y = event->y;
+        g_effect_instances[slot].age = 0u;
+        g_effect_instances[slot].active = 1u;
+    }
+}
+
+static void draw_effects(void) {
+    for (uint32_t i = 0u; i < IK_EFFECT_INSTANCE_COUNT; ++i) {
+        ik_effect_instance_t* effect = &g_effect_instances[i];
+        if (!effect->active) continue;
+
+        const uint32_t duration =
+            ik_action_duration_ticks(&g_fightfx_table, effect->action);
+        if (duration != 0u && effect->age >= duration) {
+            effect->active = 0u;
+            continue;
+        }
+
+        const ik_frame_t* frame =
+            ik_frame_at_time(&g_fightfx_table, effect->action, effect->age);
+        if (!frame) {
+            effect->active = 0u;
+            continue;
+        }
+
+        sat_texture_t texture = {0u, 0u};
+        sat_example_must(effect_texture_resolve(
+            frame, g_frame_cache_epoch, &texture));
+
+        int16_t dx = 0;
+        int16_t dy = 0;
+        ik_frame_screen_anchor(
+            frame, effect->x, effect->y, 1, &dx, &dy);
+
+        sat_draw_params_t params = sat_draw_params_default();
+        if ((frame->flags & IK_FRAME_FLAG_BLEND_ADD) != 0u) {
+            params.blend_mode = SAT_BLEND_ADD;
+        } else if ((frame->flags & IK_FRAME_FLAG_BLEND_SUBTRACT) != 0u) {
+            params.blend_mode = SAT_BLEND_SUBTRACT;
+        }
+
+        sat_example_must(sat_draw_texture(
+            texture, 0,
+            &(sat_rect_t){dx, dy, frame->w, frame->h}, &params));
+        effect->age++;
+    }
 }
 
 static void draw_fighter(const ik_frame_t* frame,
@@ -527,6 +728,7 @@ int main(void) {
         SAT_BGR555(0u, 0u, 0u),
         1u));
     sat_example_must(sat_hud_init(&g_hud, &g_font, 1u, 8));
+    sat_example_must(sat_vdp2_sprite_color_calc_configure_alpha(6u));
 
     sat_example_loading_frame(
         &g_font, "IKEMEN SATURN", "LOADING 4 MB RAM CART", 5u, 320u, 224u);
@@ -550,7 +752,16 @@ int main(void) {
         if (st != SAT_OK) asset_store_stop(st);
     }
     sat_example_loading_frame(
-        &g_font, "IKEMEN SATURN", "P1 + P2 RESIDENT IN CART", 80u, 320u, 224u);
+        &g_font, "IKEMEN SATURN", "P1 + P2 RESIDENT IN CART", 75u, 320u, 224u);
+    {
+        const sat_result_t st = ik_asset_store_load_blob(
+            &g_asset_store, IK_ASSET_SLOT_FIGHTFX,
+            "FIGHTFX.BIN", FIGHTFX_SPRITE_DATA_BYTES,
+            g_asset_io_scratch, (uint32_t)sizeof(g_asset_io_scratch));
+        if (st != SAT_OK) asset_store_stop(st);
+    }
+    sat_example_loading_frame(
+        &g_font, "IKEMEN SATURN", "FIGHTFX RESIDENT IN CART", 90u, 320u, 224u);
 
     stage_init();
     fighters_init();
@@ -597,11 +808,13 @@ int main(void) {
         ik_fight_update(
             &fight, &p1_controls, have_p2 ? &p2_controls : 0,
             g_characters[0].frames, g_characters[1].frames);
+        spawn_effect_events(&fight);
         ik_audio_process_fight(&audio, &fight);
         sat_example_must(ik_audio_update());
 
         stage_scroll_for_fight(&fight);
         draw_fighters(&fight);
+        draw_effects();
         draw_bars(&fight);
 
         sat_example_must(sat_app_frame_end());

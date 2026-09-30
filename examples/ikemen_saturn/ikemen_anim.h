@@ -18,6 +18,7 @@ typedef struct ik_sprite_source {
     uint16_t padded_w;
     uint8_t left_pad;
     uint8_t format;
+    uint16_t palette_index;
 } ik_sprite_source_t;
 
 typedef struct ik_frame {
@@ -45,6 +46,8 @@ typedef struct ik_frame_table {
 
 #define IK_FRAME_FLAG_FLIP_H 1u
 #define IK_FRAME_FLAG_FLIP_V 2u
+#define IK_FRAME_FLAG_BLEND_ADD 4u
+#define IK_FRAME_FLAG_BLEND_SUBTRACT 8u
 #define IK_CLSN_ATTACK 1u
 #define IK_CLSN_HURT 2u
 #define IK_SPRITE_FORMAT_RAW 0u

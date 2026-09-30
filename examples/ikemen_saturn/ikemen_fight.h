@@ -19,6 +19,7 @@ extern "C" {
 #define IK_MAX_POWER 3000
 #define IK_ROUND_TIME_FRAMES (99u * 60u)
 #define IK_KO_FREEZE_FRAMES 120
+#define IK_MAX_EFFECT_EVENTS 2
 
 typedef enum ik_state {
     IK_STATE_IDLE = 0,
@@ -54,6 +55,12 @@ typedef enum ik_event {
     IK_EVENT_RESET = 1u << 3,
     IK_EVENT_GUARD = 1u << 4
 } ik_event_t;
+
+typedef struct ik_effect_event {
+    int16_t action;
+    int16_t x;
+    int16_t y;
+} ik_effect_event_t;
 
 typedef struct ik_fight_controls {
     uint8_t forward;
@@ -141,6 +148,8 @@ typedef struct ik_fight {
     uint32_t hits_p1;
     uint32_t hits_p2;
     uint32_t ko_freeze;
+    ik_effect_event_t effect_events[IK_MAX_EFFECT_EVENTS];
+    uint8_t effect_count;
 } ik_fight_t;
 
 void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns);
