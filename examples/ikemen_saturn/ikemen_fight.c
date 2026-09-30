@@ -488,9 +488,10 @@ static int fighter_not_hit_by_blocks(
 static const ik_cns_reversaldef_t* active_reversaldef(
     const ik_fight_t* fight,
     const ik_fighter_t* defender,
-    const ik_fighter_t* attacker
+    const ik_fighter_t* attacker,
+    const ik_cns_hitdef_t* incoming
 ) {
-    if (!fight || !fight->cns || !defender || !attacker ||
+    if (!fight || !fight->cns || !defender || !attacker || !incoming ||
         !fight->cns->reversals) {
         return 0;
     }
@@ -514,6 +515,70 @@ static const ik_cns_reversaldef_t* active_reversaldef(
             continue;
         }
         if ((reversal->attacker_state_mask & attacker_bit) == 0u) {
+            continue;
+        }
+        if (reversal->incoming_attr_mask != 0u &&
+            (reversal->incoming_attr_mask &
+             incoming->attack_attr_mask) == 0u) {
+            continue;
+        }
+        return reversal;
+    }
+    return 0;
+}
+
+static uint8_t reversal_entity_state_bit(
+    const ik_entity_t* attacker
+) {
+    if (!attacker) return 0u;
+    switch ((ik_cns_state_type_t)attacker->state_type) {
+        case IK_CNS_STATE_STAND:
+            return IK_CNS_REVERSAL_STATE_STAND;
+        case IK_CNS_STATE_CROUCH:
+            return IK_CNS_REVERSAL_STATE_CROUCH;
+        case IK_CNS_STATE_AIR:
+            return IK_CNS_REVERSAL_STATE_AIR;
+        default:
+            return 0u;
+    }
+}
+
+static const ik_cns_reversaldef_t* active_reversaldef_entity(
+    const ik_fight_t* fight,
+    const ik_fighter_t* defender,
+    const ik_entity_t* attacker,
+    const ik_cns_hitdef_t* incoming
+) {
+    if (!fight || !fight->cns || !defender || !attacker || !incoming ||
+        !fight->cns->reversals) {
+        return 0;
+    }
+
+    const ik_cns_state_t* state =
+        ik_cns_find_state(fight->cns, defender->state);
+    if (!state || state->reversal_count == 0u) return 0;
+
+    const uint8_t attacker_bit = reversal_entity_state_bit(attacker);
+    const uint16_t authored_time =
+        defender->state_time > 0u
+            ? (uint16_t)(defender->state_time - 1u)
+            : 0u;
+
+    for (uint8_t i = 0u; i < state->reversal_count; ++i) {
+        const uint16_t index = (uint16_t)(state->reversal_ofs + i);
+        if (index >= fight->cns->reversal_count) break;
+        const ik_cns_reversaldef_t* reversal =
+            &fight->cns->reversals[index];
+        if (authored_time < reversal->start_time ||
+            authored_time >= reversal->end_time) {
+            continue;
+        }
+        if ((reversal->attacker_state_mask & attacker_bit) == 0u) {
+            continue;
+        }
+        if (reversal->incoming_attr_mask != 0u &&
+            (reversal->incoming_attr_mask &
+             incoming->attack_attr_mask) == 0u) {
             continue;
         }
         return reversal;
@@ -634,6 +699,50 @@ static void entity_anim_position(
     if (out_element) *out_element = element;
     if (out_element_time) *out_element_time = element_time;
     if (out_ended) *out_ended = ended;
+}
+
+static int entity_reversal_clsn_overlap(
+    const ik_frame_table_t* defender_frames,
+    const ik_frame_table_t* attacker_frames,
+    const ik_fighter_t* defender,
+    const ik_entity_t* attacker
+) {
+    if (!defender_frames || !attacker_frames ||
+        !defender || !attacker) {
+        return 0;
+    }
+    const ik_frame_t* df = fighter_frame(defender_frames, defender);
+    const ik_frame_t* af = ik_frame_at_time(
+        attacker_frames, attacker->anim_no, attacker->anim_time);
+    if (!df || !af || df->clsn1_count == 0u ||
+        af->clsn1_count == 0u) {
+        return 0;
+    }
+
+    const int ax = ik_cns_q8_to_int(attacker->x_q8);
+    const int ay = ik_cns_q8_to_int(attacker->y_q8);
+    for (uint16_t di = 0u; di < df->clsn1_count; ++di) {
+        int dl, dt, dr, db;
+        if (!ik_frame_clsn_world(
+                defender_frames, df, IK_CLSN_ATTACK, di,
+                defender->x, defender->y, defender->facing,
+                &dl, &dt, &dr, &db)) {
+            continue;
+        }
+        for (uint16_t ai = 0u; ai < af->clsn1_count; ++ai) {
+            int al, at, ar, ab;
+            if (!ik_frame_clsn_world(
+                    attacker_frames, af, IK_CLSN_ATTACK, ai,
+                    ax, ay, attacker->facing,
+                    &al, &at, &ar, &ab)) {
+                continue;
+            }
+            if (ik_boxes_overlap(dl, dt, dr, db, al, at, ar, ab)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
 }
 
 static int entity_clsn_overlap(
@@ -2661,6 +2770,35 @@ static void resolve_entity_contacts(
             continue;
         }
 
+        const ik_cns_reversaldef_t* reversal =
+            active_reversaldef_entity(fight, v, attacker, hitdef);
+        if (reversal && entity_reversal_clsn_overlap(
+                victim_frames, attacker_frames, v, attacker)) {
+            attacker->hitdef_hit_mask |= bit;
+            attacker->move_contact = 1u;
+            attacker->hit_pause = reversal->pause_p2;
+            if (reversal->p2_spr_priority != -128) {
+                attacker->spr_priority = reversal->p2_spr_priority;
+            }
+            v->hit_pause = reversal->pause_p1;
+            if (reversal->p1_state_no >= 0) {
+                enter_state(fight, v, reversal->p1_state_no);
+            }
+            if (reversal->p1_spr_priority != -128) {
+                v->spr_priority = reversal->p1_spr_priority;
+            }
+            queue_reversal_effect(fight, v, reversal);
+            queue_sound_event(
+                fight, reversal->hit_sound_group,
+                reversal->hit_sound_item);
+            fight->events |= IK_EVENT_GUARD;
+            if (attacker->type == IK_ENTITY_PROJECTILE) {
+                (void)ik_entity_destroy(
+                    fight->entities, attackers[n]);
+            }
+            continue;
+        }
+
         const ik_cns_hitoverride_t* override =
             active_hitoverride(fight, v, hitdef);
         if (override && override->target_state >= 0) {
@@ -2785,7 +2923,7 @@ void ik_fight_update(ik_fight_t* fight,
         if ((a->hitdef_hit_mask & bit) != 0u) continue;
 
         const ik_cns_reversaldef_t* reversal =
-            active_reversaldef(fight, v, a);
+            active_reversaldef(fight, v, a, hitdef);
         if (reversal && fighter_reversal_clsn_overlap(
                 victim_frames, attacker_frames, v, a)) {
             reversals[atk] = reversal;
