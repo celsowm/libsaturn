@@ -172,22 +172,68 @@ uint16_t ik_frame_ticks(const ik_frame_t* frame) {
     return frame->ticks;
 }
 
+int ik_action_loops(const ik_frame_table_t* table, int action) {
+    uint32_t first = 0u;
+    uint32_t count = 0u;
+    if (!ik_frames_bounds(table, action, &first, &count)) return 0;
+    for (uint32_t i = 0u; i < count; ++i) {
+        if ((table->frames[first + i].flags &
+             IK_FRAME_FLAG_LOOP_START) != 0u) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 const ik_frame_t* ik_frame_at_time(const ik_frame_table_t* table,
                                    int action, uint32_t ticks) {
     uint32_t first = 0u;
     uint32_t count = 0u;
-    if (!ik_frames_bounds(table, action, &first, &count)) return 0;
-    uint32_t i = 0u;
+    if (!ik_frames_bounds(table, action, &first, &count) ||
+        count == 0u) {
+        return 0;
+    }
+
+    uint32_t loop = count;
+    for (uint32_t i = 0u; i < count; ++i) {
+        if ((table->frames[first + i].flags &
+             IK_FRAME_FLAG_LOOP_START) != 0u) {
+            loop = i;
+            break;
+        }
+    }
+
     uint32_t remaining = ticks;
-    for (;;) {
+    for (uint32_t i = 0u; i < count; ++i) {
         const ik_frame_t* frame = &table->frames[first + i];
         const uint16_t duration = ik_frame_ticks(frame);
-        if (duration == 0u) return frame;
+        if (duration == 0u || remaining < duration) return frame;
+        remaining -= duration;
+    }
+
+    if (loop >= count) {
+        return &table->frames[first + count - 1u];
+    }
+
+    uint32_t loop_ticks = 0u;
+    for (uint32_t i = loop; i < count; ++i) {
+        const uint16_t duration =
+            ik_frame_ticks(&table->frames[first + i]);
+        if (duration == 0u) return &table->frames[first + i];
+        loop_ticks += duration;
+    }
+    if (loop_ticks == 0u) {
+        return &table->frames[first + count - 1u];
+    }
+
+    remaining %= loop_ticks;
+    for (uint32_t i = loop; i < count; ++i) {
+        const ik_frame_t* frame = &table->frames[first + i];
+        const uint16_t duration = ik_frame_ticks(frame);
         if (remaining < duration) return frame;
         remaining -= duration;
-        i += 1u;
-        if (i >= count) i = 0u;
     }
+    return &table->frames[first + count - 1u];
 }
 
 uint32_t ik_action_duration_ticks(const ik_frame_table_t* table, int action) {
@@ -196,8 +242,11 @@ uint32_t ik_action_duration_ticks(const ik_frame_table_t* table, int action) {
     if (!ik_frames_bounds(table, action, &first, &count)) return 0u;
     uint32_t total = 0u;
     for (uint32_t i = 0u; i < count; ++i) {
-        const uint16_t ticks = ik_frame_ticks(&table->frames[first + i]);
+        const ik_frame_t* frame = &table->frames[first + i];
+        if ((frame->flags & IK_FRAME_FLAG_LOOP_START) != 0u) return 0u;
+        const uint16_t ticks = ik_frame_ticks(frame);
         if (ticks == 0u) return 0u;
+        if (0xFFFFFFFFu - total < ticks) return 0xFFFFFFFFu;
         total += ticks;
     }
     return total;

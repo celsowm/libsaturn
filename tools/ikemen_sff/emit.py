@@ -32,6 +32,7 @@ class FrameAsset:
     flip_v: bool
     sprite_key: tuple[int, int]
     blend_mode: int = 0
+    loop_start: bool = False
     sprite_index: int = 0
     clsn1: list[tuple[int, int, int, int]] = field(default_factory=list)
     clsn2: list[tuple[int, int, int, int]] = field(default_factory=list)
@@ -117,7 +118,7 @@ def emit_frames(prefix: str, symbol: str, frames: list[FrameAsset],
     frames_init = "\n".join(
         f"{INDENT}{{{f.action}u, {f.index}u, {f.width}u, {f.height}u, "
         f"{f.ax}, {f.ay}, {max(f.ticks, 0)}u, "
-        f"{(1 if f.flip_h else 0) | (2 if f.flip_v else 0) | (4 if f.blend_mode == 1 else 0) | (8 if f.blend_mode == 2 else 0)}u, "
+        f"{(1 if f.flip_h else 0) | (2 if f.flip_v else 0) | (4 if f.blend_mode == 1 else 0) | (8 if f.blend_mode == 2 else 0) | (16 if f.loop_start else 0)}u, "
         f"{f.sprite_index}u, {meta[0]}u, {meta[1]}u, {meta[2]}u, {meta[3]}u}},"
         for f, meta in zip(frames, frame_clsn)
     )

@@ -11,11 +11,13 @@ static const ik_clsn_box_t k_boxes[] = {
 };
 
 static const ik_frame_t k_frames[] = {
-    {20u, 0u, 30u, 60u, 15, 58, 4u, 0u, 0u,   0u, 0u, 1u, 1u},
+    {20u, 0u, 30u, 60u, 15, 58, 4u, IK_FRAME_FLAG_LOOP_START, 0u,   0u, 0u, 1u, 1u},
     {20u, 1u, 31u, 61u, 15, 59, 2u, IK_FRAME_FLAG_FLIP_H, 100u, 0u, 0u, 1u, 1u},
     {20u, 2u, 29u, 59u, 15, 57, 8u, 0u, 200u, 0u, 0u, 1u, 1u},
     {200u, 0u, 40u, 60u, 20, 58, 5u, 0u, 300u, 0u, 1u, 1u, 1u},
     {200u, 1u, 45u, 62u, 22, 60, 0u, IK_FRAME_FLAG_FLIP_V, 400u, 0u, 0u, 1u, 1u},
+    {100u, 0u, 20u, 20u, 10, 10, 3u, 0u, 500u, 0u, 0u, 0u, 0u},
+    {100u, 1u, 20u, 20u, 10, 10, 2u, 0u, 600u, 0u, 0u, 0u, 0u},
 };
 
 int main() {
@@ -37,11 +39,22 @@ int main() {
     OK(ik_frame_at_time(&table, 20, 4u)->index == 1u);
     OK(ik_frame_at_time(&table, 20, 6u)->index == 2u);
     OK(ik_frame_at_time(&table, 20, 14u)->index == 0u);
-    OK(ik_action_duration_ticks(&table, 20) == 14u);
+    OK(ik_action_loops(&table, 20));
+    OK(ik_action_duration_ticks(&table, 20) == 0u);
+
+    OK(ik_frames_bounds(&table, 100, &first, &count));
+    OK(first == 5u && count == 2u);
+    OK(!ik_action_loops(&table, 100));
+    OK(ik_action_duration_ticks(&table, 100) == 5u);
+    OK(ik_frame_at_time(&table, 100, 0u)->index == 0u);
+    OK(ik_frame_at_time(&table, 100, 3u)->index == 1u);
+    OK(ik_frame_at_time(&table, 100, 5u)->index == 1u);
+    OK(ik_frame_at_time(&table, 100, 5000u)->index == 1u);
 
     OK(ik_frame_at_time(&table, 200, 5u)->index == 1u);
     OK(ik_frame_at_time(&table, 200, 5000u)->index == 1u);
     OK(ik_action_duration_ticks(&table, 200) == 0u);
+    OK(!ik_action_loops(&table, 200));
 
     int16_t dx = 0, dy = 0;
     ik_frame_screen_anchor(&k_frames[0], 100, 200, 1, &dx, &dy);

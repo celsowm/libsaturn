@@ -48,6 +48,7 @@ typedef struct ik_frame_table {
 #define IK_FRAME_FLAG_FLIP_V 2u
 #define IK_FRAME_FLAG_BLEND_ADD 4u
 #define IK_FRAME_FLAG_BLEND_SUBTRACT 8u
+#define IK_FRAME_FLAG_LOOP_START 16u
 #define IK_CLSN_ATTACK 1u
 #define IK_CLSN_HURT 2u
 #define IK_SPRITE_FORMAT_RAW 0u
@@ -69,6 +70,7 @@ uint16_t ik_frame_ticks(const ik_frame_t* frame);
 const ik_frame_t* ik_frame_at_time(const ik_frame_table_t* table,
                                    int action, uint32_t ticks);
 uint32_t ik_action_duration_ticks(const ik_frame_table_t* table, int action);
+int ik_action_loops(const ik_frame_table_t* table, int action);
 
 void ik_frame_screen_anchor(const ik_frame_t* frame,
                             int x, int y, int facing,

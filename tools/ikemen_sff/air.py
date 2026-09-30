@@ -51,6 +51,7 @@ class AirAction:
     frames: list[AirFrame] = field(default_factory=list)
     clsn1_default: list[Box] = field(default_factory=list)
     clsn2_default: list[Box] = field(default_factory=list)
+    loop_start: int | None = None
 
 
 def _strip_comment(line: str) -> str:
@@ -104,6 +105,10 @@ def parse(path: Path) -> dict[int, AirAction]:
             collecting_remaining = 0
             continue
         if current is None:
+            continue
+
+        if line.lower() == "loopstart":
+            current.loop_start = len(current.frames)
             continue
 
         m = _CLSN_DEFAULT_COUNT.match(line)

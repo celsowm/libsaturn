@@ -163,6 +163,7 @@ def cmd_char(args) -> int:
                 ax=node.xoff + sprite.left_pad, ay=node.yoff, ticks=fr.time,
                 flip_h=fr.flip_h, flip_v=fr.flip_v,
                 sprite_key=key, blend_mode=fr.blend_mode,
+                loop_start=(act.loop_start == idx),
                 clsn1=list(fr.clsn1), clsn2=list(fr.clsn2)))
     if not frames:
         raise SystemExit("[ikemen_sff] no frames resolved", 2)
@@ -270,6 +271,7 @@ def cmd_fx(args) -> int:
                 ax=node.xoff + sprite.left_pad, ay=node.yoff, ticks=fr.time,
                 flip_h=fr.flip_h, flip_v=fr.flip_v,
                 sprite_key=key, blend_mode=fr.blend_mode,
+                loop_start=(act.loop_start == idx),
                 clsn1=list(fr.clsn1), clsn2=list(fr.clsn2)))
 
     if not frames:

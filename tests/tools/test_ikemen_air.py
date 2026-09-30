@@ -8,6 +8,7 @@ from tools.ikemen_sff import air
 def main() -> int:
     source = """[Begin Action 0]
 0,0,0,0,1,,A
+LoopStart
 0,1,0,0,1,H,S
 """
     with TemporaryDirectory() as tmp:
@@ -20,6 +21,7 @@ def main() -> int:
     assert not frames[0].flip_h
     assert frames[1].blend_mode == air.AIR_BLEND_SUBTRACT
     assert frames[1].flip_h
+    assert actions[0].loop_start == 1
     print("[test] ikemen AIR drawtypes OK")
     return 0
 
