@@ -106,6 +106,10 @@ static const ik_frame_t k_frames[] = {
     F(1020,3,4,1,1),
     F(1025,0,4,0,0),
     F(1027,0,3,0,0),
+
+    F(910,0,2,1,1),
+    F(911,0,4,1,1),
+    F(915,0,4,1,1),
 };
 #undef F
 
@@ -1910,6 +1914,133 @@ int main() {
             tick2(&g,&p1,&p2);
         }
         EQ(g.fighters[1].state,5100);
+    }
+
+    /* hitdefpersist keeps both the active definition and its hit mask:
+     * changing into an aerial continuation must not create a free second hit. */
+    {
+        ik_cns_hitdef_t hit{};
+        hit.state_number=910;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.damage=20;
+        hit.priority=4u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+
+        ik_cns_controller_t ctrls[] = {
+            {910,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,911,0,0u},
+        };
+
+        ik_cns_state_t states[2]{};
+        states[0].number=910;
+        states[0].anim=910;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_ATTACK;
+        states[0].physics=IK_CNS_PHYS_NONE;
+        states[0].hitdef_count=1u;
+        states[0].controller_count=1u;
+
+        states[1].number=911;
+        states[1].anim=911;
+        states[1].state_type=IK_CNS_STATE_AIR;
+        states[1].move_type=IK_CNS_MOVE_ATTACK;
+        states[1].physics=IK_CNS_PHYS_NONE;
+        states[1].hitdef_persist=1u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.constants.yaccel_q8=113;
+        asset.states=states;
+        asset.state_count=2u;
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=1u;
+
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        ik_fight_controls_t p1{}; request(&p1,910);
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+        p1.has_state_request=0u;
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].hp,980);
+        EQ(g.fighters[0].active_hitdef_global,0);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[0].state,911);
+        EQ(g.fighters[0].active_hitdef_global,0);
+        EQ(g.fighters[0].hitdef_hit_mask,1u);
+
+        for(int i=0;i<4;++i) tick2(&g,&p1,&p2);
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].hp,980);
+    }
+
+    /* The shared Knee kick reads prevstateno: 1051 -> 35 damage,
+     * 1061 -> 40 damage, matching KFM's CNS expression. */
+    {
+        ik_cns_hitdef_t hit{};
+        hit.state_number=915;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.damage=35;
+        hit.alt_damage=40;
+        hit.alt_damage_prev_state=1061;
+        hit.priority=4u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+
+        ik_cns_state_t states[3]{};
+        states[0].number=1051;
+        states[0].anim=911;
+        states[0].state_type=IK_CNS_STATE_AIR;
+        states[0].move_type=IK_CNS_MOVE_ATTACK;
+        states[0].physics=IK_CNS_PHYS_NONE;
+        states[1]=states[0];
+        states[1].number=1061;
+        states[2].number=915;
+        states[2].anim=915;
+        states[2].state_type=IK_CNS_STATE_AIR;
+        states[2].move_type=IK_CNS_MOVE_ATTACK;
+        states[2].physics=IK_CNS_PHYS_NONE;
+        states[2].hitdef_count=1u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.constants.yaccel_q8=113;
+        asset.states=states;
+        asset.state_count=3u;
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        g.fighters[0].state=1051;
+        g.fighters[0].anim=911;
+        g.fighters[0].on_ground=0;
+        p1={}; request(&p1,915); p2={};
+        tick2(&g,&p1,&p2);
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].hp,965);
+
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        g.fighters[0].state=1061;
+        g.fighters[0].anim=911;
+        g.fighters[0].on_ground=0;
+        p1={}; request(&p1,915); p2={};
+        tick2(&g,&p1,&p2);
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].hp,960);
+        EQ(g.fighters[0].prev_state,1061);
     }
 
     /* Recovery command uses the compiled common thresholds. Near the
