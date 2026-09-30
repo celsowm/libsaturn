@@ -158,6 +158,14 @@ typedef struct ik_fighter {
     int8_t palfx_sin_b;
     uint16_t palfx_cycle;
     uint16_t palfx_phase;
+    uint16_t palfx_mul_r;
+    uint16_t palfx_mul_g;
+    uint16_t palfx_mul_b;
+    int16_t palfx_sinmul_r;
+    int16_t palfx_sinmul_g;
+    int16_t palfx_sinmul_b;
+    uint16_t palfx_sinmul_cycle;
+    uint16_t palfx_sinmul_phase;
     int8_t active_hitdef_local;
     int16_t active_hitdef_global;
     uint8_t active_hitdef_secondary;
