@@ -440,12 +440,19 @@ def controller_trigger(
         if target == 5210 and trigger_all:
             return "IK_CNS_TRIGGER_THROW_AIR_RECOVERY", 0, 0
         normalized = [_strip_outer_parens(t) for t in triggers]
-        if (ctype == "selfstate" and len(normalized) == 2 and
-            any(re.fullmatch(r"Vel\s+Y\s*>\s*0", t, flags=re.I)
-                for t in normalized) and
-            any(re.fullmatch(r"Pos\s+Y\s*>=\s*0", t, flags=re.I)
-                for t in normalized)):
-            return "IK_CNS_TRIGGER_VY_GT_Q8_AT_FLOOR", 0, 0
+        if ctype == "selfstate":
+            split = normalized
+            if len(normalized) == 1:
+                split = [
+                    _strip_outer_parens(p)
+                    for p in re.split(r"\s*&&\s*", normalized[0])
+                ]
+            if (len(split) == 2 and
+                any(re.fullmatch(r"Vel\s+Y\s*>\s*0", t, flags=re.I)
+                    for t in split) and
+                any(re.fullmatch(r"Pos\s+Y\s*>=\s*0", t, flags=re.I)
+                    for t in split)):
+                return "IK_CNS_TRIGGER_VY_GT_Q8_AT_FLOOR", 0, 0
 
     if ctype == "width" and len(triggers) == 1:
         parsed = _anim_elem_range_trigger(triggers[0])
