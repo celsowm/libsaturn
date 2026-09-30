@@ -2004,6 +2004,15 @@ def parse_state(
 
             if compiled is not None:
                 controllers.append(compiled)
+                if ctype == "superpause" and ctrl.get("sound") is not None:
+                    group, item = sound_pair(ctrl.get("sound"))
+                    sounds.append({
+                        "state_number": state.number,
+                        "trigger_kind": compiled["trigger_kind"],
+                        "trigger_value": compiled["trigger_value"],
+                        "group": group,
+                        "item": item,
+                    })
             elif ctype:
                 unsupported.append(ctype)
 
