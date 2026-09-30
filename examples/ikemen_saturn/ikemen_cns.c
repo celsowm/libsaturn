@@ -31,6 +31,25 @@ int ik_cns_trigger_now(uint8_t trigger_kind, int16_t trigger_value,
             return anim_element ==
                        (uint16_t)(trigger_value < 1 ? 1 : trigger_value) &&
                    anim_element_time == 0u;
+        case IK_CNS_TRIGGER_ANIM_ELEM_MASK: {
+            if (anim_element == 0u || anim_element > 15u ||
+                anim_element_time != 0u) {
+                return 0;
+            }
+            const uint16_t mask = (uint16_t)trigger_value;
+            return (mask & (uint16_t)(1u << (anim_element - 1u))) != 0u;
+        }
+        case IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED: {
+            const uint16_t packed = (uint16_t)trigger_value;
+            const uint16_t elem = (uint16_t)(packed >> 8);
+            const int8_t offset = (int8_t)(packed & 0xffu);
+            if (anim_element < elem) {
+                return offset < 0 && anim_element + 1u == elem &&
+                       (int16_t)anim_element_time == (int16_t)(-offset);
+            }
+            return anim_element == elem &&
+                   (int16_t)anim_element_time == (int16_t)offset;
+        }
         case IK_CNS_TRIGGER_ANIM_END:
             return anim_ended != 0;
         default:
@@ -166,6 +185,45 @@ int ik_cns_controller_trigger_context_now(
                    context->can_recover != 0u &&
                    (context->command_mask & IK_CNS_COMMAND_RECOVERY) != 0u &&
                    context->vy_q8 > 0;
+
+        case IK_CNS_TRIGGER_ANIM_ELEM_MASK:
+            if (context->anim_element == 0u ||
+                context->anim_element > 15u ||
+                context->anim_element_time != 0u) {
+                return 0;
+            }
+            return (((uint16_t)controller->trigger_value) &
+                    (uint16_t)(1u << (context->anim_element - 1u))) != 0u;
+
+        case IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED: {
+            const uint16_t packed =
+                (uint16_t)controller->trigger_value;
+            const uint16_t elem = (uint16_t)(packed >> 8);
+            const int8_t offset = (int8_t)(packed & 0xffu);
+            if (context->anim_element < elem) {
+                return offset < 0 &&
+                       context->anim_element + 1u == elem &&
+                       (int16_t)context->anim_element_time ==
+                           (int16_t)(-offset);
+            }
+            return context->anim_element == elem &&
+                   (int16_t)context->anim_element_time ==
+                       (int16_t)offset;
+        }
+
+        case IK_CNS_TRIGGER_ANIM_ELEM_TIME_RANGE: {
+            const uint16_t elem =
+                (uint16_t)(controller->trigger_value < 1
+                               ? 1
+                               : controller->trigger_value);
+            const uint16_t packed =
+                (uint16_t)controller->trigger_value2;
+            const int8_t first = (int8_t)(packed >> 8);
+            const int8_t last = (int8_t)(packed & 0xffu);
+            return context->anim_element == elem &&
+                   (int16_t)context->anim_element_time >= first &&
+                   (int16_t)context->anim_element_time <= last;
+        }
 
         case IK_CNS_TRIGGER_ANIM_ELEM_EQ_OR:
             return context->anim_element_time == 0u &&
