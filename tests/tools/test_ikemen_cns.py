@@ -2266,13 +2266,20 @@ assert report["constants"]["down_bounce_groundlevel_q8"] == 12 * 256
 super_rows = {row["number"]: row for row in super_report["states"]}
 assert set(super_rows) == {3000, 3050, 3051}
 assert super_rows[3000]["juggle"] == 4
-assert super_rows[3000]["unsupported_controllers"] == ["afterimage"]
+assert super_rows[3000]["unsupported_controllers"] == []
 assert super_rows[3050]["unsupported_controllers"] == []
-assert super_rows[3051]["unsupported_controllers"] == ["afterimagetime"]
+assert super_rows[3051]["unsupported_controllers"] == []
 super3000 = [
     c for c in super_report["controllers"]
     if c["state_number"] == 3000
 ]
+after3000 = next(
+    c for c in super3000 if c["type"] == "IK_CNS_CTRL_AFTER_IMAGE"
+)
+assert after3000["value0"] == 2
+assert after3000["value1"] == 10
+assert after3000["value2"] == 1
+assert after3000["value3"] == 1
 superpause3000 = next(
     c for c in super3000 if c["type"] == "IK_CNS_CTRL_SUPER_PAUSE"
 )
@@ -2323,9 +2330,7 @@ assert zankou_rows[1400]["power_add"] == 50
 assert zankou_rows[1400]["juggle"] == 4
 assert zankou_rows[1420]["power_add"] == -330
 assert zankou_rows[1420]["juggle"] == 6
-assert zankou_rows[1420]["unsupported_controllers"] == [
-    "afterimage", "palfx"
-]
+assert zankou_rows[1420]["unsupported_controllers"] == ["palfx"]
 zankou_hits = zankou_report["hitdefs"]
 assert zankou_hits[0]["attack_attr_mask"] == "IK_CNS_ATTR_SPECIAL_ATTACK"
 assert zankou_hits[1]["trigger_kind"] == (
@@ -2349,6 +2354,15 @@ zankou_1420 = [
     c for c in zankou_report["controllers"]
     if c["state_number"] == 1420
 ]
+after1420 = next(
+    c for c in zankou_1420 if c["type"] == "IK_CNS_CTRL_AFTER_IMAGE"
+)
+assert after1420["value0"] == 2
+aftertime1420 = next(
+    c for c in zankou_1420 if c["type"] == "IK_CNS_CTRL_AFTER_IMAGE_TIME"
+)
+assert aftertime1420["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_BEFORE"
+assert aftertime1420["trigger_value"] == 8
 dash1420 = next(c for c in zankou_1420 if c["type"] == "IK_CNS_CTRL_VEL_SET")
 assert dash1420["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_TIME_RANGE"
 assert dash1420["trigger_value"] == 3
