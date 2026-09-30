@@ -709,35 +709,72 @@ static uint8_t clamp_u8_int(int value) {
     return (uint8_t)value;
 }
 
+static int palfx_sine_q8(uint16_t phase, uint16_t cycle) {
+    static const int16_t sine16_q8[16] = {
+        0, 98, 181, 237, 256, 237, 181, 98,
+        0, -98, -181, -237, -256, -237, -181, -98
+    };
+    if (cycle <= 1u) return 0;
+
+    uint32_t position_q8 =
+        ((uint32_t)(phase % cycle) * 16u * 256u) / cycle;
+    if (cycle == 2u) {
+        position_q8 += 4u * 256u;
+    }
+    const uint8_t index =
+        (uint8_t)((position_q8 >> 8) & 15u);
+    const uint8_t next = (uint8_t)((index + 1u) & 15u);
+    const uint16_t frac = (uint16_t)(position_q8 & 255u);
+    return (
+        (int)sine16_q8[index] * (int)(256u - frac) +
+        (int)sine16_q8[next] * (int)frac
+    ) / 256;
+}
+
 static void apply_fighter_palfx(
     const ik_fighter_t* fighter,
     sat_draw_params_t* params
 ) {
-    static const int8_t sine16[16] = {
-        0, 6, 11, 15, 16, 15, 11, 6,
-        0, -6, -11, -15, -16, -15, -11, -6
-    };
     if (!fighter || !params || fighter->palfx_time == 0u) return;
 
-    const uint16_t cycle =
-        fighter->palfx_cycle ? fighter->palfx_cycle : 1u;
-    const uint16_t phase =
-        (uint16_t)((fighter->palfx_phase * 16u) / cycle);
-    const int wave = sine16[phase & 15u];
+    const int add_wave = palfx_sine_q8(
+        fighter->palfx_phase,
+        fighter->palfx_cycle ? fighter->palfx_cycle : 1u);
+    const int mul_wave = palfx_sine_q8(
+        fighter->palfx_sinmul_phase,
+        fighter->palfx_sinmul_cycle
+            ? fighter->palfx_sinmul_cycle : 1u);
 
-    const int bias_r =
-        fighter->palfx_add_r + fighter->palfx_sin_r * wave / 16;
-    const int bias_g =
-        fighter->palfx_add_g + fighter->palfx_sin_g * wave / 16;
-    const int bias_b =
-        fighter->palfx_add_b + fighter->palfx_sin_b * wave / 16;
-    int max_bias = bias_r;
-    if (bias_g > max_bias) max_bias = bias_g;
-    if (bias_b > max_bias) max_bias = bias_b;
+    const int add_r =
+        fighter->palfx_add_r +
+        fighter->palfx_sin_r * add_wave / 256;
+    const int add_g =
+        fighter->palfx_add_g +
+        fighter->palfx_sin_g * add_wave / 256;
+    const int add_b =
+        fighter->palfx_add_b +
+        fighter->palfx_sin_b * add_wave / 256;
 
-    params->tint.r = clamp_u8_int(255 + bias_r - max_bias);
-    params->tint.g = clamp_u8_int(255 + bias_g - max_bias);
-    params->tint.b = clamp_u8_int(255 + bias_b - max_bias);
+    const int mul_r =
+        (int)fighter->palfx_mul_r +
+        fighter->palfx_sinmul_r * mul_wave / 256;
+    const int mul_g =
+        (int)fighter->palfx_mul_g +
+        fighter->palfx_sinmul_g * mul_wave / 256;
+    const int mul_b =
+        (int)fighter->palfx_mul_b +
+        fighter->palfx_sinmul_b * mul_wave / 256;
+
+    const int out_r =
+        ((int)params->tint.r * (mul_r < 0 ? 0 : mul_r)) / 256 + add_r;
+    const int out_g =
+        ((int)params->tint.g * (mul_g < 0 ? 0 : mul_g)) / 256 + add_g;
+    const int out_b =
+        ((int)params->tint.b * (mul_b < 0 ? 0 : mul_b)) / 256 + add_b;
+
+    params->tint.r = clamp_u8_int(out_r);
+    params->tint.g = clamp_u8_int(out_g);
+    params->tint.b = clamp_u8_int(out_b);
 }
 
 static void draw_fighter(const ik_frame_t* frame,
