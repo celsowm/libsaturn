@@ -46,6 +46,7 @@ typedef struct ik_entity {
     int32_t ay_q8;
     int16_t remove_time;
     int16_t state_no;
+    int16_t projectile_main_anim_no;
     int16_t projectile_hit_anim_no;
     int16_t projectile_remove_anim_no;
     int16_t projectile_cancel_anim_no;
