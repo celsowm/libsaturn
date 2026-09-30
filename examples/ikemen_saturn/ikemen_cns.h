@@ -333,6 +333,7 @@ typedef struct ik_cns_hitdef {
     int16_t yaccel_q8;
     uint8_t has_trigger2;
     uint8_t has_alt_damage;
+    int16_t ground_cornerpush_veloff_q8;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
