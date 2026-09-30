@@ -1029,6 +1029,8 @@ def compile_runtime_controller(
     if ctype == "superpause":
         if integer(ctrl.get("darken"), 1):
             flags.append("IK_CNS_CTRL_SUPER_DARKEN")
+        if ctrl.get("anim") is not None:
+            flags.append("IK_CNS_CTRL_HAS_SUPER_ANIM")
         pos_x, pos_y = pair(ctrl.get("pos"), 0, 0)
         packed_pos = ((int(pos_x) & 0xffff) << 16) | (int(pos_y) & 0xffff)
         if packed_pos >= 0x80000000:
