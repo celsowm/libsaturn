@@ -1224,6 +1224,9 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                         : ctrl->value1;
                 f->vx_q8 =
                     (f->vx_q8 * (int32_t)mul) / IK_CNS_Q8_ONE;
+                break;
+            }
+
             case IK_CNS_CTRL_POS_ADD_FROM_BACK_EDGE: {
                 const int32_t delta =
                     (int32_t)ctrl->value0 -
@@ -1243,9 +1246,6 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     f->pos_freeze_y = 1u;
                 }
                 break;
-
-                break;
-            }
 
             case IK_CNS_CTRL_DOWNED_HIT_BRANCH:
                 if (f->gethit_vy_q8 != 0 &&
