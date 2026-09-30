@@ -131,6 +131,17 @@ int ik_cns_controller_trigger_context_now(
                                   ? 1
                                   : controller->trigger_value);
 
+        case IK_CNS_TRIGGER_ANIM_ELEM_AFTER:
+            return context->anim_element >
+                   (uint16_t)(controller->trigger_value < 1
+                                  ? 1
+                                  : controller->trigger_value) ||
+                   (context->anim_element ==
+                        (uint16_t)(controller->trigger_value < 1
+                                       ? 1
+                                       : controller->trigger_value) &&
+                    context->anim_element_time > 0u);
+
         case IK_CNS_TRIGGER_STATE_AXIS_FWD_ANIM_ELEM_EQ:
             return context->state_axis > 0 &&
                    context->anim_element ==
