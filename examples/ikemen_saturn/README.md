@@ -122,6 +122,9 @@ asset now contains states:
 * 1400 / 1410 / 1420: Light/Strong/Far Kung Fu Zankou from the original CMD,
   including combo gating, 330-power Fast entry, source friction/steps,
   negative AnimElemTime first hit, second hit and authored velocities
+* 3000 / 3050 / 3051: Triple Kung Fu Palm and Smash Kung Fu Upper supers,
+  including source State -1 cancel gates, 1000-power requirement, SuperPause
+  power debit, attribute-filtered NotHitBy and MoveHit-only success state
 
 Zankou also enters through the original State -1 programs (`QCF_a`, `QCF_b`
 and `QCF_ab`) rather than a direct input branch. The generic trigger runtime
@@ -131,6 +134,18 @@ ticks before animation element 4 using the AIR element start tick, while its
 second HitDef activates on element 4. `AfterImage`, `AfterImageTime` and
 `PalFX` remain reported presentation-only gaps; they are not silently
 approximated.
+
+The two KFM supers are also entered from the original State -1 rules. The
+expression VM now exposes the currently active HitDef attribute, so
+`hitdefattr = SC, NA, SA, HA` cancel gates remain source-driven instead of
+being weakened to MoveContact alone. `SuperPause` freezes the fight and
+applies its `poweradd` on the authored controller tick; `MoveHit` is tracked
+separately from guarded contact, so Smash Upper enters 3051 only after a real
+hit. Old-style `NotHitBy` now preserves both state-type and attack-attribute
+masks, including the super invulnerability filters using NA/SA/AT. Super
+AfterImage/AfterImageTime, the SuperPause visual anim/darken layer, envshake,
+fall.damage and generic PlaySnd playback remain explicit presentation/combat
+gaps rather than silent approximations.
 
 KFM's Blocking commands are compiled from the original State -1 rules rather
 than dispatched through a KFM-only input branch. ReversalDef windows are
@@ -293,7 +308,7 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
 * exact remaining guard semantics such as conditional air-guard landing,
   complete inGuardDist behavior
 * remaining throw edge cases across different character state/CNS owners;
-  AIR ownership is now per fighter, while supers are still deferred
+  AIR ownership is now per fighter
 * remaining Blocking edge cases are now mostly advanced compatibility:
   Helper ReversalDef is exercised end-to-end and projectile HitOverride AP is
   exercised end-to-end. Projectile attack attributes no longer alias AA;
@@ -301,7 +316,9 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   authored usage
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
-* remaining fightfx families (blood, shockwaves, dust and supers),
+* remaining super presentation/impact semantics: AfterImage/AfterImageTime,
+  SuperPause anim/darken, envshake and HitFallDamage/fall.damage
+* remaining fightfx families (blood, shockwaves and dust),
   motif/lifebar flow and full round presentation
 * generic PlaySnd dispatch for all compiled states
 * stage DEF execution instead of the current simplified stage runtime
