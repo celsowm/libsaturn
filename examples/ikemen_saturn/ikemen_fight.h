@@ -145,6 +145,15 @@ typedef struct ik_fighter {
     uint8_t afterimage_length;
     uint8_t afterimage_timegap;
     uint8_t afterimage_framegap;
+    uint16_t palfx_time;
+    int8_t palfx_add_r;
+    int8_t palfx_add_g;
+    int8_t palfx_add_b;
+    int8_t palfx_sin_r;
+    int8_t palfx_sin_g;
+    int8_t palfx_sin_b;
+    uint16_t palfx_cycle;
+    uint16_t palfx_phase;
     int8_t active_hitdef_local;
     int16_t active_hitdef_global;
     uint8_t active_hitdef_secondary;
