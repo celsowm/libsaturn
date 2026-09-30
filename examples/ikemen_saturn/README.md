@@ -131,9 +131,11 @@ and `QCF_ab`) rather than a direct input branch. The generic trigger runtime
 now supports three-way AnimElem OR masks, packed negative AnimElemTime hits and
 AnimElemTime ranges. Fast Zankou's first HitDef therefore fires exactly two
 ticks before animation element 4 using the AIR element start tick, while its
-second HitDef activates on element 4. `AfterImage`, `AfterImageTime` and
-`PalFX` remain reported presentation-only gaps; they are not silently
-approximated.
+second HitDef activates on element 4. AfterImage/AfterImageTime now use a
+generic per-fighter history ring with authored length, TimeGap and FrameGap;
+the renderer draws the trail behind the fighter with additive blending.
+KFM's exact PalBright/PalContrast/PalAdd/PalMul colour transform is still an
+approximation in the Saturn trail tint, while PalFX remains deferred.
 
 The two KFM supers are also entered from the original State -1 rules. The
 expression VM now exposes the currently active HitDef attribute, so
@@ -145,9 +147,13 @@ hit. Old-style `NotHitBy` now preserves both state-type and attack-attribute
 masks, including the super invulnerability filters using NA/SA/AT. SuperPause now emits its authored fightfx animation/position and darkens the
 stage layer through VDP2 colour offset while the freeze is active. HitDef
 envshake and fall.envshake drive deterministic camera shake, and fall.damage
-is carried into common fall states and applied once by HitFallDamage. Remaining
-super gaps are AfterImage/AfterImageTime, exact full-screen darken parity
-(currently the stage layer is darkened), and generic PlaySnd playback.
+is carried into common fall states and applied once by HitFallDamage.
+AfterImage/AfterImageTime now continue the authored trail through their real
+AnimElemTime/AnimTime/velocity keepalive triggers. PlaySnd, SuperPause sound,
+HitDef hitsound and guardsound all feed the same generic fight sound-event
+path, including multi-branch PlaySnd controllers. Remaining super gaps are the
+exact afterimage palette transform, PalFX and exact full-screen darken parity
+(currently the stage layer is darkened).
 
 KFM's Blocking commands are compiled from the original State -1 rules rather
 than dispatched through a KFM-only input branch. ReversalDef windows are
@@ -306,7 +312,7 @@ from consuming every CRAM bank needed by fighters, text and tint variants.
 This is not yet a complete Ikemen common-state VM. The next important pieces are:
 
 * exact remaining downed/defeated presentation semantics such as
-  HitFallDamage, ground effects, NotHitBy and MatchOver animation variants
+  ground effects, get-up/defeated NotHitBy and MatchOver animation variants
 * exact remaining guard semantics such as conditional air-guard landing,
   complete inGuardDist behavior
 * remaining throw edge cases across different character state/CNS owners;
@@ -318,11 +324,12 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   authored usage
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
-* remaining super presentation semantics: AfterImage/AfterImageTime,
-  exact full-screen SuperPause darken parity and generic PlaySnd playback
+* remaining super presentation semantics: exact AfterImage palette math,
+  PalFX and exact full-screen SuperPause darken parity
 * remaining fightfx families (blood, shockwaves and dust),
   motif/lifebar flow and full round presentation
-* generic PlaySnd dispatch for all compiled states
+* broader sound-bank/channel semantics beyond the KFM/common sounds currently
+  extracted and dispatched
 * stage DEF execution instead of the current simplified stage runtime
 
 ## Assets and attribution
