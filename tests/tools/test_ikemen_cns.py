@@ -1458,6 +1458,25 @@ trigger1 = Time = 4
 trigger2 = Time = 8
 reversal.attr =
 
+[Statedef 1310]
+type = S
+movetype = I
+physics = S
+anim = 1310
+
+[State 1310, Pause]
+type = Pause
+trigger1 = Time = 0
+time = 20
+endcmdbuftime = 20
+pausebg = 0
+
+[State 1310, Invulnerable]
+type = NotHitBy
+trigger1 = Time = 0
+value = SCA
+time = 1
+
 [Statedef 1340]
 type = A
 movetype = I
@@ -1496,7 +1515,7 @@ trigger1 = AnimElemTime(3) > 0
 y = Const(movement.yaccel)
 """, encoding="utf-8")
     reversal_report = emit(
-        reversal_source, [1300, 1340, 1350],
+        reversal_source, [1300, 1310, 1340, 1350],
         root / "blocking_cns", "blocking"
     )
 
@@ -1988,6 +2007,23 @@ blocking_rows = {
 }
 assert blocking_rows[1300]["reversal_count"] == 1
 assert blocking_rows[1340]["reversal_count"] == 1
+assert blocking_rows[1310]["unsupported_controllers"] == []
+blocked1310 = [
+    c for c in reversal_report["controllers"]
+    if c["state_number"] == 1310
+]
+pause1310 = next(c for c in blocked1310 if c["type"] == "IK_CNS_CTRL_PAUSE")
+assert pause1310["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
+assert pause1310["trigger_value"] == 1
+assert pause1310["value0"] == 20
+nothit1310 = next(
+    c for c in blocked1310 if c["type"] == "IK_CNS_CTRL_NOT_HIT_BY"
+)
+assert nothit1310["value0"] == (
+    "IK_CNS_REVERSAL_STATE_STAND | IK_CNS_REVERSAL_STATE_CROUCH | "
+    "IK_CNS_REVERSAL_STATE_AIR"
+)
+assert nothit1310["value1"] == 1
 blocking_ctrls = reversal_report["controllers"]
 width1300 = next(
     c for c in blocking_ctrls
