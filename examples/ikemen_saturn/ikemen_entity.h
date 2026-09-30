@@ -42,6 +42,9 @@ typedef struct ik_entity {
     int32_t y_q8;
     int32_t vx_q8;
     int32_t vy_q8;
+    int32_t ax_q8;
+    int32_t ay_q8;
+    int16_t remove_time;
     int16_t state_no;
     int16_t prev_state_no;
     int16_t anim_no;
