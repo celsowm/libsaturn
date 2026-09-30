@@ -1468,6 +1468,23 @@ static void step_fighter(ik_fight_t* fight, int index,
             return;
         }
 
+        {
+            const ik_cns_state_t* attack_spec = state_spec(fight, f->state);
+            if (attack_spec &&
+                (attack_spec->physics == IK_CNS_PHYS_STAND ||
+                 attack_spec->physics == IK_CNS_PHYS_CROUCH)) {
+                if (c) apply_ground_velocity(f, c, attack_spec->physics);
+            } else if (attack_spec &&
+                       attack_spec->physics == IK_CNS_PHYS_NONE) {
+                /* Physics=N keeps explicit velocity but applies no automatic
+                 * friction/gravity. Position still integrates velocity. */
+                f->x_q8 += f->vx_q8;
+                f->x_q8 = clamp_q8(
+                    f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
+                sync_position(f);
+            }
+        }
+
         const uint32_t duration = ik_action_duration_ticks(frames, f->anim);
         if (duration > 0u && f->anim_time >= duration) {
             enter_state(
