@@ -3186,12 +3186,13 @@ def emit(
     sounds: list[dict] = []
     controllers: list[dict] = []
     helpers: list[dict] = []
+    explods: list[dict] = []
     reversals: list[dict] = []
     hitoverrides: list[dict] = []
 
     for number_ in selected:
         (
-            row, hs, ss, cs, helper_rows,
+            row, hs, ss, cs, helper_rows, explod_rows,
             reversal_rows, hitoverride_rows
         ) = parse_state(
             by_number[number_],
@@ -3199,6 +3200,7 @@ def emit(
             len(sounds),
             len(controllers),
             len(helpers),
+            len(explods),
             const["default_spark_no"],
             const["default_guard_spark_no"],
         )
@@ -3209,6 +3211,7 @@ def emit(
         sounds.extend(ss)
         controllers.extend(cs)
         helpers.extend(helper_rows)
+        explods.extend(explod_rows)
         reversals.extend(reversal_rows)
         hitoverrides.extend(hitoverride_rows)
 
