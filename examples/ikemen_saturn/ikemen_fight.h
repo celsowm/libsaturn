@@ -151,7 +151,8 @@ uint8_t ik_fight_state_type(const ik_fight_t* fight,
 void ik_fight_update(ik_fight_t* fight,
                      const ik_fight_controls_t* p1,
                      const ik_fight_controls_t* p2,
-                     const ik_frame_table_t* frames);
+                     const ik_frame_table_t* p1_frames,
+                     const ik_frame_table_t* p2_frames);
 
 int ik_fight_max_hp(const ik_fight_t* fight);
 int ik_body_half_w(const ik_fighter_t* f);

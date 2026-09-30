@@ -340,23 +340,28 @@ static uint16_t anim_element_start_tick(const ik_frame_table_t* frames,
     return (uint16_t)(total > 65535u ? 65535u : total);
 }
 
-static int fighter_clsn_overlap(const ik_frame_table_t* frames,
-                                const ik_fighter_t* attacker,
-                                const ik_fighter_t* victim) {
-    const ik_frame_t* af = fighter_frame(frames, attacker);
-    const ik_frame_t* vf = fighter_frame(frames, victim);
+static int fighter_clsn_overlap(
+    const ik_frame_table_t* attacker_frames,
+    const ik_frame_table_t* victim_frames,
+    const ik_fighter_t* attacker,
+    const ik_fighter_t* victim
+) {
+    const ik_frame_t* af = fighter_frame(attacker_frames, attacker);
+    const ik_frame_t* vf = fighter_frame(victim_frames, victim);
     if (!af || !vf || af->clsn1_count == 0u || vf->clsn2_count == 0u) return 0;
 
     for (uint16_t ai = 0u; ai < af->clsn1_count; ++ai) {
         int al, at, ar, ab;
-        if (!ik_frame_clsn_world(frames, af, IK_CLSN_ATTACK, ai,
-                                 attacker->x, attacker->y, attacker->facing,
-                                 &al, &at, &ar, &ab)) continue;
+        if (!ik_frame_clsn_world(
+                attacker_frames, af, IK_CLSN_ATTACK, ai,
+                attacker->x, attacker->y, attacker->facing,
+                &al, &at, &ar, &ab)) continue;
         for (uint16_t vi = 0u; vi < vf->clsn2_count; ++vi) {
             int vl, vt, vr, vb;
-            if (!ik_frame_clsn_world(frames, vf, IK_CLSN_HURT, vi,
-                                     victim->x, victim->y, victim->facing,
-                                     &vl, &vt, &vr, &vb)) continue;
+            if (!ik_frame_clsn_world(
+                    victim_frames, vf, IK_CLSN_HURT, vi,
+                    victim->x, victim->y, victim->facing,
+                    &vl, &vt, &vr, &vb)) continue;
             if (ik_boxes_overlap(al, at, ar, ab, vl, vt, vr, vb)) return 1;
         }
     }
@@ -531,14 +536,14 @@ static int juggle_allows_target(const ik_fight_t* fight,
 }
 
 static int guard_threat(ik_fight_t* fight,
-                        const ik_frame_table_t* frames,
+                        const ik_frame_table_t* attacker_frames,
                         int victim,
                         const ik_fight_controls_t* controls) {
     if (!fight || !fight->cns) return 0;
     const ik_fighter_t* v = &fight->fighters[victim];
     ik_fighter_t* a = &fight->fighters[victim ^ 1];
     const ik_cns_hitdef_t* hitdef =
-        active_hitdef(fight, frames, a, v, 0);
+        active_hitdef(fight, attacker_frames, a, v, 0);
     if (!hitdef || hitdef->guard_flags == 0u ||
         !hitdef_allows_target(fight, v, hitdef)) return 0;
 
@@ -1475,7 +1480,9 @@ static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
 
 static void step_fighter(ik_fight_t* fight, int index,
                          const ik_fight_controls_t* controls,
-                         int is_dummy, const ik_frame_table_t* frames) {
+                         int is_dummy,
+                         const ik_frame_table_t* frames,
+                         const ik_frame_table_t* foe_frames) {
     ik_fighter_t* f = &fight->fighters[index];
     ik_fighter_t* foe = &fight->fighters[index ^ 1];
     const ik_cns_constants_t* c = constants_for(fight);
@@ -1512,7 +1519,8 @@ static void step_fighter(ik_fight_t* fight, int index,
     if (f->state == IK_STATE_KO) return;
 
     if (!is_dummy && controls && f->hitstun == 0u) {
-        const int threat = guard_threat(fight, frames, index, controls);
+        const int threat =
+            guard_threat(fight, foe_frames, index, controls);
         if (controls->back && threat && f->ctrl &&
             !is_attack_state(fight, f->state) &&
             !is_active_guard_state(f->state) && f->state != 140 &&
@@ -1673,8 +1681,10 @@ static void step_fighter(ik_fight_t* fight, int index,
 void ik_fight_update(ik_fight_t* fight,
                      const ik_fight_controls_t* p1,
                      const ik_fight_controls_t* p2,
-                     const ik_frame_table_t* frames) {
-    if (!fight) return;
+                     const ik_frame_table_t* p1_frames,
+                     const ik_frame_table_t* p2_frames) {
+    if (!fight || !p1_frames) return;
+    if (!p2_frames) p2_frames = p1_frames;
     if (p1 && p1->start) {
         ik_fight_reset(fight);
         return;
@@ -1700,8 +1710,8 @@ void ik_fight_update(ik_fight_t* fight,
     }
 
     const int dummy = (p2 == 0);
-    step_fighter(fight, 0, p1, 0, frames);
-    step_fighter(fight, 1, p2, dummy, frames);
+    step_fighter(fight, 0, p1, 0, p1_frames, p2_frames);
+    step_fighter(fight, 1, p2, dummy, p2_frames, p1_frames);
 
     const ik_cns_hitdef_t* candidates[2] = {0, 0};
     uint32_t candidate_bits[2] = {0u, 0u};
@@ -1714,15 +1724,20 @@ void ik_fight_update(ik_fight_t* fight,
     for (int atk = 0; atk < 2; ++atk) {
         ik_fighter_t* a = &fight->fighters[atk];
         ik_fighter_t* v = &fight->fighters[atk ^ 1];
+        const ik_frame_table_t* attacker_frames =
+            atk == 0 ? p1_frames : p2_frames;
+        const ik_frame_table_t* victim_frames =
+            atk == 0 ? p2_frames : p1_frames;
         uint8_t local_hitdef = 0u;
         const ik_cns_hitdef_t* hitdef =
-            active_hitdef(fight, frames, a, v, &local_hitdef);
+            active_hitdef(fight, attacker_frames, a, v, &local_hitdef);
         if (!hitdef || local_hitdef >= 32u) continue;
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
         if (!juggle_allows_target(fight, a, v, hitdef)) continue;
         const uint32_t bit = (uint32_t)1u << local_hitdef;
         if ((a->hitdef_hit_mask & bit) != 0u) continue;
-        if (!fighter_clsn_overlap(frames, a, v)) continue;
+        if (!fighter_clsn_overlap(
+                attacker_frames, victim_frames, a, v)) continue;
 
         candidates[atk] = hitdef;
         candidate_bits[atk] = bit;

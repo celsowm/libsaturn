@@ -613,13 +613,13 @@ static const ik_cns_asset_t k_downed_cns = {
 };
 
 static void tick(ik_fight_t* g, const ik_fight_controls_t* p) {
-    ik_fight_update(g,p,nullptr,&k_table);
+    ik_fight_update(g,p,nullptr,&k_table,&k_table);
 }
 
 static void tick2(ik_fight_t* g,
                   const ik_fight_controls_t* p1,
                   const ik_fight_controls_t* p2) {
-    ik_fight_update(g,p1,p2,&k_table);
+    ik_fight_update(g,p1,p2,&k_table,&k_table);
 }
 
 static void request(ik_fight_controls_t* p, int16_t state) {

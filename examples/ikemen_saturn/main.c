@@ -27,35 +27,60 @@
 #include "ikemen_saturn/kfm_state_rules.h"
 #include "ikemen_saturn/kfm_cns.h"
 #include "ikemen_saturn/kfm_frames.h"
+#include "ikemen_saturn/kfm_zss_frames.h"
 #include "ikemen_saturn/stage0_plane.h"
 
 #define STAGE_PALETTE_ID 4u
 #define FLOOR_SCREEN_Y 178
 #define IK_FRAME_TEXTURE_CACHE_SIZE 32u
 #define IK_ASSET_LOAD_CHUNK_BYTES (64u * 1024u)
+#define IK_PREFETCH_LOOKAHEAD_TICKS 32u
+#define IK_MAX_SPRITE_SOURCE_BYTES \
+    ((KFM_MAX_SPRITE_SOURCE_BYTES > KFM_ZSS_MAX_SPRITE_SOURCE_BYTES) ? \
+         KFM_MAX_SPRITE_SOURCE_BYTES : KFM_ZSS_MAX_SPRITE_SOURCE_BYTES)
 #define IK_ASSET_IO_SCRATCH_BYTES \
-    ((KFM_MAX_SPRITE_SOURCE_BYTES > IK_ASSET_LOAD_CHUNK_BYTES) ? \
-         KFM_MAX_SPRITE_SOURCE_BYTES : IK_ASSET_LOAD_CHUNK_BYTES)
+    ((IK_MAX_SPRITE_SOURCE_BYTES > IK_ASSET_LOAD_CHUNK_BYTES) ? \
+         IK_MAX_SPRITE_SOURCE_BYTES : IK_ASSET_LOAD_CHUNK_BYTES)
 
 typedef struct ik_frame_texture_cache_entry {
     uint16_t sprite_index;
     uint32_t last_use;
     uint32_t pin_epoch;
     sat_texture_t texture;
+    uint8_t asset_slot;
     uint8_t used;
 } ik_frame_texture_cache_entry_t;
+
+typedef struct ik_sprite_prefetch {
+    uint16_t sprite_index;
+    uint32_t bytes;
+    uint8_t asset_slot;
+    uint8_t valid;
+} ik_sprite_prefetch_t;
+
+typedef struct ik_character_runtime {
+    const ik_frame_table_t* frames;
+    const ik_sprite_source_t* sprites;
+    const uint16_t* palette;
+    uint16_t sprite_count;
+    uint8_t asset_slot;
+} ik_character_runtime_t;
 
 static ik_frame_texture_cache_entry_t
     g_frame_cache[IK_FRAME_TEXTURE_CACHE_SIZE];
 static uint32_t g_frame_cache_clock;
 static uint32_t g_frame_cache_epoch;
 static ik_asset_store_t g_asset_store;
+static ik_sprite_prefetch_t g_prefetch[2];
 static uint8_t g_asset_io_scratch[IK_ASSET_IO_SCRATCH_BYTES]
     __attribute__((section(".wram_l"), aligned(32)));
-static uint8_t g_frame_decode_scratch[KFM_MAX_SPRITE_BYTES]
+static uint8_t g_prefetch_data[2][IK_MAX_SPRITE_SOURCE_BYTES]
+    __attribute__((section(".wram_l"), aligned(32)));
+static uint8_t g_frame_decode_scratch[
+    (KFM_MAX_SPRITE_BYTES > KFM_ZSS_MAX_SPRITE_BYTES)
+        ? KFM_MAX_SPRITE_BYTES : KFM_ZSS_MAX_SPRITE_BYTES]
     __attribute__((section(".wram_l"), aligned(32)));
 
-static sat_palette_t g_p2_palette;
 static uint16_t g_map_scratch[SAT_VDP2_NBG0_MAP_CELLS];
 static sat_ascii_font_t g_font;
 static sat_hud_t g_hud;
@@ -63,6 +88,16 @@ static ik_command_state_t g_command_states[2];
 
 static const ik_frame_table_t g_kfm_table = {
     kfm_frames, KFM_FRAME_COUNT, kfm_clsn_boxes, KFM_CLSN_BOX_COUNT
+};
+static const ik_frame_table_t g_kfm_zss_table = {
+    kfm_zss_frames, KFM_ZSS_FRAME_COUNT,
+    kfm_zss_clsn_boxes, KFM_ZSS_CLSN_BOX_COUNT
+};
+static const ik_character_runtime_t g_characters[2] = {
+    {&g_kfm_table, kfm_sprites, kfm_palette_main,
+     KFM_SPRITE_COUNT, IK_ASSET_SLOT_P1},
+    {&g_kfm_zss_table, kfm_zss_sprites, kfm_zss_palette_main,
+     KFM_ZSS_SPRITE_COUNT, IK_ASSET_SLOT_P2}
 };
 
 static void asset_store_stop(sat_result_t st) {
@@ -119,17 +154,32 @@ static void fighters_init(void) {
     for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
         g_frame_cache[i] = (ik_frame_texture_cache_entry_t){0};
     }
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        g_prefetch[i] = (ik_sprite_prefetch_t){0};
+    }
     g_frame_cache_clock = 0u;
     g_frame_cache_epoch = 0u;
-    sat_example_must(sat_palette_register(kfm_palette_alt1, &g_p2_palette));
 }
 
-static const ik_frame_t* current_frame(const ik_fighter_t* f) {
-    if (!f) return 0;
+static const ik_frame_t* current_frame(uint32_t player,
+                                       const ik_fighter_t* f) {
+    if (!f || player >= 2u) return 0;
+    const ik_frame_table_t* table = g_characters[player].frames;
     const ik_frame_t* frame =
-        ik_frame_at_time(&g_kfm_table, f->anim, f->anim_time);
-    if (!frame) frame = ik_frame_at_time(&g_kfm_table, 0, 0u);
+        ik_frame_at_time(table, f->anim, f->anim_time);
+    if (!frame) frame = ik_frame_at_time(table, 0, 0u);
     return frame;
+}
+
+static int texture_cache_contains(uint8_t asset_slot, uint16_t sprite_index) {
+    for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
+        const ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
+        if (e->used && e->asset_slot == asset_slot &&
+            e->sprite_index == sprite_index) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* KFM now needs more than LibSaturn's 64 logical texture slots when all
@@ -138,17 +188,21 @@ static const ik_frame_t* current_frame(const ik_fighter_t* f) {
  * sprite into aligned WRAM-L staging, decodes it, and uploads the result to
  * VDP1. Both fighters' current frames are pinned before any VDP1 command is
  * emitted, so an LRU eviction can never invalidate a current-frame texture. */
-static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
+static sat_result_t frame_texture_resolve(uint32_t player,
+                                          const ik_frame_t* frame,
                                           uint32_t epoch,
                                           sat_texture_t* out_texture) {
-    if (!frame || !out_texture) return SAT_ERR_INVALID_ARG;
+    if (player >= 2u || !frame || !out_texture) return SAT_ERR_INVALID_ARG;
+    const ik_character_runtime_t* character = &g_characters[player];
 
     ++g_frame_cache_clock;
     if (g_frame_cache_clock == 0u) g_frame_cache_clock = 1u;
 
     for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
         ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
-        if (e->used && e->sprite_index == frame->sprite_index) {
+        if (e->used &&
+            e->asset_slot == character->asset_slot &&
+            e->sprite_index == frame->sprite_index) {
             e->last_use = g_frame_cache_clock;
             e->pin_epoch = epoch;
             *out_texture = e->texture;
@@ -178,30 +232,43 @@ static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
         *e = (ik_frame_texture_cache_entry_t){0};
     }
 
-    if (frame->sprite_index >= KFM_SPRITE_COUNT) return SAT_ERR_INVALID_ARG;
-    const ik_sprite_source_t* source = &kfm_sprites[frame->sprite_index];
-    if (source->data_size > sizeof(g_asset_io_scratch)) return SAT_ERR_CAPACITY;
+    if (frame->sprite_index >= character->sprite_count) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    const ik_sprite_source_t* source =
+        &character->sprites[frame->sprite_index];
+    if (source->data_size > IK_MAX_SPRITE_SOURCE_BYTES) {
+        return SAT_ERR_CAPACITY;
+    }
 
-    sat_result_t st = ik_asset_store_read_sprite(
-        &g_asset_store, source, g_asset_io_scratch,
-        (uint32_t)sizeof(g_asset_io_scratch));
-    if (st != SAT_OK) return st;
+    const uint8_t* packed = g_asset_io_scratch;
+    if (g_prefetch[player].valid &&
+        g_prefetch[player].asset_slot == character->asset_slot &&
+        g_prefetch[player].sprite_index == frame->sprite_index &&
+        g_prefetch[player].bytes == source->data_size) {
+        packed = g_prefetch_data[player];
+    } else {
+        sat_result_t st = ik_asset_store_read_sprite(
+            &g_asset_store, character->asset_slot, source,
+            g_asset_io_scratch, (uint32_t)sizeof(g_asset_io_scratch));
+        if (st != SAT_OK) return st;
+    }
 
     ik_sprite_source_t local_source = *source;
     local_source.data_ofs = 0u;
     if (!ik_sprite_decode(
             &local_source,
-            g_asset_io_scratch, source->data_size,
+            packed, source->data_size,
             g_frame_decode_scratch, sizeof(g_frame_decode_scratch))) {
         return SAT_ERR_IO;
     }
 
     sat_surface_t surface;
-    st = sat_surface_init(
+    sat_result_t st = sat_surface_init(
         &surface,
         g_frame_decode_scratch,
         frame->w, frame->h, frame->w, SAT_PIXEL_INDEX8,
-        kfm_palette_main, 256u);
+        character->palette, 256u);
     if (st != SAT_OK) return st;
 
     sat_texture_t tex = {0u, 0u};
@@ -210,6 +277,7 @@ static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
     if (st != SAT_OK) return st;
 
     e->used = 1u;
+    e->asset_slot = character->asset_slot;
     e->sprite_index = frame->sprite_index;
     e->last_use = g_frame_cache_clock;
     e->pin_epoch = epoch;
@@ -218,11 +286,54 @@ static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
     return SAT_OK;
 }
 
+static sat_result_t prefetch_next_frame(
+    uint32_t player,
+    const ik_fighter_t* fighter,
+    const ik_frame_t* current
+) {
+    if (player >= 2u || !fighter || !current) return SAT_ERR_INVALID_ARG;
+    const ik_character_runtime_t* character = &g_characters[player];
+
+    const ik_frame_t* next = 0;
+    for (uint32_t dt = 1u; dt <= IK_PREFETCH_LOOKAHEAD_TICKS; ++dt) {
+        const ik_frame_t* candidate = ik_frame_at_time(
+            character->frames, fighter->anim, fighter->anim_time + dt);
+        if (!candidate) break;
+        if (candidate->sprite_index != current->sprite_index) {
+            next = candidate;
+            break;
+        }
+    }
+
+    if (!next ||
+        texture_cache_contains(character->asset_slot, next->sprite_index)) {
+        g_prefetch[player].valid = 0u;
+        return SAT_OK;
+    }
+    if (next->sprite_index >= character->sprite_count) {
+        return SAT_ERR_INVALID_ARG;
+    }
+
+    const ik_sprite_source_t* source =
+        &character->sprites[next->sprite_index];
+    if (source->data_size > IK_MAX_SPRITE_SOURCE_BYTES) {
+        return SAT_ERR_CAPACITY;
+    }
+
+    SAT_TRY(ik_asset_store_read_sprite(
+        &g_asset_store, character->asset_slot, source,
+        g_prefetch_data[player], IK_MAX_SPRITE_SOURCE_BYTES));
+    g_prefetch[player].sprite_index = next->sprite_index;
+    g_prefetch[player].bytes = source->data_size;
+    g_prefetch[player].asset_slot = character->asset_slot;
+    g_prefetch[player].valid = 1u;
+    return SAT_OK;
+}
+
 static void draw_fighter(const ik_frame_t* frame,
                          sat_texture_t texture,
                          const ik_fighter_t* f,
-                         const ik_cns_asset_t* cns,
-                         int player) {
+                         const ik_cns_asset_t* cns) {
     if (!frame || !f) return;
 
     const int flip_h = (f->facing < 0) !=
@@ -259,20 +370,14 @@ static void draw_fighter(const ik_frame_t* frame,
         sat_example_must(sat_vdp1_draw_polygon(&shadow));
     }
 
-    if (player == 2) {
-        sat_example_must(sat_render2d_set_palette(g_p2_palette));
-    }
     sat_example_must(sat_draw_texture(
         texture, 0, &(sat_rect_t){dx, dy, frame->w, frame->h}, &params));
-    if (player == 2) {
-        sat_example_must(sat_render2d_set_palette(sat_palette_none()));
-    }
 }
 
 static void draw_fighters(const ik_fight_t* fight) {
     const ik_frame_t* frames[2] = {
-        current_frame(&fight->fighters[0]),
-        current_frame(&fight->fighters[1])
+        current_frame(0u, &fight->fighters[0]),
+        current_frame(1u, &fight->fighters[1])
     };
     if (!frames[0] || !frames[1]) return;
 
@@ -281,9 +386,13 @@ static void draw_fighters(const ik_fight_t* fight) {
 
     sat_texture_t textures[2] = {{0u, 0u}, {0u, 0u}};
     sat_example_must(frame_texture_resolve(
-        frames[0], g_frame_cache_epoch, &textures[0]));
+        0u, frames[0], g_frame_cache_epoch, &textures[0]));
     sat_example_must(frame_texture_resolve(
-        frames[1], g_frame_cache_epoch, &textures[1]));
+        1u, frames[1], g_frame_cache_epoch, &textures[1]));
+    sat_example_must(prefetch_next_frame(
+        0u, &fight->fighters[0], frames[0]));
+    sat_example_must(prefetch_next_frame(
+        1u, &fight->fighters[1], frames[1]));
 
     int first = 0;
     int second = 1;
@@ -293,9 +402,9 @@ static void draw_fighters(const ik_fight_t* fight) {
     }
 
     draw_fighter(frames[first], textures[first],
-                 &fight->fighters[first], fight->cns, first + 1);
+                 &fight->fighters[first], fight->cns);
     draw_fighter(frames[second], textures[second],
-                 &fight->fighters[second], fight->cns, second + 1);
+                 &fight->fighters[second], fight->cns);
 }
 
 static void controls_from_commands(uint32_t player,
@@ -378,7 +487,7 @@ static void draw_bars(const ik_fight_t* fight) {
         &g_hud, 188, 10, 120, 8,
         (uint32_t)fight->fighters[1].hp, max_hp, bar_bg, p2_fg));
     sat_example_must(sat_hud_text(&g_hud, "P1", 12, 22));
-    sat_example_must(sat_hud_text(&g_hud, "P2 DUMMY", 236, 22));
+    sat_example_must(sat_hud_text(&g_hud, "P2 ZSS", 252, 22));
 
     {
         char timer[16];
@@ -422,13 +531,26 @@ int main(void) {
     sat_example_loading_frame(
         &g_font, "IKEMEN SATURN", "LOADING 4 MB RAM CART", 5u, 320u, 224u);
     {
-        const sat_result_t st = ik_asset_store_init(
-            &g_asset_store, "KFM_SPR.BIN", KFM_SPRITE_DATA_BYTES,
+        sat_result_t st = ik_asset_store_init(&g_asset_store);
+        if (st == SAT_OK) {
+            st = ik_asset_store_load_blob(
+                &g_asset_store, IK_ASSET_SLOT_P1,
+                "KFM_SPR.BIN", KFM_SPRITE_DATA_BYTES,
+                g_asset_io_scratch, (uint32_t)sizeof(g_asset_io_scratch));
+        }
+        if (st != SAT_OK) asset_store_stop(st);
+    }
+    sat_example_loading_frame(
+        &g_font, "IKEMEN SATURN", "P1 RESIDENT IN CART", 45u, 320u, 224u);
+    {
+        const sat_result_t st = ik_asset_store_load_blob(
+            &g_asset_store, IK_ASSET_SLOT_P2,
+            "KFM_ZSS.BIN", KFM_ZSS_SPRITE_DATA_BYTES,
             g_asset_io_scratch, (uint32_t)sizeof(g_asset_io_scratch));
         if (st != SAT_OK) asset_store_stop(st);
     }
     sat_example_loading_frame(
-        &g_font, "IKEMEN SATURN", "SPRITES RESIDENT IN CART", 80u, 320u, 224u);
+        &g_font, "IKEMEN SATURN", "P1 + P2 RESIDENT IN CART", 80u, 320u, 224u);
 
     stage_init();
     fighters_init();
@@ -474,7 +596,7 @@ int main(void) {
 
         ik_fight_update(
             &fight, &p1_controls, have_p2 ? &p2_controls : 0,
-            &g_kfm_table);
+            g_characters[0].frames, g_characters[1].frames);
         ik_audio_process_fight(&audio, &fight);
         sat_example_must(ik_audio_update());
 

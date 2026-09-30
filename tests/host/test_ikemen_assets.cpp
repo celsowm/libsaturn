@@ -18,6 +18,7 @@
 
 #include "examples/ikemen_saturn/ikemen_anim.h"
 #include "ikemen_saturn/kfm_frames.h"
+#include "ikemen_saturn/kfm_zss_frames.h"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr,"FAIL %s:%d: %s\n",__FILE__,__LINE__,#x); std::exit(1); } } while(0)
 
@@ -56,9 +57,8 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_claim_mode(sat_vdp2_color_cal
     return SAT_ERR_NOT_INITIALIZED;
 }
 
-static std::vector<uint8_t> load_sprite_blob() {
-    std::FILE* file = std::fopen(
-        "build/generated/ikemen_saturn/iso/KFM_SPR.BIN", "rb");
+static std::vector<uint8_t> load_sprite_blob(const char* path) {
+    std::FILE* file = std::fopen(path, "rb");
     OK(file != nullptr);
     OK(std::fseek(file, 0, SEEK_END) == 0);
     const long size = std::ftell(file);
@@ -111,9 +111,13 @@ int main() {
     const ik_frame_table_t table = {
         kfm_frames, KFM_FRAME_COUNT, kfm_clsn_boxes, KFM_CLSN_BOX_COUNT
     };
-    const std::vector<uint8_t> sprite_blob = load_sprite_blob();
+    const std::vector<uint8_t> sprite_blob = load_sprite_blob(
+        "build/generated/ikemen_saturn/iso/KFM_SPR.BIN");
+    const std::vector<uint8_t> zss_blob = load_sprite_blob(
+        "build/generated/ikemen_saturn/iso/KFM_ZSS.BIN");
 
     OK(sprite_blob.size() == KFM_SPRITE_DATA_BYTES);
+    OK(zss_blob.size() == KFM_ZSS_SPRITE_DATA_BYTES);
     OK(KFM_CLSN_BOX_COUNT > 0u);
     bool saw_attack = false;
     bool saw_hurt = false;
@@ -134,6 +138,28 @@ int main() {
     }
     OK(KFM_SPRITE_DATA_BYTES < KFM_RAW_PIXELS_BYTES);
     OK(saw_attack && saw_hurt);
+
+    {
+        const ik_frame_table_t zss_table = {
+            kfm_zss_frames, KFM_ZSS_FRAME_COUNT,
+            kfm_zss_clsn_boxes, KFM_ZSS_CLSN_BOX_COUNT
+        };
+        const ik_frame_t* zss_frame =
+            ik_frame_at_time(&zss_table, 0, 0u);
+        OK(zss_frame != nullptr);
+        OK(zss_frame->sprite_index < KFM_ZSS_SPRITE_COUNT);
+        const ik_sprite_source_t& source =
+            kfm_zss_sprites[zss_frame->sprite_index];
+        OK((source.data_ofs & 3u) == 0u);
+        OK(source.data_size <=
+           KFM_ZSS_SPRITE_DATA_BYTES - source.data_ofs);
+        static uint8_t zss_scratch[KFM_ZSS_MAX_SPRITE_BYTES];
+        OK(ik_sprite_decode(
+            &source, zss_blob.data(),
+            static_cast<uint32_t>(zss_blob.size()),
+            zss_scratch, sizeof(zss_scratch)) != 0);
+        OK(KFM_ZSS_SPRITE_DATA_BYTES < KFM_ZSS_RAW_PIXELS_BYTES);
+    }
 
     uint32_t unique = 0u;
     for (uint32_t i=0;i<table.count;++i) {
