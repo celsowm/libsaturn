@@ -1595,7 +1595,9 @@ type = PalFX
 trigger1 = Time = 0
 time = 20
 add = 32,16,0
+mul = 256,192,128
 sinadd = 64,32,5,3
+sinmul = 0,-64,-128,5
 
 [State 1420, Early Hit]
 type = HitDef
@@ -2414,6 +2416,13 @@ assert (palfx1420["value2"] & 0xff) == 64
 assert ((palfx1420["value2"] >> 8) & 0xff) == 32
 assert ((palfx1420["value2"] >> 16) & 0xff) == 5
 assert palfx1420["value3"] == 3
+assert (palfx1420["value4"] & 0x1ff) == 256
+assert ((palfx1420["value4"] >> 9) & 0x1ff) == 192
+assert ((palfx1420["value4"] >> 18) & 0x1ff) == 128
+assert (palfx1420["value5"] & 0x1ff) == 0
+assert ((palfx1420["value5"] >> 9) & 0x1ff) == ((-64) & 0x1ff)
+assert ((palfx1420["value5"] >> 18) & 0x1ff) == ((-128) & 0x1ff)
+assert palfx1420["value6"] == 5
 dash1420 = next(c for c in zankou_1420 if c["type"] == "IK_CNS_CTRL_VEL_SET")
 assert dash1420["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_TIME_RANGE"
 assert dash1420["trigger_value"] == 3
