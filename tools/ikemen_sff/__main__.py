@@ -208,7 +208,7 @@ def cmd_char(args) -> int:
 
     if args.png_dir:
         for key in list(sprite_assets)[:args.png_limit]:
-            node = nodes[key]
+            _, node = nodes[key]
             raw = decode(node, container.sprite_data(node))
             pixels, padded_w, _ = _pad_sprite(raw, node.width, node.height)
             _png_dump_indexed(Path(args.png_dir) / f"{key[0]}_{key[1]}.png",
@@ -222,7 +222,7 @@ def cmd_char(args) -> int:
 def cmd_fx(args) -> int:
     container = sff_mod.load(Path(args.sff))
     actions = air_mod.parse(Path(args.air))
-    nodes = {(n.group, n.number): n for n in container.sprite_nodes()}
+    all_nodes, nodes = _indexed_nodes(container)
 
     frames: list[emit_mod.FrameAsset] = []
     sprite_assets: dict[tuple[int, int], emit_mod.SpriteAsset] = {}
