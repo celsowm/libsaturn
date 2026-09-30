@@ -349,7 +349,8 @@ static int process_controllers(
         .hit_pause = entity->hit_pause,
         .alive = (uint8_t)(entity->life > 0),
         .anim_ended = (uint8_t)(anim_ended != 0),
-        .move_contact = entity->move_contact
+        .move_contact = entity->move_contact,
+        .round_state = 2u
     };
 
     for (uint8_t i = 0u; i < state->controller_count; ++i) {
