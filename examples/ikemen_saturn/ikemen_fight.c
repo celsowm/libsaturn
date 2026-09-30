@@ -2010,6 +2010,12 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         .state_time = f->state_time,
         .anim_element = elem,
         .anim_element_time = elem_time,
+        .anim_ticks_remaining = (uint16_t)(
+            ik_action_duration_ticks(frames, f->anim) > f->anim_time
+                ? (ik_action_duration_ticks(frames, f->anim) - f->anim_time > 65535u
+                    ? 65535u
+                    : ik_action_duration_ticks(frames, f->anim) - f->anim_time)
+                : 0u),
         .anim = f->anim,
         .vx_q8 = f->vx_q8,
         .vy_q8 = f->vy_q8,
