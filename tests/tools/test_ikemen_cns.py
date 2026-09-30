@@ -2005,6 +2005,11 @@ assert high_reversal["end_time"] == 8
 assert high_reversal["attacker_state_mask"] == (
     "IK_CNS_REVERSAL_STATE_STAND | IK_CNS_REVERSAL_STATE_AIR"
 )
+assert high_reversal["incoming_attr_mask"] == (
+    "IK_CNS_ATTR_NORMAL_ATTACK | "
+    "IK_CNS_ATTR_SPECIAL_ATTACK | "
+    "IK_CNS_ATTR_HYPER_ATTACK"
+)
 assert high_reversal["p1_state_no"] == 1310
 assert high_reversal["spark_no"] == 40
 assert high_reversal["p1_spr_priority"] == 2
