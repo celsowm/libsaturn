@@ -1736,6 +1736,224 @@ def compile_helper_controller(
     }
     return controller, helper
 
+def _projectile_hitdef_row(
+    state_no: int,
+    ctrl: Section,
+    default_spark_no: int,
+    default_guard_spark_no: int,
+) -> dict:
+    damage, guard_damage = pair(ctrl.get("damage") or "0,0", 0, 0)
+    pause1, pause2 = pair(ctrl.get("pausetime"), 0, 0)
+    gx, gy = pair(ctrl.get("ground.velocity"), 0, 0)
+    ax, ay = pair(ctrl.get("air.velocity"), gx, gy)
+    guardx = number(ctrl.get("guard.velocity"), gx)
+    agx, agy = pair(ctrl.get("airguard.velocity"), ax * 1.5, ay / 2.0)
+    down_x, down_y = pair(ctrl.get("down.velocity"), ax, ay)
+    sparkx, sparky, _ = spark_pair(ctrl.get("sparkxy"))
+    hs = sound_pair(ctrl.get("hitsound"))
+    gs = sound_pair(ctrl.get("guardsound"))
+
+    attr_parts = [
+        p.strip().upper()
+        for p in (ctrl.get("attr") or "S, NP").split(",")
+    ]
+    attack_attr = attack_attr_mask(
+        attr_parts[1] if len(attr_parts) > 1 else "NP"
+    )
+    flags: list[str] = []
+    if integer(ctrl.get("fall"), 0):
+        flags.append("IK_CNS_HITDEF_FALL")
+    if integer(ctrl.get("air.fall"), 0):
+        flags.append("IK_CNS_HITDEF_AIR_FALL")
+    if integer(ctrl.get("forcestand"), 0):
+        flags.append("IK_CNS_HITDEF_FORCE_STAND")
+    if integer(ctrl.get("forcenofall"), 0):
+        flags.append("IK_CNS_HITDEF_FORCE_NO_FALL")
+
+    return {
+        "state_number": state_no,
+        "trigger_kind": "IK_CNS_TRIGGER_ALWAYS",
+        "trigger_value": 0,
+        "damage": int(damage),
+        "guard_damage": int(guard_damage),
+        "priority": integer(
+            (ctrl.get("priority") or "4").split(",", 1)[0], 4),
+        "pause_p1": int(pause1),
+        "pause_p2": int(pause2),
+        "ground_type": GROUND_TYPE.get(
+            (ctrl.get("ground.type", "normal") or "normal").strip().lower(),
+            "IK_CNS_GROUND_NORMAL"),
+        "ground_slide_time": integer(ctrl.get("ground.slidetime"), 0),
+        "ground_hit_time": integer(ctrl.get("ground.hittime"), 0),
+        "air_hit_time": integer(
+            ctrl.get("air.hittime"),
+            integer(ctrl.get("ground.hittime"), 0)),
+        "ground_velocity_x_q8": q8(gx),
+        "ground_velocity_y_q8": q8(gy),
+        "air_velocity_x_q8": q8(ax),
+        "air_velocity_y_q8": q8(ay),
+        "spark_no": integer(ctrl.get("sparkno"), default_spark_no),
+        "spark_x": int(sparkx),
+        "spark_y": int(sparky),
+        "hit_sound_group": hs[0],
+        "hit_sound_item": hs[1],
+        "guard_sound_group": gs[0],
+        "guard_sound_item": gs[1],
+        "flags": " | ".join(flags) if flags else "0u",
+        "guard_flags": guard_mask(ctrl.get("guardflag")),
+        "guard_kill": integer(ctrl.get("guard.kill"), 1),
+        "guard_slide_time": integer(
+            ctrl.get("guard.slidetime"),
+            integer(ctrl.get("ground.slidetime"), 0)),
+        "guard_hit_time": integer(
+            ctrl.get("guard.hittime"),
+            integer(ctrl.get("ground.hittime"), 0)),
+        "guard_ctrl_time": integer(ctrl.get("guard.ctrltime"), 0),
+        "guard_velocity_x_q8": q8(guardx),
+        "air_guard_velocity_x_q8": q8(agx),
+        "air_guard_velocity_y_q8": q8(agy),
+        "anim_type": anim_type_code(ctrl.get("animtype")),
+        "air_anim_type": anim_type_code(
+            ctrl.get("air.animtype") or ctrl.get("animtype")),
+        "fall_x_velocity_q8": q8(number(ctrl.get("fall.xvelocity"), 0)),
+        "fall_y_velocity_q8": q8(number(ctrl.get("fall.yvelocity"), -4.5)),
+        "fall_x_velocity_set": int(ctrl.get("fall.xvelocity") is not None),
+        "fall_recover": integer(ctrl.get("fall.recover"), 1),
+        "fall_recover_time": integer(ctrl.get("fall.recovertime"), 4),
+        "down_hit_time": integer(ctrl.get("down.hittime"), 0),
+        "down_velocity_x_q8": q8(down_x),
+        "down_velocity_y_q8": q8(down_y),
+        "down_bounce": integer(ctrl.get("down.bounce"), 0),
+        "hit_flags": hit_mask(ctrl.get("hitflag")),
+        "priority_type": priority_type_code(ctrl.get("priority")),
+        "air_juggle": integer(ctrl.get("air.juggle"), 0),
+        "p1_state_no": integer(ctrl.get("p1stateno"), -1),
+        "p2_state_no": integer(ctrl.get("p2stateno"), -1),
+        "guard_dist": integer(ctrl.get("guard.dist"), 0),
+        "p1_facing": integer(ctrl.get("p1facing"), 0),
+        "p2_facing": integer(ctrl.get("p2facing"), 0),
+        "p1_spr_priority": integer(ctrl.get("p1sprpriority"), -128),
+        "p2_body_dist_op": "IK_CNS_P2_DIST_NONE",
+        "p2_body_dist_x": 0,
+        "alt_damage": -1,
+        "alt_damage_prev_state": -32768,
+        "trigger2_kind": 255,
+        "trigger2_value": 0,
+        "yaccel_q8": q8(number(ctrl.get("yaccel"), 0)),
+        "has_trigger2": 0,
+        "has_alt_damage": 0,
+        "ground_cornerpush_veloff_q8": q8(
+            number(ctrl.get("ground.cornerpush.veloff"), 0)),
+        "trigger2_spark_y": int(sparky),
+        "guard_spark_no": integer(
+            ctrl.get("guard.sparkno"), default_guard_spark_no),
+        "attack_attr_mask": attack_attr,
+        "fall_damage": integer(ctrl.get("fall.damage"), 0),
+        "envshake_time": integer(ctrl.get("envshake.time"), 0),
+        "envshake_ampl": integer(ctrl.get("envshake.ampl"), 0),
+        "envshake_freq": integer(ctrl.get("envshake.freq"), 60),
+        "fall_envshake_time": integer(ctrl.get("fall.envshake.time"), 0),
+        "fall_envshake_ampl": integer(ctrl.get("fall.envshake.ampl"), 0),
+        "fall_envshake_freq": integer(ctrl.get("fall.envshake.freq"), 60),
+    }
+
+
+def compile_projectile_controller(
+    state_no: int,
+    ctrl: Section,
+    projectile_index: int,
+    hitdef_global: int,
+    default_spark_no: int,
+    default_guard_spark_no: int,
+) -> tuple[dict, dict, dict] | None:
+    supported = {
+        "type", "projid", "projanim", "projhitanim", "projremanim",
+        "projcancelanim", "postype", "offset", "velocity", "velmul",
+        "accel", "projremove", "projremovetime", "projhits",
+        "projmisstime", "projpriority", "projsprpriority",
+        "projedgebound", "projstagebound", "pausemovetime",
+        "supermovetime", "ownpal", "persistent", "ignorehitpause",
+        "attr", "damage", "priority", "pausetime", "sparkno",
+        "guard.sparkno", "sparkxy", "hitsound", "guardsound",
+        "animtype", "air.animtype", "fall", "air.fall",
+        "forcestand", "forcenofall", "guardflag", "hitflag",
+        "ground.type", "ground.slidetime", "ground.hittime",
+        "ground.velocity", "air.hittime", "air.velocity",
+        "guard.velocity", "airguard.velocity", "guard.slidetime",
+        "guard.hittime", "guard.ctrltime", "guard.kill",
+        "fall.xvelocity", "fall.yvelocity", "fall.recover",
+        "fall.recovertime", "down.hittime", "down.velocity",
+        "down.bounce", "air.juggle", "p1stateno", "p2stateno",
+        "guard.dist", "p1facing", "p2facing", "p1sprpriority",
+        "yaccel", "ground.cornerpush.veloff", "fall.damage",
+        "envshake.time", "envshake.ampl", "envshake.freq",
+        "fall.envshake.time", "fall.envshake.ampl",
+        "fall.envshake.freq",
+    }
+    for key, _ in ctrl.values:
+        lowered = key.strip().lower()
+        if lowered.startswith("trigger"):
+            continue
+        if lowered not in supported:
+            return None
+
+    postype = (ctrl.get("postype", "p1") or "p1").strip().lower()
+    if postype != "p1":
+        return None
+
+    trig_kind, trig_value, trig_value2 = controller_trigger(
+        ctrl, "projectile")
+    ox, oy = pair(ctrl.get("offset"), 0, 0)
+    vx, vy = pair(ctrl.get("velocity"), 0, 0)
+    vmx, vmy = pair(ctrl.get("velmul"), 1, 1)
+    ax, ay = pair(ctrl.get("accel"), 0, 0)
+
+    projectile = {
+        "id": integer(ctrl.get("projid"), 0),
+        "anim_no": integer(ctrl.get("projanim"), 0),
+        "hit_anim_no": integer(ctrl.get("projhitanim"), -1),
+        "remove_anim_no": integer(ctrl.get("projremanim"), -1),
+        "cancel_anim_no": integer(ctrl.get("projcancelanim"), -1),
+        "hitdef_global": hitdef_global,
+        "pos_x_q8": q8(ox),
+        "pos_y_q8": q8(oy),
+        "vel_x_q8": q8(vx),
+        "vel_y_q8": q8(vy),
+        "velmul_x_q8": q8(vmx),
+        "velmul_y_q8": q8(vmy),
+        "accel_x_q8": q8(ax),
+        "accel_y_q8": q8(ay),
+        "remove_time": integer(ctrl.get("projremovetime"), -1),
+        "edge_bound": integer(ctrl.get("projedgebound"), 40),
+        "stage_bound": integer(ctrl.get("projstagebound"), 40),
+        "hits": max(1, integer(ctrl.get("projhits"), 1)),
+        "miss_time": max(0, integer(ctrl.get("projmisstime"), 0)),
+        "priority": max(0, integer(ctrl.get("projpriority"), 1)),
+        "remove_on_hit": integer(ctrl.get("projremove"), 1),
+        "spr_priority": integer(ctrl.get("projsprpriority"), 3),
+        "ownpal": integer(ctrl.get("ownpal"), 0),
+        "pause_move_time": max(0, integer(ctrl.get("pausemovetime"), 0)),
+        "super_move_time": max(0, integer(ctrl.get("supermovetime"), 0)),
+    }
+    controller = {
+        "state_number": state_no,
+        "type": "IK_CNS_CTRL_PROJECTILE",
+        "trigger_kind": trig_kind,
+        "trigger_value": trig_value,
+        "trigger_value2": trig_value2,
+        "value0": projectile_index,
+        "value1": 1 if integer(ctrl.get("persistent"), 1) == 0 else 0,
+        "flags": (
+            "IK_CNS_CTRL_IGNORE_HIT_PAUSE"
+            if integer(ctrl.get("ignorehitpause"), 0)
+            else "0u"
+        ),
+    }
+    hitdef = _projectile_hitdef_row(
+        state_no, ctrl, default_spark_no, default_guard_spark_no)
+    return controller, projectile, hitdef
+
+
 def compile_explod_controller(
     state_no: int,
     ctrl: Section,
