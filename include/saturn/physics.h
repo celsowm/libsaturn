@@ -21,9 +21,24 @@ enum {
     SAT_TILE_SOLID = 1,
     SAT_TILE_ONE_WAY = 2,
     SAT_TILE_SLOPE_UP = 3,
-    SAT_TILE_SLOPE_DOWN = 4
+    SAT_TILE_SLOPE_DOWN = 4,
+    SAT_TILE_SLOPE = 5
 };
 typedef int (*sat_tile_fn)(int col, int row, void* user);
+
+/* Local slope segment in normalized tile coordinates. 0 is the tile's
+ * left/top edge and SAT_FX16_ONE is its right/bottom edge. Y points down.
+ * x0 must be smaller than x1; all four coordinates must be in [0,1]. */
+typedef struct sat_tile_surface {
+    sat_fx16_t x0, y0;
+    sat_fx16_t x1, y1;
+} sat_tile_surface_t;
+
+/* Extended tile probe. Return the same SAT_TILE_* kind as sat_tile_fn. When
+ * returning SAT_TILE_SLOPE, fill `surface`; it is ignored for other kinds.
+ * SAT_TILE_SLOPE_UP/DOWN remain valid 45-degree convenience presets. */
+typedef int (*sat_tile_surface_fn)(int col, int row, void* user,
+                                   sat_tile_surface_t* surface);
 
 enum {
     SAT_BODY_GROUNDED = 1u << 0,
@@ -39,6 +54,8 @@ typedef struct sat_body2_params {
 void sat_body2_step(sat_body2_t* body, const sat_body2_params_t* params);
 sat_result_t sat_body2_move_tiles(sat_body2_t* body, const sat_grid_t* grid,
     sat_tile_fn tile_fn, void* user);
+sat_result_t sat_body2_move_tiles_surface(sat_body2_t* body, const sat_grid_t* grid,
+    sat_tile_surface_fn tile_fn, void* user);
 sat_result_t sat_body2_move_boxes(sat_body2_t* body, const sat_box2_t* boxes, uint16_t count);
 int sat_body2_separate(sat_body2_t* a, sat_body2_t* b);
 
