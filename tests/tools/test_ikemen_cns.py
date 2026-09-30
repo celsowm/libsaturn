@@ -1424,6 +1424,82 @@ with tempfile.TemporaryDirectory() as td:
                  5200,5201,5210]
     )
 
+    reversal_source = root / "blocking.cns"
+    reversal_source.write_text(r"""
+[Movement]
+yaccel = .44
+
+[Statedef 1300]
+type = S
+movetype = I
+physics = S
+anim = 1300
+
+[State 1300, Width]
+type = Width
+trigger1 = AnimElemTime(3) < 0
+value = 15,0
+
+[State 1300, Start]
+type = ReversalDef
+trigger1 = Time = 0
+reversal.attr = SA, AA
+pausetime = 0,0
+sparkno = 40
+sparkxy = 40,0
+hitsound = 6,0
+p1stateno = 1310
+p1sprpriority = 2
+p2sprpriority = 1
+
+[State 1300, Stop]
+type = ReversalDef
+trigger1 = Time = 4
+trigger2 = Time = 8
+reversal.attr =
+
+[Statedef 1340]
+type = A
+movetype = I
+physics = N
+anim = 1340
+
+[State 1340, Start]
+type = ReversalDef
+trigger1 = Time = 0
+reversal.attr = A, AA
+p1stateno = 1350
+
+[State 1340, Stop]
+type = ReversalDef
+trigger1 = Time = 5
+reversal.attr =
+
+[State 1340, Gravity]
+type = VelAdd
+trigger1 = 1
+y = Const(movement.yaccel)
+
+[Statedef 1350]
+type = A
+movetype = I
+physics = N
+anim = 1350
+
+[State 1350, Freeze]
+type = PosFreeze
+trigger1 = AnimElemTime(3) < 0
+
+[State 1350, Gravity]
+type = VelAdd
+trigger1 = AnimElemTime(3) > 0
+y = Const(movement.yaccel)
+""", encoding="utf-8")
+    reversal_report = emit(
+        reversal_source, [1300, 1340, 1350],
+        root / "blocking_cns", "blocking"
+    )
+
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
 assert report["constants"]["yaccel_q8"] == round(.44 * 256)
 assert report["constants"]["run_jump_fwd_x_q8"] == 4 * 256
@@ -1894,6 +1970,43 @@ assert report["constants"]["air_gethit_trip_groundlevel_q8"] == 15 * 256
 assert report["constants"]["down_bounce_offset_y_q8"] == 20 * 256
 assert report["constants"]["down_bounce_yaccel_q8"] == round(.4 * 256)
 assert report["constants"]["down_bounce_groundlevel_q8"] == 12 * 256
+
+assert len(reversal_report["reversals"]) == 2
+high_reversal = reversal_report["reversals"][0]
+assert high_reversal["state_number"] == 1300
+assert high_reversal["start_time"] == 0
+assert high_reversal["end_time"] == 8
+assert high_reversal["attacker_state_mask"] == (
+    "IK_CNS_REVERSAL_STATE_STAND | IK_CNS_REVERSAL_STATE_AIR"
+)
+assert high_reversal["p1_state_no"] == 1310
+assert high_reversal["spark_no"] == 40
+assert high_reversal["p1_spr_priority"] == 2
+assert high_reversal["p2_spr_priority"] == 1
+blocking_rows = {
+    row["number"]: row for row in reversal_report["states"]
+}
+assert blocking_rows[1300]["reversal_count"] == 1
+assert blocking_rows[1340]["reversal_count"] == 1
+blocking_ctrls = reversal_report["controllers"]
+width1300 = next(
+    c for c in blocking_ctrls
+    if c["state_number"] == 1300 and c["type"] == "IK_CNS_CTRL_WIDTH"
+)
+assert width1300["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_BEFORE"
+gravity1340 = next(
+    c for c in blocking_ctrls
+    if c["state_number"] == 1340 and c["type"] == "IK_CNS_CTRL_VEL_ADD"
+)
+assert "IK_CNS_CTRL_USE_YACCEL" in gravity1340["flags"]
+freeze1350 = next(
+    c for c in blocking_ctrls
+    if c["state_number"] == 1350 and c["type"] == "IK_CNS_CTRL_POS_FREEZE"
+)
+assert freeze1350["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_BEFORE"
+assert "IK_CNS_CTRL_AXIS_X" in freeze1350["flags"]
+assert "IK_CNS_CTRL_AXIS_Y" in freeze1350["flags"]
+
 assert report["constants"]["air_gethit_groundrecover_x_q8"] == round(-.15 * 256)
 assert report["constants"]["air_gethit_groundrecover_y_q8"] == round(-3.5 * 256)
 assert report["constants"]["air_gethit_groundrecover_threshold_q8"] == -20 * 256
