@@ -603,7 +603,26 @@ def controller_trigger(
         if m:
             return "IK_CNS_TRIGGER_ANIM_ELEM_FROM", int(m.group(1)), 0
 
-    if ctype in ("width", "targetbind") and len(triggers) == 1:
+    if len(triggers) == 1:
+        value = _strip_outer_parens(triggers[0])
+        m = re.fullmatch(
+            r"AnimElem\s*=\s*(\d+)\s*,\s*(-?\d+)",
+            value,
+            flags=re.I,
+        )
+        if m:
+            elem = int(m.group(1))
+            offset = int(m.group(2))
+            if elem < 1 or elem > 255 or offset < -128 or offset > 127:
+                raise ValueError(
+                    f"[{ctrl.name}] AnimElem offset trigger out of range"
+                )
+            packed = (elem << 8) | (offset & 0xff)
+            if packed >= 32768:
+                packed -= 65536
+            return "IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED", packed, 0
+
+    if ctype in ("width", "targetbind", "nothitby") and len(triggers) == 1:
         parsed = _anim_elem_range_trigger(triggers[0])
         if parsed is not None:
             return "IK_CNS_TRIGGER_ANIM_ELEM_RANGE", parsed[0], parsed[1]
