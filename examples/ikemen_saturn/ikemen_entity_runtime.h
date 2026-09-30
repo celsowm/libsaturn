@@ -41,6 +41,17 @@ int ik_entity_runtime_spawn_helper(
     const ik_cns_helper_t* helper,
     ik_entity_handle_t* out_handle);
 
+int ik_entity_runtime_spawn_projectile(
+    ik_entity_runtime_t* runtime,
+    ik_entity_handle_t parent,
+    int32_t id,
+    int16_t state_no,
+    int32_t pos_x_q8,
+    int32_t pos_y_q8,
+    int32_t vel_x_q8,
+    int32_t vel_y_q8,
+    ik_entity_handle_t* out_handle);
+
 void ik_entity_runtime_step(ik_entity_runtime_t* runtime);
 
 #ifdef __cplusplus
