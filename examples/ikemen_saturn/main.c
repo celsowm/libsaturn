@@ -624,6 +624,8 @@ static void afterimage_capture(
     }
 }
 
+static uint8_t clamp_u8_int(int value);
+
 static void draw_afterimages(
     uint8_t player,
     const ik_fighter_t* fighter,
