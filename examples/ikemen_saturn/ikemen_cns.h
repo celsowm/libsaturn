@@ -115,7 +115,9 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_VAR_SET,
     IK_CNS_CTRL_VAR_ADD,
     IK_CNS_CTRL_HELPER,
-    IK_CNS_CTRL_DESTROY_SELF
+    IK_CNS_CTRL_DESTROY_SELF,
+    IK_CNS_CTRL_PAUSE,
+    IK_CNS_CTRL_NOT_HIT_BY
 } ik_cns_controller_type_t;
 
 typedef enum ik_cns_helper_postype {
@@ -417,6 +419,8 @@ typedef struct ik_cns_playsnd {
  *   DownedHitBranch: select downed hit anim/state from stored get-hit Y velocity
  *   VelAdd: add Q8.8 velocity on selected axes
  *   FallRecovery: enter ground/air fall recovery using compiled thresholds
+ *   Pause: global pause ticks / owner movetime ticks
+ *   NotHitBy: incoming attacker state-type mask / duration ticks
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
