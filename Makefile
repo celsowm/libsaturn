@@ -692,6 +692,7 @@ HOST_TEST_EXTRA_test_ikemen_fight := examples/ikemen_saturn/ikemen_fight.c examp
 HOST_TEST_EXTRA_test_ikemen_command := examples/ikemen_saturn/ikemen_command.c
 HOST_TEST_EXTRA_test_ikemen_cns := examples/ikemen_saturn/ikemen_cns.c
 HOST_TEST_EXTRA_test_ikemen_anim := examples/ikemen_saturn/ikemen_anim.c
+HOST_TEST_EXTRA_test_ikemen_decode := examples/ikemen_saturn/ikemen_anim.c
 # End-to-end asset-contract test: needs a complete generated Ikemen asset
 # set. A partially populated build/generated directory can exist after other
 # pipeline steps, so checking only kfm_frames.c is not sufficient.
