@@ -1148,7 +1148,7 @@ def compile_runtime_controller(
             "value2": integer(ctrl.get("timegap"), 1),
             "value3": integer(ctrl.get("framegap"), 1),
             "value4": pack_rgb_signed(ctrl.get("palbright"), (0, 0, 0)),
-            "value5": pack_rgb_unsigned(ctrl.get("palcontrast"), (256, 256, 256)),
+            "value5": pack_rgb_unsigned(ctrl.get("palcontrast"), (255, 255, 255)),
             "value6": pack_rgb_signed(ctrl.get("paladd"), (0, 0, 0)),
             "value7": pack_mul(ctrl.get("palmul")),
             "flags": flag_expr(),
