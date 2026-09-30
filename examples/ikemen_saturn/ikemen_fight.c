@@ -3632,6 +3632,8 @@ void ik_fight_update(ik_fight_t* fight,
     }
 
     if (!fight->round_over) {
+        resolve_projectile_trades(
+            fight, p1_frames, p2_frames);
         resolve_entity_contacts(
             fight, p1, p2, p1_frames, p2_frames);
     }
