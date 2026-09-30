@@ -391,6 +391,31 @@ static uint16_t anim_element_start_tick(const ik_frame_table_t* frames,
     return (uint16_t)(total > 65535u ? 65535u : total);
 }
 
+static int hitdef_trigger_now(
+    const ik_frame_table_t* frames,
+    int16_t action,
+    uint16_t state_time,
+    uint16_t anim_time,
+    uint16_t anim_element,
+    uint16_t anim_element_time,
+    int anim_ended,
+    uint8_t trigger_kind,
+    int16_t trigger_value
+) {
+    if (trigger_kind == IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED) {
+        const uint16_t packed = (uint16_t)trigger_value;
+        const uint16_t elem = (uint16_t)(packed >> 8);
+        const int8_t offset = (int8_t)(packed & 0xffu);
+        const uint16_t start =
+            anim_element_start_tick(frames, action, elem);
+        const int32_t target = (int32_t)start + (int32_t)offset;
+        return target >= 0 && anim_time == (uint16_t)target;
+    }
+    return ik_cns_trigger_now(
+        trigger_kind, trigger_value, state_time,
+        anim_element, anim_element_time, anim_ended);
+}
+
 static int fighter_clsn_overlap(
     const ik_frame_table_t* attacker_frames,
     const ik_frame_table_t* victim_frames,
@@ -875,14 +900,18 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
         const uint16_t global = (uint16_t)(state->hitdef_ofs + i);
         if (global >= fight->cns->hitdef_count) break;
         const ik_cns_hitdef_t* hitdef = &fight->cns->hitdefs[global];
-        const int primary_now = ik_cns_trigger_now(
-            hitdef->trigger_kind, hitdef->trigger_value,
-            fighter->state_time, element, element_time, anim_ended);
+        const int primary_now = hitdef_trigger_now(
+            frames, fighter->anim,
+            fighter->state_time, fighter->anim_time,
+            element, element_time, anim_ended,
+            hitdef->trigger_kind, hitdef->trigger_value);
         const int secondary_now =
             hitdef->has_trigger2 &&
-            ik_cns_trigger_now(
-                hitdef->trigger2_kind, hitdef->trigger2_value,
-                fighter->state_time, element, element_time, anim_ended);
+            hitdef_trigger_now(
+                frames, fighter->anim,
+                fighter->state_time, fighter->anim_time,
+                element, element_time, anim_ended,
+                hitdef->trigger2_kind, hitdef->trigger2_value);
         if (!primary_now && !secondary_now) continue;
         if (!hitdef_p2_dist_allows(hitdef, p2_dist)) continue;
 
@@ -956,14 +985,18 @@ static const ik_cns_hitdef_t* active_entity_hitdef(
         if (global >= fight->cns->hitdef_count) break;
         const ik_cns_hitdef_t* hitdef =
             &fight->cns->hitdefs[global];
-        const int primary_now = ik_cns_trigger_now(
-            hitdef->trigger_kind, hitdef->trigger_value,
-            entity->state_time, element, element_time, anim_ended);
+        const int primary_now = hitdef_trigger_now(
+            frames, entity->anim_no,
+            entity->state_time, entity->anim_time,
+            element, element_time, anim_ended,
+            hitdef->trigger_kind, hitdef->trigger_value);
         const int secondary_now =
             hitdef->has_trigger2 &&
-            ik_cns_trigger_now(
-                hitdef->trigger2_kind, hitdef->trigger2_value,
-                entity->state_time, element, element_time, anim_ended);
+            hitdef_trigger_now(
+                frames, entity->anim_no,
+                entity->state_time, entity->anim_time,
+                element, element_time, anim_ended,
+                hitdef->trigger2_kind, hitdef->trigger2_value);
         if (!primary_now && !secondary_now) continue;
         if (!hitdef_p2_dist_allows(hitdef, p2_dist)) continue;
 
