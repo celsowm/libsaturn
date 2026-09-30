@@ -1230,6 +1230,8 @@ static void apply_guard(ik_fight_t* fight, int victim,
 
     queue_hit_effect(
         fight, a, v, hitdef, hitdef->guard_spark_no, 0);
+    queue_sound_event(
+        fight, hitdef->guard_sound_group, hitdef->guard_sound_item);
     fight->events |= IK_EVENT_GUARD;
     if (guard_ko) {
         fight->winner = (uint8_t)((victim ^ 1) + 1);
@@ -1291,6 +1293,8 @@ static void apply_throw(ik_fight_t* fight, int attacker,
 
     queue_hit_effect(
         fight, a, v, hitdef, hitdef->spark_no, 1);
+    queue_sound_event(
+        fight, hitdef->hit_sound_group, hitdef->hit_sound_item);
     fight->events |= IK_EVENT_HIT;
     if (attacker == 0) ++fight->hits_p1;
     else ++fight->hits_p2;
@@ -1480,6 +1484,8 @@ static void apply_damage(ik_fight_t* fight, int victim,
 
         queue_hit_effect(
             fight, a, v, hitdef, hitdef->spark_no, 1);
+        queue_sound_event(
+            fight, hitdef->hit_sound_group, hitdef->hit_sound_item);
         if (v->hp <= 0) {
             v->hp = 0;
             fight->winner = (uint8_t)((victim ^ 1) + 1);
@@ -1611,6 +1617,8 @@ static void apply_guard_from_entity(
 
     queue_entity_hit_effect(
         fight, attacker, v, hitdef, hitdef->guard_spark_no, 0);
+    queue_sound_event(
+        fight, hitdef->guard_sound_group, hitdef->guard_sound_item);
     fight->events |= IK_EVENT_GUARD;
     if (guard_ko) {
         fight->winner = (uint8_t)(attacker->owner_player + 1u);
@@ -1784,6 +1792,8 @@ static void apply_damage_from_entity(
 
     queue_entity_hit_effect(
         fight, attacker, v, hitdef, hitdef->spark_no, 1);
+    queue_sound_event(
+        fight, hitdef->hit_sound_group, hitdef->hit_sound_item);
     if (v->hp <= 0) {
         v->hp = 0;
         fight->winner = (uint8_t)(attacker->owner_player + 1u);
