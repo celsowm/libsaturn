@@ -135,6 +135,9 @@ typedef struct ik_fighter {
     uint8_t active_hitdef_secondary;
     uint8_t pos_freeze_x;
     uint8_t pos_freeze_y;
+    uint8_t pause_fired;
+    uint8_t not_hit_by_mask;
+    uint16_t not_hit_by_time;
     int8_t target_index;
     int8_t bound_to;
 } ik_fighter_t;
@@ -152,6 +155,9 @@ typedef struct ik_fight {
     uint32_t hits_p1;
     uint32_t hits_p2;
     uint32_t ko_freeze;
+    uint16_t pause_time;
+    uint16_t pause_move_time;
+    int8_t pause_owner;
     ik_effect_event_t effect_events[IK_MAX_EFFECT_EVENTS];
     uint8_t effect_count;
 } ik_fight_t;
