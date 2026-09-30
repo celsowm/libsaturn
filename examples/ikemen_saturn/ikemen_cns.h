@@ -61,7 +61,8 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_STATE_ENTRY_FRONT_EDGE_BODY_LE,
     IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT,
     IK_CNS_TRIGGER_COMMAND_ANY_VY_LT_Q8,
-    IK_CNS_TRIGGER_VY_GT_Q8_AT_LEVEL
+    IK_CNS_TRIGGER_VY_GT_Q8_AT_LEVEL,
+    IK_CNS_TRIGGER_VY_GE_Q8
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
