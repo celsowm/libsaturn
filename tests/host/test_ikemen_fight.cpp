@@ -2727,6 +2727,73 @@ int main() {
         EQ(g.fighters[0].state,3051);
     }
 
+    /* A character with state 191 starts in pre-intro, holds the round
+     * timer while AssertSpecial Intro is active, then releases into fight. */
+    {
+        const ik_cns_controller_t ctrls[] = {
+            {191,IK_CNS_CTRL_ASSERT_INTRO,IK_CNS_TRIGGER_ALWAYS,
+             0,0,0,0,0u},
+            {191,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
+             2,0,0,1,IK_CNS_CTRL_HAS_CTRL},
+        };
+
+        ik_cns_state_t states[2]{};
+        states[0].number=0;
+        states[0].anim=0;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_IDLE;
+        states[0].physics=IK_CNS_PHYS_STAND;
+        states[0].ctrl=1;
+
+        states[1].number=191;
+        states[1].anim=0;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_IDLE;
+        states[1].physics=IK_CNS_PHYS_STAND;
+        states[1].controller_count=2u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=2u;
+        asset.controllers=ctrls;
+        asset.controller_count=2u;
+
+        ik_fight_init(&g,&asset);
+        EQ(g.round_state,0u);
+        EQ(g.fighters[0].state,191);
+        EQ(g.fighters[1].state,191);
+        const uint32_t timer=g.timer_frames;
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+        EQ(g.round_state,1u);
+        EQ(g.timer_frames,timer);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.round_state,1u);
+        EQ(g.timer_frames,timer);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[0].state,0);
+        EQ(g.fighters[1].state,0);
+        EQ(g.round_state,1u);
+        EQ(g.timer_frames,timer);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.round_state,2u);
+        EQ(g.timer_frames,timer);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.timer_frames,timer-1u);
+    }
+
     /* PalFX stores additive and sinusoidal RGB modulation with an authored
      * cycle, then advances phase while the effect is alive. */
     {
