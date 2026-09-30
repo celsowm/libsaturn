@@ -2060,7 +2060,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 if ((ctrl->flags & IK_CNS_CTRL_SUPER_DARKEN) != 0u) {
                     fight->super_darken_time = fight->pause_time;
                 }
-                if (ctrl->value2 >= 0 &&
+                if ((ctrl->flags & IK_CNS_CTRL_HAS_SUPER_ANIM) != 0u &&
                     fight->effect_count < IK_MAX_EFFECT_EVENTS) {
                     const int16_t px = (int16_t)(
                         ((uint32_t)ctrl->value3 >> 16) & 0xffffu);
