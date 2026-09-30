@@ -228,7 +228,17 @@ def attack_attr_mask(text: str | None) -> str:
             "IK_CNS_ATTR_HYPER_PROJECTILE"
         )
     if value == "AA":
-        return " | ".join(mapping.values())
+        return (
+            "IK_CNS_ATTR_NORMAL_ATTACK | "
+            "IK_CNS_ATTR_SPECIAL_ATTACK | "
+            "IK_CNS_ATTR_HYPER_ATTACK"
+        )
+    if value == "AT":
+        return (
+            "IK_CNS_ATTR_NORMAL_THROW | "
+            "IK_CNS_ATTR_SPECIAL_THROW | "
+            "IK_CNS_ATTR_HYPER_THROW"
+        )
     bits = [
         mapping[token]
         for token in re.split(r"\s+", value)
@@ -1561,7 +1571,11 @@ def parse_state(
                         f"state {state.number}: overlapping ReversalDef windows"
                     )
                 parts = [p.strip().upper() for p in attr.split(",")]
-                if len(parts) < 2 or parts[1] != "AA":
+                if len(parts) < 2:
+                    unsupported.append("reversaldef")
+                    continue
+                incoming_attr_mask = attack_attr_mask(parts[1])
+                if incoming_attr_mask == "0u":
                     unsupported.append("reversaldef")
                     continue
                 triggers = ctrl.all("trigger1")
@@ -1584,6 +1598,7 @@ def parse_state(
                     "start_time": int(start.group(1)),
                     "end_time": 65535,
                     "attacker_state_mask": reversal_state_mask(parts[0]),
+                    "incoming_attr_mask": incoming_attr_mask,
                     "pause_p1": int(pause1),
                     "pause_p2": int(pause2),
                     "spark_no": integer(ctrl.get("sparkno"), -1),
@@ -2820,6 +2835,7 @@ def emit(
         "    {"
         f"{r['state_number']}, {r['start_time']}u, {r['end_time']}u, "
         f"{r['attacker_state_mask']}, "
+        f"{r.get('incoming_attr_mask', '0u')}, "
         f"{r['pause_p1']}u, {r['pause_p2']}u, "
         f"{r['spark_no']}, {r['spark_x']}, {r['spark_y']}, "
         f"{r['hit_sound_group']}, {r['hit_sound_item']}, "
