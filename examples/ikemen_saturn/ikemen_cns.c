@@ -211,6 +211,31 @@ int ik_cns_controller_trigger_context_now(
                                   ? 1
                                   : controller->trigger_value);
 
+        case IK_CNS_TRIGGER_VY_LT_Q8:
+            return context->vy_q8 < controller->trigger_value;
+
+        case IK_CNS_TRIGGER_ANIM_TIME_REMAIN_GT:
+            return context->anim_ticks_remaining >
+                   (uint16_t)(controller->trigger_value < 0
+                                  ? 0
+                                  : controller->trigger_value);
+
+        case IK_CNS_TRIGGER_ANIM_ELEM_TIME_GE_STATE_TIME_LT: {
+            const uint16_t packed =
+                (uint16_t)controller->trigger_value;
+            const uint16_t elem = (uint16_t)(packed >> 8);
+            const uint16_t min_elem_time =
+                (uint16_t)(packed & 0xffu);
+            const uint16_t state_limit =
+                (uint16_t)(controller->trigger_value2 < 0
+                               ? 0
+                               : controller->trigger_value2);
+            return context->state_time < state_limit &&
+                   (context->anim_element > elem ||
+                    (context->anim_element == elem &&
+                     context->anim_element_time >= min_elem_time));
+        }
+
         case IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED: {
             const uint16_t packed =
                 (uint16_t)controller->trigger_value;
