@@ -3169,11 +3169,6 @@ void ik_fight_update(ik_fight_t* fight,
     if (!p2_frames) p2_frames = p1_frames;
     fight->effect_count = 0u;
     fight->sound_count = 0u;
-    if (p1 && p1->start) {
-        ik_fight_reset(fight);
-        return;
-    }
-
     fight->events = IK_EVENT_NONE;
     fight->intro_asserted = 0u;
     if (fight->round_over) {
