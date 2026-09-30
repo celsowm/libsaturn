@@ -1109,6 +1109,34 @@ def compile_runtime_controller(
         }
 
     if ctype == "afterimage":
+        def pack_rgb_signed(text: str | None, defaults: tuple[int, int, int]) -> int:
+            parts = _split_top_level(text or "")
+            values = list(defaults)
+            for i, part in enumerate(parts[:3]):
+                values[i] = max(-128, min(127, integer(part, values[i])))
+            packed = (
+                (values[0] & 0xff) |
+                ((values[1] & 0xff) << 8) |
+                ((values[2] & 0xff) << 16)
+            )
+            return packed if packed < 0x80000000 else packed - 0x100000000
+
+        def pack_rgb_unsigned(text: str | None, defaults: tuple[int, int, int]) -> int:
+            parts = _split_top_level(text or "")
+            values = list(defaults)
+            for i, part in enumerate(parts[:3]):
+                values[i] = max(0, min(255, integer(part, values[i])))
+            return values[0] | (values[1] << 8) | (values[2] << 16)
+
+        def pack_mul(text: str | None) -> int:
+            parts = _split_top_level(text or "")
+            defaults = [1.0, 1.0, 1.0]
+            values = defaults[:]
+            for i, part in enumerate(parts[:3]):
+                values[i] = max(0.0, min(1.0, number(part)))
+            q = [max(0, min(255, int(round(v * 255.0)))) for v in values]
+            return q[0] | (q[1] << 8) | (q[2] << 16)
+
         return {
             "state_number": state_no,
             "type": "IK_CNS_CTRL_AFTER_IMAGE",
@@ -1119,6 +1147,10 @@ def compile_runtime_controller(
             "value1": integer(ctrl.get("length"), 10),
             "value2": integer(ctrl.get("timegap"), 1),
             "value3": integer(ctrl.get("framegap"), 1),
+            "value4": pack_rgb_signed(ctrl.get("palbright"), (0, 0, 0)),
+            "value5": pack_rgb_unsigned(ctrl.get("palcontrast"), (256, 256, 256)),
+            "value6": pack_rgb_signed(ctrl.get("paladd"), (0, 0, 0)),
+            "value7": pack_mul(ctrl.get("palmul")),
             "flags": flag_expr(),
         }
 
@@ -3171,7 +3203,9 @@ def emit(
         f"    {{{c['state_number']}, {c['type']}, {c['trigger_kind']}, "
         f"{c['trigger_value']}, {c['trigger_value2']}, "
         f"{c['value0']}, {c['value1']}, {c['flags']}, "
-        f"{c.get('value2', 0)}, {c.get('value3', 0)}}},"
+        f"{c.get('value2', 0)}, {c.get('value3', 0)}, "
+        f"{c.get('value4', 0)}, {c.get('value5', 0)}, "
+        f"{c.get('value6', 0)}, {c.get('value7', 0)}}},"
         for c in controllers
     ]
 
