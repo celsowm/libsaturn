@@ -117,7 +117,8 @@ enum {
     IK_CNS_HITDEF_FALL = 1u << 0,
     IK_CNS_HITDEF_FORCE_NO_FALL = 1u << 1,
     IK_CNS_HITDEF_THROW = 1u << 2,
-    IK_CNS_HITDEF_AIR_FALL = 1u << 3
+    IK_CNS_HITDEF_AIR_FALL = 1u << 3,
+    IK_CNS_HITDEF_FORCE_STAND = 1u << 4
 };
 
 enum {
@@ -267,6 +268,8 @@ typedef struct ik_cns_hitdef {
     int16_t state_number;
     uint8_t trigger_kind;
     int16_t trigger_value;
+    uint8_t trigger2_kind;
+    int16_t trigger2_value;
 
     int16_t damage;
     int16_t guard_damage;
@@ -327,6 +330,7 @@ typedef struct ik_cns_hitdef {
     int16_t p2_body_dist_x;
     int16_t alt_damage;
     int16_t alt_damage_prev_state;
+    int16_t yaccel_q8;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
