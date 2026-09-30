@@ -452,6 +452,13 @@ def controller_trigger(
         if parsed is not None:
             return "IK_CNS_TRIGGER_ANIM_ELEM_RANGE", parsed[0], parsed[1]
 
+    if len(triggers) == 1 and re.fullmatch(
+        r"HitShakeOver\s*=\s*1",
+        _strip_outer_parens(triggers[0]),
+        flags=re.I,
+    ):
+        return "IK_CNS_TRIGGER_HIT_SHAKE_OVER", 0, 0
+
     if ctype == "changeanim":
         parsed = _move_contact_window(triggers)
         if parsed is not None:
@@ -461,7 +468,12 @@ def controller_trigger(
                 parsed[1],
             )
 
-    return simple_trigger(ctrl)
+    kind, value, value2 = simple_trigger(ctrl)
+    if kind == "IK_CNS_TRIGGER_TIME_EQ" and value == 0:
+        # Source CNS Time=0 controllers are first evaluated on the runtime's
+        # first post-entry state tick, which is numbered 1 internally.
+        value = 1
+    return kind, value, value2
 
 
 def constants(globals_: dict[str, Section]) -> dict[str, int]:
@@ -596,6 +608,8 @@ def compile_runtime_controller(
         "selfstate",
         "veladd",
         "velset",
+        "velmul",
+        "hitvelset",
     }
     if ctype not in supported:
         return None
@@ -814,6 +828,49 @@ def compile_runtime_controller(
             "flags": " | ".join(axis + flags) if axis or flags else "0u",
         }
 
+    if ctype == "hitvelset":
+        axis: list[str] = []
+        if integer(ctrl.get("x"), 0):
+            axis.append("IK_CNS_CTRL_AXIS_X")
+        if integer(ctrl.get("y"), 0):
+            axis.append("IK_CNS_CTRL_AXIS_Y")
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_HIT_VEL_SET",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": 0,
+            "value1": 0,
+            "flags": " | ".join(axis + flags) if axis or flags else "0u",
+        }
+
+    if ctype == "velmul":
+        xexpr = (ctrl.get("x") or "").strip()
+        m = re.fullmatch(
+            r"([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\*\s*"
+            r"ifelse\s*\(\s*AnimElemTime\s*\(\s*(\d+)\s*\)"
+            r"\s*<\s*0\s*,\s*1\s*,\s*"
+            r"([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\)",
+            xexpr,
+            flags=re.I,
+        )
+        if not m or ctrl.get("y") is not None:
+            return None
+        base = float(m.group(1))
+        elem = int(m.group(2))
+        tail = float(m.group(3))
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_VEL_MUL_X_BY_ANIM_ELEM",
+            "trigger_kind": trig_kind,
+            "trigger_value": elem,
+            "trigger_value2": 0,
+            "value0": q8(base),
+            "value1": q8(base * tail),
+            "flags": flag_expr(),
+        }
+
     width_front, width_back = pair(
         ctrl.get("value", ctrl.get("edge")), 0, 0
     )
@@ -1016,7 +1073,7 @@ def parse_state(
 
     state_row = {
         "number": state.number,
-        "anim": integer(sd.get("anim"), state.number),
+        "anim": integer(sd.get("anim"), -1),
         "power_add": integer(sd.get("poweradd"), 0),
         "velset_x_q8": q8(vx),
         "velset_y_q8": q8(vy),
