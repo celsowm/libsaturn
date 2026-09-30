@@ -54,7 +54,8 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_STATE_AXIS_FWD_ANIM_ELEM_EQ,
     IK_CNS_TRIGGER_NOT_BOUND,
     IK_CNS_TRIGGER_THROW_GROUND_RECOVERY,
-    IK_CNS_TRIGGER_THROW_AIR_RECOVERY
+    IK_CNS_TRIGGER_THROW_AIR_RECOVERY,
+    IK_CNS_TRIGGER_ANIM_ELEM_EQ_OR
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
