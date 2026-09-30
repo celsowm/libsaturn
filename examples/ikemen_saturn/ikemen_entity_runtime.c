@@ -628,6 +628,7 @@ static void step_one(
     if (entity->type == IK_ENTITY_EXPLOD ||
         (entity->type == IK_ENTITY_PROJECTILE &&
          entity->state_no < 0)) {
+        int explod_bound = 0;
         if (entity->type == IK_ENTITY_EXPLOD) {
             const ik_entity_t* parent =
                 ik_entity_get_const(runtime->pool, entity->parent);
@@ -642,6 +643,7 @@ static void step_one(
                 return;
             }
             if (parent && entity->explod_bind_time != 0) {
+                explod_bound = 1;
                 entity->x_q8 =
                     parent->x_q8 +
                     (int32_t)parent->facing *
@@ -656,8 +658,7 @@ static void step_one(
         }
         ++entity->state_time;
         ++entity->anim_time;
-        if (entity->type != IK_ENTITY_EXPLOD ||
-            entity->explod_bind_time == 0) {
+        if (entity->type != IK_ENTITY_EXPLOD || !explod_bound) {
             entity->x_q8 += entity->vx_q8;
             entity->y_q8 += entity->vy_q8;
         }
