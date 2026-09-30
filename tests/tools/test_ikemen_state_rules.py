@@ -118,7 +118,7 @@ with tempfile.TemporaryDirectory() as td:
 
 assert diagnostics == []
 assert [r.target for r in rules] == [1020, 1000, 1010, 200, 800, 610]
-ops200 = [i.op for i in rules[0].code]
+ops200 = [i.op for i in rules[3].code]
 assert ops200.count("command_active") == 1
 assert ops200.count("command_inactive") == 1
 assert "state_type_eq" in ops200
