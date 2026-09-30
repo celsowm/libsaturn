@@ -117,6 +117,20 @@ asset now contains states:
   Upper's re-triggered first HitDef, force-stand and per-hit fall acceleration
 * 1200 / 1210 / 1220: Light/Strong/Fast Kung Fu Blow with source corner-push
   recoil, Width windows and Fast Blow fall acceleration
+* 1300 / 1310 / 1320 / 1330 / 1340 / 1350 / 1351: high, low and air
+  Kung Fu Blocking entry, reversal contact, blocked reaction and air landing
+
+KFM's Blocking commands are compiled from the original State -1 rules rather
+than dispatched through a KFM-only input branch. ReversalDef windows are
+compiled into bounded runtime records and resolved with authored CLSN1-vs-CLSN1
+contact, state-type filtering, reversal spark placement and p1 state/priority
+changes. The high, crouch and air variants therefore enter states 1300, 1320
+and 1340 from the source CMD and transition to 1310, 1330 or 1350 on a
+successful reversal. The air path also preserves PosFreeze defaults,
+AnimElemTime windows and Const(movement.yaccel) gravity before landing in 1351.
+Pause, NotHitBy, HitOverride and generic reversal hitsound dispatch remain
+explicitly deferred, so this is the first source-driven Blocking slice rather
+than a claim of complete ReversalDef compatibility.
 
 The generic runtime now supports contextual command/velocity triggers plus
 `VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity,
@@ -256,8 +270,9 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
 * exact remaining guard semantics such as conditional air-guard landing,
   complete inGuardDist behavior
 * remaining throw edge cases across different character state/CNS owners;
-  AIR ownership is now per fighter, while remaining specials (Blocking/Zankou)
-  and supers are still deferred
+  AIR ownership is now per fighter, while Zankou and supers are still deferred
+* complete Blocking semantics beyond the current ReversalDef slice: Pause,
+  NotHitBy, HitOverride, reversal hitsound and projectile/helper reversal paths
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
 * remaining fightfx families (blood, shockwaves, dust and supers),
