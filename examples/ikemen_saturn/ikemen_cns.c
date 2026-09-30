@@ -194,6 +194,9 @@ int ik_cns_controller_trigger_context_now(
                    context->y_q8 >=
                        context->floor_y_q8 + controller->trigger_value;
 
+        case IK_CNS_TRIGGER_VY_GE_Q8:
+            return context->vy_q8 >= controller->trigger_value;
+
         default:
             return ik_cns_trigger_now(
                 controller->trigger_kind, controller->trigger_value,
