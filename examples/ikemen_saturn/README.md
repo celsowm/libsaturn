@@ -128,9 +128,16 @@ changes. The high, crouch and air variants therefore enter states 1300, 1320
 and 1340 from the source CMD and transition to 1310, 1330 or 1350 on a
 successful reversal. The air path also preserves PosFreeze defaults,
 AnimElemTime windows and Const(movement.yaccel) gravity before landing in 1351.
-Pause, NotHitBy, HitOverride and generic reversal hitsound dispatch remain
-explicitly deferred, so this is the first source-driven Blocking slice rather
-than a claim of complete ReversalDef compatibility.
+The blocked states now execute the authored Pause and one-tick SCA NotHitBy
+window, and ReversalDef hitsound 6,0 is queued through a generic fight sound
+event and played from common.snd. Pause rewinds the runtime's post-entry
+bookkeeping tick so authored Time=1 controllers remain reachable after the
+freeze. HitOverride is also compiled as a typed contact window instead of being
+collapsed into invulnerability: incoming NA/SA/HA/NP/SP/HP/throw attributes are
+preserved on HitDefs and matched after ReversalDef. KFM's AP fallback therefore
+has the correct runtime representation and contact semantics; exercising that
+specific fallback against a real projectile still depends on the remaining
+Projectile entity/contact implementation.
 
 The generic runtime now supports contextual command/velocity triggers plus
 `VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity,
@@ -271,8 +278,9 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   complete inGuardDist behavior
 * remaining throw edge cases across different character state/CNS owners;
   AIR ownership is now per fighter, while Zankou and supers are still deferred
-* complete Blocking semantics beyond the current ReversalDef slice: Pause,
-  NotHitBy, HitOverride, reversal hitsound and projectile/helper reversal paths
+* remaining Blocking edge cases are now mostly entity arbitration:
+  projectile/helper ReversalDef and HitOverride contacts, plus broader Pause
+  movetime/endcmdbuftime compatibility beyond KFM's current authored usage
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
 * remaining fightfx families (blood, shockwaves, dust and supers),
