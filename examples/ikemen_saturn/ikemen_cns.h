@@ -71,7 +71,9 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ANIM_ELEM_FROM,
     IK_CNS_TRIGGER_VY_LT_Q8,
     IK_CNS_TRIGGER_ANIM_TIME_REMAIN_GT,
-    IK_CNS_TRIGGER_ANIM_ELEM_TIME_GE_STATE_TIME_LT
+    IK_CNS_TRIGGER_ANIM_ELEM_TIME_GE_STATE_TIME_LT,
+    IK_CNS_TRIGGER_ROUND_STATE_EQ,
+    IK_CNS_TRIGGER_ROUND_STATE_NE
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -133,7 +135,8 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_FALL_ENV_SHAKE,
     IK_CNS_CTRL_AFTER_IMAGE,
     IK_CNS_CTRL_AFTER_IMAGE_TIME,
-    IK_CNS_CTRL_PAL_FX
+    IK_CNS_CTRL_PAL_FX,
+    IK_CNS_CTRL_ASSERT_INTRO
 } ik_cns_controller_type_t;
 
 typedef enum ik_cns_helper_postype {
@@ -523,6 +526,7 @@ typedef struct ik_cns_controller_context {
     uint8_t anim_ended;
     uint8_t move_contact;
     uint8_t move_hit;
+    uint8_t round_state;
 } ik_cns_controller_context_t;
 
 typedef struct ik_cns_explod {
