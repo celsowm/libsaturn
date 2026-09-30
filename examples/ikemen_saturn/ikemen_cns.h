@@ -379,6 +379,7 @@ typedef struct ik_cns_reversaldef {
     uint16_t start_time;
     uint16_t end_time;
     uint8_t attacker_state_mask;
+    uint16_t incoming_attr_mask;
     uint8_t pause_p1;
     uint8_t pause_p2;
     int16_t spark_no;
