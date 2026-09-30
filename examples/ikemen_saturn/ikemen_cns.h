@@ -489,6 +489,10 @@ typedef struct ik_cns_controller {
     uint8_t flags;
     int32_t value2;
     int32_t value3;
+    int32_t value4;
+    int32_t value5;
+    int32_t value6;
+    int32_t value7;
 } ik_cns_controller_t;
 
 typedef struct ik_cns_controller_context {
