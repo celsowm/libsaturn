@@ -16,6 +16,7 @@ extern "C" {
 #define IK_STAGE_MIN_X 24
 #define IK_STAGE_MAX_X 296
 #define IK_MAX_HP 1000
+#define IK_MAX_POWER 3000
 #define IK_ROUND_TIME_FRAMES (99u * 60u)
 #define IK_KO_FREEZE_FRAMES 120
 
@@ -94,6 +95,7 @@ typedef struct ik_fighter {
     uint8_t up_latched;
 
     int16_t hp;
+    int16_t power;
     uint16_t hitstun;
     uint16_t hit_pause;
     uint16_t hit_slide_time;
