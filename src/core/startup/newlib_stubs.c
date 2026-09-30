@@ -45,6 +45,10 @@ void _exit(int status) {
     }
 }
 
+void _abort(void) {
+    _exit(1);
+}
+
 int _close(int file) {
     (void)file;
     return -1;
