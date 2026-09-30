@@ -2052,6 +2052,7 @@ def parse_state(
     has_velset = sd.get("velset") is not None
 
     hitdefs: list[dict] = []
+    direct_hitdef_count = 0
     sounds: list[dict] = []
     controllers: list[dict] = []
     helpers: list[dict] = []
@@ -2369,6 +2370,8 @@ def parse_state(
                 "target_state": integer(ctrl.get("stateno"), -1),
             })
 
+            direct_hitdef_count += 1
+
         elif ctype == "playsnd":
             group, item = sound_pair(ctrl.get("value"))
             trigger_exprs: list[str] = []
@@ -2483,7 +2486,7 @@ def parse_state(
         "spr_priority": integer(sd.get("sprpriority"), 0),
         "has_velset": int(has_velset),
         "hitdef_ofs": hitdef_ofs,
-        "hitdef_count": len(hitdefs),
+        "hitdef_count": direct_hitdef_count,
         "playsnd_ofs": sound_ofs,
         "playsnd_count": len(sounds),
         "controller_ofs": controller_ofs,
