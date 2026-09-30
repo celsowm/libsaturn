@@ -561,12 +561,12 @@ typedef struct ik_cns_asset {
     uint16_t controller_count;
     const ik_cns_helper_t* helpers;
     uint16_t helper_count;
-    const ik_cns_explod_t* explods;
-    uint16_t explod_count;
     const ik_cns_reversaldef_t* reversals;
     uint16_t reversal_count;
     const ik_cns_hitoverride_t* hitoverrides;
     uint16_t hitoverride_count;
+    const ik_cns_explod_t* explods;
+    uint16_t explod_count;
 } ik_cns_asset_t;
 
 int16_t ik_cns_q8_from_int(int16_t value);
