@@ -252,6 +252,78 @@ int ik_entity_runtime_spawn_explod(
     return 1;
 }
 
+int ik_entity_runtime_spawn_projectile_spec(
+    ik_entity_runtime_t* runtime,
+    ik_entity_handle_t parent_handle,
+    const ik_cns_projectile_t* projectile,
+    ik_entity_handle_t* out_handle
+) {
+    if (!runtime || !runtime->pool || !runtime->cns ||
+        !projectile || !out_handle) {
+        return 0;
+    }
+
+    const ik_entity_t* parent =
+        ik_entity_get_const(runtime->pool, parent_handle);
+    if (!parent || parent->owner_player >= 2u) return 0;
+
+    ik_entity_handle_t spawned = ik_entity_invalid_handle();
+    if (!ik_entity_spawn(
+            runtime->pool, IK_ENTITY_PROJECTILE, projectile->id,
+            parent->owner_player, parent_handle, &spawned)) {
+        return 0;
+    }
+
+    ik_entity_t* entity = ik_entity_get(runtime->pool, spawned);
+    if (!entity) {
+        (void)ik_entity_destroy(runtime->pool, spawned);
+        return 0;
+    }
+
+    entity->x_q8 =
+        parent->x_q8 +
+        (int32_t)parent->facing * projectile->pos_x_q8;
+    entity->y_q8 = parent->y_q8 + projectile->pos_y_q8;
+    entity->vx_q8 =
+        (int32_t)parent->facing * projectile->vel_x_q8;
+    entity->vy_q8 = projectile->vel_y_q8;
+    entity->ax_q8 =
+        (int32_t)parent->facing * projectile->accel_x_q8;
+    entity->ay_q8 = projectile->accel_y_q8;
+    entity->facing = parent->facing;
+    entity->life = 1;
+    entity->power = parent->power;
+    entity->push_back = runtime->cns->constants.air_back;
+    entity->push_front = runtime->cns->constants.air_front;
+    entity->anim_no = projectile->anim_no;
+    entity->anim_time = 0u;
+    entity->state_no = -1;
+    entity->prev_state_no = -1;
+    entity->state_type = IK_CNS_STATE_STAND;
+    entity->move_type = IK_CNS_MOVE_ATTACK;
+    entity->remove_time = projectile->remove_time;
+    entity->active_hitdef_global = projectile->hitdef_global;
+    entity->active_hitdef_local = 0;
+    entity->projectile_hit_anim_no = projectile->hit_anim_no;
+    entity->projectile_remove_anim_no = projectile->remove_anim_no;
+    entity->projectile_cancel_anim_no = projectile->cancel_anim_no;
+    entity->projectile_edge_bound = projectile->edge_bound;
+    entity->projectile_stage_bound = projectile->stage_bound;
+    entity->projectile_hits_left =
+        projectile->hits ? projectile->hits : 1u;
+    entity->projectile_miss_time = projectile->miss_time;
+    entity->projectile_hit_cooldown = 0u;
+    entity->projectile_priority = projectile->priority;
+    entity->projectile_remove_on_hit = projectile->remove_on_hit;
+    entity->spr_priority = projectile->spr_priority;
+    entity->ownpal = projectile->ownpal;
+    entity->pause_move_time = projectile->pause_move_time;
+    entity->super_move_time = projectile->super_move_time;
+
+    *out_handle = spawned;
+    return 1;
+}
+
 int ik_entity_runtime_spawn_projectile(
     ik_entity_runtime_t* runtime,
     ik_entity_handle_t parent_handle,
@@ -533,13 +605,32 @@ static void step_one(
     ik_entity_t* entity = ik_entity_get(runtime->pool, handle);
     if (!entity) return;
 
-    if (entity->type == IK_ENTITY_EXPLOD) {
+    if (entity->type == IK_ENTITY_EXPLOD ||
+        (entity->type == IK_ENTITY_PROJECTILE &&
+         entity->state_no < 0)) {
         ++entity->state_time;
         ++entity->anim_time;
         entity->x_q8 += entity->vx_q8;
         entity->y_q8 += entity->vy_q8;
         entity->vx_q8 += entity->ax_q8;
         entity->vy_q8 += entity->ay_q8;
+
+        if (entity->type == IK_ENTITY_PROJECTILE) {
+            if (entity->projectile_hit_cooldown > 0u) {
+                --entity->projectile_hit_cooldown;
+                if (entity->projectile_hit_cooldown == 0u) {
+                    entity->hitdef_hit_mask = 0u;
+                }
+            }
+            if (entity->projectile_edge_bound > 0) {
+                const int32_t x = entity->x_q8 / IK_ENTITY_Q8_ONE;
+                if (x < -entity->projectile_edge_bound ||
+                    x > 320 + entity->projectile_edge_bound) {
+                    (void)ik_entity_destroy(runtime->pool, handle);
+                    return;
+                }
+            }
+        }
 
         if (entity->remove_time > 0) {
             --entity->remove_time;
@@ -551,7 +642,8 @@ static void step_one(
             const ik_frame_table_t* frames = frames_for(runtime, entity);
             const uint32_t duration =
                 ik_action_duration_ticks(frames, entity->anim_no);
-            if (duration > 0u && entity->anim_time >= duration) {
+            if (entity->type == IK_ENTITY_EXPLOD &&
+                duration > 0u && entity->anim_time >= duration) {
                 (void)ik_entity_destroy(runtime->pool, handle);
             }
         }
