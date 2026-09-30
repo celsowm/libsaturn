@@ -2732,7 +2732,11 @@ int main() {
     {
         const ik_cns_controller_t ctrls[] = {
             {3080,IK_CNS_CTRL_PAL_FX,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,20,0x00001020,0u,0x00052040,3},
+             1,0,20,0x00001020,0u,0x00052040,3,
+             (256 | (192 << 9) | (128 << 18)),
+             ((0 & 0x1ff) | ((-64 & 0x1ff) << 9) |
+              ((-128 & 0x1ff) << 18)),
+             5,0},
         };
         ik_cns_state_t state{};
         state.number=3080;
@@ -2771,6 +2775,14 @@ int main() {
         EQ(g.fighters[0].palfx_sin_b,5);
         EQ(g.fighters[0].palfx_cycle,3u);
         EQ(g.fighters[0].palfx_phase,1u);
+        EQ(g.fighters[0].palfx_mul_r,256u);
+        EQ(g.fighters[0].palfx_mul_g,192u);
+        EQ(g.fighters[0].palfx_mul_b,128u);
+        EQ(g.fighters[0].palfx_sinmul_r,0);
+        EQ(g.fighters[0].palfx_sinmul_g,-64);
+        EQ(g.fighters[0].palfx_sinmul_b,-128);
+        EQ(g.fighters[0].palfx_sinmul_cycle,5u);
+        EQ(g.fighters[0].palfx_sinmul_phase,1u);
     }
 
     /* Compiled PlaySnd rows emit generic sound events at their authored
