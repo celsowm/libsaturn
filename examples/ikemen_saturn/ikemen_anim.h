@@ -10,6 +10,16 @@ typedef struct ik_clsn_box {
     int16_t bottom;
 } ik_clsn_box_t;
 
+typedef struct ik_sprite_source {
+    uint32_t data_ofs;
+    uint32_t data_size;
+    uint16_t source_w;
+    uint16_t source_h;
+    uint16_t padded_w;
+    uint8_t left_pad;
+    uint8_t format;
+} ik_sprite_source_t;
+
 typedef struct ik_frame {
     uint16_t action;
     uint16_t index;
@@ -19,7 +29,7 @@ typedef struct ik_frame {
     int16_t ay;
     uint16_t ticks;
     uint16_t flags;
-    uint32_t pixel_ofs;
+    uint16_t sprite_index;
     uint16_t clsn1_ofs;
     uint16_t clsn1_count;
     uint16_t clsn2_ofs;
@@ -37,10 +47,18 @@ typedef struct ik_frame_table {
 #define IK_FRAME_FLAG_FLIP_V 2u
 #define IK_CLSN_ATTACK 1u
 #define IK_CLSN_HURT 2u
+#define IK_SPRITE_FORMAT_RAW 0u
+#define IK_SPRITE_FORMAT_LZ5 4u
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+int ik_sprite_decode(const ik_sprite_source_t* sprite,
+                     const uint8_t* blob,
+                     uint32_t blob_size,
+                     uint8_t* output,
+                     uint32_t output_capacity);
 
 int ik_frames_bounds(const ik_frame_table_t* table, int action,
                      uint32_t* out_first, uint32_t* out_count);
