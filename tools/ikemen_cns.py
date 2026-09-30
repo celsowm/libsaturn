@@ -1255,6 +1255,10 @@ def compile_runtime_controller(
             "value1": integer(ctrl.get("poweradd"), 0),
             "value2": integer(ctrl.get("anim"), -1),
             "value3": packed_pos,
+            "value4": integer(ctrl.get("movetime"), 0),
+            "value5": integer(ctrl.get("endcmdbuftime"), 0),
+            "value6": integer(ctrl.get("pausebg"), 1),
+            "value7": integer(ctrl.get("brightness"), 0),
             "flags": flag_expr(),
         }
 
@@ -1267,6 +1271,8 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": integer(ctrl.get("time"), 0),
             "value1": integer(ctrl.get("movetime"), 0),
+            "value2": integer(ctrl.get("endcmdbuftime"), 0),
+            "value3": integer(ctrl.get("pausebg"), 1),
             "flags": flag_expr(),
         }
 
