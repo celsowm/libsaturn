@@ -2546,6 +2546,73 @@ int main() {
         EQ(g.fighters[1].state_time,foe_time);
     }
 
+    /* A HitDef that becomes active only after Pause starts can still hit
+     * the frozen opponent while the Pause owner has movetime remaining. */
+    {
+        ik_cns_hitdef_t hit{};
+        hit.state_number=937;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=1;
+        hit.damage=10;
+        hit.priority=4u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.attack_attr_mask=IK_CNS_ATTR_SPECIAL_ATTACK;
+
+        const ik_cns_controller_t ctrls[] = {
+            {937,IK_CNS_CTRL_PAUSE,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,3,2,0u},
+        };
+
+        ik_cns_state_t states[2]{};
+        states[0].number=937;
+        states[0].anim=910;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_ATTACK;
+        states[0].physics=IK_CNS_PHYS_NONE;
+        states[0].hitdef_count=1u;
+        states[0].controller_count=1u;
+
+        states[1].number=0;
+        states[1].anim=0;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_IDLE;
+        states[1].physics=IK_CNS_PHYS_NONE;
+        states[1].ctrl=1;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=2u;
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=1u;
+
+        ik_fight_init(&g,&asset);
+        place(&g,100,145);
+        g.fighters[0].state=937;
+        g.fighters[0].anim=910;
+        g.fighters[0].ctrl=0;
+        g.fighters[1].state=0;
+        g.fighters[1].anim=0;
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+        EQ(g.pause_time,3u);
+        EQ(g.fighters[1].hp,1000);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.pause_time,2u);
+        EQ(g.fighters[1].hp,990);
+        EQ(g.fighters[0].move_hit,1u);
+    }
+
     /* NotHitBy is evaluated before contact resolution. A one-tick SCA
      * window therefore rejects a standing attack without consuming damage. */
     {
