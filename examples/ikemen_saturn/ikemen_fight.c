@@ -122,6 +122,7 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
         : (int16_t)ik_action_for_state(fight ? fight->cns : 0, state);
     f->anim_time = 0u;
     f->move_contact = 0u;
+    f->pause_fired = 0u;
     if (!(spec && spec->hitdef_persist)) {
         f->hitdef_hit_mask = 0u;
         f->active_hitdef_local = -1;
@@ -206,6 +207,9 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->active_hitdef_secondary = 0u;
     f->pos_freeze_x = 0u;
     f->pos_freeze_y = 0u;
+    f->pause_fired = 0u;
+    f->not_hit_by_mask = 0u;
+    f->not_hit_by_time = 0u;
     f->target_index = -1;
     f->bound_to = -1;
 }
@@ -234,6 +238,9 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->hits_p1 = 0;
     fight->hits_p2 = 0;
     fight->ko_freeze = 0;
+    fight->pause_time = 0u;
+    fight->pause_move_time = 0u;
+    fight->pause_owner = -1;
     fight->effect_count = 0u;
 }
 
@@ -461,6 +468,20 @@ static uint8_t reversal_state_bit(
         default:
             return 0u;
     }
+}
+
+static int fighter_not_hit_by_blocks(
+    const ik_fight_t* fight,
+    const ik_fighter_t* victim,
+    const ik_fighter_t* attacker
+) {
+    if (!fight || !victim || !attacker ||
+        victim->not_hit_by_time == 0u ||
+        victim->not_hit_by_mask == 0u) {
+        return 0;
+    }
+    return (victim->not_hit_by_mask &
+            reversal_state_bit(fight, attacker)) != 0u;
 }
 
 static const ik_cns_reversaldef_t* active_reversaldef(
@@ -1772,6 +1793,28 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         }
 
         switch ((ik_cns_controller_type_t)ctrl->type) {
+            case IK_CNS_CTRL_PAUSE: {
+                if (f->pause_fired || ctrl->value0 <= 0) break;
+                f->pause_fired = 1u;
+                fight->pause_time = (uint16_t)(
+                    ctrl->value0 > 65535 ? 65535 : ctrl->value0);
+                fight->pause_move_time = (uint16_t)(
+                    ctrl->value1 < 0 ? 0 :
+                    ctrl->value1 > 65535 ? 65535 : ctrl->value1);
+                fight->pause_owner =
+                    (int8_t)fighter_player_index(fight, f);
+                /* Stop source-order evaluation on the frame Pause starts.
+                 * This preserves Time=1 follow-ups until the pause releases. */
+                return 1;
+            }
+
+            case IK_CNS_CTRL_NOT_HIT_BY:
+                f->not_hit_by_mask = (uint8_t)ctrl->value0;
+                f->not_hit_by_time = (uint16_t)(
+                    ctrl->value1 <= 0 ? 1 :
+                    ctrl->value1 > 65535 ? 65535 : ctrl->value1);
+                break;
+
             case IK_CNS_CTRL_CHANGE_STATE: {
                 const int has_ctrl = (ctrl->flags & IK_CNS_CTRL_HAS_CTRL) != 0u;
                 const int16_t target = ctrl->value0;
@@ -2301,6 +2344,12 @@ static void step_fighter(ik_fight_t* fight, int index,
 
     f->pos_freeze_x = 0u;
     f->pos_freeze_y = 0u;
+    if (f->not_hit_by_time > 0u) {
+        --f->not_hit_by_time;
+        if (f->not_hit_by_time == 0u) {
+            f->not_hit_by_mask = 0u;
+        }
+    }
     if (controls && !controls->up) {
         f->up_latched = 0u;
     }
@@ -2583,6 +2632,19 @@ void ik_fight_update(ik_fight_t* fight,
         return;
     }
 
+    if (fight->pause_time > 0u) {
+        --fight->pause_time;
+        if (fight->pause_move_time > 0u) {
+            --fight->pause_move_time;
+        }
+        if (fight->pause_time == 0u) {
+            fight->pause_owner = -1;
+            fight->pause_move_time = 0u;
+        }
+        fight->frame++;
+        return;
+    }
+
     fight->frame++;
     if (fight->timer_frames > 0u) {
         fight->timer_frames--;
@@ -2633,6 +2695,7 @@ void ik_fight_update(ik_fight_t* fight,
             active_hitdef(fight, attacker_frames, a, v, &local_hitdef);
         if (!hitdef || local_hitdef >= 32u) continue;
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
+        if (fighter_not_hit_by_blocks(fight, v, a)) continue;
         const uint32_t bit = (uint32_t)1u << local_hitdef;
         if ((a->hitdef_hit_mask & bit) != 0u) continue;
 
