@@ -2727,6 +2727,45 @@ int main() {
         EQ(g.fighters[0].state,3051);
     }
 
+    /* Compiled PlaySnd rows emit generic sound events at their authored
+     * trigger ticks instead of relying on hard-coded attack-state audio. */
+    {
+        const ik_cns_playsnd_t sounds[] = {
+            {3070,IK_CNS_TRIGGER_TIME_EQ,1,0,3},
+        };
+        ik_cns_state_t state{};
+        state.number=3070;
+        state.anim=0;
+        state.state_type=IK_CNS_STATE_STAND;
+        state.move_type=IK_CNS_MOVE_ATTACK;
+        state.physics=IK_CNS_PHYS_NONE;
+        state.playsnd_count=1u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=&state;
+        asset.state_count=1u;
+        asset.playsnds=sounds;
+        asset.playsnd_count=1u;
+
+        ik_fight_init(&g,&asset);
+        g.fighters[0].state=3070;
+        g.fighters[0].anim=0;
+        g.fighters[0].ctrl=0;
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+
+        tick2(&g,&p1,&p2);
+        EQ(g.sound_count,1u);
+        EQ(g.sound_events[0].group,0);
+        EQ(g.sound_events[0].item,3);
+    }
+
     /* AfterImage initializes trail parameters and AfterImageTime rearms the
      * short keepalive without recreating renderer history. */
     {
