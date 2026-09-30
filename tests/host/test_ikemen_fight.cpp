@@ -2693,21 +2693,15 @@ int main() {
         g.fighters[1].anim=0;
         g.fighters[1].ctrl=0;
 
-        ik_entity_handle_t projectile{};
-        OK(ik_entity_spawn(
-            &pool,IK_ENTITY_PROJECTILE,77,0u,
-            p1_entity,&projectile));
-        ik_entity_t* projectile_entity=ik_entity_get(&pool,projectile);
-        OK(projectile_entity!=nullptr);
-        projectile_entity->x_q8=100*IK_CNS_Q8_ONE;
-        projectile_entity->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
-        projectile_entity->facing=1;
-        projectile_entity->life=1;
-
         ik_entity_runtime_t runtime{};
         ik_entity_runtime_init(
             &runtime,&pool,&asset,&k_table,&k_table);
-        OK(ik_entity_runtime_enter_state(&runtime,projectile,940));
+
+        ik_entity_handle_t projectile{};
+        OK(ik_entity_runtime_spawn_projectile(
+            &runtime,p1_entity,77,940,
+            0,0,0,0,&projectile));
+        OK(ik_entity_get(&pool,projectile)!=nullptr);
 
         ik_fight_controls_t p1{};
         ik_fight_controls_t p2{};
