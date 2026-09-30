@@ -1647,6 +1647,7 @@ value = 15,0
 [State 3000, SuperPause]
 type = SuperPause
 trigger1 = AnimElem = 2, 1
+sound = 20,0
 poweradd = -1000
 
 [State 3000, AfterImage]
@@ -1665,6 +1666,13 @@ type = NotHitBy
 trigger1 = AnimElemTime(2) >= 0 && AnimElemTime(14) < 0
 value2 = C, NA
 time = 1
+
+[State 3000, Voice]
+type = PlaySnd
+trigger1 = AnimElem = 4
+trigger2 = AnimElem = 12
+trigger3 = AnimElem = 20
+value = 0,3
 
 [State 3000, Steps]
 type = PosAdd
@@ -2214,7 +2222,7 @@ assert common_rows[52]["anim"] == 47
 assert common_rows[105]["land_state"] == 106
 assert common_rows[5080]["controller_count"] == 1
 assert common_rows[5081]["controller_count"] == 3
-assert common_rows[5110]["controller_count"] == 7
+assert common_rows[5110]["controller_count"] == 9
 assert common_rows[5150]["spr_priority"] == -3
 assert common_rows[5150]["controller_count"] == 3
 assert common_rows[120]["controller_count"] == 2
@@ -2239,7 +2247,7 @@ assert common_rows[5050]["land_level_q8"] == 25 * 256
 assert common_rows[5050]["controller_count"] == 1
 assert common_rows[5071]["land_state"] == 5110
 assert common_rows[5071]["land_level_q8"] == 15 * 256
-assert common_rows[5100]["controller_count"] == 5
+assert common_rows[5100]["controller_count"] == 7
 assert common_rows[5101]["anim"] == 5160
 assert common_rows[5101]["air_accel_q8"] == round(.4 * 256)
 assert common_rows[5101]["land_level_q8"] == 12 * 256
@@ -2288,6 +2296,19 @@ assert superpause3000["trigger_kind"] == (
 )
 assert superpause3000["value0"] == 30
 assert superpause3000["value1"] == -1000
+super3000_sounds = [
+    p for p in super_report["playsnds"]
+    if p["state_number"] == 3000
+]
+assert len(super3000_sounds) == 4
+assert any(
+    p["group"] == 20 and p["item"] == 0
+    for p in super3000_sounds
+)
+assert sum(
+    1 for p in super3000_sounds
+    if p["group"] == 0 and p["item"] == 3
+) == 3
 invuln3000 = [
     c for c in super3000 if c["type"] == "IK_CNS_CTRL_NOT_HIT_BY"
 ]
