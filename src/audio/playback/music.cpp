@@ -255,7 +255,10 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
         }
         sat_audio_spec_t spec = {
             info.sample_rate, SAT_MUSIC_BUFFER_FRAMES, 1u,
-            compressed != 0u ? SAT_AUDIO_PCM_S16 : info.format, 0u};
+            compressed != 0u
+                ? static_cast<uint8_t>(SAT_AUDIO_PCM_S16)
+                : info.format,
+            0u};
         const sat_result_t st = sat_audio_stream_open(
             &slot.stream, &spec, slot.buffer, sizeof(slot.buffer));
         if (st != SAT_OK) return st;
