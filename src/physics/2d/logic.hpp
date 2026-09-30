@@ -39,11 +39,71 @@ inline int floor_world(sat_fx16_t raw, int origin, int tile) {
     if (n >= 0) return static_cast<int>(n / d);
     return static_cast<int>(-((-n + d - 1) / d));
 }
-inline int tile_kind(const sat_grid_t& g, int c, int r, sat_tile_fn fn, void* user) {
-    if (!fn || r < 0 || r >= g.rows) return SAT_TILE_SOLID;
+struct tile_source {
+    sat_tile_fn basic;
+    sat_tile_surface_fn extended;
+    void* user;
+};
+
+inline sat_tile_surface_t slope_preset(int kind) {
+    if (kind == SAT_TILE_SLOPE_UP) {
+        return {0, SAT_FX16_ONE, SAT_FX16_ONE, 0};
+    }
+    return {0, 0, SAT_FX16_ONE, SAT_FX16_ONE};
+}
+
+inline bool surface_valid(const sat_tile_surface_t& surface) {
+    return surface.x0 >= 0 && surface.x0 <= SAT_FX16_ONE &&
+           surface.x1 >= 0 && surface.x1 <= SAT_FX16_ONE &&
+           surface.y0 >= 0 && surface.y0 <= SAT_FX16_ONE &&
+           surface.y1 >= 0 && surface.y1 <= SAT_FX16_ONE &&
+           surface.x0 < surface.x1;
+}
+
+inline int tile_kind(const sat_grid_t& g, int c, int r, const tile_source& source,
+                     sat_tile_surface_t* surface) {
+    if (r < 0 || r >= g.rows) return SAT_TILE_SOLID;
     c = g.wrap_cols ? sat_grid_wrap_col(&g, c) : c;
     if (c < 0 || c >= g.cols) return SAT_TILE_SOLID;
-    return fn(c, r, user);
+
+    int kind = SAT_TILE_EMPTY;
+    if (source.extended) {
+        sat_tile_surface_t sampled = {};
+        kind = source.extended(c, r, source.user, &sampled);
+        if (surface) *surface = sampled;
+    } else if (source.basic) {
+        kind = source.basic(c, r, source.user);
+    }
+
+    if ((kind == SAT_TILE_SLOPE_UP || kind == SAT_TILE_SLOPE_DOWN) && surface) {
+        *surface = slope_preset(kind);
+    }
+    return kind;
+}
+
+inline bool surface_top(const sat_grid_t& g, int c, int r,
+                        const sat_tile_surface_t& surface, sat_fx16_t world_x,
+                        sat_fx16_t& out_top) {
+    if (!surface_valid(surface)) return false;
+    const sat_fx16_t tile = static_cast<sat_fx16_t>(g.tile_px << 16);
+    const sat_fx16_t left =
+        static_cast<sat_fx16_t>((g.origin_x + c * g.tile_px) << 16);
+    const sat_fx16_t local = world_x - left;
+    if (local < 0 || local > tile) return false;
+
+    const sat_fx16_t u = div_ratio_fx16(local, tile);
+    if (u < surface.x0 || u > surface.x1) return false;
+    const sat_fx16_t t = div_ratio_fx16(
+        static_cast<int64_t>(u) - surface.x0,
+        static_cast<int64_t>(surface.x1) - surface.x0);
+    const sat_fx16_t y = static_cast<sat_fx16_t>(
+        surface.y0 +
+        ((static_cast<int64_t>(surface.y1 - surface.y0) * t) >> 16));
+    const sat_fx16_t top =
+        static_cast<sat_fx16_t>((g.origin_y + r * g.tile_px) << 16);
+    out_top = static_cast<sat_fx16_t>(
+        top + ((static_cast<int64_t>(tile) * y) >> 16));
+    return true;
 }
 inline void mark_hit(sat_body2_t& b, sat_vec2_t n, sat_fx16_t restitution) {
     if (n.x < 0) b.flags |= SAT_BODY_HIT_RIGHT;
@@ -53,8 +113,12 @@ inline void mark_hit(sat_body2_t& b, sat_vec2_t n, sat_fx16_t restitution) {
     b.vel = reflect(b.vel, n, restitution);
 }
 
-inline sat_result_t move_tiles(sat_body2_t& b, const sat_grid_t& g, sat_tile_fn fn, void* user) {
-    if (!fn || g.tile_px <= 0 || g.cols <= 0 || g.rows <= 0) return SAT_ERR_INVALID_ARG;
+inline sat_result_t move_tiles_impl(sat_body2_t& b, const sat_grid_t& g,
+                                    const tile_source& source) {
+    if ((!source.basic && !source.extended) ||
+        g.tile_px <= 0 || g.cols <= 0 || g.rows <= 0) {
+        return SAT_ERR_INVALID_ARG;
+    }
     b.flags &= static_cast<uint16_t>(~(SAT_BODY_GROUNDED | SAT_BODY_HIT_LEFT |
                                        SAT_BODY_HIT_RIGHT | SAT_BODY_HIT_CEILING));
     const sat_fx16_t tile = static_cast<sat_fx16_t>(g.tile_px << 16);
@@ -86,7 +150,8 @@ inline sat_result_t move_tiles(sat_body2_t& b, const sat_grid_t& g, sat_tile_fn 
             const int r0 = floor_world(exminy, g.origin_y, g.tile_px) - 1;
             const int r1 = floor_world(exmaxy, g.origin_y, g.tile_px) + 1;
             for (int r = r0; r <= r1; ++r) for (int c = c0; c <= c1; ++c) {
-                const int kind = tile_kind(g, c, r, fn, user);
+                sat_tile_surface_t unused = {};
+                const int kind = tile_kind(g, c, r, source, &unused);
                 if (kind != SAT_TILE_SOLID && !(axis == 1 && kind == SAT_TILE_ONE_WAY)) continue;
                 if (kind == SAT_TILE_ONE_WAY) {
                     const sat_box2_t t = tile_box(g, c, r);
@@ -147,14 +212,14 @@ inline sat_result_t move_tiles(sat_body2_t& b, const sat_grid_t& g, sat_tile_fn 
             const int c1 = floor_world(b.box.center.x + b.box.half.x, g.origin_x, g.tile_px) + 1;
             const int r = floor_world(b.box.center.y + b.box.half.y, g.origin_y, g.tile_px);
             for (int c = c0; c <= c1; ++c) {
-                const int kind = tile_kind(g, c, r, fn, user);
-                if (kind != SAT_TILE_SLOPE_UP && kind != SAT_TILE_SLOPE_DOWN) continue;
-                const sat_fx16_t left = static_cast<sat_fx16_t>((g.origin_x + c * g.tile_px) << 16);
-                sat_fx16_t local = b.box.center.x - left;
-                if (local < 0) local = 0;
-                if (local > tile) local = tile;
-                const sat_fx16_t top = static_cast<sat_fx16_t>((g.origin_y + r * g.tile_px) << 16) +
-                    (kind == SAT_TILE_SLOPE_UP ? tile - local : local);
+                sat_tile_surface_t surface = {};
+                const int kind = tile_kind(g, c, r, source, &surface);
+                if (kind != SAT_TILE_SLOPE && kind != SAT_TILE_SLOPE_UP &&
+                    kind != SAT_TILE_SLOPE_DOWN) {
+                    continue;
+                }
+                sat_fx16_t top = 0;
+                if (!surface_top(g, c, r, surface, b.box.center.x, top)) continue;
                 const sat_fx16_t want = top - b.box.half.y;
                 if (b.box.center.y + b.box.half.y >= top && b.box.center.y >= want - tile) {
                     b.box.center.y = want; b.flags |= SAT_BODY_GROUNDED; b.vel.y = 0;
@@ -163,6 +228,16 @@ inline sat_result_t move_tiles(sat_body2_t& b, const sat_grid_t& g, sat_tile_fn 
         }
     }
     return SAT_OK;
+}
+
+inline sat_result_t move_tiles(sat_body2_t& b, const sat_grid_t& g,
+                               sat_tile_fn fn, void* user) {
+    return move_tiles_impl(b, g, {fn, nullptr, user});
+}
+
+inline sat_result_t move_tiles_surface(sat_body2_t& b, const sat_grid_t& g,
+                                       sat_tile_surface_fn fn, void* user) {
+    return move_tiles_impl(b, g, {nullptr, fn, user});
 }
 
 inline sat_result_t move_boxes(sat_body2_t& b, const sat_box2_t* boxes, uint16_t count) {
