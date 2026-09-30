@@ -1175,13 +1175,15 @@ def compile_runtime_controller(
             "trigger_value": trig_value,
             "trigger_value2": trig_value2,
             "value0": integer(ctrl.get("time"), 1),
-            "value1": integer(ctrl.get("length"), 10),
+            "value1": integer(ctrl.get("length"), 20),
             "value2": integer(ctrl.get("timegap"), 1),
-            "value3": integer(ctrl.get("framegap"), 1),
-            "value4": pack_rgb_signed(ctrl.get("palbright"), (0, 0, 0)),
-            "value5": pack_rgb_unsigned(ctrl.get("palcontrast"), (255, 255, 255)),
-            "value6": pack_rgb_signed(ctrl.get("paladd"), (0, 0, 0)),
-            "value7": pack_mul(ctrl.get("palmul")),
+            "value3": integer(ctrl.get("framegap"), 4),
+            "value4": pack_rgb_signed(ctrl.get("palbright"), (30, 30, 30)),
+            "value5": pack_rgb_unsigned(ctrl.get("palcontrast"), (120, 120, 220)),
+            "value6": pack_rgb_signed(ctrl.get("paladd"), (10, 10, 25)),
+            "value7": pack_mul(
+                ctrl.get("palmul") or ".65,.65,.75"
+            ),
             "flags": flag_expr(),
         }
 
