@@ -2727,6 +2727,52 @@ int main() {
         EQ(g.fighters[0].state,3051);
     }
 
+    /* PalFX stores additive and sinusoidal RGB modulation with an authored
+     * cycle, then advances phase while the effect is alive. */
+    {
+        const ik_cns_controller_t ctrls[] = {
+            {3080,IK_CNS_CTRL_PAL_FX,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,20,0x00001020,0u,0x00052040,3},
+        };
+        ik_cns_state_t state{};
+        state.number=3080;
+        state.anim=0;
+        state.state_type=IK_CNS_STATE_STAND;
+        state.move_type=IK_CNS_MOVE_ATTACK;
+        state.physics=IK_CNS_PHYS_NONE;
+        state.controller_count=1u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=&state;
+        asset.state_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=1u;
+
+        ik_fight_init(&g,&asset);
+        g.fighters[0].state=3080;
+        g.fighters[0].anim=0;
+        g.fighters[0].ctrl=0;
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[0].palfx_time,19u);
+        EQ(g.fighters[0].palfx_add_r,32);
+        EQ(g.fighters[0].palfx_add_g,16);
+        EQ(g.fighters[0].palfx_add_b,0);
+        EQ(g.fighters[0].palfx_sin_r,64);
+        EQ(g.fighters[0].palfx_sin_g,32);
+        EQ(g.fighters[0].palfx_sin_b,5);
+        EQ(g.fighters[0].palfx_cycle,3u);
+        EQ(g.fighters[0].palfx_phase,1u);
+    }
+
     /* Compiled PlaySnd rows emit generic sound events at their authored
      * trigger ticks instead of relying on hard-coded attack-state audio. */
     {
