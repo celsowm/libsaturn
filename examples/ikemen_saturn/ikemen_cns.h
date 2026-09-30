@@ -62,7 +62,8 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT,
     IK_CNS_TRIGGER_COMMAND_ANY_VY_LT_Q8,
     IK_CNS_TRIGGER_VY_GT_Q8_AT_LEVEL,
-    IK_CNS_TRIGGER_VY_GE_Q8
+    IK_CNS_TRIGGER_VY_GE_Q8,
+    IK_CNS_TRIGGER_ANIM_ELEM_AFTER
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -168,7 +169,14 @@ enum {
     IK_CNS_CTRL_IGNORE_HIT_PAUSE = 1u << 1,
     IK_CNS_CTRL_AXIS_X = 1u << 2,
     IK_CNS_CTRL_AXIS_Y = 1u << 3,
-    IK_CNS_CTRL_LOCAL_X = 1u << 4
+    IK_CNS_CTRL_LOCAL_X = 1u << 4,
+    IK_CNS_CTRL_USE_YACCEL = 1u << 5
+};
+
+enum {
+    IK_CNS_REVERSAL_STATE_STAND = 1u << 0,
+    IK_CNS_REVERSAL_STATE_CROUCH = 1u << 1,
+    IK_CNS_REVERSAL_STATE_AIR = 1u << 2
 };
 
 enum {
@@ -271,6 +279,8 @@ typedef struct ik_cns_state {
     uint8_t has_juggle;
     uint8_t owns_air_accel;
     uint8_t hitdef_persist;
+    uint16_t reversal_ofs;
+    uint8_t reversal_count;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
@@ -346,6 +356,23 @@ typedef struct ik_cns_hitdef {
     int16_t trigger2_spark_y;
     int16_t guard_spark_no;
 } ik_cns_hitdef_t;
+
+typedef struct ik_cns_reversaldef {
+    int16_t state_number;
+    uint16_t start_time;
+    uint16_t end_time;
+    uint8_t attacker_state_mask;
+    uint8_t pause_p1;
+    uint8_t pause_p2;
+    int16_t spark_no;
+    int16_t spark_x;
+    int16_t spark_y;
+    int16_t hit_sound_group;
+    int16_t hit_sound_item;
+    int16_t p1_state_no;
+    int8_t p1_spr_priority;
+    int8_t p2_spr_priority;
+} ik_cns_reversaldef_t;
 
 typedef struct ik_cns_playsnd {
     int16_t state_number;
@@ -452,6 +479,8 @@ typedef struct ik_cns_asset {
     uint16_t controller_count;
     const ik_cns_helper_t* helpers;
     uint16_t helper_count;
+    const ik_cns_reversaldef_t* reversals;
+    uint16_t reversal_count;
 } ik_cns_asset_t;
 
 int16_t ik_cns_q8_from_int(int16_t value);
