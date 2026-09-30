@@ -181,7 +181,8 @@ enum {
     IK_CNS_CTRL_AXIS_X = 1u << 2,
     IK_CNS_CTRL_AXIS_Y = 1u << 3,
     IK_CNS_CTRL_LOCAL_X = 1u << 4,
-    IK_CNS_CTRL_USE_YACCEL = 1u << 5
+    IK_CNS_CTRL_USE_YACCEL = 1u << 5,
+    IK_CNS_CTRL_SUPER_DARKEN = 1u << 6
 };
 
 enum {
@@ -475,6 +476,8 @@ typedef struct ik_cns_controller {
     int16_t trigger_value2;
     int32_t value0;
     int32_t value1;
+    int32_t value2;
+    int32_t value3;
     uint8_t flags;
 } ik_cns_controller_t;
 
