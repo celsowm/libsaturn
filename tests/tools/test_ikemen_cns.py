@@ -8,7 +8,12 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.ikemen_cns import Section, compile_helper_controller, emit  # noqa: E402
+from tools.ikemen_cns import (
+    Section,
+    compile_explod_controller,
+    compile_helper_controller,
+    emit,
+)  # noqa: E402
 
 SOURCE = r"""
 [Data]
@@ -1909,6 +1914,35 @@ helper_ctrl = report["controllers"][helper_state["controller_ofs"]]
 assert helper_ctrl["type"] == "IK_CNS_CTRL_DESTROY_SELF"
 assert helper_ctrl["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
 assert helper_ctrl["trigger_value"] == 5
+
+explod_ctrl = Section(
+    "State 191, Wood",
+    [
+        ("type", "Explod"),
+        ("trigger1", "AnimElemTime(7) = 1"),
+        ("anim", "192"),
+        ("postype", "p1"),
+        ("pos", "60,-70"),
+        ("velocity", "2,-4"),
+        ("accel", "0,.32"),
+        ("removetime", "35"),
+        ("persistent", "0"),
+    ],
+)
+compiled_explod = compile_explod_controller(191, explod_ctrl, 3)
+assert compiled_explod is not None
+explod_controller, explod = compiled_explod
+assert explod_controller["type"] == "IK_CNS_CTRL_EXPLOD"
+assert explod_controller["value0"] == 3
+assert explod_controller["value1"] == 1
+assert explod["anim_no"] == 192
+assert explod["pos_x_q8"] == 60 * 256
+assert explod["pos_y_q8"] == -70 * 256
+assert explod["vel_x_q8"] == 2 * 256
+assert explod["vel_y_q8"] == -4 * 256
+assert explod["accel_x_q8"] == 0
+assert explod["accel_y_q8"] == round(.32 * 256)
+assert explod["remove_time"] == 35
 
 unsupported_helper = Section(
     "State 0, Unsupported Helper",
