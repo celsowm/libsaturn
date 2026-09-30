@@ -59,7 +59,9 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_HIT_SHAKE_OVER,
     IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE,
     IK_CNS_TRIGGER_STATE_ENTRY_FRONT_EDGE_BODY_LE,
-    IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT
+    IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT,
+    IK_CNS_TRIGGER_COMMAND_ANY_VY_LT_Q8,
+    IK_CNS_TRIGGER_VY_GT_Q8_AT_LEVEL
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -113,7 +115,8 @@ typedef enum ik_cns_controller_type {
 enum {
     IK_CNS_HITDEF_FALL = 1u << 0,
     IK_CNS_HITDEF_FORCE_NO_FALL = 1u << 1,
-    IK_CNS_HITDEF_THROW = 1u << 2
+    IK_CNS_HITDEF_THROW = 1u << 2,
+    IK_CNS_HITDEF_AIR_FALL = 1u << 3
 };
 
 enum {
@@ -162,7 +165,9 @@ enum {
     IK_CNS_COMMAND_HOLD_BACK = 1u << 1,
     IK_CNS_COMMAND_HOLD_UP = 1u << 2,
     IK_CNS_COMMAND_HOLD_DOWN = 1u << 3,
-    IK_CNS_COMMAND_RECOVERY = 1u << 4
+    IK_CNS_COMMAND_RECOVERY = 1u << 4,
+    IK_CNS_COMMAND_A = 1u << 5,
+    IK_CNS_COMMAND_B = 1u << 6
 };
 
 typedef struct ik_cns_constants {
@@ -254,6 +259,7 @@ typedef struct ik_cns_state {
     int16_t juggle;
     uint8_t has_juggle;
     uint8_t owns_air_accel;
+    uint8_t hitdef_persist;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
@@ -318,6 +324,8 @@ typedef struct ik_cns_hitdef {
     int8_t p1_spr_priority;
     uint8_t p2_body_dist_op;
     int16_t p2_body_dist_x;
+    int16_t alt_damage;
+    int16_t alt_damage_prev_state;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
