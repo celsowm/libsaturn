@@ -178,6 +178,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->hit_ctrl_time = 0;
     f->gethit_vx_q8 = 0;
     f->gethit_vy_q8 = 0;
+    f->gethit_yaccel_q8 = 0;
     f->gethit_ground_type = IK_CNS_GROUND_NORMAL;
     f->gethit_anim_type = 0u;
     f->gethit_fall = 0u;
@@ -435,12 +436,22 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
         const uint16_t global = (uint16_t)(state->hitdef_ofs + i);
         if (global >= fight->cns->hitdef_count) break;
         const ik_cns_hitdef_t* hitdef = &fight->cns->hitdefs[global];
-        if (!ik_cns_trigger_now(
-                hitdef->trigger_kind, hitdef->trigger_value,
-                fighter->state_time, element, element_time, anim_ended)) {
-            continue;
-        }
+        const int primary_now = ik_cns_trigger_now(
+            hitdef->trigger_kind, hitdef->trigger_value,
+            fighter->state_time, element, element_time, anim_ended);
+        const int secondary_now =
+            hitdef->trigger2_kind != 255u &&
+            ik_cns_trigger_now(
+                hitdef->trigger2_kind, hitdef->trigger2_value,
+                fighter->state_time, element, element_time, anim_ended);
+        if (!primary_now && !secondary_now) continue;
         if (!hitdef_p2_dist_allows(hitdef, p2_dist)) continue;
+
+        /* A second trigger on the same HitDef controller is an intentional
+         * re-activation (Fast Upper). Re-arm only this controller's hit bit. */
+        if (secondary_now && i < 32u) {
+            fighter->hitdef_hit_mask &= ~(1u << i);
+        }
         fighter->active_hitdef_local = (int8_t)i;
         fighter->active_hitdef_global = (int16_t)global;
     }
@@ -722,6 +733,7 @@ static void apply_damage(ik_fight_t* fight, int victim,
     v->hit_ctrl_time = (uint16_t)(hit_time < 0 ? 0 : hit_time);
     v->gethit_vx_q8 = velocity_x;
     v->gethit_vy_q8 = velocity_y;
+    v->gethit_yaccel_q8 = hitdef->yaccel_q8;
     v->gethit_ground_type = hitdef->ground_type;
     v->gethit_anim_type = airborne
         ? hitdef->air_anim_type
@@ -779,6 +791,7 @@ static void apply_damage(ik_fight_t* fight, int victim,
         } else if (airborne && ik_cns_find_state(fight->cns, 5020)) {
             target = 5020;
         } else if (victim_type == IK_CNS_STATE_CROUCH &&
+                   (hitdef->flags & IK_CNS_HITDEF_FORCE_STAND) == 0u &&
                    ik_cns_find_state(fight->cns, 5010)) {
             target = 5010;
         } else if (ik_cns_find_state(fight->cns, 5000)) {
@@ -854,9 +867,12 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f,
     const int32_t gravity =
         (spec && spec->owns_air_accel)
             ? 0
-            : (spec && spec->air_accel_q8 != 0)
-                ? spec->air_accel_q8
-                : (c ? c->yaccel_q8 : (IK_CNS_Q8_ONE / 2));
+            : (spec && spec->move_type == IK_CNS_MOVE_HIT &&
+               f->gethit_yaccel_q8 != 0)
+                ? f->gethit_yaccel_q8
+                : (spec && spec->air_accel_q8 != 0)
+                    ? spec->air_accel_q8
+                    : (c ? c->yaccel_q8 : (IK_CNS_Q8_ONE / 2));
     const int32_t floor_q8 = (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE;
     const int32_t land_level_q8 = spec ? spec->land_level_q8 : 0;
 
