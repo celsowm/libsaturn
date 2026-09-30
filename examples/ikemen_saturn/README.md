@@ -147,6 +147,10 @@ asset now contains states:
 * 1050-1056 / 1060-1061: Light/Strong Kung Fu Knee, persistent knee HitDef,
   optional air kick and landing
 * 1070 / 1071 / 1075: Fast Kung Fu Knee multistage attack
+* 1100 / 1110 / 1120: Light/Strong/Fast Kung Fu Upper, including Fast
+  Upper's re-triggered first HitDef, force-stand and per-hit fall acceleration
+* 1200 / 1210 / 1220: Light/Strong/Fast Kung Fu Blow with source corner-push
+  recoil, Width windows and Fast Blow fall acceleration
 
 The generic runtime now supports contextual command/velocity triggers plus
 `VelSet`, `VelMul`, `PosSet`, animation selection by local X velocity,
@@ -163,10 +167,15 @@ state changes so numeric priority and Hit/Miss/Dodge clashes can trade or
 suppress hits correctly. Conditional HitDefs are activated on their exact
 source tick and persist until replaced/state exit; p2bodydist-selected Palm
 HitDefs therefore keep the near/far definition chosen at activation time.
+A HitDef may also carry a source `trigger2`: Fast Upper rearms only that
+controller's local hit bit on AnimElem 4, allowing its intentional second
+30-damage contact without turning persistent HitDefs into accidental multihits.
 KFM's [Data] airjuggle budget, StateDef juggle cost and HitDef air.juggle cost
 are tracked across falling/downed targets. StateDef poweradd drives a bounded
 0-3000 power meter, and hitdefpersist carries Knee HitDefs across the ground
-to air state transition without granting a duplicate hit. Ground physics selects the compiled stand or
+to air state transition without granting a duplicate hit. HitDefs now also
+preserve `forcestand`, per-hit `yaccel`, `air.fall`, conditional damage
+from `prevstateno`, and `ground.cornerpush.veloff`. Ground physics selects the compiled stand or
 crouch friction values. Jump, air-jump, air attacks and hop-back land through
 the compiled common flow instead of being forced directly to idle.
 
@@ -185,6 +194,8 @@ The generic CNS runtime currently executes:
 * target/bind/target-state/target-life controllers used by throws
 * `ChangeAnim2`, `SelfState`, `HitVelSet`, `PosFreeze`
 * edge-aware wall-bounce movement used by Fast Palm
+* HitDef re-trigger/rearm, force-stand, per-hit Y acceleration and ground
+  corner-push recoil used by Upper/Blow
 * `SprPriority`
 * `Width`
 * `ChangeAnim` plus the common locomotion animation selectors
@@ -211,7 +222,7 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
 * exact remaining guard semantics such as conditional air-guard landing,
   complete inGuardDist behavior
 * remaining throw edge cases across different character AIR/state owners,
-  remaining specials (Upper/Blow/Blocking/Zankou) and supers
+  remaining specials (Blocking/Zankou) and supers
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
 * fightfx sparks/effects, motif/lifebar flow and full round presentation
