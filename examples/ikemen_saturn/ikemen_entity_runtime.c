@@ -249,6 +249,14 @@ int ik_entity_runtime_spawn_explod(
     entity->ownpal = explod->ownpal;
     entity->pause_move_time = explod->pause_move_time;
     entity->super_move_time = explod->super_move_time;
+    entity->explod_bind_time = explod->bind_time;
+    entity->explod_parent_state_no = parent->state_no;
+    entity->explod_bind_x_q8 = explod->pos_x_q8;
+    entity->explod_bind_y_q8 = explod->pos_y_q8;
+    entity->explod_remove_on_gethit =
+        explod->remove_on_gethit != 0u;
+    entity->explod_remove_on_state_change =
+        explod->remove_on_state_change != 0u;
     entity->life = 1;
 
     *out_handle = spawned;
@@ -620,10 +628,39 @@ static void step_one(
     if (entity->type == IK_ENTITY_EXPLOD ||
         (entity->type == IK_ENTITY_PROJECTILE &&
          entity->state_no < 0)) {
+        if (entity->type == IK_ENTITY_EXPLOD) {
+            const ik_entity_t* parent =
+                ik_entity_get_const(runtime->pool, entity->parent);
+            if (entity->explod_remove_on_state_change && parent &&
+                parent->state_no != entity->explod_parent_state_no) {
+                (void)ik_entity_destroy(runtime->pool, handle);
+                return;
+            }
+            if (entity->explod_remove_on_gethit && parent &&
+                parent->move_type == IK_CNS_MOVE_HIT) {
+                (void)ik_entity_destroy(runtime->pool, handle);
+                return;
+            }
+            if (parent && entity->explod_bind_time != 0) {
+                entity->x_q8 =
+                    parent->x_q8 +
+                    (int32_t)parent->facing *
+                        entity->explod_bind_x_q8;
+                entity->y_q8 =
+                    parent->y_q8 + entity->explod_bind_y_q8;
+                entity->facing = parent->facing;
+                if (entity->explod_bind_time > 0) {
+                    --entity->explod_bind_time;
+                }
+            }
+        }
         ++entity->state_time;
         ++entity->anim_time;
-        entity->x_q8 += entity->vx_q8;
-        entity->y_q8 += entity->vy_q8;
+        if (entity->type != IK_ENTITY_EXPLOD ||
+            entity->explod_bind_time == 0) {
+            entity->x_q8 += entity->vx_q8;
+            entity->y_q8 += entity->vy_q8;
+        }
         entity->vx_q8 += entity->ax_q8;
         entity->vy_q8 += entity->ay_q8;
 
