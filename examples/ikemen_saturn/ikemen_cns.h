@@ -569,6 +569,9 @@ typedef struct ik_cns_explod {
     int16_t remove_time;
     int8_t spr_priority;
     uint8_t postype;
+    uint8_t ownpal;
+    uint8_t pause_move_time;
+    uint8_t super_move_time;
 } ik_cns_explod_t;
 
 typedef struct ik_cns_helper {
