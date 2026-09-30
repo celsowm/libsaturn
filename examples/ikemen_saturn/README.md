@@ -125,6 +125,10 @@ asset now contains states:
 * 3000 / 3050 / 3051: Triple Kung Fu Palm and Smash Kung Fu Upper supers,
   including source State -1 cancel gates, 1000-power requirement, SuperPause
   power debit, attribute-filtered NotHitBy and MoveHit-only success state
+* 170 / 180 / 181 / 191 / 195: pre-intro immunity, win selector/pose,
+  source-driven intro and taunt. State 191 now keeps RoundState in intro,
+  spawns the authored wood-piece Explods and releases the round timer only
+  after AssertSpecial Intro is no longer asserted
 
 Zankou also enters through the original State -1 programs (`QCF_a`, `QCF_b`
 and `QCF_ab`) rather than a direct input branch. The generic trigger runtime
@@ -250,8 +254,10 @@ texture cache, and players/helpers are stably ordered together by
 implemented (for example scaling/remappal/player/projectile helper types)
 instead of silently accepting incompatible semantics.
 
-Projectile and Explod already have pool kinds. Projectiles now execute through
-the same dynamic state/physics step as Helpers, can be spawned from the generic
+Projectile and Explod both have active runtimes. Projectiles execute through
+the same dynamic state/physics step as Helpers, while Explods use a presentation
+runtime with source anim/position/velocity/acceleration/removetime and stable
+SprPriority ordering. Projectiles can be spawned from the generic
 entity runtime API, render through the owner's SFF/AIR path, expose typed
 projectile HitDefs, participate in CLSN1-vs-CLSN2 contact and HitOverride AP,
 and are consumed on contact. Explod remains presentation-only infrastructure.
@@ -332,8 +338,8 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   authored usage
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
-* remaining super presentation semantics: exact Elecbyte palette math and
-  HUD/lifebar participation in SuperPause darken
+* remaining super presentation semantics: exact per-palette Elecbyte colour
+  arithmetic and HUD/lifebar participation in SuperPause darken
 * remaining fightfx families (blood, shockwaves and dust),
   motif/lifebar flow and full round presentation
 * broader sound-bank/channel semantics beyond the KFM/common sounds currently
