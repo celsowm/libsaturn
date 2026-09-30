@@ -461,6 +461,51 @@ def controller_trigger(
 
     trigger_all = ctrl.all("triggerall")
 
+    if ctype == "changestate" and len(triggers) == 2:
+        normalized = [_strip_outer_parens(t) for t in triggers]
+        cmd = next((
+            t for t in normalized
+            if re.fullmatch(
+                r'Command\s*=\s*"a"\s*\|\|\s*Command\s*=\s*"b"',
+                t, flags=re.I
+            )
+        ), None)
+        vy = next((
+            re.fullmatch(r"Vel\s+y\s*<\s*(-?\d+(?:\.\d+)?)", t, flags=re.I)
+            for t in normalized
+            if re.fullmatch(r"Vel\s+y\s*<\s*(-?\d+(?:\.\d+)?)", t, flags=re.I)
+        ), None)
+        if cmd is not None and vy:
+            return (
+                "IK_CNS_TRIGGER_COMMAND_ANY_VY_LT_Q8",
+                (1 << 5) | (1 << 6),
+                q8(float(vy.group(1))),
+            )
+
+    if ctype == "changestate" and len(triggers) == 1 and not trigger_all:
+        value = _strip_outer_parens(triggers[0])
+        parts = [
+            _strip_outer_parens(p)
+            for p in re.split(r"\s*&&\s*", value)
+        ]
+        if len(parts) == 2:
+            vy = next((
+                re.fullmatch(r"Vel\s+Y\s*>\s*(-?\d+(?:\.\d+)?)", t, flags=re.I)
+                for t in parts
+                if re.fullmatch(r"Vel\s+Y\s*>\s*(-?\d+(?:\.\d+)?)", t, flags=re.I)
+            ), None)
+            pos = next((
+                re.fullmatch(r"Pos\s+Y\s*>=\s*(-?\d+(?:\.\d+)?)", t, flags=re.I)
+                for t in parts
+                if re.fullmatch(r"Pos\s+Y\s*>=\s*(-?\d+(?:\.\d+)?)", t, flags=re.I)
+            ), None)
+            if vy and pos:
+                return (
+                    "IK_CNS_TRIGGER_VY_GT_Q8_AT_LEVEL",
+                    q8(float(pos.group(1))),
+                    q8(float(vy.group(1))),
+                )
+
     if ctype == "changestate" and len(trigger_all) == 1 and \
        len(triggers) == 1 and len(trigger2) == 1:
         y = re.fullmatch(
@@ -653,6 +698,7 @@ def compile_runtime_controller(
         "changestate",
         "ctrlset",
         "posadd",
+        "posset",
         "sprpriority",
         "changeanim",
         "changeanim2",
@@ -738,6 +784,25 @@ def compile_runtime_controller(
             "value0": q8(x),
             "value1": q8(y),
             "flags": flag_expr(),
+        }
+
+    if ctype == "posset":
+        x = number(ctrl.get("x"), 0)
+        y = number(ctrl.get("y"), 0)
+        axis: list[str] = []
+        if ctrl.get("x") is not None:
+            axis.append("IK_CNS_CTRL_AXIS_X")
+        if ctrl.get("y") is not None:
+            axis.append("IK_CNS_CTRL_AXIS_Y")
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_POS_SET",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": q8(x),
+            "value1": q8(y),
+            "flags": " | ".join(axis + flags) if axis or flags else "0u",
         }
 
     if ctype == "sprpriority":
@@ -1017,7 +1082,23 @@ def parse_state(
         if ctype == "hitdef":
             trig_kind, trig_value, p2_dist_op, p2_dist_x = hitdef_trigger(ctrl)
 
-            damage, guard_damage = pair(ctrl.get("damage"), 0, 0)
+            damage_text = ctrl.get("damage") or "0,0"
+            alt_damage = -1
+            alt_damage_prev_state = -32768
+            damage_expr = re.fullmatch(
+                r"\s*(-?\d+)\s*\+\s*"
+                r"\(\s*prevstateno\s*=\s*(-?\d+)\s*\)"
+                r"\s*\*\s*(-?\d+)\s*,\s*(-?\d+)\s*",
+                damage_text,
+                flags=re.I,
+            )
+            if damage_expr:
+                damage = int(damage_expr.group(1))
+                alt_damage_prev_state = int(damage_expr.group(2))
+                alt_damage = damage + int(damage_expr.group(3))
+                guard_damage = int(damage_expr.group(4))
+            else:
+                damage, guard_damage = pair(damage_text, 0, 0)
             pause1, pause2 = pair(ctrl.get("pausetime"), 0, 0)
             gx, gy = pair(ctrl.get("ground.velocity"), 0, 0)
             ax, ay = pair(ctrl.get("air.velocity"), gx, gy)
@@ -1039,6 +1120,8 @@ def parse_state(
             flags: list[str] = []
             if integer(ctrl.get("fall"), 0):
                 flags.append("IK_CNS_HITDEF_FALL")
+            if integer(ctrl.get("air.fall"), 0):
+                flags.append("IK_CNS_HITDEF_AIR_FALL")
             if integer(ctrl.get("forcenofall"), 0):
                 flags.append("IK_CNS_HITDEF_FORCE_NO_FALL")
             attr_parts = [p.strip().upper() for p in (ctrl.get("attr") or "").split(",")]
@@ -1132,6 +1215,8 @@ def parse_state(
                     "p1_spr_priority": integer(ctrl.get("p1sprpriority"), -128),
                     "p2_body_dist_op": p2_dist_op,
                     "p2_body_dist_x": p2_dist_x,
+                    "alt_damage": alt_damage,
+                    "alt_damage_prev_state": alt_damage_prev_state,
                 }
             )
 
@@ -1189,6 +1274,7 @@ def parse_state(
             "IK_CNS_CTRL_AXIS_Y" in c["flags"]
             for c in controllers
         )),
+        "hitdef_persist": integer(sd.get("hitdefpersist"), 0),
         "unsupported_controllers": sorted(set(unsupported)),
     }
 
@@ -2173,7 +2259,8 @@ def emit(
         f"{r.get('air_motion_start', 0)}u, "
         f"{r.get('land_ctrl', 0)}u, "
         f"{r.get('juggle', 0)}, {r.get('has_juggle', 0)}u, "
-        f"{r.get('owns_air_accel', 0)}u"
+        f"{r.get('owns_air_accel', 0)}u, "
+        f"{r.get('hitdef_persist', 0)}u"
         "},"
         for r in state_rows
     ]
@@ -2207,7 +2294,8 @@ def emit(
         f"{h['priority_type']}, {h['air_juggle']}u, "
         f"{h['p1_state_no']}, {h['p2_state_no']}, {h['guard_dist']}, "
         f"{h['p1_facing']}, {h['p2_facing']}, {h['p1_spr_priority']}, "
-        f"{h['p2_body_dist_op']}, {h['p2_body_dist_x']}"
+        f"{h['p2_body_dist_op']}, {h['p2_body_dist_x']}, "
+        f"{h['alt_damage']}, {h['alt_damage_prev_state']}"
         "},"
         for h in hitdefs
     ]
