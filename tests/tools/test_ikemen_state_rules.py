@@ -69,6 +69,12 @@ command = y
 [Command]
 name = "QCF_ab"
 command = x+y
+[Command]
+name = "TripleKFPalm"
+command = x
+[Command]
+name = "SmashKFUpper"
+command = y
 
 [Statedef -1]
 
@@ -179,6 +185,31 @@ trigger1 = ctrl
 trigger2 = stateno = 600 || stateno = 630
 trigger2 = movecontact
 
+[State -1, Smash Kung Fu Upper]
+type = ChangeState
+value = 3050
+triggerall = command = "SmashKFUpper"
+triggerall = power >= 1000
+triggerall = statetype != A
+trigger1 = ctrl
+trigger2 = hitdefattr = SC, NA, SA, HA
+trigger2 = stateno != [3050,3100)
+trigger2 = movecontact
+trigger3 = stateno = 1310 || stateno = 1330
+
+[State -1, Triple Kung Fu Palm]
+type = ChangeState
+value = 3000
+triggerall = command = "TripleKFPalm"
+triggerall = power >= 1000
+trigger1 = statetype = S
+trigger1 = ctrl
+trigger2 = statetype != A
+trigger2 = hitdefattr = SC, NA, SA, HA
+trigger2 = stateno != [3000,3050)
+trigger2 = movecontact
+trigger3 = stateno = 1310 || stateno = 1330
+
 [State -1, Far Kung Fu Zankou]
 type = ChangeState
 value = 1420
@@ -233,7 +264,7 @@ trigger2 = time > 0
 with tempfile.TemporaryDirectory() as td:
     path = Path(td) / "test.cmd"
     path.write_text(SOURCE, encoding="utf-8")
-    rules, diagnostics = parse_state_rules(path, {200, 610, 800, 1000, 1010, 1020, 1100, 1110, 1120, 1200, 1210, 1220, 1300, 1320, 1340, 1400, 1410, 1420})
+    rules, diagnostics = parse_state_rules(path, {200, 610, 800, 1000, 1010, 1020, 1100, 1110, 1120, 1200, 1210, 1220, 1300, 1320, 1340, 1400, 1410, 1420, 3000, 3050})
     out_prefix = Path(td) / "generated_rules"
     emit(rules, diagnostics, out_prefix, "test")
     emitted_c = out_prefix.with_suffix(".c").read_text(encoding="utf-8")
@@ -245,7 +276,7 @@ with tempfile.TemporaryDirectory() as td:
     assert "STATE_RULE_INSTRUCTION_COUNT" in emitted_h
 
 assert diagnostics == []
-assert [r.target for r in rules] == [1020, 1000, 1010, 1120, 1100, 1110, 1220, 1200, 1210, 200, 800, 610, 1420, 1400, 1410, 1300, 1320, 1340]
+assert [r.target for r in rules] == [1020, 1000, 1010, 1120, 1100, 1110, 1220, 1200, 1210, 200, 800, 610, 3050, 3000, 1420, 1400, 1410, 1300, 1320, 1340]
 ops200 = [i.op for i in rules[9].code]
 assert ops200.count("command_active") == 1
 assert ops200.count("command_inactive") == 1
@@ -286,6 +317,18 @@ assert ops610.count("state_no_eq") == 2
 assert "move_contact" in ops610
 assert ops610.count("or") >= 2
 by_target = {r.target: r for r in rules}
+ops3050 = [i.op for i in by_target[3050].code]
+assert "power_ge" in ops3050
+assert ops3050.count("active_hit_attr_eq") == 3
+assert "move_contact" in ops3050
+assert "state_no_range" in ops3050
+assert "state_type_ne" in ops3050
+ops3000 = [i.op for i in by_target[3000].code]
+assert "power_ge" in ops3000
+assert ops3000.count("active_hit_attr_eq") == 3
+assert "move_contact" in ops3000
+assert "state_no_range" in ops3000
+assert "state_type_eq" in ops3000
 ops1420 = [i.op for i in by_target[1420].code]
 assert "power_ge" in ops1420
 assert "ctrl" in ops1420
