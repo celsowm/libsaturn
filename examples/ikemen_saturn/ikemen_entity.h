@@ -49,6 +49,7 @@ typedef struct ik_entity {
     uint16_t anim_time;
     int16_t life;
     int16_t power;
+    uint16_t active_hit_attr_mask;
     int16_t push_back;
     int16_t push_front;
     int8_t facing;
