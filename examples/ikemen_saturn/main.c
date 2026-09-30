@@ -682,7 +682,8 @@ static void draw_combat_entities(const ik_fight_t* fight) {
          item_count < IK_ENTITY_CAPACITY;
          ++slot) {
         const ik_entity_t* entity = &g_entity_pool.entities[slot];
-        if (entity->type != IK_ENTITY_HELPER ||
+        if ((entity->type != IK_ENTITY_HELPER &&
+             entity->type != IK_ENTITY_PROJECTILE) ||
             entity->owner_player >= 2u) {
             continue;
         }
