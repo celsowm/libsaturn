@@ -331,6 +331,8 @@ typedef struct ik_cns_hitdef {
     uint8_t trigger2_kind;
     int16_t trigger2_value;
     int16_t yaccel_q8;
+    uint8_t has_trigger2;
+    uint8_t has_alt_damage;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {
