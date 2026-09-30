@@ -3197,6 +3197,111 @@ int main() {
         EQ(ik_entity_count_type(&pool,IK_ENTITY_PROJECTILE),0u);
     }
 
+    /* A classic Projectile controller keeps its embedded HitDef alive for
+     * projhits contacts and rearms only after projmisstime expires. */
+    {
+        ik_cns_hitdef_t hit{};
+        hit.state_number=950;
+        hit.trigger_kind=IK_CNS_TRIGGER_ALWAYS;
+        hit.damage=10;
+        hit.priority=4u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.attack_attr_mask=IK_CNS_ATTR_SPECIAL_PROJECTILE;
+
+        ik_cns_state_t states[1]{};
+        states[0].number=0;
+        states[0].anim=910;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_IDLE;
+        states[0].physics=IK_CNS_PHYS_STAND;
+        states[0].ctrl=1;
+
+        ik_cns_projectile_t specs[1]{};
+        specs[0].id=50;
+        specs[0].anim_no=910;
+        specs[0].hit_anim_no=-1;
+        specs[0].remove_anim_no=-1;
+        specs[0].cancel_anim_no=-1;
+        specs[0].hitdef_global=0;
+        specs[0].pos_x_q8=0;
+        specs[0].pos_y_q8=0;
+        specs[0].velmul_x_q8=IK_CNS_Q8_ONE;
+        specs[0].velmul_y_q8=IK_CNS_Q8_ONE;
+        specs[0].remove_time=-1;
+        specs[0].edge_bound=100;
+        specs[0].stage_bound=100;
+        specs[0].hits=2u;
+        specs[0].miss_time=2u;
+        specs[0].priority=1u;
+        specs[0].remove_on_hit=0u;
+        specs[0].spr_priority=3;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=1u;
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+        asset.projectiles=specs;
+        asset.projectile_count=1u;
+
+        ik_entity_pool_t pool{};
+        ik_entity_pool_init(&pool);
+        ik_entity_handle_t p1_entity{};
+        ik_entity_handle_t p2_entity{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,1,0u,
+            ik_entity_invalid_handle(),&p1_entity));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,2,1u,
+            ik_entity_invalid_handle(),&p2_entity));
+
+        ik_fight_init(&g,&asset);
+        ik_fight_bind_entities(&g,&pool,p1_entity,p2_entity);
+        place(&g,100,145);
+        ik_entity_t* root0=ik_entity_get(&pool,p1_entity);
+        ik_entity_t* root1=ik_entity_get(&pool,p2_entity);
+        OK(root0!=nullptr); OK(root1!=nullptr);
+        root0->x_q8=100*IK_CNS_Q8_ONE;
+        root0->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
+        root0->facing=1;
+        root1->x_q8=145*IK_CNS_Q8_ONE;
+        root1->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
+        root1->facing=-1;
+
+        ik_entity_runtime_t runtime{};
+        ik_entity_runtime_init(
+            &runtime,&pool,&asset,&k_table,&k_table);
+        ik_entity_handle_t projectile{};
+        OK(ik_entity_runtime_spawn_projectile_spec(
+            &runtime,p1_entity,&specs[0],&projectile));
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[1].hp,990);
+        const ik_entity_t* shot=
+            ik_entity_get_const(&pool,projectile);
+        OK(shot!=nullptr);
+        EQ(shot->projectile_hits_left,1u);
+        EQ(shot->projectile_hit_cooldown,2u);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[1].hp,990);
+        shot=ik_entity_get_const(&pool,projectile);
+        OK(shot!=nullptr);
+        EQ(shot->projectile_hit_cooldown,1u);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[1].hp,980);
+        OK(ik_entity_get_const(&pool,projectile)==nullptr);
+    }
+
     /* A player Helper controller must allocate a real entity, execute that
      * helper's CNS on the shared runtime, and let DestroySelf retire the
      * generational handle without touching either root player. */
