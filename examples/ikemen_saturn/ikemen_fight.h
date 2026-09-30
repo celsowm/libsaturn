@@ -195,7 +195,9 @@ typedef struct ik_fight {
     uint32_t ko_freeze;
     uint16_t pause_time;
     uint16_t pause_move_time;
+    uint16_t pause_end_cmd_buffer_time;
     int8_t pause_owner;
+    uint8_t pause_is_super;
     uint16_t env_shake_time;
     int16_t env_shake_ampl;
     uint16_t env_shake_freq;
