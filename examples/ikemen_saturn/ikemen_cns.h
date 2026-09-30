@@ -56,7 +56,10 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_THROW_GROUND_RECOVERY,
     IK_CNS_TRIGGER_THROW_AIR_RECOVERY,
     IK_CNS_TRIGGER_ANIM_ELEM_EQ_OR,
-    IK_CNS_TRIGGER_HIT_SHAKE_OVER
+    IK_CNS_TRIGGER_HIT_SHAKE_OVER,
+    IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE,
+    IK_CNS_TRIGGER_STATE_ENTRY_FRONT_EDGE_BODY_LE,
+    IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -102,7 +105,9 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_TURN,
     IK_CNS_CTRL_CHANGE_ANIM2,
     IK_CNS_CTRL_SELF_STATE,
-    IK_CNS_CTRL_VEL_MUL_X_BY_ANIM_ELEM
+    IK_CNS_CTRL_VEL_MUL_X_BY_ANIM_ELEM,
+    IK_CNS_CTRL_POS_ADD_FROM_BACK_EDGE,
+    IK_CNS_CTRL_POS_FREEZE
 } ik_cns_controller_type_t;
 
 enum {
@@ -385,6 +390,9 @@ typedef struct ik_cns_controller_context {
     uint16_t hit_slide_time;
     uint16_t hit_ctrl_time;
     uint16_t fall_time;
+    int16_t back_edge_body_dist;
+    int16_t front_edge_body_dist;
+    int16_t back_edge_dist;
     int8_t state_axis;
     uint8_t hit_launch;
     uint8_t alive;
