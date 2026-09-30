@@ -2040,6 +2040,7 @@ def parse_state(
     controllers: list[dict] = []
     helpers: list[dict] = []
     explods: list[dict] = []
+    projectiles: list[dict] = []
     reversals: list[dict] = []
     hitoverrides: list[dict] = []
     open_reversal: dict | None = None
@@ -2405,6 +2406,26 @@ def parse_state(
             else:
                 unsupported.append(ctype)
 
+        elif ctype == "projectile":
+            try:
+                compiled_projectile = compile_projectile_controller(
+                    state.number,
+                    ctrl,
+                    len(projectiles),
+                    hitdef_ofs + len(hitdefs),
+                    default_spark_no,
+                    default_guard_spark_no,
+                )
+            except ValueError:
+                compiled_projectile = None
+            if compiled_projectile is not None:
+                controller, projectile, projectile_hitdef = compiled_projectile
+                controllers.append(controller)
+                projectiles.append(projectile)
+                hitdefs.append(projectile_hitdef)
+            else:
+                unsupported.append(ctype)
+
         else:
             try:
                 compiled = compile_runtime_controller(state.number, ctrl)
@@ -2468,7 +2489,7 @@ def parse_state(
 
     return (
         state_row, hitdefs, sounds, controllers, helpers, explods,
-        reversals, hitoverrides
+        projectiles, reversals, hitoverrides
     )
 
 
