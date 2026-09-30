@@ -378,6 +378,13 @@ typedef struct ik_cns_hitdef {
     int16_t trigger2_spark_y;
     int16_t guard_spark_no;
     uint16_t attack_attr_mask;
+    int16_t fall_damage;
+    uint16_t envshake_time;
+    int16_t envshake_ampl;
+    uint16_t envshake_freq;
+    uint16_t fall_envshake_time;
+    int16_t fall_envshake_ampl;
+    uint16_t fall_envshake_freq;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_reversaldef {
