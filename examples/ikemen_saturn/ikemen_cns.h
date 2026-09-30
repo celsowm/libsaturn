@@ -131,7 +131,8 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_HIT_FALL_DAMAGE,
     IK_CNS_CTRL_FALL_ENV_SHAKE,
     IK_CNS_CTRL_AFTER_IMAGE,
-    IK_CNS_CTRL_AFTER_IMAGE_TIME
+    IK_CNS_CTRL_AFTER_IMAGE_TIME,
+    IK_CNS_CTRL_PAL_FX
 } ik_cns_controller_type_t;
 
 typedef enum ik_cns_helper_postype {
@@ -475,6 +476,7 @@ typedef struct ik_cns_playsnd {
  *   FallEnvShake: replay stored HitDef fall envshake / 0
  *   AfterImage: duration / trail length; value2=timegap, value3=framegap
  *   AfterImageTime: rearm duration / 0
+ *   PalFX: duration / packed add RGB; value2=packed sinadd RGB, value3=cycle
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
