@@ -699,6 +699,7 @@ HOST_TEST_EXTRA_test_ikemen_decode := examples/ikemen_saturn/ikemen_anim.c
 IKEMEN_HOST_ASSETS_READY := $(and \
 	$(wildcard build/generated/ikemen_saturn/kfm_frames.c), \
 	$(wildcard build/generated/ikemen_saturn/kfm_frames.h), \
+	$(wildcard build/generated/ikemen_saturn/iso/KFM_SPR.BIN), \
 	$(wildcard build/generated/ikemen_saturn/stage0_plane.c), \
 	$(wildcard build/generated/ikemen_saturn/stage0_plane.h))
 ifeq ($(IKEMEN_HOST_ASSETS_READY),)

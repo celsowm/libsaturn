@@ -43,6 +43,11 @@ int main() {
     assert(sat_ram_cart_buffer_write_at(&big, big.bank_bytes[0] - 4u, data, 8u) == SAT_OK);
     assert(sat_ram_cart_buffer_read_at(&big, big.bank_bytes[0] - 4u, result, 8u) == SAT_OK);
     for (unsigned i = 0; i < 8; ++i) assert(data[i] == result[i]);
+    uint8_t odd_data[9] = {1,2,3,4,5,6,7,8,9};
+    uint8_t odd_result[9] = {};
+    assert(sat_ram_cart_buffer_write_at(&big, 3u, odd_data, 9u) == SAT_OK);
+    assert(sat_ram_cart_buffer_read_at(&big, 3u, odd_result, 9u) == SAT_OK);
+    for (unsigned i = 0; i < 9; ++i) assert(odd_data[i] == odd_result[i]);
     assert(sat_ram_cart_buffer_write_at(&big, kSize - 2u, data, 8u) == SAT_ERR_INVALID_ARG);
     assert(sat_ram_cart_buffer_read_at(&big, 1u, nullptr, 8u) == SAT_ERR_INVALID_ARG);
     const uint32_t free_before = [&] { assert(sat_ram_cart_info(&info) == SAT_OK); return info.free_bytes; }();

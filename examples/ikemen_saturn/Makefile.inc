@@ -1,12 +1,14 @@
 # ikemen_saturn - Ikemen GO screenpack assets (KFM + stage0) on Saturn.
 # Real sprites/palettes converted offline by tools/ikemen_sff from the
 # Ikemen-GO-Screenpack repo (see README for attribution). The runtime
-# consumes only generated tables (examples/ikemen_saturn/ikemen_anim.h contract).
+# consumes generated metadata plus disc-resident packed sprite payloads.
 # Fight logic stays in examples/ikemen_saturn/ikemen_fight.c for host tests.
 
 IKEMEN_GEN_DIR := $(GENERATED_DIR)/ikemen_saturn
+IKEMEN_ISO_DIR := $(IKEMEN_GEN_DIR)/iso
 KFM_FRAMES_C := $(IKEMEN_GEN_DIR)/kfm_frames.c
 KFM_FRAMES_H := $(IKEMEN_GEN_DIR)/kfm_frames.h
+KFM_SPRITES_BIN := $(IKEMEN_ISO_DIR)/KFM_SPR.BIN
 STAGE0_PLANE_C := $(IKEMEN_GEN_DIR)/stage0_plane.c
 STAGE0_PLANE_H := $(IKEMEN_GEN_DIR)/stage0_plane.h
 KFM_SOUNDS_C := $(IKEMEN_GEN_DIR)/kfm_sounds.c
@@ -32,13 +34,14 @@ COMMON_CNS_ZSS := .external/Ikemen-GO/data/common1.cns.zss
 COMMON_SND := .external/Ikemen-GO-Screenpack/data/common.snd
 STAGE0_SFF := .external/Ikemen-GO-Screenpack/stages/stage0.sff
 
-$(KFM_FRAMES_C) $(KFM_FRAMES_H) &: $(KFM_SFF) $(KFM_AIR) $(IKEMEN_SFF_TOOL_SRCS)
-	@mkdir -p $(IKEMEN_GEN_DIR)
+$(KFM_FRAMES_C) $(KFM_FRAMES_H) $(KFM_SPRITES_BIN) &: $(KFM_SFF) $(KFM_AIR) $(IKEMEN_SFF_TOOL_SRCS)
+	@mkdir -p $(IKEMEN_GEN_DIR) $(IKEMEN_ISO_DIR)
 	$(PYTHON) -m tools.ikemen_sff char \
 		--sff $(KFM_SFF) --air $(KFM_AIR) \
 		--actions 0,10,11,12,20,21,40,41,42,43,47,100,105,120,121,122,130,131,132,140,141,142,150,151,152,200,210,230,240,400,410,430,440,600,610,630,640,800,810,820,821,1000,1010,1020,1025,1027,1050,1051,1052,1055,1056,1060,1061,1070,1071,1100,1110,1120,1200,1210,1220,5000,5001,5002,5010,5011,5012,5020,5021,5022,5030,5035,5040,5050,5070,5080,5090,5100,5160,5110,5120,5150,5200,5210 \
 		--palettes "1,1;1,4" \
-		--out-prefix $(IKEMEN_GEN_DIR)/kfm --symbol kfm
+		--out-prefix $(IKEMEN_GEN_DIR)/kfm --symbol kfm \
+		--sprite-bin $(KFM_SPRITES_BIN)
 
 $(STAGE0_PLANE_C) $(STAGE0_PLANE_H) &: $(STAGE0_SFF) $(IKEMEN_SFF_TOOL_SRCS)
 	@mkdir -p $(IKEMEN_GEN_DIR)
@@ -82,3 +85,5 @@ $(KFM_CNS_C) $(KFM_CNS_H) &: $(KFM_CNS) $(COMMON_CNS_ZSS) $(IKEMEN_CNS_TOOL)
 
 EXAMPLE_ASSETS := $(KFM_FRAMES_C) $(STAGE0_PLANE_C) $(KFM_SOUNDS_C) $(KFM_COMMANDS_C) $(KFM_STATE_RULES_C) $(KFM_CNS_C)
 EXAMPLE_HEADERS += $(KFM_FRAMES_H) $(STAGE0_PLANE_H) $(KFM_SOUNDS_H) $(KFM_COMMANDS_H) $(KFM_STATE_RULES_H) $(KFM_CNS_H)
+EXAMPLE_ISO_DIR := $(IKEMEN_ISO_DIR)
+EXAMPLE_ISO_FILES := $(KFM_SPRITES_BIN)

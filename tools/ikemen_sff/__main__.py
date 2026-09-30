@@ -2,8 +2,8 @@
 
 Modes:
   char   --sff K.sff --air K.air --actions 0,20,40 --palettes 1,4
-           Emits <prefix>_frames.c/.h (pixels + frame table + palettes,
-           palette names: main / alt1 / alt2 ... from --palettes).
+           Emits <prefix>_frames.c/.h (metadata + palettes) and a packed
+           sprite payload binary selected by --sprite-bin.
   stage  --sff S.sff --layers "0,0:start0,0:tile;0,1:start0,185:tile"
            Emits <prefix>_plane.c/.h (320x224 indexed canvas + palette).
 
@@ -136,13 +136,17 @@ def cmd_char(args) -> int:
         raise SystemExit("[ikemen_sff] no frames resolved", 2)
 
     names = {"main": main_palette, **alt_palettes}
-    c_text, h_text = emit_mod.emit_frames(
+    c_text, h_text, sprite_blob = emit_mod.emit_frames(
         args.out_prefix, args.symbol, frames, sprite_assets, names,
         Path(args.sff).name)
     out_prefix = Path(args.out_prefix)
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     (out_prefix.parent / f"{out_prefix.name}_frames.c").write_text(c_text, encoding="utf-8")
     (out_prefix.parent / f"{out_prefix.name}_frames.h").write_text(h_text, encoding="utf-8")
+    sprite_bin = Path(args.sprite_bin) if args.sprite_bin else (
+        out_prefix.parent / f"{out_prefix.name}_sprites.bin")
+    sprite_bin.parent.mkdir(parents=True, exist_ok=True)
+    sprite_bin.write_bytes(sprite_blob)
 
     raw_blob = sum(s.padded_width * s.height for s in sprite_assets.values())
     packed_blob = sum(len(s.data) for s in sprite_assets.values())
@@ -157,7 +161,10 @@ def cmd_char(args) -> int:
         "unique_sprites": len(sprite_assets),
         "pixel_bytes": raw_blob,
         "packed_pixel_bytes": packed_blob,
+        "stored_pixel_bytes": len(sprite_blob),
+        "sprite_blob": str(sprite_bin),
         "max_sprite_bytes": max_sprite,
+        "max_sprite_source_bytes": max(len(s.data) for s in sprite_assets.values()),
         "clsn1_default": {str(a): actions[a].clsn1_default
                            for a in args.actions if a in actions},
         "clsn2_default": {str(a): actions[a].clsn2_default
@@ -245,6 +252,8 @@ def main(argv=None) -> int:
                            "first is main, others alt1..altN")
     char.add_argument("--out-prefix", required=True)
     char.add_argument("--symbol", required=True)
+    char.add_argument("--sprite-bin",
+                      help="packed runtime sprite payload binary output")
     char.add_argument("--png-dir")
     char.add_argument("--png-limit", type=int, default=8)
     char.set_defaults(fn=cmd_char)

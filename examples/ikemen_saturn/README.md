@@ -3,6 +3,26 @@
 Kung Fu Man vs Kung Fu Man training demo using the original Ikemen/MUGEN
 character data on Saturn hardware.
 
+## Hardware profile
+
+ikemen_saturn targets a Saturn with a **4 MiB RAM expansion cartridge**.
+The cartridge is mandatory by design: no-cart and 1 MiB configurations stop
+on an explicit requirement screen instead of silently falling back to a
+smaller content profile.
+
+Packed character sprite payloads are generated as KFM_SPR.BIN, staged on the
+ISO, copied once at boot into the RAM cartridge, and kept resident there for
+the fight. Internal WRAM is reserved for hot simulation state plus bounded
+I/O/decode scratch; VDP1 VRAM remains a 32-entry texture working set.
+
+Mednafen's normal LibSaturn launcher already defaults to the 4 MiB cart:
+
+    .\run-example.ps1 ikemen_saturn -BuildFirst -MednafenCart extram4
+
+The Ymir harness must be given the matching profile explicitly:
+
+    .\harness\run-harness.ps1 -Example ikemen_saturn -BuildFirst -RamCart 4m
+
 ## Controls
 
 * D-pad: movement / crouch / jump, relative to facing
@@ -209,9 +229,18 @@ and `MakeDust`.
 ## Texture residency
 
 The selected AIR subset references more than 64 unique KFM sprites, while
-LibSaturn intentionally exposes 64 logical texture slots. The example uses a
-bounded 32-entry LRU working set, uploads frame textures from ROM on demand and
-pins both fighters' current textures before emitting VDP1 commands.
+LibSaturn intentionally exposes 64 logical texture slots. Heavy sprite bytes
+do not live in the executable: the offline compiler emits 4-byte-aligned
+packed SFF payloads into KFM_SPR.BIN, and boot copies that file from CD into
+the mandatory 4 MiB RAM cartridge.
+
+During a fight, a cache miss performs:
+
+    RAM cart -> aligned WRAM-L source scratch -> SFF decode scratch -> VDP1 VRAM
+
+The example keeps a bounded 32-entry LRU VDP1 working set and pins both
+fighters' current textures before emitting commands. The cart is therefore a
+persistent asset-residency tier, not a substitute for hot WRAM.
 
 ## Still deferred
 

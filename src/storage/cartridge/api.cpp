@@ -25,6 +25,40 @@ void invalidate_generation() {
     ++g_generation;
     if (g_generation == 0u) g_generation = 1u;
 }
+
+void copy_to_cart(volatile uint8_t* output, const uint8_t* input, uint32_t bytes) {
+    if ((((uintptr_t)output | (uintptr_t)input) & 3u) == 0u) {
+        volatile uint32_t* out32 = (volatile uint32_t*)output;
+        const uint32_t* in32 = (const uint32_t*)input;
+        while (bytes >= 4u) {
+            *out32++ = *in32++;
+            bytes -= 4u;
+        }
+        output = (volatile uint8_t*)out32;
+        input = (const uint8_t*)in32;
+    }
+    while (bytes != 0u) {
+        *output++ = *input++;
+        --bytes;
+    }
+}
+
+void copy_from_cart(uint8_t* output, const volatile uint8_t* input, uint32_t bytes) {
+    if ((((uintptr_t)output | (uintptr_t)input) & 3u) == 0u) {
+        uint32_t* out32 = (uint32_t*)output;
+        const volatile uint32_t* in32 = (const volatile uint32_t*)input;
+        while (bytes >= 4u) {
+            *out32++ = *in32++;
+            bytes -= 4u;
+        }
+        output = (uint8_t*)out32;
+        input = (const volatile uint8_t*)in32;
+    }
+    while (bytes != 0u) {
+        *output++ = *input++;
+        --bytes;
+    }
+}
 } // namespace
 
 extern "C" sat_result_t sat_ram_cart_init(void) {
@@ -107,7 +141,7 @@ extern "C" sat_result_t sat_ram_cart_buffer_write_at(
         if (offset >= part) { offset -= part; continue; }
         const uint32_t chunk = (part - offset) < remaining ? part - offset : remaining;
         volatile uint8_t* output = buffer->bank[i] + offset;
-        for (uint32_t j = 0; j < chunk; ++j) output[j] = input[j];
+        copy_to_cart(output, input, chunk);
         input += chunk;
         remaining -= chunk;
         offset = 0u;
@@ -126,7 +160,7 @@ extern "C" sat_result_t sat_ram_cart_buffer_read_at(
         if (offset >= part) { offset -= part; continue; }
         const uint32_t chunk = (part - offset) < remaining ? part - offset : remaining;
         const volatile uint8_t* input = buffer->bank[i] + offset;
-        for (uint32_t j = 0; j < chunk; ++j) output[j] = input[j];
+        copy_from_cart(output, input, chunk);
         output += chunk;
         remaining -= chunk;
         offset = 0u;

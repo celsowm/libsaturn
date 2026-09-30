@@ -19,6 +19,7 @@
 #include "saturn/video.h"
 
 #include "ikemen_anim.h"
+#include "ikemen_asset_store.h"
 #include "ikemen_audio.h"
 #include "ikemen_command.h"
 #include "ikemen_fight.h"
@@ -31,6 +32,10 @@
 #define STAGE_PALETTE_ID 4u
 #define FLOOR_SCREEN_Y 178
 #define IK_FRAME_TEXTURE_CACHE_SIZE 32u
+#define IK_ASSET_LOAD_CHUNK_BYTES (64u * 1024u)
+#define IK_ASSET_IO_SCRATCH_BYTES \
+    ((KFM_MAX_SPRITE_SOURCE_BYTES > IK_ASSET_LOAD_CHUNK_BYTES) ? \
+         KFM_MAX_SPRITE_SOURCE_BYTES : IK_ASSET_LOAD_CHUNK_BYTES)
 
 typedef struct ik_frame_texture_cache_entry {
     uint16_t sprite_index;
@@ -44,8 +49,11 @@ static ik_frame_texture_cache_entry_t
     g_frame_cache[IK_FRAME_TEXTURE_CACHE_SIZE];
 static uint32_t g_frame_cache_clock;
 static uint32_t g_frame_cache_epoch;
+static ik_asset_store_t g_asset_store;
+static uint8_t g_asset_io_scratch[IK_ASSET_IO_SCRATCH_BYTES]
+    __attribute__((section(".wram_l"), aligned(32)));
 static uint8_t g_frame_decode_scratch[KFM_MAX_SPRITE_BYTES]
-    __attribute__((section(".wram_l")));
+    __attribute__((section(".wram_l"), aligned(32)));
 
 static sat_palette_t g_p2_palette;
 static uint16_t g_map_scratch[SAT_VDP2_NBG0_MAP_CELLS];
@@ -56,6 +64,29 @@ static ik_command_state_t g_command_states[2];
 static const ik_frame_table_t g_kfm_table = {
     kfm_frames, KFM_FRAME_COUNT, kfm_clsn_boxes, KFM_CLSN_BOX_COUNT
 };
+
+static void asset_store_stop(sat_result_t st) {
+    const char* detail =
+        st == SAT_ERR_NOT_CONNECTED ? "NO EXPANSION CARTRIDGE FOUND" :
+        st == SAT_ERR_UNSUPPORTED ? "1 MB CARTRIDGE IS NOT SUPPORTED" :
+        "SPRITE ASSET LOAD FAILED";
+    for (;;) {
+        sat_example_must(sat_wait_vblank());
+        sat_example_must(sat_vdp2_back_color_set(SAT_RGB555(12u, 1u, 1u)));
+        sat_example_must(sat_vdp2_layers_commit());
+        sat_example_must(sat_begin_frame());
+        sat_example_must(sat_hud_text_centered(
+            &g_hud, "4 MB RAM CARTRIDGE REQUIRED", 160, 76));
+        sat_example_must(sat_hud_text_centered(&g_hud, detail, 160, 100));
+        sat_example_must(sat_hud_text_centered(
+            &g_hud, "INSERT 4 MB CART AND RESET", 160, 124));
+        if (st != SAT_ERR_NOT_CONNECTED && st != SAT_ERR_UNSUPPORTED) {
+            sat_example_must(sat_hud_value(
+                &g_hud, "ERROR ", (uint32_t)(-st), 112, 148));
+        }
+        sat_example_must(sat_app_frame_end());
+    }
+}
 
 static void stage_init(void) {
     {
@@ -102,11 +133,11 @@ static const ik_frame_t* current_frame(const ik_fighter_t* f) {
 }
 
 /* KFM now needs more than LibSaturn's 64 logical texture slots when all
- * standing+crouching actions are generated. Keep each source sprite in its
- * compact SFF representation and decode only a cache miss into WRAM-L before
- * uploading it to VDP1. Both fighters' current frames are pinned before any
- * VDP1 command is emitted, so an LRU eviction can never invalidate a texture
- * referenced by the current frame's command list. */
+ * actions are generated. Packed SFF sprite payloads live in the mandatory
+ * 4 MiB RAM cartridge, not in the executable. A cache miss copies only that
+ * sprite into aligned WRAM-L staging, decodes it, and uploads the result to
+ * VDP1. Both fighters' current frames are pinned before any VDP1 command is
+ * emitted, so an LRU eviction can never invalidate a current-frame texture. */
 static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
                                           uint32_t epoch,
                                           sat_texture_t* out_texture) {
@@ -148,15 +179,25 @@ static sat_result_t frame_texture_resolve(const ik_frame_t* frame,
     }
 
     if (frame->sprite_index >= KFM_SPRITE_COUNT) return SAT_ERR_INVALID_ARG;
+    const ik_sprite_source_t* source = &kfm_sprites[frame->sprite_index];
+    if (source->data_size > sizeof(g_asset_io_scratch)) return SAT_ERR_CAPACITY;
+
+    sat_result_t st = ik_asset_store_read_sprite(
+        &g_asset_store, source, g_asset_io_scratch,
+        (uint32_t)sizeof(g_asset_io_scratch));
+    if (st != SAT_OK) return st;
+
+    ik_sprite_source_t local_source = *source;
+    local_source.data_ofs = 0u;
     if (!ik_sprite_decode(
-            &kfm_sprites[frame->sprite_index],
-            kfm_sprite_data, KFM_SPRITE_DATA_BYTES,
+            &local_source,
+            g_asset_io_scratch, source->data_size,
             g_frame_decode_scratch, sizeof(g_frame_decode_scratch))) {
         return SAT_ERR_IO;
     }
 
     sat_surface_t surface;
-    sat_result_t st = sat_surface_init(
+    st = sat_surface_init(
         &surface,
         g_frame_decode_scratch,
         frame->w, frame->h, frame->w, SAT_PIXEL_INDEX8,
@@ -370,7 +411,6 @@ int main(void) {
     ik_fight_t fight;
 
     sat_example_must(sat_app_init_default());
-    stage_init();
     sat_example_must(sat_vdp1_set_erase_transparent());
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
         &g_font,
@@ -379,6 +419,18 @@ int main(void) {
         1u));
     sat_example_must(sat_hud_init(&g_hud, &g_font, 1u, 8));
 
+    sat_example_loading_frame(
+        &g_font, "IKEMEN SATURN", "LOADING 4 MB RAM CART", 5u, 320u, 224u);
+    {
+        const sat_result_t st = ik_asset_store_init(
+            &g_asset_store, "KFM_SPR.BIN", KFM_SPRITE_DATA_BYTES,
+            g_asset_io_scratch, (uint32_t)sizeof(g_asset_io_scratch));
+        if (st != SAT_OK) asset_store_stop(st);
+    }
+    sat_example_loading_frame(
+        &g_font, "IKEMEN SATURN", "SPRITES RESIDENT IN CART", 80u, 320u, 224u);
+
+    stage_init();
     fighters_init();
     sat_example_must(ik_audio_init(&audio));
 

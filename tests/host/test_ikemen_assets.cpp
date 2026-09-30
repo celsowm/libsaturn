@@ -6,6 +6,7 @@
  */
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 #include "saturn/render2d.h"
 #include "src/core/runtime/state.hpp"
@@ -55,12 +56,29 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_claim_mode(sat_vdp2_color_cal
     return SAT_ERR_NOT_INITIALIZED;
 }
 
-static sat_texture_t make_texture(const ik_frame_t& frame) {
+static std::vector<uint8_t> load_sprite_blob() {
+    std::FILE* file = std::fopen(
+        "build/generated/ikemen_saturn/iso/KFM_SPR.BIN", "rb");
+    OK(file != nullptr);
+    OK(std::fseek(file, 0, SEEK_END) == 0);
+    const long size = std::ftell(file);
+    OK(size >= 0);
+    OK(std::fseek(file, 0, SEEK_SET) == 0);
+    std::vector<uint8_t> blob(static_cast<size_t>(size));
+    OK(blob.empty() ||
+       std::fread(blob.data(), 1u, blob.size(), file) == blob.size());
+    OK(std::fclose(file) == 0);
+    return blob;
+}
+
+static sat_texture_t make_texture(const ik_frame_t& frame,
+                                  const uint8_t* blob,
+                                  uint32_t blob_size) {
     static uint8_t scratch[KFM_MAX_SPRITE_BYTES];
     OK(frame.sprite_index < KFM_SPRITE_COUNT);
     OK(ik_sprite_decode(
         &kfm_sprites[frame.sprite_index],
-        kfm_sprite_data, KFM_SPRITE_DATA_BYTES,
+        blob, blob_size,
         scratch, sizeof(scratch)) != 0);
 
     sat_surface_t surface{};
@@ -93,7 +111,9 @@ int main() {
     const ik_frame_table_t table = {
         kfm_frames, KFM_FRAME_COUNT, kfm_clsn_boxes, KFM_CLSN_BOX_COUNT
     };
+    const std::vector<uint8_t> sprite_blob = load_sprite_blob();
 
+    OK(sprite_blob.size() == KFM_SPRITE_DATA_BYTES);
     OK(KFM_CLSN_BOX_COUNT > 0u);
     bool saw_attack = false;
     bool saw_hurt = false;
@@ -108,6 +128,7 @@ int main() {
         const ik_sprite_source_t& sprite = kfm_sprites[f.sprite_index];
         OK(sprite.padded_w == f.w);
         OK(sprite.source_h == f.h);
+        OK((sprite.data_ofs & 3u) == 0u);
         OK(sprite.data_ofs <= KFM_SPRITE_DATA_BYTES);
         OK(sprite.data_size <= KFM_SPRITE_DATA_BYTES - sprite.data_ofs);
     }
@@ -139,7 +160,9 @@ int main() {
         for (uint32_t t=0u;t<40u;t+=7u) {
             const ik_frame_t* frame=ik_frame_at_time(&table,action,t);
             OK(frame != nullptr);
-            sat_texture_t tex=make_texture(*frame);
+            sat_texture_t tex=make_texture(
+                *frame, sprite_blob.data(),
+                static_cast<uint32_t>(sprite_blob.size()));
 
             int16_t dx=0,dy=0;
             ik_frame_screen_anchor(frame,120,178,-1,&dx,&dy);
