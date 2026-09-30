@@ -227,6 +227,31 @@ int main() {
     OK(!ik_command_eval_state_change(
         &state,&k_asset,&throw_asset,&ctx,&requested));
 
+    static const ik_state_rule_instr_t power_code[] = {
+        {IK_CMD_RULE_COMMAND_ACTIVE,0u,CMD_X,0},
+        {IK_CMD_RULE_POWER_GE,0u,330,0},
+        {IK_CMD_RULE_AND,0u,0,0},
+    };
+    static const ik_state_rule_t power_rules[] = {
+        {0u,(uint8_t)(sizeof(power_code)/sizeof(power_code[0])),1020,0u}
+    };
+    static const ik_state_rule_asset_t power_asset = {
+        power_code,(uint16_t)(sizeof(power_code)/sizeof(power_code[0])),
+        power_rules,1u
+    };
+
+    ik_command_state_init(&state);
+    sample(&state,SAT_PAD_X);
+    ctx={};
+    ctx.power=329;
+    requested=0;
+    OK(!ik_command_eval_state_change(
+        &state,&k_asset,&power_asset,&ctx,&requested));
+    ctx.power=330;
+    OK(ik_command_eval_state_change(
+        &state,&k_asset,&power_asset,&ctx,&requested));
+    OK(requested==1020);
+
     std::puts("[test] ikemen_command OK");
     return 0;
 }
