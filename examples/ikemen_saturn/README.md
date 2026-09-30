@@ -119,6 +119,18 @@ asset now contains states:
   recoil, Width windows and Fast Blow fall acceleration
 * 1300 / 1310 / 1320 / 1330 / 1340 / 1350 / 1351: high, low and air
   Kung Fu Blocking entry, reversal contact, blocked reaction and air landing
+* 1400 / 1410 / 1420: Light/Strong/Far Kung Fu Zankou from the original CMD,
+  including combo gating, 330-power Fast entry, source friction/steps,
+  negative AnimElemTime first hit, second hit and authored velocities
+
+Zankou also enters through the original State -1 programs (`QCF_a`, `QCF_b`
+and `QCF_ab`) rather than a direct input branch. The generic trigger runtime
+now supports three-way AnimElem OR masks, packed negative AnimElemTime hits and
+AnimElemTime ranges. Fast Zankou's first HitDef therefore fires exactly two
+ticks before animation element 4 using the AIR element start tick, while its
+second HitDef activates on element 4. `AfterImage`, `AfterImageTime` and
+`PalFX` remain reported presentation-only gaps; they are not silently
+approximated.
 
 KFM's Blocking commands are compiled from the original State -1 rules rather
 than dispatched through a KFM-only input branch. ReversalDef windows are
@@ -281,11 +293,12 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
 * exact remaining guard semantics such as conditional air-guard landing,
   complete inGuardDist behavior
 * remaining throw edge cases across different character state/CNS owners;
-  AIR ownership is now per fighter, while Zankou and supers are still deferred
-* remaining Blocking edge cases are now mostly advanced entity arbitration:
-  Helper ReversalDef/HitOverride and projectile ReversalDef; projectile
-  HitOverride AP is now exercised end-to-end. Broader Pause
-  movetime/endcmdbuftime compatibility remains beyond KFM's authored usage
+  AIR ownership is now per fighter, while supers are still deferred
+* remaining Blocking edge cases are now mostly advanced compatibility:
+  Helper ReversalDef is exercised end-to-end and projectile HitOverride AP is
+  exercised end-to-end. Projectile attack attributes no longer alias AA;
+  broader Pause movetime/endcmdbuftime compatibility remains beyond KFM's
+  authored usage
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
 * remaining fightfx families (blood, shockwaves, dust and supers),
