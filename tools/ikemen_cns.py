@@ -208,6 +208,35 @@ def anim_type_code(text: str | None) -> int:
     return mapping.get(value, 0)
 
 
+def attack_attr_mask(text: str | None) -> str:
+    value = (text or "").strip().upper()
+    mapping = {
+        "NA": "IK_CNS_ATTR_NORMAL_ATTACK",
+        "SA": "IK_CNS_ATTR_SPECIAL_ATTACK",
+        "HA": "IK_CNS_ATTR_HYPER_ATTACK",
+        "NP": "IK_CNS_ATTR_NORMAL_PROJECTILE",
+        "SP": "IK_CNS_ATTR_SPECIAL_PROJECTILE",
+        "HP": "IK_CNS_ATTR_HYPER_PROJECTILE",
+        "NT": "IK_CNS_ATTR_NORMAL_THROW",
+        "ST": "IK_CNS_ATTR_SPECIAL_THROW",
+        "HT": "IK_CNS_ATTR_HYPER_THROW",
+    }
+    if value == "AP":
+        return (
+            "IK_CNS_ATTR_NORMAL_PROJECTILE | "
+            "IK_CNS_ATTR_SPECIAL_PROJECTILE | "
+            "IK_CNS_ATTR_HYPER_PROJECTILE"
+        )
+    if value == "AA":
+        return " | ".join(mapping.values())
+    bits = [
+        mapping[token]
+        for token in re.split(r"\s+", value)
+        if token in mapping
+    ]
+    return " | ".join(dict.fromkeys(bits)) if bits else "0u"
+
+
 def priority_type_code(text: str | None) -> str:
     value = (text or "4, Hit").split(",", 1)
     kind = value[1].strip().lower() if len(value) > 1 else "hit"
@@ -1352,6 +1381,7 @@ def parse_state(
     controllers: list[dict] = []
     helpers: list[dict] = []
     reversals: list[dict] = []
+    hitoverrides: list[dict] = []
     open_reversal: dict | None = None
     unsupported: list[str] = []
 
@@ -1517,6 +1547,9 @@ def parse_state(
                     "ground_cornerpush_veloff_q8": q8(
                         number(ctrl.get("ground.cornerpush.veloff"), 0)
                     ),
+                    "attack_attr_mask": attack_attr_mask(
+                        attr_parts[1] if len(attr_parts) > 1 else ""
+                    ),
                 }
             )
 
@@ -1599,6 +1632,48 @@ def parse_state(
                     reversals.append(open_reversal)
                 open_reversal = None
 
+        elif ctype == "hitoverride":
+            raw_attr = (ctrl.get("attr") or "").strip()
+            if not raw_attr:
+                continue
+            parts = [p.strip().upper() for p in raw_attr.split(",")]
+            if len(parts) < 2:
+                unsupported.append("hitoverride")
+                continue
+            self_mask = no_hit_by_state_mask(parts[0])
+            incoming_mask = attack_attr_mask(parts[1])
+            if self_mask == "0u" or incoming_mask == "0u":
+                unsupported.append("hitoverride")
+                continue
+
+            triggers = ctrl.all("trigger1")
+            if len(triggers) != 1:
+                unsupported.append("hitoverride")
+                continue
+            expr = _strip_outer_parens(triggers[0])
+            m_eq = re.fullmatch(r"Time\s*=\s*(\d+)", expr, flags=re.I)
+            m_lt = re.fullmatch(r"Time\s*<\s*(\d+)", expr, flags=re.I)
+            if m_eq:
+                start_time = int(m_eq.group(1))
+                end_time = start_time + max(
+                    1, integer(ctrl.get("time"), 1)
+                )
+            elif m_lt:
+                start_time = 0
+                end_time = int(m_lt.group(1))
+            else:
+                unsupported.append("hitoverride")
+                continue
+
+            hitoverrides.append({
+                "state_number": state.number,
+                "start_time": start_time,
+                "end_time": end_time,
+                "self_state_mask": self_mask,
+                "incoming_attr_mask": incoming_mask,
+                "target_state": integer(ctrl.get("stateno"), -1),
+            })
+
         elif ctype == "playsnd":
             trig_kind, trig_value, _ = simple_trigger(ctrl)
             group, item = sound_pair(ctrl.get("value"))
@@ -1673,10 +1748,15 @@ def parse_state(
         "hitdef_persist": integer(sd.get("hitdefpersist"), 0),
         "reversal_ofs": 0,
         "reversal_count": len(reversals),
+        "hitoverride_ofs": 0,
+        "hitoverride_count": len(hitoverrides),
         "unsupported_controllers": sorted(set(unsupported)),
     }
 
-    return state_row, hitdefs, sounds, controllers, helpers, reversals
+    return (
+        state_row, hitdefs, sounds, controllers, helpers,
+        reversals, hitoverrides
+    )
 
 
 
@@ -2621,9 +2701,13 @@ def emit(
     controllers: list[dict] = []
     helpers: list[dict] = []
     reversals: list[dict] = []
+    hitoverrides: list[dict] = []
 
     for number_ in selected:
-        row, hs, ss, cs, helper_rows, reversal_rows = parse_state(
+        (
+            row, hs, ss, cs, helper_rows,
+            reversal_rows, hitoverride_rows
+        ) = parse_state(
             by_number[number_],
             len(hitdefs),
             len(sounds),
@@ -2633,12 +2717,14 @@ def emit(
             const["default_guard_spark_no"],
         )
         row["reversal_ofs"] = len(reversals)
+        row["hitoverride_ofs"] = len(hitoverrides)
         state_rows.append(row)
         hitdefs.extend(hs)
         sounds.extend(ss)
         controllers.extend(cs)
         helpers.extend(helper_rows)
         reversals.extend(reversal_rows)
+        hitoverrides.extend(hitoverride_rows)
 
     common_deferred: dict[int, list[str]] = {}
     if common_zss is not None and common_selected:
@@ -2668,7 +2754,9 @@ def emit(
         f"{r.get('owns_air_accel', 0)}u, "
         f"{r.get('hitdef_persist', 0)}u, "
         f"{r.get('reversal_ofs', 0)}u, "
-        f"{r.get('reversal_count', 0)}u"
+        f"{r.get('reversal_count', 0)}u, "
+        f"{r.get('hitoverride_ofs', 0)}u, "
+        f"{r.get('hitoverride_count', 0)}u"
         "},"
         for r in state_rows
     ]
@@ -2709,7 +2797,8 @@ def emit(
         f"{h['has_alt_damage']}u, "
         f"{h['ground_cornerpush_veloff_q8']}, "
         f"{h['trigger2_spark_y']}, "
-        f"{h['guard_spark_no']}"
+        f"{h['guard_spark_no']}, "
+        f"{h.get('attack_attr_mask', '0u')}"
         "},"
         for h in hitdefs
     ]
@@ -2738,6 +2827,15 @@ def emit(
         f"{r['p1_spr_priority']}, {r['p2_spr_priority']}"
         "},"
         for r in reversals
+    ]
+
+    hitoverride_lines = [
+        "    {"
+        f"{h['state_number']}, {h['start_time']}u, {h['end_time']}u, "
+        f"{h['self_state_mask']}, {h['incoming_attr_mask']}, "
+        f"{h['target_state']}"
+        "},"
+        for h in hitoverrides
     ]
 
     helper_lines = [
@@ -2776,6 +2874,10 @@ static const ik_cns_helper_t {ident}_helpers[{max(1, len(helper_lines))}] = {{
 
 static const ik_cns_reversaldef_t {ident}_reversals[{max(1, len(reversal_lines))}] = {{
 {chr(10).join(reversal_lines) if reversal_lines else '    {0},'}
+}};
+
+static const ik_cns_hitoverride_t {ident}_hitoverrides[{max(1, len(hitoverride_lines))}] = {{
+{chr(10).join(hitoverride_lines) if hitoverride_lines else '    {0},'}
 }};
 
 const ik_cns_asset_t {ident}_cns = {{
@@ -2826,7 +2928,8 @@ const ik_cns_asset_t {ident}_cns = {{
     {ident}_playsnds, {len(sounds)}u,
     {ident}_controllers, {len(controllers)}u,
     {ident}_helpers, {len(helpers)}u,
-    {ident}_reversals, {len(reversals)}u
+    {ident}_reversals, {len(reversals)}u,
+    {ident}_hitoverrides, {len(hitoverrides)}u
 }};
 """
 
@@ -2841,6 +2944,7 @@ const ik_cns_asset_t {ident}_cns = {{
 #define {macro}_CNS_CONTROLLER_COUNT {len(controllers)}u
 #define {macro}_CNS_HELPER_COUNT {len(helpers)}u
 #define {macro}_CNS_REVERSAL_COUNT {len(reversals)}u
+#define {macro}_CNS_HITOVERRIDE_COUNT {len(hitoverrides)}u
 
 extern const ik_cns_asset_t {ident}_cns;
 """
@@ -2857,6 +2961,7 @@ extern const ik_cns_asset_t {ident}_cns;
         "controllers": controllers,
         "helpers": helpers,
         "reversals": reversals,
+        "hitoverrides": hitoverrides,
         "common_deferred": common_deferred,
     }
     out_prefix.with_suffix(".json").write_text(
@@ -2910,7 +3015,8 @@ def main(argv: list[str] | None = None) -> int:
         f"playsnds={len(report['playsnds'])} "
         f"controllers={len(report['controllers'])} "
         f"helpers={len(report['helpers'])} "
-        f"reversals={len(report['reversals'])}"
+        f"reversals={len(report['reversals'])} "
+        f"hitoverrides={len(report['hitoverrides'])}"
     )
 
     if unsupported:
