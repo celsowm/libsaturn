@@ -46,6 +46,11 @@ typedef struct ik_entity {
     int32_t ay_q8;
     int16_t remove_time;
     int16_t state_no;
+    int16_t projectile_hit_anim_no;
+    int16_t projectile_remove_anim_no;
+    int16_t projectile_cancel_anim_no;
+    int16_t projectile_edge_bound;
+    int16_t projectile_stage_bound;
     int16_t prev_state_no;
     int16_t anim_no;
     uint16_t state_time;
@@ -63,6 +68,13 @@ typedef struct ik_entity {
     uint8_t move_contact;
     uint8_t keyctrl;
     uint8_t ownpal;
+    uint8_t projectile_hits_left;
+    uint8_t projectile_miss_time;
+    uint8_t projectile_hit_cooldown;
+    uint8_t projectile_priority;
+    uint8_t projectile_remove_on_hit;
+    uint8_t pause_move_time;
+    uint8_t super_move_time;
 
     uint16_t hit_pause;
     uint32_t hitdef_hit_mask;
