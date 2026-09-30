@@ -3257,7 +3257,8 @@ static void resolve_entity_contacts(
     const ik_fight_controls_t* p1,
     const ik_fight_controls_t* p2,
     const ik_frame_table_t* p1_frames,
-    const ik_frame_table_t* p2_frames
+    const ik_frame_table_t* p2_frames,
+    int owner_filter
 ) {
     if (!fight || !fight->entities || !fight->cns) return;
 
@@ -3267,7 +3268,9 @@ static void resolve_entity_contacts(
         const ik_entity_t* entity = &fight->entities->entities[slot];
         if ((entity->type != IK_ENTITY_HELPER &&
              entity->type != IK_ENTITY_PROJECTILE) ||
-            entity->owner_player >= 2u) {
+            entity->owner_player >= 2u ||
+            (owner_filter >= 0 &&
+             entity->owner_player != (uint8_t)owner_filter)) {
             continue;
         }
         attackers[attacker_count].slot = slot;
@@ -3639,7 +3642,7 @@ void ik_fight_update(ik_fight_t* fight,
         resolve_projectile_trades(
             fight, p1_frames, p2_frames);
         resolve_entity_contacts(
-            fight, p1, p2, p1_frames, p2_frames);
+            fight, p1, p2, p1_frames, p2_frames, -1);
     }
 
     if (!fight->round_over) {
