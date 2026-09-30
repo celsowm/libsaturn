@@ -1,6 +1,11 @@
 #include "ikemen_command.h"
 
-#include <string.h>
+#include <stddef.h>
+
+/* Bare-metal SH-2 toolchain ships no libc <string.h>; the implementations
+ * live in src/core/startup/newlib_stubs.c next to the newlib syscall stubs. */
+void *memset(void *dest, int c, size_t n);
+int strcmp(const char *s1, const char *s2);
 
 enum {
     IN_U = 0,
