@@ -67,7 +67,8 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ANIM_ELEM_MASK,
     IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED,
     IK_CNS_TRIGGER_ANIM_ELEM_TIME_RANGE,
-    IK_CNS_TRIGGER_MOVE_HIT
+    IK_CNS_TRIGGER_MOVE_HIT,
+    IK_CNS_TRIGGER_ANIM_ELEM_FROM
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
