@@ -1803,8 +1803,13 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     ctrl->value1 > 65535 ? 65535 : ctrl->value1);
                 fight->pause_owner =
                     (int8_t)fighter_player_index(fight, f);
-                /* Stop source-order evaluation on the frame Pause starts.
-                 * This preserves Time=1 follow-ups until the pause releases. */
+                /* Internal state ticks are post-entry numbered. Pause fired
+                 * from authored Time=0 at internal tick 1, so rewind that
+                 * bookkeeping tick. When the pause releases the next update
+                 * reaches authored Time=1 instead of skipping it. */
+                if (f->state_time > 0u) --f->state_time;
+                if (f->anim_time > 0u) --f->anim_time;
+                /* Stop source-order evaluation on the frame Pause starts. */
                 return 1;
             }
 
