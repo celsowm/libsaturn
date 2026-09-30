@@ -1940,6 +1940,10 @@ def compile_projectile_controller(
         "ownpal": integer(ctrl.get("ownpal"), 0),
         "pause_move_time": max(0, integer(ctrl.get("pausemovetime"), 0)),
         "super_move_time": max(0, integer(ctrl.get("supermovetime"), 0)),
+        "bind_time": integer(ctrl.get("bindtime"), 0),
+        "remove_on_gethit": integer(ctrl.get("removeongethit"), 0),
+        "remove_on_state_change": integer(
+            ctrl.get("removeonchangestate"), 0),
     }
     controller = {
         "state_number": state_no,
@@ -1968,7 +1972,8 @@ def compile_explod_controller(
     supported_keys = {
         "type", "anim", "postype", "pos", "velocity", "accel",
         "removetime", "sprpriority", "persistent", "ignorehitpause",
-        "ownpal", "pausemovetime", "supermovetime",
+        "ownpal", "pausemovetime", "supermovetime", "bindtime",
+        "removeongethit", "removeonchangestate",
     }
     for key, _ in ctrl.values:
         lowered = key.strip().lower()
@@ -3600,7 +3605,10 @@ def emit(
         f"{e['accel_x_q8']}, {e['accel_y_q8']}, "
         f"{e['remove_time']}, {e['spr_priority']}, {e['postype']}, "
         f"{e.get('ownpal', 0)}u, {e.get('pause_move_time', 0)}u, "
-        f"{e.get('super_move_time', 0)}u"
+        f"{e.get('super_move_time', 0)}u, "
+        f"{e.get('bind_time', 0)}, "
+        f"{e.get('remove_on_gethit', 0)}u, "
+        f"{e.get('remove_on_state_change', 0)}u"
         "},"
         for e in explods
     ]
