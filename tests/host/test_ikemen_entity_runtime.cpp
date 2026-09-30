@@ -229,6 +229,39 @@ int main() {
     OK(paused->x_q8>paused_x2);
     EQ(paused->super_move_time,0u);
 
+    ik_cns_explod_t bound_spec{};
+    bound_spec.anim_no=200;
+    bound_spec.pos_x_q8=10*IK_ENTITY_Q8_ONE;
+    bound_spec.pos_y_q8=-5*IK_ENTITY_Q8_ONE;
+    bound_spec.remove_time=-1;
+    bound_spec.bind_time=2;
+    bound_spec.remove_on_state_change=1u;
+
+    parent=ik_entity_get(&pool,p1);
+    OK(parent!=nullptr);
+    parent->state_no=100;
+    parent->x_q8=100*IK_ENTITY_Q8_ONE;
+    parent->y_q8=50*IK_ENTITY_Q8_ONE;
+    parent->facing=1;
+
+    ik_entity_handle_t bound_explod{};
+    OK(ik_entity_runtime_spawn_explod(
+        &runtime,p1,&bound_spec,&bound_explod));
+    parent->x_q8=120*IK_ENTITY_Q8_ONE;
+    ik_entity_runtime_step(&runtime);
+    const ik_entity_t* bound=
+        ik_entity_get_const(&pool,bound_explod);
+    OK(bound!=nullptr);
+    EQ(bound->x_q8,130*IK_ENTITY_Q8_ONE);
+    EQ(bound->y_q8,45*IK_ENTITY_Q8_ONE);
+    EQ(bound->explod_bind_time,1);
+
+    parent=ik_entity_get(&pool,p1);
+    OK(parent!=nullptr);
+    parent->state_no=101;
+    ik_entity_runtime_step(&runtime);
+    OK(ik_entity_get_const(&pool,bound_explod)==nullptr);
+
     std::puts("[test] ikemen_entity_runtime OK");
     return 0;
 }
