@@ -1711,6 +1711,60 @@ def compile_helper_controller(
     }
     return controller, helper
 
+def compile_explod_controller(
+    state_no: int,
+    ctrl: Section,
+    explod_index: int,
+) -> tuple[dict, dict] | None:
+    supported_keys = {
+        "type", "anim", "postype", "pos", "velocity", "accel",
+        "removetime", "sprpriority", "persistent", "ignorehitpause",
+    }
+    for key, _ in ctrl.values:
+        lowered = key.strip().lower()
+        if lowered.startswith("trigger"):
+            continue
+        if lowered not in supported_keys:
+            return None
+
+    postype_name = (ctrl.get("postype", "p1") or "p1").strip().lower()
+    if postype_name != "p1":
+        return None
+
+    trig_kind, trig_value, trig_value2 = controller_trigger(ctrl, "explod")
+    px, py = pair(ctrl.get("pos"), 0, 0)
+    vx, vy = pair(ctrl.get("velocity"), 0, 0)
+    ax, ay = pair(ctrl.get("accel"), 0, 0)
+
+    explod = {
+        "anim_no": integer(ctrl.get("anim"), 0),
+        "pos_x_q8": q8(px),
+        "pos_y_q8": q8(py),
+        "vel_x_q8": q8(vx),
+        "vel_y_q8": q8(vy),
+        "accel_x_q8": q8(ax),
+        "accel_y_q8": q8(ay),
+        "remove_time": integer(ctrl.get("removetime"), -1),
+        "spr_priority": integer(ctrl.get("sprpriority"), 0),
+        "postype": "IK_CNS_HELPER_POS_P1",
+    }
+    controller = {
+        "state_number": state_no,
+        "type": "IK_CNS_CTRL_EXPLOD",
+        "trigger_kind": trig_kind,
+        "trigger_value": trig_value,
+        "trigger_value2": trig_value2,
+        "value0": explod_index,
+        "value1": 1 if integer(ctrl.get("persistent"), 1) == 0 else 0,
+        "flags": (
+            "IK_CNS_CTRL_IGNORE_HIT_PAUSE"
+            if integer(ctrl.get("ignorehitpause"), 0)
+            else "0u"
+        ),
+    }
+    return controller, explod
+
+
 def parse_state(
     state: State,
     hitdef_ofs: int,
