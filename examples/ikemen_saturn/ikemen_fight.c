@@ -122,6 +122,7 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
         : (int16_t)ik_action_for_state(fight ? fight->cns : 0, state);
     f->anim_time = 0u;
     f->move_contact = 0u;
+    f->move_hit = 0u;
     f->pause_fired = 0u;
     if (!(spec && spec->hitdef_persist)) {
         f->hitdef_hit_mask = 0u;
@@ -202,6 +203,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->hitdef_hit_mask = 0u;
     f->attack_id = 0;
     f->move_contact = 0;
+    f->move_hit = 0;
     f->active_hitdef_local = -1;
     f->active_hitdef_global = -1;
     f->active_hitdef_secondary = 0u;
@@ -1223,6 +1225,7 @@ static void apply_throw(ik_fight_t* fight, int attacker,
     a->target_index = (int8_t)victim;
     v->bound_to = (int8_t)attacker;
     a->move_contact = 1u;
+    a->move_hit = 1u;
 
     if (hitdef->p1_facing != 0) {
         const int8_t toward = v->x >= a->x ? 1 : -1;
@@ -1388,6 +1391,7 @@ static void apply_damage(ik_fight_t* fight, int victim,
     if (launch) v->on_ground = 0;
 
     a->move_contact = 1u;
+    a->move_hit = 1u;
 
     if (!airborne && !downed &&
         hitdef->ground_cornerpush_veloff_q8 != 0) {
@@ -1979,7 +1983,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
             f->fall_time >= f->gethit_fall_recover_time),
         .is_bound = (uint8_t)(f->bound_to >= 0),
         .anim_ended = (uint8_t)(anim_ended != 0),
-        .move_contact = f->move_contact
+        .move_contact = f->move_contact,
+        .move_hit = f->move_hit
     };
     for (uint8_t i = 0u; i < state->controller_count; ++i) {
         const uint16_t index = (uint16_t)(state->controller_ofs + i);
