@@ -68,7 +68,10 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED,
     IK_CNS_TRIGGER_ANIM_ELEM_TIME_RANGE,
     IK_CNS_TRIGGER_MOVE_HIT,
-    IK_CNS_TRIGGER_ANIM_ELEM_FROM
+    IK_CNS_TRIGGER_ANIM_ELEM_FROM,
+    IK_CNS_TRIGGER_VY_LT_Q8,
+    IK_CNS_TRIGGER_ANIM_TIME_REMAIN_GT,
+    IK_CNS_TRIGGER_ANIM_ELEM_TIME_GE_STATE_TIME_LT
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -490,6 +493,7 @@ typedef struct ik_cns_controller_context {
     uint16_t state_time;
     uint16_t anim_element;
     uint16_t anim_element_time;
+    uint16_t anim_ticks_remaining;
     int16_t anim;
     int32_t vx_q8;
     int32_t vy_q8;
