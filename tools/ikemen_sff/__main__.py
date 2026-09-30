@@ -68,27 +68,45 @@ def _pad_sprite(pixels: bytes, width: int, height: int):
 
 
 def _runtime_sprite_asset(container: sff_mod.SffContainer,
-                          node: sff_mod.SpriteNode) -> emit_mod.SpriteAsset:
-    source = container.sprite_data(node)
-    raw = decode(node, source)
-    if len(raw) != node.width * node.height:
-        raise ValueError(f"sprite {(node.group, node.number)} decoded size mismatch")
+                          node: sff_mod.SpriteNode,
+                          all_nodes: list[sff_mod.SpriteNode] | None = None,
+                          node_index: int | None = None) -> emit_mod.SpriteAsset:
+    # SFF v2's link field refers to an earlier sprite when data_length == 0.
+    # Ikemen shares that source texture/size while retaining the destination
+    # sprite's own axis and palette selection.
+    source_node = node
+    source_index = node_index
+    seen: set[int] = set()
+    while (all_nodes is not None and source_index is not None and
+           source_node.data_length == 0):
+        link = source_node.palette_link
+        if link >= source_index or link >= len(all_nodes) or link in seen:
+            break
+        seen.add(link)
+        source_node = all_nodes[link]
+        source_index = link
 
-    if node.fmt == sff_mod.FORMAT_RAW or (
-            node.fmt == sff_mod.FORMAT_LZ5 and source):
+    source = container.sprite_data(source_node)
+    raw = decode(source_node, source)
+    if len(raw) != source_node.width * source_node.height:
+        raise ValueError(
+            f"sprite {(node.group, node.number)} decoded size mismatch")
+
+    if source_node.fmt == sff_mod.FORMAT_RAW or (
+            source_node.fmt == sff_mod.FORMAT_LZ5 and source):
         payload = source
-        runtime_format = node.fmt
+        runtime_format = source_node.fmt
     else:
-        # Empty LZ5 nodes decode to an all-zero sprite in the existing
-        # pipeline. Keep that behavior by materializing them as raw bytes.
+        # Formats unsupported by the tiny Saturn decoder are lowered offline.
+        # Invalid empty links keep the legacy deterministic zero-sprite path.
         payload = raw
         runtime_format = sff_mod.FORMAT_RAW
 
-    padded_w = (node.width + 7) & ~7
-    left = (padded_w - node.width) // 2
+    padded_w = (source_node.width + 7) & ~7
+    left = (padded_w - source_node.width) // 2
     return emit_mod.SpriteAsset(
-        width=node.width,
-        height=node.height,
+        width=source_node.width,
+        height=source_node.height,
         padded_width=padded_w,
         left_pad=left,
         format=runtime_format,
@@ -96,10 +114,19 @@ def _runtime_sprite_asset(container: sff_mod.SffContainer,
     )
 
 
+def _indexed_nodes(container: sff_mod.SffContainer):
+    all_nodes = list(container.sprite_nodes())
+    by_key: dict[tuple[int, int], tuple[int, sff_mod.SpriteNode]] = {}
+    for index, node in enumerate(all_nodes):
+        # Match Ikemen: the first duplicate group/number wins.
+        by_key.setdefault((node.group, node.number), (index, node))
+    return all_nodes, by_key
+
+
 def cmd_char(args) -> int:
     container = sff_mod.load(Path(args.sff))
     actions = air_mod.parse(Path(args.air))
-    nodes = {(n.group, n.number): n for n in container.sprite_nodes()}
+    all_nodes, nodes = _indexed_nodes(container)
 
     main_pal_idx, main_palette = _load_palette(
         container, args.palettes[0][0], args.palettes[0][1])
@@ -117,20 +144,22 @@ def cmd_char(args) -> int:
             missing.append(str(action))
             continue
         for idx, fr in enumerate(act.frames):
-            node = nodes.get((fr.group, fr.number))
-            if node is None:
+            entry = nodes.get((fr.group, fr.number))
+            if entry is None:
                 missing.append(f"{action}:{fr.group},{fr.number}")
                 continue
+            node_index, node = entry
             key = (fr.group, fr.number)
             if key not in sprite_assets:
                 try:
-                    sprite_assets[key] = _runtime_sprite_asset(container, node)
+                    sprite_assets[key] = _runtime_sprite_asset(
+                        container, node, all_nodes, node_index)
                 except UnsupportedCodec as exc:
                     raise SystemExit(f"[ikemen_sff] {key}: {exc}", 2)
             sprite = sprite_assets[key]
             frames.append(emit_mod.FrameAsset(
                 action=action, index=idx,
-                width=sprite.padded_width, height=node.height,
+                width=sprite.padded_width, height=sprite.height,
                 ax=node.xoff + sprite.left_pad, ay=node.yoff, ticks=fr.time,
                 flip_h=fr.flip_h, flip_v=fr.flip_v,
                 sprite_key=key, blend_mode=fr.blend_mode,
@@ -207,17 +236,24 @@ def cmd_fx(args) -> int:
             missing.append(str(action))
             continue
         for idx, fr in enumerate(act.frames):
-            node = nodes.get((fr.group, fr.number))
-            if node is None:
+            entry = nodes.get((fr.group, fr.number))
+            if entry is None:
                 missing.append(f"{action}:{fr.group},{fr.number}")
                 continue
+            node_index, node = entry
             key = (fr.group, fr.number)
             if key not in sprite_assets:
                 try:
-                    sprite = _runtime_sprite_asset(container, node)
+                    sprite = _runtime_sprite_asset(
+                        container, node, all_nodes, node_index)
                 except UnsupportedCodec as exc:
                     raise SystemExit(f"[ikemen_sff] {key}: {exc}", 2)
-                words = pal_mod.materialize_index(container, node.palette_index)
+                palette_index = (
+                    node.palette_index
+                    if node.palette_index < container.palette_count
+                    else 0
+                )
+                words = pal_mod.materialize_index(container, palette_index)
                 pal_key = tuple(words)
                 palette_index = palette_slots.get(pal_key)
                 if palette_index is None:
@@ -230,7 +266,7 @@ def cmd_fx(args) -> int:
             sprite = sprite_assets[key]
             frames.append(emit_mod.FrameAsset(
                 action=action, index=idx,
-                width=sprite.padded_width, height=node.height,
+                width=sprite.padded_width, height=sprite.height,
                 ax=node.xoff + sprite.left_pad, ay=node.yoff, ticks=fr.time,
                 flip_h=fr.flip_h, flip_v=fr.flip_v,
                 sprite_key=key, blend_mode=fr.blend_mode,

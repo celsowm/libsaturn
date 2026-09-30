@@ -787,6 +787,11 @@ int main(void) {
 
     stage_init();
     fighters_init();
+    /* fightfx AIR actions 0-3/40 are additive. Claim the global VDP2
+     * sprite color-calc mode up front so the very first spark frame uses
+     * the correct Saturn compositor mode. */
+    sat_example_must(sat_vdp2_sprite_color_calc_claim_mode(
+        SAT_VDP2_COLOR_CALC_ADD));
     sat_example_must(ik_audio_init(&audio));
 
     ik_fight_init(&fight, &kfm_cns);
@@ -801,6 +806,9 @@ int main(void) {
         sat_example_must(sat_wait_vblank());
         sat_example_must(sat_vdp2_back_color_set(SAT_COLOR_BLACK));
         sat_example_must(sat_vdp2_layers_commit());
+        /* layers_commit rewrites PRISA; replay sprite color-calc state while
+         * still in VBlank before submitting the new VDP1 list. */
+        sat_example_must(sat_vdp2_sprite_color_calc_commit());
         sat_example_must(sat_vdp1_set_erase_transparent());
         sat_example_must(sat_begin_frame());
         sat_example_must(sat_pad_poll(&pad1));

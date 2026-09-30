@@ -123,6 +123,7 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
         f->hitdef_hit_mask = 0u;
         f->active_hitdef_local = -1;
         f->active_hitdef_global = -1;
+        f->active_hitdef_secondary = 0u;
     }
     f->state_axis = 0;
 
@@ -199,6 +200,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->move_contact = 0;
     f->active_hitdef_local = -1;
     f->active_hitdef_global = -1;
+    f->active_hitdef_secondary = 0u;
     f->pos_freeze_x = 0u;
     f->pos_freeze_y = 0u;
     f->target_index = -1;
@@ -458,6 +460,8 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
         if (secondary_now && i < 32u) {
             fighter->hitdef_hit_mask &= ~(1u << i);
         }
+        fighter->active_hitdef_secondary =
+            (uint8_t)(secondary_now != 0);
         fighter->active_hitdef_local = (int8_t)i;
         fighter->active_hitdef_global = (int16_t)global;
     }
@@ -573,7 +577,8 @@ static void queue_hit_effect(ik_fight_t* fight,
                              const ik_fighter_t* attacker,
                              const ik_fighter_t* victim,
                              const ik_cns_hitdef_t* hitdef,
-                             int16_t action);
+                             int16_t action,
+                             int use_trigger2_y);
 
 static void apply_guard(ik_fight_t* fight, int victim,
                         const ik_fight_controls_t* controls,
@@ -624,7 +629,8 @@ static void apply_guard(ik_fight_t* fight, int victim,
                     type == IK_CNS_STATE_AIR ? 132 : 130);
     }
 
-    queue_hit_effect(fight, a, v, hitdef, 40);
+    queue_hit_effect(
+        fight, a, v, hitdef, hitdef->guard_spark_no, 0);
     fight->events |= IK_EVENT_GUARD;
     if (guard_ko) {
         fight->winner = (uint8_t)((victim ^ 1) + 1);
@@ -683,7 +689,8 @@ static void apply_throw(ik_fight_t* fight, int attacker,
         }
     }
 
-    queue_hit_effect(fight, a, v, hitdef, hitdef->spark_no);
+    queue_hit_effect(
+        fight, a, v, hitdef, hitdef->spark_no, 1);
     fight->events |= IK_EVENT_HIT;
     if (attacker == 0) ++fight->hits_p1;
     else ++fight->hits_p2;
@@ -693,7 +700,8 @@ static void queue_hit_effect(ik_fight_t* fight,
                              const ik_fighter_t* attacker,
                              const ik_fighter_t* victim,
                              const ik_cns_hitdef_t* hitdef,
-                             int16_t action) {
+                             int16_t action,
+                             int use_trigger2_y) {
     if (!fight || !attacker || !victim || !hitdef || action < 0 ||
         fight->effect_count >= IK_MAX_EFFECT_EVENTS) return;
     ik_effect_event_t* effect =
@@ -701,8 +709,14 @@ static void queue_hit_effect(ik_fight_t* fight,
     effect->action = action;
     effect->x = (int16_t)(
         victim->x + (int16_t)attacker->facing * hitdef->spark_x);
-    /* MUGEN sparkxy: X is relative to P2, Y is relative to P1. */
-    effect->y = (int16_t)(attacker->y + hitdef->spark_y);
+    /* MUGEN sparkxy: X is relative to P2, Y is relative to P1. Fast Upper
+     * reuses one HitDef through trigger2 and supplies a second spark Y. */
+    const int16_t spark_y =
+        use_trigger2_y && attacker->active_hitdef_secondary &&
+        hitdef->has_trigger2
+            ? hitdef->trigger2_spark_y
+            : hitdef->spark_y;
+    effect->y = (int16_t)(attacker->y + spark_y);
 }
 
 static void release_bound_target(ik_fight_t* fight, int owner) {
@@ -852,7 +866,8 @@ static void apply_damage(ik_fight_t* fight, int victim,
             v->vy_q8 = velocity_y;
         }
 
-        queue_hit_effect(fight, a, v, hitdef, hitdef->spark_no);
+        queue_hit_effect(
+            fight, a, v, hitdef, hitdef->spark_no, 1);
         if (v->hp <= 0) {
             v->hp = 0;
             fight->winner = (uint8_t)((victim ^ 1) + 1);

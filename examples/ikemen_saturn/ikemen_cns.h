@@ -335,6 +335,7 @@ typedef struct ik_cns_hitdef {
     uint8_t has_alt_damage;
     int16_t ground_cornerpush_veloff_q8;
     int16_t trigger2_spark_y;
+    int16_t guard_spark_no;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_playsnd {

@@ -131,6 +131,7 @@ typedef struct ik_fighter {
     uint8_t move_contact;
     int8_t active_hitdef_local;
     int16_t active_hitdef_global;
+    uint8_t active_hitdef_secondary;
     uint8_t pos_freeze_x;
     uint8_t pos_freeze_y;
     int8_t target_index;

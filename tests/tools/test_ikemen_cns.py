@@ -15,6 +15,8 @@ SOURCE = r"""
 life = 1000
 liedown.time = 60
 airjuggle = 15
+sparkno = 2
+guard.sparkno = 40
 
 [Size]
 ground.back = 15
@@ -1398,6 +1400,8 @@ assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
 assert report["constants"]["air_juggle"] == 15
+assert report["constants"]["default_spark_no"] == 2
+assert report["constants"]["default_guard_spark_no"] == 40
 assert len(report["states"]) == 70
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
@@ -1432,6 +1436,8 @@ assert hit["down_velocity_x_q8"] == -5 * 256
 assert hit["down_velocity_y_q8"] == 0
 assert hit["down_bounce"] == 1
 assert hit["air_juggle"] == 2
+assert hit["spark_no"] == 0
+assert hit["guard_spark_no"] == 40
 
 controllers = report["controllers"]
 assert controllers[0]["type"] == "IK_CNS_CTRL_SPR_PRIORITY"
@@ -1661,6 +1667,8 @@ assert kick_hit["damage"] == 35
 assert kick_hit["alt_damage"] == 40
 assert kick_hit["alt_damage_prev_state"] == 1061
 assert kick_hit["has_alt_damage"] == 1
+assert kick_hit["spark_no"] == 2
+assert kick_hit["guard_spark_no"] == 40
 assert "IK_CNS_HITDEF_AIR_FALL" in kick_hit["flags"]
 
 assert source_rows[1056]["controller_count"] == 2

@@ -667,6 +667,10 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
     return {
         "life": integer(data.get("life"), 1000),
         "air_juggle": integer(data.get("airjuggle"), 15),
+        # HitDef values inherit these [Data] defaults when omitted.
+        # They are compiler-only metadata; ik_cns_constants_t stays unchanged.
+        "default_spark_no": integer(data.get("sparkno"), 2),
+        "default_guard_spark_no": integer(data.get("guard.sparkno"), 40),
         "ground_back": integer(size.get("ground.back"), 15),
         "ground_front": integer(size.get("ground.front"), 16),
         "air_back": integer(size.get("air.back"), 12),
@@ -1123,6 +1127,8 @@ def parse_state(
     hitdef_ofs: int,
     sound_ofs: int,
     controller_ofs: int,
+    default_spark_no: int = -1,
+    default_guard_spark_no: int = 40,
 ):
     sd = state.statedef
 
@@ -1244,7 +1250,10 @@ def parse_state(
                     "ground_velocity_y_q8": q8(gy),
                     "air_velocity_x_q8": q8(ax),
                     "air_velocity_y_q8": q8(ay),
-                    "spark_no": integer(ctrl.get("sparkno"), -1),
+                    "spark_no": integer(
+                        ctrl.get("sparkno"), default_spark_no),
+                    "guard_spark_no": integer(
+                        ctrl.get("guard.sparkno"), default_guard_spark_no),
                     "spark_x": int(sparkx),
                     "spark_y": int(sparky),
                     "trigger2_spark_y": int(spark2y),
@@ -2316,6 +2325,8 @@ def emit(
             len(hitdefs),
             len(sounds),
             len(controllers),
+            const["default_spark_no"],
+            const["default_guard_spark_no"],
         )
         state_rows.append(row)
         hitdefs.extend(hs)
@@ -2388,7 +2399,8 @@ def emit(
         f"{h['yaccel_q8']}, {h['has_trigger2']}u, "
         f"{h['has_alt_damage']}u, "
         f"{h['ground_cornerpush_veloff_q8']}, "
-        f"{h['trigger2_spark_y']}"
+        f"{h['trigger2_spark_y']}, "
+        f"{h['guard_spark_no']}"
         "},"
         for h in hitdefs
     ]
