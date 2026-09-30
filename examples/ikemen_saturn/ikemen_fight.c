@@ -887,6 +887,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         .floor_y_q8 = (int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE,
         .command_mask = command_mask,
         .hitstun = f->hitstun,
+        .hit_pause = f->hit_pause,
         .hit_slide_time = f->hit_slide_time,
         .hit_ctrl_time = f->hit_ctrl_time,
         .fall_time = f->fall_time,
@@ -1181,6 +1182,18 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     f->vy_q8 += ctrl->value1;
                 }
                 break;
+
+            case IK_CNS_CTRL_VEL_MUL_X_BY_ANIM_ELEM: {
+                const int16_t mul =
+                    elem < (uint16_t)(ctrl->trigger_value < 1
+                                          ? 1
+                                          : ctrl->trigger_value)
+                        ? ctrl->value0
+                        : ctrl->value1;
+                f->vx_q8 =
+                    (f->vx_q8 * (int32_t)mul) / IK_CNS_Q8_ONE;
+                break;
+            }
 
             case IK_CNS_CTRL_DOWNED_HIT_BRANCH:
                 if (f->gethit_vy_q8 != 0 &&
