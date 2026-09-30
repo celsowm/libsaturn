@@ -1000,6 +1000,7 @@ def compile_runtime_controller(
         "pause",
         "superpause",
         "nothitby",
+        "envshake",
     }
     if ctype not in supported:
         return None
@@ -1012,6 +1013,18 @@ def compile_runtime_controller(
 
     def flag_expr() -> str:
         return " | ".join(flags) if flags else "0u"
+
+    if ctype == "envshake":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_ENV_SHAKE",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("time"), 0),
+            "value1": integer(ctrl.get("ampl"), 0),
+            "flags": flag_expr(),
+        }
 
     if ctype == "superpause":
         return {
@@ -2617,15 +2630,23 @@ def compile_common_states(
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
+                    5100, "IK_CNS_CTRL_FALL_ENV_SHAKE",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1,
+                ),
+                _common_ctrl(
                     5100, "IK_CNS_CTRL_FALL_GROUND_BRANCH",
                     "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 5110, 0,
+                ),
+                _common_ctrl(
+                    5100, "IK_CNS_CTRL_HIT_FALL_DAMAGE",
+                    "IK_CNS_TRIGGER_TIME_EQ", 4,
                 ),
                 _common_ctrl(
                     5100, "IK_CNS_CTRL_CHANGE_STATE",
                     "IK_CNS_TRIGGER_ANIM_END", 0, 0, 5101, 0,
                 ),
             ]
-            deferred[n] = ["FallEnvShake", "HitFallDamage", "ground effect"]
+            deferred[n] = ["ground effect"]
 
         elif n == 5101:
             row = state_row(5101, 5160, 0, land_state=5110)
@@ -2652,6 +2673,14 @@ def compile_common_states(
         elif n == 5110:
             row = state_row(5110, 5110, 0)
             cs += [
+                _common_ctrl(
+                    5110, "IK_CNS_CTRL_FALL_ENV_SHAKE",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1,
+                ),
+                _common_ctrl(
+                    5110, "IK_CNS_CTRL_HIT_FALL_DAMAGE",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1,
+                ),
                 _common_ctrl(
                     5110, "IK_CNS_CTRL_POS_SET",
                     "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
