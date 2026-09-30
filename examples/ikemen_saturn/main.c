@@ -677,6 +677,43 @@ static void draw_afterimages(
     }
 }
 
+static uint8_t clamp_u8_int(int value) {
+    if (value < 0) return 0u;
+    if (value > 255) return 255u;
+    return (uint8_t)value;
+}
+
+static void apply_fighter_palfx(
+    const ik_fighter_t* fighter,
+    sat_draw_params_t* params
+) {
+    static const int8_t sine16[16] = {
+        0, 6, 11, 15, 16, 15, 11, 6,
+        0, -6, -11, -15, -16, -15, -11, -6
+    };
+    if (!fighter || !params || fighter->palfx_time == 0u) return;
+
+    const uint16_t cycle =
+        fighter->palfx_cycle ? fighter->palfx_cycle : 1u;
+    const uint16_t phase =
+        (uint16_t)((fighter->palfx_phase * 16u) / cycle);
+    const int wave = sine16[phase & 15u];
+
+    const int bias_r =
+        fighter->palfx_add_r + fighter->palfx_sin_r * wave / 16;
+    const int bias_g =
+        fighter->palfx_add_g + fighter->palfx_sin_g * wave / 16;
+    const int bias_b =
+        fighter->palfx_add_b + fighter->palfx_sin_b * wave / 16;
+    int max_bias = bias_r;
+    if (bias_g > max_bias) max_bias = bias_g;
+    if (bias_b > max_bias) max_bias = bias_b;
+
+    params->tint.r = clamp_u8_int(255 + bias_r - max_bias);
+    params->tint.g = clamp_u8_int(255 + bias_g - max_bias);
+    params->tint.b = clamp_u8_int(255 + bias_b - max_bias);
+}
+
 static void draw_fighter(const ik_frame_t* frame,
                          sat_texture_t texture,
                          const ik_fighter_t* f,
@@ -703,6 +740,7 @@ static void draw_fighter(const ik_frame_t* frame,
         params.tint.g = 120u;
         params.tint.b = 120u;
     }
+    apply_fighter_palfx(f, &params);
 
     {
         const int hw = ik_body_half_w(f) + 4;
