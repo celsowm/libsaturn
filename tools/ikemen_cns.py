@@ -595,6 +595,15 @@ def controller_trigger(
 
     if len(triggers) == 1:
         value = _strip_outer_parens(triggers[0])
+        m = re.fullmatch(r"RoundState\s*=\s*(\d+)", value, flags=re.I)
+        if m:
+            return "IK_CNS_TRIGGER_ROUND_STATE_EQ", int(m.group(1)), 0
+        m = re.fullmatch(r"RoundState\s*!=\s*(\d+)", value, flags=re.I)
+        if m:
+            return "IK_CNS_TRIGGER_ROUND_STATE_NE", int(m.group(1)), 0
+
+    if len(triggers) == 1:
+        value = _strip_outer_parens(triggers[0])
         m = re.fullmatch(
             r"AnimElem\s*=\s*(\d+)\s*,\s*>=\s*0",
             value,
@@ -1065,6 +1074,7 @@ def compile_runtime_controller(
         "afterimage",
         "afterimagetime",
         "palfx",
+        "assertspecial",
     }
     if ctype not in supported:
         return None
@@ -1077,6 +1087,21 @@ def compile_runtime_controller(
 
     def flag_expr() -> str:
         return " | ".join(flags) if flags else "0u"
+
+    if ctype == "assertspecial":
+        flag = (ctrl.get("flag") or "").strip().lower()
+        if flag != "intro":
+            return None
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_ASSERT_INTRO",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": 0,
+            "value1": 0,
+            "flags": flag_expr(),
+        }
 
     if ctype == "palfx":
         def pack_rgb(text: str | None) -> int:
