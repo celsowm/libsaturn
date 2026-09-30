@@ -723,6 +723,10 @@ def controller_trigger(
             )
 
     if len(triggers) == 1:
+        value = _strip_outer_parens(triggers[0])
+        if re.fullmatch(r"MoveHit", value, flags=re.I):
+            return "IK_CNS_TRIGGER_MOVE_HIT", 0, 0
+
         m = re.fullmatch(
             r"AnimElemTime\s*\(\s*(\d+)\s*\)\s*=\s*\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\]",
             _strip_outer_parens(triggers[0]),
