@@ -1175,6 +1175,7 @@ def parse_state(
                     "trigger_value": trig_value,
                     "trigger2_kind": trig2_kind,
                     "trigger2_value": trig2_value,
+                    "has_trigger2": int(trig2_kind != 255),
                     "damage": int(damage),
                     "guard_damage": int(guard_damage),
                     "priority": integer(
@@ -1260,6 +1261,7 @@ def parse_state(
                     "alt_damage": alt_damage,
                     "alt_damage_prev_state": alt_damage_prev_state,
                     "yaccel_q8": q8(number(ctrl.get("yaccel"), 0)),
+                    "has_alt_damage": int(damage_expr is not None),
                 }
             )
 
@@ -2340,7 +2342,8 @@ def emit(
         f"{h['p2_body_dist_op']}, {h['p2_body_dist_x']}, "
         f"{h['alt_damage']}, {h['alt_damage_prev_state']}, "
         f"{h['trigger2_kind']}, {h['trigger2_value']}, "
-        f"{h['yaccel_q8']}"
+        f"{h['yaccel_q8']}, {h['has_trigger2']}u, "
+        f"{h['has_alt_damage']}u"
         "},"
         for h in hitdefs
     ]
