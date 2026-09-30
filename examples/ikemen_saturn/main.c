@@ -665,9 +665,27 @@ static void draw_afterimages(
         if (flip_v) params.flip =
             (uint8_t)(params.flip | SAT_FLIP_Y);
         params.blend_mode = SAT_BLEND_ADD;
-        params.tint.r = 220u;
-        params.tint.g = 190u;
-        params.tint.b = 96u;
+        {
+            const uint32_t bright = fighter->afterimage_bright_rgb;
+            const uint32_t contrast = fighter->afterimage_contrast_rgb;
+            const uint32_t add = fighter->afterimage_add_rgb;
+            const uint32_t mul = fighter->afterimage_mul_rgb;
+            const int br = (int8_t)(bright & 0xffu);
+            const int bg = (int8_t)((bright >> 8) & 0xffu);
+            const int bb = (int8_t)((bright >> 16) & 0xffu);
+            const int ar = (int8_t)(add & 0xffu);
+            const int ag = (int8_t)((add >> 8) & 0xffu);
+            const int ab = (int8_t)((add >> 16) & 0xffu);
+            const int cr = (int)(contrast & 0xffu);
+            const int cg = (int)((contrast >> 8) & 0xffu);
+            const int cb = (int)((contrast >> 16) & 0xffu);
+            const int mr = (int)(mul & 0xffu);
+            const int mg = (int)((mul >> 8) & 0xffu);
+            const int mb = (int)((mul >> 16) & 0xffu);
+            params.tint.r = clamp_u8_int((cr * mr) / 255 + br + ar);
+            params.tint.g = clamp_u8_int((cg * mg) / 255 + bg + ag);
+            params.tint.b = clamp_u8_int((cb * mb) / 255 + bb + ab);
+        }
 
         sat_example_must(sat_draw_texture(
             texture, 0,
