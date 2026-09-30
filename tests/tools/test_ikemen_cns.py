@@ -1144,6 +1144,185 @@ type = ChangeState
 trigger1 = AnimTime = 0
 value = 0
 ctrl = 1
+
+[Statedef 1200]
+type = S
+movetype = A
+physics = S
+juggle = 4
+poweradd = 50
+velset = 0,0
+anim = 1200
+ctrl = 0
+sprpriority = 2
+
+[State 1200, Snd]
+type = PlaySnd
+trigger1 = AnimElem = 4
+value = 0,3
+
+[State 1200, Width 1]
+type = Width
+trigger1 = AnimElemTime(5) >= 0 && AnimElemTime(6) < 0
+value = 10,0
+
+[State 1200, Width 2]
+type = Width
+trigger1 = AnimElemTime(6) >= 0 && AnimElemTime(9) < 0
+value = 20,0
+
+[State 1200, Shake]
+type = EnvShake
+trigger1 = AnimElem = 6
+time = 4
+
+[State 1200, Hit]
+type = HitDef
+trigger1 = Time = 0
+attr = S, SA
+animtype = Hard
+damage = 100,6
+priority = 5
+guardflag = MA
+pausetime = 12,12
+ground.type = Low
+ground.slidetime = 16
+ground.hittime = 20
+ground.velocity = -10
+ground.cornerpush.veloff = -12
+guard.velocity = -7
+air.velocity = -3.5,-4.5
+
+[State 1200, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+
+[Statedef 1210]
+type = S
+movetype = A
+physics = S
+juggle = 4
+poweradd = 60
+velset = 0,0
+anim = 1210
+ctrl = 0
+sprpriority = 2
+
+[State 1210, Snd]
+type = PlaySnd
+trigger1 = AnimElem = 4
+value = 0,3
+
+[State 1210, Width 1]
+type = Width
+trigger1 = AnimElemTime(5) >= 0 && AnimElemTime(6) < 0
+value = 10,0
+
+[State 1210, Width 2]
+type = Width
+trigger1 = AnimElemTime(6) >= 0 && AnimElemTime(9) < 0
+value = 20,0
+
+[State 1210, Shake]
+type = EnvShake
+trigger1 = AnimElem = 6
+time = 8
+
+[State 1210, Hit]
+type = HitDef
+trigger1 = Time = 0
+attr = S, SA
+animtype = Hard
+damage = 125,9
+priority = 5
+guardflag = MA
+pausetime = 12,12
+ground.type = Low
+ground.slidetime = 18
+ground.hittime = 22
+ground.velocity = -10
+ground.cornerpush.veloff = -15
+guard.velocity = -8
+air.velocity = -4,-4.5
+
+[State 1210, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+
+[Statedef 1220]
+type = S
+movetype = A
+physics = S
+juggle = 6
+poweradd = -330
+velset = 0,0
+anim = 1220
+ctrl = 0
+sprpriority = 2
+
+[State 1220, Afterimage]
+type = AfterImage
+trigger1 = Time = 0
+length = 13
+
+[State 1220, AfterimageTime]
+type = AfterImageTime
+trigger1 = AnimTime < -2
+time = 2
+
+[State 1220, PalFX]
+type = PalFX
+trigger1 = Time = 0
+time = 20
+
+[State 1220, Snd]
+type = PlaySnd
+trigger1 = AnimElem = 4
+value = 0,3
+
+[State 1220, Width 1]
+type = Width
+trigger1 = AnimElemTime(5) >= 0 && AnimElemTime(6) < 0
+value = 10,0
+
+[State 1220, Width 2]
+type = Width
+trigger1 = AnimElemTime(6) >= 0 && AnimElemTime(9) < 0
+value = 20,0
+
+[State 1220, Shake]
+type = EnvShake
+trigger1 = AnimElem = 6
+time = 8
+
+[State 1220, Hit]
+type = HitDef
+trigger1 = Time = 0
+attr = S, SA
+animtype = Hard
+damage = 125,9
+priority = 5
+guardflag = MA
+pausetime = 15,15
+ground.type = Low
+ground.slidetime = 20
+ground.hittime = 32
+ground.velocity = -15
+ground.cornerpush.veloff = -20
+guard.velocity = -9
+air.velocity = -5,-5
+air.fall = 1
+yaccel = .4
+
+[State 1220, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
 """
 
 COMMON = r"""
@@ -1201,7 +1380,7 @@ with tempfile.TemporaryDirectory() as td:
     source.write_text(SOURCE, encoding="utf-8")
     common.write_text(COMMON, encoding="utf-8")
     report = emit(
-        source, [200,800,810,820,821,1000,1010,1020,1025,1026,1027,1028,1050,1051,1052,1055,1056,1060,1061,1100,1110,1120], root / "kfm_cns", "kfm",
+        source, [200,800,810,820,821,1000,1010,1020,1025,1026,1027,1028,1050,1051,1052,1055,1056,1060,1061,1100,1110,1120,1200,1210,1220], root / "kfm_cns", "kfm",
         common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
                  120,130,131,132,140,150,151,152,153,154,155,
                  5000,5001,5010,5011,5020,5030,5035,5040,5050,
@@ -1218,7 +1397,7 @@ assert report["constants"]["air_jump_num"] == 1
 assert report["constants"]["air_jump_height"] == 35
 assert report["constants"]["attack_dist"] == 160
 assert report["constants"]["air_juggle"] == 15
-assert len(report["states"]) == 67
+assert len(report["states"]) == 70
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
 assert report["states"][0]["controller_count"] == 6
@@ -1279,9 +1458,9 @@ assert controllers[5]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
 
 print("ikemen CNS compiler: OK")
 
-source_rows = {row["number"]: row for row in report["states"][:22]}
+source_rows = {row["number"]: row for row in report["states"][:25]}
 throw_rows = source_rows
-common_rows = {row["number"]: row for row in report["states"][22:]}
+common_rows = {row["number"]: row for row in report["states"][25:]}
 assert throw_rows[800]["unsupported_controllers"] == []
 assert throw_rows[810]["unsupported_controllers"] == []
 assert throw_rows[820]["unsupported_controllers"] == []
@@ -1540,6 +1719,38 @@ assert "IK_CNS_HITDEF_FORCE_STAND" in upper1120[0]["flags"]
 assert upper1120[1]["damage"] == 68
 assert upper1120[1]["fall_recover_time"] == 60
 assert upper1120[1]["yaccel_q8"] == round(.4 * 256)
+
+for blow in (1200, 1210):
+    assert source_rows[blow]["hitdef_count"] == 1
+    assert source_rows[blow]["controller_count"] == 3
+    assert source_rows[blow]["playsnd_count"] == 1
+    assert source_rows[blow]["unsupported_controllers"] == ["envshake"]
+
+blow1200 = next(
+    h for h in report["hitdefs"] if h["state_number"] == 1200
+)
+assert blow1200["damage"] == 100
+assert blow1200["ground_cornerpush_veloff_q8"] == -12 * 256
+blow1210 = next(
+    h for h in report["hitdefs"] if h["state_number"] == 1210
+)
+assert blow1210["damage"] == 125
+assert blow1210["ground_cornerpush_veloff_q8"] == -15 * 256
+
+assert source_rows[1220]["power_add"] == -330
+assert source_rows[1220]["juggle"] == 6
+assert source_rows[1220]["hitdef_count"] == 1
+assert source_rows[1220]["controller_count"] == 3
+assert source_rows[1220]["unsupported_controllers"] == [
+    "afterimage", "afterimagetime", "envshake", "palfx"
+]
+blow1220 = next(
+    h for h in report["hitdefs"] if h["state_number"] == 1220
+)
+assert blow1220["damage"] == 125
+assert blow1220["ground_cornerpush_veloff_q8"] == -20 * 256
+assert "IK_CNS_HITDEF_AIR_FALL" in blow1220["flags"]
+assert blow1220["yaccel_q8"] == round(.4 * 256)
 
 assert common_rows[0]["controller_count"] == 3
 assert common_rows[20]["controller_count"] == 3
