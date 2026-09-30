@@ -17,6 +17,7 @@
 #include "saturn/time.h"
 #include "saturn/vdp2.h"
 #include "saturn/vdp2_color_calc.h"
+#include "saturn/vdp2_color_offset.h"
 #include "saturn/video.h"
 
 #include "ikemen_anim.h"
@@ -167,13 +168,28 @@ static void stage_init(void) {
     sat_example_must(sat_vdp2_sprite_set_priority(7u));
 }
 
+static int env_shake_y(const ik_fight_t* fight) {
+    static const int8_t sine16[16] = {
+        0, 6, 11, 15, 16, 15, 11, 6,
+        0, -6, -11, -15, -16, -15, -11, -6
+    };
+    if (!fight || fight->env_shake_time == 0u ||
+        fight->env_shake_ampl == 0) {
+        return 0;
+    }
+    const uint8_t index = (uint8_t)((fight->env_shake_phase >> 6) & 15u);
+    return ((int)fight->env_shake_ampl * (int)sine16[index]) / 16;
+}
+
 static void stage_scroll_for_fight(const ik_fight_t* fight) {
     int mid = (int)fight->fighters[0].x + (int)fight->fighters[1].x;
     mid = (mid / 2) - 160;
     if (mid < -125) mid = -125;
     if (mid > 125) mid = 125;
     {
-        const sat_vdp2_scroll_t sc = {(uint16_t)mid, 0u, 0u, 0u};
+        const sat_vdp2_scroll_t sc = {
+            (uint16_t)mid, (uint16_t)env_shake_y(fight), 0u, 0u
+        };
         sat_example_must(sat_vdp2_nbg0_set_scroll(&sc));
     }
 }
@@ -985,6 +1001,16 @@ int main(void) {
 
         sat_example_must(sat_wait_vblank());
         sat_example_must(sat_vdp2_back_color_set(SAT_COLOR_BLACK));
+        if (fight.super_darken_time > 0u) {
+            const sat_vdp2_color_offset_t darken = {-96, -96, -96};
+            sat_example_must(sat_vdp2_color_offset_set(
+                SAT_VDP2_COLOR_OFFSET_A, &darken));
+            sat_example_must(sat_vdp2_color_offset_enable(
+                SAT_VDP2_LAYER_NBG0, SAT_VDP2_COLOR_OFFSET_A));
+        } else {
+            sat_example_must(sat_vdp2_color_offset_disable(
+                SAT_VDP2_LAYER_NBG0));
+        }
         sat_example_must(sat_vdp2_layers_commit());
         /* layers_commit rewrites PRISA; replay sprite color-calc state while
          * still in VBlank before submitting the new VDP1 list. */
