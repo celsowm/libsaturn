@@ -1107,11 +1107,20 @@ static int projectile_contact_consumed(
         return 1;
     }
 
-    if (canceled && projectile->projectile_cancel_anim_no >= 0) {
-        projectile->anim_no = projectile->projectile_cancel_anim_no;
-        projectile->anim_time = 0u;
-    } else if (!canceled &&
-               projectile->projectile_hit_anim_no >= 0) {
+    if (canceled) {
+        if (projectile->projectile_cancel_anim_no >= 0) {
+            projectile->anim_no = projectile->projectile_cancel_anim_no;
+            projectile->anim_time = 0u;
+            projectile->move_type = IK_CNS_MOVE_IDLE;
+            projectile->active_hitdef_global = -1;
+            projectile->remove_time = 0;
+            return 0;
+        }
+        (void)ik_entity_destroy(fight->entities, handle);
+        return 1;
+    }
+
+    if (projectile->projectile_hit_anim_no >= 0) {
         projectile->anim_no = projectile->projectile_hit_anim_no;
         projectile->anim_time = 0u;
     }
@@ -1138,6 +1147,11 @@ static int projectile_contact_consumed(
         projectile->projectile_miss_time;
     if (projectile->projectile_hit_cooldown == 0u) {
         projectile->hitdef_hit_mask = 0u;
+        if (projectile->projectile_main_anim_no >= 0 &&
+            projectile->anim_no != projectile->projectile_main_anim_no) {
+            projectile->anim_no = projectile->projectile_main_anim_no;
+            projectile->anim_time = 0u;
+        }
     }
     return 0;
 }
