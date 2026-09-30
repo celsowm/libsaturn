@@ -1526,6 +1526,107 @@ y = Const(movement.yaccel)
         root / "blocking_cns", "blocking"
     )
 
+    zankou_source = root / "zankou.cns"
+    zankou_source.write_text(r"""
+[Statedef 1400]
+type = S
+movetype = A
+physics = N
+juggle = 4
+poweradd = 50
+velset = 0,0
+anim = 1400
+ctrl = 0
+sprpriority = 2
+
+[State 1400, Friction]
+type = VelMul
+trigger1 = 1
+x = 0.5
+
+[State 1400, Hit]
+type = HitDef
+trigger1 = Time = 0
+attr = S, SA
+damage = 100,6
+priority = 4
+guardflag = MA
+pausetime = 12,12
+ground.type = Low
+ground.slidetime = 12
+ground.hittime = 17
+ground.velocity = -9
+guard.velocity = -9
+air.velocity = -2,-5
+air.fall = 1
+
+[State 1400, Step]
+type = PosAdd
+trigger1 = AnimElem = 2
+trigger2 = AnimElem = 3
+trigger3 = AnimElem = 4
+x = 10
+
+[Statedef 1420]
+type = S
+movetype = A
+physics = N
+juggle = 6
+poweradd = -330
+velset = 0,0
+anim = 1420
+ctrl = 0
+sprpriority = 2
+
+[State 1420, Afterimage]
+type = AfterImage
+trigger1 = Time = 0
+time = 2
+
+[State 1420, Blink]
+type = PalFX
+trigger1 = Time = 0
+time = 20
+
+[State 1420, Early Hit]
+type = HitDef
+trigger1 = AnimElemTime(4) = -2
+attr = S, SA
+damage = 25,2
+priority = 4
+guardflag = MA
+pausetime = 9,9
+ground.type = Low
+ground.slidetime = 22
+ground.hittime = 24
+ground.velocity = -7
+air.velocity = -5,-4
+
+[State 1420, Main Hit]
+type = HitDef
+trigger1 = AnimElem = 4
+attr = S, SA
+damage = 100,8
+priority = 5
+guardflag = MA
+pausetime = 12,12
+ground.type = Low
+ground.slidetime = 22
+ground.hittime = 24
+ground.velocity = -5,-4
+air.velocity = -5,-4
+fall = 1
+
+[State 1420, Dash]
+type = VelSet
+trigger1 = AnimElemTime(3) = [1,2]
+x = 20
+""", encoding="utf-8")
+    zankou_report = emit(
+        zankou_source, [1400, 1420],
+        root / "zankou_cns", "zankou"
+    )
+
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
 assert report["constants"]["yaccel_q8"] == round(.44 * 256)
 assert report["constants"]["run_jump_fwd_x_q8"] == 4 * 256
@@ -1996,6 +2097,43 @@ assert report["constants"]["air_gethit_trip_groundlevel_q8"] == 15 * 256
 assert report["constants"]["down_bounce_offset_y_q8"] == 20 * 256
 assert report["constants"]["down_bounce_yaccel_q8"] == round(.4 * 256)
 assert report["constants"]["down_bounce_groundlevel_q8"] == 12 * 256
+
+assert len(zankou_report["states"]) == 2
+zankou_rows = {row["number"]: row for row in zankou_report["states"]}
+assert zankou_rows[1400]["power_add"] == 50
+assert zankou_rows[1400]["juggle"] == 4
+assert zankou_rows[1420]["power_add"] == -330
+assert zankou_rows[1420]["juggle"] == 6
+assert zankou_rows[1420]["unsupported_controllers"] == [
+    "afterimage", "palfx"
+]
+zankou_hits = zankou_report["hitdefs"]
+assert zankou_hits[0]["attack_attr_mask"] == "IK_CNS_ATTR_SPECIAL_ATTACK"
+assert zankou_hits[1]["trigger_kind"] == (
+    "IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED"
+)
+assert zankou_hits[1]["trigger_value"] == ((4 << 8) | 0xfe)
+assert zankou_hits[1]["damage"] == 25
+assert zankou_hits[2]["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_EQ"
+assert zankou_hits[2]["trigger_value"] == 4
+assert zankou_hits[2]["damage"] == 100
+zankou_1400 = [
+    c for c in zankou_report["controllers"]
+    if c["state_number"] == 1400
+]
+step1400 = next(c for c in zankou_1400 if c["type"] == "IK_CNS_CTRL_POS_ADD")
+assert step1400["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_MASK"
+assert step1400["trigger_value"] == (
+    (1 << (2 - 1)) | (1 << (3 - 1)) | (1 << (4 - 1))
+)
+zankou_1420 = [
+    c for c in zankou_report["controllers"]
+    if c["state_number"] == 1420
+]
+dash1420 = next(c for c in zankou_1420 if c["type"] == "IK_CNS_CTRL_VEL_SET")
+assert dash1420["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_TIME_RANGE"
+assert dash1420["trigger_value"] == 3
+assert dash1420["value0"] == 20 * 256
 
 assert len(reversal_report["reversals"]) == 2
 high_reversal = reversal_report["reversals"][0]
