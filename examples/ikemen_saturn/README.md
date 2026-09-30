@@ -142,10 +142,12 @@ being weakened to MoveContact alone. `SuperPause` freezes the fight and
 applies its `poweradd` on the authored controller tick; `MoveHit` is tracked
 separately from guarded contact, so Smash Upper enters 3051 only after a real
 hit. Old-style `NotHitBy` now preserves both state-type and attack-attribute
-masks, including the super invulnerability filters using NA/SA/AT. Super
-AfterImage/AfterImageTime, the SuperPause visual anim/darken layer, envshake,
-fall.damage and generic PlaySnd playback remain explicit presentation/combat
-gaps rather than silent approximations.
+masks, including the super invulnerability filters using NA/SA/AT. SuperPause now emits its authored fightfx animation/position and darkens the
+stage layer through VDP2 colour offset while the freeze is active. HitDef
+envshake and fall.envshake drive deterministic camera shake, and fall.damage
+is carried into common fall states and applied once by HitFallDamage. Remaining
+super gaps are AfterImage/AfterImageTime, exact full-screen darken parity
+(currently the stage layer is darkened), and generic PlaySnd playback.
 
 KFM's Blocking commands are compiled from the original State -1 rules rather
 than dispatched through a KFM-only input branch. ReversalDef windows are
@@ -316,8 +318,8 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   authored usage
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
-* remaining super presentation/impact semantics: AfterImage/AfterImageTime,
-  SuperPause anim/darken, envshake and HitFallDamage/fall.damage
+* remaining super presentation semantics: AfterImage/AfterImageTime,
+  exact full-screen SuperPause darken parity and generic PlaySnd playback
 * remaining fightfx families (blood, shockwaves and dust),
   motif/lifebar flow and full round presentation
 * generic PlaySnd dispatch for all compiled states
