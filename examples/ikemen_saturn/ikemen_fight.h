@@ -172,6 +172,7 @@ typedef struct ik_fighter {
     uint8_t pos_freeze_x;
     uint8_t pos_freeze_y;
     uint8_t pause_fired;
+    uint64_t one_shot_controller_mask;
     uint8_t not_hit_by_mask;
     uint16_t not_hit_by_attr_mask;
     uint16_t not_hit_by_time;
