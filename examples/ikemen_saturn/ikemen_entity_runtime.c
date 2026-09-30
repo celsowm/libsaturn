@@ -422,7 +422,11 @@ static void step_one(
     ik_entity_handle_t handle
 ) {
     ik_entity_t* entity = ik_entity_get(runtime->pool, handle);
-    if (!entity || entity->type != IK_ENTITY_HELPER) return;
+    if (!entity ||
+        (entity->type != IK_ENTITY_HELPER &&
+         entity->type != IK_ENTITY_PROJECTILE)) {
+        return;
+    }
 
     uint8_t freeze_x = 0u;
     uint8_t freeze_y = 0u;
@@ -485,7 +489,10 @@ void ik_entity_runtime_step(ik_entity_runtime_t* runtime) {
     uint8_t count = 0u;
     for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
         const ik_entity_t* entity = &runtime->pool->entities[slot];
-        if (entity->type != IK_ENTITY_HELPER) continue;
+        if (entity->type != IK_ENTITY_HELPER &&
+            entity->type != IK_ENTITY_PROJECTILE) {
+            continue;
+        }
         snapshot[count].slot = slot;
         snapshot[count].generation =
             runtime->pool->generations[slot];
