@@ -3315,6 +3315,16 @@ def emit(
         for c in controllers
     ]
 
+    explod_lines = [
+        "    {"
+        f"{e['anim_no']}, {e['pos_x_q8']}, {e['pos_y_q8']}, "
+        f"{e['vel_x_q8']}, {e['vel_y_q8']}, "
+        f"{e['accel_x_q8']}, {e['accel_y_q8']}, "
+        f"{e['remove_time']}, {e['spr_priority']}, {e['postype']}"
+        "},"
+        for e in explods
+    ]
+
     reversal_lines = [
         "    {"
         f"{r['state_number']}, {r['start_time']}u, {r['end_time']}u, "
@@ -3370,6 +3380,10 @@ static const ik_cns_controller_t {ident}_controllers[{max(1, len(controller_line
 
 static const ik_cns_helper_t {ident}_helpers[{max(1, len(helper_lines))}] = {{
 {chr(10).join(helper_lines) if helper_lines else '    {0},'}
+}};
+
+static const ik_cns_explod_t {ident}_explods[{max(1, len(explod_lines))}] = {{
+{chr(10).join(explod_lines) if explod_lines else '    {0},'}
 }};
 
 static const ik_cns_reversaldef_t {ident}_reversals[{max(1, len(reversal_lines))}] = {{
@@ -3428,6 +3442,7 @@ const ik_cns_asset_t {ident}_cns = {{
     {ident}_playsnds, {len(sounds)}u,
     {ident}_controllers, {len(controllers)}u,
     {ident}_helpers, {len(helpers)}u,
+    {ident}_explods, {len(explods)}u,
     {ident}_reversals, {len(reversals)}u,
     {ident}_hitoverrides, {len(hitoverrides)}u
 }};
@@ -3443,6 +3458,7 @@ const ik_cns_asset_t {ident}_cns = {{
 #define {macro}_CNS_PLAYSND_COUNT {len(sounds)}u
 #define {macro}_CNS_CONTROLLER_COUNT {len(controllers)}u
 #define {macro}_CNS_HELPER_COUNT {len(helpers)}u
+#define {macro}_CNS_EXPLOD_COUNT {len(explods)}u
 #define {macro}_CNS_REVERSAL_COUNT {len(reversals)}u
 #define {macro}_CNS_HITOVERRIDE_COUNT {len(hitoverrides)}u
 
@@ -3460,6 +3476,7 @@ extern const ik_cns_asset_t {ident}_cns;
         "playsnds": sounds,
         "controllers": controllers,
         "helpers": helpers,
+        "explods": explods,
         "reversals": reversals,
         "hitoverrides": hitoverrides,
         "common_deferred": common_deferred,
@@ -3515,6 +3532,7 @@ def main(argv: list[str] | None = None) -> int:
         f"playsnds={len(report['playsnds'])} "
         f"controllers={len(report['controllers'])} "
         f"helpers={len(report['helpers'])} "
+        f"explods={len(report['explods'])} "
         f"reversals={len(report['reversals'])} "
         f"hitoverrides={len(report['hitoverrides'])}"
     )
