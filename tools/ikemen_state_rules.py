@@ -18,35 +18,6 @@ TOKEN_RE = re.compile(
 )
 STATE_TYPE_VALUE = {"S": 1, "C": 2, "A": 3, "L": 4}
 MOVE_TYPE_VALUE = {"I": 1, "A": 2, "H": 3}
-OP = {
-    "command_active": "IK_CMD_RULE_COMMAND_ACTIVE",
-    "command_inactive": "IK_CMD_RULE_COMMAND_INACTIVE",
-    "state_type_eq": "IK_CMD_RULE_STATE_TYPE_EQ",
-    "state_type_ne": "IK_CMD_RULE_STATE_TYPE_NE",
-    "state_no_eq": "IK_CMD_RULE_STATE_NO_EQ",
-    "state_no_ne": "IK_CMD_RULE_STATE_NO_NE",
-    "state_no_range": "IK_CMD_RULE_STATE_NO_RANGE",
-    "state_time_eq": "IK_CMD_RULE_STATE_TIME_EQ",
-    "state_time_gt": "IK_CMD_RULE_STATE_TIME_GT",
-    "state_time_ge": "IK_CMD_RULE_STATE_TIME_GE",
-    "state_time_lt": "IK_CMD_RULE_STATE_TIME_LT",
-    "state_time_le": "IK_CMD_RULE_STATE_TIME_LE",
-    "ctrl": "IK_CMD_RULE_CTRL",
-    "move_contact": "IK_CMD_RULE_MOVE_CONTACT",
-    "p2_body_dist_x_lt": "IK_CMD_RULE_P2_BODY_DIST_X_LT",
-    "p2_state_type_eq": "IK_CMD_RULE_P2_STATE_TYPE_EQ",
-    "p2_state_type_ne": "IK_CMD_RULE_P2_STATE_TYPE_NE",
-    "p2_move_type_eq": "IK_CMD_RULE_P2_MOVE_TYPE_EQ",
-    "p2_move_type_ne": "IK_CMD_RULE_P2_MOVE_TYPE_NE",
-    "power_eq": "IK_CMD_RULE_POWER_EQ",
-    "power_gt": "IK_CMD_RULE_POWER_GT",
-    "power_ge": "IK_CMD_RULE_POWER_GE",
-    "power_lt": "IK_CMD_RULE_POWER_LT",
-    "power_le": "IK_CMD_RULE_POWER_LE",
-    "not": "IK_CMD_RULE_NOT",
-    "and": "IK_CMD_RULE_AND",
-    "or": "IK_CMD_RULE_OR",
-}
 
 
 @dataclass(frozen=True)
@@ -61,6 +32,15 @@ class Rule:
     label: str
     target: int
     code: list[Insn]
+
+
+@dataclass(frozen=True)
+class VmInsn:
+    op: str
+    field: str = "0u"
+    redirect: str = "IK_EXPR_REDIRECT_SELF"
+    a: int = 0
+    b: int = 0
 
 
 def _strip_comment(line: str) -> str:
@@ -413,24 +393,114 @@ def _ident(text: str) -> str:
     return value
 
 
+def _vm_compare(
+    field: str,
+    redirect: str,
+    compare_op: str,
+    value: int,
+) -> list[VmInsn]:
+    return [
+        VmInsn("IK_EXPR_LOAD_FIELD", field, redirect),
+        VmInsn("IK_EXPR_PUSH_CONST", a=value),
+        VmInsn(compare_op),
+    ]
+
+
+def _lower_instruction(insn: Insn) -> list[VmInsn]:
+    self_r = "IK_EXPR_REDIRECT_SELF"
+    p2_r = "IK_EXPR_REDIRECT_P2"
+
+    if insn.op == "command_active":
+        return [VmInsn("IK_EXPR_LOAD_COMMAND", a=insn.a)]
+    if insn.op == "command_inactive":
+        return [
+            VmInsn("IK_EXPR_LOAD_COMMAND", a=insn.a),
+            VmInsn("IK_EXPR_NOT"),
+        ]
+
+    simple = {
+        "state_type_eq": ("IK_EXPR_FIELD_STATE_TYPE", self_r, "IK_EXPR_EQ"),
+        "state_type_ne": ("IK_EXPR_FIELD_STATE_TYPE", self_r, "IK_EXPR_NE"),
+        "state_no_eq": ("IK_EXPR_FIELD_STATE_NO", self_r, "IK_EXPR_EQ"),
+        "state_no_ne": ("IK_EXPR_FIELD_STATE_NO", self_r, "IK_EXPR_NE"),
+        "state_time_eq": ("IK_EXPR_FIELD_STATE_TIME", self_r, "IK_EXPR_EQ"),
+        "state_time_gt": ("IK_EXPR_FIELD_STATE_TIME", self_r, "IK_EXPR_GT"),
+        "state_time_ge": ("IK_EXPR_FIELD_STATE_TIME", self_r, "IK_EXPR_GE"),
+        "state_time_lt": ("IK_EXPR_FIELD_STATE_TIME", self_r, "IK_EXPR_LT"),
+        "state_time_le": ("IK_EXPR_FIELD_STATE_TIME", self_r, "IK_EXPR_LE"),
+        "p2_body_dist_x_lt": ("IK_EXPR_FIELD_BODY_DIST_X", p2_r, "IK_EXPR_LT"),
+        "p2_state_type_eq": ("IK_EXPR_FIELD_STATE_TYPE", p2_r, "IK_EXPR_EQ"),
+        "p2_state_type_ne": ("IK_EXPR_FIELD_STATE_TYPE", p2_r, "IK_EXPR_NE"),
+        "p2_move_type_eq": ("IK_EXPR_FIELD_MOVE_TYPE", p2_r, "IK_EXPR_EQ"),
+        "p2_move_type_ne": ("IK_EXPR_FIELD_MOVE_TYPE", p2_r, "IK_EXPR_NE"),
+        "power_eq": ("IK_EXPR_FIELD_POWER", self_r, "IK_EXPR_EQ"),
+        "power_gt": ("IK_EXPR_FIELD_POWER", self_r, "IK_EXPR_GT"),
+        "power_ge": ("IK_EXPR_FIELD_POWER", self_r, "IK_EXPR_GE"),
+        "power_lt": ("IK_EXPR_FIELD_POWER", self_r, "IK_EXPR_LT"),
+        "power_le": ("IK_EXPR_FIELD_POWER", self_r, "IK_EXPR_LE"),
+    }
+    if insn.op in simple:
+        field, redirect, compare_op = simple[insn.op]
+        return _vm_compare(field, redirect, compare_op, insn.a)
+
+    if insn.op == "state_no_range":
+        return (
+            _vm_compare(
+                "IK_EXPR_FIELD_STATE_NO", self_r, "IK_EXPR_GE", insn.a)
+            + _vm_compare(
+                "IK_EXPR_FIELD_STATE_NO", self_r, "IK_EXPR_LE", insn.b)
+            + [VmInsn("IK_EXPR_AND")]
+        )
+
+    if insn.op == "ctrl":
+        return [VmInsn(
+            "IK_EXPR_LOAD_FIELD", "IK_EXPR_FIELD_CTRL", self_r)]
+    if insn.op == "move_contact":
+        return [VmInsn(
+            "IK_EXPR_LOAD_FIELD", "IK_EXPR_FIELD_MOVE_CONTACT", self_r)]
+
+    logic = {
+        "not": "IK_EXPR_NOT",
+        "and": "IK_EXPR_AND",
+        "or": "IK_EXPR_OR",
+    }
+    if insn.op in logic:
+        return [VmInsn(logic[insn.op])]
+
+    raise ValueError(f"cannot lower state-rule opcode {insn.op!r}")
+
+
 def emit(rules: list[Rule], diagnostics: list[str], out_prefix: Path, symbol: str) -> None:
     symbol = _ident(symbol)
-    instructions: list[Insn] = []
+    instructions: list[VmInsn] = []
     rows: list[tuple[int, int, int]] = []
-    for rule in rules:
-        ofs = len(instructions)
-        instructions.extend(rule.code)
-        rows.append((ofs, len(rule.code), rule.target))
 
-    insn_lines = [f"    {{{OP[i.op]}, 0u, {i.a}, {i.b}}}," for i in instructions]
-    rule_lines = [f"    {{{ofs}u, {count}u, {target}, 0u}}," for ofs, count, target in rows]
+    for rule in rules:
+        lowered: list[VmInsn] = []
+        for insn in rule.code:
+            lowered.extend(_lower_instruction(insn))
+        if len(lowered) > 255:
+            raise ValueError(
+                f"{rule.label}: lowered predicate exceeds 255 instructions")
+        ofs = len(instructions)
+        instructions.extend(lowered)
+        rows.append((ofs, len(lowered), rule.target))
+
+    insn_lines = [
+        f"    {{{i.op}, {i.field}, {i.redirect}, 0u, {i.a}, {i.b}}},"
+        for i in instructions
+    ]
+    rule_lines = [
+        f"    {{{ofs}u, {count}u, {target}, 0u}},"
+        for ofs, count, target in rows
+    ]
 
     c = f"""/* Auto-generated by tools/ikemen_state_rules.py. */
 #include "examples/ikemen_saturn/ikemen_command.h"
 #include "{out_prefix.name}.h"
 
 static const ik_state_rule_instr_t {symbol}_state_rule_code[{max(1, len(instructions))}] = {{
-{chr(10).join(insn_lines) if insn_lines else '    {0u, 0u, 0, 0},'}
+{chr(10).join(insn_lines) if insn_lines else '    {0u, 0u, 0u, 0u, 0, 0},'}
 }};
 
 static const ik_state_rule_t {symbol}_state_rule_rows[{max(1, len(rules))}] = {{
@@ -458,11 +528,14 @@ extern const ik_state_rule_asset_t {symbol}_state_rules;
     out_prefix.with_suffix(".json").write_text(json.dumps({
         "rule_count": len(rules),
         "instruction_count": len(instructions),
+        "source_instruction_count": sum(len(r.code) for r in rules),
         "targets": [r.target for r in rules],
         "rules": [{
             "label": r.label,
             "target": r.target,
-            "instructions": [{"op": i.op, "a": i.a, "b": i.b} for i in r.code],
+            "source_instructions": [
+                {"op": i.op, "a": i.a, "b": i.b} for i in r.code
+            ],
         } for r in rules],
         "diagnostics": diagnostics,
     }, indent=2), encoding="utf-8")

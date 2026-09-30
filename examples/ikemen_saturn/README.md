@@ -149,6 +149,28 @@ KFM `[Data]`, `[Size]`, `[Velocity]` and `[Movement]` values are compiled
 to Q8.8, including walk/run/jump/run-jump velocities, gravity, friction,
 thresholds, body height and push widths.
 
+## Generic entity and expression runtime
+
+The first compatibility-runtime layer is now shared instead of KFM-specific.
+
+State -1 predicates are emitted into a generic stack expression VM with
+separate field loads, command loads, comparisons, boolean operators and
+integer arithmetic. The live KFM command path evaluates those programs against
+registered entities rather than assembling a bespoke P1/P2 predicate struct.
+
+The bounded entity pool currently provides 16 generationally addressed slots
+with the engine-level kinds Player, Helper, Projectile and Explod. Entity
+identity owns parent/root/target relationships plus MUGEN-compatible integer
+var, fixed-point fvar and sysvar storage. P1 and P2 are registered in that
+pool today, so self/P2 redirection and target identity already go through the
+same mechanism future helpers and projectiles will use.
+
+Helper, Projectile and Explod allocation is intentionally present before their
+state controllers are enabled. Their handles cannot alias a destroyed entity,
+and parent/root redirection remains valid through nested ownership. The next
+runtime milestone is to move controller execution for those dynamic entities
+onto this pool rather than adding more character-specific branches.
+
 ## Runtime controller coverage
 
 The generic CNS runtime currently executes:

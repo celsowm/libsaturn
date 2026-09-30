@@ -508,117 +508,111 @@ void ik_command_update(ik_command_state_t* state,
 }
 
 
-static int eval_state_rule(const ik_command_state_t* state,
-                           const ik_command_asset_t* commands,
-                           const ik_state_rule_asset_t* asset,
-                           const ik_state_rule_t* rule,
-                           const ik_state_rule_context_t* context) {
-    int stack[24];
-    uint8_t sp = 0u;
-    if (!state || !commands || !asset || !rule || !context) return 0;
+typedef struct ik_state_rule_eval_user {
+    const ik_command_state_t* state;
+    const ik_command_asset_t* commands;
+    const ik_state_rule_context_t* context;
+} ik_state_rule_eval_user_t;
 
-    for (uint8_t i = 0u; i < rule->instruction_count; ++i) {
-        const uint16_t index = (uint16_t)(rule->instruction_ofs + i);
-        if (index >= asset->instruction_count) return 0;
-        const ik_state_rule_instr_t* ins = &asset->instructions[index];
-        int value = 0;
+static int state_rule_read_field(
+    void* user,
+    uint8_t redirect,
+    uint8_t field,
+    int16_t index,
+    int32_t* out_value
+) {
+    (void)index;
+    if (!user || !out_value) return 0;
+    const ik_state_rule_eval_user_t* eval =
+        (const ik_state_rule_eval_user_t*)user;
+    const ik_state_rule_context_t* ctx = eval->context;
+    if (!ctx) return 0;
 
-        switch ((ik_cmd_rule_op_t)ins->op) {
-            case IK_CMD_RULE_COMMAND_ACTIVE:
-                value = ik_command_active(state, commands, (uint16_t)ins->value0);
-                break;
-            case IK_CMD_RULE_COMMAND_INACTIVE:
-                value = !ik_command_active(state, commands, (uint16_t)ins->value0);
-                break;
-            case IK_CMD_RULE_STATE_TYPE_EQ:
-                value = context->state_type == (uint8_t)ins->value0;
-                break;
-            case IK_CMD_RULE_STATE_TYPE_NE:
-                value = context->state_type != (uint8_t)ins->value0;
-                break;
-            case IK_CMD_RULE_STATE_NO_EQ:
-                value = context->state_no == ins->value0;
-                break;
-            case IK_CMD_RULE_STATE_NO_NE:
-                value = context->state_no != ins->value0;
-                break;
-            case IK_CMD_RULE_STATE_NO_RANGE:
-                value = context->state_no >= ins->value0 &&
-                        context->state_no <= ins->value1;
-                break;
-            case IK_CMD_RULE_STATE_TIME_EQ:
-                value = context->state_time == (uint16_t)ins->value0;
-                break;
-            case IK_CMD_RULE_STATE_TIME_GT:
-                value = context->state_time > (uint16_t)ins->value0;
-                break;
-            case IK_CMD_RULE_STATE_TIME_GE:
-                value = context->state_time >= (uint16_t)ins->value0;
-                break;
-            case IK_CMD_RULE_STATE_TIME_LT:
-                value = context->state_time < (uint16_t)ins->value0;
-                break;
-            case IK_CMD_RULE_STATE_TIME_LE:
-                value = context->state_time <= (uint16_t)ins->value0;
-                break;
-            case IK_CMD_RULE_CTRL:
-                value = context->ctrl != 0u;
-                break;
-            case IK_CMD_RULE_MOVE_CONTACT:
-                value = context->move_contact != 0u;
-                break;
-            case IK_CMD_RULE_P2_BODY_DIST_X_LT:
-                value = context->p2_body_dist_x < ins->value0;
-                break;
-            case IK_CMD_RULE_P2_STATE_TYPE_EQ:
-                value = context->p2_state_type == (uint8_t)ins->value0;
-                break;
-            case IK_CMD_RULE_P2_STATE_TYPE_NE:
-                value = context->p2_state_type != (uint8_t)ins->value0;
-                break;
-            case IK_CMD_RULE_P2_MOVE_TYPE_EQ:
-                value = context->p2_move_type == (uint8_t)ins->value0;
-                break;
-            case IK_CMD_RULE_P2_MOVE_TYPE_NE:
-                value = context->p2_move_type != (uint8_t)ins->value0;
-                break;
-            case IK_CMD_RULE_POWER_EQ:
-                value = context->power == ins->value0;
-                break;
-            case IK_CMD_RULE_POWER_GT:
-                value = context->power > ins->value0;
-                break;
-            case IK_CMD_RULE_POWER_GE:
-                value = context->power >= ins->value0;
-                break;
-            case IK_CMD_RULE_POWER_LT:
-                value = context->power < ins->value0;
-                break;
-            case IK_CMD_RULE_POWER_LE:
-                value = context->power <= ins->value0;
-                break;
-            case IK_CMD_RULE_NOT:
-                if (sp < 1u) return 0;
-                stack[sp - 1u] = !stack[sp - 1u];
-                continue;
-            case IK_CMD_RULE_AND:
-                if (sp < 2u) return 0;
-                stack[sp - 2u] = stack[sp - 2u] && stack[sp - 1u];
-                --sp;
-                continue;
-            case IK_CMD_RULE_OR:
-                if (sp < 2u) return 0;
-                stack[sp - 2u] = stack[sp - 2u] || stack[sp - 1u];
-                --sp;
-                continue;
-            default:
-                return 0;
-        }
-
-        if (sp >= (uint8_t)(sizeof(stack) / sizeof(stack[0]))) return 0;
-        stack[sp++] = value;
+    const int p2 = redirect == IK_EXPR_REDIRECT_P2;
+    if (redirect != IK_EXPR_REDIRECT_SELF &&
+        redirect != IK_EXPR_REDIRECT_P2) {
+        return 0;
     }
-    return sp == 1u && stack[0] != 0;
+
+    switch ((ik_expr_field_t)field) {
+        case IK_EXPR_FIELD_STATE_NO:
+            *out_value = p2 ? ctx->p2_state_no : ctx->state_no;
+            return 1;
+        case IK_EXPR_FIELD_STATE_TIME:
+            *out_value = p2 ? ctx->p2_state_time : ctx->state_time;
+            return 1;
+        case IK_EXPR_FIELD_STATE_TYPE:
+            *out_value = p2 ? ctx->p2_state_type : ctx->state_type;
+            return 1;
+        case IK_EXPR_FIELD_MOVE_TYPE:
+            *out_value = p2 ? ctx->p2_move_type : ctx->move_type;
+            return 1;
+        case IK_EXPR_FIELD_CTRL:
+            *out_value = p2 ? ctx->p2_ctrl : ctx->ctrl;
+            return 1;
+        case IK_EXPR_FIELD_MOVE_CONTACT:
+            *out_value = p2 ? ctx->p2_move_contact : ctx->move_contact;
+            return 1;
+        case IK_EXPR_FIELD_POWER:
+            *out_value = p2 ? ctx->p2_power : ctx->power;
+            return 1;
+        case IK_EXPR_FIELD_LIFE:
+            *out_value = p2 ? ctx->p2_life : ctx->life;
+            return 1;
+        case IK_EXPR_FIELD_BODY_DIST_X:
+            if (!p2) return 0;
+            *out_value = ctx->p2_body_dist_x;
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static int state_rule_read_command(
+    void* user,
+    uint16_t command_id,
+    int32_t* out_value
+) {
+    if (!user || !out_value) return 0;
+    const ik_state_rule_eval_user_t* eval =
+        (const ik_state_rule_eval_user_t*)user;
+    *out_value = ik_command_active(
+        eval->state, eval->commands, command_id);
+    return 1;
+}
+
+static int eval_state_rule_expr(
+    const ik_state_rule_asset_t* asset,
+    const ik_state_rule_t* rule,
+    const ik_expr_context_t* expression
+) {
+    if (!asset || !rule || !expression) return 0;
+    if ((uint32_t)rule->instruction_ofs + rule->instruction_count >
+        asset->instruction_count) {
+        return 0;
+    }
+
+    int32_t result = 0;
+    return ik_expr_eval(
+        &asset->instructions[rule->instruction_ofs],
+        rule->instruction_count, expression, &result) &&
+        result != 0;
+}
+
+int ik_command_eval_state_change_expr(
+    const ik_state_rule_asset_t* rules,
+    const ik_expr_context_t* expression,
+    int16_t* out_state
+) {
+    if (!rules || !expression || !out_state) return 0;
+    for (uint16_t i = 0u; i < rules->rule_count; ++i) {
+        if (eval_state_rule_expr(
+                rules, &rules->rules[i], expression)) {
+            *out_state = rules->rules[i].target_state;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 int ik_command_eval_state_change(const ik_command_state_t* state,
@@ -627,11 +621,14 @@ int ik_command_eval_state_change(const ik_command_state_t* state,
                                  const ik_state_rule_context_t* context,
                                  int16_t* out_state) {
     if (!state || !commands || !rules || !context || !out_state) return 0;
-    for (uint16_t i = 0u; i < rules->rule_count; ++i) {
-        if (eval_state_rule(state, commands, rules, &rules->rules[i], context)) {
-            *out_state = rules->rules[i].target_state;
-            return 1;
-        }
-    }
-    return 0;
+    const ik_state_rule_eval_user_t user = {
+        state, commands, context
+    };
+    const ik_expr_context_t expression = {
+        (void*)&user,
+        state_rule_read_field,
+        state_rule_read_command
+    };
+    return ik_command_eval_state_change_expr(
+        rules, &expression, out_state);
 }

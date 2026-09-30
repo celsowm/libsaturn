@@ -8,7 +8,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.ikemen_state_rules import parse_state_rules  # noqa: E402
+from tools.ikemen_state_rules import emit, parse_state_rules  # noqa: E402
 
 SOURCE = r"""
 [Command]
@@ -171,6 +171,15 @@ with tempfile.TemporaryDirectory() as td:
     path = Path(td) / "test.cmd"
     path.write_text(SOURCE, encoding="utf-8")
     rules, diagnostics = parse_state_rules(path, {200, 610, 800, 1000, 1010, 1020, 1100, 1110, 1120, 1200, 1210, 1220})
+    out_prefix = Path(td) / "generated_rules"
+    emit(rules, diagnostics, out_prefix, "test")
+    emitted_c = out_prefix.with_suffix(".c").read_text(encoding="utf-8")
+    emitted_h = out_prefix.with_suffix(".h").read_text(encoding="utf-8")
+    assert "IK_EXPR_LOAD_FIELD" in emitted_c
+    assert "IK_EXPR_LOAD_COMMAND" in emitted_c
+    assert "IK_EXPR_GE" in emitted_c
+    assert "IK_CMD_RULE_" not in emitted_c
+    assert "STATE_RULE_INSTRUCTION_COUNT" in emitted_h
 
 assert diagnostics == []
 assert [r.target for r in rules] == [1020, 1000, 1010, 1120, 1100, 1110, 1220, 1200, 1210, 200, 800, 610]

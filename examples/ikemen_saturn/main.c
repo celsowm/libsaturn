@@ -23,6 +23,7 @@
 #include "ikemen_asset_store.h"
 #include "ikemen_audio.h"
 #include "ikemen_command.h"
+#include "ikemen_entity.h"
 #include "ikemen_fight.h"
 #include "ikemen_saturn/kfm_commands.h"
 #include "ikemen_saturn/kfm_state_rules.h"
@@ -106,6 +107,8 @@ static uint16_t g_map_scratch[SAT_VDP2_NBG0_MAP_CELLS];
 static sat_ascii_font_t g_font;
 static sat_hud_t g_hud;
 static ik_command_state_t g_command_states[2];
+static ik_entity_pool_t g_entity_pool;
+static ik_entity_handle_t g_player_entities[2];
 
 static const ik_frame_table_t g_kfm_table = {
     kfm_frames, KFM_FRAME_COUNT, kfm_clsn_boxes, KFM_CLSN_BOX_COUNT
@@ -630,6 +633,78 @@ static void draw_fighters(const ik_fight_t* fight) {
                  &fight->fighters[second], fight->cns);
 }
 
+typedef struct ik_rule_expr_user {
+    ik_entity_expr_binding_t entity;
+    const ik_command_state_t* command_state;
+} ik_rule_expr_user_t;
+
+static int rule_expr_read_field(
+    void* user,
+    uint8_t redirect,
+    uint8_t field,
+    int16_t index,
+    int32_t* out_value
+) {
+    if (!user) return 0;
+    ik_rule_expr_user_t* rule = (ik_rule_expr_user_t*)user;
+    return ik_entity_expr_read_field(
+        &rule->entity, redirect, field, index, out_value);
+}
+
+static int rule_expr_read_command(
+    void* user,
+    uint16_t command_id,
+    int32_t* out_value
+) {
+    if (!user || !out_value) return 0;
+    const ik_rule_expr_user_t* rule =
+        (const ik_rule_expr_user_t*)user;
+    *out_value = ik_command_active(
+        rule->command_state, &kfm_commands, command_id);
+    return 1;
+}
+
+static void sync_player_entities(const ik_fight_t* fight) {
+    if (!fight) return;
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        const ik_fighter_t* fighter = &fight->fighters[i];
+        ik_entity_t* entity =
+            ik_entity_get(&g_entity_pool, g_player_entities[i]);
+        if (!entity) continue;
+
+        const ik_cns_state_t* state =
+            ik_cns_find_state(fight->cns, fighter->state);
+        entity->x_q8 = fighter->x_q8;
+        entity->y_q8 = fighter->y_q8;
+        entity->vx_q8 = fighter->vx_q8;
+        entity->vy_q8 = fighter->vy_q8;
+        entity->state_no = fighter->state;
+        entity->prev_state_no = fighter->prev_state;
+        entity->state_time = (uint16_t)(
+            fighter->state_time + (fighter->hit_pause == 0u ? 1u : 0u));
+        entity->anim_no = fighter->anim;
+        entity->anim_time = fighter->anim_time;
+        entity->life = fighter->hp;
+        entity->power = fighter->power;
+        entity->push_back = fighter->push_back;
+        entity->push_front = fighter->push_front;
+        entity->facing = fighter->facing;
+        entity->ctrl = (uint8_t)(fighter->ctrl != 0);
+        entity->state_type = ik_fight_state_type(fight, fighter);
+        entity->move_type =
+            (uint8_t)(state ? state->move_type : IK_CNS_MOVE_IDLE);
+        entity->move_contact = fighter->move_contact;
+
+        const int8_t target_index = fighter->target_index;
+        const ik_entity_handle_t target =
+            target_index >= 0 && target_index < 2
+                ? g_player_entities[(uint8_t)target_index]
+                : ik_entity_invalid_handle();
+        (void)ik_entity_set_target(
+            &g_entity_pool, g_player_entities[i], target);
+    }
+}
+
 static void controls_from_commands(uint32_t player,
                                    const ik_fight_t* fight,
                                    const ik_fighter_t* fighter,
@@ -665,32 +740,18 @@ static void controls_from_commands(uint32_t player,
         state, &kfm_commands, KFM_CMD_RECOVERY);
 
     {
-        const uint16_t projected_time = (uint16_t)(
-            fighter->state_time + (fighter->hit_pause == 0u ? 1u : 0u));
-        const ik_fighter_t* p2 = &fight->fighters[player ^ 1u];
-        const ik_cns_state_t* p2_state =
-            ik_cns_find_state(fight->cns, p2->state);
-        int body_dist_x =
-            ((int)p2->x - (int)fighter->x) * (int)fighter->facing -
-            fighter->push_front - p2->push_front;
-        if (body_dist_x < -32768) body_dist_x = -32768;
-        if (body_dist_x > 32767) body_dist_x = 32767;
-        const ik_state_rule_context_t context = {
-            .state_no = fighter->state,
-            .state_time = projected_time,
-            .p2_body_dist_x = (int16_t)body_dist_x,
-            .power = fighter->power,
-            .state_type = ik_fight_state_type(fight, fighter),
-            .ctrl = (uint8_t)(fighter->ctrl != 0),
-            .move_contact = fighter->move_contact,
-            .p2_state_type = ik_fight_state_type(fight, p2),
-            .p2_move_type =
-                (uint8_t)(p2_state ? p2_state->move_type : IK_CNS_MOVE_IDLE)
+        ik_rule_expr_user_t user = {
+            {&g_entity_pool, g_player_entities[player]},
+            state
+        };
+        const ik_expr_context_t expression = {
+            &user,
+            rule_expr_read_field,
+            rule_expr_read_command
         };
         int16_t requested = 0;
-        if (ik_command_eval_state_change(
-                state, &kfm_commands, &kfm_state_rules,
-                &context, &requested)) {
+        if (ik_command_eval_state_change_expr(
+                &kfm_state_rules, &expression, &requested)) {
             controls->requested_state = requested;
             controls->has_state_request = 1u;
         }
@@ -795,6 +856,16 @@ int main(void) {
     sat_example_must(ik_audio_init(&audio));
 
     ik_fight_init(&fight, &kfm_cns);
+    ik_entity_pool_init(&g_entity_pool);
+    sat_example_must(ik_entity_spawn(
+        &g_entity_pool, IK_ENTITY_PLAYER, 1, 0u,
+        ik_entity_invalid_handle(), &g_player_entities[0])
+        ? SAT_OK : SAT_ERR_CAPACITY);
+    sat_example_must(ik_entity_spawn(
+        &g_entity_pool, IK_ENTITY_PLAYER, 2, 1u,
+        ik_entity_invalid_handle(), &g_player_entities[1])
+        ? SAT_OK : SAT_ERR_CAPACITY);
+    sync_player_entities(&fight);
     ik_command_state_init(&g_command_states[0]);
     ik_command_state_init(&g_command_states[1]);
 
@@ -819,6 +890,7 @@ int main(void) {
         ik_fight_controls_t p1_controls = {0};
         ik_fight_controls_t p2_controls = {0};
 
+        sync_player_entities(&fight);
         ik_command_update(
             &g_command_states[0], &kfm_commands, &pad1,
             fight.fighters[0].facing,

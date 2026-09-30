@@ -5,6 +5,8 @@
 
 #include "saturn/input.h"
 
+#include "ikemen_expr.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -56,35 +58,6 @@ enum {
     IK_CMD_PATTERN_BUFFER_HITPAUSE = 1u << 0
 };
 
-typedef enum ik_cmd_rule_op {
-    IK_CMD_RULE_COMMAND_ACTIVE = 1,
-    IK_CMD_RULE_COMMAND_INACTIVE,
-    IK_CMD_RULE_STATE_TYPE_EQ,
-    IK_CMD_RULE_STATE_TYPE_NE,
-    IK_CMD_RULE_STATE_NO_EQ,
-    IK_CMD_RULE_STATE_NO_NE,
-    IK_CMD_RULE_STATE_NO_RANGE,
-    IK_CMD_RULE_STATE_TIME_EQ,
-    IK_CMD_RULE_STATE_TIME_GT,
-    IK_CMD_RULE_STATE_TIME_GE,
-    IK_CMD_RULE_STATE_TIME_LT,
-    IK_CMD_RULE_STATE_TIME_LE,
-    IK_CMD_RULE_CTRL,
-    IK_CMD_RULE_MOVE_CONTACT,
-    IK_CMD_RULE_P2_BODY_DIST_X_LT,
-    IK_CMD_RULE_P2_STATE_TYPE_EQ,
-    IK_CMD_RULE_P2_STATE_TYPE_NE,
-    IK_CMD_RULE_P2_MOVE_TYPE_EQ,
-    IK_CMD_RULE_P2_MOVE_TYPE_NE,
-    IK_CMD_RULE_POWER_EQ,
-    IK_CMD_RULE_POWER_GT,
-    IK_CMD_RULE_POWER_GE,
-    IK_CMD_RULE_POWER_LT,
-    IK_CMD_RULE_POWER_LE,
-    IK_CMD_RULE_NOT,
-    IK_CMD_RULE_AND,
-    IK_CMD_RULE_OR
-} ik_cmd_rule_op_t;
 
 typedef struct ik_cmd_key_spec {
     uint8_t key;
@@ -131,12 +104,7 @@ typedef struct ik_command_asset {
     uint16_t name_count;
 } ik_command_asset_t;
 
-typedef struct ik_state_rule_instr {
-    uint8_t op;
-    uint8_t reserved;
-    int16_t value0;
-    int16_t value1;
-} ik_state_rule_instr_t;
+typedef ik_expr_instr_t ik_state_rule_instr_t;
 
 typedef struct ik_state_rule {
     uint16_t instruction_ofs;
@@ -154,15 +122,22 @@ typedef struct ik_state_rule_asset {
 
 typedef struct ik_state_rule_context {
     int16_t state_no;
+    int16_t p2_state_no;
     uint16_t state_time;
+    uint16_t p2_state_time;
     int16_t p2_body_dist_x;
     int16_t power;
+    int16_t p2_power;
+    int16_t life;
+    int16_t p2_life;
     uint8_t state_type;
+    uint8_t move_type;
     uint8_t ctrl;
     uint8_t move_contact;
     uint8_t p2_state_type;
     uint8_t p2_move_type;
-    uint8_t reserved;
+    uint8_t p2_ctrl;
+    uint8_t p2_move_contact;
 } ik_state_rule_context_t;
 
 typedef struct ik_command_pattern_state {
@@ -187,6 +162,11 @@ uint16_t ik_command_find(const ik_command_asset_t* asset, const char* name);
 int ik_command_active(const ik_command_state_t* state,
                       const ik_command_asset_t* asset,
                       uint16_t name_id);
+int ik_command_eval_state_change_expr(
+    const ik_state_rule_asset_t* rules,
+    const ik_expr_context_t* expression,
+    int16_t* out_state);
+
 int ik_command_eval_state_change(const ik_command_state_t* state,
                                  const ik_command_asset_t* commands,
                                  const ik_state_rule_asset_t* rules,

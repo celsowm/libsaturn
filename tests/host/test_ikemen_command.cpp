@@ -5,6 +5,12 @@
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); std::exit(1); } } while (0)
 
+#define EXPR(op) {op,0u,IK_EXPR_REDIRECT_SELF,0u,0,0}
+#define CONST(v) {IK_EXPR_PUSH_CONST,0u,IK_EXPR_REDIRECT_SELF,0u,v,0}
+#define LOAD_SELF(field) {IK_EXPR_LOAD_FIELD,field,IK_EXPR_REDIRECT_SELF,0u,0,0}
+#define LOAD_P2(field) {IK_EXPR_LOAD_FIELD,field,IK_EXPR_REDIRECT_P2,0u,0,0}
+#define LOAD_CMD(id) {IK_EXPR_LOAD_COMMAND,0u,IK_EXPR_REDIRECT_SELF,0u,id,0}
+
 enum {
     CMD_X = 0,
     CMD_A,
@@ -132,17 +138,27 @@ int main() {
     OK(!ik_command_active(&state, &k_asset, CMD_X));
 
     static const ik_state_rule_instr_t rule_code[] = {
-        {IK_CMD_RULE_COMMAND_ACTIVE,0u,CMD_X,0},
-        {IK_CMD_RULE_COMMAND_INACTIVE,0u,CMD_HOLDDOWN,0},
-        {IK_CMD_RULE_AND,0u,0,0},
-        {IK_CMD_RULE_STATE_TYPE_EQ,0u,1,0},
-        {IK_CMD_RULE_CTRL,0u,0,0},
-        {IK_CMD_RULE_AND,0u,0,0},
-        {IK_CMD_RULE_STATE_NO_EQ,0u,200,0},
-        {IK_CMD_RULE_STATE_TIME_GT,0u,6,0},
-        {IK_CMD_RULE_AND,0u,0,0},
-        {IK_CMD_RULE_OR,0u,0,0},
-        {IK_CMD_RULE_AND,0u,0,0},
+        LOAD_CMD(CMD_X),
+        LOAD_CMD(CMD_HOLDDOWN),
+        EXPR(IK_EXPR_NOT),
+        EXPR(IK_EXPR_AND),
+
+        LOAD_SELF(IK_EXPR_FIELD_STATE_TYPE),
+        CONST(1),
+        EXPR(IK_EXPR_EQ),
+        LOAD_SELF(IK_EXPR_FIELD_CTRL),
+        EXPR(IK_EXPR_AND),
+
+        LOAD_SELF(IK_EXPR_FIELD_STATE_NO),
+        CONST(200),
+        EXPR(IK_EXPR_EQ),
+        LOAD_SELF(IK_EXPR_FIELD_STATE_TIME),
+        CONST(6),
+        EXPR(IK_EXPR_GT),
+        EXPR(IK_EXPR_AND),
+
+        EXPR(IK_EXPR_OR),
+        EXPR(IK_EXPR_AND),
     };
     static const ik_state_rule_t rules[] = {
         {0u,(uint8_t)(sizeof(rule_code)/sizeof(rule_code[0])),200,0u}
@@ -180,21 +196,38 @@ int main() {
         &state,&k_asset,&rule_asset,&ctx,&requested));
 
     static const ik_state_rule_instr_t throw_code[] = {
-        {IK_CMD_RULE_COMMAND_ACTIVE,0u,CMD_X,0},
-        {IK_CMD_RULE_STATE_TYPE_EQ,0u,1,0},
-        {IK_CMD_RULE_AND,0u,0,0},
-        {IK_CMD_RULE_CTRL,0u,0,0},
-        {IK_CMD_RULE_AND,0u,0,0},
-        {IK_CMD_RULE_STATE_NO_NE,0u,100,0},
-        {IK_CMD_RULE_AND,0u,0,0},
-        {IK_CMD_RULE_P2_BODY_DIST_X_LT,0u,3,0},
-        {IK_CMD_RULE_AND,0u,0,0},
-        {IK_CMD_RULE_P2_STATE_TYPE_EQ,0u,1,0},
-        {IK_CMD_RULE_P2_STATE_TYPE_EQ,0u,2,0},
-        {IK_CMD_RULE_OR,0u,0,0},
-        {IK_CMD_RULE_AND,0u,0,0},
-        {IK_CMD_RULE_P2_MOVE_TYPE_NE,0u,3,0},
-        {IK_CMD_RULE_AND,0u,0,0},
+        LOAD_CMD(CMD_X),
+        LOAD_SELF(IK_EXPR_FIELD_STATE_TYPE),
+        CONST(1),
+        EXPR(IK_EXPR_EQ),
+        EXPR(IK_EXPR_AND),
+
+        LOAD_SELF(IK_EXPR_FIELD_CTRL),
+        EXPR(IK_EXPR_AND),
+
+        LOAD_SELF(IK_EXPR_FIELD_STATE_NO),
+        CONST(100),
+        EXPR(IK_EXPR_NE),
+        EXPR(IK_EXPR_AND),
+
+        LOAD_P2(IK_EXPR_FIELD_BODY_DIST_X),
+        CONST(3),
+        EXPR(IK_EXPR_LT),
+        EXPR(IK_EXPR_AND),
+
+        LOAD_P2(IK_EXPR_FIELD_STATE_TYPE),
+        CONST(1),
+        EXPR(IK_EXPR_EQ),
+        LOAD_P2(IK_EXPR_FIELD_STATE_TYPE),
+        CONST(2),
+        EXPR(IK_EXPR_EQ),
+        EXPR(IK_EXPR_OR),
+        EXPR(IK_EXPR_AND),
+
+        LOAD_P2(IK_EXPR_FIELD_MOVE_TYPE),
+        CONST(3),
+        EXPR(IK_EXPR_NE),
+        EXPR(IK_EXPR_AND),
     };
     static const ik_state_rule_t throw_rules[] = {
         {0u,(uint8_t)(sizeof(throw_code)/sizeof(throw_code[0])),800,0u}
@@ -228,9 +261,11 @@ int main() {
         &state,&k_asset,&throw_asset,&ctx,&requested));
 
     static const ik_state_rule_instr_t power_code[] = {
-        {IK_CMD_RULE_COMMAND_ACTIVE,0u,CMD_X,0},
-        {IK_CMD_RULE_POWER_GE,0u,330,0},
-        {IK_CMD_RULE_AND,0u,0,0},
+        LOAD_CMD(CMD_X),
+        LOAD_SELF(IK_EXPR_FIELD_POWER),
+        CONST(330),
+        EXPR(IK_EXPR_GE),
+        EXPR(IK_EXPR_AND),
     };
     static const ik_state_rule_t power_rules[] = {
         {0u,(uint8_t)(sizeof(power_code)/sizeof(power_code[0])),1020,0u}
