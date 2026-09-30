@@ -1458,6 +1458,13 @@ trigger1 = Time = 4
 trigger2 = Time = 8
 reversal.attr =
 
+[State 1300, Projectile fallback]
+type = HitOverride
+trigger1 = Time = 0
+attr = SA, AP
+stateno = 1310
+time = 8
+
 [Statedef 1310]
 type = S
 movetype = I
@@ -2002,10 +2009,25 @@ assert high_reversal["p1_state_no"] == 1310
 assert high_reversal["spark_no"] == 40
 assert high_reversal["p1_spr_priority"] == 2
 assert high_reversal["p2_spr_priority"] == 1
+assert len(reversal_report["hitoverrides"]) == 1
+high_override = reversal_report["hitoverrides"][0]
+assert high_override["state_number"] == 1300
+assert high_override["start_time"] == 0
+assert high_override["end_time"] == 8
+assert high_override["self_state_mask"] == (
+    "IK_CNS_REVERSAL_STATE_STAND | IK_CNS_REVERSAL_STATE_AIR"
+)
+assert high_override["incoming_attr_mask"] == (
+    "IK_CNS_ATTR_NORMAL_PROJECTILE | "
+    "IK_CNS_ATTR_SPECIAL_PROJECTILE | "
+    "IK_CNS_ATTR_HYPER_PROJECTILE"
+)
+assert high_override["target_state"] == 1310
 blocking_rows = {
     row["number"]: row for row in reversal_report["states"]
 }
 assert blocking_rows[1300]["reversal_count"] == 1
+assert blocking_rows[1300]["hitoverride_count"] == 1
 assert blocking_rows[1340]["reversal_count"] == 1
 assert blocking_rows[1310]["unsupported_controllers"] == []
 blocked1310 = [
