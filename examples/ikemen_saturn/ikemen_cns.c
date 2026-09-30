@@ -77,6 +77,9 @@ int ik_cns_controller_trigger_context_now(
                    context->anim_element < last;
         }
 
+        case IK_CNS_TRIGGER_MOVE_HIT:
+            return context->move_hit != 0u;
+
         case IK_CNS_TRIGGER_MOVE_CONTACT_ELEM_WINDOW: {
             if (!context->move_contact) return 0;
             const uint16_t first =
