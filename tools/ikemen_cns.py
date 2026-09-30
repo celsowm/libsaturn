@@ -1027,6 +1027,12 @@ def compile_runtime_controller(
         }
 
     if ctype == "superpause":
+        if integer(ctrl.get("darken"), 1):
+            flags.append("IK_CNS_CTRL_SUPER_DARKEN")
+        pos_x, pos_y = pair(ctrl.get("pos"), 0, 0)
+        packed_pos = ((int(pos_x) & 0xffff) << 16) | (int(pos_y) & 0xffff)
+        if packed_pos >= 0x80000000:
+            packed_pos -= 0x100000000
         return {
             "state_number": state_no,
             "type": "IK_CNS_CTRL_SUPER_PAUSE",
@@ -1035,6 +1041,8 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": integer(ctrl.get("time"), 30),
             "value1": integer(ctrl.get("poweradd"), 0),
+            "value2": integer(ctrl.get("anim"), -1),
+            "value3": packed_pos,
             "flags": flag_expr(),
         }
 
@@ -3019,7 +3027,8 @@ def emit(
     controller_lines = [
         f"    {{{c['state_number']}, {c['type']}, {c['trigger_kind']}, "
         f"{c['trigger_value']}, {c['trigger_value2']}, "
-        f"{c['value0']}, {c['value1']}, {c['flags']}}},"
+        f"{c['value0']}, {c['value1']}, {c['flags']}, "
+        f"{c.get('value2', 0)}, {c.get('value3', 0)}}},"
         for c in controllers
     ]
 
