@@ -208,6 +208,10 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->attack_id = 0;
     f->move_contact = 0;
     f->move_hit = 0;
+    f->afterimage_time = 0u;
+    f->afterimage_length = 0u;
+    f->afterimage_timegap = 1u;
+    f->afterimage_framegap = 1u;
     f->active_hitdef_local = -1;
     f->active_hitdef_global = -1;
     f->active_hitdef_secondary = 0u;
@@ -2098,6 +2102,27 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 return 1;
             }
 
+            case IK_CNS_CTRL_AFTER_IMAGE:
+                f->afterimage_time = (uint16_t)(
+                    ctrl->value0 <= 0 ? 1 :
+                    ctrl->value0 > 65535 ? 65535 : ctrl->value0);
+                f->afterimage_length = (uint8_t)(
+                    ctrl->value1 <= 0 ? 1 :
+                    ctrl->value1 > 32 ? 32 : ctrl->value1);
+                f->afterimage_timegap = (uint8_t)(
+                    ctrl->value2 <= 0 ? 1 :
+                    ctrl->value2 > 255 ? 255 : ctrl->value2);
+                f->afterimage_framegap = (uint8_t)(
+                    ctrl->value3 <= 0 ? 1 :
+                    ctrl->value3 > 255 ? 255 : ctrl->value3);
+                break;
+
+            case IK_CNS_CTRL_AFTER_IMAGE_TIME:
+                f->afterimage_time = (uint16_t)(
+                    ctrl->value0 <= 0 ? 1 :
+                    ctrl->value0 > 65535 ? 65535 : ctrl->value0);
+                break;
+
             case IK_CNS_CTRL_ENV_SHAKE:
                 fight->env_shake_time = (uint16_t)(
                     ctrl->value0 < 0 ? 0 :
@@ -2675,6 +2700,10 @@ static void step_fighter(ik_fight_t* fight, int index,
 
     f->pos_freeze_x = 0u;
     f->pos_freeze_y = 0u;
+    if (f->afterimage_time > 0u) {
+        --f->afterimage_time;
+    }
+
     if (f->not_hit_by_time > 0u) {
         --f->not_hit_by_time;
         if (f->not_hit_by_time == 0u) {
