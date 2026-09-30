@@ -140,6 +140,9 @@ reproduce the full per-palette Elecbyte transform exactly, so this remains an
 approximation of the original palette math rather than a hard-coded KFM colour.
 PalFX add/sinadd is compiled and executed per fighter with deterministic cycle
 phase and rendered as RGB modulation, covering KFM's yellow blink effects.
+AfterImage now also carries the authored PalBright/PalContrast/PalAdd/PalMul
+payload through CNS compilation and derives its Saturn additive trail tint from
+those values instead of using a fixed yellow constant.
 
 The two KFM supers are also entered from the original State -1 rules. The
 expression VM now exposes the currently active HitDef attribute, so
@@ -155,8 +158,10 @@ is carried into common fall states and applied once by HitFallDamage.
 AfterImage/AfterImageTime now continue the authored trail through their real
 AnimElemTime/AnimTime/velocity keepalive triggers. PlaySnd, SuperPause sound,
 HitDef hitsound and guardsound all feed the same generic fight sound-event
-path, including multi-branch PlaySnd controllers. Remaining super gaps are exact Elecbyte palette-transform parity and exact
-full-screen darken parity (currently the stage layer is darkened).
+path, including multi-branch PlaySnd controllers. SuperPause darken now covers the stage plus fighter/helper/projectile sprites
+while fightfx stays undarkened, matching the intended visual hierarchy more
+closely than a whole VDP1-layer offset. Remaining differences are exact
+Elecbyte palette-transform arithmetic and HUD/lifebar darken parity.
 
 KFM's Blocking commands are compiled from the original State -1 rules rather
 than dispatched through a KFM-only input branch. ReversalDef windows are
@@ -328,7 +333,7 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
 * remaining super presentation semantics: exact Elecbyte palette math and
-  exact full-screen SuperPause darken parity
+  HUD/lifebar participation in SuperPause darken
 * remaining fightfx families (blood, shockwaves and dust),
   motif/lifebar flow and full round presentation
 * broader sound-bank/channel semantics beyond the KFM/common sounds currently
