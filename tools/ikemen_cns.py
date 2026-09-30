@@ -232,6 +232,24 @@ def guard_mask(text: str | None) -> str:
     return " | ".join(dict.fromkeys(bits)) if bits else "0u"
 
 
+def reversal_state_mask(text: str | None) -> str:
+    """Compile the state-type half of ReversalDef.attr.
+
+    ReversalDef uses the first attr field to select the attacker's state
+    type. KFM's Blocking family uses SA, C and A with AA (any attack) as the
+    second field, so keep the runtime representation deliberately compact.
+    """
+    value = (text or "").strip().upper()
+    bits: list[str] = []
+    if "S" in value:
+        bits.append("IK_CNS_REVERSAL_STATE_STAND")
+    if "C" in value:
+        bits.append("IK_CNS_REVERSAL_STATE_CROUCH")
+    if "A" in value:
+        bits.append("IK_CNS_REVERSAL_STATE_AIR")
+    return " | ".join(dict.fromkeys(bits)) if bits else "0u"
+
+
 def hit_mask(text: str | None) -> str:
     value = (text or "MAF").strip().upper()
     bits: list[str] = []
@@ -617,6 +635,22 @@ def controller_trigger(
             )
 
     if len(triggers) == 1:
+        m = re.fullmatch(
+            r"AnimElemTime\s*\(\s*(\d+)\s*\)\s*<\s*0",
+            _strip_outer_parens(triggers[0]),
+            flags=re.I,
+        )
+        if m:
+            return "IK_CNS_TRIGGER_ANIM_ELEM_BEFORE", int(m.group(1)), 0
+
+        m = re.fullmatch(
+            r"AnimElemTime\s*\(\s*(\d+)\s*\)\s*>\s*0",
+            _strip_outer_parens(triggers[0]),
+            flags=re.I,
+        )
+        if m:
+            return "IK_CNS_TRIGGER_ANIM_ELEM_AFTER", int(m.group(1)), 0
+
         m = re.fullmatch(
             r"Vel\s+Y\s*>=\s*(-?\d+(?:\.\d+)?)",
             _strip_outer_parens(triggers[0]),
@@ -1029,10 +1063,14 @@ def compile_runtime_controller(
 
     if ctype == "posfreeze":
         flags2: list[str] = []
-        if integer(ctrl.get("x"), 0):
-            flags2.append("IK_CNS_CTRL_AXIS_X")
-        if integer(ctrl.get("y"), 0):
-            flags2.append("IK_CNS_CTRL_AXIS_Y")
+        if ctrl.get("x") is None and ctrl.get("y") is None:
+            # MUGEN PosFreeze defaults to freezing both axes.
+            flags2 += ["IK_CNS_CTRL_AXIS_X", "IK_CNS_CTRL_AXIS_Y"]
+        else:
+            if integer(ctrl.get("x"), 0):
+                flags2.append("IK_CNS_CTRL_AXIS_X")
+            if integer(ctrl.get("y"), 0):
+                flags2.append("IK_CNS_CTRL_AXIS_Y")
         return {
             "state_number": state_no,
             "type": "IK_CNS_CTRL_POS_FREEZE",
@@ -1069,13 +1107,24 @@ def compile_runtime_controller(
         }
 
     if ctype == "veladd":
-        x = number(ctrl.get("x"), 0)
-        y = number(ctrl.get("y"), 0)
+        x_text = ctrl.get("x")
+        y_text = ctrl.get("y")
+        use_yaccel = bool(
+            y_text is not None and re.fullmatch(
+                r"Const\s*\(\s*movement\.yaccel\s*\)",
+                y_text.strip(),
+                flags=re.I,
+            )
+        )
+        x = number(x_text, 0)
+        y = 0 if use_yaccel else number(y_text, 0)
         axis: list[str] = []
         if ctrl.get("x") is not None:
             axis.append("IK_CNS_CTRL_AXIS_X")
         if ctrl.get("y") is not None:
             axis.append("IK_CNS_CTRL_AXIS_Y")
+        if use_yaccel:
+            flags.append("IK_CNS_CTRL_USE_YACCEL")
         return {
             "state_number": state_no,
             "type": "IK_CNS_CTRL_VEL_ADD",
@@ -1261,6 +1310,8 @@ def parse_state(
     sounds: list[dict] = []
     controllers: list[dict] = []
     helpers: list[dict] = []
+    reversals: list[dict] = []
+    open_reversal: dict | None = None
     unsupported: list[str] = []
 
     for ctrl in state.controllers:
@@ -1428,6 +1479,85 @@ def parse_state(
                 }
             )
 
+        elif ctype == "reversaldef":
+            attr = (ctrl.get("reversal.attr") or "").strip()
+            if attr:
+                if open_reversal is not None:
+                    raise ValueError(
+                        f"state {state.number}: overlapping ReversalDef windows"
+                    )
+                parts = [p.strip().upper() for p in attr.split(",")]
+                if len(parts) < 2 or parts[1] != "AA":
+                    unsupported.append("reversaldef")
+                    continue
+                triggers = ctrl.all("trigger1")
+                if len(triggers) != 1:
+                    unsupported.append("reversaldef")
+                    continue
+                start = re.fullmatch(
+                    r"Time\s*=\s*(\d+)",
+                    _strip_outer_parens(triggers[0]),
+                    flags=re.I,
+                )
+                if not start:
+                    unsupported.append("reversaldef")
+                    continue
+                pause1, pause2 = pair(ctrl.get("pausetime"), 0, 0)
+                sparkx, sparky, _ = spark_pair(ctrl.get("sparkxy"))
+                hs = sound_pair(ctrl.get("hitsound"))
+                open_reversal = {
+                    "state_number": state.number,
+                    "start_time": int(start.group(1)),
+                    "end_time": 65535,
+                    "attacker_state_mask": reversal_state_mask(parts[0]),
+                    "pause_p1": int(pause1),
+                    "pause_p2": int(pause2),
+                    "spark_no": integer(ctrl.get("sparkno"), -1),
+                    "spark_x": int(sparkx),
+                    "spark_y": int(sparky),
+                    "hit_sound_group": hs[0],
+                    "hit_sound_item": hs[1],
+                    "p1_state_no": integer(ctrl.get("p1stateno"), -1),
+                    "p1_spr_priority": integer(
+                        ctrl.get("p1sprpriority"), -128
+                    ),
+                    "p2_spr_priority": integer(
+                        ctrl.get("p2sprpriority"), -128
+                    ),
+                }
+            elif open_reversal is not None:
+                end_time: int | None = None
+                trigger2 = ctrl.all("trigger2")
+                # Prefer an explicit OR stop branch when present. KFM state
+                # 1300 has a deliberately odd trigger1 conjunction plus
+                # trigger2 = Time = 8; the trigger2 branch is the deterministic
+                # end of its authored reversal window.
+                for expr in trigger2:
+                    m = re.fullmatch(
+                        r"Time\s*=\s*(\d+)",
+                        _strip_outer_parens(expr),
+                        flags=re.I,
+                    )
+                    if m:
+                        end_time = int(m.group(1))
+                        break
+                if end_time is None:
+                    for expr in ctrl.all("trigger1"):
+                        m = re.fullmatch(
+                            r"Time\s*=\s*(\d+)",
+                            _strip_outer_parens(expr),
+                            flags=re.I,
+                        )
+                        if m:
+                            end_time = int(m.group(1))
+                            break
+                if end_time is None:
+                    unsupported.append("reversaldef")
+                else:
+                    open_reversal["end_time"] = end_time
+                    reversals.append(open_reversal)
+                open_reversal = None
+
         elif ctype == "playsnd":
             trig_kind, trig_value, _ = simple_trigger(ctrl)
             group, item = sound_pair(ctrl.get("value"))
@@ -1466,6 +1596,9 @@ def parse_state(
             elif ctype:
                 unsupported.append(ctype)
 
+    if open_reversal is not None:
+        reversals.append(open_reversal)
+
     if len(hitdefs) > 32:
         raise ValueError(
             f"state {state.number}: more than 32 HitDefs are not supported"
@@ -1497,10 +1630,12 @@ def parse_state(
             for c in controllers
         )),
         "hitdef_persist": integer(sd.get("hitdefpersist"), 0),
+        "reversal_ofs": 0,
+        "reversal_count": len(reversals),
         "unsupported_controllers": sorted(set(unsupported)),
     }
 
-    return state_row, hitdefs, sounds, controllers, helpers
+    return state_row, hitdefs, sounds, controllers, helpers, reversals
 
 
 
@@ -2444,9 +2579,10 @@ def emit(
     sounds: list[dict] = []
     controllers: list[dict] = []
     helpers: list[dict] = []
+    reversals: list[dict] = []
 
     for number_ in selected:
-        row, hs, ss, cs, helper_rows = parse_state(
+        row, hs, ss, cs, helper_rows, reversal_rows = parse_state(
             by_number[number_],
             len(hitdefs),
             len(sounds),
@@ -2455,11 +2591,13 @@ def emit(
             const["default_spark_no"],
             const["default_guard_spark_no"],
         )
+        row["reversal_ofs"] = len(reversals)
         state_rows.append(row)
         hitdefs.extend(hs)
         sounds.extend(ss)
         controllers.extend(cs)
         helpers.extend(helper_rows)
+        reversals.extend(reversal_rows)
 
     common_deferred: dict[int, list[str]] = {}
     if common_zss is not None and common_selected:
@@ -2487,7 +2625,9 @@ def emit(
         f"{r.get('land_ctrl', 0)}u, "
         f"{r.get('juggle', 0)}, {r.get('has_juggle', 0)}u, "
         f"{r.get('owns_air_accel', 0)}u, "
-        f"{r.get('hitdef_persist', 0)}u"
+        f"{r.get('hitdef_persist', 0)}u, "
+        f"{r.get('reversal_ofs', 0)}u, "
+        f"{r.get('reversal_count', 0)}u"
         "},"
         for r in state_rows
     ]
@@ -2546,6 +2686,19 @@ def emit(
         for c in controllers
     ]
 
+    reversal_lines = [
+        "    {"
+        f"{r['state_number']}, {r['start_time']}u, {r['end_time']}u, "
+        f"{r['attacker_state_mask']}, "
+        f"{r['pause_p1']}u, {r['pause_p2']}u, "
+        f"{r['spark_no']}, {r['spark_x']}, {r['spark_y']}, "
+        f"{r['hit_sound_group']}, {r['hit_sound_item']}, "
+        f"{r['p1_state_no']}, "
+        f"{r['p1_spr_priority']}, {r['p2_spr_priority']}"
+        "},"
+        for r in reversals
+    ]
+
     helper_lines = [
         "    {"
         f"{h['id']}, {h['state_no']}, "
@@ -2578,6 +2731,10 @@ static const ik_cns_controller_t {ident}_controllers[{max(1, len(controller_line
 
 static const ik_cns_helper_t {ident}_helpers[{max(1, len(helper_lines))}] = {{
 {chr(10).join(helper_lines) if helper_lines else '    {0},'}
+}};
+
+static const ik_cns_reversaldef_t {ident}_reversals[{max(1, len(reversal_lines))}] = {{
+{chr(10).join(reversal_lines) if reversal_lines else '    {0},'}
 }};
 
 const ik_cns_asset_t {ident}_cns = {{
@@ -2627,7 +2784,8 @@ const ik_cns_asset_t {ident}_cns = {{
     {ident}_hitdefs, {len(hitdefs)}u,
     {ident}_playsnds, {len(sounds)}u,
     {ident}_controllers, {len(controllers)}u,
-    {ident}_helpers, {len(helpers)}u
+    {ident}_helpers, {len(helpers)}u,
+    {ident}_reversals, {len(reversals)}u
 }};
 """
 
@@ -2641,6 +2799,7 @@ const ik_cns_asset_t {ident}_cns = {{
 #define {macro}_CNS_PLAYSND_COUNT {len(sounds)}u
 #define {macro}_CNS_CONTROLLER_COUNT {len(controllers)}u
 #define {macro}_CNS_HELPER_COUNT {len(helpers)}u
+#define {macro}_CNS_REVERSAL_COUNT {len(reversals)}u
 
 extern const ik_cns_asset_t {ident}_cns;
 """
@@ -2656,6 +2815,7 @@ extern const ik_cns_asset_t {ident}_cns;
         "playsnds": sounds,
         "controllers": controllers,
         "helpers": helpers,
+        "reversals": reversals,
         "common_deferred": common_deferred,
     }
     out_prefix.with_suffix(".json").write_text(
@@ -2708,7 +2868,8 @@ def main(argv: list[str] | None = None) -> int:
         f"hitdefs={len(report['hitdefs'])} "
         f"playsnds={len(report['playsnds'])} "
         f"controllers={len(report['controllers'])} "
-        f"helpers={len(report['helpers'])}"
+        f"helpers={len(report['helpers'])} "
+        f"reversals={len(report['reversals'])}"
     )
 
     if unsupported:
