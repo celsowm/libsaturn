@@ -38,6 +38,7 @@
 #define FLOOR_SCREEN_Y 178
 #define IK_FRAME_TEXTURE_CACHE_SIZE 32u
 #define IK_EFFECT_INSTANCE_COUNT 4u
+#define IK_AFTERIMAGE_HISTORY 32u
 #define IK_EFFECT_TEXTURE_CACHE_LIMIT 3u
 #define IK_ASSET_LOAD_CHUNK_BYTES (64u * 1024u)
 #define IK_PREFETCH_LOOKAHEAD_TICKS 32u
@@ -59,6 +60,14 @@ typedef struct ik_frame_texture_cache_entry {
     uint8_t asset_slot;
     uint8_t used;
 } ik_frame_texture_cache_entry_t;
+
+typedef struct ik_afterimage_snapshot {
+    const ik_frame_t* frame;
+    int16_t x;
+    int16_t y;
+    int8_t facing;
+    uint8_t valid;
+} ik_afterimage_snapshot_t;
 
 typedef struct ik_sprite_prefetch {
     uint16_t sprite_index;
@@ -91,6 +100,11 @@ static ik_asset_store_t g_asset_store;
 static ik_sprite_prefetch_t g_prefetch[2];
 static ik_effect_instance_t g_effect_instances[IK_EFFECT_INSTANCE_COUNT];
 static uint8_t g_effect_cursor;
+static ik_afterimage_snapshot_t
+    g_afterimages[2][IK_AFTERIMAGE_HISTORY];
+static uint8_t g_afterimage_head[2];
+static uint8_t g_afterimage_count[2];
+static uint16_t g_afterimage_capture_tick[2];
 static uint8_t g_asset_io_scratch[IK_ASSET_IO_SCRATCH_BYTES]
     __attribute__((section(".wram_l"), aligned(32)));
 static uint8_t g_prefetch_data[2][IK_MAX_SPRITE_SOURCE_BYTES]
@@ -205,6 +219,14 @@ static void fighters_init(void) {
         g_effect_instances[i] = (ik_effect_instance_t){0};
     }
     g_effect_cursor = 0u;
+    for (uint32_t p = 0u; p < 2u; ++p) {
+        g_afterimage_head[p] = 0u;
+        g_afterimage_count[p] = 0u;
+        g_afterimage_capture_tick[p] = 0u;
+        for (uint32_t i = 0u; i < IK_AFTERIMAGE_HISTORY; ++i) {
+            g_afterimages[p][i] = (ik_afterimage_snapshot_t){0};
+        }
+    }
     g_frame_cache_clock = 0u;
     g_frame_cache_epoch = 0u;
 }
@@ -572,6 +594,89 @@ static void draw_effects(void) {
     }
 }
 
+static void afterimage_capture(
+    uint8_t player,
+    const ik_fighter_t* fighter,
+    const ik_frame_t* frame
+) {
+    if (player >= 2u || !fighter || !frame) return;
+    if (fighter->afterimage_time == 0u) {
+        g_afterimage_count[player] = 0u;
+        g_afterimage_capture_tick[player] = 0u;
+        return;
+    }
+
+    const uint8_t timegap =
+        fighter->afterimage_timegap ? fighter->afterimage_timegap : 1u;
+    if ((g_afterimage_capture_tick[player]++ % timegap) != 0u) return;
+
+    const uint8_t slot = g_afterimage_head[player];
+    g_afterimages[player][slot].frame = frame;
+    g_afterimages[player][slot].x = fighter->x;
+    g_afterimages[player][slot].y = fighter->y;
+    g_afterimages[player][slot].facing = fighter->facing;
+    g_afterimages[player][slot].valid = 1u;
+
+    g_afterimage_head[player] =
+        (uint8_t)((slot + 1u) % IK_AFTERIMAGE_HISTORY);
+    if (g_afterimage_count[player] < IK_AFTERIMAGE_HISTORY) {
+        ++g_afterimage_count[player];
+    }
+}
+
+static void draw_afterimages(
+    uint8_t player,
+    const ik_fighter_t* fighter
+) {
+    if (player >= 2u || !fighter || fighter->afterimage_time == 0u) return;
+    const uint8_t count = g_afterimage_count[player];
+    const uint8_t framegap =
+        fighter->afterimage_framegap ? fighter->afterimage_framegap : 1u;
+    const uint8_t max_trail =
+        fighter->afterimage_length ? fighter->afterimage_length : 1u;
+
+    uint8_t drawn = 0u;
+    for (uint8_t step = framegap;
+         step <= count && drawn < max_trail;
+         step = (uint8_t)(step + framegap)) {
+        const uint8_t index = (uint8_t)(
+            (g_afterimage_head[player] + IK_AFTERIMAGE_HISTORY - step) %
+            IK_AFTERIMAGE_HISTORY);
+        const ik_afterimage_snapshot_t* snap =
+            &g_afterimages[player][index];
+        if (!snap->valid || !snap->frame) continue;
+
+        sat_texture_t texture = {0u, 0u};
+        sat_example_must(frame_texture_resolve(
+            player, snap->frame, g_frame_cache_epoch, &texture));
+
+        int16_t dx = 0;
+        int16_t dy = 0;
+        ik_frame_screen_anchor(
+            snap->frame, snap->x, snap->y, snap->facing, &dx, &dy);
+
+        sat_draw_params_t params = sat_draw_params_default();
+        const int flip_h =
+            (snap->facing < 0) !=
+            ((snap->frame->flags & IK_FRAME_FLAG_FLIP_H) != 0u);
+        const int flip_v =
+            (snap->frame->flags & IK_FRAME_FLAG_FLIP_V) != 0u;
+        if (flip_h) params.flip = SAT_FLIP_X;
+        if (flip_v) params.flip =
+            (uint8_t)(params.flip | SAT_FLIP_Y);
+        params.blend_mode = SAT_BLEND_ADD;
+        params.tint.r = 220u;
+        params.tint.g = 190u;
+        params.tint.b = 96u;
+
+        sat_example_must(sat_draw_texture(
+            texture, 0,
+            &(sat_rect_t){dx, dy, snap->frame->w, snap->frame->h},
+            &params));
+        ++drawn;
+    }
+}
+
 static void draw_fighter(const ik_frame_t* frame,
                          sat_texture_t texture,
                          const ik_fighter_t* f,
@@ -672,6 +777,14 @@ static void draw_combat_entities(const ik_fight_t* fight) {
         current_frame(0u, &fight->fighters[0]),
         current_frame(1u, &fight->fighters[1])
     };
+
+    for (uint8_t player = 0u; player < 2u; ++player) {
+        afterimage_capture(
+            player, &fight->fighters[player], fighter_frames[player]);
+    }
+    for (uint8_t player = 0u; player < 2u; ++player) {
+        draw_afterimages(player, &fight->fighters[player]);
+    }
 
     for (uint8_t player = 0u; player < 2u; ++player) {
         const ik_frame_t* frame = fighter_frames[player];
