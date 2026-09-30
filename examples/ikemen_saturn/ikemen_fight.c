@@ -212,6 +212,15 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->afterimage_length = 0u;
     f->afterimage_timegap = 1u;
     f->afterimage_framegap = 1u;
+    f->palfx_time = 0u;
+    f->palfx_add_r = 0;
+    f->palfx_add_g = 0;
+    f->palfx_add_b = 0;
+    f->palfx_sin_r = 0;
+    f->palfx_sin_g = 0;
+    f->palfx_sin_b = 0;
+    f->palfx_cycle = 1u;
+    f->palfx_phase = 0u;
     f->active_hitdef_local = -1;
     f->active_hitdef_global = -1;
     f->active_hitdef_secondary = 0u;
@@ -2134,6 +2143,25 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 return 1;
             }
 
+            case IK_CNS_CTRL_PAL_FX: {
+                const uint32_t add = (uint32_t)ctrl->value1;
+                const uint32_t sinadd = (uint32_t)ctrl->value2;
+                f->palfx_time = (uint16_t)(
+                    ctrl->value0 <= 0 ? 1 :
+                    ctrl->value0 > 65535 ? 65535 : ctrl->value0);
+                f->palfx_add_r = (int8_t)(add & 0xffu);
+                f->palfx_add_g = (int8_t)((add >> 8) & 0xffu);
+                f->palfx_add_b = (int8_t)((add >> 16) & 0xffu);
+                f->palfx_sin_r = (int8_t)(sinadd & 0xffu);
+                f->palfx_sin_g = (int8_t)((sinadd >> 8) & 0xffu);
+                f->palfx_sin_b = (int8_t)((sinadd >> 16) & 0xffu);
+                f->palfx_cycle = (uint16_t)(
+                    ctrl->value3 <= 0 ? 1 :
+                    ctrl->value3 > 65535 ? 65535 : ctrl->value3);
+                f->palfx_phase = 0u;
+                break;
+            }
+
             case IK_CNS_CTRL_AFTER_IMAGE:
                 f->afterimage_time = (uint16_t)(
                     ctrl->value0 <= 0 ? 1 :
@@ -2734,6 +2762,10 @@ static void step_fighter(ik_fight_t* fight, int index,
     f->pos_freeze_y = 0u;
     if (f->afterimage_time > 0u) {
         --f->afterimage_time;
+    }
+    if (f->palfx_time > 0u) {
+        --f->palfx_time;
+        ++f->palfx_phase;
     }
 
     if (f->not_hit_by_time > 0u) {
