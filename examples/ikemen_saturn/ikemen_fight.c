@@ -2345,6 +2345,31 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 f->ctrl = (int8_t)(ctrl->value0 != 0);
                 break;
 
+            case IK_CNS_CTRL_PROJECTILE: {
+                if (!fight->entities || !fight->cns->projectiles ||
+                    ctrl->value0 < 0 ||
+                    ctrl->value0 >= fight->cns->projectile_count) {
+                    break;
+                }
+                if (ctrl->value1 != 0 && i < 64u) {
+                    const uint64_t bit = (uint64_t)1u << i;
+                    if ((f->one_shot_controller_mask & bit) != 0u) {
+                        break;
+                    }
+                    f->one_shot_controller_mask |= bit;
+                }
+                sync_fighter_entity(fight, f);
+                ik_entity_runtime_t runtime;
+                ik_entity_runtime_init(
+                    &runtime, fight->entities, fight->cns, frames, frames);
+                ik_entity_handle_t spawned = ik_entity_invalid_handle();
+                (void)ik_entity_runtime_spawn_projectile_spec(
+                    &runtime, fighter_entity_handle(fight, f),
+                    &fight->cns->projectiles[ctrl->value0],
+                    &spawned);
+                break;
+            }
+
             case IK_CNS_CTRL_EXPLOD: {
                 if (!fight->entities || !fight->cns->explods ||
                     ctrl->value0 < 0 ||
