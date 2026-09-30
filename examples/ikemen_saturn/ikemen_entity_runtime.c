@@ -246,6 +246,9 @@ int ik_entity_runtime_spawn_explod(
     entity->state_time = 0u;
     entity->remove_time = explod->remove_time;
     entity->spr_priority = explod->spr_priority;
+    entity->ownpal = explod->ownpal;
+    entity->pause_move_time = explod->pause_move_time;
+    entity->super_move_time = explod->super_move_time;
     entity->life = 1;
 
     *out_handle = spawned;
