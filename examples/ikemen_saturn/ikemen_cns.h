@@ -123,7 +123,10 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_DESTROY_SELF,
     IK_CNS_CTRL_PAUSE,
     IK_CNS_CTRL_SUPER_PAUSE,
-    IK_CNS_CTRL_NOT_HIT_BY
+    IK_CNS_CTRL_NOT_HIT_BY,
+    IK_CNS_CTRL_ENV_SHAKE,
+    IK_CNS_CTRL_HIT_FALL_DAMAGE,
+    IK_CNS_CTRL_FALL_ENV_SHAKE
 } ik_cns_controller_type_t;
 
 typedef enum ik_cns_helper_postype {
@@ -460,6 +463,9 @@ typedef struct ik_cns_playsnd {
  *   Pause: global pause ticks / owner movetime ticks
  *   SuperPause: global super-pause ticks / power delta
  *   NotHitBy: incoming attacker state-type mask / duration ticks
+ *   EnvShake: duration ticks / amplitude pixels
+ *   HitFallDamage: apply stored fall.damage / 0
+ *   FallEnvShake: replay stored HitDef fall envshake / 0
  */
 typedef struct ik_cns_controller {
     int16_t state_number;
