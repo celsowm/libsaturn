@@ -126,6 +126,7 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_VAR_ADD,
     IK_CNS_CTRL_HELPER,
     IK_CNS_CTRL_EXPLOD,
+    IK_CNS_CTRL_PROJECTILE,
     IK_CNS_CTRL_DESTROY_SELF,
     IK_CNS_CTRL_PAUSE,
     IK_CNS_CTRL_SUPER_PAUSE,
@@ -529,6 +530,34 @@ typedef struct ik_cns_controller_context {
     uint8_t round_state;
 } ik_cns_controller_context_t;
 
+typedef struct ik_cns_projectile {
+    int32_t id;
+    int16_t anim_no;
+    int16_t hit_anim_no;
+    int16_t remove_anim_no;
+    int16_t cancel_anim_no;
+    int16_t hitdef_global;
+    int32_t pos_x_q8;
+    int32_t pos_y_q8;
+    int32_t vel_x_q8;
+    int32_t vel_y_q8;
+    int32_t velmul_x_q8;
+    int32_t velmul_y_q8;
+    int32_t accel_x_q8;
+    int32_t accel_y_q8;
+    int16_t remove_time;
+    int16_t edge_bound;
+    int16_t stage_bound;
+    uint8_t hits;
+    uint8_t miss_time;
+    uint8_t priority;
+    uint8_t remove_on_hit;
+    int8_t spr_priority;
+    uint8_t ownpal;
+    uint8_t pause_move_time;
+    uint8_t super_move_time;
+} ik_cns_projectile_t;
+
 typedef struct ik_cns_explod {
     int16_t anim_no;
     int32_t pos_x_q8;
@@ -571,6 +600,8 @@ typedef struct ik_cns_asset {
     uint16_t hitoverride_count;
     const ik_cns_explod_t* explods;
     uint16_t explod_count;
+    const ik_cns_projectile_t* projectiles;
+    uint16_t projectile_count;
 } ik_cns_asset_t;
 
 int16_t ik_cns_q8_from_int(int16_t value);
