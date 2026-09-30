@@ -378,6 +378,25 @@ def controller_trigger(
     ctype: str,
 ) -> tuple[str, int, int]:
     triggers = ctrl.all("trigger1")
+    trigger2 = ctrl.all("trigger2")
+
+    if len(triggers) == 1 and len(trigger2) == 1:
+        m0 = re.fullmatch(
+            r"AnimElem\s*=\s*(\d+)",
+            _strip_outer_parens(triggers[0]),
+            flags=re.I,
+        )
+        m1 = re.fullmatch(
+            r"AnimElem\s*=\s*(\d+)",
+            _strip_outer_parens(trigger2[0]),
+            flags=re.I,
+        )
+        if m0 and m1:
+            return (
+                "IK_CNS_TRIGGER_ANIM_ELEM_EQ_OR",
+                int(m0.group(1)),
+                int(m1.group(1)),
+            )
 
     if ctype in ("width", "targetbind") and len(triggers) == 1:
         parsed = _anim_elem_range_trigger(triggers[0])
@@ -576,6 +595,7 @@ def compile_runtime_controller(
         "turn",
         "selfstate",
         "veladd",
+        "velset",
     }
     if ctype not in supported:
         return None
@@ -767,6 +787,25 @@ def compile_runtime_controller(
         return {
             "state_number": state_no,
             "type": "IK_CNS_CTRL_VEL_ADD",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": q8(x),
+            "value1": q8(y),
+            "flags": " | ".join(axis + flags) if axis or flags else "0u",
+        }
+
+    if ctype == "velset":
+        x = number(ctrl.get("x"), 0)
+        y = number(ctrl.get("y"), 0)
+        axis: list[str] = []
+        if ctrl.get("x") is not None:
+            axis += ["IK_CNS_CTRL_AXIS_X", "IK_CNS_CTRL_LOCAL_X"]
+        if ctrl.get("y") is not None:
+            axis.append("IK_CNS_CTRL_AXIS_Y")
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_VEL_SET",
             "trigger_kind": trig_kind,
             "trigger_value": trig_value,
             "trigger_value2": trig_value2,
