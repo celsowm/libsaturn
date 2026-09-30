@@ -47,6 +47,12 @@ int ik_entity_runtime_spawn_explod(
     const ik_cns_explod_t* explod,
     ik_entity_handle_t* out_handle);
 
+int ik_entity_runtime_spawn_projectile_spec(
+    ik_entity_runtime_t* runtime,
+    ik_entity_handle_t parent,
+    const ik_cns_projectile_t* projectile,
+    ik_entity_handle_t* out_handle);
+
 int ik_entity_runtime_spawn_projectile(
     ik_entity_runtime_t* runtime,
     ik_entity_handle_t parent,
