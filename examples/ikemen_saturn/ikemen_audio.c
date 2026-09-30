@@ -100,7 +100,7 @@ void ik_audio_process_fight(ik_audio_t* audio, const ik_fight_t* fight) {
         } else if (event->group == 6 && event->item == 0) {
             sound = audio->reversal_hit;
         }
-        if (sound.id != 0u || sound.generation != 0u) {
+        if (sound.slot != 0u || sound.generation != 0u) {
             (void)sat_sound_play(sound, 0, 0);
         }
     }
