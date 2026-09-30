@@ -184,6 +184,16 @@ int ik_cns_controller_trigger_context_now(
             return context->state_time == 1u &&
                    context->back_edge_dist < controller->trigger_value;
 
+        case IK_CNS_TRIGGER_COMMAND_ANY_VY_LT_Q8:
+            return (context->command_mask &
+                    (uint16_t)controller->trigger_value) != 0u &&
+                   context->vy_q8 < controller->trigger_value2;
+
+        case IK_CNS_TRIGGER_VY_GT_Q8_AT_LEVEL:
+            return context->vy_q8 > controller->trigger_value2 &&
+                   context->y_q8 >=
+                       context->floor_y_q8 + controller->trigger_value;
+
         default:
             return ik_cns_trigger_now(
                 controller->trigger_kind, controller->trigger_value,
