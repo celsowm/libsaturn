@@ -405,15 +405,37 @@ static sat_result_t effect_texture_resolve(const ik_frame_t* frame,
 
     uint32_t victim = IK_FRAME_TEXTURE_CACHE_SIZE;
     uint32_t oldest = 0xFFFFFFFFu;
+    uint32_t effect_entries = 0u;
     for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
-        ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
-        if (!e->used) {
-            victim = i;
-            break;
+        const ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
+        if (e->used && e->asset_slot == IK_ASSET_SLOT_FIGHTFX) {
+            ++effect_entries;
         }
-        if (e->pin_epoch != epoch && e->last_use < oldest) {
-            oldest = e->last_use;
-            victim = i;
+    }
+
+    if (effect_entries >= IK_EFFECT_TEXTURE_CACHE_LIMIT) {
+        for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
+            ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
+            if (e->used && e->asset_slot == IK_ASSET_SLOT_FIGHTFX &&
+                e->pin_epoch != epoch && e->last_use < oldest) {
+                oldest = e->last_use;
+                victim = i;
+            }
+        }
+    }
+
+    if (victim >= IK_FRAME_TEXTURE_CACHE_SIZE) {
+        oldest = 0xFFFFFFFFu;
+        for (uint32_t i = 0u; i < IK_FRAME_TEXTURE_CACHE_SIZE; ++i) {
+            ik_frame_texture_cache_entry_t* e = &g_frame_cache[i];
+            if (!e->used) {
+                victim = i;
+                break;
+            }
+            if (e->pin_epoch != epoch && e->last_use < oldest) {
+                oldest = e->last_use;
+                victim = i;
+            }
         }
     }
     if (victim >= IK_FRAME_TEXTURE_CACHE_SIZE) return SAT_ERR_BUSY;
