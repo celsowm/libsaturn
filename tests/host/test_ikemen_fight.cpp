@@ -2420,6 +2420,130 @@ int main() {
         EQ(f->ctrl,1);
     }
 
+    /* Pause freezes fight simulation for the authored duration and rewinds
+     * the internal Time=0 bookkeeping tick so Time=1 controllers run after
+     * the pause instead of being skipped. */
+    {
+        const ik_cns_controller_t ctrls[] = {
+            {930,IK_CNS_CTRL_PAUSE,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,3,0,0u},
+            {930,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,1,0,0u},
+        };
+        ik_cns_state_t state{};
+        state.number=930;
+        state.anim=0;
+        state.state_type=IK_CNS_STATE_STAND;
+        state.move_type=IK_CNS_MOVE_IDLE;
+        state.physics=IK_CNS_PHYS_STAND;
+        state.controller_count=2u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=&state;
+        asset.state_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=2u;
+
+        ik_fight_init(&g,&asset);
+        g.fighters[0].state=930;
+        g.fighters[0].anim=0;
+        g.fighters[0].ctrl=0;
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+
+        tick2(&g,&p1,&p2);
+        EQ(g.pause_time,3u);
+        EQ(g.fighters[0].state_time,0u);
+        EQ(g.fighters[0].ctrl,0);
+
+        const uint32_t frozen_frame=g.frame;
+        tick2(&g,&p1,&p2);
+        tick2(&g,&p1,&p2);
+        tick2(&g,&p1,&p2);
+        EQ(g.pause_time,0u);
+        EQ(g.fighters[0].state_time,0u);
+        EQ(g.frame,frozen_frame+3u);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[0].state_time,1u);
+        EQ(g.fighters[0].ctrl,1);
+    }
+
+    /* NotHitBy is evaluated before contact resolution. A one-tick SCA
+     * window therefore rejects a standing attack without consuming damage. */
+    {
+        ik_cns_hitdef_t hit{};
+        hit.state_number=200;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.damage=25;
+        hit.priority=4u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+
+        const ik_cns_controller_t ctrls[] = {
+            {931,IK_CNS_CTRL_NOT_HIT_BY,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,
+             IK_CNS_REVERSAL_STATE_STAND|
+             IK_CNS_REVERSAL_STATE_CROUCH|
+             IK_CNS_REVERSAL_STATE_AIR,
+             1,0u},
+        };
+
+        ik_cns_state_t states[2]{};
+        states[0].number=200;
+        states[0].anim=200;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_ATTACK;
+        states[0].physics=IK_CNS_PHYS_STAND;
+        states[0].hitdef_count=1u;
+
+        states[1].number=931;
+        states[1].anim=0;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_IDLE;
+        states[1].physics=IK_CNS_PHYS_STAND;
+        states[1].controller_count=1u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=2u;
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=1u;
+
+        ik_fight_init(&g,&asset);
+        place(&g,100,145);
+        g.fighters[0].state=200;
+        g.fighters[0].anim=200;
+        g.fighters[0].ctrl=0;
+        g.fighters[1].state=931;
+        g.fighters[1].anim=0;
+        g.fighters[1].ctrl=0;
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[1].hp,1000);
+        EQ(g.hits_p1,0u);
+        EQ(g.fighters[1].not_hit_by_time,1u);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[1].not_hit_by_time,0u);
+    }
+
     /* A player Helper controller must allocate a real entity, execute that
      * helper's CNS on the shared runtime, and let DestroySelf retire the
      * generational handle without touching either root player. */
