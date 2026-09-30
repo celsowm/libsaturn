@@ -3526,6 +3526,15 @@ void ik_fight_update(ik_fight_t* fight,
                     &runtime, (uint8_t)owner,
                     fight->pause_is_super != 0u);
             }
+
+            resolve_paused_owner_contact(
+                fight, owner, p1, p2, p1_frames, p2_frames);
+            if (!fight->round_over) {
+                resolve_projectile_trades(
+                    fight, p1_frames, p2_frames);
+                resolve_entity_contacts(
+                    fight, p1, p2, p1_frames, p2_frames, owner);
+            }
             --fight->pause_move_time;
         }
 
