@@ -1262,6 +1262,9 @@ def parse_state(
                     "alt_damage_prev_state": alt_damage_prev_state,
                     "yaccel_q8": q8(number(ctrl.get("yaccel"), 0)),
                     "has_alt_damage": int(damage_expr is not None),
+                    "ground_cornerpush_veloff_q8": q8(
+                        number(ctrl.get("ground.cornerpush.veloff"), 0)
+                    ),
                 }
             )
 
@@ -2343,7 +2346,8 @@ def emit(
         f"{h['alt_damage']}, {h['alt_damage_prev_state']}, "
         f"{h['trigger2_kind']}, {h['trigger2_value']}, "
         f"{h['yaccel_q8']}, {h['has_trigger2']}u, "
-        f"{h['has_alt_damage']}u"
+        f"{h['has_alt_damage']}u, "
+        f"{h['ground_cornerpush_veloff_q8']}"
         "},"
         for h in hitdefs
     ]
