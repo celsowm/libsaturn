@@ -141,6 +141,10 @@ typedef struct ik_fighter {
     uint8_t attack_id;
     uint8_t move_contact;
     uint8_t move_hit;
+    uint16_t afterimage_time;
+    uint8_t afterimage_length;
+    uint8_t afterimage_timegap;
+    uint8_t afterimage_framegap;
     int8_t active_hitdef_local;
     int16_t active_hitdef_global;
     uint8_t active_hitdef_secondary;
