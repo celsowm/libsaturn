@@ -156,6 +156,17 @@ int ik_cns_controller_trigger_context_now(
                    (context->command_mask & IK_CNS_COMMAND_RECOVERY) != 0u &&
                    context->vy_q8 > 0;
 
+        case IK_CNS_TRIGGER_ANIM_ELEM_EQ_OR:
+            return context->anim_element_time == 0u &&
+                   (context->anim_element ==
+                        (uint16_t)(controller->trigger_value < 1
+                                       ? 1
+                                       : controller->trigger_value) ||
+                    context->anim_element ==
+                        (uint16_t)(controller->trigger_value2 < 1
+                                       ? 1
+                                       : controller->trigger_value2));
+
         default:
             return ik_cns_trigger_now(
                 controller->trigger_kind, controller->trigger_value,
