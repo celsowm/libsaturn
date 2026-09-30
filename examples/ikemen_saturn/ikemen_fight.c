@@ -1999,6 +1999,23 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         }
 
         switch ((ik_cns_controller_type_t)ctrl->type) {
+            case IK_CNS_CTRL_SUPER_PAUSE: {
+                if (f->pause_fired || ctrl->value0 <= 0) break;
+                f->pause_fired = 1u;
+                int power = (int)f->power + ctrl->value1;
+                if (power < 0) power = 0;
+                if (power > IK_MAX_POWER) power = IK_MAX_POWER;
+                f->power = (int16_t)power;
+                fight->pause_time = (uint16_t)(
+                    ctrl->value0 > 65535 ? 65535 : ctrl->value0);
+                fight->pause_move_time = 0u;
+                fight->pause_owner =
+                    (int8_t)fighter_player_index(fight, f);
+                if (f->state_time > 0u) --f->state_time;
+                if (f->anim_time > 0u) --f->anim_time;
+                return 1;
+            }
+
             case IK_CNS_CTRL_PAUSE: {
                 if (f->pause_fired || ctrl->value0 <= 0) break;
                 f->pause_fired = 1u;
