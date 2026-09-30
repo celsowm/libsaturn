@@ -315,6 +315,14 @@ int ik_entity_runtime_spawn_projectile_spec(
     entity->projectile_hit_cooldown = 0u;
     entity->projectile_priority = projectile->priority;
     entity->projectile_remove_on_hit = projectile->remove_on_hit;
+    entity->projectile_velmul_x_q8 = (int16_t)(
+        projectile->velmul_x_q8 == 0
+            ? IK_ENTITY_Q8_ONE
+            : projectile->velmul_x_q8);
+    entity->projectile_velmul_y_q8 = (int16_t)(
+        projectile->velmul_y_q8 == 0
+            ? IK_ENTITY_Q8_ONE
+            : projectile->velmul_y_q8);
     entity->spr_priority = projectile->spr_priority;
     entity->ownpal = projectile->ownpal;
     entity->pause_move_time = projectile->pause_move_time;
@@ -616,6 +624,12 @@ static void step_one(
         entity->vy_q8 += entity->ay_q8;
 
         if (entity->type == IK_ENTITY_PROJECTILE) {
+            entity->vx_q8 =
+                (entity->vx_q8 * entity->projectile_velmul_x_q8) /
+                IK_ENTITY_Q8_ONE;
+            entity->vy_q8 =
+                (entity->vy_q8 * entity->projectile_velmul_y_q8) /
+                IK_ENTITY_Q8_ONE;
             if (entity->projectile_hit_cooldown > 0u) {
                 --entity->projectile_hit_cooldown;
                 if (entity->projectile_hit_cooldown == 0u) {
