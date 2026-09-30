@@ -240,6 +240,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->pos_freeze_x = 0u;
     f->pos_freeze_y = 0u;
     f->pause_fired = 0u;
+    f->one_shot_controller_mask = 0u;
     f->not_hit_by_mask = 0u;
     f->not_hit_by_attr_mask = 0u;
     f->not_hit_by_time = 0u;
@@ -279,6 +280,12 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->env_shake_freq = 60u;
     fight->env_shake_phase = 0u;
     fight->super_darken_time = 0u;
+    fight->round_state = ik_cns_find_state(cns, 191) ? 0u : 2u;
+    fight->intro_asserted = 0u;
+    if (fight->round_state == 0u) {
+        enter_state(fight, &fight->fighters[0], 191);
+        enter_state(fight, &fight->fighters[1], 191);
+    }
     fight->effect_count = 0u;
     fight->sound_count = 0u;
     if (fight->env_shake_time > 0u) {
@@ -2072,7 +2079,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         .is_bound = (uint8_t)(f->bound_to >= 0),
         .anim_ended = (uint8_t)(anim_ended != 0),
         .move_contact = f->move_contact,
-        .move_hit = f->move_hit
+        .move_hit = f->move_hit,
+        .round_state = fight->round_state
     };
     if (!hit_pause_only && fight->cns->playsnds) {
         for (uint8_t i = 0u; i < state->playsnd_count; ++i) {
@@ -2155,6 +2163,10 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 /* Stop source-order evaluation on the frame Pause starts. */
                 return 1;
             }
+
+            case IK_CNS_CTRL_ASSERT_INTRO:
+                fight->intro_asserted = 1u;
+                break;
 
             case IK_CNS_CTRL_PAL_FX: {
                 const uint32_t add = (uint32_t)ctrl->value1;
