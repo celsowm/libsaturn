@@ -2,6 +2,7 @@
 #include <cstdlib>
 
 #include "examples/ikemen_saturn/ikemen_fight.h"
+#include "examples/ikemen_saturn/ikemen_entity_runtime.h"
 
 #define EQ(a,b) do { if ((a)!=(b)) { std::fprintf(stderr,"FAIL %d: %s=%ld %s=%ld\n",__LINE__,#a,(long)(a),#b,(long)(b)); std::exit(1); } } while(0)
 #define OK(x) do { if (!(x)) { std::fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x); std::exit(1); } } while(0)
@@ -2616,6 +2617,105 @@ int main() {
         EQ(g.fighters[1].hp,1000);
         EQ(g.hits_p1,0u);
         EQ(g.fighters[0].move_contact,1u);
+    }
+
+    /* Projectile entities participate in the same deterministic contact
+     * pass as helpers. KFM-style HitOverride AP catches projectile HitDefs,
+     * redirects the defender and consumes the projectile without damage. */
+    {
+        ik_cns_hitdef_t hit{};
+        hit.state_number=940;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.damage=77;
+        hit.priority=4u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.attack_attr_mask=IK_CNS_ATTR_NORMAL_PROJECTILE;
+
+        const ik_cns_hitoverride_t overrides[] = {
+            {932,0u,8u,IK_CNS_REVERSAL_STATE_STAND,
+             IK_CNS_ATTR_NORMAL_PROJECTILE|
+             IK_CNS_ATTR_SPECIAL_PROJECTILE|
+             IK_CNS_ATTR_HYPER_PROJECTILE,
+             933},
+        };
+
+        ik_cns_state_t states[3]{};
+        states[0].number=940;
+        states[0].anim=910;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_ATTACK;
+        states[0].physics=IK_CNS_PHYS_NONE;
+        states[0].hitdef_count=1u;
+
+        states[1].number=932;
+        states[1].anim=0;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_IDLE;
+        states[1].physics=IK_CNS_PHYS_STAND;
+        states[1].hitoverride_count=1u;
+
+        states[2].number=933;
+        states[2].anim=0;
+        states[2].state_type=IK_CNS_STATE_STAND;
+        states[2].move_type=IK_CNS_MOVE_IDLE;
+        states[2].physics=IK_CNS_PHYS_STAND;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=3u;
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+        asset.hitoverrides=overrides;
+        asset.hitoverride_count=1u;
+
+        ik_entity_pool_t pool{};
+        ik_entity_pool_init(&pool);
+        ik_entity_handle_t p1_entity{};
+        ik_entity_handle_t p2_entity{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,1,0u,
+            ik_entity_invalid_handle(),&p1_entity));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,2,1u,
+            ik_entity_invalid_handle(),&p2_entity));
+
+        ik_fight_init(&g,&asset);
+        ik_fight_bind_entities(&g,&pool,p1_entity,p2_entity);
+        place(&g,100,145);
+        g.fighters[1].state=932;
+        g.fighters[1].anim=0;
+        g.fighters[1].ctrl=0;
+
+        ik_entity_handle_t projectile{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PROJECTILE,77,0u,
+            p1_entity,&projectile));
+        ik_entity_t* projectile_entity=ik_entity_get(&pool,projectile);
+        OK(projectile_entity!=nullptr);
+        projectile_entity->x_q8=100*IK_CNS_Q8_ONE;
+        projectile_entity->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
+        projectile_entity->facing=1;
+        projectile_entity->life=1;
+
+        ik_entity_runtime_t runtime{};
+        ik_entity_runtime_init(
+            &runtime,&pool,&asset,&k_table,&k_table);
+        OK(ik_entity_runtime_enter_state(&runtime,projectile,940));
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+
+        EQ(g.fighters[1].state,933);
+        EQ(g.fighters[1].hp,1000);
+        EQ(ik_entity_count_type(&pool,IK_ENTITY_PROJECTILE),0u);
     }
 
     /* A player Helper controller must allocate a real entity, execute that
