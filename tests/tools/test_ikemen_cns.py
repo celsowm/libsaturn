@@ -1751,6 +1751,13 @@ air.velocity = -1.3,-25
 fall = 1
 fall.recover = 0
 yaccel = .8
+envshake.time = 25
+envshake.ampl = 7
+envshake.freq = 176
+fall.damage = 70
+fall.envshake.time = 15
+fall.envshake.ampl = 6
+fall.envshake.freq = 178
 
 [State 3050, Success]
 type = ChangeState
@@ -2302,7 +2309,13 @@ assert success3050["trigger_kind"] == "IK_CNS_TRIGGER_MOVE_HIT"
 assert success3050["value0"] == 3051
 assert super_report["hitdefs"][0]["attack_attr_mask"] == "IK_CNS_ATTR_HYPER_ATTACK"
 assert super_report["hitdefs"][2]["attack_attr_mask"] == "IK_CNS_ATTR_HYPER_ATTACK"
-assert super_report["hitdefs"][2]["fall_damage"] == 0
+assert super_report["hitdefs"][2]["fall_damage"] == 70
+assert super_report["hitdefs"][2]["envshake_time"] == 25
+assert super_report["hitdefs"][2]["envshake_ampl"] == 7
+assert super_report["hitdefs"][2]["envshake_freq"] == 176
+assert super_report["hitdefs"][2]["fall_envshake_time"] == 15
+assert super_report["hitdefs"][2]["fall_envshake_ampl"] == 6
+assert super_report["hitdefs"][2]["fall_envshake_freq"] == 178
 
 assert len(zankou_report["states"]) == 2
 zankou_rows = {row["number"]: row for row in zankou_report["states"]}
