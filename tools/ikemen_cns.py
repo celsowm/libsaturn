@@ -1703,6 +1703,19 @@ def parse_state(
                     "attack_attr_mask": attack_attr_mask(
                         attr_parts[1] if len(attr_parts) > 1 else ""
                     ),
+                    "fall_damage": integer(ctrl.get("fall.damage"), 0),
+                    "envshake_time": integer(ctrl.get("envshake.time"), 0),
+                    "envshake_ampl": integer(ctrl.get("envshake.ampl"), 0),
+                    "envshake_freq": integer(ctrl.get("envshake.freq"), 60),
+                    "fall_envshake_time": integer(
+                        ctrl.get("fall.envshake.time"), 0
+                    ),
+                    "fall_envshake_ampl": integer(
+                        ctrl.get("fall.envshake.ampl"), 0
+                    ),
+                    "fall_envshake_freq": integer(
+                        ctrl.get("fall.envshake.freq"), 60
+                    ),
                 }
             )
 
@@ -2956,7 +2969,14 @@ def emit(
         f"{h['ground_cornerpush_veloff_q8']}, "
         f"{h['trigger2_spark_y']}, "
         f"{h['guard_spark_no']}, "
-        f"{h.get('attack_attr_mask', '0u')}"
+        f"{h.get('attack_attr_mask', '0u')}, "
+        f"{h.get('fall_damage', 0)}, "
+        f"{h.get('envshake_time', 0)}u, "
+        f"{h.get('envshake_ampl', 0)}, "
+        f"{h.get('envshake_freq', 60)}u, "
+        f"{h.get('fall_envshake_time', 0)}u, "
+        f"{h.get('fall_envshake_ampl', 0)}, "
+        f"{h.get('fall_envshake_freq', 60)}u"
         "},"
         for h in hitdefs
     ]
