@@ -1064,6 +1064,7 @@ def compile_runtime_controller(
         "envshake",
         "afterimage",
         "afterimagetime",
+        "palfx",
     }
     if ctype not in supported:
         return None
@@ -1076,6 +1077,36 @@ def compile_runtime_controller(
 
     def flag_expr() -> str:
         return " | ".join(flags) if flags else "0u"
+
+    if ctype == "palfx":
+        def pack_rgb(text: str | None) -> int:
+            parts = _split_top_level(text or "0,0,0")
+            while len(parts) < 3:
+                parts.append("0")
+            values = [max(-128, min(127, integer(p, 0))) for p in parts[:3]]
+            packed = (
+                (values[0] & 0xff) |
+                ((values[1] & 0xff) << 8) |
+                ((values[2] & 0xff) << 16)
+            )
+            return packed if packed < 0x80000000 else packed - 0x100000000
+
+        sin_parts = _split_top_level(ctrl.get("sinadd") or "0,0,0,1")
+        while len(sin_parts) < 4:
+            sin_parts.append("0")
+        cycle = max(1, integer(sin_parts[3], 1))
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_PAL_FX",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("time"), 1),
+            "value1": pack_rgb(ctrl.get("add")),
+            "value2": pack_rgb(",".join(sin_parts[:3])),
+            "value3": cycle,
+            "flags": flag_expr(),
+        }
 
     if ctype == "afterimage":
         return {
