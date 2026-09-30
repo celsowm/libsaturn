@@ -875,6 +875,48 @@ static int entity_clsn_overlap(
     return 0;
 }
 
+static int entity_attack_clsn_overlap(
+    const ik_frame_table_t* a_frames,
+    const ik_frame_table_t* b_frames,
+    const ik_entity_t* a,
+    const ik_entity_t* b
+) {
+    if (!a_frames || !b_frames || !a || !b) return 0;
+    const ik_frame_t* af = ik_frame_at_time(
+        a_frames, a->anim_no, a->anim_time);
+    const ik_frame_t* bf = ik_frame_at_time(
+        b_frames, b->anim_no, b->anim_time);
+    if (!af || !bf || af->clsn1_count == 0u ||
+        bf->clsn1_count == 0u) {
+        return 0;
+    }
+
+    const int ax = ik_cns_q8_to_int(a->x_q8);
+    const int ay = ik_cns_q8_to_int(a->y_q8);
+    const int bx = ik_cns_q8_to_int(b->x_q8);
+    const int by = ik_cns_q8_to_int(b->y_q8);
+    for (uint16_t ai = 0u; ai < af->clsn1_count; ++ai) {
+        int al, at, ar, ab;
+        if (!ik_frame_clsn_world(
+                a_frames, af, IK_CLSN_ATTACK, ai,
+                ax, ay, a->facing, &al, &at, &ar, &ab)) {
+            continue;
+        }
+        for (uint16_t bi = 0u; bi < bf->clsn1_count; ++bi) {
+            int bl, bt, br, bb;
+            if (!ik_frame_clsn_world(
+                    b_frames, bf, IK_CLSN_ATTACK, bi,
+                    bx, by, b->facing, &bl, &bt, &br, &bb)) {
+                continue;
+            }
+            if (ik_boxes_overlap(al, at, ar, ab, bl, bt, br, bb)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 static int entity_body_dist_x(
     const ik_entity_t* attacker,
     const ik_fighter_t* victim
