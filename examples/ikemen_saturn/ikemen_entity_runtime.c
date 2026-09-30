@@ -206,6 +206,62 @@ int ik_entity_runtime_spawn_helper(
     return 1;
 }
 
+int ik_entity_runtime_spawn_projectile(
+    ik_entity_runtime_t* runtime,
+    ik_entity_handle_t parent_handle,
+    int32_t id,
+    int16_t state_no,
+    int32_t pos_x_q8,
+    int32_t pos_y_q8,
+    int32_t vel_x_q8,
+    int32_t vel_y_q8,
+    ik_entity_handle_t* out_handle
+) {
+    if (!runtime || !runtime->pool || !runtime->cns || !out_handle) {
+        return 0;
+    }
+
+    const ik_entity_t* parent =
+        ik_entity_get_const(runtime->pool, parent_handle);
+    if (!parent || parent->owner_player >= 2u) return 0;
+
+    ik_entity_handle_t spawned = ik_entity_invalid_handle();
+    if (!ik_entity_spawn(
+            runtime->pool, IK_ENTITY_PROJECTILE, id,
+            parent->owner_player, parent_handle, &spawned)) {
+        return 0;
+    }
+
+    ik_entity_t* entity = ik_entity_get(runtime->pool, spawned);
+    if (!entity) {
+        (void)ik_entity_destroy(runtime->pool, spawned);
+        return 0;
+    }
+
+    entity->x_q8 =
+        parent->x_q8 + (int32_t)parent->facing * pos_x_q8;
+    entity->y_q8 = parent->y_q8 + pos_y_q8;
+    entity->facing = parent->facing;
+    entity->life = 1;
+    entity->power = parent->power;
+    entity->push_back = runtime->cns->constants.air_back;
+    entity->push_front = runtime->cns->constants.air_front;
+
+    if (!ik_entity_runtime_enter_state(
+            runtime, spawned, state_no)) {
+        (void)ik_entity_destroy(runtime->pool, spawned);
+        return 0;
+    }
+
+    entity = ik_entity_get(runtime->pool, spawned);
+    if (!entity) return 0;
+    entity->vx_q8 = (int32_t)entity->facing * vel_x_q8;
+    entity->vy_q8 = vel_y_q8;
+
+    *out_handle = spawned;
+    return 1;
+}
+
 static int process_controllers(
     ik_entity_runtime_t* runtime,
     ik_entity_handle_t handle,
