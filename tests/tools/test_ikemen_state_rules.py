@@ -30,6 +30,10 @@ name = "holdback"
 command = /$B
 time = 1
 [Command]
+name = "blocking"
+command = /B
+time = 1
+[Command]
 name = "QCF_x"
 command = x
 [Command]
@@ -165,12 +169,43 @@ trigger1 = statetype = A
 trigger1 = ctrl
 trigger2 = stateno = 600 || stateno = 630
 trigger2 = movecontact
+
+[State -1, High Blocking]
+type = ChangeState
+value = 1300
+triggerall = command = "blocking"
+triggerall = command != "holddown"
+trigger1 = ctrl
+trigger1 = statetype != A
+trigger2 = stateno = 1310 || stateno = 1330
+trigger2 = time > 0
+
+[State -1, Low Blocking]
+type = ChangeState
+value = 1320
+triggerall = command = "blocking"
+triggerall = command = "holddown"
+trigger1 = ctrl
+trigger1 = statetype != A
+trigger2 = stateno = 1310 || stateno = 1330
+trigger2 = time > 0
+
+[State -1, Air Blocking]
+type = ChangeState
+value = 1340
+triggerall = command = "blocking"
+triggerall = command != "holddown"
+triggerall = command != "holdfwd"
+trigger1 = ctrl
+trigger1 = statetype = A
+trigger2 = stateno = 1350
+trigger2 = time > 0
 """
 
 with tempfile.TemporaryDirectory() as td:
     path = Path(td) / "test.cmd"
     path.write_text(SOURCE, encoding="utf-8")
-    rules, diagnostics = parse_state_rules(path, {200, 610, 800, 1000, 1010, 1020, 1100, 1110, 1120, 1200, 1210, 1220})
+    rules, diagnostics = parse_state_rules(path, {200, 610, 800, 1000, 1010, 1020, 1100, 1110, 1120, 1200, 1210, 1220, 1300, 1320, 1340})
     out_prefix = Path(td) / "generated_rules"
     emit(rules, diagnostics, out_prefix, "test")
     emitted_c = out_prefix.with_suffix(".c").read_text(encoding="utf-8")
@@ -182,7 +217,7 @@ with tempfile.TemporaryDirectory() as td:
     assert "STATE_RULE_INSTRUCTION_COUNT" in emitted_h
 
 assert diagnostics == []
-assert [r.target for r in rules] == [1020, 1000, 1010, 1120, 1100, 1110, 1220, 1200, 1210, 200, 800, 610]
+assert [r.target for r in rules] == [1020, 1000, 1010, 1120, 1100, 1110, 1220, 1200, 1210, 200, 800, 610, 1300, 1320, 1340]
 ops200 = [i.op for i in rules[9].code]
 assert ops200.count("command_active") == 1
 assert ops200.count("command_inactive") == 1
@@ -222,4 +257,18 @@ ops610 = [i.op for i in rules[11].code]
 assert ops610.count("state_no_eq") == 2
 assert "move_contact" in ops610
 assert ops610.count("or") >= 2
+by_target = {r.target: r for r in rules}
+ops1300 = [i.op for i in by_target[1300].code]
+assert ops1300.count("command_active") == 1
+assert ops1300.count("command_inactive") == 1
+assert "state_type_ne" in ops1300
+assert ops1300.count("state_no_eq") == 2
+assert "state_time_gt" in ops1300
+ops1320 = [i.op for i in by_target[1320].code]
+assert ops1320.count("command_active") == 2
+assert "state_type_ne" in ops1320
+ops1340 = [i.op for i in by_target[1340].code]
+assert ops1340.count("command_inactive") == 2
+assert "state_type_eq" in ops1340
+assert "state_no_eq" in ops1340
 print("ikemen state-rule compiler: OK")
