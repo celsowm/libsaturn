@@ -141,6 +141,56 @@ int main() {
     OK(ik_entity_get_const(&pool,explod)==nullptr);
     EQ(ik_entity_count_type(&pool,IK_ENTITY_EXPLOD),0u);
 
+    ik_cns_projectile_t projectile_spec{};
+    projectile_spec.id=42;
+    projectile_spec.anim_no=200;
+    projectile_spec.hit_anim_no=200;
+    projectile_spec.remove_anim_no=-1;
+    projectile_spec.cancel_anim_no=-1;
+    projectile_spec.hitdef_global=0;
+    projectile_spec.pos_x_q8=30*IK_ENTITY_Q8_ONE;
+    projectile_spec.pos_y_q8=-20*IK_ENTITY_Q8_ONE;
+    projectile_spec.vel_x_q8=4*IK_ENTITY_Q8_ONE;
+    projectile_spec.vel_y_q8=-1*IK_ENTITY_Q8_ONE;
+    projectile_spec.velmul_x_q8=IK_ENTITY_Q8_ONE;
+    projectile_spec.velmul_y_q8=251;
+    projectile_spec.accel_x_q8=0;
+    projectile_spec.accel_y_q8=26;
+    projectile_spec.remove_time=5;
+    projectile_spec.edge_bound=50;
+    projectile_spec.stage_bound=60;
+    projectile_spec.hits=3u;
+    projectile_spec.miss_time=8u;
+    projectile_spec.priority=2u;
+    projectile_spec.remove_on_hit=0u;
+    projectile_spec.spr_priority=4;
+    projectile_spec.ownpal=1u;
+    projectile_spec.pause_move_time=5u;
+    projectile_spec.super_move_time=7u;
+
+    ik_entity_handle_t projectile{};
+    OK(ik_entity_runtime_spawn_projectile_spec(
+        &runtime,p1,&projectile_spec,&projectile));
+    const ik_entity_t* shot=ik_entity_get_const(&pool,projectile);
+    OK(shot!=nullptr);
+    EQ(shot->type,IK_ENTITY_PROJECTILE);
+    EQ(shot->id,42);
+    EQ(shot->state_no,-1);
+    EQ(shot->active_hitdef_global,0);
+    EQ(shot->projectile_hits_left,3u);
+    EQ(shot->projectile_miss_time,8u);
+    EQ(shot->projectile_priority,2u);
+    EQ(shot->pause_move_time,5u);
+    EQ(shot->super_move_time,7u);
+    EQ(shot->x_q8,130*IK_ENTITY_Q8_ONE);
+    EQ(shot->y_q8,30*IK_ENTITY_Q8_ONE);
+
+    ik_entity_runtime_step(&runtime);
+    shot=ik_entity_get_const(&pool,projectile);
+    OK(shot!=nullptr);
+    EQ(shot->x_q8,134*IK_ENTITY_Q8_ONE);
+    EQ(shot->remove_time,4);
+
     std::puts("[test] ikemen_entity_runtime OK");
     return 0;
 }
