@@ -3593,6 +3593,24 @@ def emit(
         for e in explods
     ]
 
+    projectile_lines = [
+        "    {"
+        f"{p['id']}, {p['anim_no']}, {p['hit_anim_no']}, "
+        f"{p['remove_anim_no']}, {p['cancel_anim_no']}, "
+        f"{p['hitdef_global']}, "
+        f"{p['pos_x_q8']}, {p['pos_y_q8']}, "
+        f"{p['vel_x_q8']}, {p['vel_y_q8']}, "
+        f"{p['velmul_x_q8']}, {p['velmul_y_q8']}, "
+        f"{p['accel_x_q8']}, {p['accel_y_q8']}, "
+        f"{p['remove_time']}, {p['edge_bound']}, {p['stage_bound']}, "
+        f"{p['hits']}u, {p['miss_time']}u, {p['priority']}u, "
+        f"{p['remove_on_hit']}u, {p['spr_priority']}, "
+        f"{p['ownpal']}u, {p['pause_move_time']}u, "
+        f"{p['super_move_time']}u"
+        "},"
+        for p in projectiles
+    ]
+
     reversal_lines = [
         "    {"
         f"{r['state_number']}, {r['start_time']}u, {r['end_time']}u, "
@@ -3654,6 +3672,10 @@ static const ik_cns_explod_t {ident}_explods[{max(1, len(explod_lines))}] = {{
 {chr(10).join(explod_lines) if explod_lines else '    {0},'}
 }};
 
+static const ik_cns_projectile_t {ident}_projectiles[{max(1, len(projectile_lines))}] = {{
+{chr(10).join(projectile_lines) if projectile_lines else '    {0},'}
+}};
+
 static const ik_cns_reversaldef_t {ident}_reversals[{max(1, len(reversal_lines))}] = {{
 {chr(10).join(reversal_lines) if reversal_lines else '    {0},'}
 }};
@@ -3712,7 +3734,8 @@ const ik_cns_asset_t {ident}_cns = {{
     {ident}_helpers, {len(helpers)}u,
     {ident}_reversals, {len(reversals)}u,
     {ident}_hitoverrides, {len(hitoverrides)}u,
-    {ident}_explods, {len(explods)}u
+    {ident}_explods, {len(explods)}u,
+    {ident}_projectiles, {len(projectiles)}u
 }};
 """
 
@@ -3727,6 +3750,7 @@ const ik_cns_asset_t {ident}_cns = {{
 #define {macro}_CNS_CONTROLLER_COUNT {len(controllers)}u
 #define {macro}_CNS_HELPER_COUNT {len(helpers)}u
 #define {macro}_CNS_EXPLOD_COUNT {len(explods)}u
+#define {macro}_CNS_PROJECTILE_COUNT {len(projectiles)}u
 #define {macro}_CNS_REVERSAL_COUNT {len(reversals)}u
 #define {macro}_CNS_HITOVERRIDE_COUNT {len(hitoverrides)}u
 
@@ -3745,6 +3769,7 @@ extern const ik_cns_asset_t {ident}_cns;
         "controllers": controllers,
         "helpers": helpers,
         "explods": explods,
+        "projectiles": projectiles,
         "reversals": reversals,
         "hitoverrides": hitoverrides,
         "common_deferred": common_deferred,
