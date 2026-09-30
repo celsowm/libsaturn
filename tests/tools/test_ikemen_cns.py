@@ -1581,12 +1581,21 @@ sprpriority = 2
 [State 1420, Afterimage]
 type = AfterImage
 trigger1 = Time = 0
+length = 13
+PalBright = 30,30,0
+PalContrast = 70,70,20
+PalAdd = -10,-10,-10
+PalMul = .85,.85,.50
+TimeGap = 1
+FrameGap = 2
 time = 2
 
 [State 1420, Blink]
 type = PalFX
 trigger1 = Time = 0
 time = 20
+add = 32,16,0
+sinadd = 64,32,5,3
 
 [State 1420, Early Hit]
 type = HitDef
@@ -2379,6 +2388,17 @@ after1420 = next(
     c for c in zankou_1420 if c["type"] == "IK_CNS_CTRL_AFTER_IMAGE"
 )
 assert after1420["value0"] == 2
+assert after1420["value1"] == 13
+assert after1420["value2"] == 1
+assert after1420["value3"] == 2
+assert (after1420["value4"] & 0xff) == 30
+assert ((after1420["value4"] >> 8) & 0xff) == 30
+assert (after1420["value5"] & 0xff) == 70
+assert ((after1420["value5"] >> 8) & 0xff) == 70
+assert ((after1420["value5"] >> 16) & 0xff) == 20
+assert (after1420["value6"] & 0xff) == (256 - 10)
+assert (after1420["value7"] & 0xff) == round(.85 * 255)
+assert ((after1420["value7"] >> 16) & 0xff) == round(.50 * 255)
 aftertime1420 = next(
     c for c in zankou_1420 if c["type"] == "IK_CNS_CTRL_AFTER_IMAGE_TIME"
 )
