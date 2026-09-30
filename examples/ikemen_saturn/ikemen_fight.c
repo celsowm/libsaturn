@@ -194,6 +194,8 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->attack_id = 0;
     f->move_contact = 0;
     f->active_hitdef_local = -1;
+    f->pos_freeze_x = 0u;
+    f->pos_freeze_y = 0u;
     f->target_index = -1;
     f->bound_to = -1;
 }
@@ -836,8 +838,8 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f,
     }
 
     f->vy_q8 += gravity;
-    f->x_q8 += f->vx_q8;
-    f->y_q8 += f->vy_q8;
+    if (!f->pos_freeze_x) f->x_q8 += f->vx_q8;
+    if (!f->pos_freeze_y) f->y_q8 += f->vy_q8;
     f->x_q8 = clamp_q8(f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
 
     if (f->vy_q8 > 0 && f->y_q8 >= floor_q8 + land_level_q8) {
@@ -890,6 +892,19 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         if (controls->down) command_mask |= IK_CNS_COMMAND_HOLD_DOWN;
         if (controls->recovery) command_mask |= IK_CNS_COMMAND_RECOVERY;
     }
+    const int back_body_dist =
+        f->facing > 0
+            ? (int)f->x - f->push_back - IK_STAGE_MIN_X
+            : IK_STAGE_MAX_X - ((int)f->x + f->push_back);
+    const int front_body_dist =
+        f->facing > 0
+            ? IK_STAGE_MAX_X - ((int)f->x + f->push_front)
+            : (int)f->x - f->push_front - IK_STAGE_MIN_X;
+    const int back_dist =
+        f->facing > 0
+            ? (int)f->x - IK_STAGE_MIN_X
+            : IK_STAGE_MAX_X - (int)f->x;
+
     const ik_cns_controller_context_t context = {
         .state_time = f->state_time,
         .anim_element = elem,
@@ -905,6 +920,9 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         .hit_slide_time = f->hit_slide_time,
         .hit_ctrl_time = f->hit_ctrl_time,
         .fall_time = f->fall_time,
+        .back_edge_body_dist = (int16_t)back_body_dist,
+        .front_edge_body_dist = (int16_t)front_body_dist,
+        .back_edge_dist = (int16_t)back_dist,
         .state_axis = f->state_axis,
         .hit_launch = (uint8_t)(
             f->gethit_fall || f->gethit_vy_q8 != 0 || !f->on_ground),
@@ -1206,6 +1224,26 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                         : ctrl->value1;
                 f->vx_q8 =
                     (f->vx_q8 * (int32_t)mul) / IK_CNS_Q8_ONE;
+            case IK_CNS_CTRL_POS_ADD_FROM_BACK_EDGE: {
+                const int32_t delta =
+                    (int32_t)ctrl->value0 -
+                    (int32_t)context.back_edge_body_dist * IK_CNS_Q8_ONE;
+                f->x_q8 += (int32_t)f->facing * delta;
+                f->x_q8 = clamp_q8(
+                    f->x_q8, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
+                sync_position(f);
+                break;
+            }
+
+            case IK_CNS_CTRL_POS_FREEZE:
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_X) != 0u) {
+                    f->pos_freeze_x = 1u;
+                }
+                if ((ctrl->flags & IK_CNS_CTRL_AXIS_Y) != 0u) {
+                    f->pos_freeze_y = 1u;
+                }
+                break;
+
                 break;
             }
 
@@ -1386,6 +1424,8 @@ static void step_fighter(ik_fight_t* fight, int index,
     ik_fighter_t* foe = &fight->fighters[index ^ 1];
     const ik_cns_constants_t* c = constants_for(fight);
 
+    f->pos_freeze_x = 0u;
+    f->pos_freeze_y = 0u;
     if (controls && !controls->up) {
         f->up_latched = 0u;
     }
