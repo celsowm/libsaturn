@@ -116,6 +116,7 @@ static const ik_frame_t k_frames[] = {
     F(920,3,1,1,1), F(920,4,2,1,1),
     F(921,0,3,1,1),
     F(922,0,3,1,1),
+    F(923,0,3,1,1),
 };
 #undef F
 
@@ -2234,6 +2235,60 @@ int main() {
         p1={}; p2={};
         tick2(&g,&p1,&p2);
         EQ(v->vy_q8,-1024+102);
+    }
+
+    /* ground.cornerpush.veloff applies only when the grounded victim's
+     * body reaches a stage edge. The value is local to P1's facing. */
+    {
+        constexpr unsigned state_count=
+            (unsigned)(sizeof(k_states)/sizeof(k_states[0]));
+        ik_cns_state_t states[state_count+1];
+        for(unsigned i=0;i<state_count;++i) states[i]=k_states[i];
+        states[state_count]=k_states[0];
+        states[state_count].number=923;
+        states[state_count].anim=923;
+        states[state_count].hitdef_ofs=0u;
+        states[state_count].hitdef_count=1u;
+        states[state_count].playsnd_count=0u;
+        states[state_count].controller_count=0u;
+
+        ik_cns_hitdef_t hit{};
+        hit.state_number=923;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.damage=1;
+        hit.priority=5u;
+        hit.ground_type=IK_CNS_GROUND_LOW;
+        hit.ground_hit_time=10u;
+        hit.air_hit_time=10u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.guard_kill=1u;
+        hit.p1_state_no=-1;
+        hit.p2_state_no=-1;
+        hit.guard_dist=-1;
+        hit.p1_spr_priority=-128;
+        hit.fall_recover=1u;
+        hit.ground_cornerpush_veloff_q8=-12*256;
+
+        ik_cns_asset_t asset=k_cns;
+        asset.states=states;
+        asset.state_count=(uint16_t)(state_count+1);
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+
+        ik_fight_init(&g,&asset); place(&g,100,145);
+        ik_fight_controls_t p1{}; request(&p1,923);
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[0].vx_q8,0);
+
+        ik_fight_init(&g,&asset); place(&g,240,281);
+        p1={}; request(&p1,923); p2={};
+        tick2(&g,&p1,&p2);
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[0].facing,1);
+        EQ(g.fighters[0].vx_q8,-12*256);
     }
 
     /* Recovery command uses the compiled common thresholds. Near the
