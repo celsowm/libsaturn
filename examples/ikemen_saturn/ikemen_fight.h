@@ -144,6 +144,7 @@ typedef struct ik_fighter {
     uint8_t pos_freeze_y;
     uint8_t pause_fired;
     uint8_t not_hit_by_mask;
+    uint16_t not_hit_by_attr_mask;
     uint16_t not_hit_by_time;
     int8_t target_index;
     int8_t bound_to;
