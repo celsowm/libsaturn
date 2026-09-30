@@ -96,6 +96,10 @@ static const ik_frame_t k_frames[] = {
     F(810,12,1,0,0), F(810,13,1,0,0), F(810,14,1,0,0),
     F(820,0,0,0,0),
     F(821,0,0,0,0),
+
+    /* Palm HitDef activates on element 3; attack Clsn1 starts on element 4. */
+    F(903,0,1,0,0), F(903,1,1,0,0), F(903,2,1,0,0),
+    F(903,3,4,1,1),
 };
 #undef F
 
@@ -1155,6 +1159,84 @@ int main() {
         }
         EQ(g.hits_p1,2u);
         EQ(g.fighters[1].juggle_points,0);
+    }
+
+    /* Conditional HitDefs are activated on the exact trigger tick and
+     * persist. Moving P2 across the p2bodydist threshold after activation
+     * must not replace the selected definition. StateDef poweradd is also
+     * applied exactly once when the Palm state is entered. */
+    {
+        constexpr unsigned state_count=
+            (unsigned)(sizeof(k_states)/sizeof(k_states[0]));
+        constexpr unsigned hitdef_count=
+            (unsigned)(sizeof(k_hitdefs)/sizeof(k_hitdefs[0]));
+        ik_cns_state_t states[state_count+1];
+        ik_cns_hitdef_t hitdefs[hitdef_count+2];
+        for(unsigned i=0;i<state_count;++i) states[i]=k_states[i];
+        for(unsigned i=0;i<hitdef_count;++i) hitdefs[i]=k_hitdefs[i];
+
+        states[state_count]=k_states[0];
+        states[state_count].number=903;
+        states[state_count].anim=903;
+        states[state_count].power_add=55;
+        states[state_count].hitdef_ofs=(uint16_t)hitdef_count;
+        states[state_count].hitdef_count=2u;
+        states[state_count].controller_count=0u;
+
+        hitdefs[hitdef_count]=k_hitdefs[0];
+        hitdefs[hitdef_count].state_number=903;
+        hitdefs[hitdef_count].trigger_kind=IK_CNS_TRIGGER_ANIM_ELEM_EQ;
+        hitdefs[hitdef_count].trigger_value=3;
+        hitdefs[hitdef_count].damage=90;
+        hitdefs[hitdef_count].guard_damage=0;
+        hitdefs[hitdef_count].pause_p1=0u;
+        hitdefs[hitdef_count].pause_p2=0u;
+        hitdefs[hitdef_count].guard_flags=0u;
+        hitdefs[hitdef_count].p2_body_dist_op=IK_CNS_P2_DIST_LT;
+        hitdefs[hitdef_count].p2_body_dist_x=40;
+
+        hitdefs[hitdef_count+1]=hitdefs[hitdef_count];
+        hitdefs[hitdef_count+1].damage=85;
+        hitdefs[hitdef_count+1].p2_body_dist_op=IK_CNS_P2_DIST_GE;
+
+        ik_cns_asset_t asset=k_cns;
+        asset.states=states;
+        asset.state_count=(uint16_t)(state_count+1);
+        asset.hitdefs=hitdefs;
+        asset.hitdef_count=(uint16_t)(hitdef_count+2);
+
+        ik_fight_init(&g,&asset);
+        place(&g,100,145); /* body distance 13 => near */
+        ik_fight_controls_t p1{}; request(&p1,903);
+        ik_fight_controls_t p2{};
+
+        tick2(&g,&p1,&p2);
+        p1.has_state_request=0u;
+        EQ(g.fighters[0].power,55);
+        tick2(&g,&p1,&p2);
+        tick2(&g,&p1,&p2); /* element 3 activates near HitDef */
+        EQ(g.fighters[0].active_hitdef_local,0);
+        EQ(g.hits_p1,0u);
+
+        g.fighters[1].x=180;
+        g.fighters[1].x_q8=180*256; /* body distance now >=40 */
+        tick2(&g,&p1,&p2); /* element 4 gets Clsn1 */
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].hp,910);
+        EQ(g.fighters[0].active_hitdef_local,0);
+        EQ(g.fighters[0].power,55);
+
+        ik_fight_init(&g,&asset);
+        place(&g,100,180); /* body distance 48 => far */
+        p1={}; request(&p1,903); p2={};
+        tick2(&g,&p1,&p2);
+        p1.has_state_request=0u;
+        tick2(&g,&p1,&p2);
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[0].active_hitdef_local,1);
+        tick2(&g,&p1,&p2);
+        EQ(g.hits_p1,1u);
+        EQ(g.fighters[1].hp,915);
     }
 
     /* Default hitflag=MAF must not hit a liedown opponent. D is what
