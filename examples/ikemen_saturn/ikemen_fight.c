@@ -124,6 +124,7 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     f->move_contact = 0u;
     f->move_hit = 0u;
     f->pause_fired = 0u;
+    f->one_shot_controller_mask = 0u;
     if (!(spec && spec->hitdef_persist)) {
         f->hitdef_hit_mask = 0u;
         f->active_hitdef_local = -1;
@@ -2274,6 +2275,30 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
             case IK_CNS_CTRL_CTRL_SET:
                 f->ctrl = (int8_t)(ctrl->value0 != 0);
                 break;
+
+            case IK_CNS_CTRL_EXPLOD: {
+                if (!fight->entities || !fight->cns->explods ||
+                    ctrl->value0 < 0 ||
+                    ctrl->value0 >= fight->cns->explod_count) {
+                    break;
+                }
+                if (ctrl->value1 != 0 && i < 64u) {
+                    const uint64_t bit = (uint64_t)1u << i;
+                    if ((f->one_shot_controller_mask & bit) != 0u) {
+                        break;
+                    }
+                    f->one_shot_controller_mask |= bit;
+                }
+                sync_fighter_entity(fight, f);
+                ik_entity_runtime_t runtime;
+                ik_entity_runtime_init(
+                    &runtime, fight->entities, fight->cns, frames, frames);
+                ik_entity_handle_t spawned = ik_entity_invalid_handle();
+                (void)ik_entity_runtime_spawn_explod(
+                    &runtime, fighter_entity_handle(fight, f),
+                    &fight->cns->explods[ctrl->value0], &spawned);
+                break;
+            }
 
             case IK_CNS_CTRL_HELPER: {
                 if (!fight->entities || !fight->cns->helpers ||
