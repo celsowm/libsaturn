@@ -12,6 +12,7 @@ from tools.ikemen_cns import (
     Section,
     compile_explod_controller,
     compile_helper_controller,
+    compile_projectile_controller,
     emit,
 )  # noqa: E402
 
@@ -2001,6 +2002,66 @@ helper_ctrl = report["controllers"][helper_state["controller_ofs"]]
 assert helper_ctrl["type"] == "IK_CNS_CTRL_DESTROY_SELF"
 assert helper_ctrl["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
 assert helper_ctrl["trigger_value"] == 5
+
+projectile_ctrl = Section(
+    "State 9000, Fireball",
+    [
+        ("type", "Projectile"),
+        ("trigger1", "Time = 0"),
+        ("projid", "42"),
+        ("projanim", "9001"),
+        ("projhitanim", "9002"),
+        ("projremanim", "9003"),
+        ("projcancelanim", "9004"),
+        ("offset", "30,-20"),
+        ("velocity", "4,-1"),
+        ("velmul", "1,.98"),
+        ("accel", "0,.1"),
+        ("projremove", "0"),
+        ("projremovetime", "90"),
+        ("projhits", "3"),
+        ("projmisstime", "8"),
+        ("projpriority", "2"),
+        ("projsprpriority", "4"),
+        ("projedgebound", "50"),
+        ("projstagebound", "60"),
+        ("pausemovetime", "5"),
+        ("supermovetime", "7"),
+        ("ownpal", "1"),
+        ("attr", "S, SP"),
+        ("damage", "40,5"),
+        ("priority", "4, Hit"),
+        ("pausetime", "6,8"),
+        ("guardflag", "MA"),
+        ("ground.type", "Low"),
+        ("ground.slidetime", "12"),
+        ("ground.hittime", "18"),
+        ("ground.velocity", "-4,0"),
+        ("air.velocity", "-3,-4"),
+    ],
+)
+compiled_projectile = compile_projectile_controller(
+    9000, projectile_ctrl, 2, 11, 2, 40
+)
+assert compiled_projectile is not None
+proj_controller, projectile, projectile_hitdef = compiled_projectile
+assert proj_controller["type"] == "IK_CNS_CTRL_PROJECTILE"
+assert proj_controller["value0"] == 2
+assert projectile["id"] == 42
+assert projectile["anim_no"] == 9001
+assert projectile["hit_anim_no"] == 9002
+assert projectile["remove_anim_no"] == 9003
+assert projectile["cancel_anim_no"] == 9004
+assert projectile["hitdef_global"] == 11
+assert projectile["hits"] == 3
+assert projectile["miss_time"] == 8
+assert projectile["priority"] == 2
+assert projectile["remove_on_hit"] == 0
+assert projectile["pause_move_time"] == 5
+assert projectile["super_move_time"] == 7
+assert projectile_hitdef["damage"] == 40
+assert projectile_hitdef["guard_damage"] == 5
+assert projectile_hitdef["attack_attr_mask"] == "IK_CNS_ATTR_SPECIAL_PROJECTILE"
 
 explod_ctrl = Section(
     "State 191, Wood",
