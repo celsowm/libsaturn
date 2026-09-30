@@ -2727,6 +2727,59 @@ int main() {
         EQ(g.fighters[0].state,3051);
     }
 
+    /* HitFallDamage consumes stored HitDef fall.damage once and replays the
+     * authored fall environment shake on ground impact. */
+    {
+        const ik_cns_controller_t ctrls[] = {
+            {5110,IK_CNS_CTRL_FALL_ENV_SHAKE,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,0,0,0u},
+            {5110,IK_CNS_CTRL_HIT_FALL_DAMAGE,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,0,0,0u},
+        };
+        ik_cns_state_t state{};
+        state.number=5110;
+        state.anim=0;
+        state.state_type=IK_CNS_STATE_LIEDOWN;
+        state.move_type=IK_CNS_MOVE_HIT;
+        state.physics=IK_CNS_PHYS_NONE;
+        state.controller_count=2u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=&state;
+        asset.state_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=2u;
+
+        ik_fight_init(&g,&asset);
+        g.fighters[0].state=5110;
+        g.fighters[0].anim=0;
+        g.fighters[0].state_time=0u;
+        g.fighters[0].hp=500;
+        g.fighters[0].gethit_fall_damage=70;
+        g.fighters[0].gethit_fall_envshake_time=15u;
+        g.fighters[0].gethit_fall_envshake_ampl=6;
+        g.fighters[0].gethit_fall_envshake_freq=178u;
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+
+        EQ(g.fighters[0].hp,430);
+        EQ(g.fighters[0].gethit_fall_damage,0);
+        EQ(g.env_shake_time,15u);
+        EQ(g.env_shake_ampl,6);
+        EQ(g.env_shake_freq,178u);
+
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[0].hp,430);
+    }
+
     /* Dynamic helper attacks participate in ReversalDef before the normal
      * entity hit/guard path. AA matches physical NA/SA/HA, not projectiles. */
     {
