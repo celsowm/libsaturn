@@ -211,6 +211,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->pos_freeze_y = 0u;
     f->pause_fired = 0u;
     f->not_hit_by_mask = 0u;
+    f->not_hit_by_attr_mask = 0u;
     f->not_hit_by_time = 0u;
     f->target_index = -1;
     f->bound_to = -1;
@@ -501,15 +502,22 @@ static uint8_t reversal_state_bit(
 static int fighter_not_hit_by_blocks(
     const ik_fight_t* fight,
     const ik_fighter_t* victim,
-    const ik_fighter_t* attacker
+    uint8_t attacker_state_bit,
+    const ik_cns_hitdef_t* incoming
 ) {
-    if (!fight || !victim || !attacker ||
+    if (!fight || !victim || !incoming ||
         victim->not_hit_by_time == 0u ||
         victim->not_hit_by_mask == 0u) {
         return 0;
     }
-    return (victim->not_hit_by_mask &
-            reversal_state_bit(fight, attacker)) != 0u;
+    if ((victim->not_hit_by_mask & attacker_state_bit) == 0u) {
+        return 0;
+    }
+    if (victim->not_hit_by_attr_mask == 0u) {
+        return 1;
+    }
+    return (victim->not_hit_by_attr_mask &
+            incoming->attack_attr_mask) != 0u;
 }
 
 static const ik_cns_reversaldef_t* active_reversaldef(
@@ -2037,7 +2045,9 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
             }
 
             case IK_CNS_CTRL_NOT_HIT_BY:
-                f->not_hit_by_mask = (uint8_t)ctrl->value0;
+                f->not_hit_by_mask = (uint8_t)(ctrl->value0 & 0xff);
+                f->not_hit_by_attr_mask =
+                    (uint16_t)(((uint32_t)ctrl->value0 >> 8) & 0xffffu);
                 f->not_hit_by_time = (uint16_t)(
                     ctrl->value1 <= 0 ? 1 :
                     ctrl->value1 > 65535 ? 65535 : ctrl->value1);
@@ -2576,6 +2586,7 @@ static void step_fighter(ik_fight_t* fight, int index,
         --f->not_hit_by_time;
         if (f->not_hit_by_time == 0u) {
             f->not_hit_by_mask = 0u;
+            f->not_hit_by_attr_mask = 0u;
         }
     }
     if (controls && !controls->up) {
@@ -2813,6 +2824,10 @@ static void resolve_entity_contacts(
          * Reject rather than silently treating a throw as a normal strike. */
         if ((hitdef->flags & IK_CNS_HITDEF_THROW) != 0u) continue;
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
+        if (fighter_not_hit_by_blocks(
+                fight, v, reversal_entity_state_bit(attacker), hitdef)) {
+            continue;
+        }
         if (!entity_juggle_allows_target(
                 fight, attacker, v, hitdef)) {
             continue;
@@ -2973,7 +2988,10 @@ void ik_fight_update(ik_fight_t* fight,
             active_hitdef(fight, attacker_frames, a, v, &local_hitdef);
         if (!hitdef || local_hitdef >= 32u) continue;
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
-        if (fighter_not_hit_by_blocks(fight, v, a)) continue;
+        if (fighter_not_hit_by_blocks(
+                fight, v, reversal_state_bit(fight, a), hitdef)) {
+            continue;
+        }
         const uint32_t bit = (uint32_t)1u << local_hitdef;
         if ((a->hitdef_hit_mask & bit) != 0u) continue;
 
