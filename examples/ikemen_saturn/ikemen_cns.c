@@ -236,6 +236,19 @@ int ik_cns_controller_trigger_context_now(
                      context->anim_element_time >= min_elem_time));
         }
 
+        case IK_CNS_TRIGGER_ROUND_STATE_EQ:
+            return context->round_state ==
+                   (uint8_t)(controller->trigger_value < 0
+                                 ? 0
+                                 : controller->trigger_value);
+
+        case IK_CNS_TRIGGER_ROUND_STATE_NE:
+            return context->round_state !=
+                   (uint8_t)(controller->trigger_value < 0
+                                 ? 0
+                                 : controller->trigger_value);
+
+
         case IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED: {
             const uint16_t packed =
                 (uint16_t)controller->trigger_value;
