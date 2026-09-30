@@ -785,6 +785,13 @@ static void sync_player_entities(const ik_fight_t* fight) {
         entity->anim_time = fighter->anim_time;
         entity->life = fighter->hp;
         entity->power = fighter->power;
+        entity->active_hit_attr_mask = 0u;
+        if (fighter->active_hitdef_global >= 0 &&
+            fighter->active_hitdef_global < (int16_t)fight->cns->hitdef_count) {
+            entity->active_hit_attr_mask =
+                fight->cns->hitdefs[(uint16_t)fighter->active_hitdef_global]
+                    .attack_attr_mask;
+        }
         entity->push_back = fighter->push_back;
         entity->push_front = fighter->push_front;
         entity->facing = fighter->facing;
