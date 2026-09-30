@@ -3272,10 +3272,41 @@ void ik_fight_update(ik_fight_t* fight,
     }
 
     if (fight->pause_time > 0u) {
-        --fight->pause_time;
-        if (fight->pause_move_time > 0u) {
+        if (fight->pause_move_time > 0u &&
+            fight->pause_owner >= 0 &&
+            fight->pause_owner < 2) {
+            const int owner = fight->pause_owner;
+            const ik_fight_controls_t* owner_controls =
+                owner == 0 ? p1 : p2;
+            const ik_frame_table_t* owner_frames =
+                owner == 0 ? p1_frames : p2_frames;
+            const ik_frame_table_t* foe_frames =
+                owner == 0 ? p2_frames : p1_frames;
+            const int owner_dummy =
+                owner == 1 && p2 == 0;
+
+            step_fighter(
+                fight, owner, owner_controls, owner_dummy,
+                owner_frames, foe_frames);
+
+            if (fight->entities) {
+                sync_player_entities(fight);
+                ik_entity_runtime_t runtime;
+                ik_entity_runtime_init(
+                    &runtime, fight->entities, fight->cns,
+                    p1_frames, p2_frames);
+                ik_entity_runtime_set_command_mask(
+                    &runtime, 0u, controls_command_mask(p1));
+                ik_entity_runtime_set_command_mask(
+                    &runtime, 1u, controls_command_mask(p2));
+                ik_entity_runtime_step_paused(
+                    &runtime, (uint8_t)owner,
+                    fight->pause_is_super != 0u);
+            }
             --fight->pause_move_time;
         }
+
+        --fight->pause_time;
         if (fight->pause_time == 0u) {
             fight->pause_owner = -1;
             fight->pause_move_time = 0u;
