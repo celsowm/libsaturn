@@ -72,10 +72,13 @@ def _runtime_sprite_asset(container: sff_mod.SffContainer,
     if len(raw) != node.width * node.height:
         raise ValueError(f"sprite {(node.group, node.number)} decoded size mismatch")
 
-    if node.fmt in (sff_mod.FORMAT_RAW, sff_mod.FORMAT_LZ5):
+    if node.fmt == sff_mod.FORMAT_RAW or (
+            node.fmt == sff_mod.FORMAT_LZ5 and source):
         payload = source
         runtime_format = node.fmt
     else:
+        # Empty LZ5 nodes decode to an all-zero sprite in the existing
+        # pipeline. Keep that behavior by materializing them as raw bytes.
         payload = raw
         runtime_format = sff_mod.FORMAT_RAW
 
