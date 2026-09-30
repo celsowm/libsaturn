@@ -99,12 +99,22 @@ sat_result_t ik_audio_init(ik_audio_t* audio) {
     if (st != SAT_OK) return st;
     st = create_pcm_sound(&audio->strong_hit, &kfm_sounds_strong_hit);
     if (st != SAT_OK) return st;
-    return create_pcm_sound(
+    st = create_pcm_sound(
         &audio->air_strong_hit, &kfm_sounds_air_strong_hit);
+    if (st != SAT_OK) return st;
+    return create_pcm_sound(
+        &audio->reversal_hit, &kfm_sounds_reversal_hit);
 }
 
 void ik_audio_process_fight(ik_audio_t* audio, const ik_fight_t* fight) {
     if (audio == 0 || fight == 0) return;
+
+    for (uint8_t i = 0u; i < fight->sound_count; ++i) {
+        const ik_sound_event_t* event = &fight->sound_events[i];
+        if (event->group == 6 && event->item == 0) {
+            (void)sat_sound_play(audio->reversal_hit, 0, 0);
+        }
+    }
 
     for (int i = 0; i < 2; ++i) {
         const ik_fighter_t* fighter = &fight->fighters[i];
