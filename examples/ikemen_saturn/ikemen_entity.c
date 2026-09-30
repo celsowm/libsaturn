@@ -99,6 +99,8 @@ int ik_entity_spawn(
     entity->root = ik_entity_invalid_handle();
     entity->target = ik_entity_invalid_handle();
     entity->facing = 1;
+    entity->active_hitdef_global = -1;
+    entity->active_hitdef_local = -1;
 
     const ik_entity_handle_t self = handle_for(pool, slot);
 

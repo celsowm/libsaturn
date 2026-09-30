@@ -114,9 +114,19 @@ int ik_entity_runtime_enter_state(
     const int16_t previous_anim = entity->anim_no;
     entity->prev_state_no = entity->state_no;
     entity->state_no = state_no;
-    entity->state_time = 0u;
-    entity->anim_time = 0u;
+    /* A helper is created after its owner's controller pass. The dynamic
+     * pass runs later in the same fight tick: wrap to 0 there so HitDef
+     * Time=0 is visible immediately, while compiled StateController Time=0
+     * (lowered to internal tick 1) runs on the next dynamic tick. */
+    entity->state_time = 65535u;
+    entity->anim_time = 65535u;
     entity->move_contact = 0u;
+    if (!(spec && spec->hitdef_persist)) {
+        entity->hitdef_hit_mask = 0u;
+        entity->active_hitdef_global = -1;
+        entity->active_hitdef_local = -1;
+        entity->active_hitdef_secondary = 0u;
+    }
 
     if (spec) {
         entity->anim_no =
@@ -200,7 +210,8 @@ static int process_controllers(
     ik_entity_runtime_t* runtime,
     ik_entity_handle_t handle,
     uint8_t* freeze_x,
-    uint8_t* freeze_y
+    uint8_t* freeze_y,
+    int hit_pause_only
 ) {
     ik_entity_t* entity = ik_entity_get(runtime->pool, handle);
     if (!entity) return 2;
@@ -227,6 +238,7 @@ static int process_controllers(
             entity->keyctrl && entity->owner_player < 2u
                 ? runtime->command_masks[entity->owner_player]
                 : 0u,
+        .hit_pause = entity->hit_pause,
         .alive = (uint8_t)(entity->life > 0),
         .anim_ended = (uint8_t)(anim_ended != 0),
         .move_contact = entity->move_contact
@@ -239,6 +251,10 @@ static int process_controllers(
 
         const ik_cns_controller_t* ctrl =
             &runtime->cns->controllers[index];
+        if (hit_pause_only &&
+            (ctrl->flags & IK_CNS_CTRL_IGNORE_HIT_PAUSE) == 0u) {
+            continue;
+        }
         if (!ik_cns_controller_trigger_context_now(ctrl, &context)) {
             continue;
         }
@@ -408,13 +424,24 @@ static void step_one(
     ik_entity_t* entity = ik_entity_get(runtime->pool, handle);
     if (!entity || entity->type != IK_ENTITY_HELPER) return;
 
+    uint8_t freeze_x = 0u;
+    uint8_t freeze_y = 0u;
+    if (entity->hit_pause > 0u) {
+        (void)process_controllers(
+            runtime, handle, &freeze_x, &freeze_y, 1);
+        entity = ik_entity_get(runtime->pool, handle);
+        if (entity && entity->hit_pause > 0u) {
+            --entity->hit_pause;
+        }
+        return;
+    }
+
     ++entity->state_time;
     ++entity->anim_time;
 
-    uint8_t freeze_x = 0u;
-    uint8_t freeze_y = 0u;
     const int result =
-        process_controllers(runtime, handle, &freeze_x, &freeze_y);
+        process_controllers(
+            runtime, handle, &freeze_x, &freeze_y, 0);
     if (result != 0) return;
 
     entity = ik_entity_get(runtime->pool, handle);

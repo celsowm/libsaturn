@@ -187,9 +187,12 @@ implemented (for example scaling/remappal/player/projectile helper types)
 instead of silently accepting incompatible semantics.
 
 Projectile and Explod already have pool kinds but do not execute their own
-controllers yet. Helper HitDef/contact resolution is also still pending; this
-milestone establishes lifecycle, state execution, variables, redirections and
-rendering before combat ownership is generalized.
+controllers yet. Helpers now also own persistent/re-armable HitDef state,
+CLSN1 contact against the opposing fighter, anti-repeat hit masks, hitpause,
+movecontact, juggle cost, damage/guard application and p1stateno transitions.
+Helper throws remain deferred until target/bind ownership is generalized, and
+helper-vs-player priority/trade arbitration is still resolved in separate
+passes rather than one global Ikemen contact queue.
 
 ## Runtime controller coverage
 

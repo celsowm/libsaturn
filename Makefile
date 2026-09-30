@@ -693,6 +693,7 @@ HOST_TEST_EXTRA_test_ikemen_command := examples/ikemen_saturn/ikemen_command.c e
 HOST_TEST_EXTRA_test_ikemen_expr := examples/ikemen_saturn/ikemen_expr.c
 HOST_TEST_EXTRA_test_ikemen_entity := examples/ikemen_saturn/ikemen_entity.c
 HOST_TEST_EXTRA_test_ikemen_entity_runtime := examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_entity_runtime.c examples/ikemen_saturn/ikemen_cns.c examples/ikemen_saturn/ikemen_anim.c
+HOST_TEST_EXTRA_test_ikemen_helper_combat := examples/ikemen_saturn/ikemen_fight.c examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_entity_runtime.c examples/ikemen_saturn/ikemen_cns.c examples/ikemen_saturn/ikemen_anim.c
 HOST_TEST_EXTRA_test_ikemen_cns := examples/ikemen_saturn/ikemen_cns.c
 HOST_TEST_EXTRA_test_ikemen_anim := examples/ikemen_saturn/ikemen_anim.c
 HOST_TEST_EXTRA_test_ikemen_decode := examples/ikemen_saturn/ikemen_anim.c

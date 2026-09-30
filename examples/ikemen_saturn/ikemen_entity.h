@@ -60,6 +60,12 @@ typedef struct ik_entity {
     uint8_t keyctrl;
     uint8_t ownpal;
 
+    uint16_t hit_pause;
+    uint32_t hitdef_hit_mask;
+    int16_t active_hitdef_global;
+    int8_t active_hitdef_local;
+    uint8_t active_hitdef_secondary;
+
     int32_t vars[IK_ENTITY_VAR_COUNT];
     int32_t fvars_q16[IK_ENTITY_FVAR_COUNT];
     int32_t sysvars[IK_ENTITY_SYSVAR_COUNT];

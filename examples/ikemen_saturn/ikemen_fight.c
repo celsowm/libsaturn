@@ -411,6 +411,107 @@ static int fighter_clsn_overlap(
     return 0;
 }
 
+static void entity_anim_position(
+    const ik_frame_table_t* frames,
+    const ik_entity_t* entity,
+    uint16_t* out_element,
+    uint16_t* out_element_time,
+    int* out_ended
+) {
+    uint32_t first = 0u;
+    uint32_t count = 0u;
+    uint16_t element = 1u;
+    uint16_t element_time = 0u;
+    int ended = 0;
+
+    if (!frames || !entity ||
+        !ik_frames_bounds(frames, entity->anim_no, &first, &count) ||
+        count == 0u) {
+        if (out_element) *out_element = element;
+        if (out_element_time) *out_element_time = element_time;
+        if (out_ended) *out_ended = 0;
+        return;
+    }
+
+    const uint32_t duration =
+        ik_action_duration_ticks(frames, entity->anim_no);
+    if (duration > 0u && entity->anim_time >= duration) ended = 1;
+
+    uint32_t remaining = entity->anim_time;
+    if (duration > 0u && remaining >= duration) remaining = duration - 1u;
+    for (uint32_t n = 0u; n < count; ++n) {
+        const uint16_t ticks =
+            ik_frame_ticks(&frames->frames[first + n]);
+        if (ticks == 0u || remaining < ticks) {
+            element = (uint16_t)(n + 1u);
+            element_time = (uint16_t)remaining;
+            break;
+        }
+        remaining -= ticks;
+    }
+
+    if (out_element) *out_element = element;
+    if (out_element_time) *out_element_time = element_time;
+    if (out_ended) *out_ended = ended;
+}
+
+static int entity_clsn_overlap(
+    const ik_frame_table_t* attacker_frames,
+    const ik_frame_table_t* victim_frames,
+    const ik_entity_t* attacker,
+    const ik_fighter_t* victim
+) {
+    if (!attacker_frames || !victim_frames || !attacker || !victim) {
+        return 0;
+    }
+    const ik_frame_t* af = ik_frame_at_time(
+        attacker_frames, attacker->anim_no, attacker->anim_time);
+    const ik_frame_t* vf = fighter_frame(victim_frames, victim);
+    if (!af || !vf || af->clsn1_count == 0u ||
+        vf->clsn2_count == 0u) {
+        return 0;
+    }
+
+    const int ax = ik_cns_q8_to_int(attacker->x_q8);
+    const int ay = ik_cns_q8_to_int(attacker->y_q8);
+    for (uint16_t ai = 0u; ai < af->clsn1_count; ++ai) {
+        int al, at, ar, ab;
+        if (!ik_frame_clsn_world(
+                attacker_frames, af, IK_CLSN_ATTACK, ai,
+                ax, ay, attacker->facing,
+                &al, &at, &ar, &ab)) {
+            continue;
+        }
+        for (uint16_t vi = 0u; vi < vf->clsn2_count; ++vi) {
+            int vl, vt, vr, vb;
+            if (!ik_frame_clsn_world(
+                    victim_frames, vf, IK_CLSN_HURT, vi,
+                    victim->x, victim->y, victim->facing,
+                    &vl, &vt, &vr, &vb)) {
+                continue;
+            }
+            if (ik_boxes_overlap(al, at, ar, ab, vl, vt, vr, vb)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static int entity_body_dist_x(
+    const ik_entity_t* attacker,
+    const ik_fighter_t* victim
+) {
+    if (!attacker || !victim) return 32767;
+    const int x = ik_cns_q8_to_int(attacker->x_q8);
+    int value =
+        ((int)victim->x - x) * (int)attacker->facing -
+        attacker->push_front - victim->push_front;
+    if (value < -32768) value = -32768;
+    if (value > 32767) value = 32767;
+    return value;
+}
+
 static int body_dist_x(const ik_fighter_t* attacker,
                        const ik_fighter_t* victim) {
     if (!attacker || !victim) return 32767;
@@ -520,6 +621,85 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
         (uint16_t)fighter->active_hitdef_global];
 }
 
+static const ik_cns_hitdef_t* active_entity_hitdef(
+    ik_fight_t* fight,
+    const ik_frame_table_t* frames,
+    ik_entity_t* entity,
+    const ik_fighter_t* victim,
+    uint8_t* out_local_index
+) {
+    if (!fight || !fight->cns || !entity || !victim) return 0;
+
+    const ik_cns_state_t* state =
+        ik_cns_find_state(fight->cns, entity->state_no);
+    if (!state || state->move_type != IK_CNS_MOVE_ATTACK ||
+        !fight->cns->hitdefs) {
+        return 0;
+    }
+
+    if (state->hitdef_count == 0u) {
+        if (state->hitdef_persist &&
+            entity->active_hitdef_global >= 0 &&
+            entity->active_hitdef_global <
+                (int16_t)fight->cns->hitdef_count) {
+            if (out_local_index) {
+                *out_local_index = (uint8_t)(
+                    entity->active_hitdef_local < 0
+                        ? 0 : entity->active_hitdef_local);
+            }
+            return &fight->cns->hitdefs[
+                (uint16_t)entity->active_hitdef_global];
+        }
+        return 0;
+    }
+
+    uint16_t element = 1u;
+    uint16_t element_time = 0u;
+    int anim_ended = 0;
+    entity_anim_position(
+        frames, entity, &element, &element_time, &anim_ended);
+    const int p2_dist = entity_body_dist_x(entity, victim);
+
+    for (uint8_t n = 0u; n < state->hitdef_count; ++n) {
+        const uint16_t global =
+            (uint16_t)(state->hitdef_ofs + n);
+        if (global >= fight->cns->hitdef_count) break;
+        const ik_cns_hitdef_t* hitdef =
+            &fight->cns->hitdefs[global];
+        const int primary_now = ik_cns_trigger_now(
+            hitdef->trigger_kind, hitdef->trigger_value,
+            entity->state_time, element, element_time, anim_ended);
+        const int secondary_now =
+            hitdef->has_trigger2 &&
+            ik_cns_trigger_now(
+                hitdef->trigger2_kind, hitdef->trigger2_value,
+                entity->state_time, element, element_time, anim_ended);
+        if (!primary_now && !secondary_now) continue;
+        if (!hitdef_p2_dist_allows(hitdef, p2_dist)) continue;
+
+        if (secondary_now && n < 32u) {
+            entity->hitdef_hit_mask &= ~(1u << n);
+        }
+        entity->active_hitdef_secondary =
+            (uint8_t)(secondary_now != 0);
+        entity->active_hitdef_local = (int8_t)n;
+        entity->active_hitdef_global = (int16_t)global;
+    }
+
+    if (entity->active_hitdef_global < 0 ||
+        entity->active_hitdef_global >=
+            (int16_t)fight->cns->hitdef_count) {
+        return 0;
+    }
+    if (out_local_index) {
+        *out_local_index = (uint8_t)(
+            entity->active_hitdef_local < 0
+                ? 0 : entity->active_hitdef_local);
+    }
+    return &fight->cns->hitdefs[
+        (uint16_t)entity->active_hitdef_global];
+}
+
 static int hitdef_allows_target(const ik_fight_t* fight,
                                 const ik_fighter_t* victim,
                                 const ik_cns_hitdef_t* hitdef) {
@@ -578,6 +758,31 @@ static int juggle_allows_target(const ik_fight_t* fight,
                                 const ik_cns_hitdef_t* hitdef) {
     if (!is_juggle_target(fight, victim)) return 1;
     return juggle_cost(fight, attacker, hitdef) <= victim->juggle_points;
+}
+
+static int entity_juggle_cost(
+    const ik_fight_t* fight,
+    const ik_entity_t* attacker,
+    const ik_cns_hitdef_t* hitdef
+) {
+    int cost = hitdef ? hitdef->air_juggle : 0;
+    const ik_cns_state_t* state =
+        attacker ? state_spec(fight, attacker->state_no) : 0;
+    if (state && state->has_juggle && state->juggle > 0) {
+        cost += state->juggle;
+    }
+    return cost < 0 ? 0 : cost;
+}
+
+static int entity_juggle_allows_target(
+    const ik_fight_t* fight,
+    const ik_entity_t* attacker,
+    const ik_fighter_t* victim,
+    const ik_cns_hitdef_t* hitdef
+) {
+    if (!is_juggle_target(fight, victim)) return 1;
+    return entity_juggle_cost(fight, attacker, hitdef) <=
+           victim->juggle_points;
 }
 
 static int guard_threat(ik_fight_t* fight,
@@ -933,6 +1138,301 @@ static void apply_damage(ik_fight_t* fight, int victim,
 
     if ((victim ^ 1) == 0) fight->hits_p1++;
     else fight->hits_p2++;
+}
+
+static void queue_entity_hit_effect(
+    ik_fight_t* fight,
+    const ik_entity_t* attacker,
+    const ik_fighter_t* victim,
+    const ik_cns_hitdef_t* hitdef,
+    int16_t action,
+    int use_trigger2_y
+) {
+    if (!fight || !attacker || !victim || !hitdef || action < 0 ||
+        fight->effect_count >= IK_MAX_EFFECT_EVENTS) {
+        return;
+    }
+    ik_effect_event_t* effect =
+        &fight->effect_events[fight->effect_count++];
+    effect->action = action;
+    effect->x = (int16_t)(
+        victim->x + (int16_t)attacker->facing * hitdef->spark_x);
+    const int16_t spark_y =
+        use_trigger2_y && attacker->active_hitdef_secondary &&
+        hitdef->has_trigger2
+            ? hitdef->trigger2_spark_y
+            : hitdef->spark_y;
+    effect->y = (int16_t)(
+        ik_cns_q8_to_int(attacker->y_q8) + spark_y);
+}
+
+static void enter_entity_contact_state(
+    ik_fight_t* fight,
+    ik_entity_handle_t handle,
+    int16_t state,
+    const ik_frame_table_t* p1_frames,
+    const ik_frame_table_t* p2_frames
+) {
+    if (!fight || !fight->entities) return;
+    ik_entity_runtime_t runtime;
+    ik_entity_runtime_init(
+        &runtime, fight->entities, fight->cns,
+        p1_frames, p2_frames);
+    (void)ik_entity_runtime_enter_state(&runtime, handle, state);
+}
+
+static void apply_guard_from_entity(
+    ik_fight_t* fight,
+    ik_entity_handle_t attacker_handle,
+    int victim,
+    const ik_fight_controls_t* controls,
+    const ik_cns_hitdef_t* hitdef
+) {
+    if (!fight || !fight->entities || !hitdef ||
+        victim < 0 || victim > 1) {
+        return;
+    }
+    ik_entity_t* attacker =
+        ik_entity_get(fight->entities, attacker_handle);
+    if (!attacker || attacker->owner_player >= 2u) return;
+
+    ik_fighter_t* v = &fight->fighters[victim];
+    const uint8_t type = guard_type_for(fight, v, controls);
+
+    int guard_ko = 0;
+    if (hitdef->guard_damage > 0) {
+        v->hp = (int16_t)(v->hp - hitdef->guard_damage);
+        if (v->hp <= 0) {
+            if (hitdef->guard_kill) {
+                v->hp = 0;
+                guard_ko = 1;
+            } else {
+                v->hp = 1;
+            }
+        }
+    }
+
+    v->hit_pause = hitdef->pause_p2;
+    attacker->hit_pause = hitdef->pause_p1;
+    v->hitstun = hitdef->guard_hit_time;
+    v->hit_slide_time = hitdef->guard_slide_time;
+    v->hit_ctrl_time = hitdef->guard_ctrl_time;
+    v->guard_type = type;
+
+    if (type == IK_CNS_STATE_AIR) {
+        v->gethit_vx_q8 = hitdef->air_guard_velocity_x_q8;
+        v->gethit_vy_q8 = hitdef->air_guard_velocity_y_q8;
+    } else {
+        v->gethit_vx_q8 = hitdef->guard_velocity_x_q8;
+        v->gethit_vy_q8 = 0;
+    }
+
+    attacker->move_contact = 1u;
+
+    int16_t state = 150;
+    if (type == IK_CNS_STATE_CROUCH) state = 152;
+    else if (type == IK_CNS_STATE_AIR) state = 154;
+
+    if (ik_cns_find_state(fight->cns, state)) {
+        enter_state(fight, v, state);
+    } else {
+        enter_state(
+            fight, v,
+            type == IK_CNS_STATE_CROUCH ? 131 :
+            type == IK_CNS_STATE_AIR ? 132 : 130);
+    }
+
+    queue_entity_hit_effect(
+        fight, attacker, v, hitdef, hitdef->guard_spark_no, 0);
+    fight->events |= IK_EVENT_GUARD;
+    if (guard_ko) {
+        fight->winner = (uint8_t)(attacker->owner_player + 1u);
+        fight->events |= IK_EVENT_KO;
+        if (!ik_cns_find_state(fight->cns, 5050)) {
+            enter_state(fight, v, IK_STATE_KO);
+            fight->round_over = 1;
+            fight->events |= IK_EVENT_ROUND_OVER;
+            fight->ko_freeze = IK_KO_FREEZE_FRAMES;
+        }
+    }
+}
+
+static void apply_damage_from_entity(
+    ik_fight_t* fight,
+    ik_entity_handle_t attacker_handle,
+    int victim,
+    const ik_cns_hitdef_t* hitdef,
+    const ik_frame_table_t* p1_frames,
+    const ik_frame_table_t* p2_frames
+) {
+    if (!fight || !fight->entities || !hitdef ||
+        victim < 0 || victim > 1) {
+        return;
+    }
+    ik_entity_t* attacker =
+        ik_entity_get(fight->entities, attacker_handle);
+    if (!attacker || attacker->owner_player >= 2u) return;
+
+    ik_fighter_t* v = &fight->fighters[victim];
+    release_bound_target(fight, victim);
+
+    const uint8_t victim_type = ik_fight_state_type(fight, v);
+    const int downed = victim_type == IK_CNS_STATE_LIEDOWN;
+    const int airborne = !v->on_ground || victim_type == IK_CNS_STATE_AIR;
+    const int16_t velocity_x = downed
+        ? hitdef->down_velocity_x_q8
+        : airborne
+            ? hitdef->air_velocity_x_q8
+            : hitdef->ground_velocity_x_q8;
+    const int16_t velocity_y = downed
+        ? hitdef->down_velocity_y_q8
+        : airborne
+            ? hitdef->air_velocity_y_q8
+            : hitdef->ground_velocity_y_q8;
+    const int16_t hit_time = downed
+        ? (velocity_y == 0
+            ? (int16_t)hitdef->down_hit_time
+            : (int16_t)hitdef->air_hit_time)
+        : airborne
+            ? (int16_t)hitdef->air_hit_time
+            : (int16_t)hitdef->ground_hit_time;
+    const int was_juggle_target = is_juggle_target(fight, v);
+    const int attack_juggle =
+        entity_juggle_cost(fight, attacker, hitdef);
+    const int downed_launch = downed && velocity_y != 0;
+    const int launch = airborne || downed_launch ||
+        (hitdef->flags & IK_CNS_HITDEF_FALL) != 0u ||
+        velocity_y != 0;
+
+    int damage = hitdef->damage;
+    if (hitdef->has_alt_damage &&
+        attacker->prev_state_no == hitdef->alt_damage_prev_state) {
+        damage = hitdef->alt_damage;
+    }
+
+    v->hp = (int16_t)(v->hp - damage);
+    v->hitstun = (uint16_t)(hit_time < 0 ? 0 : hit_time);
+    v->hit_pause = hitdef->pause_p2;
+    v->hit_slide_time = downed && velocity_y == 0
+        ? hitdef->down_hit_time
+        : hitdef->ground_slide_time;
+    v->hit_ctrl_time = (uint16_t)(hit_time < 0 ? 0 : hit_time);
+    v->gethit_vx_q8 = velocity_x;
+    v->gethit_vy_q8 = velocity_y;
+    v->gethit_yaccel_q8 = hitdef->yaccel_q8;
+    v->gethit_ground_type = hitdef->ground_type;
+    v->gethit_anim_type =
+        airborne ? hitdef->air_anim_type : hitdef->anim_type;
+    v->gethit_fall = (uint8_t)(
+        ((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u) ||
+        (airborne &&
+         (hitdef->flags & IK_CNS_HITDEF_AIR_FALL) != 0u) ||
+        downed_launch);
+    v->gethit_fall_x_q8 = hitdef->fall_x_velocity_q8;
+    v->gethit_fall_y_q8 =
+        (downed_launch && !hitdef->down_bounce)
+            ? 0 : hitdef->fall_y_velocity_q8;
+    v->gethit_fall_x_set =
+        (uint8_t)(hitdef->fall_x_velocity_set &&
+                  (!downed_launch || hitdef->down_bounce));
+    v->gethit_fall_recover = hitdef->fall_recover;
+    v->gethit_fall_recover_time = hitdef->fall_recover_time;
+    v->fall_time = 0u;
+
+    if (was_juggle_target) {
+        v->juggle_points = (int16_t)(
+            v->juggle_points > attack_juggle
+                ? v->juggle_points - attack_juggle : 0);
+    } else if ((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u) {
+        const ik_cns_constants_t* constants = constants_for(fight);
+        const int initial =
+            (constants && constants->air_juggle > 0)
+                ? constants->air_juggle : 15;
+        v->juggle_points = (int16_t)(
+            initial > attack_juggle
+                ? initial - attack_juggle : 0);
+    }
+
+    attacker->hit_pause = hitdef->pause_p1;
+    attacker->move_contact = 1u;
+    if (launch) v->on_ground = 0;
+
+    if (!airborne && !downed &&
+        hitdef->ground_cornerpush_veloff_q8 != 0) {
+        int left = 0, top = 0, right = 0, bottom = 0;
+        ik_body_box(v, &left, &top, &right, &bottom);
+        if (left <= IK_STAGE_MIN_X || right >= IK_STAGE_MAX_X) {
+            attacker->vx_q8 =
+                (int32_t)attacker->facing *
+                hitdef->ground_cornerpush_veloff_q8;
+        }
+    }
+
+    int16_t target = IK_STATE_HIT;
+    if (hitdef->p2_state_no >= 0 &&
+        ik_cns_find_state(fight->cns, hitdef->p2_state_no)) {
+        target = hitdef->p2_state_no;
+    } else if (victim_type == IK_CNS_STATE_LIEDOWN &&
+               ik_cns_find_state(fight->cns, 5080)) {
+        target = 5080;
+    } else if (!airborne &&
+               hitdef->ground_type == IK_CNS_GROUND_TRIP &&
+               ik_cns_find_state(fight->cns, 5070)) {
+        target = 5070;
+    } else if (airborne &&
+               ik_cns_find_state(fight->cns, 5020)) {
+        target = 5020;
+    } else if (victim_type == IK_CNS_STATE_CROUCH &&
+               (hitdef->flags & IK_CNS_HITDEF_FORCE_STAND) == 0u &&
+               ik_cns_find_state(fight->cns, 5010)) {
+        target = 5010;
+    } else if (ik_cns_find_state(fight->cns, 5000)) {
+        target = 5000;
+    }
+
+    if (hitdef->p2_facing != 0) {
+        const int attacker_x = ik_cns_q8_to_int(attacker->x_q8);
+        const int8_t toward = attacker_x >= v->x ? 1 : -1;
+        v->facing =
+            hitdef->p2_facing > 0 ? toward : (int8_t)-toward;
+    }
+
+    if (target != IK_STATE_HIT) {
+        v->vx_q8 = 0;
+        v->vy_q8 = 0;
+    } else {
+        v->vx_q8 = (int32_t)v->facing * velocity_x;
+        v->vy_q8 = velocity_y;
+    }
+
+    queue_entity_hit_effect(
+        fight, attacker, v, hitdef, hitdef->spark_no, 1);
+    if (v->hp <= 0) {
+        v->hp = 0;
+        fight->winner = (uint8_t)(attacker->owner_player + 1u);
+        fight->events |= (uint16_t)(IK_EVENT_HIT | IK_EVENT_KO);
+    } else {
+        fight->events |= IK_EVENT_HIT;
+    }
+
+    if (target == IK_STATE_HIT && v->hp <= 0) {
+        enter_state(fight, v, IK_STATE_KO);
+        fight->round_over = 1;
+        fight->events |= IK_EVENT_ROUND_OVER;
+        fight->ko_freeze = IK_KO_FREEZE_FRAMES;
+    } else {
+        enter_state(fight, v, target);
+    }
+
+    if (hitdef->p1_state_no >= 0 &&
+        ik_cns_find_state(fight->cns, hitdef->p1_state_no)) {
+        enter_entity_contact_state(
+            fight, attacker_handle, hitdef->p1_state_no,
+            p1_frames, p2_frames);
+    }
+
+    if (attacker->owner_player == 0u) ++fight->hits_p1;
+    else ++fight->hits_p2;
 }
 
 static void apply_ground_velocity(ik_fighter_t* f,
@@ -1884,6 +2384,79 @@ static void step_fighter(ik_fight_t* fight, int index,
     }
 }
 
+static void resolve_helper_contacts(
+    ik_fight_t* fight,
+    const ik_fight_controls_t* p1,
+    const ik_fight_controls_t* p2,
+    const ik_frame_table_t* p1_frames,
+    const ik_frame_table_t* p2_frames
+) {
+    if (!fight || !fight->entities || !fight->cns) return;
+
+    ik_entity_handle_t helpers[IK_ENTITY_CAPACITY];
+    uint8_t helper_count = 0u;
+    for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
+        const ik_entity_t* entity = &fight->entities->entities[slot];
+        if (entity->type != IK_ENTITY_HELPER ||
+            entity->owner_player >= 2u) {
+            continue;
+        }
+        helpers[helper_count].slot = slot;
+        helpers[helper_count].generation =
+            fight->entities->generations[slot];
+        ++helper_count;
+    }
+
+    for (uint8_t n = 0u; n < helper_count; ++n) {
+        ik_entity_t* attacker =
+            ik_entity_get(fight->entities, helpers[n]);
+        if (!attacker || attacker->owner_player >= 2u) continue;
+
+        const int victim = (int)(attacker->owner_player ^ 1u);
+        ik_fighter_t* v = &fight->fighters[victim];
+        const ik_frame_table_t* attacker_frames =
+            attacker->owner_player == 0u ? p1_frames : p2_frames;
+        const ik_frame_table_t* victim_frames =
+            victim == 0 ? p1_frames : p2_frames;
+
+        uint8_t local_hitdef = 0u;
+        const ik_cns_hitdef_t* hitdef =
+            active_entity_hitdef(
+                fight, attacker_frames, attacker, v, &local_hitdef);
+        if (!hitdef || local_hitdef >= 32u) continue;
+
+        /* Helper throws require generic target/bind ownership first.
+         * Reject rather than silently treating a throw as a normal strike. */
+        if ((hitdef->flags & IK_CNS_HITDEF_THROW) != 0u) continue;
+        if (!hitdef_allows_target(fight, v, hitdef)) continue;
+        if (!entity_juggle_allows_target(
+                fight, attacker, v, hitdef)) {
+            continue;
+        }
+
+        const uint32_t bit = (uint32_t)1u << local_hitdef;
+        if ((attacker->hitdef_hit_mask & bit) != 0u) continue;
+        if (!entity_clsn_overlap(
+                attacker_frames, victim_frames, attacker, v)) {
+            continue;
+        }
+
+        attacker->hitdef_hit_mask |= bit;
+        const ik_fight_controls_t* victim_controls =
+            victim == 0 ? p1 : p2;
+        if (can_guard_hit(fight, v, victim_controls, hitdef)) {
+            apply_guard_from_entity(
+                fight, helpers[n], victim, victim_controls, hitdef);
+        } else {
+            apply_damage_from_entity(
+                fight, helpers[n], victim, hitdef,
+                p1_frames, p2_frames);
+        }
+
+        if (fight->round_over) return;
+    }
+}
+
 void ik_fight_update(ik_fight_t* fight,
                      const ik_fight_controls_t* p1,
                      const ik_fight_controls_t* p2,
@@ -2026,6 +2599,11 @@ void ik_fight_update(ik_fight_t* fight,
         } else {
             apply_damage(fight, victim, hitdef);
         }
+    }
+
+    if (!fight->round_over) {
+        resolve_helper_contacts(
+            fight, p1, p2, p1_frames, p2_frames);
     }
 
     if (!fight->round_over) {
