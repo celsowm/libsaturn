@@ -52,10 +52,13 @@ typedef struct ik_entity {
     int16_t push_back;
     int16_t push_front;
     int8_t facing;
+    int8_t spr_priority;
     uint8_t ctrl;
     uint8_t state_type;
     uint8_t move_type;
     uint8_t move_contact;
+    uint8_t keyctrl;
+    uint8_t ownpal;
 
     int32_t vars[IK_ENTITY_VAR_COUNT];
     int32_t fvars_q16[IK_ENTITY_FVAR_COUNT];

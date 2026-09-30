@@ -600,37 +600,135 @@ static void draw_fighter(const ik_frame_t* frame,
         texture, 0, &(sat_rect_t){dx, dy, frame->w, frame->h}, &params));
 }
 
-static void draw_fighters(const ik_fight_t* fight) {
-    const ik_frame_t* frames[2] = {
-        current_frame(0u, &fight->fighters[0]),
-        current_frame(1u, &fight->fighters[1])
-    };
-    if (!frames[0] || !frames[1]) return;
+static void draw_helper_entity(const ik_frame_t* frame,
+                               sat_texture_t texture,
+                               const ik_entity_t* entity) {
+    if (!frame || !entity) return;
+
+    const int flip_h = (entity->facing < 0) !=
+                       ((frame->flags & IK_FRAME_FLAG_FLIP_H) != 0u);
+    const int flip_v =
+        (frame->flags & IK_FRAME_FLAG_FLIP_V) != 0u;
+    const int x = ik_cns_q8_to_int(entity->x_q8);
+    const int y = ik_cns_q8_to_int(entity->y_q8);
+
+    int16_t dx = 0;
+    int16_t dy = 0;
+    ik_frame_screen_anchor(
+        frame, x, y, entity->facing, &dx, &dy);
+
+    sat_draw_params_t params = sat_draw_params_default();
+    if (flip_h) params.flip = SAT_FLIP_X;
+    if (flip_v) params.flip =
+        (uint8_t)(params.flip | SAT_FLIP_Y);
+    if ((frame->flags & IK_FRAME_FLAG_BLEND_ADD) != 0u) {
+        params.blend_mode = SAT_BLEND_ADD;
+    } else if ((frame->flags & IK_FRAME_FLAG_BLEND_SUBTRACT) != 0u) {
+        params.blend_mode = SAT_BLEND_SUBTRACT;
+    }
+
+    sat_example_must(sat_draw_texture(
+        texture, 0,
+        &(sat_rect_t){dx, dy, frame->w, frame->h},
+        &params));
+}
+
+typedef struct ik_combat_render_item {
+    const ik_frame_t* frame;
+    sat_texture_t texture;
+    const ik_fighter_t* fighter;
+    const ik_entity_t* entity;
+    int8_t priority;
+    uint8_t player;
+    uint8_t helper;
+} ik_combat_render_item_t;
+
+static void draw_combat_entities(const ik_fight_t* fight) {
+    if (!fight) return;
 
     ++g_frame_cache_epoch;
     if (g_frame_cache_epoch == 0u) ++g_frame_cache_epoch;
 
-    sat_texture_t textures[2] = {{0u, 0u}, {0u, 0u}};
-    sat_example_must(frame_texture_resolve(
-        0u, frames[0], g_frame_cache_epoch, &textures[0]));
-    sat_example_must(frame_texture_resolve(
-        1u, frames[1], g_frame_cache_epoch, &textures[1]));
-    sat_example_must(prefetch_next_frame(
-        0u, &fight->fighters[0], frames[0]));
-    sat_example_must(prefetch_next_frame(
-        1u, &fight->fighters[1], frames[1]));
+    ik_combat_render_item_t items[IK_ENTITY_CAPACITY];
+    uint8_t item_count = 0u;
 
-    int first = 0;
-    int second = 1;
-    if (fight->fighters[0].spr_priority > fight->fighters[1].spr_priority) {
-        first = 1;
-        second = 0;
+    const ik_frame_t* fighter_frames[2] = {
+        current_frame(0u, &fight->fighters[0]),
+        current_frame(1u, &fight->fighters[1])
+    };
+
+    for (uint8_t player = 0u; player < 2u; ++player) {
+        const ik_frame_t* frame = fighter_frames[player];
+        if (!frame || item_count >= IK_ENTITY_CAPACITY) continue;
+
+        sat_texture_t texture = {0u, 0u};
+        sat_example_must(frame_texture_resolve(
+            player, frame, g_frame_cache_epoch, &texture));
+        sat_example_must(prefetch_next_frame(
+            player, &fight->fighters[player], frame));
+
+        ik_combat_render_item_t* item = &items[item_count++];
+        item->frame = frame;
+        item->texture = texture;
+        item->fighter = &fight->fighters[player];
+        item->entity = 0;
+        item->priority = fight->fighters[player].spr_priority;
+        item->player = player;
+        item->helper = 0u;
     }
 
-    draw_fighter(frames[first], textures[first],
-                 &fight->fighters[first], fight->cns);
-    draw_fighter(frames[second], textures[second],
-                 &fight->fighters[second], fight->cns);
+    for (uint8_t slot = 0u;
+         slot < IK_ENTITY_CAPACITY &&
+         item_count < IK_ENTITY_CAPACITY;
+         ++slot) {
+        const ik_entity_t* entity = &g_entity_pool.entities[slot];
+        if (entity->type != IK_ENTITY_HELPER ||
+            entity->owner_player >= 2u) {
+            continue;
+        }
+
+        const uint8_t player = entity->owner_player;
+        const ik_frame_t* frame = ik_frame_at_time(
+            g_characters[player].frames,
+            entity->anim_no, entity->anim_time);
+        if (!frame) continue;
+
+        sat_texture_t texture = {0u, 0u};
+        sat_example_must(frame_texture_resolve(
+            player, frame, g_frame_cache_epoch, &texture));
+
+        ik_combat_render_item_t* item = &items[item_count++];
+        item->frame = frame;
+        item->texture = texture;
+        item->fighter = 0;
+        item->entity = entity;
+        item->priority = entity->spr_priority;
+        item->player = player;
+        item->helper = 1u;
+    }
+
+    /* MUGEN/Ikemen SprPriority is an ordering key. Stable insertion sort
+     * keeps equal-priority player/helper creation order deterministic. */
+    for (uint8_t i = 1u; i < item_count; ++i) {
+        const ik_combat_render_item_t key = items[i];
+        uint8_t j = i;
+        while (j > 0u && items[j - 1u].priority > key.priority) {
+            items[j] = items[j - 1u];
+            --j;
+        }
+        items[j] = key;
+    }
+
+    for (uint8_t i = 0u; i < item_count; ++i) {
+        const ik_combat_render_item_t* item = &items[i];
+        if (item->helper) {
+            draw_helper_entity(
+                item->frame, item->texture, item->entity);
+        } else {
+            draw_fighter(
+                item->frame, item->texture, item->fighter, fight->cns);
+        }
+    }
 }
 
 typedef struct ik_rule_expr_user {
@@ -918,7 +1016,7 @@ int main(void) {
         sat_example_must(ik_audio_update());
 
         stage_scroll_for_fight(&fight);
-        draw_fighters(&fight);
+        draw_combat_entities(&fight);
         draw_effects();
         draw_bars(&fight);
 

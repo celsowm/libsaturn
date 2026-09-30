@@ -790,6 +790,7 @@ def compile_runtime_controller(
         "velmul",
         "hitvelset",
         "posfreeze",
+        "destroyself",
     }
     if ctype not in supported:
         return None
@@ -1043,6 +1044,18 @@ def compile_runtime_controller(
             "flags": " | ".join(flags2 + flags) if flags2 or flags else "0u",
         }
 
+    if ctype == "destroyself":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_DESTROY_SELF",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": 0,
+            "value1": 0,
+            "flags": flag_expr(),
+        }
+
     if ctype == "selfstate":
         return {
             "state_number": state_no,
@@ -1155,11 +1168,75 @@ def compile_runtime_controller(
     }
 
 
+
+def compile_helper_controller(
+    state_no: int,
+    ctrl: Section,
+    helper_index: int,
+) -> tuple[dict, dict] | None:
+    supported_keys = {
+        "type", "helpertype", "postype", "ownpal", "stateno",
+        "keyctrl", "id", "pos", "facing", "ignorehitpause",
+    }
+    for key, _ in ctrl.values:
+        lowered = key.strip().lower()
+        if lowered.startswith("trigger"):
+            continue
+        if lowered not in supported_keys:
+            return None
+
+    helper_type = (ctrl.get("helpertype", "normal") or "normal").strip().lower()
+    if helper_type not in ("normal", ""):
+        return None
+
+    postype_name = (ctrl.get("postype", "p1") or "p1").strip().lower()
+    postypes = {
+        "p1": "IK_CNS_HELPER_POS_P1",
+        "p2": "IK_CNS_HELPER_POS_P2",
+    }
+    postype = postypes.get(postype_name)
+    if postype is None:
+        return None
+
+    trig_kind, trig_value, trig_value2 = controller_trigger(ctrl, "helper")
+    px, py = pair(ctrl.get("pos"), 0, 0)
+    facing = integer(ctrl.get("facing"), 1)
+    if facing == 0:
+        facing = 1
+    facing = 1 if facing > 0 else -1
+
+    helper = {
+        "id": integer(ctrl.get("id"), 0),
+        "state_no": integer(ctrl.get("stateno"), 0),
+        "pos_x_q8": q8(px),
+        "pos_y_q8": q8(py),
+        "facing": facing,
+        "postype": postype,
+        "keyctrl": integer(ctrl.get("keyctrl"), 0),
+        "ownpal": integer(ctrl.get("ownpal"), 0),
+    }
+    controller = {
+        "state_number": state_no,
+        "type": "IK_CNS_CTRL_HELPER",
+        "trigger_kind": trig_kind,
+        "trigger_value": trig_value,
+        "trigger_value2": trig_value2,
+        "value0": helper_index,
+        "value1": 0,
+        "flags": (
+            "IK_CNS_CTRL_IGNORE_HIT_PAUSE"
+            if integer(ctrl.get("ignorehitpause"), 0)
+            else "0u"
+        ),
+    }
+    return controller, helper
+
 def parse_state(
     state: State,
     hitdef_ofs: int,
     sound_ofs: int,
     controller_ofs: int,
+    helper_ofs: int,
     default_spark_no: int = -1,
     default_guard_spark_no: int = 40,
 ):
@@ -1183,6 +1260,7 @@ def parse_state(
     hitdefs: list[dict] = []
     sounds: list[dict] = []
     controllers: list[dict] = []
+    helpers: list[dict] = []
     unsupported: list[str] = []
 
     for ctrl in state.controllers:
@@ -1363,6 +1441,20 @@ def parse_state(
                 }
             )
 
+        elif ctype == "helper":
+            try:
+                compiled_helper = compile_helper_controller(
+                    state.number, ctrl, helper_ofs + len(helpers)
+                )
+            except ValueError:
+                compiled_helper = None
+            if compiled_helper is not None:
+                controller, helper = compiled_helper
+                controllers.append(controller)
+                helpers.append(helper)
+            else:
+                unsupported.append(ctype)
+
         else:
             try:
                 compiled = compile_runtime_controller(state.number, ctrl)
@@ -1408,7 +1500,7 @@ def parse_state(
         "unsupported_controllers": sorted(set(unsupported)),
     }
 
-    return state_row, hitdefs, sounds, controllers
+    return state_row, hitdefs, sounds, controllers, helpers
 
 
 
@@ -2351,13 +2443,15 @@ def emit(
     hitdefs: list[dict] = []
     sounds: list[dict] = []
     controllers: list[dict] = []
+    helpers: list[dict] = []
 
     for number_ in selected:
-        row, hs, ss, cs = parse_state(
+        row, hs, ss, cs, helper_rows = parse_state(
             by_number[number_],
             len(hitdefs),
             len(sounds),
             len(controllers),
+            len(helpers),
             const["default_spark_no"],
             const["default_guard_spark_no"],
         )
@@ -2365,6 +2459,7 @@ def emit(
         hitdefs.extend(hs)
         sounds.extend(ss)
         controllers.extend(cs)
+        helpers.extend(helper_rows)
 
     common_deferred: dict[int, list[str]] = {}
     if common_zss is not None and common_selected:
@@ -2451,6 +2546,16 @@ def emit(
         for c in controllers
     ]
 
+    helper_lines = [
+        "    {"
+        f"{h['id']}, {h['state_no']}, "
+        f"{h['pos_x_q8']}, {h['pos_y_q8']}, "
+        f"{h['facing']}, {h['postype']}, "
+        f"{h['keyctrl']}u, {h['ownpal']}u"
+        "},"
+        for h in helpers
+    ]
+
     generated_c = f"""/* Auto-generated by tools/ikemen_cns.py. */
 #include "examples/ikemen_saturn/ikemen_cns.h"
 #include "{out_prefix.name}.h"
@@ -2469,6 +2574,10 @@ static const ik_cns_playsnd_t {ident}_playsnds[{max(1, len(sound_lines))}] = {{
 
 static const ik_cns_controller_t {ident}_controllers[{max(1, len(controller_lines))}] = {{
 {chr(10).join(controller_lines) if controller_lines else '    {0},'}
+}};
+
+static const ik_cns_helper_t {ident}_helpers[{max(1, len(helper_lines))}] = {{
+{chr(10).join(helper_lines) if helper_lines else '    {0},'}
 }};
 
 const ik_cns_asset_t {ident}_cns = {{
@@ -2517,7 +2626,8 @@ const ik_cns_asset_t {ident}_cns = {{
     {ident}_states, {len(state_rows)}u,
     {ident}_hitdefs, {len(hitdefs)}u,
     {ident}_playsnds, {len(sounds)}u,
-    {ident}_controllers, {len(controllers)}u
+    {ident}_controllers, {len(controllers)}u,
+    {ident}_helpers, {len(helpers)}u
 }};
 """
 
@@ -2530,6 +2640,7 @@ const ik_cns_asset_t {ident}_cns = {{
 #define {macro}_CNS_HITDEF_COUNT {len(hitdefs)}u
 #define {macro}_CNS_PLAYSND_COUNT {len(sounds)}u
 #define {macro}_CNS_CONTROLLER_COUNT {len(controllers)}u
+#define {macro}_CNS_HELPER_COUNT {len(helpers)}u
 
 extern const ik_cns_asset_t {ident}_cns;
 """
@@ -2544,6 +2655,7 @@ extern const ik_cns_asset_t {ident}_cns;
         "hitdefs": hitdefs,
         "playsnds": sounds,
         "controllers": controllers,
+        "helpers": helpers,
         "common_deferred": common_deferred,
     }
     out_prefix.with_suffix(".json").write_text(
@@ -2595,7 +2707,8 @@ def main(argv: list[str] | None = None) -> int:
         f"states={len(report['states'])} "
         f"hitdefs={len(report['hitdefs'])} "
         f"playsnds={len(report['playsnds'])} "
-        f"controllers={len(report['controllers'])}"
+        f"controllers={len(report['controllers'])} "
+        f"helpers={len(report['helpers'])}"
     )
 
     if unsupported:

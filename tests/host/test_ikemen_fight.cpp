@@ -2420,6 +2420,101 @@ int main() {
         EQ(f->ctrl,1);
     }
 
+    /* A player Helper controller must allocate a real entity, execute that
+     * helper's CNS on the shared runtime, and let DestroySelf retire the
+     * generational handle without touching either root player. */
+    {
+        const ik_cns_controller_t helper_ctrls[] = {
+            {0,IK_CNS_CTRL_HELPER,IK_CNS_TRIGGER_COMMAND_ACTIVE,
+             IK_CNS_COMMAND_A,0,0,0,0u},
+            {900,IK_CNS_CTRL_DESTROY_SELF,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,0,0,0u},
+        };
+        ik_cns_state_t helper_states[2] = {k_states[0], k_states[0]};
+        helper_states[0].number=0;
+        helper_states[0].anim=0;
+        helper_states[0].hitdef_ofs=0u;
+        helper_states[0].hitdef_count=0u;
+        helper_states[0].playsnd_ofs=0u;
+        helper_states[0].playsnd_count=0u;
+        helper_states[0].controller_ofs=0u;
+        helper_states[0].controller_count=1u;
+        helper_states[1].number=900;
+        helper_states[1].anim=0;
+        helper_states[1].hitdef_ofs=0u;
+        helper_states[1].hitdef_count=0u;
+        helper_states[1].playsnd_ofs=0u;
+        helper_states[1].playsnd_count=0u;
+        helper_states[1].controller_ofs=1u;
+        helper_states[1].controller_count=1u;
+
+        const ik_cns_helper_t helpers[] = {
+            {77,900,10*IK_CNS_Q8_ONE,0,1,
+             IK_CNS_HELPER_POS_P1,0u,0u},
+        };
+
+        ik_cns_asset_t asset=k_cns;
+        asset.states=helper_states;
+        asset.state_count=2u;
+        asset.hitdefs=nullptr;
+        asset.hitdef_count=0u;
+        asset.playsnds=nullptr;
+        asset.playsnd_count=0u;
+        asset.controllers=helper_ctrls;
+        asset.controller_count=2u;
+        asset.helpers=helpers;
+        asset.helper_count=1u;
+
+        ik_entity_pool_t pool{};
+        ik_entity_pool_init(&pool);
+        ik_entity_handle_t p1_entity{};
+        ik_entity_handle_t p2_entity{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,1,0u,
+            ik_entity_invalid_handle(),&p1_entity));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,2,1u,
+            ik_entity_invalid_handle(),&p2_entity));
+
+        ik_fight_init(&g,&asset);
+        ik_fight_bind_entities(
+            &g,&pool,p1_entity,p2_entity);
+
+        ik_fight_controls_t create{};
+        create.a=1u;
+        tick(&g,&create);
+        EQ(ik_entity_count_type(&pool,IK_ENTITY_HELPER),1u);
+
+        const ik_entity_t* spawned=nullptr;
+        for(uint8_t slot=0u;slot<IK_ENTITY_CAPACITY;++slot){
+            if(pool.entities[slot].type==IK_ENTITY_HELPER){
+                spawned=&pool.entities[slot];
+                break;
+            }
+        }
+        OK(spawned!=nullptr);
+        EQ(spawned->id,77);
+        EQ(spawned->state_no,900);
+        EQ(spawned->owner_player,0u);
+        OK(ik_entity_handle_equal(spawned->parent,p1_entity));
+        OK(ik_entity_handle_equal(spawned->root,p1_entity));
+
+        ik_fight_controls_t idle{};
+        tick(&g,&idle);
+        EQ(ik_entity_count_type(&pool,IK_ENTITY_HELPER),0u);
+        EQ(ik_entity_count_type(&pool,IK_ENTITY_PLAYER),2u);
+
+        ik_entity_handle_t round_helper{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_HELPER,88,0u,p1_entity,&round_helper));
+        OK(ik_entity_get(&pool,round_helper)!=nullptr);
+        ik_fight_reset(&g);
+        OK(ik_entity_get(&pool,round_helper)==nullptr);
+        EQ(ik_entity_count_type(&pool,IK_ENTITY_HELPER),0u);
+        EQ(ik_entity_count_type(&pool,IK_ENTITY_PLAYER),2u);
+        OK(g.entities==&pool);
+    }
+
     std::puts("[test] ikemen_fight OK");
     return 0;
 }

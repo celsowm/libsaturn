@@ -1,4 +1,7 @@
 #include "ikemen_fight.h"
+#include "ikemen_entity_runtime.h"
+
+static void sync_player_entities(ik_fight_t* fight);
 
 static int16_t clamp16(int16_t v, int16_t lo, int16_t hi) {
     if (v < lo) return lo;
@@ -254,11 +257,29 @@ void ik_fight_reset(ik_fight_t* fight) {
     ik_entity_pool_t* entities = fight->entities;
     const ik_entity_handle_t p1 = fight->player_entities[0];
     const ik_entity_handle_t p2 = fight->player_entities[1];
+
+    /* Dynamic entities are round-scoped. Keep root player handles stable,
+     * but retire helpers/projectiles/explods so stale references fail by
+     * generation after reset. */
+    if (entities) {
+        for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
+            if (entities->entities[slot].type == IK_ENTITY_NONE ||
+                entities->entities[slot].type == IK_ENTITY_PLAYER) {
+                continue;
+            }
+            ik_entity_handle_t handle = {
+                slot, entities->generations[slot]
+            };
+            (void)ik_entity_destroy(entities, handle);
+        }
+    }
+
     ik_fight_init(fight, cns);
     ik_fight_bind_entities(fight, entities, p1, p2);
     fight->hits_p1 = h1;
     fight->hits_p2 = h2;
     fight->events = IK_EVENT_RESET;
+    sync_player_entities(fight);
 }
 
 int ik_body_half_w(const ik_fighter_t* f) {
@@ -990,17 +1011,95 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f,
     sync_position(f);
 }
 
+static uint8_t fighter_player_index(
+    const ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    if (!fight || !fighter) return 0xFFu;
+    if (fighter == &fight->fighters[0]) return 0u;
+    if (fighter == &fight->fighters[1]) return 1u;
+    return 0xFFu;
+}
+
+static ik_entity_handle_t fighter_entity_handle(
+    const ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    const uint8_t player = fighter_player_index(fight, fighter);
+    if (!fight || player >= 2u) return ik_entity_invalid_handle();
+    return fight->player_entities[player];
+}
+
 static ik_entity_t* fighter_entity(
     ik_fight_t* fight,
     const ik_fighter_t* fighter
 ) {
-    if (!fight || !fight->entities || !fighter) return 0;
-    uint8_t player = 0xFFu;
-    if (fighter == &fight->fighters[0]) player = 0u;
-    else if (fighter == &fight->fighters[1]) player = 1u;
-    if (player >= 2u) return 0;
+    if (!fight || !fight->entities) return 0;
     return ik_entity_get(
-        fight->entities, fight->player_entities[player]);
+        fight->entities, fighter_entity_handle(fight, fighter));
+}
+
+static void sync_fighter_entity(
+    ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    if (!fight || !fight->entities || !fighter) return;
+    const uint8_t player = fighter_player_index(fight, fighter);
+    if (player >= 2u) return;
+
+    ik_entity_t* entity = fighter_entity(fight, fighter);
+    if (!entity) return;
+    const ik_cns_state_t* state =
+        ik_cns_find_state(fight->cns, fighter->state);
+
+    entity->x_q8 = fighter->x_q8;
+    entity->y_q8 = fighter->y_q8;
+    entity->vx_q8 = fighter->vx_q8;
+    entity->vy_q8 = fighter->vy_q8;
+    entity->state_no = fighter->state;
+    entity->prev_state_no = fighter->prev_state;
+    entity->state_time = fighter->state_time;
+    entity->anim_no = fighter->anim;
+    entity->anim_time = fighter->anim_time;
+    entity->life = fighter->hp;
+    entity->power = fighter->power;
+    entity->push_back = fighter->push_back;
+    entity->push_front = fighter->push_front;
+    entity->facing = fighter->facing;
+    entity->spr_priority = fighter->spr_priority;
+    entity->ctrl = (uint8_t)(fighter->ctrl != 0);
+    entity->state_type = ik_fight_state_type(fight, fighter);
+    entity->move_type =
+        (uint8_t)(state ? state->move_type : IK_CNS_MOVE_IDLE);
+    entity->move_contact = fighter->move_contact;
+
+    const ik_entity_handle_t target =
+        fighter->target_index >= 0 && fighter->target_index < 2
+            ? fight->player_entities[(uint8_t)fighter->target_index]
+            : ik_entity_invalid_handle();
+    (void)ik_entity_set_target(
+        fight->entities, fight->player_entities[player], target);
+}
+
+static void sync_player_entities(ik_fight_t* fight) {
+    if (!fight) return;
+    sync_fighter_entity(fight, &fight->fighters[0]);
+    sync_fighter_entity(fight, &fight->fighters[1]);
+}
+
+static uint16_t controls_command_mask(
+    const ik_fight_controls_t* controls
+) {
+    uint16_t command_mask = 0u;
+    if (!controls) return 0u;
+    if (controls->forward) command_mask |= IK_CNS_COMMAND_HOLD_FWD;
+    if (controls->back) command_mask |= IK_CNS_COMMAND_HOLD_BACK;
+    if (controls->up) command_mask |= IK_CNS_COMMAND_HOLD_UP;
+    if (controls->down) command_mask |= IK_CNS_COMMAND_HOLD_DOWN;
+    if (controls->recovery) command_mask |= IK_CNS_COMMAND_RECOVERY;
+    if (controls->a) command_mask |= IK_CNS_COMMAND_A;
+    if (controls->b) command_mask |= IK_CNS_COMMAND_B;
+    return command_mask;
 }
 
 static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
@@ -1016,16 +1115,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
     int anim_ended = 0;
     anim_position(frames, f, &elem, &elem_time, &anim_ended);
 
-    uint16_t command_mask = 0u;
-    if (controls) {
-        if (controls->forward) command_mask |= IK_CNS_COMMAND_HOLD_FWD;
-        if (controls->back) command_mask |= IK_CNS_COMMAND_HOLD_BACK;
-        if (controls->up) command_mask |= IK_CNS_COMMAND_HOLD_UP;
-        if (controls->down) command_mask |= IK_CNS_COMMAND_HOLD_DOWN;
-        if (controls->recovery) command_mask |= IK_CNS_COMMAND_RECOVERY;
-        if (controls->a) command_mask |= IK_CNS_COMMAND_A;
-        if (controls->b) command_mask |= IK_CNS_COMMAND_B;
-    }
+    const uint16_t command_mask = controls_command_mask(controls);
     const int back_body_dist =
         f->facing > 0
             ? (int)f->x - f->push_back - IK_STAGE_MIN_X
@@ -1090,6 +1180,33 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
             }
             case IK_CNS_CTRL_CTRL_SET:
                 f->ctrl = (int8_t)(ctrl->value0 != 0);
+                break;
+
+            case IK_CNS_CTRL_HELPER: {
+                if (!fight->entities || !fight->cns->helpers ||
+                    ctrl->value0 < 0 ||
+                    ctrl->value0 >= fight->cns->helper_count) {
+                    break;
+                }
+                sync_fighter_entity(fight, f);
+                ik_entity_runtime_t runtime;
+                ik_entity_runtime_init(
+                    &runtime, fight->entities, fight->cns, frames, frames);
+                const uint8_t player = fighter_player_index(fight, f);
+                if (player < 2u) {
+                    ik_entity_runtime_set_command_mask(
+                        &runtime, player, command_mask);
+                }
+                ik_entity_handle_t spawned = ik_entity_invalid_handle();
+                (void)ik_entity_runtime_spawn_helper(
+                    &runtime, fighter_entity_handle(fight, f),
+                    &fight->cns->helpers[ctrl->value0], &spawned);
+                break;
+            }
+
+            case IK_CNS_CTRL_DESTROY_SELF:
+                /* Root players are persistent entities. DestroySelf is
+                 * meaningful for helpers and is executed by entity runtime. */
                 break;
 
             case IK_CNS_CTRL_VAR_SET:
@@ -1802,6 +1919,19 @@ void ik_fight_update(ik_fight_t* fight,
     const int dummy = (p2 == 0);
     step_fighter(fight, 0, p1, 0, p1_frames, p2_frames);
     step_fighter(fight, 1, p2, dummy, p2_frames, p1_frames);
+
+    if (fight->entities) {
+        sync_player_entities(fight);
+        ik_entity_runtime_t runtime;
+        ik_entity_runtime_init(
+            &runtime, fight->entities, fight->cns,
+            p1_frames, p2_frames);
+        ik_entity_runtime_set_command_mask(
+            &runtime, 0u, controls_command_mask(p1));
+        ik_entity_runtime_set_command_mask(
+            &runtime, 1u, controls_command_mask(p2));
+        ik_entity_runtime_step(&runtime);
+    }
 
     const ik_cns_hitdef_t* candidates[2] = {0, 0};
     uint32_t candidate_bits[2] = {0u, 0u};

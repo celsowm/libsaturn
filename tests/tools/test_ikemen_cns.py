@@ -8,7 +8,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.ikemen_cns import emit  # noqa: E402
+from tools.ikemen_cns import Section, compile_helper_controller, emit  # noqa: E402
 
 SOURCE = r"""
 [Data]
@@ -153,6 +153,28 @@ value = 123456
 type = VarAdd
 trigger1 = Time = 1
 var(7) = 44
+
+[State 200, Spawn Helper]
+type = Helper
+trigger1 = Time = 2
+helpertype = normal
+id = 77
+stateno = 1234
+pos = 12, -8
+postype = p1
+facing = -1
+keyctrl = 1
+ownpal = 1
+
+[Statedef 1234]
+type = S
+movetype = I
+physics = N
+anim = 0
+
+[State 1234, Destroy]
+type = DestroySelf
+trigger1 = Time = 5
 
 [Statedef 800]
 type = S
@@ -1394,7 +1416,7 @@ with tempfile.TemporaryDirectory() as td:
     source.write_text(SOURCE, encoding="utf-8")
     common.write_text(COMMON, encoding="utf-8")
     report = emit(
-        source, [200,800,810,820,821,1000,1010,1020,1025,1026,1027,1028,1050,1051,1052,1055,1056,1060,1061,1100,1110,1120,1200,1210,1220], root / "kfm_cns", "kfm",
+        source, [200,1234,800,810,820,821,1000,1010,1020,1025,1026,1027,1028,1050,1051,1052,1055,1056,1060,1061,1100,1110,1120,1200,1210,1220], root / "kfm_cns", "kfm",
         common, [0,10,11,12,20,40,45,50,51,52,100,105,106,
                  120,130,131,132,140,150,151,152,153,154,155,
                  5000,5001,5010,5011,5020,5030,5035,5040,5050,
@@ -1413,10 +1435,10 @@ assert report["constants"]["attack_dist"] == 160
 assert report["constants"]["air_juggle"] == 15
 assert report["constants"]["default_spark_no"] == 2
 assert report["constants"]["default_guard_spark_no"] == 40
-assert len(report["states"]) == 70
+assert len(report["states"]) == 71
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
-assert report["states"][0]["controller_count"] == 8
+assert report["states"][0]["controller_count"] == 9
 assert report["states"][0]["juggle"] == 5
 assert report["states"][0]["has_juggle"] == 1
 assert report["states"][0]["unsupported_controllers"] == []
@@ -1480,6 +1502,37 @@ assert controllers[6]["value1"] == 123456
 assert controllers[7]["type"] == "IK_CNS_CTRL_VAR_ADD"
 assert controllers[7]["value0"] == 7
 assert controllers[7]["value1"] == 44
+
+assert controllers[8]["type"] == "IK_CNS_CTRL_HELPER"
+assert controllers[8]["value0"] == 0
+assert report["helpers"] == [{
+    "id": 77,
+    "state_no": 1234,
+    "pos_x_q8": 12 * 256,
+    "pos_y_q8": -8 * 256,
+    "facing": -1,
+    "postype": "IK_CNS_HELPER_POS_P1",
+    "keyctrl": 1,
+    "ownpal": 1,
+}]
+helper_state = next(
+    row for row in report["states"] if row["number"] == 1234
+)
+helper_ctrl = report["controllers"][helper_state["controller_ofs"]]
+assert helper_ctrl["type"] == "IK_CNS_CTRL_DESTROY_SELF"
+assert helper_ctrl["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
+assert helper_ctrl["trigger_value"] == 5
+
+unsupported_helper = Section(
+    "State 0, Unsupported Helper",
+    [
+        ("type", "Helper"),
+        ("trigger1", "1"),
+        ("stateno", "1234"),
+        ("size.xscale", "2"),
+    ],
+)
+assert compile_helper_controller(0, unsupported_helper, 0) is None
 
 print("ikemen CNS compiler: OK")
 

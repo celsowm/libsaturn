@@ -112,8 +112,15 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_POS_ADD_FROM_BACK_EDGE,
     IK_CNS_CTRL_POS_FREEZE,
     IK_CNS_CTRL_VAR_SET,
-    IK_CNS_CTRL_VAR_ADD
+    IK_CNS_CTRL_VAR_ADD,
+    IK_CNS_CTRL_HELPER,
+    IK_CNS_CTRL_DESTROY_SELF
 } ik_cns_controller_type_t;
+
+typedef enum ik_cns_helper_postype {
+    IK_CNS_HELPER_POS_P1 = 0,
+    IK_CNS_HELPER_POS_P2
+} ik_cns_helper_postype_t;
 
 enum {
     IK_CNS_HITDEF_FALL = 1u << 0,
@@ -422,6 +429,17 @@ typedef struct ik_cns_controller_context {
     uint8_t move_contact;
 } ik_cns_controller_context_t;
 
+typedef struct ik_cns_helper {
+    int32_t id;
+    int16_t state_no;
+    int32_t pos_x_q8;
+    int32_t pos_y_q8;
+    int8_t facing;
+    uint8_t postype;
+    uint8_t keyctrl;
+    uint8_t ownpal;
+} ik_cns_helper_t;
+
 typedef struct ik_cns_asset {
     ik_cns_constants_t constants;
     const ik_cns_state_t* states;
@@ -432,6 +450,8 @@ typedef struct ik_cns_asset {
     uint16_t playsnd_count;
     const ik_cns_controller_t* controllers;
     uint16_t controller_count;
+    const ik_cns_helper_t* helpers;
+    uint16_t helper_count;
 } ik_cns_asset_t;
 
 int16_t ik_cns_q8_from_int(int16_t value);

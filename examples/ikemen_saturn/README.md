@@ -172,12 +172,24 @@ does not introduce a Saturn-only 16-bit variable limit. The existing KFM
 `var(2) = command = "holdfwd"` expression keeps its specialized lowering
 until controller value expressions are moved onto the expression VM.
 
-Helper, Projectile and Explod allocation is intentionally present before their
-state controllers are enabled. Their handles cannot alias a destroyed entity,
-and parent/root redirection remains valid through nested ownership. The next
-runtime milestone is to execute those dynamic entities through the same CNS
-controller loop and then lower Helper/Projectile/Explod controllers into
-bounded pool allocations.
+`Helper` and `DestroySelf` are now the first dynamic-entity controllers
+executed by that pool. A compiled Helper record carries its id, initial state,
+P1/P2-relative position, facing, keyctrl and ownpal flags. Normal helpers own
+state/animation time, velocity and variables independently, retain parent/root
+redirections, may create nested helpers, and invalidate their generational
+handle when `DestroySelf` runs. Round reset retires every dynamic entity while
+keeping the two root-player handles stable.
+
+Helpers render from their owner's SFF/AIR through the same bounded VDP1
+texture cache, and players/helpers are stably ordered together by
+`SprPriority`. The compiler deliberately rejects Helper parameters not yet
+implemented (for example scaling/remappal/player/projectile helper types)
+instead of silently accepting incompatible semantics.
+
+Projectile and Explod already have pool kinds but do not execute their own
+controllers yet. Helper HitDef/contact resolution is also still pending; this
+milestone establishes lifecycle, state execution, variables, redirections and
+rendering before combat ownership is generalized.
 
 ## Runtime controller coverage
 
@@ -189,6 +201,8 @@ The generic CNS runtime currently executes:
 * `VelSet` / `VelMul`, including conditional custom-state friction
 * target/bind/target-state/target-life controllers used by throws
 * `ChangeAnim2`, `SelfState`, `HitVelSet`, `PosFreeze`
+* constant `VarSet` / `VarAdd`
+* bounded `Helper` creation and helper-side `DestroySelf`
 * edge-aware wall-bounce movement used by Fast Palm
 * HitDef re-trigger/rearm, force-stand, per-hit Y acceleration and ground
   corner-push recoil used by Upper/Blow
