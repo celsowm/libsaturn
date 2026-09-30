@@ -165,11 +165,19 @@ var, fixed-point fvar and sysvar storage. P1 and P2 are registered in that
 pool today, so self/P2 redirection and target identity already go through the
 same mechanism future helpers and projectiles will use.
 
+The fight runtime now binds its two players to that pool directly. Constant
+MUGEN `VarSet` and `VarAdd` controllers execute against the bound entity's
+60-slot integer variable bank; controller payload values are 32-bit so this
+does not introduce a Saturn-only 16-bit variable limit. The existing KFM
+`var(2) = command = "holdfwd"` expression keeps its specialized lowering
+until controller value expressions are moved onto the expression VM.
+
 Helper, Projectile and Explod allocation is intentionally present before their
 state controllers are enabled. Their handles cannot alias a destroyed entity,
 and parent/root redirection remains valid through nested ownership. The next
-runtime milestone is to move controller execution for those dynamic entities
-onto this pool rather than adding more character-specific branches.
+runtime milestone is to execute those dynamic entities through the same CNS
+controller loop and then lower Helper/Projectile/Explod controllers into
+bounded pool allocations.
 
 ## Runtime controller coverage
 

@@ -778,6 +778,7 @@ def compile_runtime_controller(
         "changeanim2",
         "width",
         "varset",
+        "varadd",
         "targetbind",
         "targetfacing",
         "targetlifeadd",
@@ -915,20 +916,52 @@ def compile_runtime_controller(
             "flags": flag_expr(),
         }
 
-    if ctype == "varset":
-        var2 = ctrl.get("var(2)")
-        if var2 is None or not re.fullmatch(
-            r'command\s*=\s*"holdfwd"', var2.strip(), flags=re.I
-        ):
+    if ctype in ("varset", "varadd"):
+        if ctype == "varset":
+            var2 = ctrl.get("var(2)")
+            if var2 is not None and re.fullmatch(
+                r'command\s*=\s*"holdfwd"', var2.strip(), flags=re.I
+            ):
+                return {
+                    "state_number": state_no,
+                    "type": "IK_CNS_CTRL_CAPTURE_COMMAND_AXIS",
+                    "trigger_kind": trig_kind,
+                    "trigger_value": trig_value,
+                    "trigger_value2": trig_value2,
+                    "value0": 0,
+                    "value1": 0,
+                    "flags": flag_expr(),
+                }
+
+        var_index = None
+        var_value_text = None
+        if ctrl.get("v") is not None and ctrl.get("value") is not None:
+            var_index = integer(ctrl.get("v"))
+            var_value_text = ctrl.get("value")
+        else:
+            assignments = []
+            for key, value in ctrl.values:
+                match = re.fullmatch(r"var\((\d+)\)", key.strip(), flags=re.I)
+                if match:
+                    assignments.append((int(match.group(1)), value))
+            if len(assignments) == 1:
+                var_index, var_value_text = assignments[0]
+
+        if var_index is None or var_value_text is None:
             return None
+        if var_index < 0 or var_index >= 60:
+            raise ValueError(f"[{ctrl.name}] var index outside 0..59")
+        var_value = integer(var_value_text)
+        if var_value < -2147483648 or var_value > 2147483647:
+            raise ValueError(f"[{ctrl.name}] var value outside int32")
         return {
             "state_number": state_no,
-            "type": "IK_CNS_CTRL_CAPTURE_COMMAND_AXIS",
+            "type": "IK_CNS_CTRL_VAR_SET" if ctype == "varset" else "IK_CNS_CTRL_VAR_ADD",
             "trigger_kind": trig_kind,
             "trigger_value": trig_value,
             "trigger_value2": trig_value2,
-            "value0": 0,
-            "value1": 0,
+            "value0": var_index,
+            "value1": var_value,
             "flags": flag_expr(),
         }
 

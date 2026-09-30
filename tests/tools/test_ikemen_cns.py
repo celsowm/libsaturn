@@ -143,6 +143,17 @@ trigger1 = AnimTime = 0
 value = 0
 ctrl = 1
 
+[State 200, Generic VarSet]
+type = VarSet
+trigger1 = Time = 0
+v = 7
+value = 123456
+
+[State 200, Generic VarAdd]
+type = VarAdd
+trigger1 = Time = 1
+var(7) = 44
+
 [Statedef 800]
 type = S
 movetype = A
@@ -1405,7 +1416,7 @@ assert report["constants"]["default_guard_spark_no"] == 40
 assert len(report["states"]) == 70
 assert report["states"][0]["hitdef_count"] == 1
 assert report["states"][0]["playsnd_count"] == 1
-assert report["states"][0]["controller_count"] == 6
+assert report["states"][0]["controller_count"] == 8
 assert report["states"][0]["juggle"] == 5
 assert report["states"][0]["has_juggle"] == 1
 assert report["states"][0]["unsupported_controllers"] == []
@@ -1462,6 +1473,13 @@ assert controllers[4]["flags"] == "IK_CNS_CTRL_IGNORE_HIT_PAUSE"
 assert controllers[5]["type"] == "IK_CNS_CTRL_CHANGE_STATE"
 assert controllers[5]["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_END"
 assert controllers[5]["flags"] == "IK_CNS_CTRL_HAS_CTRL"
+
+assert controllers[6]["type"] == "IK_CNS_CTRL_VAR_SET"
+assert controllers[6]["value0"] == 7
+assert controllers[6]["value1"] == 123456
+assert controllers[7]["type"] == "IK_CNS_CTRL_VAR_ADD"
+assert controllers[7]["value0"] == 7
+assert controllers[7]["value1"] == 44
 
 print("ikemen CNS compiler: OK")
 

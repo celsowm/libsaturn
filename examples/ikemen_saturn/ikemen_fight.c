@@ -217,6 +217,9 @@ int ik_fight_max_hp(const ik_fight_t* fight) {
 void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     if (!fight) return;
     fight->cns = cns;
+    fight->entities = 0;
+    fight->player_entities[0] = ik_entity_invalid_handle();
+    fight->player_entities[1] = ik_entity_invalid_handle();
     const int hp = ik_fight_max_hp(fight);
     fighter_spawn(fight, &fight->fighters[0], 110, 1, hp);
     fighter_spawn(fight, &fight->fighters[1], 210, -1, hp);
@@ -231,12 +234,28 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->effect_count = 0u;
 }
 
+void ik_fight_bind_entities(
+    ik_fight_t* fight,
+    ik_entity_pool_t* pool,
+    ik_entity_handle_t p1,
+    ik_entity_handle_t p2
+) {
+    if (!fight) return;
+    fight->entities = pool;
+    fight->player_entities[0] = p1;
+    fight->player_entities[1] = p2;
+}
+
 void ik_fight_reset(ik_fight_t* fight) {
     if (!fight) return;
     const uint32_t h1 = fight->hits_p1;
     const uint32_t h2 = fight->hits_p2;
     const ik_cns_asset_t* cns = fight->cns;
+    ik_entity_pool_t* entities = fight->entities;
+    const ik_entity_handle_t p1 = fight->player_entities[0];
+    const ik_entity_handle_t p2 = fight->player_entities[1];
     ik_fight_init(fight, cns);
+    ik_fight_bind_entities(fight, entities, p1, p2);
     fight->hits_p1 = h1;
     fight->hits_p2 = h2;
     fight->events = IK_EVENT_RESET;
@@ -971,6 +990,19 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f,
     sync_position(f);
 }
 
+static ik_entity_t* fighter_entity(
+    ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    if (!fight || !fight->entities || !fighter) return 0;
+    uint8_t player = 0xFFu;
+    if (fighter == &fight->fighters[0]) player = 0u;
+    else if (fighter == &fight->fighters[1]) player = 1u;
+    if (player >= 2u) return 0;
+    return ik_entity_get(
+        fight->entities, fight->player_entities[player]);
+}
+
 static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                                    const ik_fight_controls_t* controls,
                                    const ik_frame_table_t* frames,
@@ -1059,6 +1091,22 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
             case IK_CNS_CTRL_CTRL_SET:
                 f->ctrl = (int8_t)(ctrl->value0 != 0);
                 break;
+
+            case IK_CNS_CTRL_VAR_SET:
+            case IK_CNS_CTRL_VAR_ADD: {
+                ik_entity_t* entity = fighter_entity(fight, f);
+                const int32_t index = ctrl->value0;
+                if (entity && index >= 0 &&
+                    index < (int32_t)IK_ENTITY_VAR_COUNT) {
+                    if (ctrl->type == IK_CNS_CTRL_VAR_SET) {
+                        entity->vars[index] = ctrl->value1;
+                    } else {
+                        entity->vars[index] += ctrl->value1;
+                    }
+                }
+                break;
+            }
+
             case IK_CNS_CTRL_POS_ADD:
                 f->x_q8 += (int32_t)f->facing * ctrl->value0;
                 f->y_q8 += ctrl->value1;

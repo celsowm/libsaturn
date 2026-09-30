@@ -865,6 +865,9 @@ int main(void) {
         &g_entity_pool, IK_ENTITY_PLAYER, 2, 1u,
         ik_entity_invalid_handle(), &g_player_entities[1])
         ? SAT_OK : SAT_ERR_CAPACITY);
+    ik_fight_bind_entities(
+        &fight, &g_entity_pool,
+        g_player_entities[0], g_player_entities[1]);
     sync_player_entities(&fight);
     ik_command_state_init(&g_command_states[0]);
     ik_command_state_init(&g_command_states[1]);

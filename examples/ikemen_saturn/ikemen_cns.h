@@ -110,7 +110,9 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_SELF_STATE,
     IK_CNS_CTRL_VEL_MUL_X_BY_ANIM_ELEM,
     IK_CNS_CTRL_POS_ADD_FROM_BACK_EDGE,
-    IK_CNS_CTRL_POS_FREEZE
+    IK_CNS_CTRL_POS_FREEZE,
+    IK_CNS_CTRL_VAR_SET,
+    IK_CNS_CTRL_VAR_ADD
 } ik_cns_controller_type_t;
 
 enum {
@@ -388,8 +390,8 @@ typedef struct ik_cns_controller {
     uint8_t trigger_kind;
     int16_t trigger_value;
     int16_t trigger_value2;
-    int16_t value0;
-    int16_t value1;
+    int32_t value0;
+    int32_t value1;
     uint8_t flags;
 } ik_cns_controller_t;
 

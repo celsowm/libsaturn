@@ -646,6 +646,62 @@ int main() {
     EQ(g.fighters[0].push_front,16);
     EQ(g.fighters[0].push_back,15);
 
+    /* Generic VarSet/VarAdd write entity-local MUGEN vars rather than adding
+     * another variable array to ik_fighter_t. Binding survives round reset. */
+    {
+        const ik_cns_controller_t var_ctrls[] = {
+            {0,IK_CNS_CTRL_VAR_SET,IK_CNS_TRIGGER_ALWAYS,
+             0,0,7,123456,0u},
+            {0,IK_CNS_CTRL_VAR_ADD,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,7,44,0u},
+        };
+        ik_cns_state_t var_state=k_states[0];
+        var_state.number=0;
+        var_state.anim=0;
+        var_state.hitdef_ofs=0u;
+        var_state.hitdef_count=0u;
+        var_state.playsnd_ofs=0u;
+        var_state.playsnd_count=0u;
+        var_state.controller_ofs=0u;
+        var_state.controller_count=2u;
+
+        ik_cns_asset_t asset=k_cns;
+        asset.states=&var_state;
+        asset.state_count=1u;
+        asset.hitdefs=nullptr;
+        asset.hitdef_count=0u;
+        asset.playsnds=nullptr;
+        asset.playsnd_count=0u;
+        asset.controllers=var_ctrls;
+        asset.controller_count=2u;
+
+        ik_entity_pool_t pool{};
+        ik_entity_pool_init(&pool);
+        ik_entity_handle_t p1{};
+        ik_entity_handle_t p2{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,1,0u,
+            ik_entity_invalid_handle(),&p1));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,2,1u,
+            ik_entity_invalid_handle(),&p2));
+
+        ik_fight_init(&g,&asset);
+        ik_fight_bind_entities(&g,&pool,p1,p2);
+        ik_fight_controls_t idle_controls{};
+        tick(&g,&idle_controls);
+        ik_entity_t* p1_entity=ik_entity_get(&pool,p1);
+        OK(p1_entity!=nullptr);
+        EQ(p1_entity->vars[7],123456);
+        tick(&g,&idle_controls);
+        EQ(p1_entity->vars[7],123500);
+
+        ik_fight_reset(&g);
+        OK(g.entities==&pool);
+        OK(ik_entity_handle_equal(g.player_entities[0],p1));
+        EQ(p1_entity->vars[7],123500);
+    }
+
     {
         const int x=g.fighters[0].x;
         ik_fight_controls_t p{}; p.forward=1;

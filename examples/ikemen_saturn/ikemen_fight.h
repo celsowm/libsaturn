@@ -5,6 +5,7 @@
 
 #include "ikemen_anim.h"
 #include "ikemen_cns.h"
+#include "ikemen_entity.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -141,6 +142,8 @@ typedef struct ik_fighter {
 typedef struct ik_fight {
     ik_fighter_t fighters[2];
     const ik_cns_asset_t* cns;
+    ik_entity_pool_t* entities;
+    ik_entity_handle_t player_entities[2];
     uint32_t frame;
     uint32_t timer_frames;
     uint16_t events;
@@ -154,6 +157,11 @@ typedef struct ik_fight {
 } ik_fight_t;
 
 void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns);
+void ik_fight_bind_entities(
+    ik_fight_t* fight,
+    ik_entity_pool_t* pool,
+    ik_entity_handle_t p1,
+    ik_entity_handle_t p2);
 void ik_fight_reset(ik_fight_t* fight);
 int ik_action_for_state(const ik_cns_asset_t* cns, int16_t state);
 uint8_t ik_fight_state_type(const ik_fight_t* fight,
