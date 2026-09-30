@@ -223,7 +223,7 @@ def sound_pair(
         return default
 
     value = text.strip()
-    if value[:1].lower() == "s":
+    if value[:1].lower() in ("s", "f"):
         value = value[1:]
     parts = [p.strip() for p in value.split(",")]
     if len(parts) != 2:
@@ -459,6 +459,57 @@ def controller_trigger(
         if parsed is not None:
             return "IK_CNS_TRIGGER_ANIM_ELEM_RANGE", parsed[0], parsed[1]
 
+    trigger_all = ctrl.all("triggerall")
+
+    if ctype == "changestate" and len(trigger_all) == 1 and \
+       len(triggers) == 1 and len(trigger2) == 1:
+        y = re.fullmatch(
+            r"Pos\s+y\s*<\s*(-?\d+)",
+            _strip_outer_parens(trigger_all[0]),
+            flags=re.I,
+        )
+        back = re.fullmatch(
+            r"BackEdgeBodyDist\s*<=\s*(\d+)",
+            _strip_outer_parens(triggers[0]),
+            flags=re.I,
+        )
+        front = re.fullmatch(
+            r"FrontEdgeBodyDist\s*<=\s*(\d+)",
+            _strip_outer_parens(trigger2[0]),
+            flags=re.I,
+        )
+        if y and back and front and back.group(1) == front.group(1):
+            return (
+                "IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE",
+                q8(float(y.group(1))),
+                int(back.group(1)),
+            )
+
+    if ctype == "turn" and len(triggers) == 1:
+        value = _strip_outer_parens(triggers[0])
+        m = re.fullmatch(
+            r"\(?\s*Time\s*=\s*0\s*\)?\s*&&\s*"
+            r"\(?\s*FrontEdgeBodyDist\s*<=\s*(\d+)\s*\)?",
+            value,
+            flags=re.I,
+        )
+        if m:
+            return (
+                "IK_CNS_TRIGGER_STATE_ENTRY_FRONT_EDGE_BODY_LE",
+                int(m.group(1)), 0,
+            )
+        m = re.fullmatch(
+            r"\(?\s*Time\s*=\s*0\s*\)?\s*&&\s*"
+            r"\(?\s*BackEdgeDist\s*<\s*(\d+)\s*\)?",
+            value,
+            flags=re.I,
+        )
+        if m:
+            return (
+                "IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT",
+                int(m.group(1)), 0,
+            )
+
     if len(triggers) == 1 and re.fullmatch(
         r"HitShakeOver\s*=\s*1",
         _strip_outer_parens(triggers[0]),
@@ -617,6 +668,7 @@ def compile_runtime_controller(
         "velset",
         "velmul",
         "hitvelset",
+        "posfreeze",
     }
     if ctype not in supported:
         return None
@@ -658,7 +710,24 @@ def compile_runtime_controller(
         }
 
     if ctype == "posadd":
-        x = number(ctrl.get("x"), 0)
+        x_text = (ctrl.get("x") or "0").strip()
+        m = re.fullmatch(
+            r"(-?\d+)\s*-\s*BackEdgeBodyDist",
+            x_text,
+            flags=re.I,
+        )
+        if m and ctrl.get("y") is None:
+            return {
+                "state_number": state_no,
+                "type": "IK_CNS_CTRL_POS_ADD_FROM_BACK_EDGE",
+                "trigger_kind": trig_kind,
+                "trigger_value": trig_value,
+                "trigger_value2": trig_value2,
+                "value0": q8(float(m.group(1))),
+                "value1": 0,
+                "flags": flag_expr(),
+            }
+        x = number(x_text, 0)
         y = number(ctrl.get("y"), 0)
         return {
             "state_number": state_no,
@@ -783,6 +852,23 @@ def compile_runtime_controller(
             "value0": 0,
             "value1": 0,
             "flags": flag_expr(),
+        }
+
+    if ctype == "posfreeze":
+        flags2: list[str] = []
+        if integer(ctrl.get("x"), 0):
+            flags2.append("IK_CNS_CTRL_AXIS_X")
+        if integer(ctrl.get("y"), 0):
+            flags2.append("IK_CNS_CTRL_AXIS_Y")
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_POS_FREEZE",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": 0,
+            "value1": 0,
+            "flags": " | ".join(flags2 + flags) if flags2 or flags else "0u",
         }
 
     if ctype == "selfstate":
