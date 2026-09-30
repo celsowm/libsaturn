@@ -1627,6 +1627,164 @@ x = 20
         root / "zankou_cns", "zankou"
     )
 
+    super_source = root / "supers.cns"
+    super_source.write_text(r"""
+[Statedef 3000]
+type = S
+movetype = A
+physics = S
+juggle = 4
+velset = 0,0
+anim = 3000
+ctrl = 0
+sprpriority = 2
+
+[State 3000, Width]
+type = Width
+trigger1 = AnimElem = 2, >= 0
+value = 15,0
+
+[State 3000, SuperPause]
+type = SuperPause
+trigger1 = AnimElem = 2, 1
+poweradd = -1000
+
+[State 3000, AfterImage]
+type = AfterImage
+trigger1 = AnimElem = 2, 1
+time = 2
+
+[State 3000, Invuln]
+type = NotHitBy
+trigger1 = AnimElem = 2
+value = , NA, SA, AT
+time = 11
+
+[State 3000, Crouch NA Invuln]
+type = NotHitBy
+trigger1 = AnimElemTime(2) >= 0 && AnimElemTime(14) < 0
+value2 = C, NA
+time = 1
+
+[State 3000, Steps]
+type = PosAdd
+trigger1 = AnimElem = 3
+trigger2 = AnimElem = 11
+trigger3 = AnimElem = 13
+trigger4 = AnimElem = 19
+trigger5 = AnimElem = 21
+trigger4 = AnimElem = 31
+x = 10
+
+[State 3000, Hit A]
+type = HitDef
+trigger1 = AnimElem = 5
+trigger2 = AnimElem = 13
+attr = S, HA
+damage = 72,4
+priority = 6
+guardflag = MA
+pausetime = 15,15
+ground.type = Low
+ground.slidetime = 30
+ground.hittime = 32
+ground.velocity = -6
+air.velocity = -3,-2.8
+air.fall = 1
+fall.recover = 0
+
+[State 3000, Hit B]
+type = HitDef
+trigger1 = AnimElem = 21
+attr = S, HA
+damage = 75,4
+priority = 5
+guardflag = MA
+pausetime = 15,15
+ground.type = Low
+ground.slidetime = 30
+ground.hittime = 32
+ground.velocity = -5,-4
+air.velocity = -5,-4
+fall = 1
+fall.recover = 0
+
+[Statedef 3050]
+type = S
+movetype = A
+physics = S
+juggle = 4
+velset = 0,0
+anim = 3050
+ctrl = 0
+sprpriority = 2
+
+[State 3050, Width]
+type = Width
+trigger1 = AnimElemTime(4) >= 0 && AnimElemTime(16) < 0
+value = 5,0
+
+[State 3050, SuperPause]
+type = SuperPause
+trigger1 = AnimElem = 2
+poweradd = -1000
+
+[State 3050, Invuln]
+type = NotHitBy
+trigger1 = AnimElem = 2
+value = , NA, SA, AT
+time = 6
+
+[State 3050, Hit]
+type = HitDef
+trigger1 = Time = 0
+attr = S, HA
+damage = 155,12
+priority = 5
+guardflag = MA
+pausetime = 30,30
+ground.type = Low
+ground.slidetime = 26
+ground.hittime = 28
+ground.velocity = -1.3,-25
+air.velocity = -1.3,-25
+fall = 1
+fall.recover = 0
+yaccel = .8
+
+[State 3050, Success]
+type = ChangeState
+trigger1 = MoveHit
+value = 3051
+
+[State 3050, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+
+[Statedef 3051]
+type = S
+movetype = A
+physics = S
+anim = 3051
+
+[State 3051, AfterImage]
+type = AfterImageTime
+trigger1 = AnimTime < -2
+time = 2
+
+[State 3051, End]
+type = ChangeState
+trigger1 = AnimTime = 0
+value = 0
+ctrl = 1
+""", encoding="utf-8")
+    super_report = emit(
+        super_source, [3000, 3050, 3051],
+        root / "super_cns", "supers"
+    )
+
 assert report["constants"]["walk_fwd_q8"] == round(2.4 * 256)
 assert report["constants"]["yaccel_q8"] == round(.44 * 256)
 assert report["constants"]["run_jump_fwd_x_q8"] == 4 * 256
@@ -2097,6 +2255,53 @@ assert report["constants"]["air_gethit_trip_groundlevel_q8"] == 15 * 256
 assert report["constants"]["down_bounce_offset_y_q8"] == 20 * 256
 assert report["constants"]["down_bounce_yaccel_q8"] == round(.4 * 256)
 assert report["constants"]["down_bounce_groundlevel_q8"] == 12 * 256
+
+super_rows = {row["number"]: row for row in super_report["states"]}
+assert set(super_rows) == {3000, 3050, 3051}
+assert super_rows[3000]["juggle"] == 4
+assert super_rows[3000]["unsupported_controllers"] == ["afterimage"]
+assert super_rows[3050]["unsupported_controllers"] == []
+assert super_rows[3051]["unsupported_controllers"] == ["afterimagetime"]
+super3000 = [
+    c for c in super_report["controllers"]
+    if c["state_number"] == 3000
+]
+superpause3000 = next(
+    c for c in super3000 if c["type"] == "IK_CNS_CTRL_SUPER_PAUSE"
+)
+assert superpause3000["trigger_kind"] == (
+    "IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED"
+)
+assert superpause3000["value0"] == 30
+assert superpause3000["value1"] == -1000
+invuln3000 = [
+    c for c in super3000 if c["type"] == "IK_CNS_CTRL_NOT_HIT_BY"
+]
+assert len(invuln3000) == 2
+assert "IK_CNS_ATTR_NORMAL_ATTACK" in str(invuln3000[0]["value0"])
+assert "IK_CNS_ATTR_SPECIAL_ATTACK" in str(invuln3000[0]["value0"])
+assert "IK_CNS_ATTR_NORMAL_THROW" in str(invuln3000[0]["value0"])
+steps3000 = next(
+    c for c in super3000 if c["type"] == "IK_CNS_CTRL_POS_ADD"
+)
+assert steps3000["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_MASK"
+mask3000 = (
+    (1 << 2) | (1 << 10) | (1 << 12) |
+    (1 << 18) | (1 << 20) | (1 << 30)
+)
+assert (steps3000["trigger_value"] & 0xffff) == (mask3000 & 0xffff)
+assert (steps3000["trigger_value2"] & 0xffff) == ((mask3000 >> 16) & 0xffff)
+super3050 = [
+    c for c in super_report["controllers"]
+    if c["state_number"] == 3050
+]
+success3050 = next(
+    c for c in super3050 if c["type"] == "IK_CNS_CTRL_CHANGE_STATE"
+)
+assert success3050["trigger_kind"] == "IK_CNS_TRIGGER_MOVE_HIT"
+assert success3050["value0"] == 3051
+assert super_report["hitdefs"][0]["attack_attr_mask"] == "IK_CNS_ATTR_HYPER_ATTACK"
+assert super_report["hitdefs"][2]["attack_attr_mask"] == "IK_CNS_ATTR_HYPER_ATTACK"
 
 assert len(zankou_report["states"]) == 2
 zankou_rows = {row["number"]: row for row in zankou_report["states"]}
