@@ -91,18 +91,23 @@ inline bool surface_top(const sat_grid_t& g, int c, int r,
     const sat_fx16_t local = world_x - left;
     if (local < 0 || local > tile) return false;
 
-    const sat_fx16_t u = div_ratio_fx16(local, tile);
-    if (u < surface.x0 || u > surface.x1) return false;
-    const sat_fx16_t t = div_ratio_fx16(
-        static_cast<int64_t>(u) - surface.x0,
-        static_cast<int64_t>(surface.x1) - surface.x0);
+    const sat_fx16_t x0 = static_cast<sat_fx16_t>(
+        (static_cast<int64_t>(tile) * surface.x0) >> 16);
+    const sat_fx16_t x1 = static_cast<sat_fx16_t>(
+        (static_cast<int64_t>(tile) * surface.x1) >> 16);
+    if (x1 <= x0 || local < x0 || local > x1) return false;
+
+    const sat_fx16_t y0 = static_cast<sat_fx16_t>(
+        (static_cast<int64_t>(tile) * surface.y0) >> 16);
+    const sat_fx16_t y1 = static_cast<sat_fx16_t>(
+        (static_cast<int64_t>(tile) * surface.y1) >> 16);
+    const int64_t numerator =
+        static_cast<int64_t>(y1 - y0) * (local - x0);
     const sat_fx16_t y = static_cast<sat_fx16_t>(
-        surface.y0 +
-        ((static_cast<int64_t>(surface.y1 - surface.y0) * t) >> 16));
+        y0 + div_s64_s32(numerator, x1 - x0));
     const sat_fx16_t top =
         static_cast<sat_fx16_t>((g.origin_y + r * g.tile_px) << 16);
-    out_top = static_cast<sat_fx16_t>(
-        top + ((static_cast<int64_t>(tile) * y) >> 16));
+    out_top = top + y;
     return true;
 }
 inline void mark_hit(sat_body2_t& b, sat_vec2_t n, sat_fx16_t restitution) {
