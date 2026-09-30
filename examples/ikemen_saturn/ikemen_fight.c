@@ -242,6 +242,7 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->pause_move_time = 0u;
     fight->pause_owner = -1;
     fight->effect_count = 0u;
+    fight->sound_count = 0u;
 }
 
 void ik_fight_bind_entities(
@@ -514,6 +515,21 @@ static const ik_cns_reversaldef_t* active_reversaldef(
         return reversal;
     }
     return 0;
+}
+
+static void queue_sound_event(
+    ik_fight_t* fight,
+    int16_t group,
+    int16_t item
+) {
+    if (!fight || group < 0 || item < 0 ||
+        fight->sound_count >= IK_MAX_SOUND_EVENTS) {
+        return;
+    }
+    ik_sound_event_t* event =
+        &fight->sound_events[fight->sound_count++];
+    event->group = group;
+    event->item = item;
 }
 
 static void queue_reversal_effect(
@@ -2625,6 +2641,7 @@ void ik_fight_update(ik_fight_t* fight,
     if (!fight || !p1_frames) return;
     if (!p2_frames) p2_frames = p1_frames;
     fight->effect_count = 0u;
+    fight->sound_count = 0u;
     if (p1 && p1->start) {
         ik_fight_reset(fight);
         return;
@@ -2785,6 +2802,8 @@ void ik_fight_update(ik_fight_t* fight,
             defender->spr_priority = reversal->p1_spr_priority;
         }
         queue_reversal_effect(fight, defender, reversal);
+        queue_sound_event(
+            fight, reversal->hit_sound_group, reversal->hit_sound_item);
         fight->events |= IK_EVENT_GUARD;
     }
 
