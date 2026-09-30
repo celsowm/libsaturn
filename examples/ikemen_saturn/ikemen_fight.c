@@ -193,6 +193,10 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->gethit_fall_x_set = 0u;
     f->gethit_fall_recover = 1u;
     f->gethit_fall_recover_time = 4u;
+    f->gethit_fall_damage = 0;
+    f->gethit_fall_envshake_time = 0u;
+    f->gethit_fall_envshake_ampl = 0;
+    f->gethit_fall_envshake_freq = 60u;
     f->fall_time = 0u;
     f->juggle_points =
         (int16_t)((c && c->air_juggle > 0) ? c->air_juggle : 15);
@@ -244,6 +248,10 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->pause_time = 0u;
     fight->pause_move_time = 0u;
     fight->pause_owner = -1;
+    fight->env_shake_time = 0u;
+    fight->env_shake_ampl = 0;
+    fight->env_shake_freq = 60u;
+    fight->env_shake_phase = 0u;
     fight->effect_count = 0u;
     fight->sound_count = 0u;
 }
@@ -1380,6 +1388,10 @@ static void apply_damage(ik_fight_t* fight, int victim,
                   (!downed_launch || hitdef->down_bounce));
     v->gethit_fall_recover = hitdef->fall_recover;
     v->gethit_fall_recover_time = hitdef->fall_recover_time;
+    v->gethit_fall_damage = hitdef->fall_damage;
+    v->gethit_fall_envshake_time = hitdef->fall_envshake_time;
+    v->gethit_fall_envshake_ampl = hitdef->fall_envshake_ampl;
+    v->gethit_fall_envshake_freq = hitdef->fall_envshake_freq;
     v->fall_time = 0u;
 
     if (was_juggle_target) {
@@ -1395,6 +1407,13 @@ static void apply_damage(ik_fight_t* fight, int victim,
     }
 
     a->hit_pause = hitdef->pause_p1;
+
+    if (hitdef->envshake_time > 0u) {
+        fight->env_shake_time = hitdef->envshake_time;
+        fight->env_shake_ampl = hitdef->envshake_ampl;
+        fight->env_shake_freq = hitdef->envshake_freq;
+        fight->env_shake_phase = 0u;
+    }
 
     if (launch) v->on_ground = 0;
 
