@@ -91,7 +91,8 @@ $(KFM_SOUNDS_C) $(KFM_SOUNDS_H) &: $(KFM_SND) $(COMMON_SND) $(IKEMEN_SND_TOOL)
 		--sound punch_hit $(COMMON_SND) 5 0 \
 		--sound kick_hit $(COMMON_SND) 5 1 \
 		--sound strong_hit $(COMMON_SND) 5 2 \
-		--sound air_strong_hit $(COMMON_SND) 5 3
+		--sound air_strong_hit $(COMMON_SND) 5 3 \
+		--sound reversal_hit $(COMMON_SND) 6 0
 
 $(KFM_COMMANDS_C) $(KFM_COMMANDS_H) &: $(KFM_CMD) $(IKEMEN_CMD_TOOL)
 	@mkdir -p $(IKEMEN_GEN_DIR)
