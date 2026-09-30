@@ -299,6 +299,7 @@ int ik_entity_runtime_spawn_projectile_spec(
     entity->push_back = runtime->cns->constants.air_back;
     entity->push_front = runtime->cns->constants.air_front;
     entity->anim_no = projectile->anim_no;
+    entity->projectile_main_anim_no = projectile->anim_no;
     entity->anim_time = 0u;
     entity->state_no = -1;
     entity->prev_state_no = -1;
@@ -637,6 +638,12 @@ static void step_one(
                 --entity->projectile_hit_cooldown;
                 if (entity->projectile_hit_cooldown == 0u) {
                     entity->hitdef_hit_mask = 0u;
+                    if (entity->active_hitdef_global >= 0 &&
+                        entity->projectile_main_anim_no >= 0 &&
+                        entity->anim_no != entity->projectile_main_anim_no) {
+                        entity->anim_no = entity->projectile_main_anim_no;
+                        entity->anim_time = 0u;
+                    }
                 }
             }
             if (entity->projectile_edge_bound > 0) {
@@ -659,7 +666,9 @@ static void step_one(
             const ik_frame_table_t* frames = frames_for(runtime, entity);
             const uint32_t duration =
                 ik_action_duration_ticks(frames, entity->anim_no);
-            if (entity->type == IK_ENTITY_EXPLOD &&
+            if ((entity->type == IK_ENTITY_EXPLOD ||
+                 (entity->type == IK_ENTITY_PROJECTILE &&
+                  entity->active_hitdef_global < 0)) &&
                 duration > 0u && entity->anim_time >= duration) {
                 (void)ik_entity_destroy(runtime->pool, handle);
             }
