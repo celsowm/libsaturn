@@ -56,8 +56,15 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_claim_mode(sat_vdp2_color_cal
 }
 
 static sat_texture_t make_texture(const ik_frame_t& frame) {
+    static uint8_t scratch[KFM_MAX_SPRITE_BYTES];
+    OK(frame.sprite_index < KFM_SPRITE_COUNT);
+    OK(ik_sprite_decode(
+        &kfm_sprites[frame.sprite_index],
+        kfm_sprite_data, KFM_SPRITE_DATA_BYTES,
+        scratch, sizeof(scratch)) != 0);
+
     sat_surface_t surface{};
-    surface.pixels = (uint8_t*)kfm_pixels + frame.pixel_ofs;
+    surface.pixels = scratch;
     surface.width = frame.w;
     surface.height = frame.h;
     surface.pitch = frame.w;
@@ -97,15 +104,21 @@ int main() {
         OK((f.w & 7u) == 0u);
         OK(f.w >= 8u && f.w <= 504u);
         OK(f.h >= 1u && f.h <= 255u);
-        OK(f.pixel_ofs + (uint32_t)f.w*f.h <= (uint32_t)KFM_PIXELS_BYTES);
+        OK(f.sprite_index < KFM_SPRITE_COUNT);
+        const ik_sprite_source_t& sprite = kfm_sprites[f.sprite_index];
+        OK(sprite.padded_w == f.w);
+        OK(sprite.source_h == f.h);
+        OK(sprite.data_ofs <= KFM_SPRITE_DATA_BYTES);
+        OK(sprite.data_size <= KFM_SPRITE_DATA_BYTES - sprite.data_ofs);
     }
+    OK(KFM_SPRITE_DATA_BYTES < KFM_RAW_PIXELS_BYTES);
     OK(saw_attack && saw_hurt);
 
     uint32_t unique = 0u;
     for (uint32_t i=0;i<table.count;++i) {
         bool first = true;
         for (uint32_t j=0;j<i;++j) {
-            if (kfm_frames[j].pixel_ofs == kfm_frames[i].pixel_ofs) {
+            if (kfm_frames[j].sprite_index == kfm_frames[i].sprite_index) {
                 first = false;
                 break;
             }
