@@ -47,6 +47,15 @@ command = y
 [Command]
 name = "upper_xy"
 command = x+y
+[Command]
+name = "QCB_x"
+command = x
+[Command]
+name = "QCB_y"
+command = y
+[Command]
+name = "QCB_xy"
+command = x+y
 
 [Statedef -1]
 
@@ -103,6 +112,25 @@ value = 1110
 triggerall = command = "upper_y"
 trigger1 = var(1)
 
+[State -1, Fast Kung Fu Blow]
+type = ChangeState
+value = 1220
+triggerall = command = "QCB_xy"
+triggerall = power >= 330
+trigger1 = var(1)
+
+[State -1, Light Kung Fu Blow]
+type = ChangeState
+value = 1200
+triggerall = command = "QCB_x"
+trigger1 = var(1)
+
+[State -1, Strong Kung Fu Blow]
+type = ChangeState
+value = 1210
+triggerall = command = "QCB_y"
+trigger1 = var(1)
+
 [State -1, Stand Light Punch]
 type = ChangeState
 value = 200
@@ -142,11 +170,11 @@ trigger2 = movecontact
 with tempfile.TemporaryDirectory() as td:
     path = Path(td) / "test.cmd"
     path.write_text(SOURCE, encoding="utf-8")
-    rules, diagnostics = parse_state_rules(path, {200, 610, 800, 1000, 1010, 1020, 1100, 1110, 1120})
+    rules, diagnostics = parse_state_rules(path, {200, 610, 800, 1000, 1010, 1020, 1100, 1110, 1120, 1200, 1210, 1220})
 
 assert diagnostics == []
-assert [r.target for r in rules] == [1020, 1000, 1010, 1120, 1100, 1110, 200, 800, 610]
-ops200 = [i.op for i in rules[6].code]
+assert [r.target for r in rules] == [1020, 1000, 1010, 1120, 1100, 1110, 1220, 1200, 1210, 200, 800, 610]
+ops200 = [i.op for i in rules[9].code]
 assert ops200.count("command_active") == 1
 assert ops200.count("command_inactive") == 1
 assert "state_type_eq" in ops200
@@ -170,12 +198,18 @@ ops1100 = [i.op for i in rules[4].code]
 assert "power_ge" not in ops1100
 ops1110 = [i.op for i in rules[5].code]
 assert "power_ge" not in ops1110
-ops800 = [i.op for i in rules[7].code]
+ops1220 = [i.op for i in rules[6].code]
+assert "power_ge" in ops1220
+ops1200 = [i.op for i in rules[7].code]
+assert "power_ge" not in ops1200
+ops1210 = [i.op for i in rules[8].code]
+assert "power_ge" not in ops1210
+ops800 = [i.op for i in rules[10].code]
 assert ops800.count("p2_body_dist_x_lt") == 2
 assert ops800.count("p2_state_type_eq") == 4
 assert ops800.count("p2_move_type_ne") == 2
 assert "state_no_ne" in ops800
-ops610 = [i.op for i in rules[8].code]
+ops610 = [i.op for i in rules[11].code]
 assert ops610.count("state_no_eq") == 2
 assert "move_contact" in ops610
 assert ops610.count("or") >= 2
