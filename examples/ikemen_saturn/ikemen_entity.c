@@ -262,6 +262,9 @@ int ik_entity_expr_read_field(
         case IK_EXPR_FIELD_POWER:
             *out_value = entity->power;
             return 1;
+        case IK_EXPR_FIELD_ACTIVE_HIT_ATTR:
+            *out_value = entity->active_hit_attr_mask;
+            return 1;
         case IK_EXPR_FIELD_LIFE:
             *out_value = entity->life;
             return 1;
