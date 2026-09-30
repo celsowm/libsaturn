@@ -1112,6 +1112,7 @@ damage = 30,4
 priority = 5
 guardflag = MA
 pausetime = 6,10
+sparkxy = 0, ifelse(Time = 0, -48, -55)
 ground.type = Low
 ground.slidetime = 18
 ground.hittime = 23
@@ -1659,6 +1660,7 @@ kick_hit = next(
 assert kick_hit["damage"] == 35
 assert kick_hit["alt_damage"] == 40
 assert kick_hit["alt_damage_prev_state"] == 1061
+assert kick_hit["has_alt_damage"] == 1
 assert "IK_CNS_HITDEF_AIR_FALL" in kick_hit["flags"]
 
 assert source_rows[1056]["controller_count"] == 2
@@ -1715,6 +1717,8 @@ assert upper1120[0]["trigger_value"] == 0
 assert upper1120[0]["has_trigger2"] == 1
 assert upper1120[0]["trigger2_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_EQ"
 assert upper1120[0]["trigger2_value"] == 4
+assert upper1120[0]["spark_y"] == -48
+assert upper1120[0]["trigger2_spark_y"] == -55
 assert "IK_CNS_HITDEF_FORCE_STAND" in upper1120[0]["flags"]
 assert upper1120[1]["damage"] == 68
 assert upper1120[1]["fall_recover_time"] == 60
