@@ -174,6 +174,7 @@ typedef struct ik_fight {
     int16_t env_shake_ampl;
     uint16_t env_shake_freq;
     uint16_t env_shake_phase;
+    uint16_t super_darken_time;
     ik_effect_event_t effect_events[IK_MAX_EFFECT_EVENTS];
     uint8_t effect_count;
     ik_sound_event_t sound_events[IK_MAX_SOUND_EVENTS];
