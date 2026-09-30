@@ -126,6 +126,10 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     if (is_attack_state(fight, state)) ++f->attack_id;
 
     if (spec) {
+        int power = (int)f->power + spec->power_add;
+        if (power < 0) power = 0;
+        if (power > IK_MAX_POWER) power = IK_MAX_POWER;
+        f->power = (int16_t)power;
         f->ctrl = spec->ctrl;
         f->spr_priority = spec->spr_priority;
         if (spec->state_type == IK_CNS_STATE_AIR) {
@@ -164,6 +168,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->ctrl = 1;
     f->spr_priority = 0;
     f->hp = (int16_t)hp;
+    f->power = 0;
     f->hitstun = 0;
     f->hit_pause = 0;
     f->hit_slide_time = 0;
