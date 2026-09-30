@@ -273,6 +273,12 @@ def guard_mask(text: str | None) -> str:
 
 def no_hit_by_state_mask(text: str | None) -> str:
     value = (text or "").split(",", 1)[0].strip().upper()
+    if value == "":
+        return (
+            "IK_CNS_REVERSAL_STATE_STAND | "
+            "IK_CNS_REVERSAL_STATE_CROUCH | "
+            "IK_CNS_REVERSAL_STATE_AIR"
+        )
     bits: list[str] = []
     if "S" in value:
         bits.append("IK_CNS_REVERSAL_STATE_STAND")
@@ -280,6 +286,25 @@ def no_hit_by_state_mask(text: str | None) -> str:
         bits.append("IK_CNS_REVERSAL_STATE_CROUCH")
     if "A" in value:
         bits.append("IK_CNS_REVERSAL_STATE_AIR")
+    return " | ".join(dict.fromkeys(bits)) if bits else "0u"
+
+
+def no_hit_by_attr_mask(text: str | None) -> str:
+    parts = [p.strip().upper() for p in (text or "").split(",")]
+    if len(parts) <= 1:
+        return "0u"
+    bits: list[str] = []
+    for token in parts[1:]:
+        if token == "AT":
+            bits.extend([
+                "IK_CNS_ATTR_NORMAL_THROW",
+                "IK_CNS_ATTR_SPECIAL_THROW",
+                "IK_CNS_ATTR_HYPER_THROW",
+            ])
+            continue
+        mask = attack_attr_mask(token)
+        if mask != "0u":
+            bits.extend(part.strip() for part in mask.split("|"))
     return " | ".join(dict.fromkeys(bits)) if bits else "0u"
 
 
@@ -976,16 +1001,25 @@ def compile_runtime_controller(
         }
 
     if ctype == "nothitby":
-        mask = no_hit_by_state_mask(ctrl.get("value"))
-        if mask == "0u":
+        raw = ctrl.get("value")
+        if raw is None:
+            raw = ctrl.get("value2")
+        state_mask = no_hit_by_state_mask(raw)
+        attr_mask = no_hit_by_attr_mask(raw)
+        if state_mask == "0u" and attr_mask == "0u":
             return None
+        packed = (
+            f"({state_mask}) | (({attr_mask}) << 8)"
+            if attr_mask != "0u"
+            else state_mask
+        )
         return {
             "state_number": state_no,
             "type": "IK_CNS_CTRL_NOT_HIT_BY",
             "trigger_kind": trig_kind,
             "trigger_value": trig_value,
             "trigger_value2": trig_value2,
-            "value0": mask,
+            "value0": packed,
             "value1": integer(ctrl.get("time"), 1),
             "flags": flag_expr(),
         }
