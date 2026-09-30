@@ -259,10 +259,13 @@ def simple_trigger(section: Section) -> tuple[str, int, int]:
     raise ValueError(f"[{section.name}] unsupported trigger expression {expr!r}")
 
 
-def hitdef_trigger(section: Section) -> tuple[str, int, str, int]:
+def hitdef_trigger(
+    section: Section,
+) -> tuple[str, int, int, int, str, int]:
     triggers = section.all("trigger1")
+    trigger2 = section.all("trigger2")
     if not triggers:
-        return "IK_CNS_TRIGGER_ALWAYS", 0, "IK_CNS_P2_DIST_NONE", 0
+        triggers = ["1"]
 
     base: str | None = None
     base_value = 0
@@ -299,9 +302,23 @@ def hitdef_trigger(section: Section) -> tuple[str, int, str, int]:
         base = kind
         base_value = trigger_value
 
+    second_kind = 255
+    second_value = 0
+    if trigger2:
+        if len(trigger2) != 1:
+            raise ValueError(
+                f"[{section.name}] multiple trigger2 HitDef expressions"
+            )
+        probe = Section(section.name, [("trigger1", trigger2[0])])
+        kind, value, _ = simple_trigger(probe)
+        second_kind = kind
+        second_value = value
+
     return (
         base or "IK_CNS_TRIGGER_ALWAYS",
         base_value,
+        second_kind,
+        second_value,
         dist_op,
         dist_value,
     )
@@ -1094,7 +1111,14 @@ def parse_state(
         ctype = (ctrl.get("type", "") or "").strip().lower()
 
         if ctype == "hitdef":
-            trig_kind, trig_value, p2_dist_op, p2_dist_x = hitdef_trigger(ctrl)
+            (
+                trig_kind,
+                trig_value,
+                trig2_kind,
+                trig2_value,
+                p2_dist_op,
+                p2_dist_x,
+            ) = hitdef_trigger(ctrl)
 
             damage_text = ctrl.get("damage") or "0,0"
             alt_damage = -1
@@ -1136,6 +1160,8 @@ def parse_state(
                 flags.append("IK_CNS_HITDEF_FALL")
             if integer(ctrl.get("air.fall"), 0):
                 flags.append("IK_CNS_HITDEF_AIR_FALL")
+            if integer(ctrl.get("forcestand"), 0):
+                flags.append("IK_CNS_HITDEF_FORCE_STAND")
             if integer(ctrl.get("forcenofall"), 0):
                 flags.append("IK_CNS_HITDEF_FORCE_NO_FALL")
             attr_parts = [p.strip().upper() for p in (ctrl.get("attr") or "").split(",")]
@@ -1147,6 +1173,8 @@ def parse_state(
                     "state_number": state.number,
                     "trigger_kind": trig_kind,
                     "trigger_value": trig_value,
+                    "trigger2_kind": trig2_kind,
+                    "trigger2_value": trig2_value,
                     "damage": int(damage),
                     "guard_damage": int(guard_damage),
                     "priority": integer(
@@ -1231,6 +1259,7 @@ def parse_state(
                     "p2_body_dist_x": p2_dist_x,
                     "alt_damage": alt_damage,
                     "alt_damage_prev_state": alt_damage_prev_state,
+                    "yaccel_q8": q8(number(ctrl.get("yaccel"), 0)),
                 }
             )
 
@@ -2309,7 +2338,9 @@ def emit(
         f"{h['p1_state_no']}, {h['p2_state_no']}, {h['guard_dist']}, "
         f"{h['p1_facing']}, {h['p2_facing']}, {h['p1_spr_priority']}, "
         f"{h['p2_body_dist_op']}, {h['p2_body_dist_x']}, "
-        f"{h['alt_damage']}, {h['alt_damage_prev_state']}"
+        f"{h['alt_damage']}, {h['alt_damage_prev_state']}, "
+        f"{h['trigger2_kind']}, {h['trigger2_value']}, "
+        f"{h['yaccel_q8']}"
         "},"
         for h in hitdefs
     ]
