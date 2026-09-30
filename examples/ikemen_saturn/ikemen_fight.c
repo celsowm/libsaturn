@@ -120,6 +120,7 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     f->anim_time = 0u;
     f->move_contact = 0u;
     f->hitdef_hit_mask = 0u;
+    f->active_hitdef_local = -1;
     f->state_axis = 0;
 
     if (is_attack_state(fight, state)) ++f->attack_id;
@@ -187,6 +188,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->hitdef_hit_mask = 0u;
     f->attack_id = 0;
     f->move_contact = 0;
+    f->active_hitdef_local = -1;
     f->target_index = -1;
     f->bound_to = -1;
 }
@@ -349,28 +351,85 @@ static int fighter_clsn_overlap(const ik_frame_table_t* frames,
     return 0;
 }
 
-static const ik_cns_hitdef_t* active_hitdef(const ik_fight_t* fight,
+static int body_dist_x(const ik_fighter_t* attacker,
+                       const ik_fighter_t* victim) {
+    if (!attacker || !victim) return 32767;
+    int value =
+        ((int)victim->x - (int)attacker->x) * (int)attacker->facing -
+        attacker->push_front - victim->push_front;
+    if (value < -32768) value = -32768;
+    if (value > 32767) value = 32767;
+    return value;
+}
+
+static int hitdef_p2_dist_allows(const ik_cns_hitdef_t* hitdef,
+                                 int p2_body_dist_x) {
+    if (!hitdef) return 0;
+    switch ((ik_cns_p2_dist_op_t)hitdef->p2_body_dist_op) {
+        case IK_CNS_P2_DIST_LT:
+            return p2_body_dist_x < hitdef->p2_body_dist_x;
+        case IK_CNS_P2_DIST_LE:
+            return p2_body_dist_x <= hitdef->p2_body_dist_x;
+        case IK_CNS_P2_DIST_GT:
+            return p2_body_dist_x > hitdef->p2_body_dist_x;
+        case IK_CNS_P2_DIST_GE:
+            return p2_body_dist_x >= hitdef->p2_body_dist_x;
+        case IK_CNS_P2_DIST_NONE:
+        default:
+            return 1;
+    }
+}
+
+static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
                                             const ik_frame_table_t* frames,
-                                            const ik_fighter_t* fighter,
+                                            ik_fighter_t* fighter,
+                                            const ik_fighter_t* victim,
                                             uint8_t* out_local_index) {
     if (!fight || !fight->cns || !fighter ||
         !is_attack_state(fight, fighter->state)) {
         return 0;
     }
 
-    uint16_t element = 1u;
-    anim_position(frames, fighter, &element, 0, 0);
-    const ik_cns_hitdef_t* hitdef = ik_cns_active_hitdef(
-        fight->cns, fighter->state, fighter->state_time, element);
-    if (!hitdef) return 0;
+    const ik_cns_state_t* state =
+        ik_cns_find_state(fight->cns, fighter->state);
+    if (!state || !fight->cns->hitdefs || state->hitdef_count == 0u) {
+        fighter->active_hitdef_local = -1;
+        return 0;
+    }
 
-    const ik_cns_state_t* state = ik_cns_find_state(fight->cns, fighter->state);
-    if (!state) return 0;
-    const uint32_t global = (uint32_t)(hitdef - fight->cns->hitdefs);
-    if (global < state->hitdef_ofs ||
-        global >= (uint32_t)state->hitdef_ofs + state->hitdef_count) return 0;
-    if (out_local_index) *out_local_index = (uint8_t)(global - state->hitdef_ofs);
-    return hitdef;
+    uint16_t element = 1u;
+    uint16_t element_time = 0u;
+    int anim_ended = 0;
+    anim_position(
+        frames, fighter, &element, &element_time, &anim_ended);
+    const int p2_dist = body_dist_x(fighter, victim);
+
+    /* HitDef controllers execute in source order. A HitDef that triggers on
+     * this tick replaces the current one and then remains active until another
+     * HitDef fires or the state changes. */
+    for (uint8_t i = 0u; i < state->hitdef_count; ++i) {
+        const uint16_t global = (uint16_t)(state->hitdef_ofs + i);
+        if (global >= fight->cns->hitdef_count) break;
+        const ik_cns_hitdef_t* hitdef = &fight->cns->hitdefs[global];
+        if (!ik_cns_trigger_now(
+                hitdef->trigger_kind, hitdef->trigger_value,
+                fighter->state_time, element, element_time, anim_ended)) {
+            continue;
+        }
+        if (!hitdef_p2_dist_allows(hitdef, p2_dist)) continue;
+        fighter->active_hitdef_local = (int8_t)i;
+    }
+
+    if (fighter->active_hitdef_local < 0 ||
+        fighter->active_hitdef_local >= (int8_t)state->hitdef_count) {
+        return 0;
+    }
+
+    const uint8_t local = (uint8_t)fighter->active_hitdef_local;
+    const uint16_t global = (uint16_t)(state->hitdef_ofs + local);
+    if (global >= fight->cns->hitdef_count) return 0;
+    if (out_local_index) *out_local_index = local;
+    return &fight->cns->hitdefs[global];
 }
 
 static int hitdef_allows_target(const ik_fight_t* fight,
@@ -433,15 +492,15 @@ static int juggle_allows_target(const ik_fight_t* fight,
     return juggle_cost(fight, attacker, hitdef) <= victim->juggle_points;
 }
 
-static int guard_threat(const ik_fight_t* fight,
+static int guard_threat(ik_fight_t* fight,
                         const ik_frame_table_t* frames,
                         int victim,
                         const ik_fight_controls_t* controls) {
     if (!fight || !fight->cns) return 0;
     const ik_fighter_t* v = &fight->fighters[victim];
-    const ik_fighter_t* a = &fight->fighters[victim ^ 1];
+    ik_fighter_t* a = &fight->fighters[victim ^ 1];
     const ik_cns_hitdef_t* hitdef =
-        active_hitdef(fight, frames, a, 0);
+        active_hitdef(fight, frames, a, v, 0);
     if (!hitdef || hitdef->guard_flags == 0u ||
         !hitdef_allows_target(fight, v, hitdef)) return 0;
 
@@ -1512,7 +1571,7 @@ void ik_fight_update(ik_fight_t* fight,
         ik_fighter_t* v = &fight->fighters[atk ^ 1];
         uint8_t local_hitdef = 0u;
         const ik_cns_hitdef_t* hitdef =
-            active_hitdef(fight, frames, a, &local_hitdef);
+            active_hitdef(fight, frames, a, v, &local_hitdef);
         if (!hitdef || local_hitdef >= 32u) continue;
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
         if (!juggle_allows_target(fight, a, v, hitdef)) continue;
