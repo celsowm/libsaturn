@@ -170,6 +170,20 @@ int ik_cns_controller_trigger_context_now(
         case IK_CNS_TRIGGER_HIT_SHAKE_OVER:
             return context->hit_pause == 0u;
 
+        case IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE:
+            return context->y_q8 <
+                       context->floor_y_q8 + controller->trigger_value &&
+                   (context->back_edge_body_dist <= controller->trigger_value2 ||
+                    context->front_edge_body_dist <= controller->trigger_value2);
+
+        case IK_CNS_TRIGGER_STATE_ENTRY_FRONT_EDGE_BODY_LE:
+            return context->state_time == 1u &&
+                   context->front_edge_body_dist <= controller->trigger_value;
+
+        case IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT:
+            return context->state_time == 1u &&
+                   context->back_edge_dist < controller->trigger_value;
+
         default:
             return ik_cns_trigger_now(
                 controller->trigger_kind, controller->trigger_value,
