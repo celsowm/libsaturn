@@ -268,8 +268,6 @@ typedef struct ik_cns_hitdef {
     int16_t state_number;
     uint8_t trigger_kind;
     int16_t trigger_value;
-    uint8_t trigger2_kind;
-    int16_t trigger2_value;
 
     int16_t damage;
     int16_t guard_damage;
@@ -330,6 +328,8 @@ typedef struct ik_cns_hitdef {
     int16_t p2_body_dist_x;
     int16_t alt_damage;
     int16_t alt_damage_prev_state;
+    uint8_t trigger2_kind;
+    int16_t trigger2_value;
     int16_t yaccel_q8;
 } ik_cns_hitdef_t;
 
