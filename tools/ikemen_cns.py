@@ -622,6 +622,51 @@ def controller_trigger(
                 packed -= 65536
             return "IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED", packed, 0
 
+    if ctype == "afterimagetime" and len(triggers) == 1:
+        value = _strip_outer_parens(triggers[0])
+        m = re.fullmatch(
+            r"Vel\s+Y\s*<\s*(-?\d+(?:\.\d+)?)",
+            value,
+            flags=re.I,
+        )
+        if m:
+            return "IK_CNS_TRIGGER_VY_LT_Q8", q8(float(m.group(1))), 0
+
+        m = re.fullmatch(
+            r"AnimTime\s*<\s*(-\d+)",
+            value,
+            flags=re.I,
+        )
+        if m:
+            return (
+                "IK_CNS_TRIGGER_ANIM_TIME_REMAIN_GT",
+                abs(int(m.group(1))),
+                0,
+            )
+
+        m = re.fullmatch(
+            r"AnimElemTime\s*\(\s*(\d+)\s*\)\s*>=\s*(\d+)\s*"
+            r"&&\s*Time\s*<\s*(\d+)",
+            value,
+            flags=re.I,
+        )
+        if m:
+            elem = int(m.group(1))
+            min_time = int(m.group(2))
+            state_limit = int(m.group(3))
+            if not (1 <= elem <= 255 and 0 <= min_time <= 255):
+                raise ValueError(
+                    f"[{ctrl.name}] AfterImageTime window out of range"
+                )
+            packed = (elem << 8) | min_time
+            if packed >= 32768:
+                packed -= 65536
+            return (
+                "IK_CNS_TRIGGER_ANIM_ELEM_TIME_GE_STATE_TIME_LT",
+                packed,
+                state_limit,
+            )
+
     if ctype in ("width", "targetbind", "nothitby") and len(triggers) == 1:
         parsed = _anim_elem_range_trigger(triggers[0])
         if parsed is not None:
