@@ -1,8 +1,8 @@
 {
   "name": "kfm_idle_120",
-  "p1": "kfm",
-  "p2": "kfm",
-  "stage": "stages/training.def",
+  "p1": "../Ikemen-GO-Screenpack/chars/kfm/kfm.def",
+  "p2": "../Ikemen-GO-Screenpack/chars/kfm/kfm.def",
+  "stage": "../Ikemen-GO-Screenpack/stages/stage0.def",
   "frames": 120,
   "seed": 1,
   "rounds": 1,
