@@ -2716,6 +2716,13 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 break;
 
             case IK_CNS_CTRL_MODIFY_PROJECTILE: {
+                if (ctrl->value1 != 0 && i < 64u) {
+                    const uint64_t bit = (uint64_t)1u << i;
+                    if ((f->one_shot_controller_mask & bit) != 0u) {
+                        break;
+                    }
+                    f->one_shot_controller_mask |= bit;
+                }
                 if (!fight->entities || !fight->cns->projectile_mods ||
                     ctrl->value0 < 0 ||
                     ctrl->value0 >= fight->cns->projectile_mod_count) {
