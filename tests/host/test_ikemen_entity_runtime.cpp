@@ -443,6 +443,88 @@ int main() {
     OK(p2_shot!=nullptr);
     EQ(p2_shot->x_q8,188*IK_ENTITY_Q8_ONE);
 
+    {
+        ik_entity_pool_t nested_pool{};
+        ik_entity_pool_init(&nested_pool);
+        ik_entity_handle_t root0{}, root1{};
+        OK(ik_entity_spawn(
+            &nested_pool,IK_ENTITY_PLAYER,1,0u,
+            ik_entity_invalid_handle(),&root0));
+        OK(ik_entity_spawn(
+            &nested_pool,IK_ENTITY_PLAYER,2,1u,
+            ik_entity_invalid_handle(),&root1));
+        ik_entity_t* nested_parent=ik_entity_get(&nested_pool,root0);
+        OK(nested_parent!=nullptr);
+        nested_parent->x_q8=100*IK_ENTITY_Q8_ONE;
+        nested_parent->y_q8=50*IK_ENTITY_Q8_ONE;
+        nested_parent->facing=1;
+
+        const ik_cns_controller_t nested_ctrls[]={
+            {300,IK_CNS_CTRL_EXPLOD,IK_CNS_TRIGGER_ALWAYS,
+             0,0,0,1,0u},
+            {300,IK_CNS_CTRL_PROJECTILE,IK_CNS_TRIGGER_ALWAYS,
+             0,0,0,1,0u},
+        };
+        ik_cns_state_t nested_state{};
+        nested_state.number=300;
+        nested_state.anim=200;
+        nested_state.state_type=IK_CNS_STATE_STAND;
+        nested_state.move_type=IK_CNS_MOVE_IDLE;
+        nested_state.physics=IK_CNS_PHYS_NONE;
+        nested_state.controller_count=2u;
+
+        ik_cns_explod_t nested_explod{};
+        nested_explod.anim_no=200;
+        nested_explod.remove_time=20;
+        nested_explod.scale_x_q8=IK_ENTITY_Q8_ONE;
+        nested_explod.scale_y_q8=IK_ENTITY_Q8_ONE;
+        nested_explod.alpha=255u;
+
+        ik_cns_projectile_t nested_projectile{};
+        nested_projectile.id=99;
+        nested_projectile.anim_no=200;
+        nested_projectile.hitdef_global=-1;
+        nested_projectile.remove_time=20;
+        nested_projectile.hits=1u;
+        nested_projectile.priority=1u;
+        nested_projectile.velmul_x_q8=IK_ENTITY_Q8_ONE;
+        nested_projectile.velmul_y_q8=IK_ENTITY_Q8_ONE;
+
+        ik_cns_asset_t nested_cns{};
+        nested_cns.constants.life=1000;
+        nested_cns.constants.ground_back=15;
+        nested_cns.constants.ground_front=16;
+        nested_cns.constants.air_back=12;
+        nested_cns.constants.air_front=12;
+        nested_cns.states=&nested_state;
+        nested_cns.state_count=1u;
+        nested_cns.controllers=nested_ctrls;
+        nested_cns.controller_count=2u;
+        nested_cns.explods=&nested_explod;
+        nested_cns.explod_count=1u;
+        nested_cns.projectiles=&nested_projectile;
+        nested_cns.projectile_count=1u;
+
+        ik_entity_runtime_t nested_runtime{};
+        ik_entity_runtime_init(
+            &nested_runtime,&nested_pool,&nested_cns,&k_table,&k_table);
+
+        ik_cns_helper_t nested_helper{};
+        nested_helper.id=55;
+        nested_helper.state_no=300;
+        ik_entity_handle_t helper_parent{};
+        OK(ik_entity_runtime_spawn_helper(
+            &nested_runtime,root0,&nested_helper,&helper_parent));
+
+        ik_entity_runtime_step(&nested_runtime);
+        EQ(ik_entity_count_type(&nested_pool,IK_ENTITY_EXPLOD),1u);
+        EQ(ik_entity_count_type(&nested_pool,IK_ENTITY_PROJECTILE),1u);
+
+        ik_entity_runtime_step(&nested_runtime);
+        EQ(ik_entity_count_type(&nested_pool,IK_ENTITY_EXPLOD),1u);
+        EQ(ik_entity_count_type(&nested_pool,IK_ENTITY_PROJECTILE),1u);
+    }
+
     std::puts("[test] ikemen_entity_runtime OK");
     return 0;
 }
