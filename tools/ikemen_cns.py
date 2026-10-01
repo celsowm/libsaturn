@@ -1529,7 +1529,7 @@ def compile_runtime_controller(
             "trigger_value": trig_value,
             "trigger_value2": trig_value2,
             "value0": integer(ctrl.get("excludeid"), -1),
-            "value1": integer(ctrl.get("keepone"), 0),
+            "value1": integer(ctrl.get("keepone"), 1),
             "value7": (
                 integer(
                     re.search(
