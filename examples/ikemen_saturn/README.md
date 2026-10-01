@@ -144,6 +144,8 @@ reproduce the full per-palette Elecbyte transform exactly, so this remains an
 approximation of the original palette math rather than a hard-coded KFM colour.
 PalFX add/sinadd is compiled and executed per fighter with deterministic cycle
 phase and rendered as RGB modulation, covering KFM's yellow blink effects.
+Add/sinadd channels use signed 9-bit storage (-255..255), so common-state
+flashes such as add=128,128,128 no longer overflow through an int8 path.
 AfterImage now also carries the authored PalBright/PalContrast/PalAdd/PalMul
 payload through CNS compilation and derives its Saturn additive trail tint from
 those values instead of using a fixed yellow constant.
@@ -203,7 +205,9 @@ guard flags, guard/air-guard velocities, guard timing, animation type,
 `down.hittime` branch used when striking a liedown opponent.
 Standing, crouching and air guard hits enter the common 150-155 graph, while
 normal damage begins in the common 5000+ get-hit graph instead of the old
-single synthetic hit state. HitDef target filtering now honors H/L/M/A/F/D
+single synthetic hit state. Common air recovery 5210 now also preserves its
+entry PalFX, 15-tick SCA NotHitBy window and the source P2Dist<-20 conditional
+Turn before applying the existing recovery velocity controls. HitDef target filtering now honors H/L/M/A/F/D
 plus the +/- get-hit modifiers. Simultaneous contacts are gathered before
 state changes so numeric priority and Hit/Miss/Dodge clashes can trade or
 suppress hits correctly. Conditional HitDefs are activated on their exact
