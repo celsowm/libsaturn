@@ -169,6 +169,29 @@ void ik_entity_clear_targets(
     }
 }
 
+static void compact_targets(
+    const ik_entity_pool_t* pool,
+    ik_entity_t* entity
+) {
+    if (!pool || !entity) return;
+    uint8_t write = 0u;
+    for (uint8_t read = 0u; read < entity->target_count; ++read) {
+        if (!ik_entity_get_const(pool, entity->targets[read])) continue;
+        if (write != read) {
+            entity->targets[write] = entity->targets[read];
+            entity->target_ids[write] = entity->target_ids[read];
+        }
+        ++write;
+    }
+    for (uint8_t i = write; i < IK_ENTITY_TARGET_CAPACITY; ++i) {
+        entity->targets[i] = ik_entity_invalid_handle();
+        entity->target_ids[i] = -1;
+    }
+    entity->target_count = write;
+    entity->target = write > 0u
+        ? entity->targets[0] : ik_entity_invalid_handle();
+}
+
 int ik_entity_add_target(
     ik_entity_pool_t* pool,
     ik_entity_handle_t source,
@@ -177,6 +200,7 @@ int ik_entity_add_target(
 ) {
     ik_entity_t* entity = ik_entity_get(pool, source);
     if (!entity || !ik_entity_get_const(pool, target)) return 0;
+    compact_targets(pool, entity);
 
     for (uint8_t i = 0u; i < entity->target_count; ++i) {
         if (ik_entity_handle_equal(entity->targets[i], target)) {
