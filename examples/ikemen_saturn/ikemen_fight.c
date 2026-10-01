@@ -17,6 +17,33 @@ static int32_t clamp_q8(int32_t v, int16_t lo, int16_t hi) {
     return v;
 }
 
+static const ik_cns_asset_t* cns_for_owner(
+    const ik_fight_t* fight,
+    uint8_t owner
+) {
+    if (!fight) return 0;
+    if (owner < 2u && fight->player_cns[owner]) {
+        return fight->player_cns[owner];
+    }
+    return fight->cns;
+}
+
+static const ik_cns_asset_t* cns_for_fighter(
+    const ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    if (!fighter) return fight ? fight->cns : 0;
+    return cns_for_owner(fight, fighter->state_owner);
+}
+
+static const ik_cns_constants_t* constants_for_fighter(
+    const ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    const ik_cns_asset_t* cns = cns_for_fighter(fight, fighter);
+    return cns ? &cns->constants : 0;
+}
+
 static const ik_cns_constants_t* constants_for(const ik_fight_t* fight) {
     return (fight && fight->cns) ? &fight->cns->constants : 0;
 }
@@ -80,7 +107,8 @@ static uint8_t guard_mask_for_type(uint8_t state_type) {
 uint8_t ik_fight_state_type(const ik_fight_t* fight,
                             const ik_fighter_t* fighter) {
     if (!fighter) return IK_CNS_STATE_UNCHANGED;
-    const ik_cns_state_t* spec = state_spec(fight, fighter->state);
+    const ik_cns_state_t* spec =
+        ik_cns_find_state(cns_for_fighter(fight, fighter), fighter->state);
     if (spec && spec->state_type != IK_CNS_STATE_UNCHANGED) {
         return (uint8_t)spec->state_type;
     }
@@ -110,7 +138,8 @@ static int default_ctrl_for_state(int16_t state) {
 }
 
 static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
-    const ik_cns_state_t* spec = ik_cns_find_state(fight ? fight->cns : 0, state);
+    const ik_cns_asset_t* state_cns = cns_for_fighter(fight, f);
+    const ik_cns_state_t* spec = ik_cns_find_state(state_cns, state);
     const int16_t previous_anim = f->anim;
     const int16_t previous_state = f->state;
 
@@ -119,7 +148,7 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     f->state_time = 0u;
     f->anim = (spec && spec->anim < 0)
         ? previous_anim
-        : (int16_t)ik_action_for_state(fight ? fight->cns : 0, state);
+        : (int16_t)ik_action_for_state(state_cns, state);
     f->anim_time = 0u;
     f->move_contact = 0u;
     f->move_hit = 0u;
@@ -160,8 +189,11 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
 }
 
 static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
-                          int16_t x, int8_t facing, int hp) {
-    const ik_cns_constants_t* c = constants_for(fight);
+                          int16_t x, int8_t facing, int hp,
+                          uint8_t owner_player) {
+    f->owner_player = owner_player;
+    f->state_owner = owner_player;
+    const ik_cns_constants_t* c = constants_for_fighter(fight, f);
     set_position(f, x, IK_FLOOR_Y);
     f->vx_q8 = 0;
     f->vy_q8 = 0;
@@ -259,12 +291,14 @@ int ik_fight_max_hp(const ik_fight_t* fight) {
 void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     if (!fight) return;
     fight->cns = cns;
+    fight->player_cns[0] = cns;
+    fight->player_cns[1] = cns;
     fight->entities = 0;
     fight->player_entities[0] = ik_entity_invalid_handle();
     fight->player_entities[1] = ik_entity_invalid_handle();
     const int hp = ik_fight_max_hp(fight);
-    fighter_spawn(fight, &fight->fighters[0], 110, 1, hp);
-    fighter_spawn(fight, &fight->fighters[1], 210, -1, hp);
+    fighter_spawn(fight, &fight->fighters[0], 110, 1, hp, 0u);
+    fighter_spawn(fight, &fight->fighters[1], 210, -1, hp, 1u);
     fight->frame = 0;
     fight->timer_frames = IK_ROUND_TIME_FRAMES;
     fight->events = IK_EVENT_NONE;
@@ -299,6 +333,14 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     if (fight->super_darken_time > 0u) {
         --fight->super_darken_time;
     }
+} 
+
+void ik_fight_set_player_cns(
+    ik_fight_t* fight, uint8_t player, const ik_cns_asset_t* cns
+) {
+    if (!fight || player >= 2u) return;
+    fight->player_cns[player] = cns ? cns : fight->cns;
+    fight->fighters[player].state_owner = player;
 }
 
 void ik_fight_bind_entities(
