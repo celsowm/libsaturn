@@ -734,6 +734,26 @@ test: $(HOST_TEST_BINS)
 		$(PYTHON) $$t || exit 1; \
 	done
 
+# -- Ikemen GO behavioral oracle -------------------------------
+IKEMEN_ORACLE_SCENARIO ?= tools/ikemen_oracle/scenarios/kfm_idle_120.json
+IKEMEN_ORACLE_TRACE ?= build/ikemen_oracle/ikemen.jsonl
+IKEMEN_ORACLE_SATURN_TRACE ?= build/ikemen_oracle/libsaturn.jsonl
+
+.PHONY: ikemen-oracle-install ikemen-oracle-run ikemen-oracle-diff
+ikemen-oracle-install:
+	$(PYTHON) tools/ikemen_oracle/install.py
+
+ikemen-oracle-run:
+	$(PYTHON) tools/ikemen_oracle/run.py \
+		$(IKEMEN_ORACLE_SCENARIO) \
+		--trace $(IKEMEN_ORACLE_TRACE) \
+		--install
+
+ikemen-oracle-diff:
+	$(PYTHON) tools/ikemen_oracle/diff.py \
+		$(IKEMEN_ORACLE_TRACE) \
+		$(IKEMEN_ORACLE_SATURN_TRACE)
+
 # -- Alvos utilitarios ------------------------------------------
 .PHONY: print-build-paths
 print-build-paths:
