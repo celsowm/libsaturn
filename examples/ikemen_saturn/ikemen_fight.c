@@ -2305,6 +2305,7 @@ static void sync_fighter_entity(
     entity->move_type =
         (uint8_t)(state ? state->move_type : IK_CNS_MOVE_IDLE);
     entity->move_contact = fighter->move_contact;
+    entity->move_hit = fighter->move_hit;
 
     const ik_entity_handle_t target =
         fighter->target_index >= 0 && fighter->target_index < 2
@@ -3252,11 +3253,25 @@ static void step_fighter(ik_fight_t* fight, int index,
         }
     }
 
+    if (ik_entity_handle_is_valid(f->bound_entity)) {
+        const ik_entity_t* binder =
+            fight->entities
+                ? ik_entity_get_const(
+                    fight->entities, f->bound_entity)
+                : 0;
+        if (!binder) {
+            f->bound_entity = ik_entity_invalid_handle();
+        }
+    }
+
     if (process_cns_controllers(fight, f, controls, frames, 0)) return;
 
     /* TargetBind owns the bound player's transform. Physics=N thrown states
-     * must not drift after the attacker's bind controller positioned them. */
-    if (f->bound_to >= 0) return;
+     * must not drift after either a root or Helper bind positioned them. */
+    if (f->bound_to >= 0 ||
+        ik_entity_handle_is_valid(f->bound_entity)) {
+        return;
+    }
 
     if (f->hitstun > 0u) {
         f->hitstun--;
