@@ -298,6 +298,20 @@ int ik_cns_controller_trigger_context_now(
             }
         }
 
+        case IK_CNS_TRIGGER_NUM_TARGET_QUERY: {
+            const uint8_t op = (uint8_t)controller->trigger_value2;
+            const int32_t actual = context->num_targets;
+            switch (op) {
+                case IK_CNS_QUERY_EQ: return actual == controller->trigger_value;
+                case IK_CNS_QUERY_NE: return actual != controller->trigger_value;
+                case IK_CNS_QUERY_LT: return actual < controller->trigger_value;
+                case IK_CNS_QUERY_LE: return actual <= controller->trigger_value;
+                case IK_CNS_QUERY_GT: return actual > controller->trigger_value;
+                case IK_CNS_QUERY_GE: return actual >= controller->trigger_value;
+                default: return 0;
+            }
+        }
+
         case IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME:
             return context->state_time ==
                        (uint16_t)(controller->trigger_value2 < 0
