@@ -76,6 +76,7 @@ var (
 	libsaturnOracleMaxFrames  int32 = -1
 	libsaturnOracleRoundState int32 = 2
 	libsaturnOracleDone       bool
+	libsaturnOracleInputs     [][2]uint16
 )
 
 func libsaturnOracleEnabled() bool {
@@ -92,6 +93,61 @@ func libsaturnOracleIntEnv(name string, fallback int32) int32 {
 		panic(fmt.Sprintf("invalid %s=%q: %v", name, raw, err))
 	}
 	return int32(v)
+}
+
+
+func libsaturnOracleLoadInputs() error {
+	path := os.Getenv("LIBSATURN_IKEMEN_ORACLE_INPUTS")
+	if path == "" {
+		libsaturnOracleInputs = nil
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	libsaturnOracleInputs = nil
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		var p1, p2 uint16
+		if _, err := fmt.Sscanf(scanner.Text(), "%d %d", &p1, &p2); err != nil {
+			return fmt.Errorf("invalid oracle input row %q: %w", scanner.Text(), err)
+		}
+		libsaturnOracleInputs = append(
+			libsaturnOracleInputs, [2]uint16{p1, p2})
+	}
+	return scanner.Err()
+}
+
+func libsaturnOracleInput(char *Char, controller int) ([14]bool, bool) {
+	var out [14]bool
+	if !libsaturnOracleEnabled() || char == nil ||
+		sys.roundState() != 2 || controller < 0 || controller > 1 ||
+		libsaturnOracleFrameNo < 0 ||
+		int(libsaturnOracleFrameNo) >= len(libsaturnOracleInputs) {
+		return out, false
+	}
+	mask := libsaturnOracleInputs[libsaturnOracleFrameNo][controller]
+	forward := mask&(1<<0) != 0
+	back := mask&(1<<1) != 0
+	out[0] = mask&(1<<2) != 0
+	out[1] = mask&(1<<3) != 0
+	if char.fbFlip {
+		out[2] = forward
+		out[3] = back
+	} else {
+		out[2] = back
+		out[3] = forward
+	}
+	out[4] = mask&(1<<4) != 0
+	out[5] = mask&(1<<5) != 0
+	out[6] = mask&(1<<6) != 0
+	out[7] = mask&(1<<7) != 0
+	out[8] = mask&(1<<8) != 0
+	out[9] = mask&(1<<9) != 0
+	out[10] = mask&(1<<10) != 0
+	return out, true
 }
 
 func libsaturnOracleBeginMatch(s *System) error {
@@ -115,6 +171,9 @@ func libsaturnOracleBeginMatch(s *System) error {
 	}
 	s.randseed = libsaturnOracleIntEnv(
 		"LIBSATURN_IKEMEN_ORACLE_SEED", 1)
+	if err := libsaturnOracleLoadInputs(); err != nil {
+		return err
+	}
 	libsaturnOracleFrameNo = 0
 	libsaturnOracleDone = false
 	return nil
