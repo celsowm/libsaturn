@@ -2715,6 +2715,26 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 f->ctrl = (int8_t)(ctrl->value0 != 0);
                 break;
 
+            case IK_CNS_CTRL_MODIFY_PROJECTILE: {
+                if (!fight->entities || !fight->cns->projectile_mods ||
+                    ctrl->value0 < 0 ||
+                    ctrl->value0 >= fight->cns->projectile_mod_count) {
+                    break;
+                }
+                const uint8_t owner =
+                    fighter_player_index(fight, f);
+                if (owner >= 2u) break;
+                sync_fighter_entity(fight, f);
+                ik_entity_runtime_t runtime;
+                ik_entity_runtime_init(
+                    &runtime, fight->entities, fight->cns, frames, frames);
+                configure_fight_entity_runtime(fight, &runtime);
+                (void)ik_entity_runtime_modify_projectiles(
+                    &runtime, owner,
+                    &fight->cns->projectile_mods[ctrl->value0]);
+                break;
+            }
+
             case IK_CNS_CTRL_PROJECTILE: {
                 if (!fight->entities || !fight->cns->projectiles ||
                     ctrl->value0 < 0 ||
