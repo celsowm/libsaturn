@@ -89,6 +89,8 @@ void ik_entity_runtime_init(
     runtime->frames[1] = p2_frames ? p2_frames : p1_frames;
     runtime->command_masks[0] = 0u;
     runtime->command_masks[1] = 0u;
+    runtime->stage_min_x = 0;
+    runtime->stage_max_x = 320;
     runtime->external_user = 0;
     runtime->target_controller = 0;
 }
@@ -101,6 +103,21 @@ void ik_entity_runtime_set_target_controller(
     if (!runtime) return;
     runtime->external_user = user;
     runtime->target_controller = callback;
+}
+
+void ik_entity_runtime_set_stage_bounds(
+    ik_entity_runtime_t* runtime,
+    int16_t stage_min_x,
+    int16_t stage_max_x
+) {
+    if (!runtime) return;
+    if (stage_min_x <= stage_max_x) {
+        runtime->stage_min_x = stage_min_x;
+        runtime->stage_max_x = stage_max_x;
+    } else {
+        runtime->stage_min_x = stage_max_x;
+        runtime->stage_max_x = stage_min_x;
+    }
 }
 
 void ik_entity_runtime_set_command_mask(
@@ -663,6 +680,34 @@ static int process_controllers(
     return 0;
 }
 
+static int projectile_begin_remove(
+    ik_entity_runtime_t* runtime,
+    ik_entity_handle_t handle,
+    ik_entity_t* entity
+) {
+    if (!runtime || !runtime->pool || !entity ||
+        entity->type != IK_ENTITY_PROJECTILE) {
+        return 1;
+    }
+
+    if (entity->active_hitdef_global >= 0 &&
+        entity->projectile_remove_anim_no >= 0) {
+        entity->anim_no = entity->projectile_remove_anim_no;
+        entity->anim_time = 0u;
+        entity->move_type = IK_CNS_MOVE_IDLE;
+        entity->active_hitdef_global = -1;
+        entity->active_hitdef_local = -1;
+        entity->active_hitdef_secondary = 0u;
+        entity->hitdef_hit_mask = 0u;
+        entity->remove_time = 0;
+        entity->projectile_hit_cooldown = 0u;
+        return 0;
+    }
+
+    (void)ik_entity_destroy(runtime->pool, handle);
+    return 1;
+}
+
 static void step_one(
     ik_entity_runtime_t* runtime,
     ik_entity_handle_t handle
@@ -759,15 +804,21 @@ static void step_one(
                 const int32_t x = entity->x_q8 / IK_ENTITY_Q8_ONE;
                 if (x < -entity->projectile_edge_bound ||
                     x > 320 + entity->projectile_edge_bound) {
-                    (void)ik_entity_destroy(runtime->pool, handle);
+                    (void)projectile_begin_remove(
+                        runtime, handle, entity);
                     return;
                 }
             }
             if (entity->projectile_stage_bound > 0) {
                 const int32_t x = entity->x_q8 / IK_ENTITY_Q8_ONE;
-                if (x < -entity->projectile_stage_bound ||
-                    x > 320 + entity->projectile_stage_bound) {
-                    (void)ik_entity_destroy(runtime->pool, handle);
+                if (x <
+                        (int32_t)runtime->stage_min_x -
+                            entity->projectile_stage_bound ||
+                    x >
+                        (int32_t)runtime->stage_max_x +
+                            entity->projectile_stage_bound) {
+                    (void)projectile_begin_remove(
+                        runtime, handle, entity);
                     return;
                 }
             }
@@ -776,7 +827,13 @@ static void step_one(
         if (entity->remove_time > 0) {
             --entity->remove_time;
             if (entity->remove_time == 0) {
-                (void)ik_entity_destroy(runtime->pool, handle);
+                if (entity->type == IK_ENTITY_PROJECTILE &&
+                    entity->active_hitdef_global >= 0) {
+                    (void)projectile_begin_remove(
+                        runtime, handle, entity);
+                } else {
+                    (void)ik_entity_destroy(runtime->pool, handle);
+                }
                 return;
             }
         } else if (entity->remove_time == 0) {
