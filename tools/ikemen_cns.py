@@ -1881,6 +1881,7 @@ def compile_projectile_controller(
         "projmisstime", "projpriority", "projsprpriority",
         "projedgebound", "projstagebound", "pausemovetime",
         "supermovetime", "ownpal", "persistent", "ignorehitpause",
+        "bindtime", "removeongethit", "removeonchangestate",
         "attr", "damage", "priority", "pausetime", "sparkno",
         "guard.sparkno", "sparkxy", "hitsound", "guardsound",
         "animtype", "air.animtype", "fall", "air.fall",
