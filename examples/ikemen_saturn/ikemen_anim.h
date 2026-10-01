@@ -19,6 +19,8 @@ typedef struct ik_sprite_source {
     uint8_t left_pad;
     uint8_t format;
     uint16_t palette_index;
+    int16_t group;
+    int16_t number;
 } ik_sprite_source_t;
 
 typedef struct ik_frame {
