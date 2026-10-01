@@ -15,6 +15,21 @@ from tools.ikemen_state_rules import (  # noqa: E402
     parse_state_rules,
 )
 
+target_query_code = Parser(
+    "NumTarget(42) >= 2",
+    {},
+).parse()
+assert len(target_query_code) == 1
+assert target_query_code[0].op == "num_targets_ge"
+assert target_query_code[0].a == 42
+assert target_query_code[0].b == 2
+lowered_target_query = _lower_instruction(target_query_code[0])
+assert lowered_target_query[0].op == "IK_EXPR_LOAD_FIELD"
+assert lowered_target_query[0].field == "IK_EXPR_FIELD_NUM_TARGETS"
+assert lowered_target_query[0].a == 42
+assert lowered_target_query[1].a == 2
+assert lowered_target_query[2].op == "IK_EXPR_GE"
+
 query_code = Parser(
     "NumProj > 0 && ProjContact = 1 && ProjHitTime <= 3",
     {},
