@@ -568,6 +568,7 @@ typedef struct ik_cns_projectile {
     int16_t bind_time;
     uint8_t remove_on_gethit;
     uint8_t remove_on_state_change;
+    uint8_t postype;
 } ik_cns_projectile_t;
 
 enum {
