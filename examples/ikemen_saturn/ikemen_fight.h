@@ -178,6 +178,8 @@ typedef struct ik_fighter {
     uint16_t not_hit_by_time;
     int8_t target_index;
     int32_t target_id;
+    int8_t last_hit_owner;
+    int32_t last_hit_id;
     int8_t bound_to;
     ik_entity_handle_t bound_entity;
     uint8_t owner_player;
