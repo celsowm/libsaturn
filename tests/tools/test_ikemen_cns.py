@@ -12,6 +12,7 @@ from tools.ikemen_cns import (
     Section,
     compile_explod_controller,
     compile_helper_controller,
+    compile_modify_projectile_controller,
     compile_projectile_controller,
     controller_trigger,
     emit,
@@ -2257,6 +2258,33 @@ compiled_p2_projectile = compile_projectile_controller(
 assert compiled_p2_projectile is not None
 _, p2_projectile, _ = compiled_p2_projectile
 assert p2_projectile["postype"] == "IK_CNS_HELPER_POS_P2"
+
+modify_projectile_ctrl = Section(
+    "State 9000, Accelerate projectile",
+    [
+        ("type", "ModifyProjectile"),
+        ("trigger1", "Time = 3"),
+        ("id", "77"),
+        ("velocity", "5,-1"),
+        ("projpriority", "6"),
+        ("persistent", "0"),
+    ],
+)
+compiled_modify = compile_modify_projectile_controller(
+    9000, modify_projectile_ctrl, 2
+)
+assert compiled_modify is not None
+modify_controller, modification = compiled_modify
+assert modify_controller["type"] == "IK_CNS_CTRL_MODIFY_PROJECTILE"
+assert modify_controller["value0"] == 2
+assert modify_controller["value1"] == 1
+assert modification["id"] == 77
+assert "IK_CNS_PROJ_MOD_VELOCITY" in modification["mask"]
+assert "IK_CNS_PROJ_MOD_PRIORITY" in modification["mask"]
+assert "IK_CNS_PROJ_MOD_ANIM" not in modification["mask"]
+assert modification["vel_x_q8"] == 5 * 256
+assert modification["vel_y_q8"] == -1 * 256
+assert modification["priority"] == 6
 
 unsupported_helper = Section(
     "State 0, Unsupported Helper",
