@@ -151,6 +151,7 @@ int ik_entity_runtime_enter_state(
     entity->anim_time = 65535u;
     entity->move_contact = 0u;
     entity->move_hit = 0u;
+    entity->one_shot_controller_mask = 0u;
     if (!(spec && spec->hitdef_persist)) {
         entity->hitdef_hit_mask = 0u;
         entity->active_hitdef_global = -1;
@@ -785,6 +786,13 @@ static int process_controllers(
                 break;
 
             case IK_CNS_CTRL_HELPER:
+                if (ctrl->value1 != 0 && i < 64u) {
+                    const uint64_t bit = (uint64_t)1u << i;
+                    if ((entity->one_shot_controller_mask & bit) != 0u) {
+                        break;
+                    }
+                    entity->one_shot_controller_mask |= bit;
+                }
                 if (ctrl->value0 >= 0 &&
                     ctrl->value0 < runtime->cns->helper_count &&
                     runtime->cns->helpers) {
@@ -794,6 +802,56 @@ static int process_controllers(
                         runtime, handle,
                         &runtime->cns->helpers[ctrl->value0],
                         &child);
+                }
+                break;
+
+            case IK_CNS_CTRL_EXPLOD:
+                if (ctrl->value1 != 0 && i < 64u) {
+                    const uint64_t bit = (uint64_t)1u << i;
+                    if ((entity->one_shot_controller_mask & bit) != 0u) {
+                        break;
+                    }
+                    entity->one_shot_controller_mask |= bit;
+                }
+                if (ctrl->value0 >= 0 &&
+                    ctrl->value0 < runtime->cns->explod_count &&
+                    runtime->cns->explods) {
+                    ik_entity_handle_t child =
+                        ik_entity_invalid_handle();
+                    (void)ik_entity_runtime_spawn_explod(
+                        runtime, handle,
+                        &runtime->cns->explods[ctrl->value0],
+                        &child);
+                }
+                break;
+
+            case IK_CNS_CTRL_PROJECTILE:
+                if (ctrl->value1 != 0 && i < 64u) {
+                    const uint64_t bit = (uint64_t)1u << i;
+                    if ((entity->one_shot_controller_mask & bit) != 0u) {
+                        break;
+                    }
+                    entity->one_shot_controller_mask |= bit;
+                }
+                if (ctrl->value0 >= 0 &&
+                    ctrl->value0 < runtime->cns->projectile_count &&
+                    runtime->cns->projectiles) {
+                    ik_entity_handle_t child =
+                        ik_entity_invalid_handle();
+                    (void)ik_entity_runtime_spawn_projectile_spec(
+                        runtime, handle,
+                        &runtime->cns->projectiles[ctrl->value0],
+                        &child);
+                }
+                break;
+
+            case IK_CNS_CTRL_MODIFY_PROJECTILE:
+                if (runtime->cns->projectile_mods &&
+                    ctrl->value0 >= 0 &&
+                    ctrl->value0 < runtime->cns->projectile_mod_count) {
+                    (void)ik_entity_runtime_modify_projectiles(
+                        runtime, entity->owner_player,
+                        &runtime->cns->projectile_mods[ctrl->value0]);
                 }
                 break;
 
