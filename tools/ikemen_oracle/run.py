@@ -97,6 +97,9 @@ def main() -> int:
         int(scenario["frames"])
     )
     env["LIBSATURN_IKEMEN_ORACLE_SEED"] = str(int(scenario["seed"]))
+    env["LIBSATURN_IKEMEN_ORACLE_ROUND_STATE"] = str(
+        int(scenario.get("round_state", 2))
+    )
 
     cmd = build_command(scenario)
     if args.dry_run:
