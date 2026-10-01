@@ -44,7 +44,8 @@ typedef enum ik_expr_field {
     IK_EXPR_FIELD_PROJ_GUARDED,
     IK_EXPR_FIELD_PROJ_CONTACT_TIME,
     IK_EXPR_FIELD_PROJ_HIT_TIME,
-    IK_EXPR_FIELD_PROJ_GUARDED_TIME
+    IK_EXPR_FIELD_PROJ_GUARDED_TIME,
+    IK_EXPR_FIELD_NUM_TARGETS
 } ik_expr_field_t;
 
 typedef enum ik_expr_op {
@@ -81,7 +82,9 @@ typedef int (*ik_expr_read_field_fn)(
     void* user,
     uint8_t redirect,
     uint8_t field,
-    int16_t index,
+    int32_t index,
+    int32_t redirect_id,
+    uint8_t redirect_index,
     int32_t* out_value);
 
 typedef int (*ik_expr_read_command_fn)(
