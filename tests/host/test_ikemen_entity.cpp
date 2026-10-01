@@ -34,6 +34,20 @@ int main() {
     OK(ik_entity_handle_equal(
         ik_entity_redirect(&pool, p1, IK_EXPR_REDIRECT_TARGET), helper));
 
+    ik_entity_clear_targets(&pool, p1);
+    OK(ik_entity_add_target(&pool, p1, helper, 10));
+    OK(ik_entity_add_target(&pool, p1, p2, 20));
+    OK(ik_entity_add_target(&pool, p1, projectile, 20));
+    OK(ik_entity_handle_equal(
+        ik_entity_target_at(&pool, p1, 20, 0u), p2));
+    OK(ik_entity_handle_equal(
+        ik_entity_target_at(&pool, p1, 20, 1u), projectile));
+    OK(ik_entity_remove_target(&pool, p1, p2));
+    OK(ik_entity_handle_equal(
+        ik_entity_target_at(&pool, p1, 20, 0u), projectile));
+    OK(ik_entity_handle_equal(
+        ik_entity_redirect(&pool, p1, IK_EXPR_REDIRECT_TARGET), helper));
+
     ik_entity_t* e1 = ik_entity_get(&pool, p1);
     ik_entity_t* e2 = ik_entity_get(&pool, p2);
     ik_entity_t* eh = ik_entity_get(&pool, helper);
