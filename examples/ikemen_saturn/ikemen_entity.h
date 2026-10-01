@@ -102,6 +102,7 @@ typedef struct ik_entity {
     uint8_t proj_query_contact;
     uint8_t proj_query_hit;
     uint8_t proj_query_guarded;
+    uint64_t one_shot_controller_mask;
     int16_t proj_query_contact_time;
     int16_t proj_query_hit_time;
     int16_t proj_query_guarded_time;
