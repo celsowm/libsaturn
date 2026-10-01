@@ -1145,8 +1145,12 @@ static void sync_player_entities(const ik_fight_t* fight) {
             ik_entity_get(&g_entity_pool, g_player_entities[i]);
         if (!entity) continue;
 
+        const ik_cns_asset_t* state_cns =
+            fighter->state_owner < 2u
+                ? fight->player_cns[fighter->state_owner]
+                : fight->cns;
         const ik_cns_state_t* state =
-            ik_cns_find_state(fight->cns, fighter->state);
+            ik_cns_find_state(state_cns, fighter->state);
         entity->x_q8 = fighter->x_q8;
         entity->y_q8 = fighter->y_q8;
         entity->vx_q8 = fighter->vx_q8;
@@ -1162,11 +1166,13 @@ static void sync_player_entities(const ik_fight_t* fight) {
         entity->life = fighter->hp;
         entity->power = fighter->power;
         entity->active_hit_attr_mask = 0u;
-        if (fighter->active_hitdef_global >= 0 &&
-            fighter->active_hitdef_global < (int16_t)fight->cns->hitdef_count) {
+        if (state_cns &&
+            fighter->active_hitdef_global >= 0 &&
+            fighter->active_hitdef_global < (int16_t)state_cns->hitdef_count) {
             entity->active_hit_attr_mask =
-                fight->cns->hitdefs[(uint16_t)fighter->active_hitdef_global]
-                    .attack_attr_mask;
+                state_cns->hitdefs[
+                    (uint16_t)fighter->active_hitdef_global
+                ].attack_attr_mask;
         }
         entity->push_back = fighter->push_back;
         entity->push_front = fighter->push_front;
