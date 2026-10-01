@@ -1913,6 +1913,7 @@ static void apply_damage_from_entity(
 
     ik_fighter_t* v = &fight->fighters[victim];
     release_bound_target(fight, victim);
+    release_entity_bound_fighter(fight, v);
 
     const uint8_t victim_type = ik_fight_state_type(fight, v);
     const int downed = victim_type == IK_CNS_STATE_LIEDOWN;
@@ -2003,6 +2004,7 @@ static void apply_damage_from_entity(
         fight->env_shake_phase = 0u;
     }
     attacker->move_contact = 1u;
+    attacker->move_hit = 1u;
     if (launch) v->on_ground = 0;
 
     if (!airborne && !downed &&
@@ -2082,6 +2084,87 @@ static void apply_damage_from_entity(
     }
 
     if (attacker->owner_player == 0u) ++fight->hits_p1;
+    else ++fight->hits_p2;
+}
+
+static void apply_throw_from_entity(
+    ik_fight_t* fight,
+    ik_entity_handle_t attacker_handle,
+    int victim,
+    const ik_cns_hitdef_t* hitdef,
+    const ik_frame_table_t* p1_frames,
+    const ik_frame_table_t* p2_frames
+) {
+    if (!fight || !fight->entities || !hitdef ||
+        victim < 0 || victim > 1) {
+        return;
+    }
+
+    ik_entity_t* attacker =
+        ik_entity_get(fight->entities, attacker_handle);
+    if (!attacker || attacker->type != IK_ENTITY_HELPER ||
+        attacker->owner_player >= 2u) {
+        return;
+    }
+
+    ik_fighter_t* v = &fight->fighters[victim];
+    release_bound_target(fight, victim);
+    release_entity_bound_fighter(fight, v);
+
+    (void)ik_entity_set_target(
+        fight->entities, attacker_handle,
+        fight->player_entities[victim]);
+    v->bound_to = -1;
+    v->bound_entity = attacker_handle;
+    attacker->move_contact = 1u;
+    attacker->move_hit = 1u;
+
+    if (hitdef->p1_facing != 0) {
+        const int attacker_x =
+            ik_cns_q8_to_int(attacker->x_q8);
+        const int8_t toward = v->x >= attacker_x ? 1 : -1;
+        attacker->facing =
+            hitdef->p1_facing > 0 ? toward : (int8_t)-toward;
+    }
+    if (hitdef->p2_facing != 0) {
+        const int attacker_x =
+            ik_cns_q8_to_int(attacker->x_q8);
+        const int8_t toward = attacker_x >= v->x ? 1 : -1;
+        v->facing =
+            hitdef->p2_facing > 0 ? toward : (int8_t)-toward;
+    }
+
+    v->gethit_fall =
+        (uint8_t)((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u);
+    v->gethit_fall_x_q8 = hitdef->fall_x_velocity_q8;
+    v->gethit_fall_y_q8 = hitdef->fall_y_velocity_q8;
+    v->gethit_fall_x_set = hitdef->fall_x_velocity_set;
+    v->gethit_fall_recover = hitdef->fall_recover;
+    v->gethit_fall_recover_time = hitdef->fall_recover_time;
+
+    if (hitdef->p2_state_no >= 0) {
+        enter_state(fight, v, hitdef->p2_state_no);
+    }
+    if (hitdef->p1_state_no >= 0) {
+        enter_entity_contact_state(
+            fight, attacker_handle, hitdef->p1_state_no,
+            p1_frames, p2_frames);
+        attacker = ik_entity_get(
+            fight->entities, attacker_handle);
+        if (attacker && hitdef->p1_spr_priority != -128) {
+            attacker->spr_priority = hitdef->p1_spr_priority;
+        }
+    }
+
+    attacker = ik_entity_get(fight->entities, attacker_handle);
+    if (attacker) {
+        queue_entity_hit_effect(
+            fight, attacker, v, hitdef, hitdef->spark_no, 1);
+    }
+    queue_sound_event(
+        fight, hitdef->hit_sound_group, hitdef->hit_sound_item);
+    fight->events |= IK_EVENT_HIT;
+    if (attacker && attacker->owner_player == 0u) ++fight->hits_p1;
     else ++fight->hits_p2;
 }
 
