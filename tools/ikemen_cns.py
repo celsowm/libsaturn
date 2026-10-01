@@ -2009,6 +2009,125 @@ def compile_projectile_controller(
     return controller, projectile, hitdef
 
 
+def compile_modify_projectile_controller(
+    state_no: int,
+    ctrl: Section,
+    mod_index: int,
+) -> tuple[dict, dict] | None:
+    supported = {
+        "type", "id", "index", "projanim", "projhitanim",
+        "projremanim", "projcancelanim", "velocity", "velmul",
+        "accel", "projremove", "projremovetime", "projhits",
+        "projmisstime", "projpriority", "projsprpriority",
+        "projedgebound", "projstagebound", "pausemovetime",
+        "supermovetime", "bindtime", "removeongethit",
+        "removeonchangestate", "persistent", "ignorehitpause",
+    }
+    for key, _ in ctrl.values:
+        lowered = key.strip().lower()
+        if lowered.startswith("trigger"):
+            continue
+        if lowered not in supported:
+            return None
+
+    if integer(ctrl.get("index"), 0) != 0:
+        return None
+
+    mask: list[str] = []
+    def present(name: str, flag: str) -> bool:
+        if ctrl.get(name) is None:
+            return False
+        mask.append(flag)
+        return True
+
+    has_velocity = present("velocity", "IK_CNS_PROJ_MOD_VELOCITY")
+    has_velmul = present("velmul", "IK_CNS_PROJ_MOD_VELMUL")
+    has_accel = present("accel", "IK_CNS_PROJ_MOD_ACCEL")
+    vx, vy = pair(ctrl.get("velocity"), 0, 0)
+    vmx, vmy = pair(ctrl.get("velmul"), 1, 1)
+    ax, ay = pair(ctrl.get("accel"), 0, 0)
+
+    fields = {
+        "anim_no": integer(ctrl.get("projanim"), 0),
+        "hit_anim_no": integer(ctrl.get("projhitanim"), -1),
+        "remove_anim_no": integer(ctrl.get("projremanim"), -1),
+        "cancel_anim_no": integer(ctrl.get("projcancelanim"), -1),
+        "vel_x_q8": q8(vx),
+        "vel_y_q8": q8(vy),
+        "velmul_x_q8": q8(vmx),
+        "velmul_y_q8": q8(vmy),
+        "accel_x_q8": q8(ax),
+        "accel_y_q8": q8(ay),
+        "remove_time": integer(ctrl.get("projremovetime"), -1),
+        "edge_bound": integer(ctrl.get("projedgebound"), 40),
+        "stage_bound": integer(ctrl.get("projstagebound"), 40),
+        "hits": max(1, integer(ctrl.get("projhits"), 1)),
+        "miss_time": max(0, integer(ctrl.get("projmisstime"), 0)),
+        "priority": max(0, integer(ctrl.get("projpriority"), 1)),
+        "remove_on_hit": integer(ctrl.get("projremove"), 1),
+        "spr_priority": integer(ctrl.get("projsprpriority"), 3),
+        "pause_move_time": max(0, integer(ctrl.get("pausemovetime"), 0)),
+        "super_move_time": max(0, integer(ctrl.get("supermovetime"), 0)),
+        "bind_time": integer(ctrl.get("bindtime"), 0),
+        "remove_on_gethit": integer(ctrl.get("removeongethit"), 0),
+        "remove_on_state_change": integer(
+            ctrl.get("removeonchangestate"), 0),
+    }
+
+    for name, flag in (
+        ("projanim", "IK_CNS_PROJ_MOD_ANIM"),
+        ("projhitanim", "IK_CNS_PROJ_MOD_HIT_ANIM"),
+        ("projremanim", "IK_CNS_PROJ_MOD_REMOVE_ANIM"),
+        ("projcancelanim", "IK_CNS_PROJ_MOD_CANCEL_ANIM"),
+        ("projremovetime", "IK_CNS_PROJ_MOD_REMOVE_TIME"),
+        ("projhits", "IK_CNS_PROJ_MOD_HITS"),
+        ("projmisstime", "IK_CNS_PROJ_MOD_MISS_TIME"),
+        ("projpriority", "IK_CNS_PROJ_MOD_PRIORITY"),
+        ("projsprpriority", "IK_CNS_PROJ_MOD_SPR_PRIORITY"),
+        ("projedgebound", "IK_CNS_PROJ_MOD_EDGE_BOUND"),
+        ("projstagebound", "IK_CNS_PROJ_MOD_STAGE_BOUND"),
+        ("projremove", "IK_CNS_PROJ_MOD_REMOVE_ON_HIT"),
+        ("pausemovetime", "IK_CNS_PROJ_MOD_PAUSE_MOVE"),
+        ("supermovetime", "IK_CNS_PROJ_MOD_SUPER_MOVE"),
+        ("bindtime", "IK_CNS_PROJ_MOD_BIND_TIME"),
+        ("removeongethit", "IK_CNS_PROJ_MOD_REMOVE_ON_GETHIT"),
+        ("removeonchangestate", "IK_CNS_PROJ_MOD_REMOVE_ON_STATE_CHANGE"),
+    ):
+        present(name, flag)
+
+    # These were already recorded above before pair parsing.
+    if not has_velocity:
+        pass
+    if not has_velmul:
+        pass
+    if not has_accel:
+        pass
+
+    mod = {
+        "id": integer(ctrl.get("id"), 0),
+        "mask": " | ".join(mask) if mask else "0u",
+        **fields,
+    }
+    controller = {
+        "state_number": state_no,
+        "type": "IK_CNS_CTRL_MODIFY_PROJECTILE",
+        "trigger_kind": controller_trigger(
+            ctrl, "modifyprojectile")[0],
+        "trigger_value": controller_trigger(
+            ctrl, "modifyprojectile")[1],
+        "trigger_value2": controller_trigger(
+            ctrl, "modifyprojectile")[2],
+        "value0": mod_index,
+        "value1": 0,
+        "flags": (
+            "IK_CNS_CTRL_IGNORE_HIT_PAUSE"
+            if integer(ctrl.get("ignorehitpause"), 0)
+            else "0u"
+        ),
+    }
+    return controller, mod
+
+
 def compile_explod_controller(
     state_no: int,
     ctrl: Section,
