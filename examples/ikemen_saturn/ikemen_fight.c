@@ -44,6 +44,33 @@ static const ik_cns_constants_t* constants_for_fighter(
     return cns ? &cns->constants : 0;
 }
 
+
+static const ik_frame_table_t* frames_for_owner(
+    const ik_fight_t* fight,
+    uint8_t owner
+) {
+    if (!fight || owner >= 2u) return 0;
+    return fight->player_frames[owner];
+}
+
+static const ik_frame_table_t* frames_for_fighter(
+    const ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    return fighter
+        ? frames_for_owner(fight, fighter->anim_owner)
+        : 0;
+}
+
+static const ik_frame_table_t* frames_for_entity(
+    const ik_fight_t* fight,
+    const ik_entity_t* entity
+) {
+    return entity
+        ? frames_for_owner(fight, entity->anim_owner)
+        : 0;
+}
+
 static const ik_cns_constants_t* constants_for(const ik_fight_t* fight) {
     return (fight && fight->cns) ? &fight->cns->constants : 0;
 }
@@ -169,9 +196,12 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     f->prev_state = previous_state;
     f->state = state;
     f->state_time = 0u;
-    f->anim = (spec && spec->anim < 0)
-        ? previous_anim
-        : (int16_t)ik_action_for_state(state_cns, state);
+    if (spec && spec->anim < 0) {
+        f->anim = previous_anim;
+    } else {
+        f->anim = (int16_t)ik_action_for_state(state_cns, state);
+        f->anim_owner = f->owner_player;
+    }
     f->anim_time = 0u;
     f->move_contact = 0u;
     f->move_hit = 0u;
@@ -216,6 +246,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
                           uint8_t owner_player) {
     f->owner_player = owner_player;
     f->state_owner = owner_player;
+    f->anim_owner = owner_player;
     const ik_cns_constants_t* c = constants_for_fighter(fight, f);
     set_position(f, x, IK_FLOOR_Y);
     f->vx_q8 = 0;
@@ -319,6 +350,8 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->cns = cns;
     fight->player_cns[0] = cns;
     fight->player_cns[1] = cns;
+    fight->player_frames[0] = 0;
+    fight->player_frames[1] = 0;
     fight->entities = 0;
     fight->player_entities[0] = ik_entity_invalid_handle();
     fight->player_entities[1] = ik_entity_invalid_handle();
@@ -3134,9 +3167,10 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 break;
 
             case IK_CNS_CTRL_CHANGE_ANIM:
+                f->anim_owner = f->owner_player;
                 f->anim = ctrl->value0;
                 f->anim_time = anim_element_start_tick(
-                    frames, f->anim,
+                    frames_for_fighter(fight, f), f->anim,
                     (uint16_t)(ctrl->value1 < 1 ? 1 : ctrl->value1));
                 return 0;
 
@@ -3504,9 +3538,10 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 break;
 
             case IK_CNS_CTRL_CHANGE_ANIM2:
+                f->anim_owner = f->state_owner;
                 f->anim = ctrl->value0;
                 f->anim_time = anim_element_start_tick(
-                    frames, f->anim,
+                    frames_for_fighter(fight, f), f->anim,
                     (uint16_t)(ctrl->value1 < 1 ? 1 : ctrl->value1));
                 break;
 
@@ -4602,6 +4637,8 @@ void ik_fight_update(ik_fight_t* fight,
                      const ik_frame_table_t* p2_frames) {
     if (!fight || !p1_frames) return;
     if (!p2_frames) p2_frames = p1_frames;
+    fight->player_frames[0] = p1_frames;
+    fight->player_frames[1] = p2_frames;
     fight->effect_count = 0u;
     fight->sound_count = 0u;
     fight->events = IK_EVENT_NONE;
