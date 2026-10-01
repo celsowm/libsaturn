@@ -1081,6 +1081,22 @@ static void sync_player_entities(const ik_fight_t* fight) {
     }
 }
 
+static int command_pause_end_buffer(
+    const ik_fight_t* fight,
+    uint32_t player
+) {
+    if (!fight || player >= 2u || fight->pause_time == 0u ||
+        fight->pause_end_cmd_buffer_time == 0u ||
+        fight->pause_time > fight->pause_end_cmd_buffer_time) {
+        return 0;
+    }
+
+    const int can_act =
+        fight->pause_owner == (int8_t)player &&
+        fight->pause_move_time > 0u;
+    return !can_act;
+}
+
 static void controls_from_commands(uint32_t player,
                                    const ik_fight_t* fight,
                                    const ik_fighter_t* fighter,
@@ -1283,7 +1299,8 @@ int main(void) {
         ik_command_update(
             &g_command_states[0], &kfm_commands, &pad1,
             fight.fighters[0].facing,
-            fight.fighters[0].hit_pause != 0u);
+            fight.fighters[0].hit_pause != 0u,
+            command_pause_end_buffer(&fight, 0u));
         controls_from_commands(
             0u, &fight, &fight.fighters[0], &p1_controls);
 
@@ -1291,7 +1308,8 @@ int main(void) {
             ik_command_update(
                 &g_command_states[1], &kfm_commands, &pad2,
                 fight.fighters[1].facing,
-                fight.fighters[1].hit_pause != 0u);
+                fight.fighters[1].hit_pause != 0u,
+                command_pause_end_buffer(&fight, 1u));
             controls_from_commands(
                 1u, &fight, &fight.fighters[1], &p2_controls);
         }
