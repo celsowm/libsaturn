@@ -238,6 +238,108 @@ int ik_entity_runtime_spawn_helper(
     return 1;
 }
 
+uint8_t ik_entity_runtime_modify_projectiles(
+    ik_entity_runtime_t* runtime,
+    uint8_t owner_player,
+    const ik_cns_projectile_mod_t* modification
+) {
+    if (!runtime || !runtime->pool || !modification ||
+        owner_player >= 2u) {
+        return 0u;
+    }
+
+    uint8_t changed = 0u;
+    for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
+        ik_entity_t* entity = &runtime->pool->entities[slot];
+        if (entity->type != IK_ENTITY_PROJECTILE ||
+            entity->owner_player != owner_player ||
+            (modification->id >= 0 && entity->id != modification->id)) {
+            continue;
+        }
+
+        const uint32_t mask = modification->mask;
+        if ((mask & IK_CNS_PROJ_MOD_ANIM) != 0u) {
+            entity->anim_no = modification->anim_no;
+            entity->projectile_main_anim_no = modification->anim_no;
+            entity->anim_time = 0u;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_HIT_ANIM) != 0u) {
+            entity->projectile_hit_anim_no = modification->hit_anim_no;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_REMOVE_ANIM) != 0u) {
+            entity->projectile_remove_anim_no = modification->remove_anim_no;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_CANCEL_ANIM) != 0u) {
+            entity->projectile_cancel_anim_no = modification->cancel_anim_no;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_VELOCITY) != 0u) {
+            entity->vx_q8 =
+                (int32_t)entity->facing * modification->vel_x_q8;
+            entity->vy_q8 = modification->vel_y_q8;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_VELMUL) != 0u) {
+            entity->projectile_velmul_x_q8 = (int16_t)(
+                modification->velmul_x_q8 == 0
+                    ? IK_ENTITY_Q8_ONE
+                    : modification->velmul_x_q8);
+            entity->projectile_velmul_y_q8 = (int16_t)(
+                modification->velmul_y_q8 == 0
+                    ? IK_ENTITY_Q8_ONE
+                    : modification->velmul_y_q8);
+        }
+        if ((mask & IK_CNS_PROJ_MOD_ACCEL) != 0u) {
+            entity->ax_q8 =
+                (int32_t)entity->facing * modification->accel_x_q8;
+            entity->ay_q8 = modification->accel_y_q8;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_REMOVE_TIME) != 0u) {
+            entity->remove_time = modification->remove_time;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_HITS) != 0u) {
+            entity->projectile_hits_left =
+                modification->hits ? modification->hits : 1u;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_MISS_TIME) != 0u) {
+            entity->projectile_miss_time = modification->miss_time;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_PRIORITY) != 0u) {
+            entity->projectile_priority = modification->priority;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_SPR_PRIORITY) != 0u) {
+            entity->spr_priority = modification->spr_priority;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_EDGE_BOUND) != 0u) {
+            entity->projectile_edge_bound = modification->edge_bound;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_STAGE_BOUND) != 0u) {
+            entity->projectile_stage_bound = modification->stage_bound;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_REMOVE_ON_HIT) != 0u) {
+            entity->projectile_remove_on_hit =
+                modification->remove_on_hit != 0u;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_PAUSE_MOVE) != 0u) {
+            entity->pause_move_time = modification->pause_move_time;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_SUPER_MOVE) != 0u) {
+            entity->super_move_time = modification->super_move_time;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_BIND_TIME) != 0u) {
+            entity->projectile_bind_time = modification->bind_time;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_REMOVE_ON_GETHIT) != 0u) {
+            entity->projectile_remove_on_gethit =
+                modification->remove_on_gethit != 0u;
+        }
+        if ((mask & IK_CNS_PROJ_MOD_REMOVE_ON_STATE_CHANGE) != 0u) {
+            entity->projectile_remove_on_state_change =
+                modification->remove_on_state_change != 0u;
+        }
+        ++changed;
+    }
+    return changed;
+}
+
 int ik_entity_runtime_spawn_explod(
     ik_entity_runtime_t* runtime,
     ik_entity_handle_t parent_handle,
