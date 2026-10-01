@@ -93,7 +93,7 @@ def emit_frames(prefix: str, symbol: str, frames: list[FrameAsset],
         sprite_rows.append((
             offset, len(sprite.data), sprite.width, sprite.height,
             sprite.padded_width, sprite.left_pad, sprite.format,
-            sprite.palette_index
+            sprite.palette_index, key[0], key[1]
         ))
 
     for frame in frames:
@@ -124,7 +124,7 @@ def emit_frames(prefix: str, symbol: str, frames: list[FrameAsset],
     )
     sprites_init = "\n".join(
         f"{INDENT}{{{r[0]}u, {r[1]}u, {r[2]}u, {r[3]}u, "
-        f"{r[4]}u, {r[5]}u, {r[6]}u, {r[7]}u}},"
+        f"{r[4]}u, {r[5]}u, {r[6]}u, {r[7]}u, {r[8]}, {r[9]}}},"
         for r in sprite_rows
     )
     clsn_c = _c_boxes(clsn_boxes)
