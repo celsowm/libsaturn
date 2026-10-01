@@ -3369,7 +3369,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 return 1;
 
             case IK_CNS_CTRL_TARGET_BIND:
-                if (f->target_index >= 0 && f->target_index < 2) {
+                if (f->target_index >= 0 && f->target_index < 2 &&
+                    (ctrl->value2 < 0 || f->target_id == ctrl->value2)) {
                     ik_fighter_t* target =
                         &fight->fighters[(int)f->target_index];
                     target->bound_to =
@@ -3385,7 +3386,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 break;
 
             case IK_CNS_CTRL_TARGET_FACING:
-                if (f->target_index >= 0 && f->target_index < 2) {
+                if (f->target_index >= 0 && f->target_index < 2 &&
+                    (ctrl->value2 < 0 || f->target_id == ctrl->value2)) {
                     ik_fighter_t* target =
                         &fight->fighters[(int)f->target_index];
                     target->facing = (int8_t)(
@@ -3394,7 +3396,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 break;
 
             case IK_CNS_CTRL_TARGET_LIFE_ADD:
-                if (f->target_index >= 0 && f->target_index < 2) {
+                if (f->target_index >= 0 && f->target_index < 2 &&
+                    (ctrl->value2 < 0 || f->target_id == ctrl->value2)) {
                     const int target_index = f->target_index;
                     ik_fighter_t* target = &fight->fighters[target_index];
                     int hp = (int)target->hp + ctrl->value0;
@@ -3411,7 +3414,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 break;
 
             case IK_CNS_CTRL_TARGET_STATE:
-                if (f->target_index >= 0 && f->target_index < 2) {
+                if (f->target_index >= 0 && f->target_index < 2 &&
+                    (ctrl->value2 < 0 || f->target_id == ctrl->value2)) {
                     const int target_index = f->target_index;
                     ik_fighter_t* target = &fight->fighters[target_index];
                     target->bound_to = -1;
@@ -3419,6 +3423,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     target->state_owner = f->state_owner;
                     enter_state(fight, target, ctrl->value0);
                     f->target_index = -1;
+                    f->target_id = -1;
                 }
                 break;
 
@@ -3435,7 +3440,10 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
 
             case IK_CNS_CTRL_SELF_STATE:
                 if (f->bound_to >= 0 && f->bound_to < 2) {
-                    fight->fighters[(int)f->bound_to].target_index = -1;
+                    ik_fighter_t* owner =
+                        &fight->fighters[(int)f->bound_to];
+                    owner->target_index = -1;
+                    owner->target_id = -1;
                 }
                 release_entity_bound_fighter(fight, f);
                 f->bound_to = -1;
