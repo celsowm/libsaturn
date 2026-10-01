@@ -15,6 +15,7 @@ extern "C" {
 #define IK_ENTITY_SYSVAR_COUNT 5u
 #define IK_ENTITY_INVALID_SLOT 0xFFu
 #define IK_ENTITY_Q8_ONE 256
+#define IK_ENTITY_TARGET_CAPACITY 4u
 
 typedef enum ik_entity_type {
     IK_ENTITY_NONE = 0,
@@ -38,6 +39,9 @@ typedef struct ik_entity {
     ik_entity_handle_t parent;
     ik_entity_handle_t root;
     ik_entity_handle_t target;
+    ik_entity_handle_t targets[IK_ENTITY_TARGET_CAPACITY];
+    int32_t target_ids[IK_ENTITY_TARGET_CAPACITY];
+    uint8_t target_count;
 
     int32_t x_q8;
     int32_t y_q8;
@@ -158,6 +162,19 @@ int ik_entity_set_target(
     ik_entity_pool_t* pool,
     ik_entity_handle_t source,
     ik_entity_handle_t target);
+int ik_entity_add_target(
+    ik_entity_pool_t* pool,
+    ik_entity_handle_t source,
+    ik_entity_handle_t target,
+    int32_t target_id);
+void ik_entity_clear_targets(
+    ik_entity_pool_t* pool,
+    ik_entity_handle_t source);
+ik_entity_handle_t ik_entity_target_at(
+    const ik_entity_pool_t* pool,
+    ik_entity_handle_t source,
+    int32_t target_id,
+    uint8_t index);
 
 ik_entity_handle_t ik_entity_redirect(
     const ik_entity_pool_t* pool,
