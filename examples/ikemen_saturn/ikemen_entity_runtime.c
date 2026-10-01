@@ -252,6 +252,14 @@ int ik_entity_runtime_spawn_explod(
         ik_entity_get_const(runtime->pool, parent_handle);
     if (!parent || parent->owner_player >= 2u) return 0;
 
+    ik_entity_handle_t base_handle = parent_handle;
+    if (explod->postype == IK_CNS_HELPER_POS_P2) {
+        base_handle = runtime->pool->players[parent->owner_player ^ 1u];
+    }
+    const ik_entity_t* base =
+        ik_entity_get_const(runtime->pool, base_handle);
+    if (!base) return 0;
+
     ik_entity_handle_t spawned = ik_entity_invalid_handle();
     if (!ik_entity_spawn(
             runtime->pool, IK_ENTITY_EXPLOD, 0,
@@ -266,8 +274,8 @@ int ik_entity_runtime_spawn_explod(
     }
 
     entity->x_q8 =
-        parent->x_q8 + (int32_t)parent->facing * explod->pos_x_q8;
-    entity->y_q8 = parent->y_q8 + explod->pos_y_q8;
+        base->x_q8 + (int32_t)base->facing * explod->pos_x_q8;
+    entity->y_q8 = base->y_q8 + explod->pos_y_q8;
     entity->vx_q8 = (int32_t)parent->facing * explod->vel_x_q8;
     entity->vy_q8 = explod->vel_y_q8;
     entity->ax_q8 = (int32_t)parent->facing * explod->accel_x_q8;
@@ -283,6 +291,7 @@ int ik_entity_runtime_spawn_explod(
     entity->super_move_time = explod->super_move_time;
     entity->explod_bind_time = explod->bind_time;
     entity->explod_parent_state_no = parent->state_no;
+    entity->explod_bind_anchor = base_handle;
     entity->explod_bind_x_q8 = explod->pos_x_q8;
     entity->explod_bind_y_q8 = explod->pos_y_q8;
     entity->explod_remove_on_gethit =
@@ -319,6 +328,14 @@ int ik_entity_runtime_spawn_projectile_spec(
         ik_entity_get_const(runtime->pool, parent_handle);
     if (!parent || parent->owner_player >= 2u) return 0;
 
+    ik_entity_handle_t base_handle = parent_handle;
+    if (projectile->postype == IK_CNS_HELPER_POS_P2) {
+        base_handle = runtime->pool->players[parent->owner_player ^ 1u];
+    }
+    const ik_entity_t* base =
+        ik_entity_get_const(runtime->pool, base_handle);
+    if (!base) return 0;
+
     ik_entity_handle_t spawned = ik_entity_invalid_handle();
     if (!ik_entity_spawn(
             runtime->pool, IK_ENTITY_PROJECTILE, projectile->id,
@@ -333,9 +350,9 @@ int ik_entity_runtime_spawn_projectile_spec(
     }
 
     entity->x_q8 =
-        parent->x_q8 +
-        (int32_t)parent->facing * projectile->pos_x_q8;
-    entity->y_q8 = parent->y_q8 + projectile->pos_y_q8;
+        base->x_q8 +
+        (int32_t)base->facing * projectile->pos_x_q8;
+    entity->y_q8 = base->y_q8 + projectile->pos_y_q8;
     entity->vx_q8 =
         (int32_t)parent->facing * projectile->vel_x_q8;
     entity->vy_q8 = projectile->vel_y_q8;
@@ -382,6 +399,7 @@ int ik_entity_runtime_spawn_projectile_spec(
     entity->super_move_time = projectile->super_move_time;
     entity->projectile_bind_time = projectile->bind_time;
     entity->projectile_parent_state_no = parent->state_no;
+    entity->projectile_bind_anchor = base_handle;
     entity->projectile_bind_x_q8 = projectile->pos_x_q8;
     entity->projectile_bind_y_q8 = projectile->pos_y_q8;
     entity->projectile_remove_on_gethit =
@@ -722,6 +740,9 @@ static void step_one(
         if (entity->type == IK_ENTITY_EXPLOD) {
             const ik_entity_t* parent =
                 ik_entity_get_const(runtime->pool, entity->parent);
+            const ik_entity_t* explod_anchor =
+                ik_entity_get_const(
+                    runtime->pool, entity->explod_bind_anchor);
             if (entity->explod_remove_on_state_change && parent &&
                 parent->state_no != entity->explod_parent_state_no) {
                 (void)ik_entity_destroy(runtime->pool, handle);
@@ -732,15 +753,14 @@ static void step_one(
                 (void)ik_entity_destroy(runtime->pool, handle);
                 return;
             }
-            if (parent && entity->explod_bind_time != 0) {
+            if (explod_anchor && entity->explod_bind_time != 0) {
                 explod_bound = 1;
                 entity->x_q8 =
-                    parent->x_q8 +
-                    (int32_t)parent->facing *
+                    explod_anchor->x_q8 +
+                    (int32_t)explod_anchor->facing *
                         entity->explod_bind_x_q8;
                 entity->y_q8 =
-                    parent->y_q8 + entity->explod_bind_y_q8;
-                entity->facing = parent->facing;
+                    explod_anchor->y_q8 + entity->explod_bind_y_q8;
                 if (entity->explod_bind_time > 0) {
                     --entity->explod_bind_time;
                 }
@@ -758,6 +778,9 @@ static void step_one(
         if (entity->type == IK_ENTITY_PROJECTILE) {
             const ik_entity_t* parent =
                 ik_entity_get_const(runtime->pool, entity->parent);
+            const ik_entity_t* projectile_anchor =
+                ik_entity_get_const(
+                    runtime->pool, entity->projectile_bind_anchor);
             if (entity->projectile_remove_on_state_change &&
                 parent &&
                 parent->state_no != entity->projectile_parent_state_no) {
@@ -769,14 +792,15 @@ static void step_one(
                 (void)ik_entity_destroy(runtime->pool, handle);
                 return;
             }
-            if (parent && entity->projectile_bind_time != 0) {
+            if (projectile_anchor &&
+                entity->projectile_bind_time != 0) {
                 entity->x_q8 =
-                    parent->x_q8 +
-                    (int32_t)parent->facing *
+                    projectile_anchor->x_q8 +
+                    (int32_t)projectile_anchor->facing *
                         entity->projectile_bind_x_q8;
                 entity->y_q8 =
-                    parent->y_q8 + entity->projectile_bind_y_q8;
-                entity->facing = parent->facing;
+                    projectile_anchor->y_q8 +
+                    entity->projectile_bind_y_q8;
                 if (entity->projectile_bind_time > 0) {
                     --entity->projectile_bind_time;
                 }
