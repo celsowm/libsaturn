@@ -1382,14 +1382,20 @@ static int hitdef_chain_allows_target(
     const int same_attacker =
         victim->last_hit_owner == (int8_t)attacker_owner;
 
-    if (hitdef->chain_id >= 0) {
+    /* Legacy hand-authored C HitDefs are commonly zero-initialized. HitDef
+     * IDs may legitimately be zero, but ChainID/NoChainID authored selectors
+     * are positive in the compatibility surface. Treat zero like "unset" so
+     * older aggregate initializers do not accidentally require chain 0. */
+    if (hitdef->chain_id > 0) {
         if (!same_attacker || victim->last_hit_id != hitdef->chain_id) {
             return 0;
         }
     }
     if (same_attacker &&
-        (victim->last_hit_id == hitdef->no_chain_id ||
-         victim->last_hit_id == hitdef->no_chain_id2)) {
+        ((hitdef->no_chain_id > 0 &&
+          victim->last_hit_id == hitdef->no_chain_id) ||
+         (hitdef->no_chain_id2 > 0 &&
+          victim->last_hit_id == hitdef->no_chain_id2))) {
         return 0;
     }
     return 1;
@@ -1837,9 +1843,12 @@ static void apply_damage(ik_fight_t* fight, int victim,
 
     {
         int16_t target = IK_STATE_HIT;
+        int custom_p2_state = 0;
+        const ik_cns_asset_t* attacker_cns = cns_for_fighter(fight, a);
         if (hitdef->p2_state_no >= 0 &&
-            ik_cns_find_state(fight->cns, hitdef->p2_state_no)) {
+            ik_cns_find_state(attacker_cns, hitdef->p2_state_no)) {
             target = hitdef->p2_state_no;
+            custom_p2_state = 1;
         } else if (victim_type == IK_CNS_STATE_LIEDOWN &&
             ik_cns_find_state(fight->cns, 5080)) {
             target = 5080;
@@ -1888,6 +1897,7 @@ static void apply_damage(ik_fight_t* fight, int victim,
             fight->events |= IK_EVENT_ROUND_OVER;
             fight->ko_freeze = IK_KO_FREEZE_FRAMES;
         } else {
+            if (custom_p2_state) v->state_owner = a->state_owner;
             enter_state(fight, v, target);
         }
     }
@@ -2325,9 +2335,13 @@ static void apply_damage_from_entity(
     }
 
     int16_t target = IK_STATE_HIT;
+    int custom_p2_state = 0;
+    const ik_cns_asset_t* attacker_cns =
+        cns_for_owner(fight, attacker->state_owner);
     if (hitdef->p2_state_no >= 0 &&
-        ik_cns_find_state(fight->cns, hitdef->p2_state_no)) {
+        ik_cns_find_state(attacker_cns, hitdef->p2_state_no)) {
         target = hitdef->p2_state_no;
+        custom_p2_state = 1;
     } else if (victim_type == IK_CNS_STATE_LIEDOWN &&
                ik_cns_find_state(fight->cns, 5080)) {
         target = 5080;
@@ -2379,6 +2393,7 @@ static void apply_damage_from_entity(
         fight->events |= IK_EVENT_ROUND_OVER;
         fight->ko_freeze = IK_KO_FREEZE_FRAMES;
     } else {
+        if (custom_p2_state) v->state_owner = attacker->state_owner;
         enter_state(fight, v, target);
     }
 
