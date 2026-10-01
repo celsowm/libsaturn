@@ -66,19 +66,47 @@ static const ik_cns_state_t* state_spec(const ik_fight_t* fight,
     return ik_cns_find_state(fight ? fight->cns : 0, state);
 }
 
-static int is_attack_state(const ik_fight_t* fight, int16_t state) {
-    const ik_cns_state_t* spec = state_spec(fight, state);
+static const ik_cns_state_t* fighter_state_spec(
+    const ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    return fighter
+        ? ik_cns_find_state(cns_for_fighter(fight, fighter), fighter->state)
+        : 0;
+}
+
+static const ik_cns_state_t* entity_state_spec(
+    const ik_fight_t* fight,
+    const ik_entity_t* entity
+) {
+    return entity
+        ? ik_cns_find_state(
+            cns_for_owner(fight, entity->state_owner), entity->state_no)
+        : 0;
+}
+
+static int is_attack_fighter(
+    const ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    const ik_cns_state_t* spec = fighter_state_spec(fight, fighter);
     return spec && spec->move_type == IK_CNS_MOVE_ATTACK;
 }
 
-static int is_crouch_attack(const ik_fight_t* fight, int16_t state) {
-    const ik_cns_state_t* spec = state_spec(fight, state);
+static int is_crouch_attack_fighter(
+    const ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    const ik_cns_state_t* spec = fighter_state_spec(fight, fighter);
     return spec && spec->move_type == IK_CNS_MOVE_ATTACK &&
            spec->state_type == IK_CNS_STATE_CROUCH;
 }
 
-static int is_air_attack(const ik_fight_t* fight, int16_t state) {
-    const ik_cns_state_t* spec = state_spec(fight, state);
+static int is_air_attack_fighter(
+    const ik_fight_t* fight,
+    const ik_fighter_t* fighter
+) {
+    const ik_cns_state_t* spec = fighter_state_spec(fight, fighter);
     return spec && spec->move_type == IK_CNS_MOVE_ATTACK &&
            spec->state_type == IK_CNS_STATE_AIR;
 }
@@ -162,7 +190,7 @@ static void enter_state(ik_fight_t* fight, ik_fighter_t* f, int16_t state) {
     }
     f->state_axis = 0;
 
-    if (is_attack_state(fight, state)) ++f->attack_id;
+    if (spec && spec->move_type == IK_CNS_MOVE_ATTACK) ++f->attack_id;
 
     if (spec) {
         int power = (int)f->power + spec->power_add;
@@ -1322,7 +1350,7 @@ static int hitdef_allows_target(const ik_fight_t* fight,
     const uint8_t flags = hitdef->hit_flags != 0u
         ? hitdef->hit_flags
         : IK_CNS_HIT_DEFAULT;
-    const ik_cns_state_t* spec = state_spec(fight, victim->state);
+    const ik_cns_state_t* spec = fighter_state_spec(fight, victim);
     const int gethit =
         (spec && spec->move_type == IK_CNS_MOVE_HIT) ||
         victim->state == IK_STATE_HIT ||
@@ -1352,7 +1380,7 @@ static int juggle_cost(const ik_fight_t* fight,
                        const ik_cns_hitdef_t* hitdef) {
     int cost = hitdef ? hitdef->air_juggle : 0;
     const ik_cns_state_t* state =
-        attacker ? state_spec(fight, attacker->state) : 0;
+        attacker ? fighter_state_spec(fight, attacker) : 0;
     if (state && state->has_juggle && state->juggle > 0) {
         cost += state->juggle;
     }
@@ -1381,7 +1409,7 @@ static int entity_juggle_cost(
 ) {
     int cost = hitdef ? hitdef->air_juggle : 0;
     const ik_cns_state_t* state =
-        attacker ? state_spec(fight, attacker->state_no) : 0;
+        attacker ? entity_state_spec(fight, attacker) : 0;
     if (state && state->has_juggle && state->juggle > 0) {
         cost += state->juggle;
     }
@@ -2398,7 +2426,7 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f,
                      int allow_land_transition,
                      int16_t guard_land_state) {
     const ik_cns_constants_t* c = constants_for(fight);
-    const ik_cns_state_t* spec = state_spec(fight, f->state);
+    const ik_cns_state_t* spec = fighter_state_spec(fight, f);
     const int32_t gravity =
         (spec && spec->owns_air_accel)
             ? 0
@@ -3514,7 +3542,7 @@ static void step_fighter(ik_fight_t* fight, int index,
     f->state_time++;
     f->anim_time++;
     const ik_cns_state_t* facing_spec =
-        state_spec(fight, f->state);
+        fighter_state_spec(fight, f);
     if (f->ctrl && f->bound_to < 0 &&
         !ik_entity_handle_is_valid(f->bound_entity) &&
         !(facing_spec &&
@@ -3532,7 +3560,7 @@ static void step_fighter(ik_fight_t* fight, int index,
         const int threat =
             guard_threat(fight, foe_frames, index, controls);
         if (controls->back && threat && f->ctrl &&
-            !is_attack_state(fight, f->state) &&
+            !is_attack_fighter(fight, f) &&
             !is_active_guard_state(f->state) && f->state != 140 &&
             ik_cns_find_state(fight->cns, 120)) {
             f->guard_type = guard_type_for(fight, f, controls);
@@ -3572,7 +3600,7 @@ static void step_fighter(ik_fight_t* fight, int index,
         if (!f->on_ground) {
             step_air(fight, f, 0, -1);
         } else if (c) {
-            const ik_cns_state_t* hit_spec = state_spec(fight, f->state);
+            const ik_cns_state_t* hit_spec = fighter_state_spec(fight, f);
             const int physics = hit_spec ? hit_spec->physics : IK_CNS_PHYS_STAND;
             apply_ground_velocity(
                 f, c,
@@ -3586,10 +3614,10 @@ static void step_fighter(ik_fight_t* fight, int index,
                 f->vx_q8 = 0;
             }
         }
-    } else if (is_attack_state(fight, f->state)) {
+    } else if (is_attack_fighter(fight, f)) {
         if (dispatch_controlled_input(fight, f, controls)) return;
 
-        if (is_air_attack(fight, f->state)) {
+        if (is_air_attack_fighter(fight, f)) {
             /* Physics=A continues while the attack animation runs. If the
              * common1 landing state is compiled, landing transitions to it. */
             step_air(fight, f, 1, -1);
@@ -3597,7 +3625,7 @@ static void step_fighter(ik_fight_t* fight, int index,
         }
 
         {
-            const ik_cns_state_t* attack_spec = state_spec(fight, f->state);
+            const ik_cns_state_t* attack_spec = fighter_state_spec(fight, f);
             if (attack_spec &&
                 (attack_spec->physics == IK_CNS_PHYS_STAND ||
                  attack_spec->physics == IK_CNS_PHYS_CROUCH)) {
@@ -3617,7 +3645,7 @@ static void step_fighter(ik_fight_t* fight, int index,
         if (duration > 0u && f->anim_time >= duration) {
             enter_state(
                 fight, f,
-                is_crouch_attack(fight, f->state)
+                is_crouch_attack_fighter(fight, f)
                     ? IK_STATE_CROUCH
                     : IK_STATE_IDLE);
         }
@@ -3626,7 +3654,7 @@ static void step_fighter(ik_fight_t* fight, int index,
             dispatch_controlled_input(fight, f, controls)) {
             return;
         }
-        const ik_cns_state_t* air_spec = state_spec(fight, f->state);
+        const ik_cns_state_t* air_spec = fighter_state_spec(fight, f);
         const int custom_landing =
             air_spec && air_spec->physics == IK_CNS_PHYS_NONE &&
             air_spec->owns_air_accel;
@@ -3640,7 +3668,7 @@ static void step_fighter(ik_fight_t* fight, int index,
         step_air(
             fight, f, custom_landing ? 0 : 1, guard_land_state);
     } else if (f->on_ground) {
-        const ik_cns_state_t* spec = state_spec(fight, f->state);
+        const ik_cns_state_t* spec = fighter_state_spec(fight, f);
 
         if (!is_dummy && controls) {
             if (dispatch_controlled_input(fight, f, controls)) return;
