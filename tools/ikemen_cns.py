@@ -2007,6 +2007,10 @@ def compile_explod_controller(
         "ownpal": integer(ctrl.get("ownpal"), 0),
         "pause_move_time": max(0, integer(ctrl.get("pausemovetime"), 0)),
         "super_move_time": max(0, integer(ctrl.get("supermovetime"), 0)),
+        "bind_time": integer(ctrl.get("bindtime"), 0),
+        "remove_on_gethit": integer(ctrl.get("removeongethit"), 0),
+        "remove_on_state_change": integer(
+            ctrl.get("removeonchangestate"), 0),
     }
     controller = {
         "state_number": state_no,
@@ -3674,7 +3678,10 @@ def emit(
         f"{p['hits']}u, {p['miss_time']}u, {p['priority']}u, "
         f"{p['remove_on_hit']}u, {p['spr_priority']}, "
         f"{p['ownpal']}u, {p['pause_move_time']}u, "
-        f"{p['super_move_time']}u"
+        f"{p['super_move_time']}u, "
+        f"{p.get('bind_time', 0)}, "
+        f"{p.get('remove_on_gethit', 0)}u, "
+        f"{p.get('remove_on_state_change', 0)}u"
         "},"
         for p in projectiles
     ]
