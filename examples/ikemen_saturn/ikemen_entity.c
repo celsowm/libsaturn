@@ -99,6 +99,12 @@ int ik_entity_spawn(
     entity->parent = ik_entity_invalid_handle();
     entity->root = ik_entity_invalid_handle();
     entity->target = ik_entity_invalid_handle();
+    for (uint8_t target_i = 0u;
+         target_i < IK_ENTITY_TARGET_CAPACITY; ++target_i) {
+        entity->targets[target_i] = ik_entity_invalid_handle();
+        entity->target_ids[target_i] = -1;
+    }
+    entity->target_count = 0u;
     entity->facing = 1;
     entity->active_hitdef_global = -1;
     entity->active_hitdef_local = -1;
@@ -149,6 +155,45 @@ int ik_entity_destroy(
     return 1;
 }
 
+void ik_entity_clear_targets(
+    ik_entity_pool_t* pool,
+    ik_entity_handle_t source
+) {
+    ik_entity_t* entity = ik_entity_get(pool, source);
+    if (!entity) return;
+    entity->target = ik_entity_invalid_handle();
+    entity->target_count = 0u;
+    for (uint8_t i = 0u; i < IK_ENTITY_TARGET_CAPACITY; ++i) {
+        entity->targets[i] = ik_entity_invalid_handle();
+        entity->target_ids[i] = -1;
+    }
+}
+
+int ik_entity_add_target(
+    ik_entity_pool_t* pool,
+    ik_entity_handle_t source,
+    ik_entity_handle_t target,
+    int32_t target_id
+) {
+    ik_entity_t* entity = ik_entity_get(pool, source);
+    if (!entity || !ik_entity_get_const(pool, target)) return 0;
+
+    for (uint8_t i = 0u; i < entity->target_count; ++i) {
+        if (ik_entity_handle_equal(entity->targets[i], target)) {
+            entity->target_ids[i] = target_id;
+            entity->target = entity->targets[0];
+            return 1;
+        }
+    }
+    if (entity->target_count >= IK_ENTITY_TARGET_CAPACITY) return 0;
+
+    const uint8_t slot = entity->target_count++;
+    entity->targets[slot] = target;
+    entity->target_ids[slot] = target_id;
+    entity->target = entity->targets[0];
+    return 1;
+}
+
 int ik_entity_set_target(
     ik_entity_pool_t* pool,
     ik_entity_handle_t source,
@@ -156,12 +201,26 @@ int ik_entity_set_target(
 ) {
     ik_entity_t* entity = ik_entity_get(pool, source);
     if (!entity) return 0;
-    if (ik_entity_handle_is_valid(target) &&
-        !ik_entity_get_const(pool, target)) {
-        return 0;
+    ik_entity_clear_targets(pool, source);
+    if (!ik_entity_handle_is_valid(target)) return 1;
+    return ik_entity_add_target(pool, source, target, -1);
+}
+
+ik_entity_handle_t ik_entity_target_at(
+    const ik_entity_pool_t* pool,
+    ik_entity_handle_t source,
+    int32_t target_id,
+    uint8_t index
+) {
+    const ik_entity_t* entity = ik_entity_get_const(pool, source);
+    if (!entity) return ik_entity_invalid_handle();
+    uint8_t matched = 0u;
+    for (uint8_t i = 0u; i < entity->target_count; ++i) {
+        if (!ik_entity_get_const(pool, entity->targets[i])) continue;
+        if (target_id >= 0 && entity->target_ids[i] != target_id) continue;
+        if (matched++ == index) return entity->targets[i];
     }
-    entity->target = target;
-    return 1;
+    return ik_entity_invalid_handle();
 }
 
 ik_entity_handle_t ik_entity_redirect(
