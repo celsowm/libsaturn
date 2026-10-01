@@ -58,11 +58,11 @@ static const uint8_t k_loop[] = {
 };
 
 static const ik_cmd_pattern_t k_patterns[] = {
-    {0u, 0u, CMD_X,        1u, 1u, 1u, 1u, IK_CMD_PATTERN_BUFFER_HITPAUSE, 0u},
-    {1u, 1u, CMD_A,        1u, 1u, 1u, 1u, IK_CMD_PATTERN_BUFFER_HITPAUSE, 0u},
-    {2u, 2u, CMD_HOLDDOWN, 1u, 1u, 1u, 1u, IK_CMD_PATTERN_BUFFER_HITPAUSE, 0u},
-    {3u, 3u, CMD_QCF_X,    4u, 15u, 15u, 1u, IK_CMD_PATTERN_BUFFER_HITPAUSE, 0u},
-    {7u, 7u, CMD_FF,       3u, 10u, 10u, 1u, IK_CMD_PATTERN_BUFFER_HITPAUSE, 0u},
+    {0u, 0u, CMD_X,        1u, 1u, 1u, 1u, IK_CMD_PATTERN_BUFFER_HITPAUSE | IK_CMD_PATTERN_BUFFER_PAUSE_END, 0u},
+    {1u, 1u, CMD_A,        1u, 1u, 1u, 1u, IK_CMD_PATTERN_BUFFER_HITPAUSE | IK_CMD_PATTERN_BUFFER_PAUSE_END, 0u},
+    {2u, 2u, CMD_HOLDDOWN, 1u, 1u, 1u, 1u, IK_CMD_PATTERN_BUFFER_HITPAUSE | IK_CMD_PATTERN_BUFFER_PAUSE_END, 0u},
+    {3u, 3u, CMD_QCF_X,    4u, 15u, 15u, 1u, IK_CMD_PATTERN_BUFFER_HITPAUSE | IK_CMD_PATTERN_BUFFER_PAUSE_END, 0u},
+    {7u, 7u, CMD_FF,       3u, 10u, 10u, 1u, IK_CMD_PATTERN_BUFFER_HITPAUSE | IK_CMD_PATTERN_BUFFER_PAUSE_END, 0u},
 };
 
 static const ik_cmd_name_t k_names[] = {
@@ -81,10 +81,17 @@ static const ik_command_asset_t k_asset = {
     k_names, (uint16_t)(sizeof(k_names) / sizeof(k_names[0]))
 };
 
-static void sample(ik_command_state_t* s, uint16_t held, int facing = 1, int hp = 0) {
+static void sample(
+    ik_command_state_t* s,
+    uint16_t held,
+    int facing = 1,
+    int hp = 0,
+    int pause_end = 0
+) {
     sat_pad_state_t pad{};
     pad.held = held;
-    ik_command_update(s, &k_asset, &pad, facing, hp);
+    ik_command_update(
+        s, &k_asset, &pad, facing, hp, pause_end);
 }
 
 int main() {
@@ -135,6 +142,18 @@ int main() {
     sample(&state, 0u, 1, 1);
     OK(ik_command_active(&state, &k_asset, CMD_X));
     sample(&state, 0u, 1, 0);
+    OK(!ik_command_active(&state, &k_asset, CMD_X));
+
+    /* endcmdbuftime freezes an existing command buffer and grants the
+     * completion frame one extra tick, matching Ikemen's pausebuf path. */
+    ik_command_state_init(&state);
+    sample(&state, SAT_PAD_X, 1, 0, 1);
+    OK(ik_command_active(&state, &k_asset, CMD_X));
+    sample(&state, 0u, 1, 0, 1);
+    OK(ik_command_active(&state, &k_asset, CMD_X));
+    sample(&state, 0u, 1, 0, 0);
+    OK(ik_command_active(&state, &k_asset, CMD_X));
+    sample(&state, 0u, 1, 0, 0);
     OK(!ik_command_active(&state, &k_asset, CMD_X));
 
     static const ik_state_rule_instr_t rule_code[] = {
