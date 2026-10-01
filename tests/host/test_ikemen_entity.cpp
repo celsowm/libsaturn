@@ -65,17 +65,17 @@ int main() {
     int32_t value = 0;
     OK(ik_entity_expr_read_field(
         &binding, IK_EXPR_REDIRECT_P2, IK_EXPR_FIELD_BODY_DIST_X,
-        0, &value));
+        0, -1, 0u, &value));
     OK(value == 18);
     OK(ik_entity_expr_read_field(
         &binding, IK_EXPR_REDIRECT_SELF, IK_EXPR_FIELD_VAR,
-        1, &value));
+        1, -1, 0u, &value));
     OK(value == 42);
 
     binding.self = helper;
     OK(ik_entity_expr_read_field(
         &binding, IK_EXPR_REDIRECT_SELF, IK_EXPR_FIELD_VAR,
-        3, &value));
+        3, -1, 0u, &value));
     OK(value == 77);
 
     const ik_entity_handle_t stale = helper;
