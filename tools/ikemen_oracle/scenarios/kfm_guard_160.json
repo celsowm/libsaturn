@@ -1,0 +1,18 @@
+{
+  "name": "kfm_guard_160",
+  "p1": "../Ikemen-GO-Screenpack/chars/kfm/kfm.def",
+  "p2": "../Ikemen-GO-Screenpack/chars/kfm/kfm.def",
+  "stage": "../Ikemen-GO-Screenpack/stages/stage0.def",
+  "frames": 160,
+  "seed": 1,
+  "rounds": 1,
+  "round_state": 2,
+  "p1_ai": 0,
+  "p2_ai": 0,
+  "inputs": [
+    {"from": 5, "to": 35, "p1": ["forward"], "p2": ["forward"]},
+    {"from": 38, "to": 55, "p1": [], "p2": ["back"]},
+    {"frame": 42, "p1": ["x"], "p2": ["back"]}
+  ],
+  "extra_args": []
+}
