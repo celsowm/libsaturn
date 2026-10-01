@@ -270,6 +270,71 @@ ik_entity_handle_t ik_entity_target_at(
     return ik_entity_invalid_handle();
 }
 
+uint8_t ik_entity_target_count(
+    const ik_entity_pool_t* pool,
+    ik_entity_handle_t source,
+    int32_t target_id
+) {
+    const ik_entity_t* entity = ik_entity_get_const(pool, source);
+    if (!entity) return 0u;
+    uint8_t count = 0u;
+    for (uint8_t i = 0u; i < entity->target_count; ++i) {
+        if (!ik_entity_get_const(pool, entity->targets[i])) continue;
+        if (target_id >= 0 && entity->target_ids[i] != target_id) continue;
+        ++count;
+    }
+    return count;
+}
+
+void ik_entity_drop_targets(
+    ik_entity_pool_t* pool,
+    ik_entity_handle_t source,
+    int32_t exclude_id,
+    uint8_t keep_one
+) {
+    ik_entity_t* entity = ik_entity_get(pool, source);
+    if (!entity) return;
+    compact_targets(pool, entity);
+
+    ik_entity_handle_t kept[IK_ENTITY_TARGET_CAPACITY];
+    int32_t kept_ids[IK_ENTITY_TARGET_CAPACITY];
+    uint8_t kept_count = 0u;
+    uint8_t kept_excluded = 0u;
+
+    for (uint8_t i = 0u; i < entity->target_count; ++i) {
+        const int excluded =
+            exclude_id >= 0 && entity->target_ids[i] == exclude_id;
+        if (!excluded) continue;
+        if (keep_one && kept_excluded) continue;
+        kept[kept_count] = entity->targets[i];
+        kept_ids[kept_count] = entity->target_ids[i];
+        ++kept_count;
+        kept_excluded = 1u;
+    }
+
+    entity->target_count = kept_count;
+    for (uint8_t i = 0u; i < IK_ENTITY_TARGET_CAPACITY; ++i) {
+        if (i < kept_count) {
+            entity->targets[i] = kept[i];
+            entity->target_ids[i] = kept_ids[i];
+        } else {
+            entity->targets[i] = ik_entity_invalid_handle();
+            entity->target_ids[i] = -1;
+        }
+    }
+    entity->target = kept_count > 0u
+        ? entity->targets[0] : ik_entity_invalid_handle();
+}
+
+ik_entity_handle_t ik_entity_redirect_target(
+    const ik_entity_pool_t* pool,
+    ik_entity_handle_t self,
+    int32_t target_id,
+    uint8_t index
+) {
+    return ik_entity_target_at(pool, self, target_id, index);
+}
+
 ik_entity_handle_t ik_entity_redirect(
     const ik_entity_pool_t* pool,
     ik_entity_handle_t self,
