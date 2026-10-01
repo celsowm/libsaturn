@@ -91,6 +91,11 @@ typedef struct ik_entity {
     int32_t explod_bind_y_q8;
     uint8_t explod_remove_on_gethit;
     uint8_t explod_remove_on_state_change;
+    int8_t explod_vfacing;
+    int16_t explod_scale_x_q8;
+    int16_t explod_scale_y_q8;
+    uint8_t explod_trans_mode;
+    uint8_t explod_alpha;
 
     uint16_t hit_pause;
     uint32_t hitdef_hit_mask;
