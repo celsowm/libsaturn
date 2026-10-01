@@ -74,7 +74,8 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ANIM_ELEM_TIME_GE_STATE_TIME_LT,
     IK_CNS_TRIGGER_ROUND_STATE_EQ,
     IK_CNS_TRIGGER_ROUND_STATE_NE,
-    IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME
+    IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME,
+    IK_CNS_TRIGGER_NUM_TARGET_QUERY
 } ik_cns_trigger_kind_t;
 
 enum {
@@ -159,7 +160,8 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_AFTER_IMAGE_TIME,
     IK_CNS_CTRL_PAL_FX,
     IK_CNS_CTRL_ASSERT_INTRO,
-    IK_CNS_CTRL_MAKE_DUST
+    IK_CNS_CTRL_MAKE_DUST,
+    IK_CNS_CTRL_TARGET_DROP
 } ik_cns_controller_type_t;
 
 typedef enum ik_cns_helper_postype {
@@ -562,6 +564,7 @@ typedef struct ik_cns_controller_context {
     uint8_t move_hit;
     uint8_t round_state;
     uint8_t num_projectiles;
+    uint8_t num_targets;
     uint8_t proj_contact;
     uint8_t proj_hit;
     uint8_t proj_guarded;
