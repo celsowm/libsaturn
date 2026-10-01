@@ -62,6 +62,44 @@ int main() {
     ik_frame_screen_anchor(&k_frames[0], 100, 200, -1, &dx, &dy);
     OK(dx == 85 && dy == 142);
 
+    {
+        const ik_sprite_source_t attacker_sprites[] = {
+            {0u,1u,24u,32u,24u,0u,IK_SPRITE_FORMAT_RAW,0u,
+             500,3,10,20},
+        };
+        const ik_sprite_source_t victim_sprites[] = {
+            {0u,1u,17u,29u,24u,3u,IK_SPRITE_FORMAT_RAW,0u,
+             500,3,-7,11},
+        };
+        ik_frame_t animation_frame = {
+            820u,0u,24u,32u,10,20,5u,0u,0u,
+            0u,0u,0u,0u,-5,7
+        };
+        ik_frame_t visual{};
+        OK(ik_visual_frame_resolve(
+            &animation_frame,
+            attacker_sprites,1u,
+            victim_sprites,1u,
+            &visual));
+        OK(visual.sprite_index == 0u);
+        OK(visual.w == 24u);
+        OK(visual.h == 29u);
+        OK(visual.ax == 1);
+        OK(visual.ay == 4);
+        OK(visual.air_x == -5);
+        OK(visual.air_y == 7);
+
+        const ik_sprite_source_t missing[] = {
+            {0u,1u,17u,29u,24u,3u,IK_SPRITE_FORMAT_RAW,0u,
+             501,3,-7,11},
+        };
+        OK(!ik_visual_frame_resolve(
+            &animation_frame,
+            attacker_sprites,1u,
+            missing,1u,
+            &visual));
+    }
+
     int l = 0, t = 0, r = 0, b = 0;
     OK(ik_frame_clsn_count(&k_frames[3], IK_CLSN_ATTACK) == 1u);
     OK(ik_frame_clsn_world(&table, &k_frames[3], IK_CLSN_ATTACK, 0u,
