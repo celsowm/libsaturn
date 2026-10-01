@@ -2157,6 +2157,11 @@ explod_ctrl = Section(
         ("bindtime", "2"),
         ("removeongethit", "1"),
         ("removeonchangestate", "1"),
+        ("facing", "-1"),
+        ("vfacing", "-1"),
+        ("scale", "1.5,.5"),
+        ("trans", "addalpha"),
+        ("alpha", "128,128"),
         ("persistent", "0"),
     ],
 )
@@ -2177,6 +2182,12 @@ assert explod["remove_time"] == 35
 assert explod["bind_time"] == 2
 assert explod["remove_on_gethit"] == 1
 assert explod["remove_on_state_change"] == 1
+assert explod["facing"] == -1
+assert explod["vfacing"] == -1
+assert explod["scale_x_q8"] == round(1.5 * 256)
+assert explod["scale_y_q8"] == round(.5 * 256)
+assert explod["trans_mode"] == "IK_CNS_TRANS_ALPHA"
+assert explod["alpha"] == 128
 
 unsupported_helper = Section(
     "State 0, Unsupported Helper",
