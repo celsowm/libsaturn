@@ -62,6 +62,11 @@ int ik_entity_runtime_spawn_helper(
     const ik_cns_helper_t* helper,
     ik_entity_handle_t* out_handle);
 
+uint8_t ik_entity_runtime_modify_projectiles(
+    ik_entity_runtime_t* runtime,
+    uint8_t owner_player,
+    const ik_cns_projectile_mod_t* modification);
+
 int ik_entity_runtime_spawn_explod(
     ik_entity_runtime_t* runtime,
     ik_entity_handle_t parent,
