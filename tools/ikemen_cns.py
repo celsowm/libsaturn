@@ -1359,6 +1359,7 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": integer(ctrl.get("value")),
             "value1": 0,
+            "value2": integer(ctrl.get("id"), -1),
             "flags": flag_expr(),
         }
 
@@ -1390,6 +1391,7 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": q8(x),
             "value1": q8(y),
+            "value2": integer(ctrl.get("id"), -1),
             "flags": flag_expr(),
         }
 
@@ -1519,6 +1521,7 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": integer(ctrl.get("value"), 1),
             "value1": 0,
+            "value2": integer(ctrl.get("id"), -1),
             "flags": flag_expr(),
         }
 
@@ -1899,6 +1902,9 @@ def _projectile_hitdef_row(
         "fall_envshake_time": integer(ctrl.get("fall.envshake.time"), 0),
         "fall_envshake_ampl": integer(ctrl.get("fall.envshake.ampl"), 0),
         "fall_envshake_freq": integer(ctrl.get("fall.envshake.freq"), 60),
+        "id": integer(ctrl.get("id"), 0),
+        "chain_id": integer(ctrl.get("chainid"), -1),
+        "no_chain_id": integer(ctrl.get("nochainid"), -1),
     }
 
 
@@ -3854,7 +3860,10 @@ def emit(
         f"{h.get('envshake_freq', 60)}u, "
         f"{h.get('fall_envshake_time', 0)}u, "
         f"{h.get('fall_envshake_ampl', 0)}, "
-        f"{h.get('fall_envshake_freq', 60)}u"
+        f"{h.get('fall_envshake_freq', 60)}u, "
+        f"{h.get('id', 0)}, "
+        f"{h.get('chain_id', -1)}, "
+        f"{h.get('no_chain_id', -1)}"
         "},"
         for h in hitdefs
     ]
