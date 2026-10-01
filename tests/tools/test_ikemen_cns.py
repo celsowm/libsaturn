@@ -2143,6 +2143,9 @@ projectile_ctrl = Section(
         ("ownpal", "1"),
         ("attr", "S, SP"),
         ("damage", "40,5"),
+        ("id", "42"),
+        ("chainid", "7"),
+        ("nochainid", "8,9"),
         ("priority", "4, Hit"),
         ("pausetime", "6,8"),
         ("guardflag", "MA"),
@@ -2179,6 +2182,10 @@ assert projectile["remove_on_state_change"] == 1
 assert projectile_hitdef["damage"] == 40
 assert projectile_hitdef["guard_damage"] == 5
 assert projectile_hitdef["attack_attr_mask"] == "IK_CNS_ATTR_SPECIAL_PROJECTILE"
+assert projectile_hitdef["id"] == 42
+assert projectile_hitdef["chain_id"] == 7
+assert projectile_hitdef["no_chain_id"] == 8
+assert projectile_hitdef["no_chain_id2"] == 9
 
 explod_ctrl = Section(
     "State 191, Wood",
