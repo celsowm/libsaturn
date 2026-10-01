@@ -596,6 +596,27 @@ def controller_trigger(
     if len(triggers) == 1:
         value = _strip_outer_parens(triggers[0])
 
+        m_target = re.fullmatch(
+            r"NumTarget(?:\s*\(\s*(-?\d+)\s*\))?"
+            r"\s*(=|!=|<=|>=|<|>)\s*(-?\d+)",
+            value,
+            flags=re.I,
+        )
+        if m_target:
+            op = {
+                "=": "IK_CNS_QUERY_EQ",
+                "!=": "IK_CNS_QUERY_NE",
+                "<": "IK_CNS_QUERY_LT",
+                "<=": "IK_CNS_QUERY_LE",
+                ">": "IK_CNS_QUERY_GT",
+                ">=": "IK_CNS_QUERY_GE",
+            }[m_target.group(2)]
+            return (
+                "IK_CNS_TRIGGER_NUM_TARGET_QUERY",
+                int(m_target.group(3)),
+                op,
+            )
+
         m = re.fullmatch(
             r"(NumProj|ProjContact|ProjHit|ProjGuarded|"
             r"ProjContactTime|ProjHitTime|ProjGuardedTime)"
@@ -1092,6 +1113,7 @@ def compile_runtime_controller(
         "targetfacing",
         "targetlifeadd",
         "targetstate",
+        "targetdrop",
         "turn",
         "selfstate",
         "veladd",
@@ -1496,6 +1518,33 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": var_index,
             "value1": var_value,
+            "flags": flag_expr(),
+        }
+
+    if ctype == "targetdrop":
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_TARGET_DROP",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("excludeid"), -1),
+            "value1": integer(ctrl.get("keepone"), 0),
+            "value7": (
+                integer(
+                    re.search(
+                        r"NumTarget\s*\(\s*(-?\d+)\s*\)",
+                        " ".join(ctrl.all("trigger1")),
+                        flags=re.I,
+                    ).group(1)
+                )
+                if re.search(
+                    r"NumTarget\s*\(\s*(-?\d+)\s*\)",
+                    " ".join(ctrl.all("trigger1")),
+                    flags=re.I,
+                )
+                else -1
+            ),
             "flags": flag_expr(),
         }
 
