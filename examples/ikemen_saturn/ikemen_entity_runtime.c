@@ -270,6 +270,15 @@ int ik_entity_runtime_spawn_explod(
         explod->remove_on_gethit != 0u;
     entity->explod_remove_on_state_change =
         explod->remove_on_state_change != 0u;
+    entity->facing = (int8_t)(
+        explod->facing >= 0 ? parent->facing : -parent->facing);
+    entity->explod_vfacing = explod->vfacing >= 0 ? 1 : -1;
+    entity->explod_scale_x_q8 =
+        explod->scale_x_q8 > 0 ? explod->scale_x_q8 : IK_ENTITY_Q8_ONE;
+    entity->explod_scale_y_q8 =
+        explod->scale_y_q8 > 0 ? explod->scale_y_q8 : IK_ENTITY_Q8_ONE;
+    entity->explod_trans_mode = explod->trans_mode;
+    entity->explod_alpha = explod->alpha;
     entity->life = 1;
 
     *out_handle = spawned;
