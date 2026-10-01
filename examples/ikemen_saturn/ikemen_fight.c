@@ -2675,12 +2675,14 @@ static void sync_fighter_entity(
     ik_entity_t* entity = fighter_entity(fight, fighter);
     if (!entity) return;
     const ik_cns_state_t* state =
-        ik_cns_find_state(fight->cns, fighter->state);
+        ik_cns_find_state(cns_for_fighter(fight, fighter), fighter->state);
 
     entity->x_q8 = fighter->x_q8;
     entity->y_q8 = fighter->y_q8;
     entity->vx_q8 = fighter->vx_q8;
     entity->vy_q8 = fighter->vy_q8;
+    entity->state_owner = fighter->state_owner;
+    entity->anim_owner = fighter->anim_owner;
     entity->state_no = fighter->state;
     entity->prev_state_no = fighter->prev_state;
     entity->state_time = fighter->state_time;
