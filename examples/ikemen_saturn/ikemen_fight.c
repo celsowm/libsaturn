@@ -246,6 +246,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->not_hit_by_time = 0u;
     f->target_index = -1;
     f->bound_to = -1;
+    f->bound_entity = ik_entity_invalid_handle();
 }
 
 int ik_fight_max_hp(const ik_fight_t* fight) {
@@ -1696,6 +1697,94 @@ static void enter_entity_contact_state(
         &runtime, fight->entities, fight->cns,
         p1_frames, p2_frames);
     (void)ik_entity_runtime_enter_state(&runtime, handle, state);
+}
+
+static int fighter_index_from_entity_handle(
+    const ik_fight_t* fight,
+    ik_entity_handle_t handle
+) {
+    if (!fight) return -1;
+    for (int i = 0; i < 2; ++i) {
+        if (ik_entity_handle_equal(
+                fight->player_entities[i], handle)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int entity_target_controller_bridge(
+    void* user,
+    ik_entity_runtime_t* runtime,
+    ik_entity_handle_t source_handle,
+    const ik_cns_controller_t* ctrl
+) {
+    ik_fight_t* fight = (ik_fight_t*)user;
+    if (!fight || !runtime || !runtime->pool || !ctrl) return 0;
+
+    ik_entity_t* source =
+        ik_entity_get(runtime->pool, source_handle);
+    if (!source) return -1;
+
+    const int target_index =
+        fighter_index_from_entity_handle(fight, source->target);
+    if (target_index < 0 || target_index > 1) return 0;
+    ik_fighter_t* target = &fight->fighters[target_index];
+
+    switch ((ik_cns_controller_type_t)ctrl->type) {
+        case IK_CNS_CTRL_TARGET_BIND:
+            target->bound_to = -1;
+            target->bound_entity = source_handle;
+            target->x_q8 =
+                source->x_q8 +
+                (int32_t)source->facing * ctrl->value0;
+            target->y_q8 = source->y_q8 + ctrl->value1;
+            target->vx_q8 = 0;
+            target->vy_q8 = 0;
+            sync_position(target);
+            break;
+
+        case IK_CNS_CTRL_TARGET_FACING:
+            target->facing = (int8_t)(
+                source->facing * (ctrl->value0 < 0 ? -1 : 1));
+            break;
+
+        case IK_CNS_CTRL_TARGET_LIFE_ADD: {
+            int hp = (int)target->hp + ctrl->value0;
+            const int max_hp = ik_fight_max_hp(fight);
+            if (hp > max_hp) hp = max_hp;
+            if (hp <= 0) {
+                hp = 0;
+                fight->winner =
+                    (uint8_t)((target_index ^ 1) + 1);
+                fight->events |= IK_EVENT_KO;
+            }
+            target->hp = (int16_t)hp;
+            break;
+        }
+
+        case IK_CNS_CTRL_TARGET_STATE:
+            target->bound_entity = ik_entity_invalid_handle();
+            target->bound_to = -1;
+            enter_state(fight, target, (int16_t)ctrl->value0);
+            (void)ik_entity_set_target(
+                runtime->pool, source_handle,
+                ik_entity_invalid_handle());
+            break;
+
+        default:
+            break;
+    }
+    return 0;
+}
+
+static void configure_fight_entity_runtime(
+    ik_fight_t* fight,
+    ik_entity_runtime_t* runtime
+) {
+    if (!fight || !runtime) return;
+    ik_entity_runtime_set_target_controller(
+        runtime, fight, entity_target_controller_bridge);
 }
 
 static void apply_guard_from_entity(
