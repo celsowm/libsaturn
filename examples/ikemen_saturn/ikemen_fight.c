@@ -1816,6 +1816,8 @@ static void configure_fight_entity_runtime(
     if (!fight || !runtime) return;
     ik_entity_runtime_set_target_controller(
         runtime, fight, entity_target_controller_bridge);
+    ik_entity_runtime_set_stage_bounds(
+        runtime, IK_STAGE_MIN_X, IK_STAGE_MAX_X);
 }
 
 static void apply_guard_from_entity(
