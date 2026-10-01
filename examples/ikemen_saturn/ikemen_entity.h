@@ -207,7 +207,9 @@ int ik_entity_expr_read_field(
     void* user,
     uint8_t redirect,
     uint8_t field,
-    int16_t index,
+    int32_t index,
+    int32_t redirect_id,
+    uint8_t redirect_index,
     int32_t* out_value);
 
 #ifdef __cplusplus
