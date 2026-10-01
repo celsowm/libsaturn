@@ -179,11 +179,14 @@ typedef struct ik_fighter {
     int8_t target_index;
     int8_t bound_to;
     ik_entity_handle_t bound_entity;
+    uint8_t owner_player;
+    uint8_t state_owner;
 } ik_fighter_t;
 
 typedef struct ik_fight {
     ik_fighter_t fighters[2];
     const ik_cns_asset_t* cns;
+    const ik_cns_asset_t* player_cns[2];
     ik_entity_pool_t* entities;
     ik_entity_handle_t player_entities[2];
     uint32_t frame;
@@ -213,6 +216,8 @@ typedef struct ik_fight {
 } ik_fight_t;
 
 void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns);
+void ik_fight_set_player_cns(
+    ik_fight_t* fight, uint8_t player, const ik_cns_asset_t* cns);
 void ik_fight_bind_entities(
     ik_fight_t* fight,
     ik_entity_pool_t* pool,
