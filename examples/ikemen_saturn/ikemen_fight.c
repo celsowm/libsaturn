@@ -1684,6 +1684,10 @@ static void queue_entity_hit_effect(
         ik_cns_q8_to_int(attacker->y_q8) + spark_y);
 }
 
+static void configure_fight_entity_runtime(
+    ik_fight_t* fight,
+    ik_entity_runtime_t* runtime);
+
 static void enter_entity_contact_state(
     ik_fight_t* fight,
     ik_entity_handle_t handle,
