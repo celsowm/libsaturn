@@ -75,6 +75,17 @@ static void anim_position(
     if (out_ended) *out_ended = ended;
 }
 
+static const ik_cns_asset_t* runtime_cns_for_owner(
+    const ik_entity_runtime_t* runtime,
+    uint8_t owner
+) {
+    if (!runtime) return 0;
+    if (owner < 2u && runtime->player_cns[owner]) {
+        return runtime->player_cns[owner];
+    }
+    return runtime->cns;
+}
+
 void ik_entity_runtime_init(
     ik_entity_runtime_t* runtime,
     ik_entity_pool_t* pool,
@@ -85,6 +96,8 @@ void ik_entity_runtime_init(
     if (!runtime) return;
     runtime->pool = pool;
     runtime->cns = cns;
+    runtime->player_cns[0] = cns;
+    runtime->player_cns[1] = cns;
     runtime->frames[0] = p1_frames;
     runtime->frames[1] = p2_frames ? p2_frames : p1_frames;
     runtime->command_masks[0] = 0u;
@@ -93,6 +106,15 @@ void ik_entity_runtime_init(
     runtime->stage_max_x = 320;
     runtime->external_user = 0;
     runtime->target_controller = 0;
+}
+
+void ik_entity_runtime_set_player_cns(
+    ik_entity_runtime_t* runtime,
+    uint8_t player,
+    const ik_cns_asset_t* cns
+) {
+    if (!runtime || player >= 2u) return;
+    runtime->player_cns[player] = cns ? cns : runtime->cns;
 }
 
 void ik_entity_runtime_set_target_controller(
@@ -138,8 +160,10 @@ int ik_entity_runtime_enter_state(
     ik_entity_t* entity = ik_entity_get(runtime->pool, handle);
     if (!entity) return 0;
 
+    const ik_cns_asset_t* state_cns =
+        runtime_cns_for_owner(runtime, entity->state_owner);
     const ik_cns_state_t* spec =
-        ik_cns_find_state(runtime->cns, state_no);
+        ik_cns_find_state(state_cns, state_no);
     const int16_t previous_anim = entity->anim_no;
     entity->prev_state_no = entity->state_no;
     entity->state_no = state_no;
@@ -584,8 +608,10 @@ static int process_controllers(
 ) {
     ik_entity_t* entity = ik_entity_get(runtime->pool, handle);
     if (!entity) return 2;
+    const ik_cns_asset_t* state_cns =
+        runtime_cns_for_owner(runtime, entity->state_owner);
     const ik_cns_state_t* state =
-        ik_cns_find_state(runtime->cns, entity->state_no);
+        ik_cns_find_state(state_cns, entity->state_no);
     if (!state || !runtime->cns->controllers) return 0;
 
     const ik_frame_table_t* frames = frames_for(runtime, entity);
@@ -645,10 +671,10 @@ static int process_controllers(
     for (uint8_t i = 0u; i < state->controller_count; ++i) {
         const uint16_t index =
             (uint16_t)(state->controller_ofs + i);
-        if (index >= runtime->cns->controller_count) break;
+        if (!state_cns || index >= state_cns->controller_count) break;
 
         const ik_cns_controller_t* ctrl =
-            &runtime->cns->controllers[index];
+            &state_cns->controllers[index];
         if (hit_pause_only &&
             (ctrl->flags & IK_CNS_CTRL_IGNORE_HIT_PAUSE) == 0u) {
             continue;
@@ -662,7 +688,20 @@ static int process_controllers(
 
         switch ((ik_cns_controller_type_t)ctrl->type) {
             case IK_CNS_CTRL_CHANGE_STATE:
+                if (ik_entity_runtime_enter_state(
+                        runtime, handle, (int16_t)ctrl->value0)) {
+                    entity = ik_entity_get(runtime->pool, handle);
+                    if (entity &&
+                        (ctrl->flags & IK_CNS_CTRL_HAS_CTRL) != 0u) {
+                        entity->ctrl =
+                            (uint8_t)(ctrl->value1 != 0);
+                    }
+                    return 1;
+                }
+                break;
+
             case IK_CNS_CTRL_SELF_STATE:
+                entity->state_owner = entity->owner_player;
                 if (ik_entity_runtime_enter_state(
                         runtime, handle, (int16_t)ctrl->value0)) {
                     entity = ik_entity_get(runtime->pool, handle);
