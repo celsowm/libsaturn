@@ -679,7 +679,12 @@ static int process_controllers(
             (ctrl->flags & IK_CNS_CTRL_IGNORE_HIT_PAUSE) == 0u) {
             continue;
         }
-        if (!ik_cns_controller_trigger_context_now(ctrl, &context)) {
+        ik_cns_controller_context_t query_context = context;
+        if (ctrl->trigger_kind == IK_CNS_TRIGGER_NUM_TARGET_QUERY) {
+            query_context.num_targets = ik_entity_target_count(
+                runtime->pool, handle, ctrl->trigger_aux);
+        }
+        if (!ik_cns_controller_trigger_context_now(ctrl, &query_context)) {
             continue;
         }
 
@@ -916,6 +921,12 @@ static int process_controllers(
                     if (result > 0) return 1;
                     if (result < 0) return 2;
                 }
+                break;
+
+            case IK_CNS_CTRL_TARGET_DROP:
+                ik_entity_drop_targets(
+                    runtime->pool, handle,
+                    ctrl->value0, (uint8_t)(ctrl->value1 != 0));
                 break;
 
             case IK_CNS_CTRL_DESTROY_SELF:
