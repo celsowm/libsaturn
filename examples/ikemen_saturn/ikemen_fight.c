@@ -1347,7 +1347,11 @@ static int guard_threat(ik_fight_t* fight,
 
     int dx = (int)a->x - (int)v->x;
     if (dx < 0) dx = -dx;
-    if (dx > fight->cns->constants.attack_dist) return 0;
+    const int guard_dist =
+        hitdef->guard_dist > 0
+            ? hitdef->guard_dist
+            : fight->cns->constants.attack_dist;
+    if (dx > guard_dist) return 0;
 
     const uint8_t type = guard_type_for(fight, v, controls);
     return (hitdef->guard_flags & guard_mask_for_type(type)) != 0u;
@@ -2242,7 +2246,8 @@ static void apply_ground_velocity(ik_fighter_t* f,
 }
 
 static void step_air(ik_fight_t* fight, ik_fighter_t* f,
-                     int allow_land_transition) {
+                     int allow_land_transition,
+                     int16_t guard_land_state) {
     const ik_cns_constants_t* c = constants_for(fight);
     const ik_cns_state_t* spec = state_spec(fight, f->state);
     const int32_t gravity =
@@ -2283,6 +2288,9 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f,
                 ik_cns_find_state(fight ? fight->cns : 0,
                                   f->gethit_fall ? 5050 : 5040)) {
                 target = f->gethit_fall ? 5050 : 5040;
+            } else if (guard_land_state >= 0 &&
+                       (f->state == 132 || f->state == 155)) {
+                target = guard_land_state;
             } else if (spec && spec->land_state != 0) {
                 target = spec->land_state;
             } else if (ik_cns_find_state(fight ? fight->cns : 0, 52)) {
@@ -2650,7 +2658,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 if (fight->effect_count < IK_MAX_EFFECT_EVENTS) {
                     ik_effect_event_t* effect =
                         &fight->effect_events[fight->effect_count++];
-                    effect->action = 120;
+                    effect->action =
+                        ctrl->value0 != 0 ? (int16_t)ctrl->value0 : 120;
                     effect->x = f->x;
                     effect->y = f->y;
                 }
@@ -3408,7 +3417,7 @@ static void step_fighter(ik_fight_t* fight, int index,
     if (f->hitstun > 0u) {
         f->hitstun--;
         if (!f->on_ground) {
-            step_air(fight, f, 0);
+            step_air(fight, f, 0, -1);
         } else if (c) {
             const ik_cns_state_t* hit_spec = state_spec(fight, f->state);
             const int physics = hit_spec ? hit_spec->physics : IK_CNS_PHYS_STAND;
@@ -3430,7 +3439,7 @@ static void step_fighter(ik_fight_t* fight, int index,
         if (is_air_attack(fight, f->state)) {
             /* Physics=A continues while the attack animation runs. If the
              * common1 landing state is compiled, landing transitions to it. */
-            step_air(fight, f, 1);
+            step_air(fight, f, 1, -1);
             return;
         }
 
@@ -3468,7 +3477,15 @@ static void step_fighter(ik_fight_t* fight, int index,
         const int custom_landing =
             air_spec && air_spec->physics == IK_CNS_PHYS_NONE &&
             air_spec->owns_air_accel;
-        step_air(fight, f, custom_landing ? 0 : 1);
+        int16_t guard_land_state = -1;
+        if (f->state == 132 || f->state == 155) {
+            const int threat =
+                guard_threat(fight, foe_frames, index, controls);
+            guard_land_state =
+                controls && controls->back && threat ? 130 : 52;
+        }
+        step_air(
+            fight, f, custom_landing ? 0 : 1, guard_land_state);
     } else if (f->on_ground) {
         const ik_cns_state_t* spec = state_spec(fight, f->state);
 
