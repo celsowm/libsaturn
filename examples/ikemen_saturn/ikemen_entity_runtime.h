@@ -11,11 +11,20 @@
 extern "C" {
 #endif
 
+struct ik_entity_runtime;
+typedef int (*ik_entity_target_controller_fn)(
+    void* user,
+    struct ik_entity_runtime* runtime,
+    ik_entity_handle_t source,
+    const ik_cns_controller_t* controller);
+
 typedef struct ik_entity_runtime {
     ik_entity_pool_t* pool;
     const ik_cns_asset_t* cns;
     const ik_frame_table_t* frames[2];
     uint16_t command_masks[2];
+    void* external_user;
+    ik_entity_target_controller_fn target_controller;
 } ik_entity_runtime_t;
 
 void ik_entity_runtime_init(
@@ -24,6 +33,11 @@ void ik_entity_runtime_init(
     const ik_cns_asset_t* cns,
     const ik_frame_table_t* p1_frames,
     const ik_frame_table_t* p2_frames);
+
+void ik_entity_runtime_set_target_controller(
+    ik_entity_runtime_t* runtime,
+    void* user,
+    ik_entity_target_controller_fn callback);
 
 void ik_entity_runtime_set_command_mask(
     ik_entity_runtime_t* runtime,
