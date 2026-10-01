@@ -2296,6 +2296,25 @@ assert modification["vel_y_q8"] == -1 * 256
 assert modification["priority"] == 6
 
 
+
+target_drop_ctrl = Section(
+    "State 810, Drop old targets",
+    [
+        ("type", "TargetDrop"),
+        ("trigger1", "NumTarget(42) > 1"),
+        ("excludeid", "42"),
+        ("keepone", "1"),
+    ],
+)
+compiled_target_drop = compile_runtime_controller(810, target_drop_ctrl)
+assert compiled_target_drop is not None
+assert compiled_target_drop["type"] == "IK_CNS_CTRL_TARGET_DROP"
+assert compiled_target_drop["trigger_kind"] == "IK_CNS_TRIGGER_NUM_TARGET_QUERY"
+assert compiled_target_drop["trigger_value"] == 1
+assert compiled_target_drop["trigger_value2"] == "IK_CNS_QUERY_GT"
+assert compiled_target_drop["value0"] == 42
+assert compiled_target_drop["value1"] == 1
+
 target_selector_ctrl = Section(
     "State 810, Select target",
     [
