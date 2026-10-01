@@ -13,7 +13,7 @@ struct Fixture {
 };
 
 static int read_field(void* user, uint8_t redirect, uint8_t field,
-                      int16_t, int32_t* out) {
+                      int32_t, int32_t, uint8_t, int32_t* out) {
     Fixture* f = static_cast<Fixture*>(user);
     if (!f || !out) return 0;
     if (field == IK_EXPR_FIELD_STATE_NO) {
