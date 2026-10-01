@@ -2329,6 +2329,25 @@ def parse_state(
     open_reversal: dict | None = None
     unsupported: list[str] = []
 
+    def attach_target_query_selector(
+        controller: dict,
+        section: Section,
+    ) -> dict:
+        if controller.get("trigger_kind") != "IK_CNS_TRIGGER_NUM_TARGET_QUERY":
+            return controller
+        selector = -1
+        for expr in section.all("trigger1"):
+            match = re.search(
+                r"NumTarget\s*\(\s*(-?\d+)\s*\)",
+                expr,
+                flags=re.I,
+            )
+            if match:
+                selector = int(match.group(1))
+                break
+        controller["trigger_aux"] = selector
+        return controller
+
     for ctrl in state.controllers:
         ctype = (ctrl.get("type", "") or "").strip().lower()
 
@@ -2683,7 +2702,9 @@ def parse_state(
                 compiled_helper = None
             if compiled_helper is not None:
                 controller, helper = compiled_helper
-                controllers.append(controller)
+                controllers.append(
+                    attach_target_query_selector(controller, ctrl)
+                )
                 helpers.append(helper)
             else:
                 unsupported.append(ctype)
@@ -2697,7 +2718,9 @@ def parse_state(
                 compiled_explod = None
             if compiled_explod is not None:
                 controller, explod = compiled_explod
-                controllers.append(controller)
+                controllers.append(
+                    attach_target_query_selector(controller, ctrl)
+                )
                 explods.append(explod)
             else:
                 unsupported.append(ctype)
@@ -2716,7 +2739,9 @@ def parse_state(
                 compiled_projectile = None
             if compiled_projectile is not None:
                 controller, projectile, projectile_hitdef = compiled_projectile
-                controllers.append(controller)
+                controllers.append(
+                    attach_target_query_selector(controller, ctrl)
+                )
                 projectiles.append(projectile)
                 projectile_hitdefs.append(projectile_hitdef)
             else:
@@ -2733,7 +2758,9 @@ def parse_state(
                 compiled_mod = None
             if compiled_mod is not None:
                 controller, projectile_mod = compiled_mod
-                controllers.append(controller)
+                controllers.append(
+                    attach_target_query_selector(controller, ctrl)
+                )
                 projectile_mods.append(projectile_mod)
             else:
                 unsupported.append(ctype)
@@ -2745,19 +2772,9 @@ def parse_state(
                 compiled = None
 
             if compiled is not None:
-                if compiled["trigger_kind"] == "IK_CNS_TRIGGER_NUM_TARGET_QUERY":
-                    selector = -1
-                    for expr in ctrl.all("trigger1"):
-                        match = re.search(
-                            r"NumTarget\s*\(\s*(-?\d+)\s*\)",
-                            expr,
-                            flags=re.I,
-                        )
-                        if match:
-                            selector = int(match.group(1))
-                            break
-                    compiled["trigger_aux"] = selector
-                controllers.append(compiled)
+                controllers.append(
+                    attach_target_query_selector(compiled, ctrl)
+                )
                 if ctype == "superpause" and ctrl.get("sound") is not None:
                     group, item = sound_pair(ctrl.get("sound"))
                     sounds.append({
