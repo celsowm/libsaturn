@@ -170,6 +170,10 @@ int ik_entity_add_target(
 void ik_entity_clear_targets(
     ik_entity_pool_t* pool,
     ik_entity_handle_t source);
+int ik_entity_remove_target(
+    ik_entity_pool_t* pool,
+    ik_entity_handle_t source,
+    ik_entity_handle_t target);
 ik_entity_handle_t ik_entity_target_at(
     const ik_entity_pool_t* pool,
     ik_entity_handle_t source,
