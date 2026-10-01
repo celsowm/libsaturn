@@ -87,9 +87,42 @@ and intro frames do not shift the gameplay trace. Set `round_state` to another
 value (or `-1` to capture every round state) when a scenario specifically
 targets intro/post-round behavior.
 
-The RNG seed is applied before round character setup. For exact authored input
-streams, the next layer should feed Ikemen replay/input data rather than rely on
-AI decisions.
+The RNG seed is applied before round character setup.
+
+## Deterministic authored inputs
+
+Scenarios may contain a shared logical input timeline. The same timeline is
+injected into Ikemen GO before command parsing and converted to Saturn pad
+states before `ik_command_update()`, so both sides exercise their real command
+engines rather than forcing state numbers.
+
+```json
+{
+  "inputs": [
+    {"from": 10, "to": 25, "p1": ["forward"], "p2": []},
+    {"frame": 30, "p1": ["x"], "p2": ["back"]}
+  ]
+}
+```
+
+Supported logical buttons are `forward`, `back`, `up`, `down`, `a`,
+`b`, `c`, `x`, `y`, `z` and `start`. Forward/back are resolved
+relative to each fighter's current facing on both engines.
+
+The bundled authored scenarios currently cover idle, walk, jump, punch, guard
+setup and throw setup.
+
+## Compatibility suite
+
+```sh
+make ikemen-oracle-suite
+```
+
+The suite runs the upstream oracle, the native LibSaturn host runtime, then the
+JSONL comparator for each scenario. It stops at the first divergent scenario
+and asks the comparator for exactly one mismatch, giving the first
+frame/field that should be investigated. Use `--keep-going` directly with
+`suite.py` to collect all failing scenarios.
 
 ## Run the LibSaturn host trace
 
