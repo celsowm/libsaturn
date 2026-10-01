@@ -2634,16 +2634,18 @@ static void step_air(ik_fight_t* fight, ik_fighter_t* f,
             f->on_ground = 1;
             f->air_jumps_used = 0u;
 
+            const ik_cns_asset_t* native_cns =
+                cns_for_owner(fight, f->owner_player);
             if ((f->state == 5030 || f->state == 5035) &&
-                ik_cns_find_state(fight ? fight->cns : 0,
-                                  f->gethit_fall ? 5050 : 5040)) {
+                ik_cns_find_state(
+                    native_cns, f->gethit_fall ? 5050 : 5040)) {
                 target = f->gethit_fall ? 5050 : 5040;
             } else if (guard_land_state >= 0 &&
                        (f->state == 132 || f->state == 155)) {
                 target = guard_land_state;
             } else if (spec && spec->land_state != 0) {
                 target = spec->land_state;
-            } else if (ik_cns_find_state(fight ? fight->cns : 0, 52)) {
+            } else if (ik_cns_find_state(native_cns, 52)) {
                 target = 52;
             }
             const uint8_t landing_ctrl = spec ? spec->land_ctrl : 0u;
@@ -3101,9 +3103,9 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     }
                     f->one_shot_controller_mask |= bit;
                 }
-                if (!fight->entities || !fight->cns->projectile_mods ||
+                if (!fight->entities || !state_cns->projectile_mods ||
                     ctrl->value0 < 0 ||
-                    ctrl->value0 >= fight->cns->projectile_mod_count) {
+                    ctrl->value0 >= state_cns->projectile_mod_count) {
                     break;
                 }
                 const uint8_t owner =
@@ -3116,14 +3118,14 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 configure_fight_entity_runtime(fight, &runtime);
                 (void)ik_entity_runtime_modify_projectiles(
                     &runtime, owner,
-                    &fight->cns->projectile_mods[ctrl->value0]);
+                    &state_cns->projectile_mods[ctrl->value0]);
                 break;
             }
 
             case IK_CNS_CTRL_PROJECTILE: {
-                if (!fight->entities || !fight->cns->projectiles ||
+                if (!fight->entities || !state_cns->projectiles ||
                     ctrl->value0 < 0 ||
-                    ctrl->value0 >= fight->cns->projectile_count) {
+                    ctrl->value0 >= state_cns->projectile_count) {
                     break;
                 }
                 if (ctrl->value1 != 0 && i < 64u) {
@@ -3141,7 +3143,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 ik_entity_handle_t spawned = ik_entity_invalid_handle();
                 (void)ik_entity_runtime_spawn_projectile_spec(
                     &runtime, fighter_entity_handle(fight, f),
-                    &fight->cns->projectiles[ctrl->value0],
+                    &state_cns->projectiles[ctrl->value0],
                     &spawned);
                 break;
             }
