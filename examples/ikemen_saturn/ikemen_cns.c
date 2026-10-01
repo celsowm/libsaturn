@@ -248,6 +248,13 @@ int ik_cns_controller_trigger_context_now(
                                  ? 0
                                  : controller->trigger_value);
 
+        case IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME:
+            return context->state_time ==
+                       (uint16_t)(controller->trigger_value2 < 0
+                                      ? 0
+                                      : controller->trigger_value2) &&
+                   context->p2_dist_x_q8 < controller->trigger_value;
+
 
         case IK_CNS_TRIGGER_ANIM_ELEM_TIME_EQ_PACKED: {
             const uint16_t packed =
