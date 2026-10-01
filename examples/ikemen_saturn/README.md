@@ -183,8 +183,10 @@ freeze. Pause/SuperPause movetime now advances only the pause owner while the
 opponent and round timer remain frozen; owner HitDefs and authorized
 Helpers/Projectiles/Explods continue through their contact and movement paths.
 Projectile and Explod pausemovetime/supermovetime budgets are consumed
-independently. endcmdbuftime is preserved in runtime metadata, but command
-buffer retention does not consume it yet. HitOverride is also compiled as a
+independently. Pause/SuperPause endcmdbuftime now reaches the command runtime:
+patterns preserve command.buffer.pauseend, frozen players retain an existing
+buffer during the authored final pause window, and a command completed there
+receives Ikemen's extra completion tick. HitOverride is also compiled as a
 typed contact window instead of being
 collapsed into invulnerability: incoming NA/SA/HA/NP/SP/HP/throw attributes are
 preserved on HitDefs and matched after ReversalDef. KFM's AP fallback therefore
@@ -277,11 +279,13 @@ They also support bindtime, removeongethit, removeonchangestate, ownpal,
 pausemovetime and supermovetime; bound Explods follow the parent transform for
 the authored lifetime instead of being approximated as Helpers.
 Helpers also own persistent/re-armable HitDef state, CLSN1 contact against the
-opposing fighter, anti-repeat hit masks, hitpause, movecontact, juggle cost,
-damage/guard application and p1stateno transitions.
-Helper throws remain deferred until target/bind ownership is generalized, and
-helper-vs-player priority/trade arbitration is still resolved in separate
-passes rather than one global Ikemen contact queue.
+opposing fighter, anti-repeat hit masks, hitpause, movecontact/movehit, juggle
+cost, damage/guard application and p1stateno transitions. Helper throws now
+capture root fighters through generational target handles; subsequent
+TargetBind, TargetFacing, TargetLifeAdd and TargetState controllers execute
+from the Helper and the fighter remains bound until release or Helper
+invalidation. Helper-vs-player priority/trade arbitration is still resolved in
+separate passes rather than one global Ikemen contact queue.
 
 ## Runtime controller coverage
 
@@ -305,9 +309,10 @@ The generic CNS runtime currently executes:
 * Time, AnimElem, AnimTime, movecontact, command-state and velocity/floor triggers
 
 Unsupported selected behavior is reported or listed in the compiler JSON
-rather than silently treated as fully compatible. The current common lowering
-still records deferred presentation/engine behavior such as `AssertSpecial`
-and `MakeDust`.
+rather than silently treated as fully compatible. Common state 100 now
+preserves noWalk/noAutoTurn as state-level assertions so noAutoTurn is visible
+before the automatic facing step, and common state 106 emits the authored
+MakeDust landing effect through fightfx action 120.
 
 ## Texture residency
 
@@ -345,12 +350,12 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   ground effects, get-up/defeated NotHitBy and MatchOver animation variants
 * exact remaining guard semantics such as conditional air-guard landing,
   complete inGuardDist behavior
-* remaining throw edge cases across different character state/CNS owners;
-  AIR ownership is now per fighter
+* remaining throw edge cases across different character state/CNS owners and
+  non-root targets; root-fighter Helper target/bind ownership is implemented
 * remaining Blocking/engine edge cases are now mostly advanced compatibility:
   Helper ReversalDef and projectile HitOverride AP are exercised end-to-end.
-  Pause/SuperPause movetime plus paused-owner contact resolution are
-  implemented; endcmdbuftime still needs command-buffer retention semantics
+  Pause/SuperPause movetime, paused-owner contact resolution and
+  endcmdbuftime command retention are implemented
 * remaining classic Projectile/Explod compatibility includes additional
   postypes, exact stage/depth bounds, scale/angle/window/remappal,
   ModifyProjectile and query triggers such as ProjContact/ProjHitTime
