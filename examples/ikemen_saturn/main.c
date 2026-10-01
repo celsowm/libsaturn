@@ -231,24 +231,6 @@ static void fighters_init(void) {
     g_frame_cache_epoch = 0u;
 }
 
-static const ik_sprite_source_t* sprite_by_key(
-    uint8_t player,
-    int16_t group,
-    int16_t number,
-    uint16_t* out_index
-) {
-    if (player >= 2u) return 0;
-    const ik_character_runtime_t* character = &g_characters[player];
-    for (uint16_t i = 0u; i < character->sprite_count; ++i) {
-        const ik_sprite_source_t* source = &character->sprites[i];
-        if (source->group == group && source->number == number) {
-            if (out_index) *out_index = i;
-            return source;
-        }
-    }
-    return 0;
-}
-
 static const ik_frame_t* current_frame(
     const ik_fighter_t* fighter
 ) {
@@ -285,26 +267,13 @@ static int resolve_visual_frame(
     }
     const ik_character_runtime_t* animation =
         &g_characters[anim_player];
-    if (animation_frame->sprite_index >= animation->sprite_count) return 0;
-
-    const ik_sprite_source_t* animation_source =
-        &animation->sprites[animation_frame->sprite_index];
-    uint16_t sprite_index = 0u;
-    const ik_sprite_source_t* sprite = sprite_by_key(
-        sprite_player,
-        animation_source->group,
-        animation_source->number,
-        &sprite_index);
-    if (!sprite) return 0;
-
-    *out = *animation_frame;
-    out->sprite_index = sprite_index;
-    out->w = sprite->padded_w;
-    out->h = sprite->source_h;
-    out->ax = (int16_t)(
-        sprite->xoff + sprite->left_pad - animation_frame->air_x);
-    out->ay = (int16_t)(sprite->yoff - animation_frame->air_y);
-    return 1;
+    const ik_character_runtime_t* visual =
+        &g_characters[sprite_player];
+    return ik_visual_frame_resolve(
+        animation_frame,
+        animation->sprites, animation->sprite_count,
+        visual->sprites, visual->sprite_count,
+        out);
 }
 
 static int texture_cache_contains(uint8_t asset_slot, uint16_t sprite_index) {
