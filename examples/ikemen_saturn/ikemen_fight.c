@@ -73,10 +73,6 @@ static const ik_frame_table_t* frames_for_entity(
         : 0;
 }
 
-static const ik_cns_constants_t* constants_for(const ik_fight_t* fight) {
-    return (fight && fight->cns) ? &fight->cns->constants : 0;
-}
-
 static void sync_position(ik_fighter_t* f) {
     if (!f) return;
     f->x = ik_cns_q8_to_int(f->x_q8);
@@ -340,26 +336,47 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->bound_entity = ik_entity_invalid_handle();
 }
 
-int ik_fight_max_hp(const ik_fight_t* fight) {
-    if (fight && fight->cns && fight->cns->constants.life > 0) {
-        return fight->cns->constants.life;
+int ik_fight_max_hp_player(
+    const ik_fight_t* fight, uint8_t player
+) {
+    if (fight && player < 2u) {
+        const ik_cns_asset_t* cns = cns_for_owner(fight, player);
+        if (cns && cns->constants.life > 0) {
+            return cns->constants.life;
+        }
     }
     return IK_MAX_HP;
 }
 
-void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
+int ik_fight_max_hp(const ik_fight_t* fight) {
+    return ik_fight_max_hp_player(fight, 0u);
+}
+
+void ik_fight_init_players(
+    ik_fight_t* fight,
+    const ik_cns_asset_t* p1_cns,
+    const ik_cns_asset_t* p2_cns
+) {
     if (!fight) return;
-    fight->cns = cns;
-    fight->player_cns[0] = cns;
-    fight->player_cns[1] = cns;
+    if (!p1_cns) p1_cns = p2_cns;
+    if (!p2_cns) p2_cns = p1_cns;
+
+    fight->cns = p1_cns;
+    fight->player_cns[0] = p1_cns;
+    fight->player_cns[1] = p2_cns;
     fight->player_frames[0] = 0;
     fight->player_frames[1] = 0;
     fight->entities = 0;
     fight->player_entities[0] = ik_entity_invalid_handle();
     fight->player_entities[1] = ik_entity_invalid_handle();
-    const int hp = ik_fight_max_hp(fight);
-    fighter_spawn(fight, &fight->fighters[0], 110, 1, hp, 0u);
-    fighter_spawn(fight, &fight->fighters[1], 210, -1, hp, 1u);
+
+    fighter_spawn(
+        fight, &fight->fighters[0], 110, 1,
+        ik_fight_max_hp_player(fight, 0u), 0u);
+    fighter_spawn(
+        fight, &fight->fighters[1], 210, -1,
+        ik_fight_max_hp_player(fight, 1u), 1u);
+
     fight->frame = 0;
     fight->timer_frames = IK_ROUND_TIME_FRAMES;
     fight->events = IK_EVENT_NONE;
@@ -378,30 +395,35 @@ void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
     fight->env_shake_freq = 60u;
     fight->env_shake_phase = 0u;
     fight->super_darken_time = 0u;
-    fight->round_state = ik_cns_find_state(cns, 191) ? 0u : 2u;
+
+    const int p1_intro =
+        p1_cns && ik_cns_find_state(p1_cns, 191);
+    const int p2_intro =
+        p2_cns && ik_cns_find_state(p2_cns, 191);
+    fight->round_state = (p1_intro || p2_intro) ? 0u : 2u;
     fight->intro_asserted = 0u;
     if (fight->round_state == 0u) {
-        enter_state(fight, &fight->fighters[0], 191);
-        enter_state(fight, &fight->fighters[1], 191);
+        if (p1_intro) {
+            enter_state(fight, &fight->fighters[0], 191);
+        }
+        if (p2_intro) {
+            enter_state(fight, &fight->fighters[1], 191);
+        }
     }
+
     fight->effect_count = 0u;
     fight->sound_count = 0u;
-    if (fight->env_shake_time > 0u) {
-        --fight->env_shake_time;
-        fight->env_shake_phase =
-            (uint16_t)(fight->env_shake_phase + fight->env_shake_freq);
-    }
-    if (fight->super_darken_time > 0u) {
-        --fight->super_darken_time;
-    }
-} 
+}
+
+void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns) {
+    ik_fight_init_players(fight, cns, cns);
+}
 
 void ik_fight_set_player_cns(
     ik_fight_t* fight, uint8_t player, const ik_cns_asset_t* cns
 ) {
     if (!fight || player >= 2u) return;
     fight->player_cns[player] = cns ? cns : fight->cns;
-    fight->fighters[player].state_owner = player;
 }
 
 void ik_fight_bind_entities(
@@ -443,9 +465,8 @@ void ik_fight_reset(ik_fight_t* fight) {
         }
     }
 
-    ik_fight_init(fight, cns);
-    ik_fight_set_player_cns(fight, 0u, p1_cns);
-    ik_fight_set_player_cns(fight, 1u, p2_cns);
+    (void)cns;
+    ik_fight_init_players(fight, p1_cns, p2_cns);
     ik_fight_bind_entities(fight, entities, p1, p2);
     fight->hits_p1 = h1;
     fight->hits_p2 = h2;
