@@ -300,6 +300,7 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->not_hit_by_attr_mask = 0u;
     f->not_hit_by_time = 0u;
     f->target_index = -1;
+    f->target_id = -1;
     f->bound_to = -1;
     f->bound_entity = ik_entity_invalid_handle();
 }
@@ -1577,6 +1578,7 @@ static void apply_throw(ik_fight_t* fight, int attacker,
     ik_fighter_t* v = &fight->fighters[victim];
 
     a->target_index = (int8_t)victim;
+    a->target_id = hitdef->id;
     v->bound_to = (int8_t)attacker;
     v->bound_entity = ik_entity_invalid_handle();
     a->move_contact = 1u;
@@ -1657,6 +1659,7 @@ static void release_bound_target(ik_fight_t* fight, int owner) {
         target->bound_entity = ik_entity_invalid_handle();
     }
     f->target_index = -1;
+    f->target_id = -1;
 }
 
 static void release_entity_bound_fighter(
@@ -1672,9 +1675,13 @@ static void release_entity_bound_fighter(
             ik_entity_get_const(
                 fight->entities, fighter->bound_entity);
         if (source) {
-            (void)ik_entity_set_target(
-                fight->entities, fighter->bound_entity,
-                ik_entity_invalid_handle());
+            const uint8_t player =
+                fighter_player_index(fight, fighter);
+            if (player < 2u) {
+                (void)ik_entity_remove_target(
+                    fight->entities, fighter->bound_entity,
+                    fight->player_entities[player]);
+            }
         }
     }
     fighter->bound_entity = ik_entity_invalid_handle();
@@ -1683,6 +1690,9 @@ static void release_entity_bound_fighter(
 static void apply_damage(ik_fight_t* fight, int victim,
                          const ik_cns_hitdef_t* hitdef) {
     ik_fighter_t* v = &fight->fighters[victim];
+    const int attacker = victim ^ 1;
+    fight->fighters[attacker].target_index = (int8_t)victim;
+    fight->fighters[attacker].target_id = hitdef ? hitdef->id : 0;
     /* Losing a throw owner releases its bound target. State 820's compiled
      * !isbound SelfState then returns the target to its own fall graph. */
     release_bound_target(fight, victim);
@@ -2140,6 +2150,9 @@ static void apply_damage_from_entity(
     if (!attacker || attacker->owner_player >= 2u) return;
 
     ik_fighter_t* v = &fight->fighters[victim];
+    (void)ik_entity_add_target(
+        fight->entities, attacker_handle,
+        fight->player_entities[victim], hitdef->id);
     release_bound_target(fight, victim);
     release_entity_bound_fighter(fight, v);
 
@@ -2339,9 +2352,9 @@ static void apply_throw_from_entity(
     release_bound_target(fight, victim);
     release_entity_bound_fighter(fight, v);
 
-    (void)ik_entity_set_target(
+    (void)ik_entity_add_target(
         fight->entities, attacker_handle,
-        fight->player_entities[victim]);
+        fight->player_entities[victim], hitdef->id);
     v->bound_to = -1;
     v->bound_entity = attacker_handle;
     attacker->move_contact = 1u;
