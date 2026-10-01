@@ -6,7 +6,10 @@ import json
 import subprocess
 from pathlib import Path
 
-from tools.ikemen_oracle.inputs import write_timeline
+try:
+    from .inputs import write_timeline
+except ImportError:
+    from inputs import write_timeline
 
 ROOT = Path(__file__).resolve().parents[2]
 
