@@ -647,6 +647,45 @@ int main() {
     EQ(g.fighters[0].push_front,16);
     EQ(g.fighters[0].push_back,15);
 
+    /* P1/P2 native constants are independent even when the fight keeps P1
+     * as the legacy default CNS. Custom-state ownership must not replace the
+     * victim's life/size/movement constants. */
+    {
+        ik_cns_asset_t p1_asset{};
+        p1_asset.constants.life=1200;
+        p1_asset.constants.ground_back=11;
+        p1_asset.constants.ground_front=13;
+        p1_asset.constants.air_back=9;
+        p1_asset.constants.air_front=10;
+        p1_asset.constants.height=55;
+        p1_asset.constants.air_juggle=8;
+
+        ik_cns_asset_t p2_asset{};
+        p2_asset.constants.life=800;
+        p2_asset.constants.ground_back=21;
+        p2_asset.constants.ground_front=23;
+        p2_asset.constants.air_back=17;
+        p2_asset.constants.air_front=19;
+        p2_asset.constants.height=71;
+        p2_asset.constants.air_juggle=14;
+
+        ik_fight_init_players(&g,&p1_asset,&p2_asset);
+        EQ(g.fighters[0].hp,1200);
+        EQ(g.fighters[1].hp,800);
+        EQ(g.fighters[0].push_back,11);
+        EQ(g.fighters[1].push_back,21);
+        EQ(g.fighters[0].body_height,55);
+        EQ(g.fighters[1].body_height,71);
+        EQ(g.fighters[0].juggle_points,8);
+        EQ(g.fighters[1].juggle_points,14);
+        EQ(ik_fight_max_hp_player(&g,0u),1200);
+        EQ(ik_fight_max_hp_player(&g,1u),800);
+
+        g.fighters[1].state_owner=0u;
+        g.fighters[1].anim_owner=0u;
+        EQ(ik_fight_max_hp_player(&g,1u),800);
+    }
+
     /* Generic VarSet/VarAdd write entity-local MUGEN vars rather than adding
      * another variable array to ik_fighter_t. Binding survives round reset. */
     {
