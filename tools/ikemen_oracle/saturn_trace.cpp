@@ -189,26 +189,33 @@ static void emit_frame(
         frame, static_cast<unsigned>(fight->frame),
         static_cast<unsigned>(fight->round_state), seed);
 
-    print_root(out, fight, pool, 0);
-    std::fputc(',', out);
-    print_root(out, fight, pool, 1);
-
-    int helper_index[2] = {1, 1};
-    for (uint8_t slot = 0; slot < IK_ENTITY_CAPACITY; ++slot) {
-        const ik_entity_t* e = &pool->entities[slot];
-        if (e->type != IK_ENTITY_HELPER) continue;
-        std::fputc(',', out);
-        const int owner = e->owner_player < 2u ? e->owner_player : 0;
-        print_helper(out, pool, e, helper_index[owner]++);
+    for (int owner = 0; owner < 2; ++owner) {
+        if (owner != 0) std::fputc(',', out);
+        print_root(out, fight, pool, owner);
+        int helper_index = 1;
+        for (uint8_t slot = 0; slot < IK_ENTITY_CAPACITY; ++slot) {
+            const ik_entity_t* e = &pool->entities[slot];
+            if (e->type != IK_ENTITY_HELPER ||
+                e->owner_player != static_cast<uint8_t>(owner)) {
+                continue;
+            }
+            std::fputc(',', out);
+            print_helper(out, pool, e, helper_index++);
+        }
     }
     std::fputs("],\"projectiles\":[", out);
     bool first = true;
-    for (uint8_t slot = 0; slot < IK_ENTITY_CAPACITY; ++slot) {
-        const ik_entity_t* e = &pool->entities[slot];
-        if (e->type != IK_ENTITY_PROJECTILE) continue;
-        if (!first) std::fputc(',', out);
-        print_projectile(out, e);
-        first = false;
+    for (int owner = 0; owner < 2; ++owner) {
+        for (uint8_t slot = 0; slot < IK_ENTITY_CAPACITY; ++slot) {
+            const ik_entity_t* e = &pool->entities[slot];
+            if (e->type != IK_ENTITY_PROJECTILE ||
+                e->owner_player != static_cast<uint8_t>(owner)) {
+                continue;
+            }
+            if (!first) std::fputc(',', out);
+            print_projectile(out, e);
+            first = false;
+        }
     }
     std::fputs("]}\n", out);
 }
