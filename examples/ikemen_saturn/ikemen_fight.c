@@ -1519,7 +1519,8 @@ static int guard_hitdef_threatens(
     const ik_fighter_t* victim,
     const ik_fight_controls_t* controls,
     const ik_cns_hitdef_t* hitdef,
-    int32_t attacker_x_q8
+    int32_t attacker_x_q8,
+    uint8_t attacker_owner
 ) {
     if (!fight || !victim || !hitdef || hitdef->guard_flags == 0u ||
         !hitdef_allows_target(fight, victim, hitdef)) {
@@ -1528,10 +1529,14 @@ static int guard_hitdef_threatens(
 
     int32_t dx_q8 = attacker_x_q8 - victim->x_q8;
     if (dx_q8 < 0) dx_q8 = -dx_q8;
+    const ik_cns_asset_t* attacker_cns =
+        cns_for_owner(fight, attacker_owner);
     const int guard_dist =
         hitdef->guard_dist > 0
             ? hitdef->guard_dist
-            : fight->cns->constants.attack_dist;
+            : (attacker_cns
+                ? attacker_cns->constants.attack_dist
+                : 0);
     if (dx_q8 > (int32_t)guard_dist * IK_CNS_Q8_ONE) return 0;
 
     const uint8_t type = guard_type_for(fight, victim, controls);
@@ -1549,7 +1554,8 @@ static int guard_threat(ik_fight_t* fight,
     const ik_cns_hitdef_t* root_hitdef =
         active_hitdef(fight, attacker_frames, root, v, 0);
     if (root_hitdef && guard_hitdef_threatens(
-            fight, v, controls, root_hitdef, root->x_q8)) {
+            fight, v, controls, root_hitdef, root->x_q8,
+            root->owner_player)) {
         return 1;
     }
 
@@ -1567,7 +1573,8 @@ static int guard_threat(ik_fight_t* fight,
             active_entity_hitdef(
                 fight, attacker_frames, entity, v, 0);
         if (hitdef && guard_hitdef_threatens(
-                fight, v, controls, hitdef, entity->x_q8)) {
+                fight, v, controls, hitdef, entity->x_q8,
+                entity->owner_player)) {
             return 1;
         }
     }
