@@ -79,7 +79,8 @@ int ik_expr_eval(
                 if (!context->read_field ||
                     !context->read_field(
                         context->user, ins->redirect, ins->field,
-                        ins->value0, &value) ||
+                        ins->value0, ins->value1, ins->reserved,
+                        &value) ||
                     !push(stack, &sp, value)) {
                     return 0;
                 }
