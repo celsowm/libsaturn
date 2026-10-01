@@ -3439,12 +3439,15 @@ def compile_common_states(
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
+                    106, "IK_CNS_CTRL_MAKE_DUST",
+                    "IK_CNS_TRIGGER_TIME_EQ", 2, 0, 0, 0,
+                ),
+                _common_ctrl(
                     106, "IK_CNS_CTRL_CHANGE_STATE",
                     "IK_CNS_TRIGGER_TIME_EQ", 7, 0, 0, 1,
                     "IK_CNS_CTRL_HAS_CTRL",
                 ),
             ]
-            deferred[n] = ["MakeDust at Time=2"]
 
         row["controller_ofs"] = begin
         row["controller_count"] = len(cs)
