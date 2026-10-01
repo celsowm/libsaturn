@@ -60,6 +60,7 @@ class Pattern:
     buffer: int
     step_time: int
     buffer_hitpause: bool
+    buffer_pauseend: bool
     loop_order: list[int] = field(default_factory=list)
 
 
@@ -209,6 +210,7 @@ def parse_cmd(path: Path) -> CmdFile:
         "autogreater": True,
         "buffer": 1,
         "hitpause": True,
+        "pauseend": True,
     }
     remap = {k: k for k in "abcxyzsdwm"}
     raw_commands: list[dict[str, str]] = []
@@ -230,6 +232,8 @@ def parse_cmd(path: Path) -> CmdFile:
                 defaults["buffer"] = max(1, int(values["command.buffer.time"]))
             if "command.buffer.hitpause" in values:
                 defaults["hitpause"] = _bool(values["command.buffer.hitpause"], True)
+            if "command.buffer.pauseend" in values:
+                defaults["pauseend"] = _bool(values["command.buffer.pauseend"], True)
         elif low == "command":
             raw_commands.append(values)
 
@@ -276,12 +280,17 @@ def parse_cmd(path: Path) -> CmdFile:
         buffer = max(1, int(values.get("buffer.time", defaults["buffer"])))
         hitpause = _bool(values.get("buffer.hitpause", str(defaults["hitpause"])),
                          bool(defaults["hitpause"]))
+        pauseend = _bool(values.get("buffer.pauseend", str(defaults["pauseend"])),
+                         bool(defaults["pauseend"]))
 
         hold_only = all(k.slash for step in steps for k in step.keys)
         if hold_only:
             buffer = 1
 
-        patterns.append(Pattern(name, steps, time, buffer, step_time, hitpause, loop))
+        patterns.append(Pattern(
+            name, steps, time, buffer, step_time,
+            hitpause, pauseend, loop
+        ))
 
     if len(patterns) > 64:
         raise ValueError(f"{len(patterns)} command patterns exceed Saturn runtime limit 64")
@@ -340,7 +349,12 @@ def emit(asset: CmdFile, out_prefix: Path, symbol: str) -> None:
 
     pattern_lines = []
     for p, step_ofs, loop_ofs, name_id in patterns:
-        flags = "IK_CMD_PATTERN_BUFFER_HITPAUSE" if p.buffer_hitpause else "0u"
+        flag_parts = []
+        if p.buffer_hitpause:
+            flag_parts.append("IK_CMD_PATTERN_BUFFER_HITPAUSE")
+        if p.buffer_pauseend:
+            flag_parts.append("IK_CMD_PATTERN_BUFFER_PAUSE_END")
+        flags = " | ".join(flag_parts) if flag_parts else "0u"
         pattern_lines.append(
             f"    {{{step_ofs}u, {loop_ofs}u, {name_id}u, {len(p.steps)}u, "
             f"{p.time}u, {p.step_time}u, {p.buffer}u, {flags}, 0u}},"
@@ -415,6 +429,8 @@ extern const ik_command_asset_t {symbol}_commands;
                 "name": p.name,
                 "time": p.time,
                 "buffer": p.buffer,
+                "buffer_hitpause": p.buffer_hitpause,
+                "buffer_pauseend": p.buffer_pauseend,
                 "steps": len(p.steps),
                 "loop_order": p.loop_order,
             }
