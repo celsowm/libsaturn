@@ -1138,6 +1138,55 @@ static const ik_cns_hitdef_t* active_entity_hitdef(
         (uint16_t)entity->active_hitdef_global];
 }
 
+static void advance_projectile_query_times(
+    ik_fight_t* fight
+) {
+    if (!fight || !fight->entities) return;
+    for (uint8_t player = 0u; player < 2u; ++player) {
+        ik_entity_t* root =
+            ik_entity_get(
+                fight->entities, fight->player_entities[player]);
+        if (!root) continue;
+        if (root->proj_query_contact_time >= 0 &&
+            root->proj_query_contact_time < 32767) {
+            ++root->proj_query_contact_time;
+        }
+        if (root->proj_query_hit_time >= 0 &&
+            root->proj_query_hit_time < 32767) {
+            ++root->proj_query_hit_time;
+        }
+        if (root->proj_query_guarded_time >= 0 &&
+            root->proj_query_guarded_time < 32767) {
+            ++root->proj_query_guarded_time;
+        }
+    }
+}
+
+static void mark_projectile_contact(
+    ik_fight_t* fight,
+    ik_entity_handle_t projectile_handle,
+    int guarded
+) {
+    if (!fight || !fight->entities) return;
+    const ik_entity_t* projectile =
+        ik_entity_get_const(fight->entities, projectile_handle);
+    if (!projectile || projectile->type != IK_ENTITY_PROJECTILE) return;
+
+    ik_entity_t* root =
+        ik_entity_get(fight->entities, projectile->root);
+    if (!root) return;
+
+    root->proj_query_contact = 1u;
+    root->proj_query_contact_time = 0;
+    root->proj_query_hit = guarded ? 0u : 1u;
+    root->proj_query_guarded = guarded ? 1u : 0u;
+    if (guarded) {
+        root->proj_query_guarded_time = 0;
+    } else {
+        root->proj_query_hit_time = 0;
+    }
+}
+
 static int projectile_contact_consumed(
     ik_fight_t* fight,
     ik_entity_handle_t handle,
@@ -3712,12 +3761,14 @@ static void resolve_entity_contacts(
         attacker->hitdef_hit_mask |= bit;
         const ik_fight_controls_t* victim_controls =
             victim == 0 ? p1 : p2;
+        int projectile_guarded = 0;
         if (dynamic_throw) {
             apply_throw_from_entity(
                 fight, attackers[n], victim, hitdef,
                 p1_frames, p2_frames);
         } else if (can_guard_hit(
                        fight, v, victim_controls, hitdef)) {
+            projectile_guarded = 1;
             apply_guard_from_entity(
                 fight, attackers[n], victim, victim_controls, hitdef);
         } else {
@@ -3727,6 +3778,8 @@ static void resolve_entity_contacts(
         }
 
         if (attacker->type == IK_ENTITY_PROJECTILE) {
+            mark_projectile_contact(
+                fight, attackers[n], projectile_guarded);
             (void)projectile_contact_consumed(
                 fight, attackers[n], 0);
         }
@@ -3746,6 +3799,7 @@ void ik_fight_update(ik_fight_t* fight,
     fight->sound_count = 0u;
     fight->events = IK_EVENT_NONE;
     fight->intro_asserted = 0u;
+    advance_projectile_query_times(fight);
     if (fight->round_over) {
         if (p1 && p1->start && fight->ko_freeze == 0u) {
             ik_fight_reset(fight);
