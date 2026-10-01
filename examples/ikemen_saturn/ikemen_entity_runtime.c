@@ -250,11 +250,15 @@ uint8_t ik_entity_runtime_modify_projectiles(
     }
 
     uint8_t changed = 0u;
+    uint16_t matched_index = 0u;
     for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
         ik_entity_t* entity = &runtime->pool->entities[slot];
         if (entity->type != IK_ENTITY_PROJECTILE ||
             entity->owner_player != owner_player ||
             (modification->id >= 0 && entity->id != modification->id)) {
+            continue;
+        }
+        if (matched_index++ != (uint16_t)modification->index) {
             continue;
         }
 
@@ -337,6 +341,7 @@ uint8_t ik_entity_runtime_modify_projectiles(
                 modification->remove_on_state_change != 0u;
         }
         ++changed;
+        break;
     }
     return changed;
 }
