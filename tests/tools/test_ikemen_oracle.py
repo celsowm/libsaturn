@@ -16,6 +16,7 @@ from tools.ikemen_oracle.install import (
     install,
     uninstall,
 )
+from tools.ikemen_oracle.inputs import build_timeline
 from tools.ikemen_oracle.run import build_command, load_scenario
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +40,19 @@ func (s *System) runMatch() bool {
         src.mkdir(parents=True)
         system_go = src / "system.go"
         system_go.write_text(source, encoding="utf-8")
+        input_go = src / "input.go"
+        input_source = """package main
+
+func (cl *CommandList) InputUpdate(char *Char, controller int) bool {
+	var buttons [14]bool
+	var axes [6]float32
+	_ = buttons
+	_ = axes
+	// Convert bool slice back to named inputs
+	return true
+}
+"""
+        input_go.write_text(input_source, encoding="utf-8")
 
         hook = Path(td) / "oracle_hook.go"
         hook.write_text("package main\n", encoding="utf-8")
@@ -47,16 +61,42 @@ func (s *System) runMatch() bool {
         patched = system_go.read_text(encoding="utf-8")
         assert patched.count(BEGIN_MARKER) == 2
         assert patched.count(END_MARKER) == 2
+        patched_input = input_go.read_text(encoding="utf-8")
+        assert patched_input.count(BEGIN_MARKER) == 1
+        assert patched_input.count(END_MARKER) == 1
         assert (src / "libsaturn_oracle.go").is_file()
 
         install(root, hook)
         patched2 = system_go.read_text(encoding="utf-8")
         assert patched2.count(BEGIN_MARKER) == 2
         assert patched2.count(END_MARKER) == 2
+        patched_input2 = input_go.read_text(encoding="utf-8")
+        assert patched_input2.count(BEGIN_MARKER) == 1
+        assert patched_input2.count(END_MARKER) == 1
 
         uninstall(root)
         assert system_go.read_text(encoding="utf-8") == source
+        assert input_go.read_text(encoding="utf-8") == input_source
         assert not (src / "libsaturn_oracle.go").exists()
+
+
+def test_input_timeline() -> None:
+    scenario = {
+        "frames": 6,
+        "inputs": [
+            {"from": 1, "to": 2, "p1": ["forward"], "p2": ["back"]},
+            {"frame": 4, "p1": ["x", "down"], "p2": []},
+        ],
+    }
+    timeline = build_timeline(scenario)
+    assert timeline == [
+        (0, 0),
+        (1 << 0, 1 << 1),
+        (1 << 0, 1 << 1),
+        (0, 0),
+        ((1 << 7) | (1 << 3), 0),
+        (0, 0),
+    ]
 
 def test_scenario_and_command() -> None:
     with tempfile.TemporaryDirectory() as td:
@@ -163,6 +203,7 @@ def test_hook_matches_upstream_symbols() -> None:
 
 def main() -> int:
     test_install_roundtrip()
+    test_input_timeline()
     test_scenario_and_command()
     test_trace_diff()
     test_saturn_emitter_contract()
