@@ -2138,6 +2138,7 @@ assert projectile["priority"] == 2
 assert projectile["remove_on_hit"] == 0
 assert projectile["pause_move_time"] == 5
 assert projectile["super_move_time"] == 7
+assert projectile["postype"] == "IK_CNS_HELPER_POS_P1"
 assert projectile["bind_time"] == 2
 assert projectile["remove_on_gethit"] == 1
 assert projectile["remove_on_state_change"] == 1
@@ -2190,6 +2191,39 @@ assert explod["scale_x_q8"] == round(1.5 * 256)
 assert explod["scale_y_q8"] == round(.5 * 256)
 assert explod["trans_mode"] == "IK_CNS_TRANS_ALPHA"
 assert explod["alpha"] == 128
+
+p2_explod_ctrl = Section(
+    "State 191, P2 Explod",
+    [
+        ("type", "Explod"),
+        ("trigger1", "1"),
+        ("anim", "192"),
+        ("postype", "p2"),
+        ("pos", "10,-5"),
+    ],
+)
+compiled_p2_explod = compile_explod_controller(191, p2_explod_ctrl, 4)
+assert compiled_p2_explod is not None
+_, p2_explod = compiled_p2_explod
+assert p2_explod["postype"] == "IK_CNS_HELPER_POS_P2"
+
+p2_projectile_ctrl = Section(
+    "State 9000, P2 Projectile",
+    [
+        ("type", "Projectile"),
+        ("trigger1", "1"),
+        ("postype", "p2"),
+        ("projanim", "9001"),
+        ("attr", "S, NP"),
+        ("damage", "1,0"),
+    ],
+)
+compiled_p2_projectile = compile_projectile_controller(
+    9000, p2_projectile_ctrl, 3, 12, 2, 40
+)
+assert compiled_p2_projectile is not None
+_, p2_projectile, _ = compiled_p2_projectile
+assert p2_projectile["postype"] == "IK_CNS_HELPER_POS_P2"
 
 unsupported_helper = Section(
     "State 0, Unsupported Helper",
