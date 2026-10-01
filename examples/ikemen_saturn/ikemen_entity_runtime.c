@@ -486,6 +486,17 @@ static int process_controllers(
     int anim_ended = 0;
     anim_position(frames, entity, &elem, &elem_time, &anim_ended);
 
+    uint8_t num_projectiles = 0u;
+    const ik_entity_t* query_root =
+        ik_entity_get_const(runtime->pool, entity->root);
+    for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
+        const ik_entity_t* candidate = &runtime->pool->entities[slot];
+        if (candidate->type == IK_ENTITY_PROJECTILE &&
+            candidate->owner_player == entity->owner_player) {
+            ++num_projectiles;
+        }
+    }
+
     const ik_cns_controller_context_t context = {
         .state_time = entity->state_time,
         .anim_element = elem,
@@ -510,7 +521,17 @@ static int process_controllers(
         .anim_ended = (uint8_t)(anim_ended != 0),
         .move_contact = entity->move_contact,
         .move_hit = entity->move_hit,
-        .round_state = 2u
+        .round_state = 2u,
+        .num_projectiles = num_projectiles,
+        .proj_contact = query_root ? query_root->proj_query_contact : 0u,
+        .proj_hit = query_root ? query_root->proj_query_hit : 0u,
+        .proj_guarded = query_root ? query_root->proj_query_guarded : 0u,
+        .proj_contact_time =
+            query_root ? query_root->proj_query_contact_time : -1,
+        .proj_hit_time =
+            query_root ? query_root->proj_query_hit_time : -1,
+        .proj_guarded_time =
+            query_root ? query_root->proj_query_guarded_time : -1
     };
 
     for (uint8_t i = 0u; i < state->controller_count; ++i) {
