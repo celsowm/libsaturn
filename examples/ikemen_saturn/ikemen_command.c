@@ -531,10 +531,14 @@ static int state_rule_read_field(
     void* user,
     uint8_t redirect,
     uint8_t field,
-    int16_t index,
+    int32_t index,
+    int32_t redirect_id,
+    uint8_t redirect_index,
     int32_t* out_value
 ) {
     (void)index;
+    (void)redirect_id;
+    (void)redirect_index;
     if (!user || !out_value) return 0;
     const ik_state_rule_eval_user_t* eval =
         (const ik_state_rule_eval_user_t*)user;
