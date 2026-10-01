@@ -150,12 +150,12 @@ typedef struct ik_fighter {
     uint32_t afterimage_add_rgb;
     uint32_t afterimage_mul_rgb;
     uint16_t palfx_time;
-    int8_t palfx_add_r;
-    int8_t palfx_add_g;
-    int8_t palfx_add_b;
-    int8_t palfx_sin_r;
-    int8_t palfx_sin_g;
-    int8_t palfx_sin_b;
+    int16_t palfx_add_r;
+    int16_t palfx_add_g;
+    int16_t palfx_add_b;
+    int16_t palfx_sin_r;
+    int16_t palfx_sin_g;
+    int16_t palfx_sin_b;
     uint16_t palfx_cycle;
     uint16_t palfx_phase;
     uint16_t palfx_mul_r;
