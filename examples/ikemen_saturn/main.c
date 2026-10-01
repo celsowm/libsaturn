@@ -1260,14 +1260,17 @@ static void draw_bars(const ik_fight_t* fight) {
     const uint16_t bar_bg = SAT_BGR555(6u, 6u, 8u);
     const uint16_t p1_fg = SAT_BGR555(28u, 6u, 6u);
     const uint16_t p2_fg = SAT_BGR555(6u, 12u, 28u);
-    const uint32_t max_hp = (uint32_t)ik_fight_max_hp(fight);
+    const uint32_t p1_max_hp =
+        (uint32_t)ik_fight_max_hp_player(fight, 0u);
+    const uint32_t p2_max_hp =
+        (uint32_t)ik_fight_max_hp_player(fight, 1u);
 
     sat_example_must(sat_hud_bar(
         &g_hud, 12, 10, 120, 8,
-        (uint32_t)fight->fighters[0].hp, max_hp, bar_bg, p1_fg));
+        (uint32_t)fight->fighters[0].hp, p1_max_hp, bar_bg, p1_fg));
     sat_example_must(sat_hud_bar(
         &g_hud, 188, 10, 120, 8,
-        (uint32_t)fight->fighters[1].hp, max_hp, bar_bg, p2_fg));
+        (uint32_t)fight->fighters[1].hp, p2_max_hp, bar_bg, p2_fg));
     sat_example_must(sat_hud_text(&g_hud, "P1", 12, 22));
     sat_example_must(sat_hud_text(&g_hud, "P2 ZSS", 252, 22));
 
