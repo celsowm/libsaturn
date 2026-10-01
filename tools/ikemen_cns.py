@@ -2052,6 +2052,7 @@ def parse_state(
     has_velset = sd.get("velset") is not None
 
     hitdefs: list[dict] = []
+    projectile_hitdefs: list[dict] = []
     direct_hitdef_count = 0
     sounds: list[dict] = []
     controllers: list[dict] = []
@@ -2430,7 +2431,7 @@ def parse_state(
                     state.number,
                     ctrl,
                     projectile_ofs + len(projectiles),
-                    hitdef_ofs + len(hitdefs),
+                    -1,
                     default_spark_no,
                     default_guard_spark_no,
                 )
@@ -2440,7 +2441,7 @@ def parse_state(
                 controller, projectile, projectile_hitdef = compiled_projectile
                 controllers.append(controller)
                 projectiles.append(projectile)
-                hitdefs.append(projectile_hitdef)
+                projectile_hitdefs.append(projectile_hitdef)
             else:
                 unsupported.append(ctype)
 
@@ -2471,6 +2472,12 @@ def parse_state(
         raise ValueError(
             f"state {state.number}: more than 32 HitDefs are not supported"
         )
+
+    for projectile_index, projectile in enumerate(projectiles):
+        projectile["hitdef_global"] = (
+            hitdef_ofs + len(hitdefs) + projectile_index
+        )
+    hitdefs.extend(projectile_hitdefs)
 
     state_row = {
         "number": state.number,
