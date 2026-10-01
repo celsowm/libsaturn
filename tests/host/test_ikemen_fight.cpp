@@ -3482,6 +3482,93 @@ int main() {
         EQ(g.fighters[1].ctrl,1);
     }
 
+    /* ChangeAnim and ChangeAnim2 have different AIR ownership. A custom
+     * state keeps the attacker's CNS, ChangeAnim2 selects the state owner's
+     * AIR, and ChangeAnim explicitly returns animation lookup to the victim's
+     * native AIR without leaving the custom state. */
+    {
+        const ik_cns_controller_t p1_ctrls[] = {
+            {951,IK_CNS_CTRL_CHANGE_ANIM2,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,820,1,0u},
+            {951,IK_CNS_CTRL_CHANGE_ANIM,IK_CNS_TRIGGER_TIME_EQ,
+             2,0,5050,1,0u},
+        };
+
+        ik_cns_state_t p1_state{};
+        p1_state.number=951;
+        p1_state.anim=-1;
+        p1_state.state_type=IK_CNS_STATE_AIR;
+        p1_state.move_type=IK_CNS_MOVE_HIT;
+        p1_state.physics=IK_CNS_PHYS_NONE;
+        p1_state.controller_count=2u;
+
+        ik_cns_asset_t p1_asset{};
+        p1_asset.constants.life=1000;
+        p1_asset.constants.ground_back=15;
+        p1_asset.constants.ground_front=16;
+        p1_asset.constants.air_back=12;
+        p1_asset.constants.air_front=12;
+        p1_asset.constants.height=60;
+        p1_asset.states=&p1_state;
+        p1_asset.state_count=1u;
+        p1_asset.controllers=p1_ctrls;
+        p1_asset.controller_count=2u;
+
+        ik_cns_state_t p2_state{};
+        p2_state.number=0;
+        p2_state.anim=0;
+        p2_state.state_type=IK_CNS_STATE_STAND;
+        p2_state.move_type=IK_CNS_MOVE_IDLE;
+        p2_state.physics=IK_CNS_PHYS_STAND;
+        p2_state.ctrl=1;
+
+        ik_cns_asset_t p2_asset=p1_asset;
+        p2_asset.states=&p2_state;
+        p2_asset.state_count=1u;
+        p2_asset.controllers=nullptr;
+        p2_asset.controller_count=0u;
+
+        const ik_frame_t p1_raw[] = {
+            {820,0,8,8,0,0,1,0,0,0,0,0,0,0,0},
+            {820,1,8,8,0,0,5,0,0,0,0,0,0,0,0},
+        };
+        const ik_frame_t p2_raw[] = {
+            {5050,0,8,8,0,0,3,0,0,0,0,0,0,0,0},
+        };
+        const ik_clsn_box_t no_boxes[] = {{0,0,0,0}};
+        const ik_frame_table_t p1_frames={
+            p1_raw,2u,no_boxes,0u
+        };
+        const ik_frame_table_t p2_frames={
+            p2_raw,1u,no_boxes,0u
+        };
+
+        ik_fight_init(&g,&p1_asset);
+        ik_fight_set_player_cns(&g,0u,&p1_asset);
+        ik_fight_set_player_cns(&g,1u,&p2_asset);
+        g.fighters[1].state=951;
+        g.fighters[1].state_owner=0u;
+        g.fighters[1].owner_player=1u;
+        g.fighters[1].anim=0;
+        g.fighters[1].anim_owner=1u;
+        g.fighters[1].state_time=0u;
+        g.fighters[1].anim_time=0u;
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        ik_fight_update(&g,&p1,&p2,&p1_frames,&p2_frames);
+        EQ(g.fighters[1].state,951);
+        EQ(g.fighters[1].anim,820);
+        EQ(g.fighters[1].state_owner,0u);
+        EQ(g.fighters[1].anim_owner,0u);
+
+        ik_fight_update(&g,&p1,&p2,&p1_frames,&p2_frames);
+        EQ(g.fighters[1].state,951);
+        EQ(g.fighters[1].anim,5050);
+        EQ(g.fighters[1].state_owner,0u);
+        EQ(g.fighters[1].anim_owner,1u);
+    }
+
     /* Helper target controllers also work on non-root targets. The target
      * stays an entity handle: bind/facing/life mutate the captured Helper,
      * then TargetState enters its state and releases the source target. */
