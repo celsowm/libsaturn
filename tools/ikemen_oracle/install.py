@@ -26,6 +26,18 @@ AFTER_ACTION = """		// Update game state
 		s.action()
 """
 
+INPUT_ANCHOR = """	// Convert bool slice back to named inputs
+"""
+
+PATCHED_INPUT = f"""	{BEGIN_MARKER}
+	if scripted, ok := libsaturnOracleInput(char, controller); ok {{
+		buttons = scripted
+		axes = [6]float32{{}}
+	}}
+	{END_MARKER}
+
+""" + INPUT_ANCHOR
+
 PATCHED_ACTION = AFTER_ACTION + f"""
 		{BEGIN_MARKER}
 		if libsaturnOracleEnabled() &&
@@ -51,9 +63,12 @@ def remove_marked_blocks(text: str) -> str:
 
 def install(root: Path, source_hook: Path) -> None:
     system_go = root / "src" / "system.go"
+    input_go = root / "src" / "input.go"
     hook_dst = root / "src" / "libsaturn_oracle.go"
     if not system_go.is_file():
         raise SystemExit(f"Ikemen GO system.go not found: {system_go}")
+    if not input_go.is_file():
+        raise SystemExit(f"Ikemen GO input.go not found: {input_go}")
 
     text = remove_marked_blocks(system_go.read_text(encoding="utf-8"))
     if BEFORE_SETUP not in text:
@@ -64,16 +79,27 @@ def install(root: Path, source_hook: Path) -> None:
     text = text.replace(BEFORE_SETUP, PATCHED_SETUP, 1)
     text = text.replace(AFTER_ACTION, PATCHED_ACTION, 1)
     system_go.write_text(text, encoding="utf-8")
+
+    input_text = remove_marked_blocks(input_go.read_text(encoding="utf-8"))
+    if INPUT_ANCHOR not in input_text:
+        raise SystemExit("Ikemen GO input anchor changed; refusing unsafe patch")
+    input_text = input_text.replace(INPUT_ANCHOR, PATCHED_INPUT, 1)
+    input_go.write_text(input_text, encoding="utf-8")
     shutil.copyfile(source_hook, hook_dst)
     print(f"installed oracle hook in {root}")
 
 def uninstall(root: Path) -> None:
     system_go = root / "src" / "system.go"
+    input_go = root / "src" / "input.go"
     hook_dst = root / "src" / "libsaturn_oracle.go"
     if system_go.is_file():
         text = system_go.read_text(encoding="utf-8")
         text = remove_marked_blocks(text)
         system_go.write_text(text, encoding="utf-8")
+    if input_go.is_file():
+        text = input_go.read_text(encoding="utf-8")
+        text = remove_marked_blocks(text)
+        input_go.write_text(text, encoding="utf-8")
     if hook_dst.exists():
         hook_dst.unlink()
     print(f"removed oracle hook from {root}")
