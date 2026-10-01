@@ -739,7 +739,8 @@ IKEMEN_ORACLE_SCENARIO ?= tools/ikemen_oracle/scenarios/kfm_idle_120.json
 IKEMEN_ORACLE_TRACE ?= build/ikemen_oracle/ikemen.jsonl
 IKEMEN_ORACLE_SATURN_TRACE ?= build/ikemen_oracle/libsaturn.jsonl
 
-.PHONY: ikemen-oracle-install ikemen-oracle-run ikemen-oracle-diff
+.PHONY: ikemen-oracle-install ikemen-oracle-run ikemen-oracle-saturn \
+	ikemen-oracle-diff ikemen-oracle-check
 ikemen-oracle-install:
 	$(PYTHON) tools/ikemen_oracle/install.py
 
@@ -749,10 +750,20 @@ ikemen-oracle-run:
 		--trace $(IKEMEN_ORACLE_TRACE) \
 		--install
 
+ikemen-oracle-saturn:
+	$(PYTHON) tools/ikemen_oracle/run_saturn.py \
+		$(IKEMEN_ORACLE_SCENARIO) \
+		--trace $(IKEMEN_ORACLE_SATURN_TRACE)
+
 ikemen-oracle-diff:
 	$(PYTHON) tools/ikemen_oracle/diff.py \
 		$(IKEMEN_ORACLE_TRACE) \
 		$(IKEMEN_ORACLE_SATURN_TRACE)
+
+ikemen-oracle-check: ikemen-oracle-run ikemen-oracle-saturn
+	$(MAKE) --no-print-directory ikemen-oracle-diff \
+		IKEMEN_ORACLE_TRACE=$(IKEMEN_ORACLE_TRACE) \
+		IKEMEN_ORACLE_SATURN_TRACE=$(IKEMEN_ORACLE_SATURN_TRACE)
 
 # -- Alvos utilitarios ------------------------------------------
 .PHONY: print-build-paths
