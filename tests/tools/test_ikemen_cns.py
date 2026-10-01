@@ -2611,11 +2611,11 @@ assert common_rows[52]["anim"] == 47
 assert common_rows[105]["land_state"] == 106
 assert common_rows[5080]["controller_count"] == 1
 assert common_rows[5081]["controller_count"] == 3
-assert common_rows[5110]["controller_count"] == 9
+assert common_rows[5110]["controller_count"] == 10
 assert common_rows[5150]["spr_priority"] == -3
-assert common_rows[5150]["controller_count"] == 3
+assert common_rows[5150]["controller_count"] == 4
 assert common_rows[120]["controller_count"] == 2
-assert common_rows[132]["land_state"] == 130
+assert common_rows[132]["land_state"] == 52
 assert common_rows[140]["ctrl"] == 1
 assert common_rows[150]["move_type"] == "IK_CNS_MOVE_HIT"
 assert common_rows[151]["controller_count"] == 4
@@ -2641,7 +2641,24 @@ assert common_rows[5101]["anim"] == 5160
 assert common_rows[5101]["air_accel_q8"] == round(.4 * 256)
 assert common_rows[5101]["land_level_q8"] == 12 * 256
 assert common_rows[5101]["land_state"] == 5110
-assert common_rows[5120]["controller_count"] == 2
+assert common_rows[5120]["controller_count"] == 3
+state5120_ctrls = [
+    c for c in report["controllers"] if c["state_number"] == 5120
+]
+assert any(
+    c["type"] == "IK_CNS_CTRL_NOT_HIT_BY" and
+    c["value0"] == 7 and c["value1"] == 1
+    for c in state5120_ctrls
+)
+state5150_ctrls = [
+    c for c in report["controllers"] if c["state_number"] == 5150
+]
+assert any(
+    c["type"] == "IK_CNS_CTRL_NOT_HIT_BY" and
+    c["value0"] == 7 and c["value1"] == 1
+    for c in state5150_ctrls
+)
+assert report["common_deferred"][5150] == ["MatchOver animation variant"]
 assert common_rows[5200]["land_state"] == 5201
 assert common_rows[5200]["land_level_q8"] == 10 * 256
 assert common_rows[5201]["land_state"] == 52
