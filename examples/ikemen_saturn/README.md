@@ -179,7 +179,13 @@ The blocked states now execute the authored Pause and one-tick SCA NotHitBy
 window, and ReversalDef hitsound 6,0 is queued through a generic fight sound
 event and played from common.snd. Pause rewinds the runtime's post-entry
 bookkeeping tick so authored Time=1 controllers remain reachable after the
-freeze. HitOverride is also compiled as a typed contact window instead of being
+freeze. Pause/SuperPause movetime now advances only the pause owner while the
+opponent and round timer remain frozen; owner HitDefs and authorized
+Helpers/Projectiles/Explods continue through their contact and movement paths.
+Projectile and Explod pausemovetime/supermovetime budgets are consumed
+independently. endcmdbuftime is preserved in runtime metadata, but command
+buffer retention does not consume it yet. HitOverride is also compiled as a
+typed contact window instead of being
 collapsed into invulnerability: incoming NA/SA/HA/NP/SP/HP/throw attributes are
 preserved on HitDefs and matched after ReversalDef. KFM's AP fallback therefore
 has the correct runtime representation and contact semantics. Projectile
@@ -254,13 +260,22 @@ texture cache, and players/helpers are stably ordered together by
 implemented (for example scaling/remappal/player/projectile helper types)
 instead of silently accepting incompatible semantics.
 
-Projectile and Explod both have active runtimes. Projectiles execute through
-the same dynamic state/physics step as Helpers, while Explods use a presentation
-runtime with source anim/position/velocity/acceleration/removetime and stable
-SprPriority ordering. Projectiles can be spawned from the generic
-entity runtime API, render through the owner's SFF/AIR path, expose typed
-projectile HitDefs, participate in CLSN1-vs-CLSN2 contact and HitOverride AP,
-and are consumed on contact. Explod remains presentation-only infrastructure.
+Projectile and Explod both have active runtimes. The earlier state-backed
+Projectile path remains available, and the compiler now also lowers the
+classic MUGEN Projectile controller to an independent projectile record with
+projanim/projhitanim/projremanim/projcancelanim, embedded HitDef, offset,
+velocity/velmul/accel, removetime, edge/stage bounds, projhits/projmisstime,
+projpriority, sprpriority, ownpal and pause/super-move budgets. Classic
+Projectiles re-arm after projmisstime, can survive multiple contacts, return
+from hit animation to the main animation, and resolve projectile-vs-projectile
+CLSN1 trades before fighter contacts by decrementing both priorities. A
+projectile reaching zero priority follows projcancelanim when authored.
+
+Explods use a separate presentation runtime with source
+anim/position/velocity/acceleration/removetime and stable SprPriority ordering.
+They also support bindtime, removeongethit, removeonchangestate, ownpal,
+pausemovetime and supermovetime; bound Explods follow the parent transform for
+the authored lifetime instead of being approximated as Helpers.
 Helpers also own persistent/re-armable HitDef state, CLSN1 contact against the
 opposing fighter, anti-repeat hit masks, hitpause, movecontact, juggle cost,
 damage/guard application and p1stateno transitions.
@@ -279,7 +294,8 @@ The generic CNS runtime currently executes:
 * target/bind/target-state/target-life controllers used by throws
 * `ChangeAnim2`, `SelfState`, `HitVelSet`, `PosFreeze`
 * constant `VarSet` / `VarAdd`
-* bounded `Helper` creation and helper-side `DestroySelf`
+* bounded `Helper`, classic `Projectile` and presentation `Explod`
+  creation, plus helper-side `DestroySelf`
 * edge-aware wall-bounce movement used by Fast Palm
 * HitDef re-trigger/rearm, force-stand, per-hit Y acceleration and ground
   corner-push recoil used by Upper/Blow
@@ -331,11 +347,13 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   complete inGuardDist behavior
 * remaining throw edge cases across different character state/CNS owners;
   AIR ownership is now per fighter
-* remaining Blocking edge cases are now mostly advanced compatibility:
-  Helper ReversalDef is exercised end-to-end and projectile HitOverride AP is
-  exercised end-to-end. Projectile attack attributes no longer alias AA;
-  broader Pause movetime/endcmdbuftime compatibility remains beyond KFM's
-  authored usage
+* remaining Blocking/engine edge cases are now mostly advanced compatibility:
+  Helper ReversalDef and projectile HitOverride AP are exercised end-to-end.
+  Pause/SuperPause movetime plus paused-owner contact resolution are
+  implemented; endcmdbuftime still needs command-buffer retention semantics
+* remaining classic Projectile/Explod compatibility includes additional
+  postypes, exact stage/depth bounds, scale/angle/window/remappal,
+  ModifyProjectile and query triggers such as ProjContact/ProjHitTime
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
 * remaining super presentation semantics: exact per-palette Elecbyte colour
