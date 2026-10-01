@@ -1570,6 +1570,19 @@ ground.slidetime = 12
 ground.hittime = 18
 ground.velocity = -4,0
 air.velocity = -3,-4
+
+[State 9000, Direct Hit After Projectile]
+type = HitDef
+trigger1 = AnimElem = 1
+attr = S, NA
+damage = 99,0
+priority = 4
+guardflag = MA
+ground.type = High
+ground.slidetime = 8
+ground.hittime = 10
+ground.velocity = -2,0
+air.velocity = -2,-2
 """, encoding="utf-8")
     projectile_report = emit(
         projectile_source, [9000],
@@ -1923,11 +1936,15 @@ ctrl = 1
     )
 
 projectile_row = projectile_report["states"][0]
-assert projectile_row["hitdef_count"] == 0
-assert len(projectile_report["hitdefs"]) == 1
+assert projectile_row["hitdef_count"] == 1
+assert len(projectile_report["hitdefs"]) == 2
 assert len(projectile_report["projectiles"]) == 1
-assert projectile_report["projectiles"][0]["hitdef_global"] == 0
+assert projectile_report["projectiles"][0]["hitdef_global"] == 1
+assert projectile_report["hitdefs"][0]["damage"] == 99
 assert projectile_report["hitdefs"][0]["attack_attr_mask"] == (
+    "IK_CNS_ATTR_NORMAL_ATTACK"
+)
+assert projectile_report["hitdefs"][1]["attack_attr_mask"] == (
     "IK_CNS_ATTR_SPECIAL_PROJECTILE"
 )
 assert any(
