@@ -859,8 +859,12 @@ static void draw_helper_entity(const ik_frame_t* frame,
 
     const int flip_h = (entity->facing < 0) !=
                        ((frame->flags & IK_FRAME_FLAG_FLIP_H) != 0u);
-    const int flip_v =
+    int flip_v =
         (frame->flags & IK_FRAME_FLAG_FLIP_V) != 0u;
+    if (entity->type == IK_ENTITY_EXPLOD &&
+        entity->explod_vfacing < 0) {
+        flip_v = !flip_v;
+    }
     const int x = ik_cns_q8_to_int(entity->x_q8);
     const int y = ik_cns_q8_to_int(entity->y_q8);
 
@@ -868,6 +872,25 @@ static void draw_helper_entity(const ik_frame_t* frame,
     int16_t dy = 0;
     ik_frame_screen_anchor(
         frame, x, y, entity->facing, &dx, &dy);
+
+    int16_t draw_w = frame->w;
+    int16_t draw_h = frame->h;
+    if (entity->type == IK_ENTITY_EXPLOD) {
+        const int32_t sx =
+            entity->explod_scale_x_q8 > 0
+                ? entity->explod_scale_x_q8 : IK_ENTITY_Q8_ONE;
+        const int32_t sy =
+            entity->explod_scale_y_q8 > 0
+                ? entity->explod_scale_y_q8 : IK_ENTITY_Q8_ONE;
+        draw_w = (int16_t)(((int32_t)frame->w * sx) / IK_ENTITY_Q8_ONE);
+        draw_h = (int16_t)(((int32_t)frame->h * sy) / IK_ENTITY_Q8_ONE);
+        if (draw_w < 1) draw_w = 1;
+        if (draw_h < 1) draw_h = 1;
+        dx = (int16_t)(
+            x - (((int32_t)x - dx) * sx) / IK_ENTITY_Q8_ONE);
+        dy = (int16_t)(
+            y - (((int32_t)y - dy) * sy) / IK_ENTITY_Q8_ONE);
+    }
 
     sat_draw_params_t params = sat_draw_params_default();
     if (flip_h) params.flip = SAT_FLIP_X;
@@ -878,6 +901,23 @@ static void draw_helper_entity(const ik_frame_t* frame,
     } else if ((frame->flags & IK_FRAME_FLAG_BLEND_SUBTRACT) != 0u) {
         params.blend_mode = SAT_BLEND_SUBTRACT;
     }
+    if (entity->type == IK_ENTITY_EXPLOD) {
+        switch (entity->explod_trans_mode) {
+            case IK_CNS_TRANS_ALPHA:
+                params.blend_mode = SAT_BLEND_ALPHA;
+                params.tint.a = entity->explod_alpha;
+                break;
+            case IK_CNS_TRANS_ADD:
+                params.blend_mode = SAT_BLEND_ADD;
+                break;
+            case IK_CNS_TRANS_SUB:
+                params.blend_mode = SAT_BLEND_SUBTRACT;
+                break;
+            case IK_CNS_TRANS_NONE:
+            default:
+                break;
+        }
+    }
     if (darken) {
         params.tint.r = 160u;
         params.tint.g = 160u;
@@ -886,7 +926,7 @@ static void draw_helper_entity(const ik_frame_t* frame,
 
     sat_example_must(sat_draw_texture(
         texture, 0,
-        &(sat_rect_t){dx, dy, frame->w, frame->h},
+        &(sat_rect_t){dx, dy, draw_w, draw_h},
         &params));
 }
 
