@@ -352,6 +352,14 @@ int ik_entity_runtime_spawn_projectile_spec(
     entity->ownpal = projectile->ownpal;
     entity->pause_move_time = projectile->pause_move_time;
     entity->super_move_time = projectile->super_move_time;
+    entity->projectile_bind_time = projectile->bind_time;
+    entity->projectile_parent_state_no = parent->state_no;
+    entity->projectile_bind_x_q8 = projectile->pos_x_q8;
+    entity->projectile_bind_y_q8 = projectile->pos_y_q8;
+    entity->projectile_remove_on_gethit =
+        projectile->remove_on_gethit != 0u;
+    entity->projectile_remove_on_state_change =
+        projectile->remove_on_state_change != 0u;
 
     *out_handle = spawned;
     return 1;
@@ -692,6 +700,32 @@ static void step_one(
         entity->vy_q8 += entity->ay_q8;
 
         if (entity->type == IK_ENTITY_PROJECTILE) {
+            const ik_entity_t* parent =
+                ik_entity_get_const(runtime->pool, entity->parent);
+            if (entity->projectile_remove_on_state_change &&
+                parent &&
+                parent->state_no != entity->projectile_parent_state_no) {
+                (void)ik_entity_destroy(runtime->pool, handle);
+                return;
+            }
+            if (entity->projectile_remove_on_gethit && parent &&
+                parent->move_type == IK_CNS_MOVE_HIT) {
+                (void)ik_entity_destroy(runtime->pool, handle);
+                return;
+            }
+            if (parent && entity->projectile_bind_time != 0) {
+                entity->x_q8 =
+                    parent->x_q8 +
+                    (int32_t)parent->facing *
+                        entity->projectile_bind_x_q8;
+                entity->y_q8 =
+                    parent->y_q8 + entity->projectile_bind_y_q8;
+                entity->facing = parent->facing;
+                if (entity->projectile_bind_time > 0) {
+                    --entity->projectile_bind_time;
+                }
+            }
+
             entity->vx_q8 =
                 (entity->vx_q8 * entity->projectile_velmul_x_q8) /
                 IK_ENTITY_Q8_ONE;
@@ -714,6 +748,14 @@ static void step_one(
                 const int32_t x = entity->x_q8 / IK_ENTITY_Q8_ONE;
                 if (x < -entity->projectile_edge_bound ||
                     x > 320 + entity->projectile_edge_bound) {
+                    (void)ik_entity_destroy(runtime->pool, handle);
+                    return;
+                }
+            }
+            if (entity->projectile_stage_bound > 0) {
+                const int32_t x = entity->x_q8 / IK_ENTITY_Q8_ONE;
+                if (x < -entity->projectile_stage_bound ||
+                    x > 320 + entity->projectile_stage_bound) {
                     (void)ik_entity_destroy(runtime->pool, handle);
                     return;
                 }
