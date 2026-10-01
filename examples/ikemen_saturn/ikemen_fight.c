@@ -2420,6 +2420,21 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
     const int32_t p2_dist_x_q8 =
         p2 ? (p2->x_q8 - f->x_q8) * (int32_t)f->facing : 0;
 
+    uint8_t num_projectiles = 0u;
+    const ik_entity_t* query_root = 0;
+    if (fight->entities && player_index < 2u) {
+        query_root = ik_entity_get_const(
+            fight->entities, fight->player_entities[player_index]);
+        for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
+            const ik_entity_t* candidate =
+                &fight->entities->entities[slot];
+            if (candidate->type == IK_ENTITY_PROJECTILE &&
+                candidate->owner_player == player_index) {
+                ++num_projectiles;
+            }
+        }
+    }
+
     const ik_cns_controller_context_t context = {
         .state_time = f->state_time,
         .anim_element = elem,
@@ -2456,7 +2471,17 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         .anim_ended = (uint8_t)(anim_ended != 0),
         .move_contact = f->move_contact,
         .move_hit = f->move_hit,
-        .round_state = fight->round_state
+        .round_state = fight->round_state,
+        .num_projectiles = num_projectiles,
+        .proj_contact = query_root ? query_root->proj_query_contact : 0u,
+        .proj_hit = query_root ? query_root->proj_query_hit : 0u,
+        .proj_guarded = query_root ? query_root->proj_query_guarded : 0u,
+        .proj_contact_time =
+            query_root ? query_root->proj_query_contact_time : -1,
+        .proj_hit_time =
+            query_root ? query_root->proj_query_hit_time : -1,
+        .proj_guarded_time =
+            query_root ? query_root->proj_query_guarded_time : -1
     };
     if (!hit_pause_only && fight->cns->playsnds) {
         for (uint8_t i = 0u; i < state->playsnd_count; ++i) {
