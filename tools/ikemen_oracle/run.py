@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.ikemen_oracle.inputs import write_timeline
+
 SCHEMA = 1
 
 def load_scenario(path: Path) -> dict:
@@ -91,6 +93,8 @@ def main() -> int:
         )
 
     trace.parent.mkdir(parents=True, exist_ok=True)
+    timeline = trace.parent / "inputs.txt"
+    write_timeline(timeline, scenario)
     env = os.environ.copy()
     env["LIBSATURN_IKEMEN_ORACLE_TRACE"] = str(trace)
     env["LIBSATURN_IKEMEN_ORACLE_MAX_FRAMES"] = str(
@@ -100,6 +104,7 @@ def main() -> int:
     env["LIBSATURN_IKEMEN_ORACLE_ROUND_STATE"] = str(
         int(scenario.get("round_state", 2))
     )
+    env["LIBSATURN_IKEMEN_ORACLE_INPUTS"] = str(timeline)
 
     cmd = build_command(scenario)
     if args.dry_run:
@@ -110,6 +115,7 @@ def main() -> int:
             "trace": str(trace),
             "seed": int(scenario["seed"]),
             "frames": int(scenario["frames"]),
+            "inputs": str(timeline),
         }, indent=2))
         return 0
 
