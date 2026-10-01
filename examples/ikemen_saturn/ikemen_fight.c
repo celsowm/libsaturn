@@ -1932,23 +1932,18 @@ static int fighter_index_from_entity_handle(
     return -1;
 }
 
-static int entity_target_controller_bridge(
-    void* user,
+static int apply_entity_target_controller_one(
+    ik_fight_t* fight,
     ik_entity_runtime_t* runtime,
     ik_entity_handle_t source_handle,
+    ik_entity_handle_t target_handle,
     const ik_cns_controller_t* ctrl
 ) {
-    ik_fight_t* fight = (ik_fight_t*)user;
-    if (!fight || !runtime || !runtime->pool || !ctrl) return 0;
-
     ik_entity_t* source =
         ik_entity_get(runtime->pool, source_handle);
-    if (!source) return -1;
-
-    const ik_entity_handle_t target_handle = source->target;
     ik_entity_t* target_entity =
         ik_entity_get(runtime->pool, target_handle);
-    if (!target_entity) return 0;
+    if (!source || !target_entity) return 0;
 
     const int target_index =
         fighter_index_from_entity_handle(fight, target_handle);
@@ -2029,13 +2024,46 @@ static int entity_target_controller_bridge(
                     runtime, target_handle,
                     (int16_t)ctrl->value0);
             }
-            (void)ik_entity_set_target(
-                runtime->pool, source_handle,
-                ik_entity_invalid_handle());
+            (void)ik_entity_remove_target(
+                runtime->pool, source_handle, target_handle);
             break;
 
         default:
             break;
+    }
+    return 0;
+}
+
+static int entity_target_controller_bridge(
+    void* user,
+    ik_entity_runtime_t* runtime,
+    ik_entity_handle_t source_handle,
+    const ik_cns_controller_t* ctrl
+) {
+    ik_fight_t* fight = (ik_fight_t*)user;
+    if (!fight || !runtime || !runtime->pool || !ctrl) return 0;
+
+    const ik_entity_t* source =
+        ik_entity_get_const(runtime->pool, source_handle);
+    if (!source) return -1;
+
+    ik_entity_handle_t selected[IK_ENTITY_TARGET_CAPACITY];
+    uint8_t selected_count = 0u;
+    const int32_t wanted_id = ctrl->value2;
+    for (uint8_t i = 0u; i < source->target_count &&
+                        selected_count < IK_ENTITY_TARGET_CAPACITY; ++i) {
+        if (wanted_id >= 0 && source->target_ids[i] != wanted_id) {
+            continue;
+        }
+        if (!ik_entity_get_const(runtime->pool, source->targets[i])) {
+            continue;
+        }
+        selected[selected_count++] = source->targets[i];
+    }
+
+    for (uint8_t i = 0u; i < selected_count; ++i) {
+        (void)apply_entity_target_controller_one(
+            fight, runtime, source_handle, selected[i], ctrl);
     }
     return 0;
 }
