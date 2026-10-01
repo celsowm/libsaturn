@@ -424,6 +424,27 @@ static void anim_position(const ik_frame_table_t* frames,
     if (out_ended) *out_ended = ended;
 }
 
+static void select_match_over_defeat_anim(
+    ik_fighter_t* fighter,
+    const ik_frame_table_t* frames
+) {
+    if (!fighter || !frames || fighter->state != 5150 ||
+        fighter->anim < 5140 || fighter->anim > 5149) {
+        return;
+    }
+
+    const int16_t match_anim = (int16_t)(fighter->anim + 10);
+    uint32_t first = 0u;
+    uint32_t count = 0u;
+    if (!ik_frames_bounds(frames, match_anim, &first, &count) ||
+        count == 0u) {
+        return;
+    }
+
+    fighter->anim = match_anim;
+    fighter->anim_time = 0u;
+}
+
 static uint16_t anim_element_start_tick(const ik_frame_table_t* frames,
                                         int16_t action,
                                         uint16_t element) {
@@ -4433,6 +4454,9 @@ void ik_fight_update(ik_fight_t* fight,
         for (int i = 0; i < 2; ++i) {
             if (fight->fighters[i].hp <= 0 &&
                 fight->fighters[i].state == 5150) {
+                select_match_over_defeat_anim(
+                    &fight->fighters[i],
+                    i == 0 ? p1_frames : p2_frames);
                 fight->round_over = 1;
                 fight->winner = (uint8_t)((i ^ 1) + 1);
                 fight->events |= IK_EVENT_ROUND_OVER;
