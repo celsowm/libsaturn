@@ -101,6 +101,9 @@ int ik_entity_spawn(
     entity->facing = 1;
     entity->active_hitdef_global = -1;
     entity->active_hitdef_local = -1;
+    entity->proj_query_contact_time = -1;
+    entity->proj_query_hit_time = -1;
+    entity->proj_query_guarded_time = -1;
 
     const ik_entity_handle_t self = handle_for(pool, slot);
 
@@ -303,6 +306,37 @@ int ik_entity_expr_read_field(
             if (index < 0 || index >= (int16_t)IK_ENTITY_FVAR_COUNT) return 0;
             *out_value = entity->fvars_q16[index];
             return 1;
+        case IK_EXPR_FIELD_NUM_PROJECTILES: {
+            uint8_t count = 0u;
+            for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
+                const ik_entity_t* candidate = &binding->pool->entities[slot];
+                if (candidate->type == IK_ENTITY_PROJECTILE &&
+                    candidate->owner_player == entity->owner_player) {
+                    ++count;
+                }
+            }
+            *out_value = count;
+            return 1;
+        }
+        case IK_EXPR_FIELD_PROJ_CONTACT:
+            *out_value = entity->proj_query_contact;
+            return 1;
+        case IK_EXPR_FIELD_PROJ_HIT:
+            *out_value = entity->proj_query_hit;
+            return 1;
+        case IK_EXPR_FIELD_PROJ_GUARDED:
+            *out_value = entity->proj_query_guarded;
+            return 1;
+        case IK_EXPR_FIELD_PROJ_CONTACT_TIME:
+            *out_value = entity->proj_query_contact_time;
+            return 1;
+        case IK_EXPR_FIELD_PROJ_HIT_TIME:
+            *out_value = entity->proj_query_hit_time;
+            return 1;
+        case IK_EXPR_FIELD_PROJ_GUARDED_TIME:
+            *out_value = entity->proj_query_guarded_time;
+            return 1;
+
         case IK_EXPR_FIELD_SYSVAR:
             if (index < 0 || index >= (int16_t)IK_ENTITY_SYSVAR_COUNT) return 0;
             *out_value = entity->sysvars[index];
