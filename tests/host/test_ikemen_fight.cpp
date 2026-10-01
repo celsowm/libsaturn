@@ -3775,6 +3775,92 @@ int main() {
         EQ(b->life,650);
     }
 
+    /* Dynamic TargetDrop evaluates NumTarget(id) against the bounded target
+     * registry and keeps only one excluded target when keepone=1. */
+    {
+        ik_cns_controller_t drop{};
+        drop.state_number=975;
+        drop.type=IK_CNS_CTRL_TARGET_DROP;
+        drop.trigger_kind=IK_CNS_TRIGGER_NUM_TARGET_QUERY;
+        drop.trigger_value=1;
+        drop.trigger_value2=IK_CNS_QUERY_GT;
+        drop.value0=20;
+        drop.value1=1;
+        drop.trigger_aux=20;
+
+        ik_cns_state_t states[2]{};
+        states[0].number=0;
+        states[0].anim=0;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_IDLE;
+        states[0].physics=IK_CNS_PHYS_STAND;
+        states[0].ctrl=1;
+        states[1].number=975;
+        states[1].anim=0;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_ATTACK;
+        states[1].physics=IK_CNS_PHYS_NONE;
+        states[1].controller_count=1u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=2u;
+        asset.controllers=&drop;
+        asset.controller_count=1u;
+
+        ik_entity_pool_t pool{};
+        ik_entity_pool_init(&pool);
+        ik_entity_handle_t p1_entity{};
+        ik_entity_handle_t p2_entity{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,1,0u,
+            ik_entity_invalid_handle(),&p1_entity));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,2,1u,
+            ik_entity_invalid_handle(),&p2_entity));
+
+        ik_fight_init(&g,&asset);
+        ik_fight_bind_entities(&g,&pool,p1_entity,p2_entity);
+
+        ik_entity_handle_t source{};
+        ik_entity_handle_t target_a{};
+        ik_entity_handle_t target_b{};
+        ik_entity_handle_t target_other{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_HELPER,975,0u,p1_entity,&source));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_HELPER,976,1u,p2_entity,&target_a));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_HELPER,977,1u,p2_entity,&target_b));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_HELPER,978,1u,p2_entity,&target_other));
+        OK(ik_entity_add_target(&pool,source,target_a,20));
+        OK(ik_entity_add_target(&pool,source,target_b,20));
+        OK(ik_entity_add_target(&pool,source,target_other,30));
+
+        ik_entity_runtime_t runtime{};
+        ik_entity_runtime_init(
+            &runtime,&pool,&asset,&k_table,&k_table);
+        OK(ik_entity_runtime_enter_state(&runtime,source,975));
+        OK(ik_entity_runtime_enter_state(&runtime,target_a,0));
+        OK(ik_entity_runtime_enter_state(&runtime,target_b,0));
+        OK(ik_entity_runtime_enter_state(&runtime,target_other,0));
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+
+        EQ(ik_entity_target_count(&pool,source,-1),1u);
+        EQ(ik_entity_target_count(&pool,source,20),1u);
+        EQ(ik_entity_target_count(&pool,source,30),0u);
+    }
+
     /* Root fighters and helpers share one priority queue. A higher-priority
      * helper contact suppresses the opposing root attack in the same tick. */
     {
