@@ -1400,6 +1400,7 @@ static void apply_throw(ik_fight_t* fight, int attacker,
 
     a->target_index = (int8_t)victim;
     v->bound_to = (int8_t)attacker;
+    v->bound_entity = ik_entity_invalid_handle();
     a->move_contact = 1u;
     a->move_hit = 1u;
 
@@ -1473,8 +1474,32 @@ static void release_bound_target(ik_fight_t* fight, int owner) {
     ik_fighter_t* f = &fight->fighters[owner];
     if (f->target_index < 0 || f->target_index > 1) return;
     ik_fighter_t* target = &fight->fighters[(int)f->target_index];
-    if (target->bound_to == owner) target->bound_to = -1;
+    if (target->bound_to == owner) {
+        target->bound_to = -1;
+        target->bound_entity = ik_entity_invalid_handle();
+    }
     f->target_index = -1;
+}
+
+static void release_entity_bound_fighter(
+    ik_fight_t* fight,
+    ik_fighter_t* fighter
+) {
+    if (!fight || !fighter ||
+        !ik_entity_handle_is_valid(fighter->bound_entity)) {
+        return;
+    }
+    if (fight->entities) {
+        const ik_entity_t* source =
+            ik_entity_get_const(
+                fight->entities, fighter->bound_entity);
+        if (source) {
+            (void)ik_entity_set_target(
+                fight->entities, fighter->bound_entity,
+                ik_entity_invalid_handle());
+        }
+    }
+    fighter->bound_entity = ik_entity_invalid_handle();
 }
 
 static void apply_damage(ik_fight_t* fight, int victim,
@@ -2915,6 +2940,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                         &fight->fighters[(int)f->target_index];
                     target->bound_to =
                         (int8_t)(f == &fight->fighters[0] ? 0 : 1);
+                    target->bound_entity = ik_entity_invalid_handle();
                     target->x_q8 =
                         f->x_q8 + (int32_t)f->facing * ctrl->value0;
                     target->y_q8 = f->y_q8 + ctrl->value1;
@@ -2955,6 +2981,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     const int target_index = f->target_index;
                     ik_fighter_t* target = &fight->fighters[target_index];
                     target->bound_to = -1;
+                    target->bound_entity = ik_entity_invalid_handle();
                     enter_state(fight, target, ctrl->value0);
                     f->target_index = -1;
                 }
@@ -2975,6 +3002,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 if (f->bound_to >= 0 && f->bound_to < 2) {
                     fight->fighters[(int)f->bound_to].target_index = -1;
                 }
+                release_entity_bound_fighter(fight, f);
                 f->bound_to = -1;
                 enter_state(fight, f, ctrl->value0);
                 return 1;
