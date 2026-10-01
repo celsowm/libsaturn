@@ -299,6 +299,23 @@ class Parser:
             if opname is None:
                 raise ValueError("power != is not supported")
             return [Insn(opname, n)]
+
+        projectile_queries = {
+            "numproj": "num_projectiles",
+            "projcontact": "proj_contact",
+            "projhit": "proj_hit",
+            "projguarded": "proj_guarded",
+            "projcontacttime": "proj_contact_time",
+            "projhittime": "proj_hit_time",
+            "projguardedtime": "proj_guarded_time",
+        }
+        if name in projectile_queries:
+            suffix = {
+                "=": "eq", "!=": "ne", ">": "gt", ">=": "ge",
+                "<": "lt", "<=": "le",
+            }[cmpop]
+            return [Insn(f"{projectile_queries[name]}_{suffix}", n)]
+
         raise ValueError(f"unsupported predicate {name!r}")
 
 
@@ -480,6 +497,22 @@ def _lower_instruction(insn: Insn) -> list[VmInsn]:
         "active_hit_attr_eq": (
             "IK_EXPR_FIELD_ACTIVE_HIT_ATTR", self_r, "IK_EXPR_EQ"),
     }
+    query_fields = {
+        "num_projectiles": "IK_EXPR_FIELD_NUM_PROJECTILES",
+        "proj_contact": "IK_EXPR_FIELD_PROJ_CONTACT",
+        "proj_hit": "IK_EXPR_FIELD_PROJ_HIT",
+        "proj_guarded": "IK_EXPR_FIELD_PROJ_GUARDED",
+        "proj_contact_time": "IK_EXPR_FIELD_PROJ_CONTACT_TIME",
+        "proj_hit_time": "IK_EXPR_FIELD_PROJ_HIT_TIME",
+        "proj_guarded_time": "IK_EXPR_FIELD_PROJ_GUARDED_TIME",
+    }
+    for prefix, field in query_fields.items():
+        for suffix, compare in (
+            ("eq", "IK_EXPR_EQ"), ("ne", "IK_EXPR_NE"),
+            ("gt", "IK_EXPR_GT"), ("ge", "IK_EXPR_GE"),
+            ("lt", "IK_EXPR_LT"), ("le", "IK_EXPR_LE"),
+        ):
+            simple[f"{prefix}_{suffix}"] = (field, self_r, compare)
     if insn.op in simple:
         field, redirect, compare_op = simple[insn.op]
         return _vm_compare(field, redirect, compare_op, insn.a)
