@@ -3840,6 +3840,444 @@ static void resolve_entity_contacts(
     }
 }
 
+
+enum { IK_CONTACT_QUEUE_CAPACITY = IK_ENTITY_CAPACITY + 2u };
+
+typedef struct ik_contact_candidate {
+    uint8_t owner;
+    uint8_t is_entity;
+    uint8_t attacker_index;
+    uint8_t normal;
+    uint8_t lands;
+    uint8_t consume;
+    uint8_t local_hitdef;
+    ik_entity_handle_t entity;
+    const ik_cns_hitdef_t* hitdef;
+    const ik_cns_reversaldef_t* reversal;
+    const ik_cns_hitoverride_t* override;
+    uint32_t bit;
+} ik_contact_candidate_t;
+
+static uint8_t contact_priority(const ik_contact_candidate_t* candidate) {
+    if (!candidate || !candidate->hitdef) return 4u;
+    return candidate->hitdef->priority ? candidate->hitdef->priority : 4u;
+}
+
+static void arbitrate_contact_pair(
+    ik_contact_candidate_t* a,
+    ik_contact_candidate_t* b
+) {
+    if (!a || !b || !a->normal || !b->normal ||
+        !a->lands || !b->lands || a->owner == b->owner) {
+        return;
+    }
+
+    const uint8_t pa = contact_priority(a);
+    const uint8_t pb = contact_priority(b);
+    if (pa > pb) {
+        b->lands = 0u;
+        b->consume = 1u;
+        return;
+    }
+    if (pb > pa) {
+        a->lands = 0u;
+        a->consume = 1u;
+        return;
+    }
+
+    const uint8_t ta = a->hitdef->priority_type;
+    const uint8_t tb = b->hitdef->priority_type;
+    if (ta == IK_CNS_PRIORITY_DODGE ||
+        tb == IK_CNS_PRIORITY_DODGE) {
+        a->lands = 0u;
+        b->lands = 0u;
+        return;
+    }
+    if (ta == IK_CNS_PRIORITY_HIT &&
+        tb == IK_CNS_PRIORITY_HIT) {
+        return;
+    }
+    if (ta == IK_CNS_PRIORITY_HIT &&
+        tb == IK_CNS_PRIORITY_MISS) {
+        b->lands = 0u;
+        b->consume = 1u;
+        return;
+    }
+    if (tb == IK_CNS_PRIORITY_HIT &&
+        ta == IK_CNS_PRIORITY_MISS) {
+        a->lands = 0u;
+        a->consume = 1u;
+        return;
+    }
+
+    a->lands = 0u;
+    b->lands = 0u;
+}
+
+static void consume_contact_candidate(
+    ik_fight_t* fight,
+    const ik_contact_candidate_t* candidate
+) {
+    if (!fight || !candidate || candidate->bit == 0u) return;
+    if (!candidate->is_entity) {
+        fight->fighters[candidate->attacker_index].hitdef_hit_mask |=
+            candidate->bit;
+        return;
+    }
+    if (!fight->entities) return;
+    ik_entity_t* attacker =
+        ik_entity_get(fight->entities, candidate->entity);
+    if (attacker) attacker->hitdef_hit_mask |= candidate->bit;
+}
+
+static uint8_t gather_root_contacts(
+    ik_fight_t* fight,
+    const ik_frame_table_t* p1_frames,
+    const ik_frame_table_t* p2_frames,
+    ik_contact_candidate_t* queue,
+    uint8_t count
+) {
+    for (int atk = 0; atk < 2 &&
+         count < IK_CONTACT_QUEUE_CAPACITY; ++atk) {
+        ik_fighter_t* a = &fight->fighters[atk];
+        ik_fighter_t* v = &fight->fighters[atk ^ 1];
+        const ik_frame_table_t* attacker_frames =
+            atk == 0 ? p1_frames : p2_frames;
+        const ik_frame_table_t* victim_frames =
+            atk == 0 ? p2_frames : p1_frames;
+        uint8_t local_hitdef = 0u;
+        const ik_cns_hitdef_t* hitdef =
+            active_hitdef(fight, attacker_frames, a, v, &local_hitdef);
+        if (!hitdef || local_hitdef >= 32u) continue;
+        if (!hitdef_allows_target(fight, v, hitdef)) continue;
+        if (fighter_not_hit_by_blocks(
+                fight, v, reversal_state_bit(fight, a), hitdef)) {
+            continue;
+        }
+
+        const uint32_t bit = (uint32_t)1u << local_hitdef;
+        if ((a->hitdef_hit_mask & bit) != 0u) continue;
+
+        ik_contact_candidate_t candidate = {0};
+        candidate.owner = (uint8_t)atk;
+        candidate.attacker_index = (uint8_t)atk;
+        candidate.hitdef = hitdef;
+        candidate.local_hitdef = local_hitdef;
+        candidate.bit = bit;
+
+        const ik_cns_reversaldef_t* reversal =
+            active_reversaldef(fight, v, a, hitdef);
+        if (reversal && fighter_reversal_clsn_overlap(
+                victim_frames, attacker_frames, v, a)) {
+            candidate.reversal = reversal;
+            candidate.consume = 1u;
+            queue[count++] = candidate;
+            continue;
+        }
+
+        const ik_cns_hitoverride_t* override =
+            active_hitoverride(fight, v, hitdef);
+        if (override && fighter_clsn_overlap(
+                attacker_frames, victim_frames, a, v)) {
+            candidate.override = override;
+            candidate.consume = 1u;
+            queue[count++] = candidate;
+            continue;
+        }
+
+        if (!juggle_allows_target(fight, a, v, hitdef)) continue;
+        if (!fighter_clsn_overlap(
+                attacker_frames, victim_frames, a, v)) {
+            continue;
+        }
+
+        candidate.normal = 1u;
+        candidate.lands = 1u;
+        queue[count++] = candidate;
+    }
+    return count;
+}
+
+static uint8_t gather_entity_contacts(
+    ik_fight_t* fight,
+    const ik_frame_table_t* p1_frames,
+    const ik_frame_table_t* p2_frames,
+    ik_contact_candidate_t* queue,
+    uint8_t count
+) {
+    if (!fight || !fight->entities || !fight->cns) return count;
+
+    for (uint8_t slot = 0u;
+         slot < IK_ENTITY_CAPACITY &&
+         count < IK_CONTACT_QUEUE_CAPACITY; ++slot) {
+        ik_entity_t* attacker = &fight->entities->entities[slot];
+        if ((attacker->type != IK_ENTITY_HELPER &&
+             attacker->type != IK_ENTITY_PROJECTILE) ||
+            attacker->owner_player >= 2u) {
+            continue;
+        }
+
+        const int victim = (int)(attacker->owner_player ^ 1u);
+        ik_fighter_t* v = &fight->fighters[victim];
+        const ik_frame_table_t* attacker_frames =
+            attacker->owner_player == 0u ? p1_frames : p2_frames;
+        const ik_frame_table_t* victim_frames =
+            victim == 0 ? p1_frames : p2_frames;
+
+        uint8_t local_hitdef = 0u;
+        const ik_cns_hitdef_t* hitdef =
+            active_entity_hitdef(
+                fight, attacker_frames, attacker, v, &local_hitdef);
+        if (!hitdef || local_hitdef >= 32u) continue;
+
+        const int dynamic_throw =
+            (hitdef->flags & IK_CNS_HITDEF_THROW) != 0u;
+        if (dynamic_throw && attacker->type != IK_ENTITY_HELPER) continue;
+        if (!hitdef_allows_target(fight, v, hitdef)) continue;
+        if (fighter_not_hit_by_blocks(
+                fight, v, reversal_entity_state_bit(attacker), hitdef)) {
+            continue;
+        }
+
+        const uint32_t bit = (uint32_t)1u << local_hitdef;
+        if ((attacker->hitdef_hit_mask & bit) != 0u) continue;
+        if (!entity_clsn_overlap(
+                attacker_frames, victim_frames, attacker, v)) {
+            continue;
+        }
+
+        ik_contact_candidate_t candidate = {0};
+        candidate.owner = attacker->owner_player;
+        candidate.is_entity = 1u;
+        candidate.entity.slot = slot;
+        candidate.entity.generation =
+            fight->entities->generations[slot];
+        candidate.hitdef = hitdef;
+        candidate.local_hitdef = local_hitdef;
+        candidate.bit = bit;
+
+        const ik_cns_reversaldef_t* reversal =
+            active_reversaldef_entity(fight, v, attacker, hitdef);
+        if (reversal && entity_reversal_clsn_overlap(
+                victim_frames, attacker_frames, v, attacker)) {
+            candidate.reversal = reversal;
+            candidate.consume = 1u;
+            queue[count++] = candidate;
+            continue;
+        }
+
+        const ik_cns_hitoverride_t* override =
+            active_hitoverride(fight, v, hitdef);
+        if (override && override->target_state >= 0) {
+            candidate.override = override;
+            candidate.consume = 1u;
+            queue[count++] = candidate;
+            continue;
+        }
+
+        if (!entity_juggle_allows_target(
+                fight, attacker, v, hitdef)) {
+            continue;
+        }
+
+        candidate.normal = 1u;
+        candidate.lands = 1u;
+        queue[count++] = candidate;
+    }
+    return count;
+}
+
+static void apply_contact_override(
+    ik_fight_t* fight,
+    const ik_contact_candidate_t* candidate
+) {
+    if (!fight || !candidate || !candidate->override ||
+        candidate->override->target_state < 0) {
+        return;
+    }
+
+    const int victim = (int)(candidate->owner ^ 1u);
+    if (!candidate->is_entity) {
+        ik_fighter_t* attacker =
+            &fight->fighters[candidate->attacker_index];
+        attacker->move_contact = 1u;
+        enter_state(
+            fight, &fight->fighters[victim],
+            candidate->override->target_state);
+        return;
+    }
+
+    if (!fight->entities) return;
+    ik_entity_t* attacker =
+        ik_entity_get(fight->entities, candidate->entity);
+    if (!attacker) return;
+    attacker->move_contact = 1u;
+    enter_state(
+        fight, &fight->fighters[victim],
+        candidate->override->target_state);
+    if (attacker->type == IK_ENTITY_PROJECTILE) {
+        (void)projectile_contact_consumed(
+            fight, candidate->entity, 0);
+    }
+}
+
+static void apply_contact_reversal(
+    ik_fight_t* fight,
+    const ik_contact_candidate_t* candidate
+) {
+    if (!fight || !candidate || !candidate->reversal) return;
+
+    const int victim = (int)(candidate->owner ^ 1u);
+    ik_fighter_t* defender = &fight->fighters[victim];
+    const ik_cns_reversaldef_t* reversal = candidate->reversal;
+
+    if (!candidate->is_entity) {
+        ik_fighter_t* attacker =
+            &fight->fighters[candidate->attacker_index];
+        attacker->hit_pause = reversal->pause_p2;
+        defender->hit_pause = reversal->pause_p1;
+        if (reversal->p2_spr_priority != -128) {
+            attacker->spr_priority = reversal->p2_spr_priority;
+        }
+    } else {
+        if (!fight->entities) return;
+        ik_entity_t* attacker =
+            ik_entity_get(fight->entities, candidate->entity);
+        if (!attacker) return;
+        attacker->move_contact = 1u;
+        attacker->hit_pause = reversal->pause_p2;
+        defender->hit_pause = reversal->pause_p1;
+        if (reversal->p2_spr_priority != -128) {
+            attacker->spr_priority = reversal->p2_spr_priority;
+        }
+        if (attacker->type == IK_ENTITY_PROJECTILE) {
+            (void)projectile_contact_consumed(
+                fight, candidate->entity, 1);
+        }
+    }
+
+    if (reversal->p1_state_no >= 0) {
+        enter_state(fight, defender, reversal->p1_state_no);
+    }
+    if (reversal->p1_spr_priority != -128) {
+        defender->spr_priority = reversal->p1_spr_priority;
+    }
+    queue_reversal_effect(fight, defender, reversal);
+    queue_sound_event(
+        fight, reversal->hit_sound_group, reversal->hit_sound_item);
+    fight->events |= IK_EVENT_GUARD;
+}
+
+static void apply_normal_contact(
+    ik_fight_t* fight,
+    const ik_fight_controls_t* p1,
+    const ik_fight_controls_t* p2,
+    const ik_frame_table_t* p1_frames,
+    const ik_frame_table_t* p2_frames,
+    const ik_contact_candidate_t* candidate
+) {
+    if (!fight || !candidate || !candidate->normal ||
+        !candidate->lands || !candidate->hitdef) {
+        return;
+    }
+
+    const int victim = (int)(candidate->owner ^ 1u);
+    ik_fighter_t* v = &fight->fighters[victim];
+    const ik_fight_controls_t* victim_controls =
+        victim == 0 ? p1 : p2;
+    const ik_cns_hitdef_t* hitdef = candidate->hitdef;
+
+    if (!candidate->is_entity) {
+        ik_fighter_t* attacker =
+            &fight->fighters[candidate->attacker_index];
+        attacker->hitdef_hit_mask |= candidate->bit;
+        if ((hitdef->flags & IK_CNS_HITDEF_THROW) != 0u) {
+            const ik_fight_controls_t* attacker_controls =
+                candidate->attacker_index == 0 ? p1 : p2;
+            apply_throw(
+                fight, candidate->attacker_index,
+                attacker_controls, hitdef);
+        } else if (can_guard_hit(
+                       fight, v, victim_controls, hitdef)) {
+            apply_guard(fight, victim, victim_controls, hitdef);
+        } else {
+            apply_damage(fight, victim, hitdef);
+        }
+        return;
+    }
+
+    if (!fight->entities) return;
+    ik_entity_t* attacker =
+        ik_entity_get(fight->entities, candidate->entity);
+    if (!attacker) return;
+    attacker->hitdef_hit_mask |= candidate->bit;
+
+    int projectile_guarded = 0;
+    if ((hitdef->flags & IK_CNS_HITDEF_THROW) != 0u) {
+        apply_throw_from_entity(
+            fight, candidate->entity, victim, hitdef,
+            p1_frames, p2_frames);
+    } else if (can_guard_hit(
+                   fight, v, victim_controls, hitdef)) {
+        projectile_guarded = 1;
+        apply_guard_from_entity(
+            fight, candidate->entity, victim,
+            victim_controls, hitdef);
+    } else {
+        apply_damage_from_entity(
+            fight, candidate->entity, victim, hitdef,
+            p1_frames, p2_frames);
+    }
+
+    attacker = ik_entity_get(fight->entities, candidate->entity);
+    if (attacker && attacker->type == IK_ENTITY_PROJECTILE) {
+        mark_projectile_contact(
+            fight, candidate->entity, projectile_guarded);
+        (void)projectile_contact_consumed(
+            fight, candidate->entity, 0);
+    }
+}
+
+static void resolve_global_contacts(
+    ik_fight_t* fight,
+    const ik_fight_controls_t* p1,
+    const ik_fight_controls_t* p2,
+    const ik_frame_table_t* p1_frames,
+    const ik_frame_table_t* p2_frames
+) {
+    if (!fight) return;
+
+    ik_contact_candidate_t queue[IK_CONTACT_QUEUE_CAPACITY] = {{0}};
+    uint8_t count = 0u;
+    count = gather_root_contacts(
+        fight, p1_frames, p2_frames, queue, count);
+    count = gather_entity_contacts(
+        fight, p1_frames, p2_frames, queue, count);
+
+    for (uint8_t i = 0u; i < count; ++i) {
+        for (uint8_t j = (uint8_t)(i + 1u); j < count; ++j) {
+            arbitrate_contact_pair(&queue[i], &queue[j]);
+        }
+    }
+
+    for (uint8_t i = 0u; i < count; ++i) {
+        if (queue[i].consume) {
+            consume_contact_candidate(fight, &queue[i]);
+        }
+    }
+
+    for (uint8_t i = 0u; i < count; ++i) {
+        apply_contact_override(fight, &queue[i]);
+    }
+    for (uint8_t i = 0u; i < count; ++i) {
+        apply_contact_reversal(fight, &queue[i]);
+    }
+    for (uint8_t i = 0u; i < count; ++i) {
+        apply_normal_contact(
+            fight, p1, p2, p1_frames, p2_frames, &queue[i]);
+    }
+}
+
 void ik_fight_update(ik_fight_t* fight,
                      const ik_fight_controls_t* p1,
                      const ik_fight_controls_t* p2,
@@ -3963,165 +4401,15 @@ void ik_fight_update(ik_fight_t* fight,
         ik_entity_runtime_step(&runtime);
     }
 
-    const ik_cns_hitdef_t* candidates[2] = {0, 0};
-    const ik_cns_reversaldef_t* reversals[2] = {0, 0};
-    const ik_cns_hitoverride_t* overrides[2] = {0, 0};
-    uint32_t candidate_bits[2] = {0u, 0u};
-    uint8_t lands[2] = {0u, 0u};
-    uint8_t consume[2] = {0u, 0u};
-
-    /* Gather both contacts before changing either fighter's state. This is
-     * required for MUGEN priority/trade semantics: the old loop applied P1
-     * first, which could erase P2's simultaneous active HitDef. */
-    for (int atk = 0; atk < 2; ++atk) {
-        ik_fighter_t* a = &fight->fighters[atk];
-        ik_fighter_t* v = &fight->fighters[atk ^ 1];
-        const ik_frame_table_t* attacker_frames =
-            atk == 0 ? p1_frames : p2_frames;
-        const ik_frame_table_t* victim_frames =
-            atk == 0 ? p2_frames : p1_frames;
-        uint8_t local_hitdef = 0u;
-        const ik_cns_hitdef_t* hitdef =
-            active_hitdef(fight, attacker_frames, a, v, &local_hitdef);
-        if (!hitdef || local_hitdef >= 32u) continue;
-        if (!hitdef_allows_target(fight, v, hitdef)) continue;
-        if (fighter_not_hit_by_blocks(
-                fight, v, reversal_state_bit(fight, a), hitdef)) {
-            continue;
-        }
-        const uint32_t bit = (uint32_t)1u << local_hitdef;
-        if ((a->hitdef_hit_mask & bit) != 0u) continue;
-
-        const ik_cns_reversaldef_t* reversal =
-            active_reversaldef(fight, v, a, hitdef);
-        if (reversal && fighter_reversal_clsn_overlap(
-                victim_frames, attacker_frames, v, a)) {
-            reversals[atk] = reversal;
-            candidate_bits[atk] = bit;
-            consume[atk] = 1u;
-            continue;
-        }
-
-        const ik_cns_hitoverride_t* override =
-            active_hitoverride(fight, v, hitdef);
-        if (override && fighter_clsn_overlap(
-                attacker_frames, victim_frames, a, v)) {
-            overrides[atk] = override;
-            candidate_bits[atk] = bit;
-            consume[atk] = 1u;
-            continue;
-        }
-
-        if (!juggle_allows_target(fight, a, v, hitdef)) continue;
-        if (!fighter_clsn_overlap(
-                attacker_frames, victim_frames, a, v)) continue;
-
-        candidates[atk] = hitdef;
-        candidate_bits[atk] = bit;
-        lands[atk] = 1u;
-    }
-
-    if (candidates[0] && candidates[1]) {
-        const uint8_t p0 =
-            candidates[0]->priority ? candidates[0]->priority : 4u;
-        const uint8_t p1v =
-            candidates[1]->priority ? candidates[1]->priority : 4u;
-
-        if (p0 > p1v) {
-            lands[1] = 0u;
-            consume[1] = 1u;
-        } else if (p1v > p0) {
-            lands[0] = 0u;
-            consume[0] = 1u;
-        } else {
-            const uint8_t t0 = candidates[0]->priority_type;
-            const uint8_t t1 = candidates[1]->priority_type;
-
-            if (t0 == IK_CNS_PRIORITY_DODGE ||
-                t1 == IK_CNS_PRIORITY_DODGE) {
-                /* Equal-priority no-hit tie: both HitDefs stay enabled. */
-                lands[0] = lands[1] = 0u;
-            } else if (t0 == IK_CNS_PRIORITY_HIT &&
-                       t1 == IK_CNS_PRIORITY_HIT) {
-                /* True trade. */
-            } else if (t0 == IK_CNS_PRIORITY_HIT &&
-                       t1 == IK_CNS_PRIORITY_MISS) {
-                lands[1] = 0u;
-                consume[1] = 1u;
-            } else if (t1 == IK_CNS_PRIORITY_HIT &&
-                       t0 == IK_CNS_PRIORITY_MISS) {
-                lands[0] = 0u;
-                consume[0] = 1u;
-            } else {
-                /* Miss/Miss is also a no-hit tie; leave both active. */
-                lands[0] = lands[1] = 0u;
-            }
-        }
-    }
-
-    for (int atk = 0; atk < 2; ++atk) {
-        if (consume[atk] && candidate_bits[atk] != 0u) {
-            fight->fighters[atk].hitdef_hit_mask |= candidate_bits[atk];
-        }
-    }
-
-    for (int atk = 0; atk < 2; ++atk) {
-        const ik_cns_hitoverride_t* override = overrides[atk];
-        if (!override || override->target_state < 0) continue;
-        ik_fighter_t* attacker = &fight->fighters[atk];
-        ik_fighter_t* victim = &fight->fighters[atk ^ 1];
-        attacker->move_contact = 1u;
-        enter_state(fight, victim, override->target_state);
-    }
-
-    for (int atk = 0; atk < 2; ++atk) {
-        const ik_cns_reversaldef_t* reversal = reversals[atk];
-        if (!reversal) continue;
-
-        ik_fighter_t* attacker = &fight->fighters[atk];
-        ik_fighter_t* defender = &fight->fighters[atk ^ 1];
-        attacker->hit_pause = reversal->pause_p2;
-        defender->hit_pause = reversal->pause_p1;
-        if (reversal->p2_spr_priority != -128) {
-            attacker->spr_priority = reversal->p2_spr_priority;
-        }
-        if (reversal->p1_state_no >= 0) {
-            enter_state(fight, defender, reversal->p1_state_no);
-        }
-        if (reversal->p1_spr_priority != -128) {
-            defender->spr_priority = reversal->p1_spr_priority;
-        }
-        queue_reversal_effect(fight, defender, reversal);
-        queue_sound_event(
-            fight, reversal->hit_sound_group, reversal->hit_sound_item);
-        fight->events |= IK_EVENT_GUARD;
-    }
-
-    for (int atk = 0; atk < 2; ++atk) {
-        const ik_cns_hitdef_t* hitdef = candidates[atk];
-        if (!lands[atk] || !hitdef) continue;
-
-        fight->fighters[atk].hitdef_hit_mask |= candidate_bits[atk];
-        const int victim = atk ^ 1;
-        ik_fighter_t* v = &fight->fighters[victim];
-        const ik_fight_controls_t* victim_controls =
-            victim == 0 ? p1 : p2;
-        if ((hitdef->flags & IK_CNS_HITDEF_THROW) != 0u) {
-            const ik_fight_controls_t* attacker_controls =
-                atk == 0 ? p1 : p2;
-            apply_throw(fight, atk, attacker_controls, hitdef);
-        } else if (can_guard_hit(fight, v, victim_controls, hitdef)) {
-            apply_guard(fight, victim, victim_controls, hitdef);
-        } else {
-            apply_damage(fight, victim, hitdef);
-        }
-    }
-
     if (!fight->round_over) {
+        /* Projectile-vs-projectile cancellation happens first. Surviving
+         * player/helper/projectile attacks then enter one deterministic
+         * gather/arbitrate/apply queue, so priority and Hit/Miss/Dodge
+         * semantics are no longer split by attacker representation. */
         resolve_projectile_trades(
             fight, p1_frames, p2_frames);
-        resolve_entity_contacts(
-            fight, p1, p2, p1_frames, p2_frames, -1);
+        resolve_global_contacts(
+            fight, p1, p2, p1_frames, p2_frames);
     }
 
     if (!fight->round_over) {
