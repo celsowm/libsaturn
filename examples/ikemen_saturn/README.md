@@ -297,8 +297,10 @@ cost, damage/guard application and p1stateno transitions. Helper throws now
 capture root fighters through generational target handles; subsequent
 TargetBind, TargetFacing, TargetLifeAdd and TargetState controllers execute
 from the Helper and the fighter remains bound until release or Helper
-invalidation. Helper-vs-player priority/trade arbitration is still resolved in
-separate passes rather than one global Ikemen contact queue.
+invalidation. Normal-frame player/helper/projectile contacts now share one bounded global
+Ikemen contact queue for priority and Hit/Miss/Dodge arbitration. Projectile-
+vs-projectile priority cancellation remains a deliberate pre-pass, while
+Pause/SuperPause keeps its specialized authorized-movement contact path.
 
 ## Runtime controller coverage
 
