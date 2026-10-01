@@ -40,7 +40,9 @@ static const ik_cns_constants_t* constants_for_fighter(
     const ik_fight_t* fight,
     const ik_fighter_t* fighter
 ) {
-    const ik_cns_asset_t* cns = cns_for_fighter(fight, fighter);
+    const ik_cns_asset_t* cns = fighter
+        ? cns_for_owner(fight, fighter->owner_player)
+        : 0;
     return cns ? &cns->constants : 0;
 }
 
@@ -1849,7 +1851,7 @@ static void apply_damage(ik_fight_t* fight, int victim,
                 ? v->juggle_points - attack_juggle
                 : 0);
     } else if ((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u) {
-        const ik_cns_constants_t* c = constants_for(fight);
+        const ik_cns_constants_t* c = constants_for_fighter(fight, v);
         const int initial = (c && c->air_juggle > 0) ? c->air_juggle : 15;
         v->juggle_points =
             (int16_t)(initial > attack_juggle ? initial - attack_juggle : 0);
@@ -2341,7 +2343,8 @@ static void apply_damage_from_entity(
             v->juggle_points > attack_juggle
                 ? v->juggle_points - attack_juggle : 0);
     } else if ((hitdef->flags & IK_CNS_HITDEF_FALL) != 0u) {
-        const ik_cns_constants_t* constants = constants_for(fight);
+        const ik_cns_constants_t* constants =
+            constants_for_fighter(fight, v);
         const int initial =
             (constants && constants->air_juggle > 0)
                 ? constants->air_juggle : 15;
@@ -2554,7 +2557,8 @@ static void apply_ground_velocity(ik_fighter_t* f,
 static void step_air(ik_fight_t* fight, ik_fighter_t* f,
                      int allow_land_transition,
                      int16_t guard_land_state) {
-    const ik_cns_constants_t* c = constants_for(fight);
+    const ik_cns_constants_t* c =
+        constants_for_fighter(fight, f);
     const ik_cns_state_t* spec = fighter_state_spec(fight, f);
     const int32_t gravity =
         (spec && spec->owns_air_accel)
@@ -3185,7 +3189,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 return 0;
 
             case IK_CNS_CTRL_WIDTH: {
-                const ik_cns_constants_t* c = constants_for(fight);
+                const ik_cns_constants_t* c =
+                    constants_for_fighter(fight, f);
                 const int16_t base_front = c ? c->ground_front : 16;
                 const int16_t base_back = c ? c->ground_back : 15;
                 f->push_front = (int16_t)(base_front + ctrl->value0);
@@ -3256,7 +3261,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 break;
 
             case IK_CNS_CTRL_JUMP_LAUNCH: {
-                const ik_cns_constants_t* c = constants_for(fight);
+                const ik_cns_constants_t* c =
+                    constants_for_fighter(fight, f);
                 if (!c) break;
                 int32_t vx = c->jump_neu_x_q8;
                 if (f->state_axis < 0) {
@@ -3272,7 +3278,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
             }
 
             case IK_CNS_CTRL_AIR_JUMP_LAUNCH: {
-                const ik_cns_constants_t* c = constants_for(fight);
+                const ik_cns_constants_t* c =
+                    constants_for_fighter(fight, f);
                 if (!c) break;
                 int32_t vx = c->air_jump_neu_x_q8;
                 if (f->state_axis < 0) vx = c->air_jump_back_q8;
@@ -3421,7 +3428,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     f->vx_q8 += vx;
                 }
                 if ((ctrl->flags & IK_CNS_CTRL_AXIS_Y) != 0u) {
-                    const ik_cns_constants_t* c = constants_for(fight);
+                    const ik_cns_constants_t* c =
+                        constants_for_fighter(fight, f);
                     const int32_t add_y =
                         (ctrl->flags & IK_CNS_CTRL_USE_YACCEL) != 0u && c
                             ? c->yaccel_q8
@@ -3569,7 +3577,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 return 1;
 
             case IK_CNS_CTRL_FALL_RECOVERY: {
-                const ik_cns_constants_t* c = constants_for(fight);
+                const ik_cns_constants_t* c =
+                    constants_for_fighter(fight, f);
                 if (!c ||
                     (command_mask & IK_CNS_COMMAND_RECOVERY) == 0u ||
                     !f->gethit_fall_recover ||
@@ -3615,7 +3624,8 @@ static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
     }
 
     if (!f->on_ground) {
-        const ik_cns_constants_t* c = constants_for(fight);
+        const ik_cns_constants_t* c =
+            constants_for_fighter(fight, f);
         if (f->ctrl && controls->up && !f->up_latched && c &&
             c->air_jump_num > 0 &&
             f->air_jumps_used < (uint8_t)c->air_jump_num &&
@@ -3668,7 +3678,8 @@ static void step_fighter(ik_fight_t* fight, int index,
         frames_for_fighter(fight, foe);
     if (owned_frames) frames = owned_frames;
     if (owned_foe_frames) foe_frames = owned_foe_frames;
-    const ik_cns_constants_t* c = constants_for(fight);
+    const ik_cns_constants_t* c =
+        constants_for_fighter(fight, f);
 
     f->pos_freeze_x = 0u;
     f->pos_freeze_y = 0u;
