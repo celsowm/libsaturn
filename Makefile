@@ -740,7 +740,7 @@ IKEMEN_ORACLE_TRACE ?= build/ikemen_oracle/ikemen.jsonl
 IKEMEN_ORACLE_SATURN_TRACE ?= build/ikemen_oracle/libsaturn.jsonl
 
 .PHONY: ikemen-oracle-install ikemen-oracle-run ikemen-oracle-saturn \
-	ikemen-oracle-diff ikemen-oracle-check
+	ikemen-oracle-diff ikemen-oracle-check ikemen-oracle-suite
 ikemen-oracle-install:
 	$(PYTHON) tools/ikemen_oracle/install.py
 
@@ -764,6 +764,9 @@ ikemen-oracle-check: ikemen-oracle-run ikemen-oracle-saturn
 	$(MAKE) --no-print-directory ikemen-oracle-diff \
 		IKEMEN_ORACLE_TRACE=$(IKEMEN_ORACLE_TRACE) \
 		IKEMEN_ORACLE_SATURN_TRACE=$(IKEMEN_ORACLE_SATURN_TRACE)
+
+ikemen-oracle-suite:
+	$(PYTHON) tools/ikemen_oracle/suite.py
 
 # -- Alvos utilitarios ------------------------------------------
 .PHONY: print-build-paths
