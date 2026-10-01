@@ -2049,7 +2049,9 @@ static int entity_target_controller_bridge(
 
     ik_entity_handle_t selected[IK_ENTITY_TARGET_CAPACITY];
     uint8_t selected_count = 0u;
+    uint8_t matched = 0u;
     const int32_t wanted_id = ctrl->value2;
+    const int32_t wanted_index = ctrl->value3;
     for (uint8_t i = 0u; i < source->target_count &&
                         selected_count < IK_ENTITY_TARGET_CAPACITY; ++i) {
         if (wanted_id >= 0 && source->target_ids[i] != wanted_id) {
@@ -2058,7 +2060,11 @@ static int entity_target_controller_bridge(
         if (!ik_entity_get_const(runtime->pool, source->targets[i])) {
             continue;
         }
+        if (wanted_index >= 0 && matched++ != (uint8_t)wanted_index) {
+            continue;
+        }
         selected[selected_count++] = source->targets[i];
+        if (wanted_index >= 0) break;
     }
 
     for (uint8_t i = 0u; i < selected_count; ++i) {
