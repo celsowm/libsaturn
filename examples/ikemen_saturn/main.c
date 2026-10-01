@@ -1051,13 +1051,16 @@ static int rule_expr_read_field(
     void* user,
     uint8_t redirect,
     uint8_t field,
-    int16_t index,
+    int32_t index,
+    int32_t redirect_id,
+    uint8_t redirect_index,
     int32_t* out_value
 ) {
     if (!user) return 0;
     ik_rule_expr_user_t* rule = (ik_rule_expr_user_t*)user;
     return ik_entity_expr_read_field(
-        &rule->entity, redirect, field, index, out_value);
+        &rule->entity, redirect, field, index,
+        redirect_id, redirect_index, out_value);
 }
 
 static int rule_expr_read_command(
