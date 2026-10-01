@@ -1946,6 +1946,12 @@ def compile_projectile_controller(
         "remove_on_gethit": integer(ctrl.get("removeongethit"), 0),
         "remove_on_state_change": integer(
             ctrl.get("removeonchangestate"), 0),
+        "facing": 1 if integer(ctrl.get("facing"), 1) >= 0 else -1,
+        "vfacing": 1 if integer(ctrl.get("vfacing"), 1) >= 0 else -1,
+        "scale_x_q8": q8(sx),
+        "scale_y_q8": q8(sy),
+        "trans_mode": trans_map[trans_text],
+        "alpha": alpha_value,
     }
     controller = {
         "state_number": state_no,
@@ -1975,7 +1981,8 @@ def compile_explod_controller(
         "type", "anim", "postype", "pos", "velocity", "accel",
         "removetime", "sprpriority", "persistent", "ignorehitpause",
         "ownpal", "pausemovetime", "supermovetime", "bindtime",
-        "removeongethit", "removeonchangestate",
+        "removeongethit", "removeonchangestate", "facing", "vfacing",
+        "scale", "trans", "alpha",
     }
     for key, _ in ctrl.values:
         lowered = key.strip().lower()
@@ -1992,6 +1999,22 @@ def compile_explod_controller(
     px, py = pair(ctrl.get("pos"), 0, 0)
     vx, vy = pair(ctrl.get("velocity"), 0, 0)
     ax, ay = pair(ctrl.get("accel"), 0, 0)
+    sx, sy = pair(ctrl.get("scale"), 1, 1)
+
+    trans_text = (ctrl.get("trans") or "none").strip().lower()
+    trans_map = {
+        "none": "IK_CNS_TRANS_NONE",
+        "default": "IK_CNS_TRANS_NONE",
+        "alpha": "IK_CNS_TRANS_ALPHA",
+        "addalpha": "IK_CNS_TRANS_ALPHA",
+        "add": "IK_CNS_TRANS_ADD",
+        "sub": "IK_CNS_TRANS_SUB",
+    }
+    if trans_text not in trans_map:
+        return None
+
+    alpha_src, _alpha_dst = pair(ctrl.get("alpha"), 256, 256)
+    alpha_value = max(0, min(255, int(round(float(alpha_src) * 255.0 / 256.0))))
 
     explod = {
         "anim_no": integer(ctrl.get("anim"), 0),
@@ -3660,7 +3683,11 @@ def emit(
         f"{e.get('super_move_time', 0)}u, "
         f"{e.get('bind_time', 0)}, "
         f"{e.get('remove_on_gethit', 0)}u, "
-        f"{e.get('remove_on_state_change', 0)}u"
+        f"{e.get('remove_on_state_change', 0)}u, "
+        f"{e.get('facing', 1)}, {e.get('vfacing', 1)}, "
+        f"{e.get('scale_x_q8', 256)}, {e.get('scale_y_q8', 256)}, "
+        f"{e.get('trans_mode', 'IK_CNS_TRANS_NONE')}, "
+        f"{e.get('alpha', 255)}u"
         "},"
         for e in explods
     ]
