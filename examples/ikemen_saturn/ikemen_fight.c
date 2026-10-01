@@ -2090,7 +2090,8 @@ static int apply_entity_target_controller_one(
         case IK_CNS_CTRL_TARGET_LIFE_ADD:
             if (target_fighter) {
                 int hp = (int)target_fighter->hp + ctrl->value0;
-                const int max_hp = ik_fight_max_hp(fight);
+                const int max_hp = ik_fight_max_hp_player(
+                    fight, target_fighter->owner_player);
                 if (hp > max_hp) hp = max_hp;
                 if (hp <= 0) {
                     hp = 0;
@@ -3546,7 +3547,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     const int target_index = f->target_index;
                     ik_fighter_t* target = &fight->fighters[target_index];
                     int hp = (int)target->hp + ctrl->value0;
-                    const int max_hp = ik_fight_max_hp(fight);
+                    const int max_hp = ik_fight_max_hp_player(
+                        fight, target->owner_player);
                     if (hp > max_hp) hp = max_hp;
                     if (hp <= 0) {
                         hp = 0;
