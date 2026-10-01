@@ -3236,7 +3236,13 @@ static void step_fighter(ik_fight_t* fight, int index,
 
     f->state_time++;
     f->anim_time++;
-    if (f->ctrl && f->bound_to < 0) {
+    const ik_cns_state_t* facing_spec =
+        state_spec(fight, f->state);
+    if (f->ctrl && f->bound_to < 0 &&
+        !ik_entity_handle_is_valid(f->bound_entity) &&
+        !(facing_spec &&
+          (facing_spec->assert_special_flags &
+           IK_CNS_STATE_ASSERT_NO_AUTO_TURN) != 0u)) {
         f->facing = (foe->x >= f->x) ? 1 : -1;
     }
     if (f->gethit_fall && f->fall_time < 65535u) {
