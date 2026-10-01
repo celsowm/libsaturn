@@ -348,6 +348,49 @@ int main() {
     ik_entity_runtime_step(&runtime);
     OK(ik_entity_get_const(&pool,bound_explod)==nullptr);
 
+    ik_cns_projectile_t mod_target_spec=projectile_spec;
+    mod_target_spec.id=77;
+    mod_target_spec.remove_time=30;
+    mod_target_spec.hits=3u;
+    mod_target_spec.priority=2u;
+    mod_target_spec.anim_no=200;
+    mod_target_spec.vel_x_q8=1*IK_ENTITY_Q8_ONE;
+    mod_target_spec.vel_y_q8=0;
+
+    ik_cns_projectile_t mod_other_spec=mod_target_spec;
+    mod_other_spec.id=78;
+    ik_entity_handle_t mod_target{};
+    ik_entity_handle_t mod_other{};
+    OK(ik_entity_runtime_spawn_projectile_spec(
+        &runtime,p1,&mod_target_spec,&mod_target));
+    OK(ik_entity_runtime_spawn_projectile_spec(
+        &runtime,p1,&mod_other_spec,&mod_other));
+
+    ik_cns_projectile_mod_t modification{};
+    modification.id=77;
+    modification.mask=
+        IK_CNS_PROJ_MOD_VELOCITY |
+        IK_CNS_PROJ_MOD_PRIORITY;
+    modification.vel_x_q8=5*IK_ENTITY_Q8_ONE;
+    modification.vel_y_q8=-1*IK_ENTITY_Q8_ONE;
+    modification.priority=6u;
+
+    EQ(ik_entity_runtime_modify_projectiles(
+        &runtime,0u,&modification),1u);
+    const ik_entity_t* modified=
+        ik_entity_get_const(&pool,mod_target);
+    const ik_entity_t* untouched=
+        ik_entity_get_const(&pool,mod_other);
+    OK(modified!=nullptr);
+    OK(untouched!=nullptr);
+    EQ(modified->vx_q8,5*IK_ENTITY_Q8_ONE);
+    EQ(modified->vy_q8,-1*IK_ENTITY_Q8_ONE);
+    EQ(modified->projectile_priority,6u);
+    EQ(modified->projectile_hits_left,3u);
+    EQ(modified->anim_no,200);
+    EQ(untouched->vx_q8,1*IK_ENTITY_Q8_ONE);
+    EQ(untouched->projectile_priority,2u);
+
     ik_entity_t* opponent=ik_entity_get(&pool,p2);
     OK(opponent!=nullptr);
     opponent->x_q8=220*IK_ENTITY_Q8_ONE;
