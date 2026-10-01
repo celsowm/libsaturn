@@ -191,6 +191,40 @@ int main() {
     EQ(shot->x_q8,134*IK_ENTITY_Q8_ONE);
     EQ(shot->remove_time,4);
 
+    ik_cns_projectile_t bound_projectile_spec=projectile_spec;
+    bound_projectile_spec.id=44;
+    bound_projectile_spec.remove_time=20;
+    bound_projectile_spec.bind_time=2;
+    bound_projectile_spec.remove_on_state_change=1u;
+    bound_projectile_spec.remove_on_gethit=1u;
+    bound_projectile_spec.pos_x_q8=12*IK_ENTITY_Q8_ONE;
+    bound_projectile_spec.pos_y_q8=-6*IK_ENTITY_Q8_ONE;
+
+    parent=ik_entity_get(&pool,p1);
+    OK(parent!=nullptr);
+    parent->state_no=200;
+    parent->move_type=IK_CNS_MOVE_IDLE;
+    parent->x_q8=100*IK_ENTITY_Q8_ONE;
+    parent->y_q8=50*IK_ENTITY_Q8_ONE;
+
+    ik_entity_handle_t bound_projectile{};
+    OK(ik_entity_runtime_spawn_projectile_spec(
+        &runtime,p1,&bound_projectile_spec,&bound_projectile));
+    parent->x_q8=115*IK_ENTITY_Q8_ONE;
+    ik_entity_runtime_step(&runtime);
+    const ik_entity_t* bound_shot=
+        ik_entity_get_const(&pool,bound_projectile);
+    OK(bound_shot!=nullptr);
+    EQ(bound_shot->x_q8,127*IK_ENTITY_Q8_ONE);
+    EQ(bound_shot->y_q8,44*IK_ENTITY_Q8_ONE);
+    EQ(bound_shot->projectile_bind_time,1);
+
+    parent=ik_entity_get(&pool,p1);
+    OK(parent!=nullptr);
+    parent->move_type=IK_CNS_MOVE_HIT;
+    ik_entity_runtime_step(&runtime);
+    OK(ik_entity_get_const(&pool,bound_projectile)==nullptr);
+
     ik_cns_projectile_t pause_spec=projectile_spec;
     pause_spec.id=43;
     pause_spec.remove_time=10;
