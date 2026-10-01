@@ -133,6 +133,7 @@ int ik_entity_runtime_enter_state(
     entity->state_time = 65535u;
     entity->anim_time = 65535u;
     entity->move_contact = 0u;
+    entity->move_hit = 0u;
     if (!(spec && spec->hitdef_persist)) {
         entity->hitdef_hit_mask = 0u;
         entity->active_hitdef_global = -1;
@@ -454,6 +455,7 @@ static int process_controllers(
         .alive = (uint8_t)(entity->life > 0),
         .anim_ended = (uint8_t)(anim_ended != 0),
         .move_contact = entity->move_contact,
+        .move_hit = entity->move_hit,
         .round_state = 2u
     };
 
