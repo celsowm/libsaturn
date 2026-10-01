@@ -55,7 +55,8 @@ enum {
 };
 
 enum {
-    IK_CMD_PATTERN_BUFFER_HITPAUSE = 1u << 0
+    IK_CMD_PATTERN_BUFFER_HITPAUSE = 1u << 0,
+    IK_CMD_PATTERN_BUFFER_PAUSE_END = 1u << 1
 };
 
 
@@ -176,7 +177,8 @@ void ik_command_update(ik_command_state_t* state,
                        const ik_command_asset_t* asset,
                        const sat_pad_state_t* pad,
                        int facing,
-                       int hit_pause);
+                       int hit_pause,
+                       int pause_end_buffer);
 
 #ifdef __cplusplus
 }
