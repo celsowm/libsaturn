@@ -1911,7 +1911,12 @@ def _projectile_hitdef_row(
         "fall_envshake_freq": integer(ctrl.get("fall.envshake.freq"), 60),
         "id": integer(ctrl.get("id"), 0),
         "chain_id": integer(ctrl.get("chainid"), -1),
-        "no_chain_id": integer(ctrl.get("nochainid"), -1),
+        "no_chain_id": integer(
+            (ctrl.get("nochainid") or "-1").split(",", 1)[0], -1),
+        "no_chain_id2": integer(
+            (ctrl.get("nochainid") or "-1,-1").split(",", 1)[1]
+            if "," in (ctrl.get("nochainid") or "") else "-1",
+            -1),
     }
 
 
@@ -2455,7 +2460,16 @@ def parse_state(
                     ),
                     "id": integer(ctrl.get("id"), 0),
                     "chain_id": integer(ctrl.get("chainid"), -1),
-                    "no_chain_id": integer(ctrl.get("nochainid"), -1),
+                    "no_chain_id": integer(
+                        (ctrl.get("nochainid") or "-1").split(",", 1)[0],
+                        -1,
+                    ),
+                    "no_chain_id2": integer(
+                        (ctrl.get("nochainid") or "-1,-1").split(",", 1)[1]
+                        if "," in (ctrl.get("nochainid") or "")
+                        else "-1",
+                        -1,
+                    ),
                 }
             )
             direct_hitdef_count += 1
@@ -3873,7 +3887,8 @@ def emit(
         f"{h.get('fall_envshake_freq', 60)}u, "
         f"{h.get('id', 0)}, "
         f"{h.get('chain_id', -1)}, "
-        f"{h.get('no_chain_id', -1)}"
+        f"{h.get('no_chain_id', -1)}, "
+        f"{h.get('no_chain_id2', -1)}"
         "},"
         for h in hitdefs
     ]
