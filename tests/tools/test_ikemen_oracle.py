@@ -5,7 +5,11 @@ import json
 import tempfile
 from pathlib import Path
 
-from tools.ikemen_oracle.diff import compare, load_jsonl
+from tools.ikemen_oracle.diff import (
+    DEFAULT_IGNORED_FIELDS,
+    compare,
+    load_jsonl,
+)
 from tools.ikemen_oracle.install import (
     BEGIN_MARKER,
     END_MARKER,
@@ -107,6 +111,36 @@ def test_trace_diff() -> None:
         compare(aa, bb, "trace", diffs, 1e-4, 20)
         assert any("life" in d for d in diffs)
 
+        metadata_a = {"tick": 10, "rand_seed": 123, "life": 1000}
+        metadata_b = {"tick": 99, "rand_seed": 456, "life": 1000}
+        metadata_diffs: list[str] = []
+        compare(
+            metadata_a,
+            metadata_b,
+            "frame",
+            metadata_diffs,
+            1e-4,
+            20,
+            DEFAULT_IGNORED_FIELDS,
+        )
+        assert metadata_diffs == []
+
+def test_saturn_emitter_contract() -> None:
+    source = (
+        ROOT / "tools" / "ikemen_oracle" / "saturn_trace.cpp"
+    ).read_text(encoding="utf-8")
+    for field in [
+        "\\\"state_no\\\"",
+        "\\\"state_time\\\"",
+        "\\\"state_type\\\"",
+        "\\\"move_type\\\"",
+        "\\\"anim_elem\\\"",
+        "\\\"targets\\\"",
+        "\\\"hitdef_targets\\\"",
+        "\\\"projectiles\\\"",
+    ]:
+        assert field in source
+
 def test_hook_matches_upstream_symbols() -> None:
     hook = (
         ROOT / "tools" / "ikemen_oracle" / "oracle_hook.go"
@@ -131,6 +165,7 @@ def main() -> int:
     test_install_roundtrip()
     test_scenario_and_command()
     test_trace_diff()
+    test_saturn_emitter_contract()
     test_hook_matches_upstream_symbols()
     print("ikemen oracle tools: OK")
     return 0
