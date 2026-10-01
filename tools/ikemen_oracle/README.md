@@ -65,9 +65,9 @@ A scenario currently controls the native Ikemen GO quick-match CLI:
 
 ```json
 {
-  "p1": "kfm",
-  "p2": "kfm",
-  "stage": "stages/training.def",
+  "p1": "../Ikemen-GO-Screenpack/chars/kfm/kfm.def",
+  "p2": "../Ikemen-GO-Screenpack/chars/kfm/kfm.def",
+  "stage": "../Ikemen-GO-Screenpack/stages/stage0.def",
   "frames": 120,
   "seed": 1,
   "rounds": 1,
@@ -76,6 +76,10 @@ A scenario currently controls the native Ikemen GO quick-match CLI:
   "extra_args": []
 }
 ```
+
+The bundled scenario addresses the sibling ignored
+`.external/Ikemen-GO-Screenpack` checkout directly, so it does not require
+copying KFM or Training Room into the engine checkout.
 
 The RNG seed is applied before round character setup. For exact authored input
 streams, the next layer should feed Ikemen replay/input data rather than rely on
