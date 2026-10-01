@@ -74,6 +74,7 @@ var (
 	libsaturnOracleEncoder   *json.Encoder
 	libsaturnOracleFrameNo   int32
 	libsaturnOracleMaxFrames int32 = -1
+	libsaturnOracleRoundState int32 = 2
 )
 
 func libsaturnOracleEnabled() bool {
@@ -108,6 +109,8 @@ func libsaturnOracleBeginMatch(s *System) error {
 		libsaturnOracleEncoder.SetEscapeHTML(false)
 		libsaturnOracleMaxFrames =
 			libsaturnOracleIntEnv("LIBSATURN_IKEMEN_ORACLE_MAX_FRAMES", -1)
+		libsaturnOracleRoundState =
+			libsaturnOracleIntEnv("LIBSATURN_IKEMEN_ORACLE_ROUND_STATE", 2)
 	}
 	s.randseed = libsaturnOracleIntEnv(
 		"LIBSATURN_IKEMEN_ORACLE_SEED", 1)
@@ -183,6 +186,10 @@ func libsaturnOracleProjectileSnapshot(
 
 func libsaturnOracleCaptureFrame(s *System) bool {
 	if libsaturnOracleEncoder == nil {
+		return false
+	}
+	if libsaturnOracleRoundState >= 0 &&
+		int32(s.roundState()) != libsaturnOracleRoundState {
 		return false
 	}
 
