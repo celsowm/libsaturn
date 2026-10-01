@@ -3727,13 +3727,15 @@ def emit(
     helpers: list[dict] = []
     explods: list[dict] = []
     projectiles: list[dict] = []
+    projectile_mods: list[dict] = []
     reversals: list[dict] = []
     hitoverrides: list[dict] = []
 
     for number_ in selected:
         (
             row, hs, ss, cs, helper_rows, explod_rows,
-            projectile_rows, reversal_rows, hitoverride_rows
+            projectile_rows, projectile_mod_rows,
+            reversal_rows, hitoverride_rows
         ) = parse_state(
             by_number[number_],
             len(hitdefs),
@@ -3742,6 +3744,7 @@ def emit(
             len(helpers),
             len(explods),
             len(projectiles),
+            len(projectile_mods),
             const["default_spark_no"],
             const["default_guard_spark_no"],
         )
@@ -3754,6 +3757,7 @@ def emit(
         helpers.extend(helper_rows)
         explods.extend(explod_rows)
         projectiles.extend(projectile_rows)
+        projectile_mods.extend(projectile_mod_rows)
         reversals.extend(reversal_rows)
         hitoverrides.extend(hitoverride_rows)
 
@@ -3899,6 +3903,24 @@ def emit(
         for p in projectiles
     ]
 
+    projectile_mod_lines = [
+        "    {"
+        f"{m['id']}, {m['mask']}, "
+        f"{m['anim_no']}, {m['hit_anim_no']}, "
+        f"{m['remove_anim_no']}, {m['cancel_anim_no']}, "
+        f"{m['vel_x_q8']}, {m['vel_y_q8']}, "
+        f"{m['velmul_x_q8']}, {m['velmul_y_q8']}, "
+        f"{m['accel_x_q8']}, {m['accel_y_q8']}, "
+        f"{m['remove_time']}, {m['edge_bound']}, {m['stage_bound']}, "
+        f"{m['hits']}u, {m['miss_time']}u, {m['priority']}u, "
+        f"{m['remove_on_hit']}u, {m['spr_priority']}, "
+        f"{m['pause_move_time']}u, {m['super_move_time']}u, "
+        f"{m['bind_time']}, {m['remove_on_gethit']}u, "
+        f"{m['remove_on_state_change']}u"
+        "},"
+        for m in projectile_mods
+    ]
+
     reversal_lines = [
         "    {"
         f"{r['state_number']}, {r['start_time']}u, {r['end_time']}u, "
@@ -3966,6 +3988,10 @@ static const ik_cns_projectile_t {ident}_projectiles[{max(1, len(projectile_line
 {chr(10).join(projectile_lines) if projectile_lines else '    {0},'}
 }};
 
+static const ik_cns_projectile_mod_t {ident}_projectile_mods[{max(1, len(projectile_mod_lines))}] = {{
+{chr(10).join(projectile_mod_lines) if projectile_mod_lines else '    {0},'}
+}};
+
 static const ik_cns_reversaldef_t {ident}_reversals[{max(1, len(reversal_lines))}] = {{
 {chr(10).join(reversal_lines) if reversal_lines else '    {0},'}
 }};
@@ -4025,7 +4051,8 @@ const ik_cns_asset_t {ident}_cns = {{
     {ident}_reversals, {len(reversals)}u,
     {ident}_hitoverrides, {len(hitoverrides)}u,
     {ident}_explods, {len(explods)}u,
-    {ident}_projectiles, {len(projectiles)}u
+    {ident}_projectiles, {len(projectiles)}u,
+    {ident}_projectile_mods, {len(projectile_mods)}u
 }};
 """
 
@@ -4041,6 +4068,7 @@ const ik_cns_asset_t {ident}_cns = {{
 #define {macro}_CNS_HELPER_COUNT {len(helpers)}u
 #define {macro}_CNS_EXPLOD_COUNT {len(explods)}u
 #define {macro}_CNS_PROJECTILE_COUNT {len(projectiles)}u
+#define {macro}_CNS_PROJECTILE_MOD_COUNT {len(projectile_mods)}u
 #define {macro}_CNS_REVERSAL_COUNT {len(reversals)}u
 #define {macro}_CNS_HITOVERRIDE_COUNT {len(hitoverrides)}u
 
@@ -4060,6 +4088,7 @@ extern const ik_cns_asset_t {ident}_cns;
         "helpers": helpers,
         "explods": explods,
         "projectiles": projectiles,
+        "projectile_mods": projectile_mods,
         "reversals": reversals,
         "hitoverrides": hitoverrides,
         "common_deferred": common_deferred,
@@ -4116,6 +4145,8 @@ def main(argv: list[str] | None = None) -> int:
         f"controllers={len(report['controllers'])} "
         f"helpers={len(report['helpers'])} "
         f"explods={len(report['explods'])} "
+        f"projectiles={len(report['projectiles'])} "
+        f"projectile_mods={len(report['projectile_mods'])} "
         f"reversals={len(report['reversals'])} "
         f"hitoverrides={len(report['hitoverrides'])}"
     )
