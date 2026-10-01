@@ -2509,12 +2509,18 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 f->palfx_time = (uint16_t)(
                     ctrl->value0 <= 0 ? 1 :
                     ctrl->value0 > 65535 ? 65535 : ctrl->value0);
-                f->palfx_add_r = (int8_t)(add & 0xffu);
-                f->palfx_add_g = (int8_t)((add >> 8) & 0xffu);
-                f->palfx_add_b = (int8_t)((add >> 16) & 0xffu);
-                f->palfx_sin_r = (int8_t)(sinadd & 0xffu);
-                f->palfx_sin_g = (int8_t)((sinadd >> 8) & 0xffu);
-                f->palfx_sin_b = (int8_t)((sinadd >> 16) & 0xffu);
+                f->palfx_add_r =
+                    (int16_t)((int32_t)(add << 23) >> 23);
+                f->palfx_add_g =
+                    (int16_t)((int32_t)(add << 14) >> 23);
+                f->palfx_add_b =
+                    (int16_t)((int32_t)(add << 5) >> 23);
+                f->palfx_sin_r =
+                    (int16_t)((int32_t)(sinadd << 23) >> 23);
+                f->palfx_sin_g =
+                    (int16_t)((int32_t)(sinadd << 14) >> 23);
+                f->palfx_sin_b =
+                    (int16_t)((int32_t)(sinadd << 5) >> 23);
                 f->palfx_cycle = (uint16_t)(
                     ctrl->value3 <= 0 ? 1 :
                     ctrl->value3 > 65535 ? 65535 : ctrl->value3);
