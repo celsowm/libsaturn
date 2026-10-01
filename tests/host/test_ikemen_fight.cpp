@@ -3374,6 +3374,114 @@ int main() {
         OK(!ik_entity_handle_is_valid(helper_entity->target));
     }
 
+    /* TargetState runs in the attacker's CNS namespace, while SelfState
+     * restores the victim's own CNS. Deliberately give state 950 different
+     * animations in P1 and P2 so an ownership mix-up is observable. */
+    {
+        const ik_cns_controller_t p1_ctrls[] = {
+            {900,IK_CNS_CTRL_TARGET_STATE,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,950,0,0u},
+            {950,IK_CNS_CTRL_SELF_STATE,IK_CNS_TRIGGER_TIME_EQ,
+             2,0,0,1,IK_CNS_CTRL_HAS_CTRL},
+        };
+
+        ik_cns_state_t p1_states[3]{};
+        p1_states[0].number=0;
+        p1_states[0].anim=111;
+        p1_states[0].state_type=IK_CNS_STATE_STAND;
+        p1_states[0].move_type=IK_CNS_MOVE_IDLE;
+        p1_states[0].physics=IK_CNS_PHYS_STAND;
+        p1_states[0].ctrl=1;
+
+        p1_states[1].number=900;
+        p1_states[1].anim=900;
+        p1_states[1].state_type=IK_CNS_STATE_STAND;
+        p1_states[1].move_type=IK_CNS_MOVE_ATTACK;
+        p1_states[1].physics=IK_CNS_PHYS_NONE;
+        p1_states[1].controller_ofs=0u;
+        p1_states[1].controller_count=1u;
+
+        p1_states[2].number=950;
+        p1_states[2].anim=950;
+        p1_states[2].state_type=IK_CNS_STATE_AIR;
+        p1_states[2].move_type=IK_CNS_MOVE_HIT;
+        p1_states[2].physics=IK_CNS_PHYS_NONE;
+        p1_states[2].controller_ofs=1u;
+        p1_states[2].controller_count=1u;
+
+        ik_cns_asset_t p1_asset{};
+        p1_asset.constants.life=1000;
+        p1_asset.constants.ground_back=15;
+        p1_asset.constants.ground_front=16;
+        p1_asset.constants.air_back=12;
+        p1_asset.constants.air_front=12;
+        p1_asset.constants.height=60;
+        p1_asset.states=p1_states;
+        p1_asset.state_count=3u;
+        p1_asset.controllers=p1_ctrls;
+        p1_asset.controller_count=2u;
+
+        ik_cns_state_t p2_states[2]{};
+        p2_states[0].number=0;
+        p2_states[0].anim=222;
+        p2_states[0].state_type=IK_CNS_STATE_STAND;
+        p2_states[0].move_type=IK_CNS_MOVE_IDLE;
+        p2_states[0].physics=IK_CNS_PHYS_STAND;
+        p2_states[0].ctrl=1;
+
+        p2_states[1].number=950;
+        p2_states[1].anim=777;
+        p2_states[1].state_type=IK_CNS_STATE_CROUCH;
+        p2_states[1].move_type=IK_CNS_MOVE_IDLE;
+        p2_states[1].physics=IK_CNS_PHYS_CROUCH;
+
+        ik_cns_asset_t p2_asset{};
+        p2_asset.constants.life=1000;
+        p2_asset.constants.ground_back=15;
+        p2_asset.constants.ground_front=16;
+        p2_asset.constants.air_back=12;
+        p2_asset.constants.air_front=12;
+        p2_asset.constants.height=60;
+        p2_asset.states=p2_states;
+        p2_asset.state_count=2u;
+
+        ik_fight_init(&g,&p1_asset);
+        ik_fight_set_player_cns(&g,0u,&p1_asset);
+        ik_fight_set_player_cns(&g,1u,&p2_asset);
+        place(&g,100,160);
+
+        g.fighters[0].state=900;
+        g.fighters[0].anim=900;
+        g.fighters[0].state_time=0u;
+        g.fighters[0].anim_time=0u;
+        g.fighters[0].ctrl=0;
+        g.fighters[0].state_owner=0u;
+        g.fighters[0].target_index=1;
+
+        g.fighters[1].state=0;
+        g.fighters[1].anim=222;
+        g.fighters[1].state_time=0u;
+        g.fighters[1].anim_time=0u;
+        g.fighters[1].ctrl=1;
+        g.fighters[1].state_owner=1u;
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+
+        EQ(g.fighters[1].state,950);
+        EQ(g.fighters[1].anim,950);
+        EQ(g.fighters[1].state_owner,0u);
+        EQ(ik_fight_state_type(&g,&g.fighters[1]),IK_CNS_STATE_AIR);
+
+        tick2(&g,&p1,&p2);
+
+        EQ(g.fighters[1].state,0);
+        EQ(g.fighters[1].anim,222);
+        EQ(g.fighters[1].state_owner,1u);
+        EQ(g.fighters[1].ctrl,1);
+    }
+
     /* Helper target controllers also work on non-root targets. The target
      * stays an entity handle: bind/facing/life mutate the captured Helper,
      * then TargetState enters its state and releases the source target. */
