@@ -3127,6 +3127,142 @@ int main() {
         EQ(g.fighters[0].hp,430);
     }
 
+    /* Helper throws own their target through a generational entity handle.
+     * The helper's subsequent TargetBind/TargetState controllers operate on
+     * the captured root fighter and release that binding deterministically. */
+    {
+        ik_cns_hitdef_t hit{};
+        hit.state_number=946;
+        hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
+        hit.trigger_value=0;
+        hit.priority=4u;
+        hit.hit_flags=IK_CNS_HIT_DEFAULT;
+        hit.flags=IK_CNS_HITDEF_THROW;
+        hit.attack_attr_mask=IK_CNS_ATTR_NORMAL_THROW;
+        hit.p1_state_no=947;
+        hit.p2_state_no=948;
+        hit.p1_spr_priority=2;
+
+        const ik_cns_controller_t ctrls[] = {
+            {947,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ALWAYS,
+             0,0,12*IK_CNS_Q8_ONE,-20*IK_CNS_Q8_ONE,0u},
+            {947,IK_CNS_CTRL_TARGET_STATE,IK_CNS_TRIGGER_TIME_EQ,
+             2,0,0,0,0u},
+        };
+
+        ik_cns_state_t states[4]{};
+        states[0].number=0;
+        states[0].anim=0;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_IDLE;
+        states[0].physics=IK_CNS_PHYS_STAND;
+        states[0].ctrl=1;
+
+        states[1].number=946;
+        states[1].anim=910;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_ATTACK;
+        states[1].physics=IK_CNS_PHYS_NONE;
+        states[1].hitdef_count=1u;
+
+        states[2].number=947;
+        states[2].anim=0;
+        states[2].state_type=IK_CNS_STATE_STAND;
+        states[2].move_type=IK_CNS_MOVE_ATTACK;
+        states[2].physics=IK_CNS_PHYS_NONE;
+        states[2].controller_count=2u;
+
+        states[3].number=948;
+        states[3].anim=0;
+        states[3].state_type=IK_CNS_STATE_STAND;
+        states[3].move_type=IK_CNS_MOVE_HIT;
+        states[3].physics=IK_CNS_PHYS_NONE;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=4u;
+        asset.hitdefs=&hit;
+        asset.hitdef_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=2u;
+
+        ik_entity_pool_t pool{};
+        ik_entity_pool_init(&pool);
+        ik_entity_handle_t p1_entity{};
+        ik_entity_handle_t p2_entity{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,1,0u,
+            ik_entity_invalid_handle(),&p1_entity));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,2,1u,
+            ik_entity_invalid_handle(),&p2_entity));
+
+        ik_fight_init(&g,&asset);
+        ik_fight_bind_entities(&g,&pool,p1_entity,p2_entity);
+        place(&g,100,145);
+
+        ik_entity_t* root0=ik_entity_get(&pool,p1_entity);
+        ik_entity_t* root1=ik_entity_get(&pool,p2_entity);
+        OK(root0!=nullptr); OK(root1!=nullptr);
+        root0->x_q8=100*IK_CNS_Q8_ONE;
+        root0->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
+        root0->facing=1;
+        root1->x_q8=145*IK_CNS_Q8_ONE;
+        root1->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
+        root1->facing=-1;
+
+        ik_entity_handle_t helper{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_HELPER,92,0u,p1_entity,&helper));
+        ik_entity_t* helper_entity=ik_entity_get(&pool,helper);
+        OK(helper_entity!=nullptr);
+        helper_entity->x_q8=100*IK_CNS_Q8_ONE;
+        helper_entity->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
+        helper_entity->facing=1;
+        helper_entity->life=1000;
+
+        ik_entity_runtime_t runtime{};
+        ik_entity_runtime_init(
+            &runtime,&pool,&asset,&k_table,&k_table);
+        OK(ik_entity_runtime_enter_state(&runtime,helper,946));
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+
+        helper_entity=ik_entity_get(&pool,helper);
+        OK(helper_entity!=nullptr);
+        EQ(helper_entity->state_no,947);
+        EQ(g.fighters[1].state,948);
+        OK(ik_entity_handle_equal(
+            helper_entity->target,p2_entity));
+        OK(ik_entity_handle_equal(
+            g.fighters[1].bound_entity,helper));
+
+        tick2(&g,&p1,&p2);
+        helper_entity=ik_entity_get(&pool,helper);
+        OK(helper_entity!=nullptr);
+        EQ(g.fighters[1].x_q8,
+           helper_entity->x_q8+12*IK_CNS_Q8_ONE);
+        EQ(g.fighters[1].y_q8,
+           helper_entity->y_q8-20*IK_CNS_Q8_ONE);
+
+        tick2(&g,&p1,&p2);
+        tick2(&g,&p1,&p2);
+        EQ(g.fighters[1].state,0);
+        OK(!ik_entity_handle_is_valid(
+            g.fighters[1].bound_entity));
+        helper_entity=ik_entity_get(&pool,helper);
+        OK(helper_entity!=nullptr);
+        OK(!ik_entity_handle_is_valid(helper_entity->target));
+    }
+
     /* Dynamic helper attacks participate in ReversalDef before the normal
      * entity hit/guard path. AA matches physical NA/SA/HA, not projectiles. */
     {
