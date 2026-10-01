@@ -1867,47 +1867,88 @@ static int entity_target_controller_bridge(
         ik_entity_get(runtime->pool, source_handle);
     if (!source) return -1;
 
+    const ik_entity_handle_t target_handle = source->target;
+    ik_entity_t* target_entity =
+        ik_entity_get(runtime->pool, target_handle);
+    if (!target_entity) return 0;
+
     const int target_index =
-        fighter_index_from_entity_handle(fight, source->target);
-    if (target_index < 0 || target_index > 1) return 0;
-    ik_fighter_t* target = &fight->fighters[target_index];
+        fighter_index_from_entity_handle(fight, target_handle);
+    ik_fighter_t* target_fighter =
+        target_index >= 0 && target_index < 2
+            ? &fight->fighters[target_index] : 0;
 
     switch ((ik_cns_controller_type_t)ctrl->type) {
         case IK_CNS_CTRL_TARGET_BIND:
-            target->bound_to = -1;
-            target->bound_entity = source_handle;
-            target->x_q8 =
-                source->x_q8 +
-                (int32_t)source->facing * ctrl->value0;
-            target->y_q8 = source->y_q8 + ctrl->value1;
-            target->vx_q8 = 0;
-            target->vy_q8 = 0;
-            sync_position(target);
+            if (target_fighter) {
+                target_fighter->bound_to = -1;
+                target_fighter->bound_entity = source_handle;
+                target_fighter->x_q8 =
+                    source->x_q8 +
+                    (int32_t)source->facing * ctrl->value0;
+                target_fighter->y_q8 =
+                    source->y_q8 + ctrl->value1;
+                target_fighter->vx_q8 = 0;
+                target_fighter->vy_q8 = 0;
+                sync_position(target_fighter);
+                sync_fighter_entity(fight, target_fighter);
+            } else {
+                target_entity->x_q8 =
+                    source->x_q8 +
+                    (int32_t)source->facing * ctrl->value0;
+                target_entity->y_q8 =
+                    source->y_q8 + ctrl->value1;
+                target_entity->vx_q8 = 0;
+                target_entity->vy_q8 = 0;
+            }
             break;
 
         case IK_CNS_CTRL_TARGET_FACING:
-            target->facing = (int8_t)(
-                source->facing * (ctrl->value0 < 0 ? -1 : 1));
+            if (target_fighter) {
+                target_fighter->facing = (int8_t)(
+                    source->facing * (ctrl->value0 < 0 ? -1 : 1));
+                sync_fighter_entity(fight, target_fighter);
+            } else {
+                target_entity->facing = (int8_t)(
+                    source->facing * (ctrl->value0 < 0 ? -1 : 1));
+            }
             break;
 
-        case IK_CNS_CTRL_TARGET_LIFE_ADD: {
-            int hp = (int)target->hp + ctrl->value0;
-            const int max_hp = ik_fight_max_hp(fight);
-            if (hp > max_hp) hp = max_hp;
-            if (hp <= 0) {
-                hp = 0;
-                fight->winner =
-                    (uint8_t)((target_index ^ 1) + 1);
-                fight->events |= IK_EVENT_KO;
+        case IK_CNS_CTRL_TARGET_LIFE_ADD:
+            if (target_fighter) {
+                int hp = (int)target_fighter->hp + ctrl->value0;
+                const int max_hp = ik_fight_max_hp(fight);
+                if (hp > max_hp) hp = max_hp;
+                if (hp <= 0) {
+                    hp = 0;
+                    fight->winner =
+                        (uint8_t)((target_index ^ 1) + 1);
+                    fight->events |= IK_EVENT_KO;
+                }
+                target_fighter->hp = (int16_t)hp;
+                sync_fighter_entity(fight, target_fighter);
+            } else {
+                int life = (int)target_entity->life + ctrl->value0;
+                if (life < 0) life = 0;
+                if (life > 32767) life = 32767;
+                target_entity->life = (int16_t)life;
             }
-            target->hp = (int16_t)hp;
             break;
-        }
 
         case IK_CNS_CTRL_TARGET_STATE:
-            target->bound_entity = ik_entity_invalid_handle();
-            target->bound_to = -1;
-            enter_state(fight, target, (int16_t)ctrl->value0);
+            if (target_fighter) {
+                target_fighter->bound_entity =
+                    ik_entity_invalid_handle();
+                target_fighter->bound_to = -1;
+                enter_state(
+                    fight, target_fighter,
+                    (int16_t)ctrl->value0);
+                sync_fighter_entity(fight, target_fighter);
+            } else {
+                (void)ik_entity_runtime_enter_state(
+                    runtime, target_handle,
+                    (int16_t)ctrl->value0);
+            }
             (void)ik_entity_set_target(
                 runtime->pool, source_handle,
                 ik_entity_invalid_handle());
