@@ -13,6 +13,7 @@ from tools.ikemen_cns import (
     compile_explod_controller,
     compile_helper_controller,
     compile_projectile_controller,
+    controller_trigger,
     emit,
 )  # noqa: E402
 
@@ -2078,6 +2079,38 @@ helper_ctrl = report["controllers"][helper_state["controller_ofs"]]
 assert helper_ctrl["type"] == "IK_CNS_CTRL_DESTROY_SELF"
 assert helper_ctrl["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
 assert helper_ctrl["trigger_value"] == 5
+
+proj_query_trigger = Section(
+    "State 9000, Followup",
+    [
+        ("type", "ChangeState"),
+        ("trigger1", "ProjHitTime = 0"),
+        ("value", "9002"),
+    ],
+)
+kind, value, packed = controller_trigger(
+    proj_query_trigger, "changestate"
+)
+assert kind == "IK_CNS_TRIGGER_PROJECTILE_QUERY"
+assert value == 0
+assert "IK_CNS_PROJ_QUERY_HIT_TIME" in str(packed)
+assert "IK_CNS_QUERY_EQ" in str(packed)
+
+numproj_trigger = Section(
+    "State 9000, Active projectile",
+    [
+        ("type", "CtrlSet"),
+        ("trigger1", "NumProj > 0"),
+        ("value", "1"),
+    ],
+)
+kind, value, packed = controller_trigger(
+    numproj_trigger, "ctrlset"
+)
+assert kind == "IK_CNS_TRIGGER_PROJECTILE_QUERY"
+assert value == 0
+assert "IK_CNS_PROJ_QUERY_NUM" in str(packed)
+assert "IK_CNS_QUERY_GT" in str(packed)
 
 projectile_ctrl = Section(
     "State 9000, Fireball",
