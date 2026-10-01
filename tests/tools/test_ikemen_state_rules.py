@@ -8,7 +8,33 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.ikemen_state_rules import emit, parse_state_rules  # noqa: E402
+from tools.ikemen_state_rules import (  # noqa: E402
+    Parser,
+    _lower_instruction,
+    emit,
+    parse_state_rules,
+)
+
+query_code = Parser(
+    "NumProj > 0 && ProjContact = 1 && ProjHitTime <= 3",
+    {},
+).parse()
+assert [i.op for i in query_code] == [
+    "num_projectiles_gt", "proj_contact_eq", "and",
+    "proj_hit_time_le", "and",
+]
+lowered_query = [
+    vm
+    for insn in query_code
+    for vm in _lower_instruction(insn)
+]
+query_fields = [
+    vm.field for vm in lowered_query
+    if vm.op == "IK_EXPR_LOAD_FIELD"
+]
+assert "IK_EXPR_FIELD_NUM_PROJECTILES" in query_fields
+assert "IK_EXPR_FIELD_PROJ_CONTACT" in query_fields
+assert "IK_EXPR_FIELD_PROJ_HIT_TIME" in query_fields
 
 SOURCE = r"""
 [Command]
