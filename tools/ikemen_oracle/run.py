@@ -8,7 +8,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.ikemen_oracle.inputs import write_timeline
+try:
+    from .inputs import write_timeline
+except ImportError:
+    from inputs import write_timeline
 
 SCHEMA = 1
 
