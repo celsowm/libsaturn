@@ -3440,6 +3440,10 @@ def compile_common_states(
                     "IK_CNS_TRIGGER_TIME_EQ", 1,
                 ),
                 _common_ctrl(
+                    5100, "IK_CNS_CTRL_MAKE_DUST",
+                    "IK_CNS_TRIGGER_TIME_EQ", 2, 0, 60, 0,
+                ),
+                _common_ctrl(
                     5100, "IK_CNS_CTRL_FALL_GROUND_BRANCH",
                     "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 5110, 0,
                 ),
@@ -3452,7 +3456,7 @@ def compile_common_states(
                     "IK_CNS_TRIGGER_ANIM_END", 0, 0, 5101, 0,
                 ),
             ]
-            deferred[n] = ["ground effect"]
+            deferred.pop(n, None)
 
         elif n == 5101:
             row = state_row(5101, 5160, 0, land_state=5110)
@@ -3550,7 +3554,7 @@ def compile_common_states(
             deferred[n] = ["HitFallSet and post-get-up attribute windows"]
 
         elif n == 5150:
-            row = state_row(5150, -1, 0, spr=-3)
+            row = state_row(5150, 5140, 0, spr=-3)
             cs += [
                 _common_ctrl(
                     5150, "IK_CNS_CTRL_VEL_MUL",
@@ -3573,7 +3577,7 @@ def compile_common_states(
                     "IK_CNS_TRIGGER_ALWAYS", 0, 0, 7, 1,
                 ),
             ]
-            deferred[n] = ["MatchOver animation variant"]
+            deferred.pop(n, None)
 
         elif n == 5200:
             row = state_row(5200, -1, 0, land_state=5201)
