@@ -401,7 +401,9 @@ int ik_entity_expr_read_field(
     void* user,
     uint8_t redirect,
     uint8_t field,
-    int16_t index,
+    int32_t index,
+    int32_t redirect_id,
+    uint8_t redirect_index,
     int32_t* out_value
 ) {
     if (!user || !out_value) return 0;
@@ -410,7 +412,12 @@ int ik_entity_expr_read_field(
     const ik_entity_t* self =
         ik_entity_get_const(binding->pool, binding->self);
     const ik_entity_handle_t redirected =
-        ik_entity_redirect(binding->pool, binding->self, redirect);
+        redirect == IK_EXPR_REDIRECT_TARGET
+            ? ik_entity_redirect_target(
+                binding->pool, binding->self,
+                redirect_id, redirect_index)
+            : ik_entity_redirect(
+                binding->pool, binding->self, redirect);
     const ik_entity_t* entity =
         ik_entity_get_const(binding->pool, redirected);
     if (!self || !entity) return 0;
@@ -471,11 +478,11 @@ int ik_entity_expr_read_field(
             *out_value = entity->type;
             return 1;
         case IK_EXPR_FIELD_VAR:
-            if (index < 0 || index >= (int16_t)IK_ENTITY_VAR_COUNT) return 0;
+            if (index < 0 || index >= (int32_t)IK_ENTITY_VAR_COUNT) return 0;
             *out_value = entity->vars[index];
             return 1;
         case IK_EXPR_FIELD_FVAR_Q16:
-            if (index < 0 || index >= (int16_t)IK_ENTITY_FVAR_COUNT) return 0;
+            if (index < 0 || index >= (int32_t)IK_ENTITY_FVAR_COUNT) return 0;
             *out_value = entity->fvars_q16[index];
             return 1;
         case IK_EXPR_FIELD_NUM_PROJECTILES: {
@@ -508,9 +515,13 @@ int ik_entity_expr_read_field(
         case IK_EXPR_FIELD_PROJ_GUARDED_TIME:
             *out_value = entity->proj_query_guarded_time;
             return 1;
+        case IK_EXPR_FIELD_NUM_TARGETS:
+            *out_value = ik_entity_target_count(
+                binding->pool, redirected, index);
+            return 1;
 
         case IK_EXPR_FIELD_SYSVAR:
-            if (index < 0 || index >= (int16_t)IK_ENTITY_SYSVAR_COUNT) return 0;
+            if (index < 0 || index >= (int32_t)IK_ENTITY_SYSVAR_COUNT) return 0;
             *out_value = entity->sysvars[index];
             return 1;
         default:
