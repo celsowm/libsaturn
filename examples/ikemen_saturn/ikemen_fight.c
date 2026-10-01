@@ -3652,10 +3652,6 @@ static void resolve_entity_contacts(
                 fight, v, reversal_entity_state_bit(attacker), hitdef)) {
             continue;
         }
-        if (!entity_juggle_allows_target(
-                fight, attacker, v, hitdef)) {
-            continue;
-        }
 
         const uint32_t bit = (uint32_t)1u << local_hitdef;
         if ((attacker->hitdef_hit_mask & bit) != 0u) continue;
@@ -3703,6 +3699,11 @@ static void resolve_entity_contacts(
                 (void)projectile_contact_consumed(
                     fight, attackers[n], 0);
             }
+            continue;
+        }
+
+        if (!entity_juggle_allows_target(
+                fight, attacker, v, hitdef)) {
             continue;
         }
 
