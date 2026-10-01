@@ -371,7 +371,7 @@ static void controls_from_commands(
 }
 
 int main(int argc, char** argv) {
-    if (argc < 6) {
+    if (argc < 5) {
         std::fprintf(
             stderr, "usage: %s TRACE FRAMES SEED INPUTS\n", argv[0]);
         return 2;
