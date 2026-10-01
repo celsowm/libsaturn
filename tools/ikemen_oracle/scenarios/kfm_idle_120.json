@@ -1,0 +1,12 @@
+{
+  "name": "kfm_idle_120",
+  "p1": "kfm",
+  "p2": "kfm",
+  "stage": "stages/training.def",
+  "frames": 120,
+  "seed": 1,
+  "rounds": 1,
+  "p1_ai": 0,
+  "p2_ai": 0,
+  "extra_args": []
+}
