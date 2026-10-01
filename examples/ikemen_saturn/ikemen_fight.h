@@ -221,6 +221,10 @@ typedef struct ik_fight {
 } ik_fight_t;
 
 void ik_fight_init(ik_fight_t* fight, const ik_cns_asset_t* cns);
+void ik_fight_init_players(
+    ik_fight_t* fight,
+    const ik_cns_asset_t* p1_cns,
+    const ik_cns_asset_t* p2_cns);
 void ik_fight_set_player_cns(
     ik_fight_t* fight, uint8_t player, const ik_cns_asset_t* cns);
 void ik_fight_bind_entities(
@@ -239,6 +243,7 @@ void ik_fight_update(ik_fight_t* fight,
                      const ik_frame_table_t* p2_frames);
 
 int ik_fight_max_hp(const ik_fight_t* fight);
+int ik_fight_max_hp_player(const ik_fight_t* fight, uint8_t player);
 int ik_body_half_w(const ik_fighter_t* f);
 int ik_body_h(const ik_fighter_t* f);
 void ik_body_box(const ik_fighter_t* f, int* out_left, int* out_top,
