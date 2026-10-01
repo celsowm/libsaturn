@@ -33,7 +33,7 @@ The Ymir harness must be given the matching profile explicitly:
 * A/B: light/strong kick
 * Down + X/Y/A/B: the four crouching normals
 * In the air, X/Y/A/B: light/strong punch and light/strong kick
-* START: reset round (training convenience)
+* START: KFM taunt through the original CMD/State -1 rule
 * P2 pad (optional): controls P2; unplugged = idle training dummy
 
 ## Source checkouts
@@ -184,8 +184,10 @@ bookkeeping tick so authored Time=1 controllers remain reachable after the
 freeze. Pause/SuperPause movetime now advances only the pause owner while the
 opponent and round timer remain frozen; owner HitDefs and authorized
 Helpers/Projectiles/Explods continue through their contact and movement paths.
-Projectile and Explod pausemovetime/supermovetime budgets are consumed
-independently. Pause/SuperPause endcmdbuftime now reaches the command runtime:
+Helper, Projectile and Explod pausemovetime/supermovetime budgets are consumed
+independently from the owner's fighter movetime, including both owners'
+dynamic entities during Pause/SuperPause. Pause/SuperPause endcmdbuftime now
+reaches the command runtime:
 patterns preserve command.buffer.pauseend, frozen players retain an existing
 buffer during the authored final pause window, and a command completed there
 receives Ikemen's extra completion tick. HitOverride is also compiled as a
@@ -272,16 +274,23 @@ classic MUGEN Projectile controller to an independent projectile record with
 projanim/projhitanim/projremanim/projcancelanim, embedded HitDef, offset,
 velocity/velmul/accel, removetime, edge/stage bounds, projhits/projmisstime,
 projpriority, sprpriority, ownpal and pause/super-move budgets. Classic
-Projectiles re-arm after projmisstime, can survive multiple contacts, return
-from hit animation to the main animation, and resolve projectile-vs-projectile
-CLSN1 trades before fighter contacts by decrementing both priorities. A
-projectile reaching zero priority follows projcancelanim when authored.
+Projectiles also preserve bindtime, removeongethit/removeonchangestate and
+P1/P2 postype anchors. They re-arm after projmisstime, can survive multiple
+contacts, return from hit animation to the main animation, and resolve
+projectile-vs-projectile CLSN1 trades before fighter contacts by decrementing
+both priorities. A projectile reaching zero priority follows projcancelanim
+when authored; timeout and edge/stage-bound removal now follow projremanim
+when present. projstagebound uses the fight's authored stage limits instead of
+the screen's 0..320 range. Root projectile query state exposes NumProj,
+ProjContact/ProjHit/ProjGuarded and their *Time forms to both State -1
+expressions and CNS StateController triggers.
 
 Explods use a separate presentation runtime with source
 anim/position/velocity/acceleration/removetime and stable SprPriority ordering.
 They also support bindtime, removeongethit, removeonchangestate, ownpal,
-pausemovetime and supermovetime; bound Explods follow the parent transform for
-the authored lifetime instead of being approximated as Helpers.
+pausemovetime/supermovetime, P1/P2 postype anchors, facing/vfacing, scale and
+none/alpha/add/sub blend modes; bound Explods follow the selected positional
+anchor for the authored lifetime instead of being approximated as Helpers.
 Helpers also own persistent/re-armable HitDef state, CLSN1 contact against the
 opposing fighter, anti-repeat hit masks, hitpause, movecontact/movehit, juggle
 cost, damage/guard application and p1stateno transitions. Helper throws now
@@ -360,9 +369,11 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   Helper ReversalDef and projectile HitOverride AP are exercised end-to-end.
   Pause/SuperPause movetime, paused-owner contact resolution and
   endcmdbuftime command retention are implemented
-* remaining classic Projectile/Explod compatibility includes additional
-  postypes, exact stage/depth bounds, scale/angle/window/remappal,
-  ModifyProjectile and query triggers such as ProjContact/ProjHitTime
+* remaining classic Projectile/Explod compatibility includes front/back/
+  left/right/none postypes, camera-relative edge semantics, depth/height
+  bounds, angle/window/remappal and ModifyProjectile. P1/P2 postypes,
+  projremanim lifecycle, scale/blend for Explod and Projectile query triggers
+  are implemented
 * remaining HitDef semantics such as reversal, hitonce/chain IDs,
   corner-push and advanced attr interactions
 * remaining super presentation semantics: exact per-palette Elecbyte colour
