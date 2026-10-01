@@ -147,6 +147,7 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_HELPER,
     IK_CNS_CTRL_EXPLOD,
     IK_CNS_CTRL_PROJECTILE,
+    IK_CNS_CTRL_MODIFY_PROJECTILE,
     IK_CNS_CTRL_DESTROY_SELF,
     IK_CNS_CTRL_PAUSE,
     IK_CNS_CTRL_SUPER_PAUSE,
@@ -598,6 +599,57 @@ typedef struct ik_cns_projectile {
 } ik_cns_projectile_t;
 
 enum {
+    IK_CNS_PROJ_MOD_ANIM = 1u << 0,
+    IK_CNS_PROJ_MOD_HIT_ANIM = 1u << 1,
+    IK_CNS_PROJ_MOD_REMOVE_ANIM = 1u << 2,
+    IK_CNS_PROJ_MOD_CANCEL_ANIM = 1u << 3,
+    IK_CNS_PROJ_MOD_VELOCITY = 1u << 4,
+    IK_CNS_PROJ_MOD_VELMUL = 1u << 5,
+    IK_CNS_PROJ_MOD_ACCEL = 1u << 6,
+    IK_CNS_PROJ_MOD_REMOVE_TIME = 1u << 7,
+    IK_CNS_PROJ_MOD_HITS = 1u << 8,
+    IK_CNS_PROJ_MOD_MISS_TIME = 1u << 9,
+    IK_CNS_PROJ_MOD_PRIORITY = 1u << 10,
+    IK_CNS_PROJ_MOD_SPR_PRIORITY = 1u << 11,
+    IK_CNS_PROJ_MOD_EDGE_BOUND = 1u << 12,
+    IK_CNS_PROJ_MOD_STAGE_BOUND = 1u << 13,
+    IK_CNS_PROJ_MOD_REMOVE_ON_HIT = 1u << 14,
+    IK_CNS_PROJ_MOD_PAUSE_MOVE = 1u << 15,
+    IK_CNS_PROJ_MOD_SUPER_MOVE = 1u << 16,
+    IK_CNS_PROJ_MOD_BIND_TIME = 1u << 17,
+    IK_CNS_PROJ_MOD_REMOVE_ON_GETHIT = 1u << 18,
+    IK_CNS_PROJ_MOD_REMOVE_ON_STATE_CHANGE = 1u << 19
+};
+
+typedef struct ik_cns_projectile_mod {
+    int32_t id;
+    uint32_t mask;
+    int16_t anim_no;
+    int16_t hit_anim_no;
+    int16_t remove_anim_no;
+    int16_t cancel_anim_no;
+    int32_t vel_x_q8;
+    int32_t vel_y_q8;
+    int32_t velmul_x_q8;
+    int32_t velmul_y_q8;
+    int32_t accel_x_q8;
+    int32_t accel_y_q8;
+    int16_t remove_time;
+    int16_t edge_bound;
+    int16_t stage_bound;
+    uint8_t hits;
+    uint8_t miss_time;
+    uint8_t priority;
+    uint8_t remove_on_hit;
+    int8_t spr_priority;
+    uint8_t pause_move_time;
+    uint8_t super_move_time;
+    int16_t bind_time;
+    uint8_t remove_on_gethit;
+    uint8_t remove_on_state_change;
+} ik_cns_projectile_mod_t;
+
+enum {
     IK_CNS_TRANS_NONE = 0,
     IK_CNS_TRANS_ALPHA,
     IK_CNS_TRANS_ADD,
@@ -662,6 +714,8 @@ typedef struct ik_cns_asset {
     uint16_t explod_count;
     const ik_cns_projectile_t* projectiles;
     uint16_t projectile_count;
+    const ik_cns_projectile_mod_t* projectile_mods;
+    uint16_t projectile_mod_count;
 } ik_cns_asset_t;
 
 int16_t ik_cns_q8_from_int(int16_t value);
