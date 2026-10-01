@@ -429,6 +429,9 @@ typedef struct ik_cns_hitdef {
     uint16_t fall_envshake_time;
     int16_t fall_envshake_ampl;
     uint16_t fall_envshake_freq;
+    int32_t id;
+    int32_t chain_id;
+    int32_t no_chain_id;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_reversaldef {
