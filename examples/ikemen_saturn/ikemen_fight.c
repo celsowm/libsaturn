@@ -301,6 +301,8 @@ static void fighter_spawn(ik_fight_t* fight, ik_fighter_t* f,
     f->not_hit_by_time = 0u;
     f->target_index = -1;
     f->target_id = -1;
+    f->last_hit_owner = -1;
+    f->last_hit_id = -1;
     f->bound_to = -1;
     f->bound_entity = ik_entity_invalid_handle();
 }
@@ -1371,6 +1373,28 @@ static int hitdef_allows_target(const ik_fight_t* fight,
     }
 }
 
+static int hitdef_chain_allows_target(
+    const ik_fighter_t* victim,
+    uint8_t attacker_owner,
+    const ik_cns_hitdef_t* hitdef
+) {
+    if (!victim || !hitdef) return 0;
+    const int same_attacker =
+        victim->last_hit_owner == (int8_t)attacker_owner;
+
+    if (hitdef->chain_id >= 0) {
+        if (!same_attacker || victim->last_hit_id != hitdef->chain_id) {
+            return 0;
+        }
+    }
+    if (same_attacker &&
+        (victim->last_hit_id == hitdef->no_chain_id ||
+         victim->last_hit_id == hitdef->no_chain_id2)) {
+        return 0;
+    }
+    return 1;
+}
+
 static int juggle_cost(const ik_fight_t* fight,
                        const ik_fighter_t* attacker,
                        const ik_cns_hitdef_t* hitdef) {
@@ -1579,6 +1603,8 @@ static void apply_throw(ik_fight_t* fight, int attacker,
 
     a->target_index = (int8_t)victim;
     a->target_id = hitdef->id;
+    v->last_hit_owner = (int8_t)attacker;
+    v->last_hit_id = hitdef->id;
     v->bound_to = (int8_t)attacker;
     v->bound_entity = ik_entity_invalid_handle();
     a->move_contact = 1u;
@@ -1601,6 +1627,7 @@ static void apply_throw(ik_fight_t* fight, int attacker,
     v->gethit_fall_recover_time = hitdef->fall_recover_time;
 
     if (hitdef->p2_state_no >= 0) {
+        v->state_owner = a->state_owner;
         enter_state(fight, v, hitdef->p2_state_no);
     }
     if (hitdef->p1_state_no >= 0) {
@@ -1693,6 +1720,8 @@ static void apply_damage(ik_fight_t* fight, int victim,
     const int attacker = victim ^ 1;
     fight->fighters[attacker].target_index = (int8_t)victim;
     fight->fighters[attacker].target_id = hitdef ? hitdef->id : 0;
+    v->last_hit_owner = (int8_t)attacker;
+    v->last_hit_id = hitdef ? hitdef->id : 0;
     /* Losing a throw owner releases its bound target. State 820's compiled
      * !isbound SelfState then returns the target to its own fall graph. */
     release_bound_target(fight, victim);
@@ -2187,6 +2216,8 @@ static void apply_damage_from_entity(
     (void)ik_entity_add_target(
         fight->entities, attacker_handle,
         fight->player_entities[victim], hitdef->id);
+    v->last_hit_owner = (int8_t)attacker->owner_player;
+    v->last_hit_id = hitdef->id;
     release_bound_target(fight, victim);
     release_entity_bound_fighter(fight, v);
 
@@ -2391,6 +2422,8 @@ static void apply_throw_from_entity(
         fight->player_entities[victim], hitdef->id);
     v->bound_to = -1;
     v->bound_entity = attacker_handle;
+    v->last_hit_owner = (int8_t)attacker->owner_player;
+    v->last_hit_id = hitdef->id;
     attacker->move_contact = 1u;
     attacker->move_hit = 1u;
 
@@ -2418,6 +2451,7 @@ static void apply_throw_from_entity(
     v->gethit_fall_recover_time = hitdef->fall_recover_time;
 
     if (hitdef->p2_state_no >= 0) {
+        v->state_owner = attacker->state_owner;
         enter_state(fight, v, hitdef->p2_state_no);
     }
     if (hitdef->p1_state_no >= 0) {
@@ -3999,6 +4033,8 @@ static void resolve_entity_contacts(
             continue;
         }
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
+        if (!hitdef_chain_allows_target(
+                v, attacker->owner_player, hitdef)) continue;
         if (fighter_not_hit_by_blocks(
                 fight, v, reversal_entity_state_bit(attacker), hitdef)) {
             continue;
@@ -4198,6 +4234,7 @@ static uint8_t gather_root_contacts(
             active_hitdef(fight, attacker_frames, a, v, &local_hitdef);
         if (!hitdef || local_hitdef >= 32u) continue;
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
+        if (!hitdef_chain_allows_target(v, (uint8_t)atk, hitdef)) continue;
         if (fighter_not_hit_by_blocks(
                 fight, v, reversal_state_bit(fight, a), hitdef)) {
             continue;
