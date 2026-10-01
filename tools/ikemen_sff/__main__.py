@@ -272,9 +272,11 @@ def cmd_fx(args) -> int:
             frames.append(emit_mod.FrameAsset(
                 action=action, index=idx,
                 width=sprite.padded_width, height=sprite.height,
-                ax=node.xoff + sprite.left_pad, ay=node.yoff, ticks=fr.time,
+                ax=node.xoff + sprite.left_pad - fr.x,
+                ay=node.yoff - fr.y, ticks=fr.time,
                 flip_h=fr.flip_h, flip_v=fr.flip_v,
-                sprite_key=key, blend_mode=fr.blend_mode,
+                sprite_key=key, air_x=fr.x, air_y=fr.y,
+                blend_mode=fr.blend_mode,
                 loop_start=(act.loop_start == idx),
                 clsn1=list(fr.clsn1), clsn2=list(fr.clsn2)))
 
