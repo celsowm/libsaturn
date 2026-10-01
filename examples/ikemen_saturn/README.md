@@ -374,6 +374,14 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   current state owner, and SelfState restores the victim's own CNS namespace.
   Root fighters and Helpers carry state_owner independently, so identical state
   numbers may resolve to different character CNS assets without collision
+* HitDef targets now carry IDs. Dynamic entities keep a fixed four-slot
+  generational target registry; TargetBind, TargetFacing, TargetLifeAdd and
+  TargetState honor optional id/index selectors and may operate on multiple
+  simultaneous targets without allocation. Stale target handles are compacted
+  before capture, and TargetState releases only the targets it transitions.
+* HitDef chainID/nochainID gates use the last HitDef ID received from the same
+  attacking player. The compatibility layer supports the classic two
+  NoChainID values while preserving zero-initialized legacy C HitDefs.
 * remaining Blocking/engine edge cases are now mostly advanced compatibility:
   Helper ReversalDef and projectile HitOverride AP are exercised end-to-end.
   Pause/SuperPause movetime, paused-owner contact resolution and
