@@ -4,8 +4,8 @@ static const ik_frame_table_t* frames_for(
     const ik_entity_runtime_t* runtime,
     const ik_entity_t* entity
 ) {
-    if (!runtime || !entity || entity->owner_player >= 2u) return 0;
-    return runtime->frames[entity->owner_player];
+    if (!runtime || !entity || entity->anim_owner >= 2u) return 0;
+    return runtime->frames[entity->anim_owner];
 }
 
 static uint16_t anim_element_start_tick(
@@ -184,8 +184,12 @@ int ik_entity_runtime_enter_state(
     }
 
     if (spec) {
-        entity->anim_no =
-            spec->anim < 0 ? previous_anim : spec->anim;
+        if (spec->anim < 0) {
+            entity->anim_no = previous_anim;
+        } else {
+            entity->anim_no = spec->anim;
+            entity->anim_owner = entity->owner_player;
+        }
         entity->ctrl = (uint8_t)(spec->ctrl != 0);
         entity->spr_priority = spec->spr_priority;
         if (spec->state_type != IK_CNS_STATE_UNCHANGED) {
@@ -801,10 +805,18 @@ static int process_controllers(
             }
 
             case IK_CNS_CTRL_CHANGE_ANIM:
-            case IK_CNS_CTRL_CHANGE_ANIM2:
+                entity->anim_owner = entity->owner_player;
                 entity->anim_no = (int16_t)ctrl->value0;
                 entity->anim_time = anim_element_start_tick(
-                    frames, entity->anim_no,
+                    frames_for(runtime, entity), entity->anim_no,
+                    (uint16_t)(ctrl->value1 < 1 ? 1 : ctrl->value1));
+                break;
+
+            case IK_CNS_CTRL_CHANGE_ANIM2:
+                entity->anim_owner = entity->state_owner;
+                entity->anim_no = (int16_t)ctrl->value0;
+                entity->anim_time = anim_element_start_tick(
+                    frames_for(runtime, entity), entity->anim_no,
                     (uint16_t)(ctrl->value1 < 1 ? 1 : ctrl->value1));
                 break;
 
