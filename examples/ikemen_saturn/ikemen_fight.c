@@ -1508,6 +1508,7 @@ static void apply_damage(ik_fight_t* fight, int victim,
     /* Losing a throw owner releases its bound target. State 820's compiled
      * !isbound SelfState then returns the target to its own fall graph. */
     release_bound_target(fight, victim);
+    release_entity_bound_fighter(fight, v);
     ik_fighter_t* a = &fight->fighters[victim ^ 1];
 
     const uint8_t victim_type = ik_fight_state_type(fight, v);
