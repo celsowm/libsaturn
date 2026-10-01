@@ -69,7 +69,7 @@ int main() {
     const ik_cns_helper_t spec={
         77,200,
         10*IK_ENTITY_Q8_ONE,-5*IK_ENTITY_Q8_ONE,
-        -1,IK_CNS_HELPER_POS_P1,1u,1u
+        -1,IK_CNS_HELPER_POS_P1,1u,1u,2u,1u
     };
     ik_entity_handle_t helper{};
     OK(ik_entity_runtime_spawn_helper(&runtime,p1,&spec,&helper));
@@ -102,6 +102,27 @@ int main() {
     ik_entity_runtime_step(&runtime);
     OK(ik_entity_get_const(&pool,helper)==nullptr);
     EQ(ik_entity_count_type(&pool,IK_ENTITY_HELPER),0u);
+
+    ik_entity_handle_t paused_helper{};
+    OK(ik_entity_runtime_spawn_helper(
+        &runtime,p1,&spec,&paused_helper));
+    const ik_entity_t* paused_h=
+        ik_entity_get_const(&pool,paused_helper);
+    OK(paused_h!=nullptr);
+    EQ(paused_h->pause_move_time,2u);
+    EQ(paused_h->super_move_time,1u);
+
+    ik_entity_runtime_step_paused(&runtime,0u,0);
+    paused_h=ik_entity_get_const(&pool,paused_helper);
+    OK(paused_h!=nullptr);
+    EQ(paused_h->pause_move_time,1u);
+
+    ik_entity_runtime_step_paused(&runtime,0u,1);
+    paused_h=ik_entity_get_const(&pool,paused_helper);
+    OK(paused_h!=nullptr);
+    EQ(paused_h->super_move_time,0u);
+
+    (void)ik_entity_destroy(&pool,paused_helper);
 
     const ik_cns_explod_t explod_spec={
         200,
@@ -224,6 +245,31 @@ int main() {
     parent->move_type=IK_CNS_MOVE_HIT;
     ik_entity_runtime_step(&runtime);
     OK(ik_entity_get_const(&pool,bound_projectile)==nullptr);
+
+    ik_cns_projectile_t remove_spec=projectile_spec;
+    remove_spec.id=45;
+    remove_spec.anim_no=200;
+    remove_spec.remove_anim_no=200;
+    remove_spec.remove_time=1;
+    remove_spec.edge_bound=0;
+    remove_spec.stage_bound=4;
+    remove_spec.pos_x_q8=-10*IK_ENTITY_Q8_ONE;
+    remove_spec.vel_x_q8=0;
+    ik_entity_runtime_set_stage_bounds(&runtime,24,296);
+
+    ik_entity_handle_t removing_projectile{};
+    OK(ik_entity_runtime_spawn_projectile_spec(
+        &runtime,p1,&remove_spec,&removing_projectile));
+    ik_entity_runtime_step(&runtime);
+    const ik_entity_t* removing=
+        ik_entity_get_const(&pool,removing_projectile);
+    OK(removing!=nullptr);
+    EQ(removing->active_hitdef_global,-1);
+    EQ(removing->anim_no,200);
+    EQ(removing->remove_time,0);
+
+    ik_entity_runtime_step(&runtime);
+    OK(ik_entity_get_const(&pool,removing_projectile)==nullptr);
 
     ik_cns_projectile_t pause_spec=projectile_spec;
     pause_spec.id=43;
