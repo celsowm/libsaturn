@@ -268,6 +268,12 @@ int main() {
     EQ(removing->anim_no,200);
     EQ(removing->remove_time,0);
 
+    for(int i=0;i<7;++i){
+        ik_entity_runtime_step(&runtime);
+        removing=ik_entity_get_const(&pool,removing_projectile);
+        OK(removing!=nullptr);
+        EQ(removing->active_hitdef_global,-1);
+    }
     ik_entity_runtime_step(&runtime);
     OK(ik_entity_get_const(&pool,removing_projectile)==nullptr);
 
