@@ -248,6 +248,56 @@ int ik_cns_controller_trigger_context_now(
                                  ? 0
                                  : controller->trigger_value);
 
+        case IK_CNS_TRIGGER_PROJECTILE_QUERY: {
+            const uint16_t packed =
+                (uint16_t)controller->trigger_value2;
+            const uint8_t field = (uint8_t)(packed >> 8);
+            const uint8_t op = (uint8_t)(packed & 0xffu);
+            int32_t actual = 0;
+            switch (field) {
+                case IK_CNS_PROJ_QUERY_NUM:
+                    actual = context->num_projectiles;
+                    break;
+                case IK_CNS_PROJ_QUERY_CONTACT:
+                    actual = context->proj_contact;
+                    break;
+                case IK_CNS_PROJ_QUERY_HIT:
+                    actual = context->proj_hit;
+                    break;
+                case IK_CNS_PROJ_QUERY_GUARDED:
+                    actual = context->proj_guarded;
+                    break;
+                case IK_CNS_PROJ_QUERY_CONTACT_TIME:
+                    actual = context->proj_contact_time;
+                    break;
+                case IK_CNS_PROJ_QUERY_HIT_TIME:
+                    actual = context->proj_hit_time;
+                    break;
+                case IK_CNS_PROJ_QUERY_GUARDED_TIME:
+                    actual = context->proj_guarded_time;
+                    break;
+                default:
+                    return 0;
+            }
+
+            switch (op) {
+                case IK_CNS_QUERY_EQ:
+                    return actual == controller->trigger_value;
+                case IK_CNS_QUERY_NE:
+                    return actual != controller->trigger_value;
+                case IK_CNS_QUERY_LT:
+                    return actual < controller->trigger_value;
+                case IK_CNS_QUERY_LE:
+                    return actual <= controller->trigger_value;
+                case IK_CNS_QUERY_GT:
+                    return actual > controller->trigger_value;
+                case IK_CNS_QUERY_GE:
+                    return actual >= controller->trigger_value;
+                default:
+                    return 0;
+            }
+        }
+
         case IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME:
             return context->state_time ==
                        (uint16_t)(controller->trigger_value2 < 0
