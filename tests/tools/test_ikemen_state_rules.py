@@ -15,6 +15,24 @@ from tools.ikemen_state_rules import (  # noqa: E402
     parse_state_rules,
 )
 
+target_redirect_code = Parser(
+    "target(42,1), stateno = 821",
+    {},
+).parse()
+assert len(target_redirect_code) == 1
+assert target_redirect_code[0].op == "target_state_no_eq"
+assert target_redirect_code[0].a == 42
+assert target_redirect_code[0].b == 821
+assert target_redirect_code[0].c == 1
+lowered_target_redirect = _lower_instruction(target_redirect_code[0])
+assert lowered_target_redirect[0].op == "IK_EXPR_LOAD_FIELD"
+assert lowered_target_redirect[0].field == "IK_EXPR_FIELD_STATE_NO"
+assert lowered_target_redirect[0].redirect == "IK_EXPR_REDIRECT_TARGET"
+assert lowered_target_redirect[0].b == 42
+assert lowered_target_redirect[0].reserved == 1
+assert lowered_target_redirect[1].a == 821
+assert lowered_target_redirect[2].op == "IK_EXPR_EQ"
+
 target_query_code = Parser(
     "NumTarget(42) >= 2",
     {},
