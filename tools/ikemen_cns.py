@@ -3126,7 +3126,7 @@ def compile_common_states(
             ))
 
         elif n == 132:
-            row = state_row(132, 132, 0, land_state=130)
+            row = state_row(132, 132, 0, land_state=52)
 
         elif n == 140:
             row = state_row(140, -1, 1)
@@ -3488,6 +3488,10 @@ def compile_common_states(
                     "IK_CNS_TRIGGER_TIME_EQ", 1,
                 ),
                 _common_ctrl(
+                    5110, "IK_CNS_CTRL_MAKE_DUST",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 60, 0,
+                ),
+                _common_ctrl(
                     5110, "IK_CNS_CTRL_POS_SET",
                     "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_Y",
@@ -3523,7 +3527,7 @@ def compile_common_states(
                     0, 5120, 0,
                 ),
             ]
-            deferred[n] = ["FallEnvShake", "HitFallDamage", "ground effect"]
+            deferred[n] = ["FallEnvShake", "HitFallDamage"]
 
         elif n == 5120:
             row = state_row(5120, 5120, 0)
@@ -3534,12 +3538,16 @@ def compile_common_states(
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
+                    5120, "IK_CNS_CTRL_NOT_HIT_BY",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 7, 1,
+                ),
+                _common_ctrl(
                     5120, "IK_CNS_CTRL_CHANGE_STATE",
                     "IK_CNS_TRIGGER_ANIM_END", 0, 0, 0, 1,
                     "IK_CNS_CTRL_HAS_CTRL",
                 ),
             ]
-            deferred[n] = ["NotHitBy get-up invulnerability", "HitFallSet"]
+            deferred[n] = ["HitFallSet and post-get-up attribute windows"]
 
         elif n == 5150:
             row = state_row(5150, -1, 0, spr=-3)
@@ -3560,11 +3568,12 @@ def compile_common_states(
                     "IK_CNS_TRIGGER_ALWAYS", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
+                _common_ctrl(
+                    5150, "IK_CNS_CTRL_NOT_HIT_BY",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 7, 1,
+                ),
             ]
-            deferred[n] = [
-                "NotHitBy defeated invulnerability",
-                "MatchOver animation variant",
-            ]
+            deferred[n] = ["MatchOver animation variant"]
 
         elif n == 5200:
             row = state_row(5200, -1, 0, land_state=5201)
