@@ -2363,6 +2363,11 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         f->facing > 0
             ? (int)f->x - IK_STAGE_MIN_X
             : IK_STAGE_MAX_X - (int)f->x;
+    const uint8_t player_index = fighter_player_index(fight, f);
+    const ik_fighter_t* p2 =
+        player_index < 2u ? &fight->fighters[player_index ^ 1u] : 0;
+    const int32_t p2_dist_x_q8 =
+        p2 ? (p2->x_q8 - f->x_q8) * (int32_t)f->facing : 0;
 
     const ik_cns_controller_context_t context = {
         .state_time = f->state_time,
@@ -2388,6 +2393,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         .back_edge_body_dist = (int16_t)back_body_dist,
         .front_edge_body_dist = (int16_t)front_body_dist,
         .back_edge_dist = (int16_t)back_dist,
+        .p2_dist_x_q8 = p2_dist_x_q8,
         .state_axis = f->state_axis,
         .hit_launch = (uint8_t)(
             f->gethit_fall || f->gethit_vy_q8 != 0 || !f->on_ground),
