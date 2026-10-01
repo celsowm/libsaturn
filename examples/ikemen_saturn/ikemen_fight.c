@@ -3317,11 +3317,16 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 uint32_t first = 0u;
                 uint32_t count = 0u;
                 int16_t action = ctrl->value1;
-                if (frames && ik_frames_bounds(
-                        frames, ctrl->value0, &first, &count) && count > 0u) {
+                const ik_frame_table_t* native_frames =
+                    frames_for_owner(fight, f->owner_player);
+                if (native_frames && ik_frames_bounds(
+                        native_frames, ctrl->value0,
+                        &first, &count) && count > 0u) {
                     action = ctrl->value0;
                 }
-                if (f->anim != action) {
+                if (f->anim != action ||
+                    f->anim_owner != f->owner_player) {
+                    f->anim_owner = f->owner_player;
                     f->anim = action;
                     f->anim_time = 0u;
                 }
@@ -3336,8 +3341,12 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     uint32_t first = 0u;
                     uint32_t count = 0u;
                     const int16_t action = (int16_t)(f->anim + 3);
-                    if (frames && ik_frames_bounds(
-                            frames, action, &first, &count) && count > 0u) {
+                    const ik_frame_table_t* native_frames =
+                        frames_for_owner(fight, f->owner_player);
+                    if (native_frames && ik_frames_bounds(
+                            native_frames, action,
+                            &first, &count) && count > 0u) {
+                        f->anim_owner = f->owner_player;
                         f->anim = action;
                         f->anim_time = 0u;
                     }
