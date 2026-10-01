@@ -2030,8 +2030,7 @@ def compile_modify_projectile_controller(
         if lowered not in supported:
             return None
 
-    if integer(ctrl.get("index"), 0) != 0:
-        return None
+    mod_index_value = max(0, integer(ctrl.get("index"), 0))
 
     mask: list[str] = []
     def present(name: str, flag: str) -> bool:
@@ -2105,6 +2104,7 @@ def compile_modify_projectile_controller(
 
     mod = {
         "id": integer(ctrl.get("id"), -1),
+        "index": mod_index_value,
         "mask": " | ".join(mask) if mask else "0u",
         **fields,
     }
@@ -3905,7 +3905,7 @@ def emit(
 
     projectile_mod_lines = [
         "    {"
-        f"{m['id']}, {m['mask']}, "
+        f"{m['id']}, {m.get('index', 0)}, {m['mask']}, "
         f"{m['anim_no']}, {m['hit_anim_no']}, "
         f"{m['remove_anim_no']}, {m['cancel_anim_no']}, "
         f"{m['vel_x_q8']}, {m['vel_y_q8']}, "
