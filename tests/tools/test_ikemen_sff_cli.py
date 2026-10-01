@@ -47,7 +47,7 @@ def _action():
     return {
         0: air_mod.AirAction(
             0,
-            frames=[air_mod.AirFrame(10, 20, 0, 0, 1)],
+            frames=[air_mod.AirFrame(10, 20, -5, 7, 1)],
         )
     }
 
@@ -61,6 +61,14 @@ def _sprite_asset():
         format=sff_mod.FORMAT_RAW,
         data=b"\x00",
     )
+
+
+def test_runtime_sprite_keeps_sff_axis() -> None:
+    sprite = cli._runtime_sprite_asset(
+        FakeContainer(), NODE, [NODE], 0
+    )
+    assert sprite.xoff == 3
+    assert sprite.yoff == 4
 
 
 def test_fx_uses_indexed_nodes() -> None:
@@ -118,6 +126,7 @@ def test_fx_uses_indexed_nodes() -> None:
 def test_char_png_unpacks_indexed_node() -> None:
     container = FakeContainer()
     png_nodes = []
+    emitted_frames = []
 
     originals = (
         cli.sff_mod.load,
@@ -135,9 +144,11 @@ def test_char_png_unpacks_indexed_node() -> None:
         cli._runtime_sprite_asset = (
             lambda *_args, **_kwargs: _sprite_asset()
         )
-        cli.emit_mod.emit_frames = (
-            lambda *_args, **_kwargs: ("/* c */", "/* h */", b"\x01")
-        )
+        def emit_frames(*args, **kwargs):
+            emitted_frames.extend(args[2])
+            return "/* c */", "/* h */", b"\x01"
+
+        cli.emit_mod.emit_frames = emit_frames
         cli.decode = lambda node, data: (
             png_nodes.append(node) or b"\x00"
         )
@@ -158,6 +169,12 @@ def test_char_png_unpacks_indexed_node() -> None:
             )
             assert cli.cmd_char(args) == 0
             assert png_nodes == [NODE]
+            assert len(emitted_frames) == 1
+            frame = emitted_frames[0]
+            assert frame.air_x == -5
+            assert frame.air_y == 7
+            assert frame.ax == 3 + 3 - (-5)
+            assert frame.ay == 4 - 7
     finally:
         (
             cli.sff_mod.load,
@@ -171,6 +188,7 @@ def test_char_png_unpacks_indexed_node() -> None:
 
 
 def main() -> int:
+    test_runtime_sprite_keeps_sff_axis()
     test_fx_uses_indexed_nodes()
     test_char_png_unpacks_indexed_node()
     print("ikemen SFF CLI indexing: OK")
