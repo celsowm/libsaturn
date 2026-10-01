@@ -2528,8 +2528,33 @@ assert common_rows[5210]["land_state"] == 52
 assert common_rows[5210]["air_motion_start"] == 4
 assert common_rows[5210]["land_ctrl"] == 1
 assert common_rows[5210]["air_accel_q8"] == round(.35 * 256)
-assert common_rows[5210]["controller_count"] == 7
-assert report["common_deferred"][100] == ["AssertSpecial noWalk/noAutoTurn"]
+state5210_ctrls = [
+    c for c in report["controllers"] if c["state_number"] == 5210
+]
+assert any(
+    c["type"] == "IK_CNS_CTRL_PAL_FX"
+    for c in state5210_ctrls
+)
+turn5210 = next(
+    c for c in state5210_ctrls
+    if c["type"] == "IK_CNS_CTRL_TURN"
+)
+assert turn5210["trigger_kind"] == (
+    "IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME"
+)
+assert turn5210["trigger_value"] == -20 * 256
+assert any(
+    c["type"] == "IK_CNS_CTRL_NOT_HIT_BY" and
+    c["value0"] == 7 and c["value1"] == 15
+    for c in state5210_ctrls
+)
+assert common_rows[5210]["controller_count"] == 10
+assert common_rows[100]["assert_special_flags"] == (
+    "IK_CNS_STATE_ASSERT_NO_WALK | "
+    "IK_CNS_STATE_ASSERT_NO_AUTO_TURN"
+)
+assert 100 not in report["common_deferred"]
+assert 5210 not in report["common_deferred"]
 assert report["common_deferred"][150] == ["ForceFeedback"]
 assert report["constants"]["liedown_time"] == 60
 assert report["constants"]["air_gethit_groundlevel_q8"] == 25 * 256
