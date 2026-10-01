@@ -2068,6 +2068,8 @@ assert report["helpers"] == [{
     "postype": "IK_CNS_HELPER_POS_P1",
     "keyctrl": 1,
     "ownpal": 1,
+    "pause_move_time": 3,
+    "super_move_time": 4,
 }]
 helper_state = next(
     row for row in report["states"] if row["number"] == 1234
