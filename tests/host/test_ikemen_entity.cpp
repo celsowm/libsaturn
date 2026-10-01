@@ -69,6 +69,13 @@ int main() {
         target_state_code, 1u, &expr_ctx, &target_state));
     OK(target_state == 3456);
 
+    OK(ik_entity_add_target(&pool, p1, p2, 20));
+    OK(ik_entity_target_count(&pool, p1, 20) == 2u);
+    ik_entity_drop_targets(&pool, p1, 20, 1u);
+    OK(ik_entity_target_count(&pool, p1, -1) == 1u);
+    OK(ik_entity_target_count(&pool, p1, 20) == 1u);
+    OK(ik_entity_handle_equal(
+        ik_entity_redirect_target(&pool, p1, 20, 0u), projectile));
 
     ik_entity_t* e1 = ik_entity_get(&pool, p1);
     ik_entity_t* e2 = ik_entity_get(&pool, p2);
