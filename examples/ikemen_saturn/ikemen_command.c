@@ -378,12 +378,18 @@ static int step_matches(const ik_command_input_state_t* in,
 static int step_pattern(ik_command_state_t* state,
                         const ik_command_asset_t* asset,
                         uint16_t pattern_index,
-                        int hit_pause) {
+                        int hit_pause,
+                        int pause_end_buffer) {
     const ik_cmd_pattern_t* pattern = &asset->patterns[pattern_index];
     ik_command_pattern_state_t* ps = &state->patterns[pattern_index];
 
-    if (ps->buffer_time > 0u &&
-        !(hit_pause && (pattern->flags & IK_CMD_PATTERN_BUFFER_HITPAUSE))) {
+    const int hpbuf =
+        hit_pause &&
+        (pattern->flags & IK_CMD_PATTERN_BUFFER_HITPAUSE) != 0u;
+    const int pausebuf =
+        pause_end_buffer &&
+        (pattern->flags & IK_CMD_PATTERN_BUFFER_PAUSE_END) != 0u;
+    if (ps->buffer_time > 0u && !hpbuf && !pausebuf) {
         --ps->buffer_time;
     }
 
@@ -448,8 +454,13 @@ static int step_pattern(ik_command_state_t* state,
     if (!complete && ps->cur_time < pattern->max_time) return 0;
 
     clear_pattern(ps, 0);
-    if (complete && ps->buffer_time < pattern->buffer_time) {
-        ps->buffer_time = pattern->buffer_time;
+    if (complete) {
+        uint16_t wanted = (uint16_t)pattern->buffer_time +
+                          (uint16_t)(hpbuf || pausebuf);
+        if (wanted > 255u) wanted = 255u;
+        if (ps->buffer_time < wanted) {
+            ps->buffer_time = (uint8_t)wanted;
+        }
     }
     return complete;
 }
@@ -483,13 +494,15 @@ void ik_command_update(ik_command_state_t* state,
                        const ik_command_asset_t* asset,
                        const sat_pad_state_t* pad,
                        int facing,
-                       int hit_pause) {
+                       int hit_pause,
+                       int pause_end_buffer) {
     if (!state || !asset || asset->pattern_count > IK_CMD_MAX_PATTERNS) return;
     input_update(&state->input, pad, facing);
 
     uint64_t completed_names = 0u;
     for (uint16_t p = 0u; p < asset->pattern_count; ++p) {
-        if (step_pattern(state, asset, p, hit_pause)) {
+        if (step_pattern(
+                state, asset, p, hit_pause, pause_end_buffer)) {
             const uint16_t name_id = asset->patterns[p].name_id;
             if (name_id < 64u) completed_names |= (uint64_t)1u << name_id;
         }
