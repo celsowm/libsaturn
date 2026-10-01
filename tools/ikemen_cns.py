@@ -2509,6 +2509,7 @@ def parse_state(
         "reversal_count": len(reversals),
         "hitoverride_ofs": 0,
         "hitoverride_count": len(hitoverrides),
+        "assert_special_flags": "0u",
         "unsupported_controllers": sorted(set(unsupported)),
     }
 
@@ -2648,6 +2649,7 @@ def compile_common_states(
             "juggle": 0,
             "has_juggle": 0,
             "owns_air_accel": 0,
+            "assert_special_flags": "0u",
             "unsupported_controllers": [],
         }
 
@@ -2834,6 +2836,10 @@ def compile_common_states(
 
         elif n == 100:
             row = state_row(100, 100, 1)
+            row["assert_special_flags"] = (
+                "IK_CNS_STATE_ASSERT_NO_WALK | "
+                "IK_CNS_STATE_ASSERT_NO_AUTO_TURN"
+            )
             cs += [
                 _common_ctrl(
                     100, "IK_CNS_CTRL_VEL_SET",
@@ -2847,7 +2853,6 @@ def compile_common_states(
                     "IK_CNS_COMMAND_HOLD_FWD", 0, 0, 0,
                 ),
             ]
-            deferred[n] = ["AssertSpecial noWalk/noAutoTurn"]
 
         elif n == 105:
             row = state_row(105, 105, 0, land_state=106)
@@ -3540,7 +3545,8 @@ def emit(
         f"{r.get('reversal_ofs', 0)}u, "
         f"{r.get('reversal_count', 0)}u, "
         f"{r.get('hitoverride_ofs', 0)}u, "
-        f"{r.get('hitoverride_count', 0)}u"
+        f"{r.get('hitoverride_count', 0)}u, "
+        f"{r.get('assert_special_flags', '0u')}"
         "},"
         for r in state_rows
     ]
