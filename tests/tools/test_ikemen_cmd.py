@@ -14,6 +14,8 @@ SOURCE = r"""
 [Defaults]
 command.time = 15
 command.buffer.time = 1
+command.buffer.hitpause = true
+command.buffer.pauseend = false
 
 [Command]
 name = "QCF_x"
@@ -23,6 +25,7 @@ command = ~D, DF, F, x
 name = "FF"
 command = F, F
 time = 10
+buffer.pauseend = true
 
 [Command]
 name = "holddown"
@@ -53,6 +56,8 @@ assert [k.name for k in qcf.steps[0].keys] == ["D"]
 assert qcf.steps[0].keys[0].tilde
 assert [k.name for k in qcf.steps[1].keys] == ["DF"]
 assert qcf.loop_order == [2, 3, 0, 1]
+assert qcf.buffer_hitpause
+assert not qcf.buffer_pauseend
 
 ff = asset.patterns[1]
 assert len(ff.steps) == 3
@@ -60,6 +65,7 @@ assert ff.steps[0].keys[0].name == "F"
 assert ff.steps[1].greater and ff.steps[1].keys[0].tilde
 assert ff.steps[2].greater and not ff.steps[2].keys[0].tilde
 assert ff.time == 10
+assert ff.buffer_pauseend
 
 hold = asset.patterns[2]
 assert hold.steps[0].keys[0].slash
