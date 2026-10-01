@@ -360,6 +360,8 @@ void ik_fight_reset(ik_fight_t* fight) {
     const uint32_t h1 = fight->hits_p1;
     const uint32_t h2 = fight->hits_p2;
     const ik_cns_asset_t* cns = fight->cns;
+    const ik_cns_asset_t* p1_cns = fight->player_cns[0];
+    const ik_cns_asset_t* p2_cns = fight->player_cns[1];
     ik_entity_pool_t* entities = fight->entities;
     const ik_entity_handle_t p1 = fight->player_entities[0];
     const ik_entity_handle_t p2 = fight->player_entities[1];
@@ -381,6 +383,8 @@ void ik_fight_reset(ik_fight_t* fight) {
     }
 
     ik_fight_init(fight, cns);
+    ik_fight_set_player_cns(fight, 0u, p1_cns);
+    ik_fight_set_player_cns(fight, 1u, p2_cns);
     ik_fight_bind_entities(fight, entities, p1, p2);
     fight->hits_p1 = h1;
     fight->hits_p2 = h2;
@@ -642,21 +646,20 @@ static const ik_cns_reversaldef_t* active_reversaldef(
     const ik_fighter_t* attacker,
     const ik_cns_hitdef_t* incoming
 ) {
-    if (!fight || !fight->cns || !defender || !attacker || !incoming ||
-        !fight->cns->reversals) {
-        return 0;
-    }
+    if (!fight || !defender || !incoming) return 0;
+    const ik_cns_asset_t* state_cns = cns_for_fighter(fight, defender);
+    if (!state_cns || !state_cns->reversals) return 0;
 
     const ik_cns_state_t* state =
-        ik_cns_find_state(fight->cns, defender->state);
+        ik_cns_find_state(state_cns, defender->state);
     if (!state || state->reversal_count == 0u) return 0;
 
     const uint8_t attacker_bit = reversal_state_bit(fight, attacker);
     for (uint8_t i = 0u; i < state->reversal_count; ++i) {
         const uint16_t index = (uint16_t)(state->reversal_ofs + i);
-        if (index >= fight->cns->reversal_count) break;
+        if (index >= state_cns->reversal_count) break;
         const ik_cns_reversaldef_t* reversal =
-            &fight->cns->reversals[index];
+            &state_cns->reversals[index];
         const uint16_t authored_time =
             defender->state_time > 0u
                 ? (uint16_t)(defender->state_time - 1u)
@@ -700,13 +703,12 @@ static const ik_cns_reversaldef_t* active_reversaldef_entity(
     const ik_entity_t* attacker,
     const ik_cns_hitdef_t* incoming
 ) {
-    if (!fight || !fight->cns || !defender || !attacker || !incoming ||
-        !fight->cns->reversals) {
-        return 0;
-    }
+    if (!fight || !defender || !incoming) return 0;
+    const ik_cns_asset_t* state_cns = cns_for_fighter(fight, defender);
+    if (!state_cns || !state_cns->reversals) return 0;
 
     const ik_cns_state_t* state =
-        ik_cns_find_state(fight->cns, defender->state);
+        ik_cns_find_state(state_cns, defender->state);
     if (!state || state->reversal_count == 0u) return 0;
 
     const uint8_t attacker_bit = reversal_entity_state_bit(attacker);
@@ -717,9 +719,9 @@ static const ik_cns_reversaldef_t* active_reversaldef_entity(
 
     for (uint8_t i = 0u; i < state->reversal_count; ++i) {
         const uint16_t index = (uint16_t)(state->reversal_ofs + i);
-        if (index >= fight->cns->reversal_count) break;
+        if (index >= state_cns->reversal_count) break;
         const ik_cns_reversaldef_t* reversal =
-            &fight->cns->reversals[index];
+            &state_cns->reversals[index];
         if (authored_time < reversal->start_time ||
             authored_time >= reversal->end_time) {
             continue;
@@ -742,14 +744,13 @@ static const ik_cns_hitoverride_t* active_hitoverride(
     const ik_fighter_t* victim,
     const ik_cns_hitdef_t* incoming
 ) {
-    if (!fight || !fight->cns || !victim || !incoming ||
-        !fight->cns->hitoverrides ||
-        incoming->attack_attr_mask == 0u) {
-        return 0;
-    }
+    if (!fight || !victim || !incoming ||
+        incoming->attack_attr_mask == 0u) return 0;
+    const ik_cns_asset_t* state_cns = cns_for_fighter(fight, victim);
+    if (!state_cns || !state_cns->hitoverrides) return 0;
 
     const ik_cns_state_t* state =
-        ik_cns_find_state(fight->cns, victim->state);
+        ik_cns_find_state(state_cns, victim->state);
     if (!state || state->hitoverride_count == 0u) return 0;
 
     const uint8_t self_bit = reversal_state_bit(fight, victim);
@@ -759,9 +760,9 @@ static const ik_cns_hitoverride_t* active_hitoverride(
             : 0u;
     for (uint8_t i = 0u; i < state->hitoverride_count; ++i) {
         const uint16_t index = (uint16_t)(state->hitoverride_ofs + i);
-        if (index >= fight->cns->hitoverride_count) break;
+        if (index >= state_cns->hitoverride_count) break;
         const ik_cns_hitoverride_t* override =
-            &fight->cns->hitoverrides[index];
+            &state_cns->hitoverrides[index];
         if (authored_time < override->start_time ||
             authored_time >= override->end_time) {
             continue;
@@ -1029,26 +1030,25 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
                                             ik_fighter_t* fighter,
                                             const ik_fighter_t* victim,
                                             uint8_t* out_local_index) {
-    if (!fight || !fight->cns || !fighter ||
-        !is_attack_state(fight, fighter->state)) {
-        return 0;
-    }
-
+    if (!fight || !fighter) return 0;
+    const ik_cns_asset_t* state_cns = cns_for_fighter(fight, fighter);
+    if (!state_cns) return 0;
     const ik_cns_state_t* state =
-        ik_cns_find_state(fight->cns, fighter->state);
-    if (!state || !fight->cns->hitdefs) return 0;
+        ik_cns_find_state(state_cns, fighter->state);
+    if (!state || state->move_type != IK_CNS_MOVE_ATTACK ||
+        !state_cns->hitdefs) return 0;
 
     if (state->hitdef_count == 0u) {
         if (state->hitdef_persist &&
             fighter->active_hitdef_global >= 0 &&
-            fighter->active_hitdef_global < (int16_t)fight->cns->hitdef_count) {
+            fighter->active_hitdef_global < (int16_t)state_cns->hitdef_count) {
             if (out_local_index) {
                 *out_local_index = (uint8_t)(
                     fighter->active_hitdef_local < 0
                         ? 0
                         : fighter->active_hitdef_local);
             }
-            return &fight->cns->hitdefs[
+            return &state_cns->hitdefs[
                 (uint16_t)fighter->active_hitdef_global];
         }
         return 0;
@@ -1066,8 +1066,8 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
      * HitDef fires or the state changes. */
     for (uint8_t i = 0u; i < state->hitdef_count; ++i) {
         const uint16_t global = (uint16_t)(state->hitdef_ofs + i);
-        if (global >= fight->cns->hitdef_count) break;
-        const ik_cns_hitdef_t* hitdef = &fight->cns->hitdefs[global];
+        if (global >= state_cns->hitdef_count) break;
+        const ik_cns_hitdef_t* hitdef = &state_cns->hitdefs[global];
         const int primary_now = hitdef_trigger_now(
             frames, fighter->anim,
             fighter->state_time, fighter->anim_time,
@@ -1095,7 +1095,7 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
     }
 
     if (fighter->active_hitdef_global < 0 ||
-        fighter->active_hitdef_global >= (int16_t)fight->cns->hitdef_count) {
+        fighter->active_hitdef_global >= (int16_t)state_cns->hitdef_count) {
         return 0;
     }
     if (out_local_index) {
@@ -1104,7 +1104,7 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
                 ? 0
                 : fighter->active_hitdef_local);
     }
-    return &fight->cns->hitdefs[
+    return &state_cns->hitdefs[
         (uint16_t)fighter->active_hitdef_global];
 }
 
@@ -1115,22 +1115,25 @@ static const ik_cns_hitdef_t* active_entity_hitdef(
     const ik_fighter_t* victim,
     uint8_t* out_local_index
 ) {
-    if (!fight || !fight->cns || !entity || !victim) return 0;
+    if (!fight || !entity || !victim) return 0;
+    const ik_cns_asset_t* state_cns =
+        cns_for_owner(fight, entity->state_owner);
+    if (!state_cns) return 0;
 
     if (entity->type == IK_ENTITY_PROJECTILE &&
         entity->state_no < 0 &&
         entity->active_hitdef_global >= 0 &&
-        entity->active_hitdef_global < (int16_t)fight->cns->hitdef_count) {
+        entity->active_hitdef_global < (int16_t)state_cns->hitdef_count) {
         if (entity->projectile_hit_cooldown > 0u) return 0;
         if (out_local_index) *out_local_index = 0u;
-        return &fight->cns->hitdefs[
+        return &state_cns->hitdefs[
             (uint16_t)entity->active_hitdef_global];
     }
 
     const ik_cns_state_t* state =
-        ik_cns_find_state(fight->cns, entity->state_no);
+        ik_cns_find_state(state_cns, entity->state_no);
     if (!state || state->move_type != IK_CNS_MOVE_ATTACK ||
-        !fight->cns->hitdefs) {
+        !state_cns->hitdefs) {
         return 0;
     }
 
@@ -1138,13 +1141,13 @@ static const ik_cns_hitdef_t* active_entity_hitdef(
         if (state->hitdef_persist &&
             entity->active_hitdef_global >= 0 &&
             entity->active_hitdef_global <
-                (int16_t)fight->cns->hitdef_count) {
+                (int16_t)state_cns->hitdef_count) {
             if (out_local_index) {
                 *out_local_index = (uint8_t)(
                     entity->active_hitdef_local < 0
                         ? 0 : entity->active_hitdef_local);
             }
-            return &fight->cns->hitdefs[
+            return &state_cns->hitdefs[
                 (uint16_t)entity->active_hitdef_global];
         }
         return 0;
@@ -1160,9 +1163,9 @@ static const ik_cns_hitdef_t* active_entity_hitdef(
     for (uint8_t n = 0u; n < state->hitdef_count; ++n) {
         const uint16_t global =
             (uint16_t)(state->hitdef_ofs + n);
-        if (global >= fight->cns->hitdef_count) break;
+        if (global >= state_cns->hitdef_count) break;
         const ik_cns_hitdef_t* hitdef =
-            &fight->cns->hitdefs[global];
+            &state_cns->hitdefs[global];
         const int primary_now = hitdef_trigger_now(
             frames, entity->anim_no,
             entity->state_time, entity->anim_time,
@@ -1189,7 +1192,7 @@ static const ik_cns_hitdef_t* active_entity_hitdef(
 
     if (entity->active_hitdef_global < 0 ||
         entity->active_hitdef_global >=
-            (int16_t)fight->cns->hitdef_count) {
+            (int16_t)state_cns->hitdef_count) {
         return 0;
     }
     if (out_local_index) {
@@ -1197,7 +1200,7 @@ static const ik_cns_hitdef_t* active_entity_hitdef(
             entity->active_hitdef_local < 0
                 ? 0 : entity->active_hitdef_local);
     }
-    return &fight->cns->hitdefs[
+    return &state_cns->hitdefs[
         (uint16_t)entity->active_hitdef_global];
 }
 
