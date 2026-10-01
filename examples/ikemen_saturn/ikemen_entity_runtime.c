@@ -89,6 +89,18 @@ void ik_entity_runtime_init(
     runtime->frames[1] = p2_frames ? p2_frames : p1_frames;
     runtime->command_masks[0] = 0u;
     runtime->command_masks[1] = 0u;
+    runtime->external_user = 0;
+    runtime->target_controller = 0;
+}
+
+void ik_entity_runtime_set_target_controller(
+    ik_entity_runtime_t* runtime,
+    void* user,
+    ik_entity_target_controller_fn callback
+) {
+    if (!runtime) return;
+    runtime->external_user = user;
+    runtime->target_controller = callback;
 }
 
 void ik_entity_runtime_set_command_mask(
@@ -603,6 +615,18 @@ static int process_controllers(
                         runtime, handle,
                         &runtime->cns->helpers[ctrl->value0],
                         &child);
+                }
+                break;
+
+            case IK_CNS_CTRL_TARGET_BIND:
+            case IK_CNS_CTRL_TARGET_FACING:
+            case IK_CNS_CTRL_TARGET_LIFE_ADD:
+            case IK_CNS_CTRL_TARGET_STATE:
+                if (runtime->target_controller) {
+                    const int result = runtime->target_controller(
+                        runtime->external_user, runtime, handle, ctrl);
+                    if (result > 0) return 1;
+                    if (result < 0) return 2;
                 }
                 break;
 
