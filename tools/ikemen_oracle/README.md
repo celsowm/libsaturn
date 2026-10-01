@@ -71,6 +71,7 @@ A scenario currently controls the native Ikemen GO quick-match CLI:
   "frames": 120,
   "seed": 1,
   "rounds": 1,
+  "round_state": 2,
   "p1_ai": 0,
   "p2_ai": 0,
   "extra_args": []
@@ -80,6 +81,11 @@ A scenario currently controls the native Ikemen GO quick-match CLI:
 The bundled scenario addresses the sibling ignored
 `.external/Ikemen-GO-Screenpack` checkout directly, so it does not require
 copying KFM or Training Room into the engine checkout.
+
+By default capture starts only when Ikemen reports `RoundState=2`, so motif
+and intro frames do not shift the gameplay trace. Set `round_state` to another
+value (or `-1` to capture every round state) when a scenario specifically
+targets intro/post-round behavior.
 
 The RNG seed is applied before round character setup. For exact authored input
 streams, the next layer should feed Ikemen replay/input data rather than rely on
