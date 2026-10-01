@@ -182,6 +182,27 @@ class Parser:
                 raise ValueError("p2bodydist X comparison requires an integer")
             return [Insn("p2_body_dist_x_lt", int(value))]
 
+        if name == "numtarget":
+            target_id = -1
+            if self._peek("("):
+                self._take("(")
+                id_kind, id_value = self._take()
+                self._take(")")
+                if id_kind != "number":
+                    raise ValueError("NumTarget() id must be an integer")
+                target_id = int(id_value)
+            _, cmpop = self._take()
+            if cmpop not in ("=", "!=", ">", ">=", "<", "<="):
+                raise ValueError(f"unsupported NumTarget comparator {cmpop!r}")
+            value_kind, value = self._take()
+            if value_kind != "number":
+                raise ValueError("NumTarget comparison requires an integer")
+            suffix = {
+                "=": "eq", "!=": "ne", ">": "gt", ">=": "ge",
+                "<": "lt", "<=": "le",
+            }[cmpop]
+            return [Insn(f"num_targets_{suffix}", target_id, int(value))]
+
         _, cmpop = self._take()
         if cmpop not in ("=", "!=", ">", ">=", "<", "<="):
             raise ValueError(f"unsupported comparator {cmpop!r}")
@@ -516,6 +537,29 @@ def _lower_instruction(insn: Insn) -> list[VmInsn]:
     if insn.op in simple:
         field, redirect, compare_op = simple[insn.op]
         return _vm_compare(field, redirect, compare_op, insn.a)
+
+    if insn.op.startswith("num_targets_"):
+        compare = {
+            "num_targets_eq": "IK_EXPR_EQ",
+            "num_targets_ne": "IK_EXPR_NE",
+            "num_targets_gt": "IK_EXPR_GT",
+            "num_targets_ge": "IK_EXPR_GE",
+            "num_targets_lt": "IK_EXPR_LT",
+            "num_targets_le": "IK_EXPR_LE",
+        }.get(insn.op)
+        if compare is None:
+            raise ValueError(f"bad NumTarget opcode {insn.op!r}")
+        return [
+            VmInsn(
+                "IK_EXPR_LOAD_FIELD",
+                "IK_EXPR_FIELD_NUM_TARGETS",
+                self_r,
+                insn.a,
+                -1,
+            ),
+            VmInsn("IK_EXPR_PUSH_CONST", a=insn.b),
+            VmInsn(compare),
+        ]
 
     if insn.op == "state_no_range":
         return (
