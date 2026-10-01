@@ -2288,6 +2288,26 @@ assert modification["vel_x_q8"] == 5 * 256
 assert modification["vel_y_q8"] == -1 * 256
 assert modification["priority"] == 6
 
+
+target_selector_ctrl = Section(
+    "State 810, Select target",
+    [
+        ("type", "TargetState"),
+        ("trigger1", "1"),
+        ("id", "42"),
+        ("index", "1"),
+        ("value", "821"),
+    ],
+)
+compiled_target_selector = compile_runtime_controller(
+    810, target_selector_ctrl
+)
+assert compiled_target_selector is not None
+assert compiled_target_selector["type"] == "IK_CNS_CTRL_TARGET_STATE"
+assert compiled_target_selector["value0"] == 821
+assert compiled_target_selector["value2"] == 42
+assert compiled_target_selector["value3"] == 1
+
 unsupported_helper = Section(
     "State 0, Unsupported Helper",
     [
