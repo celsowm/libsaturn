@@ -2752,6 +2752,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         if (owned_frames) frames = owned_frames;
     }
     const ik_cns_asset_t* state_cns = cns_for_fighter(fight, f);
+    const ik_cns_asset_t* native_cns =
+        cns_for_owner(fight, f->owner_player);
     if (!state_cns) return 0;
     const ik_cns_state_t* state = ik_cns_find_state(state_cns, f->state);
     if (!state || !state_cns->controllers) return 0;
@@ -3138,9 +3140,9 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
             }
 
             case IK_CNS_CTRL_EXPLOD: {
-                if (!fight->entities || !fight->cns->explods ||
+                if (!fight->entities || !state_cns->explods ||
                     ctrl->value0 < 0 ||
-                    ctrl->value0 >= fight->cns->explod_count) {
+                    ctrl->value0 >= state_cns->explod_count) {
                     break;
                 }
                 if (ctrl->value1 != 0 && i < 64u) {
@@ -3158,14 +3160,14 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 ik_entity_handle_t spawned = ik_entity_invalid_handle();
                 (void)ik_entity_runtime_spawn_explod(
                     &runtime, fighter_entity_handle(fight, f),
-                    &fight->cns->explods[ctrl->value0], &spawned);
+                    &state_cns->explods[ctrl->value0], &spawned);
                 break;
             }
 
             case IK_CNS_CTRL_HELPER: {
-                if (!fight->entities || !fight->cns->helpers ||
+                if (!fight->entities || !state_cns->helpers ||
                     ctrl->value0 < 0 ||
-                    ctrl->value0 >= fight->cns->helper_count) {
+                    ctrl->value0 >= state_cns->helper_count) {
                     break;
                 }
                 sync_fighter_entity(fight, f);
@@ -3181,7 +3183,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 ik_entity_handle_t spawned = ik_entity_invalid_handle();
                 (void)ik_entity_runtime_spawn_helper(
                     &runtime, fighter_entity_handle(fight, f),
-                    &fight->cns->helpers[ctrl->value0], &spawned);
+                    &state_cns->helpers[ctrl->value0], &spawned);
                 break;
             }
 
@@ -3516,11 +3518,11 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
 
             case IK_CNS_CTRL_DOWNED_HIT_BRANCH:
                 if (f->gethit_vy_q8 != 0 &&
-                    ik_cns_find_state(fight->cns, 5030)) {
+                    ik_cns_find_state(native_cns, 5030)) {
                     f->anim = 5090;
                     f->anim_time = 0u;
                     enter_state(fight, f, 5030);
-                } else if (ik_cns_find_state(fight->cns, 5081)) {
+                } else if (ik_cns_find_state(native_cns, 5081)) {
                     f->anim = 5080;
                     f->anim_time = 0u;
                     enter_state(fight, f, 5081);
@@ -3637,13 +3639,13 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 if (f->vy_q8 > 0 &&
                     rel_y_q8 >=
                         c->air_gethit_groundrecover_threshold_q8 &&
-                    ik_cns_find_state(fight->cns, 5200)) {
+                    ik_cns_find_state(native_cns, 5200)) {
                     enter_state(fight, f, 5200);
                     return 1;
                 }
                 if (f->vy_q8 >
                         c->air_gethit_airrecover_threshold_q8 &&
-                    ik_cns_find_state(fight->cns, 5210)) {
+                    ik_cns_find_state(native_cns, 5210)) {
                     enter_state(fight, f, 5210);
                     return 1;
                 }
@@ -3660,6 +3662,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
 static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
                                      const ik_fight_controls_t* controls) {
     if (!controls) return 0;
+    const ik_cns_asset_t* native_cns =
+        cns_for_owner(fight, f->owner_player);
 
     /* State -1 gates execute before ctrl: legal cancels can intentionally
      * ChangeState while the current attack still has ctrl = 0. */
@@ -3676,7 +3680,7 @@ static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
             f->air_jumps_used < (uint8_t)c->air_jump_num &&
             ((int32_t)IK_FLOOR_Y * IK_CNS_Q8_ONE - f->y_q8) >=
                 (int32_t)c->air_jump_height * IK_CNS_Q8_ONE &&
-            ik_cns_find_state(fight ? fight->cns : 0, 45)) {
+            ik_cns_find_state(native_cns, 45)) {
             enter_state(fight, f, 45);
             f->air_jumps_used++;
             f->up_latched = 1u;
@@ -3688,7 +3692,7 @@ static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
     if (!f->ctrl) return 0;
     if (controls->down) {
         const int16_t crouch_state =
-            ik_cns_find_state(fight ? fight->cns : 0, 10)
+            ik_cns_find_state(native_cns, 10)
                 ? 10
                 : IK_STATE_CROUCH;
         if (f->state != IK_STATE_CROUCH && f->state != crouch_state) {
@@ -3697,12 +3701,12 @@ static int dispatch_controlled_input(ik_fight_t* fight, ik_fighter_t* f,
         return 1;
     }
     if (!controls->down && f->state == IK_STATE_CROUCH &&
-        ik_cns_find_state(fight ? fight->cns : 0, 12)) {
+        ik_cns_find_state(native_cns, 12)) {
         enter_state(fight, f, 12);
         return 1;
     }
     if (controls->up &&
-        ik_cns_find_state(fight ? fight->cns : 0, IK_STATE_JUMP)) {
+        ik_cns_find_state(native_cns, IK_STATE_JUMP)) {
         enter_state(fight, f, IK_STATE_JUMP);
         f->up_latched = 1u;
         return 1;
@@ -3725,6 +3729,8 @@ static void step_fighter(ik_fight_t* fight, int index,
     if (owned_foe_frames) foe_frames = owned_foe_frames;
     const ik_cns_constants_t* c =
         constants_for_fighter(fight, f);
+    const ik_cns_asset_t* native_cns =
+        cns_for_owner(fight, f->owner_player);
 
     f->pos_freeze_x = 0u;
     f->pos_freeze_y = 0u;
@@ -3785,14 +3791,14 @@ static void step_fighter(ik_fight_t* fight, int index,
         if (controls->back && threat && f->ctrl &&
             !is_attack_fighter(fight, f) &&
             !is_active_guard_state(f->state) && f->state != 140 &&
-            ik_cns_find_state(fight->cns, 120)) {
+            ik_cns_find_state(native_cns, 120)) {
             f->guard_type = guard_type_for(fight, f, controls);
             enter_state(fight, f, 120);
             return;
         }
         if (is_active_guard_state(f->state) &&
             (!controls->back || !threat) &&
-            ik_cns_find_state(fight->cns, 140)) {
+            ik_cns_find_state(native_cns, 140)) {
             enter_state(fight, f, 140);
             return;
         }
@@ -3901,7 +3907,7 @@ static void step_fighter(ik_fight_t* fight, int index,
              * state lifetime; the legacy fallback is only for missing data. */
             if (spec && f->state == IK_STATE_IDLE &&
                 (controls->forward || controls->back) &&
-                ik_cns_find_state(fight ? fight->cns : 0, IK_STATE_WALK)) {
+                ik_cns_find_state(native_cns, IK_STATE_WALK)) {
                 enter_state(fight, f, IK_STATE_WALK);
                 return;
             }
