@@ -2981,6 +2981,66 @@ int main() {
         EQ(g.effect_events[0].action,120);
     }
 
+    /* Air recovery state 5210 applies its source Time=0 palette flash,
+     * SCA NotHitBy window and turns only when P2 starts behind the fighter. */
+    {
+        const int32_t mul_identity =
+            256 | (256 << 9) | (256 << 18);
+        const ik_cns_controller_t ctrls[] = {
+            {5210,IK_CNS_CTRL_PAL_FX,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,3,128|(128<<8)|(128<<16),0u,
+             0,1,mul_identity,0,1,0},
+            {5210,IK_CNS_CTRL_TURN,
+             IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME,
+             -20*IK_CNS_Q8_ONE,1,0,0,0u},
+            {5210,IK_CNS_CTRL_NOT_HIT_BY,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,7,15,0u},
+        };
+        ik_cns_state_t state{};
+        state.number=5210;
+        state.anim=5210;
+        state.state_type=IK_CNS_STATE_AIR;
+        state.move_type=IK_CNS_MOVE_IDLE;
+        state.physics=IK_CNS_PHYS_NONE;
+        state.ctrl=0;
+        state.controller_count=3u;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=&state;
+        asset.state_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=3u;
+
+        ik_fight_init(&g,&asset);
+        g.fighters[0].state=5210;
+        g.fighters[0].anim=5210;
+        g.fighters[0].facing=1;
+        g.fighters[0].ctrl=0;
+        g.fighters[0].on_ground=0;
+        g.fighters[0].x=150;
+        g.fighters[0].x_q8=150*IK_CNS_Q8_ONE;
+        g.fighters[1].x=100;
+        g.fighters[1].x_q8=100*IK_CNS_Q8_ONE;
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+
+        EQ(g.fighters[0].facing,-1);
+        EQ(g.fighters[0].not_hit_by_mask,7u);
+        EQ(g.fighters[0].not_hit_by_time,15u);
+        EQ(g.fighters[0].palfx_time,3u);
+        EQ(g.fighters[0].palfx_add_r,-128);
+        EQ(g.fighters[0].palfx_add_g,-128);
+        EQ(g.fighters[0].palfx_add_b,-128);
+    }
+
     /* PalFX stores additive and sinusoidal RGB modulation with an authored
      * cycle, then advances phase while the effect is alive. */
     {
