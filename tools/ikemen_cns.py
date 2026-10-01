@@ -1510,6 +1510,7 @@ def compile_runtime_controller(
             "value0": q8(x),
             "value1": q8(y),
             "value2": integer(ctrl.get("id"), -1),
+            "value3": integer(ctrl.get("index"), -1),
             "flags": flag_expr(),
         }
 
@@ -1523,6 +1524,7 @@ def compile_runtime_controller(
             "value0": integer(ctrl.get("value"), 1),
             "value1": 0,
             "value2": integer(ctrl.get("id"), -1),
+            "value3": integer(ctrl.get("index"), -1),
             "flags": flag_expr(),
         }
 
@@ -1536,6 +1538,7 @@ def compile_runtime_controller(
             "value0": integer(ctrl.get("value")),
             "value1": 0,
             "value2": integer(ctrl.get("id"), -1),
+            "value3": integer(ctrl.get("index"), -1),
             "flags": flag_expr(),
         }
 
@@ -1549,6 +1552,7 @@ def compile_runtime_controller(
             "value0": integer(ctrl.get("value")),
             "value1": 0,
             "value2": integer(ctrl.get("id"), -1),
+            "value3": integer(ctrl.get("index"), -1),
             "flags": flag_expr(),
         }
 
