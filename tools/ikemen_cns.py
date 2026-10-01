@@ -1989,12 +1989,6 @@ def compile_projectile_controller(
         "remove_on_gethit": integer(ctrl.get("removeongethit"), 0),
         "remove_on_state_change": integer(
             ctrl.get("removeonchangestate"), 0),
-        "facing": 1 if integer(ctrl.get("facing"), 1) >= 0 else -1,
-        "vfacing": 1 if integer(ctrl.get("vfacing"), 1) >= 0 else -1,
-        "scale_x_q8": q8(sx),
-        "scale_y_q8": q8(sy),
-        "trans_mode": trans_map[trans_text],
-        "alpha": alpha_value,
     }
     controller = {
         "state_number": state_no,
@@ -2082,6 +2076,12 @@ def compile_explod_controller(
         "remove_on_gethit": integer(ctrl.get("removeongethit"), 0),
         "remove_on_state_change": integer(
             ctrl.get("removeonchangestate"), 0),
+        "facing": 1 if integer(ctrl.get("facing"), 1) >= 0 else -1,
+        "vfacing": 1 if integer(ctrl.get("vfacing"), 1) >= 0 else -1,
+        "scale_x_q8": q8(sx),
+        "scale_y_q8": q8(sy),
+        "trans_mode": trans_map[trans_text],
+        "alpha": alpha_value,
     }
     controller = {
         "state_number": state_no,
