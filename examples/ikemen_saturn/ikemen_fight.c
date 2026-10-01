@@ -1090,6 +1090,11 @@ static const ik_cns_hitdef_t* active_hitdef(ik_fight_t* fight,
                                             const ik_fighter_t* victim,
                                             uint8_t* out_local_index) {
     if (!fight || !fighter) return 0;
+    {
+        const ik_frame_table_t* owned_frames =
+            frames_for_fighter(fight, fighter);
+        if (owned_frames) frames = owned_frames;
+    }
     const ik_cns_asset_t* state_cns = cns_for_fighter(fight, fighter);
     if (!state_cns) return 0;
     const ik_cns_state_t* state =
@@ -2702,6 +2707,11 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                                    const ik_frame_table_t* frames,
                                    int hit_pause_only) {
     if (!fight || !f) return 0;
+    {
+        const ik_frame_table_t* owned_frames =
+            frames_for_fighter(fight, f);
+        if (owned_frames) frames = owned_frames;
+    }
     const ik_cns_asset_t* state_cns = cns_for_fighter(fight, f);
     if (!state_cns) return 0;
     const ik_cns_state_t* state = ik_cns_find_state(state_cns, f->state);
@@ -3652,6 +3662,12 @@ static void step_fighter(ik_fight_t* fight, int index,
                          const ik_frame_table_t* foe_frames) {
     ik_fighter_t* f = &fight->fighters[index];
     ik_fighter_t* foe = &fight->fighters[index ^ 1];
+    const ik_frame_table_t* owned_frames =
+        frames_for_fighter(fight, f);
+    const ik_frame_table_t* owned_foe_frames =
+        frames_for_fighter(fight, foe);
+    if (owned_frames) frames = owned_frames;
+    if (owned_foe_frames) foe_frames = owned_foe_frames;
     const ik_cns_constants_t* c = constants_for(fight);
 
     f->pos_freeze_x = 0u;
@@ -3903,9 +3919,15 @@ static void resolve_paused_owner_contact(
     ik_fighter_t* attacker = &fight->fighters[attacker_index];
     ik_fighter_t* victim = &fight->fighters[victim_index];
     const ik_frame_table_t* attacker_frames =
-        attacker_index == 0 ? p1_frames : p2_frames;
+        frames_for_fighter(fight, attacker);
     const ik_frame_table_t* victim_frames =
-        victim_index == 0 ? p1_frames : p2_frames;
+        frames_for_fighter(fight, victim);
+    if (!attacker_frames) {
+        attacker_frames = attacker_index == 0 ? p1_frames : p2_frames;
+    }
+    if (!victim_frames) {
+        victim_frames = victim_index == 0 ? p1_frames : p2_frames;
+    }
     const ik_fight_controls_t* victim_controls =
         victim_index == 0 ? p1 : p2;
 
@@ -4010,9 +4032,15 @@ static void resolve_projectile_trades(
             }
 
             const ik_frame_table_t* a_frames =
-                a->owner_player == 0u ? p1_frames : p2_frames;
+                frames_for_entity(fight, a);
             const ik_frame_table_t* b_frames =
-                b->owner_player == 0u ? p1_frames : p2_frames;
+                frames_for_entity(fight, b);
+            if (!a_frames) {
+                a_frames = a->owner_player == 0u ? p1_frames : p2_frames;
+            }
+            if (!b_frames) {
+                b_frames = b->owner_player == 0u ? p1_frames : p2_frames;
+            }
             if (!entity_attack_clsn_overlap(a_frames, b_frames, a, b)) {
                 continue;
             }
@@ -4084,9 +4112,16 @@ static void resolve_entity_contacts(
         const int victim = (int)(attacker->owner_player ^ 1u);
         ik_fighter_t* v = &fight->fighters[victim];
         const ik_frame_table_t* attacker_frames =
-            attacker->owner_player == 0u ? p1_frames : p2_frames;
+            frames_for_entity(fight, attacker);
         const ik_frame_table_t* victim_frames =
-            victim == 0 ? p1_frames : p2_frames;
+            frames_for_fighter(fight, v);
+        if (!attacker_frames) {
+            attacker_frames =
+                attacker->owner_player == 0u ? p1_frames : p2_frames;
+        }
+        if (!victim_frames) {
+            victim_frames = victim == 0 ? p1_frames : p2_frames;
+        }
 
         uint8_t local_hitdef = 0u;
         const ik_cns_hitdef_t* hitdef =
@@ -4293,9 +4328,15 @@ static uint8_t gather_root_contacts(
         ik_fighter_t* a = &fight->fighters[atk];
         ik_fighter_t* v = &fight->fighters[atk ^ 1];
         const ik_frame_table_t* attacker_frames =
-            atk == 0 ? p1_frames : p2_frames;
+            frames_for_fighter(fight, a);
         const ik_frame_table_t* victim_frames =
-            atk == 0 ? p2_frames : p1_frames;
+            frames_for_fighter(fight, v);
+        if (!attacker_frames) {
+            attacker_frames = atk == 0 ? p1_frames : p2_frames;
+        }
+        if (!victim_frames) {
+            victim_frames = atk == 0 ? p2_frames : p1_frames;
+        }
         uint8_t local_hitdef = 0u;
         const ik_cns_hitdef_t* hitdef =
             active_hitdef(fight, attacker_frames, a, v, &local_hitdef);
@@ -4372,9 +4413,16 @@ static uint8_t gather_entity_contacts(
         const int victim = (int)(attacker->owner_player ^ 1u);
         ik_fighter_t* v = &fight->fighters[victim];
         const ik_frame_table_t* attacker_frames =
-            attacker->owner_player == 0u ? p1_frames : p2_frames;
+            frames_for_entity(fight, attacker);
         const ik_frame_table_t* victim_frames =
-            victim == 0 ? p1_frames : p2_frames;
+            frames_for_fighter(fight, v);
+        if (!attacker_frames) {
+            attacker_frames =
+                attacker->owner_player == 0u ? p1_frames : p2_frames;
+        }
+        if (!victim_frames) {
+            victim_frames = victim == 0 ? p1_frames : p2_frames;
+        }
 
         uint8_t local_hitdef = 0u;
         const ik_cns_hitdef_t* hitdef =
