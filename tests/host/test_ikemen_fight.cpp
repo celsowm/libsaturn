@@ -2931,6 +2931,56 @@ int main() {
         EQ(g.timer_frames,timer-1u);
     }
 
+    /* State-level AssertSpecial noAutoTurn is applied before the generic
+     * facing step, while MakeDust emits the common fightfx action 120. */
+    {
+        const ik_cns_controller_t ctrls[] = {
+            {100,IK_CNS_CTRL_MAKE_DUST,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,0,0,0u},
+        };
+        ik_cns_state_t state{};
+        state.number=100;
+        state.anim=100;
+        state.state_type=IK_CNS_STATE_STAND;
+        state.move_type=IK_CNS_MOVE_IDLE;
+        state.physics=IK_CNS_PHYS_STAND;
+        state.ctrl=1;
+        state.controller_count=1u;
+        state.assert_special_flags=
+            IK_CNS_STATE_ASSERT_NO_WALK |
+            IK_CNS_STATE_ASSERT_NO_AUTO_TURN;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=&state;
+        asset.state_count=1u;
+        asset.controllers=ctrls;
+        asset.controller_count=1u;
+
+        ik_fight_init(&g,&asset);
+        g.fighters[0].state=100;
+        g.fighters[0].anim=100;
+        g.fighters[0].facing=1;
+        g.fighters[0].ctrl=1;
+        g.fighters[0].x=150;
+        g.fighters[0].x_q8=150*IK_CNS_Q8_ONE;
+        g.fighters[1].x=100;
+        g.fighters[1].x_q8=100*IK_CNS_Q8_ONE;
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+
+        EQ(g.fighters[0].facing,1);
+        EQ(g.effect_count,1u);
+        EQ(g.effect_events[0].action,120);
+    }
+
     /* PalFX stores additive and sinusoidal RGB modulation with an authored
      * cycle, then advances phase while the effect is alive. */
     {
