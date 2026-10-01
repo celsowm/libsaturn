@@ -194,6 +194,29 @@ int ik_entity_add_target(
     return 1;
 }
 
+int ik_entity_remove_target(
+    ik_entity_pool_t* pool,
+    ik_entity_handle_t source,
+    ik_entity_handle_t target
+) {
+    ik_entity_t* entity = ik_entity_get(pool, source);
+    if (!entity) return 0;
+    for (uint8_t i = 0u; i < entity->target_count; ++i) {
+        if (!ik_entity_handle_equal(entity->targets[i], target)) continue;
+        for (uint8_t j = i + 1u; j < entity->target_count; ++j) {
+            entity->targets[j - 1u] = entity->targets[j];
+            entity->target_ids[j - 1u] = entity->target_ids[j];
+        }
+        --entity->target_count;
+        entity->targets[entity->target_count] = ik_entity_invalid_handle();
+        entity->target_ids[entity->target_count] = -1;
+        entity->target = entity->target_count > 0u
+            ? entity->targets[0] : ik_entity_invalid_handle();
+        return 1;
+    }
+    return 0;
+}
+
 int ik_entity_set_target(
     ik_entity_pool_t* pool,
     ik_entity_handle_t source,
