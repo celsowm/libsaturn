@@ -137,7 +137,8 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_AFTER_IMAGE,
     IK_CNS_CTRL_AFTER_IMAGE_TIME,
     IK_CNS_CTRL_PAL_FX,
-    IK_CNS_CTRL_ASSERT_INTRO
+    IK_CNS_CTRL_ASSERT_INTRO,
+    IK_CNS_CTRL_MAKE_DUST
 } ik_cns_controller_type_t;
 
 typedef enum ik_cns_helper_postype {
