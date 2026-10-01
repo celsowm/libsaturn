@@ -3374,6 +3374,122 @@ int main() {
         OK(!ik_entity_handle_is_valid(helper_entity->target));
     }
 
+    /* Helper target controllers also work on non-root targets. The target
+     * stays an entity handle: bind/facing/life mutate the captured Helper,
+     * then TargetState enters its state and releases the source target. */
+    {
+        const ik_cns_controller_t ctrls[] = {
+            {960,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ALWAYS,
+             0,0,8*IK_CNS_Q8_ONE,-12*IK_CNS_Q8_ONE,0u},
+            {960,IK_CNS_CTRL_TARGET_FACING,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,-1,0,0u},
+            {960,IK_CNS_CTRL_TARGET_LIFE_ADD,IK_CNS_TRIGGER_TIME_EQ,
+             1,0,-125,0,0u},
+            {960,IK_CNS_CTRL_TARGET_STATE,IK_CNS_TRIGGER_TIME_EQ,
+             2,0,961,0,0u},
+        };
+
+        ik_cns_state_t states[3]{};
+        states[0].number=0;
+        states[0].anim=0;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_IDLE;
+        states[0].physics=IK_CNS_PHYS_STAND;
+        states[0].ctrl=1;
+
+        states[1].number=960;
+        states[1].anim=0;
+        states[1].state_type=IK_CNS_STATE_STAND;
+        states[1].move_type=IK_CNS_MOVE_ATTACK;
+        states[1].physics=IK_CNS_PHYS_NONE;
+        states[1].controller_count=4u;
+
+        states[2].number=961;
+        states[2].anim=0;
+        states[2].state_type=IK_CNS_STATE_AIR;
+        states[2].move_type=IK_CNS_MOVE_HIT;
+        states[2].physics=IK_CNS_PHYS_NONE;
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=3u;
+        asset.controllers=ctrls;
+        asset.controller_count=4u;
+
+        ik_entity_pool_t pool{};
+        ik_entity_pool_init(&pool);
+        ik_entity_handle_t p1_entity{};
+        ik_entity_handle_t p2_entity{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,1,0u,
+            ik_entity_invalid_handle(),&p1_entity));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_PLAYER,2,1u,
+            ik_entity_invalid_handle(),&p2_entity));
+
+        ik_fight_init(&g,&asset);
+        ik_fight_bind_entities(&g,&pool,p1_entity,p2_entity);
+        place(&g,80,220);
+
+        ik_entity_handle_t source{};
+        ik_entity_handle_t target{};
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_HELPER,96,0u,p1_entity,&source));
+        OK(ik_entity_spawn(
+            &pool,IK_ENTITY_HELPER,97,1u,p2_entity,&target));
+
+        ik_entity_t* source_entity=ik_entity_get(&pool,source);
+        ik_entity_t* target_entity=ik_entity_get(&pool,target);
+        OK(source_entity!=nullptr);
+        OK(target_entity!=nullptr);
+        source_entity->x_q8=120*IK_CNS_Q8_ONE;
+        source_entity->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
+        source_entity->facing=1;
+        source_entity->life=1000;
+        target_entity->x_q8=200*IK_CNS_Q8_ONE;
+        target_entity->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
+        target_entity->facing=-1;
+        target_entity->life=800;
+        OK(ik_entity_set_target(&pool,source,target));
+
+        ik_entity_runtime_t runtime{};
+        ik_entity_runtime_init(
+            &runtime,&pool,&asset,&k_table,&k_table);
+        OK(ik_entity_runtime_enter_state(&runtime,source,960));
+        OK(ik_entity_runtime_enter_state(&runtime,target,0));
+
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+        tick2(&g,&p1,&p2);
+
+        source_entity=ik_entity_get(&pool,source);
+        target_entity=ik_entity_get(&pool,target);
+        OK(source_entity!=nullptr);
+        OK(target_entity!=nullptr);
+        EQ(target_entity->x_q8,
+           source_entity->x_q8+8*IK_CNS_Q8_ONE);
+        EQ(target_entity->y_q8,
+           source_entity->y_q8-12*IK_CNS_Q8_ONE);
+        EQ(target_entity->facing,-1);
+        EQ(target_entity->life,675);
+        OK(ik_entity_handle_equal(source_entity->target,target));
+
+        tick2(&g,&p1,&p2);
+
+        source_entity=ik_entity_get(&pool,source);
+        target_entity=ik_entity_get(&pool,target);
+        OK(source_entity!=nullptr);
+        OK(target_entity!=nullptr);
+        EQ(target_entity->state_no,961);
+        OK(!ik_entity_handle_is_valid(source_entity->target));
+    }
+
     /* Root fighters and helpers share one priority queue. A higher-priority
      * helper contact suppresses the opposing root attack in the same tick. */
     {
