@@ -189,7 +189,7 @@ func libsaturnOracleCaptureFrame(s *System) bool {
 	frame := libsaturnOracleFrame{
 		Schema: libsaturnOracleSchema,
 		Frame: libsaturnOracleFrameNo,
-		Tick: s.tickCount,
+		Tick: int32(s.tickCount),
 		RoundState: int32(s.roundState()),
 		RandSeed: s.randseed,
 	}
