@@ -1509,6 +1509,7 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": q8(x),
             "value1": q8(y),
+            "value2": integer(ctrl.get("id"), -1),
             "flags": flag_expr(),
         }
 
@@ -1534,6 +1535,7 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": integer(ctrl.get("value")),
             "value1": 0,
+            "value2": integer(ctrl.get("id"), -1),
             "flags": flag_expr(),
         }
 
@@ -1546,6 +1548,7 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": integer(ctrl.get("value")),
             "value1": 0,
+            "value2": integer(ctrl.get("id"), -1),
             "flags": flag_expr(),
         }
 
@@ -1939,7 +1942,7 @@ def compile_projectile_controller(
         "yaccel", "ground.cornerpush.veloff", "fall.damage",
         "envshake.time", "envshake.ampl", "envshake.freq",
         "fall.envshake.time", "fall.envshake.ampl",
-        "fall.envshake.freq",
+        "fall.envshake.freq", "id", "chainid", "nochainid",
     }
     for key, _ in ctrl.values:
         lowered = key.strip().lower()
