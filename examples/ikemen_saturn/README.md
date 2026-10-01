@@ -392,11 +392,23 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   includes Helper/Projectile threats in inGuardDist and chooses air-guard
   landing state 130 only while holdback and inGuardDist remain true; otherwise
   it lands through common state 52
-* Throw/custom-state ownership is now explicit per player/entity. TargetState
+* Throw/custom-state ownership is explicit per player/entity. TargetState
   switches the victim into the attacker's CNS namespace, ChangeState keeps the
   current state owner, and SelfState restores the victim's own CNS namespace.
   Root fighters and Helpers carry state_owner independently, so identical state
-  numbers may resolve to different character CNS assets without collision
+  numbers may resolve to different character CNS assets without collision.
+* Animation ownership is independent from state ownership. ChangeAnim resolves
+  through the character's native AIR, while ChangeAnim2 resolves through the
+  current custom-state owner's AIR. ChangeAnim2 still resolves each AIR
+  (group,image) against the victim's native SFF, matching Ikemen's separate
+  animation-player and sprite-player model. Raw AIR offsets and SFF sprite axes
+  are retained in generated assets so remapped animations keep their authored
+  placement.
+* Character constants are native-character data, not custom-state data. Life,
+  size, jump/recovery movement and air-juggle defaults therefore stay with the
+  victim while it executes another character's state. ik_fight_init_players()
+  initializes P1/P2 from independent CNS assets and preserves independent life
+  limits/common-state availability.
 * HitDef targets now carry IDs. Dynamic entities keep a fixed four-slot
   generational target registry; TargetBind, TargetFacing, TargetLifeAdd and
   TargetState honor optional id/index selectors and may operate on multiple
