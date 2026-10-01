@@ -91,15 +91,42 @@ The RNG seed is applied before round character setup. For exact authored input
 streams, the next layer should feed Ikemen replay/input data rather than rely on
 AI decisions.
 
-## Compare traces
+## Run the LibSaturn host trace
 
-Once the LibSaturn host-side runner emits the same schema:
+The Saturn fighting runtime is also executed natively on the host with the
+generated KFM CNS/AIR assets:
 
 ```sh
-python tools/ikemen_oracle/diff.py \
-  build/ikemen_oracle/ikemen.jsonl \
-  build/ikemen_oracle/libsaturn.jsonl
+make ikemen-oracle-saturn
 ```
+
+This generates:
+
+```text
+build/ikemen_oracle/libsaturn.jsonl
+```
+
+Coordinates are normalized from the Saturn example's 320x224 screen space to
+Ikemen stage-local space: X is relative to screen center and Y is relative to
+the fight floor.
+
+## Compare traces
+
+```sh
+make ikemen-oracle-diff
+```
+
+Or run the whole oracle -> Saturn -> diff pipeline:
+
+```sh
+make ikemen-oracle-check
+```
+
+The comparator ignores engine-global `tick` and mutable `rand_seed` by
+default because LibSaturn does not yet expose equivalent global clocks/RNG.
+They remain in both trace schemas for later determinism work. Pass
+`--strict-metadata` directly to `diff.py` when those fields become
+comparable.
 
 The comparator is strict for integer/boolean/string/state fields and uses a
 small absolute tolerance for floating-point coordinates and velocities.
@@ -112,3 +139,7 @@ This is a behavioral oracle, not a source-code dependency. Ikemen GO remains in
 The current hook is render-independent at capture time but Ikemen GO still
 performs its normal platform/window initialization. A later fully headless
 backend can remove that startup dependency without changing the trace schema.
+
+The first Saturn runner intentionally uses idle controls. It establishes the
+trace contract and exposes baseline divergences. Replay/input-stream injection
+is the next layer for authored attacks, throws and controller edge cases.
