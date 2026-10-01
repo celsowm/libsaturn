@@ -1635,7 +1635,9 @@ static void apply_guard(ik_fight_t* fight, int victim,
     if (type == IK_CNS_STATE_CROUCH) state = 152;
     else if (type == IK_CNS_STATE_AIR) state = 154;
 
-    if (ik_cns_find_state(fight->cns, state)) {
+    const ik_cns_asset_t* victim_cns =
+        cns_for_owner(fight, v->owner_player);
+    if (ik_cns_find_state(victim_cns, state)) {
         enter_state(fight, v, state);
     } else {
         enter_state(fight, v,
@@ -1651,7 +1653,7 @@ static void apply_guard(ik_fight_t* fight, int victim,
     if (guard_ko) {
         fight->winner = (uint8_t)((victim ^ 1) + 1);
         fight->events |= IK_EVENT_KO;
-        if (!ik_cns_find_state(fight->cns, 5050)) {
+        if (!ik_cns_find_state(victim_cns, 5050)) {
             enter_state(fight, v, IK_STATE_KO);
             fight->round_over = 1;
             fight->events |= IK_EVENT_ROUND_OVER;
@@ -1906,23 +1908,25 @@ static void apply_damage(ik_fight_t* fight, int victim,
         int16_t target = IK_STATE_HIT;
         int custom_p2_state = 0;
         const ik_cns_asset_t* attacker_cns = cns_for_fighter(fight, a);
+        const ik_cns_asset_t* victim_cns =
+            cns_for_owner(fight, v->owner_player);
         if (hitdef->p2_state_no >= 0 &&
             ik_cns_find_state(attacker_cns, hitdef->p2_state_no)) {
             target = hitdef->p2_state_no;
             custom_p2_state = 1;
         } else if (victim_type == IK_CNS_STATE_LIEDOWN &&
-            ik_cns_find_state(fight->cns, 5080)) {
+            ik_cns_find_state(victim_cns, 5080)) {
             target = 5080;
         } else if (!airborne && hitdef->ground_type == IK_CNS_GROUND_TRIP &&
-                   ik_cns_find_state(fight->cns, 5070)) {
+                   ik_cns_find_state(victim_cns, 5070)) {
             target = 5070;
-        } else if (airborne && ik_cns_find_state(fight->cns, 5020)) {
+        } else if (airborne && ik_cns_find_state(victim_cns, 5020)) {
             target = 5020;
         } else if (victim_type == IK_CNS_STATE_CROUCH &&
                    (hitdef->flags & IK_CNS_HITDEF_FORCE_STAND) == 0u &&
-                   ik_cns_find_state(fight->cns, 5010)) {
+                   ik_cns_find_state(victim_cns, 5010)) {
             target = 5010;
-        } else if (ik_cns_find_state(fight->cns, 5000)) {
+        } else if (ik_cns_find_state(victim_cns, 5000)) {
             target = 5000;
         }
 
@@ -1964,7 +1968,8 @@ static void apply_damage(ik_fight_t* fight, int victim,
     }
 
     if (hitdef->p1_state_no >= 0 &&
-        ik_cns_find_state(fight->cns, hitdef->p1_state_no)) {
+        ik_cns_find_state(
+            cns_for_fighter(fight, a), hitdef->p1_state_no)) {
         enter_state(fight, a, hitdef->p1_state_no);
     }
 
@@ -2242,7 +2247,9 @@ static void apply_guard_from_entity(
     if (type == IK_CNS_STATE_CROUCH) state = 152;
     else if (type == IK_CNS_STATE_AIR) state = 154;
 
-    if (ik_cns_find_state(fight->cns, state)) {
+    const ik_cns_asset_t* victim_cns =
+        cns_for_owner(fight, v->owner_player);
+    if (ik_cns_find_state(victim_cns, state)) {
         enter_state(fight, v, state);
     } else {
         enter_state(
@@ -2259,7 +2266,7 @@ static void apply_guard_from_entity(
     if (guard_ko) {
         fight->winner = (uint8_t)(attacker->owner_player + 1u);
         fight->events |= IK_EVENT_KO;
-        if (!ik_cns_find_state(fight->cns, 5050)) {
+        if (!ik_cns_find_state(victim_cns, 5050)) {
             enter_state(fight, v, IK_STATE_KO);
             fight->round_over = 1;
             fight->events |= IK_EVENT_ROUND_OVER;
@@ -2401,25 +2408,27 @@ static void apply_damage_from_entity(
     int custom_p2_state = 0;
     const ik_cns_asset_t* attacker_cns =
         cns_for_owner(fight, attacker->state_owner);
+    const ik_cns_asset_t* victim_cns =
+        cns_for_owner(fight, v->owner_player);
     if (hitdef->p2_state_no >= 0 &&
         ik_cns_find_state(attacker_cns, hitdef->p2_state_no)) {
         target = hitdef->p2_state_no;
         custom_p2_state = 1;
     } else if (victim_type == IK_CNS_STATE_LIEDOWN &&
-               ik_cns_find_state(fight->cns, 5080)) {
+               ik_cns_find_state(victim_cns, 5080)) {
         target = 5080;
     } else if (!airborne &&
                hitdef->ground_type == IK_CNS_GROUND_TRIP &&
-               ik_cns_find_state(fight->cns, 5070)) {
+               ik_cns_find_state(victim_cns, 5070)) {
         target = 5070;
     } else if (airborne &&
-               ik_cns_find_state(fight->cns, 5020)) {
+               ik_cns_find_state(victim_cns, 5020)) {
         target = 5020;
     } else if (victim_type == IK_CNS_STATE_CROUCH &&
                (hitdef->flags & IK_CNS_HITDEF_FORCE_STAND) == 0u &&
-               ik_cns_find_state(fight->cns, 5010)) {
+               ik_cns_find_state(victim_cns, 5010)) {
         target = 5010;
-    } else if (ik_cns_find_state(fight->cns, 5000)) {
+    } else if (ik_cns_find_state(victim_cns, 5000)) {
         target = 5000;
     }
 
@@ -2461,7 +2470,9 @@ static void apply_damage_from_entity(
     }
 
     if (hitdef->p1_state_no >= 0 &&
-        ik_cns_find_state(fight->cns, hitdef->p1_state_no)) {
+        ik_cns_find_state(
+            cns_for_owner(fight, attacker->state_owner),
+            hitdef->p1_state_no)) {
         enter_entity_contact_state(
             fight, attacker_handle, hitdef->p1_state_no,
             p1_frames, p2_frames);
