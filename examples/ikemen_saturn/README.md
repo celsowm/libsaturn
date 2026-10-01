@@ -361,10 +361,14 @@ from consuming every CRAM bank needed by fighters, text and tint variants.
 
 This is not yet a complete Ikemen common-state VM. The next important pieces are:
 
-* exact remaining downed/defeated presentation semantics such as
-  ground effects, get-up/defeated NotHitBy and MatchOver animation variants
-* exact remaining guard semantics such as conditional air-guard landing,
-  complete inGuardDist behavior
+* downed/defeated common-state presentation now includes the authored
+  fightfx ground impact, continuous get-up/defeated SCA NotHitBy windows,
+  5140 defeated base animation and the 5150 MatchOver variant when present.
+  The narrower post-get-up NT/ST/HT attribute windows remain deferred
+* guard start/hold/end now uses HitDef guard.dist (falling back to attack.dist),
+  includes Helper/Projectile threats in inGuardDist and chooses air-guard
+  landing state 130 only while holdback and inGuardDist remain true; otherwise
+  it lands through common state 52
 * remaining throw edge cases across different character state/CNS owners and
   non-root targets; root-fighter Helper target/bind ownership is implemented
 * remaining Blocking/engine edge cases are now mostly advanced compatibility:
