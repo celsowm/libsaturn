@@ -369,8 +369,11 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   includes Helper/Projectile threats in inGuardDist and chooses air-guard
   landing state 130 only while holdback and inGuardDist remain true; otherwise
   it lands through common state 52
-* remaining throw edge cases across different character state/CNS owners and
-  non-root targets; root-fighter Helper target/bind ownership is implemented
+* Helper target controllers now preserve generational ownership for both root
+  fighters and non-root entities: TargetBind, TargetFacing, TargetLifeAdd and
+  TargetState operate on the captured handle and TargetState releases it.
+  The remaining throw-ownership gap is per-character CNS/state ownership:
+  TargetState custom states and SelfState still share the single fight CNS
 * remaining Blocking/engine edge cases are now mostly advanced compatibility:
   Helper ReversalDef and projectile HitOverride AP are exercised end-to-end.
   Pause/SuperPause movetime, paused-owner contact resolution and
