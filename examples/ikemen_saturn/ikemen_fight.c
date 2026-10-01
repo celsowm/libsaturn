@@ -3598,9 +3598,11 @@ static void resolve_entity_contacts(
                 fight, attacker_frames, attacker, v, &local_hitdef);
         if (!hitdef || local_hitdef >= 32u) continue;
 
-        /* Dynamic-entity throws require generic target/bind ownership first.
-         * Reject rather than silently treating a throw as a normal strike. */
-        if ((hitdef->flags & IK_CNS_HITDEF_THROW) != 0u) continue;
+        const int dynamic_throw =
+            (hitdef->flags & IK_CNS_HITDEF_THROW) != 0u;
+        if (dynamic_throw && attacker->type != IK_ENTITY_HELPER) {
+            continue;
+        }
         if (!hitdef_allows_target(fight, v, hitdef)) continue;
         if (fighter_not_hit_by_blocks(
                 fight, v, reversal_entity_state_bit(attacker), hitdef)) {
@@ -3663,7 +3665,12 @@ static void resolve_entity_contacts(
         attacker->hitdef_hit_mask |= bit;
         const ik_fight_controls_t* victim_controls =
             victim == 0 ? p1 : p2;
-        if (can_guard_hit(fight, v, victim_controls, hitdef)) {
+        if (dynamic_throw) {
+            apply_throw_from_entity(
+                fight, attackers[n], victim, hitdef,
+                p1_frames, p2_frames);
+        } else if (can_guard_hit(
+                       fight, v, victim_controls, hitdef)) {
             apply_guard_from_entity(
                 fight, attackers[n], victim, victim_controls, hitdef);
         } else {
