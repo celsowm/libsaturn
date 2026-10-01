@@ -3669,6 +3669,13 @@ int main() {
         ik_fight_controls_t p2{};
         tick2(&g,&p1,&p2);
         EQ(g.fighters[1].hp,990);
+        root0=ik_entity_get(&pool,p1_entity);
+        OK(root0!=nullptr);
+        EQ(root0->proj_query_contact,1u);
+        EQ(root0->proj_query_hit,1u);
+        EQ(root0->proj_query_guarded,0u);
+        EQ(root0->proj_query_contact_time,0);
+        EQ(root0->proj_query_hit_time,0);
         const ik_entity_t* shot=
             ik_entity_get_const(&pool,projectile);
         OK(shot!=nullptr);
@@ -3677,12 +3684,20 @@ int main() {
 
         tick2(&g,&p1,&p2);
         EQ(g.fighters[1].hp,990);
+        root0=ik_entity_get(&pool,p1_entity);
+        OK(root0!=nullptr);
+        EQ(root0->proj_query_contact_time,1);
+        EQ(root0->proj_query_hit_time,1);
         shot=ik_entity_get_const(&pool,projectile);
         OK(shot!=nullptr);
         EQ(shot->projectile_hit_cooldown,1u);
 
         tick2(&g,&p1,&p2);
         EQ(g.fighters[1].hp,980);
+        root0=ik_entity_get(&pool,p1_entity);
+        OK(root0!=nullptr);
+        EQ(root0->proj_query_contact_time,0);
+        EQ(root0->proj_query_hit_time,0);
         OK(ik_entity_get_const(&pool,projectile)==nullptr);
     }
 
