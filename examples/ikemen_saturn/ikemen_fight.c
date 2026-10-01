@@ -1696,6 +1696,7 @@ static void enter_entity_contact_state(
     ik_entity_runtime_init(
         &runtime, fight->entities, fight->cns,
         p1_frames, p2_frames);
+    configure_fight_entity_runtime(fight, &runtime);
     (void)ik_entity_runtime_enter_state(&runtime, handle, state);
 }
 
@@ -2519,6 +2520,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 ik_entity_runtime_t runtime;
                 ik_entity_runtime_init(
                     &runtime, fight->entities, fight->cns, frames, frames);
+                configure_fight_entity_runtime(fight, &runtime);
                 ik_entity_handle_t spawned = ik_entity_invalid_handle();
                 (void)ik_entity_runtime_spawn_projectile_spec(
                     &runtime, fighter_entity_handle(fight, f),
@@ -2544,6 +2546,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 ik_entity_runtime_t runtime;
                 ik_entity_runtime_init(
                     &runtime, fight->entities, fight->cns, frames, frames);
+                configure_fight_entity_runtime(fight, &runtime);
                 ik_entity_handle_t spawned = ik_entity_invalid_handle();
                 (void)ik_entity_runtime_spawn_explod(
                     &runtime, fighter_entity_handle(fight, f),
@@ -2561,6 +2564,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 ik_entity_runtime_t runtime;
                 ik_entity_runtime_init(
                     &runtime, fight->entities, fight->cns, frames, frames);
+                configure_fight_entity_runtime(fight, &runtime);
                 const uint8_t player = fighter_player_index(fight, f);
                 if (player < 2u) {
                     ik_entity_runtime_set_command_mask(
@@ -3607,6 +3611,7 @@ void ik_fight_update(ik_fight_t* fight,
                 ik_entity_runtime_init(
                     &runtime, fight->entities, fight->cns,
                     p1_frames, p2_frames);
+                configure_fight_entity_runtime(fight, &runtime);
                 ik_entity_runtime_set_command_mask(
                     &runtime, 0u, controls_command_mask(p1));
                 ik_entity_runtime_set_command_mask(
@@ -3668,6 +3673,7 @@ void ik_fight_update(ik_fight_t* fight,
         ik_entity_runtime_init(
             &runtime, fight->entities, fight->cns,
             p1_frames, p2_frames);
+        configure_fight_entity_runtime(fight, &runtime);
         ik_entity_runtime_set_command_mask(
             &runtime, 0u, controls_command_mask(p1));
         ik_entity_runtime_set_command_mask(
