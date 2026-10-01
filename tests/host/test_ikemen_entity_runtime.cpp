@@ -342,6 +342,58 @@ int main() {
     ik_entity_runtime_step(&runtime);
     OK(ik_entity_get_const(&pool,bound_explod)==nullptr);
 
+    ik_entity_t* opponent=ik_entity_get(&pool,p2);
+    OK(opponent!=nullptr);
+    opponent->x_q8=220*IK_ENTITY_Q8_ONE;
+    opponent->y_q8=50*IK_ENTITY_Q8_ONE;
+    opponent->facing=-1;
+
+    ik_cns_explod_t p2_explod_spec{};
+    p2_explod_spec.anim_no=200;
+    p2_explod_spec.postype=IK_CNS_HELPER_POS_P2;
+    p2_explod_spec.pos_x_q8=10*IK_ENTITY_Q8_ONE;
+    p2_explod_spec.pos_y_q8=-5*IK_ENTITY_Q8_ONE;
+    p2_explod_spec.remove_time=5;
+    p2_explod_spec.scale_x_q8=IK_ENTITY_Q8_ONE;
+    p2_explod_spec.scale_y_q8=IK_ENTITY_Q8_ONE;
+    p2_explod_spec.alpha=255u;
+
+    ik_entity_handle_t p2_explod{};
+    OK(ik_entity_runtime_spawn_explod(
+        &runtime,p1,&p2_explod_spec,&p2_explod));
+    const ik_entity_t* p2_visual=
+        ik_entity_get_const(&pool,p2_explod);
+    OK(p2_visual!=nullptr);
+    EQ(p2_visual->x_q8,210*IK_ENTITY_Q8_ONE);
+    EQ(p2_visual->y_q8,45*IK_ENTITY_Q8_ONE);
+
+    ik_cns_projectile_t p2_projectile_spec=projectile_spec;
+    p2_projectile_spec.id=46;
+    p2_projectile_spec.postype=IK_CNS_HELPER_POS_P2;
+    p2_projectile_spec.pos_x_q8=12*IK_ENTITY_Q8_ONE;
+    p2_projectile_spec.pos_y_q8=-6*IK_ENTITY_Q8_ONE;
+    p2_projectile_spec.vel_x_q8=0;
+    p2_projectile_spec.vel_y_q8=0;
+    p2_projectile_spec.remove_time=5;
+    p2_projectile_spec.bind_time=2;
+
+    ik_entity_handle_t p2_projectile{};
+    OK(ik_entity_runtime_spawn_projectile_spec(
+        &runtime,p1,&p2_projectile_spec,&p2_projectile));
+    const ik_entity_t* p2_shot=
+        ik_entity_get_const(&pool,p2_projectile);
+    OK(p2_shot!=nullptr);
+    EQ(p2_shot->x_q8,208*IK_ENTITY_Q8_ONE);
+    EQ(p2_shot->y_q8,44*IK_ENTITY_Q8_ONE);
+
+    opponent=ik_entity_get(&pool,p2);
+    OK(opponent!=nullptr);
+    opponent->x_q8=200*IK_ENTITY_Q8_ONE;
+    ik_entity_runtime_step(&runtime);
+    p2_shot=ik_entity_get_const(&pool,p2_projectile);
+    OK(p2_shot!=nullptr);
+    EQ(p2_shot->x_q8,188*IK_ENTITY_Q8_ONE);
+
     std::puts("[test] ikemen_entity_runtime OK");
     return 0;
 }
