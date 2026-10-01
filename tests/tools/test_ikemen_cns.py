@@ -2703,11 +2703,12 @@ palfx1420 = next(
     c for c in zankou_1420 if c["type"] == "IK_CNS_CTRL_PAL_FX"
 )
 assert palfx1420["value0"] == 20
-assert (palfx1420["value1"] & 0xff) == 32
-assert ((palfx1420["value1"] >> 8) & 0xff) == 16
-assert (palfx1420["value2"] & 0xff) == 64
-assert ((palfx1420["value2"] >> 8) & 0xff) == 32
-assert ((palfx1420["value2"] >> 16) & 0xff) == 5
+assert (palfx1420["value1"] & 0x1ff) == 32
+assert ((palfx1420["value1"] >> 9) & 0x1ff) == 16
+assert ((palfx1420["value1"] >> 18) & 0x1ff) == 0
+assert (palfx1420["value2"] & 0x1ff) == 64
+assert ((palfx1420["value2"] >> 9) & 0x1ff) == 32
+assert ((palfx1420["value2"] >> 18) & 0x1ff) == 5
 assert palfx1420["value3"] == 3
 assert (palfx1420["value4"] & 0x1ff) == 256
 assert ((palfx1420["value4"] >> 9) & 0x1ff) == 192
