@@ -52,6 +52,8 @@ int main() {
     OK(ik_entity_handle_equal(
         ik_entity_redirect_target(&pool, p1, 20, 0u), projectile));
 
+    ik_entity_expr_binding_t binding{&pool, p1};
+
     const ik_expr_instr_t target_state_code[] = {
         {IK_EXPR_LOAD_FIELD, IK_EXPR_FIELD_STATE_NO,
          IK_EXPR_REDIRECT_TARGET, 0u, 0, 20},
@@ -81,7 +83,6 @@ int main() {
     e2->state_no = 5000;
     eh->vars[3] = 77;
 
-    ik_entity_expr_binding_t binding{&pool, p1};
     int32_t value = 0;
     OK(ik_entity_expr_read_field(
         &binding, IK_EXPR_REDIRECT_P2, IK_EXPR_FIELD_BODY_DIST_X,
