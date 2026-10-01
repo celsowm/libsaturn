@@ -3598,6 +3598,99 @@ int main() {
         OK(!ik_entity_handle_is_valid(source_entity->target));
     }
 
+    /* ChainID requires the victim's previous hit from the same owner to
+     * carry the requested ID; NoChainID rejects the forbidden predecessor. */
+    {
+        ik_cns_hitdef_t hits[4]{};
+        for (int i=0;i<4;++i) {
+            hits[i].state_number=(int16_t)(980+i);
+            hits[i].trigger_kind=IK_CNS_TRIGGER_ALWAYS;
+            hits[i].damage=10;
+            hits[i].priority=4u;
+            hits[i].hit_flags=IK_CNS_HIT_DEFAULT;
+            hits[i].attack_attr_mask=IK_CNS_ATTR_NORMAL_ATTACK;
+            hits[i].chain_id=-1;
+            hits[i].no_chain_id=-1;
+            hits[i].no_chain_id2=-1;
+        }
+        hits[0].id=10;
+        hits[1].id=11;
+        hits[1].chain_id=10;
+        hits[2].id=12;
+        hits[2].chain_id=99;
+        hits[3].id=13;
+        hits[3].no_chain_id=11;
+
+        ik_cns_state_t states[5]{};
+        states[0].number=0;
+        states[0].anim=0;
+        states[0].state_type=IK_CNS_STATE_STAND;
+        states[0].move_type=IK_CNS_MOVE_IDLE;
+        states[0].physics=IK_CNS_PHYS_STAND;
+        states[0].ctrl=1;
+        for (int i=0;i<4;++i) {
+            states[i+1].number=(int16_t)(980+i);
+            states[i+1].anim=910;
+            states[i+1].state_type=IK_CNS_STATE_STAND;
+            states[i+1].move_type=IK_CNS_MOVE_ATTACK;
+            states[i+1].physics=IK_CNS_PHYS_NONE;
+            states[i+1].hitdef_ofs=(uint16_t)i;
+            states[i+1].hitdef_count=1u;
+        }
+
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=5u;
+        asset.hitdefs=hits;
+        asset.hitdef_count=4u;
+
+        ik_fight_init(&g,&asset);
+        place(&g,100,145);
+        ik_fight_controls_t p1{};
+        ik_fight_controls_t p2{};
+
+        auto attack_state = [&](int16_t state) {
+            g.fighters[0].state=state;
+            g.fighters[0].anim=910;
+            g.fighters[0].state_time=0u;
+            g.fighters[0].anim_time=0u;
+            g.fighters[0].ctrl=0;
+            g.fighters[0].hitdef_hit_mask=0u;
+            g.fighters[0].active_hitdef_global=-1;
+            g.fighters[0].active_hitdef_local=-1;
+            g.fighters[1].state=0;
+            g.fighters[1].anim=0;
+            g.fighters[1].state_time=0u;
+            g.fighters[1].anim_time=0u;
+            g.fighters[1].ctrl=1;
+            place(&g,100,145);
+            tick2(&g,&p1,&p2);
+        };
+
+        attack_state(980);
+        EQ(g.fighters[1].hp,990);
+        EQ(g.fighters[1].last_hit_owner,0);
+        EQ(g.fighters[1].last_hit_id,10);
+
+        attack_state(981);
+        EQ(g.fighters[1].hp,980);
+        EQ(g.fighters[1].last_hit_id,11);
+
+        attack_state(982);
+        EQ(g.fighters[1].hp,980);
+        EQ(g.fighters[1].last_hit_id,11);
+
+        attack_state(983);
+        EQ(g.fighters[1].hp,980);
+        EQ(g.fighters[1].last_hit_id,11);
+    }
+
     /* Target controller ID/index selection is evaluated against the bounded
      * target registry, so one Helper may own several simultaneous targets. */
     {
