@@ -21,6 +21,7 @@ typedef int (*ik_entity_target_controller_fn)(
 typedef struct ik_entity_runtime {
     ik_entity_pool_t* pool;
     const ik_cns_asset_t* cns;
+    const ik_cns_asset_t* player_cns[2];
     const ik_frame_table_t* frames[2];
     uint16_t command_masks[2];
     int16_t stage_min_x;
@@ -35,6 +36,11 @@ void ik_entity_runtime_init(
     const ik_cns_asset_t* cns,
     const ik_frame_table_t* p1_frames,
     const ik_frame_table_t* p2_frames);
+
+void ik_entity_runtime_set_player_cns(
+    ik_entity_runtime_t* runtime,
+    uint8_t player,
+    const ik_cns_asset_t* cns);
 
 void ik_entity_runtime_set_target_controller(
     ik_entity_runtime_t* runtime,
