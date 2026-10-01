@@ -67,6 +67,7 @@ typedef struct ik_entity {
     uint8_t state_type;
     uint8_t move_type;
     uint8_t move_contact;
+    uint8_t move_hit;
     uint8_t keyctrl;
     uint8_t ownpal;
     uint8_t projectile_hits_left;
