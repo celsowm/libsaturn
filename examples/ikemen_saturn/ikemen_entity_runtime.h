@@ -23,6 +23,8 @@ typedef struct ik_entity_runtime {
     const ik_cns_asset_t* cns;
     const ik_frame_table_t* frames[2];
     uint16_t command_masks[2];
+    int16_t stage_min_x;
+    int16_t stage_max_x;
     void* external_user;
     ik_entity_target_controller_fn target_controller;
 } ik_entity_runtime_t;
@@ -38,6 +40,11 @@ void ik_entity_runtime_set_target_controller(
     ik_entity_runtime_t* runtime,
     void* user,
     ik_entity_target_controller_fn callback);
+
+void ik_entity_runtime_set_stage_bounds(
+    ik_entity_runtime_t* runtime,
+    int16_t stage_min_x,
+    int16_t stage_max_x);
 
 void ik_entity_runtime_set_command_mask(
     ik_entity_runtime_t* runtime,
