@@ -6,6 +6,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from tools.ikemen_oracle.inputs import write_timeline
+
 ROOT = Path(__file__).resolve().parents[2]
 
 HOST_BIN = ROOT / "build" / "ikemen_oracle" / "saturn_trace"
@@ -37,6 +39,8 @@ def main() -> int:
     trace = args.trace.resolve()
     trace.parent.mkdir(parents=True, exist_ok=True)
     HOST_BIN.parent.mkdir(parents=True, exist_ok=True)
+    timeline = trace.parent / "inputs.txt"
+    write_timeline(timeline, scenario)
 
     if not args.no_generate:
         subprocess.run(
@@ -45,6 +49,8 @@ def main() -> int:
                 "EXAMPLE=ikemen_saturn",
                 "build/generated/ikemen_saturn/kfm_frames.c",
                 "build/generated/ikemen_saturn/kfm_cns.c",
+                "build/generated/ikemen_saturn/kfm_commands.c",
+                "build/generated/ikemen_saturn/kfm_state_rules.c",
             ],
             cwd=ROOT,
             check=True,
@@ -55,10 +61,14 @@ def main() -> int:
         "examples/ikemen_saturn/ikemen_fight.c",
         "examples/ikemen_saturn/ikemen_anim.c",
         "examples/ikemen_saturn/ikemen_cns.c",
+        "examples/ikemen_saturn/ikemen_command.c",
+        "examples/ikemen_saturn/ikemen_expr.c",
         "examples/ikemen_saturn/ikemen_entity.c",
         "examples/ikemen_saturn/ikemen_entity_runtime.c",
         "build/generated/ikemen_saturn/kfm_frames.c",
         "build/generated/ikemen_saturn/kfm_cns.c",
+        "build/generated/ikemen_saturn/kfm_commands.c",
+        "build/generated/ikemen_saturn/kfm_state_rules.c",
     ]
     compile_cmd = [
         "g++",
@@ -75,7 +85,10 @@ def main() -> int:
     ]
     subprocess.run(compile_cmd, cwd=ROOT, check=True)
     subprocess.run(
-        [str(HOST_BIN), str(trace), str(frames), str(seed)],
+        [
+            str(HOST_BIN), str(trace), str(frames), str(seed),
+            str(timeline),
+        ],
         cwd=ROOT,
         check=True,
     )
