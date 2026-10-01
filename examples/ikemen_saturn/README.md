@@ -38,6 +38,20 @@ The Ymir harness must be given the matching profile explicitly:
 
 ## Source checkouts
 
+## Behavioral oracle
+
+For frame-by-frame compatibility work, `tools/ikemen_oracle` can instrument
+the ignored `.external/Ikemen-GO` checkout and emit a deterministic JSONL
+trace directly from upstream Ikemen GO. The trace covers root fighters,
+Helpers, projectiles, state/animation/physics/contact data, targets and RNG.
+
+```sh
+make ikemen-oracle-run
+```
+
+The oracle is deliberately not linked into the Saturn runtime. See
+`tools/ikemen_oracle/README.md` for the trace contract and comparator.
+
 The build consumes reference data from two ignored `.external/` checkouts:
 
 * `.external/Ikemen-GO-Screenpack`: KFM, KFM ZSS, Training Room, common/fight assets
