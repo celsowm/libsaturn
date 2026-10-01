@@ -1532,6 +1532,50 @@ y = Const(movement.yaccel)
         root / "blocking_cns", "blocking"
     )
 
+    projectile_source = root / "projectile.cns"
+    projectile_source.write_text(r"""
+[Statedef 9000]
+type = S
+movetype = A
+physics = N
+anim = 0
+ctrl = 0
+
+[State 9000, Shot]
+type = Projectile
+trigger1 = Time = 0
+projid = 42
+projanim = 9001
+projhitanim = 9002
+projremanim = 9003
+projcancelanim = 9004
+offset = 30,-20
+velocity = 4,0
+velmul = 1,1
+projremove = 0
+projremovetime = 90
+projhits = 2
+projmisstime = 5
+projpriority = 2
+projsprpriority = 4
+projedgebound = 50
+projstagebound = 60
+attr = S, SP
+damage = 40,5
+priority = 4, Hit
+pausetime = 6,8
+guardflag = MA
+ground.type = Low
+ground.slidetime = 12
+ground.hittime = 18
+ground.velocity = -4,0
+air.velocity = -3,-4
+""", encoding="utf-8")
+    projectile_report = emit(
+        projectile_source, [9000],
+        root / "projectile_cns", "projectile"
+    )
+
     intro_source = root / "intro.cns"
     intro_source.write_text(r"""
 [Statedef 191]
@@ -1877,6 +1921,19 @@ ctrl = 1
         super_source, [3000, 3050, 3051],
         root / "super_cns", "supers"
     )
+
+projectile_row = projectile_report["states"][0]
+assert projectile_row["hitdef_count"] == 0
+assert len(projectile_report["hitdefs"]) == 1
+assert len(projectile_report["projectiles"]) == 1
+assert projectile_report["projectiles"][0]["hitdef_global"] == 0
+assert projectile_report["hitdefs"][0]["attack_attr_mask"] == (
+    "IK_CNS_ATTR_SPECIAL_PROJECTILE"
+)
+assert any(
+    c["type"] == "IK_CNS_CTRL_PROJECTILE"
+    for c in projectile_report["controllers"]
+)
 
 intro_row = intro_report["states"][0]
 assert intro_row["number"] == 191
