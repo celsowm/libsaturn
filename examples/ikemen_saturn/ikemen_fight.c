@@ -61,11 +61,6 @@ static void set_position(ik_fighter_t* f, int16_t x, int16_t y) {
     f->y_q8 = (int32_t)y * IK_CNS_Q8_ONE;
 }
 
-static const ik_cns_state_t* state_spec(const ik_fight_t* fight,
-                                        int16_t state) {
-    return ik_cns_find_state(fight ? fight->cns : 0, state);
-}
-
 static const ik_cns_state_t* fighter_state_spec(
     const ik_fight_t* fight,
     const ik_fighter_t* fighter
@@ -674,7 +669,7 @@ static const ik_cns_reversaldef_t* active_reversaldef(
     const ik_fighter_t* attacker,
     const ik_cns_hitdef_t* incoming
 ) {
-    if (!fight || !defender || !incoming) return 0;
+    if (!fight || !defender || !attacker || !incoming) return 0;
     const ik_cns_asset_t* state_cns = cns_for_fighter(fight, defender);
     if (!state_cns || !state_cns->reversals) return 0;
 
