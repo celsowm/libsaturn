@@ -3723,7 +3723,8 @@ def emit(
         f"{p['super_move_time']}u, "
         f"{p.get('bind_time', 0)}, "
         f"{p.get('remove_on_gethit', 0)}u, "
-        f"{p.get('remove_on_state_change', 0)}u"
+        f"{p.get('remove_on_state_change', 0)}u, "
+        f"{p.get('postype', 'IK_CNS_HELPER_POS_P1')}"
         "},"
         for p in projectiles
     ]
