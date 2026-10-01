@@ -2988,7 +2988,7 @@ int main() {
             256 | (256 << 9) | (256 << 18);
         const ik_cns_controller_t ctrls[] = {
             {5210,IK_CNS_CTRL_PAL_FX,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,3,128|(128<<8)|(128<<16),0u,
+             1,0,3,128|(128<<9)|(128<<18),0u,
              0,1,mul_identity,0,1,0},
             {5210,IK_CNS_CTRL_TURN,
              IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME,
@@ -3036,9 +3036,9 @@ int main() {
         EQ(g.fighters[0].not_hit_by_mask,7u);
         EQ(g.fighters[0].not_hit_by_time,15u);
         EQ(g.fighters[0].palfx_time,3u);
-        EQ(g.fighters[0].palfx_add_r,-128);
-        EQ(g.fighters[0].palfx_add_g,-128);
-        EQ(g.fighters[0].palfx_add_b,-128);
+        EQ(g.fighters[0].palfx_add_r,128);
+        EQ(g.fighters[0].palfx_add_g,128);
+        EQ(g.fighters[0].palfx_add_b,128);
     }
 
     /* PalFX stores additive and sinusoidal RGB modulation with an authored
@@ -3046,7 +3046,8 @@ int main() {
     {
         const ik_cns_controller_t ctrls[] = {
             {3080,IK_CNS_CTRL_PAL_FX,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,20,0x00001020,0u,0x00052040,3,
+             1,0,20,(32 | (16 << 9)),0u,
+             (64 | (32 << 9) | (5 << 18)),3,
              (256 | (192 << 9) | (128 << 18)),
              ((0 & 0x1ff) | ((-64 & 0x1ff) << 9) |
               ((-128 & 0x1ff) << 18)),
