@@ -36,6 +36,7 @@ class Insn:
     op: str
     a: int = 0
     b: int = 0
+    c: int = 0
 
 
 @dataclass
@@ -52,6 +53,7 @@ class VmInsn:
     redirect: str = "IK_EXPR_REDIRECT_SELF"
     a: int = 0
     b: int = 0
+    reserved: int = 0
 
 
 def _strip_comment(line: str) -> str:
@@ -181,6 +183,76 @@ class Parser:
             if kind != "number":
                 raise ValueError("p2bodydist X comparison requires an integer")
             return [Insn("p2_body_dist_x_lt", int(value))]
+
+        if name == "target":
+            target_id = -1
+            target_index = 0
+            if self._peek("("):
+                self._take("(")
+                id_kind, id_value = self._take()
+                if id_kind != "number":
+                    raise ValueError("target() ID must be an integer")
+                target_id = int(id_value)
+                if self._peek(","):
+                    self._take(",")
+                    index_kind, index_value = self._take()
+                    if index_kind != "number":
+                        raise ValueError("target() index must be an integer")
+                    target_index = int(index_value)
+                    if target_index < 0 or target_index > 255:
+                        raise ValueError("target() index must be in 0..255")
+                self._take(")")
+            self._take(",")
+            field_kind, field_name = self._take()
+            if field_kind != "ident":
+                raise ValueError("target redirect requires a field")
+            field_name = field_name.lower()
+            _, cmpop = self._take()
+            if cmpop not in ("=", "!=", ">", ">=", "<", "<="):
+                raise ValueError(
+                    f"unsupported target redirect comparator {cmpop!r}"
+                )
+
+            field_map = {
+                "stateno": "state_no",
+                "statetype": "state_type",
+                "movetype": "move_type",
+                "life": "life",
+                "ctrl": "ctrl",
+            }
+            if field_name not in field_map:
+                raise ValueError(
+                    f"unsupported target redirect field {field_name!r}"
+                )
+
+            value_kind, value = self._take()
+            if field_name == "statetype":
+                if value_kind != "ident" or value.upper() not in STATE_TYPE_VALUE:
+                    raise ValueError(f"unsupported target statetype {value!r}")
+                rhs = STATE_TYPE_VALUE[value.upper()]
+            elif field_name == "movetype":
+                if value_kind != "ident" or value.upper() not in MOVE_TYPE_VALUE:
+                    raise ValueError(f"unsupported target movetype {value!r}")
+                rhs = MOVE_TYPE_VALUE[value.upper()]
+            else:
+                if value_kind != "number":
+                    raise ValueError(
+                        f"target {field_name} comparison requires an integer"
+                    )
+                rhs = int(value)
+
+            suffix = {
+                "=": "eq", "!=": "ne", ">": "gt", ">=": "ge",
+                "<": "lt", "<=": "le",
+            }[cmpop]
+            return [
+                Insn(
+                    f"target_{field_map[field_name]}_{suffix}",
+                    target_id,
+                    rhs,
+                    target_index,
+                )
+            ]
 
         if name == "numtarget":
             target_id = -1
@@ -538,6 +610,42 @@ def _lower_instruction(insn: Insn) -> list[VmInsn]:
         field, redirect, compare_op = simple[insn.op]
         return _vm_compare(field, redirect, compare_op, insn.a)
 
+    if insn.op.startswith("target_"):
+        match = re.fullmatch(
+            r"target_(state_no|state_type|move_type|life|ctrl)_"
+            r"(eq|ne|gt|ge|lt|le)",
+            insn.op,
+        )
+        if not match:
+            raise ValueError(f"bad target redirect opcode {insn.op!r}")
+        field = {
+            "state_no": "IK_EXPR_FIELD_STATE_NO",
+            "state_type": "IK_EXPR_FIELD_STATE_TYPE",
+            "move_type": "IK_EXPR_FIELD_MOVE_TYPE",
+            "life": "IK_EXPR_FIELD_LIFE",
+            "ctrl": "IK_EXPR_FIELD_CTRL",
+        }[match.group(1)]
+        compare = {
+            "eq": "IK_EXPR_EQ",
+            "ne": "IK_EXPR_NE",
+            "gt": "IK_EXPR_GT",
+            "ge": "IK_EXPR_GE",
+            "lt": "IK_EXPR_LT",
+            "le": "IK_EXPR_LE",
+        }[match.group(2)]
+        return [
+            VmInsn(
+                "IK_EXPR_LOAD_FIELD",
+                field,
+                "IK_EXPR_REDIRECT_TARGET",
+                0,
+                insn.a,
+                insn.c,
+            ),
+            VmInsn("IK_EXPR_PUSH_CONST", a=insn.b),
+            VmInsn(compare),
+        ]
+
     if insn.op.startswith("num_targets_"):
         compare = {
             "num_targets_eq": "IK_EXPR_EQ",
@@ -605,7 +713,7 @@ def emit(rules: list[Rule], diagnostics: list[str], out_prefix: Path, symbol: st
         rows.append((ofs, len(lowered), rule.target))
 
     insn_lines = [
-        f"    {{{i.op}, {i.field}, {i.redirect}, 0u, {i.a}, {i.b}}},"
+        f"    {{{i.op}, {i.field}, {i.redirect}, {i.reserved}u, {i.a}, {i.b}}},"
         for i in instructions
     ]
     rule_lines = [
@@ -652,7 +760,8 @@ extern const ik_state_rule_asset_t {symbol}_state_rules;
             "label": r.label,
             "target": r.target,
             "source_instructions": [
-                {"op": i.op, "a": i.a, "b": i.b} for i in r.code
+                {"op": i.op, "a": i.a, "b": i.b, "c": i.c}
+                for i in r.code
             ],
         } for r in rules],
         "diagnostics": diagnostics,
