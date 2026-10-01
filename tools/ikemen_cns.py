@@ -2104,7 +2104,7 @@ def compile_modify_projectile_controller(
         pass
 
     mod = {
-        "id": integer(ctrl.get("id"), 0),
+        "id": integer(ctrl.get("id"), -1),
         "mask": " | ".join(mask) if mask else "0u",
         **fields,
     }
