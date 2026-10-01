@@ -95,6 +95,7 @@ int ik_entity_spawn(
     entity->type = type;
     entity->owner_player = owner_player;
     entity->state_owner = owner_player;
+    entity->anim_owner = owner_player;
     entity->id = id;
     entity->parent = ik_entity_invalid_handle();
     entity->root = ik_entity_invalid_handle();
