@@ -595,6 +595,39 @@ def controller_trigger(
 
     if len(triggers) == 1:
         value = _strip_outer_parens(triggers[0])
+
+        m = re.fullmatch(
+            r"(NumProj|ProjContact|ProjHit|ProjGuarded|"
+            r"ProjContactTime|ProjHitTime|ProjGuardedTime)"
+            r"\s*(=|!=|<=|>=|<|>)\s*(-?\d+)",
+            value,
+            flags=re.I,
+        )
+        if m:
+            field = {
+                "numproj": "IK_CNS_PROJ_QUERY_NUM",
+                "projcontact": "IK_CNS_PROJ_QUERY_CONTACT",
+                "projhit": "IK_CNS_PROJ_QUERY_HIT",
+                "projguarded": "IK_CNS_PROJ_QUERY_GUARDED",
+                "projcontacttime": "IK_CNS_PROJ_QUERY_CONTACT_TIME",
+                "projhittime": "IK_CNS_PROJ_QUERY_HIT_TIME",
+                "projguardedtime": "IK_CNS_PROJ_QUERY_GUARDED_TIME",
+            }[m.group(1).lower()]
+            op = {
+                "=": "IK_CNS_QUERY_EQ",
+                "!=": "IK_CNS_QUERY_NE",
+                "<": "IK_CNS_QUERY_LT",
+                "<=": "IK_CNS_QUERY_LE",
+                ">": "IK_CNS_QUERY_GT",
+                ">=": "IK_CNS_QUERY_GE",
+            }[m.group(2)]
+            packed_expr = f"(({field}) << 8) | ({op})"
+            return (
+                "IK_CNS_TRIGGER_PROJECTILE_QUERY",
+                int(m.group(3)),
+                packed_expr,
+            )
+
         m = re.fullmatch(r"RoundState\s*=\s*(\d+)", value, flags=re.I)
         if m:
             return "IK_CNS_TRIGGER_ROUND_STATE_EQ", int(m.group(1)), 0
