@@ -2101,6 +2101,9 @@ projectile_ctrl = Section(
         ("projstagebound", "60"),
         ("pausemovetime", "5"),
         ("supermovetime", "7"),
+        ("bindtime", "2"),
+        ("removeongethit", "1"),
+        ("removeonchangestate", "1"),
         ("ownpal", "1"),
         ("attr", "S, SP"),
         ("damage", "40,5"),
@@ -2133,6 +2136,9 @@ assert projectile["priority"] == 2
 assert projectile["remove_on_hit"] == 0
 assert projectile["pause_move_time"] == 5
 assert projectile["super_move_time"] == 7
+assert projectile["bind_time"] == 2
+assert projectile["remove_on_gethit"] == 1
+assert projectile["remove_on_state_change"] == 1
 assert projectile_hitdef["damage"] == 40
 assert projectile_hitdef["guard_damage"] == 5
 assert projectile_hitdef["attack_attr_mask"] == "IK_CNS_ATTR_SPECIAL_PROJECTILE"
@@ -2148,6 +2154,9 @@ explod_ctrl = Section(
         ("velocity", "2,-4"),
         ("accel", "0,.32"),
         ("removetime", "35"),
+        ("bindtime", "2"),
+        ("removeongethit", "1"),
+        ("removeonchangestate", "1"),
         ("persistent", "0"),
     ],
 )
@@ -2165,6 +2174,9 @@ assert explod["vel_y_q8"] == -4 * 256
 assert explod["accel_x_q8"] == 0
 assert explod["accel_y_q8"] == round(.32 * 256)
 assert explod["remove_time"] == 35
+assert explod["bind_time"] == 2
+assert explod["remove_on_gethit"] == 1
+assert explod["remove_on_state_change"] == 1
 
 unsupported_helper = Section(
     "State 0, Unsupported Helper",
