@@ -611,6 +611,8 @@ typedef struct ik_cns_helper {
     uint8_t postype;
     uint8_t keyctrl;
     uint8_t ownpal;
+    uint8_t pause_move_time;
+    uint8_t super_move_time;
 } ik_cns_helper_t;
 
 typedef struct ik_cns_asset {
