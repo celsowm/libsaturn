@@ -184,12 +184,14 @@ typedef struct ik_fighter {
     ik_entity_handle_t bound_entity;
     uint8_t owner_player;
     uint8_t state_owner;
+    uint8_t anim_owner;
 } ik_fighter_t;
 
 typedef struct ik_fight {
     ik_fighter_t fighters[2];
     const ik_cns_asset_t* cns;
     const ik_cns_asset_t* player_cns[2];
+    const ik_frame_table_t* player_frames[2];
     ik_entity_pool_t* entities;
     ik_entity_handle_t player_entities[2];
     uint32_t frame;
