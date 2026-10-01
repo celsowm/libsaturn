@@ -623,6 +623,7 @@ enum {
 
 typedef struct ik_cns_projectile_mod {
     int32_t id;
+    int16_t index;
     uint32_t mask;
     int16_t anim_no;
     int16_t hit_anim_no;
