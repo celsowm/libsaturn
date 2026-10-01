@@ -1909,8 +1909,13 @@ def compile_projectile_controller(
         if lowered not in supported:
             return None
 
-    postype = (ctrl.get("postype", "p1") or "p1").strip().lower()
-    if postype != "p1":
+    postype_name = (ctrl.get("postype", "p1") or "p1").strip().lower()
+    postypes = {
+        "p1": "IK_CNS_HELPER_POS_P1",
+        "p2": "IK_CNS_HELPER_POS_P2",
+    }
+    postype = postypes.get(postype_name)
+    if postype is None:
         return None
 
     trig_kind, trig_value, trig_value2 = controller_trigger(
@@ -1922,6 +1927,7 @@ def compile_projectile_controller(
 
     projectile = {
         "id": integer(ctrl.get("projid"), 0),
+        "postype": postype,
         "anim_no": integer(ctrl.get("projanim"), 0),
         "hit_anim_no": integer(ctrl.get("projhitanim"), -1),
         "remove_anim_no": integer(ctrl.get("projremanim"), -1),
@@ -1996,7 +2002,12 @@ def compile_explod_controller(
             return None
 
     postype_name = (ctrl.get("postype", "p1") or "p1").strip().lower()
-    if postype_name != "p1":
+    postypes = {
+        "p1": "IK_CNS_HELPER_POS_P1",
+        "p2": "IK_CNS_HELPER_POS_P2",
+    }
+    postype = postypes.get(postype_name)
+    if postype is None:
         return None
 
     trig_kind, trig_value, trig_value2 = controller_trigger(ctrl, "explod")
@@ -2030,7 +2041,7 @@ def compile_explod_controller(
         "accel_y_q8": q8(ay),
         "remove_time": integer(ctrl.get("removetime"), -1),
         "spr_priority": integer(ctrl.get("sprpriority"), 0),
-        "postype": "IK_CNS_HELPER_POS_P1",
+        "postype": postype,
         "ownpal": integer(ctrl.get("ownpal"), 0),
         "pause_move_time": max(0, integer(ctrl.get("pausemovetime"), 0)),
         "super_move_time": max(0, integer(ctrl.get("supermovetime"), 0)),
