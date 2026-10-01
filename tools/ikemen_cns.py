@@ -1690,6 +1690,7 @@ def compile_helper_controller(
     supported_keys = {
         "type", "helpertype", "postype", "ownpal", "stateno",
         "keyctrl", "id", "pos", "facing", "ignorehitpause",
+        "pausemovetime", "supermovetime",
     }
     for key, _ in ctrl.values:
         lowered = key.strip().lower()
@@ -1727,6 +1728,8 @@ def compile_helper_controller(
         "postype": postype,
         "keyctrl": integer(ctrl.get("keyctrl"), 0),
         "ownpal": integer(ctrl.get("ownpal"), 0),
+        "pause_move_time": max(0, integer(ctrl.get("pausemovetime"), 0)),
+        "super_move_time": max(0, integer(ctrl.get("supermovetime"), 0)),
     }
     controller = {
         "state_number": state_no,
@@ -3742,7 +3745,9 @@ def emit(
         f"{h['id']}, {h['state_no']}, "
         f"{h['pos_x_q8']}, {h['pos_y_q8']}, "
         f"{h['facing']}, {h['postype']}, "
-        f"{h['keyctrl']}u, {h['ownpal']}u"
+        f"{h['keyctrl']}u, {h['ownpal']}u, "
+        f"{h.get('pause_move_time', 0)}u, "
+        f"{h.get('super_move_time', 0)}u"
         "},"
         for h in helpers
     ]
