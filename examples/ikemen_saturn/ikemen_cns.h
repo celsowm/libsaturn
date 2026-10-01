@@ -532,6 +532,7 @@ typedef struct ik_cns_controller {
     int32_t value5;
     int32_t value6;
     int32_t value7;
+    int32_t trigger_aux;
 } ik_cns_controller_t;
 
 typedef struct ik_cns_controller_context {
