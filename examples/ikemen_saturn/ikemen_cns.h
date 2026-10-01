@@ -570,6 +570,13 @@ typedef struct ik_cns_projectile {
     uint8_t remove_on_state_change;
 } ik_cns_projectile_t;
 
+enum {
+    IK_CNS_TRANS_NONE = 0,
+    IK_CNS_TRANS_ALPHA,
+    IK_CNS_TRANS_ADD,
+    IK_CNS_TRANS_SUB
+};
+
 typedef struct ik_cns_explod {
     int16_t anim_no;
     int32_t pos_x_q8;
@@ -587,6 +594,12 @@ typedef struct ik_cns_explod {
     int16_t bind_time;
     uint8_t remove_on_gethit;
     uint8_t remove_on_state_change;
+    int8_t facing;
+    int8_t vfacing;
+    int16_t scale_x_q8;
+    int16_t scale_y_q8;
+    uint8_t trans_mode;
+    uint8_t alpha;
 } ik_cns_explod_t;
 
 typedef struct ik_cns_helper {
