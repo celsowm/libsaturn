@@ -17,6 +17,8 @@ class SpriteAsset:
     format: int
     data: bytes
     palette_index: int = 0
+    xoff: int = 0
+    yoff: int = 0
 
 
 @dataclass
@@ -31,6 +33,8 @@ class FrameAsset:
     flip_h: bool
     flip_v: bool
     sprite_key: tuple[int, int]
+    air_x: int = 0
+    air_y: int = 0
     blend_mode: int = 0
     loop_start: bool = False
     sprite_index: int = 0
@@ -93,7 +97,8 @@ def emit_frames(prefix: str, symbol: str, frames: list[FrameAsset],
         sprite_rows.append((
             offset, len(sprite.data), sprite.width, sprite.height,
             sprite.padded_width, sprite.left_pad, sprite.format,
-            sprite.palette_index, key[0], key[1]
+            sprite.palette_index, key[0], key[1],
+            sprite.xoff, sprite.yoff
         ))
 
     for frame in frames:
@@ -119,12 +124,14 @@ def emit_frames(prefix: str, symbol: str, frames: list[FrameAsset],
         f"{INDENT}{{{f.action}u, {f.index}u, {f.width}u, {f.height}u, "
         f"{f.ax}, {f.ay}, {max(f.ticks, 0)}u, "
         f"{(1 if f.flip_h else 0) | (2 if f.flip_v else 0) | (4 if f.blend_mode == 1 else 0) | (8 if f.blend_mode == 2 else 0) | (16 if f.loop_start else 0)}u, "
-        f"{f.sprite_index}u, {meta[0]}u, {meta[1]}u, {meta[2]}u, {meta[3]}u}},"
+        f"{f.sprite_index}u, {meta[0]}u, {meta[1]}u, {meta[2]}u, {meta[3]}u, "
+        f"{f.air_x}, {f.air_y}}},"
         for f, meta in zip(frames, frame_clsn)
     )
     sprites_init = "\n".join(
         f"{INDENT}{{{r[0]}u, {r[1]}u, {r[2]}u, {r[3]}u, "
-        f"{r[4]}u, {r[5]}u, {r[6]}u, {r[7]}u, {r[8]}, {r[9]}}},"
+        f"{r[4]}u, {r[5]}u, {r[6]}u, {r[7]}u, {r[8]}, {r[9]}, "
+        f"{r[10]}, {r[11]}}},"
         for r in sprite_rows
     )
     clsn_c = _c_boxes(clsn_boxes)
