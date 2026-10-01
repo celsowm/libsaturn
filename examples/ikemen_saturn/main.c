@@ -449,16 +449,27 @@ static sat_result_t prefetch_next_frame(
     const ik_fighter_t* fighter,
     const ik_frame_t* current
 ) {
-    if (player >= 2u || !fighter || !current) return SAT_ERR_INVALID_ARG;
+    if (player >= 2u || !fighter || !current ||
+        fighter->anim_owner >= 2u) {
+        return SAT_ERR_INVALID_ARG;
+    }
     const ik_character_runtime_t* character = &g_characters[player];
+    const ik_character_runtime_t* animation =
+        &g_characters[fighter->anim_owner];
 
+    ik_frame_t next_visual;
     const ik_frame_t* next = 0;
     for (uint32_t dt = 1u; dt <= IK_PREFETCH_LOOKAHEAD_TICKS; ++dt) {
         const ik_frame_t* candidate = ik_frame_at_time(
-            character->frames, fighter->anim, fighter->anim_time + dt);
+            animation->frames, fighter->anim, fighter->anim_time + dt);
         if (!candidate) break;
-        if (candidate->sprite_index != current->sprite_index) {
-            next = candidate;
+        if (!resolve_visual_frame(
+                player, fighter->anim_owner,
+                candidate, &next_visual)) {
+            continue;
+        }
+        if (next_visual.sprite_index != current->sprite_index) {
+            next = &next_visual;
             break;
         }
     }
@@ -1017,6 +1028,7 @@ static void draw_combat_entities(const ik_fight_t* fight) {
     uint8_t item_count = 0u;
 
     ik_frame_t fighter_visual[2];
+    ik_frame_t entity_visual[IK_ENTITY_CAPACITY];
     const ik_frame_t* fighter_frames[2] = {0, 0};
     for (uint8_t player = 0u; player < 2u; ++player) {
         const ik_fighter_t* fighter = &fight->fighters[player];
@@ -1074,14 +1086,13 @@ static void draw_combat_entities(const ik_fight_t* fight) {
         const uint8_t player = entity->owner_player;
         const ik_frame_t* animation_frame =
             current_entity_frame(entity);
-        ik_frame_t visual_frame;
         if (!animation_frame ||
             !resolve_visual_frame(
                 entity->owner_player, entity->anim_owner,
-                animation_frame, &visual_frame)) {
+                animation_frame, &entity_visual[slot])) {
             continue;
         }
-        const ik_frame_t* frame = &visual_frame;
+        const ik_frame_t* frame = &entity_visual[slot];
 
         sat_texture_t texture = {0u, 0u};
         sat_example_must(frame_texture_resolve(
