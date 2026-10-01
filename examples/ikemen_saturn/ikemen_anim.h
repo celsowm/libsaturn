@@ -21,6 +21,8 @@ typedef struct ik_sprite_source {
     uint16_t palette_index;
     int16_t group;
     int16_t number;
+    int16_t xoff;
+    int16_t yoff;
 } ik_sprite_source_t;
 
 typedef struct ik_frame {
@@ -37,6 +39,8 @@ typedef struct ik_frame {
     uint16_t clsn1_count;
     uint16_t clsn2_ofs;
     uint16_t clsn2_count;
+    int16_t air_x;
+    int16_t air_y;
 } ik_frame_t;
 
 typedef struct ik_frame_table {
