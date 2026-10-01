@@ -47,10 +47,19 @@ Helpers, projectiles, state/animation/physics/contact data, targets and RNG.
 
 ```sh
 make ikemen-oracle-run
+make ikemen-oracle-saturn
+make ikemen-oracle-diff
+```
+
+Or execute the full upstream-oracle -> host-Saturn -> frame-diff flow:
+
+```sh
+make ikemen-oracle-check
 ```
 
 The oracle is deliberately not linked into the Saturn runtime. See
-`tools/ikemen_oracle/README.md` for the trace contract and comparator.
+`tools/ikemen_oracle/README.md` for the trace contract, coordinate
+normalization and comparator behavior.
 
 The build consumes reference data from two ignored `.external/` checkouts:
 
