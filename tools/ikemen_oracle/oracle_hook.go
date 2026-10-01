@@ -72,9 +72,10 @@ var (
 	libsaturnOracleFile      *os.File
 	libsaturnOracleWriter    *bufio.Writer
 	libsaturnOracleEncoder   *json.Encoder
-	libsaturnOracleFrameNo   int32
-	libsaturnOracleMaxFrames int32 = -1
+	libsaturnOracleFrameNo    int32
+	libsaturnOracleMaxFrames  int32 = -1
 	libsaturnOracleRoundState int32 = 2
+	libsaturnOracleDone       bool
 )
 
 func libsaturnOracleEnabled() bool {
@@ -115,6 +116,7 @@ func libsaturnOracleBeginMatch(s *System) error {
 	s.randseed = libsaturnOracleIntEnv(
 		"LIBSATURN_IKEMEN_ORACLE_SEED", 1)
 	libsaturnOracleFrameNo = 0
+	libsaturnOracleDone = false
 	return nil
 }
 
@@ -185,6 +187,9 @@ func libsaturnOracleProjectileSnapshot(
 }
 
 func libsaturnOracleCaptureFrame(s *System) bool {
+	if libsaturnOracleDone {
+		return true
+	}
 	if libsaturnOracleEncoder == nil {
 		return false
 	}
@@ -231,6 +236,10 @@ func libsaturnOracleCaptureFrame(s *System) bool {
 	libsaturnOracleFrameNo++
 	if libsaturnOracleMaxFrames >= 0 &&
 		libsaturnOracleFrameNo >= libsaturnOracleMaxFrames {
+		libsaturnOracleDone = true
+		if libsaturnOracleWriter != nil {
+			_ = libsaturnOracleWriter.Flush()
+		}
 		if libsaturnOracleFile != nil {
 			_ = libsaturnOracleFile.Close()
 			libsaturnOracleFile = nil
