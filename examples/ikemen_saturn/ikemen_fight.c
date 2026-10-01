@@ -2558,6 +2558,16 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     ctrl->value0 > 65535 ? 65535 : ctrl->value0);
                 break;
 
+            case IK_CNS_CTRL_MAKE_DUST:
+                if (fight->effect_count < IK_MAX_EFFECT_EVENTS) {
+                    ik_effect_event_t* effect =
+                        &fight->effect_events[fight->effect_count++];
+                    effect->action = 120;
+                    effect->x = f->x;
+                    effect->y = f->y;
+                }
+                break;
+
             case IK_CNS_CTRL_ENV_SHAKE:
                 fight->env_shake_time = (uint16_t)(
                     ctrl->value0 < 0 ? 0 :
