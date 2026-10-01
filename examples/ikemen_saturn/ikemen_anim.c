@@ -252,6 +252,42 @@ uint32_t ik_action_duration_ticks(const ik_frame_table_t* table, int action) {
     return total;
 }
 
+int ik_visual_frame_resolve(
+    const ik_frame_t* animation_frame,
+    const ik_sprite_source_t* animation_sprites,
+    uint16_t animation_sprite_count,
+    const ik_sprite_source_t* visual_sprites,
+    uint16_t visual_sprite_count,
+    ik_frame_t* out_frame
+) {
+    if (!animation_frame || !animation_sprites || !visual_sprites ||
+        !out_frame ||
+        animation_frame->sprite_index >= animation_sprite_count) {
+        return 0;
+    }
+
+    const ik_sprite_source_t* animation_source =
+        &animation_sprites[animation_frame->sprite_index];
+    for (uint16_t i = 0u; i < visual_sprite_count; ++i) {
+        const ik_sprite_source_t* visual = &visual_sprites[i];
+        if (visual->group != animation_source->group ||
+            visual->number != animation_source->number) {
+            continue;
+        }
+
+        *out_frame = *animation_frame;
+        out_frame->sprite_index = i;
+        out_frame->w = visual->padded_w;
+        out_frame->h = visual->source_h;
+        out_frame->ax = (int16_t)(
+            visual->xoff + visual->left_pad - animation_frame->air_x);
+        out_frame->ay = (int16_t)(
+            visual->yoff - animation_frame->air_y);
+        return 1;
+    }
+    return 0;
+}
+
 void ik_frame_screen_anchor(const ik_frame_t* frame,
                             int x, int y, int facing,
                             int16_t* out_dx, int16_t* out_dy) {
