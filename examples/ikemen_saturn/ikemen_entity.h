@@ -179,6 +179,20 @@ ik_entity_handle_t ik_entity_target_at(
     ik_entity_handle_t source,
     int32_t target_id,
     uint8_t index);
+uint8_t ik_entity_target_count(
+    const ik_entity_pool_t* pool,
+    ik_entity_handle_t source,
+    int32_t target_id);
+void ik_entity_drop_targets(
+    ik_entity_pool_t* pool,
+    ik_entity_handle_t source,
+    int32_t exclude_id,
+    uint8_t keep_one);
+ik_entity_handle_t ik_entity_redirect_target(
+    const ik_entity_pool_t* pool,
+    ik_entity_handle_t self,
+    int32_t target_id,
+    uint8_t index);
 
 ik_entity_handle_t ik_entity_redirect(
     const ik_entity_pool_t* pool,
