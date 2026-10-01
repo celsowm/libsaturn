@@ -94,6 +94,7 @@ int ik_entity_spawn(
     memset(entity, 0, sizeof(*entity));
     entity->type = type;
     entity->owner_player = owner_player;
+    entity->state_owner = owner_player;
     entity->id = id;
     entity->parent = ik_entity_invalid_handle();
     entity->root = ik_entity_invalid_handle();
