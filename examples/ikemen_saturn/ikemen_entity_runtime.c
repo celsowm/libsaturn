@@ -846,6 +846,13 @@ static int process_controllers(
                 break;
 
             case IK_CNS_CTRL_MODIFY_PROJECTILE:
+                if (ctrl->value1 != 0 && i < 64u) {
+                    const uint64_t bit = (uint64_t)1u << i;
+                    if ((entity->one_shot_controller_mask & bit) != 0u) {
+                        break;
+                    }
+                    entity->one_shot_controller_mask |= bit;
+                }
                 if (runtime->cns->projectile_mods &&
                     ctrl->value0 >= 0 &&
                     ctrl->value0 < runtime->cns->projectile_mod_count) {
