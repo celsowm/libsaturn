@@ -2785,7 +2785,15 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
             (ctrl->flags & IK_CNS_CTRL_IGNORE_HIT_PAUSE) == 0u) {
             continue;
         }
-        if (!ik_cns_controller_trigger_context_now(ctrl, &context)) {
+        ik_cns_controller_context_t query_context = context;
+        if (ctrl->trigger_kind == IK_CNS_TRIGGER_NUM_TARGET_QUERY) {
+            const int id_matches =
+                f->target_index >= 0 && f->target_index < 2 &&
+                (ctrl->trigger_aux < 0 ||
+                 f->target_id == ctrl->trigger_aux);
+            query_context.num_targets = (uint8_t)(id_matches ? 1u : 0u);
+        }
+        if (!ik_cns_controller_trigger_context_now(ctrl, &query_context)) {
             continue;
         }
 
@@ -3422,6 +3430,15 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     enter_state(fight, f, 5081);
                 }
                 return 1;
+
+            case IK_CNS_CTRL_TARGET_DROP:
+                if (f->target_index >= 0 && f->target_index < 2 &&
+                    !(ctrl->value0 >= 0 &&
+                      f->target_id == ctrl->value0)) {
+                    release_bound_target(
+                        fight, fighter_player_index(fight, f));
+                }
+                break;
 
             case IK_CNS_CTRL_TARGET_BIND:
                 if (f->target_index >= 0 && f->target_index < 2 &&
