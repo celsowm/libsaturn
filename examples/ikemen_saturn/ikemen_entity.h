@@ -32,6 +32,7 @@ typedef struct ik_entity_handle {
 typedef struct ik_entity {
     uint8_t type;
     uint8_t owner_player;
+    uint8_t state_owner;
     int32_t id;
 
     ik_entity_handle_t parent;
