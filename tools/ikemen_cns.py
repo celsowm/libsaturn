@@ -2558,6 +2558,12 @@ def _common_ctrl(
     value0: int | str = 0,
     value1: int | str = 0,
     flags: str = "0u",
+    value2: int | str = 0,
+    value3: int | str = 0,
+    value4: int | str = 0,
+    value5: int | str = 0,
+    value6: int | str = 0,
+    value7: int | str = 0,
 ) -> dict:
     return {
         "state_number": state_no,
@@ -2568,6 +2574,12 @@ def _common_ctrl(
         "value0": value0,
         "value1": value1,
         "flags": flags,
+        "value2": value2,
+        "value3": value3,
+        "value4": value4,
+        "value5": value5,
+        "value6": value6,
+        "value7": value7,
     }
 
 
@@ -3374,7 +3386,24 @@ def compile_common_states(
             row["land_ctrl"] = 1
             row["air_accel_q8"] = const["air_gethit_airrecover_yaccel_q8"]
             row["air_motion_start"] = 4
+            palfx_mul_identity = 256 | (256 << 9) | (256 << 18)
             cs += [
+                _common_ctrl(
+                    5210, "IK_CNS_CTRL_PAL_FX",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
+                    3, 128 | (128 << 8) | (128 << 16),
+                    "0u", 0, 1, palfx_mul_identity, 0, 1,
+                ),
+                _common_ctrl(
+                    5210, "IK_CNS_CTRL_TURN",
+                    "IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME",
+                    q8(-20), 1,
+                ),
+                _common_ctrl(
+                    5210, "IK_CNS_CTRL_NOT_HIT_BY",
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
+                    7, 15,
+                ),
                 _common_ctrl(
                     5210, "IK_CNS_CTRL_VEL_MUL",
                     "IK_CNS_TRIGGER_TIME_EQ", 4, 0,
@@ -3422,7 +3451,6 @@ def compile_common_states(
                     "IK_CNS_TRIGGER_TIME_EQ", 20, 0, 1, 0,
                 ),
             ]
-            deferred[n] = ["Turn by P2Dist", "PalFX", "NotHitBy"]
 
         elif n == 106:
             row = state_row(106, 47, 0)
