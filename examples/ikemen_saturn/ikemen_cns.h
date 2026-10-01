@@ -73,7 +73,8 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ANIM_TIME_REMAIN_GT,
     IK_CNS_TRIGGER_ANIM_ELEM_TIME_GE_STATE_TIME_LT,
     IK_CNS_TRIGGER_ROUND_STATE_EQ,
-    IK_CNS_TRIGGER_ROUND_STATE_NE
+    IK_CNS_TRIGGER_ROUND_STATE_NE,
+    IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME
 } ik_cns_trigger_kind_t;
 
 typedef enum ik_cns_ground_type {
@@ -526,6 +527,7 @@ typedef struct ik_cns_controller_context {
     int16_t back_edge_body_dist;
     int16_t front_edge_body_dist;
     int16_t back_edge_dist;
+    int32_t p2_dist_x_q8;
     int8_t state_axis;
     uint8_t hit_launch;
     uint8_t alive;
