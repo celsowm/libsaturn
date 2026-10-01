@@ -77,6 +77,25 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME
 } ik_cns_trigger_kind_t;
 
+enum {
+    IK_CNS_PROJ_QUERY_NUM = 1,
+    IK_CNS_PROJ_QUERY_CONTACT,
+    IK_CNS_PROJ_QUERY_HIT,
+    IK_CNS_PROJ_QUERY_GUARDED,
+    IK_CNS_PROJ_QUERY_CONTACT_TIME,
+    IK_CNS_PROJ_QUERY_HIT_TIME,
+    IK_CNS_PROJ_QUERY_GUARDED_TIME
+};
+
+enum {
+    IK_CNS_QUERY_EQ = 1,
+    IK_CNS_QUERY_NE,
+    IK_CNS_QUERY_LT,
+    IK_CNS_QUERY_LE,
+    IK_CNS_QUERY_GT,
+    IK_CNS_QUERY_GE
+};
+
 typedef enum ik_cns_ground_type {
     IK_CNS_GROUND_NORMAL = 0,
     IK_CNS_GROUND_HIGH,
@@ -537,6 +556,13 @@ typedef struct ik_cns_controller_context {
     uint8_t move_contact;
     uint8_t move_hit;
     uint8_t round_state;
+    uint8_t num_projectiles;
+    uint8_t proj_contact;
+    uint8_t proj_hit;
+    uint8_t proj_guarded;
+    int16_t proj_contact_time;
+    int16_t proj_hit_time;
+    int16_t proj_guarded_time;
 } ik_cns_controller_context_t;
 
 typedef struct ik_cns_projectile {
