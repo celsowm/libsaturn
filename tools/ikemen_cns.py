@@ -2449,6 +2449,9 @@ def parse_state(
                     "fall_envshake_freq": integer(
                         ctrl.get("fall.envshake.freq"), 60
                     ),
+                    "id": integer(ctrl.get("id"), 0),
+                    "chain_id": integer(ctrl.get("chainid"), -1),
+                    "no_chain_id": integer(ctrl.get("nochainid"), -1),
                 }
             )
             direct_hitdef_count += 1
