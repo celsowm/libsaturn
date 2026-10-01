@@ -2118,7 +2118,7 @@ def compile_modify_projectile_controller(
         "trigger_value2": controller_trigger(
             ctrl, "modifyprojectile")[2],
         "value0": mod_index,
-        "value1": 0,
+        "value1": 1 if integer(ctrl.get("persistent"), 1) == 0 else 0,
         "flags": (
             "IK_CNS_CTRL_IGNORE_HIT_PAUSE"
             if integer(ctrl.get("ignorehitpause"), 0)
