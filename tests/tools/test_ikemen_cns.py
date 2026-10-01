@@ -2612,7 +2612,7 @@ assert common_rows[105]["land_state"] == 106
 assert common_rows[5080]["controller_count"] == 1
 assert common_rows[5081]["controller_count"] == 3
 assert common_rows[5110]["controller_count"] == 10
-assert common_rows[5150]["spr_priority"] == -3
+assert common_rows[5150]["spr_priority"] == -3\nassert common_rows[5150]["anim"] == 5140
 assert common_rows[5150]["controller_count"] == 4
 assert common_rows[120]["controller_count"] == 2
 assert common_rows[132]["land_state"] == 52
@@ -2636,7 +2636,7 @@ assert common_rows[5050]["land_level_q8"] == 25 * 256
 assert common_rows[5050]["controller_count"] == 1
 assert common_rows[5071]["land_state"] == 5110
 assert common_rows[5071]["land_level_q8"] == 15 * 256
-assert common_rows[5100]["controller_count"] == 7
+assert common_rows[5100]["controller_count"] == 8
 assert common_rows[5101]["anim"] == 5160
 assert common_rows[5101]["air_accel_q8"] == round(.4 * 256)
 assert common_rows[5101]["land_level_q8"] == 12 * 256
@@ -2658,7 +2658,7 @@ assert any(
     c["value0"] == 7 and c["value1"] == 1
     for c in state5150_ctrls
 )
-assert report["common_deferred"][5150] == ["MatchOver animation variant"]
+assert 5150 not in report["common_deferred"]
 assert common_rows[5200]["land_state"] == 5201
 assert common_rows[5200]["land_level_q8"] == 10 * 256
 assert common_rows[5201]["land_state"] == 52
@@ -2693,7 +2693,7 @@ assert common_rows[100]["assert_special_flags"] == (
     "IK_CNS_STATE_ASSERT_NO_AUTO_TURN"
 )
 assert 100 not in report["common_deferred"]
-assert 5210 not in report["common_deferred"]
+assert 5100 not in report["common_deferred"]\nassert 5150 not in report["common_deferred"]\nassert 5210 not in report["common_deferred"]
 assert report["common_deferred"][150] == ["ForceFeedback"]
 assert report["constants"]["liedown_time"] == 60
 assert report["constants"]["air_gethit_groundlevel_q8"] == 25 * 256
