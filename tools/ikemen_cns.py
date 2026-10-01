@@ -1108,13 +1108,15 @@ def compile_runtime_controller(
             parts = _split_top_level(text or "0,0,0")
             while len(parts) < 3:
                 parts.append("0")
-            values = [max(-128, min(127, integer(p, 0))) for p in parts[:3]]
-            packed = (
-                (values[0] & 0xff) |
-                ((values[1] & 0xff) << 8) |
-                ((values[2] & 0xff) << 16)
+            values = [
+                max(-255, min(255, integer(p, 0)))
+                for p in parts[:3]
+            ]
+            return (
+                (values[0] & 0x1ff) |
+                ((values[1] & 0x1ff) << 9) |
+                ((values[2] & 0x1ff) << 18)
             )
-            return packed if packed < 0x80000000 else packed - 0x100000000
 
         sin_parts = _split_top_level(ctrl.get("sinadd") or "0,0,0,1")
         while len(sin_parts) < 4:
@@ -3391,7 +3393,7 @@ def compile_common_states(
                 _common_ctrl(
                     5210, "IK_CNS_CTRL_PAL_FX",
                     "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
-                    3, 128 | (128 << 8) | (128 << 16),
+                    3, 128 | (128 << 9) | (128 << 18),
                     "0u", 0, 1, palfx_mul_identity, 0, 1,
                 ),
                 _common_ctrl(
