@@ -289,6 +289,11 @@ typedef struct ik_cns_constants {
     int16_t air_juggle;
 } ik_cns_constants_t;
 
+enum {
+    IK_CNS_STATE_ASSERT_NO_WALK = 1u << 0,
+    IK_CNS_STATE_ASSERT_NO_AUTO_TURN = 1u << 1
+};
+
 typedef struct ik_cns_state {
     int16_t number;
     int16_t anim;
@@ -320,6 +325,7 @@ typedef struct ik_cns_state {
     uint8_t reversal_count;
     uint16_t hitoverride_ofs;
     uint8_t hitoverride_count;
+    uint8_t assert_special_flags;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
