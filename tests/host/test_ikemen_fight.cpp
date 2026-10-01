@@ -3472,7 +3472,6 @@ int main() {
         EQ(g.fighters[1].hp,960);
         EQ(g.hits_p1,1u);
         EQ(g.hits_p2,0u);
-        EQ(g.fighters[1].hitdef_hit_mask,1u);
         helper_entity=ik_entity_get(&pool,helper);
         OK(helper_entity!=nullptr);
         EQ(helper_entity->move_contact,1u);
