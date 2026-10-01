@@ -47,6 +47,26 @@ int main() {
         ik_entity_target_at(&pool, p1, 20, 0u), projectile));
     OK(ik_entity_handle_equal(
         ik_entity_redirect(&pool, p1, IK_EXPR_REDIRECT_TARGET), helper));
+    OK(ik_entity_target_count(&pool, p1, -1) == 2u);
+    OK(ik_entity_target_count(&pool, p1, 20) == 1u);
+    OK(ik_entity_handle_equal(
+        ik_entity_redirect_target(&pool, p1, 20, 0u), projectile));
+
+    const ik_expr_instr_t target_state_code[] = {
+        {IK_EXPR_LOAD_FIELD, IK_EXPR_FIELD_STATE_NO,
+         IK_EXPR_REDIRECT_TARGET, 0u, 0, 20},
+    };
+    ik_entity_t* ep = ik_entity_get(&pool, projectile);
+    OK(ep != nullptr);
+    ep->state_no = 3456;
+    ik_expr_context_t expr_ctx{
+        &binding, ik_entity_expr_read_field, nullptr
+    };
+    int32_t target_state = 0;
+    OK(ik_expr_eval(
+        target_state_code, 1u, &expr_ctx, &target_state));
+    OK(target_state == 3456);
+
 
     ik_entity_t* e1 = ik_entity_get(&pool, p1);
     ik_entity_t* e2 = ik_entity_get(&pool, p2);
