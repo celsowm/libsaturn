@@ -2745,6 +2745,18 @@ def parse_state(
                 compiled = None
 
             if compiled is not None:
+                if compiled["trigger_kind"] == "IK_CNS_TRIGGER_NUM_TARGET_QUERY":
+                    selector = -1
+                    for expr in ctrl.all("trigger1"):
+                        match = re.search(
+                            r"NumTarget\s*\(\s*(-?\d+)\s*\)",
+                            expr,
+                            flags=re.I,
+                        )
+                        if match:
+                            selector = int(match.group(1))
+                            break
+                    compiled["trigger_aux"] = selector
                 controllers.append(compiled)
                 if ctype == "superpause" and ctrl.get("sound") is not None:
                     group, item = sound_pair(ctrl.get("sound"))
@@ -3954,7 +3966,8 @@ def emit(
         f"{c['value0']}, {c['value1']}, {c['flags']}, "
         f"{c.get('value2', 0)}, {c.get('value3', 0)}, "
         f"{c.get('value4', 0)}, {c.get('value5', 0)}, "
-        f"{c.get('value6', 0)}, {c.get('value7', 0)}}},"
+        f"{c.get('value6', 0)}, {c.get('value7', 0)}, "
+        f"{c.get('trigger_aux', -1)}}},"
         for c in controllers
     ]
 
