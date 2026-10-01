@@ -432,6 +432,7 @@ typedef struct ik_cns_hitdef {
     int32_t id;
     int32_t chain_id;
     int32_t no_chain_id;
+    int32_t no_chain_id2;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_reversaldef {
