@@ -379,6 +379,10 @@ This is not yet a complete Ikemen common-state VM. The next important pieces are
   TargetState honor optional id/index selectors and may operate on multiple
   simultaneous targets without allocation. Stale target handles are compacted
   before capture, and TargetState releases only the targets it transitions.
+* TargetDrop is lowered with excludeID/keepone semantics (keepone defaults to
+  one), NumTarget and NumTarget(ID) are available to CNS triggers and generated
+  state-rule expressions, and target(ID,index) redirects carry the full 32-bit
+  target ID plus an explicit bounded index through the generic expression VM.
 * HitDef chainID/nochainID gates use the last HitDef ID received from the same
   attacking player. The compatibility layer supports the classic two
   NoChainID values while preserving zero-initialized legacy C HitDefs.
