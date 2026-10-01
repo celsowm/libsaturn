@@ -2265,6 +2265,7 @@ modify_projectile_ctrl = Section(
         ("type", "ModifyProjectile"),
         ("trigger1", "Time = 3"),
         ("id", "77"),
+        ("index", "2"),
         ("velocity", "5,-1"),
         ("projpriority", "6"),
         ("persistent", "0"),
@@ -2279,6 +2280,7 @@ assert modify_controller["type"] == "IK_CNS_CTRL_MODIFY_PROJECTILE"
 assert modify_controller["value0"] == 2
 assert modify_controller["value1"] == 1
 assert modification["id"] == 77
+assert modification["index"] == 2
 assert "IK_CNS_PROJ_MOD_VELOCITY" in modification["mask"]
 assert "IK_CNS_PROJ_MOD_PRIORITY" in modification["mask"]
 assert "IK_CNS_PROJ_MOD_ANIM" not in modification["mask"]
