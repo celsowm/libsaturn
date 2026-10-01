@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_FLOAT_EPS = 1e-4
+DEFAULT_IGNORED_FIELDS = {"tick", "rand_seed"}
 
 def load_jsonl(path: Path) -> list[dict]:
     rows: list[dict] = []
@@ -31,9 +32,12 @@ def compare(
     diffs: list[str],
     eps: float,
     limit: int,
+    ignored_fields: set[str] | None = None,
 ) -> None:
     if len(diffs) >= limit:
         return
+    if ignored_fields is None:
+        ignored_fields = set()
     if isinstance(expected, bool) or isinstance(actual, bool):
         if expected != actual:
             diffs.append(f"{path}: expected {expected!r}, got {actual!r}")
@@ -59,6 +63,8 @@ def compare(
     if isinstance(expected, dict):
         keys = sorted(set(expected) | set(actual))
         for key in keys:
+            if key in ignored_fields:
+                continue
             if key not in expected:
                 diffs.append(f"{path}.{key}: unexpected field")
             elif key not in actual:
@@ -67,6 +73,7 @@ def compare(
                 compare(
                     expected[key], actual[key],
                     f"{path}.{key}", diffs, eps, limit,
+                    ignored_fields,
                 )
             if len(diffs) >= limit:
                 return
@@ -78,7 +85,10 @@ def compare(
             )
             return
         for index, (a, b) in enumerate(zip(expected, actual)):
-            compare(a, b, f"{path}[{index}]", diffs, eps, limit)
+            compare(
+                a, b, f"{path}[{index}]", diffs, eps, limit,
+                ignored_fields,
+            )
             if len(diffs) >= limit:
                 return
         return
@@ -91,6 +101,11 @@ def main() -> int:
     parser.add_argument("candidate", type=Path)
     parser.add_argument("--float-eps", type=float, default=DEFAULT_FLOAT_EPS)
     parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument(
+        "--strict-metadata",
+        action="store_true",
+        help="also compare engine-global tick and mutable RNG state",
+    )
     args = parser.parse_args()
 
     oracle = load_jsonl(args.oracle)
@@ -107,6 +122,7 @@ def main() -> int:
         compare(
             expected, actual, f"frame[{i}]",
             diffs, args.float_eps, args.limit,
+            set() if args.strict_metadata else DEFAULT_IGNORED_FIELDS,
         )
         if len(diffs) >= args.limit:
             break
