@@ -99,6 +99,13 @@ typedef struct ik_entity {
     uint8_t explod_trans_mode;
     uint8_t explod_alpha;
 
+    uint8_t proj_query_contact;
+    uint8_t proj_query_hit;
+    uint8_t proj_query_guarded;
+    int16_t proj_query_contact_time;
+    int16_t proj_query_hit_time;
+    int16_t proj_query_guarded_time;
+
     uint16_t hit_pause;
     uint32_t hitdef_hit_mask;
     int16_t active_hitdef_global;
