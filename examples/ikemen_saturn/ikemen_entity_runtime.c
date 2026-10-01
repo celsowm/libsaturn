@@ -208,6 +208,8 @@ int ik_entity_runtime_spawn_helper(
     entity->push_front = runtime->cns->constants.ground_front;
     entity->keyctrl = (uint8_t)(helper->keyctrl != 0u);
     entity->ownpal = (uint8_t)(helper->ownpal != 0u);
+    entity->pause_move_time = helper->pause_move_time;
+    entity->super_move_time = helper->super_move_time;
 
     if (!ik_entity_runtime_enter_state(
             runtime, spawned, helper->state_no)) {
