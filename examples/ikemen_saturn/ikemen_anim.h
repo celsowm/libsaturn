@@ -77,6 +77,14 @@ const ik_frame_t* ik_frame_at_time(const ik_frame_table_t* table,
                                    int action, uint32_t ticks);
 uint32_t ik_action_duration_ticks(const ik_frame_table_t* table, int action);
 int ik_action_loops(const ik_frame_table_t* table, int action);
+int ik_visual_frame_resolve(
+    const ik_frame_t* animation_frame,
+    const ik_sprite_source_t* animation_sprites,
+    uint16_t animation_sprite_count,
+    const ik_sprite_source_t* visual_sprites,
+    uint16_t visual_sprite_count,
+    ik_frame_t* out_frame);
+
 
 void ik_frame_screen_anchor(const ik_frame_t* frame,
                             int x, int y, int facing,
