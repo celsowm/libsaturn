@@ -91,7 +91,7 @@ static void print_root(
         "\"hit_pause\":%u,\"move_contact_type\":%u,"
         "\"move_contact_time\":0,\"gethit_chain_id\":%d,"
         "\"targets\":",
-        p, mirror ? static_cast<int>(mirror->id) : p + 1, p + 1,
+        p, mirror ? static_cast<int>(mirror->id) : p + 1, p,
         static_cast<int>(f.state), static_cast<unsigned>(f.state_time),
         state_type(ik_fight_state_type(fight, &f)),
         move_type(mirror ? mirror->move_type : 0),
@@ -138,7 +138,7 @@ static void print_helper(
         "\"targets\":",
         static_cast<unsigned>(e->owner_player), helper_index,
         static_cast<int>(e->id), static_cast<int>(e->id),
-        parent_id(pool, e), static_cast<unsigned>(e->owner_player + 1u),
+        parent_id(pool, e), static_cast<unsigned>(e->owner_player),
         static_cast<int>(e->state_no), static_cast<unsigned>(e->state_time),
         state_type(e->state_type), move_type(e->move_type),
         e->ctrl ? "true" : "false",
