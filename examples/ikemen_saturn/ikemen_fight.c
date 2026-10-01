@@ -1982,11 +1982,13 @@ static int entity_target_controller_bridge(
                 target_fighter->bound_entity =
                     ik_entity_invalid_handle();
                 target_fighter->bound_to = -1;
+                target_fighter->state_owner = source->state_owner;
                 enter_state(
                     fight, target_fighter,
                     (int16_t)ctrl->value0);
                 sync_fighter_entity(fight, target_fighter);
             } else {
+                target_entity->state_owner = source->state_owner;
                 (void)ik_entity_runtime_enter_state(
                     runtime, target_handle,
                     (int16_t)ctrl->value0);
@@ -2007,6 +2009,10 @@ static void configure_fight_entity_runtime(
     ik_entity_runtime_t* runtime
 ) {
     if (!fight || !runtime) return;
+    ik_entity_runtime_set_player_cns(
+        runtime, 0u, cns_for_owner(fight, 0u));
+    ik_entity_runtime_set_player_cns(
+        runtime, 1u, cns_for_owner(fight, 1u));
     ik_entity_runtime_set_target_controller(
         runtime, fight, entity_target_controller_bridge);
     ik_entity_runtime_set_stage_bounds(
@@ -2540,9 +2546,11 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                                    const ik_fight_controls_t* controls,
                                    const ik_frame_table_t* frames,
                                    int hit_pause_only) {
-    if (!fight || !fight->cns || !f) return 0;
-    const ik_cns_state_t* state = ik_cns_find_state(fight->cns, f->state);
-    if (!state || !fight->cns->controllers) return 0;
+    if (!fight || !f) return 0;
+    const ik_cns_asset_t* state_cns = cns_for_fighter(fight, f);
+    if (!state_cns) return 0;
+    const ik_cns_state_t* state = ik_cns_find_state(state_cns, f->state);
+    if (!state || !state_cns->controllers) return 0;
 
     uint16_t elem = 1u;
     uint16_t elem_time = 0u;
@@ -2631,13 +2639,13 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
         .proj_guarded_time =
             query_root ? query_root->proj_query_guarded_time : -1
     };
-    if (!hit_pause_only && fight->cns->playsnds) {
+    if (!hit_pause_only && state_cns->playsnds) {
         for (uint8_t i = 0u; i < state->playsnd_count; ++i) {
             const uint16_t index =
                 (uint16_t)(state->playsnd_ofs + i);
-            if (index >= fight->cns->playsnd_count) break;
+            if (index >= state_cns->playsnd_count) break;
             const ik_cns_playsnd_t* sound =
-                &fight->cns->playsnds[index];
+                &state_cns->playsnds[index];
             if (ik_cns_trigger_now(
                     sound->trigger_kind, sound->trigger_value,
                     f->state_time, elem, elem_time, anim_ended)) {
@@ -2649,8 +2657,8 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
 
     for (uint8_t i = 0u; i < state->controller_count; ++i) {
         const uint16_t index = (uint16_t)(state->controller_ofs + i);
-        if (index >= fight->cns->controller_count) break;
-        const ik_cns_controller_t* ctrl = &fight->cns->controllers[index];
+        if (index >= state_cns->controller_count) break;
+        const ik_cns_controller_t* ctrl = &state_cns->controllers[index];
         if (hit_pause_only &&
             (ctrl->flags & IK_CNS_CTRL_IGNORE_HIT_PAUSE) == 0u) {
             continue;
@@ -3341,6 +3349,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                     ik_fighter_t* target = &fight->fighters[target_index];
                     target->bound_to = -1;
                     target->bound_entity = ik_entity_invalid_handle();
+                    target->state_owner = f->state_owner;
                     enter_state(fight, target, ctrl->value0);
                     f->target_index = -1;
                 }
@@ -3363,6 +3372,7 @@ static int process_cns_controllers(ik_fight_t* fight, ik_fighter_t* f,
                 }
                 release_entity_bound_fighter(fight, f);
                 f->bound_to = -1;
+                f->state_owner = f->owner_player;
                 enter_state(fight, f, ctrl->value0);
                 return 1;
 
