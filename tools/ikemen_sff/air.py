@@ -130,7 +130,10 @@ def parse(path: Path) -> dict[int, AirAction]:
             continue
 
         m = _BOX.match(line)
-        if m and collecting_remaining > 0 and int(m.group(1)) == collecting_kind:
+        # The header decides the box type: KFM's blocking actions put
+        # `Clsn2[n]` lines under a `Clsn1: n` header and upstream reads them
+        # as Clsn1 boxes.
+        if m and collecting_remaining > 0:
             box: Box = (
                 int(m.group(3)), int(m.group(4)),
                 int(m.group(5)), int(m.group(6)),

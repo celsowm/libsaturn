@@ -108,6 +108,37 @@ int main() {
         OK(!ik_cns_controller_trigger_context_now(&command_ctrl, &ctx));
     }
 
+    /* Edge distances are Q8.8: `<= 20` and `< 65` differ at the boundary and
+     * a half-pixel air offset moves the distance below the limit. */
+    {
+        const ik_cns_controller_t le = {
+            1026, IK_CNS_CTRL_CHANGE_STATE,
+            IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE, -15 * IK_CNS_Q8_ONE, 20,
+            1027, 0, 0u
+        };
+        const ik_cns_controller_t lt = {
+            1026, IK_CNS_CTRL_SCREEN_BOUND,
+            IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE_LT, -15 * IK_CNS_Q8_ONE, 65,
+            1, 0, 0u
+        };
+        ik_cns_controller_context_t ctx{};
+        ctx.y_q8 = -30 * IK_CNS_Q8_ONE;
+        ctx.back_edge_body_dist_q8 = 20 * IK_CNS_Q8_ONE;
+        ctx.front_edge_body_dist_q8 = 500 * IK_CNS_Q8_ONE;
+        OK(ik_cns_controller_trigger_context_now(&le, &ctx));
+        ctx.back_edge_body_dist_q8 = 20 * IK_CNS_Q8_ONE + 1;
+        OK(!ik_cns_controller_trigger_context_now(&le, &ctx));
+        ctx.back_edge_body_dist_q8 = 65 * IK_CNS_Q8_ONE;
+        OK(!ik_cns_controller_trigger_context_now(&lt, &ctx));
+        ctx.back_edge_body_dist_q8 = 65 * IK_CNS_Q8_ONE - 1;
+        OK(ik_cns_controller_trigger_context_now(&lt, &ctx));
+        ctx.back_edge_body_dist_q8 = 500 * IK_CNS_Q8_ONE;
+        ctx.front_edge_body_dist_q8 = 10 * IK_CNS_Q8_ONE;
+        OK(ik_cns_controller_trigger_context_now(&lt, &ctx));
+        ctx.y_q8 = -10 * IK_CNS_Q8_ONE;   /* Pos y < -15 no longer holds */
+        OK(!ik_cns_controller_trigger_context_now(&lt, &ctx));
+    }
+
     OK(ik_cns_q8_to_int(-5 * IK_CNS_Q8_ONE - 128) == -5);
 
     std::puts("[test] ikemen_cns OK");

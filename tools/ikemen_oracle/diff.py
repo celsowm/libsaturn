@@ -5,7 +5,7 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 DEFAULT_FLOAT_EPS = 1e-4
 DEFAULT_IGNORED_FIELDS = {"tick", "rand_seed"}
@@ -30,7 +30,7 @@ def compare(
     actual: Any,
     path: str,
     diffs: list[str],
-    eps: float,
+    eps: float | Callable[[str], float],
     limit: int,
     ignored_fields: set[str] | None = None,
 ) -> None:
@@ -46,7 +46,7 @@ def compare(
         if isinstance(expected, float) or isinstance(actual, float):
             if not math.isclose(
                 float(expected), float(actual),
-                rel_tol=0.0, abs_tol=eps,
+                rel_tol=0.0, abs_tol=eps(path) if callable(eps) else eps,
             ):
                 diffs.append(
                     f"{path}: expected {expected!r}, got {actual!r}"
@@ -100,6 +100,14 @@ def main() -> int:
     parser.add_argument("oracle", type=Path)
     parser.add_argument("candidate", type=Path)
     parser.add_argument("--float-eps", type=float, default=DEFAULT_FLOAT_EPS)
+    parser.add_argument(
+        "--pos-eps", type=float, default=None,
+        help="tolerance for pos[] only (Saturn keeps positions in Q8.8)",
+    )
+    parser.add_argument(
+        "--vel-eps", type=float, default=None,
+        help="tolerance for vel[] only (Saturn keeps velocities in Q8.8)",
+    )
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument(
         "--strict-metadata",
@@ -118,10 +126,17 @@ def main() -> int:
             f"candidate={len(candidate)}"
         )
 
+    def eps_for(path: str) -> float:
+        if args.pos_eps is not None and ".pos[" in path:
+            return args.pos_eps
+        if args.vel_eps is not None and ".vel[" in path:
+            return args.vel_eps
+        return args.float_eps
+
     for i, (expected, actual) in enumerate(zip(oracle, candidate)):
         compare(
             expected, actual, f"frame[{i}]",
-            diffs, args.float_eps, args.limit,
+            diffs, eps_for, args.limit,
             set() if args.strict_metadata else DEFAULT_IGNORED_FIELDS,
         )
         if len(diffs) >= args.limit:

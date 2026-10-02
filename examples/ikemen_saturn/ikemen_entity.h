@@ -70,6 +70,7 @@ typedef struct ik_entity {
     int8_t facing;
     int8_t spr_priority;
     uint8_t ctrl;
+    uint8_t anim_clock_pending;
     uint8_t state_type;
     uint8_t move_type;
     uint8_t move_contact;

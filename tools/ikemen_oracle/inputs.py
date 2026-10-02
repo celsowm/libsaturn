@@ -37,9 +37,14 @@ def build_timeline(scenario: dict) -> list[tuple[int, int]]:
                 f"invalid oracle input range {start}..{end} "
                 f"for {frames} frames"
             )
-        p1 = _mask(list(event.get("p1", [])))
-        p2 = _mask(list(event.get("p2", [])))
+        # A side an event does not mention keeps what earlier events set,
+        # so two players' scripts can overlap in time.
         for frame in range(start, end + 1):
+            p1, p2 = timeline[frame]
+            if "p1" in event:
+                p1 = _mask(list(event["p1"]))
+            if "p2" in event:
+                p2 = _mask(list(event["p2"]))
             timeline[frame] = (p1, p2)
     return timeline
 
@@ -50,3 +55,13 @@ def write_timeline(path: Path, scenario: dict) -> None:
         "".join(f"{p1} {p2}\n" for p1, p2 in timeline),
         encoding="utf-8",
     )
+
+SETUP_KEYS = ("p1_life", "p1_power", "p2_life", "p2_power")
+
+def setup_string(scenario: dict) -> str:
+    """Scenario `setup` as "p1_power=1000,p2_life=1" (empty when unset)."""
+    setup = scenario.get("setup", {})
+    unknown = sorted(set(setup) - set(SETUP_KEYS))
+    if unknown:
+        raise ValueError(f"unknown oracle setup keys: {unknown}")
+    return ",".join(f"{k}={int(setup[k])}" for k in SETUP_KEYS if k in setup)

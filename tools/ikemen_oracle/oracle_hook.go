@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 const libsaturnOracleSchema = 1
@@ -77,7 +78,55 @@ var (
 	libsaturnOracleRoundState int32 = 2
 	libsaturnOracleDone       bool
 	libsaturnOracleInputs     [][2]uint16
+	libsaturnOracleStarted    bool
+	libsaturnOracleSetupDone  bool
 )
+
+// Scenario `setup`: "p1_life=1,p2_power=1000" style overrides applied once,
+// right before the first scripted tick (both sides start from full life and
+// zero power otherwise).
+func libsaturnOracleApplySetup(s *System) {
+	if libsaturnOracleSetupDone {
+		return
+	}
+	libsaturnOracleSetupDone = true
+	raw := os.Getenv("LIBSATURN_IKEMEN_ORACLE_SETUP")
+	if raw == "" {
+		return
+	}
+	for _, item := range strings.Split(raw, ",") {
+		kv := strings.SplitN(strings.TrimSpace(item), "=", 2)
+		if len(kv) != 2 || len(kv[0]) < 4 {
+			panic(fmt.Sprintf("invalid oracle setup item %q", item))
+		}
+		v, err := strconv.ParseInt(kv[1], 0, 32)
+		if err != nil {
+			panic(fmt.Sprintf("invalid oracle setup item %q: %v", item, err))
+		}
+		side := int(kv[0][1] - '1')
+		if side < 0 || side > 1 || len(s.chars[side]) == 0 ||
+			s.chars[side][0] == nil {
+			panic(fmt.Sprintf("invalid oracle setup side in %q", item))
+		}
+		c := s.chars[side][0]
+		switch kv[0][3:] {
+		case "life":
+			c.life = int32(v)
+		case "power":
+			c.power = int32(v)
+		default:
+			panic(fmt.Sprintf("unknown oracle setup key %q", kv[0]))
+		}
+	}
+}
+
+// Capture begins at the first tick in the configured round state and then
+// runs through whatever the engine does next (KO, win poses, next round).
+func libsaturnOracleActive() bool {
+	return libsaturnOracleStarted ||
+		int32(sys.roundState()) == libsaturnOracleRoundState ||
+		libsaturnOracleRoundState < 0
+}
 
 func libsaturnOracleEnabled() bool {
 	return os.Getenv("LIBSATURN_IKEMEN_ORACLE_TRACE") != ""
@@ -123,11 +172,12 @@ func libsaturnOracleLoadInputs() error {
 func libsaturnOracleInput(char *Char, controller int) ([14]bool, bool) {
 	var out [14]bool
 	if !libsaturnOracleEnabled() || char == nil ||
-		sys.roundState() != 2 || controller < 0 || controller > 1 ||
+		!libsaturnOracleActive() || controller < 0 || controller > 1 ||
 		libsaturnOracleFrameNo < 0 ||
 		int(libsaturnOracleFrameNo) >= len(libsaturnOracleInputs) {
 		return out, false
 	}
+	libsaturnOracleApplySetup(&sys)
 	mask := libsaturnOracleInputs[libsaturnOracleFrameNo][controller]
 	forward := mask&(1<<0) != 0
 	back := mask&(1<<1) != 0
@@ -175,8 +225,73 @@ func libsaturnOracleBeginMatch(s *System) error {
 		return err
 	}
 	libsaturnOracleFrameNo = 0
+	libsaturnOracleStarted = false
+	libsaturnOracleSetupDone = false
+	libsaturnOracleIDBase = -1
 	libsaturnOracleDone = false
 	return nil
+}
+
+// Upstream char ids start at an engine-defined base (helperMax) and keep
+// counting across helpers. The trace contract numbers them from 1 so root
+// P1 is always id 1, P2 id 2 and later spawns follow in creation order.
+var libsaturnOracleIDBase int32 = -1
+
+func libsaturnOracleNormID(id int32) int32 {
+	if id < 0 || libsaturnOracleIDBase < 0 {
+		return id
+	}
+	return id - libsaturnOracleIDBase + 1
+}
+
+func libsaturnOracleNormIDs(ids []int32) []int32 {
+	out := make([]int32, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, libsaturnOracleNormID(id))
+	}
+	return out
+}
+
+// The trace contract stores StateType/MoveType as small indices, not the
+// engine's bit flags: S,C,A,L -> 0..3 and I,A,H -> 0..2 (U -> 3).
+func libsaturnOracleStateType(t StateType) int32 {
+	switch t {
+	case ST_S:
+		return 0
+	case ST_C:
+		return 1
+	case ST_A:
+		return 2
+	case ST_L:
+		return 3
+	}
+	return int32(t)
+}
+
+func libsaturnOracleMoveType(t MoveType) int32 {
+	switch t {
+	case MT_I:
+		return 0
+	case MT_A:
+		return 1
+	case MT_H:
+		return 2
+	case MT_U:
+		return 3
+	}
+	return int32(t)
+}
+
+// c.juggle upstream is the pending cost of the attacker's own move, not a
+// property of the victim. The comparable quantity is the juggle budget the
+// victim still has against its attackers (ghv.targetedBy), 0 when nobody hit
+// it or it left MoveType H.
+func libsaturnOracleJuggleUsed(c *Char) int32 {
+	var used int32
+	for _, t := range c.ghv.targetedBy {
+		used += t[1]
+	}
+	return used
 }
 
 func libsaturnOracleCharSnapshot(c *Char) libsaturnOracleChar {
@@ -186,19 +301,20 @@ func libsaturnOracleCharSnapshot(c *Char) libsaturnOracleChar {
 		animElem = c.anim.curelem + 1
 		animTime = c.anim.curtime
 	}
-	targets := append([]int32(nil), c.targets...)
-	hitdefTargets := append([]int32(nil), c.hitdefTargets...)
+	// Normalised and never nil: JSON must carry [] rather than null.
+	targets := libsaturnOracleNormIDs(c.targets)
+	hitdefTargets := libsaturnOracleNormIDs(c.hitdefTargets)
 	return libsaturnOracleChar{
 		PlayerNo: c.playerNo,
 		HelperIndex: c.helperIndex,
-		ID: c.id,
+		ID: libsaturnOracleNormID(c.id),
 		HelperID: c.helperId,
-		ParentID: c.parentId,
+		ParentID: libsaturnOracleNormID(c.parentId),
 		TeamSide: c.teamside,
 		StateNo: c.ss.no,
 		StateTime: c.ss.time,
-		StateType: int32(c.ss.stateType),
-		MoveType: int32(c.ss.moveType),
+		StateType: libsaturnOracleStateType(c.ss.stateType),
+		MoveType: libsaturnOracleMoveType(c.ss.moveType),
 		Ctrl: c.ctrl(),
 		Anim: c.animNo,
 		AnimElem: animElem,
@@ -208,7 +324,7 @@ func libsaturnOracleCharSnapshot(c *Char) libsaturnOracleChar {
 		Facing: c.facing,
 		Life: c.life,
 		Power: c.power,
-		Juggle: c.juggle,
+		Juggle: libsaturnOracleJuggleUsed(c),
 		HitPause: c.hitPauseTime,
 		MoveContactType: int32(c.mctype),
 		MoveContactTime: c.mctime,
@@ -227,7 +343,7 @@ func libsaturnOracleProjectileSnapshot(
 	}
 	return libsaturnOracleProjectile{
 		PlayerNo: p.playerno,
-		OwnerID: p.ownerId,
+		OwnerID: libsaturnOracleNormID(p.ownerId),
 		ID: p.id,
 		Status: int32(p.status),
 		Anim: p.animNo,
@@ -252,9 +368,17 @@ func libsaturnOracleCaptureFrame(s *System) bool {
 	if libsaturnOracleEncoder == nil {
 		return false
 	}
-	if libsaturnOracleRoundState >= 0 &&
-		int32(s.roundState()) != libsaturnOracleRoundState {
-		return false
+	if !libsaturnOracleStarted {
+		if libsaturnOracleRoundState >= 0 &&
+			int32(s.roundState()) != libsaturnOracleRoundState {
+			return false
+		}
+		libsaturnOracleStarted = true
+	}
+
+	if libsaturnOracleIDBase < 0 && len(s.chars) > 0 &&
+		len(s.chars[0]) > 0 && s.chars[0][0] != nil {
+		libsaturnOracleIDBase = s.chars[0][0].id
 	}
 
 	frame := libsaturnOracleFrame{
@@ -263,6 +387,9 @@ func libsaturnOracleCaptureFrame(s *System) bool {
 		Tick: int32(s.tickCount),
 		RoundState: int32(s.roundState()),
 		RandSeed: s.randseed,
+		// Non-nil so an empty list serialises as [] and not null.
+		Chars: []libsaturnOracleChar{},
+		Projectiles: []libsaturnOracleProjectile{},
 	}
 
 	for playerNo := range s.chars {

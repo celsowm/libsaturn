@@ -164,20 +164,20 @@ int main() {
         const ik_entity_t* entity=
             ik_entity_get_const(&pool,helper);
         OK(entity!=nullptr);
-        EQ(fight.fighters[1].hp,975);
+        EQ(fight.fighters[1].hp-fight.fighters[1].pending_damage,975);
         EQ(fight.hits_p1,1u);
         EQ(entity->move_contact,1u);
         EQ(entity->hit_pause,3u);
         EQ(entity->hitdef_hit_mask,1u);
-        EQ(fight.fighters[1].hit_pause,2u);
+        EQ(fight.fighters[1].hit_shake_time,2u);
 
         ik_fight_update(
             &fight,&idle,&idle,&k_table,&k_table);
         entity=ik_entity_get_const(&pool,helper);
         OK(entity!=nullptr);
-        EQ(fight.fighters[1].hp,975);
+        EQ(fight.fighters[1].hp-fight.fighters[1].pending_damage,975);
         EQ(entity->hit_pause,2u);
-        EQ(entity->state_time,0u);
+        EQ(entity->state_time,1u); /* paused: the clock stays after tick 1 */
     }
 
     {

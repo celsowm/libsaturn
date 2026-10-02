@@ -14,11 +14,20 @@ extern "C" {
 #define IK_SCREEN_W 320
 #define IK_SCREEN_H 224
 #define IK_FLOOR_Y 180
-#define IK_STAGE_MIN_X 24
-#define IK_STAGE_MAX_X 296
+/* Default player bounds with the camera centred: stage0 screenleft/right 15
+ * around the 320 px view. The live bounds follow the camera (fighter
+ * xmin_q8/xmax_q8). */
+#define IK_STAGE_MIN_X 15
+#define IK_STAGE_MAX_X 305
+/* Stage x=0 sits at the middle of the 320 px view. */
+#define IK_STAGE_CENTER_X 160
 #define IK_MAX_HP 1000
 #define IK_MAX_POWER 3000
 #define IK_ROUND_TIME_FRAMES (99u * 60u)
+/* Ticks between the intro ending (character leaves its intro state) and
+ * RoundState 2, i.e. the "Round 1 / Fight" announcement. Measured from
+ * upstream with the stock screenpack. */
+#define IK_ROUND_FIGHT_WAIT_TICKS 111u
 #define IK_KO_FREEZE_FRAMES 120
 #define IK_MAX_EFFECT_EVENTS 2
 #define IK_MAX_SOUND_EVENTS 4
@@ -86,6 +95,15 @@ typedef struct ik_fight_controls {
     uint8_t has_state_request;
 } ik_fight_controls_t;
 
+/* Extra fractional byte under a Q8.8 value (a remainder, in 1/256 of the
+ * Q8.8 step). It only counts while the Q8.8
+ * value still equals q8_ref, so any other writer of the Q8.8 field (a VelSet,
+ * a hit, a bind) silently drops the stale fraction. */
+typedef struct ik_fine {
+    int32_t q8_ref;
+    int16_t lo;   /* signed: the Q8.8 part truncates toward zero */
+} ik_fine_t;
+
 typedef struct ik_fighter {
     int16_t x;
     int16_t y;
@@ -102,6 +120,12 @@ typedef struct ik_fighter {
     int16_t state;
     int16_t prev_state;
     uint16_t state_time;
+    uint16_t state_entries;
+    uint8_t anim_clock_pending;
+    uint8_t statedef_pending;
+    uint8_t in_guard_dist;
+    uint8_t cur_state_type;
+    uint8_t cur_move_type;
     int16_t anim;
     uint16_t anim_time;
     int8_t state_axis;
@@ -109,9 +133,22 @@ typedef struct ik_fighter {
     uint8_t up_latched;
 
     int16_t hp;
+    /* Damage dealt this tick; upstream lowers life when the victim next
+     * acts, one tick after the hit. */
+    int16_t pending_damage;
     int16_t power;
     uint16_t hitstun;
     uint16_t hit_pause;
+    uint16_t hit_shake_time;
+    /* Set when a ChangeState leaves a get-hit flight state, whose VelAdd
+     * already ran this tick. */
+    uint8_t gravity_carry;
+    int32_t gravity_carry_q16;   /* VelAdd the previous state already ran */
+    /* Eight more fractional bits under the Q8.8 position and velocity,
+     * valid while the Q8.8 value is unchanged (see ikf_fine_get). */
+    ik_fine_t fine_x, fine_y, fine_vx, fine_vy;
+    int32_t gethit_yaccel_q16;
+    int16_t pending_power;
     uint16_t hit_slide_time;
     uint16_t hit_ctrl_time;
     int32_t gethit_vx_q8;
@@ -135,12 +172,33 @@ typedef struct ik_fighter {
 
     int16_t push_back;
     int16_t push_front;
+    /* Width controller edge widths (0 by default, reset every tick) and the
+     * per-tick ScreenBound / camera tracking flags. */
+    uint8_t body_air;           /* push widths were reset for an air state */
+    int16_t edge_front;
+    int16_t edge_back;
+    uint8_t screen_bound;
+    uint8_t move_camera_x;
+    uint8_t move_camera_y;
+    /* Offset a connecting HitDef's mindist/maxdist/snap asks for, applied
+     * on the victim's next tick (upstream ghv.xoff / yoff). */
+    int32_t snap_x_q8;
+    int32_t snap_y_q8;
+    uint8_t snap_flags;
+    /* A reversed attacker keeps its juggle bookkeeping until it is hit
+     * again (upstream hittmp = -1); the reverser keeps its target list for
+     * two more ticks while its ReversalDef winds down. */
+    uint8_t reversed;
+    uint8_t frozen_tick;        /* this tick's controllers did not run (hit pause) */
+    uint8_t drop_target_skip;
     int16_t body_height;
 
     uint32_t hitdef_hit_mask;
     uint8_t attack_id;
     uint8_t move_contact;
     uint8_t move_hit;
+    uint16_t move_contact_time;
+    uint8_t move_contact_type;   /* 0 hit, 1 guarded; survives state changes */
     uint16_t afterimage_time;
     uint8_t afterimage_length;
     uint8_t afterimage_timegap;
@@ -177,15 +235,30 @@ typedef struct ik_fighter {
     uint16_t not_hit_by_attr_mask;
     uint16_t not_hit_by_time;
     int8_t target_index;
+    int8_t hitdef_target;
+    int8_t juggle_owner;
     int32_t target_id;
     int8_t last_hit_owner;
     int32_t last_hit_id;
     int8_t bound_to;
+    uint8_t bind_ticks;   /* TargetBind keeps the bind for one more tick */
+    int32_t xmin_q8;      /* screen bound, x_q8 space (set by the camera) */
+    int32_t xmax_q8;
     ik_entity_handle_t bound_entity;
     uint8_t owner_player;
     uint8_t state_owner;
     uint8_t anim_owner;
 } ik_fighter_t;
+
+/* Stage [Camera]/[PlayerInfo]/[Bound] values the fight needs, in stage
+ * pixels (0 = stage centre). Defaults are Ikemen's stage0. */
+typedef struct ik_stage_params {
+    int16_t bound_left, bound_right;     /* camera */
+    int16_t tension;
+    int16_t screen_left, screen_right;   /* [Bound] */
+    int16_t left_bound, right_bound;     /* leftbound/rightbound */
+    int16_t p1_start_x, p2_start_x;
+} ik_stage_params_t;
 
 typedef struct ik_fight {
     ik_fighter_t fighters[2];
@@ -214,6 +287,13 @@ typedef struct ik_fight {
     uint16_t super_darken_time;
     uint8_t round_state;
     uint8_t intro_asserted;
+    uint16_t round_wait;
+    ik_stage_params_t stage;
+    uint8_t cam_skip_smoothing;
+    int32_t cam_x_q16;     /* camera centre, stage px, Q16.16 */
+    int32_t cam_half_q16;  /* half of the visible width (zoom-out widens it) */
+    int32_t xmin_q8;
+    int32_t xmax_q8;
     ik_effect_event_t effect_events[IK_MAX_EFFECT_EVENTS];
     uint8_t effect_count;
     ik_sound_event_t sound_events[IK_MAX_SOUND_EVENTS];
@@ -233,6 +313,9 @@ void ik_fight_bind_entities(
     ik_entity_handle_t p1,
     ik_entity_handle_t p2);
 void ik_fight_reset(ik_fight_t* fight);
+void ik_fight_set_stage(ik_fight_t* fight, const ik_stage_params_t* stage);
+/* Camera centre in fighter x space (160 = stage centre), Q8.8. */
+int32_t ik_fight_camera_x_q8(const ik_fight_t* fight);
 int ik_action_for_state(const ik_cns_asset_t* cns, int16_t state);
 uint8_t ik_fight_state_type(const ik_fight_t* fight,
                             const ik_fighter_t* fighter);

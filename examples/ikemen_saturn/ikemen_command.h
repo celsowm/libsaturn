@@ -111,7 +111,11 @@ typedef struct ik_state_rule {
     uint16_t instruction_ofs;
     uint8_t instruction_count;
     int16_t target_state;
-    uint8_t reserved;
+    /* 0: always evaluate. Otherwise (command id + 1) of a command the
+     * expression cannot be true without; the rule is skipped, unevaluated,
+     * while that command is inactive. Computed by tools/ikemen_state_rules.py
+     * (required_command); zero is the safe default for hand-built rules. */
+    uint8_t command_gate;
 } ik_state_rule_t;
 
 typedef struct ik_state_rule_asset {

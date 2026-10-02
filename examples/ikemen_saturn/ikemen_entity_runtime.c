@@ -167,12 +167,13 @@ int ik_entity_runtime_enter_state(
     const int16_t previous_anim = entity->anim_no;
     entity->prev_state_no = entity->state_no;
     entity->state_no = state_no;
-    /* A helper is created after its owner's controller pass. The dynamic
-     * pass runs later in the same fight tick: wrap to 0 there so HitDef
-     * Time=0 is visible immediately, while compiled StateController Time=0
-     * (lowered to internal tick 1) runs on the next dynamic tick. */
-    entity->state_time = 65535u;
-    entity->anim_time = 65535u;
+    /* Time 0 is the entry tick: the new state's controllers run with Time 0
+     * (same tick when entered by the entity's own controller or when the
+     * helper is created before the dynamic pass), then the clock advances
+     * at the end of step_one. */
+    entity->state_time = 0u;
+    entity->anim_time = 0u;
+    entity->anim_clock_pending = 0u;
     entity->move_contact = 0u;
     entity->move_hit = 0u;
     entity->one_shot_controller_mask = 0u;
@@ -587,6 +588,12 @@ int ik_entity_runtime_spawn_projectile(
     entity->power = parent->power;
     entity->push_back = runtime->cns->constants.air_back;
     entity->push_front = runtime->cns->constants.air_front;
+    /* A state-driven projectile has no hit/remove/cancel animations; 0 would
+     * name animation 0 and delay its removal. */
+    entity->projectile_main_anim_no = -1;
+    entity->projectile_hit_anim_no = -1;
+    entity->projectile_remove_anim_no = -1;
+    entity->projectile_cancel_anim_no = -1;
 
     if (!ik_entity_runtime_enter_state(
             runtime, spawned, state_no)) {
@@ -655,6 +662,7 @@ static int process_controllers(
                 ? runtime->command_masks[entity->owner_player]
                 : 0u,
         .hit_pause = entity->hit_pause,
+        .hit_shake_time = entity->hit_pause,
         .alive = (uint8_t)(entity->life > 0),
         .anim_ended = (uint8_t)(anim_ended != 0),
         .move_contact = entity->move_contact,
@@ -1146,13 +1154,14 @@ static void step_one(
         return;
     }
 
-    ++entity->state_time;
-    ++entity->anim_time;
-
-    const int result =
-        process_controllers(
+    /* A ChangeState re-runs the new state in the same tick, like upstream. */
+    int result = 0;
+    for (int pass = 0; pass < 8; ++pass) {
+        result = process_controllers(
             runtime, handle, &freeze_x, &freeze_y, 0);
-    if (result != 0) return;
+        if (result != 1) break;
+    }
+    if (result == 2) return;
 
     entity = ik_entity_get(runtime->pool, handle);
     if (!entity) return;
@@ -1186,6 +1195,18 @@ static void step_one(
 
     if (!freeze_x) entity->x_q8 += entity->vx_q8;
     if (!freeze_y) entity->y_q8 += entity->vy_q8;
+    ++entity->state_time;
+    entity->anim_clock_pending = 1u;
+}
+
+void ik_entity_runtime_finish_tick(ik_entity_runtime_t* runtime) {
+    if (!runtime || !runtime->pool) return;
+    for (uint8_t slot = 0u; slot < IK_ENTITY_CAPACITY; ++slot) {
+        ik_entity_t* entity = &runtime->pool->entities[slot];
+        if (!entity->anim_clock_pending) continue;
+        entity->anim_clock_pending = 0u;
+        ++entity->anim_time;
+    }
 }
 
 void ik_entity_runtime_step_paused(

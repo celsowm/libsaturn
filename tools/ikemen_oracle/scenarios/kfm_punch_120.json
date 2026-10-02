@@ -12,9 +12,16 @@
   "inputs": [
     {
       "frame": 10,
-      "p1": ["x"],
+      "p1": [
+        "x"
+      ],
       "p2": []
     }
   ],
-  "extra_args": []
+  "extra_args": [],
+  "expect": {
+    "p1_states": [
+      200
+    ]
+  }
 }

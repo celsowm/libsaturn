@@ -40,7 +40,7 @@ PHYSICS = {
     "S": "IK_CNS_PHYS_STAND",
     "C": "IK_CNS_PHYS_CROUCH",
     "A": "IK_CNS_PHYS_AIR",
-    "U": "IK_CNS_PHYS_NONE",
+    "U": "IK_CNS_PHYS_BY_TYPE",
 }
 
 GROUND_TYPE = {
@@ -162,6 +162,46 @@ def pair(
     return number(parts[0]), number(parts[1])
 
 
+def dist_fields(ctrl: Section) -> dict:
+    """HitDef mindist / maxdist / snap = x[, y], in pixels. `snap` sets both
+    limits. dist_flags: 1 mindist x, 2 mindist y, 4 maxdist x, 8 maxdist y."""
+    out = {"mindist_x_q8": 0, "mindist_y_q8": 0, "maxdist_x_q8": 0,
+           "maxdist_y_q8": 0, "dist_flags": 0}
+    for key, names in (("mindist", ("min",)), ("maxdist", ("max",)),
+                       ("snap", ("min", "max"))):
+        text = ctrl.get(key)
+        if text is None:
+            continue
+        parts = [p for p in _split_top_level(text) if p]
+        for name in names:
+            for axis, part in zip("xy", parts):
+                out[f"{name}dist_{axis}_q8"] = q8(number(part))
+                out["dist_flags"] |= {
+                    ("min", "x"): 1, ("min", "y"): 2,
+                    ("max", "x"): 4, ("max", "y"): 8}[(name, axis)]
+    return out
+
+
+def power_fields(ctrl: Section) -> dict:
+    """HitDef getpower/givepower = hit[, guard]. An omitted guard value is
+    half of the hit value (truncated toward zero); an absent key keeps the
+    damage-based default (power_flags bit 0 = get set, bit 1 = give set)."""
+    out = {"get_power_hit": 0, "get_power_guard": 0,
+           "give_power_hit": 0, "give_power_guard": 0, "power_flags": 0}
+    for key, name, bit in (("getpower", "get", 1), ("givepower", "give", 2)):
+        text = ctrl.get(key)
+        if text is None:
+            continue
+        parts = _split_top_level(text)
+        hit = integer(parts[0], 0)
+        guard = (integer(parts[1], 0) if len(parts) > 1 and parts[1]
+                 else int(hit * 0.5))
+        out[f"{name}_power_hit"] = hit
+        out[f"{name}_power_guard"] = guard
+        out["power_flags"] |= bit
+    return out
+
+
 def spark_pair(text: str | None) -> tuple[float, float, float]:
     if text is None:
         return 0.0, 0.0, 0.0
@@ -185,10 +225,21 @@ def spark_pair(text: str | None) -> tuple[float, float, float]:
         return x, float(m.group(1)), float(m.group(2))
 
 
-def q8(value: float) -> int:
+def q8(value: float, wide: bool = False) -> int:
+    """Q8.8 fixed point; `wide` is for fields stored as int32 in the asset."""
     result = int(round(value * Q8))
-    if not -32768 <= result <= 32767:
+    low, high = (-(1 << 31), (1 << 31) - 1) if wide else (-32768, 32767)
+    if not low <= result <= high:
         raise ValueError(f"Q8.8 overflow for {value}")
+    return result
+
+
+def q16(value: float) -> int:
+    """Q16.16 for the few constants whose Q8.8 rounding drifts a fighter
+    (gravity and friction accumulate every tick)."""
+    result = int(round(value * 65536))
+    if not -(1 << 31) <= result < (1 << 31):
+        raise ValueError(f"Q16.16 overflow for {value}")
     return result
 
 
@@ -206,6 +257,16 @@ def anim_type_code(text: str | None) -> int:
         "diag-up": 5,
     }
     return mapping.get(value, 0)
+
+
+def fall_anim_type_code(ctrl: dict) -> int:
+    """Upstream: explicit fall.animtype, else air.animtype if it is Up or
+    DiagUp, else Back."""
+    if ctrl.get("fall.animtype") is not None:
+        return anim_type_code(ctrl.get("fall.animtype"))
+    air = anim_type_code(
+        ctrl.get("air.animtype") or ctrl.get("animtype") or "light")
+    return air if air >= 4 else 3
 
 
 def attack_attr_mask(text: str | None) -> str:
@@ -540,6 +601,63 @@ def _move_contact_window(
     return int(m.group(1)), int(m.group(2))
 
 
+# Action numbers of the character's .air file (--air). SelfAnimExist(n) is
+# resolved against it while compiling: a character's action set is fixed.
+SELF_ANIMS: set[int] | None = None
+
+_SELF_ANIM_TERM = re.compile(
+    r"(!?)\s*SelfAnimExist\s*\(\s*(\d+)\s*\)", re.I)
+
+
+def load_air_actions(path: Path) -> set[int]:
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    return {
+        int(m.group(1))
+        for m in re.finditer(r"^\s*\[Begin Action\s+(\d+)\s*\]", text,
+                             re.I | re.M)
+    }
+
+
+def fold_self_anim_exist(ctrl: Section) -> Section | None:
+    """Resolve `SelfAnimExist(n)` terms that make up a whole trigger line.
+    A true term is dropped (an otherwise empty group becomes `1`); a false
+    one kills its triggerN group, or the whole controller for triggerall.
+    Returns None when the controller can never fire."""
+    if SELF_ANIMS is None or not any(
+            _SELF_ANIM_TERM.fullmatch(v.strip()) for k, v in ctrl.values
+            if k.lower().startswith("trigger")):
+        return ctrl
+    groups: dict[str, list[tuple[str, str]]] = {}
+    other: list[tuple[str, str]] = []
+    dead: set[str] = set()
+    for key, value in ctrl.values:
+        k = key.lower()
+        if not k.startswith("trigger"):
+            other.append((key, value))
+            continue
+        groups.setdefault(k, [])
+        m = _SELF_ANIM_TERM.fullmatch(value.strip())
+        if m is None:
+            groups[k].append((key, value))
+        elif (int(m.group(2)) in SELF_ANIMS) == (m.group(1) != "!"):
+            continue                      # true: the term drops out
+        elif k == "triggerall":
+            return None
+        else:
+            dead.add(k)
+    values = list(other)
+    live = 0
+    for k, lines in groups.items():
+        if k in dead:
+            continue
+        if k != "triggerall":
+            live += 1
+        values.extend(lines or [(k, "1")])
+    if live == 0:
+        return None
+    return Section(ctrl.name, values)
+
+
 def controller_trigger(
     ctrl: Section,
     ctype: str,
@@ -550,7 +668,14 @@ def controller_trigger(
 
     anim_or: list[str] = []
     for trigger_index in range(1, 9):
-        anim_or.extend(ctrl.all(f"trigger{trigger_index}"))
+        group = ctrl.all(f"trigger{trigger_index}")
+        # Lines of one triggerN are ANDed: two different `AnimElem = n` in a
+        # group can never both hold, so that group drops out of the OR.
+        if len(set(group)) > 1 and all(
+                re.fullmatch(r"AnimElem\s*=\s*\d+", g.strip(), flags=re.I)
+                for g in group):
+            continue
+        anim_or.extend(group)
     if 2 <= len(anim_or):
         elems: list[int] = []
         for expr in anim_or:
@@ -859,28 +984,29 @@ def controller_trigger(
                     q8(float(vy.group(1))),
                 )
 
-    if ctype == "changestate" and len(trigger_all) == 1 and \
-       len(triggers) == 1 and len(trigger2) == 1:
+    if ctype in ("changestate", "screenbound") and len(trigger_all) == 1 \
+       and len(triggers) == 1 and len(trigger2) == 1:
         y = re.fullmatch(
             r"Pos\s+y\s*<\s*(-?\d+)",
             _strip_outer_parens(trigger_all[0]),
             flags=re.I,
         )
         back = re.fullmatch(
-            r"BackEdgeBodyDist\s*<=\s*(\d+)",
+            r"BackEdgeBodyDist\s*(<=|<)\s*(\d+)",
             _strip_outer_parens(triggers[0]),
             flags=re.I,
         )
         front = re.fullmatch(
-            r"FrontEdgeBodyDist\s*<=\s*(\d+)",
+            r"FrontEdgeBodyDist\s*(<=|<)\s*(\d+)",
             _strip_outer_parens(trigger2[0]),
             flags=re.I,
         )
-        if y and back and front and back.group(1) == front.group(1):
+        if y and back and front and back.groups() == front.groups():
             return (
-                "IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE",
+                "IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE" +
+                ("_LT" if back.group(1) == "<" else ""),
                 q8(float(y.group(1))),
-                int(back.group(1)),
+                int(back.group(2)),
             )
 
     if ctype == "turn" and len(triggers) == 1:
@@ -971,12 +1097,7 @@ def controller_trigger(
                 parsed[1],
             )
 
-    kind, value, value2 = simple_trigger(ctrl)
-    if kind == "IK_CNS_TRIGGER_TIME_EQ" and value == 0:
-        # Source CNS Time=0 controllers are first evaluated on the runtime's
-        # first post-entry state tick, which is numbered 1 internally.
-        value = 1
-    return kind, value, value2
+    return simple_trigger(ctrl)
 
 
 def constants(globals_: dict[str, Section]) -> dict[str, int]:
@@ -1026,6 +1147,13 @@ def constants(globals_: dict[str, Section]) -> dict[str, int]:
         "air_jump_num": integer(movement.get("airjump.num"), 0),
         "air_jump_height": integer(movement.get("airjump.height"), 35),
         "yaccel_q8": q8(number(movement.get("yaccel"), .44)),
+        "yaccel_q16": q16(number(movement.get("yaccel"), .44)),
+        "stand_friction_q16": q16(
+            number(movement.get("stand.friction"), .85)),
+        "crouch_friction_q16": q16(
+            number(movement.get("crouch.friction"), .82)),
+        "air_gethit_airrecover_yaccel_q16": q16(
+            number(movement.get("air.gethit.airrecover.yaccel"), .35)),
         "stand_friction_q8": q8(number(movement.get("stand.friction"), .85)),
         "crouch_friction_q8": q8(number(movement.get("crouch.friction"), .82)),
         "stand_friction_threshold_q8": q8(
@@ -1114,6 +1242,7 @@ def compile_runtime_controller(
         "targetlifeadd",
         "targetstate",
         "targetdrop",
+        "screenbound",
         "turn",
         "selfstate",
         "veladd",
@@ -1223,7 +1352,9 @@ def compile_runtime_controller(
 
     if ctype == "afterimage":
         def pack_rgb_signed(text: str | None, defaults: tuple[int, int, int]) -> int:
-            parts = _split_top_level(text or "")
+            parts = [
+                p for p in _split_top_level(text or "") if p.strip()
+            ]
             values = list(defaults)
             for i, part in enumerate(parts[:3]):
                 values[i] = max(-128, min(127, integer(part, values[i])))
@@ -1235,14 +1366,18 @@ def compile_runtime_controller(
             return packed if packed < 0x80000000 else packed - 0x100000000
 
         def pack_rgb_unsigned(text: str | None, defaults: tuple[int, int, int]) -> int:
-            parts = _split_top_level(text or "")
+            parts = [
+                p for p in _split_top_level(text or "") if p.strip()
+            ]
             values = list(defaults)
             for i, part in enumerate(parts[:3]):
                 values[i] = max(0, min(255, integer(part, values[i])))
             return values[0] | (values[1] << 8) | (values[2] << 16)
 
         def pack_mul(text: str | None) -> int:
-            parts = _split_top_level(text or "")
+            parts = [
+                p for p in _split_top_level(text or "") if p.strip()
+            ]
             defaults = [1.0, 1.0, 1.0]
             values = defaults[:]
             for i, part in enumerate(parts[:3]):
@@ -1521,6 +1656,24 @@ def compile_runtime_controller(
             "flags": flag_expr(),
         }
 
+    if ctype == "screenbound":
+        # value3 bit 0: `value` given, bit 1: `movecamera` given.
+        move = ctrl.get("movecamera")
+        move_x, move_y = pair(move, 0, 0)
+        return {
+            "state_number": state_no,
+            "type": "IK_CNS_CTRL_SCREEN_BOUND",
+            "trigger_kind": trig_kind,
+            "trigger_value": trig_value,
+            "trigger_value2": trig_value2,
+            "value0": integer(ctrl.get("value"), 0),
+            "value1": int(move_x),
+            "value2": int(move_y),
+            "value3": int(ctrl.get("value") is not None) |
+                      (int(move is not None) << 1),
+            "flags": flag_expr(),
+        }
+
     if ctype == "targetdrop":
         return {
             "state_number": state_no,
@@ -1689,6 +1842,8 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": q8(x),
             "value1": q8(y),
+            "value4": q16(x),
+            "value5": q16(y),
             "flags": " | ".join(axis + flags) if axis or flags else "0u",
         }
 
@@ -1708,6 +1863,8 @@ def compile_runtime_controller(
             "trigger_value2": trig_value2,
             "value0": q8(x),
             "value1": q8(y),
+            "value4": q16(x),
+            "value5": q16(y),
             "flags": " | ".join(axis + flags) if axis or flags else "0u",
         }
 
@@ -1729,6 +1886,28 @@ def compile_runtime_controller(
         }
 
     if ctype == "velmul":
+        plain = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)")
+        xtext = (ctrl.get("x") or "").strip()
+        ytext = (ctrl.get("y") or "").strip()
+        if (xtext or ytext) and all(
+            not t or plain.fullmatch(t) for t in (xtext, ytext)
+        ):
+            axis = []
+            if xtext:
+                axis.append("IK_CNS_CTRL_AXIS_X")
+            if ytext:
+                axis.append("IK_CNS_CTRL_AXIS_Y")
+            return {
+                "state_number": state_no,
+                "type": "IK_CNS_CTRL_VEL_MUL",
+                "trigger_kind": trig_kind,
+                "trigger_value": trig_value,
+                "trigger_value2": trig_value2,
+                "value0": q8(number(xtext or None, 1)),
+                "value1": q8(number(ytext or None, 1)),
+                "flags": " | ".join(axis + flags) if flags else
+                         " | ".join(axis),
+            }
         xexpr = (ctrl.get("x") or "").strip()
         m = re.fullmatch(
             r"([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\*\s*"
@@ -1754,12 +1933,14 @@ def compile_runtime_controller(
             "flags": flag_expr(),
         }
 
-    width_front, width_back = pair(
-        ctrl.get("value", ctrl.get("edge")), 0, 0
-    )
-    if int(width_front) != width_front or int(width_back) != width_back:
+    # `value` widens the player box and the screen-edge box, `player` and
+    # `edge` only their own.
+    value_text = ctrl.get("value")
+    player = pair(ctrl.get("player", value_text), 0, 0)
+    edge = pair(ctrl.get("edge", value_text), 0, 0)
+    if any(int(v) != v for v in (*player, *edge)):
         raise ValueError(
-            f"[{ctrl.name}] Width value must be integral in the Saturn subset"
+            f"[{ctrl.name}] Width values must be integral in the Saturn subset"
         )
     return {
         "state_number": state_no,
@@ -1767,8 +1948,10 @@ def compile_runtime_controller(
         "trigger_kind": trig_kind,
         "trigger_value": trig_value,
         "trigger_value2": trig_value2,
-        "value0": int(width_front),
-        "value1": int(width_back),
+        "value0": int(player[0]),
+        "value1": int(player[1]),
+        "value2": int(edge[0]),
+        "value3": int(edge[1]),
         "flags": flag_expr(),
     }
 
@@ -1839,6 +2022,18 @@ def compile_helper_controller(
     }
     return controller, helper
 
+def guard_times(ctrl: Section) -> tuple[int, int, int]:
+    """(hittime, slidetime, ctrltime) of a guarded hit.
+
+    Mugen characters (classic KFM) default guard.hittime to ground.slidetime,
+    not ground.hittime as documented; Ikemen's engine does the same for them.
+    """
+    hit = integer(ctrl.get("guard.hittime"),
+                  integer(ctrl.get("ground.slidetime"), 0))
+    slide = integer(ctrl.get("guard.slidetime"), hit)
+    return hit, slide, integer(ctrl.get("guard.ctrltime"), slide)
+
+
 def _projectile_hitdef_row(
     state_no: int,
     ctrl: Section,
@@ -1905,19 +2100,16 @@ def _projectile_hitdef_row(
         "flags": " | ".join(flags) if flags else "0u",
         "guard_flags": guard_mask(ctrl.get("guardflag")),
         "guard_kill": integer(ctrl.get("guard.kill"), 1),
-        "guard_slide_time": integer(
-            ctrl.get("guard.slidetime"),
-            integer(ctrl.get("ground.slidetime"), 0)),
-        "guard_hit_time": integer(
-            ctrl.get("guard.hittime"),
-            integer(ctrl.get("ground.hittime"), 0)),
-        "guard_ctrl_time": integer(ctrl.get("guard.ctrltime"), 0),
+        "guard_slide_time": guard_times(ctrl)[1],
+        "guard_hit_time": guard_times(ctrl)[0],
+        "guard_ctrl_time": guard_times(ctrl)[2],
         "guard_velocity_x_q8": q8(guardx),
         "air_guard_velocity_x_q8": q8(agx),
         "air_guard_velocity_y_q8": q8(agy),
         "anim_type": anim_type_code(ctrl.get("animtype")),
         "air_anim_type": anim_type_code(
             ctrl.get("air.animtype") or ctrl.get("animtype")),
+        "fall_anim_type": fall_anim_type_code(ctrl),
         "fall_x_velocity_q8": q8(number(ctrl.get("fall.xvelocity"), 0)),
         "fall_y_velocity_q8": q8(number(ctrl.get("fall.yvelocity"), -4.5)),
         "fall_x_velocity_set": int(ctrl.get("fall.xvelocity") is not None),
@@ -1932,7 +2124,7 @@ def _projectile_hitdef_row(
         "air_juggle": integer(ctrl.get("air.juggle"), 0),
         "p1_state_no": integer(ctrl.get("p1stateno"), -1),
         "p2_state_no": integer(ctrl.get("p2stateno"), -1),
-        "guard_dist": integer(ctrl.get("guard.dist"), 0),
+        "guard_dist": integer(ctrl.get("guard.dist"), -1),
         "p1_facing": integer(ctrl.get("p1facing"), 0),
         "p2_facing": integer(ctrl.get("p2facing"), 0),
         "p1_spr_priority": integer(ctrl.get("p1sprpriority"), -128),
@@ -1942,7 +2134,10 @@ def _projectile_hitdef_row(
         "alt_damage_prev_state": -32768,
         "trigger2_kind": 255,
         "trigger2_value": 0,
-        "yaccel_q8": q8(number(ctrl.get("yaccel"), 0)),
+        "yaccel_q8": q8(number(ctrl.get("yaccel"), .35)),
+        "yaccel_q16": q16(number(ctrl.get("yaccel"), .35)),
+        **power_fields(ctrl),
+        **dist_fields(ctrl),
         "has_trigger2": 0,
         "has_alt_damage": 0,
         "ground_cornerpush_veloff_q8": q8(
@@ -2246,12 +2441,12 @@ def compile_explod_controller(
 
     explod = {
         "anim_no": integer(ctrl.get("anim"), 0),
-        "pos_x_q8": q8(px),
-        "pos_y_q8": q8(py),
-        "vel_x_q8": q8(vx),
-        "vel_y_q8": q8(vy),
-        "accel_x_q8": q8(ax),
-        "accel_y_q8": q8(ay),
+        "pos_x_q8": q8(px, wide=True),
+        "pos_y_q8": q8(py, wide=True),
+        "vel_x_q8": q8(vx, wide=True),
+        "vel_y_q8": q8(vy, wide=True),
+        "accel_x_q8": q8(ax, wide=True),
+        "accel_y_q8": q8(ay, wide=True),
         "remove_time": integer(ctrl.get("removetime"), -1),
         "spr_priority": integer(ctrl.get("sprpriority"), 0),
         "postype": postype,
@@ -2349,6 +2544,10 @@ def parse_state(
         return controller
 
     for ctrl in state.controllers:
+        folded = fold_self_anim_exist(ctrl)
+        if folded is None:
+            continue
+        ctrl = folded
         ctype = (ctrl.get("type", "") or "").strip().lower()
 
         if ctype == "hitdef":
@@ -2461,21 +2660,9 @@ def parse_state(
                     "guard_flags": guard_mask(ctrl.get("guardflag")),
                     "guard_kill": integer(ctrl.get("guard.kill"), 1),
                     "hit_flags": hit_mask(ctrl.get("hitflag")),
-                    "guard_slide_time": integer(
-                        ctrl.get("guard.slidetime"),
-                        integer(ctrl.get("ground.slidetime"), 0),
-                    ),
-                    "guard_hit_time": integer(
-                        ctrl.get("guard.hittime"),
-                        integer(ctrl.get("ground.hittime"), 0),
-                    ),
-                    "guard_ctrl_time": integer(
-                        ctrl.get("guard.ctrltime"),
-                        integer(
-                            ctrl.get("guard.hittime"),
-                            integer(ctrl.get("ground.hittime"), 0),
-                        ),
-                    ),
+                    "guard_slide_time": guard_times(ctrl)[1],
+                    "guard_hit_time": guard_times(ctrl)[0],
+                    "guard_ctrl_time": guard_times(ctrl)[2],
                     "guard_velocity_x_q8": q8(guardx),
                     "air_guard_velocity_x_q8": q8(agx),
                     "air_guard_velocity_y_q8": q8(agy),
@@ -2483,6 +2670,7 @@ def parse_state(
                     "air_anim_type": anim_type_code(
                         ctrl.get("air.animtype", ctrl.get("animtype", "light"))
                     ),
+                    "fall_anim_type": fall_anim_type_code(ctrl),
                     "fall_x_velocity_q8": q8(fall_x),
                     "fall_y_velocity_q8": q8(fall_y),
                     "fall_x_velocity_set": int(fall_x_text is not None),
@@ -2505,7 +2693,10 @@ def parse_state(
                     "p2_body_dist_x": p2_dist_x,
                     "alt_damage": alt_damage,
                     "alt_damage_prev_state": alt_damage_prev_state,
-                    "yaccel_q8": q8(number(ctrl.get("yaccel"), 0)),
+                    "yaccel_q8": q8(number(ctrl.get("yaccel"), .35)),
+                    "yaccel_q16": q16(number(ctrl.get("yaccel"), .35)),
+                    **power_fields(ctrl),
+                    **dist_fields(ctrl),
                     "has_alt_damage": int(damage_expr is not None),
                     "ground_cornerpush_veloff_q8": q8(
                         number(ctrl.get("ground.cornerpush.veloff"), 0)
@@ -2997,8 +3188,14 @@ def compile_common_states(
         row: dict
 
         if n == 0:
-            row = state_row(0, 0, 1)
+            # Upstream state 0 has no anim: it keeps the turn anim (5) until
+            # it ends and snaps any other anim to 0 on its first tick.
+            row = state_row(0, -1, 1)
             cs += [
+                _common_ctrl(
+                    0, "IK_CNS_CTRL_IDLE_ANIM",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 0, 0,
+                ),
                 _common_ctrl(
                     0, "IK_CNS_CTRL_VEL_SET",
                     "IK_CNS_TRIGGER_TIME_EQ", 4, 0, 0, 0,
@@ -3017,11 +3214,11 @@ def compile_common_states(
             ]
 
         elif n == 10:
-            row = state_row(10, 10, 0)
+            row = state_row(10, 10, -1)
             cs += [
                 _common_ctrl(
                     10, "IK_CNS_CTRL_VEL_MUL",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, q8(.75), 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, q8(.75), 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
@@ -3052,7 +3249,7 @@ def compile_common_states(
             ]
 
         elif n == 12:
-            row = state_row(12, 12, 0)
+            row = state_row(12, 12, -1)
             cs.append(_common_ctrl(
                 12, "IK_CNS_CTRL_CHANGE_STATE",
                 "IK_CNS_TRIGGER_ANIM_END", 0, 0, 0, 0,
@@ -3102,10 +3299,11 @@ def compile_common_states(
         elif n == 45:
             row = state_row(45, 41, 0)
             row["has_velset"] = 1
+            row["owns_air_accel"] = 1   # physics N: nothing accelerates it
             cs += [
                 _common_ctrl(
                     45, "IK_CNS_CTRL_CHANGE_ANIM_IF_EXISTS",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 44, 41,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 44, 41,
                 ),
                 _common_ctrl(
                     45, "IK_CNS_CTRL_CAPTURE_COMMAND_AXIS",
@@ -3123,11 +3321,11 @@ def compile_common_states(
             ]
 
         elif n == 50:
-            row = state_row(50, -1, 0, land_state=52)
+            row = state_row(50, -1, -1, land_state=52)
             cs += [
                 _common_ctrl(
                     50, "IK_CNS_CTRL_CHANGE_ANIM_BY_VX",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 41, 42,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 41, 42,
                 ),
                 _common_ctrl(
                     50, "IK_CNS_CTRL_CHANGE_ANIM_DESCENT_IF_EXISTS",
@@ -3136,19 +3334,19 @@ def compile_common_states(
             ]
 
         elif n == 51:
-            row = state_row(51, -1, 0, land_state=52)
+            row = state_row(51, -1, -1, land_state=52)
 
         elif n == 52:
             row = state_row(52, 47, 0)
             cs += [
                 _common_ctrl(
                     52, "IK_CNS_CTRL_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
                     52, "IK_CNS_CTRL_POS_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
@@ -3190,10 +3388,11 @@ def compile_common_states(
 
         elif n == 105:
             row = state_row(105, 105, 0, land_state=106)
+            row["land_before_move"] = 1
             cs += [
                 _common_ctrl(
                     105, "IK_CNS_CTRL_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0,
                     const["run_back_x_q8"], const["run_back_y_q8"],
                     "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y | "
                     "IK_CNS_CTRL_LOCAL_X",
@@ -3205,43 +3404,65 @@ def compile_common_states(
             ]
 
         elif n == 120:
-            row = state_row(120, -1, 0)
+            row = state_row(120, -1, -1)
             cs += [
                 _common_ctrl(
                     120, "IK_CNS_CTRL_GUARD_ANIM_BY_TYPE",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 120, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 120, 0,
                 ),
                 _common_ctrl(
                     120, "IK_CNS_CTRL_GUARD_STATE_BY_TYPE",
                     "IK_CNS_TRIGGER_ANIM_END", 0, 0, 130, 0,
                 ),
+                _common_ctrl(
+                    120, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_GUARD_RELEASE", 0, 0, 140, 0,
+                ),
             ]
 
         elif n == 130:
-            row = state_row(130, 130, 0)
-            cs.append(_common_ctrl(
-                130, "IK_CNS_CTRL_CHANGE_STATE",
-                "IK_CNS_TRIGGER_COMMAND_ACTIVE",
-                "IK_CNS_COMMAND_HOLD_DOWN", 0, 131, 0,
-            ))
+            row = state_row(130, 130, -1)
+            cs += [
+                _common_ctrl(
+                    130, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_COMMAND_ACTIVE",
+                    "IK_CNS_COMMAND_HOLD_DOWN", 0, 131, 0,
+                ),
+                _common_ctrl(
+                    130, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_GUARD_RELEASE", 0, 0, 140, 0,
+                ),
+            ]
 
         elif n == 131:
-            row = state_row(131, 131, 0)
-            cs.append(_common_ctrl(
-                131, "IK_CNS_CTRL_CHANGE_STATE",
-                "IK_CNS_TRIGGER_COMMAND_INACTIVE",
-                "IK_CNS_COMMAND_HOLD_DOWN", 0, 130, 0,
-            ))
+            row = state_row(131, 131, -1)
+            cs += [
+                _common_ctrl(
+                    131, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_COMMAND_INACTIVE",
+                    "IK_CNS_COMMAND_HOLD_DOWN", 0, 130, 0,
+                ),
+                _common_ctrl(
+                    131, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_GUARD_RELEASE", 0, 0, 140, 0,
+                ),
+            ]
 
         elif n == 132:
-            row = state_row(132, 132, 0, land_state=52)
+            row = state_row(132, 132, -1, land_state=52)
+            row["air_accel_q8"] = const["yaccel_q8"]   # IkSys_AirGuardLand VelAdd
+            row["air_accel_q16"] = const["yaccel_q16"]
+            cs.append(_common_ctrl(
+                132, "IK_CNS_CTRL_CHANGE_STATE",
+                "IK_CNS_TRIGGER_GUARD_RELEASE", 0, 0, 140, 0,
+            ))
 
         elif n == 140:
             row = state_row(140, -1, 1)
             cs += [
                 _common_ctrl(
                     140, "IK_CNS_CTRL_GUARD_ANIM_BY_TYPE",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 140, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 140, 0,
                 ),
                 _common_ctrl(
                     140, "IK_CNS_CTRL_GUARD_END",
@@ -3250,20 +3471,26 @@ def compile_common_states(
             ]
 
         elif n == 150:
-            row = state_row(150, 150, 0)
+            row = state_row(150, 150, -1)
             row["has_velset"] = 1
-            cs.append(_common_ctrl(
-                150, "IK_CNS_CTRL_CHANGE_STATE",
-                "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 151, 0,
-            ))
+            cs += [
+                _common_ctrl(
+                    150, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_SHAKE_OVER", 0, 0, 151, 0,
+                ),
+                _common_ctrl(
+                    150, "IK_CNS_CTRL_CHANGE_ANIM",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 150, 0,
+                ),
+            ]
             deferred[n] = ["ForceFeedback"]
 
         elif n == 151:
-            row = state_row(151, 150, 0)
+            row = state_row(151, 150, -1)
             cs += [
                 _common_ctrl(
                     151, "IK_CNS_CTRL_HIT_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
@@ -3283,20 +3510,26 @@ def compile_common_states(
             ]
 
         elif n == 152:
-            row = state_row(152, 151, 0)
+            row = state_row(152, 151, -1)
             row["has_velset"] = 1
-            cs.append(_common_ctrl(
-                152, "IK_CNS_CTRL_CHANGE_STATE",
-                "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 153, 0,
-            ))
+            cs += [
+                _common_ctrl(
+                    152, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_SHAKE_OVER", 0, 0, 153, 0,
+                ),
+                _common_ctrl(
+                    152, "IK_CNS_CTRL_CHANGE_ANIM",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 151, 0,
+                ),
+            ]
             deferred[n] = ["ForceFeedback"]
 
         elif n == 153:
-            row = state_row(153, 151, 0)
+            row = state_row(153, 151, -1)
             cs += [
                 _common_ctrl(
                     153, "IK_CNS_CTRL_HIT_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
@@ -3316,20 +3549,28 @@ def compile_common_states(
             ]
 
         elif n == 154:
-            row = state_row(154, 152, 0)
+            row = state_row(154, 152, -1)
             row["has_velset"] = 1
-            cs.append(_common_ctrl(
-                154, "IK_CNS_CTRL_CHANGE_STATE",
-                "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 155, 0,
-            ))
+            cs += [
+                _common_ctrl(
+                    154, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_SHAKE_OVER", 0, 0, 155, 0,
+                ),
+                _common_ctrl(
+                    154, "IK_CNS_CTRL_CHANGE_ANIM",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 152, 0,
+                ),
+            ]
             deferred[n] = ["ForceFeedback"]
 
         elif n == 155:
-            row = state_row(155, 152, 0, land_state=52)
+            row = state_row(155, 152, -1, land_state=52)
+            row["air_accel_q8"] = const["yaccel_q8"]   # IkSys_AirGuardLand VelAdd
+            row["air_accel_q16"] = const["yaccel_q16"]
             cs += [
                 _common_ctrl(
                     155, "IK_CNS_CTRL_HIT_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
@@ -3339,12 +3580,17 @@ def compile_common_states(
             ]
 
         elif n == 5000:
-            row = state_row(5000, -1, 0)
+            row = state_row(5000, -1, -1)
             row["has_velset"] = 1
             cs += [
                 _common_ctrl(
                     5000, "IK_CNS_CTRL_GET_HIT_ANIM",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 0, 0,
+                ),
+                _common_ctrl(
+                    5000, "IK_CNS_CTRL_STATE_TYPE_SET",
+                    "IK_CNS_TRIGGER_HIT_LAUNCH_ENTRY", 0, 0,
+                    "IK_CNS_STATE_AIR", 0,
                 ),
                 _common_ctrl(
                     5000, "IK_CNS_CTRL_CHANGE_STATE",
@@ -3358,11 +3604,15 @@ def compile_common_states(
             deferred[n] = ["ForceFeedback", "StateTypeSet for launch"]
 
         elif n == 5001:
-            row = state_row(5001, -1, 0)
+            row = state_row(5001, -1, -1)
             cs += [
                 _common_ctrl(
+                    5001, "IK_CNS_CTRL_GET_HIT_ANIM",
+                    "IK_CNS_TRIGGER_ANIM_END", 0, 0, 3, 0,
+                ),
+                _common_ctrl(
                     5001, "IK_CNS_CTRL_HIT_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
@@ -3379,12 +3629,17 @@ def compile_common_states(
             deferred[n] = ["DefenceMulSet"]
 
         elif n == 5010:
-            row = state_row(5010, -1, 0)
+            row = state_row(5010, -1, -1)
             row["has_velset"] = 1
             cs += [
                 _common_ctrl(
                     5010, "IK_CNS_CTRL_GET_HIT_ANIM",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 1, 0,
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 1, 0,
+                ),
+                _common_ctrl(
+                    5010, "IK_CNS_CTRL_STATE_TYPE_SET",
+                    "IK_CNS_TRIGGER_HIT_LAUNCH_ENTRY", 0, 0,
+                    "IK_CNS_STATE_AIR", 0,
                 ),
                 _common_ctrl(
                     5010, "IK_CNS_CTRL_CHANGE_STATE",
@@ -3398,11 +3653,15 @@ def compile_common_states(
             deferred[n] = ["ForceFeedback", "StateTypeSet for launch"]
 
         elif n == 5011:
-            row = state_row(5011, -1, 0)
+            row = state_row(5011, -1, -1)
             cs += [
                 _common_ctrl(
+                    5011, "IK_CNS_CTRL_GET_HIT_ANIM",
+                    "IK_CNS_TRIGGER_ANIM_END", 0, 0, 4, 0,
+                ),
+                _common_ctrl(
                     5011, "IK_CNS_CTRL_HIT_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
@@ -3419,27 +3678,31 @@ def compile_common_states(
             deferred[n] = ["DefenceMulSet"]
 
         elif n == 5020:
-            row = state_row(5020, -1, 0)
+            row = state_row(5020, -1, -1)
             row["has_velset"] = 1
             cs += [
                 _common_ctrl(
                     5020, "IK_CNS_CTRL_GET_HIT_ANIM",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 2, 0,
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 2, 0,
                 ),
                 _common_ctrl(
                     5020, "IK_CNS_CTRL_CHANGE_STATE",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 5030, 0,
+                    "IK_CNS_TRIGGER_HIT_SHAKE_OVER", 0, 0, 5030, 0,
                 ),
             ]
             deferred[n] = ["ForceFeedback"]
 
         elif n == 5030:
-            row = state_row(5030, 5030, 0)
+            row = state_row(5030, -1, 0)
             row["land_level_q8"] = const["air_gethit_groundlevel_q8"]
             cs += [
                 _common_ctrl(
+                    5030, "IK_CNS_CTRL_AIR_HIT_ANIM",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 5030, 0,
+                ),
+                _common_ctrl(
                     5030, "IK_CNS_CTRL_HIT_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
@@ -3454,9 +3717,13 @@ def compile_common_states(
             deferred[n] = ["selfAnimExist 5030"]
 
         elif n == 5035:
-            row = state_row(5035, 5035, 0)
+            row = state_row(5035, -1, -1)
             row["land_level_q8"] = const["air_gethit_groundlevel_q8"]
             cs += [
+                _common_ctrl(
+                    5035, "IK_CNS_CTRL_AIR_HIT_ANIM",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 5035, 1,
+                ),
                 _common_ctrl(
                     5035, "IK_CNS_CTRL_HIT_RECOVER_STATE",
                     "IK_CNS_TRIGGER_HIT_OVER",
@@ -3468,50 +3735,71 @@ def compile_common_states(
             ]
 
         elif n == 5040:
-            row = state_row(5040, 5040, 1, land_state=52)
-            deferred[n] = ["alive=false -> 5050", "moveTypeSet"]
+            row = state_row(5040, -1, 1, land_state=52)
+            cs += [
+                _common_ctrl(
+                    5040, "IK_CNS_CTRL_LAND_HIT_ANIM",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 5040, 0,
+                ),
+                _common_ctrl(
+                    5040, "IK_CNS_CTRL_MOVE_TYPE_SET",
+                    "IK_CNS_TRIGGER_HIT_OVER", 0, 0, "IK_CNS_MOVE_IDLE", 0,
+                ),
+            ]
+            deferred[n] = ["alive=false -> 5050"]
 
         elif n == 5050:
-            row = state_row(5050, 5050, 0, land_state=5100)
+            row = state_row(5050, -1, 0, land_state=5100)
             row["land_level_q8"] = const["air_gethit_groundlevel_q8"]
-            cs.append(_common_ctrl(
-                5050, "IK_CNS_CTRL_FALL_RECOVERY",
-                "IK_CNS_TRIGGER_ALWAYS",
-            ))
-            deferred[n] = ["fall animation variants"]
+            cs += [
+                _common_ctrl(
+                    5050, "IK_CNS_CTRL_FALL_ANIM",
+                    "IK_CNS_TRIGGER_ALWAYS",
+                ),
+                _common_ctrl(
+                    5050, "IK_CNS_CTRL_FALL_RECOVERY",
+                    "IK_CNS_TRIGGER_ALWAYS",
+                ),
+            ]
 
         elif n == 5070:
-            row = state_row(5070, 5070, 0)
+            row = state_row(5070, 5070, -1)
             row["has_velset"] = 1
-            cs.append(_common_ctrl(
-                5070, "IK_CNS_CTRL_CHANGE_STATE",
-                "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 5071, 0,
-            ))
+            cs += [
+                _common_ctrl(
+                    5070, "IK_CNS_CTRL_RESTART_ANIM",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 5070, 0,
+                ),
+                _common_ctrl(
+                    5070, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_HIT_SHAKE_OVER", 0, 0, 5071, 0,
+                ),
+            ]
             deferred[n] = ["ForceFeedback"]
 
         elif n == 5071:
-            row = state_row(5071, -1, 0, land_state=5110)
+            row = state_row(5071, -1, -1, land_state=5110)
             row["land_level_q8"] = const["air_gethit_trip_groundlevel_q8"]
             cs.append(_common_ctrl(
                 5071, "IK_CNS_CTRL_HIT_VEL_SET",
-                "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                 "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y",
             ))
 
         elif n == 5080:
-            row = state_row(5080, -1, 0)
+            row = state_row(5080, -1, -1)
             row["has_velset"] = 1
             cs.append(_common_ctrl(
                 5080, "IK_CNS_CTRL_DOWNED_HIT_BRANCH",
-                "IK_CNS_TRIGGER_TIME_EQ", 1,
+                "IK_CNS_TRIGGER_TIME_EQ", 0,
             ))
 
         elif n == 5081:
-            row = state_row(5081, -1, 0)
+            row = state_row(5081, -1, -1)
             cs += [
                 _common_ctrl(
                     5081, "IK_CNS_CTRL_HIT_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
@@ -3526,38 +3814,46 @@ def compile_common_states(
             ]
 
         elif n == 5100:
-            row = state_row(5100, 5100, 0)
+            row = state_row(5100, -1, -1)
             cs += [
                 _common_ctrl(
+                    5100, "IK_CNS_CTRL_ANIM_ADD_MOD10",
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 5100, 0,
+                ),
+                _common_ctrl(
                     5100, "IK_CNS_CTRL_POS_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
                     5100, "IK_CNS_CTRL_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
                     5100, "IK_CNS_CTRL_VEL_MUL",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, q8(.75), 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, q8(.75), 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
                     5100, "IK_CNS_CTRL_FALL_ENV_SHAKE",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0,
                 ),
                 _common_ctrl(
                     5100, "IK_CNS_CTRL_MAKE_DUST",
-                    "IK_CNS_TRIGGER_TIME_EQ", 2, 0, 60, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 60, 0,
                 ),
                 _common_ctrl(
                     5100, "IK_CNS_CTRL_FALL_GROUND_BRANCH",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 5110, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 5110, 0,
                 ),
                 _common_ctrl(
                     5100, "IK_CNS_CTRL_HIT_FALL_DAMAGE",
-                    "IK_CNS_TRIGGER_TIME_EQ", 4,
+                    "IK_CNS_TRIGGER_TIME_EQ", 3,
+                ),
+                _common_ctrl(
+                    5100, "IK_CNS_CTRL_POS_FREEZE",
+                    flags="IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
                     5100, "IK_CNS_CTRL_CHANGE_STATE",
@@ -3567,50 +3863,74 @@ def compile_common_states(
             deferred.pop(n, None)
 
         elif n == 5101:
-            row = state_row(5101, 5160, 0, land_state=5110)
-            row["air_accel_q8"] = const["down_bounce_yaccel_q8"]
-            row["land_level_q8"] = const["down_bounce_groundlevel_q8"]
+            row = state_row(5101, -1, -1)
+            row["owns_air_accel"] = 1   # VelAdd below, like upstream
             cs += [
                 _common_ctrl(
+                    5101, "IK_CNS_CTRL_ANIM_ADD_MOD10",
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 5160, 1,
+                ),
+                _common_ctrl(
                     5101, "IK_CNS_CTRL_FALL_BOUNCE_VEL",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0,
                 ),
                 _common_ctrl(
                     5101, "IK_CNS_CTRL_POS_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0,
                     const["down_bounce_offset_y_q8"],
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
                     5101, "IK_CNS_CTRL_POS_ADD",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0,
                     const["down_bounce_offset_x_q8"], 0,
+                ),
+                _common_ctrl(
+                    5101, "IK_CNS_CTRL_VEL_ADD",
+                    "IK_CNS_TRIGGER_TIME_GE", 1, 0, 0,
+                    const["down_bounce_yaccel_q8"],
+                    "IK_CNS_CTRL_AXIS_Y",
+                ),
+                # Upstream lands through a controller, so the new state runs
+                # on the tick after the position crossed the ground level.
+                _common_ctrl(
+                    5101, "IK_CNS_CTRL_CHANGE_STATE",
+                    "IK_CNS_TRIGGER_VY_GT_Q8_AT_LEVEL",
+                    const["down_bounce_groundlevel_q8"], 0, 5110, 0,
                 ),
             ]
 
         elif n == 5110:
-            row = state_row(5110, 5110, 0)
+            row = state_row(5110, 5110, -1)
             cs += [
                 _common_ctrl(
+                    5110, "IK_CNS_CTRL_CHANGE_ANIM_IF_EXISTS",
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 5170, 5110,
+                ),
+                _common_ctrl(
+                    5110, "IK_CNS_CTRL_CHANGE_ANIM_IF_END_FROM",
+                    "IK_CNS_TRIGGER_ALWAYS", 0, 0, 5170, 5110,
+                ),
+                _common_ctrl(
                     5110, "IK_CNS_CTRL_FALL_ENV_SHAKE",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0,
                 ),
                 _common_ctrl(
                     5110, "IK_CNS_CTRL_HIT_FALL_DAMAGE",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0,
                 ),
                 _common_ctrl(
                     5110, "IK_CNS_CTRL_MAKE_DUST",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 60, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 60, 0,
                 ),
                 _common_ctrl(
                     5110, "IK_CNS_CTRL_POS_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
                     5110, "IK_CNS_CTRL_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
@@ -3642,11 +3962,11 @@ def compile_common_states(
             deferred[n] = ["FallEnvShake", "HitFallDamage"]
 
         elif n == 5120:
-            row = state_row(5120, 5120, 0)
+            row = state_row(5120, 5120, -1)
             cs += [
                 _common_ctrl(
                     5120, "IK_CNS_CTRL_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_X",
                 ),
                 _common_ctrl(
@@ -3688,7 +4008,7 @@ def compile_common_states(
             deferred.pop(n, None)
 
         elif n == 5200:
-            row = state_row(5200, -1, 0, land_state=5201)
+            row = state_row(5200, -1, -1, land_state=5201)
             row["land_level_q8"] = const[
                 "air_gethit_groundrecover_groundlevel_q8"
             ]
@@ -3698,11 +4018,11 @@ def compile_common_states(
             ))
 
         elif n == 5201:
-            row = state_row(5201, 5200, 0, land_state=52)
+            row = state_row(5201, 5200, -1, land_state=52)
             cs += [
                 _common_ctrl(
                     5201, "IK_CNS_CTRL_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0,
                     const["air_gethit_groundrecover_x_q8"],
                     const["air_gethit_groundrecover_y_q8"],
                     "IK_CNS_CTRL_AXIS_X | IK_CNS_CTRL_AXIS_Y | "
@@ -3710,7 +4030,7 @@ def compile_common_states(
                 ),
                 _common_ctrl(
                     5201, "IK_CNS_CTRL_POS_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
             ]
@@ -3720,12 +4040,13 @@ def compile_common_states(
             row = state_row(5210, 5210, 0, land_state=52)
             row["land_ctrl"] = 1
             row["air_accel_q8"] = const["air_gethit_airrecover_yaccel_q8"]
+            row["air_accel_q16"] = const["air_gethit_airrecover_yaccel_q16"]
             row["air_motion_start"] = 4
             palfx_mul_identity = 256 | (256 << 9) | (256 << 18)
             cs += [
                 _common_ctrl(
                     5210, "IK_CNS_CTRL_PAL_FX",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0,
                     3, 128 | (128 << 9) | (128 << 18),
                     "0u", 0, 1, palfx_mul_identity, 0, 1,
                 ),
@@ -3736,7 +4057,7 @@ def compile_common_states(
                 ),
                 _common_ctrl(
                     5210, "IK_CNS_CTRL_NOT_HIT_BY",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0,
                     7, 15,
                 ),
                 _common_ctrl(
@@ -3798,12 +4119,12 @@ def compile_common_states(
                 ),
                 _common_ctrl(
                     106, "IK_CNS_CTRL_VEL_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
                     106, "IK_CNS_CTRL_POS_SET",
-                    "IK_CNS_TRIGGER_TIME_EQ", 1, 0, 0, 0,
+                    "IK_CNS_TRIGGER_TIME_EQ", 0, 0, 0, 0,
                     "IK_CNS_CTRL_AXIS_Y",
                 ),
                 _common_ctrl(
@@ -3913,7 +4234,9 @@ def emit(
         f"{r.get('reversal_count', 0)}u, "
         f"{r.get('hitoverride_ofs', 0)}u, "
         f"{r.get('hitoverride_count', 0)}u, "
-        f"{r.get('assert_special_flags', '0u')}"
+        f"{r.get('assert_special_flags', '0u')}, "
+        f"{r.get('land_before_move', 0)}u, "
+        f"{r.get('air_accel_q16', 0)}"
         "},"
         for r in state_rows
     ]
@@ -3966,7 +4289,15 @@ def emit(
         f"{h.get('id', 0)}, "
         f"{h.get('chain_id', -1)}, "
         f"{h.get('no_chain_id', -1)}, "
-        f"{h.get('no_chain_id2', -1)}"
+        f"{h.get('no_chain_id2', -1)}, "
+        f"{h['fall_anim_type']}u, "
+        f"{h['yaccel_q16']}, "
+        f"{h.get('get_power_hit', 0)}, {h.get('get_power_guard', 0)}, "
+        f"{h.get('give_power_hit', 0)}, {h.get('give_power_guard', 0)}, "
+        f"{h.get('power_flags', 0)}u, "
+        f"{h.get('mindist_x_q8', 0)}, {h.get('mindist_y_q8', 0)}, "
+        f"{h.get('maxdist_x_q8', 0)}, {h.get('maxdist_y_q8', 0)}, "
+        f"{h.get('dist_flags', 0)}u"
         "},"
         for h in hitdefs
     ]
@@ -4167,7 +4498,9 @@ const ik_cns_asset_t {ident}_cns = {{
         {const['air_gethit_airrecover_down_q8']},
         {const['air_gethit_airrecover_threshold_q8']},
         {const['air_gethit_airrecover_yaccel_q8']},
-        {const['air_juggle']}
+        {const['air_juggle']},
+        {const['yaccel_q16']}, {const['stand_friction_q16']},
+        {const['crouch_friction_q16']}
     }},
     {ident}_states, {len(state_rows)}u,
     {ident}_hitdefs, {len(hitdefs)}u,
@@ -4231,10 +4564,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cns", required=True, type=Path)
     parser.add_argument("--states", required=True)
     parser.add_argument("--common-zss", type=Path)
+    parser.add_argument("--air", type=Path,
+                        help="the character's .air file (SelfAnimExist)")
     parser.add_argument("--common-states", default="")
     parser.add_argument("--out-prefix", required=True, type=Path)
     parser.add_argument("--symbol", required=True)
     args = parser.parse_args(argv)
+
+    global SELF_ANIMS
+    if args.air is not None:
+        SELF_ANIMS = load_air_actions(args.air)
 
     selected = [
         int(value.strip())

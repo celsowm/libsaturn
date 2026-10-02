@@ -7,9 +7,9 @@ import subprocess
 from pathlib import Path
 
 try:
-    from .inputs import write_timeline
+    from .inputs import setup_string, write_timeline
 except ImportError:
-    from inputs import write_timeline
+    from inputs import setup_string, write_timeline
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -59,9 +59,15 @@ def main() -> int:
             check=True,
         )
 
+    # ikemen_fight is split into ikemen_fight*.c, one responsibility each.
+    fight_sources = sorted(
+        p.relative_to(ROOT).as_posix()
+        for p in (ROOT / "examples" / "ikemen_saturn").glob("ikemen_fight*.c")
+    )
     sources = [
         "tools/ikemen_oracle/saturn_trace.cpp",
-        "examples/ikemen_saturn/ikemen_fight.c",
+        *fight_sources,
+        "examples/ikemen_saturn/ikemen_frame.c",
         "examples/ikemen_saturn/ikemen_anim.c",
         "examples/ikemen_saturn/ikemen_cns.c",
         "examples/ikemen_saturn/ikemen_command.c",
@@ -87,14 +93,11 @@ def main() -> int:
         str(HOST_BIN),
     ]
     subprocess.run(compile_cmd, cwd=ROOT, check=True)
-    subprocess.run(
-        [
-            str(HOST_BIN), str(trace), str(frames), str(seed),
-            str(timeline),
-        ],
-        cwd=ROOT,
-        check=True,
-    )
+    run_cmd = [
+        str(HOST_BIN), str(trace), str(frames), str(seed), str(timeline),
+        setup_string(scenario),
+    ]
+    subprocess.run(run_cmd, cwd=ROOT, check=True)
 
     count = 0
     with trace.open("r", encoding="utf-8") as f:

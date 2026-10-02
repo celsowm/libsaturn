@@ -28,7 +28,8 @@ typedef enum ik_cns_physics {
     IK_CNS_PHYS_NONE = 0,
     IK_CNS_PHYS_STAND,
     IK_CNS_PHYS_CROUCH,
-    IK_CNS_PHYS_AIR
+    IK_CNS_PHYS_AIR,
+    IK_CNS_PHYS_BY_TYPE   /* physics U: follows the current state type */
 } ik_cns_physics_t;
 
 typedef enum ik_cns_trigger_kind {
@@ -57,7 +58,9 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_THROW_AIR_RECOVERY,
     IK_CNS_TRIGGER_ANIM_ELEM_EQ_OR,
     IK_CNS_TRIGGER_HIT_SHAKE_OVER,
+    IK_CNS_TRIGGER_HIT_LAUNCH_ENTRY,
     IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE,
+    IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE_LT,
     IK_CNS_TRIGGER_STATE_ENTRY_FRONT_EDGE_BODY_LE,
     IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT,
     IK_CNS_TRIGGER_COMMAND_ANY_VY_LT_Q8,
@@ -75,7 +78,10 @@ typedef enum ik_cns_trigger_kind {
     IK_CNS_TRIGGER_ROUND_STATE_EQ,
     IK_CNS_TRIGGER_ROUND_STATE_NE,
     IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME,
-    IK_CNS_TRIGGER_NUM_TARGET_QUERY
+    IK_CNS_TRIGGER_NUM_TARGET_QUERY,
+    IK_CNS_TRIGGER_PROJECTILE_QUERY,
+    IK_CNS_TRIGGER_GUARD_RELEASE,  /* command != holdback || !inGuardDist */
+    IK_CNS_TRIGGER_TIME_GE         /* time >= trigger_value */
 } ik_cns_trigger_kind_t;
 
 enum {
@@ -125,6 +131,12 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_GUARD_STATE_BY_TYPE,
     IK_CNS_CTRL_GUARD_END,
     IK_CNS_CTRL_HIT_VEL_SET,
+    IK_CNS_CTRL_STATE_TYPE_SET,
+    IK_CNS_CTRL_RESTART_ANIM,
+    IK_CNS_CTRL_IDLE_ANIM,
+    IK_CNS_CTRL_AIR_HIT_ANIM,
+    IK_CNS_CTRL_FALL_ANIM,
+    IK_CNS_CTRL_ANIM_ADD_MOD10,
     IK_CNS_CTRL_GET_HIT_ANIM,
     IK_CNS_CTRL_HIT_RECOVER_STATE,
     IK_CNS_CTRL_FALL_BOUNCE_VEL,
@@ -161,7 +173,10 @@ typedef enum ik_cns_controller_type {
     IK_CNS_CTRL_PAL_FX,
     IK_CNS_CTRL_ASSERT_INTRO,
     IK_CNS_CTRL_MAKE_DUST,
-    IK_CNS_CTRL_TARGET_DROP
+    IK_CNS_CTRL_TARGET_DROP,
+    IK_CNS_CTRL_SCREEN_BOUND,
+    IK_CNS_CTRL_LAND_HIT_ANIM,
+    IK_CNS_CTRL_MOVE_TYPE_SET
 } ik_cns_controller_type_t;
 
 typedef enum ik_cns_helper_postype {
@@ -310,6 +325,11 @@ typedef struct ik_cns_constants {
     int16_t air_gethit_airrecover_threshold_q8;
     int16_t air_gethit_airrecover_yaccel_q8;
     int16_t air_juggle;
+    /* Q16.16 twins of the constants that accumulate every tick; 0 means
+     * "use the Q8.8 value" (hand-built fixtures). */
+    int32_t yaccel_q16;
+    int32_t stand_friction_q16;
+    int32_t crouch_friction_q16;
 } ik_cns_constants_t;
 
 enum {
@@ -349,6 +369,11 @@ typedef struct ik_cns_state {
     uint16_t hitoverride_ofs;
     uint8_t hitoverride_count;
     uint8_t assert_special_flags;
+    /* Landing is the state's own controller (hop back, 105): it sees the
+     * position from before this tick's move instead of the hardcoded
+     * post-move landing. */
+    uint8_t land_before_move;
+    int32_t air_accel_q16;
 } ik_cns_state_t;
 
 typedef struct ik_cns_hitdef {
@@ -435,6 +460,22 @@ typedef struct ik_cns_hitdef {
     int32_t chain_id;
     int32_t no_chain_id;
     int32_t no_chain_id2;
+    uint8_t fall_anim_type;
+    int32_t yaccel_q16;
+    /* getpower/givepower = hit, guard; used only when power_flags bit 0 / 1
+     * is set, otherwise the damage-based defaults apply. */
+    int16_t get_power_hit;
+    int16_t get_power_guard;
+    int16_t give_power_hit;
+    int16_t give_power_guard;
+    uint8_t power_flags;
+    /* mindist / maxdist / snap (Q8.8 px); dist_flags: 1 min x, 2 min y,
+     * 4 max x, 8 max y. */
+    int16_t mindist_x_q8;
+    int16_t mindist_y_q8;
+    int16_t maxdist_x_q8;
+    int16_t maxdist_y_q8;
+    uint8_t dist_flags;
 } ik_cns_hitdef_t;
 
 typedef struct ik_cns_reversaldef {
@@ -540,6 +581,8 @@ typedef struct ik_cns_controller_context {
     uint16_t anim_element;
     uint16_t anim_element_time;
     uint16_t anim_ticks_remaining;
+    /* Ticks left in the current animation element, this one included. */
+    uint16_t anim_elem_ticks_left;
     int16_t anim;
     int32_t vx_q8;
     int32_t vy_q8;
@@ -548,12 +591,14 @@ typedef struct ik_cns_controller_context {
     uint16_t command_mask;
     uint16_t hitstun;
     uint16_t hit_pause;
+    uint16_t hit_shake_time;
     uint16_t hit_slide_time;
     uint16_t hit_ctrl_time;
     uint16_t fall_time;
-    int16_t back_edge_body_dist;
-    int16_t front_edge_body_dist;
-    int16_t back_edge_dist;
+    /* Distances to the screen edge in Q8.8 pixels (upstream floats). */
+    int32_t back_edge_body_dist_q8;
+    int32_t front_edge_body_dist_q8;
+    int32_t back_edge_dist_q8;
     int32_t p2_dist_x_q8;
     int8_t state_axis;
     uint8_t hit_launch;
@@ -572,6 +617,7 @@ typedef struct ik_cns_controller_context {
     int16_t proj_contact_time;
     int16_t proj_hit_time;
     int16_t proj_guarded_time;
+    uint8_t in_guard_dist;
 } ik_cns_controller_context_t;
 
 typedef struct ik_cns_projectile {

@@ -1,0 +1,37 @@
+{
+  "p1": "../Ikemen-GO-Screenpack/chars/kfm/kfm.def",
+  "p2": "../Ikemen-GO-Screenpack/chars/kfm/kfm.def",
+  "stage": "../Ikemen-GO-Screenpack/stages/stage0.def",
+  "seed": 1,
+  "rounds": 1,
+  "round_state": 2,
+  "p1_ai": 0,
+  "p2_ai": 0,
+  "extra_args": [],
+  "name": "kfm_p2_stand_x_200",
+  "frames": 200,
+  "inputs": [
+    {
+      "from": 10,
+      "to": 50,
+      "p2": [
+        "forward"
+      ],
+      "p1": []
+    },
+    {
+      "from": 56,
+      "to": 56,
+      "p2": [
+        "x"
+      ],
+      "p1": []
+    }
+  ],
+  "expect": {
+    "p1_life_drops": true,
+    "p2_states": [
+      200
+    ]
+  }
+}

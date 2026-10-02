@@ -27,6 +27,9 @@ int ik_cns_trigger_now(uint8_t trigger_kind, int16_t trigger_value,
         case IK_CNS_TRIGGER_TIME_EQ:
             return state_time ==
                    (uint16_t)(trigger_value < 0 ? 0 : trigger_value);
+        case IK_CNS_TRIGGER_TIME_GE:
+            return state_time >=
+                   (uint16_t)(trigger_value < 0 ? 0 : trigger_value);
         case IK_CNS_TRIGGER_ANIM_ELEM_EQ:
             return anim_element ==
                        (uint16_t)(trigger_value < 1 ? 1 : trigger_value) &&
@@ -142,11 +145,14 @@ int ik_cns_controller_trigger_context_now(
         case IK_CNS_TRIGGER_HIT_OVER:
             return context->hitstun == 0u;
 
+        /* The get-hit shake states leave only once the shake is over. */
         case IK_CNS_TRIGGER_HIT_LAUNCH:
-            return context->hit_launch != 0u;
+            return context->hit_launch != 0u &&
+                   context->hit_shake_time == 0u;
 
         case IK_CNS_TRIGGER_HIT_NO_LAUNCH:
-            return context->hit_launch == 0u;
+            return context->hit_launch == 0u &&
+                   context->hit_shake_time == 0u;
 
         case IK_CNS_TRIGGER_NOT_ALIVE:
             return context->alive == 0u;
@@ -326,9 +332,10 @@ int ik_cns_controller_trigger_context_now(
             const uint16_t elem = (uint16_t)(packed >> 8);
             const int8_t offset = (int8_t)(packed & 0xffu);
             if (context->anim_element < elem) {
+                /* AnimElem = e, -n fires n ticks before element e begins. */
                 return offset < 0 &&
                        context->anim_element + 1u == elem &&
-                       (int16_t)context->anim_element_time ==
+                       (int16_t)context->anim_elem_ticks_left ==
                            (int16_t)(-offset);
             }
             return context->anim_element == elem &&
@@ -361,22 +368,44 @@ int ik_cns_controller_trigger_context_now(
                                        ? 1
                                        : controller->trigger_value2));
 
+        /* Shake entry that launches, or any shake while off the floor. */
+        case IK_CNS_TRIGGER_HIT_LAUNCH_ENTRY:
+            return (context->state_time == 0u && context->hit_launch != 0u) ||
+                   context->y_q8 != context->floor_y_q8;
+
         case IK_CNS_TRIGGER_HIT_SHAKE_OVER:
-            return context->hit_pause == 0u;
+            return context->hit_shake_time == 0u;
+
+        case IK_CNS_TRIGGER_GUARD_RELEASE:
+            return (context->command_mask & IK_CNS_COMMAND_HOLD_BACK) == 0u ||
+                   context->in_guard_dist == 0u;
 
         case IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE:
+        case IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE_LT: {
+            const int32_t limit =
+                (int32_t)controller->trigger_value2 * IK_CNS_Q8_ONE;
+            const int strict = controller->trigger_kind ==
+                               IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE_LT;
+            const int back = strict
+                ? context->back_edge_body_dist_q8 < limit
+                : context->back_edge_body_dist_q8 <= limit;
+            const int front = strict
+                ? context->front_edge_body_dist_q8 < limit
+                : context->front_edge_body_dist_q8 <= limit;
             return context->y_q8 <
                        context->floor_y_q8 + controller->trigger_value &&
-                   (context->back_edge_body_dist <= controller->trigger_value2 ||
-                    context->front_edge_body_dist <= controller->trigger_value2);
+                   (back || front);
+        }
 
         case IK_CNS_TRIGGER_STATE_ENTRY_FRONT_EDGE_BODY_LE:
-            return context->state_time == 1u &&
-                   context->front_edge_body_dist <= controller->trigger_value;
+            return context->state_time == 0u &&
+                   context->front_edge_body_dist_q8 <=
+                       (int32_t)controller->trigger_value * IK_CNS_Q8_ONE;
 
         case IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT:
-            return context->state_time == 1u &&
-                   context->back_edge_dist < controller->trigger_value;
+            return context->state_time == 0u &&
+                   context->back_edge_dist_q8 <
+                       (int32_t)controller->trigger_value * IK_CNS_Q8_ONE;
 
         case IK_CNS_TRIGGER_COMMAND_ANY_VY_LT_Q8:
             return (context->command_mask &

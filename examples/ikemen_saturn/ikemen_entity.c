@@ -2,7 +2,13 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 void *memset(void *dest, int c, size_t n);
+#ifdef __cplusplus
+}
+#endif
 
 static ik_entity_handle_t handle_for(
     const ik_entity_pool_t* pool,

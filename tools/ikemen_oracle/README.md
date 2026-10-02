@@ -23,7 +23,9 @@ One JSON object is emitted per game frame after Ikemen GO finishes
   removal/contact state.
 
 The JSONL format is deliberately simple so the Saturn host runtime can emit the
-same rows and be compared frame by frame.
+same rows and be compared frame by frame. `docs/IKEMEN_COMPAT.md` documents how
+each field is normalised (local velocity, stored state/move type, juggle budget,
+move-contact type) and the per-tick order both sides follow.
 
 ## Install the hook
 
@@ -82,10 +84,11 @@ The bundled scenario addresses the sibling ignored
 `.external/Ikemen-GO-Screenpack` checkout directly, so it does not require
 copying KFM or Training Room into the engine checkout.
 
-By default capture starts only when Ikemen reports `RoundState=2`, so motif
-and intro frames do not shift the gameplay trace. Set `round_state` to another
-value (or `-1` to capture every round state) when a scenario specifically
-targets intro/post-round behavior.
+By default capture starts at the first tick in `RoundState=2`, so motif
+and intro frames do not shift the gameplay trace, and then keeps going through
+whatever the engine does next (KO, win pose, next round). Set `round_state` to
+another value (or `-1` to capture every round state from the first tick) when a
+scenario specifically targets intro/post-round behavior.
 
 The RNG seed is applied before round character setup.
 
@@ -109,8 +112,24 @@ Supported logical buttons are `forward`, `back`, `up`, `down`, `a`,
 `b`, `c`, `x`, `y`, `z` and `start`. Forward/back are resolved
 relative to each fighter's current facing on both engines.
 
-The bundled authored scenarios currently cover idle, walk, jump, punch, guard
-setup and throw setup.
+An event that names only one of `p1` / `p2` leaves the other player's script
+alone, so two timelines can overlap. A scenario may also give starting values
+that override both engines' defaults before the first scripted tick:
+
+```json
+{"setup": {"p1_power": 1000, "p2_life": 1}}
+```
+
+(`p1_life`, `p1_power`, `p2_life`, `p2_power`.) `expect` and `pending` are
+read by `suite.py` only: `expect` checks the upstream trace so a scenario whose
+move never connected cannot pass silently, and `pending` names the missing
+feature of a scenario that is known to diverge (reported, not failed, until it
+starts matching).
+
+`gen_scenarios.py` writes the generated matrix (normals, specials, supers
+with power, combos, P2 attackers, guard/blocking variants, recovery, get-up).
+Run it after editing the generator; a unit test fails when a checked-in
+scenario is stale.
 
 ## Compatibility suite
 

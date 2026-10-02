@@ -42,6 +42,60 @@ int main() {
     OK(ik_action_loops(&table, 20));
     OK(ik_action_duration_ticks(&table, 20) == 0u);
 
+    /* ik_frame_after walks playback order without scanning the table. */
+    OK(ik_frame_after(&table, &k_frames[0]) == &k_frames[1]);
+    OK(ik_frame_after(&table, &k_frames[1]) == &k_frames[2]);
+    OK(ik_frame_after(&table, &k_frames[2]) == &k_frames[0]);   /* loops */
+    OK(ik_frame_after(&table, &k_frames[3]) == &k_frames[4]);
+    OK(ik_frame_after(&table, &k_frames[4]) == 0);              /* holds */
+    OK(ik_frame_after(&table, &k_frames[5]) == &k_frames[6]);
+    OK(ik_frame_after(&table, &k_frames[6]) == 0);              /* no loop */
+    OK(ik_frame_after(&table, 0) == 0);
+    OK(ik_frame_after(0, &k_frames[0]) == 0);
+    OK(ik_frame_after(&table, &k_frames[0] - 1) == 0);
+    OK(ik_frame_after(&table, k_frames + 7) == 0);
+    /* Agrees with ik_frame_at_time at every frame boundary of a looping and
+     * a non-looping action. */
+    for (uint32_t t = 0u; t < 40u; ++t) {
+        const ik_frame_t* here = ik_frame_at_time(&table, 20, t);
+        const ik_frame_t* after = ik_frame_after(&table, here);
+        uint32_t u = t;
+        while (ik_frame_at_time(&table, 20, u) == here) ++u;
+        OK(ik_frame_at_time(&table, 20, u) == after);
+    }
+
+    /* ik_anim_trace_state mirrors upstream Animation.Action(): curtime counts
+     * up to totaltime once, then restarts at looptime-offset + 1. Action 20
+     * is 4+2+8 ticks looping from element 1 (total 14, pre-loop 0). */
+    {
+        int elem = -1;
+        uint32_t cur = 999u;
+        ik_anim_trace_state(&table, 20, 0u, &elem, &cur);
+        OK(elem == 1 && cur == 0u);
+        ik_anim_trace_state(&table, 20, 4u, &elem, &cur);
+        OK(elem == 2 && cur == 4u);
+        ik_anim_trace_state(&table, 20, 14u, &elem, &cur);
+        OK(elem == 1 && cur == 14u);          /* elem wraps on `total`... */
+        ik_anim_trace_state(&table, 20, 15u, &elem, &cur);
+        OK(elem == 1 && cur == 1u);           /* ...curtime one tick later */
+        ik_anim_trace_state(&table, 20, 27u, &elem, &cur);
+        OK(elem == 3 && cur == 13u);
+        ik_anim_trace_state(&table, 20, 28u, &elem, &cur);
+        OK(elem == 1 && cur == 14u);
+        ik_anim_trace_state(&table, 20, 29u, &elem, &cur);
+        OK(elem == 1 && cur == 1u);
+        /* Without LOOP_START upstream loops from element 1 as well. */
+        ik_anim_trace_state(&table, 100, 6u, &elem, &cur);
+        OK(elem == 1 && cur == 1u);
+        /* A frame that holds forever never wraps. */
+        ik_anim_trace_state(&table, 200, 5000u, &elem, &cur);
+        OK(elem == 2 && cur == 5000u);
+        /* Unknown action: no element, time passed through. */
+        ik_anim_trace_state(&table, 999, 7u, &elem, &cur);
+        OK(elem == 0 && cur == 7u);
+        ik_anim_trace_state(&table, 20, 3u, 0, 0);   /* null outs are fine */
+    }
+
     OK(ik_frames_bounds(&table, 100, &first, &count));
     OK(first == 5u && count == 2u);
     OK(!ik_action_loops(&table, 100));

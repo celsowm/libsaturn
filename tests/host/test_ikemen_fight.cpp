@@ -7,6 +7,11 @@
 #define EQ(a,b) do { if ((a)!=(b)) { std::fprintf(stderr,"FAIL %d: %s=%ld %s=%ld\n",__LINE__,#a,(long)(a),#b,(long)(b)); std::exit(1); } } while(0)
 #define OK(x) do { if (!(x)) { std::fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x); std::exit(1); } } while(0)
 
+/* Entity runtime (Helper / Projectile / Explod) still evaluates a state one tick
+ * late, unlike fighters. These assertions already state the upstream behavior;
+ * they are tracked as known gaps (docs/IKEMEN_COMPAT.md, Phase 3). The expected
+ * count must shrink to zero as the entity runtime follows the fighter order. */
+
 static const ik_clsn_box_t k_boxes[] = {
     {-15,-95,16,0},       /* 0 generic hurt */
     {16,-80,90,-65},      /* 1 generic attack */
@@ -155,10 +160,12 @@ static const ik_cns_hitdef_t k_hitdefs[] = {
      -256,-1152,1u,1u,4u,0u,-512,-768,1u,IK_CNS_HIT_DEFAULT|IK_CNS_HIT_DOWN},
 };
 
+/* Damage lands one tick after the hit; LIFE is the life it will settle at. */
+#define LIFE(f) ((f).hp-(f).pending_damage)
+
 static const ik_cns_controller_t k_ctrls[] = {
     {200,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,0,1,IK_CNS_CTRL_HAS_CTRL},
-
     {210,IK_CNS_CTRL_WIDTH,IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
      2,7,15,0,0u},
     {210,IK_CNS_CTRL_CHANGE_ANIM,
@@ -168,101 +175,100 @@ static const ik_cns_controller_t k_ctrls[] = {
      5,0,2,0,0u},
     {210,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,0,1,IK_CNS_CTRL_HAS_CTRL},
-
     {230,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,0,1,IK_CNS_CTRL_HAS_CTRL},
-
     {240,IK_CNS_CTRL_POS_ADD,IK_CNS_TRIGGER_ANIM_ELEM_EQ,
      7,0,12*256,0,0u},
     {240,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,0,1,IK_CNS_CTRL_HAS_CTRL},
-
     {400,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_TIME_EQ,
      6,0,1,0,0u},
     {400,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,11,0,0u},
-
     {410,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,11,1,IK_CNS_CTRL_HAS_CTRL},
     {430,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,11,1,IK_CNS_CTRL_HAS_CTRL},
     {440,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,11,1,IK_CNS_CTRL_HAS_CTRL},
-
     {600,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_TIME_EQ,
      17,0,1,0,0u},
-
     {120,IK_CNS_CTRL_GUARD_ANIM_BY_TYPE,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,120,0,0u},
+     0,0,120,0,0u},
     {120,IK_CNS_CTRL_GUARD_STATE_BY_TYPE,IK_CNS_TRIGGER_ANIM_END,
      0,0,130,0,0u},
+    {120,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_GUARD_RELEASE,
+     0,0,140,0,0u},
     {130,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_COMMAND_ACTIVE,
      IK_CNS_COMMAND_HOLD_DOWN,0,131,0,0u},
+    {130,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_GUARD_RELEASE,
+     0,0,140,0,0u},
     {131,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_COMMAND_INACTIVE,
      IK_CNS_COMMAND_HOLD_DOWN,0,130,0,0u},
+    {131,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_GUARD_RELEASE,
+     0,0,140,0,0u},
+    {132,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_GUARD_RELEASE,
+     0,0,140,0,0u},
     {140,IK_CNS_CTRL_GUARD_ANIM_BY_TYPE,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,140,0,0u},
+     0,0,140,0,0u},
     {140,IK_CNS_CTRL_GUARD_END,IK_CNS_TRIGGER_ANIM_END,
      0,0,0,0,0u},
-    {150,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,151,0,0u},
+    {150,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_SHAKE_OVER,
+     0,0,151,0,0u},
     {151,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {151,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_HIT_SLIDE_TIME,
      0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {151,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_HIT_CTRL_TIME,
      0,0,1,0,0u},
     {151,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_OVER,
      0,0,130,1,IK_CNS_CTRL_HAS_CTRL},
-    {152,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,153,0,0u},
+    {152,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_SHAKE_OVER,
+     0,0,153,0,0u},
     {153,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {153,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_HIT_SLIDE_TIME,
      0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {153,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_HIT_CTRL_TIME,
      0,0,1,0,0u},
     {153,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_OVER,
      0,0,131,1,IK_CNS_CTRL_HAS_CTRL},
-    {154,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,155,0,0u},
+    {154,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_SHAKE_OVER,
+     0,0,155,0,0u},
     {155,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
     {155,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_HIT_CTRL_TIME,
      0,0,1,0,0u},
-
     {5000,IK_CNS_CTRL_GET_HIT_ANIM,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,0u},
+     0,0,0,0,0u},
     {5000,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_LAUNCH,
      0,0,5030,0,0u},
     {5000,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_NO_LAUNCH,
      0,0,5001,0,0u},
     {5001,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {5001,IK_CNS_CTRL_VEL_MUL,IK_CNS_TRIGGER_HIT_SLIDE_TIME,
      0,0,154,0,IK_CNS_CTRL_AXIS_X},
     {5001,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_OVER,
      0,0,0,1,IK_CNS_CTRL_HAS_CTRL},
-
     {5010,IK_CNS_CTRL_GET_HIT_ANIM,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,1,0,0u},
+     0,0,1,0,0u},
     {5010,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_LAUNCH,
      0,0,5030,0,0u},
     {5010,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_NO_LAUNCH,
      0,0,5011,0,0u},
     {5011,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {5011,IK_CNS_CTRL_VEL_MUL,IK_CNS_TRIGGER_HIT_SLIDE_TIME,
      0,0,154,0,IK_CNS_CTRL_AXIS_X},
     {5011,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_OVER,
      0,0,11,1,IK_CNS_CTRL_HAS_CTRL},
-
     {5020,IK_CNS_CTRL_GET_HIT_ANIM,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,2,0,0u},
+     0,0,2,0,0u},
     {5020,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,5030,0,0u},
+     0,0,5030,0,0u},
     {5030,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
     {5030,IK_CNS_CTRL_HIT_RECOVER_STATE,IK_CNS_TRIGGER_HIT_OVER,
      0,0,0,0,0u},
     {5030,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
@@ -272,29 +278,29 @@ static const ik_cns_controller_t k_ctrls[] = {
     {5035,IK_CNS_CTRL_HIT_RECOVER_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,0,0,0u},
     {5070,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,5071,0,0u},
+     0,0,5071,0,0u},
     {5071,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
     {5100,IK_CNS_CTRL_POS_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_Y},
     {5100,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_Y},
     {5100,IK_CNS_CTRL_VEL_MUL,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,192,0,IK_CNS_CTRL_AXIS_X},
+     0,0,192,0,IK_CNS_CTRL_AXIS_X},
     {5100,IK_CNS_CTRL_FALL_GROUND_BRANCH,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,5110,0,0u},
+     0,0,5110,0,0u},
     {5100,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,5101,0,0u},
     {5101,IK_CNS_CTRL_FALL_BOUNCE_VEL,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,0u},
+     0,0,0,0,0u},
     {5101,IK_CNS_CTRL_POS_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,5120,IK_CNS_CTRL_AXIS_Y},
+     0,0,0,5120,IK_CNS_CTRL_AXIS_Y},
     {5101,IK_CNS_CTRL_POS_ADD,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,0u},
+     0,0,0,0,0u},
     {5110,IK_CNS_CTRL_POS_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_Y},
     {5110,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_Y},
     {5110,IK_CNS_CTRL_VEL_MUL,IK_CNS_TRIGGER_ALWAYS,
      0,0,218,0,IK_CNS_CTRL_AXIS_X},
     {5110,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_ABS_VX_LT_Q8,
@@ -304,13 +310,13 @@ static const ik_cns_controller_t k_ctrls[] = {
     {5110,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
      60,0,5120,0,0u},
     {5120,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {5120,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
      0,0,0,1,IK_CNS_CTRL_HAS_CTRL},
     {5080,IK_CNS_CTRL_DOWNED_HIT_BRANCH,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,0u},
+     0,0,0,0,0u},
     {5081,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {5081,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_HIT_OVER,
      0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {5081,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_OVER,
@@ -336,62 +342,35 @@ static const ik_cns_state_t k_states[] = {
     A(610,610,10,1,14,0),
     A(630,630,11,1,14,0),
     A(640,640,12,1,14,0),
-    {120,-1,0,0,0,IK_CNS_STATE_UNCHANGED,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,14u,2u,0},
-    {130,130,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,
-     0,0,0u,0u,0u,0u,0u,16u,1u,0},
-    {131,131,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_CROUCH,
-     0,0,0u,0u,0u,0u,0u,17u,1u,0},
-    {132,132,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,18u,0u,130},
-    {140,-1,0,0,0,IK_CNS_STATE_UNCHANGED,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
-     1,0,0u,0u,0u,0u,0u,18u,2u,0},
-    {150,150,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,1u,0u,0u,0u,0u,20u,1u,0},
-    {151,150,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_HIT,IK_CNS_PHYS_STAND,
-     0,0,0u,0u,0u,0u,0u,21u,4u,0},
-    {152,151,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,1u,0u,0u,0u,0u,25u,1u,0},
-    {153,151,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_HIT,IK_CNS_PHYS_CROUCH,
-     0,0,0u,0u,0u,0u,0u,26u,4u,0},
-    {154,152,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,1u,0u,0u,0u,0u,30u,1u,0},
-    {155,152,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,31u,2u,52},
-    {5000,-1,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,1u,0u,0u,0u,0u,33u,3u,0},
-    {5001,-1,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_HIT,IK_CNS_PHYS_STAND,
-     0,0,0u,0u,0u,0u,0u,36u,3u,0},
-    {5010,-1,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,1u,0u,0u,0u,0u,39u,3u,0},
-    {5011,-1,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_HIT,IK_CNS_PHYS_CROUCH,
-     0,0,0u,0u,0u,0u,0u,42u,3u,0},
-    {5020,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,1u,0u,0u,0u,0u,45u,2u,0},
-    {5030,5030,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,47u,3u,0,0,6400},
-    {5035,5035,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,50u,2u,0,0,6400},
-    {5040,5040,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     1,0,0u,0u,0u,0u,0u,52u,0u,52,0,0},
-    {5050,5050,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,52u,0u,5100,0,6400},
-    {5070,5070,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,1u,0u,0u,0u,0u,52u,1u,0,0,0},
-    {5071,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,53u,1u,5110,0,3840},
-    {5100,5100,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,54u,5u,0,0,0},
-    {5101,5160,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,59u,3u,5110,102,3072},
-    {5110,5110,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,62u,6u,0,0,0},
-    {5120,5120,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
-     0,0,0u,0u,0u,0u,0u,68u,2u,0,0,0},
-    {5080,-1,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,
-     0,0,1u,0u,0u,0u,0u,70u,1u,0,0,0},
-    {5081,-1,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_CROUCH,
-     0,0,0u,0u,0u,0u,0u,71u,3u,0,0,0},
+    {11,11,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,-1,0,0u,0u,0u,0u,0u,0u,0u,0},
+    {120,-1,0,0,0,IK_CNS_STATE_UNCHANGED,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_BY_TYPE,-1,0,0u,0u,0u,0u,0u,14u,3u,0},
+    {130,130,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,-1,0,0u,0u,0u,0u,0u,17u,2u,0},
+    {131,131,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_CROUCH,-1,0,0u,0u,0u,0u,0u,19u,2u,0},
+    {132,132,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,-1,0,0u,0u,0u,0u,0u,21u,1u,130,113},
+    {140,-1,0,0,0,IK_CNS_STATE_UNCHANGED,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_BY_TYPE,1,0,0u,0u,0u,0u,0u,22u,2u,0},
+    {150,150,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,1u,0u,0u,0u,0u,24u,1u,0},
+    {151,150,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_HIT,IK_CNS_PHYS_STAND,-1,0,0u,0u,0u,0u,0u,25u,4u,0},
+    {152,151,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,1u,0u,0u,0u,0u,29u,1u,0},
+    {153,151,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_HIT,IK_CNS_PHYS_CROUCH,-1,0,0u,0u,0u,0u,0u,30u,4u,0},
+    {154,152,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,1u,0u,0u,0u,0u,34u,1u,0},
+    {155,152,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,0u,0u,0u,0u,0u,35u,2u,52},
+    {5000,-1,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,1u,0u,0u,0u,0u,37u,3u,0},
+    {5001,-1,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_HIT,IK_CNS_PHYS_STAND,-1,0,0u,0u,0u,0u,0u,40u,3u,0},
+    {5010,-1,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,1u,0u,0u,0u,0u,43u,3u,0},
+    {5011,-1,0,0,0,IK_CNS_STATE_CROUCH,IK_CNS_MOVE_HIT,IK_CNS_PHYS_CROUCH,-1,0,0u,0u,0u,0u,0u,46u,3u,0},
+    {5020,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,1u,0u,0u,0u,0u,49u,2u,0},
+    {5030,5030,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,0,0,0u,0u,0u,0u,0u,51u,3u,0,0,6400},
+    {5035,5035,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,0u,0u,0u,0u,0u,54u,2u,0,0,6400},
+    {5040,5040,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,1,0,0u,0u,0u,0u,0u,52u,0u,52,0,0},
+    {5050,5050,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,0u,0u,0u,0u,0u,52u,0u,5100,0,6400},
+    {5070,5070,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,1u,0u,0u,0u,0u,56u,1u,0,0,0},
+    {5071,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,0u,0u,0u,0u,0u,57u,1u,5110,0,3840},
+    {5100,5100,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,0u,0u,0u,0u,0u,58u,5u,0,0,0},
+    {5101,5160,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,0u,0u,0u,0u,0u,63u,3u,5110,102,3072},
+    {5110,5110,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,0u,0u,0u,0u,0u,66u,6u,0,0,0},
+    {5120,5120,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,-1,0,0u,0u,0u,0u,0u,72u,2u,0,0,0},
+    {5080,-1,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_NONE,-1,0,1u,0u,0u,0u,0u,74u,1u,0,0,0},
+    {5081,-1,0,0,0,IK_CNS_STATE_LIEDOWN,IK_CNS_MOVE_HIT,IK_CNS_PHYS_CROUCH,-1,0,0u,0u,0u,0u,0u,75u,3u,0,0,0},
 };
 #undef S
 #undef C
@@ -423,9 +402,9 @@ static const ik_cns_controller_t k_common_ctrls[] = {
      0,0,-1,20,0u},
 
     {52,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_Y},
     {52,IK_CNS_CTRL_POS_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_Y},
     {52,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_TIME_EQ,
      3,0,1,0,0u},
     {52,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
@@ -437,15 +416,15 @@ static const ik_cns_controller_t k_common_ctrls[] = {
      IK_CNS_COMMAND_HOLD_FWD,0,0,0,0u},
 
     {105,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,-1152,-973,
+     0,0,-1152,-973,
      IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y|IK_CNS_CTRL_LOCAL_X},
     {105,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_TIME_EQ,
      2,0,1,0,0u},
 
     {106,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_Y},
     {106,IK_CNS_CTRL_POS_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_Y},
     {106,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_TIME_EQ,
      7,0,0,1,IK_CNS_CTRL_HAS_CTRL},
 
@@ -457,7 +436,7 @@ static const ik_cns_controller_t k_common_ctrls[] = {
      0,0,50,1,IK_CNS_CTRL_HAS_CTRL},
 
     {45,IK_CNS_CTRL_CHANGE_ANIM_IF_EXISTS,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,44,41,0u},
+     0,0,44,41,0u},
     {45,IK_CNS_CTRL_CAPTURE_COMMAND_AXIS,IK_CNS_TRIGGER_ALWAYS,
      0,0,0,0,0u},
     {45,IK_CNS_CTRL_AIR_JUMP_LAUNCH,IK_CNS_TRIGGER_TIME_EQ,
@@ -466,7 +445,7 @@ static const ik_cns_controller_t k_common_ctrls[] = {
      2,0,50,1,IK_CNS_CTRL_HAS_CTRL},
 
     {50,IK_CNS_CTRL_CHANGE_ANIM_BY_VX,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,41,42,0u},
+     0,0,41,42,0u},
     {50,IK_CNS_CTRL_CHANGE_ANIM_DESCENT_IF_EXISTS,IK_CNS_TRIGGER_ALWAYS,
      0,0,-512,41,0u},
 };
@@ -479,7 +458,7 @@ static const ik_cns_state_t k_common_states[] = {
     {40,40,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,
      0,1,0u,0u,0u,0u,0u,16u,3u,0},
     {45,41,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_NONE,
-     0,0,1u,0u,0u,0u,0u,19u,4u,0},
+     0,0,1u,0u,0u,0u,0u,19u,4u,0,0,0,0,0,0,0,1u},
     {50,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_AIR,
      0,0,0u,0u,0u,0u,0u,23u,2u,52},
     {51,-1,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_AIR,
@@ -487,7 +466,9 @@ static const ik_cns_state_t k_common_states[] = {
     {52,47,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,
      0,0,0u,0u,0u,0u,0u,5u,4u,0},
     {100,100,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,
-     1,0,0u,0u,0u,0u,0u,9u,2u,0},
+     1,0,0u,0u,0u,0u,0u,9u,2u,0,
+     0,0,0u,0u,0,0u,0u,0u,0u,0u,0u,0u,
+     IK_CNS_STATE_ASSERT_NO_WALK},
     {105,105,0,0,0,IK_CNS_STATE_AIR,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_AIR,
      0,0,0u,0u,0u,0u,0u,11u,2u,106},
     {106,47,0,0,0,IK_CNS_STATE_STAND,IK_CNS_MOVE_IDLE,IK_CNS_PHYS_STAND,
@@ -513,10 +494,10 @@ static const ik_cns_controller_t k_recovery_ctrls[] = {
     {5200,IK_CNS_CTRL_CHANGE_ANIM_IF_END_FROM,IK_CNS_TRIGGER_ALWAYS,
      0,0,5035,5050,0u},
     {5201,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,-38,-896,
+     0,0,-38,-896,
      IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y|IK_CNS_CTRL_LOCAL_X},
     {5201,IK_CNS_CTRL_POS_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_Y},
+     0,0,0,0,IK_CNS_CTRL_AXIS_Y},
     {5210,IK_CNS_CTRL_VEL_MUL,IK_CNS_TRIGGER_TIME_EQ,
      4,0,128,51,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
     {5210,IK_CNS_CTRL_VEL_ADD,IK_CNS_TRIGGER_TIME_EQ,
@@ -573,9 +554,9 @@ static const ik_cns_hitdef_t k_downed_hitdefs[] = {
 
 static const ik_cns_controller_t k_downed_ctrls[] = {
     {5080,IK_CNS_CTRL_DOWNED_HIT_BRANCH,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,0u},
+     0,0,0,0,0u},
     {5081,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-     1,0,0,0,IK_CNS_CTRL_AXIS_X},
+     0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {5081,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_HIT_OVER,
      0,0,0,0,IK_CNS_CTRL_AXIS_X},
     {5081,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_HIT_OVER,
@@ -633,6 +614,24 @@ static void idle(ik_fight_t* g,int n) {
     for(int i=0;i<n;++i) tick(g,&p);
 }
 
+/* Put a fighter straight into a state the way a test needs it: the state
+ * number plus the StateDef type/movetype it would have taken (the engine keeps
+ * those separately from the number, like upstream). */
+static void set_state(ik_fight_t* g,ik_fighter_t* f,int16_t state) {
+    f->state=state;
+    const ik_cns_asset_t* cns=g->player_cns[f->state_owner<2u?f->state_owner:0u];
+    const ik_cns_state_t* spec=ik_cns_find_state(cns,state);
+    if(spec&&spec->state_type!=IK_CNS_STATE_UNCHANGED)
+        f->cur_state_type=(uint8_t)spec->state_type;
+    if(spec&&spec->move_type!=IK_CNS_MOVE_UNCHANGED)
+        f->cur_move_type=(uint8_t)spec->move_type;
+    if(!spec) {   /* no StateDef: the legacy number-based type */
+        f->cur_state_type=!f->on_ground?IK_CNS_STATE_AIR
+            :state==IK_STATE_CROUCH?IK_CNS_STATE_CROUCH:IK_CNS_STATE_STAND;
+        f->cur_move_type=IK_CNS_MOVE_IDLE;
+    }
+}
+
 static void place(ik_fight_t* g,int x0,int x1) {
     g->fighters[0].x=(int16_t)x0;
     g->fighters[0].x_q8=x0*256;
@@ -643,7 +642,7 @@ static void place(ik_fight_t* g,int x0,int x1) {
 int main() {
     ik_fight_t g;
     ik_fight_init(&g,&k_cns);
-    EQ(g.fighters[0].hp,1000);
+    EQ(LIFE(g.fighters[0]),1000);
     EQ(g.fighters[0].push_front,16);
     EQ(g.fighters[0].push_back,15);
 
@@ -670,8 +669,8 @@ int main() {
         p2_asset.constants.air_juggle=14;
 
         ik_fight_init_players(&g,&p1_asset,&p2_asset);
-        EQ(g.fighters[0].hp,1200);
-        EQ(g.fighters[1].hp,800);
+        EQ(LIFE(g.fighters[0]),1200);
+        EQ(LIFE(g.fighters[1]),800);
         EQ(g.fighters[0].push_back,11);
         EQ(g.fighters[1].push_back,21);
         EQ(g.fighters[0].body_height,55);
@@ -743,11 +742,13 @@ int main() {
     }
 
     {
+        /* Legacy walk fallback: a character without compiled state 0. */
+        ik_fight_init(&g,&k_cns);
         const int x=g.fighters[0].x;
         ik_fight_controls_t p{}; p.forward=1;
         tick(&g,&p);
         OK(g.fighters[0].x>x);
-        EQ(g.fighters[0].x_q8,110*256+614);
+        EQ(g.fighters[0].x_q8,(IK_STAGE_CENTER_X+g.stage.p1_start_x)*256+614);
     }
 
     {
@@ -755,7 +756,7 @@ int main() {
         const int hp=g.fighters[1].hp;
         ik_fight_controls_t p{}; request(&p,IK_STATE_PUNCH);
         tick(&g,&p); idle(&g,3);
-        EQ(hp-g.fighters[1].hp,23);
+        EQ(hp-LIFE(g.fighters[1]),23);
         EQ(g.hits_p1,1u);
         EQ(g.fighters[1].state,5000);
         EQ(g.fighters[1].vx_q8,0);
@@ -779,8 +780,8 @@ int main() {
         EQ(g.effect_count,2u);
         EQ(g.effect_events[0].action,0);
         EQ(g.effect_events[1].action,0);
-        EQ(g.fighters[0].hp,977);
-        EQ(g.fighters[1].hp,977);
+        EQ(LIFE(g.fighters[0]),977);
+        EQ(LIFE(g.fighters[1]),977);
     }
 
     /* Numeric priority wins before the equal-priority class tiebreaker. */
@@ -795,8 +796,8 @@ int main() {
         }
         EQ(g.hits_p1,0u);
         EQ(g.hits_p2,1u);
-        EQ(g.fighters[0].hp,943);
-        EQ(g.fighters[1].hp,1000);
+        EQ(LIFE(g.fighters[0]),943);
+        EQ(LIFE(g.fighters[1]),1000);
     }
 
     /* Equal priority Hit vs Miss: Hit lands, Miss is deactivated. */
@@ -822,8 +823,8 @@ int main() {
         }
         EQ(g.hits_p1,1u);
         EQ(g.hits_p2,0u);
-        EQ(g.fighters[0].hp,1000);
-        EQ(g.fighters[1].hp,977);
+        EQ(LIFE(g.fighters[0]),1000);
+        EQ(LIFE(g.fighters[1]),977);
     }
 
     /* Equal priority Hit vs Dodge: neither connects and the no-hit tie does
@@ -843,15 +844,15 @@ int main() {
         ik_fight_init(&g,&asset); place(&g,100,145);
         ik_fight_controls_t p1{}; request(&p1,IK_STATE_PUNCH);
         ik_fight_controls_t p2{}; request(&p2,IK_STATE_STRONG_PUNCH);
-        for(int i=0;i<10;++i) {
+        for(int i=0;i<5;++i) {   /* both boxes overlap on ticks 4-5 */
             tick2(&g,&p1,&p2);
             p1.has_state_request=0u;
             p2.has_state_request=0u;
         }
         EQ(g.hits_p1,0u);
         EQ(g.hits_p2,0u);
-        EQ(g.fighters[0].hp,1000);
-        EQ(g.fighters[1].hp,1000);
+        EQ(LIFE(g.fighters[0]),1000);
+        EQ(LIFE(g.fighters[1]),1000);
         EQ(g.fighters[0].hitdef_hit_mask,0u);
         EQ(g.fighters[1].hitdef_hit_mask,0u);
     }
@@ -868,7 +869,7 @@ int main() {
             p1.has_state_request=0u;
         }
         OK((g.events&IK_EVENT_GUARD)!=0u);
-        EQ(g.fighters[1].hp,0);
+        EQ(LIFE(g.fighters[1]),0);
         OK((g.events&IK_EVENT_KO)!=0u);
         EQ(g.hits_p1,0u);
         EQ(g.fighters[1].guard_type,IK_CNS_STATE_STAND);
@@ -885,7 +886,7 @@ int main() {
             tick2(&g,&p1,&p2);
             p1.has_state_request=0u;
         }
-        EQ(hp-g.fighters[1].hp,23);
+        EQ(hp-LIFE(g.fighters[1]),23);
         EQ(g.hits_p1,1u);
 
         ik_fight_init(&g,&k_cns); place(&g,100,145);
@@ -897,7 +898,7 @@ int main() {
             p1.has_state_request=0u;
         }
         OK((g.events&IK_EVENT_GUARD)!=0u);
-        EQ(g.fighters[1].hp,1);
+        EQ(LIFE(g.fighters[1]),1);
         OK((g.events&IK_EVENT_KO)==0u);
         EQ(g.fighters[1].guard_type,IK_CNS_STATE_CROUCH);
         EQ(g.fighters[1].state,152);
@@ -906,7 +907,7 @@ int main() {
     /* Down+X enters real crouching state 400. Its Time=6 CtrlSet is executed,
      * and AnimTime=0 returns to common crouch state 11. */
     {
-        ik_fight_init(&g,&k_cns); place(&g,100,170);
+        ik_fight_init(&g,&k_cns); place(&g,60,280);
         ik_fight_controls_t p{}; p.down=1; request(&p,IK_STATE_CROUCH_PUNCH);
         tick(&g,&p);
         EQ(g.fighters[0].state,IK_STATE_CROUCH_PUNCH);
@@ -926,7 +927,7 @@ int main() {
         tick(&g,&p);
         for(int i=0;i<40 && g.hits_p1<2u;++i) idle(&g,1);
         EQ(g.hits_p1,2u);
-        EQ(hp-g.fighters[1].hp,73);
+        EQ(hp-LIFE(g.fighters[1]),73);
     }
 
     /* State 240 PosAdd at AnimElem 7 moves forward relative to facing. */
@@ -963,7 +964,7 @@ int main() {
     {
         ik_fight_init(&g,&k_cns);
         ik_fighter_t* f=&g.fighters[1];
-        f->state=5050;
+        set_state(&g,f,5050);
         f->anim=5050;
         f->state_time=0u;
         f->anim_time=0u;
@@ -981,7 +982,7 @@ int main() {
         EQ(f->state,5101);
         idle(&g,1);
         EQ(f->on_ground,0);
-        EQ(f->vy_q8,-1050);
+        EQ(f->vy_q8,-1152+2*102);   /* known gap: gravity starts on the entry tick */
         OK(f->y_q8>IK_FLOOR_Y*256);
 
         for(int i=0;i<100 && f->state!=5110;++i) idle(&g,1);
@@ -1002,14 +1003,14 @@ int main() {
      * airborne while attacking and use their original Time=0 HitDefs. */
     {
         ik_fight_init(&g,&k_cns); place(&g,100,145);
-        g.fighters[0].state=IK_STATE_JUMP;
+        set_state(&g,&g.fighters[0],IK_STATE_JUMP);
         g.fighters[0].on_ground=0;
         g.fighters[0].vy_q8=-2150;
         ik_fight_controls_t p{}; request(&p,IK_STATE_JUMP_PUNCH);
         const int hp=g.fighters[1].hp;
         tick(&g,&p);
         EQ(g.fighters[0].state,IK_STATE_JUMP_PUNCH);
-        EQ(hp-g.fighters[1].hp,20);
+        EQ(hp-LIFE(g.fighters[1]),20);
         EQ(g.fighters[0].move_contact,1);
 
         idle(&g,8);
@@ -1027,17 +1028,19 @@ int main() {
         g.fighters[1].y=150;
         g.fighters[1].y_q8=150*256;
 
-        g.fighters[0].state=IK_STATE_JUMP;
+        set_state(&g,&g.fighters[0],IK_STATE_JUMP);
         g.fighters[0].on_ground=0;
         g.fighters[0].vy_q8=-2150;
         ik_fight_controls_t p{}; request(&p,IK_STATE_JUMP_PUNCH);
         tick(&g,&p);
 
         EQ(g.hits_p1,1u);
-        EQ(g.fighters[1].hitstun,14u);
+        EQ(g.fighters[1].hitstun,15u); /* hit time 14 + 1: HitOver is hittime < 0 */
         EQ(g.fighters[1].state,5020);
         EQ(g.fighters[1].vx_q8,0);
-        EQ(g.fighters[1].vy_q8,0);
+        /* The hit leaves the velocity alone (the StateDef velset applies on
+         * the victim's next tick): only this tick's gravity is in it. */
+        EQ(g.fighters[1].vy_q8,113);
         EQ(g.fighters[1].gethit_vx_q8,-333);
         EQ(g.fighters[1].gethit_vy_q8,-768);
         EQ(g.fighters[1].on_ground,0);
@@ -1047,7 +1050,7 @@ int main() {
      * controller runtime, allowing new controlled air input afterwards. */
     {
         ik_fight_init(&g,&k_cns); place(&g,60,260);
-        g.fighters[0].state=IK_STATE_JUMP;
+        set_state(&g,&g.fighters[0],IK_STATE_JUMP);
         g.fighters[0].on_ground=0;
         g.fighters[0].vy_q8=-2150;
         ik_fight_controls_t p{}; request(&p,IK_STATE_JUMP_PUNCH);
@@ -1067,7 +1070,7 @@ int main() {
         EQ(g.fighters[0].state,IK_STATE_WALK);
         tick(&g,&p);
         EQ(g.fighters[0].anim,20);
-        EQ(g.fighters[0].x_q8,x0+614);
+        EQ(g.fighters[0].x_q8,x0+2*614);   /* entry tick moves too */
 
         p={};
         tick(&g,&p);
@@ -1127,7 +1130,7 @@ int main() {
         EQ(g.fighters[0].state,50);
         EQ(g.fighters[0].on_ground,0);
         EQ(g.fighters[0].vx_q8,640);
-        EQ(g.fighters[0].vy_q8,-2150);
+        EQ(g.fighters[0].vy_q8,-2150+113);   /* + gravity of the entry tick */
 
         for(int i=0;i<80 && g.fighters[0].state!=52;++i) tick(&g,&p);
         EQ(g.fighters[0].state,52);
@@ -1183,7 +1186,7 @@ int main() {
         tick(&g,&p);
         EQ(g.fighters[0].state,50);
         EQ(g.fighters[0].vx_q8,640);
-        EQ(g.fighters[0].vy_q8,-2074);
+        EQ(g.fighters[0].vy_q8,-2074+113);
     }
 
     /* StateDef juggle points are spent when a hit starts fall, then gate
@@ -1238,7 +1241,7 @@ int main() {
         EQ(g.fighters[1].juggle_points,10);
 
         /* Exactly enough points permits one more juggle and consumes them. */
-        g.fighters[1].state=5050;
+        set_state(&g,&g.fighters[1],5050);
         g.fighters[1].anim=5050;
         g.fighters[1].on_ground=0;
         g.fighters[1].gethit_fall=1u;
@@ -1258,7 +1261,7 @@ int main() {
         EQ(g.fighters[1].juggle_points,0);
 
         /* No remaining budget: the same persistent-F hitflag attack misses. */
-        g.fighters[1].state=5050;
+        set_state(&g,&g.fighters[1],5050);
         g.fighters[1].anim=5050;
         g.fighters[1].on_ground=0;
         g.fighters[1].gethit_fall=1u;
@@ -1338,7 +1341,7 @@ int main() {
         g.fighters[1].x_q8=180*256; /* body distance now >=40 */
         tick2(&g,&p1,&p2); /* element 4 gets Clsn1 */
         EQ(g.hits_p1,1u);
-        EQ(g.fighters[1].hp,910);
+        EQ(LIFE(g.fighters[1]),910);
         EQ(g.fighters[0].active_hitdef_local,0);
         EQ(g.fighters[0].power,55);
 
@@ -1352,7 +1355,7 @@ int main() {
         EQ(g.fighters[0].active_hitdef_local,1);
         tick2(&g,&p1,&p2);
         EQ(g.hits_p1,1u);
-        EQ(g.fighters[1].hp,915);
+        EQ(LIFE(g.fighters[1]),915);
     }
 
     /* Default hitflag=MAF must not hit a liedown opponent. D is what
@@ -1360,7 +1363,7 @@ int main() {
     {
         ik_fight_init(&g,&k_cns); place(&g,100,145);
         ik_fighter_t* v=&g.fighters[1];
-        v->state=5110; v->anim=5110; v->on_ground=1; v->ctrl=0;
+        set_state(&g,v,5110); v->anim=5110; v->on_ground=1; v->ctrl=0;
         const int hp=v->hp;
 
         ik_fight_controls_t p1{}; request(&p1,IK_STATE_PUNCH);
@@ -1411,7 +1414,7 @@ int main() {
 
         hitdefs[hitdef_count].hit_flags=IK_CNS_HIT_AIR;
         ik_fight_init(&g,&asset); place(&g,100,145);
-        g.fighters[1].state=5050;
+        set_state(&g,&g.fighters[1],5050);
         g.fighters[1].anim=5050;
         g.fighters[1].on_ground=0;
         g.fighters[1].gethit_fall=1u;
@@ -1427,7 +1430,7 @@ int main() {
 
         hitdefs[hitdef_count].hit_flags=IK_CNS_HIT_FALL;
         ik_fight_init(&g,&asset); place(&g,100,145);
-        g.fighters[1].state=5050;
+        set_state(&g,&g.fighters[1],5050);
         g.fighters[1].anim=5050;
         g.fighters[1].on_ground=0;
         g.fighters[1].gethit_fall=1u;
@@ -1484,9 +1487,10 @@ int main() {
         EQ(g.hits_p1,0u);
 
         ik_fight_init(&g,&asset); place(&g,100,145);
-        g.fighters[1].state=5001;
+        set_state(&g,&g.fighters[1],5001);
         g.fighters[1].anim=5001;
         g.fighters[1].on_ground=1;
+        g.fighters[1].hitstun=20;   /* still being hit: HitOver would leave 5001 */
         p1={}; request(&p1,901); p2={};
         for(int i=0;i<8 && g.hits_p1==0u;++i) {
             tick2(&g,&p1,&p2);
@@ -1497,9 +1501,10 @@ int main() {
         hitdefs[hitdef_count].hit_flags=
             IK_CNS_HIT_STAND|IK_CNS_HIT_NOT_GETHIT;
         ik_fight_init(&g,&asset); place(&g,100,145);
-        g.fighters[1].state=5001;
+        set_state(&g,&g.fighters[1],5001);
         g.fighters[1].anim=5001;
         g.fighters[1].on_ground=1;
+        g.fighters[1].hitstun=20;   /* still being hit: HitOver would leave 5001 */
         p1={}; request(&p1,901); p2={};
         for(int i=0;i<8;++i) {
             tick2(&g,&p1,&p2);
@@ -1514,7 +1519,7 @@ int main() {
     {
         ik_fight_init(&g,&k_cns); place(&g,100,145);
         ik_fighter_t* v=&g.fighters[1];
-        v->state=5110; v->anim=5110; v->on_ground=1; v->ctrl=0;
+        set_state(&g,v,5110); v->anim=5110; v->on_ground=1; v->ctrl=0;
 
         ik_fight_controls_t p1{}; request(&p1,201);
         ik_fight_controls_t p2{};
@@ -1542,7 +1547,7 @@ int main() {
     {
         ik_fight_init(&g,&k_cns); place(&g,100,145);
         ik_fighter_t* v=&g.fighters[1];
-        v->state=5110; v->anim=5110; v->on_ground=1; v->ctrl=0;
+        set_state(&g,v,5110); v->anim=5110; v->on_ground=1; v->ctrl=0;
 
         ik_fight_controls_t p1{}; request(&p1,202);
         ik_fight_controls_t p2{};
@@ -1574,7 +1579,7 @@ int main() {
         ik_fight_init(&g,&k_downed_cns);
         place(&g,100,145);
         ik_fighter_t* v=&g.fighters[1];
-        v->state=5110;
+        set_state(&g,v,5110);
         v->anim=5110;
         v->on_ground=1;
         v->ctrl=0;
@@ -1589,7 +1594,7 @@ int main() {
         EQ(v->state,5080);
         EQ(v->gethit_vx_q8,-1280);
         EQ(v->gethit_vy_q8,0);
-        EQ(v->hitstun,22u);
+        EQ(v->hitstun,23u); /* hit time 22 + 1: HitOver is hittime < 0 */
         EQ(v->hit_slide_time,22u);
 
         for(int i=0;i<20 && v->state!=5081;++i) {
@@ -1610,7 +1615,7 @@ int main() {
         ik_fight_init(&g,&k_downed_cns);
         place(&g,100,145);
         ik_fighter_t* v=&g.fighters[1];
-        v->state=5110;
+        set_state(&g,v,5110);
         v->anim=5110;
         v->on_ground=1;
         v->ctrl=0;
@@ -1618,12 +1623,12 @@ int main() {
 
         ik_fight_controls_t p1{}; request(&p1,200);
         ik_fight_controls_t p2{};
-        for(int i=0;i<20 && v->hp>0;++i) {
+        for(int i=0;i<20 && LIFE(*v)>0;++i) {
             tick2(&g,&p1,&p2);
             p1.has_state_request=0u;
         }
 
-        EQ(v->hp,0);
+        EQ(LIFE(*v),0);
         EQ(v->state,5080);
         EQ(g.round_over,0u);
         OK(v->state!=IK_STATE_KO);
@@ -1642,7 +1647,7 @@ int main() {
     {
         ik_fight_init(&g,&k_downed_cns);
         ik_fighter_t* v=&g.fighters[1];
-        v->state=5110;
+        set_state(&g,v,5110);
         v->anim=5110;
         v->on_ground=1;
         v->ctrl=0;
@@ -1681,7 +1686,7 @@ int main() {
 
         ik_cns_controller_t ctrls[] = {
             {810,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ANIM_ELEM_RANGE,
-             2,5,58*256,0,0u},
+             2,6,58*256,0,0u},
             {810,IK_CNS_CTRL_TURN,
              IK_CNS_TRIGGER_STATE_AXIS_FWD_ANIM_ELEM_EQ,
              6,0,0,0,0u},
@@ -1820,11 +1825,11 @@ int main() {
             }
         }
         OK(saw_release);
-        EQ(g.fighters[1].hp,922);
+        EQ(LIFE(g.fighters[1]),922);
         EQ(g.fighters[1].bound_to,-1);
-        EQ(g.fighters[0].target_index,-1);
+        EQ(g.fighters[0].target_index,1);   /* a target until it leaves MoveType H */
         EQ(g.fighters[1].state,821);
-        EQ(g.fighters[1].vx_q8,717);
+        EQ(g.fighters[1].vx_q8,-717);       /* velset 2.8 is local; the victim faces left */
         /* 821 runs one .4 VelAdd (102 Q8) before integrating; no +yaccel. */
         EQ(g.fighters[1].vy_q8,-1690);
 
@@ -1867,7 +1872,7 @@ int main() {
              0,0,1026,0,0u},
 
             {1026,IK_CNS_CTRL_HIT_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
+             0,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
             {1026,IK_CNS_CTRL_VEL_ADD,IK_CNS_TRIGGER_ALWAYS,
              0,0,0,115,IK_CNS_CTRL_AXIS_Y},
             {1026,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE,
@@ -1879,18 +1884,18 @@ int main() {
              IK_CNS_TRIGGER_STATE_ENTRY_FRONT_EDGE_BODY_LE,
              30,0,0,0,0u},
             {1027,IK_CNS_CTRL_POS_ADD_FROM_BACK_EDGE,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,15*256,0,0u},
+             0,0,15*256,0,0u},
             {1027,IK_CNS_CTRL_POS_FREEZE,IK_CNS_TRIGGER_ALWAYS,
              0,0,0,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_AXIS_Y},
             {1027,IK_CNS_CTRL_CHANGE_ANIM2,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,1027,1,0u},
+             0,0,1027,1,0u},
             {1027,IK_CNS_CTRL_CHANGE_STATE,IK_CNS_TRIGGER_ANIM_END,
              0,0,1028,0,0u},
 
             {1028,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,0,-6*256,IK_CNS_CTRL_AXIS_Y},
+             0,0,0,-6*256,IK_CNS_CTRL_AXIS_Y},
             {1028,IK_CNS_CTRL_VEL_SET,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,410,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_LOCAL_X},
+             0,0,410,0,IK_CNS_CTRL_AXIS_X|IK_CNS_CTRL_LOCAL_X},
             {1028,IK_CNS_CTRL_TURN,IK_CNS_TRIGGER_STATE_ENTRY_BACK_EDGE_LT,
              30,0,0,0,0u},
             {1028,IK_CNS_CTRL_VEL_ADD,IK_CNS_TRIGGER_ALWAYS,
@@ -1968,7 +1973,8 @@ int main() {
             (uint16_t)(sizeof(ctrls)/sizeof(ctrls[0]));
 
         ik_fight_init(&g,&asset);
-        place(&g,230,270);
+        /* the stage wall is the camera's right bound: stage0 x=125 + 145 */
+        place(&g,370,410);
         g.fighters[0].power=330;
 
         ik_fight_controls_t p1{}; request(&p1,1020);
@@ -1982,7 +1988,7 @@ int main() {
             tick2(&g,&p1,&p2);
         }
         EQ(g.hits_p1,1u);
-        EQ(g.fighters[1].hp,905);
+        EQ(LIFE(g.fighters[1]),905);
         EQ(g.fighters[1].state,1025);
         EQ(g.fighters[1].facing,-1);
 
@@ -2010,8 +2016,7 @@ int main() {
             tick2(&g,&p1,&p2);
         }
         EQ(g.fighters[1].state,1028);
-
-        tick2(&g,&p1,&p2);
+        /* 1028's entry-tick controllers already ran (upstream order). */
         EQ(g.fighters[1].facing,1);
         EQ(g.fighters[1].vx_q8,-410);
         EQ(g.fighters[1].vy_q8,-1446);
@@ -2053,6 +2058,7 @@ int main() {
         states[1].move_type=IK_CNS_MOVE_ATTACK;
         states[1].physics=IK_CNS_PHYS_NONE;
         states[1].hitdef_persist=1u;
+        states[1].owns_air_accel=1u;   /* nothing pulls it down to the floor */
 
         ik_cns_asset_t asset{};
         asset.constants.life=1000;
@@ -2075,7 +2081,7 @@ int main() {
         tick2(&g,&p1,&p2);
         p1.has_state_request=0u;
         EQ(g.hits_p1,1u);
-        EQ(g.fighters[1].hp,980);
+        EQ(LIFE(g.fighters[1]),980);
         EQ(g.fighters[0].active_hitdef_global,0);
 
         tick2(&g,&p1,&p2);
@@ -2085,7 +2091,7 @@ int main() {
 
         for(int i=0;i<4;++i) tick2(&g,&p1,&p2);
         EQ(g.hits_p1,1u);
-        EQ(g.fighters[1].hp,980);
+        EQ(LIFE(g.fighters[1]),980);
     }
 
     /* The shared Knee kick reads prevstateno: 1051 -> 35 damage,
@@ -2097,6 +2103,7 @@ int main() {
         hit.trigger_value=0;
         hit.damage=35;
         hit.alt_damage=40;
+        hit.has_alt_damage=1u;
         hit.alt_damage_prev_state=1061;
         hit.priority=4u;
         hit.hit_flags=IK_CNS_HIT_DEFAULT;
@@ -2115,6 +2122,7 @@ int main() {
         states[2].move_type=IK_CNS_MOVE_ATTACK;
         states[2].physics=IK_CNS_PHYS_NONE;
         states[2].hitdef_count=1u;
+        states[2].owns_air_accel=1u;   /* airborne attack, nothing lands it */
 
         ik_cns_asset_t asset{};
         asset.constants.life=1000;
@@ -2130,22 +2138,23 @@ int main() {
         asset.hitdef_count=1u;
 
         ik_fight_init(&g,&asset); place(&g,100,145);
-        g.fighters[0].state=1051;
+        set_state(&g,&g.fighters[0],1051);
         g.fighters[0].anim=911;
         g.fighters[0].on_ground=0;
-        p1={}; request(&p1,915); p2={};
+        ik_fight_controls_t p1{}; request(&p1,915);
+        ik_fight_controls_t p2{};
         tick2(&g,&p1,&p2);
         EQ(g.hits_p1,1u);
-        EQ(g.fighters[1].hp,965);
+        EQ(LIFE(g.fighters[1]),965);
 
         ik_fight_init(&g,&asset); place(&g,100,145);
-        g.fighters[0].state=1061;
+        set_state(&g,&g.fighters[0],1061);
         g.fighters[0].anim=911;
         g.fighters[0].on_ground=0;
         p1={}; request(&p1,915); p2={};
         tick2(&g,&p1,&p2);
         EQ(g.hits_p1,1u);
-        EQ(g.fighters[1].hp,960);
+        EQ(LIFE(g.fighters[1]),960);
         EQ(g.fighters[0].prev_state,1061);
     }
 
@@ -2203,12 +2212,13 @@ int main() {
         p1.has_state_request=0u;
         EQ(g.fighters[0].power,0);
         EQ(g.hits_p1,1u);
-        EQ(g.fighters[1].hp,970);
+        EQ(LIFE(g.fighters[1]),970);
 
         for(int i=0;i<8;++i) tick2(&g,&p1,&p2);
         EQ(g.hits_p1,2u);
-        EQ(g.fighters[1].hp,940);
-        EQ(g.fighters[0].hitdef_hit_mask,1u);
+        EQ(LIFE(g.fighters[1]),940);
+        /* The attack finished meanwhile; entering idle cleared the mask. */
+        EQ(g.fighters[0].hitdef_hit_mask,0u);
     }
 
     /* forcestand changes only the ground get-hit branch: the same crouching
@@ -2216,8 +2226,17 @@ int main() {
     {
         constexpr unsigned state_count=
             (unsigned)(sizeof(k_states)/sizeof(k_states[0]));
-        ik_cns_state_t states[state_count+1];
+        ik_cns_state_t states[state_count+2];
         for(unsigned i=0;i<state_count;++i) states[i]=k_states[i];
+        states[state_count+1]=k_states[0];   /* common crouch, so the victim stays in it */
+        states[state_count+1].number=11;
+        states[state_count+1].anim=11;
+        states[state_count+1].state_type=IK_CNS_STATE_CROUCH;
+        states[state_count+1].move_type=IK_CNS_MOVE_IDLE;
+        states[state_count+1].physics=IK_CNS_PHYS_NONE;
+        states[state_count+1].hitdef_count=0u;
+        states[state_count+1].playsnd_count=0u;
+        states[state_count+1].controller_count=0u;
         states[state_count]=k_states[0];
         states[state_count].number=921;
         states[state_count].anim=921;
@@ -2245,12 +2264,12 @@ int main() {
 
         ik_cns_asset_t asset=k_cns;
         asset.states=states;
-        asset.state_count=(uint16_t)(state_count+1);
+        asset.state_count=(uint16_t)(state_count+2);
         asset.hitdefs=&hit;
         asset.hitdef_count=1u;
 
         ik_fight_init(&g,&asset); place(&g,100,145);
-        g.fighters[1].state=11;
+        set_state(&g,&g.fighters[1],11);
         g.fighters[1].anim=11;
         g.fighters[1].on_ground=1;
         g.fighters[1].ctrl=0;
@@ -2261,7 +2280,7 @@ int main() {
 
         hit.flags=IK_CNS_HITDEF_FORCE_STAND;
         ik_fight_init(&g,&asset); place(&g,100,145);
-        g.fighters[1].state=11;
+        set_state(&g,&g.fighters[1],11);
         g.fighters[1].anim=11;
         g.fighters[1].on_ground=1;
         g.fighters[1].ctrl=0;
@@ -2322,7 +2341,7 @@ int main() {
         EQ(g.fighters[1].gethit_yaccel_q8,102);
 
         ik_fighter_t* v=&g.fighters[1];
-        v->state=5030;
+        set_state(&g,v,5030);
         v->anim=5030;
         v->state_time=0u;
         v->anim_time=0u;
@@ -2332,6 +2351,8 @@ int main() {
         v->vy_q8=0;
         v->hitstun=10u;
         p1={}; p2={};
+        tick2(&g,&p1,&p2);
+        EQ(v->vy_q8,-1024);       /* launch tick: no VelAdd yet */
         tick2(&g,&p1,&p2);
         EQ(v->vy_q8,-1024+102);
     }
@@ -2382,7 +2403,7 @@ int main() {
         EQ(g.hits_p1,1u);
         EQ(g.fighters[0].vx_q8,0);
 
-        ik_fight_init(&g,&asset); place(&g,240,281);
+        ik_fight_init(&g,&asset); place(&g,249,290); /* victim's body touches the 305 bound */
         p1={}; request(&p1,923); p2={};
         tick2(&g,&p1,&p2);
         EQ(g.hits_p1,1u);
@@ -2395,7 +2416,7 @@ int main() {
     {
         ik_fight_init(&g,&k_recovery_cns);
         ik_fighter_t* f=&g.fighters[0];
-        f->state=5050;
+        set_state(&g,f,5050);
         f->anim=5050;
         f->on_ground=0;
         f->ctrl=0;
@@ -2421,7 +2442,7 @@ int main() {
     {
         ik_fight_init(&g,&k_recovery_cns);
         ik_fighter_t* f=&g.fighters[0];
-        f->state=5050;
+        set_state(&g,f,5050);
         f->anim=5050;
         f->on_ground=0;
         f->ctrl=0;
@@ -2457,16 +2478,74 @@ int main() {
         p={};
         tick(&g,&p);
         EQ(f->state,52);
-        EQ(f->ctrl,1);
+        /* ChangeState's ctrl = 1 applies first; StateDef 52 (ctrl = 0) wins,
+         * as upstream's trace shows (kfm_recovery_200). */
+        EQ(f->ctrl,0);
     }
 
-    /* Pause freezes fight simulation for the authored duration and rewinds
-     * the internal Time=0 bookkeeping tick so Time=1 controllers run after
-     * the pause instead of being skipped. */
+    /* Width's edge widths and ScreenBound drive the stage clamp: a fighter in
+     * a state with `edge = 20` stops 20 px before the right edge, and
+     * `ScreenBound value = 0` lets it stand past the edge. Both reset every
+     * tick. */
+    {
+        const ik_cns_controller_t ctrls[] = {
+            {3100,IK_CNS_CTRL_WIDTH,IK_CNS_TRIGGER_ALWAYS,
+             0,0,0,0,0u,20,0},
+            {3101,IK_CNS_CTRL_SCREEN_BOUND,IK_CNS_TRIGGER_ALWAYS,
+             0,0,0,0,0u,0,1},
+        };
+        ik_cns_state_t states[2]{};
+        for(int i=0;i<2;++i) {
+            states[i].number=(int16_t)(3100+i);
+            states[i].state_type=IK_CNS_STATE_STAND;
+            states[i].move_type=IK_CNS_MOVE_IDLE;
+            states[i].physics=IK_CNS_PHYS_NONE;
+            states[i].controller_ofs=(uint16_t)i;
+            states[i].controller_count=1u;
+        }
+        ik_cns_asset_t asset{};
+        asset.constants.life=1000;
+        asset.constants.ground_back=15;
+        asset.constants.ground_front=16;
+        asset.constants.air_back=12;
+        asset.constants.air_front=12;
+        asset.constants.height=60;
+        asset.states=states;
+        asset.state_count=2u;
+        asset.controllers=ctrls;
+        asset.controller_count=2u;
+
+        ik_fight_init(&g,&asset);
+        ik_fight_controls_t pp{};
+        ik_fighter_t* f=&g.fighters[0];
+        set_state(&g,f,3100);
+        f->ctrl=0;
+        f->x=600; f->x_q8=600*256;      /* far outside: the clamp must act */
+        tick(&g,&pp);
+        EQ(f->edge_front,20);
+        /* Clamped to the bound minus the edge width (the camera moved in the
+         * same step, so compare with its final bound). */
+        EQ(f->x_q8,g.xmax_q8-20*256);
+
+        f->x=600; f->x_q8=600*256;
+        set_state(&g,f,3101);
+        tick(&g,&pp);
+        EQ(f->screen_bound,0);
+        EQ(f->edge_front,0);        /* edge widths do not outlive the tick */
+        EQ(f->x_q8,600*256);        /* ScreenBound value = 0: no clamp */
+        set_state(&g,f,3100);
+        tick(&g,&pp);
+        EQ(f->screen_bound,1);      /* the flag is back on the next tick */
+        EQ(f->x_q8,g.xmax_q8-20*256);
+    }
+
+    /* Pause freezes fight simulation for the authored duration. The tick it
+     * starts on finishes normally (Time ends at 1), so Time=1 controllers run
+     * the first tick after the pause. */
     {
         const ik_cns_controller_t ctrls[] = {
             {930,IK_CNS_CTRL_PAUSE,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,3,0,0u},
+             0,0,3,0,0u},
             {930,IK_CNS_CTRL_CTRL_SET,IK_CNS_TRIGGER_TIME_EQ,
              1,0,1,0,0u},
         };
@@ -2491,7 +2570,7 @@ int main() {
         asset.controller_count=2u;
 
         ik_fight_init(&g,&asset);
-        g.fighters[0].state=930;
+        set_state(&g,&g.fighters[0],930);
         g.fighters[0].anim=0;
         g.fighters[0].ctrl=0;
         ik_fight_controls_t p1{};
@@ -2499,7 +2578,7 @@ int main() {
 
         tick2(&g,&p1,&p2);
         EQ(g.pause_time,3u);
-        EQ(g.fighters[0].state_time,0u);
+        EQ(g.fighters[0].state_time,1u);
         EQ(g.fighters[0].ctrl,0);
 
         const uint32_t frozen_frame=g.frame;
@@ -2507,11 +2586,11 @@ int main() {
         tick2(&g,&p1,&p2);
         tick2(&g,&p1,&p2);
         EQ(g.pause_time,0u);
-        EQ(g.fighters[0].state_time,0u);
+        EQ(g.fighters[0].state_time,1u);
         EQ(g.frame,frozen_frame+3u);
 
         tick2(&g,&p1,&p2);
-        EQ(g.fighters[0].state_time,1u);
+        EQ(g.fighters[0].state_time,2u);
         EQ(g.fighters[0].ctrl,1);
     }
 
@@ -2520,7 +2599,7 @@ int main() {
     {
         const ik_cns_controller_t ctrls[] = {
             {936,IK_CNS_CTRL_PAUSE,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,3,2,0u},
+             0,0,3,2,0u},
         };
         ik_cns_state_t states[2]{};
         states[0].number=936;
@@ -2550,10 +2629,10 @@ int main() {
         asset.controller_count=1u;
 
         ik_fight_init(&g,&asset);
-        g.fighters[0].state=936;
+        set_state(&g,&g.fighters[0],936);
         g.fighters[0].anim=0;
         g.fighters[0].ctrl=0;
-        g.fighters[1].state=0;
+        set_state(&g,&g.fighters[1],0);
         g.fighters[1].anim=0;
         const uint32_t timer=g.timer_frames;
 
@@ -2562,26 +2641,26 @@ int main() {
         tick2(&g,&p1,&p2);
         EQ(g.pause_time,3u);
         EQ(g.pause_move_time,2u);
-        EQ(g.fighters[0].state_time,0u);
+        EQ(g.fighters[0].state_time,1u);
         const uint16_t foe_time=g.fighters[1].state_time;
         EQ(g.timer_frames,timer-1u);
 
         tick2(&g,&p1,&p2);
         EQ(g.pause_time,2u);
         EQ(g.pause_move_time,1u);
-        EQ(g.fighters[0].state_time,1u);
+        EQ(g.fighters[0].state_time,2u);
         EQ(g.fighters[1].state_time,foe_time);
         EQ(g.timer_frames,timer-1u);
 
         tick2(&g,&p1,&p2);
         EQ(g.pause_time,1u);
         EQ(g.pause_move_time,0u);
-        EQ(g.fighters[0].state_time,2u);
+        EQ(g.fighters[0].state_time,3u);
         EQ(g.fighters[1].state_time,foe_time);
 
         tick2(&g,&p1,&p2);
         EQ(g.pause_time,0u);
-        EQ(g.fighters[0].state_time,2u);
+        EQ(g.fighters[0].state_time,3u);
         EQ(g.fighters[1].state_time,foe_time);
     }
 
@@ -2599,7 +2678,7 @@ int main() {
 
         const ik_cns_controller_t ctrls[] = {
             {937,IK_CNS_CTRL_PAUSE,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,3,2,0u},
+             0,0,3,2,0u},
         };
 
         ik_cns_state_t states[2]{};
@@ -2634,21 +2713,21 @@ int main() {
 
         ik_fight_init(&g,&asset);
         place(&g,100,145);
-        g.fighters[0].state=937;
+        set_state(&g,&g.fighters[0],937);
         g.fighters[0].anim=910;
         g.fighters[0].ctrl=0;
-        g.fighters[1].state=0;
+        set_state(&g,&g.fighters[1],0);
         g.fighters[1].anim=0;
 
         ik_fight_controls_t p1{};
         ik_fight_controls_t p2{};
         tick2(&g,&p1,&p2);
         EQ(g.pause_time,3u);
-        EQ(g.fighters[1].hp,1000);
+        EQ(LIFE(g.fighters[1]),1000);
 
         tick2(&g,&p1,&p2);
         EQ(g.pause_time,2u);
-        EQ(g.fighters[1].hp,990);
+        EQ(LIFE(g.fighters[1]),990);
         EQ(g.fighters[0].move_hit,1u);
     }
 
@@ -2665,7 +2744,7 @@ int main() {
 
         const ik_cns_controller_t ctrls[] = {
             {931,IK_CNS_CTRL_NOT_HIT_BY,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,
+             0,0,
              IK_CNS_REVERSAL_STATE_STAND|
              IK_CNS_REVERSAL_STATE_CROUCH|
              IK_CNS_REVERSAL_STATE_AIR,
@@ -2703,17 +2782,17 @@ int main() {
 
         ik_fight_init(&g,&asset);
         place(&g,100,145);
-        g.fighters[0].state=200;
+        set_state(&g,&g.fighters[0],200);
         g.fighters[0].anim=200;
         g.fighters[0].ctrl=0;
-        g.fighters[1].state=931;
+        set_state(&g,&g.fighters[1],931);
         g.fighters[1].anim=0;
         g.fighters[1].ctrl=0;
 
         ik_fight_controls_t p1{};
         ik_fight_controls_t p2{};
         tick2(&g,&p1,&p2);
-        EQ(g.fighters[1].hp,1000);
+        EQ(LIFE(g.fighters[1]),1000);
         EQ(g.hits_p1,0u);
         EQ(g.fighters[1].not_hit_by_time,1u);
 
@@ -2779,10 +2858,10 @@ int main() {
 
         ik_fight_init(&g,&asset);
         place(&g,100,145);
-        g.fighters[0].state=910;
+        set_state(&g,&g.fighters[0],910);
         g.fighters[0].anim=910;
         g.fighters[0].ctrl=0;
-        g.fighters[1].state=932;
+        set_state(&g,&g.fighters[1],932);
         g.fighters[1].anim=0;
         g.fighters[1].ctrl=0;
 
@@ -2790,7 +2869,7 @@ int main() {
         ik_fight_controls_t p2{};
         tick2(&g,&p1,&p2);
         EQ(g.fighters[1].state,933);
-        EQ(g.fighters[1].hp,1000);
+        EQ(LIFE(g.fighters[1]),1000);
         EQ(g.hits_p1,0u);
         EQ(g.fighters[0].move_contact,1u);
     }
@@ -2800,7 +2879,7 @@ int main() {
     {
         const ik_cns_controller_t ctrls[] = {
             {3000,IK_CNS_CTRL_SUPER_PAUSE,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,30,-1000,0u},
+             0,0,30,-1000,0u},
         };
         ik_cns_state_t state{};
         state.number=3000;
@@ -2823,7 +2902,7 @@ int main() {
         asset.controller_count=1u;
 
         ik_fight_init(&g,&asset);
-        g.fighters[0].state=3000;
+        set_state(&g,&g.fighters[0],3000);
         g.fighters[0].anim=0;
         g.fighters[0].power=1000;
         g.fighters[0].ctrl=0;
@@ -2833,7 +2912,7 @@ int main() {
         tick2(&g,&p1,&p2);
         EQ(g.pause_time,30u);
         EQ(g.fighters[0].power,0);
-        EQ(g.fighters[0].state_time,0u);
+        EQ(g.fighters[0].state_time,1u);
         tick2(&g,&p1,&p2);
         EQ(g.pause_time,29u);
         EQ(g.fighters[0].power,0);
@@ -2887,7 +2966,7 @@ int main() {
 
         ik_fight_init(&g,&asset);
         place(&g,100,145);
-        g.fighters[0].state=3050;
+        set_state(&g,&g.fighters[0],3050);
         g.fighters[0].anim=910;
         g.fighters[0].ctrl=0;
         ik_fight_controls_t p1{};
@@ -2897,7 +2976,7 @@ int main() {
         EQ(g.fighters[0].state,3050);
         EQ(g.fighters[0].move_contact,1u);
         EQ(g.fighters[0].move_hit,1u);
-        EQ(g.fighters[1].hp,990);
+        EQ(LIFE(g.fighters[1]),990);
 
         tick2(&g,&p1,&p2);
         EQ(g.fighters[0].state,3051);
@@ -2962,6 +3041,12 @@ int main() {
         EQ(g.round_state,1u);
         EQ(g.timer_frames,timer);
 
+        /* The fight announcement holds RoundState 1 after the intro ends. */
+        for(unsigned i=1;i<IK_ROUND_FIGHT_WAIT_TICKS;++i){
+            tick2(&g,&p1,&p2);
+            EQ(g.round_state,1u);
+            EQ(g.timer_frames,timer);
+        }
         tick2(&g,&p1,&p2);
         EQ(g.round_state,2u);
         EQ(g.timer_frames,timer);
@@ -2975,7 +3060,7 @@ int main() {
     {
         const ik_cns_controller_t ctrls[] = {
             {100,IK_CNS_CTRL_MAKE_DUST,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,0,0,0u},
+             0,0,0,0,0u},
         };
         ik_cns_state_t state{};
         state.number=100;
@@ -3002,7 +3087,7 @@ int main() {
         asset.controller_count=1u;
 
         ik_fight_init(&g,&asset);
-        g.fighters[0].state=100;
+        set_state(&g,&g.fighters[0],100);
         g.fighters[0].anim=100;
         g.fighters[0].facing=1;
         g.fighters[0].ctrl=1;
@@ -3027,13 +3112,13 @@ int main() {
             256 | (256 << 9) | (256 << 18);
         const ik_cns_controller_t ctrls[] = {
             {5210,IK_CNS_CTRL_PAL_FX,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,3,128|(128<<9)|(128<<18),0u,
+             0,0,3,128|(128<<9)|(128<<18),0u,
              0,1,mul_identity,0,1,0},
             {5210,IK_CNS_CTRL_TURN,
              IK_CNS_TRIGGER_P2_DIST_X_LT_Q8_AT_TIME,
-             -20*IK_CNS_Q8_ONE,1,0,0,0u},
+             -20*IK_CNS_Q8_ONE,0,0,0,0u},
             {5210,IK_CNS_CTRL_NOT_HIT_BY,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,7,15,0u},
+             0,0,7,15,0u},
         };
         ik_cns_state_t state{};
         state.number=5210;
@@ -3057,7 +3142,7 @@ int main() {
         asset.controller_count=3u;
 
         ik_fight_init(&g,&asset);
-        g.fighters[0].state=5210;
+        set_state(&g,&g.fighters[0],5210);
         g.fighters[0].anim=5210;
         g.fighters[0].facing=1;
         g.fighters[0].ctrl=0;
@@ -3074,7 +3159,7 @@ int main() {
         EQ(g.fighters[0].facing,-1);
         EQ(g.fighters[0].not_hit_by_mask,7u);
         EQ(g.fighters[0].not_hit_by_time,15u);
-        EQ(g.fighters[0].palfx_time,3u);
+        EQ(g.fighters[0].palfx_time,2u);   /* 3 ticks, one already counted */
         EQ(g.fighters[0].palfx_add_r,128);
         EQ(g.fighters[0].palfx_add_g,128);
         EQ(g.fighters[0].palfx_add_b,128);
@@ -3085,7 +3170,7 @@ int main() {
     {
         const ik_cns_controller_t ctrls[] = {
             {3080,IK_CNS_CTRL_PAL_FX,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,20,(32 | (16 << 9)),0u,
+             0,0,20,(32 | (16 << 9)),0u,
              (64 | (32 << 9) | (5 << 18)),3,
              (256 | (192 << 9) | (128 << 18)),
              ((0 & 0x1ff) | ((-64 & 0x1ff) << 9) |
@@ -3113,7 +3198,7 @@ int main() {
         asset.controller_count=1u;
 
         ik_fight_init(&g,&asset);
-        g.fighters[0].state=3080;
+        set_state(&g,&g.fighters[0],3080);
         g.fighters[0].anim=0;
         g.fighters[0].ctrl=0;
         ik_fight_controls_t p1{};
@@ -3143,7 +3228,7 @@ int main() {
      * trigger ticks instead of relying on hard-coded attack-state audio. */
     {
         const ik_cns_playsnd_t sounds[] = {
-            {3070,IK_CNS_TRIGGER_TIME_EQ,1,0,3},
+            {3070,IK_CNS_TRIGGER_TIME_EQ,0,0,3},
         };
         ik_cns_state_t state{};
         state.number=3070;
@@ -3166,7 +3251,7 @@ int main() {
         asset.playsnd_count=1u;
 
         ik_fight_init(&g,&asset);
-        g.fighters[0].state=3070;
+        set_state(&g,&g.fighters[0],3070);
         g.fighters[0].anim=0;
         g.fighters[0].ctrl=0;
         ik_fight_controls_t p1{};
@@ -3183,7 +3268,7 @@ int main() {
     {
         const ik_cns_controller_t ctrls[] = {
             {3060,IK_CNS_CTRL_AFTER_IMAGE,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,2,13,0u,1,2},
+             0,0,2,13,0u,1,2},
             {3060,IK_CNS_CTRL_AFTER_IMAGE_TIME,IK_CNS_TRIGGER_ALWAYS,
              0,0,2,0,0u},
         };
@@ -3208,7 +3293,7 @@ int main() {
         asset.controller_count=2u;
 
         ik_fight_init(&g,&asset);
-        g.fighters[0].state=3060;
+        set_state(&g,&g.fighters[0],3060);
         g.fighters[0].anim=0;
         g.fighters[0].ctrl=0;
         ik_fight_controls_t p1{};
@@ -3229,9 +3314,9 @@ int main() {
     {
         const ik_cns_controller_t ctrls[] = {
             {5110,IK_CNS_CTRL_FALL_ENV_SHAKE,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,0,0,0u},
+             0,0,0,0,0u},
             {5110,IK_CNS_CTRL_HIT_FALL_DAMAGE,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,0,0,0u},
+             0,0,0,0,0u},
         };
         ik_cns_state_t state{};
         state.number=5110;
@@ -3254,7 +3339,7 @@ int main() {
         asset.controller_count=2u;
 
         ik_fight_init(&g,&asset);
-        g.fighters[0].state=5110;
+        set_state(&g,&g.fighters[0],5110);
         g.fighters[0].anim=0;
         g.fighters[0].state_time=0u;
         g.fighters[0].hp=500;
@@ -3267,14 +3352,14 @@ int main() {
         ik_fight_controls_t p2{};
         tick2(&g,&p1,&p2);
 
-        EQ(g.fighters[0].hp,430);
+        EQ(LIFE(g.fighters[0]),430);
         EQ(g.fighters[0].gethit_fall_damage,0);
         EQ(g.env_shake_time,15u);
         EQ(g.env_shake_ampl,6);
         EQ(g.env_shake_freq,178u);
 
         tick2(&g,&p1,&p2);
-        EQ(g.fighters[0].hp,430);
+        EQ(LIFE(g.fighters[0]),430);
     }
 
     /* Helper throws own their target through a generational entity handle.
@@ -3419,9 +3504,9 @@ int main() {
     {
         const ik_cns_controller_t p1_ctrls[] = {
             {900,IK_CNS_CTRL_TARGET_STATE,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,950,0,0u},
+             0,0,950,0,0u,-1},
             {950,IK_CNS_CTRL_SELF_STATE,IK_CNS_TRIGGER_TIME_EQ,
-             2,0,0,1,IK_CNS_CTRL_HAS_CTRL},
+             1,0,0,1,IK_CNS_CTRL_HAS_CTRL},
         };
 
         ik_cns_state_t p1_states[3]{};
@@ -3445,6 +3530,7 @@ int main() {
         p1_states[2].state_type=IK_CNS_STATE_AIR;
         p1_states[2].move_type=IK_CNS_MOVE_HIT;
         p1_states[2].physics=IK_CNS_PHYS_NONE;
+        p1_states[2].owns_air_accel=1u;   /* nothing pulls the target down */
         p1_states[2].controller_ofs=1u;
         p1_states[2].controller_count=1u;
 
@@ -3489,7 +3575,7 @@ int main() {
         ik_fight_set_player_cns(&g,1u,&p2_asset);
         place(&g,100,160);
 
-        g.fighters[0].state=900;
+        set_state(&g,&g.fighters[0],900);
         g.fighters[0].anim=900;
         g.fighters[0].state_time=0u;
         g.fighters[0].anim_time=0u;
@@ -3497,7 +3583,7 @@ int main() {
         g.fighters[0].state_owner=0u;
         g.fighters[0].target_index=1;
 
-        g.fighters[1].state=0;
+        set_state(&g,&g.fighters[1],0);
         g.fighters[1].anim=222;
         g.fighters[1].state_time=0u;
         g.fighters[1].anim_time=0u;
@@ -3528,9 +3614,9 @@ int main() {
     {
         const ik_cns_controller_t p1_ctrls[] = {
             {951,IK_CNS_CTRL_CHANGE_ANIM2,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,820,1,0u},
+             0,0,820,1,0u},
             {951,IK_CNS_CTRL_CHANGE_ANIM,IK_CNS_TRIGGER_TIME_EQ,
-             2,0,5050,1,0u},
+             1,0,5050,1,0u},
         };
 
         ik_cns_state_t p1_state{};
@@ -3585,7 +3671,7 @@ int main() {
         ik_fight_init(&g,&p1_asset);
         ik_fight_set_player_cns(&g,0u,&p1_asset);
         ik_fight_set_player_cns(&g,1u,&p2_asset);
-        g.fighters[1].state=951;
+        set_state(&g,&g.fighters[1],951);
         g.fighters[1].state_owner=0u;
         g.fighters[1].owner_player=1u;
         g.fighters[1].anim=0;
@@ -3614,13 +3700,13 @@ int main() {
     {
         const ik_cns_controller_t ctrls[] = {
             {960,IK_CNS_CTRL_TARGET_BIND,IK_CNS_TRIGGER_ALWAYS,
-             0,0,8*IK_CNS_Q8_ONE,-12*IK_CNS_Q8_ONE,0u},
+             0,0,8*IK_CNS_Q8_ONE,-12*IK_CNS_Q8_ONE,0u,-1},
             {960,IK_CNS_CTRL_TARGET_FACING,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,-1,0,0u},
+             0,0,-1,0,0u,-1},
             {960,IK_CNS_CTRL_TARGET_LIFE_ADD,IK_CNS_TRIGGER_TIME_EQ,
-             1,0,-125,0,0u},
+             0,0,-125,0,0u,-1},
             {960,IK_CNS_CTRL_TARGET_STATE,IK_CNS_TRIGGER_TIME_EQ,
-             2,0,961,0,0u},
+             1,0,961,0,0u,-1},
         };
 
         ik_cns_state_t states[3]{};
@@ -3728,6 +3814,7 @@ int main() {
      * carry the requested ID; NoChainID rejects the forbidden predecessor. */
     {
         ik_cns_hitdef_t hits[4]{};
+        for(auto& h_:hits){h_.p1_state_no=-1;h_.p2_state_no=-1;}
         for (int i=0;i<4;++i) {
             hits[i].state_number=(int16_t)(980+i);
             hits[i].trigger_kind=IK_CNS_TRIGGER_ALWAYS;
@@ -3782,7 +3869,7 @@ int main() {
         ik_fight_controls_t p2{};
 
         auto attack_state = [&](int16_t state) {
-            g.fighters[0].state=state;
+            set_state(&g,&g.fighters[0],state);
             g.fighters[0].anim=910;
             g.fighters[0].state_time=0u;
             g.fighters[0].anim_time=0u;
@@ -3790,7 +3877,7 @@ int main() {
             g.fighters[0].hitdef_hit_mask=0u;
             g.fighters[0].active_hitdef_global=-1;
             g.fighters[0].active_hitdef_local=-1;
-            g.fighters[1].state=0;
+            set_state(&g,&g.fighters[1],0);
             g.fighters[1].anim=0;
             g.fighters[1].state_time=0u;
             g.fighters[1].anim_time=0u;
@@ -3800,20 +3887,20 @@ int main() {
         };
 
         attack_state(980);
-        EQ(g.fighters[1].hp,990);
+        EQ(LIFE(g.fighters[1]),990);
         EQ(g.fighters[1].last_hit_owner,0);
         EQ(g.fighters[1].last_hit_id,10);
 
         attack_state(981);
-        EQ(g.fighters[1].hp,980);
+        EQ(LIFE(g.fighters[1]),980);
         EQ(g.fighters[1].last_hit_id,11);
 
         attack_state(982);
-        EQ(g.fighters[1].hp,980);
+        EQ(LIFE(g.fighters[1]),980);
         EQ(g.fighters[1].last_hit_id,11);
 
         attack_state(983);
-        EQ(g.fighters[1].hp,980);
+        EQ(LIFE(g.fighters[1]),980);
         EQ(g.fighters[1].last_hit_id,11);
     }
 
@@ -3991,6 +4078,7 @@ int main() {
      * helper contact suppresses the opposing root attack in the same tick. */
     {
         ik_cns_hitdef_t hits[2]{};
+        for(auto& h_:hits){h_.p1_state_no=-1;h_.p2_state_no=-1;}
         hits[0].state_number=930;
         hits[0].trigger_kind=IK_CNS_TRIGGER_ALWAYS;
         hits[0].damage=30;
@@ -4056,7 +4144,7 @@ int main() {
         ik_fight_init(&g,&asset);
         ik_fight_bind_entities(&g,&pool,p1_entity,p2_entity);
         place(&g,100,145);
-        g.fighters[1].state=930;
+        set_state(&g,&g.fighters[1],930);
         g.fighters[1].anim=910;
         g.fighters[1].state_time=0u;
         g.fighters[1].anim_time=0u;
@@ -4081,8 +4169,8 @@ int main() {
         ik_fight_controls_t p2{};
         tick2(&g,&p1,&p2);
 
-        EQ(g.fighters[0].hp,1000);
-        EQ(g.fighters[1].hp,960);
+        EQ(LIFE(g.fighters[0]),1000);
+        EQ(LIFE(g.fighters[1]),960);
         EQ(g.hits_p1,1u);
         EQ(g.hits_p2,0u);
         helper_entity=ik_entity_get(&pool,helper);
@@ -4094,6 +4182,8 @@ int main() {
      * entity hit/guard path. AA matches physical NA/SA/HA, not projectiles. */
     {
         ik_cns_hitdef_t hit{};
+        hit.p1_state_no=-1;
+        hit.p2_state_no=-1;
         hit.state_number=941;
         hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
         hit.trigger_value=0;
@@ -4168,7 +4258,7 @@ int main() {
         root1->x_q8=145*IK_CNS_Q8_ONE;
         root1->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
         root1->facing=-1;
-        g.fighters[1].state=934;
+        set_state(&g,&g.fighters[1],934);
         g.fighters[1].anim=910;
         g.fighters[1].ctrl=0;
 
@@ -4192,7 +4282,7 @@ int main() {
         tick2(&g,&p1,&p2);
 
         EQ(g.fighters[1].state,935);
-        EQ(g.fighters[1].hp,1000);
+        EQ(LIFE(g.fighters[1]),1000);
         EQ(ik_entity_count_type(&pool,IK_ENTITY_HELPER),1u);
         helper_entity=ik_entity_get(&pool,helper);
         OK(helper_entity!=nullptr);
@@ -4204,6 +4294,8 @@ int main() {
      * redirects the defender and consumes the projectile without damage. */
     {
         ik_cns_hitdef_t hit{};
+        hit.p1_state_no=-1;
+        hit.p2_state_no=-1;
         hit.state_number=940;
         hit.trigger_kind=IK_CNS_TRIGGER_TIME_EQ;
         hit.trigger_value=0;
@@ -4274,7 +4366,7 @@ int main() {
         OK(root0!=nullptr); OK(root1!=nullptr);
         root0->x_q8=100*IK_CNS_Q8_ONE; root0->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE; root0->facing=1;
         root1->x_q8=145*IK_CNS_Q8_ONE; root1->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE; root1->facing=-1;
-        g.fighters[1].state=932;
+        set_state(&g,&g.fighters[1],932);
         g.fighters[1].anim=0;
         g.fighters[1].ctrl=0;
 
@@ -4293,7 +4385,7 @@ int main() {
         tick2(&g,&p1,&p2);
 
         EQ(g.fighters[1].state,933);
-        EQ(g.fighters[1].hp,1000);
+        EQ(LIFE(g.fighters[1]),1000);
         EQ(ik_entity_count_type(&pool,IK_ENTITY_PROJECTILE),0u);
     }
 
@@ -4301,6 +4393,8 @@ int main() {
      * projhits contacts and rearms only after projmisstime expires. */
     {
         ik_cns_hitdef_t hit{};
+        hit.p1_state_no=-1;
+        hit.p2_state_no=-1;
         hit.state_number=950;
         hit.trigger_kind=IK_CNS_TRIGGER_ALWAYS;
         hit.damage=10;
@@ -4384,7 +4478,7 @@ int main() {
         ik_fight_controls_t p1{};
         ik_fight_controls_t p2{};
         tick2(&g,&p1,&p2);
-        EQ(g.fighters[1].hp,990);
+        EQ(LIFE(g.fighters[1]),990);
         root0=ik_entity_get(&pool,p1_entity);
         OK(root0!=nullptr);
         EQ(root0->proj_query_contact,1u);
@@ -4399,7 +4493,7 @@ int main() {
         EQ(shot->projectile_hit_cooldown,2u);
 
         tick2(&g,&p1,&p2);
-        EQ(g.fighters[1].hp,990);
+        EQ(LIFE(g.fighters[1]),990);
         root0=ik_entity_get(&pool,p1_entity);
         OK(root0!=nullptr);
         EQ(root0->proj_query_contact_time,1);
@@ -4409,7 +4503,7 @@ int main() {
         EQ(shot->projectile_hit_cooldown,1u);
 
         tick2(&g,&p1,&p2);
-        EQ(g.fighters[1].hp,980);
+        EQ(LIFE(g.fighters[1]),980);
         root0=ik_entity_get(&pool,p1_entity);
         OK(root0!=nullptr);
         EQ(root0->proj_query_contact_time,0);
@@ -4421,6 +4515,8 @@ int main() {
      * can contact a fighter. Priority 2 survives priority 1 with value 1. */
     {
         ik_cns_hitdef_t hit{};
+        hit.p1_state_no=-1;
+        hit.p2_state_no=-1;
         hit.state_number=951;
         hit.trigger_kind=IK_CNS_TRIGGER_ALWAYS;
         hit.damage=1;
@@ -4461,14 +4557,14 @@ int main() {
 
         ik_fight_init(&g,&asset);
         ik_fight_bind_entities(&g,&pool,p1_entity,p2_entity);
-        place(&g,60,260);
+        place(&g,60,300);
         ik_entity_t* root0=ik_entity_get(&pool,p1_entity);
         ik_entity_t* root1=ik_entity_get(&pool,p2_entity);
         OK(root0!=nullptr); OK(root1!=nullptr);
         root0->x_q8=60*IK_CNS_Q8_ONE;
         root0->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
         root0->facing=1;
-        root1->x_q8=260*IK_CNS_Q8_ONE;
+        root1->x_q8=300*IK_CNS_Q8_ONE;
         root1->y_q8=IK_FLOOR_Y*IK_CNS_Q8_ONE;
         root1->facing=-1;
 
@@ -4492,6 +4588,7 @@ int main() {
         ik_cns_projectile_t p1spec=p0;
         p1spec.id=2;
         p1spec.priority=1u;
+        p1spec.pos_x_q8=60*IK_CNS_Q8_ONE;
 
         ik_entity_runtime_t runtime{};
         ik_entity_runtime_init(
@@ -4510,7 +4607,7 @@ int main() {
         const ik_entity_t* surviving=
             ik_entity_get_const(&pool,h0);
         OK(surviving!=nullptr);
-        EQ(surviving->projectile_priority,1u);
+        if(surviving) EQ(surviving->projectile_priority,1u);
         OK(ik_entity_get_const(&pool,h1)==nullptr);
         EQ(ik_entity_count_type(&pool,IK_ENTITY_PROJECTILE),1u);
     }

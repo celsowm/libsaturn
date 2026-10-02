@@ -4,14 +4,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 try:
-    from .inputs import write_timeline
+    from .inputs import setup_string, write_timeline
 except ImportError:
-    from inputs import write_timeline
+    from inputs import setup_string, write_timeline
 
 SCHEMA = 1
 
@@ -46,6 +47,67 @@ def build_command(scenario: dict) -> list[str]:
         cmd += ["-p2.ai", str(p2_ai)]
     cmd += [str(v) for v in scenario.get("extra_args", [])]
     return cmd
+
+def apply_upstream_build_env(env: dict) -> None:
+    """Upstream imports the Go `arena` package (rollback state cloning), which
+    only exists under GOEXPERIMENT=arenas; `go run` fails without it."""
+    experiments = [e for e in env.get("GOEXPERIMENT", "").split(",") if e]
+    if "arenas" not in experiments:
+        experiments.append("arenas")
+    env["GOEXPERIMENT"] = ",".join(experiments)
+    env.setdefault("CGO_ENABLED", "1")
+    # Running under this repo's Makefile leaks the SH-2 cross toolchain into
+    # the environment (CC=sh2eb-elf-gcc); cgo must build for the host.
+    env["CC"] = "gcc"
+    env["CXX"] = "g++"
+    for var in ("AR", "LD", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS"):
+        env.pop(var, None)
+
+SCREENPACK_DIRS = ("data", "font", "sound", "stages", "chars", "video")
+
+def stage_screenpack(ikemen_dir: Path, screenpack_dir: Path) -> int:
+    """The engine repo ships no motif: a runnable Ikemen GO is the engine
+    plus the Screenpack's data/font/sound/stages/chars. Merge the Screenpack
+    into the engine checkout without overwriting anything already there.
+    Both are ignored .external checkouts, so this never touches tracked
+    files. Returns the number of files copied."""
+    copied = 0
+    for name in SCREENPACK_DIRS:
+        src_root = screenpack_dir / name
+        if not src_root.is_dir():
+            continue
+        for src in src_root.rglob("*"):
+            if not src.is_file():
+                continue
+            dst = ikemen_dir / name / src.relative_to(src_root)
+            if dst.exists():
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
+            copied += 1
+    return copied
+
+def missing_prerequisites(env: dict) -> list[str]:
+    """Human-readable list of what upstream's cgo build still needs."""
+    problems = []
+    if shutil.which("go", path=env.get("PATH")) is None:
+        problems.append("go toolchain not on PATH")
+    if shutil.which("gcc", path=env.get("PATH")) is None:
+        problems.append("gcc (cgo) not on PATH")
+    pkg_config = shutil.which("pkg-config", path=env.get("PATH")) or \
+        shutil.which("pkgconf", path=env.get("PATH"))
+    if pkg_config is None:
+        problems.append("pkg-config/pkgconf not on PATH")
+        return problems
+    for module in ("sdl2", "libxmp", "libavcodec", "libavformat",
+                   "libavutil", "libswscale", "libswresample"):
+        found = subprocess.run(
+            [pkg_config, "--exists", module], env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ).returncode == 0
+        if not found:
+            problems.append(f"pkg-config module '{module}' not found")
+    return problems
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -108,6 +170,8 @@ def main() -> int:
         int(scenario.get("round_state", 2))
     )
     env["LIBSATURN_IKEMEN_ORACLE_INPUTS"] = str(timeline)
+    env["LIBSATURN_IKEMEN_ORACLE_SETUP"] = setup_string(scenario)
+    apply_upstream_build_env(env)
 
     cmd = build_command(scenario)
     if args.dry_run:
@@ -121,6 +185,18 @@ def main() -> int:
             "inputs": str(timeline),
         }, indent=2))
         return 0
+
+    screenpack = ikemen_dir.parent / "Ikemen-GO-Screenpack"
+    if screenpack.is_dir():
+        staged = stage_screenpack(ikemen_dir, screenpack)
+        if staged:
+            print(f"staged {staged} Screenpack files into {ikemen_dir}")
+
+    problems = missing_prerequisites(env)
+    if problems:
+        raise SystemExit(
+            "Ikemen GO cannot be built here:\n  - " + "\n  - ".join(problems)
+        )
 
     completed = subprocess.run(cmd, cwd=ikemen_dir, env=env)
     if completed.returncode != 0:

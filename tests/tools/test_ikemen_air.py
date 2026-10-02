@@ -28,3 +28,22 @@ LoopStart
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def test_clsn_header_decides_box_type() -> None:
+    # KFM's blocking actions list `Clsn2[n]` lines under a `Clsn1: n` header;
+    # upstream reads them as Clsn1 boxes.
+    source = """[Begin Action 1300]
+Clsn1: 2
+ Clsn2[0] =   0,  1, 34,-84
+ Clsn2[1] =  13,-97, 47,-65
+Clsn2: 1
+ Clsn2[0] =   0,  1, 34,-84
+1300,0, 0,0, 2
+"""
+    with TemporaryDirectory() as tmp:
+        path = Path(tmp) / "kfm.air"
+        path.write_text(source, encoding="utf-8")
+        frame = air.parse(path)[1300].frames[0]
+    assert len(frame.clsn1) == 2
+    assert len(frame.clsn2) == 1

@@ -15,6 +15,29 @@ from tools.ikemen_state_rules import (  # noqa: E402
     parse_state_rules,
 )
 
+from tools.ikemen_state_rules import Insn, required_command  # noqa: E402
+
+# required_command: a command the rule cannot pass without (or None).
+cmd = lambda n: Insn("command_active", n)  # noqa: E731
+other = Insn("ctrl")
+assert required_command([cmd(3)]) == 3
+assert required_command([cmd(3), other, Insn("and")]) == 3
+assert required_command([other, cmd(3), Insn("and")]) == 3
+# AND of two commands requires both; any of them is a valid gate.
+assert required_command([cmd(5), cmd(2), Insn("and")]) == 2
+# OR requires only what both sides require.
+assert required_command([cmd(3), cmd(4), Insn("or")]) is None
+assert required_command([cmd(3), other, Insn("and"), cmd(3), Insn("or")]) == 3
+assert required_command([cmd(3), cmd(4), Insn("or"), cmd(3), Insn("and")]) == 3
+# NOT and command_inactive are not positive requirements.
+assert required_command([cmd(3), Insn("not")]) is None
+assert required_command([Insn("command_inactive", 3)]) is None
+assert required_command([cmd(3), Insn("command_inactive", 4), Insn("and")]) == 3
+# No command at all, or a malformed program, means "always evaluate".
+assert required_command([other]) is None
+assert required_command([]) is None
+assert required_command([Insn("and")]) is None
+
 target_redirect_code = Parser(
     "target(42,1), stateno = 821",
     {},

@@ -236,6 +236,83 @@ const ik_frame_t* ik_frame_at_time(const ik_frame_table_t* table,
     return &table->frames[first + count - 1u];
 }
 
+void ik_anim_trace_state(const ik_frame_table_t* table, int action,
+                         uint32_t time, int* out_elem, uint32_t* out_time) {
+    int elem = 0;
+    uint32_t cur = time;
+    uint32_t first = 0u;
+    uint32_t count = 0u;
+    if (ik_frames_bounds(table, action, &first, &count) && count > 0u) {
+        uint32_t loop = 0u;
+        for (uint32_t i = 0u; i < count; ++i) {
+            if ((table->frames[first + i].flags &
+                 IK_FRAME_FLAG_LOOP_START) != 0u) {
+                loop = i;
+                break;
+            }
+        }
+        uint32_t total = 0u;
+        uint32_t pre = 0u;
+        int holds = 0;
+        for (uint32_t i = 0u; i < count; ++i) {
+            const uint16_t ticks = ik_frame_ticks(&table->frames[first + i]);
+            if (ticks == 0u) {
+                holds = 1;
+                break;
+            }
+            total += ticks;
+            if (i < loop) pre += ticks;
+        }
+        /* Upstream Animation.Action(): once curtime reaches totaltime it
+         * drops back to totaltime - looptime (= pre) before incrementing, so
+         * the cycle is pre+1 .. total, with `total` shown once per lap. */
+        uint32_t elem_time = time;
+        if (!holds && total > 0u && time >= total) {
+            const uint32_t span = total - pre;
+            /* The element index wraps on the tick curtime reaches total;
+             * curtime itself only drops on the following tick. */
+            elem_time = span == 0u ? pre : pre + (time - total) % span;
+            if (time > total) {
+                cur = span == 0u
+                    ? pre : pre + 1u + (time - total - 1u) % span;
+            }
+        }
+        uint32_t remaining = elem_time;
+        elem = (int)count;
+        for (uint32_t i = 0u; i < count; ++i) {
+            const uint16_t ticks = ik_frame_ticks(&table->frames[first + i]);
+            if (ticks == 0u || remaining < ticks) {
+                elem = (int)(i + 1u);
+                break;
+            }
+            remaining -= ticks;
+        }
+    }
+    if (out_elem != 0) *out_elem = elem;
+    if (out_time != 0) *out_time = cur;
+}
+
+const ik_frame_t* ik_frame_after(const ik_frame_table_t* table,
+                                 const ik_frame_t* frame) {
+    if (table == 0 || table->frames == 0 || frame == 0) return 0;
+    const ik_frame_t* end = table->frames + table->count;
+    if (frame < table->frames || frame >= end) return 0;
+    if (ik_frame_ticks(frame) == 0u) return 0;
+
+    const ik_frame_t* next = frame + 1;
+    if (next < end && next->action == frame->action) return next;
+
+    /* Last frame of the action: only a loop continues it. */
+    const ik_frame_t* first = frame;
+    while (first > table->frames && (first - 1)->action == frame->action) {
+        --first;
+    }
+    for (const ik_frame_t* p = first; p <= frame; ++p) {
+        if ((p->flags & IK_FRAME_FLAG_LOOP_START) != 0u) return p;
+    }
+    return 0;
+}
+
 uint32_t ik_action_duration_ticks(const ik_frame_table_t* table, int action) {
     uint32_t first = 0u;
     uint32_t count = 0u;
@@ -308,17 +385,20 @@ uint16_t ik_frame_clsn_count(const ik_frame_t* frame, uint8_t kind) {
     return 0u;
 }
 
-int ik_frame_clsn_world(const ik_frame_table_t* table,
-                        const ik_frame_t* frame,
-                        uint8_t kind,
-                        uint16_t index,
-                        int x,
-                        int y,
-                        int facing,
-                        int* out_left,
-                        int* out_top,
-                        int* out_right,
-                        int* out_bottom) {
+/* Box edges in the unit of x/y: `scale` is how many position units one
+ * pixel of box coordinate is worth (1 for pixels, 256 for Q8.8). */
+static int clsn_world_scaled(const ik_frame_table_t* table,
+                             const ik_frame_t* frame,
+                             uint8_t kind,
+                             uint16_t index,
+                             int32_t x,
+                             int32_t y,
+                             int facing,
+                             int32_t scale,
+                             int32_t* out_left,
+                             int32_t* out_top,
+                             int32_t* out_right,
+                             int32_t* out_bottom) {
     if (table == 0 || frame == 0 || table->clsn_boxes == 0) return 0;
 
     uint32_t ofs = 0u;
@@ -335,18 +415,18 @@ int ik_frame_clsn_world(const ik_frame_table_t* table,
     if (index >= count || ofs + index >= table->clsn_box_count) return 0;
 
     const ik_clsn_box_t* box = &table->clsn_boxes[ofs + index];
-    int l = box->left;
-    int t = box->top;
-    int r = box->right;
-    int b = box->bottom;
-    if (l > r) { const int tmp = l; l = r; r = tmp; }
-    if (t > b) { const int tmp = t; t = b; b = tmp; }
+    int32_t l = (int32_t)box->left * scale;
+    int32_t t = (int32_t)box->top * scale;
+    int32_t r = (int32_t)box->right * scale;
+    int32_t b = (int32_t)box->bottom * scale;
+    if (l > r) { const int32_t tmp = l; l = r; r = tmp; }
+    if (t > b) { const int32_t tmp = t; t = b; b = tmp; }
 
     const int flip_h = (facing < 0) !=
                        ((frame->flags & IK_FRAME_FLAG_FLIP_H) != 0u);
     const int flip_v = (frame->flags & IK_FRAME_FLAG_FLIP_V) != 0u;
 
-    int wl, wr, wt, wb;
+    int32_t wl, wr, wt, wb;
     if (flip_h) {
         wl = x - r;
         wr = x - l;
@@ -367,4 +447,42 @@ int ik_frame_clsn_world(const ik_frame_table_t* table,
     if (out_right) *out_right = wr;
     if (out_bottom) *out_bottom = wb;
     return 1;
+}
+
+int ik_frame_clsn_world(const ik_frame_table_t* table,
+                        const ik_frame_t* frame,
+                        uint8_t kind,
+                        uint16_t index,
+                        int x,
+                        int y,
+                        int facing,
+                        int* out_left,
+                        int* out_top,
+                        int* out_right,
+                        int* out_bottom) {
+    int32_t l, t, r, b;
+    if (!clsn_world_scaled(table, frame, kind, index, x, y, facing, 1,
+                           &l, &t, &r, &b)) {
+        return 0;
+    }
+    if (out_left) *out_left = (int)l;
+    if (out_top) *out_top = (int)t;
+    if (out_right) *out_right = (int)r;
+    if (out_bottom) *out_bottom = (int)b;
+    return 1;
+}
+
+int ik_frame_clsn_world_q8(const ik_frame_table_t* table,
+                           const ik_frame_t* frame,
+                           uint8_t kind,
+                           uint16_t index,
+                           int32_t x_q8,
+                           int32_t y_q8,
+                           int facing,
+                           int32_t* out_left,
+                           int32_t* out_top,
+                           int32_t* out_right,
+                           int32_t* out_bottom) {
+    return clsn_world_scaled(table, frame, kind, index, x_q8, y_q8, facing,
+                             256, out_left, out_top, out_right, out_bottom);
 }

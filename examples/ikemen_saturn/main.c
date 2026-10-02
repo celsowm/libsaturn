@@ -26,6 +26,7 @@
 #include "ikemen_command.h"
 #include "ikemen_entity.h"
 #include "ikemen_fight.h"
+#include "ikemen_frame.h"
 #include "ikemen_saturn/kfm_commands.h"
 #include "ikemen_saturn/kfm_state_rules.h"
 #include "ikemen_saturn/kfm_cns.h"
@@ -41,7 +42,7 @@
 #define IK_AFTERIMAGE_HISTORY 32u
 #define IK_EFFECT_TEXTURE_CACHE_LIMIT 3u
 #define IK_ASSET_LOAD_CHUNK_BYTES (64u * 1024u)
-#define IK_PREFETCH_LOOKAHEAD_TICKS 32u
+#define IK_PREFETCH_LOOKAHEAD_FRAMES 6u
 #define IK_CHARACTER_MAX_SPRITE_SOURCE_BYTES \
     ((KFM_MAX_SPRITE_SOURCE_BYTES > KFM_ZSS_MAX_SPRITE_SOURCE_BYTES) ? \
          KFM_MAX_SPRITE_SOURCE_BYTES : KFM_ZSS_MAX_SPRITE_SOURCE_BYTES)
@@ -74,6 +75,14 @@ typedef struct ik_sprite_prefetch {
     uint32_t bytes;
     uint8_t asset_slot;
     uint8_t valid;
+    /* The animation frame the last lookahead was completed for. The next
+     * distinct sprite depends only on (owner, action, frame), so while the
+     * fighter stays on that frame there is nothing left to prefetch. */
+    uint8_t done;
+    uint8_t done_owner;
+    int16_t done_anim;
+    uint16_t done_index;
+    uint16_t done_sprite;
 } ik_sprite_prefetch_t;
 
 typedef struct ik_character_runtime {
@@ -121,9 +130,7 @@ static uint8_t g_frame_decode_scratch[IK_MAX_SPRITE_BYTES]
 static uint16_t g_map_scratch[SAT_VDP2_NBG0_MAP_CELLS];
 static sat_ascii_font_t g_font;
 static sat_hud_t g_hud;
-static ik_command_state_t g_command_states[2];
-static ik_entity_pool_t g_entity_pool;
-static ik_entity_handle_t g_player_entities[2];
+static ik_frame_ctx_t g_frame;
 
 static const ik_frame_table_t g_kfm_table = {
     kfm_frames, KFM_FRAME_COUNT, kfm_clsn_boxes, KFM_CLSN_BOX_COUNT
@@ -195,11 +202,13 @@ static int env_shake_y(const ik_fight_t* fight) {
     return ((int)fight->env_shake_ampl * (int)sine16[index]) / 16;
 }
 
+/* Camera offset in screen pixels (fighter x space -> screen): the camera is
+ * simulated by the fight (tension, smoothing, stage bounds). */
+static int g_cam_dx;
+
 static void stage_scroll_for_fight(const ik_fight_t* fight) {
-    int mid = (int)fight->fighters[0].x + (int)fight->fighters[1].x;
-    mid = (mid / 2) - 160;
-    if (mid < -125) mid = -125;
-    if (mid > 125) mid = 125;
+    g_cam_dx = (int)(ik_fight_camera_x_q8(fight) >> 8) - IK_STAGE_CENTER_X;
+    const int mid = g_cam_dx;
     {
         const sat_vdp2_scroll_t sc = {
             (uint16_t)mid, (uint16_t)env_shake_y(fight), 0u, 0u
@@ -413,6 +422,18 @@ static sat_result_t frame_texture_resolve(uint32_t player,
     return SAT_OK;
 }
 
+static void prefetch_mark_done(
+    ik_sprite_prefetch_t* pf,
+    const ik_fighter_t* fighter,
+    const ik_frame_t* current
+) {
+    pf->done_owner = fighter->anim_owner;
+    pf->done_anim = (int16_t)fighter->anim;
+    pf->done_index = current->index;
+    pf->done_sprite = current->sprite_index;
+    pf->done = 1u;
+}
+
 static sat_result_t prefetch_next_frame(
     uint32_t player,
     const ik_fighter_t* fighter,
@@ -426,11 +447,27 @@ static sat_result_t prefetch_next_frame(
     const ik_character_runtime_t* animation =
         &g_characters[fighter->anim_owner];
 
+    /* Once per animation frame, not once per tick. The sprite that follows
+     * depends only on (owner, action, frame), so the answer, including
+     * "nothing different ahead", stays valid until the fighter moves on. The
+     * old per-tick search cost ~10% of a field while just standing. */
+    ik_sprite_prefetch_t* pf = &g_prefetch[player];
+    if (pf->done &&
+        pf->done_owner == fighter->anim_owner &&
+        pf->done_anim == fighter->anim &&
+        pf->done_index == current->index &&
+        pf->done_sprite == current->sprite_index) {
+        return SAT_OK;
+    }
+    pf->done = 0u;
+
     ik_frame_t next_visual;
     const ik_frame_t* next = 0;
-    for (uint32_t dt = 1u; dt <= IK_PREFETCH_LOOKAHEAD_TICKS; ++dt) {
-        const ik_frame_t* candidate = ik_frame_at_time(
-            animation->frames, fighter->anim, fighter->anim_time + dt);
+    const ik_frame_t* candidate = ik_frame_at_time(
+        animation->frames, fighter->anim, fighter->anim_time);
+    for (uint32_t step = 0u;
+         candidate && step < IK_PREFETCH_LOOKAHEAD_FRAMES; ++step) {
+        candidate = ik_frame_after(animation->frames, candidate);
         if (!candidate) break;
         if (!resolve_visual_frame(
                 player, fighter->anim_owner,
@@ -443,9 +480,14 @@ static sat_result_t prefetch_next_frame(
         }
     }
 
-    if (!next ||
-        texture_cache_contains(character->asset_slot, next->sprite_index)) {
-        g_prefetch[player].valid = 0u;
+    if (!next) {
+        pf->valid = 0u;
+        prefetch_mark_done(pf, fighter, current);
+        return SAT_OK;
+    }
+    if (texture_cache_contains(character->asset_slot, next->sprite_index)) {
+        pf->valid = 0u;
+        prefetch_mark_done(pf, fighter, current);
         return SAT_OK;
     }
     if (next->sprite_index >= character->sprite_count) {
@@ -461,10 +503,11 @@ static sat_result_t prefetch_next_frame(
     SAT_TRY(ik_asset_store_read_sprite(
         &g_asset_store, character->asset_slot, source,
         g_prefetch_data[player], IK_MAX_SPRITE_SOURCE_BYTES));
-    g_prefetch[player].sprite_index = next->sprite_index;
-    g_prefetch[player].bytes = source->data_size;
-    g_prefetch[player].asset_slot = character->asset_slot;
-    g_prefetch[player].valid = 1u;
+    pf->sprite_index = next->sprite_index;
+    pf->bytes = source->data_size;
+    pf->asset_slot = character->asset_slot;
+    pf->valid = 1u;
+    prefetch_mark_done(pf, fighter, current);
     return SAT_OK;
 }
 
@@ -624,7 +667,7 @@ static void draw_effects(void) {
         int16_t dx = 0;
         int16_t dy = 0;
         ik_frame_screen_anchor(
-            frame, effect->x, effect->y, 1, &dx, &dy);
+            frame, effect->x - g_cam_dx, effect->y, 1, &dx, &dy);
 
         sat_draw_params_t params = sat_draw_params_default();
         if ((frame->flags & IK_FRAME_FLAG_BLEND_ADD) != 0u) {
@@ -715,7 +758,7 @@ static void draw_afterimages(
         int16_t dx = 0;
         int16_t dy = 0;
         ik_frame_screen_anchor(
-            snap_frame, snap->x, snap->y, snap->facing, &dx, &dy);
+            snap_frame, snap->x - g_cam_dx, snap->y, snap->facing, &dx, &dy);
 
         sat_draw_params_t params = sat_draw_params_default();
         const int flip_h =
@@ -861,7 +904,7 @@ static void draw_fighter(const ik_frame_t* frame,
     int16_t dx = 0;
     int16_t dy = 0;
     ik_frame_screen_anchor(
-        frame, (int)f->x, (int)f->y, f->facing, &dx, &dy);
+        frame, (int)f->x - g_cam_dx, (int)f->y, f->facing, &dx, &dy);
 
     sat_draw_params_t params = sat_draw_params_default();
     if (flip_h) params.flip = SAT_FLIP_X;
@@ -884,8 +927,9 @@ static void draw_fighter(const ik_frame_t* frame,
     {
         const int hw = ik_body_half_w(f) + 4;
         const sat_polygon_cmd_t shadow = {
-            {(int16_t)(f->x - hw), (int16_t)(f->x + hw),
-             (int16_t)(f->x + hw - 3), (int16_t)(f->x - hw + 3)},
+            {(int16_t)(f->x - g_cam_dx - hw), (int16_t)(f->x - g_cam_dx + hw),
+             (int16_t)(f->x - g_cam_dx + hw - 3),
+             (int16_t)(f->x - g_cam_dx - hw + 3)},
             {FLOOR_SCREEN_Y - 2, FLOOR_SCREEN_Y - 2,
              FLOOR_SCREEN_Y + 2, FLOOR_SCREEN_Y + 2},
             SAT_RGB555(2u, 2u, 4u),
@@ -912,7 +956,7 @@ static void draw_helper_entity(const ik_frame_t* frame,
         entity->explod_vfacing < 0) {
         flip_v = !flip_v;
     }
-    const int x = ik_cns_q8_to_int(entity->x_q8);
+    const int x = ik_cns_q8_to_int(entity->x_q8) - g_cam_dx;
     const int y = ik_cns_q8_to_int(entity->y_q8);
 
     int16_t dx = 0;
@@ -1044,7 +1088,7 @@ static void draw_combat_entities(const ik_fight_t* fight) {
          slot < IK_ENTITY_CAPACITY &&
          item_count < IK_ENTITY_CAPACITY;
          ++slot) {
-        const ik_entity_t* entity = &g_entity_pool.entities[slot];
+        const ik_entity_t* entity = &g_frame.pool.entities[slot];
         if ((entity->type != IK_ENTITY_HELPER &&
              entity->type != IK_ENTITY_PROJECTILE &&
              entity->type != IK_ENTITY_EXPLOD) ||
@@ -1103,180 +1147,37 @@ static void draw_combat_entities(const ik_fight_t* fight) {
     }
 }
 
-typedef struct ik_rule_expr_user {
-    ik_entity_expr_binding_t entity;
-    const ik_command_state_t* command_state;
-} ik_rule_expr_user_t;
-
-static int rule_expr_read_field(
-    void* user,
-    uint8_t redirect,
-    uint8_t field,
-    int32_t index,
-    int32_t redirect_id,
-    uint8_t redirect_index,
-    int32_t* out_value
-) {
-    if (!user) return 0;
-    ik_rule_expr_user_t* rule = (ik_rule_expr_user_t*)user;
-    return ik_entity_expr_read_field(
-        &rule->entity, redirect, field, index,
-        redirect_id, redirect_index, out_value);
-}
-
-static int rule_expr_read_command(
-    void* user,
-    uint16_t command_id,
-    int32_t* out_value
-) {
-    if (!user || !out_value) return 0;
-    const ik_rule_expr_user_t* rule =
-        (const ik_rule_expr_user_t*)user;
-    *out_value = ik_command_active(
-        rule->command_state, &kfm_commands, command_id);
-    return 1;
-}
-
-static void sync_player_entities(const ik_fight_t* fight) {
-    if (!fight) return;
-    for (uint32_t i = 0u; i < 2u; ++i) {
-        const ik_fighter_t* fighter = &fight->fighters[i];
-        ik_entity_t* entity =
-            ik_entity_get(&g_entity_pool, g_player_entities[i]);
-        if (!entity) continue;
-
-        const ik_cns_asset_t* state_cns =
-            fighter->state_owner < 2u
-                ? fight->player_cns[fighter->state_owner]
-                : fight->cns;
-        const ik_cns_state_t* state =
-            ik_cns_find_state(state_cns, fighter->state);
-        entity->x_q8 = fighter->x_q8;
-        entity->y_q8 = fighter->y_q8;
-        entity->vx_q8 = fighter->vx_q8;
-        entity->vy_q8 = fighter->vy_q8;
-        entity->state_no = fighter->state;
-        entity->prev_state_no = fighter->prev_state;
-        entity->state_time = (uint16_t)(
-            fighter->state_time + (fighter->hit_pause == 0u ? 1u : 0u));
-        entity->state_owner = fighter->state_owner;
-        entity->anim_owner = fighter->anim_owner;
-        entity->anim_no = fighter->anim;
-        entity->anim_time = fighter->anim_time;
-        entity->life = fighter->hp;
-        entity->power = fighter->power;
-        entity->active_hit_attr_mask = 0u;
-        if (state_cns &&
-            fighter->active_hitdef_global >= 0 &&
-            fighter->active_hitdef_global < (int16_t)state_cns->hitdef_count) {
-            entity->active_hit_attr_mask =
-                state_cns->hitdefs[
-                    (uint16_t)fighter->active_hitdef_global
-                ].attack_attr_mask;
-        }
-        entity->push_back = fighter->push_back;
-        entity->push_front = fighter->push_front;
-        entity->facing = fighter->facing;
-        entity->ctrl = (uint8_t)(fighter->ctrl != 0);
-        entity->state_type = ik_fight_state_type(fight, fighter);
-        entity->move_type =
-            (uint8_t)(state ? state->move_type : IK_CNS_MOVE_IDLE);
-        entity->move_contact = fighter->move_contact;
-
-        const int8_t target_index = fighter->target_index;
-        const ik_entity_handle_t target =
-            target_index >= 0 && target_index < 2
-                ? g_player_entities[(uint8_t)target_index]
-                : ik_entity_invalid_handle();
-        (void)ik_entity_set_target(
-            &g_entity_pool, g_player_entities[i], target);
-    }
-}
-
-static int command_pause_end_buffer(
-    const ik_fight_t* fight,
-    uint32_t player
-) {
-    if (!fight || player >= 2u || fight->pause_time == 0u ||
-        fight->pause_end_cmd_buffer_time == 0u ||
-        fight->pause_time > fight->pause_end_cmd_buffer_time) {
-        return 0;
-    }
-
-    const int can_act =
-        fight->pause_owner == (int8_t)player &&
-        fight->pause_move_time > 0u;
-    return !can_act;
-}
-
-static void controls_from_commands(uint32_t player,
-                                   const ik_fight_t* fight,
-                                   const ik_fighter_t* fighter,
-                                   ik_fight_controls_t* controls) {
-    if (!controls || !fight || !fighter || player >= 2u) return;
-    *controls = (ik_fight_controls_t){0};
-    const ik_command_state_t* state = &g_command_states[player];
-
-    controls->forward = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_HOLDFWD);
-    controls->back = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_HOLDBACK);
-    controls->up = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_HOLDUP);
-    controls->down = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_HOLDDOWN);
-
-    controls->a = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_A);
-    controls->b = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_B);
-    controls->c = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_C);
-    controls->x = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_X);
-    controls->y = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_Y);
-    controls->z = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_Z);
-    controls->start = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_START);
-    controls->recovery = (uint8_t)ik_command_active(
-        state, &kfm_commands, KFM_CMD_RECOVERY);
-
-    {
-        ik_rule_expr_user_t user = {
-            {&g_entity_pool, g_player_entities[player]},
-            state
-        };
-        const ik_expr_context_t expression = {
-            &user,
-            rule_expr_read_field,
-            rule_expr_read_command
-        };
-        int16_t requested = 0;
-        if (ik_command_eval_state_change_expr(
-                &kfm_state_rules, &expression, &requested)) {
-            controls->requested_state = requested;
-            controls->has_state_request = 1u;
-        }
-    }
+/* hp is a signed 16-bit value that damage can push below zero; converting it
+ * straight to uint32_t turns a KO into ~4 billion. Clamp to [0, max]. */
+static uint32_t hp_for_bar(int16_t hp, uint32_t max_hp) {
+    if (hp <= 0) return 0u;
+    return (uint32_t)hp > max_hp ? max_hp : (uint32_t)hp;
 }
 
 static void draw_bars(const ik_fight_t* fight) {
-    const uint16_t bar_bg = SAT_BGR555(6u, 6u, 8u);
-    const uint16_t p1_fg = SAT_BGR555(28u, 6u, 6u);
-    const uint16_t p2_fg = SAT_BGR555(6u, 12u, 28u);
+    /* VDP1 polygons need direct-colour words (bit 15 set): SAT_RGB555, not
+     * SAT_BGR555. Without the bit the value is read as a CRAM index, which is
+     * why the P1 bar drew black and the P2 bar was invisible. */
+    const uint16_t bar_frame = SAT_RGB555(26u, 26u, 26u);
+    const uint16_t bar_bg = SAT_RGB555(6u, 6u, 8u);
+    const uint16_t p1_fg = SAT_RGB555(28u, 6u, 6u);
+    const uint16_t p2_fg = SAT_RGB555(6u, 12u, 28u);
     const uint32_t p1_max_hp =
         (uint32_t)ik_fight_max_hp_player(fight, 0u);
     const uint32_t p2_max_hp =
         (uint32_t)ik_fight_max_hp_player(fight, 1u);
 
+    /* A fighter at hp <= 0 or above max must not fail the bar: sat_hud_bar
+     * rejects value > max and sat_example_must would halt the game. */
+    const uint32_t p1_hp = hp_for_bar(fight->fighters[0].hp, p1_max_hp);
+    const uint32_t p2_hp = hp_for_bar(fight->fighters[1].hp, p2_max_hp);
+
+    sat_example_must(sat_draw_rect_screen(11, 9, 122, 10, bar_frame));
+    sat_example_must(sat_draw_rect_screen(187, 9, 122, 10, bar_frame));
     sat_example_must(sat_hud_bar(
-        &g_hud, 12, 10, 120, 8,
-        (uint32_t)fight->fighters[0].hp, p1_max_hp, bar_bg, p1_fg));
+        &g_hud, 12, 10, 120, 8, p1_hp, p1_max_hp, bar_bg, p1_fg));
     sat_example_must(sat_hud_bar(
-        &g_hud, 188, 10, 120, 8,
-        (uint32_t)fight->fighters[1].hp, p2_max_hp, bar_bg, p2_fg));
+        &g_hud, 188, 10, 120, 8, p2_hp, p2_max_hp, bar_bg, p2_fg));
     sat_example_must(sat_hud_text(&g_hud, "P1", 12, 22));
     sat_example_must(sat_hud_text(&g_hud, "P2 ZSS", 252, 22));
 
@@ -1363,21 +1264,8 @@ int main(void) {
     sat_example_must(ik_audio_init(&audio));
 
     ik_fight_init(&fight, &kfm_cns);
-    ik_entity_pool_init(&g_entity_pool);
-    sat_example_must(ik_entity_spawn(
-        &g_entity_pool, IK_ENTITY_PLAYER, 1, 0u,
-        ik_entity_invalid_handle(), &g_player_entities[0])
+    sat_example_must(ik_frame_ctx_init(&g_frame, &fight)
         ? SAT_OK : SAT_ERR_CAPACITY);
-    sat_example_must(ik_entity_spawn(
-        &g_entity_pool, IK_ENTITY_PLAYER, 2, 1u,
-        ik_entity_invalid_handle(), &g_player_entities[1])
-        ? SAT_OK : SAT_ERR_CAPACITY);
-    ik_fight_bind_entities(
-        &fight, &g_entity_pool,
-        g_player_entities[0], g_player_entities[1]);
-    sync_player_entities(&fight);
-    ik_command_state_init(&g_command_states[0]);
-    ik_command_state_init(&g_command_states[1]);
 
     for (;;) {
         sat_pad_state_t pad1 = {0};
@@ -1407,30 +1295,8 @@ int main(void) {
             have_p2 = 1;
         }
 
-        ik_fight_controls_t p1_controls = {0};
-        ik_fight_controls_t p2_controls = {0};
-
-        sync_player_entities(&fight);
-        ik_command_update(
-            &g_command_states[0], &kfm_commands, &pad1,
-            fight.fighters[0].facing,
-            fight.fighters[0].hit_pause != 0u,
-            command_pause_end_buffer(&fight, 0u));
-        controls_from_commands(
-            0u, &fight, &fight.fighters[0], &p1_controls);
-
-        if (have_p2) {
-            ik_command_update(
-                &g_command_states[1], &kfm_commands, &pad2,
-                fight.fighters[1].facing,
-                fight.fighters[1].hit_pause != 0u,
-                command_pause_end_buffer(&fight, 1u));
-            controls_from_commands(
-                1u, &fight, &fight.fighters[1], &p2_controls);
-        }
-
-        ik_fight_update(
-            &fight, &p1_controls, have_p2 ? &p2_controls : 0,
+        ik_frame_step(
+            &g_frame, &fight, &pad1, have_p2 ? &pad2 : 0,
             g_characters[0].frames, g_characters[1].frames);
         spawn_effect_events(&fight);
         ik_audio_process_fight(&audio, &fight);

@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 #include "examples/ikemen_saturn/ikemen_anim.h"
@@ -8,6 +9,7 @@
 #include "examples/ikemen_saturn/ikemen_command.h"
 #include "examples/ikemen_saturn/ikemen_entity.h"
 #include "examples/ikemen_saturn/ikemen_fight.h"
+#include "examples/ikemen_saturn/ikemen_frame.h"
 #include "ikemen_saturn/kfm_cns.h"
 #include "ikemen_saturn/kfm_commands.h"
 #include "ikemen_saturn/kfm_frames.h"
@@ -30,17 +32,17 @@ static int move_type(uint8_t v) {
 }
 
 static int anim_elem(const ik_frame_table_t* table, int action, uint32_t time) {
-    uint32_t first = 0, count = 0;
-    if (!ik_frames_bounds(table, action, &first, &count) || count == 0) {
-        return 0;
-    }
-    uint32_t remaining = time;
-    for (uint32_t i = 0; i < count; ++i) {
-        const uint16_t ticks = ik_frame_ticks(&table->frames[first + i]);
-        if (ticks == 0u || remaining < ticks) return static_cast<int>(i + 1u);
-        remaining -= ticks;
-    }
-    return static_cast<int>(count);
+    int elem = 0;
+    ik_anim_trace_state(table, action, time, &elem, nullptr);
+    return elem;
+}
+
+static unsigned anim_curtime(
+    const ik_frame_table_t* table, int action, uint32_t time
+) {
+    uint32_t cur = time;
+    ik_anim_trace_state(table, action, time, nullptr, &cur);
+    return static_cast<unsigned>(cur);
 }
 
 static int entity_id(const ik_entity_pool_t* pool, ik_entity_handle_t h) {
@@ -78,6 +80,17 @@ static void print_target_ids(FILE* out, const ik_entity_t* e) {
     std::fputc(']', out);
 }
 
+/* Trace contract: `juggle` is the air-juggle budget this fighter still has
+ * against whoever hit it (0 before the first hit), like upstream's
+ * ghv.targetedBy; `gethit_chain_id` is 0 when nothing has hit it. */
+static int juggle_left(const ik_fighter_t& f) {
+    return f.juggle_owner >= 0 ? static_cast<int>(f.juggle_points) : 0;
+}
+
+static int chain_id(int32_t last_hit_id) {
+    return last_hit_id < 0 ? 0 : static_cast<int>(last_hit_id);
+}
+
 static void print_root(
     FILE* out, const ik_fight_t* fight, const ik_entity_pool_t* pool, int p
 ) {
@@ -93,30 +106,31 @@ static void print_root(
         "\"pos\":[%.6f,%.6f,0],\"vel\":[%.6f,%.6f,0],"
         "\"facing\":%d,\"life\":%d,\"power\":%d,\"juggle\":%d,"
         "\"hit_pause\":%u,\"move_contact_type\":%u,"
-        "\"move_contact_time\":0,\"gethit_chain_id\":%d,"
+        "\"move_contact_time\":%u,\"gethit_chain_id\":%d,"
         "\"targets\":",
         p, mirror ? static_cast<int>(mirror->id) : p + 1, p,
         static_cast<int>(f.state), static_cast<unsigned>(f.state_time),
         state_type(ik_fight_state_type(fight, &f)),
-        move_type(mirror ? mirror->move_type : 0),
+        move_type(f.cur_move_type),
         f.ctrl ? "true" : "false",
         static_cast<int>(f.anim), anim_elem(&k_frames, f.anim, f.anim_time),
-        static_cast<unsigned>(f.anim_time),
+        anim_curtime(&k_frames, f.anim, f.anim_time),
         q8(f.x_q8 - 160 * 256), q8(f.y_q8 - IK_FLOOR_Y * 256),
-        q8(f.vx_q8), q8(f.vy_q8),
+        q8(f.vx_q8 * f.facing), q8(f.vy_q8),
         static_cast<int>(f.facing), static_cast<int>(f.hp),
-        static_cast<int>(f.power), static_cast<int>(f.juggle_points),
+        static_cast<int>(f.power), juggle_left(f),
         static_cast<unsigned>(f.hit_pause),
-        static_cast<unsigned>(f.move_contact),
-        static_cast<int>(f.last_hit_id));
+        static_cast<unsigned>(f.move_contact_type),
+        static_cast<unsigned>(f.move_contact_time),
+        chain_id(f.last_hit_id));
     if (f.target_index >= 0 && f.target_index < 2) {
         std::fprintf(out, "[%d]", f.target_index + 1);
     } else {
         std::fputs("[]", out);
     }
     std::fputs(",\"hitdef_targets\":[", out);
-    if (f.target_index >= 0 && f.target_index < 2) {
-        std::fprintf(out, "%d", static_cast<int>(f.target_id));
+    if (f.hitdef_target >= 0 && f.hitdef_target < 2) {
+        std::fprintf(out, "%d", f.hitdef_target + 1);
     }
     std::fputs("]}", out);
 }
@@ -148,9 +162,9 @@ static void print_helper(
         e->ctrl ? "true" : "false",
         static_cast<int>(e->anim_no),
         anim_elem(&k_frames, e->anim_no, e->anim_time),
-        static_cast<unsigned>(e->anim_time),
+        anim_curtime(&k_frames, e->anim_no, e->anim_time),
         q8(e->x_q8 - 160 * 256), q8(e->y_q8 - IK_FLOOR_Y * 256),
-        q8(e->vx_q8), q8(e->vy_q8),
+        q8(e->vx_q8 * e->facing), q8(e->vy_q8),
         static_cast<int>(e->facing), static_cast<int>(e->life),
         static_cast<int>(e->power), static_cast<unsigned>(e->hit_pause),
         static_cast<unsigned>(e->move_contact));
@@ -174,7 +188,7 @@ static void print_projectile(FILE* out, const ik_entity_t* e) {
         anim_elem(&k_frames, e->anim_no, e->anim_time),
         static_cast<unsigned>(e->state_time),
         q8(e->x_q8 - 160 * 256), q8(e->y_q8 - IK_FLOOR_Y * 256),
-        q8(e->vx_q8), q8(e->vy_q8), static_cast<int>(e->facing),
+        q8(e->vx_q8 * e->facing), q8(e->vy_q8), static_cast<int>(e->facing),
         static_cast<unsigned>(e->projectile_hits_left),
         static_cast<unsigned>(e->projectile_hit_cooldown),
         static_cast<unsigned>(e->hit_pause),
@@ -275,105 +289,36 @@ static sat_pad_state_t pad_from_mask(
     return pad;
 }
 
-struct oracle_rule_user {
-    ik_entity_expr_binding_t entity;
-    const ik_command_state_t* commands;
-};
-
-static int oracle_read_field(
-    void* user,
-    uint8_t redirect,
-    uint8_t field,
-    int32_t index,
-    int32_t redirect_id,
-    uint8_t redirect_index,
-    int32_t* out_value
-) {
-    if (!user) return 0;
-    oracle_rule_user* u = static_cast<oracle_rule_user*>(user);
-    return ik_entity_expr_read_field(
-        &u->entity, redirect, field, index,
-        redirect_id, redirect_index, out_value);
-}
-
-static int oracle_read_command(
-    void* user, uint16_t command_id, int32_t* out_value
-) {
-    if (!user || !out_value) return 0;
-    const oracle_rule_user* u =
-        static_cast<const oracle_rule_user*>(user);
-    *out_value = ik_command_active(
-        u->commands, &kfm_commands, command_id);
-    return 1;
-}
-
-static int pause_end_buffer(const ik_fight_t* fight, uint32_t player) {
-    if (!fight || player >= 2u || fight->pause_time == 0u ||
-        fight->pause_end_cmd_buffer_time == 0u ||
-        fight->pause_time > fight->pause_end_cmd_buffer_time) {
-        return 0;
-    }
-    const int can_act =
-        fight->pause_owner == static_cast<int8_t>(player) &&
-        fight->pause_move_time > 0u;
-    return !can_act;
-}
-
-static void controls_from_commands(
-    uint32_t player,
-    const ik_fight_t* fight,
-    const ik_entity_pool_t* pool,
-    const ik_entity_handle_t roots[2],
-    const ik_command_state_t states[2],
-    ik_fight_controls_t* controls
-) {
-    if (!fight || !controls || player >= 2u) return;
-    *controls = {};
-    const ik_command_state_t* state = &states[player];
-    controls->forward = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_HOLDFWD));
-    controls->back = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_HOLDBACK));
-    controls->up = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_HOLDUP));
-    controls->down = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_HOLDDOWN));
-    controls->a = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_A));
-    controls->b = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_B));
-    controls->c = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_C));
-    controls->x = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_X));
-    controls->y = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_Y));
-    controls->z = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_Z));
-    controls->start = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_START));
-    controls->recovery = static_cast<uint8_t>(
-        ik_command_active(state, &kfm_commands, KFM_CMD_RECOVERY));
-
-    oracle_rule_user user{
-        {pool, roots[player]},
-        state
-    };
-    const ik_expr_context_t expression = {
-        &user, oracle_read_field, oracle_read_command
-    };
-    int16_t requested = 0;
-    if (ik_command_eval_state_change_expr(
-            &kfm_state_rules, &expression, &requested)) {
-        controls->requested_state = requested;
-        controls->has_state_request = 1u;
+/* "p1_life=1,p2_power=1000": same overrides the upstream hook applies. */
+static void apply_setup(ik_fight_t* fight, const char* setup) {
+    const char* p = setup;
+    while (*p) {
+        const int side = p[1] - '1';
+        const char* key = p + 3;
+        const char* eq = std::strchr(key, '=');
+        if (p[0] != 'p' || side < 0 || side > 1 || !eq) {
+            std::fprintf(stderr, "bad setup near '%s'\n", p);
+            std::exit(2);
+        }
+        char* end = nullptr;
+        const long value = std::strtol(eq + 1, &end, 0);
+        const size_t len = static_cast<size_t>(eq - key);
+        if (len == 4 && std::strncmp(key, "life", 4) == 0) {
+            fight->fighters[side].hp = static_cast<int16_t>(value);
+        } else if (len == 5 && std::strncmp(key, "power", 5) == 0) {
+            fight->fighters[side].power = static_cast<int16_t>(value);
+        } else {
+            std::fprintf(stderr, "bad setup key near '%s'\n", key);
+            std::exit(2);
+        }
+        p = *end == ',' ? end + 1 : end;
     }
 }
 
 int main(int argc, char** argv) {
     if (argc < 5) {
         std::fprintf(
-            stderr, "usage: %s TRACE FRAMES SEED INPUTS\n", argv[0]);
+            stderr, "usage: %s TRACE FRAMES SEED INPUTS [SETUP]\n", argv[0]);
         return 2;
     }
     const int frames = std::atoi(argv[2]);
@@ -395,25 +340,14 @@ int main(int argc, char** argv) {
     }
 
     ik_fight_t fight{};
-    ik_entity_pool_t pool{};
-    ik_entity_handle_t roots[2]{};
-    ik_command_state_t command_states[2]{};
+    static ik_frame_ctx_t ctx;
     ik_fight_controls_t idle{};
 
     ik_fight_init(&fight, &kfm_cns);
-    ik_entity_pool_init(&pool);
-    if (!ik_entity_spawn(
-            &pool, IK_ENTITY_PLAYER, 1, 0u,
-            ik_entity_invalid_handle(), &roots[0]) ||
-        !ik_entity_spawn(
-            &pool, IK_ENTITY_PLAYER, 2, 1u,
-            ik_entity_invalid_handle(), &roots[1])) {
+    if (!ik_frame_ctx_init(&ctx, &fight)) {
         std::fclose(out);
         return 3;
     }
-    ik_fight_bind_entities(&fight, &pool, roots[0], roots[1]);
-    ik_command_state_init(&command_states[0]);
-    ik_command_state_init(&command_states[1]);
 
     while (fight.round_state != 2u) {
         ik_fight_update(&fight, &idle, &idle, &k_frames, &k_frames);
@@ -424,29 +358,21 @@ int main(int argc, char** argv) {
         }
     }
 
+    apply_setup(&fight, argc > 5 ? argv[5] : "");
+
     uint16_t previous[2] = {0u, 0u};
     for (int i = 0; i < frames; ++i) {
         const uint16_t logical[2] = {inputs[i].p1, inputs[i].p2};
-        ik_fight_controls_t controls[2]{};
+        const sat_pad_state_t pad1 = pad_from_mask(
+            logical[0], previous[0], fight.fighters[0].facing);
+        const sat_pad_state_t pad2 = pad_from_mask(
+            logical[1], previous[1], fight.fighters[1].facing);
+        previous[0] = logical[0];
+        previous[1] = logical[1];
 
-        for (uint32_t p = 0u; p < 2u; ++p) {
-            const sat_pad_state_t pad = pad_from_mask(
-                logical[p], previous[p], fight.fighters[p].facing);
-            ik_command_update(
-                &command_states[p], &kfm_commands, &pad,
-                fight.fighters[p].facing,
-                fight.fighters[p].hit_pause != 0u,
-                pause_end_buffer(&fight, p));
-            controls_from_commands(
-                p, &fight, &pool, roots,
-                command_states, &controls[p]);
-            previous[p] = logical[p];
-        }
-
-        ik_fight_update(
-            &fight, &controls[0], &controls[1],
-            &k_frames, &k_frames);
-        emit_frame(out, &fight, &pool, i, seed);
+        /* Same per-frame step the console build runs (ikemen_frame.c). */
+        ik_frame_step(&ctx, &fight, &pad1, &pad2, &k_frames, &k_frames);
+        emit_frame(out, &fight, &ctx.pool, i, seed);
     }
 
     std::fclose(out);

@@ -4,8 +4,14 @@
 
 /* Bare-metal SH-2 toolchain ships no libc <string.h>; the implementations
  * live in src/core/startup/newlib_stubs.c next to the newlib syscall stubs. */
+#ifdef __cplusplus
+extern "C" {
+#endif
 void *memset(void *dest, int c, size_t n);
 int strcmp(const char *s1, const char *s2);
+#ifdef __cplusplus
+}
+#endif
 
 enum {
     IN_U = 0,
@@ -623,6 +629,18 @@ int ik_command_eval_state_change_expr(
 ) {
     if (!rules || !expression || !out_state) return 0;
     for (uint16_t i = 0u; i < rules->rule_count; ++i) {
+        /* Most rules need a command that is not pressed; testing that costs
+         * one lookup instead of interpreting the whole expression, and is the
+         * bulk of the per-frame cost while the player is idle. */
+        const uint8_t gate = rules->rules[i].command_gate;
+        if (gate != 0u && expression->read_command) {
+            int32_t active = 0;
+            if (expression->read_command(
+                    expression->user, (uint16_t)(gate - 1u), &active) &&
+                active == 0) {
+                continue;
+            }
+        }
         if (eval_state_rule_expr(
                 rules, &rules->rules[i], expression)) {
             *out_state = rules->rules[i].target_state;

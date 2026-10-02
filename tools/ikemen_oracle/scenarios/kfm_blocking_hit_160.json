@@ -1,0 +1,57 @@
+{
+  "p1": "../Ikemen-GO-Screenpack/chars/kfm/kfm.def",
+  "p2": "../Ikemen-GO-Screenpack/chars/kfm/kfm.def",
+  "stage": "../Ikemen-GO-Screenpack/stages/stage0.def",
+  "seed": 1,
+  "rounds": 1,
+  "round_state": 2,
+  "p1_ai": 0,
+  "p2_ai": 0,
+  "extra_args": [],
+  "name": "kfm_blocking_hit_160",
+  "frames": 160,
+  "inputs": [
+    {
+      "from": 5,
+      "to": 34,
+      "p1": [
+        "forward"
+      ],
+      "p2": [
+        "forward"
+      ]
+    },
+    {
+      "from": 35,
+      "to": 36,
+      "p1": [],
+      "p2": [
+        "forward"
+      ]
+    },
+    {
+      "from": 37,
+      "to": 37,
+      "p1": [
+        "forward"
+      ]
+    },
+    {
+      "from": 38,
+      "to": 38,
+      "p1": [
+        "forward",
+        "x"
+      ],
+      "p2": [
+        "x"
+      ]
+    }
+  ],
+  "expect": {
+    "p1_states": [
+      1300,
+      1310
+    ]
+  }
+}

@@ -103,6 +103,9 @@ void ik_entity_runtime_step_paused(
 
 void ik_entity_runtime_step(ik_entity_runtime_t* runtime);
 
+/* After contacts: advance the animation clock of entities that stepped. */
+void ik_entity_runtime_finish_tick(ik_entity_runtime_t* runtime);
+
 #ifdef __cplusplus
 }
 #endif

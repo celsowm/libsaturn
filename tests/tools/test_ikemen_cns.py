@@ -14,6 +14,7 @@ from tools.ikemen_cns import (
     compile_helper_controller,
     compile_modify_projectile_controller,
     compile_projectile_controller,
+    compile_runtime_controller,
     controller_trigger,
     emit,
 )  # noqa: E402
@@ -173,6 +174,8 @@ postype = p1
 facing = -1
 keyctrl = 1
 ownpal = 1
+pausemovetime = 3
+supermovetime = 4
 
 [Statedef 1234]
 type = S
@@ -1716,6 +1719,11 @@ TimeGap = 1
 FrameGap = 2
 time = 2
 
+[State 1420, AfterimageTime]
+type = AfterImageTime
+trigger1 = AnimElemTime(8) < 0
+time = 2
+
 [State 1420, Blink]
 type = PalFX
 trigger1 = Time = 0
@@ -2347,9 +2355,9 @@ assert compile_helper_controller(0, unsupported_helper, 0) is None
 
 print("ikemen CNS compiler: OK")
 
-source_rows = {row["number"]: row for row in report["states"][:25]}
+source_rows = {row["number"]: row for row in report["states"][:26]}
 throw_rows = source_rows
-common_rows = {row["number"]: row for row in report["states"][25:]}
+common_rows = {row["number"]: row for row in report["states"][26:]}
 assert throw_rows[800]["unsupported_controllers"] == []
 assert throw_rows[810]["unsupported_controllers"] == []
 assert throw_rows[820]["unsupported_controllers"] == []
@@ -2394,9 +2402,9 @@ assert palm_far["p2_body_dist_x"] == 40
 palm1000_ctrls = [
     c for c in report["controllers"] if c["state_number"] == 1000
 ]
-assert palm1000_ctrls[1]["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_EQ_OR"
-assert palm1000_ctrls[1]["trigger_value"] == 3
-assert palm1000_ctrls[1]["trigger_value2"] == 13
+assert palm1000_ctrls[1]["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_MASK"
+assert palm1000_ctrls[1]["trigger_value"] == (1 << 2) | (1 << 12)  # elems 3, 13
+assert palm1000_ctrls[1]["trigger_value2"] == 0
 
 palm1010_ctrls = [
     c for c in report["controllers"] if c["state_number"] == 1010
@@ -2408,10 +2416,8 @@ assert "IK_CNS_CTRL_LOCAL_X" in vel5["flags"]
 
 assert source_rows[1020]["power_add"] == -330
 assert source_rows[1020]["juggle"] == 6
-assert source_rows[1020]["controller_count"] == 6
-assert source_rows[1020]["unsupported_controllers"] == [
-    "afterimage", "afterimagetime", "palfx"
-]
+assert source_rows[1020]["controller_count"] == 9
+assert source_rows[1020]["unsupported_controllers"] == []
 fast_hit = report["hitdefs"][6]
 assert fast_hit["damage"] == 95
 assert fast_hit["guard_damage"] == 5
@@ -2439,9 +2445,15 @@ state1025_ctrls = [
 assert state1025_ctrls[1]["trigger_kind"] == "IK_CNS_TRIGGER_HIT_SHAKE_OVER"
 
 assert source_rows[1026]["anim"] == -1
-assert source_rows[1026]["controller_count"] == 4
+assert source_rows[1026]["controller_count"] == 5
 assert source_rows[1026]["owns_air_accel"] == 1
-assert source_rows[1026]["unsupported_controllers"] == ["screenbound"]
+assert source_rows[1026]["unsupported_controllers"] == []
+no_scroll = next(
+    c for c in report["controllers"]
+    if c["state_number"] == 1026 and c["type"] == "IK_CNS_CTRL_SCREEN_BOUND"
+)
+assert no_scroll["trigger_kind"] == "IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE_LT"
+assert no_scroll["trigger_value2"] == 65
 state1026_ctrls = [
     c for c in report["controllers"] if c["state_number"] == 1026
 ]
@@ -2449,7 +2461,7 @@ hitvel = next(
     c for c in state1026_ctrls if c["type"] == "IK_CNS_CTRL_HIT_VEL_SET"
 )
 assert hitvel["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
-assert hitvel["trigger_value"] == 1
+assert hitvel["trigger_value"] == 0  # authored Time = 0
 assert "IK_CNS_CTRL_AXIS_X" in hitvel["flags"]
 assert "IK_CNS_CTRL_AXIS_Y" in hitvel["flags"]
 wall_branch = next(
@@ -2462,11 +2474,9 @@ assert wall_branch["trigger_value2"] == 20
 assert wall_branch["value0"] == 1027
 
 assert source_rows[1027]["anim"] == -1
-assert source_rows[1027]["controller_count"] == 5
+assert source_rows[1027]["controller_count"] == 6
 assert source_rows[1027]["playsnd_count"] == 1
-assert source_rows[1027]["unsupported_controllers"] == [
-    "explod", "screenbound"
-]
+assert source_rows[1027]["unsupported_controllers"] == ["explod"]
 state1027_ctrls = [
     c for c in report["controllers"] if c["state_number"] == 1027
 ]
@@ -2477,7 +2487,7 @@ pos1027 = next(
     if c["type"] == "IK_CNS_CTRL_POS_ADD_FROM_BACK_EDGE"
 )
 assert pos1027["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
-assert pos1027["trigger_value"] == 1
+assert pos1027["trigger_value"] == 0
 assert pos1027["value0"] == 15 * 256
 freeze1027 = next(
     c for c in state1027_ctrls if c["type"] == "IK_CNS_CTRL_POS_FREEZE"
@@ -2486,11 +2496,9 @@ assert "IK_CNS_CTRL_AXIS_X" in freeze1027["flags"]
 assert "IK_CNS_CTRL_AXIS_Y" in freeze1027["flags"]
 
 assert source_rows[1028]["anim"] == -1
-assert source_rows[1028]["controller_count"] == 5
+assert source_rows[1028]["controller_count"] == 6
 assert source_rows[1028]["owns_air_accel"] == 1
-assert source_rows[1028]["unsupported_controllers"] == [
-    "changeanim", "nothitby"
-]
+assert source_rows[1028]["unsupported_controllers"] == ["changeanim"]
 state1028_ctrls = [
     c for c in report["controllers"] if c["state_number"] == 1028
 ]
@@ -2498,7 +2506,7 @@ velsets1028 = [
     c for c in state1028_ctrls if c["type"] == "IK_CNS_CTRL_VEL_SET"
 ]
 assert len(velsets1028) == 2
-assert all(c["trigger_value"] == 1 for c in velsets1028)
+assert all(c["trigger_value"] == 0 for c in velsets1028)
 assert any(c["value1"] == -6 * 256 for c in velsets1028)
 assert any(c["value0"] == round(1.6 * 256) for c in velsets1028)
 turn1028 = next(c for c in state1028_ctrls if c["type"] == "IK_CNS_CTRL_TURN")
@@ -2527,14 +2535,14 @@ assert land_branch["trigger_kind"] == "IK_CNS_TRIGGER_VY_GT_Q8_AT_LEVEL"
 assert land_branch["trigger_value"] == -10 * 256
 assert land_branch["trigger_value2"] == 0
 
-assert source_rows[1052]["controller_count"] == 3
+assert source_rows[1052]["controller_count"] == 4
 assert source_rows[1052]["playsnd_count"] == 1
-assert source_rows[1052]["unsupported_controllers"] == ["ctrlset"]
+assert source_rows[1052]["unsupported_controllers"] == []
 ground1052 = next(
     c for c in report["controllers"]
     if c["state_number"] == 1052 and c["type"] == "IK_CNS_CTRL_POS_SET"
 )
-assert ground1052["trigger_value"] == 1
+assert ground1052["trigger_value"] == 0
 assert ground1052["value1"] == 0
 assert "IK_CNS_CTRL_AXIS_Y" in ground1052["flags"]
 
@@ -2594,10 +2602,8 @@ assert upper1110[1]["yaccel_q8"] == round(.4 * 256)
 assert source_rows[1120]["power_add"] == -330
 assert source_rows[1120]["juggle"] == 6
 assert source_rows[1120]["hitdef_count"] == 2
-assert source_rows[1120]["controller_count"] == 2
-assert source_rows[1120]["unsupported_controllers"] == [
-    "afterimage", "afterimagetime", "palfx"
-]
+assert source_rows[1120]["controller_count"] == 5
+assert source_rows[1120]["unsupported_controllers"] == []
 upper1120 = [
     h for h in report["hitdefs"] if h["state_number"] == 1120
 ]
@@ -2616,9 +2622,9 @@ assert upper1120[1]["yaccel_q8"] == round(.4 * 256)
 
 for blow in (1200, 1210):
     assert source_rows[blow]["hitdef_count"] == 1
-    assert source_rows[blow]["controller_count"] == 3
+    assert source_rows[blow]["controller_count"] == 4
     assert source_rows[blow]["playsnd_count"] == 1
-    assert source_rows[blow]["unsupported_controllers"] == ["envshake"]
+    assert source_rows[blow]["unsupported_controllers"] == []
 
 blow1200 = next(
     h for h in report["hitdefs"] if h["state_number"] == 1200
@@ -2634,10 +2640,8 @@ assert blow1210["ground_cornerpush_veloff_q8"] == -15 * 256
 assert source_rows[1220]["power_add"] == -330
 assert source_rows[1220]["juggle"] == 6
 assert source_rows[1220]["hitdef_count"] == 1
-assert source_rows[1220]["controller_count"] == 3
-assert source_rows[1220]["unsupported_controllers"] == [
-    "afterimage", "afterimagetime", "envshake", "palfx"
-]
+assert source_rows[1220]["controller_count"] == 7
+assert source_rows[1220]["unsupported_controllers"] == []
 blow1220 = next(
     h for h in report["hitdefs"] if h["state_number"] == 1220
 )
@@ -2646,7 +2650,7 @@ assert blow1220["ground_cornerpush_veloff_q8"] == -20 * 256
 assert "IK_CNS_HITDEF_AIR_FALL" in blow1220["flags"]
 assert blow1220["yaccel_q8"] == round(.4 * 256)
 
-assert common_rows[0]["controller_count"] == 3
+assert common_rows[0]["controller_count"] == 4
 assert common_rows[20]["controller_count"] == 3
 assert common_rows[40]["controller_count"] == 3
 assert common_rows[45]["controller_count"] == 4
@@ -2657,36 +2661,50 @@ assert common_rows[52]["anim"] == 47
 assert common_rows[105]["land_state"] == 106
 assert common_rows[5080]["controller_count"] == 1
 assert common_rows[5081]["controller_count"] == 3
-assert common_rows[5110]["controller_count"] == 10
-assert common_rows[5150]["spr_priority"] == -3\nassert common_rows[5150]["anim"] == 5140
+assert common_rows[5110]["controller_count"] == 12
+assert common_rows[5150]["spr_priority"] == -3
+assert common_rows[5150]["anim"] == 5140
 assert common_rows[5150]["controller_count"] == 4
-assert common_rows[120]["controller_count"] == 2
+assert common_rows[120]["controller_count"] == 3
 assert common_rows[132]["land_state"] == 52
 assert common_rows[140]["ctrl"] == 1
 assert common_rows[150]["move_type"] == "IK_CNS_MOVE_HIT"
 assert common_rows[151]["controller_count"] == 4
 assert common_rows[155]["controller_count"] == 2
-assert common_rows[5000]["controller_count"] == 3
-assert common_rows[5001]["controller_count"] == 3
+assert common_rows[5000]["controller_count"] == 4
+assert common_rows[5001]["controller_count"] == 4
 state_5001_ctrls = [
     c for c in report["controllers"] if c["state_number"] == 5001
 ]
-assert state_5001_ctrls[1]["trigger_kind"] == "IK_CNS_TRIGGER_HIT_SLIDE_GE"
+assert state_5001_ctrls[2]["trigger_kind"] == "IK_CNS_TRIGGER_HIT_SLIDE_GE"
 assert common_rows[5020]["controller_count"] == 2
-assert common_rows[5030]["controller_count"] == 3
+assert common_rows[5030]["controller_count"] == 4
 assert common_rows[5030]["land_level_q8"] == 25 * 256
-assert common_rows[5035]["controller_count"] == 2
+assert common_rows[5035]["controller_count"] == 3
 assert common_rows[5040]["land_state"] == 52
 assert common_rows[5050]["land_state"] == 5100
 assert common_rows[5050]["land_level_q8"] == 25 * 256
-assert common_rows[5050]["controller_count"] == 1
+assert common_rows[5050]["controller_count"] == 2
 assert common_rows[5071]["land_state"] == 5110
 assert common_rows[5071]["land_level_q8"] == 15 * 256
-assert common_rows[5100]["controller_count"] == 8
-assert common_rows[5101]["anim"] == 5160
-assert common_rows[5101]["air_accel_q8"] == round(.4 * 256)
-assert common_rows[5101]["land_level_q8"] == 12 * 256
-assert common_rows[5101]["land_state"] == 5110
+assert common_rows[5100]["controller_count"] == 10
+assert common_rows[5101]["anim"] == -1   # ANIM_ADD_MOD10 picks 5160+
+# Gravity is an explicit VelAdd controller (Time >= 1), not row physics.
+assert common_rows[5101]["air_accel_q8"] == 0
+assert common_rows[5101]["owns_air_accel"] == 1
+assert any(
+    c["type"] == "IK_CNS_CTRL_VEL_ADD"
+    and c["trigger_kind"] == "IK_CNS_TRIGGER_TIME_GE"
+    and c["value1"] == round(.4 * 256)
+    for c in report["controllers"] if c["state_number"] == 5101
+)
+# Landing is a controller (VY_GT_Q8_AT_LEVEL), as in upstream common1.
+assert any(
+    c["type"] == "IK_CNS_CTRL_CHANGE_STATE"
+    and c["trigger_kind"] == "IK_CNS_TRIGGER_VY_GT_Q8_AT_LEVEL"
+    and c["trigger_value"] == 12 * 256 and c["value0"] == 5110
+    for c in report["controllers"] if c["state_number"] == 5101
+)
 assert common_rows[5120]["controller_count"] == 3
 state5120_ctrls = [
     c for c in report["controllers"] if c["state_number"] == 5120
@@ -2739,7 +2757,9 @@ assert common_rows[100]["assert_special_flags"] == (
     "IK_CNS_STATE_ASSERT_NO_AUTO_TURN"
 )
 assert 100 not in report["common_deferred"]
-assert 5100 not in report["common_deferred"]\nassert 5150 not in report["common_deferred"]\nassert 5210 not in report["common_deferred"]
+assert 5100 not in report["common_deferred"]
+assert 5150 not in report["common_deferred"]
+assert 5210 not in report["common_deferred"]
 assert report["common_deferred"][150] == ["ForceFeedback"]
 assert report["constants"]["liedown_time"] == 60
 assert report["constants"]["air_gethit_groundlevel_q8"] == 25 * 256
@@ -2809,10 +2829,9 @@ steps3000 = next(
     c for c in super3000 if c["type"] == "IK_CNS_CTRL_POS_ADD"
 )
 assert steps3000["trigger_kind"] == "IK_CNS_TRIGGER_ANIM_ELEM_MASK"
-mask3000 = (
-    (1 << 2) | (1 << 10) | (1 << 12) |
-    (1 << 18) | (1 << 20) | (1 << 30)
-)
+# trigger4 lists AnimElem = 19 and AnimElem = 31: one AND group that can
+# never hold, so neither element fires (upstream agrees).
+mask3000 = (1 << 2) | (1 << 10) | (1 << 12) | (1 << 20)
 assert (steps3000["trigger_value"] & 0xffff) == (mask3000 & 0xffff)
 assert (steps3000["trigger_value2"] & 0xffff) == ((mask3000 >> 16) & 0xffff)
 super3050 = [
@@ -2951,7 +2970,7 @@ blocked1310 = [
 ]
 pause1310 = next(c for c in blocked1310 if c["type"] == "IK_CNS_CTRL_PAUSE")
 assert pause1310["trigger_kind"] == "IK_CNS_TRIGGER_TIME_EQ"
-assert pause1310["trigger_value"] == 1
+assert pause1310["trigger_value"] == 0  # authored Time = 0
 assert pause1310["value0"] == 20
 nothit1310 = next(
     c for c in blocked1310 if c["type"] == "IK_CNS_CTRL_NOT_HIT_BY"
@@ -2988,3 +3007,86 @@ assert report["constants"]["air_gethit_airrecover_mul_x_q8"] == round(.5 * 256)
 assert report["constants"]["air_gethit_airrecover_add_y_q8"] == round(-4.5 * 256)
 assert report["constants"]["air_gethit_airrecover_threshold_q8"] == -256
 assert report["constants"]["air_gethit_airrecover_yaccel_q8"] == round(.35 * 256)
+
+# --- HitDef power / distance keys, Width edge, ScreenBound, SelfAnimExist ---
+from tools import ikemen_cns as _cns  # noqa: E402
+
+_power = _cns.power_fields(Section("h", [
+    ("getpower", "0"), ("givepower", "40, 7"),
+]))
+assert _power["power_flags"] == 3
+assert (_power["get_power_hit"], _power["get_power_guard"]) == (0, 0)
+assert (_power["give_power_hit"], _power["give_power_guard"]) == (40, 7)
+# An omitted guard value is half the hit value, truncated toward zero.
+assert _cns.power_fields(Section("h", [("getpower", "-5")]))[
+    "get_power_guard"] == -2
+assert _cns.power_fields(Section("h", []))["power_flags"] == 0
+
+_dist = _cns.dist_fields(Section("h", [
+    ("mindist", "50,-100"), ("maxdist", "100,-10"),
+]))
+assert _dist["dist_flags"] == 15
+assert _dist["mindist_x_q8"] == 50 * 256
+assert _dist["maxdist_y_q8"] == -10 * 256
+_snap = _cns.dist_fields(Section("h", [("snap", "12")]))
+assert _snap["dist_flags"] == 1 | 4     # x only, both limits
+assert _snap["mindist_x_q8"] == _snap["maxdist_x_q8"] == 12 * 256
+
+_width = compile_runtime_controller(1300, Section("w", [
+    ("type", "Width"), ("trigger1", "1"), ("value", "15,3"),
+]))
+assert [_width[k] for k in ("value0", "value1", "value2", "value3")] == \
+    [15, 3, 15, 3]
+_edge_only = compile_runtime_controller(810, Section("w", [
+    ("type", "Width"), ("trigger1", "1"), ("edge", "60,0"),
+]))
+assert [_edge_only[k] for k in ("value0", "value1", "value2", "value3")] == \
+    [0, 0, 60, 0]
+
+_bound = compile_runtime_controller(1026, Section("sb", [
+    ("type", "ScreenBound"),
+    ("triggerall", "Pos y < -15"),
+    ("trigger1", "BackEdgeBodyDist < 65"),
+    ("trigger2", "FrontEdgeBodyDist < 65"),
+    ("value", "1"), ("movecamera", "0,1"),
+]))
+assert _bound["type"] == "IK_CNS_CTRL_SCREEN_BOUND"
+assert _bound["trigger_kind"] == "IK_CNS_TRIGGER_AIR_NEAR_BODY_EDGE_LT"
+assert _bound["trigger_value2"] == 65
+assert (_bound["value0"], _bound["value1"], _bound["value2"],
+        _bound["value3"]) == (1, 0, 1, 3)
+
+# SelfAnimExist is resolved against the character's action set.
+_cns.SELF_ANIMS = {5050, 5060}
+try:
+    _keep = _cns.fold_self_anim_exist(Section("a", [
+        ("type", "ChangeAnim"), ("trigger1", "Time = 0"),
+        ("trigger1", "!SelfAnimExist(5052)"), ("value", "5050"),
+    ]))
+    assert _keep is not None
+    assert _keep.all("trigger1") == ["Time = 0"]
+    assert _cns.fold_self_anim_exist(Section("a", [
+        ("type", "ChangeAnim"), ("trigger1", "Time = 0"),
+        ("trigger1", "SelfAnimExist(5052)"), ("value", "5052"),
+    ])) is None
+    # A true term alone leaves an always-true group behind.
+    _always = _cns.fold_self_anim_exist(Section("a", [
+        ("type", "ChangeAnim"), ("trigger1", "SelfAnimExist(5060)"),
+        ("value", "5060"),
+    ]))
+    assert _always.all("trigger1") == ["1"]
+finally:
+    _cns.SELF_ANIMS = None
+
+# Lines of one triggerN are ANDed: two different AnimElem lines never hold.
+_mask = Section("p", [
+    ("type", "PosAdd"),
+    ("trigger1", "AnimElem = 3"),
+    ("trigger2", "AnimElem = 11"),
+    ("trigger4", "AnimElem = 19"),
+    ("trigger4", "AnimElem = 31"),
+    ("x", "1"),
+])
+_kind, _lo, _hi = controller_trigger(_mask, "posadd")
+assert _kind == "IK_CNS_TRIGGER_ANIM_ELEM_MASK"
+assert (_lo | (_hi << 16)) == (1 << 2) | (1 << 10)

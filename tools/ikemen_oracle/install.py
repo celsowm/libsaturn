@@ -19,7 +19,6 @@ PATCHED_SETUP = f"""	{BEGIN_MARKER}
 		}}
 	}}
 	{END_MARKER}
-
 """ + BEFORE_SETUP
 
 AFTER_ACTION = """		// Update game state
@@ -35,11 +34,9 @@ PATCHED_INPUT = f"""	{BEGIN_MARKER}
 		axes = [6]float32{{}}
 	}}
 	{END_MARKER}
-
 """ + INPUT_ANCHOR
 
-PATCHED_ACTION = AFTER_ACTION + f"""
-		{BEGIN_MARKER}
+PATCHED_ACTION = AFTER_ACTION + f"""		{BEGIN_MARKER}
 		if libsaturnOracleEnabled() &&
 			libsaturnOracleCaptureFrame(s) {{
 			s.fightLoopEnd = true

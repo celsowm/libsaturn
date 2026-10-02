@@ -75,6 +75,19 @@ int ik_frames_bounds(const ik_frame_table_t* table, int action,
 uint16_t ik_frame_ticks(const ik_frame_t* frame);
 const ik_frame_t* ik_frame_at_time(const ik_frame_table_t* table,
                                    int action, uint32_t ticks);
+/* The frame that plays after `frame`, following ik_frame_at_time's rules:
+ * the next frame of the action, the loop start after the last frame of a
+ * looping action, and NULL where the animation stays put (a frame that holds
+ * forever, the last frame of a non-looping action, or a pointer outside the
+ * table). Cheaper than ik_frame_at_time, which scans the whole table. */
+const ik_frame_t* ik_frame_after(const ik_frame_table_t* table,
+                                 const ik_frame_t* frame);
+/* Animation element (1-based, 0 when the action is unknown) and curtime the
+ * way upstream Ikemen's Animation reports them, for a fighter whose raw
+ * time-in-animation is `time`. Used by the oracle trace so a looping action
+ * shows the wrapped curtime instead of an ever-growing counter. */
+void ik_anim_trace_state(const ik_frame_table_t* table, int action,
+                         uint32_t time, int* out_elem, uint32_t* out_time);
 uint32_t ik_action_duration_ticks(const ik_frame_table_t* table, int action);
 int ik_action_loops(const ik_frame_table_t* table, int action);
 int ik_visual_frame_resolve(
@@ -102,6 +115,20 @@ int ik_frame_clsn_world(const ik_frame_table_t* table,
                         int* out_top,
                         int* out_right,
                         int* out_bottom);
+
+/* Same box in Q8.8 world units, for a Q8.8 position (upstream compares float
+ * boxes, so a pixel-rounded position shifts a hit by a tick). */
+int ik_frame_clsn_world_q8(const ik_frame_table_t* table,
+                           const ik_frame_t* frame,
+                           uint8_t kind,
+                           uint16_t index,
+                           int32_t x_q8,
+                           int32_t y_q8,
+                           int facing,
+                           int32_t* out_left,
+                           int32_t* out_top,
+                           int32_t* out_right,
+                           int32_t* out_bottom);
 
 #ifdef __cplusplus
 }

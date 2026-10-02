@@ -688,12 +688,14 @@ HOST_TEST_EXTRA_test_collide3d_sweep := src/physics/3d/sweep.cpp
 HOST_TEST_EXTRA_test_collide3d_sweep_full := src/physics/3d/sweep_full.cpp
 HOST_TEST_EXTRA_test_collide3d_logic :=
 HOST_TEST_EXTRA_test_spatial3_api := src/physics/spatial/3d.cpp src/physics/3d/collision.cpp
-HOST_TEST_EXTRA_test_ikemen_fight := examples/ikemen_saturn/ikemen_fight.c examples/ikemen_saturn/ikemen_anim.c examples/ikemen_saturn/ikemen_cns.c examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_entity_runtime.c
+# ikemen_fight is split into ikemen_fight*.c (one responsibility each).
+IKEMEN_FIGHT_SRCS := $(wildcard examples/ikemen_saturn/ikemen_fight*.c)
+HOST_TEST_EXTRA_test_ikemen_fight := $(IKEMEN_FIGHT_SRCS) examples/ikemen_saturn/ikemen_anim.c examples/ikemen_saturn/ikemen_cns.c examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_entity_runtime.c
 HOST_TEST_EXTRA_test_ikemen_command := examples/ikemen_saturn/ikemen_command.c examples/ikemen_saturn/ikemen_expr.c
 HOST_TEST_EXTRA_test_ikemen_expr := examples/ikemen_saturn/ikemen_expr.c
-HOST_TEST_EXTRA_test_ikemen_entity := examples/ikemen_saturn/ikemen_entity.c
+HOST_TEST_EXTRA_test_ikemen_entity := examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_expr.c
 HOST_TEST_EXTRA_test_ikemen_entity_runtime := examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_entity_runtime.c examples/ikemen_saturn/ikemen_cns.c examples/ikemen_saturn/ikemen_anim.c
-HOST_TEST_EXTRA_test_ikemen_helper_combat := examples/ikemen_saturn/ikemen_fight.c examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_entity_runtime.c examples/ikemen_saturn/ikemen_cns.c examples/ikemen_saturn/ikemen_anim.c
+HOST_TEST_EXTRA_test_ikemen_helper_combat := $(IKEMEN_FIGHT_SRCS) examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_entity_runtime.c examples/ikemen_saturn/ikemen_cns.c examples/ikemen_saturn/ikemen_anim.c
 HOST_TEST_EXTRA_test_ikemen_cns := examples/ikemen_saturn/ikemen_cns.c
 HOST_TEST_EXTRA_test_ikemen_anim := examples/ikemen_saturn/ikemen_anim.c
 HOST_TEST_EXTRA_test_ikemen_decode := examples/ikemen_saturn/ikemen_anim.c

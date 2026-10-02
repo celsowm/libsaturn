@@ -87,14 +87,14 @@ int main() {
     ik_entity_runtime_step(&runtime);
     spawned=ik_entity_get_const(&pool,helper);
     OK(spawned!=nullptr);
-    EQ(spawned->state_time,0u);
+    EQ(spawned->state_time,1u); /* Time 0 ran; the clock advances at tick end */
     EQ(spawned->vars[3],0);
     EQ(spawned->vx_q8,0);
 
     ik_entity_runtime_step(&runtime);
     spawned=ik_entity_get_const(&pool,helper);
     OK(spawned!=nullptr);
-    EQ(spawned->state_time,1u);
+    EQ(spawned->state_time,2u);
     EQ(spawned->vars[3],10);
     EQ(spawned->vx_q8,-256);
     EQ(spawned->x_q8,110*IK_ENTITY_Q8_ONE-256);

@@ -306,6 +306,37 @@ int main() {
         &state,&k_asset,&power_asset,&ctx,&requested));
     OK(requested==1020);
 
+    /* command_gate: a rule whose expression is always true is still skipped
+     * while its gated command is inactive, and always evaluated at gate 0. */
+    static const ik_state_rule_instr_t always_code[] = { CONST(1) };
+    static const ik_state_rule_t gated_rules[] = {
+        {0u,1u,111,(uint8_t)(CMD_X + 1u)},   /* needs command X */
+        {0u,1u,222,0u},                      /* ungated */
+    };
+    static const ik_state_rule_asset_t gated_asset = {
+        always_code,1u,gated_rules,2u
+    };
+    ctx={};
+    ik_command_state_init(&state);
+    requested=0;
+    /* X idle: the gated rule is skipped, so the ungated rule below wins. */
+    OK(ik_command_eval_state_change(
+        &state,&k_asset,&gated_asset,&ctx,&requested));
+    OK(requested==222);
+    /* X pressed: the gated rule is evaluated first and wins. */
+    sample(&state,SAT_PAD_X);
+    OK(ik_command_active(&state,&k_asset,CMD_X));
+    OK(ik_command_eval_state_change(
+        &state,&k_asset,&gated_asset,&ctx,&requested));
+    OK(requested==111);
+    /* A gated rule with nothing after it reports "no change" when idle. */
+    static const ik_state_rule_asset_t gated_only = {
+        always_code,1u,gated_rules,1u
+    };
+    ik_command_state_init(&state);
+    OK(!ik_command_eval_state_change(
+        &state,&k_asset,&gated_only,&ctx,&requested));
+
     std::puts("[test] ikemen_command OK");
     return 0;
 }
