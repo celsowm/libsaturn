@@ -25,6 +25,7 @@ scratch region. The runtime performs no general-purpose heap allocation.
 | Character2 | character struct (position, velocities, support) and a configuration | nothing; stepping allocates nothing | the map is borrowed read-only for the call; the game edits speeds before each step | no hardware state |
 | Physics2 world | slots, pair arrays, candidate scratch and a `sat_spatial_t`, all caller-owned | collider slots with generation counters; no heap | handles are generation-checked and never reused; the event buffer is the caller's; capacity overflow is reported, never silent | no hardware state |
 | Path2 | path value; polyline points and cumulative lengths; optional Bezier arc-length table | nothing; every call is pure | borrowed arrays must outlive the path; a path value can be copied freely; `sat_path2_polyline_entries` and `sat_path2_table_requirements` size the arrays | no hardware state |
+| Follow Camera2D | camera value (centre, look-ahead, bounds, clamp, shake); caller-owned | nothing; produces a `sat_camera2d_t` the game passes to render2d | one controller per view; shake is a plain value, no task | no hardware state |
 
 Capacity failures return `SAT_ERR_CAPACITY`; stale or closed generation-checked
 handles return the documented invalid/not-found result. Update operations do

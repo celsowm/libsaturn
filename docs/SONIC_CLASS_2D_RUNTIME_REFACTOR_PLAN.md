@@ -1281,9 +1281,47 @@ Deviations and decisions made while implementing:
   an easing or a direction reversal is the game's job; `advance` only moves a distance.
 
 ### Phase 5 — Follow Camera2D
-**Status:** Not Started
+**Status:** Complete (2026-10-02). `follow_camera2d` landed with host tests; the cross build for SH-2
+and the full `make test` pass.
 
 Deliver dead zone, smoothing, look-ahead, bounds, temporary clamps, shake, visibility/activation/prefetch bounds and tests.
+
+Delivered:
+
+- `include/saturn/follow_camera2d.h`, `src/physics/2d/follow_camera2d.cpp`: `sat_follow_camera2d_t`, a
+  plain value holding the view centre (shake-free), the last step's `delta`, the current look-ahead, the
+  world bounds, the sliding clamp and a shake. `sat_follow_camera2d_config_default/validate/init`;
+  `sat_follow_camera2d_step(cam, target, velocity, out)` moves the centre and fills the
+  `sat_camera2d_t` for `sat_render2d_set_camera` (target lands in the middle of the viewport, zoom and
+  rotation untouched); `sat_follow_camera2d_get`, `sat_follow_camera2d_snap`.
+- Dead zone (half size plus a shift, so the target can sit low on screen), per-axis follow fraction,
+  per-axis speed cap, velocity-driven look-ahead with its own cap, gain and ease.
+- `sat_follow_camera2d_set_bounds` keeps the visible window inside the world (a stage smaller than the
+  screen is centred); `set_clamp` / `clear_clamp` add a temporary clamp (locked screen, boss room) whose
+  edges slide at a given speed from the previous bounds and are intersected with the world.
+- `sat_shake2d_t` (usable on its own): sine or deterministic noise, constant / linear / per-step decay
+  envelopes, X/Y amplitudes (zero turns an axis off), a sign constraint, `update_every` N steps,
+  frequency and seed. The offset is added only to the camera given to render2d: the centre, `delta`,
+  and the activation and prefetch ranges are unaffected.
+- `sat_follow_camera2d_range` for VIEW (what is drawn, shake and pixel snapping included), ACTIVATION
+  and PREFETCH (shake-free view plus a margin plus `predict_steps` of the view's current motion on the
+  side it is heading), `sat_follow_camera2d_overlaps` (touching edges do not overlap),
+  `sat_follow_camera2d_world_to_screen` / `screen_to_world`. `SAT_FOLLOW_CAMERA2D_PIXEL_SNAP` rounds the
+  window to whole pixels.
+- `tests/host/test_follow_camera2d.cpp`: config validation, camera output, dead zone and shift,
+  smoothing and speed cap, look-ahead (cap, reversal, ease, snap), world bounds (clamp, small stage,
+  snap, removal), clamps (locked screen, slide in and out, no-world case), every shake envelope and
+  shaping option, shake kept out of gameplay state, pixel snap, ranges with asymmetric prediction,
+  overlap edges, and determinism.
+
+Deviations and decisions made while implementing:
+
+- The module lives next to the other 2D modules in `src/physics/2d/` and depends only on `core.h`,
+  `collide2d.h`, `math2d.h` and the `sat_camera2d_t` type of `render2d.h`; it never calls render2d.
+- Zoom and rotation stay at identity; a game that wants them edits the output camera.
+- A clamp that cannot intersect the world on an axis wins over the world on that axis.
+- `clear_clamp` with no world bounds drops the clamp at once (nothing to slide back to).
+- Bounds changes take effect on the next step, not immediately.
 
 ### Phase 6 — Large stage map streaming
 **Status:** Not Started
