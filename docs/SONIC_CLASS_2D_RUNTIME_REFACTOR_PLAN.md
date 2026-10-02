@@ -237,16 +237,19 @@ Final names may change after repository audit, but responsibilities should remai
 
 Potential modules:
 
+Final names (frozen by Phase 0, see section 37.8):
+
+- saturn/math2d.h — binary angles, sine/cosine tables, 2D dot/length/normalize/atan2/lerp;
 - saturn/terrain2.h — oriented terrain/profile queries;
 - saturn/character2.h — optional surface-oriented character controller;
-- saturn/physics2_world.h — static/kinematic colliders and support handles;
+- saturn/physics2_world.h — static/kinematic colliders, sensors and support handles
+  (sensors live here, not in a separate module);
 - saturn/path2.h — deterministic 2D paths;
-- trigger/sensor functionality either in a narrow trigger2 module or physics2_world;
-- saturn/follow_camera2d.h — camera policy above render2d;
+- saturn/follow_camera2d.h — camera policy above render2d, including screen shake;
 - saturn/stage_map2.h — logical large-map/metatile streaming to VDP2;
 - saturn/entity_stream2.h — static descriptor activation/deactivation;
-- saturn/task.h — bounded gameplay scheduler only if no suitable existing facility exists;
-- expanded saturn/sprite_anim.h or a separate narrow animation-player header.
+- saturn/task.h — bounded gameplay scheduler;
+- saturn/sprite_clip.h — animation clip player, separate from the simple sprite_anim.h.
 
 Lower-level modules must not require higher-level runtime initialization.
 
@@ -1088,9 +1091,9 @@ land in any order. Phase 3 depends on the Phase 0 decision about sharing a broad
 Phase 8 is last and conditional. Phase 11 needs everything it exercises.
 
 ### Phase 0 — Repository and SA2 audit
-**Status:** In Progress (SA2 terrain, sensor and support audit recorded in section 37
-on 2026-10-02; baseline measurements, the SA2 camera/entity read-through and the open
-decisions in section 37.4 are still to do)
+**Status:** Complete (2026-10-02). Audit in section 37; decisions and final names in
+section 37.8. The SH-2 cycle baseline was not taken; each phase measures its own hot
+paths instead (section 37.5).
 
 - inspect current LibSaturn 2D/VDP2/spatial/resource architecture;
 - inspect the referenced .external/sa2 systems and additional relevant code;
@@ -1417,7 +1420,7 @@ gitignored, consistent with treating it as local read-only reference material.
 - **Tasks (`task.h`, `task.c`):** priority-sorted doubly-linked list, at most 128,
   destructor, task data, destroy-disable flag.
 
-### 37.4 Decisions still open (block the Phase 1 gate)
+### 37.4 Decisions that blocked the Phase 1 gate (all resolved in 37.8)
 
 1. Angle representation (section 13).
 2. Terrain profile format and per-tile metadata; the SA2 layout above is the
@@ -1432,7 +1435,7 @@ gitignored, consistent with treating it as local read-only reference material.
 8. Whether Terrain2 stores the two nibbles per sample (SA2-style, 4 bits per axis) or a
    wider sample, and whether metatile dimensions are powers of two (section 26).
 
-### 37.5 Not done yet in Phase 0
+### 37.5 Phase 0 items deferred to the phases that need them
 
 - Trace of SA2's position-update path (the `PLAYERFN_UPDATE_POSITION` and rotation
   update) to see exactly how detach, snap and re-attach are decided; the sensors and
@@ -1461,3 +1464,41 @@ shell and run: `test_physics_logic`, `test_spatial_logic` and `test_collide2d_lo
 all print PASS (exit 0). These cover the body/tile solver including surface slopes,
 the uniform-grid broadphase and the 2D collision math, and are the regression floor
 for Phases 1 to 3. No SH-2 cycle or probe-frame measurement was taken.
+
+### 37.8 Decisions (Phase 0 gate)
+
+Made on 2026-10-02 from the audit above.
+
+1. **Angles:** `sat_angle_t` is `uint8_t`, 256 steps per turn, 0 along +X, 64 along
+   +Y (down on screen). A 256-entry fixed-point sine table backs `sat_sin8` and
+   `sat_cos8`; path code gets a 16-bit angle with linear interpolation. Surface angle
+   is the tangent direction with the solid on the right-hand side of travel, so a flat
+   floor is 0, a flat ceiling 128, a wall with solid to its right 192. The outward
+   normal is `(sin a, -cos a)`. An X flip maps `a` to `-a`, a Y flip to `128 - a`.
+2. **Distance precision:** terrain probes return whole-pixel distances stored in
+   `sat_fx16_t` (integer pixels shifted by 16). Sub-pixel position stays in the
+   caller's body; the sensor truncates it. This is what the reference needs and it keeps
+   the per-tile work to integer table lookups.
+3. **Probe directions:** four axis-aligned probes are the fast path (O(1) per tile,
+   at most `range / 8 + 1` tiles). A bounded arbitrary-direction `cast` is provided as
+   the generic slower form (one pixel step along the dominant axis).
+4. **Profile format:** 8 x 8 px tiles. Per profile: eight signed column extents and
+   eight signed row extents in -8..8 (positive anchors the solid to the bottom or
+   right, negative to the top or left, 0 empty, +-8 full), a surface angle, flags, a
+   category byte and a 16-bit material. Columns are authoritative for the pixel mask
+   and vertical probes, rows for horizontal probes; the offline tool validates that
+   both describe the same shape. This is 22 bytes per profile; nibble-packing was
+   rejected as a size saving not worth the decode cost on SH-2.
+5. **Map layout:** tile words are 16 bits (10-bit profile index, X flip, Y flip, 4
+   bits for the game). Metatiles are `1 << metatile_shift` tiles per axis (power of
+   two, no division). Up to four logical layers of metatile indices share one metatile
+   table. Positions outside the map follow an explicit policy (empty, solid or clamp).
+6. **One-way:** a profile flagged one-way blocks a probe only when the probe direction
+   opposes the surface normal (`dot(direction, normal) < 0`), for any orientation.
+7. **Broadphase:** Physics2 world and sensors use a caller-owned `sat_spatial_t`
+   (dynamic insert/clear). Static entity regions use an offline CSR index instead.
+8. **Math headers:** the new 2D modules depend only on `core.h` and `collide2d.h`
+   (`sat_fx16_t` is in `core.h`), not on `math3d.h`, so no header split is needed.
+   `saturn/math2d.h` holds the 2D helpers.
+9. **Resource accounting:** each module exposes a `*_requirements()` byte helper and
+   charges memory-region bytes (section 25); no new resource kinds.
