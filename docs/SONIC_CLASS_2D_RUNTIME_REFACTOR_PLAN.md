@@ -1152,11 +1152,51 @@ Deviations and decisions made while implementing:
   probes for sub-pixel-looking angles.
 
 ### Phase 2 — Character2
-**Status:** Not Started
+**Status:** Complete (2026-10-02). `character2` landed with host tests; the cross build for
+SH-2 and the full `make test` pass.
 
 Deliver support state, tangent speed, air velocity, landing/detach, floor/wall/ceiling continuity, configurable adhesion/snap policy and tests.
 
 **Gate:** host simulation traverses a loop-like oriented test surface without game-specific collision code.
+
+Delivered:
+
+- `include/saturn/character2.h`, `src/physics/2d/{character2_logic.hpp,character2.cpp}`:
+  `sat_character2_t` (position of the feet contact point, `air_velocity`, `ground_speed`,
+  `support_normal/tangent/id/angle`, `flags`, `layer`), `sat_character2_config_t` (foot, wall
+  and head sensor geometry, `step_up`, `snap_down`, `max_angle_step`, `steep_angle` plus
+  `min_steep_speed`, `ceiling_attach`, `gravity_quadrant`, `segment_px`, `max_segments`,
+  category mask and ignore flags), `sat_character2_result_t` (events, velocity before the step,
+  surface angle). Functions: `init`, `config_default`, `config_validate`, `is_supported`,
+  `world_velocity`, `attach`, `detach`, `step`. Events: LANDED, DETACHED, HIT_WALL, HIT_CEILING,
+  SLIPPED. The game owns acceleration, slope force, jump and abilities: it edits `ground_speed`
+  or `air_velocity` before each step.
+- `tests/host/test_character2.cpp` over the shared `tests/host/terrain2_test_world.hpp` (the
+  profile table and world builder also used by `test_terrain2`): flat run, 45-degree ramp up and
+  down, gaps narrower and wider than the feet, walls, 8 px step climbed or blocking, a full
+  rectangular loop with 45-degree corners in both directions (floor, both walls, ceiling,
+  every mode switch, exact ground speed kept), slipping off a wall at low speed, landing velocity
+  conversion on flat and sloped ground, detach/attach helpers, layer switching, flat and slanted
+  ceilings, 30 and 60 px/step movement without tunnelling, inverted gravity as a mirrored world,
+  argument validation and determinism.
+- Wired into `cmake/LibSaturnSources.cmake`, the Makefile host tests, `saturn.h` and
+  `docs/PUBLIC_API_OWNERSHIP.md`.
+
+Deviations and decisions made while implementing:
+
+- Support is found with two foot sensors plus a centre sensor: the feet pick the surface angle
+  and the nearer surface, the centre line gives the contact point. Without it the character rode
+  up to the foot half-width above a 45-degree slope; a ledge under one foot only keeps that
+  foot's contact.
+- Mode transitions are driven by what the sensors see, with the usual overlap (floor 224..32,
+  walls 33..95 and 161..223, ceiling 96..160). A surface ahead in the support's own mode is a slope
+  left to the foot sensors; one in another mode within `max_angle_step` of the support (a quarter
+  pipe, a ramp meeting a wall) becomes the support at once; anything steeper is a wall.
+- Only a shallow overlap of `step_up` pixels is recovered. A character buried deeper (for
+  example after the game switches its layer inside geometry) is not rescued: `attach` returns
+  `SAT_ERR_NOT_FOUND`.
+- Gravity direction is a configuration quadrant, not a flag on the character, so inverted
+  gravity is the same code in a mirrored frame.
 
 ### Phase 3 — Physics2 kinematics and sensors
 **Status:** Not Started

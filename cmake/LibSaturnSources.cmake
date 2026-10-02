@@ -129,6 +129,7 @@ set(LIBSATURN_PHYSICS_SOURCES
     src/physics/2d/collision.cpp
     src/physics/2d/grid.cpp
     src/physics/2d/terrain2.cpp
+    src/physics/2d/character2.cpp
     src/physics/3d/collision.cpp
     src/physics/3d/sweep.cpp
     src/physics/3d/sweep_full.cpp
