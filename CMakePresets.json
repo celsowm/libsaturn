@@ -1,0 +1,72 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "saturn-base",
+      "hidden": true,
+      "description": "Cross-build for the Sega Saturn SH-2. The sh2eb-elf toolchain must be on PATH (or set LIBSATURN_TOOLCHAIN_ROOT).",
+      "generator": "Ninja",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/sh2eb-elf.cmake",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/build/${presetName}/install"
+    },
+    {
+      "name": "saturn-debug",
+      "displayName": "Saturn runtime (Debug)",
+      "inherits": "saturn-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LIBSATURN_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "saturn-release",
+      "displayName": "Saturn runtime (Release)",
+      "inherits": "saturn-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LIBSATURN_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "host-tests",
+      "displayName": "Host header smoke tests (native compiler)",
+      "description": "No Saturn toolchain: compiles every public header with the host compiler and runs the source-manifest checks.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LIBSATURN_BUILD_RUNTIME": "OFF",
+        "LIBSATURN_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "package-consumer",
+      "displayName": "Installed-package consumer test",
+      "description": "Builds and installs LibSaturn to a temporary prefix, then links a standalone consumer against it.",
+      "inherits": "saturn-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LIBSATURN_BUILD_TESTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "saturn-debug", "configurePreset": "saturn-debug" },
+    { "name": "saturn-release", "configurePreset": "saturn-release" },
+    { "name": "package-consumer", "configurePreset": "package-consumer" }
+  ],
+  "testPresets": [
+    {
+      "name": "host-tests",
+      "configurePreset": "host-tests",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "package-consumer",
+      "configurePreset": "package-consumer",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
