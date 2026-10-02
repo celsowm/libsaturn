@@ -55,6 +55,32 @@ int main() {
     assert(vd::reserve_texture_region(8u, &after) == SAT_OK);
     assert(after >= second + 16u);
 
+    // Released texture VRAM is reused. Before this, every upload advanced the
+    // arena for good: ikemen_saturn's sprite cache froze the game with
+    // SAT_ERR_CAPACITY once ~512 KiB of sprites had gone through it.
+    uint16_t held = 0u;
+    assert(vd::upload_texture_indexed8(source, 64u, 64u, &held) == SAT_OK);
+    vd::release_texture_indexed8(held, 64u, 64u);
+    uint16_t again = 0u;
+    assert(vd::upload_texture_indexed8(source, 64u, 64u, &again) == SAT_OK);
+    assert(again == held);  // the freed span was taken back, not skipped
+    vd::release_texture_indexed8(again, 64u, 64u);
+
+    // Many times the arena's size in total traffic, with a few live textures
+    // of mixed sizes, never runs out.
+    uint16_t live[6] = {};
+    uint16_t dims[6] = {8u, 16u, 24u, 32u, 48u, 64u};
+    for (int i = 0; i < 6; ++i) {
+        assert(vd::upload_texture_indexed8(source, dims[i], 8u, &live[i]) == SAT_OK);
+    }
+    for (int round = 0; round < 20000; ++round) {
+        const int i = round % 6;
+        vd::release_texture_indexed8(live[i], dims[i], 8u);
+        const uint16_t w = dims[(round * 7 + 3) % 6];
+        assert(vd::upload_texture_indexed8(source, w, 8u, &live[i]) == SAT_OK);
+        dims[i] = w;  // keep the recorded width in step with what is live
+    }
+
     std::printf("vdp1 vram region: OK\n");
     return 0;
 }

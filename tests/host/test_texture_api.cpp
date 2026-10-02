@@ -13,6 +13,11 @@ namespace {
 uint16_t g_next_srca = 0x2000u;
 uint32_t g_palette_uploads = 0u;
 uint32_t g_texture_uploads = 0u;
+/* VRAM handed back through release_texture_indexed8, in call order. */
+uint32_t g_texture_releases = 0u;
+uint16_t g_released_srca[8] = {};
+uint16_t g_released_w[8] = {};
+uint16_t g_released_h[8] = {};
 uint32_t g_texture_updates = 0u;
 uint16_t g_last_pitch = 0u;
 sat_result_t g_texture_upload_status = SAT_OK;
@@ -49,6 +54,15 @@ sat_result_t upload_texture_indexed8_pitched(
     g_last_pitch = pitch;
     *out_srca = g_next_srca++;
     return SAT_OK;
+}
+
+void release_texture_indexed8(uint16_t srca, uint16_t width, uint16_t height) {
+    if (g_texture_releases < 8u) {
+        g_released_srca[g_texture_releases] = srca;
+        g_released_w[g_texture_releases] = width;
+        g_released_h[g_texture_releases] = height;
+    }
+    ++g_texture_releases;
 }
 
 sat_result_t update_texture_indexed8_pitched(
@@ -111,6 +125,7 @@ static void reset_runtime() {
     g_next_srca = 0x2000u;
     g_palette_uploads = 0u;
     g_texture_uploads = 0u;
+    g_texture_releases = 0u;
     g_texture_updates = 0u;
     g_last_pitch = 0u;
     g_texture_upload_status = SAT_OK;
@@ -171,6 +186,52 @@ static void only_intersecting_regions_refresh() {
        third->native.srca==third_srca);
     OK(pixels[1u*16u+3u]==0x5Au);
     OK(sat_texture_destroy(handle)==SAT_OK);
+}
+
+/* sat_texture_destroy must give the texture's VRAM back, or a cache that
+ * evicts and re-uploads exhausts the arena (the ikemen_saturn freeze). */
+static void destroy_returns_vram() {
+    using namespace saturn::core;
+    reset_runtime();
+    uint16_t palette[256];
+    make_palette(palette, 3u);
+    uint8_t pixels[64u * 64u]{};
+    sat_surface_t surface{pixels, 64u, 64u, 64u, SAT_PIXEL_INDEX8, palette, 256u};
+
+    sat_texture_t plain{};
+    OK(sat_texture_create_from_surface(&plain, &surface, SAT_TEXTURE_UPLOAD_ONLY) == SAT_OK);
+    OK(g_texture_releases == 0u);
+    OK(sat_texture_destroy(plain) == SAT_OK);
+    OK(g_texture_releases == 1u);
+    OK(g_released_srca[0] == 0x2000u && g_released_w[0] == 64u && g_released_h[0] == 64u);
+    /* A stale handle must not free anything a second time. */
+    OK(sat_texture_destroy(plain) == SAT_ERR_INVALID_ARG);
+    OK(g_texture_releases == 1u);
+
+    /* Prepared regions own VRAM of their own and go back with the parent. */
+    g_texture_releases = 0u;
+    sat_texture_t owner{};
+    OK(sat_texture_create_from_surface(&owner, &surface, SAT_TEXTURE_PERSISTENT_SOURCE) == SAT_OK);
+    const sat_rect_t a{0, 0, 8u, 8u};
+    const sat_rect_t b{8, 0, 16u, 8u};
+    OK(sat_texture_prepare_region(owner, &a) == SAT_OK);
+    OK(sat_texture_prepare_region(owner, &b) == SAT_OK);
+    OK(sat_texture_destroy(owner) == SAT_OK);
+    OK(g_texture_releases == 3u);
+    uint32_t region_bytes = 0u, parent_bytes = 0u;
+    for (uint32_t i = 0u; i < 3u; ++i) {
+        const uint32_t bytes = static_cast<uint32_t>(g_released_w[i]) * g_released_h[i];
+        if (bytes == 64u * 64u) parent_bytes += bytes; else region_bytes += bytes;
+    }
+    OK(parent_bytes == 64u * 64u);
+    OK(region_bytes == 8u * 8u + 16u * 8u);
+
+    /* A failed upload took no VRAM, so there is nothing to give back. */
+    g_texture_releases = 0u;
+    g_texture_upload_status = SAT_ERR_CAPACITY;
+    sat_texture_t none{};
+    OK(sat_texture_create_from_surface(&none, &surface, SAT_TEXTURE_UPLOAD_ONLY) == SAT_ERR_CAPACITY);
+    OK(g_texture_releases == 0u);
 }
 
 static void update_failure_and_recovery() {
@@ -326,6 +387,7 @@ static void rejected_update_changes_nothing() {
 }
 
 int main() {
+    destroy_returns_vram();
     using namespace saturn::core;
     reset_runtime();
 

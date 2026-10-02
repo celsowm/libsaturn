@@ -132,6 +132,13 @@ sat_result_t upload_texture_indexed8(
     uint16_t height,
     uint16_t* out_srca);
 
+/* Returns the VRAM of a texture uploaded with upload_texture_indexed8[_pitched]
+ * to the arena so a later upload can reuse it. `srca`, `width` and `height` are
+ * the values that upload produced and was given. The caller must not draw the
+ * texture afterwards; a later upload that reuses the span waits for the VDP1 to
+ * finish the last submitted list before overwriting it. */
+void release_texture_indexed8(uint16_t srca, uint16_t width, uint16_t height);
+
 /* Allocates and writes a 16-entry color lookup table; *out_colr is the
  * CMDCOLR value (VRAM address / 8, 32-byte aligned, never 0). */
 sat_result_t upload_lut(const uint16_t* lut_rgb555, uint16_t* out_colr);

@@ -87,10 +87,38 @@ sat_result_t sat_shutdown(void);
     } \
 } while (0)
 
+/* Human-readable name of a result code ("BUSY", "CAPACITY", ...). Never
+ * returns NULL; unknown codes give "UNKNOWN". */
+const char* sat_result_name(sat_result_t st);
+
+/* What the last sat_panic() saw, kept in a fixed global so a test, probe or
+ * debugger can read it from RAM without OCR-ing the screen (find
+ * g_sat_last_panic in the .map). `magic` is SAT_PANIC_MAGIC once written. */
+#define SAT_PANIC_MAGIC 0x50414E43u /* 'PANC' */
+#define SAT_PANIC_FILE_MAX 32u
+typedef struct sat_panic_info {
+    uint32_t magic;
+    int32_t code;
+    int32_t line;
+    char file[SAT_PANIC_FILE_MAX];
+} sat_panic_info_t;
+extern volatile sat_panic_info_t g_sat_last_panic;
+
+/* Fatal-error stop: records the failure in g_sat_last_panic, then shows a
+ * full-screen report (error name, source file, line, code) drawn from VDP1
+ * rectangles and never returns. Needs only an initialised VDP1; if even that
+ * is unavailable it degrades to a silent spin, the old behaviour. */
+#if defined(__GNUC__)
+__attribute__((noreturn, cold))
+#endif
+void sat_panic(sat_result_t st, const char* file, int line);
+
+/* Stops with an on-screen report on any non-OK result. Statement-like, safe
+ * in an unbraced if/else, and evaluates `expr` exactly once. */
 #define SAT_PANIC_IF_ERROR(expr) do { \
     sat_result_t sat__st = (expr); \
     if (sat__st != SAT_OK) { \
-        while (1) { } \
+        sat_panic(sat__st, __FILE__, __LINE__); \
     } \
 } while (0)
 

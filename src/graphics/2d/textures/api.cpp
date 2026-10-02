@@ -247,7 +247,25 @@ extern "C" sat_result_t sat_texture_destroy(sat_texture_t texture) {
     const uint16_t palette_bank = slot->palette_bank;
     st = palette_release_logical(g_palette_registry, palette_bank);
     if (st != SAT_OK) return st;
-    return texture_release_slot(g_texture_registry, texture);
+    /* Hand the texture's VRAM back: without this the arena only ever grew and a
+     * program that cycles textures through a cache ran out of VRAM. Copy the
+     * descriptor first, the slot is cleared by the release below. */
+    const sat_vdp1_texture_t native = slot->native;
+    /* Prepared regions own VRAM of their own (sat_texture_prepare_region); the
+     * release below clears their records, so free their spans first. */
+    for (uint16_t i = 0u; i < kTextureRegionCapacity; ++i) {
+        const TextureRegionRecord& record = g_texture_registry.regions[i];
+        if (record.used != 0u && record.owner_slot == texture.slot &&
+            record.owner_generation == texture.generation && record.native.srca != 0u) {
+            saturn::hal::vdp1::release_texture_indexed8(
+                record.native.srca, record.native.width, record.native.height);
+        }
+    }
+    st = texture_release_slot(g_texture_registry, texture);
+    if (st == SAT_OK && native.srca != 0u && native.width != 0u && native.height != 0u) {
+        saturn::hal::vdp1::release_texture_indexed8(native.srca, native.width, native.height);
+    }
+    return st;
 }
 
 extern "C" sat_result_t sat_texture_info(sat_texture_t texture, sat_texture_info_t* out_info) {

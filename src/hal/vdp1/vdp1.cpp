@@ -1,4 +1,5 @@
 #include "src/hal/vdp1/vdp1.hpp"
+#include "src/hal/vdp1/texture_arena.hpp"
 #include "src/hal/scu/dma.hpp"
 #include "src/hal/scu/scu.hpp"
 #include "src/core/runtime/logic.hpp"
@@ -65,7 +66,9 @@ bool g_list_submitted=false;
 bool g_submit_dma=false;
 uint32_t g_draw_waits=0u;
 uint32_t g_draw_timeouts=0u;
-uint32_t g_texture_cursor = kTextureBase;
+/* Address bookkeeping for texture VRAM; see texture_arena.hpp. Constant
+ * initialised, so it needs no static constructor. init() resets it. */
+TextureArena g_texture_arena(kTextureBase, kVramSize);
 uint16_t g_width = 320;
 uint16_t g_height = 224;
 /* 640/704-wide hi-res: TVMR TVM = 001, an 8 bits/pixel framebuffer. */
@@ -137,7 +140,7 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     g_width = width;
     g_height = height;
     g_hires = width >= 640u;
-    g_texture_cursor = kTextureBase;
+    g_texture_arena.reset(kTextureBase, kVramSize);
 
     TVMR = g_hires ? 0x0001u : 0x0000u;
     FBCR = 0x0000;
@@ -706,6 +709,19 @@ sat_result_t write_indexed8_rows(
     return SAT_OK;
 }
 
+/* Takes `bytes` of texture VRAM. A span that was used before may still be read
+ * by the command list the VDP1 is drawing, so a recycled one waits for the
+ * drawing to finish before the caller overwrites it; fresh arena never waits. */
+sat_result_t arena_take(uint32_t bytes, uint32_t align, uint32_t* out_start) {
+    bool recycled = false;
+    if (!g_texture_arena.alloc(bytes, align, out_start, &recycled)) return SAT_ERR_CAPACITY;
+    if (recycled && !wait_draw_end()) {
+        (void)g_texture_arena.free_block(*out_start, bytes);
+        return SAT_ERR_BUSY;
+    }
+    return SAT_OK;
+}
+
 }  // namespace
 
 sat_result_t upload_texture_indexed8_pitched(
@@ -714,29 +730,36 @@ sat_result_t upload_texture_indexed8_pitched(
     const sat_result_t st = validate_indexed8_transfer(pixels, width, height, pitch);
     if (st != SAT_OK) return st;
     const uint32_t size = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
-    g_texture_cursor = (g_texture_cursor + 7u) & ~7u;
-    if (g_texture_cursor + size > kVramSize) return SAT_ERR_CAPACITY;
-    const uint32_t start = g_texture_cursor;
-    /* The arena cursor moves only once the bytes landed. */
-    SAT_TRY(write_indexed8_rows(start, pixels, width, height, pitch));
+    uint32_t start = 0u;
+    SAT_TRY(arena_take(size, 8u, &start));
+    /* A failed copy hands the span straight back: the caller sees an error and
+     * never learns the address, so nothing else could free it. */
+    const sat_result_t wr = write_indexed8_rows(start, pixels, width, height, pitch);
+    if (wr != SAT_OK) {
+        (void)g_texture_arena.free_block(start, size);
+        return wr;
+    }
     *out_srca = static_cast<uint16_t>(start >> 3u);
-    g_texture_cursor += size;
     return SAT_OK;
+}
+
+void release_texture_indexed8(uint16_t srca, uint16_t width, uint16_t height) {
+    (void)g_texture_arena.free_block(
+        static_cast<uint32_t>(srca) << 3u,
+        static_cast<uint32_t>(width) * static_cast<uint32_t>(height));
 }
 
 sat_result_t reserve_texture_region(uint32_t bytes, uint32_t* out_offset) {
     if (out_offset == nullptr || bytes == 0u) return SAT_ERR_INVALID_ARG;
-    const uint32_t start = (g_texture_cursor + 7u) & ~7u;
-    const uint32_t size = (bytes + 7u) & ~7u;
-    if (start + size > kVramSize || start + size < start) return SAT_ERR_CAPACITY;
-    g_texture_cursor = start + size;
+    uint32_t start = 0u;
+    SAT_TRY(arena_take(bytes, 8u, &start));
     *out_offset = start;
     return SAT_OK;
 }
 
 sat_result_t write_texture_region(uint32_t offset, const void* src, uint32_t bytes) {
     if (src == nullptr || bytes == 0u) return SAT_ERR_INVALID_ARG;
-    if (offset < kTextureBase || offset + bytes > g_texture_cursor || offset + bytes < offset) {
+    if (offset < kTextureBase || offset + bytes > g_texture_arena.cursor() || offset + bytes < offset) {
         return SAT_ERR_INVALID_ARG;
     }
     if (!wait_draw_end()) return SAT_ERR_TIMEOUT;
@@ -752,14 +775,12 @@ sat_result_t upload_texture_indexed8(
 sat_result_t upload_lut(const uint16_t* lut_rgb555, uint16_t* out_colr) {
     if (lut_rgb555 == nullptr || out_colr == nullptr) return SAT_ERR_INVALID_ARG;
     constexpr uint32_t kLutBytes = 32u;
-    g_texture_cursor = (g_texture_cursor + (kLutBytes - 1u)) & ~(kLutBytes - 1u);
-    if (g_texture_cursor + kLutBytes > kVramSize) return SAT_ERR_CAPACITY;
-    const uint32_t start = g_texture_cursor;
+    uint32_t start = 0u;
+    SAT_TRY(arena_take(kLutBytes, kLutBytes, &start));
     for (uint32_t i = 0u; i < 16u; ++i) {
         VDP1_VRAM_16[start / 2u + i] = lut_rgb555[i];
     }
     *out_colr = static_cast<uint16_t>(start >> 3u);
-    g_texture_cursor += kLutBytes;
     return SAT_OK;
 }
 
@@ -770,13 +791,16 @@ sat_result_t upload_texture_lut4(
     const sat_result_t st = validate_indexed8_transfer(pixels, width, height, width);
     if (st != SAT_OK) return st;
     const uint32_t size = static_cast<uint32_t>(width) * height / 2u;
-    g_texture_cursor = (g_texture_cursor + 7u) & ~7u;
-    if (g_texture_cursor + size > kVramSize) return SAT_ERR_CAPACITY;
-    const uint32_t start = g_texture_cursor;
-    SAT_TRY(write_indexed8_rows(start, pixels, static_cast<uint16_t>(width / 2u), height,
-                                static_cast<uint16_t>(width / 2u)));
+    uint32_t start = 0u;
+    SAT_TRY(arena_take(size, 8u, &start));
+    const sat_result_t wr = write_indexed8_rows(
+        start, pixels, static_cast<uint16_t>(width / 2u), height,
+        static_cast<uint16_t>(width / 2u));
+    if (wr != SAT_OK) {
+        (void)g_texture_arena.free_block(start, size);
+        return wr;
+    }
     *out_srca = static_cast<uint16_t>(start >> 3u);
-    g_texture_cursor += size;
     return SAT_OK;
 }
 
@@ -786,7 +810,7 @@ namespace {
 bool resident_texture(uint16_t srca, uint16_t width, uint16_t height) {
     const uint32_t start = static_cast<uint32_t>(srca) << 3u;
     const uint32_t size = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
-    return start >= kTextureBase && start + size <= g_texture_cursor &&
+    return start >= kTextureBase && start + size <= g_texture_arena.cursor() &&
            start + size <= kVramSize;
 }
 

@@ -7,12 +7,11 @@
 #include "saturn/render2d.h"
 #include "saturn/video.h"
 
-static inline void sat_example_must(sat_result_t st) {
-    if (st != SAT_OK) {
-        while (1) {
-        }
-    }
-}
+/* Example-code error check: any non-OK result stops the program on a
+ * full-screen report (error name, file, line, code) instead of hanging
+ * silently. A macro rather than a function so the report can name the call
+ * site; call syntax is unchanged. See sat_panic() in saturn/core.h. */
+#define sat_example_must(expr) SAT_PANIC_IF_ERROR(expr)
 
 /* A whole boot progress frame: title, current stage and a percentage bar.
  *
