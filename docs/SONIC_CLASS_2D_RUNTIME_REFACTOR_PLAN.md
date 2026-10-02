@@ -72,9 +72,12 @@ LibSaturn must capture these generic requirements without copying SA2 data forma
 
 **Audit correction (2026-10-02):** `terrain_collision.h` holds only prototypes with
 decompiler names (`sub_801EB44`, ...); it is not where the data layout lives. The
-layout is the `Collision` struct in `core.h`, and the algorithms are in
-`terrain_collision.c` and `collision_1.c` to `collision_3.c`. Read those, not the
-header. The measured layout is in section 37.
+layout is the `Collision` struct in `core.h`. The terrain algorithms are all in
+`terrain_collision.c` (the tile sensors) plus the player sensor wrappers in `player.c`
+(`sub_8022F58`, `sub_8029BB8`, `sub_802195C` and siblings). `collision_1.c` to
+`collision_3.c` are **object** collision (player against platforms, springs, enemies,
+hit boxes, damage), not terrain; `Coll_Player_Platform` in `collision_1.c` is the
+moving-support reference. The measured details are in section 37.3.
 
 ### 2.2 Player movement
 
@@ -285,6 +288,14 @@ typedef struct sat_terrain_hit2 {
 
 Do not freeze this exact layout before checking alignment and existing math types.
 
+Design note from the SA2 audit (section 37.3): SA2 senses in four axis-aligned
+directions chosen by quantizing the character's current angle, with a table-driven
+O(1) lookup per tile, and returns a whole-pixel signed distance. Arbitrary-direction
+probing is not what the reference needs. Decide in Phase 0 whether the four
+axis-aligned probes are the primary fast path (with arbitrary direction as a slower
+generic form) or whether arbitrary direction is dropped; do not implement a general
+ray march for the hot path by default.
+
 Required query forms:
 
 - downward ground probe;
@@ -387,6 +398,14 @@ Required behavior:
 
 Gameplay remains responsible for acceleration, rolling, jump decisions, boost, abilities, input, damage and animation.
 
+Reference behavior to cover (from the SA2 audit): two parallel sensors a few pixels
+apart along the surface, the nearer result wins and supplies the surface angle;
+a "no angle information" tile value means flat; support is accepted or refused by
+comparing the sensor distance with a small pixel threshold (4 px in SA2's jump and
+detach checks); and gravity inversion is a mirrored mode, not separate code. The
+sensor spacing and the thresholds are configuration of the controller, not constants
+of the library.
+
 “Grounded” in this advanced system means “has valid support,” not “standing on world-up floor.”
 
 ---
@@ -430,6 +449,13 @@ Support behavior:
 - crush detection only if it can be defined generically and cleanly.
 
 Study physics3_world for ownership/handle lessons without blindly copying its design.
+
+SA2 reference (`Coll_Player_Platform`): support is re-established every frame by
+testing the player's rectangle against the platform's hit box; the platform
+identity is a raw pointer (`stoodObj`); losing contact simply returns the player to
+the airborne state. There is no carry delta, no support velocity on detach and no
+stale-handle protection, so those requirements are new design work in LibSaturn,
+not something to extract from SA2.
 
 All capacities/storage must be explicit.
 
@@ -828,6 +854,11 @@ Do not solve high-speed motion by blindly multiplying full physics substeps.
 
 Measure expensive 64-bit/division hot paths on SH-2 where practical.
 
+SA2's tile lookup (`sub_801EF94`) caches the last divide-by-12 for the X and Y tile
+coordinates because dividing by the metatile size is costly. LibSaturn should avoid
+the division entirely: power-of-two metatile dimensions, or a precomputed reciprocal
+or lookup table, chosen in the Phase 1 profile format decision.
+
 ---
 
 ## 27. Explicit anti-goals
@@ -1057,8 +1088,9 @@ land in any order. Phase 3 depends on the Phase 0 decision about sharing a broad
 Phase 8 is last and conditional. Phase 11 needs everything it exercises.
 
 ### Phase 0 — Repository and SA2 audit
-**Status:** In Progress (partial audit recorded in section 37 on 2026-10-02; the
-collision algorithms, baselines and the open decisions there are still to do)
+**Status:** In Progress (SA2 terrain, sensor and support audit recorded in section 37
+on 2026-10-02; baseline measurements, the SA2 camera/entity read-through and the open
+decisions in section 37.4 are still to do)
 
 - inspect current LibSaturn 2D/VDP2/spatial/resource architecture;
 - inspect the referenced .external/sa2 systems and additional relevant code;
@@ -1333,13 +1365,47 @@ gitignored, consistent with treating it as local read-only reference material.
 - **Collision data (`core.h`, `Collision`):** `s8 height_map`, `u8 tile_rotation`,
   `u16 metatiles`, `map[MAP_LAYER_COUNT]` (two layers), `u16 flags`, level and pixel
   dimensions. Tiles are 8 px; a metatile is 12 x 12 tiles (96 px, `camera.h`).
-- **Height profile (`terrain_collision.c`, `sub_801EB44`):** eight height entries per
-  tile (one per pixel row or column), a signed 4-bit value (-8..8) read from an `s8`,
-  indexed by the tile index times 8; the tile word carries X and Y flip bits that
-  mirror the pixel index. A per-tile 2-bit flags table can zero the height for a
-  query that sets a bit in the layer argument (semantics not yet analyzed).
-- **Rotation:** one `u8` per tile, adjusted for the flip and direction cases of the
-  query. This is the surface orientation handed back to movement code.
+- **Height profile (`terrain_collision.c`):** eight `s8` entries per tile, indexed by
+  tile index times 8 and a pixel row or column. Each byte packs **two signed 4-bit
+  values**: the low nibble is read by the row-indexed sensors (horizontal extent, for
+  walls) and the high nibble by the column-indexed sensors (vertical height, for floor
+  and ceiling). Values are -8..8: 0 is empty, 8 is full, 1..7 partial, the sign says
+  which side is solid. So one 8-byte profile plus one rotation byte per tile serves
+  both axes at 4 bits per sample.
+- **Tile word (`tilemap.h`):** 10-bit tile index (`0x3FF`), X flip (`0x400`), Y flip
+  (`0x800`), 4-bit palette. A flip mirrors the pixel index; a Y flip also converts a
+  partial height to the opposite side (h > 0 becomes h - 8, h < 0 becomes h + 8).
+- **Rotation:** one `u8` per tile (256 steps per turn; the trig tables are 1024-period,
+  indexed with `rotation * 4`). The sensor returns it by reference with the distance;
+  an X flip negates it and a Y flip maps it to `-0x80 - rotation` (a half turn minus
+  the angle) when the height is non-zero. An odd value is treated by the player
+  wrappers as "no angle" and replaced by 0.
+- **Optional per-tile flags:** a 2-bit-per-tile `flags` table can zero a height when a
+  bit (`0x80`) is set in the layer argument. The player sets it while moving up
+  (`qSpeedAirY < 0`) or slowly down (`< 3.0`), which behaves like a one-way surface;
+  this is inferred from usage and not yet traced end to end.
+- **Metatile lookup (`sub_801EF94`):** pixel to tile (`>> 3`), tile to metatile by a
+  divide by 12 (cached for the last X and Y), then `map[layer][...]` for the
+  metatile and a 12 x 12 table of `u16` tile words.
+- **Sensor driver (`sub_801E4E4`, `sub_801F07C`):** probes up to three tiles along the
+  direction (step of 8 px) and returns a **signed whole-pixel distance** to the
+  surface (zero or negative when already inside), plus the rotation. There is no
+  sub-pixel result.
+- **Direction selection (`player.c`, `sub_8022F58`):** the character angle plus 0x20,
+  masked to 0xC0, picks one of four axis-aligned sensor pairs. So SA2 senses in four
+  quantized directions relative to the character, not in arbitrary directions.
+- **Foot sensors (`sub_8029BB8`, `sub_802195C`, `sub_8021A34`, `sub_8021B08`):** two
+  sensors offset by `2 + spriteOffset` pixels either side of the position; the lower
+  distance wins and supplies the rotation, the other distance is returned too.
+  Gravity inversion mirrors the angle (`-0x80 - rotation`) rather than using other code.
+- **Attach and detach:** jump and takeoff checks compare the sensor distance with 4 px
+  (`< 4` blocks, `> 3` allows); one helper zeroes ground speed when the angle is in the
+  upper half turn. The full position-update path that decides detaching was not traced.
+- **Moving support (`collision_1.c`, `Coll_Player_Platform`):** re-tested every frame
+  against the platform's hit box with a raw `stoodObj` pointer; no carry delta, no
+  support velocity on detach (boss stages subtract the camera delta from ground speed).
+- **Slope gameplay (`player.c`):** slope acceleration is gameplay code gated by
+  angle windows of the form `(rotation + k) & 0xFF < n`; it stays out of LibSaturn.
 - **Layer:** the query takes a layer argument whose low bit selects one of the two
   collision maps; the player carries a `layer` byte (`PLAYER_LAYER__FRONT/BACK`).
 - **Player state (`player.h`):** separate `qSpeedAirX`, `qSpeedAirY` and
@@ -1359,13 +1425,23 @@ gitignored, consistent with treating it as local read-only reference material.
 3. Whether Physics2 and Terrain2 share a broadphase (section 10 vs section 21).
 4. Scalar fixed-point header split (section 4).
 5. Final module names and dependency direction (section 4).
+6. Probe directions: four axis-aligned directions as the fast path, or arbitrary
+   direction as well (section 5).
+7. Distance precision: SA2 returns whole pixels; decide whether Terrain2 returns
+   whole pixels, or a fixed-point distance, given the cost on SH-2.
+8. Whether Terrain2 stores the two nibbles per sample (SA2-style, 4 bits per axis) or a
+   wider sample, and whether metatile dimensions are powers of two (section 26).
 
 ### 37.5 Not done yet in Phase 0
 
-- Read-through of `collision_1.c` to `collision_3.c` and the player ground-movement
-  code, to extract how the surface angle is derived and how steep or inverted
-  attachment is decided.
-- Baseline measurements of the current slope solver (cycles on SH-2 or the harness).
+- Trace of SA2's position-update path (the `PLAYERFN_UPDATE_POSITION` and rotation
+  update) to see exactly how detach, snap and re-attach are decided; the sensors and
+  thresholds above are known, the full sequence is not.
+- Read-through of SA2's camera follow code (`camera.c`, 1216 lines), the entity
+  manager (`entities_manager.c`), the grind rail, loop and corkscrew objects, and the
+  sprite animation update, for sections 12, 14, 17 and 19.
+- Cycle baseline of the current slope solver on SH-2 or in the harness (only the host
+  test baseline in section 37.7 exists).
 - Final names and layout, which the Phase 0 gate requires.
 
 ### 37.6 Extraction precedent
@@ -1378,3 +1454,10 @@ Linux and CI failures found while doing it are the traps listed under Phase 13.
 Whether its firmware and oracle CI jobs pass on a GitHub runner was not yet confirmed
 when this section was written.
 
+### 37.7 Baseline (2026-10-02, commit 6d28732)
+
+Host tests built fresh with `g++ -std=c++20 -Wall -Wextra -O1` in the MSYS2 ucrt64
+shell and run: `test_physics_logic`, `test_spatial_logic` and `test_collide2d_logic`
+all print PASS (exit 0). These cover the body/tile solver including surface slopes,
+the uniform-grid broadphase and the 2D collision math, and are the regression floor
+for Phases 1 to 3. No SH-2 cycle or probe-frame measurement was taken.
