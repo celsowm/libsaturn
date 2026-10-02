@@ -1245,9 +1245,40 @@ Deviations and decisions made while implementing:
 - A STAY event is opt-in because it costs a write per overlapping pair per step.
 
 ### Phase 4 — Path2
-**Status:** Not Started
+**Status:** Complete (2026-10-02). `path2` landed with host tests; the cross build for SH-2 and
+the full `make test` pass.
 
 Deliver line/polyline/arc/circle/quadratic/cubic primitives, sampling/tangent/advance/nearest and tests.
+
+Delivered:
+
+- `include/saturn/path2.h`, `src/physics/2d/path2.cpp`: one `sat_path2_t` value type tagged by
+  `sat_path2_kind_t` (line, polyline, arc, circle, quadratic, cubic), addressed by arc-length distance
+  in 16.16 pixels. Initialisers `sat_path2_init_line/polyline/arc/circle/quadratic/cubic`;
+  `sat_path2_sample` (position, unit tangent, unit left-of-travel normal, the clamped or wrapped
+  distance), `sat_path2_advance` (signed delta, `SAT_PATH2_CLAMP` or `SAT_PATH2_WRAP`, flags
+  `HIT_START/HIT_END/WRAPPED`), `sat_path2_nearest` (closest point, its distance and the gap),
+  `sat_path2_length`, `sat_path2_is_closed`. A polyline borrows its points and a cumulative-length
+  array (`sat_path2_polyline_entries` sizes it); a Bezier optionally borrows an arc-length table that
+  `sat_path2_build_table` fills at runtime or an offline tool writes and `sat_path2_attach_table`
+  validates (`sat_path2_table_requirements` sizes it, 2..1025 entries).
+- `tests/host/test_path2.cpp`: line and polyline boundaries, closed polylines and repeated vertices,
+  quarter, eighth and full arcs in both directions, circle wrap, quadratic and cubic end points,
+  length against the analytic value, tangent and normal unit length, a cusp, arc-length tables against
+  uniform parameter on a lopsided curve, malformed offline tables, clamp and wrap including several
+  laps and landing exactly on an end, nearest point on every kind (inside, outside, before the start,
+  beyond the end, ties), copied paths and monotone distance.
+
+Deviations and decisions made while implementing:
+
+- Without a table a Bezier falls back to a uniform parameter (exact end points and total length, but
+  not constant speed); a table is what makes distances true arc lengths. Both are documented in the
+  header and the lopsided-curve test shows the difference.
+- Arc and circle nearest-point accuracy is limited by `sat_atan2_16` (about 0.3 px at 200 px radius);
+  lines and polylines are exact.
+- Lengths are 16.16 and limited to 32767 px; longer shapes are rejected at init.
+- Path2 depends on `core.h`, `collide2d.h` and `math2d.h` only. Advancing along a path with a speed,
+  an easing or a direction reversal is the game's job; `advance` only moves a distance.
 
 ### Phase 5 — Follow Camera2D
 **Status:** Not Started
