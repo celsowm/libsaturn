@@ -4,6 +4,7 @@
 /* Umbrella header for examples. New code may include narrow subsystem
  * headers; sat_scene.h is the canonical game-facing 3D frame contract. */
 
+#include "saturn/version.h"
 #include "saturn/core.h"
 #include "saturn/dual_sh2.h"
 #include "saturn/parallel.h"

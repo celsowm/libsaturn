@@ -151,13 +151,17 @@ LIB_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
 LIB_OBJ_ROOT := $(BUILD_DIR)/objects/library/$(LIB_PROFILE_KEY)
 
 # -- Biblioteca -------------------------------------------------
-# Source files are intentionally discovered recursively: implementation ownership
-# is expressed by the directory tree, so a shallow wildcard would silently omit
-# every subsystem below src/core, src/graphics, src/audio, and src/hal.
-rwildcard = $(foreach d,$(wildcard $(1)/*),$(call rwildcard,$(d),$(2)) $(wildcard $(d)/$(2)))
-LIB_CPP_SRCS := $(call rwildcard,src,*.cpp)
-LIB_C_SRCS   := $(call rwildcard,src,*.c)
-CRT_SRCS     := $(call rwildcard,src,*.s)
+# The runtime source inventory is cmake/LibSaturnSources.cmake, the same
+# manifest the CMake package consumes; tools/library_sources.py reads it, so
+# adding a runtime source means editing that one file. Startup assembly is a
+# separate list because it is linked as loose objects, never archived.
+LIB_SOURCE_LIST := $(shell $(PYTHON) tools/library_sources.py)
+ifeq ($(strip $(LIB_SOURCE_LIST)),)
+$(error tools/library_sources.py returned no sources from cmake/LibSaturnSources.cmake)
+endif
+LIB_CPP_SRCS := $(filter %.cpp,$(LIB_SOURCE_LIST))
+LIB_C_SRCS   := $(filter %.c,$(LIB_SOURCE_LIST))
+CRT_SRCS     := $(shell $(PYTHON) tools/library_sources.py --startup)
 
 LIB_CPP_OBJS := $(patsubst %.cpp,$(LIB_OBJ_ROOT)/%.o,$(LIB_CPP_SRCS))
 LIB_C_OBJS   := $(patsubst %.c,$(LIB_OBJ_ROOT)/%.o,$(LIB_C_SRCS))
