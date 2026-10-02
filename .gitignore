@@ -5,6 +5,7 @@ dist/
 *.a
 *.elf
 *.bin
+!assets/boot/ip_yaul_template.bin
 *.iso
 *.map
 *.cue
