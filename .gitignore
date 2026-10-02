@@ -16,7 +16,6 @@ __pycache__/
 .pytest_cache/
 out/
 toolchain-src/
-!ip.bin
 !assets/boot/ip_sbl_template.bin
 emulators/kronos/*.exe
 emulators/kronos/*.dll
@@ -43,3 +42,18 @@ bios/
 .external/
 !assets/prebuilt/
 .opencode/
+
+# Generated/test artifacts never belong at the repository root. Legitimate
+# fixtures live under tests/fixtures/ or assets/ with a named owner.
+/$tmp/
+/ip.bin
+/probe.json
+/vdp1-debug.bin
+/iso_root*/
+/bisect/
+/build_log.txt
+/dist/
+
+# Package build and install trees
+/test_package/build/
+/CMakeUserPresets.json

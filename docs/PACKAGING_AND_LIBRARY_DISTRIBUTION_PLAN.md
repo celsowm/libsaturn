@@ -659,3 +659,52 @@ The key architectural rule is:
 This keeps Conan, future vcpkg support, release archives and direct
 `cmake --install` consumers from drifting into different versions of the
 library.
+
+---
+
+## Implementation status (2026-10-02)
+
+Operating manual: [PACKAGING.md](PACKAGING.md). vcpkg result:
+[VCPKG_FEASIBILITY.md](VCPKG_FEASIBILITY.md).
+
+| Phase | State | Evidence |
+|---|---|---|
+| 1 - Package boundary | Done | `CMakeLists.txt`, `cmake/`, `VERSION`, `include/saturn/version.h`; `example_util.h` moved to `examples/common/`; `tests/package_consumer` passes (`ctest --preset package-consumer`). |
+| 2 - Build ownership | Done for the runtime | One manifest (`cmake/LibSaturnSources.cmake`) read by CMake and, through `tools/library_sources.py`, by the Makefile; presets added; the package build needs no assets, FFmpeg, Pillow, mkisofs or emulators. The example/asset/disc rules stay in the Makefile by design (see below). |
+| 3 - Conan 2 | Done | `conanfile.py`, `packaging/conan/`, `test_package/`; `conan create` builds the SH-2 package and runs the consumer contract checks through Conan. |
+| 4 - Release packaging | Done (workflow written, first run happens on the first tag) | `.github/workflows/release.yml`, `CHANGELOG.md`, `scripts/release-notes.py`; gates identical to `package.yml`. |
+| 5 - vcpkg | Spike done: experimental, not advertised | Overlay port/triplet build and pass the consumer gate; relies on undocumented architecture tolerance. Non-gating CI job. |
+
+### Deviations from the plan text
+
+- **Whole-archive is spelled out.** CMake's `$<LINK_LIBRARY:WHOLE_ARCHIVE>` is not
+  defined for a bare-metal system and fails in the consumer's link step, so
+  `LibSaturn::Saturn` carries `LINKER:--whole-archive,<startup.a>,--no-whole-archive`
+  as an interface link option.
+- **The existing constructor guard was toothless and is fixed.** With
+  `--gc-sections` and no `KEEP`, the linker discarded `.ctors`/`.init_array`
+  before `tools/check_no_static_ctors.py` looked, so the Makefile guard could never
+  fire. `saturn.ld` now keeps those (normally empty) sections. All 43 Makefile
+  example builds still pass the guard; the package gate proves the guard rejects a
+  program with a static constructor.
+- **Runtime is always `-O2`.** Compile options override CMake's per-config
+  `-O3`/`-O0`; `makefile_flag_parity` compares the effective flags with the Makefile.
+- **Toolchain file ships in the package** (`share/libsaturn/toolchains/`), because a
+  consumer must name it before `find_package` can run.
+- **`libsaturn_add_binary()`** was added next to `libsaturn_configure_executable()`
+  for the "optional binary conversion helper".
+- **Post-link check is CMake-native** (`LibSaturnCheckNoInitArray.cmake`); the Python
+  tool stays for the Makefile.
+
+### Still open
+
+- `libsaturn_add_disc()` (plan: "later"). Disc creation stays in the Makefile and
+  `tools/`.
+- Migrating examples/asset rules out of the monolithic Makefile (plan: "reduce to
+  orchestration or migrate in controlled groups"). The runtime no longer depends on
+  it; the example workflow does.
+- The 130+ host tests still have their per-test source lists in the Makefile; they
+  are not duplicated into CMake.
+- First tagged release (`v0.1.0`) and the pinned release-tarball hash a real vcpkg
+  port needs.
+- `LIBSATURN_BUILD_EXAMPLES` and `LIBSATURN_BUILD_HOST_TOOLS` are reserved options.

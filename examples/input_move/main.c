@@ -22,7 +22,7 @@
 #include "saturn/font.h"
 #include "saturn/input.h"
 #include "saturn/vdp1.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #define SCREEN_W 320
 #define SCREEN_H 224

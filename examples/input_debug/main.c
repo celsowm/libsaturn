@@ -4,7 +4,7 @@
 #include "saturn/app.h"
 #include "saturn/color.h"
 #include "saturn/font.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #define BUTTON_COUNT 13u
 

@@ -84,7 +84,9 @@ BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra \
                -Iinclude -I.
 # Generated model/asset headers are example-local inputs, never part of
 # generic library compilation or its cache key.
-CFLAGS      := $(BASE_CFLAGS) -I$(GENERATED_DIR)
+# examples/common holds example-only helpers (example_util.h); it is on the
+# example include path only, never the library's or the public package's.
+CFLAGS      := $(BASE_CFLAGS) -I$(GENERATED_DIR) -Iexamples/common
 ifeq ($(EXAMPLE),parallel_runtime)
 ifneq ($(strip $(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)),)
 CFLAGS      += -DSAT_PARALLEL_RUNTIME_GEOMETRY_OBJECTS=$(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)
@@ -149,13 +151,17 @@ LIB_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
 LIB_OBJ_ROOT := $(BUILD_DIR)/objects/library/$(LIB_PROFILE_KEY)
 
 # -- Biblioteca -------------------------------------------------
-# Source files are intentionally discovered recursively: implementation ownership
-# is expressed by the directory tree, so a shallow wildcard would silently omit
-# every subsystem below src/core, src/graphics, src/audio, and src/hal.
-rwildcard = $(foreach d,$(wildcard $(1)/*),$(call rwildcard,$(d),$(2)) $(wildcard $(d)/$(2)))
-LIB_CPP_SRCS := $(call rwildcard,src,*.cpp)
-LIB_C_SRCS   := $(call rwildcard,src,*.c)
-CRT_SRCS     := $(call rwildcard,src,*.s)
+# The runtime source inventory is cmake/LibSaturnSources.cmake, the same
+# manifest the CMake package consumes; tools/library_sources.py reads it, so
+# adding a runtime source means editing that one file. Startup assembly is a
+# separate list because it is linked as loose objects, never archived.
+LIB_SOURCE_LIST := $(shell $(PYTHON) tools/library_sources.py)
+ifeq ($(strip $(LIB_SOURCE_LIST)),)
+$(error tools/library_sources.py returned no sources from cmake/LibSaturnSources.cmake)
+endif
+LIB_CPP_SRCS := $(filter %.cpp,$(LIB_SOURCE_LIST))
+LIB_C_SRCS   := $(filter %.c,$(LIB_SOURCE_LIST))
+CRT_SRCS     := $(shell $(PYTHON) tools/library_sources.py --startup)
 
 LIB_CPP_OBJS := $(patsubst %.cpp,$(LIB_OBJ_ROOT)/%.o,$(LIB_CPP_SRCS))
 LIB_C_OBJS   := $(patsubst %.c,$(LIB_OBJ_ROOT)/%.o,$(LIB_C_SRCS))
@@ -609,7 +615,7 @@ $(CUE): $(DISC_BIN) tools/gen_cue.py tools/check_disc_image.py tools/iso_to_raw.
 # they need no Saturn hardware, emulator or BIOS.
 #   make test
 HOST_CXX       ?= g++
-HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -I. -Ibuild/generated
+HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -I. -Ibuild/generated -Iexamples/common
 HOST_TEST_SRCS := $(wildcard tests/host/*.cpp)
 HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(BUILD_DIR)/tests/%,$(HOST_TEST_SRCS))
 HOST_TOOL_TESTS := $(wildcard tests/tools/*.py)

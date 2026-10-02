@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #include "saturn/saturn.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #define VDP2_REG(off) (*(volatile uint16_t*)(0x25F80000u + (off)))
 

@@ -1,0 +1,32 @@
+@PACKAGE_INIT@
+
+# LibSaturn - installed CMake package.
+#
+#   find_package(LibSaturn CONFIG REQUIRED)
+#   target_link_libraries(my_game PRIVATE LibSaturn::Saturn)
+#   libsaturn_configure_executable(my_game)
+#
+# Targets: LibSaturn::Saturn (use this), LibSaturn::Core, LibSaturn::Startup.
+
+# Core contains C++ and the startup code is assembly; a project that only
+# enabled C still needs those languages for the link and for the archives'
+# language requirements.
+get_property(_libsaturn_languages GLOBAL PROPERTY ENABLED_LANGUAGES)
+foreach(_libsaturn_lang C CXX ASM)
+    if(NOT _libsaturn_lang IN_LIST _libsaturn_languages)
+        enable_language(${_libsaturn_lang})
+    endif()
+endforeach()
+unset(_libsaturn_languages)
+unset(_libsaturn_lang)
+
+include("${CMAKE_CURRENT_LIST_DIR}/LibSaturnTargets.cmake")
+
+set_and_check(LibSaturn_INCLUDE_DIR "@PACKAGE_LIBSATURN_INSTALL_INCLUDEDIR_ABS@")
+set_and_check(LIBSATURN_LINKER_SCRIPT "@PACKAGE_LIBSATURN_INSTALL_LINKER_SCRIPT@")
+set_and_check(LIBSATURN_CMAKE_SCRIPT_DIR "@PACKAGE_LIBSATURN_INSTALL_SCRIPT_DIR@")
+set(LibSaturn_VERSION "@PROJECT_VERSION@")
+
+include("${LIBSATURN_CMAKE_SCRIPT_DIR}/LibSaturnFunctions.cmake")
+
+check_required_components(LibSaturn)

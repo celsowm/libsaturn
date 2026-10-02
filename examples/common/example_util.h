@@ -1,5 +1,5 @@
-#ifndef SATURN_EXAMPLE_UTIL_H
-#define SATURN_EXAMPLE_UTIL_H
+#ifndef LIBSATURN_EXAMPLES_COMMON_EXAMPLE_UTIL_H
+#define LIBSATURN_EXAMPLES_COMMON_EXAMPLE_UTIL_H
 
 #include "saturn/core.h"
 #include "saturn/fmt.h"
@@ -55,4 +55,4 @@ static inline void sat_example_loading_frame(
     sat_example_must(sat_end_frame());
 }
 
-#endif /* SATURN_EXAMPLE_UTIL_H */
+#endif /* LIBSATURN_EXAMPLES_COMMON_EXAMPLE_UTIL_H */

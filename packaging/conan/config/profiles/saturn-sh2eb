@@ -1,0 +1,29 @@
+# Conan 2 *host* profile for the Sega Saturn (SH-2, big-endian, bare metal).
+#
+#   conan config install packaging/conan/config
+#   conan install . --profile:host=saturn-sh2eb --profile:build=default --build=missing
+#
+# The build profile stays the developer's native machine; this profile only
+# describes the machine the code runs on. The sh2eb-elf-gcc toolchain must be
+# on PATH.
+#
+# Everything the CMake toolchain file (cmake/toolchains/sh2eb-elf.cmake) says
+# for a source build is repeated here as Conan configuration, because a
+# package-manager build is not allowed to depend on a repository checkout.
+
+[settings]
+os=baremetal
+arch=sh2eb
+build_type=Release
+compiler=gcc
+compiler.version=13
+compiler.libcxx=libstdc++11
+compiler.cppstd=20
+
+[conf]
+tools.cmake.cmaketoolchain:system_name=Generic
+tools.cmake.cmaketoolchain:system_processor=sh2
+tools.cmake.cmaketoolchain:generator=Ninja
+# No hosted OS can run (or even link) a try-compile executable.
+tools.cmake.cmaketoolchain:extra_variables={"CMAKE_TRY_COMPILE_TARGET_TYPE": "STATIC_LIBRARY"}
+tools.build:compiler_executables={"c": "sh2eb-elf-gcc", "cpp": "sh2eb-elf-g++", "asm": "sh2eb-elf-gcc"}

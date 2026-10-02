@@ -35,7 +35,7 @@
 #include "saturn/vdp2.h"
 #include "saturn/vdp2_color_calc.h"
 #include "saturn/video.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #define SCREEN_W 320
 #define SCREEN_H 224

@@ -1,0 +1,33 @@
+name: SH-2 toolchain
+description: >
+  Provides sh2eb-elf-gcc (binutils 2.41, GCC 13.2.0) on PATH. The toolchain is
+  built once by scripts/build-toolchain.sh and cached on that script's hash.
+runs:
+  using: composite
+  steps:
+    - name: Install toolchain build dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential texinfo bison flex wget xz-utils ninja-build
+
+    - name: Restore cached toolchain
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/saturn-tools
+        key: saturn-toolchain-${{ runner.os }}-${{ hashFiles('scripts/build-toolchain.sh') }}
+
+    - name: Build SH-2 toolchain
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PREFIX: ${{ runner.temp }}/saturn-tools
+        ROOT: ${{ runner.temp }}/saturn-toolchain-src
+      run: JOBS="$(nproc)" bash scripts/build-toolchain.sh
+
+    - name: Add toolchain to PATH
+      shell: bash
+      run: |
+        echo "${RUNNER_TEMP}/saturn-tools/bin" >> "$GITHUB_PATH"
+        "${RUNNER_TEMP}/saturn-tools/bin/sh2eb-elf-gcc" --version

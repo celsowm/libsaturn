@@ -1,0 +1,128 @@
+name: Release
+
+# Tag-driven. Pushing v<VERSION> re-runs the package gates and, only if they
+# pass, publishes: a source archive, a prebuilt install prefix, the Conan
+# package cache and SHA256SUMS, with notes taken from CHANGELOG.md.
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and verify everything but do not publish
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  gate:
+    name: Package gates
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: VERSION matches the tag and the public header
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match VERSION ${version}" >&2
+            exit 1
+          fi
+          cmake -P cmake/SyncVersion.cmake
+          git diff --exit-code include/saturn/version.h
+          grep -q "^## \[${version}\]" CHANGELOG.md || {
+            echo "CHANGELOG.md has no section for ${version}" >&2
+            exit 1
+          }
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/saturn-toolchain
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "conan>=2.4,<3"
+
+      - name: Host header tests
+        run: |
+          cmake --preset host-tests
+          ctest --preset host-tests
+
+      - name: CMake package consumer
+        run: |
+          cmake --preset package-consumer
+          cmake --build --preset package-consumer
+          ctest --preset package-consumer
+
+      - name: Conan package consumer
+        run: |
+          conan profile detect --force
+          conan config install packaging/conan/config
+          conan create . --profile:host=saturn-sh2eb --profile:build=default --build=missing
+
+  publish:
+    name: Build and publish release assets
+    needs: gate
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/saturn-toolchain
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "conan>=2.4,<3"
+
+      - name: Source archive
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="libsaturn-${VERSION}/" \
+            -o "dist/libsaturn-${VERSION}-source.tar.gz" HEAD
+          git archive --format=zip --prefix="libsaturn-${VERSION}/" \
+            -o "dist/libsaturn-${VERSION}-source.zip" HEAD
+
+      - name: Prebuilt install prefix (sh2eb-elf GCC 13.2.0)
+        run: |
+          cmake --preset saturn-release
+          cmake --build --preset saturn-release
+          prefix="$RUNNER_TEMP/libsaturn-${VERSION}"
+          cmake --install build/saturn-release --prefix "$prefix"
+          {
+            echo "libsaturn ${VERSION}"
+            echo "toolchain: $(sh2eb-elf-gcc --version | head -n1)"
+            echo "Use with find_package(LibSaturn CONFIG) and the toolchain file in"
+            echo "share/libsaturn/toolchains. The archives are only link-compatible"
+            echo "with the GCC release above."
+          } > "$prefix/BUILD-INFO.txt"
+          tar -C "$RUNNER_TEMP" -czf "dist/libsaturn-${VERSION}-sh2eb-elf-prefix.tar.gz" \
+            "libsaturn-${VERSION}"
+
+      - name: Conan package cache
+        run: |
+          conan profile detect --force
+          conan config install packaging/conan/config
+          conan create . --profile:host=saturn-sh2eb --profile:build=default --build=missing
+          conan cache save "libsaturn/${VERSION}:*" --file "dist/libsaturn-${VERSION}-conan-cache.tgz"
+
+      - name: Checksums and release notes
+        run: |
+          (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+          python scripts/release-notes.py "${VERSION}" > "$RUNNER_TEMP/RELEASE_NOTES.md"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libsaturn-${{ env.VERSION }}
+          path: dist/
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag' && inputs.dry_run != true
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: ${{ runner.temp }}/RELEASE_NOTES.md
+          files: dist/*

@@ -7,7 +7,7 @@
 
 #include "saturn/app.h"
 #include "saturn/color.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "saturn/font.h"
 #include "saturn/input.h"
 #include "saturn/math3d.h"

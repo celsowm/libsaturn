@@ -2,7 +2,7 @@
 #include <stddef.h>
 
 #include "saturn/saturn.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "src/graphics/3d/scene/test_metrics.h"
 
 #ifndef SAT_PARALLEL_RUNTIME_VALIDATION

@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 #include "saturn/saturn.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 enum {
     kMapPlaneIndex = 0x003B,

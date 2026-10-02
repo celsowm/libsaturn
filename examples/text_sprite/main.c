@@ -4,7 +4,7 @@
 #include "saturn/app.h"
 #include "saturn/color.h"
 #include "saturn/vdp1.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "text_sprite/sonic_head.h"
 
 int main(void) {

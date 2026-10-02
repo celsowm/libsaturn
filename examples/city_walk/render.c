@@ -26,7 +26,7 @@
  */
 #include <stdint.h>
 
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "saturn/fade3d.h"
 #include "saturn/parallel.h"
 #include "saturn/render3d.h"

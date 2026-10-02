@@ -369,6 +369,56 @@ Mednafen starts with a 4 MiB expansion RAM cartridge (`-ss.cart extram4`).
 Choose another supported setting with `-MednafenCart`, for example
 `-MednafenCart auto` to let Mednafen select a cartridge per game.
 
+## Using LibSaturn in your game
+
+LibSaturn is installable: a game links it as a package instead of copying its
+sources. The three entry points below expose the same headers, the same
+`LibSaturn::Saturn` target, the same linker script and the same startup code.
+
+### Installed CMake package
+
+```cmake
+find_package(LibSaturn CONFIG REQUIRED)
+
+add_executable(my_game src/main.c)
+target_link_libraries(my_game PRIVATE LibSaturn::Saturn)
+libsaturn_configure_executable(my_game)
+```
+
+```sh
+cmake -S . -B build -G Ninja \
+      -DCMAKE_TOOLCHAIN_FILE=<prefix>/share/libsaturn/toolchains/sh2eb-elf.cmake \
+      -DCMAKE_PREFIX_PATH=<prefix>
+```
+
+Install a prefix from a checkout with `cmake --preset saturn-release`,
+`cmake --build --preset saturn-release` and
+`cmake --install build/saturn-release --prefix <prefix>`, or unpack a release
+archive.
+
+### Conan 2
+
+```text
+libsaturn/<version>
+```
+
+```sh
+conan config install packaging/conan/config
+conan install . --profile:host=saturn-sh2eb --profile:build=default --build=missing
+```
+
+The recipe republishes the installed CMake package unchanged, so the CMake code
+above does not change.
+
+### Source checkout
+
+Keep using this repository directly for the examples, the asset/model/disc
+tooling and the harness (see below). vcpkg is not supported yet; see
+[docs/VCPKG_FEASIBILITY.md](docs/VCPKG_FEASIBILITY.md).
+
+Full details, options, install layout and the release process:
+[docs/PACKAGING.md](docs/PACKAGING.md).
+
 ## Quick Start on Windows
 
 Windows 10/11 is supported through MSYS2, with PowerShell wrappers so the normal workflow does not require manually living in a Bash shell.
@@ -416,6 +466,12 @@ Host tests:
 make test
 ```
 
+Package gates (public headers, installed-package consumer, Conan):
+
+```powershell
+.\scripts\test-package.ps1            # add -Conan for the Conan path
+```
+
 The repository also uses a modified Ymir harness for automated Saturn runtime validation:
 
 ```powershell
@@ -429,7 +485,9 @@ The harness boots the configured Saturn BIOS, injects the built program and prob
 ## Project Structure
 
 ```text
-include/saturn/   Public C API
+include/saturn/   Public C API (an installed compatibility promise)
+cmake/            Package config, source manifest, SH-2 toolchain file
+packaging/        Conan config/profile and the experimental vcpkg overlay
 src/core/         Runtime, startup and memory
 src/graphics/     2D, 3D, VDP1 and VDP2 systems
 src/physics/      Collision, spatial structures and physics
@@ -490,6 +548,7 @@ LibSaturn favors:
 
 Useful starting points:
 
+- [Packaging and installed-package usage](docs/PACKAGING.md)
 - [Current hardware/runtime coverage](docs/LIBSATURN_CURRENT_COVERAGE.md)
 - [Parallel runtime architecture](docs/PARALLEL_RUNTIME_ARCHITECTURE.md)
 - [Parallel runtime benchmarks](docs/PARALLEL_RUNTIME_BENCHMARKS.md)

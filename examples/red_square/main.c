@@ -6,7 +6,7 @@
 #include "saturn/font.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 static uint8_t g_square_pixels[16 * 16];
 static uint16_t g_square_palette[256];

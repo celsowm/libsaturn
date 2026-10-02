@@ -4,7 +4,7 @@
 #include "saturn/asset.h"
 #include "saturn/audio.h"
 #include "saturn/color.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "saturn/fmt.h"
 #include "saturn/font.h"
 #include "audio_showcase/audio_data.h"

@@ -14,7 +14,7 @@ assert "sat_scene_depth(" not in text
 assert "sat_project_quad(" not in text
 result = subprocess.run(
     ["gcc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-     "-Iinclude", "-I.", "-fsyntax-only", source],
+     "-Iinclude", "-I.", "-Iexamples/common", "-fsyntax-only", source],
     capture_output=True, text=True, check=False,
 )
 assert result.returncode == 0, result.stderr

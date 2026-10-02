@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "saturn/saturn.h"
 #include "vdp2_nbg0_image/bg.h"
 
