@@ -82,6 +82,20 @@ SECTIONS {
     } > WRAMH :text
 
     /* =========================================================================
+     * Static-constructor tripwires (never expected to be non-empty)
+     * =========================================================================
+     * crt0 never runs constructors. These sections are KEEP'd only so that a
+     * global needing one survives --gc-sections and becomes visible to the
+     * post-link guard (tools/check_no_static_ctors.py, cmake/
+     * LibSaturnCheckNoInitArray.cmake). Without KEEP the linker silently
+     * drops the table and the guard passes while the global stays null.
+     * Empty output sections are omitted, so this costs nothing normally.
+     * ========================================================================= */
+    .preinit_array : { KEEP(*(.preinit_array)) } > WRAMH :text
+    .init_array : { KEEP(*(SORT(.init_array.*) .init_array)) } > WRAMH :text
+    .ctors : { KEEP(*(SORT(.ctors.*) .ctors)) } > WRAMH :text
+
+    /* =========================================================================
      * Section .data: initialized global variables
      * =========================================================================
      * In ELF, initialized data is in the binary file.
