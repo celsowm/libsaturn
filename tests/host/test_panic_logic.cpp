@@ -33,12 +33,12 @@ TEST(result_names_cover_every_code) {
 }
 
 TEST(basename_handles_both_separators) {
-    ASSERT_STR(basename("main.c"), "main.c");
-    ASSERT_STR(basename("examples/demo/main.c"), "main.c");
-    ASSERT_STR(basename("C:\\work\\examples\\x\\main.c"), "main.c");
-    ASSERT_STR(basename("a/b\\c.c"), "c.c");
-    ASSERT_STR(basename(""), "");
-    ASSERT_STR(basename(nullptr), "");
+    ASSERT_STR(saturn::core::panic::basename("main.c"), "main.c");
+    ASSERT_STR(saturn::core::panic::basename("examples/demo/main.c"), "main.c");
+    ASSERT_STR(saturn::core::panic::basename("C:\\work\\examples\\x\\main.c"), "main.c");
+    ASSERT_STR(saturn::core::panic::basename("a/b\\c.c"), "c.c");
+    ASSERT_STR(saturn::core::panic::basename(""), "");
+    ASSERT_STR(saturn::core::panic::basename(nullptr), "");
 }
 
 TEST(report_lines) {
