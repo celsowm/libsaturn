@@ -1,6 +1,9 @@
 # LibSaturn — Sonic-Class 2D Runtime Refactor Plan
 
 **Status (2026-09-29):** Planned. The recent arbitrary 2D tile-slope work has landed, but the broader surface-oriented runtime described here has not yet been implemented.
+Reviewed 2026-10-02 against the repository and the local `.external/sa2` tree; the
+corrections are folded into the sections below and the evidence is recorded in
+section 37.
 
 **Purpose:** Evolve LibSaturn so a future high-speed 2D platformer with the architectural demands of Sonic Advance 2 can be implemented cleanly without embedding Sonic-specific gameplay in the library and without building a second engine beside LibSaturn.
 
@@ -66,6 +69,12 @@ Requirements to extract:
 - floor, walls and ceilings represented as oriented surfaces instead of separate game-specific tile enums.
 
 LibSaturn must capture these generic requirements without copying SA2 data formats.
+
+**Audit correction (2026-10-02):** `terrain_collision.h` holds only prototypes with
+decompiler names (`sub_801EB44`, ...); it is not where the data layout lives. The
+layout is the `Collision` struct in `core.h`, and the algorithms are in
+`terrain_collision.c` and `collision_1.c` to `collision_3.c`. Read those, not the
+header. The measured layout is in section 37.
 
 ### 2.2 Player movement
 
@@ -152,6 +161,13 @@ Requirements:
 
 This motivates a lightweight region activation layer, not an ECS.
 
+Audit notes: SA2 stores static entities in a per-region table of start indices
+(`READ_START_INDEX` in `rings_manager.c`), an offline-built read-only structure. It
+also overwrites each descriptor's `x` byte with a state value
+(`MAP_ENTITY_STATE_INITIALIZED`), so its descriptors are not immutable. LibSaturn
+keeps descriptors immutable and tracks activation in a separate bounded structure
+(see section 17).
+
 ### 2.7 Gameplay tasks
 
 Inspect:
@@ -170,6 +186,11 @@ Requirements:
 - update-function replacement as state transition.
 
 This is distinct from sat_parallel.
+
+Audit notes: SA2's tasks are a priority-sorted doubly-linked list capped at 128
+(`MAX_TASK_NUM`), with a destructor, task-local data and `TASK_DESTROY_DISABLED`.
+SA2 even runs screen shake as a task. LibSaturn takes the semantics (priority order,
+safe destroy, destructor) but not the linked list; see section 18.
 
 ### 2.8 Sprites and animation
 
@@ -225,6 +246,12 @@ Potential modules:
 - expanded saturn/sprite_anim.h or a separate narrow animation-player header.
 
 Lower-level modules must not require higher-level runtime initialization.
+
+Header dependency note: `sat_vec2_t` lives in `collide2d.h`, but the scalar
+fixed-point functions (`sat_fx16_mul`, `sat_fx16_div`, `sat_fx16_sqrt`, `sat_sin_deg`)
+live in `math3d.h`. A 2D-only module such as terrain2 would otherwise include a 3D
+header. Phase 0 decides whether to split a scalar fixed-point header out (preferred)
+or accept the include; Phase 12 re-checks it.
 
 ---
 
@@ -472,6 +499,18 @@ Likely reusable additions:
 
 Document overflow ranges and avoid expensive divisions in hot paths where precomputed forms are practical.
 
+Current inventory (2026-10-02): `collide2d.h` has 2D add, sub, scale, reflect,
+approach, box/circle tests, raycast and sweep. `math3d.h` has `sat_fx16_mul`,
+`sat_fx16_div`, `sat_fx16_sqrt` and degree-based `sat_sin_deg`, `sat_cos_deg`,
+`sat_tan_deg`. There is no 2D dot/length/normalize, no atan2 and no binary-angle type.
+
+**Decision required in Phase 0 (blocks Terrain2 and Character2):** the angle
+representation. SA2 uses a 256-step unsigned byte angle (`u8 rotation`) with
+lookup tables. Recommended: a byte or 16-bit binary angle with a precomputed
+sine/unit-vector table, which avoids divisions and square roots in the hot path;
+degree-based functions stay for the existing 3D code. Whatever is chosen, normals and
+tangents for authored terrain are precomputed offline.
+
 ---
 
 ## 14. Follow Camera2D
@@ -513,6 +552,14 @@ If current runtime code does not already provide a correct generic facility, add
 - deterministic seed/phase.
 
 Shake composes with follow/clamp policy instead of modifying every object's screen coordinate.
+
+SA2 reference (`screen_shake.c`): amplitude decays by a fixed step per frame, a frame
+counter bounds the duration, a phase advances per frame through a sine table or a
+pseudo-random value, flags select the X and Y axes and a positive-only or
+negative-only sign constraint, and an option updates only every other frame. The
+result is stored as an offset on the camera (`shakeOffsetX/Y`) and cleared when the
+shake ends. The component above covers this; add the sign constraint and the
+update-every-N-frames option, and keep the shake a plain value that needs no task.
 
 ---
 
@@ -571,6 +618,14 @@ Lifecycle:
 
 It must handle a camera jump across multiple regions in one frame.
 
+Index and state: the descriptors are static, so the index is built offline, either
+a region-sorted descriptor array with a per-region start-index table (as SA2 does) or
+an equivalent compact form. Do not build it at runtime with `sat_spatial_t`, which
+is a dynamic insert/clear structure suited to colliders. Activation state lives in a
+separate caller-owned bitset (one bit per descriptor), not in the descriptor. The
+bitset size and the region table size are part of the resource accounting in
+section 25.
+
 ---
 
 ## 18. Gameplay task scheduler
@@ -578,6 +633,12 @@ It must handle a camera jump across multiple regions in one frame.
 Audit existing runtime scheduling first.
 
 If no suitable generic scheduler exists, add one distinct from sat_parallel.
+
+Audit result (2026-10-02): no gameplay scheduler exists; `parallel.h` schedules work
+across the two SH-2s and is not a substitute. This is also the module most at risk of
+growing into a framework, so it is built last and only if the integration example or
+a real consumer needs it. Use a fixed array with generation-checked handles; do not
+copy SA2's linked list.
 
 Required:
 
@@ -644,11 +705,17 @@ Build generic host tools for:
 
 Generated binary formats require bounds checks, documented alignment, deterministic output and version/magic where appropriate.
 
+Provenance rule: no data derived from SA2 (extracted tables, maps, graphics,
+converted output) may be committed to this repository. Development-only import tools
+may read `.external/sa2` locally; the committed test fixtures and example assets are
+original or synthetic.
+
 ---
 
 ## 21. Spatial acceleration
 
-Reuse sat_spatial_t.
+Reuse sat_spatial_t for dynamic colliders and sensors (insert/clear per frame).
+Static descriptor regions use the offline index described in section 17 instead.
 
 Extend it only for real consumers, potentially with:
 
@@ -733,6 +800,15 @@ Extend resource planning where quantities are meaningful:
 - prepared texture regions.
 
 resource_plan stays a planner, not allocator.
+
+Mapping note: `sat_resource_kind_t` enumerates memory regions (main RAM, WRAM, VDP1
+commands and VRAM, VDP2 VRAM, CRAM, audio staging, RAM cart), not object types.
+Collider slots, task slots, descriptor bitsets and similar quantities are therefore
+expressed as bytes charged to the region that holds them (normally main RAM or WRAM),
+with the quantity stated in the entry's documentation, and no new kinds are added.
+Only the VDP2 map-window storage and prepared texture regions map to existing VRAM
+kinds directly. Each module exposes a `*_requirements()` helper in the style of
+`sat_resource_plan_requirements`.
 
 ---
 
@@ -905,11 +981,50 @@ Do not require task scheduling for paths or animation.
 
 ## 29. Integration example
 
-After the foundations stabilize, add an original example such as:
+Add an original example such as:
 
 examples/high_speed_platformer
 
 Do not reproduce Sonic assets, character design, stage layout or presentation.
+
+### 29.1 Lifecycle: incubate in-tree, then extract
+
+The example starts in this repository and is later moved to its own repository, the
+way the Ikemen example moved to
+[celsowm/ikemen-saturn](https://github.com/celsowm/ikemen-saturn). The two stages
+have different rules.
+
+**Incubation (in-tree):** the example grows alongside the library phases. A minimal
+skeleton may exist as soon as Phase 1 lands, and each later phase adds the stress
+it needs. This is where API problems are found, so a gap in the library is fixed in
+the library, never worked around in the example.
+
+**Extraction:** after the public APIs are stable (Phase 12 audit passed), the example
+moves to an independent repository that consumes LibSaturn only through the installed
+CMake/Conan package. The library keeps no knowledge of the example afterwards. The
+steps and acceptance checks are Phase 13.
+
+### 29.2 Rules that keep extraction cheap
+
+Applied from the first commit of the example, not at extraction time:
+
+1. Include only public `saturn/*` headers. Never `src/`, never a private header,
+   never another example's file.
+2. No dependency on library-internal build fragments. The example owns its build
+   rules, assets pipeline and generated-asset directory (generated data lives under
+   the build tree, not in the source tree).
+3. Any generic helper the example needs is either promoted into LibSaturn (when it is
+   generic and has a second plausible consumer) or stays private to the example. It is
+   never shared by reaching into another example.
+4. Game-specific code (character tuning, acceleration, abilities, stage content,
+   art) stays in the example. LibSaturn gets mechanisms, not this game's policy.
+5. Every file the build needs must be tracked. Check git-ignore rules for generated or
+   binary inputs (the Ikemen extraction found a required boot template that `*.bin`
+   had silently ignored).
+6. All example assets are original or synthetic, so the repository can be public.
+7. Keep a boundary check, equivalent to ikemen-saturn's `test_consumer_contract.py`,
+   that fails on forbidden includes or build references. It can be a host test inside
+   the example from the start.
 
 Stress:
 
@@ -936,8 +1051,14 @@ This is an API acceptance test, not a game framework.
 
 Every phase must update this document with actual APIs, files, status and deviations.
 
+Ordering and dependencies: Phases 1 and 2 are the risky ones (Character2 depends on
+Terrain2). Phases 4, 5, 7 and 9 are independent of them and of each other and can
+land in any order. Phase 3 depends on the Phase 0 decision about sharing a broadphase.
+Phase 8 is last and conditional. Phase 11 needs everything it exercises.
+
 ### Phase 0 — Repository and SA2 audit
-**Status:** Not Started
+**Status:** In Progress (partial audit recorded in section 37 on 2026-10-02; the
+collision algorithms, baselines and the open decisions there are still to do)
 
 - inspect current LibSaturn 2D/VDP2/spatial/resource architecture;
 - inspect the referenced .external/sa2 systems and additional relevant code;
@@ -989,7 +1110,8 @@ Deliver partition/index, activation/deactivation, hysteresis, predictive bounds 
 ### Phase 8 — Gameplay task scheduler
 **Status:** Not Started
 
-Only if repository audit confirms no suitable existing facility. Deliver fixed capacity, deterministic order, generation handles, safe lifecycle and tests.
+The audit found no existing facility, so the precondition holds, but build this last
+and only on a demonstrated need (see section 18). Deliver fixed capacity, deterministic order, generation handles, safe lifecycle and tests.
 
 ### Phase 9 — Sprite animation runtime
 **Status:** Not Started
@@ -1003,10 +1125,14 @@ Deliver generic terrain/profile compiler, map/metatile compiler, entity partitio
 
 SA2-specific parsers, if any, live only in tools/import territory and emit generic assets.
 
-### Phase 11 — Integration example
+### Phase 11 — Integration example (incubated in-tree)
 **Status:** Not Started
 
-Deliver original high-speed platformer stress example.
+Deliver the original high-speed platformer stress example under
+`examples/high_speed_platformer`, following the section 29.2 rules. It may start as a
+skeleton earlier and gains a stress area per landed phase; this phase is complete when
+it exercises everything listed in section 29, builds for Saturn, and has been run in
+the Ymir probe with scripted input and captured screenshots.
 
 ### Phase 12 — Performance, SOLID/DRY and documentation audit
 **Status:** Not Started
@@ -1014,6 +1140,42 @@ Deliver original high-speed platformer stress example.
 Audit Big-O, divisions/64-bit operations, memory, duplicate camera/support math, animation timers, map streaming duplication, compatibility leftovers, header dependencies and lower-level standalone linkability.
 
 Run full host and Saturn build gates.
+
+### Phase 13 — Extract the example to its own repository
+**Status:** Not Started
+
+Precondition: Phase 12 passed and the public APIs the example uses are considered
+stable. Extract after, not during, API churn.
+
+Deliver, following the Ikemen extraction as the precedent:
+
+- a new independent repository for the example, with history preserved
+  (`git filter-repo`) where useful;
+- a CMake project that finds LibSaturn with `find_package(LibSaturn CONFIG REQUIRED)`,
+  links `LibSaturn::Saturn`, uses the shipped `sh2eb-elf.cmake` toolchain and
+  `libsaturn_configure_executable`, `libsaturn_add_binary` and `libsaturn_add_disc`;
+  a Conan recipe that consumes the library's Conan package;
+- the example's host tests, asset converters and Python requirements (declared in a
+  `requirements.txt`, checked at configure time) moved with it;
+- CI that builds the toolchain and package, then the example, on a clean runner;
+- the boundary check from section 29.2 passing against the installed prefix.
+
+Validation, all required before the library side is cleaned:
+
+- the old in-tree build and the new external build, run in the Ymir probe under the
+  same scripted input, give byte-identical screenshots;
+- the example's host tests give the same results before and after;
+- a clean checkout of the new repository builds from scratch.
+
+Then remove the example and every example-specific build rule, test, converter and
+document from LibSaturn, leave only links in README/CHANGELOG, re-run the full
+LibSaturn host, package and Saturn gates, and push to `main`.
+
+Known traps from the Ikemen extraction (see section 37.6): Conan `exports_sources`
+must list every file the installed package needs, a generated-argument list needs
+`$<SEMICOLON>` through the CMake wrapper, tools called by file path lose their exec
+bit on a clean Linux checkout, and a CI runner has no Pillow unless the workflow
+installs it.
 
 ---
 
@@ -1105,6 +1267,7 @@ Before marking this plan complete, answer with repository evidence:
 15. Are major algorithms host-testable?
 16. Can lower-level users ignore the advanced runtime?
 17. Could an SA2-class port use these systems without implementing a second collision/map/entity engine beside LibSaturn?
+18. Does the example build and pass its boundary check using only the installed package, so it can live in its own repository?
 
 If a “no” represents a generic engine gap, address it before completion.
 
@@ -1118,7 +1281,8 @@ This plan is complete only when:
 - public headers are coherent and narrow;
 - host tests pass;
 - relevant Saturn examples cross-build;
-- the original integration example builds;
+- the original integration example builds, and has been extracted to its own
+  repository that consumes the installed package;
 - docs match implementation;
 - obsolete duplicate abstractions are removed;
 - no core feature exists only as a TODO;
@@ -1136,3 +1300,81 @@ The goal is not “Sonic support.”
 The goal is:
 
 **oriented terrain + generic character support + kinematic world + paths + streaming + deterministic runtime services, all optional and composable across LibSaturn's abstraction spectrum.**
+
+---
+
+## 37. Phase 0 audit record (2026-10-02)
+
+This section records evidence only. It does not freeze any API.
+
+### 37.1 References
+
+All 21 SA2 files named in section 2 exist under `.external/sa2`. `.external/` is
+gitignored, consistent with treating it as local read-only reference material.
+
+### 37.2 Current LibSaturn inventory against the plan
+
+| Area | State in the repository | Plan section |
+|------|-------------------------|--------------|
+| Body/tile solver | `sat_body2_step`, `_move_tiles`, `_move_tiles_surface`, `_move_boxes`, `_separate`; `SAT_TILE_SLOPE` with `sat_tile_surface_t` (commit `3b28766` preserved the 45-degree math) | 1, 6 |
+| Spatial broadphase | `sat_spatial_t` uniform grid: insert, box query, pair enumeration; no ordered result, no early-exit callback, no swept query | 21 |
+| Camera | `sat_camera2d_t` and `sat_render2d_set_camera/get_camera`; no 2D follow policy (3D has `follow_camera3d.h`) | 14 |
+| Screen shake | none | 15 |
+| Gameplay scheduler | none (`parallel.h` is dual-SH-2 work distribution) | 18 |
+| Sprite animation | `sprite_anim.h`: direction x frame selection and region frame selection only; no clips, durations or events | 19 |
+| Palette | register/unregister/bank lookup only; no range update or cycling | 24 |
+| VDP2 | line scroll and vertical cell scroll exist in `vdp2_layers.h`; also color calc, color offset, RBG0, compose | 23 |
+| Resource plan | eight memory-region kinds, byte accounting, finalize | 25 |
+| 2D math | add/sub/scale/reflect/approach, no dot/length/normalize/atan2 | 13 |
+| Handles | `physics3_world` is the in-repo precedent for ownership and handles | 10 |
+
+### 37.3 SA2 facts measured from the local tree
+
+- **Collision data (`core.h`, `Collision`):** `s8 height_map`, `u8 tile_rotation`,
+  `u16 metatiles`, `map[MAP_LAYER_COUNT]` (two layers), `u16 flags`, level and pixel
+  dimensions. Tiles are 8 px; a metatile is 12 x 12 tiles (96 px, `camera.h`).
+- **Height profile (`terrain_collision.c`, `sub_801EB44`):** eight height entries per
+  tile (one per pixel row or column), a signed 4-bit value (-8..8) read from an `s8`,
+  indexed by the tile index times 8; the tile word carries X and Y flip bits that
+  mirror the pixel index. A per-tile 2-bit flags table can zero the height for a
+  query that sets a bit in the layer argument (semantics not yet analyzed).
+- **Rotation:** one `u8` per tile, adjusted for the flip and direction cases of the
+  query. This is the surface orientation handed back to movement code.
+- **Layer:** the query takes a layer argument whose low bit selects one of the two
+  collision maps; the player carries a `layer` byte (`PLAYER_LAYER__FRONT/BACK`).
+- **Player state (`player.h`):** separate `qSpeedAirX`, `qSpeedAirY` and
+  `qSpeedGround`, a persistent `u8 rotation`, a `moveState` bitfield and a raw
+  `stoodObj` pointer for moving support.
+- **Camera (`camera.h`):** position, `shiftX/Y`, min/max clamps, per-frame `dx/dy`,
+  `shakeOffsetX/Y`, a background-update callback, and five overlapping
+  `IS_OUT_OF_RANGE*` macros marked "Merge all these". Regions are 256 px.
+- **Tasks (`task.h`, `task.c`):** priority-sorted doubly-linked list, at most 128,
+  destructor, task data, destroy-disable flag.
+
+### 37.4 Decisions still open (block the Phase 1 gate)
+
+1. Angle representation (section 13).
+2. Terrain profile format and per-tile metadata; the SA2 layout above is the
+   baseline to measure alternatives against, not a format to copy.
+3. Whether Physics2 and Terrain2 share a broadphase (section 10 vs section 21).
+4. Scalar fixed-point header split (section 4).
+5. Final module names and dependency direction (section 4).
+
+### 37.5 Not done yet in Phase 0
+
+- Read-through of `collision_1.c` to `collision_3.c` and the player ground-movement
+  code, to extract how the surface angle is derived and how steep or inverted
+  attachment is decided.
+- Baseline measurements of the current slope solver (cycles on SH-2 or the harness).
+- Final names and layout, which the Phase 0 gate requires.
+
+### 37.6 Extraction precedent
+
+The Ikemen example was extracted to `celsowm/ikemen-saturn` on 2026-10-02 as a pure
+package consumer. Evidence that the same path works: it builds firmware and a disc
+through the installed CMake package and through Conan, its host tests and a
+byte-identical probe screenshot comparison passed against the in-tree version. The
+Linux and CI failures found while doing it are the traps listed under Phase 13.
+Whether its firmware and oracle CI jobs pass on a GitHub runner was not yet confirmed
+when this section was written.
+
