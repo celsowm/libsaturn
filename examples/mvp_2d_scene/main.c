@@ -6,7 +6,7 @@
 #include "saturn/font.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #define STAGE_COLOR_A 0x801F
 #define STAGE_COLOR_B 0x83E0

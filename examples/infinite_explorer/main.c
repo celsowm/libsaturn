@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #include "saturn/saturn.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "explorer_logic.h"
 #include "infinite_explorer/terrain.h"
 #include "infinite_explorer/horizon.h"

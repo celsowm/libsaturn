@@ -9,7 +9,7 @@
 #include "saturn/physics.h"
 #include "saturn/spatial.h"
 #include "saturn/vdp1.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #define W 320
 #define H 224

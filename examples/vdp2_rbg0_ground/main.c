@@ -21,7 +21,7 @@
 #include <stdint.h>
 
 #include "saturn/saturn.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "saturn/font.h"
 #include "saturn/color.h"
 #include "vdp2_rbg0_ground/bg.h"

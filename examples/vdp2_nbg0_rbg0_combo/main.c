@@ -12,7 +12,7 @@
 #include <stdint.h>
 
 #include "saturn/saturn.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "saturn/vdp2_rbg0_ground.h"
 #include "vdp2_nbg0_rbg0_combo/sky.h"
 

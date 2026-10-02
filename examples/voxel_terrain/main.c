@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #include "saturn/color.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "saturn/font.h"
 #include "saturn/fmt.h"
 #include "saturn/input.h"

@@ -6,7 +6,7 @@
 #include "saturn/font.h"
 #include "saturn/surface.h"
 #include "saturn/texture.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #define FONT_GLYPH_COUNT 9u
 #define FONT_ATLAS_WIDTH (FONT_GLYPH_COUNT * SAT_ASCII_FONT_GLYPH_WIDTH)

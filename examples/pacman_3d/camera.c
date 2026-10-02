@@ -1,6 +1,6 @@
 #include "camera.h"
 
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #include "p3d_config.h"
 

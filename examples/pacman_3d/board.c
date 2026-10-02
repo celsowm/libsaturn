@@ -4,7 +4,7 @@
 #include "saturn/mesh3d.h"
 #include "saturn/render3d.h"
 #include "saturn/view_cache.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #include "camera.h"
 #include "p3d_config.h"

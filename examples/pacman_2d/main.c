@@ -25,7 +25,7 @@
 #include "saturn/input.h"
 #include "saturn/vdp1.h"
 #include "saturn/sprite_anim.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #include "../pacman/pacman_game.h"
 

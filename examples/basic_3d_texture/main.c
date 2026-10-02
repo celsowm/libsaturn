@@ -32,7 +32,7 @@
 #include "saturn/model3d.h"
 #include "saturn/scene.h"
 #include "saturn/vdp1.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #include "basic_3d_texture/sonic_model.h"
 

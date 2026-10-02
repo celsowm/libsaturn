@@ -84,7 +84,9 @@ BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra \
                -Iinclude -I.
 # Generated model/asset headers are example-local inputs, never part of
 # generic library compilation or its cache key.
-CFLAGS      := $(BASE_CFLAGS) -I$(GENERATED_DIR)
+# examples/common holds example-only helpers (example_util.h); it is on the
+# example include path only, never the library's or the public package's.
+CFLAGS      := $(BASE_CFLAGS) -I$(GENERATED_DIR) -Iexamples/common
 ifeq ($(EXAMPLE),parallel_runtime)
 ifneq ($(strip $(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)),)
 CFLAGS      += -DSAT_PARALLEL_RUNTIME_GEOMETRY_OBJECTS=$(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)
@@ -609,7 +611,7 @@ $(CUE): $(DISC_BIN) tools/gen_cue.py tools/check_disc_image.py tools/iso_to_raw.
 # they need no Saturn hardware, emulator or BIOS.
 #   make test
 HOST_CXX       ?= g++
-HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -I. -Ibuild/generated
+HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -I. -Ibuild/generated -Iexamples/common
 HOST_TEST_SRCS := $(wildcard tests/host/*.cpp)
 HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(BUILD_DIR)/tests/%,$(HOST_TEST_SRCS))
 HOST_TOOL_TESTS := $(wildcard tests/tools/*.py)

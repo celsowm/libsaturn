@@ -58,7 +58,7 @@
 #include "saturn/sound_driver.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #ifndef DINO_MUSIC_68K
 #define DINO_MUSIC_68K 0

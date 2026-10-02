@@ -20,7 +20,7 @@
  */
 #include <stdint.h>
 
-#include "saturn/example_util.h"
+#include "example_util.h"
 #include "saturn/vdp1.h"
 
 #include "city_walk.h"

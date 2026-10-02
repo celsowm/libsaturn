@@ -6,7 +6,7 @@
 #include "saturn/render3d.h"
 #include "saturn/vdp1.h"
 #include "saturn/video.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #include "../pacman/pacman_stages.h"
 #include "p3d_config.h"

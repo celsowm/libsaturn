@@ -37,7 +37,7 @@
 #include "saturn/scene.h"
 #include "saturn/vdp1.h"
 #include "saturn/video.h"
-#include "saturn/example_util.h"
+#include "example_util.h"
 
 #include "../pacman/pacman_game.h"
 #include "actors.h"
