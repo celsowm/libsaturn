@@ -73,6 +73,8 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/vdp2/compose.cpp
     src/graphics/vdp2/environment.cpp
     src/graphics/vdp2/layers.cpp
+    src/graphics/vdp2/stage_map2.cpp
+    src/graphics/vdp2/stage_map2_vdp2.cpp
     src/graphics/video.cpp
 )
 

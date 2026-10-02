@@ -1324,9 +1324,53 @@ Deviations and decisions made while implementing:
 - Bounds changes take effect on the next step, not immediately.
 
 ### Phase 6 — Large stage map streaming
-**Status:** Not Started
+**Status:** Complete (2026-10-02). `stage_map2` landed with host tests; the cross build for SH-2 and
+the full `make test` pass.
 
 Deliver logical map/metatile descriptors, VDP2 window streaming, multiple layers, incremental dirty updates, tests and resource accounting.
+
+Delivered:
+
+- `include/saturn/stage_map2.h`, `src/graphics/vdp2/stage_map2.cpp` (hardware-free logic) and
+  `src/graphics/vdp2/stage_map2_vdp2.cpp` (the only hardware-facing part: `sat_stage_map2_commit_vdp2`
+  uses `sat_vdp2_vram_write_words`, `sat_stage_map2_apply_scroll_vdp2` uses `sat_vdp2_layer_set_scroll`).
+- Content model: a shared metatile table (`sat_stage_map2_tileset_t`, power-of-two metatile edge of
+  1..16 cells, up to 16384 metatiles) and up to four independent logical layers
+  (`sat_stage_map2_layer_desc_t`), each with its own map of metatile indices, ring, scroll ratio against
+  the camera (parallax), outside policy (empty / clamp / wrap), character bias and optional palette
+  override. Cell words are VDP2 one-word pattern names; map entries carry X/Y flip that mirrors the whole
+  metatile and toggles the cell flip bits.
+- Streaming: each layer keeps the visible window plus a margin resident in its VDP2 ring
+  (`sat_stage_map2_ring_t`: a grid of 1/2/4 pattern-name pages per axis, any page addresses;
+  `sat_stage_map2_ring_from_layer` derives it from a `sat_vdp2_layer_config_t`).
+  `sat_stage_map2_set_view` stages only the columns and rows that entered the window, nothing when the
+  view stays in the same cell, and a bounded window rebuild for a jump without overlap.
+- Staging is caller-owned (`sat_stage_map2_storage_t`: words plus runs). `set_view` and `mark_dirty` only
+  stage; `sat_stage_map2_commit` sends the runs through a writer in staging order, stops at the first
+  error and keeps the rest pending. A refused update (`SAT_ERR_CAPACITY`) changes nothing.
+- Explicit dirty regions: `sat_stage_map2_mark_dirty` restages the resident part of an edited rectangle,
+  `invalidate` forces a rebuild, `discard` drops pending writes and invalidates.
+- Accounting: `sat_stage_map2_requirements` / `_requirements_bytes` (staging for two updates' worth of
+  full rebuilds of every layer), `sat_stage_map2_pending`, `sat_stage_map2_stats` (updates, rebuilds,
+  cells staged and committed, runs committed).
+- `tests/host/test_stage_map2.cpp` drives a fake VRAM through the real writer path and checks, after
+  every commit of a long random walk (including teleports and negative coordinates), that every resident
+  cell holds what a full render would put there. It also covers: no movement writes nothing, one-cell X
+  and Y moves, diagonal and multi-cell moves, rebuild thresholds, parallax and scroll wrapping, flips,
+  bias, palette override, outside policies while streaming, a 2 x 2 page ring with out-of-order page
+  addresses, 2 x 2 characters, dirty regions across the ring wrap, capacity refusal, commit failure and
+  resume, invalidate/discard, validation, and `ring_from_layer`.
+
+Deviations and decisions made while implementing:
+
+- Animated-tile metadata was left out: animating a tile means swapping its character data, which the
+  game does with the existing VDP2 character upload, not by rewriting cells.
+- Two-word pattern names and bitmap layers are refused; the module is for cell layers with one-word names.
+- The module does not depend on the camera, terrain or character modules: it takes the viewport's top-left
+  pixel (for the follow camera, the VIEW range's centre minus its half size). The scroll it reports is the
+  view wrapped to the ring, ready for `sat_vdp2_layer_set_scroll`.
+- Column strips are one-word runs, one per row, because a pattern name table is row-major; the cost is
+  the commit call count, shown in `runs_committed`.
 
 ### Phase 7 — Entity region activation
 **Status:** Not Started

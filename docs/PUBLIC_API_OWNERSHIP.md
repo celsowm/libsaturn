@@ -26,6 +26,7 @@ scratch region. The runtime performs no general-purpose heap allocation.
 | Physics2 world | slots, pair arrays, candidate scratch and a `sat_spatial_t`, all caller-owned | collider slots with generation counters; no heap | handles are generation-checked and never reused; the event buffer is the caller's; capacity overflow is reported, never silent | no hardware state |
 | Path2 | path value; polyline points and cumulative lengths; optional Bezier arc-length table | nothing; every call is pure | borrowed arrays must outlive the path; a path value can be copied freely; `sat_path2_polyline_entries` and `sat_path2_table_requirements` size the arrays | no hardware state |
 | Follow Camera2D | camera value (centre, look-ahead, bounds, clamp, shake); caller-owned | nothing; produces a `sat_camera2d_t` the game passes to render2d | one controller per view; shake is a plain value, no task | no hardware state |
+| Stage map | stage map value; caller-owned staging (words and runs); tileset and maps are the game's tables | the pattern name pages of each layer's ring, only inside `sat_stage_map2_commit*`, only through the writer given | tables must outlive the map; call commit in VBlank; the layer's VDP2 setup stays with the layer manager | VDP2 pattern name VRAM written by commit |
 
 Capacity failures return `SAT_ERR_CAPACITY`; stale or closed generation-checked
 handles return the documented invalid/not-found result. Update operations do
