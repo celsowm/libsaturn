@@ -1373,9 +1373,52 @@ Deviations and decisions made while implementing:
   the commit call count, shown in `runs_committed`.
 
 ### Phase 7 — Entity region activation
-**Status:** Not Started
+**Status:** Complete (2026-10-02). `entity_stream2` landed with host tests; the cross build for SH-2
+and the full `make test` pass.
 
 Deliver partition/index, activation/deactivation, hysteresis, predictive bounds and tests.
+
+Delivered:
+
+- `include/saturn/entity_stream2.h`, `src/physics/spatial/entity_stream2.cpp`.
+- Offline-built CSR index (`sat_entity_index2_t`): immutable 8-byte descriptors
+  (`sat_entity_desc2_t`: x, y from the index origin, game-defined kind and data) sorted by region in
+  row-major order, plus a `uint16_t` region start table (`region_count + 1` entries). Power-of-two
+  region edge (8 px to 32 Kpx). `sat_entity_index2_validate` checks table shape, monotonicity and that
+  every descriptor lies in the region that lists it; `sat_entity_stream2_init` runs it once.
+  `sat_entity_index2_bytes` sizes the tables for the resource plan.
+- State: two caller-owned bitsets (active and retired), `sat_entity_stream2_state_words` words in
+  total. Descriptors are never written.
+- `sat_entity_stream2_update(stream, activation_box, result)`: (1) active descriptors outside the box
+  grown by `hysteresis` are deactivated, ascending index; (2) inactive, not retired descriptors inside
+  the box are activated by walking only the overlapped regions, ascending index. Activation order is
+  therefore the descriptor order. A camera jump across any number of regions is handled in one update.
+- Callbacks: `activate` returns `SAT_ENTITY_ACTIVATED`, `SAT_ENTITY_DEFER` (pool full: the update stops
+  and retries that descriptor first next time) or `SAT_ENTITY_DECLINE` (retire it); `deactivate` is
+  optional. Callbacks may call `release`/`retire` on the stream; the deactivation scan re-reads the
+  bitset after each callback.
+- Game-initiated state: `release` (inactive, no callback, re-activates when inside the box again),
+  `retire` / `unretire` (a collected ring never respawns), `reset` (stage restart, no callbacks).
+- Stats: updates, activations, deactivations, deferrals, declines, peak active.
+- `tests/host/test_entity_stream2.cpp`: index validation and init refusals; activation set equal to a
+  brute-force model for a long random walk with teleports, with and without hysteresis; no duplicate
+  activation or deactivation (the game-side model asserts it); stable ascending order; hysteresis
+  against an edge that hovers over a descriptor (no churn); reactivation; multi-region jumps; box
+  edge semantics (half-open, empty box); pool full with deferral, order kept and resume; retire,
+  unretire, decline, reset; callbacks that edit the stream; no deactivate callback; empty index and
+  an index far from the origin; prediction margin fed from the follow camera's ACTIVATION range.
+
+Deviations and decisions made while implementing:
+
+- The predictive extension is not in this module: the activation box comes from the follow camera's
+  ACTIVATION range (which already stretches by the motion), so a player-centred or any other source
+  just builds its own box. The prediction test composes the two.
+- Descriptor positions are non-negative 16-bit offsets from an int32 origin (65536 px per axis from
+  the origin) and the table is 16-bit, so one index holds up to 65535 descriptors; larger stages use
+  several indices. Boxes are 16.16 world pixels and so limited to +-32767 px.
+- Descriptors are points; an entity with an extent grows the box or the region size.
+- Deactivation scans the active bitset (O(descriptors / 32) per update, skipped when nothing is
+  active) rather than keeping an active list, which keeps the state to one bit per descriptor.
 
 ### Phase 8 — Gameplay task scheduler
 **Status:** Not Started

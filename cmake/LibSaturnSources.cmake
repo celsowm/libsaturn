@@ -141,6 +141,7 @@ set(LIBSATURN_PHYSICS_SOURCES
     src/physics/3d/transform.cpp
     src/physics/3d/world.cpp
     src/physics/spatial/2d.cpp
+    src/physics/spatial/entity_stream2.cpp
     src/physics/spatial/3d.cpp
     src/physics/spatial/voxel_terrain.cpp
 )
