@@ -2,6 +2,7 @@
 
 #include <limits.h>
 
+#include "src/core/math2d/logic.hpp"
 #include "src/physics/2d/collision_logic.hpp"
 
 /* Physics2 world: stable collider handles, moving support and sensor events.
@@ -18,9 +19,7 @@ inline sat_collider2_t make_handle(uint16_t slot, uint16_t generation) {
     return (static_cast<uint32_t>(slot) << 16) | generation;
 }
 
-inline int32_t clamp32(int64_t v) {
-    return v > INT32_MAX ? INT32_MAX : (v < INT32_MIN ? INT32_MIN : static_cast<int32_t>(v));
-}
+using saturn::core::math2d::saturate32;
 
 inline const sat_collider2_slot_t* find_slot(const sat_physics2_world_t* w, sat_collider2_t id) {
     if (!w || id == SAT_COLLIDER2_NONE) return nullptr;
@@ -43,8 +42,8 @@ inline sat_box2_t swept_box(const sat_collider2_slot_t& s) {
     const int64_t loy = static_cast<int64_t>(b.center.y < s.previous.y ? b.center.y : s.previous.y) - b.half.y;
     const int64_t hiy = static_cast<int64_t>(b.center.y > s.previous.y ? b.center.y : s.previous.y) + b.half.y;
     sat_box2_t out;
-    out.center = {clamp32((lox + hix) >> 1), clamp32((loy + hiy) >> 1)};
-    out.half = {clamp32((hix - lox + 1) >> 1), clamp32((hiy - loy + 1) >> 1)};
+    out.center = {saturate32((lox + hix) >> 1), saturate32((loy + hiy) >> 1)};
+    out.half = {saturate32((hix - lox + 1) >> 1), saturate32((hiy - loy + 1) >> 1)};
     return out;
 }
 
@@ -112,9 +111,9 @@ struct EventSink {
 bool passed_through(const sat_collider2_slot_t& sensor, const sat_collider2_slot_t& subject) {
     if (!is_moving(sensor) && !is_moving(subject)) return false;
     const sat_vec2_t rel = {
-        clamp32((static_cast<int64_t>(subject.desc.box.center.x) - subject.previous.x) -
+        saturate32((static_cast<int64_t>(subject.desc.box.center.x) - subject.previous.x) -
                 (static_cast<int64_t>(sensor.desc.box.center.x) - sensor.previous.x)),
-        clamp32((static_cast<int64_t>(subject.desc.box.center.y) - subject.previous.y) -
+        saturate32((static_cast<int64_t>(subject.desc.box.center.y) - subject.previous.y) -
                 (static_cast<int64_t>(sensor.desc.box.center.y) - sensor.previous.y))};
     if (rel.x == 0 && rel.y == 0) return false;
     sat_box2_t target = sensor.desc.box;
@@ -242,8 +241,8 @@ extern "C" sat_result_t sat_physics2_delta(const sat_physics2_world_t* w, sat_co
     const sat_collider2_slot_t* s = find_slot(w, id);
     if (!s) return SAT_ERR_NOT_FOUND;
     if (!out) return SAT_ERR_INVALID_ARG;
-    *out = {clamp32(static_cast<int64_t>(s->desc.box.center.x) - s->previous.x),
-            clamp32(static_cast<int64_t>(s->desc.box.center.y) - s->previous.y)};
+    *out = {saturate32(static_cast<int64_t>(s->desc.box.center.x) - s->previous.x),
+            saturate32(static_cast<int64_t>(s->desc.box.center.y) - s->previous.y)};
     return SAT_OK;
 }
 
@@ -281,8 +280,8 @@ extern "C" sat_result_t sat_physics2_find_support(sat_physics2_world_t* w, const
     const int64_t lo = a < b ? a : b;
     const int64_t hi = a < b ? b : a;
     sat_box2_t probe;
-    const sat_vec2_t along = {clamp32((lo + hi) >> 1), clamp32((hi - lo + 1) >> 1)}; /* centre, half */
-    const sat_vec2_t cross = {clamp32(origin_across), q->half_width};
+    const sat_vec2_t along = {saturate32((lo + hi) >> 1), saturate32((hi - lo + 1) >> 1)}; /* centre, half */
+    const sat_vec2_t cross = {saturate32(origin_across), q->half_width};
     probe.center = axis == 0 ? sat_vec2_t{along.x, cross.x} : sat_vec2_t{cross.x, along.x};
     probe.half = axis == 0 ? sat_vec2_t{along.y, cross.y} : sat_vec2_t{cross.y, along.y};
 
@@ -313,9 +312,9 @@ extern "C" sat_result_t sat_physics2_find_support(sat_physics2_world_t* w, const
 
     const sat_collider2_slot_t& s = w->storage.slots[best_slot];
     out->id = make_handle(best_slot, s.generation);
-    out->distance = clamp32(best);
+    out->distance = saturate32(best);
     sat_vec2_t point = q->origin;
-    (axis == 0 ? point.x : point.y) = clamp32(origin_axis + sign * best);
+    (axis == 0 ? point.x : point.y) = saturate32(origin_axis + sign * best);
     out->point = point;
     out->normal = {face == 0 ? SAT_FX16_ONE : (face == 2 ? -SAT_FX16_ONE : 0),
                    face == 1 ? SAT_FX16_ONE : (face == 3 ? -SAT_FX16_ONE : 0)};
@@ -327,8 +326,8 @@ extern "C" sat_result_t sat_physics2_carry(const sat_physics2_world_t* w, sat_co
     const sat_result_t r = sat_physics2_delta(w, id, &d);
     if (r != SAT_OK) return r;
     if (!position) return SAT_ERR_INVALID_ARG;
-    position->x = clamp32(static_cast<int64_t>(position->x) + d.x);
-    position->y = clamp32(static_cast<int64_t>(position->y) + d.y);
+    position->x = saturate32(static_cast<int64_t>(position->x) + d.x);
+    position->y = saturate32(static_cast<int64_t>(position->y) + d.y);
     return SAT_OK;
 }
 
@@ -340,7 +339,7 @@ extern "C" sat_result_t sat_physics2_launch_velocity(const sat_physics2_world_t*
     const sat_collider2_slot_t* s = find_slot(w, id);
     if (!s) return SAT_ERR_NOT_FOUND;
     const int64_t scale = s->desc.launch_scale;
-    *out = {clamp32((static_cast<int64_t>(d.x) * scale) >> 16), clamp32((static_cast<int64_t>(d.y) * scale) >> 16)};
+    *out = {saturate32((static_cast<int64_t>(d.x) * scale) >> 16), saturate32((static_cast<int64_t>(d.y) * scale) >> 16)};
     return SAT_OK;
 }
 

@@ -12,6 +12,11 @@
 
 namespace saturn::core::math2d {
 
+/* Narrows a 64-bit intermediate to a 16.16 value, saturating instead of wrapping. */
+inline int32_t saturate32(int64_t v) {
+    return v > INT32_MAX ? INT32_MAX : (v < INT32_MIN ? INT32_MIN : static_cast<int32_t>(v));
+}
+
 inline sat_fx16_t sin8(sat_angle_t a) { return kSin8[a]; }
 inline sat_fx16_t cos8(sat_angle_t a) { return kSin8[static_cast<uint8_t>(a + 64u)]; }
 

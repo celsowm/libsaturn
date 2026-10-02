@@ -17,20 +17,18 @@ constexpr int kNearestSamples = 32;     /* coarse samples of the Bezier nearest-
 constexpr int kNearestRefinements = 14; /* ternary-search steps around the best coarse sample */
 constexpr int64_t kTwoPiQ16 = 411775;   /* 2 * pi * 65536 */
 
-inline int32_t clamp32(int64_t v) {
-    return v > INT32_MAX ? INT32_MAX : (v < INT32_MIN ? INT32_MIN : static_cast<int32_t>(v));
-}
+using saturn::core::math2d::saturate32;
 inline int64_t floor_mod(int64_t a, int64_t n) {
     const int64_t r = a % n;
     return r < 0 ? r + n : r;
 }
-inline sat_vec2_t sub(sat_vec2_t a, sat_vec2_t b) { return {clamp32(static_cast<int64_t>(a.x) - b.x), clamp32(static_cast<int64_t>(a.y) - b.y)}; }
+inline sat_vec2_t sub(sat_vec2_t a, sat_vec2_t b) { return {saturate32(static_cast<int64_t>(a.x) - b.x), saturate32(static_cast<int64_t>(a.y) - b.y)}; }
 inline uint64_t dist2(sat_vec2_t a, sat_vec2_t b) {
     const int64_t dx = static_cast<int64_t>(a.x) - b.x;
     const int64_t dy = static_cast<int64_t>(a.y) - b.y;
     return static_cast<uint64_t>(dx * dx) + static_cast<uint64_t>(dy * dy);
 }
-inline sat_vec2_t left_normal(sat_vec2_t tangent) { return {tangent.y, clamp32(-static_cast<int64_t>(tangent.x))}; }
+inline sat_vec2_t left_normal(sat_vec2_t tangent) { return {tangent.y, saturate32(-static_cast<int64_t>(tangent.x))}; }
 
 inline bool is_bezier(const sat_path2_t& p) { return p.kind == SAT_PATH2_QUADRATIC || p.kind == SAT_PATH2_CUBIC; }
 inline bool is_arc(const sat_path2_t& p) { return p.kind == SAT_PATH2_ARC || p.kind == SAT_PATH2_CIRCLE; }
@@ -59,7 +57,7 @@ sat_vec2_t bezier_point(const sat_path2_t& p, int64_t t) {
         x += w[i] * p.p[i].x;
         y += w[i] * p.p[i].y;
     }
-    return {clamp32(x >> 16), clamp32(y >> 16)};
+    return {saturate32(x >> 16), saturate32(y >> 16)};
 }
 
 sat_vec2_t bezier_derivative(const sat_path2_t& p, int64_t t) {
@@ -76,7 +74,7 @@ sat_vec2_t bezier_derivative(const sat_path2_t& p, int64_t t) {
         y = a * (static_cast<int64_t>(p.p[1].y) - p.p[0].y) + b * (static_cast<int64_t>(p.p[2].y) - p.p[1].y) +
             c * (static_cast<int64_t>(p.p[3].y) - p.p[2].y);
     }
-    return {clamp32(x >> 16), clamp32(y >> 16)};
+    return {saturate32(x >> 16), saturate32(y >> 16)};
 }
 
 /* Unit tangent of a Bezier; at a cusp (zero derivative) it is read a little further in. */
@@ -150,12 +148,12 @@ int64_t normalise_distance(const sat_path2_t& p, int64_t d) {
 }
 
 void fill_sample(const sat_path2_t& p, int64_t s, sat_path2_sample_t& out) {
-    out.distance = clamp32(s);
+    out.distance = saturate32(s);
     sat_vec2_t position = {0, 0}, tangent = {0, 0};
     switch (p.kind) {
     case SAT_PATH2_LINE: {
         const int64_t f = (s << 16) / p.length;
-        position = m2::lerp(p.p[0], p.p[1], clamp32(f));
+        position = m2::lerp(p.p[0], p.p[1], saturate32(f));
         tangent = m2::normalize(sub(p.p[1], p.p[0]));
         break;
     }
@@ -165,7 +163,7 @@ void fill_sample(const sat_path2_t& p, int64_t s, sat_path2_sample_t& out) {
         segment_ends(p, i, a, b);
         const int64_t span = static_cast<int64_t>(p.cumulative[i + 1]) - p.cumulative[i];
         const int64_t f = span > 0 ? ((s - p.cumulative[i]) << 16) / span : 0;
-        position = m2::lerp(a, b, clamp32(f > kOne ? kOne : f));
+        position = m2::lerp(a, b, saturate32(f > kOne ? kOne : f));
         tangent = m2::normalize(sub(b, a));
         break;
     }
@@ -174,8 +172,8 @@ void fill_sample(const sat_path2_t& p, int64_t s, sat_path2_sample_t& out) {
         const int64_t f = (s << 16) / p.length;
         const sat_angle16_t angle = static_cast<sat_angle16_t>(static_cast<int64_t>(p.start_angle) + ((static_cast<int64_t>(p.sweep) * f) >> 16));
         const sat_fx16_t c = m2::cos16(angle), sn = m2::sin16(angle);
-        position = {clamp32(static_cast<int64_t>(p.center.x) + ((static_cast<int64_t>(p.radius) * c) >> 16)),
-                    clamp32(static_cast<int64_t>(p.center.y) + ((static_cast<int64_t>(p.radius) * sn) >> 16))};
+        position = {saturate32(static_cast<int64_t>(p.center.x) + ((static_cast<int64_t>(p.radius) * c) >> 16)),
+                    saturate32(static_cast<int64_t>(p.center.y) + ((static_cast<int64_t>(p.radius) * sn) >> 16))};
         tangent = p.sweep > 0 ? sat_vec2_t{-sn, c} : sat_vec2_t{sn, -c};
         break;
     }
@@ -219,7 +217,7 @@ Candidate nearest_on_polyline(const sat_path2_t& p, sat_vec2_t q) {
         const int64_t span = static_cast<int64_t>(p.cumulative[i + 1]) - p.cumulative[i];
         if (span <= 0) continue;
         const int64_t f = segment_fraction(a, b, q);
-        const sat_vec2_t at = m2::lerp(a, b, clamp32(f));
+        const sat_vec2_t at = m2::lerp(a, b, saturate32(f));
         const uint64_t g = dist2(at, q);
         if (g < best.gap2) best = {p.cumulative[i] + ((span * f) >> 16), g};
     }
@@ -228,7 +226,7 @@ Candidate nearest_on_polyline(const sat_path2_t& p, sat_vec2_t q) {
 
 Candidate nearest_on_line(const sat_path2_t& p, sat_vec2_t q) {
     const int64_t f = segment_fraction(p.p[0], p.p[1], q);
-    const sat_vec2_t at = m2::lerp(p.p[0], p.p[1], clamp32(f));
+    const sat_vec2_t at = m2::lerp(p.p[0], p.p[1], saturate32(f));
     return {(p.length * f) >> 16, dist2(at, q)};
 }
 

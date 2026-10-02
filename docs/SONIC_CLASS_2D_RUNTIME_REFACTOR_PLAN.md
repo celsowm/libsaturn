@@ -1614,11 +1614,60 @@ Deviations and decisions made while implementing:
 - The bot's run skips the finish-room rings, so the probe check requires 50 rings rather than all.
 
 ### Phase 12 — Performance, SOLID/DRY and documentation audit
-**Status:** Not Started
+**Status:** Complete (2026-10-02). One duplication removed; everything else audited and left as is, with
+the reasons below. `make test` and the SH-2 cross build of the example pass, and the Ymir probe run of
+the example gives the same counters as before the change.
 
 Audit Big-O, divisions/64-bit operations, memory, duplicate camera/support math, animation timers, map streaming duplication, compatibility leftovers, header dependencies and lower-level standalone linkability.
 
 Run full host and Saturn build gates.
+
+Findings:
+
+- **Duplication, fixed:** the saturating `int64 -> int32` narrowing was copied as `clamp32` into
+  `follow_camera2d.cpp`, `path2.cpp` and `physics2_world.cpp`. It is now `saturate32` in
+  `src/core/math2d/logic.hpp`, used by all three; no behaviour change.
+- **Camera / entity box math:** not duplicated. `follow_camera2d` produces the activation box once and
+  `entity_stream2` takes a box and grows it by its own hysteresis; neither rebuilds the other's range.
+  `entity_stream2`'s region edge helpers are the only floor/ceil to pixels in that file;
+  `follow_camera2d`'s `floor_px`/`round_px` snap 16.16 values to whole pixels, which is a different
+  operation (kept private to the camera).
+- **Support math:** Character2 (terrain support), Physics2 (moving support, `sat_physics2_find_support`)
+  and the example's carry step each own one stage; the example composes them and contains no slope or
+  support projection of its own.
+- **Map streaming:** `stage_map2` is the only ring/window streamer in `src`; the older layer code
+  (`vdp2_layers`) configures registers and shares no logic with it.
+- **Animation timers:** `sprite_clip` is the only generic clip timer; `sprite_anim` (older, uniform
+  frames) is kept for simple examples, as section 32 asks. The example has no hand-written animation
+  timer.
+- **Big-O:** per step, Terrain2 queries are O(probe length); Character2 is O(1) over them; Physics2 is
+  O(slots) for the carry/slot sweep and O(candidates) per collider through the spatial structure;
+  `entity_stream2` walks the regions the box covers and, to release, the active bitset (one word per
+  32 descriptors, so a 3000-descriptor stage is under 100 word reads per update), never the descriptors;
+  `stage_map2` writes only the cells that scrolled into the ring; the new task scheduler is O(live) per
+  step and per create. Nothing scans the level or all entities per frame.
+- **Divisions and 64-bit:** the 2D modules use 64-bit intermediates for products (`(a*b)>>16`) and
+  saturate on the way down. Real 64-bit divisions occur only in Path2: arc-length to parameter
+  (`(s<<16)/length`, a few per sampled path per step) and the Bezier nearest-point search (33 coarse
+  samples plus 14 refinements, run on attach or on demand, not per step). `entity_stream2` divides only
+  in its one-time index validation (`r / region_cols`), never per update. Followers of fixed paths could precompute a reciprocal; the
+  example samples three paths per step and the probe holds 60 Hz, so it was not done without a
+  measurement that needs it.
+- **Memory:** every module takes caller-owned storage; grep for `malloc`, `new`, `std::vector`,
+  `virtual`, `TODO`/`FIXME` over the new sources and headers finds nothing. Sizes are reported by the
+  `*_requirements`/`*_bytes` helpers and the stage2d tool's section report.
+- **Compatibility leftovers:** none added; the earlier `physics.h` / `collide2d.h` APIs are untouched.
+- **Header dependencies:** each new public header compiles alone as C11 (`-pedantic`) and as C++20.
+  Includes are `core.h`, `collide2d.h`, `math2d.h` and, where a type needs it, `terrain2.h`
+  (character2), `spatial.h` (physics2_world), `render2d.h` (follow_camera2d, for `sat_camera2d_t`),
+  `vdp2.h`/`vdp2_layers.h` (stage_map2), `texture.h`/`geometry2d.h` (sprite_clip). `task.h` includes
+  only `core.h`.
+- **Standalone linkability:** every module's host test links the module's own source plus at most
+  `math2d/api.cpp` (and `spatial/2d.cpp` + `collision.cpp` for Physics2); `task.cpp` and `clip.cpp`
+  link alone. Lower-level users that never call these modules pull none of them in (static library,
+  one object per module).
+- **Hardware claims:** the example's VDP2 layers were verified in the Ymir probe only (screenshots);
+  no Mednafen or hardware run was done. Frame-rate statements rest on the probe's frame counters.
 
 ### Phase 13 — Extract the example to its own repository
 **Status:** Not Started

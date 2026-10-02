@@ -16,9 +16,7 @@ constexpr int64_t kOne = SAT_FX16_ONE;
 constexpr int64_t kHalfPx = 0x8000;
 constexpr uint32_t kDefaultSeed = 0x9E3779B9u;
 
-inline int32_t clamp32(int64_t v) {
-    return v > INT32_MAX ? INT32_MAX : (v < INT32_MIN ? INT32_MIN : static_cast<int32_t>(v));
-}
+using saturn::core::math2d::saturate32;
 inline int64_t mul(int64_t a, int64_t b) { return (a * b) >> 16; }
 inline int64_t clamp64(int64_t v, int64_t lo, int64_t hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline int64_t round_px(int64_t v) { return ((v + kHalfPx) >> 16) << 16; }
@@ -74,8 +72,8 @@ int64_t fit_axis(int64_t centre, int64_t bmin, int64_t bmax, int64_t half) {
 void fit_centre(sat_follow_camera2d_t& cam) {
     sat_camera_bounds2_t b;
     if (!effective_bounds(cam, b)) return;
-    cam.centre.x = clamp32(fit_axis(cam.centre.x, b.min_x, b.max_x, cam.config.viewport_w / 2));
-    cam.centre.y = clamp32(fit_axis(cam.centre.y, b.min_y, b.max_y, cam.config.viewport_h / 2));
+    cam.centre.x = saturate32(fit_axis(cam.centre.x, b.min_x, b.max_x, cam.config.viewport_w / 2));
+    cam.centre.y = saturate32(fit_axis(cam.centre.y, b.min_y, b.max_y, cam.config.viewport_h / 2));
 }
 
 int32_t slide_edge(int32_t from, int32_t to, int32_t speed) {
@@ -132,10 +130,10 @@ Window view_window(const sat_follow_camera2d_t& cam) {
 
 sat_box2_t box_from_edges(int64_t l, int64_t t, int64_t r, int64_t b) {
     sat_box2_t box;
-    box.center.x = clamp32((l + r) >> 1);
-    box.center.y = clamp32((t + b) >> 1);
-    box.half.x = clamp32((r - l) >> 1);
-    box.half.y = clamp32((b - t) >> 1);
+    box.center.x = saturate32((l + r) >> 1);
+    box.center.y = saturate32((t + b) >> 1);
+    box.half.x = saturate32((r - l) >> 1);
+    box.half.y = saturate32((b - t) >> 1);
     return box;
 }
 
@@ -211,8 +209,8 @@ extern "C" sat_vec2_t sat_shake2d_step(sat_shake2d_t* shake) {
         }
         ux = apply_sign(ux, p.sign);
         uy = apply_sign(uy, p.sign);
-        shake->offset.x = clamp32(mul(mul(ax, ux), scale));
-        shake->offset.y = clamp32(mul(mul(ay, uy), scale));
+        shake->offset.x = saturate32(mul(mul(ax, ux), scale));
+        shake->offset.y = saturate32(mul(mul(ay, uy), scale));
     }
     shake->phase = static_cast<sat_angle16_t>(shake->phase + p.frequency);
     if (shake->elapsed < UINT32_MAX) ++shake->elapsed;
@@ -272,7 +270,7 @@ extern "C" sat_result_t sat_follow_camera2d_set_clamp(sat_follow_camera2d_t* cam
             cam->clamp = cam->world;
         } else {
             const Window w = view_window(*cam);
-            cam->clamp = {clamp32(w.left), clamp32(w.top), clamp32(w.left + w.w), clamp32(w.top + w.h)};
+            cam->clamp = {saturate32(w.left), saturate32(w.top), saturate32(w.left + w.w), saturate32(w.top + w.h)};
         }
     }
     cam->clamp_goal = *bounds;
@@ -301,8 +299,8 @@ extern "C" sat_result_t sat_follow_camera2d_clear_clamp(sat_follow_camera2d_t* c
 
 extern "C" sat_result_t sat_follow_camera2d_snap(sat_follow_camera2d_t* cam, sat_vec2_t target) {
     if (!cam) return SAT_ERR_INVALID_ARG;
-    cam->centre.x = clamp32(static_cast<int64_t>(target.x) - cam->config.shift_x);
-    cam->centre.y = clamp32(static_cast<int64_t>(target.y) - cam->config.shift_y);
+    cam->centre.x = saturate32(static_cast<int64_t>(target.x) - cam->config.shift_x);
+    cam->centre.y = saturate32(static_cast<int64_t>(target.y) - cam->config.shift_y);
     cam->look = {0, 0};
     cam->delta = {0, 0};
     fit_centre(*cam);
@@ -321,8 +319,8 @@ extern "C" sat_result_t sat_follow_camera2d_step(sat_follow_camera2d_t* cam, sat
     const sat_vec2_t before = cam->centre;
 
     const sat_vec2_t v = velocity ? *velocity : sat_vec2_t{0, 0};
-    cam->look.x = clamp32(look_axis(cam->look.x, v.x, c.look_gain_x, c.look_max_x, c.look_ease));
-    cam->look.y = clamp32(look_axis(cam->look.y, v.y, c.look_gain_y, c.look_max_y, c.look_ease));
+    cam->look.x = saturate32(look_axis(cam->look.x, v.x, c.look_gain_x, c.look_max_x, c.look_ease));
+    cam->look.y = saturate32(look_axis(cam->look.y, v.y, c.look_gain_y, c.look_max_y, c.look_ease));
 
     slide_clamp(*cam);
 
@@ -330,14 +328,14 @@ extern "C" sat_result_t sat_follow_camera2d_step(sat_follow_camera2d_t* cam, sat
     const int64_t ty = static_cast<int64_t>(target.y) + cam->look.y;
     const int64_t zx = static_cast<int64_t>(cam->centre.x) + c.shift_x;
     const int64_t zy = static_cast<int64_t>(cam->centre.y) + c.shift_y;
-    cam->centre.x = clamp32(static_cast<int64_t>(cam->centre.x) +
+    cam->centre.x = saturate32(static_cast<int64_t>(cam->centre.x) +
         follow_axis(tx, zx - c.dead_half_w, zx + c.dead_half_w, c.follow_x, c.max_step_x));
-    cam->centre.y = clamp32(static_cast<int64_t>(cam->centre.y) +
+    cam->centre.y = saturate32(static_cast<int64_t>(cam->centre.y) +
         follow_axis(ty, zy - c.dead_half_h, zy + c.dead_half_h, c.follow_y, c.max_step_y));
     fit_centre(*cam);
 
-    cam->delta.x = clamp32(static_cast<int64_t>(cam->centre.x) - before.x);
-    cam->delta.y = clamp32(static_cast<int64_t>(cam->centre.y) - before.y);
+    cam->delta.x = saturate32(static_cast<int64_t>(cam->centre.x) - before.x);
+    cam->delta.y = saturate32(static_cast<int64_t>(cam->centre.y) - before.y);
     cam->shake_offset = sat_shake2d_step(&cam->shake);
     return out ? sat_follow_camera2d_get(cam, out) : SAT_OK;
 }
@@ -352,10 +350,10 @@ extern "C" sat_result_t sat_follow_camera2d_get(const sat_follow_camera2d_t* cam
         half_w = floor_px(half_w);
         half_h = floor_px(half_h);
     }
-    out->offset_x = clamp32(half_w);
-    out->offset_y = clamp32(half_h);
-    out->target_x = clamp32(w.left + half_w);
-    out->target_y = clamp32(w.top + half_h);
+    out->offset_x = saturate32(half_w);
+    out->offset_y = saturate32(half_h);
+    out->target_x = saturate32(w.left + half_w);
+    out->target_y = saturate32(w.top + half_h);
     out->rotation = 0;
     out->zoom = SAT_FX16_ONE;
     return SAT_OK;
@@ -400,13 +398,13 @@ extern "C" int sat_follow_camera2d_overlaps(const sat_follow_camera2d_t* cam, sa
 extern "C" sat_vec2_t sat_follow_camera2d_world_to_screen(const sat_follow_camera2d_t* cam, sat_vec2_t world) {
     sat_camera2d_t c;
     if (sat_follow_camera2d_get(cam, &c) != SAT_OK) return {0, 0};
-    return {clamp32(static_cast<int64_t>(world.x) - c.target_x + c.offset_x),
-            clamp32(static_cast<int64_t>(world.y) - c.target_y + c.offset_y)};
+    return {saturate32(static_cast<int64_t>(world.x) - c.target_x + c.offset_x),
+            saturate32(static_cast<int64_t>(world.y) - c.target_y + c.offset_y)};
 }
 
 extern "C" sat_vec2_t sat_follow_camera2d_screen_to_world(const sat_follow_camera2d_t* cam, sat_vec2_t screen) {
     sat_camera2d_t c;
     if (sat_follow_camera2d_get(cam, &c) != SAT_OK) return {0, 0};
-    return {clamp32(static_cast<int64_t>(screen.x) - c.offset_x + c.target_x),
-            clamp32(static_cast<int64_t>(screen.y) - c.offset_y + c.target_y)};
+    return {saturate32(static_cast<int64_t>(screen.x) - c.offset_x + c.target_x),
+            saturate32(static_cast<int64_t>(screen.y) - c.offset_y + c.target_y)};
 }
