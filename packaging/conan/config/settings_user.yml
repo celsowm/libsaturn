@@ -1,0 +1,12 @@
+# Conan 2 settings extension for the Sega Saturn.
+#
+# The Saturn is neither a desktop OS nor a stock CPU architecture, so Conan's
+# default settings model cannot name it. Installing this directory with
+#
+#     conan config install packaging/conan/config
+#
+# adds a bare-metal OS and the SH-2 big-endian architecture next to Conan's
+# own values (settings_user.yml extends settings.yml, it does not replace it).
+os:
+    baremetal:
+arch: [sh2eb]
