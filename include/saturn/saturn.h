@@ -64,6 +64,7 @@
 #include "saturn/path2.h"
 #include "saturn/follow_camera2d.h"
 #include "saturn/stage_map2.h"
+#include "saturn/task.h"
 #include "saturn/entity_stream2.h"
 #include "saturn/spatial.h"
 #include "saturn/physics.h"

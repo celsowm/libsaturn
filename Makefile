@@ -636,6 +636,7 @@ HOST_TEST_EXTRA_test_resource_plan := src/resources/plan.cpp
 HOST_TEST_EXTRA_test_hud := src/graphics/2d/hud.cpp
 HOST_TEST_EXTRA_test_sprite_anim := src/graphics/2d/sprites/animation.cpp
 HOST_TEST_EXTRA_test_sprite_clip := src/graphics/2d/sprites/clip.cpp
+HOST_TEST_EXTRA_test_task := src/core/task/task.cpp
 HOST_TEST_EXTRA_test_stage2d_generated := src/physics/2d/terrain2.cpp src/physics/2d/path2.cpp src/core/math2d/api.cpp src/physics/spatial/entity_stream2.cpp src/graphics/2d/sprites/clip.cpp
 HOST_TEST_EXTRA_test_view_cache := src/graphics/3d/scene/view_cache.cpp src/graphics/3d/scene/view_cache_world.cpp
 HOST_TEST_EXTRA_test_view_cache_isolation := src/graphics/3d/scene/view_cache.cpp

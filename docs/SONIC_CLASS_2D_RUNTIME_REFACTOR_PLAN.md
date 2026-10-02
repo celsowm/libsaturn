@@ -1421,10 +1421,41 @@ Deviations and decisions made while implementing:
   active) rather than keeping an active list, which keeps the state to one bit per descriptor.
 
 ### Phase 8 — Gameplay task scheduler
-**Status:** Not Started
+**Status:** Complete (2026-10-02). `saturn/task.h` landed with host tests; the cross build for SH-2
+and the full `make test` pass.
 
 The audit found no existing facility, so the precondition holds, but build this last
 and only on a demonstrated need (see section 18). Deliver fixed capacity, deterministic order, generation handles, safe lifecycle and tests.
+
+Delivered:
+
+- `include/saturn/task.h`, `src/core/task/task.cpp` (listed in `cmake/LibSaturnSources.cmake`), host
+  test `tests/host/test_task.cpp` (16 tests, one a 3000-step randomized run against a reference
+  model), ownership row in `docs/PUBLIC_API_OWNERSHIP.md`.
+- API: `sat_task_scheduler_init(scheduler, slots, order, capacity)` over two caller-owned arrays
+  (`sat_task_slot_t[capacity]`, `uint16_t[capacity]`; `sat_task_scheduler_slot_bytes`),
+  `sat_task_create(desc, &handle)` with `sat_task_desc_t` (update function, optional destroy function,
+  caller-owned data pointer, `int16_t` priority), `sat_task_destroy`, `sat_task_set_update`,
+  `sat_task_is_alive`, `sat_task_data`, `sat_task_scheduler_run`, `sat_task_scheduler_clear`,
+  `sat_task_scheduler_count`, `sat_task_scheduler_stats`.
+- Order: ascending priority, ties in creation order. `order` is a sorted index array kept by stable
+  insertion, so a step is O(live tasks) and creation is O(live tasks) in the worst case; there is no
+  linked list and no hidden allocation.
+- Handles are `{slot, generation}`; generation bumps at destroy time (skipping 0 on wrap), so a handle
+  is stale the moment its task dies, even before the slot is reused. A zeroed handle is always stale.
+- Lifecycle during a run: self destroy, peer destroy (a peer later in the order is skipped, an earlier
+  one is just gone), update replacement (a peer later in the order runs the new function in the same
+  step); tasks created during a run are queued and first run in the next step. Destroyed slots are
+  freed when the run ends, so they count against the capacity until then. The destroy function runs
+  once, at destroy time, and may destroy peers but not run or clear (`SAT_ERR_BUSY`); `clear` destroys
+  in run order and refuses creation from destroy functions.
+
+Deviations and decisions made while implementing:
+
+- Nothing in the library or in `high_speed_platformer` consumes the scheduler, as section 18 requires
+  of the terrain, camera and physics modules; the example steps its own state. It is here as the
+  generic facility, and no demonstrated consumer exists yet.
+- No `set_priority`: reordering a live task has no use case and would complicate the stable order.
 
 ### Phase 9 — Sprite animation runtime
 **Status:** Complete (2026-10-02). `sprite_clip` landed with host tests; the cross build for SH-2

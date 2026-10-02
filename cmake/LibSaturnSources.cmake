@@ -29,6 +29,7 @@ set(LIBSATURN_CORE_SOURCES
     src/core/startup/early_init.c
     src/core/startup/newlib_stubs.c
     src/core/startup/slave_init.cpp
+    src/core/task/task.cpp
 )
 
 set(LIBSATURN_GRAPHICS_SOURCES
