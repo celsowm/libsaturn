@@ -22,7 +22,7 @@ AR          := $(TARGET)-ar
 OBJCOPY     := $(TARGET)-objcopy
 
 # Python: prefer Windows one (has Pillow), fallback to MSYS2
-PYTHON_WIN  := $(shell command -v python 2>/dev/null)
+PYTHON_WIN  := $(shell command -v python 2>/dev/null || command -v python3 2>/dev/null)
 PYTHON_MSYS := $(shell command -v /usr/bin/python 2>/dev/null)
 PYTHON      ?= $(PYTHON_WIN)
 
@@ -55,8 +55,8 @@ ifeq ($(filter-out all,$(or $(MAKECMDGOALS),all)),)
 LIBSATURN_LOCK_TRAMPOLINE := 1
 .PHONY: all
 all:
-	@mkdir -p $(BUILD_DIR)/locks
-	@LIBSATURN_EXAMPLE_LOCKED=1 flock $(BUILD_DIR)/locks/$(EXAMPLE).lock \
+	@mkdir -p $(BUILD_DIR)/locks && \
+	LIBSATURN_EXAMPLE_LOCKED=1 flock $(BUILD_DIR)/locks/$(EXAMPLE).lock \
 		$(MAKE) --no-print-directory all
 endif
 endif

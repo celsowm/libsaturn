@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -47,7 +48,7 @@ def main() -> int:
         )
         subprocess.run(
             [
-                "python",
+                sys.executable,
                 str(GENERATOR),
                 "--input",
                 str(manifest),
