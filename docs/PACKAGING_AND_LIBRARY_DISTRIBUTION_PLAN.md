@@ -694,9 +694,21 @@ Operating manual: [PACKAGING.md](PACKAGING.md). vcpkg result:
 - **`libsaturn_add_binary()`** was added next to `libsaturn_configure_executable()`
   for the "optional binary conversion helper".
 - **`libsaturn_add_disc()`** was added when the first external consumer (the
-  extracted Ikemen project) needed a bootable disc without the Makefile.
+  [ikemen-saturn](https://github.com/celsowm/ikemen-saturn) project, now extracted)
+  needed a bootable disc without the Makefile.
 - **Post-link check is CMake-native** (`LibSaturnCheckNoInitArray.cmake`); the Python
   tool stays for the Makefile.
+
+### Ikemen extraction
+
+`examples/ikemen_saturn` and everything specific to it (converters, host tests,
+upstream-oracle tooling, generated-asset rules, CI) moved to
+[celsowm/ikemen-saturn](https://github.com/celsowm/ikemen-saturn), an independent
+consumer built through `find_package(LibSaturn CONFIG)`, the shipped toolchain file
+and `libsaturn_add_disc()`, or through the Conan package. The extraction was
+validated by running the old in-tree build and the new external build in the Ymir
+probe under the same scripted input: screenshots were byte-identical, and the 63
+upstream oracle scenarios give the same result (61 pass, 2 pending) as before.
 
 ### Still open
 

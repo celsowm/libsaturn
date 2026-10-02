@@ -43,12 +43,20 @@ instead of being copied into a game repository.
 
 ### Fixed
 
+- `assets/boot/ip_yaul_template.bin`, the Makefile's default IP.BIN template, was
+  git-ignored (`*.bin`) and never committed, so a clean checkout could not build any
+  disc image. It is now tracked.
 - The static-constructor guard could never fire: `--gc-sections` discarded the
   constructor tables before the check ran, so a global needing a constructor
   passed silently while staying null on the console.
 
 ### Removed
 
+- The `ikemen_saturn` example, its converters, tests and upstream-oracle tooling
+  moved to the independent consumer repository
+  [celsowm/ikemen-saturn](https://github.com/celsowm/ikemen-saturn), which builds
+  against the installed package. LibSaturn keeps no Ikemen-specific build or test
+  knowledge.
 - Stray repository-root artifacts (`ip.bin`, `probe.json`, `build_and_log.ps1`);
   `$tmp` helper scripts moved to `scripts/dev/`.
 

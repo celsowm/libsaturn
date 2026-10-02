@@ -34,7 +34,7 @@ TEST(result_names_cover_every_code) {
 
 TEST(basename_handles_both_separators) {
     ASSERT_STR(basename("main.c"), "main.c");
-    ASSERT_STR(basename("examples/ikemen_saturn/main.c"), "main.c");
+    ASSERT_STR(basename("examples/demo/main.c"), "main.c");
     ASSERT_STR(basename("C:\\work\\examples\\x\\main.c"), "main.c");
     ASSERT_STR(basename("a/b\\c.c"), "c.c");
     ASSERT_STR(basename(""), "");
@@ -43,7 +43,7 @@ TEST(basename_handles_both_separators) {
 
 TEST(report_lines) {
     char lines[kLineCount][kLineChars + 1u];
-    build_report(lines, SAT_ERR_BUSY, "examples/ikemen_saturn/main.c", 528);
+    build_report(lines, SAT_ERR_BUSY, "examples/demo/main.c", 528);
     ASSERT_STR(lines[0], "FATAL ERROR");
     ASSERT_STR(lines[1], "BUSY");
     ASSERT_STR(lines[2], "MAIN.C");

@@ -189,7 +189,7 @@ static void only_intersecting_regions_refresh() {
 }
 
 /* sat_texture_destroy must give the texture's VRAM back, or a cache that
- * evicts and re-uploads exhausts the arena (the ikemen_saturn freeze). */
+ * evicts and re-uploads exhausts the arena (a streaming sprite cache froze this way). */
 static void destroy_returns_vram() {
     using namespace saturn::core;
     reset_runtime();

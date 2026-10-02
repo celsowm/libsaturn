@@ -56,7 +56,7 @@ int main() {
     assert(after >= second + 16u);
 
     // Released texture VRAM is reused. Before this, every upload advanced the
-    // arena for good: ikemen_saturn's sprite cache froze the game with
+    // arena for good: a streaming sprite cache froze the game with
     // SAT_ERR_CAPACITY once ~512 KiB of sprites had gone through it.
     uint16_t held = 0u;
     assert(vd::upload_texture_indexed8(source, 64u, 64u, &held) == SAT_OK);

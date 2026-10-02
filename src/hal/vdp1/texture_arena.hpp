@@ -7,7 +7,7 @@
  *
  * The arena used to be a bump cursor that only ever advanced, so
  * sat_texture_destroy() gave the texture slot back but not its VRAM. A program
- * that streams textures through a small cache (ikemen_saturn evicts and
+ * that streams textures through a small cache (a sprite cache that evicts and
  * re-uploads sprites constantly) therefore filled the 512 KiB VRAM after a few
  * hundred uploads and every later upload failed with SAT_ERR_CAPACITY.
  *

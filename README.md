@@ -410,6 +410,14 @@ conan install . --profile:host=saturn-sh2eb --profile:build=default --build=miss
 The recipe republishes the installed CMake package unchanged, so the CMake code
 above does not change.
 
+### A real consumer
+
+[ikemen-saturn](https://github.com/celsowm/ikemen-saturn) is a complete game
+project that builds against an installed LibSaturn package only: the
+`saturn` preset links `LibSaturn::Saturn` and builds a bootable disc with
+`libsaturn_add_disc()`, with no sibling checkout and no private header. It is
+the reference for what an external project needs.
+
 ### Source checkout
 
 Keep using this repository directly for the examples, the asset/model/disc

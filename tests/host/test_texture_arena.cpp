@@ -143,7 +143,7 @@ TEST(alignment_padding_is_not_lost) {
 }
 
 TEST(streaming_forever_never_exhausts_the_arena) {
-    /* The ikemen_saturn failure: a 32-entry LRU cache of ~2-10 KiB sprites,
+    /* The streaming-cache failure: a 32-entry LRU cache of ~2-10 KiB sprites,
      * evicted and re-uploaded for ever. With a bump-only arena this died after
      * ~(512 KiB / size) uploads. */
     TextureArena a;

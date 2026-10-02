@@ -694,37 +694,6 @@ HOST_TEST_EXTRA_test_collide3d_sweep := src/physics/3d/sweep.cpp
 HOST_TEST_EXTRA_test_collide3d_sweep_full := src/physics/3d/sweep_full.cpp
 HOST_TEST_EXTRA_test_collide3d_logic :=
 HOST_TEST_EXTRA_test_spatial3_api := src/physics/spatial/3d.cpp src/physics/3d/collision.cpp
-# ikemen_fight is split into ikemen_fight*.c (one responsibility each).
-IKEMEN_FIGHT_SRCS := $(wildcard examples/ikemen_saturn/ikemen_fight*.c)
-HOST_TEST_EXTRA_test_ikemen_fight := $(IKEMEN_FIGHT_SRCS) examples/ikemen_saturn/ikemen_anim.c examples/ikemen_saturn/ikemen_cns.c examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_entity_runtime.c
-HOST_TEST_EXTRA_test_ikemen_command := examples/ikemen_saturn/ikemen_command.c examples/ikemen_saturn/ikemen_expr.c
-HOST_TEST_EXTRA_test_ikemen_expr := examples/ikemen_saturn/ikemen_expr.c
-HOST_TEST_EXTRA_test_ikemen_entity := examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_expr.c
-HOST_TEST_EXTRA_test_ikemen_entity_runtime := examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_entity_runtime.c examples/ikemen_saturn/ikemen_cns.c examples/ikemen_saturn/ikemen_anim.c
-HOST_TEST_EXTRA_test_ikemen_helper_combat := $(IKEMEN_FIGHT_SRCS) examples/ikemen_saturn/ikemen_entity.c examples/ikemen_saturn/ikemen_entity_runtime.c examples/ikemen_saturn/ikemen_cns.c examples/ikemen_saturn/ikemen_anim.c
-HOST_TEST_EXTRA_test_ikemen_cns := examples/ikemen_saturn/ikemen_cns.c
-HOST_TEST_EXTRA_test_ikemen_anim := examples/ikemen_saturn/ikemen_anim.c
-HOST_TEST_EXTRA_test_ikemen_decode := examples/ikemen_saturn/ikemen_anim.c
-# End-to-end asset-contract test: needs a complete generated Ikemen asset
-# set. A partially populated build/generated directory can exist after other
-# pipeline steps, so checking only kfm_frames.c is not sufficient.
-IKEMEN_HOST_ASSETS_READY := $(and \
-	$(wildcard build/generated/ikemen_saturn/kfm_frames.c), \
-	$(wildcard build/generated/ikemen_saturn/kfm_frames.h), \
-	$(wildcard build/generated/ikemen_saturn/iso/KFM_SPR.BIN), \
-	$(wildcard build/generated/ikemen_saturn/kfm_zss_frames.c), \
-	$(wildcard build/generated/ikemen_saturn/kfm_zss_frames.h), \
-	$(wildcard build/generated/ikemen_saturn/iso/KFM_ZSS.BIN), \
-	$(wildcard build/generated/ikemen_saturn/fightfx_frames.c), \
-	$(wildcard build/generated/ikemen_saturn/fightfx_frames.h), \
-	$(wildcard build/generated/ikemen_saturn/iso/FIGHTFX.BIN), \
-	$(wildcard build/generated/ikemen_saturn/stage0_plane.c), \
-	$(wildcard build/generated/ikemen_saturn/stage0_plane.h))
-ifeq ($(IKEMEN_HOST_ASSETS_READY),)
-HOST_TEST_SRCS := $(filter-out tests/host/test_ikemen_assets.cpp,$(HOST_TEST_SRCS))
-else
-HOST_TEST_EXTRA_test_ikemen_assets := build/generated/ikemen_saturn/kfm_frames.c build/generated/ikemen_saturn/kfm_zss_frames.c build/generated/ikemen_saturn/fightfx_frames.c build/generated/ikemen_saturn/stage0_plane.c examples/ikemen_saturn/ikemen_anim.c src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/api.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
-endif
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp
 	@mkdir -p $(dir $@)
@@ -741,40 +710,6 @@ test: $(HOST_TEST_BINS)
 		echo "[test] $$t"; \
 		$(PYTHON) $$t || exit 1; \
 	done
-
-# -- Ikemen GO behavioral oracle -------------------------------
-IKEMEN_ORACLE_SCENARIO ?= tools/ikemen_oracle/scenarios/kfm_idle_120.json
-IKEMEN_ORACLE_TRACE ?= build/ikemen_oracle/ikemen.jsonl
-IKEMEN_ORACLE_SATURN_TRACE ?= build/ikemen_oracle/libsaturn.jsonl
-
-.PHONY: ikemen-oracle-install ikemen-oracle-run ikemen-oracle-saturn \
-	ikemen-oracle-diff ikemen-oracle-check ikemen-oracle-suite
-ikemen-oracle-install:
-	$(PYTHON) tools/ikemen_oracle/install.py
-
-ikemen-oracle-run:
-	$(PYTHON) tools/ikemen_oracle/run.py \
-		$(IKEMEN_ORACLE_SCENARIO) \
-		--trace $(IKEMEN_ORACLE_TRACE) \
-		--install
-
-ikemen-oracle-saturn:
-	$(PYTHON) tools/ikemen_oracle/run_saturn.py \
-		$(IKEMEN_ORACLE_SCENARIO) \
-		--trace $(IKEMEN_ORACLE_SATURN_TRACE)
-
-ikemen-oracle-diff:
-	$(PYTHON) tools/ikemen_oracle/diff.py \
-		$(IKEMEN_ORACLE_TRACE) \
-		$(IKEMEN_ORACLE_SATURN_TRACE)
-
-ikemen-oracle-check: ikemen-oracle-run ikemen-oracle-saturn
-	$(MAKE) --no-print-directory ikemen-oracle-diff \
-		IKEMEN_ORACLE_TRACE=$(IKEMEN_ORACLE_TRACE) \
-		IKEMEN_ORACLE_SATURN_TRACE=$(IKEMEN_ORACLE_SATURN_TRACE)
-
-ikemen-oracle-suite:
-	$(PYTHON) tools/ikemen_oracle/suite.py
 
 # -- Alvos utilitarios ------------------------------------------
 .PHONY: print-build-paths
