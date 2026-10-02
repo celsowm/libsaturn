@@ -705,6 +705,9 @@ HOST_TEST_EXTRA_test_collide3d_sweep_full := src/physics/3d/sweep_full.cpp
 HOST_TEST_EXTRA_test_collide3d_logic :=
 HOST_TEST_EXTRA_test_spatial3_api := src/physics/spatial/3d.cpp src/physics/3d/collision.cpp
 
+# Examples that ship a host test of their own say how to build it in examples/<name>/host_test.mk.
+-include $(wildcard examples/*/host_test.mk)
+
 $(BUILD_DIR)/tests/%: tests/host/%.cpp
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(DEPFLAGS) $< $(HOST_TEST_EXTRA_$*) -o $@

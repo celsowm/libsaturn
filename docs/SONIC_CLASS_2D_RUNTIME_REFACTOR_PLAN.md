@@ -1528,13 +1528,59 @@ Deviations and decisions made while implementing:
 - The size report charges SH-2 struct sizes (4-byte pointers) for the clip structs.
 
 ### Phase 11 — Integration example (incubated in-tree)
-**Status:** Not Started
+**Status:** Complete (2026-10-02). Reference: `examples/high_speed_platformer/README.md`.
 
 Deliver the original high-speed platformer stress example under
 `examples/high_speed_platformer`, following the section 29.2 rules. It may start as a
 skeleton earlier and gains a stress area per landed phase; this phase is complete when
 it exercises everything listed in section 29, builds for Saturn, and has been run in
 the Ymir probe with scripted input and captured screenshots.
+
+Delivered (all under `examples/high_speed_platformer/`):
+
+- `game.c/.h`: the game with no hardware (`hsp_game_init/step`, view origin, hero speed, platform
+  boxes). Terrain2 + Character2 run the hero; Physics2 holds the sensors (three layer switches around
+  the loop), the pickups' shapes and the two platforms; Path2 drives the platforms (a Bezier and a
+  circle) and the rail the hero hangs from; Follow Camera2D owns the camera (dead zone, speed
+  look-ahead, locked finish room, shake on hard landings and dash pads); `entity_stream2` activates
+  rings, pads, springs and flags by region; `sprite_clip` plays the hero, ring, sparkle and pad clips.
+- `view.c/.h`, `art.c/.h`: three VDP2 layers (NBG0 terrain, NBG1 hills at 1/2 speed, NBG2 clouds at 1/4)
+  fed by `stage_map2` rings and committed right after VBlank; procedural 4bpp cells and an INDEX8 sprite
+  sheet drawn by code; VDP1 sprites, platforms and a HUD (RINGS, SPEED, STAGE CLEAR).
+- `main.c`: manual frame loop with 60 Hz fixed steps (up to three catch-up steps); publishes
+  `g_hsp_telemetry` for the harness.
+- `tools/gen_stage.py` writes the `stage2d_tool.py` spec and the layout; `stage.mk`, `host_test.mk` and
+  `Makefile.inc` own the build rules. Generated C goes to `build/generated/high_speed_platformer/`;
+  nothing generated is tracked.
+- `harness/high_speed_platformer.pad` and `tools/probe_check.py`: the scripted Ymir run and its check.
+- Tests: `tests/host/test_high_speed_platformer.cpp` plays the same `game.c` through the real stage and
+  asserts platform riding, one-way plank landing, the loop with two layer switches and no death, rail
+  and the stage end (rings, streaming spawn/despawn, dash pad, spring, top speed above 17), and
+  `tests/host/test_high_speed_platformer_boundary.cpp` enforces section 29.2 (public `saturn/*`
+  includes only, no `examples/common`, no reference to another example, files the extraction needs).
+  The Makefile picks up an example's tests through `-include examples/*/host_test.mk`.
+
+Verification:
+
+- `make test` passes (host sim and boundary included); SH-2 cross-build via `build-example.ps1`.
+- Ymir probe, scripted pad, 409 frames: stage cleared, 66 rings, 2 layer switches, 0 deaths, top speed
+  17.7 px/step, 196 entities spawned and 116 despawned. Screenshots (`probe_check.py --shots`) show the
+  terrain, parallax, sprites, HUD, the camera clamp and STAGE CLEAR.
+- Not done: a Mednafen capture of the VDP2 layers (the Ymir probe is the reference used).
+
+Deviations and decisions made while implementing:
+
+- Platform riding is composed by the game (carry by the platform's per-step delta and Physics2 support
+  lookup), as Character2 attaches to terrain only. Support is kept when the previous stand is still the
+  best support, so a descending platform does not drop the hero.
+- Character2 attach requires ground; airborne placement is `sat_character2_init` plus an air velocity.
+- Fix found by the SH-2 build: `sat_physics2_launch_velocity` dereferenced an unchecked slot, which made
+  GCC reference `abort`; it now returns `SAT_ERR_NOT_FOUND` (already covered by
+  `test_physics2_world.cpp`).
+- The example does not consume the Phase 8 task scheduler; the game steps its own state directly.
+- Pad frame F corresponds to game tick F-8 in the probe (boot and loading), hence the jump at frame 118
+  for tick 110 of the host sim.
+- The bot's run skips the finish-room rings, so the probe check requires 50 rings rather than all.
 
 ### Phase 12 — Performance, SOLID/DRY and documentation audit
 **Status:** Not Started

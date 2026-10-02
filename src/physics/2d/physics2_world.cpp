@@ -337,7 +337,9 @@ extern "C" sat_result_t sat_physics2_launch_velocity(const sat_physics2_world_t*
     const sat_result_t r = sat_physics2_delta(w, id, &d);
     if (r != SAT_OK) return r;
     if (!out) return SAT_ERR_INVALID_ARG;
-    const int64_t scale = find_slot(w, id)->desc.launch_scale;
+    const sat_collider2_slot_t* s = find_slot(w, id);
+    if (!s) return SAT_ERR_NOT_FOUND;
+    const int64_t scale = s->desc.launch_scale;
     *out = {clamp32((static_cast<int64_t>(d.x) * scale) >> 16), clamp32((static_cast<int64_t>(d.y) * scale) >> 16)};
     return SAT_OK;
 }
