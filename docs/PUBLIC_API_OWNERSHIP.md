@@ -23,6 +23,7 @@ scratch region. The runtime performs no general-purpose heap allocation.
 | Input/events | output state and event destination | two-port state and bounded event queue | queue drops oldest deterministically on overflow | SMPC polling is isolated from gameplay |
 | Terrain2 map | profile table, metatile table and layer cells, all read-only | map descriptor only; queries are pure and allocate nothing | borrowed pointers outlive every query; `sat_terrain_map2_requirements` sizes the data; at most four layers | no hardware state |
 | Character2 | character struct (position, velocities, support) and a configuration | nothing; stepping allocates nothing | the map is borrowed read-only for the call; the game edits speeds before each step | no hardware state |
+| Physics2 world | slots, pair arrays, candidate scratch and a `sat_spatial_t`, all caller-owned | collider slots with generation counters; no heap | handles are generation-checked and never reused; the event buffer is the caller's; capacity overflow is reported, never silent | no hardware state |
 
 Capacity failures return `SAT_ERR_CAPACITY`; stale or closed generation-checked
 handles return the documented invalid/not-found result. Update operations do

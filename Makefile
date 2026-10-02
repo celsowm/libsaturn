@@ -688,6 +688,7 @@ HOST_TEST_EXTRA_test_skybridge_game := src/graphics/3d/rendering/surface.cpp
 HOST_TEST_EXTRA_test_skybridge_fade := src/graphics/3d/rendering/surface.cpp
 HOST_TEST_EXTRA_test_math2d := src/core/math2d/api.cpp
 HOST_TEST_EXTRA_test_character2 := src/physics/2d/character2.cpp src/physics/2d/terrain2.cpp src/core/math2d/api.cpp
+HOST_TEST_EXTRA_test_physics2_world := src/physics/2d/physics2_world.cpp src/physics/spatial/2d.cpp src/physics/2d/collision.cpp
 HOST_TEST_EXTRA_test_terrain2 := src/physics/2d/terrain2.cpp src/core/math2d/api.cpp src/physics/2d/grid.cpp src/physics/2d/collision.cpp
 HOST_TEST_EXTRA_test_collide2d_logic := src/physics/2d/collision.cpp
 HOST_TEST_EXTRA_test_spatial_logic := src/physics/spatial/2d.cpp src/physics/2d/collision.cpp

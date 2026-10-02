@@ -59,6 +59,7 @@
 #include "saturn/math2d.h"
 #include "saturn/terrain2.h"
 #include "saturn/character2.h"
+#include "saturn/physics2_world.h"
 #include "saturn/spatial.h"
 #include "saturn/physics.h"
 #include "saturn/physics3_world.h"

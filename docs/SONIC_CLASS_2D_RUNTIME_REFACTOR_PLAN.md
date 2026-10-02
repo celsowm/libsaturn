@@ -1199,9 +1199,50 @@ Deviations and decisions made while implementing:
   gravity is the same code in a mirrored frame.
 
 ### Phase 3 — Physics2 kinematics and sensors
-**Status:** Not Started
+**Status:** Complete (2026-10-02). `physics2_world` landed with host tests; the cross build for
+SH-2 and the full `make test` pass.
 
 Deliver stable collider ownership, moving support/carry, sensors, broadphase integration and tests.
+
+Delivered:
+
+- `include/saturn/physics2_world.h`, `src/physics/2d/physics2_world.cpp`: colliders are
+  axis-aligned boxes of three classes (static, kinematic, sensor) named by a generation-checked
+  `sat_collider2_t` handle (`slot << 16 | generation`, 0 is never valid). Functions:
+  `sat_physics2_world_init/reset/requirements/set_emit_stay`, `sat_collider2_desc_init`,
+  `sat_physics2_add/remove/is_valid/get`, `set_center/set_box/delta`, `query` (overlap by kind and
+  category, ordered by handle), `find_support`, `carry`, `launch_velocity`, `step`.
+- Moving support: `find_support` probes along any of the four quadrants across a foot width and
+  returns the nearest solid face inside the window `[-embed, reach)` with its point, normal,
+  distance and the collider's delta since the last step; `carry` adds that delta to a position;
+  `launch_velocity` returns delta times the collider's `launch_scale`. A removed collider makes
+  `carry`, `launch_velocity` and `delta` answer `SAT_ERR_NOT_FOUND`, which is the support-invalidation
+  signal. One-way colliders name their solid face (`one_way_face`) and only support a probe that
+  lands on it, in any orientation.
+- Sensors: for every sensor and every solid collider whose category matches the sensor mask,
+  `step` emits ENTER / STAY (optional) / LEAVE ordered by (sensor handle, other handle), plus ENTER and
+  LEAVE flagged CROSSING for a collider that passed through between two steps without overlapping at
+  either one (relative-frame sweep, so a moving sensor works too). Removing either side while
+  overlapping gives a LEAVE flagged REMOVED. Touching edges are not overlap, matching `collide2d.h`.
+- Broadphase: the caller-owned `sat_spatial_t` indexes each collider's box swept since the last step
+  (rebuilt lazily after any change), so queries, support and sensors use one index; no O(n) scan.
+- Resource accounting: `sat_physics2_requirements(slot_cap, pair_cap)` sizes the slots, both pair
+  arrays and the candidate scratch; the spatial arrays stay the caller's.
+- `tests/host/test_physics2_world.cpp` (init/validation, handles and slot reuse, capacity, overlap
+  queries, support windows in all four directions, one-way, horizontal and vertical platforms with
+  carry, detach with launch velocity, one-way rising platform, stale handles, enter/stay/leave,
+  removal while overlapping, high-speed crossing and grazing, deterministic ordering, event/pair/index
+  capacity reporting, and a brute-force comparison through the broadphase).
+
+Deviations and decisions made while implementing:
+
+- Physics2 does not depend on Terrain2 or Character2, and Character2 does not consume Physics2:
+  a character on a platform is composed by the game from `find_support`, `carry` and
+  `launch_velocity` (the Phase 11 example does this). Making Character2 walk on a collider would
+  have coupled the two modules for flat tops only.
+- Colliders are boxes only; sensors need nothing else here and Terrain2 owns tile shapes.
+- Crush detection is not provided: it could not be defined without choosing a game policy.
+- A STAY event is opt-in because it costs a write per overlapping pair per step.
 
 ### Phase 4 — Path2
 **Status:** Not Started
