@@ -8,6 +8,10 @@ particular game. Importers for a specific game belong outside this package (the 
 territory, none exists yet) and emit this spec; no data derived from a reference game is committed here (see the provenance rule in
 `docs/SONIC_CLASS_2D_RUNTIME_REFACTOR_PLAN.md`, section 20).
 
+An installed LibSaturn package ships the tool as `<prefix>/share/libsaturn/tools/stage2d_tool.py`
+(CMake: `${LIBSATURN_STAGE2D_TOOL}` after `find_package(LibSaturn)`), so a game that lives outside
+this repository runs it from there; the `stage2d/` package it imports sits next to it.
+
 ```
 python tools/stage2d_tool.py build SPEC.json --out-dir DIR [--max-bytes N]
 python tools/stage2d_tool.py check SPEC.json [--max-bytes N]

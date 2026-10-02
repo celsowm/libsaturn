@@ -87,11 +87,32 @@ break the contract). From `1.0` on, any compatible `1.x`.
 └── share/libsaturn/
     ├── linker/saturn.ld
     ├── cmake/LibSaturnFunctions.cmake  (+ post-link check scripts)
+    ├── tools/*.py  tools/stage2d/*.py  (disc scripts and the stage2d asset compiler)
+    ├── boot/ip_yaul_template.bin
+    ├── toolchains/sh2eb-elf.cmake
+    ├── sim/src/...                     (sources of LibSaturn::Sim2D)
     └── LICENSE
 ```
 
 The prefix is relocatable; the config resolves everything relative to its own
-location. Host asset tools (`tools/`) are not part of the runtime package.
+location. The general host asset tools in the repository's `tools/` are not part
+of the runtime package; the disc scripts and the generic stage2d compiler are, because
+`libsaturn_add_disc()` and games that lay out 2D stages need them.
+
+### Host-side extras
+
+Two things in the package are never linked into firmware:
+
+- `LibSaturn::Sim2D`: an interface target whose sources are the hardware-free 2D
+  modules (Terrain2, Character2, Physics2, Path2, Follow Camera2D, entity_stream2, sprite
+  clip, the task scheduler, math2d and the spatial grid), installed under
+  `share/libsaturn/sim/` with the private headers they include. A game links it into a
+  native test executable to run its own logic with the host compiler (the installed
+  `libsaturn.a` is SH-2 code and cannot be linked on the host). It needs C++20, and
+  compiles with the consumer's flags. The file list is `cmake/LibSaturnSim2D.cmake`;
+  `tests/tools/test_package_sim2d.py` keeps it closed and hardware-free.
+- `LIBSATURN_STAGE2D_TOOL`: the path of `stage2d_tool.py`, whose `stage2d/` package sits
+  next to it in `LIBSATURN_DISC_TOOLS_DIR`. See `docs/STAGE2D_TOOLS.md`.
 
 ## Building the package from a checkout
 

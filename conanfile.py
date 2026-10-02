@@ -59,6 +59,8 @@ class LibSaturnConan(ConanFile):
         "tools/iso_to_raw.py",
         "tools/gen_cue.py",
         "tools/check_disc_image.py",
+        "tools/stage2d_tool.py",
+        "tools/stage2d/*.py",
         "assets/boot/ip_yaul_template.bin",
     )
 

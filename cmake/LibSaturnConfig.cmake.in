@@ -9,6 +9,11 @@
 #   libsaturn_add_disc(my_game ROOT_DIRS data)   # needs Python 3 + mkisofs
 #
 # Targets: LibSaturn::Saturn (use this), LibSaturn::Core, LibSaturn::Startup.
+#
+# Host-side extras, never linked into firmware:
+#   LibSaturn::Sim2D        the hardware-free 2D modules as sources, for a game's host
+#                           simulation tests (link it into a native executable)
+#   LIBSATURN_STAGE2D_TOOL  tools/stage2d_tool.py: stage spec in, C arrays out
 
 # Core contains C++ and the startup code is assembly; a project that only
 # enabled C still needs those languages for the link and for the archives'
@@ -29,6 +34,7 @@ set_and_check(LIBSATURN_LINKER_SCRIPT "@PACKAGE_LIBSATURN_INSTALL_LINKER_SCRIPT@
 set_and_check(LIBSATURN_CMAKE_SCRIPT_DIR "@PACKAGE_LIBSATURN_INSTALL_SCRIPT_DIR@")
 set_and_check(LIBSATURN_DISC_TOOLS_DIR "@PACKAGE_LIBSATURN_INSTALL_DISC_TOOLS_DIR@")
 set_and_check(LIBSATURN_DISC_BOOT_DIR "@PACKAGE_LIBSATURN_INSTALL_DISC_BOOT_DIR@")
+set_and_check(LIBSATURN_STAGE2D_TOOL "@PACKAGE_LIBSATURN_INSTALL_STAGE2D_TOOL@")
 set(LibSaturn_VERSION "@PROJECT_VERSION@")
 
 include("${LIBSATURN_CMAKE_SCRIPT_DIR}/LibSaturnFunctions.cmake")

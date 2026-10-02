@@ -59,6 +59,9 @@ foreach(_f
         share/libsaturn/cmake/LibSaturnFunctions.cmake
         share/libsaturn/cmake/LibSaturnBuildDisc.cmake
         share/libsaturn/tools/gen_ip_bin.py share/libsaturn/tools/iso_to_raw.py
+        share/libsaturn/tools/stage2d_tool.py share/libsaturn/tools/stage2d/emit_c.py
+        share/libsaturn/sim/src/physics/2d/character2.cpp
+        share/libsaturn/sim/src/core/math2d/logic.hpp
         share/libsaturn/boot/ip_yaul_template.bin)
     if(NOT EXISTS "${PREFIX}/${_f}")
         message(FATAL_ERROR "[package-consumer] install tree is missing ${_f}")
