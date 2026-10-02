@@ -1427,9 +1427,56 @@ The audit found no existing facility, so the precondition holds, but build this 
 and only on a demonstrated need (see section 18). Deliver fixed capacity, deterministic order, generation handles, safe lifecycle and tests.
 
 ### Phase 9 — Sprite animation runtime
-**Status:** Not Started
+**Status:** Complete (2026-10-02). `sprite_clip` landed with host tests; the cross build for SH-2
+and the full `make test` pass.
 
 Deliver clips/player, variable durations, playback policies, pivots/metadata/events, texture-region integration and tests.
+
+Delivered:
+
+- `include/saturn/sprite_clip.h`, `src/graphics/2d/sprites/clip.cpp` (pure logic, host-testable) and
+  `src/graphics/2d/sprites/clip_draw.cpp` (texture glue). `sprite_anim.h` stays as it was: it selects a
+  frame by number and does not grow.
+- Immutable data: `sat_clip_frame_t` (source region, pivot, duration in ticks, event id, shape range,
+  flags), `sat_clip_t` (frames, mode ONCE / LOOP / PING_PONG, `loop_start`), `sat_clip_set_t` (clips plus
+  one shape array), `sat_clip_shape_t` (a generic rectangle or point with game-defined `kind`, `index`,
+  `flags`; the library gives them no meaning). `sat_clip_set_validate` checks durations >= 1,
+  non-empty sources, mode, loop start and shape ranges; `sat_clip_set_region_count` gives the content
+  budget against `sat_texture_region_capacity()`.
+- `sat_clip_player_t`: `init`, `play(clip, RESTART | KEEP_IF_SAME | KEEP_PHASE)`, `restart`, `seek`,
+  `set_rate` (16.16, >= 0), `pause` / `resume`, `step` (one tick times the rate) and `advance` (a
+  variable 16.16 number of ticks), state queries, and `frame()` for the current frame.
+- Time: ticks, durations of whole ticks. The player keeps the fractional elapsed time in the frame, so a
+  rate of 0.25 over 240 steps lands exactly on frame 0 of a 6-frame loop 10 times (no drift), and one
+  step may cross several frames. Events fire when a frame is entered and are delivered in order through a
+  callback, even across several frames of one step. `play` / `restart` / `seek` deliver the entered
+  frame's event; KEEP_IF_SAME and KEEP_PHASE do not.
+- Policies: ONCE holds the last frame and reports finished (`SAT_CLIP_STEP_FINISHED`; the finishing step
+  advances no frame). LOOP returns to `loop_start`. PING_PONG plays 0 1 2 1 0 1 2 (end frames once per
+  pass); a one-frame ping-pong holds and counts cycles. KEEP_IF_SAME leaves the playing clip alone
+  (even a finished one), KEEP_PHASE carries the frame position and the fraction of the frame over,
+  scaled to the new clip's length (walk to run).
+- Geometry: the pivot is a continuous coordinate from the source's top-left corner; flipping mirrors
+  around it (`sat_clip_frame_dest`, `sat_clip_shape_rect`, `sat_clip_shape_point`), with 16-bit clamping.
+  `sat_clip_frame_shapes` and `sat_clip_frame_find_shape(kind, index | 0xFF)` read a frame's shapes.
+- Texture integration: `sat_clip_set_prepare_regions` calls `sat_texture_prepare_region` for every
+  frame; `sat_clip_player_draw` draws the current frame through `sat_draw_texture` (a `static_assert`
+  pins `SAT_CLIP_FLIP_*` to `SAT_FLIP_*`). The glue is the only part linked against hardware code, so
+  the host test links `clip.cpp` alone.
+- `tests/host/test_sprite_clip.cpp`: validation failures, variable durations with events and loop
+  flags, one-shot finish and restart, the three switch modes, ping-pong and `loop_start` sequences,
+  fractional and double rates, rate 0 and negative rates, multi-frame steps with ordered events, pause,
+  resume and seek, idle-player behaviour, pivot / flip geometry for frames, rectangles and points,
+  clamping, shape lookup.
+
+Deviations and decisions made while implementing:
+
+- Durations and rates are in ticks, not seconds: a fixed-step game gets one tick per step, a PAL / NTSC
+  game scales by its own step rate. This is the same time base the rest of the 2D modules use.
+- The draw glue takes a destination from the pivot and does not scale or rotate; pass a
+  `sat_draw_params_t` for tint or blend. Per-frame hitboxes are generic shapes, so Character2 /
+  Physics2 integration is done by the game, not by this module.
+- Clip data is produced offline by the animation packer (Phase 10); hand-written tables work too.
 
 ### Phase 10 — Offline tools
 **Status:** Not Started

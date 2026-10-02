@@ -635,6 +635,7 @@ HOST_TEST_EXTRA_test_save_schema := src/storage/save/schema.cpp
 HOST_TEST_EXTRA_test_resource_plan := src/resources/plan.cpp
 HOST_TEST_EXTRA_test_hud := src/graphics/2d/hud.cpp
 HOST_TEST_EXTRA_test_sprite_anim := src/graphics/2d/sprites/animation.cpp
+HOST_TEST_EXTRA_test_sprite_clip := src/graphics/2d/sprites/clip.cpp
 HOST_TEST_EXTRA_test_view_cache := src/graphics/3d/scene/view_cache.cpp src/graphics/3d/scene/view_cache_world.cpp
 HOST_TEST_EXTRA_test_view_cache_isolation := src/graphics/3d/scene/view_cache.cpp
 HOST_TEST_EXTRA_test_surface3d := src/graphics/3d/rendering/surface.cpp

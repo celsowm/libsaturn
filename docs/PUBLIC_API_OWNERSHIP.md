@@ -28,6 +28,7 @@ scratch region. The runtime performs no general-purpose heap allocation.
 | Follow Camera2D | camera value (centre, look-ahead, bounds, clamp, shake); caller-owned | nothing; produces a `sat_camera2d_t` the game passes to render2d | one controller per view; shake is a plain value, no task | no hardware state |
 | Stage map | stage map value; caller-owned staging (words and runs); tileset and maps are the game's tables | the pattern name pages of each layer's ring, only inside `sat_stage_map2_commit*`, only through the writer given | tables must outlive the map; call commit in VBlank; the layer's VDP2 setup stays with the layer manager | VDP2 pattern name VRAM written by commit |
 | Entity stream | immutable index (descriptors and region table, built offline); caller-owned active/retired bitsets; stream value | nothing; calls the game's activate/deactivate callbacks | the game owns the live object pool and any state that outlives an object; index and bitsets must outlive the stream | no hardware state |
+| Sprite clip | immutable clip set (frames, shapes); player value (clip, frame, elapsed, rate, flags) | texture regions it names, only when `sat_clip_set_prepare_regions` / `sat_clip_player_draw` are called | the game owns the texture and the set data, which must outlive every player | no hardware state; the draw call uses the texture API |
 
 Capacity failures return `SAT_ERR_CAPACITY`; stale or closed generation-checked
 handles return the documented invalid/not-found result. Update operations do
