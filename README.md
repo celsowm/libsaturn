@@ -418,6 +418,11 @@ project that builds against an installed LibSaturn package only: the
 `libsaturn_add_disc()`, with no sibling checkout and no private header. It is
 the reference for what an external project needs.
 
+[high-speed-platformer-saturn](https://github.com/celsowm/high-speed-platformer-saturn) is the
+acceptance example of the generic 2D runtime (terrain, character, physics, paths, camera, stage map,
+entity streaming, sprite clips). It also compiles its game logic on the host against
+`LibSaturn::Sim2D` and builds its stage with the shipped `stage2d_tool.py`.
+
 ### Source checkout
 
 Keep using this repository directly for the examples, the asset/model/disc

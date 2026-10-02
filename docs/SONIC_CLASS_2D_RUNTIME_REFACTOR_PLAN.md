@@ -1452,7 +1452,7 @@ Delivered:
 
 Deviations and decisions made while implementing:
 
-- Nothing in the library or in `high_speed_platformer` consumes the scheduler, as section 18 requires
+- Nothing in the library or in `high_speed_platformer` (now an external repository) consumes the scheduler, as section 18 requires
   of the terrain, camera and physics modules; the example steps its own state. It is here as the
   generic facility, and no demonstrated consumer exists yet.
 - No `set_priority`: reordering a live task has no use case and would complicate the stable order.
@@ -1559,7 +1559,9 @@ Deviations and decisions made while implementing:
 - The size report charges SH-2 struct sizes (4-byte pointers) for the clip structs.
 
 ### Phase 11 — Integration example (incubated in-tree)
-**Status:** Complete (2026-10-02). Reference: `examples/high_speed_platformer/README.md`.
+**Status:** Complete (2026-10-02); extracted in Phase 13. Reference: the README of
+[celsowm/high-speed-platformer-saturn](https://github.com/celsowm/high-speed-platformer-saturn).
+The paths below describe the in-tree incubation and no longer exist in this repository.
 
 Deliver the original high-speed platformer stress example under
 `examples/high_speed_platformer`, following the section 29.2 rules. It may start as a
@@ -1670,7 +1672,8 @@ Findings:
   no Mednafen or hardware run was done. Frame-rate statements rest on the probe's frame counters.
 
 ### Phase 13 — Extract the example to its own repository
-**Status:** Not Started
+**Status:** Complete (2026-10-02). Repository:
+[celsowm/high-speed-platformer-saturn](https://github.com/celsowm/high-speed-platformer-saturn).
 
 Precondition: Phase 12 passed and the public APIs the example uses are considered
 stable. Extract after, not during, API churn.
@@ -1704,6 +1707,49 @@ must list every file the installed package needs, a generated-argument list need
 `$<SEMICOLON>` through the CMake wrapper, tools called by file path lose their exec
 bit on a clean Linux checkout, and a CI runner has no Pillow unless the workflow
 installs it.
+
+Delivered:
+
+- The new repository keeps the example's history (`git filter-repo`) and is a plain CMake project:
+  `find_package(LibSaturn 0.1 CONFIG REQUIRED)`, `LibSaturn::Saturn`, the shipped toolchain,
+  `libsaturn_configure_executable`, `libsaturn_add_binary` (limit 983040 bytes) and
+  `libsaturn_add_disc`; `saturn` and `host` presets driven by `LIBSATURN_PREFIX`; `requirements.txt`
+  (standard library only, checked at configure time); a Conan 2 recipe that `requires("libsaturn")`.
+- Two package additions made the host side possible without a LibSaturn checkout:
+  `LibSaturn::Sim2D` (the hardware-free 2D modules shipped as sources under `share/libsaturn/sim`,
+  compiled by the consumer's own compiler; the file list is `cmake/LibSaturnSim2D.cmake` and
+  `tests/tools/test_package_sim2d.py` keeps it closed under the private includes and free of hardware
+  headers) and `LIBSATURN_STAGE2D_TOOL` (the installed `stage2d_tool.py` and its `stage2d/` package).
+- The boundary test moved with the example and now checks it against the installed prefix's include
+  directory instead of a checkout. `gen_stage.py` takes `--tools-dir` (or `$LIBSATURN_TOOLS_DIR`), the
+  installed disc-tools directory, instead of deriving a repository path.
+- CI (`.github/workflows/ci.yml` in the new repository) builds the toolchain and the package from
+  LibSaturn `main` with a local composite action (the Ikemen one), then runs the host tests, the
+  firmware and the disc on a clean runner and uploads the disc; the first run on GitHub
+  passed (11 minutes, toolchain build included).
+
+Validation:
+
+- Old in-tree build vs new external build: the same scripted pad run in the Ymir probe gave
+  byte-identical screenshots at frames 100, 250 and 400, and `probe_check.py` gave the same result
+  from the new repository (stage cleared, 66 rings, 2 layer switches, 0 deaths, top speed 17.7). The
+  `app.bin` differs by 36 bytes (embedded paths and flags only).
+- Host tests: the simulation test gave the same results before and after.
+- A fresh `git clone` of the new repository built from scratch against an installed prefix: host
+  tests (simulation and boundary), firmware and bootable disc (app.bin 234384 bytes, 314 sectors).
+- Conan: `conan create` of LibSaturn, then of the new repository, with `saturn-sh2eb`; the recipe
+  packages the app, ELF and disc.
+- LibSaturn after the cleanup: full host suite, package gates (`scripts/test-package`, including
+  `-Conan`) and the SH-2 cross builds of the remaining examples.
+
+Deviations and decisions made while implementing:
+
+- `LibSaturn::Sim2D` and the stage tool installation are new package surface that the plan did not
+  list; without them the example's simulation test could not run outside a checkout.
+- The `-include examples/*/host_test.mk` hook stays in the Makefile as a generic extension point; it
+  matches nothing at present.
+- No example-specific rule, test, converter or document remains in LibSaturn: only the README and
+  CHANGELOG link to the new repository (this plan keeps its history).
 
 ---
 

@@ -31,6 +31,13 @@ instead of being copied into a game repository.
   Makefile/CMake flag-parity test; `scripts/test-package.{sh,ps1}`.
 - CI workflow for the package gates and a tag-driven release workflow producing a
   source archive, a prebuilt prefix, a Conan cache and `SHA256SUMS`.
+- `LibSaturn::Sim2D`: the hardware-free 2D runtime modules shipped as sources
+  (`share/libsaturn/sim`) so a consumer can compile its game logic and run host tests with its own
+  compiler, and `LIBSATURN_STAGE2D_TOOL`, the installed `stage2d_tool.py` (with its `stage2d/`
+  package) that turns a stage spec into C data.
+- Generic 2D runtime modules (Terrain2, Character2, Physics2, Path2, Follow Camera2D, stage map,
+  entity streaming, sprite clips, task scheduler); see
+  `docs/SONIC_CLASS_2D_RUNTIME_REFACTOR_PLAN.md`.
 
 ### Changed
 
@@ -59,6 +66,10 @@ instead of being copied into a game repository.
   knowledge.
 - Stray repository-root artifacts (`ip.bin`, `probe.json`, `build_and_log.ps1`);
   `$tmp` helper scripts moved to `scripts/dev/`.
+
+- The `high_speed_platformer` example and its host tests moved to the independent consumer repository
+  [celsowm/high-speed-platformer-saturn](https://github.com/celsowm/high-speed-platformer-saturn),
+  which builds against the installed package (or the Conan package) only.
 
 ### Not supported
 
