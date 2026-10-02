@@ -13,6 +13,7 @@ set(LIBSATURN_CORE_SOURCES
     src/core/app/api.cpp
     src/core/app/core.cpp
     src/core/geometry/mesh_api.cpp
+    src/core/math2d/api.cpp
     src/core/math3d/api.cpp
     src/core/memory/api.cpp
     src/core/parallel/api.cpp
@@ -127,6 +128,7 @@ set(LIBSATURN_PHYSICS_SOURCES
     src/physics/2d/api.cpp
     src/physics/2d/collision.cpp
     src/physics/2d/grid.cpp
+    src/physics/2d/terrain2.cpp
     src/physics/3d/collision.cpp
     src/physics/3d/sweep.cpp
     src/physics/3d/sweep_full.cpp

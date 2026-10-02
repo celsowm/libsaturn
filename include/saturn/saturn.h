@@ -56,6 +56,8 @@
 #include "saturn/font.h"
 #include "saturn/grid.h"
 #include "saturn/collide2d.h"
+#include "saturn/math2d.h"
+#include "saturn/terrain2.h"
 #include "saturn/spatial.h"
 #include "saturn/physics.h"
 #include "saturn/physics3_world.h"

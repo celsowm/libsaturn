@@ -1104,11 +1104,52 @@ paths instead (section 37.5).
 **Gate:** update this plan with final names/layout before public advanced API implementation.
 
 ### Phase 1 — Terrain2 foundation
-**Status:** Not Started
+**Status:** Complete (2026-10-02). `math2d` and `terrain2` landed with host tests; the
+cross build for SH-2 and the full `make test` pass.
 
 Deliver profiles, orientation, masks, arbitrary-direction probes, normals/tangents, metadata, one-way semantics and tests.
 
 **Gate:** generic enemies/objects can query terrain without character2.
+
+Delivered:
+
+- `include/saturn/math2d.h`, `src/core/math2d/{tables.hpp,logic.hpp,api.cpp}`: `sat_angle_t`
+  (256 per turn) and `sat_angle16_t`, `sat_sin8/cos8/sin16/cos16`, `sat_atan2_8/16`,
+  `sat_angle_diff`, `sat_angle_quadrant`, `sat_vec2_dot/length/normalize/perp/project/reject`,
+  `sat_lerp_fx16`, `sat_vec2_lerp`. Test: `tests/host/test_math2d.cpp`.
+- `include/saturn/terrain2.h`, `src/physics/2d/{terrain2_logic.hpp,terrain2.cpp}`:
+  `sat_terrain_profile2_t` (22 bytes), `sat_terrain_map2_t` (metatile table plus up to four
+  layers, power-of-two metatiles, explicit outside policy empty/solid/clamp),
+  `sat_terrain_query2_t` (layer, category mask, ignore flags), `sat_terrain_hit2_t`
+  (point, normal, tangent, distance, flags, material, tile, collider id, layer, angle).
+  Functions: `sat_terrain2_probe` (axis-aligned, O(range/8) tile reads, signed whole-pixel
+  distance, negative when the sensor is already inside), `sat_terrain2_cast` (arbitrary
+  direction, dominant-axis pixel march, at most 512 steps), `sat_terrain2_sample`,
+  `sat_terrain2_solid_at`, plus `sat_terrain_profile2_from_columns/validate` and
+  `sat_terrain_map2_init/add_layer/set_outside/validate/requirements`. Test:
+  `tests/host/test_terrain2.cpp` (flat ground, legacy 45-degree parity, shallow/steep/stair
+  slopes, all four flip combinations, walls, ceilings, layers, category and flag filters,
+  material and flags, one-way, cast, outside policies, adjacent-profile continuity, and an
+  exhaustive comparison of every probe against a brute-force pixel oracle over three random
+  maps and all four directions).
+- Wired into `cmake/LibSaturnSources.cmake`, the Makefile host tests, `saturn.h` and
+  `docs/PUBLIC_API_OWNERSHIP.md`.
+
+Deviations and decisions made while implementing:
+
+- A profile's rows must be a single run anchored to a side, so shapes with a valley or a hill
+  (a row with a hole) are rejected by `from_columns` and `validate`; split them across tiles.
+  This matches SA2, where each row stores one signed extent.
+- A one-way profile's blocking direction follows its flipped surface normal, so a Y-flipped
+  platform catches upward probes only. A point query (`solid_at`) has no direction, so it never
+  reports a one-way profile as solid; `sample` does report it.
+- When a profile's own surface does not face the probe (a floor tile hit from the side, the map
+  edge), the hit reports the face the probe actually ran into (angle from the probe direction),
+  not the stored angle. A hit on the outside of a solid map edge has `collider_id` 0xFFFF.
+- `range` counts pixels examined (1..255): a first solid pixel at offset k needs range > k, and a
+  sensor deeper in solid than range returns `SAT_ERR_NOT_FOUND`.
+- Open for later phases: none of the sampling is sub-pixel; Character2 (Phase 2) combines two
+  probes for sub-pixel-looking angles.
 
 ### Phase 2 — Character2
 **Status:** Not Started

@@ -21,6 +21,7 @@ scratch region. The runtime performs no general-purpose heap allocation.
 | CDFS/CD device | sector buffer and device context | parser/device adapter state | caller keeps device and destination storage alive | `sat_cd_block_*` is synchronous; BIOS owns authentication |
 | Camera/scene/model | camera, transforms, sort/vertex/face scratch | draw-time validation only | caller scratch remains valid for the draw/scene lifetime | scene facade owns projection/command encoding |
 | Input/events | output state and event destination | two-port state and bounded event queue | queue drops oldest deterministically on overflow | SMPC polling is isolated from gameplay |
+| Terrain2 map | profile table, metatile table and layer cells, all read-only | map descriptor only; queries are pure and allocate nothing | borrowed pointers outlive every query; `sat_terrain_map2_requirements` sizes the data; at most four layers | no hardware state |
 
 Capacity failures return `SAT_ERR_CAPACITY`; stale or closed generation-checked
 handles return the documented invalid/not-found result. Update operations do
