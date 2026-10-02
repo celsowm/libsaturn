@@ -1,0 +1,12 @@
+{
+  "name": "libsaturn",
+  "version": "0.1.0",
+  "description": "Bare-metal game-development library for the Sega Saturn (EXPERIMENTAL port, see docs/VCPKG_FEASIBILITY.md)",
+  "homepage": "https://github.com/celsowm/libsaturn",
+  "license": "MIT",
+  "supports": "!windows & !uwp & !android & !osx & !ios",
+  "dependencies": [
+    { "name": "vcpkg-cmake", "host": true },
+    { "name": "vcpkg-cmake-config", "host": true }
+  ]
+}
