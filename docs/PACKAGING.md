@@ -20,6 +20,7 @@ add_executable(my_game src/main.c)
 target_link_libraries(my_game PRIVATE LibSaturn::Saturn)
 libsaturn_configure_executable(my_game)
 libsaturn_add_binary(my_game MAX_BYTES 983040)   # optional: flat 0.BIN image
+libsaturn_add_disc(my_game ROOT_DIRS ${CMAKE_SOURCE_DIR}/disc)  # optional: ISO/BIN/CUE
 ```
 
 ```c
@@ -56,8 +57,15 @@ the build if the program contains static constructors (`crt0` never runs them,
 so such a global would silently stay zero). No Python is needed.
 
 `libsaturn_add_binary(<target> [OUTPUT <path>] [MAX_BYTES <n>])` converts the ELF
-into the flat image the BIOS loads. Disc/ISO creation is deliberately a
-separate concern (the repository's Makefile and `tools/` still own that).
+into the flat image the BIOS loads.
+
+`libsaturn_add_disc(<target> [NAME <base>] [OUTPUT_DIR <dir>] [IP_PROFILE current|safe]
+[IP_TEMPLATE <path>] [ROOT_DIRS <dir>...] [ROOT_FILES <file>...] [DEPENDS ...] [ALL])`
+adds the custom target `<target>_disc`, producing `<base>.iso`, `.bin` and `.cue`
+from the linked program. It runs the same checked scripts the Makefile uses (shipped
+in `share/libsaturn/tools`, with the default IP template in `share/libsaturn/boot`),
+and needs a Python 3 interpreter plus `mkisofs`, `genisoimage` or `xorrisofs`.
+`ROOT_DIRS` contents are copied into the disc root next to `0.BIN` and `IP.BIN`.
 
 ### Variables set by the package
 

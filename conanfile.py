@@ -51,6 +51,15 @@ class LibSaturnConan(ConanFile):
         "cmake/*",
         "include/*",
         "src/*",
+        # What libsaturn_add_disc() installs for consumers.
+        "tools/memory_layout.py",
+        "tools/gen_ip_bin.py",
+        "tools/check_ip_bin.py",
+        "tools/check_iso.py",
+        "tools/iso_to_raw.py",
+        "tools/gen_cue.py",
+        "tools/check_disc_image.py",
+        "assets/boot/ip_yaul_template.bin",
     )
 
     def set_version(self):

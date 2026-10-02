@@ -14,7 +14,8 @@
 #      - no source-tree include path leaks into the consumer;
 #      - the linker script, headers and archives come from the prefix;
 #      - startup symbols are in the ELF, entry point at 0x06004000;
-#      - the post-link constructor guard passes, and rejects a bad program.
+#      - the post-link constructor guard passes, and rejects a bad program;
+#      - libsaturn_add_disc() produces a valid ISO/BIN/CUE from the prefix tools.
 
 cmake_minimum_required(VERSION 3.24)
 include("${CMAKE_CURRENT_LIST_DIR}/helpers.cmake")
@@ -55,7 +56,10 @@ foreach(_f
         lib/libsaturn.a lib/libsaturn_startup.a
         share/libsaturn/linker/saturn.ld
         share/libsaturn/toolchains/sh2eb-elf.cmake
-        share/libsaturn/cmake/LibSaturnFunctions.cmake)
+        share/libsaturn/cmake/LibSaturnFunctions.cmake
+        share/libsaturn/cmake/LibSaturnBuildDisc.cmake
+        share/libsaturn/tools/gen_ip_bin.py share/libsaturn/tools/iso_to_raw.py
+        share/libsaturn/boot/ip_yaul_template.bin)
     if(NOT EXISTS "${PREFIX}/${_f}")
         message(FATAL_ERROR "[package-consumer] install tree is missing ${_f}")
     endif()
@@ -106,6 +110,9 @@ step_run("build consumer ELF" OUTPUT_VAR _build_out
     COMMAND "${CMAKE_COMMAND}" --build "${_consumer}" --verbose)
 set(_build_log "${WORK_DIR}/consumer-build.log")
 file(WRITE "${_build_log}" "${_build_out}")
+
+step_run("build the consumer disc" COMMAND "${CMAKE_COMMAND}"
+    --build "${_consumer}" --target consumer_disc)
 
 step_run("verify the consumer against the package contract"
     COMMAND "${CMAKE_COMMAND}"

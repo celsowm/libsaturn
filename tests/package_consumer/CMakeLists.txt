@@ -16,6 +16,8 @@ add_executable(consumer main.c)
 target_link_libraries(consumer PRIVATE LibSaturn::Saturn)
 libsaturn_configure_executable(consumer)
 libsaturn_add_binary(consumer MAX_BYTES 983040)
+# Bootable disc through the package's own tooling; data/ lands in the disc root.
+libsaturn_add_disc(consumer ROOT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/disc_data")
 
 # Facts the driver verifies about the resolved package.
 foreach(_t LibSaturn::Saturn LibSaturn::Core LibSaturn::Startup)

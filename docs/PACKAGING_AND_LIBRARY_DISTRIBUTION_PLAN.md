@@ -693,13 +693,16 @@ Operating manual: [PACKAGING.md](PACKAGING.md). vcpkg result:
   consumer must name it before `find_package` can run.
 - **`libsaturn_add_binary()`** was added next to `libsaturn_configure_executable()`
   for the "optional binary conversion helper".
+- **`libsaturn_add_disc()`** was added when the first external consumer (the
+  extracted Ikemen project) needed a bootable disc without the Makefile.
 - **Post-link check is CMake-native** (`LibSaturnCheckNoInitArray.cmake`); the Python
   tool stays for the Makefile.
 
 ### Still open
 
-- `libsaturn_add_disc()` (plan: "later"). Disc creation stays in the Makefile and
-  `tools/`.
+- Moving the Makefile's own disc rules onto `libsaturn_add_disc()` (the function now
+  exists and is gated by the package consumer test; the Makefile still has its own
+  copy of the steps).
 - Migrating examples/asset rules out of the monolithic Makefile (plan: "reduce to
   orchestration or migrate in controlled groups"). The runtime no longer depends on
   it; the example workflow does.

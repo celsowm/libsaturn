@@ -40,6 +40,7 @@ class LibSaturnTestPackage(ConanFile):
         cmake = CMake(self)
         cmake.configure(build_script_folder=self._consumer_source())
         cmake.build()
+        cmake.build(target="consumer_disc")
 
     def test(self):
         # The image is for the Saturn, never runnable here; verify the link
@@ -52,6 +53,9 @@ class LibSaturnTestPackage(ConanFile):
         log_file = os.path.join(self.build_folder, "consumer-build.log")
         with open(log_file, "w", encoding="utf-8") as handle:
             handle.write(log.getvalue())
+
+        # --clean-first removed the disc too; libsaturn_add_disc() rebuilds it.
+        self.run(f'cmake --build "{self.build_folder}" --target consumer_disc')
 
         prefix = self.dependencies["libsaturn"].package_folder
         source_dir = os.path.abspath(os.path.join(self.recipe_folder, os.pardir))

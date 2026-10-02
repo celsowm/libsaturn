@@ -18,6 +18,8 @@ instead of being copied into a game repository.
   `LibSaturn::Startup`, with a relocatable, version-aware `LibSaturnConfig.cmake`.
 - `libsaturn_configure_executable()` (link contract, link map, post-link
   static-constructor guard) and `libsaturn_add_binary()` for package consumers.
+- `libsaturn_add_disc()`: ISO/BIN/CUE from a linked program through the shipped,
+  checked disc tools (needs Python 3 and mkisofs/genisoimage/xorrisofs).
 - `cmake/toolchains/sh2eb-elf.cmake`, shipped in the install tree.
 - Single runtime source manifest (`cmake/LibSaturnSources.cmake`) shared by CMake
   and the Makefile.
