@@ -1479,11 +1479,53 @@ Deviations and decisions made while implementing:
 - Clip data is produced offline by the animation packer (Phase 10); hand-written tables work too.
 
 ### Phase 10 — Offline tools
-**Status:** Not Started
+**Status:** Complete (2026-10-02). The generic tools landed with Python and host tests; the full
+`make test` passes. Reference: `docs/STAGE2D_TOOLS.md`.
 
 Deliver generic terrain/profile compiler, map/metatile compiler, entity partition builder, animation packer, optional path preprocessing and validation tests.
 
 SA2-specific parsers, if any, live only in tools/import territory and emit generic assets.
+
+Delivered:
+
+- `tools/stage2d_tool.py` (`build` / `check`) over the package `tools/stage2d/`: one JSON spec in, a
+  deterministic C header and source out, plus a bytes-per-section report and a `--max-bytes` budget
+  gate (the resource-size validation of section 20).
+- Terrain/profile compiler (`terrain.py`): profiles from column heights, an ASCII mask or a variant of
+  another profile; the row table derived exactly as `sat_terrain_profile2_from_columns` does and both
+  tables validated like `sat_terrain_profile2_validate`; rotated and flipped variants (`flip_x`,
+  `flip_y`, `rot90`, `rot180`, `rot270`) with the angle carried along; `angle: "auto"` for floor and
+  ceiling ramps (the normal and tangent are derived by the runtime from the angle, so the tool stores
+  only the angle).
+- Map / metatile compiler (`metatiles.py`, `grid.py`): one compiler for terrain tile words (shift 0..5,
+  up to four layers sharing a table, flips and the four game bits written as `name|fx|fy|uN`) and for
+  stage_map2 cell words (shift 0..4, up to 16384 metatiles); identical metatiles are shared in
+  first-seen order, padding uses a fill word, metatile 0 is the all-fill one.
+- Entity partition builder (`entities.py`): the CSR index of `sat_entity_index2_t`, region-major with
+  the author's order kept inside a region, an origin and grid size that default to the items' extent or
+  can be pinned to a map, and every 16-bit limit checked with a message that names the entity.
+- Animation packer (`clips.py`): clips, frames, sheet-grid cells or explicit sources, named or numeric
+  pivots, events, generic shapes with shared runs; the sets `sat_clip_set_validate` accepts.
+- Path preprocessing (`paths.py`): Bezier arc-length tables at 64 chords per interval, for
+  `sat_path2_attach_table`.
+- Tests: `tests/tools/test_stage2d.py` (profile and angle rules, transforms, metatile dedup, entity
+  CSR against a brute-force ordering, clip packing, table properties, error messages, determinism, CLI
+  exit codes, a provenance scan, and byte equality of a fresh build with the committed fixture) and
+  `tests/host/test_stage2d_generated.cpp`, which compiles the committed generated C and runs it through
+  the real runtime validators, probes, a stream, a player and path sampling, and compares the byte
+  accounting with the runtime `*_requirements` helpers. Fixtures
+  (`tests/fixtures/stage2d/synthetic_stage.json`) are synthetic.
+
+Deviations and decisions made while implementing:
+
+- Output is C arrays, not a binary container: the runtime modules consume typed arrays by pointer and
+  the plan has no loader, so a container format would have no reader. If streaming from CD needs one
+  later it gets a magic, version and section table then.
+- Importers (`tools/import`) are not written: no importer is needed for original content, and the
+  provenance rule keeps any such tool and its output out of the repository.
+- A full profile column is written as +8 and a full row as -8, as the runtime derivation does; the two
+  describe the same mask.
+- The size report charges SH-2 struct sizes (4-byte pointers) for the clip structs.
 
 ### Phase 11 — Integration example (incubated in-tree)
 **Status:** Not Started

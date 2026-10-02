@@ -1,0 +1,71 @@
+{
+  "name": "synth",
+  "profiles": [
+    {"name": "block", "columns": [8, 8, 8, 8, 8, 8, 8, 8], "angle": 0, "category": 1, "material": 1},
+    {"name": "half", "columns": [4, 4, 4, 4, 4, 4, 4, 4], "angle": 0, "category": 1, "material": 2, "variants": ["flip_y"]},
+    {"name": "ramp", "columns": [1, 2, 3, 4, 5, 6, 7, 8], "angle": "auto", "category": 1, "material": 3, "variants": ["flip_x", "rot90"]},
+    {"name": "plat", "columns": [2, 2, 2, 2, 2, 2, 2, 2], "angle": 0, "flags": ["one_way"], "category": 1, "material": 4}
+  ],
+  "terrain": {
+    "metatile_shift": 1,
+    "outside": "solid",
+    "legend": {".": ".", "r": "ramp", "R": "ramp|fx", "p": "plat", "b": "block", "h": "half"},
+    "layers": [
+      {"rows": ["........", "........", "..r.p...", "bbbbbbbb"]},
+      {"rows": ["........", "........", "...R....", "hhhhhhhh"]}
+    ]
+  },
+  "stage_map": {
+    "shift": 1,
+    "fill": 0,
+    "layers": [
+      {"rows": [[0, 0, 5, 6, 0, 0],
+                [0, 0, 7, 8, 0, 0],
+                [1, 2, 1, 2, 1, 2],
+                [3, 4, 3, 4, 3, 4]]},
+      {"rows": [[9, 9, 9, 9, 9],
+                [9, 9, 9, 9, 9],
+                [9, 9, 9, 9, 9]]}
+    ]
+  },
+  "entities": {
+    "region_shift": 5,
+    "items": [
+      {"x": 40, "y": 24, "kind": 1, "data": 7},
+      {"x": 10, "y": 10, "kind": 2},
+      {"x": 41, "y": 25, "kind": 1, "data": 8},
+      {"x": 100, "y": 90, "kind": 3},
+      {"x": 12, "y": 70, "kind": 2, "data": 1},
+      {"x": 63, "y": 31, "kind": 1},
+      {"x": 64, "y": 32, "kind": 4},
+      {"x": 130, "y": 5, "kind": 5, "data": 65535}
+    ]
+  },
+  "clips": {
+    "sheet": {"cell_w": 16, "cell_h": 16, "columns": 4},
+    "clips": [
+      {"name": "idle", "mode": "loop", "frames": [
+        {"cell": 0, "duration": 3, "pivot": "bottom_center", "shapes": [{"x": -4, "y": -14, "w": 8, "h": 14, "kind": 1}]},
+        {"cell": 1, "duration": 3, "pivot": "bottom_center", "shapes": [{"x": -4, "y": -14, "w": 8, "h": 14, "kind": 1}]}
+      ]},
+      {"name": "run", "mode": "loop", "loop_start": 1, "frames": [
+        {"cell": 4, "duration": 2, "event": 10, "pivot": [8, 16]},
+        {"cell": 5, "duration": 2, "pivot": [8, 16], "shapes": [{"x": -4, "y": -14, "w": 8, "h": 14, "kind": 1}, {"x": 4, "y": -8, "w": 6, "h": 4, "kind": 2, "index": 1}]},
+        {"cell": 6, "duration": 2, "pivot": [8, 16]}
+      ]},
+      {"name": "jump", "mode": "once", "frames": [
+        {"cell": 8, "duration": 4, "event": 5, "pivot": "center"},
+        {"cell": 9, "duration": 4, "event": 7, "pivot": "center", "shapes": [{"x": 6, "y": -2, "kind": 3}]}
+      ]},
+      {"name": "roll", "mode": "ping_pong", "frames": [
+        {"source": [0, 32, 16, 16], "duration": 1, "pivot": "center"},
+        {"source": [16, 32, 16, 16], "duration": 1, "pivot": "center"},
+        {"source": [32, 32, 16, 16], "duration": 1, "pivot": "center"}
+      ]}
+    ]
+  },
+  "paths": [
+    {"name": "arc", "kind": "cubic", "points": [[0, 0], [40, 0], [40, 40], [80, 40]], "table_entries": 65},
+    {"name": "dip", "kind": "quadratic", "points": [[0, 0], [30, 50], [60, 0]], "table_entries": 33}
+  ]
+}
