@@ -1,0 +1,121 @@
+name: Package
+
+# The package boundary: every public header compiles standalone, the installed
+# CMake package links a Saturn ELF in a clean consumer project, and the same
+# consumer builds through Conan. No release is published without these passing
+# (release.yml runs the same gates).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - CMakeLists.txt
+      - CMakePresets.json
+      - VERSION
+      - conanfile.py
+      - cmake/**
+      - include/**
+      - src/**
+      - packaging/**
+      - test_package/**
+      - tests/cmake/**
+      - tests/package_consumer/**
+      - tests/tools/test_library_source_manifest.py
+      - tests/tools/test_cmake_flag_parity.py
+      - tools/library_sources.py
+      - Makefile
+      - scripts/test-package.sh
+      - .github/workflows/package.yml
+      - .github/actions/saturn-toolchain/**
+  pull_request:
+    paths:
+      - CMakeLists.txt
+      - CMakePresets.json
+      - VERSION
+      - conanfile.py
+      - cmake/**
+      - include/**
+      - src/**
+      - packaging/**
+      - test_package/**
+      - tests/cmake/**
+      - tests/package_consumer/**
+      - tests/tools/test_library_source_manifest.py
+      - tests/tools/test_cmake_flag_parity.py
+      - tools/library_sources.py
+      - Makefile
+      - scripts/test-package.sh
+      - .github/workflows/package.yml
+      - .github/actions/saturn-toolchain/**
+  workflow_dispatch:
+
+jobs:
+  host-tests:
+    name: Public headers (host compiler)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: cmake --preset host-tests
+      - run: ctest --preset host-tests
+
+  version-sync:
+    name: VERSION and saturn/version.h agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          cmake -P cmake/SyncVersion.cmake
+          git diff --exit-code include/saturn/version.h
+
+  cmake-package:
+    name: CMake package consumer (SH-2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/saturn-toolchain
+      - name: Build, install and consume the package
+        run: |
+          cmake --preset package-consumer
+          cmake --build --preset package-consumer
+          ctest --preset package-consumer
+
+  conan:
+    name: Conan package consumer (SH-2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/saturn-toolchain
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Conan 2
+        run: python -m pip install "conan>=2.4,<3"
+      - name: Create the package and build the consumer through Conan
+        run: |
+          conan profile detect --force
+          conan config install packaging/conan/config
+          conan create . --profile:host=saturn-sh2eb --profile:build=default --build=missing
+
+  # Experimental and non-gating: see docs/VCPKG_FEASIBILITY.md for why vcpkg is
+  # not a supported channel yet. A pass here is evidence toward promoting it.
+  vcpkg:
+    name: vcpkg overlay port (experimental)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/saturn-toolchain
+      - name: Install through the overlay port and triplet
+        run: |
+          export LIBSATURN_SOURCE_DIR="$GITHUB_WORKSPACE"
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install libsaturn --triplet sh2eb-saturn \
+            --overlay-ports=packaging/vcpkg/ports \
+            --overlay-triplets=packaging/vcpkg/triplets \
+            --x-install-root="$RUNNER_TEMP/vcpkg_installed"
+      - name: Build the consumer against the vcpkg prefix
+        run: |
+          cmake -DSOURCE_DIR="$GITHUB_WORKSPACE" -DWORK_DIR="$RUNNER_TEMP/vcpkg-consumer" \
+            -DPREFIX="$RUNNER_TEMP/vcpkg_installed/sh2eb-saturn" \
+            -DTOOLCHAIN_FILE="$GITHUB_WORKSPACE/cmake/toolchains/sh2eb-elf.cmake" \
+            -P tests/package_consumer/run.cmake
