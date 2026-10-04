@@ -4,6 +4,7 @@
 #include "src/hal/scu/irq_logic.hpp"
 #include "src/hal/sh2/cpu.hpp"
 #include "src/hal/sh2/frt.hpp"
+#include "src/hal/vdp1/vdp1.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
 
 namespace saturn::hal::scu {
@@ -51,6 +52,7 @@ void shutdown_interrupts() {
  * the program goes without calling sat_time_ms or sat_wait_vblank. */
 void on_vblank_in() {
     if (g_ticks_per_frame != 0u) (void)observe_elapsed_ticks();
+    vdp1::on_vblank_in();
 }
 
 uint32_t irq_fallbacks() {

@@ -3,7 +3,7 @@
 #
 #   cmake -DPYTHON=<python3> -DTOOLS_DIR=<dir> -DMKISOFS=<mkisofs|xorrisofs>
 #         -DAPP_BIN=<app.bin> -DOUT_DIR=<dir> -DNAME=<base> -DPROFILE=current|safe
-#         -DTEMPLATE=<ip template> [-DROOT_DIRS=<a;b>] [-DROOT_FILES=<a;b>]
+#         -DTEMPLATE=<ip template> [-DROOT_DIRS=<a|b>] [-DROOT_FILES=<a|b>]
 #         -P LibSaturnBuildDisc.cmake
 #
 # Steps mirror the repository Makefile so both paths produce the same disc:
@@ -48,6 +48,11 @@ _disc_run("generate IP.BIN"
 _disc_run("check IP.BIN"
     "${PYTHON}" "${TOOLS_DIR}/check_ip_bin.py" --ip-bin "${_ip}" --template "${TEMPLATE}"
     --expected-size "${_app_size}" --profile "${PROFILE}" --load-addr "${_load}")
+
+# Entries are '|'-separated (a ';' list does not survive the custom command); ';' still works when
+# the script is run by hand.
+string(REPLACE "|" ";" ROOT_DIRS "${ROOT_DIRS}")
+string(REPLACE "|" ";" ROOT_FILES "${ROOT_FILES}")
 
 file(REMOVE_RECURSE "${_root}")
 file(MAKE_DIRECTORY "${_root}")

@@ -14,6 +14,7 @@
 #define ASSERT_TRUE(cond) do { if (!(cond)) { \
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
     exit(1); } } while(0)
+#define ASSERT_FALSE(cond) ASSERT_TRUE(!(cond))
 
 TEST(resolve_sprite_cmd_null_cmd) {
     saturn::core::ResolvedSprite out = {};
@@ -223,6 +224,19 @@ TEST(sprite_pmod_shadow_flag) {
     ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_HALF_TRANSPARENT), 0x00A0);
 }
 
+TEST(sprite_flip_flags_set_cmdctrl_dir) {
+    using namespace saturn::core;
+    ASSERT_EQ(compose_sprite_dir(0), 0x0000);
+    ASSERT_EQ(compose_sprite_dir(SAT_SPRITE_FLAG_FLIP_H), 0x0010);
+    ASSERT_EQ(compose_sprite_dir(SAT_SPRITE_FLAG_FLIP_V), 0x0020);
+    ASSERT_EQ(compose_sprite_dir(SAT_SPRITE_FLAG_FLIP_H | SAT_SPRITE_FLAG_FLIP_V), 0x0030);
+    /* Flips are not CMDPMOD bits, and only sprites accept them. */
+    ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_FLIP_H | SAT_SPRITE_FLAG_FLIP_V), 0x00A0);
+    ASSERT_EQ(validate_indexed8_sprite_effects(
+        SAT_SPRITE_FLAG_FLIP_H | SAT_SPRITE_FLAG_FLIP_V | SAT_SPRITE_FLAG_MESH), SAT_OK);
+    ASSERT_EQ(validate_polygon_effects(0x8000u, SAT_SPRITE_FLAG_FLIP_H), SAT_ERR_INVALID_ARG);
+}
+
 TEST(sprite_lut4_selects_lookup_table_mode) {
     using namespace saturn::core;
     /* Color mode 001B + ECD: a 0xF nibble must not end the line. */
@@ -308,7 +322,41 @@ TEST(indexed8_dims_reject_over_maximum) {
     ASSERT_EQ(validate_indexed8_texture_dims(256, 256), SAT_ERR_INVALID_ARG);
 }
 
+TEST(frame_on_submit_clear_covers_the_screen) {
+    using namespace saturn::core;
+    /* begin_frame puts the origin at (width / 2, height / 2): the clear
+     * polygon must cover exactly pixels 0..width-1, 0..height-1. */
+    const Vdp1ClearRect r = frame_clear_rect(320, 224);
+    ASSERT_EQ(r.x0 + 160, 0);
+    ASSERT_EQ(r.y0 + 112, 0);
+    ASSERT_EQ(r.x1 + 160, 319);
+    ASSERT_EQ(r.y1 + 112, 223);
+    const Vdp1ClearRect odd = frame_clear_rect(352, 239);
+    ASSERT_EQ(odd.y0 + 119, 0);
+    ASSERT_EQ(odd.y1 + 119, 238);
+    /* Manual change (FCM=1 FCT=1), plot on write (01B), plot at swap (10B). */
+    ASSERT_EQ(kVdp1FbcrManualChange, 0x0003);
+    ASSERT_EQ(kVdp1PtmrPlotNow, 0x0001);
+    ASSERT_EQ(kVdp1PtmrPlotAtSwap, 0x0002);
+}
+
+TEST(frame_on_submit_swaps_only_finished_lists) {
+    using namespace saturn::core;
+    /* The swap is asked for only for an ended list, and only in a VBlank. */
+    ASSERT_TRUE(vdp1_swap_may_request(true, true));
+    ASSERT_FALSE(vdp1_swap_may_request(false, true));
+    ASSERT_FALSE(vdp1_swap_may_request(true, false));
+    /* Asked during VBlank 7: still pending while that VBlank lasts, done
+     * once it is over or a later VBlank-IN was counted. */
+    ASSERT_FALSE(vdp1_swap_done(7u, 7u, true));
+    ASSERT_TRUE(vdp1_swap_done(7u, 7u, false));
+    ASSERT_TRUE(vdp1_swap_done(7u, 8u, true));
+    ASSERT_TRUE(vdp1_swap_done(0xFFFFFFFFu, 0u, true));
+}
+
 int main() {
+    frame_on_submit_clear_covers_the_screen();
+    frame_on_submit_swaps_only_finished_lists();
     resolve_sprite_cmd_null_cmd();
     resolve_sprite_cmd_null_texture();
     resolve_sprite_cmd_invalid_texture();
@@ -325,6 +373,8 @@ int main() {
     resolve_distorted_sprite_cmd_defaults();
     sprite_pmod_base_matches_normal_sprite();
     sprite_pmod_opaque_flag();
+    sprite_pmod_shadow_flag();
+    sprite_flip_flags_set_cmdctrl_dir();
     sprite_lut4_selects_lookup_table_mode();
     user_clip_pmod_enables_inside_clip_only();
     sprite_colr_shifts_bank_to_high_byte();
@@ -334,6 +384,6 @@ int main() {
     indexed8_dims_accept_legal_sizes();
     indexed8_dims_reject_over_maximum();
 
-    printf("PASS: test_vdp1_logic.cpp (%d tests)\n", 24);
+    printf("PASS: test_vdp1_logic.cpp (%d tests)\n", 27);
     return 0;
 }

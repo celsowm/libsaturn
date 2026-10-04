@@ -21,13 +21,27 @@ if ($Msys2Root) { $buildArgs.Msys2Root = $Msys2Root }
 if ($LASTEXITCODE -ne 0) { throw 'Failed to build vdp2_layers_demo' }
 
 $dump = Join-Path $dir 'wram.bin'
+foreach ($stale in @('when100.png', 'never.png', 'struct.bin', 'misaligned.txt')) {
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dir $stale)
+}
 $shots = @(("60:{0}" -f (Join-Path $dir 'f60.png')), ("120:{0}" -f (Join-Path $dir 'f120.png')),
            ("{0}:{1}" -f ($Frames - 5), (Join-Path $dir 'last.png')))
+# --screenshot-when keyed on g_layers_demo.frames (word 15), and --dump-mem of
+# the struct itself, which must equal its bytes in the Work RAM dump.
+$map = Join-Path $repo 'build/vdp2_layers_demo.map'
+$symbol = Select-String -Path $map -Pattern '^\s*0x([0-9A-Fa-f]+)\s+_g_layers_demo\s*$' | Select-Object -First 1
+if (-not $symbol) { throw "_g_layers_demo is absent from $map" }
+$struct = [Convert]::ToUInt32($symbol.Matches[0].Groups[1].Value, 16)
+$counter = '0x{0:X8}' -f ($struct + 60)
 $argsForHarness = @{
     Example = 'vdp2_layers_demo'
     Frames = $Frames
     Screenshot = $shots
+    ScreenshotWhen = @(("{0}:100+2:{1}" -f $counter, (Join-Path $dir 'when100.png')),
+                       ("{0}:0xFFFFFFFF:{1}" -f $counter, (Join-Path $dir 'never.png')))
+    DumpMem = @(("0x{0:X8}:88:{1}" -f $struct, (Join-Path $dir 'struct.bin')))
     DumpWramHigh = $dump
+    MisalignedReport = (Join-Path $dir 'misaligned.txt')
     Out = (Join-Path $dir 'probe.json')
 }
 if ($Bios) { $argsForHarness.Bios = $Bios }

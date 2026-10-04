@@ -119,6 +119,10 @@ void begin_frame() {
     saturn::core::vdp2_color_calc::claim_reset(g_claim);
 }
 
+bool enabled() {
+    return g_enabled != 0u;
+}
+
 void disable() {
     g_enabled = 0u;
     g_mode = SAT_VDP2_COLOR_CALC_RATIO;

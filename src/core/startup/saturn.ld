@@ -152,3 +152,11 @@ SECTIONS {
 }
 
 ASSERT(ADDR(.text) == 0x06004000, "application did not start at Saturn load address")
+
+/* The Master SH-2 stack starts at the top of Work RAM High (crt0.s: 0x060FFFFC) and grows down
+ * into whatever is linked below it: a .bss that ends just under the top links fine and then has
+ * its last variables overwritten at run time. Keep __stack_reserve bytes free; a program that
+ * needs a different reserve links with -Wl,--defsym=__stack_reserve=<bytes>. */
+PROVIDE(__stack_reserve = 0x4000);
+ASSERT(__bss_end + __stack_reserve <= 0x06100000,
+       "Work RAM High: .bss leaves less than __stack_reserve bytes for the Master stack")

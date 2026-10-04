@@ -74,6 +74,11 @@ uint16_t g_last_nbg0_scxdn0_written = 0x0000u;
 uint16_t g_last_nbg0_scyin0_written = 0x0000u;
 uint16_t g_last_nbg0_scydn0_written = 0x0000u;
 uint16_t g_last_prisa_written = 0x0606u;
+/* Palette sprites with eight priority selectors (sprite type 1): PRISB-PRISD,
+ * and the single-priority PRISA to go back to. */
+bool g_palette_priorities = false;
+uint16_t g_last_prisbcd_written[3] = {0u, 0u, 0u};
+uint16_t g_prisa_before_palette_priorities = 0x0606u;
 /* CCCTL carries the screen-global CCMD bit (ratio vs add), which a frame's
  * draws claim; replayed with PRISA so a layers commit never loses it. */
 uint16_t g_last_ccctl_written = 0x0000u;
@@ -217,6 +222,9 @@ RegRef reg() {
 #define PRISA reg<0x0F0>()
 #define SPCTL reg<0x0E0>()
 #define CRAOFB reg<0x0E6>()
+#define PRISB reg<0x0F2>()
+#define PRISC reg<0x0F4>()
+#define PRISD reg<0x0F6>()
 #define PRINA reg<0x0F8>()
 
 /* Colour-operation registers. The library does not use any of them, which is
@@ -224,7 +232,7 @@ RegRef reg() {
  * settings behind, and anything still enabled here silently transforms every
  * pixel the program draws. See reset_color_ops(). */
 #define CCCTL  reg<0x0EC>()
-#define SFCCMD reg<0x0F2>()
+#define SFCCMD reg<0x0EE>()
 #define CLOFEN reg<0x110>()
 #define CLOFSL reg<0x112>()
 #define COAR   reg<0x114>()
@@ -459,7 +467,35 @@ uint16_t sprite_type_bits() {
      * priority), so a hi-res sprite can use palette codes 0-255. Otherwise
      * type 0 with SPCLMD set: palette and RGB pixels mixed, as the BIOS
      * leaves it (SPCTL = 0 would drop every RGB pixel). */
-    return g_hires ? 0x000Cu : 0x0020u;
+    if (g_hires) return 0x000Cu;
+    /* Type 1, palette dots only: bits 15-13 select PRISA-PRISD's eight priorities. */
+    return g_palette_priorities ? 0x0001u : 0x0020u;
+}
+
+void set_sprite_palette_priorities(const uint8_t* priority) {
+    if (priority == nullptr) {
+        if (!g_palette_priorities) return;
+        g_palette_priorities = false;
+        g_last_prisa_written = g_prisa_before_palette_priorities;
+        for (uint16_t& w : g_last_prisbcd_written) w = 0u;
+    } else {
+        if (!g_palette_priorities) g_prisa_before_palette_priorities = g_last_prisa_written;
+        g_palette_priorities = true;
+        g_last_prisa_written = static_cast<uint16_t>((priority[0] & 7u) | ((priority[1] & 7u) << 8u));
+        for (uint32_t i = 0u; i < 3u; ++i) {
+            g_last_prisbcd_written[i] = static_cast<uint16_t>(
+                (priority[2u + 2u * i] & 7u) | ((priority[3u + 2u * i] & 7u) << 8u));
+        }
+    }
+    SPCTL = sprite_type_bits();
+    PRISA = g_last_prisa_written;
+    PRISB = g_last_prisbcd_written[0];
+    PRISC = g_last_prisbcd_written[1];
+    PRISD = g_last_prisbcd_written[2];
+}
+
+bool palette_priorities_active() {
+    return g_palette_priorities;
 }
 
 void set_sprite_palette_bank(uint8_t bank) {
@@ -952,7 +988,14 @@ bool g_nbg_active = false;
 inline bool vram_split_a() { return (get_reg(0x00Eu) & 0x0100u) != 0u; }
 inline bool vram_split_b() { return (get_reg(0x00Eu) & 0x0200u) != 0u; }
 
-void nbg_write_all() {
+/* `vblank_replay`: called from commit_layers() after the caller waited for VBlank. The setters
+ * call this immediately, mid-frame. Scroll and zoom registers are written only during VBlank (by
+ * the replay, or by a setter that happens to run in VBlank): a write during the picture applies
+ * from the current scanline, so the layer was drawn torn, its lower part already at the next
+ * frame's position (and a write to SCYN2/SCYN3 even restarts that layer's vertical line counter
+ * there, which Ymir models). */
+void nbg_write_all(bool vblank_replay = false) {
+    const bool may_write_scroll = vblank_replay || (static_cast<uint16_t>(TVSTAT) & kTvstatVblank) != 0u;
     nbg::Layer live[nbg::kLayerCount];
     for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
         live[i] = g_nbg_layer[i];
@@ -997,6 +1040,7 @@ void nbg_write_all() {
         set_reg(static_cast<uint32_t>(kOffMpabn + 4u * i), r.mpab[i]);
         set_reg(static_cast<uint32_t>(kOffMpabn + 4u * i + 2u), r.mpcd[i]);
         const NbgScroll& s = g_nbg_scroll[i];
+        if (!may_write_scroll) continue;
         if (i <= 1u) {
             const uint32_t base = i == 0u ? kOffScroll0 : kOffScroll1;
             set_reg(base + 0u, static_cast<uint16_t>(s.x_int & 0x07FFu));
@@ -1261,7 +1305,7 @@ uint16_t nbg_cycle_word(uint8_t i) {
 }
 
 void commit_nbg_layers() {
-    if (g_nbg_active) nbg_write_all();
+    if (g_nbg_active) nbg_write_all(true);
 }
 
 void commit_layers() {
@@ -1290,6 +1334,12 @@ void commit_layers() {
     if (g_hires) {
         SPCTL = sprite_type_bits();
         CRAOFB = g_sprite_craofb;
+    }
+    if (g_palette_priorities) {
+        SPCTL = sprite_type_bits();
+        PRISB = g_last_prisbcd_written[0];
+        PRISC = g_last_prisbcd_written[1];
+        PRISD = g_last_prisbcd_written[2];
     }
     if (g_nbg_active) {
         commit_nbg_layers();

@@ -90,6 +90,8 @@ void init(uint16_t width, uint16_t height, uint16_t clear_color);
 void set_clear_color(uint16_t rgb555);
 void set_erase_transparent();
 void set_erase_enabled(bool enable, uint16_t width, uint16_t height);
+/* SAT_VDP1_FRAME_ON_SUBMIT when true; applied by the next begin_frame. */
+void set_frame_mode(bool on_submit);
 void begin_frame(Command* command_buffer, uint16_t capacity);
 /* Caller-owned frame command-buffer partition: protected overlay quota. */
 sat_result_t reserve_overlay_commands(uint16_t count);
@@ -158,6 +160,17 @@ bool wait_draw_end();
 /* How often wait_draw_end found drawing in progress, and gave up. */
 uint32_t draw_waits();
 uint32_t draw_timeouts();
+
+/* Called by the SCU VBlank-IN handler: in ON_SUBMIT mode it asks for the
+ * framebuffer change once the submitted list has ended. */
+void on_vblank_in();
+/* VBlank-INs an ON_SUBMIT swap waited through because its list had not
+ * ended: fields that kept showing the previous picture. */
+uint32_t late_swaps();
+/* ON_SUBMIT: called by sat_wait_vblank after VBlank-IN; returns once the
+ * last list's swap has been asked for (or none is outstanding), in a VBlank,
+ * so VDP2 state committed next is shown with that list. */
+void wait_swap_requested();
 
 /* Texture VRAM an application streams into itself (sat_vdp1_vram_*):
  * reserve takes an 8-byte aligned span from the upload arena; write copies

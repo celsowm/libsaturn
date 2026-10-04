@@ -332,6 +332,9 @@ struct Args {
     std::vector<VramRange> vdp2_vram_ranges;
     uint32_t fb_sample_count = 16; // first N bytes of the VDP1 display framebuffer
     std::string dump_wram_high_path; // diagnostic: raw 1MiB High Work RAM dump
+    std::string misaligned_report_path; // SH-2 misaligned data accesses, one line per distinct PC
+    struct MemDump { uint32_t address; uint32_t bytes; std::string path; };
+    std::vector<MemDump> mem_dumps;  // --dump-mem: any bus range (Low WRAM, cartridge, ...)
     std::string dump_sound_ram_path; // diagnostic: raw 512KiB SCSP Sound RAM dump
     std::string dump_audio_path;     // SCSP output from the program start, stereo int16 little-endian
     bool pal = false;                // run the console in the PAL video standard (50 Hz)
@@ -349,6 +352,10 @@ struct Args {
     std::string backup_cart_fixture; // throwaway external image; created formatted, guest writes persist
     std::string ram_cart = "none";  // none, 1m, 4m: volatile expansion
     std::vector<std::pair<uint32_t, std::string>> screenshots;  // frame -> PNG path
+    // --screenshot-when: shoot `delay` frames after the big-endian word at `address` first
+    // reaches `value` (a guest frame counter, so the shot lands on a game frame, not a VBlank).
+    struct ShotWhen { uint32_t address; uint32_t value; uint32_t delay; std::string path; int64_t reached = -1; };
+    std::vector<ShotWhen> screenshots_when;
     bool print_sh2_state = false;    // diagnostic: master SH2 PC/registers to stderr
     std::string pad_button;          // e.g. "A", "UP" — scheduled single-button press
     uint32_t pad_press_at = 0;       // frame index (within --frames) buttons becomes held
@@ -440,9 +447,9 @@ void print_usage() {
     std::fprintf(stderr,
         "usage: probe --iso <path> --bios <path> --bin <path> [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
-        "             [--dump-wram-high <path>] [--dump-sound-ram <path>] [--dump-audio <path>] [--pal] [--dump-fb <path>]\n"
+        "             [--dump-wram-high <path>] [--misaligned-report <path>] [--dump-mem ADDR:BYTES:PATH ...] [--dump-sound-ram <path>] [--dump-audio <path>] [--pal] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
-        "             [--pad-script <path>] [--screenshot FRAME:PATH ...]\n"
+        "             [--pad-script <path>] [--screenshot FRAME:PATH ...] [--screenshot-when ADDR:VALUE[+DELAY]:PATH ...]\n"
         "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
         "             [--backup-ram <path>] [--backup-cart <existing-path>] [--backup-cart-fixture <path>] [--ram-cart none|1m|4m] [--scsp-trace]\n"
@@ -511,6 +518,10 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--dump-wram-high");
             if (!v) return false;
             out->dump_wram_high_path = v;
+        } else if (arg == "--misaligned-report") {
+            const char* v = next("--misaligned-report");
+            if (!v) return false;
+            out->misaligned_report_path = v;
         } else if (arg == "--screenshot") {
             const char* v = next("--screenshot");
             if (!v) return false;
@@ -624,6 +635,39 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--parallel-runtime-telemetry-csv");
             if (!v) return false;
             out->parallel_runtime_telemetry_csv_path = v;
+        } else if (arg == "--dump-mem") {
+            const char* v = next("--dump-mem");
+            if (!v) return false;
+            const std::string spec = v;
+            const size_t a = spec.find(':');
+            const size_t b = a == std::string::npos ? a : spec.find(':', a + 1);
+            if (b == std::string::npos || b + 1 >= spec.size()) {
+                std::fprintf(stderr, "invalid --dump-mem spec: %s (want ADDR:BYTES:PATH)\n", v);
+                return false;
+            }
+            out->mem_dumps.push_back({static_cast<uint32_t>(std::strtoul(spec.substr(0, a).c_str(), nullptr, 0)),
+                                      static_cast<uint32_t>(std::strtoul(spec.substr(a + 1, b - a - 1).c_str(), nullptr, 0)),
+                                      spec.substr(b + 1)});
+        } else if (arg == "--screenshot-when") {
+            const char* v = next("--screenshot-when");
+            if (!v) return false;
+            const std::string spec = v;
+            const size_t a = spec.find(':');
+            const size_t b = a == std::string::npos ? a : spec.find(':', a + 1);
+            if (a == 0 || b == std::string::npos || b + 1 >= spec.size()) {
+                std::fprintf(stderr, "invalid --screenshot-when spec: %s (want ADDR:VALUE[+DELAY]:PATH)\n", v);
+                return false;
+            }
+            const std::string when = spec.substr(a + 1, b - a - 1);
+            const size_t plus = when.find('+');
+            Args::ShotWhen shot;
+            shot.address = static_cast<uint32_t>(std::strtoul(spec.substr(0, a).c_str(), nullptr, 0));
+            shot.value = static_cast<uint32_t>(std::strtoul(when.substr(0, plus).c_str(), nullptr, 0));
+            shot.delay = plus == std::string::npos
+                             ? 0u
+                             : static_cast<uint32_t>(std::strtoul(when.substr(plus + 1).c_str(), nullptr, 0));
+            shot.path = spec.substr(b + 1);
+            out->screenshots_when.push_back(shot);
         } else if (arg == "--dump-vram") {
             const char* v = next("--dump-vram");
             if (!v) return false;
@@ -1202,22 +1246,35 @@ int main(int argc, char** argv) {
                 pc_samples.push_back(sh2p.PC());
             }
             if (taking_screenshots) {
-                for (const auto& shot : args.screenshots) {
-                    if (shot.first != i) {
-                        continue;
-                    }
+                const auto write_shot = [&](const std::string& path) {
                     if (frame.pixels.empty()) {
                         std::fprintf(stderr,
                                      "[probe] frame %u: no composited frame yet, skipping %s\n",
-                                     i, shot.second.c_str());
-                        continue;
-                    }
-                    if (harness::png::write_rgb(shot.second, frame.pixels.data(), frame.width, frame.height)) {
+                                     i, path.c_str());
+                    } else if (harness::png::write_rgb(path, frame.pixels.data(), frame.width, frame.height)) {
                         std::fprintf(stderr, "[probe] frame %u -> %s (%ux%u)\n", i,
-                                     shot.second.c_str(), frame.width, frame.height);
+                                     path.c_str(), frame.width, frame.height);
                     } else {
-                        std::fprintf(stderr, "[probe] frame %u: failed to write %s\n", i,
-                                     shot.second.c_str());
+                        std::fprintf(stderr, "[probe] frame %u: failed to write %s\n", i, path.c_str());
+                    }
+                };
+                for (const auto& shot : args.screenshots) {
+                    if (shot.first == i) {
+                        write_shot(shot.second);
+                    }
+                }
+                for (auto& shot : args.screenshots_when) {
+                    if (shot.reached < 0) {
+                        uint32_t word = 0;
+                        for (uint32_t k = 0; k < 4u; k++) {
+                            word = (word << 8) | saturn->mainBus.Peek<uint8_t>(shot.address + k);
+                        }
+                        if (word >= shot.value) {
+                            shot.reached = i;
+                        }
+                    }
+                    if (shot.reached >= 0 && static_cast<uint64_t>(shot.reached) + shot.delay == i) {
+                        write_shot(shot.path);
                     }
                 }
             }
@@ -1318,7 +1375,7 @@ int main(int argc, char** argv) {
     // -- Phase 3: run the injected program for --frames frames.
     g_pad_active = true;
     sampling_pc = !args.profile_pc_path.empty();
-    taking_screenshots = !args.screenshots.empty();
+    taking_screenshots = !args.screenshots.empty() || !args.screenshots_when.empty();
     audio.recording = true;
     run_frames(args.frames, args.boot_frames);
     audio.recording = false;
@@ -1509,6 +1566,52 @@ int main(int argc, char** argv) {
                             static_cast<std::streamsize>(saturn->mem.WRAMHigh.size()));
             std::fprintf(stderr, "wrote %zu bytes of High WRAM to %s\n", saturn->mem.WRAMHigh.size(),
                          args.dump_wram_high_path.c_str());
+        }
+    }
+
+    {
+        // A misaligned word/long access is a CPU address error on the SH-2; Ymir aligns it down and
+        // goes on, so code that would crash on hardware runs here with shifted data.
+        const auto& master_mis = saturn->masterSH2.GetMisalignedLog();
+        const auto& slave_mis = saturn->slaveSH2.GetMisalignedLog();
+        std::fprintf(stderr, "misaligned data accesses: master %llu, slave %llu\n",
+                     static_cast<unsigned long long>(master_mis.count),
+                     static_cast<unsigned long long>(slave_mis.count));
+        if (!args.misaligned_report_path.empty()) {
+            std::ofstream mis_out(args.misaligned_report_path);
+            if (!mis_out) {
+                std::fprintf(stderr, "failed to open --misaligned-report output: %s\n",
+                             args.misaligned_report_path.c_str());
+            } else {
+                char line[96];
+                mis_out << "# cpu pc address bits access (first access per PC; totals: master "
+                        << master_mis.count << ", slave " << slave_mis.count << ")\n";
+                using Log = std::remove_reference_t<decltype(master_mis)>;
+                const std::pair<const char*, Log*> cpus[] = {{"master", &master_mis}, {"slave", &slave_mis}};
+                for (const auto& [name, log] : cpus) {
+                    for (uint32_t i = 0; i < log->stored; ++i) {
+                        const auto& a = log->first[i];
+                        std::snprintf(line, sizeof(line), "%s 0x%08X 0x%08X %u %s\n", name, a.pc, a.address,
+                                      a.size * 8u, a.write ? "write" : "read");
+                        mis_out << line;
+                    }
+                }
+            }
+        }
+    }
+
+    for (const auto& dump : args.mem_dumps) {
+        // Side-effect-free bus reads (the debugger path), so any mapped range works.
+        std::vector<char> bytes(dump.bytes);
+        for (uint32_t i = 0; i < dump.bytes; ++i) {
+            bytes[i] = static_cast<char>(saturn->mainBus.Peek<uint8_t>(dump.address + i));
+        }
+        std::ofstream mem_out(dump.path, std::ios::binary);
+        if (!mem_out) {
+            std::fprintf(stderr, "failed to open --dump-mem output: %s\n", dump.path.c_str());
+        } else {
+            mem_out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            std::fprintf(stderr, "wrote %u bytes from 0x%08X to %s\n", dump.bytes, dump.address, dump.path.c_str());
         }
     }
 

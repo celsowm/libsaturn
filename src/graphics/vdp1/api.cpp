@@ -3,6 +3,7 @@
 #include "src/core/runtime/internal.hpp"
 #include "src/core/runtime/logic.hpp"
 #include "src/graphics/2d/palette/registry.hpp"
+#include "src/graphics/2d/rendering/runtime.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
 
@@ -177,6 +178,15 @@ extern "C" sat_result_t sat_vdp1_command_stats(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp1_frame_stats(sat_vdp1_frame_stats_t* out) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (out == nullptr) return SAT_ERR_INVALID_ARG;
+    out->late_swaps = saturn::hal::vdp1::late_swaps();
+    out->draw_waits = saturn::hal::vdp1::draw_waits();
+    out->draw_timeouts = saturn::hal::vdp1::draw_timeouts();
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp1_command_checkpoint(
     sat_vdp1_command_checkpoint_t* out) {
     SAT_TRY(saturn::core::require_initialized());
@@ -192,6 +202,19 @@ extern "C" sat_result_t sat_vdp1_command_rollback(
 extern "C" sat_result_t sat_vdp1_overlay_begin(void) {
     SAT_TRY(saturn::core::require_initialized());
     return saturn::hal::vdp1::begin_overlay_pass();
+}
+
+extern "C" sat_result_t sat_vdp1_set_user_clip(int16_t x0, int16_t y0, int16_t x1, int16_t y1) {
+    using namespace saturn::core;
+    SAT_TRY(require_initialized());
+    Vdp1UserClipRect r = {};
+    if (!clamp_user_clip(x0, y0, x1, y1, g_state.config.width, g_state.config.height, &r)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    SAT_TRY(saturn::hal::vdp1::push_user_clip({r.x0, r.y0, r.x1, r.y1}));
+    /* The VDP1 has one user rectangle: render2d's has to be sent again. */
+    g_render2d_runtime.clip_dirty = g_render2d_runtime.current.clip_enabled;
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd) {
@@ -216,6 +239,7 @@ extern "C" sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd) {
     req.palette = resolved.palette;
     req.flags = resolved.flags;
     req.format = resolved.format;
+    req.user_clip = (resolved.flags & SAT_SPRITE_FLAG_USER_CLIP) != 0u;
     return saturn::hal::vdp1::push_sprite(req);
 }
 
@@ -280,6 +304,7 @@ extern "C" sat_result_t sat_draw_sprite_scaled(const sat_scaled_sprite_cmd_t* cm
     req.palette = resolved.palette;
     req.flags = resolved.flags;
     req.format = resolved.format;
+    req.user_clip = (resolved.flags & SAT_SPRITE_FLAG_USER_CLIP) != 0u;
     return saturn::hal::vdp1::push_scaled_sprite(req);
 }
 
@@ -339,6 +364,7 @@ extern "C" sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd
     req.palette = resolved.palette;
     req.flags = resolved.flags;
     req.format = resolved.format;
+    req.user_clip = (resolved.flags & SAT_SPRITE_FLAG_USER_CLIP) != 0u;
     return saturn::hal::vdp1::push_distorted_sprite(req);
 }
 

@@ -97,7 +97,11 @@ sat_result_t sat_vdp2_layer_set_enabled(sat_vdp2_layer_t layer, uint8_t enabled)
 sat_result_t sat_vdp2_layer_set_priority(sat_vdp2_layer_t layer, uint8_t priority);
 
 /* Scroll position in 16.16 fixed point (the top-left dot shown). NBG0 and
- * NBG1 keep 8 fractional bits, NBG2 and NBG3 only the integer part. */
+ * NBG1 keep 8 fractional bits, NBG2 and NBG3 only the integer part.
+ * The scroll reaches the VDP2 only in VBlank (a write during the picture would
+ * apply from that scanline, tearing the layer; for NBG2/NBG3's vertical scroll
+ * it even restarts the layer there): called mid-frame, it takes effect at the
+ * next sat_vdp2_layers_commit(). The same holds for sat_vdp2_layer_set_zoom. */
 sat_result_t sat_vdp2_layer_set_scroll(sat_vdp2_layer_t layer, int32_t x, int32_t y);
 
 /* NBG0/NBG1 magnification in 16.16 fixed point: 0x10000 is 1:1, 0x20000

@@ -10,6 +10,7 @@
 
 #include "saturn/vdp1.h"
 #include "src/core/runtime/state.hpp"
+#include "src/graphics/2d/rendering/runtime.hpp"
 
 #define ASSERT_EQ(a, b) do { if ((a) != (b)) { \
     fprintf(stderr, "FAIL %s:%d: %s (%ld) != %s (%ld)\n", __FILE__, __LINE__, \
@@ -113,7 +114,18 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     return SAT_OK;
 }
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest&) { return SAT_OK; }
-sat_result_t push_distorted_sprite(const DistortedSpriteRequest&) { return SAT_OK; }
+DistortedSpriteRequest g_last_distorted{};
+sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
+    g_last_distorted = req;
+    return SAT_OK;
+}
+UserClipRequest g_last_clip{};
+int g_clip_calls = 0;
+sat_result_t push_user_clip(const UserClipRequest& req) {
+    g_last_clip = req;
+    ++g_clip_calls;
+    return SAT_OK;
+}
 sat_result_t push_polygon(const PolygonRequest&) { return SAT_OK; }
 sat_result_t push_polyline(const PolygonRequest&) { return SAT_OK; }
 sat_result_t push_line(const LineRequest&) { return SAT_OK; }
@@ -121,7 +133,16 @@ sat_result_t push_polygon_gouraud(const PolygonRequest&, const uint16_t*) { retu
 sat_result_t push_polyline_gouraud(const PolygonRequest&, const uint16_t*) { return SAT_OK; }
 sat_result_t push_line_gouraud(const LineRequest&, const uint16_t*) { return SAT_OK; }
 
+uint32_t late_swaps() { return 7u; }
+uint32_t draw_waits() { return 5u; }
+uint32_t draw_timeouts() { return 1u; }
+
 }  // namespace saturn::hal::vdp1
+
+/* render2d's runtime is not linked: only its clip flag is touched here. */
+namespace saturn::core {
+Render2DRuntime g_render2d_runtime{};
+}
 
 namespace {
 
@@ -310,8 +331,63 @@ static void lut4_upload_records_table_and_format() {
     ASSERT_EQ(tex.format, SAT_VDP1_TEXTURE_INDEXED8);
 }
 
+static void frame_stats_report_hal_counters() {
+    make_initialized();
+    sat_vdp1_frame_stats_t stats{};
+    ASSERT_EQ(sat_vdp1_frame_stats(&stats), SAT_OK);
+    ASSERT_EQ(stats.late_swaps, 7u);
+    ASSERT_EQ(stats.draw_waits, 5u);
+    ASSERT_EQ(stats.draw_timeouts, 1u);
+    ASSERT_EQ(sat_vdp1_frame_stats(nullptr), SAT_ERR_INVALID_ARG);
+}
+
+/* sat_vdp1_set_user_clip cuts the box to the screen, refuses one wholly off
+ * it, and makes render2d send its own clip again; the sprite flag reaches the
+ * HAL as the inside-clip request. */
+static void user_clip_api_clamps_and_routes() {
+    using namespace saturn::hal::vdp1;
+    make_initialized();
+    saturn::core::g_state.config.width = 320u;
+    saturn::core::g_state.config.height = 224u;
+    g_clip_calls = 0;
+    saturn::core::g_render2d_runtime.current.clip_enabled = 1u;
+    saturn::core::g_render2d_runtime.clip_dirty = 0u;
+    ASSERT_EQ(sat_vdp1_set_user_clip(-4, 100, 63, 300), SAT_OK);
+    ASSERT_EQ(g_clip_calls, 1);
+    ASSERT_EQ(g_last_clip.x0, 0u);
+    ASSERT_EQ(g_last_clip.y0, 100u);
+    ASSERT_EQ(g_last_clip.x1, 63u);
+    ASSERT_EQ(g_last_clip.y1, 223u);
+    ASSERT_EQ(saturn::core::g_render2d_runtime.clip_dirty, 1u);
+    ASSERT_EQ(sat_vdp1_set_user_clip(320, 0, 400, 10), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(sat_vdp1_set_user_clip(10, 10, 9, 20), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(g_clip_calls, 1);
+    saturn::core::g_render2d_runtime.current.clip_enabled = 0u;
+    saturn::core::g_render2d_runtime.clip_dirty = 0u;
+
+    sat_vdp1_texture_t texture{};
+    texture.valid = 1u;
+    texture.width = 16u;
+    texture.height = 16u;
+    sat_distorted_sprite_cmd_t quad{};
+    quad.texture = &texture;
+    quad.flags = SAT_SPRITE_FLAG_USER_CLIP;
+    ASSERT_EQ(sat_draw_sprite_distorted(&quad), SAT_OK);
+    ASSERT_TRUE(g_last_distorted.user_clip);
+    quad.flags = 0u;
+    ASSERT_EQ(sat_draw_sprite_distorted(&quad), SAT_OK);
+    ASSERT_TRUE(!g_last_distorted.user_clip);
+    sat_sprite_cmd_t sprite{};
+    sprite.texture = &texture;
+    sprite.flags = SAT_SPRITE_FLAG_USER_CLIP;
+    ASSERT_EQ(sat_draw_sprite(&sprite), SAT_OK);
+    ASSERT_TRUE(g_last_sprite.user_clip);
+}
+
 int main() {
+    user_clip_api_clamps_and_routes();
     overlay_budget_api_routes_into_hal();
+    frame_stats_report_hal_counters();
     lut4_upload_records_table_and_format();
     combined_upload_calls_palette_once_and_texture_once();
     pixels_only_skips_palette_upload();
@@ -321,6 +397,6 @@ int main() {
     texture_capacity_propagates();
     sprite_screen_uses_active_video_dimensions();
     null_args_rejected();
-    printf("PASS: test_vdp1_upload.cpp (10 tests)\n");
+    printf("PASS: test_vdp1_upload.cpp (12 tests)\n");
     return 0;
 }

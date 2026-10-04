@@ -2,6 +2,7 @@
 #include "src/hal/vdp1/texture_arena.hpp"
 #include "src/hal/scu/dma.hpp"
 #include "src/hal/scu/scu.hpp"
+#include "src/hal/vdp2/vdp2.hpp"
 #include "src/core/runtime/logic.hpp"
 #include "saturn/vdp1.h"
 #include "src/graphics/3d/scene/test_metrics.h"
@@ -66,6 +67,20 @@ bool g_list_submitted=false;
 bool g_submit_dma=false;
 uint32_t g_draw_waits=0u;
 uint32_t g_draw_timeouts=0u;
+/* ON_SUBMIT swap state. kSwapImmediate: FCT went out with the list (the first
+ * list after leaving 1-cycle mode, which must enter manual mode at once).
+ * kSwapPending: the list plots, FCT not written yet; the VBlank-IN handler
+ * writes it once the list has ended. kSwapRequested: FCT written during
+ * VBlank g_swap_vblank; the change happens when that VBlank ends. */
+enum SwapState : uint8_t { kSwapIdle, kSwapImmediate, kSwapPending, kSwapRequested };
+volatile uint8_t g_swap_state = kSwapIdle;
+/* FBCR holds FCM=1 (manual change): set by the first ON_SUBMIT submit. */
+bool g_manual_mode = false;
+volatile uint32_t g_vblank_ins = 0u;
+volatile uint32_t g_swap_vblank = 0u;
+/* VBlank-INs a pending swap waited through: fields that kept the previous
+ * picture because the list had not ended yet. */
+volatile uint32_t g_late_swaps = 0u;
 /* Address bookkeeping for texture VRAM; see texture_arena.hpp. Constant
  * initialised, so it needs no static constructor. init() resets it. */
 TextureArena g_texture_arena(kTextureBase, kVramSize);
@@ -73,6 +88,13 @@ uint16_t g_width = 320;
 uint16_t g_height = 224;
 /* 640/704-wide hi-res: TVMR TVM = 001, an 8 bits/pixel framebuffer. */
 bool g_hires = false;
+/* SAT_VDP1_FRAME_ON_SUBMIT: the list plots when submitted and the swap waits
+ * for it. The hardware erase never runs then, so begin_frame starts each list
+ * with a polygon in g_erase_word (EWDR's value) unless erase is off. */
+bool g_on_submit = false;
+bool g_on_submit_pending = false;
+bool g_erase_on = true;
+uint16_t g_erase_word = 0x0000u;
 
 /* EWRR for a full-screen erase. X3 counts 8-pixel units at 16 bits/pixel and
  * 16-pixel units at 8 bits/pixel (VDP1 manual 4.4); Y3 is the last line. */
@@ -145,6 +167,11 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     TVMR = g_hires ? 0x0001u : 0x0000u;
     FBCR = 0x0000;
     PTMR = 0x0000;
+    g_on_submit = false;  // 1-cycle below; begin_frame reapplies a pending mode
+    g_swap_state = kSwapIdle;
+    g_manual_mode = false;
+    g_erase_on = true;
+    g_erase_word = 0x0000u;
     // Transparent erase. In the 16bpp framebuffer bit15 = 1 is the RGB code,
     // i.e. an OPAQUE pixel; 0x0000 is the "no data" code that lets the VDP2
     // backdrop and lower VDP2 layers show through. See
@@ -173,19 +200,29 @@ void set_clear_color(uint16_t rgb555) {
     // palette codes, so the erase stays transparent and the VDP2 backdrop
     // provides the colour.
     if (g_hires) {
+        g_erase_word = 0x0000u;
         EWDR = 0x0000u;
         return;
     }
-    EWDR = static_cast<uint16_t>(rgb555 | 0x8000u);
+    g_erase_word = static_cast<uint16_t>(rgb555 | 0x8000u);
+    EWDR = g_erase_word;
 }
 
 void set_erase_transparent() {
     // 0x0000 is the framebuffer "no data" code: nothing is drawn, so the VDP2
     // backdrop and lower VDP2 layers remain visible.
+    g_erase_word = 0x0000u;
     EWDR = 0x0000u;
 }
 
+void set_frame_mode(bool on_submit) {
+    // Applied by the next begin_frame, so a list built under one mode is
+    // never submitted under the other.
+    g_on_submit_pending = on_submit;
+}
+
 void set_erase_enabled(bool enable, uint16_t width, uint16_t height) {
+    g_erase_on = enable;
     if (enable) {
         EWLR = 0x0000;
         EWRR = full_erase_ewrr(width, height);
@@ -253,6 +290,41 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     sys_clip.yd = 0;
     sys_clip.grda = 0;
     sys_clip.pad = 0;
+
+    if (g_on_submit_pending != g_on_submit) {
+        g_on_submit = g_on_submit_pending;
+        if (g_on_submit) {
+            // Plot only on request from now on. submit's FBCR write leaves
+            // 1-cycle mode; until then the VDP1 keeps swapping each field.
+            PTMR = 0x0000u;
+        } else {
+            FBCR = 0x0000u;
+            PTMR = saturn::core::kVdp1PtmrPlotAtSwap;
+        }
+        g_swap_state = kSwapIdle;
+        g_manual_mode = false;
+    }
+    if (!g_on_submit || !g_erase_on || g_cmd_count >= g_cmd_capacity) {
+        return;
+    }
+    const saturn::core::Vdp1ClearRect r = saturn::core::frame_clear_rect(g_width, g_height);
+    Command& clear = g_cmd_buffer[g_cmd_count++];
+    clear.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdPolygon, false);
+    clear.link = 0;
+    clear.pmod = saturn::core::kVdp1PolygonPmod;
+    clear.colr = g_erase_word;
+    clear.srca = 0;
+    clear.size = 0;
+    clear.xa = r.x0;
+    clear.ya = r.y0;
+    clear.xb = r.x1;
+    clear.yb = r.y0;
+    clear.xc = r.x1;
+    clear.yc = r.y1;
+    clear.xd = r.x0;
+    clear.yd = r.y1;
+    clear.grda = 0;
+    clear.pad = 0;
 }
 
 void command_stats(uint16_t& used, uint16_t& capacity,
@@ -355,7 +427,7 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-    cmd.ctrl = 0x0000;
+    cmd.ctrl = saturn::core::compose_sprite_dir(req.flags);
     cmd.link = 0;
     cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
         saturn::core::compose_sprite_pmod(req.flags, req.format), req.user_clip);
@@ -389,7 +461,9 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-    cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdScaledSprite, false);
+    cmd.ctrl = static_cast<uint16_t>(
+        saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdScaledSprite, false) |
+        saturn::core::compose_sprite_dir(req.flags));
     cmd.link = 0;
     cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
         saturn::core::compose_sprite_pmod(req.flags, req.format), req.user_clip);
@@ -424,7 +498,9 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-    cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdDistortedSprite, false);
+    cmd.ctrl = static_cast<uint16_t>(
+        saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdDistortedSprite, false) |
+        saturn::core::compose_sprite_dir(req.flags));
     cmd.link = 0;
     cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
         saturn::core::compose_sprite_pmod(req.flags, req.format), req.user_clip);
@@ -581,29 +657,151 @@ sat_result_t push_line_gouraud(const LineRequest& req, const uint16_t* gouraud) 
     return shade_last_command(push_line(req), grda);
 }
 
-bool wait_draw_end() {
-    // EDSR bit 1 (CEF) is cleared when the VDP1 starts drawing a list and set
-    // when it reaches the END command (VDP1 manual, EDSR).
-    constexpr uint16_t kCef = 0x0002u;
-    if (!g_list_submitted || (EDSR & kCef) != 0u) return true;
-    ++g_draw_waits;
+namespace {
+
+/* Frame clock state at the last ON_SUBMIT submit. */
+uint32_t g_submit_frame = 0u;
+uint64_t g_submit_tick = 0u;
+
+constexpr uint16_t kCef = 0x0002u;
+constexpr uint16_t kBef = 0x0001u;
+constexpr uint16_t kTvstatVblank = 0x0008u;
+
+bool in_vblank() {
+    return (vdp2::read_tvstat() & kTvstatVblank) != 0u;
+}
+
+/* kSwapImmediate: true once the swap requested by the last submit has surely
+ * happened. It happens at the first VBlank-OUT after the submit: more than a
+ * display frame ago, or the end of a VBlank that sat_wait_vblank has since
+ * seen begin (waited out here: at most the blanking lines). */
+bool swapped_since_submit() {
+    const uint32_t frame_ticks = saturn::hal::scu::ticks_per_frame();
+    if (frame_ticks != 0u && saturn::hal::scu::elapsed_ticks() - g_submit_tick > frame_ticks) {
+        return true;
+    }
+    if (saturn::hal::scu::frame_counter() == g_submit_frame) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < 0x100000u && in_vblank(); ++i) {
+    }
+    return true;
+}
+
+/* kSwapPending: asks for the swap if the list has ended and this is a VBlank.
+ * Called by the VBlank-IN handler, and polled by the waits below in case the
+ * handler does not run (interrupts stopped). */
+void service_swap() {
+    if (g_swap_state != kSwapPending) return;
+    if (!saturn::core::vdp1_swap_may_request((EDSR & kCef) != 0u, in_vblank())) return;
+    FBCR = saturn::core::kVdp1FbcrManualChange;
+    g_swap_vblank = g_vblank_ins;
+    g_swap_state = kSwapRequested;
+}
+
+/* ON_SUBMIT: the last list's swap has happened (or none is outstanding), so
+ * the back framebuffer is free for the next list. */
+bool swap_settled() {
+    switch (g_swap_state) {
+    case kSwapImmediate:
+        if ((EDSR & kCef) != 0u || ((EDSR & kBef) != 0u && swapped_since_submit())) {
+            g_swap_state = kSwapIdle;
+            return true;
+        }
+        return false;
+    case kSwapPending:
+        service_swap();
+        return false;
+    case kSwapRequested:
+        if (saturn::core::vdp1_swap_done(g_swap_vblank, g_vblank_ins, in_vblank())) {
+            g_swap_state = kSwapIdle;
+            return true;
+        }
+        return false;
+    default:
+        return true;
+    }
+}
+
+/* The last list reached its END command. EDSR CEF (bit 1) is cleared when the
+ * VDP1 starts a list and set at its END; a framebuffer swap moves it to BEF
+ * (bit 0) and clears it (VDP1 manual 4.6). In 1-cycle mode the list starts at
+ * the swap, so CEF alone answers. In ON_SUBMIT mode the list starts at submit
+ * and its swap is asked for only after its END, so a pending swap means
+ * "ended" once CEF is set, and a requested or finished one means it was. */
+bool list_ended() {
+    if (!g_on_submit) return (EDSR & kCef) != 0u;
+    switch (g_swap_state) {
+    case kSwapPending:
+        service_swap();
+        return g_swap_state != kSwapPending || (EDSR & kCef) != 0u;
+    case kSwapImmediate:
+        return swap_settled();
+    default:
+        return true;
+    }
+}
+
+/* Spins until `done` holds, bounded: about `frames` display frames, or a
+ * register-poll budget with an uncalibrated frame clock. */
+template <typename Done>
+bool spin_until(Done done, uint32_t frames) {
     const uint32_t frame_ticks = saturn::hal::scu::ticks_per_frame();
     if (frame_ticks != 0u) {
         const uint64_t start = saturn::hal::scu::elapsed_ticks();
-        while ((EDSR & kCef) == 0u) {
-            if (saturn::hal::scu::elapsed_ticks() - start > 2u * frame_ticks) {
-                ++g_draw_timeouts;
-                return false;
-            }
+        while (!done()) {
+            if (saturn::hal::scu::elapsed_ticks() - start > frames * frame_ticks) return false;
         }
         return true;
     }
-    // Uncalibrated frame clock: a bounded register poll instead.
-    for (uint32_t i = 0u; i < 0x100000u; ++i) {
-        if ((EDSR & kCef) != 0u) return true;
+    for (uint32_t i = 0u; i < 0x100000u * frames; ++i) {
+        if (done()) return true;
     }
+    return false;
+}
+
+/* spin_until for the CPU waits on the VDP1, counted in the frame stats. */
+template <typename Done>
+bool wait_until(Done done, uint32_t frames) {
+    if (done()) return true;
+    ++g_draw_waits;
+    if (spin_until(done, frames)) return true;
     ++g_draw_timeouts;
     return false;
+}
+
+}  // namespace
+
+bool wait_draw_end() {
+    if (!g_list_submitted) return true;
+    return wait_until([] { return list_ended(); }, 2u);
+}
+
+void on_vblank_in() {
+    g_vblank_ins = g_vblank_ins + 1u;
+    if (g_swap_state == kSwapPending) {
+        service_swap();
+        if (g_swap_state == kSwapPending) g_late_swaps = g_late_swaps + 1u;
+    }
+}
+
+uint32_t late_swaps() { return g_late_swaps; }
+
+/* ON_SUBMIT, right after the VBlank-IN wait: returns in the VBlank whose end
+ * shows the last list, so VDP2 state written next appears with it. A list
+ * still drawing at VBlank-IN gets its swap asked for here if it ends before
+ * the VBlank does; otherwise at the next VBlank-IN (by the handler, or by this
+ * poll with interrupts stopped). Bounded like the other VDP1 waits. */
+void wait_swap_requested() {
+    if (!g_on_submit) return;
+    for (uint32_t n = 0u; n < 4u && g_swap_state == kSwapPending; ++n) {
+        (void)spin_until([] {
+            service_swap();
+            return g_swap_state != kSwapPending || !in_vblank();
+        }, 1u);
+        if (g_swap_state != kSwapPending) return;
+        (void)spin_until([] { return g_swap_state != kSwapPending || in_vblank(); }, 2u);
+    }
 }
 
 void set_submit_dma(bool enabled) { g_submit_dma = enabled; }
@@ -617,9 +815,17 @@ void submit() {
         return;
     }
     // Never rewrite the command table while the VDP1 still reads the
-    // previous one. On timeout the frame is submitted anyway (counted):
-    // dropping it would stall the game on a wedged VDP1.
-    (void)wait_draw_end();
+    // previous one, nor (ON_SUBMIT) plot into a back framebuffer whose swap
+    // is still outstanding: that list was never shown. On timeout the frame
+    // is submitted anyway (counted): dropping it would stall the game on a
+    // wedged VDP1. A pending swap may wait for its list's end plus a VBlank.
+    if (g_list_submitted) {
+        if (g_on_submit) {
+            (void)wait_until([] { return list_ended() && swap_settled(); }, 4u);
+        } else {
+            (void)wait_draw_end();
+        }
+    }
     if (g_cmd_count >= g_cmd_capacity) {
         g_cmd_count = static_cast<uint16_t>(g_cmd_capacity - 1u);
     }
@@ -670,6 +876,21 @@ void submit() {
     }
     g_frame_submitted=true;
     g_list_submitted=true;
+    if (g_on_submit) {
+        // Draw into the back framebuffer now. The first list after 1-cycle
+        // mode asks for the change with it (manual mode starts there); later
+        // ones leave it to the VBlank-IN after their END (service_swap).
+        g_submit_frame = saturn::hal::scu::frame_counter();
+        g_submit_tick = saturn::hal::scu::elapsed_ticks();
+        PTMR = saturn::core::kVdp1PtmrPlotNow;
+        if (!g_manual_mode) {
+            FBCR = saturn::core::kVdp1FbcrManualChange;
+            g_manual_mode = true;
+            g_swap_state = kSwapImmediate;
+        } else {
+            g_swap_state = kSwapPending;
+        }
+    }
 }
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index) {

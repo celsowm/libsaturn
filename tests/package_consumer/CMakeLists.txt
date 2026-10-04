@@ -16,8 +16,10 @@ add_executable(consumer main.c)
 target_link_libraries(consumer PRIVATE LibSaturn::Saturn)
 libsaturn_configure_executable(consumer)
 libsaturn_add_binary(consumer MAX_BYTES 983040)
-# Bootable disc through the package's own tooling; data/ lands in the disc root.
-libsaturn_add_disc(consumer ROOT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/disc_data")
+# Bootable disc through the package's own tooling; disc_data/ and both files land in the disc root
+# (more than one ROOT_FILES entry: the list must survive the trip into the disc script).
+libsaturn_add_disc(consumer ROOT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/disc_data"
+    ROOT_FILES "${CMAKE_CURRENT_SOURCE_DIR}/disc_files/ONE.TXT" "${CMAKE_CURRENT_SOURCE_DIR}/disc_files/TWO.TXT")
 
 # Facts the driver verifies about the resolved package.
 foreach(_t LibSaturn::Saturn LibSaturn::Core LibSaturn::Startup)
@@ -36,3 +38,10 @@ message(STATUS "libsaturn-consumer: linker-script=${LIBSATURN_LINKER_SCRIPT}")
 add_executable(ctor_trap EXCLUDE_FROM_ALL ctor_trap.cpp)
 target_link_libraries(ctor_trap PRIVATE LibSaturn::Saturn)
 libsaturn_configure_executable(ctor_trap)
+
+# The consumer program asking for a Master stack reserve larger than Work RAM High: no .bss can
+# leave that much room, so the linker script's stack check must reject the link.
+add_executable(stack_trap EXCLUDE_FROM_ALL main.c)
+target_link_libraries(stack_trap PRIVATE LibSaturn::Saturn)
+libsaturn_configure_executable(stack_trap)
+target_link_options(stack_trap PRIVATE "-Wl,--defsym=__stack_reserve=0x100000")

@@ -17,6 +17,8 @@ void set_strict_alpha(bool strict);
 sat_result_t claim_mode(uint8_t mode);
 /* Called by sat_begin_frame: a new frame may claim either mode again. */
 void begin_frame();
+/* True while sprite colour calculation is configured on (it owns SPCTL/PRISA's selectors). */
+bool enabled();
 
 }  // namespace saturn::hal::vdp2_color_calc
 

@@ -4,6 +4,7 @@
 #include "src/graphics/2d/palette/registry.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
+#include "src/hal/vdp2/color_calc.hpp"
 
 extern "C" sat_result_t sat_vdp2_nbg0_init(const sat_vdp2_nbg0_config_t* config) {
     using namespace saturn::core;
@@ -86,6 +87,23 @@ extern "C" sat_result_t sat_vdp2_sprite_set_priority(uint8_t priority) {
         return st;
     }
     saturn::hal::vdp2::set_sprite_priority(priority);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_sprite_set_palette_priorities(const uint8_t priority[8]) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (priority != nullptr) {
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            if (priority[i] > 7u) return SAT_ERR_INVALID_ARG;
+        }
+        if (saturn::hal::vdp2::hires()) return SAT_ERR_UNSUPPORTED;
+        if (saturn::hal::vdp2_color_calc::enabled()) return SAT_ERR_BUSY;
+    }
+    saturn::hal::vdp2::set_sprite_palette_priorities(priority);
     return SAT_OK;
 }
 

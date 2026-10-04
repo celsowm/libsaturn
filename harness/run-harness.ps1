@@ -51,6 +51,13 @@ param(
     # Work RAM High (0x06000000, 1 MiB) at the end of the run, for tests
     # that read a guest results struct through the map file.
     [string]$DumpWramHigh,
+    # Writes the SH-2 misaligned data accesses (an address error on hardware;
+    # Ymir aligns them down silently) to this file, one line per distinct PC.
+    [string]$MisalignedReport,
+    # ADDR:BYTES:PATH, any bus range at the end of the run
+    [string[]]$DumpMem,
+    # ADDR:VALUE[+DELAY]:PATH, a shot when a guest big-endian counter reaches VALUE
+    [string[]]$ScreenshotWhen,
     [string]$DumpSoundRam,
     # SCSP output from the program start, stereo int16 little-endian
     [string]$DumpAudio,
@@ -262,8 +269,17 @@ if ($Screenshot) {
         $probeArgs += @('--screenshot', $shot)
     }
 }
+foreach ($shot in @($ScreenshotWhen | Where-Object { $_ })) {
+    $probeArgs += @('--screenshot-when', $shot)
+}
 if ($DumpWramHigh) {
     $probeArgs += @('--dump-wram-high', $DumpWramHigh)
+}
+if ($MisalignedReport) {
+    $probeArgs += @('--misaligned-report', $MisalignedReport)
+}
+foreach ($range in @($DumpMem | Where-Object { $_ })) {
+    $probeArgs += @('--dump-mem', $range)
 }
 if ($DumpSoundRam) {
     $probeArgs += @('--dump-sound-ram', $DumpSoundRam)

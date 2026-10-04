@@ -53,6 +53,16 @@ typedef struct sat_vdp1_texture {
  * is halved in brightness -- if that pixel is RGB (MSB 1). Palette pixels
  * and empty (VDP2-only) pixels are left as they are. */
 #define SAT_SPRITE_FLAG_SHADOW 0x0010u
+/* Sprite commands only (normal, scaled, distorted): the texture is read
+ * mirrored left-right / top-bottom by the VDP1 itself (CMDCTRL Dir bits),
+ * so one pattern in VRAM serves every orientation. */
+#define SAT_SPRITE_FLAG_FLIP_H 0x0020u
+#define SAT_SPRITE_FLAG_FLIP_V 0x0040u
+/* Sprite commands only (normal, scaled, distorted): pixels outside the
+ * rectangle of the last sat_vdp1_set_user_clip are not drawn (CMDPMOD
+ * Clip=1, Cmod=0). Without a rectangle set this frame the VDP1 uses
+ * whatever an earlier command list left, so set one first. */
+#define SAT_SPRITE_FLAG_USER_CLIP 0x0080u
 
 /* ------------------------------------------------------------------ */
 /* Sprite command                                                      */
@@ -191,6 +201,19 @@ typedef struct sat_vdp1_command_stats {
 
 sat_result_t sat_vdp1_command_stats(sat_vdp1_command_stats_t* out);
 
+/* Frame pacing counters since sat_init, for debug overlays and harnesses.
+ * `late_swaps`: VBlanks at which a SAT_VDP1_FRAME_ON_SUBMIT list had not
+ * ended, so the previous picture stayed up a field longer. `draw_waits` /
+ * `draw_timeouts`: times the CPU waited for the VDP1 to finish a list (or,
+ * in ON_SUBMIT mode, for its swap) before reusing its VRAM, and gave up. */
+typedef struct sat_vdp1_frame_stats {
+    uint32_t late_swaps;
+    uint32_t draw_waits;
+    uint32_t draw_timeouts;
+} sat_vdp1_frame_stats_t;
+
+sat_result_t sat_vdp1_frame_stats(sat_vdp1_frame_stats_t* out);
+
 /* Transaction on the current frame's STAGED WORK-RAM command list only.
  * Capture before a group of scene draws; on any error, rollback discards
  * every command and Gouraud table appended since the checkpoint, while
@@ -212,6 +235,17 @@ sat_result_t sat_vdp1_command_checkpoint(
     sat_vdp1_command_checkpoint_t* out);
 sat_result_t sat_vdp1_command_rollback(
     const sat_vdp1_command_checkpoint_t* checkpoint);
+
+/* Appends a user clipping command (one command-list slot): later commands
+ * flagged SAT_SPRITE_FLAG_USER_CLIP draw only inside (x0, y0)-(x1, y1),
+ * corners included, in screen dots with (0, 0) at the top left -- the VDP1
+ * does not apply local coordinates to clipping. The rectangle is cut to the
+ * screen; SAT_ERR_INVALID_ARG if nothing of it is left (nothing appended),
+ * SAT_ERR_CAPACITY if the list is full. It holds until the next one, and
+ * render2d re-sends its own clip (sat_render2d_set_clip) before its next
+ * clipped draw. An affine sprite confined to a box, as hardware sprites
+ * without a double-size area are, is drawn as a distorted sprite inside it. */
+sat_result_t sat_vdp1_set_user_clip(int16_t x0, int16_t y0, int16_t x1, int16_t y1);
 
 sat_result_t sat_draw_sprite(const sat_sprite_cmd_t* cmd);
 

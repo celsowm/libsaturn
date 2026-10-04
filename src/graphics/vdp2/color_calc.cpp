@@ -4,6 +4,7 @@
 #include "src/core/runtime/state.hpp"
 #include "src/graphics/vdp2/color_calc_logic.hpp"
 #include "src/hal/vdp2/color_calc.hpp"
+#include "src/hal/vdp2/vdp2.hpp"
 
 extern "C" sat_result_t sat_vdp2_sprite_color_calc_configure(
     const sat_vdp2_sprite_color_calc_config_t* config
@@ -15,6 +16,10 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_configure(
     st = saturn::core::vdp2_color_calc::validate_config(config);
     if (st != SAT_OK) {
         return st;
+    }
+    /* Both need SPCTL and PRISA: sat_vdp2_sprite_set_palette_priorities owns them now. */
+    if (config->enabled != 0u && saturn::hal::vdp2::palette_priorities_active()) {
+        return SAT_ERR_BUSY;
     }
     saturn::hal::vdp2_color_calc::configure(*config);
     return SAT_OK;

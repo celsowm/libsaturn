@@ -11,12 +11,6 @@
 #include "src/hal/vdp1/vdp1.hpp"
 #include "src/hal/scu/scu.hpp"
 
-// wait_draw_end's frame clock; these tests never submit a command list.
-namespace saturn::hal::scu {
-uint16_t ticks_per_frame() { return 0u; }
-uint64_t elapsed_ticks() { return 0u; }
-}
-
 namespace vd = saturn::hal::vdp1;
 
 int main() {

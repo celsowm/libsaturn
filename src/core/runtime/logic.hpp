@@ -300,8 +300,17 @@ inline sat_result_t validate_polygon_effects(uint16_t color, uint16_t flags) {
 
 /* Shadow is the one colour calculation a palette sprite can use: the VDP1
  * takes only its shape from the texture and halves the RGB pixels below. */
+constexpr uint16_t kVdp1SpriteFlipFlags = SAT_SPRITE_FLAG_FLIP_H | SAT_SPRITE_FLAG_FLIP_V;
+
+/* CMDCTRL Dir: bit 4 reverses the pattern horizontally, bit 5 vertically. */
+inline uint16_t compose_sprite_dir(uint16_t flags) {
+    return static_cast<uint16_t>(((flags & SAT_SPRITE_FLAG_FLIP_H) != 0u ? 0x0010u : 0u) |
+                                 ((flags & SAT_SPRITE_FLAG_FLIP_V) != 0u ? 0x0020u : 0u));
+}
+
 inline sat_result_t validate_indexed8_sprite_effects(uint16_t flags) {
-    if ((flags & ~(kVdp1EffectFlags | SAT_SPRITE_FLAG_SHADOW)) != 0u ||
+    if ((flags & ~(kVdp1EffectFlags | SAT_SPRITE_FLAG_SHADOW | kVdp1SpriteFlipFlags |
+                   SAT_SPRITE_FLAG_USER_CLIP)) != 0u ||
         (flags & kVdp1HalfFlags) == kVdp1HalfFlags) return SAT_ERR_INVALID_ARG;
     if ((flags & kVdp1HalfFlags) != 0u) return SAT_ERR_UNSUPPORTED;
     return SAT_OK;
@@ -326,6 +335,42 @@ inline uint16_t compose_polygon_pmod(uint16_t flags) {
         kVdp1PolygonPmod |
         ((flags & SAT_SPRITE_FLAG_MESH) != 0u ? 0x0100u : 0u) |
         color_calculation_bits(flags, false));
+}
+
+/* SAT_VDP1_FRAME_ON_SUBMIT: FBCR FCM=1 FCT=1 swaps the framebuffers at the
+ * next field and only then; PTMR 01 starts plotting when written (VDP1
+ * manual 4.2, 4.3). 1-cycle mode is FBCR 0 with PTMR 10. */
+constexpr uint16_t kVdp1FbcrManualChange = 0x0003u;
+constexpr uint16_t kVdp1PtmrPlotNow = 0x0001u;
+constexpr uint16_t kVdp1PtmrPlotAtSwap = 0x0002u;
+
+/* ON_SUBMIT asks for the swap only once the list has ended (EDSR CEF), from
+ * inside a VBlank, as the manual's "change when CPU processing is finished"
+ * sequence does (VDP1 manual 4.2): the change then happens at that VBlank's
+ * end, so an unfinished list is never shown and the previous picture stays a
+ * field longer instead. */
+inline bool vdp1_swap_may_request(bool list_ended, bool in_vblank) {
+    return list_ended && in_vblank;
+}
+
+/* A swap requested during VBlank number `requested_at` (counted at each
+ * VBlank-IN) has happened once that VBlank is over: a later VBlank-IN was
+ * counted, or the display is out of the blanking again. */
+inline bool vdp1_swap_done(uint32_t requested_at, uint32_t vblank_ins, bool in_vblank) {
+    return vblank_ins != requested_at || !in_vblank;
+}
+
+/* The polygon that erases a width x height framebuffer when no hardware
+ * erase runs, in the local coordinates begin_frame sets (origin at the
+ * centre, rounded down): corners A (top left) and C (bottom right). */
+struct Vdp1ClearRect {
+    int16_t x0, y0, x1, y1;
+};
+inline Vdp1ClearRect frame_clear_rect(uint16_t width, uint16_t height) {
+    const int16_t ox = static_cast<int16_t>(width / 2u);
+    const int16_t oy = static_cast<int16_t>(height / 2u);
+    return {static_cast<int16_t>(-ox), static_cast<int16_t>(-oy),
+            static_cast<int16_t>(width - 1 - ox), static_cast<int16_t>(height - 1 - oy)};
 }
 
 /* Composes CMDCTRL for a polygon-family command: command select + end bit. */
@@ -387,6 +432,25 @@ inline uint16_t compose_sprite_colr(uint16_t palette,
 inline uint16_t compose_inside_user_clip_pmod(uint16_t pmod, bool enabled) {
     if (!enabled) return pmod;
     return static_cast<uint16_t>((pmod & static_cast<uint16_t>(~0x0200u)) | 0x0400u);
+}
+
+/* The part of the inclusive rectangle (x0, y0)-(x1, y1) on a width x height
+ * screen, for a user clipping command; false when none of it is. */
+struct Vdp1UserClipRect {
+    uint16_t x0, y0, x1, y1;
+};
+inline bool clamp_user_clip(int32_t x0, int32_t y0, int32_t x1, int32_t y1,
+                            uint16_t width, uint16_t height, Vdp1UserClipRect* out) {
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > static_cast<int32_t>(width) - 1) x1 = static_cast<int32_t>(width) - 1;
+    if (y1 > static_cast<int32_t>(height) - 1) y1 = static_cast<int32_t>(height) - 1;
+    if (x0 > x1 || y0 > y1) return false;
+    out->x0 = static_cast<uint16_t>(x0);
+    out->y0 = static_cast<uint16_t>(y0);
+    out->x1 = static_cast<uint16_t>(x1);
+    out->y1 = static_cast<uint16_t>(y1);
+    return true;
 }
 
 /* ------------------------------------------------------------------ */

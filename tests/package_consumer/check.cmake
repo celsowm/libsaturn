@@ -75,6 +75,11 @@ step_run("a program with a static constructor is rejected" EXPECT_FAILURE 1
     OUTPUT_VAR _trap_out
     COMMAND "${CMAKE_COMMAND}" --build "${_consumer}" --target ctor_trap)
 expect_contains("${_trap_out}" "[ctors] FAIL" "rejection must come from the constructor guard")
+# 10b. the linker script keeps room for the Master stack above .bss.
+step_run("a program without room for the Master stack is rejected" EXPECT_FAILURE 1
+    OUTPUT_VAR _stack_out
+    COMMAND "${CMAKE_COMMAND}" --build "${_consumer}" --target stack_trap)
+expect_contains("${_stack_out}" "leaves less than __stack_reserve bytes" "rejection must come from the stack check")
 # 11. libsaturn_add_disc() built a bootable disc from the installed tools.
 set(_disc "${_consumer}/disc")
 foreach(_ext iso bin cue)
@@ -95,4 +100,9 @@ endif()
 if(NOT EXISTS "${_disc}/iso_root/CONSUMER.TXT")
     message(FATAL_ERROR "[package-consumer] ROOT_DIRS content missing from the disc root")
 endif()
+foreach(_f ONE.TXT TWO.TXT)
+    if(NOT EXISTS "${_disc}/iso_root/${_f}")
+        message(FATAL_ERROR "[package-consumer] ROOT_FILES entry ${_f} missing from the disc root")
+    endif()
+endforeach()
 message(STATUS "[package-consumer] contract checks passed")

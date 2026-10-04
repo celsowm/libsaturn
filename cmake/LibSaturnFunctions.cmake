@@ -158,8 +158,10 @@ function(libsaturn_add_disc target)
         list(APPEND _content_deps ${_found})
     endforeach()
 
-    list(JOIN ARG_ROOT_DIRS "\;" _dirs)
-    list(JOIN ARG_ROOT_FILES "\;" _files)
+    # '|' and not '\;': under VERBATIM the escaped separator reaches the script as a literal '\;'
+    # and a list of several entries arrives as one path. '|' cannot appear in a path.
+    list(JOIN ARG_ROOT_DIRS "|" _dirs)
+    list(JOIN ARG_ROOT_FILES "|" _files)
     add_custom_command(
         OUTPUT "${_dir}/${_name}.cue"
         COMMAND "${CMAKE_COMMAND}"

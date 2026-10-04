@@ -48,27 +48,32 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(ymir)
 
 # Keep the debug-only counters used by probe.exe reproducible without
-# vendoring Ymir. The patch is applied to the fetched, pinned source tree and
-# is deliberately kept outside the library's public runtime API.
-set(YMIR_DEBUG_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/ymir_debug_metrics.patch")
-execute_process(
-    COMMAND git -C "${ymir_SOURCE_DIR}" apply --check --reverse "${YMIR_DEBUG_PATCH}"
-    RESULT_VARIABLE YMIR_DEBUG_PATCH_ALREADY_APPLIED
-    OUTPUT_QUIET ERROR_QUIET)
-if(NOT YMIR_DEBUG_PATCH_ALREADY_APPLIED EQUAL 0)
+# vendoring Ymir. The patches are applied to the fetched, pinned source tree and
+# are deliberately kept outside the library's public runtime API:
+#   ymir_debug_metrics.patch       VDP write counters, scheduler cycle count
+#   ymir_misaligned_access.patch   SH-2 misaligned data accesses (an address
+#                                  error on hardware, silently aligned by Ymir)
+foreach(YMIR_DEBUG_PATCH_NAME ymir_debug_metrics ymir_misaligned_access)
+    set(YMIR_DEBUG_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/${YMIR_DEBUG_PATCH_NAME}.patch")
     execute_process(
-        COMMAND git -C "${ymir_SOURCE_DIR}" apply --check "${YMIR_DEBUG_PATCH}"
-        RESULT_VARIABLE YMIR_DEBUG_PATCH_CHECK)
-    if(NOT YMIR_DEBUG_PATCH_CHECK EQUAL 0)
-        message(FATAL_ERROR "Ymir debug metrics patch no longer applies cleanly")
+        COMMAND git -C "${ymir_SOURCE_DIR}" apply --check --reverse "${YMIR_DEBUG_PATCH}"
+        RESULT_VARIABLE YMIR_DEBUG_PATCH_ALREADY_APPLIED
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NOT YMIR_DEBUG_PATCH_ALREADY_APPLIED EQUAL 0)
+        execute_process(
+            COMMAND git -C "${ymir_SOURCE_DIR}" apply --check "${YMIR_DEBUG_PATCH}"
+            RESULT_VARIABLE YMIR_DEBUG_PATCH_CHECK)
+        if(NOT YMIR_DEBUG_PATCH_CHECK EQUAL 0)
+            message(FATAL_ERROR "${YMIR_DEBUG_PATCH_NAME}.patch no longer applies cleanly")
+        endif()
+        execute_process(
+            COMMAND git -C "${ymir_SOURCE_DIR}" apply "${YMIR_DEBUG_PATCH}"
+            RESULT_VARIABLE YMIR_DEBUG_PATCH_APPLY)
+        if(NOT YMIR_DEBUG_PATCH_APPLY EQUAL 0)
+            message(FATAL_ERROR "Failed to apply ${YMIR_DEBUG_PATCH_NAME}.patch")
+        endif()
     endif()
-    execute_process(
-        COMMAND git -C "${ymir_SOURCE_DIR}" apply "${YMIR_DEBUG_PATCH}"
-        RESULT_VARIABLE YMIR_DEBUG_PATCH_APPLY)
-    if(NOT YMIR_DEBUG_PATCH_APPLY EQUAL 0)
-        message(FATAL_ERROR "Failed to apply Ymir debug metrics patch")
-    endif()
-endif()
+endforeach()
 
 add_executable(probe src/probe_main.cpp)
 target_link_libraries(probe PRIVATE ymir::ymir-core)

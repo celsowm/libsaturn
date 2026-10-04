@@ -64,6 +64,39 @@ sat_result_t sat_vdp2_back_color_set(uint16_t rgb555);
  */
 sat_result_t sat_vdp1_set_erase_enabled(uint8_t enable);
 
+/* ------------------------------------------------------------------ */
+/* When the sprite framebuffer changes                                 */
+/* ------------------------------------------------------------------ */
+
+typedef enum sat_vdp1_frame_mode {
+    /* Default. The VDP1 swaps framebuffers at every field and plots the last
+     * submitted list right after the swap (1-cycle mode, PTMR auto). A list
+     * sent by sat_end_frame during field k is drawn in field k+1 and shown in
+     * field k+2: one field after VDP2 changes made in the VBlank that ends
+     * field k, so sprites trail the scroll layers by a frame. */
+    SAT_VDP1_FRAME_AUTO = 0,
+    /* sat_end_frame starts plotting at once (PTMR 01); the VBlank-IN after the
+     * list has ended asks for the swap (FBCR manual change), so a list drawn
+     * in time appears in field k+1, with the VDP2 state committed in the same
+     * VBlank. A field with no new or no finished list keeps showing the
+     * previous one instead of an erased or half-drawn framebuffer, which
+     * suits programs slower than 60 fps (sat_vdp1_frame_stats counts those
+     * fields as late_swaps); the next sat_end_frame waits for an outstanding
+     * swap. sat_wait_vblank returns only in the VBlank in which the last
+     * list's swap was asked for (a list that ends during the VBlank gets it
+     * there; a later one costs whole fields), so VDP2 state written right
+     * after it always appears with that list's sprites. The erase is a polygon at the top of each list, filled with the
+     * erase colour (sat_set_clear_color / sat_vdp1_set_erase_transparent);
+     * with sat_vdp1_set_erase_enabled(0) the list draws over the picture from
+     * two lists back. Needs the SCU VBlank-IN interrupt (on by default);
+     * without it the waits poll for the VBlank instead. */
+    SAT_VDP1_FRAME_ON_SUBMIT = 1
+} sat_vdp1_frame_mode_t;
+
+/* Takes effect from the next sat_begin_frame. SAT_ERR_INVALID_ARG for an
+ * unknown mode. */
+sat_result_t sat_vdp1_set_frame_mode(sat_vdp1_frame_mode_t mode);
+
 #ifdef __cplusplus
 }
 #endif

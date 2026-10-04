@@ -81,6 +81,15 @@ sat_result_t sat_vdp2_nbg0_set_priority(uint8_t priority);
 /* Priority of the sprite layer, i.e. of everything the VDP1 draws. This is
  * one setting for the whole VDP1 output, not a per-sprite one. */
 sat_result_t sat_vdp2_sprite_set_priority(uint8_t priority);
+/* Per-sprite priority: switches the sprite layer to sprite type 1 (palette
+ * dots only), where each dot carries a 3-bit priority selector. priority[s]
+ * is the VDP2 priority (0-7) of selector s. An INDEXED8 sprite picks
+ * selector s with palette_override = (s << 5) | bank (bank 0-7, the CRAM
+ * 256-colour bank). RGB dots (LUT4 textures, RGB polygons) are not shown
+ * while this is on. Sprite colour calculation is refused with
+ * SAT_ERR_BUSY (and this returns BUSY while it is on); unsupported in
+ * hi-res. NULL goes back to sprite type 0 with RGB dots. */
+sat_result_t sat_vdp2_sprite_set_palette_priorities(const uint8_t priority[8]);
 
 /* ------------------------------------------------------------------ */
 /* NBG0 tiled image upload                                             */

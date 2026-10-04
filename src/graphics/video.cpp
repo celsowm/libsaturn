@@ -46,6 +46,7 @@ extern "C" sat_result_t sat_wait_vblank(void) {
         return st;
     }
     saturn::hal::scu::wait_vblank();
+    saturn::hal::vdp1::wait_swap_requested();
     return SAT_OK;
 }
 
@@ -81,6 +82,19 @@ extern "C" sat_result_t sat_vdp2_back_color_set(uint16_t rgb555) {
         return st;
     }
     saturn::hal::vdp2::set_backdrop_color(rgb555);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp1_set_frame_mode(sat_vdp1_frame_mode_t mode) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (mode != SAT_VDP1_FRAME_AUTO && mode != SAT_VDP1_FRAME_ON_SUBMIT) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    saturn::hal::vdp1::set_frame_mode(mode == SAT_VDP1_FRAME_ON_SUBMIT);
     return SAT_OK;
 }
 

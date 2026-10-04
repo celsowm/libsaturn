@@ -120,6 +120,9 @@ void set_rbg0_sprite_priority(uint8_t priority);
 void set_nbg0_supplementary_palette(uint8_t palette);
 void set_nbg0_priority(uint8_t priority);
 void set_sprite_priority(uint8_t priority);
+/* Sprite type 1, palette only, selector s -> priority[s]; nullptr goes back to type 0 + RGB. */
+void set_sprite_palette_priorities(const uint8_t* priority);
+bool palette_priorities_active();
 /* Keeps the generic VDP2 VBlank replay's PRISA shadow in sync with the
  * sprite color-calculation selector 0 (ordinary) and selector 1 (faded). */
 void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority);

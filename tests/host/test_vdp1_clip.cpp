@@ -1,14 +1,10 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "src/core/runtime/logic.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
 #include "src/hal/scu/scu.hpp"
 
-// wait_draw_end's frame clock; these tests never submit.
-namespace saturn::hal::scu {
-uint16_t ticks_per_frame() { return 0u; }
-uint64_t elapsed_ticks() { return 0u; }
-}
 #include "saturn/vdp1.h"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
@@ -62,6 +58,34 @@ int main() {
     Command small[3]{};
     begin_frame(small, 3u);
     OK(push_user_clip(clip) == SAT_ERR_CAPACITY);
+
+    /* sat_vdp1_set_user_clip: the rectangle is cut to the screen, and one
+     * entirely off it is refused rather than sent as an inverted box. */
+    {
+        using namespace saturn::core;
+        Vdp1UserClipRect r{};
+        OK(clamp_user_clip(-8, -3, 40, 50, 320u, 224u, &r));
+        OK(r.x0 == 0u && r.y0 == 0u && r.x1 == 40u && r.y1 == 50u);
+        OK(clamp_user_clip(300, 200, 400, 300, 320u, 224u, &r));
+        OK(r.x0 == 300u && r.y0 == 200u && r.x1 == 319u && r.y1 == 223u);
+        OK(!clamp_user_clip(-20, 10, -1, 30, 320u, 224u, &r));
+        OK(!clamp_user_clip(10, 230, 30, 240, 320u, 224u, &r));
+        OK(!clamp_user_clip(30, 10, 29, 20, 320u, 224u, &r));
+        /* SAT_SPRITE_FLAG_USER_CLIP is a sprite flag the PMOD composer leaves
+         * alone; the request's user_clip turns it into Clip=1, Cmod=0. */
+        OK(validate_indexed8_sprite_effects(SAT_SPRITE_FLAG_USER_CLIP | SAT_SPRITE_FLAG_FLIP_H) == SAT_OK);
+        OK(validate_polygon_effects(0x801Fu, SAT_SPRITE_FLAG_USER_CLIP) == SAT_ERR_INVALID_ARG);
+        OK(compose_sprite_pmod(SAT_SPRITE_FLAG_USER_CLIP) == compose_sprite_pmod(0u));
+        Command flagged[8]{};
+        begin_frame(flagged, 8u);
+        DistortedSpriteRequest quad{};
+        quad.width = 16u;
+        quad.height = 16u;
+        quad.flags = SAT_SPRITE_FLAG_USER_CLIP;
+        quad.user_clip = true;
+        OK(push_distorted_sprite(quad) == SAT_OK);
+        OK((flagged[2].pmod & 0x0600u) == 0x0400u);
+    }
 
     /* The world can never consume the two protected overlay slots or the
      * final END slot, regardless of which primitive exhausted its budget. */

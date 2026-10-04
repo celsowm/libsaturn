@@ -36,6 +36,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/2d/font/api.cpp
     src/graphics/2d/font/text.cpp
     src/graphics/2d/hud.cpp
+    src/graphics/2d/loading_screen.cpp
     src/graphics/2d/palette/api.cpp
     src/graphics/2d/palette/registry.cpp
     src/graphics/2d/rendering/api.cpp
@@ -157,9 +158,12 @@ set(LIBSATURN_RESOURCES_SOURCES
 set(LIBSATURN_STORAGE_SOURCES
     src/storage/cartridge/abus.cpp
     src/storage/cartridge/api.cpp
+    src/storage/cartridge/overlay.cpp
+    src/storage/cartridge/overlay_hal.cpp
     src/storage/cartridge/vfs.cpp
     src/storage/cd/api.cpp
     src/storage/cd/filesystem.cpp
+    src/storage/cd/loader.cpp
     src/storage/files/api.cpp
     src/storage/files/asset_runtime.cpp
     src/storage/save/api.cpp
