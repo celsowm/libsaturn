@@ -32,11 +32,11 @@ static void line_window_table_is_a_word_address_with_enable() {
 
 static void window_control_bytes_follow_the_registers() {
     ScreenWindow s[kScreenCount] = {};
-    s[kNbg0] = {kAreaInside, kAreaOff, false};
-    s[kNbg1] = {kAreaOutside, kAreaInside, true};
-    s[kNbg3] = {kAreaOff, kAreaOutside, false};
-    s[kSprite] = {kAreaInside, kAreaInside, false};
-    s[kColorCalc] = {kAreaOff, kAreaInside, true};
+    s[kNbg0] = {kAreaInside, kAreaOff, false, kAreaOff};
+    s[kNbg1] = {kAreaOutside, kAreaInside, true, kAreaOff};
+    s[kNbg3] = {kAreaOff, kAreaOutside, false, kAreaOff};
+    s[kSprite] = {kAreaInside, kAreaInside, false, kAreaOff};
+    s[kColorCalc] = {kAreaOff, kAreaInside, true, kAreaOff};
     uint16_t w[4];
     compose_wctl(s, w);
     /* The registers describe the transparent area: shown inside = transparent
@@ -84,12 +84,56 @@ static void ratios_pack_by_screen() {
     assert(kCcctlLayerMask == 0x3Fu);
 }
 
+static void palette_sprites_mix_by_colour_msb() {
+    /* type 1; SPCCCS = 3 (colour MSB) in bits 13-12; SPCCEN is CCCTL bit 6, outside the layer mask */
+    assert(palette_sprite_spctl(false) == 0x0001u);
+    assert(palette_sprite_spctl(true) == 0x3001u);
+    assert((kCcctlSprite & kCcctlLayerMask) == 0u && kCcctlSprite == 0x0040u);
+    assert(kCcctlAdd == 0x0100u && (kCcctlAdd & (kCcctlLayerMask | kCcctlSprite)) == 0u);
+}
+
+static void palette_window_sprites_use_type_3() {
+    /* type 3 + SPWINEN (bit 4), colour condition unchanged */
+    assert(palette_sprite_spctl(false, true) == 0x0013u);
+    assert(palette_sprite_spctl(true, true) == 0x3013u);
+    /* SW: enable bit 5, area bit 4 set when shown inside (transparent outside) */
+    ScreenWindow in{};
+    in.sw = kAreaInside;
+    in.logic_and = true;
+    assert(screen_byte(in) == 0x30u);
+    ScreenWindow out{};
+    out.sw = kAreaOutside;
+    assert(screen_byte(out) == 0xA0u); /* shown where either: transparent where all (AND, bit 7) */
+    /* the sprite screen's own SW: SPSWE (13) with SPSWA (12) clear, inside transparent */
+    assert(kWctlcSpriteHidesWindow == 0x2000u);
+}
+
+static void cram_banks_pack_into_craofa_and_craofb() {
+    CramBanks b{0u, 0u};
+    b = with_cram_bank(b, 0u, 2u); /* NBG0 bits 2-0 */
+    b = with_cram_bank(b, 3u, 7u); /* NBG3 bits 14-12 */
+    assert(b.craofa == 0x7002u && b.craofb == 0u);
+    b = with_cram_bank(b, 4u, 5u); /* RBG0 bits 2-0 */
+    b = with_cram_bank(b, 5u, 3u); /* sprites bits 6-4 */
+    assert(b.craofb == 0x0035u);
+    b = with_cram_bank(b, 0u, 0u); /* replaces, keeps the others */
+    b = with_cram_bank(b, 5u, 1u);
+    assert(b.craofa == 0x7000u && b.craofb == 0x0015u);
+    b = with_cram_bank(b, 1u, 9u); /* 3 bits only */
+    assert(b.craofa == 0x7010u);
+    b = with_cram_bank(b, 6u, 4u); /* not a palette screen: unchanged */
+    assert(b.craofa == 0x7010u && b.craofb == 0x0015u);
+}
+
 int main() {
     window_positions_drop_the_low_horizontal_bit();
     line_window_table_is_a_word_address_with_enable();
     window_control_bytes_follow_the_registers();
     mosaic_register_holds_size_minus_one();
     ratios_pack_by_screen();
+    palette_sprites_mix_by_colour_msb();
+    palette_window_sprites_use_type_3();
+    cram_banks_pack_into_craofa_and_craofb();
     std::puts("PASS: test_vdp2_compose_logic.cpp");
     return 0;
 }

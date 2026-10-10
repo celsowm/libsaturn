@@ -4,6 +4,7 @@
 
 #include "src/core/runtime/state.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
+#include "src/hal/vdp2/color_calc.hpp"
 
 namespace {
 
@@ -134,6 +135,16 @@ extern "C" sat_result_t sat_vdp2_window_clear(uint8_t window) {
     return SAT_OK;
 }
 
+extern "C" void sat_vdp2_screen_window_default(sat_vdp2_screen_t screen,
+                                               sat_vdp2_screen_window_t* out_config) {
+    if (out_config == nullptr) return;
+    *out_config = sat_vdp2_screen_window_t{};
+    out_config->screen = static_cast<uint8_t>(screen);
+    out_config->w0 = SAT_VDP2_WINDOW_AREA_OFF;
+    out_config->w1 = SAT_VDP2_WINDOW_AREA_OFF;
+    out_config->sw = SAT_VDP2_WINDOW_AREA_OFF;
+}
+
 extern "C" sat_result_t sat_vdp2_screen_window_set(const sat_vdp2_screen_window_t* config) {
     SAT_TRY(saturn::core::require_initialized());
     if (config == nullptr || !valid_screen(config->screen)) return SAT_ERR_INVALID_ARG;
@@ -141,6 +152,7 @@ extern "C" sat_result_t sat_vdp2_screen_window_set(const sat_vdp2_screen_window_
     s.w0 = config->w0;
     s.w1 = config->w1;
     s.logic_and = config->logic_and != 0u;
+    s.sw = config->sw;
     return hal::set_screen_window(config->screen, s) ? SAT_OK : SAT_ERR_INVALID_ARG;
 }
 
@@ -184,6 +196,25 @@ extern "C" sat_result_t sat_vdp2_screen_color_calc_set(sat_vdp2_screen_t screen,
                : SAT_ERR_INVALID_ARG;
 }
 
+extern "C" sat_result_t sat_vdp2_color_calc_set_add(uint8_t add) {
+    SAT_TRY(saturn::core::require_initialized());
+    /* the sprite colour calculation module claims CCMD per frame */
+    if (saturn::hal::vdp2_color_calc::enabled()) return SAT_ERR_BUSY;
+    hal::set_color_calc_add(add != 0u);
+    return SAT_OK;
+}
+
 extern "C" uint8_t sat_vdp2_color_calc_ratio_for_below(uint8_t below_32nds) {
     return cmp::ratio_for_second(below_32nds);
+}
+
+extern "C" sat_result_t sat_vdp2_screen_set_cram_bank(sat_vdp2_screen_t screen, uint8_t bank) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (static_cast<uint32_t>(screen) > SAT_VDP2_SCREEN_SPRITE || bank > 7u) return SAT_ERR_INVALID_ARG;
+    hal::set_cram_bank(static_cast<uint8_t>(screen), bank);
+    return SAT_OK;
+}
+
+extern "C" void sat_vdp2_cram_banks_apply(void) {
+    hal::write_cram_banks();
 }

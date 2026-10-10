@@ -107,6 +107,25 @@ extern "C" sat_result_t sat_vdp2_sprite_set_palette_priorities(const uint8_t pri
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_sprite_set_palette_color_calc(const uint8_t ratio[4]) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (ratio != nullptr) {
+        for (uint32_t i = 0u; i < 4u; ++i) {
+            if (ratio[i] > 31u) return SAT_ERR_INVALID_ARG;
+        }
+        if (!saturn::hal::vdp2::palette_priorities_active()) return SAT_ERR_UNSUPPORTED;
+    }
+    saturn::hal::vdp2::set_sprite_palette_color_calc(ratio);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_sprite_set_palette_window(uint8_t enabled) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (enabled != 0u && !saturn::hal::vdp2::palette_priorities_active()) return SAT_ERR_UNSUPPORTED;
+    saturn::hal::vdp2::set_sprite_palette_window(enabled != 0u);
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp2_nbg0_upload_indexed8(
     const uint8_t* pixels,
     uint16_t width,

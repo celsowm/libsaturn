@@ -28,6 +28,7 @@ struct ScreenWindow {
     uint8_t w0;          /* Area */
     uint8_t w1;          /* Area */
     bool logic_and;      /* shown where both windows say so (true) or where either does */
+    uint8_t sw;          /* Area of the sprite window (palette window sprites) */
 };
 
 /* A window rectangle in TV dots, start and end inclusive. In normal (non
@@ -92,19 +93,25 @@ inline uint32_t line_table_bytes(uint32_t lines) {
 }
 
 /* One screen's byte of the window control registers: bit 0 W0 area, 1 W0
- * enable, 2 W1 area, 3 W1 enable, 4 SW area, 5 SW enable, 7 logic. The sprite
- * window is not offered (it needs palette-only sprites), so SW stays off.
+ * enable, 2 W1 area, 3 W1 enable, 4 SW area, 5 SW enable, 7 logic. The
+ * sprite window (SW) exists only with palette window sprites on.
  * The register bits describe the transparent part (area bit 1 = outside the
  * window, logic bit 1 = AND), so both are the inverse of "shown". */
 inline uint16_t screen_byte(const ScreenWindow& s) {
     uint16_t v = 0u;
     if (s.w0 != kAreaOff) v = static_cast<uint16_t>(v | 0x02u | (s.w0 == kAreaInside ? 0x01u : 0u));
     if (s.w1 != kAreaOff) v = static_cast<uint16_t>(v | 0x08u | (s.w1 == kAreaInside ? 0x04u : 0u));
-    if (s.w0 != kAreaOff || s.w1 != kAreaOff) {
+    if (s.sw != kAreaOff) v = static_cast<uint16_t>(v | 0x20u | (s.sw == kAreaInside ? 0x10u : 0u));
+    if (s.w0 != kAreaOff || s.w1 != kAreaOff || s.sw != kAreaOff) {
         if (!s.logic_and) v = static_cast<uint16_t>(v | 0x80u);
     }
     return v;
 }
+
+/* The sprite screen's own SW bits (WCTLC 13-12) while palette window sprites
+ * are on: SPSWE with the area "inside" transparent, so the dots that make the
+ * window are not shown themselves (a GBA OBJ window sprite is never drawn). */
+constexpr uint16_t kWctlcSpriteHidesWindow = 0x2000u;
 
 /* WCTLA..WCTLD. The rotation parameter window (low byte of WCTLD) is left
  * to the rotation code. */
@@ -156,6 +163,9 @@ struct ScreenRatios {
 /* CCCTL bits 0-5: N0CCEN-N3CCEN, R0CCEN, LCCCEN. The sprite bit (6) and the
  * ratio-mode and add bits belong to the sprite colour calculation module. */
 constexpr uint16_t kCcctlLayerMask = 0x003Fu;
+/* CCCTL bit 8 (CCMD): every colour calculation adds the two images and
+ * saturates instead of mixing them by ratio. One bit for the whole screen. */
+constexpr uint16_t kCcctlAdd = 0x0100u;
 
 inline uint16_t ratio_word(uint8_t low, uint8_t high) {
     return static_cast<uint16_t>((low & 0x1Fu) | ((high & 0x1Fu) << 8u));
@@ -184,6 +194,49 @@ inline uint8_t ratio_for_second(uint8_t second_32nds) {
     if (second_32nds < 1u) return 0u;
     if (second_32nds > 32u) return kMaxRatio;
     return static_cast<uint8_t>(second_32nds - 1u);
+}
+
+/* Palette sprites (sprite type 1) mixed by colour: SPCTL's condition SPCCCS = 3
+ * (bits 13-12) mixes the sprite dots whose CRAM colour has its MSB set, by the
+ * ratio register (CCRSA-CCRSB) the dot's colour calculation bits 12-11 select;
+ * CCCTL bit 6 (SPCCEN) turns it on. */
+constexpr uint16_t kSpctlType1 = 0x0001u;
+constexpr uint16_t kSpctlCondColorMsb = 0x3000u;
+constexpr uint16_t kCcctlSprite = 0x0040u;
+
+/* Palette window sprites: type 3 keeps type 1's colour calculation bits
+ * (12-11) and dot colour (10-0) and the low two priority bits (14-13), and
+ * turns bit 15 into SD, the sprite window bit (SPWINEN, SPCTL bit 4). So
+ * selectors 0-3 mean the same in both types. */
+constexpr uint16_t kSpctlType3 = 0x0003u;
+constexpr uint16_t kSpctlWindow = 0x0010u;
+
+inline uint16_t palette_sprite_spctl(bool msb_color_calc, bool window = false) {
+    return static_cast<uint16_t>((window ? (kSpctlType3 | kSpctlWindow) : kSpctlType1) |
+                                 (msb_color_calc ? kSpctlCondColorMsb : 0u));
+}
+
+/* CRAM address offsets (CRAOFA/CRAOFB): a palette screen's colour address
+ * gets its 3-bit bank added to the top three of its 11 bits, so in CRAM modes
+ * 0 and 1 each bank is 256 colours (0x200 bytes). CRAOFA holds NBG0-NBG3 in
+ * bits 2-0, 6-4, 10-8 and 14-12; CRAOFB RBG0 in bits 2-0 and the sprites in
+ * bits 6-4. Screens are sat_vdp2_screen_t 0-5. */
+struct CramBanks {
+    uint16_t craofa;
+    uint16_t craofb;
+};
+
+inline CramBanks with_cram_bank(CramBanks banks, uint8_t screen, uint8_t bank) {
+    const uint16_t value = static_cast<uint16_t>(bank & 0x7u);
+    if (screen < 4u) {
+        const uint16_t shift = static_cast<uint16_t>(4u * screen);
+        banks.craofa = static_cast<uint16_t>((banks.craofa & ~(0x7u << shift)) | (value << shift));
+    } else if (screen == 4u) {
+        banks.craofb = static_cast<uint16_t>((banks.craofb & ~0x0007u) | value);
+    } else if (screen == 5u) {
+        banks.craofb = static_cast<uint16_t>((banks.craofb & ~0x0070u) | (value << 4u));
+    }
+    return banks;
 }
 
 }  // namespace saturn::hal::vdp2::compose

@@ -111,6 +111,102 @@ sat_result_t sat_vdp2_layer_set_scroll(sat_vdp2_layer_t layer, int32_t x, int32_
 sat_result_t sat_vdp2_layer_set_zoom(sat_vdp2_layer_t layer, uint32_t zoom_x, uint32_t zoom_y);
 
 /* ------------------------------------------------------------------ */
+/* RBG0: the rotation scroll screen, cell format                       */
+/* ------------------------------------------------------------------ */
+
+/* RBG0 draws a cell-format map through a 3x3 matrix, scaled per line or per
+ * dot by a coefficient table: tilted floors, rotating and zooming maps (manual
+ * chapter 6). It runs beside NBG0..NBG3 under this manager and takes whole
+ * VRAM banks (RAMCTL) for its pattern names and its characters; the VDP2
+ * ignores those banks' cycle patterns, so no NBG may read them, and a
+ * configuration that leaves an NBG without its bank fails with
+ * SAT_ERR_CAPACITY. The rotation parameter table (parameter A) and a per-line
+ * coefficient table can sit in any other bank and need no cycle pattern
+ * (p06_20); a per-dot coefficient table is not supported here. While RBG0 is
+ * shown the CPU should write its banks only in blanking.
+ *
+ * The map is 4x4 planes (A..P, rows of four); outside it `over` applies. */
+#define SAT_VDP2_ROTATION_OVER_REPEAT       0u   /* the map repeats */
+#define SAT_VDP2_ROTATION_OVER_PATTERN      1u   /* over_pattern_name repeats */
+#define SAT_VDP2_ROTATION_OVER_TRANSPARENT  2u
+#define SAT_VDP2_ROTATION_OVER_512          3u   /* only 0..511 x 0..511 is drawn */
+
+/* What a coefficient replaces. */
+#define SAT_VDP2_COEFFICIENT_KXKY  0u
+#define SAT_VDP2_COEFFICIENT_KX    1u
+#define SAT_VDP2_COEFFICIENT_KY    2u
+#define SAT_VDP2_COEFFICIENT_XP    3u
+
+typedef struct sat_vdp2_rotation_config {
+    uint8_t color_mode;          /* 16, 256, 2048 or 32768 colours */
+    uint8_t char_size;           /* sat_vdp2_char_size_t */
+    uint8_t pattern_name_words;  /* 1 or 2 */
+    uint8_t plane_pages_x;       /* plane size 1x1, 2x1 or 2x2 pages */
+    uint8_t plane_pages_y;
+    uint8_t priority;            /* 0 (hidden) to 7 */
+    uint8_t transparent;         /* 1: dot code 0 is transparent */
+    uint8_t palette;             /* 1-word names: palette number bits 6-4 */
+    uint8_t over;                /* SAT_VDP2_ROTATION_OVER_* */
+    uint8_t name_bank_mask;      /* SAT_VDP2_BANK_*: the banks of the pattern name tables */
+    uint8_t char_bank_mask;      /* ... of the character data (not shared with the names) */
+    uint8_t coefficients;        /* 1: read a per-line table of 2-word coefficients */
+    uint8_t coefficient_mode;    /* SAT_VDP2_COEFFICIENT_* */
+    uint8_t reserved0;
+    uint16_t over_pattern_name;  /* SAT_VDP2_ROTATION_OVER_PATTERN: a 1-word name */
+    /* Byte addresses of the planes' pattern name tables, rules as for the NBGs. */
+    uint32_t plane_address[16];
+    uint32_t char_base_address;  /* 1-word names: as sat_vdp2_layer_config_t */
+    /* The rotation parameter table read first: byte address, a multiple of 4,
+     * outside the RBG0 banks (sat_vdp2_rotation_write_params fills it). */
+    uint32_t table_address;
+} sat_vdp2_rotation_config_t;
+
+/* Defaults: 256 colours, 1x1 characters, 1-word names, one page per plane,
+ * priority 1, dot 0 transparent, the map repeating, no coefficients. The
+ * caller sets the banks and addresses. */
+void sat_vdp2_rotation_config_default(sat_vdp2_rotation_config_t* out_config);
+
+sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_config_t* config);
+/* Hides RBG0 and gives its banks back to the NBGs. */
+sat_result_t sat_vdp2_rotation_release(void);
+sat_result_t sat_vdp2_rotation_set_enabled(uint8_t enabled);
+sat_result_t sat_vdp2_rotation_set_priority(uint8_t priority);
+
+/* Rotation parameter A (manual 6.3). The screen dot (H, V) shows map dot
+ *   X = kx * (Xsp + dX * H) + Xp,   Y = ky * (Ysp + dY * H) + Yp
+ * with (Xs, Ys, Zs) = (xst + dxst * V, yst + dyst * V, zst) and
+ *   Xsp = A (Xs - px) + B (Ys - py) + C (Zs - pz),  dX = A dx + B dy
+ *   Ysp = D (Xs - px) + E (Ys - py) + F (Zs - pz),  dY = D dx + E dy
+ *   Xp  = A (px - cx) + B (py - cy) + C (pz - cz) + cx + mx    (Yp alike)
+ * Values are 16.16 fixed point; the VDP2 keeps 10 fraction bits of most. */
+typedef struct sat_vdp2_rotation_params {
+    int32_t xst, yst, zst;
+    int32_t dxst, dyst;          /* per line, -4 < d < 4 */
+    int32_t dx, dy;              /* per dot, -4 < d < 4 */
+    int32_t matrix[6];           /* A B C D E F, -8 < m < 8 */
+    int16_t px, py, pz;
+    int16_t cx, cy, cz;
+    int32_t mx, my;
+    int32_t kx, ky;              /* used where the coefficients do not replace them */
+    uint32_t coefficient_address;  /* byte address of the coefficient for screen line 0, a multiple of 4 */
+    int32_t coefficient_step;    /* 16.16 coefficients per line (0x10000: one each) */
+} sat_vdp2_rotation_params_t;
+
+/* Writes a parameter table at `table_address` and makes it the one the VDP2
+ * reads from the next sat_vdp2_layers_commit() on. A table being read while it
+ * is rewritten tears the picture: alternate between two. */
+sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address, const sat_vdp2_rotation_params_t* params);
+
+/* A 2-word coefficient table entry as the VDP2 reads it (figure 6.7): a 16.16
+ * value between -128 and 128 (saturated) and the transparent bit, which hides
+ * the line. */
+uint32_t sat_vdp2_rotation_coefficient(int32_t value, uint8_t transparent);
+
+/* Writes `count` 2-word coefficients (as returned above) at a byte address. */
+sat_result_t sat_vdp2_rotation_write_coefficients(uint32_t byte_address, const uint32_t* coefficients,
+                                                  uint32_t count);
+
+/* ------------------------------------------------------------------ */
 /* Raster effects: tables the VDP2 reads while it draws each line       */
 /* ------------------------------------------------------------------ */
 

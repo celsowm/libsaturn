@@ -74,12 +74,17 @@ typedef struct sat_vdp2_screen_window {
     uint8_t w0;          /* sat_vdp2_window_area_t */
     uint8_t w1;          /* sat_vdp2_window_area_t */
     uint8_t logic_and;   /* 0: shown where either window says so, 1: where both do */
+    uint8_t sw;          /* sat_vdp2_window_area_t of the sprite window */
 } sat_vdp2_screen_window_t;
 
+/* A screen window config for `screen` with every window off and OR logic.
+ * Start from it and set the fields you use, so fields added later stay off. */
+void sat_vdp2_screen_window_default(sat_vdp2_screen_t screen, sat_vdp2_screen_window_t* out_config);
+
 /* Applies windows to a screen. Both windows must have been defined. The
- * sprite window (driven by the sprite data's top bit) is not offered: it
- * needs palette-only sprites, which the library's RGB sprite path does not
- * use. */
+ * sprite window `sw` is made by palette sprites with window dots
+ * (sat_vdp2_sprite_set_palette_window); it cannot be applied to the sprite
+ * screen itself. Fill the struct with sat_vdp2_screen_window_default(). */
 sat_result_t sat_vdp2_screen_window_set(const sat_vdp2_screen_window_t* config);
 
 /* Back to no window on that screen. */
@@ -102,9 +107,31 @@ sat_result_t sat_vdp2_screen_set_mosaic(sat_vdp2_screen_t screen, uint8_t enable
  * calculation window to switch the mix off in an area. */
 sat_result_t sat_vdp2_screen_color_calc_set(sat_vdp2_screen_t screen, uint8_t enabled, uint8_t ratio);
 
+/* Add mode (CCCTL CCMD): every colour calculation on the screen, per-screen
+ * and palette sprites alike, adds the two images and saturates instead of
+ * mixing them by ratio (ratios are then ignored). One setting for the whole
+ * picture. Replayed with the layer registers. BUSY while the sprite colour
+ * calculation module (vdp2_color_calc.h) is on: it claims the mode per frame. */
+sat_result_t sat_vdp2_color_calc_set_add(uint8_t add);
+
 /* Ratio register value whose image-below weight is nearest to
  * `below_32nds` (1..32). */
 uint8_t sat_vdp2_color_calc_ratio_for_below(uint8_t below_32nds);
+
+/* CRAM bank of a palette screen (NBG0-NBG3, RBG0 or the sprites; CRAOFA and
+ * CRAOFB): its colour numbers are offset by bank * 256 colours in CRAM modes 0
+ * and 1 (bank 0-7; mode 0 has 1024 colours, so banks 4-7 wrap to 0-3). One
+ * palette can then serve several copies (a faded or tinted set for one layer)
+ * without touching the tiles. Recorded and written by the next
+ * sat_vdp2_layers_commit(), like the layer registers; the hi-res sprite bank
+ * (sat_vdp2_sprite_palette_bank_set) is the same setting as SAT_VDP2_SCREEN_SPRITE. */
+sat_result_t sat_vdp2_screen_set_cram_bank(sat_vdp2_screen_t screen, uint8_t bank);
+
+/* Writes the recorded CRAM banks to the registers now. An interrupt handler
+ * that switches banks during the picture (a palette swap at a line, written
+ * to CRAOFA/CRAOFB directly) calls it at VBlank to put the top-of-picture
+ * banks back. No state is changed, so it is safe in a handler. */
+void sat_vdp2_cram_banks_apply(void);
 
 #ifdef __cplusplus
 }

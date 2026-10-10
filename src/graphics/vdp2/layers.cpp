@@ -207,6 +207,156 @@ uint32_t encode_entry(const nbg::Layer& l, const sat_vdp2_line_scroll_entry_t& e
 
 }  // namespace
 
+/* ------------------------------------------------------------------ */
+/* RBG0, cell format                                                    */
+/* ------------------------------------------------------------------ */
+
+namespace rot = saturn::hal::vdp2::rot;
+
+extern "C" void sat_vdp2_rotation_config_default(sat_vdp2_rotation_config_t* out_config) {
+    if (out_config == nullptr) return;
+    *out_config = {};
+    out_config->color_mode = SAT_VDP2_COLOR_MODE_256;
+    out_config->char_size = SAT_VDP2_CHAR_SIZE_1X1;
+    out_config->pattern_name_words = 1u;
+    out_config->plane_pages_x = 1u;
+    out_config->plane_pages_y = 1u;
+    out_config->priority = 1u;
+    out_config->transparent = 1u;
+    out_config->over = SAT_VDP2_ROTATION_OVER_REPEAT;
+}
+
+extern "C" sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_config_t* config) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (config == nullptr || config->color_mode > 3u || config->char_size > 1u ||
+        (config->pattern_name_words != 1u && config->pattern_name_words != 2u)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    rot::Layer l{};
+    l.enabled = true;
+    l.colors = static_cast<nbg::Colors>(config->color_mode);
+    l.char_2x2 = config->char_size == SAT_VDP2_CHAR_SIZE_2X2;
+    l.pn_one_word = config->pattern_name_words == 1u;
+    l.pages_x = config->plane_pages_x;
+    l.pages_y = config->plane_pages_y;
+    l.priority = config->priority;
+    l.transparent = config->transparent != 0u;
+    l.over = config->over;
+    l.over_pattern_name = config->over_pattern_name;
+    l.palette_supp = static_cast<uint8_t>(config->palette & 7u);
+    l.name_banks = static_cast<uint8_t>(config->name_bank_mask);
+    l.char_banks = static_cast<uint8_t>(config->char_bank_mask);
+    for (uint8_t p = 0u; p < rot::kPlanes; ++p) l.plane_address[p] = config->plane_address[p];
+    l.table_address = config->table_address;
+    l.coefficients = config->coefficients != 0u;
+    l.coefficient_mode = config->coefficient_mode;
+    if (l.pn_one_word) {
+        /* as for the NBGs: the 10-bit character numbers index a window */
+        const uint32_t window = l.char_2x2 ? 0x20000u : 0x8000u;
+        if (config->char_base_address % window != 0u || config->char_base_address >= nbg::kVramBytes) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        const uint32_t units = config->char_base_address / window;
+        l.char_number_supp = static_cast<uint8_t>(l.char_2x2 ? ((units & 7u) << 2u) : (units & 0x1Fu));
+    } else if (config->char_base_address != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    /* a table already in use stays (its offset goes with it) */
+    rot::Layer previous{};
+    if (hal::rot_layer(&previous) && previous.table_address == l.table_address) l.ktaof = previous.ktaof;
+    return to_result(hal::rot_configure(l));
+}
+
+extern "C" sat_result_t sat_vdp2_rotation_release(void) {
+    SAT_TRY(saturn::core::require_initialized());
+    rot::Layer current{};
+    if (!hal::rot_layer(&current)) return SAT_ERR_NOT_FOUND;
+    hal::rot_release();
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rotation_set_enabled(uint8_t enabled) {
+    SAT_TRY(saturn::core::require_initialized());
+    rot::Layer current{};
+    if (!hal::rot_layer(&current)) return SAT_ERR_NOT_FOUND;
+    current.enabled = enabled != 0u;
+    return to_result(hal::rot_configure(current));
+}
+
+extern "C" sat_result_t sat_vdp2_rotation_set_priority(uint8_t priority) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (priority > 7u) return SAT_ERR_INVALID_ARG;
+    rot::Layer current{};
+    if (!hal::rot_layer(&current)) return SAT_ERR_NOT_FOUND;
+    current.priority = priority;
+    return to_result(hal::rot_configure(current));
+}
+
+extern "C" sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address,
+                                                       const sat_vdp2_rotation_params_t* params) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (params == nullptr || (table_address & 3u) != 0u || table_address + rot::kParamBytes > nbg::kVramBytes ||
+        (params->coefficient_address & 3u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    rot::Layer current{};
+    if (!hal::rot_layer(&current)) return SAT_ERR_NOT_FOUND;
+    current.table_address = table_address;
+    if (rot::validate(current) != rot::Status::Ok) return SAT_ERR_INVALID_ARG;
+    rot::Params p{};
+    p.xst = params->xst;
+    p.yst = params->yst;
+    p.zst = params->zst;
+    p.dxst = params->dxst;
+    p.dyst = params->dyst;
+    p.dx = params->dx;
+    p.dy = params->dy;
+    for (uint32_t i = 0u; i < 6u; ++i) p.m[i] = params->matrix[i];
+    p.px = params->px;
+    p.py = params->py;
+    p.pz = params->pz;
+    p.cx = params->cx;
+    p.cy = params->cy;
+    p.cz = params->cz;
+    p.mx = params->mx;
+    p.my = params->my;
+    p.kx = params->kx;
+    p.ky = params->ky;
+    p.kast = rot::kast_integer(params->coefficient_address) << 16u;
+    p.dkast = params->coefficient_step;
+    p.dkax = 0;
+    uint16_t words[48];
+    rot::encode_params(p, words);
+    SAT_TRY(write_table(table_address, words, 48u));
+    hal::rot_set_table(table_address, rot::ktaof_for(params->coefficient_address));
+    return SAT_OK;
+}
+
+extern "C" uint32_t sat_vdp2_rotation_coefficient(int32_t value, uint8_t transparent) {
+    return rot::encode_coefficient(value, transparent != 0u);
+}
+
+extern "C" sat_result_t sat_vdp2_rotation_write_coefficients(uint32_t byte_address, const uint32_t* coefficients,
+                                                             uint32_t count) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (coefficients == nullptr || (byte_address & 3u) != 0u || byte_address + count * 4u > nbg::kVramBytes) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    uint16_t chunk[kChunkWords];
+    uint32_t address = byte_address;
+    for (uint32_t done = 0u; done < count;) {
+        const uint32_t n = count - done < kChunkWords / 2u ? count - done : kChunkWords / 2u;
+        for (uint32_t i = 0u; i < n; ++i) {
+            chunk[2u * i] = static_cast<uint16_t>(coefficients[done + i] >> 16u);
+            chunk[2u * i + 1u] = static_cast<uint16_t>(coefficients[done + i] & 0xFFFFu);
+        }
+        SAT_TRY(write_table(address, chunk, 2u * n));
+        address += n * 4u;
+        done += n;
+    }
+    return SAT_OK;
+}
+
 extern "C" uint32_t sat_vdp2_line_scroll_table_bytes(const sat_vdp2_line_scroll_config_t* config,
                                                      uint32_t lines) {
     if (config == nullptr || config->interval > 3u) return 0u;

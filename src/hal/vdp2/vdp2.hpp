@@ -5,6 +5,7 @@
 
 #include "src/hal/vdp2/compose_logic.hpp"
 #include "src/hal/vdp2/nbg_logic.hpp"
+#include "src/hal/vdp2/rotation_logic.hpp"
 
 namespace saturn::hal::vdp2 {
 
@@ -39,6 +40,10 @@ bool hires();
 uint16_t sprite_type_bits();
 /* The 256-colour CRAM bank hi-res sprite codes index (CRAOFB SPCAOS). */
 void set_sprite_palette_bank(uint8_t bank);
+/* The CRAM bank (0-7) of screen 0-5 (sat_vdp2_screen_t); replayed by commit_layers(). */
+void set_cram_bank(uint8_t screen, uint8_t bank);
+/* Writes CRAOFA/CRAOFB from the recorded banks (safe in an interrupt handler). */
+void write_cram_banks();
 
 // NBG0 configuration
 void configure_nbg0_character(CharacterSize char_size, ColorMode color_mode);
@@ -123,6 +128,12 @@ void set_sprite_priority(uint8_t priority);
 /* Sprite type 1, palette only, selector s -> priority[s]; nullptr goes back to type 0 + RGB. */
 void set_sprite_palette_priorities(const uint8_t* priority);
 bool palette_priorities_active();
+/* With palette priorities on: dots whose CRAM colour has its MSB set are mixed
+ * by ratio[cc bits 12-11] (CCRSA-B); nullptr turns it off. */
+void set_sprite_palette_color_calc(const uint8_t* ratio);
+bool palette_color_calc_active();
+void set_sprite_palette_window(bool enabled);
+bool palette_window_active();
 /* Keeps the generic VDP2 VBlank replay's PRISA shadow in sync with the
  * sprite color-calculation selector 0 (ordinary) and selector 1 (faded). */
 void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority);
@@ -155,6 +166,15 @@ void nbg_set_zoom_increment(uint8_t index, uint16_t x_int, uint16_t x_frac, uint
 uint16_t nbg_cycle_word(uint8_t i);
 void commit_nbg_layers();
 
+/* ---- RBG0 in cell format, beside the NBGs (rotation_logic.hpp) ------- */
+/* Takes the layer's banks away from the NBGs (re-planning their cycle
+ * patterns) and writes the registers; nothing changes when it fails. */
+NbgResult rot_configure(const rot::Layer& layer);
+void rot_release();
+bool rot_layer(rot::Layer* out);
+/* The parameter table the VDP2 reads from the next VBlank on (byte address). */
+void rot_set_table(uint32_t table_address, uint8_t ktaof);
+
 /* Per-line raster tables. Word offsets are VDP2 VRAM word addresses; the
  * tables are replayed by commit_layers(). A later set_backdrop_color() goes
  * back to a single back screen colour. */
@@ -175,6 +195,7 @@ bool set_mosaic(uint8_t width, uint8_t height, uint8_t screen_mask);
 bool mosaic_blocks_vcs(uint8_t layer);
 /* Screen 0-3 NBG0-NBG3, 4 RBG0, 5 line colour screen, 6 back screen (ratio only). */
 bool set_screen_color_calc(uint8_t screen, bool enabled, uint8_t ratio);
+void set_color_calc_add(bool add);
 void commit_compose();
 
 // Rotation parameter table upload

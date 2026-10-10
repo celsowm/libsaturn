@@ -79,6 +79,10 @@ uint16_t g_last_prisa_written = 0x0606u;
 bool g_palette_priorities = false;
 uint16_t g_last_prisbcd_written[3] = {0u, 0u, 0u};
 uint16_t g_prisa_before_palette_priorities = 0x0606u;
+/* Their colour calculation by CRAM colour MSB, and its CCRSA/CCRSB words. */
+bool g_palette_cc = false;
+bool g_palette_window = false; /* type 3: colour bit 15 makes the sprite window */
+uint16_t g_palette_cc_ratios[2] = {0u, 0u};
 /* CCCTL carries the screen-global CCMD bit (ratio vs add), which a frame's
  * draws claim; replayed with PRISA so a layers commit never loses it. */
 uint16_t g_last_ccctl_written = 0x0000u;
@@ -101,12 +105,23 @@ uint8_t g_mosaic_w = 1u;
 uint8_t g_mosaic_h = 1u;
 uint8_t g_mosaic_mask = 0u;
 uint16_t g_cc_layer_bits = 0u;
+bool g_cc_add = false; /* CCMD from set_color_calc_add */
 compose::ScreenRatios g_cc_ratios;
 /* Hi-res (640/704 wide) state: the VDP1 framebuffer is 8 bits/pixel, which
  * VDP2 must read as sprite type C, and its codes index one 256-colour CRAM
  * bank chosen by CRAOFB. Both are replayed by commit_layers(). */
 bool g_hires = false;
-uint16_t g_sprite_craofb = 0u;
+/* CRAM banks per screen (set_cram_bank, and the hi-res sprite bank); replayed
+ * by commit_layers() once set, or in hi-res. */
+compose::CramBanks g_cram_banks = {0u, 0u};
+bool g_cram_banks_used = false;
+
+/* CCCTL: the sprite module's word, the per-screen enables and the palette sprites' bit. */
+uint16_t ccctl_value() {
+    return static_cast<uint16_t>(g_last_ccctl_written | g_cc_layer_bits |
+                                 (g_palette_cc ? compose::kCcctlSprite : 0u) |
+                                 (g_cc_add ? compose::kCcctlAdd : 0u));
+}
 
 /* VDP2 control registers are WRITE-ONLY on hardware. Only TVSTAT, VRSIZE,
  * HCNT and VCNT can be read back; everything else returns 0 (mednafen) or
@@ -221,6 +236,7 @@ RegRef reg() {
 #define BKTAL reg<0x0AE>()
 #define PRISA reg<0x0F0>()
 #define SPCTL reg<0x0E0>()
+#define CRAOFA reg<0x0E4>()
 #define CRAOFB reg<0x0E6>()
 #define PRISB reg<0x0F2>()
 #define PRISC reg<0x0F4>()
@@ -233,6 +249,8 @@ RegRef reg() {
  * pixel the program draws. See reset_color_ops(). */
 #define CCCTL  reg<0x0EC>()
 #define SFCCMD reg<0x0EE>()
+#define CCRSA  reg<0x100>()
+#define CCRSB  reg<0x102>()
 #define CLOFEN reg<0x110>()
 #define CLOFSL reg<0x112>()
 #define COAR   reg<0x114>()
@@ -367,7 +385,12 @@ void reset_color_ops() {
     g_mosaic_w = g_mosaic_h = 1u;
     g_mosaic_mask = 0u;
     g_cc_layer_bits = 0u;
+    g_cc_add = false;
     g_cc_ratios = compose::ScreenRatios{};
+    /* The scroll screens' CRAM banks; the sprite bank stays (hi-res owns it). */
+    g_cram_banks = compose::with_cram_bank(compose::CramBanks{0u, g_cram_banks.craofb}, 4u, 0u);
+    g_cram_banks_used = false;
+    CRAOFA = 0x0000u;
     reg<0x0D0>() = 0x0000u;
     reg<0x0D2>() = 0x0000u;
     reg<0x0D4>() = 0x0000u;
@@ -453,7 +476,7 @@ void set_horizontal_resolution(uint16_t width) {
      * switch sprite data to palette-only and turn every RGB colour black. */
     if (g_hires) {
         SPCTL = sprite_type_bits();
-        CRAOFB = g_sprite_craofb;
+        CRAOFB = g_cram_banks.craofb;
     }
 }
 
@@ -469,13 +492,47 @@ uint16_t sprite_type_bits() {
      * leaves it (SPCTL = 0 would drop every RGB pixel). */
     if (g_hires) return 0x000Cu;
     /* Type 1, palette dots only: bits 15-13 select PRISA-PRISD's eight priorities. */
-    return g_palette_priorities ? 0x0001u : 0x0020u;
+    return g_palette_priorities ? compose::palette_sprite_spctl(g_palette_cc, g_palette_window) : 0x0020u;
+}
+
+void set_sprite_palette_color_calc(const uint8_t* ratio) {
+    g_palette_cc = ratio != nullptr;
+    if (g_palette_cc) {
+        g_palette_cc_ratios[0] = compose::ratio_word(ratio[0], ratio[1]);
+        g_palette_cc_ratios[1] = compose::ratio_word(ratio[2], ratio[3]);
+        CCRSA = g_palette_cc_ratios[0];
+        CCRSB = g_palette_cc_ratios[1];
+    }
+    SPCTL = sprite_type_bits();
+    CCCTL = ccctl_value();
+}
+
+bool palette_color_calc_active() {
+    return g_palette_cc;
+}
+
+void set_sprite_palette_window(bool enabled) {
+    g_palette_window = enabled;
+    SPCTL = sprite_type_bits();
+    g_compose_used = true;
+    commit_compose();
+}
+
+bool palette_window_active() {
+    return g_palette_window;
 }
 
 void set_sprite_palette_priorities(const uint8_t* priority) {
     if (priority == nullptr) {
         if (!g_palette_priorities) return;
         g_palette_priorities = false;
+        g_palette_cc = false;
+        if (g_palette_window) {
+            g_palette_window = false;
+            g_compose_used = true;
+            commit_compose();
+        }
+        CCCTL = ccctl_value();
         g_last_prisa_written = g_prisa_before_palette_priorities;
         for (uint16_t& w : g_last_prisbcd_written) w = 0u;
     } else {
@@ -499,8 +556,18 @@ bool palette_priorities_active() {
 }
 
 void set_sprite_palette_bank(uint8_t bank) {
-    g_sprite_craofb = static_cast<uint16_t>((bank & 0x07u) << 4u);
-    CRAOFB = g_sprite_craofb;
+    g_cram_banks = compose::with_cram_bank(g_cram_banks, 5u, bank);
+    CRAOFB = g_cram_banks.craofb;
+}
+
+void set_cram_bank(uint8_t screen, uint8_t bank) {
+    g_cram_banks = compose::with_cram_bank(g_cram_banks, screen, bank);
+    g_cram_banks_used = true;
+}
+
+void write_cram_banks() {
+    CRAOFA = g_cram_banks.craofa;
+    CRAOFB = g_cram_banks.craofb;
 }
 
 uint16_t read_tvstat() {
@@ -984,9 +1051,45 @@ bool g_nbg_used[nbg::kLayerCount];
 NbgScroll g_nbg_scroll[nbg::kLayerCount];
 nbg::Plan g_nbg_plan;
 bool g_nbg_active = false;
+/* RBG0 in cell format: once used, the manager owns its registers (a released
+ * layer writes zeros into them once). g_rot_table_live: RPTA already points at
+ * the table, so later table switches wait for the VBlank. */
+rot::Layer g_rot;
+bool g_rot_used = false;
+bool g_rot_table_live = false;
 
 inline bool vram_split_a() { return (get_reg(0x00Eu) & 0x0100u) != 0u; }
 inline bool vram_split_b() { return (get_reg(0x00Eu) & 0x0200u) != 0u; }
+
+/* The NBG cycle patterns around the rotation layer's banks. */
+nbg::Plan plan_layers(const nbg::Layer layers[nbg::kLayerCount], const rot::Layer& rotation) {
+    const nbg::Reserved reserved = rot::reserved(rotation);
+    return nbg::plan_cycles(layers, vram_split_a(), vram_split_b(), &reserved);
+}
+
+void rot_write_all(bool may_write_table) {
+    if (!g_rot_used) return;
+    const rot::Registers r = rot::compose(g_rot);
+    merge_reg(0x00Eu, 0x00FFu, r.ramctl_rdbs);
+    merge_reg(kOffChctlb, 0x7F00u, r.chctlb);
+    set_reg(0x038u, r.pncr);
+    merge_reg(kOffPlsz, 0x0F00u, r.plsz);
+    merge_reg(0x03Eu, 0x0007u, r.mpofr);
+    for (uint32_t i = 0u; i < 8u; ++i) set_reg(0x050u + 2u * i, r.mp[i]);
+    set_reg(0x0B8u, r.ovpnra);
+    set_reg(0x0B0u, 0u);          /* RPMD: rotation parameter A */
+    set_reg(0x0B2u, 0u);          /* RPRCTL: Xst, Yst, KAst read on the first line only */
+    merge_reg(0x0B4u, 0x001Fu, r.ktctl);
+    merge_reg(0x0FCu, 0x0007u, r.prir);
+    /* The table address and its coefficient offset switch tables: during the
+     * picture that would apply from the current line. */
+    if (may_write_table || !g_rot_table_live) {
+        merge_reg(0x0B6u, 0x0007u, r.ktaof);
+        set_reg(0x0BCu, r.rptau);
+        set_reg(0x0BEu, r.rptal);
+        g_rot_table_live = g_rot.enabled;
+    }
+}
 
 /* `vblank_replay`: called from commit_layers() after the caller waited for VBlank. The setters
  * call this immediately, mid-frame. Scroll and zoom registers are written only during VBlank (by
@@ -1068,7 +1171,13 @@ void nbg_write_all(bool vblank_replay = false) {
         set_reg(static_cast<uint32_t>(0x0A0u + 4u * i), r.lsta_u[i]);
         set_reg(static_cast<uint32_t>(0x0A2u + 4u * i), r.lsta_l[i]);
     }
-    merge_reg(kOffBgon, owned_bgon, static_cast<uint16_t>(r.bgon_on | r.bgon_opaque_zero));
+    uint16_t bgon = static_cast<uint16_t>(r.bgon_on | r.bgon_opaque_zero);
+    if (g_rot_used) {
+        rot_write_all(may_write_scroll);
+        owned_bgon = static_cast<uint16_t>(owned_bgon | 0x1010u);
+        bgon = static_cast<uint16_t>(bgon | rot::compose(g_rot).bgon);
+    }
+    merge_reg(kOffBgon, owned_bgon, bgon);
     g_last_rbg0_bgon_written = get_reg(kOffBgon);
 }
 
@@ -1111,12 +1220,13 @@ void commit_compose() {
     }
     uint16_t wctl[4];
     compose::compose_wctl(g_screen_window, wctl);
+    if (g_palette_window) wctl[2] = static_cast<uint16_t>(wctl[2] | compose::kWctlcSpriteHidesWindow);
     for (uint8_t i = 0u; i < 4u; ++i) set_reg(0x0D0u + 2u * i, wctl[i]);
     set_reg(0x022u, compose::compose_mzctl(g_mosaic_w, g_mosaic_h, g_mosaic_mask));
     uint16_t ratios[4];
     compose::compose_ratios(g_cc_ratios, ratios);
     for (uint8_t i = 0u; i < 4u; ++i) set_reg(0x108u + 2u * i, ratios[i]);
-    CCCTL = static_cast<uint16_t>(g_last_ccctl_written | g_cc_layer_bits);
+    CCCTL = ccctl_value();
 }
 
 bool set_window(uint8_t index, const compose::Window& window) {
@@ -1148,7 +1258,12 @@ bool window_in_use(uint8_t index) {
 
 bool set_screen_window(uint8_t screen, const compose::ScreenWindow& config) {
     if (screen >= compose::kScreenCount) return false;
-    if (config.w0 > compose::kAreaOutside || config.w1 > compose::kAreaOutside) return false;
+    if (config.w0 > compose::kAreaOutside || config.w1 > compose::kAreaOutside ||
+        config.sw > compose::kAreaOutside) {
+        return false;
+    }
+    /* The sprite screen's own SW bits hide the window dots (palette window). */
+    if (screen == compose::kSprite && config.sw != compose::kAreaOff) return false;
     /* A screen cannot use a window that was never defined. */
     if ((config.w0 != compose::kAreaOff && !g_window_on[0]) ||
         (config.w1 != compose::kAreaOff && !g_window_on[1])) {
@@ -1195,6 +1310,12 @@ bool set_screen_color_calc(uint8_t screen, bool enabled, uint8_t ratio) {
     return true;
 }
 
+void set_color_calc_add(bool add) {
+    g_cc_add = add;
+    g_compose_used = true;
+    commit_compose();
+}
+
 void set_backdrop_lines(uint32_t table_word_offset) {
     g_back_lines = true;
     g_back_lines_word = table_word_offset & 0x0007FFFFu;
@@ -1221,7 +1342,7 @@ NbgResult nbg_configure(uint8_t index, const nbg::Layer& layer) {
     if (index >= nbg::kLayerCount) return NbgResult::BadLayer;
     /* The legacy NBG0 API and RBG0 keep their own cycle patterns and replay
      * shadows; the two managers cannot share the VRAM cycle registers. */
-    if (g_nbg0_configured || (BGON & 0x0010u) != 0u) return NbgResult::Busy;
+    if (g_nbg0_configured || ((BGON & 0x0010u) != 0u && !g_rot_used)) return NbgResult::Busy;
     nbg::Layer trial[nbg::kLayerCount];
     for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
         trial[i] = g_nbg_layer[i];
@@ -1237,7 +1358,7 @@ NbgResult nbg_configure(uint8_t index, const nbg::Layer& layer) {
             default: return NbgResult::BadPlane;
         }
     }
-    const nbg::Plan plan = nbg::plan_cycles(trial, vram_split_a(), vram_split_b());
+    const nbg::Plan plan = plan_layers(trial, g_rot);
     if (plan.status != nbg::Status::Ok) {
         return plan.status == nbg::Status::NoCyclePattern ? NbgResult::NoCyclePattern
                                                           : NbgResult::BadPlane;
@@ -1264,13 +1385,70 @@ void nbg_release(uint8_t index) {
         trial[i] = g_nbg_layer[i];
         trial[i].enabled = g_nbg_used[i] && g_nbg_layer[i].enabled;
     }
-    const nbg::Plan plan = nbg::plan_cycles(trial, vram_split_a(), vram_split_b());
+    const nbg::Plan plan = plan_layers(trial, g_rot);
     if (plan.status == nbg::Status::Ok) g_nbg_plan = plan;
     nbg_write_all();
     g_nbg_used[index] = false;
+    bool any = g_rot_used;
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) any = any || g_nbg_used[i];
+    g_nbg_active = any;
+}
+
+NbgResult rot_configure(const rot::Layer& layer) {
+    if (g_nbg0_configured || ((BGON & 0x0010u) != 0u && !g_rot_used)) return NbgResult::Busy;
+    switch (rot::validate(layer)) {
+        case rot::Status::Ok: break;
+        case rot::Status::BadFormat: return NbgResult::BadFormat;
+        default: return NbgResult::BadPlane;
+    }
+    nbg::Layer trial[nbg::kLayerCount];
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
+        trial[i] = g_nbg_layer[i];
+        trial[i].enabled = g_nbg_used[i] && g_nbg_layer[i].enabled;
+    }
+    const nbg::Plan plan = plan_layers(trial, layer);
+    if (plan.status != nbg::Status::Ok) {
+        return plan.status == nbg::Status::NoCyclePattern ? NbgResult::NoCyclePattern
+                                                          : NbgResult::BadPlane;
+    }
+    if (!g_rot_used || !g_rot.enabled || !layer.enabled) g_rot_table_live = false;
+    g_rot = layer;
+    g_rot_used = true;
+    g_nbg_plan = plan;
+    g_nbg_active = true;
+    nbg_write_all();
+    return NbgResult::Ok;
+}
+
+void rot_release() {
+    if (!g_rot_used) return;
+    g_rot.enabled = false;
+    nbg::Layer trial[nbg::kLayerCount];
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
+        trial[i] = g_nbg_layer[i];
+        trial[i].enabled = g_nbg_used[i] && g_nbg_layer[i].enabled;
+    }
+    const nbg::Plan plan = plan_layers(trial, g_rot);
+    if (plan.status == nbg::Status::Ok) g_nbg_plan = plan;
+    nbg_write_all();   /* zeros into the registers it owned */
+    g_rot_used = false;
+    g_rot_table_live = false;
     bool any = false;
     for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) any = any || g_nbg_used[i];
     g_nbg_active = any;
+}
+
+bool rot_layer(rot::Layer* out) {
+    if (!g_rot_used || out == nullptr) return false;
+    *out = g_rot;
+    return true;
+}
+
+void rot_set_table(uint32_t table_address, uint8_t ktaof) {
+    if (!g_rot_used) return;
+    g_rot.table_address = table_address;
+    g_rot.ktaof = static_cast<uint8_t>(ktaof & 7u);
+    nbg_write_all();
 }
 
 bool nbg_layer(uint8_t index, nbg::Layer* out) {
@@ -1322,7 +1500,7 @@ void commit_layers() {
     /* Sprite priority decides whether the VDP1's output is in front of the
      * VDP2 layers, so it is replayed whether or not NBG0 is in use. */
     PRISA = g_last_prisa_written;
-    CCCTL = static_cast<uint16_t>(g_last_ccctl_written | g_cc_layer_bits);
+    CCCTL = ccctl_value();
     CLOFEN = g_last_color_offset_written[0];
     CLOFSL = g_last_color_offset_written[1];
     COAR = g_last_color_offset_written[2];
@@ -1333,13 +1511,20 @@ void commit_layers() {
     COBB = g_last_color_offset_written[7];
     if (g_hires) {
         SPCTL = sprite_type_bits();
-        CRAOFB = g_sprite_craofb;
+        CRAOFB = g_cram_banks.craofb;
+    }
+    if (g_cram_banks_used) {
+        write_cram_banks();
     }
     if (g_palette_priorities) {
         SPCTL = sprite_type_bits();
         PRISB = g_last_prisbcd_written[0];
         PRISC = g_last_prisbcd_written[1];
         PRISD = g_last_prisbcd_written[2];
+        if (g_palette_cc) {
+            CCRSA = g_palette_cc_ratios[0];
+            CCRSB = g_palette_cc_ratios[1];
+        }
     }
     if (g_nbg_active) {
         commit_nbg_layers();
@@ -1392,7 +1577,7 @@ void set_sprite_priority(uint8_t priority) {
 
 void set_color_calc_control(uint16_t ccctl) {
     g_last_ccctl_written = ccctl;
-    CCCTL = static_cast<uint16_t>(ccctl | g_cc_layer_bits);
+    CCCTL = ccctl_value();
 }
 
 void set_color_offset(uint8_t bank, uint16_t r, uint16_t g, uint16_t b) {

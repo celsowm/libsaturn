@@ -90,6 +90,26 @@ sat_result_t sat_vdp2_sprite_set_priority(uint8_t priority);
  * SAT_ERR_BUSY (and this returns BUSY while it is on); unsupported in
  * hi-res. NULL goes back to sprite type 0 with RGB dots. */
 sat_result_t sat_vdp2_sprite_set_palette_priorities(const uint8_t priority[8]);
+/* Semi-transparent palette sprites, while palette priorities are on: a
+ * sprite dot whose CRAM colour has bit 15 set is mixed with the image below
+ * it by ratio[c], c being the dot's colour calculation bits 12-11 (bits
+ * 12-11 of its colour code, 0 for CRAM entries below 2048 with those bits
+ * clear); dots with bit 15 clear stay opaque. Ratio is the hardware value
+ * 0..31: (31 - r)/32 of the sprite and (r + 1)/32 of the image below. So
+ * give the dots to blend a copy of their palette with bit 15 set, and every
+ * other colour bit 15 clear. Ratio mode only (CCCTL CCMD 0). NULL turns it
+ * off; turning palette priorities off turns it off too. UNSUPPORTED while
+ * palette priorities are off. */
+sat_result_t sat_vdp2_sprite_set_palette_color_calc(const uint8_t ratio[4]);
+/* Sprite window from palette sprites, while palette priorities are on:
+ * switches to sprite type 3, which keeps selectors 0-3 (priority[0..3]),
+ * the colour calculation bits and the 11-bit dot colour, and makes bit 15 of
+ * a dot (colour bank bit 15, palette_override bit 7 of an INDEXED8 sprite)
+ * the sprite window bit. Those dots form the window and are not shown; other
+ * screens use it through sat_vdp2_screen_window_t.sw. Selectors 4-7 are not
+ * available while it is on. 0 turns it off; turning palette priorities off
+ * turns it off too. UNSUPPORTED while palette priorities are off. */
+sat_result_t sat_vdp2_sprite_set_palette_window(uint8_t enabled);
 
 /* ------------------------------------------------------------------ */
 /* NBG0 tiled image upload                                             */
