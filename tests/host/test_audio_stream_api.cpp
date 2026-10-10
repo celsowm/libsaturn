@@ -2,6 +2,7 @@
 #include <cstdlib>
 
 #include "saturn/audio.h"
+#include "src/audio/playback/claim.hpp"
 #include "src/audio/streaming/runtime.hpp"
 #include "src/hal/scsp/scsp.hpp"
 
@@ -69,6 +70,16 @@ int main() {
     sat_audio_spec_t spec = {22050u, 4u, 1u, SAT_AUDIO_PCM_S16, 0u};
     uint8_t storage[8u] = {};
     sat_audio_stream_t streams[4] = {};
+
+    // slots or buffers the sampler claimed are not opened
+    namespace claim = saturn::core::audio::claim;
+    claim::g_claim = {0xF0000000u, 0u, 0u};
+    OK(sat_audio_stream_open(&streams[0], &spec, storage, sizeof(storage)) == SAT_ERR_BUSY);
+    claim::g_claim = {0x0FFFFFFFu, 0x6F000u, 0x70002u}; /* reaches stream 0's buffer */
+    OK(sat_audio_stream_open(&streams[0], &spec, storage, sizeof(storage)) == SAT_OK && streams[0].slot == 1u);
+    OK(sat_audio_stream_close(streams[0]) == SAT_OK);
+    claim::g_claim = {};
+
     for (uint16_t i = 0u; i < 4u; ++i) {
         OK(sat_audio_stream_open(&streams[i], &spec, storage, sizeof(storage)) == SAT_OK);
     }

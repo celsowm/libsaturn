@@ -26,5 +26,10 @@ int main() {
     assert(choose(v,4u,3u)==2);
     v[0].active=0u;
     assert(choose(v,4u,0u)==0); /* Free beats eligible steal. */
+    /* Excluded voices are neither free nor stealable. */
+    assert(choose(v,4u,0u,0x1u)==-1);
+    assert(choose(v,4u,3u,0x1u)==2);
+    assert(choose(v,4u,3u,0x5u)==3);
+    assert(choose(v,4u,3u,0xDu)==-1);
     std::puts("audio voice selection policy: OK");
 }

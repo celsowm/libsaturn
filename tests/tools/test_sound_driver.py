@@ -44,8 +44,13 @@ class SoundDriverLayoutTests(unittest.TestCase):
             self.assertIsNotNone(found, cpp_name)
             self.assertEqual(eq[asm_name], int(found.group(1), 16), asm_name)
         with open(SOURCE, encoding="utf-8") as stream:
-            self.assertIn("RING_MASK,   63", stream.read())
+            source = stream.read()
+        self.assertIn("RING_MASK,   63", source)
         self.assertIn("kRingEntries = 64u", logic)
+        stack = int(re.search(r"\.equ\s+STACK_TOP,\s+(0x[0-9A-Fa-f]+)", source).group(1), 16)
+        self.assertEqual(stack, int(re.search(r"kStackTop = (0x[0-9A-Fa-f]+)u", logic).group(1), 16))
+        score = int(re.search(r"\.equ\s+SCORE,\s+(0x[0-9A-Fa-f]+)", source).group(1), 16)
+        self.assertEqual(score, int(re.search(r"kScoreOffset = (0x[0-9A-Fa-f]+)u", logic).group(1), 16))
 
     def test_the_checked_in_image_is_current(self):
         result = subprocess.run([sys.executable, os.path.join(REPO, "tools", "build_sound_driver.py"), "--check"],

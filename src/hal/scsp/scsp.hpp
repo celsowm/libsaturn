@@ -6,7 +6,8 @@
 namespace saturn::hal::scsp {
 
 constexpr uint32_t kSoundRamBytes = 0x80000u;
-constexpr uint32_t kSystemReservedBytes = 0x0B000u;
+// The sound driver's program, mailbox, stack and score (driver_logic::kDriverEnd).
+constexpr uint32_t kSystemReservedBytes = 0x03000u;
 constexpr uint8_t kSlotCount = 32u;
 
 struct SlotConfig {
@@ -47,6 +48,12 @@ void key_on(uint8_t slot);
 // armed slot on the same sample, e.g. both channels of a stereo stream.
 void arm_key_on(uint8_t slot);
 void execute_key_transitions();
+// Programs a slot like configure_slot but without keying it off or writing KYONEX: the
+// slot must be silent already (keyed off by an earlier KYONEX). `pitch` is the OCT/FNS word.
+bool stage_slot(uint8_t slot, const SlotConfig& config, uint16_t pitch);
+// Sets or clears KYONB without KYONEX; execute_key_transitions() applies it.
+void stage_key(uint8_t slot, bool on);
+void set_slot_pitch(uint8_t slot, uint16_t pitch);
 void key_off(uint8_t slot);
 // A key transition executed later by the sound driver: updates the shadow of the
 // slot control word and returns the word (with KYONEX) to write to slot register

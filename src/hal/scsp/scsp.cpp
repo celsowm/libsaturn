@@ -1,5 +1,6 @@
 #include "src/hal/scsp/scsp.hpp"
 
+#include "src/hal/scsp/driver_logic.hpp"
 #include "src/hal/scsp/dsp_logic.hpp"
 
 #include "src/hal/smpc/smpc.hpp"
@@ -7,6 +8,8 @@
 #include "src/hal/scu/scu.hpp"
 
 namespace saturn::hal::scsp {
+
+static_assert(kSystemReservedBytes == driver_logic::kDriverEnd, "the reserved area is the driver's");
 
 namespace {
 
@@ -315,6 +318,43 @@ bool configure_slot(uint8_t slot, const SlotConfig& config) {
     *slot_word(slot, 0x14u) = send_word_for(slot);
     *slot_word(slot, 0x16u) = direct_word_for(slot, config.direct_level, config.pan);
     return true;
+}
+
+bool stage_slot(uint8_t slot, const SlotConfig& config, uint16_t pitch) {
+    if (!g_ready || slot >= kSlotCount || config.start_address >= kSoundRamBytes) {
+        return false;
+    }
+    uint16_t control = static_cast<uint16_t>((config.start_address >> 16) & 0x0Fu);
+    if (config.pcm8 != 0u) control |= kPcm8Bit;
+    if (config.loop != 0u) control |= kLoopNormal;
+
+    g_slot_control[slot] = control;
+    *slot_word(slot, 0x00u) = control;
+    *slot_word(slot, 0x02u) = static_cast<uint16_t>(config.start_address & 0xFFFFu);
+    *slot_word(slot, 0x04u) = config.loop_start;
+    *slot_word(slot, 0x06u) = config.loop_end;
+    *slot_word(slot, 0x08u) = 0x001Fu;
+    *slot_word(slot, 0x0Au) = 0x3C1Fu;
+    *slot_word(slot, 0x0Cu) = static_cast<uint16_t>(config.total_level);
+    *slot_word(slot, 0x0Eu) = 0u;
+    *slot_word(slot, 0x10u) = pitch;
+    *slot_word(slot, 0x12u) = 0u;
+    g_slot_send[slot] = g_default_send;
+    *slot_word(slot, 0x14u) = send_word_for(slot);
+    *slot_word(slot, 0x16u) = direct_word_for(slot, config.direct_level, config.pan);
+    return true;
+}
+
+void stage_key(uint8_t slot, bool on) {
+    if (!g_ready || slot >= kSlotCount) return;
+    g_slot_control[slot] = on ? static_cast<uint16_t>(g_slot_control[slot] | kKeyOnBit)
+                              : static_cast<uint16_t>(g_slot_control[slot] & ~kKeyOnBit);
+    *slot_word(slot, 0x00u) = g_slot_control[slot];
+}
+
+void set_slot_pitch(uint8_t slot, uint16_t pitch) {
+    if (!g_ready || slot >= kSlotCount) return;
+    *slot_word(slot, 0x10u) = pitch;
 }
 
 void key_on(uint8_t slot) {

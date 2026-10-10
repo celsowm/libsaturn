@@ -12,8 +12,10 @@
  *   0x0000  vector table
  *   0x0100  code
  *   0x0800  mailbox (below); SCSP registers are at 0x100000 for the 68000.
+ *   0x0C00  stack, growing down from 0x1000 (the interrupt handler needs a few dozen bytes)
+ *   0x1000  score, up to 0x3000: the driver uses nothing above (scsp.hpp kSystemReservedBytes)
  */
-        .equ    STACK_TOP,   0x0A000
+        .equ    STACK_TOP,   0x01000
 
         .equ    SCSP,        0x100000
         .equ    R_TIMER_A,   0x100418           /* TACTL[10:8] TIMA[7:0] */

@@ -1,5 +1,6 @@
 #include "saturn/audio.h"
 
+#include "src/audio/playback/claim.hpp"
 #include "src/audio/streaming/runtime.hpp"
 #include "src/hal/scsp/scsp.hpp"
 
@@ -265,9 +266,16 @@ extern "C" sat_result_t sat_audio_stream_open(
     SAT_TRY(validate_stream_spec(spec, buffer, buffer_bytes, &frame_bytes));
 
     using namespace saturn::core;
+    bool claimed = false;
     for (uint16_t i = 0u; i < kAudioStreamCapacity; ++i) {
         AudioStreamSlot& slot = g_audio_streams.slots[i];
         if (slot.used != 0u) continue;
+        const uint32_t ram = kAudioStreamRamBase + static_cast<uint32_t>(i) * 2u * kAudioStreamChunkBytes;
+        if (audio::claim::slot_claimed(kAudioStreamScspSlotBase + i) ||
+            audio::claim::ram_claimed(ram, ram + 2u * kAudioStreamChunkBytes)) {
+            claimed = true; /* the sampler's (sat_sampler_init) */
+            continue;
+        }
         if (slot.generation == 0u) slot.generation = 1u;
         slot.used = 1u;
         slot.ring = {};
@@ -297,7 +305,7 @@ extern "C" sat_result_t sat_audio_stream_open(
         out_stream->generation = slot.generation;
         return SAT_OK;
     }
-    return SAT_ERR_CAPACITY;
+    return claimed ? SAT_ERR_BUSY : SAT_ERR_CAPACITY;
 }
 
 extern "C" sat_result_t sat_audio_stream_write(

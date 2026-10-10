@@ -1,4 +1,5 @@
 #include "src/audio/playback/state.hpp"
+#include "src/audio/playback/claim.hpp"
 
 namespace saturn::core::audio::playback {
 
@@ -30,7 +31,8 @@ void release_voice(uint16_t slot) {
 
 int32_t choose_voice(uint16_t priority) {
     return saturn::core::audio::voice::choose(
-        g_voice_registry.entries,kResidentVoiceCapacity,priority);
+        g_voice_registry.entries,kResidentVoiceCapacity,priority,
+        saturn::core::audio::claim::g_claim.slots);
 }
 
 void reset_runtime_state() {
@@ -41,6 +43,7 @@ void reset_runtime_state() {
     g_failed_play_requests = 0u;
     g_start_serial = 0u;
     g_audio_clock.reset();
+    saturn::core::audio::claim::g_claim = {};
 }
 
 }  // namespace saturn::core::audio::playback

@@ -5,14 +5,20 @@
 #include "saturn/scsp_dsp.h"
 
 namespace saturn::core {
-void music_runtime_reset();
+/* Weak: a program that never calls sat_music_* does not link music.cpp and
+ * its ~297 KB g_music (crt0 zeroes it, which is the reset state). */
+void music_runtime_reset() __attribute__((weak));
+
+static void reset_music_if_linked() {
+    if (music_runtime_reset != nullptr) music_runtime_reset();
+}
 }
 
 using namespace saturn::core::audio::playback;
 
 extern "C" sat_result_t sat_audio_init(void) {
     if (g_initialized != 0u) return SAT_OK;
-    saturn::core::music_runtime_reset();
+    saturn::core::reset_music_if_linked();
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     reset_runtime_state();
     if (!saturn::hal::scsp::init()) return SAT_ERR_NOT_INITIALIZED;
@@ -25,7 +31,7 @@ extern "C" sat_result_t sat_audio_shutdown(void) {
     (void)sat_effect_stop();
     saturn::hal::scsp::shutdown();
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
-    saturn::core::music_runtime_reset();
+    saturn::core::reset_music_if_linked();
     reset_runtime_state();
     g_initialized = 0u;
     return SAT_OK;

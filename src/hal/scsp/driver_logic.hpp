@@ -32,12 +32,17 @@ constexpr uint32_t kScoreExecutedOffset = kMailbox + 0x2Eu;
 constexpr uint32_t kRingOffset = kMailbox + 0x40u;
 constexpr uint32_t kLogOffset = kMailbox + 0x300u;
 constexpr uint32_t kMailboxBytes = 0x400u;               /* cleared before the driver starts */
+constexpr uint32_t kStackTop = 0x1000u;                  /* the stack grows down to the mailbox */
 constexpr uint32_t kScoreOffset = 0x1000u;
 constexpr uint16_t kScoreMaxEvents = 1024u;
 
 constexpr uint32_t kRingEntries = 64u;
 constexpr uint32_t kRingMask = kRingEntries - 1u;
 constexpr uint32_t kEntryBytes = 8u;
+/* The end of everything the driver uses: Sound RAM above it is free for samples. */
+constexpr uint32_t kDriverEnd = kScoreOffset + kScoreMaxEvents * kEntryBytes;
+static_assert(kStackTop >= kMailbox + kMailboxBytes + 0x100u && kStackTop <= kScoreOffset,
+              "the stack needs room between the mailbox and the score");
 constexpr uint32_t kLogEntries = 64u;
 constexpr uint32_t kMagic = 0x53445256u;                 /* 'SDRV' */
 constexpr uint16_t kVersion = 2u;
