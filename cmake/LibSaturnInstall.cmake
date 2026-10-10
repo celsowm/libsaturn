@@ -48,6 +48,7 @@ install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/iso_to_raw.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_cue.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_disc_image.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/satlz.py"
     DESTINATION ${LIBSATURN_INSTALL_SHAREDIR}/tools)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/boot/ip_yaul_template.bin"
     DESTINATION ${LIBSATURN_INSTALL_SHAREDIR}/boot)

@@ -42,6 +42,26 @@ sat_result_t sat_load_files(
     uint32_t chunk_bytes,
     sat_load_progress_fn progress, void* context);
 
+/* Loads an SLZ1 file (saturn/lz.h, made by tools/satlz.py) into
+ * `destination` and decodes it there, in place: the file is read to the end
+ * of the `capacity` bytes (at a 4-byte boundary) and decoded from the start,
+ * so nothing beyond `capacity` is needed. Each batch of sectors is decoded
+ * as it arrives, while the drive reads the next (sat_cd_set_arrival_observer;
+ * the observer is taken for the duration of the call). `destination` must be
+ * 4-byte aligned. `expected_decoded` 0 accepts any size. SAT_ERR_CAPACITY
+ * when the file is larger than `capacity` (before any read) or capacity is
+ * below the header's decoded + margin; SAT_ERR_VERSION when it is not SLZ1
+ * or the decoded size differs; SAT_ERR_IO when the payload is corrupt. Those
+ * last three are found once the data is in, so the destination is then
+ * garbage. `progress` (may be NULL) sees the compressed bytes read. */
+sat_result_t sat_load_lz(
+    sat_cdfs_volume_t* volume,
+    const char* disc_path,
+    void* destination, uint32_t capacity,
+    uint32_t expected_decoded,
+    sat_load_progress_fn progress, void* context,
+    uint32_t* out_bytes);
+
 /* Ready-made progress callback: a bar on a flat background, drawn as one
  * VDP1 frame per call (begin, rects, end, wait for VBlank). Pass
  * sat_loading_screen_progress as the callback and the screen as its context.

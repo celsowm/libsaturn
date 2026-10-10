@@ -27,3 +27,19 @@ extern "C" sat_result_t sat_cd_read_sectors(
     }
     return device->read_sectors(device->context, lba, sector_count, destination);
 }
+
+namespace {
+
+sat_cd_arrival_fn g_arrival = nullptr;
+void* g_arrival_context = nullptr;
+
+}  // namespace
+
+extern "C" void sat_cd_set_arrival_observer(sat_cd_arrival_fn fn, void* context) {
+    g_arrival = fn;
+    g_arrival_context = fn != nullptr ? context : nullptr;
+}
+
+extern "C" void sat_cd_notify_arrival(const void* end) {
+    if (g_arrival != nullptr) g_arrival(g_arrival_context, end);
+}

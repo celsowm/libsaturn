@@ -45,3 +45,29 @@ add_executable(stack_trap EXCLUDE_FROM_ALL main.c)
 target_link_libraries(stack_trap PRIVATE LibSaturn::Saturn)
 libsaturn_configure_executable(stack_trap)
 target_link_options(stack_trap PRIVATE "-Wl,--defsym=__stack_reserve=0x100000")
+
+# A program whose tables share a cart slot: two overlay members at one address plus a resident
+# cart section, split into the app image and flat files by the cart helpers.
+set(_ovl_saved_ld "${LIBSATURN_LINKER_SCRIPT}")
+libsaturn_cart_overlay_script("${CMAKE_BINARY_DIR}/gen/overlay.ld"
+    SLOT_ADDRESS 0x02400000 SLOT_BYTES 0x40 PHDR slot
+    MEMBERS ovl_a:.rodata.ovl_a_table ovl_b:.rodata.ovl_b_table)
+file(WRITE "${CMAKE_BINARY_DIR}/gen/resident.ld"
+"    .cartres 0x02400040 : AT(0x02400040) SUBALIGN(4) {
+        *overlay_data*.obj(.rodata.resident_table)
+        . = ALIGN(4);
+    } :cartres
+")
+libsaturn_inject_link_script("${CMAKE_BINARY_DIR}/gen/overlay_consumer.ld"
+    BLOCKS "${CMAKE_BINARY_DIR}/gen/overlay.ld" "${CMAKE_BINARY_DIR}/gen/resident.ld"
+    PHDRS slot cartres)
+set(LIBSATURN_LINKER_SCRIPT "${CMAKE_BINARY_DIR}/gen/overlay_consumer.ld")
+add_executable(overlay_consumer overlay_main.c overlay_data.c)
+target_compile_options(overlay_consumer PRIVATE -ffunction-sections -fdata-sections)
+target_link_libraries(overlay_consumer PRIVATE LibSaturn::Saturn)
+libsaturn_configure_executable(overlay_consumer)
+libsaturn_split_cart_image(overlay_consumer
+    APP_BIN "${CMAKE_BINARY_DIR}/overlay_consumer.app.bin" MAX_BYTES 983040
+    DATA_SECTION .cartres DATA_BIN "${CMAKE_BINARY_DIR}/overlay_consumer.res.bin"
+    OVERLAYS ovl_a=${CMAKE_BINARY_DIR}/OVLA.BIN ovl_b=${CMAKE_BINARY_DIR}/OVLB.BIN)
+set(LIBSATURN_LINKER_SCRIPT "${_ovl_saved_ld}")

@@ -23,6 +23,43 @@ static sat_result_t nested_read_callback(void* context) {
 
 int main() {
     sat_cd_block_t block{};
+    {
+        // Background reads: arguments and bookkeeping (the drive itself is SH-2 only).
+        sat_cd_block_t stream{};
+        alignas(2) uint8_t buffer[SAT_CD_SECTOR_BYTES];
+        uint32_t remaining = 99u;
+        OK(sat_cd_stream_begin(nullptr, 0u, 1u, buffer) == SAT_ERR_INVALID_ARG);
+        OK(sat_cd_stream_begin(&stream, 0u, 1u, buffer) == SAT_ERR_INVALID_ARG);  // not initialized
+        stream.initialized = 1u;
+        OK(sat_cd_stream_begin(&stream, 0u, 0u, buffer) == SAT_ERR_INVALID_ARG);
+        OK(sat_cd_stream_begin(&stream, 0u, SAT_CD_STREAM_MAX_SECTORS + 1u, buffer) == SAT_ERR_INVALID_ARG);
+        OK(sat_cd_stream_begin(&stream, 0u, 1u, buffer + 1) == SAT_ERR_INVALID_ARG);
+        OK(sat_cd_stream_begin(&stream, 0u, 1u, nullptr) == SAT_ERR_INVALID_ARG);
+        stream.read_active = 1u;
+        OK(sat_cd_stream_begin(&stream, 0u, 1u, buffer) == SAT_ERR_BUSY);
+        stream.read_active = 0u;
+        // No stream open: polling and finishing are no-ops that report complete.
+        OK(sat_cd_stream_remaining(&stream) == 0u && sat_cd_stream_remaining(nullptr) == 0u);
+        OK(sat_cd_stream_poll(&stream, 0u, &remaining) == SAT_OK && remaining == 0u);
+        OK(sat_cd_stream_finish(&stream) == SAT_OK);
+        OK(sat_cd_stream_poll(nullptr, 0u, &remaining) == SAT_ERR_INVALID_ARG);
+        // An open stream: one at a time, and a second begin is refused.
+        stream.stream_active = 1u;
+        stream.stream_remaining = 3u;
+        stream.stream_destination = buffer;
+        OK(sat_cd_stream_remaining(&stream) == 3u);
+        OK(sat_cd_stream_begin(&stream, 0u, 1u, buffer) == SAT_ERR_BUSY);
+        stream.read_active = 1u;  // mid-transfer: poll and finish do not nest
+        OK(sat_cd_stream_poll(&stream, 0u, &remaining) == SAT_ERR_BUSY);
+        OK(sat_cd_stream_finish(&stream) == SAT_ERR_BUSY);
+        OK(stream.stream_active == 1u && stream.read_active == 1u);
+        stream.read_active = 0u;
+        // The host has no drive, so the poll fails: a transport error closes the stream.
+        stream.timeout_iterations = 8u;
+        OK(sat_cd_stream_poll(&stream, 0u, &remaining) != SAT_OK);
+        OK(stream.stream_active == 0u && stream.read_active == 0u && sat_cd_stream_remaining(&stream) == 0u);
+    }
+
     OK(sat_cd_block_init(&block, 8u) == SAT_ERR_UNSUPPORTED);
     sat_cd_device_t device{};
     OK(sat_cd_block_bind_device(&block, &device, 0u) == SAT_ERR_NOT_INITIALIZED);

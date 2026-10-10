@@ -284,7 +284,10 @@ extern "C" sat_result_t sat_asset_cache_stats(sat_asset_cache_stats_t* out_stats
                    g_file_asset_runtime.prefetch[i].state == SAT_ASSET_PREFETCH_PENDING ? 1u : 0u;
     }
     out_stats->used = used;
-    out_stats->capacity = g_file_asset_runtime.cache_block_count;
+    /* Unconfigured until the first fill, which takes the built-in blocks. */
+    out_stats->capacity = g_file_asset_runtime.cache_configured != 0u
+        ? g_file_asset_runtime.cache_block_count
+        : static_cast<uint16_t>(SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY);
     out_stats->prefetch_pending = pending;
     out_stats->prefetch_capacity = SAT_ASSET_PREFETCH_CAPACITY;
     out_stats->hits = g_file_asset_runtime.cache_hits;

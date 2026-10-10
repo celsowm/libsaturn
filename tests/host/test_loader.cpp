@@ -34,12 +34,60 @@ uint8_t add_record(uint8_t* directory, uint16_t offset, uint32_t lba, uint32_t s
     return length;
 }
 
+// Byte 0 of the output watched while a multi-sector read is still going (0xEE: not decoded yet).
+const uint8_t* g_watch = nullptr;
+uint8_t g_watch_mid_read = 0xEEu;
+
+// Sector by sector, reporting each like the CD Block reports its batches.
 sat_result_t read_image(void*, uint32_t lba, uint32_t count, void* destination) {
     if (destination == nullptr || count == 0u || lba >= kSectorCount ||
         count > kSectorCount - lba) return SAT_ERR_IO;
-    std::memcpy(destination, g_image + lba * SAT_CD_SECTOR_BYTES,
-                count * SAT_CD_SECTOR_BYTES);
+    uint8_t* out = static_cast<uint8_t*>(destination);
+    for (uint32_t i = 0u; i < count; ++i) {
+        std::memcpy(out, g_image + (lba + i) * SAT_CD_SECTOR_BYTES, SAT_CD_SECTOR_BYTES);
+        out += SAT_CD_SECTOR_BYTES;
+        sat_cd_notify_arrival(out);
+        if (i == 0u && count > 1u && g_watch != nullptr) g_watch_mid_read = g_watch[0];
+    }
     return SAT_OK;
+}
+
+// STREAM.LZ (sector 25): 40 blocks of 200 literals (k * 7 + i) and a 300-byte match at offset
+// 200, then "end": an SLZ1 file of five sectors, decoded in place with a 32-byte margin.
+constexpr uint32_t kStreamBlocks = 40u;
+constexpr uint32_t kStreamDecoded = kStreamBlocks * 500u + 3u;
+constexpr uint32_t kStreamMargin = 32u;
+
+void put_be32(uint8_t* destination, uint32_t value) {
+    destination[0] = static_cast<uint8_t>(value >> 24);
+    destination[1] = static_cast<uint8_t>(value >> 16);
+    destination[2] = static_cast<uint8_t>(value >> 8);
+    destination[3] = static_cast<uint8_t>(value);
+}
+
+uint32_t make_stream(uint8_t* file) {
+    uint8_t* p = file + 16u;
+    for (uint32_t k = 0u; k < kStreamBlocks; ++k) {
+        *p++ = 0xFFu;
+        *p++ = 200u - 15u;
+        for (uint32_t i = 0u; i < 200u; ++i) *p++ = static_cast<uint8_t>(k * 7u + i);
+        *p++ = 0u;
+        *p++ = 200u;
+        *p++ = 255u;  // match 300 = 4 + 15 + 255 + 26
+        *p++ = 26u;
+    }
+    *p++ = 0x30u;
+    *p++ = 'e'; *p++ = 'n'; *p++ = 'd';
+    std::memcpy(file, "SLZ1", 4u);
+    put_be32(file + 4u, kStreamDecoded);
+    put_be32(file + 8u, kStreamMargin);
+    put_be32(file + 12u, static_cast<uint32_t>(p - file) - 16u);
+    return static_cast<uint32_t>(p - file);
+}
+
+uint8_t stream_byte(uint32_t at) {
+    if (at >= kStreamBlocks * 500u) return static_cast<uint8_t>("end"[at - kStreamBlocks * 500u]);
+    return static_cast<uint8_t>((at / 500u) * 7u + (at % 500u) % 200u);
 }
 
 void make_image() {
@@ -58,7 +106,9 @@ void make_image() {
     offset = static_cast<uint16_t>(offset + add_record(root, offset, 20u, SAT_CD_SECTOR_BYTES, 2u, "\0", 1u));
     offset = static_cast<uint16_t>(offset + add_record(root, offset, 20u, SAT_CD_SECTOR_BYTES, 2u, "\1", 1u));
     offset = static_cast<uint16_t>(offset + add_record(root, offset, 21u, SAT_CD_SECTOR_BYTES, 2u, "ASSETS", 6u));
-    (void)add_record(root, offset, 22u, 5u, 0u, "ROOT.TXT;1", 10u);
+    offset = static_cast<uint16_t>(offset + add_record(root, offset, 22u, 5u, 0u, "ROOT.TXT;1", 10u));
+    const uint32_t stream_bytes = make_stream(g_image + 25u * SAT_CD_SECTOR_BYTES);
+    (void)add_record(root, offset, 25u, stream_bytes, 0u, "STREAM.LZ;1", 11u);
 
     uint8_t* assets = g_image + 21u * SAT_CD_SECTOR_BYTES;
     (void)add_record(assets, 0u, 21u, SAT_CD_SECTOR_BYTES, 2u, "\0", 1u);
@@ -139,6 +189,32 @@ int main() {
     const sat_load_item_t past_end = { "ROOT.TXT", 0u, 3u, 9u, untouched };
     OK(sat_load_files(&volume, &past_end, 1u, 0u, nullptr, nullptr) == SAT_ERR_INVALID_ARG);
     OK(sat_load_files(&volume, nullptr, 0u, 0u, nullptr, nullptr) == SAT_ERR_INVALID_ARG);
+
+    // sat_load_lz decodes each batch as it arrives: the output's start is written while the read
+    // is still going, in place in decoded + margin bytes.
+    {
+        static uint8_t arena[kStreamDecoded + kStreamMargin + 8u];
+        uint8_t* base = arena + (4u - reinterpret_cast<uintptr_t>(arena) % 4u) % 4u;
+        std::memset(arena, 0xEE, sizeof(arena));
+        g_watch = base;
+        uint32_t got = 0u;
+        OK(sat_load_lz(&volume, "STREAM.LZ", base, kStreamDecoded + kStreamMargin, kStreamDecoded,
+                       nullptr, nullptr, &got) == SAT_OK);
+        g_watch = nullptr;
+        OK(got == kStreamDecoded && g_watch_mid_read == 0u);
+        bool same = true;
+        for (uint32_t i = 0u; i < kStreamDecoded; ++i) same = same && base[i] == stream_byte(i);
+        OK(same);
+        // Another alignment of the capacity; too little room; the wrong decoded size.
+        std::memset(arena, 0xEE, sizeof(arena));
+        OK(sat_load_lz(&volume, "STREAM.LZ", base, kStreamDecoded + kStreamMargin + 3u, 0u,
+                       nullptr, nullptr, &got) == SAT_OK);
+        OK(got == kStreamDecoded && base[kStreamDecoded - 1u] == 'd' && base[0] == 0u);
+        OK(sat_load_lz(&volume, "STREAM.LZ", base, kStreamDecoded + kStreamMargin - 1u, 0u,
+                       nullptr, nullptr, &got) == SAT_ERR_CAPACITY);
+        OK(sat_load_lz(&volume, "STREAM.LZ", base, kStreamDecoded + kStreamMargin, 5u,
+                       nullptr, nullptr, &got) == SAT_ERR_VERSION);
+    }
 
     // The loading screen draws one frame per callback; the fill follows done/total.
     sat_loading_screen_t screen{};

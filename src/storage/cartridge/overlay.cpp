@@ -50,6 +50,33 @@ extern "C" sat_result_t sat_cart_overlay_load(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_cart_overlay_load_lz(
+    sat_cart_overlay_t* overlay,
+    sat_cdfs_volume_t* volume,
+    int32_t id,
+    const char* disc_path,
+    uint32_t expected_decoded,
+    sat_load_progress_fn progress, void* context) {
+    if (overlay == nullptr || overlay->capacity == 0u || volume == nullptr ||
+        disc_path == nullptr || id < 0) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (overlay->resident == id) return SAT_OK;
+
+    sat_cdfs_file_t file;
+    SAT_TRY(sat_cdfs_lookup(volume, disc_path, &file));
+    if (file.directory != 0u) return SAT_ERR_INVALID_ARG;
+    if (file.size > overlay->capacity) return SAT_ERR_CAPACITY;
+
+    overlay->resident = SAT_CART_OVERLAY_NONE;
+    const sat_result_t rc = sat_load_lz(volume, disc_path, overlay_hal::write_pointer(overlay->base),
+                                        overlay->capacity, expected_decoded, progress, context, nullptr);
+    overlay_hal::purge_cpu_cache();
+    if (rc != SAT_OK) return rc;
+    overlay->resident = id;
+    return SAT_OK;
+}
+
 extern "C" void sat_cart_overlay_forget(sat_cart_overlay_t* overlay) {
     if (overlay != nullptr) overlay->resident = SAT_CART_OVERLAY_NONE;
 }

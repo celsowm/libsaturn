@@ -11,6 +11,65 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- SLZ1 compressed disc files (`saturn/lz.h`), made by `tools/satlz.py`
+  (installed with the package's tools). The drive reads ~300 KB/s and tile or
+  sprite data shrinks to 20-35%, so a compressed file loads in about a third
+  of the time.
+  - `sat_lz_decode` decodes from memory. `sat_load_lz` (`saturn/loader.h`)
+    reads a file to the end of its destination and decodes it there in place,
+    so it needs no buffer beyond the header's `decoded + margin` bytes.
+  - `sat_cart_overlay_load_lz` does the same into a cart overlay slot.
+  - The decode runs behind the read: after each batch of sectors the CD Block
+    reports where the data ends (`sat_cd_set_arrival_observer`, `saturn/cd.h`),
+    and the loader decodes the sequences already there while the drive reads
+    on. A transport that does not report arrivals is decoded at the end.
+  - Covered by `test_lz` (corrupt and short input, in-place decoding, input
+    arriving byte by byte), `test_loader` (a five-sector file decoded during
+    its read), `test_cart_overlay`, and `tests/tools/test_satlz.py` (round
+    trips, and a check that in-place decoding never overwrites unread input).
+- Background CD reads (`saturn/cd_block.h`): `sat_cd_stream_begin` starts the
+  drive on up to `SAT_CD_STREAM_MAX_SECTORS` sectors and returns;
+  `sat_cd_stream_poll` moves the sectors that have arrived (never waiting), once
+  a frame, so a game reads data while it runs instead of behind a black screen.
+  One stream at a time: any `sat_cd_block_read_sectors` (so any file read)
+  finishes an open stream first, and `sat_cd_stream_finish` waits for it.
+  `sat_cdfs_file_sectors` (`saturn/cdfs.h`) maps a file range to LBA and sector
+  count. `sat_cd_block_t` gained `stream_active`, `stream_remaining` and
+  `stream_destination` (the old `reserved` byte is now `stream_active`).
+  Argument and bookkeeping checks are in `test_cd_block_api` and
+  `test_cdfs_logic`; the drive side runs on the SH-2 only.
+- RBG0 in cell format under the NBG layer manager (`saturn/vdp2_layers.h`,
+  `sat_vdp2_rotation_*`), for tilted floors and rotating or zooming maps.
+  - RBG0 takes whole banks for its pattern names and characters (RAMCTL RDBS).
+    The NBG cycle planner keeps out of those banks, and a configuration that
+    would leave an NBG without its bank fails with `SAT_ERR_CAPACITY`.
+  - `sat_vdp2_rotation_write_params` encodes rotation parameter A (manual 6.3,
+    16.16 in, the VDP2's bit widths out) at a table address. The new table is
+    switched in at the next `sat_vdp2_layers_commit`, so two tables can be
+    used in turn.
+  - Per-line 2-word coefficient tables (`sat_vdp2_rotation_coefficient`,
+    `_write_coefficients`) set kx/ky, kx, ky or Xp, with the per-line
+    transparent bit. They may sit in a bank with no RBG0 role (p06_20). KTAOF
+    is set for tables past 256 KiB.
+  - Covered by `test_vdp2_rotation_logic`: validation, register composition,
+    NBG planning round reserved banks, and parameter and coefficient encoding
+    against figures 6.2 and 6.7.
+
+- `saturn/sampler.h`: SCSP voices the caller drives every frame, for a
+  sequencer that runs its own envelopes, bends and pans (e.g. a port of
+  another console's sound engine). `sat_sampler_init` claims a range of slots
+  and of Sound RAM. Each voice owns two slots and starts a new note on the one
+  not sounding. Key-ons and key-offs are staged, and `sat_sampler_commit`
+  applies them with one KYONEX. `sat_sampler_voice_set` takes a rate in Hz
+  and linear left/right levels and writes OCT/FNS, TL and DIPAN only when
+  they change. `sat_sampler_mute_range` silences every slot reading a region
+  before new samples are loaded into it.
+  - While the sampler runs, resident voices skip its slots and resident
+    sounds and effect rings stay out of its RAM. A stream whose slot or
+    buffer it claimed is refused with `SAT_ERR_BUSY`. `sat_audio_shutdown`
+    ends it.
+  - Covered by `test_sampler_api`, which runs against a slot model that
+    asserts no slot is reprogrammed while it is heard.
 - `sat_vdp2_sprite_set_palette_priorities(priority[8])`: per-sprite VDP2
   priority. The sprite layer switches to sprite type 1 (palette dots only),
   and an INDEXED8 sprite picks one of eight priority selectors with
@@ -19,6 +78,35 @@ The version is defined once, in the `VERSION` file.
   `SAT_ERR_BUSY`; hi-res is `SAT_ERR_UNSUPPORTED`; `NULL` restores type 0.
   `vdp2_layers_demo` draws one square in front of NBG0 and one behind it in
   the same frame, checked by `test_vdp2_layers.py`.
+- `sat_vdp2_sprite_set_palette_color_calc(ratio[4])`: semi-transparent
+  palette sprites while palette priorities are on. Dots whose CRAM colour has
+  bit 15 set are mixed with the image below (SPCTL condition "colour MSB",
+  CCCTL SPCCEN) by the ratio their colour calculation bits 12-11 select
+  (CCRSA-B); other dots stay opaque, so a program blends a sprite by drawing it
+  with a copy of its palette that has bit 15 set. Replayed with the layer
+  registers; turning palette priorities off turns it off. Covered by
+  `test_vdp2_compose_logic`.
+- `sat_vdp2_color_calc_set_add(add)`: the VDP2 add mode (CCCTL CCMD) for
+  per-screen and palette sprite colour calculation: the two images are summed
+  and saturated (GBA alpha blending with EVA = EVB = 16) instead of mixed by
+  ratio. Refused with BUSY while the sprite colour calculation module owns
+  the bit.
+- `sat_vdp2_sprite_set_palette_window(enabled)` and the `sw` field of
+  `sat_vdp2_screen_window_t`: a sprite window drawn by palette sprites. It
+  switches palette sprites to type 3 (same selectors 0-3, colour calculation
+  bits and dot colour as type 1) with SPWINEN; dots with bit 15 set make the
+  window and are hidden on the sprite screen (WCTLC SPSWE), and other screens
+  are shown inside or outside it like W0/W1. `sw` is a new last member: code
+  that fills the struct field by field must set it (brace initialisers leave it
+  off), or start from `sat_vdp2_screen_window_default(screen, &config)`, which
+  sets every window off. Covered by `test_vdp2_compose_logic`.
+- `sat_vdp2_screen_set_cram_bank(screen, bank)`: the CRAM bank (CRAOFA/CRAOFB,
+  256 colours each in CRAM modes 0/1) of NBG0-NBG3, RBG0 or the sprites, so a
+  layer can draw from another copy of its palette (a blend-scaled or faded set)
+  without touching tiles. Replayed by `sat_vdp2_layers_commit()`;
+  `sat_vdp2_cram_banks_apply()` rewrites them from an interrupt handler that
+  switched banks mid-picture. `sat_init` now clears CRAOFA, which the hardware
+  leaves undefined after reset. Covered by `test_vdp2_compose_logic`.
 - `SAT_SPRITE_FLAG_FLIP_H` / `SAT_SPRITE_FLAG_FLIP_V` for normal, scaled and
   distorted sprite commands: the VDP1 reads the pattern mirrored (CMDCTRL
   Dir), so one texture serves every orientation. Polygons refuse them.
@@ -80,7 +168,41 @@ The version is defined once, in the `VERSION` file.
   reads never see the previous overlay's lines. A failed read leaves the slot
   empty. Host test: `test_cart_overlay.cpp`.
 
+- RAM-cart overlay build helpers (`cmake/LibSaturnFunctions.cmake`) for programs whose read-only data
+  does not all fit the cart. `libsaturn_cart_overlay_script()` writes an ld `OVERLAY` block (members
+  share one slot address, each section word-aligned, size asserted),
+  `libsaturn_inject_link_script()` puts it and any resident cart block into a copy of `saturn.ld`
+  (ld `INSERT` cannot augment a `-T` script), and `libsaturn_split_cart_image()` writes the program
+  image without the cart sections plus one flat file per overlay member and for the resident cart
+  section, ready for `sat_cart_overlay_load`. The package-consumer test links and splits a two-member
+  overlay program and checks the bytes of every output.
+
+### Changed
+
+- Sound RAM from 0x3000 up is free for samples (was 0xB000): 32 KiB more for
+  resident sounds, effect rings and `sat_sampler`. The sound driver's stack
+  moved from 0xA000 to the 1 KiB between its mailbox and its score (top
+  0x1000), so the driver uses nothing above the score's end.
+  `kSystemReservedBytes` and `SAT_SAMPLER_RAM_BASE` are now 0x3000.
+  - `static_assert`s tie the reserved size to the driver layout, and
+    `test_sound_driver.py` checks the stack and score addresses against the
+    assembly.
+- Programs that never call `sat_music_*` or the asset API no longer link the
+  music slots (~297 KB) or the built-in asset cache blocks (~269 KB) into
+  Work RAM Low. `sat_audio_init`/`sat_audio_shutdown` reach the music reset
+  through a weak reference. The cache blocks moved to `asset_cache.cpp`, and
+  the first cache fill configures them (`sat_asset_cache_stats` still
+  reports the default capacity before that). The package-consumer test fails
+  if either comes back.
+
 ### Fixed
+
+- The Slave SH-2 never started under a real BIOS (hardware, Mednafen, or the
+  probe without `--slave-reset-entry`). After SSHON the BIOS takes the Slave's
+  start address from vector 0x94 of the Master table (0x06000250), but
+  `sat_dual_sh2_start` wrote it into the Slave table (0x06000650). The start
+  timed out, and `sat_parallel_init(SAT_PARALLEL_AUTO)` quietly ran every task
+  on the Master.
 
 - Nothing kept the Master stack out of `.bss`. The stack starts at the top
   of Work RAM High and grows down, so a `.bss` that ended 212 bytes under the

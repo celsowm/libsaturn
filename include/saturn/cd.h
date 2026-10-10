@@ -41,6 +41,17 @@ sat_result_t sat_cd_read_sectors(
     void* destination
 );
 
+/* Arrival observer: a transport that fills a read in batches (the CD Block
+ * does, as sectors come off the disc) reports where each batch ends, so the
+ * reader can work on the first bytes while the drive reads the rest
+ * (sat_load_lz decodes that way). `end` is one past the last byte stored.
+ * One observer at a time, set around one read; NULL clears it. The observer
+ * runs inside the read and must not read the disc. */
+typedef void (*sat_cd_arrival_fn)(void* context, const void* end);
+void sat_cd_set_arrival_observer(sat_cd_arrival_fn fn, void* context);
+/* For transports: reports a batch stored up to `end`. */
+void sat_cd_notify_arrival(const void* end);
+
 #ifdef __cplusplus
 }
 #endif

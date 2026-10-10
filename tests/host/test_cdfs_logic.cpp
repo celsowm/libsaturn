@@ -78,6 +78,7 @@ int main() {
 
     sat_cdfs_file_t file{};
     OK(sat_cdfs_lookup(&volume, "assets/player.bin", &file) == SAT_OK);
+    const sat_cdfs_file_t file0 = file;
     OK(file.extent_lba == 23u && file.size == SAT_CD_SECTOR_BYTES + 2u && file.directory == 0u);
     uint8_t output[4] = {};
     uint32_t read = 0u;
@@ -100,6 +101,17 @@ int main() {
     OK(sat_cdfs_lookup(&volume, "ROOT.TXT", &file) == SAT_OK && file.extent_lba == 22u);
     OK(sat_cdfs_lookup(&volume, "assets/../bad", &file) == SAT_ERR_INVALID_ARG);
     OK(sat_cdfs_lookup(&volume, "missing.bin", &file) == SAT_ERR_NOT_FOUND);
+    {
+        // player.bin is 2050 bytes: two sectors from LBA 23.
+        uint32_t lba = 0u, sectors = 0u;
+        OK(sat_cdfs_file_sectors(&file0, 0u, 0u, &lba, &sectors) == SAT_OK && lba == 23u && sectors == 2u);
+        OK(sat_cdfs_file_sectors(&file0, 0u, SAT_CD_SECTOR_BYTES, &lba, &sectors) == SAT_OK && lba == 23u && sectors == 1u);
+        OK(sat_cdfs_file_sectors(&file0, SAT_CD_SECTOR_BYTES, 0u, &lba, &sectors) == SAT_OK && lba == 24u && sectors == 1u);
+        OK(sat_cdfs_file_sectors(&file0, 1u, 0u, &lba, &sectors) == SAT_ERR_INVALID_ARG);
+        OK(sat_cdfs_file_sectors(&file0, 0u, file0.size + 1u, &lba, &sectors) == SAT_ERR_INVALID_ARG);
+        OK(sat_cdfs_file_sectors(&file0, 2u * SAT_CD_SECTOR_BYTES, 0u, &lba, &sectors) == SAT_ERR_INVALID_ARG);
+        OK(sat_cdfs_file_sectors(nullptr, 0u, 0u, &lba, &sectors) == SAT_ERR_INVALID_ARG);
+    }
     OK(sat_cdfs_unmount(&volume) == SAT_OK);
     OK(sat_cdfs_lookup(&volume, "ROOT.TXT", &file) == SAT_ERR_NOT_INITIALIZED);
     std::puts("cdfs logic: OK");

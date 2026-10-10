@@ -4,6 +4,7 @@
 
 #include "saturn/cart_overlay.h"
 #include "saturn/cdfs.h"
+#include "saturn/lz.h"
 #include "src/storage/cartridge/overlay_hal.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
@@ -15,7 +16,7 @@ uint8_t g_image[kSectorCount * SAT_CD_SECTOR_BYTES] = {};
 
 constexpr uint32_t kSlotBase = 0x02440000u;
 constexpr uint32_t kSlotBytes = 3u * SAT_CD_SECTOR_BYTES;
-uint8_t g_slot[kSlotBytes] = {};
+alignas(4) uint8_t g_slot[kSlotBytes] = {};
 uint32_t g_last_write_base = 0u;
 int g_purges = 0;
 int g_reads = 0;
@@ -49,7 +50,19 @@ sat_result_t read_image(void*, uint32_t lba, uint32_t count, void* destination) 
     return SAT_OK;
 }
 
-// Root: LV00.BIN (1.5 sectors of 0xA0), LV01.BIN (2 sectors of 0xB1), BIG.BIN (4 sectors).
+// tools/satlz.py of "Saturn " x 20, bytes 0..63, 300 zero bytes, "end" (as tests/host/test_lz.cpp).
+const uint8_t kPacked[] = {
+    0x53,0x4c,0x5a,0x31,0x00,0x00,0x01,0xfb,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x56,0x7f,0x53,0x61,0x74,
+    0x75,0x72,0x6e,0x20,0x00,0x07,0x72,0xff,0x32,0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,
+    0x0b,0x0c,0x0d,0x0e,0x0f,0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,
+    0x1f,0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2a,0x2b,0x2c,0x2d,0x2e,0x2f,0x30,0x31,0x32,
+    0x33,0x34,0x35,0x36,0x37,0x38,0x39,0x3a,0x3b,0x3c,0x3d,0x3e,0x3f,0x00,0x00,0x01,0xff,0x19,0x30,0x65,
+    0x6e,0x64,
+};
+constexpr uint32_t kUnpacked = 507u;
+
+// Root: LV00.BIN (1.5 sectors of 0xA0), LV01.BIN (2 sectors of 0xB1), BIG.BIN (4 sectors),
+// PACK.LZ (an SLZ1 file, sector 30).
 void make_image() {
     std::memset(g_image, 0, sizeof(g_image));
     uint8_t* pvd = g_image + 16u * SAT_CD_SECTOR_BYTES;
@@ -65,9 +78,11 @@ void make_image() {
     offset = static_cast<uint16_t>(offset + add_record(root, offset, 20u, SAT_CD_SECTOR_BYTES, 2u, "\1", 1u));
     offset = static_cast<uint16_t>(offset + add_record(root, offset, 22u, SAT_CD_SECTOR_BYTES * 3u / 2u, 0u, "LV00.BIN;1", 10u));
     offset = static_cast<uint16_t>(offset + add_record(root, offset, 24u, SAT_CD_SECTOR_BYTES * 2u, 0u, "LV01.BIN;1", 10u));
-    (void)add_record(root, offset, 26u, SAT_CD_SECTOR_BYTES * 4u, 0u, "BIG.BIN;1", 9u);
+    offset = static_cast<uint16_t>(offset + add_record(root, offset, 26u, SAT_CD_SECTOR_BYTES * 4u, 0u, "BIG.BIN;1", 9u));
+    (void)add_record(root, offset, 30u, sizeof(kPacked), 0u, "PACK.LZ;1", 9u);
     std::memset(g_image + 22u * SAT_CD_SECTOR_BYTES, 0xA0, SAT_CD_SECTOR_BYTES * 3u / 2u);
     std::memset(g_image + 24u * SAT_CD_SECTOR_BYTES, 0xB1, SAT_CD_SECTOR_BYTES * 2u);
+    std::memcpy(g_image + 30u * SAT_CD_SECTOR_BYTES, kPacked, sizeof(kPacked));
 }
 
 }  // namespace
@@ -136,6 +151,27 @@ int main() {
     const int before = g_reads;
     OK(sat_cart_overlay_load(&overlay, &volume, 1, "LV01.BIN", 0u, nullptr, nullptr) == SAT_OK);
     OK(g_reads > before && overlay.resident == 1);
+
+    // An SLZ1 overlay is decoded in place in the slot; the plain loader's checks still apply.
+    std::memset(g_slot, 0xEE, sizeof(g_slot));
+    const int purges = g_purges;
+    OK(sat_cart_overlay_load_lz(&overlay, &volume, 5, "PACK.LZ", 7u, nullptr, nullptr) == SAT_ERR_VERSION);
+    OK(overlay.resident == SAT_CART_OVERLAY_NONE && g_purges == purges + 1);
+    OK(sat_cart_overlay_load_lz(&overlay, &volume, 5, "PACK.LZ", kUnpacked, nullptr, nullptr) == SAT_OK);
+    OK(overlay.resident == 5 && g_purges == purges + 2);
+    OK(std::memcmp(g_slot, "Saturn Saturn ", 14u) == 0 && g_slot[140] == 0u && g_slot[141] == 1u &&
+       g_slot[203] == 63u && g_slot[204] == 0u && g_slot[503] == 0u && std::memcmp(g_slot + 504, "end", 3u) == 0);
+    const int lz_reads = g_reads;
+    OK(sat_cart_overlay_load_lz(&overlay, &volume, 5, "PACK.LZ", 0u, nullptr, nullptr) == SAT_OK);
+    OK(g_reads == lz_reads);
+    OK(sat_cart_overlay_load_lz(&overlay, &volume, 6, "BIG.BIN", 0u, nullptr, nullptr) == SAT_ERR_CAPACITY);
+    OK(sat_cart_overlay_load_lz(&overlay, &volume, 6, "LV01.BIN", 0u, nullptr, nullptr) == SAT_ERR_VERSION);
+    OK(overlay.resident == SAT_CART_OVERLAY_NONE);
+    // The file fits a 400-byte slot but its 507 decoded bytes do not: refused after the read.
+    sat_cart_overlay_t small{};
+    OK(sat_cart_overlay_init(&small, kSlotBase, 400u) == SAT_OK);
+    OK(sat_cart_overlay_load_lz(&small, &volume, 5, "PACK.LZ", 0u, nullptr, nullptr) == SAT_ERR_CAPACITY);
+    OK(small.resident == SAT_CART_OVERLAY_NONE);
 
     std::puts("cart overlay: OK");
     return 0;

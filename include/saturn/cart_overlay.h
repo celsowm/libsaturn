@@ -57,6 +57,18 @@ sat_result_t sat_cart_overlay_load(
     uint32_t expected_size,
     sat_load_progress_fn progress, void* context);
 
+/* As sat_cart_overlay_load for an SLZ1 file (saturn/lz.h, tools/satlz.py):
+ * read to the end of the slot and decoded in place (sat_load_lz).
+ * `expected_decoded` is the size after decoding (0 = any). Errors as
+ * sat_load_lz; any failure after the read started leaves the slot empty. */
+sat_result_t sat_cart_overlay_load_lz(
+    sat_cart_overlay_t* overlay,
+    sat_cdfs_volume_t* volume,
+    int32_t id,
+    const char* disc_path,
+    uint32_t expected_decoded,
+    sat_load_progress_fn progress, void* context);
+
 /* Marks the slot empty (for example after the program wrote into it), so
  * the next load reads the file again. */
 void sat_cart_overlay_forget(sat_cart_overlay_t* overlay);

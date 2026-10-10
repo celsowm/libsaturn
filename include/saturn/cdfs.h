@@ -49,6 +49,21 @@ sat_result_t sat_cdfs_read_at(
     uint32_t* out_read
 );
 
+/* Where `bytes` of `file` from `offset` lie on the disc, for a reader that
+ * wants sectors rather than bytes (sat_cd_stream_begin): the first sector's
+ * LBA and the sector count, rounded up. `offset` must be a sector multiple
+ * (SAT_ERR_INVALID_ARG otherwise, or when the range leaves the file;
+ * bytes == 0 means to the end of the file). The destination needs room for
+ * whole sectors. Reads nothing: look the file up first, since a lookup
+ * reads the disc and would finish a stream in flight. */
+sat_result_t sat_cdfs_file_sectors(
+    const sat_cdfs_file_t* file,
+    uint32_t offset,
+    uint32_t bytes,
+    uint32_t* out_lba,
+    uint32_t* out_sectors
+);
+
 /* Adapter for sat_file_register_backend. The source object is caller-owned
  * and must outlive the registered file mount. */
 typedef struct sat_cdfs_file_source {

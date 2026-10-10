@@ -16,14 +16,18 @@ constexpr uint32_t kSlaveStackTop = 0x06001000u;
 constexpr uint32_t kDualSh2ControlBase = 0x06002000u;
 constexpr uint32_t kDualSh2ControlEnd = 0x06004000u;
 constexpr uint32_t kApplicationLoadAddress = 0x06004000u;
+/* After SSHON the BIOS starts the Slave at the address in slot 0x94 of the
+ * MASTER table (0x06000250).  The same slot in the Slave table is never read:
+ * writing it there timed out on a real BIOS (Mednafen, bare probe). */
 constexpr uint32_t kSlaveEntryVector = 0x94u;
 constexpr uint32_t kSlaveEntryVectorAddress =
-    kSlaveVectorBase + (kSlaveEntryVector * sizeof(uint32_t));
+    kMasterVectorBase + (kSlaveEntryVector * sizeof(uint32_t));
 
 constexpr uint32_t kCacheThroughBit = 0x20000000u;
 constexpr uint32_t kCachePurgeBit = 0x40000000u;
 
 static_assert(kMasterVectorBase + 0x400u <= kSlaveVectorBase);
+static_assert(kSlaveEntryVectorAddress == 0x06000250u);
 static_assert(kSlaveVectorBase + 0x400u <= kSlaveStackTop);
 static_assert(kSlaveStackTop < kDualSh2ControlBase);
 static_assert(kDualSh2ControlBase < kDualSh2ControlEnd);

@@ -237,6 +237,24 @@ extern "C" sat_result_t sat_cdfs_read_at(
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_cdfs_file_sectors(
+    const sat_cdfs_file_t* file,
+    uint32_t offset,
+    uint32_t bytes,
+    uint32_t* out_lba,
+    uint32_t* out_sectors
+) {
+    if (file == nullptr || out_lba == nullptr || out_sectors == nullptr ||
+        file->directory != 0u || offset % SAT_CD_SECTOR_BYTES != 0u || offset > file->size) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (bytes == 0u) bytes = file->size - offset;
+    if (bytes == 0u || bytes > file->size - offset) return SAT_ERR_INVALID_ARG;
+    *out_lba = file->extent_lba + offset / SAT_CD_SECTOR_BYTES;
+    *out_sectors = bytes / SAT_CD_SECTOR_BYTES + (bytes % SAT_CD_SECTOR_BYTES != 0u ? 1u : 0u);
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_cdfs_file_read_at(
     void* context,
     uint32_t offset,

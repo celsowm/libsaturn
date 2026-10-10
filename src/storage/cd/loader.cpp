@@ -1,6 +1,11 @@
 #include "saturn/loader.h"
 
+#include "saturn/lz.h"
+#include "src/storage/compression/lz_stream.hpp"
+
 namespace {
+
+namespace lz = saturn::storage::lz;
 
 constexpr uint16_t kMaxItems = 32u;
 
@@ -8,6 +13,44 @@ struct Resolved {
     sat_cdfs_file_t file;
     uint32_t bytes;
 };
+
+struct LzLoad {
+    lz::Stream stream;
+    uint8_t* base;
+    uint8_t* packed;
+    uint32_t file_bytes;
+    uint32_t capacity;
+    uint32_t expected;
+    bool begun;
+    sat_result_t status;
+};
+
+/* Decodes what has arrived of the packed file, up to `end`. */
+void on_lz_arrival(void* context, const void* end) {
+    LzLoad& load = *static_cast<LzLoad*>(context);
+    const uint8_t* const arrived = static_cast<const uint8_t*>(end);
+    if (load.status != SAT_OK || arrived <= load.packed || arrived > load.packed + load.file_bytes) {
+        return;
+    }
+    if (!load.begun) {
+        if (static_cast<uint32_t>(arrived - load.packed) < SAT_LZ_HEADER_BYTES) return;
+        sat_lz_header_t header;
+        load.status = sat_lz_read_header(load.packed, &header);
+        if (load.status != SAT_OK) return;
+        if (load.expected != 0u && header.decoded != load.expected) {
+            load.status = SAT_ERR_VERSION;
+            return;
+        }
+        if (header.decoded > load.capacity || header.margin > load.capacity - header.decoded) {
+            load.status = SAT_ERR_CAPACITY;
+            return;
+        }
+        load.status = lz::begin(load.stream, load.packed, load.file_bytes, load.base, header.decoded);
+        if (load.status != SAT_OK) return;
+        load.begun = true;
+    }
+    load.status = lz::step(load.stream, arrived);
+}
 
 }  // namespace
 
@@ -62,5 +105,46 @@ extern "C" sat_result_t sat_load_files(
             if (progress != nullptr) progress(context, done, total);
         }
     }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_load_lz(
+    sat_cdfs_volume_t* volume,
+    const char* disc_path,
+    void* destination, uint32_t capacity,
+    uint32_t expected_decoded,
+    sat_load_progress_fn progress, void* context,
+    uint32_t* out_bytes) {
+    if (out_bytes != nullptr) *out_bytes = 0u;
+    if (volume == nullptr || disc_path == nullptr || destination == nullptr ||
+        (reinterpret_cast<uintptr_t>(destination) & 3u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    sat_cdfs_file_t file;
+    SAT_TRY(sat_cdfs_lookup(volume, disc_path, &file));
+    if (file.directory != 0u) return SAT_ERR_INVALID_ARG;
+    if (file.size < SAT_LZ_HEADER_BYTES) return SAT_ERR_VERSION;
+    if (file.size > capacity) return SAT_ERR_CAPACITY;
+
+    // The file goes at the end; the decoder writes from the start and never
+    // overtakes its input when capacity >= decoded + margin (tools/satlz.py).
+    // It decodes each batch of sectors as it arrives, while the drive reads
+    // the next, and whatever is left once the read is done.
+    LzLoad load = {};
+    load.base = static_cast<uint8_t*>(destination);
+    load.packed = load.base + ((capacity - file.size) & ~3u);
+    load.file_bytes = file.size;
+    load.capacity = capacity;
+    load.expected = expected_decoded;
+    const sat_load_item_t item = { disc_path, file.size, 0u, file.size, load.packed };
+    sat_cd_set_arrival_observer(on_lz_arrival, &load);
+    const sat_result_t read = sat_load_files(volume, &item, 1u, 0u, progress, context);
+    sat_cd_set_arrival_observer(nullptr, nullptr);
+    SAT_TRY(read);
+
+    on_lz_arrival(&load, load.packed + file.size);
+    SAT_TRY(load.status);
+    if (!load.begun || !lz::done(load.stream)) return SAT_ERR_IO;
+    if (out_bytes != nullptr) *out_bytes = static_cast<uint32_t>(load.stream.out_end - load.base);
     return SAT_OK;
 }

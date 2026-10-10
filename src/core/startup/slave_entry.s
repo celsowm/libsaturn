@@ -2,7 +2,8 @@
     .global _saturn_slave_entry
     .align 2
 
-/* Entry installed in the BIOS-managed Slave vector 0x94.  This is deliberately
+/* Entry installed in BIOS vector 0x94 of the Master table (0x06000250), where
+ * the BIOS looks for the Slave's start address after SSHON.  This is deliberately
  * not crt0: the Slave must not clear the application's BSS or call main(). */
 _saturn_slave_entry:
     stc     sr, r0

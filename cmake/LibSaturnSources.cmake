@@ -90,6 +90,7 @@ set(LIBSATURN_AUDIO_SOURCES
     src/audio/playback/sound.cpp
     src/audio/playback/state.cpp
     src/audio/playback/voice.cpp
+    src/audio/sampler/api.cpp
     src/audio/streaming/api.cpp
     src/audio/streaming/runtime.cpp
     src/audio/synthesis/api.cpp
@@ -164,7 +165,9 @@ set(LIBSATURN_STORAGE_SOURCES
     src/storage/cd/api.cpp
     src/storage/cd/filesystem.cpp
     src/storage/cd/loader.cpp
+    src/storage/compression/lz.cpp
     src/storage/files/api.cpp
+    src/storage/files/asset_cache.cpp
     src/storage/files/asset_runtime.cpp
     src/storage/save/api.cpp
     src/storage/save/schema.cpp

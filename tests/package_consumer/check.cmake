@@ -63,6 +63,10 @@ if(NOT _symbols MATCHES "06004000 [Tt] _start")
 endif()
 expect_contains("${_symbols}" " _saturn_slave_entry" "slave startup entry")
 expect_contains("${_symbols}" " _main" "program entry")
+# Optional runtimes stay out of programs that never call them (~297 KB music
+# slots, ~269 KB asset cache blocks in work RAM Low).
+expect_missing("${_symbols}" "g_musicE" "music runtime without sat_music_*")
+expect_missing("${_symbols}" "g_asset_cache_blocks" "asset cache blocks without the asset API")
 
 # 10. the post-link constructor guard ran, and also rejects a bad program.
 expect_contains("${_build_out}" "LibSaturnCheckNoInitArray.cmake"
@@ -80,6 +84,30 @@ step_run("a program without room for the Master stack is rejected" EXPECT_FAILUR
     OUTPUT_VAR _stack_out
     COMMAND "${CMAKE_COMMAND}" --build "${_consumer}" --target stack_trap)
 expect_contains("${_stack_out}" "leaves less than __stack_reserve bytes" "rejection must come from the stack check")
+# 10c. the cart helpers split an overlay program: one flat file per member, the resident cart
+# section on its own, and none of them in the app image.
+foreach(_f OVLA.BIN:12:AAAAAAAAAAAA OVLB.BIN:20:BBBBBBBBBBBBBBBBBBBB overlay_consumer.res.bin:8:RRRRRRRR)
+    string(REPLACE ":" ";" _p "${_f}")
+    list(GET _p 0 _name)
+    list(GET _p 1 _size)
+    list(GET _p 2 _text)
+    if(NOT EXISTS "${_consumer}/${_name}")
+        message(FATAL_ERROR "[package-consumer] ${_name} was not produced by libsaturn_split_cart_image")
+    endif()
+    file(SIZE "${_consumer}/${_name}" _got)
+    if(NOT _got EQUAL _size)
+        message(FATAL_ERROR "[package-consumer] ${_name} is ${_got} bytes, expected ${_size}")
+    endif()
+    file(READ "${_consumer}/${_name}" _hex HEX)
+    string(HEX "${_text}" _want)
+    if(NOT _hex STREQUAL _want)
+        message(FATAL_ERROR "[package-consumer] ${_name} holds ${_hex}, expected ${_want}")
+    endif()
+endforeach()
+file(SIZE "${_consumer}/overlay_consumer.app.bin" _ovl_app)
+if(_ovl_app GREATER 983040)
+    message(FATAL_ERROR "[package-consumer] overlay_consumer.app.bin carries the cart sections (${_ovl_app} bytes)")
+endif()
 # 11. libsaturn_add_disc() built a bootable disc from the installed tools.
 set(_disc "${_consumer}/disc")
 foreach(_ext iso bin cue)

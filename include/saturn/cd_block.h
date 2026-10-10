@@ -49,7 +49,9 @@ typedef struct sat_cd_block {
     uint8_t initialized;
     uint8_t progress_active;
     uint8_t read_active;
-    uint8_t reserved;
+    uint8_t stream_active;     /* a background read is open (sat_cd_stream_begin) */
+    uint32_t stream_remaining; /* its sectors not yet moved to the destination */
+    uint8_t* stream_destination;
     /* Hook calls that returned an error, and the most recent such status
      * (SAT_OK until the first). Reset by sat_cd_block_init. */
     uint32_t progress_error_count;
@@ -84,6 +86,35 @@ sat_result_t sat_cd_block_read_sectors(
     uint32_t sector_count,
     void* destination
 );
+
+/* Background reads. sat_cd_block_read_sectors waits for the whole file; a stream
+ * starts the drive and returns, and the program moves the sectors that have
+ * arrived whenever it has a moment (once a frame, say), so the disc is read
+ * while the game runs. At the 2x drive's ~300 KB/s that is ~5 KB per 60 Hz
+ * field, which costs the CPU about as much as a few sprites.
+ *
+ * One stream at a time, at most SAT_CD_STREAM_MAX_SECTORS sectors (the CD
+ * Block buffers ~200; chain streams for more) and `destination` 2-byte aligned
+ * (Sound RAM is fine: the sectors go out as 16-bit stores). While a stream is
+ * open nothing else may use the drive: any sat_cd_block_read_sectors (so any
+ * file read) first finishes the stream, blocking until its last sector is in,
+ * and sat_cd_block_command is the caller's own risk. */
+#define SAT_CD_STREAM_MAX_SECTORS 192u
+
+/* SAT_ERR_BUSY if a stream or read is open, SAT_ERR_INVALID_ARG for a
+ * count of 0 or above the maximum or an odd destination. */
+sat_result_t sat_cd_stream_begin(
+    sat_cd_block_t* block, uint32_t lba, uint32_t sector_count, void* destination);
+/* Moves up to `max_sectors` sectors that have arrived (0 = all of them);
+ * never waits for the drive. *out_remaining (may be NULL) is the sectors still
+ * to come: 0 means the stream is complete and closed. A transport error closes
+ * the stream and is returned. A closed stream polls as complete. */
+sat_result_t sat_cd_stream_poll(
+    sat_cd_block_t* block, uint32_t max_sectors, uint32_t* out_remaining);
+/* Waits for the rest of the stream and closes it; OK if none is open. */
+sat_result_t sat_cd_stream_finish(sat_cd_block_t* block);
+/* Sectors still to come, 0 when no stream is open. */
+uint32_t sat_cd_stream_remaining(const sat_cd_block_t* block);
 
 /* Binds the initialized hardware reader to the generic CDFS sector boundary. */
 sat_result_t sat_cd_block_bind_device(
