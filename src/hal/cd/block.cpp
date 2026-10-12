@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 
+#include "src/hal/cd/block.hpp"
 #include "src/hal/cd/progress.hpp"
 
 namespace {
@@ -358,3 +359,12 @@ extern "C" sat_result_t sat_cd_block_bind_device(
     }
     return sat_cd_device_init(out_device, read_callback, block, sector_count);
 }
+
+namespace saturn::hal::cd {
+
+sat_cd_block_t* bound_block(const sat_cd_device_t* device) {
+    if (device == nullptr || device->read_sectors != read_callback) return nullptr;
+    return static_cast<sat_cd_block_t*>(device->context);
+}
+
+}  // namespace saturn::hal::cd

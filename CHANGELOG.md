@@ -11,6 +11,40 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- `examples/vdp2_tile_overflow`: more than 512 distinct 8bpp tiles on one scroll
+  screen. A 1-word pattern name holds a 10-bit character number and an 8bpp cell
+  takes two of them, so one layer's 32 KiB character window shows 512 tiles and a
+  GBA-style map naming tile 525 wrapped onto tile 13. The example reads tiles
+  0-510 through NBG0 and 511-959 through NBG1, whose window follows NBG0's (each
+  map cell is the blank last cell in the layer that does not own its tile), with a
+  third 256-colour layer, NBG2, behind both. The library already planned the VRAM
+  cycles for three 256-colour layers (a name read and two character reads each);
+  `harness/run-vdp2-tile-overflow.ps1` and `test_vdp2_tile_overflow.py` check the
+  cycle pattern, every tile's colour, and that NBG0, NBG1 and NBG2 put the same
+  scroll line first.
+- Chain-loading (`saturn/exec.h`): `sat_exec` replaces the running program
+  with another program file on the disc, as the BIOS starts `0.BIN`, so one
+  disc can hold a menu and the games it starts.
+  - **Order:** it checks the file and the arguments first, so an error returns
+    with nothing stopped. Then it stops what the running program left going:
+    interrupts back to the BIOS vectors, the Slave, SCU DMA and DSP, the SCSP
+    slots and the sound CPU, VDP1 plotting, and the VDP2 registers and
+    display.
+  - **Load:** it stages the image in Work RAM Low. A 40-byte copy routine at the
+    top of Work RAM Low then moves the image to `0x06004000`, purges the cache
+    and jumps.
+  - **Argument:** up to `SAT_EXEC_ARG_MAX` bytes reach the next program through
+    `sat_exec_arg`.
+  - **Read failure:** reads retry; a read that still fails resets through the
+    SMPC (`SYSRES`).
+  - **Reserved memory:** the last 512 bytes of Work RAM Low are reserved;
+    `saturn.ld` asserts that no `.wram_l` reaches them.
+  - **Tests:** `test_exec` (argument and size checks, staging, chunked reads,
+    retries, the hand-off) and `harness/run-exec.ps1`. In the harness run,
+    `examples/exec_demo` execs itself four times with the Slave and VBlank
+    interrupts running; Mednafen boots the same disc through the BIOS.
+- `saturn::hal::smpc::system_reset` (SYSRES) and `saturn::hal::cd::bound_block`
+  (the CD block behind a bound device), both internal.
 - SLZ1 compressed disc files (`saturn/lz.h`), made by `tools/satlz.py`
   (installed with the package's tools). The drive reads ~300 KB/s and tile or
   sprite data shrinks to 20-35%, so a compressed file loads in about a third

@@ -51,9 +51,10 @@ FetchContent_MakeAvailable(ymir)
 # vendoring Ymir. The patches are applied to the fetched, pinned source tree and
 # are deliberately kept outside the library's public runtime API:
 #   ymir_debug_metrics.patch       VDP write counters, scheduler cycle count
+#   ymir_write_watch.patch         --watch-write: the first writes into an address range (pc, value, frame)
 #   ymir_misaligned_access.patch   SH-2 misaligned data accesses (an address
 #                                  error on hardware, silently aligned by Ymir)
-foreach(YMIR_DEBUG_PATCH_NAME ymir_debug_metrics ymir_misaligned_access)
+foreach(YMIR_DEBUG_PATCH_NAME ymir_debug_metrics ymir_misaligned_access ymir_write_watch)
     set(YMIR_DEBUG_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/${YMIR_DEBUG_PATCH_NAME}.patch")
     execute_process(
         COMMAND git -C "${ymir_SOURCE_DIR}" apply --check --reverse "${YMIR_DEBUG_PATCH}"

@@ -27,6 +27,7 @@ constexpr uint8_t kSoundOffCommand = 0x07u;
 constexpr uint8_t kSlaveOnCommand = 0x02u;
 constexpr uint8_t kSlaveOffCommand = 0x03u;
 constexpr uint8_t kResetEnableCommand = 0x19u;
+constexpr uint8_t kSystemResetCommand = 0x0Du;
 constexpr uint8_t kResetDisableCommand = 0x1Au;
 
 inline void ensure_smpc_control_mode() {
@@ -179,6 +180,17 @@ bool slave_on() {
 bool slave_off() {
     ensure_smpc_control_mode();
     return issue_simple_command(kSlaveOffCommand);
+}
+
+/* SYSRES does not answer: the whole system, the issuing CPU included, resets. */
+void system_reset() {
+    ensure_smpc_control_mode();
+    if (wait_sf_clear()) {
+        SMPC_SF = 0x01u;
+        SMPC_COMREG = kSystemResetCommand;
+    }
+    for (;;) {
+    }
 }
 
 bool reset_enable() {

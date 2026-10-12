@@ -49,6 +49,10 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/2d/textures/api.cpp
     src/graphics/2d/textures/runtime.cpp
     src/graphics/3d/animation/api.cpp
+    src/graphics/3d/animation/character.cpp
+    src/graphics/3d/animation/clip.cpp
+    src/graphics/3d/animation/skeleton.cpp
+    src/graphics/3d/animation/skin.cpp
     src/graphics/3d/camera/follow.cpp
     src/graphics/3d/camera/orbit.cpp
     src/graphics/3d/geometry/mesh.cpp
@@ -163,6 +167,8 @@ set(LIBSATURN_STORAGE_SOURCES
     src/storage/cartridge/overlay_hal.cpp
     src/storage/cartridge/vfs.cpp
     src/storage/cd/api.cpp
+    src/storage/cd/exec.cpp
+    src/storage/cd/exec_hal.cpp
     src/storage/cd/filesystem.cpp
     src/storage/cd/loader.cpp
     src/storage/compression/lz.cpp

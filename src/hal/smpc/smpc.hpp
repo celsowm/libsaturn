@@ -29,6 +29,8 @@ bool sound_off();
 bool slave_on();
 bool slave_off();
 bool reset_enable();
+/* SYSRES: resets everything but the SMPC; the BIOS then boots the disc again. */
+[[noreturn]] void system_reset();
 bool reset_disable();
 
 }  // namespace saturn::hal::smpc

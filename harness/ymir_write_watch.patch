@@ -1,0 +1,67 @@
+diff --git a/libs/ymir-core/include/ymir/hw/sh2/sh2.hpp b/libs/ymir-core/include/ymir/hw/sh2/sh2.hpp
+--- a/libs/ymir-core/include/ymir/hw/sh2/sh2.hpp
++++ b/libs/ymir-core/include/ymir/hw/sh2/sh2.hpp
+@@ -159,6 +159,48 @@
+         }
+         if (m_misaligned.stored < m_misaligned.first.size()) {
+             m_misaligned.first[m_misaligned.stored++] = {PC, address, size, write};
++        }
++    }
++
++    // --- Write watch (debugging): the first writes into [address, address + length) after SetWriteWatch
++
++public:
++    struct WriteWatchHit {
++        uint32 pc;
++        uint32 address;
++        uint32 value;
++        uint32 frame; // SetWatchFrame's value when the write happened
++        uint8 size;
++    };
++    struct WriteWatchLog {
++        uint32 address = 0;
++        uint32 length = 0; // 0: off
++        uint32 frame = 0;
++        uint64 count = 0;
++        uint32 stored = 0;
++        std::array<WriteWatchHit, 64> first{};
++    };
++    void SetWriteWatch(uint32 address, uint32 length) noexcept {
++        m_watch = {};
++        m_watch.address = address;
++        m_watch.length = length;
++    }
++    void SetWatchFrame(uint32 frame) noexcept {
++        m_watch.frame = frame;
++    }
++    [[nodiscard]] const WriteWatchLog &GetWriteWatchLog() const noexcept {
++        return m_watch;
++    }
++
++private:
++    WriteWatchLog m_watch{};
++    void NoteWatch(uint32 address, uint8 size, uint32 value) {
++        if (address + size <= m_watch.address || address >= m_watch.address + m_watch.length) {
++            return;
++        }
++        ++m_watch.count;
++        if (m_watch.stored < m_watch.first.size()) {
++            m_watch.first[m_watch.stored++] = {PC, address, value, m_watch.frame, size};
+         }
+     }
+ 
+diff --git a/libs/ymir-core/src/ymir/hw/sh2/sh2.cpp b/libs/ymir-core/src/ymir/hw/sh2/sh2.cpp
+--- a/libs/ymir-core/src/ymir/hw/sh2/sh2.cpp
++++ b/libs/ymir-core/src/ymir/hw/sh2/sh2.cpp
+@@ -772,6 +772,11 @@
+             NoteMisaligned(address, static_cast<uint8>(sizeof(T)), true);
+         }
+         address &= kAddressMask;
++    }
++    if constexpr (!poke) {
++        if (m_watch.length != 0) {
++            NoteWatch(address & 0x7FFFFFF, static_cast<uint8>(sizeof(T)), static_cast<uint32>(value));
++        }
+     }
+ 
+     switch (partition) {

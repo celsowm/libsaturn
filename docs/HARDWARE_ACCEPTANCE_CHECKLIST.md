@@ -56,6 +56,7 @@ not model.
 | 21 | Frame budget ledger (limitation 33) | `dino_demo` | - | Walking T-Rex | Count frames over 60 s with a stopwatch: **19.5-20 fps** is the emulator figure; record the hardware number. HUD text must stay put | Ymir (frame counter) |
 | 22 | Skybridge platformer | `skybridge_3d` | Pad | Playable level | Runs without hangs for 10 minutes; record the perceived frame rate. The MASTER-only and MASTER+SLAVE builds should look identical | Ymir (both, hash parity) |
 | 23 | Two-CPU workload | `parallel_runtime` | A cycles the backend (Master, Slave-assisted) | The header names the backend; object and face counts stay the same | Same picture on both backends; record the timing the screen shows for each | Ymir |
+| 24 | VDP2 8bpp tiles past 511 | `vdp2_tile_overflow` | - | A colour ramp over 960 distinct 256-colour tiles on two NBGs, a checkerboard behind (all three scrolled by -3,-4) | The ramp is smooth from green to magenta with no jump, no black cells after the first four, and a white cell at the bottom right | Ymir NTSC + PAL |
 
 ## Things no emulator settles
 

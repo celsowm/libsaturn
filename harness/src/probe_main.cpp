@@ -333,6 +333,9 @@ struct Args {
     uint32_t fb_sample_count = 16; // first N bytes of the VDP1 display framebuffer
     std::string dump_wram_high_path; // diagnostic: raw 1MiB High Work RAM dump
     std::string misaligned_report_path; // SH-2 misaligned data accesses, one line per distinct PC
+    uint32_t watch_address = 0;         // --watch-write ADDR:LEN:FROM: log the first writes into the range
+    uint32_t watch_length = 0;          //   from emulated frame FROM on (either SH-2: pc, address, value)
+    uint32_t watch_from = 0;
     struct MemDump { uint32_t address; uint32_t bytes; std::string path; };
     std::vector<MemDump> mem_dumps;  // --dump-mem: any bus range (Low WRAM, cartridge, ...)
     std::string dump_sound_ram_path; // diagnostic: raw 512KiB SCSP Sound RAM dump
@@ -447,7 +450,7 @@ void print_usage() {
     std::fprintf(stderr,
         "usage: probe --iso <path> --bios <path> --bin <path> [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
-        "             [--dump-wram-high <path>] [--misaligned-report <path>] [--dump-mem ADDR:BYTES:PATH ...] [--dump-sound-ram <path>] [--dump-audio <path>] [--pal] [--dump-fb <path>]\n"
+        "             [--dump-wram-high <path>] [--misaligned-report <path>] [--watch-write ADDR:LEN[:FROM_FRAME]] [--dump-mem ADDR:BYTES:PATH ...] [--dump-sound-ram <path>] [--dump-audio <path>] [--pal] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...] [--screenshot-when ADDR:VALUE[+DELAY]:PATH ...]\n"
         "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
@@ -518,6 +521,17 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--dump-wram-high");
             if (!v) return false;
             out->dump_wram_high_path = v;
+        } else if (arg == "--watch-write") {
+            const char* v = next("--watch-write");
+            if (!v) return false;
+            char* end = nullptr;
+            out->watch_address = static_cast<uint32_t>(std::strtoul(v, &end, 0)) & 0x07FF'FFFFu;
+            if (*end == ':') out->watch_length = static_cast<uint32_t>(std::strtoul(end + 1, &end, 0));
+            if (*end == ':') out->watch_from = static_cast<uint32_t>(std::strtoul(end + 1, &end, 0));
+            if (out->watch_length == 0) {
+                std::fprintf(stderr, "--watch-write needs ADDR:LEN[:FROM_FRAME]\n");
+                return false;
+            }
         } else if (arg == "--misaligned-report") {
             const char* v = next("--misaligned-report");
             if (!v) return false;
@@ -1129,6 +1143,15 @@ int main(int argc, char** argv) {
             // line asks for during the frame it names rather than after it.
             if (!args.pad_script_game_frame) g_pad_frame_index = i;
             const uint64_t cycles_before = saturn->GetCurrentCycleCount();
+            if (args.watch_length != 0u) {
+                const uint32_t emulated = frame_offset + i;
+                if (emulated == args.watch_from) {
+                    saturn->masterSH2.SetWriteWatch(args.watch_address, args.watch_length);
+                    saturn->slaveSH2.SetWriteWatch(args.watch_address, args.watch_length);
+                }
+                saturn->masterSH2.SetWatchFrame(emulated);
+                saturn->slaveSH2.SetWatchFrame(emulated);
+            }
             saturn->RunFrame();
             if (args.skybridge_telemetry_address != 0u) {
                 const uint32_t address = args.skybridge_telemetry_address & 0x0FFF'FFFFu;
@@ -1596,6 +1619,21 @@ int main(int argc, char** argv) {
                         mis_out << line;
                     }
                 }
+            }
+        }
+    }
+
+    if (args.watch_length != 0u) {
+        const std::pair<const char*, const ymir::sh2::SH2::WriteWatchLog*> cpus[] = {
+            {"master", &saturn->masterSH2.GetWriteWatchLog()}, {"slave", &saturn->slaveSH2.GetWriteWatchLog()}};
+        for (const auto& [name, log] : cpus) {
+            std::fprintf(stderr, "watch-write %s: %llu writes into %08X+%X from frame %u\n", name,
+                         static_cast<unsigned long long>(log->count), args.watch_address, args.watch_length,
+                         args.watch_from);
+            for (uint32_t k = 0; k < log->stored; ++k) {
+                const auto& h = log->first[k];
+                std::fprintf(stderr, "  frame %u pc %08X addr %08X %u-bit value %0*X\n", h.frame, h.pc, h.address,
+                             h.size * 8u, h.size * 2, h.value);
             }
         }
     }

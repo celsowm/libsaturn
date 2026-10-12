@@ -45,6 +45,7 @@ $items = [ordered]@{
     'scu-dsp'           = { & (Join-Path $PSScriptRoot 'run-scu-dsp.ps1') @common }
     'sound-driver'      = { & (Join-Path $PSScriptRoot 'run-sound-driver.ps1') @common }
     'vdp2-layers'       = { & (Join-Path $PSScriptRoot 'run-vdp2-layers.ps1') @common }
+    'vdp2-tile-overflow' = { & (Join-Path $PSScriptRoot 'run-vdp2-tile-overflow.ps1') @common }
     'vdp2-effects'      = { & (Join-Path $PSScriptRoot 'run-vdp2-effects.ps1') @common }
     'vdp2-compose'      = { & (Join-Path $PSScriptRoot 'run-vdp2-compose.ps1') @common }
     'jukebox'           = {

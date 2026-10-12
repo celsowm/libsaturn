@@ -153,6 +153,10 @@ SECTIONS {
 
 ASSERT(ADDR(.text) == 0x06004000, "application did not start at Saturn load address")
 
+/* The last 512 bytes of Work RAM Low belong to sat_exec (saturn/exec.h): its copy routine and the
+ * argument handed to the next program, which crt0 must not zero. */
+ASSERT(__wram_l_end <= 0x002FFE00, "Work RAM Low: .wram_l reaches the 512 bytes sat_exec reserves")
+
 /* The Master SH-2 stack starts at the top of Work RAM High (crt0.s: 0x060FFFFC) and grows down
  * into whatever is linked below it: a .bss that ends just under the top links fine and then has
  * its last variables overwritten at run time. Keep __stack_reserve bytes free; a program that
