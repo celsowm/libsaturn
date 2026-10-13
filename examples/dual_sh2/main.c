@@ -1,6 +1,7 @@
 #include <stdint.h>
 
 #include "saturn/saturn.h"
+#include "saturn/hud.h"
 #include "example_util.h"
 
 enum {
@@ -43,13 +44,13 @@ static const char* state_text(sat_dual_sh2_state_t state) {
     }
 }
 
-static void draw_line(const sat_ascii_font_t* font, const char* text, int y) {
-    (void)sat_ascii_font_draw_text_screen_indexed8(font, text, 8, y, 8, 0u, 0u);
+static void draw_line(sat_hud_t* hud, const char* text, int y) {
+    (void)sat_hud_text(hud, text, 8, y);
 }
 
-static void draw_value(const sat_ascii_font_t* font, const char* label,
+static void draw_value(sat_hud_t* hud, const char* label,
                        uint32_t value, int y) {
-    (void)sat_ascii_font_draw_label_u32(font, label, value, 8, y, 8, 0u, 0u);
+    (void)sat_hud_value(hud, label, value, 8, y);
 }
 
 int main(void) {
@@ -68,6 +69,9 @@ int main(void) {
     sat_example_must(sat_app_init_default());
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
         &font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u));
+    /* HUD overlay: palette code 0, 8 px/cell spacing. */
+    sat_hud_t hud;
+    sat_example_must(sat_hud_init(&hud, &font, 0u, 8u));
 
     if (sat_dual_sh2_configure_slave(slave_program, 0) != SAT_OK ||
         sat_dual_sh2_start(kStartupTimeoutTicks) != SAT_OK) {
@@ -114,18 +118,18 @@ int main(void) {
         if (sat_dual_sh2_state() == SAT_DUAL_SH2_FAULT) validation_pass = 0u;
 
         sat_example_must(sat_app_frame_begin(SAT_COLOR_BLACK, SAT_COLOR_BLACK, &pad));
-        draw_line(&font, "LIBSATURN - DUAL SH-2", 8);
-        draw_line(&font, "MASTER: RUNNING", 24);
-        draw_line(&font, state_text(sat_dual_sh2_state()), 36);
-        draw_value(&font, "MASTER COUNTER ", master_counter, 56);
-        draw_value(&font, "SLAVE COUNTER  ", sat_dual_sh2_slave_heartbeat_count(), 68);
-        draw_value(&font, "REQUESTS SENT   ", requests_sent, 84);
-        draw_value(&font, "RESPONSES       ", responses_received, 96);
-        draw_value(&font, "LAST INPUT      ", last_input, 112);
-        draw_value(&font, "LAST RESULT     ", last_result, 124);
-        draw_line(&font, validation_pass != 0u ? "VALIDATION: PASS" : "VALIDATION: FAIL", 140);
-        draw_value(&font, "ERRORS          ", errors, 152);
-        draw_line(&font, "MASTER AND SLAVE RUN INDEPENDENTLY", 176);
+        draw_line(&hud, "LIBSATURN - DUAL SH-2", 8);
+        draw_line(&hud, "MASTER: RUNNING", 24);
+        draw_line(&hud, state_text(sat_dual_sh2_state()), 36);
+        draw_value(&hud, "MASTER COUNTER ", master_counter, 56);
+        draw_value(&hud, "SLAVE COUNTER  ", sat_dual_sh2_slave_heartbeat_count(), 68);
+        draw_value(&hud, "REQUESTS SENT   ", requests_sent, 84);
+        draw_value(&hud, "RESPONSES       ", responses_received, 96);
+        draw_value(&hud, "LAST INPUT      ", last_input, 112);
+        draw_value(&hud, "LAST RESULT     ", last_result, 124);
+        draw_line(&hud, validation_pass != 0u ? "VALIDATION: PASS" : "VALIDATION: FAIL", 140);
+        draw_value(&hud, "ERRORS          ", errors, 152);
+        draw_line(&hud, "MASTER AND SLAVE RUN INDEPENDENTLY", 176);
         sat_example_must(sat_app_frame_end());
 
         if ((pad.pressed & SAT_PAD_START) != 0u) break;
