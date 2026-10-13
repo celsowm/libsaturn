@@ -9,7 +9,11 @@ are evidence about these workloads, not hardware certification.
 The initial measurements below correspond to the completed original scope.
 The subsequent [character preparation study](CHARACTER_PREPARATION_PERFORMANCE.md)
 reduces two-actor CPU cost by about 6 ms while retaining approximately 15
-submissions/s; it documents the current implementation and added binding storage.
+submissions/s; it documents that implementation stage and added binding storage.
+The later [paired geometry study](CHARACTER_GEOMETRY_PERFORMANCE.md) reaches
+20 submissions/s for two HIGH characters in AUTO/SLAVE on Ymir, with unchanged
+assets and 60 Hz simulation. It also fixes early completion ownership in the
+generic executor and records the current full stress matrix and memory usage.
 
 The implementation is commit
 [`4c5bcee`](https://github.com/celsowm/libsaturn/commit/4c5bcee),

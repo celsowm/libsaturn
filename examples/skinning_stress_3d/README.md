@@ -64,6 +64,16 @@ The study copies the stock stress configuration into a temporary example and
 removes that source directory afterward. Production transfer defaults stay intact.
 See the [handoff study](../../docs/CHARACTER_HANDOFF_PERFORMANCE.md).
 
+AUTO and SLAVE now prepare actor pairs on both SH-2s through the existing
+scene batch adapter. MASTER, single-actor workloads and an unavailable Slave
+use the serial path. One bounded face/key buffer in WRAM-L is reused after
+join/merge/release; the final painter order and VDP1 emission remain on Master.
+`g_character_geometry` and its bounded sample log report stage timing and
+serial equivalence. Run `harness/run-character-geometry.ps1` with `-Geometry
+serial` and `-Geometry paired` for matched measurements. The dedicated
+`materials` scenario enables continuous verification automatically and checks
+every paired frame. See the [geometry study](../../docs/CHARACTER_GEOMETRY_PERFORMANCE.md).
+
 Assets are [original MIT project content](../characters/README.md).
 See [CPU skinning](../../docs/CPU_SKINNING_3D.md) and
 [fighting-game readiness](../../docs/FIGHTING_GAME_READINESS.md).

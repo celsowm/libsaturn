@@ -17,6 +17,12 @@
 #ifndef CHARACTER_DEMO_ASSET_SLOTS
 #define CHARACTER_DEMO_ASSET_SLOTS 1
 #endif
+#ifndef CHARACTER_DEMO_VERIFY_GEOMETRY
+#define CHARACTER_DEMO_VERIFY_GEOMETRY 0
+#endif
+#ifndef CHARACTER_DEMO_PARALLEL_GEOMETRY
+#define CHARACTER_DEMO_PARALLEL_GEOMETRY 1
+#endif
 #ifndef CHARACTER_DEMO_DISC_ASSETS
 #define CHARACTER_DEMO_DISC_ASSETS 0
 #endif
@@ -85,6 +91,21 @@ static sat_scene3d_face_t g_faces[SCENE_CAPACITY];
 static uint32_t g_keys[SCENE_CAPACITY];
 static uint16_t g_order[SCENE_CAPACITY];
 static sat_scene_t g_scene;
+#if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1
+enum { GEOMETRY_FACE_CAPACITY=ACTOR_FACE_CAP, GEOMETRY_MATERIAL_VARIANTS=3,
+       GEOMETRY_SAMPLE_MAGIC=0x43475031u };
+static sat_scene3d_face_t g_geometry_faces[GEOMETRY_FACE_CAPACITY]
+    __attribute__((section(".wram_l")));
+static uint32_t g_geometry_keys[GEOMETRY_FACE_CAPACITY]
+    __attribute__((section(".wram_l")));
+static sat_scene3d_prepare_item_t g_geometry_item;
+static sat_scene3d_prepare_batch_t g_geometry_batch;
+static uint32_t g_geometry_verified_mask;
+volatile struct {
+    uint32_t magic,pairs,verified,errors,preparation_us,dispatch_us,master_us;
+    uint32_t wait_us,merge_us,verification_us;
+} g_character_geometry;
+#endif
 static sat_ascii_font_t g_font;
 static sat_orbit_camera3d_t g_orbit;
 static combat_round_t g_combat;
@@ -122,6 +143,16 @@ volatile struct {
     uint32_t magic,count,capacity,row_bytes;
     handoff_sample_t rows[BENCHMARK_SAMPLE_CAPACITY];
 } g_character_handoff __attribute__((section(".wram_l")));
+#if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1
+typedef struct {
+    uint32_t iteration,preparation_us,dispatch_us,master_us,wait_us,merge_us;
+    uint32_t verification_us,pairs,verified,errors;
+} geometry_sample_t;
+volatile struct {
+    uint32_t magic,count,capacity,row_bytes;
+    geometry_sample_t rows[BENCHMARK_SAMPLE_CAPACITY];
+} g_character_geometry_samples __attribute__((section(".wram_l")));
+#endif
 /* Stable, named telemetry layout consumed by harness/tests/character_plan.py. */
 typedef struct {
     uint32_t magic,frames,simulation_ticks,steps_last,loop_rate_x10,simulation_rate_x10;
@@ -148,6 +179,9 @@ static void select_clip(actor_t* actor,unsigned clip) {
     actor->clip=clip;
 }
 static void load_assets(unsigned slot) {
+#if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1
+    g_geometry_verified_mask=0;
+#endif
     asset_slot_t* asset=&g_assets[slot];
     const char* path=slot?"characters/red":"characters/blue";
     const char* source=slot?"embedded/red.ska":"embedded/blue.ska";
@@ -420,6 +454,96 @@ static void character_materials(actor_t* a) {
     }
     a->instance.materials=a->shaded;
 }
+static void submit_actor(actor_t* actor) {
+    sat_example_must(sat_scene_submit_instance(&g_scene,&actor->instance,
+        SAT_SCENE3D_SLOT_INHERIT,actor->projected,actor->world_vertices));
+}
+#if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1
+/* Compare only fields consumed by merge/emission; safe faces do not own world. */
+static int geometry_face_equal(const sat_scene3d_face_t* a,const sat_scene3d_face_t* b) {
+    if(a->projected_safe!=b->projected_safe || a->cached_projected!=b->cached_projected ||
+       a->gouraud_valid!=b->gouraud_valid || a->material.kind!=b->material.kind ||
+       a->material.rgb555!=b->material.rgb555 || a->material.texture!=b->material.texture ||
+       a->material.tiled!=b->material.tiled ||
+       a->material.color_calc_slot!=b->material.color_calc_slot ||
+       a->material.vertex_gouraud!=b->material.vertex_gouraud)return 0;
+    for(unsigned corner=0;corner<4;++corner) {
+        if(a->projected.x[corner]!=b->projected.x[corner] ||
+           a->projected.y[corner]!=b->projected.y[corner] ||
+           (a->gouraud_valid && a->gouraud[corner]!=b->gouraud[corner]))return 0;
+        if(!a->projected_safe && (a->world.v[corner].x!=b->world.v[corner].x ||
+           a->world.v[corner].y!=b->world.v[corner].y ||
+           a->world.v[corner].z!=b->world.v[corner].z))return 0;
+    }
+    return 1;
+}
+static void verify_geometry(actor_t* actor,const sat_scene3d_faces_t* prefix) {
+    const unsigned variant=actor->flash_ticks?2u:(g_shading?0u:1u);
+    const uint32_t bit=1u<<((g_policy*LOD_COUNT+actor->lod)*GEOMETRY_MATERIAL_VARIANTS+variant);
+    if(!CHARACTER_DEMO_VERIFY_GEOMETRY && (g_geometry_verified_mask&bit))return;
+    uint64_t start=sat_time_ticks();
+    sat_scene3d_faces_t reference=*prefix;
+    sat_example_must(sat_scene3d_faces_submit_instance(&reference,&actor->instance,
+        SAT_SCENE3D_SLOT_INHERIT,actor->projected,actor->world_vertices));
+    int equal=reference.count-prefix->count==g_geometry_batch.metrics.prepared_faces &&
+        reference.culled_faces-prefix->culled_faces==g_geometry_batch.metrics.culled_faces &&
+        reference.clipped_faces-prefix->clipped_faces==g_geometry_batch.metrics.clipped_faces;
+    for(unsigned face=0;equal && face<g_geometry_batch.metrics.prepared_faces;++face) {
+        unsigned index=prefix->count+face;
+        equal=g_scene.faces.keys[index]==g_geometry_keys[face] &&
+            geometry_face_equal(&g_scene.faces.entries[index],&g_geometry_faces[face]);
+    }
+    if(!equal){++g_character_geometry.errors;sat_example_must(SAT_ERR_VERIFY_FAILED);}
+    g_geometry_verified_mask|=bit;++g_character_geometry.verified;
+    g_character_geometry.verification_us+=ticks_us((uint32_t)(sat_time_ticks()-start));
+}
+#endif
+static void prepare_actors(void) {
+    uint64_t start=sat_time_ticks();
+#if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1
+    g_character_geometry.magic=GEOMETRY_SAMPLE_MAGIC;
+    g_character_geometry.dispatch_us=0;g_character_geometry.master_us=0;
+    g_character_geometry.wait_us=0;g_character_geometry.merge_us=0;
+    g_character_geometry.verification_us=0;
+#endif
+    for(unsigned i=0;i<g_metrics.accepted;++i) {
+#if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1
+        if(g_policy!=SAT_PARALLEL_MASTER && i+1u<g_metrics.accepted && sat_parallel_slave_available()) {
+            actor_t* slave=&g_actors[i+1u];
+            g_geometry_item=(sat_scene3d_prepare_item_t){&slave->instance,slave->projected,
+                slave->world_vertices,SAT_SCENE3D_SLOT_INHERIT,0};
+            sat_example_must(sat_scene3d_prepare_batch_init(&g_geometry_batch,
+                &g_geometry_item,1,g_geometry_faces,g_geometry_keys,GEOMETRY_FACE_CAPACITY));
+            g_geometry_batch.dispatch=SAT_SCENE3D_PREPARE_DISPATCH_RUNTIME;
+            sat_parallel_handle_t handle=0;
+            uint64_t stamp=sat_time_ticks();
+            sat_example_must(sat_scene_prepare_batch_async(&g_scene,&g_geometry_batch,&handle));
+            g_character_geometry.dispatch_us+=ticks_us((uint32_t)(sat_time_ticks()-stamp));
+            stamp=sat_time_ticks();submit_actor(&g_actors[i]);
+            g_character_geometry.master_us+=ticks_us((uint32_t)(sat_time_ticks()-stamp));
+            stamp=sat_time_ticks();
+            sat_example_must(sat_parallel_wait(handle,PARALLEL_TIMEOUT_TICKS));
+            g_character_geometry.wait_us+=ticks_us((uint32_t)(sat_time_ticks()-stamp));
+            const sat_scene3d_faces_t prefix=g_scene.faces;
+            stamp=sat_time_ticks();
+            sat_example_must(sat_scene_merge_prepared_batch(&g_scene,&g_geometry_batch,handle));
+            g_character_geometry.merge_us+=ticks_us((uint32_t)(sat_time_ticks()-stamp));
+            /* Join and merge precede the serial reference: scratch is no longer
+               owned by the worker, and merge has invalidated the key array. */
+            verify_geometry(slave,&prefix);
+            sat_example_must(sat_scene_prepare_batch_release(&g_scene,&g_geometry_batch,handle));
+            ++g_character_geometry.pairs;++i;
+            continue;
+        }
+#endif
+        submit_actor(&g_actors[i]);
+    }
+    uint32_t preparation_us=ticks_us((uint32_t)(sat_time_ticks()-start));
+#if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1
+    g_character_geometry.preparation_us=preparation_us-g_character_geometry.verification_us;
+#endif
+    g_metrics.geometry_ms=preparation_us/(MICROSECONDS_PER_SECOND/MILLISECONDS_PER_SECOND);
+}
 static void camera(void) {
     if(g_mode==CHARACTER_DEMO_ARENA) {
         sat_fx16_t target_x=(g_combat.fighters[0].position.x+g_combat.fighters[1].position.x)/2;
@@ -539,7 +663,16 @@ int character_demo_run(character_demo_mode_t mode) {
     g_character_handoff.magic=HANDOFF_SAMPLE_MAGIC;
     g_character_handoff.capacity=BENCHMARK_SAMPLE_CAPACITY;
     g_character_handoff.row_bytes=sizeof(handoff_sample_t);
+#if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1
+    g_character_geometry_samples.magic=GEOMETRY_SAMPLE_MAGIC;
+    g_character_geometry_samples.capacity=BENCHMARK_SAMPLE_CAPACITY;
+    g_character_geometry_samples.row_bytes=sizeof(geometry_sample_t);
+#endif
     g_metrics.persistent_bytes=sizeof(g_actors)+sizeof(g_assets)+sizeof(g_faces)+sizeof(g_keys)+sizeof(g_order);
+#if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1
+    g_metrics.persistent_bytes+=sizeof(g_geometry_faces)+sizeof(g_geometry_keys)+
+        sizeof(g_geometry_item)+sizeof(g_geometry_batch);
+#endif
     for(unsigned t=0;t<FIGHTER_TEXTURE_COUNT;++t)
         g_metrics.texture_bytes+=g_assets[0].textures[t].pixel_count*CHARACTER_DEMO_ASSET_SLOTS;
     sat_resource_plan_t resources; sat_resource_plan_entry_t entries[3];
@@ -584,17 +717,15 @@ int character_demo_run(character_demo_mode_t mode) {
         camera();sat_camera3d_t camera_state={0};camera_state.eye=g_orbit.eye;camera_state.target=g_orbit.target;
         camera_state.up=(sat_vec3_t){0,SAT_FX16_ONE,0};camera_state.view_proj=g_orbit.view_proj;
         sat_example_must(sat_scene_begin(&g_scene,&camera_state,g_orbit.near_z,SCREEN_WIDTH,SCREEN_HEIGHT,HUD_RESERVE));
-        draw_floor();g_metrics.geometry_ms=0;g_metrics.vertices=0;
+        draw_floor();g_metrics.vertices=0;
         for(unsigned i=0;i<g_metrics.accepted;++i) {
             actor_t* a=&g_actors[i];place(a,i);character_materials(a);
             sat_example_must(sat_character_shadow(&g_scene,&a->position,SAT_FX16_ONE/128,
                 SAT_FX16_ONE/3,SAT_FX16_ONE/4,SAT_RGB555(3,4,6),1,SHADOW_SEGMENTS));
             a->instance.pass=2;
-            uint32_t stamp=sat_time_ms();
-            sat_example_must(sat_scene_submit_instance(&g_scene,&a->instance,SAT_SCENE3D_SLOT_INHERIT,
-                a->projected,a->world_vertices));
-            g_metrics.geometry_ms+=sat_time_ms()-stamp;g_metrics.vertices+=a->mesh.vertex_count;
+            g_metrics.vertices+=a->mesh.vertex_count;
         }
+        prepare_actors();
         sat_result_t flushed=sat_scene_flush(&g_scene);
         if(flushed==SAT_ERR_CAPACITY) {
             g_metrics.rejected=g_metrics.accepted;
@@ -636,6 +767,15 @@ int character_demo_run(character_demo_mode_t mode) {
                 sat_frame_count(),vblank_start};
             g_character_handoff.rows[g_character_benchmark.count]=handoff;
             g_character_handoff.count=g_character_benchmark.count+1u;
+#if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1
+            geometry_sample_t geometry={g_metrics.frames,g_character_geometry.preparation_us,
+                g_character_geometry.dispatch_us,g_character_geometry.master_us,
+                g_character_geometry.wait_us,g_character_geometry.merge_us,
+                g_character_geometry.verification_us,g_character_geometry.pairs,
+                g_character_geometry.verified,g_character_geometry.errors};
+            g_character_geometry_samples.rows[g_character_benchmark.count]=geometry;
+            g_character_geometry_samples.count=g_character_benchmark.count+1u;
+#endif
             g_character_benchmark.rows[g_character_benchmark.count]=row;++g_character_benchmark.count;
         }
         g_character_demo=g_metrics;

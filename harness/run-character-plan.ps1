@@ -1,15 +1,17 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][string]$Bios,
-    [ValidateSet('all','viewer','arena','collision','stress','prepare')][string]$Scenario='all'
+    [ValidateSet('all','viewer','arena','collision','stress','prepare','materials')][string]$Scenario='all'
 )
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$cases=if($Scenario -eq 'all'){@('viewer','arena','collision','stress')}else{@($Scenario)}
+$cases=if($Scenario -eq 'all'){@('viewer','arena','collision','stress','materials')}else{@($Scenario)}
+$oldVerify=$env:CHARACTER_DEMO_VERIFY_GEOMETRY
 Push-Location $root
 try {
     foreach($case in $cases) {
-        $example=@{viewer='skeletal_animation_3d';arena='fighter_arena_3d';collision='fighter_arena_3d';stress='skinning_stress_3d';prepare='skinning_stress_3d'}[$case]
+        $env:CHARACTER_DEMO_VERIFY_GEOMETRY=if($case -eq 'materials'){'1'}else{$oldVerify}
+        $example=@{viewer='skeletal_animation_3d';arena='fighter_arena_3d';collision='fighter_arena_3d';stress='skinning_stress_3d';prepare='skinning_stress_3d';materials='skinning_stress_3d'}[$case]
         & .\build-example.ps1 $example
         if($LASTEXITCODE){throw "Build failed: $example"}
         $prefix="harness/build/character_$case"; $map=$prefix+'.map'
@@ -53,6 +55,12 @@ try {
                 $pad=@('0 NONE','100 RIGHT','600 NONE')
                 $shots=@("450:${prefix}_blocked.png","749:${prefix}_final.png")
             }
+            materials {
+                $frames=800
+                $pad=@('0 NONE','100 A','140 NONE','220 C','260 NONE','340 Z','380 NONE',
+                    '460 R','560 NONE','600 Z','640 NONE','680 X','720 NONE')
+                $shots=@("299:${prefix}_rgb_auto.png","759:${prefix}_rgb_slave.png")
+            }
             prepare {
                 $frames=1400
                 $pad=@('0 NONE','100 A','140 NONE','500 Z','540 NONE','900 Z','940 NONE')
@@ -76,9 +84,17 @@ try {
             & python harness/tests/character_plan.py @analysis
         }
         if($LASTEXITCODE){throw "Character validation failed: $example"}
+        if($case -eq 'materials') {
+            & python -c "import json; from pathlib import Path; d=json.loads(Path('$prefix'+'_analysis.json').read_text()); assert d['geometry']['verified']>20; assert d['geometry']['errors']==0"
+            if($LASTEXITCODE){throw 'Material geometry equivalence failed'}
+            $env:CHARACTER_DEMO_VERIFY_GEOMETRY=$oldVerify
+            # Leave the ordinary runnable artifact with the caller's settings.
+            & .\build-example.ps1 $example
+            if($LASTEXITCODE){throw 'Restoring the standard material build failed'}
+        }
         if($case -eq 'viewer') {
             & python -c "from PIL import Image; from pathlib import Path; a=Image.open(Path('$prefix'+'_paused_a.png')).crop((130,60,175,185)); b=Image.open(Path('$prefix'+'_paused_b.png')).crop((130,60,175,185)); assert a.tobytes()==b.tobytes(), 'Paused scene changed'"
             if($LASTEXITCODE){throw 'Paused scene pixel comparison failed'}
         }
     }
-} finally { Pop-Location }
+} finally { $env:CHARACTER_DEMO_VERIFY_GEOMETRY=$oldVerify; Pop-Location }

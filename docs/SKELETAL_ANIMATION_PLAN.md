@@ -1342,7 +1342,9 @@ Prioritize correctness and actual Saturn hardware behavior, then memory efficien
 - Acceptance still open: physical Saturn measurements, PAL character gates,
   content-specific grabs/throws and intersecting textured surfaces, and a
   30/60 rendered-frame/s target. Current two-actor Ymir submission throughput
-  is about 15/s while simulation remains 60 Hz. These limits are documented,
+  was about 15/s at original-scope acceptance while simulation remained 60 Hz.
+  The subsequent paired-geometry follow-up reaches 20 submissions/s on Ymir.
+  These limits are documented,
   rather than reported as completed hardware/performance goals. See
   [FIGHTING_GAME_READINESS.md](FIGHTING_GAME_READINESS.md) and
   [HARDWARE_ACCEPTANCE_CHECKLIST.md](HARDWARE_ACCEPTANCE_CHECKLIST.md).
@@ -1362,3 +1364,12 @@ Prioritize correctness and actual Saturn hardware behavior, then memory efficien
   guest panics occurred in the validated runs. The next measured target is
   coarse geometry preparation through the existing batch/parallel adapter.
   See [CHARACTER_HANDOFF_PERFORMANCE.md](CHARACTER_HANDOFF_PERFORMANCE.md).
+- 2026-10-13, paired geometry follow-up: the examples reuse the existing scene
+  batch adapter to prepare consecutive actor pairs concurrently, then merge
+  in source order before one Master painter/emission pass. Matched two-HIGH
+  AUTO CPU cost falls from 50 to 41 ms and preparation from 22 to 13 ms;
+  AUTO/SLAVE reach 20 submissions/s while simulation stays at 60 Hz. Continuous
+  equivalence exposed and verified a fix for early Slave completion ownership.
+  Full host/tool, viewer, arena, collision, material and twelve-workload stress
+  gates pass on stock RAM. Physical/PAL and higher two-actor display targets
+  remain open. See [CHARACTER_GEOMETRY_PERFORMANCE.md](CHARACTER_GEOMETRY_PERFORMANCE.md).

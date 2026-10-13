@@ -5,7 +5,7 @@ import statistics
 import struct
 from pathlib import Path
 from character_plan import (analyze, symbol, SAMPLE_FIELDS, SAMPLE_MAGIC,
-                            LOW_BASE, WORD, NOMINAL_NTSC_HZ)
+                            LOW_BASE, WORD, NOMINAL_NTSC_HZ, GEOMETRY_MAGIC, GEOMETRY_FIELDS)
 
 TRANSITION_SAMPLES=4
 ACTORS=2
@@ -36,6 +36,20 @@ def report(prefix):
             assert row['iteration']==rows[i]['iteration']
             assert row['draw_timeouts']==0
             handoffs[row['iteration']]=row
+    geometry={}
+    mapping=path('.map').read_text()
+    if 'geometry' in result:
+        assert result['geometry']['verified']>=2
+    if 'g_character_geometry_samples' in mapping:
+        offset=symbol(mapping,'g_character_geometry_samples')-LOW_BASE
+        magic,geometry_count,geometry_capacity,geometry_stride=struct.unpack_from('>4I',low,offset)
+        assert magic==GEOMETRY_MAGIC and geometry_count==count and geometry_capacity==capacity
+        assert geometry_stride==WORD*len(GEOMETRY_FIELDS)
+        for i in range(geometry_count):
+            row=dict(zip(GEOMETRY_FIELDS,struct.unpack_from('>'+str(len(GEOMETRY_FIELDS))+'I',
+                     low,offset+WORD*4+i*geometry_stride)))
+            assert row['iteration']==rows[i]['iteration'] and row['errors']==0
+            geometry[row['iteration']]=row
     segments=[]
     for row in rows:
         key=(row['requested'],row['policy'],row['lod'],row['complexity'])
@@ -68,6 +82,14 @@ def report(prefix):
                 'p95_us':{field:statistics.quantiles([s[field] for s in timing],n=100,
                              method='inclusive')[94] for field in ('wait_us','end_us')},
                 'counter_deltas':counters}
+        if geometry:
+            timing=[geometry[s['iteration']] for s in samples]
+            assert all(s['verification_us']==0 for s in timing)
+            workloads[-1]['geometry']={
+                'medians_us':{field:statistics.median(s[field] for s in timing) for field in
+                    ('preparation_us','dispatch_us','master_us','wait_us','merge_us')},
+                'pairs':timing[-1]['pairs']-timing[0]['pairs'],
+                'verified_total':timing[-1]['verified']}
     assert {w['policy'] for w in workloads}=={0,1,2}
     result['workloads']=workloads
     path('_analysis.json').write_text(json.dumps(result,indent=2))

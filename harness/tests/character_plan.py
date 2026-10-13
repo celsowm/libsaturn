@@ -16,6 +16,11 @@ FIELDS=('magic frames simulation_ticks steps_last loop_rate_x10 simulation_rate_
 SAMPLE_FIELDS=('iteration vblank simulation_ticks requested accepted lod policy frame_ms '
                'cpu_ms skin_ms preparation_ms sort_us emission_us commands slave_tasks '
                'master_tasks wait_ticks queue_ticks complexity').split()
+GEOMETRY_MAGIC=0x43475031
+GEOMETRY_FIELDS=('iteration preparation_us dispatch_us master_us wait_us merge_us '
+                 'verification_us pairs verified errors').split()
+GEOMETRY_METRICS=('magic pairs verified errors preparation_us dispatch_us master_us '
+                  'wait_us merge_us verification_us').split()
 MAGIC=0x43484152
 SAMPLE_MAGIC=0x43424E31
 WORD=struct.calcsize('>I')
@@ -43,6 +48,12 @@ def analyze(example,map_path,high_path,probe_path,output,low_path=None,body_coll
     assert metrics['skin_equivalence']>0,metrics
     assert probe['ram_cartridge']['type']=='none'
     report={'example':example,'metrics':metrics,'panic':list(panic)}
+    if 'g_character_geometry' in mapping:
+        geometry=dict(zip(GEOMETRY_METRICS,struct.unpack_from('>'+str(len(GEOMETRY_METRICS))+'I',
+                      high,symbol(mapping,'g_character_geometry')-HIGH_BASE)))
+        assert geometry['magic']==GEOMETRY_MAGIC and geometry['errors']==0
+        assert geometry['pairs']>0 and geometry['verified']>0
+        report['geometry']=geometry
     if example=='skeletal_animation_3d':
         assert metrics['clip']==8, 'Viewer did not reach all nine clips'
     if example=='fighter_arena_3d':
