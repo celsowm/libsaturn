@@ -1,9 +1,14 @@
 # Skeletal animation runtime (`saturn/skeleton3d.h`)
 
-Status: phases one and two of `docs/SKELETAL_ANIMATION_PLAN.md`. Pose
-evaluation, clip sampling, playback, events, root motion, crossfade and CPU
-skinning (`saturn/skin3d.h`) are implemented and host-tested. Scene
-integration, asset tooling, parallel tasks and the examples are not started.
+Status: phases 1-2 of `docs/SKELETAL_ANIMATION_PLAN.md` plus the
+`skeletal_animation_3d` example from phase 8 (Example A) at MVP scope.
+Pose evaluation, clip sampling, playback, events, root motion, crossfade,
+CPU skinning (`saturn/skin3d.h`) and scene integration are implemented
+and host-tested. The importer now has a `--target skeletal` path that
+captures per-joint `rest_scale` and a `--max-triangles` decimation
+knob. What is not done yet: parallel tasks, the `fighter_arena_3d` and
+`skinning_stress_3d` examples, the full 6-clip §15 Definition of Done
+for Example A, and on-target timing.
 
 ## Model
 
@@ -115,3 +120,62 @@ instances), `tests/host/test_skin_scene.cpp` (above) and `tests/host/test_skin3d
 double reference, normals, shared asset) and `tests/host/test_skeleton_clip.cpp` (validation, sampling, loops,
 root motion, events, speed/pause, rapid clip switching, crossfade). Both pass on
 the host.
+
+## `examples/skeletal_animation_3d` (Phase-8A MVP)
+
+Phase-8A from `docs/SKELETAL_ANIMATION_PLAN.md` is wired up. The example
+boots, the VDP1 draws the decimated `robot_police` rig and the HUD
+reports FPS / joint count / vertex count / face count. Source GLB,
+attribution and the runtime-measured numbers live in
+`examples/skeletal_animation_3d/README.md`.
+
+What the MVP ships (committed on the `feat(skeletal_3d): ship Phase-8A
+MVP` line):
+
+- One rigged humanoid driven by one looping clip:
+  `robot_police_unit_animated.glb` (CC BY 4.0 by Jungle Jim, 102
+  Mixamo-style joints, decimated to 943 vertices / 999 faces / ~90 KB
+  ROM by the importer's `--max-triangles 1000 --quality aggressive`
+  path).
+- `sat_skeleton_instance_init` + `sat_skel_clip_player_advance/sample`
+  + `sat_skeleton_evaluate` + `sat_skin_update_mesh` +
+  `sat_scene_submit_instance` glue in
+  `examples/skeletal_animation_3d/main.c`, with the large BSS working
+  buffers (`g_mesh_vertices`, `g_mesh_screen`, `g_scene_faces`,
+  `g_scene_keys`, `g_scene_order`, `g_mesh`, `g_mesh_indices`) in
+  WRAM-L via the `SAT_SCN` macro.
+- `sat_orbit_camera3d_apply_pad` for the C button, START toggles
+  pause, on-screen diagnostics match the plan's
+  `On-screen diagnostics` list (FPS, joint/vertex/face counts, submit
+  status, pause/loop indicator).
+- Asset provenance and CC BY 4.0 attribution committed under
+  `examples/skeletal_animation_3d/assets/`.
+
+Validation on a stock 1 MB WRAMH + 1 MB WRAML (the
+`6c66ac03cdccc56f` build variant):
+
+```text
+ROM: skeleton=3.6 KB  skin=19.7 KB  clips=58.6 KB
+     indices=7.8 KB  total=89.7 KB
+DEFORM BUFFER: 11.1 KB (943 vec3s, runtime only)
+app.bin: 280 KB, ISO: 680 KB, 340 sectors.
+make test: 9 host + 2 sound + 15 stage2d = 26 tests green.
+```
+
+Ymir harness (300 frames after the BIOS boot): 0 misaligned accesses,
+model visible in `harness/build/skel_fix_100.png` and
+`harness/build/skel_fix_200.png`. The first iteration panicked with
+`INVALID_ARG` from `sat_scene_submit_instance` because
+`sat_skin_deform` writes the deformed vertices but does not update
+`mesh->vertex_count`; the example now uses `sat_skin_update_mesh`,
+which both deforms and stamps `vertex_count` for the scene submit.
+
+Still pending for the full §15 Example A definition of done:
+
+- Five more named clips (the free asset only ships one looping walk).
+- The remaining HUD rows (SIMULATION FPS, ANIMATION CLIP/FRAME,
+  VDP1 COMMANDS, SKINNING TIME, RENDER PREPARATION TIME, MEMORY
+  USAGE).
+- Skeleton visualisation toggle and shading toggle.
+- `fighter_arena_3d` and `skinning_stress_3d` examples.
+- On-target Saturn timing (no Ymir cycle profile yet).

@@ -217,10 +217,10 @@ int main(void) {
             for (uint16_t j = 0; j < robot_police_skeletal_skeleton.joint_count; ++j) {
                 g_joint_world[j] = g_skeleton_nodes[j].world;
             }
-            sat_example_must(sat_skin_deform(
+            sat_example_must(sat_skin_update_mesh(
                 &robot_police_skeletal_skin, g_joint_world,
                 (uint16_t)(sizeof(g_joint_world) / sizeof(g_joint_world[0])),
-                g_mesh.vertices, g_mesh.vertex_cap));
+                &g_mesh, 0, NULL));
 
             sat_example_must(sat_orbit_camera3d_update(&g_orbit));
             sat_camera3d_t camera = {0};
