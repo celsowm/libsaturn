@@ -30,6 +30,22 @@ uint16_t sat_time_frc(void);
 /* Busy-waits for at least the requested duration. */
 sat_result_t sat_delay_ms(uint32_t ms);
 
+/* Convert frames <-> milliseconds at the given refresh rate. Pass
+ * sat_video_refresh_hz() (60 for NTSC, 50 for PAL) so the conversion
+ * stays correct on a PAL console. Inline so there is no call cost:
+ * the multiplication and division collapse on the SH-2, and the
+ * caller can elide the Hz argument by inlining its own constant.
+ * Both helpers wrap on overflow the same way the surrounding
+ * sat_time_ms() does. */
+static inline uint32_t sat_f2ms(uint32_t frames, uint32_t hz) {
+    return hz == 0u ? 0u : (frames * 1000u) / hz;
+}
+static inline uint32_t sat_ms2f(uint32_t ms, uint32_t hz) {
+    /* Round down: a partial frame at the end of a millisecond is one
+     * frame the next display tick, not the current one. */
+    return (ms * hz) / 1000u;
+}
+
 #ifdef __cplusplus
 }
 #endif

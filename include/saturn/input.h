@@ -161,6 +161,18 @@ uint32_t sat_event_overflow_count(void);
 sat_result_t sat_pad_format_held(uint16_t held, char* out, uint16_t out_size);
 sat_result_t sat_pad_format_frame(uint32_t frame_count, char* out, uint16_t out_size);
 
+/* Toggle a flag on button-down edge: `*flag ^= 1` if `pad->pressed
+ * & button`. `pad` may be NULL (the flag is left alone); `flag` may
+ * be NULL (no-op). Replaces the `if (pad.pressed & X) flag ^= 1`
+ * pattern that several examples still open-code. The flag must outlive
+ * the pad snapshot, which is the usual case (the pad is polled each
+ * frame, the flag persists across frames). */
+static inline void sat_pad_toggle(const sat_pad_state_t* pad,
+                                   uint16_t button, uint8_t* flag) {
+    if (!pad || !flag) return;
+    if (pad->pressed & button) *flag ^= 1u;
+}
+
 #ifdef __cplusplus
 }
 #endif
