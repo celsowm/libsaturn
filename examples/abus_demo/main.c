@@ -7,6 +7,7 @@
 #include "saturn/color.h"
 #include "saturn/fmt.h"
 #include "saturn/font.h"
+#include "saturn/hud.h"
 
 #define ABUS_DEMO_MAGIC SAT_FOURCC('A', 'B', 'U', '1')
 
@@ -27,9 +28,12 @@ typedef struct abus_demo_results {
 volatile abus_demo_results_t g_abus_demo;
 
 static sat_ascii_font_t font;
+/* HUD overlay: font in CRAM bank 7, draws use palette code 0 with
+ * 8 px/cell spacing. */
+static sat_hud_t hud;
 
 static void line(const char* label, uint32_t value, int y) {
-    (void)sat_ascii_font_draw_label_u32(&font, label, value, 8, y, 8, 0u, 0u);
+    (void)sat_hud_value(&hud, label, value, 8, y);
 }
 
 int main(void) {
@@ -40,6 +44,7 @@ int main(void) {
 
     if (sat_app_init_default() != SAT_OK) return 1;
     if (sat_ascii_font_init_8x8_indexed8(&font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u) != SAT_OK) return 1;
+    if (sat_hud_init(&hud, &font, 0u, 8u) != SAT_OK) return 1;
 
     g_abus_demo.magic = ABUS_DEMO_MAGIC;
     g_abus_demo.detect_status = (uint32_t)(-sat_abus_detect(&info));
@@ -60,7 +65,7 @@ int main(void) {
         sat_pad_state_t pad = {0};
         if (sat_app_frame_begin(SAT_COLOR_BLACK, SAT_COLOR_GREEN, &pad) != SAT_OK) break;
         ++g_abus_demo.frames;
-        (void)sat_ascii_font_draw_text_screen_indexed8(&font, "A-BUS SLOT", 8, 8, 8, 0u, 0u);
+        (void)sat_hud_text(&hud, "A-BUS SLOT", 8, 8);
         line("KIND ", g_abus_demo.kind, 32);
         line("ID ", g_abus_demo.id, 48);
         line("BACKUP BYTES ", g_abus_demo.backup_bytes, 64);
