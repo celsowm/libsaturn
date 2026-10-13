@@ -358,6 +358,25 @@ Examples:
 - `sat_dma_*` should own SCU DMA channel state and completion rules.
 - `sat_audio_*` should be able to evolve from direct PCM voices toward 68k/DSP-backed services without invalidating game code.
 
+## Known design constraints
+
+These are not gaps in coverage but documented limits that affect how
+the rest of the library is used. They are recorded here so a reader does
+not mistake the absence of a feature for an oversight.
+
+- **`sat_video_width()` / `sat_video_height()` return 0 before `sat_init()`.**
+  The runtime state is zero-initialised in `.wram_l` (see
+  `src/core/runtime/state.cpp`), so a `sat_video_config_t video = { sat_video_width(), sat_video_height(), ... }`
+  initialiser would always read `(0, 0, ...)`. Examples therefore keep a
+  private `SCREEN_W` / `SCREEN_H` literal that matches the mode they ask
+  `sat_init` for. The accessors are still useful for hi-res-aware code
+  (`sat_hud_init_default`, `sat_video_is_hires`) once `sat_init` has
+  resolved the timing.
+- **`sat_hud_line` cannot be called before `sat_hud_init*`.** The cursor
+  fields are owned by the HUD; the helper assumes the user has already
+  bound a font. Examples that want a one-line boot screen therefore init
+  the HUD right after `sat_init`.
+
 ## What does not count as coverage
 
 For this document, none of the following alone marks a subsystem as implemented:
