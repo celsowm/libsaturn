@@ -8,6 +8,7 @@
 #include "saturn/audio.h"
 #include "saturn/color.h"
 #include "saturn/font.h"
+#include "saturn/hud.h"
 #include "saturn/scsp_dsp.h"
 #include "saturn/time.h"
 #include "saturn/video.h"
@@ -47,11 +48,14 @@ volatile dsp_demo_results_t g_dsp_demo;
 int16_t g_echo_ring[RING_WORDS];
 
 static sat_ascii_font_t font;
+/* HUD overlay: font in CRAM bank 7, draws use palette code 0 with
+ * 8 px/cell spacing. */
+static sat_hud_t hud;
 static int16_t g_click[CLICK_SAMPLES];
 static sat_sound_t click_sound;
 
 static void line(const char* label, uint32_t value, int y) {
-    (void)sat_ascii_font_draw_label_u32(&font, label, value, 8, y, 8, 0u, 0u);
+    (void)sat_hud_value(&hud, label, value, 8, y);
 }
 
 static sat_result_t play_click(void) {
@@ -74,6 +78,7 @@ int main(void) {
 
     if (sat_app_init_default() != SAT_OK) return 1;
     if (sat_ascii_font_init_8x8_indexed8(&font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u) != SAT_OK) return 1;
+    if (sat_hud_init(&hud, &font, 0u, 8u) != SAT_OK) return 1;
     g_dsp_demo.magic = DSP_DEMO_MAGIC;
 
     /* 64 samples of a square wave, 8 samples per half period */
@@ -141,7 +146,7 @@ int main(void) {
             }
         }
 
-        (void)sat_ascii_font_draw_text_screen_indexed8(&font, "SCSP DSP", 8, 8, 8, 0u, 0u);
+        (void)sat_hud_text(&hud, "SCSP DSP", 8, 8);
         line("ECHO ", g_dsp_demo.echo_kind, 24);
         line("REVERB ", g_dsp_demo.reverb_kind, 40);
         line("FRAME ", g_dsp_demo.frames, 56);
