@@ -68,9 +68,25 @@ class SkeletalExportTests(unittest.TestCase):
         exp = sx.export_model(model)
         self.assertLess(sx.verify(model, exp)["max_error"], 0.01)
 
-    def test_non_unit_scale_is_rejected(self):
-        with self.assertRaises(ModelImportError):
-            sx.build_skeleton(chain_model(scale=(2.0, 1.0, 1.0)))
+    def test_non_unit_scale_round_trips(self):
+        # The Saturn runtime stores per-joint rest scale and composes T*R*S,
+        # so rigged GLBs with non-unit rest scale (Tripo/Mixamo
+        # _scaleCompensation chains, FBX exports that bake scale into the
+        # rig) round-trip exactly instead of forcing a mesh bake. The
+        # synthetic chain_model hardcodes IBMs that assume unit scale, so
+        # we rebuild them from the actual rest-pose world matrices here.
+        from model_pipeline.animation import (
+            compute_global_transforms, compute_local_transforms,
+        )
+        from model_pipeline.model import _mat_inverse
+        model = chain_model(scale=(2.0, 2.0, 2.0))
+        locals_ = compute_local_transforms(model, None, 0.0)
+        globals_ = compute_global_transforms(model, locals_)
+        model.skins[0].inverse_bind = [_mat_inverse(g) for g in globals_]
+        skel = sx.build_skeleton(model)
+        self.assertEqual(skel.scale[1], (2 * 65536, 2 * 65536, 2 * 65536))
+        exp = sx.export_model(model)
+        self.assertLess(sx.verify(model, exp)["max_error"], 0.004)
 
     def test_clip_quaternions_are_continuous_and_w_positive_at_start(self):
         exp = sx.export_model(chain_model(), rate=10)
@@ -118,11 +134,14 @@ class SkeletalExportTests(unittest.TestCase):
         for needle in ("Chain_Guy_skeleton", "Chain_Guy_skin", "Chain_Guy_clip_swing",
                        "SAT_CLIP_FLAG_LOOP", "sat_skin_blend_t"):
             self.assertIn(needle, h1 + c1)
+        # Per-joint scale is now part of the generated record.
+        self.assertIn("65536, 65536, 65536", c1)
         self.assertIn("CHAIN_GUY_FACE_COUNT 2", h1.upper())
 
     def test_size_report(self):
         rep = sx.size_report(sx.export_model(chain_model(), rate=10))
-        self.assertEqual(rep["skeleton_bytes"], 72)
+        # 3 joints * 36 bytes (parent + reserved + 12 translation + 8 quat + 12 scale)
+        self.assertEqual(rep["skeleton_bytes"], 3 * 36)
         self.assertEqual(rep["skin_bytes"], 2 * 8 + 2 * 26)
         self.assertEqual(rep["clip_bytes"], 11 * 3 * 14)
 

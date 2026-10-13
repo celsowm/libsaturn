@@ -9,7 +9,9 @@ from pathlib import Path
 from . import emit_c as emit_anim
 from . import gltf as gltf_mod
 from . import pose_bake
-from .animated_import import import_animated_model, print_animated_stats
+from . import skeletal_export as sx_mod
+from . import model as srcmodel
+from .animated_import import import_animated_model, print_animated_stats, select_animation_clips
 from .constants import VDP1_MAX_TEXTURE_HEIGHT, VDP1_MAX_TEXTURE_WIDTH
 from .errors import ImportError
 from .import_cache import IMPORT_SIGNATURE_SCHEMA, _atomic_write_json, _import_signature, _incremental_cache_hit, _model_output_paths, _write_incremental_manifest
@@ -43,7 +45,11 @@ def main() -> int:
                              "scaled so the model's longest extent spans N texels (match "
                              "the on-screen size; pair with --sampling area)")
     parser.add_argument("--target", default=None,
-                        help="Compilation target; 'saturn' enables the animated GLB path")
+                        help="Compilation target; 'saturn' enables the baked-pose animated GLB path, "
+                             "'skeletal' enables the runtime CPU-skinning path")
+    parser.add_argument("--loop-clips", default=None, metavar="NAMES",
+                        help="Skeletal GLB path: comma-separated clip names that loop "
+                             "(others are one-shots)")
     parser.add_argument("--simplify", default="auto",
                         help="Animated GLB topology: off|auto|TARGET (default auto)")
     parser.add_argument("--quality", default="balanced",
@@ -162,7 +168,10 @@ def main() -> int:
               "animated faces move every frame", file=sys.stderr)
         return 1
     if suffix in (".glb", ".gltf"):
-        result_code = _main_animated(args)
+        if args.target == "skeletal":
+            result_code = _main_skeletal(args)
+        else:
+            result_code = _main_animated(args)
         if result_code == 0 and args.incremental and signature is not None:
             _write_incremental_manifest(args, signature)
         return result_code
@@ -210,7 +219,7 @@ def _parse_lut_codes(text):
 
 def _main_animated(args) -> int:
     if args.target not in (None, "saturn"):
-        print(f"import_model: error: unknown --target {args.target!r} (have: saturn)",
+        print(f"import_model: error: unknown --target {args.target!r} (have: saturn, skeletal)",
               file=sys.stderr)
         return 1
     if args.simplify == "off" and args.generate_lods:
@@ -282,3 +291,109 @@ def _main_animated(args) -> int:
     print_animated_stats(result.report)
     print(f"OK: {header_path} + {source_path}")
     return 0
+
+
+def _main_skeletal(args) -> int:
+    """CPU-skinning path: GLB -> parent-first skeleton + multi-anchor skin + baked clip frames.
+
+    Unlike the baked-pose path (``--target saturn``) the Saturn runtime evaluates
+    joints and deforms vertices every render; the importer emits the asset tables
+    and the clip data, but the geometry is what ``sat_skin_deform`` produces,
+    not what the importer bakes. The merge-rigid-meshes / simplification /
+    texel-extent knobs are baked-pose-only and silently ignored here.
+    """
+    if args.target != "skeletal":
+        print(f"import_model: error: unknown --target {args.target!r} (have: saturn, skeletal)",
+              file=sys.stderr)
+        return 1
+    if args.split_intersections:
+        print("import_model: error: --split-intersections applies to the static OBJ path; "
+              "skeletal import works on the skinned mesh", file=sys.stderr)
+        return 1
+    if args.face_colors != "off":
+        print("import_model: error: --face-colors applies to the baked-pose animated path; "
+              "skeletal import ships its own per-face materials", file=sys.stderr)
+        return 1
+
+    rate = 30
+    if args.animation_fps != "source":
+        try:
+            rate = int(args.animation_fps)
+        except ValueError:
+            print(f"import_model: error: --animation-fps must be 'source' or an integer "
+                  f"(got {args.animation_fps!r})", file=sys.stderr)
+            return 1
+        if rate <= 0:
+            print(f"import_model: error: --animation-fps must be positive (got {rate})",
+                  file=sys.stderr)
+            return 1
+
+    loop_names: set[str] = set()
+    if args.loop_clips:
+        loop_names = {n.strip() for n in args.loop_clips.split(",") if n.strip()}
+
+    try:
+        glb = gltf_mod.parse_model(args.input)
+        _drop_morph_weight_channels(glb.json)
+        model = srcmodel.from_gltf(glb, Path(args.input).stem)
+        if args.flip_x or args.flip_y or args.flip_z:
+            sx = -1.0 if args.flip_x else 1.0
+            sy = -1.0 if args.flip_y else 1.0
+            sz = -1.0 if args.flip_z else 1.0
+            model.vertices = [(x * sx, y * sy, z * sz) for x, y, z in model.vertices]
+        clip_indices = select_animation_clips(model, args.animation)
+        if not clip_indices:
+            print("import_model: error: no animation clips selected", file=sys.stderr)
+            return 1
+        keep = set(clip_indices)
+        model.clips = [c for i, c in enumerate(model.clips) if i in keep]
+        exp = sx_mod.export_model(model, scale=args.scale, rate=rate, loop_clips=loop_names)
+        verify = sx_mod.verify(model, exp)
+        symbol = args.symbol or Path(args.out_prefix).stem
+        header_text, source_text = sx_mod.emit_c(exp, symbol)
+        header_path = Path(args.out_prefix).with_suffix(".h")
+        source_path = Path(args.out_prefix).with_suffix(".c")
+        header_path.parent.mkdir(parents=True, exist_ok=True)
+        header_path.write_text(header_text, encoding="utf-8")
+        source_path.write_text(source_text, encoding="utf-8")
+    except ImportError as exc:
+        print(f"import_model: error: {exc}", file=sys.stderr)
+        return 1
+    except gltf_mod.GltfError as exc:
+        print(f"import_model: error: {exc}", file=sys.stderr)
+        return 1
+
+    sx_mod.print_skeletal_stats(exp, verify)
+    print(f"OK: {header_path} + {source_path}")
+    return 0
+
+
+def _drop_morph_weight_channels(json_doc: dict) -> int:
+    """Strip morph-weight channels that the Saturn runtime cannot play.
+
+    Some rigged GLBs (Tripo / Mixamo blendshapes, etc.) animate mesh-node
+    ``weights`` accessors for facial expressions or procedural shape variation.
+    The Saturn skeletal runtime has no blend-shape path, so the channels and
+    their samplers are removed in the in-memory JSON before ``model.from_gltf``
+    rejects the asset. Channel indices are remapped so the remaining channels
+    keep referencing their original samplers.
+    """
+    dropped = 0
+    for anim in json_doc.get("animations", []):
+        channels = list(anim.get("channels", []))
+        samplers = list(anim.get("samplers", []))
+        keep_channels: list[dict] = []
+        keep_sampler_ids: set[int] = set()
+        for ch in channels:
+            if ch.get("target", {}).get("path") == "weights":
+                dropped += 1
+                continue
+            keep_channels.append(ch)
+            keep_sampler_ids.add(ch["sampler"])
+        sampler_remap = {old: new for new, old in enumerate(sorted(keep_sampler_ids))}
+        for ch in keep_channels:
+            ch["sampler"] = sampler_remap[ch["sampler"]]
+        kept_samplers = [samplers[old] for old in sorted(keep_sampler_ids)]
+        anim["channels"] = keep_channels
+        anim["samplers"] = kept_samplers
+    return dropped

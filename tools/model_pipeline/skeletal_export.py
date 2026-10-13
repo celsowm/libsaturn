@@ -18,6 +18,7 @@ rather than on the console.
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import dataclass, field
 
 from .animation import (
@@ -42,6 +43,10 @@ class SkeletonData:
     parent: list[int]                   # ROOT_PARENT or index < joint
     translation: list[tuple[int, int, int]]  # fx16, parent-relative
     rotation: list[tuple[int, int, int, int]]  # Q15 x, y, z, w
+    # fx16, parent-relative. Uniform per-joint scale (Tripo/Mixamo
+    # _scaleCompensation chains, FBX-exported rigs) is the common case;
+    # non-uniform. The Saturn runtime treats (0, 0, 0) as identity.
+    scale: list[tuple[int, int, int]] = field(default_factory=list)
 
 
 @dataclass
@@ -100,6 +105,18 @@ def _quat_from_matrix(m: list[float]) -> tuple[float, float, float, float]:
 
 
 def _quat_to_matrix(q: tuple[float, float, float, float], t) -> list[float]:
+    """Quaternion + translation to a 4x4 matrix (column-major).
+
+    Layout matches ``trs_to_matrix`` and ``mat_mult`` in animation.py:
+    ``m[col*4 + row] = M[row][col]``, with the rotation occupying the upper
+    3x3 block and the translation at m[12..14]. ``mat_vec`` then evaluates
+    the matrix in column-vector convention (``v' = M * v``); the storage is
+    what makes that work, not a hidden transpose.
+
+    The cross terms swap sign with respect to a row-major formula because
+    of the transpose: column-major storage places ``2(xy + zw)`` at m[1]
+    (R[1][0]) and ``2(xy - zw)`` at m[4] (R[0][1]).
+    """
     x, y, z, w = q
     return [
         1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w), 0.0,
@@ -110,12 +127,25 @@ def _quat_to_matrix(q: tuple[float, float, float, float], t) -> list[float]:
 
 
 def _check_rigid(m: list[float], what: str) -> None:
+    """Validate a joint's parent-relative transform.
+
+    The Saturn runtime stores per-joint rest scale separately and composes the
+    local matrix as ``T * R * S``, so a non-unit scale is allowed (the asset
+    pipeline relies on it for Tripo/Mixamo ``_scaleCompensation`` rigs and FBX
+    exports that bake scale into the rig). The remaining guard rails are:
+
+    * every rotation column must have non-zero length (no degenerate axes),
+    * no shear: rotation columns are pairwise orthogonal.
+
+    Magnitude is unrestricted so uniform and per-component scales up to
+    ``2**16`` round-trip cleanly.
+    """
     cols = [(m[0], m[1], m[2]), (m[4], m[5], m[6]), (m[8], m[9], m[10])]
     for i, c in enumerate(cols):
-        if abs(math.sqrt(sum(v * v for v in c)) - 1.0) > SCALE_TOLERANCE:
+        if math.sqrt(sum(v * v for v in c)) < SCALE_TOLERANCE:
             raise ModelImportError(
-                f"{what}: joint transform has non-unit scale (column {i}); "
-                "bake scale into the mesh before export"
+                f"{what}: joint transform has a zero-length rotation column {i}; "
+                "re-export with a non-degenerate joint transform"
             )
     for a in range(3):
         for b in range(a + 1, 3):
@@ -204,17 +234,47 @@ def _joint_locals(order, parents, globals_) -> list[list[float]]:
     return out
 
 
+def _rotation_only(m: list[float]) -> list[float]:
+    """Strip the per-column scale from a T*R*S matrix.
+
+    ``_quat_from_matrix`` expects a pure rotation; when handed the full
+    local matrix the column lengths scale the rotation entries and yield a
+    wrong quaternion. Each rotation column lives at m[k*4 + 0..2]; the
+    column length equals the scale component on that axis, so dividing the
+    three rotation entries by it restores the unit rotation.
+    """
+    out = list(m)
+    scales = []
+    for col in range(3):
+        base = col * 4
+        s = math.sqrt(m[base] ** 2 + m[base + 1] ** 2 + m[base + 2] ** 2)
+        scales.append(s)
+        if s <= 0.0:
+            continue
+        out[base + 0] /= s
+        out[base + 1] /= s
+        out[base + 2] /= s
+    return out
+
+
 def build_skeleton(model: SourceModel, scale: float = 1.0) -> SkeletonData:
     if not model.is_skinned or not model.skins:
         raise ModelImportError("model has no skin")
     order, parents = _joint_order(model)
     globals_ = compute_global_transforms(model, compute_local_transforms(model, None, 0.0))
-    translation, rotation = [], []
+    translation, rotation, joint_scale = [], [], []
     for ji, m in enumerate(_joint_locals(order, parents, globals_)):
         _check_rigid(m, f"joint {ji} (node {order[ji]})")
+        # Translation carries the exporter's uniform scale; rest_scale below
+        # captures the model's intrinsic per-joint scale, independent of it.
         translation.append(tuple(_fx16(m[12 + k] * scale) for k in range(3)))
-        rotation.append(_q15(_quat_from_matrix(m)))
-    return SkeletonData(order, parents, translation, rotation)  # type: ignore[arg-type]
+        rotation.append(_q15(_quat_from_matrix(_rotation_only(m))))
+        # Per-axis scale = length of each rotation column (rotation is unit).
+        sx = math.sqrt(m[0] ** 2 + m[1] ** 2 + m[2] ** 2)
+        sy = math.sqrt(m[4] ** 2 + m[5] ** 2 + m[6] ** 2)
+        sz = math.sqrt(m[8] ** 2 + m[9] ** 2 + m[10] ** 2)
+        joint_scale.append((_fx16(sx), _fx16(sy), _fx16(sz)))
+    return SkeletonData(order, parents, translation, rotation, joint_scale)  # type: ignore[arg-type]
 
 
 # --------------------------------------------------------------------------
@@ -238,7 +298,7 @@ def bake_clip(model: SourceModel, skel: SkeletonData, clip_index: int,
         row = []
         for ji, m in enumerate(_joint_locals(skel.node_of_joint, skel.parent, g)):
             _check_rigid(m, f"clip {clip.name} frame {f} joint {ji}")
-            q = _q15(_quat_from_matrix(m), prev[ji])
+            q = _q15(_quat_from_matrix(_rotation_only(m)), prev[ji])
             prev[ji] = q
             row.append((tuple(_fx16(m[12 + k] * scale) for k in range(3)), q))
         frames.append(row)
@@ -332,12 +392,28 @@ def export_model(model: SourceModel, scale: float = 1.0, rate: int = 30,
 
 
 def _decode_pose(skel: SkeletonData, pose) -> list[list[float]]:
-    """Model-space joint matrices from (fx16 t, Q15 q) per joint."""
+    """Model-space joint matrices from (fx16 t, Q15 q) per joint.
+
+    Mirrors ``joint_local_matrix`` in skeleton.cpp: composes T * R * S by
+    scaling each rotation column by the matching axis of the joint's rest
+    scale, leaving the translation column (column 3) untouched. Column-major
+    layout: column k lives at m[k*4 + 0..3]; rotation occupies the first
+    three rows (m[k*4 + 0..2]), translation is m[k*4 + 3]. Scaling column k's
+    rotation uniformly by s[k] means multiplying m[k*4 + 0], m[k*4 + 1],
+    m[k*4 + 2] by s[k]; the translation at m[k*4 + 3] is left at its T*R value.
+    """
     world: list[list[float]] = []
-    for ji, ((tx, ty, tz), q) in enumerate(pose):
+    for ji, ((tx_t, ty_t, tz_t), q) in enumerate(pose):
         qf = tuple(c / Q15 for c in q)
         n = math.sqrt(sum(c * c for c in qf)) or 1.0
-        m = _quat_to_matrix(tuple(c / n for c in qf), (tx / 65536.0, ty / 65536.0, tz / 65536.0))
+        m = _quat_to_matrix(tuple(c / n for c in qf), (tx_t / 65536.0, ty_t / 65536.0, tz_t / 65536.0))
+        sx, sy, sz = (c / 65536.0 for c in skel.scale[ji])
+        m = list(m)
+        for col, s in enumerate((sx, sy, sz)):
+            base = col * 4
+            m[base + 0] *= s
+            m[base + 1] *= s
+            m[base + 2] *= s
         p = skel.parent[ji]
         world.append(m if p == ROOT_PARENT else mat_mult(world[p], m))
     return world
@@ -395,13 +471,17 @@ def verify(model: SourceModel, exp: SkeletalExport, samples: int = 8) -> dict:
 def size_report(exp: SkeletalExport) -> dict:
     skel, skin = exp.skeleton, exp.skin
     clip_bytes = sum(c.frame_count * len(skel.node_of_joint) * 14 for c in exp.clips)
+    # sat_skeleton_joint_t now also carries rest_scale (12 bytes per joint),
+    # so the per-joint skeleton record is 36 bytes (parent + reserved +
+    # translation 12 + quaternion 8 + scale 12).
+    joint_bytes = 36
     out = {
         "joints": len(skel.node_of_joint),
         "vertices": len(skin.source_vertex),
         "rigid": len(skin.rigid),
         "blend": len(skin.blend),
         "pos_shift": skin.pos_shift,
-        "skeleton_bytes": len(skel.node_of_joint) * 24,
+        "skeleton_bytes": len(skel.node_of_joint) * joint_bytes,
         "skin_bytes": len(skin.rigid) * 8 + len(skin.blend) * 26,
         "clip_bytes": clip_bytes,
         "deformed_vertex_bytes": len(skin.source_vertex) * 12,
@@ -409,6 +489,32 @@ def size_report(exp: SkeletalExport) -> dict:
     }
     out["total_rom_bytes"] = out["skeleton_bytes"] + out["skin_bytes"] + clip_bytes + len(skin.triangles) * 8
     return out
+
+
+def print_skeletal_stats(exp: SkeletalExport, verify_result: dict, file=None) -> None:
+    """Short human-readable summary of one ``export_model`` run.
+
+    Mirrors the shape of ``print_animated_stats`` / ``print_stats`` so a single
+    ``make example`` recipe reads the same way across baked-pose and skeletal
+    assets.
+    """
+    report = size_report(exp)
+    out = file if file is not None else sys.stdout
+    print(f"SKELETON: joints={report['joints']}", file=out)
+    print(f"SKIN: vertices={report['vertices']} rigid={report['rigid']} "
+          f"blend={report['blend']} pos_shift={report['pos_shift']}", file=out)
+    print(f"CLIPS: count={len(exp.clips)}", file=out)
+    for clip in exp.clips:
+        flag = "LOOP" if clip.loop else "ONESHOT"
+        print(f"  clip {clip.name}: {clip.frame_count} frames @ {clip.rate} fps "
+              f"[{flag}]", file=out)
+    print(f"ROM: skeleton={report['skeleton_bytes']}B  skin={report['skin_bytes']}B  "
+          f"clips={report['clip_bytes']}B  indices={report['triangles'] * 8}B  "
+          f"total={report['total_rom_bytes']}B", file=out)
+    print(f"DEFORM BUFFER: {report['deformed_vertex_bytes']} bytes "
+          f"({report['vertices']} x vec3, runtime only)", file=out)
+    print(f"VERIFY: rest_error={verify_result['rest_error']:.4f}  "
+          f"max_error={verify_result['max_error']:.4f}", file=out)
 
 
 # --------------------------------------------------------------------------
@@ -437,8 +543,10 @@ def emit_c(exp: SkeletalExport, name: str) -> tuple[str, str]:
          f"#define {base.upper()}_VERTEX_COUNT {len(skin.source_vertex)}"]
     c = [f'#include "{base}_skeletal.h"', ""]
     c.append(f"static const sat_skeleton_joint_t {base}_joints[{len(skel.parent)}] = {{")
-    for p, t, q in zip(skel.parent, skel.translation, skel.rotation):
-        c.append(f"    {{{p}, 0, {{{t[0]}, {t[1]}, {t[2]}}}, {{{q[0]}, {q[1]}, {q[2]}, {q[3]}}}}},")
+    for p, t, q, s in zip(skel.parent, skel.translation, skel.rotation, skel.scale):
+        c.append(f"    {{{p}, 0, {{{t[0]}, {t[1]}, {t[2]}}}, "
+                 f"{{{q[0]}, {q[1]}, {q[2]}, {q[3]}}}, "
+                 f"{{{s[0]}, {s[1]}, {s[2]}}}}},")
     c += ["};",
           f"const sat_skeleton_asset_t {base}_skeleton = {{{base}_joints, {len(skel.parent)}, 0}};", ""]
     if skin.rigid:
