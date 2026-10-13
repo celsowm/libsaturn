@@ -125,6 +125,15 @@ sat_parallel_task_slot_t* slot_for(sat_parallel_handle_t handle,
     return slot;
 }
 
+/* Slave slot writes precede its completion message. Until that message is
+ * consumed, the active batch still owns its descriptors and output buffers. */
+bool active_slot(uint16_t index) {
+    for (uint8_t i = 0u; i < g_runtime.active; ++i) {
+        if (g_runtime.active_index[i] == index) return true;
+    }
+    return false;
+}
+
 void mark_failed(sat_parallel_task_slot_t& slot, sat_result_t result) {
     if (queue_logic::terminal(static_cast<sat_parallel_task_state_t>(slot.state))) {
         return;
@@ -225,6 +234,7 @@ queue_logic::Dep dependency_state(const sat_parallel_task_slot_t& task, int32_t*
     uint16_t index = 0u;
     const sat_parallel_task_slot_t* dep = slot_for(task.depends_on, &index);
     if (dep == nullptr) return Dep::Failed;
+    if (active_slot(index)) return Dep::Pending;
     switch (static_cast<sat_parallel_task_state_t>(dep->state)) {
         case SAT_PARALLEL_COMPLETED: return Dep::Done;
         case SAT_PARALLEL_FAILED:
@@ -603,9 +613,11 @@ sat_result_t submit_master(sat_parallel_task_type_t type, const void* input,
 
 sat_parallel_task_state_t state(sat_parallel_handle_t handle) {
     if (g_runtime.initialized != 0u) (void)service();
-    sat_parallel_task_slot_t* slot = slot_for(handle);
-    return slot == nullptr ? SAT_PARALLEL_FREE
-                           : static_cast<sat_parallel_task_state_t>(slot->state);
+    uint16_t index = 0u;
+    sat_parallel_task_slot_t* slot = slot_for(handle, &index);
+    if (slot == nullptr) return SAT_PARALLEL_FREE;
+    return active_slot(index) ? SAT_PARALLEL_RUNNING
+                              : static_cast<sat_parallel_task_state_t>(slot->state);
 }
 
 uint8_t done(sat_parallel_handle_t handle) {
@@ -613,8 +625,10 @@ uint8_t done(sat_parallel_handle_t handle) {
 }
 
 sat_result_t result(sat_parallel_handle_t handle, uint32_t* out_size) {
-    sat_parallel_task_slot_t* slot = slot_for(handle);
+    uint16_t index = 0u;
+    sat_parallel_task_slot_t* slot = slot_for(handle, &index);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
+    if (active_slot(index)) return SAT_ERR_BUSY;
     const sat_parallel_task_state_t task_state =
         static_cast<sat_parallel_task_state_t>(slot->state);
     if (!queue_logic::terminal(task_state)) return SAT_ERR_BUSY;
@@ -677,7 +691,7 @@ sat_result_t abort_task(sat_parallel_handle_t handle, uint32_t timeout_ticks) {
     for (uint8_t i = 0u; i < g_runtime.active; ++i) {
         if (g_runtime.active_index[i] == index) member = true;
     }
-    if (g_runtime.active == 0u || !member || slot->state != SAT_PARALLEL_RUNNING) {
+    if (g_runtime.active == 0u || !member) {
         return SAT_ERR_BUSY;
     }
 #if SAT_PARALLEL_TEST_FAULT == SAT_PARALLEL_TEST_FAULT_ABORT_FAILURE
@@ -748,6 +762,7 @@ sat_result_t release(sat_parallel_handle_t handle) {
     uint16_t index = 0u;
     sat_parallel_task_slot_t* slot = slot_for(handle, &index);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
+    if (active_slot(index)) return SAT_ERR_BUSY;
     if (!queue_logic::terminal(static_cast<sat_parallel_task_state_t>(slot->state))) {
         return SAT_ERR_BUSY;
     }

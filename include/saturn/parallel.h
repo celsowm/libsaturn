@@ -179,6 +179,9 @@ sat_result_t sat_parallel_submit_master(
 sat_result_t sat_parallel_service(void);
 uint8_t sat_parallel_done(sat_parallel_handle_t handle);
 sat_parallel_task_state_t sat_parallel_state(sat_parallel_handle_t handle);
+/* A Slave task remains RUNNING/BUSY until its completion message has been
+ * consumed, even if its shared slot already contains the worker's terminal
+ * write. Only then are its outputs visible and the handle releasable. */
 sat_result_t sat_parallel_result(sat_parallel_handle_t handle, uint32_t* out_size);
 sat_result_t sat_parallel_wait(sat_parallel_handle_t handle, uint32_t timeout_ticks);
 /* Safely aborts one running Slave task. The Slave is stopped first, so the
