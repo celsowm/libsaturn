@@ -9,6 +9,7 @@
 #include "saturn/cd_block.h"
 #include "saturn/color.h"
 #include "saturn/font.h"
+#include "saturn/hud.h"
 #include "saturn/mpeg.h"
 #include "saturn/uart.h"
 #include "saturn/video.h"
@@ -38,10 +39,13 @@ typedef struct expansion_results {
 volatile expansion_results_t g_expansion;
 
 static sat_ascii_font_t font;
+/* HUD overlay: font in CRAM bank 7, draws use palette code 0 with
+ * 8 px/cell spacing. */
+static sat_hud_t hud;
 static sat_cd_block_t block;
 
 static void line(const char* label, uint32_t value, int y) {
-    (void)sat_ascii_font_draw_label_u32(&font, label, value, 8, y, 8, 0u, 0u);
+    (void)sat_hud_value(&hud, label, value, 8, y);
 }
 
 int main(void) {
@@ -52,6 +56,7 @@ int main(void) {
 
     if (sat_app_init_default() != SAT_OK) return 1;
     if (sat_ascii_font_init_8x8_indexed8(&font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u) != SAT_OK) return 1;
+    if (sat_hud_init(&hud, &font, 0u, 8u) != SAT_OK) return 1;
     g_expansion.magic = EXPANSION_MAGIC;
 
     g_expansion.cd_init = (uint32_t)(-sat_cd_block_init(&block, SAT_CD_BLOCK_DEFAULT_TIMEOUT));
@@ -78,7 +83,7 @@ int main(void) {
         sat_pad_state_t pad = {0};
         if (sat_app_frame_begin(SAT_COLOR_BLACK, SAT_COLOR_GREEN, &pad) != SAT_OK) break;
         ++g_expansion.frames;
-        (void)sat_ascii_font_draw_text_screen_indexed8(&font, "EXPANSION PROBE", 8, 8, 8, 0u, 0u);
+        (void)sat_hud_text(&hud, "EXPANSION PROBE", 8, 8);
         line("MPEG PRESENT ", g_expansion.present, 24);
         line("MPEG VERSION ", g_expansion.mpeg_version, 40);
         line("START STATUS ", g_expansion.start_status, 56);
