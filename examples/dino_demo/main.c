@@ -23,9 +23,9 @@
  * single colour (teeth and claws) draw as plain polygons: same look, no
  * texture fetch.
  *
- * DINO_HIRES (Makefile.inc, optional) runs 640x224: VDP1 writes 8-bit
- * palette codes, the model's lookup tables hold codes of one shared
- * palette, and a solid face's "colour" is its palette code.
+ * It runs 640x224 hi-res: VDP1 writes 8-bit palette codes, the model's
+ * lookup tables hold codes of one shared palette, and a solid face's
+ * "colour" is its palette code.
  *
  * Controls (held state for smooth motion, presses for toggles):
  *   L / R      orbit yaw around the model
@@ -34,7 +34,17 @@
  *   A          pause/resume animation
  *   B          reset yaw, pitch, zoom and animation
  *   C          toggle automatic slow orbit
+ *   Z          toggle the red light
  *   START      toggle the expanded help overlay
+ *
+ * The red light (a PS1-style alarm light sweeping over the body) is done by
+ * the VDP2, since hi-res VDP1 pixels are palette codes and cannot be Gouraud
+ * shaded: the line colour screen holds one red per line (a soft band that
+ * moves every frame), is inserted under the sprite layer only (so the
+ * background stays black), and sprite colour calculation in add mode adds it
+ * to the model. Hi-res mixes palette images only in CRAM mode 0, so the demo
+ * selects it (its four banks are enough).
+ * examples/vdp2_hires_light is the same technique on its own.
  */
 #include <stdint.h>
 
@@ -48,6 +58,7 @@
 #include "saturn/font.h"
 #include "saturn/fmt.h"
 #include "saturn/input.h"
+#include "saturn/loader.h"
 #include "saturn/math3d.h"
 #include "saturn/orbit_camera3d.h"
 #include "saturn/mesh3d.h"
@@ -58,7 +69,13 @@
 #include "saturn/sound_driver.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
+#include "saturn/vdp2_compose.h"   /* sat_vdp2_cram_mode_set */
+#include "saturn/vdp2_layers.h"
 #include "example_util.h"
+
+#ifndef DINO_FRAME_ON_SUBMIT
+#define DINO_FRAME_ON_SUBMIT 1
+#endif
 
 #ifndef DINO_MUSIC_68K
 #define DINO_MUSIC_68K 0
@@ -71,18 +88,11 @@
 #endif
 #include "dino_demo/trex_model.h"
 
-/* DINO_HIRES (set by Makefile.inc) runs the 640x224 hi-res mode: twice the
- * horizontal pixels, 8-bit VDP1 output indexing the model's one shared
- * palette. The display is still 4:3, so projection keeps the 320-wide
- * aspect and only the viewport doubles. */
-#ifndef DINO_HIRES
-#define DINO_HIRES 0
-#endif
-#if DINO_HIRES
+/* The demo runs the 640x224 hi-res mode: twice the horizontal pixels, 8-bit
+ * VDP1 output indexing the model's one shared palette. The display is still
+ * 4:3, so projection keeps the 320-wide aspect and only the viewport
+ * doubles. */
 #define SCREEN_W 640
-#else
-#define SCREEN_W 320
-#endif
 #define DISPLAY_ASPECT_W 320
 #define HUD_X(x) ((x) * SCREEN_W / DISPLAY_ASPECT_W)
 #define SCREEN_H 224
@@ -155,9 +165,6 @@ static uint16_t g_vdp1_commands DINO_WRAM_L;
 static uint32_t g_music_underruns DINO_WRAM_L;
 static uint32_t g_music_events DINO_WRAM_L;
 static uint32_t g_music_loops DINO_WRAM_L;
-static uint32_t g_frame_window_start DINO_WRAM_L;
-static uint32_t g_frame_window_rendered DINO_WRAM_L;
-static uint32_t g_fps DINO_WRAM_L;
 
 static sat_cd_block_t g_cd_block;
 static sat_cd_device_t g_cd_device;
@@ -185,6 +192,52 @@ static sat_result_t service_audio_during_cd(void *context) {
     return sat_audio_update();
 }
 
+#define LOADING_TOTAL 100u
+#define LOADING_CODE_FILL 1u   /* white */
+#define LOADING_CODE_TRACK 2u  /* dark blue */
+
+static sat_loading_screen_t g_loading;
+static uint8_t g_loading_bank;
+
+static void draw_credit(void *context);
+
+/* Hi-res VDP1 draws palette codes, not RGB, so the stock bar is told which
+ * codes to use: the CRAM bank after the model's holds white and a track blue,
+ * and the sprite palette points at it until the model's own bank takes over. */
+static void loading_begin(void) {
+    const uint16_t palette[3] = {
+        SAT_COLOR_BLACK, SAT_COLOR_WHITE,
+        (uint16_t)(0x8000u | (10u << 10) | (2u << 5) | 2u)
+    };
+
+    g_loading_bank = (uint8_t)(trex_asset.palette_base + trex_asset.palette_count);
+    SAT_PANIC_IF_ERROR(sat_vdp2_palette_upload(
+        palette, 3u, (uint16_t)(g_loading_bank * 256u)));
+    SAT_PANIC_IF_ERROR(sat_vdp2_sprite_palette_bank_set(g_loading_bank));
+    sat_loading_screen_default(&g_loading);
+    g_loading.frame = LOADING_CODE_FILL;
+    g_loading.fill = LOADING_CODE_FILL;
+    g_loading.track = LOADING_CODE_TRACK;
+    g_loading.width = 400u;
+    g_loading.x = (int16_t)((SCREEN_W - g_loading.width) / 2);
+    g_loading.decorate = draw_credit;
+    SAT_PANIC_IF_ERROR(sat_wait_vblank());
+}
+
+static void loading_step(uint32_t done) {
+    /* VDP2 latches the sprite palette bank per frame. */
+    (void)sat_vdp2_layers_commit();
+    sat_loading_screen_progress(&g_loading, done, LOADING_TOTAL);
+}
+
+#if DINO_MUSIC_68K
+/* The sample files take most of the load (CD reads): 40..95 of the bar. */
+static void music_progress(void* context, uint32_t done, uint32_t total) {
+    (void)context;
+    loading_step(40u + 55u * done / total);
+}
+#endif
+
 static sat_result_t init_music(void) {
     sat_result_t st = sat_audio_init();
 
@@ -200,7 +253,7 @@ static sat_result_t init_music(void) {
     if (st != SAT_OK) return st;
 
 #if DINO_MUSIC_68K
-    st = dino_music_68k_start(&g_cd_volume);
+    st = dino_music_68k_start(&g_cd_volume, music_progress, 0);
     if (st != SAT_OK) return st;
     g_music_ready = 1;
     return SAT_OK;
@@ -287,10 +340,6 @@ static sat_fx16_t vblank_dt(void) {
     return (sat_fx16_t)(now - prev);
 }
 
-static sat_fx16_t fx_abs(sat_fx16_t v) {
-    return (v < 0) ? -v : v;
-}
-
 /* Bounds over every frame of every clip, straight from the pose encoding
  * (each decoded axis lies within bias +/- scale). The bind pose is no
  * substitute: a rig's rest frame can differ from its animated frame -- this
@@ -305,12 +354,12 @@ static void anim_bounds(const sat_animated_model_asset_t *asset,
         sat_vec3_t lo;
         sat_vec3_t hi;
 
-        lo.x = e->bias_x - fx_abs(e->scale_x);
-        lo.y = e->bias_y - fx_abs(e->scale_y);
-        lo.z = e->bias_z - fx_abs(e->scale_z);
-        hi.x = e->bias_x + fx_abs(e->scale_x);
-        hi.y = e->bias_y + fx_abs(e->scale_y);
-        hi.z = e->bias_z + fx_abs(e->scale_z);
+        lo.x = e->bias_x - sat_fx16_abs(e->scale_x);
+        lo.y = e->bias_y - sat_fx16_abs(e->scale_y);
+        lo.z = e->bias_z - sat_fx16_abs(e->scale_z);
+        hi.x = e->bias_x + sat_fx16_abs(e->scale_x);
+        hi.y = e->bias_y + sat_fx16_abs(e->scale_y);
+        hi.z = e->bias_z + sat_fx16_abs(e->scale_z);
         if (c == 0 || lo.x < mn->x) { mn->x = lo.x; }
         if (c == 0 || lo.y < mn->y) { mn->y = lo.y; }
         if (c == 0 || lo.z < mn->z) { mn->z = lo.z; }
@@ -463,7 +512,6 @@ static uint16_t solid_texture_color(const sat_model_texture_asset_t *t) {
 /* Hi-res pixels are half as wide, so the HUD font doubles each glyph
  * horizontally (16x8) to keep the text the same size on screen. */
 static void init_font(void) {
-#if DINO_HIRES
     uint16_t palette[256] = {0};
     uint16_t glyph;
 
@@ -482,10 +530,6 @@ static void init_font(void) {
         sat_example_must(sat_tex_upload_indexed8(&g_font.glyphs[glyph], wide,
             16u, 8u, palette, FONT_PALETTE));
     }
-#else
-    SAT_PANIC_IF_ERROR(sat_ascii_font_init_8x8_indexed8(
-        &g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, FONT_PALETTE));
-#endif
 }
 
 static void draw_text(const char *text, int x, int y) {
@@ -494,14 +538,20 @@ static void draw_text(const char *text, int x, int y) {
     (void)st;
 }
 
+/* Bottom-of-screen credit, on the loading screen and in the demo itself. */
+static void draw_credit(void *context) {
+    (void)context;
+    draw_text("made using celsowm/libsaturn", 48, 210);
+}
+
 static void draw_hud(void) {
     char line[SAT_FMT_U32_MAX + 16u];
     const int offset = g_show_hud ? 20 : 0;
 
+    draw_credit(0);
     if (g_show_hud) {
         draw_text("T-REX WALK  L/R ROT  X/Y ZOOM", 4, 4);
-        draw_text("A PAUSE B RESET C AUTO START HUD", 4, 14);
-        draw_text("made using celsowm/libsaturn", 48, 210);
+        draw_text("A PAUSE B RESET C AUTO Z LIGHT", 4, 14);
     } else {
         draw_text("START HELP", 236, 4);
     }
@@ -528,9 +578,14 @@ static void draw_hud(void) {
         draw_text(line, 4, 24 + offset);
     }
 #endif
-    if (sat_fmt_label_u32("FPS ", g_fps,
-                          line, sizeof(line), 0) == SAT_OK) {
-        draw_text(line, 4, 44 + offset);
+    {
+        /* Lists that missed their VBlank: the previous picture stayed up. */
+        sat_vdp1_frame_stats_t stats;
+        if (sat_vdp1_frame_stats(&stats) == SAT_OK &&
+            sat_fmt_label_u32("LATE SWAPS ", stats.late_swaps,
+                              line, sizeof(line), 0) == SAT_OK) {
+            draw_text(line, 4, 44 + offset);
+        }
     }
     if (g_draw_overflow) {
         draw_text("RENDER LIMIT", 4, 54 + offset);
@@ -540,34 +595,131 @@ static void draw_hud(void) {
     }
 }
 
+/* The red light: a soft horizontal band of red that sweeps up and down the
+ * body while it pulses, like a PS1 alarm light. The VDP2 can only vary the
+ * line colour per line, so the band is smooth top and bottom and lights the
+ * whole width of the model (a window would add hard left/right edges). Its
+ * table sits in VDP2 VRAM, which the demo does not otherwise use; its red
+ * ramp fills CRAM bank 3 (the model has bank 1, the loading bar bank 2). */
+#define LIGHT_LINE_TABLE 0x10000u
+#define LIGHT_RED_BANK 3u
+#define LIGHT_LEVELS 32u
+#define LIGHT_Y_TOP 40
+#define LIGHT_Y_BOTTOM 190
+#define LIGHT_HALF_HEIGHT 48       /* lines from the band's centre to dark */
+#define LIGHT_SWEEP_FRAMES 120u    /* one pass, top to bottom */
+#define LIGHT_PULSE_FRAMES 36u     /* one siren pulse */
+#define LIGHT_PEAK_MIN 10
+#define LIGHT_PEAK_MAX 22
+
+static uint16_t g_light_lines[SCREEN_H] DINO_WRAM_L;
+/* (1 - (d/h)^2)^2 in 256ths for d = 0..h-1: a soft bell, no visible step at
+ * the edges. Built once, so a frame does no division per line. */
+static uint16_t g_light_bell[LIGHT_HALF_HEIGHT] DINO_WRAM_L;
+static int g_light_on DINO_WRAM_L;
+
+/* The line colour screen under the sprites, added to every sprite dot (the
+ * black background has no sprite, so it never lights up). */
+static void light_switch(void) {
+    SAT_PANIC_IF_ERROR(sat_vdp2_sprite_set_line_color_insert((uint8_t)g_light_on));
+    SAT_PANIC_IF_ERROR(sat_vdp2_hires_sprite_color_calc_set(
+        g_light_on ? SAT_VDP2_HIRES_SPRITE_CC_ALL : SAT_VDP2_HIRES_SPRITE_CC_OFF, 0u));
+}
+
+static void light_init(void) {
+    uint16_t red[LIGHT_LEVELS];
+    uint32_t i;
+
+    for (i = 0u; i < LIGHT_LEVELS; ++i) {
+        red[i] = SAT_RGB555(i, i / 5u, i / 8u);
+    }
+    SAT_PANIC_IF_ERROR(sat_vdp2_palette_upload(
+        red, LIGHT_LEVELS, (uint16_t)(LIGHT_RED_BANK * 256u)));
+    for (i = 0u; i < LIGHT_HALF_HEIGHT; ++i) {
+        const int32_t h2 = LIGHT_HALF_HEIGHT * LIGHT_HALF_HEIGHT;
+        const int32_t t = (h2 - (int32_t)(i * i)) * 256 / h2;   /* 0..256 */
+        g_light_bell[i] = (uint16_t)((t * t + 128) >> 8);
+    }
+    for (i = 0u; i < SCREEN_H; ++i) {
+        g_light_lines[i] = (uint16_t)(LIGHT_RED_BANK * 256u);
+    }
+    /* Once: the table address, add mode and the light's switches. Each frame
+     * then rewrites only the table; sat_vdp2_layers_commit() replays the
+     * rest. */
+    SAT_PANIC_IF_ERROR(sat_vdp2_line_color_screen_set(
+        LIGHT_LINE_TABLE, g_light_lines, SCREEN_H));
+    SAT_PANIC_IF_ERROR(sat_vdp2_color_calc_set_add(1u));
+    g_light_on = 1;
+    light_switch();
+}
+
+/* Moves the band: rewrites the line colour table, in VBlank. */
+static void light_update(void) {
+    const uint32_t frame = sat_frame_count();
+    /* eased sweep: the band lingers at the ends like a turning beam */
+    const int32_t s = sat_triangle_wave(frame, 2u * LIGHT_SWEEP_FRAMES, (int32_t)LIGHT_SWEEP_FRAMES);
+    const int32_t n = (int32_t)LIGHT_SWEEP_FRAMES;
+    const int32_t eased = s * s * (3 * n - 2 * s) / (n * n);   /* 0..n */
+    const int32_t cy = LIGHT_Y_TOP + eased * (LIGHT_Y_BOTTOM - LIGHT_Y_TOP) / n;
+    const int32_t peak = LIGHT_PEAK_MIN +
+        sat_triangle_wave(frame, LIGHT_PULSE_FRAMES, (int32_t)(LIGHT_PULSE_FRAMES / 2u)) * (LIGHT_PEAK_MAX - LIGHT_PEAK_MIN) /
+        (int32_t)(LIGHT_PULSE_FRAMES / 2u);
+    uint32_t i;
+
+    if (!g_light_on) {
+        return;
+    }
+    for (i = 0u; i < SCREEN_H; ++i) {
+        int32_t d = (int32_t)i - cy;
+        int32_t level = 0;
+        if (d < 0) d = -d;
+        if (d < LIGHT_HALF_HEIGHT) {
+            level = (peak * (int32_t)g_light_bell[d] + 128) >> 8;
+        }
+        g_light_lines[i] = (uint16_t)(LIGHT_RED_BANK * 256u + (uint32_t)level);
+    }
+    (void)sat_vdp2_vram_write_words(LIGHT_LINE_TABLE / 2u, g_light_lines, SCREEN_H);
+}
+
 int main(void) {
     sat_video_config_t video = {SCREEN_W, SCREEN_H, SAT_VIDEO_AUTO, 0u};
     sat_vec3_t mn = {0, 0, 0};
     sat_vec3_t mx = {0, 0, 0};
 
     SAT_PANIC_IF_ERROR(sat_init(&video));
-    init_font();
+#if DINO_FRAME_ON_SUBMIT
+    /* A frame takes several VBlanks to build: ON_SUBMIT shows each list only
+     * once it has fully drawn, instead of letting the 1-cycle VDP1 redraw a
+     * table the CPU is still rewriting. */
+    SAT_PANIC_IF_ERROR(sat_vdp1_set_frame_mode(SAT_VDP1_FRAME_ON_SUBMIT));
+#endif
     g_ntsc = (int)sat_video_is_ntsc_timing();
+    /* The red light needs CRAM mode 0 (hi-res colour calculation); set it
+     * before any palette goes in. */
+    SAT_PANIC_IF_ERROR(sat_vdp2_cram_mode_set(0u));
+    /* Everything below takes a couple of seconds: show a bar meanwhile. */
+    init_font();
+    loading_begin();
+    loading_step(0u);
 
     sat_example_must(sat_model_validate(&trex_asset));
     sat_example_must(sat_anim_validate(&trex_anim_asset));
     sat_example_must(sat_mesh_init(
         &g_mesh, g_pose[0], MODEL_VERTEX_CAP, g_mesh_indices, MODEL_FACE_CAP));
     sat_example_must(sat_model_copy_to_mesh(&trex_asset, &g_mesh));
+    loading_step(6u);
     /* One palette upload + one pixel upload per unique texture, once. */
     sat_example_must(sat_model_upload_textures(
         &trex_asset, g_model_textures, MODEL_TEXTURE_CAP));
-#if DINO_HIRES
     {
         /* Every hi-res sprite code indexes the model's palette bank; the
-         * importer leaves code 1 free for the font's foreground texel. */
+         * importer leaves code 1 free for the font's foreground texel. The
+         * sprite palette stays on the loading bank until the bar is done. */
         const uint16_t white = SAT_COLOR_WHITE;
-        sat_example_must(sat_vdp2_sprite_palette_bank_set(
-            (uint8_t)trex_asset.palette_base));
         sat_example_must(sat_vdp2_palette_upload(
             &white, 1u, (uint16_t)(trex_asset.palette_base * 256u + 1u)));
     }
-#endif
+    loading_step(25u);
     sat_example_must(sat_anim_state_init(&g_anim, &trex_anim_asset, 0));
     sat_example_must(sat_scene_init(&g_scene, g_scene_faces, g_scene_keys,
         g_scene_order, MODEL_FACE_CAP));
@@ -618,6 +770,7 @@ int main(void) {
             }
         }
     }
+    loading_step(30u);
 
     /* Use UNION bounds across all animation clips, not just the bind pose. */
     anim_bounds(&trex_anim_asset, &mn, &mx);
@@ -638,6 +791,7 @@ int main(void) {
         g_orbit.yaw_deg = MODEL_START_YAW_DEG;
         sat_example_must(sat_orbit_camera3d_update(&g_orbit));
     }
+    loading_step(40u);
     g_show_hud = 0;
     g_draw_overflow = 0;
     g_render_faces = 0u;
@@ -646,37 +800,29 @@ int main(void) {
     g_music_error = SAT_OK;
     g_music_ready = 0;
     sat_example_must(init_music());
+    loading_step(95u);
     /* The Slave decodes poses; without it every decode runs on the Master. */
     if (sat_anim_parallel_register() == SAT_OK) {
         sat_parallel_config_t config = {SAT_PARALLEL_AUTO, 0, 0u, 0u, PARALLEL_TIMEOUT};
         (void)sat_parallel_init(&config);
     }
+    loading_step(LOADING_TOTAL);
+    /* Done: every sprite code now indexes the model's palette bank. */
+    SAT_PANIC_IF_ERROR(sat_vdp2_sprite_palette_bank_set(
+        (uint8_t)trex_asset.palette_base));
+    light_init();
     g_pose_read = 0u;
     g_job_pending = 0;
     g_tick = sat_frame_count();
-    g_frame_window_start = g_tick;
-    g_frame_window_rendered = 0u;
-    g_fps = 0u;
     while (1) {
         sat_pad_state_t pad = {0};
-        uint32_t display_frames;
 
         SAT_PANIC_IF_ERROR(sat_wait_vblank());
-        display_frames = sat_frame_count() - g_frame_window_start;
-        ++g_frame_window_rendered;
-        if (display_frames >= (g_ntsc != 0 ? 60u : 50u)) {
-            const uint32_t rate = g_ntsc != 0 ? 60u : 50u;
-            g_fps = (g_frame_window_rendered * rate + display_frames / 2u) /
-                    display_frames;
-            g_frame_window_start = sat_frame_count();
-            g_frame_window_rendered = 0u;
-        }
-#if DINO_HIRES
         /* VDP2 latches its registers per frame; replay the hi-res sprite
          * type and palette bank inside VBlank. */
         SAT_PANIC_IF_ERROR(sat_vdp2_layers_commit());
-#endif
         SAT_PANIC_IF_ERROR(sat_vdp2_back_color_set(SAT_COLOR_BLACK));
+        light_update();
         SAT_PANIC_IF_ERROR(sat_set_clear_color(SAT_COLOR_BLACK));
         SAT_PANIC_IF_ERROR(sat_begin_frame());
         SAT_PANIC_IF_ERROR(sat_pad_poll(&pad));
@@ -684,6 +830,10 @@ int main(void) {
 
         update_camera_from_inputs(&pad);
         update_animation_from_inputs(&pad);
+        if ((pad.pressed & SAT_PAD_Z) != 0u) {
+            g_light_on = !g_light_on;
+            light_switch();
+        }
         /* Draw the pose the Slave decoded during the previous frame. */
         collect_pose();
         if (!g_draw_overflow) {

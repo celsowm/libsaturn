@@ -21,6 +21,10 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_configure(
     if (config->enabled != 0u && saturn::hal::vdp2::palette_priorities_active()) {
         return SAT_ERR_BUSY;
     }
+    /* ...and so does sat_vdp2_hires_sprite_color_calc_set. */
+    if (config->enabled != 0u && saturn::hal::vdp2::hires_sprite_color_calc() != 0u) {
+        return SAT_ERR_BUSY;
+    }
     saturn::hal::vdp2_color_calc::configure(*config);
     return SAT_OK;
 }

@@ -497,6 +497,12 @@ extern "C" sat_result_t sat_vdp2_line_color_screen_set(uint32_t table_address,
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_sprite_set_line_color_insert(uint8_t enabled) {
+    SAT_TRY(saturn::core::require_initialized());
+    hal::set_line_color_sprite(enabled != 0u);
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp2_layer_set_line_color_insert(sat_vdp2_layer_t layer, uint8_t enabled) {
     SAT_TRY(saturn::core::require_initialized());
     if (!valid_layer(layer)) return SAT_ERR_INVALID_ARG;

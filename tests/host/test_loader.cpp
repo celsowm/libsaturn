@@ -225,6 +225,14 @@ int main() {
     OK(g_frames == 2 && g_rects == 5 && g_last_rect_width == screen.width / 2u);
     sat_loading_screen_progress(&screen, 5u, 0u);
     OK(g_frames == 2);
+    // The optional decorate hook runs once per drawn frame, with its context.
+    int decorated = 0;
+    screen.decorate = [](void* context) { ++*static_cast<int*>(context); };
+    screen.decorate_context = &decorated;
+    sat_loading_screen_progress(&screen, 10u, 100u);
+    OK(decorated == 1 && g_frames == 3);
+    sat_loading_screen_progress(&screen, 5u, 0u);
+    OK(decorated == 1);
     std::puts("loader: OK");
     return 0;
 }

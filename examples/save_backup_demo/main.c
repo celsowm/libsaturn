@@ -9,7 +9,7 @@
 #include "saturn/save.h"
 #include "saturn/save_schema.h"
 
-#define SAVE_MAGIC 0x4C534156u /* "LSAV" */
+#define SAVE_MAGIC SAT_FOURCC('L', 'S', 'A', 'V')
 #define SAVE_VERSION 1u
 
 typedef struct demo_payload {

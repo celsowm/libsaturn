@@ -3,7 +3,7 @@
 
 #if SAT_SKYBRIDGE_VALIDATION
 #define SB_TEST_TELEMETRY_CAPACITY 384u
-#define SB_TEST_TELEMETRY_MAGIC 0x5342544Du
+#define SB_TEST_TELEMETRY_MAGIC SAT_FOURCC('S', 'B', 'T', 'M')
 typedef struct sb_test_telemetry_record {
     uint32_t serial, frame, game_ticks;
     uint32_t game_hash, animation_hash, merge_order_hash;

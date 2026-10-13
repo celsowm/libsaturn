@@ -22,6 +22,8 @@ extern "C" void sat_loading_screen_default(sat_loading_screen_t* screen) {
     screen->height = 8u;
     screen->x = 60;
     screen->y = 170;
+    screen->decorate = nullptr;
+    screen->decorate_context = nullptr;
 }
 
 extern "C" void sat_loading_screen_progress(void* context, uint32_t done, uint32_t total) {
@@ -42,6 +44,7 @@ extern "C" void sat_loading_screen_progress(void* context, uint32_t done, uint32
         (void)sat_draw_rect_screen(screen->x, screen->y, static_cast<uint16_t>(filled),
                                    screen->height, screen->fill);
     }
+    if (screen->decorate != nullptr) screen->decorate(screen->decorate_context);
     (void)sat_end_frame();
     (void)sat_wait_vblank();
 }

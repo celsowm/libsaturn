@@ -16,6 +16,14 @@ sat_result_t sat_begin_frame(void);
 sat_result_t sat_end_frame(void);
 sat_result_t sat_wait_vblank(void);
 
+/* The picture size sat_init set up: 320/640/704 by 224. Before sat_init both
+ * read 0. Use these instead of a private SCREEN_W/SCREEN_H, so an example
+ * follows the video mode it asked for. */
+uint16_t sat_video_width(void);
+uint16_t sat_video_height(void);
+/* 1 when the picture is 640 or 704 wide (hi-res). */
+uint8_t sat_video_is_hires(void);
+
 /* 1 when the console runs the PAL standard (VDP2 TVSTAT bit 0), 0 for NTSC.
  * Readable at any time, before sat_init as well. */
 uint8_t sat_video_is_pal(void);

@@ -15,6 +15,25 @@ typedef int32_t sat_fx16_t;
 
 #define SAT_FX16_ONE ((sat_fx16_t)0x00010000)
 
+/* A constant as 16.16: SAT_FX16(3) is 3.0 and SAT_FX16(0.25) is 0.25. Meant
+ * for integer or floating-point CONSTANTS; a runtime float would pull in the
+ * soft-float library on the SH-2. Negative values work. */
+#define SAT_FX16(x) ((sat_fx16_t)((x) * 65536))
+
+/* A four-character file/telemetry tag as a big-endian word:
+ * SAT_FOURCC('L','I','T','1') == 0x4C495431, what "LIT1" reads as in a hex dump. */
+#define SAT_FOURCC(a, b, c, d)     ((uint32_t)(((uint32_t)(uint8_t)(a) << 24) | ((uint32_t)(uint8_t)(b) << 16) |                 ((uint32_t)(uint8_t)(c) << 8) | (uint32_t)(uint8_t)(d)))
+
+/* Small integer helpers examples kept redefining. Arguments evaluate twice. */
+#define SAT_MIN(a, b) ((a) < (b) ? (a) : (b))
+#define SAT_MAX(a, b) ((a) > (b) ? (a) : (b))
+#define SAT_CLAMP(v, lo, hi) ((v) < (lo) ? (lo) : ((v) > (hi) ? (hi) : (v)))
+
+/* floor(sqrt(v)) for a 32-bit unsigned value, no libgcc call. */
+uint32_t sat_isqrt32(uint32_t v);
+/* Triangle wave: 0 .. amplitude .. 0 over `period` steps (period >= 2). */
+int32_t sat_triangle_wave(uint32_t step, uint32_t period, int32_t amplitude);
+
 /* ------------------------------------------------------------------ */
 /* Result codes                                                        */
 /* ------------------------------------------------------------------ */

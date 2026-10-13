@@ -15,7 +15,7 @@
 #include "saturn/smpc.h"
 #include "saturn/time.h"
 
-#define INPUT_DEMO_MAGIC 0x49444531u /* "IDE1" */
+#define INPUT_DEMO_MAGIC SAT_FOURCC('I', 'D', 'E', '1')
 #define HISTORY 6u
 
 typedef struct port_results {

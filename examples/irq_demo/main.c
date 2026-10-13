@@ -7,7 +7,7 @@
 #include "saturn/irq.h"
 #include "saturn/time.h"
 
-#define IRQ_DEMO_MAGIC 0x49525131u /* "IRQ1" */
+#define IRQ_DEMO_MAGIC SAT_FOURCC('I', 'R', 'Q', '1')
 #define TIMER0_LINE 112u
 #define BUSY_VBLANKS 90u           /* 1.5 s at 60 Hz */
 

@@ -11,6 +11,38 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- `examples/vdp2_hires_light`: a red light sweeping over hi-res (640x224)
+  VDP1 polygons. Hi-res VDP1 pixels are 8-bit palette codes, so Gouraud
+  shading (which needs RGB pixels) is unavailable; the VDP2 brightens them
+  instead. The line colour screen (one red per line, brightest at the light's
+  centre) is inserted under the sprite layer only, sprite colour calculation in
+  add mode adds it, and an ellipse colour calculation window makes it a moving
+  spot. Sprite type C selects S0PRIN/S1PRIN with code bit 7, so a "priority ==
+  SPCCN" condition lights codes 128-255 only: a per-polygon lit flag.
+  `harness/run-vdp2-hires-light.ps1` and
+  `test_vdp2_hires_light.py` check the lit, unlit and background pixels and the
+  sweep on Ymir; Mednafen shows the same picture.
+- `sat_vdp2_cram_mode_set` / `sat_vdp2_cram_mode`: choose CRAM mode 0 or 1.
+  Hi-res screens mix palette-format images by colour calculation only in mode 0
+  (VDP2 manual, table 12.1).
+- `sat_vdp2_hires_sprite_color_calc_set(mode, ratio)`: colour calculation for
+  hi-res (type C) sprites, on every dot (`SAT_VDP2_HIRES_SPRITE_CC_ALL`) or on
+  codes 128-255 only (`_HIGH_CODES`, which splits PRISA by code bit 7). Hi-res
+  and CRAM mode 0 only; BUSY while the sprite colour calculation module is on,
+  and that module is BUSY while this is. `sat_vdp2_sprite_set_line_color_insert`
+  puts the line colour screen under the sprite layer (LNCLEN SPLCEN). Both are
+  replayed by `sat_vdp2_layers_commit()`, so a per-line light on hi-res
+  polygons no longer needs raw register writes ordered after the commit.
+- `examples/vdp2_window_dim`: darkening limited to a window. The VDP2 colour
+  offset (the fade) is per screen, so "darken everything except these
+  spotlights" has no register of its own. The example puts a black full-screen
+  NBG on top with colour calculation (the image below shows through at
+  `ratio + 1` 32nds) and shows it only outside two line windows, which are
+  rewritten every frame as two wedge-shaped beams swing; the picture below is
+  untouched inside them and, with the ratio dropped midway, a half and then a
+  quarter outside. `harness/run-vdp2-window-dim.ps1` and
+  `test_vdp2_window_dim.py` check the library's verdicts, the beam tables, and
+  the colour inside and outside the beams at both ratios on Ymir.
 - `examples/vdp2_tile_overflow`: more than 512 distinct 8bpp tiles on one scroll
   screen. A 1-word pattern name holds a 10-bit character number and an 8bpp cell
   takes two of them, so one layer's 32 KiB character window shows 512 tiles and a
@@ -228,9 +260,36 @@ The version is defined once, in the `VERSION` file.
   the first cache fill configures them (`sat_asset_cache_stats` still
   reports the default capacity before that). The package-consumer test fails
   if either comes back.
+- `sat_loading_screen_t` gained an optional `decorate` hook (and
+  `decorate_context`), called inside each progress frame after the bar, so a
+  program can add a logo or caption. `sat_loading_screen_default` leaves it NULL.
+- `dino_demo` runs in `SAT_VDP1_FRAME_ON_SUBMIT` mode (`-DDINO_FRAME_ON_SUBMIT=0`
+  restores the 1-cycle default), so a half-rewritten command table is never
+  shown. It is hi-res (640x224) only now (the 320x224 `DINO_HIRES=0` mode is
+  gone), its HUD no longer shows an `FPS` figure (it differed 2x between
+  emulators), and a new `LATE SWAPS` line reports
+  `sat_vdp1_frame_stats().late_swaps`. Its startup shows the stock
+  `sat_loading_screen_progress` bar (palette codes in a spare CRAM bank, since
+  hi-res VDP1 cannot draw RGB) instead of two seconds of black screen. A
+  PS1-style red alarm light (Z toggles it) sweeps up and down the body: a soft
+  band of per-line red from the VDP2 line colour screen, added to the sprite
+  layer only by add-mode colour calculation, in CRAM mode 0 (the
+  `vdp2_hires_light` technique without its window, so the light has no hard
+  edge).
 
 ### Fixed
 
+- The first `sat_vdp2_layers_commit()` switched CRAM to mode 0 (1024 colours)
+  in any program that used neither the legacy NBG0 text layout nor RBG0: the
+  RBG0 replay wrote RAMCTL from a shadow that defaulted to 0. CRAM banks 4-7
+  then wrapped onto 0-3 (the hi-res "sprite bank 7 draws black" seen in
+  `dino_demo`). Every RAMCTL write now keeps the selected CRAM mode, mode 1
+  unless `sat_vdp2_cram_mode_set` chose otherwise.
+- `sat_vdp2_sprite_set_priority` read PRISA back to update its shadow. VDP2
+  registers are write-only (hardware and Mednafen read 0; Ymir returns the
+  write, which hid it), so on real hardware the next `sat_vdp2_layers_commit()`
+  replayed priority 0 and every sprite vanished. It now records the value it
+  computed.
 - The Slave SH-2 never started under a real BIOS (hardware, Mednafen, or the
   probe without `--slave-reset-entry`). After SSHON the BIOS takes the Slave's
   start address from vector 0x94 of the Master table (0x06000250), but

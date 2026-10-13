@@ -110,7 +110,7 @@ static bench_buffer_t g_bench_async_output;
 #endif
 
 #if SAT_PARALLEL_RUNTIME_VALIDATION
-#define PRT_TELEMETRY_MAGIC 0x5052544Du
+#define PRT_TELEMETRY_MAGIC SAT_FOURCC('P', 'R', 'T', 'M')
 #define PRT_TELEMETRY_CAPACITY 256u
 typedef struct prt_micro_sample {
     uint32_t payload_bytes, iterations, direct_ticks, submit_ticks;

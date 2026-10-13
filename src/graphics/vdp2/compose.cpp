@@ -204,6 +204,21 @@ extern "C" sat_result_t sat_vdp2_color_calc_set_add(uint8_t add) {
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_hires_sprite_color_calc_set(sat_vdp2_hires_sprite_cc_t mode,
+                                                             uint8_t ratio) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (static_cast<uint32_t>(mode) > SAT_VDP2_HIRES_SPRITE_CC_HIGH_CODES || ratio > cmp::kMaxRatio) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (mode != SAT_VDP2_HIRES_SPRITE_CC_OFF) {
+        if (!hal::hires() || hal::cram_mode() != 0u) return SAT_ERR_UNSUPPORTED;
+        /* it owns SPCTL's condition and PRISA's second selector too */
+        if (saturn::hal::vdp2_color_calc::enabled()) return SAT_ERR_BUSY;
+    }
+    hal::set_hires_sprite_color_calc(static_cast<uint8_t>(mode), ratio);
+    return SAT_OK;
+}
+
 extern "C" uint8_t sat_vdp2_color_calc_ratio_for_below(uint8_t below_32nds) {
     return cmp::ratio_for_second(below_32nds);
 }
@@ -213,6 +228,17 @@ extern "C" sat_result_t sat_vdp2_screen_set_cram_bank(sat_vdp2_screen_t screen, 
     if (static_cast<uint32_t>(screen) > SAT_VDP2_SCREEN_SPRITE || bank > 7u) return SAT_ERR_INVALID_ARG;
     hal::set_cram_bank(static_cast<uint8_t>(screen), bank);
     return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_cram_mode_set(uint8_t mode) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (mode > 1u) return SAT_ERR_UNSUPPORTED;
+    hal::set_cram_mode(mode);
+    return SAT_OK;
+}
+
+extern "C" uint8_t sat_vdp2_cram_mode(void) {
+    return hal::cram_mode();
 }
 
 extern "C" void sat_vdp2_cram_banks_apply(void) {

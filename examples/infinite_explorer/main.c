@@ -22,7 +22,7 @@
 #define SKY_H EXPLORER_HORIZON_HEIGHT
 #define MAX_RENDER 60
 #define EXPLORER_SCENE_FACE_CAPACITY (EGGMAN_FACE_COUNT + MAX_RENDER * 2u)
-#define FX(v) ((int32_t)((v) * 65536))
+#define FX(v) SAT_FX16(v)
 
 /* Clip order matches MODEL_ANIMATION in Makefile.inc. */
 #define EGG_CLIP_IDLE       0u

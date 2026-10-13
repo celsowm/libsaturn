@@ -274,6 +274,14 @@ sat_result_t sat_vdp2_line_color_screen_set(uint32_t table_address, const uint16
                                             uint32_t count);
 sat_result_t sat_vdp2_layer_set_line_color_insert(sat_vdp2_layer_t layer, uint8_t enabled);
 
+/* The line colour screen inserted under the sprite layer (LNCLEN SPLCEN): it
+ * becomes the image a sprite dot is mixed with, wherever the sprite is the
+ * top image, so screens without sprites in front never receive it. With
+ * sprite colour calculation in add mode this adds a per-line colour (a light)
+ * to the sprites only; see sat_vdp2_hires_sprite_color_calc_set. Replayed by
+ * sat_vdp2_layers_commit(). */
+sat_result_t sat_vdp2_sprite_set_line_color_insert(uint8_t enabled);
+
 /* The eight cycle pattern registers last written: A0L A0U A1L A1U B0L B0U
  * B1L B1U. For tests and debugging. */
 sat_result_t sat_vdp2_layer_cycle_patterns(uint16_t out_registers[8]);

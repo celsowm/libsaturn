@@ -13,7 +13,7 @@
 #include "saturn/uart.h"
 #include "saturn/video.h"
 
-#define EXPANSION_MAGIC 0x45585031u /* "EXP1" */
+#define EXPANSION_MAGIC SAT_FOURCC('E', 'X', 'P', '1')
 #define EMPTY_SLOT_UART_BASE 0x24000001u  /* A-Bus CS1: written only after the slot reported empty */
 
 typedef struct expansion_results {

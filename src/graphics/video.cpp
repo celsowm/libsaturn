@@ -31,6 +31,18 @@ extern "C" sat_result_t sat_end_frame(void) {
     return SAT_OK;
 }
 
+extern "C" uint16_t sat_video_width(void) {
+    return saturn::core::g_state.config.width;
+}
+
+extern "C" uint16_t sat_video_height(void) {
+    return saturn::core::g_state.config.height;
+}
+
+extern "C" uint8_t sat_video_is_hires(void) {
+    return saturn::core::g_state.config.width >= 640u ? 1u : 0u;
+}
+
 extern "C" uint8_t sat_video_is_pal(void) {
     return (saturn::hal::vdp2::read_tvstat() & 0x0001u) != 0u ? 1u : 0u;
 }

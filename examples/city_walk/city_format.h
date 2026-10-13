@@ -40,8 +40,8 @@
 
 #include "city_grid.h"
 
-#define CITY_MAGIC 0x43545931u /* "CTY1" */
-#define CITY_BLOB_MAGIC 0x43484E4Bu /* "CHNK" */
+#define CITY_MAGIC SAT_FOURCC('C', 'T', 'Y', '1')
+#define CITY_BLOB_MAGIC SAT_FOURCC('C', 'H', 'N', 'K')
 #define CITY_VERSION 3u
 #define CITY_HEADER_BYTES 128u
 #define CITY_TOC_ENTRY_BYTES 16u

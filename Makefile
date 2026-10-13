@@ -218,7 +218,7 @@ $(foreach audio,$(EXAMPLE_AUDIO_STREAMS),$(eval $(call AUDIO_STREAM_RULE,$(audio
 endif
 
 # Example objects and outputs are keyed after the include, so flags an
-# example's Makefile.inc adds (dino_demo's -DDINO_HIRES) select their own
+# example's Makefile.inc adds (dino_demo's -DDINO_MUSIC_68K) select their own
 # object directory instead of reusing objects built without them.
 EXAMPLE_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
     "$(EXAMPLE)" "$(IP_PROFILE)" "$(IP_TEMPLATE_KIND)" "$(CFLAGS)" \

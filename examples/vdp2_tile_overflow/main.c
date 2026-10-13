@@ -25,7 +25,7 @@
 #include "saturn/saturn.h"
 #include "saturn/vdp2_layers.h"
 
-#define OVERFLOW_DEMO_MAGIC 0x4F564631u /* "OVF1" */
+#define OVERFLOW_DEMO_MAGIC SAT_FOURCC('O', 'V', 'F', '1')
 #define MAP_W 40u
 #define MAP_H 24u
 #define TILES (MAP_W * MAP_H)           /* 960, all distinct */

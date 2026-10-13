@@ -27,6 +27,12 @@ constexpr uint32_t kBackdropTableWordOffset = 0x3FFFFu;
 uint16_t g_nbg0_map_plane_index = kNbg0MapPlaneAIndex;
 uint16_t g_last_rbg0_bgon_written = 0x0000u;
 uint16_t g_last_rbg0_ramctl_written = 0x0000u;
+/* CRAM mode (RAMCTL CRMD, bits 13-12), owned here and put into every RAMCTL
+ * write. The RAMCTL replays (RBG0's, the NBG0 text layout) used to carry their
+ * own value, so a program that used neither switched from the init's mode 1 to
+ * mode 0 at its first sat_vdp2_layers_commit(): CRAM banks 4-7 then wrapped to
+ * 0-3. Mode 1 (2048 colours) unless set_cram_mode() says otherwise. */
+uint16_t g_cram_mode_bits = 0x1000u;
 uint16_t g_last_rbg0_chctlb_written = 0x0000u;
 uint16_t g_last_rbg0_mpofr_written = 0x0000u;
 uint16_t g_last_rbg0_rptau_written = 0x0000u;
@@ -95,6 +101,12 @@ uint32_t g_back_lines_word = 0u;
 bool g_line_color = false;
 uint32_t g_line_color_word = 0u;
 uint16_t g_lncl_layers = 0u;
+bool g_lncl_sprite = false; /* LNCLEN SPLCEN, set_line_color_sprite */
+bool g_lncl_used = false;   /* write LNCLEN even once every bit is off again */
+/* Hi-res sprite colour calculation (compose::HiresSpriteCc) and its CCRSA
+ * S0CCRT ratio; replayed by commit_layers() with SPCTL, PRISA and CCCTL. */
+uint8_t g_hires_sprite_cc = 0u;
+uint8_t g_hires_sprite_ratio = 0u;
 /* Composition: windows, mosaic and per-screen colour calculation. These are
  * write-only registers replayed by commit_layers() once anything sets them. */
 bool g_compose_used = false;
@@ -116,11 +128,23 @@ bool g_hires = false;
 compose::CramBanks g_cram_banks = {0u, 0u};
 bool g_cram_banks_used = false;
 
-/* CCCTL: the sprite module's word, the per-screen enables and the palette sprites' bit. */
+bool hires_sprite_cc_on() {
+    return g_hires && g_hires_sprite_cc != compose::kHiresSpriteCcOff;
+}
+
+/* CCCTL: the sprite module's word, the per-screen enables and the palette
+ * (or hi-res) sprites' bit. */
 uint16_t ccctl_value() {
     return static_cast<uint16_t>(g_last_ccctl_written | g_cc_layer_bits |
-                                 (g_palette_cc ? compose::kCcctlSprite : 0u) |
+                                 ((g_palette_cc || hires_sprite_cc_on()) ? compose::kCcctlSprite : 0u) |
                                  (g_cc_add ? compose::kCcctlAdd : 0u));
+}
+
+/* PRISA as written: the recorded sprite priority, split by code bit 7 while
+ * hi-res colour calculation lights codes 128-255 only. */
+uint16_t prisa_value() {
+    return g_hires ? compose::hires_sprite_prisa(g_last_prisa_written, g_hires_sprite_cc)
+                   : g_last_prisa_written;
 }
 
 /* VDP2 control registers are WRITE-ONLY on hardware. Only TVSTAT, VRSIZE,
@@ -209,6 +233,10 @@ RegRef reg() {
 #define VRSIZE reg<0x006>()
 #define RAMCTL reg<0x00E>()
 #define CYCA0L reg<0x010>()
+
+inline uint16_t with_cram_mode(uint16_t ramctl) {
+    return static_cast<uint16_t>((ramctl & 0xCFFFu) | g_cram_mode_bits);
+}
 #define CYCA0U reg<0x012>()
 #define CYCA1L reg<0x014>()
 #define CYCA1U reg<0x016>()
@@ -387,6 +415,9 @@ void reset_color_ops() {
     g_cc_layer_bits = 0u;
     g_cc_add = false;
     g_cc_ratios = compose::ScreenRatios{};
+    g_hires_sprite_cc = compose::kHiresSpriteCcOff;
+    g_hires_sprite_ratio = 0u;
+    g_lncl_sprite = false;
     /* The scroll screens' CRAM banks; the sprite bank stays (hi-res owns it). */
     g_cram_banks = compose::with_cram_bank(compose::CramBanks{0u, g_cram_banks.craofb}, 4u, 0u);
     g_cram_banks_used = false;
@@ -413,7 +444,8 @@ void init_ntsc_320x224() {
     /* Mirror the JoEngine baseline VDP2 setup for NBG0 cell format.
      * This keeps the register state consistent with the working benchmark.
      */
-    RAMCTL = 0x1327u;
+    g_cram_mode_bits = 0x1000u;
+    RAMCTL = with_cram_mode(0x0327u);
 
     CYCA0L = 0x5555u;
     CYCA0U = 0xFEEEu;
@@ -490,7 +522,7 @@ uint16_t sprite_type_bits() {
      * priority), so a hi-res sprite can use palette codes 0-255. Otherwise
      * type 0 with SPCLMD set: palette and RGB pixels mixed, as the BIOS
      * leaves it (SPCTL = 0 would drop every RGB pixel). */
-    if (g_hires) return 0x000Cu;
+    if (g_hires) return compose::hires_sprite_spctl(g_last_prisa_written, g_hires_sprite_cc);
     /* Type 1, palette dots only: bits 15-13 select PRISA-PRISD's eight priorities. */
     return g_palette_priorities ? compose::palette_sprite_spctl(g_palette_cc, g_palette_window) : 0x0020u;
 }
@@ -588,7 +620,7 @@ void configure_nbg0_character(CharacterSize char_size, ColorMode color_mode) {
 void configure_nbg0_text_layout() {
     /* Character data and the map live in B1.  Do not reset A0/A1 here: they
      * may already be feeding an RBG0 ground plane. */
-    RAMCTL = static_cast<uint16_t>(RAMCTL | 0x1327u);
+    RAMCTL = with_cram_mode(static_cast<uint16_t>(RAMCTL | 0x0327u));
     g_nbg0_configured = true;
     g_last_rbg0_ramctl_written = RAMCTL;
     CYCB1L = 0x044Fu;
@@ -737,7 +769,17 @@ void wait_vblank_end() {
 }
 
 void set_screen_mode(ScreenMode mode) {
-    RAMCTL = static_cast<uint16_t>((RAMCTL & 0xCFFFu) | static_cast<uint16_t>(mode));
+    set_cram_mode(mode == SCREEN_MODE_RGB555 ? 0u : 1u);
+}
+
+void set_cram_mode(uint8_t mode) {
+    g_cram_mode_bits = static_cast<uint16_t>((mode & 3u) << 12u);
+    RAMCTL = with_cram_mode(RAMCTL);
+    g_last_rbg0_ramctl_written = with_cram_mode(g_last_rbg0_ramctl_written);
+}
+
+uint8_t cram_mode() {
+    return static_cast<uint8_t>(g_cram_mode_bits >> 12u);
 }
 
 void set_display_enable(bool enable) {
@@ -816,8 +858,8 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
         g_rbg0_bitmap_bank_mask, g_rbg0_parameter_bank,
         bitmap_base_word, bitmap_words, rot_param_base_word);
 
-    RAMCTL = ramctl;
-    g_last_rbg0_ramctl_written = ramctl;
+    RAMCTL = with_cram_mode(ramctl);
+    g_last_rbg0_ramctl_written = with_cram_mode(ramctl);
 
     const uint16_t previous_low[4] = {
         g_last_rbg0_cycle_a0l, g_last_rbg0_cycle_a1l,
@@ -955,7 +997,7 @@ uint16_t last_rbg0_plsz_written() {
 void commit_rbg0_config() {
     /* Re-apply all RBG0 VDP2 register values from their shadows.
      * Must be called during VBlank for writes to take effect. */
-    RAMCTL = g_last_rbg0_ramctl_written;
+    RAMCTL = with_cram_mode(g_last_rbg0_ramctl_written);
     CYCA0L = g_last_rbg0_cycle_a0l;
     CYCA0U = g_last_rbg0_cycle_a0u;
     CYCA1L = g_last_rbg0_cycle_a1l;
@@ -1192,7 +1234,9 @@ void write_raster_tables() {
         set_reg(0x0A8u, static_cast<uint16_t>(0x8000u | ((g_line_color_word >> 16u) & 7u)));
         set_reg(0x0AAu, static_cast<uint16_t>(g_line_color_word & 0xFFFFu));
     }
-    if (g_lncl_layers != 0u || g_line_color) set_reg(0x0E8u, g_lncl_layers);
+    if (g_lncl_layers != 0u || g_line_color || g_lncl_used) {
+        set_reg(0x0E8u, static_cast<uint16_t>(g_lncl_layers | (g_lncl_sprite ? compose::kLnclenSprite : 0u)));
+    }
 }
 
 }  // namespace
@@ -1330,8 +1374,29 @@ void set_line_color_screen(uint32_t table_word_offset) {
 }
 
 void set_line_color_layers(uint16_t layer_mask) {
-    g_lncl_layers = static_cast<uint16_t>(layer_mask & 0x003Fu);
+    g_lncl_layers = static_cast<uint16_t>(layer_mask & 0x001Fu);
+    g_lncl_used = true;
     write_raster_tables();
+}
+
+void set_line_color_sprite(bool enabled) {
+    g_lncl_sprite = enabled;
+    g_lncl_used = true;
+    write_raster_tables();
+}
+
+void set_hires_sprite_color_calc(uint8_t mode, uint8_t ratio) {
+    g_hires_sprite_cc = mode;
+    g_hires_sprite_ratio = static_cast<uint8_t>(ratio & 0x1Fu);
+    if (!g_hires) return;
+    SPCTL = sprite_type_bits();
+    PRISA = prisa_value();
+    CCCTL = ccctl_value();
+    if (hires_sprite_cc_on()) CCRSA = compose::ratio_word(g_hires_sprite_ratio, 0u);
+}
+
+uint8_t hires_sprite_color_calc() {
+    return g_hires_sprite_cc;
 }
 
 bool nbg_active() {
@@ -1499,7 +1564,7 @@ void commit_layers() {
     }
     /* Sprite priority decides whether the VDP1's output is in front of the
      * VDP2 layers, so it is replayed whether or not NBG0 is in use. */
-    PRISA = g_last_prisa_written;
+    PRISA = prisa_value();
     CCCTL = ccctl_value();
     CLOFEN = g_last_color_offset_written[0];
     CLOFSL = g_last_color_offset_written[1];
@@ -1512,6 +1577,7 @@ void commit_layers() {
     if (g_hires) {
         SPCTL = sprite_type_bits();
         CRAOFB = g_cram_banks.craofb;
+        if (hires_sprite_cc_on()) CCRSA = compose::ratio_word(g_hires_sprite_ratio, 0u);
     }
     if (g_cram_banks_used) {
         write_cram_banks();
@@ -1561,8 +1627,9 @@ void set_rbg0_priority(uint8_t priority) {
 
 void set_rbg0_sprite_priority(uint8_t priority) {
     const uint16_t prisa = static_cast<uint16_t>((priority & 0x07u) | ((priority & 0x07u) << 8u));
-    PRISA = prisa;
     g_last_prisa_written = prisa;
+    PRISA = prisa_value();
+    if (g_hires) SPCTL = sprite_type_bits();
 }
 
 void set_nbg0_priority(uint8_t priority) {
@@ -1571,8 +1638,10 @@ void set_nbg0_priority(uint8_t priority) {
 }
 
 void set_sprite_priority(uint8_t priority) {
-    PRISA = saturn::core::compose_sprite_priority(priority);
-    g_last_prisa_written = PRISA;
+    /* computed, not read back: PRISA is write-only on hardware */
+    g_last_prisa_written = saturn::core::compose_sprite_priority(priority);
+    PRISA = prisa_value();
+    if (g_hires) SPCTL = sprite_type_bits();
 }
 
 void set_color_calc_control(uint16_t ccctl) {
@@ -1612,7 +1681,7 @@ void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority) {
     g_last_prisa_written = static_cast<uint16_t>(
         (normal_priority & 0x07u) |
         (static_cast<uint16_t>(faded_priority & 0x07u) << 8u));
-    PRISA = g_last_prisa_written;
+    PRISA = prisa_value();
 }
 
 void upload_rbg0_rotation_params(uint32_t rot_param_word_offset, const uint16_t* params, uint32_t word_count) {

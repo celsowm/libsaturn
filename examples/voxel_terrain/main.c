@@ -23,7 +23,7 @@
 #define FRAME_H 112u
 #define VIEW_DISTANCE 120u
 #define FRAME_SCRATCH_BYTES (4u * (VIEW_DISTANCE + 1u) + 2u * FRAME_W)
-#define FX_INT(v) ((sat_fx16_t)((v) * 65536))
+#define FX_INT(v) SAT_FX16(v)
 
 static uint8_t g_heights[MAP_W * MAP_H];
 static uint8_t g_colors[MAP_W * MAP_H];

@@ -17,7 +17,7 @@
 
 #define BALLS 8
 #define SCENE_FACE_CAPACITY 512u
-#define FX(v) ((sat_fx16_t)((int32_t)(v) * 65536))
+#define FX(v) SAT_FX16(v)
 static sat_body3_t g_balls[BALLS];
 static sat_aabb3_t g_boxes[5];
 static sat_mesh_t g_meshes[5];

@@ -114,6 +114,31 @@ sat_result_t sat_vdp2_screen_color_calc_set(sat_vdp2_screen_t screen, uint8_t en
  * calculation module (vdp2_color_calc.h) is on: it claims the mode per frame. */
 sat_result_t sat_vdp2_color_calc_set_add(uint8_t add);
 
+/* Colour calculation for hi-res sprites (640/704 wide, where the VDP1 writes
+ * 8-bit palette codes that the VDP2 reads as sprite type C). The sprite dots
+ * are mixed with the image beneath: by `ratio` (0..31, as for the scroll
+ * screens), or added when add mode is on (sat_vdp2_color_calc_set_add). Used
+ * with the line colour screen under the sprites
+ * (sat_vdp2_sprite_set_line_color_insert) it lights VDP1 polygons that cannot
+ * be Gouraud shaded in hi-res; a colour calculation window limits it to an
+ * area.
+ *   SAT_VDP2_HIRES_SPRITE_CC_ALL: every sprite dot.
+ *   SAT_VDP2_HIRES_SPRITE_CC_HIGH_CODES: dots with codes 128-255 only. Code
+ *     bit 7 selects the priority register, so those codes keep the sprite
+ *     priority p and codes 0-127 get p - 1 (p + 1 when p < 2): draw a polygon
+ *     with its colours copied to 128 + k to make it take the effect.
+ * Hi-res only (SAT_ERR_UNSUPPORTED otherwise), and only in CRAM mode 0, the
+ * one mode in which hi-res mixes palette images (sat_vdp2_cram_mode_set; also
+ * SAT_ERR_UNSUPPORTED). SAT_ERR_BUSY while the sprite colour calculation
+ * module (vdp2_color_calc.h) is on. Replayed by sat_vdp2_layers_commit(). */
+typedef enum sat_vdp2_hires_sprite_cc {
+    SAT_VDP2_HIRES_SPRITE_CC_OFF = 0,
+    SAT_VDP2_HIRES_SPRITE_CC_ALL = 1,
+    SAT_VDP2_HIRES_SPRITE_CC_HIGH_CODES = 2
+} sat_vdp2_hires_sprite_cc_t;
+
+sat_result_t sat_vdp2_hires_sprite_color_calc_set(sat_vdp2_hires_sprite_cc_t mode, uint8_t ratio);
+
 /* Ratio register value whose image-below weight is nearest to
  * `below_32nds` (1..32). */
 uint8_t sat_vdp2_color_calc_ratio_for_below(uint8_t below_32nds);
@@ -126,6 +151,16 @@ uint8_t sat_vdp2_color_calc_ratio_for_below(uint8_t below_32nds);
  * sat_vdp2_layers_commit(), like the layer registers; the hi-res sprite bank
  * (sat_vdp2_sprite_palette_bank_set) is the same setting as SAT_VDP2_SCREEN_SPRITE. */
 sat_result_t sat_vdp2_screen_set_cram_bank(sat_vdp2_screen_t screen, uint8_t bank);
+
+/* CRAM mode (RAMCTL CRMD). sat_init leaves mode 1: 2048 colours, CRAM banks
+ * 0-7. Mode 0 holds 1024 colours (banks 4-7 wrap to 0-3) but is the only mode
+ * in which the hi-res screens (640/704 wide) can mix a palette-format image by
+ * colour calculation: a palette sprite or scroll screen, or the line colour
+ * screen (VDP2 manual, table 12.1); in mode 1 the hardware skips that mixing.
+ * Set the mode before uploading palettes. Kept by every later commit. Modes
+ * other than 0 and 1 are SAT_ERR_UNSUPPORTED. */
+sat_result_t sat_vdp2_cram_mode_set(uint8_t mode);
+uint8_t sat_vdp2_cram_mode(void);
 
 /* Writes the recorded CRAM banks to the registers now. An interrupt handler
  * that switches banks during the picture (a palette swap at a line, written

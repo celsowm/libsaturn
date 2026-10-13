@@ -125,6 +125,25 @@ static void cram_banks_pack_into_craofa_and_craofb() {
     assert(b.craofa == 0x7010u && b.craofb == 0x0015u);
 }
 
+static void hires_sprites_light_all_or_high_codes() {
+    /* off: plain type C, PRISA untouched */
+    assert(hires_sprite_spctl(0x0606u, kHiresSpriteCcOff) == 0x000Cu);
+    assert(hires_sprite_prisa(0x0606u, kHiresSpriteCcOff) == 0x0606u);
+    /* all: priority >= 0 (SPCCCS 10, SPCCN 0), PRISA untouched */
+    assert(hires_sprite_spctl(0x0606u, kHiresSpriteCcAll) == 0x200Cu);
+    assert(hires_sprite_prisa(0x0606u, kHiresSpriteCcAll) == 0x0606u);
+    /* high codes: 0-127 one below, 128-255 keep p; condition == S1PRIN */
+    assert(hires_sprite_prisa(0x0606u, kHiresSpriteCcHighCodes) == 0x0605u);
+    assert(hires_sprite_spctl(0x0606u, kHiresSpriteCcHighCodes) == 0x160Cu);
+    assert(hires_sprite_prisa(0x0707u, kHiresSpriteCcHighCodes) == 0x0706u);
+    assert(hires_sprite_spctl(0x0707u, kHiresSpriteCcHighCodes) == 0x170Cu);
+    /* p < 2 cannot go below (0 is transparent): the lit codes go above */
+    assert(hires_sprite_prisa(0x0101u, kHiresSpriteCcHighCodes) == 0x0201u);
+    assert(hires_sprite_spctl(0x0101u, kHiresSpriteCcHighCodes) == 0x120Cu);
+    assert(hires_sprite_prisa(0x0000u, kHiresSpriteCcHighCodes) == 0x0201u);
+    assert(kLnclenSprite == 0x0020u);
+}
+
 int main() {
     window_positions_drop_the_low_horizontal_bit();
     line_window_table_is_a_word_address_with_enable();
@@ -134,6 +153,7 @@ int main() {
     palette_sprites_mix_by_colour_msb();
     palette_window_sprites_use_type_3();
     cram_banks_pack_into_craofa_and_craofb();
+    hires_sprites_light_all_or_high_codes();
     std::puts("PASS: test_vdp2_compose_logic.cpp");
     return 0;
 }

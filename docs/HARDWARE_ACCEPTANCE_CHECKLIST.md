@@ -57,6 +57,8 @@ not model.
 | 22 | Skybridge platformer | `skybridge_3d` | Pad | Playable level | Runs without hangs for 10 minutes; record the perceived frame rate. The MASTER-only and MASTER+SLAVE builds should look identical | Ymir (both, hash parity) |
 | 23 | Two-CPU workload | `parallel_runtime` | A cycles the backend (Master, Slave-assisted) | The header names the backend; object and face counts stay the same | Same picture on both backends; record the timing the screen shows for each | Ymir |
 | 24 | VDP2 8bpp tiles past 511 | `vdp2_tile_overflow` | - | A colour ramp over 960 distinct 256-colour tiles on two NBGs, a checkerboard behind (all three scrolled by -3,-4) | The ramp is smooth from green to magenta with no jump, no black cells after the first four, and a white cell at the bottom right | Ymir NTSC + PAL |
+| 25 | VDP2 darkening limited to a window | `vdp2_window_dim` | - | Seven colour bands with two swinging wedge-shaped beams; a black colour-calculation NBG covers everything outside the beams, at half then a quarter brightness | The bands keep full colour inside the beams and are dimmed outside them, with a clean edge that follows the wedges, and the dimming deepens at frame 90 | Ymir NTSC + PAL |
+| 26 | VDP2 light on hi-res sprites | `vdp2_hires_light` | A light on/off, B per-code mask on/off, C window on/off | 640x224 warm-ramp columns; a red elliptical spot holds, then sweeps left and right | Red is added only inside the spot, fades above and below its centre line, leaves the middle stripe and the blue background untouched; with B off the stripe is lit too | Ymir NTSC, Mednafen |
 
 ## Things no emulator settles
 

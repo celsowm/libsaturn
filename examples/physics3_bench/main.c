@@ -16,7 +16,7 @@
 #include "saturn/physics3_world.h"
 #include "saturn/time.h"
 
-#define FX(n) ((sat_fx16_t)((n) * 65536))
+#define FX(n) SAT_FX16(n)
 #define GRID 16u
 #define VERTS ((GRID + 1u) * (GRID + 1u))
 #define FACES (GRID * GRID)

@@ -15,7 +15,7 @@
 #include "saturn/parallel.h"
 #include "saturn/time.h"
 
-#define SCHED_DEMO_MAGIC 0x53434831u /* "SCH1" */
+#define SCHED_DEMO_MAGIC SAT_FOURCC('S', 'C', 'H', '1')
 #define TASK_ORDER 0x7E01u
 #define TASK_SPIN 0x7E02u
 #define TASK_FAIL 0x7E03u

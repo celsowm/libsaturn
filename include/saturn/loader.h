@@ -73,9 +73,15 @@ typedef struct sat_loading_screen {
     uint16_t fill;
     int16_t x, y;            /* top-left of the bar, screen pixels */
     uint16_t width, height;  /* bar size */
+    /* Optional (NULL from sat_loading_screen_default): called with
+     * `decorate_context` inside each progress frame, after the bar, so a
+     * program can add a logo or a caption to the same VDP1 list. */
+    void (*decorate)(void* context);
+    void* decorate_context;
 } sat_loading_screen_t;
 
-/* A 200x8 bar centred low on a 320x224 screen, dark blue with a white fill. */
+/* A 200x8 bar centred low on a 320x224 screen, dark blue with a white fill,
+ * and no decorate hook. */
 void sat_loading_screen_default(sat_loading_screen_t* screen);
 void sat_loading_screen_progress(void* context, uint32_t done, uint32_t total);
 

@@ -1,3 +1,4 @@
+#include "saturn/core.h"
 #include "saturn/math3d.h"
 
 #include "src/core/math3d/logic.hpp"
@@ -205,4 +206,32 @@ extern "C" void sat_vec3_normalize(sat_vec3_t* out, const sat_vec3_t* v) {
         return;
     }
     *out = saturn::core::math3d::vec3_normalize(*v);
+}
+
+extern "C" uint32_t sat_isqrt32(uint32_t v) {
+    uint32_t root = 0u;
+    uint32_t bit = 1u << 30;
+    while (bit > v) {
+        bit >>= 2;
+    }
+    while (bit != 0u) {
+        if (v >= root + bit) {
+            v -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return root;
+}
+
+extern "C" int32_t sat_triangle_wave(uint32_t step, uint32_t period, int32_t amplitude) {
+    if (period < 2u) {
+        return 0;
+    }
+    const uint32_t half = period / 2u;
+    const uint32_t phase = step % period;
+    const uint32_t up = phase < half ? phase : period - phase;
+    return static_cast<int32_t>((static_cast<int64_t>(up) * amplitude) / static_cast<int64_t>(half));
 }

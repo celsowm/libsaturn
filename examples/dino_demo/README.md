@@ -7,10 +7,23 @@ and runs it through the Saturn's VDP1 painter path.
 The dinosaur starts in a large side view against a dark screen, with its
 original warm texture and a compact control display. L/R rotate the camera,
 UP/DOWN change the viewing angle, X zooms in, and Y zooms out. A pauses the
-walk, B resets the camera, and C toggles slow automatic orbit. START opens or
-closes the full help overlay; the performance counters remain visible.
+walk, B resets the camera, and C toggles slow automatic orbit. Z toggles the
+red light. START opens or closes the full help overlay; the performance
+counters remain visible.
 
 ## How it stays close to the source
+
+- **A red light passing over the body, like the PS1 demo's.** Hi-res VDP1
+  pixels are palette codes, so the VDP1 cannot Gouraud-shade them; the VDP2
+  lights them after they are drawn. Its line colour screen holds one red per
+  screen line (a soft bell that sweeps up and down and pulses), inserted as
+  the second image under the sprite layer only, and add-mode sprite colour
+  calculation adds it to the model. The black background and the white HUD
+  never change. The light varies only from line to line, so it is a
+  horizontal band; a spot would need a window, whose edge is hard.
+  Hi-res mixes palette images only in CRAM mode 0, so the demo selects it.
+  `examples/vdp2_hires_light` shows the technique with a spot and a
+  per-polygon lit flag.
 
 - **Texture filtered to screen size.** The VDP1 reads one texel per pixel
   with no filtering or mipmaps, so a face holding more texels than it covers
@@ -31,11 +44,10 @@ closes the full help overlay; the performance counters remain visible.
 - **One vertex per moving point.** UV-split vertex copies are welded
   (`MODEL_WELD_VERTICES`), about 1300 runtime vertices instead of 1900.
 
-## Display modes
+## Display mode
 
-The demo defaults to 320x224 to leave the VDP1 enough time to finish each
-frame. Set `DINO_HIRES=1` when building to
-use 640x224: twice the horizontal pixels on the same 4:3 screen. The VDP1
+The demo always runs 640x224 hi-res: twice the horizontal pixels on the same
+4:3 screen. The VDP1
 framebuffer is then 8 bits per pixel and can only hold palette codes, so the
 whole model shares one palette of 252 colors (`MODEL_LUT_CODES 2-253`),
 each face's lookup table holds the codes of its 15 colors, and faces bake
@@ -43,13 +55,35 @@ at `MODEL_TEXEL_EXTENT 480`. Code 0 is transparent, code 1 is the HUD's
 white and 254 is the sprite shadow code. The HUD font doubles each glyph
 horizontally so the text keeps its size.
 
+## Loading bar
+
+Setting up the font, uploading the model and reading the soundtrack samples
+from the disc takes a couple of seconds, so the demo shows the stock
+`sat_loading_screen_progress` bar meanwhile instead of a black screen. The
+8-bit hi-res VDP1 cannot draw RGB, so the bar is given palette codes: white
+and a track blue live in the CRAM bank after the model's, which the sprite
+palette selects until loading ends. The music files (the slow part) advance
+the bar through `dino_music_68k_start`'s progress callback. The
+`made using celsowm/libsaturn` credit is drawn at the bottom of both the
+loading screen (through the screen's `decorate` hook) and the demo, whether or
+not the help overlay is open.
+
 ## Both SH-2s
 
 The face list is split between the CPUs: the Slave prepares 40% of the faces
 while the Master prepares the rest, and the Master merges both into one
 painter queue. `MODEL_LOCALITY_ORDER` orders faces along the body so each
 half projects only its own window of vertices. While the Master sorts and
-emits, the Slave decodes the next pose. The HUD reports the measured game FPS.
+emits, the Slave decodes the next pose.
+
+The demo runs in `SAT_VDP1_FRAME_ON_SUBMIT` mode (build with
+`-DDINO_FRAME_ON_SUBMIT=0` for the 1-cycle default), so each list is shown only
+once it has fully drawn. The HUD's `LATE SWAPS` is
+`sat_vdp1_frame_stats().late_swaps`, the VBlanks at which a list was still
+drawing. There is no FPS readout: frame rate differs a lot per emulator (Ymir
+models no VDP1 fill time and runs about 20 fps, an upper bound; Mednafen
+charges it and runs about 10 fps), so measure it with a stopwatch or the
+harness frame counter.
 
 Build with `.\build-example.ps1 dino_demo`. Run it in Ymir's modified
 integration harness with `.\harness\run-harness.ps1 dino_demo -Bios <your-BIOS>`

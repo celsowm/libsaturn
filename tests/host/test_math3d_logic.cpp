@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstdint>
 
+#include "saturn/core.h"
 #include "saturn/math3d.h"
 #include "src/core/math3d/logic.hpp"
 
@@ -248,6 +249,26 @@ TEST(fx16_abs_negates_only_negative_values) {
     ASSERT_EQ(sat_fx16_abs(-1), 1);
 }
 
+TEST(core_helpers_isqrt_triangle_fx16_fourcc) {
+    for (uint32_t v = 0u; v < 70000u; ++v) {
+        const uint32_t r = sat_isqrt32(v);
+        ASSERT_TRUE(r * r <= v && (r + 1u) * (r + 1u) > v);
+    }
+    ASSERT_EQ(sat_isqrt32(0xFFFFFFFFu), 65535u);
+    ASSERT_EQ(sat_isqrt32(0x80000000u), 46340u);
+    ASSERT_EQ(sat_triangle_wave(0u, 8u, 100), 0);
+    ASSERT_EQ(sat_triangle_wave(4u, 8u, 100), 100);
+    ASSERT_EQ(sat_triangle_wave(6u, 8u, 100), 50);
+    ASSERT_EQ(sat_triangle_wave(12u, 8u, 100), 100);
+    ASSERT_EQ(sat_triangle_wave(3u, 1u, 100), 0);
+    ASSERT_EQ(SAT_FX16(3), 3 * 65536);
+    ASSERT_EQ(SAT_FX16(-2), -2 * 65536);
+    ASSERT_EQ(SAT_FX16(0.25), 16384);
+    ASSERT_EQ(SAT_FOURCC('L', 'I', 'T', '1'), 0x4C495431u);
+    ASSERT_EQ(SAT_CLAMP(9, 0, 5), 5);
+    ASSERT_EQ(SAT_MIN(2, 3), 2);
+}
+
 int main() {
     fx_mul_and_div_roundtrip();
     fx_sqrt_exact();
@@ -269,7 +290,8 @@ int main() {
     look_at_survives_a_distant_camera();
     vec3_length_does_not_overflow_on_long_vectors();
     fx16_abs_negates_only_negative_values();
+    core_helpers_isqrt_triangle_fx16_fourcc();
 
-    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 20);
+    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 21);
     return 0;
 }

@@ -20,7 +20,7 @@
 #include "saturn/vdp2_color_calc.h"
 #include "saturn/vdp2_layers.h"
 
-#define LAYERS_DEMO_MAGIC 0x4C594531u /* "LYE1" */
+#define LAYERS_DEMO_MAGIC SAT_FOURCC('L', 'Y', 'E', '1')
 
 typedef struct layers_demo_results {
     uint32_t magic;

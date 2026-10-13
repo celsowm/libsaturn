@@ -11,7 +11,7 @@
 #include "saturn/irq.h"
 #include "saturn/time.h"
 
-#define DMA_DEMO_MAGIC 0x444D4131u /* "DMA1" */
+#define DMA_DEMO_MAGIC SAT_FOURCC('D', 'M', 'A', '1')
 #define WORDS 8192u                /* 32 KiB source pattern */
 #define BYTES (WORDS * 4u)
 #define VDP1_SCRATCH 0x25C70000u   /* top 64 KiB of VDP1 VRAM: no texture lives here */

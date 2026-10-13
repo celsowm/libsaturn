@@ -135,13 +135,15 @@ static sat_result_t compose(void) {
         g_score, g_score_count, sat_sound_driver_ticks_from_ms(96000u));
 }
 
-sat_result_t dino_music_68k_start(sat_cdfs_volume_t* volume) {
+sat_result_t dino_music_68k_start(sat_cdfs_volume_t* volume,
+                                  sat_load_progress_fn progress, void* context) {
     if (volume == 0) return SAT_ERR_INVALID_ARG;
     sat_result_t st = sat_sound_driver_start();
     if (st != SAT_OK) return st;
     for (uint8_t i = 0u; i < BANK_VOICES; ++i) {
         st = load_voice(volume, i);
         if (st != SAT_OK) return st;
+        if (progress != 0) progress(context, (uint32_t)i + 1u, BANK_VOICES);
     }
     return compose();
 }

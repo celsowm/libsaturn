@@ -8,7 +8,7 @@
 #include "saturn/fmt.h"
 #include "saturn/font.h"
 
-#define ABUS_DEMO_MAGIC 0x41425531u /* "ABU1" */
+#define ABUS_DEMO_MAGIC SAT_FOURCC('A', 'B', 'U', '1')
 
 typedef struct abus_demo_results {
     uint32_t magic;

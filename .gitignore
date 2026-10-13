@@ -55,6 +55,14 @@ bios/
 /build_log.txt
 /dist/
 
+# Stray runtime captures from emulator/test sweeps. These accidentally land
+# at the repo root during accept runs and must never enter the history.
+/.err
+/.out
+
+# probe.json files are runtime snapshots under docs/.../*/hon/, not source.
+/docs/**/probe.json
+
 # Package build and install trees
 /test_package/build/
 /CMakeUserPresets.json

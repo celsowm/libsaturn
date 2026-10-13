@@ -16,7 +16,7 @@
 #define BALLS 64
 #define WALLS 10
 #define HUD_PALETTE 1u
-#define FX(v) ((sat_fx16_t)((v) << 16))
+#define FX(v) SAT_FX16(v)
 
 static sat_body2_t g_balls[BALLS];
 static sat_body2_t g_player;

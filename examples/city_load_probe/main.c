@@ -23,7 +23,7 @@
 #include "saturn/ram_cart.h"
 #include "saturn/video.h"
 
-#define LOAD_MAGIC 0x4C4F4431u /* "LOD1" */
+#define LOAD_MAGIC SAT_FOURCC('L', 'O', 'D', '1')
 #define PAYLOAD_BYTES (1024u * 1024u)
 #define STAGING_BYTES (128u * 1024u)
 #define SECTOR_BYTES 2048u

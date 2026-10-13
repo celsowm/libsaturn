@@ -12,7 +12,7 @@
 #include "saturn/time.h"
 #include "saturn/video.h"
 
-#define DSP_DEMO_MAGIC 0x44535031u /* "DSP1" */
+#define DSP_DEMO_MAGIC SAT_FOURCC('D', 'S', 'P', '1')
 #define CLICK_SAMPLES 64u
 /* The sequence is timed in milliseconds, so it is the same at 60 and 50 frames per second, and it
  * repeats so a recording of any length holds a whole one. */

@@ -42,18 +42,13 @@ MODEL_LOCALITY_ORDER     := on
 # noise. Cap each face at its size when the T-Rex spans ~400 pixels (default
 # view ~260, max zoom ~570) and box-filter the source down to that.
 MODEL_SAMPLING           := area
-MODEL_TEXEL_EXTENT       := 400
-# DINO_HIRES=1: optional 640x224 hi-res. The VDP1 framebuffer is then 8 bits/pixel,
-# so lookup tables hold codes of one shared palette (0 transparent, 1 the
-# HUD's white, 254 the sprite shadow code), and faces bake more texels
-# for the doubled horizontal resolution.
-DINO_HIRES               ?= 0
-ifeq ($(DINO_HIRES),1)
+# The demo always runs 640x224 hi-res. The VDP1 framebuffer is then 8
+# bits/pixel, so lookup tables hold codes of one shared palette (0
+# transparent, 1 the HUD's white, 254 the sprite shadow code), and faces bake
+# more texels for the doubled horizontal resolution.
 MODEL_LUT_CODES          := 2-253
 MODEL_TEXEL_EXTENT       := 480
-CFLAGS                   += -DDINO_HIRES=1
-endif
-EXAMPLE_ASSETS            := $(MODEL_OUT_PREFIX).c
+EXAMPLE_ASSETS           := $(MODEL_OUT_PREFIX).c
 EXAMPLE_HEADERS           := $(MODEL_OUT_PREFIX).h
 
 # Declare a CD-backed music stream. The shared build converts its source to

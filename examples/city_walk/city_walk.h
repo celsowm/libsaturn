@@ -115,7 +115,7 @@ typedef struct city_telemetry {
     uint32_t done;
 } city_telemetry_t;
 
-#define CITY_TELEMETRY_MAGIC 0x43495459u /* "CITY" */
+#define CITY_TELEMETRY_MAGIC SAT_FOURCC('C', 'I', 'T', 'Y')
 extern volatile city_telemetry_t g_city;
 
 /* Free-running timer: sat_frame_count() floors per call, so summing short

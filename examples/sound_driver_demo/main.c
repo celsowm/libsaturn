@@ -10,7 +10,7 @@
 #include "saturn/sound_driver.h"
 #include "saturn/video.h"
 
-#define DRIVER_DEMO_MAGIC 0x53445231u /* "SDR1" */
+#define DRIVER_DEMO_MAGIC SAT_FOURCC('S', 'D', 'R', '1')
 #define MARKERS 8u
 #define MARKER_SPACING 20u
 #define TONE_SAMPLES 441u

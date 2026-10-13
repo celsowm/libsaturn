@@ -19,7 +19,7 @@
 #include "saturn/vdp2_compose.h"
 #include "saturn/vdp2_layers.h"
 
-#define COMPOSE_DEMO_MAGIC 0x434D5031u /* "CMP1" */
+#define COMPOSE_DEMO_MAGIC SAT_FOURCC('C', 'M', 'P', '1')
 
 typedef struct compose_demo_results {
     uint32_t magic;

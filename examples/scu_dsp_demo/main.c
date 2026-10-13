@@ -13,7 +13,7 @@
 #include "dma_probe_r2w1.h"
 #include "dma_probe_r2w2.h"
 
-#define DSP_DEMO_MAGIC 0x44535031u /* "DSP1" */
+#define DSP_DEMO_MAGIC SAT_FOURCC('D', 'S', 'P', '1')
 #define VERTICES 420u
 #define TIMEOUT 60000u
 #define PROBE_WORDS 8u

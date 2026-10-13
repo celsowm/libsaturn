@@ -15,7 +15,7 @@
 #include "saturn/math3d.h"
 #include "saturn/vdp2_layers.h"
 
-#define EFFECTS_DEMO_MAGIC 0x45464631u /* "EFF1" */
+#define EFFECTS_DEMO_MAGIC SAT_FOURCC('E', 'F', 'F', '1')
 #ifndef EFFECTS_ANIMATE
 #define EFFECTS_ANIMATE 0
 #endif

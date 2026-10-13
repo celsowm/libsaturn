@@ -216,6 +216,47 @@ inline uint16_t palette_sprite_spctl(bool msb_color_calc, bool window = false) {
                                  (msb_color_calc ? kSpctlCondColorMsb : 0u));
 }
 
+/* Hi-res sprites (type C, SPCTL 0x000C): all eight framebuffer bits are the
+ * dot colour and bit 7 also selects the priority register (S0PRIN for codes
+ * 0-127, S1PRIN for 128-255). Colour calculation picks its dots with SPCTL's
+ * condition SPCCCS (bits 13-12) against SPCCN (bits 10-8): "priority >= 0"
+ * takes every dot; "priority == S1PRIN" takes codes 128-255 only, given
+ * PRISA with S0PRIN one below S1PRIN. Type C has no ratio-select bits, so
+ * its dots mix by CCRSA's S0CCRT. */
+enum HiresSpriteCc : uint8_t {
+    kHiresSpriteCcOff = 0u,
+    kHiresSpriteCcAll = 1u,
+    kHiresSpriteCcHighCodes = 2u
+};
+constexpr uint16_t kSpctlTypeC = 0x000Cu;
+constexpr uint16_t kSpctlCondEqual = 0x1000u;    /* SPCCCS = 01 */
+constexpr uint16_t kSpctlCondAtLeast = 0x2000u;  /* SPCCCS = 10 */
+
+/* PRISA for the mode: unchanged, except that HIGH_CODES gives codes 128-255
+ * their own priority. It keeps the sprite's priority p for those (the lit
+ * ones) and puts 0-127 one below, or one above when p < 2 (priority 0 is
+ * transparent). */
+inline uint16_t hires_sprite_prisa(uint16_t prisa, uint8_t mode) {
+    if (mode != kHiresSpriteCcHighCodes) return prisa;
+    const uint16_t p = static_cast<uint16_t>(prisa & 7u);
+    if (p >= 2u) return static_cast<uint16_t>((p - 1u) | (p << 8u));
+    const uint16_t q = p == 0u ? 1u : p;
+    return static_cast<uint16_t>(q | ((q + 1u) << 8u));
+}
+
+inline uint16_t hires_sprite_spctl(uint16_t prisa, uint8_t mode) {
+    if (mode == kHiresSpriteCcAll) return static_cast<uint16_t>(kSpctlTypeC | kSpctlCondAtLeast);
+    if (mode == kHiresSpriteCcHighCodes) {
+        const uint16_t lit = static_cast<uint16_t>((hires_sprite_prisa(prisa, mode) >> 8u) & 7u);
+        return static_cast<uint16_t>(kSpctlTypeC | kSpctlCondEqual | (lit << 8u));
+    }
+    return kSpctlTypeC;
+}
+
+/* LNCLEN bit 5 (SPLCEN): the line colour screen is inserted under the sprite
+ * layer; bits 0-4 are NBG0-NBG3 and RBG0. */
+constexpr uint16_t kLnclenSprite = 0x0020u;
+
 /* CRAM address offsets (CRAOFA/CRAOFB): a palette screen's colour address
  * gets its 3-bit bank added to the top three of its 11 bits, so in CRAM modes
  * 0 and 1 each bank is 256 colours (0x200 bytes). CRAOFA holds NBG0-NBG3 in

@@ -25,7 +25,7 @@
 #include "saturn/vdp2.h"
 #include "saturn/video.h"
 
-#define FILL_MAGIC 0x46494C32u /* "FIL2" */
+#define FILL_MAGIC SAT_FOURCC('F', 'I', 'L', '2')
 #define PROBE_PHASES 20u
 /* Quads per shared-vertex strip. A strip of R quads uses 2*(R+1) vertices,
  * so 16 gives ~2.1 vertices per face -- the ratio the chunker's LOD0 budget
@@ -152,22 +152,6 @@ static void halt(void) {
     }
 }
 
-static uint32_t isqrt32(uint32_t value) {
-    uint32_t remainder = 0u;
-    uint32_t root = 0u;
-    int i;
-    for (i = 0; i < 16; ++i) {
-        root <<= 1;
-        remainder = (remainder << 2) | (value >> 30);
-        value <<= 2;
-        if (root < remainder) {
-            remainder -= root | 1u;
-            root += 2u;
-        }
-    }
-    return root >> 1;
-}
-
 /* Edge of one quad in pixels so that `faces` of them cover `overdraw_x10`
  * tenths of the screen. Coverage is what VDP1 fill rate is paid per, so the
  * sweep holds it fixed rather than holding the quad size fixed. */
@@ -175,7 +159,7 @@ static uint32_t quad_edge_px(uint16_t faces, uint16_t overdraw_x10) {
     const uint32_t total =
         ((uint32_t)SCREEN_W * (uint32_t)SCREEN_H * (uint32_t)overdraw_x10) / 10u;
     const uint32_t area = total / (faces != 0u ? (uint32_t)faces : 1u);
-    const uint32_t px = isqrt32(area);
+    const uint32_t px = sat_isqrt32(area);
     return px < 2u ? 2u : px;
 }
 
@@ -195,7 +179,7 @@ static void build_phase(uint16_t phase) {
     const int32_t half_h =
         (int32_t)(((int64_t)PROBE_DEPTH * (int64_t)(SCREEN_H / 2u) << 16) / FOCAL_PX);
     const int32_t half_w = (int32_t)(((int64_t)half_h * SCREEN_W) / SCREEN_H);
-    uint32_t grid = isqrt32(desc->faces);
+    uint32_t grid = sat_isqrt32(desc->faces);
     uint32_t i;
 
     if (grid * grid < (uint32_t)desc->faces) {

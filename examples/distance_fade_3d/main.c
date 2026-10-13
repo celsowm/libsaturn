@@ -39,7 +39,7 @@
 
 #define SCREEN_W 320
 #define SCREEN_H 224
-#define FX(v) ((sat_fx16_t)((v) * 65536))
+#define FX(v) SAT_FX16(v)
 
 #define BG_W 64u
 #define BG_H 64u

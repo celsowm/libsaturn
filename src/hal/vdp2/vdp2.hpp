@@ -9,7 +9,7 @@
 
 namespace saturn::hal::vdp2 {
 
-// Screen modes
+// Screen modes (legacy names: both are RGB555 CRAM modes; see set_cram_mode)
 enum ScreenMode {
     SCREEN_MODE_RGB555 = 0x0000,  // CRAM mode 0 (1024 colors)
     SCREEN_MODE_RGB888 = 0x1000   // CRAM mode 1 (2048 entries, MSB color-calc bit)
@@ -66,6 +66,10 @@ void wait_vblank_end();
 
 // Screen control
 void set_screen_mode(ScreenMode mode);
+/* CRAM mode 0 or 1 (RAMCTL CRMD): written now and kept by every later RAMCTL
+ * write, the commit_layers() replays included. sat_init leaves mode 1. */
+void set_cram_mode(uint8_t mode);
+uint8_t cram_mode();
 void set_display_enable(bool enable);
 
 // Map offset configuration
@@ -180,8 +184,14 @@ void rot_set_table(uint32_t table_address, uint8_t ktaof);
  * back to a single back screen colour. */
 void set_backdrop_lines(uint32_t table_word_offset);
 void set_line_color_screen(uint32_t table_word_offset);
-/* LNCLEN: bit n inserts the line colour screen under NBGn (bit 4 RBG0, bit 5 sprites). */
+/* LNCLEN: bit n inserts the line colour screen under NBGn (bit 4 RBG0). */
 void set_line_color_layers(uint16_t layer_mask);
+/* LNCLEN bit 5 (SPLCEN): the line colour screen under the sprite layer. */
+void set_line_color_sprite(bool enabled);
+/* Hi-res sprite colour calculation, compose::HiresSpriteCc, mixing by `ratio`
+ * (CCRSA S0CCRT). Recorded always, written in hi-res, replayed by commit_layers(). */
+void set_hires_sprite_color_calc(uint8_t mode, uint8_t ratio);
+uint8_t hires_sprite_color_calc();
 void commit_raster_tables();
 
 /* Windows W0/W1 (rectangles or per-line tables), per-screen window control,
