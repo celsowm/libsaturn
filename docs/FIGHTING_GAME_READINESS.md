@@ -6,6 +6,11 @@ current two-fighter presentation does **not** meet a 30 or 60 rendered-frame/s
 target. Physical Saturn acceptance remains open. Emulator measurements below
 are evidence about these workloads, not hardware certification.
 
+The initial measurements below correspond to the completed original scope.
+The subsequent [character preparation study](CHARACTER_PREPARATION_PERFORMANCE.md)
+reduces two-actor CPU cost by about 6 ms while retaining approximately 15
+submissions/s; it documents the current implementation and added binding storage.
+
 The implementation is commit
 [`4c5bcee`](https://github.com/celsowm/libsaturn/commit/4c5bcee),
 `feat(characters): integrate skeletal assets, dual SH-2 jobs and playable examples`.

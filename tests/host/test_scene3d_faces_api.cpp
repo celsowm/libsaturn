@@ -639,6 +639,7 @@ int main() {
     sat_projected_vertex_t screen[8]={};
     sat_vec3_t world[8]={};
     sat_mat4_t translation={};
+    translation.m[0]=translation.m[5]=translation.m[10]=translation.m[15]=SAT_FX16_ONE;
     translation.m[11]=3*SAT_FX16_ONE;
     const sat_scene3d_instance_t instance={
         &mesh,materials,2u,per_face,&translation,0u,0u};
@@ -657,6 +658,36 @@ int main() {
     // INHERIT left both materials on their own opaque slot.
     assert(emitted_slot[0]==SAT_INDEXED_SOLID_OPAQUE &&
            emitted_slot[1]==SAT_INDEXED_SOLID_OPAQUE);
+
+    // Fractional, negative and non-affine matrices retain the public transform's
+    // XYZ semantics: each product rounds before summation, output w is unused.
+    constexpr unsigned kTransformCases=64;
+    uint32_t transform_seed=0x51A2u;
+    for(unsigned sample=0;sample<kTransformCases;++sample) {
+        sat_mat4_t matrix={};
+        for(unsigned element=0;element<16;++element) {
+            transform_seed=transform_seed*1664525u+1013904223u;
+            matrix.m[element]=(int32_t)(transform_seed%262144u)-131072;
+        }
+        matrix.m[11]=20*SAT_FX16_ONE;
+        auto transformed_instance=instance;transformed_instance.world=&matrix;
+        assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+            SAT_FX16_ONE,320u,224u)==SAT_OK);
+        assert(sat_scene3d_faces_submit_instance(&scene,&transformed_instance,
+            SAT_SCENE3D_SLOT_INHERIT,screen,world)==SAT_OK);
+        for(unsigned vertex=0;vertex<mesh.vertex_count;++vertex) {
+            const int32_t position[3]={local[vertex].x,local[vertex].y,local[vertex].z};
+            const int32_t actual[3]={world[vertex].x,world[vertex].y,world[vertex].z};
+            for(unsigned row=0;row<3;++row) {
+                int64_t expected=matrix.m[row*4+3];
+                for(unsigned axis=0;axis<3;++axis)
+                    expected+=((int64_t)matrix.m[row*4+axis]*position[axis])>>16;
+                assert(actual[row]==expected);
+            }
+        }
+        emitted_count=0;
+        assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    }
 
     // Optional bounds reject a whole instance before the O(V+F) path. The
     // local AABB encloses this mesh; VP scales it into clip space. Moving it

@@ -65,6 +65,7 @@ typedef struct {
     uint16_t indices[ACTOR_FACE_CAP*4],face_materials[ACTOR_FACE_CAP],gouraud[ACTOR_VERTEX_CAP];
     sat_scene3d_material_t shaded[FIGHTER_TEXTURE_COUNT];
     sat_scene3d_instance_t instance;
+    sat_scene3d_instance_binding_t binding;
     sat_aabb3_t bounds;
     sat_skin_job_t job;
     sat_parallel_handle_t task;
@@ -185,6 +186,8 @@ static void bind_lod(actor_t* actor,unsigned level) {
     actor->instance.material_count=FIGHTER_TEXTURE_COUNT;
     actor->instance.face_materials=actor->face_materials; actor->instance.cull_backfaces=1;
     actor->instance.world=&actor->world; actor->instance.bounds=&actor->bounds;
+    sat_example_must(sat_scene3d_instance_binding_init(&actor->binding,&actor->mesh,
+        actor->instance.materials,FIGHTER_TEXTURE_COUNT,actor->face_materials));
     actor->lod=level;
     sat_example_must(sat_skin_validate(kSkins[level]));
     sat_example_must(sat_skin_validate_mesh(kSkins[level],&actor->mesh));
@@ -381,6 +384,9 @@ static void place(actor_t* a,unsigned i) {
     sat_example_must(sat_skin_bounds(a->vertices,a->mesh.vertex_count,SAT_FX16_ONE/32,&a->bounds));
 }
 static void character_materials(actor_t* a) {
+    /* Flash and Gouraud tables are mutable; only resident indexed materials
+       satisfy the existing immutable binding contract. LOD/reload rebuild it. */
+    a->instance.validated_binding=NULL;
     if(a->flash_ticks) {
         for(unsigned m=0;m<FIGHTER_TEXTURE_COUNT;++m) {
             a->shaded[m]=(sat_scene3d_material_t){0};a->shaded[m].kind=SAT_SCENE3D_RGB;
@@ -388,7 +394,10 @@ static void character_materials(actor_t* a) {
         }
         a->instance.materials=a->shaded;return;
     }
-    if(g_shading) {a->instance.materials=g_assets[a->slot].materials;return;}
+    if(g_shading) {
+        a->instance.materials=g_assets[a->slot].materials;
+        a->instance.validated_binding=&a->binding;return;
+    }
     const sat_vec3_t light={-SAT_FX16_ONE/2,SAT_FX16_ONE,SAT_FX16_ONE};
     sat_example_must(sat_mesh_vertex_normals(&a->mesh,a->normals,ACTOR_VERTEX_CAP));
     sat_vec3_t unit_light; sat_vec3_normalize(&unit_light,&light);

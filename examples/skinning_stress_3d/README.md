@@ -47,6 +47,12 @@ serial reference and times serial work versus two host threads. Host thread
 creation overhead and host timings do not predict SH-2 speedup. Saturn policy
 decisions use Ymir measurements and actual worker counters.
 
+For a shorter matched two-HIGH-actor comparison of all three CPU policies,
+run `harness/run-character-plan.ps1 -Bios bios/saturn_bios_us.bin -Scenario prepare`.
+It discards transition samples and reports complete-frame p95 alongside CPU
+and preparation medians. See the measured
+[preparation study](../../docs/CHARACTER_PREPARATION_PERFORMANCE.md).
+
 Assets are [original MIT project content](../characters/README.md).
 See [CPU skinning](../../docs/CPU_SKINNING_3D.md) and
 [fighting-game readiness](../../docs/FIGHTING_GAME_READINESS.md).

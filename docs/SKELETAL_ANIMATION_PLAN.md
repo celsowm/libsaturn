@@ -1346,3 +1346,11 @@ Prioritize correctness and actual Saturn hardware behavior, then memory efficien
   rather than reported as completed hardware/performance goals. See
   [FIGHTING_GAME_READINESS.md](FIGHTING_GAME_READINESS.md) and
   [HARDWARE_ACCEPTANCE_CHECKLIST.md](HARDWARE_ACCEPTANCE_CHECKLIST.md).
+- 2026-10-13, preparation follow-up: character examples use the existing
+  immutable instance binding, rebuilt on LOD/reload and disabled for mutable
+  flash/Gouraud materials. Direct reuse of the existing matrix helper removes
+  unused homogeneous transform work without changing rounding. Matched
+  two-HIGH-character Ymir intervals reduce CPU by about 6 ms and preparation
+  from 29 to 22–23 ms. Submission throughput remains approximately 15/s;
+  higher frame-rate goals remain open. See
+  [CHARACTER_PREPARATION_PERFORMANCE.md](CHARACTER_PREPARATION_PERFORMANCE.md).

@@ -682,11 +682,11 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
     if (instance->world) {
         for (uint16_t v=0;v<mesh->vertex_count;++v) {
             const sat_vec3_t& p=mesh->vertices[v];
-            const sat_vec4_t local={p.x,p.y,p.z,SAT_FX16_ONE};
-            sat_vec4_t transformed={};
-            const sat_result_t st=sat_mat4_transform_vec4(
-                instance->world,&local,&transformed);
-            if (st!=SAT_OK) return st;
+            /* Reuse the same fixed-point math directly: constant input w lets
+             * the compiler remove the unused output w and translation multiplies.
+             * XYZ still has the public transform's per-product rounding. */
+            const sat_vec4_t transformed=saturn::core::math3d::mat4_transform_vec4(
+                instance->world->m,p.x,p.y,p.z,SAT_FX16_ONE);
             world_scratch[v]={transformed.x,transformed.y,transformed.z};
         }
         world=world_scratch;

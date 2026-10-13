@@ -13,6 +13,13 @@ character draws are not used as an ordering substitute. Materials retain
 near clipping, projection, backface testing, bucket ordering, texture residency
 and command backend remain authoritative.
 
+The example family uses the existing immutable instance binding for resident
+indexed materials. LOD changes and resource reloads rebuild that proof; hit
+flashes and RGB lighting retain full validation because their material contents
+change. World preparation directly reuses the fixed-point matrix helper so the
+compiler can discard the unused homogeneous output. See the measured
+[preparation comparison](CHARACTER_PREPARATION_PERFORMANCE.md).
+
 ## Materials and light
 
 `sat_character_materials_upload` creates owners through the existing managed

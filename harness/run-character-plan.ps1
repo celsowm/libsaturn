@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][string]$Bios,
-    [ValidateSet('all','viewer','arena','collision','stress')][string]$Scenario='all'
+    [ValidateSet('all','viewer','arena','collision','stress','prepare')][string]$Scenario='all'
 )
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -9,7 +9,7 @@ $cases=if($Scenario -eq 'all'){@('viewer','arena','collision','stress')}else{@($
 Push-Location $root
 try {
     foreach($case in $cases) {
-        $example=@{viewer='skeletal_animation_3d';arena='fighter_arena_3d';collision='fighter_arena_3d';stress='skinning_stress_3d'}[$case]
+        $example=@{viewer='skeletal_animation_3d';arena='fighter_arena_3d';collision='fighter_arena_3d';stress='skinning_stress_3d';prepare='skinning_stress_3d'}[$case]
         & .\build-example.ps1 $example
         if($LASTEXITCODE){throw "Build failed: $example"}
         $prefix="harness/build/character_$case"; $map=$prefix+'.map'
@@ -53,6 +53,12 @@ try {
                 $pad=@('0 NONE','100 RIGHT','600 NONE')
                 $shots=@("450:${prefix}_blocked.png","749:${prefix}_final.png")
             }
+            prepare {
+                $frames=1400
+                $pad=@('0 NONE','100 A','140 NONE','500 Z','540 NONE','900 Z','940 NONE')
+                $shots=@("399:${prefix}_two_auto.png")
+                $dumps=@("0x00200000:1048576:${prefix}_low.bin")
+            }
         }
         $pad|Set-Content -LiteralPath ($prefix+'.pad')
         $arguments=@{Example=$example;Bios=$Bios;Frames=$frames;PadScript=$prefix+'.pad';
@@ -64,7 +70,11 @@ try {
                     '--probe',($prefix+'.json'),'--output',($prefix+'_analysis.json'))
         if($case -eq 'stress'){$analysis+=@('--low',($prefix+'_low.bin'))}
         if($case -eq 'collision'){$analysis+='--body-collision'}
-        & python harness/tests/character_plan.py @analysis
+        if($case -eq 'prepare') {
+            & python harness/tests/character_preparation.py $prefix
+        } else {
+            & python harness/tests/character_plan.py @analysis
+        }
         if($LASTEXITCODE){throw "Character validation failed: $example"}
         if($case -eq 'viewer') {
             & python -c "from PIL import Image; from pathlib import Path; a=Image.open(Path('$prefix'+'_paused_a.png')).crop((130,60,175,185)); b=Image.open(Path('$prefix'+'_paused_b.png')).crop((130,60,175,185)); assert a.tobytes()==b.tobytes(), 'Paused scene changed'"
