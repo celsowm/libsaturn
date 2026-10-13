@@ -12,6 +12,7 @@
 #include "saturn/app.h"
 #include "saturn/color.h"
 #include "saturn/font.h"
+#include "saturn/hud.h"
 #include "saturn/parallel.h"
 #include "saturn/time.h"
 
@@ -72,6 +73,9 @@ typedef struct sched_demo_results {
 volatile sched_demo_results_t g_sched_demo;
 
 static sat_ascii_font_t font;
+/* HUD overlay: font in CRAM bank 7, draws use palette code 0 with
+ * 8 px/cell spacing. */
+static sat_hud_t hud;
 static volatile uint32_t g_order_counter;
 static hash_entry_t g_hash[FOR_COUNT];
 static uint32_t g_reference[FOR_COUNT];
@@ -246,13 +250,14 @@ static void scenario_parallel_for(void) {
 }
 
 static void line(const char* label, uint32_t value, int y) {
-    (void)sat_ascii_font_draw_label_u32(&font, label, value, 8, y, 8, 0u, 0u);
+    (void)sat_hud_value(&hud, label, value, 8, y);
 }
 
 int main(void) {
     sat_parallel_config_t config = {SAT_PARALLEL_SLAVE, 0, 0u, 0u, STARTUP_TIMEOUT};
     if (sat_app_init_default() != SAT_OK) return 1;
     if (sat_ascii_font_init_8x8_indexed8(&font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u) != SAT_OK) return 1;
+    if (sat_hud_init(&hud, &font, 0u, 8u) != SAT_OK) return 1;
     g_sched_demo.magic = SCHED_DEMO_MAGIC;
 
     g_sched_demo.init_status = (uint32_t)(-sat_parallel_init(&config));
@@ -272,7 +277,7 @@ int main(void) {
         sat_pad_state_t pad = {0};
         if (sat_app_frame_begin(SAT_COLOR_BLACK, SAT_COLOR_GREEN, &pad) != SAT_OK) break;
         ++g_sched_demo.frames;
-        (void)sat_ascii_font_draw_text_screen_indexed8(&font, "SLAVE SCHEDULING", 8, 8, 8, 0u, 0u);
+        (void)sat_hud_text(&hud, "SLAVE SCHEDULING", 8, 8);
         line("SLAVE ", g_sched_demo.slave_ready, 24);
         line("SIGNALS ", g_sched_demo.prio_signals, 40);
         line("BATCHED ", g_sched_demo.prio_batched, 56);
