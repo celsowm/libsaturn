@@ -9,12 +9,11 @@ proof. The struct read is g_effects_demo.
 """
 
 import os
-import re
-import struct
 import unittest
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x45464631  # "EFF1"
-WRAM_HIGH = 0x06000000
 YELLOW = (248, 224, 24)
 RED = (248, 48, 48)
 BAR_PERIOD = 40      # bars every 5 cells
@@ -27,15 +26,7 @@ def _load():
     map_path = os.environ.get("LIBSATURN_EFFECTS_MAP")
     if not dump or not map_path:
         raise unittest.SkipTest("run harness/run-vdp2-effects.ps1 first")
-    if not os.path.exists(dump) or not os.path.exists(map_path):
-        raise AssertionError("missing input: %s / %s" % (dump, map_path))
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_effects_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_effects_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(dump, "rb") as stream:
-        raw = struct.unpack(">9I", stream.read()[offset:offset + 36])
+    raw = tel.load_dump(dump, map_path, "_g_effects_demo", ">9I", 36)
     return dict(zip(("magic", "layers_ok", "line_scroll_ok", "vcs_ok", "back_ok",
                      "refused_bad_layer", "refused_unsupported", "table_bytes", "frames"), raw))
 

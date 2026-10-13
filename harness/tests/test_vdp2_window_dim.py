@@ -11,12 +11,12 @@ The struct read here is g_dim_demo, which also holds the final span tables.
 """
 
 import os
-import re
 import struct
 import unittest
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x44494D31  # "DIM1"
-WRAM_HIGH = 0x06000000
 LINES = 224
 HEADER_WORDS = 11
 STRUCT_BYTES = HEADER_WORDS * 4 + 2 * LINES * 2 * 2
@@ -28,17 +28,12 @@ def _load():
     map_path = os.environ.get("LIBSATURN_DIM_MAP")
     if not dump or not map_path:
         raise unittest.SkipTest("run harness/run-vdp2-window-dim.ps1 first")
-    if not os.path.exists(dump) or not os.path.exists(map_path):
-        raise AssertionError("missing input: %s / %s" % (dump, map_path))
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_dim_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_dim_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(dump, "rb") as stream:
-        image = stream.read()[offset:offset + STRUCT_BYTES]
-    head = struct.unpack(">%dI" % HEADER_WORDS, image[:HEADER_WORDS * 4])
-    spans = struct.unpack(">%dH" % (2 * LINES * 2), image[HEADER_WORDS * 4:])
+    # Header: 11 unsigned 32-bit words; the rest is 2 * 2 short spans per line.
+    head = tel.load_dump(dump, map_path, "_g_dim_demo", ">%dI" % HEADER_WORDS, HEADER_WORDS * 4)
+    spans = tel.load_dump(
+        dump, map_path, "_g_dim_demo",
+        ">%dH" % (2 * LINES * 2), 2 * LINES * 2 * 2,
+        offset=HEADER_WORDS * 4)
     return {
         "magic": head[0], "layers_ok": head[1], "window_ok": head[2], "screens_ok": head[3],
         "color_calc_ok": head[4], "ratio_a": head[5], "ratio_b": head[6], "frames": head[7],

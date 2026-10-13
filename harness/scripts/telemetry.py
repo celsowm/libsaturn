@@ -55,7 +55,7 @@ def find_symbol(map_path, name, pattern=None):
     return address - WRAM_HIGH
 
 
-def load_dump(dump_path, map_path, symbol_name, format_string, count=None):
+def load_dump(dump_path, map_path, symbol_name, format_string, count=None, offset=0):
     """Return the struct.unpack(...) tuple for `symbol_name`.
 
     Args:
@@ -67,19 +67,22 @@ def load_dump(dump_path, map_path, symbol_name, format_string, count=None):
         -- most tests use '>' because the SH-2 emits big-endian words.
       count: how many bytes to read. If None, compute from
         struct.calcsize(format_string).
+      offset: extra byte offset from the symbol's start. Use it for a
+        second struct.unpack on a struct that holds two regions
+        (header + a body of a different element width, for example).
 
     Returns: a tuple of the unpacked fields.
     """
     if not os.path.exists(dump_path):
         raise AssertionError("dump file is absent: " + dump_path)
-    offset = find_symbol(map_path, symbol_name)
+    base = find_symbol(map_path, symbol_name)
     byte_size = count if count is not None else struct.calcsize(format_string)
     with open(dump_path, "rb") as stream:
-        image = stream.read()[offset:offset + byte_size]
+        image = stream.read()[base + offset:base + offset + byte_size]
     if len(image) < byte_size:
         raise AssertionError(
             "dump is short: requested %d bytes at offset 0x%x from %s"
-            % (byte_size, offset, dump_path))
+            % (byte_size, base + offset, dump_path))
     return struct.unpack(format_string, image[:byte_size])
 
 

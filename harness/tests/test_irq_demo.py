@@ -9,9 +9,9 @@ from the Work RAM High dump at the address the linker map gives it.
 """
 
 import os
-import re
-import struct
 import unittest
+
+from harness.scripts import telemetry as tel
 
 FRAME_HZ = float(os.environ.get("LIBSATURN_FRAME_HZ", "60"))
 MAGIC = 0x49525131  # "IRQ1"
@@ -20,22 +20,17 @@ FIELDS = (
     "timer0 sprite_end handler_vblank_out handler_timer0 handler_sprite_end"
 ).split()
 BUSY_VBLANKS = 90
-WRAM_HIGH = 0x06000000
 
 
 def _load():
     dump = os.environ.get("LIBSATURN_IRQ_DUMP")
     map_path = os.environ.get("LIBSATURN_IRQ_MAP")
-    if not dump or not map_path or not os.path.exists(dump) or not os.path.exists(map_path):
+    if not dump or not map_path:
         raise unittest.SkipTest("run harness/run-irq-demo.ps1 first")
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_irq_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_irq_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(dump, "rb") as stream:
-        data = stream.read()[offset:offset + 4 * len(FIELDS)]
-    return dict(zip(FIELDS, struct.unpack(">%dI" % len(FIELDS), data)))
+    values = tel.load_dump(
+        dump, map_path, "_g_irq_demo",
+        ">%dI" % len(FIELDS), 4 * len(FIELDS))
+    return dict(zip(FIELDS, values))
 
 
 class IrqDemoTests(unittest.TestCase):

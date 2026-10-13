@@ -9,9 +9,9 @@ these are pass/fail flags plus the timing it measured.
 """
 
 import os
-import re
-import struct
 import unittest
+
+from harness.scripts import telemetry as tel
 
 MAGIC = 0x444D4131  # "DMA1"
 FIELDS = (
@@ -20,22 +20,18 @@ FIELDS = (
     "ram_copy_on_cpu ram_copy_on_sh2 sh2_refuses_misfits low_ram_on_sh2 sh2_cache_coherent sh2_overlap_down "
     "small_copy_on_cpu cpu_ms dma_ms ram_cpu_ms ram_sh2_ms frame_cpu_ms frame_dma_ms scu_transfers timeouts illegal"
 ).split()
-WRAM_HIGH = 0x06000000
 
 
 def _load():
     dump = os.environ.get("LIBSATURN_DMA_DUMP")
     map_path = os.environ.get("LIBSATURN_DMA_MAP")
-    if not dump or not map_path or not os.path.exists(dump) or not os.path.exists(map_path):
+    if not dump or not map_path:
         raise unittest.SkipTest("run harness/run-dma-demo.ps1 first")
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_dma_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_dma_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(dump, "rb") as stream:
-        data = stream.read()[offset:offset + 4 * len(FIELDS)]
-    return dict(zip(FIELDS, struct.unpack(">%dI" % len(FIELDS), data)))
+    # All fields are unsigned 32-bit; the byte count is the field count * 4.
+    values = tel.load_dump(
+        dump, map_path, "_g_dma_demo",
+        ">%dI" % len(FIELDS), 4 * len(FIELDS))
+    return dict(zip(FIELDS, values))
 
 
 class DmaDemoTests(unittest.TestCase):

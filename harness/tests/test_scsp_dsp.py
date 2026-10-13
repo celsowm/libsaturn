@@ -10,16 +10,15 @@ what the API reported (g_dsp_demo).
 
 import array
 import os
-import re
-import struct
 import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools"))
 import scsp_dsp  # noqa: E402
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x44535031  # "DSP1"
-WRAM_HIGH = 0x06000000
 RING_WORDS = 8192
 FIELDS = ["magic", "audio_status", "echo_status", "echo_click_status", "echo_ring_offset", "echo_ring_bytes",
           "echo_delay_samples", "echo_kind", "snapshot_status", "reverb_status", "reverb_click_status",
@@ -29,25 +28,17 @@ CLICK_PEAK = 12000
 GAP = 200                  # quiet samples that separate two bursts
 
 
-def _symbol(map_text, name):
-    found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_%s\s*$" % name, map_text)
-    if not found:
-        raise AssertionError("_%s is absent from the map" % name)
-    return int(found.group(1), 16) - WRAM_HIGH
-
-
 def _load():
     base = os.environ.get("LIBSATURN_DSP_DIR")
     map_path = os.environ.get("LIBSATURN_DSP_MAP")
     if not base or not map_path:
         raise unittest.SkipTest("run harness/run-scsp-dsp.ps1 first")
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        map_text = stream.read()
-    with open(os.path.join(base, "wram.bin"), "rb") as stream:
-        wram = stream.read()
-    offset = _symbol(map_text, "g_dsp_demo")
-    results = dict(zip(FIELDS, struct.unpack(">%dI" % len(FIELDS), wram[offset:offset + 4 * len(FIELDS)])))
-    ring_at = _symbol(map_text, "g_echo_ring")
+    dump = os.path.join(base, "wram.bin")
+    results = dict(zip(FIELDS,
+        tel.load_dump(dump, map_path, "g_dsp_demo", ">%dI" % len(FIELDS), 4 * len(FIELDS))))
+    # The echo ring lives at its own symbol so the C side can keep the
+    # data in a different section (Sound RAM) than the demo struct (WRAM).
+    ring_at = tel.find_symbol(map_path, "g_echo_ring")
     ring = struct.unpack(">%dh" % RING_WORDS, wram[ring_at:ring_at + 2 * RING_WORDS])
     samples = array.array("h")
     with open(os.path.join(base, "audio.raw"), "rb") as stream:

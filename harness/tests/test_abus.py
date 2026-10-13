@@ -7,24 +7,20 @@ Memory cartridge. Run through the wrapper:
 
 import os
 import re
-import struct
 import unittest
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x41425531  # "ABU1"
-WRAM_HIGH = 0x06000000
 FIELDS = ("magic", "detect_status", "kind", "id", "backup_bytes", "read_status", "write_status",
           "write_readback_ok", "write_outside_status", "write_cs1_status", "frames")
 
 
 def _read(dump, map_path):
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_abus_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_abus_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(dump, "rb") as stream:
-        raw = struct.unpack(">%dI" % len(FIELDS), stream.read()[offset:offset + 4 * len(FIELDS)])
-    return dict(zip(FIELDS, raw))
+    values = tel.load_dump(
+        dump, map_path, "_g_abus_demo",
+        ">%dI" % len(FIELDS), 4 * len(FIELDS))
+    return dict(zip(FIELDS, values))
 
 
 def _codes():

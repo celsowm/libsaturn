@@ -11,9 +11,10 @@ started the image and carried the argument across.
 """
 
 import os
-import re
 import struct
 import unittest
+
+from harness.scripts import telemetry as tel
 
 MAGIC = 0x45584543  # "EXEC"
 ROUNDS = 4
@@ -21,7 +22,6 @@ FIELDS = (
     "magic round arg_status missing_status exec_status slave_status slave_beats frames done"
 ).split()
 SIGNED = {"arg_status", "missing_status", "exec_status", "slave_status"}
-WRAM_HIGH = 0x06000000
 SAT_OK = 0
 SAT_ERR_NOT_FOUND = -6
 
@@ -29,16 +29,12 @@ SAT_ERR_NOT_FOUND = -6
 def _load():
     dump = os.environ.get("LIBSATURN_EXEC_DUMP")
     map_path = os.environ.get("LIBSATURN_EXEC_MAP")
-    if not dump or not map_path or not os.path.exists(dump) or not os.path.exists(map_path):
+    if not dump or not map_path:
         raise unittest.SkipTest("run harness/run-exec.ps1 first")
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_exec_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_exec_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(dump, "rb") as stream:
-        data = stream.read()[offset:offset + 4 * len(FIELDS)]
-    values = dict(zip(FIELDS, struct.unpack(">%dI" % len(FIELDS), data)))
+    raw = tel.load_dump(
+        dump, map_path, "_g_exec_demo",
+        ">%dI" % len(FIELDS), 4 * len(FIELDS))
+    values = dict(zip(FIELDS, raw))
     for name in SIGNED:
         values[name] = struct.unpack(">i", struct.pack(">I", values[name]))[0]
     return values

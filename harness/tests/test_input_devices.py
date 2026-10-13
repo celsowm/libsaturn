@@ -11,12 +11,11 @@ SMEM round trips. Scenario B: the same pad in digital mode, port 2 empty.
 """
 
 import os
-import re
-import struct
 import unittest
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x49444531  # "IDE1"
-WRAM_HIGH = 0x06000000
 PORT_FIELDS = (
     "kind peripheral_id data_size axis_count multitap_id tap_count held x y l r "
     "has_triggers mouse_dx_total mouse_dy_total mouse_buttons "
@@ -41,15 +40,9 @@ def _load(env_name):
         raise unittest.SkipTest("run harness/run-input-devices.ps1 first")
     if not os.path.exists(dump) or not os.path.exists(map_path):
         raise AssertionError("missing input: %s / %s" % (dump, map_path))
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_input_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_input_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
     words = 3 + 2 * len(PORT_FIELDS) + len(TAIL_FIELDS)
-    with open(dump, "rb") as stream:
-        data = stream.read()[offset:offset + 4 * words]
-    raw = struct.unpack(">%dI" % words, data)
+    raw = tel.load_dump(
+        dump, map_path, "_g_input_demo", ">%dI" % words, 4 * words)
     out = {"magic": raw[0], "polls": raw[1], "poll_errors": raw[2], "ports": []}
     at = 3
     for _ in range(2):

@@ -10,12 +10,11 @@ SCSP slot state at the end. The struct read is g_driver_demo.
 
 import json
 import os
-import re
-import struct
 import unittest
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x53445231  # "SDR1"
-WRAM_HIGH = 0x06000000
 MARKERS = 8
 FIELDS = (["magic", "audio_status", "start_status", "running", "base_tick", "marker_status", "play_status",
            "play_start_tick", "key_off_status", "voice_a_slot", "voice_b_slot", "tick_a", "frame_a", "tick_b",
@@ -33,13 +32,10 @@ def _load():
     map_path = os.environ.get("LIBSATURN_DRIVER_MAP")
     if not base or not map_path:
         raise unittest.SkipTest("run harness/run-sound-driver.ps1 first")
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_driver_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_driver_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(os.path.join(base, "wram.bin"), "rb") as stream:
-        raw = struct.unpack(">%dI" % len(FIELDS), stream.read()[offset:offset + 4 * len(FIELDS)])
+    dump = os.path.join(base, "wram.bin")
+    raw = tel.load_dump(
+        dump, map_path, "_g_driver_demo",
+        ">%dI" % len(FIELDS), 4 * len(FIELDS))
     with open(os.path.join(base, "sram.bin"), "rb") as stream:
         sram = stream.read()
     with open(os.path.join(base, "probe.json"), "r", encoding="utf-8") as stream:

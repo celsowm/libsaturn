@@ -10,12 +10,11 @@ g_dsp_demo.
 """
 
 import os
-import re
-import struct
 import unittest
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x44535031  # "DSP1"
-WRAM_HIGH = 0x06000000
 FIELDS = ("magic", "matrix_status", "transform_status", "mismatches", "dsp_ticks", "sh2_ticks",
           "overlap_status", "overlap_iterations", "overlap_ticks", "overlap_mismatches", "ended_seen",
           "wait_status", "raw_value", "dma_status", "dma_mismatches", "dma_ticks", "dma_overlap_status",
@@ -29,15 +28,9 @@ def _load():
     map_path = os.environ.get("LIBSATURN_DSP_MAP")
     if not dump or not map_path:
         raise unittest.SkipTest("run harness/run-scu-dsp.ps1 first")
-    if not os.path.exists(dump) or not os.path.exists(map_path):
-        raise AssertionError("missing input: %s / %s" % (dump, map_path))
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_dsp_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_dsp_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(dump, "rb") as stream:
-        raw = struct.unpack(">%dI" % len(FIELDS), stream.read()[offset:offset + 4 * len(FIELDS)])
+    raw = tel.load_dump(
+        dump, map_path, "_g_dsp_demo",
+        ">%dI" % len(FIELDS), 4 * len(FIELDS))
     return dict(zip(FIELDS, raw))
 
 

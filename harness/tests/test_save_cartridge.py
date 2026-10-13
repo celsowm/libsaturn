@@ -12,24 +12,19 @@ restart and count up, while the internal image stays byte-identical.
 
 import json
 import os
-import re
-import struct
 import unittest
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x43525431  # "CRT1"
-WRAM_HIGH = 0x06000000
 FIELDS = ("magic", "init_status", "status", "cart_connected", "cart_partitions", "total_size",
           "block_size", "free_size", "boot_count", "entries", "frames")
 
 
 def _guest(dump, map_path):
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_cart_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_cart_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(dump, "rb") as stream:
-        raw = struct.unpack(">%dI" % len(FIELDS), stream.read()[offset:offset + 4 * len(FIELDS)])
+    raw = tel.load_dump(
+        dump, map_path, "_g_cart_demo",
+        ">%dI" % len(FIELDS), 4 * len(FIELDS))
     return dict(zip(FIELDS, raw))
 
 

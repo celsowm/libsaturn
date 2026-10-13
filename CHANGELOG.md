@@ -110,6 +110,22 @@ The version is defined once, in the `VERSION` file.
   (expansion_probe_demo's no-card probe) still get the one helper.
   Six examples migrated: city_walk, dino_demo, cd_streaming_jukebox,
   city_load_probe, exec_demo, expansion_probe_demo.
+- Harness pytests migrated to `harness/scripts/telemetry.py`:
+  `find_symbol` (replaces the `WRAM_HIGH = 0x06000000 + re.search`
+  dance) and `load_dump(dump, map, name, fmt, count, offset)`
+  (replaces the open file + slice + struct.unpack). `load_dump` now
+  takes an `offset` argument for the second region of a struct
+  (test_vdp2_window_dim reads the header as u32 and the span
+  tables as u16 from the same symbol). Sixteen pytests adopted:
+  test_abus, test_dma_demo, test_exec_demo, test_expansion_probe,
+  test_input_devices, test_irq_demo, test_parallel_sched,
+  test_save_cartridge, test_scsp_dsp, test_scu_dsp, test_sound_driver,
+  test_vdp2_compose, test_vdp2_effects, test_vdp2_layers,
+  test_vdp2_tile_overflow, test_vdp2_window_dim, plus the
+  shared `harness/tests/city_telemetry.py` loader that test_city_walk
+  pulls in. city_telemetry still parses the C header for its
+  field names, since the demo is the one with a struct that
+  grows; everything else uses a fixed FIELDS list.
 - Harness: `harness/scripts/telemetry.py` exposes `WRAM_HIGH`,
   `find_symbol`, `load_dump` and `verify_fields` so the eighteen
   pytest files no longer hand-roll the same map-regex /

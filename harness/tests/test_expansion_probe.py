@@ -9,12 +9,11 @@ tested on the host only (tests/host/test_mpeg_api.cpp): it is unverified on any 
 """
 
 import os
-import re
-import struct
 import unittest
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x45585031  # "EXP1"
-WRAM_HIGH = 0x06000000
 FIELDS = ["magic", "cd_init", "probe_status", "present", "mpeg_version", "hardware_flags", "hardware_version",
           "drive_version", "drive_revision", "authentication_status", "start_status", "abus_status", "abus_kind",
           "uart_status", "uart_attempted", "frames"]
@@ -26,14 +25,11 @@ def _load():
     map_path = os.environ.get("LIBSATURN_EXPANSION_MAP")
     if not base or not map_path:
         raise unittest.SkipTest("run harness/run-expansion-probe.ps1 first")
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_expansion\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_expansion is absent from the map")
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(os.path.join(base, "wram.bin"), "rb") as stream:
-        raw = struct.unpack(">%dI" % len(FIELDS), stream.read()[offset:offset + 4 * len(FIELDS)])
-    return dict(zip(FIELDS, raw))
+    dump = os.path.join(base, "wram.bin")
+    values = tel.load_dump(
+        dump, map_path, "_g_expansion",
+        ">%dI" % len(FIELDS), 4 * len(FIELDS))
+    return dict(zip(FIELDS, values))
 
 
 class ExpansionProbeTests(unittest.TestCase):

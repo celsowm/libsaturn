@@ -2,19 +2,20 @@
 
 The field list is parsed from examples/city_walk/city_walk.h, so the C struct
 and this reader cannot drift: add a field there and it shows up here. The
-address comes from the linker map (`_g_city`); no offsets are hard-coded.
+address comes from the linker map (`_g_city`) via harness.scripts.telemetry;
+no offsets are hard-coded.
 
     python harness/tests/city_telemetry.py build/city_walk.map harness/build/city_wramh.bin
 """
 
 import re
-import struct
 import sys
 from pathlib import Path
 
+from harness.scripts import telemetry as tel
+
 REPO = Path(__file__).resolve().parents[2]
 HEADER = REPO / "examples" / "city_walk" / "city_walk.h"
-WRAM_HIGH = 0x06000000
 MAGIC = 0x43495459  # "CITY"
 
 STATES = {0: "BOOT", 1: "LOADING", 2: "RUNNING", 3: "NO_CART", 4: "CART_TOO_SMALL",
@@ -36,21 +37,11 @@ def field_names():
     return names
 
 
-def symbol_address(map_path):
-    text = Path(map_path).read_text(encoding="utf-8", errors="replace")
-    match = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_city\s*$", text)
-    if not match:
-        raise RuntimeError("_g_city is not in the map file")
-    return int(match.group(1), 16)
-
-
 def read(map_path, dump_path):
     names = field_names()
-    offset = symbol_address(map_path) - WRAM_HIGH
-    raw = Path(dump_path).read_bytes()[offset:offset + 4 * len(names)]
-    if len(raw) != 4 * len(names):
-        raise RuntimeError("g_city lies outside the dump (is it in .wram_l?)")
-    values = struct.unpack(">%dI" % len(names), raw)
+    values = tel.load_dump(
+        str(dump_path), str(map_path), "_g_city",
+        ">%dI" % len(names), 4 * len(names))
     return dict(zip(names, values))
 
 

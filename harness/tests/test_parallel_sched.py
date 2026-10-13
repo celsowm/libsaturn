@@ -8,12 +8,11 @@ across both CPUs; the struct read here is g_sched_demo.
 """
 
 import os
-import re
-import struct
 import unittest
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x53434831  # "SCH1"
-WRAM_HIGH = 0x06000000
 FIELDS = (
     "magic", "init_status", "slave_ready",
     "prio_low", "prio_high", "prio_normal", "prio_urgent",
@@ -33,15 +32,9 @@ def _load():
     map_path = os.environ.get("LIBSATURN_SCHED_MAP")
     if not dump or not map_path:
         raise unittest.SkipTest("run harness/run-parallel-sched.ps1 first")
-    if not os.path.exists(dump) or not os.path.exists(map_path):
-        raise AssertionError("missing input: %s / %s" % (dump, map_path))
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_sched_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_sched_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(dump, "rb") as stream:
-        raw = struct.unpack(">%dI" % len(FIELDS), stream.read()[offset:offset + 4 * len(FIELDS)])
+    raw = tel.load_dump(
+        dump, map_path, "_g_sched_demo",
+        ">%dI" % len(FIELDS), 4 * len(FIELDS))
     return dict(zip(FIELDS, raw))
 
 
