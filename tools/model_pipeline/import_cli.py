@@ -341,6 +341,42 @@ def _main_skeletal(args) -> int:
             sy = -1.0 if args.flip_y else 1.0
             sz = -1.0 if args.flip_z else 1.0
             model.vertices = [(x * sx, y * sy, z * sz) for x, y, z in model.vertices]
+        # Optional decimation: the baked-pose path also takes --max-triangles
+        # but operates on per-frame buffers; the skeletal path keeps the full
+        # mesh on the runtime side, so dropping it here is the only way to
+        # shrink ROM/RAM. Skin weights are preserved (rigid wins collapse
+        # first, blend vertices track their dominant influences through the
+        # collapse), so the result still skin-deforms cleanly.
+        if args.max_triangles:
+            from .simplification import simplify, SimplificationOptions
+            from .animation import evaluate_positions
+            opts = SimplificationOptions(
+                target_triangles=args.max_triangles,
+                quality=args.quality,
+                preserve_uv=False,
+                preserve_normals=False,
+                preserve_boundaries=False,
+            )
+            pose_positions = [evaluate_positions(model, None, 0.0)]
+            keep_clip_indices = [
+                i for i, _ in enumerate(model.clips) if i
+                in {i for i, _ in enumerate(model.clips)}
+            ]
+            for ci in keep_clip_indices[:1]:
+                clip = model.clips[ci]
+                for t in (clip.duration * f for f in (0.0, 0.5, 1.0)):
+                    pose_positions.append(evaluate_positions(model, clip, t))
+            simplified = simplify(model, options=opts, pose_positions=pose_positions)
+            model.vertices = list(simplified.positions)
+            model.triangles = list(simplified.triangles)
+            # The simplifier already preserves joints/weights through the
+            # collapse (its weld pass keeps each survivor's original joint
+            # slot). Adopt those tables directly so the skin table stays
+            # consistent with the simplified mesh.
+            if simplified.joints is not None:
+                model.joints = [tuple(j) for j in simplified.joints]
+            if simplified.weights is not None:
+                model.weights = [tuple(w) for w in simplified.weights]
         clip_indices = select_animation_clips(model, args.animation)
         if not clip_indices:
             print("import_model: error: no animation clips selected", file=sys.stderr)

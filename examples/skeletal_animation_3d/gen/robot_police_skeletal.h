@@ -7,9 +7,9 @@ extern "C" {
 #endif
 extern const sat_skeleton_asset_t robot_police_skeletal_skeleton;
 extern const sat_skin_asset_t robot_police_skeletal_skin;
-extern const uint16_t robot_police_skeletal_indices[80212];
-#define ROBOT_POLICE_SKELETAL_FACE_COUNT 20053
-#define ROBOT_POLICE_SKELETAL_VERTEX_COUNT 28073
+extern const uint16_t robot_police_skeletal_indices[3996];
+#define ROBOT_POLICE_SKELETAL_FACE_COUNT 999
+#define ROBOT_POLICE_SKELETAL_VERTEX_COUNT 943
 extern const sat_skeleton_clip_t robot_police_skeletal_clip__3903460652032_TempMotion;
 #ifdef __cplusplus
 }

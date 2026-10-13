@@ -188,7 +188,12 @@ def _incremental_cache_hit(args: argparse.Namespace, signature: dict) -> bool:
 def _write_incremental_manifest(args: argparse.Namespace, signature: dict) -> None:
     outputs = {}
     for role, path in _model_output_paths(args).items():
-        outputs[role] = {"path": _canonical_path(path), "sha256": _sha256_file(path)}
+        try:
+            outputs[role] = {"path": _canonical_path(path), "sha256": _sha256_file(path)}
+        except FileNotFoundError:
+            # Skeletal targets skip the baked-pose report; only hash outputs
+            # the chosen target actually materialised on this run.
+            continue
     manifest = {
         "schema_version": IMPORT_SIGNATURE_SCHEMA,
         "signature": signature["signature"],

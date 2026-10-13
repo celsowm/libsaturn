@@ -541,7 +541,7 @@ def emit_c(exp: SkeletalExport, name: str) -> tuple[str, str]:
          f"extern const uint16_t {base}_indices[{len(skin.triangles) * 4}];",
          f"#define {base.upper()}_FACE_COUNT {len(skin.triangles)}",
          f"#define {base.upper()}_VERTEX_COUNT {len(skin.source_vertex)}"]
-    c = [f'#include "{base}_skeletal.h"', ""]
+    c = [f'#include "{base}.h"', ""]
     c.append(f"static const sat_skeleton_joint_t {base}_joints[{len(skel.parent)}] = {{")
     for p, t, q, s in zip(skel.parent, skel.translation, skel.rotation, skel.scale):
         c.append(f"    {{{p}, 0, {{{t[0]}, {t[1]}, {t[2]}}}, "

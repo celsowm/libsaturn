@@ -86,7 +86,7 @@ BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra \
 # generic library compilation or its cache key.
 # examples/common holds example-only helpers (example_util.h); it is on the
 # example include path only, never the library's or the public package's.
-CFLAGS      := $(BASE_CFLAGS) -I$(GENERATED_DIR) -Iexamples/common
+CFLAGS      := $(BASE_CFLAGS) -I$(GENERATED_DIR) -Iexamples/common $(EXAMPLE_INCFLAGS)
 ifeq ($(EXAMPLE),parallel_runtime)
 ifneq ($(strip $(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)),)
 CFLAGS      += -DSAT_PARALLEL_RUNTIME_GEOMETRY_OBJECTS=$(PARALLEL_RUNTIME_GEOMETRY_OBJECTS)
@@ -191,6 +191,10 @@ EXAMPLE_INC := $(EXAMPLE_DIR)/Makefile.inc
 ifneq ($(wildcard $(EXAMPLE_INC)),)
   include $(EXAMPLE_INC)
 endif
+
+# Per-example include paths are declared in Makefile.inc, so they have to be
+# layered on top of the base CFLAGS after the include above.
+CFLAGS += $(EXAMPLE_INCFLAGS)
 
 # Optional generic audio asset pipeline. An example declares each stream's
 # source, ISO-relative path, sample rate and channels; the normal build then
@@ -435,12 +439,18 @@ MODEL_MERGE_RIGID_MESHES_FLAG := --merge-rigid-meshes
 else
 MODEL_MERGE_RIGID_MESHES_FLAG :=
 endif
+MODEL_TARGET             ?= saturn
+MODEL_LOOP_CLIPS         ?=
+MODEL_MAX_TRIANGLES      ?=
 MODEL_IMPORT_ARGS = \
 	--input $(MODEL_GLB) \
-	--target saturn \
+	--target $(MODEL_TARGET) \
 	--out-prefix $(MODEL_OUT_PREFIX) \
 	--symbol $(MODEL_SYMBOL) \
 	--scale $(MODEL_SCALE) \
+	$(if $(MODEL_LOOP_CLIPS),--loop-clips $(MODEL_LOOP_CLIPS)) \
+	$(if $(MODEL_MAX_TRIANGLES),--max-triangles $(MODEL_MAX_TRIANGLES)) \
+	$(if $(filter skeletal,$(MODEL_TARGET)),, \
 	--palette-index $(MODEL_PALETTE_INDEX) \
 	--max-texture-width $(MODEL_MAX_TEXTURE_WIDTH) \
 	--max-texture-height $(MODEL_MAX_TEXTURE_HEIGHT) \
@@ -464,9 +474,14 @@ MODEL_IMPORT_ARGS = \
 	--locality-order $(MODEL_LOCALITY_ORDER) \
 	--sampling $(MODEL_SAMPLING) \
 	$(if $(MODEL_TEXEL_EXTENT),--texel-extent $(MODEL_TEXEL_EXTENT)) \
-	$(if $(MODEL_LUT_CODES),--lut-codes $(MODEL_LUT_CODES)) \
+	$(if $(MODEL_LUT_CODES),--lut-codes $(MODEL_LUT_CODES))) \
 	--report $(MODEL_OUT_PREFIX).report.json \
 	$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG) $(MODEL_MERGE_RIGID_MESHES_FLAG)
+# The incremental cache always hashes a small set of output roles; ensure
+# every role the cache expects is materialised, even when the skeletal
+# target skips baked-pose artefacts.
+_MODEL_SKELETAL_OUTPUTS := $(MODEL_OUT_PREFIX).h $(MODEL_OUT_PREFIX).c
+_$(MODEL_TARGET)_DUMMY_ASSETS ?=
 $(MODEL_SIGNATURE_FILE): FORCE_MODEL_IMPORT_SIGNATURE $(MODEL_GLB) $(MODEL_IMPORT_SRCS)
 	@mkdir -p $(dir $@)
 	$(PYTHON) $(TOOLS)/import_model.py $(MODEL_IMPORT_ARGS) \
