@@ -7,6 +7,7 @@
 #include "example_util.h"
 #include "saturn/fmt.h"
 #include "saturn/font.h"
+#include "saturn/hud.h"
 #include "audio_showcase/audio_data.h"
 
 #define SHOWCASE_SFX_COUNT 4u
@@ -18,13 +19,12 @@ static uint8_t g_selected = 0u;
 static uint16_t g_volume = 255u;
 static int16_t g_pan = 0;
 
-static void draw_line(const sat_ascii_font_t* font, const char* text, int y) {
-    sat_example_must(sat_ascii_font_draw_text_screen_indexed8(font, text, 8, y, 8, 0xFFFFu, 0u));
+static void draw_line(sat_hud_t* hud, const char* text, int y) {
+    sat_example_must(sat_hud_text(hud, text, 8, y));
 }
 
-static void draw_value(const sat_ascii_font_t* font, const char* label, uint32_t value, int y) {
-    sat_example_must(sat_ascii_font_draw_label_u32(
-        font, label, value, 8, y, 8, 0xFFFFu, 0u));
+static void draw_value(sat_hud_t* hud, const char* label, uint32_t value, int y) {
+    sat_example_must(sat_hud_value(hud, label, value, 8, y));
 }
 
 static const char* selected_name(void) {
@@ -77,6 +77,10 @@ int main(void) {
 
     sat_ascii_font_t font;
     sat_example_must(sat_ascii_font_init_8x8_indexed8(&font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u));
+    /* HUD overlay: same palette code (0xFFFFu) and 8 px/cell spacing the
+     * previous open-coded calls hard-coded. */
+    sat_hud_t hud;
+    sat_example_must(sat_hud_init(&hud, &font, 0xFFFFu, 8u));
 
     load_sound(&g_sounds[0], showcase_click, showcase_click_count, 0u);
     load_sound(&g_sounds[1], showcase_laser, showcase_laser_count, 0u);
@@ -156,13 +160,13 @@ int main(void) {
         sat_audio_stream_stats_t stream_stats;
         sat_example_must(sat_music_stats(g_music, &stream_stats));
 
-        draw_line(&font, "LIBSATURN AUDIO SHOWCASE", 8);
-        draw_line(&font, "A SFX  B BURST  C MUSIC", 24);
-        draw_line(&font, "X/Y SOUND  LEFT/RIGHT PAN", 36);
-        draw_line(&font, "UP/DOWN VOLUME", 48);
-        draw_line(&font, selected_name(), 68);
-        draw_value(&font, "REAL ASSETS ", SHOWCASE_REAL_ASSET_COUNT, 80);
-        draw_value(&font, "VOLUME ", g_volume, 92);
+        draw_line(&hud, "LIBSATURN AUDIO SHOWCASE", 8);
+        draw_line(&hud, "A SFX  B BURST  C MUSIC", 24);
+        draw_line(&hud, "X/Y SOUND  LEFT/RIGHT PAN", 36);
+        draw_line(&hud, "UP/DOWN VOLUME", 48);
+        draw_line(&hud, selected_name(), 68);
+        draw_value(&hud, "REAL ASSETS ", SHOWCASE_REAL_ASSET_COUNT, 80);
+        draw_value(&hud, "VOLUME ", g_volume, 92);
         {
             char pan_line[24];
             char pan_num[SAT_FMT_I32_MAX];
@@ -173,16 +177,16 @@ int main(void) {
             while (prefix[p] != '\0') { pan_line[p] = prefix[p]; ++p; }
             for (uint16_t i = 0u; i < n; ++i) pan_line[p + i] = pan_num[i];
             pan_line[p + n] = '\0';
-            draw_line(&font, pan_line, 104);
+            draw_line(&hud, pan_line, 104);
         }
-        draw_line(&font, g_music_playing != 0u ? "MUSIC ON" : "MUSIC OFF", 116);
-        draw_value(&font, "VOICES ", stats.active_voices, 132);
-        draw_value(&font, "STEALS ", stats.voice_steals, 144);
-        draw_value(&font, "FAILED ", stats.failed_play_requests, 156);
-        draw_value(&font, "STREAM BUF ", stream_stats.buffered_frames, 168);
-        draw_value(&font, "STREAM UND ", stream_stats.underrun_count, 180);
-        draw_value(&font, "STREAM REF ", stream_stats.refill_count, 192);
-        draw_line(&font, "L+R+START EXIT", 208);
+        draw_line(&hud, g_music_playing != 0u ? "MUSIC ON" : "MUSIC OFF", 116);
+        draw_value(&hud, "VOICES ", stats.active_voices, 132);
+        draw_value(&hud, "STEALS ", stats.voice_steals, 144);
+        draw_value(&hud, "FAILED ", stats.failed_play_requests, 156);
+        draw_value(&hud, "STREAM BUF ", stream_stats.buffered_frames, 168);
+        draw_value(&hud, "STREAM UND ", stream_stats.underrun_count, 180);
+        draw_value(&hud, "STREAM REF ", stream_stats.refill_count, 192);
+        draw_line(&hud, "L+R+START EXIT", 208);
 
         sat_example_must(sat_app_frame_end());
     }
