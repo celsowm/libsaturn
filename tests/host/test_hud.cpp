@@ -25,7 +25,12 @@ int main() {
     OK(sat_hud_text_centered(&hud, "OK", 160, 2) == SAT_OK);
     OK(sat_hud_value(&hud, "N ", 3u, 1, 2) == SAT_OK);
     OK(sat_hud_bar(&hud, 1, 2, 10, 2, 5u, 10u, 0u, 1u) == SAT_OK);
-    OK(sat_hud_init(&hud, &font, 2u, 0u) == SAT_ERR_INVALID_ARG);
+    /* char_spacing 0 means "tight": the font's glyph width is the per-glyph
+     * advance, with no extra gap. Two HUDs in the suite (input_move,
+     * physics_2d) pass 0 to match the open-coded draw call they replaced. */
+    OK(sat_hud_init(&hud, &font, 2u, 0u) == SAT_OK);
+    OK(hud.char_spacing == 0u);
+    OK(sat_hud_text(&hud, "OK", 1, 2) == SAT_OK);
     OK(sat_hud_bar(&hud, 1, 2, 10, 2, 11u, 10u, 0u, 1u) == SAT_ERR_INVALID_ARG);
 
     /* The cursor API in 320x224 -- single-pixel spacing, 10-pixel

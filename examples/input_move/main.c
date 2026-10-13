@@ -20,6 +20,7 @@
 #include "saturn/color.h"
 #include "saturn/fmt.h"
 #include "saturn/font.h"
+#include "saturn/hud.h"
 #include "saturn/input.h"
 #include "saturn/vdp1.h"
 #include "example_util.h"
@@ -47,6 +48,11 @@
 #define COLOR_STEP SAT_RGB555(6, 28, 31)
 
 static sat_ascii_font_t g_font;
+/* HUD overlay: HUD_PALETTE code with char_spacing 0 (tight -- the
+ * glyph width is the per-glyph advance, no extra gap, matching the
+ * sat_ascii_font_draw_text_screen_indexed8(..., 0, HUD_PALETTE, 0)
+ * calls the example was open-coding). */
+static sat_hud_t g_hud;
 
 /* The held marker moves in pixels; the stepped one in whole cells. Keeping
  * them in their natural units is the point -- converting both to one unit
@@ -143,29 +149,22 @@ static void draw_field(void) {
 static void draw_hud(const sat_pad_state_t* pad) {
     char text[32];
 
-    sat_example_must(sat_ascii_font_draw_text_screen_indexed8(
-        &g_font, "HELD MOVES EVERY FRAME", 8, 4, 0, HUD_PALETTE, 0));
-    sat_example_must(sat_ascii_font_draw_text_screen_indexed8(
-        &g_font, "PRESS MOVES ONE CELL", 8, 14, 0, HUD_PALETTE, 0));
+    sat_example_must(sat_hud_text(&g_hud, "HELD MOVES EVERY FRAME", 8, 4));
+    sat_example_must(sat_hud_text(&g_hud, "PRESS MOVES ONE CELL", 8, 14));
 
     sat_example_must(sat_fmt_label_u32("PRESSES ", g_presses, text, sizeof(text), NULL));
-    sat_example_must(sat_ascii_font_draw_text_screen_indexed8(
-        &g_font, text, 200, 4, 0, HUD_PALETTE, 0));
+    sat_example_must(sat_hud_text(&g_hud, text, 200, 4));
 
-    sat_example_must(sat_ascii_font_draw_text_screen_indexed8(
-        &g_font,
+    sat_example_must(sat_hud_text(&g_hud,
         ((pad->held & SAT_PAD_A) != 0u) ? "A FAST" : "A SPEED  START RESET",
-        8,
-        SCREEN_H - 12,
-        0,
-        HUD_PALETTE,
-        0));
+        8, SCREEN_H - 12));
 }
 
 int main(void) {
     sat_example_must(sat_app_init_default());
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
         &g_font, SAT_COLOR_WHITE, 0x0000u, HUD_PALETTE));
+    sat_example_must(sat_hud_init(&g_hud, &g_font, HUD_PALETTE, 0u));
 
     recenter();
 

@@ -12,7 +12,7 @@ static const uint16_t kHudLineHeight = 10u;
 extern "C" sat_result_t sat_hud_init(
     sat_hud_t* hud, const sat_ascii_font_t* font,
     uint16_t palette, uint16_t char_spacing) {
-    if (!hud || !font || char_spacing == 0u) return SAT_ERR_INVALID_ARG;
+    if (!hud || !font) return SAT_ERR_INVALID_ARG;
     hud->font = font;
     hud->palette = palette;
     hud->char_spacing = char_spacing;
