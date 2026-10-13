@@ -1,5 +1,32 @@
 # Dino Demo
 
+## Runtime regression and fatal-error diagnostics
+
+`g_dino_diagnostics` exposes completed frame count, submitted/completed pose
+jobs, serial pose fallbacks, submitted/merged geometry jobs, draw overflow,
+music error and Master/Slave/failed task counts. The fatal report remains in
+`g_sat_last_panic`; the runtime gate checks both structures on stock RAM.
+
+```powershell
+.\harness\run-dino-runtime.ps1 -Bios bios/saturn_bios_us.bin
+.\run-example.ps1 dino_demo -MednafenCart none
+```
+
+The automated gate builds through the project script, exercises pause/resume,
+orbit, zoom, light toggles and reset for 1,200 Ymir fields, and checks successful
+pose/geometry jobs, zero task failures, draw overflow, music error and panic.
+Artifacts and fresh captures use `harness/build/dino_runtime*`. A snapshot may
+contain one in-flight pose or geometry job; the analyzer allows that ownership
+boundary instead of requiring all counters to match during a frame.
+
+The generic executor now retains Slave ownership until its completion message
+is consumed. An early terminal slot cannot be read/released or satisfy a
+dependency before that acknowledgment. This fixes a race exposed by continuous
+character verification. It does not establish that every reported dino fatal
+has the same cause: preserve the report's file, line and result code when a
+new failure occurs. A fresh build opened in both emulators, and Ymir passed the current
+control scenario. Audio format, pitch and mixer settings are unchanged.
+
 An interactive Sega Saturn take on the original PlayStation T-Rex tech demo.
 It converts the attributed walking GLB into a bounded, baked animated model
 and runs it through the Saturn's VDP1 painter path.

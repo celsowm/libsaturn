@@ -179,6 +179,14 @@ static sat_music_t g_music;
 static sat_result_t g_music_error;
 static int g_music_ready;
 
+/* Runtime counters and completed-frame count for automated panic triage. */
+#define DINO_DIAGNOSTICS_MAGIC SAT_FOURCC('D','I','N','1')
+volatile struct {
+    uint32_t magic,frames,pose_submitted,pose_completed,pose_fallbacks;
+    uint32_t geometry_submitted,geometry_merged,draw_overflow,music_error;
+    uint32_t slave_tasks,master_tasks,failed_tasks;
+} g_dino_diagnostics;
+
 #define PARALLEL_TIMEOUT 60000u
 
 static void note(sat_result_t st) {
@@ -417,8 +425,10 @@ static void collect_pose(void) {
         g_job_pending = 0;
     }
     if (st == SAT_OK) {
+        ++g_dino_diagnostics.pose_completed;
         g_pose_read = (uint8_t)(g_pose_read ^ 1u);
     } else {
+        ++g_dino_diagnostics.pose_fallbacks;
         note(sat_anim_decode(&trex_anim_asset, &g_anim,
             g_pose[g_pose_read], MODEL_VERTEX_CAP));
     }
@@ -435,6 +445,7 @@ static void request_pose(void) {
     g_job.output = g_pose[g_pose_read ^ 1u];
     g_job.vertex_cap = MODEL_VERTEX_CAP;
     g_job_pending = sat_anim_decode_async(&g_job, &g_job_handle) == SAT_OK;
+    if (g_job_pending) ++g_dino_diagnostics.pose_submitted;
 }
 
 /* Narrows a half's mesh view to the vertices its faces use, rebasing its
@@ -463,13 +474,17 @@ static void submit_model(void) {
     int slave_pending =
         sat_scene_prepare_batch_async(&g_scene, &g_slave_batch, &g_slave_handle) == SAT_OK;
     int slave_done = 0;
+    if (slave_pending) ++g_dino_diagnostics.geometry_submitted;
 
     note(sat_scene_submit_instance(&g_scene, &g_half[0],
         SAT_SCENE3D_SLOT_INHERIT, g_mesh_screen, NULL));
     if (slave_pending) {
         if (finish_task(g_slave_handle) == SAT_OK) {
-            note(sat_scene_merge_prepared_batch(&g_scene, &g_slave_batch, g_slave_handle));
+            const sat_result_t merged = sat_scene_merge_prepared_batch(
+                &g_scene, &g_slave_batch, g_slave_handle);
+            note(merged);
             slave_done = 1;
+            if (merged == SAT_OK) ++g_dino_diagnostics.geometry_merged;
         }
         (void)sat_scene_prepare_batch_release(&g_scene, &g_slave_batch, g_slave_handle);
     }
@@ -807,6 +822,7 @@ int main(void) {
     g_pose_read = 0u;
     g_job_pending = 0;
     g_tick = sat_frame_count();
+    g_dino_diagnostics.magic=DINO_DIAGNOSTICS_MAGIC;
     while (1) {
         sat_pad_state_t pad = {0};
 
@@ -852,6 +868,15 @@ int main(void) {
         draw_hud();
 
         SAT_PANIC_IF_ERROR(sat_end_frame());
+        ++g_dino_diagnostics.frames;
+        g_dino_diagnostics.draw_overflow=(uint32_t)g_draw_overflow;
+        g_dino_diagnostics.music_error=(uint32_t)g_music_error;
+        sat_parallel_stats_t tasks={0};
+        if (sat_parallel_stats(&tasks)==SAT_OK) {
+            g_dino_diagnostics.slave_tasks=tasks.slave_tasks;
+            g_dino_diagnostics.master_tasks=tasks.master_tasks;
+            g_dino_diagnostics.failed_tasks=tasks.failed;
+        }
     }
 
     return 0;
