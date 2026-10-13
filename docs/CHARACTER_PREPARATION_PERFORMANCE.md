@@ -79,6 +79,12 @@ should measure VDP1 draw and handoff waits alongside remaining geometry and
 emission cost before selecting another workload partition. There is no promise
 of a hardware FPS improvement from this CPU result.
 
+The subsequent [handoff study](CHARACTER_HANDOFF_PERFORMANCE.md) records
+VBlank/submission timings and compares CPU versus SCU-DMA command transfer.
+DMA increased Ymir submission cost without improving throughput, so the
+examples retain CPU command uploads. Coarse geometry preparation is the next
+measured target.
+
 Each actor's immutable binding adds 36 bytes of caller-owned storage. The
 eight-actor stock build leaves 43,160 bytes above BSS, including the enforced
 16 KiB Master stack reserve. No additional worker queues, texture uploads or

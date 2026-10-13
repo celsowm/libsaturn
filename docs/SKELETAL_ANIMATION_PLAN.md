@@ -1354,3 +1354,11 @@ Prioritize correctness and actual Saturn hardware behavior, then memory efficien
   from 29 to 22–23 ms. Submission throughput remains approximately 15/s;
   higher frame-rate goals remain open. See
   [CHARACTER_PREPARATION_PERFORMANCE.md](CHARACTER_PREPARATION_PERFORMANCE.md).
+- 2026-10-13, handoff follow-up: a bounded companion log separates VBlank wait
+  and VDP1 submission durations and records draw/swap counters. Matched stock
+  two-HIGH-character runs reproduce the CPU result exactly. SCU-DMA raises
+  median submission cost from about 1.46 to 2.56 ms on Ymir without improving
+  throughput, so CPU command uploads remain the default. No draw timeouts or
+  guest panics occurred in the validated runs. The next measured target is
+  coarse geometry preparation through the existing batch/parallel adapter.
+  See [CHARACTER_HANDOFF_PERFORMANCE.md](CHARACTER_HANDOFF_PERFORMANCE.md).

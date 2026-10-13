@@ -53,6 +53,17 @@ It discards transition samples and reports complete-frame p95 alongside CPU
 and preparation medians. See the measured
 [preparation study](../../docs/CHARACTER_PREPARATION_PERFORMANCE.md).
 
+The separate bounded `g_character_handoff` log records calibrated FRT timings
+for the VBlank wait and frame submission, plus cumulative VDP1 wait/timeout
+and display-field counters. Its rows match benchmark iteration numbers.
+The analyzer reports median/p95 timings and counter differences for each
+steady interval; display fields do not count distinct presented images.
+Use `harness/run-character-handoff.ps1 -Bios bios/saturn_bios_us.bin -Transfer cpu`
+and repeat with `-Transfer dma` to compare the existing command-upload paths.
+The study copies the stock stress configuration into a temporary example and
+removes that source directory afterward. Production transfer defaults stay intact.
+See the [handoff study](../../docs/CHARACTER_HANDOFF_PERFORMANCE.md).
+
 Assets are [original MIT project content](../characters/README.md).
 See [CPU skinning](../../docs/CPU_SKINNING_3D.md) and
 [fighting-game readiness](../../docs/FIGHTING_GAME_READINESS.md).

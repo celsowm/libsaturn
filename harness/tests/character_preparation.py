@@ -9,6 +9,9 @@ from character_plan import (analyze, symbol, SAMPLE_FIELDS, SAMPLE_MAGIC,
 
 TRANSITION_SAMPLES=4
 ACTORS=2
+HANDOFF_MAGIC=0x43484E31
+HANDOFF_FIELDS=('iteration wait_us end_us late_swaps draw_waits draw_timeouts '
+                'display_frames vblank_start').split()
 
 def report(prefix):
     path=lambda suffix:Path(str(prefix)+suffix)
@@ -21,6 +24,18 @@ def report(prefix):
     assert stride==WORD*len(SAMPLE_FIELDS)
     rows=[dict(zip(SAMPLE_FIELDS,struct.unpack_from('>'+str(len(SAMPLE_FIELDS))+'I',
           low,offset+WORD*4+i*stride))) for i in range(count)]
+    handoffs={}
+    if 'g_character_handoff' in path('.map').read_text():
+        offset=symbol(path('.map').read_text(),'g_character_handoff')-LOW_BASE
+        magic,handoff_count,handoff_capacity,handoff_stride=struct.unpack_from('>4I',low,offset)
+        assert magic==HANDOFF_MAGIC and handoff_count==count and handoff_capacity==capacity
+        assert handoff_stride==WORD*len(HANDOFF_FIELDS)
+        for i in range(handoff_count):
+            row=dict(zip(HANDOFF_FIELDS,struct.unpack_from('>'+str(len(HANDOFF_FIELDS))+'I',
+                     low,offset+WORD*4+i*handoff_stride)))
+            assert row['iteration']==rows[i]['iteration']
+            assert row['draw_timeouts']==0
+            handoffs[row['iteration']]=row
     segments=[]
     for row in rows:
         key=(row['requested'],row['policy'],row['lod'],row['complexity'])
@@ -39,8 +54,20 @@ def report(prefix):
             'submissions_per_second':NOMINAL_NTSC_HZ*(samples[-1]['iteration']-samples[0]['iteration'])/fields,
             'simulation_per_second':simulation,
             'medians':{field:statistics.median(s[field] for s in samples) for field in
-                       ('cpu_ms','preparation_ms','skin_ms','frame_ms','commands')},
+                       ('cpu_ms','preparation_ms','skin_ms','sort_us','emission_us','frame_ms','commands')},
             'frame_p95_ms':statistics.quantiles([s['frame_ms'] for s in samples],n=100,method='inclusive')[94]})
+        if handoffs:
+            timing=[handoffs[s['iteration']] for s in samples]
+            first,last=timing[0],timing[-1]
+            counters={field:last[field]-first[field] for field in
+                      ('late_swaps','draw_waits','draw_timeouts','display_frames')}
+            assert counters['draw_timeouts']==0
+            workloads[-1]['handoff']={
+                'medians_us':{field:statistics.median(s[field] for s in timing)
+                              for field in ('wait_us','end_us')},
+                'p95_us':{field:statistics.quantiles([s[field] for s in timing],n=100,
+                             method='inclusive')[94] for field in ('wait_us','end_us')},
+                'counter_deltas':counters}
     assert {w['policy'] for w in workloads}=={0,1,2}
     result['workloads']=workloads
     path('_analysis.json').write_text(json.dumps(result,indent=2))

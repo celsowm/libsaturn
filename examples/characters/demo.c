@@ -112,6 +112,16 @@ volatile struct {
     uint32_t magic,count,capacity,row_bytes;
     benchmark_sample_t rows[BENCHMARK_SAMPLE_CAPACITY];
 } g_character_benchmark __attribute__((section(".wram_l")));
+/* Separate timing log keeps the established benchmark wire layout stable. */
+enum { HANDOFF_SAMPLE_MAGIC=0x43484e31u };
+typedef struct {
+    uint32_t iteration,wait_us,end_us,late_swaps,draw_waits,draw_timeouts;
+    uint32_t display_frames,vblank_start;
+} handoff_sample_t;
+volatile struct {
+    uint32_t magic,count,capacity,row_bytes;
+    handoff_sample_t rows[BENCHMARK_SAMPLE_CAPACITY];
+} g_character_handoff __attribute__((section(".wram_l")));
 /* Stable, named telemetry layout consumed by harness/tests/character_plan.py. */
 typedef struct {
     uint32_t magic,frames,simulation_ticks,steps_last,loop_rate_x10,simulation_rate_x10;
@@ -526,6 +536,9 @@ int character_demo_run(character_demo_mode_t mode) {
     g_character_benchmark.magic=BENCHMARK_SAMPLE_MAGIC;
     g_character_benchmark.capacity=BENCHMARK_SAMPLE_CAPACITY;
     g_character_benchmark.row_bytes=sizeof(benchmark_sample_t);
+    g_character_handoff.magic=HANDOFF_SAMPLE_MAGIC;
+    g_character_handoff.capacity=BENCHMARK_SAMPLE_CAPACITY;
+    g_character_handoff.row_bytes=sizeof(handoff_sample_t);
     g_metrics.persistent_bytes=sizeof(g_actors)+sizeof(g_assets)+sizeof(g_faces)+sizeof(g_keys)+sizeof(g_order);
     for(unsigned t=0;t<FIGHTER_TEXTURE_COUNT;++t)
         g_metrics.texture_bytes+=g_assets[0].textures[t].pixel_count*CHARACTER_DEMO_ASSET_SLOTS;
@@ -545,7 +558,11 @@ int character_demo_run(character_demo_mode_t mode) {
     g_last_ms=sat_time_ms();g_rate_mark=g_last_ms;
     while(1) {
         uint32_t frame_start=sat_time_ms();
-        sat_example_must(sat_wait_vblank());sat_example_must(sat_begin_frame());
+        uint64_t wait_start=sat_time_ticks();
+        sat_example_must(sat_wait_vblank());
+        uint32_t wait_us=ticks_us((uint32_t)(sat_time_ticks()-wait_start));
+        uint32_t vblank_start=sat_irq_count(SAT_IRQ_VBLANK_IN);
+        sat_example_must(sat_begin_frame());
         uint32_t cpu_start=sat_time_ms();
         sat_pad_state_t pad={0};sat_example_must(sat_pad_poll(&pad));input(&pad);
         uint32_t now=sat_time_ms(),elapsed=now-g_last_ms;g_last_ms=now;
@@ -600,7 +617,10 @@ int character_demo_run(character_demo_mode_t mode) {
         hud();sat_vdp1_command_stats_t commands={0};sat_example_must(sat_vdp1_command_stats(&commands));
         g_metrics.commands=commands.used;
         uint32_t cpu_ms=sat_time_ms()-cpu_start;
-        sat_example_must(sat_end_frame());g_metrics.frame_ms=sat_time_ms()-frame_start;
+        uint64_t end_start=sat_time_ticks();
+        sat_example_must(sat_end_frame());
+        uint32_t end_us=ticks_us((uint32_t)(sat_time_ticks()-end_start));
+        g_metrics.frame_ms=sat_time_ms()-frame_start;
         if(g_metrics.frame_ms>g_metrics.max_frame_ms)g_metrics.max_frame_ms=g_metrics.frame_ms;
         ++g_metrics.frames;
         if(g_mode==CHARACTER_DEMO_STRESS && g_character_benchmark.count<BENCHMARK_SAMPLE_CAPACITY) {
@@ -609,6 +629,13 @@ int character_demo_run(character_demo_mode_t mode) {
                 g_metrics.frame_ms,cpu_ms,g_metrics.skin_ms,g_metrics.geometry_ms,
                 g_metrics.sort_us,g_metrics.emit_us,g_metrics.commands,
                 g_metrics.slave_tasks,g_metrics.master_tasks,g_metrics.wait_ticks,g_metrics.queue_ticks,g_complexity};
+            sat_vdp1_frame_stats_t frame_stats={0};
+            sat_example_must(sat_vdp1_frame_stats(&frame_stats));
+            handoff_sample_t handoff={g_metrics.frames,wait_us,end_us,
+                frame_stats.late_swaps,frame_stats.draw_waits,frame_stats.draw_timeouts,
+                sat_frame_count(),vblank_start};
+            g_character_handoff.rows[g_character_benchmark.count]=handoff;
+            g_character_handoff.count=g_character_benchmark.count+1u;
             g_character_benchmark.rows[g_character_benchmark.count]=row;++g_character_benchmark.count;
         }
         g_character_demo=g_metrics;
