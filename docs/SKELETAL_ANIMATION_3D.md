@@ -1,14 +1,13 @@
 # Skeletal animation runtime (`saturn/skeleton3d.h`)
 
-Status: phases 1-2 of `docs/SKELETAL_ANIMATION_PLAN.md` plus the
-`skeletal_animation_3d` example from phase 8 (Example A) at MVP scope.
-Pose evaluation, clip sampling, playback, events, root motion, crossfade,
-CPU skinning (`saturn/skin3d.h`) and scene integration are implemented
-and host-tested. The importer now has a `--target skeletal` path that
-captures per-joint `rest_scale` and a `--max-triangles` decimation
-knob. What is not done yet: parallel tasks, the `fighter_arena_3d` and
-`skinning_stress_3d` examples, the full 6-clip §15 Definition of Done
-for Example A, and on-target timing.
+The generic fixed-point runtime includes hierarchy evaluation, clips, playback,
+events, root motion, crossfades and attachments. CPU skinning supports one to
+three distinct joint-local anchors and the existing dual SH-2 executor. SKA1
+loading, managed materials, shadows and three original character examples are
+integrated with the canonical scene. See [CPU skinning](CPU_SKINNING_3D.md),
+[character rendering](CHARACTER_RENDERING_3D.md) and
+[readiness and measured limits](FIGHTING_GAME_READINESS.md). Physical hardware
+acceptance and higher display-rate optimization remain open.
 
 ## Model
 
@@ -25,7 +24,7 @@ for Example A, and on-target timing.
   instances share one asset. Hierarchy maths is the existing
   `sat_transform3d_evaluate`; there is no second evaluator.
 - **Skin matrices**: `sat_skeleton_inverse_bind` + `sat_skeleton_skin_matrices`
-  give `joint_world * inverse_bind` for the future skinning stage.
+  give `joint_world * inverse_bind` for conventional bind-space skinning.
 
 ## Clips and playback
 
@@ -100,16 +99,29 @@ interpenetrate (a punch through a torso) can still sort wrongly per face.
   (`cross(D - A, B - A)`, outward). Uses 64-bit math with a divide per face, so
   expect a `__divdi3` call per face on the SH-2 until measured and tuned.
 
-Not yet done for rendering: Gouraud/per-vertex lighting for characters, shadows,
-material overrides, alpha cutout policy.
+Character rendering now includes managed indexed materials, optional RGB Gouraud
+lighting and material overrides, index-zero cutout, explicit near-clip fallback
+and contact shadows. See [character rendering](CHARACTER_RENDERING_3D.md).
 
-## Measured so far
+## Historical robot measurements
 
 SH-2 object sizes (`sh2eb-elf-g++ -O2`, project flags): `skeleton.cpp` 3032
 bytes text, `clip.cpp` 2320, `skin.cpp` 3400 (with the mesh and bounds helpers), no data/bss. `clip.cpp` pulls in
 `__divdi3` through one 64-bit division in the frames-to-seconds conversion; it
 runs once per advance and is a candidate for removal once profiled on the Saturn.
-No Saturn or emulator timing has been taken yet.
+The optional robot exports `g_skeletal_profile` millisecond counters and was
+profiled through the Ymir harness. An intermediate 1,799-face WRAM-L build
+spent about 32 ms skinning, 51 ms submitting and 20 ms flushing. Hot working
+buffers moved to WRAM-H without a material gain. Exact skin-record sharing
+now reduces 1,652 deformation vertices to 933. Master/Slave range deformation
+reduces skinning from 32 ms originally to 10 ms, with original source UVs,
+texture bytes, face count and camera bounds preserved. The integrated build's
+last Ymir CPU sample was 89 ms; independent emulator-field measurements of the
+dual-CPU study give 10 submitted lists/s versus 7.5 originally. The HUD now
+shows timer-based `SUB/S` with a decimal, not presentation FPS. See
+[Skeletal animation performance study](SKELETAL_ANIMATION_PERFORMANCE_STUDY.md)
+for measurements, rejected renderer candidates and reproduction commands.
+No physical Saturn timing has been taken.
 
 ## Tests
 
@@ -119,63 +131,28 @@ instances), `tests/host/test_skin_scene.cpp` (above) and `tests/host/test_skin3d
 3 influences, validation and untouched-output-on-error, extremes, range vs full,
 double reference, normals, shared asset) and `tests/host/test_skeleton_clip.cpp` (validation, sampling, loops,
 root motion, events, speed/pause, rapid clip switching, crossfade). Both pass on
-the host.
+the host. Current archive, parallel-task and combat suites, complete gate results
+and whole-image memory measurements are in the readiness report.
 
-## `examples/skeletal_animation_3d` (Phase-8A MVP)
+## Original character examples
 
-Phase-8A from `docs/SKELETAL_ANIMATION_PLAN.md` is wired up. The example
-boots, the VDP1 draws the decimated `robot_police` rig and the HUD
-reports FPS / joint count / vertex count / face count. Source GLB,
-attribution and the runtime-measured numbers live in
-`examples/skeletal_animation_3d/README.md`.
+`skeletal_animation_3d` now defaults to an original 24-joint humanoid with nine
+clips: idle, walk, run, jump, punch, kick, guard, hit and knockdown. It provides
+camera, speed, pause, skeleton, lighting and execution-policy controls. Two-anchor
+elbow/knee seams, native quads, bounded materials and contact shadows exercise
+the reusable APIs. The arena adds body separation and deterministic fighting
+rules; the stress example compares all twelve actor-count/CPU-policy workloads.
+Each example documents its controls in its README.
 
-What the MVP ships (committed on the `feat(skeletal_3d): ship Phase-8A
-MVP` line):
+Mednafen is the default launcher. The project Ymir runner validates diagnostics,
+pause pixels, attacks/blocks, resource restart, sustained body blocking and
+serial/worker equivalence. It measures submission throughput from VBlank
+intervals rather than treating the HUD as presentation FPS. Simulation keeps
+all elapsed 60 Hz ticks even when fewer frames can be drawn.
 
-- One rigged humanoid driven by one looping clip:
-  `robot_police_unit_animated.glb` (CC BY 4.0 by Jungle Jim, 102
-  Mixamo-style joints, decimated to 943 vertices / 999 faces / ~90 KB
-  ROM by the importer's `--max-triangles 1000 --quality aggressive`
-  path).
-- `sat_skeleton_instance_init` + `sat_skel_clip_player_advance/sample`
-  + `sat_skeleton_evaluate` + `sat_skin_update_mesh` +
-  `sat_scene_submit_instance` glue in
-  `examples/skeletal_animation_3d/main.c`, with the large BSS working
-  buffers (`g_mesh_vertices`, `g_mesh_screen`, `g_scene_faces`,
-  `g_scene_keys`, `g_scene_order`, `g_mesh`, `g_mesh_indices`) in
-  WRAM-L via the `SAT_SCN` macro.
-- `sat_orbit_camera3d_apply_pad` for the C button, START toggles
-  pause, on-screen diagnostics match the plan's
-  `On-screen diagnostics` list (FPS, joint/vertex/face counts, submit
-  status, pause/loop indicator).
-- Asset provenance and CC BY 4.0 attribution committed under
-  `examples/skeletal_animation_3d/assets/`.
-
-Validation on a stock 1 MB WRAMH + 1 MB WRAML (the
-`6c66ac03cdccc56f` build variant):
-
-```text
-ROM: skeleton=3.6 KB  skin=19.7 KB  clips=58.6 KB
-     indices=7.8 KB  total=89.7 KB
-DEFORM BUFFER: 11.1 KB (943 vec3s, runtime only)
-app.bin: 280 KB, ISO: 680 KB, 340 sectors.
-make test: 9 host + 2 sound + 15 stage2d = 26 tests green.
-```
-
-Ymir harness (300 frames after the BIOS boot): 0 misaligned accesses,
-model visible in `harness/build/skel_fix_100.png` and
-`harness/build/skel_fix_200.png`. The first iteration panicked with
-`INVALID_ARG` from `sat_scene_submit_instance` because
-`sat_skin_deform` writes the deformed vertices but does not update
-`mesh->vertex_count`; the example now uses `sat_skin_update_mesh`,
-which both deforms and stamps `vertex_count` for the scene submit.
-
-Still pending for the full §15 Example A definition of done:
-
-- Five more named clips (the free asset only ships one looping walk).
-- The remaining HUD rows (SIMULATION FPS, ANIMATION CLIP/FRAME,
-  VDP1 COMMANDS, SKINNING TIME, RENDER PREPARATION TIME, MEMORY
-  USAGE).
-- Skeleton visualisation toggle and shading toggle.
-- `fighter_arena_3d` and `skinning_stress_3d` examples.
-- On-target Saturn timing (no Ymir cycle profile yet).
+The older 102-joint robot remains available with `SKELETAL_ROBOT_DEMO=1`.
+Its licensed source, surface-bake work, original fatal-error fix and measured
+lossless vertex sharing/range split remain documented in
+[the performance study](SKELETAL_ANIMATION_PERFORMANCE_STUDY.md).
+Current memory and CPU measurements, hardware limitations and port work are in
+[the readiness report](FIGHTING_GAME_READINESS.md).

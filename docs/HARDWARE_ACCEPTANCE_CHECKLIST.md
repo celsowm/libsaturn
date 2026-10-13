@@ -88,3 +88,29 @@ file if a debugger or a cartridge dump is at hand.
 | 27. Backup / expansion cartridges | Closed on the emulators; **pending rows 7-10 with real cartridges** |
 | 33. Frame budget on the real machine | Closed on the emulator ledger; **pending rows 21-23 on hardware** |
 | MPEG card, NetLink (part of the hardware subsystems) | Drivers host-tested only; **rows 11-12 need the devices** |
+
+
+## Skeletal character family: pending physical acceptance
+
+Build and burn the viewer, arena and stress examples with the stock memory
+configuration. Prefer `CHARACTER_DEMO_DISC_ASSETS=1` for an arena disc-loading
+check; remove the setting for comparison with embedded assets. Record the
+console revision, region/video rate, BIOS, disc medium and build commit.
+
+- Viewer: exercise all nine clips, crossfade, speed, pause, camera, skeleton and
+  both shading modes. Inspect palette ownership, face detail, near clipping,
+  attachment alignment and stable texture residency.
+- Arena: hold movement into the opponent, then sidestep around it. Check walls,
+  jump, guard, hit reaction, knockdown, timer and repeated Start reloads. Inspect
+  limbs in front of the other fighter and stage/shadow painter ordering.
+- Stress: run 1/2/4/8 actors in MASTER, SLAVE and AUTO; compare posed output and
+  completed-frame diagnostics. Check all accepted counts, command reserve and
+  bounded storage. Record simulation ticks, VBlanks, submission counts, FRT
+  costs, stack high-water mark and cache/worker errors over sustained runs.
+- Repeat timing and accumulator checks at PAL 50 Hz. Confirm CD reads and
+  resource releases finish before storage is reused; check both costume CRAM
+  banks and the indexed/RGB shading behavior on physical VDP1 output.
+
+All of these physical checks remain pending. The existing NTSC Ymir/Mednafen
+evidence and measured display-rate limitations are in
+[FIGHTING_GAME_READINESS.md](FIGHTING_GAME_READINESS.md).

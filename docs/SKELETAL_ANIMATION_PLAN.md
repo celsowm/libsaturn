@@ -1,6 +1,6 @@
 # LibSaturn — Real-Time Skeletal Animation, CPU Skinning, Advanced Character Rendering and Fighting-Game Examples
 
-(Saved verbatim from the user's prompt on 2026-10-11. Status: NOT STARTED. Queued behind the Sonic Advance Collection work, see `our-port-of-sonic-calm-crown.md`.)
+(Original implementation brief saved on 2026-10-11. Status on 2026-10-13: library, tooling, three examples and emulator gates implemented. Physical hardware acceptance and higher display-rate optimization remain open. See [the engineering/readiness report](FIGHTING_GAME_READINESS.md).)
 
 ## Role and Mission
 
@@ -1223,48 +1223,48 @@ The task is complete only when the following deliverables exist.
 
 ### Core library
 
-- [ ] Generic skeletal runtime.
-- [ ] Fixed-point pose evaluation.
-- [ ] One-to-three-influence CPU skinning.
-- [ ] Multi-anchor joint-local vertex support.
-- [ ] Runtime animation sampling and blending.
-- [ ] Root-motion support.
-- [ ] Dynamic mesh integration into the canonical scene.
-- [ ] Bounded memory and command accounting.
-- [ ] Character materials and lighting support.
-- [ ] Optional character-ground shadows.
-- [ ] Compact skeletal asset tooling.
-- [ ] Dual SH-2 skinning workload integration or a documented benchmark-backed reason to leave it disabled.
-- [ ] Resource loading and unloading integration.
+- [x] Generic skeletal runtime.
+- [x] Fixed-point pose evaluation.
+- [x] One-to-three-influence CPU skinning.
+- [x] Multi-anchor joint-local vertex support.
+- [x] Runtime animation sampling and blending.
+- [x] Root-motion support.
+- [x] Dynamic mesh integration into the canonical scene.
+- [x] Bounded memory and command accounting.
+- [x] Character materials and lighting support.
+- [x] Optional character-ground shadows.
+- [x] Compact skeletal asset tooling.
+- [x] Dual SH-2 skinning workload integration or a documented benchmark-backed reason to leave it disabled.
+- [x] Resource loading and unloading integration.
 
 ### New examples
 
-- [ ] `skeletal_animation_3d` — working animated humanoid.
-- [ ] `fighter_arena_3d` — playable two-character fighting demonstration.
-- [ ] `skinning_stress_3d` — reproducible performance comparison.
-- [ ] All three examples build as Saturn ISOs.
-- [ ] All relevant examples are exercised in an emulator where tooling permits.
-- [ ] Runtime diagnostics are visible and accurate.
+- [x] `skeletal_animation_3d` — working animated humanoid.
+- [x] `fighter_arena_3d` — playable two-character fighting demonstration.
+- [x] `skinning_stress_3d` — reproducible performance comparison.
+- [x] All three examples build as Saturn ISOs.
+- [x] All relevant examples are exercised in an emulator where tooling permits.
+- [x] Runtime diagnostics are visible and accurate.
 
 ### Validation
 
-- [ ] Host unit tests.
-- [ ] Golden pose tests.
-- [ ] Skinning correctness tests.
-- [ ] Serial/parallel equivalence tests.
-- [ ] Renderer integration tests.
-- [ ] Existing LibSaturn regression tests.
-- [ ] No new unexplained regressions in established examples.
-- [ ] Memory and CPU performance reports.
-- [ ] Hardware acceptance instructions.
+- [x] Host unit tests.
+- [x] Golden pose tests.
+- [x] Skinning correctness tests.
+- [x] Serial/parallel equivalence tests.
+- [x] Renderer integration tests.
+- [x] Existing LibSaturn regression tests.
+- [x] No new unexplained regressions in established examples.
+- [x] Memory and CPU performance reports.
+- [x] Hardware acceptance instructions.
 
 ### Documentation
 
-- [ ] Public API documentation.
-- [ ] Asset pipeline documentation.
-- [ ] Performance documentation.
-- [ ] README updates.
-- [ ] Fighting-game readiness report.
+- [x] Public API documentation.
+- [x] Asset pipeline documentation.
+- [x] Performance documentation.
+- [x] README updates.
+- [x] Fighting-game readiness report.
 
 ---
 
@@ -1329,3 +1329,20 @@ Prioritize correctness and actual Saturn hardware behavior, then memory efficien
   report, deterministic C emission). `tests/tools/test_skeletal_export.py`: 9
   tests pass. Remaining: CLI wrapper + real GLB run, animation compression
   study, then phases 6-8 (need probe/emulator).
+
+- 2026-10-13, completion of the software/example scope: SKA1 assets and per-clip
+  loading, managed character materials/shadows, bounded dual-SH-2 skin jobs,
+  original nine-clip humanoid viewer, playable two-character arena and
+  1/2/4/8-actor stress matrix are implemented. Full host/tool regressions,
+  public package headers, all three ISO builds and Ymir gates pass. Mednafen
+  also exercised actual disc-backed assets without an expansion cartridge.
+  Body separation now prevents forward movement through the opponent; original
+  geometry, fighting pose and texture panels replace the earlier presentation.
+  Configuration values are named constants.
+- Acceptance still open: physical Saturn measurements, PAL character gates,
+  content-specific grabs/throws and intersecting textured surfaces, and a
+  30/60 rendered-frame/s target. Current two-actor Ymir submission throughput
+  is about 15/s while simulation remains 60 Hz. These limits are documented,
+  rather than reported as completed hardware/performance goals. See
+  [FIGHTING_GAME_READINESS.md](FIGHTING_GAME_READINESS.md) and
+  [HARDWARE_ACCEPTANCE_CHECKLIST.md](HARDWARE_ACCEPTANCE_CHECKLIST.md).

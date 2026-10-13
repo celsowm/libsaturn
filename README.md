@@ -92,7 +92,7 @@ This distinction is architectural, not an argument for forcing applications to p
 - **VDP1 2D rendering** — sprites, scaled/distorted sprites, polygons, polylines, lines, rectangles, indexed textures, palettes, Gouraud shading and color calculation.
 - **High-level 3D stack** — fixed-point math, meshes, models, cameras, transforms, scene submission, global painter ordering, materials, visibility helpers and VDP1 command generation.
 - **3D asset pipeline** — OBJ/MTL/image and animated GLB processing with Saturn-aware texture baking, simplification, palette generation and pose baking.
-- **3D animation** — compact baked pose streams, runtime decoding, playback helpers and optional parallel decode.
+- **3D animation** — runtime skeletons, clips, crossfades, root motion, multi-anchor CPU skinning and dual SH-2 jobs, alongside compact baked pose streams.
 - **Scene/runtime helpers** — transform hierarchies, orbit/follow cameras, reusable surfaces, view caches, sprite animation, HUD and resource planning.
 - **3D physics** — collision queries, spatial acceleration, world stepping, moving/tilting kinematic geometry, rolling-body support and continuous-collision paths.
 - **2D physics** — deterministic fixed-step bodies, tile collision, sweeps, contacts, raycasts and uniform-grid broad phase.
@@ -210,7 +210,7 @@ OBJ / MTL / PNG                skinned GLB
 
 The importer can bake source faces into VDP1-compatible rectangular textures, deduplicate textures, generate indexed palettes, enforce Saturn texture limits and produce runtime-ready model data.
 
-For animated GLB assets, skeletal animation is evaluated on the host and emitted as compact baked poses. The Saturn runtime decodes those poses instead of running a general-purpose skeletal animation system every frame.
+Animated GLB assets can use compact baked vertex poses or the selectable skeletal runtime export. The latter samples joint clips and deforms caller-owned vertices on Saturn, with one to three joint-local influences. Original humanoid, two-fighter arena and stress examples exercise the same scene and asset systems. See [skeletal animation](docs/SKELETAL_ANIMATION_3D.md) and [fighting-game readiness](docs/FIGHTING_GAME_READINESS.md) for APIs, measurements and remaining hardware acceptance.
 
 ## Physics and Collision
 

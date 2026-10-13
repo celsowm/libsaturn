@@ -1,85 +1,58 @@
-# skeletal_animation_3d - Phase-8A MVP, memory-blocked
+# Skeletal animation viewer
 
-## What this example is
+An original textured 24-joint humanoid with nine named clips, two-anchor elbow
+and knee seams, contact shadow and three geometry LODs. Runtime joint sampling,
+crossfades and CPU skinning update a mutable mesh in the canonical scene.
+Texture pixels upload once. All storage is bounded and stock Saturn RAM is the
+baseline. This example shares application code with the arena and stress demo.
 
-A rigged humanoid driven by a single animated clip on the new
-`sat_skeleton` / `sat_skin` / `sat_skel_clip_player` runtime path.
-Sister to the baked-pose `examples/basic_3d_animation` example, this
-one runs the CPU-skinning pipeline instead of the static frame buffer
-the baked-pose path produces. It is the next installable demo after
-Phase 8A of `docs/SKELETAL_ANIMATION_PLAN.md`.
+```powershell
+.\build-example.ps1 skeletal_animation_3d
+.\run-example.ps1 skeletal_animation_3d -MednafenCart none
+.\harness\run-character-plan.ps1 -Bios bios/saturn_bios_us.bin -Scenario viewer
+```
 
-The asset is the rigged **Robot Police Unit (animated)** donated to
-the repo under `assets/` (CC BY 4.0 by Jungle Jim, skfb.ly/pMLX7, kept
-unmodified, SHA-256 `09085C8EB2A386E4259D5F3C8726CCD5D218E5147BCB486216736CE857C511AF`).
-The importer is `tools/import_model.py --target skeletal`, driven by
-the Makefile; the generated C/H pair lands in
-`build/generated/skeletal_animation_3d/` and is committed for
-reproducibility. The plan calls for six named clips (idle, walk, run,
-jump, punch, kick); the free rigged asset ships with one looping
-gesture (`3903460652032_TempMotion`, ~84 frames at 60 fps), so the
-MVP drives one clip and documents the gap to the full spec.
+Mednafen is the default emulator; Ymir provides automatic screenshots and RAM
+inspection. The automated viewer checks pause/resume pixels, clips, camera,
+lighting, skeleton overlay, execution policy and serial/worker agreement.
 
-## What this example is NOT (right now)
+| Input | Action |
+| --- | --- |
+| A / B | Next / previous clip |
+| L / R | Decrease / increase playback speed |
+| D-pad | Orbit camera |
+| X + up/down | Zoom camera |
+| X | Toggle detailed diagnostics |
+| C | Toggle indexed baked light / RGB Gouraud light |
+| Y | Toggle skeleton overlay |
+| Z | Cycle AUTO / MASTER / SLAVE |
+| Start | Pause / resume simulation |
 
-The asset's full mesh and skin tables together with the runtime's
-per-frame deform pool exceed Saturn's 1 MB WRAMH even after moving
-the working buffers to the 1 MB WRAM-L bank via
-`__attribute__((section(".wram_l")))`. The linker overflows WRAMH
-by ~180 KB and WRAM-L by ~160 KB, regardless of how the buffers are
-arranged.
+Clips are idle, walk, run, jump, punch, kick, guard, hit and knockdown. Simulation
+uses elapsed fixed 60 Hz ticks; the HUD's SUB/S is submission throughput, not
+distinct displayed images per second. Full diagnostics show clip/frame,
+joints/vertices/faces, commands, skin/preparation/sort/emission timing and owned
+memory. Physical hardware acceptance has not been performed.
 
-The committed `main.c` therefore ships a stub loop that builds,
-boots to a black frame, and the full MVP body is gated behind
-`-DSAT_SCN_FOR_REAL` for a future decimation pass. The
-runtime path itself is verified by `tests/host/test_skeleton3d.cpp`
-and `tests/host/test_skin3d.cpp`; the import path is verified by
-`tests/tools/test_skeletal_export.py` running against
-`chain_model` and the actual asset's import in this directory.
+## Optional robot study
 
-The intended-but-not-yet-shipping full MVP has the SAT_SCN_FOR_REAL
-gate removed: it would deform the full 28,073-vertex mesh every frame,
-stride the visible face count to ~5,000 quads (FACE_STRIDE = 4) for
-the VDP1 command budget, and render with a single solid material.
-Its source is in `main.c` already.
+The earlier Robot Police Unit viewer remains available:
 
-## Unblocking
+```powershell
+$env:SKELETAL_ROBOT_DEMO='1'
+.\build-example.ps1 skeletal_animation_3d
+.\run-example.ps1 skeletal_animation_3d -MednafenCart none
+Remove-Item Env:SKELETAL_ROBOT_DEMO
+```
 
-Closing Phase 8A needs one of the following:
+This separate CC BY 4.0 asset by Jungle Jim has 102 joints, 933 shared
+deformation vertices, 1,799 faces and one gesture clip. D-pad orbits, L/R zoom,
+B resets camera, C toggles automatic orbit and Start pauses. See
+[asset attribution](assets/ROBOT_POLICE_ATTRIBUTION.md) and
+[the optimization study](../../docs/SKELETAL_ANIMATION_PERFORMANCE_STUDY.md).
+Rebuild without the environment setting to restore the original humanoid.
 
-* **Decimated variant of this asset.** A meshopt-style collapse from
-  ~28 K vertices / ~20 K triangles to ~5 K-8 K vertices keeps the
-  rigged silhouette convincing while bringing the ROM + working set
-  under the 1 MB cap. The import CLI already has `--max-triangles`;
-  the same knob wired into the skeletal path drops the asset to a
-  fitting size in a few seconds.
-
-* **A smaller original rigged asset.** The original Phase-8A intent
-  was a ~1,000-triangle demo character with one looping clip. A
-  Mixamo-style humanoid with ~2 K vertices (instead of 28 K) would
-  fit comfortably with the working set in WRAM-L and leave headroom
-  for material/texture work the MVP currently skips.
-
-Once either lands, removing `-DSAT_SCN_FOR_REAL` (or deleting the
-gate entirely) lights the example up. The plumbing (CLI, asset,
-runtime, host tests) is already there.
-
-## Verified pieces
-
-* `python -m unittest tests.tools.test_skeletal_export` - 9 tests pass.
-* `make test` - all host tests green.
-* `make EXAMPLE=skeletal_animation_3d` - imports + links + produces a
-  loadable CD image (stub-mode).
-
-## Files
-
-* `assets/robot_police_unit_animated.glb` - the original asset.
-* `assets/ROBOT_POLICE_ATTRIBUTION.md` - CC BY 4.0 attribution and
-  SHA-256.
-* `gen/robot_police_skeletal.h` and `gen/robot_police_skeletal.c` -
-  the generated C/H pair from `tools/import_model.py --target skeletal`,
-  committed so the build is reproducible offline. Regenerate locally
-  by removing these and re-running the Makefile.
-* `Makefile.inc` - the per-example build settings; uses the new
-  `MODEL_TARGET=skeletal` knob in the Makefile.
-* `main.c` - stub loop + full MVP body behind `-DSAT_SCN_FOR_REAL`.
+See [original content and resource ownership](../characters/README.md),
+[CPU skinning](../../docs/CPU_SKINNING_3D.md),
+[character rendering](../../docs/CHARACTER_RENDERING_3D.md) and
+[readiness](../../docs/FIGHTING_GAME_READINESS.md).
