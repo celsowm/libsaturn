@@ -59,6 +59,83 @@ void rigid_inverse(sat_mat4_t* out, const sat_mat4_t& m) {
     *out = r;
 }
 
+/* A scale of zero means "uninitialised" (struct {} zero-init); treat as 1.0
+ * so legacy assets and host tests that don't set rest_scale still work. */
+sat_vec3_t scale_or_identity(const sat_vec3_t& s) {
+    if (s.x == 0 && s.y == 0 && s.z == 0) {
+        return {SAT_FX16_ONE, SAT_FX16_ONE, SAT_FX16_ONE};
+    }
+    return s;
+}
+
+/* Build the local matrix M_local = T * R * S. The translation row index is
+ * column 3 in row-major storage (m[3], m[7], m[11]); the bottom row (m[12..15])
+ * is left as the homogeneous affine row. Scale is per-component 16.16 so
+ * non-uniform (sx, sy, sz) is honoured exactly. */
+void joint_local_matrix(sat_mat4_t* out, const sat_skeleton_joint_t& j,
+                        const sat_skeleton_pose_joint_t& pose) {
+    sat_quat16_to_mat4(out, &pose.rotation, &pose.translation);
+    const sat_vec3_t scale = scale_or_identity(j.rest_scale);
+    out->m[0]  = sat_fx16_mul(out->m[0],  scale.x);
+    out->m[1]  = sat_fx16_mul(out->m[1],  scale.y);
+    out->m[2]  = sat_fx16_mul(out->m[2],  scale.z);
+    out->m[4]  = sat_fx16_mul(out->m[4],  scale.x);
+    out->m[5]  = sat_fx16_mul(out->m[5],  scale.y);
+    out->m[6]  = sat_fx16_mul(out->m[6],  scale.z);
+    out->m[8]  = sat_fx16_mul(out->m[8],  scale.x);
+    out->m[9]  = sat_fx16_mul(out->m[9],  scale.y);
+    out->m[10] = sat_fx16_mul(out->m[10], scale.z);
+}
+
+/* Affine 4x4 inverse via the 3x3 cofactor of the upper-left block and a
+ * 64-bit translation term. Caller guarantees the bottom row is
+ * [0, 0, 0, SAT_FX16_ONE] (the canonical affine form the rest of the
+ * library produces); singular matrices return SAT_ERR_INVALID_ARG. */
+sat_result_t affine_inverse(sat_mat4_t* out, const sat_mat4_t& m) {
+    const int64_t a00 = m.m[0], a01 = m.m[1], a02 = m.m[2];
+    const int64_t a10 = m.m[4], a11 = m.m[5], a12 = m.m[6];
+    const int64_t a20 = m.m[8], a21 = m.m[9], a22 = m.m[10];
+    const int64_t c00 = a11 * a22 - a12 * a21;
+    const int64_t c01 = a12 * a20 - a10 * a22;
+    const int64_t c02 = a10 * a21 - a11 * a20;
+    const int64_t det = a00 * c00 + a01 * c01 + a02 * c02;
+    if (det == 0) return SAT_ERR_INVALID_ARG;
+    const int64_t c10 = a02 * a21 - a01 * a22;
+    const int64_t c11 = a00 * a22 - a02 * a20;
+    const int64_t c12 = a01 * a20 - a00 * a21;
+    const int64_t c20 = a01 * a12 - a02 * a11;
+    const int64_t c21 = a02 * a10 - a00 * a12;
+    const int64_t c22 = a00 * a11 - a01 * a10;
+    /* A^-1 = transpose(C) / det, packed into row-major 4x4. */
+    constexpr int64_t s = (int64_t)1 << 16;
+    out->m[0]  = (sat_fx16_t)(c00 * s / det);
+    out->m[1]  = (sat_fx16_t)(c10 * s / det);
+    out->m[2]  = (sat_fx16_t)(c20 * s / det);
+    out->m[4]  = (sat_fx16_t)(c01 * s / det);
+    out->m[5]  = (sat_fx16_t)(c11 * s / det);
+    out->m[6]  = (sat_fx16_t)(c21 * s / det);
+    out->m[8]  = (sat_fx16_t)(c02 * s / det);
+    out->m[9]  = (sat_fx16_t)(c12 * s / det);
+    out->m[10] = (sat_fx16_t)(c22 * s / det);
+    /* Translation column: -A^-1 * t. The dominant magnitude is sum of
+     * three fx16 products per axis (well inside int64) so no overflow. */
+    const int64_t tx = -(out->m[0]  * (int64_t)m.m[3] +
+                          out->m[4]  * (int64_t)m.m[7] +
+                          out->m[8]  * (int64_t)m.m[11]);
+    const int64_t ty = -(out->m[1]  * (int64_t)m.m[3] +
+                          out->m[5]  * (int64_t)m.m[7] +
+                          out->m[9]  * (int64_t)m.m[11]);
+    const int64_t tz = -(out->m[2]  * (int64_t)m.m[3] +
+                          out->m[6]  * (int64_t)m.m[7] +
+                          out->m[10] * (int64_t)m.m[11]);
+    out->m[3]  = (sat_fx16_t)(tx >> 16);
+    out->m[7]  = (sat_fx16_t)(ty >> 16);
+    out->m[11] = (sat_fx16_t)(tz >> 16);
+    out->m[12] = out->m[13] = out->m[14] = 0;
+    out->m[15] = SAT_FX16_ONE;
+    return SAT_OK;
+}
+
 }  // namespace
 
 extern "C" void sat_quat16_identity(sat_quat16_t* out) {
@@ -204,7 +281,7 @@ extern "C" sat_result_t sat_skeleton_evaluate(
     if (pose_count != n) return SAT_ERR_INVALID_ARG;
     for (uint16_t i = 0; i < n; ++i) {
         sat_mat4_t local{};
-        sat_quat16_to_mat4(&local, &pose[i].rotation, &pose[i].translation);
+        joint_local_matrix(&local, instance->skeleton->joints[i], pose[i]);
         SAT_TRY(sat_transform3d_set_local_matrix(&instance->world, i, &local));
     }
     SAT_TRY(sat_transform3d_evaluate(&instance->world, instance->scratch,
@@ -227,14 +304,24 @@ extern "C" sat_result_t sat_skeleton_inverse_bind(
     SAT_TRY(sat_skeleton_validate(skeleton));
     if (!out) return SAT_ERR_INVALID_ARG;
     if (capacity < skeleton->joint_count) return SAT_ERR_CAPACITY;
+    /* Build the rest-pose world matrices including each joint's per-component
+     * `rest_scale`, then take the affine inverse (rigid inverse is only
+     * correct when every scale component is 1). The transform hierarchy and
+     * matrix-multiply path use the library's existing T*R composition and
+     * require an affine bottom row, which `joint_local_matrix` guarantees. */
     for (uint16_t i = 0; i < skeleton->joint_count; ++i) {
         const sat_skeleton_joint_t& j = skeleton->joints[i];
+        sat_skeleton_pose_joint_t rest_pose{};
+        rest_pose.translation = j.rest_translation;
+        rest_pose.rotation = j.rest_rotation;
         sat_mat4_t local{};
-        sat_quat16_to_mat4(&local, &j.rest_rotation, &j.rest_translation);
+        joint_local_matrix(&local, j, rest_pose);
         if (j.parent == SAT_TRANSFORM3D_ROOT) out[i] = local;
         else SAT_TRY(sat_mat4_multiply(&out[i], &out[j.parent], &local));
     }
-    for (uint16_t i = 0; i < skeleton->joint_count; ++i) rigid_inverse(&out[i], out[i]);
+    for (uint16_t i = 0; i < skeleton->joint_count; ++i) {
+        SAT_TRY(affine_inverse(&out[i], out[i]));
+    }
     return SAT_OK;
 }
 

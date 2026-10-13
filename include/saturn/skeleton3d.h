@@ -55,6 +55,11 @@ typedef struct sat_skeleton_joint {
     uint16_t reserved;
     sat_vec3_t rest_translation; /* relative to the parent */
     sat_quat16_t rest_rotation;
+    /* Per-joint rest scale (16.16). A component of zero is treated as
+     * SAT_FX16_ONE so a zero-initialised joint behaves as the identity;
+     * rigged GLBs with non-unit rest scale (Tripo/Mixamo _scaleCompensation
+     * chains, FBX exports with baked scale) round-trip exactly. */
+    sat_vec3_t rest_scale;
 } sat_skeleton_joint_t;
 
 typedef struct sat_skeleton_asset {
