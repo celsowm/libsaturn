@@ -126,6 +126,19 @@ The version is defined once, in the `VERSION` file.
   pulls in. city_telemetry still parses the C header for its
   field names, since the demo is the one with a struct that
   grows; everything else uses a fixed FIELDS list.
+- Harness wrappers slimmed: `Invoke-ExampleTest` in
+  `harness/scripts/run-example-tests.ps1` extended with `-Out`,
+  `-DumpAudio`, `-DumpSoundRam` and `-Pal`, then eleven `run-*.ps1`
+  wrappers (irq_demo, scu_dsp, parallel_sched, vdp2_effects,
+  vdp2_compose, vdp2_tile_overflow, vdp2_window_dim, exec,
+  expansion_probe, scene_cache_occlusion, save_cartridge) dot-
+  source the helper and call it with the per-example parameters.
+  The four multi-scenario wrappers (abus, input-devices,
+  vdp2-hires-light, vdp2-layers) keep their own loops because
+  the helper assumes one Ymir run per invocation; the two
+  sweep wrappers (acceptance-sweep, parallel-runtime-sweep)
+  and the city-walk / ram-cart / skybridge wrappers stay on
+  their bespoke orchestration.
 - Harness: `harness/scripts/telemetry.py` exposes `WRAM_HIGH`,
   `find_symbol`, `load_dump` and `verify_fields` so the eighteen
   pytest files no longer hand-roll the same map-regex /

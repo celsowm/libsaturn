@@ -36,7 +36,16 @@ function Invoke-ExampleTest {
         [string[]]$TestFile = @(),
         [string[]]$ExtraEnv = @(),
         [string]$DumpName = 'wram_high.bin',
-        [string]$MapSuffix = '_demo.map'
+        [string]$MapSuffix = '_demo.map',
+        # Forwarded to run-harness.ps1. -Out defaults to
+        # build/<example>/probe.json. The audio / sound-RAM dumps are
+        # only used by the SCSP and 68K sound-driver examples.
+        [string]$Out = '',
+        [string]$DumpAudio = '',
+        [string]$DumpSoundRam = '',
+        # PAL timing: when set, -Pal becomes the per-run frame rate
+        # (LIBSATURN_FRAME_HZ=50). The harness reads the env var.
+        [switch]$Pal
     )
 
     Set-StrictMode -Version Latest
@@ -55,13 +64,23 @@ function Invoke-ExampleTest {
     if ($LASTEXITCODE -ne 0) { throw "Failed to build $Example" }
 
     $dump = Join-Path $dir $DumpName
+    $outPath = if ($Out) { $Out } else { Join-Path $dir 'probe.json' }
     $argsForHarness = @{
         Example = $Example
         Frames = $Frames
         Screenshot = $Screenshot
         DumpWramHigh = $dump
+        Out = $outPath
     }
     if ($MisalignedReport) { $argsForHarness.MisalignedReport = $MisalignedReport }
+    if ($DumpAudio) { $argsForHarness.DumpAudio = $DumpAudio }
+    if ($DumpSoundRam) { $argsForHarness.DumpSoundRam = $DumpSoundRam }
+    if ($Pal -or $env:LIBSATURN_PAL -eq '1') {
+        $argsForHarness.Pal = $true
+        $env:LIBSATURN_FRAME_HZ = '50'
+    } elseif (-not $env:LIBSATURN_FRAME_HZ) {
+        $env:LIBSATURN_FRAME_HZ = '59.94'
+    }
     if ($Bios) { $argsForHarness.Bios = $Bios }
     if ($Msys2Root) { $argsForHarness.Msys2Root = $Msys2Root }
     & (Join-Path $harness 'run-harness.ps1') @argsForHarness
