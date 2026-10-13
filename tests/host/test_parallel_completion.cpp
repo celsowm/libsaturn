@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #endif
 #include "saturn/dual_sh2.h"
+#include "saturn/skin3d.h"
 #include "src/core/parallel/executor.hpp"
 #include "src/core/parallel/queue_logic.hpp"
 #include "src/hal/sh2/cache.hpp"
@@ -22,6 +23,10 @@ static sat_dual_sh2_message_t completion;
 static bool pending,allow_response;
 static sat_result_t worker_result=SAT_OK;
 static unsigned master_runs,invalidations;
+static sat_dual_sh2_entry_t real_entry;
+static bool use_real_worker,worker_request;
+static sat_dual_sh2_message_t request;
+static unsigned worker_invalidations;
 namespace saturn::hal::sh2 {
 void compiler_barrier() {}
 namespace frt { uint16_t counter(){static uint16_t tick;return ++tick;} }
@@ -39,13 +44,18 @@ uint32_t cached_address(uint32_t a){return a;}
 uint32_t uncached_address(uint32_t a){return a;}
 }
 extern "C" {
-sat_result_t sat_dual_sh2_configure_slave(sat_dual_sh2_entry_t,void*){return SAT_OK;}
+sat_result_t sat_dual_sh2_configure_slave(sat_dual_sh2_entry_t entry,void*){real_entry=entry;return SAT_OK;}
 sat_result_t sat_dual_sh2_start(uint32_t){return SAT_OK;}
 sat_dual_sh2_state_t sat_dual_sh2_state(){return SAT_DUAL_SH2_OFFLINE;}
 uint8_t sat_dual_sh2_available(){return 1;}
 sat_result_t sat_dual_sh2_stop(uint32_t){return SAT_OK;}
-sat_result_t sat_dual_sh2_send(uint32_t command,uint32_t,uint32_t token){
+sat_result_t sat_dual_sh2_send(uint32_t command,uint32_t argument,uint32_t token){
     assert(!pending && (command==kExecute || command==kBatch));
+    if(use_real_worker){
+        assert(command==kExecute && real_entry);
+        request={1,command,argument,token};worker_request=true;
+        real_entry(nullptr);return SAT_OK;
+    }
     for(unsigned i=0;i<4;++i)if(slots[i].state==SAT_PARALLEL_RUNNING){
         // Real worker writes terminal slots before publishing its mailbox.
         slots[i].state=worker_result==SAT_OK?SAT_PARALLEL_COMPLETED:SAT_PARALLEL_FAILED;
@@ -62,9 +72,17 @@ sat_result_t sat_dual_sh2_receive(sat_dual_sh2_message_t* message){
 sat_result_t sat_dual_sh2_wait_response(sat_dual_sh2_message_t* message,uint32_t){
     assert(pending);*message=completion;pending=false;return SAT_OK;
 }
-sat_result_t sat_dual_sh2_slave_receive(sat_dual_sh2_message_t*){return SAT_ERR_NOT_FOUND;}
-sat_result_t sat_dual_sh2_slave_send(uint32_t,uint32_t,uint32_t){return SAT_OK;}
-uint8_t sat_dual_sh2_slave_stop_requested(){return 1;}
+sat_result_t sat_dual_sh2_slave_receive(sat_dual_sh2_message_t* message){
+    if(!worker_request)return SAT_ERR_NOT_FOUND;
+    *message=request;worker_request=false;worker_invalidations=invalidations;return SAT_OK;
+}
+sat_result_t sat_dual_sh2_slave_send(uint32_t command,uint32_t token,uint32_t result){
+    // No input/output cache calls occur in the callback. Require dispatch-table
+    // and count consumption on this CPU between receive and task execution.
+    assert(invalidations>=worker_invalidations+2);
+    completion={1,command,token,result};pending=true;return SAT_OK;
+}
+uint8_t sat_dual_sh2_slave_stop_requested(){return !use_real_worker || pending;}
 void sat_dual_sh2_slave_heartbeat(){}
 sat_result_t sat_dual_sh2_slave_signal_master(){return SAT_OK;}
 }
@@ -131,6 +149,18 @@ int main(){
     assert_owned(aborted);
     assert(executor::abort_task(aborted,60000)==SAT_OK);
     assert(executor::result(aborted,&bytes)==SAT_ERR_TIMEOUT && executor::release(aborted)==SAT_OK);
+    assert(executor::shutdown(60000)==SAT_OK);
+    // Exercise the real Slave lookup after startup and after a late adapter
+    // registration, rather than only the terminal-slot mailbox stub above.
+    pending=false;use_real_worker=true;allow_response=false;
+    assert(executor::init(&config)==SAT_OK);
+    assert(executor::register_task(SAT_PARALLEL_TASK_SKIN_DEFORM,process)==SAT_OK);
+    sat_parallel_handle_t late=0;
+    assert(executor::submit(SAT_PARALLEL_TASK_SKIN_DEFORM,input,4,output,4,&late)==SAT_OK);
+    assert(executor::wait(late,60000)==SAT_OK && executor::release(late)==SAT_OK);
+    assert(executor::register_task(SAT_PARALLEL_TASK_SCENE_GEOMETRY,process)==SAT_OK);
+    assert(executor::submit(SAT_PARALLEL_TASK_SCENE_GEOMETRY,input,4,output,4,&late)==SAT_OK);
+    assert(executor::wait(late,60000)==SAT_OK && executor::release(late)==SAT_OK);
     assert(executor::shutdown(60000)==SAT_OK);
 #ifdef _WIN32
     VirtualFree(work,0,MEM_RELEASE);

@@ -45,6 +45,14 @@ uncached aliases for explicit shared output. The executor synchronizes task
 metadata/output on completion and never touches VDP, SCU, SMPC, CD, or SCSP
 registers.
 
+Task adapters can register after Slave startup. Before each worker dispatch,
+the executor consumes the registration array and its count on Slave, so a
+later adapter is visible even if an earlier task cached the table. It leaves
+the other Master-owned runtime fields untouched. The character arena exposed
+the previous stale-table failure as `SAT_ERR_UNSUPPORTED` on Mednafen after
+skinning ran before the first geometry task. The real-worker host gate requires
+both ranges to be consumed and fails against the previous executor.
+
 ## Animation integration
 
 `sat_anim_parallel_register` registers the existing deterministic

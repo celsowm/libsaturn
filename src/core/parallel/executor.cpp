@@ -802,6 +802,12 @@ bool run_slot_on_slave(uint32_t slot_argument, uint32_t token, sat_result_t* out
             saturn::hal::dual_sh2::memory::uncached_address(physical_slot));
     if (shared_slot->token != token ||
         shared_slot->state != SAT_PARALLEL_RUNNING) return false;
+    /* Adapters may register after this CPU has already executed another task.
+     * The SH-2 caches are independent: refresh the dispatch table, including
+     * its count, before lookup rather than retaining the first task's table.
+     * Do not consume the rest of the Master-owned runtime state. */
+    consume_range(physical_address(g_runtime.registrations), sizeof(g_runtime.registrations));
+    consume_range(physical_address(&g_runtime.registration_count), sizeof(g_runtime.registration_count));
     Registration* registration = registration_for(shared_slot->type);
     sat_result_t result = SAT_ERR_UNSUPPORTED;
     uint32_t output_size = 0u;
