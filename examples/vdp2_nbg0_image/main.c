@@ -5,8 +5,6 @@
 #include "saturn/saturn.h"
 #include "vdp2_nbg0_image/bg.h"
 
-#define VDP2_REG(off) (*(volatile uint16_t*)(0x25F80000u + (off)))
-
 enum {
     kTileWidth = 8,
     kTileHeight = 8,
@@ -24,49 +22,6 @@ enum {
 };
 
 static uint16_t g_pattern_names[kMapWidthCells * kMapHeightCells];
-
-static void nbg0_direct_set_scroll(const sat_vdp2_scroll_t* scroll) {
-    VDP2_REG(0x070u) = (uint16_t)(scroll->x_integer & 0x07FFu);
-    VDP2_REG(0x072u) = (uint16_t)(scroll->x_fraction << 8u);
-    VDP2_REG(0x074u) = (uint16_t)(scroll->y_integer & 0x07FFu);
-    VDP2_REG(0x076u) = (uint16_t)(scroll->y_fraction << 8u);
-}
-
-static void nbg0_direct_init(void) {
-    /* Mirror the working JoEngine sequence as closely as possible and
-     * keep the whole setup local to the demo so we can isolate HAL issues.
-     */
-    VDP2_REG(0x000u) = 0x0000u;  /* TVMD off */
-    VDP2_REG(0x00Eu) = 0x1327u;  /* RAMCTL */
-
-    VDP2_REG(0x010u) = 0x5555u;
-    VDP2_REG(0x012u) = 0xFEEEu;
-    VDP2_REG(0x014u) = 0x5555u;
-    VDP2_REG(0x016u) = 0xFEEEu;
-    VDP2_REG(0x018u) = 0xFFFFu;
-    VDP2_REG(0x01Au) = 0xEEEEu;
-    VDP2_REG(0x01Cu) = 0x044Fu;
-    VDP2_REG(0x01Eu) = 0xEEEEu;
-
-    VDP2_REG(0x020u) = 0x0000u;  /* BGON */
-    VDP2_REG(0x028u) = 0x3210u;  /* CHCTLA: NBG0 256 colors, 1x1 */
-    VDP2_REG(0x030u) = 0xC00Cu;  /* PNCN0: 1 word, CN_12BIT, cell base in B1 */
-    VDP2_REG(0x03Au) = 0x0000u;  /* PLSZ: 1x1 plane */
-    VDP2_REG(0x03Cu) = 0x0000u;  /* MPOFN */
-    VDP2_REG(0x040u) = 0x3B3Bu;  /* MPABN0 */
-    VDP2_REG(0x042u) = 0x3B3Bu;  /* MPCDN0 */
-
-    VDP2_REG(0x078u) = 0x0001u;
-    VDP2_REG(0x07Au) = 0x0000u;
-    VDP2_REG(0x07Cu) = 0x0001u;
-    VDP2_REG(0x07Eu) = 0x0000u;
-
-    VDP2_REG(0x0F0u) = 0x0606u;  /* PRISA */
-    VDP2_REG(0x0F8u) = 0x0607u;  /* PRINA as in JoEngine */
-
-    VDP2_REG(0x020u) = 0x0101u;  /* BGON: enable NBG0, disable transparent code */
-    VDP2_REG(0x000u) = 0x8100u;  /* TVMD on, 320x224 NTSC */
-}
 
 static void build_tile_stream_8bpp(
     const uint8_t* pixels,
@@ -165,11 +120,19 @@ int main(void) {
     sat_vdp2_scroll_t scroll = {0u, 0u, 0u, 0u};
 
     sat_example_must(sat_init(&video_cfg));
-    nbg0_direct_init();
+    /* NBG0 via lib API: 256-colour 1x1 cells, map in B1. */
+    const sat_vdp2_nbg0_config_t nbg0_cfg = {
+        SAT_VDP2_CHAR_SIZE_1X1,
+        SAT_VDP2_COLOR_MODE_256,
+        kMapPlaneIndex,
+        0u,
+        0u
+    };
+    sat_example_must(sat_vdp2_nbg0_init(&nbg0_cfg));
     sat_example_must(sat_vdp2_palette_upload(bg_asset.palette, 256u, kPaletteWordOffset));
     sat_example_must(upload_image_as_tiles(&bg_asset));
     sat_example_must(sat_vdp2_back_color_set(0x0000u));
-    nbg0_direct_set_scroll(&scroll);
+    sat_example_must(sat_vdp2_nbg0_set_scroll(&scroll));
 
     while (1) {
         sat_pad_state_t pad = {0};
@@ -196,7 +159,7 @@ int main(void) {
             ++scroll.y_integer;
         }
 
-        nbg0_direct_set_scroll(&scroll);
+        sat_example_must(sat_vdp2_nbg0_set_scroll(&scroll));
     }
 
     return 0;

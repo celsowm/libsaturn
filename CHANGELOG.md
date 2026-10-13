@@ -76,6 +76,13 @@ The version is defined once, in the `VERSION` file.
   Two of the seven sites the original survey counted (one in
   `skybridge_3d/main.c`) were bitfield ORs, not toggles, and stay
   as-is.
+- `examples/vdp2_nbg0_ground/main.c` and
+  `examples/vdp2_nbg0_image/main.c` no longer poke the VDP2
+  registers directly. Both call `sat_vdp2_nbg0_init` and
+  `sat_vdp2_nbg0_set_scroll` from `include/saturn/vdp2.h`; the
+  old `nbg0_direct_init`, `nbg0_direct_set_scroll` and the
+  `VDP2_REG(off)` macro are gone. `vdp2_nbg0_ground_api` is the
+  reference port.
 - Harness: `harness/scripts/telemetry.py` exposes `WRAM_HIGH`,
   `find_symbol`, `load_dump` and `verify_fields` so the eighteen
   pytest files no longer hand-roll the same map-regex /

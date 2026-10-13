@@ -1,15 +1,14 @@
-/* vdp2_nbg0_ground.c - Procedural gradient using NBG0 with direct register writes
+/* vdp2_nbg0_ground.c - Procedural gradient using NBG0 via libsaturn API.
  *
- * Copies the working approach from vdp2_nbg0_image (direct VDP2_REG writes).
- * NO external assets. Everything generated in-code.
+ * Same visual output as before; NBG0 setup and scroll now go through
+ * sat_vdp2_nbg0_init / sat_vdp2_nbg0_set_scroll instead of poking the
+ * VDP2 registers directly.
  */
 #include <stddef.h>
 #include <stdint.h>
 
 #include "saturn/saturn.h"
 #include "example_util.h"
-
-#define VDP2_REG(off) (*(volatile uint16_t*)(0x25F80000u + (off)))
 
 /* NBG0 map configuration (matching working vdp2_nbg0_image) */
 enum {
@@ -30,47 +29,6 @@ enum {
 #define IMG_HEIGHT 64
 
 static uint16_t g_pattern_names[kMapWidthCells * kMapHeightCells];
-
-/* Direct register NBG0 init - copies working vdp2_nbg0_image approach */
-static void nbg0_direct_init(void) {
-    VDP2_REG(0x000u) = 0x0000u;  /* TVMD off */
-    VDP2_REG(0x00Eu) = 0x1327u;  /* RAMCTL */
-
-    VDP2_REG(0x010u) = 0x5555u;
-    VDP2_REG(0x012u) = 0xFEEEu;
-    VDP2_REG(0x014u) = 0x5555u;
-    VDP2_REG(0x016u) = 0xFEEEu;
-    VDP2_REG(0x018u) = 0xFFFFu;
-    VDP2_REG(0x01Au) = 0xEEEEu;
-    VDP2_REG(0x01Cu) = 0x044Fu;
-    VDP2_REG(0x01Eu) = 0xEEEEu;
-
-    VDP2_REG(0x020u) = 0x0000u;  /* BGON */
-    VDP2_REG(0x028u) = 0x3210u;  /* CHCTLA: NBG0 256 colors, 1x1 */
-    VDP2_REG(0x030u) = 0xC00Cu;  /* PNCN0: 1 word, CN_12BIT, cell base in B1 */
-    VDP2_REG(0x03Au) = 0x0000u;  /* PLSZ: 1x1 plane */
-    VDP2_REG(0x03Cu) = 0x0000u;  /* MPOFN */
-    VDP2_REG(0x040u) = 0x3B3Bu;  /* MPABN0 */
-    VDP2_REG(0x042u) = 0x3B3Bu;  /* MPCDN0 */
-
-    VDP2_REG(0x078u) = 0x0001u;
-    VDP2_REG(0x07Au) = 0x0000u;
-    VDP2_REG(0x07Cu) = 0x0001u;
-    VDP2_REG(0x07Eu) = 0x0000u;
-
-    VDP2_REG(0x0F0u) = 0x0606u;  /* PRISA */
-    VDP2_REG(0x0F8u) = 0x0607u;  /* PRINA */
-
-    VDP2_REG(0x020u) = 0x0101u;  /* BGON: enable NBG0 */
-    VDP2_REG(0x000u) = 0x8100u;  /* TVMD on, 320x224 NTSC */
-}
-
-static void nbg0_direct_set_scroll(uint16_t x, uint16_t y) {
-    VDP2_REG(0x070u) = (uint16_t)(x & 0x07FFu);
-    VDP2_REG(0x072u) = 0x0000u;
-    VDP2_REG(0x074u) = (uint16_t)(y & 0x07FFu);
-    VDP2_REG(0x076u) = 0x0000u;
-}
 
 /* Build a 256-color RGB gradient palette */
 static void build_palette(uint16_t palette[256]) {
@@ -166,8 +124,15 @@ int main(void) {
     sat_video_config_t cfg = {320, 224, 1, 0};
     sat_example_must(sat_init(&cfg));
 
-    /* Direct register init (the one that works) */
-    nbg0_direct_init();
+    /* NBG0 via lib API: 256-colour 1x1 cells, map in B1. */
+    const sat_vdp2_nbg0_config_t nbg0_cfg = {
+        SAT_VDP2_CHAR_SIZE_1X1,
+        SAT_VDP2_COLOR_MODE_256,
+        kMapPlaneIndex,
+        0u,
+        0u
+    };
+    sat_example_must(sat_vdp2_nbg0_init(&nbg0_cfg));
 
     /* Upload palette */
     sat_example_must(sat_vdp2_palette_upload(palette, 256u, kPaletteWordOffset));
@@ -176,10 +141,10 @@ int main(void) {
     sat_example_must(upload_image_as_tiles(pixels));
 
     sat_example_must(sat_vdp2_back_color_set(0x0000u));
-    nbg0_direct_set_scroll(0u, 0u);
+    const sat_vdp2_scroll_t zero_scroll = {0u, 0u, 0u, 0u};
+    sat_example_must(sat_vdp2_nbg0_set_scroll(&zero_scroll));
 
-    uint16_t scroll_x = 0;
-    uint16_t scroll_y = 0;
+    sat_vdp2_scroll_t scroll = {0u, 0u, 0u, 0u};
     const uint16_t max_scroll = 256;
 
     while (1) {
@@ -189,12 +154,12 @@ int main(void) {
 
         if ((pad.pressed & SAT_PAD_START) != 0u) break;
 
-        if ((pad.held & SAT_PAD_LEFT)  && scroll_x > 0) --scroll_x;
-        if ((pad.held & SAT_PAD_RIGHT) && scroll_x < max_scroll) ++scroll_x;
-        if ((pad.held & SAT_PAD_UP)    && scroll_y > 0) --scroll_y;
-        if ((pad.held & SAT_PAD_DOWN)  && scroll_y < max_scroll) ++scroll_y;
+        if ((pad.held & SAT_PAD_LEFT)  && scroll.x_integer > 0u) --scroll.x_integer;
+        if ((pad.held & SAT_PAD_RIGHT) && scroll.x_integer < max_scroll) ++scroll.x_integer;
+        if ((pad.held & SAT_PAD_UP)    && scroll.y_integer > 0u) --scroll.y_integer;
+        if ((pad.held & SAT_PAD_DOWN)  && scroll.y_integer < max_scroll) ++scroll.y_integer;
 
-        nbg0_direct_set_scroll(scroll_x, scroll_y);
+        sat_example_must(sat_vdp2_nbg0_set_scroll(&scroll));
     }
 
     return 0;
