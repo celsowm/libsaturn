@@ -8,6 +8,7 @@
 #include "saturn/color.h"
 #include "saturn/dma.h"
 #include "saturn/font.h"
+#include "saturn/hud.h"
 #include "saturn/irq.h"
 #include "saturn/time.h"
 
@@ -64,6 +65,10 @@ static uint32_t g_low[1024] __attribute__((section(".wram_l"), aligned(16)));
 static volatile uint32_t g_end_irqs;
 
 static sat_ascii_font_t font;
+/* HUD overlay: the font lives in CRAM bank 7, draws use palette code 0
+ * (white-on-black) with 8 px per cell -- the same numbers the
+ * sat_ascii_font_draw_* calls hard-code below. */
+static sat_hud_t hud;
 
 static void on_dma1_end(void* user) {
     (void)user;
@@ -284,13 +289,14 @@ static uint32_t all_ok(void) {
 }
 
 static void line(const char* label, uint32_t value, int y) {
-    (void)sat_ascii_font_draw_label_u32(&font, label, value, 8, y, 8, 0u, 0u);
+    (void)sat_hud_value(&hud, label, value, 8, y);
 }
 
 int main(void) {
     if (sat_app_init_default() != SAT_OK) return 1;
     if (sat_ascii_font_init_8x8_indexed8(
             &font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u) != SAT_OK) return 1;
+    if (sat_hud_init(&hud, &font, 0u, 8u) != SAT_OK) return 1;
     g_dma_demo.magic = DMA_DEMO_MAGIC;
     uint32_t frame = 0u;
     for (;;) {
@@ -299,8 +305,7 @@ int main(void) {
         if (sat_app_frame_begin(SAT_COLOR_BLACK,
                 ok ? SAT_COLOR_GREEN : SAT_COLOR_RED, &pad) != SAT_OK) break;
         if (++frame == 30u) run_tests();
-        (void)sat_ascii_font_draw_text_screen_indexed8(
-            &font, "SCU DMA", 8, 8, 8, 0u, 0u);
+        (void)sat_hud_text(&hud, "SCU DMA", 8, 8);
         if (g_dma_demo.done) {
             line("VDP1 DIRECT  ", g_dma_demo.direct_vdp1, 32);
             line("VDP2 DIRECT  ", g_dma_demo.direct_vdp2, 48);

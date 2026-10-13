@@ -83,6 +83,11 @@ The version is defined once, in the `VERSION` file.
   old `nbg0_direct_init`, `nbg0_direct_set_scroll` and the
   `VDP2_REG(off)` macro are gone. `vdp2_nbg0_ground_api` is the
   reference port.
+- `examples/dma_demo/main.c` adopts the HUD overlay: the local
+  `line(label, value, y)` helper now calls `sat_hud_value` and
+  the title uses `sat_hud_text`, with a `sat_hud_t` carrying the
+  font, palette code 0 and 8 px/cell spacing that the original
+  hand-rolled `sat_ascii_font_draw_*` calls hard-coded.
 - Harness: `harness/scripts/telemetry.py` exposes `WRAM_HIGH`,
   `find_symbol`, `load_dump` and `verify_fields` so the eighteen
   pytest files no longer hand-roll the same map-regex /
