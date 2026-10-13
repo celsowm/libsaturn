@@ -16,7 +16,6 @@
 #include "saturn/physics3_world.h"
 #include "saturn/time.h"
 
-#define FX(n) SAT_FX16(n)
 #define GRID 16u
 #define VERTS ((GRID + 1u) * (GRID + 1u))
 #define FACES (GRID * GRID)
@@ -64,9 +63,9 @@ static void build_floor(void) {
     for (uint16_t z = 0u; z <= GRID; ++z) {
         for (uint16_t x = 0u; x <= GRID; ++x) {
             sat_vec3_t* v = &g_vertices[z * (GRID + 1u) + x];
-            v->x = FX((int32_t)x * 8 - 64);
+            v->x = SAT_FX16((int32_t)x * 8 - 64);
             v->y = 0;
-            v->z = FX((int32_t)z * 8 - 64);
+            v->z = SAT_FX16((int32_t)z * 8 - 64);
         }
     }
     for (uint16_t z = 0u; z < GRID; ++z) {
@@ -83,7 +82,7 @@ static void build_floor(void) {
 
 static sat_result_t run_config(uint32_t spheres, uint32_t flags, bench_result_t* out) {
     static const sat_physics3_material_t material = {SAT_FX16_ONE / 2, SAT_FX16_ONE / 4};
-    const sat_vec3_t gravity = {0, -FX(1) / 32, 0};
+    const sat_vec3_t gravity = {0, -SAT_FX16(1) / 32, 0};
     sat_physics3_world_t world;
     uint16_t id = 0u;
     SAT_TRY(sat_physics3_world_init(&world, g_actors, CAPACITY, gravity, 8u, 2u));
@@ -98,16 +97,16 @@ static sat_result_t run_config(uint32_t spheres, uint32_t flags, bench_result_t*
     for (uint16_t i = 0u; i < BOXES; ++i) {
         /* Crates on a 4x4 grid across the floor. */
         const sat_aabb3_t box = {
-            {FX((int32_t)(i % 4u) * 32 - 48), FX(2), FX((int32_t)(i / 4u) * 32 - 48)},
-            {FX(2), FX(2), FX(2)}};
+            {SAT_FX16((int32_t)(i % 4u) * 32 - 48), SAT_FX16(2), SAT_FX16((int32_t)(i / 4u) * 32 - 48)},
+            {SAT_FX16(2), SAT_FX16(2), SAT_FX16(2)}};
         SAT_TRY(sat_physics3_add_box(&world, SAT_PHYSICS3_STATIC_BOX, &box, &material, &id));
     }
     for (uint16_t i = 0u; i < spheres; ++i) {
         /* Rolling across the stage from a loose grid, some towards each other. */
         const sat_sphere_t sphere = {
-            {FX((int32_t)(i % 8u) * 12 - 42), FX(3) + FX((int32_t)(i / 8u)), FX((int32_t)(i / 8u) * 12 - 18)},
-            FX(1)};
-        const sat_vec3_t velocity = {(i & 1u) ? FX(1) / 4 : -FX(1) / 4, 0, (i & 2u) ? FX(1) / 8 : -FX(1) / 8};
+            {SAT_FX16((int32_t)(i % 8u) * 12 - 42), SAT_FX16(3) + SAT_FX16((int32_t)(i / 8u)), SAT_FX16((int32_t)(i / 8u) * 12 - 18)},
+            SAT_FX16(1)};
+        const sat_vec3_t velocity = {(i & 1u) ? SAT_FX16(1) / 4 : -SAT_FX16(1) / 4, 0, (i & 2u) ? SAT_FX16(1) / 8 : -SAT_FX16(1) / 8};
         SAT_TRY(sat_physics3_add_sphere(&world, &sphere, &velocity, &material, &id));
     }
     SAT_TRY(sat_physics3_set_collider_index_scratch(&world, g_collider_indices, CAPACITY));

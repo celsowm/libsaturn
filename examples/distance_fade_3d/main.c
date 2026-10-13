@@ -39,7 +39,6 @@
 
 #define SCREEN_W 320
 #define SCREEN_H 224
-#define FX(v) SAT_FX16(v)
 
 #define BG_W 64u
 #define BG_H 64u
@@ -48,11 +47,11 @@
 #define OBJECT_COUNT 12u
 #define SCENE_FACE_CAPACITY 16u
 
-#define FADE_START FX(100)
-#define FADE_END   FX(220)
-#define CAMERA_MIN_Z FX(0)
-#define CAMERA_MAX_Z FX(80)
-#define CAMERA_STEP (FX(1) / 2)
+#define FADE_START SAT_FX16(100)
+#define FADE_END   SAT_FX16(220)
+#define CAMERA_MIN_Z SAT_FX16(0)
+#define CAMERA_MAX_Z SAT_FX16(80)
+#define CAMERA_STEP (SAT_FX16(1) / 2)
 
 #define BG_PALETTE 0u
 #define OBJECT_PALETTE 1u
@@ -179,12 +178,12 @@ static void init_color_calc(void) {
 }
 
 static void compute_camera(void) {
-    sat_vec3_t eye = {0, FX(5), g_camera_z};
-    sat_vec3_t target = {0, FX(5), g_camera_z + FX(100)};
+    sat_vec3_t eye = {0, SAT_FX16(5), g_camera_z};
+    sat_vec3_t target = {0, SAT_FX16(5), g_camera_z + SAT_FX16(100)};
     sat_vec3_t up = {0, SAT_FX16_ONE, 0};
     sat_example_must(sat_camera3d_init(
-        &g_camera, &eye, &target, &up, FX(60),
-        sat_fx16_div(FX(SCREEN_W), FX(SCREEN_H)), FX(1), FX(320)));
+        &g_camera, &eye, &target, &up, SAT_FX16(60),
+        sat_fx16_div(SAT_FX16(SCREEN_W), SAT_FX16(SCREEN_H)), SAT_FX16(1), SAT_FX16(320)));
 }
 
 static void update_input(const sat_pad_state_t* pad) {
@@ -213,7 +212,7 @@ static void update_input(const sat_pad_state_t* pad) {
         g_camera_z -= CAMERA_STEP;
     }
     if (g_auto_camera) {
-        g_camera_z += FX(1) / 8;
+        g_camera_z += SAT_FX16(1) / 8;
     }
 
     if (g_camera_z > CAMERA_MAX_Z) {
@@ -234,7 +233,7 @@ static sat_fade3d_slots_t fade_config(void) {
     cfg.policy.end = FADE_END;
     cfg.policy.levels = (g_mode == DEMO_FADE_4) ? 4u : 8u;
     cfg.policy.flags = SAT_FADE3D_CULL_AFTER_END;
-    cfg.hysteresis = FX(4);
+    cfg.hysteresis = SAT_FX16(4);
     cfg.base_slot = 0u;
     cfg.slot_stride = (g_mode == DEMO_FADE_4) ? 2u : 1u;
     cfg.opaque_before_start = 1u;
@@ -242,9 +241,9 @@ static sat_fade3d_slots_t fade_config(void) {
 }
 
 static void draw_object(uint16_t index) {
-    const sat_fx16_t x = FX(kObjectX[index]);
-    const sat_fx16_t z = FX(kObjectZ[index]);
-    const sat_vec3_t center = {x, FX(5), z};
+    const sat_fx16_t x = SAT_FX16(kObjectX[index]);
+    const sat_fx16_t z = SAT_FX16(kObjectZ[index]);
+    const sat_vec3_t center = {x, SAT_FX16(5), z};
     sat_quad3_t world;
     sat_scene3d_material_t material = {};
     sat_fx16_t depth;
@@ -279,7 +278,7 @@ static void draw_object(uint16_t index) {
         }
     }
 
-    sat_quad3_billboard(&world, x, z, SAT_FX16_ONE, 0, FX(5), FX(10));
+    sat_quad3_billboard(&world, x, z, SAT_FX16_ONE, 0, SAT_FX16(5), SAT_FX16(10));
     material.kind = SAT_SCENE3D_INDEXED_TEXTURED;
     material.texture = &g_object_texture;
     material.color_calc_slot = use_color_calc != 0u
@@ -395,7 +394,7 @@ int main(void) {
         g_last_slot = 0u;
 
         sat_example_must(sat_scene_begin(
-            &g_scene, &g_camera, FX(1), SCREEN_W, SCREEN_H, 64u));
+            &g_scene, &g_camera, SAT_FX16(1), SCREEN_W, SCREEN_H, 64u));
         for (i = (int)OBJECT_COUNT - 1; i >= 0; --i) {
             draw_object((uint16_t)i);
         }

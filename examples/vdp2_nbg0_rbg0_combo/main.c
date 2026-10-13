@@ -28,8 +28,8 @@
 #define SKY_PARALLAX_SHIFT 2u   /* horizon moves 1/4 as fast as the ground */
 #define SKY_DRIFT_SHIFT    3u   /* clouds drift 1 px every 8 frames */
 
-#define FX16_SHIFT 16
-#define WALK_SPEED ((int32_t)2 << FX16_SHIFT)   /* texels per frame */
+
+#define WALK_SPEED ((int32_t)2 << 16)   /* texels per frame */
 
 #define BM_BASE_WORD    0x00000u
 #define RP_BASE_WORD    0x10000u
@@ -166,8 +166,8 @@ int main(void) {
         if ((pad.held & SAT_PAD_DOWN) != 0u)  cam_y -= WALK_SPEED;
 
         {
-            const int32_t xi = cam_x >> FX16_SHIFT;
-            const int32_t yi = cam_y >> FX16_SHIFT;
+            const int32_t xi = cam_x >> 16;
+            const int32_t yi = cam_y >> 16;
             if (xi != last_xi || yi != last_yi) {
                 write_camera_translation(xi, yi);
                 last_xi = xi;
@@ -175,7 +175,7 @@ int main(void) {
             }
         }
 
-        sky_scroll.x_integer = (uint16_t)(((uint32_t)(cam_x >> (FX16_SHIFT + SKY_PARALLAX_SHIFT)) +
+        sky_scroll.x_integer = (uint16_t)(((uint32_t)(cam_x >> (16 + SKY_PARALLAX_SHIFT)) +
                                            (frame >> SKY_DRIFT_SHIFT)) & (SKY_IMG_W - 1u));
         sat_example_must(sat_vdp2_nbg0_set_scroll(&sky_scroll));
         sat_example_must(sat_vdp2_layers_commit());

@@ -23,7 +23,6 @@
 #define FRAME_H 112u
 #define VIEW_DISTANCE 120u
 #define FRAME_SCRATCH_BYTES (4u * (VIEW_DISTANCE + 1u) + 2u * FRAME_W)
-#define FX_INT(v) SAT_FX16(v)
 
 static uint8_t g_heights[MAP_W * MAP_H];
 static uint8_t g_colors[MAP_W * MAP_H];
@@ -83,11 +82,11 @@ static void make_world(void) {
 }
 
 static void controls(const sat_pad_state_t* pad) {
-    if ((pad->held & SAT_PAD_LEFT) != 0u) g_camera.angle -= FX_INT(2);
-    if ((pad->held & SAT_PAD_RIGHT) != 0u) g_camera.angle += FX_INT(2);
+    if ((pad->held & SAT_PAD_LEFT) != 0u) g_camera.angle -= SAT_FX16(2);
+    if ((pad->held & SAT_PAD_RIGHT) != 0u) g_camera.angle += SAT_FX16(2);
     /* Normalize after each update; trigonometry accepts a bounded angle. */
-    if (g_camera.angle < 0) g_camera.angle += FX_INT(360);
-    if (g_camera.angle >= FX_INT(360)) g_camera.angle -= FX_INT(360);
+    if (g_camera.angle < 0) g_camera.angle += SAT_FX16(360);
+    if (g_camera.angle >= SAT_FX16(360)) g_camera.angle -= SAT_FX16(360);
     if ((pad->held & SAT_PAD_UP) != 0u ||
         (pad->held & SAT_PAD_DOWN) != 0u) {
         const sat_fx16_t step = (pad->held & SAT_PAD_UP) != 0u ?
@@ -97,8 +96,8 @@ static void controls(const sat_pad_state_t* pad) {
     }
     if ((pad->held & SAT_PAD_A) != 0u) g_camera.y += SAT_FX16_ONE / 2;
     if ((pad->held & SAT_PAD_B) != 0u) g_camera.y -= SAT_FX16_ONE / 2;
-    if (g_camera.y < FX_INT(6)) g_camera.y = FX_INT(6);
-    if (g_camera.y > FX_INT(180)) g_camera.y = FX_INT(180);
+    if (g_camera.y < SAT_FX16(6)) g_camera.y = SAT_FX16(6);
+    if (g_camera.y > SAT_FX16(180)) g_camera.y = SAT_FX16(180);
     if ((pad->held & SAT_PAD_X) != 0u && g_camera.pitch_pixels > -40) {
         --g_camera.pitch_pixels;
     }
@@ -106,18 +105,18 @@ static void controls(const sat_pad_state_t* pad) {
         ++g_camera.pitch_pixels;
     }
     if ((pad->pressed & SAT_PAD_C) != 0u) {
-        g_camera.x = FX_INT(80);
-        g_camera.y = FX_INT(80);
-        g_camera.z = FX_INT(52);
-        g_camera.angle = FX_INT(0);
+        g_camera.x = SAT_FX16(80);
+        g_camera.y = SAT_FX16(80);
+        g_camera.z = SAT_FX16(52);
+        g_camera.angle = SAT_FX16(0);
         g_camera.pitch_pixels = 0;
     }
     /* Prevent unintentionally exceeding the API's validated coordinate
      * range while flying indefinitely through a WRAP map. */
-    if (g_camera.x > FX_INT(2048)) g_camera.x -= FX_INT(256);
-    if (g_camera.x < FX_INT(-2048)) g_camera.x += FX_INT(256);
-    if (g_camera.z > FX_INT(2048)) g_camera.z -= FX_INT(256);
-    if (g_camera.z < FX_INT(-2048)) g_camera.z += FX_INT(256);
+    if (g_camera.x > SAT_FX16(2048)) g_camera.x -= SAT_FX16(256);
+    if (g_camera.x < SAT_FX16(-2048)) g_camera.x += SAT_FX16(256);
+    if (g_camera.z > SAT_FX16(2048)) g_camera.z -= SAT_FX16(256);
+    if (g_camera.z < SAT_FX16(-2048)) g_camera.z += SAT_FX16(256);
 }
 
 static void hud(void) {
@@ -153,9 +152,9 @@ int main(void) {
         &g_texture, &g_surface, SAT_TEXTURE_DYNAMIC));
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
         &g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 2u));
-    g_camera.x = FX_INT(80);
-    g_camera.y = FX_INT(80);
-    g_camera.z = FX_INT(52);
+    g_camera.x = SAT_FX16(80);
+    g_camera.y = SAT_FX16(80);
+    g_camera.z = SAT_FX16(52);
     g_camera.angle = 0;
     g_camera.half_fov = SAT_FX16_ONE / 2;
     g_camera.pitch_pixels = 0;

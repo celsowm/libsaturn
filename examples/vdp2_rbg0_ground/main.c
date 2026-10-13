@@ -58,7 +58,7 @@
 
 #define SKY_COLOR     0x7F45u
 
-#define FX16_SHIFT 16
+
 
 /* Palette index 0 is the RBG0 ground bitmap; the pad-debug text uses its own
  * bank so uploading the font never disturbs bg_asset's palette.
@@ -127,7 +127,7 @@ static void init_sky_layer(void) {
 
 static void update_sky_scroll(sat_fx16_t camera_x) {
     const sat_vdp2_scroll_t scroll = {
-        (uint16_t)(((uint32_t)(camera_x >> (FX16_SHIFT + SKY_PARALLAX_SHIFT))) & (SKY_IMG_W - 1u)),
+        (uint16_t)(((uint32_t)(camera_x >> (16 + SKY_PARALLAX_SHIFT))) & (SKY_IMG_W - 1u)),
         0u,
         /* HORIZON + 1 transparent scanlines (y <= HORIZON); anything less
          * wraps the horizon scanline to the image's dark top row. */
@@ -259,7 +259,7 @@ int main(void) {
         sat_example_must(sat_end_frame());
 
         /* Walking speed in texels/frame; only Mx/My are rewritten during VBlank. */
-        const sat_fx16_t spd = 2 << FX16_SHIFT;
+        const sat_fx16_t spd = 2 << 16;
 
         if ((pad.held & SAT_PAD_LEFT))  cam_x -= spd;
         if ((pad.held & SAT_PAD_RIGHT)) cam_x += spd;
@@ -269,8 +269,8 @@ int main(void) {
         if ((pad.held & SAT_PAD_UP))    cam_y += spd;
         if ((pad.held & SAT_PAD_DOWN))  cam_y -= spd;
 
-        int32_t xi = (int32_t)(cam_x >> FX16_SHIFT);
-        int32_t yi = (int32_t)(cam_y >> FX16_SHIFT);
+        int32_t xi = (int32_t)(cam_x >> 16);
+        int32_t yi = (int32_t)(cam_y >> 16);
         if (xi != last_x || yi != last_y) {
             write_camera_translation(xi, yi);
             last_x = xi;

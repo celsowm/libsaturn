@@ -22,7 +22,6 @@
 #define SKY_H EXPLORER_HORIZON_HEIGHT
 #define MAX_RENDER 60
 #define EXPLORER_SCENE_FACE_CAPACITY (EGGMAN_FACE_COUNT + MAX_RENDER * 2u)
-#define FX(v) SAT_FX16(v)
 
 /* Clip order matches MODEL_ANIMATION in Makefile.inc. */
 #define EGG_CLIP_IDLE       0u
@@ -95,7 +94,7 @@ static sat_camera3d_t g_camera;
 static sat_scene3d_material_t g_egg_materials[EGGMAN_TEXTURE_COUNT];
 static sat_anim_state_t g_egg_anim;
 static int32_t g_egg_turn;   /* smoothed turn amount, 16.16 in [-1, 1] */
-static const sat_vec3_t g_camera_eye = {0, FX(34), FX(-42)};
+static const sat_vec3_t g_camera_eye = {0, SAT_FX16(34), SAT_FX16(-42)};
 
 static sat_sound_t g_snd_engine, g_snd_scanner, g_snd_fire, g_snd_impact, g_snd_music, g_snd_storm;
 static sat_voice_t g_voice_engine, g_voice_music, g_voice_storm, g_voice_portal;
@@ -164,10 +163,10 @@ static void generate_ground(void) {
 }
 
 static void init_textured_3d(void) {
-    sat_vec3_t target = {0, FX(18), FX(90)}, up = {0,FX(1),0};
+    sat_vec3_t target = {0, SAT_FX16(18), SAT_FX16(90)}, up = {0,SAT_FX16(1),0};
     sat_example_must(sat_tex_upload_indexed8(&g_world_texture,spacecraft_pixels,64u,64u,spacecraft_palette,3u));
     sat_example_must(sat_camera3d_init(&g_camera, &g_camera_eye, &target, &up,
-        FX(56), sat_fx16_div(FX(320),FX(224)), FX(4), FX(1300)));
+        SAT_FX16(56), sat_fx16_div(SAT_FX16(320),SAT_FX16(224)), SAT_FX16(4), SAT_FX16(1300)));
     sat_example_must(sat_model_validate(&eggman_asset));
     sat_example_must(sat_anim_validate(&eggman_anim_asset));
     sat_example_must(sat_mesh_init(&g_egg_mesh, g_egg_vertices, EGGMAN_VERTEX_COUNT,
@@ -230,18 +229,18 @@ static void update_player_animation(uint32_t dt_ticks) {
  * camera-relative hover/translation. No game-owned per-vertex transform loop:
  * the animation runtime decodes an immutable clip and applies this matrix. */
 static void draw_player(void) {
-    const sat_fx16_t yaw=FX(EGG_BASE_YAW_DEG)+
-        sat_fx16_mul(g_egg_turn,FX(EGG_TURN_YAW_DEG));
-    const sat_fx16_t bank=-sat_fx16_mul(g_egg_turn,FX(EGG_BANK_DEG));
-    const sat_fx16_t hover=FX(EGG_HOVER)+(sat_fx16_t)(g_speed/3)+
+    const sat_fx16_t yaw=SAT_FX16(EGG_BASE_YAW_DEG)+
+        sat_fx16_mul(g_egg_turn,SAT_FX16(EGG_TURN_YAW_DEG));
+    const sat_fx16_t bank=-sat_fx16_mul(g_egg_turn,SAT_FX16(EGG_BANK_DEG));
+    const sat_fx16_t hover=SAT_FX16(EGG_HOVER)+(sat_fx16_t)(g_speed/3)+
         sat_fx16_mul(
-            sat_sin_deg((sat_fx16_t)((g_frames*6u)%360u)<<16),FX(1)/2);
+            sat_sin_deg((sat_fx16_t)((g_frames*6u)%360u)<<16),SAT_FX16(1)/2);
     sat_mat4_t yaw_matrix,bank_matrix,rotation,translation,world;
     sat_example_must(sat_mat4_rotate_y(&yaw_matrix,yaw));
     sat_example_must(sat_mat4_rotate_z(&bank_matrix,bank));
     sat_example_must(sat_mat4_multiply(&rotation,&bank_matrix,&yaw_matrix));
     sat_example_must(sat_mat4_translate(
-        &translation,0,hover,FX(EGG_DEPTH)));
+        &translation,0,hover,SAT_FX16(EGG_DEPTH)));
     sat_example_must(sat_mat4_multiply(&world,&translation,&rotation));
     sat_example_must(sat_anim_prepare_model_instance(
         &eggman_anim_asset,&g_egg_anim,&world,&g_egg_mesh,0,0u,0u));
@@ -270,7 +269,7 @@ static void init_layers(void) {
         g_environment_coefficients, sizeof(g_environment_coefficients) /
         sizeof(g_environment_coefficients[0]), g_environment_params, 224u));
     sat_example_must(sat_vdp2_ground_environment_upload_coefficients(&g_environment));
-    explorer_build_ground_params(FX(128), FX(128), 0, FX(1),
+    explorer_build_ground_params(SAT_FX16(128), SAT_FX16(128), 0, SAT_FX16(1),
         COEF_BASE_WORD, g_environment_params);
     sat_example_must(sat_vdp2_ground_environment_commit_params(&g_environment));
     sat_example_must(sat_vdp2_nbg0_set_priority(2u));
@@ -339,7 +338,7 @@ static void reset_game(void) {
     }
     g_seed = g_seed * 1664525u + 1013904223u + g_frames;
     g_player.chunk_x = g_player.chunk_z = 0;
-    g_player.local_x = g_player.local_z = FX(128);
+    g_player.local_x = g_player.local_z = SAT_FX16(128);
     g_heading = g_speed = g_heading_delta = 0;
     g_frames = g_distance = g_drones = 0;
     g_energy = 6; g_artifacts = 0; g_invulnerable = 0; g_finished = 0; g_paused = 0;
@@ -349,8 +348,8 @@ static void reset_game(void) {
         uint32_t h = explorer_hash(g_seed, i + 11, i * 7);
         g_towers[i].cx = signed_range(h, 2u + i, 3u);
         g_towers[i].cz = signed_range(h >> 3, 2u + i, 3u);
-        g_towers[i].lx = FX(48 + ((h >> 8) & 159u));
-        g_towers[i].lz = FX(48 + ((h >> 16) & 159u));
+        g_towers[i].lx = SAT_FX16(48 + ((h >> 8) & 159u));
+        g_towers[i].lz = SAT_FX16(48 + ((h >> 16) & 159u));
         g_towers[i].active = 0;
     }
     g_portal.active = 0;
@@ -386,12 +385,12 @@ static void build_render_list(int32_t sin_h, int32_t cos_h) {
         int32_t cx = g_player.chunk_x + dx, cz = g_player.chunk_z + dz;
         uint32_t h = explorer_hash(g_seed, cx, cz);
         uint8_t b = explorer_biome(g_seed, cx, cz);
-        add_render(cx, cz, FX(32 + (h & 191u)), FX(32 + ((h >> 8) & 191u)), (uint8_t)(h % 3u), b, 0, sin_h, cos_h);
-        add_render(cx, cz, FX(32 + ((h >> 16) & 191u)), FX(32 + ((h >> 24) & 191u)), (uint8_t)(1u + ((h >> 5) % 3u)), b, 0, sin_h, cos_h);
+        add_render(cx, cz, SAT_FX16(32 + (h & 191u)), SAT_FX16(32 + ((h >> 8) & 191u)), (uint8_t)(h % 3u), b, 0, sin_h, cos_h);
+        add_render(cx, cz, SAT_FX16(32 + ((h >> 16) & 191u)), SAT_FX16(32 + ((h >> 24) & 191u)), (uint8_t)(1u + ((h >> 5) % 3u)), b, 0, sin_h, cos_h);
     }
-    add_render(0,0,FX(72),FX(205),0u,g_biome,0u,sin_h,cos_h);
-    add_render(0,0,FX(186),FX(188),1u,g_biome,0u,sin_h,cos_h);
-    add_render(0,0,FX(128),FX(232),2u,g_biome,0u,sin_h,cos_h);
+    add_render(0,0,SAT_FX16(72),SAT_FX16(205),0u,g_biome,0u,sin_h,cos_h);
+    add_render(0,0,SAT_FX16(186),SAT_FX16(188),1u,g_biome,0u,sin_h,cos_h);
+    add_render(0,0,SAT_FX16(128),SAT_FX16(232),2u,g_biome,0u,sin_h,cos_h);
     for (i = 0; i < 3u; ++i) if (!g_towers[i].active)
         add_render(g_towers[i].cx, g_towers[i].cz, g_towers[i].lx, g_towers[i].lz, 4u,
                    explorer_biome(g_seed, g_towers[i].cx, g_towers[i].cz), 1u, sin_h, cos_h);
@@ -452,8 +451,8 @@ static uint16_t rock_color(uint8_t biome, uint8_t bright) {
  * full of identical dark rectangles instead of anything recognisable. A rock
  * has no texture to be drawn with, so it is a shaded polygon. */
 static void draw_rock(const render_item_t* r, int half, int height) {
-    sat_fx16_t w = FX(half);
-    sat_fx16_t h = FX(height);
+    sat_fx16_t w = SAT_FX16(half);
+    sat_fx16_t h = SAT_FX16(height);
     sat_quad3_t body;
     uint16_t gouraud[4];
     /* Corner order is A top-left, B top-right, C bottom-right, D bottom-left.
@@ -503,8 +502,8 @@ static void draw_world(void) {
              * clear of the ground. */
             sat_quad3_t q;
             uint8_t v;
-            sat_quad3_billboard(&q, r->side, r->depth, FX(1), 0, FX(12), FX(26));
-            for (v = 0; v < 4u; ++v) q.v[v].y += FX(18);
+            sat_quad3_billboard(&q, r->side, r->depth, SAT_FX16(1), 0, SAT_FX16(12), SAT_FX16(26));
+            for (v = 0; v < 4u; ++v) q.v[v].y += SAT_FX16(18);
             sat_scene3d_material_t material = {};
             material.kind = SAT_SCENE3D_INDEXED_TEXTURED;
             material.texture = &g_world_texture;
@@ -546,7 +545,7 @@ static void update_scanner(int32_t sin_h, int32_t cos_h) {
     if (found) {
         int32_t side = (int32_t)(((int64_t)best_dx*cos_h - (int64_t)best_dz*sin_h) >> 16);
         int32_t front = (int32_t)(((int64_t)best_dx*sin_h + (int64_t)best_dz*cos_h) >> 16);
-        g_signal_dir = (int8_t)(side < -FX(8) ? -1 : (side > FX(8) ? 1 : (front >= 0 ? 0 : 2)));
+        g_signal_dir = (int8_t)(side < -SAT_FX16(8) ? -1 : (side > SAT_FX16(8) ? 1 : (front >= 0 ? 0 : 2)));
         g_signal_distance = (abs_u32(best_dx >> 16) + abs_u32(best_dz >> 16)) / 2u;
     } else {
         g_signal_dir = 0;
@@ -608,13 +607,13 @@ static void update_game(const sat_pad_state_t* pad, uint32_t dt_ticks) {
     }
     if (g_paused || g_finished) return;
     g_heading_delta = 0;
-    if (pad->held & SAT_PAD_LEFT) { g_heading -= FX(2) * (int32_t)dt_ticks; g_heading_delta = -1; }
-    if (pad->held & SAT_PAD_RIGHT) { g_heading += FX(2) * (int32_t)dt_ticks; g_heading_delta = 1; }
-    while (g_heading < 0) g_heading += FX(360);
-    while (g_heading >= FX(360)) g_heading -= FX(360);
-    if (pad->held & SAT_PAD_UP) thrust += (FX(1) / 12) * (int32_t)dt_ticks;
-    if (pad->held & SAT_PAD_DOWN) thrust -= (FX(1) / 10) * (int32_t)dt_ticks;
-    if ((pad->held & SAT_PAD_B) && g_energy > 1u) { thrust += (FX(1) / 7) * (int32_t)dt_ticks; if ((g_frames & 31u) == 0u) --g_energy; }
+    if (pad->held & SAT_PAD_LEFT) { g_heading -= SAT_FX16(2) * (int32_t)dt_ticks; g_heading_delta = -1; }
+    if (pad->held & SAT_PAD_RIGHT) { g_heading += SAT_FX16(2) * (int32_t)dt_ticks; g_heading_delta = 1; }
+    while (g_heading < 0) g_heading += SAT_FX16(360);
+    while (g_heading >= SAT_FX16(360)) g_heading -= SAT_FX16(360);
+    if (pad->held & SAT_PAD_UP) thrust += (SAT_FX16(1) / 12) * (int32_t)dt_ticks;
+    if (pad->held & SAT_PAD_DOWN) thrust -= (SAT_FX16(1) / 10) * (int32_t)dt_ticks;
+    if ((pad->held & SAT_PAD_B) && g_energy > 1u) { thrust += (SAT_FX16(1) / 7) * (int32_t)dt_ticks; if ((g_frames & 31u) == 0u) --g_energy; }
     g_speed += thrust;
     /* Friction is tuned per elapsed display frame; replaying it dt_ticks
      * times keeps the Egg Mobile's top speed the same whether a program
@@ -622,8 +621,8 @@ static void update_game(const sat_pad_state_t* pad, uint32_t dt_ticks) {
     for (t = 0; t < dt_ticks; ++t) {
         g_speed = (int32_t)(((int64_t)g_speed * 61) / 64);
     }
-    if (g_speed > FX(5)) g_speed = FX(5);
-    if (g_speed < FX(-2)) g_speed = FX(-2);
+    if (g_speed > SAT_FX16(5)) g_speed = SAT_FX16(5);
+    if (g_speed < SAT_FX16(-2)) g_speed = SAT_FX16(-2);
     sin_h = sat_sin_deg(g_heading); cos_h = sat_cos_deg(g_heading);
     g_scanner = (pad->held & SAT_PAD_C) != 0u;
     update_scanner(sin_h, cos_h);
@@ -639,7 +638,7 @@ static void update_game(const sat_pad_state_t* pad, uint32_t dt_ticks) {
         if (g_artifacts == 3u) {
             g_portal.cx = g_player.chunk_x + (sin_h >= 0 ? 2 : -2);
             g_portal.cz = g_player.chunk_z + (cos_h >= 0 ? 2 : -2);
-            g_portal.lx = g_portal.lz = FX(128); g_portal.active = 1;
+            g_portal.lx = g_portal.lz = SAT_FX16(128); g_portal.active = 1;
             if (g_audio_ready) play_one_shot(g_snd_impact, 130u, 0, 210u, SAT_FX16_ONE / 2);
         }
     }
@@ -653,7 +652,7 @@ static void update_game(const sat_pad_state_t* pad, uint32_t dt_ticks) {
     }
     {
         uint32_t h = explorer_hash(g_seed,g_player.chunk_x,g_player.chunk_z);
-        int32_t ox = FX(32 + (h & 191u)), oz = FX(32 + ((h >> 8) & 191u));
+        int32_t ox = SAT_FX16(32 + (h & 191u)), oz = SAT_FX16(32 + ((h >> 8) & 191u));
         int32_t dx = (ox - g_player.local_x) >> 16, dz = (oz - g_player.local_z) >> 16;
         if (dx*dx + dz*dz < 100 && !g_invulnerable) {
             if (g_energy) --g_energy;
@@ -684,7 +683,7 @@ static void update_game(const sat_pad_state_t* pad, uint32_t dt_ticks) {
 }
 
 static void draw_weather(void) {
-    if (g_speed > FX(2)) {
+    if (g_speed > SAT_FX16(2)) {
         uint8_t i;
         for (i = 0u; i < 5u; ++i) {
             int16_t x = (int16_t)(-10 + (int16_t)i * 5 + (int16_t)((g_frames + i * 3u) & 3u));
@@ -779,7 +778,7 @@ int main(void) {
         build_render_list(sin_h, cos_h);
         sat_example_must(sat_begin_frame());
         update_player_animation(dt_ticks);
-        sat_example_must(sat_scene_begin(&g_scene, &g_camera, FX(4), 320u, 224u, 48u));
+        sat_example_must(sat_scene_begin(&g_scene, &g_camera, SAT_FX16(4), 320u, 224u, 48u));
         draw_world(); draw_player();
         sat_example_must(sat_scene_flush(&g_scene));
         draw_weather();

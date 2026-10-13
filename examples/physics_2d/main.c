@@ -16,7 +16,6 @@
 #define BALLS 64
 #define WALLS 10
 #define HUD_PALETTE 1u
-#define FX(v) SAT_FX16(v)
 
 static sat_body2_t g_balls[BALLS];
 static sat_body2_t g_player;
@@ -36,8 +35,8 @@ static uint16_t g_count;
 static void spawn(void);
 
 static void wall(int i, int x, int y, int w, int h) {
-    g_walls[i].center = (sat_vec2_t){FX(x + w / 2), FX(y + h / 2)};
-    g_walls[i].half = (sat_vec2_t){FX(w / 2), FX(h / 2)};
+    g_walls[i].center = (sat_vec2_t){SAT_FX16(x + w / 2), SAT_FX16(y + h / 2)};
+    g_walls[i].half = (sat_vec2_t){SAT_FX16(w / 2), SAT_FX16(h / 2)};
 }
 static void reset(void) {
     uint16_t i;
@@ -48,8 +47,8 @@ static void reset(void) {
     wall(4, 70, 80, 80, 6); wall(5, 170, 80, 80, 6);
     wall(6, 70, 140, 80, 6); wall(7, 170, 140, 80, 6);
     wall(8, 156, 38, 8, 35); wall(9, 156, 145, 8, 35);
-    g_player.box.center = (sat_vec2_t){FX(40), FX(58)};
-    g_player.box.half = (sat_vec2_t){FX(5), FX(6)};
+    g_player.box.center = (sat_vec2_t){SAT_FX16(40), SAT_FX16(58)};
+    g_player.box.half = (sat_vec2_t){SAT_FX16(5), SAT_FX16(6)};
     g_player.vel = (sat_vec2_t){0, 0};
     g_player.flags = 0;
     spawn(); spawn(); spawn();
@@ -58,21 +57,21 @@ static void spawn(void) {
     uint16_t i;
     for (i = 0; i < BALLS; ++i) if (!g_live[i]) {
         g_live[i] = 1; ++g_count;
-        g_balls[i].box.center = (sat_vec2_t){FX(35 + (i * 17) % 245), FX(50 + (i * 11) % 60)};
-        g_balls[i].box.half = (sat_vec2_t){FX(4), FX(4)};
-        g_balls[i].vel = (sat_vec2_t){FX((int)(i % 5) - 2), FX(-2 - (int)(i % 2))};
+        g_balls[i].box.center = (sat_vec2_t){SAT_FX16(35 + (i * 17) % 245), SAT_FX16(50 + (i * 11) % 60)};
+        g_balls[i].box.half = (sat_vec2_t){SAT_FX16(4), SAT_FX16(4)};
+        g_balls[i].vel = (sat_vec2_t){SAT_FX16((int)(i % 5) - 2), SAT_FX16(-2 - (int)(i % 2))};
         g_balls[i].flags = 0; return;
     }
 }
 static sat_fx16_t bounce(sat_fx16_t velocity) {
-    const sat_fx16_t minimum = FX(1) / 4;
+    const sat_fx16_t minimum = SAT_FX16(1) / 4;
     if (velocity > -minimum && velocity < minimum) return 0;
     return (sat_fx16_t)(-((int32_t)(velocity) * 3 / 4));
 }
 static void physics_tick(void) {
     uint16_t i;
-    sat_body2_params_t player_params = {FX(1) / 8, FX(8), FX(3) / 4, 0};
-    sat_body2_params_t ball_params = {FX(1) / 8, FX(8), FX(1), 0};
+    sat_body2_params_t player_params = {SAT_FX16(1) / 8, SAT_FX16(8), SAT_FX16(3) / 4, 0};
+    sat_body2_params_t ball_params = {SAT_FX16(1) / 8, SAT_FX16(8), SAT_FX16(1), 0};
     sat_body2_step(&g_player, &player_params);
     sat_body2_move_boxes(&g_player, g_walls, WALLS);
     sat_spatial_clear(&g_spatial);
@@ -109,9 +108,9 @@ int main(void) {
     for (;;) { sat_pad_state_t pad={0}; sat_example_must(sat_app_frame_begin(SAT_COLOR_BLACK,SAT_COLOR_BLACK,&pad));
         if (pad.pressed & SAT_PAD_START) reset();
         if (pad.pressed & SAT_PAD_A) spawn();
-        { const sat_fx16_t target = (pad.held & SAT_PAD_LEFT) ? -FX(2) : (pad.held & SAT_PAD_RIGHT) ? FX(2) : 0;
-          g_player.vel.x = sat_approach(g_player.vel.x, target, FX(1) / 4); }
-        if ((g_player.flags & SAT_BODY_GROUNDED) && (pad.pressed & SAT_PAD_B)) g_player.vel.y = -FX(4);
-        if (!(pad.held & SAT_PAD_B) && g_player.vel.y < -FX(2)) g_player.vel.y = -FX(2);
+        { const sat_fx16_t target = (pad.held & SAT_PAD_LEFT) ? -SAT_FX16(2) : (pad.held & SAT_PAD_RIGHT) ? SAT_FX16(2) : 0;
+          g_player.vel.x = sat_approach(g_player.vel.x, target, SAT_FX16(1) / 4); }
+        if ((g_player.flags & SAT_BODY_GROUNDED) && (pad.pressed & SAT_PAD_B)) g_player.vel.y = -SAT_FX16(4);
+        if (!(pad.held & SAT_PAD_B) && g_player.vel.y < -SAT_FX16(2)) g_player.vel.y = -SAT_FX16(2);
         steps=sat_step_clock_steps(&clock,4); while(steps--) physics_tick(); draw(); sat_example_must(sat_app_frame_end()); }
 }
