@@ -9,16 +9,20 @@ light) with a stripe at y 84..103 in the plain codes. The VDP2 adds a per-line r
 inserted under the sprite layer, add-mode colour calculation) inside an ellipse window centred on
 (200, 80), radii 90 x 60, which holds until frame 240 and then sweeps. a.png is taken during the hold,
 b.png during the sweep. The struct read here is g_light_demo.
+
+The map/dump loader lives in harness/scripts/telemetry.py so every
+test in this directory uses the same WRAM_HIGH constant and symbol
+regex. The struct read here still uses the '>IIIiiIII' big-endian
+format that the SH-2 emits directly; the C struct definition lives in
+examples/vdp2_hires_light/main.c.
 """
 
 import os
-import re
-import struct
 import unittest
 
+from harness.scripts import telemetry as tel
+
 MAGIC = 0x4C495431  # "LIT1"
-WRAM_HIGH = 0x06000000
-STRUCT_BYTES = 8 * 4
 BACK = (1 << 3, 2 << 3, 6 << 3)
 
 
@@ -27,16 +31,11 @@ def _load():
     map_path = os.environ.get("LIBSATURN_LIGHT_MAP")
     if not dump or not map_path:
         raise unittest.SkipTest("run harness/run-vdp2-hires-light.ps1 first")
-    if not os.path.exists(dump) or not os.path.exists(map_path):
-        raise AssertionError("missing input: %s / %s" % (dump, map_path))
-    with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
-        found = re.search(r"(?m)^\s*0x([0-9A-Fa-f]+)\s+_g_light_demo\s*$", stream.read())
-    if not found:
-        raise AssertionError("_g_light_demo is absent from " + map_path)
-    offset = int(found.group(1), 16) - WRAM_HIGH
-    with open(dump, "rb") as stream:
-        image = stream.read()[offset:offset + STRUCT_BYTES]
-    v = struct.unpack(">IIIiiIII", image)
+    # '>IIIiiIII' = magic (u32), setup_ok (u32), frames (u32),
+    # spot_x (i32), spot_y (i32), light_on (u32), mask_on (u32),
+    # window_on (u32). The two signed i32s sit in the middle so the
+    # struct layout cannot drift without breaking this loader.
+    v = tel.load_dump(dump, map_path, "_g_light_demo", ">IIIiiIII")
     return {"magic": v[0], "setup_ok": v[1], "frames": v[2], "spot_x": v[3], "spot_y": v[4],
             "light_on": v[5], "mask_on": v[6], "window_on": v[7]}
 
