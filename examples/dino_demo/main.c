@@ -53,6 +53,7 @@
 #include "saturn/asset.h"
 #include "saturn/audio.h"
 #include "saturn/cd_block.h"
+#include "saturn/cd_mount.h"
 #include "saturn/cdfs.h"
 #include "saturn/color.h"
 #include "saturn/font.h"
@@ -241,14 +242,8 @@ static sat_result_t init_music(void) {
     sat_result_t st = sat_audio_init();
 
     if (st != SAT_OK) return st;
-    st = sat_cd_block_init(&g_cd_block, SAT_CD_BLOCK_DEFAULT_TIMEOUT);
-    if (st != SAT_OK) return st;
-    st = sat_cd_block_set_progress_service(
-        &g_cd_block, service_audio_during_cd, 0);
-    if (st != SAT_OK) return st;
-    st = sat_cd_block_bind_device(&g_cd_block, &g_cd_device, 0u);
-    if (st != SAT_OK) return st;
-    st = sat_cdfs_mount(&g_cd_volume, &g_cd_device);
+    st = sat_cd_mount_default(
+        &g_cd_block, service_audio_during_cd, 0, &g_cd_device, 0u, &g_cd_volume);
     if (st != SAT_OK) return st;
 
 #if DINO_MUSIC_68K

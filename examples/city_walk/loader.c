@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "saturn/cd_block.h"
+#include "saturn/cd_mount.h"
 #include "saturn/cdfs.h"
 #include "saturn/vdp2.h"
 #include "saturn/video.h"
@@ -121,9 +122,7 @@ sat_result_t city_loader_run(uint8_t* staging, uint32_t staging_bytes,
     if (st != SAT_OK) return st;
 
     progress("OPENING DISC", 2u);
-    st = sat_cd_block_init(&g_block, SAT_CD_BLOCK_DEFAULT_TIMEOUT);
-    if (st == SAT_OK) st = sat_cd_block_bind_device(&g_block, &g_device, 0u);
-    if (st == SAT_OK) st = sat_cdfs_mount(&g_volume, &g_device);
+    st = sat_cd_mount_default(&g_block, 0, 0, &g_device, 0u, &g_volume);
     if (st == SAT_OK) st = sat_cdfs_lookup(&g_volume, "CITY.BIN", &file);
     if (st != SAT_OK) return st;
     if (file.size < CITY_HEADER_BYTES) return SAT_ERR_IO;

@@ -16,6 +16,7 @@
 
 #include "saturn/app.h"
 #include "saturn/cd_block.h"
+#include "saturn/cd_mount.h"
 #include "saturn/cdfs.h"
 #include "saturn/color.h"
 #include "saturn/time.h"
@@ -231,11 +232,10 @@ int main(void) {
     if (sat_app_init_default() != SAT_OK) return 1;
     g_load.magic = LOAD_MAGIC;
 
-    sat_result_t status = sat_cd_block_init(&g_block, SAT_CD_BLOCK_DEFAULT_TIMEOUT);
+    sat_result_t status = sat_cd_mount_default(
+        &g_block, 0, 0, &g_device, 0u, &g_volume);
     g_load.status_cd_init = (uint32_t)status;
-    if (status == SAT_OK) status = sat_cd_block_bind_device(&g_block, &g_device, 0u);
     if (status == SAT_OK) {
-        status = sat_cdfs_mount(&g_volume, &g_device);
         g_load.status_mount = (uint32_t)status;
     }
     sat_cdfs_file_t file = {0};

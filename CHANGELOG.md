@@ -88,6 +88,28 @@ The version is defined once, in the `VERSION` file.
   the title uses `sat_hud_text`, with a `sat_hud_t` carrying the
   font, palette code 0 and 8 px/cell spacing that the original
   hand-rolled `sat_ascii_font_draw_*` calls hard-coded.
+- `sat_hud_init` now accepts `char_spacing == 0` (tight: the font's
+  glyph width is the per-glyph advance, no extra gap), matching
+  the value two examples (input_move, physics_2d) were passing to
+  the open-coded `sat_ascii_font_draw_text_screen_indexed8(..., 0, ...)`
+  calls. test_hud.cpp locks the new behaviour.
+- HUD migrations continued: `irq_demo`, `audio_showcase`, `abus_demo`,
+  `expansion_probe_demo`, `parallel_sched_demo`, `scsp_dsp_demo`,
+  `input_move` and `dual_sh2` (eight more) now use `sat_hud_t` +
+  `sat_hud_text` / `sat_hud_value`. `red_square` and `input_debug`
+  draw their text in world space, not screen space, so they stay
+  on the open-coded `sat_ascii_font_draw_text_indexed8`; `cd_streaming_jukebox`
+  had already adopted the overlay before this sweep.
+- `sat_cd_mount_default(block, progress, progress_context, device,
+  sector_count, volume)` in the new `include/saturn/cd_mount.h`
+  + `src/storage/cd/mount.cpp`: one-call CD bring-up that does
+  `sat_cd_block_init`, the optional `sat_cd_block_set_progress_service`,
+  `sat_cd_block_bind_device` and `sat_cdfs_mount` in the order every
+  example that boots from disc open-coded. Each output pointer
+  may be NULL to skip that step, so callers that only need init
+  (expansion_probe_demo's no-card probe) still get the one helper.
+  Six examples migrated: city_walk, dino_demo, cd_streaming_jukebox,
+  city_load_probe, exec_demo, expansion_probe_demo.
 - Harness: `harness/scripts/telemetry.py` exposes `WRAM_HIGH`,
   `find_symbol`, `load_dump` and `verify_fields` so the eighteen
   pytest files no longer hand-roll the same map-regex /

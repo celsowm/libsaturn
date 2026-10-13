@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "saturn/saturn.h"
+#include "saturn/cd_mount.h"
 #include "example_util.h"
 
 enum {
@@ -55,9 +56,8 @@ int main(void) {
     g_exec_demo.magic = kMagic;
 
     sat_example_must(sat_app_init_default());
-    sat_example_must(sat_cd_block_init(&g_block, SAT_CD_BLOCK_DEFAULT_TIMEOUT));
-    sat_example_must(sat_cd_block_bind_device(&g_block, &g_device, 0u));
-    sat_example_must(sat_cdfs_mount(&g_volume, &g_device));
+    sat_example_must(sat_cd_mount_default(
+        &g_block, 0, 0, &g_device, 0u, &g_volume));
     g_exec_demo.missing_status = sat_exec(&g_volume, "NOPE.BIN", 0, 0u);
 
     g_exec_demo.slave_status = sat_dual_sh2_configure_slave(slave_program, 0);

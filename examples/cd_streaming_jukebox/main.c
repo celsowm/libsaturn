@@ -10,6 +10,7 @@
 #include "saturn/asset.h"
 #include "saturn/audio.h"
 #include "saturn/cd_block.h"
+#include "saturn/cd_mount.h"
 #include "saturn/cdfs.h"
 #include "saturn/color.h"
 #include "saturn/file.h"
@@ -68,17 +69,12 @@ static sat_result_t service_cd_audio(void* context) {
 }
 
 static sat_result_t register_cd_tracks(void) {
-    sat_result_t status = sat_cd_block_init(&g_cd_block, SAT_CD_BLOCK_DEFAULT_TIMEOUT);
-    if (status != SAT_OK) return status;
-    /* This example explicitly opts into servicing audio while CD waits.
-     * Bare-metal CD Block users have no implicit audio dependency. */
-    status = sat_cd_block_set_progress_service(&g_cd_block, service_cd_audio, 0);
-    if (status != SAT_OK) return status;
     /* A zero sector count means unbounded validation in sat_cd_device_t. The
-     * CD Block itself remains bounded by the requested CDFS file extent. */
-    status = sat_cd_block_bind_device(&g_cd_block, &g_cd_device, 0u);
-    if (status != SAT_OK) return status;
-    status = sat_cdfs_mount(&g_volume, &g_cd_device);
+     * CD Block itself remains bounded by the requested CDFS file extent.
+     * service_cd_audio is the opt-in: bare-metal CD Block users have no
+     * implicit audio dependency. */
+    sat_result_t status = sat_cd_mount_default(
+        &g_cd_block, service_cd_audio, 0, &g_cd_device, 0u, &g_volume);
     if (status != SAT_OK) return status;
 
     for (uint16_t i = 0u; i < TRACK_COUNT; ++i) {

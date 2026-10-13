@@ -172,6 +172,7 @@ set(LIBSATURN_STORAGE_SOURCES
     src/storage/cd/exec_hal.cpp
     src/storage/cd/filesystem.cpp
     src/storage/cd/loader.cpp
+    src/storage/cd/mount.cpp
     src/storage/compression/lz.cpp
     src/storage/files/api.cpp
     src/storage/files/asset_cache.cpp

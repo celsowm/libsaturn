@@ -7,6 +7,7 @@
 #include "saturn/abus.h"
 #include "saturn/app.h"
 #include "saturn/cd_block.h"
+#include "saturn/cd_mount.h"
 #include "saturn/color.h"
 #include "saturn/font.h"
 #include "saturn/hud.h"
@@ -59,7 +60,8 @@ int main(void) {
     if (sat_hud_init(&hud, &font, 0u, 8u) != SAT_OK) return 1;
     g_expansion.magic = EXPANSION_MAGIC;
 
-    g_expansion.cd_init = (uint32_t)(-sat_cd_block_init(&block, SAT_CD_BLOCK_DEFAULT_TIMEOUT));
+    g_expansion.cd_init = (uint32_t)(-sat_cd_mount_default(
+        &block, 0, 0, 0, 0u, 0));
     if (g_expansion.cd_init == 0u) {
         g_expansion.probe_status = (uint32_t)(-sat_mpeg_probe(&block, &info));
         g_expansion.present = info.present;
