@@ -128,6 +128,7 @@ set(LIBSATURN_HAL_SOURCES
     src/hal/vdp1/vdp1.cpp
     src/hal/vdp2/color_calc.cpp
     src/hal/vdp2/vdp2.cpp
+    src/hal/vdp2/allocator.cpp
 )
 
 set(LIBSATURN_INPUT_SOURCES

@@ -56,6 +56,13 @@ static inline sat_color_t sat_color_rgba(uint8_t r, uint8_t g, uint8_t b, uint8_
     (((uint16_t)(g) & 0x1Fu) << 5u) | \
     ((uint16_t)(r) & 0x1Fu)))
 
+/* SAT_RGB555_RAW is the same value as SAT_BGR555 -- the "RAW" form is what
+ * comes out of an unshifted literal that someone might write by hand. Test
+ * harnesses and telemetry probes should compare against SAT_RGB555_RAW
+ * instead of hard-coding 0x8000 | (...) shifts: that way any future change
+ * to the bit layout (e.g. moving to ARGB1555) updates every site at once. */
+#define SAT_RGB555_RAW(r, g, b) SAT_BGR555(r, g, b)
+
 /* ------------------------------------------------------------------ */
 /* Named Saturn BGR555 colors                                         */
 /* ------------------------------------------------------------------ */
