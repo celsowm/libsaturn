@@ -15,6 +15,8 @@ extern "C" {
  * long the program goes without calling this. Without them it must be read
  * at least every ~0.3 s or that span is lost. */
 uint32_t sat_time_ms(void);
+/* Calibrated FRT ticks per nominal second; zero before initialization. */
+uint32_t sat_time_frequency_hz(void);
 
 /* Extended free-running timer ticks elapsed since sat_init(). The value uses
  * the SH-2 FRT prescaler selected by the runtime and is not converted to a

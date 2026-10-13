@@ -128,6 +128,9 @@ ASFLAGS     := -m2 -mb
 # defines never enter generic translation units, and profile changes select
 # different object/archive paths instead of touching every .o on each build.
 LIB_PROFILE_METRICS := 0
+ifneq ($(filter skeletal_animation_3d fighter_arena_3d skinning_stress_3d,$(EXAMPLE)),)
+LIB_PROFILE_METRICS := 1
+endif
 ifeq ($(EXAMPLE),skybridge_3d)
 ifneq ($(strip $(SAT_SKYBRIDGE_VALIDATION)),)
 LIB_PROFILE_METRICS := 1
@@ -333,6 +336,11 @@ ifneq ($(wildcard $(EXAMPLE_PREBUILT_MANIFEST)),)
 endif
 
 # Generate compiled-in assets for examples that point at build/generated.
+CHARACTER_EXAMPLE_GEN := $(GENERATED_DIR)/character_examples
+CHARACTER_EXAMPLE_OUTPUTS := $(addprefix $(CHARACTER_EXAMPLE_GEN)/,fighter_high.c fighter_medium.c fighter_low.c fighter_assets.c fighter_high.h fighter_medium.h fighter_low.h fighter_assets.h report.json) $(addprefix $(CHARACTER_EXAMPLE_GEN)/disc/,high_blue.ska high_red.ska medium_blue.ska medium_red.ska low_blue.ska low_red.ska)
+$(CHARACTER_EXAMPLE_OUTPUTS) &: tools/generate_character_examples.py tools/model_pipeline/skeletal_binary.py tools/model_pipeline/skeletal_export.py tools/model_pipeline/skeletal_textures.py tools/model_pipeline/model.py tools/model_pipeline/animation.py
+	$(PYTHON) tools/generate_character_examples.py --output $(CHARACTER_EXAMPLE_GEN)
+
 # Prebuilt examples keep their checked-in C/H files and skip this rule.
 GENERATED_EXAMPLE_ASSET_TARGETS := $(filter $(BUILD_DIR)/generated/%,$(EXAMPLE_ASSETS) $(EXAMPLE_HEADERS))
 ifneq ($(strip $(GENERATED_EXAMPLE_ASSET_TARGETS)),)
@@ -450,7 +458,9 @@ MODEL_IMPORT_ARGS = \
 	--scale $(MODEL_SCALE) \
 	$(if $(MODEL_LOOP_CLIPS),--loop-clips $(MODEL_LOOP_CLIPS)) \
 	$(if $(MODEL_MAX_TRIANGLES),--max-triangles $(MODEL_MAX_TRIANGLES)) \
-	$(if $(filter skeletal,$(MODEL_TARGET)),, \
+	$(if $(filter 1,$(MODEL_SKELETAL_SURFACE_BAKE)),--skeletal-surface-bake) \
+	$(if $(MODEL_SKELETAL_EXPOSURE),--skeletal-exposure $(MODEL_SKELETAL_EXPOSURE)) \
+	$(if $(filter 1,$(MODEL_SKELETAL_STUDIO_LIGHT)),--skeletal-studio-light) \
 	--palette-index $(MODEL_PALETTE_INDEX) \
 	--max-texture-width $(MODEL_MAX_TEXTURE_WIDTH) \
 	--max-texture-height $(MODEL_MAX_TEXTURE_HEIGHT) \
@@ -459,6 +469,7 @@ MODEL_IMPORT_ARGS = \
 	--quality $(MODEL_QUALITY) \
 	--animation $(MODEL_ANIMATION) \
 	--animation-fps $(MODEL_ANIMATION_FPS) \
+	$(if $(filter skeletal,$(MODEL_TARGET)),, \
 	--face-colors $(MODEL_FACE_COLORS) \
 	--light-dir=$(MODEL_LIGHT_DIR) \
 	--ambient $(MODEL_AMBIENT) \
@@ -472,9 +483,9 @@ MODEL_IMPORT_ARGS = \
 	--weld-vertices $(MODEL_WELD_VERTICES) \
 	--texture-format $(MODEL_TEXTURE_FORMAT) \
 	--locality-order $(MODEL_LOCALITY_ORDER) \
+	$(if $(MODEL_LUT_CODES),--lut-codes $(MODEL_LUT_CODES))) \
 	--sampling $(MODEL_SAMPLING) \
 	$(if $(MODEL_TEXEL_EXTENT),--texel-extent $(MODEL_TEXEL_EXTENT)) \
-	$(if $(MODEL_LUT_CODES),--lut-codes $(MODEL_LUT_CODES))) \
 	--report $(MODEL_OUT_PREFIX).report.json \
 	$(MODEL_FLIP_FLAGS) $(MODEL_LOD_FLAG) $(MODEL_MERGE_RIGID_MESHES_FLAG)
 # The incremental cache always hashes a small set of output roles; ensure
@@ -711,7 +722,12 @@ HOST_TEST_EXTRA_test_skeleton3d := src/graphics/3d/animation/skeleton.cpp src/gr
 HOST_TEST_EXTRA_test_skeleton_clip := $(HOST_TEST_EXTRA_test_skeleton3d)
 HOST_TEST_EXTRA_test_skin3d := $(HOST_TEST_EXTRA_test_skeleton3d) src/graphics/3d/animation/skin.cpp
 HOST_TEST_EXTRA_test_skin_scene := src/graphics/3d/scene/faces.cpp src/graphics/3d/animation/skin.cpp
-HOST_TEST_EXTRA_test_skin_present := src/graphics/3d/animation/character.cpp
+HOST_TEST_EXTRA_test_skin_present := src/graphics/3d/animation/character.cpp $(HOST_TEST_EXTRA_test_skin3d)
+HOST_TEST_EXTRA_test_character_asset := src/graphics/3d/animation/character_asset.cpp $(HOST_TEST_EXTRA_test_skin3d)
+HOST_TEST_EXTRA_test_character_combat := examples/characters/combat.c
+HOST_TEST_EXTRA_test_skin_parallel := src/graphics/3d/animation/skin_parallel.cpp $(HOST_TEST_EXTRA_test_skin3d)
+
+build/tests/test_character_asset: build/generated/character_examples/disc/high_blue.ska build/generated/character_examples/disc/high_red.ska
 HOST_TEST_EXTRA_test_anim3d_logic := src/graphics/3d/animation/api.cpp src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_anim3d_async_lifetime := src/graphics/3d/animation/api.cpp src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_pacman_game := examples/pacman/pacman_game.c examples/pacman/pacman_level.c examples/pacman/pacman_stages.c src/physics/2d/grid.cpp src/physics/2d/collision.cpp src/core/math3d/api.cpp

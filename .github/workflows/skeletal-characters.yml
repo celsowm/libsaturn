@@ -1,0 +1,40 @@
+name: Skeletal character gates
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'include/saturn/**'
+      - 'src/graphics/3d/animation/**'
+      - 'src/graphics/3d/scene/**'
+      - 'tools/model_pipeline/**'
+      - 'tools/generate_character_examples.py'
+      - 'examples/characters/**'
+      - 'tests/host/test_*skin*'
+      - 'tests/host/test_character*'
+      - 'tests/tools/test_skeletal*'
+      - 'Makefile'
+      - '.github/workflows/skeletal-characters.yml'
+  pull_request:
+  workflow_dispatch:
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install numpy pillow
+      - name: Generate original fixtures and verify tooling
+        run: |
+          python tools/generate_character_examples.py --output build/generated/character_examples
+          python -m unittest tests.tools.test_skeletal_export tests.tools.test_surface_bake tests.tools.test_skeletal_binary
+          python tests/tools/test_library_source_manifest.py
+      - name: Build and execute character host gates
+        run: |
+          make build/tests/test_skeleton3d build/tests/test_skeleton_clip build/tests/test_skin3d build/tests/test_skin_scene build/tests/test_skin_present build/tests/test_skin_parallel build/tests/test_character_asset build/tests/test_character_combat build/tests/test_scene3d_faces_api
+          for test in test_skeleton3d test_skeleton_clip test_skin3d test_skin_scene test_skin_present test_skin_parallel test_character_asset test_character_combat test_scene3d_faces_api; do ./build/tests/$test; done
+      - name: Verify public package headers
+        run: |
+          cmake --preset host-tests
+          ctest --preset host-tests --output-on-failure

@@ -226,6 +226,17 @@ def evaluate_positions(
             # Unskinned models ignore clips; still validate the request.
             pass
         return list(model.vertices)
+    if model.skin_anchors:
+        world = compute_global_transforms(model, compute_local_transforms(model,clip,t))
+        skin = model.skins[model.skin_index if model.skin_index >= 0 else 0]
+        out = []
+        for influences in model.skin_anchors:
+            result = [0.0, 0.0, 0.0]
+            for joint, weight, anchor in influences:
+                point = mat_vec(world[skin.joints[joint]], anchor)
+                for axis in range(3): result[axis] += weight * point[axis]
+            out.append(tuple(result))
+        return out
     mats = skin_matrices(model, clip, t)
     out = []
     for pos, js, ws in zip(model.vertices, model.joints, model.weights):

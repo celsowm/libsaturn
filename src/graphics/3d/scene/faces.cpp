@@ -24,9 +24,13 @@ Capture g_capture{};
 #if SAT_PROFILE_METRICS
 uint32_t g_test_painter_ticks;
 uint32_t g_test_emit_ticks;
+uint32_t g_test_projection_ticks;
+uint32_t g_test_prepare_ticks;
 #endif
 
 bool valid_material(const sat_scene3d_material_t& m) {
+    // Indexed8 palette texels do not support the RGB Gouraud arithmetic path.
+    if (m.vertex_gouraud && m.kind!=SAT_SCENE3D_RGB) return false;
     if (m.kind==SAT_SCENE3D_RGB)
         return m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE;
     if (m.kind==SAT_SCENE3D_INDEXED_TILED)
@@ -687,9 +691,17 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
         }
         world=world_scratch;
     }
+#if SAT_PROFILE_METRICS
+    const uint16_t projection_start=saturn::hal::sh2::frt::counter();
+#endif
     const sat_result_t projected=sat_project_vertices(
         &scene->view_proj,world,mesh->vertex_count,screen_scratch);
     if (projected!=SAT_OK) return projected;
+#if SAT_PROFILE_METRICS
+    g_test_projection_ticks=static_cast<uint16_t>(
+        saturn::hal::sh2::frt::counter()-projection_start);
+    const uint16_t prepare_start=saturn::hal::sh2::frt::counter();
+#endif
     /* Preserve queue atomicity if a future append path fails after other
      * instance faces have already been appended or culled. */
     const uint16_t previous_count=scene->count;
@@ -737,6 +749,10 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
             return st;
         }
     }
+#if SAT_PROFILE_METRICS
+    g_test_prepare_ticks=static_cast<uint16_t>(
+        saturn::hal::sh2::frt::counter()-prepare_start);
+#endif
     return SAT_OK;
 }
 
@@ -949,7 +965,23 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
     return result;
 }
 
+extern "C" sat_result_t sat_scene3d_profile_get(sat_scene3d_profile_t* out) {
+    if (!out) return SAT_ERR_INVALID_ARG;
 #if SAT_PROFILE_METRICS
+    *out={g_test_projection_ticks,g_test_prepare_ticks,g_test_painter_ticks,g_test_emit_ticks};
+    return SAT_OK;
+#else
+    *out={};
+    return SAT_ERR_UNSUPPORTED;
+#endif
+}
+#if SAT_PROFILE_METRICS
+extern "C" uint32_t sat_scene3d_test_projection_ticks(void) {
+    return g_test_projection_ticks;
+}
+extern "C" uint32_t sat_scene3d_test_prepare_ticks(void) {
+    return g_test_prepare_ticks;
+}
 extern "C" uint32_t sat_scene3d_test_painter_ticks(void) {
     return g_test_painter_ticks;
 }

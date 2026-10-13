@@ -1,4 +1,5 @@
 #include "saturn/time.h"
+#include "saturn/video.h"
 
 #include "src/core/runtime/state.hpp"
 #include "src/core/runtime/time_logic.hpp"
@@ -23,6 +24,12 @@ extern "C" uint64_t sat_time_ticks(void) {
         return 0u;
     }
     return saturn::hal::scu::elapsed_ticks();
+}
+
+extern "C" uint32_t sat_time_frequency_hz(void) {
+    using namespace saturn::core;
+    if (!g_state.initialized) return 0u;
+    return saturn::hal::scu::ticks_per_frame()*sat_video_refresh_hz();
 }
 
 extern "C" uint16_t sat_time_frc(void) {

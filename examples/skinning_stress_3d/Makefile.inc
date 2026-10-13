@@ -1,0 +1,2 @@
+include examples/characters/Makefile.inc
+EXAMPLE_INCFLAGS += -DCHARACTER_DEMO_MAX_ACTORS=8 -DCHARACTER_DEMO_ASSET_SLOTS=1

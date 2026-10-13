@@ -38,13 +38,20 @@ typedef struct sat_scene3d_material {
     uint8_t color_calc_slot;
     /* Optional per-vertex Gouraud table. The pointer is read only during
      * submission and the four selected entries are copied into the face. */
-    const uint16_t* vertex_gouraud;
+    const uint16_t* vertex_gouraud; /* RGB materials only; indexed8 is rejected. */
 } sat_scene3d_material_t;
 
 /* 8-bit artistic pass in the painter key, leaving 24 bits of depth (faces
  * order by depth out to 4096 world units). Values beyond this fail
  * atomically. */
 #define SAT_SCENE3D_PASS_MAX 255u
+
+typedef struct sat_scene3d_profile {
+    uint32_t projection_ticks, preparation_ticks, painter_ticks, emission_ticks;
+} sat_scene3d_profile_t;
+/* Last instance submission / flush FRT costs. UNSUPPORTED when profiling was
+ * compiled out; callers must not present zero as a measured cost. */
+sat_result_t sat_scene3d_profile_get(sat_scene3d_profile_t* out);
 
 /* Paint order is NOT a field here: it lives in the scene's parallel key
  * array, so ordering a frame moves two-byte indices instead of these

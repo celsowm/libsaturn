@@ -114,7 +114,7 @@ sat_result_t sat_skeleton_evaluate(
 sat_result_t sat_skeleton_joint_world(
     const sat_skeleton_instance_t* instance, uint16_t joint, sat_mat4_t* out);
 
-/* Rigid inverse of every rest-pose joint matrix (the bind inverse), for
+/* Affine inverse of every rest-pose joint matrix (the bind inverse), for
  * building skin matrices. out has joint_count entries. */
 sat_result_t sat_skeleton_inverse_bind(
     const sat_skeleton_asset_t* skeleton, sat_mat4_t* out, uint16_t capacity);

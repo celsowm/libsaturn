@@ -198,6 +198,28 @@ static void bind_and_skin() {
     CHECK(absdiff(skin[1].m[0], 65536) > 30000);
 }
 
+static void scaled_bind_and_skin() {
+    sat_skeleton_joint_t j[2] = {
+        joint(SAT_TRANSFORM3D_ROOT, FX(1), FX(-2), FX(3), rot_z90()),
+        joint(0, FX(2), 0, 0, ident()),
+    };
+    j[0].rest_scale = {FX(2), FX(3), FX(0.5)};
+    j[1].rest_scale = {FX(0.5), FX(1), FX(2)};
+    sat_skeleton_asset_t s{j, 2, 0};
+    sat_mat4_t inv[2]{}, skin[2]{};
+    CHECK(sat_skeleton_inverse_bind(&s, inv, 2) == SAT_OK);
+    sat_transform3d_node_t nodes[2]{};
+    uint16_t scratch[2]{};
+    sat_skeleton_instance_t inst{};
+    sat_skeleton_pose_joint_t pose[2]{};
+    CHECK(sat_skeleton_instance_init(&inst, &s, nodes, 2, scratch, 2) == SAT_OK);
+    CHECK(sat_skeleton_rest_pose(&s, pose, 2) == SAT_OK);
+    CHECK(sat_skeleton_evaluate(&inst, pose, 2) == SAT_OK);
+    CHECK(sat_skeleton_skin_matrices(&inst, inv, skin, 2) == SAT_OK);
+    for (int i = 0; i < 2; ++i) for (int k = 0; k < 16; ++k)
+        CHECK(absdiff(skin[i].m[k], k % 5 == 0 ? 65536 : 0) < 512);
+}
+
 static void blend_poses() {
     sat_skeleton_asset_t s{kArm, 3, 0};
     sat_skeleton_pose_joint_t a[3], b[3], out[3];
@@ -235,15 +257,38 @@ static void instances_are_independent() {
     CHECK(m1.m[3] == FX(6) && m2.m[3] == FX(15));
 }
 
+static void caller_owned_large_hierarchy_and_unchanged_locals() {
+    constexpr uint16_t JointCount=64;
+    sat_skeleton_joint_t joints[JointCount]{};
+    sat_skeleton_pose_joint_t pose[JointCount]{};
+    sat_transform3d_node_t nodes[JointCount]{};uint16_t scratch[JointCount]{};
+    for(uint16_t j=0;j<JointCount;++j) {
+        joints[j].parent=j?j-1:SAT_TRANSFORM3D_ROOT;
+        joints[j].rest_translation.y=FX(1);sat_quat16_identity(&joints[j].rest_rotation);
+    }
+    sat_skeleton_asset_t asset{joints,JointCount,0};sat_skeleton_instance_t instance{};
+    CHECK(sat_skeleton_instance_init(&instance,&asset,nodes,JointCount,scratch,JointCount)==SAT_OK);
+    CHECK(sat_skeleton_rest_pose(&asset,pose,JointCount)==SAT_OK);
+    CHECK(sat_skeleton_evaluate(&instance,pose,JointCount)==SAT_OK);
+    sat_mat4_t before=nodes[JointCount-1].world;
+    CHECK(before.m[7]==FX(JointCount));
+    CHECK(sat_skeleton_evaluate(&instance,pose,JointCount)==SAT_OK);
+    CHECK(std::memcmp(&before,&nodes[JointCount-1].world,sizeof(before))==0);
+    pose[0].translation.x=FX(2);
+    CHECK(sat_skeleton_evaluate(&instance,pose,JointCount)==SAT_OK);
+    CHECK(nodes[JointCount-1].world.m[3]==FX(2) && nodes[JointCount-1].world.m[7]==FX(JointCount));
+}
 int main() {
+    caller_owned_large_hierarchy_and_unchanged_locals();
     quat_basics();
     nlerp_cases();
     validation();
     one_bone();
     hierarchy_and_rotation();
     bind_and_skin();
+    scaled_bind_and_skin();
     blend_poses();
     instances_are_independent();
-    std::printf("test_skeleton3d: 8 tests passed\n");
+    std::printf("test_skeleton3d: 10 tests passed\n");
     return 0;
 }

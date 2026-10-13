@@ -19,6 +19,7 @@ from model_pipeline.model import (  # noqa: E402
     SourceModel,
     SourceNode,
     SourceSkin,
+    SourceTexture,
 )
 
 
@@ -52,6 +53,114 @@ def chain_model(scale=(1.0, 1.0, 1.0)) -> SourceModel:
 
 
 class SkeletalExportTests(unittest.TestCase):
+    def test_generic_multi_anchor_source(self):
+        from model_pipeline.animation import mat_vec
+        model=chain_model()
+        model.skin_anchors=[[(j,w,tuple(mat_vec(model.skins[0].inverse_bind[j],p)))
+            for j,w in zip(js,ws) if w] for p,js,ws in zip(model.vertices,model.joints,model.weights)]
+        # Distinct positions per influence, whose rest-pose average is unchanged.
+        model.skin_anchors[1]=[(0,.5,(.1,1,0)),(1,.5,(.3,0,0))]
+        exp=sx.export_model(model)
+        self.assertLess(sx.verify(model,exp)["max_error"],.001)
+        self.assertNotEqual(exp.skin.blend[0][3][0],exp.skin.blend[0][3][1])
+        model.skin_anchors[1]=[(999,1,(0,0,0))]
+        with self.assertRaises(ModelImportError):sx.export_model(model)
+    def test_shared_skin_records_preserve_seam_uvs_and_source_evaluation(self):
+        from model_pipeline.skeletal_textures import build_render_asset
+        from unittest.mock import patch
+        model = self.textured_model()
+        # Duplicate both a rigid and a blended source vertex at a UV seam.
+        for index, uv in ((0, (0.25, 0.75)), (1, (0.75, 0.25))):
+            for field in ("vertices", "joints", "weights"):
+                getattr(model, field).append(getattr(model, field)[index])
+            model.uvs.append(uv)
+        # This slightly larger bind position quantizes to the same skin anchor.
+        # Preserve its original bound despite sharing the first representative.
+        model.vertices[4] = (0.20001, 0.0, 0.0)
+        model.triangles.append((4, 5, 2))
+        model.tri_materials.append(0)
+        exp = sx.export_model(model)
+        self.assertEqual(len(exp.skin.source_vertex), 4)
+        self.assertEqual(exp.skin.triangles[0], exp.skin.triangles[2])
+        for frame in exp.clips[0].frames:
+            evaluated = sx.evaluate_export(exp, frame)
+            self.assertEqual(len(evaluated), 6)
+            self.assertEqual(evaluated[0], evaluated[4])
+            self.assertEqual(evaluated[1], evaluated[5])
+        with patch("model_pipeline.skeletal_textures.bake_face_rgba",
+                   return_value=[(255, 0, 0, 255)] * 8) as bake:
+            render = build_render_asset(model, exp)
+        self.assertEqual(render.indices_abcd[0], render.indices_abcd[2])
+        self.assertEqual(render.stats["source_bounds_fx"][1][0], 13108)
+        self.assertEqual(max(p[0] for p in render.vertices_fx), 13107)
+        self.assertEqual(bake.call_args_list[2].args[0],
+                         ((0.25, 0.75), (0, 1), (0.75, 0.25), (0.75, 0.25)))
+        self.assertLess(sx.verify(model, exp)["max_error"], 0.001)
+
+    def test_equal_positions_with_different_deformations_stay_distinct(self):
+        model = chain_model()
+        for field in ("vertices", "joints", "weights"):
+            getattr(model, field).append(getattr(model, field)[1])
+        model.weights[-1] = (0.75, 0.25, 0, 0)
+        exp = sx.export_model(model)
+        self.assertEqual(len(exp.skin.source_vertex), 5)
+        self.assertNotEqual(exp.skin.source_to_vertex[1], exp.skin.source_to_vertex[4])
+
+    def textured_model(self):
+        model = chain_model()
+        model.uvs = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        model.materials = [{"texture": 0}, {"texture": 1}]
+        model.textures = [SourceTexture(1, 1, [(255, 0, 0, 255)]),
+                          SourceTexture(1, 1, [(0, 255, 0, 255)])]
+        model.tri_materials = [0, 1]
+        return model
+
+    def test_textures_follow_skin_vertex_remap_and_materials(self):
+        from model_pipeline.skeletal_textures import build_render_asset
+        model = self.textured_model()
+        exp = sx.export_model(model)
+        render = build_render_asset(model, exp)
+        # Source (0,1,2) becomes skin (0,2,1); clockwise reverses to (0,1,2).
+        self.assertEqual(render.indices_abcd[0], (0, 1, 2, 2))
+        self.assertEqual(render.vertices_fx[1], (13107, 131072, 0))
+        self.assertEqual(len(render.textures), 2)
+        colors = [render.palette_rgb555[t["pixels"][0]] for t in render.textures]
+        self.assertEqual(colors, [0x801f, 0x83e0])
+        header, source = sx.emit_c(exp, "robot", render)
+        self.assertIn("ROBOT_TEXTURE_COUNT 2", header)
+        self.assertIn("const sat_model_asset_t robot_asset", source)
+        self.assertIn("robot_bind_vertices, 4, robot_indices, 2", source)
+
+    def test_texture_uv_order_matches_clockwise_skin_topology(self):
+        from model_pipeline.skeletal_textures import build_render_asset
+        from unittest.mock import patch
+        model = self.textured_model()
+        with patch("model_pipeline.skeletal_textures.bake_face_rgba",
+                   return_value=[(255, 0, 0, 255)] * 8) as bake:
+            build_render_asset(model, sx.export_model(model))
+        self.assertEqual(bake.call_args_list[0].args[0],
+                         ((0, 0), (0, 1), (1, 0), (1, 0)))
+
+    def test_textures_deduplicate_and_respect_palette_bank(self):
+        from model_pipeline.skeletal_textures import build_render_asset
+        model = self.textured_model()
+        model.tri_materials = [0, 0]
+        render = build_render_asset(model, sx.export_model(model), palette_index=2)
+        self.assertEqual(len(render.textures), 1)
+        self.assertEqual(render.face_texture_indices, [0, 0])
+        self.assertEqual(render.palette_base, 2)
+
+    def test_textures_reject_missing_uvs_and_invalid_materials(self):
+        from model_pipeline.skeletal_textures import build_render_asset
+        model = self.textured_model()
+        model.uvs.pop()
+        with self.assertRaisesRegex(ModelImportError, "one UV"):
+            build_render_asset(model, sx.export_model(model))
+        model = self.textured_model()
+        model.tri_materials[0] = 999
+        with self.assertRaisesRegex(ModelImportError, "invalid material"):
+            build_render_asset(model, sx.export_model(model))
+
     def test_skeleton_is_parent_first_with_relative_rest(self):
         skel = sx.build_skeleton(chain_model())
         self.assertEqual(skel.parent, [sx.ROOT_PARENT, 0, 1])
@@ -143,7 +252,7 @@ class SkeletalExportTests(unittest.TestCase):
         # 3 joints * 36 bytes (parent + reserved + 12 translation + 8 quat + 12 scale)
         self.assertEqual(rep["skeleton_bytes"], 3 * 36)
         self.assertEqual(rep["skin_bytes"], 2 * 8 + 2 * 26)
-        self.assertEqual(rep["clip_bytes"], 11 * 3 * 14)
+        self.assertEqual(rep["clip_bytes"], 11 * 3 * 20)
 
 
 if __name__ == "__main__":

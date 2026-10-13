@@ -33,6 +33,7 @@
 #include "saturn/anim3d.h"
 #include "saturn/skeleton3d.h"
 #include "saturn/skin3d.h"
+#include "saturn/character3d.h"
 #include "saturn/render3d.h"
 #include "saturn/fade3d.h"
 #include "saturn/voxel_terrain.h"

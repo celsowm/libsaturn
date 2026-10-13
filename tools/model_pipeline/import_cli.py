@@ -1,6 +1,7 @@
 """Command-line interface and format dispatch for model imports."""
 from __future__ import annotations
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -50,6 +51,14 @@ def main() -> int:
     parser.add_argument("--loop-clips", default=None, metavar="NAMES",
                         help="Skeletal GLB path: comma-separated clip names that loop "
                              "(others are one-shots)")
+    parser.add_argument("--skeletal-surface-bake", action="store_true",
+                        help="Transfer original surface textures after skeletal decimation")
+    parser.add_argument("--skeletal-binary", default=None,
+                        help="Also write a relocatable SKA1 character archive")
+    parser.add_argument("--skeletal-exposure", type=float, default=1.0,
+                        help="Linear display exposure for skeletal surface baking")
+    parser.add_argument("--skeletal-studio-light", action="store_true",
+                        help="Bake soft directional lighting into skeletal surface textures")
     parser.add_argument("--simplify", default="auto",
                         help="Animated GLB topology: off|auto|TARGET (default auto)")
     parser.add_argument("--quality", default="balanced",
@@ -299,8 +308,8 @@ def _main_skeletal(args) -> int:
     Unlike the baked-pose path (``--target saturn``) the Saturn runtime evaluates
     joints and deforms vertices every render; the importer emits the asset tables
     and the clip data, but the geometry is what ``sat_skin_deform`` produces,
-    not what the importer bakes. The merge-rigid-meshes / simplification /
-    texel-extent knobs are baked-pose-only and silently ignored here.
+    not what the importer bakes. Textures are baked once and remain immutable
+    while the runtime skins the simplified mesh.
     """
     if args.target != "skeletal":
         print(f"import_model: error: unknown --target {args.target!r} (have: saturn, skeletal)",
@@ -335,12 +344,18 @@ def _main_skeletal(args) -> int:
     try:
         glb = gltf_mod.parse_model(args.input)
         _drop_morph_weight_channels(glb.json)
-        model = srcmodel.from_gltf(glb, Path(args.input).stem)
+        model = srcmodel.from_gltf(glb, Path(args.input).stem,
+                                  load_emission=args.skeletal_surface_bake)
+        if not 0 < args.skeletal_exposure < float('inf'):
+            raise ImportError("--skeletal-exposure must be finite and positive")
+        if (args.skeletal_studio_light or args.skeletal_exposure != 1.0) and not args.skeletal_surface_bake:
+            raise ImportError("skeletal lighting/exposure requires --skeletal-surface-bake")
         if args.flip_x or args.flip_y or args.flip_z:
             sx = -1.0 if args.flip_x else 1.0
             sy = -1.0 if args.flip_y else 1.0
             sz = -1.0 if args.flip_z else 1.0
             model.vertices = [(x * sx, y * sy, z * sz) for x, y, z in model.vertices]
+        source_surface = copy.copy(model) if args.skeletal_surface_bake else None
         # Optional decimation: the baked-pose path also takes --max-triangles
         # but operates on per-frame buffers; the skeletal path keeps the full
         # mesh on the runtime side, so dropping it here is the only way to
@@ -353,9 +368,9 @@ def _main_skeletal(args) -> int:
             opts = SimplificationOptions(
                 target_triangles=args.max_triangles,
                 quality=args.quality,
-                preserve_uv=False,
-                preserve_normals=False,
-                preserve_boundaries=False,
+                preserve_uv=not args.skeletal_surface_bake,
+                preserve_normals=True,
+                preserve_boundaries=True,
             )
             pose_positions = [evaluate_positions(model, None, 0.0)]
             keep_clip_indices = [
@@ -366,9 +381,18 @@ def _main_skeletal(args) -> int:
                 clip = model.clips[ci]
                 for t in (clip.duration * f for f in (0.0, 0.5, 1.0)):
                     pose_positions.append(evaluate_positions(model, clip, t))
-            simplified = simplify(model, options=opts, pose_positions=pose_positions)
+            from .metrics import compute_animation_importance
+            anim_importance = compute_animation_importance(
+                model, model.clips[0] if model.clips else None,
+                times=[0.0, model.clips[0].duration * 0.5, model.clips[0].duration]
+                if model.clips else [0.0])
+            simplified = simplify(model, options=opts, pose_positions=pose_positions,
+                                  anim_importance=anim_importance)
             model.vertices = list(simplified.positions)
             model.triangles = list(simplified.triangles)
+            model.uvs = list(simplified.uvs)
+            model.tri_materials = list(simplified.tri_materials)
+            model.normals = simplified.normals
             # The simplifier already preserves joints/weights through the
             # collapse (its weld pass keeps each survivor's original joint
             # slot). Adopt those tables directly so the skin table stays
@@ -386,12 +410,39 @@ def _main_skeletal(args) -> int:
         exp = sx_mod.export_model(model, scale=args.scale, rate=rate, loop_clips=loop_names)
         verify = sx_mod.verify(model, exp)
         symbol = args.symbol or Path(args.out_prefix).stem
-        header_text, source_text = sx_mod.emit_c(exp, symbol)
+        from .skeletal_textures import build_render_asset
+        render = build_render_asset(
+            model, exp, palette_index=args.palette_index,
+            texture_scale=args.texture_scale, max_texture_width=args.max_texture_width,
+            max_texture_height=args.max_texture_height, sampling=args.sampling,
+            reverse_winding=args.reverse_winding, texel_extent=args.texel_extent,
+            source_surface=source_surface, exposure=args.skeletal_exposure,
+            studio=args.skeletal_studio_light,
+        )
+        header_text, source_text = sx_mod.emit_c(exp, symbol, render)
         header_path = Path(args.out_prefix).with_suffix(".h")
         source_path = Path(args.out_prefix).with_suffix(".c")
         header_path.parent.mkdir(parents=True, exist_ok=True)
         header_path.write_text(header_text, encoding="utf-8")
         source_path.write_text(source_text, encoding="utf-8")
+        from .skeletal_binary import encode, compression_report
+        if args.skeletal_binary:
+            binary = Path(args.skeletal_binary)
+            binary.parent.mkdir(parents=True, exist_ok=True)
+            binary.write_bytes(encode(exp,render,[model.nodes[n].name for n in exp.skeleton.node_of_joint]))
+        if args.report:
+            report = {"target": "skeletal", "skin": sx_mod.size_report(exp),
+                      "compression": compression_report(exp),
+                      "verification": verify, "textures": {
+                          "count": len(render.textures),
+                          "pixel_bytes": sum(len(t["pixels"]) for t in render.textures),
+                          "palette_base": render.palette_base,
+                          "surface_transfer": args.skeletal_surface_bake,
+                          "exposure": args.skeletal_exposure,
+                          "studio_light": args.skeletal_studio_light,
+                          "resources": render.stats,
+                      }}
+            _atomic_write_json(Path(args.report), report)
     except ImportError as exc:
         print(f"import_model: error: {exc}", file=sys.stderr)
         return 1
@@ -400,6 +451,7 @@ def _main_skeletal(args) -> int:
         return 1
 
     sx_mod.print_skeletal_stats(exp, verify)
+    print(f"TEXTURES: count={len(render.textures)} bytes={sum(len(t['pixels']) for t in render.textures)}")
     print(f"OK: {header_path} + {source_path}")
     return 0
 

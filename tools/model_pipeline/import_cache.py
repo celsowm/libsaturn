@@ -148,6 +148,8 @@ def _atomic_write_json(path: Path, payload: dict, preserve_if_equal: bool = Fals
 def _model_output_paths(args: argparse.Namespace) -> dict[str, Path]:
     prefix = str(args.out_prefix)
     outputs = {"source": Path(prefix + ".c"), "header": Path(prefix + ".h")}
+    if getattr(args,"skeletal_binary",None):
+        outputs["skeletal_binary"] = Path(args.skeletal_binary)
     if args.report and Path(args.input).suffix.lower() in (".glb", ".gltf"):
         outputs["report"] = Path(args.report)
     return outputs

@@ -34,6 +34,8 @@ from .model import SourceModel, _mat_inverse
 ROOT_PARENT = 0xFFFF
 MAX_JOINTS = 255  # skin records index joints with a uint8
 Q15 = 32768
+POSE_BYTES = 3 * 4 + 4 * 2  # fx16 translation and Q15 quaternion
+DEFAULT_CLIP_RATE = 30
 SCALE_TOLERANCE = 1e-3
 
 
@@ -68,6 +70,7 @@ class SkinData:
     source_vertex: list[int]            # export vertex -> source vertex
     triangles: list[tuple[int, int, int]]  # remapped
     max_joint: int = 0
+    source_to_vertex: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -320,17 +323,29 @@ def build_skin(model: SourceModel, skel: SkeletonData, scale: float = 1.0,
 
     records = []  # per source vertex: list of (export_joint, weight, local_pos)
     biggest = 0.0
-    for pos, js, ws in zip(model.vertices, model.joints, model.weights):
+    if model.skin_anchors and len(model.skin_anchors) != len(model.vertices):
+        raise ModelImportError("multi-anchor skin needs one influence list per vertex")
+    for sv, pos in enumerate(model.vertices):
+        js, ws = (model.joints[sv], model.weights[sv]) if not model.skin_anchors else ((), ())
+        anchors = model.skin_anchors[sv] if model.skin_anchors else []
+        candidates = [(w, j, p) for j,w,p in anchors] if anchors else [
+            (w,j,None) for j,w in zip(js,ws)]
+        if any(j < 0 or j >= len(slot_joint) or not math.isfinite(w) or w < 0 or
+               (p is not None and (len(p)!=3 or not all(math.isfinite(v) for v in p)))
+               for w,j,p in candidates):
+            raise ModelImportError("invalid multi-anchor joint, weight or local position")
         infl = sorted(
-            ((w, j) for j, w in zip(js, ws) if w > min_weight),
+            ((w,j,p) for w,j,p in candidates if w > min_weight),
             key=lambda e: (-e[0], e[1]),
         )[:3]
         if not infl:
-            infl = [(1.0, js[0])]
-        total = sum(w for w, _ in infl)
+            if anchors:
+                raise ModelImportError("multi-anchor vertex has no positive influence")
+            infl = [(1.0, js[0], None)]
+        total = sum(w for w, _, _ in infl)
         row = []
-        for w, j in infl:
-            lp = mat_vec(ibm[j], pos)
+        for w, j, anchor in infl:
+            lp = anchor if anchor is not None else mat_vec(ibm[j], pos)
             lp = tuple(c * scale for c in lp)
             biggest = max(biggest, max(abs(c) for c in lp))
             row.append((slot_joint[j], w / total, lp))
@@ -366,12 +381,32 @@ def build_skin(model: SourceModel, skel: SkeletonData, scale: float = 1.0,
         else:
             weights.append(0)
         blend.append((joints, n, weights, poss))
-    source_vertex = rigid_src + blend_src
-    remap = {sv: i for i, sv in enumerate(source_vertex)}
+    # UV seams do not require duplicate deformation work: textures are baked
+    # per face. Share only identical quantized records, including all anchors,
+    # weights and joint slots, so every animated corner remains bit-identical.
+    source_vertex = []
+    remap = {}
+    unique_tables = []
+    for sources, table in ((rigid_src, rigid), (blend_src, blend)):
+        seen, unique = {}, []
+        for sv, record in zip(sources, table):
+            if sources is rigid_src:
+                key = record
+            else:
+                js, count, ws, ps = record
+                key = (tuple(js), count, tuple(ws), tuple(map(tuple, ps)))
+            if key not in seen:
+                seen[key] = len(source_vertex)
+                source_vertex.append(sv)
+                unique.append(record)
+            remap[sv] = seen[key]
+        unique_tables.append(unique)
+    rigid, blend = unique_tables
     tris = [(remap[a], remap[b], remap[c]) for a, b, c in model.triangles]
     used = [j for _, j in rigid] + [j for b in blend for j in b[0][: b[1]]]
     return SkinData(shift, len(skel.node_of_joint), rigid, blend, source_vertex, tris,
-                    max(used) if used else 0)
+                    max(used) if used else 0,
+                    [remap[i] for i in range(len(model.vertices))])
 
 
 # --------------------------------------------------------------------------
@@ -379,7 +414,7 @@ def build_skin(model: SourceModel, skel: SkeletonData, scale: float = 1.0,
 # --------------------------------------------------------------------------
 
 
-def export_model(model: SourceModel, scale: float = 1.0, rate: int = 30,
+def export_model(model: SourceModel, scale: float = 1.0, rate: int = DEFAULT_CLIP_RATE,
                  loop_clips: set[str] | None = None) -> SkeletalExport:
     skel = build_skeleton(model, scale)
     skin = build_skin(model, skel, scale)
@@ -440,6 +475,8 @@ def evaluate_export(exp: SkeletalExport, pose) -> list[tuple[float, float, float
             for k in range(3):
                 acc[k] += w[i] * p[k]
         out_export.append(tuple(acc))
+    if skin.source_to_vertex:
+        return [out_export[i] for i in skin.source_to_vertex]
     out = [None] * len(out_export)
     for ei, sv in enumerate(skin.source_vertex):
         out[sv] = out_export[ei]
@@ -470,7 +507,7 @@ def verify(model: SourceModel, exp: SkeletalExport, samples: int = 8) -> dict:
 
 def size_report(exp: SkeletalExport) -> dict:
     skel, skin = exp.skeleton, exp.skin
-    clip_bytes = sum(c.frame_count * len(skel.node_of_joint) * 14 for c in exp.clips)
+    clip_bytes = sum(c.frame_count * len(skel.node_of_joint) * POSE_BYTES for c in exp.clips)
     # sat_skeleton_joint_t now also carries rest_scale (12 bytes per joint),
     # so the per-joint skeleton record is 36 bytes (parent + reserved +
     # translation 12 + quaternion 8 + scale 12).
@@ -529,19 +566,22 @@ def _ident(name: str) -> str:
     return f"_{n}" if n[0].isdigit() else n
 
 
-def emit_c(exp: SkeletalExport, name: str) -> tuple[str, str]:
+def emit_c(exp: SkeletalExport, name: str, render=None) -> tuple[str, str]:
     """(header, source) for `name`: <name>_skeleton, <name>_skin, <name>_clip_<c>."""
     base = _ident(name)
     skel, skin = exp.skeleton, exp.skin
+    face_count = len(render.indices_abcd) if render is not None else len(skin.triangles)
     h = [f"/* Generated by tools/model_pipeline/skeletal_export.py. Do not edit. */",
          f"#ifndef {base.upper()}_SKELETAL_H", f"#define {base.upper()}_SKELETAL_H",
          '#include "saturn/saturn.h"', "#ifdef __cplusplus", 'extern "C" {', "#endif",
          f"extern const sat_skeleton_asset_t {base}_skeleton;",
          f"extern const sat_skin_asset_t {base}_skin;",
-         f"extern const uint16_t {base}_indices[{len(skin.triangles) * 4}];",
-         f"#define {base.upper()}_FACE_COUNT {len(skin.triangles)}",
+         f"extern const uint16_t {base}_indices[{face_count * 4}];",
+         f"#define {base.upper()}_FACE_COUNT {face_count}",
          f"#define {base.upper()}_VERTEX_COUNT {len(skin.source_vertex)}"]
     c = [f'#include "{base}.h"', ""]
+    if render is not None:
+        h.insert(3, '#include "saturn/model3d.h"')
     c.append(f"static const sat_skeleton_joint_t {base}_joints[{len(skel.parent)}] = {{")
     for p, t, q, s in zip(skel.parent, skel.translation, skel.rotation, skel.scale):
         c.append(f"    {{{p}, 0, {{{t[0]}, {t[1]}, {t[2]}}}, "
@@ -566,10 +606,16 @@ def emit_c(exp: SkeletalExport, name: str) -> tuple[str, str]:
     c.append(f"const sat_skin_asset_t {base}_skin = {{{rig}, {ble}, 0, {len(skin.rigid)}, "
              f"{len(skin.blend)}, {skin.joint_count}, {skin.pos_shift}, {skin.max_joint}}};")
     c.append("")
-    c.append(f"const uint16_t {base}_indices[{len(skin.triangles) * 4}] = {{")
-    for a, b, d in skin.triangles:
-        c.append(f"    {a}, {b}, {d}, {d},")
+    c.append(f"const uint16_t {base}_indices[{face_count * 4}] = {{")
+    quads = render.indices_abcd if render is not None else [(a, b, d, d) for a, b, d in skin.triangles]
+    for a, b, cc, d in quads:
+        c.append(f"    {a}, {b}, {cc}, {d},")
     c += ["};", ""]
+    if render is not None:
+        from .skeletal_textures import emit_render_tables
+        render_h, render_c = emit_render_tables(render, base)
+        h += render_h
+        c += render_c
     for cd in exp.clips:
         cn = f"{base}_clip_{_ident(cd.name)}"
         n = len(skel.parent)

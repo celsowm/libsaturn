@@ -8,6 +8,7 @@
 #include "saturn/math3d.h"
 #include "saturn/mesh3d.h"
 #include "saturn/skeleton3d.h"
+#include "saturn/parallel.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -172,6 +173,37 @@ sat_result_t sat_lod_select(
 sat_result_t sat_mesh_face_ramp(
     const sat_mesh_t* mesh, const sat_vec3_t* light_dir, sat_fx16_t ambient,
     uint16_t ramp_count, uint16_t* out_face_materials, uint16_t capacity);
+
+/* Bounded asynchronous skin task; skin must have passed sat_skin_validate.
+ * Descriptor, nested sources and output must
+ * remain alive until the handle is terminal and released. Register once after
+ * sat_parallel_init. Output ownership follows the existing executor; a failed
+ * wait is not permission to overwrite a still-running worker's span. */
+#define SAT_PARALLEL_TASK_SKIN_DEFORM 4u
+typedef struct sat_skin_job {
+    const sat_skin_asset_t* skin;
+    const sat_mat4_t* joint_world;
+    sat_vec3_t* output;
+    uint32_t output_capacity;
+    uint32_t first, count;
+    uint16_t joint_world_count;
+    uint16_t reserved;
+} sat_skin_job_t;
+sat_result_t sat_skin_parallel_register(void);
+sat_result_t sat_skin_job_submit(const sat_skin_job_t* job,
+    sat_parallel_mode_t policy, sat_parallel_handle_t* handle);
+
+typedef struct sat_skin_requirements {
+    uint32_t skeleton_bytes, skin_bytes, vertex_bytes, joint_matrix_bytes;
+    uint32_t pose_bytes, node_bytes, hierarchy_scratch_bytes, command_upper_bound;
+} sat_skin_requirements_t;
+sat_result_t sat_skin_requirements(const sat_skeleton_asset_t* skeleton,
+    const sat_skin_asset_t* skin, uint16_t faces, sat_skin_requirements_t* out);
+
+/* Joint attachment in application world space; local may be NULL (identity). */
+sat_result_t sat_skeleton_attachment(const sat_skeleton_instance_t* instance,
+    uint16_t joint, const sat_mat4_t* character_world, const sat_mat4_t* local,
+    sat_mat4_t* out);
 
 #ifdef __cplusplus
 }

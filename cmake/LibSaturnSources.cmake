@@ -50,9 +50,12 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/2d/textures/runtime.cpp
     src/graphics/3d/animation/api.cpp
     src/graphics/3d/animation/character.cpp
+    src/graphics/3d/animation/character_asset.cpp
+    src/graphics/3d/animation/character_render.cpp
     src/graphics/3d/animation/clip.cpp
     src/graphics/3d/animation/skeleton.cpp
     src/graphics/3d/animation/skin.cpp
+    src/graphics/3d/animation/skin_parallel.cpp
     src/graphics/3d/camera/follow.cpp
     src/graphics/3d/camera/orbit.cpp
     src/graphics/3d/geometry/mesh.cpp

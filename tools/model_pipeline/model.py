@@ -88,6 +88,10 @@ class SourceModel:
     textures: list[SourceTexture] = field(default_factory=list)
     joints: list[tuple[int, int, int, int]] = field(default_factory=list)
     weights: list[tuple[float, float, float, float]] = field(default_factory=list)
+    # Optional generic multi-anchor IR: one list per logical vertex, entries
+    # (skin joint slot, normalized weight, joint-local XYZ). Historical format
+    # converters can fill this without a proprietary parser in LibSaturn.
+    skin_anchors: list[list[tuple[int, float, tuple[float, float, float]]]] = field(default_factory=list)
     nodes: list[SourceNode] = field(default_factory=list)
     skins: list[SourceSkin] = field(default_factory=list)
     clips: list[AnimationClip] = field(default_factory=list)
@@ -100,7 +104,7 @@ class SourceModel:
 
     @property
     def is_skinned(self) -> bool:
-        return bool(self.joints and self.weights and self.skins)
+        return bool(self.skins and (self.skin_anchors or (self.joints and self.weights)))
 
     def bbox(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
         if not self.vertices:
@@ -269,7 +273,8 @@ def _normalize_weights(
 
 
 def from_gltf(
-    glb, source_name: str = "model", merge_rigid_meshes: bool = False
+    glb, source_name: str = "model", merge_rigid_meshes: bool = False,
+    load_emission: bool = False,
 ) -> SourceModel:
     """Build a canonical source model from parsed GLB data.
 
@@ -530,6 +535,7 @@ def from_gltf(
             # 1x1 texture so mixed textured/solid meshes use the same indexed
             # face baker and shared palette without dropping geometry.
             rgb = entry.get("rgb", (255, 255, 255))
+            entry["factor_only"] = True
             alpha = max(0, min(255, int(round(float(factor[3]) * 255.0)))) \
                 if len(factor) > 3 else 255
             entry["texture"] = len(model.textures)
@@ -541,6 +547,19 @@ def from_gltf(
                     mime="image/x-rgba",
                 )
             )
+        emission = mat.get("emissiveTexture")
+        emission_factor = mat.get("emissiveFactor", [0.0, 0.0, 0.0])
+        if load_emission and emission is not None and any(float(v) > 0 for v in emission_factor):
+            if int(emission.get("texCoord", 0)) != 0:
+                raise GltfError(f"{source_name}: material {mi} emissive texture needs TEXCOORD_0")
+            tex_doc = doc.get("textures", [])[int(emission["index"])]
+            payload, mime = extract_image_bytes(glb, int(tex_doc["source"]))
+            w, h, pixels = decode_image_rgba(payload, f"material {mi} emission")
+            entry["emission_texture"] = len(model.textures)
+            entry["emission_factor"] = tuple(float(v) for v in emission_factor)
+            entry["emission_strength"] = float(mat.get("extensions", {}).get(
+                "KHR_materials_emissive_strength", {}).get("emissiveStrength", 1.0))
+            model.textures.append(SourceTexture(width=w, height=h, pixels_rgba=pixels, mime=mime))
 
     if model.skins:
         if not has_skin_data:

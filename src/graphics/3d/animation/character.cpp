@@ -36,6 +36,31 @@ void fit20(int64_t v[3]) {
 
 }  // namespace
 
+extern "C" sat_result_t sat_skin_requirements(const sat_skeleton_asset_t* skeleton,
+    const sat_skin_asset_t* skin, uint16_t faces, sat_skin_requirements_t* out) {
+    if (!skeleton || !skin || !out || skeleton->joint_count != skin->joint_count)
+        return SAT_ERR_INVALID_ARG;
+    const uint32_t joints = skeleton->joint_count;
+    *out = {joints * static_cast<uint32_t>(sizeof(sat_skeleton_joint_t)),
+        skin->rigid_count * static_cast<uint32_t>(sizeof(sat_skin_rigid_t)) + skin->blend_count * static_cast<uint32_t>(sizeof(sat_skin_blend_t)),
+        sat_skin_vertex_count(skin) * static_cast<uint32_t>(sizeof(sat_vec3_t)), joints * static_cast<uint32_t>(sizeof(sat_mat4_t)),
+        joints * static_cast<uint32_t>(sizeof(sat_skeleton_pose_joint_t)), joints * static_cast<uint32_t>(sizeof(sat_transform3d_node_t)),
+        joints * static_cast<uint32_t>(sizeof(uint16_t)), faces};
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_skeleton_attachment(const sat_skeleton_instance_t* instance,
+    uint16_t joint, const sat_mat4_t* world, const sat_mat4_t* local, sat_mat4_t* out) {
+    if (!out) return SAT_ERR_INVALID_ARG;
+    sat_mat4_t result;
+    SAT_TRY(sat_skeleton_joint_world(instance, joint, &result));
+    sat_mat4_t product;
+    if (local) { SAT_TRY(sat_mat4_multiply(&product, &result, local)); result = product; }
+    if (world) { SAT_TRY(sat_mat4_multiply(&product, world, &result)); result = product; }
+    *out = result;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_mesh_face_view(
     const sat_mesh_t* mesh, sat_face_range_t range, sat_mesh_t* out_view) {
     if (!mesh || !out_view || !mesh->indices) return SAT_ERR_INVALID_ARG;

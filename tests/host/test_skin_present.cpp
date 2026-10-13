@@ -74,9 +74,34 @@ static void lighting() {
     CHECK(sat_mesh_face_ramp(&bm, &toward, FX(1) / 2, 5, &out, 1) == SAT_ERR_INVALID_ARG && out == 77);
 }
 
+static void requirements_and_attachments() {
+    constexpr uint16_t JointCount=2,FaceCount=7;
+    sat_skeleton_joint_t joints[JointCount]{};
+    joints[0].parent=SAT_TRANSFORM3D_ROOT;joints[1].parent=0;
+    joints[0].rest_translation.x=FX(1);joints[1].rest_translation.y=FX(1);
+    for(auto& joint:joints)sat_quat16_identity(&joint.rest_rotation);
+    sat_skeleton_asset_t skeleton{joints,JointCount,0};
+    sat_skin_rigid_t rigid={};sat_skin_asset_t skin{&rigid,nullptr,nullptr,1,0,JointCount,15,0};
+    sat_skin_requirements_t needs{};
+    CHECK(sat_skin_requirements(&skeleton,&skin,FaceCount,&needs)==SAT_OK);
+    CHECK(needs.skeleton_bytes==sizeof(joints) && needs.vertex_bytes==sizeof(sat_vec3_t));
+    CHECK(needs.command_upper_bound==FaceCount && needs.joint_matrix_bytes==JointCount*sizeof(sat_mat4_t));
+    sat_transform3d_node_t nodes[JointCount]{};uint16_t scratch[JointCount]{};
+    sat_skeleton_instance_t instance{};sat_skeleton_pose_joint_t pose[JointCount]{};
+    CHECK(sat_skeleton_instance_init(&instance,&skeleton,nodes,JointCount,scratch,JointCount)==SAT_OK);
+    sat_mat4_t world,local,result;
+    sat_mat4_translate(&world,FX(10),0,0);sat_mat4_translate(&local,0,0,FX(1));
+    CHECK(sat_skeleton_attachment(&instance,1,&world,&local,&result)==SAT_ERR_BUSY);
+    CHECK(sat_skeleton_rest_pose(&skeleton,pose,JointCount)==SAT_OK);
+    CHECK(sat_skeleton_evaluate(&instance,pose,JointCount)==SAT_OK);
+    CHECK(sat_skeleton_attachment(&instance,1,&world,&local,&result)==SAT_OK);
+    CHECK(result.m[3]==FX(11) && result.m[7]==FX(1) && result.m[11]==FX(1));
+    CHECK(sat_skeleton_attachment(&instance,JointCount,&world,&local,&result)==SAT_ERR_INVALID_ARG);
+}
 int main() {
+    requirements_and_attachments();
     views_and_lod();
     lighting();
-    std::printf("test_skin_present: 2 tests passed\n");
+    std::printf("test_skin_present: 3 tests passed\n");
     return 0;
 }

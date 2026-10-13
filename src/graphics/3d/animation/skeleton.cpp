@@ -46,18 +46,6 @@ bool unit_ish(const sat_quat16_t& q) {
     return n > one - (one >> 5) && n < one + (one >> 5);
 }
 
-void rigid_inverse(sat_mat4_t* out, const sat_mat4_t& m) {
-    sat_mat4_t r{};
-    for (int row = 0; row < 3; ++row)
-        for (int col = 0; col < 3; ++col) r.m[row * 4 + col] = m.m[col * 4 + row];
-    for (int row = 0; row < 3; ++row) {
-        r.m[row * 4 + 3] = -(sat_fx16_mul(r.m[row * 4 + 0], m.m[3]) +
-                             sat_fx16_mul(r.m[row * 4 + 1], m.m[7]) +
-                             sat_fx16_mul(r.m[row * 4 + 2], m.m[11]));
-    }
-    r.m[15] = 65536;
-    *out = r;
-}
 
 /* A scale of zero means "uninitialised" (struct {} zero-init); treat as 1.0
  * so legacy assets and host tests that don't set rest_scale still work. */
@@ -87,6 +75,28 @@ void joint_local_matrix(sat_mat4_t* out, const sat_skeleton_joint_t& j,
     out->m[10] = sat_fx16_mul(out->m[10], scale.z);
 }
 
+/* Adjugate / determinant is Q-16 (Q32 / Q48); multiplying by 2^32
+ * gives a Q16 matrix entry. A direct multiply overflows even for identity
+ * (2^32 * 2^32). Emit fractional bits from the remainder instead. */
+sat_result_t inverse_entry(int64_t numerator, int64_t denominator, sat_fx16_t* out) {
+    const bool negative = (numerator < 0) != (denominator < 0);
+    uint64_t remainder = numerator < 0 ? 0u - (uint64_t)numerator : (uint64_t)numerator;
+    const uint64_t divisor = denominator < 0 ? 0u - (uint64_t)denominator : (uint64_t)denominator;
+    if (divisor == 0 || remainder >= divisor) return SAT_ERR_INVALID_ARG;
+    uint32_t quotient = 0;
+    for (uint8_t bit = 0; bit < 32; ++bit) {
+        remainder <<= 1;
+        quotient <<= 1;
+        if (remainder >= divisor) {
+            remainder -= divisor;
+            quotient |= 1u;
+        }
+    }
+    if (quotient > (negative ? 0x80000000u : 0x7FFFFFFFu)) return SAT_ERR_INVALID_ARG;
+    *out = negative ? (sat_fx16_t)(0u - quotient) : (sat_fx16_t)quotient;
+    return SAT_OK;
+}
+
 /* Affine 4x4 inverse via the 3x3 cofactor of the upper-left block and a
  * 64-bit translation term. Caller guarantees the bottom row is
  * [0, 0, 0, SAT_FX16_ONE] (the canonical affine form the rest of the
@@ -107,26 +117,25 @@ sat_result_t affine_inverse(sat_mat4_t* out, const sat_mat4_t& m) {
     const int64_t c21 = a02 * a10 - a00 * a12;
     const int64_t c22 = a00 * a11 - a01 * a10;
     /* A^-1 = transpose(C) / det, packed into row-major 4x4. */
-    constexpr int64_t s = (int64_t)1 << 16;
-    out->m[0]  = (sat_fx16_t)(c00 * s / det);
-    out->m[1]  = (sat_fx16_t)(c10 * s / det);
-    out->m[2]  = (sat_fx16_t)(c20 * s / det);
-    out->m[4]  = (sat_fx16_t)(c01 * s / det);
-    out->m[5]  = (sat_fx16_t)(c11 * s / det);
-    out->m[6]  = (sat_fx16_t)(c21 * s / det);
-    out->m[8]  = (sat_fx16_t)(c02 * s / det);
-    out->m[9]  = (sat_fx16_t)(c12 * s / det);
-    out->m[10] = (sat_fx16_t)(c22 * s / det);
+    SAT_TRY(inverse_entry(c00, det, &out->m[0]));
+    SAT_TRY(inverse_entry(c10, det, &out->m[1]));
+    SAT_TRY(inverse_entry(c20, det, &out->m[2]));
+    SAT_TRY(inverse_entry(c01, det, &out->m[4]));
+    SAT_TRY(inverse_entry(c11, det, &out->m[5]));
+    SAT_TRY(inverse_entry(c21, det, &out->m[6]));
+    SAT_TRY(inverse_entry(c02, det, &out->m[8]));
+    SAT_TRY(inverse_entry(c12, det, &out->m[9]));
+    SAT_TRY(inverse_entry(c22, det, &out->m[10]));
     /* Translation column: -A^-1 * t. The dominant magnitude is sum of
      * three fx16 products per axis (well inside int64) so no overflow. */
     const int64_t tx = -(out->m[0]  * (int64_t)m.m[3] +
-                          out->m[4]  * (int64_t)m.m[7] +
-                          out->m[8]  * (int64_t)m.m[11]);
-    const int64_t ty = -(out->m[1]  * (int64_t)m.m[3] +
+                          out->m[1]  * (int64_t)m.m[7] +
+                          out->m[2]  * (int64_t)m.m[11]);
+    const int64_t ty = -(out->m[4]  * (int64_t)m.m[3] +
                           out->m[5]  * (int64_t)m.m[7] +
-                          out->m[9]  * (int64_t)m.m[11]);
-    const int64_t tz = -(out->m[2]  * (int64_t)m.m[3] +
-                          out->m[6]  * (int64_t)m.m[7] +
+                          out->m[6]  * (int64_t)m.m[11]);
+    const int64_t tz = -(out->m[8]  * (int64_t)m.m[3] +
+                          out->m[9]  * (int64_t)m.m[7] +
                           out->m[10] * (int64_t)m.m[11]);
     out->m[3]  = (sat_fx16_t)(tx >> 16);
     out->m[7]  = (sat_fx16_t)(ty >> 16);
@@ -282,7 +291,11 @@ extern "C" sat_result_t sat_skeleton_evaluate(
     for (uint16_t i = 0; i < n; ++i) {
         sat_mat4_t local{};
         joint_local_matrix(&local, instance->skeleton->joints[i], pose[i]);
-        SAT_TRY(sat_transform3d_set_local_matrix(&instance->world, i, &local));
+        const sat_transform3d_node_t& node=instance->world.nodes[i];
+        bool changed=!node.use_local_matrix;
+        for (uint32_t element=0;!changed && element<sizeof(local.m)/sizeof(local.m[0]);++element)
+            changed=local.m[element]!=node.local_matrix.m[element];
+        if (changed) SAT_TRY(sat_transform3d_set_local_matrix(&instance->world, i, &local));
     }
     SAT_TRY(sat_transform3d_evaluate(&instance->world, instance->scratch,
                                      instance->scratch_capacity));
