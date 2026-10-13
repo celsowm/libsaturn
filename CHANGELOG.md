@@ -11,6 +11,55 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- Core math/string helpers in `include/saturn/core.h`:
+  `SAT_FX16(x)` and `SAT_FX16_ONE` for 16.16 fixed-point literals,
+  `SAT_FOURCC(a,b,c,d)` for big-endian four-character tags,
+  `SAT_MIN` / `SAT_MAX` / `SAT_CLAMP` macros, and
+  `sat_isqrt32(v)` / `sat_triangle_wave(step, period, amp)` C functions
+  with implementations in `src/core/math3d/api.cpp`. Eight examples that
+  redefined local `FX(v)`/`FX_INT(v)`/`FX16_SHIFT` aliases on top of these
+  now call the library helpers directly.
+- Color helper alias `SAT_RGB555_RAW(r,g,b)` in
+  `include/saturn/color.h`: the same value as `SAT_BGR555`, exposed so
+  harness tests and telemetry probes compare against a named hook
+  instead of writing `0x8000 | (...)` shifts by hand.
+- `include/saturn/vdp2_alloc.h` + `src/hal/vdp2/allocator.cpp`:
+  `sat_vdp2_vram_alloc(bytes, align_words)` and
+  `sat_vdp2_vram_free(base)` plus
+  `sat_vdp2_vram_alloc_init(start, end)`,
+  `sat_vdp2_vram_alloc_reset()`,
+  `sat_vdp2_vram_largest_free()` and a bank-rotating
+  `sat_vdp2_palette_reserve(count, *out)` /
+  `sat_vdp2_palette_free(range)` /
+  `sat_vdp2_palette_reset()`. The VRAM allocator is first-fit with
+  alignment-driven splitting and adjacent-block coalesce; the failure
+  sentinel is `SAT_VDP2_VRAM_NO_BASE` (0xFFFFFFFFu) so a real base of
+  0 does not collide with "exhausted".
+- HUD additions in `include/saturn/hud.h` +
+  `src/graphics/2d/hud.cpp`: `sat_hud_init_default(hud, font)` (one
+  call that inits the font and binds it; spacing 1 in 320x224 and 2 in
+  hi-res), `sat_hud_line(hud, label, value)` (formats label/value and
+  advances the cursor), `sat_hud_reset_cursor(hud, x, y)`, plus
+  `cursor_x`, `cursor_y` and `line_height` fields on `sat_hud_t`.
+- `sat_pad_toggle(pad, button, *flag)` inline in
+  `include/saturn/input.h`: replaces the seven
+  `if (pad.pressed & X) flag ^= 1` patterns still present in
+  examples.
+- `sat_f2ms(frames, hz)` and `sat_ms2f(ms, hz)` inline in
+  `include/saturn/time.h`: frame<->millisecond conversions taking
+  the refresh rate as a parameter so the 60Hz / 50Hz hazard
+  disappears from the fifteen places that hard-coded it.
+- Harness: `harness/scripts/telemetry.py` exposes `WRAM_HIGH`,
+  `find_symbol`, `load_dump` and `verify_fields` so the eighteen
+  pytest files no longer hand-roll the same map-regex /
+  offset-from-WRAM-High / `struct.unpack` dance.
+  `harness/tests/test_vdp2_hires_light.py` is the first to adopt it.
+- Harness: `harness/scripts/run-example-tests.ps1` exports a single
+  `Invoke-ExampleTest` function (Name, Example, Frames, Screenshot,
+  MisalignedReport, TestFile, DumpName, MapSuffix, ExtraEnv). The
+  first adopter is `harness/run-dma-demo.ps1`, which shrank from
+  38 lines of fixed scaffolding to 13 lines calling it.
+
 - `examples/vdp2_hires_light`: a red light sweeping over hi-res (640x224)
   VDP1 polygons. Hi-res VDP1 pixels are 8-bit palette codes, so Gouraud
   shading (which needs RGB pixels) is unavailable; the VDP2 brightens them
