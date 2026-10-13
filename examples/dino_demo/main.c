@@ -149,7 +149,6 @@ static sat_scene3d_material_t g_scene_materials[MODEL_TEXTURE_CAP] DINO_WRAM_L;
 static sat_orbit_camera3d_t g_orbit DINO_WRAM_L;
 static int g_show_hud DINO_WRAM_L;
 static int g_draw_overflow DINO_WRAM_L;
-static int g_ntsc DINO_WRAM_L;
 static uint32_t g_tick DINO_WRAM_L;
 
 static sat_anim_state_t g_anim DINO_WRAM_L;
@@ -332,7 +331,7 @@ static void update_render_stats(void) {
  * build; (n*65536)/rate on the running total keeps NTSC and PAL drift-free
  * instead of accumulating a truncated constant's bias. */
 static sat_fx16_t vblank_dt(void) {
-    uint32_t rate = (g_ntsc != 0) ? 60u : 50u;
+    const uint32_t rate = sat_video_refresh_hz();
     uint32_t n = sat_frame_count();
     uint64_t now = (uint64_t)n * 65536u / rate;
     uint64_t prev = (uint64_t)g_tick * 65536u / rate;
@@ -693,7 +692,6 @@ int main(void) {
      * table the CPU is still rewriting. */
     SAT_PANIC_IF_ERROR(sat_vdp1_set_frame_mode(SAT_VDP1_FRAME_ON_SUBMIT));
 #endif
-    g_ntsc = (int)sat_video_is_ntsc_timing();
     /* The red light needs CRAM mode 0 (hi-res colour calculation); set it
      * before any palette goes in. */
     SAT_PANIC_IF_ERROR(sat_vdp2_cram_mode_set(0u));

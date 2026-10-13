@@ -30,6 +30,10 @@ uint8_t sat_video_is_pal(void);
 /* 1 when the library's time base is 60 frames per second, 0 for 50. This is
  * the standard sat_init resolved (SAT_VIDEO_AUTO becomes the console's own). */
 uint8_t sat_video_is_ntsc_timing(void);
+/* The frame rate the library is using: 60 for NTSC timing, 50 for PAL.
+ * Prefer this over the is_ntsc_timing ternary when you need the rate as a
+ * number (frame->ms conversion, per-second budgets, animation periods). */
+uint32_t sat_video_refresh_hz(void);
 
 /* Display frames (VBlanks) elapsed since sat_init.
  *

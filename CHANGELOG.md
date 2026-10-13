@@ -61,6 +61,21 @@ The version is defined once, in the `VERSION` file.
   its bar so the bar math lives in one place. `city_walk/main.c` and
   `examples/skybridge_3d/hud.c` construct their own
   `sat_loading_screen_t` to match the panel layout.
+- `sat_video_refresh_hz()` accessor in `include/saturn/video.h` +
+  `src/graphics/video.cpp`: returns 60 for NTSC timing, 50 for PAL,
+  so callers stop open-coding `is_ntsc_timing() ? 60 : 50` and the
+  docstring in `time.h` finally names something that exists. The
+  four remaining rate sites in `examples/basic_3d_animation/main.c`
+  (twice), `examples/dino_demo/main.c` and
+  `examples/city_walk/player.c` use it now; the local `g_ntsc`
+  caches those examples kept for the same purpose are gone.
+- The five `if (pad.pressed & X) flag ^= 1` patterns in
+  `examples/scene_cache_occlusion/main.c` (A, B) and
+  `examples/vdp2_hires_light/main.c` (A, B, C) now call
+  `sat_pad_toggle(pad, button, *flag)` from `include/saturn/input.h`.
+  Two of the seven sites the original survey counted (one in
+  `skybridge_3d/main.c`) were bitfield ORs, not toggles, and stay
+  as-is.
 - Harness: `harness/scripts/telemetry.py` exposes `WRAM_HIGH`,
   `find_symbol`, `load_dump` and `verify_fields` so the eighteen
   pytest files no longer hand-roll the same map-regex /

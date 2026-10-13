@@ -87,7 +87,7 @@ static int collide(city_pos_t* pos) {
 }
 
 int player_update(city_player_t* p, const sat_pad_state_t* pad, uint32_t vblanks) {
-    const int32_t hz = sat_video_is_ntsc_timing() ? 60 : 50;
+    const int32_t hz = (int32_t)sat_video_refresh_hz();
     int32_t forward = 0, strafe = 0, turn = 0;
     int32_t speed;
     sat_fx16_t yaw, s, c;

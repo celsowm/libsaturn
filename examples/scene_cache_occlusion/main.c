@@ -44,7 +44,7 @@ static uint8_t g_checker_pixels[8u * 8u];
 static uint16_t g_checker_palette[256u];
 static sat_quad3_t g_static_world[CACHE_FACES];
 static uint16_t g_frame;
-static uint16_t g_view;
+static uint8_t g_view;
 static uint8_t g_zoom;
 
 static sat_quad3_t make_front_quad(
@@ -169,8 +169,8 @@ int main(void) {
         sat_example_must(sat_app_frame_begin(
             SAT_COLOR_BLACK,SAT_COLOR_BLACK,&pad));
         if ((pad.pressed & SAT_PAD_START)!=0u) break;
-        if ((pad.pressed & SAT_PAD_A)!=0u) g_view^=1u;
-        if ((pad.pressed & SAT_PAD_B)!=0u) g_zoom^=1u;
+        sat_pad_toggle(&pad, SAT_PAD_A, &g_view);
+        sat_pad_toggle(&pad, SAT_PAD_B, &g_zoom);
         update_camera();
         bake_current_view();
         sat_example_must(sat_scene_begin(

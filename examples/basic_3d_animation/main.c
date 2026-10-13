@@ -90,7 +90,6 @@ static uint32_t g_fps_mark;
 static sat_orbit_camera3d_t g_orbit;
 static int g_show_hud;
 static int g_draw_overflow;
-static int g_ntsc;
 static uint32_t g_tick;
 
 static sat_anim_state_t g_anim;
@@ -107,7 +106,7 @@ static void note(sat_result_t st) {
  * build; (n*65536)/rate on the running total keeps NTSC and PAL drift-free
  * instead of accumulating a truncated constant's bias. */
 static sat_fx16_t vblank_dt(void) {
-    uint32_t rate = (g_ntsc != 0) ? 60u : 50u;
+    const uint32_t rate = sat_video_refresh_hz();
     uint32_t n = sat_frame_count();
     uint64_t now = (uint64_t)n * 65536u / rate;
     uint64_t prev = (uint64_t)g_tick * 65536u / rate;
@@ -160,7 +159,7 @@ static void update_camera_from_inputs(const sat_pad_state_t* pad) {
 }
 /* Counts program frames against display time; refreshes once a second. */
 static void update_fps(void) {
-    uint32_t rate = (g_ntsc != 0) ? 60u : 50u;
+    const uint32_t rate = sat_video_refresh_hz();
     uint32_t now = sat_frame_count();
     uint32_t span = now - g_fps_mark;
 
@@ -232,7 +231,6 @@ int main(void) {
     SAT_PANIC_IF_ERROR(sat_init(&video));
     SAT_PANIC_IF_ERROR(sat_ascii_font_init_8x8_indexed8(
         &g_font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, FONT_PALETTE));
-    g_ntsc = (int)sat_video_is_ntsc_timing();
 
     sat_example_must(sat_model_validate(&male_walk_asset));
     sat_example_must(sat_anim_validate(&male_walk_anim_asset));

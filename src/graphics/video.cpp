@@ -51,6 +51,10 @@ extern "C" uint8_t sat_video_is_ntsc_timing(void) {
     return saturn::core::g_state.config.ntsc != 0u ? 1u : 0u;
 }
 
+extern "C" uint32_t sat_video_refresh_hz(void) {
+    return saturn::core::g_state.config.ntsc != 0u ? 60u : 50u;
+}
+
 extern "C" sat_result_t sat_wait_vblank(void) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();

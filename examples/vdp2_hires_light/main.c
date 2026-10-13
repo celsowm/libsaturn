@@ -59,9 +59,9 @@ typedef struct light_demo_results {
     uint32_t frames;
     int32_t spot_x;
     int32_t spot_y;
-    uint32_t light_on;
-    uint32_t mask_on;
-    uint32_t window_on;
+    uint8_t light_on;
+    uint8_t mask_on;
+    uint8_t window_on;
 } light_demo_results_t;
 
 volatile light_demo_results_t g_light_demo;
@@ -186,9 +186,9 @@ int main(void) {
         if (sat_begin_frame() != SAT_OK) break;
         (void)sat_pad_poll(&pad);
         ++g_light_demo.frames;
-        if ((pad.pressed & SAT_PAD_A) != 0u) g_light_demo.light_on ^= 1u;
-        if ((pad.pressed & SAT_PAD_B) != 0u) g_light_demo.mask_on ^= 1u;
-        if ((pad.pressed & SAT_PAD_C) != 0u) g_light_demo.window_on ^= 1u;
+        sat_pad_toggle(&pad, SAT_PAD_A, &g_light_demo.light_on);
+        sat_pad_toggle(&pad, SAT_PAD_B, &g_light_demo.mask_on);
+        sat_pad_toggle(&pad, SAT_PAD_C, &g_light_demo.window_on);
         if ((pad.pressed & (SAT_PAD_A | SAT_PAD_B)) != 0u) (void)apply_light();
         draw_body();
         (void)sat_end_frame();
