@@ -4,6 +4,7 @@
 #include "saturn/app.h"
 #include "saturn/color.h"
 #include "saturn/font.h"
+#include "saturn/hud.h"
 #include "saturn/irq.h"
 #include "saturn/time.h"
 
@@ -30,6 +31,9 @@ typedef struct irq_demo_results {
 volatile irq_demo_results_t g_irq_demo;
 
 static sat_ascii_font_t font;
+/* HUD overlay: font in CRAM bank 7, draws use palette code 0 with
+ * 8 px/cell spacing (the numbers the open-coded calls hard-coded). */
+static sat_hud_t hud;
 
 static void counter(void* user) {
     volatile uint32_t* value = (volatile uint32_t*)user;
@@ -37,7 +41,7 @@ static void counter(void* user) {
 }
 
 static void number(const char* label, uint32_t value, int y) {
-    (void)sat_ascii_font_draw_label_u32(&font, label, value, 8, y, 8, 0u, 0u);
+    (void)sat_hud_value(&hud, label, value, 8, y);
 }
 
 /* Spins for BUSY_VBLANKS display frames without touching the clock: before
@@ -57,6 +61,7 @@ int main(void) {
     if (sat_app_init_default() != SAT_OK) return 1;
     if (sat_ascii_font_init_8x8_indexed8(
             &font, SAT_COLOR_WHITE, SAT_COLOR_BLACK, 7u) != SAT_OK) return 1;
+    if (sat_hud_init(&hud, &font, 0u, 8u) != SAT_OK) return 1;
     g_irq_demo.magic = IRQ_DEMO_MAGIC;
     g_irq_demo.active = (uint32_t)sat_irq_active();
     uint8_t ok = g_irq_demo.active != 0u;
@@ -79,9 +84,8 @@ int main(void) {
         g_irq_demo.vblank_out = sat_irq_count(SAT_IRQ_VBLANK_OUT);
         g_irq_demo.timer0 = sat_irq_count(SAT_IRQ_TIMER0);
         g_irq_demo.sprite_end = sat_irq_count(SAT_IRQ_SPRITE_END);
-        (void)sat_ascii_font_draw_text_screen_indexed8(
-            &font, ok ? "SCU INTERRUPTS: ACTIVE" : "SCU INTERRUPTS: POLLING",
-            8, 8, 8, 0u, 0u);
+        (void)sat_hud_text(&hud,
+            ok ? "SCU INTERRUPTS: ACTIVE" : "SCU INTERRUPTS: POLLING", 8, 8);
         number("VBLANK-IN  ", g_irq_demo.vblank_in, 32);
         number("VBLANK-OUT ", g_irq_demo.vblank_out, 48);
         number("TIMER0 L112 ", g_irq_demo.timer0, 64);
