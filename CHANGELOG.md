@@ -49,6 +49,18 @@ The version is defined once, in the `VERSION` file.
   `include/saturn/time.h`: frame<->millisecond conversions taking
   the refresh rate as a parameter so the 60Hz / 50Hz hazard
   disappears from the fifteen places that hard-coded it.
+- Loading-screen bar helper `sat_loading_screen_draw_bar(screen, percent)`
+  in `include/saturn/loader.h` + `src/graphics/2d/loading_screen.cpp`:
+  draws the frame ring, track and filled portion described by a
+  `sat_loading_screen_t` into the currently open VDP1 frame, with the
+  percent clamped to [0, 100]. `sat_loading_screen_progress` is now
+  a thin wrapper (validate, compute percent, open frame, call
+  draw_bar, run decorate, close frame) and
+  `sat_example_loading_frame(font, screen, title, stage, percent)`
+  in `examples/common/example_util.h` reuses the same helper for
+  its bar so the bar math lives in one place. `city_walk/main.c` and
+  `examples/skybridge_3d/hud.c` construct their own
+  `sat_loading_screen_t` to match the panel layout.
 - Harness: `harness/scripts/telemetry.py` exposes `WRAM_HIGH`,
   `find_symbol`, `load_dump` and `verify_fields` so the eighteen
   pytest files no longer hand-roll the same map-regex /

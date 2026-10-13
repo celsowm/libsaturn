@@ -233,6 +233,23 @@ int main() {
     OK(decorated == 1 && g_frames == 3);
     sat_loading_screen_progress(&screen, 5u, 0u);
     OK(decorated == 1);
+
+    // sat_loading_screen_draw_bar is the inner half: the bar itself, no frame
+    // open/close, no VDP2 backdrop, no decorate hook. NULL is rejected; the
+    // percent is clamped to [0, 100]; a 0% draw skips the fill rectangle.
+    g_frames = 0; g_back = 0; g_rects = 0; g_last_rect_width = 0u;
+    OK(sat_loading_screen_draw_bar(nullptr, 50u) == SAT_ERR_INVALID_ARG);
+    OK(g_frames == 0 && g_back == 0 && g_rects == 0);
+    OK(sat_loading_screen_draw_bar(&screen, 0u) == SAT_OK);
+    // 2 rects: frame ring + track (no fill at 0%).
+    OK(g_frames == 0 && g_back == 0 && g_rects == 2);
+    OK(sat_loading_screen_draw_bar(&screen, 50u) == SAT_OK);
+    // 4 rects: prev 2 + this frame ring + track + fill.
+    OK(g_rects == 5 && g_last_rect_width == screen.width / 2u);
+    OK(sat_loading_screen_draw_bar(&screen, 200u) == SAT_OK);
+    // 6 rects: + frame ring + track + full-width fill; the 200 clamps to 100.
+    OK(g_rects == 8 && g_last_rect_width == screen.width);
+
     std::puts("loader: OK");
     return 0;
 }

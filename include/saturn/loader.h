@@ -83,6 +83,16 @@ typedef struct sat_loading_screen {
 /* A 200x8 bar centred low on a 320x224 screen, dark blue with a white fill,
  * and no decorate hook. */
 void sat_loading_screen_default(sat_loading_screen_t* screen);
+
+/* Draws the bar (frame + track + filled portion) described by `screen` into
+ * the currently open VDP1 frame, using `percent` (clamped to [0, 100]) as the
+ * fill ratio. Does not open or close a frame: the caller composes the bar
+ * with other draws (a backdrop, a title, percent text) and must already be
+ * between sat_begin_frame() and sat_end_frame(). Reused by the example
+ * helpers in examples/common/example_util.h so the bar math only lives here.
+ * Returns SAT_ERR_INVALID_ARG for a NULL screen. */
+sat_result_t sat_loading_screen_draw_bar(const sat_loading_screen_t* screen, uint16_t percent);
+
 void sat_loading_screen_progress(void* context, uint32_t done, uint32_t total);
 
 #ifdef __cplusplus

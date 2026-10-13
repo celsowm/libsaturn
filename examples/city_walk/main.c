@@ -27,6 +27,16 @@ static sat_ascii_font_t g_font;
 static city_player_t g_player;
 static sat_resource_plan_t g_resources;
 static sat_resource_plan_entry_t g_resource_entries[8];
+/* Boot panel progress bar: positioned and coloured to match the panel layout
+ * sat_example_loading_frame draws around it (backdrop, separator at y=64,
+ * centred title at y=77, centred stage at y=110, this bar at y=137, percent
+ * text at y=153). See examples/common/example_util.h. */
+static sat_loading_screen_t g_loading_screen = {
+    /*background*/ 0u, /*frame*/ 0u,
+    /*track*/ SAT_RGB555(6u, 13u, 17u), /*fill*/ SAT_RGB555(20u, 29u, 19u),
+    /*x*/ 34, /*y*/ 137, /*width*/ 252u, /*height*/ 9u,
+    /*decorate*/ 0, /*decorate_context*/ 0
+};
 
 /* Declares every fixed reservation up front, against the limits of the memory
  * it lands in, before anything is uploaded or allocated: a size change that no
@@ -65,7 +75,7 @@ static sat_result_t plan_resources(void) {
 }
 
 static void progress(const char* stage, uint8_t percent) {
-    sat_example_loading_frame(&g_font, "CITY WALK", stage, percent, CITY_W, CITY_H);
+    sat_example_loading_frame(&g_font, &g_loading_screen, "CITY WALK", stage, percent);
 }
 
 static void centred(const char* text, int y) {

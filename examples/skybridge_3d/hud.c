@@ -4,6 +4,13 @@
 static sat_ascii_font_t g_font;
 static uint8_t g_show_help=1u;
 uint8_t g_show_debug=0u;
+/* Boot panel progress bar: same layout as city_walk's, the lib draws it. */
+static sat_loading_screen_t g_loading_screen = {
+    /*background*/ 0u, /*frame*/ 0u,
+    /*track*/ SAT_RGB555(6u, 13u, 17u), /*fill*/ SAT_RGB555(20u, 29u, 19u),
+    /*x*/ 34, /*y*/ 137, /*width*/ 252u, /*height*/ 9u,
+    /*decorate*/ 0, /*decorate_context*/ 0
+};
 
 void hud_font_init(void) {
     sat_example_must(sat_ascii_font_init_8x8_indexed8(
@@ -13,7 +20,7 @@ void hud_font_init(void) {
 /* Boot is a series of completed jobs, not a pretend timed progress bar.
  * VDP1 draws this fullscreen panel independently of whether VDP2 is ready. */
 void loading_frame(const char* stage, uint8_t percent) {
-    sat_example_loading_frame(&g_font,"SKYBRIDGE 3D",stage,percent,W,H);
+    sat_example_loading_frame(&g_font,&g_loading_screen,"SKYBRIDGE 3D",stage,percent);
 }
 void put_text(const char* text, int x, int y) {
     (void)sat_ascii_font_draw_text_screen_indexed8(
