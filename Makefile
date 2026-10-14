@@ -729,6 +729,7 @@ HOST_TEST_EXTRA_test_mesh3d_textured := src/graphics/3d/geometry/mesh.cpp src/co
 HOST_TEST_EXTRA_test_vdp1_upload := src/graphics/vdp1/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp
 HOST_TEST_EXTRA_test_vdp1_clip := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 HOST_TEST_EXTRA_test_sprite_batch := src/hal/vdp1/vdp1.cpp src/graphics/2d/sprites/batch.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
+HOST_TEST_EXTRA_test_sprite_atlas := src/graphics/2d/sprites/atlas.cpp src/graphics/2d/sprites/batch.cpp src/hal/vdp1/vdp1.cpp src/resources/plan.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 HOST_TEST_EXTRA_test_vdp1_checkpoint := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 HOST_TEST_EXTRA_test_vdp1_vram_region := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 HOST_TEST_EXTRA_test_texture_api := src/graphics/2d/textures/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp src/graphics/2d/textures/runtime.cpp

@@ -43,6 +43,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/2d/rendering/runtime.cpp
     src/graphics/2d/screen.cpp
     src/graphics/2d/sprites/animation.cpp
+    src/graphics/2d/sprites/atlas.cpp
     src/graphics/2d/sprites/batch.cpp
     src/graphics/2d/sprites/clip.cpp
     src/graphics/2d/sprites/clip_draw.cpp

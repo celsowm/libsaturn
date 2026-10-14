@@ -47,8 +47,7 @@ int main() {
     OK(f.pmod == 0x0088u && f.colr == 0x2345u);
     OK(sat_sprite_frame_init_raw(&f, 0, 12u, 16u, 0u, 0u, 0u, 0, 0) == SAT_ERR_INVALID_ARG);   /* width % 8 */
     OK(sat_sprite_frame_init_raw(&f, 0, 16u, 0u, 0u, 0u, 0u, 0, 0) == SAT_ERR_INVALID_ARG);
-    OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 0u, 0u, 0u, 16, 0) == SAT_ERR_INVALID_ARG);  /* pivot outside */
-    OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 0u, 0u, 0u, -1, 0) == SAT_ERR_INVALID_ARG);
+    OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 0u, 0u, 0u, 20, -3) == SAT_OK && f.pivot_x == 20 && f.pivot_y == -3);
     OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 7u, 0u, 0u, 0, 0) == SAT_ERR_INVALID_ARG);   /* format */
     OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 0u, 0u, SAT_SPRITE_FLAG_USER_CLIP, 0, 0) == SAT_ERR_UNSUPPORTED);
     OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 0u, 0u, SAT_SPRITE_FLAG_SHADOW, 0, 0) == SAT_ERR_UNSUPPORTED);

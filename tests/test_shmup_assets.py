@@ -202,6 +202,17 @@ class PackTests(unittest.TestCase):
             self.assertEqual(g["data_off"] % 2048, 0)
             self.assertEqual(g["data_bytes"] % 2048, 0)
 
+    def test_every_frame_lives_inside_its_own_group_at_an_aligned_offset(self):
+        blob, rep = self.pack()
+        h = parse(blob)
+        for i in range(h["frames"]):
+            rec = struct.unpack(FRAME_FMT, blob[h["frame_off"] + 32 * i:h["frame_off"] + 32 * i + 32])
+            off, size, group = rec[6], rec[7], rec[8]
+            g = rep["groups"][group]
+            self.assertEqual(off % 8, 0, i)
+            self.assertGreaterEqual(off, g["data_off"], i)
+            self.assertLessEqual(off + size, g["data_off"] + g["data_bytes"], i)
+
     def test_deterministic(self):
         self.assertEqual(self.pack()[0], self.pack()[0])
 

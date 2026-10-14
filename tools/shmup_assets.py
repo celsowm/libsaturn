@@ -433,10 +433,12 @@ def pack_blob(records: list[Record], meta: dict, profile: str, orientation: str,
         count = sum(1 for f in frames if f["group"] == g)
         local = bytearray()
         for f in (f for f in frames if f["group"] == g):
-            key = (f["fmt"], f["data"])
-            if key not in shared:           # identical pixel data is stored once per file
+            # Identical pixel data is stored once per residency group, never across
+            # groups: a group must be loadable without any other being resident.
+            key = (g, f["fmt"], f["data"])
+            if key not in shared:
                 shared[key] = start + len(local)
-                local += f["data"] + b"\0" * (-len(f["data"]) % 4)
+                local += f["data"] + b"\0" * (-len(f["data"]) % 8)   # VDP1 character addresses are /8
             f["off"] = shared[key]
         local += b"\0" * (-len(local) % SECTOR)
         group_table.append((start, len(local), first, count))
@@ -463,7 +465,7 @@ def pack_blob(records: list[Record], meta: dict, profile: str, orientation: str,
     report = {"profile": profile, "orientation": orientation, "frames": len(frames), "luts": len(luts),
               "groups": [{"data_off": s, "data_bytes": b, "first": fi, "count": c}
                          for s, b, fi, c in group_table],
-              "unique_pixel_bytes": sum(len(k[1]) for k in shared),
+              "unique_pixel_bytes": sum(len(k[2]) for k in shared),
               "sum_frame_bytes": sum(len(f["data"]) for f in frames),
               "bytes": total, "crc32": f"{crc:08x}", "sha256": hashlib.sha256(blob).hexdigest(),
               "vdp1_pixels": sum(f["w"] * f["h"] for f in frames),

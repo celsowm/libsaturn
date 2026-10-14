@@ -22,10 +22,6 @@ extern "C" sat_result_t sat_sprite_frame_init_raw(
     if (width == 0u || height == 0u || (width & 7u) != 0u || height > 255u) return SAT_ERR_INVALID_ARG;
     if (format != SAT_VDP1_TEXTURE_INDEXED8 && format != SAT_VDP1_TEXTURE_LUT4) return SAT_ERR_INVALID_ARG;
     if ((flags & ~kBatchFlags) != 0u) return SAT_ERR_UNSUPPORTED;
-    if (pivot_x < 0 || pivot_y < 0 || pivot_x >= static_cast<int32_t>(width) ||
-        pivot_y >= static_cast<int32_t>(height)) {
-        return SAT_ERR_INVALID_ARG;
-    }
     frame->ctrl = saturn::core::compose_sprite_dir(flags);
     frame->pmod = saturn::core::compose_sprite_pmod(flags, format);
     frame->colr = saturn::core::compose_sprite_colr(palette, format);
