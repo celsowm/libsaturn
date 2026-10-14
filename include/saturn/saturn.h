@@ -57,6 +57,7 @@
 #include "saturn/sprite_anim.h"
 #include "saturn/sprite_atlas.h"
 #include "saturn/sprite_batch.h"
+#include "saturn/tate.h"
 #include "saturn/sprite_clip.h"
 #include "saturn/vdp2_environment.h"
 #include "saturn/fmt.h"

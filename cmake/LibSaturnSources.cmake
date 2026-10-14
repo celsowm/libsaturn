@@ -48,6 +48,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/2d/sprites/clip.cpp
     src/graphics/2d/sprites/clip_draw.cpp
     src/graphics/2d/surfaces/api.cpp
+    src/graphics/2d/tate.cpp
     src/graphics/2d/textures/api.cpp
     src/graphics/2d/textures/runtime.cpp
     src/graphics/3d/animation/api.cpp
