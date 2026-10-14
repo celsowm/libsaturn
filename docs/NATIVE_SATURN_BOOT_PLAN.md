@@ -1,6 +1,6 @@
 # Native Sega Saturn Boot Plan (LibSaturn)
 
-**Status:** local implementation underway; the optical tester, native candidate and validation tooling are implemented. Physical acceptance and promotion remain pending. See [execution evidence](NATIVE_SATURN_BOOT_EXECUTION.md).
+**Status:** native is now the default boot profile for local builds (owner decision, ahead of Gates P1A/P5; hardware acceptance still pending); local implementation underway; the optical tester, native candidate and validation tooling are implemented. Physical acceptance and promotion remain pending. See [execution evidence](NATIVE_SATURN_BOOT_EXECUTION.md).
 **Target:** `main`, after validation gates.
 **Scope:** Satiator regression after an early reportedly bootable Dino image, persistent SAROO incompatibility across tested Dino releases, a permanent optical-emulator diagnostic example, and a reusable independently owned LibSaturn disc-boot pipeline.
 **Related investigation:** [Dino Satiator boot investigation](DINO_SATIATOR_BOOT_INVESTIGATION.md).

@@ -38,13 +38,14 @@ the executable bytes, rather than trusting names or the header's size field.
 
 ## Boot profiles and packages
 
-YAUL remains the default. SBL is a selectable historical comparison. Native is
-experimental and requires explicitly prepared local security/region inputs:
+Native is the default. YAUL and SBL are selectable comparisons
+(`-IpTemplate yaul|sbl`). The local security/region inputs are extracted
+automatically from the tracked YAUL template:
 
 ```powershell
-python tools/prepare_native_payloads.py --template assets/boot/ip_yaul_template.bin --out build/native-boot
-./build-example.ps1 optical_emulators_tester -IpTemplate native
+./build-example.ps1 optical_emulators_tester
 ./harness/build-optical-packages.ps1
+./harness/make-share-bundle.ps1      # native minimal+full zip for testers
 ```
 
 Extraction records origin and hashes; it does not establish redistribution rights.

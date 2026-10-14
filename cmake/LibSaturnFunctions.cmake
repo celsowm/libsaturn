@@ -96,8 +96,9 @@ endfunction()
 #     [NAME <base>]            file base name, default <target>
 #     [OUTPUT_DIR <dir>]       default <binary dir>/disc
 #     [IP_PROFILE current|safe]  default current
-#     [IP_TEMPLATE_KIND yaul|sbl|native] default: yaul
-#     [BOOT_PAYLOADS <manifest>] required for native
+#     [IP_TEMPLATE_KIND yaul|sbl|native] default: native
+#     [BOOT_PAYLOADS <manifest>] native only; default: extracted from the package's
+#                              yaul template into the binary dir (local use only)
 #     [IP_TEMPLATE <path>]     default: the package's yaul IP template
 #     [ROOT_DIRS <dir>...]     directories whose contents land in the disc root
 #     [ROOT_FILES <file>...]   individual files placed in the disc root
@@ -148,13 +149,26 @@ function(libsaturn_add_disc target)
     endif()
     set(_kind "${ARG_IP_TEMPLATE_KIND}")
     if(NOT _kind)
-        set(_kind yaul)
+        set(_kind native)
     endif()
     if(NOT _kind MATCHES "^(yaul|sbl|native)$")
         message(FATAL_ERROR "IP_TEMPLATE_KIND must be yaul, sbl or native")
     endif()
-    if(_kind STREQUAL "native" AND (NOT ARG_BOOT_PAYLOADS OR NOT EXISTS "${ARG_BOOT_PAYLOADS}"))
-        message(FATAL_ERROR "native requires an explicit BOOT_PAYLOADS manifest")
+    set(_payloads "${ARG_BOOT_PAYLOADS}")
+    if(_kind STREQUAL "native" AND NOT _payloads)
+        # Default: security/area inputs extracted locally from the package's yaul template.
+        set(_payload_out "${CMAKE_CURRENT_BINARY_DIR}/libsaturn-native-boot/${target}")
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}" "${LIBSATURN_DISC_TOOLS_DIR}/prepare_native_payloads.py"
+                    --template "${LIBSATURN_DISC_BOOT_DIR}/ip_yaul_template.bin" --out "${_payload_out}"
+            RESULT_VARIABLE _prep_rc ERROR_VARIABLE _prep_err OUTPUT_QUIET)
+        if(NOT _prep_rc EQUAL 0)
+            message(FATAL_ERROR "libsaturn_add_disc: could not prepare native boot payloads: ${_prep_err}")
+        endif()
+        set(_payloads "${_payload_out}/payloads.json")
+    endif()
+    if(_kind STREQUAL "native" AND NOT EXISTS "${_payloads}")
+        message(FATAL_ERROR "libsaturn_add_disc: BOOT_PAYLOADS manifest '${_payloads}' not found")
     endif()
     set(_template "${ARG_IP_TEMPLATE}")
     if(NOT _template)
@@ -167,9 +181,9 @@ function(libsaturn_add_disc target)
     set(_content_deps ${ARG_ROOT_FILES} "${LIBSATURN_DISC_TOOLS_DIR}/boot_image.py"
         "${LIBSATURN_DISC_TOOLS_DIR}/normalize_iso_dates.py")
     if(_kind STREQUAL "native")
-        get_filename_component(_payload_dir "${ARG_BOOT_PAYLOADS}" DIRECTORY)
+        get_filename_component(_payload_dir "${_payloads}" DIRECTORY)
         file(GLOB _payload_files CONFIGURE_DEPENDS "${_payload_dir}/*.bin")
-        list(APPEND _content_deps "${ARG_BOOT_PAYLOADS}" ${_payload_files}
+        list(APPEND _content_deps "${_payloads}" ${_payload_files}
             "${LIBSATURN_DISC_AIP_SOURCE}" "${LIBSATURN_DISC_TOOLS_DIR}/build_native_ip.py")
     endif()
     foreach(_d IN LISTS ARG_ROOT_DIRS)
@@ -189,7 +203,7 @@ function(libsaturn_add_disc target)
                 "-DMKISOFS=${LIBSATURN_MKISOFS}"
                 "-DAPP_BIN=$<TARGET_FILE_DIR:${target}>/$<TARGET_FILE_BASE_NAME:${target}>.app.bin"
                 "-DOUT_DIR=${_dir}" "-DNAME=${_name}" "-DPROFILE=${_profile}"
-                "-DTEMPLATE=${_template}" "-DBOOT_KIND=${_kind}" "-DBOOT_PAYLOADS=${ARG_BOOT_PAYLOADS}"
+                "-DTEMPLATE=${_template}" "-DBOOT_KIND=${_kind}" "-DBOOT_PAYLOADS=${_payloads}"
                 "-DAIP_SOURCE=${LIBSATURN_DISC_AIP_SOURCE}"
                 "-DAPP_ELF=$<TARGET_FILE:${target}>" "-DSH2_NM=${CMAKE_NM}"
                 "-DSH2_CC=${CMAKE_C_COMPILER}" "-DSH2_OBJCOPY=${CMAKE_OBJCOPY}"

@@ -16,7 +16,7 @@ param(
     [string]$IpProfile = 'current',
 
     [ValidateSet('native', 'yaul', 'sbl', 'minimal', 'yaul_fixed', 'region_free', 'minimal_boot', 'correct', 'final')]
-    [string]$IpTemplate = 'yaul',
+    [string]$IpTemplate = 'native',
 
     [switch]$BuildFirst,
     [string]$Msys2Root,

@@ -223,20 +223,24 @@ Adding a runtime source file means adding one line to the manifest;
 
 Not supported. See [VCPKG_FEASIBILITY.md](VCPKG_FEASIBILITY.md).
 
-## Experimental native disc boot
+## Native disc boot (default, experimental on hardware)
 
-The default remains YAUL. Installed consumers can select `IP_TEMPLATE_KIND sbl`
-or the experimental native composer:
+Native is the default for Make, `build-example.ps1`, `run-example.ps1` and
+`libsaturn_add_disc`. It is emulator-validated only: Satiator/SAROO acceptance is
+still pending, so keep a legacy profile available for comparison. Select one with
+`IP_TEMPLATE_KIND yaul|sbl` (CMake/Make) or `-IpTemplate yaul|sbl` (PowerShell):
 
 ```cmake
-libsaturn_add_disc(my_game
-    IP_TEMPLATE_KIND native
-    BOOT_PAYLOADS "${CMAKE_SOURCE_DIR}/local-boot/payloads.json"
-    ROOT_DIRS "${CMAKE_SOURCE_DIR}/disc")
+libsaturn_add_disc(my_game ROOT_DIRS "${CMAKE_SOURCE_DIR}/disc")   # native
+libsaturn_add_disc(my_game IP_TEMPLATE_KIND sbl ROOT_DIRS "${CMAKE_SOURCE_DIR}/disc")
 ```
 
-Native requires an explicit provenance/hash manifest for security and region
-inputs. Missing inputs fail configuration/build; they are never downloaded or
+Without `BOOT_PAYLOADS`, the security/region inputs are extracted at configure
+time from the package's YAUL template into the binary directory (Make does the
+same into `build/native-boot/`). Their redistribution rights are **not cleared**,
+so do not publish discs built this way without reviewing that. Pass your own
+`BOOT_PAYLOADS <manifest>` (or `NATIVE_BOOT_PAYLOADS=` in Make) to use another
+source. A failing extraction fails configuration; inputs are never downloaded or
 silently replaced by zero bytes. The AIP source and all composer/validator tools
 ship with the installed package and Conan export. Locally extracted payloads
 remain outside the source/package distribution until their rights are reviewed.

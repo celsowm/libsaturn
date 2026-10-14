@@ -18,7 +18,7 @@ libsaturn_configure_executable(consumer)
 libsaturn_add_binary(consumer MAX_BYTES 983040)
 # Bootable disc through the package's own tooling; disc_data/ and both files land in the disc root
 # (more than one ROOT_FILES entry: the list must survive the trip into the disc script).
-set(LIBSATURN_TEST_BOOT_KIND yaul CACHE STRING "Boot profile under test")
+set(LIBSATURN_TEST_BOOT_KIND native CACHE STRING "Boot profile under test")
 set(LIBSATURN_TEST_BOOT_PAYLOADS "" CACHE FILEPATH "Local native payload manifest")
 libsaturn_add_disc(consumer IP_TEMPLATE_KIND "${LIBSATURN_TEST_BOOT_KIND}"
     BOOT_PAYLOADS "${LIBSATURN_TEST_BOOT_PAYLOADS}"

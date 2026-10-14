@@ -38,7 +38,7 @@ EXAMPLE      ?= hello_world
 SOURCE_DATE_EPOCH ?= 1791936000
 export SOURCE_DATE_EPOCH
 IP_PROFILE   ?= current
-IP_TEMPLATE_KIND ?= yaul
+IP_TEMPLATE_KIND ?= native
 APP_LOAD_ADDR_HEX := $(shell $(PYTHON) tools/memory_layout.py app_load_hex 2>/dev/null || echo 06004000)
 
 # -- Per-example build lock ----------------------------------------
@@ -79,6 +79,12 @@ endif
 
 # -- IP template ------------------------------------------------
 NATIVE_BOOT_PAYLOADS ?= $(BUILD_DIR)/native-boot/payloads.json
+# Default manifest: local security/area inputs extracted from the tracked YAUL template.
+# A user-supplied NATIVE_BOOT_PAYLOADS skips this rule.
+ifeq ($(origin NATIVE_BOOT_PAYLOADS),file)
+$(NATIVE_BOOT_PAYLOADS): assets/boot/ip_yaul_template.bin tools/prepare_native_payloads.py tools/boot_image.py
+	$(PYTHON) tools/prepare_native_payloads.py --template assets/boot/ip_yaul_template.bin --out $(dir $@)
+endif
 IP_TEMPLATE := assets/boot/ip_$(IP_TEMPLATE_KIND)_template.bin
 IP_GENERATED = $(OUTPUT_DIR)/$(EXAMPLE).IP.BIN
 
