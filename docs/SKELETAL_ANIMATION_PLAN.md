@@ -1,6 +1,6 @@
 # LibSaturn — Real-Time Skeletal Animation, CPU Skinning, Advanced Character Rendering and Fighting-Game Examples
 
-(Original implementation brief saved on 2026-10-11. Status on 2026-10-13: library, tooling, three examples and emulator gates implemented. Physical hardware acceptance and higher display-rate optimization remain open. See [the engineering/readiness report](FIGHTING_GAME_READINESS.md).)
+(Original implementation brief saved on 2026-10-11. Status on 2026-10-13: library, tooling, three examples and NTSC/PAL emulator gates implemented. The LOW arena reaches approximately 30 NTSC submissions/s; higher-detail and physical presentation acceptance remain open. See [the engineering/readiness report](FIGHTING_GAME_READINESS.md).)
 
 ## Role and Mission
 
@@ -1373,3 +1373,15 @@ Prioritize correctness and actual Saturn hardware behavior, then memory efficien
   Full host/tool, viewer, arena, collision, material and twelve-workload stress
   gates pass on stock RAM. Physical/PAL and higher two-actor display targets
   remain open. See [CHARACTER_GEOMETRY_PERFORMANCE.md](CHARACTER_GEOMETRY_PERFORMANCE.md).
+- 2026-10-13, presentation and PAL follow-up: the arena has a quieter stage,
+  framed health bars, adjusted camera and clearer silhouettes. MEDIUM is its
+  initial detail; Y selects LOW/HIGH while viewer and stress retain HIGH.
+  A late-registration cache fix makes paired geometry work on Mednafen.
+  Exact rigid-joint/quaternion shortcuts and hardware-bounded RGB clipping are
+  retained after measurement; general affine and signed-axis trials without
+  a measurable arena benefit are removed. Complete NTSC/PAL software gates
+  pass. A sustained LOW arena test measures 29.66 NTSC and 24.78 PAL
+  submissions/s with exact 60 Hz simulation and zero body overlap, draw
+  timeout or late swap. Physical hardware and higher-detail presentation
+  targets remain open. See
+  [CHARACTER_PRESENTATION_ACCEPTANCE.md](CHARACTER_PRESENTATION_ACCEPTANCE.md).

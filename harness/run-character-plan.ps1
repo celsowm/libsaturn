@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][string]$Bios,
-    [ValidateSet('all','viewer','arena','collision','stress','prepare','materials')][string]$Scenario='all'
+    [ValidateSet('all','viewer','arena','rate','collision','stress','prepare','materials')][string]$Scenario='all',
+    [switch]$Pal,
+    [switch]$AnalyzeOnly
 )
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -11,11 +13,15 @@ Push-Location $root
 try {
     foreach($case in $cases) {
         $env:CHARACTER_DEMO_VERIFY_GEOMETRY=if($case -eq 'materials'){'1'}else{$oldVerify}
-        $example=@{viewer='skeletal_animation_3d';arena='fighter_arena_3d';collision='fighter_arena_3d';stress='skinning_stress_3d';prepare='skinning_stress_3d';materials='skinning_stress_3d'}[$case]
-        & .\build-example.ps1 $example
-        if($LASTEXITCODE){throw "Build failed: $example"}
-        $prefix="harness/build/character_$case"; $map=$prefix+'.map'
-        Copy-Item -LiteralPath ('build/'+$example+'.map') -Destination $map
+        $example=@{viewer='skeletal_animation_3d';arena='fighter_arena_3d';rate='fighter_arena_3d';collision='fighter_arena_3d';stress='skinning_stress_3d';prepare='skinning_stress_3d';materials='skinning_stress_3d'}[$case]
+        $suffix=if($Pal){'_pal'}else{''}
+        $fieldHz=if($Pal){50}else{60}
+        $prefix="harness/build/character_$case$suffix"; $map=$prefix+'.map'
+        if(-not $AnalyzeOnly) {
+            & .\build-example.ps1 $example
+            if($LASTEXITCODE){throw "Build failed: $example"}
+            Copy-Item -LiteralPath ('build/'+$example+'.map') -Destination $map
+        }
         $pad=@('0 NONE');$frames=0;$shots=@();$dumps=@()
         switch($case) {
             viewer {
@@ -33,9 +39,12 @@ try {
             arena {
                 $frames=1150
                 $pad=@('0 NONE','100 B','200 NONE','220 A','420 C','600 NONE','640 X','680 NONE',
-                    '720 UP','780 NONE','800 Z','840 NONE','960 START','1000 NONE')
+                    '720 UP','780 NONE','800 Z','840 NONE','860 Y','900 NONE',
+                    '920 Y','940 NONE','960 START','1000 NONE')
                 $shots=@("199:${prefix}_guard.png","299:${prefix}_punch.png","519:${prefix}_kick.png",
-                    "669:${prefix}_jump.png","819:${prefix}_collision.png","1149:${prefix}_restart.png")
+                    "669:${prefix}_jump.png","819:${prefix}_collision.png",
+                    "879:${prefix}_low.png","959:${prefix}_high.png","1149:${prefix}_restart.png")
+                $dumps=@("0x00200000:1048576:${prefix}_low.bin")
             }
             stress {
                 $frames=3100
@@ -48,6 +57,13 @@ try {
                 $pad=$pad|Sort-Object { [int]($_.Split(' ')[0]) }
                 $shots=@("699:${prefix}_eight_auto.png","1699:${prefix}_eight_master.png",
                     "2699:${prefix}_eight_slave.png","3099:${prefix}_complex.png")
+                $dumps=@("0x00200000:1048576:${prefix}_low.bin")
+            }
+            rate {
+                $frames=1200
+                $pad=@('0 NONE','40 Y','80 NONE','100 B','200 NONE','220 A','420 C','600 NONE',
+                    '640 X','680 NONE','720 UP','780 NONE','960 START','1000 NONE')
+                $shots=@("299:${prefix}_low_punch.png","699:${prefix}_low_jump.png","1199:${prefix}_final.png")
                 $dumps=@("0x00200000:1048576:${prefix}_low.bin")
             }
             collision {
@@ -68,29 +84,43 @@ try {
                 $dumps=@("0x00200000:1048576:${prefix}_low.bin")
             }
         }
-        $pad|Set-Content -LiteralPath ($prefix+'.pad')
+        if(-not $AnalyzeOnly){$pad|Set-Content -LiteralPath ($prefix+'.pad')}
         $arguments=@{Example=$example;Bios=$Bios;Frames=$frames;PadScript=$prefix+'.pad';
             Screenshot=$shots;DumpWramHigh=$prefix+'_high.bin';Out=$prefix+'.json'}
         if($dumps.Count){$arguments.DumpMem=$dumps}
-        & .\harness\run-harness.ps1 @arguments 2>&1 | Tee-Object -FilePath ($prefix+'_run.log')
-        if($LASTEXITCODE){throw "Emulation failed: $example"}
+        if($Pal){$arguments.Pal=$true}
+        if(-not $AnalyzeOnly) {
+            & .\harness\run-harness.ps1 @arguments 2>&1 | Tee-Object -FilePath ($prefix+'_run.log')
+            if($LASTEXITCODE){throw "Emulation failed: $example"}
+        } else {Write-Host "[character-plan] Analyzing saved capture: $prefix"}
         $analysis=@('--example',$example,'--map',$map,'--high',($prefix+'_high.bin'),
-                    '--probe',($prefix+'.json'),'--output',($prefix+'_analysis.json'))
-        if($case -eq 'stress'){$analysis+=@('--low',($prefix+'_low.bin'))}
+                    '--probe',($prefix+'.json'),'--output',($prefix+'_analysis.json'),'--field-hz',$fieldHz)
+        if($case -in @('stress','arena','rate')){$analysis+=@('--low',($prefix+'_low.bin'))}
+        if($case -eq 'rate'){$analysis+=@('--expected-lods','2')}
         if($case -eq 'collision'){$analysis+='--body-collision'}
         if($case -eq 'prepare') {
-            & python harness/tests/character_preparation.py $prefix
+            & python harness/tests/character_preparation.py $prefix --field-hz $fieldHz
         } else {
             & python harness/tests/character_plan.py @analysis
         }
         if($LASTEXITCODE){throw "Character validation failed: $example"}
+        if($case -eq 'rate') {
+            # Two display fields per submission: 30/s NTSC, 25/s PAL.
+            $targetFieldsPerSubmission=2
+            $rateTolerance=1
+            $minimumRate=$fieldHz/$targetFieldsPerSubmission-$rateTolerance
+            & python -c "import json; from pathlib import Path; d=json.loads(Path('$prefix'+'_analysis.json').read_text()); r=next(w for w in d['workloads'] if w['lod']==2); assert r['samples']>300; assert r['submitted_lists_per_second']>=$minimumRate"
+            if($LASTEXITCODE){throw 'Sustained LOW arena submission target failed'}
+        }
         if($case -eq 'materials') {
             & python -c "import json; from pathlib import Path; d=json.loads(Path('$prefix'+'_analysis.json').read_text()); assert d['geometry']['verified']>20; assert d['geometry']['errors']==0"
             if($LASTEXITCODE){throw 'Material geometry equivalence failed'}
             $env:CHARACTER_DEMO_VERIFY_GEOMETRY=$oldVerify
             # Leave the ordinary runnable artifact with the caller's settings.
-            & .\build-example.ps1 $example
-            if($LASTEXITCODE){throw 'Restoring the standard material build failed'}
+            if(-not $AnalyzeOnly) {
+                & .\build-example.ps1 $example
+                if($LASTEXITCODE){throw 'Restoring the standard material build failed'}
+            }
         }
         if($case -eq 'viewer') {
             & python -c "from PIL import Image; from pathlib import Path; a=Image.open(Path('$prefix'+'_paused_a.png')).crop((130,60,175,185)); b=Image.open(Path('$prefix'+'_paused_b.png')).crop((130,60,175,185)); assert a.tobytes()==b.tobytes(), 'Paused scene changed'"

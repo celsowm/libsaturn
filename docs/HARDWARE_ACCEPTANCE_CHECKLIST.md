@@ -111,6 +111,8 @@ console revision, region/video rate, BIOS, disc medium and build commit.
   resource releases finish before storage is reused; check both costume CRAM
   banks and the indexed/RGB shading behavior on physical VDP1 output.
 
-All of these physical checks remain pending. The existing NTSC Ymir/Mednafen
+All of these physical checks remain pending. NTSC and PAL character emulator
+checks now pass; see the [presentation/PAL report](CHARACTER_PRESENTATION_ACCEPTANCE.md).
+The existing NTSC Ymir/Mednafen
 evidence and measured display-rate limitations are in
 [FIGHTING_GAME_READINESS.md](FIGHTING_GAME_READINESS.md).

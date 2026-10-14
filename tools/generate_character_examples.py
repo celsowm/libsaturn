@@ -141,8 +141,8 @@ def build_source(detail):
         ph=JOINTS[hand][2]
         loft([(p2,.06,.065,[(hand,1)]),((ph[0],ph[1]-.045,ph[2]),.075,.08,[(hand,1)])],'y',5)
         a=JOINTS[thigh][2]; b=JOINTS[knee][2]; c=JOINTS[ankle][2]
-        loft([(a,.115,.12,[(thigh,1)]),(interp(a,b,.75),.095,.10,[(thigh,.85),(knee,.15)]),
-              (b,.085,.095,[(thigh,.5),(knee,.5)]),(interp(b,c,.3),.09,.095,[(thigh,.15),(knee,.85)]),
+        loft([(a,.14,.135,[(thigh,1)]),(interp(a,b,.75),.11,.11,[(thigh,.85),(knee,.15)]),
+              (b,.09,.10,[(thigh,.5),(knee,.5)]),(interp(b,c,.3),.105,.105,[(thigh,.15),(knee,.85)]),
               (c,.065,.08,[(knee,.6),(ankle,.4)])],'y',4)
         pf=JOINTS[foot][2]
         loft([((pf[0],.02,.10),.09,.17,[(foot,1)]),((pf[0],.12,.08),.085,.15,[(foot,1)])],'y',4)
@@ -196,7 +196,7 @@ def build_source(detail):
 
 def palette(red=False):
     bases=[(35,112,184) if not red else (180,45,47),(223,167,122),
-           (32,39,51),(20,23,31),(25,31,43),(49,56,70),(223,167,122),(88,205,213)]
+           (32,39,51),(20,23,31),(58,66,82),(105,124,150),(223,167,122),(88,205,213)]
     colors=[0]
     for color in bases:
         for level in range(PALETTE_LEVELS):

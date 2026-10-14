@@ -141,4 +141,6 @@ and is separate from `OWN RAM KB`, as are the existing diagnostic logs.
 The stock stress map ends WRAM-L at `0x00282658` and BSS at `0x060f6928`.
 It leaves 38,616 bytes above BSS, including the enforced 16 KiB Master stack
 reserve. There are no per-frame heap allocations or expansion-RAM requirements.
-Physical Saturn and PAL character acceptance remain open.
+Physical Saturn and PAL character acceptance were open at this study's completion.
+Subsequent PAL emulator gates are recorded in the
+[presentation/acceptance follow-up](CHARACTER_PRESENTATION_ACCEPTANCE.md).

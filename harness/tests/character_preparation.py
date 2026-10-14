@@ -5,18 +5,16 @@ import statistics
 import struct
 from pathlib import Path
 from character_plan import (analyze, symbol, SAMPLE_FIELDS, SAMPLE_MAGIC,
-                            LOW_BASE, WORD, NOMINAL_NTSC_HZ, GEOMETRY_MAGIC, GEOMETRY_FIELDS)
+                            LOW_BASE, WORD, NOMINAL_NTSC_HZ, GEOMETRY_MAGIC, GEOMETRY_FIELDS,
+                            HANDOFF_MAGIC, HANDOFF_FIELDS)
 
 TRANSITION_SAMPLES=4
 ACTORS=2
-HANDOFF_MAGIC=0x43484E31
-HANDOFF_FIELDS=('iteration wait_us end_us late_swaps draw_waits draw_timeouts '
-                'display_frames vblank_start').split()
 
-def report(prefix):
+def report(prefix,field_hz=NOMINAL_NTSC_HZ):
     path=lambda suffix:Path(str(prefix)+suffix)
     result=analyze('skinning_stress_3d',path('.map'),path('_high.bin'),
-                   path('.json'),path('_analysis.json'))
+                   path('.json'),path('_analysis.json'),field_hz=field_hz)
     low=path('_low.bin').read_bytes()
     offset=symbol(path('.map').read_text(),'g_character_benchmark')-LOW_BASE
     magic,count,capacity,stride=struct.unpack_from('>4I',low,offset)
@@ -62,10 +60,10 @@ def report(prefix):
         assert len(samples)>=20 and lod==0 and complexity==0
         assert all(s['accepted']==actors for s in samples)
         fields=samples[-1]['vblank']-samples[0]['vblank']
-        simulation=NOMINAL_NTSC_HZ*(samples[-1]['simulation_ticks']-samples[0]['simulation_ticks'])/fields
+        simulation=field_hz*(samples[-1]['simulation_ticks']-samples[0]['simulation_ticks'])/fields
         assert abs(simulation-NOMINAL_NTSC_HZ)<2
         workloads.append({'policy':policy,'samples':len(samples),
-            'submissions_per_second':NOMINAL_NTSC_HZ*(samples[-1]['iteration']-samples[0]['iteration'])/fields,
+            'submissions_per_second':field_hz*(samples[-1]['iteration']-samples[0]['iteration'])/fields,
             'simulation_per_second':simulation,
             'medians':{field:statistics.median(s[field] for s in samples) for field in
                        ('cpu_ms','preparation_ms','skin_ms','sort_us','emission_us','frame_ms','commands')},
@@ -97,4 +95,5 @@ def report(prefix):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('prefix',type=Path)
-    report(parser.parse_args().prefix)
+    parser.add_argument('--field-hz',type=int,choices=(50,60),default=NOMINAL_NTSC_HZ)
+    args=parser.parse_args();report(args.prefix,args.field_hz)

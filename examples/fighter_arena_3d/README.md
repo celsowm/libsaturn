@@ -1,7 +1,7 @@
 # Vector Arena
 
 A playable two-fighter integration example with original blue/red humanoids,
-independent clips and crossfades, a tiled arena, VDP2 skyline, contact shadows,
+independent clips and crossfades, a central training mat, VDP2 backdrop, contact shadows,
 health bars, round timer, hit flashes and a camera that follows both fighters.
 All character faces enter one global painter queue.
 
@@ -20,6 +20,7 @@ Controls:
 | A / C | Punch / kick |
 | B | Guard |
 | X | Jump |
+| Y | Cycle mesh detail: MEDIUM (default), LOW, HIGH |
 | Z | Skeleton and collision-volume visualization |
 | Start | Restart the round and release/reload the selected resources |
 
@@ -38,6 +39,25 @@ patterns while owning independent poses, vertex buffers, texture handles and
 palettes. Native character texture pixels total 16,896 bytes for two owners.
 Font/background allocations are separate. The normal application runs on
 stock Work RAM and enforces the linker's stack reserve.
+
+The arena starts at MEDIUM (260 vertices and 301 faces per fighter), with
+brighter gloves/pants, fuller legs, a lower camera and a quieter stage. The
+viewer and stress benchmark still start at HIGH. Health bars have visible
+tracks and the opponent's bar drains toward its outside edge. Submission
+timing and detail labels appear with Z diagnostics; they are not presented as
+measured display FPS. Mesh detail changes preserve simulation and body volumes.
+
+PAL emulator checks use the European BIOS and separate artifacts:
+
+```powershell
+.\harness\run-character-plan.ps1 -Bios bios/saturn_bios_eu.bin -Pal -Scenario all
+.\harness\run-character-plan.ps1 -Bios bios/saturn_bios_us.bin -Scenario rate
+```
+
+LOW reaches 30 submissions/s in the NTSC arena comparison (25/s PAL); MEDIUM
+retains about 20/s NTSC. The `rate` scenario checks LOW over 1,200 fields with
+combat and reload, with a two-field target for the selected video standard.
+See [measurements and acceptance](../../docs/CHARACTER_PRESENTATION_ACCEPTANCE.md).
 
 For CD-backed character loading:
 

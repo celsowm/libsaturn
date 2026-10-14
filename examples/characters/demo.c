@@ -34,14 +34,20 @@ enum {
     RATE_DECIMAL_SCALE=10, TRANSITION_TICKS=9, PARALLEL_TIMEOUT_TICKS=60000,
     BACKGROUND_WIDTH=64, BACKGROUND_HEIGHT=64, ARENA_TILES=5,
     ACTOR_VERTEX_CAP=FIGHTER_HIGH_VERTEX_COUNT, ACTOR_FACE_CAP=FIGHTER_HIGH_FACE_COUNT,
-    LOD_COUNT=3, POLICY_COUNT=3, STRESS_PRESET_COUNT=4,
+    CHARACTER_LOD_HIGH=0, CHARACTER_LOD_MEDIUM, CHARACTER_LOD_LOW, LOD_COUNT,
+    POLICY_COUNT=3, STRESS_PRESET_COUNT=4,
     MICROSECONDS_PER_SECOND=1000000, KILOBYTE_BYTES=1024,
     CHARACTER_RAM_BUDGET_BYTES=768*KILOBYTE_BYTES,
     CHARACTER_TEXTURE_BUDGET_BYTES=32*KILOBYTE_BYTES,
     DEMO_SIGNATURE=0x43484152u
 };
 enum { ARENA_CAMERA_DISTANCE_Q16=SAT_FX16_ONE*7/2,
-       ARENA_CAMERA_SEPARATION_DIVISOR=2, CAMERA_SMOOTHING_DIVISOR=8 };
+       ARENA_CAMERA_SEPARATION_DIVISOR=2, CAMERA_SMOOTHING_DIVISOR=8,
+       ARENA_CAMERA_PITCH_DEGREES=8, ARENA_CAMERA_YAW_DEGREES=18,
+       ARENA_BACKGROUND_GRADIENT_BASE=8, ARENA_BACKGROUND_GRADIENT_ROWS=8,
+       ARENA_HEALTH_WIDTH=120, ARENA_HEALTH_HEIGHT=8,
+       ARENA_HEALTH_LEFT_X=8, ARENA_HEALTH_RIGHT_X=192, ARENA_HEALTH_Y=24,
+       ARENA_DEFAULT_LOD=CHARACTER_LOD_MEDIUM };
 static const unsigned kStressCounts[STRESS_PRESET_COUNT]={1,2,4,8};
 static const char* const kPolicyNames[POLICY_COUNT]={"MASTER","SLAVE","AUTO"};
 static const char* const kLodNames[LOD_COUNT]={"HIGH","MEDIUM","LOW"};
@@ -250,8 +256,13 @@ static void init_actors(void) {
 static void init_background(void) {
     for(unsigned y=0;y<BACKGROUND_HEIGHT;++y)for(unsigned x=0;x<BACKGROUND_WIDTH;++x) {
         unsigned skyline=((x/8)*7)%24+18;
-        g_background[y*BACKGROUND_WIDTH+x]=(y>skyline)?(x%8==3 && y%8==4?3:2):1;
+        if(g_mode==CHARACTER_DEMO_ARENA)
+            g_background[y*BACKGROUND_WIDTH+x]=(uint8_t)(ARENA_BACKGROUND_GRADIENT_BASE+
+                y/ARENA_BACKGROUND_GRADIENT_ROWS);
+        else g_background[y*BACKGROUND_WIDTH+x]=(y>skyline)?(x%8==3 && y%8==4?3:2):1;
     }
+    for(unsigned band=0;band<BACKGROUND_HEIGHT/ARENA_BACKGROUND_GRADIENT_ROWS;++band)
+        g_background_palette[ARENA_BACKGROUND_GRADIENT_BASE+band]=SAT_RGB555(2+band/3,3+band/2,7+band);
     g_background_palette[1]=SAT_RGB555(3,5,10); g_background_palette[2]=SAT_RGB555(4,7,12);
     g_background_palette[3]=SAT_RGB555(13,15,18);
     sat_vdp2_nbg0_config_t config={SAT_VDP2_CHAR_SIZE_1X1,SAT_VDP2_COLOR_MODE_256,BACKGROUND_MAP_PLANE,0,0};
@@ -274,7 +285,8 @@ static void fit_camera(void) {
     fit.aspect=sat_fx16_div(SAT_FX16_ONE*SCREEN_WIDTH,SAT_FX16_ONE*SCREEN_HEIGHT);
     fit.far_z=SAT_FX16_ONE*32;fit.pitch_min_deg=-30;fit.pitch_max_deg=60;
     sat_example_must(sat_orbit_camera3d_fit_bounds(&g_orbit,&min,&max,&fit));
-    g_orbit.pitch_deg=12;g_orbit.yaw_deg=g_mode==CHARACTER_DEMO_ARENA?10:0;
+    g_orbit.pitch_deg=g_mode==CHARACTER_DEMO_ARENA?ARENA_CAMERA_PITCH_DEGREES:12;
+    g_orbit.yaw_deg=g_mode==CHARACTER_DEMO_ARENA?ARENA_CAMERA_YAW_DEGREES:0;
     sat_example_must(sat_orbit_camera3d_update(&g_orbit));
 }
 static void input(const sat_pad_state_t* pad) {
@@ -285,6 +297,7 @@ static void input(const sat_pad_state_t* pad) {
             init_actors();
         }
         if(pad->pressed&SAT_PAD_Z)g_debug=!g_debug;
+        if(pad->pressed&SAT_PAD_Y)g_quality=(g_quality+1)%LOD_COUNT;
         return;
     }
     if(pad->pressed&SAT_PAD_START)g_paused=!g_paused;
@@ -357,7 +370,12 @@ static void draw_floor(void) {
         sat_fx16_t left=(x*2-1)*SAT_FX16_ONE,front=(z*2-1)*SAT_FX16_ONE;
         sat_quad3_t quad={{{left,0,front},{left+2*SAT_FX16_ONE,0,front},
             {left+2*SAT_FX16_ONE,0,front+2*SAT_FX16_ONE},{left,0,front+2*SAT_FX16_ONE}}};
-        mat.rgb555=(x+z)&1?SAT_RGB555(10,11,13):SAT_RGB555(12,13,15);
+        if(g_mode==CHARACTER_DEMO_ARENA) {
+            // A bounded central mat and quieter surround replace the checkerboard.
+            if(x==0 && z==0)mat.rgb555=SAT_RGB555(11,15,19);
+            else if(x>=-1 && x<=1 && z>=-1 && z<=1)mat.rgb555=SAT_RGB555(9,12,16);
+            else mat.rgb555=SAT_RGB555(5,7,10);
+        } else mat.rgb555=(x+z)&1?SAT_RGB555(10,11,13):SAT_RGB555(12,13,15);
         sat_example_must(sat_scene_submit_quad(&g_scene,&quad,&mat,0));
     }
 }
@@ -609,15 +627,21 @@ static void hud(void) {
     if(g_debug)for(unsigned i=0;i<g_actor_count;++i){debug_skeleton(&g_actors[i]);if(g_mode==CHARACTER_DEMO_ARENA)debug_collision(&g_actors[i]);}
     if(g_mode==CHARACTER_DEMO_ARENA) {
         text("VECTOR ARENA",112,8);
-        sat_rect_t left={8,24,(uint16_t)(g_combat.fighters[0].health*120/COMBAT_HEALTH),8};
-        sat_rect_t right={192,24,(uint16_t)(g_combat.fighters[1].health*120/COMBAT_HEALTH),8};
+        sat_rect_t track_left={ARENA_HEALTH_LEFT_X-1,ARENA_HEALTH_Y-1,ARENA_HEALTH_WIDTH+2,ARENA_HEALTH_HEIGHT+2};
+        sat_rect_t track_right={ARENA_HEALTH_RIGHT_X-1,ARENA_HEALTH_Y-1,ARENA_HEALTH_WIDTH+2,ARENA_HEALTH_HEIGHT+2};
+        sat_example_must(sat_fill_rect(&track_left,sat_color_rgba(25,35,50,255)));
+        sat_example_must(sat_fill_rect(&track_right,sat_color_rgba(25,35,50,255)));
+        const unsigned left_width=g_combat.fighters[0].health*ARENA_HEALTH_WIDTH/COMBAT_HEALTH;
+        const unsigned right_width=g_combat.fighters[1].health*ARENA_HEALTH_WIDTH/COMBAT_HEALTH;
+        sat_rect_t left={ARENA_HEALTH_LEFT_X,ARENA_HEALTH_Y,(uint16_t)left_width,ARENA_HEALTH_HEIGHT};
+        sat_rect_t right={(int16_t)(ARENA_HEALTH_RIGHT_X+ARENA_HEALTH_WIDTH-right_width),ARENA_HEALTH_Y,(uint16_t)right_width,ARENA_HEALTH_HEIGHT};
         if(left.width)sat_example_must(sat_fill_rect(&left,sat_color_rgba(60,170,245,255)));
         if(right.width)sat_example_must(sat_fill_rect(&right,sat_color_rgba(235,80,65,255)));
         value("",g_combat.round_ticks/SIMULATION_HZ,152,24);
-        rate("SUB/S ",g_metrics.loop_rate_x10,8,40);
+        if(g_debug)rate("SUB/S ",g_metrics.loop_rate_x10,8,40);
         text(g_combat.round_over?"ROUND OVER / START TO RESTART":"D-PAD MOVE  A PUNCH  C KICK",8,192);
-        text("B GUARD  X JUMP  Z BONES  START RESET",8,208);
-        if(g_debug){value("HITS ",g_combat.hits,8,56);value("BLOCK ",g_combat.blocked,8,72);}
+        text("B GUARD X JUMP Y DETAIL Z DEBUG",8,208);
+        if(g_debug){value("HITS ",g_combat.hits,8,56);value("BLOCK ",g_combat.blocked,8,72);text(kLodNames[g_quality],8,88);}
         return;
     }
     text(g_mode==CHARACTER_DEMO_STRESS?"SKINNING / STOCK RAM BENCHMARK":"SKELETAL / ORIGINAL HUMANOID",8,8);
@@ -641,6 +665,7 @@ static void hud(void) {
 }
 int character_demo_run(character_demo_mode_t mode) {
     g_mode=mode;g_actor_count=mode==CHARACTER_DEMO_ARENA?2:1;
+    g_quality=mode==CHARACTER_DEMO_ARENA?ARENA_DEFAULT_LOD:CHARACTER_LOD_HIGH;
     sat_video_config_t video={SCREEN_WIDTH,SCREEN_HEIGHT,SAT_VIDEO_AUTO,0};sat_example_must(sat_init(&video));
     sat_parallel_config_t parallel={SAT_PARALLEL_AUTO,NULL,0,0,PARALLEL_TIMEOUT_TICKS};
     sat_example_must(sat_parallel_init(&parallel));sat_example_must(sat_skin_parallel_register());
@@ -754,7 +779,7 @@ int character_demo_run(character_demo_mode_t mode) {
         g_metrics.frame_ms=sat_time_ms()-frame_start;
         if(g_metrics.frame_ms>g_metrics.max_frame_ms)g_metrics.max_frame_ms=g_metrics.frame_ms;
         ++g_metrics.frames;
-        if(g_mode==CHARACTER_DEMO_STRESS && g_character_benchmark.count<BENCHMARK_SAMPLE_CAPACITY) {
+        if(g_mode!=CHARACTER_DEMO_VIEWER && g_character_benchmark.count<BENCHMARK_SAMPLE_CAPACITY) {
             benchmark_sample_t row={g_metrics.frames,sat_irq_count(SAT_IRQ_VBLANK_IN),
                 g_metrics.simulation_ticks,g_actor_count,g_metrics.accepted,level,g_policy,
                 g_metrics.frame_ms,cpu_ms,g_metrics.skin_ms,g_metrics.geometry_ms,

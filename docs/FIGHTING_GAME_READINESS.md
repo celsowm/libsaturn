@@ -15,6 +15,13 @@ The later [paired geometry study](CHARACTER_GEOMETRY_PERFORMANCE.md) reaches
 assets and 60 Hz simulation. It also fixes early completion ownership in the
 generic executor and records the current full stress matrix and memory usage.
 
+The subsequent [presentation/PAL follow-up](CHARACTER_PRESENTATION_ACCEPTANCE.md)
+adds a clearer arena, selectable detail and PAL emulator acceptance. RGB hardware
+clipping brings the LOW arena interval to 30 submissions/s on NTSC and 25 on
+PAL. MEDIUM remains the visual default at about 20 NTSC submissions/s; HIGH
+stress remains about 20/s. These are submission measurements, not unique
+presented-frame counts or physical hardware acceptance.
+
 The implementation is commit
 [`4c5bcee`](https://github.com/celsowm/libsaturn/commit/4c5bcee),
 `feat(characters): integrate skeletal assets, dual SH-2 jobs and playable examples`.
