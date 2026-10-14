@@ -1,0 +1,228 @@
+# Native Sega Saturn Boot Plan (LibSaturn)
+
+**Status:** proposed implementation plan; no runtime changes are implied by this document.
+**Target:** `main`, after validation gates.
+**Scope:** Dino Demo boot regression on Satiator and SAROO; reusable, independently owned LibSaturn disc boot pipeline.
+**Related investigation:** [Dino Satiator boot investigation](DINO_SATIATOR_BOOT_INVESTIGATION.md).
+
+## 1. Objective and non-goals
+
+Replace the dependency on YAUL/Jo Engine/SBL *application bootstrap code* with a small, auditable LibSaturn-owned Application Initial Program (AIP), deterministic IP metadata tooling, and an end-to-end BIOS disc-boot test path. Preserve the security and area-code requirements of an authentic Saturn boot; "native" does **not** mean bypassing the Sega BIOS or manufacturing the proprietary authentication payload.
+
+Required outcome: the same distribution build starts reliably on a real Saturn through a Satiator and a SAROO, while the Dino Demo still renders and plays audio as before. The pipeline must explain any failure that occurs between the licensed screen and `main()`.
+
+Non-goals:
+- Rewriting the game's renderer, progress bar, audio engine or animation as a presumed boot fix.
+- Replacing the console BIOS, patching Satiator/SAROO firmware, or assuming that an emulator is definitive hardware proof.
+- Shipping unlicensed Sega BIOS, CD Block firmware, or security assets.
+- Removing the current YAUL/SBL boot profiles before a proven native alternative exists.
+
+## 2. Established observations and uncertainties
+
+1. A user reports that an early Dino Demo image ran on Satiator. **The precise working ZIP, IP.BIN, executable, build commit and device firmware have not yet been independently matched.** Treat this as a lead, not a certified passing baseline. Preserve any recovered `dino_demo_v0.5.zip` byte-for-byte and record its SHA-256.
+2. The user already replaced the original fixed `0x900` (2304-iteration) `HIRQ.CMOK` poll in the default YAUL template with an unbounded CMOK wait. **That change did not fix the physical boot failure.** Do not propose "wait for CMOK" again as if it were untried.
+3. `assets/boot/ip_sbl_template.bin` still contains the bounded CD-command wait. `assets/boot/ip_yaul_template.bin` contains the subsequent unconditional wait. Both rely on inherited region/boot code; neither is an independent native boot implementation.
+4. `examples/dino_demo/main.c` first displays the progress bar *after* `sat_init()`. A frozen licensed screen does **not** prove that the progress bar itself executed, nor prove that application execution never started.
+5. The earlier Dino source commits [`b56522f`](https://github.com/celsowm/libsaturn/commit/b56522f5d541f0076494623b8a7f5bb0d6261759) (initial demo, September 23), [`a3a58c2`](https://github.com/celsowm/libsaturn/commit/a3a58c2b29f488cb4e6ef65a864c092e7a5c7162) (hi-res work, September 24), and [`83ae192`](https://github.com/celsowm/libsaturn/commit/83ae19266df5c5181bb7988f04d004ef40f1bb56) (CD music, September 27) predate the progress bar. None is confirmed to be the exact hardware-passing image.
+6. [`920023e`](https://github.com/celsowm/libsaturn/commit/920023e4674a448e928bf780413198b984a7963c) introduced the Dino loading bar along with changes to hi-res mode, frame submission, CRAM and VDP2 lighting. Use controlled A/B builds; do not attribute the regression to a single diff hunk.
+7. The default YAUL template was first *tracked* in Git in [`4dddbf1`](https://github.com/celsowm/libsaturn/commit/4dddbf1340f70978d898a6c6977ecf8a5fda3dee) on October 2. Older checkouts might not reproduce their original template bytes.
+8. The current Ymir harness directly injects the `.app.bin` into Work RAM. Its downstream runtime results cannot certify BIOS -> IP -> 1st-read -> AIP -> executable handoff. The existing investigation also documents BIOS boot runs using Mednafen and triage images, but **there is no confirmed Satiator/SAROO pass**.
+9. `src/core/startup/early_init.c` writes to `0x20C00000` while labeling it SCU. Audit that address and its offsets against the official memory map before changing it; an incorrect hardware access during `sat_init()` is a separate possible early-runtime failure.
+10. The generated IP header and ISO validators currently check limited fields and comparisons against templates. Passing them does not prove ISO9660 1st-read ordering, full BIOS handoff, or legal/provenance validity of the security payload.
+
+### Working hypotheses (not findings)
+
+- H1: the BIOS/area-code CD command sequence fails or waits forever on real hardware/ODE timing.
+- H2: first-read file discovery, file size, load location, IP sizing, or boot handoff differs from the verified emulator path.
+- H3: the app enters `_start` but faults, waits for video/interrupts, or alters invalid MMIO before displaying its first frame.
+- H4: a particular ODE's disc/menu/region behavior interacts with boot code, even if both devices exhibit visually similar symptoms.
+- H5: a later runtime/configuration change, rather than the loading bar itself, explains the known-good/known-bad difference.
+
+Treat H1-H5 as independent until measurements exclude them.
+
+## 3. Architecture and boundaries
+
+```text
+Physical Saturn BIOS / supported ODE
+    |
+    | reads IP system identification and authenticates disc
+    v
+Reviewed security/area-code payload (separate provenance and policy)
+    |
+    | BIOS loads the first-read application using ISO9660 directory order
+    v
+LibSaturn-owned AIP (src/core/startup/aip.s)
+    |
+    | minimal, deterministic handoff; no unexplained CD command hooks
+    v
+0x06004000 : _start (existing crt0.s)
+    |
+    | stack, BSS/WRAM-L, vectors, main()
+    v
+sat_init() -> early graphics/SCU -> game UI -> CD/music
+```
+
+Ownership rules:
+
+- **LibSaturn owns:** metadata serialization, AIP source, entry/handoff contract, link/load checks, image validation, boot diagnostics, Make and CMake integration, test fixtures.
+- **Security/area payload:** sourced separately from a legally distributable, documented compatible source or provided by the end user; track origin, license, region coverage and exact hashes. Never casually replace authenticated security code with zero-filled bytes or an arbitrary reimplementation. Code in region payloads **may execute before the AIP**, so audit its control flow and CD commands separately.
+- **BIOS owns:** disc authentication and first-read loading. Do not duplicate CD I/O in the AIP unless an isolated test proves it is essential and it is implemented with checked status and bounded error handling.
+- **Existing application ABI remains:** first-read destination `0x06004000`, `_start` at the first byte, SH-2 big-endian application binary, established WRAMH/WRAML and stack contracts. Any ABI adjustment requires an explicit linker, startup, loader and test migration.
+
+The native AIP should normally perform only the proven-required entry setup and an explicit jump to `_start`. Do not reset VDP/SCU, change vector bases, or issue CD commands speculatively while the BIOS is handing off. Each necessary register write needs a manual reference and a hardware test.
+
+## 4. Delivery phases
+
+### Phase 0 — Preserve a reproducible baseline (no behavior changes)
+
+Tasks:
+- Capture the tested Satiator/SAROO console revision, region, BIOS revision, ODE firmware/menu versions, SD card format, cold/warm start and exact observed screen. Record whether the licensed text animates or video timing continues.
+- Obtain the earliest reportedly working `dino_demo_v0.5.zip`, if available; archive its SHA-256, original CUE/BIN/ISO, IP sector, directory records and first-read payload. Do not infer "known good" from a source commit alone.
+- Produce new **byte-identifiable** current outputs from a pinned commit. Save `.elf`, `.map`, `.app.bin`, `.IP.BIN`, `.iso`, `.bin`, `.cue`, compiler versions and SHA-256 manifests.
+- Preserve and invoke `harness/build-dino-satiator-triage.ps1` and the findings in `docs/DINO_SATIATOR_BOOT_INVESTIGATION.md`. Keep existing `with_bar`, `without_bar`, `cmok_wait` and `legacy_poll` artifacts traceable; an image name is not evidence of different behavior.
+- Record all bootstrap bytes changed between the oldest recovered physical pass and a current failure, not only source-level diffs.
+
+**Gate P0:** a reproducible old/new artifact manifest exists; hardware-passing status is marked **unverified** unless a tester actually reproduces it.
+
+### Phase 1 — Expose the *real* boot path
+
+Tasks:
+- Add an **actual BIOS disc boot mode** to the test tooling, separate from the existing Ymir direct-injection probe. Neither injecting `0.BIN` into RAM nor forcing PC to `0x06004000` counts as a boot pass.
+- Start with the already documented Mednafen launch path for real BIOS -> disc handoff. Explore Ymir's low-level CD Block mode with **user-provided**, legally acquired CDB firmware; note that emulator CDB timing does not model Satiator or SAROO firmware.
+- At stable checkpoints log Master SH-2 PC/SR/VBR/R15, IP/AIP address range, first-read file location and size, CD HIRQ/CR1-CR4, interrupt masks, first instructions executed at `0x06004000`, and first write of a bootstrap stage marker.
+- Classify failure into exactly one stage: (A) security/region, (B) 1st-read transfer, (C) AIP branch, (D) crt0, (E) `sat_init`, (F) video/progress initialization, (G) first disc/audio read.
+- When the emulator cannot supply trustworthy information, classify as **unknown**, not pass. Keep traces alongside ROM/build hashes.
+
+**Gate P1:** the CI/local harness can distinguish injection success from authentic BIOS boot; an early-PC/last-stage report can identify where execution stopped.
+
+### Phase 2 — Implement a LibSaturn-owned IP/AIP
+
+Proposed files (names may be adjusted before implementation):
+- `src/core/startup/aip.s` — independently authored, minimal SH-2 AIP and documented register/stack assumptions.
+- `tools/build_native_ip.py` — deterministic 32 KiB IP composer; explicit metadata, layout bounds and input payload hashes.
+- `tools/check_native_ip.py` — structural and behavioral validators; reject incompatible payloads or overlap.
+- `assets/boot/README.md` — component provenance, regions, third-party licenses and reproducible inputs.
+- Tests for binary layout, jump target, instruction decoding and ABI invariants.
+
+Implementation rules:
+1. Use the original Sega system-disc/IP specification and repository hardware manuals to verify **all** header offsets, sizes, endianness, character fields, region information, IP load sizing, initial program entry and stack semantics. Do not carry over unexplained YAUL fields.
+2. Keep security and region code as separately versioned payloads, with reproducible hashes, documented provenance and a clear license/distribution decision. If suitable rights cannot be established, support a user-supplied local payload and do not bundle it.
+3. Inspect control flow **within the region payload**, including the historical `0xE00–0xEFF` area and HIRQ.CMOK handler. A native AIP placed after this code cannot fix a hang before the AIP. Never execute a CD command and then consume CR results without confirmed completion; a timeout should record diagnostic state rather than silently proceed.
+4. Explicitly define where the AIP bytes are mapped inside the IP and their runtime address. Compile with the SH-2 toolchain and assert alignment, branch reach, endian encoding, section bounds and relocation constraints. The simple `jmp 0x06004000` sketch is a **design sketch**, not a validated drop-in loader.
+5. Minimize pre-handoff register/MMIO touches. Keep existing `crt0.s` entry behavior until targeted evidence supports a change.
+6. Require byte-for-byte reproducible output for the same inputs; fail closed on missing security data, unknown profile, invalid range, overlap, or first-read overflow.
+7. Preserve a named `yaul`/`sbl` comparison mode during migration; never make the new profile default merely because a synthetic ROM or direct-injection harness passes.
+
+**Gate P2:** the native IP can be generated and disassembled from source; it contains no copied YAUL/SBL bootstrap code, and each non-LibSaturn security/area component has an auditable provenance/license policy.
+
+### Phase 3 — Audit disc packaging and early startup
+
+- Extend `tools/check_iso.py` to parse ISO9660 primary volume descriptor and root directory **in on-disc order**; confirm the first-read directory identifier is the intended `0.BIN`, verify its starting LBA, byte length and contents against the built `.app.bin`.
+- Ensure the proper System ID/IP is present at the correct first logical sectors; check the AIP address/size against actual generated IP, physical sector packing, raw MODE1/2352 EDC/ECC and CUE metadata. Validate both Make and installed-CMake disc builds produce the same logical disc layout.
+- Assert `_start == 0x06004000` and that the actual first-read file covers all initialized loadable bytes but not `.bss`/`.wram_l`. Check linker map, `objcopy -O binary` output, WRAM-H end, stack reserve and WRAM-L boundaries.
+- Review `src/core/startup/early_init.c`, `crt0.s`, `saturn.ld`, `src/hal/scu/irq.cpp` and `src/hal/scu/scu.cpp` against the official SCU register map. Investigate the use of `0x20C00000` and indexed writes before correcting them; no unreviewed "base address substitution".
+- Check BIOS-to-runtime vector handoff and interrupt prerequisites, SH-2 cached/uncached aliases, Master/Slave stack overlap and whether `sat_init()` can leave the last BIOS frame onscreen while the game is already spinning.
+- Add a **tiny bootstrap marker**, as safe pre-video instrumentation, plus optional phase-specific screens after VDP initialization. Stage markers should be inspectable from RAM or debugger even when no pixels change.
+
+**Gate P3:** image validation catches a deliberately reordered root, mismatched executable, malformed IP, invalid memory span and wrong image profile. Startup is observable independently of the progress-bar implementation.
+
+### Phase 4 — Controlled regression experiment
+
+Construct immutable, hash-labeled test artifacts with one variable changed at a time:
+
+| Set | Variables | Interpretation |
+| --- | --- | --- |
+| A | Recovered historically working binary versus contemporary binary, with exact original IP kept | Establish whether the report reproduces; do not silently replace its original IP |
+| B | Same minimal `0.BIN`, YAUL vs SBL vs native IP | Isolate pre-application boot behavior |
+| C | Same IP, minimal no-video `0.BIN` -> first marker -> hello-world video | Separate handoff, crt0, sat_init and display |
+| D | Same native IP, early Dino source vs current source | Narrow runtime changes |
+| E | Same current source/native IP, progress bar off/on | Isolate progress UI without changing boot |
+| F | Same current source/native IP, CD/audio disabled/enabled | Isolate post-boot disc reads |
+| G | Same current source/native IP, hi-res, ON_SUBMIT, VDP2 light independently toggled | Separate the simultaneous changes introduced around `920023e` |
+
+For every pair record IP SHA, executable SHA, ISO9660 file ordering, CUE/BIN SHA, boot-stage markers, last Master PC, HIRQ state and observed output. Keep the compiled executable identical for IP-only comparisons. Do not confuse a resized/generated model or changed music asset with an isolated progress-bar toggle.
+
+Do not assume an "early without bar" source commit is physically proven good. Use a genuine recovered image or a fresh test from a physical Satiator user to establish that fact.
+
+**Gate P4:** at least one failing/passing pair narrows the regression to a specific pre-application or application stage; if not, report that the root cause remains open.
+
+### Phase 5 — Physical acceptance: Satiator and SAROO
+
+Create a read-only tester package with matched BIN/CUE, a short README, image hashes and a feedback form. Provide only the artifacts and firmware legally shareable.
+
+Record for each result:
+- Console motherboard revision, BIOS/region, NTSC/PAL; ODE model, firmware/menu version; loader entry mode, card/SD filesystem and image format.
+- Cold boot, reset/reboot, repeatability, time on licensed screen, first bootstrap stage reached, first rendered frame, pad response and whether gameplay stays responsive.
+- For the Dino: progress bar off/on comparison, animation, sound/music initialization and a five-minute stability run.
+- Whether failures occur before or after `0x06004000`. Where precise PC is not available, report visual observations without inferring the PC.
+- SAROO cartridge mode may conflict with programs needing a physical 4 MB expansion cartridge (e.g. `city_walk`); classify such results separately from basic boot compatibility.
+
+Minimum promotion criteria:
+- **10 consecutive cold boots on one Satiator-equipped Saturn and one SAROO-equipped Saturn** with the *same native boot artifact*, plus a soft reset and five-minute Dino stability run on each.
+- At least one boot of a minimal diagnostic and one non-Dino LibSaturn example on both devices.
+- Normal ROM stays compatible with full-BIOS Mednafen boot, as well as the existing injection harness (the two results must be labeled separately).
+- No new early-stage MMIO faults, interrupted CD operations, stack overruns or regression in Make/CMake/ISO checks.
+- A confirmed hardware test result is mandatory. No emulator screenshot alone allows the claim "fixed on Satiator/SAROO".
+
+**Gate P5:** physical results and identifiers are recorded in a machine-readable acceptance table and attached to an issue/commit.
+
+### Phase 6 — Make native boot the default, safely
+
+- Add an explicit `IP_TEMPLATE_KIND=native` (or a separately named `BOOT_PROFILE=native`) with a documented feature gate. Wire it consistently through `Makefile`, `build-example.ps1`, `cmake/LibSaturnBuildDisc.cmake`, installed package content, Conan and consumer tests.
+- Keep `yaul` and `sbl` as selectable legacy profiles for comparison during a defined deprecation period. Warn when a legacy template has a known unbounded or unsafe wait.
+- Make the native profile default only after Gate P5; write a concise migration note and update `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md`, `docs/PACKAGING.md`, the harness and README.
+- Release binaries with clear build IDs; report precisely whether native AIP, bootstrap/area payload, first-read validation, or runtime initialization produced the fix. Do not attribute causality to the last change alone.
+- Rollback is a one-variable switch to the previously passing profile, retaining artifact hashes and test evidence. Do not rewrite Git history or delete known-good boot images.
+
+**Gate P6:** default and legacy modes are reproducible; CI, two hardware paths and downstream installed consumers pass.
+
+## 5. Highest-value first implementation batch
+
+The first engineering PR/commit batch should stop short of changing the default:
+1. Implement a pure parser/report tool for the generated IP + ISO9660 first-read metadata, shared between Make and CMake checks.
+2. Build a minimal `boot_probe` executable with stage markers for AIP handoff, `_start`, `main()`, pre- and post-`sat_init()`, first VBlank and first rendered frame. No CD, audio, animation or progress bar.
+3. Add a true BIOS boot runner (Mednafen first) whose output cannot be mistaken for the injection-based harness. Save PC/HIRQ trace when possible.
+4. Run both existing templates against the **same** minimal executable and capture results; do not change the CMOK default as a speculative fix.
+5. Only then implement the native AIP/IP composer based on a validated IP specification and provenance-reviewed security/area inputs.
+
+This ordering can distinguish an ODE/BIOS failure from a broken application startup before large-scale boot rewrites.
+
+## 6. Tests, evidence and definition of done
+
+Host tests:
+- IP metadata field encoding, strict allowed lengths, big-endian integers, reserved bytes, region coverage, security asset digest/provenance.
+- AIP ELF link and relocation assertions, binary signature/jump target, address alignment, length bounds.
+- ISO9660 root-order fixture: wrong first file fails; wrong LBA/size/content fails.
+- In-place sector/padding checks, fresh Make/CMake parity, invalid/oversized `0.BIN` failure.
+- CMOK command-flow regression tests on **each** legacy boot payload, including the bounded SBL and unbounded YAUL variants.
+
+Emulator tests:
+- Full BIOS boot reaches `_start` and a stage marker without manual PC or RAM injection.
+- Optional user-provided CDB firmware handled without including it in the repository.
+- Existing injection-based Ymir and Dino runtime tests continue passing but are never relabeled "disc boot".
+
+Physical tests:
+- The exact matrix from Phase 5, with photos/videos and a hash-backed result file.
+- Failure results kept alongside passing results, with confidence levels.
+
+**Definition of done:** every shipped image has an auditable and independently owned AIP, properly sourced authenticated payload, deterministic disc layout, genuine full-BIOS emulator coverage and demonstrated repeatable boot on both Satiator and SAROO. The Dino regression is *explained*, not merely hidden by turning off the progress bar.
+
+## 7. Source map
+
+Repository:
+- [Current Dino/Satiator investigation](DINO_SATIATOR_BOOT_INVESTIGATION.md)
+- [Historical IP-template notes](../assets/boot/README.md)
+- [IP generator](../tools/gen_ip_bin.py), [IP validator](../tools/check_ip_bin.py), [ISO validator](../tools/check_iso.py), [raw image validator](../tools/check_disc_image.py)
+- [IP boot stub](../src/core/startup/ip_stub.s), [crt0](../src/core/startup/crt0.s), [linker script](../src/core/startup/saturn.ld), [early init](../src/core/startup/early_init.c)
+- [Dino source](../examples/dino_demo/main.c), [Dino build profile](../examples/dino_demo/Makefile.inc), [disc CMake helper](../cmake/LibSaturnBuildDisc.cmake)
+- [Harness limitation](../harness/README.md), [physical acceptance checklist](HARDWARE_ACCEPTANCE_CHECKLIST.md)
+- [Imported Sega hardware manuals](sega_saturn_hardware/)
+
+External references to inspect and cite during implementation:
+- Sega Saturn *Disc Format Standards* and *System Program Library/boot* documentation (use authoritative scanned manuals, confirm version and offsets).
+- Sega Saturn *SCU User's Manual* (MMIO addresses, interrupt mask/status), plus the SH-2 hardware manual.
+- [Satiator official software/firmware notes](https://wiki.satiator.net/start#software_updates) and [official menu](https://github.com/satiator/satiator-menu).
+- [SAROO project](https://github.com/tpunix/SAROO).
+- [Ymir](https://github.com/StrikerX3/Ymir) and [Mednafen](https://mednafen.github.io/).
+
+Implementation work starts with diagnostics and reproducibility, *not* an unverified rewrite of the working gameplay.
