@@ -119,7 +119,7 @@ static void draw_actor(void) {
         x,SAT_FX16_ONE/2,SAT_FX16_ONE,z);
     const sat_scene3d_material_t actor_material={
         SAT_SCENE3D_RGB,SAT_RGB555(30,6,9),0,0,
-        SAT_INDEXED_SOLID_OPAQUE,0};
+        SAT_INDEXED_SOLID_OPAQUE,0,0};
     sat_example_must(sat_scene_submit_quad(
         &g_scene,&actor,&actor_material,0u));
 }

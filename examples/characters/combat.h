@@ -28,4 +28,8 @@ typedef struct {
 } combat_round_t;
 void combat_reset(combat_round_t* round);
 void combat_tick(combat_round_t* round, uint16_t player_buttons);
+/* Two explicit inputs share the same state, damage and body separation rules. */
+void combat_tick_dual(combat_round_t* round, uint16_t player_buttons, uint16_t opponent_buttons);
+/* Apply a diagonal |x|+|z| limit and resolve contacts inside that octagon. */
+void combat_constrain_octagon(combat_round_t* round, sat_fx16_t diagonal_limit);
 #endif

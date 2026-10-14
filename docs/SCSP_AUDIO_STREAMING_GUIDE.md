@@ -109,6 +109,14 @@ an alternate build (`DINO_MUSIC_68K=0`). Its resident timbres are short clips
 from that recording, converted and loop-crossfaded by the generic audio build
 step. The small bank is read from CD only during startup.
 
+The Killer Clown fight uses resident PCM8 effects with `SAT_SOUND_PLAY_AT_TICK`.
+Each request is queued one timer tick ahead; the 68000 performs key-on while
+the SH-2 renders. The double bell is one waveform with two strikes, so no
+far-future event blocks subsequent combat sounds in the FIFO event ring.
+The timed-play facade checks ring capacity before reconfiguring or stealing
+a voice; a full queue preserves the old hardware state and voice handle.
+This relies on the SH-2 being the sole event producer and the 68000 consuming.
+
 ## Scheduler / hardware phase rule
 
 Steady-state double-buffer phase is owned by the SCSP, not by VBlank math.

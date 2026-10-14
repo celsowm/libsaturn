@@ -133,3 +133,62 @@ the fresh capture is `harness/build/character_delivered_mednafen.png`.
 
 Physical Saturn timing, cache behavior and PAL output still require
 the existing [hardware acceptance checklist](HARDWARE_ACCEPTANCE_CHECKLIST.md).
+
+## Sustained MEDIUM/HIGH follow-up
+
+The `rate` runner now accepts `-RateDetail low|medium|high`, with LOW as its
+default. Non-LOW captures have separate prefixes (`character_rate_medium*`
+and `character_rate_high*`, plus `_pal` for PAL), so their maps, input scripts,
+dumps and reports cannot replace the accepted LOW capture. HIGH selects two Y
+edges with a release between them; its brief startup details are discarded by
+the existing steady-sample rule. MEDIUM retains the arena's initial detail.
+All details exercise guard, attacks, jump, sidestep and resource reload without
+enabling diagnostic geometry. More than 300 steady samples are required.
+Only LOW enforces the accepted two-field submission target; measuring another
+detail does not imply it meets that target.
+
+```powershell
+.\harness\run-character-plan.ps1 -Bios bios/saturn_bios_us.bin -Scenario rate -RateDetail medium
+.\harness\run-character-plan.ps1 -Bios bios/saturn_bios_us.bin -Scenario rate -RateDetail high
+.\harness\run-character-plan.ps1 -Bios bios/saturn_bios_eu.bin -Pal -Scenario rate -RateDetail medium
+.\harness\run-character-plan.ps1 -Bios bios/saturn_bios_eu.bin -Pal -Scenario rate -RateDetail high
+```
+
+The analyzer now validates both companion logs against the benchmark's count,
+capacity, stride and iteration IDs. It rejects draw timeouts and geometry
+errors. Each workload reports VBlank wait and end-frame medians, counter deltas,
+and preparation/dispatch/Master/wait/merge/verification medians from exactly
+the same steady iterations. Counter deltas sum each continuous segment rather
+than including time spent in another detail or policy. The preparation analyzer
+shares this log decoder. No guest runtime, geometry or synchronization behavior
+changes in this follow-up.
+
+| Video / detail | Steady samples | Submissions/s | Simulation steps/s | CPU | Preparation | Emission | Frame median / p95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| NTSC MEDIUM | 382 | 19.775 | 60.000 | 36 ms | 12.121 ms | 5.960 ms | 50 / 53 ms |
+| NTSC HIGH | 365 | 19.747 | 60.000 | 42 ms | 15.450 ms | 7.067 ms | 50 / 51 ms |
+| PAL MEDIUM | 578 | 24.743 | 59.991 | 36 ms | 12.212 ms | 5.992 ms | 40 / 41 ms |
+| PAL HIGH | 365 | 16.500 | 60.018 | 42 ms | 15.532 ms | 7.115 ms | 60 / 61 ms |
+
+Reload is included: maximum frames are 250/260/246/273 ms respectively. The
+NTSC MEDIUM/HIGH body checks cover 1,169/1,171 ticks, and PAL MEDIUM covers
+1,410, and PAL HIGH covers 1,407; all have zero overlap. All four captures have
+zero draw timeouts and late swaps. The NTSC MEDIUM/HIGH steady end-frame medians
+are 2.646/1.125 ms; initial VBlank waits are 10.307/6.739 ms. These durations are
+not independent measurements of rasterization or savings available by deleting
+waits. Display counter deltas count fields, including repeated images.
+
+These are new sustained baselines, not an optimization claim. MEDIUM's 36 ms
+and HIGH's 42 ms CPU medians already exceed a 33.3 ms NTSC two-field budget;
+preparation and emission remain measurable candidates. Stage medians cannot
+simply be added or subtracted to predict an achieved display tier. HIGH's
+results without debug geometry differ from the shorter detail-switch capture
+above. Physical acceptance and higher-detail 30/60 goals remain open.
+
+Validation artifacts are `harness/build/character_resume_*_gate.log` and the
+detail-specific `character_rate_*` captures. Reanalysis of the existing LOW and
+preparation captures passes. Four deliberately corrupted companion captures
+(count, stride, iteration and geometry-error fields) are rejected; the original
+capture is preserved. The Mednafen project launcher again renders a completed
+arena round with stock cartridge settings; its fresh screenshot is
+`harness/build/character_resume_mednafen.png`.

@@ -19,6 +19,8 @@ TEXTURE = struct.Struct('>IHHHHI')
 CLIP = struct.Struct('>III6H')
 
 def encode(exp, render, joint_names=None, events=None, root_flags=None):
+    if render.luts_rgb555:
+        raise ValueError("SKA1 does not store RGB CLUTs; use generated C for LUT4 skeletal assets")
     blob = bytearray(HEADER_BYTES)
     def add(payload, alignment=4):
         blob.extend(bytes((-len(blob)) % alignment))

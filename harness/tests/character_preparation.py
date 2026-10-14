@@ -4,7 +4,7 @@ import json
 import statistics
 import struct
 from pathlib import Path
-from character_plan import (analyze, symbol, SAMPLE_FIELDS, SAMPLE_MAGIC,
+from character_plan import (analyze, symbol, read_companion, SAMPLE_FIELDS, SAMPLE_MAGIC,
                             LOW_BASE, WORD, NOMINAL_NTSC_HZ, GEOMETRY_MAGIC, GEOMETRY_FIELDS,
                             HANDOFF_MAGIC, HANDOFF_FIELDS)
 
@@ -23,31 +23,18 @@ def report(prefix,field_hz=NOMINAL_NTSC_HZ):
     rows=[dict(zip(SAMPLE_FIELDS,struct.unpack_from('>'+str(len(SAMPLE_FIELDS))+'I',
           low,offset+WORD*4+i*stride))) for i in range(count)]
     handoffs={}
-    if 'g_character_handoff' in path('.map').read_text():
-        offset=symbol(path('.map').read_text(),'g_character_handoff')-LOW_BASE
-        magic,handoff_count,handoff_capacity,handoff_stride=struct.unpack_from('>4I',low,offset)
-        assert magic==HANDOFF_MAGIC and handoff_count==count and handoff_capacity==capacity
-        assert handoff_stride==WORD*len(HANDOFF_FIELDS)
-        for i in range(handoff_count):
-            row=dict(zip(HANDOFF_FIELDS,struct.unpack_from('>'+str(len(HANDOFF_FIELDS))+'I',
-                     low,offset+WORD*4+i*handoff_stride)))
-            assert row['iteration']==rows[i]['iteration']
-            assert row['draw_timeouts']==0
-            handoffs[row['iteration']]=row
     geometry={}
     mapping=path('.map').read_text()
+    if 'g_character_handoff' in mapping:
+        handoffs=read_companion(low,mapping,'g_character_handoff',HANDOFF_MAGIC,
+                               HANDOFF_FIELDS,rows,capacity)
+        assert all(row['draw_timeouts']==0 for row in handoffs.values())
     if 'geometry' in result:
         assert result['geometry']['verified']>=2
     if 'g_character_geometry_samples' in mapping:
-        offset=symbol(mapping,'g_character_geometry_samples')-LOW_BASE
-        magic,geometry_count,geometry_capacity,geometry_stride=struct.unpack_from('>4I',low,offset)
-        assert magic==GEOMETRY_MAGIC and geometry_count==count and geometry_capacity==capacity
-        assert geometry_stride==WORD*len(GEOMETRY_FIELDS)
-        for i in range(geometry_count):
-            row=dict(zip(GEOMETRY_FIELDS,struct.unpack_from('>'+str(len(GEOMETRY_FIELDS))+'I',
-                     low,offset+WORD*4+i*geometry_stride)))
-            assert row['iteration']==rows[i]['iteration'] and row['errors']==0
-            geometry[row['iteration']]=row
+        geometry=read_companion(low,mapping,'g_character_geometry_samples',GEOMETRY_MAGIC,
+                                GEOMETRY_FIELDS,rows,capacity)
+        assert all(row['errors']==0 for row in geometry.values())
     segments=[]
     for row in rows:
         key=(row['requested'],row['policy'],row['lod'],row['complexity'])

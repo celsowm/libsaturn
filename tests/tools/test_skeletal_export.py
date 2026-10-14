@@ -53,6 +53,26 @@ def chain_model(scale=(1.0, 1.0, 1.0)) -> SourceModel:
 
 
 class SkeletalExportTests(unittest.TestCase):
+    def test_animated_render_bounds_include_displaced_mid_clip_pose(self):
+        from model_pipeline.skeletal_textures import build_render_asset, emit_render_tables
+        model = self.textured_model()
+        model.clips = [AnimationClip("displaced", 1.0, [
+            AnimationChannel(0, "translation", [0.0, 0.5, 1.0],
+                             [(0, 3, 0), (0, 5, 0), (0, 3, 0)])])]
+        exp = sx.export_model(model, rate=20)
+        render = build_render_asset(model, exp)
+        lower, upper = render.stats['animated_bounds_fx']
+        self.assertGreater(lower[1], render.stats['source_bounds_fx'][1][1])
+        self.assertGreater(upper[1], 6 * 65536)
+        for frame in exp.clips[0].frames:
+            for point in sx.evaluate_export(exp, frame):
+                for axis in range(3):
+                    self.assertGreaterEqual(point[axis] * 65536, lower[axis] - 1)
+                    self.assertLessEqual(point[axis] * 65536, upper[axis] + 1)
+        header, source = emit_render_tables(render, 'fixture')
+        self.assertIn('fixture_animated_min', '\n'.join(header))
+        self.assertIn('fixture_animated_max', '\n'.join(source))
+
     def test_generic_multi_anchor_source(self):
         from model_pipeline.animation import mat_vec
         model=chain_model()
@@ -246,6 +266,40 @@ class SkeletalExportTests(unittest.TestCase):
         # Per-joint scale is now part of the generated record.
         self.assertIn("65536, 65536, 65536", c1)
         self.assertIn("CHAIN_GUY_FACE_COUNT 2", h1.upper())
+
+    def test_lut4_rgb_cluts_and_archive_guard(self):
+        from model_pipeline.skeletal_textures import build_render_asset, emit_render_tables
+        from model_pipeline.skeletal_binary import encode
+        model=self.textured_model()
+        exp=sx.export_model(model,rate=10)
+        render=build_render_asset(model,exp,texture_format="lut4")
+        self.assertTrue(render.luts_rgb555)
+        self.assertEqual(len(render.luts_rgb555)%16,0)
+        for texture in render.textures:
+            self.assertTrue(texture['flags']&0x8000)
+            self.assertEqual(len(texture['pixels']),texture['pixel_count']//2)
+            self.assertLess(texture['palette_slot'],len(render.luts_rgb555)//16)
+        self.assertTrue(all(color==0 or color&0x8000 for color in render.luts_rgb555))
+        _,source=emit_render_tables(render,'fixture')
+        self.assertIn('fixture_luts','\n'.join(source))
+        with self.assertRaisesRegex(ValueError,'SKA1'):
+            encode(exp,render)
+
+    def test_lut4_preserves_transparent_texels(self):
+        from unittest.mock import patch
+        from model_pipeline.skeletal_textures import build_render_asset
+        model=self.textured_model()
+        exp=sx.export_model(model,rate=10)
+        face=[(255,0,0,0),(255,0,0,255)]*4
+        with patch('model_pipeline.skeletal_textures.estimate_face_size',return_value=(8,1)), \
+             patch('model_pipeline.skeletal_textures.bake_face_rgba',return_value=face):
+            render=build_render_asset(model,exp,texture_format='lut4')
+        for texture in render.textures:
+            self.assertEqual(texture['flags']&1,0)
+            for packed in texture['pixels']:
+                self.assertEqual(packed>>4,0)
+                self.assertNotEqual(packed&15,0)
+            self.assertEqual(render.luts_rgb555[texture['palette_slot']*16],0)
 
     def test_size_report(self):
         rep = sx.size_report(sx.export_model(chain_model(), rate=10))

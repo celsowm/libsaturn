@@ -133,3 +133,14 @@ environment variable `DINO_MUSIC_68K=0` when building to use the CD stream
 instead; its underrun counter replaces the 68000 event/loop counters on the
 HUD. The build converts and stages the selected option automatically using FFmpeg.
 The shared build supports S16BE, S8 and IMA ADPCM in other examples too.
+
+## Satiator boot investigation
+
+Set `DINO_LOADING_SCREEN=0` in the build environment to isolate loading-screen
+startup work. The default is `1`. Use
+`./harness/build-dino-satiator-triage.ps1` to prepare controlled ISO comparisons.
+The official default boot waits for `HIRQ.CMOK` before reading CD command
+results. `legacy_poll.iso` preserves the previous counter-based hook for
+regression comparison. Findings, download hashes and hardware comparison
+instructions are in [the investigation](../../docs/DINO_SATIATOR_BOOT_INVESTIGATION.md).
+Ymir runtime captures skip the BIOS executable load and do not certify Satiator boot.

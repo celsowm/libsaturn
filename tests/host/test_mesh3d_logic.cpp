@@ -679,7 +679,26 @@ TEST(octahedron_rejects_invalid_extents_without_modifying_mesh) {
     ASSERT_EQ(build_octahedron(nullptr, center, 1, 1), SAT_ERR_INVALID_ARG);
 }
 
+TEST(scaled_vertex_normals_preserve_direction_and_unused_vertices) {
+    sat_mesh_t mesh=make_mesh();
+    ASSERT_EQ(build_box(&mesh,vec3(0,0,0),fx_from_int(1),fx_from_int(1),fx_from_int(1)),SAT_OK);
+    ASSERT_EQ(add_vertex(&mesh,0,0,0,nullptr),SAT_OK);
+    sat_vec3_t scaled[kVertexCap],unit[kVertexCap];
+    ASSERT_EQ(vertex_normals_scaled(&mesh,scaled,kVertexCap),SAT_OK);
+    ASSERT_EQ(vertex_normals(&mesh,unit,kVertexCap),SAT_OK);
+    for(unsigned vertex=0;vertex<8;++vertex) {
+        ASSERT_TRUE(vec3_dot_raw(scaled[vertex],unit[vertex])>0);
+        const sat_vec3_t normalized=saturn::core::math3d::vec3_normalize(scaled[vertex]);
+        ASSERT_EQ(normalized.x,unit[vertex].x);
+        ASSERT_EQ(normalized.y,unit[vertex].y);
+        ASSERT_EQ(normalized.z,unit[vertex].z);
+    }
+    ASSERT_EQ(scaled[8].x,0);ASSERT_EQ(scaled[8].y,0);ASSERT_EQ(scaled[8].z,0);
+    ASSERT_EQ(vertex_normals_scaled(&mesh,scaled,8),SAT_ERR_CAPACITY);
+}
+
 int main() {
+    scaled_vertex_normals_preserve_direction_and_unused_vertices();
     octahedron_counts_match_builder_and_wind_outward();
     octahedron_faces_are_interleaved_triangle_pairs();
     octahedron_capacity_is_atomic();
@@ -717,6 +736,6 @@ int main() {
     weld_vertices_shrinks_a_sphere_and_keeps_winding();
     weld_vertices_leaves_a_box_alone();
     weld_vertices_rejects_undersized_scratch();
-    printf("test_mesh3d_logic: 37 tests passed\n");
+    printf("test_mesh3d_logic: 38 tests passed\n");
     return 0;
 }

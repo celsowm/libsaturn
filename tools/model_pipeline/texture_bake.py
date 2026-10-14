@@ -388,8 +388,8 @@ def quantize_face_lut4(
 
     Each face gets its own palette, fitted to the few colors a small patch of
     the source texture actually holds, instead of sharing one 256-color bank
-    across the whole model. Texel code 0 is left unused: with the sprite's
-    transparency code active it would punch a hole, so a face keeps 15
+    across the whole model. Texel code 0 represents masked/transparent pixels,
+    while visible pixels use codes 1..15, so a face keeps 15
     colors. Colors are reduced to RGB555 first -- the hardware cannot show
     the difference, and it lets a face with few distinct colors keep them
     exactly. Entries are sorted so faces with the same colors share a table.
@@ -397,15 +397,19 @@ def quantize_face_lut4(
     """
     from PIL import Image
 
-    rgb555 = [rgb888_to_rgb555(r, g, b) for (r, g, b, _a) in rgba]
+    has_transparency=any(a<128 for _,_,_,a in rgba)
+    visible=[(r,g,b) for r,g,b,a in rgba if a>=128]
+    if not visible:
+        return [0]*16,bytes(width*height//2)
+    rgb555 = [rgb888_to_rgb555(r, g, b) for r,g,b in visible]
     distinct = sorted(set(rgb555))
     if len(distinct) <= 15:
         colors = distinct
         index_of = {c: i for i, c in enumerate(colors)}
         codes = [index_of[c] for c in rgb555]
     else:
-        img = Image.new("RGB", (width, height))
-        img.putdata([(r, g, b) for (r, g, b, _a) in rgba])
+        img = Image.new("RGB", (len(visible),1) if has_transparency else (width,height))
+        img.putdata(visible)
         q = img.quantize(colors=15, method=Image.Quantize.MEDIANCUT, kmeans=2,
                          dither=Image.Dither.NONE)
         pal = q.getpalette() or []
@@ -415,12 +419,14 @@ def quantize_face_lut4(
         colors = sorted(set(raw.values()))
         index_of = {c: i for i, c in enumerate(colors)}
         codes = [index_of[raw[i]] for i in indices]
-    lut = [colors[0]] + colors + [colors[-1]] * (15 - len(colors))
+    lut = [0 if has_transparency else colors[0]] + colors + [colors[-1]] * (15 - len(colors))
+    visible_codes=iter(code+1 for code in codes)
+    codes=[next(visible_codes) if a>=128 else 0 for _,_,_,a in rgba]
     packed = bytearray()
     for y in range(height):
         row = codes[y * width:(y + 1) * width]
         for x in range(0, width, 2):
-            packed.append(((row[x] + 1) << 4) | (row[x + 1] + 1))
+            packed.append((row[x] << 4) | row[x + 1])
     return lut, bytes(packed)
 
 

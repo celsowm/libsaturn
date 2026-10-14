@@ -255,9 +255,10 @@ inline bool face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t
 }
 
 /* Smooth vertex normals: each face's scaled normal added once to each of its
- * distinct corner vertices, then normalised. The scaled normals are shifted
+ * distinct corner vertices. The unit wrapper normalises the accumulated
+ * result; the scaled helper leaves its length arbitrary. Normals are shifted
  * down by 2 so even a vertex shared by thousands of faces cannot overflow. */
-inline sat_result_t vertex_normals(const sat_mesh_t* mesh, sat_vec3_t* out, uint16_t cap) {
+inline sat_result_t vertex_normals_scaled(const sat_mesh_t* mesh, sat_vec3_t* out, uint16_t cap) {
     if (mesh == nullptr || out == nullptr || mesh->vertices == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -287,6 +288,12 @@ inline sat_result_t vertex_normals(const sat_mesh_t* mesh, sat_vec3_t* out, uint
             out[idx[i]].z += n.z >> 2;
         }
     }
+    return SAT_OK;
+}
+
+inline sat_result_t vertex_normals(const sat_mesh_t* mesh, sat_vec3_t* out, uint16_t cap) {
+    const sat_result_t status=vertex_normals_scaled(mesh,out,cap);
+    if(status!=SAT_OK)return status;
     for (uint16_t v = 0; v < mesh->vertex_count; ++v) {
         out[v] = saturn::core::math3d::vec3_normalize(out[v]);
     }

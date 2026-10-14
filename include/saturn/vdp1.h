@@ -270,6 +270,10 @@ sat_result_t sat_draw_sprite_scaled_screen(
 );
 
 sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd_t* cmd);
+/* SEGA VDP1 manual 6.3: Mode-1 LUT4 + RGB CLUT, 16-bit framebuffer.
+ * Visible CLUT codes must contain RGB colors; code zero may be transparent. */
+sat_result_t sat_draw_sprite_distorted_gouraud(
+    const sat_distorted_sprite_cmd_t* cmd, const uint16_t gouraud[4]);
 sat_result_t sat_vdp1_draw_polygon(const sat_polygon_cmd_t* cmd);
 
 sat_result_t sat_draw_rect_screen(

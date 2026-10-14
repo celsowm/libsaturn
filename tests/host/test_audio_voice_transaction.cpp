@@ -14,6 +14,9 @@ static uint32_t key_on_count=0u;
 static uint32_t configure_count=0u;
 static uint32_t mute_count=0u;
 static uint32_t muted_before_off=0u;
+static bool driver_running=false;
+static bool driver_capacity=true;
+static uint32_t scheduled_count=0u;
 
 extern "C" uint32_t sat_frame_count(void) { return frame; }
 namespace saturn::hal::scsp {
@@ -30,9 +33,10 @@ uint8_t encode_pan(int16_t) {return 0u;}
 void set_slot_level_pan(uint8_t,uint8_t,uint8_t,uint8_t) {}
 uint16_t timed_key_word(uint8_t, bool) {return 0u;}
 namespace driver {
-bool running() {return false;}
+bool running() {return driver_running;}
+bool can_push() {return driver_capacity;}
 uint32_t tick() {return 0u;}
-bool push_write(uint32_t, uint32_t, uint16_t) {return false;}
+bool push_write(uint32_t, uint32_t, uint16_t) {++scheduled_count;return driver_capacity;}
 }
 }
 
@@ -73,6 +77,26 @@ int main() {
     assert(new_handle.slot==999u && new_handle.generation==999u);
 
     configure_ok=true;
+    driver_running=true;driver_capacity=false;
+    params.flags=SAT_SOUND_PLAY_AT_TICK;params.start_tick=1;
+    assert(sat_sound_play(sound_handle,&params,&new_handle)==SAT_ERR_CAPACITY);
+    assert(configure_count==1u && key_off_count==0u && key_on_count==0u);
+    assert(g_voice_registry.resolve(old_handle)!=nullptr);
+    assert(g_voice_steals==0 && scheduled_count==0);
+    assert(g_failed_play_requests==2);
+    assert(new_handle.slot==999u && new_handle.generation==999u);
+    /* Scheduling goes through the 68000 and never directly keys on here. */
+    driver_capacity=true;
+    assert(sat_sound_play(sound_handle,&params,&new_handle)==SAT_OK);
+    assert(scheduled_count==1 && key_on_count==0);
+    assert(g_voice_registry.entries[new_handle.slot].end_frame==151u);
+    assert(sat_voice_stop(new_handle)==SAT_OK);
+    driver_running=false;params.flags=0;
+    // Restore the initial transaction fixture after the additional scenario.
+    g_voice_steals=0;g_failed_play_requests=1;
+    configure_count=1;key_off_count=0;mute_count=0;key_on_count=0;
+    auto* restored=g_voice_registry.activate(0);
+    assert(restored);restored->priority=0;restored->start_serial=0;
     assert(sat_sound_play(sound_handle,&params,&new_handle)==SAT_OK);
     assert(configure_count==2u && key_off_count==1u && key_on_count==1u);
     assert(g_voice_steals==1u && g_failed_play_requests==1u);
@@ -93,5 +117,5 @@ int main() {
     assert(g_voice_registry.entries[0].end_frame==250u);
     assert(g_voice_steals==1u);
     assert(key_off_count==off_after_stop+1u); // configure only; no steal.
-    std::puts("audio voice transaction: failed steal leaves old voice alive; PAL/CD OK");
+    std::puts("audio voice transaction: failed config/full timed queue preserve voices; 68000, PAL/CD OK");
 }

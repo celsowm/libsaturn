@@ -1,4 +1,7 @@
 # dino_demo animated T-Rex viewer.
+# Keep the loading screen independently switchable for physical ODE boot triage.
+DINO_LOADING_SCREEN ?= 1
+CFLAGS += -DDINO_LOADING_SCREEN=$(DINO_LOADING_SCREEN)
 #
 # T-Rex source: examples/dino_demo/assets/trex_walking_seamless.glb.
 # The GLB and its compiled model are attributed in assets/LICENSE.txt.

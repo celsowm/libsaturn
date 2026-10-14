@@ -221,6 +221,10 @@ int sat_mesh_face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_
  * a vertex no face uses gets the zero vector. */
 sat_result_t sat_mesh_vertex_normals(const sat_mesh_t* mesh, sat_vec3_t* out_normals, uint16_t normal_cap);
 
+/* Same adjacent-face accumulation, without square roots or normalization.
+ * Length is arbitrary; callers may use their own bounded lighting precision. */
+sat_result_t sat_mesh_vertex_normals_scaled(const sat_mesh_t* mesh, sat_vec3_t* out_normals, uint16_t normal_cap);
+
 /* Merges vertices within `epsilon` of each other on every axis, remapping
  * face indices to match and shrinking vertex_count.
  *

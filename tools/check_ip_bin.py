@@ -4,6 +4,9 @@ import struct
 import sys
 from pathlib import Path
 
+CMOK_POLL_OFFSET = 0x0ED8
+CMOK_POLL_INSTRUCTIONS = bytes.fromhex('6051c8018b01affb0009')
+
 
 def main():
     parser = argparse.ArgumentParser(description="Validate ip.bin")
@@ -29,6 +32,13 @@ def main():
     security_ok = d[0x0100:0x0600] == bytes(tmpl[0x0100:0x0600])
     area_obj_ok = d[0x0E00:0x8000] == bytes(tmpl[0x0E00:0x8000])
     header_unchanged = d[0x0010:0x00F0] == bytes(tmpl[0x0010:0x00F0])
+    # The default template must not return stale CD command results when a
+    # software loop counter expires. Keep this check independent of equality
+    # with the supplied template, which could itself regress to the old hook.
+    default_template = Path(args.template).name == 'ip_yaul_template.bin'
+    cmok_wait_ok = not default_template or (
+        d[CMOK_POLL_OFFSET:CMOK_POLL_OFFSET + len(CMOK_POLL_INSTRUCTIONS)] ==
+        CMOK_POLL_INSTRUCTIONS)
 
     errs = []
     if len(d) != 0x8000:
@@ -45,12 +55,14 @@ def main():
         errs.append("security_block_modified")
     if not area_obj_ok:
         errs.append("area_code_object_modified")
+    if not cmok_wait_ok:
+        errs.append("default_boot_missing_cmok_wait")
 
     print(f"[check] ip.bin profile={args.profile} len={len(d)} "
           f"magic={magic!r} area={area_symbols!r} "
           f"first_read=0x{first_read:08X} first_size=0x{first_size:08X} "
           f"header_unchanged={header_unchanged} security_ok={security_ok} "
-          f"area_obj_ok={area_obj_ok}")
+          f"area_obj_ok={area_obj_ok} cmok_wait_ok={cmok_wait_ok}")
 
     if errs:
         print(f"[check] ip.bin FAIL: {', '.join(errs)}")

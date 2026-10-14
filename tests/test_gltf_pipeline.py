@@ -567,6 +567,27 @@ def build_skinned_gltf():
 
 
 class FromGltfTests(unittest.TestCase):
+    def test_specular_glossiness_diffuse_texture_factor_and_precedence(self):
+        parsed = gltf.parse_glb_bytes(build_skinned_gltf())
+        parsed.json['materials'][0]['extensions'] = {'KHR_materials_pbrSpecularGlossiness': {
+            'diffuseTexture': {'index': 0}, 'diffuseFactor': [0.25, 1, 1, 0.4]}}
+        parsed.json['materials'][0]['pbrMetallicRoughness'] = {'baseColorFactor': [0, 0, 0, 1]}
+        m = model_mod.from_gltf(parsed, 'fixture')
+        self.assertEqual((m.textures[0].width, m.textures[0].height), (2, 2))
+        expected = round(gltf.linear_to_srgb(0.25) * 255)
+        self.assertEqual(m.textures[0].pixels_rgba[0], (expected, 0, 0, 102))
+
+    def test_alpha_mask_uses_material_cutoff_after_factor(self):
+        parsed = gltf.parse_glb_bytes(build_skinned_gltf())
+        material = parsed.json['materials'][0]
+        material['pbrMetallicRoughness']['baseColorFactor'] = [1, 1, 1, 0.4]
+        material.update(alphaMode='MASK', alphaCutoff=0.5)
+        m = model_mod.from_gltf(parsed, 'fixture')
+        self.assertEqual(m.textures[0].pixels_rgba[0][3], 0)
+        material['alphaCutoff'] = 0.3
+        m = model_mod.from_gltf(parsed, 'fixture')
+        self.assertEqual(m.textures[0].pixels_rgba[0][3], 255)
+
     def test_skinned_model_imports(self):
         parsed = gltf.parse_glb_bytes(build_skinned_gltf())
         m = model_mod.from_gltf(parsed, "tiny")

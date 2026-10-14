@@ -70,6 +70,10 @@ bool running() {
     return g_running;
 }
 
+bool can_push() {
+    return g_running && !logic::ring_full(word(logic::kHeadOffset),word(logic::kTailOffset));
+}
+
 bool read_info(Info* out) {
     if (out == nullptr) return false;
     *out = {};

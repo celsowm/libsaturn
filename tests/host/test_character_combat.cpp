@@ -51,5 +51,26 @@ int main() {
         combat_tick(&a,SAT_PAD_RIGHT);assert_separated(a);
     }
     assert(a.fighters[0].position.x>a.fighters[1].position.x);
+    // Explicit second-controller input must not be replaced with AI input.
+    combat_reset(&a);
+    combat_tick_dual(&a,0,SAT_PAD_C);
+    assert(a.fighters[1].state==COMBAT_KICK);
+    const int64_t diagonal=SAT_FX16_ONE*23/5;
+    for(unsigned scenario=0;scenario<4;++scenario) {
+        combat_reset(&a);
+        for(auto& f:a.fighters) {
+            f.position.x=scenario&1?-COMBAT_ARENA_HALF_Q16:COMBAT_ARENA_HALF_Q16;
+            f.position.z=scenario&2?-COMBAT_ARENA_HALF_Q16:COMBAT_ARENA_HALF_Q16;
+        }
+        for(unsigned t=0;t<COMBAT_TICK_HZ*6;++t) {
+            combat_tick_dual(&a,SAT_PAD_RIGHT|SAT_PAD_DOWN,SAT_PAD_LEFT|SAT_PAD_UP);
+            combat_constrain_octagon(&a,(sat_fx16_t)diagonal);
+            assert_separated(a);
+            for(const auto& f:a.fighters) {
+                int64_t x=f.position.x,z=f.position.z;
+                assert((x<0?-x:x)+(z<0?-z:z)<=diagonal);
+            }
+        }
+    }
     std::puts("test_character_combat: deterministic combat and body collision passed");
 }

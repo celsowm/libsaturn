@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "saturn/core.h"
+#include "saturn/vdp1_color_calc.h"
 
 namespace saturn::core::vdp1_color_calc {
 
@@ -23,12 +24,13 @@ inline sat_result_t encode_palette_selector(
     uint8_t color_calc_slot,
     uint16_t* out_selector
 ) {
-    if (out_selector == nullptr || palette_bank > 7u || color_calc_slot > 7u) {
+    if (out_selector == nullptr || palette_bank > 7u ||
+        (color_calc_slot > 7u && color_calc_slot != SAT_VDP2_SPRITE_ADD)) {
         return SAT_ERR_INVALID_ARG;
     }
     *out_selector = static_cast<uint16_t>(
         0x0040u |
-        (static_cast<uint16_t>(color_calc_slot) << 3u) |
+        (static_cast<uint16_t>(color_calc_slot == SAT_VDP2_SPRITE_ADD ? 0u : color_calc_slot) << 3u) |
         palette_bank);
     return SAT_OK;
 }

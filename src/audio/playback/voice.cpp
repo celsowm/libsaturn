@@ -10,6 +10,15 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
     SoundEntry* entry = g_sound_registry.resolve(sound);
     if (entry == nullptr) return SAT_ERR_INVALID_ARG;
 
+    /* Reject a full timed-event ring before configuring or stealing a slot.
+     * The SH-2 is the sole producer; the 68000 can only free entries between
+     * this preflight and publication. A capacity failure preserves old audio. */
+    if(params && (params->flags & SAT_SOUND_PLAY_AT_TICK) &&
+       saturn::hal::scsp::driver::running() && !saturn::hal::scsp::driver::can_push()) {
+        ++g_failed_play_requests;
+        return SAT_ERR_CAPACITY;
+    }
+
     uint16_t volume = SAT_AUDIO_VOLUME_MAX;
     int16_t pan = SAT_AUDIO_PAN_CENTER;
     uint16_t priority = 0u;

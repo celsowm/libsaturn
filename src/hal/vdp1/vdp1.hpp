@@ -104,6 +104,7 @@ sat_result_t push_user_clip(const UserClipRequest& req);
 sat_result_t push_sprite(const SpriteRequest& req);
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req);
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req);
+sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req, const uint16_t* gouraud);
 sat_result_t push_polygon(const PolygonRequest& req);
 sat_result_t push_polyline(const PolygonRequest& req);
 sat_result_t push_line(const LineRequest& req);

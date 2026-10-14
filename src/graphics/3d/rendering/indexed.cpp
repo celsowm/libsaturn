@@ -10,7 +10,7 @@ namespace {
 bool captured(const sat_quad3_t* quad, sat_scene3d_material_kind_t kind,
               uint16_t rgb555, const sat_vdp1_texture_t* texture,
               const sat_indexed_tiled_quad3_t* tiled, uint8_t slot,
-              const uint16_t* gouraud, sat_result_t* result) {
+              const uint16_t* gouraud, sat_result_t* result, uint16_t sprite_flags=0u) {
     sat_scene3d_material_t material={};
     material.kind=kind;
     material.rgb555=rgb555;
@@ -18,6 +18,7 @@ bool captured(const sat_quad3_t* quad, sat_scene3d_material_kind_t kind,
     material.tiled=tiled;
     material.color_calc_slot=slot;
     material.vertex_gouraud=gouraud;
+    material.sprite_flags=sprite_flags;
     return saturn::graphics::scene3d::capture_quad(*quad,material,result);
 }
 
@@ -28,9 +29,9 @@ bool valid_camera(const sat_indexed_solid_render3d_t* p) {
 }
 
 bool valid_render(const sat_indexed_solid_render3d_t* p) {
-    return valid_camera(p) &&
+    return valid_camera(p) && (p->sprite_flags & ~SAT_SPRITE_FLAG_MESH)==0u &&
            (p->color_calc_slot == SAT_INDEXED_SOLID_OPAQUE ||
-            p->color_calc_slot < 8u);
+            p->color_calc_slot < 8u || p->color_calc_slot == SAT_VDP2_SPRITE_ADD);
 }
 
 /* Near clip, project and screen clip one world quad, handing every visible
@@ -95,11 +96,12 @@ extern "C" sat_result_t sat_draw_indexed_solid_quad3(
         return SAT_ERR_INVALID_ARG;
     sat_result_t queued;
     if (captured(quad,SAT_SCENE3D_INDEXED_SOLID,0u,texture,nullptr,
-                 p->color_calc_slot,nullptr,&queued))
+                 p->color_calc_slot,nullptr,&queued,p->sprite_flags))
         return queued;
     return for_each_visible_piece(quad,p,[&](const sat_quad3_t&,const sat_quad2_t&,
                                              const sat_quad2_t& piece) {
         sat_distorted_sprite_cmd_t cmd={};
+        cmd.flags=p->sprite_flags;
         for(uint8_t v=0u;v<4u;++v) {
             cmd.x[v]=piece.x[v];
             cmd.y[v]=piece.y[v];
@@ -307,9 +309,9 @@ extern "C" sat_result_t sat_draw_indexed_box3(
     return SAT_OK;
 }
 
-extern "C" sat_result_t sat_draw_indexed_textured_quad3(
+static sat_result_t draw_textured_quad(
     const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* p,
-    const sat_vdp1_texture_t* texture, uint8_t* out_drawn
+    const sat_vdp1_texture_t* texture, uint8_t* out_drawn,const uint16_t* gouraud
 ) {
     if(out_drawn!=nullptr) *out_drawn=0u;
     if(quad==nullptr || texture==nullptr || !valid_render(p) ||
@@ -317,7 +319,7 @@ extern "C" sat_result_t sat_draw_indexed_textured_quad3(
         return SAT_ERR_INVALID_ARG;
     sat_result_t queued;
     if(captured(quad,SAT_SCENE3D_INDEXED_TEXTURED,0u,texture,nullptr,
-                p->color_calc_slot,nullptr,&queued)) {
+                p->color_calc_slot,gouraud,&queued,p->sprite_flags)) {
         if(queued==SAT_OK && out_drawn!=nullptr) *out_drawn=1u;
         return queued;
     }
@@ -349,16 +351,29 @@ extern "C" sat_result_t sat_draw_indexed_textured_quad3(
     }
 
     sat_distorted_sprite_cmd_t cmd={};
+    cmd.flags=p->sprite_flags;
     for(uint8_t i=0u;i<4u;++i) {
         cmd.x[i]=projected.x[i];
         cmd.y[i]=projected.y[i];
     }
     cmd.texture=texture;
-    const sat_result_t st=p->color_calc_slot==SAT_INDEXED_SOLID_OPAQUE
+    const sat_result_t st=gouraud?sat_draw_sprite_distorted_gouraud(&cmd,gouraud):p->color_calc_slot==SAT_INDEXED_SOLID_OPAQUE
         ? sat_draw_sprite_distorted(&cmd)
         : sat_draw_sprite_distorted_color_calc(&cmd,p->color_calc_slot);
     if(st==SAT_OK && out_drawn!=nullptr) *out_drawn=1u;
     return st;
+}
+extern "C" sat_result_t sat_draw_indexed_textured_quad3(const sat_quad3_t* quad,
+    const sat_indexed_solid_render3d_t* p,const sat_vdp1_texture_t* texture,uint8_t* out_drawn) {
+    return draw_textured_quad(quad,p,texture,out_drawn,nullptr);
+}
+extern "C" sat_result_t sat_draw_indexed_textured_quad3_gouraud(const sat_quad3_t* quad,
+    const sat_indexed_solid_render3d_t* p,const sat_vdp1_texture_t* texture,
+    const uint16_t gouraud[4],uint8_t* out_drawn) {
+    if(out_drawn)*out_drawn=0;
+    if(!gouraud || !texture || texture->format!=SAT_VDP1_TEXTURE_LUT4 ||
+       !p || p->color_calc_slot!=SAT_INDEXED_SOLID_OPAQUE)return SAT_ERR_INVALID_ARG;
+    return draw_textured_quad(quad,p,texture,out_drawn,gouraud);
 }
 
 namespace {
@@ -460,7 +475,7 @@ extern "C" sat_result_t sat_draw_indexed_tiled_quad3(
         return SAT_ERR_INVALID_ARG;
     sat_result_t queued;
     if(captured(quad,SAT_SCENE3D_INDEXED_TILED,0u,nullptr,regions,
-                params->color_calc_slot,nullptr,&queued)) {
+                params->color_calc_slot,nullptr,&queued,params->sprite_flags)) {
         if(queued==SAT_OK && out_submitted!=nullptr) *out_submitted=1u;
         return queued;
     }
@@ -478,7 +493,7 @@ extern "C" sat_result_t sat_draw_indexed_tiled_quad3(
      * The 2x2 tiles[] keep their original midpoint split. */
     const uint8_t n=regions->grid==0u ? 2u : regions->grid;
     const bool fill=regions->cell_rgb555!=nullptr &&
-                    params->color_calc_slot==SAT_INDEXED_SOLID_OPAQUE;
+                    params->color_calc_slot==SAT_INDEXED_SOLID_OPAQUE && params->sprite_flags==0u;
     const sat_vec3_t ab=tile_midpoint(quad->v[0],quad->v[1]);
     const sat_vec3_t bc=tile_midpoint(quad->v[1],quad->v[2]);
     const sat_vec3_t cd=tile_midpoint(quad->v[2],quad->v[3]);

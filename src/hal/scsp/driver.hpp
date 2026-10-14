@@ -38,6 +38,8 @@ bool start();
 void stop();
 
 bool running();
+/* Single SH-2 producer preflight. The 68000 consumer can only free capacity. */
+bool can_push();
 bool read_info(Info* out);
 uint32_t tick();
 

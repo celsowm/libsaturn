@@ -212,6 +212,16 @@ The importer can bake source faces into VDP1-compatible rectangular textures, de
 
 Animated GLB assets can use compact baked vertex poses or the selectable skeletal runtime export. The latter samples joint clips and deforms caller-owned vertices on Saturn, with one to three joint-local influences. Original humanoid, two-fighter arena and stress examples exercise the same scene and asset systems. See [skeletal animation](docs/SKELETAL_ANIMATION_3D.md) and [fighting-game readiness](docs/FIGHTING_GAME_READINESS.md) for APIs, measurements and remaining hardware acceptance.
 
+The [Killer Clown Octagon fight](examples/killer_clown_demo/README.md) uses two
+66-joint clowns, CPU/two-player combat, an imported MMA cage, a seamless RGB555
+crowd layer, a separate RBG0 mat, menus, dynamic fence coverage and RGB-CLUT
+LUT4 Gouraud spotlights. The [LUT4 Gouraud comparison](examples/lut4_gouraud/README.md)
+isolates textured color calculation with shared pixels and CLUTs.
+The [colored light cubes](examples/colored_light_cubes/README.md) isolate
+moving surface lighting and a smooth VDP2 additive footprint with two cubes.
+Use `tools/inspect_glb.py INPUT.glb --output REPORT.json` to inspect
+source geometry, joints, clip durations, materials and embedded-image metadata.
+
 ## Physics and Collision
 
 The physics stack is deterministic and designed around Saturn constraints.

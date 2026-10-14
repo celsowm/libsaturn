@@ -93,7 +93,7 @@ static void hit(combat_round_t* r,unsigned attacker) {
         } else enter(b,COMBAT_HIT);
     }
 }
-void combat_tick(combat_round_t* r,uint16_t buttons) {
+static void tick(combat_round_t* r,uint16_t buttons,uint16_t second_buttons,int use_ai) {
     if(r->round_over) return;
     ++r->ticks; if(r->round_ticks)--r->round_ticks;
     for(unsigned i=0;i<2;++i) { ++r->fighters[i].state_ticks;
@@ -114,10 +114,33 @@ void combat_tick(combat_round_t* r,uint16_t buttons) {
             ai_pad=(r->ticks/COMBAT_AI_CYCLE_TICKS)%2?SAT_PAD_A:SAT_PAD_C;
         // Leave a punishable recovery window rather than attacking nonstop.
     }
-    act(ai,ai_pad);
+    act(ai,use_ai?ai_pad:second_buttons);
     separate_bodies(r);
     r->fighters[0].facing=r->fighters[0].position.x<=r->fighters[1].position.x?1:-1;
     r->fighters[1].facing=-r->fighters[0].facing;
     hit(r,0); hit(r,1);
     if(!r->round_ticks || !r->fighters[0].health || !r->fighters[1].health)r->round_over=1;
+}
+void combat_tick(combat_round_t* r,uint16_t buttons) { tick(r,buttons,0,1); }
+void combat_tick_dual(combat_round_t* r,uint16_t buttons,uint16_t second_buttons) {
+    tick(r,buttons,second_buttons,0);
+}
+void combat_constrain_octagon(combat_round_t* r,sat_fx16_t diagonal_limit) {
+    if(!r || diagonal_limit<COMBAT_BODY_DIAMETER_Q16)return;
+    enum { OCTAGON_CONTACT_PASSES=16 };
+    for(unsigned pass=0;pass<OCTAGON_CONTACT_PASSES;++pass) {
+        for(unsigned i=0;i<2;++i) {
+            sat_vec3_t* p=&r->fighters[i].position;
+            p->x=arena_clamp(p->x);p->z=arena_clamp(p->z);
+            sat_fx16_t total=absolute(p->x)+absolute(p->z);
+            if(total>diagonal_limit) {
+                sat_fx16_t excess=(total-diagonal_limit+1)/2;
+                p->x+=p->x<0?excess:-excess;p->z+=p->z<0?excess:-excess;
+            }
+        }
+        int64_t dx=(int64_t)r->fighters[1].position.x-r->fighters[0].position.x;
+        int64_t dz=(int64_t)r->fighters[1].position.z-r->fighters[0].position.z;
+        if(dx*dx+dz*dz>=(int64_t)COMBAT_BODY_DIAMETER_Q16*COMBAT_BODY_DIAMETER_Q16)return;
+        separate_bodies(r);
+    }
 }

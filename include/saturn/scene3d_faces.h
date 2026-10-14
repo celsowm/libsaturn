@@ -35,10 +35,13 @@ typedef struct sat_scene3d_material {
     const sat_indexed_tiled_quad3_t* tiled;
     /* 255 = ordinary opaque sprite; 0..7 = previously configured VDP2 slot.
      * RGB polygon material does not support the indexed-sprite slots. */
-    uint8_t color_calc_slot;
+    uint8_t color_calc_slot; /* Also accepts SAT_VDP2_SPRITE_ADD for INDEX8. */
     /* Optional per-vertex Gouraud table. The pointer is read only during
      * submission and the four selected entries are copied into the face. */
-    const uint16_t* vertex_gouraud; /* RGB materials only; indexed8 is rejected. */
+    const uint16_t* vertex_gouraud; /* RGB or LUT4/RGB-CLUT; INDEX8 is rejected. */
+    /* Optional SAT_SPRITE_FLAG_MESH coverage for indexed sprite materials.
+     * Zero preserves full coverage; this is screen-door coverage, not alpha. */
+    uint16_t sprite_flags;
 } sat_scene3d_material_t;
 
 /* 8-bit artistic pass in the painter key, leaving 24 bits of depth (faces

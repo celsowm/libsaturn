@@ -52,11 +52,21 @@ PAL emulator checks use the European BIOS and separate artifacts:
 ```powershell
 .\harness\run-character-plan.ps1 -Bios bios/saturn_bios_eu.bin -Pal -Scenario all
 .\harness\run-character-plan.ps1 -Bios bios/saturn_bios_us.bin -Scenario rate
+.\harness\run-character-plan.ps1 -Bios bios/saturn_bios_us.bin -Scenario rate -RateDetail medium
+.\harness\run-character-plan.ps1 -Bios bios/saturn_bios_us.bin -Scenario rate -RateDetail high
 ```
 
 LOW reaches 30 submissions/s in the NTSC arena comparison (25/s PAL); MEDIUM
 retains about 20/s NTSC. The `rate` scenario checks LOW over 1,200 fields with
 combat and reload, with a two-field target for the selected video standard.
+`-RateDetail medium` and `-RateDetail high` measure the same sustained workload
+at those details, require more than 300 steady samples and retain the simulation,
+combat, resource and body checks. Their measured rates are reported without
+asserting the LOW target. Add `-Pal` with the European BIOS to compare PAL.
+Each detail uses separate captures and supports `-AnalyzeOnly`.
+Per-workload reports include VBlank wait, submission and parallel preparation
+timings matched to the same benchmark iterations. Display-field counters include
+repeated images; these reports do not measure unique presentation FPS.
 See [measurements and acceptance](../../docs/CHARACTER_PRESENTATION_ACCEPTANCE.md).
 
 For CD-backed character loading:

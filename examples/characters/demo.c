@@ -484,7 +484,8 @@ static int geometry_face_equal(const sat_scene3d_face_t* a,const sat_scene3d_fac
        a->material.rgb555!=b->material.rgb555 || a->material.texture!=b->material.texture ||
        a->material.tiled!=b->material.tiled ||
        a->material.color_calc_slot!=b->material.color_calc_slot ||
-       a->material.vertex_gouraud!=b->material.vertex_gouraud)return 0;
+       a->material.vertex_gouraud!=b->material.vertex_gouraud ||
+       a->material.sprite_flags!=b->material.sprite_flags)return 0;
     for(unsigned corner=0;corner<4;++corner) {
         if(a->projected.x[corner]!=b->projected.x[corner] ||
            a->projected.y[corner]!=b->projected.y[corner] ||

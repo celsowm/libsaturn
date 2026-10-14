@@ -78,6 +78,10 @@
 #define DINO_FRAME_ON_SUBMIT 1
 #endif
 
+#ifndef DINO_LOADING_SCREEN
+#define DINO_LOADING_SCREEN 1
+#endif
+
 #ifndef DINO_MUSIC_68K
 #define DINO_MUSIC_68K 0
 #endif
@@ -204,8 +208,10 @@ static sat_result_t service_audio_during_cd(void *context) {
 #define LOADING_CODE_FILL 1u   /* white */
 #define LOADING_CODE_TRACK 2u  /* dark blue */
 
+#if DINO_LOADING_SCREEN
 static sat_loading_screen_t g_loading;
 static uint8_t g_loading_bank;
+#endif
 
 static void draw_credit(void *context);
 
@@ -213,6 +219,7 @@ static void draw_credit(void *context);
  * codes to use: the CRAM bank after the model's holds white and a track blue,
  * and the sprite palette points at it until the model's own bank takes over. */
 static void loading_begin(void) {
+#if DINO_LOADING_SCREEN
     const uint16_t palette[3] = {
         SAT_COLOR_BLACK, SAT_COLOR_WHITE,
         (uint16_t)(0x8000u | (10u << 10) | (2u << 5) | 2u)
@@ -230,12 +237,17 @@ static void loading_begin(void) {
     g_loading.x = (int16_t)((SCREEN_W - g_loading.width) / 2);
     g_loading.decorate = draw_credit;
     SAT_PANIC_IF_ERROR(sat_wait_vblank());
+#endif
 }
 
 static void loading_step(uint32_t done) {
+#if DINO_LOADING_SCREEN
     /* VDP2 latches the sprite palette bank per frame. */
     (void)sat_vdp2_layers_commit();
     sat_loading_screen_progress(&g_loading, done, LOADING_TOTAL);
+#else
+    (void)done;
+#endif
 }
 
 #if DINO_MUSIC_68K

@@ -22,6 +22,7 @@ from .gltf import (
     decode_image_rgba,
     extract_image_bytes,
     linear_to_srgb,
+    srgb_to_linear,
     node_local_matrix,
     read_accessor,
     read_indices,
@@ -505,7 +506,9 @@ def from_gltf(
         entry["name"] = str(mat.get("name", f"material_{mi}"))
         entry["doubleSided"] = bool(mat.get("doubleSided", False))
         pbr = mat.get("pbrMetallicRoughness", {})
-        factor = pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0])
+        spec_gloss = mat.get("extensions", {}).get("KHR_materials_pbrSpecularGlossiness")
+        factor = (spec_gloss.get("diffuseFactor", [1.0, 1.0, 1.0, 1.0]) if spec_gloss is not None
+                  else pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0]))
         if factor is not None:
             if not isinstance(factor, list) or len(factor) < 3:
                 raise GltfError(f"{source_name}: material {mi} has malformed baseColorFactor")
@@ -519,12 +522,22 @@ def from_gltf(
                 max(0, min(255, int(round(linear_to_srgb(float(v)) * 255.0))))
                 for v in factor[:3]
             )
-        tex_info = pbr.get("baseColorTexture")
+        tex_info = (spec_gloss.get("diffuseTexture") if spec_gloss is not None
+                    else pbr.get("baseColorTexture"))
         if tex_info is not None:
             tex_doc = doc.get("textures", [])[int(tex_info["index"])]
             img_index = int(tex_doc["source"])
             payload, mime = extract_image_bytes(glb, img_index)
             w, h, pixels = decode_image_rgba(payload, f"material {mi}")
+            rgba_factor = list(factor[:4]) + [1.0] * max(0, 4 - len(factor))
+            if any(value != 1.0 for value in rgba_factor):
+                pixels = [tuple(max(0, min(255, round(linear_to_srgb(
+                    srgb_to_linear(pixel[channel] / 255) * rgba_factor[channel]) * 255)))
+                    for channel in range(3)) + (max(0, min(255, round(pixel[3] * rgba_factor[3]))),)
+                    for pixel in pixels]
+            if mat.get("alphaMode") == "MASK":
+                cutoff = float(mat.get("alphaCutoff", 0.5)) * 255
+                pixels = [(r, g, b, 255 if a >= cutoff else 0) for r, g, b, a in pixels]
             entry["texture"] = len(model.textures)
             model.textures.append(
                 SourceTexture(width=w, height=h, pixels_rgba=pixels, mime=mime)

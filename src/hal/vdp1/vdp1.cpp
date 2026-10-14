@@ -636,6 +636,12 @@ sat_result_t push_polygon_gouraud(const PolygonRequest& req, const uint16_t* gou
     }
     return shade_last_command(push_polygon(req), grda);
 }
+sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req, const uint16_t* gouraud) {
+    if(g_hires || req.format!=SAT_VDP1_TEXTURE_LUT4)return SAT_ERR_UNSUPPORTED;
+    uint16_t grda=0u;
+    SAT_TRY(stage_gouraud(gouraud,4,&grda));
+    return shade_last_command(push_distorted_sprite(req),grda);
+}
 
 sat_result_t push_polyline_gouraud(const PolygonRequest& req, const uint16_t* gouraud) {
     SAT_TRY(saturn::core::validate_polygon_effects(req.color, req.flags));

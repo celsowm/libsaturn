@@ -1,5 +1,26 @@
 # LibSaturn — Real-Time Skeletal Animation, CPU Skinning, Advanced Character Rendering and Fighting-Game Examples
 
+The 2026-10-14 continuation adds the
+[Killer Clown Octagon fight](../examples/killer_clown_demo/README.md). It extends
+the initial supplied-GLB viewer into CPU/two-player combat with two independent
+66-joint rigs, seven resident clips, LUT4 textures, dual SH-2 skinning,
+health, body/cage collision and transitions. The imported stage is combined with
+a seamless RGB555 NBG0 crowd cell map, a separate perspective RBG0 mat,
+title/options/controls/pause menus, RGB-CLUT Gouraud spotlights, LUT4 cutout
+fences and optional VDP1 mesh/cutaway coverage. Punch, kick, damage and double
+bell effects use resident PCM with key-on performed by the 68000 driver.
+Timed-play queue capacity is checked before replacing a voice. The
+[LUT4 Gouraud comparison](../examples/lut4_gouraud/README.md)
+isolates the officially documented mode-1 textured color-calculation path.
+The optional Robot Police study keeps the shared single-model viewer.
+The pipeline now exports
+world-space bounds across every sampled animation pose, fixing the supplied
+asset's displacement outside its bind bounds. `tools/inspect_glb.py` replaces
+one-off inline model inspection, and `tools/capture-mednafen.ps1` captures the
+selected emulator window through its screenshot binding. Higher-detail arena
+performance, compact-channel runtime decoding and physical hardware acceptance
+remain open; this content integration does not claim those targets are complete.
+
 (Original implementation brief saved on 2026-10-11. Status on 2026-10-13: library, tooling, three examples and NTSC/PAL emulator gates implemented. The LOW arena reaches approximately 30 NTSC submissions/s; higher-detail and physical presentation acceptance remain open. See [the engineering/readiness report](FIGHTING_GAME_READINESS.md).)
 
 ## Role and Mission
@@ -1303,6 +1324,43 @@ Prioritize correctness and actual Saturn hardware behavior, then memory efficien
 
 # Progress log
 
+- 2026-10-14, paired Killer Clown geometry: the existing Slave adapter prepares
+  one fighter concurrently with Master, retaining source order and immutable
+  Gouraud inputs. Companion buffers use 63.281 KiB WRAM-L. Matched geometry
+  medians improve by 30.18-31.13%, with sustained throughput at 6.41-6.49
+  submissions/s. The full 2,300-field verification gate checks 222 pairs
+  against serial preparation with zero mismatches, panic, body overlap,
+  draw errors, VDP1 timeouts or audio queue failures. The 68000 executes 76
+  sound events. Serial fallback compilation and stock-RAM Mednafen disc boot
+  pass. Lighting, actual presentation tracking and physical hardware remain
+  open. See [the paired geometry report](KILLER_CLOWN_PERFORMANCE.md#paired-geometry-preparation-follow-up).
+
+- 2026-10-14, first Killer Clown lighting optimization: exact bounded
+  normalization uses a corrected reciprocal table in 8 KiB WRAM-L; ambient
+  mode skips normal and spotlight work. Shared face-normal arithmetic stays
+  unchanged after a measured regression was rejected. Matched full-light
+  workloads reduce lighting medians by 8.36–9.04% and increase throughput to
+  5.97–6.04 submissions/s. Full host/tools, cubes, 2,300-field fight and both
+  Mednafen disc gates pass. Body overlap, draw errors and audio failures stay
+  zero; 57 late swaps in the long gate remain a presentation limit. Dirty
+  reuse, finer lighting profiling, paired geometry and the 30-image/s target
+  remain open. See [the follow-up](KILLER_CLOWN_PERFORMANCE.md#exact-lighting-arithmetic-follow-up).
+
+- 2026-10-14, Killer Clown profiling delivery: a bounded extended-FRT log and
+  reproducible idle/walk/combat NTSC runner isolate 79–81 ms lighting and
+  38–39 ms scene preparation. Steady throughput is 5.67–5.74 submissions/s;
+  it is not unique displayed-image FPS. The matched no-record build completes
+  the same 92 loops over 1,000 fields. Stock-RAM builds, final 700-field smoke
+  and Mednafen disc boot pass. Exact lighting optimization is the next target;
+  see [the measured baseline](KILLER_CLOWN_PERFORMANCE.md).
+
+- 2026-10-14, planned Killer Clown follow-up: the imported two-fighter arena
+  needs measured lighting/geometry optimization and sustained presentation
+  acceptance. The [optimization plan](KILLER_CLOWN_OPTIMIZATION_PLAN.md)
+  defines profiling, exact lighting reductions, paired SH-2 preparation,
+  conditional asset/LOD work and visual/input-latency acceptance. Its targets
+  remain open; the current short-window 5.4 submissions/s is not displayed FPS.
+
 - 2026-10-11, phase 1 (uncommitted): `include/saturn/skeleton3d.h`,
   `src/graphics/3d/animation/{skeleton,clip}.cpp`, host tests
   `test_skeleton3d` / `test_skeleton_clip` pass, SH-2 cross-compile clean. See
@@ -1385,3 +1443,10 @@ Prioritize correctness and actual Saturn hardware behavior, then memory efficien
   timeout or late swap. Physical hardware and higher-detail presentation
   targets remain open. See
   [CHARACTER_PRESENTATION_ACCEPTANCE.md](CHARACTER_PRESENTATION_ACCEPTANCE.md).
+- 2026-10-13, sustained-detail follow-up: the arena rate runner measures
+  MEDIUM and HIGH with separate captures as well as its accepted LOW default.
+  Per-workload handoff and geometry timing uses validated companion logs and
+  matching steady iterations; counter deltas exclude gaps in other workloads.
+  This is acceptance/profiling work, with no guest rendering or synchronization
+  change. Higher-detail targets and physical acceptance remain open. See
+  [the sustained-detail report](CHARACTER_PRESENTATION_ACCEPTANCE.md#sustained-mediumhigh-follow-up).

@@ -30,19 +30,23 @@ uint32_t g_test_prepare_ticks;
 #endif
 
 bool valid_material(const sat_scene3d_material_t& m) {
+    if ((m.sprite_flags & ~SAT_SPRITE_FLAG_MESH) != 0u ||
+        (m.sprite_flags && m.kind==SAT_SCENE3D_RGB)) return false;
     // Indexed8 palette texels do not support the RGB Gouraud arithmetic path.
-    if (m.vertex_gouraud && m.kind!=SAT_SCENE3D_RGB) return false;
+    if (m.vertex_gouraud && m.kind!=SAT_SCENE3D_RGB &&
+        !(m.kind==SAT_SCENE3D_INDEXED_TEXTURED && m.texture &&
+          m.texture->format==SAT_VDP1_TEXTURE_LUT4 && m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE)) return false;
     if (m.kind==SAT_SCENE3D_RGB)
         return m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE;
     if (m.kind==SAT_SCENE3D_INDEXED_TILED)
         return m.tiled && m.tiled->full && m.tiled->full->valid &&
             (m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE ||
-             m.color_calc_slot<8u);
+             m.color_calc_slot<8u || m.color_calc_slot==SAT_VDP2_SPRITE_ADD);
     if (m.kind!=SAT_SCENE3D_INDEXED_SOLID &&
         m.kind!=SAT_SCENE3D_INDEXED_TEXTURED) return false;
     return m.texture && m.texture->valid &&
         (m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE ||
-         m.color_calc_slot<8u);
+         m.color_calc_slot<8u || m.color_calc_slot==SAT_VDP2_SPRITE_ADD);
 }
 
 /* A face the hardware can draw from its projected corners alone: every
@@ -223,12 +227,14 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
     }
     if (face.projected_safe) {
         sat_distorted_sprite_cmd_t cmd={};
+        cmd.flags=face.material.sprite_flags;
         cmd.texture=face.material.kind==SAT_SCENE3D_INDEXED_TILED
             ? face.material.tiled->full : face.material.texture;
         for (uint8_t i=0u;i<4u;++i) {
             cmd.x[i]=face.projected.x[i];
             cmd.y[i]=face.projected.y[i];
         }
+        if(face.gouraud_valid)return sat_draw_sprite_distorted_gouraud(&cmd,face.gouraud);
         return face.material.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE
             ? sat_draw_sprite_distorted(&cmd)
             : sat_draw_sprite_distorted_color_calc(
@@ -241,6 +247,7 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
     p.near_depth=scene.near_depth;
     p.width=scene.width;p.height=scene.height;
     p.color_calc_slot=face.material.color_calc_slot;
+    p.sprite_flags=face.material.sprite_flags;
     /* A clipped Gouraud face keeps its shading: each piece corner gets the
      * table value interpolated at its position. */
     if (face.material.kind==SAT_SCENE3D_RGB)
@@ -257,8 +264,9 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
      * path cannot draw whole falls back to its solid colour, clipped, when
      * the material names one, instead of leaving a hole at the camera. */
     uint8_t drawn=0u;
-    const sat_result_t textured=sat_draw_indexed_textured_quad3(
-        &face.world,&p,face.material.texture,&drawn);
+    const sat_result_t textured=face.gouraud_valid?
+        sat_draw_indexed_textured_quad3_gouraud(&face.world,&p,face.material.texture,face.gouraud,&drawn):
+        sat_draw_indexed_textured_quad3(&face.world,&p,face.material.texture,&drawn);
     if (textured==SAT_OK && !drawn && face.material.rgb555!=0u)
         return sat_draw_polygon_quad3(&face.world,&p,face.material.rgb555);
     return textured;
@@ -501,7 +509,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_rgb(
     sat_scene3d_faces_t* scene, const sat_quad2_t* projected,
     sat_fx16_t camera_depth, uint16_t color, uint16_t pass) {
     const sat_scene3d_material_t material={
-        SAT_SCENE3D_RGB,color,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE,nullptr};
+        SAT_SCENE3D_RGB,color,nullptr,nullptr,SAT_INDEXED_SOLID_OPAQUE,nullptr,0u};
     return sat_scene3d_faces_submit_projected_material(
         scene,projected,camera_depth,&material,pass);
 }
@@ -578,7 +586,7 @@ extern "C" sat_result_t sat_scene3d_instance_binding_init(
         if (material_index>=material_count ||
             !valid_material(materials[material_index]))
             return SAT_ERR_INVALID_ARG;
-        has_rgb=has_rgb || materials[material_index].kind==SAT_SCENE3D_RGB;
+        has_rgb=has_rgb || materials[material_index].kind==SAT_SCENE3D_RGB || materials[material_index].vertex_gouraud!=nullptr;
         const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
         for (uint8_t c=0u;c<4u;++c)
             if (idx[c]>=mesh->vertex_count) return SAT_ERR_INVALID_ARG;
@@ -668,7 +676,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
          * slot can make an otherwise-valid binding illegal without mutation. */
         if (override_slot &&
             color_calc_slot!=SAT_INDEXED_SOLID_OPAQUE &&
-            color_calc_slot>=8u)
+            color_calc_slot>=8u && color_calc_slot!=SAT_VDP2_SPRITE_ADD)
             return SAT_ERR_INVALID_ARG;
         if (override_slot && binding->has_rgb &&
             color_calc_slot!=SAT_INDEXED_SOLID_OPAQUE)

@@ -9,6 +9,7 @@ static uint16_t emitted[64]={};
  * face by face rather than only "it drew something". */
 static uint8_t emitted_slot[64]={};
 static uint16_t emitted_count=0;
+static uint16_t last_sprite_flags=0;
 static uint16_t project_calls=0;
 static uint16_t project_fail_call=0u;
 static uint16_t projected_vertices=0;
@@ -44,6 +45,7 @@ static bool same_face(const sat_scene3d_face_t& a,
         a.material.kind != b.material.kind ||
         a.material.rgb555 != b.material.rgb555 ||
         a.material.color_calc_slot != b.material.color_calc_slot ||
+        a.material.sprite_flags != b.material.sprite_flags ||
         a.material.vertex_gouraud != nullptr ||
         b.material.vertex_gouraud != nullptr ||
         !same_texture(a.material.texture, b.material.texture) ||
@@ -88,6 +90,7 @@ extern "C" sat_result_t sat_project_vertices(
 }
 extern "C" sat_result_t sat_draw_sprite_distorted(
     const sat_distorted_sprite_cmd_t* cmd) {
+    last_sprite_flags=cmd->flags;
     if (distorted_draw_status!=SAT_OK) return distorted_draw_status;
     emitted_slot[emitted_count]=SAT_INDEXED_SOLID_OPAQUE;
     emitted[emitted_count++]=cmd->texture->srca;
@@ -95,6 +98,7 @@ extern "C" sat_result_t sat_draw_sprite_distorted(
 }
 extern "C" sat_result_t sat_draw_sprite_distorted_color_calc(
     const sat_distorted_sprite_cmd_t* cmd,uint8_t slot) {
+    last_sprite_flags=cmd->flags;
     assert(slot<8u);
     emitted_slot[emitted_count]=slot;
     emitted[emitted_count++]=cmd->texture->srca;
@@ -330,7 +334,31 @@ static void capture_queues_draws_at_its_pass() {
     emitted_count=0u;
 }
 
+static void lut4_gouraud_corners_are_owned_by_scene() {
+    sat_scene3d_face_t entries[4]={};uint32_t keys[4]={};uint16_t order[4]={};
+    sat_scene3d_faces_t scene={};
+    assert(sat_scene3d_faces_init(&scene,entries,keys,order,4)==SAT_OK);
+    sat_mat4_t vp={};vp.m[0]=SAT_FX16_ONE;
+    sat_vec3_t eye={0,0,0},forward={0,0,SAT_FX16_ONE};
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    sat_vdp1_texture_t texture={};texture.valid=1;texture.format=SAT_VDP1_TEXTURE_LUT4;texture.srca=72;
+    uint16_t corners[4]={0x4210,0x421f,0x7e10,0x43f0};
+    sat_scene3d_material_t material={};material.kind=SAT_SCENE3D_INDEXED_TEXTURED;
+    material.texture=&texture;material.vertex_gouraud=corners;material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    const sat_quad3_t q=quad(10);
+    assert(sat_scene3d_faces_submit_quad(&scene,&q,&material,0)==SAT_OK);
+    assert(scene.count==1 && entries[0].gouraud_valid);
+    for(int i=0;i<4;++i)assert(entries[0].gouraud[i]==corners[i]);
+    corners[0]=0;
+    assert(entries[0].gouraud[0]==0x4210 && entries[0].material.vertex_gouraud==nullptr);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    texture.format=SAT_VDP1_TEXTURE_INDEXED8;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(&scene,&q,&material,0)==SAT_ERR_INVALID_ARG);
+    assert(scene.count==0);
+}
 int main() {
+    lut4_gouraud_corners_are_owned_by_scene();
     split_faces_sort_by_their_own_depth();
     capture_queues_draws_at_its_pass();
     sat_scene3d_faces_t scene={};
@@ -1250,6 +1278,19 @@ int main() {
     assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG);
     assert(emitted_count==0u);
 
+    emitted_count=0;
+    sat_scene3d_material_t mesh_mat=near_mat;
+    mesh_mat.sprite_flags=SAT_SPRITE_FLAG_MESH;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(&scene,&cached_quad,2*SAT_FX16_ONE,&mesh_mat,0u)==SAT_OK);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(last_sprite_flags==SAT_SPRITE_FLAG_MESH);
+    mesh_mat.sprite_flags=SAT_SPRITE_FLAG_HALF_TRANSPARENT;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(&scene,&cached_quad,2*SAT_FX16_ONE,&mesh_mat,0u)==SAT_ERR_INVALID_ARG);
     std::puts("scene3d_faces api: OK");
     return 0;
 }
+
+extern "C" sat_result_t sat_draw_sprite_distorted_gouraud(const sat_distorted_sprite_cmd_t* cmd,const uint16_t*) { return sat_draw_sprite_distorted(cmd); }
+extern "C" sat_result_t sat_draw_indexed_textured_quad3_gouraud(const sat_quad3_t* q,const sat_indexed_solid_render3d_t* p,const sat_vdp1_texture_t* t,const uint16_t*,uint8_t* out) { return sat_draw_indexed_textured_quad3(q,p,t,out); }

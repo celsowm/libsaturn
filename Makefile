@@ -128,7 +128,7 @@ ASFLAGS     := -m2 -mb
 # defines never enter generic translation units, and profile changes select
 # different object/archive paths instead of touching every .o on each build.
 LIB_PROFILE_METRICS := 0
-ifneq ($(filter skeletal_animation_3d fighter_arena_3d skinning_stress_3d,$(EXAMPLE)),)
+ifneq ($(filter skeletal_animation_3d fighter_arena_3d skinning_stress_3d killer_clown_demo,$(EXAMPLE)),)
 LIB_PROFILE_METRICS := 1
 endif
 ifeq ($(EXAMPLE),skybridge_3d)
@@ -469,6 +469,7 @@ MODEL_IMPORT_ARGS = \
 	--quality $(MODEL_QUALITY) \
 	--animation $(MODEL_ANIMATION) \
 	--animation-fps $(MODEL_ANIMATION_FPS) \
+	$(if $(filter skeletal,$(MODEL_TARGET)),--texture-format $(MODEL_TEXTURE_FORMAT)) \
 	$(if $(filter skeletal,$(MODEL_TARGET)),, \
 	--face-colors $(MODEL_FACE_COLORS) \
 	--light-dir=$(MODEL_LIGHT_DIR) \
@@ -699,6 +700,7 @@ HOST_TEST_EXTRA_test_render3d_effects := src/graphics/3d/rendering/api.cpp src/c
 HOST_TEST_EXTRA_test_render3d_indexed := src/graphics/3d/rendering/indexed.cpp
 HOST_TEST_EXTRA_test_vdp2_bitmap := src/graphics/vdp2/bitmap.cpp
 HOST_TEST_EXTRA_test_mesh3d_logic := src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
+HOST_TEST_EXTRA_test_clown_lighting := examples/killer_clown_demo/lighting.c src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_geometry_link_isolation := src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_mesh3d_textured := src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_vdp1_upload := src/graphics/vdp1/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp
@@ -707,6 +709,7 @@ HOST_TEST_EXTRA_test_vdp1_checkpoint := src/hal/vdp1/vdp1.cpp tests/host_stubs/s
 HOST_TEST_EXTRA_test_vdp1_vram_region := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 HOST_TEST_EXTRA_test_texture_api := src/graphics/2d/textures/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp src/graphics/2d/textures/runtime.cpp
 HOST_TEST_EXTRA_test_render2d_api := src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/api.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
+HOST_TEST_EXTRA_test_vdp1_color_calc_api := src/graphics/vdp1/color_calc.cpp
 HOST_TEST_EXTRA_test_input_api := src/input/api.cpp src/input/runtime.cpp src/core/runtime/state.cpp
 HOST_TEST_EXTRA_test_irq_api := src/core/runtime/irq.cpp src/core/runtime/state.cpp
 HOST_TEST_EXTRA_test_dma_api := src/core/runtime/dma.cpp src/core/runtime/state.cpp

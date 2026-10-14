@@ -14,6 +14,7 @@
 static int g_near_calls,g_project_calls,g_screen_calls,g_opaque,g_faded;
 static int g_clip_mode,g_screen_mode;
 static uint8_t g_last_slot;
+static uint16_t g_last_sprite_flags;
 static uint16_t g_srca[64];
 static uint16_t g_x[64];
 static sat_result_t g_submit_status=SAT_OK;
@@ -83,6 +84,7 @@ extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
 }
 extern "C" sat_result_t sat_draw_sprite_distorted(
     const sat_distorted_sprite_cmd_t* cmd) {
+    g_last_sprite_flags=cmd->flags;
     g_srca[g_opaque+g_faded]=cmd->texture->srca;
     g_x[g_opaque+g_faded]=(uint16_t)cmd->x[0];
     ++g_opaque;
@@ -90,6 +92,7 @@ extern "C" sat_result_t sat_draw_sprite_distorted(
 }
 extern "C" sat_result_t sat_draw_sprite_distorted_color_calc(
     const sat_distorted_sprite_cmd_t* cmd,uint8_t slot) {
+    g_last_sprite_flags=cmd->flags;
     g_srca[g_opaque+g_faded]=cmd->texture->srca;
     g_x[g_opaque+g_faded]=(uint16_t)cmd->x[0];
     g_last_slot=slot;
@@ -648,9 +651,11 @@ static void direct_draws_queue_into_an_open_capture() {
     EQ(g_captured_material.kind,SAT_SCENE3D_INDEXED_SOLID);
     CHECK(g_captured_material.texture==&g_texture[1]);
     EQ(g_captured_material.color_calc_slot,3u);
+    p.sprite_flags=SAT_SPRITE_FLAG_MESH;
     EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[0],&out),SAT_OK);
     EQ(out,1u);
     EQ(g_captured_material.kind,SAT_SCENE3D_INDEXED_TEXTURED);
+    EQ(g_captured_material.sprite_flags,SAT_SPRITE_FLAG_MESH);
     out=0u;
     EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&out),SAT_OK);
     EQ(out,1u);
@@ -672,6 +677,7 @@ static void direct_draws_queue_into_an_open_capture() {
     g_capturing=false;
     EQ(sat_draw_indexed_solid_quad3(&q,&p,&g_texture[1]),SAT_OK);
     EQ(g_faded,1);
+    EQ(g_last_sprite_flags,SAT_SPRITE_FLAG_MESH);
 }
 static void mesh_uses_immutable_geometry_and_sorts_depth() {
     reset();
@@ -798,7 +804,28 @@ static void indexed_box_propagates_capacity_without_attempting_other_faces() {
     EQ(g_opaque,1);
     EQ(g_near_calls,1);
 }
+static void rgb_clut_gouraud_preserves_texture_and_corners() {
+    reset();
+    sat_quad3_t q=quad(3,12);
+    sat_indexed_solid_render3d_t p=render();
+    sat_vdp1_texture_t texture=g_texture[0];texture.format=SAT_VDP1_TEXTURE_LUT4;
+    const uint16_t g[4]={0x4210,0x421f,0x7e10,0x43f0};
+    uint8_t drawn=0;
+    EQ(sat_draw_indexed_textured_quad3_gouraud(&q,&p,&texture,g,&drawn),SAT_OK);
+    EQ(drawn,1);EQ(g_srca[0],texture.srca);
+    for(int i=0;i<4;++i)EQ(g_last_gouraud[i],g[i]);
+    texture.format=SAT_VDP1_TEXTURE_INDEXED8;
+    EQ(sat_draw_indexed_textured_quad3_gouraud(&q,&p,&texture,g,&drawn),SAT_ERR_INVALID_ARG);
+    EQ(drawn,0);
+    texture.format=SAT_VDP1_TEXTURE_LUT4;
+    g_capturing=true;
+    EQ(sat_draw_indexed_textured_quad3_gouraud(&q,&p,&texture,g,&drawn),SAT_OK);
+    EQ(g_captured_material.kind,SAT_SCENE3D_INDEXED_TEXTURED);
+    CHECK(g_captured_material.vertex_gouraud==g);
+    g_capturing=false;
+}
 int main() {
+    rgb_clut_gouraud_preserves_texture_and_corners();
     quad_validates_and_draws_opaque();
     faded_quad_and_multiple_screen_triangles();
     invisible_and_hardware_errors();
@@ -824,6 +851,8 @@ int main() {
     indexed_box_owns_visibility_winding_and_material_selection();
     indexed_box_rejects_bad_geometry_before_emitting();
     indexed_box_propagates_capacity_without_attempting_other_faces();
-    puts("test_render3d_indexed: 25 tests passed");
+    puts("test_render3d_indexed: 26 tests passed");
     return 0;
 }
+
+extern "C" sat_result_t sat_draw_sprite_distorted_gouraud(const sat_distorted_sprite_cmd_t* cmd,const uint16_t* g) { for(int i=0;i<4;++i)g_last_gouraud[i]=g[i]; return sat_draw_sprite_distorted(cmd); }

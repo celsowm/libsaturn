@@ -356,6 +356,10 @@ def import_animated_model(
             f"{glb_path}: no embedded textures found and solid face colors are disabled"
         )
 
+    if animation == "rest":
+        # Compile a static multi-mesh GLB through the same material/topology path.
+        model.clips = [srcmodel.AnimationClip("rest", 0.0, [])]
+        animation_fps = "1"
     clip_ids = select_animation_clips(model, animation)
     per_clip_times: dict[int, list[float]] = {}
     loop_flags: dict[int, bool] = {}
@@ -602,8 +606,7 @@ def import_animated_model(
         shade_palette = face_color_mod.shade_palette(base_colors, face_levels, ambient, diffuse)
         face_base = face_color_mod.face_base_shades(simp.tri_materials, face_levels)
     elif texture_format == "lut4":
-        if any(a < 128 for face in baked_rgba for (_, _, _, a) in face):
-            raise ImportError("--texture-format lut4 needs opaque textures")
+        has_transparency=any(a<128 for face in baked_rgba for _,_,_,a in face)
         palette_rgb555 = []
         indexed_faces = []
         lut_of: dict[tuple[int, ...], int] = {}
@@ -613,7 +616,7 @@ def import_animated_model(
         for rgba, (w, h) in zip(baked_rgba, face_sizes):
             lut, packed = quantize_face_lut4(rgba, w, h)
             if snap is not None:
-                lut = [snap(c) for c in lut]
+                lut = [0 if c==0 and has_transparency else snap(c) for c in lut]
             key = tuple(lut)
             if key not in lut_of:
                 lut_of[key] = len(luts)

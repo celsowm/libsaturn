@@ -111,6 +111,29 @@ int main() {
     OK(reserve_overlay_commands(6u)==SAT_ERR_CAPACITY);
     OK(push_sprite(sprite)==SAT_OK);
 
+    /* RGB CLUT sprites preserve source and CLUT while selecting Gouraud. */
+    Command lut_commands[8]{};
+    begin_frame(lut_commands,8u);
+    DistortedSpriteRequest lut_quad{};
+    lut_quad.width=16;lut_quad.height=16;lut_quad.srca=0x3456;
+    lut_quad.palette=0x2345;lut_quad.format=SAT_VDP1_TEXTURE_LUT4;
+    OK(push_distorted_sprite_gouraud(lut_quad,corners)==SAT_OK);
+    OK((lut_commands[2].pmod&0x003fu)==0x000cu);
+    OK(lut_commands[2].colr==lut_quad.palette);
+    OK(lut_commands[2].srca==lut_quad.srca);
+    OK(lut_commands[2].grda==65536u/8u);
+    lut_quad.format=SAT_VDP1_TEXTURE_INDEXED8;
+    OK(push_distorted_sprite_gouraud(lut_quad,corners)==SAT_ERR_UNSUPPORTED);
+    lut_quad.format=SAT_VDP1_TEXTURE_LUT4;
+    OK(push_distorted_sprite_gouraud(lut_quad,nullptr)==SAT_ERR_INVALID_ARG);
+    /* Failed commands must release their staged table. */
+    lut_quad.width=0;
+    for(unsigned i=0;i<2200;++i)
+        OK(push_distorted_sprite_gouraud(lut_quad,corners)!=SAT_ERR_CAPACITY);
+    lut_quad.width=16;
+    OK(push_distorted_sprite_gouraud(lut_quad,corners)==SAT_OK);
+    OK(lut_commands[3].grda==65536u/8u+1u);
+
     std::puts("vdp1 clip: OK");
     return 0;
 }

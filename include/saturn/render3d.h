@@ -6,6 +6,7 @@
 #include "saturn/core.h"
 #include "saturn/geometry3d.h"
 #include "saturn/vdp1.h"
+#include "saturn/vdp1_color_calc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -81,7 +82,8 @@ typedef struct sat_indexed_solid_render3d {
     sat_vec3_t forward; /* normalized camera direction */
     sat_fx16_t near_depth; /* > 0; guard against giant VDP1 sprites */
     uint16_t width, height;
-    uint8_t color_calc_slot; /* 0..7 or SAT_INDEXED_SOLID_OPAQUE */
+    uint8_t color_calc_slot; /* 0..7, SAT_VDP2_SPRITE_ADD, or SAT_INDEXED_SOLID_OPAQUE */
+    uint16_t sprite_flags; /* 0 or SAT_SPRITE_FLAG_MESH for indexed draws */
 } sat_indexed_solid_render3d_t;
 
 sat_result_t sat_draw_indexed_solid_quad3(
@@ -160,6 +162,10 @@ sat_result_t sat_draw_indexed_textured_quad3(
     const sat_vdp1_texture_t* texture,
     uint8_t* out_drawn
 );
+/* LUT4 + RGB CLUT variant. Keeps the same no-arbitrary-UV-clipping contract. */
+sat_result_t sat_draw_indexed_textured_quad3_gouraud(
+    const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* params,
+    const sat_vdp1_texture_t* texture, const uint16_t gouraud[4], uint8_t* out_drawn);
 
 /* PREBAKED 2x2 patterned texture regions: preserve the VDP1's fixed
  * full-texture-to-quad mapping by pairing four subdivision quads with four

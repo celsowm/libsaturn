@@ -280,3 +280,6 @@ int main() {
     std::printf("test_skin_scene: 2 tests passed\n");
     return 0;
 }
+
+extern "C" sat_result_t sat_draw_sprite_distorted_gouraud(const sat_distorted_sprite_cmd_t* cmd,const uint16_t*) { return sat_draw_sprite_distorted(cmd); }
+extern "C" sat_result_t sat_draw_indexed_textured_quad3_gouraud(const sat_quad3_t* q,const sat_indexed_solid_render3d_t* p,const sat_vdp1_texture_t* t,const uint16_t*,uint8_t* out) { return sat_draw_indexed_textured_quad3(q,p,t,out); }

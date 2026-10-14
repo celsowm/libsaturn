@@ -16,10 +16,9 @@ sat_result_t packed_palette_for(const T* cmd, uint8_t slot, uint16_t* out) {
         ? cmd->palette_override
         : cmd->texture->palette;
     SAT_TRY(saturn::core::vdp1_color_calc::encode_palette_selector(bank, slot, out));
-    /* A slot is a ratio: refuse a frame that already went additive. With
-     * colour calculation disabled the selector has no effect to protect. */
-    const sat_result_t claim = sat_vdp2_sprite_color_calc_claim_mode(SAT_VDP2_COLOR_CALC_RATIO);
-    return claim == SAT_ERR_NOT_INITIALIZED ? SAT_OK : claim;
+    const sat_result_t claim = sat_vdp2_sprite_color_calc_claim_mode(
+        slot == SAT_VDP2_SPRITE_ADD ? SAT_VDP2_COLOR_CALC_ADD : SAT_VDP2_COLOR_CALC_RATIO);
+    return claim == SAT_ERR_NOT_INITIALIZED && slot != SAT_VDP2_SPRITE_ADD ? SAT_OK : claim;
 }
 
 }  // namespace

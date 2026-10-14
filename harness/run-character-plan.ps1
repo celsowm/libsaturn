@@ -2,10 +2,17 @@
 param(
     [Parameter(Mandatory=$true)][string]$Bios,
     [ValidateSet('all','viewer','arena','rate','collision','stress','prepare','materials')][string]$Scenario='all',
+    [ValidateSet('low','medium','high')][string]$RateDetail='low',
     [switch]$Pal,
     [switch]$AnalyzeOnly
 )
 $ErrorActionPreference='Stop'
+$RateDetail=$RateDetail.ToLowerInvariant()
+if($Scenario -ne 'rate' -and $RateDetail -ne 'low') {
+    throw '-RateDetail applies only to -Scenario rate'
+}
+$detailIds=@{high=0;medium=1;low=2}
+$rateLod=$detailIds[$RateDetail]
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $cases=if($Scenario -eq 'all'){@('viewer','arena','collision','stress','materials')}else{@($Scenario)}
 $oldVerify=$env:CHARACTER_DEMO_VERIFY_GEOMETRY
@@ -15,6 +22,7 @@ try {
         $env:CHARACTER_DEMO_VERIFY_GEOMETRY=if($case -eq 'materials'){'1'}else{$oldVerify}
         $example=@{viewer='skeletal_animation_3d';arena='fighter_arena_3d';rate='fighter_arena_3d';collision='fighter_arena_3d';stress='skinning_stress_3d';prepare='skinning_stress_3d';materials='skinning_stress_3d'}[$case]
         $suffix=if($Pal){'_pal'}else{''}
+        if($case -eq 'rate' -and $RateDetail -ne 'low'){$suffix="_$RateDetail$suffix"}
         $fieldHz=if($Pal){50}else{60}
         $prefix="harness/build/character_$case$suffix"; $map=$prefix+'.map'
         if(-not $AnalyzeOnly) {
@@ -63,7 +71,14 @@ try {
                 $frames=1200
                 $pad=@('0 NONE','40 Y','80 NONE','100 B','200 NONE','220 A','420 C','600 NONE',
                     '640 X','680 NONE','720 UP','780 NONE','960 START','1000 NONE')
-                $shots=@("299:${prefix}_low_punch.png","699:${prefix}_low_jump.png","1199:${prefix}_final.png")
+                if($RateDetail -eq 'medium') {
+                    $pad=$pad|Where-Object {$_ -notin @('40 Y','80 NONE')}
+                } elseif($RateDetail -eq 'high') {
+                    # MEDIUM -> LOW -> HIGH, releasing Y between edges.
+                    $pad=@('0 NONE','40 Y','60 NONE','80 Y','100 B','200 NONE','220 A','420 C','600 NONE',
+                        '640 X','680 NONE','720 UP','780 NONE','960 START','1000 NONE')
+                }
+                $shots=@("299:${prefix}_${RateDetail}_punch.png","699:${prefix}_${RateDetail}_jump.png","1199:${prefix}_final.png")
                 $dumps=@("0x00200000:1048576:${prefix}_low.bin")
             }
             collision {
@@ -96,7 +111,7 @@ try {
         $analysis=@('--example',$example,'--map',$map,'--high',($prefix+'_high.bin'),
                     '--probe',($prefix+'.json'),'--output',($prefix+'_analysis.json'),'--field-hz',$fieldHz)
         if($case -in @('stress','arena','rate')){$analysis+=@('--low',($prefix+'_low.bin'))}
-        if($case -eq 'rate'){$analysis+=@('--expected-lods','2')}
+        if($case -eq 'rate'){$analysis+=@('--expected-lods',$rateLod)}
         if($case -eq 'collision'){$analysis+='--body-collision'}
         if($case -eq 'prepare') {
             & python harness/tests/character_preparation.py $prefix --field-hz $fieldHz
@@ -108,9 +123,11 @@ try {
             # Two display fields per submission: 30/s NTSC, 25/s PAL.
             $targetFieldsPerSubmission=2
             $rateTolerance=1
+            $minimumSteadySamples=300
+            $enforceRateTarget=if($RateDetail -eq 'low'){'True'}else{'False'}
             $minimumRate=$fieldHz/$targetFieldsPerSubmission-$rateTolerance
-            & python -c "import json; from pathlib import Path; d=json.loads(Path('$prefix'+'_analysis.json').read_text()); r=next(w for w in d['workloads'] if w['lod']==2); assert r['samples']>300; assert r['submitted_lists_per_second']>=$minimumRate"
-            if($LASTEXITCODE){throw 'Sustained LOW arena submission target failed'}
+            & python -c "import json; from pathlib import Path; d=json.loads(Path('$prefix'+'_analysis.json').read_text()); r=next(w for w in d['workloads'] if w['lod']==$rateLod); assert r['samples']>$minimumSteadySamples; assert not $enforceRateTarget or r['submitted_lists_per_second']>=$minimumRate; print('Sustained $RateDetail arena:', r['submitted_lists_per_second'], 'submissions/s;', r['samples'], 'steady samples')"
+            if($LASTEXITCODE){throw "Sustained $RateDetail arena validation failed"}
         }
         if($case -eq 'materials') {
             & python -c "import json; from pathlib import Path; d=json.loads(Path('$prefix'+'_analysis.json').read_text()); assert d['geometry']['verified']>20; assert d['geometry']['errors']==0"

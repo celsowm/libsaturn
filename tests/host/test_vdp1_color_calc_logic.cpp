@@ -30,6 +30,11 @@ int main() {
         saturn::core::vdp1_color_calc::encode_palette_selector(0u, 0u, nullptr),
         SAT_ERR_INVALID_ARG);
 
+    ASSERT_EQ(saturn::core::vdp1_color_calc::encode_palette_selector(
+        5u, SAT_VDP2_SPRITE_ADD, &selector), SAT_OK);
+    ASSERT_EQ(selector, 0x0045u);
+    ASSERT_EQ(saturn::core::vdp1_color_calc::encode_palette_selector(
+        8u, SAT_VDP2_SPRITE_ADD, &selector), SAT_ERR_INVALID_ARG);
     std::puts("test_vdp1_color_calc_logic: OK");
     return 0;
 }

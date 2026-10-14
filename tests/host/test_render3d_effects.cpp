@@ -114,3 +114,5 @@ int main() {
     std::puts("render3d effects: OK");
     return 0;
 }
+
+extern "C" sat_result_t sat_draw_sprite_distorted_gouraud(const sat_distorted_sprite_cmd_t* cmd,const uint16_t*) { return sat_draw_sprite_distorted(cmd); }

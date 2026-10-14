@@ -17,6 +17,33 @@ SPEC.loader.exec_module(GEN_IP_BIN)
 
 
 class GenIpBinTests(unittest.TestCase):
+    def test_default_validator_rejects_legacy_hook_even_with_matching_template(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            template_path = tmp_path / "ip_yaul_template.bin"
+            image_path = tmp_path / "ip.bin"
+            template = (REPO / "assets/boot/ip_yaul_template.bin").read_bytes()
+            template_path.write_bytes(template)
+            generated = subprocess.run(
+                ["python", str(TOOL), "--template", str(template_path),
+                 "--output", str(image_path), "--app-size", "321"],
+                cwd=REPO, capture_output=True, text=True)
+            self.assertEqual(generated.returncode, 0, generated.stderr)
+            command = ["python", str(REPO / "tools/check_ip_bin.py"),
+                       "--template", str(template_path), "--ip-bin", str(image_path),
+                       "--expected-size", "321"]
+            valid = subprocess.run(command, cwd=REPO, capture_output=True, text=True)
+            self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
+            # Simulate restoring the old hook in both files. Template equality
+            # alone would accept an image that can consume an unfinished result.
+            for path in (template_path, image_path):
+                data = bytearray(path.read_bytes())
+                data[0x0EDE:0x0EE2] = bytes.fromhex("47108bfa")
+                path.write_bytes(data)
+            invalid = subprocess.run(command, cwd=REPO, capture_output=True, text=True)
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertIn("default_boot_missing_cmok_wait", invalid.stdout)
+
     def test_build_ip_bin_uses_expected_offsets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

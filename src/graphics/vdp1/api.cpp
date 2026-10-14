@@ -340,7 +340,7 @@ extern "C" sat_result_t sat_draw_sprite_scaled_screen(
     return sat_draw_sprite_scaled(&cmd);
 }
 
-extern "C" sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd_t* cmd) {
+static sat_result_t draw_distorted_impl(const sat_distorted_sprite_cmd_t* cmd,const uint16_t* gouraud) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();
     if (st != SAT_OK) {
@@ -365,7 +365,15 @@ extern "C" sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd
     req.flags = resolved.flags;
     req.format = resolved.format;
     req.user_clip = (resolved.flags & SAT_SPRITE_FLAG_USER_CLIP) != 0u;
-    return saturn::hal::vdp1::push_distorted_sprite(req);
+    return gouraud?saturn::hal::vdp1::push_distorted_sprite_gouraud(req,gouraud)
+        :saturn::hal::vdp1::push_distorted_sprite(req);
+}
+extern "C" sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd_t* cmd) {
+    return draw_distorted_impl(cmd,nullptr);
+}
+extern "C" sat_result_t sat_draw_sprite_distorted_gouraud(const sat_distorted_sprite_cmd_t* cmd,const uint16_t gouraud[4]) {
+    if(!gouraud)return SAT_ERR_INVALID_ARG;
+    return draw_distorted_impl(cmd,gouraud);
 }
 
 extern "C" sat_result_t sat_vdp1_draw_polygon(const sat_polygon_cmd_t* cmd) {

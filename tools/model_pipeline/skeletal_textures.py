@@ -10,7 +10,7 @@ from .saturn_profile import SaturnProfile, check_resources
 from .static_import import ImportResult
 from .texture_bake import (
     bake_face_rgba, build_shared_palette, conform_size, estimate_face_size,
-    float_to_fx16, map_faces_to_indices,
+    float_to_fx16, map_faces_to_indices, quantize_face_lut4,
 )
 from saturn_asset_common import (
     format_byte_array, format_ushort_array, format_word_array, rgb888_to_rgb555,
@@ -21,7 +21,8 @@ def build_render_asset(model, export, *, palette_index=1, texture_scale=1.0,
                        max_texture_width=504, max_texture_height=255,
                        sampling="nearest", reverse_winding=False,
                        texel_extent=None, source_surface=None, exposure=1.0,
-                       studio=False, light_dir=(-0.5, 0.6, 0.8), ambient=0.65, diffuse=0.35):
+                       studio=False, light_dir=(-0.5, 0.6, 0.8), ambient=0.65, diffuse=0.35,
+                       texture_format="indexed8"):
     """Keep geometry, UVs and face textures in the skin's rigid-first order."""
     if not 0 <= palette_index <= 7 or texture_scale <= 0:
         raise ImportError("skeletal textures need palette-index 0..7 and positive texture-scale")
@@ -78,27 +79,52 @@ def build_render_asset(model, export, *, palette_index=1, texture_scale=1.0,
               for i, rgb in enumerate(palette)]
     rgb555 += [0] * (256 - len(rgb555))
     textures, selectors, dedup = [], [], {}
-    flags = 0 if transparent else 1
-    for (w, h), pixels in zip(sizes, indexed):
-        pixels = bytes(pixels)
-        key = (w, h, pixels)
+    luts,lut_ids=[],{}
+    for face,((w, h), pixels) in enumerate(zip(sizes, indexed)):
+        flags=0 if transparent else 1
+        slot=0
+        if texture_format=="lut4":
+            lut,pixels=quantize_face_lut4(baked[face],w,h)
+            key_lut=tuple(lut)
+            if key_lut not in lut_ids:
+                lut_ids[key_lut]=len(luts);luts.append(lut)
+            slot=lut_ids[key_lut];flags|=0x8000
+        elif texture_format!="indexed8":
+            raise ImportError("skeletal texture format must be indexed8 or lut4")
+        pixels=bytes(pixels)
+        key = (w, h, pixels, flags, slot)
         if key not in dedup:
             dedup[key] = len(textures)
             textures.append(dict(width=w, height=h, pixels=pixels,
-                                 pixel_count=w * h, flags=flags))
+                                 pixel_count=w * h, flags=flags, palette_slot=slot))
         selectors.append(dedup[key])
     payloads = [len(t["pixels"]) for t in textures]
     budget = check_resources(SaturnProfile(), faces=len(quads),
-                             texture_payload_bytes=sum(payloads), texture_sizes=payloads)
+                             texture_payload_bytes=sum(payloads)+len(luts)*32, texture_sizes=payloads+[32]*len(luts))
     if not budget["passed"]:
         raise ImportError("skeletal texture budget: " + "; ".join(budget["failing_gates"]))
     budget["source_bounds_fx"] = [
         [float_to_fx16(extreme(p[axis] for p in model.vertices) * export.scale)
          for axis in range(3)] for extreme in (min, max)]
+    # Bind-space positions can differ from animated world-space positions.
+    # Fit viewers/culling to every exported pose, including skin quantization.
+    from .skeletal_export import evaluate_export
+    animated_min = [math.inf] * 3
+    animated_max = [-math.inf] * 3
+    for clip in export.clips:
+        for frame in clip.frames:
+            for position in evaluate_export(export, frame):
+                for axis in range(3):
+                    animated_min[axis] = min(animated_min[axis], position[axis])
+                    animated_max[axis] = max(animated_max[axis], position[axis])
+    budget["animated_bounds_fx"] = [
+        [float_to_fx16(value) for value in bound]
+        for bound in (animated_min, animated_max)] if export.clips else budget["source_bounds_fx"]
     return ImportResult(
         vertices_fx=[tuple(float_to_fx16(x * export.scale) for x in p) for p in positions],
         indices_abcd=quads, face_texture_indices=selectors, textures=textures,
         palette_rgb555=rgb555, palette_base=palette_index, stats=budget,
+        luts_rgb555=[color for lut in luts for color in lut] or None,
     )
 
 
@@ -107,6 +133,7 @@ def emit_render_tables(render, base):
     nt, nv, nf = len(render.textures), len(render.vertices_fx), len(render.indices_abcd)
     header = [f"extern const sat_model_asset_t {base}_asset;",
               f"extern const sat_vec3_t {base}_bind_min, {base}_bind_max;",
+              f"extern const sat_vec3_t {base}_animated_min, {base}_animated_max;",
               f"#define {base.upper()}_TEXTURE_COUNT {nt}"]
     source = [f"static const sat_vec3_t {base}_bind_vertices[{nv}] = {{"]
     source += ["    {%d, %d, %d}," % p for p in render.vertices_fx]
@@ -115,18 +142,24 @@ def emit_render_tables(render, base):
     for label, bound in zip(("min", "max"), render.stats["source_bounds_fx"]):
         source.append(f"const sat_vec3_t {base}_bind_{label} = {{" +
                       ", ".join(map(str, bound)) + "};")
+    for label, bound in zip(("min", "max"), render.stats.get("animated_bounds_fx", render.stats["source_bounds_fx"])):
+        source.append(f"const sat_vec3_t {base}_animated_{label} = {{" +
+                      ", ".join(map(str, bound)) + "};")
     for i, tex in enumerate(render.textures):
         source += [f"static const uint8_t {base}_tex{i}[{len(tex['pixels'])}] = {{",
                    format_byte_array(list(tex["pixels"])), "};"]
     source.append(f"static const sat_model_texture_asset_t {base}_textures[{nt}] = {{")
     for i, tex in enumerate(render.textures):
         source.append(f"    {{{base}_tex{i}, {tex['width']}, {tex['height']}, "
-                      f"0, {tex['flags']}, {tex['pixel_count']}}},")
+                      f"{tex.get('palette_slot',0)}, {tex['flags']}, {tex['pixel_count']}}},")
+    if render.luts_rgb555:
+        source += ["};", f"static const uint16_t {base}_luts[{len(render.luts_rgb555)}] = {{",
+                   format_word_array(render.luts_rgb555)]
     source += ["};", f"static const uint16_t {base}_palette[256] = {{",
                format_word_array(render.palette_rgb555), "};",
                f"const sat_model_asset_t {base}_asset = {{",
                f"    {base}_bind_vertices, {nv}, {base}_indices, {nf},",
                f"    {base}_face_textures, {base}_textures, {nt},",
                f"    {base}_palette, 1, {render.palette_base}, 0,",
-               "    0, 0, 0, 0, 0", "};", ""]
+               f"    0, 0, 0, {base+'_luts' if render.luts_rgb555 else '0'}, {len(render.luts_rgb555 or [])//16}", "};", ""]
     return header, source

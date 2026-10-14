@@ -38,6 +38,7 @@ void p3d_actor_material(sat_scene3d_material_t* material, uint16_t color,
     material->tiled = 0;
     material->color_calc_slot = SAT_INDEXED_SOLID_OPAQUE;
     material->vertex_gouraud = gouraud;
+    material->sprite_flags = 0;
 }
 
 void p3d_actor_submit(sat_scene_t* scene, const sat_mesh_t* mesh,

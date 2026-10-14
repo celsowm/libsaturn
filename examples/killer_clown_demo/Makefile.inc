@@ -1,0 +1,42 @@
+# Keep source topology and UVs; seven clips bound resident stock-RAM storage.
+MODEL_GLB := examples/$(EXAMPLE)/assets/killer_clown.glb
+MODEL_OUT_PREFIX := $(GENERATED_DIR)/$(EXAMPLE)/killer_clown_skeletal
+MODEL_SYMBOL := killer_clown_skeletal
+MODEL_TARGET := skeletal
+MODEL_TEXTURE_FORMAT := lut4
+MODEL_SCALE := 1.0
+MODEL_MAX_TRIANGLES := 600
+MODEL_ANIMATION := Fighting_Idle,Walk,Fighting_Left_Jab,Kick_Breach,Hit_Head,Hit_Knockback,Jump_2
+MODEL_LOOP_CLIPS := Fighting_Idle,Walk
+MODEL_ANIMATION_FPS := 20
+MODEL_PALETTE_INDEX := 1
+MODEL_TEXEL_EXTENT := 128
+MODEL_SAMPLING := area
+MODEL_SKELETAL_SURFACE_BAKE := 1
+MODEL_SKELETAL_EXPOSURE := 1.5
+MODEL_SKELETAL_STUDIO_LIGHT := 1
+EXAMPLE_ASSETS := $(MODEL_OUT_PREFIX).c
+EXAMPLE_HEADERS := $(MODEL_OUT_PREFIX).h
+EXAMPLE_INCFLAGS := -I$(GENERATED_DIR)/$(EXAMPLE)
+CLOWN_PARALLEL_GEOMETRY ?= 1
+CLOWN_VERIFY_GEOMETRY ?= 0
+EXAMPLE_INCFLAGS += -DCLOWN_PARALLEL_GEOMETRY=$(CLOWN_PARALLEL_GEOMETRY) -DCLOWN_VERIFY_GEOMETRY=$(CLOWN_VERIFY_GEOMETRY)
+CLOWN_PROFILE ?= 1
+EXAMPLE_INCFLAGS += -DCLOWN_PROFILE=$(CLOWN_PROFILE)
+EXAMPLE_EXTRA_SRCS := examples/characters/combat.c
+
+COMBAT_AUDIO_PREFIX := $(GENERATED_DIR)/$(EXAMPLE)/combat_sfx
+EXAMPLE_ASSETS += $(COMBAT_AUDIO_PREFIX).c
+EXAMPLE_HEADERS += $(COMBAT_AUDIO_PREFIX).h
+$(COMBAT_AUDIO_PREFIX).c $(COMBAT_AUDIO_PREFIX).h &: tools/generate_combat_audio.py
+	$(PYTHON) tools/generate_combat_audio.py --out-prefix $(COMBAT_AUDIO_PREFIX)
+
+OCTAGON_PREFIX := $(GENERATED_DIR)/$(EXAMPLE)/octagon
+OCTAGON_SOURCE := examples/$(EXAMPLE)/assets/mma_octagon_colunas_ultra_lowpoly.glb
+EXAMPLE_ASSETS += $(OCTAGON_PREFIX).c
+EXAMPLE_HEADERS += $(OCTAGON_PREFIX).h
+CROWD_PREFIX := $(GENERATED_DIR)/$(EXAMPLE)/environment
+EXAMPLE_ASSETS += $(CROWD_PREFIX).c
+EXAMPLE_HEADERS += $(CROWD_PREFIX).h
+$(CROWD_PREFIX).c $(CROWD_PREFIX).h $(OCTAGON_PREFIX).c $(OCTAGON_PREFIX).h &: $(OCTAGON_SOURCE) examples/$(EXAMPLE)/assets/plateia_3d_vdp2_rgb555.png tools/compile_clown_environment.py $(wildcard tools/model_pipeline/*.py) tools/satlz.py
+	$(PYTHON) tools/compile_clown_environment.py --stage $(OCTAGON_SOURCE) --crowd examples/$(EXAMPLE)/assets/plateia_3d_vdp2_rgb555.png --out-prefix $(CROWD_PREFIX)

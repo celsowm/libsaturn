@@ -118,6 +118,7 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     return SAT_OK;
 }
 
+sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req,const uint16_t*) { return push_distorted_sprite(req); }
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     ++g_distorted_calls;
     g_last_distorted = req;

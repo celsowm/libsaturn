@@ -185,6 +185,11 @@ extern "C" sat_result_t sat_mesh_face_normal_scaled(const sat_mesh_t* mesh, uint
     return face_normal_scaled(mesh, face, out);
 }
 
+extern "C" sat_result_t sat_mesh_vertex_normals_scaled(const sat_mesh_t* mesh,
+    sat_vec3_t* out_normals,uint16_t normal_cap) {
+    return vertex_normals_scaled(mesh,out_normals,normal_cap);
+}
+
 extern "C" sat_result_t sat_mesh_vertex_normals(
     const sat_mesh_t* mesh,
     sat_vec3_t* out_normals,

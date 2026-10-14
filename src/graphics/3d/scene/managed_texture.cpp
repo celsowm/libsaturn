@@ -43,7 +43,7 @@ extern "C" sat_result_t sat_scene_queue_managed_camera_view(
         return SAT_ERR_CAPACITY;
     const sat_scene3d_material_t material={
         SAT_SCENE3D_INDEXED_TEXTURED,0u,&slot->native,nullptr,
-        SAT_INDEXED_SOLID_OPAQUE,nullptr};
+        SAT_INDEXED_SOLID_OPAQUE,nullptr,0u};
     const uint16_t first=scene->faces.count;
     const sat_result_t status=sat_scene_queue_camera_view_material(
         scene,cache,view,camera,&material,pass);

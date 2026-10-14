@@ -70,7 +70,7 @@ def main() -> int:
     parser.add_argument("--hud-reserve", type=int, default=128,
                         help="VDP1 command budget reserved for this example's HUD (default: 128)")
     parser.add_argument("--animation", default="all",
-                        help="Animated clips: all|NAME|INDEX (default all)")
+                        help="Clips: all|NAME|INDEX; rest compiles a static GLB pose (default all)")
     parser.add_argument("--animation-fps", default="source",
                         help="Runtime clip sampling: source|N fps (default source)")
     parser.add_argument("--merge-rigid-meshes", action="store_true",
@@ -418,6 +418,7 @@ def _main_skeletal(args) -> int:
             reverse_winding=args.reverse_winding, texel_extent=args.texel_extent,
             source_surface=source_surface, exposure=args.skeletal_exposure,
             studio=args.skeletal_studio_light,
+            texture_format=args.texture_format,
         )
         header_text, source_text = sx_mod.emit_c(exp, symbol, render)
         header_path = Path(args.out_prefix).with_suffix(".h")
