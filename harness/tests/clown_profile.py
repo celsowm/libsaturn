@@ -11,6 +11,7 @@ STAGES = ('wait input_simulation evaluate environment lights normal_accumulation
           'geometry flush hud end pose_dispatch skin_join bounds').split()
 FIELDS = ('frame fields simulation ui lights_enabled commands late_swaps elapsed').split() + STAGES + ['painter', 'emission']
 MAGIC = 0x434C5031
+NTSC_FIELDS_PER_SECOND = 60
 
 
 def compare_profiles(after, before):
@@ -21,7 +22,13 @@ def compare_profiles(after, before):
         assert Path(str(old)+'.pad').read_bytes() == Path(str(new)+'.pad').read_bytes()
         baseline = json.loads(Path(str(old)+'_profile.json').read_text())
         result = json.loads(Path(str(new)+'_profile.json').read_text())
-        assert baseline['frequency_hz'] == result['frequency_hz']
+        # Calibration is an integer FRT count per field multiplied by 60.
+        # A one-count startup phase difference is one quantization step;
+        # each report already converts its ticks using its own calibration.
+        previous_frequency, current_frequency = baseline['frequency_hz'], result['frequency_hz']
+        assert previous_frequency % NTSC_FIELDS_PER_SECOND == 0
+        assert current_frequency % NTSC_FIELDS_PER_SECOND == 0
+        assert abs(previous_frequency-current_frequency) <= NTSC_FIELDS_PER_SECOND
         timings = {}
         for stage in ('elapsed', 'lights', 'normal_accumulation', 'geometry', 'flush'):
             previous = baseline['timings_ms'][stage]['median']
@@ -33,8 +40,9 @@ def compare_profiles(after, before):
         report[workload] = {'before_submissions_per_second': previous,
                             'after_submissions_per_second': current,
                             'throughput_gain_percent': round(100*(current-previous)/previous, 2),
+                            'frequency_hz_before_after': [previous_frequency, current_frequency],
                             'timings': timings}
-    report['limitations'] = 'Matched field/input workloads, not identical sampled poses or unique displayed-image FPS.'
+    report['limitations'] = 'Matched NTSC field/input workloads, with calibration differences limited to one FRT count per field. Each timing uses its own measured frequency. Not identical sampled poses or unique displayed-image FPS.'
     Path(str(after)+'_comparison.json').write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps(report, indent=2))
 
@@ -57,6 +65,15 @@ def compare_no_record(prefix):
               'limitations': 'Whole-program loop counts at identical field duration/input, including menu and warm-up. Both retain library profiling. Discrete scheduling and pose differences preclude treating this as exact per-stage instrumentation overhead.'}
     Path(str(prefix)+'_comparison.json').write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps(report, indent=2))
+
+
+def lighting_metrics(mapping, high):
+    data = dict(zip(('enabled', 'verify', 'updates', 'verified', 'errors'),
+                    struct.unpack_from('>5I', high, symbol(mapping, 'g_clown_lighting_jobs')-HIGH_BASE)))
+    assert data['enabled'] in (0, 1) and data['verify'] in (0, 1), data
+    assert data['errors'] == 0, data
+    assert data['verified'] == (data['updates'] if data['verify'] else 0), data
+    return data
 
 
 def geometry_metrics(mapping, high):
@@ -83,6 +100,9 @@ def analyze(prefix, ambient=False):
     metrics = struct.unpack_from('>32I', high, symbol(mapping, 'g_clown_metrics')-HIGH_BASE)
     assert metrics[5] == metrics[9] == metrics[21] == 0, metrics
     geometry = geometry_metrics(mapping, high)
+    lighting = lighting_metrics(mapping, high)
+    if not ambient:
+        assert lighting['updates'] > 20, lighting
     offset = symbol(mapping, 'g_clown_profile') - LOW_BASE
     magic, capacity, stride, frequency, count, overwritten = struct.unpack_from('>6I', low, offset)
     assert magic == MAGIC and capacity == 192 and stride == len(FIELDS) * 4
@@ -127,7 +147,7 @@ def analyze(prefix, ambient=False):
                for key in ['elapsed'] + STAGES + ['painter', 'emission']}
     span = (steady[-1]['fields']-steady[0]['fields'])/60
     report = {'samples': len(steady), 'frequency_hz': frequency,
-              'ambient_gouraud_faces': ambient_faces, 'geometry_execution': geometry,
+              'ambient_gouraud_faces': ambient_faces, 'geometry_execution': geometry, 'lighting_execution': lighting,
               'interval_seconds': round(span, 3),
               'submissions_per_second': round((len(steady)-1)/span, 3),
               'simulation_ticks_per_second': round((steady[-1]['simulation']-steady[0]['simulation'])/span, 3),

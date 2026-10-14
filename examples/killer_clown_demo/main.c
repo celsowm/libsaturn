@@ -69,6 +69,8 @@ typedef struct {
     sat_vec3_t vertices[KILLER_CLOWN_SKELETAL_VERTEX_COUNT];
     sat_vec3_t normals[KILLER_CLOWN_SKELETAL_VERTEX_COUNT];
     uint16_t gouraud[KILLER_CLOWN_SKELETAL_VERTEX_COUNT];
+    uint32_t light_visible[LIGHT_COUNT],light_total[LIGHT_COUNT];
+    sat_result_t lighting_result;
     sat_vec3_t world_vertices[KILLER_CLOWN_SKELETAL_VERTEX_COUNT];
     sat_projected_vertex_t projected[KILLER_CLOWN_SKELETAL_VERTEX_COUNT];
     uint16_t indices[KILLER_CLOWN_SKELETAL_FACE_COUNT * 4];
@@ -81,6 +83,14 @@ typedef struct {
     unsigned clip, attack_serial, hit_serial;
 } fighter_t;
 static fighter_t actors[FIGHTERS];
+/* Includes only normals, Gouraud and per-actor results. Outputs remain private
+ * to each actor; no skin/geometry task owns them during the lighting ranges. */
+enum { LIGHT_OUTPUT_BYTES=offsetof(fighter_t,world_vertices)-offsetof(fighter_t,normals) };
+volatile struct {uint32_t enabled,verify,updates,verified,errors;} g_clown_lighting_jobs;
+#if CLOWN_VERIFY_LIGHTING
+static uint8_t lighting_reference[LIGHT_OUTPUT_BYTES]
+    __attribute__((section(".wram_l"),aligned(4)));
+#endif
 /* Geometry, LUT4 pixels and RGB CLUTs are shared; lighting is per vertex. */
 static sat_vdp1_texture_t fighter_textures[FIGHTERS][KILLER_CLOWN_SKELETAL_TEXTURE_COUNT];
 static sat_scene3d_material_t fighter_materials[FIGHTERS][KILLER_CLOWN_SKELETAL_TEXTURE_COUNT];
@@ -584,6 +594,52 @@ static void initialize_lights(void) {
     g_clown_metrics.lights_enabled=1;
 }
 static int color_channel(int channel) {return channel<0?0:channel>31?31:channel;}
+static void light_normals_range(void* context,uint32_t begin,uint32_t end) {
+    (void)context;
+    for(unsigned actor=begin;actor<end;++actor) {
+        fighter_t* a=&actors[actor];
+        a->lighting_result=sat_mesh_vertex_normals_scaled(&a->mesh,a->normals,
+            KILLER_CLOWN_SKELETAL_VERTEX_COUNT);
+    }
+}
+static void light_shading_range(void* context,uint32_t begin,uint32_t end) {
+    (void)context;
+    for(unsigned actor=begin;actor<end;++actor) {
+        fighter_t* a=&actors[actor];const combat_fighter_t* fighter=&g_clown_round.fighters[actor];
+        for(unsigned light=0;light<LIGHT_COUNT;++light) {
+            a->light_visible[light]=0;a->light_total[light]=0;
+        }
+        for(unsigned vertex=0;vertex<KILLER_CLOWN_SKELETAL_VERTEX_COUNT;++vertex) {
+            sat_vec3_t n=clown_light_normalize(a->normals[vertex]),v=a->vertices[vertex];
+            sat_vec3_t normal={fighter->facing*n.z,n.y,-fighter->facing*n.x};
+            sat_vec3_t point={fighter->position.x+fighter->facing*v.z,
+                v.y-CLOWN_FEET_Q16,fighter->position.z-fighter->facing*v.x};
+            unsigned strength[LIGHT_COUNT]={0};
+            int64_t facing=(int64_t)normal.x*(camera.eye.x-point.x)+
+                (int64_t)normal.y*(camera.eye.y-point.y)+(int64_t)normal.z*(camera.eye.z-point.z);
+            for(unsigned light=0;light<LIGHT_COUNT;++light) {
+                strength[light]=clown_spotlight_diffuse(&spotlights[light],point,normal);
+                a->light_total[light]+=strength[light];
+                if(strength[light]>16 && facing>0)++a->light_visible[light];
+            }
+            int red=(actor?16:14)+(int)(strength[0]*15/256)-(int)(strength[1]*2/256);
+            int green=14+(int)(strength[0]*3/256+strength[1]*5/256);
+            int blue=(actor?14:16)+(int)(strength[1]*15/256)-(int)(strength[0]*3/256);
+            a->gouraud[vertex]=sat_gouraud_rgb(color_channel(red)-16,color_channel(green)-16,color_channel(blue)-16);
+        }
+    }
+}
+static void light_range(sat_parallel_range_fn fn) {
+#if CLOWN_PARALLEL_LIGHTING
+    /* Range execution purges Slave's input cache and joins before returning.
+     * All immutable pose, camera, light and reciprocal-table inputs have
+     * been written by Master. Consume precisely the second actor's output. */
+    sat_example_must(sat_parallel_for(0,FIGHTERS,1,fn,NULL,
+        actors[FIGHTERS-1].normals,LIGHT_OUTPUT_BYTES));
+#else
+    fn(NULL,0,FIGHTERS);
+#endif
+}
 static void update_lights(void) {
     unsigned phase=g_clown_metrics.simulation_ticks%LIGHT_SWEEP_TICKS;
     sat_fx16_t angle=(sat_fx16_t)((int64_t)phase*360*SAT_FX16_ONE/LIGHT_SWEEP_TICKS);
@@ -614,30 +670,28 @@ static void update_lights(void) {
             fighter->position.z+sat_fx16_mul(sat_sin_deg(orbit),LIGHT_ORBIT_Z_Q16)};
         clown_spotlight_aim(&spotlights[light],source,target);
     }
+    profile_start(PROFILE_NORMALS);
+    light_range(light_normals_range);
+    profile_stop(PROFILE_NORMALS);
+    for(unsigned actor=0;actor<FIGHTERS;++actor)sat_example_must(actors[actor].lighting_result);
+    light_range(light_shading_range);
+    ++g_clown_lighting_jobs.updates;
+#if CLOWN_VERIFY_LIGHTING
+    /* Both ranges have joined. Preserve actual output before recomputing the
+     * second actor on Master at exactly the same pose, camera and lights. */
+    const uint8_t* actual=(const uint8_t*)actors[FIGHTERS-1].normals;
+    for(unsigned byte=0;byte<LIGHT_OUTPUT_BYTES;++byte)lighting_reference[byte]=actual[byte];
+    light_normals_range(NULL,FIGHTERS-1,FIGHTERS);
+    light_shading_range(NULL,FIGHTERS-1,FIGHTERS);
+    for(unsigned byte=0;byte<LIGHT_OUTPUT_BYTES;++byte)if(lighting_reference[byte]!=actual[byte]) {
+        ++g_clown_lighting_jobs.errors;sat_example_must(SAT_ERR_VERIFY_FAILED);
+    }
+    ++g_clown_lighting_jobs.verified;
+#endif
     unsigned visible[LIGHT_COUNT]={0},total[LIGHT_COUNT]={0};
-    for(unsigned actor=0;actor<FIGHTERS;++actor) {
-        fighter_t* a=&actors[actor];const combat_fighter_t* fighter=&g_clown_round.fighters[actor];
-        profile_start(PROFILE_NORMALS);
-        sat_example_must(sat_mesh_vertex_normals_scaled(&a->mesh,a->normals,KILLER_CLOWN_SKELETAL_VERTEX_COUNT));
-        profile_stop(PROFILE_NORMALS);
-        for(unsigned vertex=0;vertex<KILLER_CLOWN_SKELETAL_VERTEX_COUNT;++vertex) {
-            sat_vec3_t n=clown_light_normalize(a->normals[vertex]),v=a->vertices[vertex];
-            sat_vec3_t normal={fighter->facing*n.z,n.y,-fighter->facing*n.x};
-            sat_vec3_t point={fighter->position.x+fighter->facing*v.z,
-                v.y-CLOWN_FEET_Q16,fighter->position.z-fighter->facing*v.x};
-            unsigned strength[LIGHT_COUNT]={0};
-            int64_t facing=(int64_t)normal.x*(camera.eye.x-point.x)+
-                (int64_t)normal.y*(camera.eye.y-point.y)+(int64_t)normal.z*(camera.eye.z-point.z);
-            for(unsigned light=0;light<LIGHT_COUNT;++light) {
-                strength[light]=clown_spotlight_diffuse(&spotlights[light],point,normal);
-                total[light]+=strength[light];
-                if(strength[light]>16 && facing>0)++visible[light];
-            }
-            int red=(actor?16:14)+(int)(strength[0]*15/256)-(int)(strength[1]*2/256);
-            int green=14+(int)(strength[0]*3/256+strength[1]*5/256);
-            int blue=(actor?14:16)+(int)(strength[1]*15/256)-(int)(strength[0]*3/256);
-            a->gouraud[vertex]=sat_gouraud_rgb(color_channel(red)-16,color_channel(green)-16,color_channel(blue)-16);
-        }
+    for(unsigned actor=0;actor<FIGHTERS;++actor)for(unsigned light=0;light<LIGHT_COUNT;++light) {
+        visible[light]+=actors[actor].light_visible[light];
+        total[light]+=actors[actor].light_total[light];
     }
     g_clown_light_metrics.visible_red=visible[0];g_clown_light_metrics.visible_blue=visible[1];
     if(visible[0]>g_clown_light_metrics.max_visible_red)g_clown_light_metrics.max_visible_red=visible[0];
@@ -791,6 +845,8 @@ int main(void) {
     sat_example_must(sat_scene_init(&scene,faces,keys,order,FACE_CAP));
     g_clown_metrics.stage_faces=stage_mesh.face_count;g_clown_metrics.actor_faces=KILLER_CLOWN_SKELETAL_FACE_COUNT;
     previous_ms=rate_mark=sat_time_ms();
+    g_clown_lighting_jobs.enabled=CLOWN_PARALLEL_LIGHTING;
+    g_clown_lighting_jobs.verify=CLOWN_VERIFY_LIGHTING;
     g_clown_geometry.enabled=CLOWN_PARALLEL_GEOMETRY;
     g_clown_geometry.verify=CLOWN_VERIFY_GEOMETRY;
     g_clown_profile.magic=CLOWN_PROFILE_MAGIC;

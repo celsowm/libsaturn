@@ -197,17 +197,29 @@ inline sat_vec3_t vec3_cross_scaled(const sat_vec3_t& a, const sat_vec3_t& b) {
     if (m == 0) {
         return vec3(0, 0, 0);
     }
-    /* 2^20 leaves room for the squares fx_len3 takes without overflow. */
-    while (m > (static_cast<int64_t>(1) << 20)) {
+    /* Preserve the original shift sequence, narrowing only after every
+     * component fits int32_t. Negative arithmetic rounding can make a
+     * component's magnitude m+1, which still fits when m <= INT32_MAX.
+     * SH-2 can then use one SHAR per component instead of 64-bit shifts. */
+    while (m > INT32_MAX) {
         cx >>= 1;
         cy >>= 1;
         cz >>= 1;
         m >>= 1;
     }
-    return vec3(
-        static_cast<sat_fx16_t>(cx),
-        static_cast<sat_fx16_t>(cy),
-        static_cast<sat_fx16_t>(cz));
+    int32_t x = static_cast<int32_t>(cx);
+    int32_t y = static_cast<int32_t>(cy);
+    int32_t z = static_cast<int32_t>(cz);
+    uint32_t maximum = static_cast<uint32_t>(m);
+    constexpr uint32_t scaled_normal_limit = 1u << 20;
+    /* 2^20 leaves room for the squares fx_len3 takes without overflow. */
+    while (maximum > scaled_normal_limit) {
+        x >>= 1;
+        y >>= 1;
+        z >>= 1;
+        maximum >>= 1;
+    }
+    return vec3(x, y, z);
 }
 
 /* Unit-length cross product. Only call this where the length actually

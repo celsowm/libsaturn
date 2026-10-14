@@ -304,7 +304,46 @@ TEST(core_helpers_isqrt_triangle_fx16_fourcc) {
     ASSERT_EQ(SAT_MIN(2, 3), 2);
 }
 
+/* The reference is the previous 64-bit per-bit scaling, including signed
+ * rounding. Exercise narrow and wide cross products and zero degeneracy. */
+TEST(vec3_cross_scaled_matches_wide_reference) {
+    uint32_t random = 0x61c8591u;
+    auto check = [](sat_vec3_t a, sat_vec3_t b) {
+        int64_t x = (int64_t)a.y*b.z - (int64_t)a.z*b.y;
+        int64_t y = (int64_t)a.z*b.x - (int64_t)a.x*b.z;
+        int64_t z = (int64_t)a.x*b.y - (int64_t)a.y*b.x;
+        auto magnitude = [](int64_t value) {return value < 0 ? -value : value;};
+        int64_t maximum = magnitude(x);
+        if(magnitude(y)>maximum)maximum=magnitude(y);
+        if(magnitude(z)>maximum)maximum=magnitude(z);
+        while(maximum > (1LL<<20)) {x>>=1;y>>=1;z>>=1;maximum>>=1;}
+        const auto actual=vec3_cross_scaled(a,b);
+        ASSERT_EQ(actual.x,x);ASSERT_EQ(actual.y,y);ASSERT_EQ(actual.z,z);
+    };
+    for(unsigned i=0;i<100000;++i) {
+        sat_vec3_t a,b;
+        int32_t* values[]={&a.x,&a.y,&a.z,&b.x,&b.y,&b.z};
+        const unsigned bits=1+i%29;
+        const uint32_t mask=(1u<<bits)-1;
+        for(auto value:values) {
+            random=random*1664525u+1013904223u;
+            *value=(int32_t)(random&mask)-(int32_t)(1u<<(bits-1));
+        }
+        check(a,b);
+    }
+    for(unsigned bit=0;bit<30;++bit)for(int residue=-1;residue<=1;++residue) {
+        int32_t value=(1<<bit)+residue;
+        check({0,value,0},{0,0,1});
+        check({0,-value,0},{0,0,1});
+        check({1,value,-value},{value,-1,1});
+    }
+    check({0,0,0},{0,0,0});
+    check({INT32_MAX,0,0},{0,INT32_MAX,0});
+    check({INT32_MIN,0,0},{0,INT32_MIN,0});
+}
+
 int main() {
+    vec3_cross_scaled_matches_wide_reference();
     fx_mul_and_div_roundtrip();
     fx_sqrt_exact();
     fx_sqrt_is_floor_root();
@@ -328,6 +367,6 @@ int main() {
     fx16_abs_negates_only_negative_values();
     core_helpers_isqrt_triangle_fx16_fourcc();
 
-    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 22);
+    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 23);
     return 0;
 }

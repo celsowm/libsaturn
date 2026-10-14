@@ -1324,6 +1324,17 @@ Prioritize correctness and actual Saturn hardware behavior, then memory efficien
 
 # Progress log
 
+- 2026-10-14, parallel Killer Clown lighting: exact 64-to-32-bit normal
+  scaling retains integer results and the arena uses two joined range tasks
+  for normals and Gouraud. Lighting falls to 38.3-38.4 ms, increasing matched
+  throughput to 8.50-8.54 submissions/s, a 31-33% gain over paired geometry
+  with serial lighting. The full combined gate verifies 214 lighting updates
+  and 222 geometry pairs, with no mismatch, panic, overlap, draw error,
+  timeout or audio failure. The full host/tool suite, focused cubes and
+  stock-RAM Mednafen verification disc boot pass. The 30-image/s and physical
+  acceptance targets remain open. See the
+  [parallel lighting report](KILLER_CLOWN_PERFORMANCE.md#parallel-lighting-and-narrow-normal-arithmetic).
+
 - 2026-10-14, paired Killer Clown geometry: the existing Slave adapter prepares
   one fighter concurrently with Master, retaining source order and immutable
   Gouraud inputs. Companion buffers use 63.281 KiB WRAM-L. Matched geometry

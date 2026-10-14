@@ -5,12 +5,18 @@ param([Parameter(Mandatory=$true)][string]$Bios,
       [string[]]$Workloads=@('idle','walk','combat'),
       [switch]$SkipNoRecord,
       [ValidateSet('Parallel','Serial','Verify')]
-      [string]$GeometryMode='Parallel')
+      [string]$GeometryMode='Parallel',
+      [ValidateSet('Parallel','Serial','Verify')]
+      [string]$LightingMode='Parallel')
 $ErrorActionPreference='Stop'
 if(-not $SkipNoRecord -and $Workloads -notcontains 'idle') {
     throw 'The no-record comparison requires an idle workload. Use -SkipNoRecord.'
 }
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$previousLighting=$env:CLOWN_PARALLEL_LIGHTING
+$previousLightVerify=$env:CLOWN_VERIFY_LIGHTING
+$env:CLOWN_PARALLEL_LIGHTING=if($LightingMode -eq 'Serial'){'0'}else{'1'}
+$env:CLOWN_VERIFY_LIGHTING=if($LightingMode -eq 'Verify'){'1'}else{'0'}
 $previousProfile=$env:CLOWN_PROFILE
 $previousGeometry=$env:CLOWN_PARALLEL_GEOMETRY
 $previousVerify=$env:CLOWN_VERIFY_GEOMETRY
@@ -62,6 +68,8 @@ try {
     if($LASTEXITCODE){throw 'Profile build restoration failed.'}
     }
 } finally {
+    $env:CLOWN_PARALLEL_LIGHTING=$previousLighting
+    $env:CLOWN_VERIFY_LIGHTING=$previousLightVerify
     $env:CLOWN_PROFILE=$previousProfile
     $env:CLOWN_PARALLEL_GEOMETRY=$previousGeometry
     $env:CLOWN_VERIFY_GEOMETRY=$previousVerify

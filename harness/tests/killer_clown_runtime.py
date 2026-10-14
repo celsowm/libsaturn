@@ -8,7 +8,7 @@ import wave
 from pathlib import Path
 from PIL import Image, ImageChops
 from character_plan import symbol, HIGH_BASE
-from clown_profile import geometry_metrics
+from clown_profile import geometry_metrics, lighting_metrics
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'tools'))
 from generate_combat_audio import effect, DURATIONS
 
@@ -18,6 +18,8 @@ def analyze(prefix,smoke=False):
     mapping = path('.map').read_text()
     high = path('_high.bin').read_bytes()
     geometry = geometry_metrics(mapping, high)
+    lighting_jobs = lighting_metrics(mapping, high)
+    assert lighting_jobs['updates'] > 20, lighting_jobs
     def words(name, count=1):
         return struct.unpack_from('>' + str(count) + 'I', high, symbol(mapping, name) - HIGH_BASE)
     panic = words('g_sat_last_panic', 3)
@@ -124,7 +126,7 @@ def analyze(prefix,smoke=False):
         distinct=len(hashes)
     result = {'panic': list(panic), 'metrics': metrics, 'distinct_fence_images':distinct,
               'lut4_gouraud_commands': shaded, 'cutout_fence_commands':cutout, 'audio':audio,
-              'lighting':lighting,'geometry_execution':geometry,'blended_floor_pools':pools,'additive_beam_commands':beams,
+              'lighting':lighting,'geometry_execution':geometry,'lighting_execution':lighting_jobs,'blended_floor_pools':pools,'additive_beam_commands':beams,
               'fighter_gouraud_red_peak':red_peak,'fighter_gouraud_blue_peak':blue_peak,
               'sound_ram_samples':sample_addresses,'captured_audio_peak':peak,
               'driver_executed_events':executed}

@@ -2,7 +2,9 @@
 /* Each normalized component is bounded to +/-1024 before division. A
  * reciprocal estimate followed by one remainder correction gives exactly
  * the C integer quotient, without three software divides per vector.
- * Lighting runs on Master; the lazily built table is not a worker API. */
+ * Master primes the table while aiming the lights, before any shading range.
+ * Workers may read the immutable table only after that initialization and
+ * cache publication; concurrent first-use initialization is unsupported. */
 enum { NORMAL_RECIP_CAPACITY=CLOWN_NORMAL_LIMIT*2 };
 static uint32_t normal_reciprocals[NORMAL_RECIP_CAPACITY] __attribute__((section(".wram_l")));
 static unsigned normal_reciprocals_ready;

@@ -267,3 +267,105 @@ Satiator acceptance and runtime stack high-water measurements remain open.
 The restored default build also passes Mednafen disc boot and punch/kick input
 without a RAM cartridge. The inspected final capture is
 `harness/build/clown_geometry_mednafen.png`.
+
+## Parallel lighting and narrow normal arithmetic
+
+The shared cross-product scaler now shifts 64-bit components only until the
+maximum magnitude fits `INT32_MAX`. It then performs the remaining per-bit
+shifts on 32-bit components. This keeps the previous shift count and signed
+rounding exactly: after each shift, a negative component's magnitude can be
+at most `m+1`, which still fits `int32_t` when `m <= INT32_MAX`. The 20-bit
+final scaling limit is unchanged. Host tests compare 100,000 vector pairs,
+power-of-two boundaries, degenerate inputs and extreme axis-aligned products
+against the preceding wide-shift implementation.
+
+An isolated serial-lighting run with this arithmetic change measures 23.799 ms
+normal accumulation, compared with 25.114 ms in the preceding idle profile.
+Its 6.497 submissions/s are a modest improvement over 6.407; the larger
+optimization below comes from overlapping independent work.
+
+The arena uses two synchronous `sat_parallel_for` ranges: first both actors'
+normal accumulation, then both actors' per-vertex spotlight/Gouraud evaluation.
+Each range gives Master one actor and Slave the other, and joins before the
+next phase. Existing skin jobs are already released; geometry dispatch begins
+only after lighting has joined. No worker writes graphics registers or scene
+commands. Source poses, lights and camera remain immutable during the ranges.
+The range adapter purges Slave's input cache and consumes the second actor's
+bounded output span on Master. Each actor owns its normal, Gouraud and light
+counter storage. Global telemetry is combined only after completion.
+
+Master aims both nondegenerate spotlights before dispatch. This also primes
+the existing reciprocal table; workers read it only after initialization and
+cache publication. Concurrent first-use table initialization remains
+unsupported. Ambient mode bypasses both ranges. Disabling the parallel option
+or running without Slave uses the same functions serially.
+
+`PROFILE_NORMALS` still measures elapsed wall time within `PROFILE_LIGHTS`,
+now including both normal ranges' preparation/join rather than two sequential
+calls. It is not a sum of CPU time across the processors. The wire format
+and existing 60 Hz combat rules remain unchanged.
+
+The optional `CLOWN_VERIFY_LIGHTING=1` build preserves the second actor's
+actual output after joining, recomputes the same pose on Master, and compares
+all normal vectors, Gouraud words, visibility/strength counters and status
+bytes. Its 4,248-byte reference buffer lives in WRAM-L. The runtime analyzer
+requires every enabled verification update to match and rejects errors.
+
+The three 1,000-field NTSC workloads retain the preceding paired-geometry
+input scripts. Results are under `harness/build/clown_parallel_lighting_*`;
+the comparison uses `harness/build/clown_geometry_parallel_*` as baseline.
+The walk and combat probes run independently against the same immutable disc
+and application. Emulated guest-clock measurements are independent of host
+wall time and are not host emulator FPS.
+
+| Workload | Before / after lighting ms | Before / after loop ms | Before / after submissions/s |
+| --- | ---: | ---: | ---: |
+| Idle input | 73.813 / 38.273 | 152.073 / 116.496 | 6.407 / 8.499 |
+| Walk input | 72.635 / 38.378 | 151.220 / 116.652 | 6.476 / 8.542 |
+| Combat input | 73.851 / 38.444 | 151.662 / 116.586 | 6.486 / 8.499 |
+
+Lighting medians fall 47.16-48.15%; sustained submissions increase 31.04-32.65%.
+Normal-stage elapsed time falls from about 25.1 to 12.1 ms. This combines
+narrow arithmetic with overlapping the two actors; it does not halve the
+number of normals computed. Actual displayed-image FPS and the 30-image/s
+acceptance target remain open.
+
+The old measured timer calibration is 210,600 Hz and the new one 210,540 Hz.
+The difference is exactly one FRT count per NTSC field, or 0.0285%. Each
+report converts ticks with its own calibration. The comparison now requires
+calibrations to be multiples of 60 and differ by at most one such count;
+it records both frequencies and rejects larger differences. This bounded
+quantization difference is far smaller than the measured lighting reduction.
+Input bytes must still match exactly.
+
+The full host/tool suite and 360-field cube gate pass. The cube gate completes
+355 loops with three reference faces, three Gouraud faces, one additive pool,
+zero errors and identical paused images. The default arena map ends WRAM-H
+BSS at `0x060fb218`, leaving 3,560 bytes beyond the reserved 16 KiB Master
+stack; WRAM-L remains 324,732 bytes. The combined verification build ends
+BSS at `0x060fb4c8` and WRAM-L at `0x00250514`, including the 4,248-byte
+reference. These are linker budgets, not measured stack high-water marks.
+
+The combined 2,300-field verification gate passes 214 full-light updates and
+222 geometry pairs with zero mismatches. Ambient updates intentionally skip
+the lighting comparison. Menus, all fence modes, paused-image equivalence and
+both controls pass. There are zero panics, body overlaps, draw errors, VDP1
+timeouts or audio queue failures. All 76 sound events execute on the 68000,
+with maximum lateness zero ticks and peak 6,773/32,767. Its 38 late swaps
+preserve previous images. The 222 submitted loops include both serial
+recomputations and are excluded from normal-build throughput claims.
+See `harness/build/killer_clown_fight_analysis.json` and
+`harness/build/clown_parallel_lighting_verify_fight.log`.
+
+Serial-only and default builds pass CMOK/IP/disc checks. The combined
+verification binary boots from disc in Mednafen without a RAM cartridge,
+accepts punch/kick input and completes a CPU round without a fatal.
+Its inspected capture is
+`harness/build/clown_parallel_lighting_verify_mednafen.png`. The final build
+restores parallel lighting/geometry and disables both expensive comparisons.
+Physical hardware acceptance, true presentation counting, dirty-state reuse
+and further geometry/lighting costs remain open.
+
+The restored default disc also boots and accepts punch/kick input in Mednafen
+without a RAM cartridge. Its inspected capture is
+`harness/build/clown_parallel_lighting_mednafen.png`.

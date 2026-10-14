@@ -1,6 +1,6 @@
 # Killer Clown performance and presentation plan
 
-Status: profiling, exact lighting arithmetic and paired geometry implemented,
+Status: profiling, exact lighting arithmetic, paired geometry and parallel lighting implemented,
 2026-10-14. This document tracks the implementation sequence; remaining
 performance, visual and hardware acceptance targets are still open.
 It extends the remaining performance work in
@@ -93,8 +93,11 @@ shared visibility work reduce lighting medians by 8.36–9.04%, with full-light
 throughput improving from 5.67–5.74 to 5.97–6.04 submissions/s. Ambient-only
 lighting now bypasses normals/spot evaluation and takes 0.128 ms median.
 The failed variable-shift face-normal experiment was removed after measurement.
-Dirty-state reuse, finer normalization/spotlight profiling and optional
-transformed rest normals remain open. See the
+A subsequent exact 64-to-32-bit face-normal shift reduction and two joined
+lighting ranges lower lighting medians to 38.3-38.4 ms and raise sustained
+throughput to 8.50-8.54 submissions/s. The normal phase now measures elapsed
+parallel work, about 12.1 ms. Dirty-state reuse, finer normalization/spotlight
+profiling and optional transformed rest normals remain open. See the
 [follow-up measurements](KILLER_CLOWN_PERFORMANCE.md#exact-lighting-arithmetic-follow-up).
 
 ## 3. Use the existing dual-SH-2 geometry adapter

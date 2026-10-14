@@ -272,6 +272,35 @@ the reserved 16 KiB Master stack in WRAM-H.
 The profiler restores the previous environment variables after each run.
 Use the ordinary build script afterward to restore the default binary.
 
+## Lighting preparation modes
+
+`CLOWN_PARALLEL_LIGHTING=1` uses the existing range adapter to calculate one
+actor per SH-2. Normal accumulation and per-vertex shading have separate
+joined ranges; skin jobs finish first and geometry follows both joins.
+Workers read fixed pose/camera/light inputs and write only their actor's
+normal, Gouraud and counter output. Master combines the counters afterward.
+The reciprocal normalization table is initialized on Master by aiming the
+lights before any shading range. Concurrent first-use initialization is
+unsupported. No worker draws or accesses graphics registers.
+
+Matched idle/walk/combat profiles now measure 38.3-38.4 ms lighting and
+8.50-8.54 submitted loops/s, a 31-33% throughput gain over paired geometry
+with serial lighting. Meshes, texture pixels and lighting equations are
+unchanged. This is submission throughput, not unique displayed-image FPS.
+See the [parallel lighting report](../../docs/KILLER_CLOWN_PERFORMANCE.md#parallel-lighting-and-narrow-normal-arithmetic)
+for stage timings, calibration quantization and remaining targets.
+
+`CLOWN_PARALLEL_LIGHTING=0` forces serial lighting.
+`CLOWN_VERIFY_LIGHTING=1` compares the second actor's actual output against
+serial recomputation on every full-light update. The verification buffer
+uses 4,248 bytes WRAM-L and the repeated work is excluded from speed claims.
+The profiler accepts an independent `-LightingMode Parallel`, `Serial` or
+`Verify` option and restores the previous environment afterward. For example:
+
+```powershell
+.\harness\run-clown-profile.ps1 -Bios bios/saturn_bios_us.bin -LightingMode Verify -Workloads combat -OutPrefix harness/build/clown_lighting_verify -SkipNoRecord
+```
+
 ## Source provenance
 
 The source was supplied locally as `Downloads/killer_clown.glb`. Its SHA-256 is
