@@ -448,6 +448,83 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     return SAT_OK;
 }
 
+sat_result_t push_sprite_batch(const sat_sprite_frame_t* frames, uint32_t frame_count,
+                               const sat_sprite_instance_t* instances, uint32_t count,
+                               uint32_t options, sat_sprite_batch_stats_t* stats) {
+    if (g_cmd_buffer == nullptr) {
+        return SAT_ERR_NOT_INITIALIZED;
+    }
+    if (count != 0u && (frames == nullptr || instances == nullptr)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    sat_sprite_batch_stats_t local{};
+    const int32_t screen_w = g_width;
+    const int32_t screen_h = g_height;
+    const int32_t origin_x = screen_w / 2;
+    const int32_t origin_y = screen_h / 2;
+    /* command_slot_unavailable() as a single limit: the END slot and the
+     * overlay quota stay free. */
+    const uint32_t reserve = g_overlay_pass ? 0u : g_overlay_reserved;
+    const uint32_t limit = g_cmd_capacity > 1u + reserve ? g_cmd_capacity - 1u - reserve : 0u;
+    const bool cull = (options & SAT_SPRITE_BATCH_NO_CULL) == 0u;
+    const bool preclip_off_allowed = (options & SAT_SPRITE_BATCH_KEEP_PRECLIP) == 0u;
+    uint32_t used = g_cmd_count;
+
+    for (uint32_t i = 0; i < count; ++i) {
+        const sat_sprite_instance_t& in = instances[i];
+        if (in.frame >= frame_count) {
+            ++local.invalid;
+            continue;
+        }
+        const sat_sprite_frame_t& f = frames[in.frame];
+        const int32_t left = static_cast<int32_t>(in.x) - f.pivot_x;
+        const int32_t top = static_cast<int32_t>(in.y) - f.pivot_y;
+        const int32_t right = left + static_cast<int32_t>(f.width) - 1;
+        const int32_t bottom = top + static_cast<int32_t>(f.height) - 1;
+        const bool inside = left >= 0 && top >= 0 && right < screen_w && bottom < screen_h;
+        if (cull && !inside &&
+            (right < 0 || bottom < 0 || left >= screen_w || top >= screen_h)) {
+            ++local.culled;
+            continue;
+        }
+        if (used >= limit) {
+            ++local.dropped;
+            continue;
+        }
+
+        const bool hflip = (f.ctrl & 0x0010u) != 0u;
+        const bool no_preclip = inside && preclip_off_allowed && !hflip;
+        const int16_t xa = static_cast<int16_t>(left - origin_x);
+        const int16_t ya = static_cast<int16_t>(top - origin_y);
+        const int16_t xr = static_cast<int16_t>(xa + static_cast<int32_t>(f.width));
+        const int16_t yb = static_cast<int16_t>(ya + static_cast<int32_t>(f.height));
+        Command& cmd = g_cmd_buffer[used++];
+        cmd.ctrl = f.ctrl;
+        cmd.link = 0;
+        cmd.pmod = no_preclip ? static_cast<uint16_t>(f.pmod | saturn::core::kVdp1PmodPreclipOff)
+                              : f.pmod;
+        cmd.colr = f.colr;
+        cmd.srca = f.srca;
+        cmd.size = f.size;
+        cmd.xa = xa;
+        cmd.ya = ya;
+        cmd.xb = xr;
+        cmd.yb = ya;
+        cmd.xc = xr;
+        cmd.yc = yb;
+        cmd.xd = xa;
+        cmd.yd = yb;
+        cmd.grda = 0;
+        cmd.pad = 0;
+        ++local.submitted;
+        if (no_preclip) ++local.no_preclip;
+    }
+    g_cmd_count = static_cast<decltype(g_cmd_count)>(used);
+    if (stats != nullptr) *stats = local;
+    if (local.dropped != 0u) return SAT_ERR_CAPACITY;
+    return local.invalid != 0u ? SAT_ERR_INVALID_ARG : SAT_OK;
+}
+
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;

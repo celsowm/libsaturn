@@ -55,6 +55,7 @@
 #include "saturn/scene.h"
 #include "saturn/view_cache.h"
 #include "saturn/sprite_anim.h"
+#include "saturn/sprite_batch.h"
 #include "saturn/sprite_clip.h"
 #include "saturn/vdp2_environment.h"
 #include "saturn/fmt.h"

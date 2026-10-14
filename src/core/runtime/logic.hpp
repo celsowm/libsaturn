@@ -404,6 +404,11 @@ inline uint16_t gouraud_table_grda(uint32_t area_base_bytes, uint16_t index) {
  * bit 6 (transparent-pixel disable) is set only for SAT_SPRITE_FLAG_OPAQUE. */
 constexpr uint16_t kVdp1SpritePmodBase = 0x00A0u;
 
+/* CMDPMOD bit 11, Pclp (VDP1 manual p06_32): 1 = no pre-clipping and no
+ * horizontal flip. Worth it for small sprites wholly inside the system clip,
+ * where the per-line detection (up to 5 clocks per line) finds nothing. */
+constexpr uint16_t kVdp1PmodPreclipOff = 0x0800u;
+
 /* Composes CMDPMOD for a scaled/distorted sprite. bit 6 = opaque flag,
  * mirrored from SAT_SPRITE_FLAG_OPAQUE, forcing every texel to be drawn. */
 /* LUT4 keeps end codes disabled (a 0xF nibble would otherwise end the line)

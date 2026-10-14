@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "saturn/core.h"
+#include "saturn/sprite_batch.h"
 #include "saturn/vdp1.h"
 
 namespace saturn::hal::vdp1 {
@@ -102,6 +103,12 @@ void command_stats(uint16_t& used, uint16_t& capacity,
 sat_result_t begin_overlay_pass();
 sat_result_t push_user_clip(const UserClipRequest& req);
 sat_result_t push_sprite(const SpriteRequest& req);
+/* Bulk push of prepared frames (saturn/sprite_batch.h): one pass, no
+ * per-sprite validation. Same command words as push_sprite, plus the
+ * pre-clipping disable bit for sprites wholly on screen. */
+sat_result_t push_sprite_batch(const sat_sprite_frame_t* frames, uint32_t frame_count,
+                               const sat_sprite_instance_t* instances, uint32_t count,
+                               uint32_t options, sat_sprite_batch_stats_t* stats);
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req);
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req);
 sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req, const uint16_t* gouraud);
