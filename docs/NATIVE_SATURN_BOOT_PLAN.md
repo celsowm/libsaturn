@@ -19,7 +19,7 @@ Non-goals:
 
 ## 2. Established observations and uncertainties
 
-1. A user reports that an early Dino Demo image ran on Satiator. **The precise working ZIP, IP.BIN, executable, build commit and device firmware have not yet been independently matched.** Treat this as a lead, not a certified passing baseline. Preserve any recovered `dino_demo_v0.5.zip` byte-for-byte and record its SHA-256.
+1. The author's public [Dino Demo itch.io release](https://celsowm.itch.io/dino-demo-saturn-version) lists **`dino_demo_v0.2.zip` (703 kB), `dino_demo_v0.3.zip` (2.4 MB), and `dino_demo_v0.4.zip` (2.4 MB)**. The author reports that the VC Decide tester used the **published v0.4 ZIP**. A [public r/SegaSaturn thread dated October 13, 2026](https://www.reddit.com/r/SegaSaturn/comments/1x4edil/dino_demo_saturn_version_04/) independently contains a user report that **v0.2, v0.3, and v0.4 all failed on SAROO**, plus a separate failure report on Satiator (the exact Satiator artifact is not established). These are reported physical outcomes, **not** independently captured logs or proof that all firmware revisions fail. Preserve the three original release ZIPs and their hashes, not just a reconstructed build. A separate account says an early Dino image once booted on Satiator, but **its exact image and the hardware pass remain unverified**; do not label any `v0.5` artifact as known good without evidence.
 2. The user already replaced the original fixed `0x900` (2304-iteration) `HIRQ.CMOK` poll in the default YAUL template with an unbounded CMOK wait. **That change did not fix the physical boot failure.** Do not propose "wait for CMOK" again as if it were untried.
 3. `assets/boot/ip_sbl_template.bin` still contains the bounded CD-command wait. `assets/boot/ip_yaul_template.bin` contains the subsequent unconditional wait. Both rely on inherited region/boot code; neither is an independent native boot implementation.
 4. `examples/dino_demo/main.c` first displays the progress bar *after* `sat_init()`. A frozen licensed screen does **not** prove that the progress bar itself executed, nor prove that application execution never started.
@@ -77,7 +77,7 @@ The native AIP should normally perform only the proven-required entry setup and 
 
 Tasks:
 - Capture the tested Satiator/SAROO console revision, region, BIOS revision, ODE firmware/menu versions, SD card format, cold/warm start and exact observed screen. Record whether the licensed text animates or video timing continues.
-- Obtain the earliest reportedly working `dino_demo_v0.5.zip`, if available; archive its SHA-256, original CUE/BIN/ISO, IP sector, directory records and first-read payload. Do not infer "known good" from a source commit alone.
+- Download or obtain the original public itch.io `dino_demo_v0.2.zip`, `dino_demo_v0.3.zip`, and **VC Decide-tested** `dino_demo_v0.4.zip`; archive SHA-256, original CUE/BIN/ISO, IP sector, directory records and first-read payload for **each**. The itch.io landing page lists the archives but the download requires going through the download flow; do not substitute a reconstructed ZIP without stating so. Request any claimed Satiator-working early image separately, without guessing its version. Do not infer "known good" from a source commit alone.
 - Produce new **byte-identifiable** current outputs from a pinned commit. Save `.elf`, `.map`, `.app.bin`, `.IP.BIN`, `.iso`, `.bin`, `.cue`, compiler versions and SHA-256 manifests.
 - Preserve and invoke `harness/build-dino-satiator-triage.ps1` and the findings in `docs/DINO_SATIATOR_BOOT_INVESTIGATION.md`. Keep existing `with_bar`, `without_bar`, `cmok_wait` and `legacy_poll` artifacts traceable; an image name is not evidence of different behavior.
 - Record all bootstrap bytes changed between the oldest recovered physical pass and a current failure, not only source-level diffs.
@@ -132,7 +132,7 @@ Construct immutable, hash-labeled test artifacts with one variable changed at a 
 
 | Set | Variables | Interpretation |
 | --- | --- | --- |
-| A | Recovered historically working binary versus contemporary binary, with exact original IP kept | Establish whether the report reproduces; do not silently replace its original IP |
+| A | Original itch.io v0.2, v0.3, and VC Decide-tested v0.4 binary images versus the contemporary build (preserve each original IP) | Reproduce the *reported failures* and establish exactly what these releases contain; none is assumed known-good. Compare separately against any independently obtained, proven working early Satiator image |
 | B | Same minimal `0.BIN`, YAUL vs SBL vs native IP | Isolate pre-application boot behavior |
 | C | Same IP, minimal no-video `0.BIN` -> first marker -> hello-world video | Separate handoff, crt0, sat_init and display |
 | D | Same native IP, early Dino source vs current source | Narrow runtime changes |
@@ -156,6 +156,9 @@ Record for each result:
 - For the Dino: progress bar off/on comparison, animation, sound/music initialization and a five-minute stability run.
 - Whether failures occur before or after `0x06004000`. Where precise PC is not available, report visual observations without inferring the PC.
 - SAROO cartridge mode may conflict with programs needing a physical 4 MB expansion cartridge (e.g. `city_walk`); classify such results separately from basic boot compatibility.
+- Perform a SAROO-only differential: run a known minimal `.app.bin` through the documented `/SAROO/BIN/` direct-binary launcher and compare it to the **same application payload** inside a normal `/SAROO/ISO/` disc. The direct loader skips the normal ISO/IP handoff and is a diagnostic, **not** a drop-in equivalent to Saturn BIOS state.
+- For ISO mode, inspect [`Firm_Saturn/game_load.c`](https://github.com/tpunix/SAROO/blob/master/Firm_Saturn/game_load.c) (`bios_cd_cmd`, `cdc_read_file(0, 2, 0)`, `read_1st`) and MCU [`Firm_MCU/Saturn/saturn_cdc.c`](https://github.com/tpunix/SAROO/blob/master/Firm_MCU/Saturn/saturn_cdc.c) (CD commands/CMOK). Log failures before any binary handoff and avoid treating SAROO's BIOS hooks as identical to Satiator's.
+- Verify the tested SAROO firmware/menu revision with VC Decide rather than claiming all firmware revisions were tested from a generalized recollection. Test `.cue`/raw BIN and `.iso` packaging explicitly, and treat `play_delay` / `pend_delay` / `sector_delay` configuration as controlled hypotheses, never presumed cures.
 
 Minimum promotion criteria:
 - **10 consecutive cold boots on one Satiator-equipped Saturn and one SAROO-equipped Saturn** with the *same native boot artifact*, plus a soft reset and five-minute Dino stability run on each.
@@ -222,6 +225,7 @@ External references to inspect and cite during implementation:
 - Sega Saturn *Disc Format Standards* and *System Program Library/boot* documentation (use authoritative scanned manuals, confirm version and offsets).
 - Sega Saturn *SCU User's Manual* (MMIO addresses, interrupt mask/status), plus the SH-2 hardware manual.
 - [Satiator official software/firmware notes](https://wiki.satiator.net/start#software_updates) and [official menu](https://github.com/satiator/satiator-menu).
+- [Public Dino Demo itch.io release and its v0.2/v0.3/v0.4 archive listing](https://celsowm.itch.io/dino-demo-saturn-version); [physical failure reports for these versions](https://www.reddit.com/r/SegaSaturn/comments/1x4edil/dino_demo_saturn_version_04/).
 - [SAROO project](https://github.com/tpunix/SAROO).
 - [Ymir](https://github.com/StrikerX3/Ymir) and [Mednafen](https://mednafen.github.io/).
 
