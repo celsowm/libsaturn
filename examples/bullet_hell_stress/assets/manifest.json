@@ -1,0 +1,1897 @@
+{
+ "license_notice": "Original/procedural artwork; not extracted from any arcade game.",
+ "package": "shmup_saturn_assets_v4_COMPLETO",
+ "palette": "palette_bgr555_be.bin",
+ "schema": 1,
+ "sprite_records": {
+  "boss_core_blue": {
+   "category": "bosses",
+   "collision_suggested_radius": 24,
+   "h": 120,
+   "pivot": {
+    "x": 68,
+    "y": 60
+   },
+   "rgba": "sprites_rgba/bosses/boss_core_blue.png",
+   "vdp1_index8": "vdp1/index8/boss_core_blue.bin",
+   "w": 136
+  },
+  "boss_core_green": {
+   "category": "bosses",
+   "collision_suggested_radius": 24,
+   "h": 120,
+   "pivot": {
+    "x": 68,
+    "y": 60
+   },
+   "rgba": "sprites_rgba/bosses/boss_core_green.png",
+   "vdp1_index8": "vdp1/index8/boss_core_green.bin",
+   "w": 136
+  },
+  "boss_core_red": {
+   "category": "bosses",
+   "collision_suggested_radius": 24,
+   "h": 120,
+   "pivot": {
+    "x": 68,
+    "y": 60
+   },
+   "rgba": "sprites_rgba/bosses/boss_core_red.png",
+   "vdp1_index8": "vdp1/index8/boss_core_red.bin",
+   "w": 136
+  },
+  "boss_core_violet": {
+   "category": "bosses",
+   "collision_suggested_radius": 24,
+   "h": 120,
+   "pivot": {
+    "x": 68,
+    "y": 60
+   },
+   "rgba": "sprites_rgba/bosses/boss_core_violet.png",
+   "vdp1_index8": "vdp1/index8/boss_core_violet.bin",
+   "w": 136
+  },
+  "bullet_diamond_blue": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_diamond_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_diamond_blue.png",
+   "vdp1_index8": "vdp1/index8/bullet_diamond_blue.bin",
+   "w": 24
+  },
+  "bullet_diamond_green": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_diamond_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_diamond_green.png",
+   "vdp1_index8": "vdp1/index8/bullet_diamond_green.bin",
+   "w": 24
+  },
+  "bullet_diamond_orange": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_diamond_orange.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_diamond_orange.png",
+   "vdp1_index8": "vdp1/index8/bullet_diamond_orange.bin",
+   "w": 24
+  },
+  "bullet_diamond_pink": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_diamond_pink.bin",
+   "lut4_palette": "vdp1/lut4/pink_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_diamond_pink.png",
+   "vdp1_index8": "vdp1/index8/bullet_diamond_pink.bin",
+   "w": 24
+  },
+  "bullet_diamond_red": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_diamond_red.bin",
+   "lut4_palette": "vdp1/lut4/red_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_diamond_red.png",
+   "vdp1_index8": "vdp1/index8/bullet_diamond_red.bin",
+   "w": 24
+  },
+  "bullet_diamond_violet": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_diamond_violet.bin",
+   "lut4_palette": "vdp1/lut4/violet_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_diamond_violet.png",
+   "vdp1_index8": "vdp1/index8/bullet_diamond_violet.bin",
+   "w": 24
+  },
+  "bullet_needle_blue": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_needle_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_needle_blue.png",
+   "vdp1_index8": "vdp1/index8/bullet_needle_blue.bin",
+   "w": 16
+  },
+  "bullet_needle_green": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_needle_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_needle_green.png",
+   "vdp1_index8": "vdp1/index8/bullet_needle_green.bin",
+   "w": 16
+  },
+  "bullet_needle_orange": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_needle_orange.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_needle_orange.png",
+   "vdp1_index8": "vdp1/index8/bullet_needle_orange.bin",
+   "w": 16
+  },
+  "bullet_needle_pink": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_needle_pink.bin",
+   "lut4_palette": "vdp1/lut4/pink_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_needle_pink.png",
+   "vdp1_index8": "vdp1/index8/bullet_needle_pink.bin",
+   "w": 16
+  },
+  "bullet_needle_red": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_needle_red.bin",
+   "lut4_palette": "vdp1/lut4/red_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_needle_red.png",
+   "vdp1_index8": "vdp1/index8/bullet_needle_red.bin",
+   "w": 16
+  },
+  "bullet_needle_violet": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_needle_violet.bin",
+   "lut4_palette": "vdp1/lut4/violet_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_needle_violet.png",
+   "vdp1_index8": "vdp1/index8/bullet_needle_violet.bin",
+   "w": 16
+  },
+  "bullet_orb_blue": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_orb_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_orb_blue.png",
+   "vdp1_index8": "vdp1/index8/bullet_orb_blue.bin",
+   "w": 24
+  },
+  "bullet_orb_green": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_orb_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_orb_green.png",
+   "vdp1_index8": "vdp1/index8/bullet_orb_green.bin",
+   "w": 24
+  },
+  "bullet_orb_orange": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_orb_orange.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_orb_orange.png",
+   "vdp1_index8": "vdp1/index8/bullet_orb_orange.bin",
+   "w": 24
+  },
+  "bullet_orb_pink": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_orb_pink.bin",
+   "lut4_palette": "vdp1/lut4/pink_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_orb_pink.png",
+   "vdp1_index8": "vdp1/index8/bullet_orb_pink.bin",
+   "w": 24
+  },
+  "bullet_orb_red": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_orb_red.bin",
+   "lut4_palette": "vdp1/lut4/red_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_orb_red.png",
+   "vdp1_index8": "vdp1/index8/bullet_orb_red.bin",
+   "w": 24
+  },
+  "bullet_orb_violet": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_orb_violet.bin",
+   "lut4_palette": "vdp1/lut4/violet_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_orb_violet.png",
+   "vdp1_index8": "vdp1/index8/bullet_orb_violet.bin",
+   "w": 24
+  },
+  "bullet_ring_blue": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_ring_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_ring_blue.png",
+   "vdp1_index8": "vdp1/index8/bullet_ring_blue.bin",
+   "w": 24
+  },
+  "bullet_ring_green": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_ring_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_ring_green.png",
+   "vdp1_index8": "vdp1/index8/bullet_ring_green.bin",
+   "w": 24
+  },
+  "bullet_ring_orange": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_ring_orange.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_ring_orange.png",
+   "vdp1_index8": "vdp1/index8/bullet_ring_orange.bin",
+   "w": 24
+  },
+  "bullet_ring_pink": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_ring_pink.bin",
+   "lut4_palette": "vdp1/lut4/pink_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_ring_pink.png",
+   "vdp1_index8": "vdp1/index8/bullet_ring_pink.bin",
+   "w": 24
+  },
+  "bullet_ring_red": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_ring_red.bin",
+   "lut4_palette": "vdp1/lut4/red_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_ring_red.png",
+   "vdp1_index8": "vdp1/index8/bullet_ring_red.bin",
+   "w": 24
+  },
+  "bullet_ring_violet": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_ring_violet.bin",
+   "lut4_palette": "vdp1/lut4/violet_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_ring_violet.png",
+   "vdp1_index8": "vdp1/index8/bullet_ring_violet.bin",
+   "w": 24
+  },
+  "bullet_shard_blue": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_shard_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_shard_blue.png",
+   "vdp1_index8": "vdp1/index8/bullet_shard_blue.bin",
+   "w": 16
+  },
+  "bullet_shard_green": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_shard_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_shard_green.png",
+   "vdp1_index8": "vdp1/index8/bullet_shard_green.bin",
+   "w": 16
+  },
+  "bullet_shard_orange": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_shard_orange.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_shard_orange.png",
+   "vdp1_index8": "vdp1/index8/bullet_shard_orange.bin",
+   "w": 16
+  },
+  "bullet_shard_pink": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_shard_pink.bin",
+   "lut4_palette": "vdp1/lut4/pink_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_shard_pink.png",
+   "vdp1_index8": "vdp1/index8/bullet_shard_pink.bin",
+   "w": 16
+  },
+  "bullet_shard_red": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_shard_red.bin",
+   "lut4_palette": "vdp1/lut4/red_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_shard_red.png",
+   "vdp1_index8": "vdp1/index8/bullet_shard_red.bin",
+   "w": 16
+  },
+  "bullet_shard_violet": {
+   "category": "bullets",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_shard_violet.bin",
+   "lut4_palette": "vdp1/lut4/violet_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_shard_violet.png",
+   "vdp1_index8": "vdp1/index8/bullet_shard_violet.bin",
+   "w": 16
+  },
+  "bullet_star_blue": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_star_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_star_blue.png",
+   "vdp1_index8": "vdp1/index8/bullet_star_blue.bin",
+   "w": 24
+  },
+  "bullet_star_green": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_star_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_star_green.png",
+   "vdp1_index8": "vdp1/index8/bullet_star_green.bin",
+   "w": 24
+  },
+  "bullet_star_orange": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_star_orange.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_star_orange.png",
+   "vdp1_index8": "vdp1/index8/bullet_star_orange.bin",
+   "w": 24
+  },
+  "bullet_star_pink": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_star_pink.bin",
+   "lut4_palette": "vdp1/lut4/pink_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_star_pink.png",
+   "vdp1_index8": "vdp1/index8/bullet_star_pink.bin",
+   "w": 24
+  },
+  "bullet_star_red": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_star_red.bin",
+   "lut4_palette": "vdp1/lut4/red_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_star_red.png",
+   "vdp1_index8": "vdp1/index8/bullet_star_red.bin",
+   "w": 24
+  },
+  "bullet_star_violet": {
+   "category": "bullets",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/bullet_star_violet.bin",
+   "lut4_palette": "vdp1/lut4/violet_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/bullets/bullet_star_violet.png",
+   "vdp1_index8": "vdp1/index8/bullet_star_violet.bin",
+   "w": 24
+  },
+  "enemy_drone_blue": {
+   "category": "enemies",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 28,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/enemies/enemy_drone_blue.png",
+   "vdp1_index8": "vdp1/index8/enemy_drone_blue.bin",
+   "w": 56
+  },
+  "enemy_drone_green": {
+   "category": "enemies",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 28,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/enemies/enemy_drone_green.png",
+   "vdp1_index8": "vdp1/index8/enemy_drone_green.bin",
+   "w": 56
+  },
+  "enemy_drone_orange": {
+   "category": "enemies",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 28,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/enemies/enemy_drone_orange.png",
+   "vdp1_index8": "vdp1/index8/enemy_drone_orange.bin",
+   "w": 56
+  },
+  "enemy_drone_red": {
+   "category": "enemies",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 28,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/enemies/enemy_drone_red.png",
+   "vdp1_index8": "vdp1/index8/enemy_drone_red.bin",
+   "w": 56
+  },
+  "enemy_drone_violet": {
+   "category": "enemies",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 28,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/enemies/enemy_drone_violet.png",
+   "vdp1_index8": "vdp1/index8/enemy_drone_violet.bin",
+   "w": 56
+  },
+  "enemy_interceptor_blue": {
+   "category": "enemies",
+   "collision_suggested_radius": 9,
+   "h": 48,
+   "pivot": {
+    "x": 24,
+    "y": 24
+   },
+   "rgba": "sprites_rgba/enemies/enemy_interceptor_blue.png",
+   "vdp1_index8": "vdp1/index8/enemy_interceptor_blue.bin",
+   "w": 48
+  },
+  "enemy_interceptor_green": {
+   "category": "enemies",
+   "collision_suggested_radius": 9,
+   "h": 48,
+   "pivot": {
+    "x": 24,
+    "y": 24
+   },
+   "rgba": "sprites_rgba/enemies/enemy_interceptor_green.png",
+   "vdp1_index8": "vdp1/index8/enemy_interceptor_green.bin",
+   "w": 48
+  },
+  "enemy_interceptor_orange": {
+   "category": "enemies",
+   "collision_suggested_radius": 9,
+   "h": 48,
+   "pivot": {
+    "x": 24,
+    "y": 24
+   },
+   "rgba": "sprites_rgba/enemies/enemy_interceptor_orange.png",
+   "vdp1_index8": "vdp1/index8/enemy_interceptor_orange.bin",
+   "w": 48
+  },
+  "enemy_interceptor_red": {
+   "category": "enemies",
+   "collision_suggested_radius": 9,
+   "h": 48,
+   "pivot": {
+    "x": 24,
+    "y": 24
+   },
+   "rgba": "sprites_rgba/enemies/enemy_interceptor_red.png",
+   "vdp1_index8": "vdp1/index8/enemy_interceptor_red.bin",
+   "w": 48
+  },
+  "enemy_interceptor_violet": {
+   "category": "enemies",
+   "collision_suggested_radius": 9,
+   "h": 48,
+   "pivot": {
+    "x": 24,
+    "y": 24
+   },
+   "rgba": "sprites_rgba/enemies/enemy_interceptor_violet.png",
+   "vdp1_index8": "vdp1/index8/enemy_interceptor_violet.bin",
+   "w": 48
+  },
+  "enemy_turret_blue": {
+   "category": "enemies",
+   "collision_suggested_radius": 8,
+   "h": 48,
+   "pivot": {
+    "x": 20,
+    "y": 24
+   },
+   "rgba": "sprites_rgba/enemies/enemy_turret_blue.png",
+   "vdp1_index8": "vdp1/index8/enemy_turret_blue.bin",
+   "w": 40
+  },
+  "enemy_turret_green": {
+   "category": "enemies",
+   "collision_suggested_radius": 8,
+   "h": 48,
+   "pivot": {
+    "x": 20,
+    "y": 24
+   },
+   "rgba": "sprites_rgba/enemies/enemy_turret_green.png",
+   "vdp1_index8": "vdp1/index8/enemy_turret_green.bin",
+   "w": 40
+  },
+  "enemy_turret_orange": {
+   "category": "enemies",
+   "collision_suggested_radius": 8,
+   "h": 48,
+   "pivot": {
+    "x": 20,
+    "y": 24
+   },
+   "rgba": "sprites_rgba/enemies/enemy_turret_orange.png",
+   "vdp1_index8": "vdp1/index8/enemy_turret_orange.bin",
+   "w": 40
+  },
+  "enemy_turret_red": {
+   "category": "enemies",
+   "collision_suggested_radius": 8,
+   "h": 48,
+   "pivot": {
+    "x": 20,
+    "y": 24
+   },
+   "rgba": "sprites_rgba/enemies/enemy_turret_red.png",
+   "vdp1_index8": "vdp1/index8/enemy_turret_red.bin",
+   "w": 40
+  },
+  "enemy_turret_violet": {
+   "category": "enemies",
+   "collision_suggested_radius": 8,
+   "h": 48,
+   "pivot": {
+    "x": 20,
+    "y": 24
+   },
+   "rgba": "sprites_rgba/enemies/enemy_turret_violet.png",
+   "vdp1_index8": "vdp1/index8/enemy_turret_violet.bin",
+   "w": 40
+  },
+  "explosion_00": {
+   "category": "explosions",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/explosion_00.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/explosions/explosion_00.png",
+   "vdp1_index8": "vdp1/index8/explosion_00.bin",
+   "w": 24
+  },
+  "explosion_01": {
+   "category": "explosions",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/explosion_01.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/explosions/explosion_01.png",
+   "vdp1_index8": "vdp1/index8/explosion_01.bin",
+   "w": 24
+  },
+  "explosion_02": {
+   "category": "explosions",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/explosion_02.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/explosions/explosion_02.png",
+   "vdp1_index8": "vdp1/index8/explosion_02.bin",
+   "w": 24
+  },
+  "explosion_03": {
+   "category": "explosions",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/explosion_03.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/explosions/explosion_03.png",
+   "vdp1_index8": "vdp1/index8/explosion_03.bin",
+   "w": 32
+  },
+  "explosion_04": {
+   "category": "explosions",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/explosion_04.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/explosions/explosion_04.png",
+   "vdp1_index8": "vdp1/index8/explosion_04.bin",
+   "w": 32
+  },
+  "explosion_05": {
+   "category": "explosions",
+   "collision_suggested_radius": 8,
+   "h": 40,
+   "lut4_data": "vdp1/lut4/explosion_05.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 20,
+    "y": 20
+   },
+   "rgba": "sprites_rgba/explosions/explosion_05.png",
+   "vdp1_index8": "vdp1/index8/explosion_05.bin",
+   "w": 40
+  },
+  "explosion_06": {
+   "category": "explosions",
+   "collision_suggested_radius": 8,
+   "h": 40,
+   "lut4_data": "vdp1/lut4/explosion_06.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 20,
+    "y": 20
+   },
+   "rgba": "sprites_rgba/explosions/explosion_06.png",
+   "vdp1_index8": "vdp1/index8/explosion_06.bin",
+   "w": 40
+  },
+  "explosion_07": {
+   "category": "explosions",
+   "collision_suggested_radius": 8,
+   "h": 40,
+   "lut4_data": "vdp1/lut4/explosion_07.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 20,
+    "y": 20
+   },
+   "rgba": "sprites_rgba/explosions/explosion_07.png",
+   "vdp1_index8": "vdp1/index8/explosion_07.bin",
+   "w": 40
+  },
+  "hud_bar_bomb": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 20,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_bar_bomb.png",
+   "vdp1_index8": "vdp1/index8/hud_bar_bomb.bin",
+   "w": 40
+  },
+  "hud_bar_life": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 20,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_bar_life.png",
+   "vdp1_index8": "vdp1/index8/hud_bar_life.bin",
+   "w": 40
+  },
+  "hud_bar_power": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 20,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_bar_power.png",
+   "vdp1_index8": "vdp1/index8/hud_bar_power.bin",
+   "w": 40
+  },
+  "hud_glyph_0": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_0.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_0.bin",
+   "w": 16
+  },
+  "hud_glyph_1": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_1.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_1.bin",
+   "w": 16
+  },
+  "hud_glyph_2": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_2.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_2.bin",
+   "w": 16
+  },
+  "hud_glyph_3": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_3.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_3.bin",
+   "w": 16
+  },
+  "hud_glyph_4": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_4.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_4.bin",
+   "w": 16
+  },
+  "hud_glyph_5": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_5.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_5.bin",
+   "w": 16
+  },
+  "hud_glyph_6": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_6.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_6.bin",
+   "w": 16
+  },
+  "hud_glyph_7": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_7.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_7.bin",
+   "w": 16
+  },
+  "hud_glyph_8": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_8.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_8.bin",
+   "w": 16
+  },
+  "hud_glyph_9": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_9.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_9.bin",
+   "w": 16
+  },
+  "hud_glyph_a": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_a.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_a.bin",
+   "w": 16
+  },
+  "hud_glyph_b": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_b.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_b.bin",
+   "w": 16
+  },
+  "hud_glyph_c": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_c.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_c.bin",
+   "w": 16
+  },
+  "hud_glyph_colon": {
+   "category": "hud",
+   "collision_suggested_radius": 1,
+   "h": 16,
+   "pivot": {
+    "x": 4,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_colon.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_colon.bin",
+   "w": 8
+  },
+  "hud_glyph_d": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_d.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_d.bin",
+   "w": 16
+  },
+  "hud_glyph_dot": {
+   "category": "hud",
+   "collision_suggested_radius": 1,
+   "h": 8,
+   "pivot": {
+    "x": 4,
+    "y": 4
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_dot.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_dot.bin",
+   "w": 8
+  },
+  "hud_glyph_e": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_e.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_e.bin",
+   "w": 16
+  },
+  "hud_glyph_f": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_f.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_f.bin",
+   "w": 16
+  },
+  "hud_glyph_g": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_g.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_g.bin",
+   "w": 16
+  },
+  "hud_glyph_h": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_h.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_h.bin",
+   "w": 16
+  },
+  "hud_glyph_i": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_i.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_i.bin",
+   "w": 16
+  },
+  "hud_glyph_j": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_j.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_j.bin",
+   "w": 16
+  },
+  "hud_glyph_k": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_k.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_k.bin",
+   "w": 16
+  },
+  "hud_glyph_l": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_l.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_l.bin",
+   "w": 16
+  },
+  "hud_glyph_m": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_m.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_m.bin",
+   "w": 16
+  },
+  "hud_glyph_minus": {
+   "category": "hud",
+   "collision_suggested_radius": 1,
+   "h": 8,
+   "pivot": {
+    "x": 8,
+    "y": 4
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_minus.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_minus.bin",
+   "w": 16
+  },
+  "hud_glyph_n": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_n.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_n.bin",
+   "w": 16
+  },
+  "hud_glyph_o": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_o.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_o.bin",
+   "w": 16
+  },
+  "hud_glyph_p": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_p.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_p.bin",
+   "w": 16
+  },
+  "hud_glyph_plus": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_plus.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_plus.bin",
+   "w": 16
+  },
+  "hud_glyph_q": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 24,
+   "pivot": {
+    "x": 8,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_q.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_q.bin",
+   "w": 16
+  },
+  "hud_glyph_r": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_r.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_r.bin",
+   "w": 16
+  },
+  "hud_glyph_s": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_s.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_s.bin",
+   "w": 16
+  },
+  "hud_glyph_slash": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_slash.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_slash.bin",
+   "w": 16
+  },
+  "hud_glyph_t": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_t.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_t.bin",
+   "w": 16
+  },
+  "hud_glyph_u": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_u.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_u.bin",
+   "w": 16
+  },
+  "hud_glyph_v": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_v.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_v.bin",
+   "w": 16
+  },
+  "hud_glyph_w": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_w.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_w.bin",
+   "w": 16
+  },
+  "hud_glyph_x": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_x.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_x.bin",
+   "w": 16
+  },
+  "hud_glyph_y": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_y.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_y.bin",
+   "w": 16
+  },
+  "hud_glyph_z": {
+   "category": "hud",
+   "collision_suggested_radius": 3,
+   "h": 16,
+   "pivot": {
+    "x": 8,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/hud/hud_glyph_z.png",
+   "vdp1_index8": "vdp1/index8/hud_glyph_z.bin",
+   "w": 16
+  },
+  "pickup_blue": {
+   "category": "pickups",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/pickup_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/pickups/pickup_blue.png",
+   "vdp1_index8": "vdp1/index8/pickup_blue.bin",
+   "w": 24
+  },
+  "pickup_bomb_blue": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_bomb_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_bomb_blue.png",
+   "vdp1_index8": "vdp1/index8/pickup_bomb_blue.bin",
+   "w": 32
+  },
+  "pickup_bomb_green": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_bomb_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_bomb_green.png",
+   "vdp1_index8": "vdp1/index8/pickup_bomb_green.bin",
+   "w": 32
+  },
+  "pickup_bomb_red": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_bomb_red.bin",
+   "lut4_palette": "vdp1/lut4/red_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_bomb_red.png",
+   "vdp1_index8": "vdp1/index8/pickup_bomb_red.bin",
+   "w": 32
+  },
+  "pickup_bomb_violet": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_bomb_violet.bin",
+   "lut4_palette": "vdp1/lut4/violet_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_bomb_violet.png",
+   "vdp1_index8": "vdp1/index8/pickup_bomb_violet.bin",
+   "w": 32
+  },
+  "pickup_green": {
+   "category": "pickups",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/pickup_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/pickups/pickup_green.png",
+   "vdp1_index8": "vdp1/index8/pickup_green.bin",
+   "w": 24
+  },
+  "pickup_orange": {
+   "category": "pickups",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/pickup_orange.bin",
+   "lut4_palette": "vdp1/lut4/orange_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/pickups/pickup_orange.png",
+   "vdp1_index8": "vdp1/index8/pickup_orange.bin",
+   "w": 24
+  },
+  "pickup_pink": {
+   "category": "pickups",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/pickup_pink.bin",
+   "lut4_palette": "vdp1/lut4/pink_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/pickups/pickup_pink.png",
+   "vdp1_index8": "vdp1/index8/pickup_pink.bin",
+   "w": 24
+  },
+  "pickup_power_blue": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_power_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_power_blue.png",
+   "vdp1_index8": "vdp1/index8/pickup_power_blue.bin",
+   "w": 32
+  },
+  "pickup_power_green": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_power_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_power_green.png",
+   "vdp1_index8": "vdp1/index8/pickup_power_green.bin",
+   "w": 32
+  },
+  "pickup_power_red": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_power_red.bin",
+   "lut4_palette": "vdp1/lut4/red_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_power_red.png",
+   "vdp1_index8": "vdp1/index8/pickup_power_red.bin",
+   "w": 32
+  },
+  "pickup_power_violet": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_power_violet.bin",
+   "lut4_palette": "vdp1/lut4/violet_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_power_violet.png",
+   "vdp1_index8": "vdp1/index8/pickup_power_violet.bin",
+   "w": 32
+  },
+  "pickup_red": {
+   "category": "pickups",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/pickup_red.bin",
+   "lut4_palette": "vdp1/lut4/red_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/pickups/pickup_red.png",
+   "vdp1_index8": "vdp1/index8/pickup_red.bin",
+   "w": 24
+  },
+  "pickup_shield_blue": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_shield_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_shield_blue.png",
+   "vdp1_index8": "vdp1/index8/pickup_shield_blue.bin",
+   "w": 32
+  },
+  "pickup_shield_green": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_shield_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_shield_green.png",
+   "vdp1_index8": "vdp1/index8/pickup_shield_green.bin",
+   "w": 32
+  },
+  "pickup_shield_red": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_shield_red.bin",
+   "lut4_palette": "vdp1/lut4/red_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_shield_red.png",
+   "vdp1_index8": "vdp1/index8/pickup_shield_red.bin",
+   "w": 32
+  },
+  "pickup_shield_violet": {
+   "category": "pickups",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "lut4_data": "vdp1/lut4/pickup_shield_violet.bin",
+   "lut4_palette": "vdp1/lut4/violet_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/pickups/pickup_shield_violet.png",
+   "vdp1_index8": "vdp1/index8/pickup_shield_violet.bin",
+   "w": 32
+  },
+  "pickup_violet": {
+   "category": "pickups",
+   "collision_suggested_radius": 4,
+   "h": 24,
+   "lut4_data": "vdp1/lut4/pickup_violet.bin",
+   "lut4_palette": "vdp1/lut4/violet_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 12,
+    "y": 12
+   },
+   "rgba": "sprites_rgba/pickups/pickup_violet.png",
+   "vdp1_index8": "vdp1/index8/pickup_violet.bin",
+   "w": 24
+  },
+  "player_laser_blue": {
+   "category": "player_weapons",
+   "collision_suggested_radius": 3,
+   "h": 72,
+   "lut4_data": "vdp1/lut4/player_laser_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 36
+   },
+   "rgba": "sprites_rgba/player_weapons/player_laser_blue.png",
+   "vdp1_index8": "vdp1/index8/player_laser_blue.bin",
+   "w": 16
+  },
+  "player_laser_green": {
+   "category": "player_weapons",
+   "collision_suggested_radius": 3,
+   "h": 72,
+   "lut4_data": "vdp1/lut4/player_laser_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 36
+   },
+   "rgba": "sprites_rgba/player_weapons/player_laser_green.png",
+   "vdp1_index8": "vdp1/index8/player_laser_green.bin",
+   "w": 16
+  },
+  "player_laser_pink": {
+   "category": "player_weapons",
+   "collision_suggested_radius": 3,
+   "h": 72,
+   "lut4_data": "vdp1/lut4/player_laser_pink.bin",
+   "lut4_palette": "vdp1/lut4/pink_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 8,
+    "y": 36
+   },
+   "rgba": "sprites_rgba/player_weapons/player_laser_pink.png",
+   "vdp1_index8": "vdp1/index8/player_laser_pink.bin",
+   "w": 16
+  },
+  "player_shot_blue": {
+   "category": "player_weapons",
+   "collision_suggested_radius": 1,
+   "h": 16,
+   "lut4_data": "vdp1/lut4/player_shot_blue.bin",
+   "lut4_palette": "vdp1/lut4/blue_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 4,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/player_weapons/player_shot_blue.png",
+   "vdp1_index8": "vdp1/index8/player_shot_blue.bin",
+   "w": 8
+  },
+  "player_shot_green": {
+   "category": "player_weapons",
+   "collision_suggested_radius": 1,
+   "h": 16,
+   "lut4_data": "vdp1/lut4/player_shot_green.bin",
+   "lut4_palette": "vdp1/lut4/green_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 4,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/player_weapons/player_shot_green.png",
+   "vdp1_index8": "vdp1/index8/player_shot_green.bin",
+   "w": 8
+  },
+  "player_shot_pink": {
+   "category": "player_weapons",
+   "collision_suggested_radius": 1,
+   "h": 16,
+   "lut4_data": "vdp1/lut4/player_shot_pink.bin",
+   "lut4_palette": "vdp1/lut4/pink_palette_bgr555_rgbflag_be.bin",
+   "pivot": {
+    "x": 4,
+    "y": 8
+   },
+   "rgba": "sprites_rgba/player_weapons/player_shot_pink.png",
+   "vdp1_index8": "vdp1/index8/player_shot_pink.bin",
+   "w": 8
+  },
+  "ship_enemy_blue": {
+   "category": "enemies",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/enemies/ship_enemy_blue.png",
+   "vdp1_index8": "vdp1/index8/ship_enemy_blue.bin",
+   "w": 32
+  },
+  "ship_enemy_green": {
+   "category": "enemies",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/enemies/ship_enemy_green.png",
+   "vdp1_index8": "vdp1/index8/ship_enemy_green.bin",
+   "w": 32
+  },
+  "ship_enemy_red": {
+   "category": "enemies",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/enemies/ship_enemy_red.png",
+   "vdp1_index8": "vdp1/index8/ship_enemy_red.bin",
+   "w": 32
+  },
+  "ship_option_blue": {
+   "category": "ships",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/ships/ship_option_blue.png",
+   "vdp1_index8": "vdp1/index8/ship_option_blue.bin",
+   "w": 32
+  },
+  "ship_option_green": {
+   "category": "ships",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/ships/ship_option_green.png",
+   "vdp1_index8": "vdp1/index8/ship_option_green.bin",
+   "w": 32
+  },
+  "ship_option_purple": {
+   "category": "ships",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/ships/ship_option_purple.png",
+   "vdp1_index8": "vdp1/index8/ship_option_purple.bin",
+   "w": 32
+  },
+  "ship_option_red": {
+   "category": "ships",
+   "collision_suggested_radius": 6,
+   "h": 32,
+   "pivot": {
+    "x": 16,
+    "y": 16
+   },
+   "rgba": "sprites_rgba/ships/ship_option_red.png",
+   "vdp1_index8": "vdp1/index8/ship_option_red.bin",
+   "w": 32
+  },
+  "ship_player_bank_center_left": {
+   "category": "ships",
+   "collision_suggested_radius": 12,
+   "h": 64,
+   "pivot": {
+    "x": 32,
+    "y": 32
+   },
+   "rgba": "sprites_rgba/ships/ship_player_bank_center_left.png",
+   "vdp1_index8": "vdp1/index8/ship_player_bank_center_left.bin",
+   "w": 64
+  },
+  "ship_player_bank_center_right": {
+   "category": "ships",
+   "collision_suggested_radius": 12,
+   "h": 64,
+   "pivot": {
+    "x": 32,
+    "y": 32
+   },
+   "rgba": "sprites_rgba/ships/ship_player_bank_center_right.png",
+   "vdp1_index8": "vdp1/index8/ship_player_bank_center_right.bin",
+   "w": 64
+  },
+  "ship_player_bank_left": {
+   "category": "ships",
+   "collision_suggested_radius": 12,
+   "h": 64,
+   "pivot": {
+    "x": 32,
+    "y": 32
+   },
+   "rgba": "sprites_rgba/ships/ship_player_bank_left.png",
+   "vdp1_index8": "vdp1/index8/ship_player_bank_left.bin",
+   "w": 64
+  },
+  "ship_player_bank_right": {
+   "category": "ships",
+   "collision_suggested_radius": 12,
+   "h": 64,
+   "pivot": {
+    "x": 32,
+    "y": 32
+   },
+   "rgba": "sprites_rgba/ships/ship_player_bank_right.png",
+   "vdp1_index8": "vdp1/index8/ship_player_bank_right.bin",
+   "w": 64
+  },
+  "ship_player_blue": {
+   "category": "ships",
+   "collision_suggested_radius": 12,
+   "h": 64,
+   "pivot": {
+    "x": 32,
+    "y": 32
+   },
+   "rgba": "sprites_rgba/ships/ship_player_blue.png",
+   "vdp1_index8": "vdp1/index8/ship_player_blue.bin",
+   "w": 64
+  },
+  "ship_player_green": {
+   "category": "ships",
+   "collision_suggested_radius": 12,
+   "h": 64,
+   "pivot": {
+    "x": 32,
+    "y": 32
+   },
+   "rgba": "sprites_rgba/ships/ship_player_green.png",
+   "vdp1_index8": "vdp1/index8/ship_player_green.bin",
+   "w": 64
+  },
+  "ship_player_purple": {
+   "category": "ships",
+   "collision_suggested_radius": 12,
+   "h": 64,
+   "pivot": {
+    "x": 32,
+    "y": 32
+   },
+   "rgba": "sprites_rgba/ships/ship_player_purple.png",
+   "vdp1_index8": "vdp1/index8/ship_player_purple.bin",
+   "w": 64
+  },
+  "ship_player_red": {
+   "category": "ships",
+   "collision_suggested_radius": 12,
+   "h": 64,
+   "pivot": {
+    "x": 32,
+    "y": 32
+   },
+   "rgba": "sprites_rgba/ships/ship_player_red.png",
+   "vdp1_index8": "vdp1/index8/ship_player_red.bin",
+   "w": 64
+  }
+ },
+ "version": "4.1"
+}
