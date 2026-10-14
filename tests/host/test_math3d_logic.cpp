@@ -77,6 +77,41 @@ TEST(mat4_identity_multiply) {
     }
 }
 
+TEST(mat4_products_match_reference_with_aliasing) {
+    uint32_t seed = 0x12345678u;
+    for (unsigned sample = 0; sample < 1000; ++sample) {
+        sat_mat4_t a, b, expected{}, out;
+        for (int i = 0; i < 16; ++i) {
+            seed = seed * 1664525u + 1013904223u;
+            a.m[i] = static_cast<int32_t>(seed % 524289u) - 262144;
+            seed = seed * 1664525u + 1013904223u;
+            b.m[i] = static_cast<int32_t>(seed % 524289u) - 262144;
+        }
+        // Both affine, only A affine, only B affine, neither affine.
+        if (sample % 4 < 2) {
+            a.m[12] = a.m[13] = a.m[14] = 0; a.m[15] = SAT_FX16_ONE;
+        }
+        if (sample % 4 == 0 || sample % 4 == 2) {
+            b.m[12] = b.m[13] = b.m[14] = 0; b.m[15] = SAT_FX16_ONE;
+        }
+        // Independent full 4x4 reference, per-product arithmetic shift.
+        for (int row = 0; row < 4; ++row)
+            for (int col = 0; col < 4; ++col)
+                for (int k = 0; k < 4; ++k)
+                    expected.m[row * 4 + col] += static_cast<int32_t>(
+                        (static_cast<int64_t>(a.m[row * 4 + k]) * b.m[k * 4 + col]) >> 16);
+        ASSERT_EQ(sat_mat4_multiply(&out, &a, &b), SAT_OK);
+        sat_mat4_t alias_a = a, alias_b = b;
+        ASSERT_EQ(sat_mat4_multiply(&alias_a, &alias_a, &b), SAT_OK);
+        ASSERT_EQ(sat_mat4_multiply(&alias_b, &a, &alias_b), SAT_OK);
+        for (int i = 0; i < 16; ++i) {
+            ASSERT_EQ(out.m[i], expected.m[i]);
+            ASSERT_EQ(alias_a.m[i], expected.m[i]);
+            ASSERT_EQ(alias_b.m[i], expected.m[i]);
+        }
+    }
+}
+
 TEST(mat4_translate_transform) {
     sat_mat4_t t;
     ASSERT_EQ(sat_mat4_translate(&t, fx_from_int(5), fx_from_int(0), fx_from_int(0)), SAT_OK);
@@ -276,6 +311,7 @@ int main() {
     sin_cos_cardinal_values();
     sin_45_degrees();
     mat4_identity_multiply();
+    mat4_products_match_reference_with_aliasing();
     mat4_translate_transform();
     mat4_rotate_z_90();
     mat4_look_at_basic();
@@ -292,6 +328,6 @@ int main() {
     fx16_abs_negates_only_negative_values();
     core_helpers_isqrt_triangle_fx16_fourcc();
 
-    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 21);
+    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 22);
     return 0;
 }

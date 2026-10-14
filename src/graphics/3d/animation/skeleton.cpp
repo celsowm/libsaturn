@@ -28,6 +28,7 @@ int16_t clamp16(int32_t v) {
 
 /* Divides with rounding to nearest, ties away from zero. */
 int32_t div_round(int32_t num, int32_t den) {
+    if (num == 0) return 0;
     const int32_t half = den >> 1;
     return (num >= 0) ? (num + half) / den : -((-num + half) / den);
 }
@@ -64,6 +65,10 @@ void joint_local_matrix(sat_mat4_t* out, const sat_skeleton_joint_t& j,
                         const sat_skeleton_pose_joint_t& pose) {
     sat_quat16_to_mat4(out, &pose.rotation, &pose.translation);
     const sat_vec3_t scale = scale_or_identity(j.rest_scale);
+    // Unit scale leaves every Q16 entry bit-identical; avoid nine public
+    // multiply calls for the common rigid-joint case.
+    if (scale.x == SAT_FX16_ONE && scale.y == SAT_FX16_ONE && scale.z == SAT_FX16_ONE)
+        return;
     out->m[0]  = sat_fx16_mul(out->m[0],  scale.x);
     out->m[1]  = sat_fx16_mul(out->m[1],  scale.y);
     out->m[2]  = sat_fx16_mul(out->m[2],  scale.z);
@@ -156,6 +161,14 @@ extern "C" void sat_quat16_identity(sat_quat16_t* out) {
 extern "C" void sat_quat16_normalize(sat_quat16_t* out, const sat_quat16_t* q) {
     if (!out || !q) return;
     const int32_t x = q->x, y = q->y, z = q->z, w = q->w;
+    // Static rest rotations commonly lie on the W axis. Normalizing any
+    // nonzero W-only quaternion has this exact result, including negative W;
+    // zero retains the existing identity fallback. Read first for alias safety.
+    if (x == 0 && y == 0 && z == 0) {
+        out->x = out->y = out->z = 0;
+        out->w = w < 0 ? -32768 : 32767;
+        return;
+    }
     /* Q30 squared length fits uint32 except all four at -32768, which wraps
      * to zero and is a length of exactly 2.0 (65536 in Q15). */
     const uint32_t len2 = (uint32_t)(x * x) + (uint32_t)(y * y) +

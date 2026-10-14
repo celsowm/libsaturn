@@ -578,6 +578,26 @@ int main() {
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     assert(scene.fallback_faces==1u && clipped_count==1u);
 
+    // RGB can use VDP1 system clipping beyond the texture-stretch guard.
+    // Test signed command bounds AND the screen-center translation boundary.
+    const int16_t native_cases[][3]={
+        {500,500,1},{863,911,1},{864,0,0},{0,912,0},
+        {-1024,-1024,1},{-1025,0,0},{0,-1025,0},{2047,0,0}};
+    const sat_scene3d_material_t rgb_mat={SAT_SCENE3D_RGB,0x8421u,nullptr,
+        nullptr,SAT_INDEXED_SOLID_OPAQUE,nullptr};
+    for(const auto& sample:native_cases) {
+        emitted_count=clipped_count=0;
+        assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+            SAT_FX16_ONE,320u,224u)==SAT_OK);
+        sat_quad3_t solid=quad(2);
+        solid.v[0].x=static_cast<int32_t>(sample[0])*SAT_FX16_ONE;
+        solid.v[0].y=static_cast<int32_t>(sample[1])*SAT_FX16_ONE;
+        assert(sat_scene3d_faces_submit_quad(&scene,&solid,&rgb_mat,0u)==SAT_OK);
+        assert(scene.count==1 && scene.entries[0].projected_safe==sample[2]);
+        assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+        assert(clipped_count==(sample[2]?0:1));
+    }
+
     // A textured face the sprite path cannot draw whole (a corner behind the
     // near plane) is dropped without a fallback colour, and drawn as a
     // clipped solid polygon of that colour with one.
@@ -661,13 +681,21 @@ int main() {
 
     // Fractional, negative and non-affine matrices retain the public transform's
     // XYZ semantics: each product rounds before summation, output w is unused.
-    constexpr unsigned kTransformCases=64;
+    constexpr unsigned kCardinalCases=48,kTransformCases=kCardinalCases+64;
+    const uint8_t permutations[6][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
     uint32_t transform_seed=0x51A2u;
     for(unsigned sample=0;sample<kTransformCases;++sample) {
         sat_mat4_t matrix={};
         for(unsigned element=0;element<16;++element) {
             transform_seed=transform_seed*1664525u+1013904223u;
             matrix.m[element]=(int32_t)(transform_seed%262144u)-131072;
+        }
+        if(sample<kCardinalCases) {
+            for(unsigned row=0;row<3;++row) {
+                for(unsigned axis=0;axis<3;++axis)matrix.m[row*4+axis]=0;
+                matrix.m[row*4+permutations[sample/8][row]]=
+                    (sample&(1u<<row))?-SAT_FX16_ONE:SAT_FX16_ONE;
+            }
         }
         matrix.m[11]=20*SAT_FX16_ONE;
         auto transformed_instance=instance;transformed_instance.world=&matrix;

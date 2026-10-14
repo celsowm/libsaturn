@@ -21,6 +21,7 @@ struct Capture {
 };
 Capture g_capture{};
 
+
 #if SAT_PROFILE_METRICS
 uint32_t g_test_painter_ticks;
 uint32_t g_test_emit_ticks;
@@ -50,12 +51,21 @@ bool valid_material(const sat_scene3d_material_t& m) {
  * system clipping instead of the slow re-projecting fallback in emit(). */
 bool safe_projection(const sat_scene3d_faces_t& scene,
                      const sat_projected_vertex_t* vertices,
-                     const uint16_t* indices) {
+                     const uint16_t* indices, bool rgb) {
+    // VDP1 manual 6.7: signed command coordinates are -1024..1023.
+    // Solid polygons can use system clipping beyond the texture stretch
+    // guard. Keep both command and center-relative framebuffer coordinates
+    // inside that range; projection-clamped values cannot pass these checks.
+    constexpr int32_t kVdp1CoordinateMin=-1024, kVdp1CoordinateMax=1023;
     for (uint8_t c=0;c<4u;++c) {
         const sat_projected_vertex_t& p=vertices[indices[c]];
-        if (p.w<scene.near_depth ||
-            !saturn::core::render3d::coord_drawable(
-                p.x,p.y,scene.width,scene.height)) return false;
+        if (p.w<scene.near_depth) return false;
+        if(rgb) {
+            if(p.x<kVdp1CoordinateMin || p.y<kVdp1CoordinateMin ||
+               p.x>kVdp1CoordinateMax-static_cast<int32_t>(scene.width/2u) ||
+               p.y>kVdp1CoordinateMax-static_cast<int32_t>(scene.height/2u)) return false;
+        } else if(!saturn::core::render3d::coord_drawable(
+                      p.x,p.y,scene.width,scene.height)) return false;
     }
     return true;
 }
@@ -176,7 +186,8 @@ sat_result_t append(sat_scene3d_faces_t* scene,
             item.gouraud[c]=material.vertex_gouraud[indices[c]];
         item.material.vertex_gouraud=nullptr;
     }
-    item.projected_safe=safe_projection(*scene,projected,indices)?1u:0u;
+    item.projected_safe=safe_projection(*scene,projected,indices,
+        material.kind==SAT_SCENE3D_RGB)?1u:0u;
     if (!item.projected_safe) {
         for (uint8_t c=0;c<4u;++c) item.world.v[c]=*corners[c];
         ++scene->clipped_faces;

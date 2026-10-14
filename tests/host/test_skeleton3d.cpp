@@ -23,6 +23,12 @@ static sat_skeleton_joint_t joint(uint16_t parent, sat_fx16_t x, sat_fx16_t y, s
 }
 
 static void quat_basics() {
+    for (int32_t w = -32768; w <= 32767; ++w) {
+        sat_quat16_t axis = {0, 0, 0, (int16_t)w};
+        sat_quat16_normalize(&axis, &axis);
+        CHECK(axis.x == 0 && axis.y == 0 && axis.z == 0);
+        CHECK(axis.w == (w < 0 ? -32768 : 32767));
+    }
     sat_mat4_t m{};
     sat_quat16_t id = ident();
     sat_vec3_t t = {FX(1), FX(2), FX(3)};
