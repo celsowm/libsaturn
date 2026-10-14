@@ -27,6 +27,11 @@ try {
             Write-Host "[optical-package] $name built and inspected"
         }
     }
+    $variantBase = Join-Path $output 'minimal-yaul/optical_emulators_tester.iso'
+    if (Test-Path $variantBase) {
+        & $python (Join-Path $repo 'tools/build_boot_header_variants.py') $variantBase --out (Join-Path $output 'header-variants-minimal-yaul')
+        if ($LASTEXITCODE -ne 0) { throw 'Header variant build failed' }
+    }
     & $python (Join-Path $repo 'tools/package_optical_results.py') --root $output
     if ($LASTEXITCODE -ne 0) { throw 'Package manifest failed' }
 } finally {

@@ -64,6 +64,9 @@ def main():
     with (root/'hardware-results.csv').open('w',newline='',encoding='utf-8') as f:
         writer=csv.writer(f);writer.writerow(columns)
         for r in reports:writer.writerow([r['name'],r['files']['optical_emulators_tester.iso']['sha256']]+['']*(len(columns)-2))
+        for variants in sorted(root.glob('header-variants-*/variants.json')):
+            for v in json.loads(variants.read_text(encoding='utf-8')):
+                writer.writerow([variants.parent.name+'/'+v['name'],v['report']['iso_sha256']]+['']*(len(columns)-2))
     with zipfile.ZipFile(root/'applications-only.zip','w',zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(shared.iterdir()):archive.write(path,path.name)
     print(f'[optical-package] {len(reports)} local disc packages; application hashes agree across IP profiles')

@@ -18,6 +18,9 @@ Last updated: 2026-10-14. Emulator evidence only.
 | Ymir BIOS boot, no CD-block firmware | `harness/run-optical-tester.ps1 -BootMode bios` | **UNKNOWN**: Master PC parked in BIOS (0x1D3E), disc never reached. Not a pass. |
 | Mednafen BIOS boot (minimal/native) | `harness/run-optical-bios.ps1 -BootSeconds 25` | first diagnostic frame shown: stage 9, heartbeat advancing, CD commands disabled |
 | Mednafen BIOS boot (full/native, `-RunCdTests`) | same, with key script | five CD steps OK; 32-sector read 65536 B, CRC OK, 0 timeouts, HIRQ/CR snapshot valid |
+| Header-only System ID variants | `tools/build_boot_header_variants.py` on the minimal/YAUL ISO | 4 images: `original`, `reserved_e4_zero`, `slave_ec_default`, `both_zero`. Diffs confined to `0xE4-E7`, `0xEC/EE` and `both_zero` = their union; strict IP issues drop accordingly. Built by `build-optical-packages.ps1` into `header-variants-minimal-yaul/` and listed in `hardware-results.csv`. |
+| Variants in Mednafen BIOS boot | `run-optical-bios.ps1` per variant | all four reach stage 9. Emulator ignores these fields, so this shows only that the edits did not break the boot, **not** that the fields are irrelevant on hardware. |
+| Rebuild determinism | `build-optical-packages.ps1` twice | all 10 disc hashes identical |
 
 ## What this does and does not show
 
@@ -30,7 +33,7 @@ Last updated: 2026-10-14. Emulator evidence only.
 ## Open items
 
 1. Physical Satiator and SAROO runs of all six packages, including SAROO `/BIN/` versus `/ISO/` (Phase 5, Gate P5).
-2. Header-only `0x0E4`/`0x0EC` A/B images on hardware (Phase 4, set H).
+2. Boot the four header variants (`header-variants-minimal-yaul/`) on SAROO and Satiator, in this order: `original` (expected to reproduce the failure), `reserved_e4_zero`, `slave_ec_default`, `both_zero` (Phase 4, set H).
 3. Ymir BIOS boot with user-provided CD-block firmware to obtain PC/HIRQ stage traces.
-4. Provenance and licence decision for the security/area payload used by the native IP (Gate P2).
+4. Provenance and licence decision for the security/area payload used by the native IP (Gate P2). `prepare_native_payloads.py` extracts it from a local template and marks it `redistributable: false`; the native IP therefore cannot be shipped until that is decided.
 5. Native profile stays non-default until Gates P1A and P5 are met (Phase 6).
