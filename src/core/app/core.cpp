@@ -1,6 +1,7 @@
 #include "saturn/core.h"
 #include "saturn/audio.h"
 #include "saturn/parallel.h"
+#include "src/core/startup/boot_trace.h"
 
 #include "src/core/runtime/internal.hpp"
 #include "src/input/runtime.hpp"
@@ -19,7 +20,9 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     using namespace saturn::core;
 
     extern void _saturn_early_init(void);
+    sat_boot_mark(SAT_BOOT_EARLY_BEGIN, 0, SAT_OK);
     _saturn_early_init();
+    sat_boot_mark(SAT_BOOT_EARLY_END, 1, SAT_OK);
 
     if (config == nullptr) {
         return SAT_ERR_INVALID_ARG;
@@ -56,6 +59,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     saturn::hal::scu::init_frame_clock();
     saturn::hal::scu::init_interrupts();
     saturn::hal::vdp1::begin_frame(g_state.command_buffer, saturn::internal::kCmdCapacity);
+    sat_boot_mark(SAT_BOOT_INIT_END, 1, SAT_OK);
     return SAT_OK;
 }
 

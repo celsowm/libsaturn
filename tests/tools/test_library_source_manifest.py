@@ -32,7 +32,7 @@ assert sorted(listed) == on_disk, (
     "manifest/src mismatch: only in manifest="
     f"{sorted(set(listed) - set(on_disk))}, only on disk="
     f"{sorted(set(on_disk) - set(listed))}")
-assert sorted(startup) == asm_on_disk, (
+assert sorted(startup + lists.get("LIBSATURN_DISC_BOOT_SOURCES", [])) == asm_on_disk, (
     f"startup manifest {sorted(startup)} != assembly on disk {asm_on_disk}")
 
 # Each subsystem list only owns files below its own directory.

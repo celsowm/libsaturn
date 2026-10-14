@@ -56,12 +56,22 @@ class LibSaturnConan(ConanFile):
         "tools/gen_ip_bin.py",
         "tools/check_ip_bin.py",
         "tools/check_iso.py",
+        "tools/satlz.py",
+        "tools/boot_image.py",
+        "tools/inspect_boot_image.py",
+        "tools/build_native_ip.py",
+        "tools/check_native_ip.py",
+        "tools/check_boot_memory.py",
+        "tools/prepare_native_payloads.py",
+        "tools/boot_trace_address.py",
+        "tools/normalize_iso_dates.py",
         "tools/iso_to_raw.py",
         "tools/gen_cue.py",
         "tools/check_disc_image.py",
         "tools/stage2d_tool.py",
         "tools/stage2d/*.py",
         "assets/boot/ip_yaul_template.bin",
+        "assets/boot/ip_sbl_template.bin",
     )
 
     def set_version(self):

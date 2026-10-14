@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -66,7 +67,26 @@ struct ScspFrameSnapshot {
 
 struct InstructionCounter final : ymir::debug::ISH2Tracer {
     uint64_t count = 0;
-    void ExecuteInstruction(uint32_t, uint16_t, bool) override { ++count; }
+    bool observe_boot = false;
+    bool entered_app = false;
+    bool entered_aip = false;
+    uint32_t aip_pc = 0;
+    std::function<void(uint32_t)> checkpoint;
+    std::vector<uint32_t> entry_instructions;
+    void ExecuteInstruction(uint32_t pc, uint16_t, bool) override {
+        ++count;
+        if (!observe_boot) return;
+        const uint32_t physical = pc & 0x0fffffffu;
+        if (!entered_aip && physical == aip_pc) {
+            entered_aip = true;
+            if (checkpoint) checkpoint(pc);
+        }
+        if (!entered_app && physical == 0x06004000u) {
+            entered_app = true;
+            if (checkpoint) checkpoint(pc);
+        }
+        if (entered_app && entry_instructions.size() < 16u) entry_instructions.push_back(pc);
+    }
 };
 
 uint64_t fnv1a64(const uint8_t* data, size_t size) {
@@ -325,6 +345,9 @@ ymir::peripheral::Button buttons_at_frame(uint32_t frame) {
 struct Args {
     std::string iso_path;
     std::string bios_path;
+    bool bios_boot = false;
+    std::string cdb_rom_path;
+    uint32_t boot_marker = 0;
     std::string bin_path;
     std::string out_path = "probe.json";
     uint32_t frames = 60;
@@ -448,13 +471,14 @@ kParallelRuntimeTelemetryNames = {
 
 void print_usage() {
     std::fprintf(stderr,
-        "usage: probe --iso <path> --bios <path> --bin <path> [--out <path>] [--frames N]\n"
+        "usage: probe --iso <path> --bios <path> [--bin <path>] [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
         "             [--dump-wram-high <path>] [--misaligned-report <path>] [--watch-write ADDR:LEN[:FROM_FRAME]] [--dump-mem ADDR:BYTES:PATH ...] [--dump-sound-ram <path>] [--dump-audio <path>] [--pal] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...] [--screenshot-when ADDR:VALUE[+DELAY]:PATH ...]\n"
         "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
+        "             [--boot-mode injection|bios] [--cdb-rom <local-path>] [--boot-marker ADDR]\n"
         "             [--backup-ram <path>] [--backup-cart <existing-path>] [--backup-cart-fixture <path>] [--ram-cart none|1m|4m] [--scsp-trace]\n"
         "             [--slave-reset-entry <address>]\n");
 }
@@ -487,6 +511,16 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--bios");
             if (!v) return false;
             out->bios_path = v;
+        } else if (arg == "--boot-mode") {
+            const char* v = next("--boot-mode");
+            if (!v || (std::string(v) != "bios" && std::string(v) != "injection")) return false;
+            out->bios_boot = std::string(v) == "bios";
+        } else if (arg == "--cdb-rom") {
+            const char* v = next("--cdb-rom"); if (!v) return false;
+            out->cdb_rom_path = v;
+        } else if (arg == "--boot-marker") {
+            const char* v = next("--boot-marker"); if (!v) return false;
+            out->boot_marker = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
         } else if (arg == "--bin") {
             const char* v = next("--bin");
             if (!v) return false;
@@ -696,9 +730,15 @@ bool parse_args(int argc, char** argv, Args* out) {
             return false;
         }
     }
-    if (out->iso_path.empty() || out->bios_path.empty() || out->bin_path.empty()) {
+    if (out->iso_path.empty() || out->bios_path.empty() || (!out->bios_boot && out->bin_path.empty())) {
         std::fprintf(stderr, "--iso, --bios and --bin are required\n");
         return false;
+    }
+    if (out->bios_boot && out->slave_reset_entry != 0u) {
+        std::fprintf(stderr, "BIOS boot forbids the synthetic Slave handoff\n"); return false;
+    }
+    if (!out->bios_boot && !out->cdb_rom_path.empty()) {
+        std::fprintf(stderr, "--cdb-rom requires --boot-mode bios\n"); return false;
     }
     if (!out->pad_button.empty() && button_from_name(out->pad_button) == ymir::peripheral::Button::None) {
         std::fprintf(stderr, "unknown --pad-button: %s\n", out->pad_button.c_str());
@@ -846,6 +886,15 @@ int main(int argc, char** argv) {
     // constructing it as a local.
     auto saturn = std::make_unique<ymir::Saturn>();
     saturn->LoadIPL(std::span<uint8_t, ymir::sys::kIPLSize>(bios.data(), ymir::sys::kIPLSize));
+
+    if (!args.cdb_rom_path.empty()) {
+        auto rom = read_file(args.cdb_rom_path);
+        if (rom.size() != ymir::sh1::kROMSize) {
+            std::fprintf(stderr, "Invalid user-provided CD Block ROM size\n"); return 1;
+        }
+        saturn->LoadCDBlockROM(std::span<uint8_t, ymir::sh1::kROMSize>(rom.data(), rom.size()));
+        saturn->configuration.cdblock.useLLE = true;
+    }
 
     if (!args.backup_ram_path.empty()) {
         // Ymir memory-maps the image in write-through mode when copyOnWrite is
@@ -1126,9 +1175,27 @@ int main(int argc, char** argv) {
     uint32_t last_skybridge_telemetry_count = 0u;
     std::vector<ParallelRuntimeTelemetrySample> parallel_runtime_telemetry_samples;
     uint32_t last_parallel_runtime_telemetry_count = 0u;
+    std::vector<std::array<uint32_t, 9>> boot_checkpoints;
     InstructionCounter master_instructions;
     InstructionCounter slave_instructions;
-    if (!args.profile_instructions_path.empty()) {
+    if (!args.profile_instructions_path.empty() || args.bios_boot) {
+        master_instructions.observe_boot = args.bios_boot;
+        if (args.bios_boot) {
+            std::array<char, 256> header{};
+            std::ifstream disc(args.iso_path, std::ios::binary);
+            disc.read(header.data(), header.size());
+            uint32_t region_count = 0;
+            for (size_t i=0x40; i<0x4a && header[i]!=' '; ++i) ++region_count;
+            master_instructions.aip_pc = 0x06002000u + 0xe00u + region_count*32u;
+            master_instructions.checkpoint = [&](uint32_t pc) {
+                boot_checkpoints.push_back({pc, sh2p.SR().u32, sh2p.VBR(), sh2p.R(15),
+                    saturn->mainBus.Peek<uint16_t>(0x25890008u),
+                    saturn->mainBus.Peek<uint16_t>(0x25890018u),
+                    saturn->mainBus.Peek<uint16_t>(0x2589001cu),
+                    saturn->mainBus.Peek<uint16_t>(0x25890020u),
+                    saturn->mainBus.Peek<uint16_t>(0x25890024u)});
+            };
+        }
         saturn->EnableDebugTracing(true);
         saturn->masterSH2.UseTracer(&master_instructions);
         saturn->slaveSH2.UseTracer(&slave_instructions);
@@ -1137,6 +1204,7 @@ int main(int argc, char** argv) {
     std::vector<ScspFrameSnapshot> scsp_trace;
     bool sampling_pc = false;
     bool taking_screenshots = false;
+    std::vector<std::array<uint32_t, 11>> boot_trace;
     auto run_frames = [&](uint32_t count, uint32_t frame_offset) {
         for (uint32_t i = 0; i < count; i++) {
             // Set before running, so the pad reports the buttons this script
@@ -1265,6 +1333,16 @@ int main(int argc, char** argv) {
             if (args.scsp_trace && g_pad_active) {
                 scsp_trace.push_back(capture_scsp_stream_snapshot(*saturn, i));
             }
+            if (args.bios_boot) {
+                boot_trace.push_back({frame_offset+i, sh2p.PC(), sh2p.SR().u32,
+                    sh2p.VBR(), sh2p.R(15), saturn->mainBus.Peek<uint16_t>(0x25890008u),
+                    saturn->mainBus.Peek<uint16_t>(0x25890018u),
+                    saturn->mainBus.Peek<uint16_t>(0x2589001cu),
+                    saturn->mainBus.Peek<uint16_t>(0x25890020u),
+                    saturn->mainBus.Peek<uint16_t>(0x25890024u),
+                    args.boot_marker && saturn->mainBus.Peek<uint32_t>(args.boot_marker) == 0x4c534254u
+                        ? saturn->mainBus.Peek<uint32_t>(args.boot_marker+12u) : 0u});
+            }
             if (sampling_pc) {
                 pc_samples.push_back(sh2p.PC());
             }
@@ -1333,7 +1411,7 @@ int main(int argc, char** argv) {
     // block does not currently complete a real BIOS disc boot for these
     // images (it stalls in the BIOS's CD driver after disc authentication),
     // so this harness does not depend on the BIOS ever finishing that.
-    run_frames(args.boot_frames, 0);
+    if (!args.bios_boot) run_frames(args.boot_frames, 0);
 
     // The real Saturn BIOS transfers the Slave entry point through its
     // slave-start protocol. Ymir's SSHON model resets the Slave from the
@@ -1360,7 +1438,7 @@ int main(int argc, char** argv) {
     // stack, zeroes BSS, calls _main) and never touches VBR, so nothing more
     // than "resident at the load address with PC pointing there" is needed.
     std::vector<uint8_t> bin = read_file(args.bin_path);
-    if (bin.empty()) {
+    if (bin.empty() && !args.bios_boot) {
         std::fprintf(stderr, "failed to read --bin file (or it's empty): %s\n", args.bin_path.c_str());
         return 1;
     }
@@ -1387,6 +1465,7 @@ int main(int argc, char** argv) {
     // to it; do exactly that ourselves. Goes through MemWriteByte (not a raw
     // memcpy into mem.WRAMHigh) so the SH2 instruction cache stays coherent
     // with what we just wrote.
+    if (!args.bios_boot) {
     for (size_t i = 0; i < bin.size(); i++) {
         sh2p.MemWriteByte(static_cast<uint32_t>(load_addr + i), bin[i], /*bypassCache=*/false);
     }
@@ -1394,13 +1473,14 @@ int main(int argc, char** argv) {
     sh2p.PR() = load_addr;    // if _main ever returns, land in crt0's hang loop
     sh2p.PC() = load_addr;    // _start
     sh2p.RefillPipeline();    // PC was changed behind the interpreter's back
+    }
 
     // -- Phase 3: run the injected program for --frames frames.
     g_pad_active = true;
     sampling_pc = !args.profile_pc_path.empty();
     taking_screenshots = !args.screenshots.empty() || !args.screenshots_when.empty();
     audio.recording = true;
-    run_frames(args.frames, args.boot_frames);
+    run_frames(args.frames, args.bios_boot ? 0u : args.boot_frames);
     audio.recording = false;
 
     const uint32_t pc_after_run = sh2p.PC();
@@ -1835,10 +1915,30 @@ int main(int argc, char** argv) {
     // inside [load_addr, load_addr + bin_bytes) -- proof our code ran at all.
     j.key("boot");
     j.begin_object();
-    j.key("injected"); j.value(true);
+    j.key("injected"); j.value(!args.bios_boot);
+    j.key("mode"); j.value(std::string(args.bios_boot ? "bios" : "injection"));
+    j.key("cdb_lle"); j.value(!args.cdb_rom_path.empty());
+    j.key("instructions_observed"); j.value(master_instructions.count);
+    j.key("aip_observed"); j.value(master_instructions.entered_aip);
+    j.key("checkpoint_columns"); j.value(std::string("pc,sr,vbr,r15,hirq,cr1,cr2,cr3,cr4"));
+    j.key("checkpoints"); j.begin_array();
+    for (const auto& row : boot_checkpoints) {
+        j.begin_array(); for (auto value : row) j.value(static_cast<uint64_t>(value)); j.end_array();
+    }
+    j.end_array();
+    j.key("entry_observed"); j.value(master_instructions.entered_app);
+    j.key("entry_instructions"); j.begin_array();
+    for (auto pc : master_instructions.entry_instructions) j.value(static_cast<uint64_t>(pc));
+    j.end_array();
+    j.key("trace_columns"); j.value(std::string("frame,pc,sr,vbr,r15,hirq,cr1,cr2,cr3,cr4,stage"));
+    j.key("trace"); j.begin_array();
+    for (const auto& row : boot_trace) {
+        j.begin_array(); for (auto word : row) j.value(static_cast<uint64_t>(word)); j.end_array();
+    }
+    j.end_array();
     j.key("load_addr"); j.value(static_cast<uint64_t>(load_addr));
     j.key("bin_bytes"); j.value(static_cast<uint64_t>(bin.size()));
-    j.key("boot_frames"); j.value(static_cast<uint64_t>(args.boot_frames));
+    j.key("boot_frames"); j.value(static_cast<uint64_t>(args.bios_boot ? 0u : args.boot_frames));
     j.key("pc_after_run"); j.value(static_cast<uint64_t>(pc_after_run));
     j.end_object();
 

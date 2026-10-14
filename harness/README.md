@@ -304,3 +304,21 @@ that both camera and zoom rebakes change the output. Original PNGs and
 inspection. The harness's BIOS requirement and direct-injection limitation
 still apply: this suite cannot certify cartridge timing or real hardware.
 A missing BIOS/capture is *skipped*, never reported as visual validation.
+
+## Optical disc boot versus injection
+
+`run-harness.ps1` retains `-BootMode injection` by default. `-BootMode bios`
+starts at the BIOS reset path and forbids application injection, forced PC and
+the synthetic Slave vector patch. Optional `-CdbRom` selects the pinned core's
+LLE CD model using a local user-provided dump. It does not download firmware.
+`-DiscImage` and `-ApplicationBinary` can select an immutable package rather
+than mutable example exports. BIOS traces include per-field PC/SR/VBR/R15,
+HIRQ/CR1–CR4, validated marker values and the first observed application
+instructions. Missing observations remain UNKNOWN.
+
+Use `run-optical-tester.ps1` for guest-record assertions and
+`run-optical-bios.ps1` for Mednafen BIOS screenshots and controller actions.
+Mednafen captures require visual review; the runner does not auto-label a
+screenshot as PASS. The current Ymir HLE full-BIOS run does not reach the optical
+tester; its injection-based CD tests do pass. These are separate results.
+See [execution evidence](../docs/NATIVE_SATURN_BOOT_EXECUTION.md).

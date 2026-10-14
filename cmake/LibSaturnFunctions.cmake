@@ -96,6 +96,8 @@ endfunction()
 #     [NAME <base>]            file base name, default <target>
 #     [OUTPUT_DIR <dir>]       default <binary dir>/disc
 #     [IP_PROFILE current|safe]  default current
+#     [IP_TEMPLATE_KIND yaul|sbl|native] default: yaul
+#     [BOOT_PAYLOADS <manifest>] required for native
 #     [IP_TEMPLATE <path>]     default: the package's yaul IP template
 #     [ROOT_DIRS <dir>...]     directories whose contents land in the disc root
 #     [ROOT_FILES <file>...]   individual files placed in the disc root
@@ -107,7 +109,7 @@ endfunction()
 # 3 interpreter and mkisofs, genisoimage or xorrisofs.
 function(libsaturn_add_disc target)
     cmake_parse_arguments(PARSE_ARGV 1 ARG "ALL"
-        "NAME;OUTPUT_DIR;IP_PROFILE;IP_TEMPLATE"
+        "NAME;OUTPUT_DIR;IP_PROFILE;IP_TEMPLATE;IP_TEMPLATE_KIND;BOOT_PAYLOADS"
         "ROOT_DIRS;ROOT_FILES;DEPENDS")
     if(ARG_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR
@@ -144,15 +146,32 @@ function(libsaturn_add_disc target)
     if(NOT _profile STREQUAL "current" AND NOT _profile STREQUAL "safe")
         message(FATAL_ERROR "libsaturn_add_disc: IP_PROFILE must be current or safe")
     endif()
+    set(_kind "${ARG_IP_TEMPLATE_KIND}")
+    if(NOT _kind)
+        set(_kind yaul)
+    endif()
+    if(NOT _kind MATCHES "^(yaul|sbl|native)$")
+        message(FATAL_ERROR "IP_TEMPLATE_KIND must be yaul, sbl or native")
+    endif()
+    if(_kind STREQUAL "native" AND (NOT ARG_BOOT_PAYLOADS OR NOT EXISTS "${ARG_BOOT_PAYLOADS}"))
+        message(FATAL_ERROR "native requires an explicit BOOT_PAYLOADS manifest")
+    endif()
     set(_template "${ARG_IP_TEMPLATE}")
     if(NOT _template)
-        set(_template "${LIBSATURN_DISC_BOOT_DIR}/ip_yaul_template.bin")
+        set(_template "${LIBSATURN_DISC_BOOT_DIR}/ip_${_kind}_template.bin")
     endif()
-    if(NOT EXISTS "${_template}")
+    if(NOT _kind STREQUAL "native" AND NOT EXISTS "${_template}")
         message(FATAL_ERROR "libsaturn_add_disc: IP template '${_template}' not found")
     endif()
 
-    set(_content_deps ${ARG_ROOT_FILES})
+    set(_content_deps ${ARG_ROOT_FILES} "${LIBSATURN_DISC_TOOLS_DIR}/boot_image.py"
+        "${LIBSATURN_DISC_TOOLS_DIR}/normalize_iso_dates.py")
+    if(_kind STREQUAL "native")
+        get_filename_component(_payload_dir "${ARG_BOOT_PAYLOADS}" DIRECTORY)
+        file(GLOB _payload_files CONFIGURE_DEPENDS "${_payload_dir}/*.bin")
+        list(APPEND _content_deps "${ARG_BOOT_PAYLOADS}" ${_payload_files}
+            "${LIBSATURN_DISC_AIP_SOURCE}" "${LIBSATURN_DISC_TOOLS_DIR}/build_native_ip.py")
+    endif()
     foreach(_d IN LISTS ARG_ROOT_DIRS)
         file(GLOB_RECURSE _found CONFIGURE_DEPENDS "${_d}/*")
         list(APPEND _content_deps ${_found})
@@ -170,7 +189,10 @@ function(libsaturn_add_disc target)
                 "-DMKISOFS=${LIBSATURN_MKISOFS}"
                 "-DAPP_BIN=$<TARGET_FILE_DIR:${target}>/$<TARGET_FILE_BASE_NAME:${target}>.app.bin"
                 "-DOUT_DIR=${_dir}" "-DNAME=${_name}" "-DPROFILE=${_profile}"
-                "-DTEMPLATE=${_template}"
+                "-DTEMPLATE=${_template}" "-DBOOT_KIND=${_kind}" "-DBOOT_PAYLOADS=${ARG_BOOT_PAYLOADS}"
+                "-DAIP_SOURCE=${LIBSATURN_DISC_AIP_SOURCE}"
+                "-DAPP_ELF=$<TARGET_FILE:${target}>" "-DSH2_NM=${CMAKE_NM}"
+                "-DSH2_CC=${CMAKE_C_COMPILER}" "-DSH2_OBJCOPY=${CMAKE_OBJCOPY}"
                 "-DROOT_DIRS=${_dirs}" "-DROOT_FILES=${_files}"
                 -P "${LIBSATURN_CMAKE_SCRIPT_DIR}/LibSaturnBuildDisc.cmake"
         DEPENDS ${target} ${_content_deps} ${ARG_DEPENDS}

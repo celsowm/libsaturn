@@ -18,7 +18,11 @@ libsaturn_configure_executable(consumer)
 libsaturn_add_binary(consumer MAX_BYTES 983040)
 # Bootable disc through the package's own tooling; disc_data/ and both files land in the disc root
 # (more than one ROOT_FILES entry: the list must survive the trip into the disc script).
-libsaturn_add_disc(consumer ROOT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/disc_data"
+set(LIBSATURN_TEST_BOOT_KIND yaul CACHE STRING "Boot profile under test")
+set(LIBSATURN_TEST_BOOT_PAYLOADS "" CACHE FILEPATH "Local native payload manifest")
+libsaturn_add_disc(consumer IP_TEMPLATE_KIND "${LIBSATURN_TEST_BOOT_KIND}"
+    BOOT_PAYLOADS "${LIBSATURN_TEST_BOOT_PAYLOADS}"
+    ROOT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/disc_data"
     ROOT_FILES "${CMAKE_CURRENT_SOURCE_DIR}/disc_files/ONE.TXT" "${CMAKE_CURRENT_SOURCE_DIR}/disc_files/TWO.TXT")
 
 # Facts the driver verifies about the resolved package.

@@ -35,6 +35,8 @@ TOOLS        := tools
 
 # -- Config -----------------------------------------------------
 EXAMPLE      ?= hello_world
+SOURCE_DATE_EPOCH ?= 1791936000
+export SOURCE_DATE_EPOCH
 IP_PROFILE   ?= current
 IP_TEMPLATE_KIND ?= yaul
 APP_LOAD_ADDR_HEX := $(shell $(PYTHON) tools/memory_layout.py app_load_hex 2>/dev/null || echo 06004000)
@@ -66,7 +68,7 @@ ifeq ($(LIBSATURN_LOCK_TRAMPOLINE),)
 MAX_APP_BIN_BYTES := 983040
 
 VALID_IP_PROFILES  := current safe
-VALID_IP_TEMPLATE_KINDS := yaul sbl minimal yaul_fixed region_free minimal_boot correct final
+VALID_IP_TEMPLATE_KINDS := native yaul sbl minimal yaul_fixed region_free minimal_boot correct final
 
 ifneq ($(filter $(IP_PROFILE),$(VALID_IP_PROFILES)),$(IP_PROFILE))
 $(error Invalid IP_PROFILE '$(IP_PROFILE)'. Use: $(VALID_IP_PROFILES))
@@ -76,6 +78,7 @@ $(error Invalid IP_TEMPLATE_KIND '$(IP_TEMPLATE_KIND)'. Use: $(VALID_IP_TEMPLATE
 endif
 
 # -- IP template ------------------------------------------------
+NATIVE_BOOT_PAYLOADS ?= $(BUILD_DIR)/native-boot/payloads.json
 IP_TEMPLATE := assets/boot/ip_$(IP_TEMPLATE_KIND)_template.bin
 IP_GENERATED = $(OUTPUT_DIR)/$(EXAMPLE).IP.BIN
 
@@ -145,7 +148,8 @@ ifneq ($(strip $(SAT_PROFILE_METRICS)),)
 LIB_PROFILE_METRICS := 1
 endif
 LIB_FAULT_MODE := $(if $(strip $(SAT_PARALLEL_TEST_FAULT)),$(SAT_PARALLEL_TEST_FAULT),0)
-LIB_CFLAGS := $(BASE_CFLAGS) -DSAT_PROFILE_METRICS=$(LIB_PROFILE_METRICS) \
+SAT_LEGACY_EARLY_SCU ?= 0
+LIB_CFLAGS := $(BASE_CFLAGS) -DSAT_LEGACY_EARLY_SCU=$(SAT_LEGACY_EARLY_SCU) -DSAT_PROFILE_METRICS=$(LIB_PROFILE_METRICS) \
               -DSAT_PARALLEL_TEST_FAULT=$(LIB_FAULT_MODE)
 LIB_CXXFLAGS := $(LIB_CFLAGS) -std=c++20 -fno-exceptions -fno-rtti \
                 -fno-threadsafe-statics -fno-use-cxa-atexit
@@ -284,6 +288,7 @@ all: check-tools dirs $(ELF) $(DISC_BIN) $(CUE) $(LIBRARY)
 	@cp $(ELF) $(BUILD_DIR)/$(EXAMPLE).elf
 	@cp $(APP_BIN) $(BUILD_DIR)/$(EXAMPLE).app.bin
 	@cp $(ISO) $(BUILD_DIR)/$(EXAMPLE).iso
+	@cp $(IP_GENERATED) $(BUILD_DIR)/$(EXAMPLE).IP.BIN
 	@cp $(DISC_BIN) $(BUILD_DIR)/$(EXAMPLE).bin
 	@cp $(CUE) $(BUILD_DIR)/$(EXAMPLE).cue
 	@# The harness reads symbol addresses (e.g. Skybridge telemetry) here.
@@ -597,6 +602,15 @@ $(APP_BIN): $(ELF)
 		exit 1; \
 	fi
 
+ifeq ($(IP_TEMPLATE_KIND),native)
+$(IP_GENERATED): $(APP_BIN) $(ELF) src/core/startup/aip.s tools/check_boot_memory.py tools/boot_trace_address.py $(NATIVE_BOOT_PAYLOADS) $(wildcard $(dir $(NATIVE_BOOT_PAYLOADS))*.bin) tools/build_native_ip.py tools/check_native_ip.py tools/boot_image.py
+	@mkdir -p $(dir $@)
+	$(PYTHON) tools/check_boot_memory.py --elf $(ELF) --app $(APP_BIN)
+	$(CC) $(ASFLAGS) -Wa,--defsym,AIP_TRACE_ADDRESS=$$($(PYTHON) tools/boot_trace_address.py --nm $(TARGET)-nm --elf $(ELF)) -c src/core/startup/aip.s -o $(OUTPUT_DIR)/aip.o
+	$(OBJCOPY) -O binary -j .text.aip $(OUTPUT_DIR)/aip.o $(OUTPUT_DIR)/aip.bin
+	$(PYTHON) tools/build_native_ip.py --payloads $(NATIVE_BOOT_PAYLOADS) --aip $(OUTPUT_DIR)/aip.bin --app $(APP_BIN) --profile $(IP_PROFILE) --output $@ --title LIBSATURN
+	$(PYTHON) tools/check_native_ip.py --ip $@ --app $(APP_BIN) --payloads $(NATIVE_BOOT_PAYLOADS)
+else
 $(IP_GENERATED): $(APP_BIN) $(IP_TEMPLATE) tools/gen_ip_bin.py tools/check_ip_bin.py tools/memory_layout.py
 	@mkdir -p $(dir $@)
 	$(PYTHON) tools/gen_ip_bin.py --template $(IP_TEMPLATE) --output $@ \
@@ -605,7 +619,9 @@ $(IP_GENERATED): $(APP_BIN) $(IP_TEMPLATE) tools/gen_ip_bin.py tools/check_ip_bi
 		--expected-size $$(wc -c < $(APP_BIN)) --profile $(IP_PROFILE) \
 		--load-addr 0x$(APP_LOAD_ADDR_HEX)
 
-$(ISO): $(APP_BIN) $(IP_GENERATED) $(EXAMPLE_ISO_FILES) tools/check_iso.py
+endif
+
+$(ISO): $(APP_BIN) $(IP_GENERATED) $(EXAMPLE_ISO_FILES) tools/check_iso.py tools/boot_image.py tools/normalize_iso_dates.py
 	@mkdir -p $(dir $@)
 	@rm -rf $(ISO_ROOT)
 	@mkdir -p $(ISO_ROOT)
@@ -621,7 +637,8 @@ endif
 		-volset "LIBSATURN" -publisher "LIBSATURN" -preparer "LIBSATURN" \
 		-A "LIBSATURN" -G $(IP_GENERATED) -full-iso9660-filenames \
 		-o $@ $(ISO_ROOT)
-	$(PYTHON) tools/check_iso.py --iso $@ --expected-size $$(wc -c < $(APP_BIN)) \
+	$(PYTHON) tools/normalize_iso_dates.py --iso $@ --epoch $(SOURCE_DATE_EPOCH)
+	$(PYTHON) tools/check_iso.py --iso $@ --app $(APP_BIN) --expected-size $$(wc -c < $(APP_BIN)) \
 		--profile $(IP_PROFILE) --load-addr 0x$(APP_LOAD_ADDR_HEX)
 
 # The ISO is a useful intermediate for filesystem inspection and the harness,
@@ -768,6 +785,7 @@ test: $(HOST_TEST_BINS)
 	done; \
 	if [ $$fail -ne 0 ]; then echo "[test] FAILED"; exit 1; fi; \
 	echo "[test] all host tests passed"
+	$(PYTHON) -m unittest tests.test_boot_image tests.test_native_ip -v
 	@for t in $(HOST_TOOL_TESTS); do \
 		echo "[test] $$t"; \
 		$(PYTHON) $$t || exit 1; \

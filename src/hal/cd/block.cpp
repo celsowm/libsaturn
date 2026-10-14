@@ -16,7 +16,10 @@ struct Command {
 
 using CdWord = uint16_t __attribute__((may_alias));
 
-#if defined(__sh__) || defined(__SH2__)
+#if defined(SAT_CD_BLOCK_TEST_BUS)
+uint16_t read_reg(uint32_t address) { return sat_cd_test_read(address); }
+void write_reg(uint32_t address, uint16_t value) { sat_cd_test_write(address, value); }
+#elif defined(__sh__) || defined(__SH2__)
 volatile uint16_t& reg(uint32_t address) {
     return *reinterpret_cast<volatile uint16_t*>(address);
 }
@@ -35,12 +38,55 @@ uint32_t timeout_for(const sat_cd_block_t* block) {
 
 using saturn::hal::cd::pump_progress;
 
+uint32_t now_ms(const sat_cd_block_t* block) {
+    return block->timing.now_ms ? block->timing.now_ms(block->timing.clock_context) : 0u;
+}
+
+void begin_operation(sat_cd_block_t* block) {
+    const uint32_t timeouts = block->diagnostics.timeout_count;
+    block->diagnostics = {};
+    block->diagnostics.timeout_count = timeouts;
+    block->operation_start_ms = now_ms(block);
+}
+
+sat_result_t snapshot(sat_cd_block_t* block, sat_result_t result) {
+    auto& d = block->diagnostics;
+    d.elapsed_ms = now_ms(block) - block->operation_start_ms;
+    d.hirq = read_reg(SAT_CD_BLOCK_HIRQ);
+    d.response[0] = read_reg(SAT_CD_BLOCK_CR1);
+    d.response[1] = read_reg(SAT_CD_BLOCK_CR2);
+    d.response[2] = read_reg(SAT_CD_BLOCK_CR3);
+    d.response[3] = read_reg(SAT_CD_BLOCK_CR4);
+    if (result == SAT_ERR_TIMEOUT && d.result != SAT_ERR_TIMEOUT) ++d.timeout_count;
+    d.result = result;
+    return result;
+}
+
+bool operation_expired(sat_cd_block_t* block, uint32_t now) {
+    return block->timing.now_ms &&
+        now - block->operation_start_ms >= block->timing.operation_timeout_ms;
+}
+
 sat_result_t wait_hirq(sat_cd_block_t* block, uint16_t mask) {
-    for (uint32_t i = 0u; i < timeout_for(block); ++i) {
+    block->diagnostics.wait_mask = mask;
+    const uint32_t begin = now_ms(block);
+    for (uint32_t i = 0u;; ++i) {
+        if (block->timing.now_ms) {
+            const uint32_t now = now_ms(block);
+            if (now - begin >= block->timing.command_timeout_ms || operation_expired(block, now))
+                return snapshot(block, SAT_ERR_TIMEOUT);
+        } else if (i >= timeout_for(block)) return snapshot(block, SAT_ERR_TIMEOUT);
         if ((read_reg(SAT_CD_BLOCK_HIRQ) & mask) != 0u) return SAT_OK;
         if ((i & 0x0FFFu) == 0u) pump_progress(block);
     }
-    return SAT_ERR_TIMEOUT;
+}
+
+void remember_command(sat_cd_block_t* block, const Command& command) {
+    block->diagnostics.response_valid = 0u;
+    block->diagnostics.command[0] = command.cr1;
+    block->diagnostics.command[1] = command.cr2;
+    block->diagnostics.command[2] = command.cr3;
+    block->diagnostics.command[3] = command.cr4;
 }
 
 void write_command(const Command& command) {
@@ -66,14 +112,17 @@ sat_result_t execute(
     Command* out_response
 ) {
     if (block == nullptr || out_response == nullptr) return SAT_ERR_INVALID_ARG;
+    remember_command(block, command);
+    if (operation_expired(block, now_ms(block))) return snapshot(block, SAT_ERR_TIMEOUT);
     const uint16_t hirq = read_reg(SAT_CD_BLOCK_HIRQ);
-    if ((hirq & SAT_CD_BLOCK_HIRQ_CMOK) == 0u) return SAT_ERR_BUSY;
+    if ((hirq & SAT_CD_BLOCK_HIRQ_CMOK) == 0u) return snapshot(block, SAT_ERR_BUSY);
     write_reg(
         SAT_CD_BLOCK_HIRQ,
         static_cast<uint16_t>(~(wait_flags | SAT_CD_BLOCK_HIRQ_CMOK)));
     write_command(command);
     SAT_TRY(wait_hirq(block, SAT_CD_BLOCK_HIRQ_CMOK));
     *out_response = read_command();
+    block->diagnostics.response_valid = 1u;
     const uint8_t status = static_cast<uint8_t>(out_response->cr1 >> 8);
     if (status == 0xFFu) return SAT_ERR_IO;
     if ((status & 0x80u) != 0u) return SAT_ERR_BUSY;
@@ -158,6 +207,7 @@ sat_result_t take_sectors(sat_cd_block_t* block, uint8_t* destination, uint32_t 
         {0x6300u, 0u, 0u, static_cast<uint16_t>(take)},
         SAT_CD_BLOCK_HIRQ_DRDY));
     SAT_TRY(transfer_words(destination, take * SAT_CD_SECTOR_BYTES));
+    block->diagnostics.bytes_transferred += take * SAT_CD_SECTOR_BYTES;
     return execute_and_wait(block, {0x0600u, 0u, 0u, 0u}, 0u);
 }
 
@@ -225,29 +275,49 @@ sat_result_t read_callback(void* context, uint32_t lba, uint32_t count, void* de
 
 }  // namespace
 
-extern "C" sat_result_t sat_cd_block_init(
-    sat_cd_block_t* out_block,
-    uint32_t timeout_iterations
-) {
-    if (out_block == nullptr) return SAT_ERR_INVALID_ARG;
-    *out_block = {};
-    out_block->timeout_iterations = timeout_iterations == 0u
-        ? SAT_CD_BLOCK_DEFAULT_TIMEOUT : timeout_iterations;
-#if !defined(__sh__) && !defined(__SH2__)
+namespace {
+sat_result_t initialize(sat_cd_block_t* out_block) {
+#if !defined(__sh__) && !defined(__SH2__) && !defined(SAT_CD_BLOCK_TEST_BUS)
+    (void)out_block;
     return SAT_ERR_UNSUPPORTED;
 #else
-    Command response{};
-    const auto command = [&](Command command, uint16_t flags) -> sat_result_t {
-        return execute_and_wait(out_block, command, flags);
-    };
-    SAT_TRY(command({0x7500u, 0u, 0u, 0u}, SAT_CD_BLOCK_HIRQ_EFLS));
-    SAT_TRY(command({0x0400u, 0u, 0u, 0x040Fu}, 0u));
-    SAT_TRY(command({0x0600u, 0u, 0u, 0u}, 0u));
-    SAT_TRY(command({0x48FCu, 0u, 0u, 0u}, SAT_CD_BLOCK_HIRQ_ESEL));
-    (void)response;
+    begin_operation(out_block);
+    const Command commands[] = {{0x7500u,0u,0u,0u},{0x0400u,0u,0u,0x040fu},
+                                 {0x0600u,0u,0u,0u},{0x48fcu,0u,0u,0u}};
+    for (const Command command : commands) {
+        const uint16_t flags = command.cr1 == 0x7500u ? SAT_CD_BLOCK_HIRQ_EFLS :
+            (command.cr1 == 0x48fcu ? SAT_CD_BLOCK_HIRQ_ESEL : 0u);
+        const sat_result_t result = execute_and_wait(out_block,command,flags);
+        if (result != SAT_OK) return snapshot(out_block,result);
+    }
     out_block->initialized = 1u;
-    return SAT_OK;
+    return snapshot(out_block,SAT_OK);
 #endif
+}
+}
+
+extern "C" sat_result_t sat_cd_block_init(sat_cd_block_t* out_block, uint32_t iterations) {
+    if (!out_block) return SAT_ERR_INVALID_ARG;
+    *out_block = {};
+    out_block->timeout_iterations = iterations ? iterations : SAT_CD_BLOCK_DEFAULT_TIMEOUT;
+    return initialize(out_block);
+}
+
+extern "C" sat_result_t sat_cd_block_init_ex(sat_cd_block_t* out_block, const sat_cd_block_config_t* config) {
+    if (!out_block || !config || !config->now_ms || !config->command_timeout_ms ||
+        !config->operation_timeout_ms || config->command_timeout_ms > 0x7fffffffu ||
+        config->operation_timeout_ms > 0x7fffffffu) return SAT_ERR_INVALID_ARG;
+    const sat_cd_block_config_t saved = *config;
+    *out_block = {};
+    out_block->timing = saved;
+    return initialize(out_block);
+}
+
+extern "C" sat_result_t sat_cd_block_get_diagnostics(
+    const sat_cd_block_t* block, sat_cd_block_diagnostics_t* out) {
+    if (!block || !out) return SAT_ERR_INVALID_ARG;
+    *out = block->diagnostics;
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_cd_block_command(
@@ -256,7 +326,10 @@ extern "C" sat_result_t sat_cd_block_command(
     if (block == nullptr || block->initialized == 0u || command == nullptr || response == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
-    if ((read_reg(SAT_CD_BLOCK_HIRQ) & SAT_CD_BLOCK_HIRQ_CMOK) == 0u) return SAT_ERR_BUSY;
+    if (block->read_active || block->stream_active || block->progress_active) return SAT_ERR_BUSY;
+    begin_operation(block);
+    remember_command(block, {command[0],command[1],command[2],command[3]});
+    if ((read_reg(SAT_CD_BLOCK_HIRQ) & SAT_CD_BLOCK_HIRQ_CMOK) == 0u) return snapshot(block,SAT_ERR_BUSY);
     write_reg(SAT_CD_BLOCK_HIRQ, static_cast<uint16_t>(~SAT_CD_BLOCK_HIRQ_CMOK));
     write_command({command[0], command[1], command[2], command[3]});
     SAT_TRY(wait_hirq(block, SAT_CD_BLOCK_HIRQ_CMOK));
@@ -265,7 +338,8 @@ extern "C" sat_result_t sat_cd_block_command(
     response[1] = answer.cr2;
     response[2] = answer.cr3;
     response[3] = answer.cr4;
-    return SAT_OK;
+    block->diagnostics.response_valid = 1u;
+    return snapshot(block,SAT_OK);
 }
 
 extern "C" sat_result_t sat_cd_block_set_progress_service(
@@ -290,11 +364,16 @@ extern "C" sat_result_t sat_cd_block_read_sectors(
         return SAT_ERR_INVALID_ARG;
     if (block->read_active != 0u) return SAT_ERR_BUSY;
     if (block->stream_active != 0u) SAT_TRY(sat_cd_stream_finish(block));
+    begin_operation(block);
+    block->diagnostics.lba = lba;
+    if (sector_count > 0xffffffu) return SAT_ERR_INVALID_ARG;
+    block->diagnostics.bytes_requested = sector_count * SAT_CD_SECTOR_BYTES;
     block->read_active = 1u;
     const sat_result_t status = read_impl(
         block, lba, sector_count, static_cast<uint8_t*>(destination));
     block->read_active = 0u;
-    return status;
+    if (status == SAT_ERR_TIMEOUT) return status; /* preserve first failure snapshot */
+    return snapshot(block,status);
 }
 
 extern "C" sat_result_t sat_cd_stream_begin(
@@ -305,6 +384,9 @@ extern "C" sat_result_t sat_cd_stream_begin(
         return SAT_ERR_INVALID_ARG;
     }
     if (block->read_active != 0u || block->stream_active != 0u) return SAT_ERR_BUSY;
+    begin_operation(block);
+    block->diagnostics.lba = lba;
+    block->diagnostics.bytes_requested = sector_count * SAT_CD_SECTOR_BYTES;
     block->read_active = 1u;  // the setup commands are a read: no nesting
     const sat_result_t status = start_play(block, lba, sector_count);
     block->read_active = 0u;

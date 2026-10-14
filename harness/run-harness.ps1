@@ -19,6 +19,12 @@ param(
     [string]$Example,
 
     [string]$Bios,
+    [string]$DiscImage,
+    [string]$ApplicationBinary,
+    [ValidateSet('injection', 'bios')]
+    [string]$BootMode = 'injection',
+    [string]$CdbRom,
+    [string]$BootMarker,
     [int]$Frames = 60,
     [int]$BootFrames = 90,
     [string]$Msys2Root,
@@ -89,6 +95,12 @@ if ($normalizedExample -match '^(examples[\\/])(.+)$') {
 $safeName = ($normalizedExample -replace '[\\/]', '_')
 $isoPath = Join-Path $RepoRoot ("build\examples\{0}.iso" -f $safeName)
 $binPath = Join-Path $RepoRoot ("build\examples\{0}.app.bin" -f $safeName)
+if ($DiscImage -or $ApplicationBinary) {
+    if (-not $DiscImage -or -not $ApplicationBinary) { throw 'Pass both DiscImage and ApplicationBinary' }
+    $isoPath = $DiscImage
+    $binPath = $ApplicationBinary
+    if (-not (Test-Path $isoPath)) { throw "Disc image not found: $isoPath" }
+}
 $backupRamPath = if ($BackupRam) {
     $BackupRam
 } elseif ($normalizedExample -eq 'save_backup_demo') {
@@ -114,10 +126,10 @@ if (-not (Test-Path $binPath)) {
 # entry symbol through Ymir's generic SH-2 reset vector so SSHON still starts
 # the actual guest Slave code.
 $slaveResetEntry = $null
-if ($normalizedExample -eq 'dual_sh2' -or $normalizedExample -eq 'parallel_runtime' -or
+if ($BootMode -eq 'injection' -and ($normalizedExample -eq 'dual_sh2' -or $normalizedExample -eq 'parallel_runtime' -or
     $normalizedExample -eq 'skybridge_3d' -or $normalizedExample -eq 'dino_demo' -or
     $normalizedExample -eq 'parallel_sched_demo' -or
-    $normalizedExample -eq 'city_walk') {
+    $normalizedExample -eq 'city_walk')) {
     $elfPath = Join-Path $RepoRoot ("build\examples\{0}.elf" -f $safeName)
     if (-not (Test-Path $elfPath)) {
         throw "Expected $elfPath to resolve _saturn_slave_entry for the Ymir dual-SH2 handoff."
@@ -163,8 +175,10 @@ if ($ForceRebuildHarness -or -not (Test-Path $probeExe)) {
 
 # -- Run the probe --
 $outJson = if ($Out) { $Out } else { Join-Path $HarnessRoot 'build\probe.json' }
-Write-Host "[run-harness] Running probe: $normalizedExample, $BootFrames boot frames + $Frames frames"
+if ($BootMode -eq 'bios') { Write-Host "[run-harness] BIOS disc boot: $normalizedExample, $Frames fields; no injection" }
+else { Write-Host "[run-harness] Running probe: $normalizedExample, $BootFrames boot frames + $Frames frames" }
 $probeArgs = @(
+    '--boot-mode', $BootMode,
     '--iso', $isoPath,
     '--bios', $biosPath,
     '--bin', $binPath,
@@ -175,6 +189,8 @@ $probeArgs = @(
     '--fb-sample', $FbSample,
     '--out', $outJson
 )
+if ($CdbRom) { $probeArgs += @('--cdb-rom', $CdbRom) }
+if ($BootMarker) { $probeArgs += @('--boot-marker', $BootMarker) }
 if ($ProfileSkybridgeTelemetry) {
     if ($normalizedExample -ne 'skybridge_3d') {
         throw '-ProfileSkybridgeTelemetry is available only for skybridge_3d.'

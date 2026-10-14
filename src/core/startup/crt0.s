@@ -7,17 +7,17 @@
  *   2. BIOS loads 0.BIN (our executable) at 0x06004000
  *   3. BIOS jumps to _start (entry point defined in linker)
  *   4. _start: disables IRQs, configures stack, clears BSS
- *   5. Calls _saturn_early_init() to initialize hardware
- *   6. Calls _main() (user's main function)
+ *   5. Calls _main() (user's main function)
+ *   6. Application calls sat_init(), which owns hardware initialization
  *
  * Difference vs libyaul:
  *   - libyaul: _start -> ___sys_init() -> main()
- *   - libsaturn: _start -> _saturn_early_init() -> _main()
+ *   - libsaturn: _start -> _main() -> sat_init()
  *   - JoEngine: uses -nostartfiles, main() directly as entry point
  *
  * Memory addresses:
  *   - Work RAM High (WRAMH): 0x06000000 - 0x060FFFFF (1MB, code + data)
- *   - Work RAM Low (WRAML): 0x00200000 - 0x002FFFFF (512KB, data)
+ *   - Work RAM Low (WRAML): 0x00200000 - 0x002FFFFF (1MB, data)
  *   - Stack: top at 0x060FFFFC (end of WRAMH)
  * =========================================================================== */
 
@@ -26,13 +26,32 @@
     .align 4
 
 _start:
+    /* Undefined weak symbol means tracing is disabled. The record lives in
+     * initialized application data, survives BSS clear and owns no BIOS RAM. */
+    mov.l   .Lboot_trace, r0
+    tst     r0, r0
+    bt      .Lno_entry_trace
+    mov.l   .Lcache_through, r1
+    or      r1, r0
+    mov     #2, r1
+    mov.l   r1, @(12,r0)
+    mov.l   @(20,r0), r1
+    mov     #4, r2
+    or      r2, r1
+    mov.l   r1, @(20,r0)
+    stc     sr, r1
+    mov.l   r1, @(28,r0)
+    stc     vbr, r1
+    mov.l   r1, @(32,r0)
+    mov.l   r15, @(36,r0)
+.Lno_entry_trace:
     /* -------------------------------------------------------------------
      * 1. Disable interrupts and configure CPU mode
      * -------------------------------------------------------------------
      * SR (Status Register) interrupt mask bits:
      *   I3-I0 (bits 4-7) = IRQ mask level
      *   0xF0 = mask all IRQs (most restrictive mode)
-     *   BL (bit 0) = branch delay slot
+     *   Other SR bits are preserved.
      * ------------------------------------------------------------------- */
     stc     sr, r0
     mov.l   .Lsr_mask, r1
@@ -96,6 +115,19 @@ _start:
      * This allows user's main() to execute first if desired.
      * ------------------------------------------------------------------- */
 .Lmain_call:
+    mov.l   .Lboot_trace, r0
+    tst     r0, r0
+    bt      .Lno_ready_trace
+    mov.l   .Lcache_through, r1
+    or      r1, r0
+    mov     #3, r1
+    mov.l   r1, @(12,r0)
+    mov.l   r1, @(16,r0)
+    mov.l   @(20,r0), r1
+    mov     #8, r2
+    or      r2, r1
+    mov.l   r1, @(20,r0)
+.Lno_ready_trace:
     mov.l   .Lmain, r0
     jsr     @r0
     nop
@@ -117,3 +149,6 @@ hang:
 .Lwram_l_start: .long __wram_l_start /* .wram_l start (linker symbol) */
 .Lwram_l_end:   .long __wram_l_end   /* .wram_l end (linker symbol) */
 .Lmain:      .long _main         /* Address of main() function */
+    .weak _sat_boot_trace_record
+.Lboot_trace: .long _sat_boot_trace_record
+.Lcache_through: .long 0x20000000

@@ -1,35 +1,33 @@
-"""Valida ISO gerada verificando o primeiro setor (ip.bin)."""
+"""Validate Saturn metadata and the actual ISO9660 first-read file."""
 import argparse
-import struct
 import sys
 from pathlib import Path
+from boot_image import inspect, read_image
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Validate ISO first sector")
-    parser.add_argument("--iso", required=True, help="Path to ISO file")
-    parser.add_argument("--expected-size", type=int, required=True, help="Expected app size")
-    parser.add_argument("--profile", default="current", help="IP profile")
-    parser.add_argument("--load-addr", default="0x06004000", help="Expected load address")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--iso', required=True, type=Path)
+    parser.add_argument('--expected-size', required=True, type=int)
+    parser.add_argument('--profile', default='current')
+    parser.add_argument('--load-addr', default='0x06004000')
+    parser.add_argument('--app', type=Path)
+    parser.add_argument('--strict-ip', action='store_true')
     args = parser.parse_args()
-
-    load_addr = int(args.load_addr, 16)
-    expected_first_size = 0 if args.profile == "safe" else args.expected_size
-
-    iso = Path(args.iso).read_bytes()
-    h = iso[:2048]
-    magic = h[0:16]
-    first_read = struct.unpack(">I", h[0x0F0:0x0F4])[0]
-    first_size = struct.unpack(">I", h[0x0F4:0x0F8])[0]
-
-    ok = magic == b"SEGA SEGASATURN " and first_read == load_addr and first_size == expected_first_size
-
-    print(f"[check] iso profile={args.profile} lba0 magic={magic!r} "
-          f"first_read=0x{first_read:08X} first_size=0x{first_size:08X}")
-
-    if not ok:
-        sys.exit(1)
+    try:
+        report = inspect(read_image(args.iso), args.app.read_bytes() if args.app else None, args.strict_ip)
+        ip = report['ip']
+        if ip['first_read_address'] != int(args.load_addr, 16):
+            raise ValueError('wrong first-read address')
+        if ip['first_read_size'] != (0 if args.profile == 'safe' else args.expected_size):
+            raise ValueError('wrong first-read header size')
+        if report['root'][0]['size'] != args.expected_size:
+            raise ValueError('wrong actual first-read length')
+        print(f"[check] ISO first-read OK: {report['root'][0]} IP observations={ip['issues']}")
+    except (OSError, ValueError) as error:
+        print(f'[check] ISO FAIL: {error}', file=sys.stderr)
+        raise SystemExit(1) from error
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

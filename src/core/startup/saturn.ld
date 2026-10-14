@@ -10,7 +10,7 @@
  * | Work RAM High    | 0x06000000     | 1 MB   | Code + data (primary)     |
  * | (WRAMH)          |                |        |                           |
  * +------------------+----------------+--------+---------------------------+
- * | Work RAM Low     | 0x00200000     | 512 KB | Data (secondary)          |
+ * | Work RAM Low     | 0x00200000     | 1 MB   | Data (secondary)          |
  * | (WRAML)          |                |        |                           |
  * +------------------+----------------+--------+---------------------------+
  * | VDP1 VRAM        | 0x25C00000     | 512 KB | Sprites/polygons         |
@@ -51,7 +51,7 @@ MEMORY {
     /* Work RAM Low: secondary data
      * Used for large buffers that don't fit in WRAMH
      * Origin: 0x00200000
-     * Size: 0x100000 = 512 KB */
+     * Size: 0x100000 = 1 MB */
     WRAML (rw)  : ORIGIN = 0x00200000, LENGTH = 0x00100000
 }
 
@@ -105,6 +105,10 @@ SECTIONS {
      * ========================================================================= */
     .data : {
         __data_start = .;    /* Symbol for size calculation */
+        . = ALIGN(4);
+        __boot_trace_start = .;
+        KEEP(*(.boot_trace)) /* Optional initialized, application-owned record */
+        __boot_trace_end = .;
         *(.data .data.*)     /* Initialized variables */
         . = ALIGN(4);
         __data_end = .;
@@ -151,6 +155,7 @@ SECTIONS {
     }
 }
 
+ASSERT(_start == 0x06004000, "_start must be the first byte of 0.BIN")
 ASSERT(ADDR(.text) == 0x06004000, "application did not start at Saturn load address")
 
 /* The last 512 bytes of Work RAM Low belong to sat_exec (saturn/exec.h): its copy routine and the

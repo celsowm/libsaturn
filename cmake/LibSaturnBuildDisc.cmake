@@ -42,12 +42,29 @@ set(_bin "${OUT_DIR}/${NAME}.bin")
 set(_cue "${OUT_DIR}/${NAME}.cue")
 
 file(MAKE_DIRECTORY "${OUT_DIR}")
+if(BOOT_KIND STREQUAL "native")
+    _disc_run("verify native load memory" "${PYTHON}" "${TOOLS_DIR}/check_boot_memory.py" --elf "${APP_ELF}" --app "${APP_BIN}")
+    execute_process(COMMAND "${PYTHON}" "${TOOLS_DIR}/boot_trace_address.py" --nm "${SH2_NM}" --elf "${APP_ELF}"
+        OUTPUT_VARIABLE _trace RESULT_VARIABLE _trace_rc OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT _trace_rc EQUAL 0)
+        message(FATAL_ERROR "could not resolve native trace symbol")
+    endif()
+    _disc_run("assemble native AIP" "${SH2_CC}" -m2 -mb "-Wa,--defsym,AIP_TRACE_ADDRESS=${_trace}" -c "${AIP_SOURCE}" -o "${OUT_DIR}/aip.o")
+    _disc_run("extract native AIP" "${SH2_OBJCOPY}" -O binary -j .text.aip "${OUT_DIR}/aip.o" "${OUT_DIR}/aip.bin")
+    _disc_run("compose native IP" "${PYTHON}" "${TOOLS_DIR}/build_native_ip.py"
+        --payloads "${BOOT_PAYLOADS}" --aip "${OUT_DIR}/aip.bin" --app "${APP_BIN}"
+        --profile "${PROFILE}" --output "${_ip}")
+    _disc_run("validate native IP" "${PYTHON}" "${TOOLS_DIR}/check_native_ip.py"
+        --ip "${_ip}" --app "${APP_BIN}" --payloads "${BOOT_PAYLOADS}")
+else()
 _disc_run("generate IP.BIN"
     "${PYTHON}" "${TOOLS_DIR}/gen_ip_bin.py" --template "${TEMPLATE}" --output "${_ip}"
     --profile "${PROFILE}" --load-addr "${_load}" --first-read-file "${APP_BIN}")
 _disc_run("check IP.BIN"
     "${PYTHON}" "${TOOLS_DIR}/check_ip_bin.py" --ip-bin "${_ip}" --template "${TEMPLATE}"
     --expected-size "${_app_size}" --profile "${PROFILE}" --load-addr "${_load}")
+
+endif()
 
 # Entries are '|'-separated (a ';' list does not survive the custom command); ';' still works when
 # the script is run by hand.
@@ -85,8 +102,14 @@ if(NOT _rc EQUAL 0 OR NOT EXISTS "${_iso}")
 ${_out}
 ${_err}")
 endif()
+if(DEFINED ENV{SOURCE_DATE_EPOCH})
+    set(_epoch "$ENV{SOURCE_DATE_EPOCH}")
+else()
+    set(_epoch 1791936000)
+endif()
+_disc_run("normalize ISO dates" "${PYTHON}" "${TOOLS_DIR}/normalize_iso_dates.py" --iso "${_iso}" --epoch "${_epoch}")
 _disc_run("check ISO"
-    "${PYTHON}" "${TOOLS_DIR}/check_iso.py" --iso "${_iso}" --expected-size "${_app_size}"
+    "${PYTHON}" "${TOOLS_DIR}/check_iso.py" --iso "${_iso}" --app "${APP_BIN}" --expected-size "${_app_size}"
     --profile "${PROFILE}" --load-addr "${_load}")
 _disc_run("convert ISO to raw Mode 1"
     "${PYTHON}" "${TOOLS_DIR}/iso_to_raw.py" --iso "${_iso}" --output "${_bin}")

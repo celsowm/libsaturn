@@ -32,7 +32,7 @@ def parse_manifest(path=MANIFEST):
 
 def library_sources(lists):
     return [src for name, files in lists.items()
-            if name != "LIBSATURN_STARTUP_SOURCES" for src in files]
+            if name not in ("LIBSATURN_STARTUP_SOURCES", "LIBSATURN_DISC_BOOT_SOURCES") for src in files]
 
 
 def startup_sources(lists):
@@ -55,7 +55,7 @@ def main():
     if args.startup:
         files = startup_sources(lists)
     elif args.all:
-        files = library_sources(lists) + startup_sources(lists)
+        files = library_sources(lists) + startup_sources(lists) + lists.get("LIBSATURN_DISC_BOOT_SOURCES", [])
     else:
         files = library_sources(lists)
     # One line, space separated: consumed by $(shell ...) in the Makefile.

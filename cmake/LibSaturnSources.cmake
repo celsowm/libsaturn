@@ -191,3 +191,8 @@ set(LIBSATURN_STARTUP_SOURCES
     src/core/startup/ip_stub.s
     src/core/startup/slave_entry.s
 )
+
+# Disc-only bootstrap, assembled separately and never linked into 0.BIN.
+set(LIBSATURN_DISC_BOOT_SOURCES
+    src/core/startup/aip.s
+)

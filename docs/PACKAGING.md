@@ -222,3 +222,37 @@ Adding a runtime source file means adding one line to the manifest;
 ## vcpkg
 
 Not supported. See [VCPKG_FEASIBILITY.md](VCPKG_FEASIBILITY.md).
+
+## Experimental native disc boot
+
+The default remains YAUL. Installed consumers can select `IP_TEMPLATE_KIND sbl`
+or the experimental native composer:
+
+```cmake
+libsaturn_add_disc(my_game
+    IP_TEMPLATE_KIND native
+    BOOT_PAYLOADS "${CMAKE_SOURCE_DIR}/local-boot/payloads.json"
+    ROOT_DIRS "${CMAKE_SOURCE_DIR}/disc")
+```
+
+Native requires an explicit provenance/hash manifest for security and region
+inputs. Missing inputs fail configuration/build; they are never downloaded or
+silently replaced by zero bytes. The AIP source and all composer/validator tools
+ship with the installed package and Conan export. Locally extracted payloads
+remain outside the source/package distribution until their rights are reviewed.
+`IP_PROFILE safe` is not a supported native combination.
+
+Make uses `IP_TEMPLATE_KIND=native` and `NATIVE_BOOT_PAYLOADS` (default:
+`build/native-boot/payloads.json`); PowerShell exposes `-IpTemplate native`.
+Both paths normalize plain ISO9660 metadata dates using `SOURCE_DATE_EPOCH`
+(default 1791936000), before generating raw-sector EDC/ECC. Reproducibility is
+checked with the same compiler and image-writer versions, not across arbitrary
+toolchains. First-read validation checks actual ISO root order and application
+bytes on all profiles; legacy header anomalies are reported without changing
+historical payloads.
+
+`sat_cd_block_init_ex` adds per-block monotonic deadlines and snapshots. The
+existing initializer preserves iteration-based behavior. `sat_cd_block_t` grew:
+rebuild consumers and the runtime together rather than mixing binary layouts.
+See the [optical tester](../examples/optical_emulators_tester/README.md) and
+[execution evidence](NATIVE_SATURN_BOOT_EXECUTION.md) for status and limitations.

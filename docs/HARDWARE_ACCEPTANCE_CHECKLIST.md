@@ -116,3 +116,19 @@ checks now pass; see the [presentation/PAL report](CHARACTER_PRESENTATION_ACCEPT
 The existing NTSC Ymir/Mednafen
 evidence and measured display-rate limitations are in
 [FIGHTING_GAME_READINESS.md](FIGHTING_GAME_READINESS.md).
+
+## Optical boot diagnostics and native promotion
+
+Use [optical_emulators_tester](../examples/optical_emulators_tester/README.md)
+minimal/full packages and fill in their generated `hardware-results.csv`.
+Record Satiator and SAROO separately, including exact image hashes, BIOS/console,
+firmware/menu, SD format, cold/reset launch and visible stage/register evidence.
+Run SAROO direct-BIN versus disc mode with identical application bytes; a direct
+load does not prove IP compatibility. Preserve both failures and passes.
+
+The native profile stays experimental until the same artifact achieves ten
+consecutive cold boots on each ODE, reset checks, minimal/full diagnostics,
+a separate example and five-minute Dino stability on both. Repeat progress-bar
+on/off and record CD/audio initialization. Missing pre-video evidence is UNKNOWN;
+a licensed-screen freeze alone cannot identify the failed stage. See the
+[native boot plan](NATIVE_SATURN_BOOT_PLAN.md) for the complete acceptance matrix.

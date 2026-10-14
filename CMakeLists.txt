@@ -135,6 +135,7 @@ if(LIBSATURN_BUILD_RUNTIME)
         set(_libsaturn_profile 0)
     endif()
     target_compile_definitions(libsaturn_core PRIVATE
+        SAT_LEGACY_EARLY_SCU=0
         SAT_PROFILE_METRICS=${_libsaturn_profile}
         SAT_PARALLEL_TEST_FAULT=${LIBSATURN_PARALLEL_TEST_FAULT})
 
@@ -169,6 +170,7 @@ if(LIBSATURN_BUILD_RUNTIME)
     set(LIBSATURN_CMAKE_SCRIPT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
     set(LIBSATURN_DISC_TOOLS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools")
     set(LIBSATURN_DISC_BOOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/boot")
+    set(LIBSATURN_DISC_AIP_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/startup/aip.s")
     set(LIBSATURN_STAGE2D_TOOL "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage2d_tool.py")
     include(LibSaturnFunctions)
 

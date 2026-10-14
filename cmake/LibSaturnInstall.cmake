@@ -45,12 +45,22 @@ install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_ip_bin.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_ip_bin.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_iso.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/boot_image.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_native_ip.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_ip.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_boot_memory.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/boot_trace_address.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/normalize_iso_dates.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/prepare_native_payloads.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/inspect_boot_image.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/iso_to_raw.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_cue.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_disc_image.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/satlz.py"
     DESTINATION ${LIBSATURN_INSTALL_SHAREDIR}/tools)
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/boot/ip_yaul_template.bin"
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/core/startup/aip.s"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/boot/ip_sbl_template.bin"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/boot/ip_yaul_template.bin"
     DESTINATION ${LIBSATURN_INSTALL_SHAREDIR}/boot)
 
 # The generic stage2d asset compiler (spec in, C arrays out), for games that lay out

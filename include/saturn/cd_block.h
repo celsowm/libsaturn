@@ -42,6 +42,31 @@ extern "C" {
  * dependency. */
 typedef sat_result_t (*sat_cd_block_progress_fn)(void* context);
 
+/* A monotonic millisecond source, polled frequently enough to observe wraps.
+ * It must advance independently of CD completion and must not read the disc. */
+typedef uint32_t (*sat_cd_block_clock_fn)(void* context);
+typedef struct sat_cd_block_config {
+    sat_cd_block_clock_fn now_ms;
+    void* clock_context;
+    uint32_t command_timeout_ms;
+    uint32_t operation_timeout_ms;
+} sat_cd_block_config_t;
+
+typedef struct sat_cd_block_diagnostics {
+    uint32_t elapsed_ms;
+    uint32_t lba;
+    uint32_t bytes_requested;
+    uint32_t bytes_transferred;
+    uint32_t timeout_count;
+    uint16_t command[4];
+    uint16_t response[4];
+    uint16_t hirq;
+    uint16_t wait_mask;
+    sat_result_t result;
+    uint8_t response_valid;
+    uint8_t reserved[3];
+} sat_cd_block_diagnostics_t;
+
 typedef struct sat_cd_block {
     uint32_t timeout_iterations;
     sat_cd_block_progress_fn progress;
@@ -56,12 +81,25 @@ typedef struct sat_cd_block {
      * (SAT_OK until the first). Reset by sat_cd_block_init. */
     uint32_t progress_error_count;
     sat_result_t progress_last_error;
+    /* Appended in the timed-wait API revision: rebuild binary consumers. */
+    sat_cd_block_config_t timing;
+    uint32_t operation_start_ms;
+    sat_cd_block_diagnostics_t diagnostics;
 } sat_cd_block_t;
 
 /* Initializes the CD Block command/filter state. This does not perform disc
  * authentication and must run after the platform/BIOS has made the block
  * accessible. */
 sat_result_t sat_cd_block_init(sat_cd_block_t* out_block, uint32_t timeout_iterations);
+
+/* Configures real deadlines BEFORE the first initialization command. A zero
+ * deadline or null clock is invalid. Every nested wait shares the operation
+ * deadline. Legacy init keeps its iteration-based behavior. */
+sat_result_t sat_cd_block_init_ex(sat_cd_block_t* out_block, const sat_cd_block_config_t* config);
+/* Last operation snapshot, including incomplete response registers. Those
+ * registers are evidence only unless response_valid is set. No MMIO access. */
+sat_result_t sat_cd_block_get_diagnostics(
+    const sat_cd_block_t* block, sat_cd_block_diagnostics_t* out_diagnostics);
 
 /* Register after init: init resets the whole block. The callback and context
  * are borrowed, must outlive outstanding CD operations, and can be cleared
@@ -98,7 +136,7 @@ sat_result_t sat_cd_block_read_sectors(
  * (Sound RAM is fine: the sectors go out as 16-bit stores). While a stream is
  * open nothing else may use the drive: any sat_cd_block_read_sectors (so any
  * file read) first finishes the stream, blocking until its last sector is in,
- * and sat_cd_block_command is the caller's own risk. */
+ * and sat_cd_block_command returns SAT_ERR_BUSY. */
 #define SAT_CD_STREAM_MAX_SECTORS 192u
 
 /* SAT_ERR_BUSY if a stream or read is open, SAT_ERR_INVALID_ARG for a

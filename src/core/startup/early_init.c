@@ -15,7 +15,7 @@
  *   - VDP1 regs:    0x25D00000 (0x20000000 | 0x05D00000)
  *   - VDP1 VRAM:    0x25C00000 (0x20000000 | 0x05C00000)
  *   - VDP2 VRAM:    0x25E00000 (0x20000000 | 0x05E00000)
- *   - SCU regs:     0x20C00000
+ *   - SCU regs:     0x25FE0000 (configured by the SCU HAL)
  *   - SMPC regs:    0x20100000
  *
  * Why use uncached addresses (0x2x...):
@@ -34,17 +34,19 @@ void _saturn_early_init(void) {
     volatile unsigned short* const vdp2 = (volatile unsigned short*)0x25F80000u;
     volatile unsigned short* const vdp1 = (volatile unsigned short*)0x25D00000u;
     volatile unsigned int* const vdp1_vram = (volatile unsigned int*)0x25C00000u;
-    volatile unsigned short* const scu = (volatile unsigned short*)0x20C00000u;
+#if SAT_LEGACY_EARLY_SCU
+    /* Diagnostic comparison only: these historical writes are NOT SCU access. */
+    volatile unsigned short* const legacy_scu = (volatile unsigned short*)0x20C00000u;
+#endif
     int i;
 
-    /* =========================================================================
-     * 1. SCU (System Control Unit) - Interrupt and DMA controller
-     * =========================================================================
-     * Offset 0x00 (index 0): ICU - Interrupt Control Unit
-     * Offset 0x04 (index 2): IMR - Interrupt Mask Register
-     * ========================================================================= */
-    scu[0] = 0;   /* ICU: clear pending interrupt requests */
-    scu[2] = 0;   /* IMR: mask all interrupts */
+    /* SCU Manual 1.3 / 3.5: IMS is 32-bit at 0x25FE00A0; IST is read-only.
+     * crt0 masks CPU interrupts. The SCU HAL installs vectors and masks later.
+     * Do not substitute a base address here: offsets 0/4 are DMA registers. */
+#if SAT_LEGACY_EARLY_SCU
+    legacy_scu[0] = 0;
+    legacy_scu[2] = 0;
+#endif
 
     /* =========================================================================
      * 2. VDP2 (Video Display Processor 2) - Backgrounds and scroll

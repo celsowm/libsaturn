@@ -1,0 +1,18 @@
+name: Native boot diagnostics
+on:
+  push:
+    paths: ['tools/**', 'src/core/startup/**', 'src/hal/cd/**', 'include/saturn/cd_block.h', 'examples/optical_emulators_tester/**', 'tests/test_boot_image.py', 'tests/test_native_ip.py', 'tests/host/test_cd_deadlines.cpp', '.github/workflows/native-boot.yml']
+  pull_request:
+    paths: ['tools/**', 'src/core/startup/**', 'src/hal/cd/**', 'include/saturn/cd_block.h', 'examples/optical_emulators_tester/**', 'tests/test_boot_image.py', 'tests/test_native_ip.py', 'tests/host/test_cd_deadlines.cpp', '.github/workflows/native-boot.yml']
+  workflow_dispatch:
+jobs:
+  firmware-free:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest tests.test_boot_image tests.test_native_ip -v
+      - run: g++ -std=c++20 -Wall -Wextra -Iinclude -I. tests/host/test_cd_deadlines.cpp -o /tmp/cd-deadlines && /tmp/cd-deadlines
+      - run: echo 'SKIPPED BIOS/CDB emulator runs and physical ODE acceptance; firmware and hardware are not available in public CI.'
