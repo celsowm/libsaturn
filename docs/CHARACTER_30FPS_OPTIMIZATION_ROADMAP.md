@@ -81,7 +81,7 @@ Acquisition procedure:
 ### Choose the disk with the most **available** persistent space
 
 1. Enumerate writable, **local, persistent** volumes and sort by **available free bytes**, not total capacity. Windows: `Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'`; Linux: `lsblk -b -f` plus `df -Pk`; macOS: `diskutil list` plus `df -Pk`. Exclude read-only, ram-backed, network, pseudo/temporary, inaccessible, and duplicate mounts of one underlying volume/APFS container.
-2. Select the volume with greatest usable headroom that can accommodate the actual compressed archive, disc image/tracks, converter output, scratch workspace, emulator/build data, and at least **20% additional safety margin** plus an OS-reserve allowance. **Source file size is unknown** until verified; do not copy the old Archive.org 406.2 MB estimate into new capacity calculations.
+2. Select the volume with greatest usable headroom that can accommodate the actual compressed archive, disc image/tracks, converter output, scratch workspace, emulator/build data, and at least **20% additional safety margin** plus an OS-reserve allowance. **Source file size is unknown** until verified; do not reuse stale size estimates from previously considered sources.
 3. Create a private external work root, e.g. `D:\libsaturn-assets\tekken3` on Windows or `/mnt/large-volume/libsaturn-assets/tekken3` on Linux (examples only). Create `downloads/`, `disc/`, `extracted/`, `converted/`, `scratch/` and `logs/`. **Do not** place these under the Git checkout or a default OS temporary directory.
 4. Set `TEKKEN3_ASSET_ROOT` for all converter and benchmark processes. Redirect `TEMP`/`TMP` (Windows) or `TMPDIR` (POSIX) to the chosen volume for large temporary conversions. Recheck filesystem free bytes and write access before downloading **and** before unpacking.
 5. Never silently repartition disks, delete unrelated data, download to the smaller default OS disk, or assume the largest advertised drive has the most free space. Report selected device/mount, initial available bytes, estimated peak footprint and headroom after acquisition.
@@ -111,7 +111,9 @@ Write-Host "Select this folder as the browser download destination: $(Join-Path 
 df -Pk
 # After verifying which persistent writable volume has the largest usable space:
 export TEKKEN3_ASSET_ROOT="/path/on/selected-largest-free-disk/libsaturn-assets/tekken3"
-mkdir -p "$TEKKEN3_ASSET_ROOT"/{downloads,disc,extracted,converted,scratch,logs}
+for subdir in downloads disc extracted converted scratch logs; do
+  mkdir -p "$TEKKEN3_ASSET_ROOT/$subdir"
+done
 export TMPDIR="$TEKKEN3_ASSET_ROOT/scratch"
 printf 'Source page: %s\n' \
   'https://romsdl.com/roms/playstation-1/tekken-3-u-iso-slus-00402-81202'
