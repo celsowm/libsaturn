@@ -7,7 +7,8 @@
 
 namespace {
 
-bool g_active = false;
+/* The VDP1 owns the mode: sat_init resets it, so a re-init can start the rotation again. */
+bool active() { return saturn::hal::vdp1::fb_rotation(); }
 
 constexpr uint32_t kBitmapWords = 512u * 256u / 2u;    /* 512 x 256 x 8 bits */
 constexpr uint32_t kBank128KWords = 0x10000u;
@@ -18,7 +19,7 @@ extern "C" sat_result_t sat_tate_fb_init(const sat_tate_layout_t* layout, uint32
     using namespace saturn::core;
     const sat_result_t init = require_initialized();
     if (init != SAT_OK) return init;
-    if (layout == nullptr || g_active) return SAT_ERR_INVALID_ARG;
+    if (layout == nullptr || active()) return SAT_ERR_INVALID_ARG;
     if (g_state.config.width != 320u || g_state.config.height != 224u) return SAT_ERR_UNSUPPORTED;
     if (layout->screen_w != g_state.config.width || layout->screen_h != g_state.config.height) return SAT_ERR_INVALID_ARG;
     /* The bitmap and the table must not share a 128 KiB bank, or the table would be read as pixels. */
@@ -47,10 +48,9 @@ extern "C" sat_result_t sat_tate_fb_init(const sat_tate_layout_t* layout, uint32
     saturn::hal::vdp2::set_sprite_fb8(true);
     g_state.config.width = layout->logical_w;
     g_state.config.height = layout->logical_h;
-    g_active = true;
     return sat_vdp2_layers_commit();
 }
 
 extern "C" uint8_t sat_tate_fb_active(void) {
-    return g_active ? 1u : 0u;
+    return active() ? 1u : 0u;
 }

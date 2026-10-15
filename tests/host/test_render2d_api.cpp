@@ -60,6 +60,9 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_claim_mode(
 
 namespace saturn::hal::vdp1 {
 
+bool g_fb_rotation = false;
+bool fb_rotation() { return g_fb_rotation; }
+
 sat_result_t upload_palette(const uint16_t* palette, uint16_t bank) {
     ++g_palette_uploads;
     for (uint16_t i = 0u; i < 256u; ++i) g_last_palette[i] = palette[i];
@@ -352,6 +355,14 @@ int main() {
     OK(sat_draw_texture(tinted, nullptr, &full_dst, &tint) == SAT_OK);
     OK(g_palette_uploads == uploads + 1u);
     OK(g_last_sprite.palette == orange_bank);
+    /* The rotation framebuffer takes its bank from CRAOFB for the whole screen: no variant banks. */
+    saturn::hal::vdp1::g_fb_rotation = true;
+    uploads = g_palette_uploads;
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &tint) == SAT_ERR_UNSUPPORTED);
+    OK(g_palette_uploads == uploads);
+    sat_draw_params_t untinted = sat_draw_params_default();
+    OK(sat_draw_texture(tinted, nullptr, &full_dst, &untinted) == SAT_OK);
+    saturn::hal::vdp1::g_fb_rotation = false;
     /* Tint + ALPHA: the variant bank carries the colour-calc slot. */
     tint.blend_mode = SAT_BLEND_ALPHA;
     tint.tint.a = 128u;
