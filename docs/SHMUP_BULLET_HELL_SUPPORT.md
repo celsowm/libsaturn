@@ -323,7 +323,9 @@ A build with `BH_AUTOBENCH=1` starts the 128/256/512/1024 benchmark after three 
   mean error.
 - `sat_music` reads synchronously unless a scheduler is bound (`sat_music_use_disc_stream`); with one
   it streams one disc-backed track at a time without ever waiting for the drive (`sat_music_play`
-  only marks the track wanted; the rings fill over the next updates).
+  only marks the track wanted; the rings fill over the next updates). A second opened track is a
+  standby that `sat_music_prefetch` fills silent, so `sat_music_play` on it is a gapless handoff (see
+  `docs/SCSP_AUDIO_STREAMING_GUIDE.md`; untested on a real drive).
 - `sat_disc_stream` reads one extent per job and has no decompression stage: a compressed group is
   the sink's work.
 - CD data-port transfer cost on the CPU is as modelled by the emulators.

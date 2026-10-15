@@ -11,6 +11,20 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- Gapless handoff between two disc-streamed tracks. `sat_music_use_disc_stream` now serves two
+  `sat_music_open` tracks: the first opened is the one the drive plays, the second is the *standby*
+  (`sat_music_info_t.standby`); a third is still `SAT_ERR_BUSY`. New `sat_music_prefetch(music)` fills
+  a track's rings silent (a disc standby is read in bursts behind the playing track once its rings
+  hold `SAT_DISC_STANDBY_HIGH_FRAMES`, and stops below `SAT_DISC_STANDBY_FLOOR_FRAMES`;
+  `sat_music_info_t.prefetched` says it is full), and `sat_music_play` on the standby swaps the two:
+  a prefetched track is audible in that call, the old one stops, rewinds to 0 and becomes the
+  standby. The old track's read in flight is dropped on landing instead of waited for. Scheduler API:
+  `sat_disc_stream_music_attach_standby` / `_detach_standby` / `_abort_standby` / `_swap`. Resuming a
+  paused track whose rings are full is instant too. `cd_streaming_jukebox` keeps the next track as
+  the standby and switches to it with Y. Host-tested (`test_music_disc`: bursts keep the playing
+  rings above the reserve, swap with a read in flight, seek, mid-segment swap); Ymir and Mednafen runs
+  had 0 underruns. Not checked on a real drive: a prefetch moves the laser, and the manual's
+  500 ms average seek at 2x exceeds the playing ring's reserve (see the CD Block notes).
 - Shmup / bullet-hell support (see `docs/SHMUP_BULLET_HELL_SUPPORT.md`):
   `include/saturn/sprite_batch.h` (`sat_sprite_batch_draw`: thousands of
   prepared sprite frames in one call, a 16-byte frame whose first twelve

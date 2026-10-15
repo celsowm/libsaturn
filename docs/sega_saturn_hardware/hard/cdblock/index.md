@@ -279,6 +279,13 @@ numbers, to be confirmed on hardware (record it in `docs/HARDWARE_ACCEPTANCE_CHE
   rate or use 8-bit/mono rings (the same 16384 frames then last twice as long, or the SCSP ring RAM
   is halved); raise `music_reserve` and the ring size together; or pre-load the data before the music
   starts (what the bullet-hell demo does for stage 1 while the screen is dark).
+- `sat_music_prefetch` (second disc track as a standby) makes the drive alternate between two music
+  files: the scheduler reads the standby in bursts of consecutive segments only while the playing
+  rings are above 28672 frames, and stops below 24576, so a switch costs about two seeks per burst. On
+  Mednafen a burst fills ~20000 frames in ~90 s and the playing rings never fell below 16160 (emulator
+  figures, seeks modelled as free). On a real drive each seek can take the manual's 500 ms average
+  at 2x, comparable to the playing ring's depth: untested, prefetch while the playing track is paused
+  or fading.
 - Keep seeks and `sat_cdfs_lookup` away from playback for the same reason: each can move the pickup
   (`sat_music_play` now only schedules the first reads).
 

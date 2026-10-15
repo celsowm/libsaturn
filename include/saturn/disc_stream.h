@@ -63,6 +63,8 @@ extern "C" {
 #define SAT_DISC_STREAM_QUEUE 8u
 #define SAT_DISC_MUSIC_RING_FRAMES 16384u
 #define SAT_DISC_MUSIC_RESERVE_FRAMES 8192u    /* default `music_reserve` */
+#define SAT_DISC_STANDBY_FLOOR_FRAMES 24576u   /* default `standby_floor` */
+#define SAT_DISC_STANDBY_HIGH_FRAMES 28672u    /* default `standby_high` */
 
 /* What a data job reads: `bytes` of `file` from `offset` (a sector multiple); bytes 0 reads to the
  * end of the file. */
@@ -152,6 +154,12 @@ typedef struct sat_disc_stream {
     /* music: a feed (the built-in raw stereo loop, or sat_music's) */
     const sat_disc_music_feed_ops_t* music_ops;
     void* music_user;
+    /* A second feed, served only when the first wants nothing: it prefills its rings silently so
+     * a swap (sat_disc_stream_music_swap) starts it without a refill. */
+    const sat_disc_music_feed_ops_t* standby_ops;
+    void* standby_user;
+    uint8_t fly_owner, deliv_owner, ready_owner;   /* which feed a segment belongs to: 0 primary, 1 standby */
+    uint8_t fly_discard;         /* the music segment in flight is not wanted any more: it lands and is dropped */
     const sat_cdfs_file_t* music_file;     /* built-in feed: a looping raw interleaved stereo file */
     uint32_t music_bytes;        /* payload bytes (not a sector multiple) */
     uint32_t music_pos;          /* byte offset of the next segment, a sector multiple */
@@ -162,6 +170,9 @@ typedef struct sat_disc_stream {
     uint8_t music_sample_bytes;  /* 1 (S8) or 2 (S16BE), per channel */
     uint32_t seg_music_bytes;    /* valid payload bytes of the music segment in flight */
     uint32_t music_reserve;      /* frames both rings must hold before a data segment starts */
+    uint32_t standby_floor;      /* a standby burst ends when the playing feed holds fewer frames than this */
+    uint32_t standby_high;       /* ... and starts once it holds at least this many */
+    uint8_t standby_burst;       /* the standby is reading ahead of the playing feed */
 
     /* data job in progress */
     uint8_t running;
@@ -214,6 +225,28 @@ void sat_disc_stream_music_detach(sat_disc_stream_t* s);
 /* Drops a music segment in flight, if one is, keeping the feed. For a feed that moves its
  * position (a seek, a stop): the segment that was read for the old position is not delivered. */
 void sat_disc_stream_music_abort(sat_disc_stream_t* s);
+/* The standby feed: a second feed (SAT_ERR_BUSY while one is installed, or while the built-in music
+ * is). The scheduler asks it for a segment when the primary feed wants none. A drive that just keeps
+ * a track topped up has no such moments, so the standby also reads in bursts ahead of the primary:
+ * a burst starts when the primary's rings hold `standby_high` frames, reads the standby's segments
+ * one after another (alternating files would seek for every segment) and ends when the primary is
+ * down to `standby_floor`, or the standby wants nothing more. The primary then refills and the next
+ * burst waits for it to be full again, so a prefetch costs the playing track about
+ * (standby_high - standby_floor) frames of margin and no more. Whatever the standby reads moves the
+ * drive away from the primary's position: on a real drive that costs seeks the primary's ring has
+ * to ride out (see sat_music_prefetch). */
+sat_result_t sat_disc_stream_music_attach_standby(sat_disc_stream_t* s, const sat_disc_music_feed_ops_t* ops, void* user);
+/* Removes the standby feed, dropping its segment in flight. */
+void sat_disc_stream_music_detach_standby(sat_disc_stream_t* s);
+/* Drops the standby feed's segment in flight, keeping the feed (its position moved). */
+void sat_disc_stream_music_abort_standby(sat_disc_stream_t* s);
+/* Exchanges the two feeds: the standby becomes the primary, and what was primary becomes the
+ * standby. The old primary's segments are dropped without waiting: one being delivered at once, one
+ * in flight when it lands (the drive is busy with it until then). The standby's segments carry on
+ * to the new primary. With no primary the standby just takes its place. The caller owns what the
+ * swap means to the feeds (stopping the old one, starting the new one). SAT_ERR_INVALID_ARG without
+ * a standby, SAT_ERR_BUSY while the built-in music is open. */
+sat_result_t sat_disc_stream_music_swap(sat_disc_stream_t* s);
 /* 1 once the built-in music (sat_disc_stream_music_start) has filled its rings and started. */
 uint8_t sat_disc_stream_music_playing(const sat_disc_stream_t* s);
 /* For an external feed: nonzero while it fills its rings before the streams play (after a start or
@@ -223,9 +256,10 @@ void sat_disc_stream_music_set_starting(sat_disc_stream_t* s, uint8_t starting);
 /* Makes sat_music read its disc-backed tracks through this scheduler instead of waiting for the
  * drive (pass NULL to go back). Call before sat_music_open: a track opened while a scheduler
  * is bound and whose source is a disc file (sat_cdfs_register_source_manifest) streams through
- * it, and any other track is read as before (sat_music_info reports which). The drive serves one
- * such track at a time (a second open returns SAT_ERR_BUSY). Refused with SAT_ERR_BUSY while a
- * disc-scheduled track is open.
+ * it, and any other track is read as before (sat_music_info reports which). The drive plays one such
+ * track at a time. The first opened is the playing feed; a second one opens as the standby (it can
+ * be prefilled, sat_music_prefetch, and sat_music_play on it swaps the two without a refill); a third
+ * returns SAT_ERR_BUSY. Refused with SAT_ERR_BUSY while a disc-scheduled track is open.
  *
  * Streaming music then costs a frame what the scheduler costs: sat_music_play only marks the track
  * wanted, sat_music_update (or sat_disc_stream_service, either, once a frame) fills the rings one

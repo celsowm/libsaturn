@@ -49,6 +49,7 @@ struct MusicSlot {
     uint8_t format;
     uint8_t playing;
     uint8_t starting;             // play was called, the rings are filling, the streams are still paused
+    uint8_t prefetch;             // sat_music_prefetch: fill the rings, silent, before play
     uint8_t used;
     uint16_t generation;
     uint8_t buffer[SAT_MUSIC_BUFFER_FRAMES * 2u];
@@ -67,10 +68,12 @@ struct MusicSlot {
  * time to copy -- orders of magnitude more than the copy costs. */
 MusicSlot g_music[SAT_MUSIC_CAPACITY] __attribute__((section(".wram_l"))) = {};
 
-/* The disc scheduler tracks stream through, and the one slot that is attached to it (the drive
- * serves one music feed). */
+/* The disc scheduler tracks stream through, and the slots attached to it: the one the drive plays
+ * (primary) and one that fills its rings behind it (standby, sat_music_prefetch). A play on the
+ * standby swaps the two. */
 sat_disc_stream_t* g_disc = nullptr;
-MusicSlot* g_disc_slot = nullptr;
+MusicSlot* g_disc_primary = nullptr;
+MusicSlot* g_disc_standby = nullptr;
 
 constexpr uint32_t kSectorBytes = 2048u;
 
@@ -181,7 +184,7 @@ sat_result_t feed_adpcm(MusicSlot& slot) {
 }
 
 sat_result_t feed(MusicSlot& slot) {
-    if (slot.playing == 0u) return SAT_OK;
+    if (slot.playing == 0u && slot.prefetch == 0u) return SAT_OK;
     if (slot.format == SAT_AUDIO_IMA_ADPCM) return feed_adpcm(slot);
     const uint8_t stereo = slot.channels == 2u ? 1u : 0u;
     uint32_t frames = writable_frames(slot);
@@ -274,7 +277,7 @@ uint32_t async_segment_bound(const MusicSlot& slot, uint32_t segment) {
 
 uint8_t async_next(void* user, const sat_cdfs_file_t** file, uint32_t* offset, uint32_t* bytes) {
     const MusicSlot& slot = *static_cast<const MusicSlot*>(user);
-    if (slot.playing == 0u || slot.pend_count >= 2u) return 0u;
+    if ((slot.playing == 0u && slot.prefetch == 0u) || slot.pend_count >= 2u) return 0u;
     const uint32_t segment = async_segment_bytes(slot);
     uint32_t reserved = 0u;
     for (uint8_t i = 0u; i < slot.pend_count; ++i) reserved += slot.pend[i].bound;
@@ -409,10 +412,30 @@ bool async_primed(const MusicSlot& slot) {
     return writable_frames(slot) < async_segment_bound(slot, async_segment_bytes(slot));
 }
 
+/* A prefetched disc track counts as ready (and starts at once on play) with this many frames in its
+ * rings: enough to ride out a seek and the reserve, and the rest fills at normal priority. A drive
+ * with little spare throughput would otherwise take minutes to fill the whole ring. */
+constexpr uint32_t kPrefetchReadyFrames = 16384u;
+
+uint32_t ring_buffered(const MusicSlot& slot) {
+    uint32_t frames = sat_audio_stream_buffered(slot.stream);
+    if (slot.channels == 2u) {
+        const uint32_t right = sat_audio_stream_buffered(slot.stream_r);
+        if (right < frames) frames = right;
+    }
+    return frames;
+}
+
+/* The rings of a track that sat_music_prefetch was called on hold what play needs to start at once. */
+bool prefetch_ready(const MusicSlot& slot) {
+    if (slot.prefetch == 0u || slot.playing != 0u) return false;
+    return slot.file != nullptr ? ring_buffered(slot) >= kPrefetchReadyFrames : writable_frames(slot) == 0u;
+}
+
 /* Both channel streams start together, once the rings hold what they will keep topped up. */
 void start_streams(MusicSlot& slot) {
     slot.starting = 0u;
-    if (slot.file != nullptr) sat_disc_stream_music_set_starting(g_disc, 0u);
+    if (slot.file != nullptr && g_disc_primary == &slot) sat_disc_stream_music_set_starting(g_disc, 0u);
     (void)sat_audio_stream_resume(slot.stream);
     if (slot.channels == 2u) (void)sat_audio_stream_resume(slot.stream_r);
 }
@@ -485,7 +508,7 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
     uint32_t src_bytes = 0u;
     if (g_disc != nullptr && info.data == nullptr && info.source_path != nullptr &&
         sat_cdfs_source_file(info.source_path, &disc_file) == SAT_OK) {
-        if (g_disc_slot != nullptr) return SAT_ERR_BUSY;
+        if (g_disc_primary != nullptr && g_disc_standby != nullptr) return SAT_ERR_BUSY;
         src_bytes = compressed != 0u
             ? static_cast<uint32_t>((static_cast<uint64_t>(sample_count) + adpcm::kBlockFrames - 1u) /
                                     adpcm::kBlockFrames) * adpcm::block_bytes(info.channels)
@@ -548,9 +571,14 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
         slot.format = info.format;
         slot.playing = 0u;
         slot.starting = 0u;
+        slot.prefetch = 0u;
         slot.used = 1u;
         if (disc_file != nullptr) {
-            const sat_result_t attached = sat_disc_stream_music_attach(g_disc, &kAsyncFeed, &slot);
+            // The first disc track is the one the drive plays; a second waits behind it as the standby.
+            const bool as_primary = g_disc_primary == nullptr;
+            const sat_result_t attached = as_primary
+                ? sat_disc_stream_music_attach(g_disc, &kAsyncFeed, &slot)
+                : sat_disc_stream_music_attach_standby(g_disc, &kAsyncFeed, &slot);
             if (attached != SAT_OK) {
                 slot.used = 0u;
                 (void)sat_audio_stream_close(slot.stream);
@@ -559,7 +587,8 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
             }
             slot.file = disc_file;
             slot.src_bytes = src_bytes;
-            g_disc_slot = &slot;
+            if (as_primary) g_disc_primary = &slot;
+            else g_disc_standby = &slot;
         }
         out_music->slot = i;
         out_music->generation = slot.generation;
@@ -568,15 +597,48 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
     return SAT_ERR_CAPACITY;
 }
 
+namespace {
+
+sat_result_t rewind_to(MusicSlot& slot, uint32_t frame);
+
+/* The standby track is about to play: the track the drive was playing stops and goes back to the
+ * start (it becomes the standby), and the scheduler serves the new one. */
+sat_result_t hand_off(MusicSlot& incoming) {
+    MusicSlot* outgoing = g_disc_primary;
+    // The swap first: it lets the outgoing track's read finish on its own instead of waiting for it.
+    SAT_TRY(sat_disc_stream_music_swap(g_disc));
+    g_disc_primary = &incoming;
+    g_disc_standby = outgoing;
+    return outgoing != nullptr ? rewind_to(*outgoing, 0u) : SAT_OK;
+}
+
+}  // namespace
+
 extern "C" sat_result_t sat_music_play(sat_music_t music) {
     MusicSlot* slot = resolve(music);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
     if (slot->playing != 0u) return SAT_OK;
+    const bool ready = prefetch_ready(*slot);
+    if (slot->file != nullptr && g_disc_standby == slot) SAT_TRY(hand_off(*slot));
     // Nothing is read here. Both streams stay paused while sat_music_update fills the rings (the
-    // scheduler's service for a disc track), and start together once they are full.
+    // scheduler's service for a disc track), and start together once they are full: at once for a
+    // track whose rings are already full (sat_music_prefetch, or a pause).
+    slot->prefetch = 0u;
     slot->playing = 1u;
     slot->starting = 1u;
-    if (slot->file != nullptr) sat_disc_stream_music_set_starting(g_disc, 1u);
+    if (slot->file != nullptr) {
+        sat_disc_stream_music_set_starting(g_disc, 1u);
+        if (ready || async_primed(*slot)) start_streams(*slot);
+    } else if (ready || writable_frames(*slot) == 0u) {
+        start_streams(*slot);
+    }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_music_prefetch(sat_music_t music) {
+    MusicSlot* slot = resolve(music);
+    if (slot == nullptr) return SAT_ERR_INVALID_ARG;
+    if (slot->playing == 0u) slot->prefetch = 1u;
     return SAT_OK;
 }
 
@@ -587,7 +649,7 @@ extern "C" sat_result_t sat_music_pause(sat_music_t music) {
     if (slot->channels == 2u) SAT_TRY(sat_audio_stream_pause(slot->stream_r));
     slot->playing = 0u;
     slot->starting = 0u;
-    if (slot->file != nullptr) sat_disc_stream_music_set_starting(g_disc, 0u);
+    if (slot->file != nullptr && g_disc_primary == slot) sat_disc_stream_music_set_starting(g_disc, 0u);
     return SAT_OK;
 }
 
@@ -601,7 +663,10 @@ namespace {
  * cursor, leaving the track stopped. */
 sat_result_t rewind_to(MusicSlot& slot, uint32_t frame) {
     // A segment read for the old position must not land in the flushed rings.
-    if (slot.file != nullptr) sat_disc_stream_music_abort(g_disc);
+    if (slot.file != nullptr) {
+        if (g_disc_primary == &slot) sat_disc_stream_music_abort(g_disc);
+        else sat_disc_stream_music_abort_standby(g_disc);
+    }
     SAT_TRY(sat_audio_stream_pause(slot.stream));
     SAT_TRY(sat_audio_stream_flush(slot.stream));
     if (slot.channels == 2u) {
@@ -618,7 +683,8 @@ sat_result_t rewind_to(MusicSlot& slot, uint32_t frame) {
     }
     slot.playing = 0u;
     slot.starting = 0u;
-    if (slot.file != nullptr) sat_disc_stream_music_set_starting(g_disc, 0u);
+    slot.prefetch = 0u;
+    if (slot.file != nullptr && g_disc_primary == &slot) sat_disc_stream_music_set_starting(g_disc, 0u);
     return SAT_OK;
 }
 
@@ -647,7 +713,7 @@ extern "C" sat_result_t sat_music_update(sat_music_t music) {
     // The scheduler's tick starts the streams once the rings are full.
     if (slot->file != nullptr) return sat_disc_stream_service(g_disc);
     for (uint32_t i = 0u; i < kMusicUpdateFeedLimit; ++i) {
-        if (slot->playing == 0u || writable_frames(*slot) == 0u) break;
+        if ((slot->playing == 0u && slot->prefetch == 0u) || writable_frames(*slot) == 0u) break;
         SAT_TRY(feed(*slot));
     }
     if (slot->starting != 0u && writable_frames(*slot) == 0u) start_streams(*slot);
@@ -655,7 +721,7 @@ extern "C" sat_result_t sat_music_update(sat_music_t music) {
 }
 
 extern "C" sat_result_t sat_music_use_disc_stream(sat_disc_stream_t* stream) {
-    if (g_disc_slot != nullptr) return SAT_ERR_BUSY;
+    if (g_disc_primary != nullptr || g_disc_standby != nullptr) return SAT_ERR_BUSY;
     g_disc = stream;
     return SAT_OK;
 }
@@ -664,8 +730,13 @@ extern "C" sat_result_t sat_music_close(sat_music_t music) {
     MusicSlot* slot = resolve(music);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
     if (slot->file != nullptr) {
-        sat_disc_stream_music_detach(g_disc);
-        g_disc_slot = nullptr;
+        if (g_disc_primary == slot) {
+            sat_disc_stream_music_detach(g_disc);
+            g_disc_primary = nullptr;
+        } else {
+            sat_disc_stream_music_detach_standby(g_disc);
+            g_disc_standby = nullptr;
+        }
         slot->file = nullptr;
     }
     SAT_TRY(sat_audio_stream_close(slot->stream));
@@ -678,6 +749,7 @@ extern "C" sat_result_t sat_music_close(sat_music_t music) {
     slot->payload_bytes = 0u;
     slot->playing = 0u;
     slot->starting = 0u;
+    slot->prefetch = 0u;
     slot->position_frame = 0u;
     slot->decoded_block = 0xFFFFFFFFu;
     return SAT_OK;
@@ -695,8 +767,9 @@ extern "C" sat_result_t sat_music_info(sat_music_t music, sat_music_info_t* out_
     out_info->playing = slot->playing;
     out_info->disc_streamed = slot->file != nullptr ? 1u : 0u;
     out_info->starting = slot->starting;
-    out_info->reserved[0] = 0u;
-    out_info->reserved[1] = 0u;
+    out_info->standby = slot->file != nullptr && g_disc_standby == slot ? 1u : 0u;
+    // The rings of a track that was prefetched (not yet playing) hold all they will take.
+    out_info->prefetched = prefetch_ready(*slot) ? 1u : 0u;
     return SAT_OK;
 }
 
@@ -742,8 +815,10 @@ extern "C" uint16_t sat_music_capacity(void) {
 namespace saturn::core {
 
 void music_runtime_reset() {
-    if (g_disc_slot != nullptr) sat_disc_stream_music_detach(g_disc);
-    g_disc_slot = nullptr;
+    if (g_disc_primary != nullptr) sat_disc_stream_music_detach(g_disc);
+    if (g_disc_standby != nullptr) sat_disc_stream_music_detach_standby(g_disc);
+    g_disc_primary = nullptr;
+    g_disc_standby = nullptr;
     for (uint16_t i = 0u; i < SAT_MUSIC_CAPACITY; ++i) {
         MusicSlot& slot = g_music[i];
         slot.used = 0u;
@@ -755,6 +830,7 @@ void music_runtime_reset() {
         slot.payload_bytes = 0u;
         slot.playing = 0u;
         slot.starting = 0u;
+        slot.prefetch = 0u;
         slot.position_bytes = 0u;
         slot.position_frame = 0u;
         slot.decoded_block = 0xFFFFFFFFu;

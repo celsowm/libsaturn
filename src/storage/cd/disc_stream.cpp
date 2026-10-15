@@ -122,25 +122,41 @@ uint8_t* segment_buffer(sat_disc_stream_t* s, uint8_t index) {
     return index == 0u ? s->buffer : s->split;
 }
 
+const sat_disc_music_feed_ops_t* feed_ops(const sat_disc_stream_t* s, uint8_t owner) {
+    return owner != 0u ? s->standby_ops : s->music_ops;
+}
+
+void* feed_user(const sat_disc_stream_t* s, uint8_t owner) {
+    return owner != 0u ? s->standby_user : s->music_user;
+}
+
+/* Whether a feed that delivers from the segment buffer itself is installed (a data segment may then use the second buffer). */
+bool any_pipelined(const sat_disc_stream_t* s) {
+    return (s->music_ops != nullptr && s->music_ops->pipelined != 0u) ||
+           (s->standby_ops != nullptr && s->standby_ops->pipelined != 0u);
+}
+
 /* A segment buffer nothing holds (-1: none). The built-in feed splits into `split`, so only a
  * pipelined feed (which delivers from the buffer itself) may land there. */
-int free_buffer(const sat_disc_stream_t* s) {
+int free_buffer(const sat_disc_stream_t* s, bool two) {
     const uint8_t used = static_cast<uint8_t>((s->deliv_active != 0u ? 1u << s->deliv_buf : 0u) |
                                               (s->ready != 0u ? 1u << s->ready_buf : 0u) |
                                               (s->in_flight != kFlightNone ? 1u << s->fly_buf : 0u));
-    const bool two = s->music_ops != nullptr && s->music_ops->pipelined != 0u;
     if ((used & 1u) == 0u) return 0;
     if (two && (used & 2u) == 0u) return 1;
     return -1;
 }
 
-/* Starts the next music segment unless the drive is busy or the feed wants none. */
-MusicBegin begin_music(sat_disc_stream_t* s) {
-    const int buf = free_buffer(s);
+/* Starts the next segment of feed `owner` (0 primary, 1 standby) unless the drive is busy or the
+ * feed wants none. */
+MusicBegin begin_music(sat_disc_stream_t* s, uint8_t owner) {
+    const sat_disc_music_feed_ops_t* ops = feed_ops(s, owner);
+    void* user = feed_user(s, owner);
+    const int buf = free_buffer(s, ops->pipelined != 0u);
     if (buf < 0) return kMusicNoBuffer;
     const sat_cdfs_file_t* file = nullptr;
     uint32_t offset = 0u, bytes = 0u;
-    if (s->music_ops->next(s->music_user, &file, &offset, &bytes) == 0u) return kMusicNotWanted;
+    if (ops->next(user, &file, &offset, &bytes) == 0u) return kMusicNotWanted;
     if (file == nullptr || bytes == 0u || bytes > SAT_DISC_STREAM_SEGMENT_BYTES) {
         note(s, SAT_ERR_INVALID_ARG);
         return kMusicBlocked;
@@ -153,9 +169,11 @@ MusicBegin begin_music(sat_disc_stream_t* s) {
     s->seg_music_bytes = bytes;
     s->seg_sectors = sectors;
     s->fly_buf = static_cast<uint8_t>(buf);
+    s->fly_owner = owner;
+    s->fly_discard = 0u;
     s->in_flight = kFlightMusic;
     s->stats.segments++;
-    if (s->music_ops->started != nullptr) s->music_ops->started(s->music_user);
+    if (ops->started != nullptr) ops->started(user);
     return kMusicStarted;
 }
 
@@ -164,7 +182,8 @@ sat_result_t deliver_slice(sat_disc_stream_t* s) {
     const uint16_t t0 = sat_time_frc();
     const uint32_t left = s->deliv_bytes - s->deliv_off;
     uint32_t used = 0u;
-    const sat_result_t r = s->music_ops->deliver(s->music_user, segment_buffer(s, s->deliv_buf) + s->deliv_off, left, &used);
+    const sat_result_t r = feed_ops(s, s->deliv_owner)->deliver(feed_user(s, s->deliv_owner),
+                                                                segment_buffer(s, s->deliv_buf) + s->deliv_off, left, &used);
     note(s, r);
     if (r != SAT_OK || used == 0u || used > left) used = left;     /* a failed or stuck segment is dropped */
     s->deliv_off += used;
@@ -174,6 +193,7 @@ sat_result_t deliver_slice(sat_disc_stream_t* s) {
         s->deliv_active = s->ready;
         if (s->ready != 0u) {
             s->deliv_buf = s->ready_buf;
+            s->deliv_owner = s->ready_owner;
             s->deliv_off = 0u;
             s->deliv_bytes = s->ready_bytes;
             s->ready = 0u;
@@ -258,17 +278,23 @@ sat_result_t land(sat_disc_stream_t* s) {
     const uint8_t kind = s->in_flight;
     s->in_flight = kFlightNone;
     if (kind == kFlightMusic) {
+        if (s->fly_discard != 0u) {         /* read for a feed that has been swapped out */
+            s->fly_discard = 0u;
+            return SAT_OK;
+        }
         if (s->deliv_active == 0u) {
             s->deliv_active = 1u;
             s->deliv_buf = s->fly_buf;
+            s->deliv_owner = s->fly_owner;
             s->deliv_off = 0u;
             s->deliv_bytes = s->seg_music_bytes;
         } else {
             s->ready = 1u;
             s->ready_buf = s->fly_buf;
+            s->ready_owner = s->fly_owner;
             s->ready_bytes = s->seg_music_bytes;
         }
-        return s->music_ops->pipelined != 0u ? SAT_OK : drain_deliveries(s);
+        return feed_ops(s, s->fly_owner)->pipelined != 0u ? SAT_OK : drain_deliveries(s);
     }
     const uint16_t t0 = sat_time_frc();
     const sat_result_t r = deliver_data(s);
@@ -287,6 +313,8 @@ extern "C" sat_result_t sat_disc_stream_init(sat_disc_stream_t* s, sat_cd_block_
     __builtin_memset(s, 0, sizeof(*s));
     s->block = block;
     s->music_reserve = SAT_DISC_MUSIC_RESERVE_FRAMES;
+    s->standby_floor = SAT_DISC_STANDBY_FLOOR_FRAMES;
+    s->standby_high = SAT_DISC_STANDBY_HIGH_FRAMES;
     s->stats.music_min_buffered = SAT_DISC_MUSIC_RING_FRAMES;
     return SAT_OK;
 }
@@ -308,7 +336,7 @@ extern "C" sat_result_t sat_disc_stream_music_start(sat_disc_stream_t* s, sat_di
                                                     uint32_t sample_rate, uint32_t sample_bytes) {
     if (s == nullptr || rings == nullptr || file == nullptr || bytes < SAT_DISC_STREAM_SEGMENT_BYTES ||
         (sample_bytes != 1u && sample_bytes != 2u) || (bytes % (2u * sample_bytes)) != 0u ||
-        s->in_flight != kFlightNone || s->music_open != 0u || s->music_ops != nullptr) {
+        s->in_flight != kFlightNone || s->music_open != 0u || s->music_ops != nullptr || s->standby_ops != nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
     if (file->size < bytes) return SAT_ERR_INVALID_ARG;
@@ -359,14 +387,87 @@ extern "C" sat_result_t sat_disc_stream_music_attach(sat_disc_stream_t* s, const
     return SAT_OK;
 }
 
-extern "C" void sat_disc_stream_music_abort(sat_disc_stream_t* s) {
-    if (s == nullptr) return;
-    if (s->in_flight == kFlightMusic) {
+namespace {
+
+/* Drops what feed `owner` has in flight or queued for delivery. The other feed's segments stay:
+ * if the one being delivered is dropped, the one waiting behind it moves up. */
+void abort_owner(sat_disc_stream_t* s, uint8_t owner) {
+    if (s->in_flight == kFlightMusic && s->fly_owner == owner && s->fly_discard == 0u) {
         note(s, sat_cd_stream_finish(s->block));
         s->in_flight = kFlightNone;
     }
-    s->deliv_active = 0u;
-    s->ready = 0u;
+    if (s->ready != 0u && s->ready_owner == owner) s->ready = 0u;
+    if (s->deliv_active != 0u && s->deliv_owner == owner) {
+        s->deliv_active = s->ready;
+        if (s->ready != 0u) {
+            s->deliv_buf = s->ready_buf;
+            s->deliv_owner = s->ready_owner;
+            s->deliv_off = 0u;
+            s->deliv_bytes = s->ready_bytes;
+            s->ready = 0u;
+        }
+    }
+}
+
+}  // namespace
+
+extern "C" void sat_disc_stream_music_abort(sat_disc_stream_t* s) {
+    if (s != nullptr) abort_owner(s, 0u);
+}
+
+extern "C" sat_result_t sat_disc_stream_music_attach_standby(sat_disc_stream_t* s, const sat_disc_music_feed_ops_t* ops, void* user) {
+    if (s == nullptr || ops == nullptr || ops->next == nullptr || ops->deliver == nullptr || ops->buffered == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (s->standby_ops != nullptr || s->music_open != 0u) return SAT_ERR_BUSY;
+    s->standby_ops = ops;
+    s->standby_user = user;
+    return SAT_OK;
+}
+
+extern "C" void sat_disc_stream_music_abort_standby(sat_disc_stream_t* s) {
+    if (s != nullptr) abort_owner(s, 1u);
+}
+
+extern "C" void sat_disc_stream_music_detach_standby(sat_disc_stream_t* s) {
+    if (s == nullptr) return;
+    abort_owner(s, 1u);
+    s->standby_ops = nullptr;
+    s->standby_user = nullptr;
+}
+
+extern "C" sat_result_t sat_disc_stream_music_swap(sat_disc_stream_t* s) {
+    if (s == nullptr || s->standby_ops == nullptr) return SAT_ERR_INVALID_ARG;
+    if (s->music_open != 0u) return SAT_ERR_BUSY;
+    /* What the old primary has delivering or waiting goes at once; a read in flight is let finish
+     * (waiting would stall this call) and dropped when it lands. */
+    if (s->ready != 0u && s->ready_owner == 0u) s->ready = 0u;
+    if (s->deliv_active != 0u && s->deliv_owner == 0u) {
+        s->deliv_active = s->ready;
+        if (s->ready != 0u) {
+            s->deliv_buf = s->ready_buf;
+            s->deliv_owner = s->ready_owner;
+            s->deliv_off = 0u;
+            s->deliv_bytes = s->ready_bytes;
+            s->ready = 0u;
+        }
+    }
+    if (s->in_flight == kFlightMusic && s->fly_owner == 0u) s->fly_discard = 1u;
+    /* The roles trade places, and so do the segments' owners. */
+    s->fly_owner ^= 1u;
+    s->deliv_owner ^= 1u;
+    s->ready_owner ^= 1u;
+    const sat_disc_music_feed_ops_t* ops = s->music_ops;
+    void* user = s->music_user;
+    s->music_ops = s->standby_ops;
+    s->music_user = s->standby_user;
+    s->standby_ops = ops;
+    s->standby_user = user;
+    s->music_wanted = 1u;
+    s->music_starting = 0u;
+    s->standby_burst = 0u;
+    s->stats.music_min_buffered = 0xFFFFFFFFu;
+    return SAT_OK;
 }
 
 extern "C" void sat_disc_stream_music_detach(sat_disc_stream_t* s) {
@@ -419,19 +520,36 @@ sat_result_t service_once(sat_disc_stream_t* s) {
     if (s->in_flight != kFlightNone) return SAT_OK;
 
     /* 3. start the next segment: the music first, then the data in the gaps */
+    MusicBegin mb = kMusicNotWanted;
     if (s->music_wanted != 0u) {
         const uint32_t buffered = s->music_ops->buffered(s->music_user);
         if (s->music_starting == 0u && buffered < s->stats.music_min_buffered) s->stats.music_min_buffered = buffered;
-        const MusicBegin mb = begin_music(s);
+        /* A burst: while the primary is comfortably ahead the standby reads its segments one after
+         * another, instead of the drive alternating between two files. */
+        if (s->standby_ops != nullptr) {
+            if (s->standby_burst == 0u && buffered >= s->standby_high) s->standby_burst = 1u;
+            else if (s->standby_burst != 0u && buffered < s->standby_floor) s->standby_burst = 0u;
+            if (s->standby_burst != 0u) {
+                const MusicBegin sb = begin_music(s, 1u);
+                if (sb == kMusicStarted || sb == kMusicNoBuffer) return SAT_OK;
+                if (sb == kMusicNotWanted) s->standby_burst = 0u;
+            }
+        }
+        mb = begin_music(s, 0u);
         if (mb == kMusicStarted || mb == kMusicNoBuffer) return SAT_OK;
         if (buffered < s->music_reserve && (s->running != 0u || s->count != 0u)) {
             s->stats.data_deferred++;
             return SAT_OK;
         }
     }
+    /* The playing feed wants nothing: the standby may fill its rings, ahead of the data jobs. */
+    if (s->standby_ops != nullptr && mb == kMusicNotWanted) {
+        const MusicBegin sb = begin_music(s, 1u);
+        if (sb == kMusicStarted || sb == kMusicNoBuffer) return SAT_OK;
+    }
     if (s->running == 0u) start_job(s);
     if (s->running != 0u && s->sectors_left != 0u) {
-        const int buf = free_buffer(s);
+        const int buf = free_buffer(s, any_pipelined(s));
         if (buf < 0) return SAT_OK;
         const uint32_t seg = s->sectors_left < SAT_DISC_STREAM_SEGMENT_SECTORS ? s->sectors_left : SAT_DISC_STREAM_SEGMENT_SECTORS;
         const sat_result_t r = sat_cd_stream_begin(s->block, s->lba, seg, segment_buffer(s, static_cast<uint8_t>(buf)));

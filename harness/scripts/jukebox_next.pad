@@ -1,0 +1,9 @@
+# The jukebox plays track 1 with track 2 prefetched behind it. Y swaps to the standby (no refill),
+# Y again swaps to the next one, then X goes back by reopening (the previous track is not the standby).
+0    NONE
+500  Y
+501  NONE
+800  Y
+801  NONE
+1100 X
+1101 NONE

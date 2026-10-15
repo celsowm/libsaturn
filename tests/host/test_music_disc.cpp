@@ -6,7 +6,8 @@
  * What it pins: bytes are exact for every format across segment boundaries (a 16 KiB segment
  * never lines up with a frame count or an ADPCM block) and across the loop; in steady state
  * nothing waits for the drive (no stream_finish, no asset read); seek, stop and close drop the
- * segment in flight; one disc track at a time; non-disc tracks keep the old path. */
+ * segment in flight; two disc tracks (the second is the standby: prefetch fills it behind the
+ * playing one and play on it swaps them); non-disc tracks keep the old path. */
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -297,9 +298,9 @@ namespace {
 /* ---- the SCSP: drains the rings of the open music, recording what it played --------------------- */
 
 struct Played {
-    std::vector<uint8_t> ch[2];
+    std::vector<uint8_t> ch[4];     /* by stream, in registry order: the first track's pair, then the second's */
     uint32_t underruns = 0;
-    void clear() { ch[0].clear(); ch[1].clear(); }
+    void clear() { for (auto& c : ch) c.clear(); }
 };
 Played g_played;
 
@@ -361,13 +362,14 @@ sat_result_t field(const Track& t) {
     return r;
 }
 
-/* The played history of every channel equals the track from `first_frame` on. */
-void check_played(const Track& t, uint64_t first_frame) {
+/* The played history of every channel equals the track from `first_frame` on. `base` is the
+ * track's first stream (2 for the track opened second). */
+void check_played(const Track& t, uint64_t first_frame, uint32_t base = 0u) {
     const uint32_t sample_bytes = t.format == SAT_AUDIO_PCM_S8 ? 1u : 2u;
     for (uint32_t c = 0; c < t.channels; ++c) {
-        const uint64_t frames = g_played.ch[c].size() / sample_bytes;
+        const uint64_t frames = g_played.ch[base + c].size() / sample_bytes;
         CHECK(frames > 0u);
-        CHECK(g_played.ch[c] == expected(t, c, first_frame, frames));
+        CHECK(g_played.ch[base + c] == expected(t, c, first_frame, frames));
     }
 }
 
@@ -508,7 +510,6 @@ void test_ownership() {
     fresh();
     CHECK(sat_music_open(&g_music, "music/s16-stereo") == SAT_OK);
     sat_music_t second{};
-    CHECK(sat_music_open(&second, "music/s8-stereo") == SAT_ERR_BUSY);      /* one disc track at a time */
     /* a track the scheduler cannot read keeps the old path, beside the disc one */
     sat_music_t ram{};
     CHECK(sat_music_open(&ram, "music/ram") == SAT_OK);
@@ -524,8 +525,20 @@ void test_ownership() {
     CHECK(sat_music_info(other, &info) == SAT_OK && info.disc_streamed == 0u);
     CHECK(sat_music_close(other) == SAT_OK);
     CHECK(sat_music_use_disc_stream(nullptr) == SAT_ERR_BUSY);              /* a disc track is open */
+    /* a second disc track waits behind the first as the standby; a third has no feed */
+    CHECK(sat_music_open(&second, "music/s8-stereo") == SAT_OK);
+    CHECK(sat_music_info(g_music, &info) == SAT_OK && info.disc_streamed == 1u && info.standby == 0u);
+    CHECK(sat_music_info(second, &info) == SAT_OK && info.disc_streamed == 1u && info.standby == 1u);
+    sat_music_t third{};
+    CHECK(sat_music_open(&third, "music/s16-mono") == SAT_ERR_BUSY);
+    CHECK(sat_music_use_disc_stream(nullptr) == SAT_ERR_BUSY);
+    /* the first one closing leaves the standby in place; a new disc track then plays the drive */
     CHECK(sat_music_close(g_music) == SAT_OK);
-    /* the slot is free again, and so is the feed */
+    CHECK(sat_music_open(&third, "music/s16-mono") == SAT_OK);
+    CHECK(sat_music_info(third, &info) == SAT_OK && info.disc_streamed == 1u && info.standby == 0u);
+    CHECK(sat_music_close(third) == SAT_OK);
+    CHECK(sat_music_close(second) == SAT_OK);
+    /* the slots are free again, and so is the feed */
     CHECK(sat_music_open(&second, "music/s8-stereo") == SAT_OK);
     CHECK(sat_music_close(second) == SAT_OK);
     CHECK(sat_music_use_disc_stream(nullptr) == SAT_OK);
@@ -650,6 +663,193 @@ void test_stopped_music_does_not_hold_data() {
     CHECK(sat_music_close(g_music) == SAT_OK);
 }
 
+/* ---- two disc tracks: prefetch and the swap ---------------------------------------------------- */
+
+/* Fields until `done` holds (at most `limit`). */
+template <class F>
+void run_until_at(int line, const Track& t, uint32_t limit, F done) {
+    for (uint32_t i = 0; !done(); ++i) {
+        if (i >= limit) std::fprintf(stderr, "run_until at line %d gave up after %u fields\n", line, limit);
+        CHECK(i < limit);
+        CHECK(field(t) == SAT_OK);
+    }
+}
+#define run_until(t, limit, done) run_until_at(__LINE__, t, limit, done)
+
+bool info_of(sat_music_t m, sat_music_info_t* i) { return sat_music_info(m, i) == SAT_OK; }
+
+/* The standby fills its rings behind the playing track without disturbing it, and playing it is a
+ * swap with nothing to wait for; swapping back (not prefetched) is the same switch with a refill. */
+void test_standby_handoff() {
+    fresh();
+    Track* a = find_track("music/s16-stereo");
+    Track* b = find_track("music/s8-stereo");
+    sat_music_t ma{}, mb{};
+    CHECK(sat_music_open(&ma, a->path) == SAT_OK);
+    CHECK(sat_music_open(&mb, b->path) == SAT_OK);
+    sat_music_info_t ia{}, ib{};
+    CHECK(info_of(mb, &ib) && ib.standby == 1u && ib.prefetched == 0u);
+    g_music = ma;
+    CHECK(sat_music_play(ma) == SAT_OK);
+    run_until(*a, 400, [&] { return info_of(ma, &ia) && ia.starting == 0u; });
+    for (int i = 0; i < 100; ++i) CHECK(field(*a) == SAT_OK);
+    g_played.clear();
+
+    /* without prefetch the standby asks for nothing */
+    for (int i = 0; i < 50; ++i) CHECK(field(*a) == SAT_OK);
+    CHECK(info_of(mb, &ib) && ib.prefetched == 0u);
+    CHECK(stream_buffered(2) == 0u);
+
+    CHECK(sat_music_prefetch(mb) == SAT_OK);
+    const size_t first_begin = g_drive.begin_lbas.size();
+    run_until(*a, 800, [&] { return info_of(mb, &ib) && ib.prefetched != 0u; });
+    /* the standby's segments come in runs, not one between each of the playing track's */
+    uint32_t standby_segments = 0u, switches = 0u;
+    bool last_standby = false;
+    for (size_t i = first_begin; i < g_drive.begin_lbas.size(); ++i) {
+        const bool is_standby = g_drive.begin_lbas[i] >= b->lba;
+        standby_segments += is_standby ? 1u : 0u;
+        if (i > first_begin && is_standby != last_standby) ++switches;
+        last_standby = is_standby;
+    }
+    CHECK(standby_segments >= 2u && switches <= 2u);
+    /* the prefetch took drive time from the playing track but never its reserve */
+    CHECK(g_disc.stats.music_min_buffered >= SAT_DISC_MUSIC_RESERVE_FRAMES);
+    CHECK(g_played.underruns == 0u);                       /* the playing track was never starved */
+    CHECK(g_played.ch[2].empty() && g_played.ch[3].empty());   /* and the standby stayed silent */
+    CHECK(ib.playing == 0u && ib.standby == 1u);
+    CHECK(stream_buffered(2) >= 16384u && stream_buffered(3) >= 16384u);
+    CHECK(g_drive.finishes == 0u);
+
+    /* the swap: the new track is audible in the call itself, even with the playing track's read in
+     * flight (it lands later and is dropped, nobody waits for it) */
+    run_until(*a, 200, [&] { return g_disc.in_flight == 2u && g_disc.fly_owner == 0u; });
+    g_played.clear();
+    CHECK(sat_music_play(mb) == SAT_OK);
+    CHECK(g_disc.fly_discard == 1u && g_drive.finishes == 0u);
+    CHECK(info_of(mb, &ib) && ib.playing == 1u && ib.starting == 0u && ib.standby == 0u);
+    CHECK(info_of(ma, &ia) && ia.playing == 0u && ia.standby == 1u && ia.prefetched == 0u);
+    sat_audio_stream_stats_t st{};
+    CHECK(sat_music_stats(mb, &st) == SAT_OK && st.paused == 0u);
+    CHECK(sat_music_stats(ma, &st) == SAT_OK && st.paused != 0u && st.buffered_frames == 0u);
+    g_music = mb;
+    for (int i = 0; i < 600; ++i) CHECK(field(*b) == SAT_OK);
+    CHECK(g_played.underruns == 0u);
+    CHECK(g_played.ch[0].empty() && g_played.ch[1].empty());
+    check_played(*b, 0u, 2u);
+    CHECK(g_drive.finishes == 0u && g_asset_reads == 0u);
+
+    /* back again, no prefetch: the outgoing track restarts from its beginning after a refill */
+    g_played.clear();
+    CHECK(sat_music_play(ma) == SAT_OK);
+    CHECK(info_of(ma, &ia) && ia.playing == 1u && ia.starting == 1u && ia.standby == 0u);
+    CHECK(info_of(mb, &ib) && ib.playing == 0u && ib.standby == 1u);
+    g_music = ma;
+    run_until(*a, 600, [&] { return info_of(ma, &ia) && ia.starting == 0u; });
+    CHECK(g_played.ch[0].empty());                          /* silent while it filled */
+    for (int i = 0; i < 500; ++i) CHECK(field(*a) == SAT_OK);
+    CHECK(g_played.underruns == 0u);
+    check_played(*a, 0u, 0u);
+    CHECK(g_drive.finishes == 0u && g_asset_reads == 0u);
+    CHECK(sat_music_close(ma) == SAT_OK);
+    CHECK(sat_music_close(mb) == SAT_OK);
+    CHECK(g_disc.music_ops == nullptr && g_disc.standby_ops == nullptr);
+}
+
+/* The swap while the standby's segment is on its way: it lands in the new primary's rings and
+ * nothing of the old one is delivered. */
+void test_handoff_mid_segment() {
+    fresh(12u);
+    Track* a = find_track("music/s16-stereo");
+    Track* b = find_track("music/s16-mono");
+    sat_music_t ma{}, mb{};
+    CHECK(sat_music_open(&ma, a->path) == SAT_OK);
+    CHECK(sat_music_open(&mb, b->path) == SAT_OK);
+    g_music = ma;
+    CHECK(sat_music_play(ma) == SAT_OK);
+    sat_music_info_t ia{}, ib{};
+    run_until(*a, 800, [&] { return info_of(ma, &ia) && ia.starting == 0u; });
+    CHECK(sat_music_prefetch(mb) == SAT_OK);
+    run_until(*a, 800, [&] { return g_disc.in_flight == 2u && g_disc.fly_owner == 1u; });
+    const uint32_t finishes = g_drive.finishes;
+    g_played.clear();
+    CHECK(sat_music_play(mb) == SAT_OK);
+    CHECK(g_disc.in_flight == 2u && g_disc.fly_owner == 0u);   /* the read goes on, now for the primary */
+    CHECK(g_drive.finishes == finishes);                       /* and nobody waited for it */
+    CHECK(info_of(mb, &ib) && ib.starting == 1u);
+    g_music = mb;
+    run_until(*b, 800, [&] { return info_of(mb, &ib) && ib.starting == 0u; });
+    for (int i = 0; i < 400; ++i) CHECK(field(*b) == SAT_OK);
+    CHECK(g_played.underruns == 0u);
+    CHECK(g_played.ch[0].empty() && g_played.ch[1].empty());
+    check_played(*b, 0u, 2u);
+    CHECK(sat_music_close(ma) == SAT_OK);
+    CHECK(sat_music_close(mb) == SAT_OK);
+}
+
+/* A seek or stop on the standby drops only its own segment and cancels the prefetch. */
+void test_standby_seek() {
+    fresh(6u);                                        /* quick enough that the playing track needs the drive less than half the time */
+    Track* a = find_track("music/s16-stereo");
+    Track* b = find_track("music/s8-stereo");
+    sat_music_t ma{}, mb{};
+    CHECK(sat_music_open(&ma, a->path) == SAT_OK);
+    CHECK(sat_music_open(&mb, b->path) == SAT_OK);
+    g_music = ma;
+    CHECK(sat_music_play(ma) == SAT_OK);
+    sat_music_info_t ia{}, ib{};
+    run_until(*a, 800, [&] { return info_of(ma, &ia) && ia.starting == 0u; });
+    CHECK(sat_music_prefetch(mb) == SAT_OK);
+    run_until(*a, 800, [&] { return g_disc.in_flight == 2u && g_disc.fly_owner == 1u; });
+    const uint32_t finishes = g_drive.finishes;
+    CHECK(sat_music_seek(mb, 5000u) == SAT_OK);
+    CHECK(g_drive.finishes == finishes + 1u);                  /* its own segment was dropped */
+    CHECK(g_disc.in_flight == 0u);
+    CHECK(info_of(mb, &ib) && ib.playing == 0u && ib.prefetched == 0u && ib.standby == 1u);
+    CHECK(sat_music_stop(mb) == SAT_OK);                       /* stop goes back to the start ... */
+    CHECK(sat_music_seek(mb, 5000u) == SAT_OK);                /* ... and a seek moves again */
+    CHECK(sat_music_prefetch(mb) == SAT_OK);
+    run_until(*a, 1200, [&] { return info_of(mb, &ib) && ib.prefetched != 0u; });
+    CHECK(g_played.underruns == 0u);
+    g_played.clear();
+    CHECK(sat_music_play(mb) == SAT_OK);
+    CHECK(info_of(mb, &ib) && ib.starting == 0u);
+    g_music = mb;
+    for (int i = 0; i < 500; ++i) CHECK(field(*b) == SAT_OK);
+    CHECK(g_played.underruns == 0u);
+    check_played(*b, 5000u, 2u);
+    CHECK(sat_music_close(mb) == SAT_OK);
+    CHECK(sat_music_close(ma) == SAT_OK);
+    CHECK(g_disc.standby_ops == nullptr && g_disc.music_ops == nullptr);
+}
+
+/* Prefetch on the only track (or a RAM one) makes play instant too. */
+void test_prefetch_single() {
+    fresh();
+    Track* t = find_track("music/s16-stereo");
+    CHECK(sat_music_open(&g_music, t->path) == SAT_OK);
+    CHECK(sat_music_prefetch(g_music) == SAT_OK);
+    sat_music_info_t info{};
+    run_until(*t, 800, [&] { return info_of(g_music, &info) && info.prefetched != 0u; });
+    CHECK(info.playing == 0u && g_played.ch[0].empty());
+    CHECK(sat_music_play(g_music) == SAT_OK);
+    CHECK(info_of(g_music, &info) && info.starting == 0u && info.playing == 1u && info.prefetched == 0u);
+    for (int i = 0; i < 400; ++i) CHECK(field(*t) == SAT_OK);
+    CHECK(g_played.underruns == 0u);
+    check_played(*t, 0u);
+    CHECK(sat_music_close(g_music) == SAT_OK);
+    /* a track read by the old path fills its rings from update as well */
+    Track* ram = find_track("music/ram");
+    sat_music_t r{};
+    CHECK(sat_music_open(&r, ram->path) == SAT_OK);
+    CHECK(sat_music_prefetch(r) == SAT_OK);
+    for (int i = 0; i < 20; ++i) CHECK(sat_music_update(r) == SAT_OK);
+    CHECK(info_of(r, &info) && info.disc_streamed == 0u && info.prefetched == 1u);
+    CHECK(sat_music_play(r) == SAT_OK);
+    CHECK(info_of(r, &info) && info.starting == 0u && info.playing == 1u);
+    CHECK(sat_music_close(r) == SAT_OK);
+}
+
 }  // namespace
 
 int main() {
@@ -682,6 +882,10 @@ int main() {
     test_seek_aborts_flight();
     test_pause_resume();
     test_ownership();
+    test_standby_handoff();
+    test_handoff_mid_segment();
+    test_standby_seek();
+    test_prefetch_single();
     test_data_job_beside_music();
     test_transport_error();
     test_start_through_scheduler_service();

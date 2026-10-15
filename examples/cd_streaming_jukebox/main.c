@@ -7,7 +7,8 @@
  * (JUKEBOX_DISC_STREAM=1, saturn/disc_stream.h): sat_music_play only marks the track
  * wanted, and sat_music_update lands the 16 KiB segment that has arrived and
  * starts the next (filling the rings first, then keeping them topped up), so no
- * frame ever waits for the drive. With
+ * frame ever waits for the drive. The next track is open as the standby and fills its rings
+ * behind the playing one, so Y switches to it with no refill. With
  * JUKEBOX_DISC_STREAM=0 the tracks are served through the bounded asset
  * cache instead and a refill stalls the frame for the 64 KiB block read.
  * The HUD shows the worst frame time either way.
@@ -71,6 +72,13 @@ static sat_cdfs_source_desc_t g_source_manifest[TRACK_COUNT];
 static sat_asset_desc_t g_asset_manifest[TRACK_COUNT];
 static sat_asset_t g_asset_handles[TRACK_COUNT];
 static sat_music_t g_music;
+#if JUKEBOX_DISC_STREAM
+/* The track after the playing one waits as the standby: it fills its rings once the playing track
+ * runs, so Y swaps to it without a refill (sat_music_prefetch / sat_music_play). */
+static sat_music_t g_next;
+static uint8_t g_next_index;
+static uint8_t g_next_requested;
+#endif
 static sat_hud_t g_hud;
 static sat_asset_prefetch_t g_prefetch;
 static uint8_t g_prefetch_active;
@@ -164,7 +172,24 @@ static sat_result_t warm_selected_track(void) {
     return status;
 }
 
+#if JUKEBOX_DISC_STREAM
+static void close_next_track(void) {
+    if (g_next.generation != 0u) (void)sat_music_close(g_next);
+    g_next = (sat_music_t){0};
+    g_next_requested = 0u;
+}
+
+static sat_result_t open_next_track(void) {
+    g_next_index = (uint8_t)((g_track_index + 1u) % TRACK_COUNT);
+    g_next_requested = 0u;
+    return sat_music_open(&g_next, g_tracks[g_next_index].logical_path);
+}
+#endif
+
 static sat_result_t open_selected_track(void) {
+#if JUKEBOX_DISC_STREAM
+    close_next_track();
+#endif
     if (g_music.generation != 0u) {
         sat_result_t status = sat_music_close(g_music);
         if (status != SAT_OK) return status;
@@ -176,6 +201,9 @@ static sat_result_t open_selected_track(void) {
     if (status != SAT_OK) return status;
     status = sat_music_play(g_music);
     if (status == SAT_OK) g_playing = 1u;
+#if JUKEBOX_DISC_STREAM
+    if (status == SAT_OK) status = open_next_track();
+#endif
     return status;
 }
 
@@ -183,6 +211,21 @@ static sat_result_t select_track(int8_t delta) {
     int16_t selected = (int16_t)g_track_index + delta;
     if (selected < 0) selected = TRACK_COUNT - 1u;
     if (selected >= (int16_t)TRACK_COUNT) selected = 0u;
+#if JUKEBOX_DISC_STREAM
+    if (g_next.generation != 0u && g_next_index == (uint8_t)selected) {
+        /* The standby takes the drive over; the track that was playing is rewound behind it. */
+        sat_result_t status = sat_music_play(g_next);
+        if (status != SAT_OK) return status;
+        const sat_music_t previous = g_music;
+        g_music = g_next;
+        g_next = previous;
+        g_track_index = (uint8_t)selected;
+        g_playing = 1u;
+        g_start_frames = 0u;
+        close_next_track();
+        return open_next_track();
+    }
+#endif
     g_track_index = (uint8_t)selected;
     return open_selected_track();
 }
@@ -248,6 +291,14 @@ int main(void) {
                 g_starting = music_info.starting;
             }
         }
+#if JUKEBOX_DISC_STREAM
+        /* Once the track plays, let the next one fill its rings behind it. */
+        if (status == SAT_OK && g_playing != 0u && g_starting == 0u && g_next.generation != 0u &&
+            g_next_requested == 0u) {
+            status = sat_music_prefetch(g_next);
+            if (status == SAT_OK) g_next_requested = 1u;
+        }
+#endif
         if (status == SAT_OK) status = sat_audio_update();
         /* Audio serviced from inside a CD wait must not fail silently. */
         if (status == SAT_OK && g_cd_block.progress_error_count != 0u) {
@@ -263,7 +314,17 @@ int main(void) {
                 draw_line(&font, "CD STREAMING JUKEBOX", 8);
                 draw_line(&font, g_tracks[g_track_index].title, 28);
                 draw_line(&font, "X/Y TRACK C PAUSE B SEEK", 48);
+#if JUKEBOX_DISC_STREAM
+                {
+                    sat_music_info_t next_info = {0};
+                    const uint8_t have = g_next.generation != 0u && sat_music_info(g_next, &next_info) == SAT_OK;
+                    draw_line(&font, have == 0u ? "NO NEXT TRACK"
+                                                : (next_info.prefetched != 0u ? "NEXT READY"
+                                                   : (g_next_requested != 0u ? "NEXT FILLING" : "NEXT QUEUED")), 60);
+                }
+#else
                 draw_line(&font, "CD BLOCK -> CDFS -> VFS", 60);
+#endif
 #if JUKEBOX_DISC_STREAM
                 /* The slowest single poll and music delivery. */
                 draw_value(&font, "MAX HOOK US ", g_worst_hook_us, 88);
@@ -283,11 +344,21 @@ int main(void) {
                 draw_value(&font, "WORST UPDATE US ", g_worst_update_us, 184);
                 draw_value(&font, "START FRAMES ", g_start_frames, 196);
                 draw_line(&font, g_playing == 0u ? "PAUSED" : (g_starting != 0u ? "FILLING RINGS" : "PLAYING FROM ISO"), 208);
+#if JUKEBOX_DISC_STREAM
+                {
+                    sat_audio_stream_stats_t next_stream = {0};
+                    if (g_next.generation != 0u) (void)sat_music_stats(g_next, &next_stream);
+                    draw_value(&font, "NEXT BUF ", next_stream.buffered_frames, 72);
+                }
+#endif
             }
         }
         (void)sat_app_frame_end();
     }
 
+#if JUKEBOX_DISC_STREAM
+    close_next_track();
+#endif
     if (g_music.generation != 0u) (void)sat_music_close(g_music);
     if (g_volume.mounted != 0u) (void)sat_cdfs_unmount(&g_volume);
     (void)sat_audio_shutdown();

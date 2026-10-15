@@ -70,6 +70,10 @@ extern "C" sat_result_t sat_cdfs_source_file(const char*, const sat_cdfs_file_t*
 extern "C" sat_result_t sat_disc_stream_music_attach(sat_disc_stream_t*, const sat_disc_music_feed_ops_t*, void*) { OK(false); return SAT_ERR_INVALID_ARG; }
 extern "C" void sat_disc_stream_music_detach(sat_disc_stream_t*) { OK(false); }
 extern "C" void sat_disc_stream_music_abort(sat_disc_stream_t*) { OK(false); }
+extern "C" sat_result_t sat_disc_stream_music_attach_standby(sat_disc_stream_t*, const sat_disc_music_feed_ops_t*, void*) { OK(false); return SAT_ERR_INVALID_ARG; }
+extern "C" void sat_disc_stream_music_detach_standby(sat_disc_stream_t*) { OK(false); }
+extern "C" void sat_disc_stream_music_abort_standby(sat_disc_stream_t*) { OK(false); }
+extern "C" sat_result_t sat_disc_stream_music_swap(sat_disc_stream_t*) { OK(false); return SAT_ERR_INVALID_ARG; }
 extern "C" void sat_disc_stream_music_set_starting(sat_disc_stream_t*, uint8_t) { OK(false); }
 extern "C" sat_result_t sat_disc_stream_service(sat_disc_stream_t*) { OK(false); return SAT_ERR_INVALID_ARG; }
 
@@ -140,8 +144,9 @@ int main() {
     OK(sat_music_update(music) == SAT_OK);
     OK(sat_music_pause(music) == SAT_OK && sat_music_is_playing(music) == 0u);
     OK(sat_music_resume(music) == SAT_OK && sat_music_is_playing(music) != 0u);
-    OK(sat_music_info(music, &info) == SAT_OK && info.starting == 1u);
-    OK(pump(music) <= 1u);                                                      // the ring is still full
+    OK(sat_music_info(music, &info) == SAT_OK && info.starting == 0u);         // the ring is still full: the streams restart at once
+    OK(sat_music_stats(music, &stats) == SAT_OK && stats.paused == 0u);
+    OK(pump(music) <= 1u);
     OK(sat_music_stop(music) == SAT_OK && sat_music_is_playing(music) == 0u);
     OK(sat_music_info(music, &info) == SAT_OK && info.starting == 0u);
     const sat_music_t stale = music;

@@ -65,7 +65,12 @@ typedef struct sat_music_info {
     /* 1: sat_music_play was called and the rings are still filling; the streams start, together,
      * in the sat_music_update (or sat_disc_stream_service) that finds them full. */
     uint8_t starting;
-    uint8_t reserved[2];
+    /* 1: a disc track waiting behind the one the drive plays (the second one opened). It fills its
+     * rings only after sat_music_prefetch; sat_music_play on it swaps the two. */
+    uint8_t standby;
+    /* 1: sat_music_prefetch was called, the track is not playing and its rings hold enough (16384
+     * frames for a disc track, full for any other), so sat_music_play starts it at once. */
+    uint8_t prefetched;
 } sat_music_info_t;
 
 typedef struct sat_audio_stream_stats {
@@ -192,6 +197,28 @@ sat_result_t sat_music_open(sat_music_t* out_music, const char* logical_path);
  * streams start together once they are full; until then sat_music_info reports `starting`.
  * A program that calls play and never updates hears nothing. Also resumes a paused track. */
 sat_result_t sat_music_play(sat_music_t music);
+/* Fills the track's rings now, silent, so a later sat_music_play starts it at once instead of after
+ * the refill. A disc track is read by the scheduler over the following sat_music_update calls, in
+ * bursts while the playing track's rings are nearly full (saturn/disc_stream.h, standby_high /
+ * standby_floor): sat_music_info reports `prefetched` once the rings hold 16384 frames, and the rest
+ * fills at normal priority. A drive with little spare throughput needs time for that: prefetch as
+ * early as the game knows what comes next (on Mednafen, which leaves a few percent beyond a 22.05
+ * kHz stereo S16 track, tens of seconds). Cancelled by stop / seek (call it again). Returns at once
+ * and reads nothing.
+ *
+ * Two disc tracks can be open (sat_music_use_disc_stream): the drive plays the first opened, the
+ * second waits behind it as the standby. sat_music_play on the standby is a gapless handoff when it
+ * was prefetched: the playing track stops and goes back to its start (it is then the standby), and
+ * the new one is audible in that call; the old track's read in flight is not waited for. Without a
+ * prefetch (or while it is still short of 16384 frames) it is the same switch with the refill
+ * before the new track is heard. The two share the library's two music slots.
+ *
+ * Real-drive caution: a prefetch moves the laser to the standby's file and back, and costs the
+ * playing track up to about (standby_high - standby_floor) frames plus two segments of margin. The
+ * manual's average seek is 500 ms at 2x, close to what the playing track's ring holds, so prefetch
+ * while the playing track is paused or fading, or at a moment where a glitch is acceptable. The
+ * emulators treat seeks as free, so they cannot show this. */
+sat_result_t sat_music_prefetch(sat_music_t music);
 sat_result_t sat_music_pause(sat_music_t music);
 sat_result_t sat_music_resume(sat_music_t music);
 sat_result_t sat_music_stop(sat_music_t music);

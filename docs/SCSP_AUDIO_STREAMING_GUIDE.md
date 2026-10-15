@@ -118,8 +118,9 @@ sat_music_use_disc_stream(&disc);                   /* before sat_music_open */
 
 A track registered with `sat_cdfs_register_source_manifest` and opened with `sat_music_open` then
 reads through the scheduler (`sat_music_info(...).disc_streamed` says so); anything else (a RAM blob,
-another reader) keeps the old path, and the drive serves one disc-scheduled track at a time (a
-second `sat_music_open` returns `SAT_ERR_BUSY`). The invariants this keeps:
+another reader) keeps the old path, and the drive plays one disc-scheduled track at a time. A
+second `sat_music_open` becomes the *standby* (see "Prefetch and gapless handoff"); a third returns
+`SAT_ERR_BUSY`. The invariants this keeps:
 
 - one 16 KiB segment (ADPCM: whole sectors near 8 blocks) is in flight at a time, and a second one
   is delivered while the next is read; at most two are started and not yet in the rings, and the
@@ -139,6 +140,33 @@ second `sat_music_open` returns `SAT_ERR_BUSY`). The invariants this keeps:
   hold the reserve, exactly as with the built-in feed;
 - look every file up before the music plays, and keep progress hooks from calling
   `sat_music_update`: a lookup or a file read finishes the segment in flight.
+
+### Prefetch and gapless handoff
+
+The second disc track opened waits behind the playing one. `sat_music_prefetch` lets the scheduler
+fill its rings silent; `sat_music_play` on it then swaps the two with no refill, and the old track
+rewinds to 0 as the new standby (`sat_music_info(...).standby` / `.prefetched`).
+
+- The standby is only read when the playing track's rings are well stocked: once its buffer reaches
+  `SAT_DISC_STANDBY_HIGH_FRAMES` (28672) the scheduler reads the standby in a burst of consecutive
+  segments, and returns to the playing track when it falls below `SAT_DISC_STANDBY_FLOOR_FRAMES`
+  (24576). The playing rings therefore stay above the music reserve; the cost is the gap between those
+  two marks plus two segments of margin. A standby is `prefetched` at 16384 frames; a swap before that
+  still works, it only shortens the refill.
+- A swap drops the old primary's delivered segments at once and marks its in-flight read to be
+  discarded when it lands (nothing waits for the drive).
+- Host tests (`test_music_disc`) assert the invariants: min playing buffer >= reserve during bursts,
+  at most two switches per burst, `fly_discard` on a mid-read swap, seek and mid-segment swaps.
+- Emulator measurement (Mednafen, jukebox, 22.05 kHz stereo S16 tracks): the standby reached 20072
+  frames and "NEXT READY" after ~90 s with 0 underruns and worst frame 21 ms. That is slow because the
+  scheduler's per-segment pacing (~180 ms per segment on that emulator) leaves only a few percent of
+  drive throughput beyond one such track; it is an emulator figure, not a hardware one. Ymir reached it
+  in a few seconds.
+- **Real drive:** the prefetch moves the laser between two files. The manual's average seek (500 ms at
+  2x) is about the playing ring's depth, so prefetch while the playing track is paused or fading, or
+  where a glitch is acceptable. Emulators model seeks as free and cannot show this.
+- Limits: two disc tracks use both of the library's two music slots; the old track restarts from 0
+  (no resume position); no crossfade.
 
 Measured on the jukebox (Mednafen, 60 s): worst `sat_music_update` 14.6 ms (4.3 ms poll, 1.8 ms
 delivery, and the audio driver's own refill when it fell in the same call), worst frame 31 ms,
