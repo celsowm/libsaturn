@@ -8,10 +8,12 @@
 
 namespace {
 /* What a batch frame may carry: the flags that change only command words
- * the frame holds. Tint, blend, camera, scale, rotation and user clip need
- * the general sat_draw_texture path. */
+ * the frame holds (user clip is the CMDPMOD clip bits; the rectangle itself is
+ * the last sat_vdp1_set_user_clip). Tint, blend, camera, scale and rotation
+ * need the general sat_draw_texture path. */
 constexpr uint16_t kBatchFlags = SAT_SPRITE_FLAG_OPAQUE | SAT_SPRITE_FLAG_MESH |
-                                 SAT_SPRITE_FLAG_FLIP_H | SAT_SPRITE_FLAG_FLIP_V;
+                                 SAT_SPRITE_FLAG_FLIP_H | SAT_SPRITE_FLAG_FLIP_V |
+                                 SAT_SPRITE_FLAG_USER_CLIP;
 }  // namespace
 
 extern "C" sat_result_t sat_sprite_frame_init_raw(
@@ -23,7 +25,8 @@ extern "C" sat_result_t sat_sprite_frame_init_raw(
     if (format != SAT_VDP1_TEXTURE_INDEXED8 && format != SAT_VDP1_TEXTURE_LUT4) return SAT_ERR_INVALID_ARG;
     if ((flags & ~kBatchFlags) != 0u) return SAT_ERR_UNSUPPORTED;
     frame->ctrl = saturn::core::compose_sprite_dir(flags);
-    frame->pmod = saturn::core::compose_sprite_pmod(flags, format);
+    frame->pmod = saturn::core::compose_inside_user_clip_pmod(
+        saturn::core::compose_sprite_pmod(flags, format), (flags & SAT_SPRITE_FLAG_USER_CLIP) != 0u);
     frame->colr = saturn::core::compose_sprite_colr(palette, format);
     frame->srca = srca;
     frame->size = static_cast<uint16_t>(((width / 8u) << 8u) | height);

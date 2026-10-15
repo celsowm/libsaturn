@@ -49,7 +49,9 @@ int main() {
     OK(sat_sprite_frame_init_raw(&f, 0, 16u, 0u, 0u, 0u, 0u, 0, 0) == SAT_ERR_INVALID_ARG);
     OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 0u, 0u, 0u, 20, -3) == SAT_OK && f.pivot_x == 20 && f.pivot_y == -3);
     OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 7u, 0u, 0u, 0, 0) == SAT_ERR_INVALID_ARG);   /* format */
-    OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 0u, 0u, SAT_SPRITE_FLAG_USER_CLIP, 0, 0) == SAT_ERR_UNSUPPORTED);
+    /* User clip is the CMDPMOD clip-enable bit (inside mode); the rectangle is a separate command. */
+    OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 0u, 0u, SAT_SPRITE_FLAG_USER_CLIP, 0, 0) == SAT_OK);
+    OK(f.pmod == 0x04A0u);
     OK(sat_sprite_frame_init_raw(&f, 0, 16u, 16u, 0u, 0u, SAT_SPRITE_FLAG_SHADOW, 0, 0) == SAT_ERR_UNSUPPORTED);
     OK(sat_sprite_frame_init(&f, nullptr, 0u, 0, 0) == SAT_ERR_INVALID_ARG);
     sat_vdp1_texture_t tex{0x44u, 24u, 24u, 2u, 1u, SAT_VDP1_TEXTURE_INDEXED8};
@@ -127,6 +129,22 @@ int main() {
         OK(sat_sprite_batch_draw(frames.data(), static_cast<uint32_t>(frames.size()), inst.data(),
                                  static_cast<uint32_t>(inst.size()), SAT_SPRITE_BATCH_NO_CULL, &nc) == SAT_OK);
         OK(nc.culled == 0u && nc.submitted == inst.size());
+    }
+
+    /* A user-clipped frame inside the screen keeps pre-clipping: it can still cross the user
+     * rectangle, which the Pclp bit would not handle. */
+    {
+        sat_sprite_frame_t pair[2]{};
+        OK(sat_sprite_frame_init_raw(&pair[0], 1u, 16u, 16u, 0u, 0u, 0u, 8, 8) == SAT_OK);
+        OK(sat_sprite_frame_init_raw(&pair[1], 1u, 16u, 16u, 0u, 0u, SAT_SPRITE_FLAG_USER_CLIP, 8, 8) == SAT_OK);
+        const sat_sprite_instance_t two[2] = {{100, 100, 0u, 0u}, {100, 100, 1u, 0u}};
+        std::vector<Command> list(16);
+        begin_frame(list.data(), 16u);
+        sat_sprite_batch_stats_t st{};
+        OK(sat_sprite_batch_draw(pair, 2u, two, 2u, 0u, &st) == SAT_OK);
+        OK(st.submitted == 2u && st.no_preclip == 1u);
+        OK((list[2].pmod & 0x0800u) != 0u && (list[2].pmod & 0x0400u) == 0u);
+        OK((list[3].pmod & 0x0800u) == 0u && (list[3].pmod & 0x0400u) != 0u);
     }
 
     /* Edge touching: one texel on screen is on screen, one texel past is culled. */

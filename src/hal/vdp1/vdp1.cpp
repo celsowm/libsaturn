@@ -505,7 +505,9 @@ sat_result_t push_sprite_batch(const sat_sprite_frame_t* frames, uint32_t frame_
         }
 
         const bool hflip = (f.ctrl & 0x0010u) != 0u;
-        const bool no_preclip = inside && preclip_off_allowed && !hflip;
+        /* A frame that is clipped to the user rectangle (CMDPMOD bit 10) keeps its pre-clipping: it
+         * may cross that rectangle even when it is wholly inside the screen. */
+        const bool no_preclip = inside && preclip_off_allowed && !hflip && (f.pmod & 0x0400u) == 0u;
         const int16_t xa = static_cast<int16_t>(left - origin_x);
         const int16_t ya = static_cast<int16_t>(top - origin_y);
         const int16_t xr = static_cast<int16_t>(xa + static_cast<int32_t>(f.width));

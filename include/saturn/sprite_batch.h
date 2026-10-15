@@ -54,7 +54,9 @@ typedef struct sat_sprite_batch_stats {
 } sat_sprite_batch_stats_t;
 
 /* Builds a frame from an uploaded texture. flags: SAT_SPRITE_FLAG_OPAQUE,
- * _MESH, _FLIP_H, _FLIP_V. The pivot is the texel the instance position names;
+ * _MESH, _FLIP_H, _FLIP_V, _USER_CLIP (draw only inside the rectangle of the
+ * last sat_vdp1_set_user_clip, which the caller appends before the batch;
+ * such a frame is never submitted with pre-clipping disabled). The pivot is the texel the instance position names;
  * it may lie outside the frame (a trimmed sprite whose anchor is off its art). */
 sat_result_t sat_sprite_frame_init(sat_sprite_frame_t* frame,
                                    const sat_vdp1_texture_t* texture,
