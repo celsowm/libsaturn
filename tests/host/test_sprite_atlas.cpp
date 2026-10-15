@@ -187,7 +187,7 @@ static int check_real_atlas(const char* path) {
     for (uint32_t i = 0; i < frames.size(); ++i) {
         sat_sprite_atlas_frame_info_t fi{};
         OK(sat_sprite_atlas_frame_info(&a, i, &fi) == SAT_OK);
-        OK(frames[i].width == fi.width && frames[i].height == fi.height);
+        OK(sat_sprite_frame_width(&frames[i]) == fi.width && sat_sprite_frame_height(&frames[i]) == fi.height);
         OK(std::memcmp(&g_vram[frames[i].srca * 8u], &blob[fi.data_offset], fi.data_bytes) == 0);
         pixel_bytes += fi.data_bytes;
     }

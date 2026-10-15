@@ -1,4 +1,5 @@
 #include "src/hal/vdp1/vdp1.hpp"
+#include "src/hal/vdp1/submit_copy.hpp"
 #include "src/hal/vdp1/texture_arena.hpp"
 #include "src/hal/scu/dma.hpp"
 #include "src/hal/scu/scu.hpp"
@@ -149,11 +150,7 @@ inline bool command_slot_unavailable() {
 }
 
 inline void copy_words_to_vram(const Command* src, uint32_t count_commands) {
-    const uint32_t dwords = (count_commands * sizeof(Command)) / sizeof(uint32_t);
-    const uint32_t* s = reinterpret_cast<const uint32_t*>(src);
-    for (uint32_t i = 0; i < dwords; ++i) {
-        VDP1_VRAM_32[i] = s[i];
-    }
+    (void)submit_copy::copy_commands(reinterpret_cast<const uint32_t*>(src), VDP1_VRAM_32, count_commands);
 }
 
 }  // namespace
@@ -452,12 +449,82 @@ typedef uint32_t __attribute__((may_alias)) word_t;
 
 /* Two consecutive command halfwords as the longword that stores them (the host tests run this
  * on little-endian machines). */
-inline uint32_t pair(uint32_t first, uint32_t second) {
+inline constexpr uint32_t pair(uint32_t first, uint32_t second) {
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
     return (second << 16u) | (first & 0xFFFFu);
 #else
     return (first << 16u) | (second & 0xFFFFu);
 #endif
+}
+
+/* The bits of a batch frame's first two command longwords (CMDCTRL/CMDLINK, CMDPMOD/CMDCOLR). */
+constexpr uint32_t kW0HFlip = pair(0x0010u, 0u);       /* CMDCTRL Dir bit 4 */
+constexpr uint32_t kW1UserClip = pair(0x0400u, 0u);    /* CMDPMOD Clip */
+constexpr uint32_t kW1PreclipOff = pair(0x0800u, 0u);  /* CMDPMOD Pclp */
+
+struct BatchCounts {
+    uint32_t used;        /* the next free command slot */
+    uint32_t no_preclip;
+    uint32_t culled;
+    uint32_t dropped;
+    uint32_t invalid;
+};
+
+/* The per-instance loop of push_sprite_batch, written for the SH-2: a frame is 16 bytes whose
+ * first 12 are the command's first 12 bytes, so a command is three longwords copied from the
+ * frame and one for the position, and the work between is a handful of adds and one combined
+ * sign test for "wholly on screen". `kChecked` adds the capacity check (only needed when the
+ * list may not hold every instance), `kPreclipOff` the Pclp rule. A normal sprite reads only its
+ * first 16 bytes (see submit_copy.hpp), so the vertices B, C and D are not written. */
+template <bool kChecked, bool kPreclipOff>
+void batch_loop(const sat_sprite_frame_t* frames, uint32_t frame_count,
+                const sat_sprite_instance_t* in, uint32_t count, uint32_t limit,
+                int32_t screen_w, int32_t screen_h, bool cull, BatchCounts& c) {
+    static_assert(sizeof(sat_sprite_frame_t) == 16u, "a batch frame is four longwords");
+    static_assert(sizeof(Command) == 32u, "a VDP1 command table is 32 bytes");
+    const int32_t origin_x = screen_w / 2;
+    const int32_t origin_y = screen_h / 2;
+    uint32_t used = c.used;
+    uint32_t preclip_off = 0u;
+    word_t* w = reinterpret_cast<word_t*>(&g_cmd_buffer[used]);
+    for (const sat_sprite_instance_t* const end = in + count; in != end; ++in) {
+        const uint32_t index = in->frame;
+        if (index >= frame_count) {
+            ++c.invalid;
+            continue;
+        }
+        const sat_sprite_frame_t* const f = frames + index;
+        const int32_t left = static_cast<int32_t>(in->x) - f->pivot_x;
+        const int32_t top = static_cast<int32_t>(in->y) - f->pivot_y;
+        const uint32_t size = f->size;
+        const int32_t width = static_cast<int32_t>(size >> 8u) << 3;
+        const int32_t height = static_cast<int32_t>(size & 0xFFu);
+        const bool inside = (left | top | (screen_w - width - left) | (screen_h - height - top)) >= 0;
+        if (!inside && cull &&
+            (left + width <= 0 || top + height <= 0 || left >= screen_w || top >= screen_h)) {
+            ++c.culled;
+            continue;
+        }
+        if (kChecked && used >= limit) {
+            ++c.dropped;
+            continue;
+        }
+        const word_t* const fw = reinterpret_cast<const word_t*>(f);
+        const uint32_t w0 = fw[0];
+        uint32_t w1 = fw[1];
+        if (kPreclipOff && inside && ((w0 & kW0HFlip) | (w1 & kW1UserClip)) == 0u) {
+            w1 |= kW1PreclipOff;
+            ++preclip_off;
+        }
+        w[0] = w0;
+        w[1] = w1;
+        w[2] = fw[2];
+        w[3] = pair(static_cast<uint16_t>(left - origin_x), static_cast<uint16_t>(top - origin_y));
+        w += 8;
+        ++used;
+    }
+    c.used = used;
+    c.no_preclip += preclip_off;
 }
 
 sat_result_t push_sprite_batch(const sat_sprite_frame_t* frames, uint32_t frame_count,
@@ -469,73 +536,70 @@ sat_result_t push_sprite_batch(const sat_sprite_frame_t* frames, uint32_t frame_
     if (count != 0u && (frames == nullptr || instances == nullptr)) {
         return SAT_ERR_INVALID_ARG;
     }
-    sat_sprite_batch_stats_t local{};
-    const int32_t screen_w = g_width;
-    const int32_t screen_h = g_height;
-    const int32_t origin_x = screen_w / 2;
-    const int32_t origin_y = screen_h / 2;
     /* command_slot_unavailable() as a single limit: the END slot and the
      * overlay quota stay free. */
     const uint32_t reserve = g_overlay_pass ? 0u : g_overlay_reserved;
     const uint32_t limit = g_cmd_capacity > 1u + reserve ? g_cmd_capacity - 1u - reserve : 0u;
     const bool cull = (options & SAT_SPRITE_BATCH_NO_CULL) == 0u;
     const bool preclip_off_allowed = (options & SAT_SPRITE_BATCH_KEEP_PRECLIP) == 0u;
-    uint32_t used = g_cmd_count;
-
-    for (uint32_t i = 0; i < count; ++i) {
-        const sat_sprite_instance_t& in = instances[i];
-        if (in.frame >= frame_count) {
-            ++local.invalid;
-            continue;
-        }
-        const sat_sprite_frame_t& f = frames[in.frame];
-        const int32_t left = static_cast<int32_t>(in.x) - f.pivot_x;
-        const int32_t top = static_cast<int32_t>(in.y) - f.pivot_y;
-        const int32_t right = left + static_cast<int32_t>(f.width) - 1;
-        const int32_t bottom = top + static_cast<int32_t>(f.height) - 1;
-        const bool inside = left >= 0 && top >= 0 && right < screen_w && bottom < screen_h;
-        if (cull && !inside &&
-            (right < 0 || bottom < 0 || left >= screen_w || top >= screen_h)) {
-            ++local.culled;
-            continue;
-        }
-        if (used >= limit) {
-            ++local.dropped;
-            continue;
-        }
-
-        const bool hflip = (f.ctrl & 0x0010u) != 0u;
-        /* A frame that is clipped to the user rectangle (CMDPMOD bit 10) keeps its pre-clipping: it
-         * may cross that rectangle even when it is wholly inside the screen. */
-        const bool no_preclip = inside && preclip_off_allowed && !hflip && (f.pmod & 0x0400u) == 0u;
-        const int16_t xa = static_cast<int16_t>(left - origin_x);
-        const int16_t ya = static_cast<int16_t>(top - origin_y);
-        const int16_t xr = static_cast<int16_t>(xa + static_cast<int32_t>(f.width));
-        const int16_t yb = static_cast<int16_t>(ya + static_cast<int32_t>(f.height));
-        /* Eight longword stores, not sixteen halfwords: every store to Work RAM-H is a bus cycle
-         * (the cache is write-through), so the command is written as the SH-2 sees it, big-endian
-         * pairs of command words. */
-        static_assert(sizeof(Command) == 32u, "a VDP1 command table is 32 bytes");
-        word_t* const w = reinterpret_cast<word_t*>(&g_cmd_buffer[used++]);
-        const uint32_t pmod = no_preclip ? static_cast<uint32_t>(f.pmod | saturn::core::kVdp1PmodPreclipOff)
-                                         : static_cast<uint32_t>(f.pmod);
-        const uint32_t uxa = static_cast<uint16_t>(xa), uya = static_cast<uint16_t>(ya);
-        const uint32_t uxr = static_cast<uint16_t>(xr), uyb = static_cast<uint16_t>(yb);
-        w[0] = pair(f.ctrl, 0u);                                            /* ctrl, link */
-        w[1] = pair(pmod, f.colr);                                          /* pmod, colr */
-        w[2] = pair(f.srca, f.size);                                        /* srca, size */
-        w[3] = pair(uxa, uya);                                              /* A */
-        w[4] = pair(uxr, uya);                                              /* B */
-        w[5] = pair(uxr, uyb);                                              /* C */
-        w[6] = pair(uxa, uyb);                                              /* D */
-        w[7] = 0u;                                                          /* grda, pad */
-        ++local.submitted;
-        if (no_preclip) ++local.no_preclip;
+    BatchCounts c{g_cmd_count, 0u, 0u, 0u, 0u};
+    const uint32_t first = c.used;
+    /* Every instance fits: no capacity check inside the loop. */
+    const bool fits = c.used <= limit && count <= limit - c.used;
+    const int32_t w = g_width, h = g_height;
+    if (fits) {
+        if (preclip_off_allowed) batch_loop<false, true>(frames, frame_count, instances, count, limit, w, h, cull, c);
+        else batch_loop<false, false>(frames, frame_count, instances, count, limit, w, h, cull, c);
+    } else {
+        if (preclip_off_allowed) batch_loop<true, true>(frames, frame_count, instances, count, limit, w, h, cull, c);
+        else batch_loop<true, false>(frames, frame_count, instances, count, limit, w, h, cull, c);
     }
-    g_cmd_count = static_cast<decltype(g_cmd_count)>(used);
-    if (stats != nullptr) *stats = local;
-    if (local.dropped != 0u) return SAT_ERR_CAPACITY;
-    return local.invalid != 0u ? SAT_ERR_INVALID_ARG : SAT_OK;
+    g_cmd_count = static_cast<decltype(g_cmd_count)>(c.used);
+    if (stats != nullptr) {
+        stats->submitted = c.used - first;
+        stats->culled = c.culled;
+        stats->dropped = c.dropped;
+        stats->invalid = c.invalid;
+        stats->no_preclip = c.no_preclip;
+    }
+    if (c.dropped != 0u) return SAT_ERR_CAPACITY;
+    return c.invalid != 0u ? SAT_ERR_INVALID_ARG : SAT_OK;
+}
+
+sat_result_t sprite_batch_window_begin(sat_sprite_batch_window_t* win, uint32_t max_commands, uint32_t options) {
+    if (win == nullptr) return SAT_ERR_INVALID_ARG;
+    if (g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
+    const uint32_t reserve = g_overlay_pass ? 0u : g_overlay_reserved;
+    const uint32_t limit = g_cmd_capacity > 1u + reserve ? g_cmd_capacity - 1u - reserve : 0u;
+    const uint32_t room = limit > g_cmd_count ? limit - g_cmd_count : 0u;
+    const uint32_t n = max_commands < room ? max_commands : room;
+    *win = sat_sprite_batch_window_t{};
+    uint32_t* const first = reinterpret_cast<uint32_t*>(&g_cmd_buffer[g_cmd_count]);
+    win->base = first;
+    win->next = first;
+    win->limit = first + n * 8u;
+    win->screen_w = g_width;
+    win->screen_h = g_height;
+    win->origin_x = g_width / 2;
+    win->origin_y = g_height / 2;
+    win->keep_preclip = (options & SAT_SPRITE_BATCH_KEEP_PRECLIP) != 0u;
+    win->cull = (options & SAT_SPRITE_BATCH_NO_CULL) == 0u;
+    return SAT_OK;
+}
+
+sat_result_t sprite_batch_window_end(const sat_sprite_batch_window_t* win, sat_sprite_batch_stats_t* stats) {
+    if (win == nullptr) return SAT_ERR_INVALID_ARG;
+    if (g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
+    const uint32_t emitted = static_cast<uint32_t>(win->next - win->base) / 8u;
+    g_cmd_count = static_cast<decltype(g_cmd_count)>(g_cmd_count + emitted);
+    if (stats != nullptr) {
+        stats->submitted = emitted;
+        stats->culled = win->culled;
+        stats->dropped = win->dropped;
+        stats->invalid = 0u;
+        stats->no_preclip = win->no_preclip;
+    }
+    return win->dropped != 0u ? SAT_ERR_CAPACITY : SAT_OK;
 }
 
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
@@ -901,6 +965,7 @@ void wait_swap_requested() {
 }
 
 void set_submit_dma(bool enabled) { g_submit_dma = enabled; }
+
 bool submit_dma() { return g_submit_dma; }
 
 uint32_t draw_waits() { return g_draw_waits; }
@@ -970,6 +1035,7 @@ void submit() {
             VDP1_VRAM_16[gouraud_word_base + i] = g_gouraud_words[i];
         }
     }
+
     g_frame_submitted=true;
     g_list_submitted=true;
     if (g_on_submit) {

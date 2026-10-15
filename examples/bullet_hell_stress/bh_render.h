@@ -37,7 +37,14 @@ typedef struct bh_hud {
  * (bh_view layout) before drawing; the HUD uses the first, and the panels are never drawn over. */
 uint32_t bh_render_build(const bh_sim_t* sim, const bh_view_t* view, const sat_sprite_frame_t* frames,
                          uint32_t clip_base, const uint8_t* frame_ready, const bh_hud_t* hud,
-                         sat_sprite_instance_t* out, uint32_t capacity);
+                         sat_sprite_instance_t* out, uint32_t capacity, uint32_t* bullets_at);
+
+/* The enemy bullets are not in that list: they have the most sprites by far, so they are written
+ * straight into the frame's command list (sat_sprite_batch window), one pass over the pool. Draw
+ * out[0, *bullets_at) with sat_sprite_batch_draw, call this, then draw out[*bullets_at, n). Returns
+ * the batch statistics of the bullets. Same frame-table and user-clip rules as above. */
+void bh_render_bullets(const bh_sim_t* sim, const bh_view_t* view, const sat_sprite_frame_t* frames,
+                       uint32_t clip_base, const uint8_t* frame_ready, sat_sprite_batch_stats_t* stats);
 
 /* Atlas frame index of a bullet; exposed for the host test and for radius lookup. */
 uint16_t bh_frame_bullet(uint8_t shape, uint8_t color);

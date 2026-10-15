@@ -25,13 +25,12 @@ extern "C" sat_result_t sat_sprite_frame_init_raw(
     if (format != SAT_VDP1_TEXTURE_INDEXED8 && format != SAT_VDP1_TEXTURE_LUT4) return SAT_ERR_INVALID_ARG;
     if ((flags & ~kBatchFlags) != 0u) return SAT_ERR_UNSUPPORTED;
     frame->ctrl = saturn::core::compose_sprite_dir(flags);
+    frame->link = 0u;
     frame->pmod = saturn::core::compose_inside_user_clip_pmod(
         saturn::core::compose_sprite_pmod(flags, format), (flags & SAT_SPRITE_FLAG_USER_CLIP) != 0u);
     frame->colr = saturn::core::compose_sprite_colr(palette, format);
     frame->srca = srca;
     frame->size = static_cast<uint16_t>(((width / 8u) << 8u) | height);
-    frame->width = width;
-    frame->height = height;
     frame->pivot_x = pivot_x;
     frame->pivot_y = pivot_y;
     return SAT_OK;
@@ -54,4 +53,16 @@ extern "C" sat_result_t sat_sprite_batch_draw(
         return SAT_ERR_INVALID_ARG;
     }
     return saturn::hal::vdp1::push_sprite_batch(frames, frame_count, instances, count, options, stats);
+}
+
+extern "C" sat_result_t sat_sprite_batch_begin(sat_sprite_batch_window_t* win, uint32_t max_commands,
+                                               uint32_t options) {
+    if ((options & ~(SAT_SPRITE_BATCH_KEEP_PRECLIP | SAT_SPRITE_BATCH_NO_CULL)) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return saturn::hal::vdp1::sprite_batch_window_begin(win, max_commands, options);
+}
+
+extern "C" sat_result_t sat_sprite_batch_end(const sat_sprite_batch_window_t* win, sat_sprite_batch_stats_t* stats) {
+    return saturn::hal::vdp1::sprite_batch_window_end(win, stats);
 }

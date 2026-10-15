@@ -117,7 +117,12 @@ typedef struct bh_telemetry {
 
 volatile bh_telemetry_t g_bh_telemetry;
 
+#ifdef BH_BENCH_N
+/* BH_BENCH_N=n replaces the largest phase's bullet count (a sweep between 512 and 1024). */
+static const uint16_t kBenchSizes[4] = {128u, 256u, 512u, BH_BENCH_N};
+#else
 static const uint16_t kBenchSizes[4] = {128u, 256u, 512u, 1024u};
+#endif
 
 static sat_cd_block_t g_cd_block;
 static sat_cd_device_t g_cd_device;
@@ -470,15 +475,25 @@ int main(void) {
         if (sat_begin_frame() != SAT_OK) break;
         bh_hud_t hud = {g_fps_x10 / 10u, g_sim.bullet_count, (uint32_t)g_sim.stage + 1u, BH_HUD_TIMING, {0}};
         for (uint32_t k = 0; k < 9u; ++k) hud.ticks[k] = g_tick_mean[k];
+        uint32_t bullets_at = 0u;
         const uint32_t n = bh_render_build(&g_sim, &g_view, g_frames, SHMUP_FRAME_COUNT, g_ready, &hud,
-                                           g_instances, BH_MAX_INSTANCES);
+                                           g_instances, BH_MAX_INSTANCES, &bullets_at);
         const uint16_t t_build1 = sat_time_frc();
-        sat_sprite_batch_stats_t bs = {0};
-        /* The playfield sprites that cross the field's edge are clipped to it (bh_render.h). */
+        sat_sprite_batch_stats_t bs = {0}, bs2 = {0};
+        /* The playfield sprites that cross the field's edge are clipped to it (bh_render.h). The
+         * enemy bullets go in between the two instance runs, straight into the command list. */
         const sat_rect_t* field = &g_view.layout.field;
         (void)sat_vdp1_set_user_clip((int16_t)field->x, (int16_t)field->y,
                                      (int16_t)(field->x + field->width - 1), (int16_t)(field->y + field->height - 1));
-        (void)sat_sprite_batch_draw(g_frames, 2u * SHMUP_FRAME_COUNT, g_instances, n, 0u, &bs);
+        (void)sat_sprite_batch_draw(g_frames, 2u * SHMUP_FRAME_COUNT, g_instances, bullets_at, 0u, &bs);
+        sat_sprite_batch_stats_t bs_bullets = {0};
+        bh_render_bullets(&g_sim, &g_view, g_frames, SHMUP_FRAME_COUNT, g_ready, &bs_bullets);
+        (void)sat_sprite_batch_draw(g_frames, 2u * SHMUP_FRAME_COUNT, g_instances + bullets_at, n - bullets_at, 0u, &bs2);
+        bs.submitted += bs_bullets.submitted + bs2.submitted;
+        bs.culled += bs_bullets.culled + bs2.culled;
+        bs.dropped += bs_bullets.dropped + bs2.dropped;
+        bs.invalid += bs_bullets.invalid + bs2.invalid;
+        bs.no_preclip += bs_bullets.no_preclip + bs2.no_preclip;
         const uint16_t t_draw1 = sat_time_frc();
         sat_vdp1_command_stats_t cs = {0};
         (void)sat_vdp1_command_stats(&cs);
@@ -559,7 +574,7 @@ int main(void) {
             r->ticks_serv += d_serv; r->ticks_sim += d_sim; r->ticks_build += d_build; r->ticks_draw += d_draw; r->ticks_end += d_end;
             if (d_total > r->ticks_max) r->ticks_max = d_total;
             r->commands = cs.used;
-            r->drawn = n;
+            r->drawn = n + bs_bullets.submitted + bs_bullets.culled;   /* instances plus the bullets written direct */
             if (++g_bench_count >= BENCH_FRAMES) {
                 bench_end();
 #ifdef BH_BENCH_LOOP

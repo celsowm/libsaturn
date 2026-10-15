@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "src/core/runtime/logic.hpp"
+#include "src/hal/vdp1/submit_copy.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
 
 #include "saturn/sprite_batch.h"
@@ -26,8 +27,8 @@ Command reference_command(const sat_sprite_frame_t& f, const sat_sprite_instance
     SpriteRequest req{};
     req.x = static_cast<int16_t>(in.x - f.pivot_x - 160);
     req.y = static_cast<int16_t>(in.y - f.pivot_y - 112);
-    req.width = f.width;
-    req.height = f.height;
+    req.width = sat_sprite_frame_width(&f);
+    req.height = sat_sprite_frame_height(&f);
     req.srca = f.srca;
     req.palette = palette;
     req.flags = flags;
@@ -61,8 +62,10 @@ int main() {
     OK(sat_sprite_frame_init(&f, &tex, 0u, 0, 0) == SAT_ERR_INVALID_ARG);
 
     /* Byte-identical commands to push_sprite for random frames and positions
-     * (KEEP_PRECLIP), and identical but for Pclp without it. */
+     * (KEEP_PRECLIP), and identical but for Pclp without it. A normal sprite is compared over the
+     * 16 bytes the VDP1 reads (ctrl .. A): the batch leaves the vertices B, C and D unwritten. */
     {
+        const size_t kHead = 16u;
         struct Spec { uint16_t flags, format, palette; } specs[] = {
             {0u, SAT_VDP1_TEXTURE_INDEXED8, 1u},
             {SAT_SPRITE_FLAG_OPAQUE | SAT_SPRITE_FLAG_FLIP_V, SAT_VDP1_TEXTURE_INDEXED8, 7u},
@@ -107,16 +110,16 @@ int main() {
         for (const sat_sprite_instance_t& in : inst) {
             const sat_sprite_frame_t& fr = frames[in.frame];
             const int left = in.x - fr.pivot_x, top = in.y - fr.pivot_y;
-            const int right = left + fr.width - 1, bottom = top + fr.height - 1;
+            const int right = left + sat_sprite_frame_width(&fr) - 1, bottom = top + sat_sprite_frame_height(&fr) - 1;
             if (right < 0 || bottom < 0 || left >= 320 || top >= 224) { ++culled; continue; }
             const Spec& s = spec_of_frame[in.frame];
             const Command want = reference_command(fr, in, s.flags, s.format, s.palette);
-            OK(std::memcmp(&list[slot], &want, sizeof(Command)) == 0);
+            OK(std::memcmp(&list[slot], &want, kHead) == 0);
             Command want_fast = want;
             const bool inside = left >= 0 && top >= 0 && right < 320 && bottom < 224;
             const bool hflip = (s.flags & SAT_SPRITE_FLAG_FLIP_H) != 0u;
             if (inside && !hflip) { want_fast.pmod |= 0x0800u; ++expect_off; }
-            OK(std::memcmp(&list_fast[slot], &want_fast, sizeof(Command)) == 0);
+            OK(std::memcmp(&list_fast[slot], &want_fast, kHead) == 0);
             ++slot;
         }
         OK(culled == st.culled && expect_off == fast.no_preclip && expect_off != 0u);
@@ -129,6 +132,30 @@ int main() {
         OK(sat_sprite_batch_draw(frames.data(), static_cast<uint32_t>(frames.size()), inst.data(),
                                  static_cast<uint32_t>(inst.size()), SAT_SPRITE_BATCH_NO_CULL, &nc) == SAT_OK);
         OK(nc.culled == 0u && nc.submitted == inst.size());
+
+        /* The direct-write window emits the same commands as sat_sprite_batch_draw. */
+        std::vector<Command> viawin(512);
+        begin_frame(viawin.data(), 512u);
+        sat_sprite_batch_window_t win;
+        OK(sat_sprite_batch_begin(&win, static_cast<uint32_t>(inst.size()), 0u) == SAT_OK);
+        sat_sprite_batch_window_t local = win;
+        for (const sat_sprite_instance_t& in : inst) {
+            sat_sprite_batch_emit(&local, &frames[in.frame], in.x, in.y);
+        }
+        sat_sprite_batch_stats_t ws{};
+        OK(sat_sprite_batch_end(&local, &ws) == SAT_OK);
+        OK(ws.submitted == fast.submitted && ws.culled == fast.culled && ws.no_preclip == fast.no_preclip);
+        for (uint32_t i = 0; i < fast.submitted; ++i) {
+            OK(std::memcmp(&viawin[2u + i], &list_fast[2u + i], kHead) == 0);
+        }
+        /* A window smaller than the sprites drops the rest and reports it. */
+        begin_frame(viawin.data(), 512u);
+        OK(sat_sprite_batch_begin(&win, 10u, 0u) == SAT_OK);
+        local = win;
+        for (const sat_sprite_instance_t& in : inst) sat_sprite_batch_emit(&local, &frames[in.frame], 160, 112);
+        OK(sat_sprite_batch_end(&local, &ws) == SAT_ERR_CAPACITY);
+        OK(ws.submitted == 10u && ws.dropped == inst.size() - 10u);
+        OK(sat_sprite_batch_begin(&win, 1u, 0x80u) == SAT_ERR_INVALID_ARG);
     }
 
     /* A user-clipped frame inside the screen keeps pre-clipping: it can still cross the user
@@ -225,6 +252,34 @@ int main() {
         OK(sat_sprite_batch_draw(&fr, 1u, nullptr, 3u, 0u, &st) == SAT_ERR_INVALID_ARG);
         OK(sat_sprite_batch_draw(&fr, 1u, inst, 0u, 0u, &st) == SAT_OK && st.submitted == 0u);
         OK(sat_sprite_batch_draw(&fr, 1u, inst, 1u, 0x80u, &st) == SAT_ERR_INVALID_ARG);   /* unknown option */
+    }
+
+    /* The copy into VRAM: a normal sprite without Gouraud shading moves its first 16 bytes only, any
+     * other command all 32, and the slot's other bytes stay as they were. */
+    {
+        using saturn::hal::vdp1::submit_copy::copy_commands;
+        enum { kCount = 64 };
+        std::vector<uint32_t> src(kCount * 8u), dst(kCount * 8u, 0xDEADBEEFu);
+        uint32_t whole = 0u, head = 0u;
+        for (uint32_t i = 0u; i < kCount; ++i) {
+            for (uint32_t k = 0u; k < 8u; ++k) src[i * 8u + k] = rnd() * 2654435761u + k;
+            const uint32_t kind = rnd() % 4u;
+            /* CMDCTRL command in bits 19-16 of word 0, CMDPMOD Gouraud bit 2 in bit 18 of word 1 */
+            src[i * 8u] = (src[i * 8u] & ~0x000F0000u) | (kind == 1u ? 0x00020000u : kind == 2u ? 0x00080000u : 0u);
+            src[i * 8u + 1u] = (src[i * 8u + 1u] & ~0x00040000u) | (kind == 3u ? 0x00040000u : 0u);
+            if (kind == 0u) ++head; else ++whole;
+        }
+        OK(head != 0u && whole != 0u);
+        const uint32_t stores = copy_commands(src.data(), dst.data(), kCount);
+        OK(stores == head * 4u + whole * 8u);
+        for (uint32_t i = 0u; i < kCount; ++i) {
+            const bool only_head = saturn::hal::vdp1::submit_copy::reads_only_head(src[i * 8u], src[i * 8u + 1u]);
+            for (uint32_t k = 0u; k < 8u; ++k) {
+                if (k < 4u || !only_head) OK(dst[i * 8u + k] == src[i * 8u + k]);
+                else OK(dst[i * 8u + k] == 0xDEADBEEFu);
+            }
+        }
+        OK(copy_commands(src.data(), dst.data(), 0u) == 0u);
     }
 
     std::puts("sprite batch: OK");

@@ -13,7 +13,7 @@ pieces are generic.
 | Piece | Where | Purpose |
 | --- | --- | --- |
 | Asset gate + packer | `tools/shmup_assets.py`, `tests/test_shmup_assets.py` | Reject defective sprite packs; build the SATL atlas and SBG1 backgrounds |
-| Batched VDP1 submission | `include/saturn/sprite_batch.h`, `src/graphics/2d/sprites/batch.cpp`, `hal::vdp1::push_sprite_batch` | One call per frame for thousands of sprites, 8 longword stores per command |
+| Batched VDP1 submission | `include/saturn/sprite_batch.h`, `src/graphics/2d/sprites/batch.cpp`, `hal::vdp1::push_sprite_batch` | One call per frame for thousands of sprites, or a direct-write window (`sat_sprite_batch_begin`/`emit`/`end`); 4 longword stores per command |
 | Sprite atlas / residency | `include/saturn/sprite_atlas.h`, `src/graphics/2d/sprites/atlas.cpp` | Upload each frame once, residency groups in VRAM slots, chunked upload for streaming |
 | TATE layout | `include/saturn/tate.h`, `src/graphics/2d/tate.cpp` | Logical 224x448 playfield to the screen, CW/CCW, exact edge mapping, HUD panels |
 | Asynchronous pad poll | `sat_input_poll_begin` / `sat_input_poll_finish`, `hal::smpc` | The SMPC INTBACK runs while the frame is simulated |
@@ -43,24 +43,37 @@ bosses are placeholders by the pack author's own description.
 
 ## Rendering path
 
-Each frame the example builds an array of `{x, y, frame}` instances and calls
-`sat_sprite_batch_draw` once. Frame descriptors (`ctrl`, `pmod`, `colr`, `srca`, `size`) are
-prepared once from the atlas, so the per-sprite work is a visibility test and eight longword stores.
-The host test proves the commands are byte-identical to the general `push_sprite` path (the only
-difference allowed is the Pclp bit, below).
+The example builds an array of `{x, y, frame}` instances for everything but the enemy bullets and
+calls `sat_sprite_batch_draw`; the bullets, which are most of the list, are written straight into
+the frame's command list through a window (`sat_sprite_batch_begin`, `sat_sprite_batch_emit` per
+bullet, `sat_sprite_batch_end`), one pass over the pool with no instance array in between. Both
+paths write the same commands, in the order they are emitted (the host test compares them byte for
+byte). Frame descriptors are prepared once from the atlas.
 
+- **A frame is 16 bytes** (`sat_sprite_frame_t`): its first twelve bytes are the VDP1 command's own
+  (`ctrl`, `link`, `pmod`, `colr`, `srca`, `size`), then the pivot. A command is three longwords
+  copied from the frame plus one longword for the position; the width and height come from `size`
+  (`sat_sprite_frame_width/height`). The vertices B, C and D are not written: a normal sprite
+  does not read them (VDP1 manual 7.4), and CMDGRDA only matters with Gouraud shading.
+- **The copy to VRAM stores 16 bytes per sprite command** (`src/hal/vdp1/submit_copy.hpp`, tested
+  against a reference image), not 32. Every store to VDP1 VRAM is a slow bus cycle, so this halves
+  the copy that ends the frame. Any command that is not a plain normal sprite is copied whole.
 - **Pre-clipping disabled for sprites wholly on screen** (CMDPMOD bit 11, manual p06_32: the per-line
   pre-clip test costs up to 5 clocks per line on small sprites). A frame flagged
-  `SAT_SPRITE_FLAG_USER_CLIP` keeps pre-clipping because it can cross the user rectangle.
-- **Longword stores.** Work RAM-H writes are bus cycles (the cache is write-through); writing a
-  command as eight big-endian longwords instead of sixteen halfwords cut the draw stage and took the
-  Mednafen 512-bullet case from 28 to 50 fps.
+  `SAT_SPRITE_FLAG_USER_CLIP` or flipped keeps pre-clipping.
+- **Longword stores.** Writing a command as longwords instead of halfwords cut the draw stage and took
+  the Mednafen 512-bullet case from 28 to 50 fps.
 - **Playfield clip.** The field is a 448x224 rectangle between two 96 px HUD panels. Sprites that
   cross its edge (an enemy flying in, a shot leaving) use a user-clipped copy of their frame; bullets
   and sprites well inside use the plain frame. No measurable cost on Mednafen.
 - **Command budget.** The command area holds 2048 commands. 1024 bullets plus the player, shots,
   enemies, explosions, setup and about 45 HUD glyphs use 1097; raising 2048 needs moving the texture
   base and is out of scope.
+- **SH-2 traps found on the way.** `x >> 8` on a signed value is a libgcc call (there is no
+  arithmetic shift by 8), twice per bullet; the bullet builder biases the value and uses a logical
+  shift. A window struct whose address escapes lives in memory; the loop works on a local copy.
+  Frame longword reads need 4-byte alignment (`sat_sprite_frame_t` is declared aligned): a
+  misaligned longword read blanked the screen on Mednafen.
 
 ## TATE
 
@@ -130,32 +143,38 @@ CPU ticks per frame on Ymir, 300 frames each (service, simulation, build, draw, 
 
 | Bullets | Serv | Sim | Build | Draw | End | Fields per frame | Commands |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 128 | 291 | 225 | 187 | 243 | 117 | 1.00 | 222 |
-| 256 | 284 | 327 | 259 | 382 | 181 | 1.00 | 349 |
-| 512 | 292 | 481 | 406 | 663 | 309 | 1.03 | 602 |
-| 1024 | 396 | 717 | 675 | 1200 | 565 | 1.54 | 1097 |
+| 128 | 291 | 224 | 116 | 180 | 73 | 1.00 | 222 |
+| 256 | 283 | 326 | 123 | 288 | 75 | 1.00 | 349 |
+| 512 | 279 | 481 | 138 | 505 | 127 | 1.01 | 602 |
+| 1024 | 304 | 716 | 143 | 923 | 229 | 1.06 | 1097 |
 
-At 1024 bullets the CPU alone is about 3550 ticks, right at one field, so the frame sits on the edge
-of 60/30 fps and the field count varies between builds (1.28 to 1.54 measured). 128-512 hold 60 fps.
+The CPU needs two thirds of a field at 1024 bullets on Ymir (before this round it was a field and a
+half). Build is the non-bullet instances only; the bullets are written during "draw".
 
-Frame rate on Mednafen (HUD readout, steady state):
+Frame rate on Mednafen (HUD readout, steady state; stage means in FRT ticks):
 
-| Bullets | FPS | Notes |
-| ---: | ---: | --- |
-| 128 | 59-60 | |
-| 256 | 54-58 | |
-| 512 | 50-52 | was 28 before the longword stores |
-| 1024 | 26 | VDP1 fill: about 224 px per 16x14 bullet, ~1 clock per pixel |
+| Bullets | FPS | Serv | Sim | Build | Draw | End |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 128 | 60 | 345 | 342 | 142 | 277 | 491 |
+| 256 | 60 | 296 | 410 | 142 | 430 | 754 |
+| 512 | 53 | 366 | 540 | 137 | 732 | 1314 |
+| 640 | 43 | 434 | 528 | 130 | 876 | 1590 |
+| 768 | 28 | 567 | 599 | 128 | 1025 | 1758 |
+| 896 | 28 | 542 | 681 | 131 | 1181 | 2030 |
+| 1024 | 28 | 542 | 754 | 134 | 1336 | 2274 |
 
 Mednafen holds a frame whose list is still drawing at the next VBlank (no tearing), so a late frame
-costs a whole field: 26-28 fps is two fields in three.
+costs a whole field. There is a cliff between 640 and 768 bullets, and past it the frame takes two
+fields (28 fps).
 
 ### What was tried
 
 - **Frame mode.** `SAT_VDP1_FRAME_ON_SUBMIT` erases with a full-screen polygon at the start of every
   list: about 143k VDP1 pixels per frame in 640x224. The default frame mode (hardware erase) is free,
   and gave 128: 52 -> 60, 256: 28 -> 55, 512: 27 -> 28 (before the other fixes), 1024: 17 -> 20.
-  The example uses the default; `BH_FRAME_ON_SUBMIT=1` selects the polygon erase.
+  The example uses the default; `BH_FRAME_ON_SUBMIT=1` selects the polygon erase. Re-measured with
+  1024 bullets on the final build: 20 fps, and the time from submit to the list's END flag (EDSR
+  CEF) is about 2640 ticks at 512 bullets and 3800 at 1024.
 - **VBlank erase (TVMR VBE).** Rejected: in 640x224 the 8 bpp erase of the 1024-wide buffer takes
   about 4 ms and does not finish inside the ~2.5 ms VBlank. Mednafen showed stale pixels in the
   bottom strip and torn HUD text, even though the frame rate rose to 58 / 52 for 128 / 256.
@@ -163,21 +182,44 @@ costs a whole field: 26-28 fps is two fields in three.
   poll was 545 of the ~850 service ticks. Splitting it (`sat_input_poll_begin` after the frame is
   submitted, `sat_input_poll_finish` next frame) removed that from the frame.
 - **Instance build.** Which frames are resident is decided once per shape and colour, and the CW view
-  is two additions with no multiplies: build stage 1010 -> 723 ticks at 1024 bullets.
-- **SCU-DMA command list** (`sat_dma_set_command_list`): no gain, END 4000-4148 vs 3474 ticks.
-  DMA paths stay opt-in (Ymir and Mednafen disagree on DMA timing).
-- **Keeping the pre-clip bit**: worse (END 3876 vs 3474). **SPD/pmod tweaks**: no change.
-- Drawing the bullets was the bottleneck: without drawing them 512 bullets ran at 60 and 1024 at
-  55-57, so the simulation and build paths are not the limit. Larger bullets cost more (a frame
-  of 16x16 rings ran at 15 fps at 1024; a frame of 16x8 needles cut the END stage from 3474 to 2697 ticks).
+  is two additions with no multiplies: build stage 1010 -> 723 ticks at 1024 bullets. Writing the
+  bullets straight into the command list then took the build+draw of 1024 bullets from 1844 to 1500
+  ticks.
+- **Compact commands.** 16-byte frames and a 16-byte copy per command: draw 1973 -> 1070 and the
+  512-bullet Mednafen case 50 -> 54 fps; the 768 case did not move.
+- **Pre-clip bit and SPD/pmod tweaks**: keeping the pre-clip bit is worse (END 3876 vs 3474 ticks);
+  the others changed nothing.
+- **SCU-DMA command list** (`sat_dma_set_command_list`): worse on Mednafen at 1024 (23 fps, copy
+  2332 ticks vs 1314), and no gain earlier. DMA paths stay opt-in.
+- **Delta copy** (a shadow of the VRAM list, store only the words that changed): the copy got slower
+  (1741 vs 1314 ticks) because the reads of VRAM cost more than the stores they save. Removed.
+- **Call/return templates** (a bullet as a two-longword local-coordinate command that CALLs a
+  sprite table kept in VRAM, so the CPU stores 8 bytes instead of 16): drew correctly on Mednafen,
+  but END went from 2248 to 2534 ticks at 1024 and the frame rate did not move, because the VDP1 runs two
+  commands per bullet. Removed.
+
+What the measurements say about the cliff. The CPU stages of a 1024-bullet frame add up to about
+2800 ticks, so on their own they fit a field. The cost that does not fit is the copy of the list
+into VDP1 VRAM: uncontended it is about 300-400 ticks (a second copy of the same list inside one
+submit took 274 ticks), but while the VDP1 is plotting it takes 1300-2300, because the CPU's VRAM
+stores compete with the VDP1's own VRAM reads. A micro-benchmark of 4096 longwords gives 385 ticks
+for stores to VRAM, 192 to Work RAM-H. The VDP1 is busy for most of a field at 768+ bullets
+(the plot time of the list measured in `FRAME_ON_SUBMIT` mode grows by about 2.3 ticks per bullet),
+so the copy lands in it and the frame misses its VBlank. This corrects the earlier conclusion that
+the frame was simply fill-bound: the fill alone (about 2300 ticks of 3509 at 1024) fits a field; the
+fill plus the contended copy does not. Copying inside the VBlank does not escape it: the VDP1 is
+still busy there on Mednafen (END 1308 at 1024 bullets, 726 at 512).
 
 ### Verdict
 
-- 128-512 projectiles: hold or nearly hold 60 fps on both emulators.
-- 1024 projectiles at 16x14 px each: VDP1 fill bound on Mednafen (26 fps); the CPU side fits one
-  field on Ymir only barely. A real port reaching 1024 at 60 fps needs smaller bullet sprites, fewer
-  drawn pixels (cull overdraw, draw the densest streams as half-size), or splitting the build across
-  the Slave SH-2. The batch API and 2048-command ceiling are not the limit.
+- 128 and 256 projectiles hold 60 fps on Mednafen, 512 holds 53 (50-54), 640 43; 768 and above fall
+  to 28 fps (two fields per frame). On Ymir all sizes up to 1024 fit in 1.06 fields of CPU.
+- 1024 at 60 fps with this art (about 224 px per bullet, 1.2 VDP1 clocks per pixel) does not fit
+  Mednafen's VDP1 model: plotting plus the copy exceeds a field. Ways forward that were not built:
+  smaller or fewer drawn pixels (half-size sprites for the densest streams, culling overdraw), or
+  keeping the command list in VRAM across frames and patching positions only while the VDP1 idles
+  (needs a double-buffered list). The batch API and the 2048-command ceiling are not the limit, and
+  the Master SH-2's own work (about 0.8 field at 1024 bullets on Mednafen) is not either.
 
 ## Determinism and tests
 
@@ -199,6 +241,7 @@ A build with `BH_AUTOBENCH=1` starts the 128/256/512/1024 benchmark after three 
 
 - No physical-hardware run; the fill-rate figures come from Mednafen's model and from experiments,
   not from a VDP1 timing reference.
+- 1024 simultaneous bullets run at 28 fps on Mednafen (60 fps holds to about 512, see Verdict).
 - Hi-res 640x224 is the only exact TATE mode; it costs 8 bpp, one shared palette and no VDP1 colour
   effects. LUT4 is a 320-wide feature in this library.
 - Hardware-rotated TATE (VDP1 rotation framebuffer + VDP2 rotation) is not implemented.

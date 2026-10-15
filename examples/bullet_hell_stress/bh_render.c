@@ -84,7 +84,8 @@ static inline void put_field(sink_t* s, int32_t x_fp, int32_t y_fp, uint16_t fra
 
 static inline int32_t extent_of(const sink_t* s, uint16_t frame) {
     const sat_sprite_frame_t* f = &s->frames[frame];
-    return f->width > f->height ? f->width : f->height;
+    const int32_t w = sat_sprite_frame_width(f), h = sat_sprite_frame_height(f);
+    return w > h ? w : h;
 }
 
 /* HUD text lives in the panels beside the field. Logical y beyond the field (below it at y >= 448,
@@ -127,53 +128,60 @@ static void pills(sink_t* s, int32_t lx, int32_t ly, uint16_t frame, uint32_t co
 /* The bullets are most of the list, so they get their own loop: which frames are resident is
  * decided once per shape and colour (not per bullet), and the view of a quarter-turned field is two
  * adds, no multiplies (a multiply is several cycles on the SH-2). */
-static void build_bullets(sink_t* s, const bh_sim_t* sim) {
+/* x >> BH_FP_SHIFT, rounded down. The SH-2 has no arithmetic shift by 8, so gcc calls libgcc for
+ * `>>` here (about 12 cycles, twice a bullet). A bias makes it a logical shift, which is one
+ * instruction; it holds while |x| < 2^23, i.e. within +-32768 px. */
+static inline int32_t px_of(int32_t x_fp) {
+    return (int32_t)(((uint32_t)x_fp + (1u << 23)) >> BH_FP_SHIFT) - (1 << (23 - BH_FP_SHIFT));
+}
+
+/* They skip the instance list altogether: each bullet's command is written straight into the frame's
+ * list through a sat_sprite_batch window (bh_render_bullets), so a bullet costs one pass over the
+ * pool instead of a pass to build an instance and another to turn it into a command. */
+void bh_render_bullets(const bh_sim_t* sim, const bh_view_t* view, const sat_sprite_frame_t* frames,
+                       uint32_t clip_base, const uint8_t* frame_ready, sat_sprite_batch_stats_t* stats) {
     enum { BULLET_EXTENT = 16 };   /* the atlas's bullets are at most 16 x 16 */
-    uint16_t frame[BH_SHAPES][BH_COLORS];
+    const sat_sprite_frame_t* frame[BH_SHAPES][BH_COLORS];
+    const sat_sprite_frame_t* clipped[BH_SHAPES][BH_COLORS];
     for (uint32_t a = 0; a < BH_SHAPES; ++a)
         for (uint32_t c = 0; c < BH_COLORS; ++c) {
             const uint16_t f = kBullet[a][c];
-            frame[a][c] = s->ready[f] ? f : 0xFFFFu;
+            frame[a][c] = frame_ready[f] ? &frames[f] : 0;
+            clipped[a][c] = frame_ready[f] ? &frames[f + clip_base] : 0;
         }
-    const bh_view_t* v = s->view;
-    const uint32_t room = s->cap - s->n;
-    const uint32_t count = sim->bullet_count < room ? sim->bullet_count : room;
-    sat_sprite_instance_t* out = s->out + s->n;
+    const uint32_t count = sim->bullet_count;
+    sat_sprite_batch_window_t win;
+    if (sat_sprite_batch_begin(&win, count, 0u) != SAT_OK) return;
+    sat_sprite_batch_window_t w = win;   /* a local: the loop keeps its fields in registers */
     const bh_bullet_t* b = sim->bullets;
-    uint32_t n = 0;
+    const bh_view_t* v = view;
     if (v->sxx == 0 && v->syy == 0 && v->sxy == -1 && v->syx == 1) {   /* SAT_TATE_ROT_CW */
         const int32_t c0 = v->c0, d0 = v->d0;
         for (uint32_t i = 0; i < count; ++i, ++b) {
-            uint16_t f = frame[b->shape][b->color];
-            if (f == 0xFFFFu) continue;
-            const int32_t ly = b->y >> BH_FP_SHIFT;
-            if (ly < BULLET_EXTENT || ly > BH_FIELD_H - BULLET_EXTENT) f = (uint16_t)(f + s->clip_base);
-            out->x = (int16_t)(c0 - ly);
-            out->y = (int16_t)(d0 + (b->x >> BH_FP_SHIFT));
-            out->frame = f;
-            out->reserved = 0;
-            ++out;
-            ++n;
+            const int32_t ly = px_of(b->y);
+            const sat_sprite_frame_t* f = (ly < BULLET_EXTENT || ly > BH_FIELD_H - BULLET_EXTENT)
+                                              ? clipped[b->shape][b->color] : frame[b->shape][b->color];
+            if (!f) continue;
+            (void)sat_sprite_batch_emit(&w, f, c0 - ly, d0 + px_of(b->x));
         }
     } else {
         for (uint32_t i = 0; i < count; ++i, ++b) {
-            uint16_t f = frame[b->shape][b->color];
-            if (f == 0xFFFFu) continue;
-            const int32_t ly = b->y >> BH_FP_SHIFT;
-            if (ly < BULLET_EXTENT || ly > BH_FIELD_H - BULLET_EXTENT) f = (uint16_t)(f + s->clip_base);
-            bh_view_map(v, b->x >> BH_FP_SHIFT, ly, &out->x, &out->y);
-            out->frame = f;
-            out->reserved = 0;
-            ++out;
-            ++n;
+            const int32_t ly = px_of(b->y);
+            const sat_sprite_frame_t* f = (ly < BULLET_EXTENT || ly > BH_FIELD_H - BULLET_EXTENT)
+                                              ? clipped[b->shape][b->color] : frame[b->shape][b->color];
+            if (!f) continue;
+            int16_t x, y;
+            bh_view_map(v, px_of(b->x), ly, &x, &y);
+            (void)sat_sprite_batch_emit(&w, f, x, y);
         }
     }
-    s->n += n;
+    const sat_sprite_batch_window_t done = w;   /* a copy: &w must not escape, or w lives in memory */
+    (void)sat_sprite_batch_end(&done, stats);
 }
 
 uint32_t bh_render_build(const bh_sim_t* sim, const bh_view_t* view, const sat_sprite_frame_t* frames,
                          uint32_t clip_base, const uint8_t* frame_ready, const bh_hud_t* hud,
-                         sat_sprite_instance_t* out, uint32_t capacity) {
+                         sat_sprite_instance_t* out, uint32_t capacity, uint32_t* bullets_at) {
     sink_t s = {view, frame_ready, frames, clip_base, out, 0, capacity};
     const uint16_t stage = sim->stage % BH_STAGES;
     for (uint16_t i = 0; i < sim->pickup_count; ++i) {
@@ -202,7 +210,7 @@ uint32_t bh_render_build(const bh_sim_t* sim, const bh_view_t* view, const sat_s
         const uint16_t f = sh->kind ? SHMUP_PLAYER_LASER_PINK : SHMUP_PLAYER_SHOT_BLUE;
         put_field(&s, sh->x, sh->y, f, extent_of(&s, f));
     }
-    build_bullets(&s, sim);
+    *bullets_at = s.n;   /* the bullets go here, between the shots and the explosions */
     for (uint16_t i = 0; i < sim->explosion_count; ++i) {
         const bh_explosion_t* e = &sim->explosions[i];
         if (e->delay) continue;

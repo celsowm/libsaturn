@@ -13,9 +13,12 @@ The version is defined once, in the `VERSION` file.
 
 - Shmup / bullet-hell support (see `docs/SHMUP_BULLET_HELL_SUPPORT.md`):
   `include/saturn/sprite_batch.h` (`sat_sprite_batch_draw`: thousands of
-  prepared sprite frames in one call, eight longword stores per VDP1
-  command, pre-clipping disabled for sprites wholly on screen, user-clipped
-  frames via `SAT_SPRITE_FLAG_USER_CLIP`), `include/saturn/sprite_atlas.h`
+  prepared sprite frames in one call, a 16-byte frame whose first twelve
+  bytes are the command's own, four longword stores per VDP1 command and
+  a 16-byte copy of each into VRAM, pre-clipping disabled for sprites
+  wholly on screen, user-clipped frames via `SAT_SPRITE_FLAG_USER_CLIP`;
+  `sat_sprite_batch_begin` / `sat_sprite_batch_emit` / `sat_sprite_batch_end`
+  write sprites straight from a program's own state into the frame's list), `include/saturn/sprite_atlas.h`
   (SATL atlas: content-deduplicated frames, residency groups in VRAM slots,
   chunked upload for streaming), `include/saturn/tate.h` (logical portrait
   playfield to a landscape screen, exact edge mapping, HUD panels) and

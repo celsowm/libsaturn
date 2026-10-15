@@ -38,9 +38,10 @@ BENCH_FIELDS = (
     "late_swaps commands drawn bullet_tests player_hits done").split()
 TAIL_FIELDS = "ccr_initial ccr_now".split()
 SIZES = (128, 256, 512, 1024)
-# Fields per program frame on Ymir (CPU only): 60 fps for the light cases, and well under the
-# 30 fps cliff (2.0) for 1024. A regression that doubles the per-frame work trips them.
-VBLANK_RATIO_MAX = {128: 1.05, 256: 1.05, 512: 1.15, 1024: 1.6}
+# Fields per program frame on Ymir (CPU only; it has no VDP1 fill model): 60 fps up to 512 and
+# 1.06 at 1024 (two thirds of a field of CPU work). A regression that adds a third of a field of
+# work trips them.
+VBLANK_RATIO_MAX = {128: 1.05, 256: 1.05, 512: 1.05, 1024: 1.25}
 
 
 def _load(tag):
@@ -181,7 +182,7 @@ class BenchTests(unittest.TestCase):
         for size, b in zip(SIZES, self.t["bench"]):
             ratio = b["vblanks"] / b["frames"]
             self.assertLessEqual(ratio, VBLANK_RATIO_MAX[size], (size, ratio))
-            self.assertLess(b["ticks_total"] / b["frames"], 1.6 * field, (size, b))
+            self.assertLess(b["ticks_total"] / b["frames"], 1.3 * field, (size, b))
             self.assertLess(b["ticks_max"], 2.5 * field, (size, b))
         # work grows with the bullet count: the simulation does, and nothing is skipped
         sims = [b["ticks_sim"] for b in self.t["bench"]]

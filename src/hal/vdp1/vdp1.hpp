@@ -109,6 +109,10 @@ sat_result_t push_sprite(const SpriteRequest& req);
 sat_result_t push_sprite_batch(const sat_sprite_frame_t* frames, uint32_t frame_count,
                                const sat_sprite_instance_t* instances, uint32_t count,
                                uint32_t options, sat_sprite_batch_stats_t* stats);
+
+/* The window of sat_sprite_batch_begin/end: command slots of the current list, written by the caller. */
+sat_result_t sprite_batch_window_begin(sat_sprite_batch_window_t* win, uint32_t max_commands, uint32_t options);
+sat_result_t sprite_batch_window_end(const sat_sprite_batch_window_t* win, sat_sprite_batch_stats_t* stats);
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req);
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req);
 sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req, const uint16_t* gouraud);
