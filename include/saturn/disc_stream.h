@@ -65,6 +65,7 @@ extern "C" {
 #define SAT_DISC_MUSIC_RESERVE_FRAMES 8192u    /* default `music_reserve` */
 #define SAT_DISC_STANDBY_FLOOR_FRAMES 24576u   /* default `standby_floor` */
 #define SAT_DISC_STANDBY_HIGH_FRAMES 28672u    /* default `standby_high` */
+#define SAT_DISC_STANDBY_CEIL_FRAMES 31744u    /* `standby_high` never adapts above this: the rings hold no more */
 
 /* What a data job reads: `bytes` of `file` from `offset` (a sector multiple); bytes 0 reads to the
  * end of the file. */
@@ -104,6 +105,8 @@ typedef struct sat_disc_stream_stats {
     uint32_t music_loops;    /* times the track wrapped */
     uint32_t data_deferred;  /* service calls where a data segment waited for the music rings */
     uint32_t music_min_buffered;    /* lowest ring fill seen, frames (the limiting channel) */
+    uint32_t standby_visits;        /* visits to the standby's file, and the deepest dip of the playing rings in one */
+    uint32_t standby_worst_dip;
     uint32_t ticks_poll, ticks_music, ticks_data;   /* FRT ticks: moving sectors in, splitting music, callbacks */
     uint32_t max_ticks_poll, max_ticks_music, max_ticks_data;   /* the slowest single call of each: what one frame pays at worst */
     int32_t last_error;      /* first failure, SAT_OK none */
@@ -173,6 +176,14 @@ typedef struct sat_disc_stream {
     uint32_t standby_floor;      /* a standby burst ends when the playing feed holds fewer frames than this */
     uint32_t standby_high;       /* ... and starts once it holds at least this many */
     uint8_t standby_burst;       /* the standby is reading ahead of the playing feed */
+    /* The drive's real cost of a visit to the standby's file, read off the playing feed's own rings
+     * (their fill is the clock): a visit that took the playing rings under `music_reserve` raises
+     * `standby_high` (and the floor) by the shortfall; one that cannot be covered even with the rings full
+     * stops the prefetch for good (`standby_disabled`), so the damage is one visit, not a habit. An
+     * emulator with free seeks never triggers either. */
+    uint8_t standby_visit;       /* 0 idle, 1 reading the standby, 2 back on the playing feed, recovering */
+    uint8_t standby_disabled;
+    uint32_t standby_visit_start, standby_visit_min;
 
     /* data job in progress */
     uint8_t running;

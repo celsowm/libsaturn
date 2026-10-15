@@ -284,8 +284,10 @@ numbers, to be confirmed on hardware (record it in `docs/HARDWARE_ACCEPTANCE_CHE
   rings are above 28672 frames, and stops below 24576, so a switch costs about two seeks per burst. On
   Mednafen a burst fills ~20000 frames in ~90 s and the playing rings never fell below 16160 (emulator
   figures, seeks modelled as free). On a real drive each seek can take the manual's 500 ms average
-  at 2x, comparable to the playing ring's depth: untested, prefetch while the playing track is paused
-  or fading.
+  at 2x, comparable to the playing ring's depth: untested on hardware, prefetch while the playing
+  track is paused or fading. The scheduler adapts to what a visit costs (it reads the playing rings'
+  fill through the visit) and gives the prefetch up when no ring depth covers it; a host model of the
+  manual's 500 ms and of a 1.2 s seek (not measurements) is in `test_music_disc`.
 - Keep seeks and `sat_cdfs_lookup` away from playback for the same reason: each can move the pickup
   (`sat_music_play` now only schedules the first reads).
 

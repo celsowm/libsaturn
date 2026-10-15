@@ -426,7 +426,10 @@ extern "C" sat_result_t sat_disc_stream_music_attach_standby(sat_disc_stream_t* 
 }
 
 extern "C" void sat_disc_stream_music_abort_standby(sat_disc_stream_t* s) {
-    if (s != nullptr) abort_owner(s, 1u);
+    if (s == nullptr) return;
+    abort_owner(s, 1u);
+    s->standby_burst = 0u;
+    s->standby_visit = 0u;
 }
 
 extern "C" void sat_disc_stream_music_detach_standby(sat_disc_stream_t* s) {
@@ -434,6 +437,8 @@ extern "C" void sat_disc_stream_music_detach_standby(sat_disc_stream_t* s) {
     abort_owner(s, 1u);
     s->standby_ops = nullptr;
     s->standby_user = nullptr;
+    s->standby_burst = 0u;
+    s->standby_visit = 0u;
 }
 
 extern "C" sat_result_t sat_disc_stream_music_swap(sat_disc_stream_t* s) {
@@ -466,6 +471,7 @@ extern "C" sat_result_t sat_disc_stream_music_swap(sat_disc_stream_t* s) {
     s->music_wanted = 1u;
     s->music_starting = 0u;
     s->standby_burst = 0u;
+    s->standby_visit = 0u;
     s->stats.music_min_buffered = 0xFFFFFFFFu;
     return SAT_OK;
 }
@@ -495,7 +501,43 @@ extern "C" void sat_disc_stream_music_stats(const sat_disc_stream_t* s, uint32_t
 
 namespace {
 
+/* Follows one visit to the standby's file through the playing feed's fill. When the playing rings
+ * ended up under the reserve, the next visit is started from deeper rings; when no ring depth would
+ * cover it, the prefetch stops. */
+void standby_visit_track(sat_disc_stream_t* s, uint32_t buffered) {
+    if (s->standby_visit == 0u) {
+        if (s->standby_burst != 0u) {
+            s->standby_visit = 1u;
+            s->standby_visit_start = buffered;
+            s->standby_visit_min = buffered;
+            s->stats.standby_visits++;
+        }
+        return;
+    }
+    if (buffered < s->standby_visit_min) s->standby_visit_min = buffered;
+    if (s->standby_visit == 1u) {
+        if (s->standby_burst == 0u) s->standby_visit = 2u;
+        return;
+    }
+    if (buffered < s->standby_visit_min + 2048u) return;          /* still falling or flat: not back yet */
+    s->standby_visit = 0u;
+    const uint32_t dip = s->standby_visit_start - s->standby_visit_min;
+    if (dip > s->stats.standby_worst_dip) s->stats.standby_worst_dip = dip;
+    if (s->standby_visit_min >= s->music_reserve) return;
+    const uint32_t shortfall = s->music_reserve - s->standby_visit_min;
+    if (s->standby_high + shortfall > SAT_DISC_STANDBY_CEIL_FRAMES) {
+        s->standby_disabled = 1u;
+        s->standby_burst = 0u;
+        return;
+    }
+    s->standby_high += shortfall;
+    s->standby_floor += shortfall;
+}
+
 sat_result_t service_once(sat_disc_stream_t* s) {
+    /* the playing rings are the clock of a visit to the standby: watch them while a segment is in flight too */
+    if (s->music_wanted != 0u && s->music_starting == 0u && s->standby_ops != nullptr && s->standby_disabled == 0u)
+        standby_visit_track(s, s->music_ops->buffered(s->music_user));
     /* 1. move what has arrived of the segment in flight, and land it when it is whole */
     if (s->in_flight != kFlightNone) {
         uint32_t remaining = 0;
@@ -526,7 +568,7 @@ sat_result_t service_once(sat_disc_stream_t* s) {
         if (s->music_starting == 0u && buffered < s->stats.music_min_buffered) s->stats.music_min_buffered = buffered;
         /* A burst: while the primary is comfortably ahead the standby reads its segments one after
          * another, instead of the drive alternating between two files. */
-        if (s->standby_ops != nullptr) {
+        if (s->standby_ops != nullptr && s->standby_disabled == 0u) {
             if (s->standby_burst == 0u && buffered >= s->standby_high) s->standby_burst = 1u;
             else if (s->standby_burst != 0u && buffered < s->standby_floor) s->standby_burst = 0u;
             if (s->standby_burst != 0u) {
@@ -543,7 +585,7 @@ sat_result_t service_once(sat_disc_stream_t* s) {
         }
     }
     /* The playing feed wants nothing: the standby may fill its rings, ahead of the data jobs. */
-    if (s->standby_ops != nullptr && mb == kMusicNotWanted) {
+    if (s->standby_ops != nullptr && s->standby_disabled == 0u && mb == kMusicNotWanted) {
         const MusicBegin sb = begin_music(s, 1u);
         if (sb == kMusicStarted || sb == kMusicNoBuffer) return SAT_OK;
     }

@@ -162,6 +162,15 @@ rewinds to 0 as the new standby (`sat_music_info(...).standby` / `.prefetched`).
   scheduler's per-segment pacing (~180 ms per segment on that emulator) leaves only a few percent of
   drive throughput beyond one such track; it is an emulator figure, not a hardware one. Ymir reached it
   in a few seconds.
+- **Adaptation:** the scheduler watches the playing rings through each visit to the standby's file
+  (their fill is the clock, so it needs no timer). A visit that left them under the reserve raises
+  `standby_high` and `standby_floor` by the shortfall for the next visits; one that no ring depth can
+  cover (`SAT_DISC_STANDBY_CEIL_FRAMES`) stops the prefetch (`standby_disabled`), so a slow drive costs one
+  visit instead of repeating it. `stats.standby_visits` / `standby_worst_dip` report it. A host model of
+  the manual's figures (`test_prefetch_seek_cost`: a seek charged on every file switch; a model, not a
+  measurement) gives: seeks free, the policy never adapts; 500 ms, high 28672 -> 30549, no underrun, the
+  prefetch completes; 1.2 s, the first visit starves the playing track (134 underruns) and the prefetch
+  stops.
 - **Real drive:** the prefetch moves the laser between two files. The manual's average seek (500 ms at
   2x) is about the playing ring's depth, so prefetch while the playing track is paused or fading, or
   where a glitch is acceptable. Emulators model seeks as free and cannot show this.

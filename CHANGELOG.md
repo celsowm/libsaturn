@@ -24,7 +24,16 @@ The version is defined once, in the `VERSION` file.
   the standby and switches to it with Y. Host-tested (`test_music_disc`: bursts keep the playing
   rings above the reserve, swap with a read in flight, seek, mid-segment swap); Ymir and Mednafen runs
   had 0 underruns. Not checked on a real drive: a prefetch moves the laser, and the manual's
-  500 ms average seek at 2x exceeds the playing ring's reserve (see the CD Block notes).
+  500 ms average seek at 2x exceeds the playing ring's reserve (see the CD Block notes). The
+  scheduler therefore reads the cost of each visit to the standby's file off the playing rings'
+  fill: a visit that took them under `music_reserve` raises `standby_high` / `standby_floor` by the
+  shortfall (up to `SAT_DISC_STANDBY_CEIL_FRAMES`), and one no ring depth can cover stops the prefetch
+  (`standby_disabled`; `play` still works, with the refill). `stats.standby_visits` and
+  `standby_worst_dip` report it. A host model of the manual's figures (a seek per file switch,
+  `test_prefetch_seek_cost`, a model and not a measurement) shows: 500 ms seeks, no underrun and the
+  prefetch completes after one adaptation; 1.2 s seeks starve the first visit (134 underruns in the
+  model) and the prefetch is then given up, which is why the documentation says to prefetch while the
+  playing track is paused or fading.
 - Shmup / bullet-hell support (see `docs/SHMUP_BULLET_HELL_SUPPORT.md`):
   `include/saturn/sprite_batch.h` (`sat_sprite_batch_draw`: thousands of
   prepared sprite frames in one call, a 16-byte frame whose first twelve

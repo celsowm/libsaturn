@@ -134,6 +134,12 @@ struct Drive {
     uint8_t* dest = nullptr;
     uint32_t latency = 3;
     uint32_t polls_left = 0;
+    /* A read that starts in another file than the last one waits this many display fields before
+     * the first sector arrives (the pickup moves). 0 = seeks are free, as on the emulators. */
+    uint32_t switch_fields = 0;
+    uint32_t hold_until = 0;
+    uint32_t last_file = 0xFFFFFFFFu;
+    uint32_t switches = 0;
     uint32_t moved = 0;
     uint32_t max_poll_sectors = 0;
     uint32_t begins = 0, finishes = 0, polls = 0;
@@ -143,6 +149,7 @@ struct Drive {
 Drive g_drive;
 uint32_t g_asset_reads = 0;
 uint16_t g_frc = 0;
+uint32_t g_fields = 0;
 
 uint32_t deliver_sectors(uint32_t n = 0u) {
     const uint32_t left = g_drive.count - g_drive.moved;
@@ -186,6 +193,18 @@ extern "C" sat_result_t sat_cd_stream_begin(sat_cd_block_t*, uint32_t lba, uint3
     g_drive.dest = static_cast<uint8_t*>(destination);
     g_drive.polls_left = g_drive.latency;
     g_drive.moved = 0u;
+    {
+        uint32_t file = 0xFFFFFFFEu;
+        for (size_t i = 0; i < g_tracks.size(); ++i) {
+            const Track& t = g_tracks[i];
+            if (lba >= t.lba && lba < t.lba + (t.image.size() + kSector - 1u) / kSector) file = static_cast<uint32_t>(i);
+        }
+        if (g_drive.last_file != 0xFFFFFFFFu && file != g_drive.last_file) {
+            g_drive.hold_until = g_fields + g_drive.switch_fields;
+            ++g_drive.switches;
+        }
+        g_drive.last_file = file;
+    }
     ++g_drive.begins;
     g_drive.begin_lbas.push_back(lba);
     return SAT_OK;
@@ -200,6 +219,10 @@ extern "C" sat_result_t sat_cd_stream_poll(sat_cd_block_t*, uint32_t max_sectors
     if (g_drive.fail_poll_at > 0 && g_drive.polls == static_cast<uint32_t>(g_drive.fail_poll_at)) {
         g_drive.open = false;
         return SAT_ERR_TIMEOUT;
+    }
+    if (g_fields < g_drive.hold_until) {
+        if (out_remaining) *out_remaining = g_drive.count;
+        return SAT_OK;
     }
     if (g_drive.polls_left > 0u) {
         --g_drive.polls_left;
@@ -339,6 +362,7 @@ void fresh(uint32_t latency = 3u) {
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     saturn::core::music_runtime_reset();
     g_drive = Drive{};
+    g_fields = 0u;
     g_drive.latency = latency;
     g_max_update_frames = 0;
     g_overlap = false;
@@ -353,6 +377,7 @@ uint32_t stream_buffered(uint32_t c);
 /* One 60 Hz field: the SCSP drains 22.05 kHz / 60, then the game updates. */
 sat_result_t field(const Track& t) {
     (void)t;
+    ++g_fields;
     scsp_consume(367u);
     const uint32_t before = stream_buffered(0);
     const sat_result_t r = sat_music_update(g_music);
@@ -788,6 +813,77 @@ void test_handoff_mid_segment() {
 }
 
 /* A seek or stop on the standby drops only its own segment and cancels the prefetch. */
+/* A model of a real drive for the prefetch: every switch between the two music files costs
+ * `switch_fields` display fields before data arrives (the manual's average seek is 500 ms at 2x, 30
+ * fields; the emulators charge nothing). This is a model built on the manual's figure, not a hardware
+ * measurement. The scheduler reads the cost of a visit off the playing rings and adapts. */
+struct SeekRun {
+    uint32_t underruns = 0, switches = 0, visits = 0, worst_dip = 0, high = 0, disabled = 0;
+    uint32_t min_after_first_visit = 0xFFFFFFFFu;
+    bool prefetched = false;
+};
+
+SeekRun prefetch_with_seek_cost(uint32_t switch_fields, uint32_t fields) {
+    fresh();
+    g_drive.switch_fields = switch_fields;
+    Track* a = find_track("music/s16-stereo");
+    Track* b = find_track("music/s8-stereo");
+    sat_music_t ma{}, mb{};
+    CHECK(sat_music_open(&ma, a->path) == SAT_OK);
+    CHECK(sat_music_open(&mb, b->path) == SAT_OK);
+    sat_music_info_t ia{}, ib{};
+    g_music = ma;
+    CHECK(sat_music_play(ma) == SAT_OK);
+    run_until(*a, 600, [&] { return info_of(ma, &ia) && ia.starting == 0u; });
+    for (int i = 0; i < 200; ++i) CHECK(field(*a) == SAT_OK);
+    g_played.clear();
+    CHECK(sat_music_prefetch(mb) == SAT_OK);
+    SeekRun run;
+    for (uint32_t i = 0; i < fields; ++i) {
+        CHECK(field(*a) == SAT_OK);
+        if (g_disc.stats.standby_visits >= 2u && g_disc.standby_visit == 0u && stream_buffered(0) < run.min_after_first_visit)
+            run.min_after_first_visit = stream_buffered(0);
+        if (info_of(mb, &ib) && ib.prefetched != 0u) { run.prefetched = true; break; }
+    }
+    run.underruns = g_played.underruns;
+    run.switches = g_drive.switches;
+    run.visits = g_disc.stats.standby_visits;
+    run.worst_dip = g_disc.stats.standby_worst_dip;
+    run.high = g_disc.standby_high;
+    run.disabled = g_disc.standby_disabled;
+    CHECK(sat_music_close(ma) == SAT_OK);
+    CHECK(sat_music_close(mb) == SAT_OK);
+    return run;
+}
+
+void test_prefetch_seek_cost() {
+    /* seeks are free (the emulators): one visit, the policy never adapts */
+    const SeekRun free_run = prefetch_with_seek_cost(0u, 2400u);
+    CHECK(free_run.prefetched && free_run.underruns == 0u && free_run.disabled == 0u);
+    std::printf("[prefetch seek model] free: %u visits, %u switches, worst dip %u, high %u\n", free_run.visits,
+                free_run.switches, free_run.worst_dip, free_run.high);
+    CHECK(free_run.high == SAT_DISC_STANDBY_HIGH_FRAMES);
+    /* the manual's average seek at 2x, 500 ms: the first visit dips the playing rings under the
+     * reserve, the scheduler reads that off and starts later visits from deeper rings; no underrun, and
+     * the prefetch still completes */
+    const SeekRun slow = prefetch_with_seek_cost(30u, 4800u);
+    std::printf("[prefetch seek model] 500 ms: %u visits, %u switches, worst dip %u, high %u, min after first %u, "
+                "underruns %u, prefetched %d, disabled %u\n",
+                slow.visits, slow.switches, slow.worst_dip, slow.high, slow.min_after_first_visit, slow.underruns,
+                slow.prefetched ? 1 : 0, slow.disabled);
+    CHECK(slow.underruns == 0u && slow.high > SAT_DISC_STANDBY_HIGH_FRAMES && slow.disabled == 0u);
+    CHECK(slow.min_after_first_visit == 0xFFFFFFFFu || slow.min_after_first_visit >= SAT_DISC_MUSIC_RESERVE_FRAMES);
+    /* a 1.2 s seek is longer than the rings can ride out: the first visit may starve the playing track
+     * (that is the real-drive risk the documentation states), but the scheduler then gives the prefetch
+     * up instead of repeating it */
+    const SeekRun hopeless = prefetch_with_seek_cost(72u, 4800u);
+    std::printf("[prefetch seek model] 1.2 s: %u visits, %u switches, worst dip %u, underruns %u, prefetched %d, "
+                "disabled %u\n",
+                hopeless.visits, hopeless.switches, hopeless.worst_dip, hopeless.underruns,
+                hopeless.prefetched ? 1 : 0, hopeless.disabled);
+    CHECK(hopeless.disabled == 1u && hopeless.visits == 1u && hopeless.switches <= 2u && !hopeless.prefetched);
+}
+
 void test_standby_seek() {
     fresh(6u);                                        /* quick enough that the playing track needs the drive less than half the time */
     Track* a = find_track("music/s16-stereo");
@@ -885,6 +981,7 @@ int main() {
     test_standby_handoff();
     test_handoff_mid_segment();
     test_standby_seek();
+    test_prefetch_seek_cost();
     test_prefetch_single();
     test_data_job_beside_music();
     test_transport_error();
