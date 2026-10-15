@@ -91,6 +91,9 @@ void init(uint16_t width, uint16_t height, uint16_t clear_color);
 void set_clear_color(uint16_t rgb555);
 void set_erase_transparent();
 void set_erase_enabled(bool enable, uint16_t width, uint16_t height);
+/* Rotation-8 framebuffer (512 x 512 x 8 bits); the surface drawn is width x height. */
+void set_fb_rotation(uint16_t width, uint16_t height);
+bool fb_rotation();
 /* SAT_VDP1_FRAME_ON_SUBMIT when true; applied by the next begin_frame. */
 void set_frame_mode(bool on_submit);
 void begin_frame(Command* command_buffer, uint16_t capacity);

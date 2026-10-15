@@ -174,6 +174,53 @@ int main() {
         }
     }
 
+    /* Hardware TATE: rotation parameter table A. Evaluate it the way the VDP2 does (sprX = Xst + y*DXst
+     * + x*DX, sprY = Yst + y*DYst + x*DY) and compare with sat_tate_unmap_edge. */
+    {
+        auto field = [](const uint16_t* t, uint32_t off, uint32_t int_bits) {
+            const uint32_t raw = (uint32_t(t[off / 2u]) << 16 | t[off / 2u + 1u]) >> 6;
+            const uint32_t bits = int_bits + 10u;
+            int32_t v = int32_t(raw & ((1u << bits) - 1u));
+            if (v & (1 << (bits - 1u))) v -= 1 << bits;
+            return v;                               /* 1/1024 pixel */
+        };
+        for (uint8_t rot : {SAT_TATE_UPRIGHT, SAT_TATE_ROT_CW, SAT_TATE_ROT_CCW}) {
+            for (uint16_t sw : {320u, 352u}) {
+                const sat_tate_layout_t l = make(sw, 224u, rot);
+                uint16_t t[SAT_TATE_FB_TABLE_WORDS];
+                OK(sat_tate_fb_rotation_table(&l, t) == SAT_OK);
+                const int32_t xst = field(t, 0x00u, 13u), yst = field(t, 0x04u, 13u);
+                const int32_t dxst = field(t, 0x0Cu, 3u), dyst = field(t, 0x10u, 3u);
+                const int32_t dx = field(t, 0x14u, 3u), dy = field(t, 0x18u, 3u);
+                OK(t[0x1Cu / 2u] == 1u && t[0x1Cu / 2u + 1u] == 0u && t[0x4Cu / 2u] == 1u && t[0x50u / 2u] == 1u);
+                for (int sy = 0; sy <= 224; sy += 7) {
+                    for (int sx = 0; sx <= int(sw); sx += 5) {
+                        if (sx < l.field.x || sy < l.field.y || sx > l.field.x + l.field.width ||
+                            sy > l.field.y + l.field.height) continue;
+                        const int32_t fx = xst + sy * dxst + sx * dx, fy = yst + sy * dyst + sx * dy;
+                        int32_t lx = 0, ly = 0;
+                        OK(sat_tate_unmap_edge(&l, sx, sy, &lx, &ly) == SAT_OK);
+                        /* unmap floors in the rotated space (so a flipped axis rounds the other way): within a pixel,
+                         * plus the rounding of the steps */
+                        OK(fx > (lx - 1) * 1024 - 160 && fx < (lx + 1) * 1024 + 160);
+                        OK(fy > (ly - 1) * 1024 - 160 && fy < (ly + 1) * 1024 + 160);
+                    }
+                }
+                if (rot == SAT_TATE_ROT_CW && sw == 320u) {     /* the values the working spike used */
+                    OK(xst == -45875 && yst == 458752 && dxst == 1434 && dyst == 0 && dx == 0 && dy == -1434);
+                }
+                if (rot == SAT_TATE_UPRIGHT && sw == 320u) OK(dxst == 0 && dyst == 2048 && dx == 2048);
+            }
+        }
+        /* a field larger than the 512 x 512 buffer is refused, and bad arguments */
+        uint16_t t[SAT_TATE_FB_TABLE_WORDS];
+        const sat_tate_layout_t big = make(320u, 224u, SAT_TATE_ROT_CW, 224u, 600u);
+        OK(sat_tate_fb_rotation_table(&big, t) == SAT_ERR_INVALID_ARG);
+        const sat_tate_layout_t ok = make(320u, 224u, SAT_TATE_ROT_CW);
+        OK(sat_tate_fb_rotation_table(&ok, nullptr) == SAT_ERR_INVALID_ARG);
+        OK(sat_tate_fb_rotation_table(nullptr, t) == SAT_ERR_INVALID_ARG);
+    }
+
     /* Invalid input. */
     {
         sat_tate_layout_t l{};

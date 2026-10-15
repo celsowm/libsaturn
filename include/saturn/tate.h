@@ -84,6 +84,22 @@ sat_result_t sat_tate_pixel(const sat_tate_layout_t* layout, int32_t lx, int32_t
 void sat_tate_size(const sat_tate_layout_t* layout, uint16_t w, uint16_t h,
                    uint16_t* out_w, uint16_t* out_h);
 
+/* Hardware TATE: the VDP1 draws the playfield UPRIGHT at the top left of its frame buffer in
+ * rotation mode (TVMR TVM = 011b, 512 x 512 x 8 bits, 320/352 x 224 display only) and the VDP2
+ * reads the frame buffer back through rotation parameter A, turned and scaled as `layout` says
+ * (see examples/tate_fb_rotation). Sprites need no pre-rotation.
+ *
+ * Fills the 48 big-endian 16-bit words of rotation parameter table A (96 bytes, the VDP2 reads
+ * the first 0x58) so that screen pixel (sx, sy) shows the frame buffer pixel
+ *   sat_tate_unmap_edge(layout, sx, sy)
+ * to 1/1024 pixel: Xst/Yst, DXst/DYst, DX/DY, the matrix as identity and kx = ky = 1. The
+ * table must sit in VDP2 VRAM at the word address RBG0's rotation parameter base names. Fails
+ * with SAT_ERR_INVALID_ARG when the logical field does not fit a 512 x 512 buffer or a value
+ * overflows the table's 13.10 fields. */
+#define SAT_TATE_FB_TABLE_WORDS 48u
+
+sat_result_t sat_tate_fb_rotation_table(const sat_tate_layout_t* layout, uint16_t* out_words);
+
 #ifdef __cplusplus
 }
 #endif

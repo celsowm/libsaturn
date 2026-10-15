@@ -324,8 +324,8 @@ extern "C" sat_result_t sat_draw_texture(
         tint_b = static_cast<uint8_t>((static_cast<uint32_t>(tint_b) * a + 127u) / 255u);
     }
     if (tint_r != 255u || tint_g != 255u || tint_b != 255u) {
-        /* Hi-res sprites take their bank from CRAOFB for the whole screen. */
-        if (g_state.config.width >= 640u || native->format != SAT_VDP1_TEXTURE_INDEXED8) {
+        /* Hi-res and rotation-framebuffer sprites take their bank from CRAOFB for the whole screen. */
+        if (g_state.config.width >= 640u || saturn::hal::vdp1::fb_rotation() || native->format != SAT_VDP1_TEXTURE_INDEXED8) {
             return SAT_ERR_UNSUPPORTED;
         }
         static uint16_t s_tint_scratch[kCramBankEntries];

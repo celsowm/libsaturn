@@ -8,10 +8,15 @@
 #   BH_FRAME_ON_SUBMIT=1      uses SAT_VDP1_FRAME_ON_SUBMIT instead of the default frame mode (the
 #                             hardware erase and swap): it never shows a late list but erases with a
 #                             full-screen polygon, which costs the VDP1 a third of a field in 640 x 224
+#   BH_TATE_FB=1             the 320 x 224 hardware-rotated TATE (saturn/tate_fb.h): the VDP1 draws the
+#                             224 x 448 field upright (rotation-8 framebuffer), the VDP2 turns it; upright art,
+#                             no scrolling background, the HUD inside the field
 #   BH_EXTRA_CFLAGS=...       experiment knobs, e.g. -DBH_BENCH_LOOP=3 (repeat the 512 phase forever)
 BH_GEN_DIR := $(GENERATED_DIR)/bullet_hell_stress
-BH_ISO_DIR := $(BH_GEN_DIR)/iso
-BH_PACK_DIR := $(BH_GEN_DIR)/pack
+# The two variants pack different atlases (turned art or upright art), so they stage apart.
+BH_VARIANT := $(if $(filter 1,$(BH_TATE_FB)),_fb)
+BH_ISO_DIR := $(BH_GEN_DIR)/iso$(BH_VARIANT)
+BH_PACK_DIR := $(BH_GEN_DIR)/pack$(BH_VARIANT)
 BH_ASSETS := examples/bullet_hell_stress/assets
 BH_TOOLS := tools/shmup_assets.py tools/shmup_music.py
 
@@ -23,7 +28,13 @@ BH_GROUPS := \
 	--group "enemy_*_green=4" --group "enemy_*_orange=4" --group "boss_core_green=4"
 
 # Hi-res 640 x 224 TATE: INDEX8 only, art turned a quarter clockwise at pack time.
+# The rotation-framebuffer TATE draws the field upright (BH_TATE_FB=1): same 8 bit profile, no turn.
+ifeq ($(BH_TATE_FB),1)
+BH_PACK_ARGS := --name shmup --profile hires --orientation none $(BH_GROUPS)
+CFLAGS += -DBH_TATE_FB=1
+else
 BH_PACK_ARGS := --name shmup --profile hires --orientation cw $(BH_GROUPS)
+endif
 
 ifeq ($(BH_AUTOBENCH),1)
 CFLAGS += -DBH_AUTOBENCH=1

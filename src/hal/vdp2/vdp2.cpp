@@ -123,6 +123,8 @@ compose::ScreenRatios g_cc_ratios;
  * VDP2 must read as sprite type C, and its codes index one 256-colour CRAM
  * bank chosen by CRAOFB. Both are replayed by commit_layers(). */
 bool g_hires = false;
+/* The VDP1 framebuffer is 8 bits/pixel rotation mode: sprites are palette codes (type C), as in hi-res. */
+bool g_sprite_fb8 = false;
 /* CRAM banks per screen (set_cram_bank, and the hi-res sprite bank); replayed
  * by commit_layers() once set, or in hi-res. */
 compose::CramBanks g_cram_banks = {0u, 0u};
@@ -516,13 +518,23 @@ bool hires() {
     return g_hires;
 }
 
+bool sprite_8bit() {
+    return g_hires || g_sprite_fb8;
+}
+
+void set_sprite_fb8(bool on) {
+    g_sprite_fb8 = on;
+    SPCTL = sprite_type_bits();
+    if (on) CRAOFB = g_cram_banks.craofb;
+}
+
 uint16_t sprite_type_bits() {
     /* Type C: all 8 framebuffer bits are dot colour (bit 7 doubles as the
      * priority-register select, and PRISA gives both registers the same
      * priority), so a hi-res sprite can use palette codes 0-255. Otherwise
      * type 0 with SPCLMD set: palette and RGB pixels mixed, as the BIOS
      * leaves it (SPCTL = 0 would drop every RGB pixel). */
-    if (g_hires) return compose::hires_sprite_spctl(g_last_prisa_written, g_hires_sprite_cc);
+    if (g_hires || g_sprite_fb8) return compose::hires_sprite_spctl(g_last_prisa_written, g_hires_sprite_cc);
     /* Type 1, palette dots only: bits 15-13 select PRISA-PRISD's eight priorities. */
     return g_palette_priorities ? compose::palette_sprite_spctl(g_palette_cc, g_palette_window) : 0x0020u;
 }
@@ -936,6 +948,12 @@ void configure_rbg0_bitmap(RBG0BitmapSize bitmap_size, ColorMode color_mode,
     const uint16_t plsz = static_cast<uint16_t>(PLSZ & 0xF0FFu);
     PLSZ = plsz;
     g_last_rbg0_plsz_written = plsz;
+}
+
+void set_rbg0_screen_over(uint8_t mode) {
+    /* PLSZ bits 11..10: RAOVR. 0 repeat, 2 transparent outside the display area, 3 outside 512 x 512. */
+    g_last_rbg0_plsz_written = static_cast<uint16_t>((g_last_rbg0_plsz_written & 0xF3FFu) | ((mode & 0x03u) << 10u));
+    PLSZ = g_last_rbg0_plsz_written;
 }
 
 void enable_rbg0(bool enable) {
@@ -1574,7 +1592,7 @@ void commit_layers() {
     COBR = g_last_color_offset_written[5];
     COBG = g_last_color_offset_written[6];
     COBB = g_last_color_offset_written[7];
-    if (g_hires) {
+    if (g_hires || g_sprite_fb8) {
         SPCTL = sprite_type_bits();
         CRAOFB = g_cram_banks.craofb;
         if (hires_sprite_cc_on()) CCRSA = compose::ratio_word(g_hires_sprite_ratio, 0u);
@@ -1629,7 +1647,7 @@ void set_rbg0_sprite_priority(uint8_t priority) {
     const uint16_t prisa = static_cast<uint16_t>((priority & 0x07u) | ((priority & 0x07u) << 8u));
     g_last_prisa_written = prisa;
     PRISA = prisa_value();
-    if (g_hires) SPCTL = sprite_type_bits();
+    if (g_hires || g_sprite_fb8) SPCTL = sprite_type_bits();
 }
 
 void set_nbg0_priority(uint8_t priority) {
@@ -1641,7 +1659,7 @@ void set_sprite_priority(uint8_t priority) {
     /* computed, not read back: PRISA is write-only on hardware */
     g_last_prisa_written = saturn::core::compose_sprite_priority(priority);
     PRISA = prisa_value();
-    if (g_hires) SPCTL = sprite_type_bits();
+    if (g_hires || g_sprite_fb8) SPCTL = sprite_type_bits();
 }
 
 void set_color_calc_control(uint16_t ccctl) {

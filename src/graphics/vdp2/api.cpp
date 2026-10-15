@@ -100,7 +100,7 @@ extern "C" sat_result_t sat_vdp2_sprite_set_palette_priorities(const uint8_t pri
         for (uint32_t i = 0u; i < 8u; ++i) {
             if (priority[i] > 7u) return SAT_ERR_INVALID_ARG;
         }
-        if (saturn::hal::vdp2::hires()) return SAT_ERR_UNSUPPORTED;
+        if (saturn::hal::vdp2::sprite_8bit()) return SAT_ERR_UNSUPPORTED;
         if (saturn::hal::vdp2_color_calc::enabled()) return SAT_ERR_BUSY;
     }
     saturn::hal::vdp2::set_sprite_palette_priorities(priority);
@@ -228,7 +228,7 @@ extern "C" sat_result_t sat_vdp2_sprite_palette_bank_set(uint8_t bank) {
     if (bank > 7u) {
         return SAT_ERR_INVALID_ARG;
     }
-    if (!saturn::hal::vdp2::hires()) {
+    if (!saturn::hal::vdp2::sprite_8bit()) {
         return SAT_ERR_UNSUPPORTED;
     }
     saturn::hal::vdp2::set_sprite_palette_bank(bank);
@@ -397,6 +397,19 @@ extern "C" sat_result_t sat_vdp2_rbg0_set_param_mode(sat_vdp2_rbg0_param_mode_t 
     }
 
     saturn::hal::vdp2::set_rbg0_param_mode(static_cast<saturn::hal::vdp2::RBG0ParamMode>(mode));
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rbg0_set_screen_over(sat_vdp2_rbg0_screen_over_t mode) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) {
+        return st;
+    }
+    if (mode > SAT_VDP2_RBG0_OVER_TRANSPARENT_512) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    saturn::hal::vdp2::set_rbg0_screen_over(static_cast<uint8_t>(mode));
     return SAT_OK;
 }
 

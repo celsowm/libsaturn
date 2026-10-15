@@ -37,6 +37,10 @@ uint16_t read_tvstat();
  * VDP1 framebuffer is 8 bits/pixel (sprite type C). */
 void set_horizontal_resolution(uint16_t width);
 bool hires();
+/* The VDP1 framebuffer holds 8 bit palette codes (rotation mode): sprite type C, like hi-res. */
+void set_sprite_fb8(bool on);
+/* Sprites are 8 bit palette codes on one CRAM bank (hi-res or the rotation framebuffer). */
+bool sprite_8bit();
 uint16_t sprite_type_bits();
 /* The 256-colour CRAM bank hi-res sprite codes index (CRAOFB SPCAOS). */
 void set_sprite_palette_bank(uint8_t bank);
@@ -121,6 +125,7 @@ uint16_t last_rbg0_plsz_written();
 void commit_rbg0_config();
 void commit_layers();
 void set_rbg0_param_mode(RBG0ParamMode mode);
+void set_rbg0_screen_over(uint8_t mode);
 void set_rbg0_rotation_read_control(uint16_t rprctl);
 void set_rbg0_coefficient_control(uint16_t ktctl);
 void set_rbg0_ktaof(uint16_t ktaof);

@@ -152,3 +152,64 @@ extern "C" void sat_tate_size(const sat_tate_layout_t* layout, uint16_t w, uint1
     if (out_w != nullptr) *out_w = swap ? h : w;
     if (out_h != nullptr) *out_h = swap ? w : h;
 }
+
+namespace {
+
+inline void put32(uint16_t* words, uint32_t byte_offset, uint32_t value) {
+    words[byte_offset / 2u] = static_cast<uint16_t>(value >> 16);
+    words[byte_offset / 2u + 1u] = static_cast<uint16_t>(value);
+}
+
+/* A signed 13.10 value into a field `int_bits` + 10 bits wide, placed at bit 6 of the word. */
+inline bool pack_fixed(int64_t v10, uint32_t int_bits, uint32_t* out) {
+    const int64_t limit = static_cast<int64_t>(1) << (int_bits + 10u - 1u);
+    if (v10 < -limit || v10 >= limit) return false;
+    *out = (static_cast<uint32_t>(v10) & ((1u << (int_bits + 10u)) - 1u)) << 6;
+    return true;
+}
+
+}  // namespace
+
+extern "C" sat_result_t sat_tate_fb_rotation_table(const sat_tate_layout_t* layout, uint16_t* out_words) {
+    if (!valid(layout) || out_words == nullptr || layout->logical_w > 512u || layout->logical_h > 512u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    /* Screen -> rotated field is linear: r = (s - field origin) * den / num. In 1/1024 units: */
+    const int64_t num = layout->scale_num, den = layout->scale_den;
+    const int64_t step = (1024 * den + num / 2) / num;                           /* per screen pixel */
+    const int64_t org_x = -((static_cast<int64_t>(layout->field.x) * 1024 * den + num / 2) / num);
+    const int64_t org_y = -((static_cast<int64_t>(layout->field.y) * 1024 * den + num / 2) / num);
+    /* The same rotation sat_tate_unmap_edge applies, on 1/1024 values, for the origin and one step on each axis. */
+    int64_t lo[2], lx[2], ly[2];
+    const int64_t lw10 = static_cast<int64_t>(layout->logical_w) * 1024;
+    const int64_t lh10 = static_cast<int64_t>(layout->logical_h) * 1024;
+    auto unrotate = [&](int64_t rx, int64_t ry, int64_t* ox, int64_t* oy) {
+        switch (layout->rotation) {
+        case SAT_TATE_ROT_CW:  *ox = ry; *oy = lh10 - rx; break;
+        case SAT_TATE_ROT_CCW: *ox = lw10 - ry; *oy = rx; break;
+        default:               *ox = rx; *oy = ry; break;
+        }
+    };
+    unrotate(org_x, org_y, &lo[0], &lo[1]);
+    unrotate(org_x + step, org_y, &lx[0], &lx[1]);   /* one screen column */
+    unrotate(org_x, org_y + step, &ly[0], &ly[1]);   /* one screen line */
+
+    uint32_t xst, yst, dxst, dyst, dx, dy;
+    if (!pack_fixed(lo[0], 13u, &xst) || !pack_fixed(lo[1], 13u, &yst) ||
+        !pack_fixed(ly[0] - lo[0], 3u, &dxst) || !pack_fixed(ly[1] - lo[1], 3u, &dyst) ||
+        !pack_fixed(lx[0] - lo[0], 3u, &dx) || !pack_fixed(lx[1] - lo[1], 3u, &dy)) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    for (uint32_t i = 0; i < SAT_TATE_FB_TABLE_WORDS; ++i) out_words[i] = 0u;
+    put32(out_words, 0x00u, xst);
+    put32(out_words, 0x04u, yst);
+    put32(out_words, 0x0Cu, dxst);
+    put32(out_words, 0x10u, dyst);
+    put32(out_words, 0x14u, dx);
+    put32(out_words, 0x18u, dy);
+    put32(out_words, 0x1Cu, 0x400u << 6);   /* matrix A, E = 1: identity (Ymir reads the sprite path from Xst..DY) */
+    put32(out_words, 0x2Cu, 0x400u << 6);
+    put32(out_words, 0x4Cu, 0x10000u);       /* kx, ky = 1 */
+    put32(out_words, 0x50u, 0x10000u);
+    return SAT_OK;
+}

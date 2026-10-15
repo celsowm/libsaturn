@@ -246,6 +246,17 @@ sat_result_t sat_vdp2_rbg0_init(const sat_vdp2_rbg0_config_t* config);
 sat_result_t sat_vdp2_rbg0_set_enabled(uint8_t enable);
 sat_result_t sat_vdp2_rbg0_set_transparent_code_enabled(uint8_t enable);
 sat_result_t sat_vdp2_rbg0_set_param_mode(sat_vdp2_rbg0_param_mode_t mode);
+
+/* Screen over process (PLSZ RAOVR, VDP2 manual 4.7): what shows where the rotation coordinate
+ * leaves the bitmap. sat_vdp2_rbg0_init leaves REPEAT. A bitmap shorter than 512 lines has no
+ * defined data below it (an emulator may read the VRAM that follows), so a layer that must be
+ * clear outside its bitmap sets TRANSPARENT. */
+typedef enum sat_vdp2_rbg0_screen_over {
+    SAT_VDP2_RBG0_OVER_REPEAT = 0,
+    SAT_VDP2_RBG0_OVER_TRANSPARENT = 2,         /* outside the bitmap */
+    SAT_VDP2_RBG0_OVER_TRANSPARENT_512 = 3      /* outside 512 x 512 */
+} sat_vdp2_rbg0_screen_over_t;
+sat_result_t sat_vdp2_rbg0_set_screen_over(sat_vdp2_rbg0_screen_over_t mode);
 uint16_t sat_vdp2_rbg0_last_bgon_written(void);
 uint16_t sat_vdp2_rbg0_last_ramctl_written(void);
 uint16_t sat_vdp2_rbg0_last_chctlb_written(void);

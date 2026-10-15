@@ -164,6 +164,15 @@ void bh_render_bullets(const bh_sim_t* sim, const bh_view_t* view, const sat_spr
             if (!f) continue;
             (void)sat_sprite_batch_emit(&w, f, c0 - ly, d0 + px_of(b->x));
         }
+    } else if (v->sxx == 1 && v->syy == 1 && v->sxy == 0 && v->syx == 0) {   /* SAT_TATE_UPRIGHT */
+        const int32_t c0 = v->c0, d0 = v->d0;
+        for (uint32_t i = 0; i < count; ++i, ++b) {
+            const int32_t ly = px_of(b->y);
+            const sat_sprite_frame_t* f = (ly < BULLET_EXTENT || ly > BH_FIELD_H - BULLET_EXTENT)
+                                              ? clipped[b->shape][b->color] : frame[b->shape][b->color];
+            if (!f) continue;
+            (void)sat_sprite_batch_emit(&w, f, c0 + px_of(b->x), d0 + ly);
+        }
     } else {
         for (uint32_t i = 0; i < count; ++i, ++b) {
             const int32_t ly = px_of(b->y);
@@ -218,6 +227,25 @@ uint32_t bh_render_build(const bh_sim_t* sim, const bh_view_t* view, const sat_s
         put_field(&s, e->x, e->y, f, extent_of(&s, f));
     }
 
+#ifdef BH_TATE_FB
+    /* No panels: the HUD is drawn inside the 224 x 448 field, a line of text and a row of gauges at
+     * the top and the bottom (24 glyphs a line). */
+    number(&s, 4, 4, "STAGE ", hud->stage, 1);
+    number(&s, 112, 4, "FPS ", hud->fps, 2);
+    number(&s, 4, 24, "BULLETS ", hud->bullets, 4);
+    if (hud->show_timing) {
+        number(&s, 4, 44, "SRV ", hud->ticks[0], 4);
+        number(&s, 112, 44, "SIM ", hud->ticks[1], 4);
+        number(&s, 4, 64, "BLD ", hud->ticks[2], 4);
+        number(&s, 112, 64, "DRW ", hud->ticks[3], 4);
+        number(&s, 4, 84, "END ", hud->ticks[4], 4);
+    }
+    number(&s, 4, 436, "SCORE ", sim->score, 8);
+    pills(&s, 20, 392, SHMUP_HUD_BAR_LIFE, sim->player.lives);
+    pills(&s, 20, 408, SHMUP_HUD_BAR_BOMB, sim->player.bombs);
+    pills(&s, 20, 424, SHMUP_HUD_BAR_POWER, sim->player.power);
+    if (sim->game_over) text(&s, 70, 200, "GAME OVER");
+#else
     /* Bottom panel (logical y 448..544): score and the three gauges. */
     number(&s, 8, 460, "SCORE ", sim->score, 8);
     pills(&s, 24, 484, SHMUP_HUD_BAR_LIFE, sim->player.lives);
@@ -235,5 +263,6 @@ uint32_t bh_render_build(const bh_sim_t* sim, const bh_view_t* view, const sat_s
         number(&s, 116, -8, "END ", hud->ticks[4], 4);
     }
     if (sim->game_over) text(&s, 135, 460, "GAME OVER");
+#endif
     return s.n;
 }

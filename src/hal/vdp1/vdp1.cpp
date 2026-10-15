@@ -89,6 +89,18 @@ uint16_t g_width = 320;
 uint16_t g_height = 224;
 /* 640/704-wide hi-res: TVMR TVM = 001, an 8 bits/pixel framebuffer. */
 bool g_hires = false;
+/* TVMR TVM = 011, rotation 8: a 512 x 512 x 8 bits framebuffer the VDP2 reads back rotated.
+ * It is an 8 bits/pixel buffer like hi-res, so palette codes only and one shared palette. */
+bool g_fb_rotation = false;
+/* The hardware cannot erase a rotated framebuffer in time (VDP1 manual 4.4: erase/write runs only
+ * in the vertical retrace while the VDP2 reads the buffer, and 224 x 448 does not fit in it), so
+ * begin_frame starts every list with a clearing polygon over the field, as in ON_SUBMIT mode.
+ * What the VDP2 reads outside the field, up to kFbVisibleWidth, is never drawn again: for the
+ * first few frames (both framebuffers) the polygon covers that too. */
+constexpr uint16_t kFbVisibleWidth = 320u;
+uint8_t g_fb_rotation_boot_clear = 0u;
+constexpr uint16_t kFbNoErase = (1u << 9u);   // EWRR: a 16 x 1 pixel window
+inline bool framebuffer_8bpp() { return g_hires || g_fb_rotation; }
 /* SAT_VDP1_FRAME_ON_SUBMIT: the list plots when submitted and the swap waits
  * for it. The hardware erase never runs then, so begin_frame starts each list
  * with a polygon in g_erase_word (EWDR's value) unless erase is off. */
@@ -100,7 +112,7 @@ uint16_t g_erase_word = 0x0000u;
 /* EWRR for a full-screen erase. X3 counts 8-pixel units at 16 bits/pixel and
  * 16-pixel units at 8 bits/pixel (VDP1 manual 4.4); Y3 is the last line. */
 uint16_t full_erase_ewrr(uint16_t width, uint16_t height) {
-    const uint16_t unit = g_hires ? 16u : 8u;
+    const uint16_t unit = framebuffer_8bpp() ? 16u : 8u;
     return static_cast<uint16_t>(((width / unit) << 9u) | (height - 1u));
 }
 #if SAT_PROFILE_METRICS
@@ -159,6 +171,8 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     g_width = width;
     g_height = height;
     g_hires = width >= 640u;
+    g_fb_rotation = false;
+    g_fb_rotation_boot_clear = 0u;
     g_texture_arena.reset(kTextureBase, kVramSize);
 
     TVMR = g_hires ? 0x0001u : 0x0000u;
@@ -189,6 +203,24 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     PTMR = 0x0002;
 }
 
+void set_fb_rotation(uint16_t width, uint16_t height) {
+    /* The drawing surface becomes width x height (origin at its centre, as everywhere); the VDP2
+     * shows it turned and scaled. */
+    g_width = width;
+    g_height = height;
+    g_fb_rotation = true;
+    g_fb_rotation_boot_clear = 4u;
+    TVMR = 0x0003u;
+    g_erase_word = 0x0000u;
+    EWDR = 0x0000u;
+    EWLR = 0x0000u;
+    EWRR = kFbNoErase;
+}
+
+bool fb_rotation() {
+    return g_fb_rotation;
+}
+
 void set_clear_color(uint16_t rgb555) {
     // Sets bit 15, the RGB code, producing an OPAQUE erase in the given color.
     // This covers the VDP2 backdrop and any VDP2 layer below the sprite layer.
@@ -196,7 +228,7 @@ void set_clear_color(uint16_t rgb555) {
     // An 8 bits/pixel hi-res framebuffer holds no RGB: EWDR there is two
     // palette codes, so the erase stays transparent and the VDP2 backdrop
     // provides the colour.
-    if (g_hires) {
+    if (framebuffer_8bpp()) {
         g_erase_word = 0x0000u;
         EWDR = 0x0000u;
         return;
@@ -220,7 +252,10 @@ void set_frame_mode(bool on_submit) {
 
 void set_erase_enabled(bool enable, uint16_t width, uint16_t height) {
     g_erase_on = enable;
-    if (enable) {
+    if (g_fb_rotation) {
+        EWLR = 0x0000;
+        EWRR = kFbNoErase;   // the clearing polygon is the erase
+    } else if (enable) {
         EWLR = 0x0000;
         EWRR = full_erase_ewrr(width, height);
     } else {
@@ -281,7 +316,7 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     sys_clip.ya = 0;
     sys_clip.xb = 0;
     sys_clip.yb = 0;
-    sys_clip.xc = static_cast<int16_t>(g_width - 1u);
+    sys_clip.xc = static_cast<int16_t>((g_fb_rotation_boot_clear != 0u ? kFbVisibleWidth : g_width) - 1u);
     sys_clip.yc = static_cast<int16_t>(g_height - 1u);
     sys_clip.xd = 0;
     sys_clip.yd = 0;
@@ -301,10 +336,14 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
         g_swap_state = kSwapIdle;
         g_manual_mode = false;
     }
-    if (!g_on_submit || !g_erase_on || g_cmd_count >= g_cmd_capacity) {
+    if ((!g_on_submit && !g_fb_rotation) || !g_erase_on || g_cmd_count >= g_cmd_capacity) {
         return;
     }
-    const saturn::core::Vdp1ClearRect r = saturn::core::frame_clear_rect(g_width, g_height);
+    saturn::core::Vdp1ClearRect r = saturn::core::frame_clear_rect(g_width, g_height);
+    if (g_fb_rotation_boot_clear != 0u) {
+        --g_fb_rotation_boot_clear;
+        r.x1 = static_cast<int16_t>(kFbVisibleWidth - 1 - g_width / 2);
+    }
     Command& clear = g_cmd_buffer[g_cmd_count++];
     clear.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdPolygon, false);
     clear.link = 0;
@@ -791,7 +830,7 @@ sat_result_t push_polygon_gouraud(const PolygonRequest& req, const uint16_t* gou
     return shade_last_command(push_polygon(req), grda);
 }
 sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req, const uint16_t* gouraud) {
-    if(g_hires || req.format!=SAT_VDP1_TEXTURE_LUT4)return SAT_ERR_UNSUPPORTED;
+    if(framebuffer_8bpp() || req.format!=SAT_VDP1_TEXTURE_LUT4)return SAT_ERR_UNSUPPORTED;
     uint16_t grda=0u;
     SAT_TRY(stage_gouraud(gouraud,4,&grda));
     return shade_last_command(push_distorted_sprite(req),grda);

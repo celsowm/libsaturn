@@ -14,6 +14,10 @@
  *   - a deterministic simulation (bh_sim.c, host-tested) and a benchmark that holds exactly
  *     128 / 256 / 512 / 1024 enemy bullets on screen, all collision-tested every frame
  *
+ * BH_TATE_FB=1 builds the other TATE: 320 x 224, the VDP1 draws the field upright into its rotation
+ * framebuffer and the VDP2 turns and scales it (5/7, a 320 x 160 field), see docs/SHMUP_BULLET_HELL_SUPPORT.md.
+ * It has no scrolling background and the HUD sits inside the field.
+ *
  * Controls: D-pad move, A shot, B bomb, C focus (slow), X run the benchmark, Y jump to the end of the
  * stage (the stage change is then a couple of seconds away), START hand control back to the autopilot.
  * Nothing pressed: the autopilot plays (and dodges), which is what the harness records.
@@ -30,6 +34,7 @@
 #include "saturn/sprite_atlas.h"
 #include "saturn/sprite_batch.h"
 #include "saturn/tate.h"
+#include "saturn/tate_fb.h"
 #include "saturn/time.h"
 #include "saturn/vdp1.h"
 #include "saturn/vdp2.h"
@@ -44,8 +49,23 @@
 #include "bullet_hell_stress/bh_music.h"
 #include "bullet_hell_stress/shmup_atlas_ids.h"
 
+#ifdef BH_TATE_FB
+/* The 320 x 224 screen shows the field turned by the VDP2 (saturn/tate_fb.h); the program draws in
+ * the 224 x 448 surface that sat_tate_fb_init makes of it, upright, so the view is the identity. */
+#define SCREEN_W 320u
+#define SCREEN_H 224u
+#define SURFACE_W BH_FIELD_W
+#define SURFACE_H BH_FIELD_H
+#define FB_BITMAP_WORD 0x20000u         /* VDP2 VRAM bank B0 (128 KiB: the dummy RBG0 bitmap) */
+#define FB_TABLE_WORD 0x30000u          /* bank B1: the rotation parameter table */
+#define BH_BACKGROUNDS 0
+#else
 #define SCREEN_W 640u
 #define SCREEN_H 224u
+#define SURFACE_W SCREEN_W
+#define SURFACE_H SCREEN_H
+#define BH_BACKGROUNDS 1
+#endif
 #define SPRITE_BANK 1u                  /* CRAM words 256..511: the atlas palette */
 #define BG_PRIORITY 1u
 #define SPRITE_PRIORITY 5u
@@ -168,7 +188,7 @@ static sat_result_t build_group_frames(uint32_t group) {
 
 static uint8_t slot_of(uint16_t serial) { return (uint8_t)(1u + (serial & 1u)); }
 static uint8_t group_of(uint16_t serial) { return bh_stage_group((uint16_t)(serial % BH_STAGES)); }
-static uint8_t bg_of(uint16_t serial) { return (uint8_t)(serial % BH_STAGES); }
+__attribute__((unused)) static uint8_t bg_of(uint16_t serial) { return (uint8_t)(serial % BH_STAGES); }
 
 static sat_result_t service_cd_audio(void* context) {
     (void)context;
@@ -184,6 +204,7 @@ static void pump_audio(void* context) {
 
 /* The background bitmap of VRAM bank `slot` (0: A0, 1: A1) with CRAM bank 0 or 2, shown on NBG0
  * behind the sprites. Recorded by the layer manager and replayed at every commit. */
+#if BH_BACKGROUNDS
 static sat_result_t show_background(uint8_t slot) {
     sat_vdp2_layer_config_t c;
     sat_vdp2_layer_config_default(SAT_VDP2_NBG0, &c);
@@ -200,13 +221,14 @@ static sat_result_t show_background(uint8_t slot) {
 /* The field is 448 dots wide; the panels beside it show the back colour. */
 static sat_result_t mask_panels(void) {
     sat_vdp2_window_rect_t field = {g_view.layout.field.x, 0u,
-                                    (uint16_t)(g_view.layout.field.x + g_view.layout.field.width - 1), SCREEN_H - 1u};
+                                    (uint16_t)(g_view.layout.field.x + g_view.layout.field.width - 1), SURFACE_H - 1u};
     SAT_TRY(sat_vdp2_window_set_rect(0u, &field));
     sat_vdp2_screen_window_t w;
     sat_vdp2_screen_window_default(SAT_VDP2_SCREEN_NBG0, &w);
     w.w0 = SAT_VDP2_WINDOW_AREA_INSIDE;
     return sat_vdp2_screen_window_set(&w);
 }
+#endif
 
 /* ---- stage data ------------------------------------------------------------------------- */
 
@@ -222,12 +244,20 @@ static void mark_group(uint8_t group, uint8_t ready) {
 static void queue_stage(uint16_t serial) {
     const uint8_t slot = (uint8_t)(serial & 1u);       /* VDP2 bank / palette pair */
     (void)bh_stream_queue_group(&g_stream, group_of(serial), slot_of(serial));
+#if BH_BACKGROUNDS
     (void)bh_stream_queue_background(&g_stream, bg_of(serial), (uint8_t)(slot * 2u), slot * BG_BANK_BYTES);
+#else
+    (void)slot;
+#endif
 }
 
 static uint8_t stage_ready(uint16_t serial) {
+#if BH_BACKGROUNDS
     return (uint8_t)(bh_stream_group_ready(&g_stream, group_of(serial)) &&
                      bh_stream_background_ready(&g_stream, bg_of(serial)));
+#else
+    return bh_stream_group_ready(&g_stream, group_of(serial));
+#endif
 }
 
 /* The simulation moved to stage `serial`: show its data. The disc read normally finished long ago;
@@ -250,7 +280,9 @@ static void enter_stage(uint16_t serial) {
         (void)sat_sprite_atlas_evict(&g_atlas, old_slot);
         bh_stream_forget_group(&g_stream, old_group);
     }
+#if BH_BACKGROUNDS
     bh_stream_forget_background(&g_stream, bg_of(g_active_serial));
+#endif
     (void)build_group_frames(new_group);
     mark_group(new_group, 1u);
     g_bg_slot = (uint8_t)(serial & 1u);
@@ -322,6 +354,13 @@ static void bench_end(void) {
 static sat_result_t boot(void) {
     sat_video_config_t video = {SCREEN_W, SCREEN_H, SAT_VIDEO_AUTO, 0u};
     SETUP(sat_init(&video));
+#ifdef BH_TATE_FB
+    {
+        sat_tate_layout_t fb;
+        SETUP(sat_tate_layout_init(&fb, SCREEN_W, SCREEN_H, BH_FIELD_W, BH_FIELD_H, SAT_TATE_ROT_CW));
+        SETUP(sat_tate_fb_init(&fb, FB_BITMAP_WORD, FB_TABLE_WORD));
+    }
+#endif
     g_bh_telemetry.magic = TELEMETRY_MAGIC;
     g_bh_telemetry.frt_hz = sat_time_frequency_hz();
     g_bh_telemetry.ccr_initial = *(volatile uint8_t*)0xFFFFFE92u;
@@ -332,7 +371,11 @@ static sat_result_t boot(void) {
     SETUP(sat_vdp2_cram_mode_set(0u));
     SETUP(sat_vdp2_back_color_set(SAT_RGB555(2, 2, 4)));
     SETUP(sat_vdp2_sprite_set_priority(SPRITE_PRIORITY));
+#ifdef BH_TATE_FB
+    SETUP(bh_view_init(&g_view, SURFACE_W, SURFACE_H, BH_FIELD_W, BH_FIELD_H, SAT_TATE_UPRIGHT));
+#else
     SETUP(bh_view_init(&g_view, SCREEN_W, SCREEN_H, BH_FIELD_W, BH_FIELD_H, SAT_TATE_ROT_CW));
+#endif
 
     SETUP(sat_audio_init());
     SETUP(sat_cd_mount_default(&g_cd_block, service_cd_audio, 0, &g_cd_device, 0u, &g_volume));
@@ -340,7 +383,7 @@ static sat_result_t boot(void) {
     /* The atlas: tables first (they stay in memory), group data later through the stream. */
     {
         static const char* const bg_paths[3] = {"STAGE1.BG", "STAGE2.BG", "STAGE3.BG"};
-        SETUP(bh_stream_init(&g_stream, &g_cd_block, &g_volume, &g_atlas, "SHMUP.ATL", bg_paths, 3u));
+        SETUP(bh_stream_init(&g_stream, &g_cd_block, &g_volume, &g_atlas, "SHMUP.ATL", bg_paths, BH_BACKGROUNDS ? 3u : 0u));
         uint8_t header[64] __attribute__((aligned(4)));
         uint32_t got = 0u, table_bytes = 0u, total_bytes = 0u;
         SETUP(sat_cdfs_read_at(&g_volume, &g_stream.atlas_file, 0u, header, sizeof(header), &got));
@@ -375,8 +418,10 @@ static sat_result_t boot(void) {
     SETUP(build_group_frames(group_of(0u)));
     mark_group(group_of(0u), 1u);
 
+#if BH_BACKGROUNDS
     SETUP(show_background(0u));
     SETUP(mask_panels());
+#endif
     g_bg_slot = 0u;
     g_active_serial = 0u;
     g_prefetch_delay = PREFETCH_DELAY;
@@ -424,6 +469,7 @@ int main(void) {
 
         const uint16_t t_serv0 = sat_time_frc();
         /* VDP2 state goes in in the VBlank, in step with the sprite list that was submitted last. */
+#if BH_BACKGROUNDS
         if (g_bg_pending) {
             (void)show_background(g_bg_slot);
             g_bg_pending = 0u;
@@ -431,6 +477,10 @@ int main(void) {
         }
         const uint32_t scroll_px = (g_sim.scroll_y >> BH_FP_SHIFT) & 511u;
         (void)sat_vdp2_layer_set_scroll(SAT_VDP2_NBG0, (int32_t)(scroll_px << 16), 0);
+#else
+        g_bg_pending = 0u;
+        const uint32_t scroll_px = 0u;
+#endif
         (void)sat_vdp2_layers_commit();
         g_bh_telemetry.scroll_x = scroll_px;
 

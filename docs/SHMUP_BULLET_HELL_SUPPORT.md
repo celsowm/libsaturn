@@ -16,6 +16,7 @@ pieces are generic.
 | Batched VDP1 submission | `include/saturn/sprite_batch.h`, `src/graphics/2d/sprites/batch.cpp`, `hal::vdp1::push_sprite_batch` | One call per frame for thousands of sprites, or a direct-write window (`sat_sprite_batch_begin`/`emit`/`end`); 4 longword stores per command |
 | Sprite atlas / residency | `include/saturn/sprite_atlas.h`, `src/graphics/2d/sprites/atlas.cpp` | Upload each frame once, residency groups in VRAM slots, chunked upload for streaming |
 | TATE layout | `include/saturn/tate.h`, `src/graphics/2d/tate.cpp` | Logical 224x448 playfield to the screen, CW/CCW, exact edge mapping, HUD panels |
+| Hardware TATE | `include/saturn/tate_fb.h`, `src/graphics/vdp2/tate_fb.cpp`, `sat_tate_fb_rotation_table`, `examples/tate_fb_rotation` | VDP1 rotation framebuffer drawn upright, turned and scaled by VDP2 rotation parameter A; every 2D call works in the 224x448 surface |
 | Asynchronous pad poll | `sat_input_poll_begin` / `sat_input_poll_finish`, `hal::smpc` | The SMPC INTBACK runs while the frame is simulated |
 | Simulation | `examples/bullet_hell_stress/bh_sim.[ch]`, `tests/host/test_bh_sim.cpp` | Fixed pools, 16.16 math, deterministic LCG, `sat_spatial` collision |
 | Disc scheduler | `include/saturn/disc_stream.h`, `src/storage/cd/disc_stream.cpp` | One drive, one segment in flight: streamed music first, data jobs (file extent + sink callbacks) in the gaps |
@@ -93,12 +94,61 @@ Limits found for 640x224 (the only mode that holds the whole 448-line field 1:1)
   background slots (the stage background is a second 8 bpp palette, swapped with the stage).
 - The field is 448x224 with 96 px panels; the top panel is 224 px long (24 glyphs of the 9 px HUD
   font), which bounds what the benchmark overlay can show.
-- 320x224 would need 5/7 scaling (`tate.h` computes it, `exact = 0`); sprites would have to be
-  scaled by the batch. Not implemented in the example.
-- Hardware rotation (VDP1 TVM = rotation 8/16 + VDP2 rotation parameters reading the frame buffer)
-  would remove the offline rotation, but the library has no VDP1 rotation TV mode and the frame
-  buffer would also need the RBG hardware. **Not built**; the software layout above is the
-  supported path.
+- 320x224 needs 5/7 scaling (`tate.h` computes it, `exact = 0`): done by the hardware backend below,
+  not by the software layout.
+
+### Hardware TATE (`sat_tate_fb_init`)
+
+The second backend keeps the 320x224 screen and draws the field **upright**. `sat_tate_fb_init`
+(`include/saturn/tate_fb.h`) puts the VDP1 in rotation-8 mode (TVMR TVM = 011b: a 512x512 frame
+buffer of 8 bits/pixel), and the VDP2 reads it back through rotation parameter A, turned a quarter and
+scaled 5/7, so the 224x448 field shows as 320x160 centred in the 224 lines. The parameter table comes
+from the pure function `sat_tate_fb_rotation_table` (host-tested against `sat_tate_unmap_edge`).
+Afterwards `sat_video_width()/height()` are 224/448 with the origin at the centre, so the sprite
+batch, clip, HUD and 2D polygon calls need no change; sprites need no offline rotation
+(`--orientation none`).
+
+How it is built, what was learned:
+
+- The VDP2 evaluates rotation tables only while RBG0 or RBG1 is on, so the library enables a dummy
+  RBG0 (128 KiB bitmap, cleared; transparent code on; screen-over transparent, because a 512x256 bitmap
+  leaves rows beyond 256 undefined).
+- SPCTL has to be sprite type C with an 8 bit frame buffer; the library's SPCTL writes
+  (`hal::vdp2::set_sprite_fb8`) know about it, so `sat_vdp2_layers_commit` keeps it.
+- **Erase.** The VDP1 manual (4.1) says a rotated frame buffer can only be erased or written during
+  vertical retrace, and that areas the erase cannot cover must be filled with polygons. Mednafen
+  erases only part of a 512-wide window (rows below ~244 kept stale pixels), which showed as a black
+  block outside the field; Ymir erases everything. A hardware erase window of exactly the field was
+  tried and still left stale pixels outside it on Mednafen. The library therefore turns the hardware
+  erase off (EWRR: a 16x1 window) and starts each list with a clearing polygon over the whole field
+  (and, for the first four frames, over the visible 320 px to wipe the boot-time frame buffer).
+- **Cost.** That polygon is ~100,000 pixels of VDP1 fill per frame (~22% of the budget).
+- 8 bpp: palette codes only, one shared palette, no Gouraud, no colour calculation, no tint (the 2D
+  layer rejects it), no LUT4 sprites; the same limits as hi-res.
+- 5/7 scaling is nearest-neighbour, so small sprites decimate; a 1:1 field would not.
+
+Measured with `BH_TATE_FB=1` (the bullet-hell stress with the field drawn upright, no scrolling
+background, the HUD inside the field):
+
+| Bullets | Mednafen fps (hardware TATE) | Mednafen fps (hi-res software TATE) |
+| --- | --- | --- |
+| 128 | 59 | 60 |
+| 256 | 60 | 60 |
+| 384 | 58 | - |
+| 448 | 28 | - |
+| 512 | 28 | 53 |
+| 640 | - | 43 |
+| 1024 | ~28, HUD at the end of the list cut off | 28 |
+
+Ymir (256 bullets): 363 commands, 0 late swaps, 0 music underruns, 60 fps. The field-sized clearing
+polygon moves the knee from ~640 bullets (hi-res) down to ~400, so hardware TATE suits games that
+need the 320-wide mode, fewer simultaneous bullets, or no offline-rotated art; the software hi-res
+path is the better choice for 512 and above.
+
+Limits of the hardware backend: single-density (320x224 `sat_init`) only, 128 KiB of VDP2 VRAM for
+the dummy bitmap, the field-sized erase polygon, 5/7 decimation, and no scrolling VDP2 background in
+the `BH_TATE_FB` variant (RBG0 is taken; a game would put the backdrop in NBG layers, which this
+example does not do).
 
 ## Texture residency and streaming
 
@@ -259,7 +309,9 @@ A build with `BH_AUTOBENCH=1` starts the 128/256/512/1024 benchmark after three 
 - 1024 simultaneous bullets run at 28 fps on Mednafen (60 fps holds to about 512, see Verdict).
 - Hi-res 640x224 is the only exact TATE mode; it costs 8 bpp, one shared palette and no VDP1 colour
   effects. LUT4 is a 320-wide feature in this library.
-- Hardware-rotated TATE (VDP1 rotation framebuffer + VDP2 rotation) is not implemented.
+- Hardware-rotated TATE exists (`sat_tate_fb_init`) but holds 60 fps only to ~384 bullets on Mednafen
+  because of the full-field clearing polygon (see Hardware TATE); it was checked on Ymir and Mednafen,
+  not on real hardware, where the VDP1 erase restrictions of the manual apply as described.
 - Enemies and bosses are the pack's placeholders; 14 green/red/orange sprites quantise with a visible
   mean error.
 - `sat_music` still reads synchronously; a program that streams data from the disc while music plays

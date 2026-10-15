@@ -28,6 +28,14 @@ The version is defined once, in the `VERSION` file.
   `tools/shmup_music.py` renders the demo track. New example
   `bullet_hell_stress` streams the next stage and the music from disc, with
   `harness/run-bullet-hell.ps1` as its Ymir acceptance run.
+- Hardware TATE: `include/saturn/tate_fb.h` (`sat_tate_fb_init`) draws a
+  224 x 448 field upright in the VDP1 rotation framebuffer (512 x 512, 8 bpp)
+  and has the VDP2 turn and scale it through rotation parameter A on a
+  320 x 224 screen, with `sat_tate_fb_rotation_table` (pure, host-tested),
+  `sat_vdp2_rbg0_set_screen_over`, and the example `tate_fb_rotation`; the
+  `BH_TATE_FB=1` variant of `bullet_hell_stress` uses it. The VDP1 cannot
+  erase a rotated frame buffer in the picture, so every list starts with a
+  clearing polygon (~100,000 pixels).
 - `include/saturn/disc_stream.h` (`sat_disc_stream`): a disc scheduler for a
   program that streams data and music from one drive. One segment in flight;
   a looping stereo music file is split into two SCSP stream rings and has

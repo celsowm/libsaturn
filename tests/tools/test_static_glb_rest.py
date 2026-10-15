@@ -4,6 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    import numpy  # noqa: F401  (the importer's quality metrics need it)
+    HAVE_NUMPY=True
+except ImportError:
+    HAVE_NUMPY=False
+
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tools'))
 sys.path.insert(0,str(ROOT/'tests'))
@@ -24,6 +30,7 @@ class RestTests(unittest.TestCase):
         self.assertEqual(lut,[0]*16)
         self.assertEqual(pixels,bytes(4))
 
+    @unittest.skipUnless(HAVE_NUMPY,'importer quality metrics need numpy')
     def test_lut4_export_preserves_masked_holes(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as folder:
@@ -39,6 +46,7 @@ class RestTests(unittest.TestCase):
             self.assertEqual(bytes(texture['pixels']),bytes([0x01]*4))
         self.assertEqual(result.static.luts_rgb555[0],0)
 
+    @unittest.skipUnless(HAVE_NUMPY,'importer quality metrics need numpy')
     def test_no_authored_clips_can_export_one_static_pose(self):
         import json, struct
         parsed=parse_glb_bytes(build_skinned_gltf())
