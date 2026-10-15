@@ -56,11 +56,16 @@ typedef struct sat_music_info {
     uint8_t channels;
     uint8_t format;
     uint8_t looping;
+    /* 1 from sat_music_play until sat_music_pause / stop / seek: the track is wanted. It is audible
+     * once `starting` is 0. */
     uint8_t playing;
     /* 1: the track streams through the disc scheduler (sat_music_use_disc_stream), so
      * sat_music_update never waits for the drive. */
     uint8_t disc_streamed;
-    uint8_t reserved[3];
+    /* 1: sat_music_play was called and the rings are still filling; the streams start, together,
+     * in the sat_music_update (or sat_disc_stream_service) that finds them full. */
+    uint8_t starting;
+    uint8_t reserved[2];
 } sat_music_info_t;
 
 typedef struct sat_audio_stream_stats {
@@ -122,15 +127,15 @@ sat_result_t sat_audio_shutdown(void);
 sat_result_t sat_audio_update(void);
 uint8_t sat_audio_is_initialized(void);
 
-/* A music stream plays from a two-half Sound RAM loop: when the SCSP moves into one half, the
- * other (4096 samples per channel) is rewritten. By default the whole rewrite happens in the
- * sat_audio_update that sees the change: about 12 ms for a stereo pair on Mednafen, in a frame that
- * may also be moving CD sectors. With `enable` nonzero the rewrite is spread over the display frames
- * the half lasts (a half is 186 ms at 22.05 kHz; three frames are kept spare, and a half shorter than
- * four frames is still written in one call), so no update pays more than a slice (about a quarter of
- * it at 22.05 kHz, 60 Hz). The ring is consumed once the half is whole, so buffered/available frames
- * lag by up to one half meanwhile. Applies to every stream; call it before the streams play. */
-sat_result_t sat_audio_set_refill_spread(uint8_t enable);
+/* A music stream plays from a two-half Sound RAM loop (4096 samples per channel per half) that
+ * sat_audio_update keeps filled. Writing a half in one call would cost about 12 ms for a stereo pair
+ * on Mednafen (SH-2 word/longword writes to Sound RAM), so the driver never does: when the SCSP moves
+ * into one half, the other is rewritten a slice per sat_audio_update over the display frames the half
+ * lasts (186 ms at 22.05 kHz; three frames are kept spare, and a half shorter than four frames is
+ * written in one call), and the two opening halves are written the same way, 1024 frames per call,
+ * before the voice is keyed on (about eight updates). A ring is consumed only when its half is whole,
+ * so buffered/available frames lag by up to one half meanwhile. A stream therefore starts a few
+ * display frames after sat_audio_stream_resume, not inside the call that follows it. */
 
 sat_result_t sat_audio_set_master_volume(uint16_t volume);
 sat_result_t sat_audio_get_stats(sat_audio_stats_t* out_stats);
@@ -181,6 +186,11 @@ sat_result_t sat_audio_stream_stats(
  * Music loops the complete asset and uses a fixed internal pool of two
  * streams; use sat_music_capacity() to size content budgets. */
 sat_result_t sat_music_open(sat_music_t* out_music, const char* logical_path);
+/* Never waits: it marks the track wanted and returns. The rings fill over the following
+ * sat_music_update calls (a RAM track in a few, a disc track at the drive's pace through the
+ * scheduler: 87 display frames for the jukebox's 1.5 s of 22.05 kHz stereo S16 on Mednafen) and the two channel
+ * streams start together once they are full; until then sat_music_info reports `starting`.
+ * A program that calls play and never updates hears nothing. Also resumes a paused track. */
 sat_result_t sat_music_play(sat_music_t music);
 sat_result_t sat_music_pause(sat_music_t music);
 sat_result_t sat_music_resume(sat_music_t music);

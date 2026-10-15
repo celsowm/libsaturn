@@ -56,8 +56,8 @@ sat_result_t bh_stream_queue_group(bh_stream_t* s, uint16_t group, uint8_t slot)
 sat_result_t bh_stream_queue_background(bh_stream_t* s, uint16_t index, uint8_t cram_bank, uint32_t vram_bytes);
 
 /* Opens the looping stereo music file (raw interleaved S8 or S16BE, `sample_bytes` per channel,
- * `bytes` long, `sample_rate`), fills both rings with blocking reads (the screen is still dark) and
- * starts it. Needs sat_audio_init. */
+ * `bytes` long, `sample_rate`) and returns at once: the rings fill through bh_stream_service and
+ * the streams start together when they are full. Needs sat_audio_init. */
 sat_result_t bh_stream_music_start(bh_stream_t* s, sat_disc_music_rings_t* rings, sat_cdfs_volume_t* volume,
                                    const char* path, uint32_t bytes, uint32_t sample_rate,
                                    uint32_t sample_bytes);

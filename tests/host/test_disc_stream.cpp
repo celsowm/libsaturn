@@ -315,13 +315,38 @@ void tick(uint32_t frames_per_tick) {
 
 /* ---- tests -------------------------------------------------------------------------------------- */
 
+/* Starts the built-in music and services until its rings are full and the streams are released;
+ * returns the service calls that took. */
+uint32_t start_music(uint32_t sample_bytes, uint32_t limit = 400u) {
+    CHECK(sat_disc_stream_music_start(&g_stream, &g_rings, &g_music_file, kMusicBytes, 22050u, sample_bytes) == SAT_OK);
+    uint32_t calls = 0;
+    while (sat_disc_stream_music_playing(&g_stream) == 0u) {
+        CHECK(calls++ < limit);
+        CHECK(sat_disc_stream_service(&g_stream) == SAT_OK);
+    }
+    return calls;
+}
+
 void test_music_prime(uint32_t sample_bytes) {
     start_stream();
     CHECK(sat_disc_stream_music_start(&g_stream, &g_rings, &g_music_file, kMusicBytes, 22050u, sample_bytes) == SAT_OK);
     CHECK(g_ring_opens == 2u);
     CHECK(g_ring[0].pan == SAT_AUDIO_PAN_LEFT && g_ring[1].pan == SAT_AUDIO_PAN_RIGHT);
-    CHECK(!g_ring[0].paused && !g_ring[1].paused);              /* resumed together, once primed */
+    /* the start reads nothing: both rings are silent and empty until the service calls fill them */
+    CHECK(g_ring[0].paused && g_ring[1].paused && g_drive.begins == 0u);
+    CHECK(g_ring[0].fill_frames() == 0u && sat_disc_stream_music_playing(&g_stream) == 0u);
     CHECK(g_stream.music_wanted == 1u);
+    uint32_t calls = 0;
+    while (sat_disc_stream_music_playing(&g_stream) == 0u) {
+        CHECK(calls++ < 400u);
+        CHECK(g_ring[0].paused && g_ring[1].paused);            /* nothing sounds while they fill */
+        CHECK(sat_disc_stream_service(&g_stream) == SAT_OK);
+    }
+    CHECK(calls > 4u);                                          /* spread over calls, not one blocking read */
+    CHECK(!g_ring[0].paused && !g_ring[1].paused);              /* released together, once full */
+    CHECK(g_stream.music_starting == 0u);
+    for (uint32_t i = 0; i < 20u; ++i) CHECK(sat_disc_stream_service(&g_stream) == SAT_OK);   /* and it stays full: no more reads */
+    CHECK(g_drive.busy_hits == 0u);
     CHECK(g_ring[0].fill_frames() == g_ring[1].fill_frames());
     /* full segments (4096 frames in S16, 8192 in S8) until one more would not fit */
     const uint32_t left = SAT_DISC_MUSIC_RING_FRAMES - g_ring[0].fill_frames();
@@ -339,7 +364,7 @@ void test_music_prime(uint32_t sample_bytes) {
 void test_music_loops_without_underrun(uint32_t sample_bytes) {
     start_stream();
     g_drive.latency = 3u;
-    CHECK(sat_disc_stream_music_start(&g_stream, &g_rings, &g_music_file, kMusicBytes, 22050u, sample_bytes) == SAT_OK);
+    (void)start_music(sample_bytes);
     const uint32_t start_loops = g_stream.stats.music_loops;
     /* a 22050 Hz track drains 367 frames per 60 Hz field; run well past two loops */
     const uint32_t track_frames = kMusicBytes / (2u * sample_bytes);
@@ -503,7 +528,7 @@ void test_data_with_music(uint32_t sample_bytes, uint32_t drain_per_tick, uint32
 void test_data_deferred_below_reserve() {
     start_stream();
     g_drive.latency = 2u;
-    CHECK(sat_disc_stream_music_start(&g_stream, &g_rings, &g_music_file, kMusicBytes, 22050u, 2u) == SAT_OK);
+    (void)start_music(2u);
     /* drain the rings to well under the reserve without servicing, then queue a data job */
     consume(g_ring[0].fill_frames() - 1000u);
     sat_disc_job_t job = data_job();
@@ -576,6 +601,7 @@ struct Feed {
     std::vector<uint8_t> got, expect;
     int fail_deliver_at = 0;           /* 1-based deliver call that fails, 0 never */
     uint32_t max_started = 2;          /* segments it will have started and not delivered at once */
+    uint32_t ticks = 0;                /* `tick` calls: one per service call */
     void reset() { *this = Feed{}; }
 };
 Feed g_feed;
@@ -626,13 +652,14 @@ sat_result_t feed_deliver(void*, const uint8_t* data, uint32_t bytes, uint32_t* 
 }
 
 uint32_t feed_buffered(void*) { return g_feed.buffered_frames; }
+void feed_tick(void*) { ++g_feed.ticks; }
 
 void start_feed(bool pipelined, uint32_t want, uint32_t latency = 3u) {
     start_stream();
     g_drive.latency = latency;
     g_feed.reset();
     g_feed.want = want;
-    g_feed_ops = sat_disc_music_feed_ops_t{feed_next, feed_started, feed_deliver, feed_buffered, static_cast<uint8_t>(pipelined ? 1u : 0u)};
+    g_feed_ops = sat_disc_music_feed_ops_t{feed_next, feed_started, feed_deliver, feed_buffered, static_cast<uint8_t>(pipelined ? 1u : 0u), feed_tick};
     CHECK(sat_disc_stream_music_attach(&g_stream, &g_feed_ops, &g_feed) == SAT_OK);
 }
 
@@ -672,21 +699,24 @@ void test_feed_pipelined() {
 
 void test_feed_not_pipelined() {
     start_feed(false, 12u);
+    uint32_t services = 0;
     for (uint32_t i = 0; i < 2000u && !feed_idle(); ++i) {
         (void)sat_disc_stream_service(&g_stream);
+        ++services;
         CHECK(g_stream.deliv_active == 0u && g_stream.ready == 0u);   /* delivered the moment it landed */
         CHECK(g_stream.fly_buf == 0u);
     }
+    CHECK(g_feed.ticks == services);                            /* the feed's tick ran at the end of every service call */
     CHECK(feed_idle());
     CHECK(g_feed.got == g_feed.expect && g_feed.segments_done == 12u);
     CHECK(g_feed.max_pending == 1u);
     CHECK(g_drive.busy_hits == 0u);
 }
 
-void test_feed_abort_and_prime() {
-    /* prime: reads and delivers everything the feed wants, blocking */
+void test_feed_abort() {
+    /* a feed that wants five segments gets them over service calls */
     start_feed(true, 5u);
-    CHECK(sat_disc_stream_music_prime(&g_stream) == SAT_OK);
+    run_feed();
     CHECK(feed_idle() && g_feed.segments_done == 5u && g_feed.got == g_feed.expect);
     CHECK(g_stream.stats.music_segments == 5u);
     /* abort: a segment in flight and one being delivered are dropped, nothing stale is delivered */
@@ -724,7 +754,6 @@ void test_feed_attach_rules() {
     bad.deliver = nullptr;
     CHECK(sat_disc_stream_music_attach(&g_stream, &bad, &g_feed) == SAT_ERR_INVALID_ARG);
     CHECK(sat_disc_stream_music_attach(&g_stream, nullptr, &g_feed) == SAT_ERR_INVALID_ARG);
-    CHECK(sat_disc_stream_music_prime(&g_stream) == SAT_ERR_INVALID_ARG);       /* no feed */
     /* the built-in music takes the feed slot, and refuses an attach */
     CHECK(sat_disc_stream_music_start(&g_stream, &g_rings, &g_music_file, kMusicBytes, 22050u, 2u) == SAT_OK);
     CHECK(sat_disc_stream_music_attach(&g_stream, &g_feed_ops, &g_feed) == SAT_ERR_BUSY);
@@ -806,7 +835,7 @@ int main() {
     test_music_argument_checks();
     test_feed_pipelined();
     test_feed_not_pipelined();
-    test_feed_abort_and_prime();
+    test_feed_abort();
     test_feed_attach_rules();
     test_feed_error_drops_segment();
     test_feed_with_data();

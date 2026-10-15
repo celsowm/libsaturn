@@ -91,8 +91,10 @@ volatile struct {uint32_t enabled,verify,updates,verified,errors;} g_clown_light
 static uint8_t lighting_reference[LIGHT_OUTPUT_BYTES]
     __attribute__((section(".wram_l"),aligned(4)));
 #endif
-/* Geometry, LUT4 pixels and RGB CLUTs are shared; lighting is per vertex. */
-static sat_vdp1_texture_t fighter_textures[FIGHTERS][KILLER_CLOWN_SKELETAL_TEXTURE_COUNT];
+/* Geometry, LUT4 pixels and RGB CLUTs are shared; lighting is per vertex. The texture handles are only
+ * read once per face, so they live in Work RAM Low and keep Work RAM High's .bss under the stack reserve. */
+static sat_vdp1_texture_t fighter_textures[FIGHTERS][KILLER_CLOWN_SKELETAL_TEXTURE_COUNT]
+    __attribute__((section(".wram_l"),aligned(4)));
 static sat_scene3d_material_t fighter_materials[FIGHTERS][KILLER_CLOWN_SKELETAL_TEXTURE_COUNT];
 static sat_vdp1_texture_t wire_texture;
 static sat_vdp1_texture_t beam_textures[LIGHT_COUNT][CONE_SECTIONS],pool_textures[LIGHT_COUNT];

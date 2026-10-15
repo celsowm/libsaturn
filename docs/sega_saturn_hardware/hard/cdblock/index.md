@@ -279,8 +279,8 @@ numbers, to be confirmed on hardware (record it in `docs/HARDWARE_ACCEPTANCE_CHE
   rate or use 8-bit/mono rings (the same 16384 frames then last twice as long, or the SCSP ring RAM
   is halved); raise `music_reserve` and the ring size together; or pre-load the data before the music
   starts (what the bullet-hell demo does for stage 1 while the screen is dark).
-- Keep `sat_music_play`, seeks and `sat_cdfs_lookup` away from playback for the same reason: each can
-  move the pickup.
+- Keep seeks and `sat_cdfs_lookup` away from playback for the same reason: each can move the pickup
+  (`sat_music_play` now only schedules the first reads).
 
 ## Opportunities the documentation suggests (not done)
 

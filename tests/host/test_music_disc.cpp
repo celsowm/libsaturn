@@ -386,8 +386,20 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     sat_music_info_t info{};
     CHECK(sat_music_info(g_music, &info) == SAT_OK && info.disc_streamed == 1u);
     CHECK(sat_music_play(g_music) == SAT_OK);
+    /* play reads nothing and waits for nothing: the rings fill over the next fields and the streams
+     * are released together once they are full */
+    CHECK(g_asset_reads == 0u && g_drive.begins == 0u && stream_buffered(0) == 0u);
+    CHECK(sat_music_info(g_music, &info) == SAT_OK && info.starting == 1u && info.playing == 1u);
+    uint32_t start_fields = 0u;
+    while (info.starting != 0u) {
+        CHECK(start_fields++ < 400u);
+        CHECK(field(*t) == SAT_OK);
+        CHECK(sat_music_info(g_music, &info) == SAT_OK);
+    }
+    CHECK(g_played.underruns == 0u && g_played.ch[0].empty());     /* nothing was played while filling */
+    CHECK(stream_buffered(0) > 24000u);                             /* started from a full ring */
+    CHECK(g_drive.finishes == 0u);                                  /* not even the start waited for the drive */
     CHECK(g_asset_reads == 0u);                         /* the legacy path is never taken */
-    CHECK(stream_buffered(0) > 0u);
     const uint32_t finishes_after_prime = g_drive.finishes;
     const uint32_t begins_after_prime = g_drive.begins;
     uint32_t min_fill = 0xFFFFFFFFu;
@@ -473,6 +485,12 @@ void test_pause_resume() {
     Track* t = find_track("music/s16-stereo");
     CHECK(sat_music_open(&g_music, t->path) == SAT_OK);
     CHECK(sat_music_play(g_music) == SAT_OK);
+    sat_music_info_t info{};
+    for (int i = 0; i < 400 && (info.starting != 0u || i == 0); ++i) {
+        CHECK(field(*t) == SAT_OK);
+        CHECK(sat_music_info(g_music, &info) == SAT_OK);
+    }
+    CHECK(info.starting == 0u);
     for (int i = 0; i < 50; ++i) CHECK(field(*t) == SAT_OK);
     CHECK(sat_music_pause(g_music) == SAT_OK);
     /* a paused track consumes nothing and asks the drive for nothing more once its rings are topped up */
@@ -497,6 +515,8 @@ void test_ownership() {
     sat_music_info_t info{};
     CHECK(sat_music_info(ram, &info) == SAT_OK && info.disc_streamed == 0u);
     CHECK(sat_music_play(ram) == SAT_OK);
+    CHECK(g_asset_reads == 0u);                                              /* play itself reads nothing */
+    for (int i = 0; i < 20; ++i) CHECK(sat_music_update(ram) == SAT_OK);
     CHECK(g_asset_reads > 0u);
     CHECK(sat_music_close(ram) == SAT_OK);
     sat_music_t other{};
@@ -574,6 +594,62 @@ void test_transport_error() {
     CHECK(sat_music_close(g_music) == SAT_OK);
 }
 
+/* The scheduler's own service call starts the streams (the header says either call may be used),
+ * and the start cannot be missed whichever one runs. */
+void test_start_through_scheduler_service() {
+    fresh();
+    Track* t = find_track("music/s16-stereo");
+    CHECK(sat_music_open(&g_music, t->path) == SAT_OK);
+    CHECK(sat_music_play(g_music) == SAT_OK);
+    sat_music_info_t info{};
+    int polls = 0;
+    do {
+        CHECK(polls++ < 600);
+        CHECK(sat_disc_stream_service(&g_disc) == SAT_OK);
+        CHECK(sat_music_info(g_music, &info) == SAT_OK);
+    } while (info.starting != 0u);
+    sat_audio_stream_stats_t st{};
+    CHECK(sat_music_stats(g_music, &st) == SAT_OK && st.paused == 0u && st.buffered_frames > 24000u);
+    CHECK(g_drive.finishes == 0u);
+    CHECK(sat_music_close(g_music) == SAT_OK);
+}
+
+/* A stopped (or never started) track asks the drive for nothing, so a data job queued beside it
+ * must not wait for the track's empty rings to reach the reserve. */
+void test_stopped_music_does_not_hold_data() {
+    fresh();
+    Track* t = find_track("music/s16-stereo");
+    g_job = Job{};
+    g_job.file.extent_lba = 4000u;
+    g_job.file.size = 60000u;
+    Track data{};
+    data.path = "data2";
+    data.lba = 4000u;
+    for (uint32_t i = 0; i < g_job.file.size; ++i) data.image.push_back(pattern(i + 99u));
+    g_tracks.push_back(data);
+    CHECK(sat_music_open(&g_music, t->path) == SAT_OK);        /* open, never played: rings empty */
+    sat_disc_job_t job{};
+    job.ops = &kJobOps;
+    job.extent = sat_disc_extent_t{&g_job.file, 0u, 0u};
+    CHECK(sat_disc_stream_queue(&g_disc, &job) == SAT_OK);
+    for (int i = 0; i < 400 && g_job.done == 0u; ++i) CHECK(sat_music_update(g_music) == SAT_OK);
+    CHECK(g_job.done == 1u && g_job.got.size() == g_job.file.size);
+    CHECK(g_disc.stats.data_deferred == 0u);
+    /* ... and while it is starting (playing, rings filling) the music keeps the drive first */
+    g_job = Job{};
+    g_job.file.size = 60000u;
+    g_job.file.extent_lba = 4000u;
+    CHECK(sat_music_play(g_music) == SAT_OK);
+    CHECK(sat_disc_stream_queue(&g_disc, &job) == SAT_OK);
+    sat_music_info_t info{};
+    for (int i = 0; i < 1500 && g_job.done == 0u; ++i) CHECK(sat_music_update(g_music) == SAT_OK);
+    CHECK(g_job.done == 1u);
+    CHECK(sat_music_info(g_music, &info) == SAT_OK && info.starting == 0u);     /* the music started before the job finished */
+    CHECK(g_disc.stats.music_segments >= 6u);
+    g_tracks.pop_back();
+    CHECK(sat_music_close(g_music) == SAT_OK);
+}
+
 }  // namespace
 
 int main() {
@@ -608,6 +684,8 @@ int main() {
     test_ownership();
     test_data_job_beside_music();
     test_transport_error();
+    test_start_through_scheduler_service();
+    test_stopped_music_does_not_hold_data();
     std::puts("music disc: OK");
     return 0;
 }

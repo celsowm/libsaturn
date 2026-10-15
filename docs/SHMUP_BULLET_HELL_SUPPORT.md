@@ -322,8 +322,8 @@ A build with `BH_AUTOBENCH=1` starts the 128/256/512/1024 benchmark after three 
 - Enemies and bosses are the pack's placeholders; 19 green/red/orange sprites quantise with a visible
   mean error.
 - `sat_music` reads synchronously unless a scheduler is bound (`sat_music_use_disc_stream`); with one
-  it streams one disc-backed track at a time without waiting for the drive, and only
-  `sat_music_play` (the priming of the rings) still blocks.
+  it streams one disc-backed track at a time without ever waiting for the drive (`sat_music_play`
+  only marks the track wanted; the rings fill over the next updates).
 - `sat_disc_stream` reads one extent per job and has no decompression stage: a compressed group is
   the sink's work.
 - CD data-port transfer cost on the CPU is as modelled by the emulators.

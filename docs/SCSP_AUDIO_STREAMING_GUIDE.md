@@ -129,7 +129,12 @@ second `sat_music_open` returns `SAT_ERR_BUSY`). The invariants this keeps:
   ~1.8 ms for S16 stereo), never a whole segment;
 - seek, stop and close drop the segments read for the old position (`sat_disc_stream_music_abort`),
   waiting at most one segment of drive time; pause leaves the segments already started to land;
-- `sat_music_play` still primes both rings with blocking reads (do it while the screen is dark);
+- `sat_music_play` reads nothing: it marks the track wanted and holds both streams paused while
+  `sat_music_update` / `sat_disc_stream_service` fill the rings (`sat_music_info(...).starting` is 1
+  meanwhile; the jukebox on Mednafen took 87 display frames, about 1.5 s, to read and deliver the 1.5 s
+  rings and write the opening halves; an emulator figure, not a hardware one), then releases both streams
+  together. The music is silent until then, and a program that never calls `sat_music_update` hears
+  nothing;
 - a data job queued on the same scheduler (`sat_disc_stream_queue`) takes the gaps while the rings
   hold the reserve, exactly as with the built-in feed;
 - look every file up before the music plays, and keep progress hooks from calling
@@ -143,7 +148,7 @@ seeks and pause. `tests/host/test_music_disc.cpp` runs the real `sat_music` and 
 fake drive and SCSP rings: bytes over loops for every format, seeks, aborts, ownership, data jobs
 beside music and transport errors.
 
-### Spreading the SCSP refill
+### The SCSP refill is always spread
 
 The remaining large cost in a frame is not the CD but the audio driver's own refill: when the SCSP
 moves into one half of the Sound RAM loop, `sat_audio_update` rewrites the other half (4096 samples
@@ -151,8 +156,9 @@ per channel) in one call, about 12 ms for a stereo pair on Mednafen. The manuals
 this: the SH-2 may only use word or longword accesses to Sound RAM (SCSP manual p01_10, byte access
 prohibited), and the FAQ gives 256 bytes from Work RAM-H to the SCSP in 78.14 us by program, 77.74 us
 by CPU-DMA and 63.89 us by SCU-DMA, so a 16 KiB stereo-pair refill is about 5 ms at best, in one
-frame. `sat_audio_set_refill_spread(1)` instead writes the inactive half in slices of 256 frames
-over the display frames the half lasts (186 ms at 22.05 kHz), keeping three frames spare:
+frame. The driver therefore writes the inactive half in slices of 256 frames over the display frames
+the half lasts (186 ms at 22.05 kHz), keeping three frames spare, and the two opening halves in slices
+of 1024 frames per call before the voice is keyed on (about eight updates):
 
 - a slice is the part of the half owed by this frame, so no `sat_audio_update` pays more than a
   fraction of the rewrite; a half shorter than four display frames is still written in one call;
@@ -160,12 +166,12 @@ over the display frames the half lasts (186 ms at 22.05 kHz), keeping three fram
   refill restarts; buffered frames lag by up to one half meanwhile;
 - if the half changes again while a refill is unfinished, the rest is written at once and an
   underrun is counted;
-- it applies to every stream and is off by default, so existing programs behave as before.
+- it applies to every stream and cannot be switched off; a stream starts a few display frames after
+  `sat_audio_stream_resume` instead of inside the call that follows it.
 
-Measured on the jukebox with spread on (Mednafen, 60 s): worst audio hook 1.15 ms (was 11.8 ms),
+Measured on the jukebox (Mednafen, 60 s): worst audio hook 1.15 ms (was 11.8 ms),
 worst `sat_music_update` 6.0 ms (was 14.6 ms), worst frame 20 ms (was 31 ms), 0 underruns, rings
-never below 24,320 frames. The Ymir acceptance runs (300 and 1100 frames with seeks and pause) pass
-with it on. `JUKEBOX_REFILL_SPREAD=0` builds the one-call refill for comparison.
+never below 24,320 frames. The Ymir acceptance runs (300 and 1100 frames with seeks and pause) pass.
 
 ## Resident 68000 scores
 

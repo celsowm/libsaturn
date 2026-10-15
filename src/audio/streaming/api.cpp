@@ -64,12 +64,15 @@ void audio_stream_stop_playback(AudioStreamSlot& slot) {
     slot.pending_refill = 0u;
     slot.refill_active = 0u;
     slot.refill_done = 0u;
+    slot.starting = 0u;
 }
 
 namespace {
 
-/* Spread refills write the inactive half in multiples of this many frames. */
+/* The inactive half is rewritten in multiples of this many frames. */
 constexpr uint32_t kRefillGranuleFrames = 256u;
+/* Frames of the opening two halves written per service call: a quarter of a half. */
+constexpr uint32_t kStartSliceFrames = 1024u;
 
 bool stream_can_loop_seamlessly(const AudioStreamSlot& slot, uint32_t display_rate) {
     if (display_rate == 0u || slot.format != SAT_AUDIO_PCM_S16) return false;
@@ -114,7 +117,7 @@ uint32_t upload_stream_chunk(AudioStreamSlot& slot, uint8_t buffer_index, uint32
     return copied;
 }
 
-/* Writes the next part of a spread refill and commits it once the half is whole. The ring is not
+/* Writes the next part of a refill and commits it once the half is whole. The ring is not
  * consumed until then, so a failed or abandoned refill leaves it intact. `finish_now` writes
  * everything that is left (a half that started playing while still being rewritten). The part
  * written per call follows the time the half has left: a half lasts per_half display frames, the
@@ -150,19 +153,39 @@ bool advance_refill(AudioStreamSlot& slot, uint32_t frame_now, uint32_t display_
     return true;
 }
 
-bool start_seamless_loop(AudioStreamSlot& slot, uint32_t frame_now, uint32_t display_rate) {
-    if (!stream_can_loop_seamlessly(slot, display_rate) ||
-        slot.ring.buffered_frames < 2u * kAudioStreamChunkFrames) {
-        return false;
+enum class StartStep : uint8_t { kNone, kPending, kArmed, kFailed };
+
+/* Opens a seamless loop: the two halves are written a slice per service call (the ring is only
+ * peeked, so a failed upload leaves it intact and the next call starts again), then the voice is
+ * configured and armed. The halves are contiguous in Sound RAM, so one running offset covers both.
+ * kNone: nothing to start (the stream cannot loop, or the ring holds less than two halves). */
+StartStep step_seamless_start(AudioStreamSlot& slot, uint32_t frame_now, uint32_t display_rate) {
+    constexpr uint32_t kOpeningFrames = 2u * kAudioStreamChunkFrames;
+    if (slot.starting == 0u) {
+        if (!stream_can_loop_seamlessly(slot, display_rate) ||
+            slot.ring.buffered_frames < kOpeningFrames) {
+            return StartStep::kNone;
+        }
+        slot.refill_done = 0u;
+    } else if (slot.refill_start_frame == frame_now) {
+        return StartStep::kPending;                          // this frame's slice is written
     }
 
-    if (transfer_stream_chunk(slot, 0u, 0u, kAudioStreamChunkFrames) !=
-            kAudioStreamChunkFrames ||
-        transfer_stream_chunk(slot, 1u, kAudioStreamChunkFrames,
-                              kAudioStreamChunkFrames) != kAudioStreamChunkFrames) {
-        return false;
+    uint32_t frames = kOpeningFrames - slot.refill_done;
+    if (frames > kStartSliceFrames) frames = kStartSliceFrames;
+    if (transfer_stream_chunk(slot, 0u, slot.refill_done, frames, slot.refill_done) != frames) {
+        slot.starting = 0u;
+        slot.refill_done = 0u;
+        return StartStep::kFailed;
     }
-    commit_stream_chunks(slot, 2u * kAudioStreamChunkFrames, 2u);
+    slot.refill_done += frames;
+    slot.refill_start_frame = frame_now;
+    slot.starting = 1u;
+    if (slot.refill_done < kOpeningFrames) return StartStep::kPending;
+
+    slot.starting = 0u;
+    slot.refill_done = 0u;
+    commit_stream_chunks(slot, kOpeningFrames, 2u);
 
     saturn::hal::scsp::SlotConfig config{};
     config.start_address = slot.sound_ram_offset;
@@ -176,7 +199,7 @@ bool start_seamless_loop(AudioStreamSlot& slot, uint32_t frame_now, uint32_t dis
     config.total_level = 0u;
     config.direct_level = 7u;
     config.pan = slot.pan;
-    if (!saturn::hal::scsp::configure_slot(slot.scsp_slot, config)) return false;
+    if (!saturn::hal::scsp::configure_slot(slot.scsp_slot, config)) return StartStep::kFailed;
 
     // Keyed on by the service's single KYONEX once every stream starting in
     // this pass is armed: uploading the next stream's two halves takes
@@ -194,15 +217,10 @@ bool start_seamless_loop(AudioStreamSlot& slot, uint32_t frame_now, uint32_t dis
     slot.refill_active = 0u;
     slot.refill_done = 0u;
     slot.playback_end_frame = 0u;
-    return true;
+    return StartStep::kArmed;
 }
 
 }  // namespace
-
-extern "C" sat_result_t sat_audio_set_refill_spread(uint8_t enable) {
-    saturn::core::g_audio_streams.refill_spread = enable != 0u ? 1u : 0u;
-    return SAT_OK;
-}
 
 void audio_stream_service(
     AudioStreamRegistry& registry,
@@ -258,45 +276,40 @@ void audio_stream_service(
                 slot.pending_refill = 1u;
                 continue;
             }
-            if (registry.refill_spread != 0u) {
-                slot.refill_half = refill_half;
+            // The half is rewritten a slice per service call over the time it has left, so no call
+            // pays for the whole half (a half too short for that is written at once).
+            slot.refill_half = refill_half;
+            slot.refill_done = 0u;
+            slot.refill_start_frame = frame_now;
+            slot.refill_active = 1u;
+            slot.playback_buffer = active_half;
+            if (!advance_refill(slot, frame_now, display_rate, false)) {
+                ++slot.ring.underrun_count;
+                slot.playback_buffer = refill_half;
+                slot.refill_active = 0u;
                 slot.refill_done = 0u;
-                slot.refill_start_frame = frame_now;
-                slot.refill_active = 1u;
-                slot.playback_buffer = active_half;
-                if (!advance_refill(slot, frame_now, display_rate, false)) {
-                    ++slot.ring.underrun_count;
-                    slot.playback_buffer = refill_half;
-                    slot.refill_active = 0u;
-                    slot.refill_done = 0u;
-                }
+            }
+            continue;
+        }
+
+        if (slot.starting == 0u) {
+            if (slot.hardware_playing != 0u &&
+                static_cast<int32_t>(frame_now - slot.playback_end_frame) < 0) {
                 continue;
             }
-            if (upload_stream_chunk(slot, refill_half, slot.playback_chunk_frames) !=
-                slot.playback_chunk_frames) {
+            audio_stream_stop_playback(slot);
+            if (slot.ring.buffered_frames == 0u) {
                 ++slot.ring.underrun_count;
                 continue;
             }
-            slot.playback_buffer = active_half;
-            ++slot.serviced_chunks;
-            slot.pending_refill = 0u;
-            continue;
         }
 
-        if (slot.hardware_playing != 0u &&
-            static_cast<int32_t>(frame_now - slot.playback_end_frame) < 0) {
-            continue;
-        }
-        audio_stream_stop_playback(slot);
-        if (slot.ring.buffered_frames == 0u) {
-            ++slot.ring.underrun_count;
-            continue;
-        }
-
-        if (start_seamless_loop(slot, frame_now, display_rate)) {
+        const StartStep step = step_seamless_start(slot, frame_now, display_rate);
+        if (step == StartStep::kArmed) {
             armed = true;
             continue;
         }
+        if (step == StartStep::kPending || step == StartStep::kFailed) continue;
 
         // A stream large enough for the continuous loop should wait until
         // both halves are primed. Starting it as a short one-shot here would
@@ -387,6 +400,7 @@ extern "C" sat_result_t sat_audio_stream_open(
         slot.refill_half = 0u;
         slot.refill_done = 0u;
         slot.refill_start_frame = 0u;
+        slot.starting = 0u;
         slot.reserved1 = 0u;
         out_stream->slot = i;
         out_stream->generation = slot.generation;

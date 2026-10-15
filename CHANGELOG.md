@@ -46,14 +46,23 @@ The version is defined once, in the `VERSION` file.
   (Mednafen, jukebox: worst update 359,709 us -> 14.6 ms, worst frame 381 -> 31 ms, 0 underruns).
   S8/S16, mono/stereo and IMA ADPCM, seek, pause and loop are all served; the feed is pipelined
   (read the next segment while delivering the last, a slice per frame). Supporting API:
-  `sat_disc_stream_music_attach` / `_detach` / `_abort` / `_prime` (a pluggable music feed,
-  `sat_disc_music_feed_ops_t`), `sat_cdfs_source_file`, `sat_file_backend` and the
+  `sat_disc_stream_music_attach` / `_detach` / `_abort` (a pluggable music feed,
+  `sat_disc_music_feed_ops_t`, with an optional per-service `tick`), `sat_cdfs_source_file`, `sat_file_backend` and the
   `disc_streamed` field of `sat_music_info_t`. The jukebox example uses it
   (`JUKEBOX_DISC_STREAM=0` builds the old blocking path for comparison).
-- `sat_audio_set_refill_spread` (`include/saturn/audio.h`): rewrite the inactive SCSP half in
-  256-frame slices over the display frames the half lasts instead of in one call (Mednafen,
-  jukebox: worst audio hook 11.8 -> 1.15 ms, worst frame 31 -> 20 ms, 0 underruns). Off by default;
-  the jukebox turns it on (`JUKEBOX_REFILL_SPREAD=0` to compare).
+- The SCSP stream driver never rewrites a Sound RAM half in one call any more: the inactive half is
+  written in 256-frame slices over the display frames the half lasts, and the two opening halves in
+  1024-frame slices before the voice is keyed on (Mednafen, jukebox: worst audio hook 11.8 -> 1.15 ms,
+  worst frame 31 -> 20 ms, 0 underruns). It applies to every program using `sat_audio_stream_*` or
+  `sat_music_*`, with no switch: the experimental `sat_audio_set_refill_spread` was removed.
+  A stream therefore starts a few display frames after `sat_audio_stream_resume`.
+- **Breaking:** `sat_music_play` / `sat_music_resume` no longer read or wait. They mark the track
+  wanted; `sat_music_update` (or `sat_disc_stream_service` for a disc-streamed track) fills the rings
+  and releases both streams together, so the music is silent while the rings fill (87 display frames
+  on Mednafen's jukebox) and a program that never calls `sat_music_update` hears nothing. `sat_music_info_t` gained
+  `starting` (rings still filling; `playing` is "wanted"). `sat_disc_stream_music_prime` was removed:
+  `sat_disc_stream_music_start` returns at once and the scheduler releases the streams when the
+  rings are full (`sat_disc_stream_music_playing`, `sat_disc_stream_music_set_starting`).
 - `docs/sega_saturn_hardware/hard/cdblock/index.md`: a CD Block page next to the downloaded manuals,
   which only have an overview of it (registers, `HIRQREQ` bits, read speed and access time from the
   Overview Manual, Sega's command-rate and no-continuous-polling rules, drive states, 200-sector buffer and

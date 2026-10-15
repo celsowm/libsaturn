@@ -4,9 +4,10 @@
  * tracks are staged as ISO files by Makefile.inc and mounted through CDFS.
  *
  * By default the music streams through the library disc scheduler
- * (JUKEBOX_DISC_STREAM=1, saturn/disc_stream.h): sat_music_play fills the rings with
- * blocking reads, then sat_music_update only lands the 16 KiB segment that has
- * arrived and starts the next, so no frame waits for the drive. With
+ * (JUKEBOX_DISC_STREAM=1, saturn/disc_stream.h): sat_music_play only marks the track
+ * wanted, and sat_music_update lands the 16 KiB segment that has arrived and
+ * starts the next (filling the rings first, then keeping them topped up), so no
+ * frame ever waits for the drive. With
  * JUKEBOX_DISC_STREAM=0 the tracks are served through the bounded asset
  * cache instead and a refill stalls the frame for the 64 KiB block read.
  * The HUD shows the worst frame time either way.
@@ -30,12 +31,6 @@
 
 #ifndef JUKEBOX_DISC_STREAM
 #define JUKEBOX_DISC_STREAM 1
-#endif
-
-/* 1: the audio driver rewrites an inactive SCSP half over several frames (sat_audio_set_refill_spread)
- * instead of in the one update that sees the change. */
-#ifndef JUKEBOX_REFILL_SPREAD
-#define JUKEBOX_REFILL_SPREAD 1
 #endif
 
 #define TRACK_COUNT CD_JUKEBOX_TRACK_COUNT
@@ -66,6 +61,9 @@ static uint32_t g_worst_frame_ms;
 static uint32_t g_frames_seen;
 static uint32_t g_worst_update_us;     /* the slowest sat_music_update call */
 static uint32_t g_worst_hook_us;       /* the slowest audio service run from inside a CD Block wait */
+static uint32_t g_start_frames;        /* display frames from the last play/seek until the streams were released */
+static uint32_t g_start_count;         /* frames spent so far in the current start */
+static uint8_t g_starting;
 static sat_cd_device_t g_cd_device;
 static sat_cdfs_volume_t g_volume;
 static sat_cdfs_file_source_t g_sources[TRACK_COUNT];
@@ -193,9 +191,6 @@ int main(void) {
     sat_result_t status = sat_app_init_default();
     if (status != SAT_OK) return 1;
     if (status == SAT_OK) status = sat_audio_init();
-#if JUKEBOX_REFILL_SPREAD
-    if (status == SAT_OK) status = sat_audio_set_refill_spread(1u);
-#endif
     if (status == SAT_OK) status = register_cd_tracks();
     if (status == SAT_OK) status = open_selected_track();
 
@@ -243,6 +238,16 @@ int main(void) {
             const uint32_t us = ticks_to_us((uint32_t)(sat_time_ticks() - t0));
             if (us > g_worst_update_us) g_worst_update_us = us;
         }
+        if (status == SAT_OK) {
+            sat_music_info_t music_info;
+            status = sat_music_info(g_music, &music_info);
+            if (status == SAT_OK) {
+                if (music_info.starting != 0u) ++g_start_count;
+                else if (g_starting != 0u) g_start_frames = g_start_count;
+                if (music_info.starting == 0u) g_start_count = 0u;
+                g_starting = music_info.starting;
+            }
+        }
         if (status == SAT_OK) status = sat_audio_update();
         /* Audio serviced from inside a CD wait must not fail silently. */
         if (status == SAT_OK && g_cd_block.progress_error_count != 0u) {
@@ -276,8 +281,8 @@ int main(void) {
                 draw_value(&font, "STREAM UNDERRUN ", stream.underrun_count, 160);
                 draw_value(&font, "WORST FRAME MS ", g_worst_frame_ms, 172);
                 draw_value(&font, "WORST UPDATE US ", g_worst_update_us, 184);
-                draw_line(&font, g_playing != 0u ? "PLAYING FROM ISO" : "PAUSED", 196);
-                draw_line(&font, JUKEBOX_DISC_STREAM ? "DISC SCHEDULER" : "ASSET CACHE", 208);
+                draw_value(&font, "START FRAMES ", g_start_frames, 196);
+                draw_line(&font, g_playing == 0u ? "PAUSED" : (g_starting != 0u ? "FILLING RINGS" : "PLAYING FROM ISO"), 208);
             }
         }
         (void)sat_app_frame_end();

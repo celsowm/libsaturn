@@ -40,8 +40,8 @@
  * continuous command polling is forbidden, the buffer holds 200 sectors, an average seek is 500 ms
  * at 2x) and says which numbers are only emulator measurements. A poll is about three commands
  * plus the data. One delivery slice ~1.8 ms. The audio driver's own SCSP refill (sat_audio_update,
- * ~12 ms when a half is due, unless sat_audio_set_refill_spread is on) is not part of this module
- * but lands in whichever frame it falls in, including one that also polls.
+ * ~12 ms for a whole half; the driver writes it a slice per update, see saturn/audio.h) is not part
+ * of this module but lands in whichever frame it falls in, including one that also polls.
  *
  * Nothing here allocates. The segment buffers are part of sat_disc_stream_t and the music rings are
  * a caller-owned sat_disc_music_rings_t (put both in .wram_l: 32 KiB and 64 KiB). Not
@@ -132,6 +132,9 @@ typedef struct sat_disc_music_feed_ops {
      * drive and feeds the minimum statistic. */
     uint32_t (*buffered)(void* user);
     uint8_t pipelined;
+    /* Optional. Called at the end of every sat_disc_stream_service, whatever it did: the place for
+     * the feed to notice that its rings are full and start playing. */
+    void (*tick)(void* user);
 } sat_disc_music_feed_ops_t;
 
 /* Rings for the two music channels, SAT_DISC_MUSIC_RING_FRAMES frames each (S16 fills them, S8 half). */
@@ -154,7 +157,8 @@ typedef struct sat_disc_stream {
     uint32_t music_pos;          /* byte offset of the next segment, a sector multiple */
     sat_audio_stream_t music_left, music_right;
     uint8_t music_open;
-    uint8_t music_wanted;        /* once the rings are primed */
+    uint8_t music_wanted;        /* the feed may start segments */
+    uint8_t music_starting;      /* the feed is filling its rings before the streams play: not counted in music_min_buffered */
     uint8_t music_sample_bytes;  /* 1 (S8) or 2 (S16BE), per channel */
     uint32_t seg_music_bytes;    /* valid payload bytes of the music segment in flight */
     uint32_t music_reserve;      /* frames both rings must hold before a data segment starts */
@@ -195,25 +199,27 @@ static inline void sat_disc_stream_set_pump(sat_disc_stream_t* s, void (*pump)(v
 sat_result_t sat_disc_stream_queue(sat_disc_stream_t* s, const sat_disc_job_t* job);
 
 /* Starts the looping stereo music from `file` (raw interleaved S8 or S16BE, `sample_bytes` per
- * channel, `bytes` long, at least one segment). Opens both rings, fills them with blocking reads
- * (the screen is still dark) and starts them together. Needs sat_audio_init. S8 halves the bytes
- * the CPU moves through the CD Block data port. Call with no segment in flight. */
+ * channel, `bytes` long, at least one segment). Opens both rings and returns at once: the rings fill
+ * over the following sat_disc_stream_service calls, and the streams start together in the one that
+ * finds them full (sat_disc_stream_music_playing says when). Needs sat_audio_init. S8 halves the
+ * bytes the CPU moves through the CD Block data port. Call with no segment in flight. */
 sat_result_t sat_disc_stream_music_start(sat_disc_stream_t* s, sat_disc_music_rings_t* rings,
                                          const sat_cdfs_file_t* file, uint32_t bytes,
                                          uint32_t sample_rate, uint32_t sample_bytes);
 /* Installs an external music feed (SAT_ERR_BUSY while another feed or the built-in music is
- * installed). It starts wanting segments at once; fill its rings first with
- * sat_disc_stream_music_prime. */
+ * installed). It starts wanting segments at once. */
 sat_result_t sat_disc_stream_music_attach(sat_disc_stream_t* s, const sat_disc_music_feed_ops_t* ops, void* user);
 /* Removes the feed, dropping a segment in flight (waits for it: at most one segment of drive time). */
 void sat_disc_stream_music_detach(sat_disc_stream_t* s);
 /* Drops a music segment in flight, if one is, keeping the feed. For a feed that moves its
  * position (a seek, a stop): the segment that was read for the old position is not delivered. */
 void sat_disc_stream_music_abort(sat_disc_stream_t* s);
-/* Blocking: reads and delivers segments until the feed wants no more. For the moment a track
- * starts, while the screen is dark; the steady state never waits. Lands a segment in flight first.
- * Returns the first transport or feed error. */
-sat_result_t sat_disc_stream_music_prime(sat_disc_stream_t* s);
+/* 1 once the built-in music (sat_disc_stream_music_start) has filled its rings and started. */
+uint8_t sat_disc_stream_music_playing(const sat_disc_stream_t* s);
+/* For an external feed: nonzero while it fills its rings before the streams play (after a start or
+ * a seek). The ring fill seen meanwhile is not counted in the minimum statistic, which then means
+ * "lowest fill while playing". */
+void sat_disc_stream_music_set_starting(sat_disc_stream_t* s, uint8_t starting);
 /* Makes sat_music read its disc-backed tracks through this scheduler instead of waiting for the
  * drive (pass NULL to go back). Call before sat_music_open: a track opened while a scheduler
  * is bound and whose source is a disc file (sat_cdfs_register_source_manifest) streams through
@@ -221,9 +227,10 @@ sat_result_t sat_disc_stream_music_prime(sat_disc_stream_t* s);
  * such track at a time (a second open returns SAT_ERR_BUSY). Refused with SAT_ERR_BUSY while a
  * disc-scheduled track is open.
  *
- * Streaming music then costs a frame what the scheduler costs: sat_music_play fills both rings
- * with blocking reads (do it while the screen is dark), sat_music_update (or sat_disc_stream_service,
- * either, once a frame) lands and starts one segment, and sat_music_seek / stop drop the segment in
+ * Streaming music then costs a frame what the scheduler costs: sat_music_play only marks the track
+ * wanted, sat_music_update (or sat_disc_stream_service, either, once a frame) fills the rings one
+ * segment at a time, starts the streams when they are full and from then on lands and starts one
+ * segment per frame, and sat_music_seek / stop drop the segment in
  * flight (waiting at most one segment of drive time). Look every file up before the music plays: a
  * lookup or a file read finishes the segment in flight. sat_cd_block progress hooks must not call
  * sat_music_update. */

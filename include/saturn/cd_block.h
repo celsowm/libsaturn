@@ -34,8 +34,8 @@ extern "C" {
  * The callback is application-owned, may service audio/input/other bounded
  * work, and must not start another CD request on the same block. Nested
  * reads return SAT_ERR_BUSY rather than corrupt an in-flight transfer, so
- * the hook must not call anything that reads the disc either: sat_music_play,
- * sat_music_seek and sat_music_update on a CD-backed track (also one streamed by
+ * the hook must not call anything that reads the disc either: sat_music_seek
+ * and sat_music_update on a CD-backed track (also one streamed by
  * the disc scheduler: its service call would poll this block), asset reads.
  * A failing hook does not fail the CD wait (which reports its own transport
  * result); it is counted in progress_error_count, with the latest status in
