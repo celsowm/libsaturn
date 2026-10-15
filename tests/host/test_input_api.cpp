@@ -95,6 +95,26 @@ bool read_peripherals(PeripheralSnapshot* out, uint8_t port_mask, ParseStatus* p
     }
     return true;
 }
+
+/* The asynchronous read: begin records that one is in flight, finish delivers the snapshot. */
+bool g_pending = false;
+uint32_t g_begins = 0u;
+bool begin_peripheral_read(uint8_t port_mask) {
+    if (!g_read_ok) return false;
+    ++g_begins;
+    g_last_mask = port_mask;
+    g_pending = true;
+    return true;
+}
+bool peripheral_read_pending() { return g_pending; }
+bool finish_peripheral_read(PeripheralSnapshot* out, ParseStatus* parse) {
+    if (parse != nullptr) *parse = ParseStatus::Ok;
+    if (!g_pending || out == nullptr) return false;
+    g_pending = false;
+    ++g_reads;
+    *out = g_snapshot;
+    return true;
+}
 }
 
 static sat_event_t next_event() {
@@ -154,6 +174,43 @@ static void pads_and_events_as_before() {
     g_read_ok = true;
     OK(sat_pad_poll_port(2u, &state) == SAT_ERR_INVALID_ARG);
     OK(sat_event_poll(nullptr) == SAT_ERR_INVALID_ARG);
+}
+
+/* sat_input_poll_begin / sat_input_poll_finish: the same state as sat_input_poll, split so the
+ * program can work while the SMPC answers. */
+static void split_poll_matches_sync_poll() {
+    using namespace saturn::core;
+    const uint32_t reads = g_reads;
+    direct(0u, pad(low(0x04u)));            /* A */
+    direct(1u, pad(low(0x01u)));            /* B */
+    OK(sat_input_poll_begin() == SAT_OK);
+    OK(g_pending && g_begins == 1u && g_last_mask == 0x3u);
+    OK(g_reads == reads);                   /* nothing delivered yet */
+    OK(sat_input_poll_begin() == SAT_OK);   /* a second begin does not start another read */
+    OK(g_begins == 1u);
+    OK(sat_input_poll_finish() == SAT_OK);
+    OK(!g_pending && g_reads == reads + 1u);
+    OK(sat_pad_held() == SAT_PAD_A && sat_pad_held_port(1u) == SAT_PAD_B);
+
+    /* finish without a begin falls back to a synchronous poll. */
+    direct(0u, pad(low(0x02u)));            /* C */
+    OK(sat_input_poll_finish() == SAT_OK);
+    OK(g_reads == reads + 2u && sat_pad_held() == SAT_PAD_C);
+
+    /* A failed begin reports the error and leaves nothing pending. */
+    const uint32_t begins = g_begins;
+    g_read_ok = false;
+    OK(sat_input_poll_begin() == SAT_ERR_IO);
+    OK(!g_pending && g_begins == begins);
+    g_read_ok = true;
+
+    /* Both split calls need sat_init. */
+    g_state.initialized = false;
+    OK(sat_input_poll_begin() == SAT_ERR_NOT_INITIALIZED);
+    OK(sat_input_poll_finish() == SAT_ERR_NOT_INITIALIZED);
+    g_state.initialized = true;
+    sat_event_t drained{};
+    while (sat_event_poll(&drained) == 1) {}
 }
 
 static void analog_pad_reports_axes_and_moves() {
@@ -318,6 +375,7 @@ int main() {
     g_state.initialized = true;
     input_runtime_reset(g_input_runtime);
     pads_and_events_as_before();
+    split_poll_matches_sync_poll();
     analog_pad_reports_axes_and_moves();
     mouse_motion_accumulates_until_read();
     keyboard_reports_keys_and_locks();

@@ -69,6 +69,16 @@ typedef struct sat_event {
  * snapshot. Events are generated from the same samples returned by
  * sat_pad_poll_port(), so polling and event views cannot diverge. */
 sat_result_t sat_input_poll(void);
+/* sat_input_poll in two halves. The SMPC takes milliseconds to gather the pads (Mednafen: ~2.6 ms,
+ * about 16% of a frame) and sat_input_poll spins for all of it. Call sat_input_poll_begin at the
+ * end of a frame (after sat_end_frame) to start the read, do other work, and sat_input_poll_finish
+ * where the state is wanted: it waits only for what is left, applies the sample like
+ * sat_input_poll and returns SAT_OK. With no read pending it polls synchronously, so the first
+ * frame needs no special case. Any other SMPC use in between (clock, status, SSH power) abandons
+ * the pending read; the next finish then polls synchronously. The state read back is the one
+ * sampled at begin, which is later than the previous frame's start and earlier than this one's. */
+sat_result_t sat_input_poll_begin(void);
+sat_result_t sat_input_poll_finish(void);
 sat_result_t sat_pad_poll_port(uint8_t port, sat_pad_state_t* out_state);
 sat_result_t sat_pad_poll(sat_pad_state_t* out_state);
 uint16_t sat_pad_held_port(uint8_t port);

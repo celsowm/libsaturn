@@ -110,6 +110,14 @@ sat_result_t poll_ports(uint8_t only_port) {
     return SAT_OK;
 }
 
+/* Applies the snapshot of a finished asynchronous read (both ports). */
+sat_result_t finish_ports() {
+    smpc::PeripheralSnapshot snapshot;
+    if (!smpc::finish_peripheral_read(&snapshot)) return SAT_ERR_IO;
+    for (uint8_t port = 0u; port < SAT_PAD_PORT_COUNT; ++port) apply_port(port, snapshot.ports[port]);
+    return SAT_OK;
+}
+
 bool valid_slot(uint8_t port, uint8_t tap) {
     return port < SAT_PAD_PORT_COUNT && tap < SAT_PAD_TAP_MAX;
 }
@@ -121,6 +129,22 @@ extern "C" sat_result_t sat_input_poll(void) {
     sat_result_t st = require_initialized();
     if (st != SAT_OK) return st;
     return poll_ports(0xFFu);
+}
+
+extern "C" sat_result_t sat_input_poll_begin(void) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    if (smpc::peripheral_read_pending()) return SAT_OK;
+    return smpc::begin_peripheral_read(smpc::kIntbackPortsBoth) ? SAT_OK : SAT_ERR_IO;
+}
+
+extern "C" sat_result_t sat_input_poll_finish(void) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    if (!smpc::peripheral_read_pending()) return poll_ports(0xFFu);
+    return finish_ports();
 }
 
 extern "C" sat_result_t sat_pad_poll_port(uint8_t port, sat_pad_state_t* out_state) {

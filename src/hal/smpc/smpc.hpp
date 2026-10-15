@@ -17,6 +17,14 @@ namespace saturn::hal::smpc {
  * (Ok when the failure was the bus). */
 bool read_peripherals(PeripheralSnapshot* out_snapshot, uint8_t port_mask = kIntbackPortsBoth,
                       ParseStatus* parse = nullptr);
+/* read_peripherals in two halves, so the CPU can work while the SMPC gathers the pads (that takes
+ * milliseconds: Mednafen's SMPC keeps SF set for ~2.6 ms). begin_peripheral_read issues the
+ * INTBACK and returns; finish_peripheral_read waits for the first chunk, collects the rest and
+ * parses, like read_peripherals. Any other SMPC command issued meanwhile abandons the pending
+ * read (finish then returns false). */
+bool begin_peripheral_read(uint8_t port_mask = kIntbackPortsBoth);
+bool peripheral_read_pending();
+bool finish_peripheral_read(PeripheralSnapshot* out_snapshot, ParseStatus* parse = nullptr);
 /* INTBACK status block: RTC, cartridge and area code, SMEM. */
 bool read_status(SmpcStatus* out_status);
 /* SETTIME (the weekday is derived) and SETSMEM. */

@@ -448,6 +448,18 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     return SAT_OK;
 }
 
+typedef uint32_t __attribute__((may_alias)) word_t;
+
+/* Two consecutive command halfwords as the longword that stores them (the host tests run this
+ * on little-endian machines). */
+inline uint32_t pair(uint32_t first, uint32_t second) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    return (second << 16u) | (first & 0xFFFFu);
+#else
+    return (first << 16u) | (second & 0xFFFFu);
+#endif
+}
+
 sat_result_t push_sprite_batch(const sat_sprite_frame_t* frames, uint32_t frame_count,
                                const sat_sprite_instance_t* instances, uint32_t count,
                                uint32_t options, sat_sprite_batch_stats_t* stats) {
@@ -498,24 +510,23 @@ sat_result_t push_sprite_batch(const sat_sprite_frame_t* frames, uint32_t frame_
         const int16_t ya = static_cast<int16_t>(top - origin_y);
         const int16_t xr = static_cast<int16_t>(xa + static_cast<int32_t>(f.width));
         const int16_t yb = static_cast<int16_t>(ya + static_cast<int32_t>(f.height));
-        Command& cmd = g_cmd_buffer[used++];
-        cmd.ctrl = f.ctrl;
-        cmd.link = 0;
-        cmd.pmod = no_preclip ? static_cast<uint16_t>(f.pmod | saturn::core::kVdp1PmodPreclipOff)
-                              : f.pmod;
-        cmd.colr = f.colr;
-        cmd.srca = f.srca;
-        cmd.size = f.size;
-        cmd.xa = xa;
-        cmd.ya = ya;
-        cmd.xb = xr;
-        cmd.yb = ya;
-        cmd.xc = xr;
-        cmd.yc = yb;
-        cmd.xd = xa;
-        cmd.yd = yb;
-        cmd.grda = 0;
-        cmd.pad = 0;
+        /* Eight longword stores, not sixteen halfwords: every store to Work RAM-H is a bus cycle
+         * (the cache is write-through), so the command is written as the SH-2 sees it, big-endian
+         * pairs of command words. */
+        static_assert(sizeof(Command) == 32u, "a VDP1 command table is 32 bytes");
+        word_t* const w = reinterpret_cast<word_t*>(&g_cmd_buffer[used++]);
+        const uint32_t pmod = no_preclip ? static_cast<uint32_t>(f.pmod | saturn::core::kVdp1PmodPreclipOff)
+                                         : static_cast<uint32_t>(f.pmod);
+        const uint32_t uxa = static_cast<uint16_t>(xa), uya = static_cast<uint16_t>(ya);
+        const uint32_t uxr = static_cast<uint16_t>(xr), uyb = static_cast<uint16_t>(yb);
+        w[0] = pair(f.ctrl, 0u);                                            /* ctrl, link */
+        w[1] = pair(pmod, f.colr);                                          /* pmod, colr */
+        w[2] = pair(f.srca, f.size);                                        /* srca, size */
+        w[3] = pair(uxa, uya);                                              /* A */
+        w[4] = pair(uxr, uya);                                              /* B */
+        w[5] = pair(uxr, uyb);                                              /* C */
+        w[6] = pair(uxa, uyb);                                              /* D */
+        w[7] = 0u;                                                          /* grda, pad */
         ++local.submitted;
         if (no_preclip) ++local.no_preclip;
     }

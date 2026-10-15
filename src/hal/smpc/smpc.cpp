@@ -42,7 +42,26 @@ inline bool wait_sf_clear() {
     return true;
 }
 
+inline void break_intback() {
+    SMPC_IREG(0) = kIntbackBreak;
+    (void)wait_sf_clear();
+}
+
+/* An INTBACK started by begin_peripheral_read whose result nobody has collected. */
+bool g_intback_pending = false;
+uint8_t g_intback_mask = 0u;
+
+/* Any other SMPC command first gives up a pending peripheral read: the SMPC is still holding
+ * its first chunk, and a new command would be taken as the CONTINUE of it. */
+inline void settle_pending_intback() {
+    if (!g_intback_pending) return;
+    g_intback_pending = false;
+    (void)wait_sf_clear();
+    break_intback();
+}
+
 inline bool issue_simple_command(uint8_t command) {
+    settle_pending_intback();
     if (!wait_sf_clear()) return false;
     SMPC_SF = 0x01u;
     SMPC_COMREG = command;
@@ -67,11 +86,6 @@ inline bool wait_chunk_ready() {
     return true;
 }
 
-inline void break_intback() {
-    SMPC_IREG(0) = kIntbackBreak;
-    (void)wait_sf_clear();
-}
-
 inline void init_control_mode_once() {
     static bool initialized = false;
     if (!initialized) {
@@ -82,23 +96,34 @@ inline void init_control_mode_once() {
 
 }  // namespace
 
-bool read_peripherals(PeripheralSnapshot* out_snapshot, uint8_t port_mask, ParseStatus* parse) {
-    if (parse != nullptr) *parse = ParseStatus::Ok;
+bool begin_peripheral_read(uint8_t port_mask) {
     port_mask = static_cast<uint8_t>(port_mask & kIntbackPortsBoth);
-    if (out_snapshot == nullptr || port_mask == 0u) return false;
+    if (port_mask == 0u) return false;
+    settle_pending_intback();
     init_control_mode_once();
     if (!wait_sf_clear()) return false;
-
-    ChunkStream stream;      /* only bytes[0..length) are ever read */
-    stream.length = 0u;
-    stream.chunks = 0u;
-    stream.overflow = false;
     clear_smpc_ist();
     SMPC_IREG(0) = 0x00u;
     SMPC_IREG(1) = intback_ireg1(port_mask);
     SMPC_IREG(2) = 0xF0u;
     SMPC_SF = 0x01u;
     SMPC_COMREG = kCmdIntback;
+    g_intback_pending = true;
+    g_intback_mask = port_mask;
+    return true;
+}
+
+bool peripheral_read_pending() { return g_intback_pending; }
+
+bool finish_peripheral_read(PeripheralSnapshot* out_snapshot, ParseStatus* parse) {
+    if (parse != nullptr) *parse = ParseStatus::Ok;
+    if (out_snapshot == nullptr || !g_intback_pending) return false;
+    g_intback_pending = false;
+    const uint8_t port_mask = g_intback_mask;
+    ChunkStream stream;      /* only bytes[0..length) are ever read */
+    stream.length = 0u;
+    stream.chunks = 0u;
+    stream.overflow = false;
     if (!wait_sf_clear()) return false;
 
     for (;;) {
@@ -123,8 +148,16 @@ bool read_peripherals(PeripheralSnapshot* out_snapshot, uint8_t port_mask, Parse
     return st == ParseStatus::Ok;
 }
 
+bool read_peripherals(PeripheralSnapshot* out_snapshot, uint8_t port_mask, ParseStatus* parse) {
+    if (parse != nullptr) *parse = ParseStatus::Ok;
+    if (out_snapshot == nullptr) return false;
+    if (!begin_peripheral_read(port_mask)) return false;
+    return finish_peripheral_read(out_snapshot, parse);
+}
+
 bool read_status(SmpcStatus* out_status) {
     if (out_status == nullptr) return false;
+    settle_pending_intback();
     init_control_mode_once();
     if (!wait_sf_clear()) return false;
     SMPC_IREG(0) = 0x01u;   /* status block, no peripheral data (PEN = 0) */
@@ -140,6 +173,7 @@ bool read_status(SmpcStatus* out_status) {
 
 bool set_time(const RtcTime& time) {
     if (!valid_time(time)) return false;
+    settle_pending_intback();
     init_control_mode_once();
     if (!wait_sf_clear()) return false;
     uint8_t ireg[7];
@@ -153,6 +187,7 @@ bool set_time(const RtcTime& time) {
 
 bool set_smem(const uint8_t smem[4]) {
     if (smem == nullptr) return false;
+    settle_pending_intback();
     init_control_mode_once();
     if (!wait_sf_clear()) return false;
     for (uint8_t i = 0u; i < 4u; ++i) SMPC_IREG(i) = smem[i];
