@@ -1,7 +1,5 @@
 #include "bh_sim.h"
 
-#include <string.h>
-
 #include "saturn/collide2d.h"
 
 /* See bh_sim.h. Plain C that also builds as C++ for the host tests. */
@@ -65,8 +63,8 @@ static uint32_t rnd(bh_sim_t* s) {
 void bh_params_default(bh_params_t* p) {
     static const uint8_t bullet[BH_SHAPES] = {4, 4, 4, 4, 3, 3};
     static const uint8_t enemy[BH_ENEMY_TYPES] = {6, 9, 8, 6, 24};
-    memcpy(p->bullet_radius, bullet, sizeof(bullet));
-    memcpy(p->enemy_radius, enemy, sizeof(enemy));
+    __builtin_memcpy(p->bullet_radius, bullet, sizeof(bullet));
+    __builtin_memcpy(p->enemy_radius, enemy, sizeof(enemy));
     p->shot_radius[0] = 4;
     p->shot_radius[1] = 6;
     p->player_radius = 2;
@@ -176,7 +174,7 @@ static uint16_t fire_period(const bh_sim_t* s, uint8_t pattern) {
 static void spawn_enemy(bh_sim_t* s, uint8_t type, int32_t x, int32_t y, uint8_t pattern, int16_t aux) {
     if (s->enemy_count >= BH_MAX_ENEMIES) return;
     bh_enemy_t* e = &s->enemies[s->enemy_count++];
-    memset(e, 0, sizeof(*e));
+    __builtin_memset(e, 0, sizeof(*e));
     e->x = x;
     e->y = y;
     e->anchor_x = x;
@@ -340,7 +338,7 @@ static void enemy_think(bh_sim_t* s, bh_enemy_t* e) {
 
 static void reset_player(bh_sim_t* s) {
     bh_player_t* p = &s->player;
-    memset(p, 0, sizeof(*p));
+    __builtin_memset(p, 0, sizeof(*p));
     p->x = FP(112);
     p->y = FP(400);
     p->alive = 1;
@@ -696,7 +694,7 @@ static void reset_game(bh_sim_t* s) {
 }
 
 void bh_sim_init(bh_sim_t* s, const bh_params_t* params, uint32_t seed) {
-    memset(s, 0, sizeof(*s));
+    __builtin_memset(s, 0, sizeof(*s));
     if (params) s->params = *params;
     else bh_params_default(&s->params);
     s->rng = seed ? seed : 1u;

@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "examples/bullet_hell_stress/bh_sim.h"
+#include "examples/bullet_hell_stress/bh_view.h"
 #include "saturn/collide2d.h"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); std::exit(1); } } while (0)
@@ -84,6 +85,26 @@ int main() {
         OK(!bh_circle_hit(3 * 256, 4 * 256, r) && !bh_circle_hit(-3 * 256, -4 * 256, r));
         OK(!bh_circle_hit(r, 0, r) && !bh_circle_hit(0, -r, r));
         OK(bh_circle_hit(3 * 256 - 1, 4 * 256, r) && bh_circle_hit(r - 1, 0, r));
+    }
+
+    /* The inline field -> screen map equals sat_tate_edge, in the field and in the HUD panels. */
+    {
+        struct { uint16_t sw, sh; uint8_t rot; } cases[] = {
+            {640, 224, SAT_TATE_ROT_CW}, {640, 224, SAT_TATE_ROT_CCW}, {224, 448, SAT_TATE_UPRIGHT}, {320, 480, SAT_TATE_UPRIGHT}};
+        for (const auto& c : cases) {
+            bh_view_t v{};
+            OK(bh_view_init(&v, c.sw, c.sh, 224, 448, c.rot) == SAT_OK);
+            for (int i = 0; i < 20000; ++i) {
+                const int32_t lx = static_cast<int32_t>(rnd() % 225u), ly = static_cast<int32_t>(rnd() % 641u) - 96;
+                int16_t sx = 0, sy = 0;
+                int32_t ex = 0, ey = 0;
+                bh_view_map(&v, lx, ly, &sx, &sy);
+                OK(sat_tate_edge(&v.layout, lx, ly, &ex, &ey) == SAT_OK);
+                OK(sx == ex && sy == ey);
+            }
+        }
+        bh_view_t scaled{};
+        OK(bh_view_init(&scaled, 320, 224, 224, 448, SAT_TATE_ROT_CW) == SAT_ERR_UNSUPPORTED);
     }
 
     /* Determinism: same seed and input, same state; a different seed differs. */

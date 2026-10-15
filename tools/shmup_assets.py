@@ -4,6 +4,7 @@
     shmup_assets.py validate <pack dir | pack zip>      reject defective art (exit 1)
     shmup_assets.py import   <pack dir | zip> <out dir> copy the validated runtime subset
     shmup_assets.py pack     <asset dir> --out DIR      write SHMUP.ATL + generated header
+    shmup_assets.py bg       <asset dir> --out DIR      write scrolling-background files (SBG1)
 
 The pack format is the one of shmup_saturn_assets_v4_COMPLETO (manifest.json,
 sprites_rgba/, vdp1/index8/, vdp1/lut4/). The older v3 ship pack (atlas/ships_atlas.json) is
@@ -26,6 +27,15 @@ offset while the previous stage runs; see include/saturn/sprite_atlas.h):
                       u16 group; u16 radius; u16 category; u16 reserved; u32 content_hash
     lut    32 bytes   16 BGR555 words (entry 0 transparent, visible entries have bit 15)
     group  16 bytes   u32 data_off, u32 data_bytes, u16 first_frame, u16 frame_count, u32 pad
+
+SBG1 background file (big-endian): one VDP2 bitmap NBG, 8 bpp, rotated like the sprites so that it
+scrolls along one screen axis. The first sector holds the header and the palette, the pixels start
+at the second sector so a stage background can be streamed from disc sector by sector straight into
+a VRAM bank:
+
+    header 16 bytes   'SBG1', u16 width, u16 height, u16 colours, u16 flags (0), u32 crc32 of pixels
+    palette 512 bytes 256 x u16 CRAM words (0BBBBBGGGGGRRRRR), unused entries 0
+    pixels at 2048    width * height bytes, row-major, palette indices
 """
 from __future__ import annotations
 
@@ -485,6 +495,43 @@ def emit_header(report: dict, path: Path, prefix: str) -> None:
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+BG_MAGIC = b"SBG1"
+BG_HEADER_BYTES = 16
+SWAPS = {"rgb": (0, 1, 2), "bgr": (2, 1, 0), "gbr": (1, 2, 0), "brg": (2, 0, 1)}
+
+
+def pack_background(png: Path, orientation: str, swap: str = "rgb") -> tuple[bytes, dict]:
+    """One opaque 256-colour-or-fewer background image -> an SBG1 file. The colours are kept
+    exactly (no quantisation): a background with more than 255 colours is refused. `swap`
+    permutes the RGB channels of the palette only, so one image can serve as several stages."""
+    arr = np.asarray(Image.open(png).convert("RGBA"))
+    if (arr[..., 3] != 255).any():
+        raise ValueError(f"{png.name}: background must be fully opaque")
+    rgb = arr[..., :3]
+    colours, inverse = np.unique(rgb.reshape(-1, 3), axis=0, return_inverse=True)
+    if len(colours) > 255:
+        raise ValueError(f"{png.name}: {len(colours)} colours, a 256-colour bitmap holds 255")
+    index = inverse.reshape(rgb.shape[:2]).astype(np.uint8) + 1   # index 0 stays unused
+    index = np.ascontiguousarray(rotate(index, orientation))
+    height, width = index.shape
+    if width % 8 or height % 8 or width > 1024 or height > 512:
+        raise ValueError(f"{png.name}: rotated size {width}x{height} is not a VDP2 bitmap size")
+    order = SWAPS[swap]
+    words = bytearray(512)
+    for i, c in enumerate(colours, start=1):
+        r, g, b = (int(c[order[k]]) >> 3 for k in range(3))
+        struct.pack_into(">H", words, i * 2, (b << 10) | (g << 5) | r)
+    pixels = index.tobytes()
+    head = struct.pack(">4sHHHHI", BG_MAGIC, width, height, len(colours) + 1, 0, zlib.crc32(pixels))
+    blob = bytearray(SECTOR)
+    blob[:BG_HEADER_BYTES] = head
+    blob[BG_HEADER_BYTES:BG_HEADER_BYTES + 512] = words
+    blob += pixels
+    blob += bytes(-len(blob) % SECTOR)
+    return bytes(blob), {"file": png.name, "width": width, "height": height, "colours": len(colours),
+                         "swap": swap, "bytes": len(blob), "crc32": f"{zlib.crc32(pixels):08x}"}
+
+
 def parse_groups(spec: list[str]) -> list[tuple[str, int]]:
     out = []
     for item in spec:
@@ -508,7 +555,24 @@ def main(argv=None) -> int:
     p.add_argument("--orientation", choices=tuple(ORIENTATIONS), default="none")
     p.add_argument("--group", action="append", default=[], metavar="GLOB=ID",
                    help="residency group of matching sprite names (first match wins, default 0)")
+    b = sub.add_parser("bg"); b.add_argument("assets", type=Path)
+    b.add_argument("--out", type=Path, required=True)
+    b.add_argument("--orientation", choices=tuple(ORIENTATIONS), default="none")
+    b.add_argument("--bg", action="append", default=[], metavar="FILE=SOURCE[:SWAP]",
+                   help="output file name = background image stem, optionally with a palette channel swap")
     a = ap.parse_args(argv)
+
+    if a.cmd == "bg":
+        a.out.mkdir(parents=True, exist_ok=True)
+        for item in a.bg:
+            out_name, _, src = item.partition("=")
+            stem, _, swap = src.partition(":")
+            png = a.assets / "vdp2" / "backgrounds" / f"background_{stem}_256x512.png"
+            blob, info = pack_background(png, a.orientation, swap or "rgb")
+            (a.out / out_name).write_bytes(blob)
+            print(f"[shmup-assets] {out_name}: {info['width']}x{info['height']}, {info['colours']} colours, "
+                  f"{info['bytes']} bytes, crc32 {info['crc32']}")
+        return 0
 
     if a.cmd == "validate":
         root, tmp = open_pack(a.source)

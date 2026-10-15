@@ -282,5 +282,49 @@ class PackTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "out/SHMUP.ATL").exists())
 
 
+class BackgroundTests(unittest.TestCase):
+    def test_background_file_layout_and_round_trip(self):
+        src = ASSETS / "vdp2/backgrounds/background_metal_256x512.png"
+        blob, info = sa.pack_background(src, "cw")
+        self.assertEqual(len(blob) % sa.SECTOR, 0)
+        magic, w, h, colours, flags, crc = struct.unpack(">4sHHHHI", blob[:16])
+        self.assertEqual((magic, w, h, flags), (b"SBG1", 512, 256, 0))
+        pixels = blob[sa.SECTOR:sa.SECTOR + w * h]
+        self.assertEqual(zlib.crc32(pixels), crc)
+        self.assertEqual(len(blob), sa.SECTOR + w * h)
+        # the palette holds every colour of the source exactly (5 bits per channel) and nothing else
+        pal = np.frombuffer(blob[16:16 + 512], ">u2")
+        self.assertEqual(pal[0], 0)
+        rgb = np.asarray(Image.open(src).convert("RGB"))
+        index = np.frombuffer(pixels, np.uint8).reshape(h, w)
+        back = np.rot90(index, 1)          # undo the clockwise turn
+        self.assertEqual(back.shape, rgb.shape[:2])
+        words = pal[back]
+        want = ((rgb[..., 2].astype(np.uint16) >> 3) << 10) | ((rgb[..., 1].astype(np.uint16) >> 3) << 5) | (rgb[..., 0] >> 3)
+        self.assertTrue((words == want).all())
+        self.assertEqual(sa.pack_background(src, "cw")[0], blob)     # deterministic
+
+    def test_swap_changes_only_the_palette(self):
+        src = ASSETS / "vdp2/backgrounds/background_metal_256x512.png"
+        a, _ = sa.pack_background(src, "cw")
+        b, _ = sa.pack_background(src, "cw", "bgr")
+        self.assertEqual(a[sa.SECTOR:], b[sa.SECTOR:])
+        self.assertNotEqual(a[16:528], b[16:528])
+
+    def test_rejects_translucent_and_too_many_colours(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            glass = Path(tmp) / "glass.png"
+            Image.fromarray(np.full((64, 32, 4), 200, np.uint8), "RGBA").save(glass)
+            with self.assertRaises(ValueError):
+                sa.pack_background(glass, "cw")
+            noisy = Path(tmp) / "noisy.png"
+            rng = np.random.default_rng(1)
+            px = rng.integers(0, 255, (64, 64, 4), dtype=np.uint8)
+            px[..., 3] = 255
+            Image.fromarray(px, "RGBA").save(noisy)
+            with self.assertRaises(ValueError):
+                sa.pack_background(noisy, "cw")
+
+
 if __name__ == "__main__":
     unittest.main()
