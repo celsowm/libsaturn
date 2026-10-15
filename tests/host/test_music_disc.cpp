@@ -882,6 +882,35 @@ void test_prefetch_seek_cost() {
                 hopeless.visits, hopeless.switches, hopeless.worst_dip, hopeless.underruns,
                 hopeless.prefetched ? 1 : 0, hopeless.disabled);
     CHECK(hopeless.disabled == 1u && hopeless.visits == 1u && hopeless.switches <= 2u && !hopeless.prefetched);
+
+    /* the safe way on a slow drive, which the documentation recommends: prefetch while the playing
+     * track is paused. Nothing is audible to starve, so even the 1.2 s seeks complete the prefetch, and
+     * the swap that follows is immediate. */
+    fresh();
+    g_drive.switch_fields = 72u;
+    Track* a = find_track("music/s16-stereo");
+    Track* b = find_track("music/s8-stereo");
+    sat_music_t ma{}, mb{};
+    CHECK(sat_music_open(&ma, a->path) == SAT_OK);
+    CHECK(sat_music_open(&mb, b->path) == SAT_OK);
+    sat_music_info_t ia{}, ib{};
+    g_music = ma;
+    CHECK(sat_music_play(ma) == SAT_OK);
+    run_until(*a, 600, [&] { return info_of(ma, &ia) && ia.starting == 0u; });
+    CHECK(sat_music_pause(ma) == SAT_OK);
+    g_played.clear();
+    CHECK(sat_music_prefetch(mb) == SAT_OK);
+    run_until(*a, 4800, [&] { return info_of(mb, &ib) && ib.prefetched != 0u; });
+    CHECK(g_disc.standby_disabled == 0u);
+    CHECK(sat_music_play(mb) == SAT_OK);
+    CHECK(info_of(mb, &ib) && ib.playing == 1u && ib.starting == 0u);   /* audible in the call */
+    g_music = mb;
+    g_played.clear();
+    for (int i = 0; i < 300; ++i) CHECK(field(*b) == SAT_OK);
+    CHECK(g_played.underruns == 0u);
+    check_played(*b, 0u, 2u);
+    CHECK(sat_music_close(ma) == SAT_OK);
+    CHECK(sat_music_close(mb) == SAT_OK);
 }
 
 void test_standby_seek() {

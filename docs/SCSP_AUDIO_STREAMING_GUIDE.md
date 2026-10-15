@@ -170,7 +170,8 @@ rewinds to 0 as the new standby (`sat_music_info(...).standby` / `.prefetched`).
   the manual's figures (`test_prefetch_seek_cost`: a seek charged on every file switch; a model, not a
   measurement) gives: seeks free, the policy never adapts; 500 ms, high 28672 -> 30549, no underrun, the
   prefetch completes; 1.2 s, the first visit starves the playing track (134 underruns) and the prefetch
-  stops.
+  stops. With the playing track paused the same 1.2 s drive completes the prefetch
+  with no underrun and the swap is immediate (the model's safe path, also in the test).
 - **Real drive:** the prefetch moves the laser between two files. The manual's average seek (500 ms at
   2x) is about the playing ring's depth, so prefetch while the playing track is paused or fading, or
   where a glitch is acceptable. Emulators model seeks as free and cannot show this.
