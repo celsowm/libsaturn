@@ -41,6 +41,15 @@ The version is defined once, in the `VERSION` file.
   a looping stereo music file is split into two SCSP stream rings and has
   priority; data jobs (a file extent and `begin`/`chunk`/`done` callbacks) take
   the gaps while the rings hold a reserve. Host-tested against a fake drive.
+- `sat_music_use_disc_stream` (`include/saturn/disc_stream.h`): `sat_music` tracks backed by a disc
+  file stream through the disc scheduler instead of waiting for the drive in `sat_music_update`
+  (Mednafen, jukebox: worst update 359,709 us -> 14.6 ms, worst frame 381 -> 31 ms, 0 underruns).
+  S8/S16, mono/stereo and IMA ADPCM, seek, pause and loop are all served; the feed is pipelined
+  (read the next segment while delivering the last, a slice per frame). Supporting API:
+  `sat_disc_stream_music_attach` / `_detach` / `_abort` / `_prime` (a pluggable music feed,
+  `sat_disc_music_feed_ops_t`), `sat_cdfs_source_file`, `sat_file_backend` and the
+  `disc_streamed` field of `sat_music_info_t`. The jukebox example uses it
+  (`JUKEBOX_DISC_STREAM=0` builds the old blocking path for comparison).
 - Core math/string helpers in `include/saturn/core.h`:
   `SAT_FX16(x)` and `SAT_FX16_ONE` for 16.16 fixed-point literals,
   `SAT_FOURCC(a,b,c,d)` for big-endian four-character tags,

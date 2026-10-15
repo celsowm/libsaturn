@@ -84,6 +84,12 @@ sat_result_t sat_cdfs_register_source_manifest(
     const sat_cdfs_source_desc_t* descs, uint16_t count,
     sat_cdfs_file_source_t* out_sources);
 
+/* The disc file behind a VFS path registered with sat_cdfs_register_source_manifest
+ * (or sat_file_register_backend with sat_cdfs_file_read_at). SAT_ERR_NOT_FOUND for
+ * an unknown path, SAT_ERR_UNSUPPORTED when the path is backed by something else
+ * (a blob, another reader). The file stays valid as long as the mount does. */
+sat_result_t sat_cdfs_source_file(const char* source_path, const sat_cdfs_file_t** out_file);
+
 sat_result_t sat_cdfs_file_read_at(
     void* context,
     uint32_t offset,

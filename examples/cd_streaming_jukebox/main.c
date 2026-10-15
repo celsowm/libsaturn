@@ -1,8 +1,15 @@
 /* cd_streaming_jukebox - CD Block -> CDFS -> VFS -> non-resident music.
  *
  * The executable contains only this control/UI code. The public-domain PCM
- * tracks are staged as ISO files by Makefile.inc, mounted through CDFS, and
- * served to sat_music_update through the bounded asset cache.
+ * tracks are staged as ISO files by Makefile.inc and mounted through CDFS.
+ *
+ * By default the music streams through the library disc scheduler
+ * (JUKEBOX_DISC_STREAM=1, saturn/disc_stream.h): sat_music_play fills the rings with
+ * blocking reads, then sat_music_update only lands the 16 KiB segment that has
+ * arrived and starts the next, so no frame waits for the drive. With
+ * JUKEBOX_DISC_STREAM=0 the tracks are served through the bounded asset
+ * cache instead and a refill stalls the frame for the 64 KiB block read.
+ * The HUD shows the worst frame time either way.
  */
 #include <stdint.h>
 
@@ -12,12 +19,18 @@
 #include "saturn/cd_block.h"
 #include "saturn/cd_mount.h"
 #include "saturn/cdfs.h"
+#include "saturn/disc_stream.h"
+#include "saturn/time.h"
 #include "saturn/color.h"
 #include "saturn/file.h"
 #include "saturn/fmt.h"
 #include "saturn/font.h"
 #include "saturn/hud.h"
 #include "cd_streaming_jukebox/jukebox_data.h"
+
+#ifndef JUKEBOX_DISC_STREAM
+#define JUKEBOX_DISC_STREAM 1
+#endif
 
 #define TRACK_COUNT CD_JUKEBOX_TRACK_COUNT
 #define PREFETCH_BYTES (SAT_ASSET_CACHE_BLOCK_BYTES * SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY)
@@ -40,6 +53,13 @@ static const track_t g_tracks[TRACK_COUNT] = {
 };
 
 static sat_cd_block_t g_cd_block;
+#if JUKEBOX_DISC_STREAM
+static sat_disc_stream_t g_disc;
+#endif
+static uint32_t g_worst_frame_ms;
+static uint32_t g_frames_seen;
+static uint32_t g_worst_update_us;     /* the slowest sat_music_update call */
+static uint32_t g_worst_hook_us;       /* the slowest audio service run from inside a CD Block wait */
 static sat_cd_device_t g_cd_device;
 static sat_cdfs_volume_t g_volume;
 static sat_cdfs_file_source_t g_sources[TRACK_COUNT];
@@ -53,6 +73,11 @@ static uint8_t g_prefetch_active;
 static uint8_t g_track_index;
 static uint8_t g_playing;
 
+static uint32_t ticks_to_us(uint32_t ticks) {
+    const uint32_t hz = sat_time_frequency_hz();
+    return hz < 1000u ? 0u : (uint32_t)(((uint64_t)ticks * 1000u) / (hz / 1000u));
+}
+
 static void draw_line(const sat_ascii_font_t* font, const char* text, int y) {
     (void)font;
     (void)sat_hud_text(&g_hud, text, 8, y);
@@ -65,7 +90,11 @@ static void draw_value(const sat_ascii_font_t* font, const char* label, uint32_t
 
 static sat_result_t service_cd_audio(void* context) {
     (void)context;
-    return sat_audio_update();
+    const uint64_t t0 = sat_time_ticks();
+    const sat_result_t r = sat_audio_update();
+    const uint32_t us = ticks_to_us((uint32_t)(sat_time_ticks() - t0));
+    if (us > g_worst_hook_us) g_worst_hook_us = us;
+    return r;
 }
 
 static sat_result_t register_cd_tracks(void) {
@@ -76,6 +105,11 @@ static sat_result_t register_cd_tracks(void) {
     sat_result_t status = sat_cd_mount_default(
         &g_cd_block, service_cd_audio, 0, &g_cd_device, 0u, &g_volume);
     if (status != SAT_OK) return status;
+#if JUKEBOX_DISC_STREAM
+    status = sat_disc_stream_init(&g_disc, &g_cd_block);
+    if (status == SAT_OK) status = sat_music_use_disc_stream(&g_disc);
+    if (status != SAT_OK) return status;
+#endif
 
     for (uint16_t i = 0u; i < TRACK_COUNT; ++i) {
         g_source_manifest[i] = (sat_cdfs_source_desc_t){
@@ -112,6 +146,10 @@ static sat_result_t register_cd_tracks(void) {
 }
 
 static sat_result_t warm_selected_track(void) {
+#if JUKEBOX_DISC_STREAM
+    /* The scheduler reads the track itself; a cache prefetch would take the drive from it. */
+    return SAT_OK;
+#endif
     if (g_prefetch_active != 0u) {
         (void)sat_asset_prefetch_cancel(g_prefetch);
         g_prefetch_active = 0u;
@@ -158,8 +196,15 @@ int main(void) {
     }
     if (status == SAT_OK) status = sat_hud_init(&g_hud, &font, SAT_COLOR_WHITE, 8u);
 
+    uint32_t last_ms = sat_time_ms();
     for (;;) {
         sat_pad_state_t pad = {0};
+        {
+            const uint32_t now = sat_time_ms();
+            if (now - last_ms > g_worst_frame_ms && g_frames_seen > 2u) g_worst_frame_ms = now - last_ms;
+            last_ms = now;
+            ++g_frames_seen;
+        }
         if (sat_app_frame_begin(SAT_COLOR_BLACK,
                 status == SAT_OK ? SAT_COLOR_GREEN : SAT_COLOR_RED, &pad) != SAT_OK) {
             break;
@@ -180,8 +225,15 @@ int main(void) {
             status = sat_music_info(g_music, &info);
             if (status == SAT_OK) status = sat_music_seek(g_music, info.sample_count / 2u);
         }
+#if !JUKEBOX_DISC_STREAM
         if (status == SAT_OK) status = sat_asset_prefetch_update();
-        if (status == SAT_OK && g_playing != 0u) status = sat_music_update(g_music);
+#endif
+        if (status == SAT_OK && g_playing != 0u) {
+            const uint64_t t0 = sat_time_ticks();
+            status = sat_music_update(g_music);
+            const uint32_t us = ticks_to_us((uint32_t)(sat_time_ticks() - t0));
+            if (us > g_worst_update_us) g_worst_update_us = us;
+        }
         if (status == SAT_OK) status = sat_audio_update();
         /* Audio serviced from inside a CD wait must not fail silently. */
         if (status == SAT_OK && g_cd_block.progress_error_count != 0u) {
@@ -198,15 +250,25 @@ int main(void) {
                 draw_line(&font, g_tracks[g_track_index].title, 28);
                 draw_line(&font, "X/Y TRACK C PAUSE B SEEK", 48);
                 draw_line(&font, "CD BLOCK -> CDFS -> VFS", 60);
+#if JUKEBOX_DISC_STREAM
+                /* The slowest single poll and music delivery. */
+                draw_value(&font, "MAX HOOK US ", g_worst_hook_us, 88);
+                draw_value(&font, "MAX POLL US ", ticks_to_us(g_disc.stats.max_ticks_poll), 100);
+                draw_value(&font, "MAX DELIVER US ", ticks_to_us(g_disc.stats.max_ticks_music), 112);
+                draw_value(&font, "MIN BUFFERED ", g_disc.stats.music_min_buffered, 124);
+#else
                 draw_value(&font, "CACHE HITS ", cache.hits, 88);
                 draw_value(&font, "CACHE MISSES ", cache.misses, 100);
                 draw_value(&font, "CACHE FILLS ", cache.fills, 112);
                 draw_value(&font, "PREFETCH OK ", cache.prefetch_completed, 124);
-                draw_value(&font, "STREAM BUF ", stream.buffered_frames, 148);
-                draw_value(&font, "STREAM REFILLS ", stream.refill_count, 160);
-                draw_value(&font, "STREAM UNDERRUN ", stream.underrun_count, 172);
+#endif
+                draw_value(&font, "STREAM BUF ", stream.buffered_frames, 136);
+                draw_value(&font, "STREAM REFILLS ", stream.refill_count, 148);
+                draw_value(&font, "STREAM UNDERRUN ", stream.underrun_count, 160);
+                draw_value(&font, "WORST FRAME MS ", g_worst_frame_ms, 172);
+                draw_value(&font, "WORST UPDATE US ", g_worst_update_us, 184);
                 draw_line(&font, g_playing != 0u ? "PLAYING FROM ISO" : "PAUSED", 196);
-                draw_line(&font, "PUBLIC DOMAIN MELODIES", 208);
+                draw_line(&font, JUKEBOX_DISC_STREAM ? "DISC SCHEDULER" : "ASSET CACHE", 208);
             }
         }
         (void)sat_app_frame_end();

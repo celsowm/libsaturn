@@ -170,8 +170,11 @@ and the demo has two, the atlas group (to `sat_sprite_atlas_upload_chunk`) and t
 - The music (a looping 22.05 kHz 8-bit stereo track, 564,480 bytes) is fed to two SCSP stream rings
   from the same drive. It has priority: a data segment only starts while both rings hold at least
   8192 frames (docs/SCSP_AUDIO_STREAMING_GUIDE.md: the SCSP half is 4096 samples).
-- `sat_music` itself reads the disc synchronously, so a refill waits for the drive; that alone took
-  the demo from 60 to about 40 fps, which is why the music is fed here.
+- `sat_music` without a scheduler reads the disc synchronously, so a refill waits for the drive;
+  that alone took the demo from 60 to about 40 fps, which is why the demo feeds its music here with
+  the built-in feed. A program that wants `sat_music` (a loop in a file, seeking, pause, ADPCM) binds
+  the scheduler with `sat_music_use_disc_stream` instead and keeps the same guarantee (see
+  docs/SCSP_AUDIO_STREAMING_GUIDE.md, "Disc-scheduled music").
 - Stage 2's group and background are queued during stage 1 and swapped at the transition: the
   background lands in the other VDP2 bank and CRAM bank, scroll and bank switch happen in VBlank.
 
@@ -316,8 +319,9 @@ A build with `BH_AUTOBENCH=1` starts the 128/256/512/1024 benchmark after three 
   not on real hardware, where the VDP1 erase restrictions of the manual apply as described.
 - Enemies and bosses are the pack's placeholders; 19 green/red/orange sprites quantise with a visible
   mean error.
-- `sat_music` still reads synchronously; a program that streams data from the disc while music plays
-  feeds the music through `sat_disc_stream_music_start` instead.
+- `sat_music` reads synchronously unless a scheduler is bound (`sat_music_use_disc_stream`); with one
+  it streams one disc-backed track at a time without waiting for the drive, and only
+  `sat_music_play` (the priming of the rings) still blocks.
 - `sat_disc_stream` reads one extent per job and has no decompression stage: a compressed group is
   the sink's work.
 - CD data-port transfer cost on the CPU is as modelled by the emulators.

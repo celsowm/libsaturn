@@ -3,6 +3,8 @@
 #include <stddef.h>
 
 #include "saturn/asset.h"
+#include "saturn/cdfs.h"
+#include "saturn/disc_stream.h"
 #include "src/audio/playback/ima_adpcm.hpp"
 #include "src/audio/streaming/runtime.hpp"
 
@@ -16,6 +18,12 @@ constexpr uint32_t kMusicUpdateFeedLimit = 4u;
 constexpr uint32_t kMusicFeedBytes = kMusicFeedFrames * 2u * 2u;
 using MusicCopyHalf = uint16_t __attribute__((may_alias));
 
+// A disc segment that was started and whose frames are not all in the rings yet.
+struct PendingSegment {
+    uint32_t skip;   // bytes still to drop at its head (after a seek)
+    uint32_t bound;  // frames it can still add to the rings (a room reservation)
+};
+
 struct MusicSlot {
     sat_audio_stream_t stream;
     sat_audio_stream_t stream_r;  // right channel; valid only when stereo
@@ -28,6 +36,15 @@ struct MusicSlot {
     uint32_t position_bytes;
     uint32_t position_frame;
     uint32_t decoded_block;
+    // Disc-scheduled feed (sat_music_use_disc_stream): the track is read in
+    // segments by the scheduler and delivered here without waiting.
+    const sat_cdfs_file_t* file;  // non-null: this track streams through g_disc
+    uint32_t src_bytes;           // bytes of the file the track occupies (PCM payload, or whole ADPCM blocks)
+    uint32_t file_pos;            // sector-aligned file offset of the next segment to start
+    uint32_t skip_bytes;          // leading bytes of that segment before the track position (after a seek)
+    uint32_t carry_have;          // ADPCM: bytes of a block split across segments, held in `encoded`
+    PendingSegment pend[2];       // started, not yet delivered, oldest first
+    uint8_t pend_count;
     uint8_t channels;
     uint8_t format;
     uint8_t playing;
@@ -48,6 +65,13 @@ struct MusicSlot {
  * moved to the other 4096-sample half, so there is most of that half's
  * time to copy -- orders of magnitude more than the copy costs. */
 MusicSlot g_music[SAT_MUSIC_CAPACITY] __attribute__((section(".wram_l"))) = {};
+
+/* The disc scheduler tracks stream through, and the one slot that is attached to it (the drive
+ * serves one music feed). */
+sat_disc_stream_t* g_disc = nullptr;
+MusicSlot* g_disc_slot = nullptr;
+
+constexpr uint32_t kSectorBytes = 2048u;
 
 uint32_t bytes_per_sample(uint8_t format) {
     if (format == SAT_AUDIO_PCM_S8) return 1u;
@@ -207,6 +231,193 @@ sat_result_t feed(MusicSlot& slot) {
     return SAT_OK;
 }
 
+/* ---- disc-scheduled feed ----------------------------------------------------------------------
+ * The scheduler (src/storage/cd/disc_stream.cpp) owns the drive and asks `next` whenever it is
+ * free. A segment is read from a sector boundary; `deliver` turns the landed bytes into frames and
+ * writes them into the rings, a slice per call so one frame never pays for a whole segment.
+ *
+ * Two segments can be started and not yet delivered, so `next` names a read only when the rings
+ * have room for every frame the segment can produce on top of what the earlier ones can still add
+ * (the `bound` of each pending segment, which shrinks as its frames are written). A write never
+ * fails and nothing waits. */
+
+constexpr uint32_t kAsyncSliceBytes = 4096u;      // payload moved by one PCM `deliver` call
+constexpr uint32_t kAdpcmSegmentBlocks = 8u;      // ADPCM reads stay near 8k frames: two must fit a ring
+
+/* Bytes of the next segment: a whole one, or what is left of the file. ADPCM expands 4:1, so a
+ * 16 KiB read would be most of a ring; its segments are cut to whole sectors near 8 blocks. */
+uint32_t async_segment_bytes(const MusicSlot& slot) {
+    uint32_t cap = SAT_DISC_STREAM_SEGMENT_BYTES;
+    if (slot.format == SAT_AUDIO_IMA_ADPCM) {
+        namespace codec = saturn::core::audio::ima_adpcm;
+        uint32_t sectors = kAdpcmSegmentBlocks * codec::block_bytes(slot.channels) / kSectorBytes;
+        if (sectors == 0u) sectors = 1u;
+        if (sectors * kSectorBytes < cap) cap = sectors * kSectorBytes;
+    }
+    const uint32_t left = slot.src_bytes - slot.file_pos;
+    return left < cap ? left : cap;
+}
+
+/* Frames the next segment can add to the rings at most. */
+uint32_t async_segment_bound(const MusicSlot& slot, uint32_t segment) {
+    const uint32_t payload = segment > slot.skip_bytes ? segment - slot.skip_bytes : 0u;
+    if (slot.format == SAT_AUDIO_IMA_ADPCM) {
+        namespace codec = saturn::core::audio::ima_adpcm;
+        // A block may be completed by this segment's first bytes: whole blocks in (carry + payload).
+        const uint32_t block_bytes = codec::block_bytes(slot.channels);
+        return (payload + block_bytes - 1u) / block_bytes * codec::kBlockFrames;
+    }
+    const uint32_t frame_bytes = bytes_per_sample(slot.format) * slot.channels;
+    return frame_bytes == 0u ? 0u : payload / frame_bytes;
+}
+
+uint8_t async_next(void* user, const sat_cdfs_file_t** file, uint32_t* offset, uint32_t* bytes) {
+    const MusicSlot& slot = *static_cast<const MusicSlot*>(user);
+    if (slot.playing == 0u || slot.pend_count >= 2u) return 0u;
+    const uint32_t segment = async_segment_bytes(slot);
+    uint32_t reserved = 0u;
+    for (uint8_t i = 0u; i < slot.pend_count; ++i) reserved += slot.pend[i].bound;
+    const uint32_t room = writable_frames(slot);
+    if (room < reserved || async_segment_bound(slot, segment) > room - reserved) return 0u;
+    *file = slot.file;
+    *offset = slot.file_pos;
+    *bytes = segment;
+    return 1u;
+}
+
+/* The read `async_next` named is in flight: reserve its room and move the read cursor on. */
+void async_started(void* user) {
+    MusicSlot& slot = *static_cast<MusicSlot*>(user);
+    const uint32_t segment = async_segment_bytes(slot);
+    PendingSegment& pending = slot.pend[slot.pend_count++];
+    pending.skip = slot.skip_bytes;
+    pending.bound = async_segment_bound(slot, segment);
+    slot.skip_bytes = 0u;
+    // The read covers whole sectors; the next one starts after them, and the track loops when
+    // the file's payload ends (a segment never straddles it).
+    slot.file_pos += (segment + kSectorBytes - 1u) / kSectorBytes * kSectorBytes;
+    if (slot.file_pos >= slot.src_bytes) slot.file_pos = 0u;
+}
+
+void async_wrote(MusicSlot& slot, uint32_t frames) {
+    PendingSegment& pending = slot.pend[0];
+    pending.bound = frames < pending.bound ? pending.bound - frames : 0u;
+}
+
+sat_result_t async_deliver_pcm(MusicSlot& slot, const uint8_t* data, uint32_t bytes, uint32_t* consumed) {
+    const uint32_t sample_bytes = bytes_per_sample(slot.format);
+    const uint32_t frame_bytes = sample_bytes * slot.channels;
+    if (frame_bytes == 0u) return SAT_ERR_UNSUPPORTED;     // open() only admits S8/S16: keeps the divide defined
+    uint32_t frames = (bytes < kAsyncSliceBytes ? bytes : kAsyncSliceBytes) / frame_bytes;
+    if (frames == 0u) frames = 1u;
+    if (slot.channels == 1u) {
+        SAT_TRY(write_channel(slot, 0u, data, frames));
+    } else {
+        deinterleave_stereo(data, slot.staging_split, frames, sample_bytes);
+        SAT_TRY(write_channel(slot, 0u, slot.staging_split, frames));
+        SAT_TRY(write_channel(slot, 1u, slot.staging_split + frames * sample_bytes, frames));
+    }
+    async_wrote(slot, frames);
+    *consumed = frames * frame_bytes;
+    return SAT_OK;
+}
+
+/* One block per call. A block can straddle two segments: its head waits in `encoded`
+ * (carry_have bytes) until the rest arrives. */
+sat_result_t async_deliver_adpcm(MusicSlot& slot, const uint8_t* data, uint32_t bytes, uint32_t* consumed) {
+    namespace codec = saturn::core::audio::ima_adpcm;
+    const uint32_t block_bytes = codec::block_bytes(slot.channels);
+    const uint8_t* source;
+    uint32_t used;
+    if (slot.carry_have != 0u) {
+        used = block_bytes - slot.carry_have;
+        if (used > bytes) used = bytes;
+        for (uint32_t i = 0u; i < used; ++i) slot.encoded[slot.carry_have + i] = data[i];
+        slot.carry_have += used;
+        *consumed = used;
+        if (slot.carry_have < block_bytes) return SAT_OK;
+        slot.carry_have = 0u;
+        source = slot.encoded;
+    } else if (bytes >= block_bytes) {
+        used = block_bytes;
+        source = data;
+    } else {
+        slot.carry_have = bytes;
+        for (uint32_t i = 0u; i < bytes; ++i) slot.encoded[i] = data[i];
+        *consumed = bytes;
+        return SAT_OK;
+    }
+    *consumed = used;
+    if (!codec::decode_block(source, slot.channels, slot.staging_split)) return SAT_ERR_IO;
+    const uint32_t in_block = slot.position_frame % codec::kBlockFrames;
+    uint32_t take = codec::kBlockFrames - in_block;
+    if (take > slot.sample_count - slot.position_frame) take = slot.sample_count - slot.position_frame;
+    SAT_TRY(write_channel(slot, 0u, slot.staging_split + in_block * 2u, take));
+    if (slot.channels == 2u) {
+        SAT_TRY(write_channel(slot, 1u, slot.staging_split + codec::kChannelBytes + in_block * 2u, take));
+    }
+    slot.position_frame += take;
+    if (slot.position_frame == slot.sample_count) slot.position_frame = 0u;
+    async_wrote(slot, take);
+    return SAT_OK;
+}
+
+sat_result_t async_deliver(void* user, const uint8_t* data, uint32_t bytes, uint32_t* consumed) {
+    MusicSlot& slot = *static_cast<MusicSlot*>(user);
+    if (slot.pend_count == 0u) {      // not a segment this feed started (aborted): drop it
+        *consumed = bytes;
+        return SAT_OK;
+    }
+    sat_result_t status = SAT_OK;
+    uint32_t used = 0u;
+    if (slot.pend[0].skip != 0u) {
+        // The head of the segment lies before the track position: drop it without a slice.
+        used = slot.pend[0].skip < bytes ? slot.pend[0].skip : bytes;
+        slot.pend[0].skip -= used;
+    } else {
+        status = slot.format == SAT_AUDIO_IMA_ADPCM
+            ? async_deliver_adpcm(slot, data, bytes, &used)
+            : async_deliver_pcm(slot, data, bytes, &used);
+    }
+    if (status != SAT_OK || used >= bytes) {
+        // Segment finished (or dropped): its reservation goes.
+        used = bytes;
+        slot.pend[0] = slot.pend[1];
+        slot.pend_count--;
+    }
+    *consumed = used;
+    return status;
+}
+
+uint32_t async_buffered(void* user) {
+    const MusicSlot& slot = *static_cast<const MusicSlot*>(user);
+    uint32_t frames = sat_audio_stream_buffered(slot.stream);
+    if (slot.channels == 2u) {
+        const uint32_t right = sat_audio_stream_buffered(slot.stream_r);
+        if (right < frames) frames = right;
+    }
+    return frames;
+}
+
+const sat_disc_music_feed_ops_t kAsyncFeed = {async_next, async_started, async_deliver, async_buffered, 1u};
+
+/* Where frame `frame` lies in the file: the sector the read starts at and the bytes to drop.
+ * The scheduler has dropped the segments read for the old position (sat_disc_stream_music_abort). */
+void async_locate(MusicSlot& slot, uint32_t frame) {
+    uint32_t offset;
+    if (slot.format == SAT_AUDIO_IMA_ADPCM) {
+        namespace codec = saturn::core::audio::ima_adpcm;
+        offset = frame / codec::kBlockFrames * codec::block_bytes(slot.channels);
+        slot.position_frame = frame;
+    } else {
+        offset = frame * bytes_per_sample(slot.format) * slot.channels;
+    }
+    slot.file_pos = offset / kSectorBytes * kSectorBytes;
+    slot.skip_bytes = offset - slot.file_pos;
+    slot.carry_have = 0u;
+    slot.pend_count = 0u;
+}
+
 }  // namespace
 
 extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logical_path) {
@@ -244,6 +455,23 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
         }
     }
 
+    // With a disc scheduler bound, a track backed by a disc file streams
+    // through it; any other source (RAM, a blob, a non-disc reader) is read as before.
+    namespace adpcm = saturn::core::audio::ima_adpcm;
+    const sat_cdfs_file_t* disc_file = nullptr;
+    uint32_t src_bytes = 0u;
+    if (g_disc != nullptr && info.data == nullptr && info.source_path != nullptr &&
+        sat_cdfs_source_file(info.source_path, &disc_file) == SAT_OK) {
+        if (g_disc_slot != nullptr) return SAT_ERR_BUSY;
+        src_bytes = compressed != 0u
+            ? static_cast<uint32_t>((static_cast<uint64_t>(sample_count) + adpcm::kBlockFrames - 1u) /
+                                    adpcm::kBlockFrames) * adpcm::block_bytes(info.channels)
+            : sample_count * frame_bytes;
+        if (disc_file->size < src_bytes) return SAT_ERR_INVALID_ARG;
+    } else {
+        disc_file = nullptr;
+    }
+
     for (uint16_t i = 0u; i < SAT_MUSIC_CAPACITY; ++i) {
         MusicSlot& slot = g_music[i];
         if (slot.used != 0u) continue;
@@ -278,6 +506,12 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
             (void)sat_audio_stream_set_pan(slot.stream, SAT_AUDIO_PAN_LEFT);
             (void)sat_audio_stream_set_pan(slot.stream_r, SAT_AUDIO_PAN_RIGHT);
         }
+        slot.file = nullptr;
+        slot.src_bytes = 0u;
+        slot.file_pos = 0u;
+        slot.skip_bytes = 0u;
+        slot.carry_have = 0u;
+        slot.pend_count = 0u;
         slot.asset = asset;
         slot.data = static_cast<const uint8_t*>(info.data);
         for (uint16_t j = 0u; j <= path_length; ++j) slot.logical_path[j] = logical_path[j];
@@ -291,6 +525,18 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
         slot.format = info.format;
         slot.playing = 0u;
         slot.used = 1u;
+        if (disc_file != nullptr) {
+            const sat_result_t attached = sat_disc_stream_music_attach(g_disc, &kAsyncFeed, &slot);
+            if (attached != SAT_OK) {
+                slot.used = 0u;
+                (void)sat_audio_stream_close(slot.stream);
+                if (stereo != 0u) (void)sat_audio_stream_close(slot.stream_r);
+                return attached;
+            }
+            slot.file = disc_file;
+            slot.src_bytes = src_bytes;
+            g_disc_slot = &slot;
+        }
         out_music->slot = i;
         out_music->generation = slot.generation;
         return SAT_OK;
@@ -306,7 +552,16 @@ extern "C" sat_result_t sat_music_play(sat_music_t music) {
     // CD reads may service audio during priming, so both streams stay paused
     // until their software rings are full. They then start together on the
     // next audio update.
-    while (writable_frames(*slot) != 0u) {
+    if (slot->file != nullptr) {
+        // The one blocking moment: fill both rings from the disc. Every later
+        // refill is a segment the scheduler delivers from sat_music_update.
+        const sat_result_t st = sat_disc_stream_music_prime(g_disc);
+        if (st != SAT_OK) {
+            slot->playing = 0u;
+            return st;
+        }
+    }
+    while (slot->file == nullptr && writable_frames(*slot) != 0u) {
         const sat_result_t st = feed(*slot);
         if (st != SAT_OK) {
             slot->playing = 0u;
@@ -336,13 +591,17 @@ namespace {
 /* Keys off both channels, drops everything buffered and moves the source
  * cursor, leaving the track stopped. */
 sat_result_t rewind_to(MusicSlot& slot, uint32_t frame) {
+    // A segment read for the old position must not land in the flushed rings.
+    if (slot.file != nullptr) sat_disc_stream_music_abort(g_disc);
     SAT_TRY(sat_audio_stream_pause(slot.stream));
     SAT_TRY(sat_audio_stream_flush(slot.stream));
     if (slot.channels == 2u) {
         SAT_TRY(sat_audio_stream_pause(slot.stream_r));
         SAT_TRY(sat_audio_stream_flush(slot.stream_r));
     }
-    if (slot.format == SAT_AUDIO_IMA_ADPCM) {
+    if (slot.file != nullptr) {
+        async_locate(slot, frame);
+    } else if (slot.format == SAT_AUDIO_IMA_ADPCM) {
         slot.position_frame = frame;
         slot.decoded_block = 0xFFFFFFFFu;
     } else {
@@ -372,6 +631,9 @@ extern "C" sat_result_t sat_music_seek(sat_music_t music, uint32_t frame) {
 extern "C" sat_result_t sat_music_update(sat_music_t music) {
     MusicSlot* slot = resolve(music);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
+    // A disc-scheduled track: land the segment that has arrived and start the
+    // next one. Never waits for the drive; also moves the scheduler's data jobs.
+    if (slot->file != nullptr) return sat_disc_stream_service(g_disc);
     for (uint32_t i = 0u; i < kMusicUpdateFeedLimit; ++i) {
         if (slot->playing == 0u || writable_frames(*slot) == 0u) break;
         SAT_TRY(feed(*slot));
@@ -379,9 +641,20 @@ extern "C" sat_result_t sat_music_update(sat_music_t music) {
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_music_use_disc_stream(sat_disc_stream_t* stream) {
+    if (g_disc_slot != nullptr) return SAT_ERR_BUSY;
+    g_disc = stream;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_music_close(sat_music_t music) {
     MusicSlot* slot = resolve(music);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
+    if (slot->file != nullptr) {
+        sat_disc_stream_music_detach(g_disc);
+        g_disc_slot = nullptr;
+        slot->file = nullptr;
+    }
     SAT_TRY(sat_audio_stream_close(slot->stream));
     if (slot->channels == 2u) SAT_TRY(sat_audio_stream_close(slot->stream_r));
     slot->used = 0u;
@@ -406,6 +679,7 @@ extern "C" sat_result_t sat_music_info(sat_music_t music, sat_music_info_t* out_
     out_info->format = slot->format;
     out_info->looping = 1u;
     out_info->playing = slot->playing;
+    out_info->disc_streamed = slot->file != nullptr ? 1u : 0u;
     return SAT_OK;
 }
 
@@ -451,11 +725,14 @@ extern "C" uint16_t sat_music_capacity(void) {
 namespace saturn::core {
 
 void music_runtime_reset() {
+    if (g_disc_slot != nullptr) sat_disc_stream_music_detach(g_disc);
+    g_disc_slot = nullptr;
     for (uint16_t i = 0u; i < SAT_MUSIC_CAPACITY; ++i) {
         MusicSlot& slot = g_music[i];
         slot.used = 0u;
         slot.generation = next_generation(slot.generation);
         slot.data = nullptr;
+        slot.file = nullptr;
         slot.asset = {};
         slot.logical_path[0] = '\0';
         slot.payload_bytes = 0u;

@@ -47,25 +47,23 @@ uint32_t music_segment_bytes(const sat_disc_stream_t* s) {
     return left < SAT_DISC_STREAM_SEGMENT_BYTES ? left : SAT_DISC_STREAM_SEGMENT_BYTES;
 }
 
-/* Starts the next music segment unless the drive is busy; true when it started. */
-bool begin_music(sat_disc_stream_t* s) {
-    const uint32_t bytes = music_segment_bytes(s);
-    uint32_t lba = 0u, sectors = 0u;
-    if (note(s, sat_cdfs_file_sectors(s->music_file, s->music_pos, bytes, &lba, &sectors)) != SAT_OK) return false;
-    const sat_result_t r = sat_cd_stream_begin(s->block, lba, sectors, s->buffer);
-    if (r == SAT_ERR_BUSY) return false;
-    if (note(s, r) != SAT_OK) return false;
-    s->seg_music_bytes = bytes;
-    s->seg_sectors = sectors;
-    s->in_flight = kFlightMusic;
-    s->stats.segments++;
-    return true;
+/* The built-in feed: a looping raw interleaved stereo file split into the scheduler's own two rings. */
+
+uint8_t builtin_next(void* user, const sat_cdfs_file_t** file, uint32_t* offset, uint32_t* bytes) {
+    const sat_disc_stream_t* s = static_cast<const sat_disc_stream_t*>(user);
+    const uint32_t seg = music_segment_bytes(s);
+    if (ring_room(s) < music_frames(s, seg)) return 0u;
+    *file = s->music_file;
+    *offset = s->music_pos;
+    *bytes = seg;
+    return 1u;
 }
 
-/* The music segment has landed in s->buffer: split it into the two rings. */
-sat_result_t deliver_music(sat_disc_stream_t* s) {
-    const uint32_t frames = music_frames(s, s->seg_music_bytes);
-    const uint16_t* in = reinterpret_cast<const uint16_t*>(s->buffer);
+/* The music segment has landed: split it into the two rings (whole, in one call). */
+sat_result_t builtin_deliver(void* user, const uint8_t* data, uint32_t bytes, uint32_t* consumed) {
+    sat_disc_stream_t* s = static_cast<sat_disc_stream_t*>(user);
+    const uint32_t frames = music_frames(s, bytes);
+    const uint16_t* in = reinterpret_cast<const uint16_t*>(data);
     const void* left;
     const void* right;
     if (s->music_sample_bytes == 1u) {
@@ -80,10 +78,9 @@ sat_result_t deliver_music(sat_disc_stream_t* s) {
             rr[i] = static_cast<uint8_t>(v);
         }
 #else
-        const uint8_t* const bytes = s->buffer;
         for (uint32_t i = 0; i < frames; ++i) {
-            l[i] = bytes[i * 2u];
-            rr[i] = bytes[i * 2u + 1u];
+            l[i] = data[i * 2u];
+            rr[i] = data[i * 2u + 1u];
         }
 #endif
         left = l;
@@ -100,15 +97,98 @@ sat_result_t deliver_music(sat_disc_stream_t* s) {
     }
     sat_result_t r = sat_audio_stream_write(s->music_left, left, frames);
     if (r == SAT_OK) r = sat_audio_stream_write(s->music_right, right, frames);
-    note(s, r);
     s->music_pos += s->seg_sectors * kSector;
     if (s->music_pos >= s->music_bytes) {
         s->music_pos = 0u;
         s->stats.music_loops++;
     }
-    s->stats.music_segments++;
-    s->stats.music_bytes += s->seg_music_bytes;
+    *consumed = bytes;
     return r;
+}
+
+uint32_t builtin_buffered(void* user) {
+    return SAT_DISC_MUSIC_RING_FRAMES - ring_room(static_cast<const sat_disc_stream_t*>(user));
+}
+
+const sat_disc_music_feed_ops_t kBuiltinFeed = {builtin_next, nullptr, builtin_deliver, builtin_buffered, 0u};
+
+enum MusicBegin { kMusicStarted, kMusicNotWanted, kMusicBlocked, kMusicNoBuffer };
+
+uint8_t* segment_buffer(sat_disc_stream_t* s, uint8_t index) {
+    return index == 0u ? s->buffer : s->split;
+}
+
+/* A segment buffer nothing holds (-1: none). The built-in feed splits into `split`, so only a
+ * pipelined feed (which delivers from the buffer itself) may land there. */
+int free_buffer(const sat_disc_stream_t* s) {
+    const uint8_t used = static_cast<uint8_t>((s->deliv_active != 0u ? 1u << s->deliv_buf : 0u) |
+                                              (s->ready != 0u ? 1u << s->ready_buf : 0u) |
+                                              (s->in_flight != kFlightNone ? 1u << s->fly_buf : 0u));
+    const bool two = s->music_ops != nullptr && s->music_ops->pipelined != 0u;
+    if ((used & 1u) == 0u) return 0;
+    if (two && (used & 2u) == 0u) return 1;
+    return -1;
+}
+
+/* Starts the next music segment unless the drive is busy or the feed wants none. */
+MusicBegin begin_music(sat_disc_stream_t* s) {
+    const int buf = free_buffer(s);
+    if (buf < 0) return kMusicNoBuffer;
+    const sat_cdfs_file_t* file = nullptr;
+    uint32_t offset = 0u, bytes = 0u;
+    if (s->music_ops->next(s->music_user, &file, &offset, &bytes) == 0u) return kMusicNotWanted;
+    if (file == nullptr || bytes == 0u || bytes > SAT_DISC_STREAM_SEGMENT_BYTES) {
+        note(s, SAT_ERR_INVALID_ARG);
+        return kMusicBlocked;
+    }
+    uint32_t lba = 0u, sectors = 0u;
+    if (note(s, sat_cdfs_file_sectors(file, offset, bytes, &lba, &sectors)) != SAT_OK) return kMusicBlocked;
+    const sat_result_t r = sat_cd_stream_begin(s->block, lba, sectors, segment_buffer(s, static_cast<uint8_t>(buf)));
+    if (r == SAT_ERR_BUSY) return kMusicBlocked;
+    if (note(s, r) != SAT_OK) return kMusicBlocked;
+    s->seg_music_bytes = bytes;
+    s->seg_sectors = sectors;
+    s->fly_buf = static_cast<uint8_t>(buf);
+    s->in_flight = kFlightMusic;
+    s->stats.segments++;
+    if (s->music_ops->started != nullptr) s->music_ops->started(s->music_user);
+    return kMusicStarted;
+}
+
+/* Hands the next part of the segment being delivered to the feed: one call, whatever it consumes. */
+sat_result_t deliver_slice(sat_disc_stream_t* s) {
+    const uint16_t t0 = sat_time_frc();
+    const uint32_t left = s->deliv_bytes - s->deliv_off;
+    uint32_t used = 0u;
+    const sat_result_t r = s->music_ops->deliver(s->music_user, segment_buffer(s, s->deliv_buf) + s->deliv_off, left, &used);
+    note(s, r);
+    if (r != SAT_OK || used == 0u || used > left) used = left;     /* a failed or stuck segment is dropped */
+    s->deliv_off += used;
+    if (s->deliv_off >= s->deliv_bytes) {
+        s->stats.music_segments++;
+        s->stats.music_bytes += s->deliv_bytes;
+        s->deliv_active = s->ready;
+        if (s->ready != 0u) {
+            s->deliv_buf = s->ready_buf;
+            s->deliv_off = 0u;
+            s->deliv_bytes = s->ready_bytes;
+            s->ready = 0u;
+        }
+    }
+    const uint16_t dt = static_cast<uint16_t>(sat_time_frc() - t0);
+    s->stats.ticks_music += dt;
+    if (dt > s->stats.max_ticks_music) s->stats.max_ticks_music = dt;
+    return r;
+}
+
+/* Runs the deliveries to the end. */
+sat_result_t drain_deliveries(sat_disc_stream_t* s) {
+    sat_result_t first = SAT_OK;
+    while (s->deliv_active != 0u) {
+        const sat_result_t r = deliver_slice(s);
+        if (first == SAT_OK) first = r;
+    }
+    return first;
 }
 
 /* ---- data jobs -------------------------------------------------------------------------- */
@@ -152,9 +232,38 @@ sat_result_t deliver_data(sat_disc_stream_t* s) {
     const sat_disc_job_t& job = head_job(s);
     const uint32_t avail = s->seg_sectors * kSector;
     const uint32_t n = s->bytes_left < avail ? s->bytes_left : avail;
-    const sat_result_t r = job.ops->chunk(job.user, job.arg, s->buffer, n);
+    const sat_result_t r = job.ops->chunk(job.user, job.arg, segment_buffer(s, s->fly_buf), n);
     s->bytes_left -= n;
     s->stats.bytes += n;
+    return r;
+}
+
+/* The segment in flight has fully arrived: hand it on. A music segment joins the delivery queue
+ * (a pipelined feed is then served one slice per service call; any other is delivered at once).
+ * Returns the sink's result (a pipelined music segment: SAT_OK, its result comes with the slices). */
+sat_result_t land(sat_disc_stream_t* s) {
+    const uint8_t kind = s->in_flight;
+    s->in_flight = kFlightNone;
+    if (kind == kFlightMusic) {
+        if (s->deliv_active == 0u) {
+            s->deliv_active = 1u;
+            s->deliv_buf = s->fly_buf;
+            s->deliv_off = 0u;
+            s->deliv_bytes = s->seg_music_bytes;
+        } else {
+            s->ready = 1u;
+            s->ready_buf = s->fly_buf;
+            s->ready_bytes = s->seg_music_bytes;
+        }
+        return s->music_ops->pipelined != 0u ? SAT_OK : drain_deliveries(s);
+    }
+    const uint16_t t0 = sat_time_frc();
+    const sat_result_t r = deliver_data(s);
+    if (r != SAT_OK) finish_job(s, r);
+    else if (s->sectors_left == 0u) finish_job(s, SAT_OK);
+    const uint16_t dt = static_cast<uint16_t>(sat_time_frc() - t0);
+    s->stats.ticks_data += dt;
+    if (dt > s->stats.max_ticks_data) s->stats.max_ticks_data = dt;
     return r;
 }
 
@@ -186,7 +295,7 @@ extern "C" sat_result_t sat_disc_stream_music_start(sat_disc_stream_t* s, sat_di
                                                     uint32_t sample_rate, uint32_t sample_bytes) {
     if (s == nullptr || rings == nullptr || file == nullptr || bytes < SAT_DISC_STREAM_SEGMENT_BYTES ||
         (sample_bytes != 1u && sample_bytes != 2u) || (bytes % (2u * sample_bytes)) != 0u ||
-        s->in_flight != kFlightNone || s->music_open != 0u) {
+        s->in_flight != kFlightNone || s->music_open != 0u || s->music_ops != nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
     if (file->size < bytes) return SAT_ERR_INVALID_ARG;
@@ -210,18 +319,68 @@ extern "C" sat_result_t sat_disc_stream_music_start(sat_disc_stream_t* s, sat_di
     s->music_bytes = bytes;
     s->music_pos = 0u;
     s->music_open = 1u;
-    while (ring_room(s) >= music_frames(s, music_segment_bytes(s))) {
-        if (!begin_music(s)) return s->stats.last_error != SAT_OK ? static_cast<sat_result_t>(s->stats.last_error) : SAT_ERR_BUSY;
-        r = sat_cd_stream_finish(s->block);
-        s->in_flight = kFlightNone;
-        if (r != SAT_OK) return note(s, r);
-        r = deliver_music(s);
-        if (r != SAT_OK) return r;
-    }
+    s->music_ops = &kBuiltinFeed;
+    s->music_user = s;
+    r = sat_disc_stream_music_prime(s);
+    if (r != SAT_OK) return r;
     r = sat_audio_stream_resume(s->music_left);
     if (r == SAT_OK) r = sat_audio_stream_resume(s->music_right);
     s->music_wanted = 1u;
     return r;
+}
+
+extern "C" sat_result_t sat_disc_stream_music_attach(sat_disc_stream_t* s, const sat_disc_music_feed_ops_t* ops, void* user) {
+    if (s == nullptr || ops == nullptr || ops->next == nullptr || ops->deliver == nullptr || ops->buffered == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (s->music_ops != nullptr) return SAT_ERR_BUSY;
+    s->music_ops = ops;
+    s->music_user = user;
+    s->music_wanted = 1u;
+    s->stats.music_min_buffered = 0xFFFFFFFFu;
+    return SAT_OK;
+}
+
+extern "C" void sat_disc_stream_music_abort(sat_disc_stream_t* s) {
+    if (s == nullptr) return;
+    if (s->in_flight == kFlightMusic) {
+        note(s, sat_cd_stream_finish(s->block));
+        s->in_flight = kFlightNone;
+    }
+    s->deliv_active = 0u;
+    s->ready = 0u;
+}
+
+extern "C" void sat_disc_stream_music_detach(sat_disc_stream_t* s) {
+    if (s == nullptr || s->music_open != 0u) return;     /* the built-in feed has no detach */
+    sat_disc_stream_music_abort(s);
+    s->music_ops = nullptr;
+    s->music_user = nullptr;
+    s->music_wanted = 0u;
+}
+
+extern "C" sat_result_t sat_disc_stream_music_prime(sat_disc_stream_t* s) {
+    if (s == nullptr || s->music_ops == nullptr) return SAT_ERR_INVALID_ARG;
+    if (s->in_flight != kFlightNone) {
+        /* A segment is in flight (a data one, or music from before): land it first. */
+        SAT_TRY(note(s, sat_cd_stream_finish(s->block)));
+        (void)land(s);
+    }
+    SAT_TRY(drain_deliveries(s));
+    for (;;) {
+        const MusicBegin b = begin_music(s);
+        if (b == kMusicNotWanted) return SAT_OK;
+        if (b == kMusicBlocked || b == kMusicNoBuffer) {
+            return s->stats.last_error != SAT_OK ? static_cast<sat_result_t>(s->stats.last_error) : SAT_ERR_BUSY;
+        }
+        const sat_result_t r = sat_cd_stream_finish(s->block);
+        if (r != SAT_OK) {
+            s->in_flight = kFlightNone;
+            return note(s, r);
+        }
+        (void)land(s);
+        SAT_TRY(drain_deliveries(s));
+    }
 }
 
 extern "C" void sat_disc_stream_music_stats(const sat_disc_stream_t* s, uint32_t* underruns, uint32_t* refills,
@@ -239,13 +398,15 @@ extern "C" void sat_disc_stream_music_stats(const sat_disc_stream_t* s, uint32_t
 }
 
 extern "C" sat_result_t sat_disc_stream_service(sat_disc_stream_t* s) {
-    /* 1. land the segment in flight, if it has arrived */
+    /* 1. move what has arrived of the segment in flight, and land it when it is whole */
     if (s->in_flight != kFlightNone) {
         uint32_t remaining = 0;
         s->stats.polls++;
         const uint16_t tp0 = sat_time_frc();
         const sat_result_t r = sat_cd_stream_poll(s->block, 0, &remaining);
-        s->stats.ticks_poll += static_cast<uint16_t>(sat_time_frc() - tp0);
+        const uint16_t dp = static_cast<uint16_t>(sat_time_frc() - tp0);
+        s->stats.ticks_poll += dp;
+        if (dp > s->stats.max_ticks_poll) s->stats.max_ticks_poll = dp;
         if (r != SAT_OK) {
             note(s, r);
             const bool data = s->in_flight == kFlightData;
@@ -253,28 +414,19 @@ extern "C" sat_result_t sat_disc_stream_service(sat_disc_stream_t* s) {
             if (data) finish_job(s, r);
             return r;
         }
-        if (remaining != 0u) return SAT_OK;
-        const uint8_t kind = s->in_flight;
-        s->in_flight = kFlightNone;
-        const uint16_t td0 = sat_time_frc();
-        if (kind == kFlightMusic) {
-            (void)deliver_music(s);
-            s->stats.ticks_music += static_cast<uint16_t>(sat_time_frc() - td0);
-        } else {
-            const sat_result_t d = deliver_data(s);
-            if (d != SAT_OK) finish_job(s, d);
-            else if (s->sectors_left == 0u) finish_job(s, SAT_OK);
-            s->stats.ticks_data += static_cast<uint16_t>(sat_time_frc() - td0);
-        }
+        if (remaining == 0u) (void)land(s);
     }
 
-    /* 2. start the next segment: the music first, then the data in the gaps */
+    /* 2. one slice of the music segment being delivered */
+    if (s->deliv_active != 0u) (void)deliver_slice(s);
+    if (s->in_flight != kFlightNone) return SAT_OK;
+
+    /* 3. start the next segment: the music first, then the data in the gaps */
     if (s->music_wanted != 0u) {
-        const uint32_t room = ring_room(s);
-        const uint32_t buffered = SAT_DISC_MUSIC_RING_FRAMES - room;
+        const uint32_t buffered = s->music_ops->buffered(s->music_user);
         if (buffered < s->stats.music_min_buffered) s->stats.music_min_buffered = buffered;
-        if (room >= music_frames(s, music_segment_bytes(s)) && begin_music(s)) return SAT_OK;
-        if (s->in_flight != kFlightNone) return SAT_OK;
+        const MusicBegin mb = begin_music(s);
+        if (mb == kMusicStarted || mb == kMusicNoBuffer) return SAT_OK;
         if (buffered < s->music_reserve && (s->running != 0u || s->count != 0u)) {
             s->stats.data_deferred++;
             return SAT_OK;
@@ -282,8 +434,10 @@ extern "C" sat_result_t sat_disc_stream_service(sat_disc_stream_t* s) {
     }
     if (s->running == 0u) start_job(s);
     if (s->running != 0u && s->sectors_left != 0u) {
+        const int buf = free_buffer(s);
+        if (buf < 0) return SAT_OK;
         const uint32_t seg = s->sectors_left < SAT_DISC_STREAM_SEGMENT_SECTORS ? s->sectors_left : SAT_DISC_STREAM_SEGMENT_SECTORS;
-        const sat_result_t r = sat_cd_stream_begin(s->block, s->lba, seg, s->buffer);
+        const sat_result_t r = sat_cd_stream_begin(s->block, s->lba, seg, segment_buffer(s, static_cast<uint8_t>(buf)));
         if (r == SAT_ERR_BUSY) return SAT_OK;             /* the drive is in use: try next frame */
         if (r != SAT_OK) {
             finish_job(s, r);
@@ -292,6 +446,7 @@ extern "C" sat_result_t sat_disc_stream_service(sat_disc_stream_t* s) {
         s->lba += seg;
         s->sectors_left -= seg;
         s->seg_sectors = seg;
+        s->fly_buf = static_cast<uint8_t>(buf);
         s->in_flight = kFlightData;
         s->stats.segments++;
     }

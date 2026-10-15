@@ -57,6 +57,10 @@ typedef struct sat_music_info {
     uint8_t format;
     uint8_t looping;
     uint8_t playing;
+    /* 1: the track streams through the disc scheduler (sat_music_use_disc_stream), so
+     * sat_music_update never waits for the drive. */
+    uint8_t disc_streamed;
+    uint8_t reserved[3];
 } sat_music_info_t;
 
 typedef struct sat_audio_stream_stats {
@@ -175,6 +179,10 @@ sat_result_t sat_music_stop(sat_music_t music);
  * there after re-priming both channels; a paused or stopped one starts there
  * on the next sat_music_play. The buffered audio is dropped either way. */
 sat_result_t sat_music_seek(sat_music_t music, uint32_t frame);
+/* Moves the audio forward. A RAM-resident track copies into the rings; a track read from the
+ * disc through the legacy path waits for the drive when it needs more. A disc-scheduled track
+ * (sat_music_use_disc_stream) lands the segment that has arrived and starts the next, never
+ * waiting; it also advances the scheduler's data jobs. */
 sat_result_t sat_music_update(sat_music_t music);
 sat_result_t sat_music_close(sat_music_t music);
 sat_result_t sat_music_info(sat_music_t music, sat_music_info_t* out_info);

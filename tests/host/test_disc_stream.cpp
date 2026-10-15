@@ -27,6 +27,9 @@ struct Drive {
     uint8_t* dest = nullptr;
     uint32_t latency = 1;          /* polls that report sectors still to come */
     uint32_t polls_left = 0;
+    uint32_t moved = 0;            /* sectors of the open segment already handed over */
+    uint32_t max_poll_sectors = 0; /* most sectors one poll moved */
+    uint32_t arrive_per_poll = 0;  /* the CD Block hands over this many sectors per poll, 0 = all that remain */
     uint32_t begins = 0, busy_hits = 0;
     int fail_poll_after = -1;      /* poll number (1-based) that returns an error, -1 none */
     uint32_t poll_calls = 0;
@@ -35,10 +38,15 @@ struct Drive {
 };
 Drive g_drive;
 
-void deliver_sectors() {
-    for (uint32_t i = 0; i < g_drive.count * kSector; ++i) {
+/* Hands over up to `n` more sectors of the open segment (0 = all that remain). */
+uint32_t deliver_sectors(uint32_t n = 0u) {
+    const uint32_t left = g_drive.count - g_drive.moved;
+    const uint32_t take = n == 0u || n > left ? left : n;
+    for (uint32_t i = g_drive.moved * kSector; i < (g_drive.moved + take) * kSector; ++i) {
         g_drive.dest[i] = disc_byte(static_cast<uint64_t>(g_drive.lba) * kSector + i);
     }
+    g_drive.moved += take;
+    return take;
 }
 
 /* ---- fake SCSP ring ----------------------------------------------------------------------------- */
@@ -127,12 +135,13 @@ extern "C" sat_result_t sat_cd_stream_begin(sat_cd_block_t*, uint32_t lba, uint3
     g_drive.count = sector_count;
     g_drive.dest = static_cast<uint8_t*>(destination);
     g_drive.polls_left = g_drive.latency;
+    g_drive.moved = 0u;
     ++g_drive.begins;
     g_drive.begin_lbas.push_back(lba);
     return SAT_OK;
 }
 
-extern "C" sat_result_t sat_cd_stream_poll(sat_cd_block_t*, uint32_t, uint32_t* out_remaining) {
+extern "C" sat_result_t sat_cd_stream_poll(sat_cd_block_t*, uint32_t max_sectors, uint32_t* out_remaining) {
     ++g_drive.poll_calls;
     if (!g_drive.open) {
         if (out_remaining) *out_remaining = 0u;
@@ -147,7 +156,12 @@ extern "C" sat_result_t sat_cd_stream_poll(sat_cd_block_t*, uint32_t, uint32_t* 
         if (out_remaining) *out_remaining = g_drive.count;
         return SAT_OK;
     }
-    deliver_sectors();
+    const uint32_t took = deliver_sectors(max_sectors != 0u ? max_sectors : g_drive.arrive_per_poll);
+    if (took > g_drive.max_poll_sectors) g_drive.max_poll_sectors = took;
+    if (g_drive.moved < g_drive.count) {
+        if (out_remaining) *out_remaining = g_drive.count - g_drive.moved;
+        return SAT_OK;
+    }
     g_drive.open = false;
     if (out_remaining) *out_remaining = 0u;
     return SAT_OK;
@@ -548,6 +562,227 @@ void test_music_argument_checks() {
     CHECK(u == 0u && r == 0u && b == 0u);
 }
 
+/* ---- an external pipelined feed (what sat_music installs) ------------------------------------- */
+
+/* Reads kMusicBytes in 16 KiB segments from sector 0, looping; `want` limits how many it asks for. */
+struct Feed {
+    uint32_t file_pos = 0;
+    uint32_t want = 0;
+    uint32_t slice = 4096;
+    uint32_t buffered_frames = 16000;
+    uint32_t calls = 0, max_consumed = 0, max_pending = 0;
+    uint32_t segments_done = 0;
+    std::vector<uint32_t> fifo;        /* bytes of the segments started and not yet delivered */
+    std::vector<uint8_t> got, expect;
+    int fail_deliver_at = 0;           /* 1-based deliver call that fails, 0 never */
+    uint32_t max_started = 2;          /* segments it will have started and not delivered at once */
+    void reset() { *this = Feed{}; }
+};
+Feed g_feed;
+sat_disc_music_feed_ops_t g_feed_ops;
+
+uint32_t feed_segment() {
+    const uint32_t left = kMusicBytes - g_feed.file_pos;
+    return left < SAT_DISC_STREAM_SEGMENT_BYTES ? left : SAT_DISC_STREAM_SEGMENT_BYTES;
+}
+
+uint8_t feed_next(void*, const sat_cdfs_file_t** file, uint32_t* offset, uint32_t* bytes) {
+    if (g_feed.want == 0u || g_feed.fifo.size() >= g_feed.max_started) return 0u;
+    *file = &g_music_file;
+    *offset = g_feed.file_pos;
+    *bytes = feed_segment();
+    return 1u;
+}
+
+void feed_started(void*) {
+    const uint32_t seg = feed_segment();
+    for (uint32_t i = 0; i < seg; ++i) {
+        g_feed.expect.push_back(disc_byte(static_cast<uint64_t>(kMusicLba) * kSector + g_feed.file_pos + i));
+    }
+    g_feed.fifo.push_back(seg);
+    if (g_feed.fifo.size() > g_feed.max_pending) g_feed.max_pending = static_cast<uint32_t>(g_feed.fifo.size());
+    g_feed.file_pos += (seg + kSector - 1u) / kSector * kSector;
+    if (g_feed.file_pos >= kMusicBytes) g_feed.file_pos = 0u;
+    --g_feed.want;
+}
+
+sat_result_t feed_deliver(void*, const uint8_t* data, uint32_t bytes, uint32_t* consumed) {
+    ++g_feed.calls;
+    CHECK(!g_feed.fifo.empty());
+    if (g_feed.fail_deliver_at != 0 && g_feed.calls == static_cast<uint32_t>(g_feed.fail_deliver_at)) {
+        *consumed = bytes;
+        g_feed.fifo.erase(g_feed.fifo.begin());
+        return SAT_ERR_IO;
+    }
+    const uint32_t c = bytes < g_feed.slice ? bytes : g_feed.slice;
+    g_feed.got.insert(g_feed.got.end(), data, data + c);
+    if (c > g_feed.max_consumed) g_feed.max_consumed = c;
+    *consumed = c;
+    if (c == bytes) {
+        g_feed.fifo.erase(g_feed.fifo.begin());
+        ++g_feed.segments_done;
+    }
+    return SAT_OK;
+}
+
+uint32_t feed_buffered(void*) { return g_feed.buffered_frames; }
+
+void start_feed(bool pipelined, uint32_t want, uint32_t latency = 3u) {
+    start_stream();
+    g_drive.latency = latency;
+    g_feed.reset();
+    g_feed.want = want;
+    g_feed_ops = sat_disc_music_feed_ops_t{feed_next, feed_started, feed_deliver, feed_buffered, static_cast<uint8_t>(pipelined ? 1u : 0u)};
+    CHECK(sat_disc_stream_music_attach(&g_stream, &g_feed_ops, &g_feed) == SAT_OK);
+}
+
+bool feed_idle() {
+    return g_feed.want == 0u && g_feed.fifo.empty() && g_stream.in_flight == 0u && g_stream.deliv_active == 0u;
+}
+
+/* Ticks until the feed has everything it wanted; returns the ticks used. */
+uint32_t run_feed(bool* overlap = nullptr, uint32_t limit = 5000u) {
+    uint32_t n = 0;
+    while (!feed_idle() && n < limit) {
+        (void)sat_disc_stream_service(&g_stream);
+        if (overlap != nullptr && g_stream.deliv_active != 0u && g_stream.in_flight != 0u) *overlap = true;
+        ++n;
+    }
+    CHECK(feed_idle());
+    return n;
+}
+
+void test_feed_pipelined() {
+    start_feed(true, 24u);
+    bool overlap = false;
+    run_feed(&overlap);
+    CHECK(g_feed.got == g_feed.expect && g_feed.got.size() > 6u * SAT_DISC_STREAM_SEGMENT_BYTES);
+    CHECK(g_feed.segments_done == 24u && g_stream.stats.music_segments == 24u);
+    CHECK(g_stream.stats.music_bytes == g_feed.got.size());
+    CHECK(g_feed.max_consumed <= g_feed.slice);                 /* no call carried a whole segment */
+    CHECK(g_feed.calls > 24u * 3u);                             /* a 16 KiB segment took four slices */
+    CHECK(overlap);                                             /* the drive read while one was delivered */
+    CHECK(g_feed.max_pending == 2u);
+    CHECK(g_drive.busy_hits == 0u);
+    CHECK(g_drive.max_poll_sectors <= SAT_DISC_STREAM_SEGMENT_SECTORS);
+    CHECK(g_stream.stats.last_error == SAT_OK);
+    sat_disc_stream_music_detach(&g_stream);
+    CHECK(g_stream.music_ops == nullptr && g_stream.music_wanted == 0u);
+}
+
+void test_feed_not_pipelined() {
+    start_feed(false, 12u);
+    for (uint32_t i = 0; i < 2000u && !feed_idle(); ++i) {
+        (void)sat_disc_stream_service(&g_stream);
+        CHECK(g_stream.deliv_active == 0u && g_stream.ready == 0u);   /* delivered the moment it landed */
+        CHECK(g_stream.fly_buf == 0u);
+    }
+    CHECK(feed_idle());
+    CHECK(g_feed.got == g_feed.expect && g_feed.segments_done == 12u);
+    CHECK(g_feed.max_pending == 1u);
+    CHECK(g_drive.busy_hits == 0u);
+}
+
+void test_feed_abort_and_prime() {
+    /* prime: reads and delivers everything the feed wants, blocking */
+    start_feed(true, 5u);
+    CHECK(sat_disc_stream_music_prime(&g_stream) == SAT_OK);
+    CHECK(feed_idle() && g_feed.segments_done == 5u && g_feed.got == g_feed.expect);
+    CHECK(g_stream.stats.music_segments == 5u);
+    /* abort: a segment in flight and one being delivered are dropped, nothing stale is delivered */
+    g_feed.reset();
+    g_feed.want = 100u;
+    bool both = false;
+    for (uint32_t i = 0; i < 1000u && !both; ++i) {
+        (void)sat_disc_stream_service(&g_stream);
+        both = g_stream.deliv_active != 0u && g_stream.in_flight != 0u;
+    }
+    CHECK(both);
+    const uint32_t begins = g_drive.begins;
+    sat_disc_stream_music_abort(&g_stream);
+    CHECK(g_stream.deliv_active == 0u && g_stream.ready == 0u && g_stream.in_flight == 0u && !g_drive.open);
+    const uint32_t delivered_at_abort = static_cast<uint32_t>(g_feed.got.size());
+    g_feed.fifo.clear();                                        /* the feed forgets what it started */
+    g_feed.expect.clear();
+    g_feed.got.clear();
+    g_feed.file_pos = 0u;
+    g_feed.want = 7u;
+    run_feed();
+    CHECK(g_feed.got == g_feed.expect && g_feed.segments_done >= 7u);
+    CHECK(g_drive.begins > begins);
+    (void)delivered_at_abort;
+    /* abort with nothing running is harmless */
+    sat_disc_stream_music_abort(&g_stream);
+    sat_disc_stream_music_abort(nullptr);
+}
+
+void test_feed_attach_rules() {
+    start_feed(true, 0u);
+    CHECK(sat_disc_stream_music_attach(&g_stream, &g_feed_ops, &g_feed) == SAT_ERR_BUSY);
+    sat_disc_stream_music_detach(&g_stream);
+    sat_disc_music_feed_ops_t bad = g_feed_ops;
+    bad.deliver = nullptr;
+    CHECK(sat_disc_stream_music_attach(&g_stream, &bad, &g_feed) == SAT_ERR_INVALID_ARG);
+    CHECK(sat_disc_stream_music_attach(&g_stream, nullptr, &g_feed) == SAT_ERR_INVALID_ARG);
+    CHECK(sat_disc_stream_music_prime(&g_stream) == SAT_ERR_INVALID_ARG);       /* no feed */
+    /* the built-in music takes the feed slot, and refuses an attach */
+    CHECK(sat_disc_stream_music_start(&g_stream, &g_rings, &g_music_file, kMusicBytes, 22050u, 2u) == SAT_OK);
+    CHECK(sat_disc_stream_music_attach(&g_stream, &g_feed_ops, &g_feed) == SAT_ERR_BUSY);
+    sat_disc_stream_music_detach(&g_stream);                    /* the built-in feed has no detach */
+    CHECK(g_stream.music_ops != nullptr);
+}
+
+void test_feed_error_drops_segment() {
+    start_feed(true, 8u);
+    g_feed.fail_deliver_at = 3;
+    run_feed();
+    CHECK(g_stream.stats.last_error == SAT_ERR_IO);
+    CHECK(g_feed.segments_done + 1u == 8u);                     /* one dropped, the rest delivered */
+    CHECK(g_stream.stats.music_segments == 8u);
+}
+
+/* A data job runs in the gaps beside a slowly delivered pipelined segment, in its own buffer. */
+void test_feed_with_data() {
+    start_feed(true, 40u, 2u);
+    g_feed.slice = 1024u;
+    g_feed.max_started = 1u;                                    /* leaves the other buffer to the data */
+    sat_disc_job_t job = data_job();
+    CHECK(sat_disc_stream_queue(&g_stream, &job) == SAT_OK);
+    uint32_t n = 0;
+    while ((!feed_idle() || sat_disc_stream_busy(&g_stream)) && n < 8000u) {
+        (void)sat_disc_stream_service(&g_stream);
+        ++n;
+    }
+    CHECK(feed_idle() && sat_disc_stream_busy(&g_stream) == 0u);
+    CHECK(g_sink.done_result == SAT_OK && g_sink.got.size() == kDataBytes);
+    for (uint32_t i = 0; i < kDataBytes; ++i) CHECK(g_sink.got[i] == disc_byte(static_cast<uint64_t>(kDataLba) * kSector + i));
+    CHECK(g_feed.got == g_feed.expect);
+    CHECK(g_drive.busy_hits == 0u);
+    CHECK(g_stream.stats.last_error == SAT_OK);
+    /* data waits below the reserve even with a feed that is only delivering */
+    start_feed(true, 40u, 2u);
+    g_feed.buffered_frames = 100u;
+    g_feed.max_started = 1u;                                    /* leaves gaps in which data could start */
+    sat_disc_job_t job2 = data_job();
+    CHECK(sat_disc_stream_queue(&g_stream, &job2) == SAT_OK);
+    for (uint32_t i = 0; i < 200u; ++i) (void)sat_disc_stream_service(&g_stream);
+    CHECK(g_sink.chunk_calls == 0u && g_stream.stats.data_deferred > 0u);
+}
+
+/* A segment arriving over several polls is landed only when whole, and the bytes are intact. */
+void test_partial_arrival() {
+    start_stream();
+    g_drive.latency = 0u;
+    g_drive.arrive_per_poll = 3u;
+    sat_disc_job_t job = data_job();
+    CHECK(sat_disc_stream_queue(&g_stream, &job) == SAT_OK);
+    for (uint32_t i = 0; i < 400u && sat_disc_stream_busy(&g_stream); ++i) (void)sat_disc_stream_service(&g_stream);
+    CHECK(sat_disc_stream_busy(&g_stream) == 0u && g_sink.done_result == SAT_OK);
+    CHECK(g_sink.got.size() == kDataBytes && g_sink.chunk_calls == 3u);
+    for (uint32_t i = 0; i < kDataBytes; ++i) CHECK(g_sink.got[i] == disc_byte(static_cast<uint64_t>(kDataLba) * kSector + i));
+    CHECK(g_drive.max_poll_sectors == 3u);
+}
+
 }  // namespace
 
 int main() {
@@ -569,6 +804,13 @@ int main() {
     test_data_deferred_below_reserve();
     test_finish_pumps_and_keeps_music_fed();
     test_music_argument_checks();
+    test_feed_pipelined();
+    test_feed_not_pipelined();
+    test_feed_abort_and_prime();
+    test_feed_attach_rules();
+    test_feed_error_drops_segment();
+    test_feed_with_data();
+    test_partial_arrival();
     std::puts("test_disc_stream: ok");
     return 0;
 }

@@ -266,3 +266,13 @@ extern "C" sat_result_t sat_cdfs_file_read_at(
     sat_cdfs_file_source_t* source = static_cast<sat_cdfs_file_source_t*>(context);
     return sat_cdfs_read_at(source->volume, &source->file, offset, destination, bytes, out_read);
 }
+
+extern "C" sat_result_t sat_cdfs_source_file(const char* source_path, const sat_cdfs_file_t** out_file) {
+    if (out_file == nullptr) return SAT_ERR_INVALID_ARG;
+    sat_file_read_at_fn read_at = nullptr;
+    void* context = nullptr;
+    SAT_TRY(sat_file_backend(source_path, &read_at, &context));
+    if (read_at != sat_cdfs_file_read_at || context == nullptr) return SAT_ERR_UNSUPPORTED;
+    *out_file = &static_cast<const sat_cdfs_file_source_t*>(context)->file;
+    return SAT_OK;
+}

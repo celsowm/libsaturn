@@ -51,6 +51,11 @@ sat_result_t sat_file_register_backend(
     sat_file_read_at_fn read_at,
     void* context
 );
+/* The reader and context a path was registered with (a blob mount reports a
+ * NULL reader). For a layer that knows its backend and wants more than
+ * read_at gives it, e.g. the disc scheduler asking whether a track is a CDFS
+ * file. SAT_ERR_NOT_FOUND for an unknown path. */
+sat_result_t sat_file_backend(const char* path, sat_file_read_at_fn* out_read_at, void** out_context);
 sat_result_t sat_file_open(const char* path, sat_file_t* out_file);
 sat_result_t sat_file_read(
     sat_file_t file,

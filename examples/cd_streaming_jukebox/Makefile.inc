@@ -23,3 +23,9 @@ $(EXAMPLE_ISO_FILES) $(CD_JUKEBOX_HEADER) &: tools/generate_cd_streaming_jukebox
 		--out-dir $(CD_JUKEBOX_AUDIO_DIR) \
 		--out-h $(CD_JUKEBOX_HEADER) \
 		--vendored-dir $(CD_JUKEBOX_VENDORED_DIR)
+
+# JUKEBOX_DISC_STREAM=0 builds the blocking asset-cache path for comparison (the default streams the
+# music through the library disc scheduler, saturn/disc_stream.h).
+ifeq ($(JUKEBOX_DISC_STREAM),0)
+CFLAGS += -DJUKEBOX_DISC_STREAM=0
+endif

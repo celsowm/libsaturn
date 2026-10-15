@@ -92,6 +92,47 @@ software rings used by PCM tracks. Each block begins with an exact predictor
 and step index per channel, so seeking and looping need no previous block.
 The SCSP slot format and refill rules above are unchanged.
 
+### Disc-scheduled music
+
+By default `sat_music_update` reads the next 64 KiB of the track with a blocking CD read, so the
+frame waits for the drive (about 200 ms at 2x speed; measured on Mednafen the worst `sat_music_update`
+was 359,709 us and the worst frame 381 ms). The rings hold 1.5 s, so the audio does not underrun,
+but a game stalls every few seconds. Bind the disc scheduler once and the same API streams in the
+background:
+
+```c
+static sat_disc_stream_t disc;                      /* ~32 KiB: put it in .wram_l */
+sat_disc_stream_init(&disc, &cd_block);
+sat_music_use_disc_stream(&disc);                   /* before sat_music_open */
+```
+
+A track registered with `sat_cdfs_register_source_manifest` and opened with `sat_music_open` then
+reads through the scheduler (`sat_music_info(...).disc_streamed` says so); anything else (a RAM blob,
+another reader) keeps the old path, and the drive serves one disc-scheduled track at a time (a
+second `sat_music_open` returns `SAT_ERR_BUSY`). The invariants this keeps:
+
+- one 16 KiB segment (ADPCM: whole sectors near 8 blocks) is in flight at a time, and a second one
+  is delivered while the next is read; at most two are started and not yet in the rings, and the
+  feed only names a read when both rings have room for every frame those segments can still add, so
+  a ring write never fails and nothing waits;
+- a frame pays one polled batch (~4 ms) plus one delivery slice (4 KiB of PCM, or one ADPCM block,
+  ~1.8 ms for S16 stereo), never a whole segment;
+- seek, stop and close drop the segments read for the old position (`sat_disc_stream_music_abort`),
+  waiting at most one segment of drive time; pause leaves the segments already started to land;
+- `sat_music_play` still primes both rings with blocking reads (do it while the screen is dark);
+- a data job queued on the same scheduler (`sat_disc_stream_queue`) takes the gaps while the rings
+  hold the reserve, exactly as with the built-in feed;
+- look every file up before the music plays, and keep progress hooks from calling
+  `sat_music_update`: a lookup or a file read finishes the segment in flight.
+
+Measured on the jukebox (Mednafen, 60 s): worst `sat_music_update` 14.6 ms (4.3 ms poll, 1.8 ms
+delivery, and the audio driver's own refill when it fell in the same call), worst frame 31 ms,
+0 underruns, rings never below 24,320 frames. Ymir, with the harness acceptance test: same
+SCSP contract, L/R in phase, only the inactive half rewritten, including a 1100-frame run with
+seeks and pause. `tests/host/test_music_disc.cpp` runs the real `sat_music` and scheduler against a
+fake drive and SCSP rings: bytes over loops for every format, seeks, aborts, ownership, data jobs
+beside music and transport errors.
+
 ## Resident 68000 scores
 
 For music built from a small resident sample bank, the sound driver can run a

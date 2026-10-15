@@ -75,6 +75,26 @@ extern "C" sat_result_t sat_file_register_backend(
     return register_mount(path, size, nullptr, read_at, context);
 }
 
+extern "C" sat_result_t sat_file_backend(
+    const char* path,
+    sat_file_read_at_fn* out_read_at,
+    void** out_context
+) {
+    if (out_read_at == nullptr || out_context == nullptr) return SAT_ERR_INVALID_ARG;
+    char normalized[SAT_FILE_PATH_MAX] = {};
+    SAT_TRY(path_for_lookup(path, normalized));
+    using namespace saturn::core;
+    for (uint16_t i = 0u; i < SAT_FILE_MOUNT_CAPACITY; ++i) {
+        const FileMount& mount = g_file_asset_runtime.mounts[i];
+        if (mount.used != 0u && __builtin_strcmp(mount.path, normalized) == 0) {
+            *out_read_at = mount.read_at;
+            *out_context = mount.context;
+            return SAT_OK;
+        }
+    }
+    return SAT_ERR_NOT_FOUND;
+}
+
 extern "C" sat_result_t sat_file_open(const char* path, sat_file_t* out_file) {
     if (out_file == nullptr) return SAT_ERR_INVALID_ARG;
     char normalized[SAT_FILE_PATH_MAX] = {};
