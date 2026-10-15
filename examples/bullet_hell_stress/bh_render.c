@@ -52,6 +52,8 @@ uint8_t bh_stage_group(uint16_t stage) { return (uint8_t)(1u + stage % BH_STAGES
 typedef struct sink {
     const bh_view_t* view;
     const uint8_t* ready;
+    const sat_sprite_frame_t* frames;
+    uint32_t clip_base;      /* index offset of the user-clipped copy of every frame */
     sat_sprite_instance_t* out;
     uint32_t n, cap;
 } sink_t;
@@ -63,6 +65,26 @@ static inline void put(sink_t* s, int32_t x_fp, int32_t y_fp, uint16_t frame) {
     bh_view_map(s->view, x_fp >> BH_FP_SHIFT, y_fp >> BH_FP_SHIFT, &i->x, &i->y);
     i->frame = frame;
     i->reserved = 0;
+}
+
+/* A sprite of the playfield. The field is a rectangle of the 640 x 224 screen with the HUD panels
+ * beside it, so anything that crosses the field's edge (an enemy flying in from above, a shot
+ * leaving) must not be drawn over a panel: those sprites use the user-clipped copy of their frame.
+ * The sprites wholly inside, almost all of them, keep the cheaper unclipped frame. `extent` is the
+ * most the sprite reaches from its position, in logical pixels. */
+static inline void put_field(sink_t* s, int32_t x_fp, int32_t y_fp, uint16_t frame, int32_t extent) {
+    if (s->n >= s->cap || !s->ready[frame]) return;
+    const int32_t y = y_fp >> BH_FP_SHIFT;
+    const uint16_t f = (y < extent || y > BH_FIELD_H - extent) ? (uint16_t)(frame + s->clip_base) : frame;
+    sat_sprite_instance_t* i = &s->out[s->n++];
+    bh_view_map(s->view, x_fp >> BH_FP_SHIFT, y, &i->x, &i->y);
+    i->frame = f;
+    i->reserved = 0;
+}
+
+static inline int32_t extent_of(const sink_t* s, uint16_t frame) {
+    const sat_sprite_frame_t* f = &s->frames[frame];
+    return f->width > f->height ? f->width : f->height;
 }
 
 /* HUD text lives in the panels beside the field. Logical y beyond the field (below it at y >= 448,
@@ -106,6 +128,7 @@ static void pills(sink_t* s, int32_t lx, int32_t ly, uint16_t frame, uint32_t co
  * decided once per shape and colour (not per bullet), and the view of a quarter-turned field is two
  * adds, no multiplies (a multiply is several cycles on the SH-2). */
 static void build_bullets(sink_t* s, const bh_sim_t* sim) {
+    enum { BULLET_EXTENT = 16 };   /* the atlas's bullets are at most 16 x 16 */
     uint16_t frame[BH_SHAPES][BH_COLORS];
     for (uint32_t a = 0; a < BH_SHAPES; ++a)
         for (uint32_t c = 0; c < BH_COLORS; ++c) {
@@ -121,9 +144,11 @@ static void build_bullets(sink_t* s, const bh_sim_t* sim) {
     if (v->sxx == 0 && v->syy == 0 && v->sxy == -1 && v->syx == 1) {   /* SAT_TATE_ROT_CW */
         const int32_t c0 = v->c0, d0 = v->d0;
         for (uint32_t i = 0; i < count; ++i, ++b) {
-            const uint16_t f = frame[b->shape][b->color];
+            uint16_t f = frame[b->shape][b->color];
             if (f == 0xFFFFu) continue;
-            out->x = (int16_t)(c0 - (b->y >> BH_FP_SHIFT));
+            const int32_t ly = b->y >> BH_FP_SHIFT;
+            if (ly < BULLET_EXTENT || ly > BH_FIELD_H - BULLET_EXTENT) f = (uint16_t)(f + s->clip_base);
+            out->x = (int16_t)(c0 - ly);
             out->y = (int16_t)(d0 + (b->x >> BH_FP_SHIFT));
             out->frame = f;
             out->reserved = 0;
@@ -132,9 +157,11 @@ static void build_bullets(sink_t* s, const bh_sim_t* sim) {
         }
     } else {
         for (uint32_t i = 0; i < count; ++i, ++b) {
-            const uint16_t f = frame[b->shape][b->color];
+            uint16_t f = frame[b->shape][b->color];
             if (f == 0xFFFFu) continue;
-            bh_view_map(v, b->x >> BH_FP_SHIFT, b->y >> BH_FP_SHIFT, &out->x, &out->y);
+            const int32_t ly = b->y >> BH_FP_SHIFT;
+            if (ly < BULLET_EXTENT || ly > BH_FIELD_H - BULLET_EXTENT) f = (uint16_t)(f + s->clip_base);
+            bh_view_map(v, b->x >> BH_FP_SHIFT, ly, &out->x, &out->y);
             out->frame = f;
             out->reserved = 0;
             ++out;
@@ -144,39 +171,43 @@ static void build_bullets(sink_t* s, const bh_sim_t* sim) {
     s->n += n;
 }
 
-uint32_t bh_render_build(const bh_sim_t* sim, const bh_view_t* view, const uint8_t* frame_ready,
-                         const bh_hud_t* hud, sat_sprite_instance_t* out, uint32_t capacity) {
-    sink_t s = {view, frame_ready, out, 0, capacity};
+uint32_t bh_render_build(const bh_sim_t* sim, const bh_view_t* view, const sat_sprite_frame_t* frames,
+                         uint32_t clip_base, const uint8_t* frame_ready, const bh_hud_t* hud,
+                         sat_sprite_instance_t* out, uint32_t capacity) {
+    sink_t s = {view, frame_ready, frames, clip_base, out, 0, capacity};
     const uint16_t stage = sim->stage % BH_STAGES;
     for (uint16_t i = 0; i < sim->pickup_count; ++i) {
         const bh_pickup_t* p = &sim->pickups[i];
         const uint16_t f = p->type == BH_PICKUP_POWER ? kPickupPower[stage]
                            : p->type == BH_PICKUP_BOMB ? kPickupBomb[stage] : kPickupScore[p->color % BH_COLORS];
-        put(&s, p->x, p->y, f);
+        put_field(&s, p->x, p->y, f, extent_of(&s, f));
     }
     for (uint16_t i = 0; i < sim->enemy_count; ++i) {
         const bh_enemy_t* e = &sim->enemies[i];
-        put(&s, e->x, e->y, kEnemy[stage][e->type]);
+        const uint16_t f = kEnemy[stage][e->type];
+        put_field(&s, e->x, e->y, f, extent_of(&s, f));
     }
     const bh_player_t* pl = &sim->player;
     if (pl->alive && !(pl->invuln & 2u)) {
         for (int i = 0; i < bh_option_count(pl); ++i) {
             int32_t ox, oy;
             bh_option_pos(pl, i, &ox, &oy);
-            put(&s, ox, oy, SHMUP_SHIP_OPTION_BLUE);
+            put_field(&s, ox, oy, SHMUP_SHIP_OPTION_BLUE, extent_of(&s, SHMUP_SHIP_OPTION_BLUE));
         }
-        put(&s, pl->x, pl->y, kShip[pl->bank % BH_BANK_FRAMES]);
+        const uint16_t ship = kShip[pl->bank % BH_BANK_FRAMES];
+        put_field(&s, pl->x, pl->y, ship, extent_of(&s, ship));
     }
     for (uint16_t i = 0; i < sim->shot_count; ++i) {
         const bh_shot_t* sh = &sim->shots[i];
-        put(&s, sh->x, sh->y, sh->kind ? SHMUP_PLAYER_LASER_PINK : SHMUP_PLAYER_SHOT_BLUE);
+        const uint16_t f = sh->kind ? SHMUP_PLAYER_LASER_PINK : SHMUP_PLAYER_SHOT_BLUE;
+        put_field(&s, sh->x, sh->y, f, extent_of(&s, f));
     }
-#ifndef BH_X_NOBULLET   /* experiment: simulate the bullets but do not draw them */
     build_bullets(&s, sim);
-#endif
     for (uint16_t i = 0; i < sim->explosion_count; ++i) {
         const bh_explosion_t* e = &sim->explosions[i];
-        if (!e->delay) put(&s, e->x, e->y, kExplosion[e->frame % BH_EXPLOSION_FRAMES]);
+        if (e->delay) continue;
+        const uint16_t f = kExplosion[e->frame % BH_EXPLOSION_FRAMES];
+        put_field(&s, e->x, e->y, f, extent_of(&s, f));
     }
 
     /* Bottom panel (logical y 448..544): score and the three gauges. */
@@ -190,17 +221,10 @@ uint32_t bh_render_build(const bh_sim_t* sim, const bh_view_t* view, const uint8
     number(&s, 8, -48, "FPS ", hud->fps, 2);
     if (hud->show_timing) {   /* the top panel is 224 px (24 glyphs) long: two pairs a line */
         number(&s, 98, -48, "SRV ", hud->ticks[0], 4);
-#ifdef BH_X_HUD_SERV   /* experiment: the service parts instead of the frame stages */
-        number(&s, 8, -28, "VD2 ", hud->ticks[5], 4);
-        number(&s, 116, -28, "PAD ", hud->ticks[6], 4);
-        number(&s, 8, -8, "DSC ", hud->ticks[7], 4);
-        number(&s, 116, -8, "AUD ", hud->ticks[8], 4);
-#else
         number(&s, 8, -28, "SIM ", hud->ticks[1], 4);
         number(&s, 116, -28, "BLD ", hud->ticks[2], 4);
         number(&s, 8, -8, "DRW ", hud->ticks[3], 4);
         number(&s, 116, -8, "END ", hud->ticks[4], 4);
-#endif
     }
     if (sim->game_over) text(&s, 135, 460, "GAME OVER");
     return s.n;

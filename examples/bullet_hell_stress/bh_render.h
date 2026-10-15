@@ -29,9 +29,15 @@ typedef struct bh_hud {
 } bh_hud_t;
 
 /* Appends to out[0..capacity) and returns the count. Frames that are not resident are left out
- * (frame_ready[i] == 0), so a group that is still streaming never draws garbage. */
-uint32_t bh_render_build(const bh_sim_t* sim, const bh_view_t* view, const uint8_t* frame_ready,
-                         const bh_hud_t* hud, sat_sprite_instance_t* out, uint32_t capacity);
+ * (frame_ready[i] == 0), so a group that is still streaming never draws garbage.
+ *
+ * The frame table `frames` holds the atlas frames twice: [0, clip_base) as they are, and
+ * [clip_base, 2 * clip_base) the same frames with SAT_SPRITE_FLAG_USER_CLIP. A playfield sprite
+ * that crosses the field's edge uses the second copy, so the caller sets the user clip to the field
+ * (bh_view layout) before drawing; the HUD uses the first, and the panels are never drawn over. */
+uint32_t bh_render_build(const bh_sim_t* sim, const bh_view_t* view, const sat_sprite_frame_t* frames,
+                         uint32_t clip_base, const uint8_t* frame_ready, const bh_hud_t* hud,
+                         sat_sprite_instance_t* out, uint32_t capacity);
 
 /* Atlas frame index of a bullet; exposed for the host test and for radius lookup. */
 uint16_t bh_frame_bullet(uint8_t shape, uint8_t color);

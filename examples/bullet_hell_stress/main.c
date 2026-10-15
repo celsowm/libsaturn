@@ -24,7 +24,6 @@
 #include "saturn/cd_block.h"
 #include "saturn/cd_mount.h"
 #include "saturn/cdfs.h"
-#include "saturn/dma.h"
 #include "saturn/color.h"
 #include "saturn/core.h"
 #include "saturn/input.h"
@@ -128,7 +127,8 @@ static bh_music_rings_t g_music_rings __attribute__((section(".wram_l")));
 
 static sat_sprite_atlas_t g_atlas;
 static uint8_t g_atlas_tables[8192] __attribute__((aligned(4)));
-static sat_sprite_frame_t g_frames[SHMUP_FRAME_COUNT];
+/* Every atlas frame twice: as it is, and clipped to the playfield (bh_render.h). */
+static sat_sprite_frame_t g_frames[2u * SHMUP_FRAME_COUNT];
 static uint8_t g_ready[SHMUP_FRAME_COUNT];
 static sat_sprite_instance_t g_instances[BH_MAX_INSTANCES];
 
@@ -153,6 +153,13 @@ static sat_result_t note_setup(sat_result_t r) {
     return r;
 }
 #define SETUP(expr) do { if (note_setup(expr) != SAT_OK) goto setup_failed; } while (0)
+
+/* A group's frames, plain and with the playfield clip (the second half of g_frames). */
+static sat_result_t build_group_frames(uint32_t group) {
+    SAT_TRY(sat_sprite_atlas_build_frames(&g_atlas, group, 0u, g_frames, SHMUP_FRAME_COUNT));
+    return sat_sprite_atlas_build_frames(&g_atlas, group, SAT_SPRITE_FLAG_USER_CLIP,
+                                         g_frames + SHMUP_FRAME_COUNT, SHMUP_FRAME_COUNT);
+}
 
 static uint8_t slot_of(uint16_t serial) { return (uint8_t)(1u + (serial & 1u)); }
 static uint8_t group_of(uint16_t serial) { return bh_stage_group((uint16_t)(serial % BH_STAGES)); }
@@ -239,7 +246,7 @@ static void enter_stage(uint16_t serial) {
         bh_stream_forget_group(&g_stream, old_group);
     }
     bh_stream_forget_background(&g_stream, bg_of(g_active_serial));
-    (void)sat_sprite_atlas_build_frames(&g_atlas, new_group, 0u, g_frames, SHMUP_FRAME_COUNT);
+    (void)build_group_frames(new_group);
     mark_group(new_group, 1u);
     g_bg_slot = (uint8_t)(serial & 1u);
     g_bg_pending = 1u;
@@ -317,9 +324,6 @@ static sat_result_t boot(void) {
 #ifdef BH_FRAME_ON_SUBMIT
     SETUP(sat_vdp1_set_frame_mode(SAT_VDP1_FRAME_ON_SUBMIT));
 #endif
-#ifdef BH_X_DMA
-    sat_dma_set_command_list(1);
-#endif
     SETUP(sat_vdp2_cram_mode_set(0u));
     SETUP(sat_vdp2_back_color_set(SAT_RGB555(2, 2, 4)));
     SETUP(sat_vdp2_sprite_set_priority(SPRITE_PRIORITY));
@@ -361,9 +365,9 @@ static sat_result_t boot(void) {
     SETUP(bh_stream_queue_group(&g_stream, GROUP_COMMON, ATLAS_SLOT_COMMON));
     queue_stage(0u);
     SETUP(bh_stream_finish(&g_stream));
-    SETUP(sat_sprite_atlas_build_frames(&g_atlas, GROUP_COMMON, 0u, g_frames, SHMUP_FRAME_COUNT));
+    SETUP(build_group_frames(GROUP_COMMON));
     mark_group(GROUP_COMMON, 1u);
-    SETUP(sat_sprite_atlas_build_frames(&g_atlas, group_of(0u), 0u, g_frames, SHMUP_FRAME_COUNT));
+    SETUP(build_group_frames(group_of(0u)));
     mark_group(group_of(0u), 1u);
 
     SETUP(show_background(0u));
@@ -466,20 +470,15 @@ int main(void) {
         if (sat_begin_frame() != SAT_OK) break;
         bh_hud_t hud = {g_fps_x10 / 10u, g_sim.bullet_count, (uint32_t)g_sim.stage + 1u, BH_HUD_TIMING, {0}};
         for (uint32_t k = 0; k < 9u; ++k) hud.ticks[k] = g_tick_mean[k];
-        const uint32_t n = bh_render_build(&g_sim, &g_view, g_ready, &hud, g_instances, BH_MAX_INSTANCES);
+        const uint32_t n = bh_render_build(&g_sim, &g_view, g_frames, SHMUP_FRAME_COUNT, g_ready, &hud,
+                                           g_instances, BH_MAX_INSTANCES);
         const uint16_t t_build1 = sat_time_frc();
         sat_sprite_batch_stats_t bs = {0};
-        #ifdef BH_X_NODRAW
-        (void)sat_sprite_batch_draw(g_frames, SHMUP_FRAME_COUNT, g_instances, 0u, 0u, &bs);
-#else
-#ifdef BH_X_PMOD_OR   /* experiment: OR bits into every frame's CMDPMOD */
-        for (uint32_t k = 0; k < SHMUP_FRAME_COUNT; ++k) g_frames[k].pmod |= BH_X_PMOD_OR;
-#endif
-#ifndef BH_X_OPTIONS
-#define BH_X_OPTIONS 0u
-#endif
-        (void)sat_sprite_batch_draw(g_frames, SHMUP_FRAME_COUNT, g_instances, n, BH_X_OPTIONS, &bs);
-#endif
+        /* The playfield sprites that cross the field's edge are clipped to it (bh_render.h). */
+        const sat_rect_t* field = &g_view.layout.field;
+        (void)sat_vdp1_set_user_clip((int16_t)field->x, (int16_t)field->y,
+                                     (int16_t)(field->x + field->width - 1), (int16_t)(field->y + field->height - 1));
+        (void)sat_sprite_batch_draw(g_frames, 2u * SHMUP_FRAME_COUNT, g_instances, n, 0u, &bs);
         const uint16_t t_draw1 = sat_time_frc();
         sat_vdp1_command_stats_t cs = {0};
         (void)sat_vdp1_command_stats(&cs);

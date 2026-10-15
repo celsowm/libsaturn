@@ -25,10 +25,10 @@ import struct
 #: docstring of sat_panic in include/saturn/core.h).
 WRAM_HIGH = 0x06000000
 
-#: Default regex for finding a global symbol in a GNU ld .map file.
-#: Match an address followed by whitespace and the symbol name. Both
-#: the address and the symbol allow leading whitespace so columns
-#: align with cross-link output. Groups: 1 = address, 2 = name.
+#: Regex for any global symbol line of a GNU ld .map file: an address
+#: followed by whitespace and the symbol name. Groups: 1 = address,
+#: 2 = name. find_symbol builds the same shape for the one name it is
+#: asked for.
 _DEFAULT_SYMBOL_RE = r"(?m)^\s*0x([0-9A-Fa-f]+)\s+(\S+)\s*$"
 
 
@@ -40,7 +40,9 @@ def find_symbol(map_path, name, pattern=None):
     is reading the wrong dump. Tests catch the AssertionError and
     fail cleanly.
     """
-    pattern = pattern or _DEFAULT_SYMBOL_RE
+    # The default looks for `name` itself: a real link map lists hundreds of symbols, and the
+    # first "address name" line is not the one the test wants.
+    pattern = pattern or (r"(?m)^\s*0x([0-9A-Fa-f]+)\s+(%s)\s*$" % re.escape(name))
     if not os.path.exists(map_path):
         raise AssertionError("map file is absent: " + map_path)
     with open(map_path, "r", encoding="utf-8", errors="replace") as stream:
