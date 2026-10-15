@@ -59,6 +59,7 @@ MIN_BORDER = 2
 PIVOT_TOLERANCE = 3
 INDEX8_ERROR_BUDGET = 16.0   # mean abs RGB error (0..255) after palette quantisation
 LUT4_ERROR_BUDGET = 40.0
+INDEX8_ERROR_WARN = 12.0     # reported, not rejected: the sprite is visibly off its source colours
 SECTOR = 2048
 HEADER_BYTES = 64
 FRAME_BYTES = 32
@@ -268,6 +269,9 @@ def validate_index8(r: Record, im: np.ndarray, palette_words) -> list[Issue]:
         if err > INDEX8_ERROR_BUDGET:
             out.append(Issue(r.name, "INDEX8 quantisation error over budget",
                              f"{err:.1f} > {INDEX8_ERROR_BUDGET}"))
+        elif err > INDEX8_ERROR_WARN:
+            out.append(Issue(r.name, "INDEX8 quantisation error is high",
+                             f"{err:.1f} of {INDEX8_ERROR_BUDGET}", fatal=False))
     return out
 
 

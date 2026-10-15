@@ -39,8 +39,10 @@ off-centre pivots); the v4 pack, 146 runtime sprites, passes with 0 defects and 
 subset only, `reference_only/` sheets excluded) under `examples/bullet_hell_stress/assets/`. The
 tests prove the gate rejects synthetic defects (clipped wing, fragment, bleed, bad bin).
 
-Known quality notes, not rejections: 14 green/red/orange sprites quantise to the one global palette
-with mean RGB error 12-14.5 / 255; `pickup_shield_*` are intentionally two components; enemies and
+Known quality notes, not rejections: 19 green/red/orange sprites quantise to the one global palette
+with mean RGB error 12-14.5 / 255 (budget 16; `validate` prints each above 12 as a `warn` line, and
+`test_committed_v4_subset_passes` pins that they are the only findings; the shared palette is the
+supplier's, and re-fitting it would shift every sprite, so it is left as delivered); `pickup_shield_*` are intentionally two components; enemies and
 bosses are placeholders by the pack author's own description.
 
 ## Rendering path
@@ -312,7 +314,7 @@ A build with `BH_AUTOBENCH=1` starts the 128/256/512/1024 benchmark after three 
 - Hardware-rotated TATE exists (`sat_tate_fb_init`) but holds 60 fps only to ~384 bullets on Mednafen
   because of the full-field clearing polygon (see Hardware TATE); it was checked on Ymir and Mednafen,
   not on real hardware, where the VDP1 erase restrictions of the manual apply as described.
-- Enemies and bosses are the pack's placeholders; 14 green/red/orange sprites quantise with a visible
+- Enemies and bosses are the pack's placeholders; 19 green/red/orange sprites quantise with a visible
   mean error.
 - `sat_music` still reads synchronously; a program that streams data from the disc while music plays
   feeds the music through `sat_disc_stream_music_start` instead.

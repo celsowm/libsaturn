@@ -156,7 +156,11 @@ class SupplierPackTests(unittest.TestCase):
     def test_committed_v4_subset_passes(self):
         records, meta = sa.load_subset(ASSETS)
         self.assertEqual(len(records), 146)
-        self.assertEqual([str(i) for i in sa.validate_records(records, meta)], [])
+        issues = sa.validate_records(records, meta)
+        self.assertEqual([str(i) for i in issues if i.fatal], [])
+        # the sprites that quantise worst are reported, never silently accepted
+        self.assertTrue(all(i.kind == "INDEX8 quantisation error is high" for i in issues))
+        self.assertTrue(issues)
 
     @unittest.skipUnless(V3_ZIP.exists(), "v3 pack not downloaded")
     def test_v3_pack_is_rejected_with_its_real_defects(self):
