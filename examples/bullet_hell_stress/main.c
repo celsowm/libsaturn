@@ -128,7 +128,7 @@ static sat_cd_block_t g_cd_block;
 static sat_cd_device_t g_cd_device;
 static sat_cdfs_volume_t g_volume;
 /* The two music rings (64 KiB) are too big for Work RAM High; .wram_l is zeroed at boot like .bss. */
-static bh_music_rings_t g_music_rings __attribute__((section(".wram_l")));
+static sat_disc_music_rings_t g_music_rings __attribute__((section(".wram_l")));
 
 static sat_sprite_atlas_t g_atlas;
 static uint8_t g_atlas_tables[8192] __attribute__((aligned(4)));
@@ -517,11 +517,11 @@ int main(void) {
         (void)sat_vdp1_frame_stats(&fs);
         bh_stream_music_stats(&g_stream, (uint32_t*)&g_bh_telemetry.underruns, (uint32_t*)&g_bh_telemetry.refills,
                               (uint32_t*)&g_bh_telemetry.music_buffered);
-        g_bh_telemetry.music_playing = g_stream.music_wanted;
-        g_bh_telemetry.music_min_buffered = g_stream.stats.music_min_buffered;
-        g_bh_telemetry.music_segments = g_stream.stats.music_segments;
-        g_bh_telemetry.music_loops = g_stream.stats.music_loops;
-        g_bh_telemetry.data_deferred = g_stream.stats.data_deferred;
+        g_bh_telemetry.music_playing = g_stream.disc.music_wanted;
+        g_bh_telemetry.music_min_buffered = g_stream.disc.stats.music_min_buffered;
+        g_bh_telemetry.music_segments = g_stream.disc.stats.music_segments;
+        g_bh_telemetry.music_loops = g_stream.disc.stats.music_loops;
+        g_bh_telemetry.data_deferred = g_stream.disc.stats.data_deferred;
         g_bh_telemetry.frame++;
         g_bh_telemetry.video_frames = sat_frame_count();
         g_bh_telemetry.sim_hash = bh_sim_hash(&g_sim);
@@ -549,15 +549,15 @@ int main(void) {
         g_bh_telemetry.late_swaps = fs.late_swaps;
         g_bh_telemetry.draw_waits = fs.draw_waits;
         g_bh_telemetry.draw_timeouts = fs.draw_timeouts;
-        g_bh_telemetry.prof_poll = g_stream.stats.ticks_poll;
-        g_bh_telemetry.prof_music = g_stream.stats.ticks_music;
-        g_bh_telemetry.prof_data = g_stream.stats.ticks_data;
+        g_bh_telemetry.prof_poll = g_stream.disc.stats.ticks_poll;
+        g_bh_telemetry.prof_music = g_stream.disc.stats.ticks_music;
+        g_bh_telemetry.prof_data = g_stream.disc.stats.ticks_data;
         g_bh_telemetry.fps_x10 = g_fps_x10;
-        g_bh_telemetry.stream_bytes = g_stream.stats.bytes;
-        g_bh_telemetry.stream_segments = g_stream.stats.segments;
-        g_bh_telemetry.stream_jobs = g_stream.stats.jobs_done;
-        g_bh_telemetry.stream_waits = g_stream.stats.waits;
-        g_bh_telemetry.stream_error = (uint32_t)(-g_stream.stats.last_error);
+        g_bh_telemetry.stream_bytes = g_stream.disc.stats.bytes;
+        g_bh_telemetry.stream_segments = g_stream.disc.stats.segments;
+        g_bh_telemetry.stream_jobs = g_stream.disc.stats.jobs_done;
+        g_bh_telemetry.stream_waits = g_stream.disc.stats.waits;
+        g_bh_telemetry.stream_error = (uint32_t)(-g_stream.disc.stats.last_error);
         g_bh_telemetry.cd_progress_errors = g_cd_block.progress_error_count;
 
         if ((g_bh_telemetry.frame % 60u) == 0u) {

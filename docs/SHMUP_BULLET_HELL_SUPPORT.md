@@ -18,7 +18,8 @@ pieces are generic.
 | TATE layout | `include/saturn/tate.h`, `src/graphics/2d/tate.cpp` | Logical 224x448 playfield to the screen, CW/CCW, exact edge mapping, HUD panels |
 | Asynchronous pad poll | `sat_input_poll_begin` / `sat_input_poll_finish`, `hal::smpc` | The SMPC INTBACK runs while the frame is simulated |
 | Simulation | `examples/bullet_hell_stress/bh_sim.[ch]`, `tests/host/test_bh_sim.cpp` | Fixed pools, 16.16 math, deterministic LCG, `sat_spatial` collision |
-| Streaming | `examples/bullet_hell_stress/bh_stream.[ch]`, `tools/shmup_music.py` | Next stage's sprites and background read from disc during play; music fed from the same drive |
+| Disc scheduler | `include/saturn/disc_stream.h`, `src/storage/cd/disc_stream.cpp` | One drive, one segment in flight: streamed music first, data jobs (file extent + sink callbacks) in the gaps |
+| Streaming | `examples/bullet_hell_stress/bh_stream.[ch]`, `tools/shmup_music.py` | Next stage's sprites and background read from disc during play through the scheduler; music fed from the same drive |
 | Acceptance | `harness/run-bullet-hell.ps1`, `harness/tests/test_bullet_hell.py` | Ymir run, telemetry and screenshot checks |
 
 ## Asset quality gate
@@ -106,7 +107,11 @@ residency groups whose data is 2048-byte aligned, so one stage's enemies can be 
 sector while the previous stage plays and written into a spare VRAM slot with
 `sat_sprite_atlas_upload_chunk`. Group 0 is the common art; groups 1-3 are the stage enemy sets.
 
-`bh_stream` is the disc scheduler for the demo (it is example code, not library API):
+The scheduler is library code, `sat_disc_stream` (`include/saturn/disc_stream.h`); `bh_stream` in the
+example only says what this game's data is for: a data job is a file extent plus three callbacks
+(`begin` names the extent, `chunk` takes the payload a segment at a time, `done` reports the end),
+and the demo has two, the atlas group (to `sat_sprite_atlas_upload_chunk`) and the SBG1 background
+(to CRAM and VDP2 VRAM). The rules:
 
 - One 16 KiB segment (8 sectors) is in flight at a time; once a frame the program lands what has
   arrived and starts the next. Nothing waits for the drive.
@@ -122,6 +127,16 @@ Measured on Ymir with the stage-skip pad script: 1 stage swap, 0 transition stal
 0 late lists, **0 audio underruns**, the rings never below 7808 frames of 16384, 44 music segments
 and one loop in 1100 fields, 7 stream jobs (514,048 bytes), group mask 0b101 (common + stage 2).
 The dumped audio of a longer run (900 fields) is continuous with no silent runs.
+
+The scheduler has its own host test (`tests/host/test_disc_stream.cpp`, a fake drive that delivers a
+segment after a settable number of polls and fake SCSP rings the test drains). It checks the music
+payload of both sample formats byte for byte through two loops, the data payload and its clipping,
+that a second segment is never started while one is in flight, that a data segment only starts
+while the rings hold the reserve (and is counted in `data_deferred` while they do not), that
+a bad job or a transport error drops the job without jamming the queue, the queue wrap, and that
+`sat_disc_stream_finish` pumps between segments without an underrun. Moving the scheduler into the
+library changed no measurement: Ymir acceptance 12/12 with 0 underruns, and Mednafen 256 bullets
+60 fps with the same stage timings.
 
 ## Performance
 
@@ -247,5 +262,8 @@ A build with `BH_AUTOBENCH=1` starts the 128/256/512/1024 benchmark after three 
 - Hardware-rotated TATE (VDP1 rotation framebuffer + VDP2 rotation) is not implemented.
 - Enemies and bosses are the pack's placeholders; 14 green/red/orange sprites quantise with a visible
   mean error.
-- The disc scheduler lives in the example; `sat_music` still reads synchronously.
+- `sat_music` still reads synchronously; a program that streams data from the disc while music plays
+  feeds the music through `sat_disc_stream_music_start` instead.
+- `sat_disc_stream` reads one extent per job and has no decompression stage: a compressed group is
+  the sink's work.
 - CD data-port transfer cost on the CPU is as modelled by the emulators.

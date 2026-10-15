@@ -28,6 +28,11 @@ The version is defined once, in the `VERSION` file.
   `tools/shmup_music.py` renders the demo track. New example
   `bullet_hell_stress` streams the next stage and the music from disc, with
   `harness/run-bullet-hell.ps1` as its Ymir acceptance run.
+- `include/saturn/disc_stream.h` (`sat_disc_stream`): a disc scheduler for a
+  program that streams data and music from one drive. One segment in flight;
+  a looping stereo music file is split into two SCSP stream rings and has
+  priority; data jobs (a file extent and `begin`/`chunk`/`done` callbacks) take
+  the gaps while the rings hold a reserve. Host-tested against a fake drive.
 - Core math/string helpers in `include/saturn/core.h`:
   `SAT_FX16(x)` and `SAT_FX16_ONE` for 16.16 fixed-point literals,
   `SAT_FOURCC(a,b,c,d)` for big-endian four-character tags,

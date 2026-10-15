@@ -174,6 +174,7 @@ set(LIBSATURN_STORAGE_SOURCES
     src/storage/cartridge/overlay_hal.cpp
     src/storage/cartridge/vfs.cpp
     src/storage/cd/api.cpp
+    src/storage/cd/disc_stream.cpp
     src/storage/cd/exec.cpp
     src/storage/cd/exec_hal.cpp
     src/storage/cd/filesystem.cpp
