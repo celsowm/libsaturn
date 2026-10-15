@@ -94,6 +94,20 @@ The SCSP slot format and refill rules above are unchanged.
 
 ### Disc-scheduled music
 
+The CD Block is not in `docs/sega_saturn_hardware/`. The relevant official text is Sega's *CD
+communication I/F (CD part)* programmer's guide (mirrored at
+`infochunk.com/saturn/segahtml_en/prgg/sysg/cdif/`, "Communication method"): the SH-1 inside the CD
+Block updates its periodic response every 6.7 ms at double speed (13.3 ms at single speed, 16.7 ms
+otherwise) and handles a host command at the next drive-communication window; the host may issue at
+most 30 commands in any 6.7 ms and 60 in any 16.7 ms, and continuous command polling is prohibited
+(use the HIRQ flags, e.g. CSCT, and VBlank timing). The buffer holds 200 sectors in 24 partitions, and
+a data transfer is command, wait for DRDY, read DATATRNS (long-word access for CPU-DMA/software
+loops), end. SCU-DMA from the CD data register is allowed in direct mode only (indirect mode is
+prohibited, SCU manual). So the scheduler's cost is per command (about one command's latency per
+poll), not per sector, which is why it moves whole segments per poll and why shrinking the poll
+only lowered throughput on the emulator. The same limits mean a real drive's command latency can
+differ from Mednafen's and Ymir's; the figures below are emulator measurements.
+
 By default `sat_music_update` reads the next 64 KiB of the track with a blocking CD read, so the
 frame waits for the drive (about 200 ms at 2x speed; measured on Mednafen the worst `sat_music_update`
 was 359,709 us and the worst frame 381 ms). The rings hold 1.5 s, so the audio does not underrun,

@@ -24,6 +24,7 @@
  *
  * g_bh_telemetry holds what harness/tests/test_bullet_hell.py reads. */
 #include <stdint.h>
+#include "saturn/asset.h"
 #include "saturn/audio.h"
 #include "saturn/cd_block.h"
 #include "saturn/cd_mount.h"
@@ -148,7 +149,9 @@ static sat_cd_block_t g_cd_block;
 static sat_cd_device_t g_cd_device;
 static sat_cdfs_volume_t g_volume;
 /* The two music rings (64 KiB) are too big for Work RAM High; .wram_l is zeroed at boot like .bss. */
+#ifndef BH_MUSIC_LIB
 static sat_disc_music_rings_t g_music_rings __attribute__((section(".wram_l")));
+#endif
 
 static sat_sprite_atlas_t g_atlas;
 static uint8_t g_atlas_tables[8192] __attribute__((aligned(4)));
@@ -160,6 +163,12 @@ static sat_sprite_instance_t g_instances[BH_MAX_INSTANCES];
 static bh_sim_t g_sim;
 static bh_view_t g_view;
 static bh_stream_t g_stream;
+#ifdef BH_MUSIC_LIB
+/* BH_MUSIC_LIB=1: the music is a sat_music track on the stream's own disc scheduler (the stage data
+ * shares the drive with it) instead of bh_stream's built-in raw feed. */
+static sat_music_t g_lib_music;
+static sat_cdfs_file_source_t g_music_source;
+#endif
 
 static uint16_t g_active_serial;        /* the stage serial the screen and the resident groups follow */
 static uint16_t g_prefetch_delay;       /* frames until the next stage's data is queued, 0 = nothing pending */
@@ -427,7 +436,28 @@ static sat_result_t boot(void) {
     g_prefetch_delay = PREFETCH_DELAY;
 
     /* The music streams from the same disc, scheduled with the stage data (bh_stream.c). */
+#ifdef BH_MUSIC_LIB
+    {
+        static const sat_cdfs_source_desc_t source = {"STAGE.PCM", "disc/stage.pcm", BH_MUSIC_BYTES};
+        static sat_asset_desc_t desc;
+        static sat_asset_t handle;
+        desc.logical_path = "music/stage";
+        desc.source_path = "disc/stage.pcm";
+        desc.size = BH_MUSIC_BYTES;
+        desc.sample_rate = BH_MUSIC_RATE;
+        desc.sample_count = BH_MUSIC_FRAMES;
+        desc.channels = BH_MUSIC_CHANNELS;
+        desc.format = SAT_AUDIO_PCM_S8;
+        desc.kind = SAT_ASSET_STREAM;
+        SETUP(sat_music_use_disc_stream(&g_stream.disc));
+        SETUP(sat_cdfs_register_source_manifest(&g_volume, &source, 1u, &g_music_source));
+        SETUP(sat_asset_register_manifest(&desc, 1u, &handle));
+        SETUP(sat_music_open(&g_lib_music, "music/stage"));
+        SETUP(sat_music_play(g_lib_music));
+    }
+#else
     SETUP(bh_stream_music_start(&g_stream, &g_music_rings, &g_volume, "STAGE.PCM", BH_MUSIC_BYTES, BH_MUSIC_RATE, BH_MUSIC_SAMPLE_BYTES));
+#endif
 
     {
         bh_params_t params;
@@ -508,6 +538,9 @@ int main(void) {
         if (g_prefetch_delay && --g_prefetch_delay == 0u) queue_stage((uint16_t)(g_active_serial + 1u));
         const uint16_t t_disc0 = sat_time_frc();
         (void)bh_stream_service(&g_stream);
+#ifdef BH_MUSIC_LIB
+        (void)sat_music_update(g_lib_music);
+#endif
         const uint16_t t_disc1 = sat_time_frc();
         (void)sat_audio_update();
         const uint16_t t_audio1 = sat_time_frc();
@@ -565,8 +598,19 @@ int main(void) {
 
         sat_vdp1_frame_stats_t fs;
         (void)sat_vdp1_frame_stats(&fs);
+#ifdef BH_MUSIC_LIB
+        {
+            sat_audio_stream_stats_t ms;
+            if (sat_music_stats(g_lib_music, &ms) == SAT_OK) {
+                g_bh_telemetry.underruns = ms.underrun_count;
+                g_bh_telemetry.refills = ms.refill_count;
+                g_bh_telemetry.music_buffered = ms.buffered_frames;
+            }
+        }
+#else
         bh_stream_music_stats(&g_stream, (uint32_t*)&g_bh_telemetry.underruns, (uint32_t*)&g_bh_telemetry.refills,
                               (uint32_t*)&g_bh_telemetry.music_buffered);
+#endif
         g_bh_telemetry.music_playing = g_stream.disc.music_wanted;
         g_bh_telemetry.music_min_buffered = g_stream.disc.stats.music_min_buffered;
         g_bh_telemetry.music_segments = g_stream.disc.stats.music_segments;

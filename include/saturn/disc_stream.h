@@ -33,9 +33,13 @@
  * drive reads the next segment while the last one is delivered to the rings a slice at a time.
  *
  * What a frame costs (Mednafen, 22.05 kHz stereo S16 from the jukebox, no other load): moving a
- * segment's sectors out of the CD Block ~4 ms (it is the CD command latency, not the data: one
- * sector costs the same, so splitting the transfer into smaller polls only lowers throughput), one
- * delivery slice ~1.8 ms. The audio driver's own SCSP refill (sat_audio_update, ~12 ms when a half
+ * segment's sectors out of the CD Block ~4 ms (an emulator measurement: one sector cost about the
+ * same as eight, so splitting the transfer into smaller polls only lowered throughput). The CD
+ * Block is not in docs/sega_saturn_hardware, but Sega's CD communication I/F programmer's guide
+ * explains the shape: the SH-1 answers a command only at its periodic drive-communication window
+ * (6.7 ms at double speed, 13.3 ms at single), commands are rate limited (30 per 6.7 ms) and
+ * continuous polling is forbidden, so cost is per command, not per sector. The CD buffer holds 200
+ * sectors; one delivery slice ~1.8 ms. The audio driver's own SCSP refill (sat_audio_update, ~12 ms when a half
  * is due) is not part of this module but lands in whichever frame it falls in, including one that
  * also polls.
  *

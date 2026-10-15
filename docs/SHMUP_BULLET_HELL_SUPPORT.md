@@ -175,6 +175,8 @@ and the demo has two, the atlas group (to `sat_sprite_atlas_upload_chunk`) and t
   the built-in feed. A program that wants `sat_music` (a loop in a file, seeking, pause, ADPCM) binds
   the scheduler with `sat_music_use_disc_stream` instead and keeps the same guarantee (see
   docs/SCSP_AUDIO_STREAMING_GUIDE.md, "Disc-scheduled music").
+  `BH_MUSIC_LIB=1` builds the demo that way (STAGE.PCM through `sat_music` on the stream's own
+  scheduler, stage data in the gaps); the Ymir acceptance passes 12/12 on both builds.
 - Stage 2's group and background are queued during stage 1 and swapped at the transition: the
   background lands in the other VDP2 bank and CRAM bank, scroll and bank switch happen in VBlank.
 
