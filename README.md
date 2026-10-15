@@ -580,6 +580,7 @@ Useful starting points:
 - [RAM expansion cartridge](docs/RAM_EXPANSION_CARTRIDGE.md)
 - [SCSP audio streaming](docs/SCSP_AUDIO_STREAMING_GUIDE.md)
 - [Transparency and alpha](docs/TRANSPARENCY_ALPHA.md)
+- [Shmup / bullet-hell support](docs/SHMUP_BULLET_HELL_SUPPORT.md)
 
 The repository also includes Saturn hardware reference material and engineering plans for subsystems that are still evolving.
 

@@ -11,6 +11,20 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- Shmup / bullet-hell support (see `docs/SHMUP_BULLET_HELL_SUPPORT.md`):
+  `include/saturn/sprite_batch.h` (`sat_sprite_batch_draw`: thousands of
+  prepared sprite frames in one call, eight longword stores per VDP1
+  command, pre-clipping disabled for sprites wholly on screen, user-clipped
+  frames via `SAT_SPRITE_FLAG_USER_CLIP`), `include/saturn/sprite_atlas.h`
+  (SATL atlas: content-deduplicated frames, residency groups in VRAM slots,
+  chunked upload for streaming), `include/saturn/tate.h` (logical portrait
+  playfield to a landscape screen, exact edge mapping, HUD panels) and
+  `sat_input_poll_begin` / `sat_input_poll_finish` (the SMPC INTBACK runs
+  while the frame is simulated). `tools/shmup_assets.py` rejects defective
+  sprite packs and packs the atlas and scrolling backgrounds;
+  `tools/shmup_music.py` renders the demo track. New example
+  `bullet_hell_stress` streams the next stage and the music from disc, with
+  `harness/run-bullet-hell.ps1` as its Ymir acceptance run.
 - Core math/string helpers in `include/saturn/core.h`:
   `SAT_FX16(x)` and `SAT_FX16_ONE` for 16.16 fixed-point literals,
   `SAT_FOURCC(a,b,c,d)` for big-endian four-character tags,
