@@ -13,7 +13,7 @@ Targets:
 - Preserve the no-expansion-cartridge configuration, bounded memory, independent 60 Hz simulation, VDP1 command capacity, deterministic gameplay, and stable Master/Slave output.
 - No change to the library's fixed-point semantics, interface ABI, cache publication contract, global painter order, texture ownership, or frustum safety without exact regression coverage.
 - Keep Tekken-specific logic, proprietary data, move formats and PS1-GTE rounding in a future separate consumer repository. LibSaturn should expose generic primitives only. A **render-only benchmark consumer** may use real Tekken assets before gameplay is ported; this does not authorize bundling proprietary data, copying converter assets into LibSaturn, or claiming a gameplay port.
-- Resolve a **persistent local disk/volume with the most usable free space** before fetching reference material or copying disc images; all third-party inputs, downloads, conversion intermediates and working caches remain outside the LibSaturn checkout.
+- Resolve a **persistent local disk/volume with the most usable free space** before downloading any disc archive or copying disc images; all third-party inputs, downloads, conversion intermediates and working caches remain outside the LibSaturn checkout.
 
 ## Existing measurements and already completed work
 
@@ -45,7 +45,7 @@ Tier A counts are the shipped example mesh LOD counts; they are **not** claims a
 
 ### Tier C: real-model benchmark without porting gameplay
 
-1. Complete **Phase -1** to select a local disk with available space, optionally download the verified reference **manual** (not a ROM) from the specified Archive.org URL and separately validate the legally obtained **game disc image**. Then build a **separate optional render-only consumer/harness** that links against LibSaturn; it must not execute Godot or port Tekken's fight state/AI. It may use local, generated headers/binary archives and existing LibSaturn scene/skin/asset APIs.
+1. Complete **Phase -1**: select the highest-free-space eligible local disk, check the [psx-roms-archive](https://archive.org/download/psx-roms-archive) listing and the currently **locked** Tekken 3 `SLUS-00402` archive; download it **only if actually accessible and authorized**, otherwise use an independently verified permitted local original-disc rip. Then build a **separate optional render-only consumer/harness** that links against LibSaturn; it must not execute Godot or port Tekken's fight state/AI. It may use local generated headers/binary archives and existing LibSaturn scene/skin/asset APIs.
 2. Reuse the extraction research and local conversion pipeline of [n0madic/Tekken3Remake](https://github.com/n0madic/Tekken3Remake), especially `tools/remake_import/character.py` and `motion_bake.py`. Convert source assets **offline** to bounded Saturn-native geometry/textures/pose streams; account for PS1 model parts and seam-local multi-anchor positions rather than assuming a conventional glTF rig. A source-derived 22-part skeleton must be mapped explicitly; support additional joints/attachments where actually present.
 3. The reference motion workload must include at least idle, walk, sidestep, punches, kicks, guard, knockdown, and close-range/throw-like contact poses where the source provides them. Use deterministic scripted camera angles, zoom and motion pairs, including both fighters crossing/occluding one another. Real combat rules are **not** part of this benchmark.
 4. Use **identical** deterministic camera, pose, resource residency and input sequences before/after every optimization. Compare the geometry, painter queue, materials, clipping decisions, captures and Master/Slave results. Maintain the baseline source meshes for pixel and geometric comparisons.
@@ -59,73 +59,87 @@ For each tier, record: source/asset fingerprint kept locally, fighter count, LOD
 
 **Minimum release gate:** tiers A and B pass regressions, then Tier C with the *actual two fighters* sustains the agreed frame target (initially 30 unique NTSC frames/s with 60 Hz scripted pose/game-loop updates) **or** the result is explicitly classified as below target with measured root causes. A Tier A LOW 30-submission/s result does **not** close the Tier C gate.
 
-## Phase -1 — choose high-free-space disk and acquire local reference material
+## Phase -1 — select the largest usable disk and acquire Tekken 3 disc data
 
-Perform this **before Tier C extraction or Phase 0 benchmarking** on the actual machine running the harness. A GitHub edit cannot inspect that machine's mounts, download files to it, or establish whether the original PlayStation disc is available: the executing agent must perform the steps and report results.
+This phase precedes Tier C extraction and Phase 0. Execute storage inspection and any permitted download **on the user's actual machine**, not through the GitHub connector. GitHub documentation edits cannot inspect local drive capacities or perform the download.
 
-### Correct source classification (verified 2026-10-14)
+### Input source and current access status (checked 2026-10-14)
 
-The URL supplied for reference is **[Tekken 3 (1998)(Namco)(US)[SLUS-00402] — Internet Archive](https://archive.org/details/Tekken_3_1998_Namco_US_SLUS-00402)**. It belongs to the Internet Archive **PlayStation manuals** collection. Its [file listing](https://archive.org/download/Tekken_3_1998_Namco_US_SLUS-00402) provides a scanned PDF manual (about **15.7 MB**), text, EPUB, DJVU and related files; it **does not contain a PS1 disc image** (`.bin`, `.cue`, `.iso`, `.chd`). The item's `SLUS-00402` name is *not* evidence that a disc image is available.
+Requested source directory: **[Internet Archive — psx-roms-archive](https://archive.org/download/psx-roms-archive)**.
 
-- Download the **manual only** from the verified direct URL:
-  `https://archive.org/download/Tekken_3_1998_Namco_US_SLUS-00402/Tekken_3_1998_Namco_US_SLUS-00402.pdf`
-- Treat the manual as optional documentation for controls/stages/reference. **Do not pass its PDF to Tekken3Remake's disc converter**, rename it as ISO/BIN, or mark the Tier C asset gate as passed because the PDF downloaded.
-- Obtain the actual disc data separately from the user's legitimately accessible original Tekken 3 PlayStation disc/rip, or an explicitly provided authorized local image path. Do not invent a game download URL or silently substitute some other edition/region.
+The listing identifies **\`tekken-3-u-slus-00402-.7z\`**, catalogued at **406.2 MB**, for the US \`SLUS-00402\` edition. As checked on 2026-10-14, its listing labels this file **locked / unavailable for download**, and direct unauthenticated retrieval could not be confirmed. A listing entry is **not evidence of downloadable access**, file integrity, or redistribution rights. **Never bypass an access lock or invent a mirror.** Recheck access at runtime; if the item remains restricted, fall back to a user-provided legitimately accessible original-disc dump and mark the archive acquisition as BLOCKED.
 
-### Storage-volume selection contract
+- Directory to inspect: \`https://archive.org/download/psx-roms-archive\`
+- Specific item to identify in its file listing: \`tekken-3-u-slus-00402-.7z\`
+- Exact candidate URL (conditional on **actual authorized availability**, not verified working): \`https://archive.org/download/psx-roms-archive/tekken-3-u-slus-00402-.7z\`
+- Fetch **only Tekken 3 US SLUS-00402**, if available and legally authorized; do not download the whole archive or unrelated ROMs.
+- Remove the previous reference-manual requirement entirely. No PDF/manual acquisition is part of this work.
+- The historical listed \`406.2 MB\` is the **compressed archive size**, not the unpacked disc size or total temporary-space requirement. Revalidate the current source metadata immediately before choosing a volume.
 
-1. **Inspect first, do not assume `C:`, `/tmp`, `/home` or the repository filesystem has enough space.** Enumerate mounted **persistent, writable local** disks/volumes with total and *available* bytes; ignore read-only, network, temporary/ram-backed and inaccessible mounts. On Windows inspect fixed drives with `Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3"`; on Linux inspect `lsblk -b -f` / `df -Pk`; on macOS use `diskutil list` / `df -Pk` and account for multiple mounts representing the same APFS storage pool.
-2. Select the eligible volume with the **largest currently available space** (not the largest nominal capacity). Estimate required bytes for the manual, original disc image, extracted assets, decompressed conversion intermediates, build output and a **20% safety margin**. Retain sufficient free space for the OS and other users; do not start if the selected volume cannot accommodate the full workload. If no eligible volume has enough space, report the mounts/capacities and stop rather than filling the OS disk.
-3. Create one private work root on that volume, e.g. `D:\\libsaturn-assets\\tekken3` on Windows or `/mnt/data-drive/libsaturn-assets/tekken3` on Linux. Use separate directories `reference/`, `disc/`, `extracted/`, `converted/`, `scratch/`, `logs/`. The example mount paths are **illustrative**, not an assumption about the machine.
-4. Export `TEKKEN3_ASSET_ROOT` and propagate it explicitly to extraction, benchmark, packaging and cleanup scripts. Store only a non-secret local path in local config; never silently fall back to the repo directory or the OS temp disk. Make the root a configurable option rather than an embedded absolute path.
-5. Confirm filesystem write access, available bytes **before each large step**, and that the conversion/test runner reads/writes the selected volume (including temporary files). Avoid duplicating the entire disc image in the repository or in an implicit build cache. Report selected volume, available space before/after, work-root path and expected asset footprint.
-6. Treat media inputs and extracted/generated game content as private local data. Keep `reference/`, `disc/`, `extracted/`, `converted/` and `scratch/` **outside version control and public CI/release bundles**. Never remove an existing unrelated directory as a cleanup shortcut.
+### Storage-volume selection and work directory
 
-### Reference manual download — reproducible examples
+1. Enumerate all **local, writable, persistent** disks/volumes on the machine running the harness. Inspect **free bytes**, not nominal total disk capacity. Windows: \`Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'\`; Linux: \`lsblk -b -f\` and \`df -Pk\`; macOS: \`diskutil list\` and \`df -Pk\`. Reject read-only, ram-backed, system pseudo-filesystems, network mounts, inaccessible mounts and duplicates pointing at one underlying volume/APFS pool.
+2. Choose the eligible volume with the **largest usable free space**, while retaining headroom for the operating system. Budget for ~406.2 MB of possible source download **plus** unpacked BIN/CUE tracks, converted meshes, motion data, textures, compiler/emulator outputs, logs, and a minimum **20% safety margin**. Validate the actual sizes after archive inspection; a 4 GiB floor is an initial preflight only, not a claim that it will always suffice.
+3. Store everything outside the repository, using a work root such as \`D:\libsaturn-assets\tekken3\` on Windows or \`/mnt/large-volume/libsaturn-assets/tekken3\` on Linux. These example paths do not assert that those volumes exist. Within the work root use \`downloads/\`, \`disc/\`, \`extracted/\`, \`converted/\`, \`scratch/\`, and \`logs/\`. Avoid duplicating the original media image.
+4. Set \`TEKKEN3_ASSET_ROOT\` for the whole conversion/benchmark chain. Ensure extraction scratch and subprocess temporary folders also use the selected disk (e.g. explicit \`--workdir\` options, \`TMP\`/\`TEMP\` on Windows, \`TMPDIR\` on POSIX), rather than silently exhausting the OS disk.
+5. Verify write permission and reevaluate available space before downloading and before unpacking. If the largest drive still lacks enough headroom, report the blocker and stop; never overwrite arbitrary files, repartition disks, silently delete user data or use cart RAM as a substitute for host disk space.
+6. Keep media inputs and extracted or converted game assets **private and outside version control**. Check cleanup scripts and ignore rules; publish only generic tooling and aggregate measurements, not \`.7z\`, BIN/CUE/ISO/CHD, models, textures, animations, proprietary screenshots or disc-derived assets.
 
-The following commands run on the **actual machine**, after verifying the chosen target and the available space. Do not run them inside a constrained GitHub connector or save under the LibSaturn checkout.
+### Executable download preflight (only when access is available and authorized)
 
-**Windows PowerShell:** select a fixed, writable drive by free bytes; stop if none is eligible. The example uses a conservative 4 GiB post-download reserve for the wider asset workflow; replace with the full measured estimate before extracting the disc.
+**Windows PowerShell:** select the local fixed volume with the most free space and prepare the directory. Check the remote file's authorization/access status before transferring 406 MB. If unavailable, **stop cleanly**, without producing an empty or HTML masquerading as \`.7z\` file.
 
-```powershell
+\`\`\`powershell
 $volumes = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' |
     Where-Object { $_.FreeSpace -ge 4GB } |
     Sort-Object FreeSpace -Descending)
-if ($volumes.Count -eq 0) { throw 'No fixed writable drive with sufficient free space' }
+if ($volumes.Count -eq 0) { throw 'No eligible local disk with 4 GiB free' }
 $drive = $volumes[0].DeviceID
 $env:TEKKEN3_ASSET_ROOT = Join-Path ($drive + '\') 'libsaturn-assets\tekken3'
-$reference = Join-Path $env:TEKKEN3_ASSET_ROOT 'reference'
-New-Item -ItemType Directory -Force -Path $reference | Out-Null
-$url = 'https://archive.org/download/Tekken_3_1998_Namco_US_SLUS-00402/Tekken_3_1998_Namco_US_SLUS-00402.pdf'
-$pdf = Join-Path $reference 'tekken3_manual_slus00402.pdf'
-Invoke-WebRequest -Uri $url -OutFile $pdf
-if ((Get-Item $pdf).Length -lt 1000000) { throw 'Manual download appears incomplete' }
-Get-FileHash -Algorithm SHA256 $pdf
-```
+$downloads = Join-Path $env:TEKKEN3_ASSET_ROOT 'downloads'
+New-Item -ItemType Directory -Force -Path $downloads | Out-Null
+$url = 'https://archive.org/download/psx-roms-archive/tekken-3-u-slus-00402-.7z'
+try {
+    $head = Invoke-WebRequest -Uri $url -Method Head -MaximumRedirection 5 -ErrorAction Stop
+    if ($head.StatusCode -ne 200) { throw "Unexpected HTTP status $($head.StatusCode)" }
+} catch {
+    throw "Archive item is unavailable/locked; use a permitted local disc rip instead. Detail: $_"
+}
+# Download only with authorized access. Do not bypass access controls.
+$archive = Join-Path $downloads 'tekken-3-u-slus-00402-.7z'
+Invoke-WebRequest -Uri $url -OutFile $archive -ErrorAction Stop
+if ((Get-Item $archive).Length -lt 100000000) {
+    Remove-Item -LiteralPath $archive -Force
+    throw 'Archive download is truncated or not the listed game archive'
+}
+Get-FileHash -Algorithm SHA256 $archive
+\`\`\`
 
-**Linux/macOS:** inspect local writable mounts first, choose the largest eligible free-space volume, then set `TEKKEN3_ASSET_ROOT` to a directory on that **selected** mount (do not use `/tmp` by default):
+**Linux/macOS:** enumerate mounts and have the agent select the largest **eligible persistent and writable** disk first (do not assume \`/tmp\`, root, or an illustrative path is appropriate). Then use the exact \`TEKKEN3_ASSET_ROOT\` on that disk:
 
-```sh
+\`\`\`sh
 df -Pk
-# After selecting an actually mounted, writable disk with sufficient space:
-export TEKKEN3_ASSET_ROOT="/path/on/the/selected/large/disk/libsaturn-assets/tekken3"
-mkdir -p "$TEKKEN3_ASSET_ROOT/reference"
-curl --fail --location --retry 3 \
-  --output "$TEKKEN3_ASSET_ROOT/reference/tekken3_manual_slus00402.pdf" \
-  "https://archive.org/download/Tekken_3_1998_Namco_US_SLUS-00402/Tekken_3_1998_Namco_US_SLUS-00402.pdf"
-shasum -a 256 "$TEKKEN3_ASSET_ROOT/reference/tekken3_manual_slus00402.pdf"
-```
+# Set this to the agent-verified highest-free-space eligible local volume:
+export TEKKEN3_ASSET_ROOT="/path/on/largest-eligible-disk/libsaturn-assets/tekken3"
+mkdir -p "$TEKKEN3_ASSET_ROOT/downloads"
+url="https://archive.org/download/psx-roms-archive/tekken-3-u-slus-00402-.7z"
+# A 403/404/other failure is a BLOCKED acquisition, not permission to bypass a lock.
+curl --fail --location --silent --show-error --head "$url" ||
+  { echo "Source unavailable; supply your own permitted original-disc rip" >&2; exit 1; }
+curl --fail --location --retry 3 --output \
+  "$TEKKEN3_ASSET_ROOT/downloads/tekken-3-u-slus-00402-.7z" "$url"
+shasum -a 256 "$TEKKEN3_ASSET_ROOT/downloads/tekken-3-u-slus-00402-.7z"
+\`\`\`
 
-After fetching, validate the PDF signature (`%PDF-`), nonzero/expected file length, and SHA-256, recording the hash in **local** logs. Checksums verify reproducibility but not permission to distribute copyrighted content. Use retry/partial-transfer cleanup without accidentally trusting a truncated download.
+The snippets do **not** guarantee download success: the item currently appears locked. In automation, additionally inspect HTTP Content-Length/Content-Type and compare the response size against source metadata when available; verify the archive signature and run \`7z t\` **before** extraction. Enforce expanded-space estimates and prevent unsafe archive paths/links or extraction outside \`disc/\` on the selected volume. Record the resulting SHA-256 locally. Do not automatically fetch a different game, edition, or unverified third-party mirror when access fails.
 
-### Real-disc preflight for Tier C
+### Disc and converter gate for Tier C
 
-- Accept a **separate user-supplied local path** to an original-disc rip (e.g. matching BIN+CUE or a verified converter-supported format); verify actual file signatures/track layout, original disc identifiers (`SLUS-00402` if targeting the US version), required contents and sufficient space before processing. A file extension or matching filename by itself proves nothing.
-- Confirm the exact inputs required by Tekken3Remake's extraction code before converting; do not assume the manual's `SLUS` metadata satisfies converter requirements. No automatic download of copyrighted game data is specified by this document.
-- Keep the disc untouched in `disc/` or access it read-only from an existing location. Generate extracted and Saturn-native assets only under `extracted/` and `converted/` on the chosen large volume.
-- If the game-disc input is missing, label **Tier C BLOCKED — game image missing**. The manual may be downloaded successfully while the real-model benchmark remains blocked.
+- Prefer a verified user-supplied original \`SLUS-00402\` PlayStation disc dump if the archive is locked. Do not assume a \`.7z\` filename guarantees genuine compatible BIN/CUE data: test the archive, unpack locally and inspect disc identifiers, track layout and required Tekken3Remake files. Confirm the actual converter input format before invoking it.
+- Point Tekken3Remake's offline converter to a verified local disc input. Output extracted and Saturn-native assets only to \`extracted/\` and \`converted/\`; never put derived assets in the Git checkout, commits or public CI.
+- If no legally accessible valid disc is present, declare **Tier C BLOCKED — game image unavailable**, and continue only Tier A/B generic optimization. Do not fabricate model measurements.
 
-**Gate -1:** the reference URL is classified correctly; persistent writable large-volume work root selected and space-checked; manual downloaded and hashed **if requested**; original-game input independently verified before conversion. If game data is unavailable, A/B work can proceed but Tier C remains BLOCKED.
+**Gate -1:** eligible largest-free-space disk chosen and space-checked; specified Archive.org game listing and its accessibility checked accurately; optional download only on actual authorized access; archive/disc validated before model conversion; no media or extracted art committed.
 
 ## Phase 0 — reproducible profiling first
 
