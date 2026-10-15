@@ -27,6 +27,7 @@ static uint8_t g_current_sample_block = 0u;
 static uint32_t g_upload_fail_at = 0u;
 static uint8_t g_last_upload_head[4] = {};
 static uint32_t g_last_upload_offset = 0u;
+static uint32_t g_upload_bytes = 0u;
 
 bool upload(uint32_t offset, const void* data, uint32_t byte_count) {
     ++g_upload_count;
@@ -34,6 +35,7 @@ bool upload(uint32_t offset, const void* data, uint32_t byte_count) {
     const uint8_t* bytes = static_cast<const uint8_t*>(data);
     for (uint32_t i = 0u; i < 4u && i < byte_count; ++i) g_last_upload_head[i] = bytes[i];
     g_last_upload_offset = offset;
+    g_upload_bytes += byte_count;
     return true;
 }
 bool configure_slot(uint8_t slot, const SlotConfig& config) {
@@ -265,6 +267,96 @@ int main() {
         // Steady state arms nothing, so it executes nothing.
         saturn::core::audio_stream_service(saturn::core::g_audio_streams, 1u, 60u);
         OK(saturn::hal::scsp::g_execute_count == 1u);
+    }
+    // Spread refill: the inactive half is rewritten over several service frames, the ring is consumed
+    // only when the half is whole, and the half is never rewritten out of turn.
+    {
+        saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+        OK(sat_audio_set_refill_spread(1u) == SAT_OK);
+        static uint8_t spread_storage[32768u];
+        static uint8_t spread_frames[2u * 4096u * 3u];
+        for (uint32_t i = 0u; i < sizeof(spread_frames); ++i) spread_frames[i] = static_cast<uint8_t>(i * 7u + 3u);
+        sat_audio_spec_t spec11 = {11025u, 16384u, 1u, SAT_AUDIO_PCM_S16, 0u};
+        sat_audio_stream_t spread{};
+        OK(sat_audio_stream_open(&spread, &spec11, spread_storage, sizeof(spread_storage)) == SAT_OK);
+        OK(sat_audio_stream_write(spread, spread_frames, 12288u) == SAT_OK);
+        saturn::hal::scsp::g_current_sample_block = 0u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 0u, 60u);   // priming: both halves, whole
+        sat_audio_stream_stats_t st{};
+        OK(sat_audio_stream_stats(spread, &st) == SAT_OK && st.consumed_frames == 8192u && st.refill_count == 2u);
+
+        // CA moves into half 1: half 0 becomes inactive and is rewritten over the next frames.
+        saturn::hal::scsp::g_current_sample_block = 1u;
+        saturn::hal::scsp::g_upload_count = 0u;
+        saturn::hal::scsp::g_upload_bytes = 0u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 10u, 60u);
+        OK(sat_audio_stream_stats(spread, &st) == SAT_OK);
+        OK(st.consumed_frames == 8192u && st.refill_count == 2u);            // not whole yet: nothing consumed
+        OK(saturn::hal::scsp::g_upload_count == 1u);
+        const uint32_t first_slice_bytes = saturn::hal::scsp::g_upload_bytes;
+        OK(first_slice_bytes > 0u && first_slice_bytes < 2u * 4096u);        // a slice, not the whole half
+        const uint32_t half0 = saturn::hal::scsp::g_last_upload_offset;       // slice at the start of half 0
+        uint32_t frame = 11u;
+        for (; frame < 60u && st.refill_count == 2u; ++frame) {
+            saturn::core::audio_stream_service(saturn::core::g_audio_streams, frame, 60u);
+            OK(sat_audio_stream_stats(spread, &st) == SAT_OK);
+            OK(saturn::hal::scsp::g_last_upload_offset >= half0);             // never below half 0, never into half 1
+            OK(saturn::hal::scsp::g_last_upload_offset < half0 + 2u * 4096u);
+        }
+        OK(st.refill_count == 3u && st.consumed_frames == 12288u && st.underrun_count == 0u);
+        OK(saturn::hal::scsp::g_upload_bytes == 2u * 4096u);                  // the whole half, exactly once
+        OK(frame - 10u <= 19u);                                               // within the time the half lasts
+        // Whole again: no further writes until CA moves.
+        const uint32_t uploads = saturn::hal::scsp::g_upload_count;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, frame, 60u);
+        OK(saturn::hal::scsp::g_upload_count == uploads);
+
+        // The half changes again while a rewrite is unfinished: finished at once, counted as an underrun.
+        OK(sat_audio_stream_write(spread, spread_frames, 8192u) == SAT_OK);
+        saturn::hal::scsp::g_current_sample_block = 0u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, frame + 5u, 60u);
+        OK(sat_audio_stream_stats(spread, &st) == SAT_OK && st.refill_count == 3u);   // started, not done
+        saturn::hal::scsp::g_current_sample_block = 1u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, frame + 6u, 60u);
+        OK(sat_audio_stream_stats(spread, &st) == SAT_OK);
+        OK(st.underrun_count == 1u && st.refill_count >= 4u);
+
+        // An upload that fails mid-refill is dropped and tried again from the start.
+        OK(sat_audio_stream_close(spread) == SAT_OK);
+        saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+        OK(sat_audio_set_refill_spread(1u) == SAT_OK);
+        OK(sat_audio_stream_open(&spread, &spec11, spread_storage, sizeof(spread_storage)) == SAT_OK);
+        OK(sat_audio_stream_write(spread, spread_frames, 12288u) == SAT_OK);
+        saturn::hal::scsp::g_current_sample_block = 0u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 0u, 60u);
+        saturn::hal::scsp::g_current_sample_block = 1u;
+        saturn::hal::scsp::g_upload_fail_at = saturn::hal::scsp::g_upload_count + 1u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 10u, 60u);
+        OK(sat_audio_stream_stats(spread, &st) == SAT_OK && st.underrun_count == 1u && st.refill_count == 2u);
+        saturn::hal::scsp::g_upload_fail_at = 0u;
+        saturn::hal::scsp::g_upload_bytes = 0u;
+        for (uint32_t f = 11u; f < 60u && st.refill_count == 2u; ++f) {
+            saturn::core::audio_stream_service(saturn::core::g_audio_streams, f, 60u);
+            OK(sat_audio_stream_stats(spread, &st) == SAT_OK);
+        }
+        OK(st.refill_count == 3u && st.consumed_frames == 12288u && saturn::hal::scsp::g_upload_bytes >= 2u * 4096u);
+        OK(sat_audio_stream_close(spread) == SAT_OK);
+
+        // A half shorter than four frames is still written in one call (44.1 kHz at 25 Hz).
+        saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+        OK(sat_audio_set_refill_spread(1u) == SAT_OK);
+        sat_audio_spec_t fast = {44100u, 16384u, 1u, SAT_AUDIO_PCM_S16, 0u};
+        OK(sat_audio_stream_open(&spread, &fast, spread_storage, sizeof(spread_storage)) == SAT_OK);
+        OK(sat_audio_stream_write(spread, spread_frames, 12288u) == SAT_OK);
+        saturn::hal::scsp::g_current_sample_block = 0u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 0u, 25u);
+        saturn::hal::scsp::g_current_sample_block = 1u;
+        saturn::core::audio_stream_service(saturn::core::g_audio_streams, 4u, 25u);
+        OK(sat_audio_stream_stats(spread, &st) == SAT_OK && st.refill_count == 3u && st.consumed_frames == 12288u);
+        OK(sat_audio_stream_close(spread) == SAT_OK);
+
+        OK(sat_audio_set_refill_spread(0u) == SAT_OK);
+        saturn::hal::scsp::g_current_sample_block = 0u;
     }
     std::puts("audio stream api: OK");
     return 0;

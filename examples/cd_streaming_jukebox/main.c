@@ -32,6 +32,12 @@
 #define JUKEBOX_DISC_STREAM 1
 #endif
 
+/* 1: the audio driver rewrites an inactive SCSP half over several frames (sat_audio_set_refill_spread)
+ * instead of in the one update that sees the change. */
+#ifndef JUKEBOX_REFILL_SPREAD
+#define JUKEBOX_REFILL_SPREAD 1
+#endif
+
 #define TRACK_COUNT CD_JUKEBOX_TRACK_COUNT
 #define PREFETCH_BYTES (SAT_ASSET_CACHE_BLOCK_BYTES * SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY)
 
@@ -187,6 +193,9 @@ int main(void) {
     sat_result_t status = sat_app_init_default();
     if (status != SAT_OK) return 1;
     if (status == SAT_OK) status = sat_audio_init();
+#if JUKEBOX_REFILL_SPREAD
+    if (status == SAT_OK) status = sat_audio_set_refill_spread(1u);
+#endif
     if (status == SAT_OK) status = register_cd_tracks();
     if (status == SAT_OK) status = open_selected_track();
 

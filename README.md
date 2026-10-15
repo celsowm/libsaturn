@@ -579,6 +579,7 @@ Useful starting points:
 - [Transform hierarchy](docs/TRANSFORM3D_HIERARCHY.md)
 - [RAM expansion cartridge](docs/RAM_EXPANSION_CARTRIDGE.md)
 - [SCSP audio streaming](docs/SCSP_AUDIO_STREAMING_GUIDE.md)
+- [CD Block notes](docs/sega_saturn_hardware/hard/cdblock/index.md) (registers, timing rules, what is measured vs documented)
 - [Transparency and alpha](docs/TRANSPARENCY_ALPHA.md)
 - [Shmup / bullet-hell support](docs/SHMUP_BULLET_HELL_SUPPORT.md)
 

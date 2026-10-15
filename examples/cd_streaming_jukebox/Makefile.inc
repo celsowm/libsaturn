@@ -29,3 +29,9 @@ $(EXAMPLE_ISO_FILES) $(CD_JUKEBOX_HEADER) &: tools/generate_cd_streaming_jukebox
 ifeq ($(JUKEBOX_DISC_STREAM),0)
 CFLAGS += -DJUKEBOX_DISC_STREAM=0
 endif
+
+# JUKEBOX_REFILL_SPREAD=0 makes the audio driver rewrite a whole SCSP half in the update that sees the
+# half change (the default spreads it over the frames the half lasts, sat_audio_set_refill_spread).
+ifeq ($(JUKEBOX_REFILL_SPREAD),0)
+CFLAGS += -DJUKEBOX_REFILL_SPREAD=0
+endif

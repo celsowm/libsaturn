@@ -70,6 +70,8 @@ the expected state for the current 22.05 kHz stereo streaming path.
 
 ## CD jukebox path
 
+CD Block rules and timing limits: `docs/sega_saturn_hardware/hard/cdblock/index.md`.
+
 `examples/cd_streaming_jukebox` currently uses this pipeline:
 
 1. vendored 44.1 kHz S16 big-endian stereo source;
@@ -94,19 +96,13 @@ The SCSP slot format and refill rules above are unchanged.
 
 ### Disc-scheduled music
 
-The CD Block is not in `docs/sega_saturn_hardware/`. The relevant official text is Sega's *CD
-communication I/F (CD part)* programmer's guide (mirrored at
-`infochunk.com/saturn/segahtml_en/prgg/sysg/cdif/`, "Communication method"): the SH-1 inside the CD
-Block updates its periodic response every 6.7 ms at double speed (13.3 ms at single speed, 16.7 ms
-otherwise) and handles a host command at the next drive-communication window; the host may issue at
-most 30 commands in any 6.7 ms and 60 in any 16.7 ms, and continuous command polling is prohibited
-(use the HIRQ flags, e.g. CSCT, and VBlank timing). The buffer holds 200 sectors in 24 partitions, and
-a data transfer is command, wait for DRDY, read DATATRNS (long-word access for CPU-DMA/software
-loops), end. SCU-DMA from the CD data register is allowed in direct mode only (indirect mode is
-prohibited, SCU manual). So the scheduler's cost is per command (about one command's latency per
-poll), not per sector, which is why it moves whole segments per poll and why shrinking the poll
-only lowered throughput on the emulator. The same limits mean a real drive's command latency can
-differ from Mednafen's and Ymir's; the figures below are emulator measurements.
+`docs/sega_saturn_hardware/hard/cdblock/index.md` collects what the Overview Manual and Sega's CD
+communication I/F guide say about the CD Block (registers, flags, the 30-commands-per-6.7-ms limit, the
+ban on continuous command polling, the 200-sector buffer, 150 sectors/s at 2x, the data-transfer
+procedure, SCU-DMA direct mode only) and marks every figure that is only an emulator measurement. In
+short: a poll costs commands, not sectors, so the scheduler moves whole segments per poll; the numbers
+below are Mednafen/Ymir, not hardware; and the manual's 500 ms (2x) / 800 ms (1x) average seek is longer
+than the music reserve, which no emulator run shows (see "Seek time on real hardware" there).
 
 By default `sat_music_update` reads the next 64 KiB of the track with a blocking CD read, so the
 frame waits for the drive (about 200 ms at 2x speed; measured on Mednafen the worst `sat_music_update`
@@ -146,6 +142,30 @@ SCSP contract, L/R in phase, only the inactive half rewritten, including a 1100-
 seeks and pause. `tests/host/test_music_disc.cpp` runs the real `sat_music` and scheduler against a
 fake drive and SCSP rings: bytes over loops for every format, seeks, aborts, ownership, data jobs
 beside music and transport errors.
+
+### Spreading the SCSP refill
+
+The remaining large cost in a frame is not the CD but the audio driver's own refill: when the SCSP
+moves into one half of the Sound RAM loop, `sat_audio_update` rewrites the other half (4096 samples
+per channel) in one call, about 12 ms for a stereo pair on Mednafen. The manuals set a floor for
+this: the SH-2 may only use word or longword accesses to Sound RAM (SCSP manual p01_10, byte access
+prohibited), and the FAQ gives 256 bytes from Work RAM-H to the SCSP in 78.14 us by program, 77.74 us
+by CPU-DMA and 63.89 us by SCU-DMA, so a 16 KiB stereo-pair refill is about 5 ms at best, in one
+frame. `sat_audio_set_refill_spread(1)` instead writes the inactive half in slices of 256 frames
+over the display frames the half lasts (186 ms at 22.05 kHz), keeping three frames spare:
+
+- a slice is the part of the half owed by this frame, so no `sat_audio_update` pays more than a
+  fraction of the rewrite; a half shorter than four display frames is still written in one call;
+- the ring is consumed only when the half is whole, so a failed upload leaves it intact and the
+  refill restarts; buffered frames lag by up to one half meanwhile;
+- if the half changes again while a refill is unfinished, the rest is written at once and an
+  underrun is counted;
+- it applies to every stream and is off by default, so existing programs behave as before.
+
+Measured on the jukebox with spread on (Mednafen, 60 s): worst audio hook 1.15 ms (was 11.8 ms),
+worst `sat_music_update` 6.0 ms (was 14.6 ms), worst frame 20 ms (was 31 ms), 0 underruns, rings
+never below 24,320 frames. The Ymir acceptance runs (300 and 1100 frames with seeks and pause) pass
+with it on. `JUKEBOX_REFILL_SPREAD=0` builds the one-call refill for comparison.
 
 ## Resident 68000 scores
 

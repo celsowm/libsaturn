@@ -50,6 +50,16 @@ The version is defined once, in the `VERSION` file.
   `sat_disc_music_feed_ops_t`), `sat_cdfs_source_file`, `sat_file_backend` and the
   `disc_streamed` field of `sat_music_info_t`. The jukebox example uses it
   (`JUKEBOX_DISC_STREAM=0` builds the old blocking path for comparison).
+- `sat_audio_set_refill_spread` (`include/saturn/audio.h`): rewrite the inactive SCSP half in
+  256-frame slices over the display frames the half lasts instead of in one call (Mednafen,
+  jukebox: worst audio hook 11.8 -> 1.15 ms, worst frame 31 -> 20 ms, 0 underruns). Off by default;
+  the jukebox turns it on (`JUKEBOX_REFILL_SPREAD=0` to compare).
+- `docs/sega_saturn_hardware/hard/cdblock/index.md`: a CD Block page next to the downloaded manuals,
+  which only have an overview of it (registers, `HIRQREQ` bits, read speed and access time from the
+  Overview Manual, Sega's command-rate and no-continuous-polling rules, drive states, 200-sector buffer and
+  selectors, transfer procedure, SCU-DMA direct-mode-only), what libsaturn sends, and which figures are
+  emulator measurements. `bullet_hell_stress` gained `BH_MUSIC_LIB=1` (music through `sat_music` on the
+  shared scheduler).
 - Core math/string helpers in `include/saturn/core.h`:
   `SAT_FX16(x)` and `SAT_FX16_ONE` for 16.16 fixed-point literals,
   `SAT_FOURCC(a,b,c,d)` for big-endian four-character tags,

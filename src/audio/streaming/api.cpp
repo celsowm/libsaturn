@@ -62,9 +62,14 @@ void audio_stream_stop_playback(AudioStreamSlot& slot) {
     slot.monitor_frame = 0u;
     slot.seamless_loop = 0u;
     slot.pending_refill = 0u;
+    slot.refill_active = 0u;
+    slot.refill_done = 0u;
 }
 
 namespace {
+
+/* Spread refills write the inactive half in multiples of this many frames. */
+constexpr uint32_t kRefillGranuleFrames = 256u;
 
 bool stream_can_loop_seamlessly(const AudioStreamSlot& slot, uint32_t display_rate) {
     if (display_rate == 0u || slot.format != SAT_AUDIO_PCM_S16) return false;
@@ -81,14 +86,16 @@ bool stream_can_loop_seamlessly(const AudioStreamSlot& slot, uint32_t display_ra
  * half WITHOUT consuming them; the caller consumes only once every transfer
  * it depends on has succeeded, so a failed upload leaves the ring intact. */
 uint32_t transfer_stream_chunk(AudioStreamSlot& slot, uint8_t buffer_index,
-                               uint32_t skip_frames, uint32_t frames) {
+                               uint32_t skip_frames, uint32_t frames,
+                               uint32_t dest_frames = 0u) {
     const uint32_t copied =
         audio_stream_peek(slot.ring, skip_frames, slot.staging, frames);
     if (copied == 0u) return 0u;
     const uint32_t bytes_per_sample = slot.format == SAT_AUDIO_PCM_S16 ? 2u : 1u;
     const uint32_t byte_count = copied * bytes_per_sample;
     const uint32_t buffer_offset = slot.sound_ram_offset +
-        static_cast<uint32_t>(buffer_index) * kAudioStreamChunkBytes;
+        static_cast<uint32_t>(buffer_index) * kAudioStreamChunkBytes +
+        dest_frames * bytes_per_sample;
     if (!saturn::hal::scsp::upload(buffer_offset, slot.staging, byte_count)) return 0u;
     return copied;
 }
@@ -105,6 +112,42 @@ uint32_t upload_stream_chunk(AudioStreamSlot& slot, uint8_t buffer_index, uint32
     if (copied == 0u) return 0u;
     commit_stream_chunks(slot, copied, 1u);
     return copied;
+}
+
+/* Writes the next part of a spread refill and commits it once the half is whole. The ring is not
+ * consumed until then, so a failed or abandoned refill leaves it intact. `finish_now` writes
+ * everything that is left (a half that started playing while still being rewritten). The part
+ * written per call follows the time the half has left: a half lasts per_half display frames, the
+ * observation can lag and the next service can be late, so three frames are kept spare. Returns
+ * false when an upload failed. */
+bool advance_refill(AudioStreamSlot& slot, uint32_t frame_now, uint32_t display_rate, bool finish_now) {
+    const uint32_t total = slot.playback_chunk_frames;
+    uint32_t target = total;
+    if (!finish_now && slot.sample_rate != 0u) {
+        const uint32_t per_half = (total * display_rate) / slot.sample_rate;
+        const uint32_t budget = per_half > 3u ? per_half - 3u : 1u;
+        const uint32_t elapsed = frame_now - slot.refill_start_frame;
+        if (elapsed + 1u < budget) {
+            target = (total * (elapsed + 1u)) / budget;
+            target = (target + kRefillGranuleFrames - 1u) / kRefillGranuleFrames * kRefillGranuleFrames;
+            if (target > total) target = total;
+        }
+    }
+    if (target > slot.refill_done) {
+        const uint32_t frames = target - slot.refill_done;
+        if (transfer_stream_chunk(slot, slot.refill_half, slot.refill_done, frames, slot.refill_done) != frames) {
+            return false;
+        }
+        slot.refill_done = target;
+    }
+    if (slot.refill_done >= total) {
+        commit_stream_chunks(slot, total, 1u);
+        ++slot.serviced_chunks;
+        slot.pending_refill = 0u;
+        slot.refill_active = 0u;
+        slot.refill_done = 0u;
+    }
+    return true;
 }
 
 bool start_seamless_loop(AudioStreamSlot& slot, uint32_t frame_now, uint32_t display_rate) {
@@ -148,11 +191,18 @@ bool start_seamless_loop(AudioStreamSlot& slot, uint32_t frame_now, uint32_t dis
     // Key-on starts at SA, which is the first 4096-sample half.
     slot.playback_buffer = 0u;
     slot.pending_refill = 0u;
+    slot.refill_active = 0u;
+    slot.refill_done = 0u;
     slot.playback_end_frame = 0u;
     return true;
 }
 
 }  // namespace
+
+extern "C" sat_result_t sat_audio_set_refill_spread(uint8_t enable) {
+    saturn::core::g_audio_streams.refill_spread = enable != 0u ? 1u : 0u;
+    return SAT_OK;
+}
 
 void audio_stream_service(
     AudioStreamRegistry& registry,
@@ -171,6 +221,14 @@ void audio_stream_service(
             if (slot.monitor_frame == frame_now) continue;
             slot.monitor_frame = frame_now;
 
+            if (slot.refill_active != 0u && !advance_refill(slot, frame_now, display_rate, false)) {
+                /* An upload failed: forget the part written and let the half be seen as changed again. */
+                ++slot.ring.underrun_count;
+                slot.playback_buffer = slot.refill_half;
+                slot.refill_active = 0u;
+                slot.refill_done = 0u;
+            }
+
             uint8_t sample_block = 0u;
             if (!saturn::hal::scsp::read_current_sample_block(
                     slot.scsp_slot, &sample_block)) {
@@ -178,6 +236,17 @@ void audio_stream_service(
             }
             const uint8_t active_half = static_cast<uint8_t>(sample_block & 1u);
             if (active_half == slot.playback_buffer) continue;
+
+            if (slot.refill_active != 0u) {
+                // The half changed again while the last one was still being rewritten: it is playing
+                // now, so finish it at once (late) and go on to the half that just became inactive.
+                ++slot.ring.underrun_count;
+                if (!advance_refill(slot, frame_now, display_rate, true)) {
+                    slot.refill_active = 0u;
+                    slot.refill_done = 0u;
+                    continue;
+                }
+            }
 
             // playback_buffer is the last observed active half. Once CA moves
             // to the other half, that old half is hardware-inactive and safe
@@ -187,6 +256,20 @@ void audio_stream_service(
             if (slot.ring.buffered_frames < slot.playback_chunk_frames) {
                 if (slot.pending_refill == 0u) ++slot.ring.underrun_count;
                 slot.pending_refill = 1u;
+                continue;
+            }
+            if (registry.refill_spread != 0u) {
+                slot.refill_half = refill_half;
+                slot.refill_done = 0u;
+                slot.refill_start_frame = frame_now;
+                slot.refill_active = 1u;
+                slot.playback_buffer = active_half;
+                if (!advance_refill(slot, frame_now, display_rate, false)) {
+                    ++slot.ring.underrun_count;
+                    slot.playback_buffer = refill_half;
+                    slot.refill_active = 0u;
+                    slot.refill_done = 0u;
+                }
                 continue;
             }
             if (upload_stream_chunk(slot, refill_half, slot.playback_chunk_frames) !=
@@ -300,6 +383,10 @@ extern "C" sat_result_t sat_audio_stream_open(
         slot.pan = saturn::hal::scsp::encode_pan(SAT_AUDIO_PAN_CENTER);
         slot.seamless_loop = 0u;
         slot.pending_refill = 0u;
+        slot.refill_active = 0u;
+        slot.refill_half = 0u;
+        slot.refill_done = 0u;
+        slot.refill_start_frame = 0u;
         slot.reserved1 = 0u;
         out_stream->slot = i;
         out_stream->generation = slot.generation;

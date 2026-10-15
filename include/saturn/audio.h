@@ -122,6 +122,16 @@ sat_result_t sat_audio_shutdown(void);
 sat_result_t sat_audio_update(void);
 uint8_t sat_audio_is_initialized(void);
 
+/* A music stream plays from a two-half Sound RAM loop: when the SCSP moves into one half, the
+ * other (4096 samples per channel) is rewritten. By default the whole rewrite happens in the
+ * sat_audio_update that sees the change: about 12 ms for a stereo pair on Mednafen, in a frame that
+ * may also be moving CD sectors. With `enable` nonzero the rewrite is spread over the display frames
+ * the half lasts (a half is 186 ms at 22.05 kHz; three frames are kept spare, and a half shorter than
+ * four frames is still written in one call), so no update pays more than a slice (about a quarter of
+ * it at 22.05 kHz, 60 Hz). The ring is consumed once the half is whole, so buffered/available frames
+ * lag by up to one half meanwhile. Applies to every stream; call it before the streams play. */
+sat_result_t sat_audio_set_refill_spread(uint8_t enable);
+
 sat_result_t sat_audio_set_master_volume(uint16_t volume);
 sat_result_t sat_audio_get_stats(sat_audio_stats_t* out_stats);
 

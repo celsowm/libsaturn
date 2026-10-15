@@ -58,6 +58,8 @@ struct AudioStreamSlot {
     uint32_t consumed_frames;
     uint32_t refill_count;
     uint32_t monitor_frame;
+    uint32_t refill_done;          /* frames of the inactive half rewritten so far (spread refill) */
+    uint32_t refill_start_frame;   /* service frame the half became inactive */
     uint8_t format;
     uint8_t scsp_slot;
     uint8_t playback_buffer;
@@ -65,6 +67,8 @@ struct AudioStreamSlot {
     uint8_t pan;
     uint8_t seamless_loop;
     uint8_t pending_refill;
+    uint8_t refill_active;         /* a spread refill is in progress */
+    uint8_t refill_half;           /* which Sound RAM half it rewrites */
     uint16_t reserved1;
     uint8_t staging[kAudioStreamChunkBytes];
     uint16_t generation;
@@ -74,6 +78,9 @@ struct AudioStreamSlot {
 
 struct AudioStreamRegistry {
     AudioStreamSlot slots[kAudioStreamCapacity];
+    /* Nonzero: a seamless stream rewrites its inactive half over several service frames instead of
+     * in the one call that observes the half change (sat_audio_set_refill_spread). */
+    uint8_t refill_spread;
 };
 
 extern AudioStreamRegistry g_audio_streams;
@@ -116,6 +123,10 @@ inline void audio_stream_registry_reset(AudioStreamRegistry& registry) {
         slot.pan = 0u;
         slot.seamless_loop = 0u;
         slot.pending_refill = 0u;
+        slot.refill_active = 0u;
+        slot.refill_half = 0u;
+        slot.refill_done = 0u;
+        slot.refill_start_frame = 0u;
         slot.reserved1 = 0u;
     }
 }

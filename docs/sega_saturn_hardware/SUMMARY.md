@@ -82,6 +82,7 @@
     - [p06_20](hard/scu_/hon/p06_20.md)
     - [SCU User's Manual/Word Explanation](hard/scu_/hon/p90_10.md)
   - [SCU User's Manual/Table of Contents](hard/scu_/index.md)
+  - [CD Block notes (hand-written)](hard/cdblock/index.md)
   - [SCU User's Manual/Index](hard/scu_/sakuin.md)
   - [SCU User's Manual/Table of Figures](hard/scu_/zumokuzi.md)
     - [< 1/19>SMPC User's Manual/Chapter 1 Overview](hard/smpc/hon/p01_10.md)

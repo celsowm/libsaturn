@@ -35,13 +35,13 @@
  * What a frame costs (Mednafen, 22.05 kHz stereo S16 from the jukebox, no other load): moving a
  * segment's sectors out of the CD Block ~4 ms (an emulator measurement: one sector cost about the
  * same as eight, so splitting the transfer into smaller polls only lowered throughput). The CD
- * Block is not in docs/sega_saturn_hardware, but Sega's CD communication I/F programmer's guide
- * explains the shape: the SH-1 answers a command only at its periodic drive-communication window
- * (6.7 ms at double speed, 13.3 ms at single), commands are rate limited (30 per 6.7 ms) and
- * continuous polling is forbidden, so cost is per command, not per sector. The CD buffer holds 200
- * sectors; one delivery slice ~1.8 ms. The audio driver's own SCSP refill (sat_audio_update, ~12 ms when a half
- * is due) is not part of this module but lands in whichever frame it falls in, including one that
- * also polls.
+ * Block has only an overview in docs/sega_saturn_hardware; docs/sega_saturn_hardware/hard/cdblock
+ * collects it with Sega's CD communication I/F guide (commands are rate limited to 30 per 6.7 ms,
+ * continuous command polling is forbidden, the buffer holds 200 sectors, an average seek is 500 ms
+ * at 2x) and says which numbers are only emulator measurements. A poll is about three commands
+ * plus the data. One delivery slice ~1.8 ms. The audio driver's own SCSP refill (sat_audio_update,
+ * ~12 ms when a half is due, unless sat_audio_set_refill_spread is on) is not part of this module
+ * but lands in whichever frame it falls in, including one that also polls.
  *
  * Nothing here allocates. The segment buffers are part of sat_disc_stream_t and the music rings are
  * a caller-owned sat_disc_music_rings_t (put both in .wram_l: 32 KiB and 64 KiB). Not

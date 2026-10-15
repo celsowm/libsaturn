@@ -23,6 +23,8 @@
 
 ### [SCU User's Manual](scu_/index.md)
 
+### [CD Block notes (hand-written; overview manual 3.6 + Sega's CD guide)](cdblock/index.md)
+
 ### [SCSP User's Manual](scsp/index.md)
 
 ### [SMPC User's Manual](smpc/index.md)

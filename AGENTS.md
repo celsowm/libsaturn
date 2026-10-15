@@ -20,5 +20,6 @@
 
 - Before changing SCSP, music streaming or related tests, read `docs/SCSP_AUDIO_STREAMING_GUIDE.md`.
 - Treat the manuals in `docs/sega_saturn_hardware/` as the primary source for register semantics.
+- The downloaded manuals only overview the CD Block: read `docs/sega_saturn_hardware/hard/cdblock/index.md` before changing CD reads, `sat_disc_stream` or anything that times a disc access, and do not present emulator CD timings as hardware facts.
 - For audio regressions, prefer observable invariants (SCSP registers, sample position, Sound RAM and underrun/refill counters) over empirical volume/pitch adjustments.
 
