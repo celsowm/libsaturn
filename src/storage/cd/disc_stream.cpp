@@ -315,6 +315,7 @@ extern "C" sat_result_t sat_disc_stream_init(sat_disc_stream_t* s, sat_cd_block_
     s->music_reserve = SAT_DISC_MUSIC_RESERVE_FRAMES;
     s->standby_floor = SAT_DISC_STANDBY_FLOOR_FRAMES;
     s->standby_high = SAT_DISC_STANDBY_HIGH_FRAMES;
+    s->standby_gate = 1u;
     s->stats.music_min_buffered = SAT_DISC_MUSIC_RING_FRAMES;
     return SAT_OK;
 }
@@ -439,6 +440,10 @@ extern "C" void sat_disc_stream_music_detach_standby(sat_disc_stream_t* s) {
     s->standby_user = nullptr;
     s->standby_burst = 0u;
     s->standby_visit = 0u;
+}
+
+extern "C" void sat_disc_stream_music_standby_gate(sat_disc_stream_t* s, uint8_t allowed) {
+    if (s != nullptr) s->standby_gate = allowed != 0u ? 1u : 0u;
 }
 
 extern "C" sat_result_t sat_disc_stream_music_swap(sat_disc_stream_t* s) {
@@ -568,7 +573,8 @@ sat_result_t service_once(sat_disc_stream_t* s) {
         if (s->music_starting == 0u && buffered < s->stats.music_min_buffered) s->stats.music_min_buffered = buffered;
         /* A burst: while the primary is comfortably ahead the standby reads its segments one after
          * another, instead of the drive alternating between two files. */
-        if (s->standby_ops != nullptr && s->standby_disabled == 0u) {
+        if (s->standby_ops != nullptr && s->standby_disabled == 0u && s->standby_gate == 0u) s->standby_burst = 0u;
+        if (s->standby_ops != nullptr && s->standby_disabled == 0u && s->standby_gate != 0u) {
             if (s->standby_burst == 0u && buffered >= s->standby_high) s->standby_burst = 1u;
             else if (s->standby_burst != 0u && buffered < s->standby_floor) s->standby_burst = 0u;
             if (s->standby_burst != 0u) {
@@ -585,7 +591,7 @@ sat_result_t service_once(sat_disc_stream_t* s) {
         }
     }
     /* The playing feed wants nothing: the standby may fill its rings, ahead of the data jobs. */
-    if (s->standby_ops != nullptr && s->standby_disabled == 0u && mb == kMusicNotWanted) {
+    if (s->standby_ops != nullptr && s->standby_disabled == 0u && s->standby_gate != 0u && mb == kMusicNotWanted) {
         const MusicBegin sb = begin_music(s, 1u);
         if (sb == kMusicStarted || sb == kMusicNoBuffer) return SAT_OK;
     }

@@ -215,10 +215,18 @@ sat_result_t sat_music_play(sat_music_t music);
  *
  * Real-drive caution: a prefetch moves the laser to the standby's file and back, and costs the
  * playing track up to about (standby_high - standby_floor) frames plus two segments of margin. The
- * manual's average seek is 500 ms at 2x, close to what the playing track's ring holds, so prefetch
- * while the playing track is paused or fading, or at a moment where a glitch is acceptable. The
- * emulators treat seeks as free, so they cannot show this. */
+ * manual's average seek is 500 ms at 2x, close to what the playing track's ring holds, so by default
+ * the standby is only read while the playing track is paused or stopped (nothing audible depends on
+ * the drive then; the host model completes the prefetch even with 1.2 s seeks). The emulators treat
+ * seeks as free, so they cannot show the risk of the other mode: see
+ * sat_music_set_prefetch_while_playing. */
 sat_result_t sat_music_prefetch(sat_music_t music);
+/* 1 lets the standby be read behind a track that is playing (0, the default, only while it is paused
+ * or stopped). The scheduler then adapts to what each visit costs and gives the prefetch up when no
+ * ring depth covers it, but the first visit on a drive with slow seeks can still starve the playing
+ * track (the host model with 1.2 s seeks: 134 underruns), and no real-drive figure exists yet
+ * (docs/HARDWARE_ACCEPTANCE_CHECKLIST.md row 15). Reset by a runtime reset. */
+void sat_music_set_prefetch_while_playing(uint8_t enable);
 sat_result_t sat_music_pause(sat_music_t music);
 sat_result_t sat_music_resume(sat_music_t music);
 sat_result_t sat_music_stop(sat_music_t music);

@@ -183,6 +183,7 @@ typedef struct sat_disc_stream {
      * emulator with free seeks never triggers either. */
     uint8_t standby_visit;       /* 0 idle, 1 reading the standby, 2 back on the playing feed, recovering */
     uint8_t standby_disabled;
+    uint8_t standby_gate;        /* 0: the standby is not read at all (sat_music closes it while a track plays) */
     uint32_t standby_visit_start, standby_visit_min;
 
     /* data job in progress */
@@ -258,6 +259,10 @@ void sat_disc_stream_music_abort_standby(sat_disc_stream_t* s);
  * swap means to the feeds (stopping the old one, starting the new one). SAT_ERR_INVALID_ARG without
  * a standby, SAT_ERR_BUSY while the built-in music is open. */
 sat_result_t sat_disc_stream_music_swap(sat_disc_stream_t* s);
+/* Lets the scheduler read the standby (1, the default of a fresh scheduler) or not (0). sat_music
+ * keeps it closed while a track plays, so by default a prefetch only moves the pickup when nothing
+ * audible depends on the drive (sat_music_set_prefetch_while_playing opens it). */
+void sat_disc_stream_music_standby_gate(sat_disc_stream_t* s, uint8_t allowed);
 /* 1 once the built-in music (sat_disc_stream_music_start) has filled its rings and started. */
 uint8_t sat_disc_stream_music_playing(const sat_disc_stream_t* s);
 /* For an external feed: nonzero while it fills its rings before the streams play (after a start or

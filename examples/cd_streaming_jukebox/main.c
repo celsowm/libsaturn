@@ -121,6 +121,9 @@ static sat_result_t register_cd_tracks(void) {
     status = sat_disc_stream_init(&g_disc, &g_cd_block);
     if (status == SAT_OK) status = sat_music_use_disc_stream(&g_disc);
     if (status != SAT_OK) return status;
+    /* The next track fills behind the playing one (row 15 of the hardware checklist asks whether a
+     * real drive glitches while it does); without this it fills only while the music is paused. */
+    sat_music_set_prefetch_while_playing(1u);
 #endif
 
     for (uint16_t i = 0u; i < TRACK_COUNT; ++i) {

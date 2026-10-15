@@ -32,8 +32,12 @@ The version is defined once, in the `VERSION` file.
   `standby_worst_dip` report it. A host model of the manual's figures (a seek per file switch,
   `test_prefetch_seek_cost`, a model and not a measurement) shows: 500 ms seeks, no underrun and the
   prefetch completes after one adaptation; 1.2 s seeks starve the first visit (134 underruns in the
-  model) and the prefetch is then given up, which is why the documentation says to prefetch while the
-  playing track is paused or fading.
+  model) and the prefetch is then given up. Because of that the standby is, by default, only read
+  while the playing track is paused or stopped (`sat_disc_stream_music_standby_gate`, kept by
+  `sat_music_update`): the host model then completes the prefetch with 1.2 s seeks and 0 underruns, and a
+  prefetch requested behind a playing track waits for the pause instead of risking the drive.
+  `sat_music_set_prefetch_while_playing(1)` opts into the behind-the-playing-track mode (the jukebox
+  does, so that row 15 of the hardware checklist can test it).
 - Shmup / bullet-hell support (see `docs/SHMUP_BULLET_HELL_SUPPORT.md`):
   `include/saturn/sprite_batch.h` (`sat_sprite_batch_draw`: thousands of
   prepared sprite frames in one call, a 16-byte frame whose first twelve

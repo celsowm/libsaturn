@@ -74,6 +74,9 @@ MusicSlot g_music[SAT_MUSIC_CAPACITY] __attribute__((section(".wram_l"))) = {};
 sat_disc_stream_t* g_disc = nullptr;
 MusicSlot* g_disc_primary = nullptr;
 MusicSlot* g_disc_standby = nullptr;
+/* sat_music_set_prefetch_while_playing: off, so the standby is only read while the playing track is
+ * paused or stopped (nothing audible then waits for a seek). */
+uint8_t g_prefetch_while_playing = 0u;
 
 constexpr uint32_t kSectorBytes = 2048u;
 
@@ -711,13 +714,21 @@ extern "C" sat_result_t sat_music_update(sat_music_t music) {
     // A disc-scheduled track: land the segment that has arrived and start the
     // next one. Never waits for the drive; also moves the scheduler's data jobs.
     // The scheduler's tick starts the streams once the rings are full.
-    if (slot->file != nullptr) return sat_disc_stream_service(g_disc);
+    if (slot->file != nullptr) {
+        sat_disc_stream_music_standby_gate(
+            g_disc, g_prefetch_while_playing != 0u || g_disc_primary == nullptr || g_disc_primary->playing == 0u ? 1u : 0u);
+        return sat_disc_stream_service(g_disc);
+    }
     for (uint32_t i = 0u; i < kMusicUpdateFeedLimit; ++i) {
         if ((slot->playing == 0u && slot->prefetch == 0u) || writable_frames(*slot) == 0u) break;
         SAT_TRY(feed(*slot));
     }
     if (slot->starting != 0u && writable_frames(*slot) == 0u) start_streams(*slot);
     return SAT_OK;
+}
+
+extern "C" void sat_music_set_prefetch_while_playing(uint8_t enable) {
+    g_prefetch_while_playing = enable != 0u ? 1u : 0u;
 }
 
 extern "C" sat_result_t sat_music_use_disc_stream(sat_disc_stream_t* stream) {
@@ -815,6 +826,7 @@ extern "C" uint16_t sat_music_capacity(void) {
 namespace saturn::core {
 
 void music_runtime_reset() {
+    g_prefetch_while_playing = 0u;
     if (g_disc_primary != nullptr) sat_disc_stream_music_detach(g_disc);
     if (g_disc_standby != nullptr) sat_disc_stream_music_detach_standby(g_disc);
     g_disc_primary = nullptr;

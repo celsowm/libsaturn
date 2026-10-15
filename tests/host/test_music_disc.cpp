@@ -370,6 +370,8 @@ void fresh(uint32_t latency = 3u) {
     g_played = Played{};
     CHECK(sat_disc_stream_init(&g_disc, reinterpret_cast<sat_cd_block_t*>(&g_disc)) == SAT_OK);
     CHECK(sat_music_use_disc_stream(&g_disc) == SAT_OK);
+    /* most tests prefetch behind a playing track, which the library only does when asked to */
+    sat_music_set_prefetch_while_playing(1u);
 }
 
 uint32_t stream_buffered(uint32_t c);
@@ -887,6 +889,7 @@ void test_prefetch_seek_cost() {
      * track is paused. Nothing is audible to starve, so even the 1.2 s seeks complete the prefetch, and
      * the swap that follows is immediate. */
     fresh();
+    sat_music_set_prefetch_while_playing(0u);                  /* the default */
     g_drive.switch_fields = 72u;
     Track* a = find_track("music/s16-stereo");
     Track* b = find_track("music/s8-stereo");
@@ -897,9 +900,16 @@ void test_prefetch_seek_cost() {
     g_music = ma;
     CHECK(sat_music_play(ma) == SAT_OK);
     run_until(*a, 600, [&] { return info_of(ma, &ia) && ia.starting == 0u; });
-    CHECK(sat_music_pause(ma) == SAT_OK);
+    /* by default the standby is not read behind a playing track at all, so a slow drive cannot starve it */
     g_played.clear();
     CHECK(sat_music_prefetch(mb) == SAT_OK);
+    const uint32_t begins_before = g_drive.begins;
+    for (int i = 0; i < 1200; ++i) CHECK(field(*a) == SAT_OK);
+    CHECK(g_played.underruns == 0u && g_drive.switches == 0u);
+    CHECK(info_of(mb, &ib) && ib.prefetched == 0u && stream_buffered(2) == 0u);
+    CHECK(g_drive.begins > begins_before);                      /* the playing track kept streaming */
+    CHECK(sat_music_pause(ma) == SAT_OK);
+    g_played.clear();
     run_until(*a, 4800, [&] { return info_of(mb, &ib) && ib.prefetched != 0u; });
     CHECK(g_disc.standby_disabled == 0u);
     CHECK(sat_music_play(mb) == SAT_OK);

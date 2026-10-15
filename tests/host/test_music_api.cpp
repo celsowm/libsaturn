@@ -74,6 +74,7 @@ extern "C" sat_result_t sat_disc_stream_music_attach_standby(sat_disc_stream_t*,
 extern "C" void sat_disc_stream_music_detach_standby(sat_disc_stream_t*) { OK(false); }
 extern "C" void sat_disc_stream_music_abort_standby(sat_disc_stream_t*) { OK(false); }
 extern "C" sat_result_t sat_disc_stream_music_swap(sat_disc_stream_t*) { OK(false); return SAT_ERR_INVALID_ARG; }
+extern "C" void sat_disc_stream_music_standby_gate(sat_disc_stream_t*, uint8_t) {}
 extern "C" void sat_disc_stream_music_set_starting(sat_disc_stream_t*, uint8_t) { OK(false); }
 extern "C" sat_result_t sat_disc_stream_service(sat_disc_stream_t*) { OK(false); return SAT_ERR_INVALID_ARG; }
 

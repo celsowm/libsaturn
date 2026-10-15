@@ -162,7 +162,14 @@ rewinds to 0 as the new standby (`sat_music_info(...).standby` / `.prefetched`).
   scheduler's per-segment pacing (~180 ms per segment on that emulator) leaves only a few percent of
   drive throughput beyond one such track; it is an emulator figure, not a hardware one. Ymir reached it
   in a few seconds.
-- **Adaptation:** the scheduler watches the playing rings through each visit to the standby's file
+- **Default: only while the playing track is paused or stopped.** `sat_music_update` keeps the
+  standby's gate closed while a track plays (`sat_disc_stream_music_standby_gate`), so a prefetch asked
+  for behind a playing track waits until it is paused or stopped, and a slow drive cannot starve the
+  music. The host model with 1.2 s seeks: prefetch requested while playing: 0 reads of the standby, 0
+  underruns; after a pause the prefetch completes and the swap is immediate.
+  `sat_music_set_prefetch_while_playing(1)` opens the gate (the jukebox does), which is the mode the
+  rest of this section describes.
+- **Adaptation (with the gate open):** the scheduler watches the playing rings through each visit to the standby's file
   (their fill is the clock, so it needs no timer). A visit that left them under the reserve raises
   `standby_high` and `standby_floor` by the shortfall for the next visits; one that no ring depth can
   cover (`SAT_DISC_STANDBY_CEIL_FRAMES`) stops the prefetch (`standby_disabled`), so a slow drive costs one
