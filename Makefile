@@ -678,6 +678,7 @@ HOST_TEST_EXTRA_test_font_logic := src/graphics/2d/font/api.cpp
 HOST_TEST_EXTRA_test_core_logic := src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_vdp2_allocator := src/hal/vdp2/allocator.cpp
 HOST_TEST_EXTRA_test_vdp2_palette_alloc := src/hal/vdp2/allocator.cpp
+HOST_TEST_EXTRA_test_vdp2_plan_api := src/hal/vdp2/plan.cpp src/hal/vdp2/allocator.cpp
 HOST_TEST_EXTRA_test_font_text_logic :=
 HOST_TEST_EXTRA_test_audio_voice_transaction := src/audio/playback/state.cpp src/audio/playback/voice.cpp
 HOST_TEST_EXTRA_test_audio_stream_logic :=

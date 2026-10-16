@@ -56,10 +56,11 @@ static void vram_reset_impl(void) {
 }
 
 /* Round `addr` up to the next `alignment_words` word boundary. A
- * request of 0 or 1 word means no alignment. */
-static uint32_t vram_align_up(uint32_t addr, uint16_t alignment_words) {
+ * request of 0 or 1 word means no alignment. 32-bit: a bitmap needs
+ * 0x10000 words (0x20000 bytes). */
+static uint32_t vram_align_up(uint32_t addr, uint32_t alignment_words) {
     if (alignment_words <= 1u) return addr;
-    const uint32_t mask = (uint32_t)alignment_words * 2u - 1u;
+    const uint32_t mask = alignment_words * 2u - 1u;
     return (addr + mask) & ~mask;
 }
 
@@ -105,9 +106,37 @@ static void vram_split_block(vram_block_t* block, uint32_t split_at,
     block->state = lower_state;
 }
 
+/* Carves [aligned, aligned + bytes) out of the free block `block`
+ * (aligned >= block->base, within the block). The alignment slack below
+ * the base stays free. Returns 1 on success; 0 when the block cannot host
+ * the range. Never mutates the free list on failure. */
+static int vram_carve(vram_block_t* block, uint32_t aligned, uint32_t bytes) {
+    const uint32_t slack = aligned - block->base;
+    if (block->size < slack + bytes) return 0;
+    /* A successful allocation must never land on the failure sentinel. */
+    if (aligned == SAT_VDP2_VRAM_NO_BASE) return 0;
+    if (slack > 0u) {
+        vram_block_t* slack_block = vram_slot_alloc();
+        if (slack_block == nullptr) {
+            /* No slot to represent the slack: refuse rather than hand
+             * out a misaligned base (the old code silently lost the
+             * alignment here). The caller treats it as exhaustion. */
+            return 0;
+        }
+        slack_block->base = block->base;
+        slack_block->size = slack;
+        slack_block->state = SLOT_FREE;
+        block->base = aligned;
+        block->size -= slack;
+    }
+    /* Now block->base == aligned; split off the allocated portion. */
+    vram_split_block(block, bytes, SLOT_ALLOCATED);
+    return 1;
+}
+
 /* Find a free block big enough to satisfy `bytes` from the alignment
- * point onward. Returns the block (and via *out_aligned_out, the
- * actual byte-aligned base that alloc would return). */
+ * point onward. Returns the block (and via *out_aligned, the actual
+ * byte-aligned base that alloc would return). */
 static vram_block_t* vram_find_fit(uint32_t bytes, uint16_t alignment_words,
                                     uint32_t* out_aligned) {
     for (uint32_t i = 0u; i < SAT_VDP2_VRAM_MAX_BLOCKS; ++i) {
@@ -152,31 +181,75 @@ uint32_t sat_vdp2_vram_alloc(uint32_t bytes, uint16_t alignment_words) {
     uint32_t aligned = 0u;
     vram_block_t* block = vram_find_fit(bytes, alignment_words, &aligned);
     if (block == nullptr) return SAT_VDP2_VRAM_NO_BASE;  /* CAPACITY */
-    /* The chosen base must not be the failure sentinel. Refuse early
-     * to keep the post-split allocation routine simple. */
-    if (aligned == SAT_VDP2_VRAM_NO_BASE) return SAT_VDP2_VRAM_NO_BASE;
-    const uint32_t slack = aligned - block->base;
-    /* Carve off any alignment slack as a brand-new free block. We need
-     * to grow the block downward to fit the slack, then split. */
-    if (slack > 0u) {
-        /* Find a free slot for the slack piece. */
-        vram_block_t* slack_block = vram_slot_alloc();
-        if (slack_block != nullptr) {
-            slack_block->base = block->base;
-            slack_block->size = slack;
-            slack_block->state = SLOT_FREE;
-            block->base = aligned;
-            block->size -= slack;
-        } else {
-            /* No room for the slack piece: lose the slack bytes by
-             * shrinking the original block but keep the alignment. */
-            block->size = slack + bytes;
-            if (block->size <= bytes) return 0u;  /* impossibly degenerate */
+    if (!vram_carve(block, aligned, bytes)) return SAT_VDP2_VRAM_NO_BASE;
+    return block->base;
+}
+
+/* ---- Internal range-aware extensions (src/hal/vdp2/vram_internal.hpp) -- */
+
+/* Places `bytes` first-fit inside [start_byte, end_byte) of the configured
+ * address space. Same ownership as sat_vdp2_vram_alloc. */
+int vram_alloc_in(uint32_t start_byte, uint32_t end_byte, uint32_t bytes,
+                  uint32_t alignment_words, uint32_t* out_base) {
+    if (out_base == nullptr || bytes == 0u) return 0;
+    if (start_byte >= end_byte || end_byte > 0x80000u) return 0;
+    if (!g_vram_inited) {
+        sat_vdp2_vram_alloc_init(SAT_VDP2_VRAM_DEFAULT_START,
+                                  SAT_VDP2_VRAM_DEFAULT_END);
+    }
+    for (uint32_t i = 0u; i < SAT_VDP2_VRAM_MAX_BLOCKS; ++i) {
+        if (g_vram_blocks[i].state != SLOT_FREE) continue;
+        const uint32_t block_end = g_vram_blocks[i].base + g_vram_blocks[i].size;
+        if (block_end <= start_byte) continue;
+        const uint32_t from = g_vram_blocks[i].base > start_byte
+            ? g_vram_blocks[i].base : start_byte;
+        const uint32_t aligned = vram_align_up(from, alignment_words);
+        if (aligned + bytes > block_end) continue;   /* no wrap: from <= 0x80000 */
+        if (aligned + bytes > end_byte) continue;
+        if (!vram_carve(&g_vram_blocks[i], aligned, bytes)) continue;
+        *out_base = g_vram_blocks[i].base;
+        return 1;
+    }
+    return 0;
+}
+
+/* Carves exactly [base_byte, base_byte + bytes). Fails when any of those
+ * bytes are not free or the range is out of bounds. */
+int vram_alloc_at(uint32_t base_byte, uint32_t bytes) {
+    if (bytes == 0u || base_byte >= 0x80000u) return 0;
+    if (base_byte + bytes > 0x80000u) return 0;
+    if (!g_vram_inited) {
+        sat_vdp2_vram_alloc_init(SAT_VDP2_VRAM_DEFAULT_START,
+                                  SAT_VDP2_VRAM_DEFAULT_END);
+    }
+    for (uint32_t i = 0u; i < SAT_VDP2_VRAM_MAX_BLOCKS; ++i) {
+        if (g_vram_blocks[i].state != SLOT_FREE) continue;
+        const uint32_t block_end = g_vram_blocks[i].base + g_vram_blocks[i].size;
+        if (base_byte >= g_vram_blocks[i].base
+            && base_byte + bytes <= block_end) {
+            return vram_carve(&g_vram_blocks[i], base_byte, bytes);
         }
     }
-    /* Now block->base == aligned; split off the allocated portion. */
-    vram_split_block(block, bytes, SLOT_ALLOCATED);
-    return block->base;
+    return 0;
+}
+
+/* Bytes free within [start_byte, end_byte), clamped to the configured
+ * address space. */
+uint32_t vram_free_bytes(uint32_t start_byte, uint32_t end_byte) {
+    if (end_byte <= start_byte) return 0u;
+    const uint32_t lo = start_byte < g_vram_start ? g_vram_start : start_byte;
+    const uint32_t hi = end_byte > g_vram_end ? g_vram_end : end_byte;
+    if (lo >= hi) return 0u;
+    uint32_t total = 0u;
+    for (uint32_t i = 0u; i < SAT_VDP2_VRAM_MAX_BLOCKS; ++i) {
+        if (g_vram_blocks[i].state != SLOT_FREE) continue;
+        const uint32_t b_lo = g_vram_blocks[i].base > lo
+            ? g_vram_blocks[i].base : lo;
+        const uint32_t block_end = g_vram_blocks[i].base + g_vram_blocks[i].size;
+        const uint32_t b_hi = block_end < hi ? block_end : hi;
+        if (b_hi > b_lo) total += b_hi - b_lo;
+    }
+    return total;
 }
 
 sat_result_t sat_vdp2_vram_free(uint32_t base_byte) {
