@@ -270,7 +270,7 @@ sat_result_t sat_vdp2_vram_free(uint32_t base_byte) {
     while (merged) {
         merged = 0;
         for (uint32_t i = 0u; i < SAT_VDP2_VRAM_MAX_BLOCKS; ++i) {
-            if (i == (target - g_vram_blocks)) continue;
+            if (&g_vram_blocks[i] == target) continue;
             if (g_vram_blocks[i].state != SLOT_FREE) continue;
             if (g_vram_blocks[i].base + g_vram_blocks[i].size == target->base) {
                 target->base = g_vram_blocks[i].base;
