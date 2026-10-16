@@ -244,6 +244,103 @@ static void test_claim_conflicts_and_idempotence(void) {
               static_cast<int>(plan::Status::BadRange));
 }
 
+static void test_rbg1_banks_let_params_live_in_b(void) {
+    /* Manual p06_20: RDBSB0/B1 must be 00B (None) while RBG1 displays, and
+     * the rotation parameter table may live in a None-role bank. The
+     * planner keeps RotationParams/Coefficients out of RBG0-claimed banks
+     * but lets them live in RBG1-reserved banks. */
+    plan::PlanState s;
+    plan::init(s);
+    plan::open(s);
+    /* B1 tail, away from the future RBG1 names region. */
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationParams,
+                                           0x70000u, 0x60u, 4u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationParams,
+                                           0x70200u, 0x60u, 4u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::commit(s)),
+              static_cast<int>(plan::Status::Ok));
+    /* The parameter tables in B1 do not block claim_rbg1_banks(B0+B1). */
+    ASSERT_EQ(static_cast<int>(plan::claim_rbg1_banks(s, 0x04u | 0x08u)),
+              static_cast<int>(plan::Status::Ok));
+    /* RBG1 image data (RotationNames/RotationChars) can land in B0/B1
+     * after the RBG1 bank claim. */
+    plan::open(s);
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationChars,
+                                           0x40000u, 0x8000u, 0x8000u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationNames,
+                                           0x60000u, 0x2000u, 2u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::commit(s)),
+              static_cast<int>(plan::Status::Ok));
+    /* NBG ranges cannot move into a reserved-for-RBG1 bank: the VDP2
+     * routes B0/B1 names/chars to RBG1 only while RBG1 displays. */
+    plan::open(s);
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::PatternNames,
+                                           0x48000u, 0x2000u, 2u)),
+              static_cast<int>(plan::Status::BankClaimed));
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::Characters,
+                                           0x68000u, 0x2000u, 2u)),
+              static_cast<int>(plan::Status::BankClaimed));
+    plan::rollback(s, [](void*, uint32_t) {}, nullptr);
+}
+
+static void test_rbg1_release_refused_while_image_data_lives(void) {
+    plan::PlanState s;
+    plan::init(s);
+    ASSERT_EQ(static_cast<int>(plan::claim_rbg1_banks(s, 0x04u | 0x08u)),
+              static_cast<int>(plan::Status::Ok));
+    plan::open(s);
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationChars,
+                                           0x40000u, 0x8000u, 0x8000u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::commit(s)),
+              static_cast<int>(plan::Status::Ok));
+    /* release_rbg1_banks(B0) refused because RBG1 chars live there. */
+    ASSERT_EQ(static_cast<int>(plan::release_rbg1_banks(s, 0x04u)),
+              static_cast<int>(plan::Status::BanksBusy));
+    /* release_rbg1_banks(B1) ok - no RBG1 image data in B1. */
+    ASSERT_EQ(static_cast<int>(plan::release_rbg1_banks(s, 0x08u)),
+              static_cast<int>(plan::Status::Ok));
+    /* Now release the B0 reservation - refused again because chars live there. */
+    ASSERT_EQ(static_cast<int>(plan::release_rbg1_banks(s, 0x04u)),
+              static_cast<int>(plan::Status::BanksBusy));
+}
+
+static void test_claim_banks_and_rbg1_compose(void) {
+    /* RBG0 image in A0, RBG1 image in B0+B1: the parameter region sits
+     * in B0's tail, away from the RBG1 chars window. */
+    plan::PlanState s;
+    plan::init(s);
+    plan::open(s);
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationParams,
+                                           0x50000u, 0x60u, 4u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::commit(s)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::claim_banks(s, 0x01u | 0x02u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::claim_rbg1_banks(s, 0x04u | 0x08u)),
+              static_cast<int>(plan::Status::Ok));
+    plan::open(s);
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationNames,
+                                           0x00000u, 0x2000u, 2u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationChars,
+                                           0x20000u, 0x8000u, 0x8000u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationNames,
+                                           0x60000u, 0x2000u, 2u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationChars,
+                                           0x40000u, 0x8000u, 0x8000u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::commit(s)),
+              static_cast<int>(plan::Status::Ok));
+}
+
 static void test_commit_and_rollback_ledger(void) {
     plan::PlanState s;
     int frees = 0;
@@ -354,6 +451,9 @@ int main(void) {
     test_bank_roles();
     test_rotation_image_bank_rules();
     test_claim_conflicts_and_idempotence();
+    test_rbg1_banks_let_params_live_in_b();
+    test_rbg1_release_refused_while_image_data_lives();
+    test_claim_banks_and_rbg1_compose();
     test_commit_and_rollback_ledger();
     test_ledger_capacity();
     test_telemetry();

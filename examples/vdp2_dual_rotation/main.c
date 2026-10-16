@@ -57,8 +57,8 @@
 #define GRID_NAMES      0x00000u    /* RBG0's map: 64x64 1-word names (A0) */
 #define CHECK_NAMES_A0  0x08000u    /* the checker copy RBG0's B-mode reads (A0) */
 #define CHECK_NAMES_B1  0x60000u    /* RBG1's own map (VRAM-B1, fixed) */
-#define REGION0         0x10000u    /* A+B parameter region ping (0xE0) */
-#define REGION1         0x10200u    /* pong */
+#define REGION0         0x50000u    /* A+B parameter region ping (B0 tail, RDBS=None) */
+#define REGION1         0x50200u    /* pong */
 #define GRID_CHARS      0x28000u    /* RBG0's character window (VRAM-A1) */
 #define CHECK_CHARS     0x40000u    /* RBG1's character window (VRAM-B0, fixed) */
 #define NAMES_BYTES     0x2000u
@@ -345,17 +345,18 @@ static void enter_mode(uint32_t mode) {
 /* ---- VRAM through the resource plan -------------------------------------- */
 
 static void plan_vram(void) {
-    /* The A+B parameter regions may sit in any bank (p06_30: no RDBS role):
-     * A0's tail, off the image bytes. */
+    /* RBG1 forces B0/B1 to RDBS=None (p06_20). The rotation parameter
+     * table must sit in a None or Coefficient role bank, so we put it in
+     * B0's tail and reserve B0/B1 for RBG1 first; that way the planner's
+     * bank_rule accepts RotationParams in B0 while still refusing to put
+     * RBG0 image data there. */
+    sat_example_must(sat_vdp2_plan_claim_rbg1_banks(SAT_VDP2_BANK_B0 | SAT_VDP2_BANK_B1));
     sat_example_must(sat_vdp2_plan_begin());
     sat_example_must(sat_vdp2_plan_reserve_at(SAT_VDP2_RESERVE_ROTATION_PARAMS, REGION0, 0xE0u));
     sat_example_must(sat_vdp2_plan_reserve_at(SAT_VDP2_RESERVE_ROTATION_PARAMS, REGION1, 0xE0u));
     sat_example_must(sat_vdp2_plan_commit());
-    /* All four banks are rotation-consumed: RBG0's image in VRAM-A (the
-     * RDBS banks), RBG1's fixed in VRAM-B - B0/B1 are claimed in the
-     * ledger only; RDBSB0/B1 stay 00B (p06_20, the RAMCTL page). */
-    sat_example_must(sat_vdp2_plan_claim_banks(SAT_VDP2_BANK_A0 | SAT_VDP2_BANK_A1 |
-                                               SAT_VDP2_BANK_B0 | SAT_VDP2_BANK_B1));
+    /* RBG0's image banks stay in VRAM-A (the RDBS roles for A0/A1). */
+    sat_example_must(sat_vdp2_plan_claim_banks(SAT_VDP2_BANK_A0 | SAT_VDP2_BANK_A1));
     sat_example_must(sat_vdp2_plan_begin());
     sat_example_must(sat_vdp2_plan_reserve_at(SAT_VDP2_RESERVE_ROTATION_NAMES, GRID_NAMES, NAMES_BYTES));
     sat_example_must(sat_vdp2_plan_reserve_at(SAT_VDP2_RESERVE_ROTATION_NAMES, CHECK_NAMES_A0, NAMES_BYTES));
@@ -391,7 +392,10 @@ int main(void) {
     upload_tiles();
     upload_grid_names();
     upload_checker_names(CHECK_NAMES_A0, 3u, 4u);   /* through RBG0's window */
-    upload_checker_names(CHECK_NAMES_B1, 1u, 2u);   /* through RBG1's window */
+    /* RBG1's own char window (B0) only ships tiles 0/1, so its B-map must
+     * name those cells — pointing at 1/2 would land on tile 2 (uninitialised
+     * in B0) and silently drop RBG1. */
+    upload_checker_names(CHECK_NAMES_B1, 0u, 1u);   /* through RBG1's window */
 
     /* The illegal combinations, recorded for the harness. */
     {

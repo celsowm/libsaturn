@@ -1262,7 +1262,10 @@ void nbg_write_all(bool vblank_replay = false) {
         owned_bgon = static_cast<uint16_t>(owned_bgon | 0x1010u);
         const rot::Registers rr = rot::compose(g_rot);
         bgon = static_cast<uint16_t>(bgon | rr.bgon | rr.bgon_rbg1);
-        if (rr.bgon_rbg1 != 0u) owned_bgon = static_cast<uint16_t>(owned_bgon | 0x0120u);
+        /* R1ON (bit 5) and the N0TPON reuse (bit 8) belong to RBG1; own them
+         * even when RBG1 is hidden so the live rbg1_set_enabled(0) path can
+         * clear bits the previous on-write left set. */
+        owned_bgon = static_cast<uint16_t>(owned_bgon | 0x0120u);
     }
     merge_reg(kOffBgon, owned_bgon, bgon);
     g_last_rbg0_bgon_written = get_reg(kOffBgon);
@@ -1568,8 +1571,10 @@ void rot_set_table(uint32_t table_address, uint8_t ktaof, uint8_t ktaof_b) {
 
 bool rot_set_rbg1_enabled(bool enabled) {
     if (!g_rot_used || !g_rot.enabled) return false;
-    /* Mode != A is rejected by rot_configure() with rbg1.enabled = true; the
-     * only way to land here is mode = 0, so the mode check is already done. */
+    /* Manual p06_20: RBG1 reads parameter set B, but the configure-time
+     * rule is "Mode 0 must be set when displaying RBG1". Refuse a live
+     * flip on if the current parameter mode is not A. */
+    if (enabled && g_rot.parameter_mode != 0u) return false;
     g_rot.rbg1.enabled = enabled;
     nbg_write_all();
     return true;

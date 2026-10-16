@@ -196,10 +196,25 @@ sat_result_t sat_vdp2_plan_release_all(void);
  * them. Re-claiming an already claimed bank is SAT_OK. */
 sat_result_t sat_vdp2_plan_claim_banks(uint8_t bank_mask);
 
+/* Reserves whole banks for RBG1's fixed fetch (B0/B1). They are NOT
+ * counted when sat_vdp2_plan_reserve_at() checks that parameter or
+ * coefficient tables stay out of "claimed" banks: RDBSB0/B1 must be 00B
+ * while RBG1 displays (manual p06_20), and the parameter/coefficient
+ * tables need exactly that role. RBG1 image data (RotationNames/
+ * RotationChars) may be staged into those banks after the claim.
+ * Refused (SAT_ERR_BUSY) when an NBG range already lives in one of them
+ * because routing an NBG pattern-name or character window through B0/B1
+ * is not what B0/B1 are for. */
+sat_result_t sat_vdp2_plan_claim_rbg1_banks(uint8_t bank_mask);
+
 /* Gives claimed banks back. SAT_ERR_BUSY while rotation image data
  * (names or character windows) still lives in one of them;
  * SAT_ERR_INVALID_ARG on a bad mask. */
 sat_result_t sat_vdp2_plan_release_banks(uint8_t bank_mask);
+
+/* Gives RBG1-reserved banks back. SAT_ERR_BUSY while RBG1 image data
+ * still lives in one of them. */
+sat_result_t sat_vdp2_plan_release_rbg1_banks(uint8_t bank_mask);
 
 /* Discards the whole ledger (reservations and bank claims) without
  * freeing anything. Tests and example boot use it, paired with

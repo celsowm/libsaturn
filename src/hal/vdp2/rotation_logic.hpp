@@ -274,6 +274,15 @@ inline Registers compose(const Layer& l) {
      * RBG1 is hidden (and must mask them when RBG1 displays). RBG1 reads
      * the B-plane map from MPABRB..MPOPRB which is the same map RBG0's
      * B-mode reads (Layer::map_b). */
+    /* Parameter-set-B's plane map is emitted whenever the B-set will be read:
+     * RBG1 displays, or RBG0 is in mode B / coefficient switching (the
+     * parameter-mode page says B's plane addresses feed RBG0 in those
+     * modes). Per-line coefficient switching also reads the B map at the
+     * line where the boundary is. */
+    const bool rb_b_needed = l.rbg1.enabled
+        || (l.parameter_mode == 1u)
+        || (l.parameter_mode == 2u
+            && (l.coefficients_a.enabled || l.coefficients_b.enabled));
     if (l.rbg1.enabled) {
         r.bgon_rbg1 = static_cast<uint16_t>(0x0020u | (l.rbg1.transparent ? 0u : 0x0100u));
         r.chctla = static_cast<uint16_t>(((static_cast<uint16_t>(l.rbg1.colors) & 7u) << 4u) |
@@ -281,6 +290,8 @@ inline Registers compose(const Layer& l) {
         r.pnc0 = static_cast<uint16_t>(((l.rbg1.pn_one_word ? 1u : 0u) << 15u) |
                                        ((l.rbg1.palette_supp & 7u) << 5u) |
                                        (l.rbg1.char_number_supp & 0x1Fu));
+    }
+    if (rb_b_needed) {
         const uint16_t plsz_b = static_cast<uint16_t>(l.map_b.pages_y == 2u ? 3u
                                                         : (l.map_b.pages_x == 2u ? 1u : 0u));
         r.plsz_b = static_cast<uint16_t>(((plsz_b & 3u) << 12u) | ((l.map_b.over & 3u) << 14u));
@@ -291,8 +302,10 @@ inline Registers compose(const Layer& l) {
             const uint32_t v1 = nbg::map_value(l.map_b.plane_address[p + 1u], b_size);
             r.mp_b[p / 2u] = static_cast<uint16_t>((v0 & 0x3Fu) | ((v1 & 0x3Fu) << 8u));
         }
-        r.mpofr_b = static_cast<uint16_t>((nbg::map_value(l.map_b.plane_address[0], b_size) >> 6u) & 7u) << 4u;
+        r.mpofr_b = static_cast<uint16_t>(((nbg::map_value(l.map_b.plane_address[0], b_size) >> 6u) & 7u) << 4u);
         r.ovpnrb = l.map_b.over_pattern_name;
+    }
+    if (l.rbg1.enabled) {
         r.prina_rbg1 = static_cast<uint16_t>(l.rbg1.priority & 7u);
     }
     return r;

@@ -230,9 +230,19 @@ sat_result_t sat_vdp2_plan_claim_banks(uint8_t bank_mask) {
     return finish(map_status(plan::claim_banks(g_plan, bank_mask)));
 }
 
+sat_result_t sat_vdp2_plan_claim_rbg1_banks(uint8_t bank_mask) {
+    plan_ensure_init();
+    return finish(map_status(plan::claim_rbg1_banks(g_plan, bank_mask)));
+}
+
 sat_result_t sat_vdp2_plan_release_banks(uint8_t bank_mask) {
     plan_ensure_init();
     return finish(map_status(plan::release_banks(g_plan, bank_mask)));
+}
+
+sat_result_t sat_vdp2_plan_release_rbg1_banks(uint8_t bank_mask) {
+    plan_ensure_init();
+    return finish(map_status(plan::release_rbg1_banks(g_plan, bank_mask)));
 }
 
 void sat_vdp2_plan_reset(void) {

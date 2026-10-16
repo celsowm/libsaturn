@@ -117,7 +117,8 @@ struct Slot {
 
 struct PlanState {
     Slot     slots[kMaxReservations];
-    uint8_t  claimed_banks;   /* whole-bank claims, SAT_VDP2_BANK_* mask */
+    uint8_t  claimed_banks;   /* RBG0 whole-bank claims, SAT_VDP2_BANK_* mask */
+    uint8_t  rbg1_banks;      /* banks reserved for RBG1's fixed fetch (B0/B1) */
     uint32_t refusals;        /* every refused call increments this */
     Status   last_status;     /* the reason of the last refusal (Ok if none) */
     uint32_t last_conflict_base;
@@ -129,6 +130,7 @@ inline void init(PlanState& s) {
         s.slots[i] = Slot{0u, 0u, 0u, 0u, 0u, 0u};
     }
     s.claimed_banks = 0u;
+    s.rbg1_banks = 0u;
     s.refusals = 0u;
     s.last_status = Status::Ok;
     s.last_conflict_base = 0u;
@@ -158,7 +160,12 @@ inline uint32_t kind_min_align_bytes(Kind k) {
 }
 
 /* True when the kind's range may not live in a bank that is whole-claimed
- * for rotation use (RBG0 pattern/character banks). */
+ * for RBG0 rotation use. RBG1's reserved banks (B0/B1 when RBG1 displays)
+ * are NOT counted here: the manual p06_20 forces RDBSB0/B1 to 00B (None),
+ * so the parameter and coefficient tables may live there even though the
+ * bank is reserved for RBG1's fixed fetch. The `rbg1_banks` mask lets
+ * claim_rbg1_banks() widen the "free" set without giving RBG0 image data
+ * access to those banks. */
 inline bool kind_needs_unclaimed_bank(Kind k) {
     switch (k) {
         case Kind::PatternNames:
@@ -172,9 +179,10 @@ inline bool kind_needs_unclaimed_bank(Kind k) {
     }
 }
 
-/* The inverse rule: RBG0's own image data is fetched through the rotation
- * data bank bits, so it only makes sense inside a whole-claimed bank
- * (p06_20, p06_40). */
+/* The inverse rule: RBG0 image data (RotationNames/RotationChars) is
+ * fetched through the rotation data bank bits, so it only makes sense
+ * inside a bank reserved for rotation use. RBG0's claim_banks() and
+ * RBG1's claim_rbg1_banks() both qualify. */
 inline bool kind_requires_claimed_bank(Kind k) {
     switch (k) {
         case Kind::RotationNames:
@@ -255,12 +263,22 @@ inline Status unstage(PlanState& s, uint32_t base) {
 }
 
 /* The bank rules one range must obey given the current claims: fetched
- * kinds stay out of claimed banks, RBG0 image data stays inside them. */
-inline Status bank_rule(Kind kind, uint8_t banks, uint8_t claimed_banks) {
-    if (kind_needs_unclaimed_bank(kind) && (banks & claimed_banks) != 0u) {
+ * kinds stay out of RBG0-claimed banks. RotationParams and Coefficients
+ * may live in an RBG1-reserved bank too: RDBSB0/B1 must be 00B while
+ * RBG1 displays (p06_20), which is the same role those tables need.
+ * RBG0 image data (RotationNames/RotationChars) must live in a rotation-
+ * reserved bank (RBG0 claim or RBG1 reserve). */
+inline Status bank_rule(Kind kind, uint8_t banks,
+                        uint8_t claimed_banks, uint8_t rbg1_banks) {
+    const uint8_t reserved_banks = static_cast<uint8_t>(claimed_banks | rbg1_banks);
+    if (kind == Kind::RotationParams || kind == Kind::Coefficients) {
+        if ((banks & claimed_banks) != 0u) return Status::BankClaimed;
+        return Status::Ok;
+    }
+    if (kind_needs_unclaimed_bank(kind) && (banks & reserved_banks) != 0u) {
         return Status::BankClaimed;
     }
-    if (kind_requires_claimed_bank(kind) && (banks & ~claimed_banks) != 0u) {
+    if (kind_requires_claimed_bank(kind) && (banks & ~reserved_banks) != 0u) {
         return Status::BankUnclaimed;
     }
     return Status::Ok;
@@ -298,7 +316,7 @@ inline Status stage(PlanState& s, Kind kind, uint32_t base, uint32_t bytes,
         return s.last_status;
     }
     const uint8_t banks = bank_mask_of_range(base, bytes);
-    const Status bank = bank_rule(kind, banks, s.claimed_banks);
+    const Status bank = bank_rule(kind, banks, s.claimed_banks, s.rbg1_banks);
     if (bank != Status::Ok) {
         s.last_status = bank;
         s.last_conflict_base = base;
@@ -342,7 +360,7 @@ inline Status commit(PlanState& s) {
         if (static_cast<SlotState>(slot.state) != SlotState::Staged) continue;
         const Status bank = bank_rule(static_cast<Kind>(slot.kind),
                                       bank_mask_of_range(slot.base, slot.bytes),
-                                      s.claimed_banks);
+                                      s.claimed_banks, s.rbg1_banks);
         if (bank != Status::Ok) {
             s.last_status = bank;
             s.last_conflict_base = slot.base;
@@ -395,7 +413,10 @@ inline Status release(PlanState& s, uint32_t base) {
 
 /* Whole-bank claims (rotation pattern-name/character banks). A claim that
  * would strand a live pattern-name, character, bitmap, rotation-parameter
- * or coefficient reservation is refused: nothing changes. */
+ * or coefficient reservation is refused: nothing changes. RotationParams
+ * and Coefficients are still forbidden here - they may live in an RBG1-
+ * reserved bank (p06_20: RDBS=00B while RBG1 displays) but not in an
+ * RBG0-claimed bank. */
 inline Status claim_banks(PlanState& s, uint8_t bank_mask) {
     if (bank_mask == 0u || (bank_mask & ~0x0Fu) != 0u) {
         s.last_status = Status::BadRange;
@@ -420,6 +441,72 @@ inline Status claim_banks(PlanState& s, uint8_t bank_mask) {
         }
     }
     s.claimed_banks = static_cast<uint8_t>(s.claimed_banks | effective);
+    return Status::Ok;
+}
+
+/* Reserve banks for RBG1's fixed fetch (B0/B1). The parameter and
+ * coefficient tables may live in those banks (RDBSB0/B1 = 00B per p06_20),
+ * so claim_rbg1_banks() refuses a range that already sits there only when
+ * the kind itself forbids being reserved: RotationNames/RotationChars can
+ * land either here (RBG1's fetch) or in a regular claim_banks() bank
+ * (RBG0's fetch). */
+inline Status claim_rbg1_banks(PlanState& s, uint8_t bank_mask) {
+    if (bank_mask == 0u || (bank_mask & ~0x0Fu) != 0u) {
+        s.last_status = Status::BadRange;
+        ++s.refusals;
+        return s.last_status;
+    }
+    const uint8_t effective = static_cast<uint8_t>(bank_mask & ~s.rbg1_banks);
+    if (effective == 0u) {
+        return Status::Ok;   /* idempotent re-claim */
+    }
+    /* RBG0 image data (RotationNames/RotationChars) cannot move into an
+     * RBG1-reserved bank without the caller explicitly choosing so:
+     * RotationChars landed in B0 means RBG1's character window, but a
+     * range staged against an empty transaction would silently misroute
+     * to B0. Refuse and let the caller claim the bank through claim_banks
+     * (the RBG0 path) instead. */
+    for (uint8_t i = 0u; i < kMaxReservations; ++i) {
+        const Slot& slot = s.slots[i];
+        if (slot.state == 0u) continue;
+        const Kind kind = static_cast<Kind>(slot.kind);
+        if (kind == Kind::PatternNames
+            || kind == Kind::Characters
+            || kind == Kind::Bitmap) {
+            /* a normal NBG range landed in B0/B1: refuse. */
+            if ((bank_mask_of_range(slot.base, slot.bytes) & effective) != 0u) {
+                s.last_status = Status::BanksBusy;
+                s.last_conflict_base = slot.base;
+                ++s.refusals;
+                return s.last_status;
+            }
+        }
+    }
+    s.rbg1_banks = static_cast<uint8_t>(s.rbg1_banks | effective);
+    return Status::Ok;
+}
+
+/* Giving reserved-for-RBG1 banks back is refused while RBG1 image data
+ * (RotationNames/RotationChars) still needs them. */
+inline Status release_rbg1_banks(PlanState& s, uint8_t bank_mask) {
+    if (bank_mask == 0u || (bank_mask & ~0x0Fu) != 0u) {
+        s.last_status = Status::BadRange;
+        ++s.refusals;
+        return s.last_status;
+    }
+    for (uint8_t i = 0u; i < kMaxReservations; ++i) {
+        const Slot& slot = s.slots[i];
+        if (slot.state == 0u) continue;
+        const Kind kind = static_cast<Kind>(slot.kind);
+        if (kind != Kind::RotationNames && kind != Kind::RotationChars) continue;
+        if ((bank_mask_of_range(slot.base, slot.bytes) & bank_mask & s.rbg1_banks) != 0u) {
+            s.last_status = Status::BanksBusy;
+            s.last_conflict_base = slot.base;
+            ++s.refusals;
+            return s.last_status;
+        }
+    }
+    s.rbg1_banks = static_cast<uint8_t>(s.rbg1_banks & ~bank_mask);
     return Status::Ok;
 }
 
