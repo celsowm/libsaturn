@@ -156,12 +156,12 @@
     {
       "id": "unified_resource_planner",
       "title": "One transactional owner for bank/cycle, CRAM and table reservations with rollback",
-      "status": "absent",
+      "status": "partial",
       "manual": ["p03_30.md"],
-      "api": [],
-      "tests": [],
+      "api": ["include/saturn/vdp2_alloc.h"],
+      "tests": ["tests/host/test_vdp2_plan_logic.cpp", "tests/host/test_vdp2_plan_api.cpp", "harness/run-vdp2-vram-stress.ps1"],
       "plan_milestone": "M1",
-      "notes": "Today the free-list allocator and the cycle planner are separate; the plan's section 4 defines the transactional composition."
+      "notes": "VRAM byte and table reservations and whole-bank claims are transactional since dbec2fa: sat_vdp2_plan_begin/reserve/reserve_at/commit/rollback/release plus per-bank telemetry, over the byte free list which stays the single byte owner (sat_vdp2_plan_*). Not yet part of the transaction: CRAM ranges (still the non-transactional bank ring) and the cycle patterns (still planned inside sat_vdp2_layer_configure). E08 vdp2_vram_stress demonstrates every refusal path live."
     },
     {
       "id": "rbg0_rotation_parameter_b",
