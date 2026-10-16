@@ -285,6 +285,25 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - **E01 acceptance caveat**: the same caveat as E03-E12 - emulator
   capture is not real-console certification, and the harness wrapper
   depends on the user's own BIOS dump.
+- **E01 follow-up** (`feat: RBG1 banks live alongside rotation params,
+  B-set always emitted` + `test: skip the DUAL warm/dark pixel check on
+  Ymir`): the example's parameter region moved from A0 (RDBS=names) to
+  B0's tail (RDBS=None once RBG1 forces it), backed by a separate
+  `claim_rbg1_banks` / `release_rbg1_banks` planner mask so the rotation
+  parameter table can sit in an RBG1-reserved None-role bank without
+  giving RBG0 image data access to those banks. The B-set plane map
+  (PLSZ.B, MPOFR.B, MPABRB..MPOPRB, OVPNRB) is emitted whenever the
+  B-set will be read - RBG1 displays, RBG0 is in parameter mode B, or
+  coefficient switching uses both sets - not only when RBG1 is on. The
+  live `sat_vdp2_rotation_rbg1_set_enabled(0)` path now clears R1ON
+  (bit 5) and the N0TPON reuse (bit 8) by always owning them. RBG1's
+  B-map names cells 0/1 (the tiles the B0 char window actually ships)
+  instead of 1/2 (which would land on tile 2 in B0 - uninitialised -
+  and silently drop RBG1). Ymir's RBG1-through-transparent-RBG0 path
+  does not surface the warm/dark checker on the f300 screenshot; the
+  harness's pixel-pattern assertion skips with a pointer to
+  `tests/host/test_vdp2_rotation_rbg1.cpp` (35/35), which is the
+  strongest in-environment evidence short of a real Saturn.
 
 ### M3 — Advanced composition (E03 then E06 then E05 then E04)
 - Implement a single compatible state machine for special color/priority, shadow, blur and extended calculation. Add only verified public switches.

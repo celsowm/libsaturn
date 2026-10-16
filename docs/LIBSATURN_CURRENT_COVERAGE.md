@@ -357,7 +357,12 @@ From the current snapshot, the largest new capability domains are:
    landed with `sat_vdp2_plan_*` + `vdp2_vram_stress`; parameter sets A/B
    and the coefficient contract landed with
    `vdp2_rotation_coefficients`; the RBG1 first-class layer landed with
-   `vdp2_dual_rotation`; the CRAM ring and the
+   `vdp2_dual_rotation` (its follow-up moved the parameter region to
+   B0's tail so the planner's `claim_rbg1_banks` could keep the rotation
+   table in a None-role bank without exposing B0/B1 to RBG0 image data,
+   and switched the B-set plane-map emission to fire for any B-set
+   reader — RBG1 on, RBG0 in mode B, or coefficient switching); the
+   CRAM ring and the
    cycle planner still join the transaction) — the subject of
    `docs/VDP2_ADVANCED_EXAMPLES_IMPLEMENTATION_PLAN.md`
 2. **SCSP synthesis, envelopes/LFO and richer DSP effect programs**
