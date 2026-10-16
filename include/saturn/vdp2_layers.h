@@ -167,6 +167,48 @@ typedef struct sat_vdp2_rotation_coefficients {
     uint8_t one_word;    /* 1: 1-word entries; 0: 2-word entries */
 } sat_vdp2_rotation_coefficients_t;
 
+/* One rotation parameter set's pattern name map: a 4x4 plane layout in cell
+ * format. The RBG0 image uses the top-level plane_address/plane_pages_x/y/
+ * over/over_pattern_name fields; RBG1 always reads its names from VRAM-B1
+ * (manual p06_20) so its plane_address range must lie inside bank B1. */
+typedef struct sat_vdp2_rotation_map {
+    uint8_t plane_pages_x;       /* 1 or 2 */
+    uint8_t plane_pages_y;       /* 1 or 2 (1x2 is prohibited, like RBG0) */
+    uint8_t over;                /* SAT_VDP2_ROTATION_OVER_* */
+    uint8_t reserved0;
+    uint16_t over_pattern_name;  /* SAT_VDP2_ROTATION_OVER_PATTERN */
+    uint16_t reserved1;
+    /* Byte addresses of the 16 planes' pattern name tables. */
+    uint32_t plane_address[16];
+} sat_vdp2_rotation_map_t;
+
+/* RBG1: the second rotation scroll screen (manual p06_20). It requires
+ * RBG0 to display too, can never coexist with a normal scroll screen, and
+ * its pattern names are fixed in VRAM-B1 with its character window in
+ * VRAM-B0 (the manual's "the image data for each rotating scroll screen
+ * must be stored in separate VRAMs"). The validation rules refuse any
+ * configuration that breaks those constraints with SAT_ERR_INVALID_ARG.
+ *
+ * RBG1 is always drawn by rotation parameter set B (p06_30: RPTA's bit 6
+ * is fixed to 1 for B), so RPMD must stay SAT_VDP2_ROTATION_PARAMETER_A
+ * while RBG1 displays; live parameter-mode switches and concurrent NBG
+ * configurations are refused with SAT_ERR_INVALID_ARG / SAT_ERR_BUSY.
+ *
+ * RBG1 shares parameter set B's 4x4 plane map with RBG0's B-mode -- the
+ * VDP2 reads MPABRB..MPOPRB once and feeds both screens through it. The
+ * validation insists on VRAM-B1 names when this map is read by RBG1. */
+typedef struct sat_vdp2_rbg1_config {
+    uint8_t enabled;             /* 1: show RBG1 */
+    uint8_t color_mode;          /* 16, 256, 2048 or 32768 colours */
+    uint8_t char_size;           /* sat_vdp2_char_size_t */
+    uint8_t pattern_name_words;  /* 1 or 2 */
+    uint8_t priority;            /* 0 (hidden) to 7 */
+    uint8_t transparent;         /* 1: dot code 0 is transparent */
+    uint8_t palette;             /* 1-word names: palette number bits 6-4 */
+    uint8_t reserved0;
+    uint32_t char_base_address;  /* 1-word names: window base, must sit in VRAM-B0 */
+} sat_vdp2_rbg1_config_t;
+
 typedef struct sat_vdp2_rotation_config {
     uint8_t color_mode;          /* 16, 256, 2048 or 32768 colours */
     uint8_t char_size;           /* sat_vdp2_char_size_t */
@@ -190,11 +232,19 @@ typedef struct sat_vdp2_rotation_config {
      * clear, outside the RBG0 banks. sat_vdp2_rotation_write_params fills
      * both sets. */
     uint32_t table_address;
+    /* Parameter set B's pattern name map. Set B is always read at
+     * region | 0x80 (manual p06_32), and RBG1 fetches B's names from
+     * VRAM-B1. When rbg1.enabled is 0 the map may sit anywhere a name
+     * table can; when it is 1 the validation insists on VRAM-B1. */
+    sat_vdp2_rotation_map_t map_b;
+    /* RBG1 sub-config; enabled = 0 leaves BGON R1ON clear. */
+    sat_vdp2_rbg1_config_t rbg1;
 } sat_vdp2_rotation_config_t;
 
 /* Defaults: 256 colours, 1x1 characters, 1-word names, one page per plane,
  * priority 1, dot 0 transparent, the map repeating, parameter set A, no
- * coefficient tables. The caller sets the banks and addresses. */
+ * coefficient tables, no parameter-set-B map, RBG1 hidden. The caller
+ * sets the banks and addresses. */
 void sat_vdp2_rotation_config_default(sat_vdp2_rotation_config_t* out_config);
 
 sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_config_t* config);
@@ -204,8 +254,15 @@ sat_result_t sat_vdp2_rotation_set_enabled(uint8_t enabled);
 sat_result_t sat_vdp2_rotation_set_priority(uint8_t priority);
 
 /* Changes the parameter mode live (RPMD): SAT_VDP2_ROTATION_PARAMETER_A, B
- * or COEFFICIENT. The window mode is not supported: SAT_ERR_INVALID_ARG. */
+ * or COEFFICIENT. The window mode is not supported: SAT_ERR_INVALID_ARG.
+ * While RBG1 is visible the parameter mode must stay A (manual p06_30,
+ * p06_35: RBG1 reads parameter set B only) - refused with
+ * SAT_ERR_INVALID_ARG. */
 sat_result_t sat_vdp2_rotation_set_parameter_mode(uint8_t mode);
+
+/* Shows or hides RBG1 without a full reconfigure. SAT_ERR_INVALID_ARG when
+ * RBG1 is configured and the rotation parameter mode is not A. */
+sat_result_t sat_vdp2_rotation_rbg1_set_enabled(uint8_t enabled);
 
 /* One rotation parameter set (manual 6.3), used for A and B alike. The
  * screen dot (H, V) shows map dot

@@ -177,11 +177,20 @@
     {
       "id": "rbg1",
       "title": "RBG1 as a first-class layer (requires RBG0, excludes normal scrolling screens)",
-      "status": "absent",
+      "status": "partial",
       "manual": ["p06_20.md"],
-      "api": [],
-      "tests": [],
-      "plan_milestone": "M2"
+      "api": [
+        "sat_vdp2_rotation_config_default(config) seeds rbg1.enabled = 0",
+        "sat_vdp2_rotation_configure(config) copies rbg1.enabled/colors/char_size/pattern_name_words/priority/transparent/palette/char_base_address (must be in VRAM-B0) and validates the B-map planes in VRAM-B1",
+        "sat_vdp2_rotation_rbg1_set_enabled(enabled) toggles RBG1 mid-frame without a full reconfigure; refused when parameter_mode is not A",
+        "sat_vdp2_layer_configure(NBG*) returns SAT_ERR_BUSY while RBG1 displays (manual p06_20: 'the normal scroll screen will not be able to be displayed at all')",
+        "sat_vdp2_rotation_set_parameter_mode(B or COEFFICIENT) returns SAT_ERR_INVALID_ARG while RBG1 displays (RBG1 always reads parameter set B; mode A only)"
+      ],
+      "tests": [
+        "tests/host/test_vdp2_rotation_rbg1.cpp: 35/35 (happy path, transparent=false, parameter mode != A refused, RBG0 banks in VRAM-B refused, B-map outside VRAM-B1 refused, character window outside VRAM-B0 refused, RBG1 hidden allows the A-map/B-map/banks anywhere, 2x2 window size, B-map 2x2 pages, over=repeat + over pattern name)",
+        "examples/vdp2_dual_rotation/main.c records six refused illegal combinations in g_dual_rotation"
+      ],
+      "notes": "Implemented in this slice. RBG1's image data follows the manual's separate-VRAM rule: pattern names fixed in VRAM-B1 (MPABRB..MPOPRB are the same map RBG0's B-mode reads, so the B-map must lie inside VRAM-B1 whenever rbg1.enabled is 1), character window fixed in VRAM-B0. The HAL replay writes the takeover registers only while RBG1 is on (BGON R1ON + N0TPON reuse, CHCTLA N0CHCN + N0CHSZ, PNCN0 N0PNB + N0SPR + N0SCC + N0SPLT + N0SCN, PLSZ RBPLSZ + RBOVR, MPOFR RBMP, MPABRB..MPOPRB, OVPNRB, PRINA N0PRIN), and clears them when RBG1 hides so NBG0's bits aren't left stale. Per-dot coefficients and the rotation window mode remain refused on the NBG path - the same corner that E02 already records."
     },
     {
       "id": "hardware_blur",

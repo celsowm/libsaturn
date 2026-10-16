@@ -1141,6 +1141,31 @@ void rot_write_all(bool may_write_table) {
     set_reg(0x0B2u, 0u);          /* RPRCTL: Xst, Yst, KAst read on the first line only */
     merge_reg(0x0B4u, 0x1FFFu, r.ktctl);   /* KTCTL: both coefficient contracts (p06_42) */
     merge_reg(0x0FCu, 0x0007u, r.prir);
+    if (g_rot.rbg1.enabled) {
+        /* Take over the registers RBG1 shares with NBG0 / RBG0 B-set:
+         * CHCTLA (N0CHCN 6-4, N0CHSZ 0), PNCN0 (the bits that name size,
+         * palette and character-supplementary), the RBMP bits of MPOFR,
+         * the RBPLSZ/RBOVR bits of PLSZ, the B map at 0x060..0x06E,
+         * OVPNRB at 0x0BA, the N0PRIN bits of PRINA. */
+        merge_reg(kOffChctla, 0x007Fu, r.chctla);
+        merge_reg(0x030u, 0xCE3Fu, r.pnc0);   /* 0x8000 | 0x4000 | 0x0200 | 0x0100 | 0x00E0 | 0x001F */
+        merge_reg(0x03Eu, 0x0070u, r.mpofr_b);
+        merge_reg(kOffPlsz, 0xF000u, r.plsz_b);
+        for (uint32_t i = 0u; i < 8u; ++i) set_reg(0x060u + 2u * i, r.mp_b[i]);
+        set_reg(0x0BAu, r.ovpnrb);
+        merge_reg(0x0F8u, 0x0007u, r.prina_rbg1);
+    } else {
+        /* RBG1 is hidden: zero the takeover bits so they don't keep NBG0
+         * pinned at the values we wrote when RBG1 was visible. The
+         * next nbg_write_all() repaints the NBG0 bits. */
+        merge_reg(kOffChctla, 0x007Fu, 0u);
+        merge_reg(0x030u, 0xCE3Fu, 0u);
+        merge_reg(0x03Eu, 0x0070u, 0u);
+        merge_reg(kOffPlsz, 0xF000u, 0u);
+        for (uint32_t i = 0u; i < 8u; ++i) set_reg(0x060u + 2u * i, 0u);
+        set_reg(0x0BAu, 0u);
+        merge_reg(0x0F8u, 0x0007u, 0u);
+    }
     /* The region address and both coefficient offsets switch tables: during
      * the picture that would apply from the current line. */
     if (may_write_table || !g_rot_table_live) {
@@ -1235,7 +1260,9 @@ void nbg_write_all(bool vblank_replay = false) {
     if (g_rot_used) {
         rot_write_all(may_write_scroll);
         owned_bgon = static_cast<uint16_t>(owned_bgon | 0x1010u);
-        bgon = static_cast<uint16_t>(bgon | rot::compose(g_rot).bgon);
+        const rot::Registers rr = rot::compose(g_rot);
+        bgon = static_cast<uint16_t>(bgon | rr.bgon | rr.bgon_rbg1);
+        if (rr.bgon_rbg1 != 0u) owned_bgon = static_cast<uint16_t>(owned_bgon | 0x0120u);
     }
     merge_reg(kOffBgon, owned_bgon, bgon);
     g_last_rbg0_bgon_written = get_reg(kOffBgon);
@@ -1426,6 +1453,10 @@ NbgResult nbg_configure(uint8_t index, const nbg::Layer& layer) {
     /* The legacy NBG0 API and RBG0 keep their own cycle patterns and replay
      * shadows; the two managers cannot share the VRAM cycle registers. */
     if (g_nbg0_configured || ((BGON & 0x0010u) != 0u && !g_rot_used)) return NbgResult::Busy;
+    /* Manual p06_20: "When displaying RBG1 ... the normal scroll screen will
+     * not be able to be displayed at all." Once RBG1 is on, refuse NBGs
+     * until the rotation layer is reconfigured with RBG1 off. */
+    if (rot_rbg1_enabled()) return NbgResult::Busy;
     nbg::Layer trial[nbg::kLayerCount];
     for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
         trial[i] = g_nbg_layer[i];
@@ -1534,6 +1565,17 @@ void rot_set_table(uint32_t table_address, uint8_t ktaof, uint8_t ktaof_b) {
     g_rot.ktaof_b = static_cast<uint8_t>(ktaof_b & 7u);
     nbg_write_all();
 }
+
+bool rot_set_rbg1_enabled(bool enabled) {
+    if (!g_rot_used || !g_rot.enabled) return false;
+    /* Mode != A is rejected by rot_configure() with rbg1.enabled = true; the
+     * only way to land here is mode = 0, so the mode check is already done. */
+    g_rot.rbg1.enabled = enabled;
+    nbg_write_all();
+    return true;
+}
+
+bool rot_rbg1_enabled() { return g_rot_used && g_rot.enabled && g_rot.rbg1.enabled; }
 
 bool nbg_layer(uint8_t index, nbg::Layer* out) {
     if (index >= nbg::kLayerCount || !g_nbg_used[index] || out == nullptr) return false;

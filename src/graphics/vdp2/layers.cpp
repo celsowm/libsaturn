@@ -225,6 +225,17 @@ extern "C" void sat_vdp2_rotation_config_default(sat_vdp2_rotation_config_t* out
     out_config->transparent = 1u;
     out_config->over = SAT_VDP2_ROTATION_OVER_REPEAT;
     out_config->parameter_mode = SAT_VDP2_ROTATION_PARAMETER_A;
+    /* parameter-set-B's plane map (RBG1's names live here when enabled). */
+    out_config->map_b.plane_pages_x = 1u;
+    out_config->map_b.plane_pages_y = 1u;
+    out_config->map_b.over = SAT_VDP2_ROTATION_OVER_REPEAT;
+    /* RBG1 defaults: hidden, 256-colour 1x1 1-word names, priority 1,
+     * transparent, character window base = 0 (caller sets it). */
+    out_config->rbg1.color_mode = SAT_VDP2_COLOR_MODE_256;
+    out_config->rbg1.char_size = SAT_VDP2_CHAR_SIZE_1X1;
+    out_config->rbg1.pattern_name_words = 1u;
+    out_config->rbg1.priority = 1u;
+    out_config->rbg1.transparent = 1u;
 }
 
 extern "C" sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_config_t* config) {
@@ -265,6 +276,37 @@ extern "C" sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_conf
         const uint32_t units = config->char_base_address / window;
         l.char_number_supp = static_cast<uint8_t>(l.char_2x2 ? ((units & 7u) << 2u) : (units & 0x1Fu));
     } else if (config->char_base_address != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    /* Parameter-set-B map (B's 16 planes, own pages/over, plane_address[]). */
+    l.map_b.pages_x = config->map_b.plane_pages_x;
+    l.map_b.pages_y = config->map_b.plane_pages_y;
+    l.map_b.over = static_cast<uint8_t>(config->map_b.over & 3u);
+    l.map_b.over_pattern_name = config->map_b.over_pattern_name;
+    for (uint8_t p = 0u; p < rot::kPlanes; ++p) l.map_b.plane_address[p] = config->map_b.plane_address[p];
+    /* RBG1 sub-config: enabled drives the validation; the colour, char
+     * size, name-word size, priority, transparent, palette are 1:1 fields;
+     * the plane map is shared with parameter set B (cfg.map_b). */
+    const sat_vdp2_rbg1_config_t* r = &config->rbg1;
+    l.rbg1.enabled = r->enabled != 0u;
+    l.rbg1.colors = static_cast<nbg::Colors>(r->color_mode & 3u);
+    l.rbg1.char_2x2 = r->char_size == SAT_VDP2_CHAR_SIZE_2X2;
+    l.rbg1.pn_one_word = r->pattern_name_words == 1u;
+    l.rbg1.priority = r->priority;
+    l.rbg1.transparent = r->transparent != 0u;
+    l.rbg1.palette_supp = static_cast<uint8_t>(r->palette & 7u);
+    l.rbg1.char_base_address = r->char_base_address;
+    /* Character number supplementary for RBG1 follows the same 10-bit
+     * window rule (p04_62): the 8-bit char_number_supp indexes one window. */
+    if (l.rbg1.pn_one_word) {
+        const uint32_t window = l.rbg1.char_2x2 ? 0x20000u : 0x8000u;
+        if (r->char_base_address % window != 0u || r->char_base_address >= nbg::kVramBytes) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        const uint32_t units = r->char_base_address / window;
+        l.rbg1.char_number_supp = static_cast<uint8_t>(l.rbg1.char_2x2 ? ((units & 7u) << 2u)
+                                                                       : (units & 0x1Fu));
+    } else if (r->char_base_address != 0u) {
         return SAT_ERR_INVALID_ARG;
     }
     /* a region already in use stays (its coefficient offsets go with it) */
@@ -308,6 +350,14 @@ extern "C" sat_result_t sat_vdp2_rotation_set_parameter_mode(uint8_t mode) {
     if (!hal::rot_layer(&current)) return SAT_ERR_NOT_FOUND;
     current.parameter_mode = mode;
     return to_result(hal::rot_configure(current));
+}
+
+extern "C" sat_result_t sat_vdp2_rotation_rbg1_set_enabled(uint8_t enabled) {
+    SAT_TRY(saturn::core::require_initialized());
+    rot::Layer current{};
+    if (!hal::rot_layer(&current)) return SAT_ERR_NOT_FOUND;
+    if (!hal::rot_set_rbg1_enabled(enabled != 0u)) return SAT_ERR_INVALID_ARG;
+    return SAT_OK;
 }
 
 /* One set's 17 values plus its coefficient start, in the policy's layout. */

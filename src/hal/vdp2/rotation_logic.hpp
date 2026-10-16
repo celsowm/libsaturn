@@ -52,6 +52,36 @@ struct Coefficients {
     bool one_word;     /* RxKDBS: 1-word entries instead of 2-word */
 };
 
+/* One rotation parameter set's 4x4 plane map (the C-visible map_b and the
+ * implicit RBG0 plane_address). Same shape and rules as RBG0: 1x2 pages
+ * are prohibited, every plane's names must sit in the relevant name bank
+ * and share the upper bits of MPOFR. */
+struct Map {
+    uint8_t pages_x, pages_y;  /* 1 or 2 */
+    uint8_t over;              /* RAOVR/RBOVR */
+    uint16_t over_pattern_name;
+    uint32_t plane_address[kPlanes];
+};
+
+/* RBG1: the second rotation scroll screen (p06_20). Always reads parameter
+ * set B, fixed VRAM-B1 names + VRAM-B0 characters; live parameter-mode
+ * changes away from A and any NBG configuration are refused by the C
+ * wrappers while rbg1.enabled is set. The plane map is shared with RBG0's
+ * B-mode (Layer::map_b) - the VDP2 reads MPABRB..MPOPRB once and feeds
+ * both screens through it - so the validation insists on VRAM-B1 names
+ * whenever rbg1.enabled is set. */
+struct Rbg1 {
+    bool enabled;
+    nbg::Colors colors;
+    bool char_2x2;
+    bool pn_one_word;
+    uint8_t priority;
+    bool transparent;
+    uint8_t palette_supp;
+    uint8_t char_number_supp;
+    uint32_t char_base_address;
+};
+
 struct Layer {
     bool enabled;
     nbg::Colors colors;        /* 16, 256, 2048 or 32768 */
@@ -76,9 +106,35 @@ struct Layer {
     Coefficients coefficients_b;
     uint8_t ktaof;             /* KTAOF bits 2-0: A's coefficient table offset */
     uint8_t ktaof_b;           /* KTAOF bits 10-8: B's */
+    /* Parameter set B's plane map (manual figure 6.4: MPABRB..MPOPRB).
+     * When rbg1.enabled the validation insists on VRAM-B1 names. */
+    Map map_b;
+    Rbg1 rbg1;
 };
 
 enum class Status : uint8_t { Ok, BadFormat, BadPlane, BadBanks };
+
+/* The bank role bits VRAM-A0/A1 can carry; VRAM-B0/B1 are reserved for
+ * RBG1's fixed fetches when rbg1.enabled (p06_20). */
+constexpr uint8_t kRotationABanks = (1u << nbg::kBankA0) | (1u << nbg::kBankA1);
+constexpr uint8_t kRotationB1Only = 1u << nbg::kBankB1;
+
+inline Status validate_map(const Map& m, uint8_t name_banks, uint32_t planes_size) {
+    if (m.pages_x < 1u || m.pages_x > 2u || m.pages_y < 1u || m.pages_y > 2u) return Status::BadPlane;
+    if (m.pages_x == 1u && m.pages_y == 2u) return Status::BadPlane;
+    if (m.over > 3u) return Status::BadFormat;
+    const uint32_t size = planes_size;
+    uint32_t offset_bits = 0xFFFFFFFFu;
+    for (uint8_t p = 0u; p < kPlanes; ++p) {
+        const uint32_t a = m.plane_address[p];
+        if (size == 0u || a % size != 0u || a + size > nbg::kVramBytes) return Status::BadPlane;
+        if ((nbg::bank_mask_of(a, size, true, true) & ~name_banks) != 0u) return Status::BadPlane;
+        const uint32_t high = nbg::map_value(a, size) >> 6u;
+        if (offset_bits == 0xFFFFFFFFu) offset_bits = high;
+        else if (offset_bits != high) return Status::BadPlane;
+    }
+    return Status::Ok;
+}
 
 inline Status validate(const Layer& l) {
     if (l.priority > 7u || l.over > 3u || l.ktaof > 7u || l.ktaof_b > 7u) return Status::BadFormat;
@@ -86,24 +142,29 @@ inline Status validate(const Layer& l) {
     if (l.parameter_mode == 3u) return Status::BadFormat;   /* RPAWIN not modeled (p06_34) */
     if (l.colors == nbg::Colors::C16M) return Status::BadFormat;
     if (l.coefficients_a.mode > 3u || l.coefficients_b.mode > 3u) return Status::BadFormat;
-    if (l.pages_x < 1u || l.pages_x > 2u || l.pages_y < 1u || l.pages_y > 2u) return Status::BadPlane;
-    if (l.pages_x == 1u && l.pages_y == 2u) return Status::BadPlane;   /* PLSZ 10b is prohibited */
     if (l.name_banks == 0u || l.char_banks == 0u || ((l.name_banks | l.char_banks) & ~nbg::kAllBanks) != 0u ||
         (l.name_banks & l.char_banks) != 0u) {
         return Status::BadBanks;
     }
-    const uint32_t size = nbg::plane_bytes(l.pn_one_word, l.char_2x2, l.pages_x, l.pages_y);
-    uint32_t offset_bits = 0xFFFFFFFFu;
-    for (uint8_t p = 0u; p < kPlanes; ++p) {
-        const uint32_t a = l.plane_address[p];
-        if (a % size != 0u || a + size > nbg::kVramBytes) return Status::BadPlane;
-        /* every plane's names must sit in a pattern-name bank */
-        if ((nbg::bank_mask_of(a, size, true, true) & ~l.name_banks) != 0u) return Status::BadPlane;
-        const uint32_t high = nbg::map_value(a, size) >> 6u;
-        if (offset_bits == 0xFFFFFFFFu) offset_bits = high;
-        else if (offset_bits != high) return Status::BadPlane;
+    /* RBG1 (manual p06_20): RBG0's image banks stay in VRAM-A. Check this
+     * BEFORE the A-map so a wrong bank mapping is reported as the right
+     * thing (BadBanks, not a cascade of A-map plane rejections). */
+    if (l.rbg1.enabled) {
+        if (l.parameter_mode != 0u) return Status::BadFormat;
+        if (l.rbg1.colors == nbg::Colors::C16M) return Status::BadFormat;
+        if (l.rbg1.priority > 7u) return Status::BadFormat;
+        if ((l.name_banks & ~kRotationABanks) != 0u) return Status::BadBanks;
+        if ((l.char_banks & ~kRotationABanks) != 0u) return Status::BadBanks;
     }
-    if (offset_bits > 7u) return Status::BadPlane;
+    const uint32_t size = nbg::plane_bytes(l.pn_one_word, l.char_2x2, l.pages_x, l.pages_y);
+    /* The whole A-plane map (mirrors the implicit map from l.plane_address). */
+    Map a_map;
+    a_map.pages_x = l.pages_x;
+    a_map.pages_y = l.pages_y;
+    a_map.over = l.over;
+    a_map.over_pattern_name = l.over_pattern_name;
+    for (uint8_t p = 0u; p < kPlanes; ++p) a_map.plane_address[p] = l.plane_address[p];
+    if (const Status s = validate_map(a_map, l.name_banks, size); s != Status::Ok) return s;
     /* RPTA bit 6 is ignored and fixed to 0 for A (p06_32): a region whose
      * byte address has bit 7 set would silently land 0x80 lower. */
     if ((l.table_address & 3u) != 0u || (l.table_address & 0x80u) != 0u) return Status::BadPlane;
@@ -112,6 +173,27 @@ inline Status validate(const Layer& l) {
     if (l.table_address + table_span > nbg::kVramBytes) return Status::BadPlane;
     if ((nbg::bank_mask_of(l.table_address, table_span, true, true) & (l.name_banks | l.char_banks)) != 0u) {
         return Status::BadBanks;
+    }
+    /* RBG1 rules (manual p06_20): the bank constraint runs above (so a
+     * wrong A-map plane doesn't shadow it as BadPlane). What stays here is
+     * the B-plane map in VRAM-B1 and the character window in VRAM-B0. */
+    if (l.rbg1.enabled) {
+        const uint32_t b_size = nbg::plane_bytes(l.rbg1.pn_one_word, l.rbg1.char_2x2,
+                                                 l.map_b.pages_x, l.map_b.pages_y);
+        if (const Status s = validate_map(l.map_b, kRotationB1Only, b_size); s != Status::Ok) {
+            return s;
+        }
+        /* RBG1's character window lives in VRAM-B0 (p06_20). */
+        if (l.rbg1.pn_one_word) {
+            const uint32_t window = l.rbg1.char_2x2 ? 0x20000u : 0x8000u;
+            if (l.rbg1.char_base_address % window != 0u ||
+                l.rbg1.char_base_address >= nbg::kVramBytes) return Status::BadPlane;
+            if (l.rbg1.char_base_address < 0x40000u || l.rbg1.char_base_address >= 0x60000u) {
+                return Status::BadBanks;
+            }
+        } else if (l.rbg1.char_base_address != 0u) {
+            return Status::BadPlane;
+        }
     }
     return Status::Ok;
 }
@@ -130,18 +212,26 @@ inline uint16_t rdbs(const Layer& l) {
 
 struct Registers {
     uint16_t bgon;      /* R0ON (bit 4), R0TPON (bit 12) */
+    uint16_t bgon_rbg1; /* R1ON (bit 5), N0TPON (bit 8) - only emitted when rbg1.enabled */
     uint16_t ramctl_rdbs;
     uint16_t chctlb;    /* bits 14-8 */
+    uint16_t chctla;    /* RBG1 takeover: N0CHCN bits 6-4, N0CHSZ bit 0 - only when rbg1.enabled */
+    uint16_t pnc0;      /* PNCN0 (RBG1 takeover): bit 15, 14, 9, 8, 7-5, 4-0 - only when rbg1.enabled */
     uint16_t pncr;
-    uint16_t plsz;      /* bits 11-8 */
-    uint16_t mpofr;     /* bits 2-0 */
+    uint16_t plsz;      /* bits 11-8 (RAPLSZ 9-8, RAOVR 11-10) */
+    uint16_t plsz_b;    /* bits 15-12 (RBPLSZ 13-12, RBOVR 15-14) - only when rbg1.enabled */
+    uint16_t mpofr;     /* bits 2-0 (RAMP) */
+    uint16_t mpofr_b;   /* bits 6-4 (RBMP) - only when rbg1.enabled */
     uint16_t mp[8];     /* MPABRA .. MPOPRA */
+    uint16_t mp_b[8];   /* MPABRB .. MPOPRB - only when rbg1.enabled */
     uint16_t ovpnra;
+    uint16_t ovpnrb;    /* OVPNRB - only when rbg1.enabled */
     uint16_t rpmd;      /* bits 1-0 */
     uint16_t ktctl;     /* bits 12-0 */
     uint16_t ktaof;     /* bits 10-8 and 2-0 */
     uint16_t rptau, rptal;
     uint16_t prir;      /* bits 2-0 */
+    uint16_t prina_rbg1;/* PRINA bits 2-0 (N0PRIN reused for RBG1) - only when rbg1.enabled */
 };
 
 inline uint16_t ktctl_of(const Coefficients& c, uint8_t bank_shift) {
@@ -178,6 +268,33 @@ inline Registers compose(const Layer& l) {
     r.rptau = static_cast<uint16_t>(((l.table_address >> 1u) >> 16u) & 7u);
     r.rptal = static_cast<uint16_t>((l.table_address >> 1u) & 0xFFFEu);
     r.prir = static_cast<uint16_t>(l.priority & 7u);
+    /* RBG1's fields are only emitted when enabled. The N0CHCN/N0CHSZ bits
+     * of CHCTLA, PNCN0, the N0PRIN bits of PRINA, and the RBMP bits of MPOFR
+     * are owned by NBG0 otherwise, so the writer must not touch them while
+     * RBG1 is hidden (and must mask them when RBG1 displays). RBG1 reads
+     * the B-plane map from MPABRB..MPOPRB which is the same map RBG0's
+     * B-mode reads (Layer::map_b). */
+    if (l.rbg1.enabled) {
+        r.bgon_rbg1 = static_cast<uint16_t>(0x0020u | (l.rbg1.transparent ? 0u : 0x0100u));
+        r.chctla = static_cast<uint16_t>(((static_cast<uint16_t>(l.rbg1.colors) & 7u) << 4u) |
+                                         (l.rbg1.char_2x2 ? 0x0001u : 0u));
+        r.pnc0 = static_cast<uint16_t>(((l.rbg1.pn_one_word ? 1u : 0u) << 15u) |
+                                       ((l.rbg1.palette_supp & 7u) << 5u) |
+                                       (l.rbg1.char_number_supp & 0x1Fu));
+        const uint16_t plsz_b = static_cast<uint16_t>(l.map_b.pages_y == 2u ? 3u
+                                                        : (l.map_b.pages_x == 2u ? 1u : 0u));
+        r.plsz_b = static_cast<uint16_t>(((plsz_b & 3u) << 12u) | ((l.map_b.over & 3u) << 14u));
+        const uint32_t b_size = nbg::plane_bytes(l.rbg1.pn_one_word, l.rbg1.char_2x2,
+                                                 l.map_b.pages_x, l.map_b.pages_y);
+        for (uint8_t p = 0u; p < kPlanes; p += 2u) {
+            const uint32_t v0 = nbg::map_value(l.map_b.plane_address[p], b_size);
+            const uint32_t v1 = nbg::map_value(l.map_b.plane_address[p + 1u], b_size);
+            r.mp_b[p / 2u] = static_cast<uint16_t>((v0 & 0x3Fu) | ((v1 & 0x3Fu) << 8u));
+        }
+        r.mpofr_b = static_cast<uint16_t>((nbg::map_value(l.map_b.plane_address[0], b_size) >> 6u) & 7u) << 4u;
+        r.ovpnrb = l.map_b.over_pattern_name;
+        r.prina_rbg1 = static_cast<uint16_t>(l.rbg1.priority & 7u);
+    }
     return r;
 }
 

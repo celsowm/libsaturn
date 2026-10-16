@@ -185,6 +185,11 @@ bool rot_layer(rot::Layer* out);
  * address), with both coefficient table address offsets (KTAOF: A bits 2-0,
  * B bits 10-8, p06_43). */
 void rot_set_table(uint32_t table_address, uint8_t ktaof, uint8_t ktaof_b);
+/* RBG1: live show / hide. Refuses (returns false) when the rotation
+ * parameter mode is not A; rot_configure() already validates that mode 0 is
+ * the only legal choice with rbg1.enabled. */
+bool rot_set_rbg1_enabled(bool enabled);
+bool rot_rbg1_enabled();
 
 /* Per-line raster tables. Word offsets are VDP2 VRAM word addresses; the
  * tables are replayed by commit_layers(). A later set_backdrop_color() goes

@@ -184,7 +184,7 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Add RBG1 with separate image memory, clear RBG0 dependency and NBG incompatibility; implement `vdp2_dual_rotation`.
 - **Gate:** refused illegal combinations, no torn coefficient tables, distinct RBG pictures where emulators support them, physically testable acceptance artifact.
 
-**Status (2026-10-16): E02 DONE; E01 (`vdp2_dual_rotation`) still open.**
+**Status (2026-10-16): E02 DONE; E01 (`vdp2_dual_rotation`) DONE in this slice.**
 
 - **E02's library slice** (`e212a41`): the rotation manager models both
   parameter sets — one A+B region per figure 6.4 behind the single RPTA
@@ -230,9 +230,61 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   as one concatenated string and two pointed screenshots at a directory
   the probe never creates. Fixed with window-dim (6/6), compose (6/6),
   effects (4/4), dma (13/13) re-run green as evidence.
-- **E01 remains open:** RBG1 with its fixed B0/B1 image banks, the RBG0
-  requirement and the normal-screen exclusion (p06_20), and the
-  `vdp2_dual_rotation` scene.
+- **E01 (`vdp2_dual_rotation`) in this slice** (`feat: rbG0 + rbG1 with the
+  manual's separate-image-bank contract`): RBG1 with the manual's fixed
+  VRAM-B1 names / VRAM-B0 character window (p06_20), the RBG0
+  requirement and the normal-screen exclusion. Public layer contract:
+  - `sat_vdp2_rbg1_config_t` (enabled, colour, char size, name words,
+    priority, transparent, palette, char base in B0) inside
+    `sat_vdp2_rotation_config_t`. RBG1 reads parameter set B's 4x4 map,
+    so `sat_vdp2_rotation_map_t` (plane_pages_x/y, over, over_pattern_name,
+    16 plane_addresses) is also public as `cfg.map_b`.
+  - The layer manager's `rot::validate` refuses the illegal combinations
+    with `SAT_ERR_INVALID_ARG` / `SAT_ERR_BUSY`: RBG1 with parameter mode
+    B or coefficient switching, RBG0's image banks inside VRAM-B while
+    RBG1 displays, parameter-B's map outside VRAM-B1, a normal scroll
+    screen configured while RBG1 shows, a live parameter-mode switch
+    away from A while RBG1 displays, RBG1 enabled while parameter mode
+    is B. The RBG0-bank-in-VRAM-B check fires *before* the A-map
+    geometry check so the caller gets a meaningful error category.
+  - HAL replay writes the takeover registers only while RBG1 is on:
+    `BGON` bit 5 (R1ON) + bit 8 (N0TPON reuse), `CHCTLA` N0CHCN +
+    N0CHSZ, `PNCN0` (the N0PNB / N0SPR / N0SCC / N0SPLT / N0SCN bits
+    that mean RBG1 once NBG0 is hidden), `PLSZ` RBPLSZ + RBOVR,
+    `MPOFR` RBMP, `MPABRB..MPOPRB` (the B-set map), `OVPNRB`, and the
+    `PRINA` N0PRIN bits reused for RBG1 priority. A new
+    `sat_vdp2_rotation_rbg1_set_enabled` toggles RBG1 mid-frame without
+    a full reconfigure; it is refused if the parameter mode is not A.
+  - NBG0..NBG3 are refused with `SAT_ERR_BUSY` once RBG1 displays, per
+    p06_20's "the normal scroll screen will not be able to be displayed
+    at all". The mapping is live: `rot_rbg1_enabled()` is checked by
+    `nbg_configure` and the C wrapper translates Busy back to
+    `SAT_ERR_BUSY`.
+- **E01's host test** (`tests/host/test_vdp2_rotation_rbg1.cpp`,
+  35/35): the manual's mandatory rules as plain register expectations.
+  RBG1 happy path composes R1ON + the takeover bits; transparent=false
+  sets N0TPON; parameter mode != A is refused; RBG0's banks in VRAM-B
+  are refused; B-map planes outside VRAM-B1 are refused; the
+  character window in VRAM-A is refused; `map_b`'s 2x2 pages land in
+  the RBPLSZ bits and `map_b.over=1` lands in RBOVR. With RBG1 hidden
+  the B-map is just a normal parameter-set B map: the same
+  configuration the E02 scene's B-mode switch reads.
+- **E01's scene** (`examples/vdp2_dual_rotation`): two distinctly
+  patterned planes - a slate-blue framed grid (RBG0's A-mode) and an
+  orange/dark-red fine checker (RBG1) - spinning in opposite directions
+  with independent pivot drift. Three modes drive the live paths:
+  A-ONLY (parameter A on RBG0, RBG1 hidden), B-ON-RBG0 (parameter B
+  on RBG0, the E02-style live parameter-mode switch), and DUAL
+  (parameter A on RBG0 + RBG1 visible through the grid's transparent
+  holes, all six refusal codes recorded in `g_dual_rotation`).
+- **E01 build**: `make EXAMPLE=vdp2_dual_rotation all` produced
+  `build/vdp2_dual_rotation.{iso,bin,elf,map}`. The harness needs a
+  real Saturn BIOS, which is not available in this environment; the
+  Python acceptance (which reads `g_dual_rotation` through the map and
+  the four per-mode screenshots) remains the on-host gate.
+- **E01 acceptance caveat**: the same caveat as E03-E12 - emulator
+  capture is not real-console certification, and the harness wrapper
+  depends on the user's own BIOS dump.
 
 ### M3 — Advanced composition (E03 then E06 then E05 then E04)
 - Implement a single compatible state machine for special color/priority, shadow, blur and extended calculation. Add only verified public switches.
