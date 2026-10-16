@@ -489,6 +489,12 @@ Host tests:
 make test
 ```
 
+The native suite runs on macOS with Clang as well as GCC hosts. Tests that need
+an unavailable host facility report `SKIP` and exit 77; the Makefile lists these
+separately from passes. In particular, the parallel-completion ABI test must
+map fake WRAM at the Saturn's 32-bit address. Native macOS reserves that address
+range, so run that test on Linux/Windows; its assertions remain enabled there.
+
 Package gates (public headers, installed-package consumer, Conan):
 
 ```powershell

@@ -103,6 +103,13 @@ int main(){
 #else
     void* work=mmap(reinterpret_cast<void*>(kWorkRamBase),kWorkRamBytes,
         PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+#ifdef __APPLE__
+    if(work!=reinterpret_cast<void*>(kWorkRamBase)) {
+        if(work!=MAP_FAILED)munmap(work,kWorkRamBytes);
+        std::puts("SKIP parallel completion: native macOS cannot map the 32-bit Saturn WRAM address; run this ABI test on Linux/Windows");
+        return 77;
+    }
+#endif
 #endif
     assert(work==reinterpret_cast<void*>(kWorkRamBase));
     slots=static_cast<sat_parallel_task_slot_t*>(work);

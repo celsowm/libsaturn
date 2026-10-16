@@ -1,4 +1,5 @@
 #include "src/storage/files/asset_runtime.hpp"
+#include "src/core/memory/section.hpp"
 
 namespace saturn::core {
 
@@ -8,7 +9,7 @@ namespace {
  * only assets.cpp references this file, so a program that never uses the
  * asset API does not link them. crt0 zeroes .wram_l. */
 uint8_t g_asset_cache_blocks[SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY][SAT_ASSET_CACHE_BLOCK_BYTES]
-    __attribute__((section(".wram_l"), aligned(4))) = {};
+    SATURN_WRAM_L __attribute__((aligned(4))) = {};
 
 }  // namespace
 

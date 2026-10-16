@@ -1,4 +1,5 @@
 #include "saturn/audio.h"
+#include "src/core/memory/section.hpp"
 
 #include <stddef.h>
 
@@ -66,7 +67,7 @@ struct MusicSlot {
  * RAM is the slower of the two, but a refill only runs once the SCSP has
  * moved to the other 4096-sample half, so there is most of that half's
  * time to copy -- orders of magnitude more than the copy costs. */
-MusicSlot g_music[SAT_MUSIC_CAPACITY] __attribute__((section(".wram_l"))) = {};
+MusicSlot g_music[SAT_MUSIC_CAPACITY] SATURN_WRAM_L = {};
 
 /* The disc scheduler tracks stream through, and the slots attached to it: the one the drive plays
  * (primary) and one that fills its rings behind it (standby, sat_music_prefetch). A play on the

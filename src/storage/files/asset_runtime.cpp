@@ -1,4 +1,5 @@
 #include "src/storage/files/asset_runtime.hpp"
+#include "src/core/memory/section.hpp"
 
 #include <stddef.h>
 
@@ -6,7 +7,7 @@ namespace saturn::core {
 
 /* Mounts, handles and asset entries. The built-in cache blocks live in
  * asset_cache.cpp, linked only by programs that use the asset API. */
-FileAssetRuntime g_file_asset_runtime __attribute__((section(".wram_l"))) = {};
+FileAssetRuntime g_file_asset_runtime SATURN_WRAM_L = {};
 
 uint16_t next_file_generation(uint16_t generation) {
     ++generation;

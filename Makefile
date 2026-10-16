@@ -665,7 +665,9 @@ $(CUE): $(DISC_BIN) tools/gen_cue.py tools/check_disc_image.py tools/iso_to_raw.
 # they need no Saturn hardware, emulator or BIOS.
 #   make test
 HOST_CXX       ?= g++
-HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -I. -Ibuild/generated -Iexamples/common
+# Root is for quoted project paths ("src/..."), not standard headers. On a
+# case-insensitive macOS volume VERSION otherwise shadows C++20 <version>.
+HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -iquote . -Ibuild/generated -Iexamples/common
 HOST_TEST_SRCS := $(wildcard tests/host/*.cpp)
 HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(BUILD_DIR)/tests/%,$(HOST_TEST_SRCS))
 HOST_TOOL_TESTS := $(wildcard tests/tools/*.py)
@@ -791,12 +793,15 @@ $(BUILD_DIR)/tests/%: tests/host/%.cpp
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(DEPFLAGS) $< $(HOST_TEST_EXTRA_$*) -o $@
 
 test: $(HOST_TEST_BINS)
-	@fail=0; \
+	@fail=0; skipped=0; \
 	for t in $(HOST_TEST_BINS); do \
-		if ! ./$$t; then fail=1; fi; \
+		./$$t; result=$$?; \
+		if [ $$result -eq 77 ]; then skipped=$$((skipped + 1)); \
+		elif [ $$result -ne 0 ]; then fail=1; fi; \
 	done; \
 	if [ $$fail -ne 0 ]; then echo "[test] FAILED"; exit 1; fi; \
-	echo "[test] all host tests passed"
+	if [ $$skipped -eq 0 ]; then echo "[test] all host tests passed"; \
+	else echo "[test] supported host tests passed; $$skipped explicitly unavailable (exit 77)"; fi
 	$(PYTHON) -m unittest tests.test_boot_image tests.test_native_ip -v
 	@for t in $(HOST_TOOL_TESTS); do \
 		echo "[test] $$t"; \
