@@ -797,7 +797,7 @@ test: $(HOST_TEST_BINS)
 	done; \
 	if [ $$fail -ne 0 ]; then echo "[test] FAILED"; exit 1; fi; \
 	echo "[test] all host tests passed"
-	$(PYTHON) -m unittest tests.test_boot_image tests.test_native_ip -v
+	$(PYTHON) -m unittest tests.test_boot_image tests.test_native_ip tests.test_vdp2_support_matrix -v
 	@for t in $(HOST_TOOL_TESTS); do \
 		echo "[test] $$t"; \
 		$(PYTHON) $$t || exit 1; \

@@ -424,6 +424,10 @@ When a subsystem changes meaningfully:
 2. add the relevant public header/HAL/example as evidence;
 3. update the snapshot baseline SHA;
 4. move the subsystem out of the unexplored list when it becomes a supported reusable path;
-5. prefer describing the actual usable abstraction rather than individual register-level features.
+5. prefer describing the actual usable abstraction rather than individual register-level features;
+6. for VDP2, keep `docs/VDP2_SUPPORT_MATRIX.json` in step with the code:
+   `tests/test_vdp2_support_matrix.py` (run by `make test`) validates its
+   statuses, cited chapters, evidence and recorded constants against the
+   headers, so the matrix and the test change in the same commit.
 
 The intent is for this file to remain a lightweight hardware/runtime coverage audit as LibSaturn grows from a bare-metal rendering/game library into a broader Sega Saturn development platform.

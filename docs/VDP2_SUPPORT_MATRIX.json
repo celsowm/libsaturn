@@ -1,0 +1,268 @@
+{
+  "schema": 1,
+  "updated": "2026-10-16",
+  "baseline": "1c573a2",
+  "description": "Machine-readable VDP2 support matrix: what the library actually exposes versus the vendored Sega VDP2 manual. tests/test_vdp2_support_matrix.py validates this file against include/saturn and the manual tree (statuses, evidence rules, every cited chapter file, and every recorded constant). Change the matrix and that test in the same commit.",
+  "manual_root": "docs/sega_saturn_hardware/hard/vdp2/hon",
+  "plan": "docs/VDP2_ADVANCED_EXAMPLES_IMPLEMENTATION_PLAN.md",
+  "statuses": {
+    "exposed": "Reusable public API with host and/or emulator evidence.",
+    "partial": "Public API exists with a documented hardware or library limitation.",
+    "absent": "No public API; the plan milestone that will deliver it is named."
+  },
+  "features": [
+    {
+      "id": "normal_layers",
+      "title": "NBG0-NBG3 layer manager (cell and bitmap formats, priority, transparency, scroll, zoom)",
+      "status": "exposed",
+      "manual": ["p04_a0.md", "p05_10.md", "p05_20.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["tests/host/test_vdp2_nbg_logic.cpp", "harness/run-vdp2-layers.ps1"],
+      "notes": "Zoom 1/4 to 8x; configurations that cannot all be fetched are refused with SAT_ERR_CAPACITY and nothing changes."
+    },
+    {
+      "id": "vram_cycle_planning",
+      "title": "VRAM bank/timing (cycle pattern) planning for layer reads",
+      "status": "exposed",
+      "manual": ["p03_30.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["tests/host/test_vdp2_nbg_logic.cpp"],
+      "notes": "Pure placement policy validated against the manual's own Figure 3.8 example; refuses instead of over-committing a bank."
+    },
+    {
+      "id": "line_scroll",
+      "title": "Line scroll tables (per line or every 2/4/8 lines, horizontal, vertical, zoom)",
+      "status": "exposed",
+      "manual": ["p05_30.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["harness/run-vdp2-effects.ps1"]
+    },
+    {
+      "id": "vertical_cell_scroll",
+      "title": "Vertical cell scroll tables (NBG0/NBG1)",
+      "status": "exposed",
+      "manual": ["p05_30.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["harness/run-vdp2-effects.ps1"]
+    },
+    {
+      "id": "line_color_screen",
+      "title": "Line colour screen and per-layer/per-sprite line colour insert",
+      "status": "exposed",
+      "manual": ["p07_10.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["harness/run-vdp2-effects.ps1"]
+    },
+    {
+      "id": "back_screen",
+      "title": "Back screen with per-line colours",
+      "status": "exposed",
+      "manual": ["p07_20.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["harness/run-vdp2-effects.ps1"]
+    },
+    {
+      "id": "windows",
+      "title": "Windows W0/W1 as rectangles or per-line tables (ellipse helper), per-screen OR/AND logic",
+      "status": "exposed",
+      "manual": ["p08_20.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp", "harness/run-vdp2-compose.ps1"]
+    },
+    {
+      "id": "mosaic",
+      "title": "Mosaic per screen, shared size 1..16",
+      "status": "exposed",
+      "manual": ["p04_b0.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp", "harness/run-vdp2-compose.ps1"],
+      "notes": "Refused with SAT_ERR_UNSUPPORTED where the manual forbids it (NBG0/NBG1 with vertical cell scroll)."
+    },
+    {
+      "id": "sprite_window",
+      "title": "Sprite window selection on a screen",
+      "status": "partial",
+      "manual": ["p08_20.md", "p09_10.md"],
+      "api": ["include/saturn/vdp2.h", "include/saturn/vdp2_compose.h"],
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp"],
+      "notes": "Window dots must be palette sprites (sat_vdp2_sprite_set_palette_window, type 3); the library's default RGB sprite path cannot serve as the window source."
+    },
+    {
+      "id": "screen_color_calc_ratios",
+      "title": "Per-screen colour calculation ratios for scroll screens",
+      "status": "exposed",
+      "manual": ["p09_20.md", "p12_12.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["harness/run-vdp2-compose.ps1"]
+    },
+    {
+      "id": "color_offset",
+      "title": "Colour offset A/B per layer group",
+      "status": "exposed",
+      "manual": ["p13_10.md"],
+      "api": ["include/saturn/vdp2_color_offset.h"],
+      "tests": ["tests/host/test_vdp2_color_offset_logic.cpp"]
+    },
+    {
+      "id": "color_calculation_ratio_add",
+      "title": "Sprite/VDP2 colour calculation: ratio slots and add mode",
+      "status": "exposed",
+      "manual": ["p12_12.md"],
+      "api": ["include/saturn/vdp2_color_calc.h", "include/saturn/vdp1_color_calc.h"],
+      "tests": ["tests/host/test_vdp2_color_calc_logic.cpp"]
+    },
+    {
+      "id": "cram_modes",
+      "title": "CRAM mode 0/1 selection (RAMCTL CRMD)",
+      "status": "exposed",
+      "manual": ["p03_20.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["examples/vdp2_hires_light", "harness/run-vdp2-hires-light.ps1"],
+      "notes": "Hi-res palette-sprite colour calculation requires hi-res + mode 0 and is refused otherwise (SAT_ERR_UNSUPPORTED)."
+    },
+    {
+      "id": "hires_sprite_lighting",
+      "title": "Per-line sprite lighting in hi-res (8-bit) VDP1 output via VDP2 line colour insert",
+      "status": "exposed",
+      "manual": ["p09_20.md", "p12_12.md"],
+      "api": ["include/saturn/vdp2_compose.h", "include/saturn/vdp2_layers.h"],
+      "tests": ["harness/run-vdp2-hires-light.ps1"]
+    },
+    {
+      "id": "rbg0_rotation_parameter_a",
+      "title": "RBG0 rotation, parameter A: Mode-7-style ground, coefficient tables, matrix/viewpoint/center/scaling",
+      "status": "exposed",
+      "manual": ["p06_20.md", "p06_30.md", "p06_40.md"],
+      "api": ["include/saturn/vdp2.h", "include/saturn/vdp2_rbg0_ground.h", "include/saturn/vdp2_environment.h"],
+      "tests": ["tests/host/test_vdp2_rotation_logic.cpp", "tests/host/test_vdp2_rbg0_logic.cpp", "harness/tests/test_rbg0_ground.py"],
+      "notes": "The modern manager implements parameter A only; the older vdp2.h NBG0 calls and the RBG0 manager refuse each other with SAT_ERR_BUSY."
+    },
+    {
+      "id": "vram_free_list_allocator",
+      "title": "Stand-alone VDP2 VRAM free-list allocator",
+      "status": "exposed",
+      "manual": ["p03_10.md"],
+      "api": ["include/saturn/vdp2_alloc.h"],
+      "tests": ["tests/host/test_vdp2_allocator.cpp"]
+    },
+    {
+      "id": "cram_range_allocator",
+      "title": "CRAM palette range allocator",
+      "status": "exposed",
+      "manual": ["p03_10.md"],
+      "api": ["include/saturn/vdp2_alloc.h"],
+      "tests": ["tests/host/test_vdp2_palette_alloc.cpp"]
+    },
+    {
+      "id": "unified_resource_planner",
+      "title": "One transactional owner for bank/cycle, CRAM and table reservations with rollback",
+      "status": "absent",
+      "manual": ["p03_30.md"],
+      "api": [],
+      "tests": [],
+      "plan_milestone": "M1",
+      "notes": "Today the free-list allocator and the cycle planner are separate; the plan's section 4 defines the transactional composition."
+    },
+    {
+      "id": "rbg0_rotation_parameter_b",
+      "title": "RBG0 rotation parameter B selection and coefficient-mode switching",
+      "status": "absent",
+      "manual": ["p06_30.md"],
+      "api": [],
+      "tests": [],
+      "plan_milestone": "M2"
+    },
+    {
+      "id": "rbg1",
+      "title": "RBG1 as a first-class layer (requires RBG0, excludes normal scrolling screens)",
+      "status": "absent",
+      "manual": ["p06_20.md"],
+      "api": [],
+      "tests": [],
+      "plan_milestone": "M2"
+    },
+    {
+      "id": "hardware_blur",
+      "title": "Hardware horizontal blur (normal TV modes, CRAM mode 0; conflicts with extended colour calculation and line colour insert)",
+      "status": "absent",
+      "manual": ["p12_13.md", "p12_14.md"],
+      "api": [],
+      "tests": [],
+      "plan_milestone": "M3"
+    },
+    {
+      "id": "extended_color_calculation",
+      "title": "Extended colour calculation",
+      "status": "absent",
+      "manual": ["p12_12.md"],
+      "api": [],
+      "tests": [],
+      "plan_milestone": "M3"
+    },
+    {
+      "id": "special_priority_color_calc",
+      "title": "Special priority and special colour calculation selection",
+      "status": "absent",
+      "manual": ["p09_20.md"],
+      "api": [],
+      "tests": [],
+      "plan_milestone": "M3"
+    },
+    {
+      "id": "vdp2_shadow_sprites",
+      "title": "VDP2 shadow sprites (distinct from VDP1 half-luminance shadow)",
+      "status": "absent",
+      "manual": ["p09_10.md", "p09_20.md"],
+      "api": [],
+      "tests": [],
+      "plan_milestone": "M3"
+    },
+    {
+      "id": "interlace_output",
+      "title": "Interlaced output modes",
+      "status": "absent",
+      "manual": ["p02_20.md"],
+      "api": [],
+      "tests": [],
+      "plan_milestone": "M4"
+    },
+    {
+      "id": "pal_240_256_line_modes",
+      "title": "PAL 240/256-line output modes (current APIs stay in 224 lines)",
+      "status": "absent",
+      "manual": ["p02_10.md", "p02_40.md"],
+      "api": [],
+      "tests": [],
+      "plan_milestone": "M4"
+    }
+  ],
+  "constants": [
+    {"name": "SAT_VDP2_NBG0", "header": "include/saturn/vdp2_layers.h", "kind": "enum", "value": 0},
+    {"name": "SAT_VDP2_NBG1", "header": "include/saturn/vdp2_layers.h", "kind": "enum", "value": 1},
+    {"name": "SAT_VDP2_NBG2", "header": "include/saturn/vdp2_layers.h", "kind": "enum", "value": 2},
+    {"name": "SAT_VDP2_NBG3", "header": "include/saturn/vdp2_layers.h", "kind": "enum", "value": 3},
+    {"name": "SAT_VDP2_SCREEN_NBG0", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 0},
+    {"name": "SAT_VDP2_SCREEN_NBG1", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 1},
+    {"name": "SAT_VDP2_SCREEN_NBG2", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 2},
+    {"name": "SAT_VDP2_SCREEN_NBG3", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 3},
+    {"name": "SAT_VDP2_SCREEN_RBG0", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 4},
+    {"name": "SAT_VDP2_SCREEN_SPRITE", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 5},
+    {"name": "SAT_VDP2_SCREEN_COLOR_CALC", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 6},
+    {"name": "SAT_VDP2_WINDOW_AREA_OFF", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 0},
+    {"name": "SAT_VDP2_WINDOW_AREA_INSIDE", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 1},
+    {"name": "SAT_VDP2_WINDOW_AREA_OUTSIDE", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 2},
+    {"name": "SAT_VDP2_COLOR_CALC_RATIO", "header": "include/saturn/vdp2_color_calc.h", "kind": "enum", "value": 0},
+    {"name": "SAT_VDP2_COLOR_CALC_ADD", "header": "include/saturn/vdp2_color_calc.h", "kind": "enum", "value": 1},
+    {"name": "SAT_VDP2_LAYER_NBG0", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 1},
+    {"name": "SAT_VDP2_LAYER_NBG1", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 2},
+    {"name": "SAT_VDP2_LAYER_NBG2", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 4},
+    {"name": "SAT_VDP2_LAYER_NBG3", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 8},
+    {"name": "SAT_VDP2_LAYER_RBG0", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 16},
+    {"name": "SAT_VDP2_LAYER_BACK", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 32},
+    {"name": "SAT_VDP2_LAYER_SPRITE", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 64},
+    {"name": "SAT_VDP2_LAYER_ALL", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 127},
+    {"name": "SAT_VDP2_VRAM_NO_BASE", "header": "include/saturn/vdp2_alloc.h", "kind": "define", "value": 4294967295},
+    {"name": "SAT_VDP2_VRAM_WORD_CAPACITY", "header": "include/saturn/vdp2_environment.h", "kind": "define", "value": 262144},
+    {"name": "SAT_VDP2_CRAM_WORD_CAPACITY", "header": "include/saturn/vdp2_environment.h", "kind": "define", "value": 2048}
+  ]
+}
