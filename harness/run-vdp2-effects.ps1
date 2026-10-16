@@ -8,11 +8,12 @@ param(
     [int]$Frames = 200
 )
 . (Join-Path $PSScriptRoot 'scripts/run-example-tests.ps1')
-$dir = Join-Path $PSScriptRoot 'build/vdp2_effects'
+$dir = Join-Path $PSScriptRoot 'build/vdp2_effects_demo'
 Invoke-ExampleTest `
     -Name 'effects' -Example 'vdp2_effects_demo' `
     -Bios:$Bios -Msys2Root:$Msys2Root `
     -Frames $Frames `
     -DumpName 'wram.bin' `
-    -Screenshot @('100:' + (Join-Path $dir 'e.png')) `
+    -TestFile 'test_vdp2_effects.py' `
+    -Screenshot @(('100:' + (Join-Path $dir 'e.png'))) `
     -ExtraEnv "LIBSATURN_EFFECTS_SHOTS=$dir"

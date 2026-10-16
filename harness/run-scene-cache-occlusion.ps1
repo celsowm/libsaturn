@@ -13,5 +13,6 @@ Invoke-ExampleTest `
     -Name 'cache' -Example 'scene_cache_occlusion' `
     -Bios:$Bios -Msys2Root:$Msys2Root `
     -Frames $Frames `
-    -Screenshot @('100:' + (Join-Path $dir 'screen.png')) `
+    -TestFile 'test_scene_cache_occlusion.py' `
+    -Screenshot @(('100:' + (Join-Path $dir 'screen.png'))) `
     -ExtraEnv "LIBSATURN_CACHE_SHOTS=$dir"

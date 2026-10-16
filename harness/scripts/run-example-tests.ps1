@@ -36,7 +36,8 @@ function Invoke-ExampleTest {
         [string[]]$TestFile = @(),
         [string[]]$ExtraEnv = @(),
         [string]$DumpName = 'wram_high.bin',
-        [string]$MapSuffix = '_demo.map',
+        # build-example.ps1 always writes build/<Example>.map.
+        [string]$MapSuffix = '.map',
         # Forwarded to run-harness.ps1. -Out defaults to
         # build/<example>/probe.json. The audio / sound-RAM dumps are
         # only used by the SCSP and 68K sound-driver examples.
@@ -51,7 +52,11 @@ function Invoke-ExampleTest {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
-    $harness = $PSScriptRoot
+    # $PSScriptRoot is harness\scripts (this file): the harness root is its
+    # parent and the repository root - where build-example.ps1 lives - the
+    # grandparent.
+    $scripts = $PSScriptRoot
+    $harness = Split-Path -Parent $scripts
     $repo = Split-Path -Parent $harness
     $dir = Join-Path $harness "build/$Example"
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -99,8 +104,13 @@ function Invoke-ExampleTest {
         Set-Item -Path "Env:$($parts[0])" -Value $parts[1]
     }
 
-    $testFileParam = if ($TestFile) { "-p $($TestFile -join ' -p ')" } else { "-p test_$($Name.Replace('-','_')).py" }
-    python -m unittest discover (Join-Path $harness 'tests') $testFileParam -v
+    # The test file pattern defaults to the wrapper name; pass -p and each
+    # pattern as separate arguments - a single "-p foo.py" string would
+    # reach Python as one argument and discover nothing.
+    $patterns = if ($TestFile) { $TestFile } else { @("test_$($Name.Replace('-','_')).py") }
+    $testFileArgs = @()
+    foreach ($pattern in $patterns) { $testFileArgs += @('-p', $pattern) }
+    python -m unittest discover (Join-Path $harness 'tests') @testFileArgs -v
     if ($LASTEXITCODE -ne 0) { throw "Acceptance failed for $Example; inspect $dir" }
     Write-Host "[$Name] Passed. Capture: $dir"
 }

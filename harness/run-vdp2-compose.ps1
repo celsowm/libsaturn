@@ -9,12 +9,13 @@ param(
     [int]$Frames = 300
 )
 . (Join-Path $PSScriptRoot 'scripts/run-example-tests.ps1')
-$dir = Join-Path $PSScriptRoot 'build/vdp2_compose'
+$dir = Join-Path $PSScriptRoot 'build/vdp2_compose_demo'
 Invoke-ExampleTest `
     -Name 'compose' -Example 'vdp2_compose_demo' `
     -Bios:$Bios -Msys2Root:$Msys2Root `
     -Frames $Frames `
     -DumpName 'wram.bin' `
-    -Screenshot @('100:' + (Join-Path $dir 'c.png'),
-                  '250:' + (Join-Path $dir 'c2.png')) `
+    -TestFile 'test_vdp2_compose.py' `
+    -Screenshot @(('100:' + (Join-Path $dir 'c.png')),
+                  ('250:' + (Join-Path $dir 'c2.png'))) `
     -ExtraEnv "LIBSATURN_COMPOSE_SHOTS=$dir"

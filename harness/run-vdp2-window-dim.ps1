@@ -13,6 +13,7 @@ Invoke-ExampleTest `
     -Bios:$Bios -Msys2Root:$Msys2Root `
     -Frames $Frames `
     -DumpName 'wram.bin' `
-    -Screenshot @('75:' + (Join-Path $dir 'a.png'),
-                  '95:' + (Join-Path $dir 'b.png')) `
+    -TestFile 'test_vdp2_window_dim.py' `
+    -Screenshot @(('75:' + (Join-Path $dir 'a.png')),
+                  ('95:' + (Join-Path $dir 'b.png'))) `
     -ExtraEnv "LIBSATURN_DIM_SHOTS=$dir"
