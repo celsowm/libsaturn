@@ -11,6 +11,9 @@ param(
 )
 . (Join-Path $PSScriptRoot 'scripts/run-example-tests.ps1')
 $dir = Join-Path $PSScriptRoot 'build/vdp2_tile_overflow'
+# The probe writes its screenshots and dumps here; a fresh clone has no
+# harness/build/<example> yet (run-vdp2-layers.ps1 creates its own the same way).
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
 # vdp2_tile_overflow needs the harness to dump the struct bytes from a known
 # address. We can't reach run-harness.ps1's -DumpMem from the helper, so the
 # few extra lines stay here.

@@ -59,6 +59,7 @@ not model.
 | 24 | VDP2 8bpp tiles past 511 | `vdp2_tile_overflow` | - | A colour ramp over 960 distinct 256-colour tiles on two NBGs, a checkerboard behind (all three scrolled by -3,-4) | The ramp is smooth from green to magenta with no jump, no black cells after the first four, and a white cell at the bottom right | Ymir NTSC + PAL |
 | 25 | VDP2 darkening limited to a window | `vdp2_window_dim` | - | Seven colour bands with two swinging wedge-shaped beams; a black colour-calculation NBG covers everything outside the beams, at half then a quarter brightness | The bands keep full colour inside the beams and are dimmed outside them, with a clean edge that follows the wedges, and the dimming deepens at frame 90 | Ymir NTSC + PAL |
 | 26 | VDP2 light on hi-res sprites | `vdp2_hires_light` | A light on/off, B per-code mask on/off, C window on/off | 640x224 warm-ramp columns; a red elliptical spot holds, then sweeps left and right | Red is added only inside the spot, fades above and below its centre line, leaves the middle stripe and the blue background untouched; with B off the stripe is lit too | Ymir NTSC, Mednafen |
+| 27 | VDP2 resource plan | `vdp2_vram_stress` | - | Four colour bands (one per bank) plus per-bank usage bars; six scenarios advance on their own (A skips ahead, B toggles the numbers) | The four bands stay drawn through every refusal scenario, the bars re-shape after the live reclaim-and-reconfigure at frame 210, and the debug overlay's refusal count climbs | Ymir NTSC (register + pixel assertions) |
 
 ## Things no emulator settles
 
