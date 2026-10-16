@@ -489,7 +489,7 @@ static void initialize_crowd(void) {
     sat_vdp2_rotation_config_default(&rotation);
     rotation.pattern_name_words=2;rotation.name_bank_mask=SAT_VDP2_BANK_B1;
     rotation.char_bank_mask=SAT_VDP2_BANK_B0;rotation.priority=3;
-    rotation.coefficients=1;rotation.over=SAT_VDP2_ROTATION_OVER_512;
+    rotation.coefficients_a.enabled=1;rotation.over=SAT_VDP2_ROTATION_OVER_512;
     rotation.table_address=ROTATION_TABLE_A;
     for(unsigned plane=0;plane<16;++plane)rotation.plane_address[plane]=GROUND_NAME_ADDRESS;
     sat_example_must(sat_vdp2_rotation_configure(&rotation));
@@ -508,7 +508,8 @@ static void update_ground(void) {
             int64_t value=(int64_t)MAT_TEXELS_PER_UNIT*camera.eye.y*SAT_FX16_ONE/denominator;
             if(value>SAT_FX16_ONE*127)hidden=1;else scale=(int32_t)value;
         }
-        ground_coefficients[y]=sat_vdp2_rotation_coefficient(scale,hidden);
+        ground_coefficients[y]=sat_vdp2_rotation_coefficient_2word(scale,
+            hidden?SAT_VDP2_COEFFICIENT_HIDE:0);
     }
     sat_example_must(sat_vdp2_rotation_write_coefficients(coefficients,ground_coefficients,SCREEN_H));
     sat_vdp2_rotation_params_t parameters={0};
@@ -520,7 +521,9 @@ static void update_ground(void) {
     parameters.my=256*SAT_FX16_ONE-camera.eye.z*MAT_TEXELS_PER_UNIT;
     parameters.kx=parameters.ky=SAT_FX16_ONE;
     parameters.coefficient_address=coefficients;parameters.coefficient_step=SAT_FX16_ONE;
-    sat_example_must(sat_vdp2_rotation_write_params(table,&parameters));
+    /* Parameter set B is never read in mode A; the region is written whole
+     * so both sets stay in step (sat_vdp2_rotation_write_params). */
+    sat_example_must(sat_vdp2_rotation_write_params(table,&parameters,&parameters));
     ground_table_index=!ground_table_index;++g_clown_metrics.ground_updates;
 }
 static void update_fence(void) {

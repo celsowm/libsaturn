@@ -7,7 +7,7 @@
 using namespace saturn::hal::vdp2;
 
 /* RBG0 as the special-stage floor of sa2-saturn: 8bpp cells, names in A1,
- * characters in B1, the parameter table in A0. */
+ * characters in B1, the parameter region in A0. */
 static rot::Layer floor_layer() {
     rot::Layer l{};
     l.enabled = true;
@@ -26,7 +26,7 @@ static rot::Layer floor_layer() {
     l.plane_address[5] = 0x26000u;
     l.char_number_supp = 0x60000u / 0x8000u;
     l.table_address = 0x6800u;
-    l.coefficients = true;
+    l.coefficients_a.enabled = true;
     return l;
 }
 
@@ -55,7 +55,7 @@ static void validation_follows_the_manual() {
     stray.plane_address[15] = 0x00000u;
     assert(rot::validate(stray) == rot::Status::BadPlane);
 
-    rot::Layer table = l;    /* the parameter table may not sit in an RBG0 bank */
+    rot::Layer table = l;    /* the parameter region may not sit in an RBG0 bank */
     table.table_address = 0x60000u;
     assert(rot::validate(table) == rot::Status::BadBanks);
 
@@ -69,6 +69,47 @@ static void validation_follows_the_manual() {
     assert(rot::validate(rgb24) == rot::Status::BadFormat);
 }
 
+/* The A+B region and the parameter modes (p06_30 figure 6.4, p06_32, p06_35). */
+static void parameter_region_rules() {
+    const rot::Layer l = floor_layer();
+    assert(rot::validate(l) == rot::Status::Ok);
+
+    /* RPTA bit 6 is ignored and fixed to 0 for A: a region with byte bit 7
+     * set would silently land 0x80 lower (p06_32). */
+    rot::Layer hi = l;
+    hi.table_address = 0x6880u;
+    assert(rot::validate(hi) == rot::Status::BadPlane);
+
+    /* Mode 3 (window switching) needs the rotation window control register,
+     * which this manager does not model: refused, not misrendered. */
+    rot::Layer window = l;
+    window.parameter_mode = 3u;
+    assert(rot::validate(window) == rot::Status::BadFormat);
+
+    rot::Layer wild = l;
+    wild.parameter_mode = 4u;
+    assert(rot::validate(wild) == rot::Status::BadFormat);
+
+    /* Modes that read B need the whole 0xE0 region; A alone needs 0x60. */
+    rot::Layer near_top = l;
+    near_top.char_banks = 1u << nbg::kBankB0;  /* free the top bank for the region */
+    near_top.table_address = 0x7FF40u;          /* bit 7 clear, 4-byte aligned */
+    near_top.parameter_mode = 0u;
+    assert(rot::validate(near_top) == rot::Status::Ok);
+    near_top.parameter_mode = 2u;
+    assert(rot::validate(near_top) == rot::Status::BadPlane);   /* +0xE0 leaves VRAM */
+
+    rot::Layer dual = l;
+    dual.parameter_mode = 2u;
+    dual.coefficients_b.enabled = true;
+    dual.coefficients_b.mode = 1u;
+    dual.coefficients_b.one_word = true;
+    assert(rot::validate(dual) == rot::Status::Ok);
+
+    dual.coefficients_b.mode = 4u;
+    assert(rot::validate(dual) == rot::Status::BadFormat);
+}
+
 static void registers_compose() {
     const rot::Registers r = rot::compose(floor_layer());
     assert(r.bgon == 0x0010u);                 /* R0ON, transparency kept */
@@ -80,20 +121,35 @@ static void registers_compose() {
     assert(r.mp[2] == ((0x26000u / 0x2000u) << 8u | 0x24000u / 0x2000u));   /* planes E, F */
     assert(r.mp[7] == (0x14u << 8u | 0x14u));  /* planes O, P: the blank page */
     assert(r.mpofr == 0u);
-    assert(r.ktctl == 0x0001u);                /* coefficient table, 2 words, mode 0 */
+    assert(r.rpmd == 0u);                      /* parameter set A (p06_35) */
+    assert(r.ktctl == 0x0001u);                /* A: coefficient table, 2 words, mode 0 */
     assert(r.rptau == 0u && r.rptal == 0x6800u / 2u);
     assert(r.prir == 3u);
 
     rot::Layer off = floor_layer();
     off.enabled = false;
     const rot::Registers z = rot::compose(off);
-    assert(z.bgon == 0u && z.ramctl_rdbs == 0u && z.ktctl == 0u);
+    assert(z.bgon == 0u && z.ramctl_rdbs == 0u && z.ktctl == 0u && z.rpmd == 0u);
 
     rot::Layer opaque = floor_layer();
     opaque.transparent = false;
-    opaque.coefficient_mode = 3u;
+    opaque.coefficients_a.mode = 3u;
     const rot::Registers o = rot::compose(opaque);
     assert(o.bgon == 0x1010u && o.ktctl == 0x000Du);
+
+    /* Both coefficient contracts compose (KTCTL halves, p06_42) with the
+     * parameter mode and both coefficient offsets (KTAOF, p06_43). */
+    rot::Layer dual = floor_layer();
+    dual.parameter_mode = 2u;
+    dual.coefficients_b.enabled = true;
+    dual.coefficients_b.mode = 1u;
+    dual.coefficients_b.one_word = true;
+    dual.ktaof = 2u;
+    dual.ktaof_b = 5u;
+    const rot::Registers d = rot::compose(dual);
+    assert(d.rpmd == 2u);
+    assert(d.ktctl == 0x0701u);   /* A: 1|0<<1|0<<2 .. B: enable|1-word|mode 1 at bit 8 */
+    assert(d.ktaof == 0x0502u);  /* A bits 2-0, B bits 10-8 */
 }
 
 static void nbgs_keep_off_the_rotation_banks() {
@@ -156,22 +212,61 @@ static void params_encode_figure_6_2() {
     assert(w[15] == 0u);
 }
 
+/* The whole region is A at +0, 0x20 ignored words, B at +0x80 (figure 6.4). */
+static void params_ab_region_layout() {
+    rot::Params a{};
+    a.xst = 11 << 16;
+    a.dkax = 3 << 16;
+    rot::Params b{};
+    b.xst = -(22 << 16);
+    b.dkax = 4 << 16;
+    uint16_t w[rot::kParamsABWords];
+    rot::encode_params_ab(a, b, w);
+    uint16_t solo[48];
+    rot::encode_params(a, solo);
+    for (uint32_t i = 0u; i < 48u; ++i) assert(w[i] == solo[i]);          /* A at +0 */
+    for (uint32_t i = 48u; i < 64u; ++i) assert(w[i] == 0u);              /* the ignored gap */
+    rot::encode_params(b, solo);
+    for (uint32_t i = 0u; i < 48u; ++i) assert(w[64u + i] == solo[i]);    /* B at +0x80 */
+    assert(w[64] == 0x1FEAu);                                            /* -22, sign in bit 12 */
+    assert((rot::kParamBytes + rot::kParamGapBytes + rot::kParamBytes) == 0xE0u);
+    assert(rot::kParamsABWords == 112u);
+}
+
+/* Sign and magnitude are separate fields in both entry sizes (figure 6.7):
+ * a negative value is the sign bit plus the magnitude, never a two's
+ * complement shift. */
 static void coefficients_encode_figure_6_7() {
-    assert(rot::encode_coefficient(0x10000, true) == 0x80000000u);
-    assert(rot::encode_coefficient(0x18000, false) == 0x00018000u);   /* 1.5 */
-    assert(rot::encode_coefficient(-0x10000, false) == 0x00FF0000u);  /* -1: sign bit 7 of word 0 */
-    assert(rot::encode_coefficient(0x7FFFFFFF, false) == 0x007FFFFFu);
-    assert(rot::encode_coefficient(-0x7FFFFFFF, false) == 0x00800000u);
+    assert(rot::encode_coefficient(0x10000, true) == 0x80010000u);  /* flag keeps the value */
+    assert(rot::encode_coefficient(0x18000, false) == 0x00018000u); /* 1.5 */
+    assert(rot::encode_coefficient(-0x10000, false) == 0x00810000u);/* -1: sign bit + integer 1 */
+    assert(rot::encode_coefficient(-0x18000, false) == 0x00818000u);/* -1.5 */
+    assert(rot::encode_coefficient(0x7FFFFFFF, false) == 0x007FFFFFu);   /* +127.99.. */
+    assert(rot::encode_coefficient(-0x7FFFFFFF, false) == 0x00FFFFFFu);  /* -127.99.. */
+
+    assert(rot::encode_coefficient_1word(0x10000, false) == 0x0400u);   /* 1.0 */
+    assert(rot::encode_coefficient_1word(-0x10000, false) == 0x4400u);   /* -1.0: sign + 1 */
+    assert(rot::encode_coefficient_1word(0x18000, false) == 0x0600u);    /* 1.5: int 1, frac 0x200 */
+    assert(rot::encode_coefficient_1word(0x10000, true) == 0x8400u);     /* flagged, value kept */
+    assert(rot::encode_coefficient_1word(0x00100000, false) == 0x3FFFu); /* 16.0 saturates */
+    assert(rot::encode_coefficient_1word(-0x00100000, false) == 0x7FFFu);
+
+    /* KAst counts entries: 4 bytes per 2-word entry, 2 per 1-word (p06_43). */
     assert(rot::kast_integer(0x46A00u) == ((0x46A00u / 4u) & 0xFFFFu));
     assert(rot::ktaof_for(0x46A00u) == 1u);   /* past 256 KiB: the offset register (table 6.3) */
     assert(rot::ktaof_for(0x6A00u) == 0u);
+    assert(rot::kast_integer_1word(0x46A00u) == ((0x46A00u / 2u) & 0xFFFFu));
+    assert(rot::ktaof_for_1word(0x7F000u) == 3u);   /* 2-word would say 1: the unit differs */
+    assert(rot::ktaof_for(0x7F000u) == 1u);
 }
 
 int main() {
     validation_follows_the_manual();
+    parameter_region_rules();
     registers_compose();
     nbgs_keep_off_the_rotation_banks();
     params_encode_figure_6_2();
+    params_ab_region_layout();
     coefficients_encode_figure_6_7();
     std::puts("test_vdp2_rotation_logic: ok");
     return 0;

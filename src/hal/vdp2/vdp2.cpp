@@ -1137,14 +1137,14 @@ void rot_write_all(bool may_write_table) {
     merge_reg(0x03Eu, 0x0007u, r.mpofr);
     for (uint32_t i = 0u; i < 8u; ++i) set_reg(0x050u + 2u * i, r.mp[i]);
     set_reg(0x0B8u, r.ovpnra);
-    set_reg(0x0B0u, 0u);          /* RPMD: rotation parameter A */
+    set_reg(0x0B0u, r.rpmd);      /* RPMD: A, B or per-line switching (p06_35) */
     set_reg(0x0B2u, 0u);          /* RPRCTL: Xst, Yst, KAst read on the first line only */
-    merge_reg(0x0B4u, 0x001Fu, r.ktctl);
+    merge_reg(0x0B4u, 0x1FFFu, r.ktctl);   /* KTCTL: both coefficient contracts (p06_42) */
     merge_reg(0x0FCu, 0x0007u, r.prir);
-    /* The table address and its coefficient offset switch tables: during the
-     * picture that would apply from the current line. */
+    /* The region address and both coefficient offsets switch tables: during
+     * the picture that would apply from the current line. */
     if (may_write_table || !g_rot_table_live) {
-        merge_reg(0x0B6u, 0x0007u, r.ktaof);
+        merge_reg(0x0B6u, 0x0707u, r.ktaof);   /* KTAOF: A bits 2-0, B bits 10-8 */
         set_reg(0x0BCu, r.rptau);
         set_reg(0x0BEu, r.rptal);
         g_rot_table_live = g_rot.enabled;
@@ -1527,10 +1527,11 @@ bool rot_layer(rot::Layer* out) {
     return true;
 }
 
-void rot_set_table(uint32_t table_address, uint8_t ktaof) {
+void rot_set_table(uint32_t table_address, uint8_t ktaof, uint8_t ktaof_b) {
     if (!g_rot_used) return;
     g_rot.table_address = table_address;
     g_rot.ktaof = static_cast<uint8_t>(ktaof & 7u);
+    g_rot.ktaof_b = static_cast<uint8_t>(ktaof_b & 7u);
     nbg_write_all();
 }
 

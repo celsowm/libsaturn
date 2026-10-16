@@ -181,8 +181,10 @@ void commit_nbg_layers();
 NbgResult rot_configure(const rot::Layer& layer);
 void rot_release();
 bool rot_layer(rot::Layer* out);
-/* The parameter table the VDP2 reads from the next VBlank on (byte address). */
-void rot_set_table(uint32_t table_address, uint8_t ktaof);
+/* The A+B parameter region the VDP2 reads from the next VBlank on (byte
+ * address), with both coefficient table address offsets (KTAOF: A bits 2-0,
+ * B bits 10-8, p06_43). */
+void rot_set_table(uint32_t table_address, uint8_t ktaof, uint8_t ktaof_b);
 
 /* Per-line raster tables. Word offsets are VDP2 VRAM word addresses; the
  * tables are replayed by commit_layers(). A later set_backdrop_color() goes

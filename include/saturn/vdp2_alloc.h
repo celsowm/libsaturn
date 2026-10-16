@@ -127,19 +127,28 @@ void sat_vdp2_palette_reset(void);
  * rotation-parameter and coefficient reservations are refused there with
  * SAT_ERR_BUSY. Line scroll, window, back screen, line colour and scratch
  * tables may still live in a claimed bank (manual 5.3, 7.1, 7.2, 8.2).
+ * The inverse rule holds for RBG0's OWN image data: rotation name tables
+ * and character windows are fetched through the rotation data bank bits,
+ * so they are refused with SAT_ERR_BUSY anywhere outside banks claimed
+ * for rotation, and sat_vdp2_plan_release_banks is refused while such a
+ * reservation is live.
  * ------------------------------------------------------------------ */
 
 typedef enum sat_vdp2_reserve_kind {
     SAT_VDP2_RESERVE_PATTERN_NAMES = 0,  /* plane alignment is the caller's */
     SAT_VDP2_RESERVE_CHARACTERS     = 1,
     SAT_VDP2_RESERVE_BITMAP         = 2,  /* 0x20000-aligned, one per bank */
-    SAT_VDP2_RESERVE_ROTATION_PARAMS = 3, /* the 0x60-byte parameter set: 4-byte aligned */
+    SAT_VDP2_RESERVE_ROTATION_PARAMS = 3, /* the A+B parameter region: 4-byte aligned */
     SAT_VDP2_RESERVE_COEFFICIENTS    = 4, /* per-line tables: 4-byte aligned */
     SAT_VDP2_RESERVE_LINE_SCROLL    = 5,  /* even address */
     SAT_VDP2_RESERVE_WINDOW_TABLE   = 6,  /* 4-byte aligned */
     SAT_VDP2_RESERVE_BACK_SCREEN    = 7,  /* even address */
     SAT_VDP2_RESERVE_LINE_COLOR     = 8,  /* even address */
-    SAT_VDP2_RESERVE_SCRATCH        = 9   /* CPU-written, no VDP2 read */
+    SAT_VDP2_RESERVE_SCRATCH        = 9,  /* CPU-written, no VDP2 read */
+    SAT_VDP2_RESERVE_ROTATION_NAMES = 10, /* RBG0's own pattern names: only
+                                           * inside banks claimed for rotation */
+    SAT_VDP2_RESERVE_ROTATION_CHARS = 11  /* RBG0's character windows,
+                                           * 0x8000-aligned: only inside claimed banks */
 } sat_vdp2_reserve_kind_t;
 
 /* Opens a transaction. SAT_ERR_BUSY if one is already open. */
@@ -187,7 +196,9 @@ sat_result_t sat_vdp2_plan_release_all(void);
  * them. Re-claiming an already claimed bank is SAT_OK. */
 sat_result_t sat_vdp2_plan_claim_banks(uint8_t bank_mask);
 
-/* Gives claimed banks back (SAT_ERR_INVALID_ARG on a bad mask). */
+/* Gives claimed banks back. SAT_ERR_BUSY while rotation image data
+ * (names or character windows) still lives in one of them;
+ * SAT_ERR_INVALID_ARG on a bad mask. */
 sat_result_t sat_vdp2_plan_release_banks(uint8_t bank_mask);
 
 /* Discards the whole ledger (reservations and bank claims) without

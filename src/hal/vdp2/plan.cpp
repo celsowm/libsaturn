@@ -47,6 +47,7 @@ sat_result_t map_status(plan::Status status) {
         case plan::Status::BadAlign:
         case plan::Status::BadRange:   return SAT_ERR_INVALID_ARG;
         case plan::Status::BankClaimed:
+        case plan::Status::BankUnclaimed:
         case plan::Status::BanksBusy:  return SAT_ERR_BUSY;
         case plan::Status::NotFound:   return SAT_ERR_NOT_FOUND;
     }
@@ -73,14 +74,22 @@ void free_range_thunk(void* /*ctx*/, uint32_t base) {
  * inside one maximal run of unclaimed banks: it may span bank edges
  * inside the run (a 0x40000-byte bitmap crosses A0/A1; the layer manager
  * times both banks), but never reaches into a bank claimed for rotation.
- * Kinds that need no cycle pattern use the whole space. Returns 1 with
- * the base when the free list placed the range. */
+ * The inverse holds for RBG0's own image data (names, character windows):
+ * the rotation data bank bits fetch it, so it is placed inside one
+ * maximal run of CLAIMED banks and refused while none exists. Kinds that
+ * need no cycle pattern use the whole space. Returns 1 with the base when
+ * the free list placed the range. */
 int place_kind(plan::Kind kind, uint32_t bytes, uint32_t alignment_words, uint32_t* out_base) {
-    if (plan::kind_needs_unclaimed_bank(kind)) {
+    const bool unclaimed_run = plan::kind_needs_unclaimed_bank(kind);
+    const bool claimed_run = plan::kind_requires_claimed_bank(kind);
+    if (unclaimed_run || claimed_run) {
         uint32_t run_start = 0u;
         for (uint8_t b = 0u; b < plan::kBankCount; ++b) {
-            if ((plan::kBankMask[b] & g_plan.claimed_banks) != 0u) {
-                /* Close the run at the claimed bank's lower edge. */
+            const bool break_here = claimed_run
+                ? (plan::kBankMask[b] & g_plan.claimed_banks) == 0u
+                : (plan::kBankMask[b] & g_plan.claimed_banks) != 0u;
+            if (break_here) {
+                /* Close the run at the breaking bank's lower edge. */
                 if (vram_alloc_in(run_start, plan::kBankBase[b],
                                   bytes, alignment_words, out_base)) {
                     return 1;
@@ -88,8 +97,8 @@ int place_kind(plan::Kind kind, uint32_t bytes, uint32_t alignment_words, uint32
                 run_start = plan::kBankBase[b] + plan::kBankBytes;
             }
         }
-        /* The final run reaches the end of VRAM (empty when the last
-         * bank is claimed: start >= end refuses the request). */
+        /* The final run reaches the end of VRAM (empty when the last bank
+         * breaks it: start >= end refuses the request). */
         return vram_alloc_in(run_start, plan::kVramBytes,
                              bytes, alignment_words, out_base);
     }
@@ -128,8 +137,13 @@ sat_result_t sat_vdp2_plan_reserve(sat_vdp2_reserve_kind_t kind, uint32_t bytes,
     }
     uint32_t base = 0u;
     if (!place_kind(k, bytes, want / 2u, &base)) {
-        (void)plan::note_refusal(g_plan, plan::Status::Exhausted);
-        return finish(SAT_ERR_CAPACITY);
+        /* For RBG0 image data the honest reason is that no claimed run can
+         * host the range, never generic exhaustion. */
+        const plan::Status why = plan::kind_requires_claimed_bank(k)
+            ? plan::Status::BankUnclaimed
+            : plan::Status::Exhausted;
+        (void)plan::note_refusal(g_plan, why);
+        return finish(map_status(why));
     }
     const plan::Status staged = plan::stage(g_plan, k, base, bytes, want);
     if (staged != plan::Status::Ok) {

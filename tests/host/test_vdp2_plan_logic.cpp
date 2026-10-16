@@ -168,6 +168,56 @@ static void test_bank_roles(void) {
               static_cast<int>(plan::Status::Ok));
 }
 
+/* RBG0's own image data: the inverse bank rule (p06_20, p06_40). */
+static void test_rotation_image_bank_rules(void) {
+    plan::PlanState s;
+    plan::init(s);
+    plan::open(s);
+    /* Without a claim there is nowhere rotation names may live. */
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationNames,
+                                           0x00000u, 0x2000u, 2u)),
+              static_cast<int>(plan::Status::BankUnclaimed));
+    ASSERT_EQ(static_cast<int>(plan::claim_banks(s, 0x03u)),   /* A0 + A1 */
+              static_cast<int>(plan::Status::Ok));
+    /* Rotation character windows obey the 32 KiB window alignment. */
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationChars,
+                                           0x28000u, 0x8000u, 0x8000u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationChars,
+                                           0x20001u, 0x40u, 2u)),
+              static_cast<int>(plan::Status::BadAlign));
+    /* Claiming more is fine; giving A1 back is refused while the window
+     * is staged, and the refusal changes nothing. */
+    ASSERT_EQ(static_cast<int>(plan::claim_banks(s, 0x03u)),
+              static_cast<int>(plan::Status::Ok));   /* idempotent */
+    ASSERT_EQ(static_cast<int>(plan::release_banks(s, 0x02u)),
+              static_cast<int>(plan::Status::BanksBusy));
+    ASSERT_EQ(s.claimed_banks, 0x03u);
+    /* A claim changed under a staged NBG reservation: commit re-checks the
+     * bank rules and flips nothing (the transaction stays open). */
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::RotationNames,
+                                           0x00000u, 0x2000u, 2u)),
+              static_cast<int>(plan::Status::Ok));
+    ASSERT_EQ(static_cast<int>(plan::commit(s)), static_cast<int>(plan::Status::Ok));
+    plan::open(s);
+    ASSERT_EQ(static_cast<int>(plan::stage(s, plan::Kind::PatternNames,
+                                           0x40000u, 0x2000u, 2u)),
+              static_cast<int>(plan::Status::Ok));
+    s.claimed_banks = 0x0Fu;   /* a claim the ledger did not see */
+    ASSERT_EQ(static_cast<int>(plan::commit(s)),
+              static_cast<int>(plan::Status::BankClaimed));
+    ASSERT_EQ(s.last_conflict_base, 0x40000u);
+    ASSERT_EQ(plan::usage(s).staged_count, 1u);   /* nothing flipped */
+    s.claimed_banks = 0x03u;
+    ASSERT_EQ(static_cast<int>(plan::commit(s)), static_cast<int>(plan::Status::Ok));
+    /* Releasing a bank that hosts committed rotation image data is refused. */
+    ASSERT_EQ(static_cast<int>(plan::release_banks(s, 0x01u)),
+              static_cast<int>(plan::Status::BanksBusy));
+    ASSERT_EQ(static_cast<int>(plan::release_banks(s, 0x04u)),
+              static_cast<int>(plan::Status::Ok));   /* B0 never claimed... */
+    ASSERT_EQ(s.claimed_banks, 0x03u);
+}
+
 static void test_claim_conflicts_and_idempotence(void) {
     plan::PlanState s;
     plan::init(s);
@@ -302,6 +352,7 @@ int main(void) {
     test_range_rules();
     test_overlap_detection();
     test_bank_roles();
+    test_rotation_image_bank_rules();
     test_claim_conflicts_and_idempotence();
     test_commit_and_rollback_ledger();
     test_ledger_capacity();

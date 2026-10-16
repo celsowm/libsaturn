@@ -218,12 +218,43 @@ static void test_raw_alloc_and_plan_coexist(void) {
     ASSERT_EQ(sat_vdp2_vram_free(raw), SAT_OK);
 }
 
+/* RBG0's own image data only lives inside banks claimed for rotation;
+ * claims and image data protect each other (p06_20, p06_40). */
+static void test_rotation_image_routing(void) {
+    reset_all();
+    uint32_t base = 0u;
+    /* Without a claim there is nowhere rotation names may live. */
+    ASSERT_EQ(sat_vdp2_plan_begin(), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_reserve(SAT_VDP2_RESERVE_ROTATION_NAMES, 0x8000u, 0x2000u, &base),
+              SAT_ERR_BUSY);
+    ASSERT_EQ(sat_vdp2_plan_rollback(), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_claim_banks(SAT_VDP2_BANK_A0 | SAT_VDP2_BANK_A1), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_begin(), SAT_OK);
+    /* Routed into the first claimed run. */
+    ASSERT_EQ(sat_vdp2_plan_reserve(SAT_VDP2_RESERVE_ROTATION_NAMES, 0x8000u, 0x2000u, &base),
+              SAT_OK);
+    ASSERT_EQ(base, 0x00000u);
+    /* Character windows stay 0x8000-aligned inside A1. */
+    ASSERT_EQ(sat_vdp2_plan_reserve_at(SAT_VDP2_RESERVE_ROTATION_CHARS, 0x28000u, 0x1000u), SAT_OK);
+    /* NBG kinds are now refused in the claimed banks. */
+    ASSERT_EQ(sat_vdp2_plan_reserve_at(SAT_VDP2_RESERVE_PATTERN_NAMES, 0x00000u, 0x2000u),
+              SAT_ERR_BUSY);
+    /* Releasing a bank with live rotation image data is refused. */
+    ASSERT_EQ(sat_vdp2_plan_release_banks(SAT_VDP2_BANK_A0), SAT_ERR_BUSY);
+    ASSERT_EQ(sat_vdp2_plan_commit(), SAT_OK);
+    /* With the data released the banks go free again. */
+    ASSERT_EQ(sat_vdp2_plan_release(base), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_release(0x28000u), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_release_banks(SAT_VDP2_BANK_A0 | SAT_VDP2_BANK_A1), SAT_OK);
+}
+
 int main(void) {
     test_rollback_restores_exact_free_space();
     test_commit_keeps_and_release_restores();
     test_reserve_at_conflicts_leave_nothing_behind();
     test_kind_minimums_reach_the_api();
     test_bank_claims_route_reservations();
+    test_rotation_image_routing();
     test_fragmentation_is_reported_not_hidden();
     test_raw_alloc_and_plan_coexist();
     printf("test_vdp2_plan_api: all tests passed\n");

@@ -73,16 +73,18 @@ enum class Kind : uint8_t {
     PatternNames   = 0u,   /* NBG/RBG pattern name tables (caller alignment: the plane size) */
     Characters     = 1u,   /* character (tile) data windows */
     Bitmap         = 2u,   /* NBG0/NBG1 bitmap: 0x20000-aligned, one per bank */
-    RotationParams = 3u,   /* RBG0 rotation parameter table: multiple of 4 */
+    RotationParams = 3u,   /* RBG0 rotation parameter region: multiple of 4 */
     Coefficients   = 4u,   /* RBG0 coefficient tables: multiple of 4 */
     LineScroll     = 5u,   /* line scroll tables: even */
     WindowTable    = 6u,   /* window line tables: multiple of 4 */
     BackScreen     = 7u,   /* per-line back screen table: even */
     LineColor      = 8u,   /* line colour screen table: even */
     Scratch        = 9u,   /* caller-private scratch (CPU-written in blanking) */
+    RotationNames  = 10u,  /* RBG0's own pattern names: a whole-claimed bank */
+    RotationChars  = 11u,  /* RBG0's own character windows (0x8000): a whole-claimed bank */
 };
 
-constexpr uint8_t kKindCount = 10u;
+constexpr uint8_t kKindCount = 12u;
 
 enum class Status : uint8_t {
     Ok = 0u,
@@ -95,8 +97,9 @@ enum class Status : uint8_t {
     BadRange,       /* outside VRAM or zero/wrap-around bytes */
     Overlap,        /* the range touches another reservation */
     BankClaimed,    /* the kind may not live in a whole-claimed bank */
+    BankUnclaimed,  /* the kind needs a whole-claimed bank (RBG0 image data) */
     NotFound,       /* release of a base that is not committed */
-    BanksBusy,      /* claim_banks over live NBG/rotation reservations */
+    BanksBusy,      /* claim/release_banks over live reservations that need the opposite */
 };
 
 /* Slot states. Staged ranges exist only inside an open transaction;
@@ -137,7 +140,8 @@ inline void init(PlanState& s) {
 /* Minimum alignment of the kind's byte base. Pattern names, characters
  * and scratch only need an even address here; the plane-size and
  * character-window alignments are the caller's (the layer manager
- * validates them per configuration). */
+ * validates them per configuration). Rotation character windows obey the
+ * same 32 KiB window rule as the NBGs (manual 4.x). */
 inline uint32_t kind_min_align_bytes(Kind k) {
     switch (k) {
         case Kind::RotationParams:
@@ -146,6 +150,8 @@ inline uint32_t kind_min_align_bytes(Kind k) {
             return 4u;                       /* multiple of 4 bytes */
         case Kind::Bitmap:
             return 0x20000u;                 /* one bitmap per 128 KiB bank */
+        case Kind::RotationChars:
+            return 0x8000u;                  /* a 32 KiB character window */
         default:
             return 2u;                       /* even byte address */
     }
@@ -160,6 +166,19 @@ inline bool kind_needs_unclaimed_bank(Kind k) {
         case Kind::Bitmap:
         case Kind::RotationParams:
         case Kind::Coefficients:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/* The inverse rule: RBG0's own image data is fetched through the rotation
+ * data bank bits, so it only makes sense inside a whole-claimed bank
+ * (p06_20, p06_40). */
+inline bool kind_requires_claimed_bank(Kind k) {
+    switch (k) {
+        case Kind::RotationNames:
+        case Kind::RotationChars:
             return true;
         default:
             return false;
@@ -235,6 +254,18 @@ inline Status unstage(PlanState& s, uint32_t base) {
     return Status::Ok;
 }
 
+/* The bank rules one range must obey given the current claims: fetched
+ * kinds stay out of claimed banks, RBG0 image data stays inside them. */
+inline Status bank_rule(Kind kind, uint8_t banks, uint8_t claimed_banks) {
+    if (kind_needs_unclaimed_bank(kind) && (banks & claimed_banks) != 0u) {
+        return Status::BankClaimed;
+    }
+    if (kind_requires_claimed_bank(kind) && (banks & ~claimed_banks) != 0u) {
+        return Status::BankUnclaimed;
+    }
+    return Status::Ok;
+}
+
 /* Records one reservation (already placed by the byte owner) after checking
  * the kind's rules. Nothing is recorded on failure. `align_bytes` is the
  * minimum byte alignment actually applied (0 meaning the kind's own). */
@@ -267,8 +298,9 @@ inline Status stage(PlanState& s, Kind kind, uint32_t base, uint32_t bytes,
         return s.last_status;
     }
     const uint8_t banks = bank_mask_of_range(base, bytes);
-    if (kind_needs_unclaimed_bank(kind) && (banks & s.claimed_banks) != 0u) {
-        s.last_status = Status::BankClaimed;
+    const Status bank = bank_rule(kind, banks, s.claimed_banks);
+    if (bank != Status::Ok) {
+        s.last_status = bank;
         s.last_conflict_base = base;
         ++s.refusals;
         return s.last_status;
@@ -301,6 +333,22 @@ inline Status commit(PlanState& s) {
         s.last_status = Status::NotOpen;
         ++s.refusals;
         return s.last_status;
+    }
+    /* Re-check the bank rules: a claim or release may have changed the
+     * claimed mask since the reservation was staged, and a commit must
+     * never strand a staged range in a bank state its kind forbids. */
+    for (uint8_t i = 0u; i < kMaxReservations; ++i) {
+        const Slot& slot = s.slots[i];
+        if (static_cast<SlotState>(slot.state) != SlotState::Staged) continue;
+        const Status bank = bank_rule(static_cast<Kind>(slot.kind),
+                                      bank_mask_of_range(slot.base, slot.bytes),
+                                      s.claimed_banks);
+        if (bank != Status::Ok) {
+            s.last_status = bank;
+            s.last_conflict_base = slot.base;
+            ++s.refusals;
+            return s.last_status;   /* nothing flips; the transaction stays open */
+        }
     }
     for (uint8_t i = 0u; i < kMaxReservations; ++i) {
         if (static_cast<SlotState>(s.slots[i].state) == SlotState::Staged) {
@@ -360,7 +408,8 @@ inline Status claim_banks(PlanState& s, uint8_t bank_mask) {
     }
     for (uint8_t i = 0u; i < kMaxReservations; ++i) {
         const Slot& slot = s.slots[i];
-        if (slot.state == 0u) continue;
+        if (slot.state == 0u) continue;   /* staged reservations too: they are
+                                          * about to be committed */
         const Kind kind = static_cast<Kind>(slot.kind);
         if (!kind_needs_unclaimed_bank(kind)) continue;
         if ((bank_mask_of_range(slot.base, slot.bytes) & effective) != 0u) {
@@ -374,11 +423,25 @@ inline Status claim_banks(PlanState& s, uint8_t bank_mask) {
     return Status::Ok;
 }
 
+/* Giving claimed banks back is refused while live rotation image data
+ * (names or character windows) still needs them. */
 inline Status release_banks(PlanState& s, uint8_t bank_mask) {
     if (bank_mask == 0u || (bank_mask & ~0x0Fu) != 0u) {
         s.last_status = Status::BadRange;
         ++s.refusals;
         return s.last_status;
+    }
+    for (uint8_t i = 0u; i < kMaxReservations; ++i) {
+        const Slot& slot = s.slots[i];
+        if (slot.state == 0u) continue;
+        const Kind kind = static_cast<Kind>(slot.kind);
+        if (!kind_requires_claimed_bank(kind)) continue;
+        if ((bank_mask_of_range(slot.base, slot.bytes) & bank_mask & s.claimed_banks) != 0u) {
+            s.last_status = Status::BanksBusy;
+            s.last_conflict_base = slot.base;
+            ++s.refusals;
+            return s.last_status;
+        }
     }
     s.claimed_banks = static_cast<uint8_t>(s.claimed_banks & ~bank_mask);
     return Status::Ok;

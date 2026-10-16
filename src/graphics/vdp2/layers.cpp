@@ -224,6 +224,7 @@ extern "C" void sat_vdp2_rotation_config_default(sat_vdp2_rotation_config_t* out
     out_config->priority = 1u;
     out_config->transparent = 1u;
     out_config->over = SAT_VDP2_ROTATION_OVER_REPEAT;
+    out_config->parameter_mode = SAT_VDP2_ROTATION_PARAMETER_A;
 }
 
 extern "C" sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_config_t* config) {
@@ -248,8 +249,13 @@ extern "C" sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_conf
     l.char_banks = static_cast<uint8_t>(config->char_bank_mask);
     for (uint8_t p = 0u; p < rot::kPlanes; ++p) l.plane_address[p] = config->plane_address[p];
     l.table_address = config->table_address;
-    l.coefficients = config->coefficients != 0u;
-    l.coefficient_mode = config->coefficient_mode;
+    l.parameter_mode = config->parameter_mode;
+    l.coefficients_a.enabled = config->coefficients_a.enabled != 0u;
+    l.coefficients_a.mode = static_cast<uint8_t>(config->coefficients_a.mode & 3u);
+    l.coefficients_a.one_word = config->coefficients_a.one_word != 0u;
+    l.coefficients_b.enabled = config->coefficients_b.enabled != 0u;
+    l.coefficients_b.mode = static_cast<uint8_t>(config->coefficients_b.mode & 3u);
+    l.coefficients_b.one_word = config->coefficients_b.one_word != 0u;
     if (l.pn_one_word) {
         /* as for the NBGs: the 10-bit character numbers index a window */
         const uint32_t window = l.char_2x2 ? 0x20000u : 0x8000u;
@@ -261,9 +267,12 @@ extern "C" sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_conf
     } else if (config->char_base_address != 0u) {
         return SAT_ERR_INVALID_ARG;
     }
-    /* a table already in use stays (its offset goes with it) */
+    /* a region already in use stays (its coefficient offsets go with it) */
     rot::Layer previous{};
-    if (hal::rot_layer(&previous) && previous.table_address == l.table_address) l.ktaof = previous.ktaof;
+    if (hal::rot_layer(&previous) && previous.table_address == l.table_address) {
+        l.ktaof = previous.ktaof;
+        l.ktaof_b = previous.ktaof_b;
+    }
     return to_result(hal::rot_configure(l));
 }
 
@@ -292,48 +301,95 @@ extern "C" sat_result_t sat_vdp2_rotation_set_priority(uint8_t priority) {
     return to_result(hal::rot_configure(current));
 }
 
-extern "C" sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address,
-                                                       const sat_vdp2_rotation_params_t* params) {
+extern "C" sat_result_t sat_vdp2_rotation_set_parameter_mode(uint8_t mode) {
     SAT_TRY(saturn::core::require_initialized());
-    if (params == nullptr || (table_address & 3u) != 0u || table_address + rot::kParamBytes > nbg::kVramBytes ||
-        (params->coefficient_address & 3u) != 0u) {
+    if (mode > SAT_VDP2_ROTATION_PARAMETER_COEFFICIENT) return SAT_ERR_INVALID_ARG;
+    rot::Layer current{};
+    if (!hal::rot_layer(&current)) return SAT_ERR_NOT_FOUND;
+    current.parameter_mode = mode;
+    return to_result(hal::rot_configure(current));
+}
+
+/* One set's 17 values plus its coefficient start, in the policy's layout. */
+static rot::Params to_rot_params(const sat_vdp2_rotation_params_t* in, bool one_word) {
+    rot::Params p{};
+    p.xst = in->xst;
+    p.yst = in->yst;
+    p.zst = in->zst;
+    p.dxst = in->dxst;
+    p.dyst = in->dyst;
+    p.dx = in->dx;
+    p.dy = in->dy;
+    for (uint32_t i = 0u; i < 6u; ++i) p.m[i] = in->matrix[i];
+    p.px = in->px;
+    p.py = in->py;
+    p.pz = in->pz;
+    p.cx = in->cx;
+    p.cy = in->cy;
+    p.cz = in->cz;
+    p.mx = in->mx;
+    p.my = in->my;
+    p.kx = in->kx;
+    p.ky = in->ky;
+    p.kast = (one_word ? rot::kast_integer_1word(in->coefficient_address)
+                       : rot::kast_integer(in->coefficient_address)) << 16u;
+    p.dkast = in->coefficient_step;
+    p.dkax = 0;
+    return p;
+}
+
+extern "C" sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address,
+                                                       const sat_vdp2_rotation_params_t* params_a,
+                                                       const sat_vdp2_rotation_params_t* params_b) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (params_a == nullptr || params_b == nullptr) return SAT_ERR_INVALID_ARG;
+    /* The whole A+B region: 4-byte aligned, bit 7 clear (RPTA bit 6 is
+     * ignored and fixed, p06_32), inside VRAM. */
+    if ((table_address & 3u) != 0u || (table_address & 0x80u) != 0u ||
+        table_address + rot::kParamsABBytes > nbg::kVramBytes) {
         return SAT_ERR_INVALID_ARG;
     }
     rot::Layer current{};
     if (!hal::rot_layer(&current)) return SAT_ERR_NOT_FOUND;
     current.table_address = table_address;
     if (rot::validate(current) != rot::Status::Ok) return SAT_ERR_INVALID_ARG;
-    rot::Params p{};
-    p.xst = params->xst;
-    p.yst = params->yst;
-    p.zst = params->zst;
-    p.dxst = params->dxst;
-    p.dyst = params->dyst;
-    p.dx = params->dx;
-    p.dy = params->dy;
-    for (uint32_t i = 0u; i < 6u; ++i) p.m[i] = params->matrix[i];
-    p.px = params->px;
-    p.py = params->py;
-    p.pz = params->pz;
-    p.cx = params->cx;
-    p.cy = params->cy;
-    p.cz = params->cz;
-    p.mx = params->mx;
-    p.my = params->my;
-    p.kx = params->kx;
-    p.ky = params->ky;
-    p.kast = rot::kast_integer(params->coefficient_address) << 16u;
-    p.dkast = params->coefficient_step;
-    p.dkax = 0;
-    uint16_t words[48];
-    rot::encode_params(p, words);
-    SAT_TRY(write_table(table_address, words, 48u));
-    hal::rot_set_table(table_address, rot::ktaof_for(params->coefficient_address));
+    /* The entry alignment and the KTAOF offset unit follow each set's own
+     * contract (p06_43): 2-word entries count 4 bytes, 1-word entries 2. */
+    const sat_vdp2_rotation_params_t* sets[2] = {params_a, params_b};
+    const rot::Coefficients* contracts[2] = {&current.coefficients_a, &current.coefficients_b};
+    for (uint32_t s = 0u; s < 2u; ++s) {
+        if (!contracts[s]->enabled) continue;
+        const uint32_t mask = contracts[s]->one_word ? 1u : 3u;
+        if ((sets[s]->coefficient_address & mask) != 0u ||
+            sets[s]->coefficient_address >= nbg::kVramBytes) {
+            return SAT_ERR_INVALID_ARG;
+        }
+    }
+    const rot::Params pa = to_rot_params(params_a, current.coefficients_a.one_word);
+    const rot::Params pb = to_rot_params(params_b, current.coefficients_b.one_word);
+    uint16_t words[rot::kParamsABWords];
+    rot::encode_params_ab(pa, pb, words);
+    SAT_TRY(write_table(table_address, words, rot::kParamsABWords));
+    const uint8_t ktaof_a = current.coefficients_a.enabled
+        ? (current.coefficients_a.one_word ? rot::ktaof_for_1word(params_a->coefficient_address)
+                                           : rot::ktaof_for(params_a->coefficient_address))
+        : current.ktaof;
+    const uint8_t ktaof_b = current.coefficients_b.enabled
+        ? (current.coefficients_b.one_word ? rot::ktaof_for_1word(params_b->coefficient_address)
+                                           : rot::ktaof_for(params_b->coefficient_address))
+        : current.ktaof_b;
+    hal::rot_set_table(table_address, ktaof_a, ktaof_b);
     return SAT_OK;
 }
 
-extern "C" uint32_t sat_vdp2_rotation_coefficient(int32_t value, uint8_t transparent) {
-    return rot::encode_coefficient(value, transparent != 0u);
+extern "C" uint32_t sat_vdp2_rotation_coefficient_2word(int32_t value, uint8_t flags) {
+    const bool flagged = (flags & (SAT_VDP2_COEFFICIENT_HIDE | SAT_VDP2_COEFFICIENT_USE_B)) != 0u;
+    return rot::encode_coefficient(value, flagged);
+}
+
+extern "C" uint16_t sat_vdp2_rotation_coefficient_1word(int32_t value, uint8_t flags) {
+    const bool flagged = (flags & (SAT_VDP2_COEFFICIENT_HIDE | SAT_VDP2_COEFFICIENT_USE_B)) != 0u;
+    return rot::encode_coefficient_1word(value, flagged);
 }
 
 extern "C" sat_result_t sat_vdp2_rotation_write_coefficients(uint32_t byte_address, const uint32_t* coefficients,
@@ -352,6 +408,26 @@ extern "C" sat_result_t sat_vdp2_rotation_write_coefficients(uint32_t byte_addre
         }
         SAT_TRY(write_table(address, chunk, 2u * n));
         address += n * 4u;
+        done += n;
+    }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rotation_write_coefficients_1word(uint32_t byte_address,
+                                                                   const uint16_t* coefficients,
+                                                                   uint32_t count) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (coefficients == nullptr || (byte_address & 1u) != 0u ||
+        byte_address + count * 2u > nbg::kVramBytes) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    uint16_t chunk[kChunkWords];
+    uint32_t address = byte_address;
+    for (uint32_t done = 0u; done < count;) {
+        const uint32_t n = count - done < kChunkWords ? count - done : kChunkWords;
+        for (uint32_t i = 0u; i < n; ++i) chunk[i] = coefficients[done + i];
+        SAT_TRY(write_table(address, chunk, n));
+        address += n * 2u;
         done += n;
     }
     return SAT_OK;
