@@ -97,6 +97,40 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Record host test, package test, Saturn cross-build and emulator baseline, including existing failures.
 - **Gate:** current tests pass, all existing examples build; no VDP2 feature claimed merely because it appears in documentation.
 
+**Status (2026-10-16): DONE — gate met on `main`.**
+
+- Palette dependency: `a7ea2c5` — the vendored shmup v4 pack's binary half
+  (palette + `vdp1/index8/` + `vdp1/lut4/`, 221 files, 218 KiB) is tracked
+  behind a scoped `.gitignore` negation. The CI `FileNotFoundError` was
+  reproduced in a tracked-files-only worktree before the fix; the exact
+  `Makefile.inc` pack/bg commands and a full `bullet_hell_stress`
+  cross-build pass after it.
+- Coverage matrix: `1c573a2` re-audited `docs/LIBSATURN_CURRENT_COVERAGE.md`
+  against the sources; the "advanced raster effects NOT EXPOSED" row was the
+  named stale claim, and the contradicting executive summary, API surface and
+  VDP2/SCSP/Slave/CD/tooling sections were corrected with it.
+- Machine-readable matrix: `b120ba3` adds `docs/VDP2_SUPPORT_MATRIX.json`
+  (26 features, 27 constants, every cited manual chapter verified against the
+  manual's own section titles) and `tests/test_vdp2_support_matrix.py`,
+  wired into the `make test` unittest line.
+- Baselines recorded (local Windows + MSYS2, user-supplied US BIOS):
+  `make test` green; `scripts/test-package.ps1` green (5/5, including the
+  package consumer cross-build); `make examples-all` green (local caveat:
+  `city_walk`'s one-time Draco decode needs `npx` on PATH — CI runners ship
+  Node.js); emulator baseline `harness/run-vdp2-layers.ps1` 12/12 after the
+  probe build, with screenshots and WRAM/struct dumps under
+  `harness/build/vdp2_layers/` (misaligned accesses: master 0, slave 0).
+- Harness repair found during the baseline: `e19124b` pins `*.patch` to LF
+  through `.gitattributes`. `core.autocrlf=true` had smudged
+  `ymir_write_watch.patch` into mixed line endings, breaking `git apply`
+  against the LF Ymir tree while `git status` still reported the file clean;
+  CI (Linux) was unaffected because it checks the LF blobs out directly.
+- No VDP2 feature is claimed from documentation alone: the JSON matrix's
+  `absent` set (RBG1, rotation parameter B, hardware blur, extended colour
+  calculation, special priority, VDP2 shadow sprites, interlace, PAL
+  240/256-line modes, unified resource planner) matches this document's
+  section 2 inventory, and each entry names the milestone that will deliver it.
+
 ### M1 — Resource ownership and introspection (E08)
 - Audit/merge VDP2 bank and allocation ownership; implement transactional layer+table reservations and readable diagnostics.
 - Host tests for fragmentation, overlaps, bank roles, cycle overflow, commit and rollback.

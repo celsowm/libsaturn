@@ -21,6 +21,13 @@ Rules that keep the two licenses from mixing:
 3. **Ymir's source is never vendored into this repo.** `CMakeLists.txt`
    pulls it via `FetchContent` at build time, pinned to a specific commit
    (see that file for the pin and the reason it's not tracking `main`).
+   The debug patches are applied with `git apply`, which matches context
+   lines byte-exactly: patch files must stay LF on disk. The root
+   `.gitattributes` pins `*.patch` to `text eol=lf` for every checkout —
+   with `core.autocrlf=true` on Windows the patches would otherwise be
+   smudged to CRLF, `git apply` would fail with "patch does not apply",
+   and `git status` would still show the files as clean (the clean filter
+   strips the CRs again).
 4. Code under `examples/`, `src/`, and `include/` must never depend on
    anything in `harness/`.
 
