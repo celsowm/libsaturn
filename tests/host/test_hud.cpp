@@ -33,12 +33,12 @@ int main() {
     OK(sat_hud_text(&hud, "OK", 1, 2) == SAT_OK);
     OK(sat_hud_bar(&hud, 1, 2, 10, 2, 11u, 10u, 0u, 1u) == SAT_ERR_INVALID_ARG);
 
-    /* The cursor API in 320x224 -- single-pixel spacing, 10-pixel
+    /* The cursor API in 320x224 -- 8-pixel glyph advance, 10-pixel
      * line advance from a (4, 4) anchor. */
     g_video_width = 320u;
     OK(sat_hud_init_default(&hud, &font) == SAT_OK);
     OK(hud.cursor_x == 4 && hud.cursor_y == 4);
-    OK(hud.char_spacing == 1u);
+    OK(hud.char_spacing == 8u);
     OK(sat_hud_line(&hud, "FPS", 60u) == SAT_OK);
     OK(hud.cursor_y == 14);   /* 4 + 10 */
     OK(sat_hud_line(&hud, "POS", 99u) == SAT_OK);
@@ -50,7 +50,7 @@ int main() {
      * proportion. */
     g_video_width = 640u;
     OK(sat_hud_init_default(&hud, &font) == SAT_OK);
-    OK(hud.char_spacing == 2u);
+    OK(hud.char_spacing == 16u);
     OK(sat_hud_line(&hud, "FPS", 60u) == SAT_OK);
     OK(hud.cursor_y == 14);
 
