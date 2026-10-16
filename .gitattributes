@@ -1,0 +1,6 @@
+# git apply needs byte-exact context lines: the harness applies
+# harness/ymir_*.patch to the fetched (LF) Ymir source tree, so patch files
+# must always check out with LF endings. Without this rule a Windows checkout
+# with core.autocrlf=true smudges the patches to CRLF and `git apply` fails
+# with "patch does not apply" even though the committed blobs are correct.
+*.patch text eol=lf
