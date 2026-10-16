@@ -135,7 +135,7 @@
       "manual": ["p06_20.md", "p06_30.md", "p06_40.md"],
       "api": ["include/saturn/vdp2.h", "include/saturn/vdp2_rbg0_ground.h", "include/saturn/vdp2_environment.h"],
       "tests": ["tests/host/test_vdp2_rotation_logic.cpp", "tests/host/test_vdp2_rbg0_logic.cpp", "harness/tests/test_rbg0_ground.py"],
-      "notes": "The modern manager implements parameter A only; the older vdp2.h NBG0 calls and the RBG0 manager refuse each other with SAT_ERR_BUSY."
+      "notes": "Both rotation parameter sets are modeled since e212a41 (see rbg0_rotation_parameter_b); the older vdp2.h NBG0 calls and the RBG0 manager refuse each other with SAT_ERR_BUSY."
     },
     {
       "id": "vram_free_list_allocator",
@@ -166,11 +166,13 @@
     {
       "id": "rbg0_rotation_parameter_b",
       "title": "RBG0 rotation parameter B selection and coefficient-mode switching",
-      "status": "absent",
-      "manual": ["p06_30.md"],
-      "api": [],
-      "tests": [],
-      "plan_milestone": "M2"
+      "status": "partial",
+      "manual": ["p06_30.md", "p06_34.md", "p06_35.md", "p06_42.md", "p06_43.md"],
+      "api": ["include/saturn/vdp2_layers.h", "include/saturn/vdp2_rotation_coefficients.h"],
+      "tests": ["tests/host/test_vdp2_rotation_logic.cpp", "tests/host/test_vdp2_rotation_coefficients.cpp",
+                "harness/run-vdp2-rotation-coefficients.ps1"],
+      "plan_milestone": "M2",
+      "notes": "Both parameter sets and the whole per-line coefficient contract are real since e212a41: one A+B region (figure 6.4) behind the single RPTA, RPMD modes A / B / per-line coefficient switching (p06_34, p06_35), both KTCTL halves with 2-word and 1-word entries (p06_42) and both KTAOF offsets (p06_43), sign-magnitude entry encoding (figure 6.7), and sat_vdp2_rotation_write_params writing both sets together so B can never go stale. E02 vdp2_rotation_coefficients proves every mode on Ymir, the per-line A/B slice pixel-verified. Not modeled and refused with SAT_ERR_INVALID_ARG: the window mode (RPMD 3, needs the rotation window control register) and per-dot coefficients (need a whole rotation bank or Color RAM); the line-colour composition half of KTCTL (RAKLCE/RBKLCE) is not exposed either."
     },
     {
       "id": "rbg1",

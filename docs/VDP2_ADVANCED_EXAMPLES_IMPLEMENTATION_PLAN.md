@@ -184,6 +184,56 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Add RBG1 with separate image memory, clear RBG0 dependency and NBG incompatibility; implement `vdp2_dual_rotation`.
 - **Gate:** refused illegal combinations, no torn coefficient tables, distinct RBG pictures where emulators support them, physically testable acceptance artifact.
 
+**Status (2026-10-16): E02 DONE; E01 (`vdp2_dual_rotation`) still open.**
+
+- **E02's library slice** (`e212a41`): the rotation manager models both
+  parameter sets — one A+B region per figure 6.4 behind the single RPTA
+  (whose bit 6 is ignored and fixed, so the region's bit 7 must be clear,
+  now validated), RPMD modes A / B / per-line coefficient switching, both
+  KTCTL halves (2-word and 1-word entries, all four coefficient modes,
+  p06_42) and both KTAOF offsets (p06_43). Breaking by design: the config
+  struct carries a parameter_mode plus one coefficient contract per set,
+  `sat_vdp2_rotation_write_params` writes both sets together so B can never
+  go stale, and the coefficient encoders are flag-based
+  (HIDE / USE_B). The window mode (RPMD 3) and per-dot coefficients are
+  refused with SAT_ERR_INVALID_ARG — honest unmodeled corners, recorded in
+  the matrix. The sign-magnitude entry encoding bug the new negative-value
+  tests exposed (two's complement where figure 6.7 has separate sign and
+  magnitude fields) is fixed; killer_clown_demo was migrated with it.
+- **E02's scene** (`examples/vdp2_rotation_coefficients`): a procedural
+  ocean — perspective floor with a travelling swell (kx/ky), an Xp
+  shimmer, the same floor yawed 30° as parameter set B, and the per-line
+  A/B slice with an animated boundary — every frame's parameter region and
+  both coefficient tables written into the inactive half of a double
+  buffer, switched by the VBlank commit. The scene math is a public,
+  header-only, host-testable contract
+  (`include/saturn/vdp2_rotation_coefficients.h`) checked against
+  independent libm reference math in
+  `tests/host/test_vdp2_rotation_coefficients.cpp` — which caught two real
+  math bugs (the k(y) rounding scale and the Xp base shift) before they
+  shipped. The VRAM layout is planned through `sat_vdp2_plan_*`, including
+  the new ROTATION_NAMES/ROTATION_CHARS kinds that only live inside
+  claimed banks.
+- **E02 acceptance** (`harness/run-vdp2-rotation-coefficients.ps1`, 6/6 on
+  Ymir): all four scenes ran, the three illegal combinations refused with
+  SAT_ERR_INVALID_ARG, the double-buffer counters, the captured MIX-scene
+  coefficient entries equal to the reference math recomputed in Python,
+  the pictures distinct per mode — and the per-line A/B switching proven by
+  pixels: the MIX capture and the pure-B scene are identical above the
+  boundary and differ below it. Zero misaligned SH-2 accesses.
+- Harness repairs found by the re-run gates: the shared
+  `Invoke-ExampleTest` helper resolved the repository root one directory
+  too deep (so `build-example.ps1` and `run-harness.ps1` were never found),
+  derived a map suffix that never existed, and passed `-p <pattern>` to
+  Python as one argument so every wrapper using the default test-file name
+  discovered zero tests; five wrappers also built their screenshot arrays
+  as one concatenated string and two pointed screenshots at a directory
+  the probe never creates. Fixed with window-dim (6/6), compose (6/6),
+  effects (4/4), dma (13/13) re-run green as evidence.
+- **E01 remains open:** RBG1 with its fixed B0/B1 image banks, the RBG0
+  requirement and the normal-screen exclusion (p06_20), and the
+  `vdp2_dual_rotation` scene.
+
 ### M3 — Advanced composition (E03 then E06 then E05 then E04)
 - Implement a single compatible state machine for special color/priority, shadow, blur and extended calculation. Add only verified public switches.
 - Build each focused example independently with a visible A/B comparison; test mutually exclusive modes and palette/RGB mode transitions.
