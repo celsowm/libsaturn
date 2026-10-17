@@ -1,0 +1,13 @@
+diff --git a/libs/ymir-core/src/ymir/hw/vdp/renderer/vdp_renderer_sw.cpp b/libs/ymir-core/src/ymir/hw/vdp/renderer/vdp_renderer_sw.cpp
+index f8835f11..fc416264 100644
+--- a/libs/ymir-core/src/ymir/hw/vdp/renderer/vdp_renderer_sw.cpp
++++ b/libs/ymir-core/src/ymir/hw/vdp/renderer/vdp_renderer_sw.cpp
+@@ -3492,7 +3492,7 @@ FORCE_INLINE static void Color888GradationMasked(const std::span<Color888> dest,
+ 
+         // Blend with mask
+         const __m128i dstColor_x4 =
+-            _mm_or_si128(_mm_and_si128(color2_x4, blend2_x4), _mm_andnot_si128(mask_x4, color2_x4));
++            _mm_or_si128(_mm_and_si128(mask_x4, blend2_x4), _mm_andnot_si128(mask_x4, color2_x4));
+ 
+         // Write
+         _mm_storeu_si128(reinterpret_cast<__m128i *>(&dest[i]), dstColor_x4);

@@ -47,31 +47,48 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ymir)
 
-# Keep the debug-only counters used by probe.exe reproducible without
-# vendoring Ymir. The patches are applied to the fetched, pinned source tree and
-# are deliberately kept outside the library's public runtime API:
+# Keep the harness reproducible without vendoring Ymir. The patches are
+# applied to the fetched, pinned source tree and stay outside libsaturn:
 #   ymir_debug_metrics.patch       VDP write counters, scheduler cycle count
 #   ymir_write_watch.patch         --watch-write: the first writes into an address range (pc, value, frame)
 #   ymir_misaligned_access.patch   SH-2 misaligned data accesses (an address
 #                                  error on hardware, silently aligned by Ymir)
-foreach(YMIR_DEBUG_PATCH_NAME ymir_debug_metrics ymir_misaligned_access ymir_write_watch)
-    set(YMIR_DEBUG_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/${YMIR_DEBUG_PATCH_NAME}.patch")
-    execute_process(
-        COMMAND git -C "${ymir_SOURCE_DIR}" apply --check --reverse "${YMIR_DEBUG_PATCH}"
-        RESULT_VARIABLE YMIR_DEBUG_PATCH_ALREADY_APPLIED
-        OUTPUT_QUIET ERROR_QUIET)
-    if(NOT YMIR_DEBUG_PATCH_ALREADY_APPLIED EQUAL 0)
+#   ymir_gradation_sse_fix.patch   correctness fix: the pinned SSE2 gradation
+#                                  path ANDed the source colour into the blur
+#                                  instead of applying the mask (the AVX2 and
+#                                  scalar paths were correct). Without this,
+#                                  non-AVX2 builds render a wrong blur.
+# The patches are order-dependent (e.g. write-watch sits on top of the
+# misaligned block), so a reverse-apply check on an already-patched tree is
+# not reliable. Detect each patch by a unique marker it adds instead; the pin
+# is fixed, and a missing marker means the patch has not been applied yet.
+set(YMIR_PATCH_SPECS
+    "ymir_debug_metrics|libs/ymir-core/include/ymir/hw/vdp/vdp.hpp|GetWriteCounters"
+    "ymir_misaligned_access|libs/ymir-core/include/ymir/hw/sh2/sh2.hpp|NoteMisaligned"
+    "ymir_write_watch|libs/ymir-core/include/ymir/hw/sh2/sh2.hpp|NoteWatch"
+    "ymir_gradation_sse_fix|libs/ymir-core/src/ymir/hw/vdp/renderer/vdp_renderer_sw.cpp|and_si128(mask_x4, blend2_x4)"
+)
+foreach(YMIR_PATCH_SPEC IN LISTS YMIR_PATCH_SPECS)
+    string(REPLACE "|" ";" YMIR_PATCH_FIELDS "${YMIR_PATCH_SPEC}")
+    list(GET YMIR_PATCH_FIELDS 0 YMIR_PATCH_NAME)
+    list(GET YMIR_PATCH_FIELDS 1 YMIR_PATCH_FILE)
+    list(GET YMIR_PATCH_FIELDS 2 YMIR_PATCH_MARKER)
+    set(YMIR_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/${YMIR_PATCH_NAME}.patch")
+
+    file(READ "${ymir_SOURCE_DIR}/${YMIR_PATCH_FILE}" YMIR_PATCH_SOURCE)
+    string(FIND "${YMIR_PATCH_SOURCE}" "${YMIR_PATCH_MARKER}" YMIR_PATCH_MARKER_POS)
+    if(YMIR_PATCH_MARKER_POS EQUAL -1)
         execute_process(
-            COMMAND git -C "${ymir_SOURCE_DIR}" apply --check "${YMIR_DEBUG_PATCH}"
-            RESULT_VARIABLE YMIR_DEBUG_PATCH_CHECK)
-        if(NOT YMIR_DEBUG_PATCH_CHECK EQUAL 0)
-            message(FATAL_ERROR "${YMIR_DEBUG_PATCH_NAME}.patch no longer applies cleanly")
+            COMMAND git -C "${ymir_SOURCE_DIR}" apply --check "${YMIR_PATCH}"
+            RESULT_VARIABLE YMIR_PATCH_CHECK)
+        if(NOT YMIR_PATCH_CHECK EQUAL 0)
+            message(FATAL_ERROR "${YMIR_PATCH_NAME}.patch no longer applies cleanly")
         endif()
         execute_process(
-            COMMAND git -C "${ymir_SOURCE_DIR}" apply "${YMIR_DEBUG_PATCH}"
-            RESULT_VARIABLE YMIR_DEBUG_PATCH_APPLY)
-        if(NOT YMIR_DEBUG_PATCH_APPLY EQUAL 0)
-            message(FATAL_ERROR "Failed to apply ${YMIR_DEBUG_PATCH_NAME}.patch")
+            COMMAND git -C "${ymir_SOURCE_DIR}" apply "${YMIR_PATCH}"
+            RESULT_VARIABLE YMIR_PATCH_APPLY)
+        if(NOT YMIR_PATCH_APPLY EQUAL 0)
+            message(FATAL_ERROR "Failed to apply ${YMIR_PATCH_NAME}.patch")
         endif()
     endif()
 endforeach()

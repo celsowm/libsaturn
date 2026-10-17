@@ -27,12 +27,12 @@ Existing, usable code:
 Existing limitations or unvalidated opportunities:
 - The modern RBG0 layer manager implements **rotation parameter A only**; more rotation modes/parameter-B switching need an explicit owner and test surface.
 - RBG1 has no first-class public layer contract. RBG1 imposes restrictions on NBG coexistence, separate banks and RBG0 ownership.
-- Extended colour calculation is now public and accepted end to end by E03 `vdp2_special_color` (2026-10-17). Hardware blur has the public switch but no accepted picture yet (E04); full special-priority/color-calculation and the VDP2 shadow family are still absent.
+- Extended colour calculation is public and accepted end to end by E03 `vdp2_special_color`, and hardware blur by E04 `vdp2_hardware_blur` (both 2026-10-17). Full special-priority/color-calculation and the VDP2 shadow family are still absent.
 - VDP2 VRAM free-list allocations, layer bank/cycle ownership and raster/rotation table reservations are not yet a unified transactional resource planner.
 - Video-facing APIs presently expose 224-line output, not PAL 240/256-line and interlace mode coverage.
 - Physical Saturn compatibility, access timing and visual color/blur behavior are unverified. An emulator pass is not hardware certification.
 
-**Documentation cleanup:** the obsolete “advanced raster effects NOT EXPOSED” claims in `docs/LIBSATURN_CURRENT_COVERAGE.md` were corrected in an earlier inventory pass. The E03 close-out keeps that file aligned with the current VDP2 state (extended colour calculation now public and accepted; blur still pending its E04 picture).
+**Documentation cleanup:** the obsolete "advanced raster effects NOT EXPOSED" claims in `docs/LIBSATURN_CURRENT_COVERAGE.md` were corrected in an earlier inventory pass. The E03/E04 close-outs keep that file aligned with the current VDP2 state (extended colour calculation and hardware blur are now public and accepted).
 
 **Build baseline blocker:** The latest Phase 3 CI cross-build gate failed while packaging `bullet_hell_stress` because `examples/bullet_hell_stress/assets/palette_bgr555_be.bin` was absent. Repair that independently before treating `make examples-all` as a green gate; never suppress the failure to ship VDP2 examples.
 
@@ -310,7 +310,7 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Build each focused example independently with a visible A/B comparison; test mutually exclusive modes and palette/RGB mode transitions.
 - **Gate:** host register encodings, per-example screenshots/observables, unchanged existing `transparency_showcase` and `vdp2_compose_demo`.
 
-**Status (2026-10-17): IN PROGRESS — E03 is accepted; E04 is the next slice.**
+**Status (2026-10-17): IN PROGRESS — E03 and E04 are accepted; E06 is the next slice.**
 
 - Per-screen colour calculation (the CCCTL enable bits N0CCEN-N3CCEN,
   R0CCEN, LCCCEN and the CCRNA/CCRB/CCRR/CCRLB ratio registers) was already
@@ -339,23 +339,41 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Both matrix rows moved `absent` → `partial` (`hardware_blur`,
   `extended_color_calculation`) when only the register policy was host-tested.
   **E03 `vdp2_special_color` is now accepted** (2026-10-17, pinned Ymir
-  `5c571f6` + instrumentation-only patches): 9/9 tests cover the telemetry
+  `5c571f6` + the harness patches): 9/9 tests cover the telemetry
   struct, CRAM mode 0, every chapter-12 refusal, the final CCCTL/CCRNA
   registers, a watch-write of CCCTL at the RATIO switch, and manual-recomputed
   pixels for ratio (15:17), add saturation, and the table-12.2 extended
-  cascade. `extended_color_calculation` is therefore `exposed`;
-  `hardware_blur` stays `partial` until E04 shows the picture.
+  cascade. `extended_color_calculation` is therefore `exposed`.
 - E03 also paid down harness debt that E04–E06 depend on: `probe.json` now
   dumps CCCTL/CCRNA/CCRNB/LNCLEN/SFPRMD/SFCCMD/SFCODE/SFSEL/SDCTL/SPCTL,
   `--watch-write` is exported under `watch_writes` and exposed by the
   wrappers, `Invoke-ExampleTest` resolves `-ScreenshotWhenSymbol` /
   `-DumpMemSymbol` from the build map, and the acceptance sweep now covers
-  `vdp2-dual-rotation`, `vdp2-rotation-coefficients`, `vdp2-special-color`
-  and `vdp2-vram-stress`.
+  `vdp2-dual-rotation`, `vdp2-rotation-coefficients`, `vdp2-special-color`,
+  `vdp2-hardware-blur` and `vdp2-vram-stress`.
+- **E04 `vdp2_hardware_blur` is now accepted** (2026-10-17): 11/11 harness
+  tests assert CCCTL = BOKEN + BOKN 2 + N0CCEN and CCRNA's final N0 ratio, a
+  watch-write of BOKEN at the BLUR switch, the sharp right half
+  byte-identical while the blur toggles, and the left half matching the
+  manual's 2:1:1 average (188/68) and 15:17 mix (216/39) recomputed from the
+  palette; a BLUR 32 mode shows the averaged second image directly.
+  `hardware_blur` is therefore `exposed`. The example keeps the blurred
+  screen as the top image and enables colour calculation on it because Ymir
+  at this pin replaces the second image only where the BOKN screen is top;
+  the manual's second-image blur case remains unverified and is recorded in
+  the matrix notes.
+- E04 also found and fixed two real issues: the HAL passed `g_lncl_used`
+  (a register-ownership flag that never clears) to the blur policy, so blur
+  was refused forever after any line-colour use; it now passes the live
+  LNCLEN mask. And the pinned Ymir SSE2 gradation path applied the mask with
+  `color2` instead of `mask`, ANDing the source pixel into the blur (184/0
+  instead of 188/68); `harness/ymir_gradation_sse_fix.patch` is a documented
+  one-line correctness fix, distinct from the instrumentation patches. The
+  AVX2 and scalar paths were already correct.
 - Special priority (E06) and VDP2 shadow sprites (E05) still have no surface
-  and no example. E04, E06 and E05 are the remaining M3 slices, in that
-  order: E04's public switch is already in place, E06 needs a 2-word
-  pattern-name encoder, and E05 needs the shadow-sprite dot-data encoder.
+  and no example. They are the remaining M3 slices, in that order: E06 needs
+  a 2-word pattern-name encoder, and E05 needs the shadow-sprite dot-data
+  encoder.
 - Also repaired in the same pass: the `rbg1` matrix entry carried prose in
   its `api`/`tests` fields, failing the pinned `tests/test_vdp2_support_matrix.py`
   rules that guard the matrix (`api`/`tests` now cite real artifacts, the
@@ -373,7 +391,7 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Use original, redistributable scene assets and compare rendering/performance with realistic control scenarios.
 - **Gate:** no example-local copy of general-purpose register or cache management; stable 10-minute runs; no stock-RAM overrun.
 
-**Status (2026-10-17): NOT STARTED.** E10-E12 are the integration stage for every prior slice - M2's RBG0/RBG1, M3's extended CC and shadow, M4's tile streaming and video modes. Extended colour calculation and hardware blur are public (E03 accepted; E04 pending), but special priority, shadow sprites, PAL/interlace modes and the unified tile publish API are still absent, so these examples have no complete surface to build on.
+**Status (2026-10-17): NOT STARTED.** E10-E12 are the integration stage for every prior slice - M2's RBG0/RBG1, M3's extended CC and shadow, M4's tile streaming and video modes. Extended colour calculation and hardware blur are public and accepted (E03, E04), but special priority, shadow sprites, PAL/interlace modes and the unified tile publish API are still absent, so these examples have no complete surface to build on.
 
 ### M6 — Hardware signoff and developer experience
 - Run/record physical Saturn tests across region/video mode, console revision and disc/ODE where available. Keep **PENDING** where no machine exists.

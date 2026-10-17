@@ -21,7 +21,7 @@ Rules that keep the two licenses from mixing:
 3. **Ymir's source is never vendored into this repo.** `CMakeLists.txt`
    pulls it via `FetchContent` at build time, pinned to a specific commit
    (see that file for the pin and the reason it's not tracking `main`).
-   The debug patches are applied with `git apply`, which matches context
+   The patches are applied with `git apply`, which matches context
    lines byte-exactly: patch files must stay LF on disk. The root
    `.gitattributes` pins `*.patch` to `text eol=lf` for every checkout —
    with `core.autocrlf=true` on Windows the patches would otherwise be
@@ -115,6 +115,25 @@ The wrappers expose these through `scripts/run-example-tests.ps1`:
 the telemetry struct from `build/<example>.map` after the build, so no link
 address is hard-coded in PowerShell.
 
+### The one non-instrumentation Ymir patch
+
+At the pinned commit, the SSE2 path of `Color888GradationMasked` applies the
+mask with `color2` instead of `mask`:
+
+```cpp
+// pinned source (wrong)
+_mm_or_si128(_mm_and_si128(color2_x4, blend2_x4), _mm_andnot_si128(mask_x4, color2_x4));
+// ymir_gradation_sse_fix.patch
+_mm_or_si128(_mm_and_si128(mask_x4, blend2_x4), _mm_andnot_si128(mask_x4, color2_x4));
+```
+
+With the typo, a non-AVX2 build ANDs the source pixel into the blurred result:
+the 248/8 checker that should blur to 188/68 becomes 184/0. The AVX2 path, the
+scalar path and a standalone reference all produce 188/68, so this is an
+emulator correctness fix, not a tuning change. Blur acceptance is evidenced on
+this patched pinned Ymir and is still emulator evidence, not hardware
+certification.
+
 ### Frame pacing
 
 The probe runs one emulated frame per `RunFrame()`, and a libsaturn program
@@ -133,9 +152,10 @@ harness/
   LICENSE          GPL-3.0 (verbatim, from gnu.org)
   README.md        this file
   CMakeLists.txt    FetchContents Ymir (pinned commit), applies instrumentation patches, builds the probe app
-  ymir_debug_metrics.patch       VDP write counters and scheduler cycles
-  ymir_misaligned_access.patch   SH-2 misaligned data-access log
+  ymir_debug_metrics.patch       VDP write counters and scheduler cycles (instrumentation)
+  ymir_misaligned_access.patch   SH-2 misaligned data-access log (instrumentation)
   ymir_write_watch.patch         first writes into a bus range (--watch-write)
+  ymir_gradation_sse_fix.patch   correctness fix for the SSE2 blur mask blend
   src/probe_main.cpp  links ymir-core; boots an ISO, dumps state to JSON
   src/png_writer.hpp  dependency-free PNG writer for --screenshot
   scripts/*.pad       input timelines for --pad-script

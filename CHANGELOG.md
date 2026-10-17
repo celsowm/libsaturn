@@ -41,8 +41,27 @@ The version is defined once, in the `VERSION` file.
   refusals, CCCTL/CCRNA registers, a watch-write of CCCTL at the RATIO
   switch, and pixels recomputed from the manual); the
   `extended_color_calculation` matrix row moved `partial` -> `exposed`.
-  `hardware_blur` stays `partial` until E04 shows the picture. Physical
-  hardware remains PENDING in the acceptance checklist (row 30).
+  `hardware_blur` follows in the E04 entry below. Physical hardware remains
+  PENDING in the acceptance checklist (row 30).
+- `vdp2_hardware_blur` (plan milestone M3, E04): a live A/B of CCCTL
+  BOKEN/BOKN with a one-pixel checker on NBG0 (top image), a solid blue NBG1
+  below and a colour-calculation window for a sharp control half. Accepted
+  on pinned Ymir 11/11: the left half matches the manual's 2:1:1 average
+  (188/68) and 15:17 mix (216/39) recomputed from the palette, a BLUR 32
+  mode shows the averaged second image alone, the right half is
+  byte-identical across modes, CCCTL carries BOKEN + BOKN 2 + N0CCEN, and a
+  watch-write sees BOKEN at the switch. `hardware_blur` moved `partial` ->
+  `exposed`; physical hardware remains PENDING (checklist row 31). The
+  example keeps the blurred screen on top because Ymir at the pin only
+  replaces the second image in that case; the manual's second-image blur
+  case remains unverified and is recorded in the matrix notes.
+- Harness: `ymir_gradation_sse_fix.patch` fixes the pinned Ymir SSE2
+  gradation path, which applied the mask with `color2` instead of `mask` and
+  bitwise-ANDed the source colour into the blur. Non-AVX2 builds rendered
+  184/0 where the manual (and Ymir's AVX2/scalar paths) give 188/68. This is
+  a documented one-line correctness fix, separate from the instrumentation
+  patches; `vdp2_hardware_blur` is the acceptance case, and the sweep now
+  includes its wrapper.
 - Harness observability for the remaining M3 slices: `probe.json` now dumps
   CCCTL, CCRNA, CCRNB, LNCLEN, SFPRMD, SFCCMD, SFCODE, SFSEL, SDCTL and
   SPCTL; `--watch-write` records the first writes into a bus range under
@@ -544,6 +563,12 @@ The version is defined once, in the `VERSION` file.
 
 ### Fixed
 
+- VDP2 hardware blur stayed permanently refused after any line-colour
+  insertion had ever been configured: `set_hardware_blur` passed
+  `g_lncl_used` (a register-ownership flag that never clears) to the policy
+  instead of the live LNCLEN mask. It now checks the live insertion, so
+  clearing the insert makes blur legal again; `vdp2_hardware_blur` asserts
+  the refusal and the re-enable.
 - The first `sat_vdp2_layers_commit()` switched CRAM to mode 0 (1024 colours)
   in any program that used neither the legacy NBG0 text layout nor RBG0: the
   RBG0 replay wrote RAMCTL from a shadow that defaulted to 0. CRAM banks 4-7

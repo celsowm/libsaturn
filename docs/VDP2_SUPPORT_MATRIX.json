@@ -192,11 +192,11 @@
     {
       "id": "hardware_blur",
       "title": "Hardware horizontal blur (normal TV modes, CRAM mode 0; conflicts with extended colour calculation and line colour insert)",
-      "status": "partial",
+      "status": "exposed",
       "manual": ["p12_13.md", "p12_14.md"],
       "api": ["include/saturn/vdp2_compose.h"],
-      "tests": ["tests/host/test_vdp2_compose_logic.cpp"],
-      "notes": "sat_vdp2_hardware_blur_set drives CCCTL's BOKEN/BOKN branch for the BOKN-selected screen (manual p12_14 table; 3 and 7 setting-prohibited and refused), with the normal-TV-mode and CRAM-mode-0 requirements and the line-colour exclusion in both directions (p12_13: enabling refuses an existing insert, and sat_vdp2_layer/sprite_set_line_color_insert refuse behind a live blur). The acceptance/refusal table is pure policy (compose::CcctlExtras) and host-tested. The blur's visible effect is verified on no emulator or hardware yet: E04 vdp2_hardware_blur carries that acceptance evidence, so this stays partial until then."
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp", "harness/run-vdp2-hardware-blur.ps1", "harness/tests/test_vdp2_hardware_blur.py"],
+      "notes": "sat_vdp2_hardware_blur_set drives CCCTL's BOKEN/BOKN branch for the BOKN-selected screen (manual p12_14 table; 3 and 7 setting-prohibited and refused), with the normal-TV-mode and CRAM-mode-0 requirements and the line-colour exclusion in both directions (p12_13: enabling refuses a live insert, and sat_vdp2_layer/sprite_set_line_color_insert refuse behind a live blur; clearing the insert makes blur legal again). The acceptance/refusal table is pure policy (compose::CcctlExtras) and host-tested. E04 vdp2_hardware_blur is accepted on pinned Ymir: 11/11 harness tests assert CCCTL = BOKEN + BOKN 2 + N0CCEN, a watch-write of BOKEN at the switch, the sharp right half byte-identical across modes, and the left half equal to the manual's 2:1:1 average and 15:17 mix (188/68 blurred, 216/39 mixed, recomputed from the palette). The example keeps the blurred screen as the top image because Ymir at this pin replaces the second image only where the BOKN screen is top; the manual's second-image blur case remains unverified. Acceptance uses the documented ymir_gradation_sse_fix.patch (the pinned SSE2 path ANDed the source colour into the blur; AVX2/scalar were correct). Still emulator evidence, not hardware certification; physical execution is PENDING in docs/HARDWARE_ACCEPTANCE_CHECKLIST.md."
     },
     {
       "id": "extended_color_calculation",

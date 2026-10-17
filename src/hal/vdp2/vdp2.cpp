@@ -1442,8 +1442,13 @@ bool set_extended_color_calc(bool enabled) {
  * new insert behind a live blur (p12_13). Turning blur on clears any pending
  * EXCCEN (p12_14 ignores EXCCEN while BOKEN is 1). */
 bool set_hardware_blur(uint8_t screen, bool enabled) {
+    /* p12_13 excludes a *live* line-colour insertion. g_lncl_used only
+     * records that LNCLEN is ours to keep writing after the last insert is
+     * cleared; treating it as an insertion would keep blur refused forever
+     * once a program had ever used the line-colour screen. */
+    const bool line_color_inserted = g_lncl_layers != 0u || g_lncl_sprite;
     if (compose::extras_set_blur(g_cc_extras, screen, enabled, g_hires, cram_mode(),
-                                 g_lncl_used) != compose::kExtrasOk) {
+                                 line_color_inserted) != compose::kExtrasOk) {
         return false;
     }
     g_compose_used = true;

@@ -56,8 +56,9 @@ and the probe's watch-write of CCCTL at the RATIO switch. The screenshots are
 keyed to `g_special_color.frames` with `--screenshot-when`, not to fixed
 emulator frames.
 
-The emulator evidence is Ymir (pinned commit plus instrumentation-only debug
-patches). Physical-hardware execution is still pending; see row 30 of
+The emulator evidence is Ymir (pinned commit plus the harness patches:
+instrumentation, and the documented SSE2 blur fix that E04 exercises).
+Physical-hardware execution is still pending; see row 30 of
 `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md`.
 
 ## Files
