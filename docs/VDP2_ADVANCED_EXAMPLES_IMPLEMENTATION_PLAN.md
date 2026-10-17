@@ -310,21 +310,29 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Build each focused example independently with a visible A/B comparison; test mutually exclusive modes and palette/RGB mode transitions.
 - **Gate:** host register encodings, per-example screenshots/observables, unchanged existing `transparency_showcase` and `vdp2_compose_demo`.
 
+**Status (2026-10-16): NOT STARTED.** All four feature rows in `docs/VDP2_SUPPORT_MATRIX.json` (`hardware_blur`, `extended_color_calculation`, `special_priority_color_calc`, `vdp2_shadow_sprites`) are still `absent`. The existing sprite color-calculation API (`include/saturn/vdp2_color_calc.h`, `src/hal/vdp2/color_calc.cpp`) covers CCCTL's CCMD, CCRSA-D and the per-sprite ratio slots, but does not expose the per-screen enable bits (N0CCEN-N3CCEN, R0CCEN, LCCCEN in CCCTL), the per-screen ratio registers (CCRNA, CCRNB, CCRR, CCRLB) or the EXCCEN/BOKEN branches. E03-E04 cannot land without that surface; E05-E06 share the SPCTL/PRISA register plumbing already in the sprite module and need a separate per-example pass.
+
 ### M4 — Streaming and expanded video coverage (E07 then E09)
 - Create bounded tile/map update scheduling with safe VBlank publication and stock-RAM accounting.
 - Add supported TV modes only after hardware/manual validation, keeping normal existing modes unchanged.
 - **Gate:** long-running chunk cycling; video mode matrix distinguishes tested, experimental and unsupported entries; no PAL timing regressions.
+
+**Status (2026-10-16): NOT STARTED.** E07 needs the bounded-tile scheduler described in section 4 (a per-frame publish step that does not race the VDP2 fetch), and the cycle-pattern budget for arbitrary swap work; the only chunked upload today is the static `examples/vdp2_tile_overflow`, which proves the planner refuses oversize but does not exercise the live double-buffer. E09 is gated on M0's BIOS/host hardware gates and the planned PAL 240/256 and interlace work; both are listed as `absent` in the matrix and no host-gate test exists yet.
 
 ### M5 — Game-quality showcases (E10 then E11 then E12)
 - Build `vdp2_parallax_world`, `vdp2_fighting_stage`, `vdp2_neon_city` using the shared APIs.
 - Use original, redistributable scene assets and compare rendering/performance with realistic control scenarios.
 - **Gate:** no example-local copy of general-purpose register or cache management; stable 10-minute runs; no stock-RAM overrun.
 
+**Status (2026-10-16): NOT STARTED.** E10-E12 are the integration stage for every prior slice - M2's RBG0/RBG1, M3's extended CC and shadow, M4's tile streaming and video modes. None of the prerequisite APIs (extended colour calculation, hardware blur, special priority, shadow sprites, PAL/interlace modes, the unified tile publish API) are public yet, so these examples have no surface to build on.
+
 ### M6 — Hardware signoff and developer experience
 - Run/record physical Saturn tests across region/video mode, console revision and disc/ODE where available. Keep **PENDING** where no machine exists.
 - Extend `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md` with every VDP2 example; attach console/BIOS, mode, cable, screenshot/video, anomaly and capture hashes.
 - Add indexed example list to README only for completed demos, and explain compatibility and limitations for outside users.
 - **Gate:** no claim of “hardware proven” without a recorded physical run; all host/build/harness gates green.
+
+**Status (2026-10-16): NOT STARTED.** The checklist currently lists E01 (vdp2_dual_rotation), E02 (vdp2_rotation_coefficients), and the pre-plan baselines (`vdp2_layers_demo`, `vdp2_compose_demo`, `vdp2_effects_demo`, `vdp2_hires_light`, `vdp2_window_dim`, `vdp2_rbg0_ground`, `tate_fb_rotation`, `vdp2_vram_stress`). Every row is the on-host/emulator evidence; physical-console runs are explicitly PENDING because no machine is connected to this run. Rows 30+ (E03-E12) cannot be added until their examples exist.
 
 ## 7. Implementation workflow for every example
 
