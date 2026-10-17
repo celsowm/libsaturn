@@ -109,3 +109,26 @@ The ELF comparison, deterministic CPU-work comparison and representative
 VRAM/CRAM transfer measurement are complete. Broader input-script coverage and
 hardware-specific transfer timing remain outside this emulator ledger; no
 performance win is claimed from the fixed emulator cycle budget.
+
+
+## Per-function section collection (2026-10-17)
+
+Both CMake's public runtime flags and GNU Make now use `-ffunction-sections`
+and `-fdata-sections`, matching the existing `--gc-sections` link policy.
+The linker explicitly retains `.text.start` and `.text.slave_entry`: the BIOS
+can enter either CPU without a C call reference. Constructors and interrupt
+vectors retain their existing roots.
+
+The clean cross-package build passed all five CTest gates, including the
+installed consumer's constructor, stack-reserve and Slave-entry checks.
+GNU Make `all EXAMPLE=basic_3d_texture` also passed native image validation;
+its initialized application shrank from 191,352 to 86,568 bytes in this local
+comparison. A cache-on Ymir injected run reached the textured model at 240
+fields without misaligned accesses. This is a code-size and linkage change,
+not a measured CPU speed improvement. Private screenshots and firmware are
+kept in the consuming project's ignored imported-assets directory.
+
+A downstream stock-RAM two-actor application can consequently link the
+existing Slave geometry executor, which previously overflowed High WRAM.
+Its worker correctness and performance qualification belong to that consumer;
+this library change introduces no new rendering algorithm or RAM requirement.

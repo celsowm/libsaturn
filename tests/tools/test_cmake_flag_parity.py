@@ -36,7 +36,7 @@ asflags = assignment("ASFLAGS")
 
 # ABI/optimization flags every runtime translation unit gets from the Makefile.
 MACHINE = ["-m2", "-mb", "-O2", "-ffreestanding", "-fomit-frame-pointer",
-           "-Wall", "-Wextra"]
+           "-Wall", "-Wextra", "-ffunction-sections", "-fdata-sections"]
 CXX_ONLY = ["-std=c++20", "-fno-exceptions", "-fno-rtti",
             "-fno-threadsafe-statics", "-fno-use-cxa-atexit"]
 DEFINES = ["-DSAT_PROFILE_METRICS=0", "-DSAT_PARALLEL_TEST_FAULT=0"]

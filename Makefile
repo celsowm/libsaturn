@@ -90,6 +90,7 @@ IP_GENERATED = $(OUTPUT_DIR)/$(EXAMPLE).IP.BIN
 
 # -- Compilacao -------------------------------------------------
 BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra \
+               -ffunction-sections -fdata-sections \
                -Iinclude -I.
 # Generated model/asset headers are example-local inputs, never part of
 # generic library compilation or its cache key.

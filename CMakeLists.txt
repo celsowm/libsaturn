@@ -118,6 +118,7 @@ if(LIBSATURN_BUILD_RUNTIME)
     target_compile_options(libsaturn_core
         PUBLIC
             -m2 -mb -ffreestanding -fomit-frame-pointer
+            -ffunction-sections -fdata-sections
             "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti;-fno-threadsafe-statics;-fno-use-cxa-atexit>"
         PRIVATE
             # Default -O2, whatever the build type: the runtime relies on GCC
