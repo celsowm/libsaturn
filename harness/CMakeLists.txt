@@ -47,14 +47,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ymir)
 
-# Keep the debug-only counters used by probe.exe reproducible without
-# vendoring Ymir. The patches are applied to the fetched, pinned source tree and
-# are deliberately kept outside the library's public runtime API:
-#   ymir_debug_metrics.patch       VDP write counters, scheduler cycle count
-#   ymir_write_watch.patch         --watch-write: the first writes into an address range (pc, value, frame)
-#   ymir_misaligned_access.patch   SH-2 misaligned data accesses (an address
-#                                  error on hardware, silently aligned by Ymir)
-foreach(YMIR_DEBUG_PATCH_NAME ymir_debug_metrics ymir_misaligned_access ymir_write_watch)
+# The previous three overlapping patches could not be reverse-checked once
+# the whole stack was applied. Keep one atomic diff against the pinned source:
+# write counters, write watch, misaligned accesses and per-step CPU costs.
+# These are harness diagnostics, outside the public runtime API.
+foreach(YMIR_DEBUG_PATCH_NAME ymir_harness_debug)
     set(YMIR_DEBUG_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/${YMIR_DEBUG_PATCH_NAME}.patch")
     execute_process(
         COMMAND git -C "${ymir_SOURCE_DIR}" apply --check --reverse "${YMIR_DEBUG_PATCH}"
@@ -79,6 +76,17 @@ endforeach()
 add_executable(probe src/probe_main.cpp)
 target_link_libraries(probe PRIVATE ymir::ymir-core)
 target_compile_features(probe PRIVATE cxx_std_20)
+
+enable_testing()
+add_executable(test_cpu_profile tests/test_cpu_profile.cpp)
+target_include_directories(test_cpu_profile PRIVATE src)
+target_compile_features(test_cpu_profile PRIVATE cxx_std_20)
+add_test(NAME cpu_profile_accounting COMMAND test_cpu_profile)
+add_executable(test_cpu_profile_emulator tests/test_cpu_profile_emulator.cpp)
+target_include_directories(test_cpu_profile_emulator PRIVATE src)
+target_link_libraries(test_cpu_profile_emulator PRIVATE ymir::ymir-core)
+target_compile_features(test_cpu_profile_emulator PRIVATE cxx_std_20)
+add_test(NAME cpu_profile_emulator COMMAND test_cpu_profile_emulator)
 
 # Statically link the MinGW runtime so probe.exe runs standalone (no
 # libstdc++-6.dll / libgcc_s_seh-1.dll / libwinpthread-1.dll on PATH needed) —

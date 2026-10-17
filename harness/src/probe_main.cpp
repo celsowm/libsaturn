@@ -26,6 +26,8 @@
 #include <vector>
 
 #include "png_writer.hpp"
+#include "cpu_profile.hpp"
+#include <limits>
 
 #include <ymir/hw/cart/cart_impl_bup.hpp>
 #include <ymir/hw/cart/cart_impl_dram.hpp>
@@ -66,26 +68,67 @@ struct ScspFrameSnapshot {
 };
 
 struct InstructionCounter final : ymir::debug::ISH2Tracer {
+    harness::CpuProfile profile;
+    uint32_t current_pc=0;
+    std::vector<uint32_t> snapshot_pcs;
+    struct Snapshot { uint32_t frame; std::array<uint32_t,24> regs; std::array<uint16_t,8> opcodes; };
+    std::vector<Snapshot> snapshots;
+    uint64_t dropped_snapshots=0;
+    std::function<std::array<uint32_t,24>()> registers;
+    std::function<std::array<uint16_t,8>(uint32_t)> peek_instructions;
     uint64_t count = 0;
     bool observe_boot = false;
     bool entered_app = false;
     bool entered_aip = false;
     uint32_t aip_pc = 0;
+    uint32_t app_pc = 0;
     std::function<void(uint32_t)> checkpoint;
     std::vector<uint32_t> entry_instructions;
     void ExecuteInstruction(uint32_t pc, uint16_t, bool) override {
         ++count;
+        current_pc=pc;
+        if(profile.active && std::find(snapshot_pcs.begin(),snapshot_pcs.end(),pc)!=snapshot_pcs.end()) {
+            if(snapshots.size()<profile.capacity) snapshots.push_back({profile.frame,registers(),peek_instructions(pc)});
+            else ++dropped_snapshots;
+        }
         if (!observe_boot) return;
         const uint32_t physical = pc & 0x0fffffffu;
         if (!entered_aip && physical == aip_pc) {
             entered_aip = true;
             if (checkpoint) checkpoint(pc);
         }
-        if (!entered_app && physical == 0x06004000u) {
+        if (!entered_app && app_pc && physical == app_pc) {
             entered_app = true;
             if (checkpoint) checkpoint(pc);
         }
         if (entered_app && entry_instructions.size() < 16u) entry_instructions.push_back(pc);
+    }
+    void ExecutionStepCompleted(uint32_t pc,uint64_t cycles,bool instruction) override {
+        profile.complete(pc,cycles,instruction);
+    }
+    void Call(uint32_t target) override {
+        if(profile.active)++profile.calls;
+        profile.event("call",current_pc,target);
+    }
+    void Return(uint32_t target) override {
+        if(profile.active)++profile.returns;
+        profile.event("return",current_pc,target);
+    }
+    void Interrupt(uint8_t vector,uint8_t,ymir::sh2::InterruptSource,uint32_t pc) override {
+        if(profile.active)++profile.interrupts;
+        profile.event("interrupt",pc,vector);
+    }
+    void Begin32x32Division(int32_t,int32_t,bool) override {
+        if(profile.active)++profile.divisions;
+        profile.event("div32",current_pc,0);
+    }
+    void Begin64x32Division(int64_t,int32_t,bool) override {
+        if(profile.active)++profile.divisions;
+        profile.event("div64",current_pc,0);
+    }
+    void DMAXferBegin(uint32_t channel,uint32_t src,uint32_t dst,uint32_t,uint32_t,int32_t,int32_t) override {
+        if(profile.active)++profile.dma_transfers;
+        profile.event(channel?"dma1":"dma0",src,dst);
     }
 };
 
@@ -343,6 +386,10 @@ ymir::peripheral::Button buttons_at_frame(uint32_t frame) {
 }
 
 struct Args {
+    bool sh2_cache=false;
+    std::string debug_profile;
+    uint32_t trace_from=0,trace_frames=std::numeric_limits<uint32_t>::max(),trace_capacity=65536;
+    std::vector<uint32_t> snapshot_pcs;
     std::string iso_path;
     std::string bios_path;
     bool bios_boot = false;
@@ -475,6 +522,8 @@ void print_usage() {
     std::fprintf(stderr,
         "usage: probe --iso <path> --bios <path> [--bin <path>] [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
+        "             [--sh2-cache on|off] [--debug-profile PREFIX] [--trace-from FRAME] [--trace-frames N]\n"
+        "             [--trace-capacity N] [--snapshot-pc ADDRESS ...] (requires --debug-profile)\n"
         "             [--wram-low-fill BYTE] (injection only; prefill Low WRAM before program entry)\n"
         "             [--dump-wram-high <path>] [--misaligned-report <path>] [--watch-write ADDR:LEN[:FROM_FRAME]] [--dump-mem ADDR:BYTES:PATH ...] [--dump-sound-ram <path>] [--dump-audio <path>] [--pal] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
@@ -506,7 +555,28 @@ bool parse_args(int argc, char** argv, Args* out) {
             }
             return argv[++i];
         };
-        if (arg == "--iso") {
+        if (arg == "--sh2-cache") {
+            const char* v=next("--sh2-cache");
+            if(!v || (std::string(v)!="on" && std::string(v)!="off")) {
+                std::fprintf(stderr,"invalid --sh2-cache: use on or off\n");return false;
+            }
+            out->sh2_cache=std::string(v)=="on";
+        } else if(arg=="--debug-profile") {
+            const char* v=next("--debug-profile");if(!v || !*v)return false;
+            out->debug_profile=v;
+        } else if(arg=="--trace-from" || arg=="--trace-frames" || arg=="--trace-capacity" || arg=="--snapshot-pc") {
+            const char* v=next(arg.c_str());char* end=nullptr;
+            const unsigned long long n=v?std::strtoull(v,&end,0):0;
+            if(!v || *v=='-' || !*v || *end || n>UINT32_MAX ||
+               (arg=="--trace-frames" && n==0) ||
+               (arg=="--trace-capacity" && (n==0 || n>1048576))) {
+                std::fprintf(stderr,"invalid %s value\n",arg.c_str());return false;
+            }
+            if(arg=="--trace-from")out->trace_from=static_cast<uint32_t>(n);
+            else if(arg=="--trace-frames")out->trace_frames=static_cast<uint32_t>(n);
+            else if(arg=="--trace-capacity")out->trace_capacity=static_cast<uint32_t>(n);
+            else out->snapshot_pcs.push_back(static_cast<uint32_t>(n));
+        } else if (arg == "--iso") {
             const char* v = next("--iso");
             if (!v) return false;
             out->iso_path = v;
@@ -748,6 +818,13 @@ bool parse_args(int argc, char** argv, Args* out) {
         std::fprintf(stderr, "--iso, --bios and --bin are required\n");
         return false;
     }
+    if((out->trace_from || out->trace_frames!=UINT32_MAX || out->trace_capacity!=65536 ||
+        !out->snapshot_pcs.empty()) && out->debug_profile.empty()) {
+        std::fprintf(stderr,"trace options require --debug-profile\n");return false;
+    }
+    if(!out->debug_profile.empty() && (out->trace_from>=out->frames || out->snapshot_pcs.size()>64)) {
+        std::fprintf(stderr,"debug profile needs a nonempty frame window and at most 64 snapshot PCs\n");return false;
+    }
     if (out->bios_boot && out->slave_reset_entry != 0u) {
         std::fprintf(stderr, "BIOS boot forbids the synthetic Slave handoff\n"); return false;
     }
@@ -902,6 +979,13 @@ int main(int argc, char** argv) {
     // (several MB total) — heap-allocate it rather than risk a stack overflow
     // constructing it as a local.
     auto saturn = std::make_unique<ymir::Saturn>();
+    // Headless readback must finish on this thread before inspecting pixels or
+    // VRAM. Otherwise host renderer lag can make tracing appear to change the
+    // guest picture, and FrameSink races the renderer's callback thread.
+    saturn->configuration.video.threadedVDP1=false;
+    saturn->configuration.video.threadedVDP2=false;
+    saturn->configuration.video.threadedDeinterlacer=false;
+    saturn->EnableSH2CacheEmulation(args.sh2_cache);
     saturn->LoadIPL(std::span<uint8_t, ymir::sys::kIPLSize>(bios.data(), ymir::sys::kIPLSize));
 
     if (!args.cdb_rom_path.empty()) {
@@ -1004,6 +1088,14 @@ int main(int argc, char** argv) {
     if (!ymir::media::LoadDisc(args.iso_path, disc, /*preloadToRAM=*/true, loader_msg_cb)) {
         std::fprintf(stderr, "failed to load disc image: %s\n", args.iso_path.c_str());
         return 1;
+    }
+    // Read media user data, not the CUE text or the raw-sector sync header.
+    std::array<uint8_t,2048> disc_ip{};
+    if(disc.sessions.empty())return 1;
+    const auto& first_session=disc.sessions.front();
+    const auto& first_track=first_session.tracks[first_session.firstTrackIndex];
+    if(!first_track.ReadSectorUserData(first_track.index01FrameAddress,disc_ip)) {
+        std::fprintf(stderr,"cannot read disc IP header\n");return 1;
     }
     saturn->LoadDisc(std::move(disc));
     saturn->UsePreferredRegion();
@@ -1195,14 +1287,35 @@ int main(int argc, char** argv) {
     std::vector<std::array<uint32_t, 9>> boot_checkpoints;
     InstructionCounter master_instructions;
     InstructionCounter slave_instructions;
-    if (!args.profile_instructions_path.empty() || args.bios_boot) {
+    const auto read_registers=[](ymir::sh2::SH2& cpu) {
+        auto& p=cpu.GetProbe();
+        std::array<uint32_t,24> r={p.PC(),p.PR(),p.SR().u32,p.GBR(),p.VBR(),
+            p.MAC().H,p.MAC().L,p.GetCache().ReadCCR()};
+        for(unsigned i=0;i<16;++i)r[8+i]=p.R(i);
+        return r;
+    };
+    master_instructions.registers=[&]{return read_registers(saturn->masterSH2);};
+    slave_instructions.registers=[&]{return read_registers(saturn->slaveSH2);};
+    const auto peek_instructions=[](ymir::sh2::SH2& cpu,uint32_t pc) {
+        std::array<uint16_t,8> words{};
+        for(unsigned i=0;i<words.size();++i)words[i]=cpu.GetProbe().PeekInstruction(pc+2*i,false);
+        return words;
+    };
+    master_instructions.peek_instructions=[&](uint32_t pc){return peek_instructions(saturn->masterSH2,pc);};
+    slave_instructions.peek_instructions=[&](uint32_t pc){return peek_instructions(saturn->slaveSH2,pc);};
+    for(auto* cpu:{&master_instructions,&slave_instructions}) {
+        cpu->profile.enabled=!args.debug_profile.empty();
+        cpu->profile.capacity=args.trace_capacity;
+        cpu->snapshot_pcs=args.snapshot_pcs;
+    }
+    if (!args.profile_instructions_path.empty() || args.bios_boot || !args.debug_profile.empty()) {
         master_instructions.observe_boot = args.bios_boot;
         if (args.bios_boot) {
-            std::array<char, 256> header{};
-            std::ifstream disc(args.iso_path, std::ios::binary);
-            disc.read(header.data(), header.size());
+            master_instructions.app_pc=(static_cast<uint32_t>(disc_ip[0xf0])<<24u) |
+                (static_cast<uint32_t>(disc_ip[0xf1])<<16u) |
+                (static_cast<uint32_t>(disc_ip[0xf2])<<8u) | disc_ip[0xf3];
             uint32_t region_count = 0;
-            for (size_t i=0x40; i<0x4a && header[i]!=' '; ++i) ++region_count;
+            for (size_t i=0x40; i<0x4a && disc_ip[i]!=' '; ++i) ++region_count;
             master_instructions.aip_pc = 0x06002000u + 0xe00u + region_count*32u;
             master_instructions.checkpoint = [&](uint32_t pc) {
                 boot_checkpoints.push_back({pc, sh2p.SR().u32, sh2p.VBR(), sh2p.R(15),
@@ -1220,6 +1333,9 @@ int main(int argc, char** argv) {
     saturn->VDP.ResetWriteCounters();
     std::vector<ScspFrameSnapshot> scsp_trace;
     bool sampling_pc = false;
+    bool measuring_program=false;
+    std::vector<std::array<uint64_t,24>> debug_frames;
+    uint64_t dropped_debug_frames=0;
     bool taking_screenshots = false;
     std::vector<std::array<uint32_t, 11>> boot_trace;
     auto run_frames = [&](uint32_t count, uint32_t frame_offset) {
@@ -1228,6 +1344,11 @@ int main(int argc, char** argv) {
             // line asks for during the frame it names rather than after it.
             if (!args.pad_script_game_frame) g_pad_frame_index = i;
             const uint64_t cycles_before = saturn->GetCurrentCycleCount();
+            for(auto* cpu:{&master_instructions,&slave_instructions}) {
+                cpu->profile.frame=i;
+                cpu->profile.active=cpu->profile.enabled && measuring_program && i>=args.trace_from &&
+                    static_cast<uint64_t>(i)-args.trace_from<args.trace_frames;
+            }
             if (args.watch_length != 0u) {
                 const uint32_t emulated = frame_offset + i;
                 if (emulated == args.watch_from) {
@@ -1238,6 +1359,22 @@ int main(int argc, char** argv) {
                 saturn->slaveSH2.SetWatchFrame(emulated);
             }
             saturn->RunFrame();
+            if(master_instructions.profile.active) {
+                if(debug_frames.size()<args.trace_capacity) {
+                    const auto& v=saturn->VDP.GetProbe();
+                    const auto& r1=v.GetVDP1Regs();const auto& r2=v.GetVDP2Regs();
+                    const auto& counts=saturn->VDP.GetFrameCounters();
+                    debug_frames.push_back({i,saturn->GetCurrentCycleCount(),
+                        master_instructions.profile.instructions,master_instructions.profile.cycles,
+                        slave_instructions.profile.instructions,slave_instructions.profile.cycles,
+                        sh2p.PC(),saturn->slaveSH2.GetProbe().PC(),
+                        sh2p.GetCache().ReadCCR(),saturn->slaveSH2.GetProbe().GetCache().ReadCCR(),
+                        r1.ReadPTMR(),r1.ReadFBCR(),r1.ReadEDSR(),r2.ReadTVMD(),r2.ReadBGON(),
+                        v.GetResolution().width,v.GetResolution().height,
+                        counts.begins,counts.ends,counts.swaps,counts.visibleCompletedDraws,
+                        counts.lastBeginCycle,counts.lastEndCycle,counts.lastSwapCycle});
+                } else ++dropped_debug_frames;
+            }
             if (args.skybridge_telemetry_address != 0u) {
                 const uint32_t address = args.skybridge_telemetry_address & 0x0FFF'FFFFu;
                 if (address < 0x0600'0000u || address >= 0x0610'0000u) {
@@ -1464,14 +1601,10 @@ int main(int argc, char** argv) {
     // sector mkisofs -G embeds at LBA 0 -- see tools/gen_ip_bin.py) rather
     // than hardcoding 0x06004000, so this stays in sync with the Makefile's
     // APP_LOAD_ADDR_HEX if that ever changes.
-    std::vector<uint8_t> iso_header(0x100);
-    {
-        std::ifstream iso_header_in(args.iso_path, std::ios::binary);
-        iso_header_in.read(reinterpret_cast<char*>(iso_header.data()), static_cast<std::streamsize>(iso_header.size()));
-    }
+    std::vector<uint8_t> iso_header(disc_ip.begin(),disc_ip.begin()+0x100);
     uint32_t load_addr = read_be32(iso_header, 0xF0);
     uint32_t header_size = read_be32(iso_header, 0xF4);
-    if (load_addr == 0 || header_size != bin.size()) {
+    if (!args.bios_boot && (load_addr == 0 || header_size != bin.size())) {
         std::fprintf(stderr,
                      "warning: IP.BIN header size (0x%X) does not match --bin file size (0x%zX) -- "
                      "--iso and --bin may not be from the same build\n",
@@ -1504,8 +1637,10 @@ int main(int argc, char** argv) {
     sampling_pc = !args.profile_pc_path.empty();
     taking_screenshots = !args.screenshots.empty() || !args.screenshots_when.empty();
     audio.recording = true;
+    measuring_program=true;
     run_frames(args.frames, args.bios_boot ? 0u : args.boot_frames);
     audio.recording = false;
+    master_instructions.profile.active=slave_instructions.profile.active=false;
 
     const uint32_t pc_after_run = sh2p.PC();
     const ScspFrameSnapshot scsp_final =
@@ -1939,6 +2074,16 @@ int main(int argc, char** argv) {
     // inside [load_addr, load_addr + bin_bytes) -- proof our code ran at all.
     j.key("boot");
     j.begin_object();
+    j.key("sh2_cache_emulation"); j.value(saturn->IsSH2CacheEmulationEnabled());
+    j.key("synchronous_video_readback");j.value(true);
+    j.key("nominal_refresh_hz");j.value(static_cast<uint64_t>(
+        saturn->GetVideoStandard()==ymir::core::config::sys::VideoStandard::PAL?50:60));
+    const RatioU32 clock_factor=saturn->configuration.system.sh2ClockFactor;
+    j.key("sh2_clock_factor_num");j.value(static_cast<uint64_t>(clock_factor.Numerator()));
+    j.key("sh2_clock_factor_den");j.value(static_cast<uint64_t>(clock_factor.Denominator()));
+    j.key("header_application_address");j.value(static_cast<uint64_t>(master_instructions.app_pc));
+    j.key("master_ccr");j.value(static_cast<uint64_t>(sh2p.GetCache().ReadCCR()));
+    j.key("slave_ccr");j.value(static_cast<uint64_t>(saturn->slaveSH2.GetProbe().GetCache().ReadCCR()));
     j.key("injected"); j.value(!args.bios_boot);
     j.key("low_wram_fill_applied"); j.value(args.fill_wram_low);
     j.key("low_wram_fill_byte"); j.value(static_cast<uint64_t>(args.wram_low_fill));
@@ -2123,6 +2268,71 @@ int main(int argc, char** argv) {
 
     j.end_object();
     out << "\n";
+
+    if(!args.debug_profile.empty()) {
+        const std::string& prefix=args.debug_profile;
+        std::ofstream pcs(prefix+".pc.csv"),events(prefix+".events.csv"),
+            snapshots(prefix+".snapshots.csv"),frames(prefix+".frames.csv"),meta(prefix+".json");
+        if(!pcs || !events || !snapshots || !frames || !meta) {
+            std::fprintf(stderr,"cannot create debug profile files at %s\n",prefix.c_str());return 1;
+        }
+        pcs<<"cpu,pc,instructions,execution_cycles\n";
+        events<<"cpu,frame,event,pc,target,instructions_before_step,execution_cycles_before_step\n";
+        snapshots<<"cpu,frame,pc,pr,sr,gbr,vbr,mach,macl,ccr";
+        for(unsigned i=0;i<16;++i)snapshots<<",r"<<i;
+        for(unsigned i=0;i<8;++i)snapshots<<",opcode"<<i;
+        snapshots<<'\n';
+        frames<<"frame,system_cycles,master_instructions,master_execution_cycles,slave_instructions,slave_execution_cycles,master_pc,slave_pc,master_ccr,slave_ccr,ptmr,fbcr,edsr,tvmd,bgon,width,height,draw_begins,draw_ends,fb_swaps,visible_completed_draws,last_begin_cycle,last_end_cycle,last_swap_cycle\n";
+        for(const auto& row:debug_frames) {
+            for(size_t i=0;i<row.size();++i) { if(i)frames<<',';frames<<row[i]; }
+            frames<<'\n';
+        }
+        JsonWriter report(meta);report.begin_object();
+        report.key("version");report.value(uint64_t{1});
+        report.key("ymir_revision");report.value(std::string("5c571f680e3606de08813af4de43dc00e90cc6e3"));
+        report.key("cache_emulation");report.value(saturn->IsSH2CacheEmulationEnabled());
+        report.key("synchronous_video_readback");report.value(true);
+        report.key("sh2_clock_factor_num");report.value(static_cast<uint64_t>(clock_factor.Numerator()));
+        report.key("sh2_clock_factor_den");report.value(static_cast<uint64_t>(clock_factor.Denominator()));
+        report.key("trace_from");report.value(static_cast<uint64_t>(args.trace_from));
+        report.key("trace_frames_requested");report.value(static_cast<uint64_t>(args.trace_frames));
+        report.key("frames_stored");report.value(static_cast<uint64_t>(debug_frames.size()));
+        report.key("dropped_frames");report.value(dropped_debug_frames);
+        report.key("cycle_semantics");report.value(std::string(
+            "Sum of interpreter step costs per CPU, including modeled access costs and interrupt entry; excludes sleep/standby and separately advanced DMA. Not hardware cycle certification. System cycles are elapsed scheduler time, not CPU work."));
+        bool truncated=dropped_debug_frames!=0;
+        unsigned cpu_index=0;
+        for(const auto* cpu:{&master_instructions,&slave_instructions}) {
+            const auto& p=cpu->profile;
+            const char* name=cpu_index++?"slave":"master";
+            for(const auto& [pc,cost]:p.pcs)
+                pcs<<name<<','<<pc<<','<<cost.instructions<<','<<cost.cycles<<'\n';
+            for(const auto& e:p.events)
+                events<<name<<','<<e.frame<<','<<e.kind<<','<<e.pc<<','<<e.target<<','<<e.instructions<<','<<e.cycles<<'\n';
+            for(const auto& s:cpu->snapshots) {
+                snapshots<<name<<','<<s.frame;
+                for(auto r:s.regs)snapshots<<','<<r;
+                for(auto opcode:s.opcodes)snapshots<<','<<opcode;
+                snapshots<<'\n';
+            }
+            report.key(name);report.begin_object();
+            const auto field=[&](const char* key,uint64_t value){report.key(key);report.value(value);};
+            field("instructions",p.instructions);field("execution_cycles",p.cycles);
+            field("interrupt_entry_cycles",p.interrupt_cycles);field("calls",p.calls);
+            field("returns",p.returns);field("interrupts",p.interrupts);
+            field("divisions",p.divisions);field("dma_transfers",p.dma_transfers);
+            field("dropped_pc_observations",p.dropped_pcs);field("dropped_events",p.dropped_events);
+            field("dropped_snapshots",cpu->dropped_snapshots);
+            report.end_object();
+            truncated|=p.truncated() || cpu->dropped_snapshots;
+        }
+        report.key("truncated");report.value(truncated);report.end_object();meta<<'\n';
+        pcs.flush();events.flush();snapshots.flush();frames.flush();meta.flush();
+        if(!pcs || !events || !snapshots || !frames || !meta)return 1;
+        if(truncated) {
+            std::fprintf(stderr,"debug profile truncated: increase --trace-capacity or shorten window\n");return 1;
+        }
+    }
 
     std::fprintf(stderr, "probe: wrote %s after %u frames\n", args.out_path.c_str(), args.frames);
     return 0;
