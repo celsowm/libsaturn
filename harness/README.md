@@ -68,22 +68,52 @@ boundary itself: it fails immediately (before any other assertion) if
 `pc_after_run` isn't inside the injected program's address range, so a run
 where injection silently didn't take can never read as a pass.
 
-**Design bias: assert on registers and VRAM contents, not rendered pixels.**
+**Design bias: assert on registers and VRAM contents first.**
 An emulator is not hardware truth, and VDP2 rotation (the area this harness
 was built for) is exactly the kind of under-tested corner where Ymir's own
 rendering could be wrong. Assertions are derived from the Sega hardware
 manuals in `docs/sega_saturn_hardware/`, which hold regardless of Ymir's
-accuracy. Golden-image / pixel comparison is still deliberately out of scope as an
-*assertion* mechanism, for the reason above.
+accuracy. Golden-image comparison is still deliberately out of scope.
 
-Screenshots themselves are now supported, though: `VDP::SetSoftwareRenderCallback`
-hands over the software renderer's composited output buffer (VDP1 sprites over
-VDP2 layers), so `--screenshot FRAME:PATH` writes the real picture as a PNG.
-An earlier pass recorded that only a "frame finished" notification existed;
-that was wrong. Use screenshots to *look* at a run -- they catch whole classes
-of problem that register assertions cannot, such as a leftover VDP2 colour
-offset that renders everything at a tenth of its intended brightness -- but
-keep the pass/fail assertions on registers and VRAM.
+Screenshots are supported: `VDP::SetSoftwareRenderCallback` hands over the
+software renderer's composited output buffer (VDP1 sprites over VDP2 layers),
+so `--screenshot FRAME:PATH` writes the real picture as a PNG. Use them to
+*look* at a run -- they catch whole classes of problem that register
+assertions cannot, such as a leftover VDP2 colour offset that renders
+everything at a tenth of its intended brightness.
+
+For compositing effects whose whole point is the output (colour calculation,
+blur, special priority, shadows), the VDP2 tests additionally assert a small
+number of **representative pixels recomputed from the manual's tables and the
+palette values** in Python. This is not golden-image comparison: the expected
+value is derived independently for each asserted pixel, a tolerance absorbs
+5-to-8-bit rounding, and the same test still asserts the registers/VRAM that
+drive the effect. A pixel check is never the only evidence for a feature.
+
+### Deterministic captures and register-write evidence
+
+`--screenshot-when ADDR:VALUE[+DELAY]:PATH` captures `DELAY` frames after the
+big-endian 32-bit word at the guest bus address `ADDR` first reaches `VALUE`.
+Point it at the example's frame counter instead of hard-coding an emulated
+frame number: the scene's own clock then decides when the shot is taken.
+`--dump-mem ADDR:BYTES:PATH` exports any bus range at the end of the run;
+tests use it to prove the probe's side-effect-free reads agree with the Work
+RAM dump.
+
+`--watch-write ADDR:LEN[:FROM_FRAME]` records the first writes into a bus
+range on both SH-2s (PC, address, value, size and emulated frame) and exports
+them under `watch_writes` in `probe.json`. The address is matched after the
+probe masks it to the 27-bit bus address, so an SH-2 uncached alias such as
+VDP2's CCCTL at `0x25F800EC` is watched as `0x05F800EC`. Use it to prove that a register is
+written by the intended code path, not merely that its final value happens to
+match -- for example, that CCCTL is written when a colour-calculation mode is
+applied.
+
+The wrappers expose these through `scripts/run-example-tests.ps1`:
+`-ScreenshotWhen`, `-ScreenshotWhenSymbol`, `-DumpMem`, `-DumpMemSymbol` and
+`-WatchWrite`. The `...Symbol` forms take `SYMBOL:OFFSET:...:PATH` and resolve
+the telemetry struct from `build/<example>.map` after the build, so no link
+address is hard-coded in PowerShell.
 
 ### Frame pacing
 
@@ -102,8 +132,10 @@ was finally identified.
 harness/
   LICENSE          GPL-3.0 (verbatim, from gnu.org)
   README.md        this file
-  CMakeLists.txt    FetchContents Ymir (pinned commit), applies debug metrics, builds the probe app
-  ymir_debug_metrics.patch  reproducible Ymir write/cycle instrumentation
+  CMakeLists.txt    FetchContents Ymir (pinned commit), applies instrumentation patches, builds the probe app
+  ymir_debug_metrics.patch       VDP write counters and scheduler cycles
+  ymir_misaligned_access.patch   SH-2 misaligned data-access log
+  ymir_write_watch.patch         first writes into a bus range (--watch-write)
   src/probe_main.cpp  links ymir-core; boots an ISO, dumps state to JSON
   src/png_writer.hpp  dependency-free PNG writer for --screenshot
   scripts/*.pad       input timelines for --pad-script

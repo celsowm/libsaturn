@@ -2078,6 +2078,20 @@ int main(int argc, char** argv) {
     j.key("prir"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPRIR()));
     j.key("plsz"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPLSZ()));
     j.key("mpofr"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPOFR()));
+    // Chapter 12 colour calculation and chapter 14 shadow registers. These are
+    // write-only on hardware; Ymir keeps the written values readable, which is
+    // what lets the harness assert the register side of an effect independently
+    // of the renderer's pixels.
+    j.key("ccctl"); j.value(static_cast<uint64_t>(vdp2_regs.ReadCCCTL()));
+    j.key("ccrna"); j.value(static_cast<uint64_t>(vdp2_regs.ReadCCRNA()));
+    j.key("ccrnb"); j.value(static_cast<uint64_t>(vdp2_regs.ReadCCRNB()));
+    j.key("lnclen"); j.value(static_cast<uint64_t>(vdp2_regs.ReadLNCLEN()));
+    j.key("sfprmd"); j.value(static_cast<uint64_t>(vdp2_regs.ReadSFPRMD()));
+    j.key("sfccmd"); j.value(static_cast<uint64_t>(vdp2_regs.ReadSFCCMD()));
+    j.key("sfcode"); j.value(static_cast<uint64_t>(vdp2_regs.ReadSFCODE()));
+    j.key("sfsel"); j.value(static_cast<uint64_t>(vdp2_regs.ReadSFSEL()));
+    j.key("sdctl"); j.value(static_cast<uint64_t>(vdp2_regs.ReadSDCTL()));
+    j.key("spctl"); j.value(static_cast<uint64_t>(vdp2_regs.ReadSPCTL()));
 
     j.key("vram_ranges");
     j.begin_array();
@@ -2094,6 +2108,40 @@ int main(int argc, char** argv) {
     }
     j.end_array();
     j.end_object();
+
+    // --watch-write: the first writes into the watched range on each SH-2,
+    // with the emulated frame, PC and value. Tests use this to prove that a
+    // register is written by the intended code path (for example, a VBlank
+    // commit) rather than only observing its final value.
+    if (args.watch_length != 0u) {
+        const std::pair<const char*, const ymir::sh2::SH2::WriteWatchLog*> cpus[] = {
+            {"master", &saturn->masterSH2.GetWriteWatchLog()}, {"slave", &saturn->slaveSH2.GetWriteWatchLog()}};
+        j.key("watch_writes");
+        j.begin_object();
+        j.key("address"); j.value(static_cast<uint64_t>(args.watch_address));
+        j.key("length"); j.value(static_cast<uint64_t>(args.watch_length));
+        j.key("from_frame"); j.value(static_cast<uint64_t>(args.watch_from));
+        for (const auto& [name, log] : cpus) {
+            j.key(name);
+            j.begin_object();
+            j.key("count"); j.value(static_cast<uint64_t>(log->count));
+            j.key("hits");
+            j.begin_array();
+            for (uint32_t k = 0; k < log->stored; k++) {
+                const auto& hit = log->first[k];
+                j.begin_object();
+                j.key("frame"); j.value(static_cast<uint64_t>(hit.frame));
+                j.key("pc"); j.value(static_cast<uint64_t>(hit.pc));
+                j.key("address"); j.value(static_cast<uint64_t>(hit.address));
+                j.key("value"); j.value(static_cast<uint64_t>(hit.value));
+                j.key("size"); j.value(static_cast<uint64_t>(hit.size));
+                j.end_object();
+            }
+            j.end_array();
+            j.end_object();
+        }
+        j.end_object();
+    }
 
     j.end_object();
     out << "\n";

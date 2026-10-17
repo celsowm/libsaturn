@@ -33,6 +33,25 @@ The version is defined once, in the `VERSION` file.
   entry carried prose in its `api`/`tests` fields, failing the pinned
   `tests/test_vdp2_support_matrix.py` rules; the detail moved to `notes` and
   the suite is green again.
+- `vdp2_special_color` (plan milestone M3, E03): a live tour of VDP2
+  chapter-12 colour calculation with a colour-calculation window for a
+  side-by-side comparison - PLAIN, RATIO (15:17), ADD saturation and the
+  table-12.2 extended cascade - plus the five chapter-12 refusals in
+  `g_special_color`. Accepted on pinned Ymir 9/9 (struct/CRAM mode 0,
+  refusals, CCCTL/CCRNA registers, a watch-write of CCCTL at the RATIO
+  switch, and pixels recomputed from the manual); the
+  `extended_color_calculation` matrix row moved `partial` -> `exposed`.
+  `hardware_blur` stays `partial` until E04 shows the picture. Physical
+  hardware remains PENDING in the acceptance checklist (row 30).
+- Harness observability for the remaining M3 slices: `probe.json` now dumps
+  CCCTL, CCRNA, CCRNB, LNCLEN, SFPRMD, SFCCMD, SFCODE, SFSEL, SDCTL and
+  SPCTL; `--watch-write` records the first writes into a bus range under
+  `watch_writes` (PC, value, frame and size on both SH-2s); and
+  `Invoke-ExampleTest` accepts `-ScreenshotWhen(Symbol)`,
+  `-DumpMem(Symbol)` and `-WatchWrite`. The `...Symbol` forms resolve the
+  telemetry struct from the build map, so wrappers no longer hard-code link
+  addresses. The acceptance sweep now includes the dual-rotation,
+  rotation-coefficient, special-colour and VRAM-stress wrappers.
 - Gapless handoff between two disc-streamed tracks. `sat_music_use_disc_stream` now serves two
   `sat_music_open` tracks: the first opened is the one the drive plays, the second is the *standby*
   (`sat_music_info_t.standby`); a third is still `SAT_ERR_BUSY`. New `sat_music_prefetch(music)` fills

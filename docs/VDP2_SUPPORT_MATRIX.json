@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-10-16",
+  "updated": "2026-10-17",
   "baseline": "1c573a2",
   "description": "Machine-readable VDP2 support matrix: what the library actually exposes versus the vendored Sega VDP2 manual. tests/test_vdp2_support_matrix.py validates this file against include/saturn and the manual tree (statuses, evidence rules, every cited chapter file, and every recorded constant). Change the matrix and that test in the same commit.",
   "manual_root": "docs/sega_saturn_hardware/hard/vdp2/hon",
@@ -201,11 +201,11 @@
     {
       "id": "extended_color_calculation",
       "title": "Extended colour calculation",
-      "status": "partial",
+      "status": "exposed",
       "manual": ["p12_12.md", "p12_14.md"],
       "api": ["include/saturn/vdp2_compose.h"],
-      "tests": ["tests/host/test_vdp2_compose_logic.cpp"],
-      "notes": "sat_vdp2_extended_color_calc_set drives CCCTL's EXCCEN: the second image becomes the pre-mixed second+third result (plus the line colour screen when inserted - the manual's four-screen cascade, table 12.2), so EXCCEN is legal with line colour insertion, unlike blur. Normal TV mode only (p12_12, p12_14: refused while hi-res), mutually exclusive with BOKEN in both directions (p12_14 ignores EXCCEN while BOKEN is 1; the shadow never carries both). Host-tested as pure CCCTL policy. No example or emulator evidence of the blended picture yet: E03 vdp2_special_color carries it, so this stays partial until then."
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp", "harness/run-vdp2-special-color.ps1", "harness/tests/test_vdp2_special_color.py"],
+      "notes": "sat_vdp2_extended_color_calc_set drives CCCTL's EXCCEN: the second image becomes the pre-mixed second+third result (plus the line colour screen when inserted - the manual's four-screen cascade, table 12.2), so EXCCEN is legal with line colour insertion, unlike blur. Normal TV mode only (p12_12, p12_14: refused while hi-res), mutually exclusive with BOKEN in both directions (p12_14 ignores EXCCEN while BOKEN is 1; the shadow never carries both). E03 vdp2_special_color is accepted on pinned Ymir: 9/9 harness tests assert the CCCTL N0CCEN/N1CCEN/EXCCEN bits, CCRNA's N0 ratio, the refusal fields, a watch-write of CCCTL at the RATIO switch, and manual-recomputed pixels for the table-12.2 cascade (second = (NBG1+NBG2)/2, then the top image blends at 16:16) confined by the colour calculation window. The evidence is emulator-side (Ymir 5c571f6, instrumentation-only patches); physical-hardware execution remains PENDING in docs/HARDWARE_ACCEPTANCE_CHECKLIST.md."
     },
     {
       "id": "special_priority_color_calc",
