@@ -25,6 +25,10 @@ extern "C" sat_result_t sat_vdp2_sprite_color_calc_configure(
     if (config->enabled != 0u && saturn::hal::vdp2::hires_sprite_color_calc() != 0u) {
         return SAT_ERR_BUSY;
     }
+    /* ...and the VDP2 sprite-shadow mode (type-2 SPCTL + PRISA selectors). */
+    if (config->enabled != 0u && saturn::hal::vdp2::sprite_shadow_active()) {
+        return SAT_ERR_BUSY;
+    }
     saturn::hal::vdp2_color_calc::configure(*config);
     return SAT_OK;
 }

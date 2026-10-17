@@ -63,6 +63,15 @@ typedef struct sat_vdp1_texture {
  * Clip=1, Cmod=0). Without a rectangle set this frame the VDP1 uses
  * whatever an earlier command list left, so set one first. */
 #define SAT_SPRITE_FLAG_USER_CLIP 0x0080u
+/* CMDPMOD bit 15 (MON, VDP1 manual 6.38): instead of writing the texture's
+ * colour, set bit 15 of the pixels already in the frame buffer where the
+ * texture is opaque. With VDP2 sprite type 2-7 this turns a palette dot into
+ * a VDP2 MSB shadow: a non-zero lower 15 bits is a sprite shadow (the sprite
+ * itself is darkened), all-zero lower bits is a transparent shadow (the
+ * selected scroll/back screen is darkened). Draw the normal sprite first,
+ * then this pass over the same shape. Palette (INDEXED8) textures only; the
+ * manual says MSB-on cannot be combined with VDP1 colour calculation. */
+#define SAT_SPRITE_FLAG_MSB_ON 0x0100u
 
 /* ------------------------------------------------------------------ */
 /* Sprite command                                                      */

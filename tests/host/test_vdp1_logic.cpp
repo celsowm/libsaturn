@@ -204,8 +204,9 @@ TEST(sprite_pmod_base_matches_normal_sprite) {
 TEST(sprite_pmod_opaque_flag) {
     using namespace saturn::core;
     ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_OPAQUE), 0x00E0);
-    /* Every flag but OPAQUE: mesh (bit 8) and shadow (colour calc 001B). */
-    ASSERT_EQ(compose_sprite_pmod(0xFFFEu), 0x01A1);
+    /* Every flag but OPAQUE: mesh (bit 8), shadow (colour calc 001B) and
+     * MSB-on (bit 15). */
+    ASSERT_EQ(compose_sprite_pmod(0xFFFEu), 0x81A1);
 }
 
 TEST(sprite_pmod_shadow_flag) {
@@ -222,6 +223,24 @@ TEST(sprite_pmod_shadow_flag) {
     ASSERT_EQ(validate_polygon_effects(0x8000u, SAT_SPRITE_FLAG_SHADOW), SAT_ERR_INVALID_ARG);
     /* The half-transparency flags stay polygon-only: sprites ignore them. */
     ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_HALF_TRANSPARENT), 0x00A0);
+}
+
+TEST(sprite_pmod_msb_on_flag) {
+    using namespace saturn::core;
+    /* CMDPMOD bit 15; the ECD/colour-mode base is unchanged. */
+    ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_MSB_ON), 0x80A0);
+    ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_MSB_ON | SAT_SPRITE_FLAG_OPAQUE), 0x80E0);
+    ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_MSB_ON | SAT_SPRITE_FLAG_MESH), 0x81A0);
+    ASSERT_EQ(validate_indexed8_sprite_effects(SAT_SPRITE_FLAG_MSB_ON), SAT_OK);
+    ASSERT_EQ(validate_indexed8_sprite_effects(
+        SAT_SPRITE_FLAG_MSB_ON | SAT_SPRITE_FLAG_MESH), SAT_OK);
+    /* p06_38: MSB-on cannot be combined with colour calculation. */
+    ASSERT_EQ(validate_indexed8_sprite_effects(
+        SAT_SPRITE_FLAG_MSB_ON | SAT_SPRITE_FLAG_SHADOW), SAT_ERR_UNSUPPORTED);
+    ASSERT_EQ(validate_indexed8_sprite_effects(
+        SAT_SPRITE_FLAG_MSB_ON | SAT_SPRITE_FLAG_HALF_LUMINANCE), SAT_ERR_UNSUPPORTED);
+    /* The LUT4 path has its own base but gets the same MON bit. */
+    ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_MSB_ON, SAT_VDP1_TEXTURE_LUT4), 0x8088);
 }
 
 TEST(sprite_flip_flags_set_cmdctrl_dir) {
@@ -374,6 +393,7 @@ int main() {
     sprite_pmod_base_matches_normal_sprite();
     sprite_pmod_opaque_flag();
     sprite_pmod_shadow_flag();
+    sprite_pmod_msb_on_flag();
     sprite_flip_flags_set_cmdctrl_dir();
     sprite_lut4_selects_lookup_table_mode();
     user_clip_pmod_enables_inside_clip_only();

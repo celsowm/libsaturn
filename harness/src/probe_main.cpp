@@ -2092,6 +2092,10 @@ int main(int argc, char** argv) {
     j.key("sfsel"); j.value(static_cast<uint64_t>(vdp2_regs.ReadSFSEL()));
     j.key("sdctl"); j.value(static_cast<uint64_t>(vdp2_regs.ReadSDCTL()));
     j.key("spctl"); j.value(static_cast<uint64_t>(vdp2_regs.ReadSPCTL()));
+    j.key("prisa"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPRISA()));
+    j.key("prisb"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPRISB()));
+    j.key("prisc"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPRISC()));
+    j.key("prisd"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPRISD()));
 
     j.key("vram_ranges");
     j.begin_array();

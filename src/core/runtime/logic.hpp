@@ -310,9 +310,16 @@ inline uint16_t compose_sprite_dir(uint16_t flags) {
 
 inline sat_result_t validate_indexed8_sprite_effects(uint16_t flags) {
     if ((flags & ~(kVdp1EffectFlags | SAT_SPRITE_FLAG_SHADOW | kVdp1SpriteFlipFlags |
-                   SAT_SPRITE_FLAG_USER_CLIP)) != 0u ||
+                   SAT_SPRITE_FLAG_USER_CLIP | SAT_SPRITE_FLAG_MSB_ON)) != 0u ||
         (flags & kVdp1HalfFlags) == kVdp1HalfFlags) return SAT_ERR_INVALID_ARG;
     if ((flags & kVdp1HalfFlags) != 0u) return SAT_ERR_UNSUPPORTED;
+    /* MSB-on has no colour source of its own, so the VDP1 manual forbids
+     * combining it with any colour calculation (p06_38). */
+    if ((flags & SAT_SPRITE_FLAG_MSB_ON) != 0u &&
+        (flags & (SAT_SPRITE_FLAG_SHADOW | SAT_SPRITE_FLAG_HALF_TRANSPARENT |
+                  SAT_SPRITE_FLAG_HALF_LUMINANCE)) != 0u) {
+        return SAT_ERR_UNSUPPORTED;
+    }
     return SAT_OK;
 }
 
@@ -422,7 +429,8 @@ inline uint16_t compose_sprite_pmod(uint16_t flags,
                                          : kVdp1SpritePmodBase) |
         ((flags & SAT_SPRITE_FLAG_OPAQUE) != 0u ? 0x0040u : 0u) |
         ((flags & SAT_SPRITE_FLAG_MESH) != 0u ? 0x0100u : 0u) |
-        ((flags & SAT_SPRITE_FLAG_SHADOW) != 0u ? 0x0001u : 0u));
+        ((flags & SAT_SPRITE_FLAG_SHADOW) != 0u ? 0x0001u : 0u) |
+        ((flags & SAT_SPRITE_FLAG_MSB_ON) != 0u ? 0x8000u : 0u));
 }
 
 /* Composes CMDCOLR for a sprite-family command. Color mode 100B uses the

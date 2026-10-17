@@ -27,7 +27,7 @@ Existing, usable code:
 Existing limitations or unvalidated opportunities:
 - The modern RBG0 layer manager implements **rotation parameter A only**; more rotation modes/parameter-B switching need an explicit owner and test surface.
 - RBG1 has no first-class public layer contract. RBG1 imposes restrictions on NBG coexistence, separate banks and RBG0 ownership.
-- Extended colour calculation is public and accepted end to end by E03 `vdp2_special_color`, hardware blur by E04 `vdp2_hardware_blur`, and special priority/colour calculation by E06 `vdp2_special_priority` (all 2026-10-17). The VDP2 shadow family is still absent.
+- Extended colour calculation is public and accepted end to end by E03 `vdp2_special_color`, hardware blur by E04 `vdp2_hardware_blur`, special priority/colour calculation by E06 `vdp2_special_priority`, and VDP2 sprite shadows by E05 `vdp2_sprite_shadows` (all 2026-10-17).
 - VDP2 VRAM free-list allocations, layer bank/cycle ownership and raster/rotation table reservations are not yet a unified transactional resource planner.
 - Video-facing APIs presently expose 224-line output, not PAL 240/256-line and interlace mode coverage.
 - Physical Saturn compatibility, access timing and visual color/blur behavior are unverified. An emulator pass is not hardware certification.
@@ -125,11 +125,12 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   `ymir_write_watch.patch` into mixed line endings, breaking `git apply`
   against the LF Ymir tree while `git status` still reported the file clean;
   CI (Linux) was unaffected because it checks the LF blobs out directly.
-- No VDP2 feature is claimed from documentation alone: the JSON matrix's
-  `absent` set (RBG1, rotation parameter B, hardware blur, extended colour
-  calculation, special priority, VDP2 shadow sprites, interlace, PAL
-  240/256-line modes, unified resource planner) matches this document's
-  section 2 inventory, and each entry names the milestone that will deliver it.
+- No VDP2 feature is claimed from documentation alone. The M0 snapshot's
+  absent set included RBG1, rotation parameter B, hardware blur, extended
+  colour calculation, special priority, VDP2 shadow sprites, interlace, PAL
+  240/256-line modes and the unified resource planner; the milestones below
+  record the ones that have since landed. Interlace, PAL 240/256-line modes
+  and the unified resource planner remain absent and keep their milestone.
 
 ### M1 — Resource ownership and introspection (E08)
 - Audit/merge VDP2 bank and allocation ownership; implement transactional layer+table reservations and readable diagnostics.
@@ -310,7 +311,7 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Build each focused example independently with a visible A/B comparison; test mutually exclusive modes and palette/RGB mode transitions.
 - **Gate:** host register encodings, per-example screenshots/observables, unchanged existing `transparency_showcase` and `vdp2_compose_demo`.
 
-**Status (2026-10-17): IN PROGRESS — E03, E04 and E06 are accepted; E05 is the next slice.**
+**Status (2026-10-17): COMPLETE - E03, E04, E06 and E05 are accepted.**
 
 - Per-screen colour calculation (the CCCTL enable bits N0CCEN-N3CCEN,
   R0CCEN, LCCCEN and the CCRNA/CCRB/CCRR/CCRLB ratio registers) was already
@@ -350,7 +351,8 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   wrappers, `Invoke-ExampleTest` resolves `-ScreenshotWhenSymbol` /
   `-DumpMemSymbol` from the build map, and the acceptance sweep now covers
   `vdp2-dual-rotation`, `vdp2-rotation-coefficients`, `vdp2-special-color`,
-  `vdp2-hardware-blur`, `vdp2-special-priority` and `vdp2-vram-stress`.
+  `vdp2-hardware-blur`, `vdp2-special-priority`, `vdp2-sprite-shadows` and
+  `vdp2-vram-stress`.
 - **E04 `vdp2_hardware_blur` is now accepted** (2026-10-17): 11/11 harness
   tests assert CCCTL = BOKEN + BOKN 2 + N0CCEN and CCRNA's final N0 ratio, a
   watch-write of BOKEN at the BLUR switch, the sharp right half
@@ -387,8 +389,28 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   auxiliary PR/CC bits and the bitmap BMPNA bits are not exposed), per-dot is
   refused for RGB, and RBG0's SFPRMD/SFCCMD bits are not exposed because
   `sat_vdp2_layer_t` covers the four NBGs.
-- VDP2 shadow sprites (E05) still have no surface and no example. It is the
-  remaining M3 slice and needs the shadow-sprite dot-data encoder.
+- **E05 `vdp2_sprite_shadows` is now accepted** (2026-10-17), completing M3.
+  The new `include/saturn/vdp2_sprite_shadow.h` owns SDCTL (the six target
+  enables and TPSDSL), switches the sprite layer to type 2 palette-only, and
+  provides the three dot encoders: normal shadow
+  `sat_vdp2_shadow_normal_word(1,0) = 0x47FE` (low 11 bits 0x7FE),
+  transparent MSB shadow `sat_vdp2_shadow_transparent_msb_word() = 0x8000`
+  (all 15 non-MSB bits zero, so it uses S0PRIN), and
+  `sat_vdp2_shadow_msb_word(dot)` for the MSB-on form. VDP1 MSB-on is exposed
+  as `SAT_SPRITE_FLAG_MSB_ON` (CMDPMOD bit 15). The 12/12 harness tests use a
+  scrolling stripe ground and recompute every expected pixel from the 5-bit
+  palette and the scroll: normal-shadow 0x47FE and transparent-MSB 0x8000
+  both halve the ground (248 -> 124), VDP1 MSB-on halves a palette sprite's
+  own colour, the VDP1 shadow control panel takes the 5-bit path (31 -> 15 ->
+  120, distinguishable from VDP2's 124), SDCTL=0 leaves the ground unchanged
+  (target restriction), and disable restores the full ground. The final
+  SDCTL/SPCTL/PRISA state and an SDCTL=0x0101 watch-write at the MSB switch
+  are asserted; all invalid-mode/target/priority and ownership refusals are
+  1. `vdp2_shadow_sprites` is therefore `exposed`. Recorded limitations: the
+  library cannot inspect VDP1 draws, so the palette-only switch is enforced
+  by the type-2 configuration and documented rather than inferred; TPSDSL is
+  host-tested and set in the example, but pinned Ymir does not gate
+  transparent MSB shadows on it, so the TPSDSL=0 negative is UNVERIFIED.
 - Also repaired in the same pass: the `rbg1` matrix entry carried prose in
   its `api`/`tests` fields, failing the pinned `tests/test_vdp2_support_matrix.py`
   rules that guard the matrix (`api`/`tests` now cite real artifacts, the
@@ -406,7 +428,7 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Use original, redistributable scene assets and compare rendering/performance with realistic control scenarios.
 - **Gate:** no example-local copy of general-purpose register or cache management; stable 10-minute runs; no stock-RAM overrun.
 
-**Status (2026-10-17): NOT STARTED.** E10-E12 are the integration stage for every prior slice - M2's RBG0/RBG1, M3's extended CC and shadow, M4's tile streaming and video modes. Extended colour calculation, hardware blur and special priority/colour calculation are public and accepted (E03, E04, E06), but shadow sprites, PAL/interlace modes and the unified tile publish API are still absent, so these examples have no complete surface to build on.
+**Status (2026-10-17): NOT STARTED.** E10-E12 are the integration stage for every prior slice - M2's RBG0/RBG1, M3's extended CC and shadow, M4's tile streaming and video modes. Extended colour calculation, hardware blur, special priority/colour calculation and shadow sprites are public and accepted (E03, E04, E06, E05), but PAL/interlace modes and the unified tile publish API are still absent, so these examples have no complete surface to build on.
 
 ### M6 — Hardware signoff and developer experience
 - Run/record physical Saturn tests across region/video mode, console revision and disc/ODE where available. Keep **PENDING** where no machine exists.
@@ -456,7 +478,7 @@ For each E01-E12, all boxes must be checked before changing its status to DONE:
 
 ## 10. Primary sources and entry points
 
-- Sega VDP2 manual: `docs/sega_saturn_hardware/hard/vdp2/hon/p02_20.md` (interlace), `p03_30.md` (VRAM cycles), `p06_20.md` (RBG0/RBG1), `p06_30.md` / `p06_40.md` (rotation/coefficient), `p08_20.md` (windows), `p09_10.md` / `p09_20.md` (sprite formats/priority), `p10_30.md` (special function codes), `p11_20.md` (special priority), `p12_12.md` / `p12_13.md` / `p12_14.md` (extended colour/blur), `p12_20.md` (special colour calculation), and the shadow chapters as individually relevant.
+- Sega VDP2 manual: `docs/sega_saturn_hardware/hard/vdp2/hon/p02_20.md` (interlace), `p03_30.md` (VRAM cycles), `p06_20.md` (RBG0/RBG1), `p06_30.md` / `p06_40.md` (rotation/coefficient), `p08_20.md` (windows), `p09_10.md` / `p09_20.md` (sprite formats/priority), `p10_30.md` (special function codes), `p11_20.md` (special priority), `p12_12.md` / `p12_13.md` / `p12_14.md` (extended colour/blur), `p12_20.md` (special colour calculation), `p14_10.md` (shadow processing), `p15_40.md` (normal vs MSB usage) and `p16_18.md` (SDCTL).
 - Runtime: `include/saturn/vdp2_layers.h`, `vdp2_compose.h`, `vdp2_alloc.h`, `vdp2.h`, `video.h` and their implementations under `src/graphics/vdp2/` and `src/hal/vdp2/`.
 - Existing fixtures: `examples/vdp2_*`, `tests/host/test_vdp2_*.cpp`, `harness/run-vdp2-*.ps1`.
 - Baseline acceptance: `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md`, `docs/LIBSATURN_CURRENT_COVERAGE.md`.

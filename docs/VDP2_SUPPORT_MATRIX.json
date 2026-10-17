@@ -219,11 +219,11 @@
     {
       "id": "vdp2_shadow_sprites",
       "title": "VDP2 shadow sprites (distinct from VDP1 half-luminance shadow)",
-      "status": "absent",
-      "manual": ["p09_10.md", "p09_20.md"],
-      "api": [],
-      "tests": [],
-      "plan_milestone": "M3"
+      "status": "exposed",
+      "manual": ["p09_10.md", "p14_10.md", "p15_40.md", "p16_18.md"],
+      "api": ["include/saturn/vdp2_sprite_shadow.h", "include/saturn/vdp1.h"],
+      "tests": ["tests/host/test_vdp2_sprite_shadow.cpp", "harness/run-vdp2-sprite-shadows.ps1", "harness/tests/test_vdp2_sprite_shadows.py"],
+      "notes": "sat_vdp2_sprite_shadow_configure owns SDCTL (N0SDEN..BKSDEN plus TPSDSL) and switches the sprite layer to type 2 palette-only for the normal and MSB shadow forms. It also owns PRISA's two selectors (S0PRIN = ordinary dots, S1PRIN = normal-shadow and selector-1 dots) while active, and refuses hi-res/8-bit sprites, palette priorities, the palette window, palette colour calculation and the VDP1 sprite colour-calculation module (SAT_ERR_BUSY), returning SAT_ERR_INVALID_ARG for a bad mode/target mask/priority. sat_vdp2_shadow_normal_word(1,0) is the canonical 0x47FE normal-shadow dot (low 11 bits 0x7FE); sat_vdp2_shadow_transparent_msb_word() is 0x8000 (all 15 non-MSB bits must be zero, so it uses S0PRIN); sat_vdp2_shadow_msb_word(dot) sets bit 15 for VDP1 MSB-on. SAT_SPRITE_FLAG_MSB_ON exposes the VDP1 MSB-on command (CMDPMOD bit 15) for sprite self-shadows. The words are written through a LUT4 texture, because CMDCOLR's palette<<8 form cannot express the 12-bit color bank/low nibble. Normal shadows target only the selected scroll/back screens; transparent MSB shadows use TPSDSL and the selected screen; a sprite MSB shadow darkens the sprite already in the frame buffer. E05 vdp2_sprite_shadows is accepted on pinned Ymir 12/12: a scrolling stripe ground, normal/MSB shadow pixels recomputed from the 5-bit palette and the scroll (248 -> 124), a VDP1 control panel (248 -> 120, the 5-bit path), a VDP1 MSB-on self-shadow, SDCTL=0 target-off control, final SDCTL/SPCTL/PRISA restoration, and a watch-write of SDCTL=0x0101 at the MSB switch. Limitations: the library cannot inspect VDP1 draws, so palette-only is enforced by the type-2 configuration and documented (RGB dots drawn while active are read as shadow/window data); TPSDSL is host-tested and set in the example, but the pinned Ymir does not gate transparent MSB shadows on it, so a TPSDSL=0 negative remains UNVERIFIED; physical execution is PENDING in docs/HARDWARE_ACCEPTANCE_CHECKLIST.md."
     },
     {
       "id": "interlace_output",

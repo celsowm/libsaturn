@@ -2,6 +2,7 @@
 
 #include "src/core/runtime/logic.hpp"
 #include "src/hal/scu/dma.hpp"
+#include "src/hal/vdp2/color_calc.hpp"
 #include "src/hal/vdp2/rbg0_logic.hpp"
 
 namespace saturn::hal::vdp2 {
@@ -89,6 +90,15 @@ uint16_t g_prisa_before_palette_priorities = 0x0606u;
 bool g_palette_cc = false;
 bool g_palette_window = false; /* type 3: colour bit 15 makes the sprite window */
 uint16_t g_palette_cc_ratios[2] = {0u, 0u};
+/* VDP2 sprite shadows: SDCTL targets, type-2 SPCTL and the two PRISA
+ * selectors. Exclusive with the palette priority/window/CC state above. */
+bool g_shadow_active = false;
+uint8_t g_shadow_mode = 0u;
+uint8_t g_shadow_targets = 0u;
+bool g_shadow_transparent = false;
+uint8_t g_shadow_priority = 7u;
+uint16_t g_shadow_sdctl = 0u;
+uint8_t g_sprite_priority = 6u; /* ordinary S0 selector, from sat_init */
 /* CCCTL carries the screen-global CCMD bit (ratio vs add), which a frame's
  * draws claim; replayed with PRISA so a layers commit never loses it. */
 uint16_t g_last_ccctl_written = 0x0000u;
@@ -279,6 +289,7 @@ inline uint16_t with_cram_mode(uint16_t ramctl) {
 #define BKTAL reg<0x0AE>()
 #define PRISA reg<0x0F0>()
 #define SPCTL reg<0x0E0>()
+#define SDCTL reg<0x0E2>()
 #define CRAOFA reg<0x0E4>()
 #define CRAOFB reg<0x0E6>()
 #define PRISB reg<0x0F2>()
@@ -423,6 +434,14 @@ void reset_color_ops() {
     SFCCMD = 0x0000u;
     g_sfprmd = g_sfccmd = g_sfcode = g_sfsel = 0u;
     g_special_used = false;
+    /* Sprite shadows: SDCTL is write-only and cleared by reset too. */
+    SDCTL = 0x0000u;
+    g_shadow_active = false;
+    g_shadow_mode = 0u;
+    g_shadow_targets = 0u;
+    g_shadow_transparent = false;
+    g_shadow_priority = 7u;
+    g_shadow_sdctl = 0u;
     CLOFEN = 0x0000u;  /* colour offset disabled for every layer */
     CLOFSL = 0x0000u;  /* ... and both offset registers select A */
     COAR = 0x0000u;
@@ -512,6 +531,7 @@ void init_ntsc_320x224() {
 
     PRISA = 0x0606;
     g_last_prisa_written = 0x0606u;
+    g_sprite_priority = 6u;
     PRINA = static_cast<uint16_t>((PRINA & 0xFFF8u) | 0x0001u);
     g_last_nbg0_prina_written = PRINA;
 
@@ -559,6 +579,7 @@ uint16_t sprite_type_bits() {
      * type 0 with SPCLMD set: palette and RGB pixels mixed, as the BIOS
      * leaves it (SPCTL = 0 would drop every RGB pixel). */
     if (g_hires || g_sprite_fb8) return compose::hires_sprite_spctl(g_last_prisa_written, g_hires_sprite_cc);
+    if (g_shadow_active) return sprite_shadow::kType2Spctl;
     /* Type 1, palette dots only: bits 15-13 select PRISA-PRISD's eight priorities. */
     return g_palette_priorities ? compose::palette_sprite_spctl(g_palette_cc, g_palette_window) : 0x0020u;
 }
@@ -1769,6 +1790,10 @@ void commit_layers() {
     /* Sprite priority decides whether the VDP1's output is in front of the
      * VDP2 layers, so it is replayed whether or not NBG0 is in use. */
     PRISA = prisa_value();
+    if (g_shadow_active) {
+        SPCTL = sprite_type_bits();
+        SDCTL = g_shadow_sdctl;
+    }
     CCCTL = ccctl_value();
     CLOFEN = g_last_color_offset_written[0];
     CLOFSL = g_last_color_offset_written[1];
@@ -1831,7 +1856,10 @@ void set_rbg0_priority(uint8_t priority) {
 }
 
 void set_rbg0_sprite_priority(uint8_t priority) {
-    const uint16_t prisa = static_cast<uint16_t>((priority & 0x07u) | ((priority & 0x07u) << 8u));
+    g_sprite_priority = static_cast<uint8_t>(priority & 7u);
+    const uint16_t prisa = g_shadow_active
+        ? sprite_shadow::prisa_word(g_sprite_priority, g_shadow_priority)
+        : static_cast<uint16_t>((priority & 0x07u) | ((priority & 0x07u) << 8u));
     g_last_prisa_written = prisa;
     PRISA = prisa_value();
     if (g_hires || g_sprite_fb8) SPCTL = sprite_type_bits();
@@ -1843,10 +1871,73 @@ void set_nbg0_priority(uint8_t priority) {
 }
 
 void set_sprite_priority(uint8_t priority) {
-    /* computed, not read back: PRISA is write-only on hardware */
-    g_last_prisa_written = saturn::core::compose_sprite_priority(priority);
+    /* computed, not read back: PRISA is write-only on hardware. While the
+     * shadow mode owns selector 1, only selector 0 changes. */
+    g_sprite_priority = static_cast<uint8_t>(priority & 7u);
+    g_last_prisa_written = g_shadow_active
+        ? sprite_shadow::prisa_word(g_sprite_priority, g_shadow_priority)
+        : saturn::core::compose_sprite_priority(priority);
     PRISA = prisa_value();
     if (g_hires || g_sprite_fb8) SPCTL = sprite_type_bits();
+}
+
+SpriteShadowResult set_sprite_shadow(uint8_t mode, uint8_t targets, bool transparent,
+                                     uint8_t base_priority, uint8_t shadow_priority) {
+    const sprite_shadow::ConfigStatus status = sprite_shadow::validate_config(
+        mode, targets, transparent ? 1u : 0u, base_priority, shadow_priority,
+        g_hires, sprite_8bit());
+    if (status == sprite_shadow::ConfigStatus::InvalidArg) return SpriteShadowResult::InvalidArg;
+    if (status == sprite_shadow::ConfigStatus::Unsupported) return SpriteShadowResult::Unsupported;
+    if (status == sprite_shadow::ConfigStatus::Off) {
+        disable_sprite_shadow();
+        return SpriteShadowResult::Ok;
+    }
+    /* SPCTL and PRISA have a single owner. The palette priority, palette
+     * window and palette CC features all drive the same registers, and the
+     * VDP1 sprite colour-calculation module claims SPCTL/PRISA too. */
+    if (g_palette_priorities || g_palette_window || g_palette_cc ||
+        saturn::hal::vdp2_color_calc::enabled()) {
+        return SpriteShadowResult::Busy;
+    }
+
+    g_shadow_active = true;
+    g_shadow_mode = mode;
+    g_shadow_targets = static_cast<uint8_t>(targets & sprite_shadow::kTargetMask);
+    g_shadow_transparent = transparent;
+    g_shadow_priority = static_cast<uint8_t>(shadow_priority & 7u);
+    g_sprite_priority = static_cast<uint8_t>(base_priority & 7u);
+    g_shadow_sdctl = sprite_shadow::sdctl_word(g_shadow_targets, g_shadow_transparent);
+    g_last_prisa_written = sprite_shadow::prisa_word(g_sprite_priority, g_shadow_priority);
+    SPCTL = sprite_type_bits();
+    SDCTL = g_shadow_sdctl;
+    PRISA = g_last_prisa_written;
+    PRISB = 0u;
+    PRISC = 0u;
+    PRISD = 0u;
+    return SpriteShadowResult::Ok;
+}
+
+void disable_sprite_shadow() {
+    if (!g_shadow_active) {
+        SDCTL = 0x0000u;
+        return;
+    }
+    g_shadow_active = false;
+    g_shadow_mode = 0u;
+    g_shadow_targets = 0u;
+    g_shadow_transparent = false;
+    g_shadow_sdctl = 0u;
+    SDCTL = 0x0000u;
+    SPCTL = sprite_type_bits();
+    g_last_prisa_written = saturn::core::compose_sprite_priority(g_sprite_priority);
+    PRISA = g_last_prisa_written;
+    PRISB = 0u;
+    PRISC = 0u;
+    PRISD = 0u;
+}
+
+bool sprite_shadow_active() {
+    return g_shadow_active;
 }
 
 void set_color_calc_control(uint16_t ccctl) {
@@ -1882,10 +1973,13 @@ void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority) {
      * that shadow, the generic commit resets selector 1 from faded to normal
      * priority before color-calc's separate VBlank commit can restore it.
      * On a busy SH-2 that second commit waits for another VBlank, producing
-     * alternating opaque/faded frames on otherwise stationary geometry. */
-    g_last_prisa_written = static_cast<uint16_t>(
-        (normal_priority & 0x07u) |
-        (static_cast<uint16_t>(faded_priority & 0x07u) << 8u));
+     * alternating opaque/faded frames on otherwise stationary geometry.
+     * While shadow mode owns selector 1, a colour-calc disable/commit must
+     * not put the ordinary priority back into that selector. */
+    g_last_prisa_written = g_shadow_active
+        ? sprite_shadow::prisa_word(g_sprite_priority, g_shadow_priority)
+        : static_cast<uint16_t>((normal_priority & 0x07u) |
+                                (static_cast<uint16_t>(faded_priority & 0x07u) << 8u));
     PRISA = prisa_value();
 }
 

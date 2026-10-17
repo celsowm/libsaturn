@@ -7,6 +7,7 @@
 #include "src/hal/vdp2/nbg_logic.hpp"
 #include "src/hal/vdp2/rotation_logic.hpp"
 #include "src/hal/vdp2/special_logic.hpp"
+#include "src/hal/vdp2/sprite_shadow_logic.hpp"
 
 namespace saturn::hal::vdp2 {
 
@@ -144,6 +145,17 @@ void set_sprite_palette_color_calc(const uint8_t* ratio);
 bool palette_color_calc_active();
 void set_sprite_palette_window(bool enabled);
 bool palette_window_active();
+
+/* ---- VDP2 sprite shadows (sprite_shadow_logic.hpp) ------------------ */
+enum class SpriteShadowResult : uint8_t { Ok, InvalidArg, Unsupported, Busy };
+/* Type-2 palette-only shadow mode: SDCTL targets, SPCTL type 2 and
+ * PRISA = base | shadow<<8. Refuses hi-res/8-bit sprites, the palette
+ * priority/window/colour-calculation features and the VDP1 sprite
+ * colour-calculation module, which own SPCTL/PRISA too. */
+SpriteShadowResult set_sprite_shadow(uint8_t mode, uint8_t targets, bool transparent,
+                                     uint8_t base_priority, uint8_t shadow_priority);
+void disable_sprite_shadow();
+bool sprite_shadow_active();
 /* Keeps the generic VDP2 VBlank replay's PRISA shadow in sync with the
  * sprite color-calculation selector 0 (ordinary) and selector 1 (faded). */
 void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority);

@@ -71,6 +71,27 @@ The version is defined once, in the `VERSION` file.
   bitmap BMPNA auxiliary bits are not exposed), per-dot is refused for RGB,
   and RBG0's mode bits are not exposed because `sat_vdp2_layer_t` covers the
   four NBGs.
+- `vdp2_sprite_shadows` (plan milestone M3, E05): VDP2 normal and MSB sprite
+  shadows, completing M3. New `include/saturn/vdp2_sprite_shadow.h` owns
+  SDCTL (six target enables and TPSDSL), switches the sprite layer to type 2
+  palette-only, and exposes `sat_vdp2_shadow_normal_word` (`0x47FE`),
+  `sat_vdp2_shadow_transparent_msb_word` (`0x8000`, all 15 non-MSB bits
+  zero), and `sat_vdp2_shadow_msb_word`. `SAT_SPRITE_FLAG_MSB_ON` exposes
+  VDP1's MSB-on command for sprite self-shadows. The example draws normal and
+  transparent-MSB silhouettes over a scrolling stripe ground, a VDP1 MSB-on
+  self-shadow, and a VDP1 RGB panel plus VDP1 shadow control; a TARGETS OFF
+  mode proves the SDCTL target gate. Accepted on pinned Ymir 12/12:
+  manual-recomputed pixels (248 -> 124 for VDP2, 31 -> 15 -> 120 for the
+  VDP1 5-bit path), the target-off control, final SDCTL/SPCTL/PRISA
+  restoration, and a watch-write of SDCTL=0x0101 at the MSB switch.
+  `vdp2_shadow_sprites` moved `absent` -> `exposed`; physical hardware
+  PENDING (checklist row 33). The VDP1 sprite colour-calculation module and
+  palette priority/window/CC features are refused in both directions, and
+  selector 1 survives a colour-calc commit. Limitations: palette-only is
+  enforced by the type-2 configuration and documented (the library cannot
+  inspect VDP1 draws); TPSDSL is host-tested and set, but pinned Ymir does
+  not gate the transparent MSB shadow on it, so the TPSDSL=0 negative is
+  unverified.
 - `tools/inspect_capture.py`: reusable capture inspector for PNG pixels,
   spans and colour bounding boxes (Pillow), `probe.json` VDP2 registers, and
   big-endian telemetry structs from a Work RAM dump + linker map. Host test
@@ -82,16 +103,16 @@ The version is defined once, in the `VERSION` file.
   a documented one-line correctness fix, separate from the instrumentation
   patches; `vdp2_hardware_blur` is the acceptance case, and the sweep now
   includes its wrapper.
-- Harness observability for the remaining M3 slices: `probe.json` now dumps
-  CCCTL, CCRNA, CCRNB, LNCLEN, SFPRMD, SFCCMD, SFCODE, SFSEL, SDCTL and
-  SPCTL; `--watch-write` records the first writes into a bus range under
+- Harness observability for the M3 slices: `probe.json` now dumps
+  CCCTL, CCRNA, CCRNB, LNCLEN, SFPRMD, SFCCMD, SFCODE, SFSEL, SDCTL, SPCTL,
+  PRISA and PRISB-PRISD; `--watch-write` records the first writes into a bus range under
   `watch_writes` (PC, value, frame and size on both SH-2s); and
   `Invoke-ExampleTest` accepts `-ScreenshotWhen(Symbol)`,
   `-DumpMem(Symbol)` and `-WatchWrite`. The `...Symbol` forms resolve the
   telemetry struct from the build map, so wrappers no longer hard-code link
   addresses. The acceptance sweep now includes the dual-rotation,
-  rotation-coefficient, special-colour, hardware-blur, special-priority and
-  VRAM-stress wrappers.
+  rotation-coefficient, special-colour, hardware-blur, special-priority,
+  sprite-shadow and VRAM-stress wrappers.
 - Gapless handoff between two disc-streamed tracks. `sat_music_use_disc_stream` now serves two
   `sat_music_open` tracks: the first opened is the one the drive plays, the second is the *standby*
   (`sat_music_info_t.standby`); a third is still `SAT_ERR_BUSY`. New `sat_music_prefetch(music)` fills
