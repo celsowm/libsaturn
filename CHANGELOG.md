@@ -55,6 +55,26 @@ The version is defined once, in the `VERSION` file.
   example keeps the blurred screen on top because Ymir at the pin only
   replaces the second image in that case; the manual's second-image blur
   case remains unverified and is recorded in the matrix notes.
+- `vdp2_special_priority` (plan milestone M3, E06): special priority and
+  special colour calculation. New `include/saturn/vdp2_special.h` exposes
+  SFPRMD/SFCCMD for NBG0-NBG3, SFCODE/SFSEL, and
+  `sat_vdp2_pattern_name_2word` (manual figure 4.9: the auxiliary word first,
+  with V/H/PR/CC and a 7-bit palette, then the 15-bit character number). The
+  example is a 2-word NBG0 band with normal/special cells, a priority-4 VDP1
+  bar and four live modes (SCREEN, CHAR, DOT, MSB). Accepted on pinned Ymir
+  10/10: SFPRMD/SFCCMD/SFCODE/SFSEL/CCCTL, a watch-write of SFCCMD at the MSB
+  switch, the sprite-tie priority control, per-character/per-dot priority
+  A/B, and manual-recomputed 15:17 colour calculation against NBG1 and the
+  bar, including CRAM-MSB mode 3. `special_priority_color_calc` moved
+  `absent` -> `exposed`; physical hardware PENDING (checklist row 32).
+  Limitations: per-character/dot need 2-word names (the 1-word PNCN and
+  bitmap BMPNA auxiliary bits are not exposed), per-dot is refused for RGB,
+  and RBG0's mode bits are not exposed because `sat_vdp2_layer_t` covers the
+  four NBGs.
+- `tools/inspect_capture.py`: reusable capture inspector for PNG pixels,
+  spans and colour bounding boxes (Pillow), `probe.json` VDP2 registers, and
+  big-endian telemetry structs from a Work RAM dump + linker map. Host test
+  included; no more ad-hoc PIL snippets for acceptance debugging.
 - Harness: `ymir_gradation_sse_fix.patch` fixes the pinned Ymir SSE2
   gradation path, which applied the mask with `color2` instead of `mask` and
   bitwise-ANDed the source colour into the blur. Non-AVX2 builds rendered
@@ -70,7 +90,8 @@ The version is defined once, in the `VERSION` file.
   `-DumpMem(Symbol)` and `-WatchWrite`. The `...Symbol` forms resolve the
   telemetry struct from the build map, so wrappers no longer hard-code link
   addresses. The acceptance sweep now includes the dual-rotation,
-  rotation-coefficient, special-colour and VRAM-stress wrappers.
+  rotation-coefficient, special-colour, hardware-blur, special-priority and
+  VRAM-stress wrappers.
 - Gapless handoff between two disc-streamed tracks. `sat_music_use_disc_stream` now serves two
   `sat_music_open` tracks: the first opened is the one the drive plays, the second is the *standby*
   (`sat_music_info_t.standby`); a third is still `SAT_ERR_BUSY`. New `sat_music_prefetch(music)` fills

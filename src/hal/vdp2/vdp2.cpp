@@ -119,6 +119,13 @@ uint8_t g_mosaic_mask = 0u;
 uint16_t g_cc_layer_bits = 0u;
 bool g_cc_add = false; /* CCMD from set_color_calc_add */
 compose::ScreenRatios g_cc_ratios;
+/* Special priority / special colour calculation (SFPRMD, SFCCMD, SFCODE,
+ * SFSEL): owned once any setter succeeds, then replayed each frame. */
+bool g_special_used = false;
+uint16_t g_sfprmd = 0u;
+uint16_t g_sfccmd = 0u;
+uint16_t g_sfcode = 0u;
+uint16_t g_sfsel = 0u;
 /* Extended colour calculation (EXCCEN) and hardware blur (BOKEN/BOKN): the
  * two mutually exclusive CCCTL extras, kept by the pure CcctlExtras policy. */
 compose::CcctlExtras g_cc_extras = {};
@@ -283,7 +290,10 @@ inline uint16_t with_cram_mode(uint16_t ramctl) {
  * exactly why they have to be written: the BIOS leaves its own splash-screen
  * settings behind, and anything still enabled here silently transforms every
  * pixel the program draws. See reset_color_ops(). */
+#define SFSEL  reg<0x024>()
+#define SFCODE reg<0x026>()
 #define CCCTL  reg<0x0EC>()
+#define SFPRMD reg<0x0EA>()
 #define SFCCMD reg<0x0EE>()
 #define CCRSA  reg<0x100>()
 #define CCRSB  reg<0x102>()
@@ -405,7 +415,14 @@ void reset_color_ops() {
     CCCTL = 0x0000u;   /* no colour calculation on any layer */
     g_last_ccctl_written = 0x0000u;
     for (uint16_t& word : g_last_color_offset_written) word = 0u;
-    SFCCMD = 0x0000u;  /* no special colour calculation modes */
+    /* Special priority / colour calculation: clear the BIOS leftovers and
+     * release ownership until a program asks for one of the modes. */
+    SFSEL = 0x0000u;
+    SFCODE = 0x0000u;
+    SFPRMD = 0x0000u;
+    SFCCMD = 0x0000u;
+    g_sfprmd = g_sfccmd = g_sfcode = g_sfsel = 0u;
+    g_special_used = false;
     CLOFEN = 0x0000u;  /* colour offset disabled for every layer */
     CLOFSL = 0x0000u;  /* ... and both offset registers select A */
     COAR = 0x0000u;
@@ -1665,6 +1682,79 @@ void commit_nbg_layers() {
     if (g_nbg_active) nbg_write_all(true);
 }
 
+/* ------------------------------------------------------------------ */
+/* Special priority and special colour calculation                     */
+/* ------------------------------------------------------------------ */
+
+namespace {
+
+SpecialResult special_layer_traits(uint8_t layer, special::LayerTraits& traits) {
+    if (layer >= nbg::kLayerCount || !g_nbg_used[layer]) return SpecialResult::InvalidArg;
+    const nbg::Layer& l = g_nbg_layer[layer];
+    traits.two_word_names = !l.pn_one_word;
+    traits.bitmap = l.bitmap;
+    traits.rgb = l.colors == nbg::Colors::C32768 || l.colors == nbg::Colors::C16M;
+    return SpecialResult::Ok;
+}
+
+}  // namespace
+
+SpecialResult set_special_priority_mode(uint8_t layer, uint8_t mode) {
+    special::LayerTraits traits{};
+    if (special_layer_traits(layer, traits) != SpecialResult::Ok) {
+        return SpecialResult::InvalidArg;
+    }
+    if (!special::priority_mode_supported(mode, traits)) {
+        return mode > 2u ? SpecialResult::InvalidArg : SpecialResult::Unsupported;
+    }
+    const uint16_t mask = static_cast<uint16_t>(3u << (2u * layer));
+    g_sfprmd = static_cast<uint16_t>((g_sfprmd & ~mask) | special::compose_mode_bits(layer, mode));
+    g_special_used = true;
+    commit_special();
+    return SpecialResult::Ok;
+}
+
+SpecialResult set_special_color_mode(uint8_t layer, uint8_t mode) {
+    special::LayerTraits traits{};
+    if (special_layer_traits(layer, traits) != SpecialResult::Ok) {
+        return SpecialResult::InvalidArg;
+    }
+    if (!special::color_mode_supported(mode, traits)) {
+        return mode > 3u ? SpecialResult::InvalidArg : SpecialResult::Unsupported;
+    }
+    const uint16_t mask = static_cast<uint16_t>(3u << (2u * layer));
+    g_sfccmd = static_cast<uint16_t>((g_sfccmd & ~mask) | special::compose_mode_bits(layer, mode));
+    g_special_used = true;
+    commit_special();
+    return SpecialResult::Ok;
+}
+
+SpecialResult set_special_function_select(uint8_t layer, uint8_t select) {
+    special::LayerTraits traits{};
+    if (special_layer_traits(layer, traits) != SpecialResult::Ok || select > 1u) {
+        return SpecialResult::InvalidArg;
+    }
+    const uint16_t mask = static_cast<uint16_t>(1u << layer);
+    g_sfsel = static_cast<uint16_t>((g_sfsel & ~mask) | static_cast<uint16_t>((select & 1u) << layer));
+    g_special_used = true;
+    commit_special();
+    return SpecialResult::Ok;
+}
+
+void set_special_function_code(uint8_t code_a, uint8_t code_b) {
+    g_sfcode = special::compose_function_code(code_a, code_b);
+    g_special_used = true;
+    commit_special();
+}
+
+void commit_special() {
+    if (!g_special_used) return;
+    SFPRMD = g_sfprmd;
+    SFCCMD = g_sfccmd;
+    SFCODE = g_sfcode;
+    SFSEL = g_sfsel;
+}
+
 void commit_layers() {
     /* The NBG layer manager and the legacy NBG0/RBG0 replay both drive the VRAM
      * cycle registers and BGON, so only one of them runs. */
@@ -1713,6 +1803,7 @@ void commit_layers() {
     }
     commit_raster_tables();
     commit_compose();
+    commit_special();
 }
 
 void set_rbg0_param_mode(RBG0ParamMode mode) {

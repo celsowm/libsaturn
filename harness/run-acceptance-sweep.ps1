@@ -49,6 +49,7 @@ $items = [ordered]@{
     'vdp2-rotation-coefficients' = { & (Join-Path $PSScriptRoot 'run-vdp2-rotation-coefficients.ps1') @common }
     'vdp2-special-color' = { & (Join-Path $PSScriptRoot 'run-vdp2-special-color.ps1') @common }
     'vdp2-hardware-blur' = { & (Join-Path $PSScriptRoot 'run-vdp2-hardware-blur.ps1') @common }
+    'vdp2-special-priority' = { & (Join-Path $PSScriptRoot 'run-vdp2-special-priority.ps1') @common }
     'vdp2-vram-stress'  = { & (Join-Path $PSScriptRoot 'run-vdp2-vram-stress.ps1') @common }
     'vdp2-tile-overflow' = { & (Join-Path $PSScriptRoot 'run-vdp2-tile-overflow.ps1') @common }
     'vdp2-window-dim' = { & (Join-Path $PSScriptRoot 'run-vdp2-window-dim.ps1') @common }

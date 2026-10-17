@@ -115,6 +115,18 @@ The wrappers expose these through `scripts/run-example-tests.ps1`:
 the telemetry struct from `build/<example>.map` after the build, so no link
 address is hard-coded in PowerShell.
 
+For quickly looking at a capture, `tools/inspect_capture.py` (in the project
+root, not this GPL directory) prints sampled pixels, horizontal spans and
+colour bounding boxes from a PNG, selected VDP2 registers from `probe.json`,
+and big-endian telemetry structs from a Work RAM dump plus the linker map:
+
+```powershell
+python tools/inspect_capture.py pixels harness/build/example/char.png --span 100:0:40:2
+python tools/inspect_capture.py registers harness/build/example/probe.json --keys sfprmd,sfccmd
+python tools/inspect_capture.py struct --dump harness/build/example/wram.bin `
+    --map build/example.map --symbol _g_example --count 12
+```
+
 ### The one non-instrumentation Ymir patch
 
 At the pinned commit, the SSE2 path of `Color888GradationMasked` applies the

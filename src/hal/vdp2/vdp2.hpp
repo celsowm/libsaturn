@@ -6,6 +6,7 @@
 #include "src/hal/vdp2/compose_logic.hpp"
 #include "src/hal/vdp2/nbg_logic.hpp"
 #include "src/hal/vdp2/rotation_logic.hpp"
+#include "src/hal/vdp2/special_logic.hpp"
 
 namespace saturn::hal::vdp2 {
 
@@ -174,6 +175,21 @@ void nbg_set_zoom_increment(uint8_t index, uint16_t x_int, uint16_t x_frac, uint
 /* The cycle pattern registers last planned: A0L A0U A1L A1U B0L B0U B1L B1U. */
 uint16_t nbg_cycle_word(uint8_t i);
 void commit_nbg_layers();
+
+/* ---- Special priority / special colour calculation (special_logic.hpp) -- */
+enum class SpecialResult : uint8_t { Ok, InvalidArg, Unsupported };
+/* SFPRMD / SFCCMD; the mode is validated against the configured layer's name
+ * size, bitmap flag and colour format. Returns Unsupported for a mode the
+ * layer cannot carry (1-word/bitmap auxiliary bits are not exposed; per-dot is
+ * prohibited for RGB). */
+SpecialResult set_special_priority_mode(uint8_t layer, uint8_t mode);
+SpecialResult set_special_color_mode(uint8_t layer, uint8_t mode);
+/* SFSEL: 0 selects code A, 1 selects code B. */
+SpecialResult set_special_function_select(uint8_t layer, uint8_t select);
+/* SFCODE: A in the low byte, B in the high byte. */
+void set_special_function_code(uint8_t code_a, uint8_t code_b);
+/* Replays the four registers when any of them is owned. */
+void commit_special();
 
 /* ---- RBG0 in cell format, beside the NBGs (rotation_logic.hpp) ------- */
 /* Takes the layer's banks away from the NBGs (re-planning their cycle
