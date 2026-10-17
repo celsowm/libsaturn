@@ -138,6 +138,32 @@ inline void project_vertex(
     out->y = project_axis(-(static_cast<int64_t>(clip.y) * static_cast<int64_t>(screen_h)), w2);
 }
 
+/* Classify once per batch, never cache across camera updates. A camera whose
+ * right axis is world X has four zero coefficients; omit those products and
+ * the unused clip-Z row. Keep each remaining product's original rounding.
+ * General rotated cameras retain the scalar projection path. */
+inline void project_vertices(
+    const sat_fx16_t* m, const sat_vec3_t* points, uint16_t count,
+    int16_t width, int16_t height, sat_projected_vertex_t* out
+) {
+    if (m[1] || m[2] || m[4] || m[12]) {
+        for (uint16_t i=0; i<count; ++i)
+            project_vertex(m,points[i],width,height,&out[i]);
+        return;
+    }
+    for (uint16_t i=0; i<count; ++i) {
+        const sat_vec3_t& p=points[i];
+        const sat_fx16_t w=fx_mul(m[13],p.y)+fx_mul(m[14],p.z)+m[15];
+        out[i].w=w;
+        if (w<=0) continue; // Preserve the scalar path's untouched X/Y.
+        const sat_fx16_t x=fx_mul(m[0],p.x)+m[3];
+        const sat_fx16_t y=fx_mul(m[5],p.y)+fx_mul(m[6],p.z)+m[7];
+        const int64_t w2=static_cast<int64_t>(w)*2;
+        out[i].x=project_axis(static_cast<int64_t>(x)*width,w2);
+        out[i].y=project_axis(-static_cast<int64_t>(y)*height,w2);
+    }
+}
+
 /* Twice the signed area of a quad A, B, C, D from native corner coordinates
  * (y grows downward): the cross product of its diagonals, (C - A) x (D - B),
  * which expands term for term into the shoelace sum -- two products instead

@@ -5,6 +5,43 @@ textures, topology, camera, walk clip and 60 Hz simulation. It follows the
 [initial readiness report](FIGHTING_GAME_READINESS.md); it does not reduce LOD
 or omit simulation work to improve the display counter.
 
+## Sparse camera batch projection (2026-10-17)
+
+The sibling Tekken port's live 1,200-frame profile attributed 24% of sampled
+PCs to vertex projection. `sat_project_vertices` now classifies the matrix once
+per batch. For a camera whose right axis is world X, four coefficients are zero;
+the batch omits those products and the unused clip-Z row. Every retained fixed
+product still rounds before addition. Other camera matrices use the existing
+scalar path. There is no cache across calls, so camera updates and independently
+animated instances cannot retain an old classification. Behind-camera vertices
+still update W while leaving X/Y untouched.
+
+A 96-matrix × 257-point differential regression exercises fractional positive
+and negative coefficients, all four fallback-triggering coefficients, clipping,
+behind-camera points and empty input. The render logic suite passes 38 cases.
+The complete supported native host/tool suite passes on macOS; the Saturn WRAM
+mapping ABI test explicitly returns unavailable there (exit 77). Package host
+CTest passes 3/3. The SH-2 SDK builds/installs, and `basic_3d_texture` builds with
+GNU Make and runs for 240 injected Ymir frames with an inspected textured model.
+
+In the port's explicitly labeled frozen-pose benchmark at tick 120, final-instance
+projection changes **1,017 → 962 FRT ticks** (5.4%); preparation remains 2,561,
+command count 793, full render 66 ms and screenshot RGB pixels identical. This
+is a small projection improvement, not a whole-frame 5.4% speedup. Evidence is
+private in the sibling port's `assets/imported/paul-projection-bench-{before,final}/`
+and `paul-projection-comparison.json`.
+
+The rebuilt live port passes all 24 combat/round/replay scenarios. Its 600-VBlank
+interval still delivers **8.1 submissions/s and 32.4 simulation steps/s**; this
+change does not close its 30 Hz render / 60 Hz logic target. Further optimization
+must address measured scene/material and application simulation costs.
+
+The package flag-parity test also now recognizes the existing, matching
+`faces.cpp`-only `-O3` override in Make/CMake. Previously it rejected that intended
+exception in CI. It still requires `-O2` everywhere else and verifies that the
+Make rule contains the exception. Local compile-database parity passes for
+154 C++, two C and three assembly sources.
+
 ## Changes and safety contracts
 
 The shared character example now uses the renderer's existing immutable

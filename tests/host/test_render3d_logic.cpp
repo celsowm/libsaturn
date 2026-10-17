@@ -541,6 +541,44 @@ TEST(project_vertex_matches_project_native) {
     ASSERT_TRUE(behind.w <= 0);
 }
 
+TEST(batch_projection_matches_scalar_after_camera_changes) {
+    sat_vec3_t points[257];
+    uint32_t random=0x1AC83D25u;
+    auto value=[&]() {
+        random=random*1664525u+1013904223u;
+        return static_cast<int32_t>(random%8000001u)-4000000;
+    };
+    for (auto& p:points) p={value(),value(),value()};
+    for (unsigned frame=0; frame<96; ++frame) {
+        // Fractional coefficients exercise negative per-product rounding.
+        sat_mat4_t vp={};
+        for (auto& n:vp.m) n=value()/64;
+        vp.m[1]=vp.m[2]=vp.m[4]=vp.m[12]=0;
+        // Each formerly zero coefficient independently selects the fallback.
+        if (frame%5) {
+            const unsigned index[]={1,2,4,12};
+            vp.m[index[frame%5-1]]=12345;
+        }
+        sat_projected_vertex_t actual[257],expected[257];
+        for (unsigned i=0;i<257;++i) {
+            actual[i]=expected[i]={123,-456,789};
+            project_vertex(vp.m,points[i],352,240,&expected[i]);
+        }
+        project_vertices(vp.m,points,257,352,240,actual);
+        for (unsigned i=0;i<257;++i) {
+            ASSERT_EQ(actual[i].w,expected[i].w);
+            ASSERT_EQ(actual[i].x,expected[i].x);
+            ASSERT_EQ(actual[i].y,expected[i].y);
+        }
+    }
+    // Empty batches accept no input vertices and do not touch the output.
+    sat_projected_vertex_t untouched={123,-456,789};
+    const sat_mat4_t vp=make_view_proj(100);
+    project_vertices(vp.m,nullptr,0,kW,kH,&untouched);
+    ASSERT_EQ(untouched.x,123); ASSERT_EQ(untouched.y,-456);
+    ASSERT_EQ(untouched.w,789);
+}
+
 /* Screen-space culling (signed projected area) must agree with the world
  * test (outward normal towards the eye) for every face of a closed box. */
 TEST(screen_area_culling_matches_world_culling) {
@@ -953,12 +991,13 @@ int main() {
     project_axis_matches_clamped_division();
     project_quad_reuses_repeated_corners();
     project_vertex_matches_project_native();
+    batch_projection_matches_scalar_after_camera_changes();
     screen_area_culling_matches_world_culling();
     bucket_paint_order_is_complete_and_farthest_first();
     grouped_paint_order_resolves_depth_per_pass();
     diagonal_area_equals_shoelace();
     gouraud_table_words_and_light();
     vertex_normals_point_out_of_a_box();
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 37);
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 38);
     return 0;
 }

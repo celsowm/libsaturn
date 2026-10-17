@@ -48,6 +48,13 @@ for flag in CXX_ONLY:
 for flag in ("-m2", "-mb"):
     assert flag in asflags.split(), f"Makefile ASFLAGS lost {flag}"
 
+# Dense face preparation deliberately uses the same measured override in
+# both builds. Keep it restricted to that translation unit, and check the
+# Make rule before accepting the corresponding compile-database exception.
+FACE_SOURCE = "src/graphics/3d/scene/faces.cpp"
+assert f"$(if $(filter {FACE_SOURCE},$<),-O3)" in makefile, (
+    "Makefile lost the source-specific face preparation optimization")
+
 build_dir = os.environ.get("LIBSATURN_CMAKE_BUILD_DIR")
 if not build_dir:
     print("cmake flag parity: Makefile flags parsed; "
@@ -88,9 +95,10 @@ for entry in entries:
     missing = [flag for flag in required if flag not in args]
     assert not missing, f"{source}: CMake build is missing {missing}"
     if kind != "asm":
-        assert last_optimization(args) == "-O2", (
+        expected_optimization = "-O3" if source.endswith("/" + FACE_SOURCE) else "-O2"
+        assert last_optimization(args) == expected_optimization, (
             f"{source}: effective optimization is {last_optimization(args)}, "
-            "the Makefile builds the runtime with -O2")
+            f"the Makefile builds this source with {expected_optimization}")
     checked[kind] += 1
 
 assert checked["cxx"] > 0 and checked["c"] > 0 and checked["asm"] > 0, (
