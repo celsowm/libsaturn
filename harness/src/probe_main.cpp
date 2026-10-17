@@ -352,6 +352,8 @@ struct Args {
     std::string out_path = "probe.json";
     uint32_t frames = 60;
     uint32_t boot_frames = 90; // BIOS-only frames run before injecting --bin
+    bool fill_wram_low = false;
+    uint8_t wram_low_fill = 0;
     std::vector<VramRange> vdp2_vram_ranges;
     uint32_t fb_sample_count = 16; // first N bytes of the VDP1 display framebuffer
     std::string dump_wram_high_path; // diagnostic: raw 1MiB High Work RAM dump
@@ -473,6 +475,7 @@ void print_usage() {
     std::fprintf(stderr,
         "usage: probe --iso <path> --bios <path> [--bin <path>] [--out <path>] [--frames N]\n"
         "             [--boot-frames N] [--dump-vram BASE_WORD:WORD_COUNT ...] [--fb-sample N]\n"
+        "             [--wram-low-fill BYTE] (injection only; prefill Low WRAM before program entry)\n"
         "             [--dump-wram-high <path>] [--misaligned-report <path>] [--watch-write ADDR:LEN[:FROM_FRAME]] [--dump-mem ADDR:BYTES:PATH ...] [--dump-sound-ram <path>] [--dump-audio <path>] [--pal] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...] [--screenshot-when ADDR:VALUE[+DELAY]:PATH ...]\n"
@@ -683,6 +686,17 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--parallel-runtime-telemetry-csv");
             if (!v) return false;
             out->parallel_runtime_telemetry_csv_path = v;
+        } else if (arg == "--wram-low-fill") {
+            const char* v = next("--wram-low-fill");
+            if (!v) return false;
+            char* end = nullptr;
+            const unsigned long value = std::strtoul(v,&end,0);
+            if (end==v || *end || value>255u) {
+                std::fprintf(stderr,"invalid --wram-low-fill byte: %s\n",v);
+                return false;
+            }
+            out->fill_wram_low=true;
+            out->wram_low_fill=static_cast<uint8_t>(value);
         } else if (arg == "--dump-mem") {
             const char* v = next("--dump-mem");
             if (!v) return false;
@@ -736,6 +750,9 @@ bool parse_args(int argc, char** argv, Args* out) {
     }
     if (out->bios_boot && out->slave_reset_entry != 0u) {
         std::fprintf(stderr, "BIOS boot forbids the synthetic Slave handoff\n"); return false;
+    }
+    if (out->bios_boot && out->fill_wram_low) {
+        std::fprintf(stderr,"--wram-low-fill requires injection mode\n"); return false;
     }
     if (!out->bios_boot && !out->cdb_rom_path.empty()) {
         std::fprintf(stderr, "--cdb-rom requires --boot-mode bios\n"); return false;
@@ -1466,6 +1483,13 @@ int main(int argc, char** argv) {
     // memcpy into mem.WRAMHigh) so the SH2 instruction cache stays coherent
     // with what we just wrote.
     if (!args.bios_boot) {
+    if (args.fill_wram_low) {
+        // NOLOAD storage is not guaranteed to start at zero on hardware.
+        // Change it after BIOS setup and before any application instruction;
+        // never edit a running game's authoritative state.
+        for (uint32_t i=0;i<0x100000u;++i)
+            sh2p.MemWriteByte(0x00200000u+i,args.wram_low_fill,/*bypassCache=*/false);
+    }
     for (size_t i = 0; i < bin.size(); i++) {
         sh2p.MemWriteByte(static_cast<uint32_t>(load_addr + i), bin[i], /*bypassCache=*/false);
     }
@@ -1916,6 +1940,8 @@ int main(int argc, char** argv) {
     j.key("boot");
     j.begin_object();
     j.key("injected"); j.value(!args.bios_boot);
+    j.key("low_wram_fill_applied"); j.value(args.fill_wram_low);
+    j.key("low_wram_fill_byte"); j.value(static_cast<uint64_t>(args.wram_low_fill));
     j.key("mode"); j.value(std::string(args.bios_boot ? "bios" : "injection"));
     j.key("cdb_lle"); j.value(!args.cdb_rom_path.empty());
     j.key("instructions_observed"); j.value(master_instructions.count);

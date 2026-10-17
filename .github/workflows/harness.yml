@@ -42,3 +42,5 @@ jobs:
         run: |
           python -m pip install pillow
           python -m unittest discover harness/tests -p test_scene_cache_occlusion.py -v
+      - name: Validate startup RAM experiment argument boundaries without BIOS
+        run: python -m unittest discover harness/tests -p test_wram_low_fill.py -v

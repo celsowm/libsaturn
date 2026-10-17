@@ -80,6 +80,16 @@ keep the pass/fail assertions on registers and VRAM.
 
 ### Frame pacing
 
+For a startup-initialization regression, `--wram-low-fill 0xA5` fills all 1 MiB
+of Low WRAM after BIOS setup and before the first injected application
+instruction. It leaves High WRAM/BIOS vectors intact. `boot.low_wram_fill_applied`
+and `boot.low_wram_fill_byte` record the experiment; default behavior is unchanged.
+Only injection mode accepts this option. It never writes a running game's state.
+The library CRT explicitly clears its linked `.wram_l` interval before `main`,
+so ordinary zero-initialized globals there must work with a nonzero fill too.
+Memory outside the linked interval retains the chosen pattern. This checks
+startup initialization; it is not a CD-boot or hardware-performance test.
+
 The probe runs one emulated frame per `RunFrame()`, and a libsaturn program
 paced by `sat_wait_vblank` advances one program frame per emulated frame. If a
 run seems to make no progress, measure that ratio before suspecting the
