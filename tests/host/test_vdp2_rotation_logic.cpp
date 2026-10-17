@@ -150,6 +150,10 @@ static void registers_compose() {
     assert(d.rpmd == 2u);
     assert(d.ktctl == 0x0701u);   /* A: 1|0<<1|0<<2 .. B: enable|1-word|mode 1 at bit 8 */
     assert(d.ktaof == 0x0502u);  /* A bits 2-0, B bits 10-8 */
+    /* The B-set map is emitted for the mode-2 switch even though this layer
+     * never fills map_b: a zero page count means 1x1 pages (PLSZ 00), and
+     * composing it must not divide by a zero plane size. */
+    assert(d.plsz_b == 0u && d.mp_b[0] == 0u && d.ovpnrb == 0u);
 }
 
 static void nbgs_keep_off_the_rotation_banks() {

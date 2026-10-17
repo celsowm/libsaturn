@@ -295,8 +295,13 @@ inline Registers compose(const Layer& l) {
         const uint16_t plsz_b = static_cast<uint16_t>(l.map_b.pages_y == 2u ? 3u
                                                         : (l.map_b.pages_x == 2u ? 1u : 0u));
         r.plsz_b = static_cast<uint16_t>(((plsz_b & 3u) << 12u) | ((l.map_b.over & 3u) << 14u));
+        /* PLSZ 00 means one page per axis, and a zero page count is the C
+         * default: the B map is emitted for parameter-mode switching even
+         * when RBG1 is off (where no validate pass has run over map_b), so
+         * its plane size must never collapse to zero under map_value. */
         const uint32_t b_size = nbg::plane_bytes(l.rbg1.pn_one_word, l.rbg1.char_2x2,
-                                                 l.map_b.pages_x, l.map_b.pages_y);
+                                                 l.map_b.pages_x == 0u ? 1u : l.map_b.pages_x,
+                                                 l.map_b.pages_y == 0u ? 1u : l.map_b.pages_y);
         for (uint8_t p = 0u; p < kPlanes; p += 2u) {
             const uint32_t v0 = nbg::map_value(l.map_b.plane_address[p], b_size);
             const uint32_t v1 = nbg::map_value(l.map_b.plane_address[p + 1u], b_size);
