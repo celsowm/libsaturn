@@ -89,6 +89,19 @@ sat_result_t sat_vdp2_layer_configure(const sat_vdp2_layer_config_t* config);
 /* Stops managing the layer and hides it; its VRAM reads are freed. */
 sat_result_t sat_vdp2_layer_release(sat_vdp2_layer_t layer);
 
+/* Double-buffer publication for a one-plane cell layer: moves all four
+ * pattern-name tables to `byte_address` at the next
+ * sat_vdp2_layers_commit() VBlank replay. The new ring must already hold the
+ * picture for the scroll that commit will apply; both rings are expected to
+ * live in the same VRAM bank and map-offset group. No register is touched
+ * here, so writing the inactive ring during the picture is tear-free.
+ * Supports cell format with all four plane_address entries equal; bitmap or
+ * multi-plane maps return SAT_ERR_INVALID_ARG. A misaligned/out-of-range base
+ * is SAT_ERR_INVALID_ARG, a base the cycle planner cannot fetch is
+ * SAT_ERR_CAPACITY, and nothing changes on failure. */
+sat_result_t sat_vdp2_layer_set_pattern_name_base(sat_vdp2_layer_t layer,
+                                                  uint32_t byte_address);
+
 /* Shows or hides a configured layer (hiding frees its VRAM reads). */
 sat_result_t sat_vdp2_layer_set_enabled(sat_vdp2_layer_t layer, uint8_t enabled);
 

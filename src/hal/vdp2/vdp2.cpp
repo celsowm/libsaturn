@@ -874,6 +874,11 @@ void write_vram_words(uint32_t word_offset, const uint16_t* words, uint32_t word
     }
 }
 
+void read_vram_words(uint32_t word_offset, uint16_t* out, uint32_t word_count) {
+    if (out == nullptr || word_count == 0u) return;
+    for (uint32_t i = 0u; i < word_count; ++i) out[i] = VDP2_VRAM_16[word_offset + i];
+}
+
 void fill_vram_words(uint32_t word_offset, uint16_t value, uint32_t word_count) {
     if (word_count == 0u) {
         return;
@@ -1577,6 +1582,34 @@ NbgResult nbg_configure(uint8_t index, const nbg::Layer& layer) {
     g_nbg_active = true;
     g_nbg0_configured = false;
     nbg_write_all();
+    return NbgResult::Ok;
+}
+
+NbgResult nbg_set_plane_base(uint8_t index, uint32_t base) {
+    if (index >= nbg::kLayerCount || !g_nbg_used[index]) return NbgResult::BadLayer;
+    nbg::Layer trial[nbg::kLayerCount];
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
+        trial[i] = g_nbg_layer[i];
+        trial[i].enabled = g_nbg_used[i] && g_nbg_layer[i].enabled;
+    }
+    const nbg::Status retarget = nbg::retarget_plane_base(trial[index], base);
+    if (retarget != nbg::Status::Ok) {
+        switch (retarget) {
+            case nbg::Status::BadLayer: return NbgResult::BadLayer;
+            case nbg::Status::BadFormat: return NbgResult::BadFormat;
+            case nbg::Status::BadReduction: return NbgResult::BadReduction;
+            default: return NbgResult::BadPlane;
+        }
+    }
+    const nbg::Plan plan = plan_layers(trial, g_rot);
+    if (plan.status != nbg::Status::Ok) {
+        return plan.status == nbg::Status::NoCyclePattern ? NbgResult::NoCyclePattern
+                                                          : NbgResult::BadPlane;
+    }
+    /* The next commit_layers() VBlank replay writes MPABN/MPCDN. Keeping the
+     * old registers until then is what makes the buffer switch tear-free. */
+    g_nbg_layer[index] = trial[index];
+    g_nbg_plan = plan;
     return NbgResult::Ok;
 }
 

@@ -115,6 +115,13 @@ extern "C" sat_result_t sat_vdp2_layer_release(sat_vdp2_layer_t layer) {
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_layer_set_pattern_name_base(sat_vdp2_layer_t layer,
+                                                              uint32_t byte_address) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (!valid_layer(layer)) return SAT_ERR_INVALID_ARG;
+    return to_result(hal::nbg_set_plane_base(static_cast<uint8_t>(layer), byte_address));
+}
+
 extern "C" sat_result_t sat_vdp2_layer_set_enabled(sat_vdp2_layer_t layer, uint8_t enabled) {
     SAT_TRY(saturn::core::require_initialized());
     if (!valid_layer(layer)) return SAT_ERR_INVALID_ARG;

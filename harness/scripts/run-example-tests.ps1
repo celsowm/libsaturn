@@ -40,6 +40,9 @@ function Invoke-ExampleTest {
         [string[]]$ScreenshotWhenSymbol = @(),
         # ADDR:BYTES:PATH, any bus range at the end of the run.
         [string[]]$DumpMem = @(),
+        # BASE_WORD:WORD_COUNT, VDP2 VRAM words in probe.json under
+        # vdp2.vram_ranges (for CRC/visual state checks).
+        [string[]]$DumpVram = @(),
         # SYMBOL:OFFSET:BYTES:PATH, resolved from build/<Example>.map.
         [string[]]$DumpMemSymbol = @(),
         # ADDR:LEN[:FROM_FRAME], first writes into a range, also in probe.json.
@@ -128,6 +131,7 @@ function Invoke-ExampleTest {
     if ($allDumpMem.Count -gt 0) {
         $argsForHarness.DumpMem = $allDumpMem
     }
+    if ($DumpVram.Count -gt 0) { $argsForHarness.DumpVram = $DumpVram }
     if ($WatchWrite) { $argsForHarness.WatchWrite = $WatchWrite }
     if ($MisalignedReport) { $argsForHarness.MisalignedReport = $MisalignedReport }
     if ($DumpAudio) { $argsForHarness.DumpAudio = $DumpAudio }

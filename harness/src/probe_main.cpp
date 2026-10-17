@@ -2096,6 +2096,9 @@ int main(int argc, char** argv) {
     j.key("prisb"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPRISB()));
     j.key("prisc"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPRISC()));
     j.key("prisd"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPRISD()));
+    j.key("mpofn"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPOFN()));
+    j.key("mpabn0"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPABN0()));
+    j.key("mpcdn0"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPCDN0()));
 
     j.key("vram_ranges");
     j.begin_array();

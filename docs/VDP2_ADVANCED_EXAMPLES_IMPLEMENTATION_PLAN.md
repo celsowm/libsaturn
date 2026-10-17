@@ -421,14 +421,18 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Add supported TV modes only after hardware/manual validation, keeping normal existing modes unchanged.
 - **Gate:** long-running chunk cycling; video mode matrix distinguishes tested, experimental and unsupported entries; no PAL timing regressions.
 
-**Status (2026-10-16): NOT STARTED.** E07 needs the bounded-tile scheduler described in section 4 (a per-frame publish step that does not race the VDP2 fetch), and the cycle-pattern budget for arbitrary swap work; the only chunked upload today is the static `examples/vdp2_tile_overflow`, which proves the planner refuses oversize but does not exercise the live double-buffer. E09 is gated on M0's BIOS/host hardware gates and the planned PAL 240/256 and interlace work; both are listed as `absent` in the matrix and no host-gate test exists yet.
+**Status (2026-10-17): IN PROGRESS - E07 accepted; E09 (video modes) remains.**
+
+- **E07 `vdp2_dynamic_tile_stream` is accepted.** `saturn/stage_map2.h` already supplied the bounded resident-window scheduler (caller-owned staging, transactional `set_view`/`mark_dirty`, `SAT_ERR_CAPACITY` without state change, writer callback). E07 adds the hardware publication half: `sat_vdp2_layer_set_pattern_name_base` retargets a one-plane cell layer's four pattern-name tables and is replayed by `sat_vdp2_layers_commit()` at VBlank; the pure `nbg::retarget_plane_base` checks one-plane/cell alignment and the map-offset group, and `nbg_set_plane_base` re-runs the cycle planner. `sat_vdp2_vram_read_words` exposes a validated VRAM read for CRC diagnostics.
+  The example keeps two 64x64-cell rings at 0x00000/0x04000. Each frame it stages the next camera into the inactive ring through two bounded `stage_map2` instances, commits it, publishes that ring's base and wrapped scroll for the next VBlank, and flips. The active ring is never written, so the switch is tear-free. The 36,000-frame Ymir stress passed 8/8: 34,905 guest frames, 32,999 switches, frozen at 33,000 with `win` 45x33 and base 0x04000; model and VRAM CRC both 0x517824CD, zero 0xFFFF sentinel cells, MPABN0/MPCDN0 0x0202, max pending 1,485 words (the wrap rebuild), 756,900 staged/committed words, 192 SCU-DMA transfers and 33,659 CPU copies with no timeout/illegal interrupt, and all capacity/base/invalid-DMA refusals 1. The harness dumps both rings with `--dump-vram` and recomputes the frozen CRC directly from Ymir's VRAM. `vdp2_dynamic_tile_stream` is therefore `exposed`. Limitations: the live base switch is one-plane cell only (bitmap/multi-plane refused); the double buffer is caller-composed; the example map is procedural, so CD/VFS chunk loading is not demonstrated; physical execution is PENDING.
+- **E09 `vdp2_video_modes` remains** gated on the PAL 240/256 and interlace work; both are still `absent` in the matrix and no host-gate test exists yet.
 
 ### M5 — Game-quality showcases (E10 then E11 then E12)
 - Build `vdp2_parallax_world`, `vdp2_fighting_stage`, `vdp2_neon_city` using the shared APIs.
 - Use original, redistributable scene assets and compare rendering/performance with realistic control scenarios.
 - **Gate:** no example-local copy of general-purpose register or cache management; stable 10-minute runs; no stock-RAM overrun.
 
-**Status (2026-10-17): NOT STARTED.** E10-E12 are the integration stage for every prior slice - M2's RBG0/RBG1, M3's extended CC and shadow, M4's tile streaming and video modes. Extended colour calculation, hardware blur, special priority/colour calculation and shadow sprites are public and accepted (E03, E04, E06, E05), but PAL/interlace modes and the unified tile publish API are still absent, so these examples have no complete surface to build on.
+**Status (2026-10-17): NOT STARTED.** E10-E12 are the integration stage for every prior slice - M2's RBG0/RBG1, M3's extended CC and shadow, M4's tile streaming and video modes. Extended colour calculation, hardware blur, special priority/colour calculation, shadow sprites and bounded tile/map streaming are public and accepted (E03, E04, E06, E05, E07), but PAL/interlace modes are still absent, so the video-mode half of these showcases has no complete surface yet.
 
 ### M6 — Hardware signoff and developer experience
 - Run/record physical Saturn tests across region/video mode, console revision and disc/ODE where available. Keep **PENDING** where no machine exists.
@@ -478,8 +482,8 @@ For each E01-E12, all boxes must be checked before changing its status to DONE:
 
 ## 10. Primary sources and entry points
 
-- Sega VDP2 manual: `docs/sega_saturn_hardware/hard/vdp2/hon/p02_20.md` (interlace), `p03_30.md` (VRAM cycles), `p06_20.md` (RBG0/RBG1), `p06_30.md` / `p06_40.md` (rotation/coefficient), `p08_20.md` (windows), `p09_10.md` / `p09_20.md` (sprite formats/priority), `p10_30.md` (special function codes), `p11_20.md` (special priority), `p12_12.md` / `p12_13.md` / `p12_14.md` (extended colour/blur), `p12_20.md` (special colour calculation), `p14_10.md` (shadow processing), `p15_40.md` (normal vs MSB usage) and `p16_18.md` (SDCTL).
-- Runtime: `include/saturn/vdp2_layers.h`, `vdp2_compose.h`, `vdp2_alloc.h`, `vdp2.h`, `video.h` and their implementations under `src/graphics/vdp2/` and `src/hal/vdp2/`.
+- Sega VDP2 manual: `docs/sega_saturn_hardware/hard/vdp2/hon/p02_20.md` (interlace), `p03_30.md` / `p03_34.md` (VRAM cycles and mapping), `p04_10.md` (pattern-name data), `p06_20.md` (RBG0/RBG1), `p06_30.md` / `p06_40.md` (rotation/coefficient), `p08_20.md` (windows), `p09_10.md` / `p09_20.md` (sprite formats/priority), `p10_30.md` (special function codes), `p11_20.md` (special priority), `p12_12.md` / `p12_13.md` / `p12_14.md` (extended colour/blur), `p12_20.md` (special colour calculation), `p14_10.md` (shadow processing), `p15_40.md` (normal vs MSB usage) and `p16_18.md` (SDCTL).
+- Runtime: `include/saturn/stage_map2.h`, `vdp2_layers.h`, `vdp2_compose.h`, `vdp2_alloc.h`, `vdp2.h`, `video.h` and their implementations under `src/graphics/vdp2/` and `src/hal/vdp2/`.
 - Existing fixtures: `examples/vdp2_*`, `tests/host/test_vdp2_*.cpp`, `harness/run-vdp2-*.ps1`.
 - Baseline acceptance: `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md`, `docs/LIBSATURN_CURRENT_COVERAGE.md`.
 

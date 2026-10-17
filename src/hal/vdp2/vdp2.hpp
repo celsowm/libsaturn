@@ -82,6 +82,9 @@ void set_display_enable(bool enable);
 void set_map_offset(uint16_t offset);
 void set_backdrop_color(uint16_t rgb555);
 void write_vram_words(uint32_t word_offset, const uint16_t* words, uint32_t word_count);
+/* CPU read of VDP2 VRAM, for CRC and diagnostics only. Word offsets count
+ * 16-bit words in the 512 KiB VRAM. */
+void read_vram_words(uint32_t word_offset, uint16_t* out, uint32_t word_count);
 void fill_vram_words(uint32_t word_offset, uint16_t value, uint32_t word_count);
 
 /* ------------------------------------------------------------------ */
@@ -177,6 +180,9 @@ bool nbg_active();
  * writes the registers; nothing changes when it fails. Busy while the legacy
  * NBG0 API or RBG0 is in use. */
 NbgResult nbg_configure(uint8_t index, const nbg::Layer& layer);
+/* Moves a one-plane cell layer's pattern-name ring to `base` for the next
+ * commit_layers() VBlank replay. No register is written here. */
+NbgResult nbg_set_plane_base(uint8_t index, uint32_t base);
 void nbg_release(uint8_t index);
 bool nbg_layer(uint8_t index, nbg::Layer* out);
 /* Integer parts 11 bits; fractions 8 bits in bits 15-8 (NBG0/NBG1 only use them). */

@@ -51,6 +51,7 @@ EXPECTED_FEATURE_IDS = frozenset({
     "extended_color_calculation",
     "special_priority_color_calc",
     "vdp2_shadow_sprites",
+    "vdp2_dynamic_tile_stream",
     "interlace_output",
     "pal_240_256_line_modes",
 })

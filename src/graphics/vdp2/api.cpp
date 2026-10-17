@@ -257,6 +257,18 @@ extern "C" sat_result_t sat_vdp2_vram_write_words(uint32_t word_offset, const ui
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_vram_read_words(uint32_t word_offset, uint16_t* out_words,
+                                                 uint32_t word_count) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    if (out_words == nullptr) return SAT_ERR_INVALID_ARG;
+    st = validate_vdp2_vram_write(word_offset, word_count);
+    if (st != SAT_OK) return st;
+    saturn::hal::vdp2::read_vram_words(word_offset, out_words, word_count);
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp2_nbg0_map_fill(uint16_t pattern_name) {
     using namespace saturn::core;
     sat_result_t st = require_initialized();

@@ -92,6 +92,27 @@ The version is defined once, in the `VERSION` file.
   inspect VDP1 draws); TPSDSL is host-tested and set, but pinned Ymir does
   not gate the transparent MSB shadow on it, so the TPSDSL=0 negative is
   unverified.
+- `vdp2_dynamic_tile_stream` (plan milestone M4, E07): bounded dynamic
+  tile/map streaming. New `sat_vdp2_layer_set_pattern_name_base` retargets a
+  one-plane cell layer's four pattern-name tables and lets
+  `sat_vdp2_layers_commit()` publish the base at VBlank; the pure
+  `nbg::retarget_plane_base` checks one-plane/cell alignment and the shared
+  map-offset group, and the HAL re-runs the cycle planner. New
+  `sat_vdp2_vram_read_words` provides a validated VRAM read for CRC and
+  diagnostics. The example composes two `sat_stage_map2` instances over
+  rings at 0x00000/0x04000: the inactive ring receives the next camera's
+  entering cells, then the base and wrapped scroll are published together.
+  The 36,000-frame Ymir stress passed 8/8: 34,905 guest frames, 32,999
+  switches, frozen at 33,000 with model and VRAM CRC both 0x517824CD, no
+  0xFFFF sentinel cell, MPABN0/MPCDN0 0x0202 at base 0x04000, max pending
+  1,485 words, 756,900 staged/committed words, and 192 SCU-DMA / 33,659 CPU
+  transfers with no timeout or illegal interrupt; capacity/base/invalid-DMA
+  refusals all 1. The harness recomputes the frozen CRC from its VDP2 VRAM
+  dump. `vdp2_dynamic_tile_stream` moved `absent` -> `exposed`;
+  physical hardware PENDING (checklist row 34). Limitations: one-plane cell
+  maps only for the live base switch, the double buffer is caller-composed,
+  the map is procedural (no CD/VFS chunk loading), and the switch API's
+  VBlank contract is only as strong as the caller's commit point.
 - `tools/inspect_capture.py`: reusable capture inspector for PNG pixels,
   spans and colour bounding boxes (Pillow), `probe.json` VDP2 registers, and
   big-endian telemetry structs from a Work RAM dump + linker map. Host test
@@ -103,16 +124,17 @@ The version is defined once, in the `VERSION` file.
   a documented one-line correctness fix, separate from the instrumentation
   patches; `vdp2_hardware_blur` is the acceptance case, and the sweep now
   includes its wrapper.
-- Harness observability for the M3 slices: `probe.json` now dumps
+- Harness observability for the M3/M4 slices: `probe.json` now dumps
   CCCTL, CCRNA, CCRNB, LNCLEN, SFPRMD, SFCCMD, SFCODE, SFSEL, SDCTL, SPCTL,
-  PRISA and PRISB-PRISD; `--watch-write` records the first writes into a bus range under
+  PRISA, PRISB-PRISD, MPOFN, MPABN0 and MPCDN0; `--watch-write` records the first writes into a bus range under
   `watch_writes` (PC, value, frame and size on both SH-2s); and
   `Invoke-ExampleTest` accepts `-ScreenshotWhen(Symbol)`,
   `-DumpMem(Symbol)` and `-WatchWrite`. The `...Symbol` forms resolve the
   telemetry struct from the build map, so wrappers no longer hard-code link
   addresses. The acceptance sweep now includes the dual-rotation,
   rotation-coefficient, special-colour, hardware-blur, special-priority,
-  sprite-shadow and VRAM-stress wrappers.
+  sprite-shadow, dynamic-tile-stream and VRAM-stress wrappers. Wrappers can
+  request extra VDP2 VRAM word dumps with `Invoke-ExampleTest -DumpVram`.
 - Gapless handoff between two disc-streamed tracks. `sat_music_use_disc_stream` now serves two
   `sat_music_open` tracks: the first opened is the one the drive plays, the second is the *standby*
   (`sat_music_info_t.standby`); a third is still `SAT_ERR_BUSY`. New `sat_music_prefetch(music)` fills

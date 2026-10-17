@@ -100,6 +100,11 @@ frame number: the scene's own clock then decides when the shot is taken.
 tests use it to prove the probe's side-effect-free reads agree with the Work
 RAM dump.
 
+`--dump-vram BASE_WORD:WORD_COUNT` exports a VDP2 VRAM word range under
+`vdp2.vram_ranges` in `probe.json`; the dynamic-tile-stream test uses it to
+recompute the active ring's CRC directly from Ymir. The wrapper form is
+`Invoke-ExampleTest -DumpVram 'BASE_WORD:WORD_COUNT'` (repeatable).
+
 `--watch-write ADDR:LEN[:FROM_FRAME]` records the first writes into a bus
 range on both SH-2s (PC, address, value, size and emulated frame) and exports
 them under `watch_writes` in `probe.json`. The address is matched after the

@@ -176,6 +176,25 @@ inline Status validate(uint8_t index, const Layer& l, bool split_a, bool split_b
     return Status::Ok;
 }
 
+/* Retargets a one-plane cell layer's pattern-name ring to another page base.
+ * This is the pure half of the VBlank double-buffer switch: all four plane
+ * registers must move together, the layer must be cell format and the new
+ * page must keep the same bank and map-offset group. The caller re-runs the
+ * cycle planner; nothing is written here. */
+inline Status retarget_plane_base(Layer& l, uint32_t base) {
+    if (l.bitmap) return Status::BadFormat;
+    for (uint8_t p = 1u; p < 4u; ++p) {
+        if (l.plane_address[p] != l.plane_address[0]) return Status::BadFormat;
+    }
+    const uint32_t size = plane_bytes(l.pn_one_word, l.char_2x2, l.pages_x, l.pages_y);
+    if (base % size != 0u || base >= kVramBytes || base + size > kVramBytes) return Status::BadPlane;
+    if ((map_value(base, size) >> 6u) != (map_value(l.plane_address[0], size) >> 6u)) {
+        return Status::BadPlane;
+    }
+    for (uint8_t p = 0u; p < 4u; ++p) l.plane_address[p] = base;
+    return Status::Ok;
+}
+
 /* ---- line scroll and vertical cell scroll tables (manual 5.3) ---------- */
 
 /* Words in one line scroll table entry: two per enabled field. */
