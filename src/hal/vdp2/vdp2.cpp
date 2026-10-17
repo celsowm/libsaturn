@@ -119,6 +119,9 @@ uint8_t g_mosaic_mask = 0u;
 uint16_t g_cc_layer_bits = 0u;
 bool g_cc_add = false; /* CCMD from set_color_calc_add */
 compose::ScreenRatios g_cc_ratios;
+/* Extended colour calculation (EXCCEN) and hardware blur (BOKEN/BOKN): the
+ * two mutually exclusive CCCTL extras, kept by the pure CcctlExtras policy. */
+compose::CcctlExtras g_cc_extras = {};
 /* Hi-res (640/704 wide) state: the VDP1 framebuffer is 8 bits/pixel, which
  * VDP2 must read as sprite type C, and its codes index one 256-colour CRAM
  * bank chosen by CRAOFB. Both are replayed by commit_layers(). */
@@ -134,12 +137,15 @@ bool hires_sprite_cc_on() {
     return g_hires && g_hires_sprite_cc != compose::kHiresSpriteCcOff;
 }
 
-/* CCCTL: the sprite module's word, the per-screen enables and the palette
- * (or hi-res) sprites' bit. */
+/* CCCTL: the sprite module's word, the per-screen enables, the palette
+ * (or hi-res) sprites' bit, CCMD, and the EXCCEN/BOKEN extras. The extras are
+ * mutually exclusive by construction (p12_14 ignores EXCCEN while BOKEN is 1),
+ * so the word never carries both. */
 uint16_t ccctl_value() {
     return static_cast<uint16_t>(g_last_ccctl_written | g_cc_layer_bits |
                                  ((g_palette_cc || hires_sprite_cc_on()) ? compose::kCcctlSprite : 0u) |
-                                 (g_cc_add ? compose::kCcctlAdd : 0u));
+                                 (g_cc_add ? compose::kCcctlAdd : 0u) |
+                                 compose::extras_word(g_cc_extras));
 }
 
 /* PRISA as written: the recorded sprite priority, split by code bit 7 while
@@ -417,6 +423,7 @@ void reset_color_ops() {
     g_cc_layer_bits = 0u;
     g_cc_add = false;
     g_cc_ratios = compose::ScreenRatios{};
+    g_cc_extras = compose::CcctlExtras{};
     g_hires_sprite_cc = compose::kHiresSpriteCcOff;
     g_hires_sprite_ratio = 0u;
     g_lncl_sprite = false;
@@ -1406,6 +1413,42 @@ void set_color_calc_add(bool add) {
     g_cc_add = add;
     g_compose_used = true;
     commit_compose();
+}
+
+bool hardware_blur_active() {
+    return g_cc_extras.blur;
+}
+
+/* Extended colour calculation (EXCCEN, CCCTL bit 10): the second image
+ * becomes the extended result (third + second at the fixed ratio, plus the
+ * line colour screen when it is inserted - manual table 12.2), so the top
+ * image blends a pre-mixed pair. Requires normal TV mode (refused in hi-res;
+ * p12_12, p12_14). Legal with line colour insertion. Mutually exclusive with
+ * BOKEN: turning one on clears the other, so CCCTL never carries both. */
+bool set_extended_color_calc(bool enabled) {
+    if (compose::extras_set_extended(g_cc_extras, enabled, g_hires) != compose::kExtrasOk) {
+        return false;
+    }
+    g_compose_used = true;
+    commit_compose();
+    return true;
+}
+
+/* Hardware blur (BOKEN, CCCTL bit 15, BOKN2..0 in bits 14-12). The screen
+ * selector follows the manual's table (p12_14): 0 sprite, 1 RBG0, 2 NBG0/RBG1,
+ * 3 setting-prohibited, 4 NBG1/EXBG, 5 NBG2, 6 NBG3, 7 setting-prohibited.
+ * Requires normal TV mode and CRAM mode 0; refuses to enable while line
+ * colour insert is on, and the public line-colour insert wrappers refuse a
+ * new insert behind a live blur (p12_13). Turning blur on clears any pending
+ * EXCCEN (p12_14 ignores EXCCEN while BOKEN is 1). */
+bool set_hardware_blur(uint8_t screen, bool enabled) {
+    if (compose::extras_set_blur(g_cc_extras, screen, enabled, g_hires, cram_mode(),
+                                 g_lncl_used) != compose::kExtrasOk) {
+        return false;
+    }
+    g_compose_used = true;
+    commit_compose();
+    return true;
 }
 
 void set_backdrop_lines(uint32_t table_word_offset) {

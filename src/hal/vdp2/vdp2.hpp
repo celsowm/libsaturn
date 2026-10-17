@@ -218,6 +218,20 @@ bool mosaic_blocks_vcs(uint8_t layer);
 /* Screen 0-3 NBG0-NBG3, 4 RBG0, 5 line colour screen, 6 back screen (ratio only). */
 bool set_screen_color_calc(uint8_t screen, bool enabled, uint8_t ratio);
 void set_color_calc_add(bool add);
+/* Extended colour calculation (EXCCEN) and hardware blur (BOKEN/BOKN): the two
+ * mutually exclusive CCCTL extras. Turning one on clears the other, so the
+ * register never carries both (manual p12_14: EXCCEN is ignored while BOKEN is
+ * 1). EXCCEN requires normal TV mode (p12_12, p12_14) and is legal with the
+ * line colour screen inserted (table 12.2). BOKEN requires normal TV mode and
+ * CRAM mode 0 and is refused while line colour insert is on (p12_13). */
+bool set_extended_color_calc(bool enabled);
+/* screen: 0 sprite, 1 RBG0, 2 NBG0/RBG1, 4 NBG1/EXBG, 5 NBG2, 6 NBG3 (3 and 7
+ * are setting-prohibited per the manual's BOKN table, p12_14). */
+bool set_hardware_blur(uint8_t screen, bool enabled);
+/* True while hardware blur owns CCCTL's BOKEN branch: the public line colour
+ * insert wrappers (sat_vdp2_layer/sprite_set_line_color_insert) refuse to
+ * enable themselves behind it (p12_13). */
+bool hardware_blur_active();
 void commit_compose();
 
 // Rotation parameter table upload

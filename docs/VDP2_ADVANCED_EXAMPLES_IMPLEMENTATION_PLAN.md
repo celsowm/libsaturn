@@ -310,7 +310,43 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Build each focused example independently with a visible A/B comparison; test mutually exclusive modes and palette/RGB mode transitions.
 - **Gate:** host register encodings, per-example screenshots/observables, unchanged existing `transparency_showcase` and `vdp2_compose_demo`.
 
-**Status (2026-10-16): NOT STARTED.** All four feature rows in `docs/VDP2_SUPPORT_MATRIX.json` (`hardware_blur`, `extended_color_calculation`, `special_priority_color_calc`, `vdp2_shadow_sprites`) are still `absent`. The existing sprite color-calculation API (`include/saturn/vdp2_color_calc.h`, `src/hal/vdp2/color_calc.cpp`) covers CCCTL's CCMD, CCRSA-D and the per-sprite ratio slots, but does not expose the per-screen enable bits (N0CCEN-N3CCEN, R0CCEN, LCCCEN in CCCTL), the per-screen ratio registers (CCRNA, CCRNB, CCRR, CCRLB) or the EXCCEN/BOKEN branches. E03-E04 cannot land without that surface; E05-E06 share the SPCTL/PRISA register plumbing already in the sprite module and need a separate per-example pass.
+**Status (2026-10-16): IN PROGRESS — the E03/E04 library surface has landed; the examples are the next slices.**
+
+- Per-screen colour calculation (the CCCTL enable bits N0CCEN-N3CCEN,
+  R0CCEN, LCCCEN and the CCRNA/CCRB/CCRR/CCRLB ratio registers) was already
+  public through `sat_vdp2_screen_color_calc_set` /
+  `sat_vdp2_color_calc_set_add` in `include/saturn/vdp2_compose.h`; only the
+  sprite module (`vdp2_color_calc.h`) lacks those bits, which the earlier
+  wording of this block conflated.
+- New public switches, both replayed through CCCTL by
+  `sat_vdp2_layers_commit()`: `sat_vdp2_extended_color_calc_set` (EXCCEN,
+  CCCTL bit 10) and `sat_vdp2_hardware_blur_set` (BOKEN bit 15 + BOKN bits
+  14-12). The acceptance/refusal table is pure policy —
+  `compose::CcctlExtras` in `src/hal/vdp2/compose_logic.hpp` — and
+  host-tested in `tests/host/test_vdp2_compose_logic.cpp`: the BOKN screen
+  table with the setting-prohibited 3 and 7 refused (p12_14), blur's
+  normal-TV-mode and CRAM-mode-0 requirements and its line-colour exclusion
+  in both directions (p12_13: enabling refuses an existing insert, and
+  `sat_vdp2_layer/sprite_set_line_color_insert` refuse behind a live blur),
+  EXCCEN's normal-TV-mode requirement, and the mutual exclusion (p12_14
+  ignores EXCCEN while BOKEN is 1, so the shadow never carries both; turning
+  one on clears the other and a refusal never mutates a live configuration).
+- Manual correction found while grounding the policy: extended colour
+  calculation is **legal** with line colour insertion — the four-screen
+  cascade of table 12.2 (p12_12) is exactly the EXCCEN + line-colour case.
+  The table 12.1 previously cited for the opposite claim is the hi-res
+  CRAM/format limit, not a line-colour rule, so EXCCEN is not refused there.
+- Both matrix rows moved `absent` → `partial` (`hardware_blur`,
+  `extended_color_calculation`): the register policy is host-tested but no
+  example or emulator has demonstrated either effect yet. E03
+  `vdp2_special_color` (extended CC plus the special-colour comparisons) and
+  E04 `vdp2_hardware_blur` carry that acceptance evidence and will flip the
+  rows to `exposed`. Special priority (E06) and VDP2 shadow sprites (E05)
+  still have no surface and no example.
+- Also repaired in the same pass: the `rbg1` matrix entry carried prose in
+  its `api`/`tests` fields, failing the pinned `tests/test_vdp2_support_matrix.py`
+  rules that guard the matrix (`api`/`tests` now cite real artifacts, the
+  detail moved to `notes`). The suite is green again.
 
 ### M4 — Streaming and expanded video coverage (E07 then E09)
 - Create bounded tile/map update scheduling with safe VBlank publication and stock-RAM accounting.

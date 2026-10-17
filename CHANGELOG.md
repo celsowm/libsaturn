@@ -11,6 +11,28 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- VDP2 extended colour calculation and hardware blur (plan milestone M3,
+  the E03/E04 library surface): `sat_vdp2_extended_color_calc_set` (CCCTL
+  EXCCEN) makes the second image the pre-mixed second+third result, plus the
+  line colour screen when it is inserted (the manual's four-screen cascade,
+  table 12.2, p12_12), so unlike blur it is legal there; and
+  `sat_vdp2_hardware_blur_set` (BOKEN/BOKN) blurs the BOKN-selected screen
+  per the manual's p12_14 table (3 and 7 setting-prohibited and refused).
+  Both require normal TV mode; blur additionally requires CRAM mode 0 and
+  excludes the line colour screen in both directions (p12_13: enabling
+  refuses an existing insert, and `sat_vdp2_layer/sprite_set_line_color_insert`
+  refuse behind a live blur). The two are mutually exclusive: p12_14 ignores
+  EXCCEN while BOKEN is 1, so CCCTL never carries both, and a refusal
+  returns `SAT_ERR_UNSUPPORTED` without touching the live configuration.
+  Both replay with `sat_vdp2_layers_commit()`. The acceptance/refusal table
+  is pure policy (`compose::CcctlExtras`, `src/hal/vdp2/compose_logic.hpp`)
+  with host tests (`tests/host/test_vdp2_compose_logic.cpp`). Honest status:
+  both matrix rows moved `absent` -> `partial` because no example or emulator
+  has demonstrated either effect yet: E03 `vdp2_special_color` and E04
+  `vdp2_hardware_blur` carry that evidence. Also repaired: the `rbg1` matrix
+  entry carried prose in its `api`/`tests` fields, failing the pinned
+  `tests/test_vdp2_support_matrix.py` rules; the detail moved to `notes` and
+  the suite is green again.
 - Gapless handoff between two disc-streamed tracks. `sat_music_use_disc_stream` now serves two
   `sat_music_open` tracks: the first opened is the one the drive plays, the second is the *standby*
   (`sat_music_info_t.standby`); a third is still `SAT_ERR_BUSY`. New `sat_music_prefetch(music)` fills

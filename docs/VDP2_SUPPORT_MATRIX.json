@@ -180,35 +180,32 @@
       "status": "partial",
       "manual": ["p06_20.md"],
       "api": [
-        "sat_vdp2_rotation_config_default(config) seeds rbg1.enabled = 0",
-        "sat_vdp2_rotation_configure(config) copies rbg1.enabled/colors/char_size/pattern_name_words/priority/transparent/palette/char_base_address (must be in VRAM-B0) and validates the B-map planes in VRAM-B1",
-        "sat_vdp2_rotation_rbg1_set_enabled(enabled) toggles RBG1 mid-frame without a full reconfigure; refused when parameter_mode is not A",
-        "sat_vdp2_layer_configure(NBG*) returns SAT_ERR_BUSY while RBG1 displays (manual p06_20: 'the normal scroll screen will not be able to be displayed at all')",
-        "sat_vdp2_rotation_set_parameter_mode(B or COEFFICIENT) returns SAT_ERR_INVALID_ARG while RBG1 displays (RBG1 always reads parameter set B; mode A only)"
+        "include/saturn/vdp2_layers.h"
       ],
       "tests": [
-        "tests/host/test_vdp2_rotation_rbg1.cpp: 35/35 (happy path, transparent=false, parameter mode != A refused, RBG0 banks in VRAM-B refused, B-map outside VRAM-B1 refused, character window outside VRAM-B0 refused, RBG1 hidden allows the A-map/B-map/banks anywhere, 2x2 window size, B-map 2x2 pages, over=repeat + over pattern name)",
-        "examples/vdp2_dual_rotation/main.c records six refused illegal combinations in g_dual_rotation"
+        "tests/host/test_vdp2_rotation_rbg1.cpp",
+        "harness/run-vdp2-dual-rotation.ps1",
+        "examples/vdp2_dual_rotation/main.c"
       ],
-      "notes": "Implemented in this slice. RBG1's image data follows the manual's separate-VRAM rule: pattern names fixed in VRAM-B1 (MPABRB..MPOPRB are the same map RBG0's B-mode reads, so the B-map must lie inside VRAM-B1 whenever rbg1.enabled is 1), character window fixed in VRAM-B0. The HAL replay writes the takeover registers only while RBG1 is on (BGON R1ON + N0TPON reuse, CHCTLA N0CHCN + N0CHSZ, PNCN0 N0PNB + N0SPR + N0SCC + N0SPLT + N0SCN, PLSZ RBPLSZ + RBOVR, MPOFR RBMP, MPABRB..MPOPRB, OVPNRB, PRINA N0PRIN), and clears them when RBG1 hides so NBG0's bits aren't left stale. The B-set plane map is emitted whenever the B-set will be read - RBG1 displays, RBG0 is in parameter mode B, or coefficient switching uses both sets (manual p04_84, parameter-mode page) - not only when RBG1 is on. The resource planner tracks B0/B1 separately (claim_rbg1_banks / release_rbg1_banks) so the rotation parameter table can sit in an RBG1-reserved None-role bank (p06_30) without giving RBG0 image data access to those banks. Per-dot coefficients and the rotation window mode remain refused on the NBG path - the same corner that E02 already records. Ymir's RBG1-through-transparent-RBG0 path does not surface the warm/dark checker on the f300 screenshot (warm=0, dark=0 across rows 40..220); the host test (35/35) is the strongest in-environment evidence short of a real Saturn, and harness/tests/test_vdp2_dual_rotation.py acknowledges this with a skip."
+      "notes": "Implemented in this slice. Public surface: sat_vdp2_rotation_config_default seeds rbg1.enabled = 0; sat_vdp2_rotation_configure copies rbg1.enabled/colors/char_size/pattern_name_words/priority/transparent/palette/char_base_address (must be in VRAM-B0) and validates the B-map planes in VRAM-B1; sat_vdp2_rotation_rbg1_set_enabled toggles RBG1 mid-frame without a full reconfigure (refused when parameter_mode is not A); sat_vdp2_layer_configure(NBG*) returns SAT_ERR_BUSY while RBG1 displays; sat_vdp2_rotation_set_parameter_mode(B or COEFFICIENT) returns SAT_ERR_INVALID_ARG while RBG1 displays (RBG1 always reads parameter set B; mode A only). The host test is 35/35 (happy path, transparent=false, parameter mode != A refused, RBG0 banks in VRAM-B refused, B-map outside VRAM-B1 refused, character window outside VRAM-B0 refused, RBG1 hidden allows the A-map/B-map/banks anywhere, 2x2 window size, B-map 2x2 pages, over=repeat + over pattern name). RBG1's image data follows the manual's separate-VRAM rule: pattern names fixed in VRAM-B1 (MPABRB..MPOPRB are the same map RBG0's B-mode reads, so the B-map must lie inside VRAM-B1 whenever rbg1.enabled is 1), character window fixed in VRAM-B0. The HAL replay writes the takeover registers only while RBG1 is on (BGON R1ON + N0TPON reuse, CHCTLA N0CHCN + N0CHSZ, PNCN0 N0PNB + N0SPR + N0SCC + N0SPLT + N0SCN, PLSZ RBPLSZ + RBOVR, MPOFR RBMP, MPABRB..MPOPRB, OVPNRB, PRINA N0PRIN), and clears them when RBG1 hides so NBG0's bits aren't left stale. The B-set plane map is emitted whenever the B-set will be read - RBG1 displays, RBG0 is in parameter mode B, or coefficient switching uses both sets (manual p04_84, parameter-mode page) - not only when RBG1 is on. The resource planner tracks B0/B1 separately (claim_rbg1_banks / release_rbg1_banks) so the rotation parameter table can sit in an RBG1-reserved None-role bank (p06_30) without giving RBG0 image data access to those banks. Per-dot coefficients and the rotation window mode remain refused on the NBG path - the same corner that E02 already records. Ymir's RBG1-through-transparent-RBG0 path does not surface the warm/dark checker on the f300 screenshot (warm=0, dark=0 across rows 40..220); the host test (35/35) is the strongest in-environment evidence short of a real Saturn, and harness/tests/test_vdp2_dual_rotation.py acknowledges this with a skip."
     },
     {
       "id": "hardware_blur",
       "title": "Hardware horizontal blur (normal TV modes, CRAM mode 0; conflicts with extended colour calculation and line colour insert)",
-      "status": "absent",
+      "status": "partial",
       "manual": ["p12_13.md", "p12_14.md"],
-      "api": [],
-      "tests": [],
-      "plan_milestone": "M3"
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp"],
+      "notes": "sat_vdp2_hardware_blur_set drives CCCTL's BOKEN/BOKN branch for the BOKN-selected screen (manual p12_14 table; 3 and 7 setting-prohibited and refused), with the normal-TV-mode and CRAM-mode-0 requirements and the line-colour exclusion in both directions (p12_13: enabling refuses an existing insert, and sat_vdp2_layer/sprite_set_line_color_insert refuse behind a live blur). The acceptance/refusal table is pure policy (compose::CcctlExtras) and host-tested. The blur's visible effect is verified on no emulator or hardware yet: E04 vdp2_hardware_blur carries that acceptance evidence, so this stays partial until then."
     },
     {
       "id": "extended_color_calculation",
       "title": "Extended colour calculation",
-      "status": "absent",
-      "manual": ["p12_12.md"],
-      "api": [],
-      "tests": [],
-      "plan_milestone": "M3"
+      "status": "partial",
+      "manual": ["p12_12.md", "p12_14.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp"],
+      "notes": "sat_vdp2_extended_color_calc_set drives CCCTL's EXCCEN: the second image becomes the pre-mixed second+third result (plus the line colour screen when inserted - the manual's four-screen cascade, table 12.2), so EXCCEN is legal with line colour insertion, unlike blur. Normal TV mode only (p12_12, p12_14: refused while hi-res), mutually exclusive with BOKEN in both directions (p12_14 ignores EXCCEN while BOKEN is 1; the shadow never carries both). Host-tested as pure CCCTL policy. No example or emulator evidence of the blended picture yet: E03 vdp2_special_color carries it, so this stays partial until then."
     },
     {
       "id": "special_priority_color_calc",

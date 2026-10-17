@@ -625,6 +625,9 @@ extern "C" sat_result_t sat_vdp2_line_color_screen_set(uint32_t table_address,
 
 extern "C" sat_result_t sat_vdp2_sprite_set_line_color_insert(uint8_t enabled) {
     SAT_TRY(saturn::core::require_initialized());
+    /* Manual p12_13: the blur calculation function excludes line colour
+     * insertion, so a live blur refuses a new insert (and vice versa). */
+    if (enabled != 0u && hal::hardware_blur_active()) return SAT_ERR_UNSUPPORTED;
     hal::set_line_color_sprite(enabled != 0u);
     return SAT_OK;
 }
@@ -632,6 +635,9 @@ extern "C" sat_result_t sat_vdp2_sprite_set_line_color_insert(uint8_t enabled) {
 extern "C" sat_result_t sat_vdp2_layer_set_line_color_insert(sat_vdp2_layer_t layer, uint8_t enabled) {
     SAT_TRY(saturn::core::require_initialized());
     if (!valid_layer(layer)) return SAT_ERR_INVALID_ARG;
+    /* Manual p12_13: the blur calculation function excludes line colour
+     * insertion, so a live blur refuses a new insert (and vice versa). */
+    if (enabled != 0u && hal::hardware_blur_active()) return SAT_ERR_UNSUPPORTED;
     /* LNCLEN keeps one bit per screen; the layers own bits 0-3. */
     static uint16_t mask = 0u;
     const uint16_t bit = static_cast<uint16_t>(1u << static_cast<uint32_t>(layer));

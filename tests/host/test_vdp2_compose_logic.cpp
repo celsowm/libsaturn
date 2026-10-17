@@ -144,6 +144,58 @@ static void hires_sprites_light_all_or_high_codes() {
     assert(kLnclenSprite == 0x0020u);
 }
 
+static void ccctl_extras_encode_and_exclude_each_other() {
+    /* the bits: EXCCEN 10, BOKEN 15, BOKN 14-12 (manual p12_14) */
+    assert(kCcctlExccen == 0x0400u);
+    assert((kCcctlExccen & (kCcctlLayerMask | kCcctlSprite | kCcctlAdd | kCcctlBoken)) == 0u);
+    assert(kCcctlBoken == 0x8000u && kCcctlBoknShift == 12u);
+    assert(((kCcctlBoken | (7u << kCcctlBoknShift)) >> kCcctlBoknShift) == 0xFu);
+    /* BOKN 3 and 7 are setting-prohibited (p12_14) */
+    assert(blur_screen_valid(0u) && blur_screen_valid(2u) && blur_screen_valid(6u));
+    assert(!blur_screen_valid(3u) && !blur_screen_valid(7u) && !blur_screen_valid(8u));
+    /* encoding */
+    CcctlExtras e{};
+    assert(extras_word(e) == 0u);
+    assert(extras_set_extended(e, true, false) == kExtrasOk);
+    assert(e.extended && extras_word(e) == kCcctlExccen);
+    /* blur on clears extended; BOKEN carries the BOKN screen */
+    assert(extras_set_blur(e, 5u, true, false, 0u, false) == kExtrasOk);
+    assert(extras_word(e) == static_cast<uint16_t>(kCcctlBoken | (5u << kCcctlBoknShift)));
+    assert(!e.extended && e.blur && e.blur_screen == 5u);
+    /* blur off leaves nothing behind */
+    assert(extras_set_blur(e, 5u, false, false, 0u, false) == kExtrasOk);
+    assert(extras_word(e) == 0u);
+    /* extended on clears a pending blur */
+    assert(extras_set_blur(e, 1u, true, false, 0u, false) == kExtrasOk);
+    assert(extras_set_extended(e, true, false) == kExtrasOk);
+    assert(e.extended && !e.blur && extras_word(e) == kCcctlExccen);
+}
+
+static void ccctl_extras_refuse_what_the_hardware_refuses() {
+    CcctlExtras e{};
+    /* EXCCEN: normal TV mode only - not hi-res, not dedicated monitor (p12_12) */
+    assert(extras_set_extended(e, true, true) == kExtrasHires);
+    assert(!e.extended && extras_word(e) == 0u);
+    /* BOKEN: the setting-prohibited BOKN numbers come first */
+    assert(extras_set_blur(e, 3u, true, false, 0u, false) == kExtrasBlurScreen);
+    assert(extras_set_blur(e, 7u, true, false, 0u, false) == kExtrasBlurScreen);
+    assert(extras_set_blur(e, 8u, true, false, 0u, false) == kExtrasBlurScreen);
+    /* then the mode rules: normal TV mode, CRAM mode 0, no line colour (p12_13) */
+    assert(extras_set_blur(e, 2u, true, true, 0u, false) == kExtrasHires);
+    assert(extras_set_blur(e, 2u, true, false, 1u, false) == kExtrasCramMode);
+    assert(extras_set_blur(e, 2u, true, false, 0u, true) == kExtrasLineColor);
+    assert(!e.blur && extras_word(e) == 0u);
+    /* a refusal never mutates a live configuration */
+    assert(extras_set_extended(e, true, false) == kExtrasOk);
+    assert(extras_set_blur(e, 2u, true, true, 1u, true) == kExtrasHires);
+    assert(e.extended && !e.blur && extras_word(e) == kCcctlExccen);
+    /* disable is accepted once the screen number is legal, whatever the modes */
+    assert(extras_set_blur(e, 2u, false, true, 1u, true) == kExtrasOk);
+    assert(!e.blur && e.extended);
+    assert(extras_set_extended(e, false, true) == kExtrasOk);
+    assert(extras_word(e) == 0u);
+}
+
 int main() {
     window_positions_drop_the_low_horizontal_bit();
     line_window_table_is_a_word_address_with_enable();
@@ -154,6 +206,8 @@ int main() {
     palette_window_sprites_use_type_3();
     cram_banks_pack_into_craofa_and_craofb();
     hires_sprites_light_all_or_high_codes();
+    ccctl_extras_encode_and_exclude_each_other();
+    ccctl_extras_refuse_what_the_hardware_refuses();
     std::puts("PASS: test_vdp2_compose_logic.cpp");
     return 0;
 }
