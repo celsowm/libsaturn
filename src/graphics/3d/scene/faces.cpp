@@ -164,7 +164,8 @@ sat_result_t append(sat_scene3d_faces_t* scene,
                     const sat_vec3_t* const corners[4],
                     const sat_projected_vertex_t* projected,
                     const uint16_t indices[4],
-                    const sat_scene3d_material_t& material, uint16_t pass) {
+                    const sat_scene3d_material_t& material, uint16_t pass,
+                    bool known_safe=false) {
     bool visible=false;
     int64_t sum=0;
     for (uint8_t c=0;c<4u;++c) {
@@ -190,8 +191,8 @@ sat_result_t append(sat_scene3d_faces_t* scene,
             item.gouraud[c]=material.vertex_gouraud[indices[c]];
         item.material.vertex_gouraud=nullptr;
     }
-    item.projected_safe=safe_projection(*scene,projected,indices,
-        material.kind==SAT_SCENE3D_RGB)?1u:0u;
+    item.projected_safe=(known_safe || safe_projection(*scene,projected,indices,
+        material.kind==SAT_SCENE3D_RGB))?1u:0u;
     if (!item.projected_safe) {
         for (uint8_t c=0;c<4u;++c) item.world.v[c]=*corners[c];
         ++scene->clipped_faces;
@@ -726,13 +727,39 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
     const uint16_t previous_count=scene->count;
     const uint16_t previous_culled=scene->culled_faces;
     const uint16_t previous_clipped=scene->clipped_faces;
+    /* A projected bounding box proves the same per-corner constraints for
+     * every face at once. Only use the proof when all mesh vertices pass;
+     * otherwise retain the existing face-specific clipping decisions. This
+     * amortizes repeated checks without discarding off-screen geometry. */
+    bool all_positive=false,all_safe_rgb=false,all_safe_indexed=false;
+    if(mesh->face_count>=16u && static_cast<uint32_t>(mesh->face_count)*4u>mesh->vertex_count) {
+        int32_t min_x=screen_scratch[0].x,max_x=min_x;
+        int32_t min_y=screen_scratch[0].y,max_y=min_y;
+        sat_fx16_t min_w=screen_scratch[0].w;
+        for(uint16_t v=1;v<mesh->vertex_count;++v) {
+            const sat_projected_vertex_t& p=screen_scratch[v];
+            if(p.x<min_x)min_x=p.x;
+            if(p.x>max_x)max_x=p.x;
+            if(p.y<min_y)min_y=p.y;
+            if(p.y>max_y)max_y=p.y;
+            if(p.w<min_w)min_w=p.w;
+        }
+        all_positive=min_w>0;
+        if(min_w>=scene->near_depth) {
+            all_safe_rgb=min_x>=-1024 && min_y>=-1024 &&
+                max_x<=1023-static_cast<int32_t>(scene->width/2u) &&
+                max_y<=1023-static_cast<int32_t>(scene->height/2u);
+            all_safe_indexed=saturn::core::render3d::coord_drawable(min_x,min_y,scene->width,scene->height) &&
+                saturn::core::render3d::coord_drawable(max_x,max_y,scene->width,scene->height);
+        }
+    }
     for (uint16_t f=0;f<mesh->face_count;++f) {
         const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
         const bool cull_face=instance->cull_backfaces &&
             (!instance->double_sided_faces || !instance->double_sided_faces[f]);
         if (cull_face &&
-            screen_scratch[idx[0]].w>0 && screen_scratch[idx[1]].w>0 &&
-            screen_scratch[idx[2]].w>0 && screen_scratch[idx[3]].w>0 &&
+            (all_positive || (screen_scratch[idx[0]].w>0 && screen_scratch[idx[1]].w>0 &&
+            screen_scratch[idx[2]].w>0 && screen_scratch[idx[3]].w>0)) &&
             saturn::core::render3d::projected_area2(screen_scratch,idx)<=0)
         {
             ++scene->culled_faces;
@@ -753,13 +780,14 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
             continue;
         }
         const sat_scene3d_material_t& base=materials[face_materials[f]];
+        const bool known_safe=base.kind==SAT_SCENE3D_RGB?all_safe_rgb:all_safe_indexed;
         sat_result_t st;
         if (override_slot) {
             sat_scene3d_material_t overridden=base;
             overridden.color_calc_slot=color_calc_slot;
-            st=append(scene,corners,screen_scratch,idx,overridden,instance->pass);
+            st=append(scene,corners,screen_scratch,idx,overridden,instance->pass,known_safe);
         } else {
-            st=append(scene,corners,screen_scratch,idx,base,instance->pass);
+            st=append(scene,corners,screen_scratch,idx,base,instance->pass,known_safe);
         }
         if (st!=SAT_OK) {
             scene->count=previous_count;

@@ -89,3 +89,38 @@ Each actor's immutable binding adds 36 bytes of caller-owned storage. The
 eight-actor stock build leaves 43,160 bytes above BSS, including the enforced
 16 KiB Master stack reserve. No additional worker queues, texture uploads or
 per-frame allocations are introduced.
+
+## Dense projected-face preparation (2026-10-16)
+
+A separate consumer test in `tekken3-saturn` isolates rendering at a fixed
+authored pose. It freezes simulation explicitly and labels its image
+`RENDER BENCHMARK`; it is not a new simulation-rate or playable-performance
+claim for the arena measurements above.
+
+Dense instances now scan the projected mesh bounds once. If every vertex meets
+the existing depth/coordinate rules, faces can reuse that proof. RGB and indexed
+coordinate limits remain distinct. When the proof fails, each face retains the
+original checks; an unused off-screen vertex cannot reject valid faces.
+World-normal visibility, global painter order, clipping fallbacks, residency
+checks and queued material ownership remain unchanged. No scratch allocation or
+public ABI addition is needed. Both build systems compile only `scene/faces.cpp`
+with `-O3`; other runtime sources retain their existing optimization level.
+
+| Fixed-pose consumer variant | Render/HUD work sample |
+| --- | --- |
+| Previous `-O2` face module | 73 ms |
+| `-O3` face module | 68 ms |
+| `-O3` plus projected-bounds proof | 66 ms |
+
+All variants reach the same simulation tick 120, submit 793 commands, and
+produce identical decoded screenshot pixels. Their observed frozen-loop rate
+remains 12/s, so the CPU saving is not presented as a display-rate improvement.
+This work sample includes skinning and HUD. Separate FRT profiling of the live
+baseline attributes about 14 ms of preparation and 4.5 ms projection to the last
+actor, and about 11 ms to full painter/emission work (NTSC FRT divided by 128).
+
+The host API suite compares dense instance submissions against individual-quad
+submissions across 48 RGB/indexed boundary cases, including near clipping and
+an unused invalid vertex. Existing binding, atomicity, world visibility and
+parallel merge checks remain active. The API suite also passes with `-O3` and
+ASan/UBSan. These emulator/host results do not establish physical Saturn timing.

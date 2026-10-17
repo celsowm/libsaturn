@@ -160,7 +160,7 @@ LIB_CFLAGS := $(BASE_CFLAGS) -DSAT_LEGACY_EARLY_SCU=$(SAT_LEGACY_EARLY_SCU) -DSA
 LIB_CXXFLAGS := $(LIB_CFLAGS) -std=c++20 -fno-exceptions -fno-rtti \
                 -fno-threadsafe-statics -fno-use-cxa-atexit
 LIB_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
-    "$(LIB_CFLAGS)" "$(LIB_CXXFLAGS)" "$(ASFLAGS)")
+    "$(LIB_CFLAGS)" "$(LIB_CXXFLAGS)" "$(ASFLAGS)" "scene_faces=-O3")
 LIB_OBJ_ROOT := $(BUILD_DIR)/objects/library/$(LIB_PROFILE_KEY)
 
 # -- Biblioteca -------------------------------------------------
@@ -573,7 +573,7 @@ $(LIB_OBJ_ROOT)/%.o: %.c
 
 $(LIB_OBJ_ROOT)/%.o: %.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(LIB_CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+	$(CXX) $(LIB_CXXFLAGS) $(if $(filter src/graphics/3d/scene/faces.cpp,$<),-O3) $(DEPFLAGS) -c $< -o $@
 
 $(APP_OBJ_ROOT)/%.o: %.c
 	@mkdir -p $(dir $@)

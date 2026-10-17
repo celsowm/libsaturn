@@ -357,7 +357,53 @@ static void lut4_gouraud_corners_are_owned_by_scene() {
     assert(sat_scene3d_faces_submit_quad(&scene,&q,&material,0)==SAT_ERR_INVALID_ARG);
     assert(scene.count==0);
 }
+static void instance_projection_proof_matches_individual_faces() {
+    sat_scene3d_face_t fast_faces[16]={},reference_faces[16]={};
+    uint32_t fast_keys[16]={},reference_keys[16]={};
+    uint16_t fast_order[16]={},reference_order[16]={};
+    sat_scene3d_faces_t fast={},reference={};
+    assert(sat_scene3d_faces_init(&fast,fast_faces,fast_keys,fast_order,16)==SAT_OK);
+    assert(sat_scene3d_faces_init(&reference,reference_faces,reference_keys,reference_order,16)==SAT_OK);
+    sat_mat4_t vp={};vp.m[0]=SAT_FX16_ONE;
+    const sat_vec3_t eye={0,0,0},forward={0,0,SAT_FX16_ONE};
+    sat_vdp1_texture_t texture={};texture.valid=1;texture.srca=33;
+    uint16_t indices[64]={},materials[16]={};
+    for(unsigned i=0;i<64;++i)indices[i]=(uint16_t)(i%4);
+    const int positions[]={-1025,-640,-5,0,620,863,864,1024};
+    for(int x:positions)for(int kind=0;kind<2;++kind)for(int mode=0;mode<3;++mode) {
+        sat_vec3_t vertices[5]={
+            {x*SAT_FX16_ONE,0,2*SAT_FX16_ONE},
+            {(x+4)*SAT_FX16_ONE,0,2*SAT_FX16_ONE},
+            {(x+4)*SAT_FX16_ONE,4*SAT_FX16_ONE,2*SAT_FX16_ONE},
+            {x*SAT_FX16_ONE,4*SAT_FX16_ONE,2*SAT_FX16_ONE},
+            {0,0,2*SAT_FX16_ONE}};
+        if(mode==1)vertices[0].z=SAT_FX16_ONE/2;
+        if(mode==2)vertices[4]={3000*SAT_FX16_ONE,0,-SAT_FX16_ONE}; // unused vertex cannot cull valid faces
+        sat_mesh_t mesh={};mesh.vertices=vertices;mesh.indices=indices;
+        mesh.vertex_cap=mesh.vertex_count=5;mesh.face_cap=mesh.face_count=16;
+        sat_scene3d_material_t material={};material.kind=kind?SAT_SCENE3D_INDEXED_SOLID:SAT_SCENE3D_RGB;
+        material.texture=&texture;material.rgb555=0x8123;material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+        sat_scene3d_instance_t instance={};instance.mesh=&mesh;instance.materials=&material;
+        instance.material_count=1;instance.face_materials=materials;
+        sat_projected_vertex_t screen[5]={};
+        assert(sat_scene3d_faces_begin(&fast,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+        assert(sat_scene3d_faces_begin(&reference,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+        assert(sat_scene3d_faces_submit_instance(&fast,&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+        sat_quad3_t quad={{vertices[0],vertices[1],vertices[2],vertices[3]}};
+        for(unsigned f=0;f<16;++f)assert(sat_scene3d_faces_submit_quad(&reference,&quad,&material,0)==SAT_OK);
+        assert(fast.count==reference.count && fast.culled_faces==reference.culled_faces && fast.clipped_faces==reference.clipped_faces);
+        for(unsigned f=0;f<fast.count;++f) {
+            assert(same_face(fast_faces[f],reference_faces[f]));assert(fast_keys[f]==reference_keys[f]);
+        }
+        emitted_count=0;
+        assert(sat_scene3d_faces_flush(&fast)==SAT_OK);
+        assert(sat_scene3d_faces_flush(&reference)==SAT_OK);
+    }
+    emitted_count=0;
+}
+
 int main() {
+    instance_projection_proof_matches_individual_faces();
     lut4_gouraud_corners_are_owned_by_scene();
     split_faces_sort_by_their_own_depth();
     capture_queues_draws_at_its_pass();
