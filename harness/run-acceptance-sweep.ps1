@@ -62,6 +62,7 @@ $items = [ordered]@{
     'vdp2-parallax-world' = { & (Join-Path $PSScriptRoot 'run-vdp2-parallax-world.ps1') @common }
     'vdp2-fighting-stage' = { & (Join-Path $PSScriptRoot 'run-vdp2-fighting-stage.ps1') @common }
     'vdp2-neon-city'    = { & (Join-Path $PSScriptRoot 'run-vdp2-neon-city.ps1') @common }
+    'vdp2-parallax-lab' = { & (Join-Path $PSScriptRoot 'run-vdp2-parallax-lab.ps1') @common }
     'jukebox'           = {
         & $harness -Example cd_streaming_jukebox -Frames 300 -Out $jukeboxJson @common
         if ($LASTEXITCODE -ne 0) { throw 'jukebox probe failed' }

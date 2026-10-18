@@ -281,7 +281,7 @@ LibSaturn is not limited to drawing everything as VDP1 polygons.
 
 The VDP2 stack includes NBG0-NBG3 and RBG0/RBG1, cell and bitmap screens, scrolling, zoom, priorities, windows, mosaic, per-line scroll and colour tables, colour calculation (ratio, add, extended), special priority/colour codes, hardware blur, sprite shadows, colour offsets, VRAM cycle planning and transactional resource reservations. RBG0/RBG1 add rotation parameter sets A and B, coefficient tables and screen-over repetition for panoramic and effectively infinite Mode-7-style ground. Bounded tile/map streaming publishes double-buffered pattern-name rings at VBlank, and the video-mode contract covers 320/352/640/704 by 224/240/256 with single-density interlace.
 
-This allows game scenes to reserve VDP1 command budget for objects while VDP2 handles large backgrounds and ground planes in parallel with the sprite processor. The showcase examples are [parallax coast](examples/vdp2_parallax_world/README.md), [neon city](examples/vdp2_neon_city/README.md), [fighting stage](examples/vdp2_fighting_stage/README.md), [video modes](examples/vdp2_video_modes/README.md), [rotation coefficients](examples/vdp2_rotation_coefficients/README.md), [dual rotation](examples/vdp2_dual_rotation/README.md) and [dynamic tile streaming](examples/vdp2_dynamic_tile_stream/README.md).
+This allows game scenes to reserve VDP1 command budget for objects while VDP2 handles large backgrounds and ground planes in parallel with the sprite processor. The showcase examples are [parallax coast](examples/vdp2_parallax_world/README.md), [parallax lab](examples/vdp2_parallax_lab/README.md), [neon city](examples/vdp2_neon_city/README.md), [fighting stage](examples/vdp2_fighting_stage/README.md), [video modes](examples/vdp2_video_modes/README.md), [rotation coefficients](examples/vdp2_rotation_coefficients/README.md), [dual rotation](examples/vdp2_dual_rotation/README.md) and [dynamic tile streaming](examples/vdp2_dynamic_tile_stream/README.md).
 
 ## Audio
 
@@ -358,7 +358,7 @@ The repository contains focused examples and larger integration demos covering a
 - animated 3D models;
 - physics and collision;
 - RBG0 infinite environments;
-- VDP2 showcase set: [parallax coast](examples/vdp2_parallax_world/README.md), [neon city](examples/vdp2_neon_city/README.md), [fighting stage](examples/vdp2_fighting_stage/README.md) and [video modes](examples/vdp2_video_modes/README.md);
+- VDP2 showcase set: [parallax coast](examples/vdp2_parallax_world/README.md), [parallax lab](examples/vdp2_parallax_lab/README.md), [neon city](examples/vdp2_neon_city/README.md), [fighting stage](examples/vdp2_fighting_stage/README.md) and [video modes](examples/vdp2_video_modes/README.md);
 - CD Block and streamed audio;
 - Dual SH-2 communication;
 - the high-level parallel runtime;

@@ -560,6 +560,11 @@ standards pass 18/18. `make test` is green, the package gates pass 3/3 and
 5/5, and `make examples-all` exits 0. Physical hardware remains PENDING;
 Phase B is next.
 
+**Post-A addition (E13):** `vdp2_parallax_lab` uses the same public layer API
+to drive two 8bpp bitmap NBGs and two two-word cell NBGs from four
+hand-painted 512x256 layers. It is recorded in the evidence ledger and the
+coverage document; it does not change the Phase A 18/18 sweep baseline.
+
 **Phase B - hardware signoff kit (can start now).**
 
 1. Add `harness/prepare-vdp2-signoff.ps1`. It builds the twelve E01-E12 discs

@@ -11,7 +11,15 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
-- `docs/VDP2_EVIDENCE_LEDGER.md` records the E01-E12 build, host, Ymir
+- `vdp2_parallax_lab` (E13, post-plan): a four-layer hand-painted coast
+  driven entirely by VDP2. NBG0/NBG1 are 512x256 8bpp bitmaps and NBG2/NBG3
+  are two-word cell maps (4bpp mountains, 8bpp sky); the SH-2 updates only
+  four scroll registers. `tools/convert_vdp2_parallax_lab.py` converts the
+  four source PNGs into big-endian bitmap, cell and map assets, and
+  `harness/run-vdp2-parallax-lab.ps1` checks the public layer configuration,
+  VDP2 register geometry, uploaded maps/chars and live picture in NTSC and
+  PAL. Mednafen 1.32.1 captures are recorded; physical hardware PENDING.
+- `docs/VDP2_EVIDENCE_LEDGER.md` records the E01-E13 build, host, Ymir
   NTSC/PAL, Mednafen, stress and physical-status evidence, and maps the plan's
   definition-of-done checklist to named artifacts.
 - VDP2 video modes (plan milestone M4, E09): `sat_video_config_t.interlace`

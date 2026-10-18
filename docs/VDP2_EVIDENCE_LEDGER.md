@@ -1,8 +1,10 @@
-# VDP2 E01-E12 evidence ledger
+# VDP2 E01-E13 evidence ledger
 
 **Date:** 2026-10-18
 **Scope:** M6 Phase A evidence freeze for the twelve VDP2 examples in
-`docs/VDP2_ADVANCED_EXAMPLES_IMPLEMENTATION_PLAN.md`.
+`docs/VDP2_ADVANCED_EXAMPLES_IMPLEMENTATION_PLAN.md`, plus E13
+(`vdp2_parallax_lab`), a post-Phase-A art-backed showcase built on the same
+public layer API.
 **Physical hardware:** out of scope here and still **PENDING** for every
 row. Nothing in this file is a hardware claim.
 
@@ -17,7 +19,7 @@ row. Nothing in this file is a hardware claim.
 - Ymir runs use the user's own BIOS dump. The full wrapper set is exercised by
   `harness/run-acceptance-sweep.ps1` in NTSC (US BIOS) and PAL (EU BIOS).
 
-## E01-E12 evidence
+## E01-E13 evidence
 
 | Example (row) | Build | Host test | Ymir NTSC | Ymir PAL | Mednafen | Long / stress | Known emulator gap |
 |---|---|---|---|---|---|---|---|
@@ -33,6 +35,7 @@ row. Nothing in this file is a hardware claim.
 | **E10** `vdp2_parallax_world` (36) | `build-example.ps1` | No scene-specific host test; shared VDP2 API host tests | `run-vdp2-parallax-world.ps1` 7/7 | `run-vdp2-parallax-world.ps1 -Pal` 7/7 | 1.32.1 live-path capture | `-Long` 7/7, 3,600 fields | Reference path is a pre-rendered VDP1 comparison, not a second hardware renderer. |
 | **E11** `vdp2_fighting_stage` (37) | `build-example.ps1` | Shared character and VDP2 host tests | `run-vdp2-fighting-stage.ps1` 5/5 | `run-vdp2-fighting-stage.ps1 -Pal` 5/5 | 1.32.1 stage off/on captures | N/A | Stage is an E11-only compilation of the shared demo; `fighter_arena_3d` keeps its legacy NBG0 backdrop. |
 | **E12** `vdp2_neon_city` (38) | `build-example.ps1` | Shared VDP2 API host tests | `run-vdp2-neon-city.ps1` 6/6 | `run-vdp2-neon-city.ps1 -Pal` 6/6 | 1.32.1 ring 0/1 and light-pool captures | `-Long` 6/6, 1,753 scene frames, 1,752 switches, equal model/VRAM CRC | Light pool is an artistic approximation; all timings are emulator-side. |
+| **E13** `vdp2_parallax_lab` (post-A) | `build-example.ps1` | Shared VDP2 API host tests | `run-vdp2-parallax-lab.ps1` 4/4, 1 skipped (`-Long`) | `run-vdp2-parallax-lab.ps1 -Pal` 4/4, 1 skipped (`-Long`) | 1.32.1 live pan at frames 87 and 497 | `-Long` 5/5, 2,400 fields | Art is a 512x256 reduction of an external four-layer lab, not seamless; alpha is thresholded, and the source was not authored for Saturn. |
 
 The sweep logs are written to `harness/build/sweep_ntsc/` and
 `harness/build/sweep_pal/`; each wrapper also leaves its own probe JSON,
@@ -44,6 +47,8 @@ WRAM dump, screenshots and test log under `harness/build/<example>/` or
 ```powershell
 .\harness\run-acceptance-sweep.ps1 -Bios .\bios\saturn_bios_us.bin
 .\harness\run-acceptance-sweep.ps1 -Pal -Bios .\bios\saturn_bios_eu.bin
+.\harness\run-vdp2-parallax-lab.ps1 -Bios .\bios\saturn_bios_us.bin
+.\harness\run-vdp2-parallax-lab.ps1 -Pal -Bios .\bios\saturn_bios_eu.bin
 .\scripts\test-package.ps1
 ```
 
@@ -62,6 +67,7 @@ linked and need `libstdc++-6.dll` from that directory.
 | `scripts/test-package.ps1` | PASS, host 3/3 and package 5/5 |
 | `make examples-all` | PASS (exit 0) |
 | Clean `git diff --check` | PASS |
+| E13 post-A verification | NTSC 4/4 (+1 `-Long` skip) and PAL 4/4 (+1 skip); Mednafen live captures. The 18/18 Phase A sweep count predates E13. |
 
 ## Definition-of-done mapping
 
@@ -71,7 +77,7 @@ remains unchecked by design.
 
 | DoD item | Evidence | State |
 |---|---|---|
-| Scene compiles to a Saturn disc | All twelve examples build through `build-example.ps1`; the sweep rebuilds each one before running it. | PASS |
+| Scene compiles to a Saturn disc | All twelve plan examples and E13 build through `build-example.ps1`; the sweep rebuilds each one before running it. | PASS |
 | Reusable public API | `docs/VDP2_SUPPORT_MATRIX.json` feature rows and the headers/APIs cited by every example README. | PASS |
 | VRAM/cycle/CRAM/register ownership and refusals | Host tests for the pure policies plus the refusal counters in each example's telemetry and harness test. | PASS |
 | Host regression tests | `make test`; the VDP2 host tests listed above plus the shared VDP2 suite. The Phase A run is green (`[test] all host tests passed`). | PASS |
@@ -81,7 +87,7 @@ remains unchecked by design.
 | Stock RAM and VDP1/VDP2 budgets | The example sources contain no heap calls; buffers are fixed arrays. E07, E11 and E12 expose transfer/memory telemetry; E07's staging buffers are explicitly fixed. | PASS for the no-heap/fixed-buffer contract; per-example RAM HUDs are not universal |
 | No regression in existing consumers | `make test`, `make examples-all` (exit 0) and the pre-plan VDP2 wrappers in the sweep. | PASS |
 | All required tests/builds pass on `main` | Phase A: `make test` green; package gates 3/3 + 5/5; VDP2-only NTSC 18/18 and PAL 18/18; `make examples-all` exit 0. | PASS |
-| Physical hardware remains PENDING | `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md` rows 27-38. | PENDING |
+| Physical hardware remains PENDING | `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md` rows 27-38 and E13. | PENDING |
 | README, manifest, matrix and checklist updated | Example READMEs, support matrix, coverage document, plan and checklist. | PASS for the current emulator scope |
 
 ## Phase A sweep repairs
