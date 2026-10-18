@@ -140,6 +140,7 @@ static uint16_t g_scene_order[MODEL_FACE_CAP];
  * CPU projects about half the pose. */
 static sat_mesh_t g_half_mesh[2] DINO_WRAM_L;
 static sat_scene3d_instance_t g_half[2] DINO_WRAM_L;
+static sat_scene3d_instance_binding_t g_half_binding[2] DINO_WRAM_L;
 static uint16_t g_half_first[2] DINO_WRAM_L;
 /* Slave half: its own projection scratch and prepared-face storage, merged
  * into g_scene after the task completes. */
@@ -789,6 +790,13 @@ int main(void) {
                 g_scene_materials[f].texture = &g_model_textures[f];
             }
         }
+    }
+    /* Immutable face/material topology survives alternating decoded poses. */
+    for (uint8_t half = 0u; half < 2u; ++half) {
+        sat_example_must(sat_scene3d_instance_binding_init(
+            &g_half_binding[half], g_half[half].mesh, g_half[half].materials,
+            g_half[half].material_count, g_half[half].face_materials));
+        g_half[half].validated_binding = &g_half_binding[half];
     }
     loading_step(30u);
 

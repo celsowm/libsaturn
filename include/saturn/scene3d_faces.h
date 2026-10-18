@@ -234,17 +234,18 @@ sat_result_t sat_scene3d_faces_submit_tiled_quad(
 
 /* A validated immutable topology snapshot. Building one costs O(face_count)
  * once; a matching instance may then skip that same index/material-map walk
- * every frame. Vertex POSITIONS may change in place (animated poses), but the
- * mesh descriptor/buffers/counts, material table identity and face_materials
- * contents must remain unchanged. Dynamic material maps should leave this
- * fast path unused. Material residency is still rechecked before flush. */
+ * every frame. Vertex positions, vertex-buffer addresses, mesh descriptors
+ * and capacities
+ * may change between submissions, provided their validated counts match and
+ * the current buffers cover those counts. This supports double-buffered poses
+ * and independent instances of the same topology. Indices, face-material map,
+ * material table and referenced descriptors must remain immutable for the
+ * binding lifetime; rebuild the binding after changing them. Each submission
+ * still checks current buffer capacities. Material residency is rechecked
+ * before flush. */
 typedef struct sat_scene3d_instance_binding {
-    const sat_mesh_t* mesh;
-    const sat_vec3_t* vertices;
     const uint16_t* indices;
-    uint16_t vertex_cap;
     uint16_t vertex_count;
-    uint16_t face_cap;
     uint16_t face_count;
     const sat_scene3d_material_t* materials;
     uint16_t material_count;
@@ -291,8 +292,8 @@ typedef struct sat_scene3d_instance {
      * be validated when they are built/loaded, not every frame. */
     const sat_aabb3_t* bounds;
     /* Optional O(1) proof that immutable index/material topology was already
-     * validated. Any pointer/count mismatch rejects submission rather than
-     * silently falling back to a potentially stale token. */
+     * validated. A topology pointer/count mismatch rejects submission rather
+     * than silently falling back to a potentially stale token. */
     const sat_scene3d_instance_binding_t* validated_binding;
 } sat_scene3d_instance_t;
 

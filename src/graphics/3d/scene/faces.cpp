@@ -592,12 +592,8 @@ extern "C" sat_result_t sat_scene3d_instance_binding_init(
         for (uint8_t c=0u;c<4u;++c)
             if (idx[c]>=mesh->vertex_count) return SAT_ERR_INVALID_ARG;
     }
-    out->mesh=mesh;
-    out->vertices=mesh->vertices;
     out->indices=mesh->indices;
-    out->vertex_cap=mesh->vertex_cap;
     out->vertex_count=mesh->vertex_count;
-    out->face_cap=mesh->face_cap;
     out->face_count=mesh->face_count;
     out->materials=materials;
     out->material_count=material_count;
@@ -613,12 +609,8 @@ bool binding_matches(
     const sat_scene3d_instance_t& instance) {
     const sat_mesh_t* mesh=instance.mesh;
     return binding.valid!=0u && mesh!=nullptr &&
-        binding.mesh==mesh &&
-        binding.vertices==mesh->vertices &&
         binding.indices==mesh->indices &&
-        binding.vertex_cap==mesh->vertex_cap &&
         binding.vertex_count==mesh->vertex_count &&
-        binding.face_cap==mesh->face_cap &&
         binding.face_count==mesh->face_count &&
         binding.materials==instance.materials &&
         binding.material_count==instance.material_count &&

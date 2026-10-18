@@ -60,6 +60,49 @@ Private retained evidence is under `harness/build/`: baseline
 `cube-split-kernels`, `dino-split-kernels-animated`,
 `dino-split-kernels-paused` and `dino-split-kernels-controls`.
 
+## Topology/pose binding refactor
+
+The validated instance binding now describes immutable index/material topology,
+not a particular mesh descriptor or vertex-buffer address. It retains topology
+array identities and validated vertex/face counts. Submissions may switch pose
+buffers, descriptor addresses and capacities; current non-null buffers and
+capacities are still checked before projection. Changed topology identities or
+counts reject atomically. Indices, face-material maps, material tables and their
+referenced descriptors must stay immutable for the binding lifetime. Rebuild
+bindings after edits; do not reuse a binding as a trust flag for mutable tables.
+Texture residency is still checked before any flush emissions.
+
+This deliberately changes the public binding structure instead of preserving
+obsolete identity fields. Code using the initializer continues to initialize
+normally; all consumers must rebuild against the new header/library together.
+The Dino now creates one binding for each immutable face partition after its
+material table is initialized. Both Master and Slave reuse those bindings while
+collecting alternating decoded poses. The existing parallel publication path
+synchronizes each binding and the current pose buffer before dispatch.
+
+Using the same Ymir configuration and warmed interval as above:
+
+| Dino workload | Split visibility kernel | Topology/pose binding |
+| --- | ---: | ---: |
+| Animated | 20.0 submissions/s | 20.0 submissions/s |
+| Paused, unlit | 20.0 submissions/s | 20.0 submissions/s |
+| Control sequence | 17.4 submissions/s | 18.5 submissions/s |
+
+Paused model pixels are identical. All three runtime scenarios pass at both
+600 and 1,200 fields. A complete 12-field animated trace gives these exclusive
+cycle counts for submission itself plus `valid_material` (not inclusive frame
+cost): Master 1,368,043 before versus 1,025,438 after; Slave 958,760 versus
+694,851. Projection costs remain essentially unchanged. Flush still validates
+materials, explaining the remaining Master `valid_material` work. The default
+animated cadence did not cross another field boundary; these trace reductions
+must not be advertised as a corresponding frame-rate increase.
+
+Retained evidence: `harness/build/dino-topology-animated`,
+`dino-topology-paused`, `dino-topology-controls`, and the independent Mednafen
+CD boot in `dino-topology-mednafen`. Host coverage exercises a new pose buffer
+with changed coordinates, an independent descriptor, changed capacity, rejected
+topology/count changes, missing pose buffers and insufficient capacities.
+
 ## Why the library is the target
 
 The [cube ladder](CUBE_PIPELINE_BENCH.md) holds screen area constant and
@@ -102,10 +145,9 @@ in the cube emulator control. None of those experiments is a claimed fix.
    loads, SH-2 register spills and repeated clamp/divider setup. Measure both
    Dino orbit cameras and the cube's sparse matrix; retain clipping and exact
    projected-coordinate behavior.
-2. Separate immutable topology/material-map validation from pose-buffer
-   switching through a reusable library contract. Dino currently lacks a
-   validated binding, and its alternating vertex pointers need explicit
-   lifetime support. Preserve atomic rejection and material-residency checks.
+2. Extend adoption of the topology/pose binding contract to other animated
+   assets after checking their mutation lifetimes. Dino now uses it; remaining
+   work includes measuring publication and flush validation independently.
 3. Reduce prepared-face copying/cache invalidation and amortize VDP1 emission
    setup after measuring useful work versus waits. Preserve two independently
    animated actors, ownership, command capacity and draw completion.

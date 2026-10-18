@@ -47,8 +47,10 @@ Make rule contains the exception. Local compile-database parity passes for
 The shared character example now uses the renderer's existing immutable
 instance binding. Validation occurs on LOD binding and resource reload, rather
 than repeating the complete index/material-map check every rendered frame.
-Animated vertex positions may change in place. Buffer pointers/counts, topology,
-material table and selectors stay fixed until a binding is rebuilt. Hit-flash
+Vertex positions and buffers may change while validated counts, topology,
+material table and selectors stay fixed until a binding is rebuilt. The later
+[topology/pose refactor](SHARED_RENDERER_PERFORMANCE.md) also permits independent
+mesh descriptors and capacities covering the validated counts. Hit-flash
 and RGB Gouraud tables remain on the full validation path because their contents
 change. GPU texture residency checks and global painter ordering remain in place.
 
@@ -122,7 +124,9 @@ DMA increased Ymir submission cost without improving throughput, so the
 examples retain CPU command uploads. Coarse geometry preparation is the next
 measured target.
 
-Each actor's immutable binding adds 36 bytes of caller-owned storage. The
+At the time of this study, each actor's immutable binding added 36 bytes of
+caller-owned storage; the later topology/pose refactor removes four identity
+fields. The
 eight-actor stock build leaves 43,160 bytes above BSS, including the enforced
 16 KiB Master stack reserve. No additional worker queues, texture uploads or
 per-frame allocations are introduced.

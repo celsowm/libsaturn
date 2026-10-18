@@ -147,3 +147,10 @@ results. `legacy_poll.iso` preserves the previous counter-based hook for
 regression comparison. Findings, download hashes and hardware comparison
 instructions are in [the investigation](../../docs/DINO_SATIATOR_BOOT_INVESTIGATION.md).
 Ymir runtime captures skip the BIOS executable load and do not certify Satiator boot.
+
+The scene partitions use immutable topology bindings initialized after material
+setup. Decoded pose buffers alternate independently of those bindings, so both
+SH-2s skip repeated index/material-map validation. Recreate the bindings if the
+index arrays, material table or face-material map change. See the shared
+[renderer measurements](../../docs/SHARED_RENDERER_PERFORMANCE.md) for measured
+control and animation cadence.

@@ -865,18 +865,45 @@ int main() {
     assert(scene.count==2u);
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
 
-    // A token is not a blind trust flag: descriptor identity/count changes
-    // reject before projection rather than reusing a stale validation.
+    // A distinct descriptor and alternating vertex buffers share one topology.
+    sat_mesh_t rebound_mesh=mesh;
+    sat_vec3_t alternate_vertices[16]={};
+    assert(mesh.vertex_count<=16u);
+    for(uint16_t v=0;v<mesh.vertex_count;++v) alternate_vertices[v]=mesh.vertices[v];
+    alternate_vertices[0].x+=SAT_FX16_ONE;
+    rebound_mesh.vertices=alternate_vertices;
+    rebound_mesh.vertex_cap=16u;
+    validated_instance.mesh=&rebound_mesh;
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
         SAT_FX16_ONE,320u,224u)==SAT_OK);
-    sat_mesh_t rebound_mesh=mesh;
-    validated_instance.mesh=&rebound_mesh;
-    const uint16_t stale_binding_calls=project_calls;
     assert(sat_scene3d_faces_submit_instance(
         &scene,&validated_instance,SAT_SCENE3D_SLOT_INHERIT,
-        screen,world)==SAT_ERR_INVALID_ARG);
-    assert(project_calls==stale_binding_calls && scene.count==0u);
+        screen,world)==SAT_OK);
+    assert(scene.count==2u);
+    assert(screen[0].x==(alternate_vertices[0].x>>16));
+    assert(screen[0].x!=(mesh.vertices[0].x>>16));
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+
+    // Changed topology/counts, null pose buffers and insufficient current
+    // capacities still reject atomically before projection.
+    uint16_t alternate_indices[8]={};
+    for(unsigned variant=0;variant<6u;++variant) {
+        rebound_mesh=mesh;
+        if(variant==0u) rebound_mesh.indices=alternate_indices;
+        if(variant==1u) --rebound_mesh.vertex_count;
+        if(variant==2u) --rebound_mesh.face_count;
+        if(variant==3u) rebound_mesh.vertices=nullptr;
+        if(variant==4u) rebound_mesh.vertex_cap=mesh.vertex_count-1u;
+        if(variant==5u) rebound_mesh.face_cap=mesh.face_count-1u;
+        assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+            SAT_FX16_ONE,320u,224u)==SAT_OK);
+        const uint16_t stale_binding_calls=project_calls;
+        assert(sat_scene3d_faces_submit_instance(
+            &scene,&validated_instance,SAT_SCENE3D_SLOT_INHERIT,
+            screen,world)==SAT_ERR_INVALID_ARG);
+        assert(project_calls==stale_binding_calls && scene.count==0u);
+        assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    }
 
     // A distance-faded object fades WHOLE: one slot reaches every face of the
     // instance, without the shared material table needing a copy per slot.
