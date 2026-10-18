@@ -79,12 +79,15 @@ linked and need `libstdc++-6.dll` from that directory.
 
 ## Phase B hardware signoff kit
 
-Prepared 2026-10-18 with commit `7182a05` before the Phase B documentation
-commit; a clean rebuild reproduced every disc hash.
+Prepared 2026-10-18 from clean commit `00e8d8b`; a clean rebuild reproduced
+every disc hash.
 
 - Bundle: `dist/vdp2-signoff/2026-10-18/` (13 discs: E01-E12 core plus E13
-  supplemental; 107 files, 21,353,119 bytes).
-- Manifest SHA-256: `TBD_FINAL_BUNDLE`.
+  supplemental; 107 files, 21,354,325 bytes).
+- Manifest SHA-256:
+  `2c555aed1217553b989550b8cf94a6356816d5cfdc5678d3aea61a119769ce90`.
+- `SHA256SUMS.txt` SHA-256:
+  `072aacc04e25f69aac22bddba3c90d7c9794bca88395dd6c6186e1cbc4e56300`.
 - `harness/prepare-vdp2-signoff.ps1` builds each disc through
   `build-example.ps1`, copies the `.bin`/`.cue`, validates the raw image with
   `tools/check_disc_image.py`, and validates the IP/ISO first read with
