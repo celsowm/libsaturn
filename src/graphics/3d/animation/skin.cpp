@@ -10,7 +10,14 @@ constexpr int32_t kWeightOne = 32768;
  * instead of a variable 64-bit shift library call. Rounded to nearest so a blend
  * of two influences stays within one 16.16 LSB. */
 inline void transform(const sat_fx16_t* m, const int16_t* q, int32_t scale, int32_t out[3]) {
-    const int64_t x = q[0] * scale, y = q[1] * scale, z = q[2] * scale;
+    /* A constant Q15 conversion avoids three __ashlsi3 calls per influence
+     * with the SH-2 compiler. Keep the same accumulation and rounding. */
+    int32_t x, y, z;
+    if (scale == 2) {
+        x = q[0] * 2; y = q[1] * 2; z = q[2] * 2;
+    } else {
+        x = q[0] * scale; y = q[1] * scale; z = q[2] * scale;
+    }
     out[0] = (int32_t)(((int64_t)m[0] * x + (int64_t)m[1] * y + (int64_t)m[2] * z + 32768) >> 16) + m[3];
     out[1] = (int32_t)(((int64_t)m[4] * x + (int64_t)m[5] * y + (int64_t)m[6] * z + 32768) >> 16) + m[7];
     out[2] = (int32_t)(((int64_t)m[8] * x + (int64_t)m[9] * y + (int64_t)m[10] * z + 32768) >> 16) + m[11];

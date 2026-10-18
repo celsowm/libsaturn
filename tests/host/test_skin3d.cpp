@@ -250,6 +250,77 @@ static void shared_asset_independent_instances() {
     CHECK(sat_skin_deform(&a, &m1, 1, &o1, 1) == SAT_OK && o1.x == FX(6));
 }
 
+static void q15_conversion_matches_wide_reference() {
+    sat_skin_rigid_t rigid[8]={};
+    sat_skin_blend_t blend[4]={};
+    uint32_t seed=0x71100A2u;
+    auto random=[&]() {seed=seed*1664525u+1013904223u;return seed;};
+    for(unsigned v=0;v<8;++v) {
+        rigid[v].joint=v&1u;
+        for(unsigned c=0;c<3;++c)rigid[v].pos[c]=static_cast<int16_t>(random()>>16);
+    }
+    rigid[0].pos[0]=-32768;rigid[0].pos[1]=32767;
+    for(unsigned v=0;v<4;++v) {
+        blend[v].count=v==0?1:v==3?3:2;
+        blend[v].weight[0]=v==1?16384:10001;
+        blend[v].weight[1]=7003;
+        for(unsigned k=0;k<3;++k) {
+            blend[v].joint[k]=k&1u;
+            for(unsigned c=0;c<3;++c)blend[v].pos[k][c]=static_cast<int16_t>(random()>>16);
+        }
+    }
+    sat_mat4_t matrices[2]={};sat_vec3_t actual[12],split[12];
+    for(unsigned trial=0;trial<128;++trial) {
+        const unsigned shift=trial<64?15:trial%16;
+        for(auto& matrix:matrices)for(unsigned row=0;row<3;++row) {
+            for(unsigned c=0;c<3;++c)
+                matrix.m[row*4+c]=(static_cast<int32_t>(random()%41)-20)*16;
+            matrix.m[row*4+3]=static_cast<int32_t>(random()%10001)-5000;
+        }
+        if(trial<64) {
+            // Large coefficients, negative extremes and coefficients with low
+            // bits set; no per-influence rounding may change.
+            matrices[1].m[0]=static_cast<int32_t>(65534+trial%3)*16;
+            if(trial%4==0)++matrices[0].m[0];
+        }
+        auto skin=asset(rigid,8,blend,4,2,shift,1);
+        CHECK(sat_skin_deform(&skin,matrices,2,actual,12)==SAT_OK);
+        CHECK(sat_skin_deform_range(&skin,matrices,2,0,9,split,12)==SAT_OK);
+        CHECK(sat_skin_deform_range(&skin,matrices,2,9,3,split,12)==SAT_OK);
+        CHECK(std::memcmp(actual,split,sizeof(actual))==0);
+        auto old_transform=[&](unsigned joint,const int16_t* q,unsigned row) {
+            int64_t sum=32768;
+            for(unsigned c=0;c<3;++c)
+                sum+=static_cast<int64_t>(matrices[joint].m[row*4+c])*
+                    (static_cast<int64_t>(q[c])*(1u<<(16-shift)));
+            return static_cast<int32_t>(sum>>16)+matrices[joint].m[row*4+3];
+        };
+        for(unsigned v=0;v<12;++v)for(unsigned row=0;row<3;++row) {
+            int32_t expected;
+            if(v<8)expected=old_transform(rigid[v].joint,rigid[v].pos,row);
+            else {
+                const auto& b=blend[v-8];
+                int32_t p[3];for(unsigned k=0;k<b.count;++k)
+                    p[k]=old_transform(b.joint[k],b.pos[k],row);
+                if(b.count==1)expected=p[0];
+                else if(b.count==2 && b.weight[0]==16384)
+                    expected=static_cast<int32_t>((static_cast<int64_t>(p[0])+p[1])>>1);
+                else {
+                    int64_t sum=16384;
+                    unsigned used=0;
+                    for(unsigned k=0;k<b.count;++k) {
+                        const unsigned w=k+1==b.count?32768-used:b.weight[k];
+                        used+=w;sum+=static_cast<int64_t>(p[k])*w;
+                    }
+                    expected=static_cast<int32_t>(sum>>15);
+                }
+            }
+            const int32_t component=row==0?actual[v].x:row==1?actual[v].y:actual[v].z;
+            CHECK(component==expected);
+        }
+    }
+}
+
 int main() {
     rigid_exact();
     multi_anchor_blend();
@@ -259,6 +330,7 @@ int main() {
     range_equals_full();
     normals_and_skeleton_integration();
     shared_asset_independent_instances();
-    std::printf("test_skin3d: 8 tests passed\n");
+    q15_conversion_matches_wide_reference();
+    std::printf("test_skin3d: 9 tests passed\n");
     return 0;
 }

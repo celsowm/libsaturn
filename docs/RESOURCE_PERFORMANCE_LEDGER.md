@@ -155,3 +155,20 @@ subsequently held a successful result. With the consistent reader, the same
 without changing the 60000-tick wait limit. This is emulator regression
 evidence, not a hardware timing or frame-rate claim. Host `make test` and all
 five package CTests pass; private consumer captures remain outside Git.
+
+## Q15 skin coordinate conversion (2026-10-18)
+
+The downstream Tekken prototype's fixed-pose two-actor run spends a median
+10 ms deforming its Q15 skins. A constant `q * 2` conversion avoids three
+variable-shift helper calls per influence with SH-2 GCC 13.2. The corrected
+1200-field comparison reports 8 ms skin median/p95 and 64/65 ms complete work,
+versus the prior 65/66 ms work. Full-game work is 108/121 ms versus 109/122 ms.
+Untraced submission cadence is effectively unchanged: 8.18/s versus 8.17/s;
+logic remains approximately 32.7 ticks/s. This is a local arithmetic saving,
+not a gameplay speed milestone. Geometry and emission remain the larger costs.
+
+Independent host integer comparisons cover 128 fixtures, all position shifts,
+rigid/seam records, half and unequal weights, signed extrema and split ranges.
+The consumer also completes a 35-second actual Mednafen CD boot; private
+artifacts are `recovery-q15-final-matrix`, `recovery-q15-final-{600,1200}` and
+`recovery-q15-final-cd`. Emulator timings do not certify physical hardware.

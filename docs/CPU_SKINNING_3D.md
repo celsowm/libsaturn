@@ -31,6 +31,14 @@ optionally returns an AABB. All topology/material/storage buffers are owned
 by the caller. Normals are optional; the existing normal/Gouraud helpers can
 also recompute normals from a deformed mesh when that cost is acceptable.
 
+For Q15 anchor storage, deformation uses the constant conversion `q * 2`.
+The SH-2 GCC 13.2 generic conversion emitted three `__ashlsi3_r0` calls per
+influence; the constant branch avoids those calls. Accumulation, translations,
+blend weights and rounding remain identical. Other anchor precisions retain
+the existing generic conversion. Host tests compare rigid and one/two/three
+influence records with an independent wide reference across all 16 position
+shifts, signed anchor extremes, large coefficients and partial ranges.
+
 `sat_skin_requirements` calculates actual native skeleton, skin, vertex,
 pose, joint-matrix and hierarchy scratch sizes. Scene storage uses
 `sat_scene_requirements`; texture payloads come from model metadata. Add these
