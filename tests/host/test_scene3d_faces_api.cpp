@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <stdint.h>
 #include "saturn/scene3d_faces.h"
+#include "src/graphics/vdp1/projected.hpp"
 #include "src/graphics/3d/scene/capture.hpp"
 
 static uint16_t emitted[64]={};
@@ -1367,3 +1368,12 @@ int main() {
 
 extern "C" sat_result_t sat_draw_sprite_distorted_gouraud(const sat_distorted_sprite_cmd_t* cmd,const uint16_t*) { return sat_draw_sprite_distorted(cmd); }
 extern "C" sat_result_t sat_draw_indexed_textured_quad3_gouraud(const sat_quad3_t* q,const sat_indexed_solid_render3d_t* p,const sat_vdp1_texture_t* t,const uint16_t*,uint8_t* out) { return sat_draw_indexed_textured_quad3(q,p,t,out); }
+
+// Preserve the scene tests' draw/failure spy for the fused opaque route.
+sat_result_t saturn::internal::draw_projected_sprite(const sat_quad2_t& quad,
+    const sat_vdp1_texture_t& texture, uint16_t flags) {
+    sat_distorted_sprite_cmd_t cmd{};
+    cmd.texture=&texture;cmd.flags=flags;
+    for(unsigned i=0;i<4;++i){cmd.x[i]=quad.x[i];cmd.y[i]=quad.y[i];}
+    return sat_draw_sprite_distorted(&cmd);
+}

@@ -6,6 +6,7 @@
 #include "saturn/core.h"
 #include "saturn/sprite_batch.h"
 #include "saturn/vdp1.h"
+#include "saturn/render3d.h"
 
 namespace saturn::hal::vdp1 {
 
@@ -118,6 +119,8 @@ sat_result_t sprite_batch_window_begin(sat_sprite_batch_window_t* win, uint32_t 
 sat_result_t sprite_batch_window_end(const sat_sprite_batch_window_t* win, sat_sprite_batch_stats_t* stats);
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req);
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req);
+sat_result_t push_projected_sprite(const sat_quad2_t& quad,
+    const sat_vdp1_texture_t& texture, uint16_t flags);
 sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req, const uint16_t* gouraud);
 sat_result_t push_polygon(const PolygonRequest& req);
 sat_result_t push_polyline(const PolygonRequest& req);

@@ -355,3 +355,74 @@ separately in `harness/build/cube-source-plan-regression`: scene cubes retain
 15 submissions/s and 58.186 ms median work, with no panic or timeout. These cube
 items do not opt into publication plans and establish regression coverage,
 not a speedup claim for that path.
+
+## Fused projected sprite emission
+
+The next isolated change removes three intermediate coordinate-array copies
+from opaque projected indexed faces. The scene calls an internal graphics
+entry, which checks initialization and passes the quad and current texture
+descriptor directly to the HAL command writer. All 16 command words are
+written into the existing Work RAM list. This is an automatic scene-path
+optimization; applications need no new public API or immutable-resource plan.
+
+Descriptor validity, dimensions, sprite effects, world/overlay budget and END
+reservation are still checked before advancing command occupancy. Global
+painter order, owner/residency preflight and scene rollback remain in place.
+RGB polygons, clipped faces, Gouraud and color-calculation sprites retain their
+existing dispatch. No cached material template, VRAM list lifetime change or
+Slave cache-policy change is introduced in this step.
+
+Against `772d2cb`, the retained `dino-direct-animated` run at 1200 fields has
+63 complete samples, unchanged Master/Slave CCR (`0x01`/`0x00`) and /128 FRTs:
+
+| Median interval | Before ms | After ms | Change |
+| --- | ---: | ---: | ---: |
+| Emission | 9.668 | 6.728 | -30.4% |
+| Complete flush | 13.523 | 10.584 | -21.7% |
+| Complete work, excluding initial VBlank wait | 40.033 | 37.123 | -7.3% |
+| Master geometry | 19.839 | 19.839 | unchanged |
+| Worker geometry | 17.028 | 17.028 | unchanged |
+
+These are nested/overlapping elapsed intervals from Ymir, not physical-hardware
+measurements. Animated, paused and controls scenarios still report 20 nominal
+CPU submissions/s over fields 600..1200, without runtime-gate failures. The
+work remains above the approximately 33.3 ms two-field budget; this is not a
+30 FPS result. The fixed-pose crop has zero changed pixels against
+`dino-source-plan-paused`.
+
+The independent cube regression `cube-direct-regression` retains 60 submissions/s
+with 1.899 ms work for scene cubes. Paired 864-face cubes retain 15 submissions/s
+while work falls from 58.186 to 54.123 ms (7.0%). Native CD boot was recorded
+and visually checked in Mednafen under `dino-direct-mednafen`. The normal Dino
+build without diagnostic symbols passes the same 600/1200-field runtime gates
+at 20 submissions/s (`dino-direct-normal`).
+
+Host coverage compares every command word against the original distorted
+writer over 2048 deterministic texture/flag/coordinate cases. Poisoned command
+storage detects omitted fields; capacity, invalid descriptors, unsupported
+effects and overlay reservations must leave occupancy unchanged. Scene tests
+exercise the fused route through their existing painter/failure spies. The
+full local suite and phase-comparison tests pass.
+
+Reproduce builds and all three scenarios using the earlier commands with
+fresh `dino-direct-*` output directories. Compare retained raw phase rings and
+fixed-pose images without inline analysis scripts:
+
+```sh
+python3 harness/scripts/dino_phase_metrics.py --compare \
+  harness/build/dino-source-plan-animated harness/build/dino-direct-animated
+python3 harness/scripts/dino_pipeline.py --compare \
+  harness/build/dino-source-plan-paused harness/build/dino-direct-paused
+python3 harness/scripts/cube_pipeline.py --cases scene paired-864 \
+  --bios /path/to/bios.bin --out harness/build/cube-direct-regression
+python3 harness/scripts/cube_pipeline.py \
+  --record-cd harness/build/dino-direct-animated --record-example dino_demo \
+  --bios /path/to/bios.bin --out harness/build/dino-direct-mednafen --seconds 30
+```
+
+The phase comparison rejects mismatched scenario, BIOS, emulator binary,
+checkpoint windows, FRT calibration or observed cache policy and decodes the
+raw rings through the same consistency checks as capture. A percentage is
+undefined (`null`) when the baseline median is zero. The largest remaining
+measured interval is Master geometry; evaluate its shared-memory traffic and
+the face-record layout before choosing the next implementation.

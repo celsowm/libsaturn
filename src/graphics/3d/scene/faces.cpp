@@ -5,6 +5,7 @@
 #include "src/graphics/3d/rendering/logic.hpp"
 #include "src/graphics/3d/scene/capture.hpp"
 #include "src/hal/sh2/frt.hpp"
+#include "src/graphics/vdp1/projected.hpp"
 
 #include <stdint.h>
 
@@ -227,10 +228,15 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
         return sat_draw_quad2_polygon(&face.projected,face.material.rgb555);
     }
     if (face.projected_safe) {
+        const sat_vdp1_texture_t* texture = face.material.kind==SAT_SCENE3D_INDEXED_TILED
+            ? face.material.tiled->full : face.material.texture;
+        if (!face.gouraud_valid &&
+            face.material.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE)
+            return saturn::internal::draw_projected_sprite(
+                face.projected, *texture, face.material.sprite_flags);
         sat_distorted_sprite_cmd_t cmd={};
         cmd.flags=face.material.sprite_flags;
-        cmd.texture=face.material.kind==SAT_SCENE3D_INDEXED_TILED
-            ? face.material.tiled->full : face.material.texture;
+        cmd.texture=texture;
         for (uint8_t i=0u;i<4u;++i) {
             cmd.x[i]=face.projected.x[i];
             cmd.y[i]=face.projected.y[i];

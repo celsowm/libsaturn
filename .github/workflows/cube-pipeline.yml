@@ -11,6 +11,10 @@ on:
       - 'tests/tools/test_dino_phase_metrics.py'
       - 'examples/dino_demo/**'
       - 'src/graphics/3d/scene/**'
+      - 'src/graphics/vdp1/**'
+      - 'src/hal/vdp1/**'
+      - 'tests/host/test_vdp1_clip.cpp'
+      - 'tests/host/test_vdp1_upload.cpp'
       - 'include/saturn/scene3d_faces.h'
       - 'tests/host/test_scene_parallel_runtime.cpp'
       - 'harness/scripts/renderer_pipeline_study.py'
@@ -34,6 +38,8 @@ jobs:
           python-version: '3.12'
       - run: make build/tests/test_scene_parallel_runtime
       - run: ./build/tests/test_scene_parallel_runtime
+      - run: make build/tests/test_vdp1_clip build/tests/test_vdp1_upload build/tests/test_scene3d_faces_api build/tests/test_skin_scene
+      - run: ./build/tests/test_vdp1_clip && ./build/tests/test_vdp1_upload && ./build/tests/test_scene3d_faces_api && ./build/tests/test_skin_scene
       - run: make build/tests/test_cube_pipeline_mesh
       - run: ./build/tests/test_cube_pipeline_mesh
       - run: make build/tests/test_mesh3d_logic build/tests/test_render3d_logic

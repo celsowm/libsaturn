@@ -6,6 +6,13 @@
 #include "src/graphics/2d/rendering/runtime.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
+#include "src/graphics/vdp1/projected.hpp"
+
+sat_result_t saturn::internal::draw_projected_sprite(const sat_quad2_t& quad,
+    const sat_vdp1_texture_t& texture, uint16_t flags) {
+    SAT_TRY(saturn::core::require_initialized());
+    return saturn::hal::vdp1::push_projected_sprite(quad, texture, flags);
+}
 
 extern "C" sat_result_t sat_tex_upload_indexed8(
     sat_vdp1_texture_t* out_texture,

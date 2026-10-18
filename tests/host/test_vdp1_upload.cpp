@@ -9,6 +9,7 @@
 #include <cstdlib>
 
 #include "saturn/vdp1.h"
+#include "src/graphics/vdp1/projected.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/graphics/2d/rendering/runtime.hpp"
 
@@ -114,6 +115,11 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     return SAT_OK;
 }
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest&) { return SAT_OK; }
+int g_projected_calls=0;
+sat_result_t push_projected_sprite(const sat_quad2_t&, const sat_vdp1_texture_t&, uint16_t) {
+    ++g_projected_calls;
+    return SAT_OK;
+}
 DistortedSpriteRequest g_last_distorted{};
 sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req,const uint16_t*) { return push_distorted_sprite(req); }
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
@@ -386,6 +392,14 @@ static void user_clip_api_clamps_and_routes() {
 }
 
 int main() {
+    sat_quad2_t projected{};sat_vdp1_texture_t projected_texture{};
+    saturn::core::g_state.initialized=false;
+    ASSERT_EQ(saturn::internal::draw_projected_sprite(projected,projected_texture,0),SAT_ERR_NOT_INITIALIZED);
+    ASSERT_EQ(saturn::hal::vdp1::g_projected_calls,0);
+    saturn::core::g_state.initialized=true;
+    ASSERT_EQ(saturn::internal::draw_projected_sprite(projected,projected_texture,0),SAT_OK);
+    ASSERT_EQ(saturn::hal::vdp1::g_projected_calls,1);
+
     user_clip_api_clamps_and_routes();
     overlay_budget_api_routes_into_hal();
     frame_stats_report_hal_counters();

@@ -2,9 +2,11 @@
 import struct
 import sys
 import unittest
+import json
+import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]/'harness/scripts'))
-from dino_phase_metrics import decode, FIELDS, ROWS
+from dino_phase_metrics import decode, compare_runs, FIELDS, ROWS
 
 
 def capture(count=3, change=None):
@@ -54,6 +56,29 @@ class PhaseTests(unittest.TestCase):
 
     def test_inconsistent_flush_rejected(self):
         with self.assertRaises(ValueError):decode(capture(change=lambda r:r.update(emit=190)))
+
+    def test_comparison_checks_scenario_emulator_and_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            before=Path(directory)/'before';after=Path(directory)/'after'
+            metadata=dict(scenario='animated',bios_sha256='bios',probe_sha256='probe',
+                          checkpoints=[dict(fields=600),dict(fields=1200)],
+                          nominal_submissions_per_second=20)
+            for path in (before,after):
+                path.mkdir()
+                (path/'analysis.json').write_text(json.dumps(metadata))
+                (path/'field-1200_g_dino_pipeline.bin').write_bytes(capture())
+            (after/'field-1200_g_dino_pipeline.bin').write_bytes(
+                capture(change=lambda r:r.update(emit=50)))
+            result=compare_runs(before,after)
+            self.assertAlmostEqual(result['phase_costs']['emit']['median_change_percent'],-50)
+            for key,value in (('scenario','paused'),('bios_sha256','other'),
+                              ('probe_sha256','other'),('checkpoints',[dict(fields=900)])):
+                (after/'analysis.json').write_text(json.dumps(dict(metadata,**{key:value})))
+                with self.assertRaises(ValueError):compare_runs(before,after)
+            (after/'analysis.json').write_text(json.dumps(metadata))
+            (after/'field-1200_g_dino_pipeline.bin').write_bytes(
+                capture(change=lambda r:r.update(worker_ccr=1)))
+            with self.assertRaises(ValueError):compare_runs(before,after)
 
 
 if __name__=='__main__':unittest.main()

@@ -678,6 +678,37 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     return SAT_OK;
 }
 
+/* Fused scene writer: no intermediate command/resolved/request coordinate
+ * arrays. It writes only the current Work RAM list, never in-flight VRAM. */
+sat_result_t push_projected_sprite(const sat_quad2_t& quad,
+    const sat_vdp1_texture_t& texture, uint16_t flags) {
+    if (g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
+    if (!texture.valid) return SAT_ERR_INVALID_ARG;
+    SAT_TRY(saturn::core::validate_indexed8_sprite_effects(flags));
+    if (!texture.width || !texture.height || (texture.width & 7u))
+        return SAT_ERR_INVALID_ARG;
+    if (command_slot_unavailable()) return SAT_ERR_CAPACITY;
+
+    Command& cmd = g_cmd_buffer[g_cmd_count++];
+    cmd.ctrl = static_cast<uint16_t>(
+        saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdDistortedSprite, false) |
+        saturn::core::compose_sprite_dir(flags));
+    cmd.link = 0;
+    cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
+        saturn::core::compose_sprite_pmod(flags, texture.format),
+        (flags & SAT_SPRITE_FLAG_USER_CLIP) != 0u);
+    cmd.colr = saturn::core::compose_sprite_colr(texture.palette, texture.format);
+    cmd.srca = texture.srca;
+    cmd.size = static_cast<uint16_t>(((texture.width / 8u) << 8u) | texture.height);
+    cmd.xa = quad.x[0]; cmd.ya = quad.y[0];
+    cmd.xb = quad.x[1]; cmd.yb = quad.y[1];
+    cmd.xc = quad.x[2]; cmd.yc = quad.y[2];
+    cmd.xd = quad.x[3]; cmd.yd = quad.y[3];
+    cmd.grda = 0;
+    cmd.pad = 0;
+    return SAT_OK;
+}
+
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
