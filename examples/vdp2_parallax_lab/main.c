@@ -171,23 +171,33 @@ static sat_result_t setup_scene(void) {
     return st;
 }
 
+/* Pan in 16.16 fixed point with smoothstep easing.  A linear triangle wave
+ * reverses velocity instantly at the ends; smoothstep lets the camera settle
+ * before it turns around.  The fractional part also feeds NBG0/NBG1's eight
+ * scroll fraction bits, so the foreground and sea move subpixel instead of
+ * jumping one dot every few fields. */
 static uint32_t pan_for_tick(uint32_t tick) {
+    const uint32_t kOne = 0x10000u;
     const uint32_t phase = tick % PAN_PERIOD;
     const uint32_t t = phase < PAN_HALF_FRAMES ? phase : PAN_PERIOD - phase;
-    return (t * PAN_MAX) / PAN_HALF_FRAMES;
+    const uint32_t t_fx = (t * kOne) / PAN_HALF_FRAMES;
+    const uint64_t t2_fx = ((uint64_t)t_fx * t_fx) >> 16u;
+    const uint32_t three_minus_2t = 3u * kOne - 2u * t_fx;
+    const uint32_t s_fx = (uint32_t)((t2_fx * three_minus_2t) >> 16u);
+    return s_fx * PAN_MAX;
 }
 
-static int32_t layer_scroll(uint32_t pan, uint32_t percent) {
-    return (int32_t)(((pan * percent) / 100u) << 16u);
+static int32_t layer_scroll(uint32_t pan_fx, uint32_t percent) {
+    return (int32_t)(((uint64_t)pan_fx * percent) / 100u);
 }
 
-static void update_scene(uint32_t pan) {
+static void update_scene(uint32_t pan_fx) {
     const uint64_t start = sat_time_ticks();
-    g_parallax_lab.pan = pan;
-    g_parallax_lab.sky_x = (uint32_t)layer_scroll(pan, 8u);
-    g_parallax_lab.mountain_x = (uint32_t)layer_scroll(pan, 24u);
-    g_parallax_lab.sea_x = (uint32_t)layer_scroll(pan, 52u);
-    g_parallax_lab.foreground_x = (uint32_t)layer_scroll(pan, 100u);
+    g_parallax_lab.pan = pan_fx;
+    g_parallax_lab.sky_x = (uint32_t)layer_scroll(pan_fx, 8u);
+    g_parallax_lab.mountain_x = (uint32_t)layer_scroll(pan_fx, 24u);
+    g_parallax_lab.sea_x = (uint32_t)layer_scroll(pan_fx, 52u);
+    g_parallax_lab.foreground_x = (uint32_t)layer_scroll(pan_fx, 100u);
 
     (void)sat_vdp2_layer_set_scroll(SAT_VDP2_NBG3, (int32_t)g_parallax_lab.sky_x, 0);
     (void)sat_vdp2_layer_set_scroll(SAT_VDP2_NBG2, (int32_t)g_parallax_lab.mountain_x, 0);
@@ -200,13 +210,14 @@ static void update_scene(uint32_t pan) {
     if (us > g_parallax_lab.update_us_max) g_parallax_lab.update_us_max = us;
 }
 
-static void draw_hud(uint32_t pan) {
+static void draw_hud(uint32_t pan_fx) {
     (void)sat_draw_rect_screen(0, 0, 210, 56, SAT_RGB555(0, 0, 0));
     (void)sat_ascii_font_draw_text_screen_indexed8(&g_font, "VDP2 PARALLAX LAB",
                                                    8, 8, 8, 0u, 0u);
     (void)sat_ascii_font_draw_label_u32(&g_font, "FRAME ", g_parallax_lab.frames,
                                         8, 24, 8, 0u, 0u);
-    (void)sat_ascii_font_draw_label_u32(&g_font, "PAN ", pan, 112, 24, 8, 0u, 0u);
+    (void)sat_ascii_font_draw_label_u32(&g_font, "PAN ", pan_fx >> 16u,
+                                        112, 24, 8, 0u, 0u);
     (void)sat_ascii_font_draw_text_screen_indexed8(
         &g_font, g_parallax_lab.paused ? "PAUSED" : "4 LAYERS", 8, 40, 8, 0u, 0u);
     (void)sat_ascii_font_draw_text_screen_indexed8(&g_font, "A/START", 140, 40,

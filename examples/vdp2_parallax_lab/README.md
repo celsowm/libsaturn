@@ -6,8 +6,10 @@ scroll registers per field; every background pixel comes from VDP2 VRAM.
 The art is a 512x256 reduction of the four layers in
 `vdp2_parallax_lab_with_pngs.zip` (sky, mountains, sea/cliffs, foreground).
 The source is not seamless horizontally, so the camera pans 176 dots and
-back instead of wrapping over a seam. Alpha is thresholded into the VDP2
-transparent dot code; the sky is opaque.
+back instead of wrapping over a seam. The pan uses smoothstep easing and
+16.16 fixed point, so NBG0/NBG1 move subpixel rather than stepping one dot at
+a time. Alpha is thresholded into the VDP2 transparent dot code; the sky is
+opaque.
 
 ```powershell
 .\build-example.ps1 vdp2_parallax_lab

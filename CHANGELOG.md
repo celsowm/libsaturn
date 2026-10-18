@@ -14,7 +14,9 @@ The version is defined once, in the `VERSION` file.
 - `vdp2_parallax_lab` (E13, post-plan): a four-layer hand-painted coast
   driven entirely by VDP2. NBG0/NBG1 are 512x256 8bpp bitmaps and NBG2/NBG3
   are two-word cell maps (4bpp mountains, 8bpp sky); the SH-2 updates only
-  four scroll registers. `tools/convert_vdp2_parallax_lab.py` converts the
+  four scroll registers, using a smoothstep-eased 16.16 pan so NBG0/NBG1
+  receive subpixel scroll instead of one-dot steps.
+  `tools/convert_vdp2_parallax_lab.py` converts the
   four source PNGs into big-endian bitmap, cell and map assets, and
   `harness/run-vdp2-parallax-lab.ps1` checks the public layer configuration,
   VDP2 register geometry, uploaded maps/chars and live picture in NTSC and
