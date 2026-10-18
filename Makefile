@@ -789,10 +789,14 @@ HOST_TEST_EXTRA_test_spatial3_api := src/physics/spatial/3d.cpp src/physics/3d/c
 
 # Examples that ship a host test of their own say how to build it in examples/<name>/host_test.mk.
 -include $(wildcard examples/*/host_test.mk)
+-include $(HOST_TEST_BINS:=.d)
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(DEPFLAGS) $< $(HOST_TEST_EXTRA_$*) -o $@
+	# A multi-source link overwrites the compiler's .d for each input. Merge
+	# dependencies from every input so header edits rebuild the actual test.
+	$(HOST_CXX) $(HOST_CXXFLAGS) -MM -MP -MT $@ $< $(HOST_TEST_EXTRA_$*) > $@.d
 
 test: $(HOST_TEST_BINS)
 	@fail=0; skipped=0; \
