@@ -54,7 +54,7 @@ for sky, cyan neon, gold windows/road and the light pool. `-Long` runs the
 31,845 staged/committed words, 7,218 SCU-DMA and 30,759 CPU transfers, zero
 sentinel cells and equal model/VRAM CRC. The worst table/streaming update was
 27.5 ms per scene field (roughly 30 scene fields per second), and the VDP1
-list held only its two mandatory setup commands, with no scene draws. These
-are emulator timings, not hardware facts. Mednafen 1.32.1 window captures show
-the skyline, both ring phases and the moving light pool. Physical hardware
-remains **PENDING**.
+list held only its two mandatory setup commands, with no scene draws. The
+same 6/6 checks pass in the PAL sweep at 50 Hz. These are emulator timings,
+not hardware facts. Mednafen 1.32.1 window captures show the skyline, both
+ring phases and the moving light pool. Physical hardware remains **PENDING**.

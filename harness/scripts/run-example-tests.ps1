@@ -73,7 +73,8 @@ function Invoke-ExampleTest {
     $scripts = $PSScriptRoot
     $harness = Split-Path -Parent $scripts
     $repo = Split-Path -Parent $harness
-    $dir = Join-Path $harness "build/$Example"
+    $palMode = $Pal -or $env:LIBSATURN_PAL -eq '1'
+    $dir = Join-Path $harness $(if ($palMode) { "build/${Example}_pal" } else { "build/$Example" })
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
     # Always rebuild: run-harness only builds a missing ISO, and the

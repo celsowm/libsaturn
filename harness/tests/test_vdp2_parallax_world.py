@@ -94,8 +94,10 @@ class ParallaxWorldTests(unittest.TestCase):
         self.assertNotEqual(early.tobytes(), mid.tobytes(), "the scene did not move")
         self.assertNotEqual(mid.tobytes(), late.tobytes(), "the scene did not move")
         for image, name in ((early, "early"), (mid, "mid"), (late, "late")):
-            self.assertTrue(_near(image.getpixel((250, 20)), SKY, 12),
-                            "%s sky: %r" % (name, image.getpixel((250, 20))))
+            # The foreground leaves sway across the top-right corner; sample a
+            # clear sky window instead of a fixed corner pixel.
+            self.assertTrue(_near(image.getpixel((210, 20)), SKY, 12),
+                            "%s sky: %r" % (name, image.getpixel((210, 20))))
             self.assertTrue(_near(image.getpixel((250, 130)), SEA, 12),
                             "%s sea: %r" % (name, image.getpixel((250, 130))))
             self.assertTrue(_near(image.getpixel((250, 175)), SAND, 14),

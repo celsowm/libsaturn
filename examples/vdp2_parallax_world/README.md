@@ -39,7 +39,8 @@ building one comparable frame in software, not a claim that VDP1 is free.
 The harness checks the layer manager's verdicts, the refused line scroll and
 undefined window, VDP1 background command accounting, the reference path, and
 pixel families for sky, sea, shore and leaves. `-Long` runs the 60-second
-(3,600-field) replay. Measured on the pinned Ymir revision: about 3 ms per
+(3,600-field) replay. The same 7/7 checks pass in the PAL sweep at 50 Hz.
+Measured on the pinned Ymir revision: about 3 ms per
 field for the VDP2 table updates and a one-time 138 ms software build for the
 reference image on the harness host. Those timings are emulator-side only.
 Mednafen 1.32.1 was also launched through `run-example.ps1`; its window

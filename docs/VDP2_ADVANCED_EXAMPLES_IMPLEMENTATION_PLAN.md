@@ -32,12 +32,12 @@ Existing limitations or unvalidated opportunities:
 - RBG1 has no first-class public layer contract. RBG1 imposes restrictions on NBG coexistence, separate banks and RBG0 ownership.
 - Extended colour calculation is public and accepted end to end by E03 `vdp2_special_color`, hardware blur by E04 `vdp2_hardware_blur`, special priority/colour calculation by E06 `vdp2_special_priority`, and VDP2 sprite shadows by E05 `vdp2_sprite_shadows` (all 2026-10-17).
 - VDP2 VRAM free-list allocations, layer bank/cycle ownership and raster/rotation table reservations are not yet a unified transactional resource planner.
-- Video-facing APIs presently expose 224-line output, not PAL 240/256-line and interlace mode coverage.
+- Video-facing APIs exposed 224-line output at this baseline; M4/E09 has since added 224/240/256-line and single-density interlace coverage.
 - Physical Saturn compatibility, access timing and visual color/blur behavior are unverified. An emulator pass is not hardware certification.
 
 **Documentation cleanup:** the obsolete "advanced raster effects NOT EXPOSED" claims in `docs/LIBSATURN_CURRENT_COVERAGE.md` were corrected in an earlier inventory pass. The E03/E04 close-outs keep that file aligned with the current VDP2 state (extended colour calculation and hardware blur are now public and accepted).
 
-**Build baseline blocker:** The latest Phase 3 CI cross-build gate failed while packaging `bullet_hell_stress` because `examples/bullet_hell_stress/assets/palette_bgr555_be.bin` was absent. Repair that independently before treating `make examples-all` as a green gate; never suppress the failure to ship VDP2 examples.
+**Build baseline blocker (resolved):** The Phase 3 CI cross-build gate once failed while packaging `bullet_hell_stress` because `examples/bullet_hell_stress/assets/palette_bgr555_be.bin` was absent. The asset is present now; `make examples-all` is the active gate and must stay green.
 
 ## 3. Hardware contracts and non-negotiable requirements
 
@@ -470,8 +470,8 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   the host) and uploads it once as an indexed8 VDP1 texture; A/R toggles
   that pre-rendered reference around frames 600-660. The measured VDP1 path
   is exactly one background command more than the VDP2 path. The harness
-  passes 7/7, including `-Long` (3,600 fields), and physical execution is
-  PENDING.
+  passes 7/7 on NTSC, 7/7 on PAL, and 7/7 with `-Long` (3,600 fields); physical
+  execution is PENDING.
 - **E11 `vdp2_fighting_stage`**: the existing two-fighter character demo
   (same assets, combat, skeleton evaluation, painter and VDP1 path as
   `fighter_arena_3d`) with a four-NBG stage (stands/crowd, banners with
@@ -481,8 +481,8 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   the example also does it at demo frames 70 and 120. The harness dumps both
   the stage telemetry and the normal character metrics: the fighter
   simulation advances in both states, all four NBGs are in BGON, and the
-  stage adds no VDP1 command of its own. 5/5 tests pass; physical execution
-  PENDING.
+  stage adds no VDP1 command of its own. 5/5 tests pass on NTSC and 5/5 on
+  PAL; physical execution is PENDING.
 - **E12 `vdp2_neon_city`**: the final integration - a rotating RBG0 neon sign
   (16.16 matrix around the map centre), a 64x64 wet street streamed through
   two pattern-name rings with `sat_stage_map2`, a moving
@@ -493,8 +493,8 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   switches with 31,845 staged/committed words, 7,218 SCU-DMA and 30,759 CPU
   transfers, zero sentinel cells and equal model/VRAM CRC (no mismatches);
   the worst table/stream update was 27.5 ms and the VDP1 list held only its
-  two mandatory setup commands, with no scene draws. 6/6 tests pass, short
-  and long; physical execution PENDING.
+  two mandatory setup commands, with no scene draws. 6/6 tests pass on NTSC
+  and PAL, short and long; physical execution is PENDING.
 - All three builds also booted in Mednafen 1.32.1 through
   `run-example.ps1`; manual window captures show E10's live coast, E11 with
   the stage off and on, and E12 with both ring phases and the light pool.
@@ -536,23 +536,29 @@ claim.
 
 **Phase A - evidence freeze (can start now).**
 
-1. Add an E01-E12 evidence ledger with one row per example: checklist row,
-   build command, host test, Ymir NTSC result, Ymir PAL/Mednafen result,
-   long-run or stress result, known emulator gap and physical status. The
-   ledger is the source of truth; do not use a blanket "M1-M5 done" claim.
-2. Reconcile stale documentation. In particular,
-   `docs/LIBSATURN_CURRENT_COVERAGE.md` still says the 240/256-line PAL modes
-   are not offered, while E09 now exposes them. Align the VDP2 summary with
-   rows 27-38 and `docs/VDP2_SUPPORT_MATRIX.json`.
+1. Keep `docs/VDP2_EVIDENCE_LEDGER.md` as the source of truth, with one row
+   per example: checklist row, build command, host test, Ymir NTSC result,
+   Ymir PAL/Mednafen result, long-run or stress result, known emulator gap and
+   physical status. Do not use a blanket "M1-M5 done" claim.
+2. Reconcile stale documentation. The Phase A pass corrected
+   `docs/LIBSATURN_CURRENT_COVERAGE.md`, which still claimed the 240/256-line
+   PAL modes were not offered while E09 exposes them, and aligned the VDP2
+   summary with rows 27-38 and `docs/VDP2_SUPPORT_MATRIX.json`.
 3. Map the section 8 definition-of-done boxes to the ledger. Check a box only
    when the ledger names the artifact that proves it; leave the physical box
    unchecked until Phase C.
-4. Extend `harness/run-acceptance-sweep.ps1` with E09-E12 and expose `-Pal`
-   on the E10-E12 wrappers, then run the full VDP2 set in both standards.
-   E09's PAL eight-mode matrix is mandatory; E10-E12 PAL runs are 50 Hz smoke
-   tests for cadence, borders and mode detection.
+4. Extended `harness/run-acceptance-sweep.ps1` with E09-E12 and exposed
+   `-Pal` on the E10-E12 wrappers. The VDP2-only sweep passed 18/18 on NTSC
+   and 18/18 on PAL. E09's PAL eight-mode matrix is mandatory; E10-E12 PAL
+   runs are 50 Hz smoke tests for cadence, borders and mode detection.
 5. Gate: `make test`, `make examples-all`, the full VDP2 sweep in NTSC and
    PAL, and the package/build gates all green; commit the audit.
+
+**Phase A status (2026-10-18): COMPLETE.** The ledger exists and maps the DoD;
+the stale PAL 240/256 claim is corrected; the sweep covers E09-E12 and both
+standards pass 18/18. `make test` is green, the package gates pass 3/3 and
+5/5, and `make examples-all` exits 0. Physical hardware remains PENDING;
+Phase B is next.
 
 **Phase B - hardware signoff kit (can start now).**
 
@@ -646,6 +652,7 @@ For each E01-E12, all boxes must be checked before changing its status to DONE:
 - Runtime: `include/saturn/stage_map2.h`, `vdp2_layers.h`, `vdp2_compose.h`, `vdp2_alloc.h`, `vdp2.h`, `video.h` and their implementations under `src/graphics/vdp2/` and `src/hal/vdp2/`.
 - Existing fixtures: `examples/vdp2_*`, `tests/host/test_vdp2_*.cpp`, `harness/run-vdp2-*.ps1`.
 - Baseline acceptance: `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md`, `docs/LIBSATURN_CURRENT_COVERAGE.md`.
+- Evidence ledger: `docs/VDP2_EVIDENCE_LEDGER.md` (E01-E12 build, host, emulator, stress and physical status).
 
 **Remaining actionable slice:** execute Phase A and Phase B of the M6
 completion path now. When hardware is available, run the E01-E12 discs from

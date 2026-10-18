@@ -11,6 +11,9 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- `docs/VDP2_EVIDENCE_LEDGER.md` records the E01-E12 build, host, Ymir
+  NTSC/PAL, Mednafen, stress and physical-status evidence, and maps the plan's
+  definition-of-done checklist to named artifacts.
 - VDP2 video modes (plan milestone M4, E09): `sat_video_config_t.interlace`
   (the old `reserved` byte), `sat_video_mode_supported()`,
   `sat_video_interlace_mode()`, `sat_video_tvmd()` and
@@ -632,6 +635,9 @@ The version is defined once, in the `VERSION` file.
 
 ### Changed
 
+- The acceptance sweep now includes E09-E12. The E10-E12 wrappers accept
+  `-Pal`, and E10/E11 captures are triggered by scene telemetry so PAL frame
+  timing cannot select the wrong animation or stage state.
 - Sound RAM from 0x3000 up is free for samples (was 0xB000): 32 KiB more for
   resident sounds, effect rings and `sat_sampler`. The sound driver's stack
   moved from 0xA000 to the 1 KiB between its mailbox and its score (top
@@ -666,6 +672,12 @@ The version is defined once, in the `VERSION` file.
 
 ### Fixed
 
+- The shared example-test runner writes PAL probe, WRAM and telemetry files
+  under `harness/build/<example>_pal/`, so a PAL run no longer overwrites the
+  NTSC evidence set.
+- `test_vdp2_hires_light.py` decoded three `uint8_t` telemetry switches as
+  `uint32_t`, reading struct padding (`0x01010100`) and failing the setup
+  assertion. The decoder now matches the C struct layout (`>IIIiiBBB`).
 - The Mednafen launcher and the script that generates it now place
   `-ExtraArgs` before the disc image. Mednafen stops parsing options at the
   image, so options such as `-qtrecord` were previously ignored without an

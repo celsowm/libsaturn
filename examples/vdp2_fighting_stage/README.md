@@ -41,7 +41,8 @@ the harness, so the two states are measured without a pad script.
 character metrics, captures on/off/on frames, and checks that the fighter
 simulation advanced in both states, the stage adds no VDP1 command of its own
 (the small count difference is the continuing animation), all four NBGs are
-enabled in BGON, and the backdrop returns after the toggle. On the pinned
+enabled in BGON, and the backdrop returns after the toggle. The same 5/5
+checks pass in the PAL sweep at 50 Hz. On the pinned
 Ymir revision the stage runs at the character demo's normal cadence; the
 example does not claim a measured 60 fps.
 

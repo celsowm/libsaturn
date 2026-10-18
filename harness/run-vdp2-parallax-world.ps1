@@ -9,10 +9,12 @@ param(
     [string]$Bios,
     [string]$Msys2Root,
     [int]$Frames = 750,
-    [switch]$Long
+    [switch]$Long,
+    [switch]$Pal
 )
 . (Join-Path $PSScriptRoot 'scripts/run-example-tests.ps1')
-$dir = Join-Path $PSScriptRoot 'build/vdp2_parallax_world'
+$palMode = $Pal -or $env:LIBSATURN_PAL -eq '1'
+$dir = Join-Path $PSScriptRoot $(if ($palMode) { 'build/vdp2_parallax_world_pal' } else { 'build/vdp2_parallax_world' })
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 foreach ($stale in @('early.png', 'mid.png', 'late.png', 'reference.png', 'never.png',
                      'struct.bin', 'misaligned.txt', 'wram.bin', 'probe.json')) {
@@ -25,6 +27,7 @@ Invoke-ExampleTest `
     -Name 'parallax' -Example 'vdp2_parallax_world' `
     -Bios:$Bios -Msys2Root:$Msys2Root `
     -Frames $Frames `
+    -Pal:$palMode `
     -DumpName 'wram.bin' `
     -TestFile 'test_vdp2_parallax_world.py' `
     -MisalignedReport (Join-Path $dir 'misaligned.txt') `

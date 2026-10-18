@@ -8,10 +8,12 @@ param(
     [string]$Bios,
     [string]$Msys2Root,
     [int]$Frames = 900,
-    [switch]$Long
+    [switch]$Long,
+    [switch]$Pal
 )
 . (Join-Path $PSScriptRoot 'scripts/run-example-tests.ps1')
-$dir = Join-Path $PSScriptRoot 'build/vdp2_neon_city'
+$palMode = $Pal -or $env:LIBSATURN_PAL -eq '1'
+$dir = Join-Path $PSScriptRoot $(if ($palMode) { 'build/vdp2_neon_city_pal' } else { 'build/vdp2_neon_city' })
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 foreach ($stale in @('early.png', 'mid.png', 'late.png', 'never.png',
                      'struct.bin', 'misaligned.txt', 'wram.bin', 'probe.json')) {
@@ -24,6 +26,7 @@ Invoke-ExampleTest `
     -Name 'neoncity' -Example 'vdp2_neon_city' `
     -Bios:$Bios -Msys2Root:$Msys2Root `
     -Frames $Frames `
+    -Pal:$palMode `
     -DumpName 'wram.bin' `
     -TestFile 'test_vdp2_neon_city.py' `
     -MisalignedReport (Join-Path $dir 'misaligned.txt') `

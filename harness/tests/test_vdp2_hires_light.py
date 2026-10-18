@@ -12,9 +12,9 @@ b.png during the sweep. The struct read here is g_light_demo.
 
 The map/dump loader lives in harness/scripts/telemetry.py so every
 test in this directory uses the same WRAM_HIGH constant and symbol
-regex. The struct read here still uses the '>IIIiiIII' big-endian
-format that the SH-2 emits directly; the C struct definition lives in
-examples/vdp2_hires_light/main.c.
+regex. The struct read here uses the '>IIIiiBBB' big-endian format:
+three u32 values, two i32 spot coordinates and three u8 switches. The
+C struct definition lives in examples/vdp2_hires_light/main.c.
 """
 
 import os
@@ -31,11 +31,12 @@ def _load():
     map_path = os.environ.get("LIBSATURN_LIGHT_MAP")
     if not dump or not map_path:
         raise unittest.SkipTest("run harness/run-vdp2-hires-light.ps1 first")
-    # '>IIIiiIII' = magic (u32), setup_ok (u32), frames (u32),
-    # spot_x (i32), spot_y (i32), light_on (u32), mask_on (u32),
-    # window_on (u32). The two signed i32s sit in the middle so the
-    # struct layout cannot drift without breaking this loader.
-    v = tel.load_dump(dump, map_path, "_g_light_demo", ">IIIiiIII")
+    # '>IIIiiBBB' = magic (u32), setup_ok (u32), frames (u32),
+    # spot_x (i32), spot_y (i32), then the three uint8_t switches.
+    # The struct definition in examples/vdp2_hires_light/main.c is the
+    # authority; reading the switches as u32 would consume padding and
+    # report values such as 0x01010100.
+    v = tel.load_dump(dump, map_path, "_g_light_demo", ">IIIiiBBB")
     return {"magic": v[0], "setup_ok": v[1], "frames": v[2], "spot_x": v[3], "spot_y": v[4],
             "light_on": v[5], "mask_on": v[6], "window_on": v[7]}
 

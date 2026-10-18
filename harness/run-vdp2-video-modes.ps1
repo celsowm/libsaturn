@@ -15,8 +15,9 @@ param(
     [switch]$Pal
 )
 . (Join-Path $PSScriptRoot 'scripts/run-example-tests.ps1')
-$dir = Join-Path $PSScriptRoot $(if ($Pal) { 'build/vdp2_video_modes_pal' } else { 'build/vdp2_video_modes' })
-if ($Pal -and $Frames -eq 700) { $Frames = 900 }
+$palMode = $Pal -or $env:LIBSATURN_PAL -eq '1'
+$dir = Join-Path $PSScriptRoot $(if ($palMode) { 'build/vdp2_video_modes_pal' } else { 'build/vdp2_video_modes' })
+if ($palMode -and $Frames -eq 700) { $Frames = 900 }
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 foreach ($stale in @('m0.png', 'm1.png', 'm2.png', 'm3.png', 'm4.png',
                      'm5.png', 'm6.png', 'm7.png', 'never.png',
@@ -35,11 +36,11 @@ $shots += "_g_video_modes:36:0xFFFFFFFF:$(Join-Path $dir 'never.png')"
 Invoke-ExampleTest `
     -Name 'videomodes' -Example 'vdp2_video_modes' `
     -Bios:$Bios -Msys2Root:$Msys2Root `
-    -Frames $Frames -Pal:$Pal `
+    -Frames $Frames -Pal:$palMode `
     -DumpName 'wram.bin' `
     -TestFile 'test_vdp2_video_modes.py' `
     -MisalignedReport (Join-Path $dir 'misaligned.txt') `
     -ScreenshotWhenSymbol $shots `
     -DumpMemSymbol @("_g_video_modes:0:96:$(Join-Path $dir 'struct.bin')") `
     -DumpVram @('0:16384') `
-    -ExtraEnv "LIBSATURN_VIDEOMODES_SHOTS=$dir", "LIBSATURN_VIDEOMODES_PAL=$($Pal.IsPresent ? 1 : 0)"
+    -ExtraEnv "LIBSATURN_VIDEOMODES_SHOTS=$dir", "LIBSATURN_VIDEOMODES_PAL=$($palMode ? 1 : 0)"
