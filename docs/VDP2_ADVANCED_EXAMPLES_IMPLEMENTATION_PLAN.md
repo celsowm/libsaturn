@@ -520,6 +520,88 @@ PENDING, because no machine is connected to this run. Also open: region/
 revision coverage, ODE/optical media captures and stock-memory measurements
 on hardware. These cannot be closed by emulator output and are not claimed.
 
+### M6 completion path (2026-10-17)
+
+M6 has one hard blocker: no physical Saturn is connected. The work is split so
+that everything which does not need hardware closes first, and the hardware
+session becomes a bounded, repeatable procedure rather than an open-ended
+claim.
+
+| Phase | Hardware | Deliverable | Exit gate | Effort |
+|-------|----------|-------------|-----------|--------|
+| A. Evidence freeze | no | E01-E12 evidence ledger, doc truthing, full VDP2 sweep | every non-hardware box has named evidence; NTSC/PAL sweep green; committed | 1-2 days |
+| B. Signoff kit | no | reproducible disc bundle, hashes, session protocol, capture templates | 12 discs rebuild and boot in Ymir/Mednafen; hashes match | 1-2 days |
+| C. Physical session | yes | NTSC and PAL runs, captures, measurements | every row 27-38 has PASS or FAIL evidence, never inferred | 2-3 days |
+| D. Closeout | results | checklist, matrix, coverage, plan status, release notes | M6 DONE only for rows actually proven | 0.5 day |
+
+**Phase A - evidence freeze (can start now).**
+
+1. Add an E01-E12 evidence ledger with one row per example: checklist row,
+   build command, host test, Ymir NTSC result, Ymir PAL/Mednafen result,
+   long-run or stress result, known emulator gap and physical status. The
+   ledger is the source of truth; do not use a blanket "M1-M5 done" claim.
+2. Reconcile stale documentation. In particular,
+   `docs/LIBSATURN_CURRENT_COVERAGE.md` still says the 240/256-line PAL modes
+   are not offered, while E09 now exposes them. Align the VDP2 summary with
+   rows 27-38 and `docs/VDP2_SUPPORT_MATRIX.json`.
+3. Map the section 8 definition-of-done boxes to the ledger. Check a box only
+   when the ledger names the artifact that proves it; leave the physical box
+   unchecked until Phase C.
+4. Extend `harness/run-acceptance-sweep.ps1` with E09-E12 and expose `-Pal`
+   on the E10-E12 wrappers, then run the full VDP2 set in both standards.
+   E09's PAL eight-mode matrix is mandatory; E10-E12 PAL runs are 50 Hz smoke
+   tests for cadence, borders and mode detection.
+5. Gate: `make test`, `make examples-all`, the full VDP2 sweep in NTSC and
+   PAL, and the package/build gates all green; commit the audit.
+
+**Phase B - hardware signoff kit (can start now).**
+
+1. Add `harness/prepare-vdp2-signoff.ps1`. It builds the twelve E01-E12 discs
+   with the ordinary `build-example.ps1` path, validates each `.bin`/`.cue`
+   pair and boot header, then writes a `manifest.json` and `SHA256SUMS.txt`
+   under `dist/vdp2-signoff/<date>/`.
+2. Add `docs/VDP2_HARDWARE_SESSION.md` containing the console matrix
+   (NTSC/PAL, VA0-VA2, cable, ODE or burned disc), the run order, per-row
+   controls, expected observations and counters, artifact naming, and the
+   minimum evidence rule (full-screen capture with HUD/counters plus a
+   close-up where pixels are the criterion).
+3. Dry-run the kit under Ymir and Mednafen: boot every disc, capture one
+   representative frame, and verify the hashes. Label these as emulator
+   checks, not hardware evidence.
+4. Gate: a clean rebuild reproduces the hashes, 12/12 discs boot, and the
+   session protocol has no unresolved row or missing control.
+
+**Phase C - physical session (requires hardware).**
+
+1. NTSC console: rows 27-38 in checklist order. Cover E09's five-mode matrix,
+   the E07 and E12 long runs, E11 with stock RAM and the stage off/on, and
+   E10's reference toggle and long replay.
+2. PAL console: E09's eight-mode matrix, including 704x256 and the
+   320x512/640x512 single-density interlaced pictures, plus 50 Hz smoke runs
+   of E10-E12. Record borders, flicker and the TV's own mode report.
+3. For each row record the console model, region, BIOS, cable, ODE/disc,
+   date, measured counters and SHA-256 of every capture. Mark PASS only
+   against the row's written criteria; otherwise FAIL or BLOCKED.
+4. Never convert an emulator observation into a hardware claim.
+
+**Phase D - closeout (after the session).**
+
+1. Update rows 27-38 with PASS/FAIL links, measured values and anomalies.
+   Rows that were not run stay PENDING.
+2. Update `VDP2_SUPPORT_MATRIX.json`, `LIBSATURN_CURRENT_COVERAGE.md`, the
+   README and the plan status only for what the hardware actually proves.
+   Keep every documented limitation that remains.
+3. Set M6 to DONE only when all twelve rows have recorded physical PASS
+   evidence and every build/test/package gate is green. If a row fails, keep
+   M6 open and attach the failing artifact.
+4. Archive the signoff bundle, update `CHANGELOG.md`, and tag the release.
+
+**Scope guard.** M6 closes the E01-E12 plan and its physical proof. It does
+not close the five `partial` support-matrix features (sprite-window source,
+transactional CRAM/cycle ownership, RBG0 window/per-dot coefficient corners,
+the RBG1 emulator pixel gap and double-density interlace). Those need a
+separate M7 decision; they are documented limitations, not M6 blockers.
+
 ## 7. Implementation workflow for every example
 
 1. Inspect the latest `main`, `AGENTS.md`, related library files, the exact VDP2 manual section and the closest existing example.
@@ -565,8 +647,9 @@ For each E01-E12, all boxes must be checked before changing its status to DONE:
 - Existing fixtures: `examples/vdp2_*`, `tests/host/test_vdp2_*.cpp`, `harness/run-vdp2-*.ps1`.
 - Baseline acceptance: `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md`, `docs/LIBSATURN_CURRENT_COVERAGE.md`.
 
-**Remaining actionable slice:** M6 physical-console signoff. Run the E01-E12
-discs from `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md` on real NTSC and PAL
-consoles, record captures and measurements, and close only the rows the
-hardware actually proves. Do not convert the emulator results above into
-hardware claims.
+**Remaining actionable slice:** execute Phase A and Phase B of the M6
+completion path now. When hardware is available, run the E01-E12 discs from
+`docs/HARDWARE_ACCEPTANCE_CHECKLIST.md` on real NTSC and PAL consoles, record
+captures and measurements, and close only the rows the hardware actually
+proves. Phase C cannot start without a machine, and Phase D closes M6 only
+after that evidence exists.
