@@ -186,8 +186,15 @@ The current 3D asset pipeline also handles one of the Saturn's important limitat
 ### VDP2
 
 Current status: **SUBSTANTIAL for the normal-layer and raster/composition
-family; PARTIAL overall** — the rotation and special-effect territory is what
+family; PARTIAL overall** - the rotation and special-effect territory is what
 remains open.
+
+M6 Phase B now provides a reproducible hardware-signoff bundle
+(`harness/prepare-vdp2-signoff.ps1` + `harness/verify-vdp2-signoff.ps1`) and
+the physical-session protocol in `docs/VDP2_HARDWARE_SESSION.md`. The bundle
+passes 13/13 disc/header checks, reproduces all disc hashes on a clean rebuild,
+and Mednafen 1.32.1 boots all 13 discs as an emulator-only dry-run. Physical
+NTSC/PAL acceptance remains **PENDING**.
 
 The strongest covered areas are the NBG0 to NBG3 layer manager with its VRAM
 cycle planner, the per-line raster effects, window/mosaic composition, and

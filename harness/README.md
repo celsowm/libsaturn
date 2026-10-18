@@ -398,3 +398,18 @@ Mednafen captures require visual review; the runner does not auto-label a
 screenshot as PASS. The current Ymir HLE full-BIOS run does not reach the optical
 tester; its injection-based CD tests do pass. These are separate results.
 See [execution evidence](../docs/NATIVE_SATURN_BOOT_EXECUTION.md).
+
+## VDP2 hardware signoff bundle
+
+`harness/prepare-vdp2-signoff.ps1` builds the Phase B M6 bundle: E01-E12 by
+default plus E13 as a marked supplemental disc (`-CoreOnly` for the strict
+twelve). It validates every `.bin`/`.cue` pair, checks the strict IP/ISO boot
+header, writes `manifest.json` and `SHA256SUMS.txt`, and supports
+`-CompareTo` for a clean-rebuild hash check. `harness/verify-vdp2-signoff.ps1`
+verifies an existing bundle without building. `harness/dry-run-vdp2-signoff.ps1`
+BIOS-boots every disc in Mednafen and captures one frame.
+
+These are emulator/build checks, not hardware evidence. Ymir's probe cannot
+complete a BIOS disc boot for these images; its evidence is direct injection
+plus `run-acceptance-sweep.ps1`. The physical session protocol is
+`docs/VDP2_HARDWARE_SESSION.md`.

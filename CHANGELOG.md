@@ -11,6 +11,15 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- VDP2 hardware signoff kit (M6 Phase B): `harness/prepare-vdp2-signoff.ps1`
+  builds and validates the twelve E01-E12 discs plus E13 as a marked
+  supplemental disc by default, writes a manifest and `SHA256SUMS.txt`, and
+  supports a clean-rebuild `-CompareTo` hash check.
+  `harness/verify-vdp2-signoff.ps1` verifies a bundle without building;
+  `harness/dry-run-vdp2-signoff.ps1` BIOS-boots every disc in Mednafen and
+  captures one frame. `docs/VDP2_HARDWARE_SESSION.md` defines the console
+  matrix, run order, per-row controls, evidence rules and PASS/FAIL/BLOCKED
+  handling. Physical Phase C remains PENDING.
 - `vdp2_parallax_lab` (E13, post-plan): a four-layer hand-painted coast
   driven entirely by VDP2. NBG0/NBG1 are 512x256 8bpp bitmaps and NBG2/NBG3
   are two-word cell maps (4bpp mountains, 8bpp sky); the SH-2 updates only
@@ -648,6 +657,11 @@ The version is defined once, in the `VERSION` file.
 
 ### Changed
 
+- The VDP2 acceptance set now includes E13: the full sweep passes 19/19 in
+  NTSC and 19/19 in PAL. The Phase B signoff bundle reproduced 13/13 disc
+  hashes on a clean rebuild, and Mednafen 1.32.1 BIOS-booted all 13 bundle
+  discs as an emulator-only dry-run. Ymir still cannot BIOS-boot these discs;
+  its evidence remains direct injection.
 - The acceptance sweep now includes E09-E12. The E10-E12 wrappers accept
   `-Pal`, and E10/E11 captures are triggered by scene telemetry so PAL frame
   timing cannot select the wrong animation or stage state.

@@ -558,29 +558,45 @@ claim.
 the stale PAL 240/256 claim is corrected; the sweep covers E09-E12 and both
 standards pass 18/18. `make test` is green, the package gates pass 3/3 and
 5/5, and `make examples-all` exits 0. Physical hardware remains PENDING;
-Phase B is next.
+Phase B is complete below and the current 19-item set is green in both
+standards.
 
 **Post-A addition (E13):** `vdp2_parallax_lab` uses the same public layer API
 to drive two 8bpp bitmap NBGs and two two-word cell NBGs from four
 hand-painted 512x256 layers. It is recorded in the evidence ledger and the
 coverage document; it does not change the Phase A 18/18 sweep baseline.
 
-**Phase B - hardware signoff kit (can start now).**
+**Phase B - hardware signoff kit.**
 
 1. Add `harness/prepare-vdp2-signoff.ps1`. It builds the twelve E01-E12 discs
    with the ordinary `build-example.ps1` path, validates each `.bin`/`.cue`
    pair and boot header, then writes a `manifest.json` and `SHA256SUMS.txt`
-   under `dist/vdp2-signoff/<date>/`.
+   under `dist/vdp2-signoff/<date>/`. E13 is included as a clearly marked
+   supplemental disc by default; `-CoreOnly` emits the strict M6 twelve.
+   `harness/verify-vdp2-signoff.ps1` checks a bundle without building.
 2. Add `docs/VDP2_HARDWARE_SESSION.md` containing the console matrix
    (NTSC/PAL, VA0-VA2, cable, ODE or burned disc), the run order, per-row
    controls, expected observations and counters, artifact naming, and the
    minimum evidence rule (full-screen capture with HUD/counters plus a
    close-up where pixels are the criterion).
-3. Dry-run the kit under Ymir and Mednafen: boot every disc, capture one
-   representative frame, and verify the hashes. Label these as emulator
-   checks, not hardware evidence.
-4. Gate: a clean rebuild reproduces the hashes, 12/12 discs boot, and the
-   session protocol has no unresolved row or missing control.
+3. Dry-run the kit. Mednafen 1.32.1 BIOS-boots every disc and captures one
+   representative frame; Ymir cannot complete a BIOS disc boot for these
+   images (the probe remains at the BIOS language screen with
+   `entry_observed:false`), so the Ymir check is direct injection plus the
+   full VDP2 acceptance sweep. Label both as emulator checks, not hardware
+   evidence.
+4. Gate: a clean rebuild reproduces the hashes, 13/13 bundle discs pass the
+   Mednafen disc boot dry-run (12/12 core if `-CoreOnly`), the current 19-item
+   VDP2 sweep is green in NTSC and PAL, and the session protocol has no
+   unresolved row or missing control.
+
+**Phase B status (2026-10-18): COMPLETE (emulator dry-run).** The bundle
+contains E01-E12 plus E13 supplemental; all 13 `.bin`/`.cue` pairs and boot
+headers passed, a second clean build reproduced all 13 disc hashes, and
+Mednafen booted all 13 discs to their application scenes. The current 19-item
+VDP2 sweep passed **19/19 NTSC** and **19/19 PAL**; `make test`,
+`make examples-all` and the package gates passed. Physical hardware remains
+PENDING; Phase C is the only remaining M6 work.
 
 **Phase C - physical session (requires hardware).**
 
@@ -592,7 +608,8 @@ coverage document; it does not change the Phase A 18/18 sweep baseline.
    of E10-E12. Record borders, flicker and the TV's own mode report.
 3. For each row record the console model, region, BIOS, cable, ODE/disc,
    date, measured counters and SHA-256 of every capture. Mark PASS only
-   against the row's written criteria; otherwise FAIL or BLOCKED.
+   against the row's written criteria; otherwise FAIL or BLOCKED. E13 row 39
+   is supplemental and does not reopen the core M6 scope.
 4. Never convert an emulator observation into a hardware claim.
 
 **Phase D - closeout (after the session).**
@@ -659,9 +676,9 @@ For each E01-E12, all boxes must be checked before changing its status to DONE:
 - Baseline acceptance: `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md`, `docs/LIBSATURN_CURRENT_COVERAGE.md`.
 - Evidence ledger: `docs/VDP2_EVIDENCE_LEDGER.md` (E01-E12 build, host, emulator, stress and physical status).
 
-**Remaining actionable slice:** execute Phase A and Phase B of the M6
-completion path now. When hardware is available, run the E01-E12 discs from
-`docs/HARDWARE_ACCEPTANCE_CHECKLIST.md` on real NTSC and PAL consoles, record
-captures and measurements, and close only the rows the hardware actually
-proves. Phase C cannot start without a machine, and Phase D closes M6 only
-after that evidence exists.
+**Remaining actionable slice:** Phase A and Phase B are complete. When
+hardware is available, run the E01-E12 discs from
+`docs/HARDWARE_ACCEPTANCE_CHECKLIST.md` on real NTSC and PAL consoles using
+`docs/VDP2_HARDWARE_SESSION.md`, record captures and measurements, and close
+only the rows the hardware actually proves. Phase C cannot start without a
+machine, and Phase D closes M6 only after that evidence exists.

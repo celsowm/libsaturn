@@ -25,6 +25,19 @@ Where a row says "record", write the value down next to the date, the console
 model (VA0/VA1/VA2...), the region and the video cable. A pass on one console
 does not say much about another.
 
+For the M6 hardware signoff, use the prepared bundle and the full session
+protocol instead of building discs one at a time:
+
+```powershell
+.\harness\prepare-vdp2-signoff.ps1
+.\harness\verify-vdp2-signoff.ps1 -Bundle .\dist\vdp2-signoff\<date>
+```
+
+The default bundle contains E01-E12 (M6 core) plus E13 as a marked
+supplemental disc; `-CoreOnly` produces the strict twelve. Read
+`docs/VDP2_HARDWARE_SESSION.md` before the session. The Mednafen/Ymir dry-run
+is emulator-only and is not evidence for any row here.
+
 ## Acceptance matrix
 
 `Ymir` = probe wrapper passes in NTSC and PAL; `Med` = also checked on Mednafen
@@ -87,6 +100,10 @@ not model.
   borders by design. Single-density interlace is supported; double-density
   interlace is explicitly refused. Record flicker, overscan and TV mode
   reporting on the real display, because emulator output cannot certify them.
+- **Disc boot.** Ymir's probe does not complete a BIOS disc boot for these
+  images; its evidence is direct application injection. Mednafen 1.32.1
+  BIOS-boots the signoff bundle as an emulator dry-run, but neither path is a
+  substitute for a real Saturn CD/ODE session.
 
 ## When something fails
 
