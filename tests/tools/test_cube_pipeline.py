@@ -1,7 +1,8 @@
 import struct,sys,unittest
+from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'harness/scripts'))
-from cube_pipeline import HEADER,FIELDS,ROWS,decode
+from cube_pipeline import HEADER,FIELDS,ROWS,decode,symbols
 from analyze_cpu_profile import attribute
 
 
@@ -26,6 +27,13 @@ class CubeTelemetryTests(unittest.TestCase):
         self.assertEqual(report['measured_fields'],789)
         self.assertEqual(report['submissions_per_nominal_second'],60)
         self.assertEqual(report['stage_us']['geometry']['median'],500)
+
+    def test_symbols_include_unsized_assembly_slave_entry(self):
+        with patch('cube_pipeline.subprocess.check_output',return_value=
+                   '060040b0 T _saturn_slave_entry\n06020000 0000000c b _g_anim\n'):
+            result=symbols(Path('example.elf'),'nm')
+        self.assertEqual(result['saturn_slave_entry'],(0x060040b0,0))
+        self.assertEqual(result['g_anim'],(0x06020000,12))
 
     def test_ring_skips_the_active_overwrite_slot(self):
         count=ROWS+33;raw=self.fixture(count)

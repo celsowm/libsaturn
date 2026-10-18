@@ -6,6 +6,11 @@ on:
       - 'examples/cube_pipeline_bench/**'
       - 'harness/scripts/cube_pipeline.py'
       - 'harness/scripts/analyze_cpu_profile.py'
+      - 'harness/scripts/dino_pipeline.py'
+      - 'src/core/geometry/mesh_logic.hpp'
+      - 'src/graphics/3d/rendering/**'
+      - 'tests/host/test_mesh3d_logic.cpp'
+      - 'tests/host/test_render3d_logic.cpp'
       - 'tests/host/test_cube_pipeline_mesh.cpp'
       - 'tests/tools/test_cube_pipeline.py'
       - '.github/workflows/cube-pipeline.yml'
@@ -21,7 +26,10 @@ jobs:
           python-version: '3.12'
       - run: make build/tests/test_cube_pipeline_mesh
       - run: ./build/tests/test_cube_pipeline_mesh
+      - run: make build/tests/test_mesh3d_logic build/tests/test_render3d_logic
+      - run: ./build/tests/test_mesh3d_logic && ./build/tests/test_render3d_logic
       - run: python tests/tools/test_cube_pipeline.py
+      - run: python harness/scripts/dino_pipeline.py --help
   images:
     runs-on: ubuntu-latest
     steps:

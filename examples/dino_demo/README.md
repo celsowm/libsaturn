@@ -103,14 +103,17 @@ painter queue. `MODEL_LOCALITY_ORDER` orders faces along the body so each
 half projects only its own window of vertices. While the Master sorts and
 emits, the Slave decodes the next pose.
 
+See the [shared renderer refactor and measurements](../../docs/SHARED_RENDERER_PERFORMANCE.md)
+for the common visibility improvement and reproducible animated/paused controls.
+
 The demo runs in `SAT_VDP1_FRAME_ON_SUBMIT` mode (build with
 `-DDINO_FRAME_ON_SUBMIT=0` for the 1-cycle default), so each list is shown only
 once it has fully drawn. The HUD's `LATE SWAPS` is
 `sat_vdp1_frame_stats().late_swaps`, the VBlanks at which a list was still
-drawing. There is no FPS readout: frame rate differs a lot per emulator (Ymir
-models no VDP1 fill time and runs about 20 fps, an upper bound; Mednafen
-charges it and runs about 10 fps), so measure it with a stopwatch or the
-harness frame counter.
+drawing. There is no FPS readout. Measure a warmed interval with the harness
+and inspect an actual Mednafen CD recording; cadence depends on the workload,
+cache settings and emulator model. CPU submissions and distinct presentation
+are different measurements.
 
 Build with `.\build-example.ps1 dino_demo`. Run it in Ymir's modified
 integration harness with `.\harness\run-harness.ps1 dino_demo -Bios <your-BIOS>`

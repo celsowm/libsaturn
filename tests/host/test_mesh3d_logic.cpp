@@ -598,6 +598,32 @@ TEST(quad_visible_matches_exact_facing_test) {
     }
 }
 
+TEST(visibility_small_edge_boundary_keeps_exact_facing) {
+    const int32_t sizes[]={0,1,-1,16383,16384,16385,-16383,-16384,-16385};
+    for(int32_t edge:sizes)for(unsigned collapse=0;collapse<4;++collapse) {
+        sat_quad3_t q={{vec3(199,-201,301),vec3(199+edge,-201+edge,301),
+            vec3(199+edge,-201+2*edge,302+edge),vec3(199,-201+edge,301+edge)}};
+        if(collapse==1)q.v[1]=q.v[0];
+        if(collapse==2)q.v[3]=q.v[2];
+        if(collapse==3)q.v[3]=q.v[0];
+        int64_t n[3];
+        cross_raw(vec3_sub(q.v[3],q.v[0]),vec3_sub(q.v[1],q.v[0]),n);
+        if(!(n[0]|n[1]|n[2]))cross_raw(vec3_sub(q.v[3],q.v[0]),vec3_sub(q.v[2],q.v[0]),n);
+        if(!(n[0]|n[1]|n[2]))cross_raw(vec3_sub(q.v[2],q.v[0]),vec3_sub(q.v[1],q.v[0]),n);
+        const sat_vec3_t centre=quad_center(q);
+        for(int sign=-1;sign<=1;sign+=2)for(int delta=-1;delta<=1;++delta) {
+            // Nearly edge-on, large cancelling dot products; the warped C
+            // also exercises the existing truncated four-corner centre.
+            const sat_vec3_t eye=vec3(centre.x+sign*400000000,
+                centre.y+sign*800000000+delta,centre.z+sign*400000000);
+            const sat_vec3_t v=vec3_sub(eye,centre);
+            const __int128 dot=static_cast<__int128>(n[0])*v.x+
+                static_cast<__int128>(n[1])*v.y+static_cast<__int128>(n[2])*v.z;
+            ASSERT_EQ(quad_visible(q,eye)?1:0,dot>0?1:0);
+        }
+    }
+}
+
 TEST(degenerate_triangle_quad_keeps_outward_normal) {
     sat_mesh_t mesh = make_mesh();
     /* Triangle in the z=0 plane facing +Z, carried as A,B,C,C. With
@@ -733,9 +759,10 @@ int main() {
     texture_selection_shares_culling_with_polygon_path();
     degenerate_triangle_quad_keeps_outward_normal();
     quad_visible_matches_exact_facing_test();
+    visibility_small_edge_boundary_keeps_exact_facing();
     weld_vertices_shrinks_a_sphere_and_keeps_winding();
     weld_vertices_leaves_a_box_alone();
     weld_vertices_rejects_undersized_scratch();
-    printf("test_mesh3d_logic: 38 tests passed\n");
+    printf("test_mesh3d_logic: 39 tests passed\n");
     return 0;
 }

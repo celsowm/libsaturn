@@ -202,11 +202,11 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
  *
  * The corners are taken by reference, so a caller holding shared vertex
  * arrays need not copy them into a sat_quad3_t first. */
-inline bool quad_visible(const sat_vec3_t& a, const sat_vec3_t& b,
-                         const sat_vec3_t& c, const sat_vec3_t& d,
-                         const sat_vec3_t& eye) {
+[[gnu::noinline]] inline bool quad_visible_wide(
+    const sat_vec3_t& a,const sat_vec3_t& b,const sat_vec3_t& c,
+    const sat_vec3_t& d,const sat_vec3_t& eye) {
     int64_t n[3];
-    cross_raw(vec3_sub(d, a), vec3_sub(b, a), n);
+    cross_raw(vec3_sub(d,a),vec3_sub(b,a),n);
     if ((n[0] | n[1] | n[2]) == 0) {
         /* B collapsed onto A: the face is the triangle A, C, D. */
         cross_raw(vec3_sub(d, a), vec3_sub(c, a), n);
@@ -240,6 +240,38 @@ inline bool quad_visible(const sat_vec3_t& a, const sat_vec3_t& b,
     }
     hi += lo >> 24;
     return hi > 0 || (hi == 0 && (lo & 0xFFFFFF) != 0);
+}
+
+inline bool quad_visible(const sat_vec3_t& a,const sat_vec3_t& b,
+                         const sat_vec3_t& c,const sat_vec3_t& d,
+                         const sat_vec3_t& eye) {
+    const sat_vec3_t da=vec3_sub(d,a),ba=vec3_sub(b,a);
+    /* A separate wide kernel keeps its large SH-2 stack/register footprint
+     * out of ordinary small faces. Six offset/OR tests prove every edge is
+     * in [-16384,16383]. Each exact cross component then fits 29 bits and
+     * its three signed 32x32 dot products fit their signed 64-bit sum. */
+    const uint32_t edge_range=(static_cast<uint32_t>(da.x)+16384u) |
+        (static_cast<uint32_t>(da.y)+16384u) |
+        (static_cast<uint32_t>(da.z)+16384u) |
+        (static_cast<uint32_t>(ba.x)+16384u) |
+        (static_cast<uint32_t>(ba.y)+16384u) |
+        (static_cast<uint32_t>(ba.z)+16384u);
+    if(edge_range<32768u) {
+        const int32_t nx=da.y*ba.z-da.z*ba.y;
+        const int32_t ny=da.z*ba.x-da.x*ba.z;
+        const int32_t nz=da.x*ba.y-da.y*ba.x;
+        if(nx || ny || nz) {
+            const sat_vec3_t centre=vec3(
+                static_cast<sat_fx16_t>((static_cast<int64_t>(a.x)+b.x+c.x+d.x)/4),
+                static_cast<sat_fx16_t>((static_cast<int64_t>(a.y)+b.y+c.y+d.y)/4),
+                static_cast<sat_fx16_t>((static_cast<int64_t>(a.z)+b.z+c.z+d.z)/4));
+            const sat_vec3_t v=vec3_sub(eye,centre);
+            return static_cast<int64_t>(nx)*v.x+static_cast<int64_t>(ny)*v.y+
+                static_cast<int64_t>(nz)*v.z>0;
+        }
+    }
+    // Degenerate corners and larger faces retain the general exact path.
+    return quad_visible_wide(a,b,c,d,eye);
 }
 
 inline bool quad_visible(const sat_quad3_t& quad, const sat_vec3_t& eye) {

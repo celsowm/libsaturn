@@ -93,6 +93,7 @@ def symbols(elf,nm):
     for line in subprocess.check_output([nm,'-S','--defined-only',str(elf)],text=True).splitlines():
         cols=line.split()
         if len(cols)==4:result[cols[3].lstrip('_')]=(int(cols[0],16),int(cols[1],16))
+        elif len(cols)==3:result[cols[2].lstrip('_')]=(int(cols[0],16),0)
     return result
 
 
@@ -124,10 +125,10 @@ def record_cd(a):
     case=a.record_cd.resolve();out=a.out.resolve()
     if out.exists() and any(out.iterdir()):raise FileExistsError('use a fresh empty output directory')
     out.mkdir(parents=True,exist_ok=True)
-    movie=out/'run.mov'
+    movie=out/'run.mov';example=a.record_example
     command=[a.mednafen,'-sound','0','-video.driver','softfb','-ss.region_default','na',
              '-ss.bios_na_eu',str(a.bios.resolve()),'-qtrecord',str(movie),
-             str(case/'cube_pipeline_bench.cue')]
+             str(case/(example+'.cue'))]
     with (out/'mednafen.log').open('w') as log:
         process=subprocess.Popen(command,stdout=log,stderr=subprocess.STDOUT)
         try:process.wait(timeout=a.seconds)
@@ -138,7 +139,7 @@ def record_cd(a):
                 process.kill();process.wait();raise
     metadata=dict(command=command,returncode=process.returncode,seconds_requested=a.seconds,
                   scope='Actual Mednafen CD boot; inspect movie/screenshot for visual confirmation.',
-                  hashes={suffix:hashlib.sha256((case/('cube_pipeline_bench'+suffix)).read_bytes()).hexdigest()
+                  hashes={suffix:hashlib.sha256((case/(example+suffix)).read_bytes()).hexdigest()
                           for suffix in ('.elf','.app.bin','.bin','.cue')})
     (out/'recording.json').write_text(json.dumps(metadata,indent=2)+'\n')
     if process.returncode:raise RuntimeError('Mednafen failed: inspect mednafen.log')
@@ -235,6 +236,7 @@ if __name__=='__main__':
     p.add_argument('--out',type=Path);p.add_argument('--bios',type=Path)
     p.add_argument('--report',type=Path,nargs='+',help='summarize retained matrix.json files without rebuilding')
     p.add_argument('--record-cd',type=Path,help='record a retained case directory in Mednafen')
+    p.add_argument('--record-example',default='cube_pipeline_bench',help='disc stem for --record-cd')
     p.add_argument('--mednafen',default=shutil.which('mednafen') or 'mednafen')
     p.add_argument('--seconds',type=float,default=30)
     p.add_argument('--compare',nargs='+',default=[],help='compare cube-region screenshots (Pillow required)')
