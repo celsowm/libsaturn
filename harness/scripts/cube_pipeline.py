@@ -97,15 +97,15 @@ def symbols(elf,nm):
 
 
 def report(paths,compare=()):
-    print('| Case | Submit/s | Work ms | Skin ms | Geometry ms | Emit ms | Present ms | Raw plot ms |')
-    print('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
+    print('| Case | Working RAM | Submit/s | Work ms | Skin ms | Geometry ms | Emit ms | Present ms | Raw plot ms |')
+    print('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
     for path in paths:
         data=json.loads(path.read_text())
         for name,case in data['cases'].items():
             costs=case['stage_us']
             values=' | '.join(f"{costs[key]['median']/1000:.3f}" for key in
                              ('work','skin','geometry','flush','present','plot'))
-            print(f"| {name} | {case['submissions_per_nominal_second']:.2f} | {values} |")
+            print(f"| {name} | {case.get('working_ram','low')} | {case['submissions_per_nominal_second']:.2f} | {values} |")
         if compare:
             from PIL import Image,ImageChops
             first=Image.open(path.parent/compare[0]/'screen.png').convert('RGB').crop((0,48,320,192))
@@ -163,6 +163,7 @@ def run(a):
         stage,density=CASES[name];case=out/name;case.mkdir()
         command=['make','all','EXAMPLE=cube_pipeline_bench',f'CUBE_BENCH_STAGE={stage}',
                  f'CUBE_BENCH_DIV={density}',f'CUBE_BENCH_HUD={int(not a.no_hud)}',
+                 f'CUBE_BENCH_HIGH_RAM={int(a.high_ram)}',
                  'PYTHON='+str(a.python.resolve()),'-j4']
         with build_lock():
             with (case/'build.log').open('w') as log:
@@ -172,11 +173,13 @@ def run(a):
                 shutil.copyfile(ROOT/'build'/('cube_pipeline_bench'+suffix),case/('cube_pipeline_bench'+suffix))
         elf=case/'cube_pipeline_bench.elf';syms=symbols(elf,nm)
         address,size=syms['g_cube_bench'];panic_address,panic_size=syms['g_sat_last_panic']
+        ram_address,ram_size=syms['g_cube_bench_high_ram']
         probe=[str(a.probe.resolve()),'--iso',str(case/'cube_pipeline_bench.iso'),
                '--bin',str(case/'cube_pipeline_bench.app.bin'),'--bios',str(a.bios.resolve()),
                '--boot-frames','90','--frames',str(a.frames),'--sh2-cache','on',
                '--out',str(case/'ymir.json'),'--dump-mem',f'{address:#x}:{size}:{case}/telemetry.bin',
                '--dump-mem',f'{panic_address:#x}:{panic_size}:{case}/native-panic.bin',
+               '--dump-mem',f'{ram_address:#x}:{ram_size}:{case}/working-ram.bin',
                '--screenshot',f'{a.frames-1}:{case}/screen.png']
         if a.profile:
             probe+=['--debug-profile',str(case/'debug'),'--trace-from',str(a.frames-100),
@@ -189,6 +192,17 @@ def run(a):
         if len(panic)!=44 or struct.unpack_from('>I',panic)[0]!=0:
             raise ValueError('native cube panic (inspect dump/log/screenshot)')
         report=decode((case/'telemetry.bin').read_bytes(),a.after_field)
+        if (case/'working-ram.bin').read_bytes()!=struct.pack('>I',int(a.high_ram)):
+            raise ValueError('cube working RAM does not match requested build')
+        report['working_ram']='high' if a.high_ram else 'low'
+        report['working_buffers']={name:dict(address=syms[name][0],size=syms[name][1])
+                                   for name in ('actors','faces','keys','order','worker_faces','worker_keys')
+                                   if name in syms}
+        ram_start=0x06000000 if a.high_ram else 0x00200000
+        if not report['working_buffers'] or any(
+                not ram_start<=buffer['address']<buffer['address']+buffer['size']<=ram_start+0x100000
+                for buffer in report['working_buffers'].values()):
+            raise ValueError('cube ELF buffers do not match requested WRAM placement')
         if report['header']['stage']!=stage or report['header']['divisions']!=density:
             raise ValueError('cube build does not match requested case')
         if report['measured_fields']<a.minimum_fields:raise ValueError('cube measurement window too short')
@@ -231,6 +245,7 @@ if __name__=='__main__':
     p.add_argument('--frames',type=int,default=1200);p.add_argument('--after-field',type=int,default=120)
     p.add_argument('--minimum-fields',type=int,default=600);p.add_argument('--timeout',type=int,default=300)
     p.add_argument('--no-hud',action='store_true');p.add_argument('--profile',action='store_true')
+    p.add_argument('--high-ram',action='store_true',help='place actor/face working buffers in high WRAM')
     a=p.parse_args()
     if a.report:
         report(a.report,a.compare);raise SystemExit(0)

@@ -36,6 +36,7 @@ jobs:
             make all EXAMPLE=cube_pipeline_bench CUBE_BENCH_STAGE=$stage CUBE_BENCH_DIV=1 -j3
           done
           make all EXAMPLE=cube_pipeline_bench CUBE_BENCH_STAGE=8 CUBE_BENCH_DIV=12 -j3
+          make all EXAMPLE=cube_pipeline_bench CUBE_BENCH_STAGE=8 CUBE_BENCH_DIV=12 CUBE_BENCH_HIGH_RAM=1 -j3
       - name: Upload final dense example
         uses: actions/upload-artifact@v4
         with:

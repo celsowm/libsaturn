@@ -11,7 +11,10 @@ Subdivisions increase geometry without increasing the cubes' screen footprint.
 make all EXAMPLE=cube_pipeline_bench CUBE_BENCH_STAGE=1 CUBE_BENCH_DIV=1
 ```
 
-The build produces the usual native CD files under `build/`. The HUD displays
+The build produces the usual native CD files under `build/`. Actor, face, key
+and painter-order working arrays use low WRAM by default. Set
+`CUBE_BENCH_HIGH_RAM=1` to put those same arrays in high WRAM; the linked image
+must still fit the standard memory contract. The HUD displays
 the stage, subdivision count and `FRAME NNNN` (the submission serial).
 `CUBE_BENCH_HUD=0` removes the HUD; keep this setting consistent across comparisons.
 
@@ -66,6 +69,10 @@ SH-2 toolchain, and `--probe` for a different harness build. `--cases` selects
 a subset. The default matrix includes 21 cases, covering stages 0–5 and 7 at
 the smallest density, density sweeps, and paired/animated dense cases.
 Stage 6 is available through Make for the RGB skinning control.
+
+For the memory-placement control, repeat selected cases with `--high-ram`
+in a different output directory. The runner checks both the guest's RAM-mode
+marker and the ELF addresses of working arrays, and records their sizes.
 
 The runner locks the shared example build aliases until it has copied all
 artifacts. Different retained cases can then execute without reusing an ELF or
@@ -190,4 +197,25 @@ the character. No production renderer optimization is claimed by this example.
 
 Host checks cover mesh sharing, winding, manifold edges and rejected capacities,
 plus telemetry ring coherence, FRT units and failure rejection. CI builds all
-ten stages and the densest paired scene under the stock RAM/disc contracts.
+ten stages and the densest paired scene in both WRAM placements under the stock
+RAM/disc contracts.
+
+### Working-memory placement control
+
+A subsequent run kept the same five dense workloads and moved only actor,
+face, key and order arrays to high WRAM (`--high-ram`). Local artifacts:
+`harness/build/cube-ladder-high-ram-checked/`. The other arrays and algorithms
+were unchanged. Median work times in this Ymir configuration were:
+
+| Dense case (864 quads per actor) | Low WRAM ms | High WRAM ms |
+| --- | ---: | ---: |
+| RGB scene | 69.250 | 67.749 |
+| Textured scene | 74.314 | 72.726 |
+| Textured skin | 84.062 | 81.961 |
+| Paired textured skin | 61.990 | 60.233 |
+| Animated paired skin | 64.915 | 63.046 |
+
+The work reduction was roughly 2–3%, insufficient to explain the large gap to
+the native path. The skin case crossed a scheduling boundary (10 to 12 nominal
+submissions/s); this does not mean its CPU work improved by 20%. These emulator
+measurements do not establish the physical Saturn's WRAM access penalty.

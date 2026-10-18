@@ -18,6 +18,9 @@
 #ifndef CUBE_BENCH_HUD
 #define CUBE_BENCH_HUD 1
 #endif
+#ifndef CUBE_BENCH_HIGH_RAM
+#define CUBE_BENCH_HIGH_RAM 0
+#endif
 #if CUBE_BENCH_STAGE < 0 || CUBE_BENCH_STAGE > 9 || CUBE_BENCH_DIV < 1 || CUBE_BENCH_DIV > 12
 #error "stage must be 0..9; subdivisions must be 1..12"
 #endif
@@ -25,7 +28,12 @@
 enum { W=320,H=224,N=CUBE_BENCH_DIV,V=6*N*N+2,F=6*N*N,
        CAP=2*F,ROWS=1024,OVERLAY=128,RAW_CAP=CAP+OVERLAY+3 };
 #define FX(n) ((sat_fx16_t)((n)*SAT_FX16_ONE))
-#define RAM_LOW __attribute__((section(".wram_l")))
+#if CUBE_BENCH_HIGH_RAM
+#define WORK_RAM
+#else
+#define WORK_RAM __attribute__((section(".wram_l")))
+#endif
+volatile uint32_t g_cube_bench_high_ram=CUBE_BENCH_HIGH_RAM;
 typedef struct {
     uint32_t serial,field_begin,field_end,wait,begin,animation,skin,
         geometry,flush,hud,present,work,commands,faces,draw_waits,draw_timeouts,plot;
@@ -46,14 +54,14 @@ typedef struct {
     sat_scene3d_instance_t instance;
     sat_scene3d_instance_binding_t binding;
 } actor_t;
-static actor_t actors[2] RAM_LOW;
+static actor_t actors[2] WORK_RAM;
 static uint16_t indices[4*F],face_materials[F];
 static sat_skin_rigid_t anchors[V];
 static sat_skin_asset_t skin;
 static sat_scene_t scene;
-static sat_scene3d_face_t faces[CAP] RAM_LOW,worker_faces[F] RAM_LOW;
-static uint32_t keys[CAP] RAM_LOW,worker_keys[F] RAM_LOW;
-static uint16_t order[CAP] RAM_LOW;
+static sat_scene3d_face_t faces[CAP] WORK_RAM,worker_faces[F] WORK_RAM;
+static uint32_t keys[CAP] WORK_RAM,worker_keys[F] WORK_RAM;
+static uint16_t order[CAP] WORK_RAM;
 static sat_scene3d_prepare_item_t worker_item;
 static sat_scene3d_prepare_batch_t worker_batch;
 static sat_camera3d_t camera;
@@ -215,6 +223,7 @@ static void scene_geometry(void) {
 }
 static void initialize(void) {
     must(sat_app_init_default());
+    g_cube_bench_high_ram=CUBE_BENCH_HIGH_RAM;
     g_cube_bench.magic=0x43334231;g_cube_bench.version=1;g_cube_bench.stage=CUBE_BENCH_STAGE;
     g_cube_bench.divisions=N;g_cube_bench.hud=CUBE_BENCH_HUD;g_cube_bench.frequency=sat_time_frequency_hz();
     g_cube_bench.vertices_per_actor=V;g_cube_bench.faces_per_actor=F;
