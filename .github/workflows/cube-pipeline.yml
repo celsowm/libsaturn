@@ -1,0 +1,49 @@
+name: Cube pipeline bench
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'examples/cube_pipeline_bench/**'
+      - 'harness/scripts/cube_pipeline.py'
+      - 'harness/scripts/analyze_cpu_profile.py'
+      - 'tests/host/test_cube_pipeline_mesh.cpp'
+      - 'tests/tools/test_cube_pipeline.py'
+      - '.github/workflows/cube-pipeline.yml'
+  pull_request:
+  workflow_dispatch:
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: make build/tests/test_cube_pipeline_mesh
+      - run: ./build/tests/test_cube_pipeline_mesh
+      - run: python tests/tools/test_cube_pipeline.py
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/saturn-toolchain
+      - name: Compile every layer with stock RAM and native disc checks
+        run: |
+          for stage in 0 1 2 3 4 5 6 7 8 9; do
+            make all EXAMPLE=cube_pipeline_bench CUBE_BENCH_STAGE=$stage CUBE_BENCH_DIV=1 -j3
+          done
+          make all EXAMPLE=cube_pipeline_bench CUBE_BENCH_STAGE=8 CUBE_BENCH_DIV=12 -j3
+      - name: Upload final dense example
+        uses: actions/upload-artifact@v4
+        with:
+          name: cube-pipeline-dense
+          path: |
+            build/cube_pipeline_bench.elf
+            build/cube_pipeline_bench.map
+            build/cube_pipeline_bench.app.bin
+            build/cube_pipeline_bench.iso
+            build/cube_pipeline_bench.bin
+            build/cube_pipeline_bench.cue

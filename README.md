@@ -581,6 +581,7 @@ Useful starting points:
 - [Current hardware/runtime coverage](docs/LIBSATURN_CURRENT_COVERAGE.md)
 - [Parallel runtime architecture](docs/PARALLEL_RUNTIME_ARCHITECTURE.md)
 - [Parallel runtime benchmarks](docs/PARALLEL_RUNTIME_BENCHMARKS.md)
+- [Two-cube renderer pipeline benchmark](docs/CUBE_PIPELINE_BENCH.md)
 - [3D physics world](docs/PHYSICS3_WORLD.md)
 - [Transform hierarchy](docs/TRANSFORM3D_HIERARCHY.md)
 - [RAM expansion cartridge](docs/RAM_EXPANSION_CARTRIDGE.md)
