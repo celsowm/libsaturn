@@ -15,8 +15,10 @@ The version is defined once, in the `VERSION` file.
   driven entirely by VDP2. NBG0/NBG1 are 512x256 8bpp bitmaps and NBG2/NBG3
   are two-word cell maps (4bpp mountains, 8bpp sky); the SH-2 updates only
   four scroll registers, using a 16.16 trapezoidal pan (short ease ramps and a
-  constant middle) so NBG0/NBG1 keep a regular subpixel cadence. The sea art
-  is lightly softened to reduce one-pixel wave shimmer.
+  constant middle) so NBG0/NBG1 keep a regular subpixel cadence. The sea runs
+  at 65 percent instead of the source lab's 52 percent to keep its one-pixel
+  cadence above roughly 25 Hz, and its RGB is lightly softened to reduce wave
+  shimmer.
   `tools/convert_vdp2_parallax_lab.py` converts the
   four source PNGs into big-endian bitmap, cell and map assets, and
   `harness/run-vdp2-parallax-lab.ps1` checks the public layer configuration,

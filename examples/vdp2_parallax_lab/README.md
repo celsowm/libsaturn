@@ -35,7 +35,9 @@ thresholded into the VDP2 transparent dot code; the sky is opaque.
 
 Two-word pattern names let each 8x8 tile carry its own 15-bit character
 number, so the complete 512x256 image fits in one plane with no repeated
-tile strip. The pan factors are 8/24/52/100 percent, from the source lab.
+tile strip. The pan factors are 8/24/65/100 percent. The sea is slightly
+faster than the source lab's 52 percent so its one-pixel cadence stays above
+roughly 25 Hz during the constant middle of the pan.
 
 `tools/convert_vdp2_parallax_lab.py` quantizes the four PNGs and emits the
 big-endian bitmap words, cell data and pattern-name maps. It reserves dot 0

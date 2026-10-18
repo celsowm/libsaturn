@@ -58,7 +58,7 @@ class ParallaxLabTests(unittest.TestCase):
         self.assertLessEqual(pan_fx, 176 << 16)
         self.assertEqual(r["sky_x"], (pan_fx * 8) // 100)
         self.assertEqual(r["mountain_x"], (pan_fx * 24) // 100)
-        self.assertEqual(r["sea_x"], (pan_fx * 52) // 100)
+        self.assertEqual(r["sea_x"], (pan_fx * 65) // 100)
         self.assertEqual(r["foreground_x"], pan_fx)
         self.assertGreater(r["update_us_max"], 0)
         self.assertLess(r["update_us_max"], 60000)

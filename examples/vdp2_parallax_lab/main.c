@@ -207,7 +207,7 @@ static void update_scene(uint32_t pan_fx) {
     g_parallax_lab.pan = pan_fx;
     g_parallax_lab.sky_x = (uint32_t)layer_scroll(pan_fx, 8u);
     g_parallax_lab.mountain_x = (uint32_t)layer_scroll(pan_fx, 24u);
-    g_parallax_lab.sea_x = (uint32_t)layer_scroll(pan_fx, 52u);
+    g_parallax_lab.sea_x = (uint32_t)layer_scroll(pan_fx, 65u);
     g_parallax_lab.foreground_x = (uint32_t)layer_scroll(pan_fx, 100u);
 
     (void)sat_vdp2_layer_set_scroll(SAT_VDP2_NBG3, (int32_t)g_parallax_lab.sky_x, 0);
