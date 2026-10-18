@@ -1,5 +1,8 @@
 # Shared renderer performance
 
+See the [pipeline study](RENDERER_PIPELINE_STUDY.md) for the next targets,
+actual per-CPU CCR values, observed drawing spans and ownership constraints.
+
 ## First shared-kernel refactor
 
 The two-cube ladder and Dino both call the shared geometric visibility kernel
