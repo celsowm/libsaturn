@@ -55,5 +55,6 @@ for sky, cyan neon, gold windows/road and the light pool. `-Long` runs the
 sentinel cells and equal model/VRAM CRC. The worst table/streaming update was
 27.5 ms per scene field (roughly 30 scene fields per second), and the VDP1
 list held only its two mandatory setup commands, with no scene draws. These
-are emulator timings, not hardware facts. Physical hardware remains
-**PENDING**.
+are emulator timings, not hardware facts. Mednafen 1.32.1 window captures show
+the skyline, both ring phases and the moving light pool. Physical hardware
+remains **PENDING**.

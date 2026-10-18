@@ -449,7 +449,9 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   five 224/240-line modes; the PAL run covers all eight, including 704x256
   and 640x512 (single-density interlaced). The harness checks TVMD bits,
   every capture's size, NBG0 plane-A words in VRAM and all refusal codes.
-  Both runs pass on the pinned Ymir revision. Physical execution is PENDING.
+  Both runs pass on the pinned Ymir revision. The build also boots in
+  Mednafen 1.32.1; manual window captures show four of the modes. Physical
+  execution is PENDING.
 
 ### M5 — Game-quality showcases (E10 then E11 then E12)
 - Build `vdp2_parallax_world`, `vdp2_fighting_stage`, `vdp2_neon_city` using the shared APIs.
@@ -490,8 +492,13 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   3,600-field `-Long` Ymir run completed 1,753 scene frames and 1,752 ring
   switches with 31,845 staged/committed words, 7,218 SCU-DMA and 30,759 CPU
   transfers, zero sentinel cells and equal model/VRAM CRC (no mismatches);
-  the worst table/stream update was 27.5 ms and VDP1 drew two commands (HUD
-  only). 6/6 tests pass, short and long; physical execution PENDING.
+  the worst table/stream update was 27.5 ms and the VDP1 list held only its
+  two mandatory setup commands, with no scene draws. 6/6 tests pass, short
+  and long; physical execution PENDING.
+- All three builds also booted in Mednafen 1.32.1 through
+  `run-example.ps1`; manual window captures show E10's live coast, E11 with
+  the stage off and on, and E12 with both ring phases and the light pool.
+  These are emulator cross-checks, not hardware evidence.
 - The integration also found and fixed a real ownership bug: the rotation
   manager cleared PRINA's NBG0 priority bits whenever RBG1 was hidden, even
   if RBG1 had never displayed. An RBG0-only scene configured after NBG0

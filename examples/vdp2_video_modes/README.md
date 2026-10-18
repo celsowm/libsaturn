@@ -51,6 +51,9 @@ exposes. A 256-line picture is refused on an NTSC console.
 HRESO/VRESO/LSMD bits, the refusal codes, NBG0 plane-A words in VDP2 VRAM,
 and each supported picture's size. The NTSC run covers the five 224/240-line
 modes; the `-Pal` run covers all eight, including 704x256 and 640x512. Both
-pass on the pinned Ymir revision. Physical hardware is still **PENDING** in
+pass on the pinned Ymir revision. The same builds were also launched in
+Mednafen 1.32.1 through `run-example.ps1`; window captures show the HUD and
+the 352x240, 320x480, 640x480 and 320x256 modes. That is a manual cross-check,
+not the full matrix. Physical hardware is still **PENDING** in
 `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md`; emulator output is not hardware
 certification.

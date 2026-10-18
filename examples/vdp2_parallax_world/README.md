@@ -42,4 +42,6 @@ pixel families for sky, sea, shore and leaves. `-Long` runs the 60-second
 (3,600-field) replay. Measured on the pinned Ymir revision: about 3 ms per
 field for the VDP2 table updates and a one-time 138 ms software build for the
 reference image on the harness host. Those timings are emulator-side only.
-Physical hardware remains **PENDING**.
+Mednafen 1.32.1 was also launched through `run-example.ps1`; its window
+capture shows the live coast at frame 310 with 2 VDP1 commands. Physical
+hardware remains **PENDING**.

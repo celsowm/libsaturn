@@ -47,6 +47,9 @@ The version is defined once, in the `VERSION` file.
 - `vdp2_video_modes`, `vdp2_parallax_world`, `vdp2_fighting_stage` and
   `vdp2_neon_city` are listed with the other examples in the README; the
   hardware acceptance checklist gains rows 35-38, all explicitly PENDING.
+  The four builds also booted in Mednafen 1.32.1 through `run-example.ps1`;
+  manual window captures confirm the E09 mode shapes, E10's live coast,
+  E11's stage off/on and E12's ring phases/light pool.
 - VDP2 extended colour calculation and hardware blur (plan milestone M3,
   the E03/E04 library surface): `sat_vdp2_extended_color_calc_set` (CCCTL
   EXCCEN) makes the second image the pre-mixed second+third result, plus the
@@ -663,6 +666,10 @@ The version is defined once, in the `VERSION` file.
 
 ### Fixed
 
+- The Mednafen launcher and the script that generates it now place
+  `-ExtraArgs` before the disc image. Mednafen stops parsing options at the
+  image, so options such as `-qtrecord` were previously ignored without an
+  error.
 - The rotation manager cleared PRINA's NBG0 priority bits whenever RBG1 was
   not displaying, even if RBG1 had never been enabled. An RBG0-only scene
   configured after NBG0 (E10's leaf layer, E12's rain layer) therefore lost

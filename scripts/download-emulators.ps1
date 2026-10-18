@@ -239,7 +239,7 @@ Write-Host "[run-mednafen] Region args: $($regionArgs -join ' ')"
 Write-Host "[run-mednafen] Cart args: $($cartArgs -join ' ')"
 Write-Host "[run-mednafen] Video args: $($videoArgs -join ' ')"
 Write-Host "[run-mednafen] Executing: $exePath -force_module ss $($regionArgs -join ' ') $($cartArgs -join ' ') $($videoArgs -join ' ') $targetImage"
-& $exePath '-force_module' 'ss' @regionArgs @cartArgs @videoArgs $targetImage @ExtraArgs
+& $exePath '-force_module' 'ss' @regionArgs @cartArgs @videoArgs @ExtraArgs $targetImage
 exit $LASTEXITCODE
 '@
 $mednafenLauncherContent = $mednafenLauncherContent.Replace('__MEDNAFEN_EXE__', $mednafenExeLiteral)

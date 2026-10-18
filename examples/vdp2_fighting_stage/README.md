@@ -48,4 +48,6 @@ example does not claim a measured 60 fps.
 The stage code lives in `examples/characters/stage.c` and is compiled only
 into this example; `fighter_arena_3d` keeps the legacy NBG0 background. It
 uses the public layer, window and colour-offset APIs, not raw register pokes.
-Physical hardware remains **PENDING**.
+Mednafen 1.32.1 window captures show the same fighter scene with the stage
+off (flat backdrop) and on (stands, banners and moving spotlights). Physical
+hardware remains **PENDING**.
