@@ -132,3 +132,26 @@ A downstream stock-RAM two-actor application can consequently link the
 existing Slave geometry executor, which previously overflowed High WRAM.
 Its worker correctness and performance qualification belong to that consumer;
 this library change introduces no new rendering algorithm or RAM requirement.
+
+## Consistent FRT counter reads across interrupts
+
+The FRC high-byte read latches the low byte in TEMP. Another FRC read in an
+interrupt can replace that latch between the original high and low loads. If
+the high byte rolled over meanwhile, combining the old high and new low can
+appear to move time backwards. Unsigned elapsed subtraction then produces a
+large interval and can falsely expire a worker wait.
+
+`frt::counter()` now checks the high byte again and retries on a change. It
+keeps IRQs enabled and preserves the configured prescaler and timeout budgets.
+The host regression simulates the IRQ at 12FF->1300: the old pair reads 1200
+and invents 65282 elapsed ticks from 12FE; the consistent reader returns 1300
+and two ticks. It also exercises the FFFF->0000 rollover.
+
+A downstream paired-geometry neutral run previously entered native panic
+TIMEOUT with its last published snapshot at 5635 VBlanks. Its complete debug
+window showed Slave geometry still executing when Master panicked; the slot
+subsequently held a successful result. With the consistent reader, the same
+12000-field scenario reaches 11990 VBlanks and the expected terminal 2-2 draw,
+without changing the 60000-tick wait limit. This is emulator regression
+evidence, not a hardware timing or frame-rate claim. Host `make test` and all
+five package CTests pass; private consumer captures remain outside Git.

@@ -1,4 +1,5 @@
 #include "src/hal/sh2/frt.hpp"
+#include "src/hal/sh2/frt_read_logic.hpp"
 
 #include "src/hal/sh2/cpu.hpp"
 
@@ -15,10 +16,7 @@ namespace {
 }  // namespace
 
 uint16_t counter() {
-    /* Reading FRC high latches the low byte on the SH-2 FRT bus. */
-    const uint16_t high = FRT_FRC_H;
-    const uint16_t low = FRT_FRC_L;
-    return static_cast<uint16_t>((high << 8u) | low);
+    return read_consistent([](){return FRT_FRC_H;},[](){return FRT_FRC_L;});
 }
 
 uint8_t timer_control() {
