@@ -6,10 +6,10 @@ scroll registers per field; every background pixel comes from VDP2 VRAM.
 The art is a 512x256 reduction of the four layers in
 `vdp2_parallax_lab_with_pngs.zip` (sky, mountains, sea/cliffs, foreground).
 The source is not seamless horizontally, so the camera pans 176 dots and
-back instead of wrapping over a seam. The pan uses smoothstep easing and
-16.16 fixed point, so NBG0/NBG1 move subpixel rather than stepping one dot at
-a time. Alpha is thresholded into the VDP2 transparent dot code; the sky is
-opaque.
+back instead of wrapping over a seam. The pan uses a trapezoidal velocity
+profile and 16.16 fixed point: short ease-in/out ramps and a constant middle,
+so NBG0/NBG1 keep a regular cadence instead of creeping at the ends. Alpha is
+thresholded into the VDP2 transparent dot code; the sky is opaque.
 
 ```powershell
 .\build-example.ps1 vdp2_parallax_lab
@@ -40,7 +40,9 @@ tile strip. The pan factors are 8/24/52/100 percent, from the source lab.
 `tools/convert_vdp2_parallax_lab.py` quantizes the four PNGs and emits the
 big-endian bitmap words, cell data and pattern-name maps. It reserves dot 0
 for the transparent cutouts and uses the tool's own 16-colour mountain
-palette; no runtime image decoding or heap allocation is involved.
+palette; no runtime image decoding or heap allocation is involved. The sea
+RGB is lightly softened before quantization because its one-pixel wave
+highlights alias badly when a slow layer scrolls.
 
 ## Evidence and limits
 

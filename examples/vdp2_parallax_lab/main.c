@@ -34,7 +34,8 @@
 #define SCREEN_W 320u
 #define SCREEN_H 224u
 #define PAN_MAX 176u
-#define PAN_HALF_FRAMES 720u
+#define PAN_HALF_FRAMES 300u
+#define PAN_RAMP_FRAMES 30u
 #define PAN_PERIOD (PAN_HALF_FRAMES * 2u)
 
 #define FG_BITMAP_BASE 0x00000u
@@ -171,20 +172,30 @@ static sat_result_t setup_scene(void) {
     return st;
 }
 
-/* Pan in 16.16 fixed point with smoothstep easing.  A linear triangle wave
- * reverses velocity instantly at the ends; smoothstep lets the camera settle
- * before it turns around.  The fractional part also feeds NBG0/NBG1's eight
- * scroll fraction bits, so the foreground and sea move subpixel instead of
- * jumping one dot every few fields. */
+/* Pan in 16.16 fixed point with a trapezoidal velocity profile: a short
+ * ease-in, a long constant-speed middle, then a short ease-out.  A triangle
+ * wave reverses velocity instantly; a full smoothstep spends too much of the
+ * path creeping, which makes the slow NBG1 sea advance only every 8 fields
+ * and read as a stutter.  The constant middle keeps the sea stepping at a
+ * regular cadence, while the fractional part still feeds NBG0/NBG1's eight
+ * scroll fraction bits. */
 static uint32_t pan_for_tick(uint32_t tick) {
-    const uint32_t kOne = 0x10000u;
     const uint32_t phase = tick % PAN_PERIOD;
     const uint32_t t = phase < PAN_HALF_FRAMES ? phase : PAN_PERIOD - phase;
-    const uint32_t t_fx = (t * kOne) / PAN_HALF_FRAMES;
-    const uint64_t t2_fx = ((uint64_t)t_fx * t_fx) >> 16u;
-    const uint32_t three_minus_2t = 3u * kOne - 2u * t_fx;
-    const uint32_t s_fx = (uint32_t)((t2_fx * three_minus_2t) >> 16u);
-    return s_fx * PAN_MAX;
+    const uint32_t v = (PAN_MAX * 0x10000u) / (PAN_HALF_FRAMES - PAN_RAMP_FRAMES);
+    if (t < PAN_RAMP_FRAMES) {
+        return (uint32_t)(((uint64_t)v * t * t) / (2u * PAN_RAMP_FRAMES));
+    }
+    if (t < PAN_HALF_FRAMES - PAN_RAMP_FRAMES) {
+        return (uint32_t)((uint64_t)v * PAN_RAMP_FRAMES / 2u +
+                          (uint64_t)v * (t - PAN_RAMP_FRAMES));
+    }
+    {
+        const uint32_t remaining = PAN_HALF_FRAMES - t;
+        return PAN_MAX * 0x10000u -
+               (uint32_t)(((uint64_t)v * remaining * remaining) /
+                          (2u * PAN_RAMP_FRAMES));
+    }
 }
 
 static int32_t layer_scroll(uint32_t pan_fx, uint32_t percent) {
