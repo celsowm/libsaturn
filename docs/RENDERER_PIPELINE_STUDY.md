@@ -258,3 +258,100 @@ Mednafen CD recording (`harness/build/dino-phases-v2-mednafen`). The recording
 shows the animated textured Dino and HUD after native disc boot. This separately
 checks execution without the Ymir application-injection path; it does not dump
 Mednafen CCR state or certify physical hardware timings.
+
+## Compiled source publication plans (2026-10-18)
+
+The first optimization after phase measurement removes repeated traversal of
+immutable source resources. `sat_scene3d_source_plan_init` compiles the index
+array, material table, face-material map, texture runs and nested tiled
+texture descriptors into caller-owned memory ranges. Initialization publishes
+these resources on Master. An optional `source_plan` on a prepare item then
+skips that material/descriptor walk at submission and at reception.
+
+This deliberately keeps receiver invalidation: each execution consumes every
+compiled range, whether it runs on Slave or falls back to Master. There is no
+per-CPU acknowledgment to become stale after executor shutdown/restart.
+The submitting CPU only synchronizes dynamic ranges after initialization.
+Vertices, mesh/instance descriptors, bounds, transforms, face masks and scratch
+remain per-task data. Gouraud **values** are also dynamic: their ranges follow
+`static_count` in the plan and are synchronized on both sides of every task.
+The conservative path still walks the graph when `source_plan == NULL`.
+Face-mask synchronization is now explicit in both paths.
+
+The plan stores a copy of the validated topology identity and rejects changed
+pointers/counts. This check does not detect edits at the same address. After
+changing indices, material mappings, materials, texture/tiled descriptors, or
+Gouraud addresses, finish and release every borrowing task, rebuild the binding,
+and initialize the plan again. Keep the plan and range storage alive and
+immutable until those tasks are released. Texture residency and VRAM ownership
+checks at flush are unchanged; publication never extends a texture lifetime.
+
+For example, after loading textures and validating an instance binding:
+
+```c
+static sat_scene3d_source_plan_t sources;
+static sat_scene3d_source_range_t ranges[128];
+
+/* Check the result: complex tiled resources may need more range storage.
+ * A failed initialization leaves sources invalid and may write ranges. */
+sat_result_t result = sat_scene3d_source_plan_init(
+    &sources, &instance, ranges, 128);
+if (result != SAT_OK) return result;
+item.source_plan = &sources;
+```
+
+There is no allocation. Dino reserves `MODEL_TEXTURE_CAP + 3` ranges for its
+untiled, non-Gouraud material layout; consecutive texture descriptors coalesce
+as before. Other material layouts must provision their own capacity and handle
+`SAT_ERR_CAPACITY`. Zero-initialize prepare items before setting optional fields.
+
+The retained instrumented animated runs compare
+`harness/build/dino-phases-v2-animated` with
+`harness/build/dino-source-plan-animated` at field 1200 (63 completed samples):
+
+| Local elapsed phase | Before median | After median |
+| --- | ---: | ---: |
+| Master publication/dispatch | 3.567 ms | 0.347 ms |
+| Master geometry | 19.844 ms | 19.839 ms |
+| Join including completion consumption | 2.342 ms | 1.125 ms |
+| Executor response wait within join | 1.145 ms | 0.000 ms |
+| Worker source consumption | 3.885 ms | 1.225 ms |
+| Worker geometry | 17.032 ms | 17.028 ms |
+| Flush | 13.518 ms | 13.523 ms |
+| Master work, excluding initial VBlank wait | 44.571 ms | 40.033 ms |
+
+Work decreases by about 10.2%. The worker source improvement comes from removing
+the material traversal; its invalidation remains. Worker intervals overlap
+Master intervals and must not be added to them. CCR remains Master `0x01`,
+Slave `0x00`; cache policy, geometry and command emission are unchanged.
+Default animated and paused cadence stays at 20 nominal CPU submissions/s.
+The controls scenario improves from 18.7 to 20.0 submissions/s over fields
+600–1200. These remain emulator submission measurements, not distinct display
+FPS or physical hardware timing. The two-field/30 Hz work budget remains unmet.
+
+All three runs pass the existing runtime gates with no failed tasks, panic,
+command overflow or music error. The paused model crop has zero changed pixels
+against `dino-phases-v2-paused`. The animated profile has no dropped observations.
+A separate 30-second native-disc Mednafen recording is retained in
+`harness/build/dino-source-plan-mednafen`; the capture shows the textured Dino
+and HUD. Full host/tool tests pass with the asset Python environment.
+The scene parallel host test additionally covers capacity/publication failure,
+nested tiled resources, changing pose buffers, dynamic Gouraud values, face
+masks, repeated receiver consumption, topology mismatch, rebuilding after
+same-address descriptor edits, and the conservative NULL-plan path.
+
+Reproduce using the phase-measurement commands above with a fresh output
+name for each scenario. Compare the fixed pose with:
+
+```sh
+python3 harness/scripts/dino_pipeline.py --compare \
+  harness/build/dino-phases-v2-paused harness/build/dino-source-plan-paused
+```
+
+The diagnostic-disabled Dino build also passes native image/RAM checks with
+no phase-ring or worker-profile symbols. The conservative cube path is checked
+separately in `harness/build/cube-source-plan-regression`: scene cubes retain
+60 nominal submissions/s and 1.900 ms median work; paired dense cubes retain
+15 submissions/s and 58.186 ms median work, with no panic or timeout. These cube
+items do not opt into publication plans and establish regression coverage,
+not a speedup claim for that path.

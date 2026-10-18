@@ -26,71 +26,91 @@ sat_result_t sync_range(const void* pointer, uint32_t size) {
     return sat_parallel_cache_sync_range(pointer, size);
 }
 
-sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch) {
-    if (batch == nullptr || batch->items == nullptr) return SAT_OK;
-    SAT_TRY(sync_range(batch->items, static_cast<uint32_t>(batch->item_count) *
-        sizeof(*batch->items)));
-    for (uint16_t i = 0u; i < batch->item_count; ++i) {
-        const sat_scene3d_prepare_item_t& item = batch->items[i];
-        if (item.instance == nullptr) {
-            return SAT_ERR_INVALID_ARG;
+sat_result_t sync_material_sources(const sat_scene3d_instance_t* instance) {
+    const sat_mesh_t* const mesh = instance->mesh;
+    SAT_TRY(sync_range(mesh->indices, static_cast<uint32_t>(mesh->face_count)*4u*sizeof(*mesh->indices)));
+    SAT_TRY(sync_range(instance->materials, static_cast<uint32_t>(instance->material_count)*sizeof(*instance->materials)));
+    SAT_TRY(sync_range(instance->face_materials, static_cast<uint32_t>(mesh->face_count)*sizeof(*instance->face_materials)));
+    /* Materials usually point at consecutive entries of one texture
+     * table and share one Gouraud table. Sync each contiguous texture
+     * run and each distinct table once: a model with a baked texture
+     * per face has over a thousand materials, and one sync call per
+     * descriptor cost several frames of time on both CPUs. */
+    const sat_vdp1_texture_t* run = nullptr;
+    uint32_t run_count = 0u;
+    const uint16_t* last_gouraud = nullptr;
+    for (uint16_t m = 0u; m < instance->material_count; ++m) {
+        const sat_scene3d_material_t& material = instance->materials[m];
+        if (material.texture != nullptr) {
+            if (run != nullptr && material.texture == run + run_count) {
+                ++run_count;
+            } else {
+                SAT_TRY(sync_range(run, run_count * sizeof(*run)));
+                run = material.texture;
+                run_count = 1u;
+            }
         }
-        const sat_scene3d_instance_t* const instance = item.instance;
+        SAT_TRY(sync_range(material.tiled, sizeof(*material.tiled)));
+        if (material.tiled != nullptr) {
+            SAT_TRY(sync_range(material.tiled->full,
+                sizeof(*material.tiled->full)));
+            for (uint8_t tile = 0u; tile < 4u; ++tile) {
+                SAT_TRY(sync_range(material.tiled->tiles[tile],
+                    sizeof(*material.tiled->tiles[tile])));
+            }
+        }
+        if (material.vertex_gouraud != last_gouraud) {
+            SAT_TRY(sync_range(material.vertex_gouraud, static_cast<uint32_t>(
+                mesh->vertex_count) * sizeof(*material.vertex_gouraud)));
+            last_gouraud = material.vertex_gouraud;
+        }
+    }
+    SAT_TRY(sync_range(run, run_count * sizeof(*run)));
+    return SAT_OK;
+}
+
+bool plan_matches(const sat_scene3d_source_plan_t* plan,
+                  const sat_scene3d_instance_t* instance) {
+    const auto& b = plan->topology;
+    const auto* mesh = instance->mesh;
+    return b.valid && mesh && b.indices == mesh->indices &&
+        b.vertex_count == mesh->vertex_count && b.face_count == mesh->face_count &&
+        b.materials == instance->materials && b.material_count == instance->material_count &&
+        b.face_materials == instance->face_materials;
+}
+
+sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch, bool receiving) {
+    if (batch == nullptr || batch->items == nullptr) return SAT_OK;
+    SAT_TRY(sync_range(batch->items, static_cast<uint32_t>(batch->item_count)*sizeof(*batch->items)));
+    for (uint16_t i=0u; i<batch->item_count; ++i) {
+        const auto& item = batch->items[i];
+        const auto* instance = item.instance;
+        if (!instance) return SAT_ERR_INVALID_ARG;
         SAT_TRY(sync_range(instance, sizeof(*instance)));
         SAT_TRY(sync_range(instance->bounds, sizeof(*instance->bounds)));
-        SAT_TRY(sync_range(instance->validated_binding,
-            sizeof(*instance->validated_binding)));
-        const sat_mesh_t* const mesh = instance->mesh;
-        if (mesh == nullptr) return SAT_ERR_INVALID_ARG;
+        SAT_TRY(sync_range(instance->validated_binding, sizeof(*instance->validated_binding)));
+        const auto* mesh = instance->mesh;
+        if (!mesh) return SAT_ERR_INVALID_ARG;
         SAT_TRY(sync_range(mesh, sizeof(*mesh)));
-        SAT_TRY(sync_range(mesh->vertices, static_cast<uint32_t>(
-            mesh->vertex_count) * sizeof(*mesh->vertices)));
-        SAT_TRY(sync_range(mesh->indices, static_cast<uint32_t>(
-            mesh->face_count) * 4u * sizeof(*mesh->indices)));
-        SAT_TRY(sync_range(instance->materials, static_cast<uint32_t>(
-            instance->material_count) * sizeof(*instance->materials)));
-        SAT_TRY(sync_range(instance->face_materials, static_cast<uint32_t>(
-            mesh->face_count) * sizeof(*instance->face_materials)));
+        SAT_TRY(sync_range(mesh->vertices, static_cast<uint32_t>(mesh->vertex_count)*sizeof(*mesh->vertices)));
+        SAT_TRY(sync_range(instance->double_sided_faces, mesh->face_count));
         SAT_TRY(sync_range(instance->world, sizeof(sat_mat4_t)));
-        SAT_TRY(sync_range(item.screen_scratch, static_cast<uint32_t>(
-            mesh->vertex_count) * sizeof(*item.screen_scratch)));
-        SAT_TRY(sync_range(item.world_scratch, static_cast<uint32_t>(
-            mesh->vertex_count) * sizeof(*item.world_scratch)));
-        /* Materials usually point at consecutive entries of one texture
-         * table and share one Gouraud table. Sync each contiguous texture
-         * run and each distinct table once: a model with a baked texture
-         * per face has over a thousand materials, and one sync call per
-         * descriptor cost several frames of time on both CPUs. */
-        const sat_vdp1_texture_t* run = nullptr;
-        uint32_t run_count = 0u;
-        const uint16_t* last_gouraud = nullptr;
-        for (uint16_t m = 0u; m < instance->material_count; ++m) {
-            const sat_scene3d_material_t& material = instance->materials[m];
-            if (material.texture != nullptr) {
-                if (run != nullptr && material.texture == run + run_count) {
-                    ++run_count;
-                } else {
-                    SAT_TRY(sync_range(run, run_count * sizeof(*run)));
-                    run = material.texture;
-                    run_count = 1u;
-                }
-            }
-            SAT_TRY(sync_range(material.tiled, sizeof(*material.tiled)));
-            if (material.tiled != nullptr) {
-                SAT_TRY(sync_range(material.tiled->full,
-                    sizeof(*material.tiled->full)));
-                for (uint8_t tile = 0u; tile < 4u; ++tile) {
-                    SAT_TRY(sync_range(material.tiled->tiles[tile],
-                        sizeof(*material.tiled->tiles[tile])));
-                }
-            }
-            if (material.vertex_gouraud != last_gouraud) {
-                SAT_TRY(sync_range(material.vertex_gouraud, static_cast<uint32_t>(
-                    mesh->vertex_count) * sizeof(*material.vertex_gouraud)));
-                last_gouraud = material.vertex_gouraud;
-            }
+        SAT_TRY(sync_range(item.screen_scratch, static_cast<uint32_t>(mesh->vertex_count)*sizeof(*item.screen_scratch)));
+        SAT_TRY(sync_range(item.world_scratch, static_cast<uint32_t>(mesh->vertex_count)*sizeof(*item.world_scratch)));
+        if (item.source_plan) {
+            const auto* plan = item.source_plan;
+            SAT_TRY(sync_range(plan, sizeof(*plan)));
+            if (!plan_matches(plan, instance) || !plan->ranges ||
+                plan->static_count > plan->range_count) return SAT_ERR_INVALID_ARG;
+            SAT_TRY(sync_range(plan->ranges, static_cast<uint32_t>(plan->range_count)*sizeof(*plan->ranges)));
+            // Publication already covered immutable ranges on the submitting
+            // CPU. Any receiving backend (including Master fallback) still
+            // invalidates every range; no per-CPU acknowledgment is assumed.
+            for (uint16_t r=receiving ? 0u : plan->static_count; r<plan->range_count; ++r)
+                SAT_TRY(sync_range(plan->ranges[r].address, plan->ranges[r].bytes));
+        } else {
+            SAT_TRY(sync_material_sources(instance));
         }
-        SAT_TRY(sync_range(run, run_count * sizeof(*run)));
     }
     return SAT_OK;
 }
@@ -130,7 +150,7 @@ sat_result_t prepare_batch_task(
 #if SAT_PROFILE_METRICS
     const uint16_t profile_start = saturn::hal::sh2::frt::counter();
 #endif
-    SAT_TRY(sync_batch_sources(shared));
+    SAT_TRY(sync_batch_sources(shared, true));
 #if SAT_PROFILE_METRICS
     const uint16_t sources_end = saturn::hal::sh2::frt::counter();
 #endif
@@ -166,6 +186,65 @@ sat_result_t prepare_batch_task(
 
 }  // namespace
 
+extern "C" sat_result_t sat_scene3d_source_plan_init(
+    sat_scene3d_source_plan_t* out, const sat_scene3d_instance_t* instance,
+    sat_scene3d_source_range_t* ranges, uint16_t capacity) {
+    if (!out) return SAT_ERR_INVALID_ARG;
+    *out = {};
+    if (!instance || !instance->mesh || !instance->validated_binding || !ranges)
+        return SAT_ERR_INVALID_ARG;
+    sat_scene3d_source_plan_t plan{};
+    plan.topology = *instance->validated_binding;
+    if (!plan_matches(&plan, instance)) return SAT_ERR_INVALID_ARG;
+    plan.ranges = ranges;
+    const auto append = [&](const void* address, uint32_t bytes) -> sat_result_t {
+        if (!address || !bytes) return SAT_OK;
+        if (plan.range_count == capacity) return SAT_ERR_CAPACITY;
+        ranges[plan.range_count++] = {address, bytes};
+        return SAT_OK;
+    };
+    const auto* mesh = instance->mesh;
+    SAT_TRY(append(mesh->indices, static_cast<uint32_t>(mesh->face_count)*4u*sizeof(*mesh->indices)));
+    SAT_TRY(append(instance->materials, static_cast<uint32_t>(instance->material_count)*sizeof(*instance->materials)));
+    SAT_TRY(append(instance->face_materials, static_cast<uint32_t>(mesh->face_count)*sizeof(*instance->face_materials)));
+    const sat_vdp1_texture_t* run = nullptr;
+    uint32_t run_count = 0u;
+    for (uint16_t m=0u; m<instance->material_count; ++m) {
+        const auto& material = instance->materials[m];
+        if (material.texture) {
+            if (run && material.texture == run + run_count) ++run_count;
+            else {
+                SAT_TRY(append(run, run_count*sizeof(*run)));
+                run = material.texture;
+                run_count = 1u;
+            }
+        }
+        SAT_TRY(append(material.tiled, sizeof(*material.tiled)));
+        if (material.tiled) {
+            SAT_TRY(append(material.tiled->full, sizeof(*material.tiled->full)));
+            for (uint8_t t=0u; t<4u; ++t)
+                SAT_TRY(append(material.tiled->tiles[t], sizeof(*material.tiled->tiles[t])));
+        }
+    }
+    SAT_TRY(append(run, run_count*sizeof(*run)));
+    plan.static_count = plan.range_count;
+    const uint16_t* last_gouraud = nullptr;
+    for (uint16_t m=0u; m<instance->material_count; ++m) {
+        const auto* gouraud = instance->materials[m].vertex_gouraud;
+        if (gouraud != last_gouraud) {
+            SAT_TRY(append(gouraud, static_cast<uint32_t>(mesh->vertex_count)*sizeof(*gouraud)));
+            last_gouraud = gouraud;
+        }
+    }
+    for (uint16_t r=0u; r<plan.range_count; ++r)
+        SAT_TRY(sync_range(ranges[r].address, ranges[r].bytes));
+    SAT_TRY(sync_range(ranges, static_cast<uint32_t>(plan.range_count)*sizeof(*ranges)));
+    *out = plan;
+    const sat_result_t published = sync_range(out, sizeof(*out));
+    if (published != SAT_OK) *out = {};
+    return published;
+}
+
 extern "C" sat_result_t sat_scene3d_prepare_parallel_register(void) {
     return sat_parallel_register_task(SAT_PARALLEL_TASK_SCENE_GEOMETRY,
                                       &prepare_batch_task);
@@ -195,7 +274,7 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
 #if SAT_PROFILE_METRICS
     const uint16_t publish_start=saturn::hal::sh2::frt::counter();
 #endif
-    const sat_result_t published=sync_batch_sources(batch);
+    const sat_result_t published=sync_batch_sources(batch, false);
     if (published != SAT_OK) return record_frame_result(scene,published);
 #if SAT_PROFILE_METRICS
     g_test_input_publish_ticks=static_cast<uint16_t>(

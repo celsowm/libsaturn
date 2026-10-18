@@ -148,6 +148,8 @@ static sat_projected_vertex_t g_slave_screen[MODEL_VERTEX_CAP];
 static sat_scene3d_face_t g_slave_faces[SLAVE_FACES] DINO_WRAM_L;
 static uint32_t g_slave_keys[SLAVE_FACES];
 static sat_scene3d_prepare_item_t g_slave_item DINO_WRAM_L;
+static sat_scene3d_source_plan_t g_slave_sources DINO_WRAM_L;
+static sat_scene3d_source_range_t g_slave_source_ranges[MODEL_TEXTURE_CAP + 3u] DINO_WRAM_L;
 static sat_scene3d_prepare_batch_t g_slave_batch DINO_WRAM_L;
 static sat_parallel_handle_t g_slave_handle DINO_WRAM_L;
 static sat_scene_t g_scene DINO_WRAM_L;
@@ -843,6 +845,9 @@ int main(void) {
             g_half[half].material_count, g_half[half].face_materials));
         g_half[half].validated_binding = &g_half_binding[half];
     }
+    sat_example_must(sat_scene3d_source_plan_init(&g_slave_sources, &g_half[1],
+        g_slave_source_ranges, MODEL_TEXTURE_CAP + 3u));
+    g_slave_item.source_plan = &g_slave_sources;
     loading_step(30u);
 
     /* Use UNION bounds across all animation clips, not just the bind pose. */

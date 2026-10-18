@@ -297,6 +297,38 @@ typedef struct sat_scene3d_instance {
     const sat_scene3d_instance_binding_t* validated_binding;
 } sat_scene3d_instance_t;
 
+/* Compiled publication plan for immutable topology/material resources.
+ * Initialize on Master after binding validation and resource loading. Storage
+ * is caller-owned Work RAM and must outlive all tasks using it. Treat the plan,
+ * range storage, binding topology, material table and referenced texture/tiled
+ * descriptors as immutable until every such task has completed AND released.
+ * Rebuild the binding and plan after changing any of those resources, even
+ * when pointer identities are unchanged. Never copy a plan to republish it.
+ * This is a cache publication contract, not proof of live VRAM ownership:
+ * normal residency/owner checks still apply at flush.
+ * Vertex Gouraud values may change between tasks; their addresses stay fixed.
+ * Vertices, mesh descriptors, bounds, transforms, face masks and scratch remain
+ * per-task data. Receiver invalidation is retained on every backend, so a
+ * shutdown/restart or Master fallback needs no cached acknowledgment reset.
+ * NULL/empty ranges consume no capacity. On failure out is invalid; range
+ * storage may have been written. Initialization must not overlap any user of
+ * out or its range storage. Zero-init prepare items for the optional pointer. */
+typedef struct sat_scene3d_source_range {
+    const void* address;
+    uint32_t bytes;
+} sat_scene3d_source_range_t;
+
+typedef struct sat_scene3d_source_plan {
+    sat_scene3d_instance_binding_t topology;
+    sat_scene3d_source_range_t* ranges;
+    uint16_t static_count;
+    uint16_t range_count;
+} sat_scene3d_source_plan_t;
+
+sat_result_t sat_scene3d_source_plan_init(
+    sat_scene3d_source_plan_t* out, const sat_scene3d_instance_t* instance,
+    sat_scene3d_source_range_t* ranges, uint16_t capacity);
+
 /* A batch item is an immutable instance descriptor plus caller-owned scratch.
  * Scratch is private to the item and may be written by the selected backend
  * while the batch is queued or running. It must not be reused until wait(). */
@@ -306,6 +338,7 @@ typedef struct sat_scene3d_prepare_item {
     sat_vec3_t* world_scratch;
     uint8_t color_calc_slot;
     uint8_t reserved;
+    const sat_scene3d_source_plan_t* source_plan; /* NULL: conservative graph walk */
 } sat_scene3d_prepare_item_t;
 
 typedef struct sat_scene3d_prepare_metrics {
