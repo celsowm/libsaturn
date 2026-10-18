@@ -1,7 +1,8 @@
 # VDP2 E01-E13 evidence ledger
 
 **Date:** 2026-10-18
-**Scope:** M6 Phase A evidence freeze for the twelve VDP2 examples in
+**Scope:** M6 Phase A evidence freeze and Phase B signoff-kit dry-run for the
+twelve VDP2 examples in
 `docs/VDP2_ADVANCED_EXAMPLES_IMPLEMENTATION_PLAN.md`, plus E13
 (`vdp2_parallax_lab`), a post-Phase-A art-backed showcase built on the same
 public layer API.
