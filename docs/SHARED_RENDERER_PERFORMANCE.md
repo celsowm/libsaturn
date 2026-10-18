@@ -103,6 +103,69 @@ CD boot in `dino-topology-mednafen`. Host coverage exercises a new pose buffer
 with changed coordinates, an independent descriptor, changed capacity, rejected
 topology/count changes, missing pose buffers and insufficient capacities.
 
+## Exact projection kernel refactor
+
+Projection now computes `trunc(trunc(coordinate * scale / depth) / 2)` instead
+of dividing by twice the depth. These expressions are exactly equal under
+signed truncation toward zero. The positive depth always fits signed 32 bits;
+the doubled value previously required a software-division fallback above
+`INT32_MAX`. Before starting the hardware divider, the new kernel clamps at
+`+/-4096 * depth`, proving its intermediate quotient lies in `[-4095,4095]`.
+The final divide by two operates on a 32-bit quotient. Signed viewport scales
+also avoid negating a 64-bit intermediate before the Y multiplication.
+
+The general rotated-camera loop is a separate non-inlined kernel. This lets
+the compiler allocate registers independently from the sparse-camera loop.
+Camera classification still runs per batch; matrices and poses may change
+normally. No reciprocal approximation, reduced coordinate precision or altered
+near-plane policy is involved. All callers of the shared projection benefit.
+
+With the same Ymir setup and 12-field animated trace window, including both
+the projection kernel and its public entry routine:
+
+| CPU | Topology/pose binding baseline | New projection | Reduction |
+| --- | ---: | ---: | ---: |
+| Master exclusive execution cycles | 743,648 | 659,190 | 11.3% |
+| Slave exclusive execution cycles | 573,970 | 503,140 | 12.3% |
+
+These are function costs in a particular complete trace, not total-frame
+speedups. Default animated and paused Dino remain at 20.0 submissions/s;
+the control sequence measures 18.7 versus 18.5. All three runtime scenarios
+pass at 600 and 1,200 fields. Paused, unlit model pixels remain identical.
+The independent Mednafen CD boot also completes successfully.
+
+The cube ladder measures the sparse-camera path with the same retained
+split-visibility-kernel baseline used above:
+
+| Cube workload | Before work | New work | Before submit/s | New submit/s |
+| --- | ---: | ---: | ---: | ---: |
+| Six quads per actor | 1.933 ms | 1.900 ms | 60 | 60 |
+| RGB, 96 quads per actor | 9.281 ms | 8.898 ms | 60 | 60 |
+| RGB, 384 quads per actor | 30.939 ms | 29.486 ms | 30 | 30 |
+| RGB, 864 quads per actor | 64.644 ms | 61.382 ms | 15 | 15 |
+| Textured, 864 quads per actor | 69.720 ms | 66.443 ms | 12 | 15 |
+| Paired textured skin, 864 quads per actor | 59.715 ms | 58.203 ms | 15 | 15 |
+
+Dense RGB geometry falls from 49.606 to 46.339 ms. The textured cadence change
+crosses a field threshold; it is not a 25% CPU-work reduction. All six cube
+model-region image comparisons have zero differing pixels. Skinning and
+emission costs remain essentially unchanged.
+
+An unsigned-magnitude prototype increased Dino projection costs by about 2–3%
+and was discarded. Moving the factor two into the 64-bit numerator worked but
+saved less than dividing the bounded 32-bit quotient by two. Those variants
+are retained only as local experimental artifacts, not production kernels.
+Host coverage compares the production kernel against independent signed
+64-bit division, including both input signs, `INT32_MIN/MAX`, odd numerators,
+clamp transitions, depths around the old doubled-divisor boundary, 50,000
+random full-range scales and 50,000 random viewport-range scales. Existing
+batch tests still exercise sparse/general camera changes and untouched X/Y
+for nonpositive depth.
+
+Retained final evidence: `harness/build/cube-project-split`,
+`dino-project-split-animated`, `dino-project-split-paused`,
+`dino-project-split-controls` and `dino-project-split-mednafen`.
+
 ## Why the library is the target
 
 The [cube ladder](CUBE_PIPELINE_BENCH.md) holds screen area constant and
@@ -141,10 +204,11 @@ in the cube emulator control. None of those experiments is a claimed fix.
 
 ## Next shared work
 
-1. Refactor the general rotated-camera projection kernel: inspect invariant
-   loads, SH-2 register spills and repeated clamp/divider setup. Measure both
-   Dino orbit cameras and the cube's sparse matrix; retain clipping and exact
-   projected-coordinate behavior.
+1. Measure opportunities to overlap useful work with divider latency in the
+   projection kernels. The exact quotient and separate camera loops above now
+   cover both Dino orbit cameras and the sparse cube camera. Retain exact
+   clipping and coordinate behavior; reject changes that only help one path
+   while regressing the other.
 2. Extend adoption of the topology/pose binding contract to other animated
    assets after checking their mutation lifetimes. Dino now uses it; remaining
    work includes measuring publication and flush validation independently.

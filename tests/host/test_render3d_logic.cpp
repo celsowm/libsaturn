@@ -458,22 +458,40 @@ TEST(heap_sort_matches_stable_reference) {
     }
 }
 
-/* project_axis must equal the clamped division it replaced, including right
- * at the clamp boundary and for divisors past 32 bits. */
+/* Independent signed-division oracle: all coordinate/scale signs, extreme
+ * depth, odd numerators, and both sides of the clamp transition. */
 TEST(project_axis_matches_clamped_division) {
-    const int64_t divisors[] = {1, 2, 7, 1000, 65536, 0x7FFFFFFF,
-                                (int64_t)0x7FFFFFFF + 1, (int64_t)1 << 40};
-    const int64_t quotients[] = {-5000, -2049, -2048, -2047, -1, 0, 1, 2047, 2048, 2049, 5000};
-    for (int64_t w2 : divisors) {
-        for (int64_t q : quotients) {
-            for (int64_t d = -1; d <= 1; ++d) {
-                const int64_t num = q * w2 + d;
-                ASSERT_EQ(project_axis(num, w2), clamp_coord64(num / w2));
+    const int32_t depths[] = {1, 2, 7, 1000, 65536, 0x3FFFFFFF,
+                              0x40000000, 0x7FFFFFFF};
+    const int32_t values[] = {INT32_MIN, INT32_MIN+1, -65537, -4097, -4096,
+        -4095, -2047, -3, -1, 0, 1, 3, 2047, 4095, 4096, 4097, 65537,
+        INT32_MAX-1, INT32_MAX};
+    auto check=[](int32_t coordinate,int32_t scale,int32_t depth) {
+        const int64_t num=static_cast<int64_t>(coordinate)*scale;
+        const int64_t den=static_cast<int64_t>(depth)*2;
+        ASSERT_EQ(project_axis(coordinate,scale,depth),clamp_coord64(num/den));
+    };
+    for (int32_t depth:depths) {
+        for (int32_t coordinate:values)
+            for (int32_t scale:values) check(coordinate,scale,depth);
+        const int32_t quotients[]={-2049,-2048,-2047,-1,0,1,2047,2048,2049};
+        for (int32_t q:quotients) {
+            for (int32_t d=-1;d<=1;++d) {
+                const int64_t coordinate=static_cast<int64_t>(q)*depth*2+d;
+                if (coordinate>=INT32_MIN && coordinate<=INT32_MAX)
+                    check(static_cast<int32_t>(coordinate),1,depth);
             }
         }
-        const int64_t huge = (int64_t)1 << 60;
-        ASSERT_EQ(project_axis(huge, w2), clamp_coord64(huge / w2));
-        ASSERT_EQ(project_axis(-huge, w2), clamp_coord64(-huge / w2));
+    }
+    uint32_t random=0x32F19A81u;
+    auto next=[&]() {random=random*1664525u+1013904223u;return random;};
+    for (unsigned i=0;i<50000;++i) {
+        const int32_t coordinate=static_cast<int32_t>(next());
+        const int32_t scale=static_cast<int32_t>(next());
+        const int32_t depth=static_cast<int32_t>((next()>>1)|1u);
+        check(coordinate,scale,depth);
+        // Real viewport scales keep many randomized quotients below the clamp.
+        check(coordinate,static_cast<int16_t>(scale),depth);
     }
 }
 

@@ -63,25 +63,18 @@ inline int16_t clamp_coord64(int64_t v) {
     return static_cast<int16_t>(v);
 }
 
-/* clamp_coord64(num / w2) for w2 > 0, without a libgcc 64-bit divide.
- *
- * Every projected corner used to pay two __divdi3 calls, which profiling put
- * near a fifth of an animated-model frame. A quotient past the clamp needs no
- * divide at all, and ruling those out first leaves one that fits 32 bits --
- * exactly what the SH-2's hardware divider takes. */
-inline int16_t project_axis(int64_t num, int64_t w2) {
-    const int64_t limit = w2 * static_cast<int64_t>(kCoordLimit + 1);
-    if (num >= limit) {
-        return static_cast<int16_t>(kCoordLimit);
-    }
-    if (num <= -limit) {
-        return static_cast<int16_t>(-kCoordLimit);
-    }
-    if (w2 > static_cast<int64_t>(0x7FFFFFFF)) {
-        return static_cast<int16_t>(num / w2);
-    }
-    return static_cast<int16_t>(
-        saturn::core::math3d::div_s64_s32(num, static_cast<int32_t>(w2)));
+/* Exact clamp((coordinate * scale) / (2 * depth)), depth > 0.
+ * Dividing by depth first and then by two is exact under truncation toward
+ * zero. The divisor always fits the signed SH-2 divider, even when twice
+ * depth does not. Clamp before division so its quotient is in [-4095,4095].
+ * Multiplying the signed scale directly also avoids a wide negation for Y.
+ */
+inline int16_t project_axis(int32_t coordinate, int32_t scale, int32_t depth) {
+    const int64_t num = static_cast<int64_t>(coordinate) * scale;
+    const int64_t limit = static_cast<int64_t>(depth) * (2 * (kCoordLimit + 1));
+    if (num >= limit) return kCoordLimit;
+    if (num <= -limit) return -kCoordLimit;
+    return static_cast<int16_t>(saturn::core::math3d::div_s64_s32(num, depth) / 2);
 }
 
 /* Projects one world point straight to NATIVE VDP1 coordinates.
@@ -114,9 +107,8 @@ inline bool project_native(
     }
     /* Both operands are 16.16, so the fixed-point scaling cancels in the
      * ratio and the result is already in whole pixels. */
-    const int64_t w2 = static_cast<int64_t>(clip.w) * 2;
-    *out_x = project_axis(static_cast<int64_t>(clip.x) * static_cast<int64_t>(screen_w), w2);
-    *out_y = project_axis(-(static_cast<int64_t>(clip.y) * static_cast<int64_t>(screen_h)), w2);
+    *out_x = project_axis(clip.x, screen_w, clip.w);
+    *out_y = project_axis(clip.y, -static_cast<int32_t>(screen_h), clip.w);
     return true;
 }
 
@@ -133,9 +125,18 @@ inline void project_vertex(
     if (clip.w <= 0) {
         return;
     }
-    const int64_t w2 = static_cast<int64_t>(clip.w) * 2;
-    out->x = project_axis(static_cast<int64_t>(clip.x) * static_cast<int64_t>(screen_w), w2);
-    out->y = project_axis(-(static_cast<int64_t>(clip.y) * static_cast<int64_t>(screen_h)), w2);
+    out->x = project_axis(clip.x, screen_w, clip.w);
+    out->y = project_axis(clip.y, -static_cast<int32_t>(screen_h), clip.w);
+}
+
+/* Keep the general camera loop's register allocation separate from the
+ * sparse loop; camera classification still runs on every batch. */
+[[gnu::noinline]] inline void project_vertices_general(
+    const sat_fx16_t* m, const sat_vec3_t* points, uint16_t count,
+    int16_t width, int16_t height, sat_projected_vertex_t* out
+) {
+    for (uint16_t i=0; i<count; ++i)
+        project_vertex(m,points[i],width,height,&out[i]);
 }
 
 /* Classify once per batch, never cache across camera updates. A camera whose
@@ -147,8 +148,7 @@ inline void project_vertices(
     int16_t width, int16_t height, sat_projected_vertex_t* out
 ) {
     if (m[1] || m[2] || m[4] || m[12]) {
-        for (uint16_t i=0; i<count; ++i)
-            project_vertex(m,points[i],width,height,&out[i]);
+        project_vertices_general(m,points,count,width,height,out);
         return;
     }
     for (uint16_t i=0; i<count; ++i) {
@@ -158,9 +158,8 @@ inline void project_vertices(
         if (w<=0) continue; // Preserve the scalar path's untouched X/Y.
         const sat_fx16_t x=fx_mul(m[0],p.x)+m[3];
         const sat_fx16_t y=fx_mul(m[5],p.y)+fx_mul(m[6],p.z)+m[7];
-        const int64_t w2=static_cast<int64_t>(w)*2;
-        out[i].x=project_axis(static_cast<int64_t>(x)*width,w2);
-        out[i].y=project_axis(-static_cast<int64_t>(y)*height,w2);
+        out[i].x=project_axis(x,width,w);
+        out[i].y=project_axis(y,-static_cast<int32_t>(height),w);
     }
 }
 
