@@ -1,0 +1,29 @@
+name: Hardware manual transcriptions
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/sega_saturn_hardware/manuals/**'
+      - 'tools/convert_hardware_manuals.py'
+      - 'tools/requirements-manuals.txt'
+      - 'tests/tools/test_convert_hardware_manuals.py'
+      - '.github/workflows/hardware-manuals.yml'
+  pull_request:
+    paths:
+      - 'docs/sega_saturn_hardware/manuals/**'
+      - 'tools/convert_hardware_manuals.py'
+      - 'tools/requirements-manuals.txt'
+      - 'tests/tools/test_convert_hardware_manuals.py'
+      - '.github/workflows/hardware-manuals.yml'
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r tools/requirements-manuals.txt
+      - run: python tests/tools/test_convert_hardware_manuals.py
+      - run: python tools/convert_hardware_manuals.py --check

@@ -1,0 +1,72 @@
+[
+  {
+    "slug": "sh7604",
+    "title": "SH7604 Hardware Manual",
+    "filename": "sh7604.pdf",
+    "edition": "Hitachi ADE-602-085C, revision 4.0, September 19, 1995",
+    "url": "https://antime.kapsi.fi/sega/files/sh7604.pdf",
+    "sha256": "262cfff2abec2fa0cef5c5475495d6a4da390eff107ed3a75575827467daab9f"
+  },
+  {
+    "slug": "sh1-sh2-programming",
+    "title": "SH-1/SH-2 Programming Manual",
+    "filename": "h12p0.pdf",
+    "edition": "Hitachi, September 3, 1996",
+    "url": "https://antime.kapsi.fi/sega/files/h12p0.pdf",
+    "sha256": "03364fae725c23980ae76d75f266f760844a6ce4e4ec54b7c40897b180be5d44",
+    "sections": [
+      [
+        1,
+        "Front matter"
+      ],
+      [
+        18,
+        "Section 1 Features"
+      ],
+      [
+        20,
+        "Section 2 Register Configuration"
+      ],
+      [
+        25,
+        "Section 3 Data Formats"
+      ],
+      [
+        27,
+        "Section 4 Instruction Features"
+      ],
+      [
+        38,
+        "Section 5 Instruction Set"
+      ],
+      [
+        61,
+        "Section 6 Instruction Descriptions"
+      ],
+      [
+        172,
+        "Section 7 Pipeline Operation"
+      ],
+      [
+        255,
+        "Appendix A Instruction Code"
+      ]
+    ]
+  },
+  {
+    "slug": "saturn-dual-cpu",
+    "title": "SEGA Saturn Dual CPU User’s Guide",
+    "filename": "ST-202-R1-120994.pdf",
+    "edition": "SEGA ST-202-R1-120994, December 9, 1994",
+    "url": "https://antime.kapsi.fi/sega/files/ST-202-R1-120994.pdf",
+    "sha256": "d336737d41fe44d7389d4d9a707a1447264341581184178e1e0f67743d9727d6"
+  },
+  {
+    "slug": "vdp1-supplement",
+    "title": "VDP1 User’s Manual Supplement",
+    "filename": "ST-013-SP1-052794.pdf",
+    "edition": "SEGA ST-013-SP1-052794, May 27, 1994",
+    "url": "https://antime.kapsi.fi/sega/files/ST-013-SP1-052794.pdf",
+    "sha256": "ef267ce551e303505836ac46d00be58286fc6a948e5ec324b643435ab1ccbf61"
+  }
+]

@@ -1,0 +1,72 @@
+{
+  "slug": "sh1-sh2-programming",
+  "title": "SH-1/SH-2 Programming Manual",
+  "filename": "h12p0.pdf",
+  "edition": "Hitachi, September 3, 1996",
+  "url": "https://antime.kapsi.fi/sega/files/h12p0.pdf",
+  "sha256": "03364fae725c23980ae76d75f266f760844a6ce4e4ec54b7c40897b180be5d44",
+  "sections": [
+    {
+      "title": "Front matter",
+      "first": 1,
+      "last": 17,
+      "file": "00-front-matter.md"
+    },
+    {
+      "title": "Section 1 Features",
+      "first": 18,
+      "last": 19,
+      "file": "01-section-1-features.md"
+    },
+    {
+      "title": "Section 2 Register Configuration",
+      "first": 20,
+      "last": 24,
+      "file": "02-section-2-register-configuration.md"
+    },
+    {
+      "title": "Section 3 Data Formats",
+      "first": 25,
+      "last": 26,
+      "file": "03-section-3-data-formats.md"
+    },
+    {
+      "title": "Section 4 Instruction Features",
+      "first": 27,
+      "last": 37,
+      "file": "04-section-4-instruction-features.md"
+    },
+    {
+      "title": "Section 5 Instruction Set",
+      "first": 38,
+      "last": 60,
+      "file": "05-section-5-instruction-set.md"
+    },
+    {
+      "title": "Section 6 Instruction Descriptions",
+      "first": 61,
+      "last": 171,
+      "file": "06-section-6-instruction-descriptions.md"
+    },
+    {
+      "title": "Section 7 Pipeline Operation",
+      "first": 172,
+      "last": 254,
+      "file": "07-section-7-pipeline-operation.md"
+    },
+    {
+      "title": "Appendix A Instruction Code",
+      "first": 255,
+      "last": 293,
+      "file": "08-appendix-a-instruction-code.md"
+    }
+  ],
+  "pages": 293,
+  "extractor": "pypdf 6.21.1",
+  "fonttools": "4.67.0",
+  "blank_text_pages": [
+    2,
+    4
+  ],
+  "text_characters": 547039
+}
