@@ -638,7 +638,8 @@ $(ISO): $(APP_BIN) $(IP_GENERATED) $(EXAMPLE_ISO_FILES) tools/check_iso.py tools
 		cp -R "$(EXAMPLE_ISO_DIR)/." "$(ISO_ROOT)/"; \
 	fi
 ifneq ($(strip $(EXAMPLE_AUDIO_STREAMS)),)
-	@$(foreach audio,$(EXAMPLE_AUDIO_STREAMS),install -D "$(AUDIO_$(audio)_FILE)" "$(ISO_ROOT)/$(EXAMPLE_AUDIO_$(audio)_DISC_PATH)";)
+	@$(foreach audio,$(EXAMPLE_AUDIO_STREAMS),mkdir -p "$(dir $(ISO_ROOT)/$(EXAMPLE_AUDIO_$(audio)_DISC_PATH))" || exit $$?;)
+	@$(foreach audio,$(EXAMPLE_AUDIO_STREAMS),cp "$(AUDIO_$(audio)_FILE)" "$(ISO_ROOT)/$(EXAMPLE_AUDIO_$(audio)_DISC_PATH)" || exit $$?;)
 endif
 	$(MKISOFS) -quiet -sysid "SEGA SATURN" -volid "LIBSATURN" \
 		-volset "LIBSATURN" -publisher "LIBSATURN" -preparer "LIBSATURN" \
