@@ -161,22 +161,29 @@ uint32_t painter_key(int64_t depth_sum, uint16_t pass) {
  * into the record only when the face needs the clipping fallback: a
  * projected-safe face never reads `world`, and every byte a record carries
  * is written (uncached, on the Slave) and copied again on merge. */
+/* Only the instance-wide min-W/coordinate proof may select KnownSafe.
+ * Specialize its kernel so the SH-2 does not carry fallback branches or
+ * world-corner arguments through the common per-face admission path. */
+template<bool KnownSafe=false>
 sat_result_t append(sat_scene3d_faces_t* scene,
                     const sat_vec3_t* const corners[4],
                     const sat_projected_vertex_t* projected,
                     const uint16_t indices[4],
-                    const sat_scene3d_material_t& material, uint16_t pass,
-                    bool known_safe=false) {
+                    const sat_scene3d_material_t& material, uint16_t pass) {
     bool visible=false;
     int64_t sum=0;
     for (uint8_t c=0;c<4u;++c) {
         const sat_fx16_t depth=projected[indices[c]].w;
         sum+=depth;
-        if (depth>0) visible=true;
+        if constexpr (!KnownSafe) {
+            if (depth>0) visible=true;
+        }
     }
-    if (!visible) {
-        ++scene->culled_faces;
-        return SAT_OK;
+    if constexpr (!KnownSafe) {
+        if (!visible) {
+            ++scene->culled_faces;
+            return SAT_OK;
+        }
     }
     if (scene->count>=scene->capacity) return SAT_ERR_CAPACITY;
     sat_scene3d_face_t& item=scene->entries[scene->count];
@@ -192,11 +199,15 @@ sat_result_t append(sat_scene3d_faces_t* scene,
             item.gouraud[c]=material.vertex_gouraud[indices[c]];
         item.material.vertex_gouraud=nullptr;
     }
-    item.projected_safe=(known_safe || safe_projection(*scene,projected,indices,
-        material.kind==SAT_SCENE3D_RGB))?1u:0u;
-    if (!item.projected_safe) {
-        for (uint8_t c=0;c<4u;++c) item.world.v[c]=*corners[c];
-        ++scene->clipped_faces;
+    if constexpr (KnownSafe) {
+        item.projected_safe=1u;
+    } else {
+        item.projected_safe=safe_projection(*scene,projected,indices,
+            material.kind==SAT_SCENE3D_RGB)?1u:0u;
+        if (!item.projected_safe) {
+            for (uint8_t c=0;c<4u;++c) item.world.v[c]=*corners[c];
+            ++scene->clipped_faces;
+        }
     }
     scene->keys[scene->count]=painter_key(sum,pass);
     ++scene->count;
@@ -783,9 +794,13 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
         if (override_slot) {
             sat_scene3d_material_t overridden=base;
             overridden.color_calc_slot=color_calc_slot;
-            st=append(scene,corners,screen_scratch,idx,overridden,instance->pass,known_safe);
+            st=known_safe
+                ? append<true>(scene,nullptr,screen_scratch,idx,overridden,instance->pass)
+                : append(scene,corners,screen_scratch,idx,overridden,instance->pass);
         } else {
-            st=append(scene,corners,screen_scratch,idx,base,instance->pass,known_safe);
+            st=known_safe
+                ? append<true>(scene,nullptr,screen_scratch,idx,base,instance->pass)
+                : append(scene,corners,screen_scratch,idx,base,instance->pass);
         }
         if (st!=SAT_OK) {
             scene->count=previous_count;

@@ -371,13 +371,17 @@ static void instance_projection_proof_matches_individual_faces() {
     uint16_t indices[64]={},materials[16]={};
     for(unsigned i=0;i<64;++i)indices[i]=(uint16_t)(i%4);
     const int positions[]={-1025,-640,-5,0,620,863,864,1024};
-    for(int x:positions)for(int kind=0;kind<2;++kind)for(int mode=0;mode<3;++mode) {
+    // Include positive sums beyond int32 and painter saturation, as well as
+    // the exact near plane. The proven path must match individual admission.
+    const int32_t depths[]={SAT_FX16_ONE,2*SAT_FX16_ONE,1073741695,INT32_MAX};
+    for(int x:positions)for(int kind=0;kind<2;++kind)for(int mode=0;mode<3;++mode)
+        for(int32_t depth:depths) {
         sat_vec3_t vertices[5]={
-            {x*SAT_FX16_ONE,0,2*SAT_FX16_ONE},
-            {(x+4)*SAT_FX16_ONE,0,2*SAT_FX16_ONE},
-            {(x+4)*SAT_FX16_ONE,4*SAT_FX16_ONE,2*SAT_FX16_ONE},
-            {x*SAT_FX16_ONE,4*SAT_FX16_ONE,2*SAT_FX16_ONE},
-            {0,0,2*SAT_FX16_ONE}};
+            {x*SAT_FX16_ONE,0,depth},
+            {(x+4)*SAT_FX16_ONE,0,depth},
+            {(x+4)*SAT_FX16_ONE,4*SAT_FX16_ONE,depth},
+            {x*SAT_FX16_ONE,4*SAT_FX16_ONE,depth},
+            {0,0,depth}};
         if(mode==1)vertices[0].z=SAT_FX16_ONE/2;
         if(mode==2)vertices[4]={3000*SAT_FX16_ONE,0,-SAT_FX16_ONE}; // unused vertex cannot cull valid faces
         sat_mesh_t mesh={};mesh.vertices=vertices;mesh.indices=indices;

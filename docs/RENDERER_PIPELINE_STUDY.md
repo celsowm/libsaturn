@@ -426,3 +426,80 @@ raw rings through the same consistency checks as capture. A percentage is
 undefined (`null`) when the baseline median is zero. The largest remaining
 measured interval is Master geometry; evaluate its shared-memory traffic and
 the face-record layout before choosing the next implementation.
+
+## Face layout experiments and bounded admission kernels
+
+The 104-byte face record was measured before adopting an ABI refactor. An
+experimental tagged union overlaid the 16-byte projected quad and 48-byte world
+quad, reducing each 32-bit target record to 88 bytes. Admission and merge copied
+only the active union member. The complete local suite passed and the paused
+Dino crop was identical, but animated work increased from 37.123 to 37.179 ms;
+Master geometry increased from 19.839 to 19.967 ms. Capacity invalidation fell
+with the allocation size, while join fell from 1.130 to 0.973 ms and merge rose
+from 1.144 to 1.206 ms. Smaller storage did not establish faster rendering.
+The union change was removed. Retained private evidence is `dino-union-*`, its
+phase comparison and `harness/build/face-union-experiment.patch`.
+
+A second experiment replaced four-corner 64-bit means with exact quotient and
+remainder arithmetic in 32 bits. Boundary combinations and 100,000 random
+means agreed with the wide oracle, but the resulting geometry was slower on
+both CPUs. It was removed as well (`dino-mean-*`, `mean4-experiment.patch`). Its
+FRT calibration was 210540 rather than 210600 Hz, so the strict comparison tool
+correctly rejects it as a matched-clock comparison. This experiment is not
+used to quantify a speedup.
+
+The retained change specializes face admission at compile time after the
+existing instance-wide min-W and coordinate proof. The proven kernel needs
+neither a per-corner positive-depth predicate nor world-clipping branches or
+world-corner arguments. Positive near depth is required by scene begin; only
+the internal proof selects this kernel. Painter depth keeps its full-width
+sum, truncation, pass bits and saturation; capacity and shading are still
+processed. Faces without the proof enter the general kernel.
+
+The exact world visibility predicate is emitted as a separate callable kernel
+instead of being expanded into each scene loop. In the measured SH-2 image,
+`submit_instance` shrinks from 5488 bytes with specialized admission to 4656
+bytes; the visibility kernel occupies 508 bytes. This is a code/register
+allocation experiment on a CPU with a 4 KiB cache, not proof of a particular
+cache-hit improvement. The isolated admission run (`dino-append-animated`)
+has 36.823 ms work; adding the separate visibility kernel gives 36.719 ms.
+
+Against the `0b1f698` baseline, the final `dino-cull-animated` ring has 63 complete
+samples at fields 1007..1193, matching 210600 Hz calibration and observed
+Master/Slave CCR 1/0:
+
+| Median interval | Before ms | After ms |
+| --- | ---: | ---: |
+| Master geometry | 19.839 | 19.435 |
+| Worker geometry | 17.028 | 16.804 |
+| Complete work | 37.123 | 36.719 |
+
+Complete work improves by 1.1%; animated, paused and controls retain 20 nominal
+submissions/s. This remains above the two-field budget. The paused model crop
+has zero changed pixels. Scene cubes retain 60 submissions/s and 1.899 ms work;
+paired 864-face cubes retain 15 submissions/s while work falls from 54.123 to
+53.300 ms (`cube-cull-regression`). These are Ymir observations, not certified
+hardware or distinct presentation FPS.
+
+The admission oracle now includes the exact near plane, positive depth sums
+beyond int32 and saturated painter keys. Existing randomized exact visibility,
+Gouraud, fallback, rollback, parallel and owner tests run through the retained
+kernels. The complete host/tool suite and installed-package CTests pass. A
+native-disc Mednafen recording is retained in `dino-cull-mednafen`.
+
+Reproduce the earlier build/capture commands with `dino-cull-*` and compare:
+
+```sh
+python3 harness/scripts/dino_phase_metrics.py --compare \
+  harness/build/dino-direct-animated harness/build/dino-cull-animated
+python3 harness/scripts/dino_pipeline.py --compare \
+  harness/build/dino-direct-paused harness/build/dino-cull-paused
+```
+
+The game also consumes the accumulated renderer improvements in a fresh
+installed-package build. Its frozen two-actor median work falls from 64 to
+57 ms, geometry from 27 to 24 ms and flush from 17 to 14 ms. Full neutral work
+falls from 108 to 100 ms; that comparison includes earlier renderer changes,
+not just this admission increment. Game evidence lives in its private
+`recovery-sdk-cull-matrix`; gameplay cadence requires separate uninstrumented
+captures.

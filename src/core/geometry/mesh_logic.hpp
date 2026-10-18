@@ -242,7 +242,9 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
     return hi > 0 || (hi == 0 && (lo & 0xFFFFFF) != 0);
 }
 
-inline bool quad_visible(const sat_vec3_t& a,const sat_vec3_t& b,
+/* Keep this kernel out of large scene loops: forcing it inline inflates
+ * their code and live register set on the 4 KiB-cache SH-2. */
+[[gnu::noinline]] inline bool quad_visible(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
     const sat_vec3_t da=vec3_sub(d,a),ba=vec3_sub(b,a);
