@@ -2099,6 +2099,14 @@ int main(int argc, char** argv) {
     j.key("mpofn"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPOFN()));
     j.key("mpabn0"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPABN0()));
     j.key("mpcdn0"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPCDN0()));
+    j.key("mpabn1"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPABN1()));
+    j.key("mpcdn1"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPCDN1()));
+    j.key("mpabn2"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPABN2()));
+    j.key("mpcdn2"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPCDN2()));
+    j.key("mpabn3"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPABN3()));
+    j.key("mpcdn3"); j.value(static_cast<uint64_t>(vdp2_regs.ReadMPCDN3()));
+    j.key("prina"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPRINA()));
+    j.key("prinb"); j.value(static_cast<uint64_t>(vdp2_regs.ReadPRINB()));
 
     j.key("vram_ranges");
     j.begin_array();

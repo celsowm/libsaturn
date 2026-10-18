@@ -1,7 +1,10 @@
 # Advanced VDP2 Examples and Runtime Completion Plan
 
-**Status:** Proposed, not implemented. This document is an execution plan, not evidence of a working feature.
-**Date:** 2026-10-15
+**Status:** M0-M5 implemented and qualified on the pinned Ymir revision. Only M6
+(physical-console signoff) remains open; every row in it is explicitly PENDING
+until a real Saturn run is recorded. This document is the execution record, not
+a hardware certification.
+**Date:** 2026-10-15 (status updated 2026-10-17)
 **Repository/branch:** `celsowm/libsaturn` / `main`
 **Policy:** Implement coherent, tested slices directly on `main`, following `AGENTS.md`. No separate demonstration-only register hacks when a reusable public API is required. Documentation must stay in English.
 
@@ -421,18 +424,80 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Add supported TV modes only after hardware/manual validation, keeping normal existing modes unchanged.
 - **Gate:** long-running chunk cycling; video mode matrix distinguishes tested, experimental and unsupported entries; no PAL timing regressions.
 
-**Status (2026-10-17): IN PROGRESS - E07 accepted; E09 (video modes) remains.**
+**Status (2026-10-17): COMPLETE - E07 and E09 are accepted.**
 
 - **E07 `vdp2_dynamic_tile_stream` is accepted.** `saturn/stage_map2.h` already supplied the bounded resident-window scheduler (caller-owned staging, transactional `set_view`/`mark_dirty`, `SAT_ERR_CAPACITY` without state change, writer callback). E07 adds the hardware publication half: `sat_vdp2_layer_set_pattern_name_base` retargets a one-plane cell layer's four pattern-name tables and is replayed by `sat_vdp2_layers_commit()` at VBlank; the pure `nbg::retarget_plane_base` checks one-plane/cell alignment and the map-offset group, and `nbg_set_plane_base` re-runs the cycle planner. `sat_vdp2_vram_read_words` exposes a validated VRAM read for CRC diagnostics.
   The example keeps two 64x64-cell rings at 0x00000/0x04000. Each frame it stages the next camera into the inactive ring through two bounded `stage_map2` instances, commits it, publishes that ring's base and wrapped scroll for the next VBlank, and flips. The active ring is never written, so the switch is tear-free. The 36,000-frame Ymir stress passed 8/8: 34,905 guest frames, 32,999 switches, frozen at 33,000 with `win` 45x33 and base 0x04000; model and VRAM CRC both 0x517824CD, zero 0xFFFF sentinel cells, MPABN0/MPCDN0 0x0202, max pending 1,485 words (the wrap rebuild), 756,900 staged/committed words, 192 SCU-DMA transfers and 33,659 CPU copies with no timeout/illegal interrupt, and all capacity/base/invalid-DMA refusals 1. The harness dumps both rings with `--dump-vram` and recomputes the frozen CRC directly from Ymir's VRAM. `vdp2_dynamic_tile_stream` is therefore `exposed`. Limitations: the live base switch is one-plane cell only (bitmap/multi-plane refused); the double buffer is caller-composed; the example map is procedural, so CD/VFS chunk loading is not demonstrated; physical execution is PENDING.
-- **E09 `vdp2_video_modes` remains** gated on the PAL 240/256 and interlace work; both are still `absent` in the matrix and no host-gate test exists yet.
+- **E09 `vdp2_video_modes` is accepted.** The video surface is now a pure
+  mode contract: `sat_video_config_t.interlace` (the old `reserved` byte, so
+  positional initializers keep working), `sat_video_mode_supported()`,
+  `sat_video_interlace_mode()`, `sat_video_tvmd()` and `sat_video_tvstat()`.
+  `sat_init` accepts 320/352/640/704 by 224/240/256, writes TVMD's
+  HRESO/VRESO/LSMD through one validated encoder
+  (`src/hal/video_mode_logic.hpp`) and keeps VDP1 in the matching mode.
+  Single-density interlace (LSMD=10) is supported at every height; the output
+  picture is twice as tall and the VBlank/frame rate stays per field.
+  Double-density interlace is refused with `SAT_ERR_UNSUPPORTED` because VDP1
+  would need a different picture per field, which no public framebuffer path
+  exposes. A 256-line mode is refused on an NTSC console (manual 2.4: VRESO
+  10b is PAL-only). A mode change is a full `sat_shutdown()` + `sat_init()`,
+  per the manual's BIOS-horizontal-resolution and reset requirements.
+  `tests/host/test_video_mode.cpp` (7 cases) pins the register encodings and
+  refusals. `examples/vdp2_video_modes` shows an NBG0 2x2-page test pattern
+  (grid, colour bars, 1-dot checker, diagonal) plus a VDP1 one-dot border in
+  every mode; it advances every 60 fields. The NTSC harness run covers the
+  five 224/240-line modes; the PAL run covers all eight, including 704x256
+  and 640x512 (single-density interlaced). The harness checks TVMD bits,
+  every capture's size, NBG0 plane-A words in VRAM and all refusal codes.
+  Both runs pass on the pinned Ymir revision. Physical execution is PENDING.
 
 ### M5 — Game-quality showcases (E10 then E11 then E12)
 - Build `vdp2_parallax_world`, `vdp2_fighting_stage`, `vdp2_neon_city` using the shared APIs.
 - Use original, redistributable scene assets and compare rendering/performance with realistic control scenarios.
 - **Gate:** no example-local copy of general-purpose register or cache management; stable 10-minute runs; no stock-RAM overrun.
 
-**Status (2026-10-17): NOT STARTED.** E10-E12 are the integration stage for every prior slice - M2's RBG0/RBG1, M3's extended CC and shadow, M4's tile streaming and video modes. Extended colour calculation, hardware blur, special priority/colour calculation, shadow sprites and bounded tile/map streaming are public and accepted (E03, E04, E06, E05, E07), but PAL/interlace modes are still absent, so the video-mode half of these showcases has no complete surface yet.
+**Status (2026-10-17): COMPLETE - E10, E11 and E12 are accepted.**
+
+- **E10 `vdp2_parallax_world`**: four NBGs plus RBG0 compose a dawn coast -
+  per-line back-screen sky, window-clipped cloud banks (NBG3), mountains
+  (NBG2), a repeating RBG0 sea (transparent rows above the horizon), a
+  line-scrolled shore (NBG1) and foreground leaves (NBG0), with add-mode
+  colour calculation and the line-colour screen on the shore. Table updates
+  measured at about 3 ms/field on the harness host. The example also builds
+  one comparable 320x224 background in software, times it (about 138 ms on
+  the host) and uploads it once as an indexed8 VDP1 texture; A/R toggles
+  that pre-rendered reference around frames 600-660. The measured VDP1 path
+  is exactly one background command more than the VDP2 path. The harness
+  passes 7/7, including `-Long` (3,600 fields), and physical execution is
+  PENDING.
+- **E11 `vdp2_fighting_stage`**: the existing two-fighter character demo
+  (same assets, combat, skeleton evaluation, painter and VDP1 path as
+  `fighter_arena_3d`) with a four-NBG stage (stands/crowd, banners with
+  colour offset, spotlight beams clipped by W0, ring apron). Stage code lives
+  in `examples/characters/stage.c`, compiled only for this example; the
+  legacy NBG0 path in `fighter_arena_3d` is unchanged. L toggles the stage;
+  the example also does it at demo frames 70 and 120. The harness dumps both
+  the stage telemetry and the normal character metrics: the fighter
+  simulation advances in both states, all four NBGs are in BGON, and the
+  stage adds no VDP1 command of its own. 5/5 tests pass; physical execution
+  PENDING.
+- **E12 `vdp2_neon_city`**: the final integration - a rotating RBG0 neon sign
+  (16.16 matrix around the map centre), a 64x64 wet street streamed through
+  two pattern-name rings with `sat_stage_map2`, a moving
+  colour-calculation window and line-colour light pool, colour offsets on the
+  signs and rain, and four NBGs for skyline/foreground. The ring base and
+  scroll are published at VBlank; the active ring is never written. The
+  3,600-field `-Long` Ymir run completed 1,753 scene frames and 1,752 ring
+  switches with 31,845 staged/committed words, 7,218 SCU-DMA and 30,759 CPU
+  transfers, zero sentinel cells and equal model/VRAM CRC (no mismatches);
+  the worst table/stream update was 27.5 ms and VDP1 drew two commands (HUD
+  only). 6/6 tests pass, short and long; physical execution PENDING.
+- The integration also found and fixed a real ownership bug: the rotation
+  manager cleared PRINA's NBG0 priority bits whenever RBG1 was hidden, even
+  if RBG1 had never displayed. An RBG0-only scene configured after NBG0
+  therefore lost the NBG0 priority. The clear now happens only once, after
+  an RBG1 takeover has actually been live (`g_rbg1_takeover_live`), which is
+  what keeps E10's leaves and E12's rain visible.
 
 ### M6 — Hardware signoff and developer experience
 - Run/record physical Saturn tests across region/video mode, console revision and disc/ODE where available. Keep **PENDING** where no machine exists.
@@ -440,7 +505,13 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
 - Add indexed example list to README only for completed demos, and explain compatibility and limitations for outside users.
 - **Gate:** no claim of “hardware proven” without a recorded physical run; all host/build/harness gates green.
 
-**Status (2026-10-16): NOT STARTED.** The checklist currently lists E01 (vdp2_dual_rotation), E02 (vdp2_rotation_coefficients), and the pre-plan baselines (`vdp2_layers_demo`, `vdp2_compose_demo`, `vdp2_effects_demo`, `vdp2_hires_light`, `vdp2_window_dim`, `vdp2_rbg0_ground`, `tate_fb_rotation`, `vdp2_vram_stress`). Every row is the on-host/emulator evidence; physical-console runs are explicitly PENDING because no machine is connected to this run. Rows 30+ (E03-E12) cannot be added until their examples exist.
+**Status (2026-10-17): OPEN - physical signoff only.** The checklist now lists
+E03-E12 as well as the pre-plan baselines. Every added row records the
+on-host/emulator evidence (harness wrapper, test file, capture directory and
+the public APIs it exercises) with the physical-console column explicitly
+PENDING, because no machine is connected to this run. Also open: region/
+revision coverage, ODE/optical media captures and stock-memory measurements
+on hardware. These cannot be closed by emulator output and are not claimed.
 
 ## 7. Implementation workflow for every example
 
@@ -487,4 +558,8 @@ For each E01-E12, all boxes must be checked before changing its status to DONE:
 - Existing fixtures: `examples/vdp2_*`, `tests/host/test_vdp2_*.cpp`, `harness/run-vdp2-*.ps1`.
 - Baseline acceptance: `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md`, `docs/LIBSATURN_CURRENT_COVERAGE.md`.
 
-**First actionable implementation slice:** repair baseline build; reconcile VDP2 resource ownership; deliver **E08 `vdp2_vram_stress`** with deterministic rejection/rollback tests. Then proceed to rotation and composition capability slices. 
+**Remaining actionable slice:** M6 physical-console signoff. Run the E01-E12
+discs from `docs/HARDWARE_ACCEPTANCE_CHECKLIST.md` on real NTSC and PAL
+consoles, record captures and measurements, and close only the rows the
+hardware actually proves. Do not convert the emulator results above into
+hardware claims.

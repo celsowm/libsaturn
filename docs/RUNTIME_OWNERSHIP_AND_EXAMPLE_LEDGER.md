@@ -41,7 +41,7 @@ caller-provided and every frame has an explicit HUD reservation.
 | --- | --- |
 | Host C++ suite | PASS — all existing host tests |
 | Python suite | PASS after restoring pure `gen_ip_bin.build_ip_bin` and CLI aliases |
-| Saturn build | PASS — all 33 entry points built and linked through `build-example.ps1`; the final Skybridge follow-camera migration was rebuilt and linked with the common library |
+| Saturn build | PASS — all 37 entry points built and linked through `build-example.ps1`; the final Skybridge follow-camera migration was rebuilt and linked with the common library |
 | Modified Ymir harness | PASS — `hello_world`, `runtime_3d`, `basic_3d_texture`, `basic_3d_animation`, `skybridge_3d` (including 300-frame gameplay), `infinite_explorer`, `pacman_2d` and `pacman_3d` booted and emitted 320×224 captures; migrated 3D paths were visually inspected |
 | Mednafen launcher | PASS — installed Mednafen found both BIOS files and launched rebuilt `pacman_2d.cue`, `physics_3d.cue`, `distance_fade_3d.cue`, `runtime_3d.cue` and `pacman_3d.cue` for controlled smoke intervals; no emulator process was left running |
 | VDP2 environment slice | PASS — `sat_vdp2_ground_environment_t` owns bounded coefficient/rotation staging and transfer; Skybridge uses it and passed a 300-frame Ymir gameplay capture |

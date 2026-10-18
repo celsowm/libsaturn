@@ -239,19 +239,25 @@
     {
       "id": "interlace_output",
       "title": "Interlaced output modes",
-      "status": "absent",
+      "status": "partial",
       "manual": ["p02_20.md"],
-      "api": [],
-      "tests": [],
+      "api": ["include/saturn/video.h"],
+      "tests": ["tests/host/test_video_mode.cpp", "harness/run-vdp2-video-modes.ps1",
+                "harness/tests/test_vdp2_video_modes.py",
+                "examples/vdp2_video_modes/main.c"],
+      "notes": "E09 exposes single-density interlace through sat_init's sat_video_config_t.interlace (TVMD LSMD=10) and sat_video_interlace_mode(); the logical picture height stays 224/240/256 and the output picture is twice as tall. VDP1 stays in its DIE=0 single-density state. Double-density interlace (LSMD=11, a different VDP1 picture per field) is refused with SAT_ERR_UNSUPPORTED because no public framebuffer path exposes per-field drawing. Ymir renders 320x480 and 640x480 and the PAL 320x512/640x512 fields; physical hardware remains PENDING in the acceptance checklist.",
       "plan_milestone": "M4"
     },
     {
       "id": "pal_240_256_line_modes",
-      "title": "PAL 240/256-line output modes (current APIs stay in 224 lines)",
-      "status": "absent",
+      "title": "PAL 240/256-line output modes",
+      "status": "exposed",
       "manual": ["p02_10.md", "p02_40.md"],
-      "api": [],
-      "tests": [],
+      "api": ["include/saturn/video.h"],
+      "tests": ["tests/host/test_video_mode.cpp", "harness/run-vdp2-video-modes.ps1",
+                "harness/tests/test_vdp2_video_modes.py",
+                "examples/vdp2_video_modes/main.c"],
+      "notes": "sat_init accepts width 320/352/640/704 and height 224/240/256, and sat_video_mode_supported() answers without touching the display. 224 and 240 are legal on NTSC and PAL; 256 is refused with SAT_ERR_UNSUPPORTED on an NTSC console (VDP2 manual 2.4, VRESO=10b is PAL-only). A mode change is a full sat_shutdown()+sat_init(): the manual requires the BIOS horizontal-resolution routine and a VDP2 reset when leaving dedicated-monitor modes. The E09 example exercises every supported mode with a VDP1 border and an NBG0 2x2-page test pattern; the PAL run proves 704x256 and 640x512. Physical hardware PENDING.",
       "plan_milestone": "M4"
     }
   ],

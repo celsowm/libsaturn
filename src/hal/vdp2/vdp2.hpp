@@ -35,8 +35,15 @@ enum ColorMode {
 // Basic initialization
 void init_ntsc_320x224();
 uint16_t read_tvstat();
+/* Writes TVMD's HRESO/VRESO/LSMD from a validated mode (see
+ * src/hal/video_mode_logic.hpp). Caller has checked PAL and interlace rules
+ * and must keep VDP1 in the matching mode. */
+void set_video_mode(uint16_t width, uint16_t height, uint8_t interlace);
+/* The TVMD value last written (register shadow). */
+uint16_t read_tvmd();
 /* After init: 320, 352, 640 or 704. 640/704 are the hi-res modes whose
- * VDP1 framebuffer is 8 bits/pixel (sprite type C). */
+ * VDP1 framebuffer is 8 bits/pixel (sprite type C). Keeps the vertical mode
+ * and interlace setting unchanged. */
 void set_horizontal_resolution(uint16_t width);
 bool hires();
 /* The VDP1 framebuffer holds 8 bit palette codes (rotation mode): sprite type C, like hi-res. */

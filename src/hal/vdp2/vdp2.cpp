@@ -4,6 +4,7 @@
 #include "src/hal/scu/dma.hpp"
 #include "src/hal/vdp2/color_calc.hpp"
 #include "src/hal/vdp2/rbg0_logic.hpp"
+#include "src/hal/video_mode_logic.hpp"
 
 namespace saturn::hal::vdp2 {
 
@@ -541,14 +542,19 @@ void init_ntsc_320x224() {
     TVMD = static_cast<uint16_t>(kTvmdDisp | kTvmdBdclmd);
 }
 
-void set_horizontal_resolution(uint16_t width) {
-    /* TVMD HRESO: 0 = 320, 1 = 352, 2 = 640, 3 = 704 (normal NTSC). */
-    uint16_t hreso = 0u;
-    if (width == 352u) hreso = 1u;
-    else if (width == 640u) hreso = 2u;
-    else if (width == 704u) hreso = 3u;
-    g_hires = hreso >= 2u;
-    TVMD = static_cast<uint16_t>((TVMD & 0xFFF8u) | hreso);
+namespace {
+
+uint16_t g_video_height = 224u;
+uint8_t g_video_interlace = SAT_VIDEO_INTERLACE_NONE;
+
+}  // namespace
+
+void set_video_mode(uint16_t width, uint16_t height, uint8_t interlace) {
+    g_video_height = height;
+    g_video_interlace = interlace;
+    const uint16_t mode = saturn::hal::video_mode::mode_bits(width, height, interlace);
+    g_hires = saturn::hal::video_mode::hreso_bits(width) >= 2u;
+    TVMD = static_cast<uint16_t>((TVMD & 0xFF00u) | mode);
     /* Only hi-res needs a different sprite format. At 320/352 the library
      * has never written SPCTL/CRAOFB at init; writing SPCTL = 0 there would
      * switch sprite data to palette-only and turn every RGB colour black. */
@@ -556,6 +562,16 @@ void set_horizontal_resolution(uint16_t width) {
         SPCTL = sprite_type_bits();
         CRAOFB = g_cram_banks.craofb;
     }
+}
+
+uint16_t read_tvmd() {
+    return TVMD;
+}
+
+void set_horizontal_resolution(uint16_t width) {
+    /* Kept for callers that switch 320/352/640/704 after init; the vertical
+     * mode and interlace setting of the resolved video mode stay as they are. */
+    set_video_mode(width, g_video_height, g_video_interlace);
 }
 
 bool hires() {
@@ -1167,6 +1183,12 @@ bool g_nbg_active = false;
 rot::Layer g_rot;
 bool g_rot_used = false;
 bool g_rot_table_live = false;
+/* True while the RBG1 takeover bits (CHCTLA/PNCN0/PLSZ/MPOFR/OVPNRB/PRINA)
+ * are the ones RBG1 wrote. They are cleared once when RBG1 is hidden, and
+ * never while RBG1 was not displaying: PRINA's low bits are NBG0's priority,
+ * so an unconditional clear would hide NBG0 whenever an RBG0-only layer is
+ * configured after it. */
+bool g_rbg1_takeover_live = false;
 
 inline bool vram_split_a() { return (get_reg(0x00Eu) & 0x0100u) != 0u; }
 inline bool vram_split_b() { return (get_reg(0x00Eu) & 0x0200u) != 0u; }
@@ -1204,10 +1226,12 @@ void rot_write_all(bool may_write_table) {
         for (uint32_t i = 0u; i < 8u; ++i) set_reg(0x060u + 2u * i, r.mp_b[i]);
         set_reg(0x0BAu, r.ovpnrb);
         merge_reg(0x0F8u, 0x0007u, r.prina_rbg1);
-    } else {
-        /* RBG1 is hidden: zero the takeover bits so they don't keep NBG0
-         * pinned at the values we wrote when RBG1 was visible. The
-         * next nbg_write_all() repaints the NBG0 bits. */
+        g_rbg1_takeover_live = true;
+    } else if (g_rbg1_takeover_live) {
+        /* RBG1 was visible and is now hidden: zero the takeover bits once so
+         * they don't keep NBG0 pinned at the values written while RBG1 was
+         * visible. While RBG1 has never displayed, these registers belong to
+         * NBG0/RBG0 and must not be touched here. */
         merge_reg(kOffChctla, 0x007Fu, 0u);
         merge_reg(0x030u, 0xCE3Fu, 0u);
         merge_reg(0x03Eu, 0x0070u, 0u);
@@ -1215,6 +1239,7 @@ void rot_write_all(bool may_write_table) {
         for (uint32_t i = 0u; i < 8u; ++i) set_reg(0x060u + 2u * i, 0u);
         set_reg(0x0BAu, 0u);
         merge_reg(0x0F8u, 0x0007u, 0u);
+        g_rbg1_takeover_live = false;
     }
     /* The region address and both coefficient offsets switch tables: during
      * the picture that would apply from the current line. */

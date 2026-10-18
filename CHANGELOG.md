@@ -11,6 +11,42 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- VDP2 video modes (plan milestone M4, E09): `sat_video_config_t.interlace`
+  (the old `reserved` byte), `sat_video_mode_supported()`,
+  `sat_video_interlace_mode()`, `sat_video_tvmd()` and
+  `sat_video_tvstat()`. `sat_init` accepts 320/352/640/704 by 224/240/256 and
+  writes TVMD's HRESO/VRESO/LSMD through one validated encoder
+  (`src/hal/video_mode_logic.hpp`); 256 lines is PAL-only, single-density
+  interlace is legal at every height, and double-density interlace is refused
+  with `SAT_ERR_UNSUPPORTED` because VDP1 would need a different picture per
+  field. A mode change is a full `sat_shutdown()` + `sat_init()`. Host test
+  `tests/host/test_video_mode.cpp`; `examples/vdp2_video_modes` and
+  `harness/run-vdp2-video-modes.ps1` cover five modes on NTSC and all eight
+  (including 704x256 and 640x512) on PAL. The matrix moves
+  `pal_240_256_line_modes` `absent` -> `exposed` and `interlace_output`
+  `absent` -> `partial` (single-density only). Physical hardware PENDING.
+- `vdp2_parallax_world` (plan milestone M5, E10): a dawn coast built from
+  four NBGs plus RBG0, per-line back-screen sky, window-clipped clouds,
+  mountains, a repeating sea, line-scrolled shore/foreground and add-mode
+  colour calculation. The example also times and uploads one comparable
+  software-built 320x224 background as a VDP1 reference and reports both
+  paths' command counts and per-field VDP2 table cost.
+  `harness/run-vdp2-parallax-world.ps1` passes 7/7, including `-Long`.
+- `vdp2_fighting_stage` (plan milestone M5, E11): the existing two-fighter
+  character demo with a four-NBG VDP2 stage (stands/crowd, banners, moving
+  spotlights, ring apron) compiled only for this example through
+  `examples/characters/stage.c`; `fighter_arena_3d` keeps its legacy NBG0
+  background. The harness compares the same fighter simulation with the stage
+  on and off and checks that the stage adds no VDP1 command of its own.
+- `vdp2_neon_city` (plan milestone M5, E12): the final integration of a
+  rotating RBG0 sign, `sat_stage_map2` double-buffered street streaming, a
+  moving colour-calculation window plus line-colour light pool, per-layer
+  colour offsets and four NBGs. The harness checks the ring switches,
+  model/VRAM CRC, sentinel cells, DMA/CPU transfers, layer priorities and
+  pixel families; 6/6 pass, including `-Long`.
+- `vdp2_video_modes`, `vdp2_parallax_world`, `vdp2_fighting_stage` and
+  `vdp2_neon_city` are listed with the other examples in the README; the
+  hardware acceptance checklist gains rows 35-38, all explicitly PENDING.
 - VDP2 extended colour calculation and hardware blur (plan milestone M3,
   the E03/E04 library surface): `sat_vdp2_extended_color_calc_set` (CCCTL
   EXCCEN) makes the second image the pre-mixed second+third result, plus the
@@ -627,6 +663,12 @@ The version is defined once, in the `VERSION` file.
 
 ### Fixed
 
+- The rotation manager cleared PRINA's NBG0 priority bits whenever RBG1 was
+  not displaying, even if RBG1 had never been enabled. An RBG0-only scene
+  configured after NBG0 (E10's leaf layer, E12's rain layer) therefore lost
+  NBG0's priority and hid it. The takeover bits are now cleared once, only
+  after an RBG1 takeover has actually been live (`g_rbg1_takeover_live`);
+  the RBG1 live toggle and E01 still pass.
 - VDP2 hardware blur stayed permanently refused after any line-colour
   insertion had ever been configured: `set_hardware_blur` passed
   `g_lncl_used` (a register-ownership flag that never clears) to the policy
