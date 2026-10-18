@@ -1,3 +1,5 @@
+DINO_PIPELINE_METRICS ?= 0
+CFLAGS += -DDINO_PIPELINE_METRICS=$(DINO_PIPELINE_METRICS)
 # dino_demo animated T-Rex viewer.
 # Keep the loading screen independently switchable for physical ODE boot triage.
 DINO_LOADING_SCREEN ?= 1

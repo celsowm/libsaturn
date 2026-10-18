@@ -4,6 +4,7 @@ import argparse,hashlib,json,shutil,struct,subprocess,sys
 from pathlib import Path
 from cube_pipeline import ROOT,symbols
 from analyze_cpu_profile import analyze
+from dino_phase_metrics import decode as decode_phases
 
 sys.path.insert(0,str(ROOT/'harness/tests'))
 from dino_runtime import analyze as runtime_gate
@@ -60,7 +61,7 @@ def run(a):
                  '--boot-frames','90','--frames',str(frames),'--pad-script',str(scenario),
                  '--dump-wram-high',str(prefix)+'_high.bin','--out',str(prefix)+'.json',
                  '--screenshot',f'{frames-1}:{prefix}.png']
-        for name in ('g_anim','g_light_on'):
+        for name in ('g_anim','g_light_on')+ (('g_dino_pipeline',) if 'g_dino_pipeline' in syms else ()):
             address,size=syms[name]
             command+=['--dump-mem',f'{address:#x}:{size}:{prefix}_{name}.bin']
         if a.profile and frames==a.checkpoints[-1]:
@@ -71,6 +72,9 @@ def run(a):
             subprocess.run(command,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,
                            timeout=a.timeout,check=True)
         runtime_gate(prefix)
+        if 'g_dino_pipeline' in syms:
+            phases=decode_phases(Path(str(prefix)+'_g_dino_pipeline.bin').read_bytes())
+            Path(str(prefix)+'_phases.json').write_text(json.dumps(phases,indent=2)+'\n')
         metrics=json.loads(Path(str(prefix)+'_analysis.json').read_text())['metrics']
         clip,pose,flags,reserved,time=struct.unpack('>4Hi',Path(str(prefix)+'_g_anim.bin').read_bytes())
         light=struct.unpack('>I',Path(str(prefix)+'_g_light_on.bin').read_bytes())[0]

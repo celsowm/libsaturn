@@ -5,6 +5,7 @@ using saturn::core::scene::record_frame_result;
 
 #include "src/hal/dual_sh2/memory.hpp"
 #include "src/hal/sh2/frt.hpp"
+#include "src/graphics/3d/scene/test_metrics.h"
 
 #ifndef SAT_PROFILE_METRICS
 #define SAT_PROFILE_METRICS 0
@@ -13,6 +14,7 @@ using saturn::core::scene::record_frame_result;
 namespace {
 #if SAT_PROFILE_METRICS
 uint32_t g_test_input_publish_ticks;
+sat_scene3d_worker_profile_t g_test_worker_profile;
 #endif
 
 void* shared_uncached(void* pointer) {
@@ -125,7 +127,13 @@ sat_result_t prepare_batch_task(
     /* The nested graph is caller-owned. Publish it before the Slave reads it,
      * then invalidate the same exact ranges on the worker so cached aliases
      * cannot retain an older descriptor or mesh/material array. */
+#if SAT_PROFILE_METRICS
+    const uint16_t profile_start = saturn::hal::sh2::frt::counter();
+#endif
     SAT_TRY(sync_batch_sources(shared));
+#if SAT_PROFILE_METRICS
+    const uint16_t sources_end = saturn::hal::sh2::frt::counter();
+#endif
 
     /* The executor output and face keys use uncached Slave aliases;
      * source descriptors remain immutable and may be read normally. */
@@ -133,7 +141,21 @@ sat_result_t prepare_batch_task(
     worker.faces = static_cast<sat_scene3d_face_t*>(output);
     worker.keys = static_cast<uint32_t*>(shared_uncached(shared->keys));
     const sat_result_t result = sat_scene3d_prepare_batch_execute(&worker);
+#if SAT_PROFILE_METRICS
+    const uint16_t geometry_end = saturn::hal::sh2::frt::counter();
+#endif
     SAT_TRY(sync_batch_outputs(shared));
+#if SAT_PROFILE_METRICS
+    const uint16_t outputs_end = saturn::hal::sh2::frt::counter();
+    volatile auto* profile = static_cast<volatile sat_scene3d_worker_profile_t*>(
+        shared_uncached(&g_test_worker_profile));
+    profile->source_ticks = static_cast<uint16_t>(sources_end-profile_start);
+    profile->geometry_ticks = static_cast<uint16_t>(geometry_end-sources_end);
+    profile->output_ticks = static_cast<uint16_t>(outputs_end-geometry_end);
+    profile->total_ticks = static_cast<uint16_t>(outputs_end-profile_start);
+    profile->ccr = *reinterpret_cast<volatile uint8_t*>(0xFFFFFE92u);
+    profile->timer_control = saturn::hal::sh2::frt::timer_control();
+#endif
     if (result == SAT_OK) {
         shared->metrics = worker.metrics;
         *output_size = static_cast<uint32_t>(worker.metrics.prepared_faces) *
@@ -254,6 +276,17 @@ extern "C" sat_result_t sat_scene_prepare_batch_release(
 }
 
 #if SAT_PROFILE_METRICS
+extern "C" void sat_scene3d_test_worker_profile(sat_scene3d_worker_profile_t* out) {
+    if (!out) return;
+    const auto* profile = static_cast<const volatile sat_scene3d_worker_profile_t*>(
+        shared_uncached(&g_test_worker_profile));
+    out->source_ticks = profile->source_ticks;
+    out->geometry_ticks = profile->geometry_ticks;
+    out->output_ticks = profile->output_ticks;
+    out->total_ticks = profile->total_ticks;
+    out->ccr = profile->ccr;
+    out->timer_control = profile->timer_control;
+}
 extern "C" uint32_t sat_scene3d_test_input_publish_ticks(void) {
     return g_test_input_publish_ticks;
 }

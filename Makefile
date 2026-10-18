@@ -151,6 +151,9 @@ ifneq ($(strip $(SAT_PARALLEL_RUNTIME_VALIDATION)),)
 LIB_PROFILE_METRICS := 1
 endif
 endif
+ifeq ($(EXAMPLE):$(DINO_PIPELINE_METRICS),dino_demo:1)
+LIB_PROFILE_METRICS := 1
+endif
 ifneq ($(strip $(SAT_PROFILE_METRICS)),)
 LIB_PROFILE_METRICS := 1
 endif

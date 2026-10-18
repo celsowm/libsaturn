@@ -173,3 +173,88 @@ rejects dropped captures and missing/non-monotonic frame data, deduplicates
 repeated list timestamps, and reports actual CCR values and both draw/visible
 counters. It never infers a completed draw from a previous list's END timestamp.
 The retained normal-BIOS trial is `harness/build/dino-renderer-study-cd`.
+
+
+## Bounded phase measurements
+
+`DINO_PIPELINE_METRICS=1` now enables a 64-entry completed-submission ring in
+Dino and selects the generic library's profiling variant. The normal build
+keeps these probes disabled. The worker profile is internal diagnostic state,
+written and read through uncached aliases after successful geometry completion;
+it assumes the executor's single active geometry callback. No public scene
+record layout or cache policy changes.
+
+The Master uses its extended timer for containing intervals. Worker source,
+geometry and output intervals use only its local FRT. Both CPUs' actual CCR
+and TCR values are retained. The decoder requires both prescalers to be /128,
+checks component sums and containing intervals below a 16-bit wrap, and uses
+the Master's nominal calibration only to convert durations. It never subtracts
+Master and Slave counter origins. Measurements include stalls and interrupts,
+not just retired instructions. Instrumentation itself adds some work.
+
+The `dino-phases-v2-animated` retained build produces these median elapsed times
+across 63 completed submissions at the 1200-field checkpoint:
+
+| Phase | Median ms |
+| --- | ---: |
+| Collect previous pose | 0.347 |
+| Publish geometry and dispatch | 3.567 |
+| Master geometry | 19.844 |
+| Join, including completion consumption | 2.342 |
+| Executor response waits inside that join | 1.145 |
+| Merge prepared faces | 1.149 |
+| Flush, including validation, ordering and emission | 13.518 |
+| Painter ordering inside flush | 2.114 |
+| Emission inside flush | 9.661 |
+| End frame, including VDP1 submission/transfer | 1.168 |
+| Complete measured work, excluding initial VBlank wait | 44.571 |
+| Worker source synchronization | 3.885 |
+| Worker geometry | 17.032 |
+| Worker output synchronization | 0.123 |
+| Complete worker measured interval | 21.041 |
+
+The table contains nested and overlapping intervals: do not sum all rows.
+Join is **not** pure waiting for worker computation: it also consumes completion
+and invalidates the output. The executor already distinguishes response wait
+from that work; the ring now retains its per-join delta. This narrows the
+observed worker response wait to about 1.15 ms, while the total Master geometry
+and emission stages remain much larger. Making the Slave faster can also
+change shared-bus contention, so this is not a general speedup upper bound.
+
+This confirms the next optimization targets: repeated resource publication
+and face/command preparation on the Master, rather than assuming that Slave
+cache enablement alone will reach 30 or 60 submissions/s. The measured Master
+work exceeds the two-field budget even before its next initial VBlank wait.
+No renderer speedup is claimed for these diagnostic changes.
+
+The animated and paused scenarios retain 20 nominal CPU submissions/s; controls
+retain 18.7. All three pass the existing runtime gates at 600 and 1200 fields.
+Master CCR stays `0x01`, Slave CCR stays `0x00`; both FRT prescalers are /128.
+The fixed-pose crop matches the previous retained baseline exactly. The new
+trace is checked for dropped observations by `dino_pipeline.py` as before.
+
+Reproduce with the toolchain and Python asset dependencies installed:
+
+```sh
+make all EXAMPLE=dino_demo DINO_PIPELINE_METRICS=1 -j4
+python3 harness/scripts/dino_pipeline.py --bios /path/to/bios.bin \
+  --out harness/build/dino-phases-animated --profile
+python3 harness/scripts/dino_pipeline.py --bios /path/to/bios.bin \
+  --out harness/build/dino-phases-paused --scenario paused
+python3 harness/scripts/dino_pipeline.py --bios /path/to/bios.bin \
+  --out harness/build/dino-phases-controls --scenario controls
+python3 tests/tools/test_dino_phase_metrics.py
+```
+
+Each checkpoint retains the raw `*_g_dino_pipeline.bin` and decoded
+`*_phases.json` alongside the existing diagnostics. The decoder rejects missing
+worker completion, inconsistent phases, possible timer wrap and invalid clock
+configuration. When the ring wraps it excludes the next slot, which the stopped
+guest may have started overwriting. A fresh output directory is required.
+
+Validation also includes the complete `make test` suite with the asset Python
+virtual environment, the normal diagnostic-disabled Dino build, and a 30-second
+Mednafen CD recording (`harness/build/dino-phases-v2-mednafen`). The recording
+shows the animated textured Dino and HUD after native disc boot. This separately
+checks execution without the Ymir application-injection path; it does not dump
+Mednafen CCR state or certify physical hardware timings.
