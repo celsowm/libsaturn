@@ -33,6 +33,8 @@ int main(void) {
         for (;;) {
         }
     }
+    volatile uint8_t cache_control = sat_sh2_cache_control();
+    (void)cache_control;
     for (;;) {
         if (sat_app_frame_begin(SAT_COLOR_BLUE, SAT_COLOR_BLACK, &pad) != SAT_OK) {
             continue;

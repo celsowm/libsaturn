@@ -1,4 +1,5 @@
 #include "src/hal/sh2/cache.hpp"
+#include "saturn/sh2.h"
 
 #include "src/core/startup/memory_layout.hpp"
 #include "src/hal/sh2/cpu.hpp"
@@ -74,3 +75,7 @@ bool invalidate_range(uint32_t cached_address, uint32_t size) {
 }
 
 }  // namespace saturn::hal::sh2::cache
+
+extern "C" uint8_t sat_sh2_cache_control(void) {
+    return saturn::hal::sh2::cache::control_register();
+}

@@ -17,6 +17,7 @@
 #include "saturn/resource_plan.h"
 #include "saturn/hud.h"
 #include "saturn/time.h"
+#include "saturn/sh2.h"
 #include "saturn/irq.h"
 #include "saturn/dma.h"
 #include "saturn/smpc.h"
