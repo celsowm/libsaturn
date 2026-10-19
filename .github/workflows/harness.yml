@@ -27,7 +27,7 @@ jobs:
         run: cmake -S harness -B harness/build-ci -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build probe
-        run: cmake --build harness/build-ci --target probe test_cpu_profile test_cpu_profile_emulator -j2
+        run: cmake --build harness/build-ci --target probe test_cpu_profile test_cpu_profile_emulator test_video_observation -j2
 
       - name: Verify cycle accounting and SH-2 trace hooks without BIOS
         run: ctest --test-dir harness/build-ci --output-on-failure
@@ -49,3 +49,5 @@ jobs:
         run: python -m unittest discover harness/tests -p test_wram_low_fill.py -v
       - name: Validate debug profiling argument boundaries without BIOS
         run: python -m unittest discover harness/tests -p test_debug_profile_cli.py -v
+      - name: Validate composited video observation reports without BIOS
+        run: python -m unittest discover harness/tests -p test_video_observations.py -v

@@ -13,7 +13,8 @@ class DebugProfileCli(unittest.TestCase):
             '--trace-from':['-1','4294967296','1garbage'],
             '--trace-frames':['0','-1','garbage'],
             '--trace-capacity':['0','1048577','-1'],
-            '--snapshot-pc':['-1','4294967296','bad']}.items():
+            '--snapshot-pc':['-1','4294967296','bad'],
+            '--video-crop':['0:0:0:1','0:0:1','-1:0:1:1','0:0:1:1x','0:0:4294967296:1']}.items():
             for value in values:
                 with self.subTest(flag=flag,value=value):
                     r=subprocess.run([str(self.probe),flag,value],capture_output=True,text=True)
@@ -31,5 +32,11 @@ class DebugProfileCli(unittest.TestCase):
             '--snapshot-pc','0x6004000'],capture_output=True,text=True)
         self.assertNotEqual(r.returncode,0)
         self.assertIn('trace options require --debug-profile',r.stderr)
+
+    def test_crop_requires_video_output(self):
+        r=subprocess.run([str(self.probe),'--iso','unused','--bios','unused','--bin','unused',
+            '--video-crop','0:0:1:1'],capture_output=True,text=True)
+        self.assertNotEqual(r.returncode,0)
+        self.assertIn('--video-crop requires --video-observations',r.stderr)
 
 if __name__=='__main__':unittest.main()

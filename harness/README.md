@@ -1,5 +1,8 @@
 # libsaturn integration harness (GPL-3.0 — separate from the rest of this repo)
 
+For exact per-field composited RGB changes, including a HUD-excluding crop,
+see [video observations](../docs/COMPOSITED_VIDEO_OBSERVATIONS.md).
+
 ## License boundary — read this first
 
 **Everything under `harness/` is licensed GPL-3.0** (see `harness/LICENSE`),

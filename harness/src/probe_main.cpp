@@ -27,6 +27,7 @@
 
 #include "png_writer.hpp"
 #include "cpu_profile.hpp"
+#include "video_observation.hpp"
 #include <limits>
 
 #include <ymir/hw/cart/cart_impl_bup.hpp>
@@ -427,6 +428,8 @@ struct Args {
     std::string backup_cart_fixture; // throwaway external image; created formatted, guest writes persist
     std::string ram_cart = "none";  // none, 1m, 4m: volatile expansion
     std::vector<std::pair<uint32_t, std::string>> screenshots;  // frame -> PNG path
+    std::string video_observations_path;
+    harness::video::Crop video_crop;
     // --screenshot-when: shoot `delay` frames after the big-endian word at `address` first
     // reaches `value` (a guest frame counter, so the shot lands on a game frame, not a VBlank).
     struct ShotWhen { uint32_t address; uint32_t value; uint32_t delay; std::string path; int64_t reached = -1; };
@@ -528,6 +531,7 @@ void print_usage() {
         "             [--dump-wram-high <path>] [--misaligned-report <path>] [--watch-write ADDR:LEN[:FROM_FRAME]] [--dump-mem ADDR:BYTES:PATH ...] [--dump-sound-ram <path>] [--dump-audio <path>] [--pal] [--dump-fb <path>]\n"
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...] [--screenshot-when ADDR:VALUE[+DELAY]:PATH ...]\n"
+        "             [--video-observations CSV] [--video-crop X:Y:WIDTH:HEIGHT] (composited RGB changes per field)\n"
         "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
         "             [--boot-mode injection|bios] [--cdb-rom <local-path>] [--boot-marker ADDR]\n"
@@ -643,6 +647,16 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--misaligned-report");
             if (!v) return false;
             out->misaligned_report_path = v;
+        } else if(arg=="--video-observations") {
+            const char* v=next("--video-observations");
+            if(!v || !*v)return false;
+            out->video_observations_path=v;
+        } else if(arg=="--video-crop") {
+            const char* v=next("--video-crop");
+            if(!v || !harness::video::parse_crop(v,out->video_crop)) {
+                std::fprintf(stderr,"invalid --video-crop: use X:Y:WIDTH:HEIGHT with positive dimensions\n");
+                return false;
+            }
         } else if (arg == "--screenshot") {
             const char* v = next("--screenshot");
             if (!v) return false;
@@ -849,6 +863,9 @@ bool parse_args(int argc, char** argv, Args* out) {
         std::fprintf(stderr,
             "Parallel runtime telemetry requires both address and CSV output path\n");
         return false;
+    }
+    if(out->video_crop.width && out->video_observations_path.empty()) {
+        std::fprintf(stderr,"--video-crop requires --video-observations\n");return false;
     }
     return true;
 }
@@ -1246,6 +1263,7 @@ int main(int argc, char** argv) {
         std::vector<uint32_t> pixels;
         uint32_t width = 0;
         uint32_t height = 0;
+        uint64_t generation = 0;
     };
     FrameSink frame;
     saturn->VDP.SetSoftwareRenderCallback(
@@ -1254,7 +1272,18 @@ int main(int argc, char** argv) {
              sink->width = width;
              sink->height = height;
              sink->pixels.assign(fb, fb + static_cast<size_t>(width) * height);
+             ++sink->generation;
          }});
+    std::ofstream video_output;
+    harness::video::Observer video_observer(args.video_crop);
+    uint64_t last_video_generation=0;
+    if(!args.video_observations_path.empty()) {
+        video_output.open(args.video_observations_path);
+        if(!video_output) {
+            std::fprintf(stderr,"cannot create video observations: %s\n",args.video_observations_path.c_str());return 1;
+        }
+        video_output<<"frame,system_cycles,width,height,callback_delta,crop_x,crop_y,crop_width,crop_height,comparable,compared_pixels,changed_pixels,rgb_fingerprint\n";
+    }
 
     // The SCSP output from the moment the program is injected (the BIOS logo chime is not kept).
     struct AudioSink {
@@ -1359,6 +1388,21 @@ int main(int argc, char** argv) {
                 saturn->slaveSH2.SetWatchFrame(emulated);
             }
             saturn->RunFrame();
+            if(measuring_program && video_output.is_open()) {
+                harness::video::Observation observation;
+                if(!frame.pixels.empty()) {
+                    try { observation=video_observer.observe(frame.pixels,frame.width,frame.height); }
+                    catch(const std::invalid_argument& error) {
+                        std::fprintf(stderr,"video observation: %s\n",error.what());std::exit(EXIT_FAILURE);
+                    }
+                }
+                video_output<<i<<','<<saturn->GetCurrentCycleCount()<<','<<frame.width<<','<<frame.height<<','
+                    <<frame.generation-last_video_generation<<','<<observation.crop.x<<','<<observation.crop.y<<','
+                    <<observation.crop.width<<','<<observation.crop.height<<','<<observation.comparable<<','
+                    <<observation.compared_pixels<<','<<observation.changed_pixels<<','
+                    <<std::hex<<observation.rgb_fingerprint<<std::dec<<'\n';
+                last_video_generation=frame.generation;
+            }
             if(master_instructions.profile.active) {
                 if(debug_frames.size()<args.trace_capacity) {
                     const auto& v=saturn->VDP.GetProbe();
@@ -1638,7 +1682,14 @@ int main(int argc, char** argv) {
     taking_screenshots = !args.screenshots.empty() || !args.screenshots_when.empty();
     audio.recording = true;
     measuring_program=true;
+    last_video_generation=frame.generation;
     run_frames(args.frames, args.bios_boot ? 0u : args.boot_frames);
+    if(video_output.is_open()) {
+        video_output.close();
+        if(video_output.fail()) {
+            std::fprintf(stderr,"failed to finish video observations\n");return 1;
+        }
+    }
     audio.recording = false;
     master_instructions.profile.active=slave_instructions.profile.active=false;
 
@@ -1938,6 +1989,14 @@ int main(int argc, char** argv) {
 
     j.key("division_timing_model"); j.value(std::string("immediate-result-no-busy-wait"));
     j.key("frames_run"); j.value(static_cast<uint64_t>(args.frames));
+    if(!args.video_observations_path.empty()) {
+        j.key("video_observations");j.begin_object();
+        j.key("version");j.value(uint64_t{1});
+        j.key("path");j.value(args.video_observations_path);
+        j.key("equality");j.value(std::string("exact-rgb-pixels-alpha-excluded"));
+        j.key("fingerprint");j.value(std::string("fnv1a64-rgb-low-byte-red"));
+        j.end_object();
+    }
     j.key("iso_path"); j.value(args.iso_path);
 
     j.key("ram_cartridge");
