@@ -96,7 +96,7 @@ static uint32_t rng(void) {
     random_word=random_word*1664525u+1013904223u;return random_word;
 }
 static int16_t sample(void) {
-    uint32_t v=rng()>>16;return (int16_t)(v<32768?v:(int32_t)v-65536);
+    int32_t v=(int32_t)(rng()>>16);return (int16_t)(v<32768?v:v-65536);
 }
 static void fill(matrix_t* a,matrix_t* b,unsigned pattern) {
     for(unsigned i=0;i<3;++i)for(unsigned j=0;j<3;++j) {

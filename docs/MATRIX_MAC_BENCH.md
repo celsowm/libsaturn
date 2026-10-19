@@ -87,20 +87,20 @@ extract numeric telemetry from the Mednafen image.
 
 SDK base `f11b277`, GCC 13.2.0, normal cache enabled, pinned Ymir harness,
 600 application fields after 90 BIOS fields. Final retained artifacts are
-`build/diagnostics/matrix-mac-final-o3`; O2 control is
+`build/diagnostics/matrix-mac-published-o3`; O2 control is
 `build/diagnostics/matrix-mac-narrow`. All 33792 checks pass in each capture.
-The final O3 Mednafen recording also displays CHECKS 33792, ERRORS 0 and FRAME 974.
+The final O3 Mednafen recording also displays CHECKS 33792, ERRORS 0 and FRAME 972.
 
 | O3 kernel, High inputs | Single, µs/matrix | 18-link chain, µs/matrix | Chain reduction vs C64 |
 | --- | ---: | ---: | ---: |
-| C64 | 39.779 | 33.182 | — |
+| C64 | 39.853 | 33.182 | — |
 | MAC64 | 37.775 | 31.170 | 6.06% |
-| C32 | 38.591 | 31.665 | 4.57% |
+| C32 | 38.665 | 31.665 | 4.57% |
 | MAC32 | 36.142 | 29.389 | 11.43% |
 
-The final Mednafen image shows raw chain-batch medians 954, 908, 922 and 846
+The final Mednafen image shows raw chain-batch medians 964, 908, 923 and 847
 respectively: the combined candidate improves that procedural interval by
-11.32%. The earlier O2 Mednafen control shows 960, 957, 926 and 902, while Ymir
+12.14%. The earlier O2 Mednafen control shows 960, 957, 926 and 902, while Ymir
 reports a 9.58% combined O2 chain reduction. Compiler optimization and emulator
 choice matter; do not substitute one control's numbers for another.
 
