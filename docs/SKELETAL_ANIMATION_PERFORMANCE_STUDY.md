@@ -154,6 +154,13 @@ reduce accumulation overhead, but must preserve rounding, overflow behavior
 and the CPU's saturation-mode contract. Measure it after removing duplicated
 work, rather than assuming it solves the frame budget.
 
+The later exact Q16 skinning control in
+[`SKINNING_MAC_BENCH.md`](SKINNING_MAC_BENCH.md) passed 7,544 comparisons over
+rigid and blended records but made the full 943-vertex range **38.60% slower**
+in Ymir. The candidate validates its data before timing and changes SR.S once
+per range, so the measured loss already includes favorable setup. No assembly
+specialization was added to production.
+
 Reducing textures or upload size is also not the primary current CPU target:
 the textures upload once at startup. Reducing triangles again would trade
 away the silhouette improvements and should be reserved for deliberate LOD.
