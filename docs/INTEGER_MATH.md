@@ -32,3 +32,8 @@ measure the complete caller and its instruction-cache footprint.
 The host gate compares both widths with an independent division/remainder
 oracle across signed extrema, negative fractions, random values, counts 0–80
 and `UINT_MAX`. Package installation includes this header automatically.
+
+The [procedural matrix / MAC.W experiment](MATRIX_MAC_BENCH.md) measures full
+callers, including wide accumulation, saturation and alias-safe output, against
+an independent floor oracle in Ymir and Mednafen. Its bounded Q12 conversion
+remains experimental; it does not change these standalone shift contracts.
