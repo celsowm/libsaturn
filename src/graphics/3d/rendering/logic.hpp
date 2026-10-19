@@ -69,12 +69,54 @@ inline int16_t clamp_coord64(int64_t v) {
  * depth does not. Clamp before division so its quotient is in [-4095,4095].
  * Multiplying the signed scale directly also avoids a wide negation for Y.
  */
-inline int16_t project_axis(int32_t coordinate, int32_t scale, int32_t depth) {
-    const int64_t num = static_cast<int64_t>(coordinate) * scale;
+inline bool project_axis_clamped(int64_t num, int32_t depth, int16_t* value) {
     const int64_t limit = static_cast<int64_t>(depth) * (2 * (kCoordLimit + 1));
-    if (num >= limit) return kCoordLimit;
-    if (num <= -limit) return -kCoordLimit;
-    return static_cast<int16_t>(saturn::core::math3d::div_s64_s32(num, depth) / 2);
+    if (num >= limit) {
+        *value = kCoordLimit;
+    } else if (num <= -limit) {
+        *value = -kCoordLimit;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+/* These two helpers bracket only the divider's memory-mapped transaction.
+ * The sparse batch loop can run the Y numerator arithmetic between them. */
+inline void project_axis_start(int64_t numerator, int32_t depth) {
+#if defined(__sh__)
+    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF00u) =
+        static_cast<uint32_t>(depth);
+    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF10u) =
+        static_cast<uint32_t>(static_cast<uint64_t>(numerator) >> 32u);
+    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF14u) =
+        static_cast<uint32_t>(numerator);
+    __asm__ volatile("" ::: "memory");
+#else
+    (void)numerator;
+    (void)depth;
+#endif
+}
+
+inline int16_t project_axis_finish(int64_t numerator, int32_t depth) {
+#if defined(__sh__)
+    (void)numerator;
+    (void)depth;
+    const int32_t quotient = static_cast<int32_t>(
+        *reinterpret_cast<volatile uint32_t*>(0xFFFFFF14u));
+    return static_cast<int16_t>(quotient / 2);
+#else
+    return static_cast<int16_t>(
+        saturn::core::math3d::div_s64_s32(numerator, depth) / 2);
+#endif
+}
+
+inline int16_t project_axis(int32_t coordinate, int32_t scale, int32_t depth) {
+    const int64_t numerator = static_cast<int64_t>(coordinate) * scale;
+    int16_t value;
+    if (project_axis_clamped(numerator, depth, &value)) return value;
+    project_axis_start(numerator, depth);
+    return project_axis_finish(numerator, depth);
 }
 
 /* Projects one world point straight to NATIVE VDP1 coordinates.
@@ -157,9 +199,25 @@ inline void project_vertices(
         out[i].w=w;
         if (w<=0) continue; // Preserve the scalar path's untouched X/Y.
         const sat_fx16_t x=fx_mul(m[0],p.x)+m[3];
+        const int64_t x_numerator=static_cast<int64_t>(x)*width;
+        int16_t projected_x;
+        if(project_axis_clamped(x_numerator,w,&projected_x)) {
+            const sat_fx16_t y=fx_mul(m[5],p.y)+fx_mul(m[6],p.z)+m[7];
+            out[i].x=projected_x;
+            out[i].y=project_axis(y,-static_cast<int32_t>(height),w);
+            continue;
+        }
+        project_axis_start(x_numerator,w);
         const sat_fx16_t y=fx_mul(m[5],p.y)+fx_mul(m[6],p.z)+m[7];
-        out[i].x=project_axis(x,width,w);
-        out[i].y=project_axis(y,-static_cast<int32_t>(height),w);
+        const int64_t y_numerator=static_cast<int64_t>(y)*-static_cast<int32_t>(height);
+        int16_t projected_y;
+        const bool y_clamped=project_axis_clamped(y_numerator,w,&projected_y);
+        out[i].x=project_axis_finish(x_numerator,w);
+        if(!y_clamped) {
+            project_axis_start(y_numerator,w);
+            projected_y=project_axis_finish(y_numerator,w);
+        }
+        out[i].y=projected_y;
     }
 }
 

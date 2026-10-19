@@ -154,6 +154,30 @@ crosses a field threshold; it is not a 25% CPU-work reduction. All six cube
 model-region image comparisons have zero differing pixels. Skinning and
 emission costs remain essentially unchanged.
 
+## Projection divider overlap
+
+The sparse-camera loop now starts the X divide, computes Y's clip coordinate
+and bounded numerator while the SH-2 divider runs, then reads X and starts Y.
+The original per-axis clamp, signed quotient and native pixel rounding remain
+intact. The Tekken port uses this sparse path; clamped X values retain the
+ordinary Y path.
+
+Two independent Mednafen native-disc captures of the two-cube projection-only
+stage measured 4,960/4,961 FRT ticks before and 4,666/4,666 after, a 5.9%
+reduction in the geometry interval. Both builds rendered the same model-region
+pixels (crop MD5 `17a924141e3bd420bae009991307e307`). Each actor projects 866
+vertices. The cube harness `--timing-hud` option displays this value during
+native-disc captures. Full run metadata, image hashes, and the Ymir comparison
+are in [`harness/studies/projection-divider-overlap/mednafen.json`](../harness/studies/projection-divider-overlap/mednafen.json).
+
+Ymir measured the candidate 5.9% slower in the isolated geometry interval
+(14,444 versus 13,637 us). Its DIVU model completes immediately and does not
+charge the SH-2's 39-cycle division latency or wait on early result reads, so
+that result captures the schedule's instruction overhead without the latency
+it is intended to hide. The existing DIVU probe independently demonstrates
+this model difference. The native-disc result remains emulator evidence, not
+physical Saturn qualification.
+
 An unsigned-magnitude prototype increased Dino projection costs by about 2–3%
 and was discarded. Moving the factor two into the 64-bit numerator worked but
 saved less than dividing the bounded 32-bit quotient by two. Those variants
@@ -207,15 +231,10 @@ in the cube emulator control. None of those experiments is a claimed fix.
 
 ## Next shared work
 
-1. Measure opportunities to overlap useful work with divider latency in the
-   projection kernels. The exact quotient and separate camera loops above now
-   cover both Dino orbit cameras and the sparse cube camera. Retain exact
-   clipping and coordinate behavior; reject changes that only help one path
-   while regressing the other.
-2. Extend adoption of the topology/pose binding contract to other animated
+1. Extend adoption of the topology/pose binding contract to other animated
    assets after checking their mutation lifetimes. Dino now uses it; remaining
    work includes measuring publication and flush validation independently.
-3. Reduce prepared-face copying/cache invalidation and amortize VDP1 emission
+2. Reduce prepared-face copying/cache invalidation and amortize VDP1 emission
    setup after measuring useful work versus waits. Preserve two independently
    animated actors, ownership, command capacity and draw completion.
 

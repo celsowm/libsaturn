@@ -164,6 +164,7 @@ def run(a):
         stage,density=CASES[name];case=out/name;case.mkdir()
         command=['make','all','EXAMPLE=cube_pipeline_bench',f'CUBE_BENCH_STAGE={stage}',
                  f'CUBE_BENCH_DIV={density}',f'CUBE_BENCH_HUD={int(not a.no_hud)}',
+                 f'CUBE_BENCH_TIMING_HUD={int(a.timing_hud)}',
                  f'CUBE_BENCH_HIGH_RAM={int(a.high_ram)}',
                  'PYTHON='+str(a.python.resolve()),'-j4']
         with build_lock():
@@ -247,6 +248,8 @@ if __name__=='__main__':
     p.add_argument('--frames',type=int,default=1200);p.add_argument('--after-field',type=int,default=120)
     p.add_argument('--minimum-fields',type=int,default=600);p.add_argument('--timeout',type=int,default=300)
     p.add_argument('--no-hud',action='store_true');p.add_argument('--profile',action='store_true')
+    p.add_argument('--timing-hud',action='store_true',
+                   help='show the measured geometry FRT ticks on the guest HUD')
     p.add_argument('--high-ram',action='store_true',help='place actor/face working buffers in high WRAM')
     a=p.parse_args()
     if a.report:

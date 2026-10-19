@@ -21,6 +21,9 @@
 #ifndef CUBE_BENCH_HIGH_RAM
 #define CUBE_BENCH_HIGH_RAM 0
 #endif
+#ifndef CUBE_BENCH_TIMING_HUD
+#define CUBE_BENCH_TIMING_HUD 0
+#endif
 #if CUBE_BENCH_STAGE < 0 || CUBE_BENCH_STAGE > 9 || CUBE_BENCH_DIV < 1 || CUBE_BENCH_DIV > 12
 #error "stage must be 0..9; subdivisions must be 1..12"
 #endif
@@ -289,6 +292,9 @@ int main(void) {
         t=now();
         number("STAGE ",CUBE_BENCH_STAGE,8,8);number("DIV ",N,224,8);
         number("FRAME ",g_cube_bench.serial+1,8,24);
+#if CUBE_BENCH_TIMING_HUD
+        number("GEO TICKS ",s.geometry,8,40);
+#endif
         text("TWO CUBES / PROCEDURAL",72,200);s.hud=now()-t;
         sat_vdp1_command_stats_t command={0};sat_vdp1_frame_stats_t frame={0};
         if(CUBE_BENCH_STAGE!=1){must(sat_vdp1_command_stats(&command));must(sat_vdp1_frame_stats(&frame));}

@@ -18,6 +18,12 @@ must still fit the standard memory contract. The HUD displays
 the stage, subdivision count and `FRAME NNNN` (the submission serial).
 `CUBE_BENCH_HUD=0` removes the HUD; keep this setting consistent across comparisons.
 
+For a native-disc timing comparison, `--timing-hud` adds the current frame's
+measured geometry FRT ticks to the HUD. The geometry interval ends before this
+extra text is drawn. Keep this option and the normal HUD setting matched between
+builds, then compare settled frames. Values are emulator observations, not
+physical Saturn measurements.
+
 | Stage | Work added each frame |
 | --- | --- |
 | 0 | Empty frame and HUD |
