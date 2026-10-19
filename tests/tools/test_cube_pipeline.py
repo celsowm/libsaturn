@@ -1,9 +1,10 @@
-import struct,sys,unittest
+import copy,struct,sys,unittest
 from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'harness/scripts'))
 from cube_pipeline import HEADER,FIELDS,ROWS,decode,symbols
 from analyze_cpu_profile import attribute
+from compare_cube_pipeline import compare_case
 
 
 class CubeTelemetryTests(unittest.TestCase):
@@ -63,6 +64,38 @@ class CubeTelemetryTests(unittest.TestCase):
         self.assertEqual(result['master']['functions'][1]['boundary'],'inferred_next_text_symbol')
         totals['master']['execution_cycles']+=1
         with self.assertRaises(ValueError):attribute(rows,symbols,totals)
+
+    def comparison_fixture(self):
+        result=decode(self.fixture())
+        result.update(provenance=dict(bios='bios',probe='probe'),working_ram='low',
+                      working_buffers=dict(faces=dict(size=10400)))
+        return result
+
+    def test_comparison_separates_memory_cost_and_cadence(self):
+        before=self.comparison_fixture();after=copy.deepcopy(before)
+        after['stage_us']['work']['median']=800
+        after['working_buffers']['faces']['size']=8800
+        result=compare_case(before,after)
+        self.assertEqual(result['costs']['work']['reduction_percent'],20)
+        self.assertEqual(result['before_working_bytes']-result['after_working_bytes'],1600)
+        self.assertEqual(result['before_submit_s'],result['after_submit_s'])
+
+    def test_calibration_normalization_requires_explicit_choice(self):
+        before=self.comparison_fixture();after=copy.deepcopy(before)
+        after['header']['frequency']+=60
+        with self.assertRaises(ValueError):compare_case(before,after)
+        result=compare_case(before,after,normalize_calibration=True)
+        self.assertNotEqual(result['before_frt_hz'],result['after_frt_hz'])
+
+    def test_comparison_rejects_incompatible_controls(self):
+        before=self.comparison_fixture()
+        for section,key,value in [('header','divisions',2),('header','hud',0),
+                ('header','errors',1),('header','frequency',0),('provenance','probe','other'),
+                ('commands','maximum',51)]:
+            after=copy.deepcopy(before);after[section][key]=value
+            with self.assertRaises(ValueError):compare_case(before,after)
+        after=copy.deepcopy(before);after['measured_fields']=599
+        with self.assertRaises(ValueError):compare_case(before,after)
 
 
 if __name__=='__main__':unittest.main()

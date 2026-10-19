@@ -321,3 +321,50 @@ queue tag and dispatch have a cost. Preparation selects a specialized ordinary
 or compiled loop once per instance; the initial shared-loop prototype was
 worse at 55.157 ms. See the [study](RENDERER_PIPELINE_STUDY.md) and retained
 `harness/studies/material-programs/results.json` for scope and evidence.
+
+## Classify emission once per complete queue
+
+The existing flush residency preflight now records whether any face borrows a
+compiled program. A queue containing only ordinary materials selects a
+specialized emission loop without the per-face program dispatch. Mixed and
+compiled queues retain program handling, all material/owner validation still
+finishes before the first draw, and both loops preserve painter order,
+unsupported-face accounting and first-error behavior. No public ABI changes.
+
+Fresh 2026-10-19 controls use SDK `4a610f6` as baseline, the same Ymir binary,
+BIOS, cache-emulation policy and stock WRAM. Dense controls calibrate FRT at
+210600 Hz. The instrumented animated Dino comparison contains 63 complete
+samples per run; its warmed submission interval is fields 600–1200.
+
+| Workload / median | Before | Specialized flush |
+| --- | ---: | ---: |
+| RGB cubes, 864 quads per actor, work | 61.838 ms | 61.311 ms |
+| Textured cubes, same density, work | 62.578 ms | 62.080 ms |
+| Paired textured skin cubes, work | 54.468 ms | 54.107 ms |
+| Animated Dino, emission | 4.938 ms | 4.739 ms |
+| Animated Dino, flush | 8.053 ms | 7.901 ms |
+| Animated Dino, complete work | 34.236 ms | 34.084 ms |
+
+Emission improves 4.04% in that Dino interval; whole work improves only 0.44%.
+Cube submissions stay at 15/s and Dino stays at 20/s in animated, paused and
+control scenarios. Static cube crops and paused, unlit Dino pixels are
+identical. A separate retained Dino native disc boots and animates in Mednafen.
+The SH-2 flush symbol grows from 1040 to 1628 bytes: specialization has a code
+cost and is retained for this measured, modest cross-consumer improvement.
+These observations do not establish distinct displayed frames, physical Saturn
+performance or a solution to the port's much larger geometry/simulation cost.
+
+Public numeric evidence is in `harness/studies/renderer-flush-dispatch/`.
+Private captures are `build/diagnostics/renderer-{baseline,flush-dispatch}-20261019`,
+`renderer-baseline-controls-20261019`, `renderer-dino-flush-{before,after}-metrics-20261019`,
+`renderer-dino-flush-{animated,paused,controls}-20261019` and
+`renderer-dino-flush-mednafen-20261019`. Reuse the cube comparator above and
+`dino_phase_metrics.py --compare` for the normalized phase comparison.
+
+Rejected controls are retained privately, not shipped: replacing the four-corner
+mean saved only about 0.1 ms in the dense cube, and clamping painter depth before
+narrowing saved about 0.3 ms. Combining `/4/16` into `/64` produced the same
+measured result as baseline. Repeating the already documented 88-byte geometry
+union saved allocation but left complete work/cadence essentially unchanged;
+the production record remains 104 bytes. See the earlier face-layout rejection
+in the pipeline study before repeating any of those experiments.

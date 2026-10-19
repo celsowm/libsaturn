@@ -85,6 +85,26 @@ Mednafen recording below for that.
 
 ## CPU profiling and actual CD boot
 
+For a before/after renderer change, compare retained runs with:
+
+```sh
+python3 harness/scripts/compare_cube_pipeline.py \
+  --baseline build/diagnostics/before/matrix.json \
+  --candidate build/diagnostics/after/matrix.json \
+  --out build/diagnostics/comparison.json
+```
+
+Multiple baseline reports may cover disjoint case sets; every candidate case
+must have a baseline. The comparator checks completion, retained ELF hashes,
+stage/density/HUD, BIOS/probe, working RAM, face/command counts and a minimum
+600-field interval. It reports median CPU costs, reserved working-buffer bytes
+and submission cadence separately, and fails if the static model crop changes.
+Animated stage 9 requires matched poses and is rejected. Pillow is required.
+Clock policy and source/build-flag equivalence still need review of the retained
+commands. FRT calibration must match by default; `--normalize-calibration`
+explicitly permits each run's own calibrated conversion after checking that
+the clock policy itself is unchanged. This option is recorded in the report.
+
 ```sh
 python3 harness/scripts/cube_pipeline.py \
   --bios /path/to/saturn_101a_us.bin \

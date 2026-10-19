@@ -252,10 +252,13 @@ void copy_face(sat_scene3d_face_t& dst, const sat_scene3d_face_t& src) {
     if (!src.projected_safe) dst.world=src.world;
 }
 
+template<bool HasPrograms>
 sat_result_t emit(const sat_scene3d_faces_t& scene,
                   const sat_scene3d_face_t& face) {
-    if (face.program_valid)
-        return saturn::internal::draw_projected_program(face.projected,*face.program);
+    if constexpr (HasPrograms) {
+        if (face.program_valid)
+            return saturn::internal::draw_projected_program(face.projected,*face.program);
+    }
     /* Projected cache items use these SAME RGB/indexed emission paths as
      * world faces; projected_safe forbids any world-space fallback. */
     if (face.material.kind==SAT_SCENE3D_RGB && face.projected_safe) {
@@ -314,6 +317,22 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
     if (textured==SAT_OK && !drawn && face.material.rgb555!=0u)
         return sat_draw_polygon_quad3(&face.world,&p,face.material.rgb555);
     return textured;
+}
+template<bool HasPrograms>
+sat_result_t emit_ordered(sat_scene3d_faces_t* scene,uint32_t ordered) {
+    for (uint32_t i=0;i<ordered;++i) {
+        const auto& face=scene->entries[scene->order[i]];
+        if (!face.projected_safe) ++scene->fallback_faces;
+        const sat_result_t emitted=emit<HasPrograms>(*scene,face);
+        if (emitted==SAT_ERR_UNSUPPORTED) {
+            ++scene->skipped_faces;
+            continue;
+        }
+        if (emitted!=SAT_OK) return emitted;
+        if (face.cached_projected) ++scene->emitted_cached;
+        else ++scene->emitted_faces;
+    }
+    return SAT_OK;
 }
 } // namespace
 
@@ -1069,8 +1088,12 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
         }
     }
     scene->owner_span_count=0u;
+    // The existing residency preflight also classifies this complete queue.
+    // Ordinary scenes can omit the program union dispatch during emission.
+    bool has_programs=false;
     for (uint16_t i=0u;i<scene->count;++i) {
         const auto& face=scene->entries[i];
+        if (face.program_valid) has_programs=true;
         const bool valid=face.program_valid
             ? face.program && face.program->texture && face.program->texture->valid
             : valid_material(face.material);
@@ -1093,24 +1116,8 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
         saturn::hal::sh2::frt::counter()-painter_start);
     const uint16_t emit_start=saturn::hal::sh2::frt::counter();
 #endif
-    sat_result_t result=SAT_OK;
-    for (uint32_t i=0;i<ordered;++i) {
-        if (!scene->entries[scene->order[i]].projected_safe)
-            ++scene->fallback_faces;
-        const sat_result_t emitted=emit(*scene,scene->entries[scene->order[i]]);
-        if (emitted==SAT_ERR_UNSUPPORTED) {
-            ++scene->skipped_faces;
-            continue;
-        }
-        if (emitted!=SAT_OK) {
-            result=emitted;
-            break;
-        }
-        if (scene->entries[scene->order[i]].cached_projected != 0u)
-            ++scene->emitted_cached;
-        else
-            ++scene->emitted_faces;
-    }
+    const sat_result_t result=has_programs ? emit_ordered<true>(scene,ordered)
+                                         : emit_ordered<false>(scene,ordered);
 #if SAT_PROFILE_METRICS
     g_test_emit_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-emit_start);
