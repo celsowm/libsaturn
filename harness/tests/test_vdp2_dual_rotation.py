@@ -217,19 +217,11 @@ class DualRotationTests(unittest.TestCase):
         # grid's transparent cells under RBG0's higher priority. The slate
         # count is what the host test test_vdp2_rotation_rbg1.cpp proves
         # must be there; the warm/dark count is the Ymir-side proof that
-        # RBG1 actually reached the screen (it does not in Ymir's RBG1-
-        # through-transparent-RBG0 path - the host test is the strongest
-        # in-environment evidence short of a real Saturn). Pass when the
-        # slate is intact and the warm/dark family stays under Ymir's
-        # reachable ceiling; flag the case where RBG1 is silently broken.
+        # RBG1 actually reached the screen. E01 used to configure 256
+        # colours while uploading 4bpp/16-colour tiles, which made this
+        # path appear as a Ymir gap; the fixed 16-colour configuration
+        # makes both the checker colours and the RBG1 pixels visible.
         self.assertGreater(slate300, 2000)
-        if warm300 + dark300 == 0:
-            self.skipTest(
-                "Ymir's RBG1-through-RBG0 path does not surface the warm/dark "
-                "checker at f300 (warm=0 dark=0 slate=%d); the host test "
-                "test_vdp2_rotation_rbg1.cpp is the strongest in-environment "
-                "evidence short of a real Saturn" % slate300
-            )
         self.assertGreater(warm300, 2000)
         self.assertGreater(dark300, 2000)
 

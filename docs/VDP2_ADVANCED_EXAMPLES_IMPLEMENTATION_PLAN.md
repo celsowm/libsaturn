@@ -310,8 +310,15 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   and silently drop RBG1). Ymir's RBG1-through-transparent-RBG0 path
   does not surface the warm/dark checker on the f300 screenshot; the
   harness's pixel-pattern assertion skips with a pointer to
-  `tests/host/test_vdp2_rotation_rbg1.cpp` (35/35), which is the
-  strongest in-environment evidence short of a real Saturn.
+  `tests/host/test_vdp2_rotation_rbg1.cpp` (35/35), which was the
+  strongest in-environment evidence short of a real Saturn at that point.
+- **E01 colour fix (2026-10-19):** the example configured RBG0 and RBG1 as
+  256-colour screens while uploading 4bpp/16-colour tiles. Both now use
+  `SAT_VDP2_COLOR_MODE_16`, matching the tile data and the 16-entry
+  palettes. Ymir's DUAL screenshot shows the warm/dark checker through
+  RBG0's transparent holes, the pixel-pattern test passes 6/6 with no skip
+  in NTSC and PAL, and `rbg1` moves from `partial` to `exposed` in the
+  support matrix. Physical hardware remains PENDING.
 
 ### M3 — Advanced composition (E03 then E04 then E06 then E05)
 - Implement a single compatible state machine for special color/priority, shadow, blur and extended calculation. Add only verified public switches.

@@ -268,7 +268,7 @@ static void update_scene(uint32_t frame) {
 static sat_result_t configure(uint32_t mode) {
     sat_vdp2_rotation_config_t cfg;
     sat_vdp2_rotation_config_default(&cfg);
-    cfg.color_mode = SAT_VDP2_COLOR_MODE_256;
+    cfg.color_mode = SAT_VDP2_COLOR_MODE_16;
     cfg.pattern_name_words = 1u;
     cfg.priority = 4u;               /* RBG0 over RBG1 */
     cfg.transparent = 1u;
@@ -286,7 +286,7 @@ static sat_result_t configure(uint32_t mode) {
      * name banks. */
     const uint32_t checker = (mode == 2u) ? CHECK_NAMES_B1 : CHECK_NAMES_A0;
     for (uint32_t p = 0u; p < 16u; ++p) cfg.map_b.plane_address[p] = checker;
-    cfg.rbg1.color_mode = SAT_VDP2_COLOR_MODE_256;
+    cfg.rbg1.color_mode = SAT_VDP2_COLOR_MODE_16;
     cfg.rbg1.pattern_name_words = 1u;
     cfg.rbg1.priority = 3u;
     cfg.rbg1.transparent = 1u;
@@ -406,7 +406,7 @@ int main(void) {
         bad.table_address = REGION0;
         bad.rbg1.enabled = 1u;
         bad.rbg1.char_base_address = CHECK_CHARS;
-        bad.rbg1.color_mode = SAT_VDP2_COLOR_MODE_256;
+        bad.rbg1.color_mode = SAT_VDP2_COLOR_MODE_16;
         bad.rbg1.pattern_name_words = 1u;
         bad.rbg1.priority = 3u;
         bad.map_b.plane_pages_x = 1u;

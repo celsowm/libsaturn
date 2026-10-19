@@ -708,6 +708,12 @@ The version is defined once, in the `VERSION` file.
 
 ### Fixed
 
+- E01 `vdp2_dual_rotation` configured RBG0/RBG1 as 256-colour screens while
+  uploading 4bpp/16-colour tiles and 16-entry palettes, so Ymir and Mednafen
+  rendered the scene in grayscale and the DUAL pixel assertion was skipped.
+  Both screens now use `SAT_VDP2_COLOR_MODE_16`; the checker is visible
+  through RBG0's transparent holes and the Ymir test passes 6/6 in NTSC and
+  PAL with no skip. `rbg1` moves to `exposed` in the support matrix.
 - The shared example-test runner writes PAL probe, WRAM and telemetry files
   under `harness/build/<example>_pal/`, so a PAL run no longer overwrites the
   NTSC evidence set.
