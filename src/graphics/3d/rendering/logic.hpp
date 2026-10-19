@@ -85,11 +85,11 @@ inline bool project_axis_clamped(int64_t num, int32_t depth, int16_t* value) {
  * The sparse batch loop can run the Y numerator arithmetic between them. */
 inline void project_axis_start(int64_t numerator, int32_t depth) {
 #if defined(__sh__)
-    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF00u) =
+    *reinterpret_cast<volatile uint32_t*>(saturn::core::math3d::kDivuDivisorAddress) =
         static_cast<uint32_t>(depth);
-    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF10u) =
+    *reinterpret_cast<volatile uint32_t*>(saturn::core::math3d::kDivuDividendHighAddress) =
         static_cast<uint32_t>(static_cast<uint64_t>(numerator) >> 32u);
-    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF14u) =
+    *reinterpret_cast<volatile uint32_t*>(saturn::core::math3d::kDivuDividendLowQuotientAddress) =
         static_cast<uint32_t>(numerator);
     __asm__ volatile("" ::: "memory");
 #else
@@ -103,7 +103,7 @@ inline int16_t project_axis_finish(int64_t numerator, int32_t depth) {
     (void)numerator;
     (void)depth;
     const int32_t quotient = static_cast<int32_t>(
-        *reinterpret_cast<volatile uint32_t*>(0xFFFFFF14u));
+        *reinterpret_cast<volatile uint32_t*>(saturn::core::math3d::kDivuDividendLowQuotientAddress));
     return static_cast<int16_t>(quotient / 2);
 #else
     return static_cast<int16_t>(

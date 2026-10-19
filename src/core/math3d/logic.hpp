@@ -49,6 +49,11 @@ inline sat_fx16_t fx_abs(sat_fx16_t v) {
     return (v < 0) ? static_cast<sat_fx16_t>(-v) : v;
 }
 
+/* SH7604 DIVU register addresses, shared by synchronous and overlapped math. */
+constexpr uintptr_t kDivuDivisorAddress = 0xFFFFFF00u;
+constexpr uintptr_t kDivuDividendHighAddress = 0xFFFFFF10u;
+constexpr uintptr_t kDivuDividendLowQuotientAddress = 0xFFFFFF14u;
+
 /* Signed 64/32 division truncating toward zero, for a quotient the caller
  * guarantees fits in 32 bits.
  *
@@ -62,11 +67,11 @@ inline int32_t div_s64_s32(int64_t num, int32_t den) {
 #if defined(__sh__)
     /* SH7604 DIVU: DVSR, DVDNTH, then writing DVDNTL starts the divide and
      * leaves the quotient in DVDNTL. */
-    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF00u) = static_cast<uint32_t>(den);
-    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF10u) =
+    *reinterpret_cast<volatile uint32_t*>(kDivuDivisorAddress) = static_cast<uint32_t>(den);
+    *reinterpret_cast<volatile uint32_t*>(kDivuDividendHighAddress) =
         static_cast<uint32_t>(static_cast<uint64_t>(num) >> 32u);
-    *reinterpret_cast<volatile uint32_t*>(0xFFFFFF14u) = static_cast<uint32_t>(num);
-    return static_cast<int32_t>(*reinterpret_cast<volatile uint32_t*>(0xFFFFFF14u));
+    *reinterpret_cast<volatile uint32_t*>(kDivuDividendLowQuotientAddress) = static_cast<uint32_t>(num);
+    return static_cast<int32_t>(*reinterpret_cast<volatile uint32_t*>(kDivuDividendLowQuotientAddress));
 #else
     return static_cast<int32_t>(num / den);
 #endif
