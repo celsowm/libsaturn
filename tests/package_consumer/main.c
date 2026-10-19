@@ -5,6 +5,7 @@
  * startup objects survive the link. It uses the public umbrella header and
  * nothing from the repository tree. */
 #include <saturn/saturn.h>
+#include <saturn/int_math.h>
 
 #if !defined(SATURN_VERSION_STRING) || !defined(SATURN_VERSION_AT_LEAST)
 #error "the installed package must provide <saturn/version.h>"
@@ -12,6 +13,11 @@
 
 int main(void) {
     sat_pad_state_t pad;
+    volatile int32_t negative_fraction = -4097;
+    if (sat_floor_shift_i32(negative_fraction, 12u) != -2 ||
+        sat_floor_shift_i64((int64_t)negative_fraction, 12u) != -2) {
+        for (;;) {}
+    }
 
     if (sat_app_init_default() != SAT_OK) {
         for (;;) {

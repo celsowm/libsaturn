@@ -578,6 +578,7 @@ LibSaturn favors:
 Useful starting points:
 
 - [Packaging and installed-package usage](docs/PACKAGING.md)
+- [Standalone integer arithmetic and floor shifts](docs/INTEGER_MATH.md)
 - [Current hardware/runtime coverage](docs/LIBSATURN_CURRENT_COVERAGE.md)
 - [Parallel runtime architecture](docs/PARALLEL_RUNTIME_ARCHITECTURE.md)
 - [Parallel runtime benchmarks](docs/PARALLEL_RUNTIME_BENCHMARKS.md)
