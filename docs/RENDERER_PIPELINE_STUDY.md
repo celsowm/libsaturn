@@ -617,3 +617,41 @@ procedural image. The harness's existing CPU-accounting integration tests pass
 with the explicit model label. Fixing asynchronous DIVU completion/access waits
 requires a separate core change with clock, interrupt, overflow and state tests;
 no renderer scheduling change is accepted on an unmodeled timing assumption.
+
+### Retained halfword copy kernel
+
+The libc copy routine now handles matching pointer parity with differing
+modulo-four alignment through an aligned 16-bit kernel. An initial byte aligns
+odd/odd pointers; bounded halfword groups and tails never overread the requested
+range. Different parity retains byte copying. A separate non-inlined halfword
+kernel keeps its register pressure out of the existing 32-bit loop.
+
+The first inline implementation (`memory-copy-halfword`) accelerated the target
+alignment but regressed some short word/byte cases by 8–14%. It was replaced by
+the isolated kernel (`memory-copy-halfword-v2`). All 512 target cases pass guards
+and content checks against the same unchanged microbenchmark image source.
+Both retained runs calibrate to 210540 Hz with the same probe and BIOS.
+
+| High-to-High Work RAM / length | Before us/call | After us/call |
+| --- | ---: | ---: |
+| Halfword-only alignment / 18 | 7.834 | 4.773 |
+| Halfword-only alignment / 98 | 37.552 | 11.948 |
+| Halfword-only alignment / 704 | 262.495 | 65.457 |
+| Matching word alignment / 18 | 4.495 | 4.587 |
+| Different parity / 18 | 7.839 | 7.950 |
+
+These are medians across the corresponding offset cases, including dispatch and
+loop overhead. The 18-byte target case improves by about 39%; short unaffected
+paths retain a small fixed dispatch cost, rather than a blanket speedup for all
+copies. The 828-entry Paul capture includes 401 calls compatible with the
+halfword path but not the old word path. The existing host oracle checks all
+source/destination offsets and lengths through 1024 bytes with guard content.
+
+The Release-package Paul matrix (`recovery-halfword-v2-matrix`) measures full
+neutral simulation at 11.727 ms/tick versus 12.021 ms/tick in the preceding
+renderer baseline. Full work median/p95 is 99/112 ms versus 100/113; frozen
+render work remains 57 ms. A faster simulation executes a different number of
+calls in a fixed field window, so the higher aggregate memcpy share in an
+intermediate profile is not evidence that individual copies became slower.
+This remains a small measured improvement; no new presentation-rate target is
+claimed. The full host/tool suite and all five installed-package CTests pass.

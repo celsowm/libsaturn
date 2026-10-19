@@ -4,10 +4,33 @@
 #include <stddef.h>
 
 /* Aligned normal-RAM operations used by the freestanding libc. SH-2 word
- * accesses require alignment; unrelated source/destination alignments keep
- * the byte path. may_alias permits copying arbitrary object representations. */
+ * accesses require alignment. Differing modulo-four alignments can still use
+ * halfwords when their parity matches; differing parity keeps the byte path.
+ * may_alias permits copying arbitrary object representations. */
 #if defined(__GNUC__)
 typedef uint32_t saturn_alias_word_t __attribute__((__may_alias__));
+typedef uint16_t saturn_alias_half_t __attribute__((__may_alias__));
+#endif
+#if defined(__GNUC__)
+/* Separate kernels keep halfword support out of the word loop's register set. */
+static __attribute__((__noinline__)) void* saturn_copy_halfwords(
+        void* destination,const void* source,size_t count) {
+    unsigned char* d=(unsigned char*)destination;
+    const unsigned char* s=(const unsigned char*)source;
+    if(count && ((uintptr_t)d&1u)){*d++=*s++;--count;}
+    while(count>=8u) {
+        saturn_alias_half_t* dh=(saturn_alias_half_t*)d;
+        const saturn_alias_half_t* sh=(const saturn_alias_half_t*)s;
+        dh[0]=sh[0];dh[1]=sh[1];dh[2]=sh[2];dh[3]=sh[3];
+        d+=8;s+=8;count-=8;
+    }
+    while(count>=2u) {
+        *(saturn_alias_half_t*)d=*(const saturn_alias_half_t*)s;
+        d+=2;s+=2;count-=2;
+    }
+    if(count)*d=*s;
+    return destination;
+}
 #endif
 static inline void* saturn_copy_bytes(void* destination,const void* source,size_t count) {
     unsigned char* d=(unsigned char*)destination;
@@ -25,6 +48,8 @@ static inline void* saturn_copy_bytes(void* destination,const void* source,size_
             *(saturn_alias_word_t*)d=*(const saturn_alias_word_t*)s;
             d+=4;s+=4;count-=4;
         }
+    } else if((((uintptr_t)d^(uintptr_t)s)&1u)==0u) {
+        return saturn_copy_halfwords(destination,source,count);
     }
 #endif
     while(count--){*d++=*s++;}
