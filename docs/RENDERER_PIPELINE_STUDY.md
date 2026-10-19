@@ -560,3 +560,60 @@ field windows, cache policy, duplicate/missing cases, failed guards and differin
 checksums. It reports calibrated local intervals and grouped alignment results;
 these remain emulator observations. Host oracle tests and a clean asset-free
 cross-build have a dedicated `Normal RAM copy gates` workflow.
+
+## DIVU timing limitation demonstrated independently
+
+Before implementing division overlap, the pinned Ymir core was checked against
+SH7604 manual sections 10.3 and 10.4.1. The manual specifies 39 cycles for a
+normal division and extends a register access until completion. Independent
+instructions may execute during those cycles. The pinned core instead calls
+`Calc32`/`Calc64` synchronously; its `sh2_divu.hpp` contains the explicit TODO to
+schedule completion after 39 cycles, and on-chip accesses have a fixed cost.
+
+The new asset-free `division_latency_probe` puts exactly 0, 8, 16, 32, 48 or 64
+NOP instructions between the start write and result read. Both signed 32/32
+and 64/32 paths use nonoverflowing positive operands. It repeats each case 256
+times and retains five local FRT intervals, prescaler, CCR and checked quotients.
+A screen displays the medians so the SAME native disc can be tested without
+RAM-debugger support in an independent emulator.
+
+| Operand width / emulator | 0 NOP | 8 | 16 | 32 | 48 | 64 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 32 / pinned Ymir | 50 | 66 | 82 | 114 | 146 | 178 |
+| 64 / pinned Ymir | 58 | 74 | 90 | 122 | 154 | 186 |
+| 32 / Mednafen CD boot | 113 | 112 | 112 | 113 | 133 | 164 |
+| 64 / Mednafen CD boot | 113 | 113 | 112 | 112 | 139 | 170 |
+
+Values are median raw FRT ticks per 256 calls, including common loop/call
+costs. They are not per-division CPU cycle counts. In Ymir, inserting early NOPs
+costs just as much as inserting late ones. Mednafen exhibits the expected early
+plateau: those instructions overlap the division instead of adding elapsed
+time. Both return the correct quotients with zero error counters. This is an
+independent-emulator consistency check against the manual, not a hardware test.
+
+Public numeric evidence and matching image hashes are retained in
+`harness/studies/divu-latency/results.json`; private raw images, RAM and recording
+are `divu-latency-ymir` and `divu-latency-mednafen`. The probe now explicitly
+writes `division_timing_model: immediate-result-no-busy-wait` in ordinary and
+CPU-profile JSON. This labels the existing model; it does not repair the core.
+Existing Ymir geometry intervals and cadence remain observations of that model.
+They cannot quantify the hardware benefit of overlapping division work, and
+adding a flat 39 cycles per observed divide would also be incorrect because
+independent work can overlap it.
+
+Reproduce on Ymir, then record the retained native disc in Mednafen:
+
+```sh
+python3 harness/scripts/division_latency.py --bios /path/to/bios.bin \
+  --out harness/build/divu-latency-ymir
+python3 harness/scripts/cube_pipeline.py --record-cd harness/build/divu-latency-ymir \
+  --record-example division_latency_probe --bios /path/to/bios.bin \
+  --out harness/build/divu-latency-mednafen --seconds 20
+```
+
+The three decoder tests reject invalid quotient/order, incomplete publication,
+wrong FRT prescaler and invalid intervals. A dedicated workflow cross-builds the
+procedural image. The harness's existing CPU-accounting integration tests pass
+with the explicit model label. Fixing asynchronous DIVU completion/access waits
+requires a separate core change with clock, interrupt, overflow and state tests;
+no renderer scheduling change is accepted on an unmodeled timing assumption.

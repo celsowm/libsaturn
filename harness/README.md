@@ -408,3 +408,20 @@ Mednafen captures require visual review; the runner does not auto-label a
 screenshot as PASS. The current Ymir HLE full-BIOS run does not reach the optical
 tester; its injection-based CD tests do pass. These are separate results.
 See [execution evidence](../docs/NATIVE_SATURN_BOOT_EXECUTION.md).
+
+## Known DIVU timing limit
+
+The pinned Ymir core computes DIVU results immediately and does not model the
+SH7604's 39-cycle normal-operation latency or result-register access waiting.
+The probe labels this as `division_timing_model: immediate-result-no-busy-wait`
+in ordinary and CPU-profile JSON. Functional quotient checks can pass while
+this timing behavior remains incomplete.
+
+The procedural `examples/division_latency_probe` demonstrates the limitation:
+early NOP gaps cost elapsed time in Ymir, while a native-disc Mednafen run
+shows the plateau expected when those NOPs overlap the division. Reproduction,
+raw FRT medians and the source/manual comparison are recorded in
+`docs/RENDERER_PIPELINE_STUDY.md` and `harness/studies/divu-latency/results.json`.
+Ymir profiling remains useful for observed instructions, call sites, register
+values and workload comparisons, but it cannot qualify a division-overlap
+optimization or certify physical-hardware cadence with this model.

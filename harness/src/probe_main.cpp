@@ -1936,6 +1936,7 @@ int main(int argc, char** argv) {
     JsonWriter j(out);
     j.begin_object();
 
+    j.key("division_timing_model"); j.value(std::string("immediate-result-no-busy-wait"));
     j.key("frames_run"); j.value(static_cast<uint64_t>(args.frames));
     j.key("iso_path"); j.value(args.iso_path);
 
@@ -2290,6 +2291,7 @@ int main(int argc, char** argv) {
         JsonWriter report(meta);report.begin_object();
         report.key("version");report.value(uint64_t{1});
         report.key("ymir_revision");report.value(std::string("5c571f680e3606de08813af4de43dc00e90cc6e3"));
+        report.key("division_timing_model");report.value(std::string("immediate-result-no-busy-wait"));
         report.key("cache_emulation");report.value(saturn->IsSH2CacheEmulationEnabled());
         report.key("synchronous_video_readback");report.value(true);
         report.key("sh2_clock_factor_num");report.value(static_cast<uint64_t>(clock_factor.Numerator()));
