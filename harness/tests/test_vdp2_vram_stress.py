@@ -6,11 +6,12 @@ Work RAM and screenshots:
 
     .\harness\run-vdp2-vram-stress.ps1 -Bios .\bios\saturn_bios_us.bin
 
-The struct read here is g_vram_stress. Six scenarios run in a fixed frame
+The struct read here is g_vram_stress. Seven scenarios run in a fixed frame
 timeline; the assertions check that every documented success and refusal
-path behaved as the plan API promises, that the refusals never changed the
-display registers (the cycle patterns and the on-screen bands), and that
-the live reclaim-and-reconfigure actually took effect.
+path behaved as the plan API promises (including the CRAM transaction), that
+the refusals never changed the display registers (the cycle patterns and the
+on-screen bands), and that the live reclaim-and-reconfigure actually took
+effect.
 """
 
 import os
@@ -24,8 +25,8 @@ SAT_OK = 0
 SAT_ERR_CAPACITY = -3
 SAT_ERR_BUSY = -7
 
-# 57 big-endian uint32 words.
-FIELDS = ">57I"
+# 64 big-endian uint32 words.
+FIELDS = ">64I"
 
 
 def _load():
@@ -33,7 +34,7 @@ def _load():
     map_path = os.environ.get("LIBSATURN_VRS_MAP")
     if not dump or not map_path:
         raise unittest.SkipTest("run harness/run-vdp2-vram-stress.ps1 first")
-    raw = tel.load_dump(dump, map_path, "_g_vram_stress", FIELDS, 228)
+    raw = tel.load_dump(dump, map_path, "_g_vram_stress", FIELDS, 256)
     return {
         "magic": raw[0],
         "scenario_ran": raw[1],
@@ -59,6 +60,13 @@ def _load():
         "last_status": _signed([raw[51]])[0],
         "free_bytes_per_bank": list(raw[52:56]),
         "frames": raw[56],
+        "cram_first_bank": raw[57],
+        "cram_first_code": raw[58],
+        "cram_rollback_reused": raw[59],
+        "cram_capacity_refused": raw[60],
+        "cram_commit_ok": raw[61],
+        "cram_release_ok": raw[62],
+        "cram_used_after_release": raw[63],
     }
 
 
@@ -85,7 +93,7 @@ class Vdp2VramStressTests(unittest.TestCase):
         cls.shots = os.environ.get("LIBSATURN_VRS_SHOTS", "")
 
     def test_every_scenario_ran(self):
-        self.assertEqual(self.r["scenario_ran"], 0x3F)
+        self.assertEqual(self.r["scenario_ran"], 0x7F)
         self.assertGreaterEqual(self.r["frames"], 255)
 
     def test_legal_layout_was_planned_and_configured(self):
@@ -123,6 +131,15 @@ class Vdp2VramStressTests(unittest.TestCase):
                          [0x00000, 0x02000, 0x20000, 0x22000])
         # The reconfiguration must have actually changed the fetch plan.
         self.assertNotEqual(self.r["cycle_at_end"], self.r["cycle_after_first"])
+
+    def test_cram_transaction_rolls_back_and_reuses(self):
+        self.assertEqual(self.r["cram_first_bank"], 1)
+        self.assertEqual(self.r["cram_first_code"], 0)
+        self.assertEqual(self.r["cram_rollback_reused"], 1)
+        self.assertEqual(self.r["cram_capacity_refused"], 1)
+        self.assertEqual(self.r["cram_commit_ok"], 1)
+        self.assertEqual(self.r["cram_release_ok"], 1)
+        self.assertEqual(self.r["cram_used_after_release"], 0)
 
     def test_refusals_never_touched_the_display_registers(self):
         self.assertEqual(self.r["cycle_mid"], self.r["cycle_after_first"])

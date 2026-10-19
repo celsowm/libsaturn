@@ -71,13 +71,15 @@ uint32_t sat_vdp2_vram_largest_free(void);
  * VDP2 CRAM bank / colour-code allocator
  *
  * CRAM is 8 banks of 256 colour codes. Bank 0 is the default VDP1
- * palette and is not part of this allocator; the four bytes are a
- * bank-rotation ring over banks 1..7 (a hand count for a small demo).
+ * palette and is not part of this allocator. Banks 1..7 are tracked as
+ * bitmaps, so a freed range is genuinely reusable and a transaction can
+ * restore the exact allocation state. The first fit is still the lowest
+ * bank and lowest code that can host the request.
  *
  * The wrapper that examples call is `sat_vdp2_palette_reserve(count)`
  * returning the bank and starting code so the caller can pass it to
  * `sat_vdp2_palette_upload(palette, count, base)`. The matching free
- * returns the whole count back to the ring in one call.
+ * returns the whole count in one call.
  * ------------------------------------------------------------------ */
 typedef struct sat_vdp2_palette_range {
     uint16_t bank;     /* 1..7 */
@@ -93,11 +95,23 @@ sat_result_t sat_vdp2_palette_reserve(uint16_t count,
 
 /* Release a previously reserved range. The whole range becomes free
  * at once; partial frees are not supported because every caller
- * uploads the whole block in one sat_vdp2_palette_upload() call. */
+ * uploads the whole block in one sat_vdp2_palette_upload() call.
+ * SAT_ERR_NOT_FOUND if any code in the range was not allocated. */
 sat_result_t sat_vdp2_palette_free(sat_vdp2_palette_range_t range);
 
 /* Reset every bank back to "empty" so the next test call starts clean. */
 void sat_vdp2_palette_reset(void);
+
+/* Current allocation snapshot. Bank 0 is reserved for VDP1 and reports
+ * used=free=0; banks 1..7 report their code counts. A null pointer writes
+ * nothing. */
+typedef struct sat_vdp2_palette_usage {
+    uint16_t used_codes[8];
+    uint16_t free_codes[8];
+    uint32_t refusals;       /* invalid or capacity refusals since reset */
+} sat_vdp2_palette_usage_t;
+
+void sat_vdp2_palette_usage(sat_vdp2_palette_usage_t* out);
 
 /* ------------------------------------------------------------------
  * Transactional resource plan
@@ -176,18 +190,32 @@ sat_result_t sat_vdp2_plan_reserve(sat_vdp2_reserve_kind_t kind, uint32_t bytes,
 sat_result_t sat_vdp2_plan_reserve_at(sat_vdp2_reserve_kind_t kind, uint32_t base,
                                       uint32_t bytes);
 
+/* Reserves a CRAM palette range inside the open transaction. The allocator
+ * state is snapshotted at sat_vdp2_plan_begin(); sat_vdp2_plan_rollback()
+ * restores it exactly, so a failed scene cannot leak palette codes.
+ * SAT_ERR_NOT_INITIALIZED without an open transaction, SAT_ERR_CAPACITY
+ * when the palette ledger or the CRAM banks are full. */
+sat_result_t sat_vdp2_plan_palette_reserve(uint16_t count,
+                                            sat_vdp2_palette_range_t* out);
+
+/* Releases one committed palette range. Refused with SAT_ERR_BUSY while a
+ * transaction is open (rollback would otherwise resurrect the range) and
+ * SAT_ERR_NOT_FOUND when the range is not a committed plan palette. */
+sat_result_t sat_vdp2_plan_palette_release(sat_vdp2_palette_range_t range);
+
 /* Ends the transaction keeping every staged reservation. */
 sat_result_t sat_vdp2_plan_commit(void);
 
-/* Ends the transaction discarding every staged reservation; the free
- * space is exactly what it was before sat_vdp2_plan_begin(). */
+/* Ends the transaction discarding every staged reservation; the VRAM free
+ * space and the CRAM allocation bitmap are exactly what they were before
+ * sat_vdp2_plan_begin(). */
 sat_result_t sat_vdp2_plan_rollback(void);
 
 /* Releases one committed reservation (deterministic teardown).
  * SAT_ERR_NOT_FOUND when `base` is not a committed plan reservation. */
 sat_result_t sat_vdp2_plan_release(uint32_t base);
 
-/* Releases every committed reservation at once. */
+/* Releases every committed VRAM reservation and committed palette range. */
 sat_result_t sat_vdp2_plan_release_all(void);
 
 /* Claims whole banks for rotation use (RAMCTL RDBS bits; see above) and

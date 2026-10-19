@@ -22,6 +22,7 @@
 
 static void reset_all(void) {
     sat_vdp2_vram_alloc_reset();
+    sat_vdp2_palette_reset();
     sat_vdp2_plan_reset();
 }
 
@@ -248,6 +249,66 @@ static void test_rotation_image_routing(void) {
     ASSERT_EQ(sat_vdp2_plan_release_banks(SAT_VDP2_BANK_A0 | SAT_VDP2_BANK_A1), SAT_OK);
 }
 
+/* CRAM ranges join the same transaction: rollback restores the allocator
+ * bitmap, commit keeps the range, release frees it for immediate reuse. */
+static void test_palette_transaction_rolls_back_and_reuses(void) {
+    reset_all();
+    sat_vdp2_palette_range_t first{}, again{}, reused{};
+    ASSERT_EQ(sat_vdp2_plan_palette_reserve(16u, &first), SAT_ERR_NOT_INITIALIZED);
+    ASSERT_EQ(sat_vdp2_plan_begin(), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_palette_reserve(16u, &first), SAT_OK);
+    ASSERT_EQ(first.bank, 1u);
+    ASSERT_EQ(first.code, 0u);
+    ASSERT_EQ(first.count, 16u);
+    ASSERT_EQ(sat_vdp2_plan_palette_release(first), SAT_ERR_BUSY);
+    ASSERT_EQ(sat_vdp2_plan_rollback(), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_begin(), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_palette_reserve(16u, &again), SAT_OK);
+    ASSERT_EQ(again.bank, first.bank);
+    ASSERT_EQ(again.code, first.code);
+    ASSERT_EQ(sat_vdp2_plan_commit(), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_palette_release(again), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_palette_release(again), SAT_ERR_NOT_FOUND);
+    ASSERT_EQ(sat_vdp2_plan_begin(), SAT_OK);
+    ASSERT_EQ(sat_vdp2_plan_palette_reserve(16u, &reused), SAT_OK);
+    ASSERT_EQ(reused.bank, first.bank);
+    ASSERT_EQ(reused.code, first.code);
+    ASSERT_EQ(sat_vdp2_plan_rollback(), SAT_OK);
+    sat_vdp2_palette_usage_t usage;
+    sat_vdp2_palette_usage(&usage);
+    ASSERT_EQ(usage.used_codes[1], 0u);
+    ASSERT_EQ(usage.free_codes[1], 256u);
+}
+
+/* The palette ledger has eight slots; the allocator has seven banks. Fill
+ * both, prove the refusal leaves the staged ranges intact, then roll back. */
+static void test_palette_capacity_and_ledger(void) {
+    reset_all();
+    sat_vdp2_palette_range_t r{};
+    ASSERT_EQ(sat_vdp2_plan_begin(), SAT_OK);
+    for (uint16_t bank = 1u; bank <= 7u; ++bank) {
+        ASSERT_EQ(sat_vdp2_plan_palette_reserve(256u, &r), SAT_OK);
+        ASSERT_EQ(r.bank, bank);
+        ASSERT_EQ(r.code, 0u);
+        ASSERT_EQ(r.count, 256u);
+    }
+    ASSERT_EQ(sat_vdp2_plan_palette_reserve(1u, &r), SAT_ERR_CAPACITY);
+    ASSERT_EQ(sat_vdp2_plan_rollback(), SAT_OK);
+    sat_vdp2_palette_usage_t usage;
+    sat_vdp2_palette_usage(&usage);
+    for (uint16_t bank = 1u; bank <= 7u; ++bank) {
+        ASSERT_EQ(usage.used_codes[bank], 0u);
+        ASSERT_EQ(usage.free_codes[bank], 256u);
+    }
+
+    ASSERT_EQ(sat_vdp2_plan_begin(), SAT_OK);
+    for (uint16_t i = 0u; i < 8u; ++i) {
+        ASSERT_EQ(sat_vdp2_plan_palette_reserve(1u, &r), SAT_OK);
+    }
+    ASSERT_EQ(sat_vdp2_plan_palette_reserve(1u, &r), SAT_ERR_CAPACITY);
+    ASSERT_EQ(sat_vdp2_plan_rollback(), SAT_OK);
+}
+
 int main(void) {
     test_rollback_restores_exact_free_space();
     test_commit_keeps_and_release_restores();
@@ -257,6 +318,8 @@ int main(void) {
     test_rotation_image_routing();
     test_fragmentation_is_reported_not_hidden();
     test_raw_alloc_and_plan_coexist();
+    test_palette_transaction_rolls_back_and_reuses();
+    test_palette_capacity_and_ledger();
     printf("test_vdp2_plan_api: all tests passed\n");
     return 0;
 }

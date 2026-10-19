@@ -30,6 +30,12 @@ int vram_alloc_at(uint32_t base_byte, uint32_t bytes);
  * address space. */
 uint32_t vram_free_bytes(uint32_t start_byte, uint32_t end_byte);
 
+/* CRAM allocator bitmap snapshot: 7 banks x 4 words x 8 bytes = 224
+ * bytes. Used by the resource plan's all-or-nothing transaction. */
+#define VRAM_CRAM_SNAPSHOT_BYTES 224u
+void vram_cram_snapshot(uint8_t* out);
+void vram_cram_restore(const uint8_t* in);
+
 #ifdef __cplusplus
 }
 #endif

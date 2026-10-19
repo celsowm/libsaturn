@@ -1,11 +1,11 @@
 # VDP2 E01-E13 evidence ledger
 
-**Date:** 2026-10-18
+**Date:** 2026-10-18 (Phase A/B), 2026-10-19 (M7 CRAM follow-up)
 **Scope:** M6 Phase A evidence freeze and Phase B signoff-kit dry-run for the
 twelve VDP2 examples in
 `docs/VDP2_ADVANCED_EXAMPLES_IMPLEMENTATION_PLAN.md`, plus E13
 (`vdp2_parallax_lab`), a post-Phase-A art-backed showcase built on the same
-public layer API.
+public layer API; the M7 follow-up adds transactional CRAM ranges.
 **Physical hardware:** out of scope here and still **PENDING** for every
 row. Nothing in this file is a hardware claim.
 
@@ -31,7 +31,7 @@ row. Nothing in this file is a hardware claim.
 | **E05** `vdp2_sprite_shadows` (33) | `build-example.ps1` | `tests/host/test_vdp2_sprite_shadow.cpp` PASS | `run-vdp2-sprite-shadows.ps1` 12/12 | sweep PASS | NOT RUN | N/A | TPSDSL=0 negative is unverified because pinned Ymir does not gate the transparent MSB shadow on it. |
 | **E06** `vdp2_special_priority` (32) | `build-example.ps1` | `tests/host/test_vdp2_special.cpp` PASS | `run-vdp2-special-priority.ps1` 10/10 | sweep PASS | NOT RUN | N/A | 1-word PNCN auxiliary PR/CC bits and bitmap BMPNA bits are not exposed; RBG0's special bits are not exposed. |
 | **E07** `vdp2_dynamic_tile_stream` (34) | `build-example.ps1` | `tests/host/test_stage_map2.cpp`, `tests/host/test_vdp2_tile_stream.cpp` PASS | `run-vdp2-dynamic-tile-stream.ps1` 8 tests, 1 skipped (stress-only) | sweep PASS | NOT RUN | 36,000-frame stress 8/8; 34,905 guest frames, 32,999 switches, CRC `0x517824CD` | One-plane cell maps only; the double buffer is caller-composed; the map is procedural. |
-| **E08** `vdp2_vram_stress` (27) | `build-example.ps1` | `tests/host/test_vdp2_plan_logic.cpp`, `tests/host/test_vdp2_plan_api.cpp` PASS | `run-vdp2-vram-stress.ps1` 10/10 | sweep PASS | NOT RUN | Six scenarios in the default run | CRAM ranges and cycle patterns are not yet in the transaction. |
+| **E08** `vdp2_vram_stress` (27) | `build-example.ps1` | `tests/host/test_vdp2_plan_logic.cpp`, `tests/host/test_vdp2_plan_api.cpp` PASS (CRAM rollback/reuse included) | `run-vdp2-vram-stress.ps1` 11/11 | sweep PASS | NOT RUN | Seven scenarios in the default run | CRAM ranges are transactional; the cycle patterns remain planned inside the layer manager. |
 | **E09** `vdp2_video_modes` (35) | `build-example.ps1` | `tests/host/test_video_mode.cpp` PASS | `run-vdp2-video-modes.ps1` 6/6 (five modes) | `run-vdp2-video-modes.ps1 -Pal` 6/6 (all eight modes) | 1.32.1 window captures of four modes | N/A | Double-density interlace and dedicated-monitor modes are refused; mode changes are full `sat_shutdown` + `sat_init`. |
 | **E10** `vdp2_parallax_world` (36) | `build-example.ps1` | No scene-specific host test; shared VDP2 API host tests | `run-vdp2-parallax-world.ps1` 7/7 | `run-vdp2-parallax-world.ps1 -Pal` 7/7 | 1.32.1 live-path capture | `-Long` 7/7, 3,600 fields | Reference path is a pre-rendered VDP1 comparison, not a second hardware renderer. |
 | **E11** `vdp2_fighting_stage` (37) | `build-example.ps1` | Shared character and VDP2 host tests | `run-vdp2-fighting-stage.ps1` 5/5 | `run-vdp2-fighting-stage.ps1 -Pal` 5/5 | 1.32.1 stage off/on captures | N/A | Stage is an E11-only compilation of the shared demo; `fighter_arena_3d` keeps its legacy NBG0 backdrop. |
@@ -76,6 +76,7 @@ linked and need `libstdc++-6.dll` from that directory.
 | Phase B signoff bundle | 13/13 `.bin`/`.cue` pairs validated, 13/13 strict boot reports, 107 bundle files |
 | Phase B reproducibility | second clean build reproduced **13/13** disc hashes |
 | Phase B Mednafen dry-run | **13/13** BIOS disc boots to the application scene (emulator only) |
+| M7 CRAM transaction | palette allocator 6/6, new plan API cases, E08 11/11 NTSC and PAL |
 | E13 post-A verification | NTSC 4/4 (+1 `-Long` skip) and PAL 4/4 (+1 skip); the 18/18 Phase A sweep count predates E13; current set is 19/19. |
 
 ## Phase B hardware signoff kit
@@ -105,6 +106,29 @@ every disc hash.
   Ymir evidence is direct injection plus the 19/19 sweeps above.
 - None of these results is hardware evidence. Phase C remains **BLOCKED** by
   the absence of physical NTSC and PAL consoles.
+
+## M7 CRAM follow-up (2026-10-19)
+
+- `sat_vdp2_palette_reserve/free` now use a seven-bank bitmap instead of a
+  watermark counter: freed ranges are reusable, a partial/already-free range
+  is refused with `SAT_ERR_NOT_FOUND`, and `sat_vdp2_palette_usage` reports
+  per-bank used/free codes.
+- `sat_vdp2_plan_palette_reserve/release` join the resource transaction.
+  `sat_vdp2_plan_begin` snapshots the bitmap, `rollback` restores the exact
+  state, `commit` keeps staged ranges, and `release_all` frees committed
+  palette ranges too. A palette release is refused with `SAT_ERR_BUSY` while
+  a transaction is open.
+- Host tests: `test_vdp2_palette_alloc.cpp` 6/6 and the new palette cases in
+  `test_vdp2_plan_api.cpp` pass.
+- E08 `vdp2_vram_stress` adds a seventh scenario (rollback/reuse,
+  commit/release and the eighth-full-bank refusal): **11/11 NTSC** and
+  **11/11 PAL**.
+- The current VDP2 sweep remains **19/19 NTSC** and **19/19 PAL** after the
+  change. `make test`, `make examples-all` and the package gates
+  (host 3/3, package 5/5) pass.
+- The cycle planner is still owned by `sat_vdp2_layer_configure` and remains
+  outside the transaction, so `unified_resource_planner` stays `partial`.
+  Physical hardware remains PENDING.
 
 ## Definition-of-done mapping
 

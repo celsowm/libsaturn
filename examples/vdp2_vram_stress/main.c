@@ -20,6 +20,10 @@
  *   scenario 5  reclaim and reconfigure: everything is released and a
  *               second, different layout (two banks instead of three) is
  *               planned, committed and configured live.
+ *   scenario 6  CRAM transaction: a palette range survives rollback only as
+ *               a restored allocator state, is reused at the same bank/code,
+ *               commits, releases, and the eighth full-bank request is
+ *               refused without leaking codes.
  *
  * The screen shows one colour band per layer (the layer's data lives in
  * that bank) and a per-bank usage bar; every refusal leaves the display
@@ -39,7 +43,7 @@
 #include "saturn/vdp2_layers.h"
 
 #define VRS_MAGIC SAT_FOURCC('V', 'R', 'S', '1')
-#define SCENARIOS 6u
+#define SCENARIOS 7u
 
 typedef struct vram_stress_results {
     uint32_t magic;
@@ -66,6 +70,13 @@ typedef struct vram_stress_results {
     uint32_t last_status;
     uint32_t free_bytes_per_bank[4];
     uint32_t frames;
+    uint32_t cram_first_bank;       /* first palette range after reset: 1 */
+    uint32_t cram_first_code;       /* first code in that bank: 0 */
+    uint32_t cram_rollback_reused;  /* rollback restored the same bank/code */
+    uint32_t cram_capacity_refused; /* the eighth full-bank request */
+    uint32_t cram_commit_ok;        /* commit kept the range */
+    uint32_t cram_release_ok;       /* release made it reusable */
+    uint32_t cram_used_after_release; /* sum of used codes after rollback */
 } vram_stress_results_t;
 
 volatile vram_stress_results_t g_vram_stress;
@@ -78,7 +89,7 @@ static uint32_t g_debug_overlay = 1u;
 #define NAMES_BYTES 0x2000u
 #define CHARS_BYTES 0x40u
 
-static const uint32_t AUTO_FRAME[SCENARIOS] = {0u, 90u, 120u, 150u, 180u, 210u};
+static const uint32_t AUTO_FRAME[SCENARIOS] = {0u, 90u, 120u, 150u, 180u, 210u, 240u};
 
 static uint32_t total_free_bytes(void) {
     sat_vdp2_plan_usage_t usage;
@@ -291,6 +302,57 @@ static void scenario_reconfigure(void) {
     g_vram_stress.reconfigured_ok = ok ? (uint32_t)SAT_OK : (uint32_t)SAT_ERR_CAPACITY;
 }
 
+/* Scenario 6: CRAM ranges are part of the same transaction. The first
+ * reserve/rollback must leave bank 1 code 0 free for an identical second
+ * reserve; commit keeps it, release frees it, and filling all seven banks
+ * makes the next request fail without leaking any code. */
+static void scenario_cram_transaction(void) {
+    sat_vdp2_palette_reset();
+    sat_vdp2_palette_range_t first = {0u, 0u, 0u};
+    sat_vdp2_palette_range_t second = {0u, 0u, 0u};
+    sat_vdp2_palette_range_t full = {0u, 0u, 0u};
+    uint32_t reused = 0u;
+    if (sat_vdp2_plan_begin() == SAT_OK) {
+        if (sat_vdp2_plan_palette_reserve(16u, &first) == SAT_OK) {
+            g_vram_stress.cram_first_bank = first.bank;
+            g_vram_stress.cram_first_code = first.code;
+            if (sat_vdp2_plan_rollback() == SAT_OK
+                && sat_vdp2_plan_begin() == SAT_OK
+                && sat_vdp2_plan_palette_reserve(16u, &second) == SAT_OK
+                && second.bank == first.bank && second.code == first.code) {
+                reused = 1u;
+                if (sat_vdp2_plan_commit() == SAT_OK) {
+                    g_vram_stress.cram_commit_ok = 1u;
+                    g_vram_stress.cram_release_ok =
+                        sat_vdp2_plan_palette_release(second) == SAT_OK;
+                }
+            } else {
+                (void)sat_vdp2_plan_rollback();
+            }
+        } else {
+            (void)sat_vdp2_plan_rollback();
+        }
+    }
+    g_vram_stress.cram_rollback_reused = reused;
+
+    if (sat_vdp2_plan_begin() == SAT_OK) {
+        uint32_t all = 1u;
+        for (uint32_t i = 0u; i < 7u; ++i) {
+            if (sat_vdp2_plan_palette_reserve(256u, &full) != SAT_OK) all = 0u;
+        }
+        if (all && sat_vdp2_plan_palette_reserve(1u, &full) == SAT_ERR_CAPACITY) {
+            g_vram_stress.cram_capacity_refused = 1u;
+        }
+        (void)sat_vdp2_plan_rollback();
+    }
+
+    sat_vdp2_palette_usage_t usage;
+    sat_vdp2_palette_usage(&usage);
+    uint32_t used = 0u;
+    for (uint32_t bank = 1u; bank < 8u; ++bank) used += usage.used_codes[bank];
+    g_vram_stress.cram_used_after_release = used;
+}
+
 static void run_scenario(uint32_t index) {
     switch (index) {
         case 0u: scenario_legal_layout(); break;
@@ -298,7 +360,8 @@ static void run_scenario(uint32_t index) {
         case 2u: scenario_bank_claim(); break;
         case 3u: scenario_claim_conflict(); break;
         case 4u: scenario_fragmentation(); break;
-        default: scenario_reconfigure(); break;
+        case 5u: scenario_reconfigure(); break;
+        default: scenario_cram_transaction(); break;
     }
     g_vram_stress.scenario_ran |= 1u << index;
 }
@@ -346,6 +409,11 @@ static void draw_debug_overlay(void) {
                                         usage.refusals, 8u, 172u, 8u, 0u, 0u);
     (void)sat_ascii_font_draw_label_u32(&font, "LAST ",
                                         (uint32_t)usage.last_status, 90u, 172u, 8u, 0u, 0u);
+    sat_vdp2_palette_usage_t cram;
+    sat_vdp2_palette_usage(&cram);
+    uint32_t cram_used = 0u;
+    for (uint32_t bank = 1u; bank < 8u; ++bank) cram_used += cram.used_codes[bank];
+    (void)sat_ascii_font_draw_label_u32(&font, "CRAM ", cram_used, 180u, 172u, 8u, 0u, 0u);
 }
 
 int main(void) {

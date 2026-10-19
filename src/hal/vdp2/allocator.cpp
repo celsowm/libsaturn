@@ -1,11 +1,12 @@
 /* VDP2 VRAM and CRAM allocators.
  *
  * The VRAM allocator is a single-process, first-fit free-list with
- * alignment-driven splitting. The CRAM allocator is a bank-rotating
- * ring over banks 1..7 (bank 0 is the default VDP1 palette, never
- * allocated). The reason both exist is the same: examples used to
- * hand-pick the same byte address / palette bank and only one could
- * win. The allocate/free pair centralises the decision.
+ * alignment-driven splitting. The CRAM allocator is a first-fit bitmap
+ * over banks 1..7 (bank 0 is the default VDP1 palette, never allocated).
+ * The reason both exist is the same: examples used to hand-pick the same
+ * byte address / palette bank and only one could win. The allocate/free
+ * pair centralises the decision, and the CRAM bitmap can be snapshotted
+ * for the transactional resource plan.
  *
  * Both allocators are intentionally single-threaded. Examples run
  * on the SH-2 master and the dual_sh2 contract excludes the slave
@@ -15,6 +16,8 @@
 #include <stdint.h>
 
 #include "saturn/vdp2_alloc.h"
+
+#include "vram_internal.hpp"
 
 #define SAT_VDP2_VRAM_DEFAULT_START 0x00000u
 #define SAT_VDP2_VRAM_DEFAULT_END   0x80000u
@@ -307,41 +310,131 @@ uint32_t sat_vdp2_vram_largest_free(void) {
 /* CRAM bank allocator                                                 */
 /* ------------------------------------------------------------------ */
 
-static uint16_t g_cram_banks[8] = {0u};   /* codes used per bank; bank 0 ignored */
+/* 7 banks x 256 codes, one bit per code. Bank 0 is not allocatable. */
+static uint64_t g_cram_used[7][4] = {};
+static uint32_t g_cram_refusals = 0u;
+
+static bool cram_get(uint16_t bank, uint16_t code) {
+    const uint16_t b = (uint16_t)(bank - 1u);
+    return ((g_cram_used[b][code >> 6u] >> (code & 63u)) & 1u) != 0u;
+}
+
+static void cram_set(uint16_t bank, uint16_t code, bool used) {
+    const uint16_t b = (uint16_t)(bank - 1u);
+    const uint64_t mask = (uint64_t)1u << (code & 63u);
+    if (used) g_cram_used[b][code >> 6u] |= mask;
+    else g_cram_used[b][code >> 6u] &= ~mask;
+}
+
+static bool cram_range_free(uint16_t bank, uint16_t code, uint16_t count) {
+    for (uint16_t i = 0u; i < count; ++i) {
+        if (cram_get(bank, (uint16_t)(code + i))) return false;
+    }
+    return true;
+}
 
 void sat_vdp2_palette_reset(void) {
-    for (uint32_t i = 0u; i < 8u; ++i) g_cram_banks[i] = 0u;
+    for (uint32_t b = 0u; b < 7u; ++b) {
+        for (uint32_t w = 0u; w < 4u; ++w) g_cram_used[b][w] = 0u;
+    }
+    g_cram_refusals = 0u;
 }
 
 sat_result_t sat_vdp2_palette_reserve(uint16_t count,
                                        sat_vdp2_palette_range_t* out) {
-    if (count == 0u || count > 256u) return SAT_ERR_INVALID_ARG;
-    if (out == nullptr) return SAT_ERR_INVALID_ARG;
-    /* Find the first bank (1..7) with enough room. */
+    if (count == 0u || count > 256u || out == nullptr) {
+        ++g_cram_refusals;
+        return SAT_ERR_INVALID_ARG;
+    }
+    /* First fit: lowest bank, then lowest code. */
     for (uint16_t bank = 1u; bank < 8u; ++bank) {
-        if (g_cram_banks[bank] + count > 256u) continue;
-        out->bank = bank;
-        out->code = g_cram_banks[bank];
-        out->count = count;
-        g_cram_banks[bank] = (uint16_t)(g_cram_banks[bank] + count);
-        return SAT_OK;
+        for (uint16_t code = 0u; code + count <= 256u; ++code) {
+            if (!cram_range_free(bank, code, count)) continue;
+            for (uint16_t i = 0u; i < count; ++i) {
+                cram_set(bank, (uint16_t)(code + i), true);
+            }
+            out->bank = bank;
+            out->code = code;
+            out->count = count;
+            return SAT_OK;
+        }
     }
     out->bank = 0u;
     out->code = 0u;
     out->count = 0u;
+    ++g_cram_refusals;
     return SAT_ERR_CAPACITY;
 }
 
 sat_result_t sat_vdp2_palette_free(sat_vdp2_palette_range_t range) {
-    if (range.bank < 1u || range.bank > 7u) return SAT_ERR_INVALID_ARG;
-    if (range.count == 0u) return SAT_ERR_INVALID_ARG;
-    if ((uint32_t)range.code + (uint32_t)range.count > 256u) return SAT_ERR_INVALID_ARG;
-    /* The counter allocator can't actually reuse codes below the bank
-     * watermark, so free is a permissive no-op for now. Examples only
-     * allocate a handful of palettes per boot, which is the use case
-     * this allocator was designed for. */
-    (void)range;
+    if (range.bank < 1u || range.bank > 7u) {
+        ++g_cram_refusals;
+        return SAT_ERR_INVALID_ARG;
+    }
+    if (range.count == 0u) {
+        ++g_cram_refusals;
+        return SAT_ERR_INVALID_ARG;
+    }
+    if ((uint32_t)range.code + (uint32_t)range.count > 256u) {
+        ++g_cram_refusals;
+        return SAT_ERR_INVALID_ARG;
+    }
+    /* Every code must currently be allocated; a partial or already
+     * freed range is a caller error, not a silent no-op. */
+    for (uint16_t i = 0u; i < range.count; ++i) {
+        if (!cram_get(range.bank, (uint16_t)(range.code + i))) {
+            ++g_cram_refusals;
+            return SAT_ERR_NOT_FOUND;
+        }
+    }
+    for (uint16_t i = 0u; i < range.count; ++i) {
+        cram_set(range.bank, (uint16_t)(range.code + i), false);
+    }
     return SAT_OK;
+}
+
+void sat_vdp2_palette_usage(sat_vdp2_palette_usage_t* out) {
+    if (out == nullptr) return;
+    for (uint32_t bank = 0u; bank < 8u; ++bank) {
+        out->used_codes[bank] = 0u;
+        out->free_codes[bank] = 0u;
+    }
+    for (uint16_t bank = 1u; bank < 8u; ++bank) {
+        uint16_t used = 0u;
+        for (uint16_t code = 0u; code < 256u; ++code) {
+            if (cram_get(bank, code)) ++used;
+        }
+        out->used_codes[bank] = used;
+        out->free_codes[bank] = (uint16_t)(256u - used);
+    }
+    out->refusals = g_cram_refusals;
+}
+
+/* Internal transaction snapshot: the allocator bitmap only. Refusal
+ * counters are telemetry and deliberately survive rollback. */
+void vram_cram_snapshot(uint8_t* out) {
+    if (out == nullptr) return;
+    for (uint32_t b = 0u; b < 7u; ++b) {
+        for (uint32_t w = 0u; w < 4u; ++w) {
+            const uint64_t value = g_cram_used[b][w];
+            for (uint32_t i = 0u; i < 8u; ++i) {
+                *out++ = (uint8_t)(value >> (i * 8u));
+            }
+        }
+    }
+}
+
+void vram_cram_restore(const uint8_t* in) {
+    if (in == nullptr) return;
+    for (uint32_t b = 0u; b < 7u; ++b) {
+        for (uint32_t w = 0u; w < 4u; ++w) {
+            uint64_t value = 0u;
+            for (uint32_t i = 0u; i < 8u; ++i) {
+                value |= (uint64_t)(*in++) << (i * 8u);
+            }
+            g_cram_used[b][w] = value;
+        }
+    }
 }
 
 }  /* extern "C" */

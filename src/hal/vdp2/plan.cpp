@@ -27,6 +27,41 @@ plan::PlanState g_plan;
 sat_result_t g_last_sat_status = SAT_OK;
 uint8_t g_plan_inited = 0u;
 
+constexpr uint8_t kMaxPaletteRanges = 8u;
+struct PaletteSlot {
+    uint8_t state;       /* 0 empty, 1 staged, 2 committed */
+    uint8_t bank;
+    uint8_t code;
+    uint16_t count;
+};
+PaletteSlot g_palette_slots[kMaxPaletteRanges] = {};
+uint8_t g_cram_snapshot[VRAM_CRAM_SNAPSHOT_BYTES] = {};
+uint8_t g_cram_snapshot_valid = 0u;
+
+void palette_slots_clear_staged() {
+    for (uint8_t i = 0u; i < kMaxPaletteRanges; ++i) {
+        if (g_palette_slots[i].state == 1u) g_palette_slots[i] = PaletteSlot{};
+    }
+}
+
+PaletteSlot* palette_slot_find(uint8_t state, sat_vdp2_palette_range_t range) {
+    for (uint8_t i = 0u; i < kMaxPaletteRanges; ++i) {
+        PaletteSlot& slot = g_palette_slots[i];
+        if (slot.state == state && slot.bank == range.bank
+            && slot.code == range.code && slot.count == range.count) {
+            return &slot;
+        }
+    }
+    return nullptr;
+}
+
+PaletteSlot* palette_slot_empty() {
+    for (uint8_t i = 0u; i < kMaxPaletteRanges; ++i) {
+        if (g_palette_slots[i].state == 0u) return &g_palette_slots[i];
+    }
+    return nullptr;
+}
+
 void plan_ensure_init() {
     if (g_plan_inited == 0u) {
         plan::init(g_plan);
@@ -111,7 +146,61 @@ extern "C" {
 
 sat_result_t sat_vdp2_plan_begin(void) {
     plan_ensure_init();
-    return finish(map_status(plan::open(g_plan)));
+    const sat_result_t result = finish(map_status(plan::open(g_plan)));
+    if (result == SAT_OK) {
+        vram_cram_snapshot(g_cram_snapshot);
+        g_cram_snapshot_valid = 1u;
+    }
+    return result;
+}
+
+sat_result_t sat_vdp2_plan_palette_reserve(uint16_t count,
+                                            sat_vdp2_palette_range_t* out) {
+    plan_ensure_init();
+    if (out == nullptr) {
+        return finish(SAT_ERR_INVALID_ARG);
+    }
+    if (!g_plan.open) {
+        (void)plan::note_refusal(g_plan, plan::Status::NotOpen);
+        return finish(SAT_ERR_NOT_INITIALIZED);
+    }
+    PaletteSlot* slot = palette_slot_empty();
+    if (slot == nullptr) {
+        out->bank = 0u;
+        out->code = 0u;
+        out->count = 0u;
+        (void)plan::note_refusal(g_plan, plan::Status::TableFull);
+        return finish(SAT_ERR_CAPACITY);
+    }
+    const sat_result_t allocated = sat_vdp2_palette_reserve(count, out);
+    if (allocated != SAT_OK) {
+        (void)plan::note_refusal(g_plan,
+            allocated == SAT_ERR_CAPACITY ? plan::Status::Exhausted
+                                          : plan::Status::BadRange);
+        return finish(allocated);
+    }
+    slot->state = 1u;
+    slot->bank = static_cast<uint8_t>(out->bank);
+    slot->code = static_cast<uint8_t>(out->code);
+    slot->count = out->count;
+    return SAT_OK;
+}
+
+sat_result_t sat_vdp2_plan_palette_release(sat_vdp2_palette_range_t range) {
+    plan_ensure_init();
+    if (g_plan.open) {
+        (void)plan::note_refusal(g_plan, plan::Status::BanksBusy);
+        return finish(SAT_ERR_BUSY);
+    }
+    PaletteSlot* slot = palette_slot_find(2u, range);
+    if (slot == nullptr) {
+        (void)plan::note_refusal(g_plan, plan::Status::NotFound);
+        return finish(SAT_ERR_NOT_FOUND);
+    }
+    const sat_result_t freed = sat_vdp2_palette_free(range);
+    if (freed != SAT_OK) return finish(freed);
+    *slot = PaletteSlot{};
+    return SAT_OK;
 }
 
 sat_result_t sat_vdp2_plan_reserve(sat_vdp2_reserve_kind_t kind, uint32_t bytes,
@@ -181,12 +270,28 @@ sat_result_t sat_vdp2_plan_reserve_at(sat_vdp2_reserve_kind_t kind, uint32_t bas
 
 sat_result_t sat_vdp2_plan_commit(void) {
     plan_ensure_init();
-    return finish(map_status(plan::commit(g_plan)));
+    const sat_result_t result = finish(map_status(plan::commit(g_plan)));
+    if (result == SAT_OK) {
+        for (uint8_t i = 0u; i < kMaxPaletteRanges; ++i) {
+            if (g_palette_slots[i].state == 1u) g_palette_slots[i].state = 2u;
+        }
+        g_cram_snapshot_valid = 0u;
+    }
+    return result;
 }
 
 sat_result_t sat_vdp2_plan_rollback(void) {
     plan_ensure_init();
-    return finish(map_status(plan::rollback(g_plan, free_range_thunk, nullptr)));
+    const sat_result_t result =
+        finish(map_status(plan::rollback(g_plan, free_range_thunk, nullptr)));
+    if (result == SAT_OK) {
+        if (g_cram_snapshot_valid) {
+            vram_cram_restore(g_cram_snapshot);
+            g_cram_snapshot_valid = 0u;
+        }
+        palette_slots_clear_staged();
+    }
+    return result;
 }
 
 sat_result_t sat_vdp2_plan_release(uint32_t base) {
@@ -200,6 +305,15 @@ sat_result_t sat_vdp2_plan_release(uint32_t base) {
 
 sat_result_t sat_vdp2_plan_release_all(void) {
     plan_ensure_init();
+    for (uint8_t i = 0u; i < kMaxPaletteRanges; ++i) {
+        PaletteSlot& slot = g_palette_slots[i];
+        if (slot.state != 2u) continue;
+        const sat_vdp2_palette_range_t range = {
+            slot.bank, slot.code, slot.count};
+        const sat_result_t freed = sat_vdp2_palette_free(range);
+        if (freed != SAT_OK) return finish(freed);
+        slot = PaletteSlot{};
+    }
     for (;;) {
         /* Release the first committed reservation until none is left. */
         uint32_t base = 0u;
@@ -247,6 +361,10 @@ sat_result_t sat_vdp2_plan_release_rbg1_banks(uint8_t bank_mask) {
 
 void sat_vdp2_plan_reset(void) {
     plan::init(g_plan);
+    for (uint8_t i = 0u; i < kMaxPaletteRanges; ++i) {
+        g_palette_slots[i] = PaletteSlot{};
+    }
+    g_cram_snapshot_valid = 0u;
     g_last_sat_status = SAT_OK;
     g_plan_inited = 1u;
 }

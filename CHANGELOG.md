@@ -11,6 +11,15 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- Transactional VDP2 CRAM ranges (M7 follow-up):
+  `sat_vdp2_plan_palette_reserve` / `sat_vdp2_plan_palette_release` join the
+  existing VRAM transaction. The seven-bank CRAM allocator is now a real
+  bitmap with reusable frees and a `sat_vdp2_palette_usage` snapshot;
+  rollback restores the exact allocation state. E08 `vdp2_vram_stress` adds a
+  seventh scenario covering rollback/reuse, commit/release and the
+  eighth-full-bank refusal; the host plan tests cover the same paths. The
+  cycle planner remains outside the transaction, so the support-matrix row
+  stays `partial`.
 - VDP2 hardware signoff kit (M6 Phase B): `harness/prepare-vdp2-signoff.ps1`
   builds and validates the twelve E01-E12 discs plus E13 as a marked
   supplemental disc by default, writes a manifest and `SHA256SUMS.txt`, and

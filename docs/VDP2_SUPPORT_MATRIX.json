@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-10-17",
+  "updated": "2026-10-19",
   "baseline": "1c573a2",
   "description": "Machine-readable VDP2 support matrix: what the library actually exposes versus the vendored Sega VDP2 manual. tests/test_vdp2_support_matrix.py validates this file against include/saturn and the manual tree (statuses, evidence rules, every cited chapter file, and every recorded constant). Change the matrix and that test in the same commit.",
   "manual_root": "docs/sega_saturn_hardware/hard/vdp2/hon",
@@ -161,7 +161,7 @@
       "api": ["include/saturn/vdp2_alloc.h"],
       "tests": ["tests/host/test_vdp2_plan_logic.cpp", "tests/host/test_vdp2_plan_api.cpp", "harness/run-vdp2-vram-stress.ps1"],
       "plan_milestone": "M1",
-      "notes": "VRAM byte and table reservations and whole-bank claims are transactional since dbec2fa: sat_vdp2_plan_begin/reserve/reserve_at/commit/rollback/release plus per-bank telemetry, over the byte free list which stays the single byte owner (sat_vdp2_plan_*). Not yet part of the transaction: CRAM ranges (still the non-transactional bank ring) and the cycle patterns (still planned inside sat_vdp2_layer_configure). E08 vdp2_vram_stress demonstrates every refusal path live."
+      "notes": "VRAM byte and table reservations, whole-bank claims and CRAM palette ranges are transactional since dbec2fa and the CRAM follow-up: sat_vdp2_plan_begin/reserve/reserve_at/palette_reserve/commit/rollback/release plus per-bank telemetry, over the byte free list and the seven-bank CRAM bitmap. A rollback restores both exact allocation states. The cycle patterns are still planned inside sat_vdp2_layer_configure and are the remaining non-transactional part. E08 vdp2_vram_stress demonstrates every refusal path live, including CRAM rollback/reuse and the eighth full-bank refusal."
     },
     {
       "id": "rbg0_rotation_parameter_b",

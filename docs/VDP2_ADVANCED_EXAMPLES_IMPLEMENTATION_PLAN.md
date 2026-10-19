@@ -158,30 +158,34 @@ Each example shall have an independent `examples/<name>/main.c` (helpers as need
   refuses until a verified example needs it).
 - Host tests: `test_vdp2_plan_logic` (9 cases: lifecycle, kind minimums,
   range rules, overlap, bank roles, claim conflicts, ledger capacity,
-  telemetry) and `test_vdp2_plan_api` (7 cases: rollback exactness,
-  commit/release, reserve_at conflicts, kind minimums at the API,
-  bank-claim routing including bank-edge crossing, honest fragmentation,
-  raw free-list coexistence). Cycle-overflow refusals remain covered where
+  telemetry) and `test_vdp2_plan_api` (initially 7 cases: rollback
+  exactness, commit/release, reserve_at conflicts, kind minimums at the
+  API, bank-claim routing including bank-edge crossing, honest
+  fragmentation, raw free-list coexistence; the M7 follow-up adds two
+  palette-transaction cases). Cycle-overflow refusals remain covered where
   they live, in the layer manager's tests and the layers demo harness.
-- **E08 complete** (`9ea56c2`): `examples/vdp2_vram_stress` runs six
-  deterministic scenarios (legal layout, oversized refusal + exact
+- **E08 complete** (`9ea56c2`): `examples/vdp2_vram_stress` initially ran
+  six deterministic scenarios (legal layout, oversized refusal + exact
   rollback, bank-claim routing, claim-over-live refusal, fragmentation,
   live reclaim-and-reconfigure) and `harness/run-vdp2-vram-stress.ps1`
-  passes 10/10 on Ymir: the deterministic bases, the refusal codes, the
+  passed 10/10 on Ymir: the deterministic bases, the refusal codes, the
   reconfiguration (cycle patterns changed) and the E08 pass evidence
-  itself — cycle patterns and on-screen bands pixel-identical across every
-  refusal. Zero misaligned SH-2 accesses.
+  itself - cycle patterns and on-screen bands pixel-identical across every
+  refusal. Zero misaligned SH-2 accesses. The M7 follow-up below adds CRAM
+  as the seventh scenario, taking the wrapper to 11/11.
 - Existing VDP2 examples unchanged: `vdp2_layers_demo` 12/12 and
   `vdp2_tile_overflow` 8/8 re-run green after the allocator carve refactor
   (which also fixed a latent misaligned-base bug in the free list's
   degenerate slack path, and surfaced a pre-existing
   `run-vdp2-tile-overflow.ps1` bug: it never created its capture
   directory and only worked while one survived from an older run).
-- Explicitly not claimed done: the CRAM range ring is still
-  non-transactional and the capability queries of section 4 are not yet a
-  public API — both remain open work under the section 4 architecture and
-  are recorded as the `partial` status of `unified_resource_planner` in
-  `docs/VDP2_SUPPORT_MATRIX.json`.
+- M7 follow-up (2026-10-19): CRAM ranges now join the transaction
+  (`sat_vdp2_plan_palette_reserve/release`, exact rollback of the seven-bank
+  bitmap), and E08's seventh scenario proves rollback/reuse and the
+  eighth-full-bank refusal. The cycle patterns are still planned inside
+  `sat_vdp2_layer_configure`, so `unified_resource_planner` remains
+  `partial` in `docs/VDP2_SUPPORT_MATRIX.json`; the capability queries of
+  section 4 are also still open.
 
 ### M2 — Rotation features (E02 then E01)
 - Complete RBG0 A/B selection / coefficient-mode support with pure host models and a live `vdp2_rotation_coefficients` scene.
