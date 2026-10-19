@@ -17,7 +17,17 @@ enum {
     kVertexCount = kRigidCount + kBlendCount,
     kJointCount = 61,
     kKernelCount = 2,
+    kAxisX = 0,
+    kAxisY = 1,
+    kAxisZ = 2,
     kVectorComponents = 3,
+    kMaxInfluences = 3,
+    kTranslationOffset = 3,
+    kKernelCIndex = 0,
+    kKernelMacIndex = 1,
+    kSingleInfluence = 1,
+    kDualInfluence = 2,
+    kTripleInfluence = 3,
     kMatrixRowStride = 4,
     kMatrixTransformElements = 12,
     kMatrixYDiagonal = 5,
@@ -35,6 +45,7 @@ enum {
     kRandomMultiplier = 1664525,
     kRandomIncrement = 1013904223,
     kRandomSeed = 0x6d2b79f5,
+    kRandomWordBits = 16,
     kHudX = 8,
     kHudFontWidth = 8,
     kHudTitleY = 8,
@@ -81,7 +92,7 @@ static uint32_t next_random(void) {
     return random_state;
 }
 static int16_t random_position(void) {
-    return (int16_t)(next_random() >> 16);
+    return (int16_t)(next_random() >> kRandomWordBits);
 }
 static uint32_t sr_read(void) {
     uint32_t value;
@@ -92,8 +103,8 @@ static void sr_write(uint32_t value) {
     __asm__ volatile("ldc %0,sr" :: "r"(value) : "memory", "t");
 }
 static void set_component(sat_vec3_t* output, unsigned axis, int32_t value) {
-    if (axis == 0) output->x = value;
-    else if (axis == 1) output->y = value;
+    if (axis == kAxisX) output->x = value;
+    else if (axis == kAxisY) output->y = value;
     else output->z = value;
 }
 
@@ -114,16 +125,16 @@ static int64_t dot_mac_l(const int32_t* xyz, const sat_fx16_t* row) {
 }
 
 static void transform_mac_l(const sat_fx16_t* matrix, const int16_t* position,
-                            int32_t scale, int32_t output[3]) {
+                            int32_t scale, int32_t output[kVectorComponents]) {
     const int32_t xyz[kVectorComponents] = {
-        (int32_t)position[0] * scale,
-        (int32_t)position[1] * scale,
-        (int32_t)position[2] * scale
+        (int32_t)position[kAxisX] * scale,
+        (int32_t)position[kAxisY] * scale,
+        (int32_t)position[kAxisZ] * scale
     };
     for (unsigned axis = 0; axis < kVectorComponents; ++axis) {
         const unsigned base = axis * kMatrixRowStride;
         const int64_t sum = dot_mac_l(xyz, matrix + base) + kRoundQ16;
-        output[axis] = (int32_t)(sum >> kQ16FractionBits) + matrix[base + kVectorComponents];
+        output[axis] = (int32_t)(sum >> kQ16FractionBits) + matrix[base + kTranslationOffset];
     }
 }
 
@@ -132,7 +143,7 @@ static void deform_mac_l(const sat_skin_asset_t* asset, const sat_mat4_t* matric
     const int32_t scale = (int32_t)1 << (kQ16FractionBits - asset->pos_shift);
     for (uint32_t vertex = 0; vertex < asset->rigid_count; ++vertex) {
         const sat_skin_rigid_t* record = &asset->rigid[vertex];
-        int32_t point[3];
+        int32_t point[kVectorComponents];
         transform_mac_l(matrices[record->joint].m, record->pos, scale, point);
         output[vertex].x = point[0];
         output[vertex].y = point[1];
@@ -141,21 +152,21 @@ static void deform_mac_l(const sat_skin_asset_t* asset, const sat_mat4_t* matric
     for (uint32_t index = 0; index < asset->blend_count; ++index) {
         const sat_skin_blend_t* record = &asset->blend[index];
         const uint32_t vertex = asset->rigid_count + index;
-        int32_t point[3][3];
+        int32_t point[kMaxInfluences][kVectorComponents];
         for (uint8_t influence = 0; influence < record->count; ++influence)
             transform_mac_l(matrices[record->joint[influence]].m,
                             record->pos[influence], scale, point[influence]);
         for (unsigned axis = 0; axis < kVectorComponents; ++axis) {
-            if (record->count == 1) {
+        if (record->count == kSingleInfluence) {
                 set_component(&output[vertex], axis, point[0][axis]);
-            } else if (record->count == 2 && record->weight[0] == kWeightHalf) {
+            } else if (record->count == kDualInfluence && record->weight[0] == kWeightHalf) {
                 set_component(&output[vertex], axis, (int32_t)(((int64_t)point[0][axis] +
                     point[1][axis]) >> 1));
             } else {
                 const int64_t weight0 = record->weight[0];
                 const int64_t weight1 = record->count >= 2
-                    ? (record->count == 2 ? kWeightOne - weight0 : record->weight[1]) : 0;
-                const int64_t weight2 = record->count == 3
+                    ? (record->count == kDualInfluence ? kWeightOne - weight0 : record->weight[1]) : 0;
+                const int64_t weight2 = record->count == kTripleInfluence
                     ? kWeightOne - weight0 - weight1 : 0;
                 const int64_t sum = weight0 * point[0][axis] +
                     weight1 * point[1][axis] + weight2 * point[2][axis] + kRoundQ15;
@@ -177,23 +188,23 @@ static int32_t floor_q15(int64_t sum) {
     return (int32_t)quotient;
 }
 static void oracle_transform(const sat_fx16_t* matrix, const int16_t* position,
-                             int32_t scale, int32_t output[3]) {
-    const int64_t x = (int32_t)position[0] * scale;
-    const int64_t y = (int32_t)position[1] * scale;
-    const int64_t z = (int32_t)position[2] * scale;
+                             int32_t scale, int32_t output[kVectorComponents]) {
+    const int64_t x = (int32_t)position[kAxisX] * scale;
+    const int64_t y = (int32_t)position[kAxisY] * scale;
+    const int64_t z = (int32_t)position[kAxisZ] * scale;
     for (unsigned axis = 0; axis < kVectorComponents; ++axis) {
         const unsigned base = axis * kMatrixRowStride;
         const int64_t sum = (int64_t)matrix[base] * x +
             (int64_t)matrix[base + 1u] * y +
-            (int64_t)matrix[base + 2u] * z + kRoundQ16;
-        output[axis] = floor_q16(sum) + matrix[base + 3u];
+            (int64_t)matrix[base + kAxisZ] * z + kRoundQ16;
+        output[axis] = floor_q16(sum) + matrix[base + kTranslationOffset];
     }
 }
 static void oracle_deform(const sat_skin_asset_t* asset, const sat_mat4_t* matrices,
                           sat_vec3_t* output) {
     const int32_t scale = (int32_t)1 << (kQ16FractionBits - asset->pos_shift);
     for (uint32_t vertex = 0; vertex < asset->rigid_count; ++vertex) {
-        int32_t point[3];
+        int32_t point[kVectorComponents];
         const sat_skin_rigid_t* record = &asset->rigid[vertex];
         oracle_transform(matrices[record->joint].m, record->pos, scale, point);
         output[vertex].x = point[0]; output[vertex].y = point[1]; output[vertex].z = point[2];
@@ -201,14 +212,14 @@ static void oracle_deform(const sat_skin_asset_t* asset, const sat_mat4_t* matri
     for (uint32_t index = 0; index < asset->blend_count; ++index) {
         const sat_skin_blend_t* record = &asset->blend[index];
         const uint32_t vertex = asset->rigid_count + index;
-        int32_t point[3][3];
+        int32_t point[kMaxInfluences][kVectorComponents];
         for (uint8_t influence = 0; influence < record->count; ++influence)
             oracle_transform(matrices[record->joint[influence]].m,
                              record->pos[influence], scale, point[influence]);
         for (unsigned axis = 0; axis < kVectorComponents; ++axis) {
             int32_t value;
-            if (record->count == 1) value = point[0][axis];
-            else if (record->count == 2 && record->weight[0] == kWeightHalf)
+            if (record->count == kSingleInfluence) value = point[0][axis];
+            else if (record->count == kDualInfluence && record->weight[0] == kWeightHalf)
                 {
                     const int64_t sum = (int64_t)point[0][axis] + point[1][axis];
                     int64_t half = sum / 2;
@@ -217,9 +228,9 @@ static void oracle_deform(const sat_skin_asset_t* asset, const sat_mat4_t* matri
                 }
             else {
                 const int64_t weight0 = record->weight[0];
-                const int64_t weight1 = record->count == 2
+                const int64_t weight1 = record->count == kDualInfluence
                     ? kWeightOne - weight0 : record->weight[1];
-                const int64_t weight2 = record->count == 3
+                const int64_t weight2 = record->count == kTripleInfluence
                     ? kWeightOne - weight0 - weight1 : 0;
                 const int64_t sum = weight0 * point[0][axis] +
                     weight1 * point[1][axis] + weight2 * point[2][axis] + kRoundQ15;
@@ -256,7 +267,7 @@ static void fill_inputs(void) {
         matrix[kMatrixZDiagonal] += kQ16One;
         matrix[kVectorComponents] *= kTranslationScale;
         matrix[kMatrixRowStride + kVectorComponents] *= kTranslationScale;
-        matrix[2u * kMatrixRowStride + kVectorComponents] *= kTranslationScale;
+        matrix[kAxisZ * kMatrixRowStride + kVectorComponents] *= kTranslationScale;
     }
     for (uint32_t index = 0; index < kRigidCount; ++index) {
         rigid[index].pos[0] = random_position();
@@ -268,10 +279,10 @@ static void fill_inputs(void) {
     rigid[0].joint = kJointCount - 1u;
     for (uint32_t index = 0; index < kBlendCount; ++index) {
         sat_skin_blend_t* record = &blend[index];
-        record->count = (uint8_t)(1u + index % 3u);
-        for (uint8_t influence = 0; influence < 3; ++influence) {
+        record->count = (uint8_t)(kSingleInfluence + index % kMaxInfluences);
+        for (uint8_t influence = 0; influence < kMaxInfluences; ++influence) {
             record->joint[influence] = (uint8_t)(next_random() % kJointCount);
-            for (unsigned axis = 0; axis < 3; ++axis)
+            for (unsigned axis = 0; axis < kVectorComponents; ++axis)
                 record->pos[influence][axis] = random_position();
         }
         record->weight[0] = index % kHalfWeightFrequency == 0u
@@ -321,7 +332,7 @@ static void measure(void) {
             uint32_t hash = 0;
             const uint32_t start = (uint32_t)sat_time_ticks();
             for (uint32_t repetition = 0; repetition < row->repetitions; ++repetition) {
-                if (kernel == 0) {
+                if (kernel == kKernelCIndex) {
                     if (sat_skin_deform_range(&skin, joints, kJointCount, 0, kVertexCount,
                                               reference_vertices, kVertexCount) != SAT_OK)
                         ++g_skin_mac_bench.errors;
@@ -335,11 +346,12 @@ static void measure(void) {
             }
             row->ticks[sample] = (uint32_t)sat_time_ticks() - start;
             row->checksum = hash;
-            if (kernel == 1 && !equal_vertices(reference_vertices, candidate_vertices))
+            if (kernel == kKernelMacIndex && !equal_vertices(reference_vertices, candidate_vertices))
                 ++g_skin_mac_bench.errors;
         }
     }
-    if (g_skin_mac_bench.samples[0].checksum != g_skin_mac_bench.samples[1].checksum)
+    if (g_skin_mac_bench.samples[kKernelCIndex].checksum !=
+        g_skin_mac_bench.samples[kKernelMacIndex].checksum)
         ++g_skin_mac_bench.errors;
 }
 int main(void) {
@@ -362,9 +374,9 @@ int main(void) {
         sat_example_must(sat_ascii_font_draw_text_screen_indexed8(&font,
             "EXACT SKIN C / MAC.L", kHudX, kHudTitleY, kHudFontWidth, 0, 0));
         sat_example_must(sat_ascii_font_draw_label_u32(&font, "C API TICKS ",
-            median(g_skin_mac_bench.samples[0].ticks), kHudX, kHudCResultY, kHudFontWidth, 0, 0));
+            median(g_skin_mac_bench.samples[kKernelCIndex].ticks), kHudX, kHudCResultY, kHudFontWidth, 0, 0));
         sat_example_must(sat_ascii_font_draw_label_u32(&font, "MAC.L TICKS ",
-            median(g_skin_mac_bench.samples[1].ticks), kHudX, kHudMacResultY, kHudFontWidth, 0, 0));
+            median(g_skin_mac_bench.samples[kKernelMacIndex].ticks), kHudX, kHudMacResultY, kHudFontWidth, 0, 0));
         sat_example_must(sat_ascii_font_draw_label_u32(&font, "CHECKS ",
             g_skin_mac_bench.checks, kHudX, kHudChecksY, kHudFontWidth, 0, 0));
         sat_example_must(sat_ascii_font_draw_label_u32(&font, "ERRORS ",
