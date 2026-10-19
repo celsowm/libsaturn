@@ -6,6 +6,7 @@ on:
       - 'examples/cube_pipeline_bench/**'
       - 'harness/scripts/cube_pipeline.py'
       - 'harness/scripts/analyze_cpu_profile.py'
+      - 'tests/tools/test_analyze_cpu_profile.py'
       - 'harness/scripts/dino_pipeline.py'
       - 'harness/scripts/dino_phase_metrics.py'
       - 'tests/tools/test_dino_phase_metrics.py'
@@ -47,6 +48,7 @@ jobs:
       - run: python tests/tools/test_cube_pipeline.py
       - run: python tests/tools/test_renderer_pipeline_study.py
       - run: python tests/tools/test_dino_phase_metrics.py
+      - run: python tests/tools/test_analyze_cpu_profile.py
       - run: python harness/scripts/dino_pipeline.py --help
   images:
     runs-on: ubuntu-latest

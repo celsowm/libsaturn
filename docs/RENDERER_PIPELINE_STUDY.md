@@ -503,3 +503,32 @@ falls from 108 to 100 ms; that comparison includes earlier renderer changes,
 not just this admission increment. Game evidence lives in its private
 `recovery-sdk-cull-matrix`; gameplay cadence requires separate uninstrumented
 captures.
+
+## Callers and copy entry checkpoints
+
+`analyze_cpu_profile.py` now resolves observed call edges and exact `memcpy`
+entry snapshots against the matching ELF. Call counts remain separate from
+exclusive PC costs. For SH-2 BSR/BSRF/JSR, PR points four bytes after the call;
+resolving PR-4 identifies the caller after its delay slot has executed. ABI
+registers r4/r5/r6 provide destination, source and byte length. The report groups
+requested bytes, lengths, caller, CPU, normal Work RAM regions and alignment.
+These are entry arguments, not bus traffic or inferred inclusive costs.
+
+For example, request the `memcpy` symbol checkpoint in the game's reusable
+probe script and then run:
+
+```sh
+python3 harness/scripts/analyze_cpu_profile.py \
+  --prefix /path/to/capture/debug --elf /path/to/matching.elf \
+  --nm /path/to/sh2eb-elf-nm --out /path/to/capture/copies.json
+```
+
+The six-field Paul capture `recovery-copy-entries` observes 928 copies requesting
+16880 bytes. Most calls are 18-byte rotation matrices from FK/IK and pose
+blending. Different modulo-four alignments select the libc byte path even when
+both pointers support halfword accesses. This identifies a concrete normal-RAM
+copy experiment; it does not justify changing authoritative pose arithmetic.
+The existing copy kernel already supports aligned 32-bit words. Empty checkpoint
+files do not prove that no copies occurred. Seven tool tests cover aliases,
+assembler boundaries, call-vs-return events, CPU separation, PR attribution,
+lengths, invalid register values and alignment/region classification.
