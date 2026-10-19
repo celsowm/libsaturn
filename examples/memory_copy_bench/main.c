@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include "saturn/app.h"
 #include "saturn/time.h"
+#include "saturn/color.h"
+#include "saturn/font.h"
+#include "example_util.h"
 
 extern void* memcpy(void*,const void*,size_t);
 typedef void* (*copy_fn_t)(void*,const void*,size_t);
@@ -23,6 +26,16 @@ typedef struct {
 } results_t;
 volatile results_t g_memory_copy_bench __attribute__((section(".wram_l")));
 
+static sat_ascii_font_t font;
+static uint32_t median(const volatile uint32_t* values) {
+    uint32_t sorted[ROUNDS];
+    for(unsigned i=0;i<ROUNDS;++i) {
+        uint32_t value=values[i];unsigned p=i;
+        while(p && sorted[p-1]>value){sorted[p]=sorted[p-1];--p;}
+        sorted[p]=value;
+    }
+    return sorted[ROUNDS/2];
+}
 int main(void) {
     if(sat_app_init_default()!=SAT_OK)for(;;){}
     g_memory_copy_bench.magic=0x4d434231u;
@@ -63,5 +76,21 @@ int main(void) {
         ++g_memory_copy_bench.count;
     }
     g_memory_copy_bench.done=1u;
-    for(;;){}
+    sat_example_must(sat_ascii_font_init_8x8_indexed8(&font,SAT_COLOR_WHITE,0,0));
+    for(;;) {
+        sat_example_must(sat_app_frame_begin(SAT_COLOR_BLACK,SAT_COLOR_BLACK,0));
+        sat_example_must(sat_ascii_font_draw_text_screen_indexed8(
+            &font,"MEMCPY 18 BYTES / 512 CALLS",8,8,8,0,0));
+        sat_example_must(sat_ascii_font_draw_label_u32(
+            &font,"FRT HZ ",g_memory_copy_bench.frequency,8,24,8,0,0));
+        static const unsigned cases[]={3,19,11,147,275,403};
+        static const char* const labels[]={"HH 0/0 ","HH 0/2 ","HH 0/1 ",
+            "HL 0/2 ","LH 0/2 ","LL 0/2 "};
+        for(unsigned i=0;i<6;++i)
+            sat_example_must(sat_ascii_font_draw_label_u32(&font,labels[i],
+                median(g_memory_copy_bench.samples[cases[i]].ticks),8,48+20*(int)i,8,0,0));
+        sat_example_must(sat_ascii_font_draw_label_u32(
+            &font,"ERRORS ",g_memory_copy_bench.errors,8,184,8,0,0));
+        sat_example_must(sat_app_frame_end());
+    }
 }

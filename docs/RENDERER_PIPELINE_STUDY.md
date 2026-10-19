@@ -692,3 +692,26 @@ The reproducible source patch is `harness/studies/dino-cache-balance.patch`;
 apply it only in an experimental checkout, build Dino with
 `DINO_PIPELINE_METRICS=1 DINO_MASTER_FACE_PERCENT=55`, then use the existing
 Dino capture script. It is not enabled by the normal build.
+
+### Independent native-disc check of the copy optimization
+
+The memory probe now displays selected 18-byte cases and calibrated FRT
+frequency on screen, allowing the exact retained native disc to run in Mednafen
+without a RAM debugger. The headless runner also rejects a native panic record,
+so successful benchmark metadata cannot hide a later display panic.
+
+For High-to-High Work RAM, source offset 0 and destination offset 2, the reviewed
+Mednafen HUD shows 781 median ticks per 512 calls before the change and 505 after.
+The respective calibrations are 210540 and 210600 Hz; normalizing each run gives
+7.245 to 4.683 us/call, a 35.4% reduction. Both display zero errors. Ymir also
+passes all 512 guarded cases and shows the same direction of improvement.
+The exact magnitude differs between emulator memory models; neither is a
+physical-hardware measurement.
+
+Public numbers, clocks and image hashes are retained in
+`harness/studies/memory-copy/independent-emulator.json`. Raw captures and reviewed
+native recordings are `memory-copy-screen-{before,after}` and
+`memory-copy-mednafen-{before,after}`. Reuse the existing recorder with
+`--record-example memory_copy_bench` and the retained case directory. This check
+supports the actual normal-RAM kernel improvement independently of the known
+Ymir DIVU timing limitation.

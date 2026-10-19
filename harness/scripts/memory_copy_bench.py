@@ -79,14 +79,20 @@ def run(a):
         shutil.copyfile(ROOT/'build'/('memory_copy_bench'+suffix),out/('memory_copy_bench'+suffix))
     syms=symbols(out/'memory_copy_bench.elf',a.compiler_dir/'sh2eb-elf-nm')
     address,size=syms['g_memory_copy_bench']
+    panic_address,panic_size=syms['g_sat_last_panic']
     command=[str(a.probe.resolve()),'--iso',str(out/'memory_copy_bench.iso'),
         '--bin',str(out/'memory_copy_bench.app.bin'),'--bios',str(a.bios.resolve()),
         '--boot-frames','90','--frames',str(a.fields),'--sh2-cache','on',
         '--slave-reset-entry',hex(syms['saturn_slave_entry'][0]),
-        '--dump-mem',f'{address:#x}:{size}:{out}/telemetry.bin','--out',str(out/'ymir.json')]
+        '--dump-mem',f'{address:#x}:{size}:{out}/telemetry.bin',
+        '--dump-mem',f'{panic_address:#x}:{panic_size}:{out}/native-panic.bin',
+        '--out',str(out/'ymir.json')]
     (out/'command.json').write_text(json.dumps(command,indent=2)+'\n')
     with (out/'probe.log').open('w') as log:
         subprocess.run(command,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=a.timeout)
+    panic=(out/'native-panic.bin').read_bytes()
+    if len(panic)!=44 or struct.unpack_from('>I',panic)[0]:
+        raise ValueError('native copy benchmark panic')
     report=decode((out/'telemetry.bin').read_bytes())
     metadata=dict(fields=a.fields,checkout=subprocess.check_output(
         ['git','describe','--always','--dirty'],cwd=ROOT,text=True).strip(),

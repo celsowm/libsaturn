@@ -1,0 +1,39 @@
+{
+  "scope": "High-to-High Work RAM, offsets source 0/destination 2, 18 bytes, 512 calls, five FRT intervals. Ymir RAM decode and reviewed native-disc Mednafen HUD; no physical-hardware claim.",
+  "captures": [
+    {
+      "variant": "before",
+      "elf_sha256": "d99c1dec9f98fbf7f5798f7dcc5684e7eed482515a5db138e18bf57a7ea3645f",
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "ymir_probe_sha256": "8200e50fb6ffad92cc81c14fa4d9fa42c4d8b4cf750ba7c663fd3a4e78b9d7aa",
+      "ymir": {
+        "frequency": 210540,
+        "median_ticks": 845,
+        "median_us_per_call": 7.838845943763656
+      },
+      "mednafen": {
+        "frequency": 210540,
+        "median_ticks": 781,
+        "median_us_per_call": 7.245134535005224,
+        "returncode": 0
+      }
+    },
+    {
+      "variant": "after",
+      "elf_sha256": "c5715a659773ee373caeb35f0cfaa17b4ea6d1b2c02abfe638683a38ff8768ef",
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "ymir_probe_sha256": "8200e50fb6ffad92cc81c14fa4d9fa42c4d8b4cf750ba7c663fd3a4e78b9d7aa",
+      "ymir": {
+        "frequency": 210540,
+        "median_ticks": 528,
+        "median_us_per_call": 4.898119122257054
+      },
+      "mednafen": {
+        "frequency": 210600,
+        "median_ticks": 505,
+        "median_us_per_call": 4.683419396961064,
+        "returncode": 0
+      }
+    }
+  ]
+}
