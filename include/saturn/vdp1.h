@@ -35,6 +35,14 @@ typedef struct sat_vdp1_texture {
     uint16_t format; /* SAT_VDP1_TEXTURE_INDEXED8 (0) or SAT_VDP1_TEXTURE_LUT4 */
 } sat_vdp1_texture_t;
 
+/* Opaque immutable command prefix produced by the scene material compiler.
+ * Six native header words; XY and final GRDA/PAD words are emitted per face. */
+typedef struct sat_vdp1_projected_program {
+    uint16_t command[6];
+    const sat_vdp1_texture_t* texture;
+} sat_vdp1_projected_program_t;
+
+
 /* Sprite flags                                                        */
 #define SAT_SPRITE_FLAG_OPAQUE 0x0001u
 /* CMDPMOD bit 8: checkerboard 50% coverage, not an alpha blend. */

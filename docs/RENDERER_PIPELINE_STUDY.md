@@ -715,3 +715,59 @@ native recordings are `memory-copy-screen-{before,after}` and
 `--record-example memory_copy_bench` and the retained case directory. This check
 supports the actual normal-RAM kernel improvement independently of the known
 Ymir DIVU timing limitation.
+
+## Compile immutable material command fields, keep pose and painter dynamic
+
+The next retained experiment removes repeated opaque material copies and native
+command-field composition. `sat_scene3d_material_programs_init` compiles the
+six-word VDP1 prefix once after upload. An eligible face borrows one immutable
+16-byte entry; its queue record writes projected coordinates, a pointer and a
+tag instead of copying the complete material. Merge copies the active member.
+Flush retains owner validation, descriptor residency preflight, global painter
+ordering and command capacity/overlay limits. The HAL writes all 32 command
+bytes, including zero LINK/GRDA/padding, into the normal Work RAM command list.
+Clipping, Gouraud, RGB, color calculation and instance overrides retain their
+existing paths.
+
+Both variants use default Slave CCR=0, Master CCR=1 and the existing 60% Dino
+Master face split. The matching old probe is retained solely to keep its binary
+hash equal; it has the same known immediate DIVU timing limitation. FRT
+calibration is 210600 Hz in both runs. This is a CPU-work experiment, not a
+hardware or distinct presentation FPS result.
+
+| Dino animated median | Before | Compiled materials |
+| --- | ---: | ---: |
+| Master geometry | 19.440 ms | 19.710 ms |
+| Slave geometry | 16.804 ms | 16.809 ms |
+| Merge | 1.144 ms | 0.878 ms |
+| Flush | 10.584 ms | 8.053 ms |
+| Emission (part of flush) | 6.728 ms | 4.938 ms |
+| Work | 36.709 ms | 34.236 ms |
+| Completed CPU submissions/s | 20 | 20 |
+
+The total reduction is 6.7%; the benefit is mostly merge and emission, not
+geometry. Animated, paused and control runs pass the runtime gate. The paused,
+unlit model-region comparison reports zero differing pixels. A native disc
+also boots and animates in Mednafen; that observation checks behavior and is
+not an independent numerical benchmark of this optimization.
+
+The non-compiling cube path is deliberately included: the six-face RGB scene
+remains 60/s (1.899 to 1.914 ms); paired 864-face RGB actors remain 15/s, but
+work increases 53.300 to 54.468 ms. The first unified-loop implementation
+cost 55.157 ms. Specializing preparation once per instance recovers some cost;
+it does not eliminate the tag/flush overhead. This is an opt-in improvement
+for static indexed materials, not a claim that all scenes become faster.
+
+Host tests compare native command bytes for 2048 randomized cases, exercise
+capacity/overlay rollback, mixed general/compiled materials, slot overrides,
+near clipping, painter order, invalid residency and stale owner generations.
+The parallel publication test checks static program ranges, conservative
+publication, receiver refresh and changed-table rejection. The full host/tool
+suite and all five installed-package CTests pass.
+
+Public numbers and image hashes are retained in
+`harness/studies/material-programs/results.json`. Private final captures:
+`dino-program-split-{animated,paused,controls}`, `cube-program-split`; reviewed
+native boot: `dino-program-split-mednafen`.
+Reuse `dino_pipeline.py`, `dino_phase_metrics.py` and `cube_pipeline.py` for
+capture, comparison and native recording.

@@ -88,6 +88,11 @@ static void source_publication_contract() {
     binding.valid=1u; binding.indices=indices; binding.vertex_count=4u;
     binding.face_count=1u; binding.materials=materials; binding.material_count=2u;
     binding.face_materials=face_materials;
+    sat_scene3d_material_program_t commands[2]{};
+    sat_scene3d_material_programs_t programs{};
+    programs.materials=materials; programs.entries=commands;
+    programs.count=2u; programs.valid=1u;
+    binding.programs=&programs;
     sat_scene3d_instance_t instance{};
     instance.mesh=&mesh; instance.materials=materials; instance.material_count=2u;
     instance.face_materials=face_materials; instance.validated_binding=&binding;
@@ -103,6 +108,7 @@ static void source_publication_contract() {
     synced.clear();
     assert(sat_scene3d_source_plan_init(&plan,&instance,ranges,16u)==SAT_OK);
     assert(covered(indices) && covered(materials) && covered(face_materials));
+    assert(covered(&programs) && covered(commands));
     assert(covered(&tiled) && covered(textures) && covered(&textures[1]));
     assert(plan.range_count==plan.static_count+1u); // Shared dynamic Gouraud once.
     assert(ranges[plan.static_count].address==gouraud);
@@ -117,6 +123,7 @@ static void source_publication_contract() {
     synced.clear();
     assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
     assert(!covered(indices) && !covered(materials) && !covered(&tiled));
+    assert(!covered(&programs) && !covered(commands));
     assert(covered(vertices) && covered(masks) && covered(gouraud));
     // Every receiver invalidates static sources again. Calling the captured
     // adapter twice also models local fallback and a restarted worker: neither
@@ -126,6 +133,7 @@ static void source_publication_contract() {
         uint32_t output_size=99u;
         assert(registered_process(&batch,sizeof(batch),faces,sizeof(faces),&output_size)==SAT_OK);
         assert(covered(indices) && covered(materials) && covered(&tiled));
+        assert(covered(&programs) && covered(commands));
         assert(covered(vertices) && covered(gouraud) && covered(masks));
     }
     assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
@@ -135,6 +143,17 @@ static void source_publication_contract() {
     assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
     assert(covered(next_vertices) && covered(gouraud) && !covered(materials));
     assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
+    // Replacing compiled sources requires republication even if mesh and
+    // material addresses have not changed.
+    sat_scene3d_material_programs_t replacement=programs;
+    binding.programs=&replacement;
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_ERR_INVALID_ARG);
+    binding.programs=&programs;
+    programs.count=1u;
+    sat_scene3d_source_plan_t rejected{};
+    assert(sat_scene3d_source_plan_init(&rejected,&instance,ranges,16u)==SAT_ERR_INVALID_ARG);
+    assert(!rejected.topology.valid);
+    programs.count=2u;
     uint16_t next_indices[4]{0u,1u,2u,3u}; mesh.indices=next_indices;
     assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_ERR_INVALID_ARG);
     // Republish after topology/descriptor edits, including edits at the same
@@ -154,6 +173,7 @@ static void source_publication_contract() {
     synced.clear();
     assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
     assert(covered(next_indices) && covered(materials) && covered(gouraud));
+    assert(covered(&programs) && covered(commands));
     assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
     submit_count=master_submit_count=0u;
 }

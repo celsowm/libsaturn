@@ -6,11 +6,17 @@
 #include "src/graphics/3d/scene/capture.hpp"
 #include "src/hal/sh2/frt.hpp"
 #include "src/graphics/vdp1/projected.hpp"
+#include "src/core/runtime/logic.hpp"
 
 #include <stdint.h>
 
 #ifndef SAT_PROFILE_METRICS
 #define SAT_PROFILE_METRICS 0
+#endif
+
+#if UINTPTR_MAX == UINT32_MAX
+static_assert(sizeof(sat_scene3d_face_t)==104u,"compiled material tag must use face padding");
+static_assert(sizeof(sat_scene3d_material_program_t)==16u,"compact material program ABI");
 #endif
 
 namespace {
@@ -193,6 +199,7 @@ sat_result_t append(sat_scene3d_faces_t* scene,
     }
     item.material=material;
     item.cached_projected=0u;
+    item.program_valid=0u;
     item.gouraud_valid=material.vertex_gouraud ? 1u : 0u;
     if (item.gouraud_valid) {
         for (uint8_t c=0;c<4u;++c)
@@ -214,12 +221,29 @@ sat_result_t append(sat_scene3d_faces_t* scene,
     return SAT_OK;
 }
 
+/* The caller proved positive depths, coordinate bounds and capacity for the
+ * entire instance. Only opaque/unshaded compiled entries select this path. */
+void append_program(sat_scene3d_faces_t* scene,const sat_projected_vertex_t* projected,
+    const uint16_t indices[4],const sat_scene3d_material_program_t* program,uint16_t pass) {
+    sat_scene3d_face_t& item=scene->entries[scene->count];
+    int64_t sum=0;
+    for (uint8_t c=0;c<4u;++c) {
+        const auto& vertex=projected[indices[c]];
+        item.projected.x[c]=vertex.x;item.projected.y[c]=vertex.y;sum+=vertex.w;
+    }
+    item.program=program;item.program_valid=1u;
+    item.projected_safe=1u;item.cached_projected=0u;item.gouraud_valid=0u;
+    scene->keys[scene->count]=painter_key(sum,pass);++scene->count;
+}
+
 /* Copies the fields a queued face actually carries: `gouraud` only when
  * valid and `world` only for the clipping fallback, about half of the
  * record for an ordinary projected-safe face. */
 void copy_face(sat_scene3d_face_t& dst, const sat_scene3d_face_t& src) {
     dst.projected=src.projected;
-    dst.material=src.material;
+    dst.program_valid=src.program_valid;
+    if (src.program_valid) dst.program=src.program;
+    else dst.material=src.material;
     dst.projected_safe=src.projected_safe;
     dst.gouraud_valid=src.gouraud_valid;
     dst.cached_projected=src.cached_projected;
@@ -230,6 +254,8 @@ void copy_face(sat_scene3d_face_t& dst, const sat_scene3d_face_t& src) {
 
 sat_result_t emit(const sat_scene3d_faces_t& scene,
                   const sat_scene3d_face_t& face) {
+    if (face.program_valid)
+        return saturn::internal::draw_projected_program(face.projected,*face.program);
     /* Projected cache items use these SAME RGB/indexed emission paths as
      * world faces; projected_safe forbids any world-space fallback. */
     if (face.material.kind==SAT_SCENE3D_RGB && face.projected_safe) {
@@ -516,6 +542,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
     }
     item.projected_safe=1u;
     item.cached_projected=1u;
+    item.program_valid=0u;
     item.gouraud_valid=0u;
     scene->keys[scene->count]=painter_key(
         static_cast<int64_t>(camera_depth)*4,pass);
@@ -586,6 +613,40 @@ extern "C" sat_result_t sat_scene3d_faces_submit_tiled_quad(
     return sat_scene3d_faces_submit_quad(scene,world,&material,pass);
 }
 
+extern "C" sat_result_t sat_scene3d_material_programs_init(
+    sat_scene3d_material_programs_t* out,const sat_scene3d_material_t* materials,
+    uint16_t count,sat_scene3d_material_program_t* storage,uint16_t capacity) {
+    if (!out) return SAT_ERR_INVALID_ARG;
+    *out={};
+    if (!materials || !storage || !count) return SAT_ERR_INVALID_ARG;
+    if (capacity<count) return SAT_ERR_CAPACITY;
+    bool all_compiled=true;
+    for (uint16_t i=0;i<count;++i) {
+        const auto& material=materials[i];
+        storage[i]={};
+        if (!valid_material(material)) return SAT_ERR_INVALID_ARG;
+        if (material.kind==SAT_SCENE3D_RGB || material.vertex_gouraud ||
+            material.color_calc_slot!=SAT_INDEXED_SOLID_OPAQUE) {
+            all_compiled=false;continue;
+        }
+        const sat_vdp1_texture_t* texture=material.kind==SAT_SCENE3D_INDEXED_TILED
+            ? material.tiled->full : material.texture;
+        if (!texture || !texture->valid || !texture->width || !texture->height ||
+            (texture->width&7u)) return SAT_ERR_INVALID_ARG;
+        auto& program=storage[i];
+        program.command[0]=saturn::core::kVdp1CmdDistortedSprite;
+        program.command[1]=0;
+        program.command[2]=saturn::core::compose_sprite_pmod(material.sprite_flags,texture->format);
+        program.command[3]=saturn::core::compose_sprite_colr(texture->palette,texture->format);
+        program.command[4]=texture->srca;
+        program.command[5]=static_cast<uint16_t>(((texture->width/8u)<<8u)|texture->height);
+        program.texture=texture;
+    }
+    out->materials=materials;out->entries=storage;out->count=count;out->valid=1u;
+    out->all_compiled=all_compiled?1u:0u;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_scene3d_instance_binding_init(
     sat_scene3d_instance_binding_t* out,const sat_mesh_t* mesh,
     const sat_scene3d_material_t* materials,uint16_t material_count,
@@ -625,7 +686,10 @@ bool binding_matches(
     const sat_scene3d_instance_binding_t& binding,
     const sat_scene3d_instance_t& instance) {
     const sat_mesh_t* mesh=instance.mesh;
+    const auto* programs=binding.programs;
     return binding.valid!=0u && mesh!=nullptr &&
+        (!programs || (programs->valid && programs->entries &&
+         programs->materials==binding.materials && programs->count==binding.material_count)) &&
         binding.indices==mesh->indices &&
         binding.vertex_count==mesh->vertex_count &&
         binding.face_count==mesh->face_count &&
@@ -635,7 +699,8 @@ bool binding_matches(
 }
 }
 
-extern "C" sat_result_t sat_scene3d_faces_submit_instance(
+template<bool use_programs>
+static sat_result_t submit_instance(
     sat_scene3d_faces_t* scene, const sat_scene3d_instance_t* instance,
     uint8_t color_calc_slot,
     sat_projected_vertex_t* screen_scratch, sat_vec3_t* world_scratch) {
@@ -762,6 +827,9 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
                 saturn::core::render3d::coord_drawable(max_x,max_y,scene->width,scene->height);
         }
     }
+    const auto* programs=use_programs && binding && binding->programs ? binding->programs->entries : nullptr;
+    const bool compiled_instance=programs && !override_slot && all_safe_indexed &&
+        binding->programs->all_compiled;
     for (uint16_t f=0;f<mesh->face_count;++f) {
         const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
         const bool cull_face=instance->cull_backfaces &&
@@ -788,8 +856,19 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
             ++scene->culled_faces;
             continue;
         }
+        if (compiled_instance) {
+            append_program(scene,screen_scratch,idx,&programs[face_materials[f]],instance->pass);
+            continue;
+        }
         const sat_scene3d_material_t& base=materials[face_materials[f]];
         const bool known_safe=base.kind==SAT_SCENE3D_RGB?all_safe_rgb:all_safe_indexed;
+        if (known_safe && !override_slot && programs) {
+            const auto* program=&programs[face_materials[f]];
+            if (program->texture) {
+                append_program(scene,screen_scratch,idx,program,instance->pass);
+                continue;
+            }
+        }
         sat_result_t st;
         if (override_slot) {
             sat_scene3d_material_t overridden=base;
@@ -814,6 +893,17 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
         saturn::hal::sh2::frt::counter()-prepare_start);
 #endif
     return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_submit_instance(
+    sat_scene3d_faces_t* scene,const sat_scene3d_instance_t* instance,
+    uint8_t color_calc_slot,sat_projected_vertex_t* screen_scratch,
+    sat_vec3_t* world_scratch) {
+    // Select once per instance. Extra compiled-material decisions must not
+    // add per-face work to the ordinary RGB/indexed preparation loop.
+    if (instance && instance->validated_binding && instance->validated_binding->programs)
+        return submit_instance<true>(scene,instance,color_calc_slot,screen_scratch,world_scratch);
+    return submit_instance<false>(scene,instance,color_calc_slot,screen_scratch,world_scratch);
 }
 
 extern "C" sat_result_t sat_scene3d_prepare_batch_init(
@@ -980,7 +1070,11 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
     }
     scene->owner_span_count=0u;
     for (uint16_t i=0u;i<scene->count;++i) {
-        if (!valid_material(scene->entries[i].material)) {
+        const auto& face=scene->entries[i];
+        const bool valid=face.program_valid
+            ? face.program && face.program->texture && face.program->texture->valid
+            : valid_material(face.material);
+        if (!valid) {
             scene->count=0u;
             return SAT_ERR_INVALID_ARG;
         }

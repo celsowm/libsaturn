@@ -42,6 +42,8 @@ int main() {
         OK(push_distorted_sprite(reference)==SAT_OK);
         OK(push_projected_sprite(quad,texture,flags)==SAT_OK);
         OK(std::memcmp(&paired[2],&paired[3],sizeof(Command))==0);
+        const Command expected=paired[2];
+        uint16_t prefix[6];std::memcpy(prefix,&expected,sizeof(prefix));
         Command before[5];std::memcpy(before,paired,sizeof(paired));
         OK(push_projected_sprite(quad,texture,flags)==SAT_ERR_CAPACITY);
         OK(std::memcmp(before,paired,sizeof(paired))==0);
@@ -58,6 +60,25 @@ int main() {
         uint16_t used,capacity,overlay;bool overlay_pass;
         command_stats(used,capacity,overlay,overlay_pass);OK(used==2);
         OK(push_projected_sprite(quad,texture,flags)==SAT_OK);
+        // Prepared prefix uses the same coordinate/footer words, END budget,
+        // overlay admission and invalid-descriptor occupancy rules.
+        texture.width=reference.width;texture.height=reference.height;
+        begin_frame(paired,5);
+        OK(push_projected_program(quad,prefix,texture)==SAT_OK);
+        OK(std::memcmp(&expected,&paired[2],sizeof(Command))==0);
+        OK(push_projected_program(quad,prefix,texture)==SAT_OK);
+        std::memcpy(before,paired,sizeof(paired));
+        OK(push_projected_program(quad,prefix,texture)==SAT_ERR_CAPACITY);
+        OK(std::memcmp(before,paired,sizeof(paired))==0);
+        begin_frame(paired,5);OK(reserve_overlay_commands(2)==SAT_OK);
+        OK(push_projected_program(quad,prefix,texture)==SAT_ERR_CAPACITY);
+        OK(begin_overlay_pass()==SAT_OK);
+        texture.valid=0;
+        OK(push_projected_program(quad,prefix,texture)==SAT_ERR_INVALID_ARG);
+        texture.valid=1;
+        OK(push_projected_program(quad,nullptr,texture)==SAT_ERR_INVALID_ARG);
+        command_stats(used,capacity,overlay,overlay_pass);OK(used==2);
+        OK(push_projected_program(quad,prefix,texture)==SAT_OK);
     }
 
     Command commands[12]{};

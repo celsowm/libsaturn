@@ -44,6 +44,28 @@ typedef struct sat_scene3d_material {
     uint16_t sprite_flags;
 } sat_scene3d_material_t;
 
+/* Optional immutable projected-command prefixes. Entries are opaque compiler
+ * output; a NULL texture marks a material that retains general dispatch.
+ * Compile after texture upload and retain table/storage until all queued
+ * faces/tasks using it have flushed, completed and released. Rebuild after
+ * any material/descriptor mutation; ordinary residency checks still apply. */
+typedef sat_vdp1_projected_program_t sat_scene3d_material_program_t;
+
+typedef struct sat_scene3d_material_programs {
+    const sat_scene3d_material_t* materials;
+    sat_scene3d_material_program_t* entries;
+    uint16_t count;
+    uint8_t valid;
+    uint8_t all_compiled;
+} sat_scene3d_material_programs_t;
+
+/* Unsupported RGB/Gouraud/color-calc cases are retained as general entries.
+ * Fails atomically for the output table; entry storage may be partially written. */
+sat_result_t sat_scene3d_material_programs_init(
+    sat_scene3d_material_programs_t* out,
+    const sat_scene3d_material_t* materials,uint16_t count,
+    sat_scene3d_material_program_t* storage,uint16_t capacity);
+
 /* 8-bit artistic pass in the painter key, leaving 24 bits of depth (faces
  * order by depth out to 4096 world units). Values beyond this fail
  * atomically. */
@@ -58,7 +80,8 @@ sat_result_t sat_scene3d_profile_get(sat_scene3d_profile_t* out);
 
 /* Paint order is NOT a field here: it lives in the scene's parallel key
  * array, so ordering a frame moves two-byte indices instead of these
- * multi-word records.
+ * multi-word records. program_valid selects an immutable compiled prefix
+ * instead of a copied material; only that union member may be read.
  *
  * Every field a merge, flush or emission reads comes first; `world` is last
  * and is written, copied and read ONLY when projected_safe == 0 (the
@@ -67,11 +90,16 @@ sat_result_t sat_scene3d_profile_get(sat_scene3d_profile_t* out);
  * copied again on merge, so every byte here costs per face, per frame. */
 typedef struct sat_scene3d_face {
     sat_quad2_t projected;
-    sat_scene3d_material_t material;
+    union {
+        sat_scene3d_material_t material;
+        const sat_scene3d_material_program_t* program;
+    };
     uint8_t projected_safe;
     uint8_t gouraud_valid;
     /* Preprojected cache entry (RGB or indexed), no world fallback. */
     uint8_t cached_projected;
+    /* Selects the program union member; projected-safe, opaque, unshaded. */
+    uint8_t program_valid;
     uint16_t gouraud[4];
     sat_quad3_t world;
 } sat_scene3d_face_t;
@@ -252,6 +280,9 @@ typedef struct sat_scene3d_instance_binding {
     const uint16_t* face_materials;
     uint8_t has_rgb;
     uint8_t valid;
+    /* Optional caller-compiled table for precisely these materials/count.
+     * Attach before source-plan initialization; table/storage is immutable. */
+    const sat_scene3d_material_programs_t* programs;
 } sat_scene3d_instance_binding_t;
 
 sat_result_t sat_scene3d_instance_binding_init(

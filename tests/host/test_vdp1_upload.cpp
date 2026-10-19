@@ -116,6 +116,12 @@ sat_result_t push_sprite(const SpriteRequest& req) {
 }
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest&) { return SAT_OK; }
 int g_projected_calls=0;
+int g_program_calls=0;
+sat_result_t g_program_status=SAT_OK;
+sat_result_t push_projected_program(const sat_quad2_t&,const uint16_t*,const sat_vdp1_texture_t&) {
+    ++g_program_calls;
+    return g_program_status;
+}
 sat_result_t push_projected_sprite(const sat_quad2_t&, const sat_vdp1_texture_t&, uint16_t) {
     ++g_projected_calls;
     return SAT_OK;
@@ -399,6 +405,19 @@ int main() {
     saturn::core::g_state.initialized=true;
     ASSERT_EQ(saturn::internal::draw_projected_sprite(projected,projected_texture,0),SAT_OK);
     ASSERT_EQ(saturn::hal::vdp1::g_projected_calls,1);
+    sat_vdp1_projected_program_t program{};
+    saturn::core::g_state.initialized=false;
+    ASSERT_EQ(saturn::internal::draw_projected_program(projected,program),SAT_ERR_NOT_INITIALIZED);
+    ASSERT_EQ(saturn::hal::vdp1::g_program_calls,0);
+    saturn::core::g_state.initialized=true;
+    ASSERT_EQ(saturn::internal::draw_projected_program(projected,program),SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(saturn::hal::vdp1::g_program_calls,0);
+    program.texture=&projected_texture;
+    ASSERT_EQ(saturn::internal::draw_projected_program(projected,program),SAT_OK);
+    ASSERT_EQ(saturn::hal::vdp1::g_program_calls,1);
+    saturn::hal::vdp1::g_program_status=SAT_ERR_CAPACITY;
+    ASSERT_EQ(saturn::internal::draw_projected_program(projected,program),SAT_ERR_CAPACITY);
+    saturn::hal::vdp1::g_program_status=SAT_OK;
 
     user_clip_api_clamps_and_routes();
     overlay_budget_api_routes_into_hal();

@@ -267,3 +267,57 @@ with directory creation/copying. Host tests neither loaded their `.d` files
 nor retained dependencies from every translation unit in multi-source tests;
 the dependency rule now merges and loads those inputs so header refactors
 rebuild the actual tests.
+
+## Immutable material command prefixes
+
+For an instance with stable uploaded textures, compile the static part of its
+VDP1 commands once. Dino uses this path for its shared opaque material table.
+It keeps dynamic projected corners and the global painter ordering; it does
+not cache a pose or submit a separate list per actor.
+
+```c
+static sat_scene3d_material_program_t commands[MATERIAL_COUNT];
+static sat_scene3d_material_programs_t programs;
+
+/* After upload and sat_scene3d_instance_binding_init(). Check each result. */
+sat_result_t result = sat_scene3d_material_programs_init(
+    &programs, materials, MATERIAL_COUNT, commands, MATERIAL_COUNT);
+if (result != SAT_OK) return result;
+binding.programs = &programs;
+/* Build any sat_scene3d_source_plan only after attaching this table. */
+```
+
+Storage costs 16 bytes per material on SH-2 plus a 12-byte table. No allocation
+occurs. A NULL `binding.programs` keeps ordinary dispatch. Unsupported RGB,
+Gouraud and color calculation materials receive general entries and may coexist
+with compiled entries. An instance slot override, unsafe projected bounds or
+near clipping also retains general dispatch. Only opaque, unshaded, safe indexed
+faces borrow compiled entries. Mesh effects and texture format remain encoded
+in the native command prefix.
+
+Materials, texture descriptors, the table and entry storage must remain
+immutable and alive until queued faces have flushed and asynchronous tasks
+have completed and released. Rebuild the table and source plan after changing
+material fields, palette, dimensions, VRAM address or descriptor identity.
+Invalid texture residency and owner generations still reject the complete
+queue before emission. Recompilation is not a texture lifetime lock.
+
+`sat_scene3d_face_t.program_valid` selects its active union member. Face
+inspection tools must read `program` for compiled entries and `material` for
+ordinary entries. Only initialized active fields may be compared or hashed;
+projected-safe records do not carry initialized world corners.
+
+The source plan publishes both compiled ranges on creation. Submitting CPUs
+skip these static ranges afterward; every receiving backend refreshes them,
+including Master fallback and a restarted Slave. Without a source plan the
+conservative publisher refreshes the table and entries with ordinary sources.
+Changing `binding.programs` requires source-plan republication.
+
+On the controlled Dino run, median work fell from 36.709 to 34.236 ms and
+emission from 6.728 to 4.938 ms. Submissions remained 20/s. Fixed-pose pixels
+are identical. The procedural paired RGB cube, which does not opt into
+compilation, pays 53.300 to 54.468 ms; its cadence remains 15/s. The additional
+queue tag and dispatch have a cost. Preparation selects a specialized ordinary
+or compiled loop once per instance; the initial shared-loop prototype was
+worse at 55.157 ms. See the [study](RENDERER_PIPELINE_STUDY.md) and retained
+`harness/studies/material-programs/results.json` for scope and evidence.

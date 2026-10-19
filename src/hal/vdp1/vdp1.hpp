@@ -119,6 +119,8 @@ sat_result_t sprite_batch_window_begin(sat_sprite_batch_window_t* win, uint32_t 
 sat_result_t sprite_batch_window_end(const sat_sprite_batch_window_t* win, sat_sprite_batch_stats_t* stats);
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req);
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req);
+sat_result_t push_projected_program(const sat_quad2_t& quad,
+    const uint16_t* prefix,const sat_vdp1_texture_t& texture);
 sat_result_t push_projected_sprite(const sat_quad2_t& quad,
     const sat_vdp1_texture_t& texture, uint16_t flags);
 sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req, const uint16_t* gouraud);

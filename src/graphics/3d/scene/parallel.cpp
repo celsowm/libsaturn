@@ -66,6 +66,12 @@ sat_result_t sync_material_sources(const sat_scene3d_instance_t* instance) {
         }
     }
     SAT_TRY(sync_range(run, run_count * sizeof(*run)));
+    const auto* binding=instance->validated_binding;
+    if (binding && binding->programs) {
+        const auto* programs=binding->programs;
+        SAT_TRY(sync_range(programs,sizeof(*programs)));
+        SAT_TRY(sync_range(programs->entries,static_cast<uint32_t>(programs->count)*sizeof(*programs->entries)));
+    }
     return SAT_OK;
 }
 
@@ -76,7 +82,8 @@ bool plan_matches(const sat_scene3d_source_plan_t* plan,
     return b.valid && mesh && b.indices == mesh->indices &&
         b.vertex_count == mesh->vertex_count && b.face_count == mesh->face_count &&
         b.materials == instance->materials && b.material_count == instance->material_count &&
-        b.face_materials == instance->face_materials;
+        b.face_materials == instance->face_materials &&
+        b.programs == (instance->validated_binding ? instance->validated_binding->programs : nullptr);
 }
 
 sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch, bool receiving) {
@@ -203,6 +210,14 @@ extern "C" sat_result_t sat_scene3d_source_plan_init(
         ranges[plan.range_count++] = {address, bytes};
         return SAT_OK;
     };
+    const auto* programs=plan.topology.programs;
+    if (programs) {
+        if (!programs->valid || !programs->entries ||
+            programs->materials!=instance->materials || programs->count!=instance->material_count)
+            return SAT_ERR_INVALID_ARG;
+        SAT_TRY(append(programs,sizeof(*programs)));
+        SAT_TRY(append(programs->entries,static_cast<uint32_t>(programs->count)*sizeof(*programs->entries)));
+    }
     const auto* mesh = instance->mesh;
     SAT_TRY(append(mesh->indices, static_cast<uint32_t>(mesh->face_count)*4u*sizeof(*mesh->indices)));
     SAT_TRY(append(instance->materials, static_cast<uint32_t>(instance->material_count)*sizeof(*instance->materials)));

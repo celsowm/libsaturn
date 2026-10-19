@@ -680,6 +680,23 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
 
 /* Fused scene writer: no intermediate command/resolved/request coordinate
  * arrays. It writes only the current Work RAM list, never in-flight VRAM. */
+sat_result_t push_projected_program(const sat_quad2_t& quad,
+    const uint16_t* prefix,const sat_vdp1_texture_t& texture) {
+    if (!g_cmd_buffer) return SAT_ERR_NOT_INITIALIZED;
+    if (!prefix || !texture.valid) return SAT_ERR_INVALID_ARG;
+    if (command_slot_unavailable()) return SAT_ERR_CAPACITY;
+    Command& cmd=g_cmd_buffer[g_cmd_count++];
+    cmd.ctrl=prefix[0];cmd.link=0;
+    cmd.pmod=prefix[2];cmd.colr=prefix[3];
+    cmd.srca=prefix[4];cmd.size=prefix[5];
+    cmd.xa=quad.x[0];cmd.ya=quad.y[0];
+    cmd.xb=quad.x[1];cmd.yb=quad.y[1];
+    cmd.xc=quad.x[2];cmd.yc=quad.y[2];
+    cmd.xd=quad.x[3];cmd.yd=quad.y[3];
+    cmd.grda=0;cmd.pad=0;
+    return SAT_OK;
+}
+
 sat_result_t push_projected_sprite(const sat_quad2_t& quad,
     const sat_vdp1_texture_t& texture, uint16_t flags) {
     if (g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;

@@ -148,8 +148,10 @@ static sat_projected_vertex_t g_slave_screen[MODEL_VERTEX_CAP];
 static sat_scene3d_face_t g_slave_faces[SLAVE_FACES] DINO_WRAM_L;
 static uint32_t g_slave_keys[SLAVE_FACES];
 static sat_scene3d_prepare_item_t g_slave_item DINO_WRAM_L;
+static sat_scene3d_material_programs_t g_material_programs DINO_WRAM_L;
+static sat_scene3d_material_program_t g_material_program_storage[MODEL_TEXTURE_CAP] DINO_WRAM_L;
 static sat_scene3d_source_plan_t g_slave_sources DINO_WRAM_L;
-static sat_scene3d_source_range_t g_slave_source_ranges[MODEL_TEXTURE_CAP + 3u] DINO_WRAM_L;
+static sat_scene3d_source_range_t g_slave_source_ranges[MODEL_TEXTURE_CAP + 5u] DINO_WRAM_L;
 static sat_scene3d_prepare_batch_t g_slave_batch DINO_WRAM_L;
 static sat_parallel_handle_t g_slave_handle DINO_WRAM_L;
 static sat_scene_t g_scene DINO_WRAM_L;
@@ -839,14 +841,17 @@ int main(void) {
         }
     }
     /* Immutable face/material topology survives alternating decoded poses. */
+    sat_example_must(sat_scene3d_material_programs_init(&g_material_programs,
+        g_scene_materials,MODEL_TEXTURE_CAP,g_material_program_storage,MODEL_TEXTURE_CAP));
     for (uint8_t half = 0u; half < 2u; ++half) {
         sat_example_must(sat_scene3d_instance_binding_init(
             &g_half_binding[half], g_half[half].mesh, g_half[half].materials,
             g_half[half].material_count, g_half[half].face_materials));
+        g_half_binding[half].programs=&g_material_programs;
         g_half[half].validated_binding = &g_half_binding[half];
     }
     sat_example_must(sat_scene3d_source_plan_init(&g_slave_sources, &g_half[1],
-        g_slave_source_ranges, MODEL_TEXTURE_CAP + 3u));
+        g_slave_source_ranges, MODEL_TEXTURE_CAP + 5u));
     g_slave_item.source_plan = &g_slave_sources;
     loading_step(30u);
 

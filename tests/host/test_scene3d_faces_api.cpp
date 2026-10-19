@@ -407,7 +407,122 @@ static void instance_projection_proof_matches_individual_faces() {
     emitted_count=0;
 }
 
+static void compiled_materials_preserve_emission_and_residency() {
+    sat_vdp1_texture_t texture[2]={};
+    sat_scene3d_material_t materials[2]={};
+    for(unsigned i=0;i<2;++i) {
+        texture[i].valid=1;texture[i].width=8;texture[i].height=8;
+        texture[i].format=SAT_VDP1_TEXTURE_LUT4;texture[i].palette=0x180u+i;
+        texture[i].srca=31u+i;
+        materials[i].kind=SAT_SCENE3D_INDEXED_TEXTURED;
+        materials[i].color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+        materials[i].texture=&texture[i];
+    }
+    materials[1].sprite_flags=SAT_SPRITE_FLAG_MESH;
+    sat_scene3d_material_programs_t table={};
+    sat_scene3d_material_program_t programs[2]={};
+    assert(sat_scene3d_material_programs_init(&table,materials,2,programs,1)==SAT_ERR_CAPACITY);
+    assert(!table.valid);
+    assert(sat_scene3d_material_programs_init(&table,materials,2,programs,2)==SAT_OK);
+    assert(table.valid && table.all_compiled);
+    assert(programs[1].command[0]==2 && programs[1].command[1]==0);
+    assert(programs[1].command[2]==0x0188 && programs[1].command[3]==0x181);
+    assert(programs[1].command[4]==32 && programs[1].command[5]==0x0108);
+    sat_quad3_t world=quad(2);
+    uint16_t indices[64],map[16];
+    for(unsigned i=0;i<64;++i)indices[i]=i%4;
+    for(unsigned i=0;i<16;++i)map[i]=i%2;
+    sat_mesh_t mesh={};mesh.vertices=world.v;mesh.indices=indices;
+    mesh.vertex_count=mesh.vertex_cap=4;mesh.face_count=mesh.face_cap=16;
+    sat_scene3d_instance_binding_t binding={};
+    assert(sat_scene3d_instance_binding_init(&binding,&mesh,materials,2,map)==SAT_OK);
+    binding.programs=&table;
+    sat_scene3d_instance_t instance={};instance.mesh=&mesh;instance.materials=materials;
+    instance.material_count=2;instance.face_materials=map;instance.validated_binding=&binding;
+    sat_scene3d_face_t entries[3][16]={};uint32_t keys[3][16]={};uint16_t order[3][16]={};
+    sat_scene3d_faces_t scene[3]={};sat_projected_vertex_t screen[4]={};
+    sat_mat4_t vp={};vp.m[0]=SAT_FX16_ONE;
+    const sat_vec3_t eye={},forward={0,0,SAT_FX16_ONE};
+    for(unsigned i=0;i<3;++i) {
+        assert(sat_scene3d_faces_init(&scene[i],entries[i],keys[i],order[i],16)==SAT_OK);
+        assert(sat_scene3d_faces_begin(&scene[i],&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    }
+    assert(sat_scene3d_faces_submit_instance(&scene[0],&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+    auto reference=instance;reference.validated_binding=nullptr;
+    assert(sat_scene3d_faces_submit_instance(&scene[1],&reference,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+    sat_scene3d_prepare_batch_t batch={};batch.faces=entries[0];batch.keys=keys[0];
+    batch.capacity=16;batch.metrics.prepared_faces=16;
+    assert(sat_scene3d_faces_merge_prepared(&scene[2],&batch)==SAT_OK);
+    for(unsigned i=0;i<16;++i) {
+        assert(entries[0][i].program_valid && entries[2][i].program_valid);
+        assert(entries[0][i].program==&programs[map[i]] && entries[2][i].program==entries[0][i].program);
+        assert(!entries[1][i].program_valid && keys[0][i]==keys[1][i]);
+        for(unsigned c=0;c<4;++c) {
+            assert(entries[0][i].projected.x[c]==entries[1][i].projected.x[c]);
+            assert(entries[0][i].projected.y[c]==entries[1][i].projected.y[c]);
+        }
+    }
+    emitted_count=0;
+    for(auto& s:scene)assert(sat_scene3d_faces_flush(&s)==SAT_OK);
+    assert(emitted_count==48);
+    for(unsigned i=0;i<16;++i)assert(emitted[i]==emitted[16+i] && emitted[i]==emitted[32+i]);
+    assert(sat_scene3d_faces_begin(&scene[0],&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_submit_instance(&scene[0],&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+    // An instance-wide color slot keeps general dispatch even when every
+    // underlying immutable material has a compiled opaque entry.
+    scene[0].count=0;
+    assert(sat_scene3d_faces_submit_instance(&scene[0],&instance,2u,screen,nullptr)==SAT_OK);
+    for(const auto& entry:entries[0])assert(!entry.program_valid && entry.material.color_calc_slot==2u);
+    emitted_count=0;assert(sat_scene3d_faces_flush(&scene[0])==SAT_OK);
+    for(unsigned i=0;i<16;++i)assert(emitted_slot[i]==2u);
+    assert(sat_scene3d_faces_begin(&scene[0],&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_submit_instance(&scene[0],&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+    texture[1].valid=0;emitted_count=0;
+    assert(sat_scene3d_faces_flush(&scene[0])==SAT_ERR_INVALID_ARG && emitted_count==0);
+    texture[1].valid=1;
+    assert(sat_scene3d_faces_begin(&scene[0],&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    table.count=1;
+    assert(sat_scene3d_faces_submit_instance(&scene[0],&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_ERR_INVALID_ARG);
+    table.count=2;
+    const uint16_t shades[4]={1,2,3,4};materials[1].vertex_gouraud=shades;
+    assert(sat_scene3d_instance_binding_init(&binding,&mesh,materials,2,map)==SAT_OK);
+    binding.programs=&table;
+    assert(sat_scene3d_material_programs_init(&table,materials,2,programs,2)==SAT_OK);
+    assert(!table.all_compiled && !programs[1].texture);
+    assert(sat_scene3d_faces_submit_instance(&scene[0],&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+    assert(entries[0][0].program_valid && !entries[0][1].program_valid && entries[0][1].gouraud_valid);
+    emitted_count=0;assert(sat_scene3d_faces_flush(&scene[0])==SAT_OK);emitted_count=0;
+    world.v[0].z=SAT_FX16_ONE/2;
+    assert(sat_scene3d_faces_begin(&scene[0],&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_submit_instance(&scene[0],&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+    for(const auto& entry:entries[0])assert(!entry.program_valid);
+    assert(scene[0].clipped_faces==16);
+    assert(sat_scene3d_faces_flush(&scene[0])==SAT_OK);emitted_count=0;
+    world.v[0].z=2*SAT_FX16_ONE;
+    sat_scene3d_owner_span_t spans[1]={};
+    assert(sat_scene3d_faces_bind_owner_validator(&scene[0],validate_owner_for_test,nullptr,spans,1)==SAT_OK);
+    assert(sat_scene3d_faces_begin(&scene[0],&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_submit_instance(&scene[0],&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+    assert(entries[0][0].program_valid);
+    assert(sat_scene3d_faces_mark_owner(&scene[0],0,1,0,7,&texture[0])==SAT_OK);
+    verified_owner_generation=8;
+    assert(sat_scene3d_faces_flush(&scene[0])==SAT_ERR_INVALID_ARG && emitted_count==0);
+    texture[0].width=7;
+    assert(sat_scene3d_material_programs_init(&table,materials,2,programs,2)==SAT_ERR_INVALID_ARG && !table.valid);
+    texture[0].width=8;
+    materials[0].kind=SAT_SCENE3D_RGB;
+    assert(sat_scene3d_material_programs_init(&table,materials,2,programs,2)==SAT_OK && !programs[0].texture);
+    materials[0].kind=SAT_SCENE3D_INDEXED_TEXTURED;materials[0].color_calc_slot=2;
+    assert(sat_scene3d_material_programs_init(&table,materials,2,programs,2)==SAT_OK && !programs[0].texture);
+    materials[0].color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    sat_indexed_tiled_quad3_t tiled={};tiled.full=&texture[0];
+    materials[0].kind=SAT_SCENE3D_INDEXED_TILED;materials[0].tiled=&tiled;
+    assert(sat_scene3d_material_programs_init(&table,materials,2,programs,2)==SAT_OK);
+    assert(programs[0].texture==&texture[0] && programs[0].command[4]==texture[0].srca);
+}
+
 int main() {
+    compiled_materials_preserve_emission_and_residency();
     instance_projection_proof_matches_individual_faces();
     lut4_gouraud_corners_are_owned_by_scene();
     split_faces_sort_by_their_own_depth();
@@ -1380,4 +1495,10 @@ sat_result_t saturn::internal::draw_projected_sprite(const sat_quad2_t& quad,
     cmd.texture=&texture;cmd.flags=flags;
     for(unsigned i=0;i<4;++i){cmd.x[i]=quad.x[i];cmd.y[i]=quad.y[i];}
     return sat_draw_sprite_distorted(&cmd);
+}
+
+sat_result_t saturn::internal::draw_projected_program(const sat_quad2_t& quad,
+    const sat_scene3d_material_program_t& program) {
+    return draw_projected_sprite(quad,*program.texture,
+        (program.command[2]&0x0100u)?SAT_SPRITE_FLAG_MESH:0u);
 }

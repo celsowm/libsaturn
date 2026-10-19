@@ -8,6 +8,13 @@
 #include "src/hal/vdp1/vdp1.hpp"
 #include "src/graphics/vdp1/projected.hpp"
 
+sat_result_t saturn::internal::draw_projected_program(const sat_quad2_t& quad,
+    const sat_vdp1_projected_program_t& program) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (!program.texture) return SAT_ERR_INVALID_ARG;
+    return saturn::hal::vdp1::push_projected_program(quad,program.command,*program.texture);
+}
+
 sat_result_t saturn::internal::draw_projected_sprite(const sat_quad2_t& quad,
     const sat_vdp1_texture_t& texture, uint16_t flags) {
     SAT_TRY(saturn::core::require_initialized());
