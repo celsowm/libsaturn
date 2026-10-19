@@ -1,0 +1,13 @@
+{
+  "before": "build/diagnostics/renderer-dino-flush-paused-20261019",
+  "after": "build/diagnostics/renderer-cull16-paused-20261019",
+  "model_crop": [
+    0,
+    56,
+    640,
+    200
+  ],
+  "different_pixels": 0,
+  "before_submissions": 20.0,
+  "after_submissions": 24.0
+}

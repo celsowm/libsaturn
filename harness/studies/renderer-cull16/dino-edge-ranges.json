@@ -1,0 +1,30 @@
+{
+  "elf_sha256": "0994ff166c633626569a0c01f5d78270e170d035cf1c57356d905d7aa9062ee2",
+  "checkpoint_pc": 100690876,
+  "opcode": 12774,
+  "edge_registers": [
+    8,
+    6,
+    11,
+    0,
+    9,
+    10
+  ],
+  "trace_from": 1100,
+  "frames_stored": 6,
+  "cpus": {
+    "master": {
+      "checkpoints": 919,
+      "old_range": 693,
+      "newly_eligible": 208,
+      "wide_range": 18
+    },
+    "slave": {
+      "checkpoints": 695,
+      "old_range": 338,
+      "newly_eligible": 219,
+      "wide_range": 138
+    }
+  },
+  "scope": "Exact observed edge-box eligibility, not timing or completed fast-path calls. Zero normals still fall back. Matching ELF/register liveness requires disassembly review."
+}

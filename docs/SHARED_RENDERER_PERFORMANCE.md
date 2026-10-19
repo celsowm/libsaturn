@@ -368,3 +368,81 @@ measured result as baseline. Repeating the already documented 88-byte geometry
 union saved allocation but left complete work/cadence essentially unchanged;
 the production record remains 104 bytes. See the earlier face-layout rejection
 in the pipeline study before repeating any of those experiments.
+
+## Exact signed-16-bit visibility kernel
+
+Small-face world culling now admits the complete signed-16-bit edge interval,
+instead of signed 15 bits. Named `constexpr` values derive the unsigned offset
+and span from the edge width; a static assertion prevents expanding it beyond
+the arithmetic proof. The wide kernel's repeated normal split/mask values
+are named too. Normal precision, winding, truncated four-corner centre,
+degenerate fallback and the 104-byte public face record remain unchanged.
+
+Every cross component has magnitude at most 2147450880. The joint normal L1
+norm is at most 4294967295: convexity in each of the six edge coordinates puts
+a maximum at one of the 64 box corners. Thus every dot partial sum has
+magnitude at most 9223372034707292160, below INT64_MAX, even with an INT32_MIN
+view offset. This assumes the existing int32 edge and eye-centre differences
+are representable; it does not enlarge those coordinate contracts. Independent
+128-bit host oracles cover all 64 edge corners against 125 view vectors,
+adjacent guard boundaries, warped centres, cancellation and collapsed corners.
+The existing 20,000 randomized facing cases remain enabled.
+
+Compared with `4cf7c09` on the same retained Ymir/BIOS/cache controls:
+
+| Dino interval / scenario | Before | Signed-16-bit guard |
+| --- | ---: | ---: |
+| Instrumented Master geometry, median | 19.706 ms | 18.775 ms |
+| Instrumented worker geometry, median | 16.828 ms | 15.840 ms |
+| Instrumented whole work, median | 34.084 ms | 33.181 ms |
+| Instrumented animated submissions/s | 20.0 | 22.7 |
+| Release animated submissions/s | 20.0 | 23.6 |
+| Release paused submissions/s | 20.0 | 24.0 |
+| Release control-script submissions/s | 20.0 | 20.0 |
+
+The phase comparison has 63 complete samples per run, FRT 210600 Hz and
+observed Master/Slave CCR 1/0. Whole work improves 2.65%; phase rings and
+uninstrumented submissions are separate experiments. Poses no longer align
+by field once speed changes; paused, unlit Dino crops are identical. RGB,
+textured and paired 864-face cube controls retain 15/s with zero changed crop
+pixels and less than 0.02% work variation: their small edges already satisfied
+the old guard. The SH-2 visibility symbol grows from 508 to 512 bytes. Naming
+the constants produces an identical release Dino application binary.
+
+This primarily benefits Dino. Release Paul over approximately 5400 VBlanks
+changes from 9.84245 to 9.84444 submissions/s, effectively unchanged; logic
+remains about 39.38 ticks/s. Exact six-field register captures starting at
+field 1100 show the different range eligibility:
+
+| Consumer / CPU | Checkpoints | Old range | Newly eligible | Still wide |
+| --- | ---: | ---: | ---: | ---: |
+| Dino Master | 919 | 693 | 208 | 18 |
+| Dino Slave | 695 | 338 | 219 | 138 |
+| Paul Master | 343 | 326 | 17 | 0 |
+| Paul Slave | 355 | 342 | 13 | 0 |
+
+These count eligibility, including zero normals that still fall back, rather
+than completed fast-path calls. The guest binary is unmodified. At the reviewed
+pre-branch `cmp/hi` instruction, D-A is in r8/r6/r11 and B-A in r0/r9/r10:
+
+```sh
+python3 harness/scripts/visibility_ranges.py \
+  --prefix build/diagnostics/renderer-cull16-range-dino-20261019/debug \
+  --elf build/diagnostics/renderer-cull16-animated-metrics-20261019/dino_demo.elf \
+  --pc 0x6006bbc --registers 8 6 11 0 9 10 --opcode 0x31e6 \
+  --out /tmp/dino-edge-ranges.json
+```
+
+Capture with `probe --debug-profile PREFIX --trace-from 1100 --trace-frames 6
+--trace-capacity 524288 --snapshot-pc ADDRESS`, alongside retained boot/input
+arguments. Paul's checkpoint is 0x60198d4 in its retained ELF. Addresses and
+register allocations are binary-specific: review fresh disassembly after a
+rebuild. The analyzer rejects dropped/empty captures and wrong opcodes, records
+the ELF hash, and requires manual confirmation of matching ELF/register liveness.
+
+Public numeric evidence is in `harness/studies/renderer-cull16/`. Private runs
+use `build/diagnostics/renderer-cull16-*`. Independent native-disc Mednafen
+recordings for Dino and the game boot successfully and were visually reviewed.
+The supported host/tool suite and five package CTests pass. These emulator
+submission rates do not establish distinct displayed frames or physical Saturn
+timing; the game's larger simulation/geometry budget still needs separate work.

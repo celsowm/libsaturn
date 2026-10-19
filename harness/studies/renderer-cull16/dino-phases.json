@@ -1,0 +1,92 @@
+{
+  "before": "build/diagnostics/renderer-dino-flush-after-metrics-20261019",
+  "after": "build/diagnostics/renderer-cull16-animated-metrics-20261019",
+  "scenario": "animated",
+  "checkpoint": 1200,
+  "samples": [
+    63,
+    63
+  ],
+  "submissions_per_second": [
+    20.0,
+    22.7
+  ],
+  "phase_costs": {
+    "collect": {
+      "before_median_ms": 0.3466286799620133,
+      "after_median_ms": 0.3466286799620133,
+      "median_change_percent": 0.0
+    },
+    "publish": {
+      "before_median_ms": 0.3466286799620133,
+      "after_median_ms": 0.3466286799620133,
+      "median_change_percent": 0.0
+    },
+    "master_geometry": {
+      "before_median_ms": 19.705603038936374,
+      "after_median_ms": 18.774928774928775,
+      "median_change_percent": -4.722891566265064
+    },
+    "join": {
+      "before_median_ms": 1.1253561253561255,
+      "after_median_ms": 1.1301044634377968,
+      "median_change_percent": 0.42194092827003704
+    },
+    "merge": {
+      "before_median_ms": 0.8784425451092118,
+      "after_median_ms": 0.8784425451092118,
+      "median_change_percent": 0.0
+    },
+    "flush": {
+      "before_median_ms": 7.901234567901234,
+      "after_median_ms": 7.915479582146249,
+      "median_change_percent": 0.18028846153845812
+    },
+    "present": {
+      "before_median_ms": 1.177587844254511,
+      "after_median_ms": 1.1728395061728394,
+      "median_change_percent": -0.40322580645161255
+    },
+    "work": {
+      "before_median_ms": 34.08357075023741,
+      "after_median_ms": 33.18138651471985,
+      "median_change_percent": -2.646976873780993
+    },
+    "painter": {
+      "before_median_ms": 2.1130104463437798,
+      "after_median_ms": 2.1130104463437798,
+      "median_change_percent": 0.0
+    },
+    "emit": {
+      "before_median_ms": 4.738841405508072,
+      "after_median_ms": 4.743589743589744,
+      "median_change_percent": 0.10020040080158665
+    },
+    "join_response": {
+      "before_median_ms": 0.0,
+      "after_median_ms": 0.0,
+      "median_change_percent": null
+    },
+    "worker_source": {
+      "before_median_ms": 1.566951566951567,
+      "after_median_ms": 1.566951566951567,
+      "median_change_percent": 0.0
+    },
+    "worker_geometry": {
+      "before_median_ms": 16.828110161443497,
+      "after_median_ms": 15.84045584045584,
+      "median_change_percent": -5.869074492099324
+    },
+    "worker_output": {
+      "before_median_ms": 0.12345679012345678,
+      "after_median_ms": 0.12345679012345678,
+      "median_change_percent": 0.0
+    },
+    "worker_total": {
+      "before_median_ms": 18.513770180436847,
+      "after_median_ms": 17.526115859449195,
+      "median_change_percent": -5.334701205437298
+    }
+  },
+  "scope": "Instrumented local CPU elapsed intervals including stalls/interrupts. Worker work overlaps Master work; do not add them. Both FRTs use /128; conversion uses Master calibration, never cross-CPU timestamps. Publish includes dispatch; join includes completion consumption; join_response is only executor response waits, excluding service/consumption. VDP1 transfer is inside present; no distinct display FPS claim."
+}

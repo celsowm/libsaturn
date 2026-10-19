@@ -1,0 +1,15 @@
+{
+  "runs": [],
+  "passed": true,
+  "cadence": {
+    "refresh_hz": 60,
+    "interval": {
+      "vblanks": 5400,
+      "submitted_frames": 886,
+      "sim_ticks": 3544
+    },
+    "submissions_per_second": 9.844444444444445,
+    "logic_ticks_per_second": 39.37777777777778,
+    "scope": "Uninstrumented endpoints are required for gameplay cadence; submitted frames are not verified display swaps."
+  }
+}

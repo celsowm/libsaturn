@@ -771,3 +771,13 @@ Public numbers and image hashes are retained in
 native boot: `dino-program-split-mednafen`.
 Reuse `dino_pipeline.py`, `dino_phase_metrics.py` and `cube_pipeline.py` for
 capture, comparison and native recording.
+
+## Signed-16-bit visibility follow-up
+
+The exact small-face edge guard now accepts signed 16-bit differences, with
+joint cross-normal bounds and an independent 128-bit oracle. Dino benefits;
+release Paul remains effectively unchanged. See the
+[shared renderer measurements](SHARED_RENDERER_PERFORMANCE.md#exact-signed-16-bit-visibility-kernel)
+and `harness/studies/renderer-cull16/` before repeating range or layout trials.
+The reusable `visibility_ranges.py` analyzer distinguishes observed old-range,
+newly eligible and still-wide edges without modifying guest code.

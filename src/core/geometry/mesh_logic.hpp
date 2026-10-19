@@ -229,17 +229,19 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
         static_cast<sat_fx16_t>((static_cast<int64_t>(a.z) + b.z + c.z + d.z) / 4));
     const sat_vec3_t v = vec3_sub(eye, centre);
     const int32_t w[3] = {v.x, v.y, v.z};
+    constexpr unsigned kNormalSplitBits = 24;
+    constexpr int64_t kNormalLowMask = (int64_t{1} << kNormalSplitBits) - 1;
     int64_t hi = 0;
     int64_t lo = 0;
     for (int i = 0; i < 3; ++i) {
         /* Both halves fit 32 bits, so each product is one 32x32 multiply. */
-        const int32_t h = static_cast<int32_t>(n[i] >> 24);         /* |h| < 2^26 */
-        const int32_t l = static_cast<int32_t>(n[i] & 0xFFFFFF);    /* 0..2^24-1 */
+        const int32_t h = static_cast<int32_t>(n[i] >> kNormalSplitBits); /* |h| < 2^26 */
+        const int32_t l = static_cast<int32_t>(n[i] & kNormalLowMask);   /* 0..2^24-1 */
         hi += static_cast<int64_t>(h) * w[i];
         lo += static_cast<int64_t>(l) * w[i];
     }
-    hi += lo >> 24;
-    return hi > 0 || (hi == 0 && (lo & 0xFFFFFF) != 0);
+    hi += lo >> kNormalSplitBits;
+    return hi > 0 || (hi == 0 && (lo & kNormalLowMask) != 0);
 }
 
 /* Keep this kernel out of large scene loops: forcing it inline inflates
@@ -250,15 +252,23 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
     const sat_vec3_t da=vec3_sub(d,a),ba=vec3_sub(b,a);
     /* A separate wide kernel keeps its large SH-2 stack/register footprint
      * out of ordinary small faces. Six offset/OR tests prove every edge is
-     * in [-16384,16383]. Each exact cross component then fits 29 bits and
-     * its three signed 32x32 dot products fit their signed 64-bit sum. */
-    const uint32_t edge_range=(static_cast<uint32_t>(da.x)+16384u) |
-        (static_cast<uint32_t>(da.y)+16384u) |
-        (static_cast<uint32_t>(da.z)+16384u) |
-        (static_cast<uint32_t>(ba.x)+16384u) |
-        (static_cast<uint32_t>(ba.y)+16384u) |
-        (static_cast<uint32_t>(ba.z)+16384u);
-    if(edge_range<32768u) {
+     * in [-32768,32767]. Cross components have magnitude <=2147450880.
+     * The joint normal L1 bound is 2^32-1 (not three independent maxima):
+     * convexity in each edge coordinate puts its maximum at a box corner.
+     * Thus every dot partial sum has magnitude <=(2^32-1)*2^31, which
+     * fits int64 even for INT32_MIN view offsets. Host corner/oracle tests
+     * retain both bounds; degenerate normals still use the wide kernel. */
+    constexpr unsigned kFastEdgeBits = 16;
+    static_assert(kFastEdgeBits <= 16, "The exact cross/dot proof requires signed 16-bit edges");
+    constexpr uint32_t kFastEdgeBias = uint32_t{1} << (kFastEdgeBits - 1);
+    constexpr uint32_t kFastEdgeSpan = uint32_t{1} << kFastEdgeBits;
+    const uint32_t edge_range=(static_cast<uint32_t>(da.x)+kFastEdgeBias) |
+        (static_cast<uint32_t>(da.y)+kFastEdgeBias) |
+        (static_cast<uint32_t>(da.z)+kFastEdgeBias) |
+        (static_cast<uint32_t>(ba.x)+kFastEdgeBias) |
+        (static_cast<uint32_t>(ba.y)+kFastEdgeBias) |
+        (static_cast<uint32_t>(ba.z)+kFastEdgeBias);
+    if(edge_range<kFastEdgeSpan) {
         const int32_t nx=da.y*ba.z-da.z*ba.y;
         const int32_t ny=da.z*ba.x-da.x*ba.z;
         const int32_t nz=da.x*ba.y-da.y*ba.x;

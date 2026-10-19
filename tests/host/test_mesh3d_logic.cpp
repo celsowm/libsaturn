@@ -599,7 +599,8 @@ TEST(quad_visible_matches_exact_facing_test) {
 }
 
 TEST(visibility_small_edge_boundary_keeps_exact_facing) {
-    const int32_t sizes[]={0,1,-1,16383,16384,16385,-16383,-16384,-16385};
+    const int32_t sizes[]={0,1,-1,16383,16384,16385,-16383,-16384,-16385,
+        32767,32768,32769,-32767,-32768,-32769};
     for(int32_t edge:sizes)for(unsigned collapse=0;collapse<4;++collapse) {
         sat_quad3_t q={{vec3(199,-201,301),vec3(199+edge,-201+edge,301),
             vec3(199+edge,-201+2*edge,302+edge),vec3(199,-201+edge,301+edge)}};
@@ -622,6 +623,51 @@ TEST(visibility_small_edge_boundary_keeps_exact_facing) {
             ASSERT_EQ(quad_visible(q,eye)?1:0,dot>0?1:0);
         }
     }
+}
+
+TEST(visibility_signed16_edges_match_independent_wide_oracle) {
+    constexpr int32_t lo = -32768, hi = 32767;
+    constexpr int32_t views[] = {INT32_MIN, -1, 0, 1, INT32_MAX};
+    int64_t max_component = 0, max_l1 = 0;
+    // The cross product is affine in each of the six edge coordinates.
+    // Its absolute components and L1 norm are convex in each coordinate,
+    // so extrema over the entire box occur among these 64 corners.
+    for (unsigned mask = 0; mask < 64; ++mask) {
+        const sat_vec3_t d = vec3(mask & 1 ? hi : lo, mask & 2 ? hi : lo,
+                                  mask & 4 ? hi : lo);
+        const sat_vec3_t b = vec3(mask & 8 ? hi : lo, mask & 16 ? hi : lo,
+                                  mask & 32 ? hi : lo);
+        const int64_t n[] = {
+            int64_t(d.y) * b.z - int64_t(d.z) * b.y,
+            int64_t(d.z) * b.x - int64_t(d.x) * b.z,
+            int64_t(d.x) * b.y - int64_t(d.y) * b.x};
+        int64_t l1 = 0;
+        for (int64_t component : n) {
+            const int64_t magnitude = component < 0 ? -component : component;
+            if (magnitude > max_component) max_component = magnitude;
+            l1 += magnitude;
+        }
+        if (l1 > max_l1) max_l1 = l1;
+        // Warped C makes the centre exactly zero, allowing the entire
+        // signed int32 view-offset domain without overflowing eye-centre.
+        const sat_quad3_t q = {{vec3(0,0,0), b,
+            vec3(-b.x-d.x, -b.y-d.y, -b.z-d.z), d}};
+        for (int32_t x : views) for (int32_t y : views) for (int32_t z : views) {
+            const __int128 nx = __int128(d.y)*b.z - __int128(d.z)*b.y;
+            const __int128 ny = __int128(d.z)*b.x - __int128(d.x)*b.z;
+            const __int128 nz = __int128(d.x)*b.y - __int128(d.y)*b.x;
+            const __int128 dot = nx*x + ny*y + nz*z;
+            // Degenerate A,B,D falls back to C; here C=-B-D has the
+            // same zero normal, so its exact result remains edge-on.
+            ASSERT_EQ(quad_visible(q, vec3(x,y,z)), dot > 0);
+            ASSERT_TRUE(nx*x >= INT64_MIN && nx*x <= INT64_MAX);
+            ASSERT_TRUE(nx*x + ny*y >= INT64_MIN && nx*x + ny*y <= INT64_MAX);
+            ASSERT_TRUE(dot >= INT64_MIN && dot <= INT64_MAX);
+        }
+    }
+    ASSERT_EQ(max_component, 2147450880LL);
+    ASSERT_EQ(max_l1, 4294967295LL);
+    ASSERT_TRUE(__int128(max_l1) * (uint64_t(1) << 31) < INT64_MAX);
 }
 
 TEST(degenerate_triangle_quad_keeps_outward_normal) {
@@ -760,9 +806,10 @@ int main() {
     degenerate_triangle_quad_keeps_outward_normal();
     quad_visible_matches_exact_facing_test();
     visibility_small_edge_boundary_keeps_exact_facing();
+    visibility_signed16_edges_match_independent_wide_oracle();
     weld_vertices_shrinks_a_sphere_and_keeps_winding();
     weld_vertices_leaves_a_box_alone();
     weld_vertices_rejects_undersized_scratch();
-    printf("test_mesh3d_logic: 39 tests passed\n");
+    printf("test_mesh3d_logic: 40 tests passed\n");
     return 0;
 }
