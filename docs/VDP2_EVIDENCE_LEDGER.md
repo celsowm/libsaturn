@@ -1,6 +1,6 @@
 # VDP2 E01-E13 evidence ledger
 
-**Date:** 2026-10-18 (Phase A/B), 2026-10-19 (M7 CRAM follow-up)
+**Date:** 2026-10-18 (Phase A/B), 2026-10-19 (M7 CRAM follow-up and E01 colour fix)
 **Scope:** M6 Phase A evidence freeze and Phase B signoff-kit dry-run for the
 twelve VDP2 examples in
 `docs/VDP2_ADVANCED_EXAMPLES_IMPLEMENTATION_PLAN.md`, plus E13
@@ -81,15 +81,15 @@ linked and need `libstdc++-6.dll` from that directory.
 
 ## Phase B hardware signoff kit
 
-Prepared 2026-10-18 from clean commit `00e8d8b`; a clean rebuild reproduced
-every disc hash.
+Prepared 2026-10-19 from clean commit `d988fb2`; a clean rebuild reproduced
+every disc hash. This refresh includes the E01 16-colour fix.
 
-- Bundle: `dist/vdp2-signoff/2026-10-18/` (13 discs: E01-E12 core plus E13
-  supplemental; 107 files, 21,354,325 bytes).
+- Bundle: `dist/vdp2-signoff/2026-10-19/` (13 discs: E01-E12 core plus E13
+  supplemental; 107 files, 21,374,529 bytes).
 - Manifest SHA-256:
-  `2c555aed1217553b989550b8cf94a6356816d5cfdc5678d3aea61a119769ce90`.
+  `80d79c517a2dd79b7a6344a245e00ab9757f3ec7106d6f3d2841b3b0849e17e5`.
 - `SHA256SUMS.txt` SHA-256:
-  `072aacc04e25f69aac22bddba3c90d7c9794bca88395dd6c6186e1cbc4e56300`.
+  `da5137eb16c0b19381ff77706b9186590c1e6276373cd761e942b9a8b62416be`.
 - `harness/prepare-vdp2-signoff.ps1` builds each disc through
   `build-example.ps1`, copies the `.bin`/`.cue`, validates the raw image with
   `tools/check_disc_image.py`, and validates the IP/ISO first read with
@@ -124,8 +124,9 @@ every disc hash.
   commit/release and the eighth-full-bank refusal): **11/11 NTSC** and
   **11/11 PAL**.
 - The current VDP2 sweep remains **19/19 NTSC** and **19/19 PAL** after the
-  change. `make test`, `make examples-all` and the package gates
-  (host 3/3, package 5/5) pass.
+  CRAM change; E01 was re-run separately at **6/6 NTSC** and **6/6 PAL**
+  after the colour fix. `make test`, `make examples-all` and the package
+  gates (host 3/3, package 5/5) pass.
 - The cycle planner is still owned by `sat_vdp2_layer_configure` and remains
   outside the transaction, so `unified_resource_planner` stays `partial`.
   Physical hardware remains PENDING.
