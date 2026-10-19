@@ -655,3 +655,40 @@ calls in a fixed field window, so the higher aggregate memcpy share in an
 intermediate profile is not evidence that individual copies became slower.
 This remains a small measured improvement; no new presentation-rate target is
 claimed. The full host/tool suite and all five installed-package CTests pass.
+
+## Cache and work-split investigation
+
+The Slave's observed CCR=0 was tested explicitly, rather than assuming that its
+idle time was available to shorten the frame. The experimental executor entry
+calls the existing full-purge function through P2 before returning to cached
+code. CCR=5 enables instruction replacement while disabling operand replacement;
+CCR=1 enables both, as specified in SH7604 sections 8.2/8.4.6/8.5. Existing
+publication and receiver invalidation remain active. This experiment changes
+only the executor entry, not raw dual-CPU callbacks or the Master's CCR.
+
+All entries below are animated 600/1200-field captures with the same BIOS,
+probe and 210600 Hz calibration. Cache policy intentionally differs, so these
+are not passed off as matched-policy phase-comparator results.
+
+| Slave CCR / Master face share | Master geom ms | Worker geom ms | Join ms | Merge ms | Complete work ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 / 60% baseline | 19.440 | 16.804 | 1.125 | 1.144 | 36.709 |
+| 5 / 60% | 19.440 | 16.610 | 1.130 | 1.144 | 36.714 |
+| 1 / 60% | 19.440 | 14.520 | 1.130 | 1.144 | 36.714 |
+| 1 / 50% | 15.907 | 18.139 | 5.090 | 1.425 | 37.464 |
+| 1 / 55% | 17.617 | 16.249 | 1.254 | 1.287 | 35.380 |
+
+CCR=1 reduces worker geometry by 13.6% at the original split, but that worker
+was already completing before the Master needed its result. The 50/50 split
+moves unequal-cost face/vertex windows, increases join cost and regresses whole
+work. The 55/45 candidate improves complete work by 3.6% over the baseline;
+all five still report 20 nominal submissions/s. Worker acceleration and whole
+frame acceleration must be assessed separately.
+
+These are bounded animated experiments, not complete cache-lifecycle or native
+hardware qualification. The cache/default-split changes were removed from
+normal source. Public numeric evidence is `harness/studies/dino-cache-balance.json`.
+The reproducible source patch is `harness/studies/dino-cache-balance.patch`;
+apply it only in an experimental checkout, build Dino with
+`DINO_PIPELINE_METRICS=1 DINO_MASTER_FACE_PERCENT=55`, then use the existing
+Dino capture script. It is not enabled by the normal build.

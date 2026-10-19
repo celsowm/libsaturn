@@ -1,0 +1,190 @@
+{
+  "scope": "Controlled pinned-Ymir observations. Cache policy changes are intentional; no hardware-cadence certification. Global cache-policy experiment is not enabled in the shipping runtime.",
+  "runs": [
+    {
+      "capture": "dino-halfword-v2-animated",
+      "cache": {
+        "master": [
+          1
+        ],
+        "worker": [
+          0
+        ]
+      },
+      "master_share": 60,
+      "frequency": 210600,
+      "samples": 63,
+      "first_field": 1007,
+      "last_field": 1193,
+      "submissions_per_second": 20.0,
+      "elf_sha256": "1111a02798e69aef6f95ff52da58c3fa5bc6e430cd648de8f50f9659d025dde5",
+      "probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "median_ms": {
+        "collect": 0.3466286799620133,
+        "publish": 0.3466286799620133,
+        "master_geometry": 19.43969610636277,
+        "join": 1.1253561253561255,
+        "merge": 1.1443494776828111,
+        "flush": 10.584045584045583,
+        "present": 1.1585944919278253,
+        "work": 36.70940170940171,
+        "painter": 2.1130104463437798,
+        "emit": 6.728395061728396,
+        "join_response": 0.0,
+        "worker_source": 1.2250712250712252,
+        "worker_geometry": 16.804368471035136,
+        "worker_output": 0.12345679012345678,
+        "worker_total": 18.14814814814815
+      }
+    },
+    {
+      "capture": "dino-cache5-animated",
+      "cache": {
+        "master": [
+          1
+        ],
+        "worker": [
+          5
+        ]
+      },
+      "master_share": 60,
+      "frequency": 210600,
+      "samples": 63,
+      "first_field": 1007,
+      "last_field": 1193,
+      "submissions_per_second": 20.0,
+      "elf_sha256": "93c870986468b90ecd98c2d3593c42c0cee145f35dd3ae3e06dd82c89e96f103",
+      "probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "median_ms": {
+        "collect": 0.3466286799620133,
+        "publish": 0.3466286799620133,
+        "master_geometry": 19.43969610636277,
+        "join": 1.1301044634377968,
+        "merge": 1.1443494776828111,
+        "flush": 10.584045584045583,
+        "present": 1.1585944919278253,
+        "work": 36.71415004748338,
+        "painter": 2.108262108262108,
+        "emit": 6.728395061728396,
+        "join_response": 0.0,
+        "worker_source": 1.2155745489078822,
+        "worker_geometry": 16.609686609686612,
+        "worker_output": 0.12345679012345678,
+        "worker_total": 17.94396961063628
+      }
+    },
+    {
+      "capture": "dino-cache1-animated",
+      "cache": {
+        "master": [
+          1
+        ],
+        "worker": [
+          1
+        ]
+      },
+      "master_share": 60,
+      "frequency": 210600,
+      "samples": 63,
+      "first_field": 1007,
+      "last_field": 1193,
+      "submissions_per_second": 20.0,
+      "elf_sha256": "1c23d58a5a5b174248f11492fe42ed3a6b16e335e8ab102b34c5225401119ef8",
+      "probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "median_ms": {
+        "collect": 0.3466286799620133,
+        "publish": 0.3466286799620133,
+        "master_geometry": 19.43969610636277,
+        "join": 1.1301044634377968,
+        "merge": 1.1443494776828111,
+        "flush": 10.584045584045583,
+        "present": 1.1585944919278253,
+        "work": 36.71415004748338,
+        "painter": 2.108262108262108,
+        "emit": 6.728395061728396,
+        "join_response": 0.0,
+        "worker_source": 1.2060778727445396,
+        "worker_geometry": 14.520417853751187,
+        "worker_output": 0.11870845204178537,
+        "worker_total": 15.84520417853751
+      }
+    },
+    {
+      "capture": "dino-cache1-share50-animated",
+      "cache": {
+        "master": [
+          1
+        ],
+        "worker": [
+          1
+        ]
+      },
+      "master_share": 50,
+      "frequency": 210600,
+      "samples": 63,
+      "first_field": 1007,
+      "last_field": 1193,
+      "submissions_per_second": 20.0,
+      "elf_sha256": "542ba0db0b7a8325f456009a26586ad3898d5fc69a3cfb0f56be55e901c44252",
+      "probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "median_ms": {
+        "collect": 0.3466286799620133,
+        "publish": 0.38461538461538464,
+        "master_geometry": 15.90693257359924,
+        "join": 5.090218423551757,
+        "merge": 1.4245014245014245,
+        "flush": 10.584045584045583,
+        "present": 1.1585944919278253,
+        "work": 37.464387464387464,
+        "painter": 2.1130104463437798,
+        "emit": 6.728395061728396,
+        "join_response": 3.6372269705603038,
+        "worker_source": 1.2725546058879393,
+        "worker_geometry": 18.138651471984804,
+        "worker_output": 0.14719848053181386,
+        "worker_total": 19.553656220322885
+      }
+    },
+    {
+      "capture": "dino-cache1-share55-animated",
+      "cache": {
+        "master": [
+          1
+        ],
+        "worker": [
+          1
+        ]
+      },
+      "master_share": 55,
+      "frequency": 210540,
+      "samples": 63,
+      "first_field": 1007,
+      "last_field": 1193,
+      "submissions_per_second": 20.0,
+      "elf_sha256": "11628fb9712a4975423a22d98853b2a5d27cfcda47cb9c1ab447bbdf0d46de3b",
+      "probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "median_ms": {
+        "collect": 0.34672746271492355,
+        "publish": 0.3609765365251259,
+        "master_geometry": 17.616604920680153,
+        "join": 1.2539184952978057,
+        "merge": 1.2871663341882777,
+        "flush": 10.582312149710269,
+        "present": 1.1684240524365916,
+        "work": 35.380450270732396,
+        "painter": 2.108862923909946,
+        "emit": 6.720813147145435,
+        "join_response": 0.0,
+        "worker_source": 1.2349197302175359,
+        "worker_geometry": 16.24869383490073,
+        "worker_output": 0.13299135556188846,
+        "worker_total": 17.616604920680153
+      }
+    }
+  ]
+}
