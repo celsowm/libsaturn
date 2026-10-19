@@ -6,6 +6,7 @@
  * nothing from the repository tree. */
 #include <saturn/saturn.h>
 #include <saturn/int_math.h>
+#include <saturn/profile.h>
 
 #if !defined(SATURN_VERSION_STRING) || !defined(SATURN_VERSION_AT_LEAST)
 #error "the installed package must provide <saturn/version.h>"
@@ -13,6 +14,15 @@
 
 int main(void) {
     sat_pad_state_t pad;
+    sat_profile_t profile;
+    sat_profile_counter_t counters[1];
+    sat_profile_span_t spans[1];
+    if (!sat_profile_init(&profile, counters, 1, spans, 1) ||
+        !sat_profile_enter(&profile, 0, 1) ||
+        !sat_profile_leave(&profile, 0, 3) ||
+        !sat_profile_complete(&profile) || counters[0].exclusive != 2) {
+        for (;;) {}
+    }
     volatile int32_t negative_fraction = -4097;
     if (sat_floor_shift_i32(negative_fraction, 12u) != -2 ||
         sat_floor_shift_i64((int64_t)negative_fraction, 12u) != -2) {
