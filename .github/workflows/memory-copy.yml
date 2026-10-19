@@ -1,0 +1,33 @@
+name: Normal RAM copy gates
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/core/memory/bytes.h'
+      - 'src/core/startup/newlib_stubs.c'
+      - 'tests/host/test_memory_bytes.cpp'
+      - 'tests/tools/test_memory_copy_bench.py'
+      - 'examples/memory_copy_bench/**'
+      - 'harness/scripts/memory_copy_bench.py'
+      - '.github/workflows/memory-copy.yml'
+  pull_request:
+  workflow_dispatch:
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: make build/tests/test_memory_bytes && ./build/tests/test_memory_bytes
+      - run: python tests/tools/test_memory_copy_bench.py
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/saturn-toolchain
+      - run: make all EXAMPLE=memory_copy_bench IP_TEMPLATE_KIND=sbl -j3

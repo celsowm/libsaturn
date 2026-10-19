@@ -523,7 +523,7 @@ python3 harness/scripts/analyze_cpu_profile.py \
   --nm /path/to/sh2eb-elf-nm --out /path/to/capture/copies.json
 ```
 
-The six-field Paul capture `recovery-copy-entries` observes 928 copies requesting
+The six-field Paul capture `recovery-copy-entries` observes 828 copies requesting
 16880 bytes. Most calls are 18-byte rotation matrices from FK/IK and pose
 blending. Different modulo-four alignments select the libc byte path even when
 both pointers support halfword accesses. This identifies a concrete normal-RAM
@@ -532,3 +532,31 @@ The existing copy kernel already supports aligned 32-bit words. Empty checkpoint
 files do not prove that no copies occurred. Seven tool tests cover aliases,
 assembler boundaries, call-vs-return events, CPU separation, PR attribution,
 lengths, invalid register values and alignment/region classification.
+
+### Normal-RAM copy microbenchmark
+
+`examples/memory_copy_bench` invokes the actual freestanding libc entry through
+a volatile function pointer. It tests 512 combinations: all modulo-four source
+and destination offsets, High/Low Work RAM pairs and lengths 0, 2, 8, 18, 32,
+98, 183 and 704 bytes. Five local FRT intervals per case include call/loop
+costs and interrupts. Source content, destination guards and the returned
+pointer are checked outside the normal timed path. No asset fixture is needed.
+The kernel is measured with the Makefile's stock `-O2`; installed-package game
+measurements separately exercise its Release `-O3` compilation.
+
+```sh
+python3 harness/scripts/memory_copy_bench.py --bios /path/to/bios.bin \
+  --out harness/build/memory-copy-before
+# Rebuild after changing the libc kernel, keeping this probe unchanged.
+python3 harness/scripts/memory_copy_bench.py --bios /path/to/bios.bin \
+  --out harness/build/memory-copy-after
+python3 harness/scripts/memory_copy_bench.py --compare \
+  harness/build/memory-copy-before harness/build/memory-copy-after
+```
+
+Captures retain the image, exact ELF/BIOS/probe hashes, command, raw big-endian
+records and decoded cases. Comparison rejects different firmware/emulator or
+field windows, cache policy, duplicate/missing cases, failed guards and differing
+checksums. It reports calibrated local intervals and grouped alignment results;
+these remain emulator observations. Host oracle tests and a clean asset-free
+cross-build have a dedicated `Normal RAM copy gates` workflow.
