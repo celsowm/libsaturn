@@ -21,6 +21,10 @@ void* shared_uncached(void* pointer) {
     return sat_parallel_uncached_address(pointer);
 }
 
+uint32_t face_stride(const sat_scene3d_prepare_batch_t* batch) {
+    return batch->projected_faces?sizeof(sat_scene3d_projected_face_t):sizeof(sat_scene3d_face_t);
+}
+
 sat_result_t sync_range(const void* pointer, uint32_t size) {
     if (pointer == nullptr || size == 0u) return SAT_OK;
     return sat_parallel_cache_sync_range(pointer, size);
@@ -124,6 +128,8 @@ sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch, bool r
 
 sat_result_t sync_batch_outputs(const sat_scene3d_prepare_batch_t* batch) {
     if (batch == nullptr) return SAT_ERR_INVALID_ARG;
+    if(batch->projected_faces)SAT_TRY(sync_range(batch->faces,
+        static_cast<uint32_t>(batch->capacity)*sizeof(*batch->faces)));
     SAT_TRY(sync_range(batch->keys, static_cast<uint32_t>(batch->capacity) *
         sizeof(*batch->keys)));
     if (batch->items == nullptr) return SAT_OK;
@@ -149,7 +155,7 @@ sat_result_t prepare_batch_task(
         const_cast<sat_scene3d_prepare_batch_t*>(
             static_cast<const sat_scene3d_prepare_batch_t*>(input));
     if (output_capacity < static_cast<uint32_t>(shared->capacity) *
-            sizeof(sat_scene3d_face_t)) return SAT_ERR_CAPACITY;
+            face_stride(shared)) return SAT_ERR_CAPACITY;
 
     /* The nested graph is caller-owned. Publish it before the Slave reads it,
      * then invalidate the same exact ranges on the worker so cached aliases
@@ -165,7 +171,10 @@ sat_result_t prepare_batch_task(
     /* The executor output and face keys use uncached Slave aliases;
      * source descriptors remain immutable and may be read normally. */
     sat_scene3d_prepare_batch_t worker = *shared;
-    worker.faces = static_cast<sat_scene3d_face_t*>(output);
+    if(shared->projected_faces) {
+        worker.projected_faces=static_cast<sat_scene3d_projected_face_t*>(output);
+        worker.faces=static_cast<sat_scene3d_face_t*>(shared_uncached(shared->faces));
+    } else worker.faces = static_cast<sat_scene3d_face_t*>(output);
     worker.keys = static_cast<uint32_t*>(shared_uncached(shared->keys));
     const sat_result_t result = sat_scene3d_prepare_batch_execute(&worker);
 #if SAT_PROFILE_METRICS
@@ -186,7 +195,7 @@ sat_result_t prepare_batch_task(
     if (result == SAT_OK) {
         shared->metrics = worker.metrics;
         *output_size = static_cast<uint32_t>(worker.metrics.prepared_faces) *
-            sizeof(sat_scene3d_face_t);
+            face_stride(shared);
     }
     return result;
 }
@@ -278,6 +287,9 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
         return record_frame_result(scene,SAT_ERR_INVALID_ARG);
     // A pending task has not failed: callers can retry after completion.
     if (batch->pending != 0u) return SAT_ERR_BUSY;
+    if(batch->projected_faces && (batch->direct_owner!=&scene->faces ||
+       scene->faces.reserved_batch!=batch))return record_frame_result(scene,SAT_ERR_INVALID_ARG);
+
     const sat_result_t registered=sat_scene3d_prepare_parallel_register();
     if (registered != SAT_OK) return record_frame_result(scene,registered);
     batch->view_proj = scene->faces.view_proj;
@@ -296,7 +308,8 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
         saturn::hal::sh2::frt::counter()-publish_start);
 #endif
     const uint32_t output_capacity =
-        static_cast<uint32_t>(batch->capacity) * sizeof(sat_scene3d_face_t);
+        static_cast<uint32_t>(batch->capacity) * face_stride(batch);
+    void* const output=batch->projected_faces?static_cast<void*>(batch->projected_faces):batch->faces;
     // The batch owns its dispatch policy. The default conservatively keeps
     // geometry on Master in AUTO mode, matching the measured baseline.
     // A caller can explicitly delegate to the runtime for Master/Slave/AUTO
@@ -308,10 +321,10 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
     const sat_result_t submitted = local
         ? sat_parallel_submit_master(
             SAT_PARALLEL_TASK_SCENE_GEOMETRY, batch, sizeof(*batch),
-            batch->faces, output_capacity, out_handle)
+            output, output_capacity, out_handle)
         : sat_parallel_submit(
             SAT_PARALLEL_TASK_SCENE_GEOMETRY, batch, sizeof(*batch),
-            batch->faces, output_capacity, out_handle);
+            output, output_capacity, out_handle);
     if (submitted == SAT_OK) {
         batch->handle = *out_handle;
         batch->pending = 1u;
@@ -329,11 +342,12 @@ extern "C" sat_result_t sat_scene_merge_prepared_batch(
     const sat_result_t result = sat_parallel_result(handle, &output_size);
     if (result == SAT_ERR_BUSY) return SAT_ERR_BUSY;
     if (result != SAT_OK) return record_frame_result(scene,result);
-    if (output_size % sizeof(sat_scene3d_face_t) != 0u ||
-        output_size / sizeof(sat_scene3d_face_t) > batch->capacity)
+    const uint32_t stride=face_stride(batch);
+    if (output_size % stride != 0u ||
+        output_size / stride > batch->capacity)
         return record_frame_result(scene,SAT_ERR_VERIFY_FAILED);
     batch->metrics.prepared_faces = static_cast<uint16_t>(
-        output_size / sizeof(sat_scene3d_face_t));
+        output_size / stride);
     /* The worker wrote the keys through an uncached alias, and completion
      * invalidates only the face output on this CPU. Lines of the key array
      * left in this cache by an earlier merge would otherwise feed stale
@@ -364,6 +378,11 @@ extern "C" sat_result_t sat_scene_prepare_batch_release(
         if (released == SAT_OK) {
             batch->pending = 0u;
             batch->handle = 0u;
+            if(batch->direct_owner) {
+                if(batch->direct_owner->reserved_batch==batch)
+                    (void)sat_scene3d_faces_cancel_batch(batch->direct_owner,batch);
+                batch->direct_owner=nullptr;batch->projected_faces=nullptr;
+            }
         }
     }
     return record_frame_result(scene, released);

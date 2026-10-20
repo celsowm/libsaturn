@@ -17,6 +17,10 @@ static sat_result_t task_result=SAT_ERR_BUSY;
 static sat_result_t sync_status=SAT_OK;
 static sat_result_t merge_status=SAT_OK;
 static uint32_t task_bytes=0u;
+static void* submitted_output;
+static uint32_t submitted_capacity;
+static sat_scene3d_prepare_batch_t executed_batch;
+static sat_result_t release_status=SAT_OK;
 static uint32_t submit_count=0u;
 static uint32_t master_submit_count=0u;
 static sat_parallel_mode_t selected_mode=SAT_PARALLEL_MASTER;
@@ -38,8 +42,9 @@ extern "C" sat_parallel_mode_t sat_parallel_mode(void) {
     return selected_mode;
 }
 extern "C" sat_result_t sat_parallel_submit(
-    sat_parallel_task_type_t,const void*,uint32_t,void*,uint32_t,
+    sat_parallel_task_type_t,const void*,uint32_t,void* output,uint32_t capacity,
     sat_parallel_handle_t* handle) {
+    submitted_output=output;submitted_capacity=capacity;
     ++submit_count;
     if (submit_status==SAT_OK) *handle=last_handle;
     return submit_status;
@@ -57,10 +62,16 @@ extern "C" sat_result_t sat_parallel_result(
     return task_result;
 }
 extern "C" sat_result_t sat_parallel_release(sat_parallel_handle_t) {
-    return SAT_OK;
+    return release_status;
 }
 extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
-    sat_scene3d_prepare_batch_t*) { return SAT_OK; }
+    sat_scene3d_prepare_batch_t* batch) { executed_batch=*batch;return SAT_OK; }
+extern "C" sat_result_t sat_scene3d_faces_cancel_batch(
+    sat_scene3d_faces_t* scene,sat_scene3d_prepare_batch_t* batch) {
+    assert(scene->reserved_batch==batch && !batch->pending);
+    scene->reserved_batch=nullptr;batch->direct_owner=nullptr;
+    batch->projected_faces=nullptr;return SAT_OK;
+}
 extern "C" sat_result_t sat_scene3d_faces_merge_prepared(
     sat_scene3d_faces_t* faces,const sat_scene3d_prepare_batch_t* batch) {
     if (merge_status!=SAT_OK) return merge_status;
@@ -178,7 +189,39 @@ static void source_publication_contract() {
     submit_count=master_submit_count=0u;
 }
 
+static void direct_output_and_release_contract() {
+    sat_scene_t scene{};scene.active=1;
+    sat_scene3d_face_t cold[2]{};sat_scene3d_projected_face_t hot[2]{};uint32_t keys[2]{};
+    sat_scene3d_prepare_batch_t batch{};
+    batch.faces=cold;batch.keys=keys;batch.capacity=2;
+    batch.projected_faces=hot;batch.direct_owner=&scene.faces;
+    scene.faces.reserved_batch=&batch;
+    sat_parallel_handle_t handle{};
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
+    assert(submitted_output==hot && submitted_capacity==sizeof(hot));
+    synced.clear();uint32_t output_size=99;
+    assert(registered_process(&batch,sizeof(batch),hot,sizeof(hot)-1,&output_size)==SAT_ERR_CAPACITY);
+    assert(registered_process(&batch,sizeof(batch),hot,sizeof(hot),&output_size)==SAT_OK);
+    assert(executed_batch.projected_faces==hot && executed_batch.faces==cold);
+    assert(covered(cold) && covered(keys) && output_size==0);
+    task_result=SAT_OK;task_bytes=sizeof(hot[0]);
+    assert(sat_scene_merge_prepared_batch(&scene,&batch,handle)==SAT_OK);
+    assert(batch.metrics.prepared_faces==1);
+    scene.faces.reserved_batch=nullptr; // Real merge publishes the reservation.
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_ERR_BUSY);
+    assert(scene.first_error==SAT_OK);
+    scene.faces.reserved_batch=&batch; // Exercise abandoned-reservation release.
+    release_status=SAT_ERR_BUSY;
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_ERR_BUSY);
+    assert(batch.pending && scene.faces.reserved_batch==&batch && batch.direct_owner);
+    release_status=SAT_OK;
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
+    assert(!batch.pending && !batch.direct_owner && !batch.projected_faces && !scene.faces.reserved_batch);
+    task_result=SAT_ERR_BUSY;submit_count=master_submit_count=0;
+}
+
 int main() {
+    direct_output_and_release_contract();
     source_publication_contract();
     sat_scene_t scene{};
     scene.active=1u;

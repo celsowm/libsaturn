@@ -1,3 +1,4 @@
+#include <array>
 #include <cassert>
 #include <cstdio>
 #include <stdint.h>
@@ -596,7 +597,98 @@ static void projected_hot_queue_matches_general_and_owns_fallbacks() {
     assert(sat_scene3d_faces_use_projected_storage(&scene,nullptr,0)==SAT_OK);
 }
 
+static void direct_spans_preserve_order_and_cold_lifetimes() {
+    constexpr uint16_t capacity=10;
+    sat_scene3d_face_t cold[capacity]{},ordinary[capacity]{};
+    sat_scene3d_projected_face_t hot[capacity]{};
+    uint32_t keys[capacity]{},reference_keys[capacity]{},worker_keys[4]{};
+    uint16_t order[capacity]{},reference_order[capacity]{},indices[capacity]{};
+    sat_scene3d_faces_t scene{},reference{};
+    assert(sat_scene3d_faces_init(&scene,cold,keys,order,capacity)==SAT_OK);
+    assert(sat_scene3d_faces_init(&reference,ordinary,reference_keys,reference_order,capacity)==SAT_OK);
+    assert(sat_scene3d_faces_use_projected_indices(&scene,indices,capacity)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_use_projected_storage(&scene,hot,capacity)==SAT_OK);
+    assert(sat_scene3d_faces_use_projected_indices(&scene,indices,capacity-1)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_use_projected_indices(&scene,indices,capacity)==SAT_OK);
+    sat_mat4_t vp{};vp.m[0]=SAT_FX16_ONE;
+    sat_vec3_t eye{},forward{0,0,SAT_FX16_ONE};
+    auto first=quad(3),clipped=quad(2),hidden=quad(-3);
+    clipped.v[0].z=SAT_FX16_ONE/2;
+    sat_scene3d_material_t material{};material.kind=SAT_SCENE3D_RGB;
+    material.rgb555=0x8123;material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    uint16_t corners[4]={0,1,2,3},material_map[1]={0};
+    sat_mesh_t meshes[3]{};sat_scene3d_instance_t instances[3]{};
+    sat_projected_vertex_t screen[3][4]{};sat_scene3d_prepare_item_t items[3]{};
+    for(unsigned i=0;i<3;++i) {
+        auto& mesh=meshes[i];mesh.vertices=i==0?first.v:i==1?clipped.v:hidden.v;
+        mesh.indices=corners;mesh.vertex_count=mesh.vertex_cap=4;mesh.face_count=mesh.face_cap=1;
+        instances[i].mesh=&mesh;instances[i].materials=&material;instances[i].material_count=1;
+        instances[i].cull_backfaces=0;instances[i].face_materials=material_map;
+        items[i].instance=&instances[i];items[i].screen_scratch=screen[i];
+        items[i].color_calc_slot=SAT_SCENE3D_SLOT_INHERIT;
+    }
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_begin(&reference,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    auto prefix=material;prefix.rgb555=0x8111;
+    auto master=material;master.rgb555=0x8222;
+    for(auto* queue : std::array<sat_scene3d_faces_t*,2>{&scene,&reference})assert(sat_scene3d_faces_submit_quad(queue,&first,&prefix,0)==SAT_OK);
+    sat_scene3d_prepare_batch_t batch{},other{};
+    assert(sat_scene3d_prepare_batch_init(&batch,items,3,cold,worker_keys,4)==SAT_OK);
+    assert(sat_scene3d_faces_reserve_batch(&scene,&batch)==SAT_OK);
+    other=batch;other.direct_owner=nullptr;other.projected_faces=nullptr;
+    assert(sat_scene3d_faces_reserve_batch(&scene,&other)==SAT_ERR_BUSY);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_BUSY && scene.active && scene.count==1);
+    for(auto* queue : std::array<sat_scene3d_faces_t*,2>{&scene,&reference})assert(sat_scene3d_faces_submit_quad(queue,&first,&master,0)==SAT_OK);
+    batch.view_proj=vp;batch.eye=eye;batch.forward=forward;batch.near_depth=SAT_FX16_ONE;
+    batch.width=320;batch.height=224;
+    assert(sat_scene3d_prepare_batch_execute(&batch)==SAT_OK);
+    assert(batch.metrics.prepared_faces==2 && batch.metrics.culled_faces==1);
+    assert(batch.projected_faces==hot+1 && batch.projected_faces[1].cold==cold);
+    const auto saved0=hot[1],saved1=hot[2];
+    assert(sat_scene3d_faces_merge_prepared(&scene,&batch)==SAT_OK);
+    assert(scene.count==4 && indices[0]==0 && indices[1]==5 && indices[2]==1 && indices[3]==2);
+    assert(hot[1].rgb555==saved0.rgb555 && hot[2].cold==saved1.cold);
+    assert(sat_scene3d_faces_merge_prepared(&scene,&batch)==SAT_ERR_INVALID_ARG);
+    for(unsigned i=0;i<3;++i)
+        assert(sat_scene3d_faces_submit_instance(&reference,&instances[i],SAT_SCENE3D_SLOT_INHERIT,screen[i],nullptr)==SAT_OK);
+    for(auto* queue : std::array<sat_scene3d_faces_t*,2>{&scene,&reference})assert(sat_scene3d_faces_submit_quad(queue,&first,&master,0)==SAT_OK);
+    assert(indices[4]==6);
+    for(uint16_t i=0;i<scene.count;++i) {
+        sat_scene3d_face_t actual{},expected{};
+        assert(sat_scene3d_faces_get(&scene,i,&actual)==SAT_OK);
+        assert(sat_scene3d_faces_get(&reference,i,&expected)==SAT_OK);
+        assert(same_face(actual,expected) && keys[i]==reference_keys[i]);
+    }
+    emitted_count=0;assert(sat_scene3d_faces_flush(&reference)==SAT_OK);
+    const auto count=emitted_count;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK && emitted_count==count*2);
+    for(unsigned i=0;i<count;++i)assert(emitted[i]==emitted[count+i]);
+    // Reservations consume their worst case, reset only at begin. Cancellation
+    // cannot release a span while its producer still owns it.
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(!scene.projected_gap && !scene.cold_count);
+    assert(sat_scene3d_prepare_batch_init(&batch,nullptr,0,cold,worker_keys,4)==SAT_OK);
+    assert(sat_scene3d_faces_reserve_batch(&scene,&batch)==SAT_OK);
+    batch.pending=1;
+    assert(sat_scene3d_faces_cancel_batch(&scene,&batch)==SAT_ERR_BUSY);
+    batch.pending=0;
+    assert(sat_scene3d_faces_cancel_batch(&scene,&batch)==SAT_OK);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_prepare_batch_init(&batch,nullptr,0,cold,worker_keys,4)==SAT_OK);
+    assert(sat_scene3d_faces_reserve_batch(&scene,&batch)==SAT_OK);
+    batch.view_proj=vp;batch.eye=eye;batch.forward=forward;batch.near_depth=SAT_FX16_ONE;
+    batch.width=320;batch.height=224;
+    assert(sat_scene3d_prepare_batch_execute(&batch)==SAT_OK);
+    assert(sat_scene3d_faces_merge_prepared(&scene,&batch)==SAT_OK);
+    assert(scene.count==0 && scene.reserved_batch==nullptr);
+    assert(sat_scene3d_prepare_batch_init(&other,nullptr,0,cold,worker_keys,7)==SAT_OK);
+    assert(sat_scene3d_faces_reserve_batch(&scene,&other)==SAT_ERR_CAPACITY && !other.direct_owner);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+}
+
 int main() {
+    direct_spans_preserve_order_and_cold_lifetimes();
     projected_hot_queue_matches_general_and_owns_fallbacks();
     compiled_materials_preserve_emission_and_residency();
     instance_projection_proof_matches_individual_faces();

@@ -145,8 +145,21 @@ extern "C" sat_result_t sat_scene_depth(const sat_scene_t* scene,
     return sat_scene3d_faces_depth(&scene->faces, world, out_depth);
 }
 
+namespace {
+template<bool Indirect>
+uint32_t projected_command_count(const sat_scene3d_faces_t& faces) {
+    uint32_t count=0;
+    for(uint16_t i=0;i<faces.count;++i) {
+        const auto& hot=faces.projected_entries[Indirect?faces.projected_indices[i]:i];
+        if(hot.kind!=SAT_SCENE3D_PROJECTED_COLD || hot.cold->projected_safe)++count;
+    }
+    return count;
+}
+}
+
 extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     if (!scene || !scene->active || scene->flushed) return SAT_ERR_INVALID_ARG;
+    if(scene->faces.reserved_batch)return SAT_ERR_BUSY;
     // Take a command snapshot directly around the synchronous L3 painter.
     // Unlike total used commands, the delta excludes earlier explicit raw
     // VDP1 and immediate cached-view submissions in the same video frame.
@@ -159,12 +172,12 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
      * Clipped/fallback geometry has variable emission cost; this is an
      * admission lower-bound gate, not a guarantee that every flush fits. */
     uint32_t guaranteed_commands=0u;
-    for (uint16_t i=0u;i<scene->faces.count;++i)
-        if (scene->faces.projected_entries
-            ? scene->faces.projected_entries[i].kind!=SAT_SCENE3D_PROJECTED_COLD ||
-              scene->faces.projected_entries[i].cold->projected_safe!=0u
-            : scene->faces.entries[i].projected_safe!=0u)
-            ++guaranteed_commands;
+    if(scene->faces.projected_entries) {
+        guaranteed_commands=scene->faces.projected_indices?
+            projected_command_count<true>(scene->faces):projected_command_count<false>(scene->faces);
+    } else for (uint16_t i=0u;i<scene->faces.count;++i) {
+        if(scene->faces.entries[i].projected_safe)++guaranteed_commands;
+    }
     sat_result_t st=SAT_OK;
     bool insufficient=false;
     if (before_status==SAT_OK) {

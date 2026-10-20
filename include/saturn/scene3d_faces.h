@@ -86,8 +86,9 @@ sat_result_t sat_scene3d_profile_get(sat_scene3d_profile_t* out);
  * Every field a merge, flush or emission reads comes first; `world` is last
  * and is written, copied and read ONLY when projected_safe == 0 (the
  * clipping fallback). For a projected-safe face its contents are
- * unspecified. Records are written by the Slave through uncached memory and
- * copied again on merge, so every byte here costs per face, per frame. */
+ * unspecified. Ordinary batches write these records through uncached Slave memory and
+ * copy again on merge. Direct projected spans avoid those general records
+ * except when a cold fallback is required. */
 typedef struct sat_scene3d_face {
     sat_quad2_t projected;
     union {
@@ -170,6 +171,10 @@ typedef struct sat_scene3d_faces {
     /* When bound, entries is cold storage rather than the logical queue. */
     sat_scene3d_projected_face_t* projected_entries;
     uint16_t cold_count;
+    /* Optional logical-to-physical map for disjoint queue writers. */
+    uint16_t* projected_indices;
+    uint16_t projected_gap;
+    struct sat_scene3d_prepare_batch* reserved_batch;
 } sat_scene3d_faces_t;
 
 /* All three buffers are caller-owned and must hold `capacity` entries:
@@ -184,6 +189,10 @@ sat_result_t sat_scene3d_faces_init(
  * Retain both buffers through flush. NULL returns to ordinary queue mode. */
 sat_result_t sat_scene3d_faces_use_projected_storage(
     sat_scene3d_faces_t* scene,sat_scene3d_projected_face_t* storage,uint16_t capacity);
+/* Enables direct batch spans. Bind capacity indices between frames, after
+ * projected storage. Retain all queue buffers through flush. */
+sat_result_t sat_scene3d_faces_use_projected_indices(
+    sat_scene3d_faces_t* scene,uint16_t* indices,uint16_t capacity);
 /* Expand a queued record for diagnostics; never read entries[i] directly
  * when projected storage is bound. Unused world/Gouraud fields are unspecified. */
 sat_result_t sat_scene3d_faces_get(
@@ -423,7 +432,7 @@ typedef enum sat_scene3d_prepare_dispatch {
 
 /* Caller-owned batch storage. The worker writes only faces, keys and
  * metrics; it never sorts or writes the scene/VDP1 state. The camera
- * fields are captured by sat_scene3d_prepare_batch_async(). */
+ * fields are captured by sat_scene_prepare_batch_async(). */
 typedef struct sat_scene3d_prepare_batch {
     const sat_scene3d_prepare_item_t* items;
     uint16_t item_count;
@@ -441,12 +450,29 @@ typedef struct sat_scene3d_prepare_batch {
     sat_parallel_handle_t handle;
     uint8_t pending;
     uint8_t reserved2[3];
+    /* Internal direct-span ownership; initialize with the APIs below. */
+    sat_scene3d_projected_face_t* projected_faces;
+    sat_scene3d_faces_t* direct_owner;
+    uint16_t direct_first;
 } sat_scene3d_prepare_batch_t;
 
 sat_result_t sat_scene3d_prepare_batch_init(
     sat_scene3d_prepare_batch_t* batch,
     const sat_scene3d_prepare_item_t* items, uint16_t item_count,
     sat_scene3d_face_t* faces, uint32_t* keys, uint16_t capacity);
+
+/* Reserve one disjoint projected/cold span for a batch before dispatch. The
+ * Master may append concurrently. Merge publishes indices/keys in logical
+ * source order without copying face records. One outstanding reservation per
+ * scene; flush stays BUSY until merge or cancellation. Capacity is the worst
+ * case, including culled faces. Unused reserved slots last until next begin.
+ * Do not copy/reinitialize the scene or batch while a reservation is held.
+ * Retain the canonical queue through flush; batch keys may be reused after
+ * merge and task release. A cancelled task must finish and release first. */
+sat_result_t sat_scene3d_faces_reserve_batch(
+    sat_scene3d_faces_t* scene,sat_scene3d_prepare_batch_t* batch);
+sat_result_t sat_scene3d_faces_cancel_batch(
+    sat_scene3d_faces_t* scene,sat_scene3d_prepare_batch_t* batch);
 
 /* Builds a bounded object-range view of an existing batch.  The item
  * descriptors are copied in source order into caller-owned storage; camera
