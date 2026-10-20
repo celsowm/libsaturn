@@ -305,6 +305,32 @@ inline void mat4_identity(sat_fx16_t* m) {
 
 inline void mat4_multiply(sat_fx16_t* out, const sat_fx16_t* a, const sat_fx16_t* b) {
     sat_fx16_t tmp[16];
+    const bool affine_a=a[12]==0 && a[13]==0 && a[14]==0 && a[15]==SAT_FX16_ONE;
+    const bool affine_b=b[12]==0 && b[13]==0 && b[14]==0 && b[15]==SAT_FX16_ONE;
+    if (affine_a && affine_b) {
+        /* Affine products have no fourth spatial term, and their bottom row
+         * is invariant. Preserve the generic per-product rounding order. */
+        for (int row=0;row<3;++row) {
+            for (int col=0;col<3;++col) {
+                sat_fx16_t acc=0;
+                for (int k=0;k<3;++k)
+                    acc=static_cast<sat_fx16_t>(
+                        acc+fx_mul(a[row*4+k],b[k*4+col]));
+                tmp[row*4+col]=acc;
+            }
+            sat_fx16_t translation=0;
+            for (int k=0;k<3;++k)
+                translation=static_cast<sat_fx16_t>(
+                    translation+fx_mul(a[row*4+k],b[k*4+3]));
+            tmp[row*4+3]=static_cast<sat_fx16_t>(translation+a[row*4+3]);
+        }
+        tmp[12]=0;
+        tmp[13]=0;
+        tmp[14]=0;
+        tmp[15]=SAT_FX16_ONE;
+        for (int i=0;i<16;++i) out[i]=tmp[i];
+        return;
+    }
     for (int row = 0; row < 4; ++row) {
         for (int col = 0; col < 4; ++col) {
             sat_fx16_t acc = 0;

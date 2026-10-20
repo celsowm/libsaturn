@@ -175,6 +175,31 @@ counters. It never infers a completed draw from a previous list's END timestamp.
 The retained normal-BIOS trial is `harness/build/dino-renderer-study-cd`.
 
 
+## Affine matrix multiplication
+
+`mat4_multiply` now has an exact-affine fast path for two matrices whose
+bottom rows are `[0, 0, 0, 1]`. It computes the upper 3×3 and translation
+using three products per output, writes the invariant bottom row, and keeps
+the generic 4×4 implementation for every other input. Product accumulation
+and fixed-point rounding order are preserved; output remains alias-safe via a
+temporary matrix. The existing 1,000-case reference test covers affine and
+non-affine combinations, including aliased outputs.
+
+On a matched Tekken release build with parallel geometry and its verification
+enabled, a six-field Ymir trace reduced Master `mat4_multiply` from 138,471 to
+91,656 modeled cycles (−33.8%). Total Master instruction count changed from
+1,958,394 to 1,955,741 (−0.14%), while both runs completed 403 simulation ticks
+and 201 submissions. The 3,600-field control also retained identical cadence
+and counters: 3,583 ticks, 1,791 submissions, and no geometry errors. CD boots
+completed successfully, with identical screenshots at seconds 15 and 24.
+
+The candidate adds 824 bytes of text; data and BSS sizes are unchanged. The
+fixed-width Ymir comparison reports fewer cycles in this routine but no
+reduction in total modeled execution cycles or cadence, so this is a focused
+work reduction, not a demonstrated whole-game speedup. Ymir and Mednafen are
+emulator evidence, not physical Saturn qualification. Full hashes and run
+details are in [`affine-matrix/tekken.json`](../harness/studies/affine-matrix/tekken.json).
+
 ## Bounded phase measurements
 
 `DINO_PIPELINE_METRICS=1` now enables a 64-entry completed-submission ring in

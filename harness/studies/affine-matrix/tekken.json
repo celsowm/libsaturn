@@ -1,0 +1,90 @@
+{
+  "schema": "libsaturn.affine-matrix.tekken.v1",
+  "baseline_sdk": "1b0337f",
+  "workload": {
+    "game": "Tekken 3 Saturn port",
+    "configuration": {
+      "T3_PARALLEL_GEOMETRY": "ON",
+      "T3_VERIFY_PARALLEL_GEOMETRY": "ON"
+    },
+    "ymir_profile_fields": [360, 365],
+    "ymir_cache_emulation": true
+  },
+  "ymir_matched_profile": {
+    "simulation_ticks": {
+      "baseline": 403,
+      "candidate": 403
+    },
+    "submitted_frames": {
+      "baseline": 201,
+      "candidate": 201
+    },
+    "master_mat4_multiply_cycles": {
+      "baseline": 138471,
+      "candidate": 91656,
+      "change_percent": -33.81
+    },
+    "master_total_instructions": {
+      "baseline": 1958394,
+      "candidate": 1955741,
+      "change_percent": -0.1354
+    },
+    "total_modeled_execution_cycles_unchanged": true,
+    "scope": "Modeled Ymir costs over a matched six-field profile window; the routine work reduction did not change cadence or total modeled execution cycles."
+  },
+  "long_control": {
+    "fields": 3600,
+    "simulation_ticks": {
+      "baseline": 3583,
+      "candidate": 3583
+    },
+    "submitted_frames": {
+      "baseline": 1791,
+      "candidate": 1791
+    },
+    "frame_serial": {
+      "baseline": 1792,
+      "candidate": 1792
+    },
+    "faces_submitted": {
+      "baseline": 190,
+      "candidate": 190
+    },
+    "faces_culled": {
+      "baseline": 172,
+      "candidate": 172
+    },
+    "commands": {
+      "baseline": 292,
+      "candidate": 292
+    },
+    "timeouts_or_errors": 0,
+    "scope": "Both runs also reported 24 ms latest frame_work_ms and byte-identical captured output."
+  },
+  "mednafen_native_cd": {
+    "seconds_per_run": 26,
+    "exit_code": {
+      "baseline": 0,
+      "candidate": 0
+    },
+    "screenshots_sha256": {
+      "second_15": "9b7966f4dfc210e507ea8c6ba6ef3e9ed591b91be44ee4cbace97a90207a568d",
+      "second_24": "103d232d8853522c95ff767ccbf29f8d0185bce45afc6e4b445857e30cab968e"
+    },
+    "scope": "Independent baseline and candidate Tekken CD runs; screenshots match exactly at both checkpoints."
+  },
+  "binary": {
+    "baseline_elf_sha256": "2fb417119ecf0f4f6bd59a748424591f62a6f4a4202c8bc6acbcf59982f7364f",
+    "candidate_elf_sha256": "60dbd99ade4735ef5500d5d7af7da318d53372fb3fb69650b85b82d47a9acea5",
+    "baseline_app_sha256": "de1a95342c07e7974a7e4b9c3adf13fdb54b8eac0820b3d6ce4d981abc7b99bd",
+    "candidate_app_sha256": "e3bb884894c724a88463debd5296f12105a429db345c0184d2195441a313f08e",
+    "text_bytes": {
+      "baseline": 115504,
+      "candidate": 116328,
+      "change": 824
+    },
+    "data_bytes_unchanged": 88400,
+    "bss_bytes_unchanged": 203736
+  },
+  "scope": "The affine fast path preserves the generic fallback for non-affine inputs and passes the existing 1,000-case matrix reference/alias test. Emulator measurements do not qualify performance on physical Saturn hardware."
+}
