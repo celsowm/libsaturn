@@ -890,6 +890,8 @@ int main() {
                 matrix.m[row*4+permutations[sample/8][row]]=
                     (sample&(1u<<row))?-SAT_FX16_ONE:SAT_FX16_ONE;
             }
+            matrix.m[12]=matrix.m[13]=matrix.m[14]=0;
+            matrix.m[15]=SAT_FX16_ONE;
         }
         matrix.m[11]=20*SAT_FX16_ONE;
         auto transformed_instance=instance;transformed_instance.world=&matrix;

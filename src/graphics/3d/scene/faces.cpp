@@ -145,6 +145,84 @@ sat_result_t instance_bounds_visible(
     return SAT_OK;
 }
 
+/* Exact fast path for unit signed-axis permutations (quarter-turns, mirrors
+ * and axis swaps). It replaces fixed-point multiplies by exact copies/signs;
+ * scaled or interpolated rotations retain the generic matrix-vector path. */
+bool transform_signed_axes(
+    const sat_mat4_t& transform,const sat_vec3_t* input,uint16_t count,
+    sat_vec3_t* output) {
+    constexpr sat_fx16_t kOne=SAT_FX16_ONE;
+    const bool yaw_positive=transform.m[0]==0 && transform.m[1]==0 &&
+        transform.m[2]==kOne && transform.m[4]==0 && transform.m[5]==kOne &&
+        transform.m[6]==0 && transform.m[8]==-kOne && transform.m[9]==0 &&
+        transform.m[10]==0;
+    const bool yaw_negative=transform.m[0]==0 && transform.m[1]==0 &&
+        transform.m[2]==-kOne && transform.m[4]==0 && transform.m[5]==kOne &&
+        transform.m[6]==0 && transform.m[8]==kOne && transform.m[9]==0 &&
+        transform.m[10]==0;
+    if((yaw_positive || yaw_negative) && transform.m[12]==0 &&
+       transform.m[13]==0 && transform.m[14]==0 && transform.m[15]==kOne) {
+        const int32_t tx=transform.m[3],ty=transform.m[7],tz=transform.m[11];
+        const int32_t direction=yaw_positive?1:-1;
+        for(uint16_t i=0;i<count;++i) {
+            const sat_vec3_t& p=input[i];
+            const int64_t x=static_cast<int64_t>(direction)*p.z+tx;
+            const int64_t z=-static_cast<int64_t>(direction)*p.x+tz;
+            const int64_t y=static_cast<int64_t>(p.y)+ty;
+            if(x<INT32_MIN || x>INT32_MAX || y<INT32_MIN || y>INT32_MAX ||
+               z<INT32_MIN || z>INT32_MAX ||
+               ((direction<0 && p.z==INT32_MIN) ||
+                (direction>0 && p.x==INT32_MIN))) {
+                const sat_vec4_t transformed=saturn::core::math3d::mat4_transform_vec4(
+                    transform.m,p.x,p.y,p.z,SAT_FX16_ONE);
+                output[i]={transformed.x,transformed.y,transformed.z};
+            } else {
+                output[i]={static_cast<int32_t>(x),static_cast<int32_t>(y),
+                           static_cast<int32_t>(z)};
+            }
+        }
+        return true;
+    }
+    uint8_t axis[3]={0u,0u,0u};
+    int8_t sign[3]={0,0,0};
+    uint8_t used=0u;
+    for(uint8_t row=0;row<3u;++row) {
+        uint8_t found=0u;
+        for(uint8_t col=0;col<3u;++col) {
+            const sat_fx16_t value=transform.m[row*4u+col];
+            if(value==0)continue;
+            if((value!=kOne && value!=-kOne) || found)return false;
+            found=1u;axis[row]=col;sign[row]=value==kOne?1:-1;
+        }
+        if(!found || (used&(1u<<axis[row])))return false;
+        used=static_cast<uint8_t>(used|(1u<<axis[row]));
+    }
+    if(transform.m[12]!=0 || transform.m[13]!=0 || transform.m[14]!=0 ||
+       transform.m[15]!=kOne)return false;
+    const int32_t translation[3]={transform.m[3],transform.m[7],transform.m[11]};
+    for(uint16_t i=0;i<count;++i) {
+        const int32_t source[3]={input[i].x,input[i].y,input[i].z};
+        int32_t destination[3]={0,0,0};
+        bool exact=true;
+        for(uint8_t row=0;row<3u;++row) {
+            const int32_t value=source[axis[row]];
+            if(sign[row]<0 && value==INT32_MIN) { exact=false;break; }
+            const int64_t signed_value=static_cast<int64_t>(sign[row])*value;
+            const int64_t result=signed_value+translation[row];
+            if(result<INT32_MIN || result>INT32_MAX) { exact=false;break; }
+            destination[row]=static_cast<int32_t>(result);
+        }
+        if(!exact) {
+            const sat_vec4_t transformed=saturn::core::math3d::mat4_transform_vec4(
+                transform.m,input[i].x,input[i].y,input[i].z,SAT_FX16_ONE);
+            output[i]={transformed.x,transformed.y,transformed.z};
+        } else {
+            output[i]={destination[0],destination[1],destination[2]};
+        }
+    }
+    return true;
+}
+
 /* One unsigned painter key: pass ascending in the high 8 bits, then camera
  * depth far-to-near in the low 24, which is exactly the order
  * paint_order_grouped_buckets emits. Depth keeps 1/4096 of a world unit --
@@ -793,14 +871,16 @@ static sat_result_t submit_instance(
     }
     const sat_vec3_t* world=mesh->vertices;
     if (instance->world) {
-        for (uint16_t v=0;v<mesh->vertex_count;++v) {
-            const sat_vec3_t& p=mesh->vertices[v];
-            /* Reuse the same fixed-point math directly: constant input w lets
-             * the compiler remove the unused output w and translation multiplies.
-             * XYZ still has the public transform's per-product rounding. */
-            const sat_vec4_t transformed=saturn::core::math3d::mat4_transform_vec4(
-                instance->world->m,p.x,p.y,p.z,SAT_FX16_ONE);
-            world_scratch[v]={transformed.x,transformed.y,transformed.z};
+        if(!transform_signed_axes(*instance->world,mesh->vertices,mesh->vertex_count,
+                world_scratch)) {
+            for (uint16_t v=0;v<mesh->vertex_count;++v) {
+                const sat_vec3_t& p=mesh->vertices[v];
+                /* Constant input w lets the compiler remove the unused output
+                 * w and translation multiplies. */
+                const sat_vec4_t transformed=saturn::core::math3d::mat4_transform_vec4(
+                    instance->world->m,p.x,p.y,p.z,SAT_FX16_ONE);
+                world_scratch[v]={transformed.x,transformed.y,transformed.z};
+            }
         }
         world=world_scratch;
     }

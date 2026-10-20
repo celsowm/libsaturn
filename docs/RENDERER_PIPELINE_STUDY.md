@@ -806,3 +806,32 @@ Ymir's immediate-result DIVU model and Mednafen's CD runtime; it does not
 qualify physical Saturn timing. The implementation and its host test were
 removed. Keep projected winding as an early rejection only; optimize the
 shared exact visibility kernel or select another measured stage instead.
+
+## Exact signed-axis instance transforms
+
+World transforms that are exact signed permutations of the X/Y/Z axes now
+copy or negate the selected component and add translation, avoiding the
+per-product fixed-point multiplies in the generic matrix-vector path. The
+classifier requires exactly one `+1` or `-1` coefficient in each spatial row,
+distinct selected axes, and an exact affine bottom row. Quarter-turns,
+mirrors and axis swaps qualify; scaled and interpolated rotations take the
+unchanged generic path. Negation/translation cases outside the signed 32-bit
+range also fall back to the generic transform. Existing host scene tests
+exercise all 48 signed axis permutations as well as fractional and arbitrary
+matrices, comparing the resulting world coordinates against the public
+per-product fixed-point formula.
+
+On the Tekken presentation build, the cache-on 12-field Ymir trace reduced
+combined exclusive work for projection, instance submission, world visibility
+and the new exact transform from **1,373,227 to 1,305,930 modeled cycles**
+(4.90%). Within submission plus world conversion, `submit_instance` fell from
+511,824 to 326,622 cycles; `transform_signed_axes` accounts for 118,140. The
+projection and culling results remained the same. The complete Ymir control
+still ended at 1,791 submissions over 3,600 fields in both builds, so this did
+not improve the current paced cadence. Actual Mednafen CD captures also had
+byte-identical screenshots at 15, 30 and 39 seconds. This is a reusable exact
+path reduction for workloads that spend more time in scene preparation, not a
+claim of increased game FPS under the current pacing. Private evidence is in
+the port's `renderer-axis-{baseline,final}-profile`,
+`renderer-axis-{baseline,final}-3600` and
+`renderer-axis-{baseline,final}-live` captures.
