@@ -34,6 +34,28 @@ pipeline and contention between consecutive `MAC.L` instructions in
 The existing compiler output already uses `DMULS.L` with scheduled carry
 handling, so the mnemonic alone did not make this full path cheaper.
 
+## Rejected Q15 batch specialization
+
+A second candidate moved the `pos_shift == 15` decision out of each influence
+and into one branch per deformation range. It kept the same fixed-point
+products, per-influence rounding and blend arithmetic. On the procedural O2
+control, the C API median fell from the earlier 88,169 to 83,220 ticks for 32
+calls (5.61%); all 7,544 output comparisons and the checksum still matched.
+
+That isolated result did not carry into the port's O3 build. In matching
+12-field Paul Ymir captures, the skin function grew from 474,126 instructions
+and 626,424 modeled cycles to 589,984 instructions and 762,064 cycles. The
+candidate duplicated the rigid/blended loops for its two specializations. Its
+actual 60-second Mednafen CD run matched the existing `FRAME` checkpoints 42,
+185 and 328 at seconds 18, 38 and 58; no release cadence gain was shown. The
+specialization was removed despite passing the SDK host suite and the exact
+procedural comparisons. This is a useful reminder that an O2 microbenchmark
+does not establish a win in the port's O3 build or its full renderer.
+
+Private port evidence is in `material-banks-current-hotspots` and
+`material-banks-skin-q15-profile`; the actual CD recording is
+`material-banks-skin-q15-live-cd`.
+
 ## Reproduce
 
 From the SDK root, with the SH-2 toolchain and Ymir probe built:
