@@ -835,3 +835,29 @@ claim of increased game FPS under the current pacing. Private evidence is in
 the port's `renderer-axis-{baseline,final}-profile`,
 `renderer-axis-{baseline,final}-3600` and
 `renderer-axis-{baseline,final}-live` captures.
+
+## Prepare the next sparse projection while DIVU runs
+
+The sparse-camera batch path now prepares the next vertex's clip-W and clip-X
+rows while the current vertex's Y-axis SH-2 DIVU is in flight. It keeps one
+vertex of pending state and reuses the values on the next iteration; all
+projection arithmetic, clamping and fixed-point rounding remain unchanged.
+The host oracle compares 257 front-facing sparse-camera vertices against the
+scalar path, including the pipelined branch.
+
+Two independent 20-second Mednafen native-CD runs of the two-cube projection
+control (866 vertices per actor, stage 3, 12 divisions) measured **4,666** and
+**4,666 FRT ticks** before, and **4,322** and **4,321** after. The median fell
+7.38%; the model crop had zero different pixels in both candidate captures.
+The Tekken CD control booted successfully and showed the same `FRAME 666` at 15
+seconds and byte-identical screenshots at 30 and 39 seconds. It did not change
+the port's displayed cadence in this run.
+
+Ymir's immediate-result DIVU model instead measured 27.816 ms before and
+29.046 ms after for the isolated two-cube stage (30 nominal submissions/s in
+both runs). This exposes the added lookahead arithmetic without the SH-2
+division latency it is intended to overlap. The Mednafen result is a
+stage-level emulator measurement, not a whole-game speedup or physical Saturn
+qualification. Measurement commands, ELF hashes, timing samples and pixel hashes
+are retained in
+[`harness/studies/projection-prefetch/mednafen.json`](../harness/studies/projection-prefetch/mednafen.json).

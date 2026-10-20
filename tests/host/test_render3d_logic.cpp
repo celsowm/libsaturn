@@ -597,6 +597,32 @@ TEST(batch_projection_matches_scalar_after_camera_changes) {
     ASSERT_EQ(untouched.w,789);
 }
 
+TEST(sparse_projection_prefetch_matches_scalar_for_front_vertices) {
+    sat_mat4_t vp={};
+    vp.m[0]=SAT_FX16_ONE;
+    vp.m[5]=SAT_FX16_ONE;
+    vp.m[14]=SAT_FX16_ONE;
+    sat_vec3_t points[257];
+    uint32_t random=0xD19A34B7u;
+    for (auto& p:points) {
+        random=random*1664525u+1013904223u;
+        const int32_t depth=6+static_cast<int32_t>(random%75u);
+        random=random*1664525u+1013904223u;
+        const int32_t x=static_cast<int32_t>(random%(2u*static_cast<uint32_t>(depth)+1u))-depth;
+        random=random*1664525u+1013904223u;
+        const int32_t y=static_cast<int32_t>(random%(2u*static_cast<uint32_t>(depth)+1u))-depth;
+        p={fx_from_int(x),fx_from_int(y),fx_from_int(depth)};
+    }
+    sat_projected_vertex_t actual[257],expected[257];
+    project_vertices(vp.m,points,257,352,240,actual);
+    for (unsigned i=0;i<257;++i) {
+        project_vertex(vp.m,points[i],352,240,&expected[i]);
+        ASSERT_EQ(actual[i].w,expected[i].w);
+        ASSERT_EQ(actual[i].x,expected[i].x);
+        ASSERT_EQ(actual[i].y,expected[i].y);
+    }
+}
+
 /* Screen-space culling (signed projected area) must agree with the world
  * test (outward normal towards the eye) for every face of a closed box. */
 TEST(screen_area_culling_matches_world_culling) {

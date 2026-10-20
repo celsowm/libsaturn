@@ -193,12 +193,17 @@ inline void project_vertices(
         project_vertices_general(m,points,count,width,height,out);
         return;
     }
+    sat_fx16_t pending_w=0;
+    sat_fx16_t pending_x=0;
+    bool pending=false;
     for (uint16_t i=0; i<count; ++i) {
         const sat_vec3_t& p=points[i];
-        const sat_fx16_t w=fx_mul(m[13],p.y)+fx_mul(m[14],p.z)+m[15];
+        const sat_fx16_t w=pending?pending_w:
+            fx_mul(m[13],p.y)+fx_mul(m[14],p.z)+m[15];
+        const sat_fx16_t x=pending?pending_x:fx_mul(m[0],p.x)+m[3];
+        pending=false;
         out[i].w=w;
         if (w<=0) continue; // Preserve the scalar path's untouched X/Y.
-        const sat_fx16_t x=fx_mul(m[0],p.x)+m[3];
         const int64_t x_numerator=static_cast<int64_t>(x)*width;
         int16_t projected_x;
         if(project_axis_clamped(x_numerator,w,&projected_x)) {
@@ -215,6 +220,16 @@ inline void project_vertices(
         out[i].x=project_axis_finish(x_numerator,w);
         if(!y_clamped) {
             project_axis_start(y_numerator,w);
+            /* The second divider is busy while the next point's independent
+             * clip-W and clip-X rows are prepared. Reuse those values on the
+             * next iteration instead of leaving the SH-2 divider idle. */
+            const uint16_t next=static_cast<uint16_t>(i+1u);
+            if(next<count) {
+                const sat_vec3_t& q=points[next];
+                pending_w=fx_mul(m[13],q.y)+fx_mul(m[14],q.z)+m[15];
+                pending_x=fx_mul(m[0],q.x)+m[3];
+                pending=true;
+            }
             projected_y=project_axis_finish(y_numerator,w);
         }
         out[i].y=projected_y;

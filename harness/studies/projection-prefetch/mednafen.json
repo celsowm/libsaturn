@@ -1,0 +1,59 @@
+{
+  "schema": "libsaturn.projection-prefetch.v1",
+  "workload": {
+    "example": "cube_pipeline_bench",
+    "stage": 3,
+    "divisions": 12,
+    "vertices_per_actor": 866,
+    "actors": 2,
+    "camera_path": "sparse right axis along world X",
+    "mednafen_native_cd_runs": 2,
+    "seconds_per_run": 22
+  },
+  "frt_ticks_per_geometry_stage": {
+    "baseline": [4666, 4666],
+    "candidate": [4322, 4321]
+  },
+  "median_ticks": {
+    "baseline": 4666,
+    "candidate": 4321.5,
+    "change_percent": -7.384
+  },
+  "model_crop": {
+    "size_pixels": [704, 220],
+    "offset_pixels": [0, 140],
+    "baseline_sha256": "37a4763be4c14bbd1a1895ba6760b3aed374c589c90af945c173a7703790dfb1",
+    "candidate_sha256": "37a4763be4c14bbd1a1895ba6760b3aed374c589c90af945c173a7703790dfb1",
+    "different_pixels": 0
+  },
+  "elf_sha256": {
+    "baseline": "ce8c8ac0f309b38d27005aa838621fe9e01786de2f514abbf8f348aa8bc021b4",
+    "candidate": "579e42281a1208150a0d452369c9e14eb39770e7e04856530d36eb359fb04276"
+  },
+  "ymir_injection": {
+    "nominal_submissions_per_second": {
+      "baseline": 30,
+      "candidate": 30
+    },
+    "work_median_ms": {
+      "baseline": 27.816,
+      "candidate": 29.046,
+      "change_percent": 4.42
+    },
+    "scope": "Ymir returns DIVU results immediately and does not model SH-2 division latency; the added prefetch arithmetic is exposed rather than overlapped."
+  },
+  "tekken_cd_control": {
+    "seconds": 40,
+    "return_code": 0,
+    "frame_at_15_seconds": {
+      "baseline": 666,
+      "candidate": 666
+    },
+    "identical_screenshot_seconds": [30, 39],
+    "baseline_frame_15_sha256": "9b7966f4dfc210e507ea8c6ba6ef3e9ed591b91be44ee4cbace97a90207a568d",
+    "candidate_frame_15_sha256": "d392510969f8ab83c6c9f598b5182b9770a27c57ea6409702c2bf96c8a5983f1",
+    "frame_30_sha256": "337d4193f4a4f18957950706de3d2bff43305ee9e729b2682f440af615088ef0",
+    "frame_39_sha256": "2846dc0757bf6fa8f410cb77d4f2f336f4915a01c1003ada62dadc3ed5b46c50"
+  },
+  "scope": "Stage-level Mednafen emulator measurement; no whole-game cadence improvement or physical Saturn timing is claimed."
+}
