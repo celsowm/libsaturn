@@ -1,0 +1,87 @@
+{
+  "schema": "libsaturn.quad-visible-bounded-edge.rejected.v1",
+  "baseline_sdk": "beed598bf62216fb0db516270e331e26661fb1d4",
+  "candidate_source": "rejected.patch",
+  "workload": {
+    "game": "Tekken 3 Saturn port",
+    "configuration": {
+      "T3_PARALLEL_GEOMETRY": "ON",
+      "T3_VERIFY_PARALLEL_GEOMETRY": "ON"
+    },
+    "ymir_profile_fields": [360, 365],
+    "ymir_cache_emulation": true,
+    "emulator_frames": 420
+  },
+  "matched_profile": {
+    "master": {
+      "quad_visible_instructions": {
+        "baseline": 93060,
+        "candidate": 95040,
+        "change_percent": 2.1283
+      },
+      "quad_visible_cycles": {
+        "baseline": 113481,
+        "candidate": 116607,
+        "change_percent": 2.7547
+      },
+      "total_instructions": {
+        "baseline": 1955741,
+        "candidate": 1955156,
+        "change_percent": -0.0299
+      },
+      "total_execution_cycles": {
+        "baseline": 2695223,
+        "candidate": 2695224
+      }
+    },
+    "slave": {
+      "quad_visible_instructions": {
+        "baseline": 36660,
+        "candidate": 37440,
+        "change_percent": 2.1277
+      },
+      "quad_visible_cycles": {
+        "baseline": 44595,
+        "candidate": 45849,
+        "change_percent": 2.8111
+      },
+      "total_instructions": {
+        "baseline": 1864673,
+        "candidate": 1864826,
+        "change_percent": 0.0082
+      },
+      "total_execution_cycles": {
+        "baseline": 2695223,
+        "candidate": 2695224
+      }
+    },
+    "simulation_ticks": {
+      "baseline": 403,
+      "candidate": 403
+    },
+    "submitted_frames": {
+      "baseline": 201,
+      "candidate": 201
+    },
+    "frame_serial": {
+      "baseline": 202,
+      "candidate": 202
+    },
+    "screen_sha256": {
+      "baseline": "8c5e566f4955b395332d3b1d3e251be9f0329cd8a63ec9ae9e4528055dfc335d",
+      "candidate": "8c5e566f4955b395332d3b1d3e251be9f0329cd8a63ec9ae9e4528055dfc335d"
+    }
+  },
+  "binary": {
+    "baseline_elf_sha256": "60dbd99ade4735ef5500d5d7af7da318d53372fb3fb69650b85b82d47a9acea5",
+    "candidate_elf_sha256": "633b7f8b9fd10f81a0aeefb001375b8a767a281eb382ef90378a5cde3e284b10",
+    "candidate_app_sha256": "e2ab3abebafe83a07cff968e8c35b777e54502cce468e622b52f826c7bb88b24"
+  },
+  "validation": {
+    "mesh_logic_cases_passed": 40,
+    "sdk_host_suite": "passed",
+    "saturn_cross_build": "passed",
+    "decision": "rejected: more instructions and modeled cycles in quad_visible, with no whole-run improvement"
+  },
+  "scope": "Injected Ymir execution with immediate-result DIVU model; no physical Saturn performance claim. The captured image hash matches, but the candidate was not retained."
+}

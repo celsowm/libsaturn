@@ -1,0 +1,52 @@
+diff --git a/src/core/geometry/mesh_logic.hpp b/src/core/geometry/mesh_logic.hpp
+index c2b2f8e..64d39ef 100644
+--- a/src/core/geometry/mesh_logic.hpp
++++ b/src/core/geometry/mesh_logic.hpp
+@@ -259,7 +259,8 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3])
+      * fits int64 even for INT32_MIN view offsets. Host corner/oracle tests
+      * retain both bounds; degenerate normals still use the wide kernel. */
+     constexpr unsigned kFastEdgeBits = 16;
+-    static_assert(kFastEdgeBits <= 16, "The exact cross/dot proof requires signed 16-bit edges");
++    constexpr unsigned kBoundedEdgeBits = 18;
++    static_assert(kFastEdgeBits <= 16, "The exact narrow cross/dot proof requires signed 16-bit edges");
+     constexpr uint32_t kFastEdgeBias = uint32_t{1} << (kFastEdgeBits - 1);
+     constexpr uint32_t kFastEdgeSpan = uint32_t{1} << kFastEdgeBits;
+     const uint32_t edge_range=(static_cast<uint32_t>(da.x)+kFastEdgeBias) |
+@@ -282,6 +283,37 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3])
+                 static_cast<int64_t>(nz)*v.z>0;
+         }
+     }
++    /* Most character edges are wider than the signed-16 proof above but
++     * remain small in world units. A second exact path accepts signed-18
++     * edges when the eye-to-centre vector is within 256 world units. Each
++     * cross component is then below 2^35 and the sum of three dot products
++     * is strictly below 2^61, so ordinary signed 64-bit arithmetic is exact.
++     * This avoids the six split products used by the general wide predicate. */
++    constexpr uint32_t kBoundedEdgeBias = uint32_t{1} << (kBoundedEdgeBits - 1);
++    constexpr uint32_t kBoundedEdgeSpan = uint32_t{1} << kBoundedEdgeBits;
++    const uint32_t bounded_edge_range=(static_cast<uint32_t>(da.x)+kBoundedEdgeBias) |
++        (static_cast<uint32_t>(da.y)+kBoundedEdgeBias) |
++        (static_cast<uint32_t>(da.z)+kBoundedEdgeBias) |
++        (static_cast<uint32_t>(ba.x)+kBoundedEdgeBias) |
++        (static_cast<uint32_t>(ba.y)+kBoundedEdgeBias) |
++        (static_cast<uint32_t>(ba.z)+kBoundedEdgeBias);
++    if(bounded_edge_range<kBoundedEdgeSpan) {
++        const sat_vec3_t centre=vec3(
++            static_cast<sat_fx16_t>((static_cast<int64_t>(a.x)+b.x+c.x+d.x)/4),
++            static_cast<sat_fx16_t>((static_cast<int64_t>(a.y)+b.y+c.y+d.y)/4),
++            static_cast<sat_fx16_t>((static_cast<int64_t>(a.z)+b.z+c.z+d.z)/4));
++        const sat_vec3_t v=vec3_sub(eye,centre);
++        constexpr sat_fx16_t kBoundedEyeDelta=static_cast<sat_fx16_t>(1u<<24);
++        if(v.x>=-kBoundedEyeDelta && v.x<=kBoundedEyeDelta &&
++           v.y>=-kBoundedEyeDelta && v.y<=kBoundedEyeDelta &&
++           v.z>=-kBoundedEyeDelta && v.z<=kBoundedEyeDelta) {
++            const int64_t nx=static_cast<int64_t>(da.y)*ba.z-static_cast<int64_t>(da.z)*ba.y;
++            const int64_t ny=static_cast<int64_t>(da.z)*ba.x-static_cast<int64_t>(da.x)*ba.z;
++            const int64_t nz=static_cast<int64_t>(da.x)*ba.y-static_cast<int64_t>(da.y)*ba.x;
++            if(nx || ny || nz)
++                return nx*v.x+ny*v.y+nz*v.z>0;
++        }
++    }
+     // Degenerate corners and larger faces retain the general exact path.
+     return quad_visible_wide(a,b,c,d,eye);
+ }

@@ -200,6 +200,19 @@ work reduction, not a demonstrated whole-game speedup. Ymir and Mednafen are
 emulator evidence, not physical Saturn qualification. Full hashes and run
 details are in [`affine-matrix/tekken.json`](../harness/studies/affine-matrix/tekken.json).
 
+## Rejected: bounded wider-edge face visibility
+
+The current exact fast path handles signed-16-bit face edges; wider or
+degenerate faces use the general exact predicate. A candidate added a second
+path for signed-18-bit edges when the eye-to-centre vector was within 256 world
+units. Its bound proved the 64-bit cross/dot products safe, but matched Tekken
+profiles showed the additional checks cost more than the wider path saved:
+`quad_visible` increased 2.76% on Master and 2.81% on Slave. Total modeled
+cycles, 403 logic ticks, 201 submissions and the captured image were
+unchanged. The candidate passes the 40-case mesh geometry test but is rejected
+for lack of a runtime gain. Keep the patch and exact profile hashes in
+[`quad-visible-bounded-edge`](../harness/studies/quad-visible-bounded-edge/tekken.json).
+
 ## Bounded phase measurements
 
 `DINO_PIPELINE_METRICS=1` now enables a 64-entry completed-submission ring in
