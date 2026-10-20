@@ -9,11 +9,10 @@ constexpr int32_t kWeightOne = 32768;
  * so the 64-bit accumulate is shifted by the constant 16 -- inline on the SH-2 --
  * instead of a variable 64-bit shift library call. Rounded to nearest so a blend
  * of two influences stays within one 16.16 LSB. */
+template<bool q15>
 inline void transform(const sat_fx16_t* m, const int16_t* q, int32_t scale, int32_t out[3]) {
-    /* A constant Q15 conversion avoids three __ashlsi3 calls per influence
-     * with the SH-2 compiler. Keep the same accumulation and rounding. */
     int32_t x, y, z;
-    if (scale == 2) {
+    if constexpr (q15) {
         x = q[0] * 2; y = q[1] * 2; z = q[2] * 2;
     } else {
         x = q[0] * scale; y = q[1] * scale; z = q[2] * scale;
@@ -23,26 +22,28 @@ inline void transform(const sat_fx16_t* m, const int16_t* q, int32_t scale, int3
     out[2] = (int32_t)(((int64_t)m[8] * x + (int64_t)m[9] * y + (int64_t)m[10] * z + 32768) >> 16) + m[11];
 }
 
+template<bool q15>
 inline void deform_rigid(const sat_skin_asset_t& s, const sat_mat4_t* mats, int32_t scale,
                          uint32_t v, sat_vec3_t* out) {
     const sat_skin_rigid_t& r = s.rigid[v];
     int32_t p[3];
-    transform(mats[r.joint].m, r.pos, scale, p);
+    transform<q15>(mats[r.joint].m, r.pos, scale, p);
     out->x = p[0];
     out->y = p[1];
     out->z = p[2];
 }
 
+template<bool q15>
 inline void deform_blend(const sat_skin_asset_t& s, const sat_mat4_t* mats, int32_t scale,
                          uint32_t b, sat_vec3_t* out) {
     const sat_skin_blend_t& r = s.blend[b];
     int32_t p0[3], p1[3];
-    transform(mats[r.joint[0]].m, r.pos[0], scale, p0);
+    transform<q15>(mats[r.joint[0]].m, r.pos[0], scale, p0);
     if (r.count <= 1) {
         out->x = p0[0]; out->y = p0[1]; out->z = p0[2];
         return;
     }
-    transform(mats[r.joint[1]].m, r.pos[1], scale, p1);
+    transform<q15>(mats[r.joint[1]].m, r.pos[1], scale, p1);
     if (r.count == 2) {
         if (r.weight[0] == kWeightOne / 2) { /* exact half: no weight multiplies */
             out->x = (int32_t)(((int64_t)p0[0] + p1[0]) >> 1);
@@ -57,7 +58,7 @@ inline void deform_blend(const sat_skin_asset_t& s, const sat_mat4_t* mats, int3
         return;
     }
     int32_t p2[3];
-    transform(mats[r.joint[2]].m, r.pos[2], scale, p2);
+    transform<q15>(mats[r.joint[2]].m, r.pos[2], scale, p2);
     const int64_t w0 = r.weight[0], w1 = r.weight[1], w2 = kWeightOne - w0 - w1;
     out->x = (int32_t)((w0 * p0[0] + w1 * p1[0] + w2 * p2[0] + (kWeightOne >> 1)) >> 15);
     out->y = (int32_t)((w0 * p0[1] + w1 * p1[1] + w2 * p2[1] + (kWeightOne >> 1)) >> 15);
@@ -125,10 +126,21 @@ extern "C" sat_result_t sat_skin_deform_range(
     const uint32_t total = sat_skin_vertex_count(skin);
     if (first > total || count > total - first) return SAT_ERR_INVALID_ARG;
     const uint32_t end = first + count;
-    const int32_t scale = (int32_t)1 << (16 - skin->pos_shift);
     uint32_t v = first;
-    for (; v < end && v < skin->rigid_count; ++v) deform_rigid(*skin, joint_world, scale, v, &out[v]);
-    for (; v < end; ++v) deform_blend(*skin, joint_world, scale, v - skin->rigid_count, &out[v]);
+    if (skin->pos_shift == 15) {
+        /* Choose the fixed Q15 conversion once per range, not once per
+         * influence. Character assets commonly share this format. */
+        for (; v < end && v < skin->rigid_count; ++v)
+            deform_rigid<true>(*skin, joint_world, 2, v, &out[v]);
+        for (; v < end; ++v)
+            deform_blend<true>(*skin, joint_world, 2, v - skin->rigid_count, &out[v]);
+    } else {
+        const int32_t scale = (int32_t)1 << (16 - skin->pos_shift);
+        for (; v < end && v < skin->rigid_count; ++v)
+            deform_rigid<false>(*skin, joint_world, scale, v, &out[v]);
+        for (; v < end; ++v)
+            deform_blend<false>(*skin, joint_world, scale, v - skin->rigid_count, &out[v]);
+    }
     return SAT_OK;
 }
 
