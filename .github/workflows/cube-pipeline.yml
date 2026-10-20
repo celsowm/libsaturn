@@ -5,6 +5,8 @@ on:
     paths:
       - 'examples/cube_pipeline_bench/**'
       - 'harness/scripts/cube_pipeline.py'
+      - 'harness/scripts/build_example_variant.py'
+      - 'tests/tools/test_example_variant.py'
       - 'harness/scripts/analyze_cpu_profile.py'
       - 'tests/tools/test_analyze_cpu_profile.py'
       - 'harness/scripts/dino_pipeline.py'
@@ -46,10 +48,30 @@ jobs:
       - run: make build/tests/test_mesh3d_logic build/tests/test_render3d_logic
       - run: ./build/tests/test_mesh3d_logic && ./build/tests/test_render3d_logic
       - run: python tests/tools/test_cube_pipeline.py
+      - run: python tests/tools/test_example_variant.py
       - run: python tests/tools/test_renderer_pipeline_study.py
       - run: python tests/tools/test_dino_phase_metrics.py
       - run: python tests/tools/test_analyze_cpu_profile.py
       - run: python harness/scripts/dino_pipeline.py --help
+  dino-banks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/saturn-toolchain
+      - run: sudo apt-get install -y ffmpeg
+      - run: python -m pip install -r tools/requirements-city.txt
+      - name: Compile independent Dino table banks with stock-memory and disc checks
+        run: |
+          for programs in 0 1; do
+            for textures in 0 1; do
+              make all EXAMPLE=dino_demo DINO_HIGH_MATERIAL_PROGRAMS=$programs \
+                DINO_HIGH_TEXTURE_DESCRIPTORS=$textures DINO_PIPELINE_METRICS=1 \
+                DINO_PROFILE_HUD=1 DINO_BENCH_PAUSED=1 PYTHON="$(command -v python)" -j3
+            done
+          done
   images:
     runs-on: ubuntu-latest
     steps:

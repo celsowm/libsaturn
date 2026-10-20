@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Build/run the procedural cube ladder and decode its bounded FRT telemetry."""
-import argparse,hashlib,json,os,shutil,signal,statistics,struct,subprocess
+import argparse,hashlib,json,os,re,shutil,signal,statistics,struct,subprocess
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -27,10 +27,22 @@ CASES={
 }
 
 
+def make_program():
+    """Grouped targets (&:) require GNU Make 4.3, unlike macOS's stock 3.81."""
+    for name in ('gmake','make'):
+        program=shutil.which(name)
+        if not program:continue
+        version=subprocess.check_output([program,'--version'],text=True)
+        match=re.search(r'GNU Make (\d+)\.(\d+)',version)
+        if match and tuple(map(int,match.groups()))>=(4,3):return program
+    raise RuntimeError('GNU Make >=4.3 is required for grouped asset targets; install gmake')
+
+
 @contextmanager
-def build_lock():
+def build_lock(example='cube_pipeline_bench'):
     """Keep each shared Make alias and its retained copies in one transaction."""
-    path=ROOT/'build/locks/cube_pipeline_bench.lock'
+    if not re.fullmatch(r'[a-zA-Z0-9_]+',example):raise ValueError('invalid example name')
+    path=ROOT/'build/locks'/(example+'.lock')
     path.parent.mkdir(parents=True,exist_ok=True)
     with path.open('a+b') as handle:
         if os.name=='nt':
@@ -184,14 +196,14 @@ def run(a):
     results=dict(cases={},completed=False)
     for name in a.cases:
         stage,density=CASES[name];case=out/name;case.mkdir()
-        command=['make','all','EXAMPLE=cube_pipeline_bench',f'CUBE_BENCH_STAGE={stage}',
+        command=[make_program(),'all','EXAMPLE=cube_pipeline_bench',f'CUBE_BENCH_STAGE={stage}',
                  f'CUBE_BENCH_DIV={density}',f'CUBE_BENCH_HUD={int(not a.no_hud)}',
                  f'CUBE_BENCH_TIMING_HUD={int(a.timing_hud)}',
                  f'CUBE_BENCH_HIGH_RAM={int(a.high_ram)}',
                  f'CUBE_BENCH_HIGH_ACTORS={int(a.high_ram or a.high_actors)}',
                  f'CUBE_BENCH_HIGH_FACES={int(a.high_ram or a.high_faces)}',
                  f'CUBE_BENCH_HIGH_ORDER={int(a.high_ram or a.high_order)}',
-                 'PYTHON='+str(a.python.resolve()),'-j4']
+                 'PYTHON='+str(a.python.absolute()),'-j4']
         with build_lock():
             with (case/'build.log').open('w') as log:
                 subprocess.run(command,cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,

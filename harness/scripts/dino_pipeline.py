@@ -2,7 +2,7 @@
 """Retain a built Dino demo and measure a warmed interval on both SH-2s."""
 import argparse,hashlib,json,shutil,struct,subprocess,sys
 from pathlib import Path
-from cube_pipeline import ROOT,symbols
+from cube_pipeline import ROOT,symbols,build_lock
 from analyze_cpu_profile import analyze
 from dino_phase_metrics import decode as decode_phases
 
@@ -12,6 +12,22 @@ from dino_runtime import analyze as runtime_gate
 CONTROLS=('0 NONE\n150 START\n170 NONE\n200 A\n220 NONE\n300 A\n320 NONE\n'
           '360 R\n420 NONE\n460 X\n520 NONE\n560 C\n580 NONE\n620 Z\n640 NONE\n'
           '700 Z\n720 NONE\n800 B\n820 NONE\n')
+
+
+def table_placement(syms,expected_programs=None,expected_textures=None):
+    tables={}
+    for name,expected in (('g_material_program_storage',expected_programs),
+                          ('g_model_textures',expected_textures)):
+        if name not in syms:
+            if expected is not None:raise ValueError('missing expected table: '+name)
+            continue
+        address,size=syms[name]
+        bank=next((bank for bank,start in (('low',0x00200000),('high',0x06000000))
+                   if size>0 and start<=address<address+size<=start+0x100000),None)
+        if bank is None or expected is not None and bank!=expected:
+            raise ValueError('invalid table WRAM placement: '+name)
+        tables[name]=dict(address=address,bytes=size,ram=bank)
+    return tables
 
 
 def compare(before,after):
@@ -38,20 +54,31 @@ def run(a):
     out=a.out.resolve()
     if out.exists() and any(out.iterdir()):raise FileExistsError('use a fresh empty output directory')
     out.mkdir(parents=True,exist_ok=True)
-    for suffix in ('.elf','.map','.app.bin','.iso','.bin','.cue'):
-        shutil.copyfile(a.build/('dino_demo'+suffix),out/('dino_demo'+suffix))
+    with build_lock('dino_demo'):
+        for suffix in ('.elf','.map','.app.bin','.iso','.bin','.cue'):
+            shutil.copyfile(a.build/('dino_demo'+suffix),out/('dino_demo'+suffix))
+        variant=a.build/'variant.json'
+        if variant.is_file():
+            manifest=json.loads(variant.read_text())
+            if not manifest.get('completed') or any(
+                    hashlib.sha256((out/('dino_demo'+suffix)).read_bytes()).hexdigest()!=digest
+                    for suffix,digest in manifest['hashes'].items()):
+                raise ValueError('incomplete or changed retained Dino build')
+            shutil.copyfile(variant,out/'build-variant.json')
     elf=out/'dino_demo.elf';syms=symbols(elf,a.nm)
+    tables=table_placement(syms,a.expect_programs_ram,a.expect_textures_ram)
     # The injection boot needs the BIOS Slave handoff supplied explicitly.
     entry=syms['saturn_slave_entry'][0]
     scenario=out/'inputs.pad'
-    scenario.write_text(CONTROLS if a.scenario=='controls' else
+    scenario.write_text('0 NONE\n' if a.paused_at_boot else CONTROLS if a.scenario=='controls' else
                         '0 A+Z\n' if a.scenario=='paused' else '0 NONE\n')
-    retained=dict(scenario=a.scenario,analysis_checkout=subprocess.check_output(
+    retained=dict(scenario=a.scenario,paused_at_boot=a.paused_at_boot,analysis_checkout=subprocess.check_output(
         ['git','describe','--always','--dirty'],cwd=ROOT,text=True).strip(),
         hashes={suffix:hashlib.sha256((out/('dino_demo'+suffix)).read_bytes()).hexdigest()
                 for suffix in ('.elf','.app.bin','.bin','.cue')},
         bios_sha256=hashlib.sha256(a.bios.read_bytes()).hexdigest(),
-        probe_sha256=hashlib.sha256(a.probe.read_bytes()).hexdigest(),checkpoints=[])
+        probe_sha256=hashlib.sha256(a.probe.read_bytes()).hexdigest(),
+        table_placement=tables,checkpoints=[])
     for frames in a.checkpoints:
         prefix=out/('field-'+str(frames))
         shutil.copyfile(out/'dino_demo.map',Path(str(prefix)+'.map'))
@@ -109,10 +136,15 @@ if __name__=='__main__':
     p.add_argument('--checkpoints',type=int,nargs='+',default=[600,1200])
     p.add_argument('--scenario',choices=['animated','paused','controls'],default='animated')
     p.add_argument('--profile',action='store_true');p.add_argument('--timeout',type=int,default=600)
+    p.add_argument('--expect-programs-ram',choices=['low','high'])
+    p.add_argument('--expect-textures-ram',choices=['low','high'])
+    p.add_argument('--paused-at-boot',action='store_true',
+                   help='validate a DINO_BENCH_PAUSED image without toggling pause/light through inputs')
     a=p.parse_args()
     if a.compare:
         compare(*a.compare);raise SystemExit(0)
     if not a.out or not a.bios:p.error('--out and --bios are required for execution')
+    if a.paused_at_boot and a.scenario!='paused':p.error('--paused-at-boot requires --scenario paused')
     if len(a.checkpoints)<2 or a.checkpoints!=sorted(set(a.checkpoints)) or a.checkpoints[0]<100:
         p.error('need at least two increasing checkpoints >=100 fields')
     run(a)

@@ -85,6 +85,15 @@
 #ifndef DINO_MUSIC_68K
 #define DINO_MUSIC_68K 0
 #endif
+#ifndef DINO_HIGH_MATERIAL_PROGRAMS
+#define DINO_HIGH_MATERIAL_PROGRAMS 1
+#endif
+#ifndef DINO_HIGH_TEXTURE_DESCRIPTORS
+#define DINO_HIGH_TEXTURE_DESCRIPTORS 1
+#endif
+#if DINO_PROFILE_HUD && !DINO_PIPELINE_METRICS
+#error "DINO_PROFILE_HUD requires DINO_PIPELINE_METRICS=1"
+#endif
 
 #if !DINO_MUSIC_68K
 #include "dino_demo/audio_bone_and_plastic.h"
@@ -116,6 +125,16 @@ _Static_assert(MODEL_FACE_CAP == 1499u,
  * program fit in WRAM-H; the arrays every vertex touches every frame stay in
  * the faster WRAM-H. */
 #define DINO_WRAM_L __attribute__((section(".wram_l")))
+#if DINO_HIGH_MATERIAL_PROGRAMS
+#define DINO_PROGRAM_RAM
+#else
+#define DINO_PROGRAM_RAM DINO_WRAM_L
+#endif
+#if DINO_HIGH_TEXTURE_DESCRIPTORS
+#define DINO_TEXTURE_RAM
+#else
+#define DINO_TEXTURE_RAM DINO_WRAM_L
+#endif
 
 /* Faces [0, MASTER_FACES) are prepared on the Master, the rest on the Slave. */
 #define MASTER_FACES (MODEL_FACE_CAP * 3u / 5u)
@@ -129,7 +148,7 @@ static sat_vec3_t g_pose[2][MODEL_VERTEX_CAP];
 static uint16_t g_mesh_indices[MODEL_FACE_CAP * 4u] DINO_WRAM_L;
 static uint8_t g_double_sided_faces[MODEL_FACE_CAP] DINO_WRAM_L;
 static sat_mesh_t g_mesh DINO_WRAM_L;
-static sat_vdp1_texture_t g_model_textures[MODEL_TEXTURE_CAP] DINO_WRAM_L;
+static sat_vdp1_texture_t g_model_textures[MODEL_TEXTURE_CAP] DINO_TEXTURE_RAM;
 static sat_projected_vertex_t g_mesh_screen[MODEL_VERTEX_CAP];
 static sat_scene3d_face_t g_scene_faces[MODEL_FACE_CAP] DINO_WRAM_L;
 static uint32_t g_scene_keys[MODEL_FACE_CAP];
@@ -149,7 +168,7 @@ static sat_scene3d_face_t g_slave_faces[SLAVE_FACES] DINO_WRAM_L;
 static uint32_t g_slave_keys[SLAVE_FACES];
 static sat_scene3d_prepare_item_t g_slave_item DINO_WRAM_L;
 static sat_scene3d_material_programs_t g_material_programs DINO_WRAM_L;
-static sat_scene3d_material_program_t g_material_program_storage[MODEL_TEXTURE_CAP] DINO_WRAM_L;
+static sat_scene3d_material_program_t g_material_program_storage[MODEL_TEXTURE_CAP] DINO_PROGRAM_RAM;
 static sat_scene3d_source_plan_t g_slave_sources DINO_WRAM_L;
 static sat_scene3d_source_range_t g_slave_source_ranges[MODEL_TEXTURE_CAP + 5u] DINO_WRAM_L;
 static sat_scene3d_prepare_batch_t g_slave_batch DINO_WRAM_L;
@@ -619,6 +638,19 @@ static void draw_hud(void) {
     char line[SAT_FMT_U32_MAX + 16u];
     const int offset = g_show_hud ? 20 : 0;
 
+#if DINO_PROFILE_HUD
+    enum { PROFILE_X=176, PROFILE_FRAME_Y=14, PROFILE_FLUSH_Y=24, PROFILE_WORK_Y=34 };
+    dino_pipeline_sample_t completed={0};
+    if(g_dino_pipeline.count)
+        completed=g_dino_pipeline.samples[(g_dino_pipeline.count-1u)%DINO_PROFILE_ROWS];
+    if(sat_fmt_label_u32("FRAME ",g_dino_diagnostics.frames+1u,line,sizeof(line),0)==SAT_OK)
+        draw_text(line,PROFILE_X,PROFILE_FRAME_Y+offset);
+    if(sat_fmt_label_u32("FLUSH ",completed.flush,line,sizeof(line),0)==SAT_OK)
+        draw_text(line,PROFILE_X,PROFILE_FLUSH_Y+offset);
+    if(sat_fmt_label_u32("WORK ",completed.work,line,sizeof(line),0)==SAT_OK)
+        draw_text(line,PROFILE_X,PROFILE_WORK_Y+offset);
+#endif
+
     draw_credit(0);
     if (g_show_hud) {
         draw_text("T-REX WALK  L/R ROT  X/Y ZOOM", 4, 4);
@@ -791,6 +823,9 @@ int main(void) {
     }
     loading_step(25u);
     sat_example_must(sat_anim_state_init(&g_anim, &trex_anim_asset, 0));
+#if DINO_BENCH_PAUSED
+    sat_anim_set_paused(&g_anim,1);
+#endif
     sat_example_must(sat_scene_init(&g_scene, g_scene_faces, g_scene_keys,
         g_scene_order, MODEL_FACE_CAP));
     g_instance.mesh = &g_mesh;
@@ -894,6 +929,10 @@ int main(void) {
     SAT_PANIC_IF_ERROR(sat_vdp2_sprite_palette_bank_set(
         (uint8_t)trex_asset.palette_base));
     light_init();
+#if DINO_BENCH_PAUSED
+    g_light_on=0;
+    light_switch();
+#endif
     g_pose_read = 0u;
     g_job_pending = 0;
     g_tick = sat_frame_count();

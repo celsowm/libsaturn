@@ -289,3 +289,8 @@ Actual CD boots must be recorded **serially**: Mednafen locks its base
 directory. `--record-cd CASE_DIRECTORY` retains each movie and build hashes.
 See [the native bank study](NATIVE_WRAM_STUDY.md) for the independent
 emulator results and the limits on applying them to runtime consumers.
+
+The subsequent [material-table memory study](MATERIAL_TABLE_MEMORY.md) uses
+the same explicit bank methodology in Dino and the private Tekken consumer.
+Its generic retained example builder preserves virtual environments, selects
+GNU Make with grouped-target support and serializes shared example aliases.
