@@ -245,3 +245,47 @@ The work reduction was roughly 2–3%, insufficient to explain the large gap to
 the native path. The skin case crossed a scheduling boundary (10 to 12 nominal
 submissions/s); this does not mean its CPU work improved by 20%. These emulator
 measurements do not establish the physical Saturn's WRAM access penalty.
+
+### Independent bank controls and native CD qualification
+
+The ladder now uses `SAT_VDP1_FRAME_ON_SUBMIT` for SDK-driven stages. Raw
+stage 1 retains its own PTMR ownership and plot join. Both banks therefore
+use the complete-list policy used by Dino and the Tekken consumer.
+
+`--high-ram` still moves all working arrays. Three composable switches now
+isolate the cause without changing geometry or adding a game-specific path:
+
+| Switch | Arrays placed in High WRAM |
+| --- | --- |
+| `--high-actors` | Actor vertices, world/projection scratch and actor state |
+| `--high-faces` | Main and optional worker face records |
+| `--high-order` | Main/worker painter keys and main ordering scratch |
+
+The target publishes a three-bit requested-placement mask. The runner checks
+that mask and the actual ELF address/size of every retained buffer, including
+worker arrays when present. Each buffer carries its own `ram` label in the
+report. An array crossing the bank boundary or residing in the wrong bank
+fails the run. These switches change placement, not capacity or algorithms.
+
+The comparator rejects bank changes by default. Explicit placement studies
+must use `--allow-working-ram-change`; they retain equal buffer names and
+sizes, valid per-buffer bank ranges, the command/face/configuration gates,
+matching BIOS/probe provenance and exact model-region pixel comparison.
+Different mixed placements also require this switch. Build commands remain
+necessary to review compiler settings; the comparator does not certify them.
+
+```sh
+python3 harness/scripts/cube_pipeline.py --bios "$BIOS" \
+  --compiler-dir "$SH2_TOOLS" --python "$PYTHON_WITH_PILLOW" \
+  --out harness/build/bank-actors --cases scene-864 --frames 1200 \
+  --timing-hud --high-actors
+python3 harness/scripts/compare_cube_pipeline.py \
+  --baseline harness/build/bank-low/matrix.json \
+  --candidate harness/build/bank-actors/matrix.json \
+  --allow-working-ram-change --out harness/build/bank-comparison.json
+```
+
+Actual CD boots must be recorded **serially**: Mednafen locks its base
+directory. `--record-cd CASE_DIRECTORY` retains each movie and build hashes.
+See [the native bank study](NATIVE_WRAM_STUDY.md) for the independent
+emulator results and the limits on applying them to runtime consumers.

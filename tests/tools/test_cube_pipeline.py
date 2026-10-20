@@ -2,7 +2,7 @@ import copy,struct,sys,unittest
 from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'harness/scripts'))
-from cube_pipeline import HEADER,FIELDS,ROWS,decode,symbols
+from cube_pipeline import HEADER,FIELDS,ROWS,decode,symbols,working_buffers,RAM_ACTORS,RAM_FACES,RAM_ORDER
 from analyze_cpu_profile import attribute
 from compare_cube_pipeline import compare_case
 
@@ -35,6 +35,21 @@ class CubeTelemetryTests(unittest.TestCase):
             result=symbols(Path('example.elf'),'nm')
         self.assertEqual(result['saturn_slave_entry'],(0x060040b0,0))
         self.assertEqual(result['g_anim'],(0x06020000,12))
+
+    def test_independent_placement_groups_certify_actual_elf_addresses(self):
+        for mask in (0,RAM_ACTORS,RAM_FACES,RAM_ORDER,RAM_ACTORS|RAM_FACES|RAM_ORDER):
+            syms={name:(0x06010000 if mask & bit else 0x00210000,4096)
+                  for name,bit in [('actors',RAM_ACTORS),('faces',RAM_FACES),
+                      ('worker_faces',RAM_FACES),('keys',RAM_ORDER),('order',RAM_ORDER),
+                      ('worker_keys',RAM_ORDER)]}
+            with self.subTest(mask=mask):
+                result=working_buffers(syms,mask)
+                self.assertEqual(len(result),6)
+                broken=dict(syms);broken['actors']=(0x00210000 if mask & RAM_ACTORS else 0x06010000,4096)
+                with self.assertRaises(ValueError):working_buffers(broken,mask)
+        for syms,mask in [({},0),({'actors':(0x00210000,0)},0),
+                ({'actors':(0x002ff000,4097)},0),({'actors':(0x00210000,1)},8)]:
+            with self.assertRaises(ValueError):working_buffers(syms,mask)
 
     def test_ring_skips_the_active_overwrite_slot(self):
         count=ROWS+33;raw=self.fixture(count)
@@ -96,6 +111,38 @@ class CubeTelemetryTests(unittest.TestCase):
             with self.assertRaises(ValueError):compare_case(before,after)
         after=copy.deepcopy(before);after['measured_fields']=599
         with self.assertRaises(ValueError):compare_case(before,after)
+
+    def test_placement_control_requires_explicit_choice_and_actual_matching_buffers(self):
+        before=self.comparison_fixture();after=copy.deepcopy(before)
+        before['working_buffers']['faces']['address']=0x00200000
+        after['working_ram']='high';after['working_buffers']['faces']['address']=0x06010000
+        with self.assertRaisesRegex(ValueError,'working_ram'):compare_case(before,after)
+        result=compare_case(before,after,allow_working_ram_change=True)
+        self.assertEqual(result['before_working_ram'],'low')
+        self.assertEqual(result['after_working_ram'],'high')
+        for key,value in (('address',0x00200000),('size',8800)):
+            changed=copy.deepcopy(after);changed['working_buffers']['faces'][key]=value
+            with self.subTest(key=key),self.assertRaises(ValueError):
+                compare_case(before,changed,allow_working_ram_change=True)
+        after['commands']['maximum']+=1
+        with self.assertRaises(ValueError):compare_case(before,after,allow_working_ram_change=True)
+
+    def test_mixed_placement_checks_each_buffer_and_rejects_implicit_changes(self):
+        before=self.comparison_fixture()
+        before['working_buffers']={'faces':dict(size=10400,address=0x00200000,ram='low'),
+                                   'actors':dict(size=4096,address=0x00210000,ram='low')}
+        after=copy.deepcopy(before)
+        after['working_ram']='mixed'
+        after['working_buffers']['actors'].update(address=0x06010000,ram='high')
+        with self.assertRaises(ValueError):compare_case(before,after)
+        compare_case(before,after,allow_working_ram_change=True)
+        malformed=copy.deepcopy(after);malformed['working_buffers']['actors']['ram']='low'
+        with self.assertRaises(ValueError):compare_case(before,malformed,allow_working_ram_change=True)
+        other=copy.deepcopy(after)
+        other['working_buffers']['actors'].update(address=0x00210000,ram='low')
+        other['working_buffers']['faces'].update(address=0x06010000,ram='high')
+        with self.assertRaises(ValueError):compare_case(after,other)
+        compare_case(after,other,allow_working_ram_change=True)
 
 
 if __name__=='__main__':unittest.main()

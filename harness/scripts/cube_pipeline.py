@@ -10,6 +10,12 @@ HEADER=('magic version stage divisions hud frequency count cursor serial errors 
 FIELDS=('serial field_begin field_end wait begin animation skin geometry flush hud '
         'present work commands faces draw_waits draw_timeouts plot').split()
 ROWS=1024
+RAM_ACTORS=1
+RAM_FACES=2
+RAM_ORDER=4
+RAM_ALL=RAM_ACTORS|RAM_FACES|RAM_ORDER
+BUFFER_RAM_BITS={'actors':RAM_ACTORS,'faces':RAM_FACES,'worker_faces':RAM_FACES,
+                 'keys':RAM_ORDER,'worker_keys':RAM_ORDER,'order':RAM_ORDER}
 CASES={
     'empty':(0,1),'raw':(1,1),'native':(2,1),'projection':(3,1),
     'scene':(4,1),'texture':(5,1),'skin':(7,1),
@@ -97,6 +103,22 @@ def symbols(elf,nm):
     return result
 
 
+def working_buffers(syms,mask):
+    """Certify each retained array against its requested normal WRAM bank."""
+    if mask & ~RAM_ALL:raise ValueError('invalid working RAM mask')
+    result={}
+    for name,bit in BUFFER_RAM_BITS.items():
+        if name not in syms:continue
+        address,size=syms[name]
+        high=bool(mask & bit)
+        start=0x06000000 if high else 0x00200000
+        if size<=0 or not start<=address<address+size<=start+0x100000:
+            raise ValueError('cube ELF buffer does not match requested WRAM placement: '+name)
+        result[name]=dict(address=address,size=size,ram='high' if high else 'low')
+    if not result:raise ValueError('missing cube working buffers')
+    return result
+
+
 def report(paths,compare=()):
     print('| Case | Working RAM | Submit/s | Work ms | Skin ms | Geometry ms | Emit ms | Present ms | Raw plot ms |')
     print('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
@@ -166,6 +188,9 @@ def run(a):
                  f'CUBE_BENCH_DIV={density}',f'CUBE_BENCH_HUD={int(not a.no_hud)}',
                  f'CUBE_BENCH_TIMING_HUD={int(a.timing_hud)}',
                  f'CUBE_BENCH_HIGH_RAM={int(a.high_ram)}',
+                 f'CUBE_BENCH_HIGH_ACTORS={int(a.high_ram or a.high_actors)}',
+                 f'CUBE_BENCH_HIGH_FACES={int(a.high_ram or a.high_faces)}',
+                 f'CUBE_BENCH_HIGH_ORDER={int(a.high_ram or a.high_order)}',
                  'PYTHON='+str(a.python.resolve()),'-j4']
         with build_lock():
             with (case/'build.log').open('w') as log:
@@ -176,12 +201,14 @@ def run(a):
         elf=case/'cube_pipeline_bench.elf';syms=symbols(elf,nm)
         address,size=syms['g_cube_bench'];panic_address,panic_size=syms['g_sat_last_panic']
         ram_address,ram_size=syms['g_cube_bench_high_ram']
+        mask_address,mask_size=syms['g_cube_bench_ram_mask']
         probe=[str(a.probe.resolve()),'--iso',str(case/'cube_pipeline_bench.iso'),
                '--bin',str(case/'cube_pipeline_bench.app.bin'),'--bios',str(a.bios.resolve()),
                '--boot-frames','90','--frames',str(a.frames),'--sh2-cache','on',
                '--out',str(case/'ymir.json'),'--dump-mem',f'{address:#x}:{size}:{case}/telemetry.bin',
                '--dump-mem',f'{panic_address:#x}:{panic_size}:{case}/native-panic.bin',
                '--dump-mem',f'{ram_address:#x}:{ram_size}:{case}/working-ram.bin',
+               '--dump-mem',f'{mask_address:#x}:{mask_size}:{case}/working-mask.bin',
                '--screenshot',f'{a.frames-1}:{case}/screen.png']
         if a.profile:
             probe+=['--debug-profile',str(case/'debug'),'--trace-from',str(a.frames-100),
@@ -196,15 +223,14 @@ def run(a):
         report=decode((case/'telemetry.bin').read_bytes(),a.after_field)
         if (case/'working-ram.bin').read_bytes()!=struct.pack('>I',int(a.high_ram)):
             raise ValueError('cube working RAM does not match requested build')
-        report['working_ram']='high' if a.high_ram else 'low'
-        report['working_buffers']={name:dict(address=syms[name][0],size=syms[name][1])
-                                   for name in ('actors','faces','keys','order','worker_faces','worker_keys')
-                                   if name in syms}
-        ram_start=0x06000000 if a.high_ram else 0x00200000
-        if not report['working_buffers'] or any(
-                not ram_start<=buffer['address']<buffer['address']+buffer['size']<=ram_start+0x100000
-                for buffer in report['working_buffers'].values()):
-            raise ValueError('cube ELF buffers do not match requested WRAM placement')
+        mask=((RAM_ACTORS if a.high_ram or a.high_actors else 0) |
+              (RAM_FACES if a.high_ram or a.high_faces else 0) |
+              (RAM_ORDER if a.high_ram or a.high_order else 0))
+        if (case/'working-mask.bin').read_bytes()!=struct.pack('>I',mask):
+            raise ValueError('cube working RAM mask does not match requested build')
+        report['working_ram']='high' if mask==RAM_ALL else 'low' if mask==0 else 'mixed'
+        report['working_ram_mask']=mask
+        report['working_buffers']=working_buffers(syms,mask)
         if report['header']['stage']!=stage or report['header']['divisions']!=density:
             raise ValueError('cube build does not match requested case')
         if report['measured_fields']<a.minimum_fields:raise ValueError('cube measurement window too short')
@@ -251,6 +277,9 @@ if __name__=='__main__':
     p.add_argument('--timing-hud',action='store_true',
                    help='show the measured geometry FRT ticks on the guest HUD')
     p.add_argument('--high-ram',action='store_true',help='place actor/face working buffers in high WRAM')
+    p.add_argument('--high-actors',action='store_true',help='place only actor working data in High WRAM')
+    p.add_argument('--high-faces',action='store_true',help='place only face records in High WRAM')
+    p.add_argument('--high-order',action='store_true',help='place only painter keys/order in High WRAM')
     a=p.parse_args()
     if a.report:
         report(a.report,a.compare);raise SystemExit(0)
