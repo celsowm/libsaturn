@@ -160,7 +160,10 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
      * admission lower-bound gate, not a guarantee that every flush fits. */
     uint32_t guaranteed_commands=0u;
     for (uint16_t i=0u;i<scene->faces.count;++i)
-        if (scene->faces.entries[i].projected_safe!=0u)
+        if (scene->faces.projected_entries
+            ? scene->faces.projected_entries[i].kind!=SAT_SCENE3D_PROJECTED_COLD ||
+              scene->faces.projected_entries[i].cold->projected_safe!=0u
+            : scene->faces.entries[i].projected_safe!=0u)
             ++guaranteed_commands;
     sat_result_t st=SAT_OK;
     bool insufficient=false;

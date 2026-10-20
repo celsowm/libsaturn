@@ -151,6 +151,9 @@ static sat_mesh_t g_mesh DINO_WRAM_L;
 static sat_vdp1_texture_t g_model_textures[MODEL_TEXTURE_CAP] DINO_TEXTURE_RAM;
 static sat_projected_vertex_t g_mesh_screen[MODEL_VERTEX_CAP];
 static sat_scene3d_face_t g_scene_faces[MODEL_FACE_CAP] DINO_WRAM_L;
+#if DINO_PROJECTED_FACE_QUEUE
+static sat_scene3d_projected_face_t g_projected_faces[MODEL_FACE_CAP] DINO_WRAM_L;
+#endif
 static uint32_t g_scene_keys[MODEL_FACE_CAP];
 static uint16_t g_scene_order[MODEL_FACE_CAP];
 /* The two halves: mesh views over the shared index table, each with the
@@ -828,6 +831,10 @@ int main(void) {
 #endif
     sat_example_must(sat_scene_init(&g_scene, g_scene_faces, g_scene_keys,
         g_scene_order, MODEL_FACE_CAP));
+#if DINO_PROJECTED_FACE_QUEUE
+    sat_example_must(sat_scene3d_faces_use_projected_storage(
+        &g_scene.faces,g_projected_faces,MODEL_FACE_CAP));
+#endif
     g_instance.mesh = &g_mesh;
     g_instance.materials = g_scene_materials;
     g_instance.material_count = MODEL_TEXTURE_CAP;

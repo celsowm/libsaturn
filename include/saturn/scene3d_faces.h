@@ -104,6 +104,25 @@ typedef struct sat_scene3d_face {
     sat_quad3_t world;
 } sat_scene3d_face_t;
 
+/* Optional hot queue for projected, opaque commands. 24 bytes on SH-2;
+ * uncommon materials/clipping retain a cold ordinary face. */
+typedef enum sat_scene3d_projected_kind {
+    SAT_SCENE3D_PROJECTED_RGB = 0,
+    SAT_SCENE3D_PROJECTED_PROGRAM = 1,
+    SAT_SCENE3D_PROJECTED_COLD = 2
+} sat_scene3d_projected_kind_t;
+typedef struct sat_scene3d_projected_face {
+    sat_quad2_t projected;
+    union {
+        const sat_scene3d_material_program_t* program;
+        const sat_scene3d_face_t* cold;
+        uint16_t rgb555;
+    };
+    uint8_t kind;
+    uint8_t cached_projected;
+    uint16_t reserved;
+} sat_scene3d_projected_face_t;
+
 typedef sat_result_t (*sat_scene3d_owner_validate_fn)(
     void* context,uint16_t slot,uint16_t generation,
     const sat_vdp1_texture_t* expected_native);
@@ -148,6 +167,9 @@ typedef struct sat_scene3d_faces {
     uint16_t emitted_cached;
     /* Deliberately skipped unsupported faces. */
     uint16_t skipped_faces;
+    /* When bound, entries is cold storage rather than the logical queue. */
+    sat_scene3d_projected_face_t* projected_entries;
+    uint16_t cold_count;
 } sat_scene3d_faces_t;
 
 /* All three buffers are caller-owned and must hold `capacity` entries:
@@ -156,6 +178,16 @@ typedef struct sat_scene3d_faces {
 sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
     uint32_t* keys, uint16_t* order, uint16_t capacity);
+
+/* Bind only between frames. Ordinary entry storage still covers capacity
+ * and holds uncommon faces; projected storage must also cover capacity.
+ * Retain both buffers through flush. NULL returns to ordinary queue mode. */
+sat_result_t sat_scene3d_faces_use_projected_storage(
+    sat_scene3d_faces_t* scene,sat_scene3d_projected_face_t* storage,uint16_t capacity);
+/* Expand a queued record for diagnostics; never read entries[i] directly
+ * when projected storage is bound. Unused world/Gouraud fields are unspecified. */
+sat_result_t sat_scene3d_faces_get(
+    const sat_scene3d_faces_t* scene,uint16_t index,sat_scene3d_face_t* out);
 
 /* Configure the optional owner verifier only while no frame is active.
  * `spans` (caller-owned, `span_capacity` entries) holds one record per

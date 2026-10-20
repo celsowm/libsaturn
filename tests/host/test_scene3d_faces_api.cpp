@@ -521,7 +521,83 @@ static void compiled_materials_preserve_emission_and_residency() {
     assert(programs[0].texture==&texture[0] && programs[0].command[4]==texture[0].srca);
 }
 
+static void projected_hot_queue_matches_general_and_owns_fallbacks() {
+    constexpr unsigned capacity=32;
+    sat_scene3d_face_t storage[2][capacity]={};
+    sat_scene3d_projected_face_t hot[capacity]={};
+    uint32_t keys[2][capacity]={};uint16_t order[2][capacity]={};
+    sat_scene3d_faces_t scenes[2]={};
+    sat_mat4_t vp={};vp.m[0]=SAT_FX16_ONE;
+    const sat_vec3_t eye={},forward={0,0,SAT_FX16_ONE};
+    for(unsigned i=0;i<2;++i)
+        assert(sat_scene3d_faces_init(&scenes[i],storage[i],keys[i],order[i],capacity)==SAT_OK);
+    assert(sat_scene3d_faces_use_projected_storage(&scenes[1],hot,capacity-1)==SAT_ERR_INVALID_ARG);
+    assert(sat_scene3d_faces_use_projected_storage(&scenes[1],hot,capacity)==SAT_OK);
+    sat_vdp1_texture_t texture={};texture.valid=1;texture.width=texture.height=8;
+    texture.format=SAT_VDP1_TEXTURE_LUT4;texture.srca=81;
+    sat_scene3d_material_t material={};material.kind=SAT_SCENE3D_INDEXED_TEXTURED;
+    material.texture=&texture;material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    sat_scene3d_material_program_t program[1]={};sat_scene3d_material_programs_t table={};
+    assert(sat_scene3d_material_programs_init(&table,&material,1,program,1)==SAT_OK);
+    sat_quad3_t world=quad(3);uint16_t indices[64],map[16]={};
+    for(unsigned i=0;i<64;++i)indices[i]=i%4;
+    sat_mesh_t mesh={};mesh.vertices=world.v;mesh.indices=indices;
+    mesh.vertex_count=mesh.vertex_cap=4;mesh.face_count=mesh.face_cap=16;
+    sat_scene3d_instance_binding_t binding={};
+    assert(sat_scene3d_instance_binding_init(&binding,&mesh,&material,1,map)==SAT_OK);
+    binding.programs=&table;
+    sat_scene3d_instance_t instance={};instance.mesh=&mesh;instance.materials=&material;
+    instance.material_count=1;instance.face_materials=map;instance.validated_binding=&binding;
+    sat_projected_vertex_t screen[4]={};
+    for(unsigned i=0;i<2;++i) {
+        auto& scene=scenes[i];
+        assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+        assert(sat_scene3d_faces_submit_instance(&scene,&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+        sat_scene3d_material_t rgb={};rgb.kind=SAT_SCENE3D_RGB;
+        rgb.rgb555=0x8123;rgb.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+        const auto floor=quad(5);
+        assert(sat_scene3d_faces_submit_quad(&scene,&floor,&rgb,0)==SAT_OK);
+        uint16_t shades[4]={1,2,3,4};auto shaded=material;shaded.vertex_gouraud=shades;
+        assert(sat_scene3d_faces_submit_quad(&scene,&world,&shaded,0)==SAT_OK);
+        shades[0]=99;
+        auto clipped=quad(2);clipped.v[0].z=SAT_FX16_ONE/2;
+        assert(sat_scene3d_faces_submit_quad(&scene,&clipped,&material,0)==SAT_OK);
+        sat_scene3d_face_t copied={};
+        assert(sat_scene3d_faces_get(&scene,17,&copied)==SAT_OK && copied.gouraud[0]==1);
+        assert(sat_scene3d_faces_get(&scene,19,&copied)==SAT_ERR_INVALID_ARG);
+    }
+    assert(scenes[1].cold_count==2 && hot[0].kind==SAT_SCENE3D_PROJECTED_PROGRAM &&
+        hot[16].kind==SAT_SCENE3D_PROJECTED_RGB && hot[17].kind==SAT_SCENE3D_PROJECTED_COLD);
+    for(unsigned i=0;i<19;++i) {
+        sat_scene3d_face_t a={},b={};
+        assert(sat_scene3d_faces_get(&scenes[0],i,&a)==SAT_OK);
+        assert(sat_scene3d_faces_get(&scenes[1],i,&b)==SAT_OK);
+        assert(a.program_valid==b.program_valid && a.projected_safe==b.projected_safe);
+        if(a.program_valid)assert(a.program==b.program);
+        else assert(same_face(a,b));
+        assert(keys[0][i]==keys[1][i]);
+    }
+    emitted_count=0;
+    assert(sat_scene3d_faces_flush(&scenes[0])==SAT_OK);
+    const unsigned count=emitted_count;
+    assert(sat_scene3d_faces_flush(&scenes[1])==SAT_OK && emitted_count==2*count);
+    for(unsigned i=0;i<count;++i)assert(emitted[i]==emitted[count+i]);
+    // Cold copies survive release/reuse of a worker's original face storage.
+    auto& scene=scenes[1];
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    sat_scene3d_prepare_batch_t batch={};batch.faces=storage[0];batch.keys=keys[0];
+    batch.capacity=capacity;batch.metrics.prepared_faces=19;
+    assert(sat_scene3d_faces_merge_prepared(&scene,&batch)==SAT_OK && scene.cold_count==2);
+    storage[0][17].gouraud[0]=99;
+    sat_scene3d_face_t copied={};
+    assert(sat_scene3d_faces_get(&scene,17,&copied)==SAT_OK && copied.gouraud[0]==1);
+    texture.valid=0;emitted_count=0;
+    assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG && emitted_count==0);
+    assert(sat_scene3d_faces_use_projected_storage(&scene,nullptr,0)==SAT_OK);
+}
+
 int main() {
+    projected_hot_queue_matches_general_and_owns_fallbacks();
     compiled_materials_preserve_emission_and_residency();
     instance_projection_proof_matches_individual_faces();
     lut4_gouraud_corners_are_owned_by_scene();
