@@ -781,3 +781,28 @@ release Paul remains effectively unchanged. See the
 and `harness/studies/renderer-cull16/` before repeating range or layout trials.
 The reusable `visibility_ranges.py` analyzer distinguishes observed old-range,
 newly eligible and still-wide edges without modifying guest code.
+
+## Rejected projected-winding shortcut
+
+A candidate tried to skip `quad_visible` when a positive projected face had a
+large enough area to prove its unrounded winding. The guard included the
+per-face diagonal extent and the projection's rounding/clamp limits. Host
+checks covered 100,000 randomized rounded quads, and the scene test confirmed
+the proof on projected box faces. The proof stayed opt-in inside the instance
+submission path; general faces retained the existing world-space test.
+
+On the frozen Paul profile, `quad_visible` fell from 243,225 to 198,810 sampled
+instructions (18.3%). The additional face checks increased `submit_instance`
+from 411,378 to 617,022 cycles. Their combined exclusive cost rose from
+706,944 to 859,815 cycles (21.6%), so the shortcut made the measured path
+slower despite avoiding some visibility calls. A 60-second actual Mednafen CD
+run also matched the prior build's observed `FRAME` checkpoints: 42, 185 and
+328 at seconds 18, 38 and 58. No cadence gain was retained.
+
+Evidence is private in the port's `material-banks-current-hotspots` and
+`material-banks-current-hotspots-candidate3` profiles and
+`material-banks-faceproof-dynamic-live-cd`. This is an emulator result under
+Ymir's immediate-result DIVU model and Mednafen's CD runtime; it does not
+qualify physical Saturn timing. The implementation and its host test were
+removed. Keep projected winding as an early rejection only; optimize the
+shared exact visibility kernel or select another measured stage instead.
