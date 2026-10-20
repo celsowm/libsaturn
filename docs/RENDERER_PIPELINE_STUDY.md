@@ -849,15 +849,18 @@ Two independent 20-second Mednafen native-CD runs of the two-cube projection
 control (866 vertices per actor, stage 3, 12 divisions) measured **4,666** and
 **4,666 FRT ticks** before, and **4,322** and **4,321** after. The median fell
 7.38%; the model crop had zero different pixels in both candidate captures.
-The Tekken CD control booted successfully and showed the same `FRAME 666` at 15
-seconds and byte-identical screenshots at 30 and 39 seconds. It did not change
-the port's displayed cadence in this run.
+The Tekken CD control booted successfully with `T3_PARALLEL_GEOMETRY=ON` and
+`T3_VERIFY_PARALLEL_GEOMETRY=ON` in both builds. Screenshots at 15, 30 and 39
+seconds are byte-identical, including `FRAME 666` at 15 seconds. A matched
+six-field Ymir profile also retained 403 simulation ticks and 201 submitted
+frames in both builds. Ymir's exclusive projection cost rose from 316,194 to
+344,946 Master cycles (+9.09%) and from 83,544 to 92,217 Slave cycles
+(+10.38%) because its immediate-result DIVU does not overlap the new work.
 
-Ymir's immediate-result DIVU model instead measured 27.816 ms before and
-29.046 ms after for the isolated two-cube stage (30 nominal submissions/s in
-both runs). This exposes the added lookahead arithmetic without the SH-2
-division latency it is intended to overlap. The Mednafen result is a
-stage-level emulator measurement, not a whole-game speedup or physical Saturn
-qualification. Measurement commands, ELF hashes, timing samples and pixel hashes
-are retained in
+Ymir's immediate-result DIVU model measured 27.816 ms before and 29.046 ms
+after for the isolated two-cube stage (30 nominal submissions/s in both runs).
+The matched game profile confirms the same counter-signal. The Mednafen result
+is a stage-level emulator measurement, not a whole-game speedup or physical
+Saturn qualification. Measurement commands, ELF hashes, timing samples and
+pixel hashes are retained in
 [`harness/studies/projection-prefetch/mednafen.json`](../harness/studies/projection-prefetch/mednafen.json).

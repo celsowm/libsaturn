@@ -45,15 +45,48 @@
   "tekken_cd_control": {
     "seconds": 40,
     "return_code": 0,
+    "build_configuration": {
+      "baseline_sdk": "5d28aad",
+      "candidate_sdk": "4e4c0b0",
+      "T3_PARALLEL_GEOMETRY": true,
+      "T3_VERIFY_PARALLEL_GEOMETRY": true
+    },
     "frame_at_15_seconds": {
       "baseline": 666,
       "candidate": 666
     },
-    "identical_screenshot_seconds": [30, 39],
+    "identical_screenshot_seconds": [15, 30, 39],
     "baseline_frame_15_sha256": "9b7966f4dfc210e507ea8c6ba6ef3e9ed591b91be44ee4cbace97a90207a568d",
-    "candidate_frame_15_sha256": "d392510969f8ab83c6c9f598b5182b9770a27c57ea6409702c2bf96c8a5983f1",
+    "candidate_frame_15_sha256": "9b7966f4dfc210e507ea8c6ba6ef3e9ed591b91be44ee4cbace97a90207a568d",
     "frame_30_sha256": "337d4193f4a4f18957950706de3d2bff43305ee9e729b2682f440af615088ef0",
     "frame_39_sha256": "2846dc0757bf6fa8f410cb77d4f2f336f4915a01c1003ada62dadc3ed5b46c50"
+  },
+  "tekken_ymir_matched_profile": {
+    "trace_from_field": 360,
+    "trace_fields": 6,
+    "sh2_cache_emulation": true,
+    "parallel_geometry": true,
+    "sim_ticks": {
+      "baseline": 403,
+      "candidate": 403
+    },
+    "submitted_frames": {
+      "baseline": 201,
+      "candidate": 201
+    },
+    "projection_exclusive_cycles": {
+      "master": {
+        "baseline": 316194,
+        "candidate": 344946,
+        "change_percent": 9.09
+      },
+      "slave": {
+        "baseline": 83544,
+        "candidate": 92217,
+        "change_percent": 10.38
+      }
+    },
+    "scope": "Ymir immediate-result DIVU model; CPU exclusive costs are not elapsed-frame savings and the two CPUs overlap."
   },
   "scope": "Stage-level Mednafen emulator measurement; no whole-game cadence improvement or physical Saturn timing is claimed."
 }
