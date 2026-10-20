@@ -13,6 +13,7 @@
 #include "src/hal/sh2/cache.hpp"
 #include "src/hal/sh2/frt.hpp"
 #include "src/hal/dual_sh2/memory.hpp"
+#include "src/hal/dual_sh2/mailbox.hpp"
 
 namespace executor=saturn::core::parallel::executor;
 constexpr uint32_t kWorkRamBase=0x06000000u,kWorkRamBytes=65536u;
@@ -42,6 +43,15 @@ bool invalidate_line(uint32_t){return true;}
 namespace saturn::hal::dual_sh2::memory {
 uint32_t cached_address(uint32_t a){return a;}
 uint32_t uncached_address(uint32_t a){return a;}
+}
+namespace saturn::hal::dual_sh2::mailbox {
+bool slave_wait_request(protocol::Message* message) {
+    if(sat_dual_sh2_slave_stop_requested())return false;
+    sat_dual_sh2_message_t request={};
+    assert(sat_dual_sh2_slave_receive(&request)==SAT_OK);
+    *message={request.sequence,request.command,request.argument0,request.argument1};
+    return true;
+}
 }
 extern "C" {
 sat_result_t sat_dual_sh2_configure_slave(sat_dual_sh2_entry_t entry,void*){real_entry=entry;return SAT_OK;}

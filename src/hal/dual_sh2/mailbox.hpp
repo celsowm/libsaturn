@@ -9,6 +9,8 @@ bool master_send(uint32_t command, uint32_t argument0, uint32_t argument1);
 bool master_receive(protocol::Message* out_message);
 bool master_has_response();
 bool slave_receive(protocol::Message* out_message);
+/* Internal blocking worker wait; false means a shutdown request. */
+bool slave_wait_request(protocol::Message* out_message);
 bool slave_send(uint32_t command, uint32_t argument0, uint32_t argument1);
 bool slave_has_request();
 

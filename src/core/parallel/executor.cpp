@@ -7,6 +7,7 @@
 #include "src/core/parallel/test_faults.h"
 #include "src/core/startup/memory_layout.hpp"
 #include "src/hal/dual_sh2/memory.hpp"
+#include "src/hal/dual_sh2/mailbox.hpp"
 #include "src/hal/sh2/cache.hpp"
 #include "src/hal/sh2/cpu.hpp"
 #include "src/hal/sh2/frt.hpp"
@@ -878,10 +879,8 @@ bool report_to_master(uint32_t command, uint32_t argument0, uint32_t argument1) 
 
 void slave_entry(void*) {
     for (;;) {
-        sat_dual_sh2_slave_heartbeat();
-        if (sat_dual_sh2_slave_stop_requested() != 0u) return;
-        sat_dual_sh2_message_t message = {};
-        if (sat_dual_sh2_slave_receive(&message) != SAT_OK) continue;
+        saturn::hal::dual_sh2::protocol::Message message = {};
+        if (!saturn::hal::dual_sh2::mailbox::slave_wait_request(&message)) return;
         if (message.command == kCommandExecute) {
             sat_result_t result = SAT_OK;
             if (!run_slot_on_slave(message.argument0, message.argument1, &result)) continue;
