@@ -36,6 +36,10 @@ extern "C" sat_result_t sat_parallel_cache_sync_range(
     return saturn::core::parallel::executor::cache_sync_range(address, size);
 }
 
+extern "C" void sat_parallel_purge_cache(void) {
+    saturn::core::parallel::executor::purge_cache();
+}
+
 extern "C" void* sat_parallel_uncached_address(const void* address) {
     return saturn::core::parallel::executor::uncached_address(address);
 }

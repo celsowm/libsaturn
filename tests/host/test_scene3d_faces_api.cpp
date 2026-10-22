@@ -1672,3 +1672,5 @@ sat_result_t saturn::internal::draw_projected_program(const sat_quad2_t& quad,
     return draw_projected_sprite(quad,*program.texture,
         (program.command[2]&0x0100u)?SAT_SPRITE_FLAG_MESH:0u);
 }
+
+#include "tests/host_stubs/projected_program_spy.hpp"

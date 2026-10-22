@@ -484,6 +484,49 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     return SAT_OK;
 }
 
+sat_result_t push_ascii_text(const sat_vdp1_texture_t* textures, const char* text,
+                             int x, int y, int char_spacing,
+                             uint16_t palette_override, uint16_t flags) {
+    const sat_result_t effects = saturn::core::validate_indexed8_sprite_effects(flags);
+    const uint16_t dir = saturn::core::compose_sprite_dir(flags);
+    const bool user_clip = (flags & SAT_SPRITE_FLAG_USER_CLIP) != 0u;
+    const int16_t top = static_cast<int16_t>(y);
+    int pen_x = x;
+    for (const char* p = text; *p != '\0'; ++p) {
+        const unsigned char code = static_cast<unsigned char>(*p);
+        const sat_vdp1_texture_t& texture =
+            textures[(code >= 32u && code <= 127u) ? code - 32u : 0u];
+        if (texture.valid == 0u) return SAT_ERR_INVALID_ARG;
+        if (g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
+        if (effects != SAT_OK) return effects;
+        const uint16_t width = texture.width, height = texture.height;
+        if (width == 0 || height == 0 || (width & 7u) != 0) return SAT_ERR_INVALID_ARG;
+        if (command_slot_unavailable()) return SAT_ERR_CAPACITY;
+        const uint16_t palette = palette_override != 0u ? palette_override : texture.palette;
+        const int16_t left = static_cast<int16_t>(pen_x);
+        Command& cmd = g_cmd_buffer[g_cmd_count++];
+        cmd.ctrl = dir;
+        cmd.link = 0;
+        cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
+            saturn::core::compose_sprite_pmod(flags, texture.format), user_clip);
+        cmd.colr = saturn::core::compose_sprite_colr(palette, texture.format);
+        cmd.srca = texture.srca;
+        cmd.size = static_cast<uint16_t>(((width / 8u) << 8u) | height);
+        cmd.xa = left;
+        cmd.ya = top;
+        cmd.xb = static_cast<int16_t>(left + width);
+        cmd.yb = top;
+        cmd.xc = static_cast<int16_t>(left + width);
+        cmd.yc = static_cast<int16_t>(top + height);
+        cmd.xd = left;
+        cmd.yd = static_cast<int16_t>(top + height);
+        cmd.grda = 0;
+        cmd.pad = 0;
+        pen_x += (char_spacing > 0) ? char_spacing : static_cast<int>(width);
+    }
+    return SAT_OK;
+}
+
 typedef uint32_t __attribute__((may_alias)) word_t;
 
 /* Two consecutive command halfwords as the longword that stores them (the host tests run this
@@ -695,6 +738,19 @@ sat_result_t push_projected_program(const sat_quad2_t& quad,
     cmd.xd=quad.x[3];cmd.yd=quad.y[3];
     cmd.grda=0;cmd.pad=0;
     return SAT_OK;
+}
+
+Command* projected_program_slots(uint32_t* available) {
+    *available=0u;
+    if (!g_cmd_buffer) return nullptr;
+    const uint32_t used=static_cast<uint32_t>(g_cmd_count)+1u+
+        (g_overlay_pass ? 0u : g_overlay_reserved);
+    if (used<g_cmd_capacity) *available=g_cmd_capacity-used;
+    return &g_cmd_buffer[g_cmd_count];
+}
+
+void commit_projected_programs(uint32_t count) {
+    g_cmd_count=static_cast<uint16_t>(g_cmd_count+count);
 }
 
 sat_result_t push_projected_sprite(const sat_quad2_t& quad,

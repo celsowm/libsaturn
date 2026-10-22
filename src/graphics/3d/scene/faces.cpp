@@ -7,6 +7,8 @@
 #include "src/hal/sh2/frt.hpp"
 #include "src/graphics/vdp1/projected.hpp"
 #include "src/core/runtime/logic.hpp"
+#include "src/core/runtime/state.hpp"
+#include "src/hal/vdp1/vdp1.hpp"
 
 #include <stdint.h>
 
@@ -337,20 +339,34 @@ sat_result_t append(sat_scene3d_faces_t* scene,
     return SAT_OK;
 }
 
+/* painter_key for four positive depths, without 64-bit arithmetic. Any
+ * depth >= 2^30 already puts the sum above kFaceDepthMax*64 = 2^30-128;
+ * otherwise the sum is below 2^32 and its floor quotient is a logical shift. */
+uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,uint16_t pass) {
+    uint32_t depth=kFaceDepthMax;
+    if(((w0|w1|w2|w3)>>30)==0u) {
+        const uint32_t quotient=(w0+w1+w2+w3)>>6;
+        if(quotient<depth) depth=quotient;
+    }
+    return ((kFacePassMax-static_cast<uint32_t>(pass))<<kFaceDepthBits)|depth;
+}
+
 /* The caller proved positive depths, coordinate bounds and capacity for the
  * entire instance. Only opaque/unshaded compiled entries select this path. */
-void append_program(sat_scene3d_faces_t* scene,const sat_projected_vertex_t* projected,
-    const uint16_t indices[4],const sat_scene3d_material_program_t* program,uint16_t pass) {
+[[gnu::always_inline]] inline void append_program_body(sat_scene3d_faces_t* scene,
+    const sat_projected_vertex_t* projected,const uint16_t indices[4],
+    const sat_scene3d_material_program_t* program,uint16_t pass) {
     if(scene->projected_entries) {
         auto& item=append_projected(scene);
-        int64_t sum=0;
+        uint32_t w[4];
         for(uint8_t c=0;c<4u;++c) {
             const auto& vertex=projected[indices[c]];
-            item.projected.x[c]=vertex.x;item.projected.y[c]=vertex.y;sum+=vertex.w;
+            item.projected.x[c]=vertex.x;item.projected.y[c]=vertex.y;
+            w[c]=static_cast<uint32_t>(vertex.w);
         }
         item.kind=SAT_SCENE3D_PROJECTED_PROGRAM;item.program=program;
         item.cached_projected=0;item.reserved=0;
-        scene->keys[scene->count]=painter_key(sum,pass);++scene->count;
+        scene->keys[scene->count]=painter_key_positive(w[0],w[1],w[2],w[3],pass);++scene->count;
         return;
     }
     sat_scene3d_face_t& item=scene->entries[scene->count];
@@ -362,6 +378,11 @@ void append_program(sat_scene3d_faces_t* scene,const sat_projected_vertex_t* pro
     item.program=program;item.program_valid=1u;
     item.projected_safe=1u;item.cached_projected=0u;item.gouraud_valid=0u;
     scene->keys[scene->count]=painter_key(sum,pass);++scene->count;
+}
+
+void append_program(sat_scene3d_faces_t* scene,const sat_projected_vertex_t* projected,
+    const uint16_t indices[4],const sat_scene3d_material_program_t* program,uint16_t pass) {
+    append_program_body(scene,projected,indices,program,pass);
 }
 
 /* Copies the fields a queued face actually carries: `gouraud` only when
@@ -463,14 +484,75 @@ sat_result_t emit_ordered(sat_scene3d_faces_t* scene,uint32_t ordered) {
     return SAT_OK;
 }
 
+/* Emits the run of program faces starting at order[*i], exactly as one
+ * draw_projected_program call per face would: same checks in the same
+ * order, same command words, same counters, and on an error the faces
+ * before the failing one stay emitted. Only the per-face call chain and
+ * its repeated global checks are gone. */
+/* Two consecutive 16-bit command words as one 32-bit store: `first` at the
+ * lower address on either byte order (the SH-2 is big-endian; host tests
+ * are not). */
+inline uint32_t command_pair(uint16_t first,uint16_t second) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__==__ORDER_LITTLE_ENDIAN__
+    return (static_cast<uint32_t>(second)<<16)|first;
+#else
+    return (static_cast<uint32_t>(first)<<16)|second;
+#endif
+}
+
+template<bool Indirect>
+sat_result_t emit_program_run(sat_scene3d_faces_t* scene,uint32_t* i,uint32_t ordered) {
+    SAT_TRY(saturn::core::require_initialized());
+    uint32_t available;
+    auto* const base=saturn::hal::vdp1::projected_program_slots(&available);
+    uint32_t* out=reinterpret_cast<uint32_t*>(base);
+    uint32_t n=0u,cached=0u;
+    sat_result_t st=SAT_OK;
+    const uint16_t* const order=scene->order;
+    const sat_scene3d_projected_face_t* const entries=scene->projected_entries;
+    uint32_t k=*i;
+    for(;k<ordered;++k) {
+        const uint16_t logical=order[k];
+        const auto& hot=entries[Indirect?scene->projected_indices[logical]:logical];
+        if(hot.kind!=SAT_SCENE3D_PROJECTED_PROGRAM)break;
+        const sat_vdp1_projected_program_t& program=*hot.program;
+        const sat_vdp1_texture_t* const texture=program.texture;
+        if(!texture) {st=SAT_ERR_INVALID_ARG;break;}
+        if(!base) {st=SAT_ERR_NOT_INITIALIZED;break;}
+        if(!texture->valid) {st=SAT_ERR_INVALID_ARG;break;}
+        if(n==available) {st=SAT_ERR_CAPACITY;break;}
+        const uint16_t* const prefix=program.command;
+        const sat_quad2_t& q=hot.projected;
+        out[0]=command_pair(prefix[0],0u);
+        out[1]=command_pair(prefix[2],prefix[3]);
+        out[2]=command_pair(prefix[4],prefix[5]);
+        out[3]=command_pair(static_cast<uint16_t>(q.x[0]),static_cast<uint16_t>(q.y[0]));
+        out[4]=command_pair(static_cast<uint16_t>(q.x[1]),static_cast<uint16_t>(q.y[1]));
+        out[5]=command_pair(static_cast<uint16_t>(q.x[2]),static_cast<uint16_t>(q.y[2]));
+        out[6]=command_pair(static_cast<uint16_t>(q.x[3]),static_cast<uint16_t>(q.y[3]));
+        out[7]=0u;
+        out+=8;
+        ++n;
+        if(hot.cached_projected)++cached;
+    }
+    saturn::hal::vdp1::commit_projected_programs(n);
+    scene->emitted_cached=static_cast<uint16_t>(scene->emitted_cached+cached);
+    scene->emitted_faces=static_cast<uint16_t>(scene->emitted_faces+(n-cached));
+    *i=k;
+    return st;
+}
+
 template<bool Indirect>
 sat_result_t emit_projected_ordered(sat_scene3d_faces_t* scene,uint32_t ordered) {
     for(uint32_t i=0;i<ordered;++i) {
         const uint16_t logical=scene->order[i];
         const auto& hot=scene->projected_entries[Indirect?scene->projected_indices[logical]:logical];
         sat_result_t st;
-        if(hot.kind==SAT_SCENE3D_PROJECTED_PROGRAM)
-            st=saturn::internal::draw_projected_program(hot.projected,*hot.program);
+        if(hot.kind==SAT_SCENE3D_PROJECTED_PROGRAM) {
+            SAT_TRY(emit_program_run<Indirect>(scene,&i,ordered));
+            --i; /* the loop increment resumes at the first non-program face */
+            continue;
+        }
         else if(hot.kind==SAT_SCENE3D_PROJECTED_RGB)
             st=sat_draw_quad2_polygon(&hot.projected,hot.rgb555);
         else {
@@ -1059,6 +1141,67 @@ static sat_result_t submit_instance(
     const auto* programs=use_programs && binding && binding->programs ? binding->programs->entries : nullptr;
     const bool compiled_instance=programs && !override_slot && all_safe_indexed &&
         binding->programs->all_compiled;
+    if (compiled_instance && all_positive && mesh->face_count<=0x7FFFu) {
+        /* Every corner is in front of the camera and every face is a compiled
+         * program, so the per-face path reduces to: screen-area cull, world
+         * normal cull, append. Run the cheap screen test over a chunk in its
+         * own small loop, then the survivors through the world test and
+         * append. Same predicates and face order as the general loop. */
+        constexpr uint16_t kChunk=128u;
+        constexpr uint16_t kWorldTest=0x8000u;
+        uint16_t survivors[kChunk];
+        const uint16_t* const indices=mesh->indices;
+        const uint8_t* const double_sided=instance->double_sided_faces;
+        const bool cull=instance->cull_backfaces!=0u;
+        const uint16_t pass=instance->pass;
+        for (uint16_t first=0;first<mesh->face_count;first=static_cast<uint16_t>(first+kChunk)) {
+            const uint16_t last=mesh->face_count-first>kChunk ?
+                static_cast<uint16_t>(first+kChunk) : mesh->face_count;
+            uint16_t kept=0u,culled=0u;
+            for (uint16_t f=first;f<last;++f) {
+                if (!cull || (double_sided && double_sided[f])) {
+                    survivors[kept++]=f;
+                    continue;
+                }
+                const uint16_t* idx=&indices[static_cast<uint32_t>(f)*4u];
+                const sat_projected_vertex_t& a=screen_scratch[idx[0]];
+                const sat_projected_vertex_t& b=screen_scratch[idx[1]];
+                const sat_projected_vertex_t& c=screen_scratch[idx[2]];
+                const sat_projected_vertex_t& d=screen_scratch[idx[3]];
+                if (saturn::core::render3d::corner_area2(
+                        a.x,a.y,b.x,b.y,c.x,c.y,d.x,d.y)<=0) {
+                    ++culled;
+                    continue;
+                }
+                survivors[kept++]=static_cast<uint16_t>(f|kWorldTest);
+            }
+            for (uint16_t k=0;k<kept;++k) {
+                const uint16_t f=static_cast<uint16_t>(survivors[k]&~kWorldTest);
+                const uint16_t* idx=&indices[static_cast<uint32_t>(f)*4u];
+                if (survivors[k]&kWorldTest) {
+                    const sat_vec3_t& a=world[idx[0]];
+                    const sat_vec3_t& b=world[idx[1]];
+                    const sat_vec3_t& c=world[idx[2]];
+                    const sat_vec3_t& d=world[idx[3]];
+                    const int small=saturn::core::mesh3d::quad_visible_small_body(a,b,c,d,scene->eye);
+                    if (small==0 || (small<0 &&
+                        !saturn::core::mesh3d::quad_visible_general(a,b,c,d,scene->eye))) {
+                        ++culled;
+                        continue;
+                    }
+                }
+                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],pass);
+            }
+            scene->culled_faces=static_cast<uint16_t>(scene->culled_faces+culled);
+        }
+#if SAT_PROFILE_METRICS
+        const uint16_t instance_prepare_ticks=static_cast<uint16_t>(
+            saturn::hal::sh2::frt::counter()-prepare_start);
+        scene->instance_profile.preparation_ticks+=instance_prepare_ticks;
+        g_test_prepare_ticks=instance_prepare_ticks;
+#endif
+        return SAT_OK;
+    }
     for (uint16_t f=0;f<mesh->face_count;++f) {
         const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
         const bool cull_face=instance->cull_backfaces &&

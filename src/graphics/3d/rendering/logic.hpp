@@ -643,6 +643,21 @@ inline uint32_t range_shift(uint32_t span, uint32_t buckets) {
     return shift;
 }
 
+/* v >> shift for a shift fixed across a loop. The SH-2 has no variable
+ * shift (GCC calls a libgcc helper per use); for 1 <= shift <= 31 the high
+ * word of the 32x32 product v * 2^(32 - shift) is the same value, one
+ * dmulu.l. */
+struct RightShift {
+    uint32_t multiplier; /* 2^(32 - shift); 0 for shift 0 */
+    RightShift() : multiplier(0u) {}
+    explicit RightShift(uint32_t shift)
+        : multiplier(shift == 0u ? 0u : (shift >= 32u ? 1u : (1u << (32u - shift)))) {}
+    uint32_t operator()(uint32_t v) const {
+        return multiplier == 0u ? v
+            : static_cast<uint32_t>((static_cast<uint64_t>(v) * multiplier) >> 32u);
+    }
+};
+
 /* Counting pass shared by the painter orders: bucket_of(key) maps every live
  * key below kPaintBuckets, higher buckets paint first, and faces keep
  * ascending index inside a bucket. keys[] is overwritten with buckets. */
@@ -700,9 +715,9 @@ inline uint32_t paint_order_buckets(uint32_t* depth, uint32_t face_count, Index*
     if (live == 0u) {
         return 0u;
     }
-    const uint32_t shift = paint_detail::range_shift(hi - lo, kPaintBuckets);
+    const paint_detail::RightShift shift(paint_detail::range_shift(hi - lo, kPaintBuckets));
     paint_detail::distribute(depth, face_count, out,
-        [lo, shift](uint32_t key) { return (key - lo) >> shift; });
+        [lo, shift](uint32_t key) { return shift(key - lo); });
     return live;
 }
 
@@ -720,7 +735,8 @@ template <typename Index>
 inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
                                             Index* out, uint32_t group_shift) {
     struct Group {
-        uint32_t id, lo, hi, count, base, shift;
+        uint32_t id, lo, hi, count, base;
+        paint_detail::RightShift shift;
     };
     uint32_t lo = 0xFFFFFFFFu;
     uint32_t hi = 0u;
@@ -745,7 +761,8 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
      * only a scene with several live groups pays the second scan. */
     Group groups[kPaintMaxGroups];
     uint32_t group_count = 0u;
-    bool global_spread = (lo >> group_shift) == (hi >> group_shift);
+    const paint_detail::RightShift group_of(group_shift);
+    bool global_spread = group_of(lo) == group_of(hi);
     const uint32_t low_mask = (1u << group_shift) - 1u;
     uint32_t last = 0u;
     for (uint32_t f = 0; !global_spread && f < face_count; ++f) {
@@ -753,7 +770,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         if (key == kPaintSkip) {
             continue;
         }
-        const uint32_t id = key >> group_shift;
+        const uint32_t id = group_of(key);
         const uint32_t low = key & low_mask;
         /* Passes arrive in runs, so the last group usually matches. */
         if (group_count == 0u || groups[last].id != id) {
@@ -766,7 +783,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
                     global_spread = true;
                     continue;
                 }
-                groups[g] = Group{id, low, low, 0u, 0u, 0u};
+                groups[g] = Group{id, low, low, 0u, 0u, paint_detail::RightShift(0u)};
                 ++group_count;
             }
             last = g;
@@ -777,9 +794,9 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         ++group.count;
     }
     if (global_spread) {
-        const uint32_t shift = paint_detail::range_shift(hi - lo, kPaintBuckets);
+        const paint_detail::RightShift shift(paint_detail::range_shift(hi - lo, kPaintBuckets));
         paint_detail::distribute(keys, face_count, out,
-            [lo, shift](uint32_t key) { return (key - lo) >> shift; });
+            [lo, shift](uint32_t key) { return shift(key - lo); });
         return live;
     }
     /* Ascending id; the highest (farthest) group takes the highest buckets. */
@@ -798,13 +815,14 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         const uint32_t share = 1u + static_cast<uint32_t>(
             (static_cast<uint64_t>(kPaintBuckets - group_count) * groups[g].count) / live);
         groups[g].base = base;
-        groups[g].shift = paint_detail::range_shift(groups[g].hi - groups[g].lo, share);
+        groups[g].shift = paint_detail::RightShift(
+            paint_detail::range_shift(groups[g].hi - groups[g].lo, share));
         base += share;
     }
     last = 0u;
     paint_detail::distribute(keys, face_count, out,
-        [&groups, group_count, group_shift, low_mask, &last](uint32_t key) {
-            const uint32_t id = key >> group_shift;
+        [&groups, group_count, group_of, low_mask, &last](uint32_t key) {
+            const uint32_t id = group_of(key);
             if (groups[last].id != id) {
                 last = 0u;
                 while (last + 1u < group_count && groups[last].id != id) {
@@ -812,7 +830,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
                 }
             }
             const Group& group = groups[last];
-            return group.base + (((key & low_mask) - group.lo) >> group.shift);
+            return group.base + group.shift((key & low_mask) - group.lo);
         });
     return live;
 }

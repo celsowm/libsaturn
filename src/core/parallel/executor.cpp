@@ -941,6 +941,8 @@ void purge_slave_cache() {
 
 }  // namespace
 
+void purge_cache() { purge_slave_cache(); }
+
 sat_result_t range_process(const void* input, uint32_t input_size, void*, uint32_t,
                            uint32_t* out_size) {
     if (input == nullptr || input_size != sizeof(RangeJob)) return SAT_ERR_INVALID_ARG;

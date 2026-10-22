@@ -107,6 +107,12 @@ void command_stats(uint16_t& used, uint16_t& capacity,
 sat_result_t begin_overlay_pass();
 sat_result_t push_user_clip(const UserClipRequest& req);
 sat_result_t push_sprite(const SpriteRequest& req);
+/* The commands push_sprite would write for each glyph of an ASCII string
+ * drawn from the 96 font textures (pen at native x, y), with the same checks
+ * in the same order: one call for the string instead of one per glyph. */
+sat_result_t push_ascii_text(const sat_vdp1_texture_t* textures, const char* text,
+                             int x, int y, int char_spacing,
+                             uint16_t palette_override, uint16_t flags);
 /* Bulk push of prepared frames (saturn/sprite_batch.h): one pass, no
  * per-sprite validation. Same command words as push_sprite, plus the
  * pre-clipping disable bit for sprites wholly on screen. */
@@ -121,6 +127,12 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req);
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req);
 sat_result_t push_projected_program(const sat_quad2_t& quad,
     const uint16_t* prefix,const sat_vdp1_texture_t& texture);
+/* Storage for the next commands push_projected_program would append and how
+ * many of them it would accept before SAT_ERR_CAPACITY. Null when no frame
+ * buffer is bound. The caller fills at most `available` records exactly as
+ * push_projected_program does, then commits that count. */
+Command* projected_program_slots(uint32_t* available);
+void commit_projected_programs(uint32_t count);
 sat_result_t push_projected_sprite(const sat_quad2_t& quad,
     const sat_vdp1_texture_t& texture, uint16_t flags);
 sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req, const uint16_t* gouraud);

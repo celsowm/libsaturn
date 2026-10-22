@@ -97,6 +97,22 @@ sat_result_t sat_skin_deform_range(
     const sat_skin_asset_t* skin, const sat_mat4_t* joint_world, uint16_t joint_world_count,
     uint32_t first, uint32_t count, sat_vec3_t* out, uint32_t out_capacity);
 
+/* An integral placement applied as each deformed vertex is stored. */
+typedef struct sat_skin_placement {
+    int32_t scale;
+    int32_t offset[3];
+    int32_t limit; /* every deformed coordinate must lie in [-limit, limit] */
+} sat_skin_placement_t;
+
+/* sat_skin_deform_range, storing scale * v + offset[axis] for each deformed
+ * coordinate v. The placement is rejected unless |scale| * limit + |offset|
+ * fits int32. When any v lies outside [-limit, limit] the range is still
+ * written and SAT_ERR_INVALID_ARG is returned: discard that output. */
+sat_result_t sat_skin_deform_range_placed(
+    const sat_skin_asset_t* skin, const sat_mat4_t* joint_world, uint16_t joint_world_count,
+    uint32_t first, uint32_t count, sat_vec3_t* out, uint32_t out_capacity,
+    const sat_skin_placement_t* placement);
+
 sat_result_t sat_skin_deform(
     const sat_skin_asset_t* skin, const sat_mat4_t* joint_world, uint16_t joint_world_count,
     sat_vec3_t* out, uint32_t out_capacity);

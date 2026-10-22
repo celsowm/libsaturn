@@ -244,9 +244,7 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
     return hi > 0 || (hi == 0 && (lo & kNormalLowMask) != 0);
 }
 
-/* Keep this kernel out of large scene loops: forcing it inline inflates
- * their code and live register set on the 4 KiB-cache SH-2. */
-[[gnu::noinline]] inline bool quad_visible(const sat_vec3_t& a,const sat_vec3_t& b,
+[[gnu::noinline]] inline bool quad_visible_general(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
     const sat_vec3_t da=vec3_sub(d,a),ba=vec3_sub(b,a);
@@ -284,6 +282,68 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
     }
     // Degenerate corners and larger faces retain the general exact path.
     return quad_visible_wide(a,b,c,d,eye);
+}
+
+/* The common case of quad_visible_general in 32-bit arithmetic: returns 1
+ * visible, 0 hidden, or -1 when the general path must decide. With
+ * |a| < 2^28, |c| < 2^29 and both edges from a in [-2^15,2^15), the corner
+ * sum 3a + (b-a) + (d-a) + c is below 2^31 in magnitude, so its truncating
+ * quarter equals the 64-bit one; a zero normal is left to the general path,
+ * which makes the same decisions in the same order. */
+[[gnu::always_inline]] inline int quad_visible_small_body(const sat_vec3_t& a,const sat_vec3_t& b,
+                         const sat_vec3_t& c,const sat_vec3_t& d,
+                         const sat_vec3_t& eye) {
+    int32_t nx,ny,nz;
+    {
+        const int32_t ax=a.x,ay=a.y,az=a.z;
+        const int32_t dax=d.x-ax,day=d.y-ay,daz=d.z-az;
+        const int32_t bax=b.x-ax,bay=b.y-ay,baz=b.z-az;
+        if(((static_cast<uint32_t>(dax)+0x8000u)|(static_cast<uint32_t>(day)+0x8000u)|
+            (static_cast<uint32_t>(daz)+0x8000u)|(static_cast<uint32_t>(bax)+0x8000u)|
+            (static_cast<uint32_t>(bay)+0x8000u)|(static_cast<uint32_t>(baz)+0x8000u))>>16) return -1;
+        nx=day*baz-daz*bay;
+        ny=daz*bax-dax*baz;
+        nz=dax*bay-day*bax;
+    }
+    if((nx|ny|nz)==0) return -1;
+    /* Reload the corners instead of keeping nine edge/corner registers live
+     * across the products: SH-2 has 15 usable registers and a cached load
+     * is cheaper than a spill. The corner sum equals 3a+(b-a)+(d-a)+c. */
+    const sat_vec3_t* pa=&a;
+    const sat_vec3_t* pb=&b;
+    const sat_vec3_t* pd=&d;
+#if defined(__GNUC__)
+    __asm__("" : "+r"(pa), "+r"(pb), "+r"(pd));
+#endif
+    int32_t vx,vy,vz;
+    {
+        const int32_t ax=pa->x,ay=pa->y,az=pa->z;
+        const int32_t cx=c.x,cy=c.y,cz=c.z;
+        if((((static_cast<uint32_t>(ax)+(1u<<28))|(static_cast<uint32_t>(ay)+(1u<<28))|
+            (static_cast<uint32_t>(az)+(1u<<28)))>>29)|
+           (((static_cast<uint32_t>(cx)+(1u<<29))|(static_cast<uint32_t>(cy)+(1u<<29))|
+            (static_cast<uint32_t>(cz)+(1u<<29)))>>30)) return -1;
+        vx=eye.x-(ax+pb->x+pd->x+cx)/4;
+        vy=eye.y-(ay+pb->y+pd->y+cy)/4;
+        vz=eye.z-(az+pb->z+pd->z+cz)/4;
+    }
+    return static_cast<int64_t>(nx)*vx+static_cast<int64_t>(ny)*vy+
+        static_cast<int64_t>(nz)*vz>0;
+}
+
+[[gnu::noinline]] inline int quad_visible_small(const sat_vec3_t& a,const sat_vec3_t& b,
+                         const sat_vec3_t& c,const sat_vec3_t& d,
+                         const sat_vec3_t& eye) {
+    return quad_visible_small_body(a,b,c,d,eye);
+}
+
+/* Keep the kernels out of large scene loops: forcing them inline inflates
+ * their code and live register set on the 4 KiB-cache SH-2. */
+inline bool quad_visible(const sat_vec3_t& a,const sat_vec3_t& b,
+                         const sat_vec3_t& c,const sat_vec3_t& d,
+                         const sat_vec3_t& eye) {
+    const int small=quad_visible_small(a,b,c,d,eye);
+    return small>=0 ? small!=0 : quad_visible_general(a,b,c,d,eye);
 }
 
 inline bool quad_visible(const sat_quad3_t& quad, const sat_vec3_t& eye) {
