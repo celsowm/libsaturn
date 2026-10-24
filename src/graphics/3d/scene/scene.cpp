@@ -150,7 +150,7 @@ extern "C" sat_result_t sat_scene_depth(const sat_scene_t* scene,
 }
 
 
-extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
+static sat_result_t flush_scene(sat_scene_t* scene,bool trusted) {
     if (!scene || !scene->active || scene->flushed) return SAT_ERR_INVALID_ARG;
     if(scene->faces.reserved_batch)return SAT_ERR_BUSY;
     // Take a command snapshot directly around the synchronous L3 painter.
@@ -170,7 +170,16 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     uint32_t guaranteed_commands=0u;
     bool queue_valid=false;
     if(scene->faces.projected_entries) {
-        queue_valid=saturn::internal::projected_census(scene->faces,&guaranteed_commands);
+        if(trusted) {
+            /* The caller vouched for residency, so the census is one more
+             * pass over the same 24-byte records for nothing. The queue
+             * length is an upper bound on its one-command subset: only a
+             * clipped fallback can emit fewer, so the gate stays
+             * conservative. */
+            queue_valid=true;
+            guaranteed_commands=scene->faces.count;
+        } else queue_valid=saturn::internal::projected_census(
+            scene->faces,&guaranteed_commands);
     } else for (uint16_t i=0u;i<scene->faces.count;++i) {
         if(scene->faces.entries[i].projected_safe)++guaranteed_commands;
     }
@@ -247,6 +256,14 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     scene->active = 0;
     scene->flushed = 1;
     return scene->first_error;
+}
+
+extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
+    return flush_scene(scene,false);
+}
+
+extern "C" sat_result_t sat_scene_flush_trusted(sat_scene_t* scene) {
+    return flush_scene(scene,true);
 }
 
 extern "C" sat_result_t sat_scene_queue_view_item(

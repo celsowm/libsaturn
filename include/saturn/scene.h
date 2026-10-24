@@ -223,6 +223,17 @@ sat_result_t sat_scene_queue_managed_camera_view(
  * The independent L1 faces_flush/raw-VPD1 path retains its direct semantics. */
 
 sat_result_t sat_scene_flush(sat_scene_t* scene);
+
+/* The same flush for a caller that guarantees every queued material and
+ * texture stays resident until the call returns, as immutable bindings do
+ * after initialization. It skips the per-face census that revalidates them
+ * and estimates the admission lower bound with the queue length (one command
+ * per entry; only clipped fallbacks might emit fewer, never more). The HUD
+ * reservation gate, owner-span generations and the frame-local checkpoint
+ * rollback still apply. A texture released mid-frame then fails while
+ * emitting instead of being refused before the first command. */
+sat_result_t sat_scene_flush_trusted(sat_scene_t* scene);
+
 sat_result_t sat_scene_stats(const sat_scene_t* scene, sat_scene_stats_t* out);
 
 #ifdef __cplusplus

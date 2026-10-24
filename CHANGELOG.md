@@ -11,6 +11,17 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- `sat_scene_flush_trusted` for scenes whose materials and textures stay
+  resident until the flush returns, as immutable bindings do after
+  initialization. It skips the per-face census that revalidated them and hands
+  the queue to the same painter emission already admitted; the admission count
+  becomes the queue length, an upper bound on the one-command subset, so the
+  HUD/capacity gate stays conservative. Owner-span generations and the
+  frame-local checkpoint rollback still apply, and `sat_scene_flush` keeps its
+  validating behavior. With two skinned fighters in Mednafen this raised the
+  image rate by 2.8% (30.94 vs 30.11 images/s, matched 18 s window). Host-tested
+  (`test_scene_api`).
+
 - `SAT_SCENE3D_CULL_SCREEN` for `sat_scene3d_instance_t.cull_backfaces` culls back faces by
   projected area alone, like a PlayStation NCLIP. A face with a corner behind the camera still
   takes the world-normal test. The default nonzero value is unchanged and still tests every

@@ -21,6 +21,8 @@ static sat_view_cache_item_t g_cache_items[2]={};
 static uint16_t g_cache_queries=0u;
 static uint16_t g_projected_calls=0u;
 static uint16_t g_projected_fail_at=0u;
+static uint16_t g_census_calls=0u;
+static bool g_last_queue_valid=false;
 
 extern "C" sat_result_t sat_view_cache_view_camera(
     sat_view_cache_t*,uint16_t,const sat_camera3d_t*,
@@ -145,10 +147,12 @@ extern "C" sat_result_t sat_scene3d_faces_flush(sat_scene3d_faces_t* scene) {
  * tests queue no projected faces. */
 namespace saturn::internal {
 bool projected_census(const sat_scene3d_faces_t&, uint32_t* commands) {
+    ++g_census_calls;
     if (commands) *commands = 0u;
     return true;
 }
-sat_result_t faces_flush(sat_scene3d_faces_t* scene, bool) {
+sat_result_t faces_flush(sat_scene3d_faces_t* scene, bool queue_valid) {
+    g_last_queue_valid=queue_valid;
     return sat_scene3d_faces_flush(scene);
 }
 }  // namespace saturn::internal
@@ -519,6 +523,40 @@ int main() {
     assert(sat_scene_submit_instance(&scene,&instance,0u,nullptr,nullptr)==SAT_ERR_UNSUPPORTED);
     g_submit_status=SAT_OK;
     assert(sat_scene_flush(&scene)==SAT_ERR_UNSUPPORTED);
+
+    // A trusted flush skips the per-face census that revalidates residency,
+    // hands the queue to the faces flush already admitted, and still applies
+    // the HUD/capacity gate before the first command.
+    {
+        sat_scene3d_projected_face_t projected[4] = {};
+        assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
+            320u, 224u, 8u)==SAT_OK);
+        scene.faces.projected_entries=projected;
+        scene.faces.count=2u;
+        const uint16_t census_before=g_census_calls;
+        const uint16_t flush_calls=g_flush_calls;
+        const uint16_t replayed=g_replayed;
+        assert(sat_scene_flush_trusted(&scene)==SAT_OK);
+        assert(g_census_calls==census_before);
+        assert(g_last_queue_valid);
+        assert(g_flush_calls==flush_calls+1u);
+        assert(g_replayed==replayed);
+
+        // The same queue with no room left is refused before the flush.
+        assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
+            320u, 224u, 8u)==SAT_OK);
+        scene.faces.projected_entries=projected;
+        scene.faces.count=2u;
+        g_command_capacity=static_cast<uint16_t>(
+            g_replayed+g_world_commands+2u+g_hud_reserved+2u);
+        assert(sat_scene_flush_trusted(&scene)==SAT_ERR_CAPACITY);
+        assert(g_flush_calls==flush_calls+1u);
+        assert(!scene.faces.active && scene.faces.count==0u);
+        assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+        assert(stats.budget_blocked_faces==2u && stats.flushed_faces==0u);
+        g_command_capacity=64u;
+        scene.faces.projected_entries=nullptr;
+    }
 
     std::puts("scene api: OK");
     return 0;
