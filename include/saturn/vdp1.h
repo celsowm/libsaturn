@@ -222,6 +222,21 @@ typedef struct sat_vdp1_frame_stats {
 
 sat_result_t sat_vdp1_frame_stats(sat_vdp1_frame_stats_t* out);
 
+/* Lists handed to the VDP1 since sat_init: sat_end_frame's list is the value
+ * read right after it. */
+uint32_t sat_vdp1_list_serial(void);
+
+/* SAT_VDP1_FRAME_ON_SUBMIT: called in the VBlank in which the framebuffer
+ * change that shows list `serial` is asked for, so VDP2 VRAM written there
+ * appears with that list's sprites, without the CPU waiting for the list to
+ * end. Not called for the first list after entering ON_SUBMIT mode, whose
+ * change goes out with it. It runs in the VBlank-IN interrupt or inside a
+ * library wait, possibly while the program is between two library calls:
+ * keep it short and write VRAM with the CPU only (no SCU-DMA, no library
+ * calls). NULL removes it. */
+typedef void (*sat_vdp1_swap_handler_t)(uint32_t serial, void* user);
+sat_result_t sat_vdp1_set_swap_handler(sat_vdp1_swap_handler_t handler, void* user);
+
 /* Transaction on the current frame's STAGED WORK-RAM command list only.
  * Capture before a group of scene draws; on any error, rollback discards
  * every command and Gouraud table appended since the checkpoint, while

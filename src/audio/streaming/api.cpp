@@ -348,6 +348,12 @@ void audio_stream_service(
     if (armed) saturn::hal::scsp::execute_key_transitions();
 }
 
+void audio_streams_reset() { audio_stream_registry_reset(g_audio_streams); }
+
+void audio_streams_service(uint32_t frame_now, uint32_t display_rate) {
+    audio_stream_service(g_audio_streams, frame_now, display_rate);
+}
+
 }  // namespace saturn::core
 
 extern "C" sat_result_t sat_audio_stream_open(

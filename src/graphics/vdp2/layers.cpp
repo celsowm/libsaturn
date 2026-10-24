@@ -292,17 +292,11 @@ extern "C" sat_result_t sat_vdp2_rotation_set_priority(uint8_t priority) {
     return to_result(hal::rot_configure(current));
 }
 
-extern "C" sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address,
-                                                       const sat_vdp2_rotation_params_t* params) {
-    SAT_TRY(saturn::core::require_initialized());
-    if (params == nullptr || (table_address & 3u) != 0u || table_address + rot::kParamBytes > nbg::kVramBytes ||
-        (params->coefficient_address & 3u) != 0u) {
-        return SAT_ERR_INVALID_ARG;
-    }
-    rot::Layer current{};
-    if (!hal::rot_layer(&current)) return SAT_ERR_NOT_FOUND;
-    current.table_address = table_address;
-    if (rot::validate(current) != rot::Status::Ok) return SAT_ERR_INVALID_ARG;
+namespace {
+
+static_assert(SAT_VDP2_ROTATION_PARAM_WORDS * 2u == rot::kParamBytes, "parameter table size");
+
+void encode_rotation_params(const sat_vdp2_rotation_params_t* params, uint16_t* words) {
     rot::Params p{};
     p.xst = params->xst;
     p.yst = params->yst;
@@ -325,9 +319,34 @@ extern "C" sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address,
     p.kast = rot::kast_integer(params->coefficient_address) << 16u;
     p.dkast = params->coefficient_step;
     p.dkax = 0;
-    uint16_t words[48];
     rot::encode_params(p, words);
-    SAT_TRY(write_table(table_address, words, 48u));
+}
+
+}  // namespace
+
+extern "C" sat_result_t sat_vdp2_rotation_encode_params(const sat_vdp2_rotation_params_t* params,
+                                                        uint16_t* words) {
+    if (params == nullptr || words == nullptr || (params->coefficient_address & 3u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    encode_rotation_params(params, words);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address,
+                                                       const sat_vdp2_rotation_params_t* params) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (params == nullptr || (table_address & 3u) != 0u || table_address + rot::kParamBytes > nbg::kVramBytes ||
+        (params->coefficient_address & 3u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    rot::Layer current{};
+    if (!hal::rot_layer(&current)) return SAT_ERR_NOT_FOUND;
+    current.table_address = table_address;
+    if (rot::validate(current) != rot::Status::Ok) return SAT_ERR_INVALID_ARG;
+    uint16_t words[SAT_VDP2_ROTATION_PARAM_WORDS];
+    encode_rotation_params(params, words);
+    SAT_TRY(write_table(table_address, words, SAT_VDP2_ROTATION_PARAM_WORDS));
     hal::rot_set_table(table_address, rot::ktaof_for(params->coefficient_address));
     return SAT_OK;
 }
@@ -412,6 +431,21 @@ extern "C" sat_result_t sat_vdp2_line_scroll_write(sat_vdp2_layer_t layer, uint3
     }
     if (used != 0u) SAT_TRY(write_table(address, chunk, used));
     return SAT_OK;
+}
+
+extern "C" uint32_t sat_vdp2_line_scroll_encode(sat_vdp2_layer_t layer,
+                                                const sat_vdp2_line_scroll_entry_t* entries, uint32_t count,
+                                                uint16_t* words, uint32_t capacity) {
+    if (saturn::core::require_initialized() != SAT_OK || static_cast<uint32_t>(layer) > 1u ||
+        entries == nullptr || words == nullptr) {
+        return 0u;
+    }
+    nbg::Layer l{};
+    if (!hal::nbg_layer(static_cast<uint8_t>(layer), &l)) return 0u;
+    const uint32_t per = entry_words(l);
+    if (per == 0u || count > capacity / per) return 0u;
+    for (uint32_t i = 0u; i < count; ++i) (void)encode_entry(l, entries[i], words + i * per);
+    return count * per;
 }
 
 extern "C" sat_result_t sat_vdp2_line_scroll_fill_wave(sat_vdp2_layer_t layer, uint32_t lines,

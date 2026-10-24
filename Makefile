@@ -702,6 +702,7 @@ HOST_TEST_EXTRA_test_view_cache := src/graphics/3d/scene/view_cache.cpp src/grap
 HOST_TEST_EXTRA_test_view_cache_isolation := src/graphics/3d/scene/view_cache.cpp
 HOST_TEST_EXTRA_test_surface3d := src/graphics/3d/rendering/surface.cpp
 HOST_TEST_EXTRA_test_vdp2_environment := src/graphics/vdp2/environment.cpp
+HOST_TEST_EXTRA_test_vdp2_floor := src/graphics/vdp2/floor.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_ram_cart_api := src/storage/cartridge/api.cpp src/core/memory/api.cpp
 HOST_TEST_EXTRA_test_ram_cart_1m := src/storage/cartridge/api.cpp src/core/memory/api.cpp
 HOST_TEST_EXTRA_test_abus_api := src/storage/cartridge/abus.cpp
@@ -742,6 +743,7 @@ HOST_TEST_EXTRA_test_disc_stream := src/storage/cd/disc_stream.cpp
 HOST_TEST_EXTRA_test_music_disc := src/audio/playback/music.cpp src/audio/streaming/api.cpp src/audio/streaming/runtime.cpp src/storage/cd/disc_stream.cpp
 HOST_TEST_EXTRA_test_bh_sim := examples/bullet_hell_stress/bh_sim.c src/physics/2d/collision.cpp src/physics/spatial/2d.cpp src/graphics/2d/tate.cpp
 HOST_TEST_EXTRA_test_vdp1_checkpoint := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
+build/tests/test_vdp1_checkpoint: HOST_CXXFLAGS += -DSAT_NATIVE_SCENE_COMMANDS=1
 HOST_TEST_EXTRA_test_vdp1_vram_region := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 HOST_TEST_EXTRA_test_texture_api := src/graphics/2d/textures/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp src/graphics/2d/textures/runtime.cpp
 HOST_TEST_EXTRA_test_render2d_api := src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/api.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
@@ -757,6 +759,8 @@ HOST_TEST_EXTRA_test_scene_managed_texture := src/graphics/3d/scene/managed_text
 HOST_TEST_EXTRA_test_parallel_completion := src/core/parallel/executor.cpp
 HOST_TEST_EXTRA_test_scene_parallel_runtime := src/graphics/3d/scene/parallel.cpp
 HOST_TEST_EXTRA_test_scene3d_faces_api := src/graphics/3d/scene/faces.cpp
+HOST_TEST_EXTRA_test_scene_native_commands := src/graphics/3d/scene/faces.cpp src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
+build/tests/test_scene_native_commands: HOST_CXXFLAGS += -DSAT_NATIVE_SCENE_COMMANDS=1
 HOST_TEST_EXTRA_test_scene3d_material_pool := src/graphics/3d/materials/pool.cpp
 HOST_TEST_EXTRA_test_skeleton3d := src/graphics/3d/animation/skeleton.cpp src/graphics/3d/animation/clip.cpp src/graphics/3d/geometry/transform.cpp src/graphics/3d/scene/api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_skeleton_clip := $(HOST_TEST_EXTRA_test_skeleton3d)

@@ -119,7 +119,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_tiled_quad(
     uint16_t) { return SAT_OK; }
 extern "C" sat_result_t sat_scene3d_faces_submit_instance(
     sat_scene3d_faces_t*, const sat_scene3d_instance_t*, uint8_t,
-    sat_projected_vertex_t*, sat_vec3_t*) { return SAT_OK; }
+    sat_projected_vertex_t*, sat_vec3_t*) { return g_submit_status; }
 extern "C" sat_result_t sat_scene3d_faces_depth(
     const sat_scene3d_faces_t*, const sat_vec3_t*, sat_fx16_t*) {
     return SAT_OK;
@@ -141,6 +141,17 @@ extern "C" sat_result_t sat_scene3d_faces_flush(sat_scene3d_faces_t* scene) {
         g_world_commands+g_flush_emissions);
     return g_flush_status;
 }
+/* sat_scene_flush reaches the faces flush through these internals. These
+ * tests queue no projected faces. */
+namespace saturn::internal {
+bool projected_census(const sat_scene3d_faces_t&, uint32_t* commands) {
+    if (commands) *commands = 0u;
+    return true;
+}
+sat_result_t faces_flush(sat_scene3d_faces_t* scene, bool) {
+    return sat_scene3d_faces_flush(scene);
+}
+}  // namespace saturn::internal
 
 extern "C" sat_result_t sat_vdp1_command_checkpoint(
     sat_vdp1_command_checkpoint_t* out) {
@@ -489,6 +500,25 @@ int main() {
     assert(sat_scene_stats(&scene,&failed)==SAT_OK && failed.result==SAT_ERR_BUSY);
     assert(sat_scene_flush(&scene)==SAT_OK);
     assert(sat_scene_stats(&scene,&failed)==SAT_OK && failed.result==SAT_OK);
+
+    // A refused pre-projected instance is resubmitted with world vertices,
+    // so the refusal does not fail the frame; any other refusal does.
+    sat_scene3d_instance_t instance={};
+    instance.pre_projected=1;
+    assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
+        320u, 224u, 8u)==SAT_OK);
+    g_submit_status=SAT_ERR_UNSUPPORTED;
+    assert(sat_scene_submit_instance(&scene,&instance,0u,nullptr,nullptr)==SAT_ERR_UNSUPPORTED);
+    g_submit_status=SAT_OK;
+    assert(sat_scene_submit_instance(&scene,&instance,0u,nullptr,nullptr)==SAT_OK);
+    assert(sat_scene_flush(&scene)==SAT_OK);
+    instance.pre_projected=0;
+    assert(sat_scene_begin(&scene, &camera, SAT_FX16_ONE,
+        320u, 224u, 8u)==SAT_OK);
+    g_submit_status=SAT_ERR_UNSUPPORTED;
+    assert(sat_scene_submit_instance(&scene,&instance,0u,nullptr,nullptr)==SAT_ERR_UNSUPPORTED);
+    g_submit_status=SAT_OK;
+    assert(sat_scene_flush(&scene)==SAT_ERR_UNSUPPORTED);
 
     std::puts("scene api: OK");
     return 0;

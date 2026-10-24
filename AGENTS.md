@@ -23,3 +23,9 @@
 - The downloaded manuals only overview the CD Block: read `docs/sega_saturn_hardware/hard/cdblock/index.md` before changing CD reads, `sat_disc_stream` or anything that times a disc access, and do not present emulator CD timings as hardware facts.
 - For audio regressions, prefer observable invariants (SCSP registers, sample position, Sound RAM and underrun/refill counters) over empirical volume/pitch adjustments.
 
+
+## Disk budget (mandatory)
+
+Do not create extra copies of this tree or extra SDK prefixes for experiments
+(`build/*-src`, `*-sdk`, `*-prefix`, `*-runtime`). Build and install one SDK in
+place, and remove any scratch build when its result is recorded.

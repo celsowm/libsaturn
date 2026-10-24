@@ -1,4 +1,5 @@
 #include "saturn/scene.h"
+#include "src/graphics/3d/scene/faces_flush.hpp"
 #include "src/graphics/3d/scene/frame_result.hpp"
 
 using saturn::core::scene::record_frame_result;
@@ -110,6 +111,9 @@ extern "C" sat_result_t sat_scene_submit_instance(sat_scene_t* scene,
     const uint16_t before = scene->faces.count;
     const sat_result_t st = sat_scene3d_faces_submit_instance(
         &scene->faces, instance, slot, screen, world);
+    /* A refused pre-projected instance appended nothing and is resubmitted
+     * with world vertices, so it is not a frame error. */
+    if (st == SAT_ERR_UNSUPPORTED && instance && instance->pre_projected) return st;
     if (st == SAT_OK) scene->submitted_faces += scene->faces.count - before;
     else if (st == SAT_ERR_CAPACITY) ++scene->rejected_faces;
     return record_frame_result(scene,st);
@@ -145,17 +149,6 @@ extern "C" sat_result_t sat_scene_depth(const sat_scene_t* scene,
     return sat_scene3d_faces_depth(&scene->faces, world, out_depth);
 }
 
-namespace {
-template<bool Indirect>
-uint32_t projected_command_count(const sat_scene3d_faces_t& faces) {
-    uint32_t count=0;
-    for(uint16_t i=0;i<faces.count;++i) {
-        const auto& hot=faces.projected_entries[Indirect?faces.projected_indices[i]:i];
-        if(hot.kind!=SAT_SCENE3D_PROJECTED_COLD || hot.cold->projected_safe)++count;
-    }
-    return count;
-}
-}
 
 extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     if (!scene || !scene->active || scene->flushed) return SAT_ERR_INVALID_ARG;
@@ -165,6 +158,9 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
     // VDP1 and immediate cached-view submissions in the same video frame.
     sat_vdp1_command_stats_t before{};
     const sat_result_t before_status = sat_vdp1_command_stats(&before);
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(scene->faces.native_batch)before.used=scene->faces.native_batch->checkpoint.used;
+#endif
     record_frame_result(scene,before_status);
     /* The normal safe projected path emits one command per face. If that
      * exact subset already exceeds the remaining world budget, avoid
@@ -172,9 +168,9 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
      * Clipped/fallback geometry has variable emission cost; this is an
      * admission lower-bound gate, not a guarantee that every flush fits. */
     uint32_t guaranteed_commands=0u;
+    bool queue_valid=false;
     if(scene->faces.projected_entries) {
-        guaranteed_commands=scene->faces.projected_indices?
-            projected_command_count<true>(scene->faces):projected_command_count<false>(scene->faces);
+        queue_valid=saturn::internal::projected_census(scene->faces,&guaranteed_commands);
     } else for (uint16_t i=0u;i<scene->faces.count;++i) {
         if(scene->faces.entries[i].projected_safe)++guaranteed_commands;
     }
@@ -201,13 +197,20 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
          * capacity. No hardware VRAM writes are reverted by this operation. */
         sat_vdp1_command_checkpoint_t checkpoint{};
         const sat_result_t marked=sat_vdp1_command_checkpoint(&checkpoint);
+#if SAT_NATIVE_SCENE_COMMANDS
+        if(scene->faces.native_batch)checkpoint=scene->faces.native_batch->checkpoint;
+#endif
         if(marked!=SAT_OK) {
             scene->faces.active=0u;
             scene->faces.count=0u;
             st=marked;
         } else {
-            st=sat_scene3d_faces_flush(&scene->faces);
+            st=saturn::internal::faces_flush(&scene->faces,queue_valid);
             if(st!=SAT_OK) {
+#if SAT_NATIVE_SCENE_COMMANDS
+                if(scene->faces.native_batch && scene->faces.native_batch->active)
+                    (void)sat_vdp1_command_batch_cancel(scene->faces.native_batch);
+#endif
                 const sat_result_t rolled=sat_vdp1_command_rollback(
                     &checkpoint);
                 if(rolled==SAT_OK) {
@@ -217,6 +220,10 @@ extern "C" sat_result_t sat_scene_flush(sat_scene_t* scene) {
             }
         }
     }
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(scene->faces.native_batch && scene->faces.native_batch->active)
+        (void)sat_vdp1_command_batch_cancel(scene->faces.native_batch);
+#endif
     scene->flushed_faces = scene->faces.emitted_faces;
     scene->skipped_faces = scene->faces.skipped_faces;
     scene->replayed_items = static_cast<uint16_t>(

@@ -4,6 +4,7 @@
 #include <cstring>
 #include <vector>
 #include "saturn/skin3d.h"
+#include "src/graphics/3d/rendering/logic.hpp"
 
 #define CHECK(expr) do { if (!(expr)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #expr); std::exit(1); } } while (0)
 #define FX(n) ((sat_fx16_t)((n) * 65536))
@@ -16,6 +17,17 @@ static sat_mat4_t translation(sat_fx16_t x, sat_fx16_t y, sat_fx16_t z) {
     sat_quat16_identity(&id);
     sat_vec3_t t = {x, y, z};
     sat_quat16_to_mat4(&m, &id, &t);
+    return m;
+}
+
+/* Yaw then pitch, in 16.16, with a translation. */
+static sat_mat4_t rotation(double yaw, double pitch, sat_fx16_t x, sat_fx16_t y, sat_fx16_t z) {
+    const double cy=std::cos(yaw),sy=std::sin(yaw),cp=std::cos(pitch),sp=std::sin(pitch);
+    const double r[3][3]={{cy,0,sy},{sy*sp,cp,-cy*sp},{-sy*cp,sp,cy*cp}};
+    sat_mat4_t m{};
+    for(unsigned i=0;i<3;++i)for(unsigned j=0;j<3;++j)
+        m.m[i*4+j]=static_cast<sat_fx16_t>(std::lround(r[i][j]*65536.0));
+    m.m[3]=x;m.m[7]=y;m.m[11]=z;m.m[15]=FX(1);
     return m;
 }
 
@@ -321,6 +333,124 @@ static void q15_conversion_matches_wide_reference() {
     }
 }
 
+/* Concatenated clip joints against deform_range_placed + project_vertex, for
+ * rotated joints, a rotated perspective camera and the PlayStation fighters'
+ * placement (x6 plus an offset). One rounding instead of two may move a clip
+ * coordinate by a few units and a pixel by one. */
+static void projected_skin_matches_deform_then_project() {
+    sat_skin_rigid_t rigid[64]={};
+    sat_skin_blend_t blend[16]={};
+    uint32_t seed=0x5EED17u;
+    auto random=[&]() {seed=seed*1664525u+1013904223u;return seed;};
+    for(auto& r:rigid) {
+        r.joint=static_cast<uint8_t>(random()%3u);
+        for(auto& c:r.pos)c=static_cast<int16_t>(static_cast<int32_t>(random()>>16)/4);
+    }
+    for(unsigned v=0;v<16;++v) {
+        auto& b=blend[v];
+        b.count=static_cast<uint8_t>(1u+v%3u);
+        b.weight[0]=v%4==1?16384:9001;b.weight[1]=8000;
+        for(unsigned k=0;k<3;++k) {
+            b.joint[k]=static_cast<uint8_t>((v+k)%3u);
+            for(auto& c:b.pos[k])c=static_cast<int16_t>(static_cast<int32_t>(random()>>16)/4);
+        }
+    }
+    auto skin=asset(rigid,64,blend,16,3,15,2);
+    CHECK(sat_skin_validate(&skin)==SAT_OK);
+    const sat_skin_placement_t placement={6,{-FX(40),FX(3),FX(25)},FX(64)};
+    sat_vec3_t world[80];
+    sat_projected_vertex_t expected[80],actual[80];
+    sat_mat4_t joints[3],clip[3];
+    int64_t worst_w=0;unsigned pixel_moves=0,clamped=0,behind=0;
+    for(unsigned trial=0;trial<64;++trial) {
+        auto angle=[&]() {return static_cast<double>(random()%6283u)/1000.0;};
+        for(unsigned j=0;j<3;++j)
+            joints[j]=rotation(angle(),angle(),
+                static_cast<sat_fx16_t>(random()%FX(4))-FX(2),
+                static_cast<sat_fx16_t>(random()%FX(4)),
+                static_cast<sat_fx16_t>(random()%FX(4))-FX(2));
+        // Camera: yaw and pitch, the fighters 60..140 units ahead; clip X
+        // and Y from the rotated axes and W from the depth axis. Every
+        // fourth trial puts the camera among the vertices, so some clamp,
+        // take the 64-bit bound or fall behind the camera.
+        const bool near=trial%4==3;
+        const sat_mat4_t view=rotation(angle(),0.3,FX(40),-FX(8),
+            near ? -FX(30)+static_cast<sat_fx16_t>(random()%FX(12))
+                 : FX(60)+static_cast<sat_fx16_t>(random()%FX(80)));
+        sat_mat4_t vp=view;
+        for(unsigned c=0;c<4;++c) {
+            vp.m[4+c]=static_cast<sat_fx16_t>(static_cast<int64_t>(view.m[4+c])*4/3);
+            vp.m[12+c]=view.m[8+c];
+        }
+        CHECK(sat_skin_deform_range_placed(&skin,joints,3,0,80,world,80,&placement)==SAT_OK);
+        for(unsigned v=0;v<80;++v)
+            saturn::core::render3d::project_vertex(vp.m,world[v],320,224,&expected[v]);
+        CHECK(sat_skin_clip_joints(joints,3,&placement,&vp,clip)==SAT_OK);
+        std::memset(actual,0x55,sizeof(actual));
+        CHECK(sat_skin_project_range(&skin,clip,3,0,50,320,224,actual,80)==SAT_OK);
+        CHECK(sat_skin_project_range(&skin,clip,3,50,30,320,224,actual,80)==SAT_OK);
+        // Exactly the documented rows, blend and projection of the clip joints.
+        auto rows=[&](unsigned joint,const int16_t* q,int32_t r[3]) {
+            for(unsigned row=0;row<3;++row) {
+                const sat_fx16_t* c=&clip[joint].m[row*4];
+                r[row]=static_cast<int32_t>((static_cast<int64_t>(c[0])*(q[0]*2)+
+                    static_cast<int64_t>(c[1])*(q[1]*2)+static_cast<int64_t>(c[2])*(q[2]*2)+32768)>>16)+c[3];
+            }
+        };
+        for(unsigned v=0;v<80;++v) {
+            int32_t c[3];
+            if(v<64)rows(rigid[v].joint,rigid[v].pos,c);
+            else {
+                const auto& b=blend[v-64];
+                int32_t p[3][3];
+                for(unsigned k=0;k<b.count;++k)rows(b.joint[k],b.pos[k],p[k]);
+                for(unsigned i=0;i<3;++i) {
+                    if(b.count==1)c[i]=p[0][i];
+                    else if(b.count==2 && b.weight[0]==16384)
+                        c[i]=static_cast<int32_t>((static_cast<int64_t>(p[0][i])+p[1][i])>>1);
+                    else {
+                        int64_t sum=16384;unsigned used=0;
+                        for(unsigned k=0;k<b.count;++k) {
+                            const unsigned w=k+1==b.count?32768-used:b.weight[k];
+                            used+=w;sum+=static_cast<int64_t>(p[k][i])*w;
+                        }
+                        c[i]=static_cast<int32_t>(sum>>15);
+                    }
+                }
+            }
+            CHECK(actual[v].w==c[2]);
+            if(c[2]<=0)continue;
+            CHECK(actual[v].x==saturn::core::render3d::project_axis(c[0],320,c[2]));
+            CHECK(actual[v].y==saturn::core::render3d::project_axis(c[1],-224,c[2]));
+        }
+        for(unsigned v=0;v<80;++v) {
+            const int64_t dw=absdiff(actual[v].w,expected[v].w);
+            if(dw>worst_w)worst_w=dw;
+            CHECK(dw<=64);
+            if(near) {
+                clamped+=actual[v].w>0 && (actual[v].x==2047 || actual[v].x==-2047 ||
+                    actual[v].y==2047 || actual[v].y==-2047);
+                behind+=actual[v].w<=0;
+                continue;
+            }
+            if(expected[v].w<=0)continue;
+            CHECK(absdiff(actual[v].x,expected[v].x)<=1 && absdiff(actual[v].y,expected[v].y)<=1);
+            pixel_moves+=actual[v].x!=expected[v].x || actual[v].y!=expected[v].y;
+        }
+    }
+    CHECK(pixel_moves<64*80/20);
+    CHECK(clamped>0 && behind>0);
+    // Matrices or a joint too large to prove int32 clip coordinates are refused.
+    sat_mat4_t huge=joints[0];huge.m[0]=1<<29;
+    CHECK(sat_skin_clip_joints(&huge,1,&placement,&joints[1],clip)==SAT_ERR_INVALID_ARG);
+    clip[2].m[3]=INT32_MAX;
+    std::memset(actual,0x55,sizeof(actual));
+    CHECK(sat_skin_project_range(&skin,clip,3,0,80,320,224,actual,80)==SAT_ERR_INVALID_ARG);
+    CHECK(actual[0].w==0x55555555);
+    std::printf("projected skin: worst w %lld, %u of %u vertices moved a pixel, %u clamped, %u behind\n",
+        static_cast<long long>(worst_w),pixel_moves,48u*80u,clamped,behind);
+}
+
 int main() {
     rigid_exact();
     multi_anchor_blend();
@@ -331,6 +461,7 @@ int main() {
     normals_and_skeleton_integration();
     shared_asset_independent_instances();
     q15_conversion_matches_wide_reference();
-    std::printf("test_skin3d: 9 tests passed\n");
+    projected_skin_matches_deform_then_project();
+    std::printf("test_skin3d: 10 tests passed\n");
     return 0;
 }

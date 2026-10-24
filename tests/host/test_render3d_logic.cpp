@@ -623,6 +623,40 @@ TEST(sparse_projection_prefetch_matches_scalar_for_front_vertices) {
     }
 }
 
+/* A rotated camera takes the general loop; mostly unclamped front points
+ * exercise its overlapped divides, with a few behind or clamped. */
+TEST(general_projection_prefetch_matches_scalar_for_rotated_camera) {
+    uint32_t random=0x5EED1234u;
+    auto next=[&](uint32_t range) {
+        random=random*1664525u+1013904223u;
+        return static_cast<int32_t>(random%range);
+    };
+    for (unsigned frame=0; frame<32; ++frame) {
+        sat_mat4_t vp={};
+        // A yaw rotation (cos, sin in 16.16) plus a small fractional tilt.
+        const int32_t c=40000+next(20000),s=next(50000)-25000;
+        vp.m[0]=c; vp.m[2]=s; vp.m[3]=next(4000)-2000;
+        vp.m[4]=next(3000)-1500; vp.m[5]=SAT_FX16_ONE; vp.m[6]=next(3000)-1500;
+        vp.m[12]=-s; vp.m[13]=next(800)-400; vp.m[14]=c; vp.m[15]=next(400000)-80000;
+        sat_vec3_t points[257];
+        for (auto& p:points) {
+            const int32_t depth=fx_from_int(4+next(60));
+            p={next(2*depth+1)-depth,next(2*depth+1)-depth,depth};
+        }
+        sat_projected_vertex_t actual[257],expected[257];
+        for (unsigned i=0;i<257;++i) {
+            actual[i]=expected[i]={123,-456,789};
+            project_vertex(vp.m,points[i],352,240,&expected[i]);
+        }
+        project_vertices(vp.m,points,257,352,240,actual);
+        for (unsigned i=0;i<257;++i) {
+            ASSERT_EQ(actual[i].w,expected[i].w);
+            ASSERT_EQ(actual[i].x,expected[i].x);
+            ASSERT_EQ(actual[i].y,expected[i].y);
+        }
+    }
+}
+
 /* Screen-space culling (signed projected area) must agree with the world
  * test (outward normal towards the eye) for every face of a closed box. */
 TEST(screen_area_culling_matches_world_culling) {

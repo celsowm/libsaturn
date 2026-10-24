@@ -7,27 +7,11 @@
 #include "saturn/sprite_batch.h"
 #include "saturn/vdp1.h"
 #include "saturn/render3d.h"
+#include "saturn/vdp1_command_batch.h"
 
 namespace saturn::hal::vdp1 {
 
-struct alignas(4) Command {
-    uint16_t ctrl;
-    uint16_t link;
-    uint16_t pmod;
-    uint16_t colr;
-    uint16_t srca;
-    uint16_t size;
-    int16_t xa;
-    int16_t ya;
-    int16_t xb;
-    int16_t yb;
-    int16_t xc;
-    int16_t yc;
-    int16_t xd;
-    int16_t yd;
-    uint16_t grda;
-    uint16_t pad;
-};
+using Command = sat_vdp1_native_command_t;
 
 struct SpriteRequest {
     int16_t x;
@@ -102,6 +86,11 @@ void begin_frame(Command* command_buffer, uint16_t capacity);
 sat_result_t reserve_overlay_commands(uint16_t count);
 sat_result_t command_checkpoint(sat_vdp1_command_checkpoint_t* out);
 sat_result_t command_rollback(const sat_vdp1_command_checkpoint_t* checkpoint);
+sat_result_t command_batch_reserve(uint16_t capacity,sat_vdp1_command_batch_t* out);
+sat_result_t command_batch_link(sat_vdp1_command_batch_t* batch,uint16_t command);
+sat_result_t command_batch_finish(sat_vdp1_command_batch_t* batch);
+sat_result_t command_batch_cancel(sat_vdp1_command_batch_t* batch);
+bool command_batch_pending();
 void command_stats(uint16_t& used, uint16_t& capacity,
                    uint16_t& overlay_reserved, bool& overlay_pass);
 sat_result_t begin_overlay_pass();
@@ -199,6 +188,11 @@ void on_vblank_in();
 /* VBlank-INs an ON_SUBMIT swap waited through because its list had not
  * ended: fields that kept showing the previous picture. */
 uint32_t late_swaps();
+/* ON_SUBMIT: called in the VBlank in which the swap of list `serial` (the
+ * list_serial() its submit left) is asked for. NULL removes it. */
+void set_swap_handler(void (*handler)(uint32_t serial, void* user), void* user);
+/* Lists submitted since init. */
+uint32_t list_serial();
 /* ON_SUBMIT: called by sat_wait_vblank after VBlank-IN; returns once the
  * last list's swap has been asked for (or none is outstanding), in a VBlank,
  * so VDP2 state committed next is shown with that list. */

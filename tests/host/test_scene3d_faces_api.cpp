@@ -1,6 +1,7 @@
 #include <array>
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include <stdint.h>
 #include "saturn/scene3d_faces.h"
 #include "src/graphics/vdp1/projected.hpp"
@@ -522,6 +523,71 @@ static void compiled_materials_preserve_emission_and_residency() {
     assert(programs[0].texture==&texture[0] && programs[0].command[4]==texture[0].srca);
 }
 
+static void pre_projected_instance_matches_world_submission() {
+    constexpr unsigned capacity=32;
+    sat_scene3d_face_t storage[2][capacity]={};
+    uint32_t keys[2][capacity]={};uint16_t order[2][capacity]={};
+    sat_scene3d_faces_t scenes[2]={};
+    sat_mat4_t vp={};vp.m[0]=vp.m[5]=vp.m[14]=SAT_FX16_ONE;
+    const sat_vec3_t eye={},forward={0,0,SAT_FX16_ONE};
+    for(unsigned i=0;i<2;++i)
+        assert(sat_scene3d_faces_init(&scenes[i],storage[i],keys[i],order[i],capacity)==SAT_OK);
+    sat_vdp1_texture_t texture={};texture.valid=1;texture.width=texture.height=8;
+    texture.format=SAT_VDP1_TEXTURE_LUT4;texture.srca=81;
+    sat_scene3d_material_t material={};material.kind=SAT_SCENE3D_INDEXED_TEXTURED;
+    material.texture=&texture;material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    sat_scene3d_material_program_t program[1]={};sat_scene3d_material_programs_t table={};
+    assert(sat_scene3d_material_programs_init(&table,&material,1,program,1)==SAT_OK);
+    sat_quad3_t world=quad(3);uint16_t indices[64],map[16]={};
+    uint8_t double_sided[16]={};double_sided[1]=1;
+    // Alternate the winding so the screen cull keeps half the faces.
+    for(unsigned i=0;i<64;++i)indices[i]=(i/4)%2 ? 3-i%4 : i%4;
+    sat_mesh_t mesh={};mesh.vertices=world.v;mesh.indices=indices;
+    mesh.vertex_count=mesh.vertex_cap=4;mesh.face_count=mesh.face_cap=16;
+    sat_scene3d_instance_binding_t binding={};
+    assert(sat_scene3d_instance_binding_init(&binding,&mesh,&material,1,map)==SAT_OK);
+    binding.programs=&table;
+    sat_scene3d_instance_t instance={};instance.mesh=&mesh;instance.materials=&material;
+    instance.material_count=1;instance.face_materials=map;instance.validated_binding=&binding;
+    instance.cull_backfaces=SAT_SCENE3D_CULL_SCREEN;
+    instance.double_sided_faces=double_sided;
+    sat_projected_vertex_t screen[2][4]={};
+    assert(sat_scene3d_faces_begin(&scenes[0],&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_submit_instance(&scenes[0],&instance,SAT_SCENE3D_SLOT_INHERIT,screen[0],nullptr)==SAT_OK);
+    assert(scenes[0].count==9 && scenes[0].culled_faces==7);
+    // The mesh vertices are never read once the caller has projected.
+    for(auto& screen_vertex:screen[1])screen_vertex=screen[0][&screen_vertex-screen[1]];
+    sat_quad3_t garbage=quad(-7);mesh.vertices=garbage.v;
+    instance.pre_projected=1;
+    auto& scene=scenes[1];
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_submit_instance(&scene,&instance,SAT_SCENE3D_SLOT_INHERIT,screen[1],nullptr)==SAT_OK);
+    assert(scene.count==scenes[0].count && scene.culled_faces==scenes[0].culled_faces);
+    for(unsigned i=0;i<scene.count;++i) {
+        sat_scene3d_face_t a={},b={};
+        assert(sat_scene3d_faces_get(&scenes[0],i,&a)==SAT_OK);
+        assert(sat_scene3d_faces_get(&scene,i,&b)==SAT_OK);
+        assert(a.program_valid && b.program_valid && a.program==b.program);
+        assert(std::memcmp(&a.projected,&b.projected,sizeof(a.projected))==0);
+        assert(keys[0][i]==keys[1][i]);
+    }
+    // A world matrix contradicts projected vertices.
+    sat_mat4_t identity={};identity.m[0]=identity.m[5]=identity.m[10]=identity.m[15]=SAT_FX16_ONE;
+    instance.world=&identity;
+    sat_vec3_t world_scratch[4]={};
+    assert(sat_scene3d_faces_submit_instance(&scene,&instance,SAT_SCENE3D_SLOT_INHERIT,screen[1],world_scratch)==SAT_ERR_INVALID_ARG);
+    instance.world=nullptr;
+    // Off the fast path (world culling, or a corner behind the camera) the
+    // caller must submit world vertices: nothing is appended.
+    const uint16_t count=scene.count,culled=scene.culled_faces;
+    instance.cull_backfaces=1u;
+    assert(sat_scene3d_faces_submit_instance(&scene,&instance,SAT_SCENE3D_SLOT_INHERIT,screen[1],nullptr)==SAT_ERR_UNSUPPORTED);
+    instance.cull_backfaces=SAT_SCENE3D_CULL_SCREEN;
+    screen[1][2].w=0;
+    assert(sat_scene3d_faces_submit_instance(&scene,&instance,SAT_SCENE3D_SLOT_INHERIT,screen[1],nullptr)==SAT_ERR_UNSUPPORTED);
+    assert(scene.count==count && scene.culled_faces==culled);
+}
+
 static void projected_hot_queue_matches_general_and_owns_fallbacks() {
     constexpr unsigned capacity=32;
     sat_scene3d_face_t storage[2][capacity]={};
@@ -595,6 +661,61 @@ static void projected_hot_queue_matches_general_and_owns_fallbacks() {
     texture.valid=0;emitted_count=0;
     assert(sat_scene3d_faces_flush(&scene)==SAT_ERR_INVALID_ARG && emitted_count==0);
     assert(sat_scene3d_faces_use_projected_storage(&scene,nullptr,0)==SAT_OK);
+}
+
+static void bounded_cold_store_skips_and_counts_overflow() {
+    constexpr uint16_t capacity=4;
+    sat_scene3d_face_t cold[1]{};
+    sat_scene3d_projected_face_t hot[capacity]{};
+    uint32_t keys[capacity]{};uint16_t order[capacity]{};
+    sat_scene3d_faces_t scene{};
+    assert(sat_scene3d_faces_init(&scene,cold,keys,order,capacity)==SAT_OK);
+    assert(sat_scene3d_faces_use_projected_storage(&scene,hot,capacity)==SAT_OK);
+    scene.cold_capacity=1;
+    sat_mat4_t vp{};vp.m[0]=SAT_FX16_ONE;
+    const sat_vec3_t eye{},forward{0,0,SAT_FX16_ONE};
+    sat_scene3d_material_t material{};material.kind=SAT_SCENE3D_RGB;
+    material.rgb555=0x8123;material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    auto plain=quad(3),clipped=quad(2);clipped.v[0].z=SAT_FX16_ONE/2;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(&scene,&clipped,&material,0)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(&scene,&clipped,&material,0)==SAT_OK);
+    assert(sat_scene3d_faces_submit_quad(&scene,&plain,&material,0)==SAT_OK);
+    assert(scene.count==2 && scene.cold_count==1 && scene.skipped_faces==1);
+    assert(hot[0].kind==SAT_SCENE3D_PROJECTED_COLD && hot[1].kind==SAT_SCENE3D_PROJECTED_RGB);
+    // A bounded scene grants a direct batch only the cold records left.
+    sat_scene3d_prepare_batch_t batch{};uint32_t worker_keys[2]{};
+    assert(sat_scene3d_prepare_batch_init(&batch,nullptr,0,cold,worker_keys,2)==SAT_OK);
+    batch.cold_capacity=1;
+    uint16_t indices[capacity]{};
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(sat_scene3d_faces_use_projected_indices(&scene,indices,capacity)==SAT_OK);
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_reserve_batch(&scene,&batch)==SAT_OK &&
+        scene.cold_count==1 && batch.cold_capacity==1);
+    assert(sat_scene3d_faces_cancel_batch(&scene,&batch)==SAT_OK);
+    sat_scene3d_prepare_batch_t more{};
+    assert(sat_scene3d_prepare_batch_init(&more,nullptr,0,cold,worker_keys,2)==SAT_OK);
+    assert(sat_scene3d_faces_reserve_batch(&scene,&more)==SAT_OK && more.cold_capacity==0);
+    // A zero grant drops the batch's clipped face but keeps its plain one.
+    sat_mesh_t mesh{};uint16_t corners[8]={0,1,2,3,4,5,6,7},map[2]={};
+    sat_vec3_t vertices[8];
+    for(unsigned i=0;i<4;++i){vertices[i]=clipped.v[i];vertices[4+i]=plain.v[i];}
+    mesh.vertices=vertices;mesh.indices=corners;mesh.vertex_count=mesh.vertex_cap=8;
+    mesh.face_count=mesh.face_cap=2;
+    sat_scene3d_instance_t instance{};instance.mesh=&mesh;instance.materials=&material;
+    instance.material_count=1;instance.cull_backfaces=0;instance.face_materials=map;
+    sat_projected_vertex_t screen[8]{};
+    sat_scene3d_prepare_item_t item{};item.instance=&instance;item.screen_scratch=screen;
+    item.color_calc_slot=SAT_SCENE3D_SLOT_INHERIT;
+    more.items=&item;more.item_count=1;
+    more.view_proj=vp;more.eye=eye;more.forward=forward;more.near_depth=SAT_FX16_ONE;
+    more.width=320;more.height=224;
+    assert(sat_scene3d_prepare_batch_execute(&more)==SAT_OK);
+    assert(more.metrics.prepared_faces==1 && more.metrics.skipped_faces==1);
+    assert(sat_scene3d_faces_merge_prepared(&scene,&more)==SAT_OK);
+    assert(scene.count==1 && scene.skipped_faces==1 && scene.cold_count==1);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
 }
 
 static void direct_spans_preserve_order_and_cold_lifetimes() {
@@ -687,7 +808,48 @@ static void direct_spans_preserve_order_and_cold_lifetimes() {
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
 }
 
+/* The mock projection is orthographic (screen = world x, y), so a quad
+ * tilted away from the eye keeps a front screen winding while its world
+ * normal faces away. Screen culling draws it; the default culls it. A corner
+ * behind the camera leaves the screen test out, and then both modes use the
+ * world normal. */
+static void screen_culling_skips_only_the_world_test() {
+    constexpr sat_fx16_t one=SAT_FX16_ONE;
+    const sat_vec3_t tilted[4]={{0,10*one,10*one},{4*one,10*one,10*one},
+                                {4*one,14*one,60*one},{0,14*one,60*one}};
+    auto behind=quad(3);
+    std::swap(behind.v[1],behind.v[3]); // back-facing in both tests
+    behind.v[0].z=-one;
+    sat_mat4_t vp{};vp.m[0]=one;
+    const sat_vec3_t eye{},forward{0,0,one};
+    sat_scene3d_material_t material{};material.kind=SAT_SCENE3D_RGB;
+    material.rgb555=0x8123;material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    uint16_t corners[4]={0,1,2,3},map[1]={};
+    for(int shape=0;shape<2;++shape)for(uint8_t mode : {uint8_t{1},uint8_t{SAT_SCENE3D_CULL_SCREEN}}) {
+        sat_scene3d_face_t faces[2]{};uint32_t keys[2]{};uint16_t order[2]{};
+        sat_scene3d_faces_t scene{};
+        assert(sat_scene3d_faces_init(&scene,faces,keys,order,2)==SAT_OK);
+        sat_vec3_t vertices[4];
+        for(unsigned i=0;i<4;++i)vertices[i]=shape?behind.v[i]:tilted[i];
+        sat_mesh_t mesh{};mesh.vertices=vertices;mesh.indices=corners;
+        mesh.vertex_count=mesh.vertex_cap=4;mesh.face_count=mesh.face_cap=1;
+        sat_scene3d_instance_t instance{};instance.mesh=&mesh;instance.materials=&material;
+        instance.material_count=1;instance.face_materials=map;instance.cull_backfaces=mode;
+        sat_projected_vertex_t screen[4]{};
+        assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,one,320,224)==SAT_OK);
+        assert(sat_scene3d_faces_submit_instance(&scene,&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+        const bool drawn=shape==0 && mode==SAT_SCENE3D_CULL_SCREEN;
+        assert(scene.count==(drawn?1u:0u) && scene.culled_faces==(drawn?0u:1u));
+        emitted_count=0;
+        assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    }
+    emitted_count=0;
+}
+
 int main() {
+    screen_culling_skips_only_the_world_test();
+    pre_projected_instance_matches_world_submission();
+    bounded_cold_store_skips_and_counts_overflow();
     direct_spans_preserve_order_and_cold_lifetimes();
     projected_hot_queue_matches_general_and_owns_fallbacks();
     compiled_materials_preserve_emission_and_residency();

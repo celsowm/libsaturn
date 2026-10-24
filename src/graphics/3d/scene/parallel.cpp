@@ -92,6 +92,8 @@ bool plan_matches(const sat_scene3d_source_plan_t* plan,
 
 sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch, bool receiving) {
     if (batch == nullptr || batch->items == nullptr) return SAT_OK;
+    SAT_TRY(sync_range(batch->native_commands,
+        static_cast<uint32_t>(batch->capacity)*sizeof(sat_vdp1_native_command_t)));
     SAT_TRY(sync_range(batch->items, static_cast<uint32_t>(batch->item_count)*sizeof(*batch->items)));
     for (uint16_t i=0u; i<batch->item_count; ++i) {
         const auto& item = batch->items[i];
@@ -128,8 +130,11 @@ sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch, bool r
 
 sat_result_t sync_batch_outputs(const sat_scene3d_prepare_batch_t* batch) {
     if (batch == nullptr) return SAT_ERR_INVALID_ARG;
+    SAT_TRY(sync_range(batch->native_commands,
+        static_cast<uint32_t>(batch->capacity)*sizeof(sat_vdp1_native_command_t)));
     if(batch->projected_faces)SAT_TRY(sync_range(batch->faces,
-        static_cast<uint32_t>(batch->capacity)*sizeof(*batch->faces)));
+        static_cast<uint32_t>(batch->direct_owner && batch->direct_owner->cold_capacity?
+            batch->cold_capacity:batch->capacity)*sizeof(*batch->faces)));
     SAT_TRY(sync_range(batch->keys, static_cast<uint32_t>(batch->capacity) *
         sizeof(*batch->keys)));
     if (batch->items == nullptr) return SAT_OK;
@@ -175,6 +180,7 @@ sat_result_t prepare_batch_task(
         worker.projected_faces=static_cast<sat_scene3d_projected_face_t*>(output);
         worker.faces=static_cast<sat_scene3d_face_t*>(shared_uncached(shared->faces));
     } else worker.faces = static_cast<sat_scene3d_face_t*>(output);
+    worker.native_commands=static_cast<sat_vdp1_native_command_t*>(shared_uncached(shared->native_commands));
     worker.keys = static_cast<uint32_t*>(shared_uncached(shared->keys));
     const sat_result_t result = sat_scene3d_prepare_batch_execute(&worker);
 #if SAT_PROFILE_METRICS
@@ -356,6 +362,9 @@ extern "C" sat_result_t sat_scene_merge_prepared_batch(
         static_cast<uint32_t>(batch->metrics.prepared_faces) *
         sizeof(*batch->keys));
     if (keys_synced != SAT_OK) return record_frame_result(scene,keys_synced);
+    const sat_result_t commands_synced=sync_range(batch->native_commands,
+        static_cast<uint32_t>(batch->metrics.prepared_faces)*sizeof(sat_vdp1_native_command_t));
+    if(commands_synced!=SAT_OK)return record_frame_result(scene,commands_synced);
     const uint16_t before = scene->faces.count;
     const sat_result_t merged = sat_scene3d_faces_merge_prepared(&scene->faces, batch);
     if (merged == SAT_OK) {

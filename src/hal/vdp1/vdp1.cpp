@@ -5,6 +5,7 @@
 #include "src/hal/scu/scu.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
 #include "src/core/runtime/logic.hpp"
+#include "src/core/memory/section.hpp"
 #include "saturn/vdp1.h"
 #include "src/graphics/3d/scene/test_metrics.h"
 
@@ -58,10 +59,15 @@ uint16_t g_cmd_capacity = 0;
 uint16_t g_cmd_count = 0;
 uint16_t g_overlay_reserved = 0;
 bool g_overlay_pass = false;
-alignas(4) uint16_t g_gouraud_words[kGouraudTableCapacity * 4u];
+/* Low WRAM: few frames use Gouraud tables, and High WRAM is kept for data the
+ * CPU touches every frame. Submit copies it with the CPU (SCU DMA cannot read
+ * Low WRAM). */
+SATURN_WRAM_L alignas(4) uint16_t g_gouraud_words[kGouraudTableCapacity * 4u];
 uint16_t g_gouraud_count = 0;
 uint32_t g_frame_serial=0u;
 bool g_frame_submitted=true;
+sat_vdp1_command_batch_t* g_command_batch=nullptr;
+uint32_t g_command_batch_serial=0u;
 /* Set once a command list has been handed to the VDP1: before that, only
  * init's lone END list exists and there is no drawing to wait for. */
 bool g_list_submitted=false;
@@ -82,6 +88,10 @@ volatile uint32_t g_swap_vblank = 0u;
 /* VBlank-INs a pending swap waited through: fields that kept the previous
  * picture because the list had not ended yet. */
 volatile uint32_t g_late_swaps = 0u;
+/* Lists submitted, and the handler told when one's swap is asked for. */
+volatile uint32_t g_list_serial = 0u;
+void (*volatile g_swap_handler)(uint32_t, void*) = nullptr;
+void* volatile g_swap_user = nullptr;
 /* Address bookkeeping for texture VRAM; see texture_arena.hpp. Constant
  * initialised, so it needs no static constructor. init() resets it. */
 TextureArena g_texture_arena(kTextureBase, kVramSize);
@@ -265,6 +275,10 @@ void set_erase_enabled(bool enable, uint16_t width, uint16_t height) {
 }
 
 void begin_frame(Command* command_buffer, uint16_t capacity) {
+    /* A caller must join all workers before beginning another frame. */
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(g_command_batch)return;
+#endif
     ++g_frame_serial;
     if(g_frame_serial==0u)g_frame_serial=1u;
     g_frame_submitted=false;
@@ -386,6 +400,9 @@ sat_result_t command_checkpoint(sat_vdp1_command_checkpoint_t* out) {
 sat_result_t command_rollback(
     const sat_vdp1_command_checkpoint_t* checkpoint) {
     if(!checkpoint)return SAT_ERR_INVALID_ARG;
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(g_command_batch)return SAT_ERR_BUSY;
+#endif
     if(!g_cmd_buffer || g_frame_submitted || !g_frame_serial ||
        checkpoint->frame_serial!=g_frame_serial ||
        checkpoint->used>g_cmd_count ||
@@ -400,6 +417,70 @@ sat_result_t command_rollback(
     return SAT_OK;
 }
 
+namespace {
+bool current_batch(const sat_vdp1_command_batch_t* b) {
+    return b && b==g_command_batch && b->active && !g_frame_submitted &&
+        b->checkpoint.frame_serial==g_frame_serial &&
+        b->commands==g_cmd_buffer+b->checkpoint.used;
+}
+}
+
+sat_result_t command_batch_reserve(uint16_t capacity,sat_vdp1_command_batch_t* out) {
+    if(!out || !capacity)return SAT_ERR_INVALID_ARG;
+    if(!g_cmd_buffer || g_frame_submitted)return SAT_ERR_NOT_INITIALIZED;
+    if(g_command_batch || g_command_batch_serial==g_frame_serial)return SAT_ERR_BUSY;
+    if(g_overlay_pass || !g_cmd_count)return SAT_ERR_INVALID_ARG;
+    if(static_cast<uint32_t>(g_cmd_count)+capacity+g_overlay_reserved+1u>g_cmd_capacity)
+        return SAT_ERR_CAPACITY;
+    sat_vdp1_command_batch_t batch{};
+    SAT_TRY(command_checkpoint(&batch.checkpoint));
+    batch.commands=g_cmd_buffer+g_cmd_count;batch.capacity=capacity;
+    batch.head=batch.tail=UINT16_MAX;batch.active=1u;
+    for(uint16_t i=0;i<capacity;++i)batch.commands[i].pad=0u;
+    g_cmd_count=static_cast<uint16_t>(g_cmd_count+capacity);
+    *out=batch;g_command_batch=out;g_command_batch_serial=g_frame_serial;
+    return SAT_OK;
+}
+
+sat_result_t command_batch_link(sat_vdp1_command_batch_t* b,uint16_t index) {
+    if(!current_batch(b) || index<b->checkpoint.used || index>=g_cmd_count)
+        return SAT_ERR_INVALID_ARG;
+    Command& cmd=g_cmd_buffer[index];
+    if(index<static_cast<uint32_t>(b->checkpoint.used)+b->capacity && cmd.pad!=1u)
+        return SAT_ERR_BUSY;
+    /* JP=000 and END=0 are required on first use; JP=001 marks every linked
+     * record, detecting duplicate IDs before they can create a cycle. */
+    if(cmd.ctrl&0xF000u)return SAT_ERR_INVALID_ARG;
+    cmd.ctrl=static_cast<uint16_t>(cmd.ctrl|0x1000u);cmd.pad=0u;
+    if(b->tail!=UINT16_MAX)g_cmd_buffer[b->tail].link=static_cast<uint16_t>(index*4u);
+    else b->head=index;
+    b->tail=index;
+    return SAT_OK;
+}
+
+sat_result_t command_batch_finish(sat_vdp1_command_batch_t* b) {
+    if(!current_batch(b))return SAT_ERR_INVALID_ARG;
+    const uint16_t first=b->checkpoint.used;
+    /* CMDLINK is the VRAM byte address divided by eight. Commands are 32
+     * bytes, so absolute command IDs multiply by four. The untouched prefix
+     * becomes reachable only after the entire painter traversal is ready. */
+    if(b->tail!=UINT16_MAX)g_cmd_buffer[b->tail].link=static_cast<uint16_t>(g_cmd_count*4u);
+    Command& prefix=g_cmd_buffer[first-1u];
+    prefix.ctrl=static_cast<uint16_t>((prefix.ctrl&0x8FFFu)|0x1000u);
+    prefix.link=static_cast<uint16_t>((b->head==UINT16_MAX?g_cmd_count:b->head)*4u);
+    b->active=0;g_command_batch=nullptr;
+    return SAT_OK;
+}
+
+sat_result_t command_batch_cancel(sat_vdp1_command_batch_t* b) {
+    if(!current_batch(b))return SAT_ERR_INVALID_ARG;
+    g_cmd_count=b->checkpoint.used;g_gouraud_count=b->checkpoint.gouraud_tables;
+    b->active=0;g_command_batch=nullptr;g_command_batch_serial=0u;
+    return SAT_OK;
+}
+
+bool command_batch_pending() {return g_command_batch!=nullptr;}
+
 sat_result_t reserve_overlay_commands(uint16_t count) {
     if(g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
     if(g_overlay_pass) return SAT_ERR_UNSUPPORTED;
@@ -410,6 +491,9 @@ sat_result_t reserve_overlay_commands(uint16_t count) {
 }
 
 sat_result_t begin_overlay_pass() {
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(g_command_batch)return SAT_ERR_BUSY;
+#endif
     if(g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
 #if SAT_PROFILE_METRICS
     /* Hash world commands before diagnostic/game HUD additions. */
@@ -1000,6 +1084,8 @@ void service_swap() {
     FBCR = saturn::core::kVdp1FbcrManualChange;
     g_swap_vblank = g_vblank_ins;
     g_swap_state = kSwapRequested;
+    void (*const handler)(uint32_t, void*) = g_swap_handler;
+    if (handler != nullptr) handler(g_list_serial, g_swap_user);
 }
 
 /* ON_SUBMIT: the last list's swap has happened (or none is outstanding), so
@@ -1090,6 +1176,14 @@ void on_vblank_in() {
 
 uint32_t late_swaps() { return g_late_swaps; }
 
+void set_swap_handler(void (*handler)(uint32_t, void*), void* user) {
+    g_swap_handler = nullptr;
+    g_swap_user = user;
+    g_swap_handler = handler;
+}
+
+uint32_t list_serial() { return g_list_serial; }
+
 /* ON_SUBMIT, right after the VBlank-IN wait: returns in the VBlank whose end
  * shows the last list, so VDP2 state written next appears with it. A list
  * still drawing at VBlank-IN gets its swap asked for here if it ends before
@@ -1115,6 +1209,9 @@ uint32_t draw_waits() { return g_draw_waits; }
 uint32_t draw_timeouts() { return g_draw_timeouts; }
 
 void submit() {
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(g_command_batch)return; /* never present an unpublished command span */
+#endif
     if (g_cmd_buffer == nullptr) {
         return;
     }
@@ -1181,6 +1278,7 @@ void submit() {
 
     g_frame_submitted=true;
     g_list_submitted=true;
+    g_list_serial = g_list_serial + 1u;
     if (g_on_submit) {
         // Draw into the back framebuffer now. The first list after 1-cycle
         // mode asks for the change with it (manual mode starts there); later

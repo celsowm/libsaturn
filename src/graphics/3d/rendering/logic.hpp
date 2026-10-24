@@ -172,13 +172,49 @@ inline void project_vertex(
 }
 
 /* Keep the general camera loop's register allocation separate from the
- * sparse loop; camera classification still runs on every batch. */
+ * sparse loop; camera classification still runs on every batch. Same
+ * products and rounding as project_vertex (clip Z is never formed). The
+ * clip-Y row is formed while the divider works on X, and the next point's
+ * clip-W and clip-X rows while it works on Y. */
 [[gnu::noinline]] inline void project_vertices_general(
     const sat_fx16_t* m, const sat_vec3_t* points, uint16_t count,
     int16_t width, int16_t height, sat_projected_vertex_t* out
 ) {
-    for (uint16_t i=0; i<count; ++i)
-        project_vertex(m,points[i],width,height,&out[i]);
+    const int32_t y_scale=-static_cast<int32_t>(height);
+    sat_fx16_t pending_w=0;
+    sat_fx16_t pending_x=0;
+    bool pending=false;
+    for (uint16_t i=0; i<count; ++i) {
+        const sat_vec3_t& p=points[i];
+        const sat_fx16_t w=pending?pending_w:
+            fx_mul(m[12],p.x)+fx_mul(m[13],p.y)+fx_mul(m[14],p.z)+m[15];
+        const sat_fx16_t x=pending?pending_x:
+            fx_mul(m[0],p.x)+fx_mul(m[1],p.y)+fx_mul(m[2],p.z)+m[3];
+        pending=false;
+        out[i].w=w;
+        if (w<=0) continue; // Preserve the scalar path's untouched X/Y.
+        const int64_t x_numerator=static_cast<int64_t>(x)*width;
+        int16_t projected_x;
+        const bool x_clamped=project_axis_clamped(x_numerator,w,&projected_x);
+        if(!x_clamped) project_axis_start(x_numerator,w);
+        const sat_fx16_t y=fx_mul(m[4],p.x)+fx_mul(m[5],p.y)+fx_mul(m[6],p.z)+m[7];
+        const int64_t y_numerator=static_cast<int64_t>(y)*y_scale;
+        if(!x_clamped) projected_x=project_axis_finish(x_numerator,w);
+        out[i].x=projected_x;
+        int16_t projected_y;
+        if(!project_axis_clamped(y_numerator,w,&projected_y)) {
+            project_axis_start(y_numerator,w);
+            const uint16_t next=static_cast<uint16_t>(i+1u);
+            if(next<count) {
+                const sat_vec3_t& q=points[next];
+                pending_w=fx_mul(m[12],q.x)+fx_mul(m[13],q.y)+fx_mul(m[14],q.z)+m[15];
+                pending_x=fx_mul(m[0],q.x)+fx_mul(m[1],q.y)+fx_mul(m[2],q.z)+m[3];
+                pending=true;
+            }
+            projected_y=project_axis_finish(y_numerator,w);
+        }
+        out[i].y=projected_y;
+    }
 }
 
 /* Classify once per batch, never cache across camera updates. A camera whose
@@ -664,10 +700,16 @@ struct RightShift {
 template <typename Index, typename BucketOf>
 inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
                        BucketOf bucket_of) {
-    /* face_count fits uint16_t, so every running position does too. */
-    uint16_t start[kPaintBuckets];
-    for (uint32_t b = 0; b < kPaintBuckets; ++b) {
-        start[b] = 0u;
+    /* face_count fits uint16_t, so every running position does too. The
+     * counters are cleared and summed two to a 32-bit word: each store is a
+     * bus write through the SH-2's cache. */
+    union {
+        uint32_t words[kPaintBuckets / 2u];
+        uint16_t start[kPaintBuckets];
+    } counters;
+    uint16_t* const start = counters.start;
+    for (uint32_t w = 0; w < kPaintBuckets / 2u; ++w) {
+        counters.words[w] = 0u;
     }
     for (uint32_t f = 0; f < face_count; ++f) {
         if (keys[f] == kPaintSkip) {
@@ -678,10 +720,22 @@ inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
         ++start[bucket];
     }
     uint32_t running = 0u;
-    for (uint32_t b = kPaintBuckets; b-- > 0u;) {
-        const uint32_t n = start[b];
-        start[b] = static_cast<uint16_t>(running);
-        running += n;
+    for (uint32_t w = kPaintBuckets / 2u; w-- > 0u;) {
+        /* Buckets 2w (lower address) and 2w + 1, the higher one first. */
+        const uint32_t pair = counters.words[w];
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        const uint32_t low_bucket = pair & 0xFFFFu, high_bucket = pair >> 16u;
+#else
+        const uint32_t low_bucket = pair >> 16u, high_bucket = pair & 0xFFFFu;
+#endif
+        const uint32_t high_start = running;
+        const uint32_t low_start = running + high_bucket;
+        running = low_start + low_bucket;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        counters.words[w] = (high_start << 16u) | (low_start & 0xFFFFu);
+#else
+        counters.words[w] = (low_start << 16u) | (high_start & 0xFFFFu);
+#endif
     }
     for (uint32_t f = 0; f < face_count; ++f) {
         const uint32_t bucket = keys[f];

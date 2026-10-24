@@ -96,6 +96,9 @@ if(LIBSATURN_BUILD_RUNTIME)
 
     # -- LibSaturn::Core ------------------------------------------------
     add_library(libsaturn_core STATIC ${LIBSATURN_PREFIXED_SOURCES})
+    option(LIBSATURN_NATIVE_SCENE_COMMANDS "Experimental direct staged-command scene preparation" OFF)
+    target_compile_definitions(libsaturn_core PRIVATE
+        SAT_NATIVE_SCENE_COMMANDS=$<BOOL:${LIBSATURN_NATIVE_SCENE_COMMANDS}>)
     add_library(LibSaturn::Core ALIAS libsaturn_core)
     set_target_properties(libsaturn_core PROPERTIES
         OUTPUT_NAME saturn

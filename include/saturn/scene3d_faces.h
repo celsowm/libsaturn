@@ -6,6 +6,7 @@
 #include "saturn/model3d.h"
 #include "saturn/collide3d.h"
 #include "saturn/parallel.h"
+#include "saturn/vdp1_command_batch.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,6 +75,7 @@ sat_result_t sat_scene3d_material_programs_init(
 typedef struct sat_scene3d_profile {
     uint32_t projection_ticks, preparation_ticks, painter_ticks, emission_ticks;
 } sat_scene3d_profile_t;
+#define SAT_SCENE3D_INSTANCE_PROFILE_AVAILABLE 1
 /* Last instance submission / flush FRT costs. UNSUPPORTED when profiling was
  * compiled out; callers must not present zero as a measured cost. */
 sat_result_t sat_scene3d_profile_get(sat_scene3d_profile_t* out);
@@ -171,11 +173,28 @@ typedef struct sat_scene3d_faces {
     /* When bound, entries is cold storage rather than the logical queue. */
     sat_scene3d_projected_face_t* projected_entries;
     uint16_t cold_count;
+    /* Cold records available in entries; 0 means capacity. A face that needs
+     * a cold record beyond it is skipped and counted in skipped_faces. */
+    uint16_t cold_capacity;
     /* Optional logical-to-physical map for disjoint queue writers. */
     uint16_t* projected_indices;
     uint16_t projected_gap;
     struct sat_scene3d_prepare_batch* reserved_batch;
+    /* Optional experimental staged native command arena. A hot record with
+     * reserved=1 borrows its coordinates from the corresponding command. */
+    sat_vdp1_native_command_t* native_commands;
+    sat_vdp1_command_batch_t* native_batch;
+    /* Per-scene diagnostic accumulators: separate actor scenes have separate
+     * owners even when their submissions run on different CPUs. Zero when
+     * the SDK was built without profile metrics. */
+    sat_scene3d_profile_t instance_profile;
 } sat_scene3d_faces_t;
+
+/* Call after begin and before any face, with an already reserved frame batch.
+ * Requires LIBSATURN_NATIVE_SCENE_COMMANDS. The scene completes/cancels the
+ * batch at flush; outstanding workers retain ownership on timeout. */
+sat_result_t sat_scene3d_faces_bind_native_commands(
+    sat_scene3d_faces_t* scene,sat_vdp1_command_batch_t* batch);
 
 /* All three buffers are caller-owned and must hold `capacity` entries:
  * `storage` the faces, `keys` and `order` the painter's ordering scratch.
@@ -345,6 +364,7 @@ sat_result_t sat_scene3d_instance_binding_init(
  * Zero-initialize the whole descriptor before assigning required fields:
  * every optional pointer is NULL-by-default, and future trailing optional
  * fields must not inherit indeterminate stack data. */
+#define SAT_SCENE3D_CULL_SCREEN 2u
 typedef struct sat_scene3d_instance {
     const sat_mesh_t* mesh;
     const sat_scene3d_material_t* materials;
@@ -352,6 +372,10 @@ typedef struct sat_scene3d_instance {
     const uint16_t* face_materials;
     const sat_mat4_t* world; /* NULL: mesh vertices already in world space */
     uint16_t pass;
+    /* 0 draws both sides; nonzero culls back faces by projected area and the
+     * world normal. SAT_SCENE3D_CULL_SCREEN culls by projected area alone
+     * (like a PlayStation NCLIP); the world normal then decides only faces
+     * with a corner behind the camera. */
     uint8_t cull_backfaces;
     /* Optional per-face mask: a nonzero byte draws that face from either side. */
     const uint8_t* double_sided_faces;
@@ -367,6 +391,15 @@ typedef struct sat_scene3d_instance {
      * validated. A topology pointer/count mismatch rejects submission rather
      * than silently falling back to a potentially stale token. */
     const sat_scene3d_instance_binding_t* validated_binding;
+    /* Nonzero: screen_scratch already holds the mesh's vertices projected
+     * with this scene's camera (e.g. sat_skin_project_range), and world must
+     * be NULL. Submission then skips projection and never reads the mesh
+     * vertices. That needs the compiled fast path (every corner in front of
+     * the camera and drawable, culling off or SAT_SCENE3D_CULL_SCREEN);
+     * otherwise SAT_ERR_UNSUPPORTED is returned with nothing appended, and
+     * the caller submits world vertices instead. sat_scene_submit_instance
+     * does not record that refusal as a frame error. */
+    uint8_t pre_projected;
 } sat_scene3d_instance_t;
 
 /* Compiled publication plan for immutable topology/material resources.
@@ -418,6 +451,8 @@ typedef struct sat_scene3d_prepare_metrics {
     uint16_t prepared_faces;
     uint16_t culled_faces;
     uint16_t clipped_faces;
+    /* Faces dropped because the cold store was full. */
+    uint16_t skipped_faces;
 } sat_scene3d_prepare_metrics_t;
 
 /* Independent dispatch policy for one batch; zero-init preserves the
@@ -454,6 +489,12 @@ typedef struct sat_scene3d_prepare_batch {
     sat_scene3d_projected_face_t* projected_faces;
     sat_scene3d_faces_t* direct_owner;
     uint16_t direct_first;
+    /* Direct-span batches: cold records requested (0: capacity). When the
+     * scene's cold store is bounded, reserve lowers it to what is left,
+     * possibly 0; the batch then drops and counts its extra cold faces. */
+    uint16_t cold_capacity;
+    sat_vdp1_native_command_t* native_commands;
+    sat_scene3d_profile_t instance_profile;
 } sat_scene3d_prepare_batch_t;
 
 sat_result_t sat_scene3d_prepare_batch_init(

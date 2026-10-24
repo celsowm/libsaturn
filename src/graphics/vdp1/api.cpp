@@ -201,6 +201,16 @@ extern "C" sat_result_t sat_vdp1_frame_stats(sat_vdp1_frame_stats_t* out) {
     return SAT_OK;
 }
 
+extern "C" uint32_t sat_vdp1_list_serial(void) {
+    return saturn::hal::vdp1::list_serial();
+}
+
+extern "C" sat_result_t sat_vdp1_set_swap_handler(sat_vdp1_swap_handler_t handler, void* user) {
+    SAT_TRY(saturn::core::require_initialized());
+    saturn::hal::vdp1::set_swap_handler(handler, user);
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp1_command_checkpoint(
     sat_vdp1_command_checkpoint_t* out) {
     SAT_TRY(saturn::core::require_initialized());
@@ -212,6 +222,22 @@ extern "C" sat_result_t sat_vdp1_command_rollback(
     SAT_TRY(saturn::core::require_initialized());
     return saturn::hal::vdp1::command_rollback(checkpoint);
 }
+
+#if SAT_NATIVE_SCENE_COMMANDS
+extern "C" sat_result_t sat_vdp1_command_batch_reserve(uint16_t capacity,sat_vdp1_command_batch_t* out) {
+    SAT_TRY(saturn::core::require_initialized());
+    return saturn::hal::vdp1::command_batch_reserve(capacity,out);
+}
+extern "C" sat_result_t sat_vdp1_command_batch_link(sat_vdp1_command_batch_t* batch,uint16_t index) {
+    return saturn::hal::vdp1::command_batch_link(batch,index);
+}
+extern "C" sat_result_t sat_vdp1_command_batch_finish(sat_vdp1_command_batch_t* batch) {
+    return saturn::hal::vdp1::command_batch_finish(batch);
+}
+extern "C" sat_result_t sat_vdp1_command_batch_cancel(sat_vdp1_command_batch_t* batch) {
+    return saturn::hal::vdp1::command_batch_cancel(batch);
+}
+#endif
 
 extern "C" sat_result_t sat_vdp1_overlay_begin(void) {
     SAT_TRY(saturn::core::require_initialized());

@@ -14,6 +14,7 @@ namespace saturn::core {
 RuntimeState g_state = [] { RuntimeState s{}; s.initialized = true; return s; }();
 }
 
+#ifndef SAT_TEST_REAL_VDP1_HAL /* the test links the real HAL's slot API */
 namespace saturn::hal::vdp1 {
 namespace {
 Command g_spy_program_slots[256];
@@ -36,5 +37,6 @@ void commit_projected_programs(uint32_t count) {
     }
 }
 }
+#endif
 
 #endif
