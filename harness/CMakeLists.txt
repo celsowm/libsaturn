@@ -64,16 +64,16 @@ foreach(YMIR_DEBUG_PATCH_NAME ymir_harness_debug ymir_gradation_sse_fix)
         OUTPUT_QUIET ERROR_QUIET)
     if(NOT YMIR_DEBUG_PATCH_ALREADY_APPLIED EQUAL 0)
         execute_process(
-            COMMAND git -C "${ymir_SOURCE_DIR}" apply --check "${YMIR_PATCH}"
-            RESULT_VARIABLE YMIR_PATCH_CHECK)
-        if(NOT YMIR_PATCH_CHECK EQUAL 0)
-            message(FATAL_ERROR "${YMIR_PATCH_NAME}.patch no longer applies cleanly")
+            COMMAND git -C "${ymir_SOURCE_DIR}" apply --check "${YMIR_DEBUG_PATCH}"
+            RESULT_VARIABLE YMIR_DEBUG_PATCH_CHECK)
+        if(NOT YMIR_DEBUG_PATCH_CHECK EQUAL 0)
+            message(FATAL_ERROR "${YMIR_DEBUG_PATCH_NAME}.patch no longer applies cleanly")
         endif()
         execute_process(
-            COMMAND git -C "${ymir_SOURCE_DIR}" apply "${YMIR_PATCH}"
-            RESULT_VARIABLE YMIR_PATCH_APPLY)
-        if(NOT YMIR_PATCH_APPLY EQUAL 0)
-            message(FATAL_ERROR "Failed to apply ${YMIR_PATCH_NAME}.patch")
+            COMMAND git -C "${ymir_SOURCE_DIR}" apply "${YMIR_DEBUG_PATCH}"
+            RESULT_VARIABLE YMIR_DEBUG_PATCH_APPLY)
+        if(NOT YMIR_DEBUG_PATCH_APPLY EQUAL 0)
+            message(FATAL_ERROR "Failed to apply ${YMIR_DEBUG_PATCH_NAME}.patch")
         endif()
     endif()
 endforeach()
