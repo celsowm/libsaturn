@@ -47,37 +47,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ymir)
 
-# Keep the harness reproducible without vendoring Ymir. The patches are
-# applied to the fetched, pinned source tree and stay outside libsaturn:
-#   ymir_debug_metrics.patch       VDP write counters, scheduler cycle count
-#   ymir_write_watch.patch         --watch-write: the first writes into an address range (pc, value, frame)
-#   ymir_misaligned_access.patch   SH-2 misaligned data accesses (an address
-#                                  error on hardware, silently aligned by Ymir)
-#   ymir_gradation_sse_fix.patch   correctness fix: the pinned SSE2 gradation
-#                                  path ANDed the source colour into the blur
-#                                  instead of applying the mask (the AVX2 and
-#                                  scalar paths were correct). Without this,
-#                                  non-AVX2 builds render a wrong blur.
-# The patches are order-dependent (e.g. write-watch sits on top of the
-# misaligned block), so a reverse-apply check on an already-patched tree is
-# not reliable. Detect each patch by a unique marker it adds instead; the pin
-# is fixed, and a missing marker means the patch has not been applied yet.
-set(YMIR_PATCH_SPECS
-    "ymir_debug_metrics|libs/ymir-core/include/ymir/hw/vdp/vdp.hpp|GetWriteCounters"
-    "ymir_misaligned_access|libs/ymir-core/include/ymir/hw/sh2/sh2.hpp|NoteMisaligned"
-    "ymir_write_watch|libs/ymir-core/include/ymir/hw/sh2/sh2.hpp|NoteWatch"
-    "ymir_gradation_sse_fix|libs/ymir-core/src/ymir/hw/vdp/renderer/vdp_renderer_sw.cpp|and_si128(mask_x4, blend2_x4)"
-)
-foreach(YMIR_PATCH_SPEC IN LISTS YMIR_PATCH_SPECS)
-    string(REPLACE "|" ";" YMIR_PATCH_FIELDS "${YMIR_PATCH_SPEC}")
-    list(GET YMIR_PATCH_FIELDS 0 YMIR_PATCH_NAME)
-    list(GET YMIR_PATCH_FIELDS 1 YMIR_PATCH_FILE)
-    list(GET YMIR_PATCH_FIELDS 2 YMIR_PATCH_MARKER)
-    set(YMIR_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/${YMIR_PATCH_NAME}.patch")
-
-    file(READ "${ymir_SOURCE_DIR}/${YMIR_PATCH_FILE}" YMIR_PATCH_SOURCE)
-    string(FIND "${YMIR_PATCH_SOURCE}" "${YMIR_PATCH_MARKER}" YMIR_PATCH_MARKER_POS)
-    if(YMIR_PATCH_MARKER_POS EQUAL -1)
+# The previous three overlapping patches could not be reverse-checked once
+# the whole stack was applied. Keep one atomic diff against the pinned source:
+# write counters, write watch, misaligned accesses and per-step CPU costs.
+# These are harness diagnostics, outside the public runtime API.
+# ymir_gradation_sse_fix is a separate correctness fix: the pinned SSE2
+# gradation path ANDed the source colour into the blur instead of applying
+# the mask (the AVX2 and scalar paths were correct), so non-AVX2 builds
+# rendered a wrong blur. It touches a different file, so each patch can still
+# be reverse-checked on its own.
+foreach(YMIR_DEBUG_PATCH_NAME ymir_harness_debug ymir_gradation_sse_fix)
+    set(YMIR_DEBUG_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/${YMIR_DEBUG_PATCH_NAME}.patch")
+    execute_process(
+        COMMAND git -C "${ymir_SOURCE_DIR}" apply --check --reverse "${YMIR_DEBUG_PATCH}"
+        RESULT_VARIABLE YMIR_DEBUG_PATCH_ALREADY_APPLIED
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NOT YMIR_DEBUG_PATCH_ALREADY_APPLIED EQUAL 0)
         execute_process(
             COMMAND git -C "${ymir_SOURCE_DIR}" apply --check "${YMIR_PATCH}"
             RESULT_VARIABLE YMIR_PATCH_CHECK)
@@ -96,6 +81,21 @@ endforeach()
 add_executable(probe src/probe_main.cpp)
 target_link_libraries(probe PRIVATE ymir::ymir-core)
 target_compile_features(probe PRIVATE cxx_std_20)
+
+enable_testing()
+add_executable(test_video_observation tests/video_observation_test.cpp)
+target_include_directories(test_video_observation PRIVATE src)
+target_compile_features(test_video_observation PRIVATE cxx_std_20)
+add_test(NAME composited_video_observation COMMAND test_video_observation)
+add_executable(test_cpu_profile tests/test_cpu_profile.cpp)
+target_include_directories(test_cpu_profile PRIVATE src)
+target_compile_features(test_cpu_profile PRIVATE cxx_std_20)
+add_test(NAME cpu_profile_accounting COMMAND test_cpu_profile)
+add_executable(test_cpu_profile_emulator tests/test_cpu_profile_emulator.cpp)
+target_include_directories(test_cpu_profile_emulator PRIVATE src)
+target_link_libraries(test_cpu_profile_emulator PRIVATE ymir::ymir-core)
+target_compile_features(test_cpu_profile_emulator PRIVATE cxx_std_20)
+add_test(NAME cpu_profile_emulator COMMAND test_cpu_profile_emulator)
 
 # Statically link the MinGW runtime so probe.exe runs standalone (no
 # libstdc++-6.dll / libgcc_s_seh-1.dll / libwinpthread-1.dll on PATH needed) —

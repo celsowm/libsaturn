@@ -37,7 +37,8 @@ extern "C" sat_result_t sat_hud_init_default(sat_hud_t* hud,
     /* Hi-res doubles the cell width so the glyph keeps the same on-screen
      * proportion as in 320x224. The line height stays 10 pixels because
      * vertical resolution is unchanged. */
-    const uint16_t spacing = (width >= 640u) ? 2u : 1u;
+    /* The font API takes an absolute pixel advance, not a multiplier. */
+    const uint16_t spacing = (width >= 640u) ? 16u : 8u;
     return sat_hud_init(hud, font, 0u, spacing);
 }
 

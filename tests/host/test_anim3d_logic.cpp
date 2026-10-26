@@ -66,6 +66,20 @@ sat_animated_model_asset_t make_asset(bool loop_first) {
 
 }  // namespace
 
+/* This suite exercises synchronous animation. The same API object also exports
+ * async entry points; reject accidental use instead of requiring the hardware
+ * executor just to link the synchronous tests. Async lifetime has its own suite. */
+extern "C" sat_result_t sat_parallel_register_task(
+    sat_parallel_task_type_t, sat_parallel_process_fn) { return SAT_ERR_UNSUPPORTED; }
+extern "C" sat_result_t sat_parallel_submit(
+    sat_parallel_task_type_t, const void*, uint32_t, void*, uint32_t,
+    sat_parallel_handle_t*) { return SAT_ERR_UNSUPPORTED; }
+extern "C" sat_result_t sat_parallel_cache_sync_range(
+    const void*, uint32_t) { return SAT_ERR_UNSUPPORTED; }
+extern "C" void* sat_parallel_uncached_address(const void* address) {
+    return const_cast<void*>(address);
+}
+
 /* Stubs for the draw/upload paths (mesh3d_api/model3d_api references). */
 extern "C" sat_result_t sat_draw_world_polygon(
     const sat_mat4_t*, const sat_quad3_t*, uint16_t) {

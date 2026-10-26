@@ -1,0 +1,57 @@
+{
+  "scope": "Same procedural native image. Ymir RAM decode and manually reviewed Mednafen CD screenshot; ticks per 256 calls, not physical hardware measurements.",
+  "elf_sha256": "b0150c74ef65790ef0d8c80b7b745bd5675e3355283355df7086306df2e528fc",
+  "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+  "ymir_probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+  "nops": [
+    0,
+    8,
+    16,
+    32,
+    48,
+    64
+  ],
+  "ymir": {
+    "32": [
+      50,
+      66,
+      82,
+      114,
+      146,
+      178
+    ],
+    "64": [
+      58,
+      74,
+      90,
+      122,
+      154,
+      186
+    ]
+  },
+  "mednafen": {
+    "32": [
+      113,
+      112,
+      112,
+      113,
+      133,
+      164
+    ],
+    "64": [
+      113,
+      113,
+      112,
+      112,
+      139,
+      170
+    ]
+  },
+  "mednafen_recording": {
+    ".elf": "b0150c74ef65790ef0d8c80b7b745bd5675e3355283355df7086306df2e528fc",
+    ".app.bin": "fdd8f1f51a678c87825eb65c68c970e52de5c94a5110d8f7fcd6c4afc658a92b",
+    ".bin": "8283fed311093adc5212a3f2629a7c27e6090cbb3c12d83603da4d2dbb532229",
+    ".cue": "63f236e5b625d25063a66c8e2153e1ff687ff60816bf3c57466ad087c3d1a223"
+  },
+  "method": "Independent NOP instructions between DIVU start register write and result read; five local FRT samples per case; both emulators report correct quotients."
+}

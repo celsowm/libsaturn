@@ -1,0 +1,168 @@
+{
+  "slug": "sh7604",
+  "title": "SH7604 Hardware Manual",
+  "filename": "sh7604.pdf",
+  "edition": "Hitachi ADE-602-085C, revision 4.0, September 19, 1995",
+  "url": "https://antime.kapsi.fi/sega/files/sh7604.pdf",
+  "sha256": "262cfff2abec2fa0cef5c5475495d6a4da390eff107ed3a75575827467daab9f",
+  "pages": 633,
+  "sections": [
+    {
+      "title": "Cover",
+      "first": 1,
+      "last": 1,
+      "file": "00-cover.md"
+    },
+    {
+      "title": "Cautions",
+      "first": 2,
+      "last": 2,
+      "file": "01-cautions.md"
+    },
+    {
+      "title": "Preface",
+      "first": 3,
+      "last": 4,
+      "file": "02-preface.md"
+    },
+    {
+      "title": "List of Items Revised or Added for This Version",
+      "first": 5,
+      "last": 6,
+      "file": "03-list-of-items-revised-or-added-for-this-version.md"
+    },
+    {
+      "title": "Contents",
+      "first": 7,
+      "last": 16,
+      "file": "04-contents.md"
+    },
+    {
+      "title": "Section 1 Overview and Pin Functions",
+      "first": 17,
+      "last": 30,
+      "file": "05-section-1-overview-and-pin-functions.md"
+    },
+    {
+      "title": "Section 2 CPU",
+      "first": 31,
+      "last": 64,
+      "file": "06-section-2-cpu.md"
+    },
+    {
+      "title": "Section 3 Oscillator Circuits and Operating Modes",
+      "first": 65,
+      "last": 80,
+      "file": "07-section-3-oscillator-circuits-and-operating-modes.md"
+    },
+    {
+      "title": "Section 4 Exception Handling",
+      "first": 81,
+      "last": 94,
+      "file": "08-section-4-exception-handling.md"
+    },
+    {
+      "title": "Section 5 Interrupt Controller (INTC)",
+      "first": 95,
+      "last": 122,
+      "file": "09-section-5-interrupt-controller-intc.md"
+    },
+    {
+      "title": "Section 6 User Break Controller",
+      "first": 123,
+      "last": 144,
+      "file": "10-section-6-user-break-controller.md"
+    },
+    {
+      "title": "Section 7 Bus State Controller (BSC)",
+      "first": 145,
+      "last": 228,
+      "file": "11-section-7-bus-state-controller-bsc.md"
+    },
+    {
+      "title": "Section 8 Cache",
+      "first": 229,
+      "last": 246,
+      "file": "12-section-8-cache.md"
+    },
+    {
+      "title": "Section 9 Direct Memory Access Controller (DMAC)",
+      "first": 247,
+      "last": 302,
+      "file": "13-section-9-direct-memory-access-controller-dmac.md"
+    },
+    {
+      "title": "Section 10 Division Unit",
+      "first": 303,
+      "last": 310,
+      "file": "14-section-10-division-unit.md"
+    },
+    {
+      "title": "Section 11 16-Bit Free-Running Timer",
+      "first": 311,
+      "last": 334,
+      "file": "15-section-11-16-bit-free-running-timer.md"
+    },
+    {
+      "title": "Section 12 Watchdog Timer (WDT)",
+      "first": 335,
+      "last": 348,
+      "file": "16-section-12-watchdog-timer-wdt.md"
+    },
+    {
+      "title": "Section 13 Serial Communication Interface",
+      "first": 349,
+      "last": 400,
+      "file": "17-section-13-serial-communication-interface.md"
+    },
+    {
+      "title": "Section 14 Power-Down Modes",
+      "first": 401,
+      "last": 410,
+      "file": "18-section-14-power-down-modes.md"
+    },
+    {
+      "title": "Section 15 Electrical Characteristics (5V Version)",
+      "first": 411,
+      "last": 494,
+      "file": "19-section-15-electrical-characteristics-5v-version.md"
+    },
+    {
+      "title": "Section 16 Electrical Characteristics (3V Version)",
+      "first": 495,
+      "last": 578,
+      "file": "20-section-16-electrical-characteristics-3v-version.md"
+    },
+    {
+      "title": "Appendix A Pin States",
+      "first": 579,
+      "last": 580,
+      "file": "21-appendix-a-pin-states.md"
+    },
+    {
+      "title": "Appendix B List of Registers",
+      "first": 581,
+      "last": 630,
+      "file": "22-appendix-b-list-of-registers.md"
+    },
+    {
+      "title": "Appendix C External Dimensions",
+      "first": 631,
+      "last": 632,
+      "file": "23-appendix-c-external-dimensions.md"
+    },
+    {
+      "title": "Colophon",
+      "first": 633,
+      "last": 633,
+      "file": "24-colophon.md"
+    }
+  ],
+  "extractor": "pypdf 6.21.1",
+  "fonttools": "4.67.0",
+  "blank_text_pages": [
+    4,
+    6
+  ],
+  "text_characters": 1262732
+}

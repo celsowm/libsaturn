@@ -85,6 +85,15 @@
 #ifndef DINO_MUSIC_68K
 #define DINO_MUSIC_68K 0
 #endif
+#ifndef DINO_HIGH_MATERIAL_PROGRAMS
+#define DINO_HIGH_MATERIAL_PROGRAMS 1
+#endif
+#ifndef DINO_HIGH_TEXTURE_DESCRIPTORS
+#define DINO_HIGH_TEXTURE_DESCRIPTORS 1
+#endif
+#if DINO_PROFILE_HUD && !DINO_PIPELINE_METRICS
+#error "DINO_PROFILE_HUD requires DINO_PIPELINE_METRICS=1"
+#endif
 
 #if !DINO_MUSIC_68K
 #include "dino_demo/audio_bone_and_plastic.h"
@@ -116,6 +125,16 @@ _Static_assert(MODEL_FACE_CAP == 1499u,
  * program fit in WRAM-H; the arrays every vertex touches every frame stay in
  * the faster WRAM-H. */
 #define DINO_WRAM_L __attribute__((section(".wram_l")))
+#if DINO_HIGH_MATERIAL_PROGRAMS
+#define DINO_PROGRAM_RAM
+#else
+#define DINO_PROGRAM_RAM DINO_WRAM_L
+#endif
+#if DINO_HIGH_TEXTURE_DESCRIPTORS
+#define DINO_TEXTURE_RAM
+#else
+#define DINO_TEXTURE_RAM DINO_WRAM_L
+#endif
 
 /* Faces [0, MASTER_FACES) are prepared on the Master, the rest on the Slave. */
 #define MASTER_FACES (MODEL_FACE_CAP * 3u / 5u)
@@ -129,9 +148,12 @@ static sat_vec3_t g_pose[2][MODEL_VERTEX_CAP];
 static uint16_t g_mesh_indices[MODEL_FACE_CAP * 4u] DINO_WRAM_L;
 static uint8_t g_double_sided_faces[MODEL_FACE_CAP] DINO_WRAM_L;
 static sat_mesh_t g_mesh DINO_WRAM_L;
-static sat_vdp1_texture_t g_model_textures[MODEL_TEXTURE_CAP] DINO_WRAM_L;
+static sat_vdp1_texture_t g_model_textures[MODEL_TEXTURE_CAP] DINO_TEXTURE_RAM;
 static sat_projected_vertex_t g_mesh_screen[MODEL_VERTEX_CAP];
 static sat_scene3d_face_t g_scene_faces[MODEL_FACE_CAP] DINO_WRAM_L;
+#if DINO_PROJECTED_FACE_QUEUE
+static sat_scene3d_projected_face_t g_projected_faces[MODEL_FACE_CAP] DINO_WRAM_L;
+#endif
 static uint32_t g_scene_keys[MODEL_FACE_CAP];
 static uint16_t g_scene_order[MODEL_FACE_CAP];
 /* The two halves: mesh views over the shared index table, each with the
@@ -140,6 +162,7 @@ static uint16_t g_scene_order[MODEL_FACE_CAP];
  * CPU projects about half the pose. */
 static sat_mesh_t g_half_mesh[2] DINO_WRAM_L;
 static sat_scene3d_instance_t g_half[2] DINO_WRAM_L;
+static sat_scene3d_instance_binding_t g_half_binding[2] DINO_WRAM_L;
 static uint16_t g_half_first[2] DINO_WRAM_L;
 /* Slave half: its own projection scratch and prepared-face storage, merged
  * into g_scene after the task completes. */
@@ -147,6 +170,10 @@ static sat_projected_vertex_t g_slave_screen[MODEL_VERTEX_CAP];
 static sat_scene3d_face_t g_slave_faces[SLAVE_FACES] DINO_WRAM_L;
 static uint32_t g_slave_keys[SLAVE_FACES];
 static sat_scene3d_prepare_item_t g_slave_item DINO_WRAM_L;
+static sat_scene3d_material_programs_t g_material_programs DINO_WRAM_L;
+static sat_scene3d_material_program_t g_material_program_storage[MODEL_TEXTURE_CAP] DINO_PROGRAM_RAM;
+static sat_scene3d_source_plan_t g_slave_sources DINO_WRAM_L;
+static sat_scene3d_source_range_t g_slave_source_ranges[MODEL_TEXTURE_CAP + 5u] DINO_WRAM_L;
 static sat_scene3d_prepare_batch_t g_slave_batch DINO_WRAM_L;
 static sat_parallel_handle_t g_slave_handle DINO_WRAM_L;
 static sat_scene_t g_scene DINO_WRAM_L;
@@ -190,6 +217,30 @@ volatile struct {
     uint32_t geometry_submitted,geometry_merged,draw_overflow,music_error;
     uint32_t slave_tasks,master_tasks,failed_tasks;
 } g_dino_diagnostics;
+
+#if DINO_PIPELINE_METRICS
+#include "saturn/time.h"
+#include "src/graphics/3d/scene/test_metrics.h"
+#define DINO_PROFILE_ROWS 64u
+typedef struct dino_pipeline_sample {
+    uint32_t serial, field, collect, publish, master_geometry, join, merge;
+    uint32_t flush, painter, emit, present, work, master_ccr, master_tcr;
+    uint32_t worker_valid, join_response;
+    sat_scene3d_worker_profile_t worker;
+} dino_pipeline_sample_t;
+_Static_assert(sizeof(dino_pipeline_sample_t) == 88, "Dino phase telemetry ABI");
+volatile struct {
+    uint32_t magic, version, frequency, count;
+    dino_pipeline_sample_t samples[DINO_PROFILE_ROWS];
+} g_dino_pipeline;
+static dino_pipeline_sample_t g_pipeline_sample;
+static uint32_t pipeline_now(void) { return (uint32_t)sat_time_ticks(); }
+#define PIPELINE_BEGIN(name) uint32_t name = pipeline_now()
+#define PIPELINE_END(field, name) g_pipeline_sample.field = pipeline_now()-(name)
+#else
+#define PIPELINE_BEGIN(name)
+#define PIPELINE_END(field, name)
+#endif
 
 #define PARALLEL_TIMEOUT 60000u
 
@@ -483,17 +534,38 @@ static uint16_t bind_vertex_window(sat_mesh_t *half) {
  * Whatever the Slave cannot do, the Master does, so a frame is never short
  * of faces. */
 static void submit_model(void) {
+    PIPELINE_BEGIN(publish_start);
     int slave_pending =
         sat_scene_prepare_batch_async(&g_scene, &g_slave_batch, &g_slave_handle) == SAT_OK;
+    PIPELINE_END(publish, publish_start);
     int slave_done = 0;
+    PIPELINE_BEGIN(master_start);
     if (slave_pending) ++g_dino_diagnostics.geometry_submitted;
 
     note(sat_scene_submit_instance(&g_scene, &g_half[0],
         SAT_SCENE3D_SLOT_INHERIT, g_mesh_screen, NULL));
+    PIPELINE_END(master_geometry, master_start);
     if (slave_pending) {
-        if (finish_task(g_slave_handle) == SAT_OK) {
+#if DINO_PIPELINE_METRICS
+        sat_parallel_stats_t before_join = {0}, after_join = {0};
+        (void)sat_parallel_stats(&before_join);
+#endif
+        PIPELINE_BEGIN(join_start);
+        const sat_result_t finished = finish_task(g_slave_handle);
+        PIPELINE_END(join, join_start);
+#if DINO_PIPELINE_METRICS
+        (void)sat_parallel_stats(&after_join);
+        g_pipeline_sample.join_response = after_join.master_wait_ticks-before_join.master_wait_ticks;
+#endif
+        if (finished == SAT_OK) {
+#if DINO_PIPELINE_METRICS
+            sat_scene3d_test_worker_profile(&g_pipeline_sample.worker);
+            g_pipeline_sample.worker_valid = 1u;
+#endif
+            PIPELINE_BEGIN(merge_start);
             const sat_result_t merged = sat_scene_merge_prepared_batch(
                 &g_scene, &g_slave_batch, g_slave_handle);
+            PIPELINE_END(merge, merge_start);
             note(merged);
             slave_done = 1;
             if (merged == SAT_OK) ++g_dino_diagnostics.geometry_merged;
@@ -568,6 +640,19 @@ static void draw_credit(void *context) {
 static void draw_hud(void) {
     char line[SAT_FMT_U32_MAX + 16u];
     const int offset = g_show_hud ? 20 : 0;
+
+#if DINO_PROFILE_HUD
+    enum { PROFILE_X=176, PROFILE_FRAME_Y=14, PROFILE_FLUSH_Y=24, PROFILE_WORK_Y=34 };
+    dino_pipeline_sample_t completed={0};
+    if(g_dino_pipeline.count)
+        completed=g_dino_pipeline.samples[(g_dino_pipeline.count-1u)%DINO_PROFILE_ROWS];
+    if(sat_fmt_label_u32("FRAME ",g_dino_diagnostics.frames+1u,line,sizeof(line),0)==SAT_OK)
+        draw_text(line,PROFILE_X,PROFILE_FRAME_Y+offset);
+    if(sat_fmt_label_u32("FLUSH ",completed.flush,line,sizeof(line),0)==SAT_OK)
+        draw_text(line,PROFILE_X,PROFILE_FLUSH_Y+offset);
+    if(sat_fmt_label_u32("WORK ",completed.work,line,sizeof(line),0)==SAT_OK)
+        draw_text(line,PROFILE_X,PROFILE_WORK_Y+offset);
+#endif
 
     draw_credit(0);
     if (g_show_hud) {
@@ -741,8 +826,15 @@ int main(void) {
     }
     loading_step(25u);
     sat_example_must(sat_anim_state_init(&g_anim, &trex_anim_asset, 0));
+#if DINO_BENCH_PAUSED
+    sat_anim_set_paused(&g_anim,1);
+#endif
     sat_example_must(sat_scene_init(&g_scene, g_scene_faces, g_scene_keys,
         g_scene_order, MODEL_FACE_CAP));
+#if DINO_PROJECTED_FACE_QUEUE
+    sat_example_must(sat_scene3d_faces_use_projected_storage(
+        &g_scene.faces,g_projected_faces,MODEL_FACE_CAP));
+#endif
     g_instance.mesh = &g_mesh;
     g_instance.materials = g_scene_materials;
     g_instance.material_count = MODEL_TEXTURE_CAP;
@@ -790,6 +882,19 @@ int main(void) {
             }
         }
     }
+    /* Immutable face/material topology survives alternating decoded poses. */
+    sat_example_must(sat_scene3d_material_programs_init(&g_material_programs,
+        g_scene_materials,MODEL_TEXTURE_CAP,g_material_program_storage,MODEL_TEXTURE_CAP));
+    for (uint8_t half = 0u; half < 2u; ++half) {
+        sat_example_must(sat_scene3d_instance_binding_init(
+            &g_half_binding[half], g_half[half].mesh, g_half[half].materials,
+            g_half[half].material_count, g_half[half].face_materials));
+        g_half_binding[half].programs=&g_material_programs;
+        g_half[half].validated_binding = &g_half_binding[half];
+    }
+    sat_example_must(sat_scene3d_source_plan_init(&g_slave_sources, &g_half[1],
+        g_slave_source_ranges, MODEL_TEXTURE_CAP + 5u));
+    g_slave_item.source_plan = &g_slave_sources;
     loading_step(30u);
 
     /* Use UNION bounds across all animation clips, not just the bind pose. */
@@ -831,14 +936,31 @@ int main(void) {
     SAT_PANIC_IF_ERROR(sat_vdp2_sprite_palette_bank_set(
         (uint8_t)trex_asset.palette_base));
     light_init();
+#if DINO_BENCH_PAUSED
+    g_light_on=0;
+    light_switch();
+#endif
     g_pose_read = 0u;
     g_job_pending = 0;
     g_tick = sat_frame_count();
     g_dino_diagnostics.magic=DINO_DIAGNOSTICS_MAGIC;
+#if DINO_PIPELINE_METRICS
+    g_dino_pipeline.magic = SAT_FOURCC('D','P','R','1');
+    g_dino_pipeline.version = 1u;
+    g_dino_pipeline.frequency = sat_time_frequency_hz();
+#endif
     while (1) {
         sat_pad_state_t pad = {0};
 
         SAT_PANIC_IF_ERROR(sat_wait_vblank());
+        PIPELINE_BEGIN(work_start);
+#if DINO_PIPELINE_METRICS
+        g_pipeline_sample = (dino_pipeline_sample_t){0};
+        g_pipeline_sample.serial = g_dino_pipeline.count;
+        g_pipeline_sample.field = sat_frame_count();
+        g_pipeline_sample.master_ccr = *(volatile uint8_t*)0xFFFFFE92u;
+        g_pipeline_sample.master_tcr = *(volatile uint8_t*)0xFFFFFE16u;
+#endif
         /* VDP2 latches its registers per frame; replay the hi-res sprite
          * type and palette bank inside VBlank. */
         SAT_PANIC_IF_ERROR(sat_vdp2_layers_commit());
@@ -856,7 +978,9 @@ int main(void) {
             light_switch();
         }
         /* Draw the pose the Slave decoded during the previous frame. */
+        PIPELINE_BEGIN(collect_start);
         collect_pose();
+        PIPELINE_END(collect, collect_start);
         if (!g_draw_overflow) {
             sat_camera3d_t camera = {};
             camera.eye = g_orbit.eye;
@@ -867,7 +991,13 @@ int main(void) {
                 SCREEN_W, SCREEN_H, 64u));
             submit_model();
             request_pose();
+            PIPELINE_BEGIN(flush_start);
             note(sat_scene_flush(&g_scene));
+            PIPELINE_END(flush, flush_start);
+#if DINO_PIPELINE_METRICS
+            g_pipeline_sample.painter = sat_scene3d_test_painter_ticks();
+            g_pipeline_sample.emit = sat_scene3d_test_emit_ticks();
+#endif
             update_render_stats();
         } else {
             request_pose();
@@ -879,7 +1009,15 @@ int main(void) {
         }
         draw_hud();
 
+        PIPELINE_BEGIN(present_start);
         SAT_PANIC_IF_ERROR(sat_end_frame());
+        PIPELINE_END(present, present_start);
+        PIPELINE_END(work, work_start);
+#if DINO_PIPELINE_METRICS
+        g_dino_pipeline.samples[g_dino_pipeline.count % DINO_PROFILE_ROWS] = g_pipeline_sample;
+        __asm__ volatile("" ::: "memory");
+        ++g_dino_pipeline.count;
+#endif
         ++g_dino_diagnostics.frames;
         g_dino_diagnostics.draw_overflow=(uint32_t)g_draw_overflow;
         g_dino_diagnostics.music_error=(uint32_t)g_music_error;

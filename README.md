@@ -1,138 +1,88 @@
-# LibSaturn
+<div align="center">
+  <h1>LibSaturn</h1>
+  <p><strong>Modern game development for the Sega Saturn, built on the real hardware.</strong></p>
+  <p>C API &nbsp;·&nbsp; C++ runtime &nbsp;·&nbsp; VDP1 / VDP2 &nbsp;·&nbsp; Dual SH-2 &nbsp;·&nbsp; Bare metal</p>
+  <p>
+    <a href="#quick-start-on-windows">Quick start</a> &nbsp;·&nbsp;
+    <a href="#a-different-foundation">Architecture</a> &nbsp;·&nbsp;
+    <a href="#highlights">Features</a> &nbsp;·&nbsp;
+    <a href="#examples">Examples</a> &nbsp;·&nbsp;
+    <a href="#using-libsaturn-in-your-game">Use in a game</a> &nbsp;·&nbsp;
+    <a href="#documentation">Docs</a>
+  </p>
+</div>
 
-**A modern bare-metal game-development library for the Sega Saturn.**
+---
 
-LibSaturn is a C-facing, C++-implemented runtime and game framework built directly on the Saturn hardware — without SGL or libyaul. The project spans a high-level 3D scene stack, VDP1/VDP2 rendering, animation, physics, storage and streaming, save data, RAM expansion, audio, asset tooling, and managed use of both SH-2 processors.
+**LibSaturn** is a bare-metal Sega Saturn game-development library with a public C API and a C++ implementation. It provides reusable 2D/3D rendering, animation, physics, audio, input, storage, asset management and dual SH-2 facilities **without depending on SGL or libyaul**.
 
-The goal is to make serious Saturn development feel like working with a coherent game-development platform while preserving explicit control over the machine.
+Build games with high-level systems when they help, and retain explicit control over Saturn hardware when it matters. The runtime favors fixed/bounded memory, Saturn-aware rendering, offline asset processing and measurable performance.
 
-> **Current direction:** reusable high-level APIs on top of small hardware-specific HALs, deterministic fixed-memory runtime systems, host-side asset baking, and Saturn-specific optimizations rather than hiding the console behind a desktop-style abstraction.
-
+> **New here?** Start with [building an example](#examples), follow the [Windows setup](#quick-start-on-windows), or [link LibSaturn into your own game](#using-libsaturn-in-your-game).
 
 ## A Different Foundation
 
-Many Saturn development stacks build their abstractions on top of Sega's SGL. LibSaturn takes a different route: its high-level systems are backed by its own runtime and hardware abstraction layers.
+LibSaturn is **not an SGL wrapper**. Its game-facing APIs sit on runtime subsystems and hardware-facing layers owned by this project. An SGL-based framework, by contrast, typically uses Sega's SGL as its underlying graphics/runtime foundation.
 
-<table>
-<tr>
-<th align="center">SGL-based stack</th>
-<th align="center">LibSaturn</th>
-</tr>
-<tr>
-<td valign="top">
+```mermaid
+flowchart LR
+    subgraph SGL["Typical SGL-based stack"]
+        direction TB
+        s1["Game code"] --> s2["Framework APIs"]
+        s2 --> s3["SGL runtime"]
+        s3 --> s4["Sega Saturn hardware"]
+    end
 
-<pre>
-+-----------------------+
-|       Game Code       |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-| Framework / Library   |
-| built around SGL      |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-|          SGL          |
-| Sega Game Library     |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-| Sega Saturn Hardware  |
-+-----------------------+
-</pre>
+    subgraph LIB["LibSaturn stack"]
+        direction TB
+        l1["Game code"] --> l2["LibSaturn public C API"]
+        l2 --> l3["Rendering · Scenes · Physics<br/>Assets · Audio · Storage · Parallel"]
+        l3 --> l4["LibSaturn HAL"]
+        l4 --> l5["Sega Saturn hardware"]
+    end
 
-The framework inherits SGL as a major runtime and rendering foundation.
+    classDef native fill:#16374c,stroke:#55b7dc,color:#ffffff,stroke-width:1px;
+    class l2,l3,l4 native;
+```
 
-</td>
-<td valign="top">
+| | Typical SGL-based framework | LibSaturn |
+| --- | --- | --- |
+| Foundation | Sega Game Library (SGL) | Own runtime and hardware-facing HAL |
+| Application interface | Framework APIs built on SGL | Reusable game-oriented C APIs |
+| Hardware-specific behavior | Primarily mediated by SGL | Controlled by LibSaturn backends |
 
-<pre>
-+-----------------------+
-|       Game Code       |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-|   LibSaturn High-     |
-|     Level APIs        |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-| LibSaturn Subsystems  |
-| scene / physics /     |
-| assets / audio / ...  |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-|    LibSaturn HAL      |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-| Sega Saturn Hardware  |
-+-----------------------+
-</pre>
-
-LibSaturn owns the stack down to its hardware-facing layers, while still exposing reusable game-oriented APIs.
-
-</td>
-</tr>
-</table>
-
-This distinction is architectural, not an argument for forcing applications to program the Saturn at register level. LibSaturn's high-level scene, physics, asset, audio, storage and parallel APIs exist specifically so game code can stay above the hardware while the library remains free to exploit Saturn-specific behavior underneath.
+**The important distinction is ownership, not the level of abstraction.** Game code should not need to reimplement Saturn rendering or hardware protocols. LibSaturn handles those details underneath its reusable APIs. 
 
 ## Highlights
 
-- **Bare-metal Saturn runtime** — startup, linker/runtime support, frame lifecycle, VBlank timing, ELF -> BIN -> ISO build flow.
-- **VDP1 2D rendering** — sprites, scaled/distorted sprites, polygons, polylines, lines, rectangles, indexed textures, palettes, Gouraud shading and color calculation.
-- **High-level 3D stack** — fixed-point math, meshes, models, cameras, transforms, scene submission, global painter ordering, materials, visibility helpers and VDP1 command generation.
-- **3D asset pipeline** — OBJ/MTL/image and animated GLB processing with Saturn-aware texture baking, simplification, palette generation and pose baking.
-- **3D animation** — runtime skeletons, clips, crossfades, root motion, multi-anchor CPU skinning and dual SH-2 jobs, alongside compact baked pose streams.
-- **Scene/runtime helpers** — transform hierarchies, orbit/follow cameras, reusable surfaces, view caches, sprite animation, HUD and resource planning.
-- **3D physics** — collision queries, spatial acceleration, world stepping, moving/tilting kinematic geometry, rolling-body support and continuous-collision paths.
-- **2D physics** — deterministic fixed-step bodies, tile collision, sweeps, contacts, raycasts and uniform-grid broad phase.
-- **VDP2 environments** — NBG0, RBG0, rotation/Mode-7-style ground, panoramic/infinite environments and color-calculation integration.
-- **Voxel terrain** — reusable Saturn-oriented voxel terrain support.
-- **Audio** — SCSP PCM S8/S16 playback, voices, looping, volume/pan/pitch, music streams and bounded streaming support.
-- **CD and filesystems** — CD Block sector I/O, ISO9660/CDFS, logical file APIs and storage-neutral read paths.
-- **Asset system** — logical asset handles, embedded and non-resident assets, typed loaders, bounded cache and cooperative prefetch.
-- **Save data** — internal Backup RAM through the Saturn Boot ROM BUP services, including status, listing, read/write, verify, delete and format.
-- **RAM expansion cartridges** — 1 MiB / 4 MiB detection and bounded allocation/cache support.
-- **Dual SH-2 support** — low-level Master/Slave infrastructure plus a high-level bounded parallel executor with safe ownership and fallback semantics.
-- **Host tooling and validation** — asset converters, model importers, manifest generation, host tests and automated modified-Ymir runtime probes.
+| Area | What LibSaturn provides |
+| --- | --- |
+| **Bare-metal runtime** | Startup, linker/runtime support, frame lifecycle, VBlank timing and Saturn disc build flow |
+| **2D + VDP1** | Sprites, primitives, textures, palettes, scaled/distorted sprites, Gouraud shading and color calculation |
+| **3D + scenes** | Fixed-point math, meshes, materials, cameras, transforms, global painter ordering and VDP1 submission |
+| **Animation + assets** | Skeletal animation, pose baking, OBJ/MTL and GLB import, texture conversion and runtime asset handles |
+| **Physics** | Deterministic 2D collision and bodies; 3D queries, spatial acceleration and world stepping |
+| **VDP2 + environments** | NBG0/RBG0, scrolling and rotation effects, panoramic backgrounds, infinite-style ground and voxel terrain |
+| **Audio + storage** | SCSP PCM voices/music streaming, CD Block, ISO9660/CDFS and logical file APIs |
+| **Save + expansion** | Internal Backup RAM services and bounded 1 MiB / 4 MiB RAM-cartridge support |
+| **Dual SH-2** | Master/Slave hardware APIs and a bounded parallel executor with explicit ownership and fallback |
+| **Tooling + tests** | Asset importers, package/install flow, native host tests and modified-Ymir runtime validation |
+
+For exact implementation status rather than a blanket hardware-support claim, see the [current coverage audit](docs/LIBSATURN_CURRENT_COVERAGE.md).
 
 ## Why LibSaturn?
 
-The Sega Saturn is powerful, but its architecture asks the programmer to coordinate several specialized processors and memory domains:
+The Saturn combines specialized processors and memory domains. Its strengths are easiest to use when the runtime understands their boundaries instead of presenting them as generic desktop hardware.
 
-```text
-                         +------------------+
-                         |     Game Code    |
-                         +---------+--------+
-                                   |
-                    +--------------v--------------+
-                    |       LibSaturn APIs        |
-                    | scene / physics / assets /  |
-                    | audio / input / storage ... |
-                    +--------------+--------------+
-                                   |
-             +---------------------+---------------------+
-             |                     |                     |
-      +------v------+       +------v------+       +------v------+
-      | Master SH-2 |<----->| Slave SH-2  |       |     SCU     |
-      +------+------+       +-------------+       +------+------+
-             |                                           |
-      +------v-------------------------------------------v------+
-      |        VDP1 / VDP2 / SCSP / SMPC / CD / A-Bus         |
-      +---------------------------------------------------------+
-```
+| Saturn hardware | LibSaturn's approach |
+| --- | --- |
+| **VDP1** | Command-based sprites and quads, materials and global painter ordering instead of relying on a depth buffer |
+| **VDP2** | Dedicated background/ground composition so VDP1 can focus on objects |
+| **Master + Slave SH-2** | Explicit shared-state and task ownership, bounded queues and conservative scheduling |
+| **SCSP + CD Block** | PCM playback and storage-aware, bounded streaming |
+| **Saturn memory + expansion** | Caller-owned or bounded storage, offline asset baking and optional RAM-cartridge support |
 
-LibSaturn's approach is to expose reusable game-facing systems without pretending the hardware is something it is not. VDP1 remains a command-based quad renderer. VDP2 remains a powerful background processor. Shared SH-2 work has explicit ownership. Runtime systems favor caller-owned or bounded storage. Expensive content transformation is pushed to host tools when that produces a better Saturn runtime.
+The library exposes convenient game-facing systems **without hiding Saturn-specific constraints**. Expensive content transformations happen on the host when that makes runtime behavior faster or more predictable.
 
 ## Public API
 
@@ -191,21 +141,13 @@ Desktop-style UV meshes cannot be sent directly to VDP1. VDP1 distorted sprites 
 
 LibSaturn therefore moves expensive adaptation offline:
 
-```text
-OBJ / MTL / PNG                skinned GLB
-       |                           |
-       +-----------+---------------+
-                   |
-                   v
-          tools/import_model.py
-                   |
-        bake / simplify / quantize
-                   |
-                   v
-       generated Saturn C/H asset
-                   |
-                   v
-      model + scene + VDP1 runtime
+```mermaid
+flowchart TB
+    obj["OBJ / MTL / PNG"] --> importer["tools/import_model.py"]
+    glb["Animated GLB"] --> importer
+    importer --> baking["Bake · Simplify · Quantize"]
+    baking --> generated["Saturn-ready C / H assets"]
+    generated --> runtime["Models · Animation · Scenes · VDP1"]
 ```
 
 The importer can bake source faces into VDP1-compatible rectangular textures, deduplicate textures, generate indexed palettes, enforce Saturn texture limits and produce runtime-ready model data.
@@ -490,6 +432,12 @@ Host tests:
 make test
 ```
 
+The native suite runs on macOS with Clang as well as GCC hosts. Tests that need
+an unavailable host facility report `SKIP` and exit 77; the Makefile lists these
+separately from passes. In particular, the parallel-completion ABI test must
+map fake WRAM at the Saturn's 32-bit address. Native macOS reserves that address
+range, so run that test on Linux/Windows; its assertions remain enabled there.
+
 Package gates (public headers, installed-package consumer, Conan):
 
 ```powershell
@@ -527,25 +475,7 @@ harness/          Automated Saturn runtime validation
 docs/             Architecture, hardware notes and engineering plans
 ```
 
-The intended layering is:
-
-```text
-game / compatibility layer
-          |
-          v
-high-level LibSaturn API
-          |
-          v
-runtime subsystem
-          |
-          v
-hardware abstraction layer
-          |
-          v
-Saturn hardware / BIOS services
-```
-
-Hardware register access belongs in the HAL. Reusable algorithms belong in their owning subsystem. Game-facing code should not need to reproduce hardware protocol or renderer plumbing that the library can own once.
+The [architecture diagram](#a-different-foundation) shows the intended layering from game code to hardware. Hardware register access belongs in the HAL. Reusable algorithms belong in their owning subsystem. Game-facing code should not need to reproduce hardware protocol or renderer plumbing that the library can own once.
 
 ## Current Scope
 
@@ -573,9 +503,14 @@ LibSaturn favors:
 Useful starting points:
 
 - [Packaging and installed-package usage](docs/PACKAGING.md)
+- [Standalone integer arithmetic and floor shifts](docs/INTEGER_MATH.md)
+- [Exact SH-2 matrix / MAC.W experiment](docs/MATRIX_MAC_BENCH.md)
+- [Caller-owned nested profiling](docs/NESTED_PROFILING.md)
 - [Current hardware/runtime coverage](docs/LIBSATURN_CURRENT_COVERAGE.md)
 - [Parallel runtime architecture](docs/PARALLEL_RUNTIME_ARCHITECTURE.md)
 - [Parallel runtime benchmarks](docs/PARALLEL_RUNTIME_BENCHMARKS.md)
+- [Two-cube renderer pipeline benchmark](docs/CUBE_PIPELINE_BENCH.md)
+- [Shared renderer refactor and Dino measurements](docs/SHARED_RENDERER_PERFORMANCE.md)
 - [3D physics world](docs/PHYSICS3_WORLD.md)
 - [Transform hierarchy](docs/TRANSFORM3D_HIERARCHY.md)
 - [RAM expansion cartridge](docs/RAM_EXPANSION_CARTRIDGE.md)

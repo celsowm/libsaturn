@@ -154,6 +154,13 @@ reduce accumulation overhead, but must preserve rounding, overflow behavior
 and the CPU's saturation-mode contract. Measure it after removing duplicated
 work, rather than assuming it solves the frame budget.
 
+The later exact Q16 skinning control in
+[`SKINNING_MAC_BENCH.md`](SKINNING_MAC_BENCH.md) passed 7,544 comparisons over
+rigid and blended records but made the full 943-vertex range **38.60% slower**
+in Ymir. The candidate validates its data before timing and changes SR.S once
+per range, so the measured loss already includes favorable setup. No assembly
+specialization was added to production.
+
 Reducing textures or upload size is also not the primary current CPU target:
 the textures upload once at startup. Reducing triangles again would trade
 away the silhouette improvements and should be reserved for deliberate LOD.
@@ -236,6 +243,26 @@ protect articulation boundaries and reject bow-ties. Rebake the combined quad
 from the original surface. This can reduce face/command work while retaining
 geometry, but the number of acceptable pairs and the resulting gain have not
 been measured. Never promise a fixed triangle-to-quad reduction ratio.
+
+## Dispatch Q15 conversion once per deformation range
+
+The fixed Q15 vertex conversion was already cheaper than the variable-shift
+path, but `transform()` still tested the conversion scale for each influence.
+The range API now selects a Q15-specialized loop once when `pos_shift == 15`;
+all other formats keep the generic loop and arithmetic. Host tests continue to
+cover every supported position shift and the existing blend/rounding cases.
+
+On a matched Tekken Ymir profile (fields 360–365, parallel geometry and
+verification on), Master `sat_skin_deform_range` work fell from 225,375 to
+207,462 modeled cycles (−7.95%). The fixed six-field window still reports
+403 simulation ticks and 201 submissions; the saved time becomes additional
+VBlank wait, so no cadence gain is claimed. The whole run's screenshot is
+identical. A 3,600-field control also matched at 3,583 ticks and 1,791
+submissions with no errors, and a 26-second Mednafen CD boot exited normally
+with identical screenshots at seconds 15 and 24.
+
+The SH-2 ELF grows by 1,456 bytes of text; data and BSS are unchanged. Detailed
+hashes and run counts are in the [Q15 range-dispatch study](../harness/studies/skin-q15-dispatch/tekken.json).
 
 ## Frame-budget milestones
 

@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "src/core/runtime/logic.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
@@ -11,6 +12,74 @@
 
 int main() {
     using namespace saturn::hal::vdp1;
+
+    // Compare every command word against the existing writer across texture
+    // formats, effects and signed corners; poisoned storage catches omissions.
+    uint32_t random=0x534154u;
+    for(unsigned trial=0;trial<2048;++trial) {
+        auto next=[&]() { random=random*1664525u+1013904223u;return random; };
+        sat_vdp1_texture_t texture{};
+        texture.valid=1;texture.width=static_cast<uint16_t>((next()%63u+1u)*8u);
+        texture.height=static_cast<uint16_t>(next()%255u+1u);
+        texture.srca=static_cast<uint16_t>(next());texture.palette=static_cast<uint16_t>(next());
+        texture.format=(trial&1)?SAT_VDP1_TEXTURE_INDEXED8:SAT_VDP1_TEXTURE_LUT4;
+        const uint16_t flags=static_cast<uint16_t>(
+            ((trial&2)?SAT_SPRITE_FLAG_MESH:0) |
+            ((trial&4)?SAT_SPRITE_FLAG_FLIP_H:0) |
+            ((trial&8)?SAT_SPRITE_FLAG_FLIP_V:0) |
+            ((trial&16)?SAT_SPRITE_FLAG_USER_CLIP:0));
+        sat_quad2_t quad{};DistortedSpriteRequest reference{};
+        for(unsigned c=0;c<4;++c) {
+            reference.x[c]=quad.x[c]=static_cast<int16_t>(next()%2048u-1024);
+            reference.y[c]=quad.y[c]=static_cast<int16_t>(next()%2048u-1024);
+        }
+        reference.width=texture.width;reference.height=texture.height;
+        reference.srca=texture.srca;reference.palette=texture.palette;
+        reference.format=texture.format;reference.flags=flags;
+        reference.user_clip=(flags&SAT_SPRITE_FLAG_USER_CLIP)!=0;
+        Command paired[5];std::memset(paired,0xa5,sizeof(paired));
+        begin_frame(paired,5);
+        OK(push_distorted_sprite(reference)==SAT_OK);
+        OK(push_projected_sprite(quad,texture,flags)==SAT_OK);
+        OK(std::memcmp(&paired[2],&paired[3],sizeof(Command))==0);
+        const Command expected=paired[2];
+        uint16_t prefix[6];std::memcpy(prefix,&expected,sizeof(prefix));
+        Command before[5];std::memcpy(before,paired,sizeof(paired));
+        OK(push_projected_sprite(quad,texture,flags)==SAT_ERR_CAPACITY);
+        OK(std::memcmp(before,paired,sizeof(paired))==0);
+        begin_frame(paired,5);OK(reserve_overlay_commands(2)==SAT_OK);
+        OK(push_projected_sprite(quad,texture,flags)==SAT_ERR_CAPACITY);
+        OK(begin_overlay_pass()==SAT_OK);
+        texture.valid=0;OK(push_projected_sprite(quad,texture,flags)==SAT_ERR_INVALID_ARG);
+        texture.valid=1;texture.width=7;
+        OK(push_projected_sprite(quad,texture,flags)==SAT_ERR_INVALID_ARG);
+        texture.width=8;texture.height=0;
+        OK(push_projected_sprite(quad,texture,flags)==SAT_ERR_INVALID_ARG);
+        texture.height=8;
+        OK(push_projected_sprite(quad,texture,SAT_SPRITE_FLAG_HALF_TRANSPARENT)==SAT_ERR_UNSUPPORTED);
+        uint16_t used,capacity,overlay;bool overlay_pass;
+        command_stats(used,capacity,overlay,overlay_pass);OK(used==2);
+        OK(push_projected_sprite(quad,texture,flags)==SAT_OK);
+        // Prepared prefix uses the same coordinate/footer words, END budget,
+        // overlay admission and invalid-descriptor occupancy rules.
+        texture.width=reference.width;texture.height=reference.height;
+        begin_frame(paired,5);
+        OK(push_projected_program(quad,prefix,texture)==SAT_OK);
+        OK(std::memcmp(&expected,&paired[2],sizeof(Command))==0);
+        OK(push_projected_program(quad,prefix,texture)==SAT_OK);
+        std::memcpy(before,paired,sizeof(paired));
+        OK(push_projected_program(quad,prefix,texture)==SAT_ERR_CAPACITY);
+        OK(std::memcmp(before,paired,sizeof(paired))==0);
+        begin_frame(paired,5);OK(reserve_overlay_commands(2)==SAT_OK);
+        OK(push_projected_program(quad,prefix,texture)==SAT_ERR_CAPACITY);
+        OK(begin_overlay_pass()==SAT_OK);
+        texture.valid=0;
+        OK(push_projected_program(quad,prefix,texture)==SAT_ERR_INVALID_ARG);
+        texture.valid=1;
+        OK(push_projected_program(quad,nullptr,texture)==SAT_ERR_INVALID_ARG);
+        command_stats(used,capacity,overlay,overlay_pass);OK(used==2);
+        OK(push_projected_program(quad,prefix,texture)==SAT_OK);
+    }
 
     Command commands[12]{};
     begin_frame(commands, 12u);

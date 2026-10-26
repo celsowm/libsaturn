@@ -3,6 +3,8 @@
 #include "src/hal/dual_sh2/memory.hpp"
 #include "src/hal/dual_sh2/signal.hpp"
 #include "src/hal/sh2/cpu.hpp"
+#include "src/hal/sh2/frt.hpp"
+#include "src/hal/dual_sh2/idle_wait.hpp"
 
 namespace saturn::hal::dual_sh2::mailbox {
 
@@ -50,6 +52,18 @@ bool master_has_response() {
 bool slave_receive(protocol::Message* out_message) {
     return consume(&memory::control()->master_to_slave, memory::generation(),
                    out_message);
+}
+
+bool slave_wait_request(protocol::Message* out_message) {
+    struct Transport {
+        uint16_t now() const { return sh2::frt::counter(); }
+        bool pending() const { return signal::pending(); }
+        void acknowledge() const { signal::acknowledge(); }
+        void heartbeat() const { memory::heartbeat(); }
+        bool stopping() const { return memory::shutdown_requested(); }
+        bool receive(protocol::Message* message) const { return slave_receive(message); }
+    } transport;
+    return wait_for_request(transport, out_message);
 }
 
 bool slave_send(uint32_t command, uint32_t argument0, uint32_t argument1) {

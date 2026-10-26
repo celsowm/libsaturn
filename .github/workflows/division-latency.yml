@@ -1,0 +1,29 @@
+name: DIVU latency probe gates
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'examples/division_latency_probe/**'
+      - 'harness/scripts/division_latency.py'
+      - 'tests/tools/test_division_latency.py'
+      - '.github/workflows/division-latency.yml'
+  pull_request:
+  workflow_dispatch:
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tests/tools/test_division_latency.py
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/saturn-toolchain
+      - run: make all EXAMPLE=division_latency_probe IP_TEMPLATE_KIND=sbl -j3

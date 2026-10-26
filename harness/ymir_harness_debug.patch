@@ -1,0 +1,290 @@
+diff --git a/libs/ymir-core/include/ymir/debug/sh2_tracer_base.hpp b/libs/ymir-core/include/ymir/debug/sh2_tracer_base.hpp
+index 23f38607..af005269 100644
+--- a/libs/ymir-core/include/ymir/debug/sh2_tracer_base.hpp
++++ b/libs/ymir-core/include/ymir/debug/sh2_tracer_base.hpp
+@@ -42,6 +42,11 @@ struct ISH2Tracer {
+     /// @param[in] delaySlot indicates if the instruction is executing in a delay slot
+     virtual void ExecuteInstruction(uint32 pc, uint16 opcode, bool delaySlot) {}
+ 
++    // Harness diagnostic: complete interpreter step cost, including modeled
++    // access costs. Interrupt entry is a step but not an instruction. Does
++    // not include sleep/standby scheduler time or separately advanced DMA.
++    virtual void ExecutionStepCompleted(uint32 pc, uint64 cycles, bool instruction) {}
++
+     /// @brief Invoked when the CPU finishes a delayed branch, that is, executes an instruction in a delay slot.
+     /// @param[in] pc the current program counter
+     /// @param[in] target the target address
+diff --git a/libs/ymir-core/include/ymir/hw/sh2/sh2.hpp b/libs/ymir-core/include/ymir/hw/sh2/sh2.hpp
+index 64cbc8f4..58c8f14d 100644
+--- a/libs/ymir-core/include/ymir/hw/sh2/sh2.hpp
++++ b/libs/ymir-core/include/ymir/hw/sh2/sh2.hpp
+@@ -131,6 +131,79 @@ public:
+         }
+     }
+ 
++    // --- Misaligned data accesses (a CPU address error on hardware; aligned down here)
++
++    struct MisalignedAccess {
++        uint32 pc;
++        uint32 address;
++        uint8 size;
++        bool write;
++    };
++    struct MisalignedLog {
++        uint64 count = 0;
++        uint32 stored = 0; // distinct PCs kept in `first`
++        std::array<MisalignedAccess, 64> first{};
++    };
++    [[nodiscard]] const MisalignedLog &GetMisalignedLog() const noexcept {
++        return m_misaligned;
++    }
++
++private:
++    MisalignedLog m_misaligned{};
++    void NoteMisaligned(uint32 address, uint8 size, bool write) {
++        ++m_misaligned.count;
++        for (uint32 i = 0; i < m_misaligned.stored; ++i) {
++            if (m_misaligned.first[i].pc == PC) {
++                return;
++            }
++        }
++        if (m_misaligned.stored < m_misaligned.first.size()) {
++            m_misaligned.first[m_misaligned.stored++] = {PC, address, size, write};
++        }
++    }
++
++    // --- Write watch (debugging): the first writes into [address, address + length) after SetWriteWatch
++
++public:
++    struct WriteWatchHit {
++        uint32 pc;
++        uint32 address;
++        uint32 value;
++        uint32 frame; // SetWatchFrame's value when the write happened
++        uint8 size;
++    };
++    struct WriteWatchLog {
++        uint32 address = 0;
++        uint32 length = 0; // 0: off
++        uint32 frame = 0;
++        uint64 count = 0;
++        uint32 stored = 0;
++        std::array<WriteWatchHit, 64> first{};
++    };
++    void SetWriteWatch(uint32 address, uint32 length) noexcept {
++        m_watch = {};
++        m_watch.address = address;
++        m_watch.length = length;
++    }
++    void SetWatchFrame(uint32 frame) noexcept {
++        m_watch.frame = frame;
++    }
++    [[nodiscard]] const WriteWatchLog &GetWriteWatchLog() const noexcept {
++        return m_watch;
++    }
++
++private:
++    WriteWatchLog m_watch{};
++    void NoteWatch(uint32 address, uint8 size, uint32 value) {
++        if (address + size <= m_watch.address || address >= m_watch.address + m_watch.length) {
++            return;
++        }
++        ++m_watch.count;
++        if (m_watch.stored < m_watch.first.size()) {
++            m_watch.first[m_watch.stored++] = {PC, address, value, m_watch.frame, size};
++        }
++    }
++
+     // --- Breakpoints
+ 
+ private:
+diff --git a/libs/ymir-core/include/ymir/hw/vdp/vdp.hpp b/libs/ymir-core/include/ymir/hw/vdp/vdp.hpp
+index f1cf38a2..7e3a04a8 100644
+--- a/libs/ymir-core/include/ymir/hw/vdp/vdp.hpp
++++ b/libs/ymir-core/include/ymir/hw/vdp/vdp.hpp
+@@ -41,6 +41,21 @@ public:
+     VDP(core::Scheduler &scheduler, core::Configuration &config);
+     ~VDP();
+ 
++    struct WriteCounters {
++        uint64 vdp1VRAMWords = 0;
++        uint64 vdp2VRAMWords = 0;
++        uint64 vdp2CRAMWords = 0;
++    };
++    [[nodiscard]] const WriteCounters &GetWriteCounters() const noexcept { return m_writeCounters; }
++    void ResetWriteCounters() noexcept { m_writeCounters = {}; }
++
++    struct FrameCounters {
++        uint64 begins = 0, ends = 0, swaps = 0, visibleCompletedDraws = 0;
++        uint64 lastBeginCycle = 0, lastEndCycle = 0, lastSwapCycle = 0;
++    };
++    [[nodiscard]] const FrameCounters &GetFrameCounters() const noexcept { return m_frameCounters; }
++
++
+     void Reset(bool hard);
+ 
+     void MapCallbacks(CBHBlankStateChange cbHBlankStateChange, CBVBlankStateChange cbVBlankStateChange,
+@@ -443,6 +458,10 @@ private:
+     uint64 m_VDP1TimingPenaltyCycles; // accumulated cycle penalty
+     bool m_stallVDP1OnVRAMWrites = false;
+     bool m_skipEmptyVDP1Table = false; // skip processing empty tables (first 0x400 bytes in VDP1 VRAM == 0x00)
++    WriteCounters m_writeCounters{};
++    FrameCounters m_frameCounters{};
++    std::array<uint64, 2> m_completedDrawGeneration{};
++    uint64 m_lastVisibleDrawGeneration = 0;
+     uint64 m_VDP1CyclesShift = 2;
+ 
+     void VDP1SwapFramebuffer();
+diff --git a/libs/ymir-core/include/ymir/sys/saturn.hpp b/libs/ymir-core/include/ymir/sys/saturn.hpp
+index f413ed23..d70c96b2 100644
+--- a/libs/ymir-core/include/ymir/sys/saturn.hpp
++++ b/libs/ymir-core/include/ymir/sys/saturn.hpp
+@@ -235,6 +235,10 @@ struct Saturn {
+         return (this->*m_stepSSH2Fn)();
+     }
+ 
++    [[nodiscard]] uint64 GetCurrentCycleCount() const noexcept {
++        return m_scheduler.CurrentCount();
++    }
++
+     /// @brief Detaches all debug tracers from all components.
+     void DetachAllTracers() {
+         masterSH2.UseTracer(nullptr);
+diff --git a/libs/ymir-core/src/ymir/hw/sh2/sh2.cpp b/libs/ymir-core/src/ymir/hw/sh2/sh2.cpp
+index 9746b438..4ff8285e 100644
+--- a/libs/ymir-core/src/ymir/hw/sh2/sh2.cpp
++++ b/libs/ymir-core/src/ymir/hw/sh2/sh2.cpp
+@@ -458,7 +458,13 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
+         // [[maybe_unused]] const uint32 prevPC = PC; // debug aid
+ 
+         // TODO: choose between interpreter (cached or uncached) and JIT recompiler
+-        m_cyclesExecuted += InterpretNext<debug, emulateCache>();
++        const uint32 stepPC = PC;
++        const bool stepInstruction = std::bit_cast<uint16>(m_intrFlags) != kIntrFlagsPendingAllowed;
++        const uint64 stepCycles = InterpretNext<debug, emulateCache>();
++        m_cyclesExecuted += stepCycles;
++        if constexpr (debug) {
++            if (m_tracer) m_tracer->ExecutionStepCompleted(stepPC, stepCycles, stepInstruction);
++        }
+ 
+         // If PC is not in any of these places, something went horribly wrong
+ 
+@@ -508,7 +514,12 @@ FLATTEN uint64 SH2::Step() {
+     m_cyclesExecuted = 0; // so that AdvanceWDT/FRT sync to the scheduler time
+     AdvanceWDT<false>();
+     AdvanceFRT<false>();
++    const uint32 stepPC = PC;
++    const bool stepInstruction = std::bit_cast<uint16>(m_intrFlags) != kIntrFlagsPendingAllowed;
+     m_cyclesExecuted = InterpretNext<debug, emulateCache>();
++    if constexpr (debug) {
++        if (m_tracer) m_tracer->ExecutionStepCompleted(stepPC, m_cyclesExecuted, stepInstruction);
++    }
+     AdvanceDMA<debug, emulateCache>(m_cyclesExecuted);
+     return m_cyclesExecuted;
+ }
+@@ -643,6 +654,9 @@ T SH2::MemRead(uint32 address) {
+                                     sizeof(T) * 8, address);
+             // TODO: raise CPU address error due to misaligned access
+             // - might have to store data in a class member instead of returning
++            if constexpr (!instrFetch) {
++                NoteMisaligned(address, static_cast<uint8>(sizeof(T)), false);
++            }
+         }
+         address &= kAddressMask;
+     }
+@@ -766,9 +780,15 @@ void SH2::MemWrite(uint32 address, T value) {
+             devlog::trace<grp::mem>(m_logPrefix, "[PC = {:08X}] WARNING: misaligned {}-bit write to {:08X} = {:X}", PC,
+                                     sizeof(T) * 8, address, value);
+             // TODO: address error (misaligned access)
++            NoteMisaligned(address, static_cast<uint8>(sizeof(T)), true);
+         }
+         address &= kAddressMask;
+     }
++    if constexpr (!poke) {
++        if (m_watch.length != 0) {
++            NoteWatch(address & 0x7FFFFFF, static_cast<uint8>(sizeof(T)), static_cast<uint32>(value));
++        }
++    }
+ 
+     switch (partition) {
+     case 0b000: // cache
+diff --git a/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp b/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp
+index 2369c61b..aef040c0 100644
+--- a/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp
++++ b/libs/ymir-core/src/ymir/hw/vdp/vdp.cpp
+@@ -41,6 +41,9 @@ VDP::VDP(core::Scheduler &scheduler, core::Configuration &config)
+ VDP::~VDP() = default;
+ 
+ void VDP::Reset(bool hard) {
++    m_frameCounters = {};
++    m_completedDrawGeneration = {};
++    m_lastVisibleDrawGeneration = 0;
+     m_HRes = vdp::kDefaultResH;
+     m_VRes = vdp::kDefaultResV;
+     m_exclusiveMonitor = false;
+@@ -336,6 +339,7 @@ FORCE_INLINE T VDP::VDP1ReadVRAM(uint32 address) const {
+ 
+ template <mem_primitive_16 T>
+ FORCE_INLINE void VDP::VDP1WriteVRAM(uint32 address, T value) {
++    m_writeCounters.vdp1VRAMWords += (sizeof(T) + 1u) / 2u;
+     m_state.mem1.WriteVRAM<T>(address, value,
+                               [&](uint32 address, T value) { m_renderer->VDP1WriteVRAM(address, value); });
+     if (m_stallVDP1OnVRAMWrites && m_VDP1CtlState.drawing) {
+@@ -417,6 +421,7 @@ FORCE_INLINE T VDP::VDP2ReadVRAM(uint32 address) const {
+ 
+ template <mem_primitive_16 T>
+ FORCE_INLINE void VDP::VDP2WriteVRAM(uint32 address, T value) {
++    m_writeCounters.vdp2VRAMWords += (sizeof(T) + 1u) / 2u;
+     m_state.mem2.WriteVRAM<T>(address, value,
+                               [&](uint32 address, T value) { m_renderer->VDP2WriteVRAM(address, value); });
+ }
+@@ -432,6 +437,7 @@ FORCE_INLINE T VDP::VDP2ReadCRAM(uint32 address) const {
+ 
+ template <mem_primitive_16 T, bool poke>
+ FORCE_INLINE void VDP::VDP2WriteCRAM(uint32 address, T value) {
++    m_writeCounters.vdp2CRAMWords += (sizeof(T) + 1u) / 2u;
+     m_state.mem2.WriteCRAM<T>(address, value, [&](uint32 address, T value) {
+         m_renderer->VDP2WriteCRAM(address, value);
+         if constexpr (!poke) {
+@@ -935,6 +941,13 @@ void VDP::BeginVPhaseLastLine() {
+ 
+     devlog::trace<grp::vdp2_render>("Begin VDP2 frame, VDP1 framebuffer {}", m_state.displayFB);
+ 
++    // Count a completed draw generation first observed in an active field.
++    // This is not a pixel-uniqueness count and does not certify hardware timing.
++    const uint64 visible = m_completedDrawGeneration[m_state.displayFB];
++    if (visible != 0 && visible != m_lastVisibleDrawGeneration) {
++        ++m_frameCounters.visibleCompletedDraws;
++        m_lastVisibleDrawGeneration = visible;
++    }
+     m_renderer->VDP2BeginFrame();
+ 
+     m_state.regs2.TVSTAT.VBLANK = 0;
+@@ -942,6 +955,8 @@ void VDP::BeginVPhaseLastLine() {
+ }
+ 
+ void VDP::VDP1SwapFramebuffer() {
++    ++m_frameCounters.swaps;
++    m_frameCounters.lastSwapCycle = m_scheduler.CurrentCount();
+     devlog::trace<grp::vdp1>("Swapping framebuffers - draw {}, display {}", m_state.displayFB, m_state.displayFB ^ 1);
+ 
+     m_state.regs1.prevCommandAddress = m_state.regs1.currCommandAddress;
+@@ -987,6 +1002,9 @@ void VDP::VDP1BeginFrame() {
+         }
+     }
+     if (valid) {
++        ++m_frameCounters.begins;
++        m_frameCounters.lastBeginCycle = m_scheduler.CurrentCount();
++        m_completedDrawGeneration[m_state.displayFB ^ 1] = 0;
+         m_renderer->VDP1BeginFrame();
+ 
+         m_VDP1CtlState.drawing = true;
+@@ -999,6 +1017,8 @@ void VDP::VDP1BeginFrame() {
+ }
+ 
+ void VDP::VDP1EndFrame() {
++    m_completedDrawGeneration[m_state.displayFB ^ 1] = ++m_frameCounters.ends;
++    m_frameCounters.lastEndCycle = m_scheduler.CurrentCount();
+     devlog::trace<grp::vdp1>("End VDP1 frame on framebuffer {}", m_state.displayFB ^ 1);
+ 
+     m_VDP1CtlState.drawing = false;

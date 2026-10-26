@@ -8,6 +8,11 @@ namespace saturn::core {
 /* Weak: a program that never calls sat_music_* does not link music.cpp and
  * its ~297 KB g_music (crt0 zeroes it, which is the reset state). */
 void music_runtime_reset() __attribute__((weak));
+/* Likewise for the stream registry (four 8-KiB staging buffers, defined with
+ * the stream API): a program that never opens an audio stream does not link
+ * it, and plays sounds without its Work RAM. */
+void audio_streams_reset() __attribute__((weak));
+void audio_streams_service(uint32_t frame_now, uint32_t display_rate) __attribute__((weak));
 
 static void reset_music_if_linked() {
     if (music_runtime_reset != nullptr) music_runtime_reset();
@@ -19,7 +24,7 @@ using namespace saturn::core::audio::playback;
 extern "C" sat_result_t sat_audio_init(void) {
     if (g_initialized != 0u) return SAT_OK;
     saturn::core::reset_music_if_linked();
-    saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+    if (saturn::core::audio_streams_reset != nullptr) saturn::core::audio_streams_reset();
     reset_runtime_state();
     if (!saturn::hal::scsp::init()) return SAT_ERR_NOT_INITIALIZED;
     g_initialized = 1u;
@@ -30,7 +35,7 @@ extern "C" sat_result_t sat_audio_shutdown(void) {
     if (g_initialized == 0u) return SAT_OK;
     (void)sat_effect_stop();
     saturn::hal::scsp::shutdown();
-    saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+    if (saturn::core::audio_streams_reset != nullptr) saturn::core::audio_streams_reset();
     saturn::core::reset_music_if_linked();
     reset_runtime_state();
     g_initialized = 0u;
@@ -48,8 +53,8 @@ extern "C" sat_result_t sat_audio_update(void) {
         (saturn::hal::vdp2::read_tvstat() & 0x0008u) != 0u ? 1u : 0u;
     const uint32_t service_frame=g_audio_clock.tick(now,vblank);
     const uint32_t display_rate = saturn::core::g_state.config.ntsc != 0u ? 60u : 50u;
-    saturn::core::audio_stream_service(
-        saturn::core::g_audio_streams, service_frame, display_rate);
+    if (saturn::core::audio_streams_service != nullptr)
+        saturn::core::audio_streams_service(service_frame, display_rate);
     for (uint16_t i = 0; i < kResidentVoiceCapacity; ++i) {
         VoiceEntry& voice = g_voice_registry.entries[i];
         if (voice.active == 0u || voice.looping != 0u) continue;

@@ -109,3 +109,66 @@ The ELF comparison, deterministic CPU-work comparison and representative
 VRAM/CRAM transfer measurement are complete. Broader input-script coverage and
 hardware-specific transfer timing remain outside this emulator ledger; no
 performance win is claimed from the fixed emulator cycle budget.
+
+
+## Per-function section collection (2026-10-17)
+
+Both CMake's public runtime flags and GNU Make now use `-ffunction-sections`
+and `-fdata-sections`, matching the existing `--gc-sections` link policy.
+The linker explicitly retains `.text.start` and `.text.slave_entry`: the BIOS
+can enter either CPU without a C call reference. Constructors and interrupt
+vectors retain their existing roots.
+
+The clean cross-package build passed all five CTest gates, including the
+installed consumer's constructor, stack-reserve and Slave-entry checks.
+GNU Make `all EXAMPLE=basic_3d_texture` also passed native image validation;
+its initialized application shrank from 191,352 to 86,568 bytes in this local
+comparison. A cache-on Ymir injected run reached the textured model at 240
+fields without misaligned accesses. This is a code-size and linkage change,
+not a measured CPU speed improvement. Private screenshots and firmware are
+kept in the consuming project's ignored imported-assets directory.
+
+A downstream stock-RAM two-actor application can consequently link the
+existing Slave geometry executor, which previously overflowed High WRAM.
+Its worker correctness and performance qualification belong to that consumer;
+this library change introduces no new rendering algorithm or RAM requirement.
+
+## Consistent FRT counter reads across interrupts
+
+The FRC high-byte read latches the low byte in TEMP. Another FRC read in an
+interrupt can replace that latch between the original high and low loads. If
+the high byte rolled over meanwhile, combining the old high and new low can
+appear to move time backwards. Unsigned elapsed subtraction then produces a
+large interval and can falsely expire a worker wait.
+
+`frt::counter()` now checks the high byte again and retries on a change. It
+keeps IRQs enabled and preserves the configured prescaler and timeout budgets.
+The host regression simulates the IRQ at 12FF->1300: the old pair reads 1200
+and invents 65282 elapsed ticks from 12FE; the consistent reader returns 1300
+and two ticks. It also exercises the FFFF->0000 rollover.
+
+A downstream paired-geometry neutral run previously entered native panic
+TIMEOUT with its last published snapshot at 5635 VBlanks. Its complete debug
+window showed Slave geometry still executing when Master panicked; the slot
+subsequently held a successful result. With the consistent reader, the same
+12000-field scenario reaches 11990 VBlanks and the expected terminal 2-2 draw,
+without changing the 60000-tick wait limit. This is emulator regression
+evidence, not a hardware timing or frame-rate claim. Host `make test` and all
+five package CTests pass; private consumer captures remain outside Git.
+
+## Q15 skin coordinate conversion (2026-10-18)
+
+The downstream Tekken prototype's fixed-pose two-actor run spends a median
+10 ms deforming its Q15 skins. A constant `q * 2` conversion avoids three
+variable-shift helper calls per influence with SH-2 GCC 13.2. The corrected
+1200-field comparison reports 8 ms skin median/p95 and 64/65 ms complete work,
+versus the prior 65/66 ms work. Full-game work is 108/121 ms versus 109/122 ms.
+Untraced submission cadence is effectively unchanged: 8.18/s versus 8.17/s;
+logic remains approximately 32.7 ticks/s. This is a local arithmetic saving,
+not a gameplay speed milestone. Geometry and emission remain the larger costs.
+
+Independent host integer comparisons cover 128 fixtures, all position shifts,
+rigid/seam records, half and unequal weights, signed extrema and split ranges.
+The consumer also completes a 35-second actual Mednafen CD boot; private
+artifacts are `recovery-q15-final-matrix`, `recovery-q15-final-{600,1200}` and
+`recovery-q15-final-cd`. Emulator timings do not certify physical hardware.

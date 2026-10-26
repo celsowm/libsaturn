@@ -5,6 +5,7 @@ using saturn::core::scene::record_frame_result;
 
 #include "src/hal/dual_sh2/memory.hpp"
 #include "src/hal/sh2/frt.hpp"
+#include "src/graphics/3d/scene/test_metrics.h"
 
 #ifndef SAT_PROFILE_METRICS
 #define SAT_PROFILE_METRICS 0
@@ -13,10 +14,15 @@ using saturn::core::scene::record_frame_result;
 namespace {
 #if SAT_PROFILE_METRICS
 uint32_t g_test_input_publish_ticks;
+sat_scene3d_worker_profile_t g_test_worker_profile;
 #endif
 
 void* shared_uncached(void* pointer) {
     return sat_parallel_uncached_address(pointer);
+}
+
+uint32_t face_stride(const sat_scene3d_prepare_batch_t* batch) {
+    return batch->projected_faces?sizeof(sat_scene3d_projected_face_t):sizeof(sat_scene3d_face_t);
 }
 
 sat_result_t sync_range(const void* pointer, uint32_t size) {
@@ -24,77 +30,111 @@ sat_result_t sync_range(const void* pointer, uint32_t size) {
     return sat_parallel_cache_sync_range(pointer, size);
 }
 
-sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch) {
-    if (batch == nullptr || batch->items == nullptr) return SAT_OK;
-    SAT_TRY(sync_range(batch->items, static_cast<uint32_t>(batch->item_count) *
-        sizeof(*batch->items)));
-    for (uint16_t i = 0u; i < batch->item_count; ++i) {
-        const sat_scene3d_prepare_item_t& item = batch->items[i];
-        if (item.instance == nullptr) {
-            return SAT_ERR_INVALID_ARG;
+sat_result_t sync_material_sources(const sat_scene3d_instance_t* instance) {
+    const sat_mesh_t* const mesh = instance->mesh;
+    SAT_TRY(sync_range(mesh->indices, static_cast<uint32_t>(mesh->face_count)*4u*sizeof(*mesh->indices)));
+    SAT_TRY(sync_range(instance->materials, static_cast<uint32_t>(instance->material_count)*sizeof(*instance->materials)));
+    SAT_TRY(sync_range(instance->face_materials, static_cast<uint32_t>(mesh->face_count)*sizeof(*instance->face_materials)));
+    /* Materials usually point at consecutive entries of one texture
+     * table and share one Gouraud table. Sync each contiguous texture
+     * run and each distinct table once: a model with a baked texture
+     * per face has over a thousand materials, and one sync call per
+     * descriptor cost several frames of time on both CPUs. */
+    const sat_vdp1_texture_t* run = nullptr;
+    uint32_t run_count = 0u;
+    const uint16_t* last_gouraud = nullptr;
+    for (uint16_t m = 0u; m < instance->material_count; ++m) {
+        const sat_scene3d_material_t& material = instance->materials[m];
+        if (material.texture != nullptr) {
+            if (run != nullptr && material.texture == run + run_count) {
+                ++run_count;
+            } else {
+                SAT_TRY(sync_range(run, run_count * sizeof(*run)));
+                run = material.texture;
+                run_count = 1u;
+            }
         }
-        const sat_scene3d_instance_t* const instance = item.instance;
+        SAT_TRY(sync_range(material.tiled, sizeof(*material.tiled)));
+        if (material.tiled != nullptr) {
+            SAT_TRY(sync_range(material.tiled->full,
+                sizeof(*material.tiled->full)));
+            for (uint8_t tile = 0u; tile < 4u; ++tile) {
+                SAT_TRY(sync_range(material.tiled->tiles[tile],
+                    sizeof(*material.tiled->tiles[tile])));
+            }
+        }
+        if (material.vertex_gouraud != last_gouraud) {
+            SAT_TRY(sync_range(material.vertex_gouraud, static_cast<uint32_t>(
+                mesh->vertex_count) * sizeof(*material.vertex_gouraud)));
+            last_gouraud = material.vertex_gouraud;
+        }
+    }
+    SAT_TRY(sync_range(run, run_count * sizeof(*run)));
+    const auto* binding=instance->validated_binding;
+    if (binding && binding->programs) {
+        const auto* programs=binding->programs;
+        SAT_TRY(sync_range(programs,sizeof(*programs)));
+        SAT_TRY(sync_range(programs->entries,static_cast<uint32_t>(programs->count)*sizeof(*programs->entries)));
+    }
+    return SAT_OK;
+}
+
+bool plan_matches(const sat_scene3d_source_plan_t* plan,
+                  const sat_scene3d_instance_t* instance) {
+    const auto& b = plan->topology;
+    const auto* mesh = instance->mesh;
+    return b.valid && mesh && b.indices == mesh->indices &&
+        b.vertex_count == mesh->vertex_count && b.face_count == mesh->face_count &&
+        b.materials == instance->materials && b.material_count == instance->material_count &&
+        b.face_materials == instance->face_materials &&
+        b.programs == (instance->validated_binding ? instance->validated_binding->programs : nullptr);
+}
+
+sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch, bool receiving) {
+    if (batch == nullptr || batch->items == nullptr) return SAT_OK;
+    SAT_TRY(sync_range(batch->native_commands,
+        static_cast<uint32_t>(batch->capacity)*sizeof(sat_vdp1_native_command_t)));
+    SAT_TRY(sync_range(batch->items, static_cast<uint32_t>(batch->item_count)*sizeof(*batch->items)));
+    for (uint16_t i=0u; i<batch->item_count; ++i) {
+        const auto& item = batch->items[i];
+        const auto* instance = item.instance;
+        if (!instance) return SAT_ERR_INVALID_ARG;
         SAT_TRY(sync_range(instance, sizeof(*instance)));
         SAT_TRY(sync_range(instance->bounds, sizeof(*instance->bounds)));
-        SAT_TRY(sync_range(instance->validated_binding,
-            sizeof(*instance->validated_binding)));
-        const sat_mesh_t* const mesh = instance->mesh;
-        if (mesh == nullptr) return SAT_ERR_INVALID_ARG;
+        SAT_TRY(sync_range(instance->validated_binding, sizeof(*instance->validated_binding)));
+        const auto* mesh = instance->mesh;
+        if (!mesh) return SAT_ERR_INVALID_ARG;
         SAT_TRY(sync_range(mesh, sizeof(*mesh)));
-        SAT_TRY(sync_range(mesh->vertices, static_cast<uint32_t>(
-            mesh->vertex_count) * sizeof(*mesh->vertices)));
-        SAT_TRY(sync_range(mesh->indices, static_cast<uint32_t>(
-            mesh->face_count) * 4u * sizeof(*mesh->indices)));
-        SAT_TRY(sync_range(instance->materials, static_cast<uint32_t>(
-            instance->material_count) * sizeof(*instance->materials)));
-        SAT_TRY(sync_range(instance->face_materials, static_cast<uint32_t>(
-            mesh->face_count) * sizeof(*instance->face_materials)));
+        SAT_TRY(sync_range(mesh->vertices, static_cast<uint32_t>(mesh->vertex_count)*sizeof(*mesh->vertices)));
+        SAT_TRY(sync_range(instance->double_sided_faces, mesh->face_count));
         SAT_TRY(sync_range(instance->world, sizeof(sat_mat4_t)));
-        SAT_TRY(sync_range(item.screen_scratch, static_cast<uint32_t>(
-            mesh->vertex_count) * sizeof(*item.screen_scratch)));
-        SAT_TRY(sync_range(item.world_scratch, static_cast<uint32_t>(
-            mesh->vertex_count) * sizeof(*item.world_scratch)));
-        /* Materials usually point at consecutive entries of one texture
-         * table and share one Gouraud table. Sync each contiguous texture
-         * run and each distinct table once: a model with a baked texture
-         * per face has over a thousand materials, and one sync call per
-         * descriptor cost several frames of time on both CPUs. */
-        const sat_vdp1_texture_t* run = nullptr;
-        uint32_t run_count = 0u;
-        const uint16_t* last_gouraud = nullptr;
-        for (uint16_t m = 0u; m < instance->material_count; ++m) {
-            const sat_scene3d_material_t& material = instance->materials[m];
-            if (material.texture != nullptr) {
-                if (run != nullptr && material.texture == run + run_count) {
-                    ++run_count;
-                } else {
-                    SAT_TRY(sync_range(run, run_count * sizeof(*run)));
-                    run = material.texture;
-                    run_count = 1u;
-                }
-            }
-            SAT_TRY(sync_range(material.tiled, sizeof(*material.tiled)));
-            if (material.tiled != nullptr) {
-                SAT_TRY(sync_range(material.tiled->full,
-                    sizeof(*material.tiled->full)));
-                for (uint8_t tile = 0u; tile < 4u; ++tile) {
-                    SAT_TRY(sync_range(material.tiled->tiles[tile],
-                        sizeof(*material.tiled->tiles[tile])));
-                }
-            }
-            if (material.vertex_gouraud != last_gouraud) {
-                SAT_TRY(sync_range(material.vertex_gouraud, static_cast<uint32_t>(
-                    mesh->vertex_count) * sizeof(*material.vertex_gouraud)));
-                last_gouraud = material.vertex_gouraud;
-            }
+        SAT_TRY(sync_range(item.screen_scratch, static_cast<uint32_t>(mesh->vertex_count)*sizeof(*item.screen_scratch)));
+        SAT_TRY(sync_range(item.world_scratch, static_cast<uint32_t>(mesh->vertex_count)*sizeof(*item.world_scratch)));
+        if (item.source_plan) {
+            const auto* plan = item.source_plan;
+            SAT_TRY(sync_range(plan, sizeof(*plan)));
+            if (!plan_matches(plan, instance) || !plan->ranges ||
+                plan->static_count > plan->range_count) return SAT_ERR_INVALID_ARG;
+            SAT_TRY(sync_range(plan->ranges, static_cast<uint32_t>(plan->range_count)*sizeof(*plan->ranges)));
+            // Publication already covered immutable ranges on the submitting
+            // CPU. Any receiving backend (including Master fallback) still
+            // invalidates every range; no per-CPU acknowledgment is assumed.
+            for (uint16_t r=receiving ? 0u : plan->static_count; r<plan->range_count; ++r)
+                SAT_TRY(sync_range(plan->ranges[r].address, plan->ranges[r].bytes));
+        } else {
+            SAT_TRY(sync_material_sources(instance));
         }
-        SAT_TRY(sync_range(run, run_count * sizeof(*run)));
     }
     return SAT_OK;
 }
 
 sat_result_t sync_batch_outputs(const sat_scene3d_prepare_batch_t* batch) {
     if (batch == nullptr) return SAT_ERR_INVALID_ARG;
+    SAT_TRY(sync_range(batch->native_commands,
+        static_cast<uint32_t>(batch->capacity)*sizeof(sat_vdp1_native_command_t)));
+    if(batch->projected_faces)SAT_TRY(sync_range(batch->faces,
+        static_cast<uint32_t>(batch->direct_owner && batch->direct_owner->cold_capacity?
+            batch->cold_capacity:batch->capacity)*sizeof(*batch->faces)));
     SAT_TRY(sync_range(batch->keys, static_cast<uint32_t>(batch->capacity) *
         sizeof(*batch->keys)));
     if (batch->items == nullptr) return SAT_OK;
@@ -120,29 +160,120 @@ sat_result_t prepare_batch_task(
         const_cast<sat_scene3d_prepare_batch_t*>(
             static_cast<const sat_scene3d_prepare_batch_t*>(input));
     if (output_capacity < static_cast<uint32_t>(shared->capacity) *
-            sizeof(sat_scene3d_face_t)) return SAT_ERR_CAPACITY;
+            face_stride(shared)) return SAT_ERR_CAPACITY;
 
     /* The nested graph is caller-owned. Publish it before the Slave reads it,
      * then invalidate the same exact ranges on the worker so cached aliases
      * cannot retain an older descriptor or mesh/material array. */
-    SAT_TRY(sync_batch_sources(shared));
+#if SAT_PROFILE_METRICS
+    const uint16_t profile_start = saturn::hal::sh2::frt::counter();
+#endif
+    SAT_TRY(sync_batch_sources(shared, true));
+#if SAT_PROFILE_METRICS
+    const uint16_t sources_end = saturn::hal::sh2::frt::counter();
+#endif
 
     /* The executor output and face keys use uncached Slave aliases;
      * source descriptors remain immutable and may be read normally. */
     sat_scene3d_prepare_batch_t worker = *shared;
-    worker.faces = static_cast<sat_scene3d_face_t*>(output);
+    if(shared->projected_faces) {
+        worker.projected_faces=static_cast<sat_scene3d_projected_face_t*>(output);
+        worker.faces=static_cast<sat_scene3d_face_t*>(shared_uncached(shared->faces));
+    } else worker.faces = static_cast<sat_scene3d_face_t*>(output);
+    worker.native_commands=static_cast<sat_vdp1_native_command_t*>(shared_uncached(shared->native_commands));
     worker.keys = static_cast<uint32_t*>(shared_uncached(shared->keys));
     const sat_result_t result = sat_scene3d_prepare_batch_execute(&worker);
+#if SAT_PROFILE_METRICS
+    const uint16_t geometry_end = saturn::hal::sh2::frt::counter();
+#endif
     SAT_TRY(sync_batch_outputs(shared));
+#if SAT_PROFILE_METRICS
+    const uint16_t outputs_end = saturn::hal::sh2::frt::counter();
+    volatile auto* profile = static_cast<volatile sat_scene3d_worker_profile_t*>(
+        shared_uncached(&g_test_worker_profile));
+    profile->source_ticks = static_cast<uint16_t>(sources_end-profile_start);
+    profile->geometry_ticks = static_cast<uint16_t>(geometry_end-sources_end);
+    profile->output_ticks = static_cast<uint16_t>(outputs_end-geometry_end);
+    profile->total_ticks = static_cast<uint16_t>(outputs_end-profile_start);
+    profile->ccr = *reinterpret_cast<volatile uint8_t*>(0xFFFFFE92u);
+    profile->timer_control = saturn::hal::sh2::frt::timer_control();
+#endif
     if (result == SAT_OK) {
         shared->metrics = worker.metrics;
         *output_size = static_cast<uint32_t>(worker.metrics.prepared_faces) *
-            sizeof(sat_scene3d_face_t);
+            face_stride(shared);
     }
     return result;
 }
 
 }  // namespace
+
+extern "C" sat_result_t sat_scene3d_source_plan_init(
+    sat_scene3d_source_plan_t* out, const sat_scene3d_instance_t* instance,
+    sat_scene3d_source_range_t* ranges, uint16_t capacity) {
+    if (!out) return SAT_ERR_INVALID_ARG;
+    *out = {};
+    if (!instance || !instance->mesh || !instance->validated_binding || !ranges)
+        return SAT_ERR_INVALID_ARG;
+    sat_scene3d_source_plan_t plan{};
+    plan.topology = *instance->validated_binding;
+    if (!plan_matches(&plan, instance)) return SAT_ERR_INVALID_ARG;
+    plan.ranges = ranges;
+    const auto append = [&](const void* address, uint32_t bytes) -> sat_result_t {
+        if (!address || !bytes) return SAT_OK;
+        if (plan.range_count == capacity) return SAT_ERR_CAPACITY;
+        ranges[plan.range_count++] = {address, bytes};
+        return SAT_OK;
+    };
+    const auto* programs=plan.topology.programs;
+    if (programs) {
+        if (!programs->valid || !programs->entries ||
+            programs->materials!=instance->materials || programs->count!=instance->material_count)
+            return SAT_ERR_INVALID_ARG;
+        SAT_TRY(append(programs,sizeof(*programs)));
+        SAT_TRY(append(programs->entries,static_cast<uint32_t>(programs->count)*sizeof(*programs->entries)));
+    }
+    const auto* mesh = instance->mesh;
+    SAT_TRY(append(mesh->indices, static_cast<uint32_t>(mesh->face_count)*4u*sizeof(*mesh->indices)));
+    SAT_TRY(append(instance->materials, static_cast<uint32_t>(instance->material_count)*sizeof(*instance->materials)));
+    SAT_TRY(append(instance->face_materials, static_cast<uint32_t>(mesh->face_count)*sizeof(*instance->face_materials)));
+    const sat_vdp1_texture_t* run = nullptr;
+    uint32_t run_count = 0u;
+    for (uint16_t m=0u; m<instance->material_count; ++m) {
+        const auto& material = instance->materials[m];
+        if (material.texture) {
+            if (run && material.texture == run + run_count) ++run_count;
+            else {
+                SAT_TRY(append(run, run_count*sizeof(*run)));
+                run = material.texture;
+                run_count = 1u;
+            }
+        }
+        SAT_TRY(append(material.tiled, sizeof(*material.tiled)));
+        if (material.tiled) {
+            SAT_TRY(append(material.tiled->full, sizeof(*material.tiled->full)));
+            for (uint8_t t=0u; t<4u; ++t)
+                SAT_TRY(append(material.tiled->tiles[t], sizeof(*material.tiled->tiles[t])));
+        }
+    }
+    SAT_TRY(append(run, run_count*sizeof(*run)));
+    plan.static_count = plan.range_count;
+    const uint16_t* last_gouraud = nullptr;
+    for (uint16_t m=0u; m<instance->material_count; ++m) {
+        const auto* gouraud = instance->materials[m].vertex_gouraud;
+        if (gouraud != last_gouraud) {
+            SAT_TRY(append(gouraud, static_cast<uint32_t>(mesh->vertex_count)*sizeof(*gouraud)));
+            last_gouraud = gouraud;
+        }
+    }
+    for (uint16_t r=0u; r<plan.range_count; ++r)
+        SAT_TRY(sync_range(ranges[r].address, ranges[r].bytes));
+    SAT_TRY(sync_range(ranges, static_cast<uint32_t>(plan.range_count)*sizeof(*ranges)));
+    *out = plan;
+    const sat_result_t published = sync_range(out, sizeof(*out));
+    if (published != SAT_OK) *out = {};
+    return published;
+}
 
 extern "C" sat_result_t sat_scene3d_prepare_parallel_register(void) {
     return sat_parallel_register_task(SAT_PARALLEL_TASK_SCENE_GEOMETRY,
@@ -162,6 +293,9 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
         return record_frame_result(scene,SAT_ERR_INVALID_ARG);
     // A pending task has not failed: callers can retry after completion.
     if (batch->pending != 0u) return SAT_ERR_BUSY;
+    if(batch->projected_faces && (batch->direct_owner!=&scene->faces ||
+       scene->faces.reserved_batch!=batch))return record_frame_result(scene,SAT_ERR_INVALID_ARG);
+
     const sat_result_t registered=sat_scene3d_prepare_parallel_register();
     if (registered != SAT_OK) return record_frame_result(scene,registered);
     batch->view_proj = scene->faces.view_proj;
@@ -173,14 +307,15 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
 #if SAT_PROFILE_METRICS
     const uint16_t publish_start=saturn::hal::sh2::frt::counter();
 #endif
-    const sat_result_t published=sync_batch_sources(batch);
+    const sat_result_t published=sync_batch_sources(batch, false);
     if (published != SAT_OK) return record_frame_result(scene,published);
 #if SAT_PROFILE_METRICS
     g_test_input_publish_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-publish_start);
 #endif
     const uint32_t output_capacity =
-        static_cast<uint32_t>(batch->capacity) * sizeof(sat_scene3d_face_t);
+        static_cast<uint32_t>(batch->capacity) * face_stride(batch);
+    void* const output=batch->projected_faces?static_cast<void*>(batch->projected_faces):batch->faces;
     // The batch owns its dispatch policy. The default conservatively keeps
     // geometry on Master in AUTO mode, matching the measured baseline.
     // A caller can explicitly delegate to the runtime for Master/Slave/AUTO
@@ -192,10 +327,10 @@ extern "C" sat_result_t sat_scene_prepare_batch_async(
     const sat_result_t submitted = local
         ? sat_parallel_submit_master(
             SAT_PARALLEL_TASK_SCENE_GEOMETRY, batch, sizeof(*batch),
-            batch->faces, output_capacity, out_handle)
+            output, output_capacity, out_handle)
         : sat_parallel_submit(
             SAT_PARALLEL_TASK_SCENE_GEOMETRY, batch, sizeof(*batch),
-            batch->faces, output_capacity, out_handle);
+            output, output_capacity, out_handle);
     if (submitted == SAT_OK) {
         batch->handle = *out_handle;
         batch->pending = 1u;
@@ -213,11 +348,12 @@ extern "C" sat_result_t sat_scene_merge_prepared_batch(
     const sat_result_t result = sat_parallel_result(handle, &output_size);
     if (result == SAT_ERR_BUSY) return SAT_ERR_BUSY;
     if (result != SAT_OK) return record_frame_result(scene,result);
-    if (output_size % sizeof(sat_scene3d_face_t) != 0u ||
-        output_size / sizeof(sat_scene3d_face_t) > batch->capacity)
+    const uint32_t stride=face_stride(batch);
+    if (output_size % stride != 0u ||
+        output_size / stride > batch->capacity)
         return record_frame_result(scene,SAT_ERR_VERIFY_FAILED);
     batch->metrics.prepared_faces = static_cast<uint16_t>(
-        output_size / sizeof(sat_scene3d_face_t));
+        output_size / stride);
     /* The worker wrote the keys through an uncached alias, and completion
      * invalidates only the face output on this CPU. Lines of the key array
      * left in this cache by an earlier merge would otherwise feed stale
@@ -226,6 +362,9 @@ extern "C" sat_result_t sat_scene_merge_prepared_batch(
         static_cast<uint32_t>(batch->metrics.prepared_faces) *
         sizeof(*batch->keys));
     if (keys_synced != SAT_OK) return record_frame_result(scene,keys_synced);
+    const sat_result_t commands_synced=sync_range(batch->native_commands,
+        static_cast<uint32_t>(batch->metrics.prepared_faces)*sizeof(sat_vdp1_native_command_t));
+    if(commands_synced!=SAT_OK)return record_frame_result(scene,commands_synced);
     const uint16_t before = scene->faces.count;
     const sat_result_t merged = sat_scene3d_faces_merge_prepared(&scene->faces, batch);
     if (merged == SAT_OK) {
@@ -248,12 +387,28 @@ extern "C" sat_result_t sat_scene_prepare_batch_release(
         if (released == SAT_OK) {
             batch->pending = 0u;
             batch->handle = 0u;
+            if(batch->direct_owner) {
+                if(batch->direct_owner->reserved_batch==batch)
+                    (void)sat_scene3d_faces_cancel_batch(batch->direct_owner,batch);
+                batch->direct_owner=nullptr;batch->projected_faces=nullptr;
+            }
         }
     }
     return record_frame_result(scene, released);
 }
 
 #if SAT_PROFILE_METRICS
+extern "C" void sat_scene3d_test_worker_profile(sat_scene3d_worker_profile_t* out) {
+    if (!out) return;
+    const auto* profile = static_cast<const volatile sat_scene3d_worker_profile_t*>(
+        shared_uncached(&g_test_worker_profile));
+    out->source_ticks = profile->source_ticks;
+    out->geometry_ticks = profile->geometry_ticks;
+    out->output_ticks = profile->output_ticks;
+    out->total_ticks = profile->total_ticks;
+    out->ccr = profile->ccr;
+    out->timer_control = profile->timer_control;
+}
 extern "C" uint32_t sat_scene3d_test_input_publish_ticks(void) {
     return g_test_input_publish_ticks;
 }

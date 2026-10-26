@@ -1,5 +1,11 @@
 # Summary
 
+- [Additional primary manuals and conversion instructions](manuals/README.md)
+  - [SH7604 Hardware Manual](manuals/sh7604/README.md)
+  - [SH-1/SH-2 Programming Manual](manuals/sh1-sh2-programming/README.md)
+  - [Saturn Dual CPU User's Guide](manuals/saturn-dual-cpu/README.md)
+  - [VDP1 User's Manual Supplement](manuals/vdp1-supplement/README.md)
+
 - [SEGASATURN HARDWARE MANUAL/Table of Contents](hard/index.md)
     - [< 1/ 9>Sega Saturn Overview Manual/1. Introduction to Sega Saturn](hard/intr/hon/p01_10.md)
     - [< 2/ 9>SEGA Saturn Overview Manual/2.Configuration](hard/intr/hon/p02_10.md)

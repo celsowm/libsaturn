@@ -15,6 +15,7 @@ sat_result_t register_task(sat_parallel_task_type_t type,
                            sat_parallel_process_fn process);
 sat_result_t cache_sync_range(const void* address, uint32_t size);
 void* uncached_address(const void* address);
+void purge_cache();
 sat_result_t submit(sat_parallel_task_type_t type, const void* input,
                     uint32_t input_size, void* output, uint32_t output_capacity,
                     sat_parallel_handle_t* out_handle);

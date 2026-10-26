@@ -96,6 +96,9 @@ if(LIBSATURN_BUILD_RUNTIME)
 
     # -- LibSaturn::Core ------------------------------------------------
     add_library(libsaturn_core STATIC ${LIBSATURN_PREFIXED_SOURCES})
+    option(LIBSATURN_NATIVE_SCENE_COMMANDS "Experimental direct staged-command scene preparation" OFF)
+    target_compile_definitions(libsaturn_core PRIVATE
+        SAT_NATIVE_SCENE_COMMANDS=$<BOOL:${LIBSATURN_NATIVE_SCENE_COMMANDS}>)
     add_library(LibSaturn::Core ALIAS libsaturn_core)
     set_target_properties(libsaturn_core PROPERTIES
         OUTPUT_NAME saturn
@@ -118,13 +121,19 @@ if(LIBSATURN_BUILD_RUNTIME)
     target_compile_options(libsaturn_core
         PUBLIC
             -m2 -mb -ffreestanding -fomit-frame-pointer
+            -ffunction-sections -fdata-sections
             "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti;-fno-threadsafe-statics;-fno-use-cxa-atexit>"
         PRIVATE
-            # Always -O2, whatever the build type: the runtime relies on GCC
+            # Default -O2, whatever the build type: the runtime relies on GCC
             # constant-folding MMIO references (tools/check_no_static_ctors.py)
             # and the Makefile has always built it this way. Later flags win
-            # over CMake's per-config -O3/-O0.
+            # over CMake's per-config -O3/-O0. Face preparation is the measured
+            # source-specific exception below.
             -O2 -Wall -Wextra)
+    # Face preparation dominates dense skinned scenes; measured O3 inlining
+    # reduces that cost without changing the rest of the runtime's code budget.
+    set_source_files_properties(src/graphics/3d/scene/faces.cpp
+        PROPERTIES COMPILE_OPTIONS "-O3")
     # The compiler runtime (software division, 64-bit shifts, ...) must follow
     # libsaturn.a on every link line, so it is part of the Core link interface.
     target_link_libraries(libsaturn_core PUBLIC gcc)

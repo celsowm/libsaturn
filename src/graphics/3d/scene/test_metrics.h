@@ -7,6 +7,14 @@
 extern "C" {
 #endif
 
+/* Diagnostic-only, single executor geometry job at a time. Read only after
+ * successful completion; all fields are written through uncached aliases.
+ * Worker intervals use its local 16-bit FRT, never Master timestamps. */
+typedef struct sat_scene3d_worker_profile {
+    uint32_t source_ticks, geometry_ticks, output_ticks, total_ticks;
+    uint32_t ccr, timer_control;
+} sat_scene3d_worker_profile_t;
+void sat_scene3d_test_worker_profile(sat_scene3d_worker_profile_t* out);
 uint32_t sat_scene3d_test_painter_ticks(void);
 uint32_t sat_scene3d_test_emit_ticks(void);
 uint32_t sat_scene3d_test_input_publish_ticks(void);

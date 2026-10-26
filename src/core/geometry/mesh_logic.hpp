@@ -202,11 +202,11 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
  *
  * The corners are taken by reference, so a caller holding shared vertex
  * arrays need not copy them into a sat_quad3_t first. */
-inline bool quad_visible(const sat_vec3_t& a, const sat_vec3_t& b,
-                         const sat_vec3_t& c, const sat_vec3_t& d,
-                         const sat_vec3_t& eye) {
+[[gnu::noinline]] inline bool quad_visible_wide(
+    const sat_vec3_t& a,const sat_vec3_t& b,const sat_vec3_t& c,
+    const sat_vec3_t& d,const sat_vec3_t& eye) {
     int64_t n[3];
-    cross_raw(vec3_sub(d, a), vec3_sub(b, a), n);
+    cross_raw(vec3_sub(d,a),vec3_sub(b,a),n);
     if ((n[0] | n[1] | n[2]) == 0) {
         /* B collapsed onto A: the face is the triangle A, C, D. */
         cross_raw(vec3_sub(d, a), vec3_sub(c, a), n);
@@ -229,17 +229,121 @@ inline bool quad_visible(const sat_vec3_t& a, const sat_vec3_t& b,
         static_cast<sat_fx16_t>((static_cast<int64_t>(a.z) + b.z + c.z + d.z) / 4));
     const sat_vec3_t v = vec3_sub(eye, centre);
     const int32_t w[3] = {v.x, v.y, v.z};
+    constexpr unsigned kNormalSplitBits = 24;
+    constexpr int64_t kNormalLowMask = (int64_t{1} << kNormalSplitBits) - 1;
     int64_t hi = 0;
     int64_t lo = 0;
     for (int i = 0; i < 3; ++i) {
         /* Both halves fit 32 bits, so each product is one 32x32 multiply. */
-        const int32_t h = static_cast<int32_t>(n[i] >> 24);         /* |h| < 2^26 */
-        const int32_t l = static_cast<int32_t>(n[i] & 0xFFFFFF);    /* 0..2^24-1 */
+        const int32_t h = static_cast<int32_t>(n[i] >> kNormalSplitBits); /* |h| < 2^26 */
+        const int32_t l = static_cast<int32_t>(n[i] & kNormalLowMask);   /* 0..2^24-1 */
         hi += static_cast<int64_t>(h) * w[i];
         lo += static_cast<int64_t>(l) * w[i];
     }
-    hi += lo >> 24;
-    return hi > 0 || (hi == 0 && (lo & 0xFFFFFF) != 0);
+    hi += lo >> kNormalSplitBits;
+    return hi > 0 || (hi == 0 && (lo & kNormalLowMask) != 0);
+}
+
+[[gnu::noinline]] inline bool quad_visible_general(const sat_vec3_t& a,const sat_vec3_t& b,
+                         const sat_vec3_t& c,const sat_vec3_t& d,
+                         const sat_vec3_t& eye) {
+    const sat_vec3_t da=vec3_sub(d,a),ba=vec3_sub(b,a);
+    /* A separate wide kernel keeps its large SH-2 stack/register footprint
+     * out of ordinary small faces. Six offset/OR tests prove every edge is
+     * in [-32768,32767]. Cross components have magnitude <=2147450880.
+     * The joint normal L1 bound is 2^32-1 (not three independent maxima):
+     * convexity in each edge coordinate puts its maximum at a box corner.
+     * Thus every dot partial sum has magnitude <=(2^32-1)*2^31, which
+     * fits int64 even for INT32_MIN view offsets. Host corner/oracle tests
+     * retain both bounds; degenerate normals still use the wide kernel. */
+    constexpr unsigned kFastEdgeBits = 16;
+    static_assert(kFastEdgeBits <= 16, "The exact cross/dot proof requires signed 16-bit edges");
+    constexpr uint32_t kFastEdgeBias = uint32_t{1} << (kFastEdgeBits - 1);
+    constexpr uint32_t kFastEdgeSpan = uint32_t{1} << kFastEdgeBits;
+    const uint32_t edge_range=(static_cast<uint32_t>(da.x)+kFastEdgeBias) |
+        (static_cast<uint32_t>(da.y)+kFastEdgeBias) |
+        (static_cast<uint32_t>(da.z)+kFastEdgeBias) |
+        (static_cast<uint32_t>(ba.x)+kFastEdgeBias) |
+        (static_cast<uint32_t>(ba.y)+kFastEdgeBias) |
+        (static_cast<uint32_t>(ba.z)+kFastEdgeBias);
+    if(edge_range<kFastEdgeSpan) {
+        const int32_t nx=da.y*ba.z-da.z*ba.y;
+        const int32_t ny=da.z*ba.x-da.x*ba.z;
+        const int32_t nz=da.x*ba.y-da.y*ba.x;
+        if(nx || ny || nz) {
+            const sat_vec3_t centre=vec3(
+                static_cast<sat_fx16_t>((static_cast<int64_t>(a.x)+b.x+c.x+d.x)/4),
+                static_cast<sat_fx16_t>((static_cast<int64_t>(a.y)+b.y+c.y+d.y)/4),
+                static_cast<sat_fx16_t>((static_cast<int64_t>(a.z)+b.z+c.z+d.z)/4));
+            const sat_vec3_t v=vec3_sub(eye,centre);
+            return static_cast<int64_t>(nx)*v.x+static_cast<int64_t>(ny)*v.y+
+                static_cast<int64_t>(nz)*v.z>0;
+        }
+    }
+    // Degenerate corners and larger faces retain the general exact path.
+    return quad_visible_wide(a,b,c,d,eye);
+}
+
+/* The common case of quad_visible_general in 32-bit arithmetic: returns 1
+ * visible, 0 hidden, or -1 when the general path must decide. With
+ * |a| < 2^28, |c| < 2^29 and both edges from a in [-2^15,2^15), the corner
+ * sum 3a + (b-a) + (d-a) + c is below 2^31 in magnitude, so its truncating
+ * quarter equals the 64-bit one; a zero normal is left to the general path,
+ * which makes the same decisions in the same order. */
+[[gnu::always_inline]] inline int quad_visible_small_body(const sat_vec3_t& a,const sat_vec3_t& b,
+                         const sat_vec3_t& c,const sat_vec3_t& d,
+                         const sat_vec3_t& eye) {
+    int32_t nx,ny,nz;
+    {
+        const int32_t ax=a.x,ay=a.y,az=a.z;
+        const int32_t dax=d.x-ax,day=d.y-ay,daz=d.z-az;
+        const int32_t bax=b.x-ax,bay=b.y-ay,baz=b.z-az;
+        if(((static_cast<uint32_t>(dax)+0x8000u)|(static_cast<uint32_t>(day)+0x8000u)|
+            (static_cast<uint32_t>(daz)+0x8000u)|(static_cast<uint32_t>(bax)+0x8000u)|
+            (static_cast<uint32_t>(bay)+0x8000u)|(static_cast<uint32_t>(baz)+0x8000u))>>16) return -1;
+        nx=day*baz-daz*bay;
+        ny=daz*bax-dax*baz;
+        nz=dax*bay-day*bax;
+    }
+    if((nx|ny|nz)==0) return -1;
+    /* Reload the corners instead of keeping nine edge/corner registers live
+     * across the products: SH-2 has 15 usable registers and a cached load
+     * is cheaper than a spill. The corner sum equals 3a+(b-a)+(d-a)+c. */
+    const sat_vec3_t* pa=&a;
+    const sat_vec3_t* pb=&b;
+    const sat_vec3_t* pd=&d;
+#if defined(__GNUC__)
+    __asm__("" : "+r"(pa), "+r"(pb), "+r"(pd));
+#endif
+    int32_t vx,vy,vz;
+    {
+        const int32_t ax=pa->x,ay=pa->y,az=pa->z;
+        const int32_t cx=c.x,cy=c.y,cz=c.z;
+        if((((static_cast<uint32_t>(ax)+(1u<<28))|(static_cast<uint32_t>(ay)+(1u<<28))|
+            (static_cast<uint32_t>(az)+(1u<<28)))>>29)|
+           (((static_cast<uint32_t>(cx)+(1u<<29))|(static_cast<uint32_t>(cy)+(1u<<29))|
+            (static_cast<uint32_t>(cz)+(1u<<29)))>>30)) return -1;
+        vx=eye.x-(ax+pb->x+pd->x+cx)/4;
+        vy=eye.y-(ay+pb->y+pd->y+cy)/4;
+        vz=eye.z-(az+pb->z+pd->z+cz)/4;
+    }
+    return static_cast<int64_t>(nx)*vx+static_cast<int64_t>(ny)*vy+
+        static_cast<int64_t>(nz)*vz>0;
+}
+
+[[gnu::noinline]] inline int quad_visible_small(const sat_vec3_t& a,const sat_vec3_t& b,
+                         const sat_vec3_t& c,const sat_vec3_t& d,
+                         const sat_vec3_t& eye) {
+    return quad_visible_small_body(a,b,c,d,eye);
+}
+
+/* Keep the kernels out of large scene loops: forcing them inline inflates
+ * their code and live register set on the 4 KiB-cache SH-2. */
+inline bool quad_visible(const sat_vec3_t& a,const sat_vec3_t& b,
+                         const sat_vec3_t& c,const sat_vec3_t& d,
+                         const sat_vec3_t& eye) {
+    const int small=quad_visible_small(a,b,c,d,eye);
+    return small>=0 ? small!=0 : quad_visible_general(a,b,c,d,eye);
 }
 
 inline bool quad_visible(const sat_quad3_t& quad, const sat_vec3_t& eye) {

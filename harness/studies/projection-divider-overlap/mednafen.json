@@ -1,0 +1,49 @@
+{
+  "schema": "libsaturn.projection-divider-overlap.v1",
+  "workload": {
+    "example": "cube_pipeline_bench",
+    "stage": 3,
+    "subdivisions": 12,
+    "vertices_per_actor": 866,
+    "actors": 2,
+    "camera_path": "sparse right axis along world X"
+  },
+  "mednafen_native_cd": {
+    "emulator": "Mednafen",
+    "region": "North America",
+    "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+    "seconds_per_run": 20,
+    "frt_ticks_per_geometry_stage": {
+      "baseline": [4961, 4960],
+      "overlapped": [4666, 4666]
+    },
+    "median_ticks": {
+      "baseline": 4960.5,
+      "overlapped": 4666
+    },
+    "change_percent": -5.9369,
+    "model_region_crop": {
+      "size_pixels": [640, 280],
+      "offset_pixels": [0, 160],
+      "baseline_and_candidate_md5": "17a924141e3bd420bae009991307e307"
+    },
+    "baseline_elf_sha256": "7e4634b647cbd9dfdfbbfa4b34b1d5f392ff62bc831b9f5b0b7b5ced255cf13c",
+    "overlapped_elf_sha256": "cc721c4a24930067c5f3b2b2a157abf0c82586a20dcc83f9f7d6611de59251a5",
+    "baseline_recording_screenshot_sha256": "34f8eee35d6460012938df7dbd19d832790f73b861d1d17e8120528df8f59092",
+    "overlapped_recording_screenshot_sha256": "d08e1df21548026daf05e8bf447af4be7e5d68f41795a06e9834d4e48047a0bf",
+    "scope": "Two independent 20-second CD boots per build. The final retained screenshot displays the per-frame geometry FRT ticks. This is emulator timing, not physical Saturn qualification."
+  },
+  "ymir_injection": {
+    "frt_frequency_hz": 210600,
+    "geometry_median_us": {
+      "baseline": 13637.2,
+      "overlapped": 14444.4
+    },
+    "work_median_us": {
+      "baseline": 26989.6,
+      "overlapped": 27806.3
+    },
+    "submissions_per_nominal_second": 30,
+    "scope": "Single 300-field run for baseline and 900-field run for candidate; sample intervals are not comparable in field count. Ymir computes DIVU results immediately and does not model the SH-2's 39-cycle latency or result-access waits, so these values expose overhead without the targeted latency."
+  }
+}

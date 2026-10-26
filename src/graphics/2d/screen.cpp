@@ -16,6 +16,7 @@
 
 #include "src/core/runtime/internal.hpp"
 #include "src/core/runtime/state.hpp"
+#include "src/hal/vdp1/vdp1.hpp"
 
 extern "C" sat_result_t sat_draw_rect_screen(
     int16_t x,
@@ -62,14 +63,13 @@ extern "C" sat_result_t sat_ascii_font_draw_text_screen_indexed8(
         return st;
     }
     const sat_video_config_t& cfg = saturn::core::g_state.config;
-    return sat_ascii_font_draw_text_indexed8(
-        font,
-        text,
-        saturn::internal::screen_to_native(screen_x, cfg.width),
-        saturn::internal::screen_to_native(screen_y, cfg.height),
-        char_spacing,
-        palette_override,
-        flags);
+    const int x = saturn::internal::screen_to_native(screen_x, cfg.width);
+    const int y = saturn::internal::screen_to_native(screen_y, cfg.height);
+    if (font == nullptr || text == nullptr) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return saturn::hal::vdp1::push_ascii_text(
+        font->glyphs, text, x, y, char_spacing, palette_override, flags);
 }
 
 extern "C" sat_result_t sat_ascii_font_draw_text_screen_centered_indexed8(

@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stddef.h>
+#include "src/core/memory/bytes.h"
 
 /* Minimal definitions to avoid pulling in sys/stat.h and sys/types.h
    which may not exist in bare-metal toolchains. */
@@ -15,20 +16,11 @@ struct stat {
 };
 
 void *memcpy(void *dest, const void *src, size_t n) {
-    unsigned char *d = (unsigned char *)dest;
-    const unsigned char *s = (const unsigned char *)src;
-    while (n--) {
-        *d++ = *s++;
-    }
-    return dest;
+    return saturn_copy_bytes(dest,src,n);
 }
 
 void *memset(void *dest, int c, size_t n) {
-    unsigned char *d = (unsigned char *)dest;
-    while (n--) {
-        *d++ = (unsigned char)c;
-    }
-    return dest;
+    return saturn_fill_bytes(dest,c,n);
 }
 
 int strcmp(const char *s1, const char *s2) {

@@ -15,6 +15,9 @@ extern "C" sat_result_t sat_begin_frame(void) {
     if (st != SAT_OK) {
         return st;
     }
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(saturn::hal::vdp1::command_batch_pending())return SAT_ERR_BUSY;
+#endif
     saturn::hal::vdp1::begin_frame(g_state.command_buffer, saturn::internal::kCmdCapacity);
     saturn::hal::vdp2_color_calc::begin_frame();
     tint_cache_begin_frame(g_tint_cache);
@@ -28,6 +31,9 @@ extern "C" sat_result_t sat_end_frame(void) {
     if (st != SAT_OK) {
         return st;
     }
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(saturn::hal::vdp1::command_batch_pending())return SAT_ERR_BUSY;
+#endif
     saturn::hal::vdp1::submit();
     return SAT_OK;
 }

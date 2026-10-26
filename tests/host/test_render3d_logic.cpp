@@ -458,22 +458,40 @@ TEST(heap_sort_matches_stable_reference) {
     }
 }
 
-/* project_axis must equal the clamped division it replaced, including right
- * at the clamp boundary and for divisors past 32 bits. */
+/* Independent signed-division oracle: all coordinate/scale signs, extreme
+ * depth, odd numerators, and both sides of the clamp transition. */
 TEST(project_axis_matches_clamped_division) {
-    const int64_t divisors[] = {1, 2, 7, 1000, 65536, 0x7FFFFFFF,
-                                (int64_t)0x7FFFFFFF + 1, (int64_t)1 << 40};
-    const int64_t quotients[] = {-5000, -2049, -2048, -2047, -1, 0, 1, 2047, 2048, 2049, 5000};
-    for (int64_t w2 : divisors) {
-        for (int64_t q : quotients) {
-            for (int64_t d = -1; d <= 1; ++d) {
-                const int64_t num = q * w2 + d;
-                ASSERT_EQ(project_axis(num, w2), clamp_coord64(num / w2));
+    const int32_t depths[] = {1, 2, 7, 1000, 65536, 0x3FFFFFFF,
+                              0x40000000, 0x7FFFFFFF};
+    const int32_t values[] = {INT32_MIN, INT32_MIN+1, -65537, -4097, -4096,
+        -4095, -2047, -3, -1, 0, 1, 3, 2047, 4095, 4096, 4097, 65537,
+        INT32_MAX-1, INT32_MAX};
+    auto check=[](int32_t coordinate,int32_t scale,int32_t depth) {
+        const int64_t num=static_cast<int64_t>(coordinate)*scale;
+        const int64_t den=static_cast<int64_t>(depth)*2;
+        ASSERT_EQ(project_axis(coordinate,scale,depth),clamp_coord64(num/den));
+    };
+    for (int32_t depth:depths) {
+        for (int32_t coordinate:values)
+            for (int32_t scale:values) check(coordinate,scale,depth);
+        const int32_t quotients[]={-2049,-2048,-2047,-1,0,1,2047,2048,2049};
+        for (int32_t q:quotients) {
+            for (int32_t d=-1;d<=1;++d) {
+                const int64_t coordinate=static_cast<int64_t>(q)*depth*2+d;
+                if (coordinate>=INT32_MIN && coordinate<=INT32_MAX)
+                    check(static_cast<int32_t>(coordinate),1,depth);
             }
         }
-        const int64_t huge = (int64_t)1 << 60;
-        ASSERT_EQ(project_axis(huge, w2), clamp_coord64(huge / w2));
-        ASSERT_EQ(project_axis(-huge, w2), clamp_coord64(-huge / w2));
+    }
+    uint32_t random=0x32F19A81u;
+    auto next=[&]() {random=random*1664525u+1013904223u;return random;};
+    for (unsigned i=0;i<50000;++i) {
+        const int32_t coordinate=static_cast<int32_t>(next());
+        const int32_t scale=static_cast<int32_t>(next());
+        const int32_t depth=static_cast<int32_t>((next()>>1)|1u);
+        check(coordinate,scale,depth);
+        // Real viewport scales keep many randomized quotients below the clamp.
+        check(coordinate,static_cast<int16_t>(scale),depth);
     }
 }
 
@@ -539,6 +557,104 @@ TEST(project_vertex_matches_project_native) {
     sat_projected_vertex_t behind = {};
     project_vertex(vp.m, sat_vec3_t{0, 0, fx_from_int(200)}, kW, kH, &behind);
     ASSERT_TRUE(behind.w <= 0);
+}
+
+TEST(batch_projection_matches_scalar_after_camera_changes) {
+    sat_vec3_t points[257];
+    uint32_t random=0x1AC83D25u;
+    auto value=[&]() {
+        random=random*1664525u+1013904223u;
+        return static_cast<int32_t>(random%8000001u)-4000000;
+    };
+    for (auto& p:points) p={value(),value(),value()};
+    for (unsigned frame=0; frame<96; ++frame) {
+        // Fractional coefficients exercise negative per-product rounding.
+        sat_mat4_t vp={};
+        for (auto& n:vp.m) n=value()/64;
+        vp.m[1]=vp.m[2]=vp.m[4]=vp.m[12]=0;
+        // Each formerly zero coefficient independently selects the fallback.
+        if (frame%5) {
+            const unsigned index[]={1,2,4,12};
+            vp.m[index[frame%5-1]]=12345;
+        }
+        sat_projected_vertex_t actual[257],expected[257];
+        for (unsigned i=0;i<257;++i) {
+            actual[i]=expected[i]={123,-456,789};
+            project_vertex(vp.m,points[i],352,240,&expected[i]);
+        }
+        project_vertices(vp.m,points,257,352,240,actual);
+        for (unsigned i=0;i<257;++i) {
+            ASSERT_EQ(actual[i].w,expected[i].w);
+            ASSERT_EQ(actual[i].x,expected[i].x);
+            ASSERT_EQ(actual[i].y,expected[i].y);
+        }
+    }
+    // Empty batches accept no input vertices and do not touch the output.
+    sat_projected_vertex_t untouched={123,-456,789};
+    const sat_mat4_t vp=make_view_proj(100);
+    project_vertices(vp.m,nullptr,0,kW,kH,&untouched);
+    ASSERT_EQ(untouched.x,123); ASSERT_EQ(untouched.y,-456);
+    ASSERT_EQ(untouched.w,789);
+}
+
+TEST(sparse_projection_prefetch_matches_scalar_for_front_vertices) {
+    sat_mat4_t vp={};
+    vp.m[0]=SAT_FX16_ONE;
+    vp.m[5]=SAT_FX16_ONE;
+    vp.m[14]=SAT_FX16_ONE;
+    sat_vec3_t points[257];
+    uint32_t random=0xD19A34B7u;
+    for (auto& p:points) {
+        random=random*1664525u+1013904223u;
+        const int32_t depth=6+static_cast<int32_t>(random%75u);
+        random=random*1664525u+1013904223u;
+        const int32_t x=static_cast<int32_t>(random%(2u*static_cast<uint32_t>(depth)+1u))-depth;
+        random=random*1664525u+1013904223u;
+        const int32_t y=static_cast<int32_t>(random%(2u*static_cast<uint32_t>(depth)+1u))-depth;
+        p={fx_from_int(x),fx_from_int(y),fx_from_int(depth)};
+    }
+    sat_projected_vertex_t actual[257],expected[257];
+    project_vertices(vp.m,points,257,352,240,actual);
+    for (unsigned i=0;i<257;++i) {
+        project_vertex(vp.m,points[i],352,240,&expected[i]);
+        ASSERT_EQ(actual[i].w,expected[i].w);
+        ASSERT_EQ(actual[i].x,expected[i].x);
+        ASSERT_EQ(actual[i].y,expected[i].y);
+    }
+}
+
+/* A rotated camera takes the general loop; mostly unclamped front points
+ * exercise its overlapped divides, with a few behind or clamped. */
+TEST(general_projection_prefetch_matches_scalar_for_rotated_camera) {
+    uint32_t random=0x5EED1234u;
+    auto next=[&](uint32_t range) {
+        random=random*1664525u+1013904223u;
+        return static_cast<int32_t>(random%range);
+    };
+    for (unsigned frame=0; frame<32; ++frame) {
+        sat_mat4_t vp={};
+        // A yaw rotation (cos, sin in 16.16) plus a small fractional tilt.
+        const int32_t c=40000+next(20000),s=next(50000)-25000;
+        vp.m[0]=c; vp.m[2]=s; vp.m[3]=next(4000)-2000;
+        vp.m[4]=next(3000)-1500; vp.m[5]=SAT_FX16_ONE; vp.m[6]=next(3000)-1500;
+        vp.m[12]=-s; vp.m[13]=next(800)-400; vp.m[14]=c; vp.m[15]=next(400000)-80000;
+        sat_vec3_t points[257];
+        for (auto& p:points) {
+            const int32_t depth=fx_from_int(4+next(60));
+            p={next(2*depth+1)-depth,next(2*depth+1)-depth,depth};
+        }
+        sat_projected_vertex_t actual[257],expected[257];
+        for (unsigned i=0;i<257;++i) {
+            actual[i]=expected[i]={123,-456,789};
+            project_vertex(vp.m,points[i],352,240,&expected[i]);
+        }
+        project_vertices(vp.m,points,257,352,240,actual);
+        for (unsigned i=0;i<257;++i) {
+            ASSERT_EQ(actual[i].w,expected[i].w);
+            ASSERT_EQ(actual[i].x,expected[i].x);
+            ASSERT_EQ(actual[i].y,expected[i].y);
+        }
+    }
 }
 
 /* Screen-space culling (signed projected area) must agree with the world
@@ -953,12 +1069,13 @@ int main() {
     project_axis_matches_clamped_division();
     project_quad_reuses_repeated_corners();
     project_vertex_matches_project_native();
+    batch_projection_matches_scalar_after_camera_changes();
     screen_area_culling_matches_world_culling();
     bucket_paint_order_is_complete_and_farthest_first();
     grouped_paint_order_resolves_depth_per_pass();
     diagonal_area_equals_shoelace();
     gouraud_table_words_and_light();
     vertex_normals_point_out_of_a_box();
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 37);
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 38);
     return 0;
 }

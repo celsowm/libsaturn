@@ -4,12 +4,23 @@
 #include "src/core/geometry/mesh_logic.hpp"
 #include "src/graphics/3d/rendering/logic.hpp"
 #include "src/graphics/3d/scene/capture.hpp"
+#include "src/graphics/3d/scene/faces_flush.hpp"
 #include "src/hal/sh2/frt.hpp"
+#include "src/graphics/vdp1/projected.hpp"
+#include "src/core/runtime/logic.hpp"
+#include "src/core/runtime/state.hpp"
+#include "src/hal/vdp1/vdp1.hpp"
 
 #include <stdint.h>
 
 #ifndef SAT_PROFILE_METRICS
 #define SAT_PROFILE_METRICS 0
+#endif
+
+#if UINTPTR_MAX == UINT32_MAX
+static_assert(sizeof(sat_scene3d_face_t)==104u,"compiled material tag must use face padding");
+static_assert(sizeof(sat_scene3d_projected_face_t)==24u,"projected hot queue ABI");
+static_assert(sizeof(sat_scene3d_material_program_t)==16u,"compact material program ABI");
 #endif
 
 namespace {
@@ -28,6 +39,18 @@ uint32_t g_test_emit_ticks;
 uint32_t g_test_projection_ticks;
 uint32_t g_test_prepare_ticks;
 #endif
+
+uint16_t remaining(const sat_scene3d_faces_t* scene) {
+    return static_cast<uint16_t>(scene->capacity-scene->count-scene->projected_gap);
+}
+const sat_scene3d_projected_face_t& projected_at(const sat_scene3d_faces_t* scene,uint16_t index) {
+    return scene->projected_entries[scene->projected_indices?scene->projected_indices[index]:index];
+}
+sat_scene3d_projected_face_t& append_projected(sat_scene3d_faces_t* scene) {
+    const uint16_t physical=static_cast<uint16_t>(scene->count+scene->projected_gap);
+    if(scene->projected_indices)scene->projected_indices[scene->count]=physical;
+    return scene->projected_entries[physical];
+}
 
 bool valid_material(const sat_scene3d_material_t& m) {
     if ((m.sprite_flags & ~SAT_SPRITE_FLAG_MESH) != 0u ||
@@ -138,6 +161,84 @@ sat_result_t instance_bounds_visible(
     return SAT_OK;
 }
 
+/* Exact fast path for unit signed-axis permutations (quarter-turns, mirrors
+ * and axis swaps). It replaces fixed-point multiplies by exact copies/signs;
+ * scaled or interpolated rotations retain the generic matrix-vector path. */
+bool transform_signed_axes(
+    const sat_mat4_t& transform,const sat_vec3_t* input,uint16_t count,
+    sat_vec3_t* output) {
+    constexpr sat_fx16_t kOne=SAT_FX16_ONE;
+    const bool yaw_positive=transform.m[0]==0 && transform.m[1]==0 &&
+        transform.m[2]==kOne && transform.m[4]==0 && transform.m[5]==kOne &&
+        transform.m[6]==0 && transform.m[8]==-kOne && transform.m[9]==0 &&
+        transform.m[10]==0;
+    const bool yaw_negative=transform.m[0]==0 && transform.m[1]==0 &&
+        transform.m[2]==-kOne && transform.m[4]==0 && transform.m[5]==kOne &&
+        transform.m[6]==0 && transform.m[8]==kOne && transform.m[9]==0 &&
+        transform.m[10]==0;
+    if((yaw_positive || yaw_negative) && transform.m[12]==0 &&
+       transform.m[13]==0 && transform.m[14]==0 && transform.m[15]==kOne) {
+        const int32_t tx=transform.m[3],ty=transform.m[7],tz=transform.m[11];
+        const int32_t direction=yaw_positive?1:-1;
+        for(uint16_t i=0;i<count;++i) {
+            const sat_vec3_t& p=input[i];
+            const int64_t x=static_cast<int64_t>(direction)*p.z+tx;
+            const int64_t z=-static_cast<int64_t>(direction)*p.x+tz;
+            const int64_t y=static_cast<int64_t>(p.y)+ty;
+            if(x<INT32_MIN || x>INT32_MAX || y<INT32_MIN || y>INT32_MAX ||
+               z<INT32_MIN || z>INT32_MAX ||
+               ((direction<0 && p.z==INT32_MIN) ||
+                (direction>0 && p.x==INT32_MIN))) {
+                const sat_vec4_t transformed=saturn::core::math3d::mat4_transform_vec4(
+                    transform.m,p.x,p.y,p.z,SAT_FX16_ONE);
+                output[i]={transformed.x,transformed.y,transformed.z};
+            } else {
+                output[i]={static_cast<int32_t>(x),static_cast<int32_t>(y),
+                           static_cast<int32_t>(z)};
+            }
+        }
+        return true;
+    }
+    uint8_t axis[3]={0u,0u,0u};
+    int8_t sign[3]={0,0,0};
+    uint8_t used=0u;
+    for(uint8_t row=0;row<3u;++row) {
+        uint8_t found=0u;
+        for(uint8_t col=0;col<3u;++col) {
+            const sat_fx16_t value=transform.m[row*4u+col];
+            if(value==0)continue;
+            if((value!=kOne && value!=-kOne) || found)return false;
+            found=1u;axis[row]=col;sign[row]=value==kOne?1:-1;
+        }
+        if(!found || (used&(1u<<axis[row])))return false;
+        used=static_cast<uint8_t>(used|(1u<<axis[row]));
+    }
+    if(transform.m[12]!=0 || transform.m[13]!=0 || transform.m[14]!=0 ||
+       transform.m[15]!=kOne)return false;
+    const int32_t translation[3]={transform.m[3],transform.m[7],transform.m[11]};
+    for(uint16_t i=0;i<count;++i) {
+        const int32_t source[3]={input[i].x,input[i].y,input[i].z};
+        int32_t destination[3]={0,0,0};
+        bool exact=true;
+        for(uint8_t row=0;row<3u;++row) {
+            const int32_t value=source[axis[row]];
+            if(sign[row]<0 && value==INT32_MIN) { exact=false;break; }
+            const int64_t signed_value=static_cast<int64_t>(sign[row])*value;
+            const int64_t result=signed_value+translation[row];
+            if(result<INT32_MIN || result>INT32_MAX) { exact=false;break; }
+            destination[row]=static_cast<int32_t>(result);
+        }
+        if(!exact) {
+            const sat_vec4_t transformed=saturn::core::math3d::mat4_transform_vec4(
+                transform.m,input[i].x,input[i].y,input[i].z,SAT_FX16_ONE);
+            output[i]={transformed.x,transformed.y,transformed.z};
+        } else {
+            output[i]={destination[0],destination[1],destination[2]};
+        }
+    }
+    return true;
+}
+
 /* One unsigned painter key: pass ascending in the high 8 bits, then camera
  * depth far-to-near in the low 24, which is exactly the order
  * paint_order_grouped_buckets emits. Depth keeps 1/4096 of a world unit --
@@ -160,6 +261,67 @@ uint32_t painter_key(int64_t depth_sum, uint16_t pass) {
  * into the record only when the face needs the clipping fallback: a
  * projected-safe face never reads `world`, and every byte a record carries
  * is written (uncached, on the Slave) and copied again on merge. */
+/* Only the instance-wide min-W/coordinate proof may select KnownSafe.
+ * Specialize its kernel so the SH-2 does not carry fallback branches or
+ * world-corner arguments through the common per-face admission path. */
+void copy_face(sat_scene3d_face_t& dst,const sat_scene3d_face_t& src);
+
+#if SAT_NATIVE_SCENE_COMMANDS
+void native_write(sat_vdp1_native_command_t& c,const sat_quad2_t& q,
+    const sat_scene3d_material_program_t* program,uint16_t rgb) {
+    if(program) {
+        const uint16_t* h=program->command;
+        c.ctrl=h[0];c.pmod=h[2];c.colr=h[3];c.srca=h[4];c.size=h[5];
+    } else {
+        c.ctrl=4u;c.pmod=saturn::core::kVdp1PolygonPmod;c.colr=rgb;c.srca=0;c.size=0;
+    }
+    c.link=0;c.grda=0;
+    c.xa=q.x[0];c.ya=q.y[0];c.xb=q.x[1];c.yb=q.y[1];
+    c.xc=q.x[2];c.yc=q.y[2];c.xd=q.x[3];c.yd=q.y[3];
+    asm volatile("" ::: "memory");
+    c.pad=1u;
+}
+#endif
+
+uint16_t cold_limit(const sat_scene3d_faces_t* scene) {
+    return scene->cold_capacity?scene->cold_capacity:scene->capacity;
+}
+/* False when the face needs a cold record and none is left: the caller
+ * then drops it and counts it as skipped. */
+bool store_face(sat_scene3d_faces_t* scene,const sat_scene3d_face_t& face) {
+    if(!scene->projected_entries) {
+        if(&face!=&scene->entries[scene->count])
+            copy_face(scene->entries[scene->count],face);
+        return true;
+    }
+    const bool cold=!face.program_valid &&
+        !(face.projected_safe && !face.gouraud_valid && face.material.kind==SAT_SCENE3D_RGB);
+    if(cold && scene->cold_count>=cold_limit(scene)) {++scene->skipped_faces;return false;}
+    auto& hot=append_projected(scene);
+    hot.cached_projected=face.cached_projected;
+    hot.reserved=0;
+    if(face.program_valid) {
+        hot.kind=SAT_SCENE3D_PROJECTED_PROGRAM;hot.program=face.program;
+    } else if(!cold) {
+        hot.kind=SAT_SCENE3D_PROJECTED_RGB;hot.rgb555=face.material.rgb555;
+    } else {
+        auto& cold=scene->entries[scene->cold_count++];
+        copy_face(cold,face);
+        hot.kind=SAT_SCENE3D_PROJECTED_COLD;hot.cold=&cold;
+    }
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(scene->native_commands && hot.kind!=SAT_SCENE3D_PROJECTED_COLD) {
+        native_write(scene->native_commands[scene->count+scene->projected_gap],face.projected,
+            face.program_valid?face.program:nullptr,face.program_valid?0u:face.material.rgb555);
+        hot.reserved=1u;
+        return true;
+    }
+#endif
+    hot.projected=face.projected;
+    return true;
+}
+
+template<bool KnownSafe=false>
 sat_result_t append(sat_scene3d_faces_t* scene,
                     const sat_vec3_t* const corners[4],
                     const sat_projected_vertex_t* projected,
@@ -170,35 +332,111 @@ sat_result_t append(sat_scene3d_faces_t* scene,
     for (uint8_t c=0;c<4u;++c) {
         const sat_fx16_t depth=projected[indices[c]].w;
         sum+=depth;
-        if (depth>0) visible=true;
+        if constexpr (!KnownSafe) {
+            if (depth>0) visible=true;
+        }
     }
-    if (!visible) {
-        ++scene->culled_faces;
-        return SAT_OK;
+    if constexpr (!KnownSafe) {
+        if (!visible) {
+            ++scene->culled_faces;
+            return SAT_OK;
+        }
     }
-    if (scene->count>=scene->capacity) return SAT_ERR_CAPACITY;
-    sat_scene3d_face_t& item=scene->entries[scene->count];
+    if (!remaining(scene)) return SAT_ERR_CAPACITY;
+    sat_scene3d_face_t temporary;
+    sat_scene3d_face_t& item=scene->projected_entries?temporary:scene->entries[scene->count];
     for (uint8_t c=0;c<4u;++c) {
         item.projected.x[c]=projected[indices[c]].x;
         item.projected.y[c]=projected[indices[c]].y;
     }
     item.material=material;
     item.cached_projected=0u;
+    item.program_valid=0u;
     item.gouraud_valid=material.vertex_gouraud ? 1u : 0u;
     if (item.gouraud_valid) {
         for (uint8_t c=0;c<4u;++c)
             item.gouraud[c]=material.vertex_gouraud[indices[c]];
         item.material.vertex_gouraud=nullptr;
     }
-    item.projected_safe=safe_projection(*scene,projected,indices,
-        material.kind==SAT_SCENE3D_RGB)?1u:0u;
-    if (!item.projected_safe) {
-        for (uint8_t c=0;c<4u;++c) item.world.v[c]=*corners[c];
-        ++scene->clipped_faces;
+    if constexpr (KnownSafe) {
+        item.projected_safe=1u;
+    } else {
+        item.projected_safe=safe_projection(*scene,projected,indices,
+            material.kind==SAT_SCENE3D_RGB)?1u:0u;
+        if (!item.projected_safe) {
+            for (uint8_t c=0;c<4u;++c) item.world.v[c]=*corners[c];
+            ++scene->clipped_faces;
+        }
     }
+    if(!store_face(scene,item))return SAT_OK;
     scene->keys[scene->count]=painter_key(sum,pass);
     ++scene->count;
     return SAT_OK;
+}
+
+/* painter_key for four positive depths, without 64-bit arithmetic. Any
+ * depth >= 2^30 already puts the sum above kFaceDepthMax*64 = 2^30-128;
+ * otherwise the sum is below 2^32 and its floor quotient is a logical shift. */
+uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,uint16_t pass) {
+    uint32_t depth=kFaceDepthMax;
+    if(((w0|w1|w2|w3)>>30)==0u) {
+        const uint32_t quotient=(w0+w1+w2+w3)>>6;
+        if(quotient<depth) depth=quotient;
+    }
+    return ((kFacePassMax-static_cast<uint32_t>(pass))<<kFaceDepthBits)|depth;
+}
+
+/* The caller proved positive depths, coordinate bounds and capacity for the
+ * entire instance. Only opaque/unshaded compiled entries select this path. */
+[[gnu::always_inline]] inline void append_program_body(sat_scene3d_faces_t* scene,
+    const sat_projected_vertex_t* projected,const uint16_t indices[4],
+    const sat_scene3d_material_program_t* program,uint16_t pass) {
+    if(scene->projected_entries) {
+        auto& item=append_projected(scene);
+        uint32_t w[4];
+#if SAT_NATIVE_SCENE_COMMANDS
+        if(scene->native_commands) {
+            auto& cmd=scene->native_commands[scene->count+scene->projected_gap];
+            const uint16_t* h=program->command;
+            cmd.ctrl=h[0];cmd.link=0;cmd.pmod=h[2];cmd.colr=h[3];cmd.srca=h[4];cmd.size=h[5];
+            const auto& a=projected[indices[0]];const auto& b=projected[indices[1]];
+            const auto& c=projected[indices[2]];const auto& d=projected[indices[3]];
+            cmd.xa=a.x;cmd.ya=a.y;cmd.xb=b.x;cmd.yb=b.y;
+            cmd.xc=c.x;cmd.yc=c.y;cmd.xd=d.x;cmd.yd=d.y;
+            cmd.grda=0;asm volatile("" ::: "memory");cmd.pad=1u;
+            item.kind=SAT_SCENE3D_PROJECTED_PROGRAM;item.program=program;
+            item.cached_projected=0;item.reserved=1u;
+            scene->keys[scene->count]=painter_key_positive(
+                static_cast<uint32_t>(a.w),static_cast<uint32_t>(b.w),
+                static_cast<uint32_t>(c.w),static_cast<uint32_t>(d.w),pass);
+            ++scene->count;
+            return;
+        }
+#endif
+        for(uint8_t c=0;c<4u;++c) {
+            const auto& vertex=projected[indices[c]];
+            item.projected.x[c]=vertex.x;item.projected.y[c]=vertex.y;
+            w[c]=static_cast<uint32_t>(vertex.w);
+        }
+        item.kind=SAT_SCENE3D_PROJECTED_PROGRAM;item.program=program;
+        item.cached_projected=0;item.reserved=0;
+        scene->keys[scene->count]=painter_key_positive(w[0],w[1],w[2],w[3],pass);++scene->count;
+        return;
+    }
+    sat_scene3d_face_t& item=scene->entries[scene->count];
+    int64_t sum=0;
+    for (uint8_t c=0;c<4u;++c) {
+        const auto& vertex=projected[indices[c]];
+        item.projected.x[c]=vertex.x;item.projected.y[c]=vertex.y;sum+=vertex.w;
+    }
+    item.program=program;item.program_valid=1u;
+    item.projected_safe=1u;item.cached_projected=0u;item.gouraud_valid=0u;
+    scene->keys[scene->count]=painter_key(sum,pass);++scene->count;
+}
+
+void append_program(sat_scene3d_faces_t* scene,const sat_projected_vertex_t* projected,
+    const uint16_t indices[4],const sat_scene3d_material_program_t* program,uint16_t pass) {
+    append_program_body(scene,projected,indices,program,pass);
 }
 
 /* Copies the fields a queued face actually carries: `gouraud` only when
@@ -206,7 +444,9 @@ sat_result_t append(sat_scene3d_faces_t* scene,
  * record for an ordinary projected-safe face. */
 void copy_face(sat_scene3d_face_t& dst, const sat_scene3d_face_t& src) {
     dst.projected=src.projected;
-    dst.material=src.material;
+    dst.program_valid=src.program_valid;
+    if (src.program_valid) dst.program=src.program;
+    else dst.material=src.material;
     dst.projected_safe=src.projected_safe;
     dst.gouraud_valid=src.gouraud_valid;
     dst.cached_projected=src.cached_projected;
@@ -215,8 +455,13 @@ void copy_face(sat_scene3d_face_t& dst, const sat_scene3d_face_t& src) {
     if (!src.projected_safe) dst.world=src.world;
 }
 
+template<bool HasPrograms>
 sat_result_t emit(const sat_scene3d_faces_t& scene,
                   const sat_scene3d_face_t& face) {
+    if constexpr (HasPrograms) {
+        if (face.program_valid)
+            return saturn::internal::draw_projected_program(face.projected,*face.program);
+    }
     /* Projected cache items use these SAME RGB/indexed emission paths as
      * world faces; projected_safe forbids any world-space fallback. */
     if (face.material.kind==SAT_SCENE3D_RGB && face.projected_safe) {
@@ -226,10 +471,15 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
         return sat_draw_quad2_polygon(&face.projected,face.material.rgb555);
     }
     if (face.projected_safe) {
+        const sat_vdp1_texture_t* texture = face.material.kind==SAT_SCENE3D_INDEXED_TILED
+            ? face.material.tiled->full : face.material.texture;
+        if (!face.gouraud_valid &&
+            face.material.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE)
+            return saturn::internal::draw_projected_sprite(
+                face.projected, *texture, face.material.sprite_flags);
         sat_distorted_sprite_cmd_t cmd={};
         cmd.flags=face.material.sprite_flags;
-        cmd.texture=face.material.kind==SAT_SCENE3D_INDEXED_TILED
-            ? face.material.tiled->full : face.material.texture;
+        cmd.texture=texture;
         for (uint8_t i=0u;i<4u;++i) {
             cmd.x[i]=face.projected.x[i];
             cmd.y[i]=face.projected.y[i];
@@ -271,7 +521,214 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
         return sat_draw_polygon_quad3(&face.world,&p,face.material.rgb555);
     return textured;
 }
+template<bool HasPrograms>
+sat_result_t emit_ordered(sat_scene3d_faces_t* scene,uint32_t ordered) {
+    for (uint32_t i=0;i<ordered;++i) {
+        const auto& face=scene->entries[scene->order[i]];
+        if (!face.projected_safe) ++scene->fallback_faces;
+        const sat_result_t emitted=emit<HasPrograms>(*scene,face);
+        if (emitted==SAT_ERR_UNSUPPORTED) {
+            ++scene->skipped_faces;
+            continue;
+        }
+        if (emitted!=SAT_OK) return emitted;
+        if (face.cached_projected) ++scene->emitted_cached;
+        else ++scene->emitted_faces;
+    }
+    return SAT_OK;
+}
+
+/* Emits the run of program faces starting at order[*i], exactly as one
+ * draw_projected_program call per face would: same checks in the same
+ * order, same command words, same counters, and on an error the faces
+ * before the failing one stay emitted. Only the per-face call chain and
+ * its repeated global checks are gone. */
+/* Two consecutive 16-bit command words as one 32-bit store: `first` at the
+ * lower address on either byte order (the SH-2 is big-endian; host tests
+ * are not). */
+inline uint32_t command_pair(uint16_t first,uint16_t second) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__==__ORDER_LITTLE_ENDIAN__
+    return (static_cast<uint32_t>(second)<<16)|first;
+#else
+    return (static_cast<uint32_t>(first)<<16)|second;
+#endif
+}
+
+template<bool Indirect>
+sat_result_t emit_program_run(sat_scene3d_faces_t* scene,uint32_t* i,uint32_t ordered) {
+    SAT_TRY(saturn::core::require_initialized());
+    uint32_t available;
+    auto* const base=saturn::hal::vdp1::projected_program_slots(&available);
+    uint32_t* out=reinterpret_cast<uint32_t*>(base);
+    uint32_t n=0u,cached=0u;
+    sat_result_t st=SAT_OK;
+    const uint16_t* const order=scene->order;
+    const sat_scene3d_projected_face_t* const entries=scene->projected_entries;
+    uint32_t k=*i;
+    for(;k<ordered;++k) {
+        const uint16_t logical=order[k];
+        const auto& hot=entries[Indirect?scene->projected_indices[logical]:logical];
+        if(hot.kind!=SAT_SCENE3D_PROJECTED_PROGRAM)break;
+        const sat_vdp1_projected_program_t& program=*hot.program;
+        const sat_vdp1_texture_t* const texture=program.texture;
+        if(!texture) {st=SAT_ERR_INVALID_ARG;break;}
+        if(!base) {st=SAT_ERR_NOT_INITIALIZED;break;}
+        if(!texture->valid) {st=SAT_ERR_INVALID_ARG;break;}
+        if(n==available) {st=SAT_ERR_CAPACITY;break;}
+        const uint16_t* const prefix=program.command;
+        const sat_quad2_t& q=hot.projected;
+        out[0]=command_pair(prefix[0],0u);
+        out[1]=command_pair(prefix[2],prefix[3]);
+        out[2]=command_pair(prefix[4],prefix[5]);
+        out[3]=command_pair(static_cast<uint16_t>(q.x[0]),static_cast<uint16_t>(q.y[0]));
+        out[4]=command_pair(static_cast<uint16_t>(q.x[1]),static_cast<uint16_t>(q.y[1]));
+        out[5]=command_pair(static_cast<uint16_t>(q.x[2]),static_cast<uint16_t>(q.y[2]));
+        out[6]=command_pair(static_cast<uint16_t>(q.x[3]),static_cast<uint16_t>(q.y[3]));
+        out[7]=0u;
+        out+=8;
+        ++n;
+        if(hot.cached_projected)++cached;
+    }
+    saturn::hal::vdp1::commit_projected_programs(n);
+    scene->emitted_cached=static_cast<uint16_t>(scene->emitted_cached+cached);
+    scene->emitted_faces=static_cast<uint16_t>(scene->emitted_faces+(n-cached));
+    *i=k;
+    return st;
+}
+
+template<bool Indirect>
+sat_result_t emit_projected_ordered(sat_scene3d_faces_t* scene,uint32_t ordered) {
+    for(uint32_t i=0;i<ordered;++i) {
+        const uint16_t logical=scene->order[i];
+        const auto& hot=scene->projected_entries[Indirect?scene->projected_indices[logical]:logical];
+        sat_result_t st;
+#if SAT_NATIVE_SCENE_COMMANDS
+        if(scene->native_batch && hot.reserved==1u) {
+            const uint16_t physical=Indirect?scene->projected_indices[logical]:logical;
+            st=sat_vdp1_command_batch_link(scene->native_batch,
+                static_cast<uint16_t>(scene->native_batch->checkpoint.used+physical));
+            if(st!=SAT_OK)return st;
+            if(hot.cached_projected)++scene->emitted_cached;
+            else ++scene->emitted_faces;
+            continue;
+        }
+        sat_vdp1_command_stats_t before{};
+        if(scene->native_batch)SAT_TRY(sat_vdp1_command_stats(&before));
+#endif
+        if(hot.kind==SAT_SCENE3D_PROJECTED_PROGRAM
+#if SAT_NATIVE_SCENE_COMMANDS
+           && !scene->native_batch
+#endif
+           ) {
+            SAT_TRY(emit_program_run<Indirect>(scene,&i,ordered));
+            --i; /* the loop increment resumes at the first non-program face */
+            continue;
+        }
+        else if(hot.kind==SAT_SCENE3D_PROJECTED_PROGRAM)
+            st=saturn::internal::draw_projected_program(hot.projected,*hot.program);
+        else if(hot.kind==SAT_SCENE3D_PROJECTED_RGB)
+            st=sat_draw_quad2_polygon(&hot.projected,hot.rgb555);
+        else {
+            if(!hot.cold->projected_safe)++scene->fallback_faces;
+            st=emit<true>(*scene,*hot.cold);
+        }
+        if(st==SAT_ERR_UNSUPPORTED) {++scene->skipped_faces;continue;}
+        if(st!=SAT_OK)return st;
+#if SAT_NATIVE_SCENE_COMMANDS
+        if(scene->native_batch) {
+            sat_vdp1_command_stats_t after{};
+            SAT_TRY(sat_vdp1_command_stats(&after));
+            for(uint16_t id=before.used;id<after.used;++id)
+                SAT_TRY(sat_vdp1_command_batch_link(scene->native_batch,id));
+        }
+#endif
+        if(hot.cached_projected)++scene->emitted_cached;
+        else ++scene->emitted_faces;
+    }
+    return SAT_OK;
+}
+/* Validity and the guaranteed command count in one pass: the queue is
+ * 24 bytes a face, and each pass over it is cache misses. */
+template<bool Indirect>
+bool projected_census(const sat_scene3d_faces_t* scene,uint32_t* commands) {
+    uint32_t count=0u;
+    bool all=true;
+    for(uint16_t i=0;i<scene->count;++i) {
+        const auto& hot=scene->projected_entries[Indirect?scene->projected_indices[i]:i];
+        bool valid;
+        if(hot.kind==SAT_SCENE3D_PROJECTED_COLD) {
+            valid=hot.cold && valid_material(hot.cold->material);
+            if(hot.cold && hot.cold->projected_safe)++count;
+        } else {
+            valid=hot.kind==SAT_SCENE3D_PROJECTED_RGB ||
+                (hot.kind==SAT_SCENE3D_PROJECTED_PROGRAM && hot.program &&
+                 hot.program->texture && hot.program->texture->valid);
+            ++count;
+        }
+        all=all && valid;
+    }
+    if(commands)*commands=count;
+    return all;
+}
+template<bool Indirect>
+bool valid_projected_queue(const sat_scene3d_faces_t* scene) {
+    return projected_census<Indirect>(scene,nullptr);
+}
 } // namespace
+
+extern "C" sat_result_t sat_scene3d_faces_use_projected_storage(
+    sat_scene3d_faces_t* scene,sat_scene3d_projected_face_t* storage,uint16_t capacity) {
+    if(!scene || !scene->entries || !scene->capacity || scene->active || scene->reserved_batch || scene->count ||
+        (storage && capacity<scene->capacity))
+        return SAT_ERR_INVALID_ARG;
+    scene->projected_entries=storage;scene->cold_count=0;
+    scene->projected_indices=nullptr;scene->projected_gap=0;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_use_projected_indices(
+    sat_scene3d_faces_t* scene,uint16_t* indices,uint16_t capacity) {
+    if(!scene || scene->active || scene->count || scene->reserved_batch ||
+       (indices && (!scene->projected_entries || capacity<scene->capacity)))return SAT_ERR_INVALID_ARG;
+    scene->projected_indices=indices;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_get(
+    const sat_scene3d_faces_t* scene,uint16_t index,sat_scene3d_face_t* out) {
+    if(!scene || !out || index>=scene->count)return SAT_ERR_INVALID_ARG;
+    if(!scene->projected_entries) {copy_face(*out,scene->entries[index]);return SAT_OK;}
+    const auto& hot=projected_at(scene,index);
+    if(hot.kind>SAT_SCENE3D_PROJECTED_COLD)return SAT_ERR_INVALID_ARG;
+    if(hot.kind==SAT_SCENE3D_PROJECTED_COLD) {copy_face(*out,*hot.cold);return SAT_OK;}
+    if(hot.reserved==1u) {
+        if(!scene->native_commands)return SAT_ERR_INVALID_ARG;
+        const auto& c=scene->native_commands[scene->projected_indices?scene->projected_indices[index]:index];
+        out->projected={{c.xa,c.xb,c.xc,c.xd},{c.ya,c.yb,c.yc,c.yd}};
+    } else out->projected=hot.projected;
+    out->projected_safe=1;out->gouraud_valid=0;
+    out->cached_projected=hot.cached_projected;
+    out->program_valid=hot.kind==SAT_SCENE3D_PROJECTED_PROGRAM;
+    if(out->program_valid)out->program=hot.program;
+    else {
+        out->material={};out->material.kind=SAT_SCENE3D_RGB;
+        out->material.rgb555=hot.rgb555;out->material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    }
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_bind_native_commands(
+    sat_scene3d_faces_t* scene,sat_vdp1_command_batch_t* batch) {
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(!scene || !batch || !scene->active || scene->count || scene->reserved_batch ||
+       !scene->projected_entries || !batch->active || !batch->commands ||
+       batch->capacity<scene->capacity)return SAT_ERR_INVALID_ARG;
+    scene->native_commands=batch->commands;scene->native_batch=batch;
+    return SAT_OK;
+#else
+    (void)scene;(void)batch;return SAT_ERR_UNSUPPORTED;
+#endif
+}
 
 extern "C" sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
@@ -321,15 +778,19 @@ extern "C" sat_result_t sat_scene3d_faces_begin(
     sat_scene3d_faces_t* scene, const sat_mat4_t* view_proj,
     const sat_vec3_t* eye, const sat_vec3_t* forward,
     sat_fx16_t near_depth, uint16_t width, uint16_t height) {
-    if (!scene || !scene->entries || !scene->capacity || scene->active ||
+    if (!scene || !scene->entries || !scene->capacity || scene->active || scene->reserved_batch ||
         !view_proj || !eye || !forward || near_depth<=0 ||
         (!forward->x && !forward->y && !forward->z) ||
         width<2u || height<2u || width>2048u || height>2048u)
         return SAT_ERR_INVALID_ARG;
     scene->count=0;
+    scene->native_commands=nullptr;scene->native_batch=nullptr;
+    scene->cold_count=0;
+    scene->projected_gap=0;
     scene->owner_span_count=0u;
     scene->culled_faces=scene->clipped_faces=scene->fallback_faces=0u;
     scene->emitted_faces=scene->emitted_cached=scene->skipped_faces=0u;
+    scene->instance_profile={};
     scene->view_proj=*view_proj;
     scene->eye=*eye;scene->forward=*forward;
     scene->near_depth=near_depth;scene->width=width;scene->height=height;
@@ -376,7 +837,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_quad(
     if (!scene || !scene->active || !world || !material ||
         pass>SAT_SCENE3D_PASS_MAX || !valid_material(*material))
         return SAT_ERR_INVALID_ARG;
-    if (scene->count>=scene->capacity) return SAT_ERR_CAPACITY;
+    if (!remaining(scene)) return SAT_ERR_CAPACITY;
     sat_projected_vertex_t screen[4]={};
     const sat_result_t st=sat_project_vertices(
         &scene->view_proj,world->v,4u,screen);
@@ -458,8 +919,9 @@ extern "C" sat_result_t sat_scene3d_faces_submit_quad_split(
         }
         cur=next;
     }
-    if (counts[cur]>scene->capacity-scene->count) return SAT_ERR_CAPACITY;
+    if (counts[cur]>remaining(scene)) return SAT_ERR_CAPACITY;
     const uint16_t previous_count=scene->count;
+    const uint16_t previous_cold=scene->cold_count;
     const uint16_t previous_culled=scene->culled_faces;
     const uint16_t previous_clipped=scene->clipped_faces;
     for (uint8_t i=0u;i<counts[cur];++i) {
@@ -467,6 +929,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_quad_split(
             scene,&pieces[cur][i],material,pass);
         if (st!=SAT_OK) {
             scene->count=previous_count;
+            scene->cold_count=previous_cold;
             scene->culled_faces=previous_culled;
             scene->clipped_faces=previous_clipped;
             return st;
@@ -483,8 +946,9 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
         camera_depth < 0 || pass > SAT_SCENE3D_PASS_MAX ||
         material->vertex_gouraud != nullptr || !valid_material(*material))
         return SAT_ERR_INVALID_ARG;
-    if (scene->count >= scene->capacity) return SAT_ERR_CAPACITY;
-    sat_scene3d_face_t& item=scene->entries[scene->count];
+    if (!remaining(scene)) return SAT_ERR_CAPACITY;
+    sat_scene3d_face_t temporary;
+    sat_scene3d_face_t& item=scene->projected_entries?temporary:scene->entries[scene->count];
     item.projected=*projected;
     item.material=*material;
     /* A cached projected tile never needs fallback/UV clipping. Bake its
@@ -498,7 +962,9 @@ extern "C" sat_result_t sat_scene3d_faces_submit_projected_material(
     }
     item.projected_safe=1u;
     item.cached_projected=1u;
+    item.program_valid=0u;
     item.gouraud_valid=0u;
+    if(!store_face(scene,item))return SAT_OK;
     scene->keys[scene->count]=painter_key(
         static_cast<int64_t>(camera_depth)*4,pass);
     ++scene->count;
@@ -525,7 +991,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_box(
     const sat_result_t st=sat_indexed_box3_faces(
         box,&scene->eye,faces,textures,&count);
     if (st!=SAT_OK) return st;
-    if (count>scene->capacity-scene->count) return SAT_ERR_CAPACITY;
+    if (count>remaining(scene)) return SAT_ERR_CAPACITY;
     for (uint8_t i=0u;i<count;++i) {
         sat_scene3d_material_t material={};
         material.kind=SAT_SCENE3D_INDEXED_SOLID;
@@ -538,6 +1004,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_box(
      * this box's queue/culling statistics, preserving older scene entries.
      * No VDP1 commands have been emitted at this stage. */
     const uint16_t previous_count=scene->count;
+    const uint16_t previous_cold=scene->cold_count;
     const uint16_t previous_culled=scene->culled_faces;
     const uint16_t previous_clipped=scene->clipped_faces;
     for (uint8_t i=0u;i<count;++i) {
@@ -549,6 +1016,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_box(
             scene,&faces[i],&material,pass);
         if (submitted!=SAT_OK) {
             scene->count=previous_count;
+            scene->cold_count=previous_cold;
             scene->culled_faces=previous_culled;
             scene->clipped_faces=previous_clipped;
             return submitted;
@@ -566,6 +1034,40 @@ extern "C" sat_result_t sat_scene3d_faces_submit_tiled_quad(
     material.tiled=regions;
     material.color_calc_slot=color_calc_slot;
     return sat_scene3d_faces_submit_quad(scene,world,&material,pass);
+}
+
+extern "C" sat_result_t sat_scene3d_material_programs_init(
+    sat_scene3d_material_programs_t* out,const sat_scene3d_material_t* materials,
+    uint16_t count,sat_scene3d_material_program_t* storage,uint16_t capacity) {
+    if (!out) return SAT_ERR_INVALID_ARG;
+    *out={};
+    if (!materials || !storage || !count) return SAT_ERR_INVALID_ARG;
+    if (capacity<count) return SAT_ERR_CAPACITY;
+    bool all_compiled=true;
+    for (uint16_t i=0;i<count;++i) {
+        const auto& material=materials[i];
+        storage[i]={};
+        if (!valid_material(material)) return SAT_ERR_INVALID_ARG;
+        if (material.kind==SAT_SCENE3D_RGB || material.vertex_gouraud ||
+            material.color_calc_slot!=SAT_INDEXED_SOLID_OPAQUE) {
+            all_compiled=false;continue;
+        }
+        const sat_vdp1_texture_t* texture=material.kind==SAT_SCENE3D_INDEXED_TILED
+            ? material.tiled->full : material.texture;
+        if (!texture || !texture->valid || !texture->width || !texture->height ||
+            (texture->width&7u)) return SAT_ERR_INVALID_ARG;
+        auto& program=storage[i];
+        program.command[0]=saturn::core::kVdp1CmdDistortedSprite;
+        program.command[1]=0;
+        program.command[2]=saturn::core::compose_sprite_pmod(material.sprite_flags,texture->format);
+        program.command[3]=saturn::core::compose_sprite_colr(texture->palette,texture->format);
+        program.command[4]=texture->srca;
+        program.command[5]=static_cast<uint16_t>(((texture->width/8u)<<8u)|texture->height);
+        program.texture=texture;
+    }
+    out->materials=materials;out->entries=storage;out->count=count;out->valid=1u;
+    out->all_compiled=all_compiled?1u:0u;
+    return SAT_OK;
 }
 
 extern "C" sat_result_t sat_scene3d_instance_binding_init(
@@ -591,12 +1093,8 @@ extern "C" sat_result_t sat_scene3d_instance_binding_init(
         for (uint8_t c=0u;c<4u;++c)
             if (idx[c]>=mesh->vertex_count) return SAT_ERR_INVALID_ARG;
     }
-    out->mesh=mesh;
-    out->vertices=mesh->vertices;
     out->indices=mesh->indices;
-    out->vertex_cap=mesh->vertex_cap;
     out->vertex_count=mesh->vertex_count;
-    out->face_cap=mesh->face_cap;
     out->face_count=mesh->face_count;
     out->materials=materials;
     out->material_count=material_count;
@@ -611,13 +1109,12 @@ bool binding_matches(
     const sat_scene3d_instance_binding_t& binding,
     const sat_scene3d_instance_t& instance) {
     const sat_mesh_t* mesh=instance.mesh;
+    const auto* programs=binding.programs;
     return binding.valid!=0u && mesh!=nullptr &&
-        binding.mesh==mesh &&
-        binding.vertices==mesh->vertices &&
+        (!programs || (programs->valid && programs->entries &&
+         programs->materials==binding.materials && programs->count==binding.material_count)) &&
         binding.indices==mesh->indices &&
-        binding.vertex_cap==mesh->vertex_cap &&
         binding.vertex_count==mesh->vertex_count &&
-        binding.face_cap==mesh->face_cap &&
         binding.face_count==mesh->face_count &&
         binding.materials==instance.materials &&
         binding.material_count==instance.material_count &&
@@ -625,7 +1122,8 @@ bool binding_matches(
 }
 }
 
-extern "C" sat_result_t sat_scene3d_faces_submit_instance(
+template<bool use_programs>
+static sat_result_t submit_instance(
     sat_scene3d_faces_t* scene, const sat_scene3d_instance_t* instance,
     uint8_t color_calc_slot,
     sat_projected_vertex_t* screen_scratch, sat_vec3_t* world_scratch) {
@@ -640,7 +1138,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
         mesh->vertex_count>mesh->vertex_cap ||
         mesh->face_count>mesh->face_cap ||
         !screen_scratch ||
-        (instance->world && !world_scratch) ||
+        (instance->world && (!world_scratch || instance->pre_projected)) ||
         (mesh->face_count && (!materials || !face_materials)))
         return SAT_ERR_INVALID_ARG;
     if (instance->bounds) {
@@ -660,7 +1158,7 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
     const bool prevalidated=binding!=nullptr;
     if (prevalidated && !binding_matches(*binding,*instance))
         return SAT_ERR_INVALID_ARG;
-    if (mesh->face_count>scene->capacity-scene->count)
+    if (mesh->face_count>remaining(scene))
         return SAT_ERR_CAPACITY;
     /* One submission-wide slot beats one material table per slot: distance
      * fade acts on a whole object, while the material table is shared by
@@ -698,42 +1196,179 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
         }
     }
     const sat_vec3_t* world=mesh->vertices;
-    if (instance->world) {
-        for (uint16_t v=0;v<mesh->vertex_count;++v) {
-            const sat_vec3_t& p=mesh->vertices[v];
-            /* Reuse the same fixed-point math directly: constant input w lets
-             * the compiler remove the unused output w and translation multiplies.
-             * XYZ still has the public transform's per-product rounding. */
-            const sat_vec4_t transformed=saturn::core::math3d::mat4_transform_vec4(
-                instance->world->m,p.x,p.y,p.z,SAT_FX16_ONE);
-            world_scratch[v]={transformed.x,transformed.y,transformed.z};
+    if (instance->pre_projected) {
+        // The caller projected; no world vertex is read below.
+    } else if (instance->world) {
+        if(!transform_signed_axes(*instance->world,mesh->vertices,mesh->vertex_count,
+                world_scratch)) {
+            for (uint16_t v=0;v<mesh->vertex_count;++v) {
+                const sat_vec3_t& p=mesh->vertices[v];
+                /* Constant input w lets the compiler remove the unused output
+                 * w and translation multiplies. */
+                const sat_vec4_t transformed=saturn::core::math3d::mat4_transform_vec4(
+                    instance->world->m,p.x,p.y,p.z,SAT_FX16_ONE);
+                world_scratch[v]={transformed.x,transformed.y,transformed.z};
+            }
         }
         world=world_scratch;
     }
 #if SAT_PROFILE_METRICS
     const uint16_t projection_start=saturn::hal::sh2::frt::counter();
 #endif
-    const sat_result_t projected=sat_project_vertices(
-        &scene->view_proj,world,mesh->vertex_count,screen_scratch);
-    if (projected!=SAT_OK) return projected;
+    if (!instance->pre_projected) {
+        const sat_result_t projected=sat_project_vertices(
+            &scene->view_proj,world,mesh->vertex_count,screen_scratch);
+        if (projected!=SAT_OK) return projected;
+    }
 #if SAT_PROFILE_METRICS
-    g_test_projection_ticks=static_cast<uint16_t>(
+    const uint16_t instance_projection_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-projection_start);
+    scene->instance_profile.projection_ticks+=instance_projection_ticks;
+    g_test_projection_ticks=instance_projection_ticks;
     const uint16_t prepare_start=saturn::hal::sh2::frt::counter();
 #endif
     /* Preserve queue atomicity if a future append path fails after other
      * instance faces have already been appended or culled. */
     const uint16_t previous_count=scene->count;
+    const uint16_t previous_cold=scene->cold_count;
     const uint16_t previous_culled=scene->culled_faces;
     const uint16_t previous_clipped=scene->clipped_faces;
+    /* A projected bounding box proves the same per-corner constraints for
+     * every face at once. Only use the proof when all mesh vertices pass;
+     * otherwise retain the existing face-specific clipping decisions. This
+     * amortizes repeated checks without discarding off-screen geometry. */
+    bool all_positive=false,all_safe_rgb=false,all_safe_indexed=false;
+    if(mesh->face_count>=16u && static_cast<uint32_t>(mesh->face_count)*4u>mesh->vertex_count) {
+        int32_t min_x=screen_scratch[0].x,max_x=min_x;
+        int32_t min_y=screen_scratch[0].y,max_y=min_y;
+        sat_fx16_t min_w=screen_scratch[0].w;
+        for(uint16_t v=1;v<mesh->vertex_count;++v) {
+            const sat_projected_vertex_t& p=screen_scratch[v];
+            if(p.x<min_x)min_x=p.x;
+            if(p.x>max_x)max_x=p.x;
+            if(p.y<min_y)min_y=p.y;
+            if(p.y>max_y)max_y=p.y;
+            if(p.w<min_w)min_w=p.w;
+        }
+        all_positive=min_w>0;
+        if(min_w>=scene->near_depth) {
+            all_safe_rgb=min_x>=-1024 && min_y>=-1024 &&
+                max_x<=1023-static_cast<int32_t>(scene->width/2u) &&
+                max_y<=1023-static_cast<int32_t>(scene->height/2u);
+            all_safe_indexed=saturn::core::render3d::coord_drawable(min_x,min_y,scene->width,scene->height) &&
+                saturn::core::render3d::coord_drawable(max_x,max_y,scene->width,scene->height);
+        }
+    }
+    const auto* programs=use_programs && binding && binding->programs ? binding->programs->entries : nullptr;
+    const bool compiled_instance=programs && !override_slot && all_safe_indexed &&
+        binding->programs->all_compiled;
+    const bool fast=compiled_instance && all_positive && mesh->face_count<=0x7FFFu;
+    if (instance->pre_projected && (!fast ||
+            (instance->cull_backfaces && instance->cull_backfaces!=SAT_SCENE3D_CULL_SCREEN)))
+        return SAT_ERR_UNSUPPORTED;
+    if (fast) {
+        if (instance->cull_backfaces==SAT_SCENE3D_CULL_SCREEN) {
+            /* The projected area is the only visibility test in this mode.
+             * Append each survivor while its indices and corners are hot;
+             * a survivor queue would make us read them all a second time. */
+            const uint16_t* const indices=mesh->indices;
+            const uint8_t* const double_sided=instance->double_sided_faces;
+            const uint16_t pass=instance->pass;
+            uint16_t culled=0u;
+            for(uint16_t f=0;f<mesh->face_count;++f) {
+                const uint16_t* idx=&indices[static_cast<uint32_t>(f)*4u];
+                if((!double_sided || !double_sided[f])) {
+                    const sat_projected_vertex_t& a=screen_scratch[idx[0]];
+                    const sat_projected_vertex_t& b=screen_scratch[idx[1]];
+                    const sat_projected_vertex_t& c=screen_scratch[idx[2]];
+                    const sat_projected_vertex_t& d=screen_scratch[idx[3]];
+                    if(saturn::core::render3d::corner_area2(
+                           a.x,a.y,b.x,b.y,c.x,c.y,d.x,d.y)<=0) {
+                        ++culled;
+                        continue;
+                    }
+                }
+                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],pass);
+            }
+            scene->culled_faces=static_cast<uint16_t>(scene->culled_faces+culled);
+#if SAT_PROFILE_METRICS
+            const uint16_t instance_prepare_ticks=static_cast<uint16_t>(
+                saturn::hal::sh2::frt::counter()-prepare_start);
+            scene->instance_profile.preparation_ticks+=instance_prepare_ticks;
+            g_test_prepare_ticks=instance_prepare_ticks;
+#endif
+            return SAT_OK;
+        }
+        /* Every corner is in front of the camera and every face is a compiled
+         * program, so the per-face path reduces to: screen-area cull, world
+         * normal cull, append. Run the cheap screen test over a chunk in its
+         * own small loop, then the survivors through the world test and
+         * append. Same predicates and face order as the general loop. */
+        constexpr uint16_t kChunk=128u;
+        constexpr uint16_t kWorldTest=0x8000u;
+        uint16_t survivors[kChunk];
+        const uint16_t* const indices=mesh->indices;
+        const uint8_t* const double_sided=instance->double_sided_faces;
+        const bool cull=instance->cull_backfaces!=0u;
+        const uint16_t world_test=
+            instance->cull_backfaces==SAT_SCENE3D_CULL_SCREEN ? 0u : kWorldTest;
+        const uint16_t pass=instance->pass;
+        for (uint16_t first=0;first<mesh->face_count;first=static_cast<uint16_t>(first+kChunk)) {
+            const uint16_t last=mesh->face_count-first>kChunk ?
+                static_cast<uint16_t>(first+kChunk) : mesh->face_count;
+            uint16_t kept=0u,culled=0u;
+            for (uint16_t f=first;f<last;++f) {
+                if (!cull || (double_sided && double_sided[f])) {
+                    survivors[kept++]=f;
+                    continue;
+                }
+                const uint16_t* idx=&indices[static_cast<uint32_t>(f)*4u];
+                const sat_projected_vertex_t& a=screen_scratch[idx[0]];
+                const sat_projected_vertex_t& b=screen_scratch[idx[1]];
+                const sat_projected_vertex_t& c=screen_scratch[idx[2]];
+                const sat_projected_vertex_t& d=screen_scratch[idx[3]];
+                if (saturn::core::render3d::corner_area2(
+                        a.x,a.y,b.x,b.y,c.x,c.y,d.x,d.y)<=0) {
+                    ++culled;
+                    continue;
+                }
+                survivors[kept++]=static_cast<uint16_t>(f|world_test);
+            }
+            for (uint16_t k=0;k<kept;++k) {
+                const uint16_t f=static_cast<uint16_t>(survivors[k]&~kWorldTest);
+                const uint16_t* idx=&indices[static_cast<uint32_t>(f)*4u];
+                if (survivors[k]&kWorldTest) {
+                    const sat_vec3_t& a=world[idx[0]];
+                    const sat_vec3_t& b=world[idx[1]];
+                    const sat_vec3_t& c=world[idx[2]];
+                    const sat_vec3_t& d=world[idx[3]];
+                    const int small=saturn::core::mesh3d::quad_visible_small_body(a,b,c,d,scene->eye);
+                    if (small==0 || (small<0 &&
+                        !saturn::core::mesh3d::quad_visible_general(a,b,c,d,scene->eye))) {
+                        ++culled;
+                        continue;
+                    }
+                }
+                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],pass);
+            }
+            scene->culled_faces=static_cast<uint16_t>(scene->culled_faces+culled);
+        }
+#if SAT_PROFILE_METRICS
+        const uint16_t instance_prepare_ticks=static_cast<uint16_t>(
+            saturn::hal::sh2::frt::counter()-prepare_start);
+        scene->instance_profile.preparation_ticks+=instance_prepare_ticks;
+        g_test_prepare_ticks=instance_prepare_ticks;
+#endif
+        return SAT_OK;
+    }
     for (uint16_t f=0;f<mesh->face_count;++f) {
         const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
         const bool cull_face=instance->cull_backfaces &&
             (!instance->double_sided_faces || !instance->double_sided_faces[f]);
-        if (cull_face &&
-            screen_scratch[idx[0]].w>0 && screen_scratch[idx[1]].w>0 &&
-            screen_scratch[idx[2]].w>0 && screen_scratch[idx[3]].w>0 &&
-            saturn::core::render3d::projected_area2(screen_scratch,idx)<=0)
+        const bool screen_test=cull_face &&
+            (all_positive || (screen_scratch[idx[0]].w>0 && screen_scratch[idx[1]].w>0 &&
+            screen_scratch[idx[2]].w>0 && screen_scratch[idx[3]].w>0));
+        if (screen_test && saturn::core::render3d::projected_area2(screen_scratch,idx)<=0)
         {
             ++scene->culled_faces;
             continue;
@@ -746,33 +1381,64 @@ extern "C" sat_result_t sat_scene3d_faces_submit_instance(
          * predicate: small perspective faces can round to a screen winding
          * that disagrees with their actual outward normal. */
         if (cull_face &&
+            !(screen_test && instance->cull_backfaces==SAT_SCENE3D_CULL_SCREEN) &&
             !saturn::core::mesh3d::quad_visible(
                 *corners[0],*corners[1],*corners[2],*corners[3],scene->eye))
         {
             ++scene->culled_faces;
             continue;
         }
+        if (compiled_instance) {
+            append_program(scene,screen_scratch,idx,&programs[face_materials[f]],instance->pass);
+            continue;
+        }
         const sat_scene3d_material_t& base=materials[face_materials[f]];
+        const bool known_safe=base.kind==SAT_SCENE3D_RGB?all_safe_rgb:all_safe_indexed;
+        if (known_safe && !override_slot && programs) {
+            const auto* program=&programs[face_materials[f]];
+            if (program->texture) {
+                append_program(scene,screen_scratch,idx,program,instance->pass);
+                continue;
+            }
+        }
         sat_result_t st;
         if (override_slot) {
             sat_scene3d_material_t overridden=base;
             overridden.color_calc_slot=color_calc_slot;
-            st=append(scene,corners,screen_scratch,idx,overridden,instance->pass);
+            st=known_safe
+                ? append<true>(scene,nullptr,screen_scratch,idx,overridden,instance->pass)
+                : append(scene,corners,screen_scratch,idx,overridden,instance->pass);
         } else {
-            st=append(scene,corners,screen_scratch,idx,base,instance->pass);
+            st=known_safe
+                ? append<true>(scene,nullptr,screen_scratch,idx,base,instance->pass)
+                : append(scene,corners,screen_scratch,idx,base,instance->pass);
         }
         if (st!=SAT_OK) {
             scene->count=previous_count;
+            scene->cold_count=previous_cold;
             scene->culled_faces=previous_culled;
             scene->clipped_faces=previous_clipped;
             return st;
         }
     }
 #if SAT_PROFILE_METRICS
-    g_test_prepare_ticks=static_cast<uint16_t>(
+    const uint16_t instance_prepare_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-prepare_start);
+    scene->instance_profile.preparation_ticks+=instance_prepare_ticks;
+    g_test_prepare_ticks=instance_prepare_ticks;
 #endif
     return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_submit_instance(
+    sat_scene3d_faces_t* scene,const sat_scene3d_instance_t* instance,
+    uint8_t color_calc_slot,sat_projected_vertex_t* screen_scratch,
+    sat_vec3_t* world_scratch) {
+    // Select once per instance. Extra compiled-material decisions must not
+    // add per-face work to the ordinary RGB/indexed preparation loop.
+    if (instance && instance->validated_binding && instance->validated_binding->programs)
+        return submit_instance<true>(scene,instance,color_calc_slot,screen_scratch,world_scratch);
+    return submit_instance<false>(scene,instance,color_calc_slot,screen_scratch,world_scratch);
 }
 
 extern "C" sat_result_t sat_scene3d_prepare_batch_init(
@@ -788,6 +1454,40 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_init(
     batch->capacity = capacity;
     batch->faces = faces;
     batch->keys = keys;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_reserve_batch(
+    sat_scene3d_faces_t* scene,sat_scene3d_prepare_batch_t* batch) {
+    if(!scene || !batch || !scene->active || !scene->projected_entries ||
+       !scene->projected_indices || !batch->capacity || !batch->keys ||
+       batch->direct_owner || batch->projected_faces || batch->pending)return SAT_ERR_INVALID_ARG;
+    if(scene->reserved_batch)return SAT_ERR_BUSY;
+    uint16_t cold=batch->cold_capacity?batch->cold_capacity:batch->capacity;
+    if(batch->capacity>remaining(scene) || cold>batch->capacity)return SAT_ERR_CAPACITY;
+    const uint16_t left=scene->cold_count<cold_limit(scene)?
+        static_cast<uint16_t>(cold_limit(scene)-scene->cold_count):0u;
+    if(scene->cold_capacity) {if(cold>left)cold=left;}
+    else if(cold>left)return SAT_ERR_CAPACITY;
+    batch->cold_capacity=cold;
+    batch->direct_first=static_cast<uint16_t>(scene->count+scene->projected_gap);
+    batch->faces=scene->entries+scene->cold_count;
+    batch->projected_faces=scene->projected_entries+batch->direct_first;
+    batch->native_commands=scene->native_commands?scene->native_commands+batch->direct_first:nullptr;
+    batch->direct_owner=scene;
+    scene->cold_count=static_cast<uint16_t>(scene->cold_count+cold);
+    scene->projected_gap=static_cast<uint16_t>(scene->projected_gap+batch->capacity);
+    scene->reserved_batch=batch;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_scene3d_faces_cancel_batch(
+    sat_scene3d_faces_t* scene,sat_scene3d_prepare_batch_t* batch) {
+    if(!scene || !batch || scene->reserved_batch!=batch || batch->direct_owner!=scene)
+        return SAT_ERR_INVALID_ARG;
+    if(batch->pending)return SAT_ERR_BUSY;
+    scene->reserved_batch=nullptr;batch->direct_owner=nullptr;
+    batch->projected_faces=nullptr;
     return SAT_OK;
 }
 
@@ -807,10 +1507,19 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
     sat_scene3d_faces_t prepared = {};
     prepared.entries=batch->faces;
     prepared.keys=batch->keys;
+    prepared.projected_entries=batch->projected_faces;
     prepared.capacity=batch->capacity;
+    const bool bounded=batch->projected_faces && batch->direct_owner &&
+        batch->direct_owner->cold_capacity;
     SAT_TRY(sat_scene3d_faces_begin(
         &prepared, &batch->view_proj, &batch->eye, &batch->forward,
         batch->near_depth, batch->width, batch->height));
+    prepared.native_commands=batch->native_commands;
+    if(bounded) {
+        // begin cleared cold_count; a full count marks a zero grant.
+        prepared.cold_capacity=batch->cold_capacity;
+        if(!batch->cold_capacity)prepared.cold_count=prepared.capacity;
+    }
     for (uint16_t i = 0u; i < batch->item_count; ++i) {
         const sat_scene3d_prepare_item_t& item = batch->items[i];
         if (item.instance == nullptr || item.instance->mesh == nullptr) {
@@ -826,8 +1535,10 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
         if (st != SAT_OK) return st;
     }
     batch->metrics.prepared_faces = prepared.count;
+    batch->instance_profile=prepared.instance_profile;
     batch->metrics.culled_faces = prepared.culled_faces;
     batch->metrics.clipped_faces = prepared.clipped_faces;
+    batch->metrics.skipped_faces = prepared.skipped_faces;
     /* Preserve source order; the final painter sorts exactly once. */
     return SAT_OK;
 }
@@ -869,18 +1580,31 @@ extern "C" sat_result_t sat_scene3d_faces_merge_prepared(
         batch->faces == nullptr || batch->keys == nullptr ||
         batch->metrics.prepared_faces > batch->capacity)
         return SAT_ERR_INVALID_ARG;
-    if (batch->metrics.prepared_faces > scene->capacity - scene->count)
-        return SAT_ERR_CAPACITY;
     const uint16_t count = batch->metrics.prepared_faces;
-    for (uint16_t i = 0u; i < count; ++i) {
-        copy_face(scene->entries[scene->count], batch->faces[i]);
-        scene->keys[scene->count] = batch->keys[i];
-        ++scene->count;
+    if(batch->projected_faces) {
+        if(batch->direct_owner!=scene || scene->reserved_batch!=batch ||
+           !scene->projected_indices || scene->projected_gap<batch->capacity)
+            return SAT_ERR_INVALID_ARG;
+        for(uint16_t i=0;i<count;++i) {
+            scene->projected_indices[scene->count]=static_cast<uint16_t>(batch->direct_first+i);
+            scene->keys[scene->count++]=batch->keys[i];
+        }
+        scene->projected_gap=static_cast<uint16_t>(scene->projected_gap-count);
+        scene->reserved_batch=nullptr;
+    } else {
+        if(count>remaining(scene))return SAT_ERR_CAPACITY;
+        for (uint16_t i = 0u; i < count; ++i) {
+            if(!store_face(scene,batch->faces[i]))continue;
+            scene->keys[scene->count] = batch->keys[i];
+            ++scene->count;
+        }
     }
     scene->culled_faces = static_cast<uint16_t>(
         scene->culled_faces + batch->metrics.culled_faces);
     scene->clipped_faces = static_cast<uint16_t>(
         scene->clipped_faces + batch->metrics.clipped_faces);
+    scene->skipped_faces = static_cast<uint16_t>(
+        scene->skipped_faces + batch->metrics.skipped_faces);
     return SAT_OK;
 }
 
@@ -912,11 +1636,27 @@ extern "C" sat_result_t sat_scene3d_capture_end(
     return SAT_OK;
 }
 
+bool saturn::internal::projected_census(const sat_scene3d_faces_t& faces,uint32_t* commands) {
+    return faces.projected_indices?::projected_census<true>(&faces,commands):
+        ::projected_census<false>(&faces,commands);
+}
+
 extern "C" sat_result_t sat_scene3d_faces_flush(
     sat_scene3d_faces_t* scene) {
+    return saturn::internal::faces_flush(scene,false);
+}
+
+sat_result_t saturn::internal::faces_flush(
+    sat_scene3d_faces_t* scene,bool queue_valid) {
     if (!scene || !scene->active) return SAT_ERR_INVALID_ARG;
     /* Flushing draws through the very functions a capture redirects. */
-    if (g_capture.scene==scene) return SAT_ERR_BUSY;
+    if (g_capture.scene==scene || scene->reserved_batch) return SAT_ERR_BUSY;
+#if SAT_NATIVE_SCENE_COMMANDS
+    struct NativeRollback {
+        sat_vdp1_command_batch_t* batch;
+        ~NativeRollback() {if(batch && batch->active)(void)sat_vdp1_command_batch_cancel(batch);}
+    } rollback{scene->native_batch};
+#endif
     scene->active=0u;
     /* Revalidate borrowed material residency before *any* VDP1 command.
      * A texture may have been released or marked invalid between submit and
@@ -938,8 +1678,20 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
         }
     }
     scene->owner_span_count=0u;
-    for (uint16_t i=0u;i<scene->count;++i) {
-        if (!valid_material(scene->entries[i].material)) {
+    // The existing residency preflight also classifies this complete queue.
+    // Ordinary scenes can omit the program union dispatch during emission.
+    bool has_programs=false;
+    if(scene->projected_entries) {
+        const bool valid=queue_valid || (scene->projected_indices?
+            valid_projected_queue<true>(scene):valid_projected_queue<false>(scene));
+        if(!valid) {scene->count=0;return SAT_ERR_INVALID_ARG;}
+    } else for (uint16_t i=0u;i<scene->count;++i) {
+        const auto& face=scene->entries[i];
+        if (face.program_valid) has_programs=true;
+        const bool valid=face.program_valid
+            ? face.program && face.program->texture && face.program->texture->valid
+            : valid_material(face.material);
+        if (!valid) {
             scene->count=0u;
             return SAT_ERR_INVALID_ARG;
         }
@@ -958,24 +1710,17 @@ extern "C" sat_result_t sat_scene3d_faces_flush(
         saturn::hal::sh2::frt::counter()-painter_start);
     const uint16_t emit_start=saturn::hal::sh2::frt::counter();
 #endif
-    sat_result_t result=SAT_OK;
-    for (uint32_t i=0;i<ordered;++i) {
-        if (!scene->entries[scene->order[i]].projected_safe)
-            ++scene->fallback_faces;
-        const sat_result_t emitted=emit(*scene,scene->entries[scene->order[i]]);
-        if (emitted==SAT_ERR_UNSUPPORTED) {
-            ++scene->skipped_faces;
-            continue;
-        }
-        if (emitted!=SAT_OK) {
-            result=emitted;
-            break;
-        }
-        if (scene->entries[scene->order[i]].cached_projected != 0u)
-            ++scene->emitted_cached;
-        else
-            ++scene->emitted_faces;
+    const sat_result_t result=scene->projected_entries?
+        (scene->projected_indices?emit_projected_ordered<true>(scene,ordered):emit_projected_ordered<false>(scene,ordered)):
+        has_programs ? emit_ordered<true>(scene,ordered):emit_ordered<false>(scene,ordered);
+#if SAT_NATIVE_SCENE_COMMANDS
+    if(scene->native_batch) {
+        if(result==SAT_OK) {
+            const sat_result_t committed=sat_vdp1_command_batch_finish(scene->native_batch);
+            if(committed!=SAT_OK)return committed;
+        } else (void)sat_vdp1_command_batch_cancel(scene->native_batch);
     }
+#endif
 #if SAT_PROFILE_METRICS
     g_test_emit_ticks=static_cast<uint16_t>(
         saturn::hal::sh2::frt::counter()-emit_start);

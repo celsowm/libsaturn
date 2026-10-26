@@ -208,6 +208,32 @@ The version is defined once, in the `VERSION` file.
   rotation-coefficient, special-colour, hardware-blur, special-priority,
   sprite-shadow, dynamic-tile-stream and VRAM-stress wrappers. Wrappers can
   request extra VDP2 VRAM word dumps with `Invoke-ExampleTest -DumpVram`.
+- `sat_scene_flush_trusted` for scenes whose materials and textures stay
+  resident until the flush returns, as immutable bindings do after
+  initialization. It skips the per-face census that revalidated them and hands
+  the queue to the same painter emission already admitted; the admission count
+  becomes the queue length, an upper bound on the one-command subset, so the
+  HUD/capacity gate stays conservative. Owner-span generations and the
+  frame-local checkpoint rollback still apply, and `sat_scene_flush` keeps its
+  validating behavior. With two skinned fighters in Mednafen this raised the
+  image rate by 2.8% (30.94 vs 30.11 images/s, matched 18 s window). Host-tested
+  (`test_scene_api`).
+
+- `SAT_SCENE3D_CULL_SCREEN` for `sat_scene3d_instance_t.cull_backfaces` culls back faces by
+  projected area alone, like a PlayStation NCLIP. A face with a corner behind the camera still
+  takes the world-normal test. The default nonzero value is unchanged and still tests every
+  surviving face's world normal. Leaving that test out spares re-reading four world corners per
+  face; with two skinned fighters in Mednafen this cut each actor's geometry by about a quarter.
+  Host-tested (`test_scene3d_faces_api`).
+- Skinning straight to screen. `sat_skin_clip_joints` concatenates each joint with a placement
+  and a camera's clip X, Y and W rows, and `sat_skin_project_range` writes projected vertices
+  with one transform per vertex, the way a PlayStation runs RTPT with each joint and the camera
+  concatenated. Rounding once moves a clip coordinate by a few 16.16 units against
+  deform-then-project (1 vertex in 3,840 moved a pixel in the host test). The new
+  `sat_scene3d_instance_t.pre_projected` submits such vertices without projecting them again;
+  off the compiled fast path it returns `SAT_ERR_UNSUPPORTED` with nothing appended. With two
+  skinned fighters in Mednafen this raised the image rate by about a tenth. Host-tested
+  (`test_skin3d`, `test_scene3d_faces_api`).
 - Gapless handoff between two disc-streamed tracks. `sat_music_use_disc_stream` now serves two
   `sat_music_open` tracks: the first opened is the one the drive plays, the second is the *standby*
   (`sat_music_info_t.standby`); a third is still `SAT_ERR_BUSY`. New `sat_music_prefetch(music)` fills
@@ -674,6 +700,11 @@ The version is defined once, in the `VERSION` file.
 - The acceptance sweep now includes E09-E12. The E10-E12 wrappers accept
   `-Pal`, and E10/E11 captures are triggered by scene telemetry so PAL frame
   timing cannot select the wrong animation or stage state.
+- The general (rotated-camera) vertex projection overlaps each hardware divide with the next
+  rows, as the axis-aligned path already did. It never forms clip Z. Output is bit-identical
+  (`test_render3d_logic`); in Mednafen it saves about 6% of a skinned actor's geometry time.
+- Blended skin vertices multiply their weights as 32-bit values, one `dmuls.l` per product
+  instead of a 64-bit library multiply. Output is unchanged.
 - Sound RAM from 0x3000 up is free for samples (was 0xB000): 32 KiB more for
   resident sounds, effect rings and `sat_sampler`. The sound driver's stack
   moved from 0xA000 to the 1 KiB between its mailbox and its score (top

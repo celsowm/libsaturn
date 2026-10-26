@@ -149,7 +149,7 @@ extern "C" sat_result_t sat_project_vertices(const sat_mat4_t* view_proj, const 
     const sat_video_config_t& cfg = saturn::core::g_state.config;
     const int16_t screen_w = static_cast<int16_t>(cfg.width);
     const int16_t screen_h = static_cast<int16_t>(cfg.height);
-    for (uint16_t i = 0; i < count; ++i) project_vertex(view_proj->m, points[i], screen_w, screen_h, &out[i]);
+    project_vertices(view_proj->m, points, count, screen_w, screen_h, out);
     return SAT_OK;
 }
 

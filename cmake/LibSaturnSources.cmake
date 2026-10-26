@@ -86,6 +86,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/vdp2/color_offset.cpp
     src/graphics/vdp2/compose.cpp
     src/graphics/vdp2/environment.cpp
+    src/graphics/vdp2/floor.cpp
     src/graphics/vdp2/layers.cpp
     src/graphics/vdp2/special.cpp
     src/graphics/vdp2/sprite_shadow.cpp

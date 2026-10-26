@@ -1,5 +1,8 @@
 # libsaturn integration harness (GPL-3.0 — separate from the rest of this repo)
 
+For exact per-field composited RGB changes, including a HUD-excluding crop,
+see [video observations](../docs/COMPOSITED_VIDEO_OBSERVATIONS.md).
+
 ## License boundary — read this first
 
 **Everything under `harness/` is licensed GPL-3.0** (see `harness/LICENSE`),
@@ -153,6 +156,16 @@ certification.
 
 ### Frame pacing
 
+For a startup-initialization regression, `--wram-low-fill 0xA5` fills all 1 MiB
+of Low WRAM after BIOS setup and before the first injected application
+instruction. It leaves High WRAM/BIOS vectors intact. `boot.low_wram_fill_applied`
+and `boot.low_wram_fill_byte` record the experiment; default behavior is unchanged.
+Only injection mode accepts this option. It never writes a running game's state.
+The library CRT explicitly clears its linked `.wram_l` interval before `main`,
+so ordinary zero-initialized globals there must work with a nonzero fill too.
+Memory outside the linked interval retains the chosen pattern. This checks
+startup initialization; it is not a CD-boot or hardware-performance test.
+
 The probe runs one emulated frame per `RunFrame()`, and a libsaturn program
 paced by `sat_wait_vblank` advances one program frame per emulated frame. If a
 run seems to make no progress, measure that ratio before suspecting the
@@ -168,17 +181,91 @@ was finally identified.
 harness/
   LICENSE          GPL-3.0 (verbatim, from gnu.org)
   README.md        this file
-  CMakeLists.txt    FetchContents Ymir (pinned commit), applies instrumentation patches, builds the probe app
-  ymir_debug_metrics.patch       VDP write counters and scheduler cycles (instrumentation)
-  ymir_misaligned_access.patch   SH-2 misaligned data-access log (instrumentation)
-  ymir_write_watch.patch         first writes into a bus range (--watch-write)
+  CMakeLists.txt    FetchContents Ymir (pinned commit), applies debug metrics, builds the probe app
+  ymir_harness_debug.patch  atomic pinned-core diagnostics (CPU steps, VDP, watches)
   ymir_gradation_sse_fix.patch   correctness fix for the SSE2 blur mask blend
+  src/cpu_profile.hpp  bounded emulator-independent CPU accounting
   src/probe_main.cpp  links ymir-core; boots an ISO, dumps state to JSON
   src/png_writer.hpp  dependency-free PNG writer for --screenshot
   scripts/*.pad       input timelines for --pad-script
   tests/*.py        unittest assertions over the emitted JSON
   run-harness.ps1    Windows wrapper matching build-example.ps1 conventions
 ```
+
+## Bounded SH-2 diagnostic profiles
+
+The existing probe can collect both CPUs without the GUI or `ymir-dbg`.
+Headless video rendering runs synchronously so a screenshot/VRAM inspection
+cannot race a renderer thread or capture an older field depending on host
+tracing speed. `boot.synchronous_video_readback` records this correction;
+it changes host execution/readback ownership, not the guest VDP clock.
+`--sh2-cache on|off` explicitly selects **emulated cache behavior**, separately
+from each guest CPU's CCR. The default remains `off` for compatibility. Every
+boot report records the actual setting and the two final CCR values. New
+performance comparisons must specify the setting; old cache-off observations
+must not silently become cache-on baselines.
+
+```sh
+probe --iso example.iso --bin example.app.bin --bios /private/saturn.bin \
+  --frames 1200 --sh2-cache on --debug-profile /private/run/debug \
+  --trace-from 900 --trace-frames 30 --trace-capacity 262144 \
+  --snapshot-pc 0x06004000 --out /private/run/probe.json
+```
+
+Use `.app.bin` for injection, not the raw-sector CD `.bin`. For a retail CUE,
+omit `--bin` and use `--boot-mode bios`; media user data supplies the IP header
+for ISO, raw BIN/CUE and other supported loaders. An optical boot is not
+established merely by observing the conventional `0x06004000` entry checkpoint.
+Inspect execution and screenshots past the BIOS. `--pad-script` already connects
+P1; do not also replace P1's report callback with `--port-device 1:pad` or
+`--device-script`.
+
+The trace window uses zero-based **program** frame indices, excluding the
+pre-injection BIOS setup. Each CPU's histogram, event stream and PC snapshots,
+and the shared frame log, have an independent capacity (default 65,536;
+maximum 1,048,576). A full buffer increments dropped counts, sets `truncated`
+and exits nonzero **after writing the evidence**. A smaller window or larger
+capacity is required before claiming a complete profile. Collection is opt-in;
+tracing can slow the host, so confirm cadence without these options too.
+
+The prefix produces:
+
+- `.pc.csv`: exact-PC instruction counts and summed interpreter execution-step
+  costs, separately for Master and Slave. Addresses are decimal and retain
+  cached/uncached aliases. This is exclusive PC attribution, not a reconstructed
+  inclusive call profiler.
+- `.events.csv`: calls, returns, interrupts, DIVU starts and DMAC starts. Call
+  and return events occur before their instruction/delay slot completes;
+  cumulative instruction/cycle columns identify that boundary. Interrupt targets
+  are vector numbers; DMA PC/target columns hold source/destination addresses.
+- `.snapshots.csv`: pre-instruction PC/PR/SR/GBR/VBR/MACH/MACL/CCR and R0–R15 at
+  each exact `--snapshot-pc` match, for either CPU, followed by eight instruction
+  words obtained through the side-effect-free instruction peek interface.
+  These preserve code for disassembly even when a later overlay replaces it.
+  At most 64 PCs can be selected.
+- `.frames.csv`: cumulative CPU costs, PCs, CCRs and VDP registers per sampled
+  field, plus draw begins/ends, framebuffer swaps and completed draw generations
+  first observed in an active display field. These VDP counters include BIOS
+  activity; compare endpoint differences. Automatic drawing can execute the
+  same command list again: completed generations are **not** distinct pixels
+  or application-submission counts. Last begin/end/swap timestamps use the
+  scheduler clock, not CPU instruction cost.
+- `.json`: schema version, pinned Ymir revision, configuration, totals and drops.
+
+Step costs come from Ymir's interpreter return values, including modeled access
+costs. Interrupt entry is accounted separately from instructions. Sleep/standby
+time and separately advanced DMA are excluded. `--profile-cycles` retains its
+old format: it measures elapsed scheduler time per field, usually fixed, and
+must **not** be treated as a CPU function profile. None of these measurements
+certifies physical Saturn timing or fills gaps in Ymir's timing model.
+
+`ctest --test-dir harness/build-macos --output-on-failure` checks bounded
+accounting and real interpreter hooks without a BIOS. The latter executes a
+known call/return program with delay slots, verifies register results and every
+returned step cost, isolates Master/Slave costs, and checks NMI entry with
+cache emulation off/on. CLI tests reject malformed windows/capacities/addresses.
+The previous three overlapping core patches are consolidated into
+`ymir_harness_debug.patch`, allowing clean and already-patched configuration.
 
 ## Building and running
 
@@ -413,3 +500,20 @@ These are emulator/build checks, not hardware evidence. Ymir's probe cannot
 complete a BIOS disc boot for these images; its evidence is direct injection
 plus `run-acceptance-sweep.ps1`. The physical session protocol is
 `docs/VDP2_HARDWARE_SESSION.md`.
+
+## Known DIVU timing limit
+
+The pinned Ymir core computes DIVU results immediately and does not model the
+SH7604's 39-cycle normal-operation latency or result-register access waiting.
+The probe labels this as `division_timing_model: immediate-result-no-busy-wait`
+in ordinary and CPU-profile JSON. Functional quotient checks can pass while
+this timing behavior remains incomplete.
+
+The procedural `examples/division_latency_probe` demonstrates the limitation:
+early NOP gaps cost elapsed time in Ymir, while a native-disc Mednafen run
+shows the plateau expected when those NOPs overlap the division. Reproduction,
+raw FRT medians and the source/manual comparison are recorded in
+`docs/RENDERER_PIPELINE_STUDY.md` and `harness/studies/divu-latency/results.json`.
+Ymir profiling remains useful for observed instructions, call sites, register
+values and workload comparisons, but it cannot qualify a division-overlap
+optimization or certify physical-hardware cadence with this model.

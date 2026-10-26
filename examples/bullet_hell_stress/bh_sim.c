@@ -251,7 +251,11 @@ static void enemy_fire(bh_sim_t* s, bh_enemy_t* e, uint8_t pattern) {
     default:
         for (int i = 0; i < 2; ++i) {
             const int32_t ox = (int32_t)(rnd(s) % 17u) - 8;
-            spawn_bullet(s, e->x + FP(ox), e->y, 64u + rnd(s) % 9u - 4u, 520 + (int32_t)(rnd(s) & 255u),
+            /* Keep the established GCC/SH-2 draw order explicitly: argument
+             * evaluation order differs between GCC and Clang. */
+            const int32_t speed = 520 + (int32_t)(rnd(s) & 255u);
+            const uint32_t angle = 64u + rnd(s) % 9u - 4u;
+            spawn_bullet(s, e->x + FP(ox), e->y, angle, speed,
                          BH_SHAPE_SHARD, color);
         }
         break;

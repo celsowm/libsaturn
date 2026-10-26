@@ -115,6 +115,11 @@ sat_result_t sat_parallel_register_task(
  * immutable ROM descriptors remain valid task inputs. */
 sat_result_t sat_parallel_cache_sync_range(const void* address, uint32_t size);
 void* sat_parallel_uncached_address(const void* address);
+/* Drops every line of the calling CPU's cache (nothing when it is off), as
+ * the range task does on the Slave before it reads what the Master wrote. A
+ * custom Slave task that reads Master data through cached addresses calls it
+ * first. */
+void sat_parallel_purge_cache(void);
 
 sat_result_t sat_parallel_submit(
     sat_parallel_task_type_t type,

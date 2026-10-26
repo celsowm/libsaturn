@@ -395,6 +395,15 @@ static rot::Params to_rot_params(const sat_vdp2_rotation_params_t* in, bool one_
     return p;
 }
 
+extern "C" sat_result_t sat_vdp2_rotation_encode_params(const sat_vdp2_rotation_params_t* params,
+                                                        uint16_t* words) {
+    if (params == nullptr || words == nullptr || (params->coefficient_address & 3u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    rot::encode_params(to_rot_params(params, false), words);
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address,
                                                        const sat_vdp2_rotation_params_t* params_a,
                                                        const sat_vdp2_rotation_params_t* params_b) {
@@ -442,6 +451,10 @@ extern "C" sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address,
 extern "C" uint32_t sat_vdp2_rotation_coefficient_2word(int32_t value, uint8_t flags) {
     const bool flagged = (flags & (SAT_VDP2_COEFFICIENT_HIDE | SAT_VDP2_COEFFICIENT_USE_B)) != 0u;
     return rot::encode_coefficient(value, flagged);
+}
+
+extern "C" uint32_t sat_vdp2_rotation_coefficient(int32_t value, uint8_t transparent) {
+    return sat_vdp2_rotation_coefficient_2word(value, transparent != 0u ? SAT_VDP2_COEFFICIENT_HIDE : 0u);
 }
 
 extern "C" uint16_t sat_vdp2_rotation_coefficient_1word(int32_t value, uint8_t flags) {
@@ -545,6 +558,21 @@ extern "C" sat_result_t sat_vdp2_line_scroll_write(sat_vdp2_layer_t layer, uint3
     }
     if (used != 0u) SAT_TRY(write_table(address, chunk, used));
     return SAT_OK;
+}
+
+extern "C" uint32_t sat_vdp2_line_scroll_encode(sat_vdp2_layer_t layer,
+                                                const sat_vdp2_line_scroll_entry_t* entries, uint32_t count,
+                                                uint16_t* words, uint32_t capacity) {
+    if (saturn::core::require_initialized() != SAT_OK || static_cast<uint32_t>(layer) > 1u ||
+        entries == nullptr || words == nullptr) {
+        return 0u;
+    }
+    nbg::Layer l{};
+    if (!hal::nbg_layer(static_cast<uint8_t>(layer), &l)) return 0u;
+    const uint32_t per = entry_words(l);
+    if (per == 0u || count > capacity / per) return 0u;
+    for (uint32_t i = 0u; i < count; ++i) (void)encode_entry(l, entries[i], words + i * per);
+    return count * per;
 }
 
 extern "C" sat_result_t sat_vdp2_line_scroll_fill_wave(sat_vdp2_layer_t layer, uint32_t lines,

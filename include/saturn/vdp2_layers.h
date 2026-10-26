@@ -317,6 +317,16 @@ sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address,
  * line or, in parameter mode COEFFICIENT, show the B image for that line. */
 uint32_t sat_vdp2_rotation_coefficient_2word(int32_t value, uint8_t flags);
 
+/* The words sat_vdp2_rotation_write_params stores, without writing VRAM or
+ * changing which table the VDP2 reads: for a program that copies them into
+ * the table it already uses, in VBlank (see sat_vdp1_set_swap_handler). */
+#define SAT_VDP2_ROTATION_PARAM_WORDS 48u
+sat_result_t sat_vdp2_rotation_encode_params(const sat_vdp2_rotation_params_t* params, uint16_t* words);
+
+/* Compatibility name for sat_vdp2_rotation_coefficient_2word: `transparent`
+ * is the HIDE flag. */
+uint32_t sat_vdp2_rotation_coefficient(int32_t value, uint8_t transparent);
+
 /* A 1-word coefficient entry (figure 6.7): the same flag bit in bit 15,
  * sign bit 14, a 16.16 value saturated to just under +-16. */
 uint16_t sat_vdp2_rotation_coefficient_1word(int32_t value, uint8_t flags);
@@ -367,6 +377,13 @@ sat_result_t sat_vdp2_layer_line_scroll_disable(sat_vdp2_layer_t layer);
  * `first_entry`. */
 sat_result_t sat_vdp2_line_scroll_write(sat_vdp2_layer_t layer, uint32_t first_entry,
                                         const sat_vdp2_line_scroll_entry_t* entries, uint32_t count);
+
+/* The words sat_vdp2_line_scroll_write would store for `count` entries, into
+ * `words` (room for `capacity`), without writing VRAM. Returns the number of
+ * words, or 0 for invalid arguments, a layer without line scroll or too
+ * little room. */
+uint32_t sat_vdp2_line_scroll_encode(sat_vdp2_layer_t layer, const sat_vdp2_line_scroll_entry_t* entries,
+                                     uint32_t count, uint16_t* words, uint32_t capacity);
 
 /* Fills the whole table for `lines` lines with a horizontal sine wave:
  * `amplitude` in 16.16 dots, one period every `period_lines` lines, starting

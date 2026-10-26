@@ -9,6 +9,7 @@
 #include "saturn/mesh3d.h"
 #include "saturn/skeleton3d.h"
 #include "saturn/parallel.h"
+#include "saturn/render3d.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -97,9 +98,49 @@ sat_result_t sat_skin_deform_range(
     const sat_skin_asset_t* skin, const sat_mat4_t* joint_world, uint16_t joint_world_count,
     uint32_t first, uint32_t count, sat_vec3_t* out, uint32_t out_capacity);
 
+/* An integral placement applied as each deformed vertex is stored. */
+typedef struct sat_skin_placement {
+    int32_t scale;
+    int32_t offset[3];
+    int32_t limit; /* every deformed coordinate must lie in [-limit, limit] */
+} sat_skin_placement_t;
+
+/* sat_skin_deform_range, storing scale * v + offset[axis] for each deformed
+ * coordinate v. The placement is rejected unless |scale| * limit + |offset|
+ * fits int32. When any v lies outside [-limit, limit] the range is still
+ * written and SAT_ERR_INVALID_ARG is returned: discard that output. */
+sat_result_t sat_skin_deform_range_placed(
+    const sat_skin_asset_t* skin, const sat_mat4_t* joint_world, uint16_t joint_world_count,
+    uint32_t first, uint32_t count, sat_vec3_t* out, uint32_t out_capacity,
+    const sat_skin_placement_t* placement);
+
 sat_result_t sat_skin_deform(
     const sat_skin_asset_t* skin, const sat_mat4_t* joint_world, uint16_t joint_world_count,
     sat_vec3_t* out, uint32_t out_capacity);
+
+/* Skinning straight to screen, the way a PlayStation concatenates each joint
+ * with the camera before RTPT: one transform per vertex instead of a deform
+ * followed by a projection.
+ *
+ * sat_skin_clip_joints writes, for each joint, view_proj's clip X, Y and W
+ * rows times the placement times the joint: out[j].m[0..3] is X, m[4..7] Y,
+ * m[8..11] W, and m[12..15] is zero. SAT_ERR_INVALID_ARG if a coefficient
+ * could leave int32; deform and project separately then. */
+sat_result_t sat_skin_clip_joints(
+    const sat_mat4_t* joint_world, uint16_t count, const sat_skin_placement_t* placement,
+    const sat_mat4_t* view_proj, sat_mat4_t* out);
+
+/* Skins vertices [first, first + count) with matrices from
+ * sat_skin_clip_joints and writes them in sat_project_vertices form for a
+ * width x height screen (w <= 0 leaves x and y unset). The concatenated
+ * matrices round once, so a coordinate may differ from deform-then-project by
+ * a few 16.16 units of clip space, rarely a pixel. Nothing is written and
+ * SAT_ERR_INVALID_ARG is returned if a clip coordinate could leave int32.
+ * Interrupt handlers must not use the divider while this runs. */
+sat_result_t sat_skin_project_range(
+    const sat_skin_asset_t* skin, const sat_mat4_t* clip_joints, uint16_t clip_joint_count,
+    uint32_t first, uint32_t count, int16_t width, int16_t height,
+    sat_projected_vertex_t* out, uint32_t out_capacity);
 
 /* Rotates the optional normals by the same joints (upper 3x3 only, output
  * 16.16 unit vectors up to quantisation). SAT_ERR_UNSUPPORTED if the asset has

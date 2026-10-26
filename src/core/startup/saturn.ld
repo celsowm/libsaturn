@@ -75,7 +75,8 @@ SECTIONS {
      *   3. .rodata: strings and constants
      * ========================================================================= */
     .text 0x06004000 : {
-        *(.text.start)       /* crt0.s: entry point _start */
+        KEEP(*(.text.start)) /* BIOS entry points are linker roots, not C callers. */
+        KEEP(*(.text.slave_entry))
         *(.text .text.*)     /* All other code */
         *(.rodata .rodata.*) /* Strings, constants, C++ vtables */
         . = ALIGN(4);        /* Align to 4 bytes */

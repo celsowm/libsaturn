@@ -1,0 +1,202 @@
+{
+  "passed": true,
+  "cases": {
+    "scene-864": {
+      "costs": {
+        "wait": {
+          "before_us": 5332.383665716999,
+          "after_us": 5327.6353276353275,
+          "reduction_percent": 0.08904719501335186
+        },
+        "begin": {
+          "before_us": 94.9667616334283,
+          "after_us": 94.9667616334283,
+          "reduction_percent": 0.0
+        },
+        "animation": {
+          "before_us": 4.748338081671415,
+          "after_us": 4.748338081671415,
+          "reduction_percent": 0.0
+        },
+        "skin": {
+          "before_us": 4.748338081671415,
+          "after_us": 4.748338081671415,
+          "reduction_percent": 0.0
+        },
+        "geometry": {
+          "before_us": 46296.2962962963,
+          "after_us": 46301.04463437797,
+          "reduction_percent": -0.010256410256407689
+        },
+        "flush": {
+          "before_us": 12867.996201329535,
+          "after_us": 12867.996201329535,
+          "reduction_percent": 0.0
+        },
+        "hud": {
+          "before_us": 588.7939221272554,
+          "after_us": 588.7939221272554,
+          "reduction_percent": 0.0
+        },
+        "present": {
+          "before_us": 1405.5080721747388,
+          "after_us": 1405.5080721747388,
+          "reduction_percent": 0.0
+        },
+        "plot": {
+          "before_us": 0.0,
+          "after_us": 0.0,
+          "reduction_percent": null
+        },
+        "work": {
+          "before_us": 61310.54131054131,
+          "after_us": 61315.28964862298,
+          "reduction_percent": -0.00774473358116287
+        }
+      },
+      "before_frt_hz": 210600,
+      "after_frt_hz": 210600,
+      "before_submit_s": 15.0,
+      "after_submit_s": 15.0,
+      "before_working_bytes": 246256,
+      "after_working_bytes": 246256,
+      "different_model_pixels": 0,
+      "before_elf_sha256": "3820fa7accb5c07dbd5c21a2e0b8e2733279ef9d97aad953d2cc1bb270f906f4",
+      "after_elf_sha256": "8b0172379c2c2f52babec111b5ec5ebfa25b7f264467177cdd5386ea2205d091"
+    },
+    "texture-864": {
+      "costs": {
+        "wait": {
+          "before_us": 4563.15289648623,
+          "after_us": 4553.656220322887,
+          "reduction_percent": 0.20811654526535628
+        },
+        "begin": {
+          "before_us": 94.9667616334283,
+          "after_us": 94.9667616334283,
+          "reduction_percent": 0.0
+        },
+        "animation": {
+          "before_us": 4.748338081671415,
+          "after_us": 4.748338081671415,
+          "reduction_percent": 0.0
+        },
+        "skin": {
+          "before_us": 4.748338081671415,
+          "after_us": 4.748338081671415,
+          "reduction_percent": 0.0
+        },
+        "geometry": {
+          "before_us": 46296.2962962963,
+          "after_us": 46301.04463437797,
+          "reduction_percent": -0.010256410256407689
+        },
+        "flush": {
+          "before_us": 13641.975308641975,
+          "after_us": 13641.975308641975,
+          "reduction_percent": 0.0
+        },
+        "hud": {
+          "before_us": 588.7939221272554,
+          "after_us": 588.7939221272554,
+          "reduction_percent": 0.0
+        },
+        "present": {
+          "before_us": 1405.5080721747388,
+          "after_us": 1405.5080721747388,
+          "reduction_percent": 0.0
+        },
+        "plot": {
+          "before_us": 0.0,
+          "after_us": 0.0,
+          "reduction_percent": null
+        },
+        "work": {
+          "before_us": 62079.77207977208,
+          "after_us": 62089.26875593542,
+          "reduction_percent": -0.01529753709652363
+        }
+      },
+      "before_frt_hz": 210600,
+      "after_frt_hz": 210600,
+      "before_submit_s": 15.0,
+      "after_submit_s": 15.0,
+      "before_working_bytes": 246256,
+      "after_working_bytes": 246256,
+      "different_model_pixels": 0,
+      "before_elf_sha256": "32ea53d2b37b64ef13edb4cad6ceff542acdadc22969a73794f9d367e7358ee8",
+      "after_elf_sha256": "1aa199e630b53a1e3e56c4381424364a149473a67b28de2013040b18eb58f057"
+    },
+    "paired-864": {
+      "costs": {
+        "wait": {
+          "before_us": 12530.864197530864,
+          "after_us": 12530.864197530864,
+          "reduction_percent": 0.0
+        },
+        "begin": {
+          "before_us": 94.9667616334283,
+          "after_us": 94.9667616334283,
+          "reduction_percent": 0.0
+        },
+        "animation": {
+          "before_us": 4.748338081671415,
+          "after_us": 4.748338081671415,
+          "reduction_percent": 0.0
+        },
+        "skin": {
+          "before_us": 9629.62962962963,
+          "after_us": 9629.62962962963,
+          "reduction_percent": 0.0
+        },
+        "geometry": {
+          "before_us": 28556.50522317189,
+          "after_us": 28556.50522317189,
+          "reduction_percent": 0.0
+        },
+        "flush": {
+          "before_us": 13637.226970560303,
+          "after_us": 13637.226970560303,
+          "reduction_percent": 0.0
+        },
+        "hud": {
+          "before_us": 588.7939221272554,
+          "after_us": 588.7939221272554,
+          "reduction_percent": 0.0
+        },
+        "present": {
+          "before_us": 1547.9582146248813,
+          "after_us": 1547.9582146248813,
+          "reduction_percent": 0.0
+        },
+        "plot": {
+          "before_us": 0.0,
+          "after_us": 0.0,
+          "reduction_percent": null
+        },
+        "work": {
+          "before_us": 54107.31244064577,
+          "after_us": 54107.31244064577,
+          "reduction_percent": 0.0
+        }
+      },
+      "before_frt_hz": 210600,
+      "after_frt_hz": 210600,
+      "before_submit_s": 15.0,
+      "after_submit_s": 15.0,
+      "before_working_bytes": 339568,
+      "after_working_bytes": 339568,
+      "different_model_pixels": 0,
+      "before_elf_sha256": "6480b299cb282ce52229ff7d85d996055d69604b1f4cbe446a50fdf086aa5192",
+      "after_elf_sha256": "a427ab46e744ae446e02a20d0292d887447f965037b9f1270a72b80dd74c2b0f"
+    }
+  },
+  "model_crop": [
+    0,
+    48,
+    320,
+    192
+  ],
+  "calibration_normalization_allowed": false,
+  "scope": "Retained static cube controls and screenshots; timings are instrumented emulator submissions, not displayed frames or hardware qualification. This does not certify source/build-flag equivalence or all runtime settings; establish those from retained commands."
+}

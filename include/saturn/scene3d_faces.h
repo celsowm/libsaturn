@@ -6,6 +6,7 @@
 #include "saturn/model3d.h"
 #include "saturn/collide3d.h"
 #include "saturn/parallel.h"
+#include "saturn/vdp1_command_batch.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,6 +45,28 @@ typedef struct sat_scene3d_material {
     uint16_t sprite_flags;
 } sat_scene3d_material_t;
 
+/* Optional immutable projected-command prefixes. Entries are opaque compiler
+ * output; a NULL texture marks a material that retains general dispatch.
+ * Compile after texture upload and retain table/storage until all queued
+ * faces/tasks using it have flushed, completed and released. Rebuild after
+ * any material/descriptor mutation; ordinary residency checks still apply. */
+typedef sat_vdp1_projected_program_t sat_scene3d_material_program_t;
+
+typedef struct sat_scene3d_material_programs {
+    const sat_scene3d_material_t* materials;
+    sat_scene3d_material_program_t* entries;
+    uint16_t count;
+    uint8_t valid;
+    uint8_t all_compiled;
+} sat_scene3d_material_programs_t;
+
+/* Unsupported RGB/Gouraud/color-calc cases are retained as general entries.
+ * Fails atomically for the output table; entry storage may be partially written. */
+sat_result_t sat_scene3d_material_programs_init(
+    sat_scene3d_material_programs_t* out,
+    const sat_scene3d_material_t* materials,uint16_t count,
+    sat_scene3d_material_program_t* storage,uint16_t capacity);
+
 /* 8-bit artistic pass in the painter key, leaving 24 bits of depth (faces
  * order by depth out to 4096 world units). Values beyond this fail
  * atomically. */
@@ -52,29 +75,56 @@ typedef struct sat_scene3d_material {
 typedef struct sat_scene3d_profile {
     uint32_t projection_ticks, preparation_ticks, painter_ticks, emission_ticks;
 } sat_scene3d_profile_t;
+#define SAT_SCENE3D_INSTANCE_PROFILE_AVAILABLE 1
 /* Last instance submission / flush FRT costs. UNSUPPORTED when profiling was
  * compiled out; callers must not present zero as a measured cost. */
 sat_result_t sat_scene3d_profile_get(sat_scene3d_profile_t* out);
 
 /* Paint order is NOT a field here: it lives in the scene's parallel key
  * array, so ordering a frame moves two-byte indices instead of these
- * multi-word records.
+ * multi-word records. program_valid selects an immutable compiled prefix
+ * instead of a copied material; only that union member may be read.
  *
  * Every field a merge, flush or emission reads comes first; `world` is last
  * and is written, copied and read ONLY when projected_safe == 0 (the
  * clipping fallback). For a projected-safe face its contents are
- * unspecified. Records are written by the Slave through uncached memory and
- * copied again on merge, so every byte here costs per face, per frame. */
+ * unspecified. Ordinary batches write these records through uncached Slave memory and
+ * copy again on merge. Direct projected spans avoid those general records
+ * except when a cold fallback is required. */
 typedef struct sat_scene3d_face {
     sat_quad2_t projected;
-    sat_scene3d_material_t material;
+    union {
+        sat_scene3d_material_t material;
+        const sat_scene3d_material_program_t* program;
+    };
     uint8_t projected_safe;
     uint8_t gouraud_valid;
     /* Preprojected cache entry (RGB or indexed), no world fallback. */
     uint8_t cached_projected;
+    /* Selects the program union member; projected-safe, opaque, unshaded. */
+    uint8_t program_valid;
     uint16_t gouraud[4];
     sat_quad3_t world;
 } sat_scene3d_face_t;
+
+/* Optional hot queue for projected, opaque commands. 24 bytes on SH-2;
+ * uncommon materials/clipping retain a cold ordinary face. */
+typedef enum sat_scene3d_projected_kind {
+    SAT_SCENE3D_PROJECTED_RGB = 0,
+    SAT_SCENE3D_PROJECTED_PROGRAM = 1,
+    SAT_SCENE3D_PROJECTED_COLD = 2
+} sat_scene3d_projected_kind_t;
+typedef struct sat_scene3d_projected_face {
+    sat_quad2_t projected;
+    union {
+        const sat_scene3d_material_program_t* program;
+        const sat_scene3d_face_t* cold;
+        uint16_t rgb555;
+    };
+    uint8_t kind;
+    uint8_t cached_projected;
+    uint16_t reserved;
+} sat_scene3d_projected_face_t;
 
 typedef sat_result_t (*sat_scene3d_owner_validate_fn)(
     void* context,uint16_t slot,uint16_t generation,
@@ -120,7 +170,31 @@ typedef struct sat_scene3d_faces {
     uint16_t emitted_cached;
     /* Deliberately skipped unsupported faces. */
     uint16_t skipped_faces;
+    /* When bound, entries is cold storage rather than the logical queue. */
+    sat_scene3d_projected_face_t* projected_entries;
+    uint16_t cold_count;
+    /* Cold records available in entries; 0 means capacity. A face that needs
+     * a cold record beyond it is skipped and counted in skipped_faces. */
+    uint16_t cold_capacity;
+    /* Optional logical-to-physical map for disjoint queue writers. */
+    uint16_t* projected_indices;
+    uint16_t projected_gap;
+    struct sat_scene3d_prepare_batch* reserved_batch;
+    /* Optional experimental staged native command arena. A hot record with
+     * reserved=1 borrows its coordinates from the corresponding command. */
+    sat_vdp1_native_command_t* native_commands;
+    sat_vdp1_command_batch_t* native_batch;
+    /* Per-scene diagnostic accumulators: separate actor scenes have separate
+     * owners even when their submissions run on different CPUs. Zero when
+     * the SDK was built without profile metrics. */
+    sat_scene3d_profile_t instance_profile;
 } sat_scene3d_faces_t;
+
+/* Call after begin and before any face, with an already reserved frame batch.
+ * Requires LIBSATURN_NATIVE_SCENE_COMMANDS. The scene completes/cancels the
+ * batch at flush; outstanding workers retain ownership on timeout. */
+sat_result_t sat_scene3d_faces_bind_native_commands(
+    sat_scene3d_faces_t* scene,sat_vdp1_command_batch_t* batch);
 
 /* All three buffers are caller-owned and must hold `capacity` entries:
  * `storage` the faces, `keys` and `order` the painter's ordering scratch.
@@ -128,6 +202,20 @@ typedef struct sat_scene3d_faces {
 sat_result_t sat_scene3d_faces_init(
     sat_scene3d_faces_t* scene, sat_scene3d_face_t* storage,
     uint32_t* keys, uint16_t* order, uint16_t capacity);
+
+/* Bind only between frames. Ordinary entry storage still covers capacity
+ * and holds uncommon faces; projected storage must also cover capacity.
+ * Retain both buffers through flush. NULL returns to ordinary queue mode. */
+sat_result_t sat_scene3d_faces_use_projected_storage(
+    sat_scene3d_faces_t* scene,sat_scene3d_projected_face_t* storage,uint16_t capacity);
+/* Enables direct batch spans. Bind capacity indices between frames, after
+ * projected storage. Retain all queue buffers through flush. */
+sat_result_t sat_scene3d_faces_use_projected_indices(
+    sat_scene3d_faces_t* scene,uint16_t* indices,uint16_t capacity);
+/* Expand a queued record for diagnostics; never read entries[i] directly
+ * when projected storage is bound. Unused world/Gouraud fields are unspecified. */
+sat_result_t sat_scene3d_faces_get(
+    const sat_scene3d_faces_t* scene,uint16_t index,sat_scene3d_face_t* out);
 
 /* Configure the optional owner verifier only while no frame is active.
  * `spans` (caller-owned, `span_capacity` entries) holds one record per
@@ -234,23 +322,27 @@ sat_result_t sat_scene3d_faces_submit_tiled_quad(
 
 /* A validated immutable topology snapshot. Building one costs O(face_count)
  * once; a matching instance may then skip that same index/material-map walk
- * every frame. Vertex POSITIONS may change in place (animated poses), but the
- * mesh descriptor/buffers/counts, material table identity and face_materials
- * contents must remain unchanged. Dynamic material maps should leave this
- * fast path unused. Material residency is still rechecked before flush. */
+ * every frame. Vertex positions, vertex-buffer addresses, mesh descriptors
+ * and capacities
+ * may change between submissions, provided their validated counts match and
+ * the current buffers cover those counts. This supports double-buffered poses
+ * and independent instances of the same topology. Indices, face-material map,
+ * material table and referenced descriptors must remain immutable for the
+ * binding lifetime; rebuild the binding after changing them. Each submission
+ * still checks current buffer capacities. Material residency is rechecked
+ * before flush. */
 typedef struct sat_scene3d_instance_binding {
-    const sat_mesh_t* mesh;
-    const sat_vec3_t* vertices;
     const uint16_t* indices;
-    uint16_t vertex_cap;
     uint16_t vertex_count;
-    uint16_t face_cap;
     uint16_t face_count;
     const sat_scene3d_material_t* materials;
     uint16_t material_count;
     const uint16_t* face_materials;
     uint8_t has_rgb;
     uint8_t valid;
+    /* Optional caller-compiled table for precisely these materials/count.
+     * Attach before source-plan initialization; table/storage is immutable. */
+    const sat_scene3d_material_programs_t* programs;
 } sat_scene3d_instance_binding_t;
 
 sat_result_t sat_scene3d_instance_binding_init(
@@ -272,6 +364,7 @@ sat_result_t sat_scene3d_instance_binding_init(
  * Zero-initialize the whole descriptor before assigning required fields:
  * every optional pointer is NULL-by-default, and future trailing optional
  * fields must not inherit indeterminate stack data. */
+#define SAT_SCENE3D_CULL_SCREEN 2u
 typedef struct sat_scene3d_instance {
     const sat_mesh_t* mesh;
     const sat_scene3d_material_t* materials;
@@ -279,6 +372,10 @@ typedef struct sat_scene3d_instance {
     const uint16_t* face_materials;
     const sat_mat4_t* world; /* NULL: mesh vertices already in world space */
     uint16_t pass;
+    /* 0 draws both sides; nonzero culls back faces by projected area and the
+     * world normal. SAT_SCENE3D_CULL_SCREEN culls by projected area alone
+     * (like a PlayStation NCLIP); the world normal then decides only faces
+     * with a corner behind the camera. */
     uint8_t cull_backfaces;
     /* Optional per-face mask: a nonzero byte draws that face from either side. */
     const uint8_t* double_sided_faces;
@@ -291,10 +388,51 @@ typedef struct sat_scene3d_instance {
      * be validated when they are built/loaded, not every frame. */
     const sat_aabb3_t* bounds;
     /* Optional O(1) proof that immutable index/material topology was already
-     * validated. Any pointer/count mismatch rejects submission rather than
-     * silently falling back to a potentially stale token. */
+     * validated. A topology pointer/count mismatch rejects submission rather
+     * than silently falling back to a potentially stale token. */
     const sat_scene3d_instance_binding_t* validated_binding;
+    /* Nonzero: screen_scratch already holds the mesh's vertices projected
+     * with this scene's camera (e.g. sat_skin_project_range), and world must
+     * be NULL. Submission then skips projection and never reads the mesh
+     * vertices. That needs the compiled fast path (every corner in front of
+     * the camera and drawable, culling off or SAT_SCENE3D_CULL_SCREEN);
+     * otherwise SAT_ERR_UNSUPPORTED is returned with nothing appended, and
+     * the caller submits world vertices instead. sat_scene_submit_instance
+     * does not record that refusal as a frame error. */
+    uint8_t pre_projected;
 } sat_scene3d_instance_t;
+
+/* Compiled publication plan for immutable topology/material resources.
+ * Initialize on Master after binding validation and resource loading. Storage
+ * is caller-owned Work RAM and must outlive all tasks using it. Treat the plan,
+ * range storage, binding topology, material table and referenced texture/tiled
+ * descriptors as immutable until every such task has completed AND released.
+ * Rebuild the binding and plan after changing any of those resources, even
+ * when pointer identities are unchanged. Never copy a plan to republish it.
+ * This is a cache publication contract, not proof of live VRAM ownership:
+ * normal residency/owner checks still apply at flush.
+ * Vertex Gouraud values may change between tasks; their addresses stay fixed.
+ * Vertices, mesh descriptors, bounds, transforms, face masks and scratch remain
+ * per-task data. Receiver invalidation is retained on every backend, so a
+ * shutdown/restart or Master fallback needs no cached acknowledgment reset.
+ * NULL/empty ranges consume no capacity. On failure out is invalid; range
+ * storage may have been written. Initialization must not overlap any user of
+ * out or its range storage. Zero-init prepare items for the optional pointer. */
+typedef struct sat_scene3d_source_range {
+    const void* address;
+    uint32_t bytes;
+} sat_scene3d_source_range_t;
+
+typedef struct sat_scene3d_source_plan {
+    sat_scene3d_instance_binding_t topology;
+    sat_scene3d_source_range_t* ranges;
+    uint16_t static_count;
+    uint16_t range_count;
+} sat_scene3d_source_plan_t;
+
+sat_result_t sat_scene3d_source_plan_init(
+    sat_scene3d_source_plan_t* out, const sat_scene3d_instance_t* instance,
+    sat_scene3d_source_range_t* ranges, uint16_t capacity);
 
 /* A batch item is an immutable instance descriptor plus caller-owned scratch.
  * Scratch is private to the item and may be written by the selected backend
@@ -305,6 +443,7 @@ typedef struct sat_scene3d_prepare_item {
     sat_vec3_t* world_scratch;
     uint8_t color_calc_slot;
     uint8_t reserved;
+    const sat_scene3d_source_plan_t* source_plan; /* NULL: conservative graph walk */
 } sat_scene3d_prepare_item_t;
 
 typedef struct sat_scene3d_prepare_metrics {
@@ -312,6 +451,8 @@ typedef struct sat_scene3d_prepare_metrics {
     uint16_t prepared_faces;
     uint16_t culled_faces;
     uint16_t clipped_faces;
+    /* Faces dropped because the cold store was full. */
+    uint16_t skipped_faces;
 } sat_scene3d_prepare_metrics_t;
 
 /* Independent dispatch policy for one batch; zero-init preserves the
@@ -326,7 +467,7 @@ typedef enum sat_scene3d_prepare_dispatch {
 
 /* Caller-owned batch storage. The worker writes only faces, keys and
  * metrics; it never sorts or writes the scene/VDP1 state. The camera
- * fields are captured by sat_scene3d_prepare_batch_async(). */
+ * fields are captured by sat_scene_prepare_batch_async(). */
 typedef struct sat_scene3d_prepare_batch {
     const sat_scene3d_prepare_item_t* items;
     uint16_t item_count;
@@ -344,12 +485,35 @@ typedef struct sat_scene3d_prepare_batch {
     sat_parallel_handle_t handle;
     uint8_t pending;
     uint8_t reserved2[3];
+    /* Internal direct-span ownership; initialize with the APIs below. */
+    sat_scene3d_projected_face_t* projected_faces;
+    sat_scene3d_faces_t* direct_owner;
+    uint16_t direct_first;
+    /* Direct-span batches: cold records requested (0: capacity). When the
+     * scene's cold store is bounded, reserve lowers it to what is left,
+     * possibly 0; the batch then drops and counts its extra cold faces. */
+    uint16_t cold_capacity;
+    sat_vdp1_native_command_t* native_commands;
+    sat_scene3d_profile_t instance_profile;
 } sat_scene3d_prepare_batch_t;
 
 sat_result_t sat_scene3d_prepare_batch_init(
     sat_scene3d_prepare_batch_t* batch,
     const sat_scene3d_prepare_item_t* items, uint16_t item_count,
     sat_scene3d_face_t* faces, uint32_t* keys, uint16_t capacity);
+
+/* Reserve one disjoint projected/cold span for a batch before dispatch. The
+ * Master may append concurrently. Merge publishes indices/keys in logical
+ * source order without copying face records. One outstanding reservation per
+ * scene; flush stays BUSY until merge or cancellation. Capacity is the worst
+ * case, including culled faces. Unused reserved slots last until next begin.
+ * Do not copy/reinitialize the scene or batch while a reservation is held.
+ * Retain the canonical queue through flush; batch keys may be reused after
+ * merge and task release. A cancelled task must finish and release first. */
+sat_result_t sat_scene3d_faces_reserve_batch(
+    sat_scene3d_faces_t* scene,sat_scene3d_prepare_batch_t* batch);
+sat_result_t sat_scene3d_faces_cancel_batch(
+    sat_scene3d_faces_t* scene,sat_scene3d_prepare_batch_t* batch);
 
 /* Builds a bounded object-range view of an existing batch.  The item
  * descriptors are copied in source order into caller-owned storage; camera

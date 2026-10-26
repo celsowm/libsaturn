@@ -1,6 +1,15 @@
 #include <cassert>
 #include <cstdio>
+#include <vector>
+#include <utility>
 #include "saturn/scene.h"
+
+static std::vector<std::pair<const void*, uint32_t>> synced;
+static sat_parallel_process_fn registered_process;
+static bool covered(const void* address) {
+    for (const auto& range : synced) if (range.first == address) return true;
+    return false;
+}
 
 static sat_result_t register_status=SAT_OK;
 static sat_result_t submit_status=SAT_OK;
@@ -8,14 +17,22 @@ static sat_result_t task_result=SAT_ERR_BUSY;
 static sat_result_t sync_status=SAT_OK;
 static sat_result_t merge_status=SAT_OK;
 static uint32_t task_bytes=0u;
+static void* submitted_output;
+static uint32_t submitted_capacity;
+static sat_scene3d_prepare_batch_t executed_batch;
+static sat_result_t release_status=SAT_OK;
 static uint32_t submit_count=0u;
 static uint32_t master_submit_count=0u;
 static sat_parallel_mode_t selected_mode=SAT_PARALLEL_MASTER;
 static sat_parallel_handle_t last_handle=0x1234u;
 
 extern "C" sat_result_t sat_parallel_register_task(
-    sat_parallel_task_type_t, sat_parallel_process_fn) { return register_status; }
-extern "C" sat_result_t sat_parallel_cache_sync_range(const void*,uint32_t) {
+    sat_parallel_task_type_t, sat_parallel_process_fn process) {
+    registered_process=process;
+    return register_status;
+}
+extern "C" sat_result_t sat_parallel_cache_sync_range(const void* address,uint32_t bytes) {
+    synced.emplace_back(address,bytes);
     return sync_status;
 }
 extern "C" void* sat_parallel_uncached_address(const void* ptr) {
@@ -25,8 +42,9 @@ extern "C" sat_parallel_mode_t sat_parallel_mode(void) {
     return selected_mode;
 }
 extern "C" sat_result_t sat_parallel_submit(
-    sat_parallel_task_type_t,const void*,uint32_t,void*,uint32_t,
+    sat_parallel_task_type_t,const void*,uint32_t,void* output,uint32_t capacity,
     sat_parallel_handle_t* handle) {
+    submitted_output=output;submitted_capacity=capacity;
     ++submit_count;
     if (submit_status==SAT_OK) *handle=last_handle;
     return submit_status;
@@ -44,10 +62,16 @@ extern "C" sat_result_t sat_parallel_result(
     return task_result;
 }
 extern "C" sat_result_t sat_parallel_release(sat_parallel_handle_t) {
-    return SAT_OK;
+    return release_status;
 }
 extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
-    sat_scene3d_prepare_batch_t*) { return SAT_OK; }
+    sat_scene3d_prepare_batch_t* batch) { executed_batch=*batch;return SAT_OK; }
+extern "C" sat_result_t sat_scene3d_faces_cancel_batch(
+    sat_scene3d_faces_t* scene,sat_scene3d_prepare_batch_t* batch) {
+    assert(scene->reserved_batch==batch && !batch->pending);
+    scene->reserved_batch=nullptr;batch->direct_owner=nullptr;
+    batch->projected_faces=nullptr;return SAT_OK;
+}
 extern "C" sat_result_t sat_scene3d_faces_merge_prepared(
     sat_scene3d_faces_t* faces,const sat_scene3d_prepare_batch_t* batch) {
     if (merge_status!=SAT_OK) return merge_status;
@@ -55,7 +79,150 @@ extern "C" sat_result_t sat_scene3d_faces_merge_prepared(
     return SAT_OK;
 }
 
+static void source_publication_contract() {
+    sat_vec3_t vertices[4]{};
+    uint16_t indices[4]{0u,1u,2u,3u}, face_materials[1]{0u}, gouraud[4]{};
+    uint8_t masks[1]{};
+    sat_mesh_t mesh{};
+    mesh.vertices=vertices; mesh.indices=indices;
+    mesh.vertex_count=mesh.vertex_cap=4u;
+    mesh.face_count=mesh.face_cap=1u;
+    sat_vdp1_texture_t textures[2]{};
+    sat_indexed_tiled_quad3_t tiled{};
+    tiled.full=&textures[0]; tiled.tiles[0]=&textures[1];
+    sat_scene3d_material_t materials[2]{};
+    materials[0].texture=&textures[0];
+    materials[1].texture=&textures[1];
+    materials[1].tiled=&tiled;
+    materials[0].vertex_gouraud=materials[1].vertex_gouraud=gouraud;
+    sat_scene3d_instance_binding_t binding{};
+    binding.valid=1u; binding.indices=indices; binding.vertex_count=4u;
+    binding.face_count=1u; binding.materials=materials; binding.material_count=2u;
+    binding.face_materials=face_materials;
+    sat_scene3d_material_program_t commands[2]{};
+    sat_scene3d_material_programs_t programs{};
+    programs.materials=materials; programs.entries=commands;
+    programs.count=2u; programs.valid=1u;
+    binding.programs=&programs;
+    sat_scene3d_instance_t instance{};
+    instance.mesh=&mesh; instance.materials=materials; instance.material_count=2u;
+    instance.face_materials=face_materials; instance.validated_binding=&binding;
+    instance.double_sided_faces=masks;
+    sat_scene3d_source_plan_t plan{};
+    sat_scene3d_source_range_t ranges[16]{};
+    assert(sat_scene3d_source_plan_init(&plan,&instance,ranges,1u)==SAT_ERR_CAPACITY);
+    assert(!plan.topology.valid);
+    sync_status=SAT_ERR_IO;
+    assert(sat_scene3d_source_plan_init(&plan,&instance,ranges,16u)==SAT_ERR_IO);
+    assert(!plan.topology.valid);
+    sync_status=SAT_OK;
+    synced.clear();
+    assert(sat_scene3d_source_plan_init(&plan,&instance,ranges,16u)==SAT_OK);
+    assert(covered(indices) && covered(materials) && covered(face_materials));
+    assert(covered(&programs) && covered(commands));
+    assert(covered(&tiled) && covered(textures) && covered(&textures[1]));
+    assert(plan.range_count==plan.static_count+1u); // Shared dynamic Gouraud once.
+    assert(ranges[plan.static_count].address==gouraud);
+    sat_scene3d_prepare_item_t item{};
+    item.instance=&instance; item.source_plan=&plan;
+    sat_scene3d_face_t faces[1]{}; uint32_t keys[1]{};
+    sat_scene3d_prepare_batch_t batch{};
+    batch.items=&item; batch.item_count=1u;
+    batch.faces=faces; batch.keys=keys; batch.capacity=1u;
+    sat_scene_t scene{}; scene.active=1u;
+    sat_parallel_handle_t handle{};
+    synced.clear();
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
+    assert(!covered(indices) && !covered(materials) && !covered(&tiled));
+    assert(!covered(&programs) && !covered(commands));
+    assert(covered(vertices) && covered(masks) && covered(gouraud));
+    // Every receiver invalidates static sources again. Calling the captured
+    // adapter twice also models local fallback and a restarted worker: neither
+    // can poison an acknowledgment belonging to a different CPU/session.
+    for (unsigned receiver=0; receiver<2; ++receiver) {
+        synced.clear();
+        uint32_t output_size=99u;
+        assert(registered_process(&batch,sizeof(batch),faces,sizeof(faces),&output_size)==SAT_OK);
+        assert(covered(indices) && covered(materials) && covered(&tiled));
+        assert(covered(&programs) && covered(commands));
+        assert(covered(vertices) && covered(gouraud) && covered(masks));
+    }
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
+    sat_vec3_t next_vertices[4]{};
+    mesh.vertices=next_vertices; gouraud[0]=0x1234u;
+    synced.clear();
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
+    assert(covered(next_vertices) && covered(gouraud) && !covered(materials));
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
+    // Replacing compiled sources requires republication even if mesh and
+    // material addresses have not changed.
+    sat_scene3d_material_programs_t replacement=programs;
+    binding.programs=&replacement;
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_ERR_INVALID_ARG);
+    binding.programs=&programs;
+    programs.count=1u;
+    sat_scene3d_source_plan_t rejected{};
+    assert(sat_scene3d_source_plan_init(&rejected,&instance,ranges,16u)==SAT_ERR_INVALID_ARG);
+    assert(!rejected.topology.valid);
+    programs.count=2u;
+    uint16_t next_indices[4]{0u,1u,2u,3u}; mesh.indices=next_indices;
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_ERR_INVALID_ARG);
+    // Republish after topology/descriptor edits, including edits at the same
+    // material address. Nested pointers are compiled afresh.
+    binding.indices=next_indices;
+    materials[1].tiled=nullptr;
+    assert(sat_scene3d_source_plan_init(&plan,&instance,ranges,16u)==SAT_OK);
+    scene.first_error=SAT_OK;
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
+    synced.clear();
+    uint32_t output_size{};
+    assert(registered_process(&batch,sizeof(batch),faces,sizeof(faces),&output_size)==SAT_OK);
+    assert(covered(next_indices) && !covered(&tiled));
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
+    // A NULL plan keeps conservative publication for existing callers.
+    item.source_plan=nullptr;
+    synced.clear();
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
+    assert(covered(next_indices) && covered(materials) && covered(gouraud));
+    assert(covered(&programs) && covered(commands));
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
+    submit_count=master_submit_count=0u;
+}
+
+static void direct_output_and_release_contract() {
+    sat_scene_t scene{};scene.active=1;
+    sat_scene3d_face_t cold[2]{};sat_scene3d_projected_face_t hot[2]{};uint32_t keys[2]{};
+    sat_scene3d_prepare_batch_t batch{};
+    batch.faces=cold;batch.keys=keys;batch.capacity=2;
+    batch.projected_faces=hot;batch.direct_owner=&scene.faces;
+    scene.faces.reserved_batch=&batch;
+    sat_parallel_handle_t handle{};
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_OK);
+    assert(submitted_output==hot && submitted_capacity==sizeof(hot));
+    synced.clear();uint32_t output_size=99;
+    assert(registered_process(&batch,sizeof(batch),hot,sizeof(hot)-1,&output_size)==SAT_ERR_CAPACITY);
+    assert(registered_process(&batch,sizeof(batch),hot,sizeof(hot),&output_size)==SAT_OK);
+    assert(executed_batch.projected_faces==hot && executed_batch.faces==cold);
+    assert(covered(cold) && covered(keys) && output_size==0);
+    task_result=SAT_OK;task_bytes=sizeof(hot[0]);
+    assert(sat_scene_merge_prepared_batch(&scene,&batch,handle)==SAT_OK);
+    assert(batch.metrics.prepared_faces==1);
+    scene.faces.reserved_batch=nullptr; // Real merge publishes the reservation.
+    assert(sat_scene_prepare_batch_async(&scene,&batch,&handle)==SAT_ERR_BUSY);
+    assert(scene.first_error==SAT_OK);
+    scene.faces.reserved_batch=&batch; // Exercise abandoned-reservation release.
+    release_status=SAT_ERR_BUSY;
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_ERR_BUSY);
+    assert(batch.pending && scene.faces.reserved_batch==&batch && batch.direct_owner);
+    release_status=SAT_OK;
+    assert(sat_scene_prepare_batch_release(&scene,&batch,handle)==SAT_OK);
+    assert(!batch.pending && !batch.direct_owner && !batch.projected_faces && !scene.faces.reserved_batch);
+    task_result=SAT_ERR_BUSY;submit_count=master_submit_count=0;
+}
+
 int main() {
+    direct_output_and_release_contract();
+    source_publication_contract();
     sat_scene_t scene{};
     scene.active=1u;
     scene.faces.active=1u;

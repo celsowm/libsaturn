@@ -1,0 +1,100 @@
+name: Cube pipeline bench
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'examples/cube_pipeline_bench/**'
+      - 'harness/scripts/cube_pipeline.py'
+      - 'harness/scripts/build_example_variant.py'
+      - 'tests/tools/test_example_variant.py'
+      - 'harness/scripts/analyze_cpu_profile.py'
+      - 'tests/tools/test_analyze_cpu_profile.py'
+      - 'harness/scripts/dino_pipeline.py'
+      - 'harness/scripts/dino_phase_metrics.py'
+      - 'tests/tools/test_dino_phase_metrics.py'
+      - 'examples/dino_demo/**'
+      - 'src/graphics/3d/scene/**'
+      - 'src/graphics/vdp1/**'
+      - 'src/hal/vdp1/**'
+      - 'tests/host/test_vdp1_clip.cpp'
+      - 'tests/host/test_vdp1_upload.cpp'
+      - 'include/saturn/scene3d_faces.h'
+      - 'tests/host/test_scene_parallel_runtime.cpp'
+      - 'harness/scripts/renderer_pipeline_study.py'
+      - 'src/core/geometry/mesh_logic.hpp'
+      - 'src/graphics/3d/rendering/**'
+      - 'tests/host/test_mesh3d_logic.cpp'
+      - 'tests/host/test_render3d_logic.cpp'
+      - 'tests/host/test_cube_pipeline_mesh.cpp'
+      - 'tests/tools/test_cube_pipeline.py'
+      - 'tests/tools/test_renderer_pipeline_study.py'
+      - '.github/workflows/cube-pipeline.yml'
+  pull_request:
+  workflow_dispatch:
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: make build/tests/test_scene_parallel_runtime
+      - run: ./build/tests/test_scene_parallel_runtime
+      - run: make build/tests/test_vdp1_clip build/tests/test_vdp1_upload build/tests/test_scene3d_faces_api build/tests/test_skin_scene
+      - run: ./build/tests/test_vdp1_clip && ./build/tests/test_vdp1_upload && ./build/tests/test_scene3d_faces_api && ./build/tests/test_skin_scene
+      - run: make build/tests/test_cube_pipeline_mesh
+      - run: ./build/tests/test_cube_pipeline_mesh
+      - run: make build/tests/test_mesh3d_logic build/tests/test_render3d_logic
+      - run: ./build/tests/test_mesh3d_logic && ./build/tests/test_render3d_logic
+      - run: python tests/tools/test_cube_pipeline.py
+      - run: python tests/tools/test_example_variant.py
+      - run: python tests/tools/test_renderer_pipeline_study.py
+      - run: python tests/tools/test_dino_phase_metrics.py
+      - run: python tests/tools/test_analyze_cpu_profile.py
+      - run: python harness/scripts/dino_pipeline.py --help
+  dino-banks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/saturn-toolchain
+      - run: sudo apt-get install -y ffmpeg
+      - run: python -m pip install -r tools/requirements-city.txt
+      - name: Compile independent Dino table banks with stock-memory and disc checks
+        run: |
+          for programs in 0 1; do
+            for textures in 0 1; do
+              make all EXAMPLE=dino_demo DINO_HIGH_MATERIAL_PROGRAMS=$programs \
+                DINO_HIGH_TEXTURE_DESCRIPTORS=$textures DINO_PIPELINE_METRICS=1 \
+                DINO_PROFILE_HUD=1 DINO_BENCH_PAUSED=1 PYTHON="$(command -v python)" -j3
+            done
+          done
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/saturn-toolchain
+      - name: Compile every layer with stock RAM and native disc checks
+        run: |
+          for stage in 0 1 2 3 4 5 6 7 8 9; do
+            make all EXAMPLE=cube_pipeline_bench CUBE_BENCH_STAGE=$stage CUBE_BENCH_DIV=1 -j3
+          done
+          make all EXAMPLE=cube_pipeline_bench CUBE_BENCH_STAGE=8 CUBE_BENCH_DIV=12 -j3
+          make all EXAMPLE=cube_pipeline_bench CUBE_BENCH_STAGE=8 CUBE_BENCH_DIV=12 CUBE_BENCH_HIGH_RAM=1 -j3
+      - name: Upload final dense example
+        uses: actions/upload-artifact@v4
+        with:
+          name: cube-pipeline-dense
+          path: |
+            build/cube_pipeline_bench.elf
+            build/cube_pipeline_bench.map
+            build/cube_pipeline_bench.app.bin
+            build/cube_pipeline_bench.iso
+            build/cube_pipeline_bench.bin
+            build/cube_pipeline_bench.cue

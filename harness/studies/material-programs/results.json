@@ -1,0 +1,618 @@
+{
+  "scope": "Controlled Ymir CPU work and submissions over nominal 60 Hz fields. Not distinct presentation FPS or physical hardware. DIVU results are immediate in this emulator core.",
+  "dino": {
+    "dino-halfword-v2-animated": {
+      "scenario": "animated",
+      "hashes": {
+        ".elf": "1111a02798e69aef6f95ff52da58c3fa5bc6e430cd648de8f50f9659d025dde5",
+        ".app.bin": "de0bc480f949feb9029fc382fb27cd2be1cb4eaac6f0b8ea6c2342ca5ca6f6b9",
+        ".bin": "7b65d8bbebcb5377deaba610f4dd490d9428cafd4e341d99b8ad537b33d7a9fd",
+        ".cue": "30211351c630ef281afa4608ac0451a14cc9d19329a06061671ef886c554c546"
+      },
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+      "nominal_submissions_per_second": 20.0,
+      "frequency": 210600,
+      "phase_us": {
+        "collect": {
+          "median": 346.6286799620133,
+          "maximum": 351.3770180436847,
+          "p95": 351.3770180436847
+        },
+        "publish": {
+          "median": 346.6286799620133,
+          "maximum": 346.6286799620133,
+          "p95": 346.6286799620133
+        },
+        "master_geometry": {
+          "median": 19439.69610636277,
+          "maximum": 19729.344729344728,
+          "p95": 19696.10636277303
+        },
+        "join": {
+          "median": 1125.3561253561254,
+          "maximum": 1130.1044634377968,
+          "p95": 1130.1044634377968
+        },
+        "merge": {
+          "median": 1144.349477682811,
+          "maximum": 1191.8328584995252,
+          "p95": 1187.0845204178538
+        },
+        "flush": {
+          "median": 10584.045584045583,
+          "maximum": 10788.224121557454,
+          "p95": 10745.489078822413
+        },
+        "present": {
+          "median": 1158.5944919278252,
+          "maximum": 1177.5878442545109,
+          "p95": 1172.8395061728395
+        },
+        "work": {
+          "median": 36709.40170940171,
+          "maximum": 37212.72554605888,
+          "p95": 37075.023741690406
+        },
+        "painter": {
+          "median": 2113.0104463437797,
+          "maximum": 2146.2488129154794,
+          "p95": 2136.7521367521367
+        },
+        "emit": {
+          "median": 6728.395061728395,
+          "maximum": 6861.3485280151945,
+          "p95": 6837.606837606838
+        },
+        "join_response": {
+          "median": 0.0,
+          "maximum": 0.0,
+          "p95": 0.0
+        },
+        "worker_source": {
+          "median": 1225.0712250712252,
+          "maximum": 1225.0712250712252,
+          "p95": 1225.0712250712252
+        },
+        "worker_geometry": {
+          "median": 16804.368471035137,
+          "maximum": 17075.02374169041,
+          "p95": 17070.275403608735
+        },
+        "worker_output": {
+          "median": 123.45679012345678,
+          "maximum": 123.45679012345678,
+          "p95": 123.45679012345678
+        },
+        "worker_total": {
+          "median": 18148.14814814815,
+          "maximum": 18423.551756885092,
+          "p95": 18414.055080721748
+        }
+      },
+      "observed_ccr": {
+        "master": [
+          1
+        ],
+        "worker": [
+          0
+        ]
+      }
+    },
+    "dino-program-split-animated": {
+      "scenario": "animated",
+      "hashes": {
+        ".elf": "8079a241c4cad1a05f85e69f98f84d10006699381cde91695351d113700cfb39",
+        ".app.bin": "08c0386c124975b1e2a5ea9485de7f2ed487bbfd2375c5ab034dd353b922411d",
+        ".bin": "ebd70285847990cb0803b27653274073680ecd9ec6b3c5d7dffe7730f934d24b",
+        ".cue": "30211351c630ef281afa4608ac0451a14cc9d19329a06061671ef886c554c546"
+      },
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+      "nominal_submissions_per_second": 20.0,
+      "frequency": 210600,
+      "phase_us": {
+        "collect": {
+          "median": 346.6286799620133,
+          "maximum": 351.3770180436847,
+          "p95": 351.3770180436847
+        },
+        "publish": {
+          "median": 346.6286799620133,
+          "maximum": 346.6286799620133,
+          "p95": 346.6286799620133
+        },
+        "master_geometry": {
+          "median": 19710.351377018043,
+          "maximum": 19995.25166191833,
+          "p95": 19938.271604938273
+        },
+        "join": {
+          "median": 1125.3561253561254,
+          "maximum": 1130.1044634377968,
+          "p95": 1130.1044634377968
+        },
+        "merge": {
+          "median": 878.4425451092118,
+          "maximum": 916.4292497625831,
+          "p95": 911.6809116809117
+        },
+        "flush": {
+          "median": 8053.18138651472,
+          "maximum": 8219.37321937322,
+          "p95": 8214.624881291547
+        },
+        "present": {
+          "median": 1172.8395061728395,
+          "maximum": 1191.8328584995252,
+          "p95": 1187.0845204178538
+        },
+        "work": {
+          "median": 34235.517568850904,
+          "maximum": 34719.848053181384,
+          "p95": 34529.91452991453
+        },
+        "painter": {
+          "median": 2113.0104463437797,
+          "maximum": 2146.2488129154794,
+          "p95": 2136.7521367521367
+        },
+        "emit": {
+          "median": 4938.271604938272,
+          "maximum": 5052.231718898385,
+          "p95": 5042.735042735043
+        },
+        "join_response": {
+          "median": 0.0,
+          "maximum": 0.0,
+          "p95": 0.0
+        },
+        "worker_source": {
+          "median": 1566.951566951567,
+          "maximum": 1566.951566951567,
+          "p95": 1566.951566951567
+        },
+        "worker_geometry": {
+          "median": 16828.110161443496,
+          "maximum": 17065.527065527065,
+          "p95": 17056.03038936372
+        },
+        "worker_output": {
+          "median": 123.45679012345678,
+          "maximum": 123.45679012345678,
+          "p95": 123.45679012345678
+        },
+        "worker_total": {
+          "median": 18513.770180436848,
+          "maximum": 18751.187084520418,
+          "p95": 18746.438746438747
+        }
+      },
+      "observed_ccr": {
+        "master": [
+          1
+        ],
+        "worker": [
+          0
+        ]
+      }
+    },
+    "dino-halfword-v2-paused": {
+      "scenario": "paused",
+      "hashes": {
+        ".elf": "1111a02798e69aef6f95ff52da58c3fa5bc6e430cd648de8f50f9659d025dde5",
+        ".app.bin": "de0bc480f949feb9029fc382fb27cd2be1cb4eaac6f0b8ea6c2342ca5ca6f6b9",
+        ".bin": "7b65d8bbebcb5377deaba610f4dd490d9428cafd4e341d99b8ad537b33d7a9fd",
+        ".cue": "30211351c630ef281afa4608ac0451a14cc9d19329a06061671ef886c554c546"
+      },
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+      "nominal_submissions_per_second": 20.0,
+      "frequency": 210600,
+      "phase_us": {
+        "collect": {
+          "median": 351.3770180436847,
+          "maximum": 351.3770180436847,
+          "p95": 351.3770180436847
+        },
+        "publish": {
+          "median": 341.88034188034186,
+          "maximum": 346.6286799620133,
+          "p95": 346.6286799620133
+        },
+        "master_geometry": {
+          "median": 19382.716049382718,
+          "maximum": 19387.464387464388,
+          "p95": 19387.464387464388
+        },
+        "join": {
+          "median": 1130.1044634377968,
+          "maximum": 1130.1044634377968,
+          "p95": 1130.1044634377968
+        },
+        "merge": {
+          "median": 1149.0978157644824,
+          "maximum": 1153.8461538461538,
+          "p95": 1153.8461538461538
+        },
+        "flush": {
+          "median": 10574.548907882241,
+          "maximum": 10579.297245963913,
+          "p95": 10579.297245963913
+        },
+        "present": {
+          "median": 1158.5944919278252,
+          "maximum": 1158.5944919278252,
+          "p95": 1158.5944919278252
+        },
+        "work": {
+          "median": 36367.52136752137,
+          "maximum": 36386.514719848055,
+          "p95": 36386.514719848055
+        },
+        "painter": {
+          "median": 2108.262108262108,
+          "maximum": 2113.0104463437797,
+          "p95": 2113.0104463437797
+        },
+        "emit": {
+          "median": 6718.898385565052,
+          "maximum": 6723.646723646723,
+          "p95": 6718.898385565052
+        },
+        "join_response": {
+          "median": 0.0,
+          "maximum": 0.0,
+          "p95": 0.0
+        },
+        "worker_source": {
+          "median": 1225.0712250712252,
+          "maximum": 1225.0712250712252,
+          "p95": 1225.0712250712252
+        },
+        "worker_geometry": {
+          "median": 16880.34188034188,
+          "maximum": 16880.34188034188,
+          "p95": 16880.34188034188
+        },
+        "worker_output": {
+          "median": 123.45679012345678,
+          "maximum": 123.45679012345678,
+          "p95": 123.45679012345678
+        },
+        "worker_total": {
+          "median": 18224.12155745489,
+          "maximum": 18224.12155745489,
+          "p95": 18224.12155745489
+        }
+      },
+      "observed_ccr": {
+        "master": [
+          1
+        ],
+        "worker": [
+          0
+        ]
+      }
+    },
+    "dino-program-split-paused": {
+      "scenario": "paused",
+      "hashes": {
+        ".elf": "8079a241c4cad1a05f85e69f98f84d10006699381cde91695351d113700cfb39",
+        ".app.bin": "08c0386c124975b1e2a5ea9485de7f2ed487bbfd2375c5ab034dd353b922411d",
+        ".bin": "ebd70285847990cb0803b27653274073680ecd9ec6b3c5d7dffe7730f934d24b",
+        ".cue": "30211351c630ef281afa4608ac0451a14cc9d19329a06061671ef886c554c546"
+      },
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+      "nominal_submissions_per_second": 20.0,
+      "frequency": 210600,
+      "phase_us": {
+        "collect": {
+          "median": 346.6286799620133,
+          "maximum": 351.3770180436847,
+          "p95": 351.3770180436847
+        },
+        "publish": {
+          "median": 346.6286799620133,
+          "maximum": 346.6286799620133,
+          "p95": 346.6286799620133
+        },
+        "master_geometry": {
+          "median": 19648.622981956316,
+          "maximum": 19648.622981956316,
+          "p95": 19648.622981956316
+        },
+        "join": {
+          "median": 1125.3561253561254,
+          "maximum": 1130.1044634377968,
+          "p95": 1130.1044634377968
+        },
+        "merge": {
+          "median": 883.1908831908831,
+          "maximum": 887.9392212725546,
+          "p95": 887.9392212725546
+        },
+        "flush": {
+          "median": 8034.188034188034,
+          "maximum": 8038.936372269705,
+          "p95": 8038.936372269705
+        },
+        "present": {
+          "median": 1172.8395061728395,
+          "maximum": 1177.5878442545109,
+          "p95": 1177.5878442545109
+        },
+        "work": {
+          "median": 33846.153846153844,
+          "maximum": 33860.39886039886,
+          "p95": 33860.39886039886
+        },
+        "painter": {
+          "median": 2108.262108262108,
+          "maximum": 2113.0104463437797,
+          "p95": 2113.0104463437797
+        },
+        "emit": {
+          "median": 4919.278252611586,
+          "maximum": 4924.026590693257,
+          "p95": 4924.026590693257
+        },
+        "join_response": {
+          "median": 0.0,
+          "maximum": 0.0,
+          "p95": 0.0
+        },
+        "worker_source": {
+          "median": 1566.951566951567,
+          "maximum": 1566.951566951567,
+          "p95": 1566.951566951567
+        },
+        "worker_geometry": {
+          "median": 16894.586894586893,
+          "maximum": 16894.586894586893,
+          "p95": 16894.586894586893
+        },
+        "worker_output": {
+          "median": 123.45679012345678,
+          "maximum": 123.45679012345678,
+          "p95": 123.45679012345678
+        },
+        "worker_total": {
+          "median": 18580.246913580246,
+          "maximum": 18584.99525166192,
+          "p95": 18584.99525166192
+        }
+      },
+      "observed_ccr": {
+        "master": [
+          1
+        ],
+        "worker": [
+          0
+        ]
+      }
+    },
+    "dino-program-split-controls": {
+      "scenario": "controls",
+      "hashes": {
+        ".elf": "8079a241c4cad1a05f85e69f98f84d10006699381cde91695351d113700cfb39",
+        ".app.bin": "08c0386c124975b1e2a5ea9485de7f2ed487bbfd2375c5ab034dd353b922411d",
+        ".bin": "ebd70285847990cb0803b27653274073680ecd9ec6b3c5d7dffe7730f934d24b",
+        ".cue": "30211351c630ef281afa4608ac0451a14cc9d19329a06061671ef886c554c546"
+      },
+      "bios_sha256": "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+      "probe_sha256": "87df9c4a142b198028976a65ffda8d70ce8a469e582c4ff8acfcec2135e52222",
+      "nominal_submissions_per_second": 20.0,
+      "frequency": 210600,
+      "phase_us": {
+        "collect": {
+          "median": 346.6286799620133,
+          "maximum": 351.3770180436847,
+          "p95": 351.3770180436847
+        },
+        "publish": {
+          "median": 346.6286799620133,
+          "maximum": 346.6286799620133,
+          "p95": 346.6286799620133
+        },
+        "master_geometry": {
+          "median": 19710.351377018043,
+          "maximum": 19995.25166191833,
+          "p95": 19919.278252611584
+        },
+        "join": {
+          "median": 1125.3561253561254,
+          "maximum": 1130.1044634377968,
+          "p95": 1130.1044634377968
+        },
+        "merge": {
+          "median": 883.1908831908831,
+          "maximum": 921.1775878442545,
+          "p95": 906.9325735992403
+        },
+        "flush": {
+          "median": 8057.929724596392,
+          "maximum": 8224.121557454891,
+          "p95": 8148.148148148148
+        },
+        "present": {
+          "median": 1229.8195631528965,
+          "maximum": 1248.8129154795822,
+          "p95": 1239.3162393162393
+        },
+        "work": {
+          "median": 34909.781576448244,
+          "maximum": 35346.628679962014,
+          "p95": 35185.18518518518
+        },
+        "painter": {
+          "median": 2113.0104463437797,
+          "maximum": 2146.2488129154794,
+          "p95": 2132.003798670465
+        },
+        "emit": {
+          "median": 4938.271604938272,
+          "maximum": 5052.231718898385,
+          "p95": 5004.748338081671
+        },
+        "join_response": {
+          "median": 0.0,
+          "maximum": 0.0,
+          "p95": 0.0
+        },
+        "worker_source": {
+          "median": 1566.951566951567,
+          "maximum": 1566.951566951567,
+          "p95": 1566.951566951567
+        },
+        "worker_geometry": {
+          "median": 16880.34188034188,
+          "maximum": 17065.527065527065,
+          "p95": 17056.03038936372
+        },
+        "worker_output": {
+          "median": 123.45679012345678,
+          "maximum": 123.45679012345678,
+          "p95": 123.45679012345678
+        },
+        "worker_total": {
+          "median": 18561.25356125356,
+          "maximum": 18751.187084520418,
+          "p95": 18746.438746438747
+        }
+      },
+      "observed_ccr": {
+        "master": [
+          1
+        ],
+        "worker": [
+          0
+        ]
+      }
+    }
+  },
+  "paused_model_different_pixels": 0,
+  "cubes": {
+    "cube-cull-regression": {
+      "cases": {
+        "scene": {
+          "frequency": 210600,
+          "errors": 0,
+          "timeouts": 0,
+          "submissions_per_nominal_second": 60.0,
+          "stage_median_us": {
+            "wait": 14753.086419753086,
+            "begin": 94.9667616334283,
+            "animation": 4.748338081671415,
+            "skin": 4.748338081671415,
+            "geometry": 508.0721747388414,
+            "flush": 584.0455840455841,
+            "hud": 574.5489078822412,
+            "present": 80.72174738841406,
+            "plot": 0.0,
+            "work": 1899.335232668566
+          }
+        },
+        "paired-864": {
+          "frequency": 210600,
+          "errors": 0,
+          "timeouts": 0,
+          "submissions_per_nominal_second": 15.0,
+          "stage_median_us": {
+            "wait": 13342.830009496676,
+            "begin": 94.9667616334283,
+            "animation": 4.748338081671415,
+            "skin": 9629.62962962963,
+            "geometry": 27863.247863247863,
+            "flush": 13665.716999050332,
+            "hud": 588.7939221272554,
+            "present": 1405.5080721747388,
+            "plot": 0.0,
+            "work": 53300.09496676164
+          }
+        }
+      }
+    },
+    "cube-program-final": {
+      "cases": {
+        "scene": {
+          "frequency": 210540,
+          "errors": 0,
+          "timeouts": 0,
+          "submissions_per_nominal_second": 60.0,
+          "stage_median_us": {
+            "wait": 14733.542319749216,
+            "begin": 94.99382540134891,
+            "animation": 4.749691270067445,
+            "skin": 4.749691270067445,
+            "geometry": 527.2157309774865,
+            "flush": 588.9617174883632,
+            "hud": 574.7126436781609,
+            "present": 80.74475159114658,
+            "plot": 0.0,
+            "work": 1923.6249643773156
+          }
+        },
+        "paired-864": {
+          "frequency": 210600,
+          "errors": 0,
+          "timeouts": 0,
+          "submissions_per_nominal_second": 15.0,
+          "stage_median_us": {
+            "wait": 11481.481481481482,
+            "begin": 94.9667616334283,
+            "animation": 4.748338081671415,
+            "skin": 9629.62962962963,
+            "geometry": 29259.25925925926,
+            "flush": 14131.05413105413,
+            "hud": 588.7939221272554,
+            "present": 1405.5080721747388,
+            "plot": 0.0,
+            "work": 55156.695156695154
+          }
+        }
+      }
+    },
+    "cube-program-split": {
+      "cases": {
+        "scene": {
+          "frequency": 210540,
+          "errors": 0,
+          "timeouts": 0,
+          "submissions_per_nominal_second": 60.0,
+          "stage_median_us": {
+            "wait": 14743.04170228935,
+            "begin": 94.99382540134891,
+            "animation": 4.749691270067445,
+            "skin": 4.749691270067445,
+            "geometry": 517.7163484373516,
+            "flush": 588.9617174883632,
+            "hud": 574.7126436781609,
+            "present": 80.74475159114658,
+            "plot": 0.0,
+            "work": 1914.1255818371806
+          }
+        },
+        "paired-864": {
+          "frequency": 210600,
+          "errors": 0,
+          "timeouts": 0,
+          "submissions_per_nominal_second": 15.0,
+          "stage_median_us": {
+            "wait": 12169.990503323837,
+            "begin": 94.9667616334283,
+            "animation": 4.748338081671415,
+            "skin": 9629.62962962963,
+            "geometry": 28566.00189933523,
+            "flush": 14131.05413105413,
+            "hud": 588.7939221272554,
+            "present": 1405.5080721747388,
+            "plot": 0.0,
+            "work": 54468.186134852804
+          }
+        }
+      }
+    }
+  }
+}

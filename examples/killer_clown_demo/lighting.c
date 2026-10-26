@@ -6,7 +6,11 @@
  * Workers may read the immutable table only after that initialization and
  * cache publication; concurrent first-use initialization is unsupported. */
 enum { NORMAL_RECIP_CAPACITY=CLOWN_NORMAL_LIMIT*2 };
-static uint32_t normal_reciprocals[NORMAL_RECIP_CAPACITY] __attribute__((section(".wram_l")));
+static uint32_t normal_reciprocals[NORMAL_RECIP_CAPACITY]
+#if defined(__sh__)
+    __attribute__((section(".wram_l")))
+#endif
+    ;
 static unsigned normal_reciprocals_ready;
 static int32_t normal_component(int32_t component,uint32_t length) {
     int32_t numerator=component*SAT_FX16_ONE;

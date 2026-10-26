@@ -90,6 +90,7 @@ IP_GENERATED = $(OUTPUT_DIR)/$(EXAMPLE).IP.BIN
 
 # -- Compilacao -------------------------------------------------
 BASE_CFLAGS := -m2 -mb -O2 -ffreestanding -fomit-frame-pointer -Wall -Wextra \
+               -ffunction-sections -fdata-sections \
                -Iinclude -I.
 # Generated model/asset headers are example-local inputs, never part of
 # generic library compilation or its cache key.
@@ -150,6 +151,9 @@ ifneq ($(strip $(SAT_PARALLEL_RUNTIME_VALIDATION)),)
 LIB_PROFILE_METRICS := 1
 endif
 endif
+ifeq ($(EXAMPLE):$(DINO_PIPELINE_METRICS),dino_demo:1)
+LIB_PROFILE_METRICS := 1
+endif
 ifneq ($(strip $(SAT_PROFILE_METRICS)),)
 LIB_PROFILE_METRICS := 1
 endif
@@ -160,7 +164,7 @@ LIB_CFLAGS := $(BASE_CFLAGS) -DSAT_LEGACY_EARLY_SCU=$(SAT_LEGACY_EARLY_SCU) -DSA
 LIB_CXXFLAGS := $(LIB_CFLAGS) -std=c++20 -fno-exceptions -fno-rtti \
                 -fno-threadsafe-statics -fno-use-cxa-atexit
 LIB_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
-    "$(LIB_CFLAGS)" "$(LIB_CXXFLAGS)" "$(ASFLAGS)")
+    "$(LIB_CFLAGS)" "$(LIB_CXXFLAGS)" "$(ASFLAGS)" "scene_faces=-O3")
 LIB_OBJ_ROOT := $(BUILD_DIR)/objects/library/$(LIB_PROFILE_KEY)
 
 # -- Biblioteca -------------------------------------------------
@@ -573,7 +577,7 @@ $(LIB_OBJ_ROOT)/%.o: %.c
 
 $(LIB_OBJ_ROOT)/%.o: %.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(LIB_CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+	$(CXX) $(LIB_CXXFLAGS) $(if $(filter src/graphics/3d/scene/faces.cpp,$<),-O3) $(DEPFLAGS) -c $< -o $@
 
 $(APP_OBJ_ROOT)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -637,7 +641,8 @@ $(ISO): $(APP_BIN) $(IP_GENERATED) $(EXAMPLE_ISO_FILES) tools/check_iso.py tools
 		cp -R "$(EXAMPLE_ISO_DIR)/." "$(ISO_ROOT)/"; \
 	fi
 ifneq ($(strip $(EXAMPLE_AUDIO_STREAMS)),)
-	@$(foreach audio,$(EXAMPLE_AUDIO_STREAMS),install -D "$(AUDIO_$(audio)_FILE)" "$(ISO_ROOT)/$(EXAMPLE_AUDIO_$(audio)_DISC_PATH)";)
+	@$(foreach audio,$(EXAMPLE_AUDIO_STREAMS),mkdir -p "$(dir $(ISO_ROOT)/$(EXAMPLE_AUDIO_$(audio)_DISC_PATH))" || exit $$?;)
+	@$(foreach audio,$(EXAMPLE_AUDIO_STREAMS),cp "$(AUDIO_$(audio)_FILE)" "$(ISO_ROOT)/$(EXAMPLE_AUDIO_$(audio)_DISC_PATH)" || exit $$?;)
 endif
 	$(MKISOFS) -quiet -sysid "SEGA SATURN" -volid "LIBSATURN" \
 		-volset "LIBSATURN" -publisher "LIBSATURN" -preparer "LIBSATURN" \
@@ -665,7 +670,9 @@ $(CUE): $(DISC_BIN) tools/gen_cue.py tools/check_disc_image.py tools/iso_to_raw.
 # they need no Saturn hardware, emulator or BIOS.
 #   make test
 HOST_CXX       ?= g++
-HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -I. -Ibuild/generated -Iexamples/common
+# Root is for quoted project paths ("src/..."), not standard headers. On a
+# case-insensitive macOS volume VERSION otherwise shadows C++20 <version>.
+HOST_CXXFLAGS  := -std=c++20 -Wall -Wextra -O1 -Iinclude -iquote . -Ibuild/generated -Iexamples/common
 HOST_TEST_SRCS := $(wildcard tests/host/*.cpp)
 HOST_TEST_BINS := $(patsubst tests/host/%.cpp,$(BUILD_DIR)/tests/%,$(HOST_TEST_SRCS))
 HOST_TOOL_TESTS := $(wildcard tests/tools/*.py)
@@ -696,6 +703,7 @@ HOST_TEST_EXTRA_test_view_cache := src/graphics/3d/scene/view_cache.cpp src/grap
 HOST_TEST_EXTRA_test_view_cache_isolation := src/graphics/3d/scene/view_cache.cpp
 HOST_TEST_EXTRA_test_surface3d := src/graphics/3d/rendering/surface.cpp
 HOST_TEST_EXTRA_test_vdp2_environment := src/graphics/vdp2/environment.cpp
+HOST_TEST_EXTRA_test_vdp2_floor := src/graphics/vdp2/floor.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_ram_cart_api := src/storage/cartridge/api.cpp src/core/memory/api.cpp
 HOST_TEST_EXTRA_test_ram_cart_1m := src/storage/cartridge/api.cpp src/core/memory/api.cpp
 HOST_TEST_EXTRA_test_abus_api := src/storage/cartridge/abus.cpp
@@ -736,6 +744,7 @@ HOST_TEST_EXTRA_test_disc_stream := src/storage/cd/disc_stream.cpp
 HOST_TEST_EXTRA_test_music_disc := src/audio/playback/music.cpp src/audio/streaming/api.cpp src/audio/streaming/runtime.cpp src/storage/cd/disc_stream.cpp
 HOST_TEST_EXTRA_test_bh_sim := examples/bullet_hell_stress/bh_sim.c src/physics/2d/collision.cpp src/physics/spatial/2d.cpp src/graphics/2d/tate.cpp
 HOST_TEST_EXTRA_test_vdp1_checkpoint := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
+build/tests/test_vdp1_checkpoint: HOST_CXXFLAGS += -DSAT_NATIVE_SCENE_COMMANDS=1
 HOST_TEST_EXTRA_test_vdp1_vram_region := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 HOST_TEST_EXTRA_test_texture_api := src/graphics/2d/textures/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp src/graphics/2d/textures/runtime.cpp
 HOST_TEST_EXTRA_test_render2d_api := src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/api.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp
@@ -751,6 +760,8 @@ HOST_TEST_EXTRA_test_scene_managed_texture := src/graphics/3d/scene/managed_text
 HOST_TEST_EXTRA_test_parallel_completion := src/core/parallel/executor.cpp
 HOST_TEST_EXTRA_test_scene_parallel_runtime := src/graphics/3d/scene/parallel.cpp
 HOST_TEST_EXTRA_test_scene3d_faces_api := src/graphics/3d/scene/faces.cpp
+HOST_TEST_EXTRA_test_scene_native_commands := src/graphics/3d/scene/faces.cpp src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
+build/tests/test_scene_native_commands: HOST_CXXFLAGS += -DSAT_NATIVE_SCENE_COMMANDS=1
 HOST_TEST_EXTRA_test_scene3d_material_pool := src/graphics/3d/materials/pool.cpp
 HOST_TEST_EXTRA_test_skeleton3d := src/graphics/3d/animation/skeleton.cpp src/graphics/3d/animation/clip.cpp src/graphics/3d/geometry/transform.cpp src/graphics/3d/scene/api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_skeleton_clip := $(HOST_TEST_EXTRA_test_skeleton3d)
@@ -787,18 +798,25 @@ HOST_TEST_EXTRA_test_spatial3_api := src/physics/spatial/3d.cpp src/physics/3d/c
 
 # Examples that ship a host test of their own say how to build it in examples/<name>/host_test.mk.
 -include $(wildcard examples/*/host_test.mk)
+-include $(HOST_TEST_BINS:=.d)
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(DEPFLAGS) $< $(HOST_TEST_EXTRA_$*) -o $@
+	# A multi-source link overwrites the compiler's .d for each input. Merge
+	# dependencies from every input so header edits rebuild the actual test.
+	$(HOST_CXX) $(HOST_CXXFLAGS) -MM -MP -MT $@ $< $(HOST_TEST_EXTRA_$*) > $@.d
 
 test: $(HOST_TEST_BINS)
-	@fail=0; \
+	@fail=0; skipped=0; \
 	for t in $(HOST_TEST_BINS); do \
-		if ! ./$$t; then fail=1; fi; \
+		./$$t; result=$$?; \
+		if [ $$result -eq 77 ]; then skipped=$$((skipped + 1)); \
+		elif [ $$result -ne 0 ]; then fail=1; fi; \
 	done; \
 	if [ $$fail -ne 0 ]; then echo "[test] FAILED"; exit 1; fi; \
-	echo "[test] all host tests passed"
+	if [ $$skipped -eq 0 ]; then echo "[test] all host tests passed"; \
+	else echo "[test] supported host tests passed; $$skipped explicitly unavailable (exit 77)"; fi
 	$(PYTHON) -m unittest tests.test_boot_image tests.test_native_ip tests.test_vdp2_support_matrix -v
 	@for t in $(HOST_TOOL_TESTS); do \
 		echo "[test] $$t"; \

@@ -1,0 +1,35 @@
+{
+  "frequency_hz": 210540,
+  "ccr": 1,
+  "checks": 7544,
+  "vertices": 943,
+  "poses": 4,
+  "samples": [
+    {
+      "kernel": "libsaturn_c_api",
+      "ticks": [
+        88169,
+        88169,
+        88170,
+        88169,
+        88171
+      ],
+      "checksum": 3355361696,
+      "median_ticks_per_vertex": 2.9218252916224814
+    },
+    {
+      "kernel": "mac_l",
+      "ticks": [
+        122198,
+        122199,
+        122199,
+        122199,
+        122199
+      ],
+      "checksum": 3355361696,
+      "median_ticks_per_vertex": 4.0495426829268295
+    }
+  ],
+  "mac_l_change_percent": 38.5963320441425,
+  "scope": "Procedural 220-rigid/723-blended Q16 skin records, including 1/2/3 influences. C API includes argument checks; MAC.L range is prevalidated and saves/restores SR.S once per batch. Timing includes transform, Q15 blending and output writes. Ymir timing does not certify physical Saturn cycles."
+}

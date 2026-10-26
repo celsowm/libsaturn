@@ -9,6 +9,7 @@
 #include <cstdlib>
 
 #include "saturn/vdp1.h"
+#include "src/graphics/vdp1/projected.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/graphics/2d/rendering/runtime.hpp"
 
@@ -114,6 +115,17 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     return SAT_OK;
 }
 sat_result_t push_scaled_sprite(const ScaledSpriteRequest&) { return SAT_OK; }
+int g_projected_calls=0;
+int g_program_calls=0;
+sat_result_t g_program_status=SAT_OK;
+sat_result_t push_projected_program(const sat_quad2_t&,const uint16_t*,const sat_vdp1_texture_t&) {
+    ++g_program_calls;
+    return g_program_status;
+}
+sat_result_t push_projected_sprite(const sat_quad2_t&, const sat_vdp1_texture_t&, uint16_t) {
+    ++g_projected_calls;
+    return SAT_OK;
+}
 DistortedSpriteRequest g_last_distorted{};
 sat_result_t push_distorted_sprite_gouraud(const DistortedSpriteRequest& req,const uint16_t*) { return push_distorted_sprite(req); }
 sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
@@ -135,6 +147,13 @@ sat_result_t push_polyline_gouraud(const PolygonRequest&, const uint16_t*) { ret
 sat_result_t push_line_gouraud(const LineRequest&, const uint16_t*) { return SAT_OK; }
 
 uint32_t late_swaps() { return 7u; }
+void (*g_test_swap_handler)(uint32_t, void*) = nullptr;
+void* g_test_swap_user = nullptr;
+void set_swap_handler(void (*handler)(uint32_t, void*), void* user) {
+    g_test_swap_handler = handler;
+    g_test_swap_user = user;
+}
+uint32_t list_serial() { return 42u; }
 uint32_t draw_waits() { return 5u; }
 uint32_t draw_timeouts() { return 1u; }
 
@@ -342,6 +361,18 @@ static void frame_stats_report_hal_counters() {
     ASSERT_EQ(sat_vdp1_frame_stats(nullptr), SAT_ERR_INVALID_ARG);
 }
 
+static void swap_handler_reaches_hal() {
+    make_initialized();
+    int user = 0;
+    auto handler = [](uint32_t serial, void* u) { *static_cast<int*>(u) = static_cast<int>(serial); };
+    ASSERT_EQ(sat_vdp1_set_swap_handler(handler, &user), SAT_OK);
+    ASSERT_EQ(saturn::hal::vdp1::g_test_swap_user, static_cast<void*>(&user));
+    saturn::hal::vdp1::g_test_swap_handler(sat_vdp1_list_serial(), saturn::hal::vdp1::g_test_swap_user);
+    ASSERT_EQ(user, 42);
+    ASSERT_EQ(sat_vdp1_set_swap_handler(nullptr, nullptr), SAT_OK);
+    ASSERT_EQ(saturn::hal::vdp1::g_test_swap_handler, nullptr);
+}
+
 /* sat_vdp1_set_user_clip cuts the box to the screen, refuses one wholly off
  * it, and makes render2d send its own clip again; the sprite flag reaches the
  * HAL as the inside-clip request. */
@@ -386,9 +417,31 @@ static void user_clip_api_clamps_and_routes() {
 }
 
 int main() {
+    sat_quad2_t projected{};sat_vdp1_texture_t projected_texture{};
+    saturn::core::g_state.initialized=false;
+    ASSERT_EQ(saturn::internal::draw_projected_sprite(projected,projected_texture,0),SAT_ERR_NOT_INITIALIZED);
+    ASSERT_EQ(saturn::hal::vdp1::g_projected_calls,0);
+    saturn::core::g_state.initialized=true;
+    ASSERT_EQ(saturn::internal::draw_projected_sprite(projected,projected_texture,0),SAT_OK);
+    ASSERT_EQ(saturn::hal::vdp1::g_projected_calls,1);
+    sat_vdp1_projected_program_t program{};
+    saturn::core::g_state.initialized=false;
+    ASSERT_EQ(saturn::internal::draw_projected_program(projected,program),SAT_ERR_NOT_INITIALIZED);
+    ASSERT_EQ(saturn::hal::vdp1::g_program_calls,0);
+    saturn::core::g_state.initialized=true;
+    ASSERT_EQ(saturn::internal::draw_projected_program(projected,program),SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(saturn::hal::vdp1::g_program_calls,0);
+    program.texture=&projected_texture;
+    ASSERT_EQ(saturn::internal::draw_projected_program(projected,program),SAT_OK);
+    ASSERT_EQ(saturn::hal::vdp1::g_program_calls,1);
+    saturn::hal::vdp1::g_program_status=SAT_ERR_CAPACITY;
+    ASSERT_EQ(saturn::internal::draw_projected_program(projected,program),SAT_ERR_CAPACITY);
+    saturn::hal::vdp1::g_program_status=SAT_OK;
+
     user_clip_api_clamps_and_routes();
     overlay_budget_api_routes_into_hal();
     frame_stats_report_hal_counters();
+    swap_handler_reaches_hal();
     lut4_upload_records_table_and_format();
     combined_upload_calls_palette_once_and_texture_once();
     pixels_only_skips_palette_upload();

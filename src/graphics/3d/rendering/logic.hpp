@@ -63,25 +63,60 @@ inline int16_t clamp_coord64(int64_t v) {
     return static_cast<int16_t>(v);
 }
 
-/* clamp_coord64(num / w2) for w2 > 0, without a libgcc 64-bit divide.
- *
- * Every projected corner used to pay two __divdi3 calls, which profiling put
- * near a fifth of an animated-model frame. A quotient past the clamp needs no
- * divide at all, and ruling those out first leaves one that fits 32 bits --
- * exactly what the SH-2's hardware divider takes. */
-inline int16_t project_axis(int64_t num, int64_t w2) {
-    const int64_t limit = w2 * static_cast<int64_t>(kCoordLimit + 1);
+/* Exact clamp((coordinate * scale) / (2 * depth)), depth > 0.
+ * Dividing by depth first and then by two is exact under truncation toward
+ * zero. The divisor always fits the signed SH-2 divider, even when twice
+ * depth does not. Clamp before division so its quotient is in [-4095,4095].
+ * Multiplying the signed scale directly also avoids a wide negation for Y.
+ */
+inline bool project_axis_clamped(int64_t num, int32_t depth, int16_t* value) {
+    const int64_t limit = static_cast<int64_t>(depth) * (2 * (kCoordLimit + 1));
     if (num >= limit) {
-        return static_cast<int16_t>(kCoordLimit);
+        *value = kCoordLimit;
+    } else if (num <= -limit) {
+        *value = -kCoordLimit;
+    } else {
+        return false;
     }
-    if (num <= -limit) {
-        return static_cast<int16_t>(-kCoordLimit);
-    }
-    if (w2 > static_cast<int64_t>(0x7FFFFFFF)) {
-        return static_cast<int16_t>(num / w2);
-    }
+    return true;
+}
+
+/* These two helpers bracket only the divider's memory-mapped transaction.
+ * The sparse batch loop can run the Y numerator arithmetic between them. */
+inline void project_axis_start(int64_t numerator, int32_t depth) {
+#if defined(__sh__)
+    *reinterpret_cast<volatile uint32_t*>(saturn::core::math3d::kDivuDivisorAddress) =
+        static_cast<uint32_t>(depth);
+    *reinterpret_cast<volatile uint32_t*>(saturn::core::math3d::kDivuDividendHighAddress) =
+        static_cast<uint32_t>(static_cast<uint64_t>(numerator) >> 32u);
+    *reinterpret_cast<volatile uint32_t*>(saturn::core::math3d::kDivuDividendLowQuotientAddress) =
+        static_cast<uint32_t>(numerator);
+    __asm__ volatile("" ::: "memory");
+#else
+    (void)numerator;
+    (void)depth;
+#endif
+}
+
+inline int16_t project_axis_finish(int64_t numerator, int32_t depth) {
+#if defined(__sh__)
+    (void)numerator;
+    (void)depth;
+    const int32_t quotient = static_cast<int32_t>(
+        *reinterpret_cast<volatile uint32_t*>(saturn::core::math3d::kDivuDividendLowQuotientAddress));
+    return static_cast<int16_t>(quotient / 2);
+#else
     return static_cast<int16_t>(
-        saturn::core::math3d::div_s64_s32(num, static_cast<int32_t>(w2)));
+        saturn::core::math3d::div_s64_s32(numerator, depth) / 2);
+#endif
+}
+
+inline int16_t project_axis(int32_t coordinate, int32_t scale, int32_t depth) {
+    const int64_t numerator = static_cast<int64_t>(coordinate) * scale;
+    int16_t value;
+    if (project_axis_clamped(numerator, depth, &value)) return value;
+    project_axis_start(numerator, depth);
+    return project_axis_finish(numerator, depth);
 }
 
 /* Projects one world point straight to NATIVE VDP1 coordinates.
@@ -114,9 +149,8 @@ inline bool project_native(
     }
     /* Both operands are 16.16, so the fixed-point scaling cancels in the
      * ratio and the result is already in whole pixels. */
-    const int64_t w2 = static_cast<int64_t>(clip.w) * 2;
-    *out_x = project_axis(static_cast<int64_t>(clip.x) * static_cast<int64_t>(screen_w), w2);
-    *out_y = project_axis(-(static_cast<int64_t>(clip.y) * static_cast<int64_t>(screen_h)), w2);
+    *out_x = project_axis(clip.x, screen_w, clip.w);
+    *out_y = project_axis(clip.y, -static_cast<int32_t>(screen_h), clip.w);
     return true;
 }
 
@@ -133,9 +167,109 @@ inline void project_vertex(
     if (clip.w <= 0) {
         return;
     }
-    const int64_t w2 = static_cast<int64_t>(clip.w) * 2;
-    out->x = project_axis(static_cast<int64_t>(clip.x) * static_cast<int64_t>(screen_w), w2);
-    out->y = project_axis(-(static_cast<int64_t>(clip.y) * static_cast<int64_t>(screen_h)), w2);
+    out->x = project_axis(clip.x, screen_w, clip.w);
+    out->y = project_axis(clip.y, -static_cast<int32_t>(screen_h), clip.w);
+}
+
+/* Keep the general camera loop's register allocation separate from the
+ * sparse loop; camera classification still runs on every batch. Same
+ * products and rounding as project_vertex (clip Z is never formed). The
+ * clip-Y row is formed while the divider works on X, and the next point's
+ * clip-W and clip-X rows while it works on Y. */
+[[gnu::noinline]] inline void project_vertices_general(
+    const sat_fx16_t* m, const sat_vec3_t* points, uint16_t count,
+    int16_t width, int16_t height, sat_projected_vertex_t* out
+) {
+    const int32_t y_scale=-static_cast<int32_t>(height);
+    sat_fx16_t pending_w=0;
+    sat_fx16_t pending_x=0;
+    bool pending=false;
+    for (uint16_t i=0; i<count; ++i) {
+        const sat_vec3_t& p=points[i];
+        const sat_fx16_t w=pending?pending_w:
+            fx_mul(m[12],p.x)+fx_mul(m[13],p.y)+fx_mul(m[14],p.z)+m[15];
+        const sat_fx16_t x=pending?pending_x:
+            fx_mul(m[0],p.x)+fx_mul(m[1],p.y)+fx_mul(m[2],p.z)+m[3];
+        pending=false;
+        out[i].w=w;
+        if (w<=0) continue; // Preserve the scalar path's untouched X/Y.
+        const int64_t x_numerator=static_cast<int64_t>(x)*width;
+        int16_t projected_x;
+        const bool x_clamped=project_axis_clamped(x_numerator,w,&projected_x);
+        if(!x_clamped) project_axis_start(x_numerator,w);
+        const sat_fx16_t y=fx_mul(m[4],p.x)+fx_mul(m[5],p.y)+fx_mul(m[6],p.z)+m[7];
+        const int64_t y_numerator=static_cast<int64_t>(y)*y_scale;
+        if(!x_clamped) projected_x=project_axis_finish(x_numerator,w);
+        out[i].x=projected_x;
+        int16_t projected_y;
+        if(!project_axis_clamped(y_numerator,w,&projected_y)) {
+            project_axis_start(y_numerator,w);
+            const uint16_t next=static_cast<uint16_t>(i+1u);
+            if(next<count) {
+                const sat_vec3_t& q=points[next];
+                pending_w=fx_mul(m[12],q.x)+fx_mul(m[13],q.y)+fx_mul(m[14],q.z)+m[15];
+                pending_x=fx_mul(m[0],q.x)+fx_mul(m[1],q.y)+fx_mul(m[2],q.z)+m[3];
+                pending=true;
+            }
+            projected_y=project_axis_finish(y_numerator,w);
+        }
+        out[i].y=projected_y;
+    }
+}
+
+/* Classify once per batch, never cache across camera updates. A camera whose
+ * right axis is world X has four zero coefficients; omit those products and
+ * the unused clip-Z row. Keep each remaining product's original rounding.
+ * General rotated cameras retain the scalar projection path. */
+inline void project_vertices(
+    const sat_fx16_t* m, const sat_vec3_t* points, uint16_t count,
+    int16_t width, int16_t height, sat_projected_vertex_t* out
+) {
+    if (m[1] || m[2] || m[4] || m[12]) {
+        project_vertices_general(m,points,count,width,height,out);
+        return;
+    }
+    sat_fx16_t pending_w=0;
+    sat_fx16_t pending_x=0;
+    bool pending=false;
+    for (uint16_t i=0; i<count; ++i) {
+        const sat_vec3_t& p=points[i];
+        const sat_fx16_t w=pending?pending_w:
+            fx_mul(m[13],p.y)+fx_mul(m[14],p.z)+m[15];
+        const sat_fx16_t x=pending?pending_x:fx_mul(m[0],p.x)+m[3];
+        pending=false;
+        out[i].w=w;
+        if (w<=0) continue; // Preserve the scalar path's untouched X/Y.
+        const int64_t x_numerator=static_cast<int64_t>(x)*width;
+        int16_t projected_x;
+        if(project_axis_clamped(x_numerator,w,&projected_x)) {
+            const sat_fx16_t y=fx_mul(m[5],p.y)+fx_mul(m[6],p.z)+m[7];
+            out[i].x=projected_x;
+            out[i].y=project_axis(y,-static_cast<int32_t>(height),w);
+            continue;
+        }
+        project_axis_start(x_numerator,w);
+        const sat_fx16_t y=fx_mul(m[5],p.y)+fx_mul(m[6],p.z)+m[7];
+        const int64_t y_numerator=static_cast<int64_t>(y)*-static_cast<int32_t>(height);
+        int16_t projected_y;
+        const bool y_clamped=project_axis_clamped(y_numerator,w,&projected_y);
+        out[i].x=project_axis_finish(x_numerator,w);
+        if(!y_clamped) {
+            project_axis_start(y_numerator,w);
+            /* The second divider is busy while the next point's independent
+             * clip-W and clip-X rows are prepared. Reuse those values on the
+             * next iteration instead of leaving the SH-2 divider idle. */
+            const uint16_t next=static_cast<uint16_t>(i+1u);
+            if(next<count) {
+                const sat_vec3_t& q=points[next];
+                pending_w=fx_mul(m[13],q.y)+fx_mul(m[14],q.z)+m[15];
+                pending_x=fx_mul(m[0],q.x)+m[3];
+                pending=true;
+            }
+            projected_y=project_axis_finish(y_numerator,w);
+        }
+        out[i].y=projected_y;
+    }
 }
 
 /* Twice the signed area of a quad A, B, C, D from native corner coordinates
@@ -545,16 +679,37 @@ inline uint32_t range_shift(uint32_t span, uint32_t buckets) {
     return shift;
 }
 
+/* v >> shift for a shift fixed across a loop. The SH-2 has no variable
+ * shift (GCC calls a libgcc helper per use); for 1 <= shift <= 31 the high
+ * word of the 32x32 product v * 2^(32 - shift) is the same value, one
+ * dmulu.l. */
+struct RightShift {
+    uint32_t multiplier; /* 2^(32 - shift); 0 for shift 0 */
+    RightShift() : multiplier(0u) {}
+    explicit RightShift(uint32_t shift)
+        : multiplier(shift == 0u ? 0u : (shift >= 32u ? 1u : (1u << (32u - shift)))) {}
+    uint32_t operator()(uint32_t v) const {
+        return multiplier == 0u ? v
+            : static_cast<uint32_t>((static_cast<uint64_t>(v) * multiplier) >> 32u);
+    }
+};
+
 /* Counting pass shared by the painter orders: bucket_of(key) maps every live
  * key below kPaintBuckets, higher buckets paint first, and faces keep
  * ascending index inside a bucket. keys[] is overwritten with buckets. */
 template <typename Index, typename BucketOf>
 inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
                        BucketOf bucket_of) {
-    /* face_count fits uint16_t, so every running position does too. */
-    uint16_t start[kPaintBuckets];
-    for (uint32_t b = 0; b < kPaintBuckets; ++b) {
-        start[b] = 0u;
+    /* face_count fits uint16_t, so every running position does too. The
+     * counters are cleared and summed two to a 32-bit word: each store is a
+     * bus write through the SH-2's cache. */
+    union {
+        uint32_t words[kPaintBuckets / 2u];
+        uint16_t start[kPaintBuckets];
+    } counters;
+    uint16_t* const start = counters.start;
+    for (uint32_t w = 0; w < kPaintBuckets / 2u; ++w) {
+        counters.words[w] = 0u;
     }
     for (uint32_t f = 0; f < face_count; ++f) {
         if (keys[f] == kPaintSkip) {
@@ -565,10 +720,22 @@ inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
         ++start[bucket];
     }
     uint32_t running = 0u;
-    for (uint32_t b = kPaintBuckets; b-- > 0u;) {
-        const uint32_t n = start[b];
-        start[b] = static_cast<uint16_t>(running);
-        running += n;
+    for (uint32_t w = kPaintBuckets / 2u; w-- > 0u;) {
+        /* Buckets 2w (lower address) and 2w + 1, the higher one first. */
+        const uint32_t pair = counters.words[w];
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        const uint32_t low_bucket = pair & 0xFFFFu, high_bucket = pair >> 16u;
+#else
+        const uint32_t low_bucket = pair >> 16u, high_bucket = pair & 0xFFFFu;
+#endif
+        const uint32_t high_start = running;
+        const uint32_t low_start = running + high_bucket;
+        running = low_start + low_bucket;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        counters.words[w] = (high_start << 16u) | (low_start & 0xFFFFu);
+#else
+        counters.words[w] = (low_start << 16u) | (high_start & 0xFFFFu);
+#endif
     }
     for (uint32_t f = 0; f < face_count; ++f) {
         const uint32_t bucket = keys[f];
@@ -602,9 +769,9 @@ inline uint32_t paint_order_buckets(uint32_t* depth, uint32_t face_count, Index*
     if (live == 0u) {
         return 0u;
     }
-    const uint32_t shift = paint_detail::range_shift(hi - lo, kPaintBuckets);
+    const paint_detail::RightShift shift(paint_detail::range_shift(hi - lo, kPaintBuckets));
     paint_detail::distribute(depth, face_count, out,
-        [lo, shift](uint32_t key) { return (key - lo) >> shift; });
+        [lo, shift](uint32_t key) { return shift(key - lo); });
     return live;
 }
 
@@ -622,7 +789,8 @@ template <typename Index>
 inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
                                             Index* out, uint32_t group_shift) {
     struct Group {
-        uint32_t id, lo, hi, count, base, shift;
+        uint32_t id, lo, hi, count, base;
+        paint_detail::RightShift shift;
     };
     uint32_t lo = 0xFFFFFFFFu;
     uint32_t hi = 0u;
@@ -647,7 +815,8 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
      * only a scene with several live groups pays the second scan. */
     Group groups[kPaintMaxGroups];
     uint32_t group_count = 0u;
-    bool global_spread = (lo >> group_shift) == (hi >> group_shift);
+    const paint_detail::RightShift group_of(group_shift);
+    bool global_spread = group_of(lo) == group_of(hi);
     const uint32_t low_mask = (1u << group_shift) - 1u;
     uint32_t last = 0u;
     for (uint32_t f = 0; !global_spread && f < face_count; ++f) {
@@ -655,7 +824,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         if (key == kPaintSkip) {
             continue;
         }
-        const uint32_t id = key >> group_shift;
+        const uint32_t id = group_of(key);
         const uint32_t low = key & low_mask;
         /* Passes arrive in runs, so the last group usually matches. */
         if (group_count == 0u || groups[last].id != id) {
@@ -668,7 +837,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
                     global_spread = true;
                     continue;
                 }
-                groups[g] = Group{id, low, low, 0u, 0u, 0u};
+                groups[g] = Group{id, low, low, 0u, 0u, paint_detail::RightShift(0u)};
                 ++group_count;
             }
             last = g;
@@ -679,9 +848,9 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         ++group.count;
     }
     if (global_spread) {
-        const uint32_t shift = paint_detail::range_shift(hi - lo, kPaintBuckets);
+        const paint_detail::RightShift shift(paint_detail::range_shift(hi - lo, kPaintBuckets));
         paint_detail::distribute(keys, face_count, out,
-            [lo, shift](uint32_t key) { return (key - lo) >> shift; });
+            [lo, shift](uint32_t key) { return shift(key - lo); });
         return live;
     }
     /* Ascending id; the highest (farthest) group takes the highest buckets. */
@@ -700,13 +869,14 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         const uint32_t share = 1u + static_cast<uint32_t>(
             (static_cast<uint64_t>(kPaintBuckets - group_count) * groups[g].count) / live);
         groups[g].base = base;
-        groups[g].shift = paint_detail::range_shift(groups[g].hi - groups[g].lo, share);
+        groups[g].shift = paint_detail::RightShift(
+            paint_detail::range_shift(groups[g].hi - groups[g].lo, share));
         base += share;
     }
     last = 0u;
     paint_detail::distribute(keys, face_count, out,
-        [&groups, group_count, group_shift, low_mask, &last](uint32_t key) {
-            const uint32_t id = key >> group_shift;
+        [&groups, group_count, group_of, low_mask, &last](uint32_t key) {
+            const uint32_t id = group_of(key);
             if (groups[last].id != id) {
                 last = 0u;
                 while (last + 1u < group_count && groups[last].id != id) {
@@ -714,7 +884,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
                 }
             }
             const Group& group = groups[last];
-            return group.base + (((key & low_mask) - group.lo) >> group.shift);
+            return group.base + group.shift((key & low_mask) - group.lo);
         });
     return live;
 }

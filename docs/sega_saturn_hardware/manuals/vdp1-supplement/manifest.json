@@ -1,0 +1,27 @@
+{
+  "slug": "vdp1-supplement",
+  "title": "VDP1 User’s Manual Supplement",
+  "filename": "ST-013-SP1-052794.pdf",
+  "edition": "SEGA ST-013-SP1-052794, May 27, 1994",
+  "url": "https://antime.kapsi.fi/sega/files/ST-013-SP1-052794.pdf",
+  "sha256": "ef267ce551e303505836ac46d00be58286fc6a948e5ec324b643435ab1ccbf61",
+  "pages": 14,
+  "sections": [
+    {
+      "title": "General Notice",
+      "first": 1,
+      "last": 1,
+      "file": "00-general-notice.md"
+    },
+    {
+      "title": "VDP1 User's Manual Supplement",
+      "first": 2,
+      "last": 14,
+      "file": "01-vdp1-user-s-manual-supplement.md"
+    }
+  ],
+  "extractor": "pypdf 6.21.1",
+  "fonttools": "4.67.0",
+  "blank_text_pages": [],
+  "text_characters": 29440
+}

@@ -1,0 +1,48 @@
+diff --git a/examples/dino_demo/Makefile.inc b/examples/dino_demo/Makefile.inc
+index b9b529c..dd27ce0 100644
+--- a/examples/dino_demo/Makefile.inc
++++ b/examples/dino_demo/Makefile.inc
+@@ -1,3 +1,5 @@
++DINO_MASTER_FACE_PERCENT ?= 60
++CFLAGS += -DDINO_MASTER_FACE_PERCENT=$(DINO_MASTER_FACE_PERCENT)
+ DINO_PIPELINE_METRICS ?= 0
+ CFLAGS += -DDINO_PIPELINE_METRICS=$(DINO_PIPELINE_METRICS)
+ # dino_demo animated T-Rex viewer.
+diff --git a/examples/dino_demo/main.c b/examples/dino_demo/main.c
+index 0430c60..fbc8b6c 100644
+--- a/examples/dino_demo/main.c
++++ b/examples/dino_demo/main.c
+@@ -118,7 +118,13 @@ _Static_assert(MODEL_FACE_CAP == 1499u,
+ #define DINO_WRAM_L __attribute__((section(".wram_l")))
+ 
+ /* Faces [0, MASTER_FACES) are prepared on the Master, the rest on the Slave. */
+-#define MASTER_FACES (MODEL_FACE_CAP * 3u / 5u)
++#ifndef DINO_MASTER_FACE_PERCENT
++#define DINO_MASTER_FACE_PERCENT 60
++#endif
++#if DINO_MASTER_FACE_PERCENT < 20 || DINO_MASTER_FACE_PERCENT > 80
++#error "Dino Master face share must be 20..80 percent"
++#endif
++#define MASTER_FACES (MODEL_FACE_CAP * DINO_MASTER_FACE_PERCENT / 100u)
+ #define SLAVE_FACES (MODEL_FACE_CAP - MASTER_FACES)
+ 
+ static sat_ascii_font_t g_font DINO_WRAM_L;
+diff --git a/src/core/parallel/executor.cpp b/src/core/parallel/executor.cpp
+index ac96031..fe45da9 100644
+--- a/src/core/parallel/executor.cpp
++++ b/src/core/parallel/executor.cpp
+@@ -877,6 +877,14 @@ bool report_to_master(uint32_t command, uint32_t argument0, uint32_t argument1)
+ }
+ 
+ void slave_entry(void*) {
++#if defined(__sh__)
++    // Experiment: instruction and operand replacement enabled.
++    using Purge = void (*)(saturn::hal::sh2::cache::Mode);
++    const Purge purge = reinterpret_cast<Purge>(
++        reinterpret_cast<uintptr_t>(&saturn::hal::sh2::cache::purge_all) |
++        saturn::core::startup::kCacheThroughBit);
++    purge(saturn::hal::sh2::cache::Mode::Cache4KiB);
++#endif
+     for (;;) {
+         sat_dual_sh2_slave_heartbeat();
+         if (sat_dual_sh2_slave_stop_requested() != 0u) return;

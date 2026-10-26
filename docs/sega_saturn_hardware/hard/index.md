@@ -1,5 +1,7 @@
 # SEGASATURN HARDWARE MANUAL/Table of Contents
 
+[Additional CPU manuals and hardware supplements](../manuals/README.md)
+
 [Japanese](javascript:window.location.href = window.location.pathname.replace('.htm', '_j.htm');)
 
 ---

@@ -1,0 +1,27 @@
+{
+  "slug": "saturn-dual-cpu",
+  "title": "SEGA Saturn Dual CPU User’s Guide",
+  "filename": "ST-202-R1-120994.pdf",
+  "edition": "SEGA ST-202-R1-120994, December 9, 1994",
+  "url": "https://antime.kapsi.fi/sega/files/ST-202-R1-120994.pdf",
+  "sha256": "d336737d41fe44d7389d4d9a707a1447264341581184178e1e0f67743d9727d6",
+  "pages": 12,
+  "sections": [
+    {
+      "title": "General Notice",
+      "first": 1,
+      "last": 1,
+      "file": "00-general-notice.md"
+    },
+    {
+      "title": "SEGA Saturn Dual CPU User's Guide",
+      "first": 2,
+      "last": 12,
+      "file": "01-sega-saturn-dual-cpu-user-s-guide.md"
+    }
+  ],
+  "extractor": "pypdf 6.21.1",
+  "fonttools": "4.67.0",
+  "blank_text_pages": [],
+  "text_characters": 20062
+}
