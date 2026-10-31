@@ -24,6 +24,13 @@ Rules that keep the two licenses from mixing:
 3. **Ymir's source is never vendored into this repo.** `CMakeLists.txt`
    pulls it via `FetchContent` at build time, pinned to a specific commit
    (see that file for the pin and the reason it's not tracking `main`).
+   The patches are applied with `git apply`, which matches context
+   lines byte-exactly: patch files must stay LF on disk. The root
+   `.gitattributes` pins `*.patch` to `text eol=lf` for every checkout —
+   with `core.autocrlf=true` on Windows the patches would otherwise be
+   smudged to CRLF, `git apply` would fail with "patch does not apply",
+   and `git status` would still show the files as clean (the clean filter
+   strips the CRs again).
 4. Code under `examples/`, `src/`, and `include/` must never depend on
    anything in `harness/`.
 
@@ -64,22 +71,88 @@ boundary itself: it fails immediately (before any other assertion) if
 `pc_after_run` isn't inside the injected program's address range, so a run
 where injection silently didn't take can never read as a pass.
 
-**Design bias: assert on registers and VRAM contents, not rendered pixels.**
+**Design bias: assert on registers and VRAM contents first.**
 An emulator is not hardware truth, and VDP2 rotation (the area this harness
 was built for) is exactly the kind of under-tested corner where Ymir's own
 rendering could be wrong. Assertions are derived from the Sega hardware
 manuals in `docs/sega_saturn_hardware/`, which hold regardless of Ymir's
-accuracy. Golden-image / pixel comparison is still deliberately out of scope as an
-*assertion* mechanism, for the reason above.
+accuracy. Golden-image comparison is still deliberately out of scope.
 
-Screenshots themselves are now supported, though: `VDP::SetSoftwareRenderCallback`
-hands over the software renderer's composited output buffer (VDP1 sprites over
-VDP2 layers), so `--screenshot FRAME:PATH` writes the real picture as a PNG.
-An earlier pass recorded that only a "frame finished" notification existed;
-that was wrong. Use screenshots to *look* at a run -- they catch whole classes
-of problem that register assertions cannot, such as a leftover VDP2 colour
-offset that renders everything at a tenth of its intended brightness -- but
-keep the pass/fail assertions on registers and VRAM.
+Screenshots are supported: `VDP::SetSoftwareRenderCallback` hands over the
+software renderer's composited output buffer (VDP1 sprites over VDP2 layers),
+so `--screenshot FRAME:PATH` writes the real picture as a PNG. Use them to
+*look* at a run -- they catch whole classes of problem that register
+assertions cannot, such as a leftover VDP2 colour offset that renders
+everything at a tenth of its intended brightness.
+
+For compositing effects whose whole point is the output (colour calculation,
+blur, special priority, shadows), the VDP2 tests additionally assert a small
+number of **representative pixels recomputed from the manual's tables and the
+palette values** in Python. This is not golden-image comparison: the expected
+value is derived independently for each asserted pixel, a tolerance absorbs
+5-to-8-bit rounding, and the same test still asserts the registers/VRAM that
+drive the effect. A pixel check is never the only evidence for a feature.
+
+### Deterministic captures and register-write evidence
+
+`--screenshot-when ADDR:VALUE[+DELAY]:PATH` captures `DELAY` frames after the
+big-endian 32-bit word at the guest bus address `ADDR` first reaches `VALUE`.
+Point it at the example's frame counter instead of hard-coding an emulated
+frame number: the scene's own clock then decides when the shot is taken.
+`--dump-mem ADDR:BYTES:PATH` exports any bus range at the end of the run;
+tests use it to prove the probe's side-effect-free reads agree with the Work
+RAM dump.
+
+`--dump-vram BASE_WORD:WORD_COUNT` exports a VDP2 VRAM word range under
+`vdp2.vram_ranges` in `probe.json`; the dynamic-tile-stream test uses it to
+recompute the active ring's CRC directly from Ymir. The wrapper form is
+`Invoke-ExampleTest -DumpVram 'BASE_WORD:WORD_COUNT'` (repeatable).
+
+`--watch-write ADDR:LEN[:FROM_FRAME]` records the first writes into a bus
+range on both SH-2s (PC, address, value, size and emulated frame) and exports
+them under `watch_writes` in `probe.json`. The address is matched after the
+probe masks it to the 27-bit bus address, so an SH-2 uncached alias such as
+VDP2's CCCTL at `0x25F800EC` is watched as `0x05F800EC`. Use it to prove that a register is
+written by the intended code path, not merely that its final value happens to
+match -- for example, that CCCTL is written when a colour-calculation mode is
+applied.
+
+The wrappers expose these through `scripts/run-example-tests.ps1`:
+`-ScreenshotWhen`, `-ScreenshotWhenSymbol`, `-DumpMem`, `-DumpMemSymbol` and
+`-WatchWrite`. The `...Symbol` forms take `SYMBOL:OFFSET:...:PATH` and resolve
+the telemetry struct from `build/<example>.map` after the build, so no link
+address is hard-coded in PowerShell.
+
+For quickly looking at a capture, `tools/inspect_capture.py` (in the project
+root, not this GPL directory) prints sampled pixels, horizontal spans and
+colour bounding boxes from a PNG, selected VDP2 registers from `probe.json`,
+and big-endian telemetry structs from a Work RAM dump plus the linker map:
+
+```powershell
+python tools/inspect_capture.py pixels harness/build/example/char.png --span 100:0:40:2
+python tools/inspect_capture.py registers harness/build/example/probe.json --keys sfprmd,sfccmd
+python tools/inspect_capture.py struct --dump harness/build/example/wram.bin `
+    --map build/example.map --symbol _g_example --count 12
+```
+
+### The one non-instrumentation Ymir patch
+
+At the pinned commit, the SSE2 path of `Color888GradationMasked` applies the
+mask with `color2` instead of `mask`:
+
+```cpp
+// pinned source (wrong)
+_mm_or_si128(_mm_and_si128(color2_x4, blend2_x4), _mm_andnot_si128(mask_x4, color2_x4));
+// ymir_gradation_sse_fix.patch
+_mm_or_si128(_mm_and_si128(mask_x4, blend2_x4), _mm_andnot_si128(mask_x4, color2_x4));
+```
+
+With the typo, a non-AVX2 build ANDs the source pixel into the blurred result:
+the 248/8 checker that should blur to 188/68 becomes 184/0. The AVX2 path, the
+scalar path and a standalone reference all produce 188/68, so this is an
+emulator correctness fix, not a tuning change. Blur acceptance is evidenced on
+this patched pinned Ymir and is still emulator evidence, not hardware
+certification.
 
 ### Frame pacing
 
@@ -110,6 +183,7 @@ harness/
   README.md        this file
   CMakeLists.txt    FetchContents Ymir (pinned commit), applies debug metrics, builds the probe app
   ymir_harness_debug.patch  atomic pinned-core diagnostics (CPU steps, VDP, watches)
+  ymir_gradation_sse_fix.patch   correctness fix for the SSE2 blur mask blend
   src/cpu_profile.hpp  bounded emulator-independent CPU accounting
   src/probe_main.cpp  links ymir-core; boots an ISO, dumps state to JSON
   src/png_writer.hpp  dependency-free PNG writer for --screenshot
@@ -411,6 +485,21 @@ Mednafen captures require visual review; the runner does not auto-label a
 screenshot as PASS. The current Ymir HLE full-BIOS run does not reach the optical
 tester; its injection-based CD tests do pass. These are separate results.
 See [execution evidence](../docs/NATIVE_SATURN_BOOT_EXECUTION.md).
+
+## VDP2 hardware signoff bundle
+
+`harness/prepare-vdp2-signoff.ps1` builds the Phase B M6 bundle: E01-E12 by
+default plus E13 as a marked supplemental disc (`-CoreOnly` for the strict
+twelve). It validates every `.bin`/`.cue` pair, checks the strict IP/ISO boot
+header, writes `manifest.json` and `SHA256SUMS.txt`, and supports
+`-CompareTo` for a clean-rebuild hash check. `harness/verify-vdp2-signoff.ps1`
+verifies an existing bundle without building. `harness/dry-run-vdp2-signoff.ps1`
+BIOS-boots every disc in Mednafen and captures one frame.
+
+These are emulator/build checks, not hardware evidence. Ymir's probe cannot
+complete a BIOS disc boot for these images; its evidence is direct injection
+plus `run-acceptance-sweep.ps1`. The physical session protocol is
+`docs/VDP2_HARDWARE_SESSION.md`.
 
 ## Known DIVU timing limit
 

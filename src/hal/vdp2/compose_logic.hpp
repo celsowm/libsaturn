@@ -166,6 +166,83 @@ constexpr uint16_t kCcctlLayerMask = 0x003Fu;
 /* CCCTL bit 8 (CCMD): every colour calculation adds the two images and
  * saturates instead of mixing them by ratio. One bit for the whole screen. */
 constexpr uint16_t kCcctlAdd = 0x0100u;
+/* CCCTL bit 10 (EXCCEN): extended colour calculation chains top+second+fourth
+ * (NBG0+NBG1+NBG2, RBG0+NBG3, etc.); requires normal TV mode and disables
+ * line colour insert. Setting it disables BOKEN - they share BOKEN's bit
+ * group and are mutually exclusive per the manual. */
+constexpr uint16_t kCcctlExccen = 0x0400u;
+/* CCCTL bit 15 (BOKEN): the hardware blur operates on the screen BOKN2..0
+ * selects (0 sprite, 1 RBG0, 2 NBG0/RBG1, 4 NBG1/EXBG, 5 NBG2, 6 NBG3).
+ * Requires normal TV mode and CRAM mode 0. Setting it disables EXCCEN. */
+constexpr uint16_t kCcctlBoken = 0x8000u;
+/* CCCTL bits 14-12 (BOKN2..0): which screen gets BOKEN's blur. The BOKN value
+ * is shifted left by 12. */
+constexpr uint16_t kCcctlBoknShift = 12u;
+
+/* The two CCCTL extras, as shadow state: extended colour calculation and
+ * hardware blur. The hardware ignores EXCCEN while BOKEN is 1 (manual p12_14),
+ * so the shadow keeps at most one of them on and the composed CCCTL word can
+ * never carry both. EXCCEN needs normal TV mode - not hi-res, not dedicated
+ * monitor mode (p12_12, p12_14) - and is legal while the line colour screen
+ * is inserted (that is the manual's four-screen cascade, table 12.2). BOKEN
+ * needs normal TV mode and CRAM mode 0 and excludes the line colour screen
+ * (p12_13). */
+struct CcctlExtras {
+    bool extended;
+    bool blur;
+    uint8_t blur_screen;   /* BOKN 0..6, meaningful only while blur is on */
+};
+
+/* BOKN 3 and 7 are setting-prohibited (p12_14). */
+inline bool blur_screen_valid(uint8_t screen) {
+    return screen <= 6u && screen != 3u;
+}
+
+enum CcctlExtrasResult : uint8_t {
+    kExtrasOk = 0u,
+    kExtrasHires,         /* normal TV mode only */
+    kExtrasCramMode,      /* BOKEN needs CRAM mode 0 */
+    kExtrasLineColor,     /* BOKEN excludes the line colour screen */
+    kExtrasBlurScreen     /* setting-prohibited BOKN value */
+};
+
+/* Turning one extra on clears the other. A refusal leaves the state
+ * untouched, so a failed call never disturbs a live configuration. */
+inline CcctlExtrasResult extras_set_extended(CcctlExtras& extras, bool enabled, bool hires) {
+    if (!enabled) {
+        extras.extended = false;
+        return kExtrasOk;
+    }
+    if (hires) return kExtrasHires;
+    extras.blur = false;
+    extras.extended = true;
+    return kExtrasOk;
+}
+
+inline CcctlExtrasResult extras_set_blur(CcctlExtras& extras, uint8_t screen, bool enabled,
+                                         bool hires, uint8_t cram_mode, bool line_color_used) {
+    if (!blur_screen_valid(screen)) return kExtrasBlurScreen;
+    if (!enabled) {
+        extras.blur = false;
+        return kExtrasOk;
+    }
+    if (hires) return kExtrasHires;
+    if (cram_mode != 0u) return kExtrasCramMode;
+    if (line_color_used) return kExtrasLineColor;
+    extras.extended = false;
+    extras.blur = true;
+    extras.blur_screen = screen;
+    return kExtrasOk;
+}
+
+/* The CCCTL bits the extras own: BOKEN with its BOKN screen, or EXCCEN. */
+inline uint16_t extras_word(const CcctlExtras& extras) {
+    if (extras.blur) {
+        return static_cast<uint16_t>(kCcctlBoken |
+                                     ((extras.blur_screen & 0x7u) << kCcctlBoknShift));
+    }
+    return extras.extended ? kCcctlExccen : 0u;
+}
 
 inline uint16_t ratio_word(uint8_t low, uint8_t high) {
     return static_cast<uint16_t>((low & 0x1Fu) | ((high & 0x1Fu) << 8u));

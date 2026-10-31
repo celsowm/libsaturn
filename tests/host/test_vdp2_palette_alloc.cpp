@@ -1,6 +1,6 @@
-/* test_vdp2_palette_alloc.cpp — host tests for the CRAM palette
- * bank allocator. Each test calls sat_vdp2_palette_reset() at the
- * top so the global ring is clean. */
+/* test_vdp2_palette_alloc.cpp - host tests for the CRAM palette
+ * bitmap allocator. Each test calls sat_vdp2_palette_reset() at the
+ * top so the global allocation bitmap is clean. */
 
 #include <cstdio>
 #include <cstdlib>
@@ -63,11 +63,46 @@ static void test_invalid_count_rejected(void) {
               SAT_ERR_INVALID_ARG);
 }
 
+static void test_free_reuses_the_lowest_range(void) {
+    sat_vdp2_palette_reset();
+    sat_vdp2_palette_range_t a, b, c, d;
+    ASSERT_EQ(sat_vdp2_palette_reserve(16u, &a), SAT_OK);
+    ASSERT_EQ(sat_vdp2_palette_reserve(32u, &b), SAT_OK);
+    ASSERT_EQ(a.bank, 1u); ASSERT_EQ(a.code, 0u);
+    ASSERT_EQ(b.bank, 1u); ASSERT_EQ(b.code, 16u);
+    ASSERT_EQ(sat_vdp2_palette_free(a), SAT_OK);
+    ASSERT_EQ(sat_vdp2_palette_reserve(16u, &c), SAT_OK);
+    ASSERT_EQ(c.bank, 1u); ASSERT_EQ(c.code, 0u);
+    ASSERT_EQ(sat_vdp2_palette_reserve(16u, &d), SAT_OK);
+    ASSERT_EQ(d.bank, 1u); ASSERT_EQ(d.code, 48u);
+    ASSERT_EQ(sat_vdp2_palette_free(b), SAT_OK);
+    ASSERT_EQ(sat_vdp2_palette_reserve(32u, &b), SAT_OK);
+    ASSERT_EQ(b.bank, 1u); ASSERT_EQ(b.code, 16u);
+    /* A range that is not fully allocated is a caller error. */
+    const sat_vdp2_palette_range_t bad = {1u, 0u, 65u};
+    ASSERT_EQ(sat_vdp2_palette_free(bad), SAT_ERR_NOT_FOUND);
+}
+
+static void test_usage_reports_bank_counts(void) {
+    sat_vdp2_palette_reset();
+    sat_vdp2_palette_range_t r;
+    ASSERT_EQ(sat_vdp2_palette_reserve(16u, &r), SAT_OK);
+    ASSERT_EQ(sat_vdp2_palette_reserve(32u, &r), SAT_OK);
+    sat_vdp2_palette_usage_t usage;
+    sat_vdp2_palette_usage(&usage);
+    ASSERT_EQ(usage.used_codes[0], 0u);
+    ASSERT_EQ(usage.used_codes[1], 48u);
+    ASSERT_EQ(usage.free_codes[1], 208u);
+    ASSERT_EQ(usage.refusals, 0u);
+}
+
 int main() {
     test_reserve_returns_first_bank_with_room();
     test_reserve_rotates_to_next_bank_when_full();
     test_reserve_skips_bank_zero();
     test_invalid_count_rejected();
-    printf("PASS: test_vdp2_palette_alloc.cpp (4 tests)\n");
+    test_free_reuses_the_lowest_range();
+    test_usage_reports_bank_counts();
+    printf("PASS: test_vdp2_palette_alloc.cpp (6 tests)\n");
     return 0;
 }

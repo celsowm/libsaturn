@@ -1,9 +1,9 @@
 # LibSaturn — Example-Wide DRY/SOLID Runtime Refactoring Plan
 
-**Status:** IMPLEMENTATION COMPLETE; EMULATOR QUALIFICATION COMPLETE; STOCK-SATURN QUALIFICATION OPEN — canonical scene, animation, environment, sprite-state, save-schema, resource-planning and repository-cutover slices are implemented, all 33 examples/build gates pass, and the available modified-Ymir plus Mednafen grid is recorded in the ownership/performance ledgers. The only remaining gate is stock-Saturn hardware memory/visual/timing evidence; this document does not claim that unavailable gate passed.
+**Status:** IMPLEMENTATION COMPLETE; EMULATOR QUALIFICATION COMPLETE; STOCK-SATURN QUALIFICATION OPEN — canonical scene, animation, environment, sprite-state, save-schema, resource-planning and repository-cutover slices are implemented, all 37 examples/build gates pass, and the available modified-Ymir plus Mednafen grid is recorded in the ownership/performance ledgers. The only remaining gate is stock-Saturn hardware memory/visual/timing evidence; this document does not claim that unavailable gate passed.
 **Audit date:** 2026-09-20.
 **Audit snapshot:** `main` tree `2dbbd94`; this working tree contains the uncommitted implementation and evidence changes listed in the ownership/performance ledgers.
-**Coverage:** All 33 `examples/*/main.c` entry points, their directly related game/shared headers, current public runtime headers and existing refactor plans.
+**Coverage:** All 37 `examples/*/main.c` entry points, their directly related game/shared headers, current public runtime headers and existing refactor plans.
 **Delivery policy:** Breaking, repository-wide migration; no obligation to retain old high-level signatures, layouts, aliases, shims, or duplicate render paths. Preserve documented *hardware* behavior and deliberately low-level diagnostic access.
 **Relationship to existing plans:** This is a current-state, cross-example execution companion to [EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md](EXAMPLE_DRIVEN_BREAKING_API_REFACTOR_PLAN.md), [HIGH_LEVEL_RUNTIME_API_PLAN.md](HIGH_LEVEL_RUNTIME_API_PLAN.md), [PUBLIC_API_OWNERSHIP.md](PUBLIC_API_OWNERSHIP.md), and the subsystem plans. It extends their coverage; it does **not** reset already implemented work or claim to supersede hardware reference manuals. At contract freeze, reconcile conflicting old recipes into one canonical API document and remove contradictory status statements.
 
@@ -209,7 +209,7 @@ order or has its own clipping implementation.
 
 **Acceptance:** a new game can render an animated character, 8 gem instances, solid and holed platforms, a moving camera, sea/sky, HUD and SFX without implementing a generic clipper, painter, palette allocator, VRAM map, orbit/follow math or engine-owned physics geometry.
 
-## 13. Complete example migration/acceptance matrix (33 entry points)
+## 13. Complete example migration/acceptance matrix (37 entry points)
 
 Do not silently omit small examples. Each row must be marked **canonical**, **feature**, or **probe** at migration time; preserve intentional raw operations only in probes. All examples must build against the new single-owner public contracts.
 
@@ -268,7 +268,7 @@ Audit and update `examples/skybridge_3d/game.h`, `scenery.h`, `examples/infinite
 | 6. VDP2/material/presenter | Environment resource planner, sky/ground/sea and palette/color calc; optional surface presenter | Mixed-scene captures and raw-vs-high-level probe equivalence |
 | 7. 2D/UI/input | Sprite state/atlas, HUD/debug policy and one input snapshot; migrate Pac-Man 2D/runtime2d/small apps | Animation, input and UI visual gates |
 | 8. Manifest/audio/save | Resource loading/cleanup, CD/music bindings, optional schema facade; migrate Jukebox/audio/save demos | No sound distortion/leaks and save/version safety |
-| 9. Repository cutover | Remove obsolete symbols/files, update all 33 examples and docs, finish SDL/raylib native readiness | Full host suite, all example builds, no stale recipes/imports |
+| 9. Repository cutover | Remove obsolete symbols/files, update all 37 examples and docs, finish SDL/raylib native readiness | Full host suite, all example builds, no stale recipes/imports |
 | 10. Hardware qualification | Stock hardware/emulator captures and performance ledger; document unsupported capabilities | Only mark COMPLETE if all required gates have evidence; otherwise enumerate exact blockers |
 
 **Commit policy:** one coherent validated slice at a time on `main`, with repository-owned consumers/tests/docs updated in the same slice. Compatibility with third-party source code is not a reason to preserve duplicate public APIs. Raw diagnostic access is explicitly retained. If toolchain/emulator/hardware is missing, state exactly what could not be tested and never conflate compilation with visual hardware correctness.
@@ -307,4 +307,4 @@ Saturn portion of this grid.
 
 Record before/after: frame time/update/render, VDP1 commands and reserved HUD count, sorted/projected/clipped faces, sort time, geometry/pose CPU time, VRAM/CRAM/main RAM and WRAM peaks, per-frame VDP2/CRAM transfer words, model/atlas upload counts, CD refill/SCSP underrun metrics and static cache startup cost. Do not invent performance thresholds before baseline measurement. Every unexplained regression requires remediation or explicit accepted trade-off with supporting hardware evidence.
 
-**Definition of done:** all 33 examples are built and classified; games no longer reimplement generic clipping, scene face sorting, static primitive construction per frame, VRAM-layout math or camera follow/orbit algorithms; only one documented canonical high-level API owns each responsibility; low-level probes retain direct access; stock-Saturn memory and visual behavior are verified; all intentionally unsupported hardware semantics are explicit; legacy APIs and stale docs are removed or reconciled.
+**Definition of done:** all 37 examples are built and classified; games no longer reimplement generic clipping, scene face sorting, static primitive construction per frame, VRAM-layout math or camera follow/orbit algorithms; only one documented canonical high-level API owns each responsibility; low-level probes retain direct access; stock-Saturn memory and visual behavior are verified; all intentionally unsupported hardware semantics are explicit; legacy APIs and stale docs are removed or reconciled.

@@ -6,6 +6,8 @@
 #include "src/hal/vdp2/compose_logic.hpp"
 #include "src/hal/vdp2/nbg_logic.hpp"
 #include "src/hal/vdp2/rotation_logic.hpp"
+#include "src/hal/vdp2/special_logic.hpp"
+#include "src/hal/vdp2/sprite_shadow_logic.hpp"
 
 namespace saturn::hal::vdp2 {
 
@@ -33,10 +35,16 @@ enum ColorMode {
 // Basic initialization
 void init_ntsc_320x224();
 uint16_t read_tvstat();
+/* Writes TVMD's HRESO/VRESO/LSMD from a validated mode (see
+ * src/hal/video_mode_logic.hpp). Caller has checked PAL and interlace rules
+ * and must keep VDP1 in the matching mode. */
+void set_video_mode(uint16_t width, uint16_t height, uint8_t interlace);
+/* The TVMD value last written (register shadow). */
+uint16_t read_tvmd();
 /* After init: 320, 352, 640 or 704. 640/704 are the hi-res modes whose
- * VDP1 framebuffer is 8 bits/pixel (sprite type C). */
+ * VDP1 framebuffer is 8 bits/pixel (sprite type C). Keeps the vertical mode
+ * and interlace setting unchanged. */
 void set_horizontal_resolution(uint16_t width);
-void set_double_interlace(bool enabled);
 bool hires();
 /* The VDP1 framebuffer holds 8 bit palette codes (rotation mode): sprite type C, like hi-res. */
 void set_sprite_fb8(bool on);
@@ -81,6 +89,9 @@ void set_display_enable(bool enable);
 void set_map_offset(uint16_t offset);
 void set_backdrop_color(uint16_t rgb555);
 void write_vram_words(uint32_t word_offset, const uint16_t* words, uint32_t word_count);
+/* CPU read of VDP2 VRAM, for CRC and diagnostics only. Word offsets count
+ * 16-bit words in the 512 KiB VRAM. */
+void read_vram_words(uint32_t word_offset, uint16_t* out, uint32_t word_count);
 void fill_vram_words(uint32_t word_offset, uint16_t value, uint32_t word_count);
 
 /* ------------------------------------------------------------------ */
@@ -144,6 +155,17 @@ void set_sprite_palette_color_calc(const uint8_t* ratio);
 bool palette_color_calc_active();
 void set_sprite_palette_window(bool enabled);
 bool palette_window_active();
+
+/* ---- VDP2 sprite shadows (sprite_shadow_logic.hpp) ------------------ */
+enum class SpriteShadowResult : uint8_t { Ok, InvalidArg, Unsupported, Busy };
+/* Type-2 palette-only shadow mode: SDCTL targets, SPCTL type 2 and
+ * PRISA = base | shadow<<8. Refuses hi-res/8-bit sprites, the palette
+ * priority/window/colour-calculation features and the VDP1 sprite
+ * colour-calculation module, which own SPCTL/PRISA too. */
+SpriteShadowResult set_sprite_shadow(uint8_t mode, uint8_t targets, bool transparent,
+                                     uint8_t base_priority, uint8_t shadow_priority);
+void disable_sprite_shadow();
+bool sprite_shadow_active();
 /* Keeps the generic VDP2 VBlank replay's PRISA shadow in sync with the
  * sprite color-calculation selector 0 (ordinary) and selector 1 (faded). */
 void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority);
@@ -165,6 +187,9 @@ bool nbg_active();
  * writes the registers; nothing changes when it fails. Busy while the legacy
  * NBG0 API or RBG0 is in use. */
 NbgResult nbg_configure(uint8_t index, const nbg::Layer& layer);
+/* Moves a one-plane cell layer's pattern-name ring to `base` for the next
+ * commit_layers() VBlank replay. No register is written here. */
+NbgResult nbg_set_plane_base(uint8_t index, uint32_t base);
 void nbg_release(uint8_t index);
 bool nbg_layer(uint8_t index, nbg::Layer* out);
 /* Integer parts 11 bits; fractions 8 bits in bits 15-8 (NBG0/NBG1 only use them). */
@@ -176,14 +201,36 @@ void nbg_set_zoom_increment(uint8_t index, uint16_t x_int, uint16_t x_frac, uint
 uint16_t nbg_cycle_word(uint8_t i);
 void commit_nbg_layers();
 
+/* ---- Special priority / special colour calculation (special_logic.hpp) -- */
+enum class SpecialResult : uint8_t { Ok, InvalidArg, Unsupported };
+/* SFPRMD / SFCCMD; the mode is validated against the configured layer's name
+ * size, bitmap flag and colour format. Returns Unsupported for a mode the
+ * layer cannot carry (1-word/bitmap auxiliary bits are not exposed; per-dot is
+ * prohibited for RGB). */
+SpecialResult set_special_priority_mode(uint8_t layer, uint8_t mode);
+SpecialResult set_special_color_mode(uint8_t layer, uint8_t mode);
+/* SFSEL: 0 selects code A, 1 selects code B. */
+SpecialResult set_special_function_select(uint8_t layer, uint8_t select);
+/* SFCODE: A in the low byte, B in the high byte. */
+void set_special_function_code(uint8_t code_a, uint8_t code_b);
+/* Replays the four registers when any of them is owned. */
+void commit_special();
+
 /* ---- RBG0 in cell format, beside the NBGs (rotation_logic.hpp) ------- */
 /* Takes the layer's banks away from the NBGs (re-planning their cycle
  * patterns) and writes the registers; nothing changes when it fails. */
 NbgResult rot_configure(const rot::Layer& layer);
 void rot_release();
 bool rot_layer(rot::Layer* out);
-/* The parameter table the VDP2 reads from the next VBlank on (byte address). */
-void rot_set_table(uint32_t table_address, uint8_t ktaof);
+/* The A+B parameter region the VDP2 reads from the next VBlank on (byte
+ * address), with both coefficient table address offsets (KTAOF: A bits 2-0,
+ * B bits 10-8, p06_43). */
+void rot_set_table(uint32_t table_address, uint8_t ktaof, uint8_t ktaof_b);
+/* RBG1: live show / hide. Refuses (returns false) when the rotation
+ * parameter mode is not A; rot_configure() already validates that mode 0 is
+ * the only legal choice with rbg1.enabled. */
+bool rot_set_rbg1_enabled(bool enabled);
+bool rot_rbg1_enabled();
 
 /* Per-line raster tables. Word offsets are VDP2 VRAM word addresses; the
  * tables are replayed by commit_layers(). A later set_backdrop_color() goes
@@ -212,6 +259,20 @@ bool mosaic_blocks_vcs(uint8_t layer);
 /* Screen 0-3 NBG0-NBG3, 4 RBG0, 5 line colour screen, 6 back screen (ratio only). */
 bool set_screen_color_calc(uint8_t screen, bool enabled, uint8_t ratio);
 void set_color_calc_add(bool add);
+/* Extended colour calculation (EXCCEN) and hardware blur (BOKEN/BOKN): the two
+ * mutually exclusive CCCTL extras. Turning one on clears the other, so the
+ * register never carries both (manual p12_14: EXCCEN is ignored while BOKEN is
+ * 1). EXCCEN requires normal TV mode (p12_12, p12_14) and is legal with the
+ * line colour screen inserted (table 12.2). BOKEN requires normal TV mode and
+ * CRAM mode 0 and is refused while line colour insert is on (p12_13). */
+bool set_extended_color_calc(bool enabled);
+/* screen: 0 sprite, 1 RBG0, 2 NBG0/RBG1, 4 NBG1/EXBG, 5 NBG2, 6 NBG3 (3 and 7
+ * are setting-prohibited per the manual's BOKN table, p12_14). */
+bool set_hardware_blur(uint8_t screen, bool enabled);
+/* True while hardware blur owns CCCTL's BOKEN branch: the public line colour
+ * insert wrappers (sat_vdp2_layer/sprite_set_line_color_insert) refuse to
+ * enable themselves behind it (p12_13). */
+bool hardware_blur_active();
 void commit_compose();
 
 // Rotation parameter table upload

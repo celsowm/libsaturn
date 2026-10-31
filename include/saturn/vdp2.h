@@ -162,6 +162,9 @@ sat_result_t sat_vdp2_palette_upload(const uint16_t* palette_rgb555, uint16_t co
  * by sat_vdp2_layers_commit(). */
 sat_result_t sat_vdp2_sprite_palette_bank_set(uint8_t bank);
 sat_result_t sat_vdp2_vram_write_words(uint32_t word_offset, const uint16_t* words, uint32_t word_count);
+/* Reads VDP2 VRAM for diagnostics and CRC checks. Same range rules as the
+ * writer. A CPU read steals VDP2 fetch time; do not call it per dot. */
+sat_result_t sat_vdp2_vram_read_words(uint32_t word_offset, uint16_t* out_words, uint32_t word_count);
 
 /* Pixel generator for an INDEX8 VDP2 bitmap. The callback is invoked once
  * for each (x,y) and returns its palette index. It must be deterministic and

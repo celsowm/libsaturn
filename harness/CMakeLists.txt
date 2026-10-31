@@ -51,7 +51,12 @@ FetchContent_MakeAvailable(ymir)
 # the whole stack was applied. Keep one atomic diff against the pinned source:
 # write counters, write watch, misaligned accesses and per-step CPU costs.
 # These are harness diagnostics, outside the public runtime API.
-foreach(YMIR_DEBUG_PATCH_NAME ymir_harness_debug)
+# ymir_gradation_sse_fix is a separate correctness fix: the pinned SSE2
+# gradation path ANDed the source colour into the blur instead of applying
+# the mask (the AVX2 and scalar paths were correct), so non-AVX2 builds
+# rendered a wrong blur. It touches a different file, so each patch can still
+# be reverse-checked on its own.
+foreach(YMIR_DEBUG_PATCH_NAME ymir_harness_debug ymir_gradation_sse_fix)
     set(YMIR_DEBUG_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/${YMIR_DEBUG_PATCH_NAME}.patch")
     execute_process(
         COMMAND git -C "${ymir_SOURCE_DIR}" apply --check --reverse "${YMIR_DEBUG_PATCH}"

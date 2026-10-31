@@ -114,6 +114,28 @@ sat_result_t sat_vdp2_screen_color_calc_set(sat_vdp2_screen_t screen, uint8_t en
  * calculation module (vdp2_color_calc.h) is on: it claims the mode per frame. */
 sat_result_t sat_vdp2_color_calc_set_add(uint8_t add);
 
+/* Extended colour calculation (CCCTL bit 10, EXCCEN): the second image
+ * becomes the pre-mixed pair of the second and third images (and the line
+ * colour screen as well when it is inserted - the manual's four-screen
+ * cascade, table 12.2), so the top image blends against that result. Requires
+ * normal TV mode: refused while hi-res is on (manual p12_12, p12_14). Unlike
+ * hardware blur it is legal with line colour insertion. Mutually exclusive
+ * with hardware blur: turning one on clears the other (p12_14 ignores EXCCEN
+ * while BOKEN is 1). Replayed by sat_vdp2_layers_commit(). */
+sat_result_t sat_vdp2_extended_color_calc_set(uint8_t enabled);
+
+/* Hardware horizontal blur (CCCTL bit 15 BOKEN + bits 14-12 BOKN2..0).
+ * `screen` selects which layer the blur operates on, per the manual's BOKN
+ * table: 0 sprite, 1 RBG0, 2 NBG0/RBG1, 4 NBG1/EXBG, 5 NBG2, 6 NBG3 (3 and
+ * 7 are setting-prohibited and refused). Each dot is mixed with its one- and
+ * two-dot-left neighbours at 2:1:1 and forced into the second image, so the
+ * blurred screen must not contain transparent dots (manual p12_13). Requires
+ * normal TV mode and CRAM mode 0; excludes the line colour screen in both
+ * directions - refused while line colour insert is on, and a line colour
+ * insert is refused while the blur is on (p12_13). Mutually exclusive with
+ * extended colour calculation. Replayed by sat_vdp2_layers_commit(). */
+sat_result_t sat_vdp2_hardware_blur_set(uint8_t screen, uint8_t enabled);
+
 /* Colour calculation for hi-res sprites (640/704 wide, where the VDP1 writes
  * 8-bit palette codes that the VDP2 reads as sprite type C). The sprite dots
  * are mixed with the image beneath: by `ratio` (0..31, as for the scroll

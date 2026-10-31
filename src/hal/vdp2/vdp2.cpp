@@ -2,7 +2,9 @@
 
 #include "src/core/runtime/logic.hpp"
 #include "src/hal/scu/dma.hpp"
+#include "src/hal/vdp2/color_calc.hpp"
 #include "src/hal/vdp2/rbg0_logic.hpp"
+#include "src/hal/video_mode_logic.hpp"
 
 namespace saturn::hal::vdp2 {
 
@@ -89,6 +91,15 @@ uint16_t g_prisa_before_palette_priorities = 0x0606u;
 bool g_palette_cc = false;
 bool g_palette_window = false; /* type 3: colour bit 15 makes the sprite window */
 uint16_t g_palette_cc_ratios[2] = {0u, 0u};
+/* VDP2 sprite shadows: SDCTL targets, type-2 SPCTL and the two PRISA
+ * selectors. Exclusive with the palette priority/window/CC state above. */
+bool g_shadow_active = false;
+uint8_t g_shadow_mode = 0u;
+uint8_t g_shadow_targets = 0u;
+bool g_shadow_transparent = false;
+uint8_t g_shadow_priority = 7u;
+uint16_t g_shadow_sdctl = 0u;
+uint8_t g_sprite_priority = 6u; /* ordinary S0 selector, from sat_init */
 /* CCCTL carries the screen-global CCMD bit (ratio vs add), which a frame's
  * draws claim; replayed with PRISA so a layers commit never loses it. */
 uint16_t g_last_ccctl_written = 0x0000u;
@@ -119,6 +130,16 @@ uint8_t g_mosaic_mask = 0u;
 uint16_t g_cc_layer_bits = 0u;
 bool g_cc_add = false; /* CCMD from set_color_calc_add */
 compose::ScreenRatios g_cc_ratios;
+/* Special priority / special colour calculation (SFPRMD, SFCCMD, SFCODE,
+ * SFSEL): owned once any setter succeeds, then replayed each frame. */
+bool g_special_used = false;
+uint16_t g_sfprmd = 0u;
+uint16_t g_sfccmd = 0u;
+uint16_t g_sfcode = 0u;
+uint16_t g_sfsel = 0u;
+/* Extended colour calculation (EXCCEN) and hardware blur (BOKEN/BOKN): the
+ * two mutually exclusive CCCTL extras, kept by the pure CcctlExtras policy. */
+compose::CcctlExtras g_cc_extras = {};
 /* Hi-res (640/704 wide) state: the VDP1 framebuffer is 8 bits/pixel, which
  * VDP2 must read as sprite type C, and its codes index one 256-colour CRAM
  * bank chosen by CRAOFB. Both are replayed by commit_layers(). */
@@ -134,12 +155,15 @@ bool hires_sprite_cc_on() {
     return g_hires && g_hires_sprite_cc != compose::kHiresSpriteCcOff;
 }
 
-/* CCCTL: the sprite module's word, the per-screen enables and the palette
- * (or hi-res) sprites' bit. */
+/* CCCTL: the sprite module's word, the per-screen enables, the palette
+ * (or hi-res) sprites' bit, CCMD, and the EXCCEN/BOKEN extras. The extras are
+ * mutually exclusive by construction (p12_14 ignores EXCCEN while BOKEN is 1),
+ * so the word never carries both. */
 uint16_t ccctl_value() {
     return static_cast<uint16_t>(g_last_ccctl_written | g_cc_layer_bits |
                                  ((g_palette_cc || hires_sprite_cc_on()) ? compose::kCcctlSprite : 0u) |
-                                 (g_cc_add ? compose::kCcctlAdd : 0u));
+                                 (g_cc_add ? compose::kCcctlAdd : 0u) |
+                                 compose::extras_word(g_cc_extras));
 }
 
 /* PRISA as written: the recorded sprite priority, split by code bit 7 while
@@ -266,6 +290,7 @@ inline uint16_t with_cram_mode(uint16_t ramctl) {
 #define BKTAL reg<0x0AE>()
 #define PRISA reg<0x0F0>()
 #define SPCTL reg<0x0E0>()
+#define SDCTL reg<0x0E2>()
 #define CRAOFA reg<0x0E4>()
 #define CRAOFB reg<0x0E6>()
 #define PRISB reg<0x0F2>()
@@ -277,7 +302,10 @@ inline uint16_t with_cram_mode(uint16_t ramctl) {
  * exactly why they have to be written: the BIOS leaves its own splash-screen
  * settings behind, and anything still enabled here silently transforms every
  * pixel the program draws. See reset_color_ops(). */
+#define SFSEL  reg<0x024>()
+#define SFCODE reg<0x026>()
 #define CCCTL  reg<0x0EC>()
+#define SFPRMD reg<0x0EA>()
 #define SFCCMD reg<0x0EE>()
 #define CCRSA  reg<0x100>()
 #define CCRSB  reg<0x102>()
@@ -399,7 +427,22 @@ void reset_color_ops() {
     CCCTL = 0x0000u;   /* no colour calculation on any layer */
     g_last_ccctl_written = 0x0000u;
     for (uint16_t& word : g_last_color_offset_written) word = 0u;
-    SFCCMD = 0x0000u;  /* no special colour calculation modes */
+    /* Special priority / colour calculation: clear the BIOS leftovers and
+     * release ownership until a program asks for one of the modes. */
+    SFSEL = 0x0000u;
+    SFCODE = 0x0000u;
+    SFPRMD = 0x0000u;
+    SFCCMD = 0x0000u;
+    g_sfprmd = g_sfccmd = g_sfcode = g_sfsel = 0u;
+    g_special_used = false;
+    /* Sprite shadows: SDCTL is write-only and cleared by reset too. */
+    SDCTL = 0x0000u;
+    g_shadow_active = false;
+    g_shadow_mode = 0u;
+    g_shadow_targets = 0u;
+    g_shadow_transparent = false;
+    g_shadow_priority = 7u;
+    g_shadow_sdctl = 0u;
     CLOFEN = 0x0000u;  /* colour offset disabled for every layer */
     CLOFSL = 0x0000u;  /* ... and both offset registers select A */
     COAR = 0x0000u;
@@ -417,6 +460,7 @@ void reset_color_ops() {
     g_cc_layer_bits = 0u;
     g_cc_add = false;
     g_cc_ratios = compose::ScreenRatios{};
+    g_cc_extras = compose::CcctlExtras{};
     g_hires_sprite_cc = compose::kHiresSpriteCcOff;
     g_hires_sprite_ratio = 0u;
     g_lncl_sprite = false;
@@ -488,6 +532,7 @@ void init_ntsc_320x224() {
 
     PRISA = 0x0606;
     g_last_prisa_written = 0x0606u;
+    g_sprite_priority = 6u;
     PRINA = static_cast<uint16_t>((PRINA & 0xFFF8u) | 0x0001u);
     g_last_nbg0_prina_written = PRINA;
     /* sat_exec clears VDP2, so the BIOS's value cannot be assumed here. */
@@ -499,14 +544,19 @@ void init_ntsc_320x224() {
     TVMD = static_cast<uint16_t>(kTvmdDisp | kTvmdBdclmd);
 }
 
-void set_horizontal_resolution(uint16_t width) {
-    /* TVMD HRESO: 0 = 320, 1 = 352, 2 = 640, 3 = 704 (normal NTSC). */
-    uint16_t hreso = 0u;
-    if (width == 352u) hreso = 1u;
-    else if (width == 640u) hreso = 2u;
-    else if (width == 704u) hreso = 3u;
-    g_hires = hreso >= 2u;
-    TVMD = static_cast<uint16_t>((TVMD & 0xFFF8u) | hreso);
+namespace {
+
+uint16_t g_video_height = 224u;
+uint8_t g_video_interlace = SAT_VIDEO_INTERLACE_NONE;
+
+}  // namespace
+
+void set_video_mode(uint16_t width, uint16_t height, uint8_t interlace) {
+    g_video_height = height;
+    g_video_interlace = interlace;
+    const uint16_t mode = saturn::hal::video_mode::mode_bits(width, height, interlace);
+    g_hires = saturn::hal::video_mode::hreso_bits(width) >= 2u;
+    TVMD = static_cast<uint16_t>((TVMD & 0xFF00u) | mode);
     /* Only hi-res needs a different sprite format. At 320/352 the library
      * has never written SPCTL/CRAOFB at init; writing SPCTL = 0 there would
      * switch sprite data to palette-only and turn every RGB colour black. */
@@ -516,9 +566,14 @@ void set_horizontal_resolution(uint16_t width) {
     }
 }
 
-void set_double_interlace(bool enabled) {
-    /* VDP2 manual 2.4: LSMD=11 doubles the 224-line field to 448 lines. */
-    TVMD = static_cast<uint16_t>((TVMD & ~0x00C0u) | (enabled ? 0x00C0u : 0u));
+uint16_t read_tvmd() {
+    return TVMD;
+}
+
+void set_horizontal_resolution(uint16_t width) {
+    /* Kept for callers that switch 320/352/640/704 after init; the vertical
+     * mode and interlace setting of the resolved video mode stay as they are. */
+    set_video_mode(width, g_video_height, g_video_interlace);
 }
 
 bool hires() {
@@ -542,6 +597,7 @@ uint16_t sprite_type_bits() {
      * type 0 with SPCLMD set: palette and RGB pixels mixed, as the BIOS
      * leaves it (SPCTL = 0 would drop every RGB pixel). */
     if (g_hires || g_sprite_fb8) return compose::hires_sprite_spctl(g_last_prisa_written, g_hires_sprite_cc);
+    if (g_shadow_active) return sprite_shadow::kType2Spctl;
     /* Type 1, palette dots only: bits 15-13 select PRISA-PRISD's eight priorities. */
     return g_palette_priorities ? compose::palette_sprite_spctl(g_palette_cc, g_palette_window) : 0x0020u;
 }
@@ -836,6 +892,11 @@ void write_vram_words(uint32_t word_offset, const uint16_t* words, uint32_t word
     }
 }
 
+void read_vram_words(uint32_t word_offset, uint16_t* out, uint32_t word_count) {
+    if (out == nullptr || word_count == 0u) return;
+    for (uint32_t i = 0u; i < word_count; ++i) out[i] = VDP2_VRAM_16[word_offset + i];
+}
+
 void fill_vram_words(uint32_t word_offset, uint16_t value, uint32_t word_count) {
     if (word_count == 0u) {
         return;
@@ -1124,6 +1185,12 @@ bool g_nbg_active = false;
 rot::Layer g_rot;
 bool g_rot_used = false;
 bool g_rot_table_live = false;
+/* True while the RBG1 takeover bits (CHCTLA/PNCN0/PLSZ/MPOFR/OVPNRB/PRINA)
+ * are the ones RBG1 wrote. They are cleared once when RBG1 is hidden, and
+ * never while RBG1 was not displaying: PRINA's low bits are NBG0's priority,
+ * so an unconditional clear would hide NBG0 whenever an RBG0-only layer is
+ * configured after it. */
+bool g_rbg1_takeover_live = false;
 
 inline bool vram_split_a() { return (get_reg(0x00Eu) & 0x0100u) != 0u; }
 inline bool vram_split_b() { return (get_reg(0x00Eu) & 0x0200u) != 0u; }
@@ -1139,20 +1206,53 @@ void rot_write_all(bool may_write_table) {
     const rot::Registers r = rot::compose(g_rot);
     merge_reg(0x00Eu, 0x00FFu, r.ramctl_rdbs);
     merge_reg(kOffChctlb, 0x7F00u, r.chctlb);
-    merge_reg(0x02Eu, 0x0007u, r.bmpnb);
     set_reg(0x038u, r.pncr);
     merge_reg(kOffPlsz, 0x0F00u, r.plsz);
     merge_reg(0x03Eu, 0x0007u, r.mpofr);
     for (uint32_t i = 0u; i < 8u; ++i) set_reg(0x050u + 2u * i, r.mp[i]);
     set_reg(0x0B8u, r.ovpnra);
-    set_reg(0x0B0u, 0u);          /* RPMD: rotation parameter A */
+    set_reg(0x0B0u, r.rpmd);      /* RPMD: A, B or per-line switching (p06_35) */
     set_reg(0x0B2u, 0u);          /* RPRCTL: Xst, Yst, KAst read on the first line only */
-    merge_reg(0x0B4u, 0x001Fu, r.ktctl);
+    merge_reg(0x0B4u, 0x1FFFu, r.ktctl);   /* KTCTL: both coefficient contracts (p06_42) */
     merge_reg(0x0FCu, 0x0007u, r.prir);
-    /* The table address and its coefficient offset switch tables: during the
-     * picture that would apply from the current line. */
+    if (g_rot.rbg1.enabled) {
+        /* Take over the registers RBG1 shares with NBG0 / RBG0 B-set:
+         * CHCTLA (N0CHCN 6-4, N0CHSZ 0), PNCN0 (the bits that name size,
+         * palette and character-supplementary), the RBMP bits of MPOFR,
+         * the RBPLSZ/RBOVR bits of PLSZ, the B map at 0x060..0x06E,
+         * OVPNRB at 0x0BA, the N0PRIN bits of PRINA. */
+        merge_reg(kOffChctla, 0x007Fu, r.chctla);
+        merge_reg(0x030u, 0xCE3Fu, r.pnc0);   /* 0x8000 | 0x4000 | 0x0200 | 0x0100 | 0x00E0 | 0x001F */
+        merge_reg(0x03Eu, 0x0070u, r.mpofr_b);
+        merge_reg(kOffPlsz, 0xF000u, r.plsz_b);
+        for (uint32_t i = 0u; i < 8u; ++i) set_reg(0x060u + 2u * i, r.mp_b[i]);
+        set_reg(0x0BAu, r.ovpnrb);
+        merge_reg(0x0F8u, 0x0007u, r.prina_rbg1);
+        g_rbg1_takeover_live = true;
+    } else if (g_rbg1_takeover_live) {
+        /* RBG1 was visible and is now hidden: zero the takeover bits once so
+         * they don't keep NBG0 pinned at the values written while RBG1 was
+         * visible. While RBG1 has never displayed, these registers belong to
+         * NBG0/RBG0 and must not be touched here. */
+        merge_reg(kOffChctla, 0x007Fu, 0u);
+        merge_reg(0x030u, 0xCE3Fu, 0u);
+        merge_reg(0x03Eu, 0x0070u, 0u);
+        merge_reg(kOffPlsz, 0xF000u, 0u);
+        for (uint32_t i = 0u; i < 8u; ++i) set_reg(0x060u + 2u * i, 0u);
+        set_reg(0x0BAu, 0u);
+        merge_reg(0x0F8u, 0x0007u, 0u);
+        g_rbg1_takeover_live = false;
+    }
+    if (g_rot.bitmap) {
+        /* Bitmap format: the palette number and the picture's base for both
+         * parameter sets. RBG1 never coexists with it, so RBMP is free. */
+        merge_reg(0x02Eu, 0x0007u, r.bmpnb);
+        merge_reg(0x03Eu, 0x0070u, r.mpofr_b);
+    }
+    /* The region address and both coefficient offsets switch tables: during
+     * the picture that would apply from the current line. */
     if (may_write_table || !g_rot_table_live) {
-        merge_reg(0x0B6u, 0x0007u, r.ktaof);
+        merge_reg(0x0B6u, 0x0707u, r.ktaof);   /* KTAOF: A bits 2-0, B bits 10-8 */
         set_reg(0x0BCu, r.rptau);
         set_reg(0x0BEu, r.rptal);
         g_rot_table_live = g_rot.enabled;
@@ -1243,7 +1343,12 @@ void nbg_write_all(bool vblank_replay = false) {
     if (g_rot_used) {
         rot_write_all(may_write_scroll);
         owned_bgon = static_cast<uint16_t>(owned_bgon | 0x1010u);
-        bgon = static_cast<uint16_t>(bgon | rot::compose(g_rot).bgon);
+        const rot::Registers rr = rot::compose(g_rot);
+        bgon = static_cast<uint16_t>(bgon | rr.bgon | rr.bgon_rbg1);
+        /* R1ON (bit 5) and the N0TPON reuse (bit 8) belong to RBG1; own them
+         * even when RBG1 is hidden so the live rbg1_set_enabled(0) path can
+         * clear bits the previous on-write left set. */
+        owned_bgon = static_cast<uint16_t>(owned_bgon | 0x0120u);
     }
     merge_reg(kOffBgon, owned_bgon, bgon);
     g_last_rbg0_bgon_written = get_reg(kOffBgon);
@@ -1386,6 +1491,47 @@ void set_color_calc_add(bool add) {
     commit_compose();
 }
 
+bool hardware_blur_active() {
+    return g_cc_extras.blur;
+}
+
+/* Extended colour calculation (EXCCEN, CCCTL bit 10): the second image
+ * becomes the extended result (third + second at the fixed ratio, plus the
+ * line colour screen when it is inserted - manual table 12.2), so the top
+ * image blends a pre-mixed pair. Requires normal TV mode (refused in hi-res;
+ * p12_12, p12_14). Legal with line colour insertion. Mutually exclusive with
+ * BOKEN: turning one on clears the other, so CCCTL never carries both. */
+bool set_extended_color_calc(bool enabled) {
+    if (compose::extras_set_extended(g_cc_extras, enabled, g_hires) != compose::kExtrasOk) {
+        return false;
+    }
+    g_compose_used = true;
+    commit_compose();
+    return true;
+}
+
+/* Hardware blur (BOKEN, CCCTL bit 15, BOKN2..0 in bits 14-12). The screen
+ * selector follows the manual's table (p12_14): 0 sprite, 1 RBG0, 2 NBG0/RBG1,
+ * 3 setting-prohibited, 4 NBG1/EXBG, 5 NBG2, 6 NBG3, 7 setting-prohibited.
+ * Requires normal TV mode and CRAM mode 0; refuses to enable while line
+ * colour insert is on, and the public line-colour insert wrappers refuse a
+ * new insert behind a live blur (p12_13). Turning blur on clears any pending
+ * EXCCEN (p12_14 ignores EXCCEN while BOKEN is 1). */
+bool set_hardware_blur(uint8_t screen, bool enabled) {
+    /* p12_13 excludes a *live* line-colour insertion. g_lncl_used only
+     * records that LNCLEN is ours to keep writing after the last insert is
+     * cleared; treating it as an insertion would keep blur refused forever
+     * once a program had ever used the line-colour screen. */
+    const bool line_color_inserted = g_lncl_layers != 0u || g_lncl_sprite;
+    if (compose::extras_set_blur(g_cc_extras, screen, enabled, g_hires, cram_mode(),
+                                 line_color_inserted) != compose::kExtrasOk) {
+        return false;
+    }
+    g_compose_used = true;
+    commit_compose();
+    return true;
+}
+
 void set_backdrop_lines(uint32_t table_word_offset) {
     g_back_lines = true;
     g_back_lines_word = table_word_offset & 0x0007FFFFu;
@@ -1434,6 +1580,10 @@ NbgResult nbg_configure(uint8_t index, const nbg::Layer& layer) {
     /* The legacy NBG0 API and RBG0 keep their own cycle patterns and replay
      * shadows; the two managers cannot share the VRAM cycle registers. */
     if (g_nbg0_configured || ((BGON & 0x0010u) != 0u && !g_rot_used)) return NbgResult::Busy;
+    /* Manual p06_20: "When displaying RBG1 ... the normal scroll screen will
+     * not be able to be displayed at all." Once RBG1 is on, refuse NBGs
+     * until the rotation layer is reconfigured with RBG1 off. */
+    if (rot_rbg1_enabled()) return NbgResult::Busy;
     nbg::Layer trial[nbg::kLayerCount];
     for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
         trial[i] = g_nbg_layer[i];
@@ -1465,6 +1615,34 @@ NbgResult nbg_configure(uint8_t index, const nbg::Layer& layer) {
     g_nbg_active = true;
     g_nbg0_configured = false;
     nbg_write_all();
+    return NbgResult::Ok;
+}
+
+NbgResult nbg_set_plane_base(uint8_t index, uint32_t base) {
+    if (index >= nbg::kLayerCount || !g_nbg_used[index]) return NbgResult::BadLayer;
+    nbg::Layer trial[nbg::kLayerCount];
+    for (uint8_t i = 0u; i < nbg::kLayerCount; ++i) {
+        trial[i] = g_nbg_layer[i];
+        trial[i].enabled = g_nbg_used[i] && g_nbg_layer[i].enabled;
+    }
+    const nbg::Status retarget = nbg::retarget_plane_base(trial[index], base);
+    if (retarget != nbg::Status::Ok) {
+        switch (retarget) {
+            case nbg::Status::BadLayer: return NbgResult::BadLayer;
+            case nbg::Status::BadFormat: return NbgResult::BadFormat;
+            case nbg::Status::BadReduction: return NbgResult::BadReduction;
+            default: return NbgResult::BadPlane;
+        }
+    }
+    const nbg::Plan plan = plan_layers(trial, g_rot);
+    if (plan.status != nbg::Status::Ok) {
+        return plan.status == nbg::Status::NoCyclePattern ? NbgResult::NoCyclePattern
+                                                          : NbgResult::BadPlane;
+    }
+    /* The next commit_layers() VBlank replay writes MPABN/MPCDN. Keeping the
+     * old registers until then is what makes the buffer switch tear-free. */
+    g_nbg_layer[index] = trial[index];
+    g_nbg_plan = plan;
     return NbgResult::Ok;
 }
 
@@ -1535,12 +1713,26 @@ bool rot_layer(rot::Layer* out) {
     return true;
 }
 
-void rot_set_table(uint32_t table_address, uint8_t ktaof) {
+void rot_set_table(uint32_t table_address, uint8_t ktaof, uint8_t ktaof_b) {
     if (!g_rot_used) return;
     g_rot.table_address = table_address;
     g_rot.ktaof = static_cast<uint8_t>(ktaof & 7u);
+    g_rot.ktaof_b = static_cast<uint8_t>(ktaof_b & 7u);
     nbg_write_all();
 }
+
+bool rot_set_rbg1_enabled(bool enabled) {
+    if (!g_rot_used || !g_rot.enabled) return false;
+    /* Manual p06_20: RBG1 reads parameter set B, but the configure-time
+     * rule is "Mode 0 must be set when displaying RBG1". Refuse a live
+     * flip on if the current parameter mode is not A. */
+    if (enabled && (g_rot.parameter_mode != 0u || g_rot.bitmap)) return false;
+    g_rot.rbg1.enabled = enabled;
+    nbg_write_all();
+    return true;
+}
+
+bool rot_rbg1_enabled() { return g_rot_used && g_rot.enabled && g_rot.rbg1.enabled; }
 
 bool nbg_layer(uint8_t index, nbg::Layer* out) {
     if (index >= nbg::kLayerCount || !g_nbg_used[index] || out == nullptr) return false;
@@ -1577,6 +1769,79 @@ void commit_nbg_layers() {
     if (g_nbg_active) nbg_write_all(true);
 }
 
+/* ------------------------------------------------------------------ */
+/* Special priority and special colour calculation                     */
+/* ------------------------------------------------------------------ */
+
+namespace {
+
+SpecialResult special_layer_traits(uint8_t layer, special::LayerTraits& traits) {
+    if (layer >= nbg::kLayerCount || !g_nbg_used[layer]) return SpecialResult::InvalidArg;
+    const nbg::Layer& l = g_nbg_layer[layer];
+    traits.two_word_names = !l.pn_one_word;
+    traits.bitmap = l.bitmap;
+    traits.rgb = l.colors == nbg::Colors::C32768 || l.colors == nbg::Colors::C16M;
+    return SpecialResult::Ok;
+}
+
+}  // namespace
+
+SpecialResult set_special_priority_mode(uint8_t layer, uint8_t mode) {
+    special::LayerTraits traits{};
+    if (special_layer_traits(layer, traits) != SpecialResult::Ok) {
+        return SpecialResult::InvalidArg;
+    }
+    if (!special::priority_mode_supported(mode, traits)) {
+        return mode > 2u ? SpecialResult::InvalidArg : SpecialResult::Unsupported;
+    }
+    const uint16_t mask = static_cast<uint16_t>(3u << (2u * layer));
+    g_sfprmd = static_cast<uint16_t>((g_sfprmd & ~mask) | special::compose_mode_bits(layer, mode));
+    g_special_used = true;
+    commit_special();
+    return SpecialResult::Ok;
+}
+
+SpecialResult set_special_color_mode(uint8_t layer, uint8_t mode) {
+    special::LayerTraits traits{};
+    if (special_layer_traits(layer, traits) != SpecialResult::Ok) {
+        return SpecialResult::InvalidArg;
+    }
+    if (!special::color_mode_supported(mode, traits)) {
+        return mode > 3u ? SpecialResult::InvalidArg : SpecialResult::Unsupported;
+    }
+    const uint16_t mask = static_cast<uint16_t>(3u << (2u * layer));
+    g_sfccmd = static_cast<uint16_t>((g_sfccmd & ~mask) | special::compose_mode_bits(layer, mode));
+    g_special_used = true;
+    commit_special();
+    return SpecialResult::Ok;
+}
+
+SpecialResult set_special_function_select(uint8_t layer, uint8_t select) {
+    special::LayerTraits traits{};
+    if (special_layer_traits(layer, traits) != SpecialResult::Ok || select > 1u) {
+        return SpecialResult::InvalidArg;
+    }
+    const uint16_t mask = static_cast<uint16_t>(1u << layer);
+    g_sfsel = static_cast<uint16_t>((g_sfsel & ~mask) | static_cast<uint16_t>((select & 1u) << layer));
+    g_special_used = true;
+    commit_special();
+    return SpecialResult::Ok;
+}
+
+void set_special_function_code(uint8_t code_a, uint8_t code_b) {
+    g_sfcode = special::compose_function_code(code_a, code_b);
+    g_special_used = true;
+    commit_special();
+}
+
+void commit_special() {
+    if (!g_special_used) return;
+    SFPRMD = g_sfprmd;
+    SFCCMD = g_sfccmd;
+    SFCODE = g_sfcode;
+    SFSEL = g_sfsel;
+}
+
 void commit_layers() {
     /* The NBG layer manager and the legacy NBG0/RBG0 replay both drive the VRAM
      * cycle registers and BGON, so only one of them runs. */
@@ -1591,6 +1856,10 @@ void commit_layers() {
     /* Sprite priority decides whether the VDP1's output is in front of the
      * VDP2 layers, so it is replayed whether or not NBG0 is in use. */
     PRISA = prisa_value();
+    if (g_shadow_active) {
+        SPCTL = sprite_type_bits();
+        SDCTL = g_shadow_sdctl;
+    }
     CCCTL = ccctl_value();
     CLOFEN = g_last_color_offset_written[0];
     CLOFSL = g_last_color_offset_written[1];
@@ -1625,6 +1894,7 @@ void commit_layers() {
     }
     commit_raster_tables();
     commit_compose();
+    commit_special();
 }
 
 void set_rbg0_param_mode(RBG0ParamMode mode) {
@@ -1652,7 +1922,10 @@ void set_rbg0_priority(uint8_t priority) {
 }
 
 void set_rbg0_sprite_priority(uint8_t priority) {
-    const uint16_t prisa = static_cast<uint16_t>((priority & 0x07u) | ((priority & 0x07u) << 8u));
+    g_sprite_priority = static_cast<uint8_t>(priority & 7u);
+    const uint16_t prisa = g_shadow_active
+        ? sprite_shadow::prisa_word(g_sprite_priority, g_shadow_priority)
+        : static_cast<uint16_t>((priority & 0x07u) | ((priority & 0x07u) << 8u));
     g_last_prisa_written = prisa;
     PRISA = prisa_value();
     if (g_hires || g_sprite_fb8) SPCTL = sprite_type_bits();
@@ -1664,10 +1937,73 @@ void set_nbg0_priority(uint8_t priority) {
 }
 
 void set_sprite_priority(uint8_t priority) {
-    /* computed, not read back: PRISA is write-only on hardware */
-    g_last_prisa_written = saturn::core::compose_sprite_priority(priority);
+    /* computed, not read back: PRISA is write-only on hardware. While the
+     * shadow mode owns selector 1, only selector 0 changes. */
+    g_sprite_priority = static_cast<uint8_t>(priority & 7u);
+    g_last_prisa_written = g_shadow_active
+        ? sprite_shadow::prisa_word(g_sprite_priority, g_shadow_priority)
+        : saturn::core::compose_sprite_priority(priority);
     PRISA = prisa_value();
     if (g_hires || g_sprite_fb8) SPCTL = sprite_type_bits();
+}
+
+SpriteShadowResult set_sprite_shadow(uint8_t mode, uint8_t targets, bool transparent,
+                                     uint8_t base_priority, uint8_t shadow_priority) {
+    const sprite_shadow::ConfigStatus status = sprite_shadow::validate_config(
+        mode, targets, transparent ? 1u : 0u, base_priority, shadow_priority,
+        g_hires, sprite_8bit());
+    if (status == sprite_shadow::ConfigStatus::InvalidArg) return SpriteShadowResult::InvalidArg;
+    if (status == sprite_shadow::ConfigStatus::Unsupported) return SpriteShadowResult::Unsupported;
+    if (status == sprite_shadow::ConfigStatus::Off) {
+        disable_sprite_shadow();
+        return SpriteShadowResult::Ok;
+    }
+    /* SPCTL and PRISA have a single owner. The palette priority, palette
+     * window and palette CC features all drive the same registers, and the
+     * VDP1 sprite colour-calculation module claims SPCTL/PRISA too. */
+    if (g_palette_priorities || g_palette_window || g_palette_cc ||
+        saturn::hal::vdp2_color_calc::enabled()) {
+        return SpriteShadowResult::Busy;
+    }
+
+    g_shadow_active = true;
+    g_shadow_mode = mode;
+    g_shadow_targets = static_cast<uint8_t>(targets & sprite_shadow::kTargetMask);
+    g_shadow_transparent = transparent;
+    g_shadow_priority = static_cast<uint8_t>(shadow_priority & 7u);
+    g_sprite_priority = static_cast<uint8_t>(base_priority & 7u);
+    g_shadow_sdctl = sprite_shadow::sdctl_word(g_shadow_targets, g_shadow_transparent);
+    g_last_prisa_written = sprite_shadow::prisa_word(g_sprite_priority, g_shadow_priority);
+    SPCTL = sprite_type_bits();
+    SDCTL = g_shadow_sdctl;
+    PRISA = g_last_prisa_written;
+    PRISB = 0u;
+    PRISC = 0u;
+    PRISD = 0u;
+    return SpriteShadowResult::Ok;
+}
+
+void disable_sprite_shadow() {
+    if (!g_shadow_active) {
+        SDCTL = 0x0000u;
+        return;
+    }
+    g_shadow_active = false;
+    g_shadow_mode = 0u;
+    g_shadow_targets = 0u;
+    g_shadow_transparent = false;
+    g_shadow_sdctl = 0u;
+    SDCTL = 0x0000u;
+    SPCTL = sprite_type_bits();
+    g_last_prisa_written = saturn::core::compose_sprite_priority(g_sprite_priority);
+    PRISA = g_last_prisa_written;
+    PRISB = 0u;
+    PRISC = 0u;
+    PRISD = 0u;
+}
+
+bool sprite_shadow_active() {
+    return g_shadow_active;
 }
 
 void set_color_calc_control(uint16_t ccctl) {
@@ -1703,10 +2039,13 @@ void set_sprite_priority_pair(uint8_t normal_priority, uint8_t faded_priority) {
      * that shadow, the generic commit resets selector 1 from faded to normal
      * priority before color-calc's separate VBlank commit can restore it.
      * On a busy SH-2 that second commit waits for another VBlank, producing
-     * alternating opaque/faded frames on otherwise stationary geometry. */
-    g_last_prisa_written = static_cast<uint16_t>(
-        (normal_priority & 0x07u) |
-        (static_cast<uint16_t>(faded_priority & 0x07u) << 8u));
+     * alternating opaque/faded frames on otherwise stationary geometry.
+     * While shadow mode owns selector 1, a colour-calc disable/commit must
+     * not put the ordinary priority back into that selector. */
+    g_last_prisa_written = g_shadow_active
+        ? sprite_shadow::prisa_word(g_sprite_priority, g_shadow_priority)
+        : static_cast<uint16_t>((normal_priority & 0x07u) |
+                                (static_cast<uint16_t>(faded_priority & 0x07u) << 8u));
     PRISA = prisa_value();
 }
 

@@ -101,6 +101,7 @@ extern "C" sat_result_t sat_vdp2_sprite_set_palette_priorities(const uint8_t pri
             if (priority[i] > 7u) return SAT_ERR_INVALID_ARG;
         }
         if (saturn::hal::vdp2::sprite_8bit()) return SAT_ERR_UNSUPPORTED;
+        if (saturn::hal::vdp2::sprite_shadow_active()) return SAT_ERR_BUSY;
         if (saturn::hal::vdp2_color_calc::enabled()) return SAT_ERR_BUSY;
     }
     saturn::hal::vdp2::set_sprite_palette_priorities(priority);
@@ -113,6 +114,7 @@ extern "C" sat_result_t sat_vdp2_sprite_set_palette_color_calc(const uint8_t rat
         for (uint32_t i = 0u; i < 4u; ++i) {
             if (ratio[i] > 31u) return SAT_ERR_INVALID_ARG;
         }
+        if (saturn::hal::vdp2::sprite_shadow_active()) return SAT_ERR_BUSY;
         if (!saturn::hal::vdp2::palette_priorities_active()) return SAT_ERR_UNSUPPORTED;
     }
     saturn::hal::vdp2::set_sprite_palette_color_calc(ratio);
@@ -121,6 +123,7 @@ extern "C" sat_result_t sat_vdp2_sprite_set_palette_color_calc(const uint8_t rat
 
 extern "C" sat_result_t sat_vdp2_sprite_set_palette_window(uint8_t enabled) {
     SAT_TRY(saturn::core::require_initialized());
+    if (enabled != 0u && saturn::hal::vdp2::sprite_shadow_active()) return SAT_ERR_BUSY;
     if (enabled != 0u && !saturn::hal::vdp2::palette_priorities_active()) return SAT_ERR_UNSUPPORTED;
     saturn::hal::vdp2::set_sprite_palette_window(enabled != 0u);
     return SAT_OK;
@@ -251,6 +254,18 @@ extern "C" sat_result_t sat_vdp2_vram_write_words(uint32_t word_offset, const ui
     }
 
     saturn::hal::vdp2::write_vram_words(word_offset, words, word_count);
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_vram_read_words(uint32_t word_offset, uint16_t* out_words,
+                                                 uint32_t word_count) {
+    using namespace saturn::core;
+    sat_result_t st = require_initialized();
+    if (st != SAT_OK) return st;
+    if (out_words == nullptr) return SAT_ERR_INVALID_ARG;
+    st = validate_vdp2_vram_write(word_offset, word_count);
+    if (st != SAT_OK) return st;
+    saturn::hal::vdp2::read_vram_words(word_offset, out_words, word_count);
     return SAT_OK;
 }
 

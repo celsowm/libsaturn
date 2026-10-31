@@ -45,11 +45,24 @@ $items = [ordered]@{
     'scu-dsp'           = { & (Join-Path $PSScriptRoot 'run-scu-dsp.ps1') @common }
     'sound-driver'      = { & (Join-Path $PSScriptRoot 'run-sound-driver.ps1') @common }
     'vdp2-layers'       = { & (Join-Path $PSScriptRoot 'run-vdp2-layers.ps1') @common }
+    'vdp2-dual-rotation' = { & (Join-Path $PSScriptRoot 'run-vdp2-dual-rotation.ps1') @common }
+    'vdp2-rotation-coefficients' = { & (Join-Path $PSScriptRoot 'run-vdp2-rotation-coefficients.ps1') @common }
+    'vdp2-special-color' = { & (Join-Path $PSScriptRoot 'run-vdp2-special-color.ps1') @common }
+    'vdp2-hardware-blur' = { & (Join-Path $PSScriptRoot 'run-vdp2-hardware-blur.ps1') @common }
+    'vdp2-special-priority' = { & (Join-Path $PSScriptRoot 'run-vdp2-special-priority.ps1') @common }
+    'vdp2-sprite-shadows' = { & (Join-Path $PSScriptRoot 'run-vdp2-sprite-shadows.ps1') @common }
+    'vdp2-dynamic-tile-stream' = { & (Join-Path $PSScriptRoot 'run-vdp2-dynamic-tile-stream.ps1') @common }
+    'vdp2-vram-stress'  = { & (Join-Path $PSScriptRoot 'run-vdp2-vram-stress.ps1') @common }
     'vdp2-tile-overflow' = { & (Join-Path $PSScriptRoot 'run-vdp2-tile-overflow.ps1') @common }
     'vdp2-window-dim' = { & (Join-Path $PSScriptRoot 'run-vdp2-window-dim.ps1') @common }
     'vdp2-hires-light'  = { & (Join-Path $PSScriptRoot 'run-vdp2-hires-light.ps1') @common }
     'vdp2-effects'      = { & (Join-Path $PSScriptRoot 'run-vdp2-effects.ps1') @common }
     'vdp2-compose'      = { & (Join-Path $PSScriptRoot 'run-vdp2-compose.ps1') @common }
+    'vdp2-video-modes'  = { & (Join-Path $PSScriptRoot 'run-vdp2-video-modes.ps1') @common }
+    'vdp2-parallax-world' = { & (Join-Path $PSScriptRoot 'run-vdp2-parallax-world.ps1') @common }
+    'vdp2-fighting-stage' = { & (Join-Path $PSScriptRoot 'run-vdp2-fighting-stage.ps1') @common }
+    'vdp2-neon-city'    = { & (Join-Path $PSScriptRoot 'run-vdp2-neon-city.ps1') @common }
+    'vdp2-parallax-lab' = { & (Join-Path $PSScriptRoot 'run-vdp2-parallax-lab.ps1') @common }
     'jukebox'           = {
         & $harness -Example cd_streaming_jukebox -Frames 300 -Out $jukeboxJson @common
         if ($LASTEXITCODE -ne 0) { throw 'jukebox probe failed' }

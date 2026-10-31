@@ -14,6 +14,7 @@
 #include "src/hal/scu/scu.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
+#include "src/hal/video_mode_logic.hpp"
 
 extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     using namespace saturn;
@@ -27,12 +28,11 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     if (config == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
-    if ((config->width != saturn::internal::kDefaultWidth &&
-         config->width != 640u && config->width != 704u) ||
-        (config->height != saturn::internal::kDefaultHeight && config->height != 448u)) {
-        return SAT_ERR_UNSUPPORTED;
+    const sat_result_t mode_status =
+        saturn::hal::video_mode::validate(config, sat_video_is_pal() != 0u);
+    if (mode_status != SAT_OK) {
+        return mode_status;
     }
-    if (config->height == 448u && config->width < 640u) return SAT_ERR_UNSUPPORTED;
     if (config->ntsc > SAT_VIDEO_AUTO) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -55,8 +55,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     g_state.initialized = true;
 
     saturn::hal::vdp2::init_ntsc_320x224();
-    saturn::hal::vdp2::set_horizontal_resolution(config->width);
-    saturn::hal::vdp2::set_double_interlace(config->height == 448u);
+    saturn::hal::vdp2::set_video_mode(config->width, config->height, config->interlace);
     saturn::hal::vdp1::init(config->width, config->height, g_state.clear_color);
     saturn::hal::scu::init_frame_clock();
     saturn::hal::scu::init_interrupts();

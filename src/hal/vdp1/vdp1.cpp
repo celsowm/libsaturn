@@ -547,6 +547,10 @@ sat_result_t push_sprite(const SpriteRequest& req) {
         return SAT_ERR_NOT_INITIALIZED;
     }
     SAT_TRY(saturn::core::validate_indexed8_sprite_effects(req.flags));
+    if ((req.flags & SAT_SPRITE_FLAG_MSB_ON) != 0u &&
+        req.format != SAT_VDP1_TEXTURE_INDEXED8) {
+        return SAT_ERR_UNSUPPORTED; /* no color-bank MSB to preserve */
+    }
     if (req.width == 0 || req.height == 0) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -784,6 +788,10 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
         return SAT_ERR_NOT_INITIALIZED;
     }
     SAT_TRY(saturn::core::validate_indexed8_sprite_effects(req.flags));
+    if ((req.flags & SAT_SPRITE_FLAG_MSB_ON) != 0u &&
+        req.format != SAT_VDP1_TEXTURE_INDEXED8) {
+        return SAT_ERR_UNSUPPORTED;
+    }
     if (req.width == 0u || req.height == 0u || (req.width & 7u) != 0u) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -882,6 +890,10 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
         return SAT_ERR_NOT_INITIALIZED;
     }
     SAT_TRY(saturn::core::validate_indexed8_sprite_effects(req.flags));
+    if ((req.flags & SAT_SPRITE_FLAG_MSB_ON) != 0u &&
+        req.format != SAT_VDP1_TEXTURE_INDEXED8) {
+        return SAT_ERR_UNSUPPORTED;
+    }
     if (req.width == 0u || req.height == 0u || (req.width & 7u) != 0u) {
         return SAT_ERR_INVALID_ARG;
     }

@@ -1,0 +1,293 @@
+{
+  "schema": 1,
+  "updated": "2026-10-19",
+  "baseline": "1c573a2",
+  "description": "Machine-readable VDP2 support matrix: what the library actually exposes versus the vendored Sega VDP2 manual. tests/test_vdp2_support_matrix.py validates this file against include/saturn and the manual tree (statuses, evidence rules, every cited chapter file, and every recorded constant). Change the matrix and that test in the same commit.",
+  "manual_root": "docs/sega_saturn_hardware/hard/vdp2/hon",
+  "plan": "docs/VDP2_ADVANCED_EXAMPLES_IMPLEMENTATION_PLAN.md",
+  "statuses": {
+    "exposed": "Reusable public API with host and/or emulator evidence.",
+    "partial": "Public API exists with a documented hardware or library limitation.",
+    "absent": "No public API; the plan milestone that will deliver it is named."
+  },
+  "features": [
+    {
+      "id": "normal_layers",
+      "title": "NBG0-NBG3 layer manager (cell and bitmap formats, priority, transparency, scroll, zoom)",
+      "status": "exposed",
+      "manual": ["p04_a0.md", "p05_10.md", "p05_20.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["tests/host/test_vdp2_nbg_logic.cpp", "harness/run-vdp2-layers.ps1"],
+      "notes": "Zoom 1/4 to 8x; configurations that cannot all be fetched are refused with SAT_ERR_CAPACITY and nothing changes."
+    },
+    {
+      "id": "vram_cycle_planning",
+      "title": "VRAM bank/timing (cycle pattern) planning for layer reads",
+      "status": "exposed",
+      "manual": ["p03_30.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["tests/host/test_vdp2_nbg_logic.cpp"],
+      "notes": "Pure placement policy validated against the manual's own Figure 3.8 example; refuses instead of over-committing a bank."
+    },
+    {
+      "id": "line_scroll",
+      "title": "Line scroll tables (per line or every 2/4/8 lines, horizontal, vertical, zoom)",
+      "status": "exposed",
+      "manual": ["p05_30.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["harness/run-vdp2-effects.ps1"]
+    },
+    {
+      "id": "vertical_cell_scroll",
+      "title": "Vertical cell scroll tables (NBG0/NBG1)",
+      "status": "exposed",
+      "manual": ["p05_30.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["harness/run-vdp2-effects.ps1"]
+    },
+    {
+      "id": "line_color_screen",
+      "title": "Line colour screen and per-layer/per-sprite line colour insert",
+      "status": "exposed",
+      "manual": ["p07_10.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["harness/run-vdp2-effects.ps1"]
+    },
+    {
+      "id": "back_screen",
+      "title": "Back screen with per-line colours",
+      "status": "exposed",
+      "manual": ["p07_20.md"],
+      "api": ["include/saturn/vdp2_layers.h"],
+      "tests": ["harness/run-vdp2-effects.ps1"]
+    },
+    {
+      "id": "windows",
+      "title": "Windows W0/W1 as rectangles or per-line tables (ellipse helper), per-screen OR/AND logic",
+      "status": "exposed",
+      "manual": ["p08_20.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp", "harness/run-vdp2-compose.ps1"]
+    },
+    {
+      "id": "mosaic",
+      "title": "Mosaic per screen, shared size 1..16",
+      "status": "exposed",
+      "manual": ["p04_b0.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp", "harness/run-vdp2-compose.ps1"],
+      "notes": "Refused with SAT_ERR_UNSUPPORTED where the manual forbids it (NBG0/NBG1 with vertical cell scroll)."
+    },
+    {
+      "id": "sprite_window",
+      "title": "Sprite window selection on a screen",
+      "status": "partial",
+      "manual": ["p08_20.md", "p09_10.md"],
+      "api": ["include/saturn/vdp2.h", "include/saturn/vdp2_compose.h"],
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp"],
+      "notes": "Window dots must be palette sprites (sat_vdp2_sprite_set_palette_window, type 3); the library's default RGB sprite path cannot serve as the window source."
+    },
+    {
+      "id": "screen_color_calc_ratios",
+      "title": "Per-screen colour calculation ratios for scroll screens",
+      "status": "exposed",
+      "manual": ["p09_20.md", "p12_12.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["harness/run-vdp2-compose.ps1"]
+    },
+    {
+      "id": "color_offset",
+      "title": "Colour offset A/B per layer group",
+      "status": "exposed",
+      "manual": ["p13_10.md"],
+      "api": ["include/saturn/vdp2_color_offset.h"],
+      "tests": ["tests/host/test_vdp2_color_offset_logic.cpp"]
+    },
+    {
+      "id": "color_calculation_ratio_add",
+      "title": "Sprite/VDP2 colour calculation: ratio slots and add mode",
+      "status": "exposed",
+      "manual": ["p12_12.md"],
+      "api": ["include/saturn/vdp2_color_calc.h", "include/saturn/vdp1_color_calc.h"],
+      "tests": ["tests/host/test_vdp2_color_calc_logic.cpp"]
+    },
+    {
+      "id": "cram_modes",
+      "title": "CRAM mode 0/1 selection (RAMCTL CRMD)",
+      "status": "exposed",
+      "manual": ["p03_20.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["examples/vdp2_hires_light", "harness/run-vdp2-hires-light.ps1"],
+      "notes": "Hi-res palette-sprite colour calculation requires hi-res + mode 0 and is refused otherwise (SAT_ERR_UNSUPPORTED)."
+    },
+    {
+      "id": "hires_sprite_lighting",
+      "title": "Per-line sprite lighting in hi-res (8-bit) VDP1 output via VDP2 line colour insert",
+      "status": "exposed",
+      "manual": ["p09_20.md", "p12_12.md"],
+      "api": ["include/saturn/vdp2_compose.h", "include/saturn/vdp2_layers.h"],
+      "tests": ["harness/run-vdp2-hires-light.ps1"]
+    },
+    {
+      "id": "rbg0_rotation_parameter_a",
+      "title": "RBG0 rotation, parameter A: Mode-7-style ground, coefficient tables, matrix/viewpoint/center/scaling",
+      "status": "exposed",
+      "manual": ["p06_20.md", "p06_30.md", "p06_40.md"],
+      "api": ["include/saturn/vdp2.h", "include/saturn/vdp2_rbg0_ground.h", "include/saturn/vdp2_environment.h"],
+      "tests": ["tests/host/test_vdp2_rotation_logic.cpp", "tests/host/test_vdp2_rbg0_logic.cpp", "harness/tests/test_rbg0_ground.py"],
+      "notes": "Both rotation parameter sets are modeled since e212a41 (see rbg0_rotation_parameter_b); the older vdp2.h NBG0 calls and the RBG0 manager refuse each other with SAT_ERR_BUSY."
+    },
+    {
+      "id": "vram_free_list_allocator",
+      "title": "Stand-alone VDP2 VRAM free-list allocator",
+      "status": "exposed",
+      "manual": ["p03_10.md"],
+      "api": ["include/saturn/vdp2_alloc.h"],
+      "tests": ["tests/host/test_vdp2_allocator.cpp"]
+    },
+    {
+      "id": "cram_range_allocator",
+      "title": "CRAM palette range allocator",
+      "status": "exposed",
+      "manual": ["p03_10.md"],
+      "api": ["include/saturn/vdp2_alloc.h"],
+      "tests": ["tests/host/test_vdp2_palette_alloc.cpp"]
+    },
+    {
+      "id": "unified_resource_planner",
+      "title": "One transactional owner for bank/cycle, CRAM and table reservations with rollback",
+      "status": "partial",
+      "manual": ["p03_30.md"],
+      "api": ["include/saturn/vdp2_alloc.h"],
+      "tests": ["tests/host/test_vdp2_plan_logic.cpp", "tests/host/test_vdp2_plan_api.cpp", "harness/run-vdp2-vram-stress.ps1"],
+      "plan_milestone": "M1",
+      "notes": "VRAM byte and table reservations, whole-bank claims and CRAM palette ranges are transactional since dbec2fa and the CRAM follow-up: sat_vdp2_plan_begin/reserve/reserve_at/palette_reserve/commit/rollback/release plus per-bank telemetry, over the byte free list and the seven-bank CRAM bitmap. A rollback restores both exact allocation states. The cycle patterns are still planned inside sat_vdp2_layer_configure and are the remaining non-transactional part. E08 vdp2_vram_stress demonstrates every refusal path live, including CRAM rollback/reuse and the eighth full-bank refusal."
+    },
+    {
+      "id": "rbg0_rotation_parameter_b",
+      "title": "RBG0 rotation parameter B selection and coefficient-mode switching",
+      "status": "partial",
+      "manual": ["p06_30.md", "p06_34.md", "p06_35.md", "p06_42.md", "p06_43.md"],
+      "api": ["include/saturn/vdp2_layers.h", "include/saturn/vdp2_rotation_coefficients.h"],
+      "tests": ["tests/host/test_vdp2_rotation_logic.cpp", "tests/host/test_vdp2_rotation_coefficients.cpp",
+                "harness/run-vdp2-rotation-coefficients.ps1"],
+      "plan_milestone": "M2",
+      "notes": "Both parameter sets and the whole per-line coefficient contract are real since e212a41: one A+B region (figure 6.4) behind the single RPTA, RPMD modes A / B / per-line coefficient switching (p06_34, p06_35), both KTCTL halves with 2-word and 1-word entries (p06_42) and both KTAOF offsets (p06_43), sign-magnitude entry encoding (figure 6.7), and sat_vdp2_rotation_write_params writing both sets together so B can never go stale. E02 vdp2_rotation_coefficients proves every mode on Ymir, the per-line A/B slice pixel-verified. Not modeled and refused with SAT_ERR_INVALID_ARG: the window mode (RPMD 3, needs the rotation window control register) and per-dot coefficients (need a whole rotation bank or Color RAM); the line-colour composition half of KTCTL (RAKLCE/RBKLCE) is not exposed either. RBG0 in bitmap format goes through the same manager (sat_vdp2_rotation_bitmap_configure, plan kind SAT_VDP2_RESERVE_ROTATION_BITMAP); examples/vdp2_rotation_bitmap shows it turning and zooming on Ymir, emulator evidence only."
+    },
+    {
+      "id": "rbg1",
+      "title": "RBG1 as a first-class layer (requires RBG0, excludes normal scrolling screens)",
+      "status": "exposed",
+      "manual": ["p06_20.md"],
+      "api": [
+        "include/saturn/vdp2_layers.h"
+      ],
+      "tests": [
+        "tests/host/test_vdp2_rotation_rbg1.cpp",
+        "harness/run-vdp2-dual-rotation.ps1",
+        "examples/vdp2_dual_rotation/main.c"
+      ],
+      "notes": "Implemented in this slice. Public surface: sat_vdp2_rotation_config_default seeds rbg1.enabled = 0; sat_vdp2_rotation_configure copies rbg1.enabled/colors/char_size/pattern_name_words/priority/transparent/palette/char_base_address (must be in VRAM-B0) and validates the B-map planes in VRAM-B1; sat_vdp2_rotation_rbg1_set_enabled toggles RBG1 mid-frame without a full reconfigure (refused when parameter_mode is not A); sat_vdp2_layer_configure(NBG*) returns SAT_ERR_BUSY while RBG1 displays; sat_vdp2_rotation_set_parameter_mode(B or COEFFICIENT) returns SAT_ERR_INVALID_ARG while RBG1 displays (RBG1 always reads parameter set B; mode A only). The host test is 35/35 (happy path, transparent=false, parameter mode != A refused, RBG0 banks in VRAM-B refused, B-map outside VRAM-B1 refused, character window outside VRAM-B0 refused, RBG1 hidden allows the A-map/B-map/banks anywhere, 2x2 window size, B-map 2x2 pages, over=repeat + over pattern name). RBG1's image data follows the manual's separate-VRAM rule: pattern names fixed in VRAM-B1 (MPABRB..MPOPRB are the same map RBG0's B-mode reads, so the B-map must lie inside VRAM-B1 whenever rbg1.enabled is 1), character window fixed in VRAM-B0. The HAL replay writes the takeover registers only while RBG1 is on (BGON R1ON + N0TPON reuse, CHCTLA N0CHCN + N0CHSZ, PNCN0 N0PNB + N0SPR + N0SCC + N0SPLT + N0SCN, PLSZ RBPLSZ + RBOVR, MPOFR RBMP, MPABRB..MPOPRB, OVPNRB, PRINA N0PRIN), and clears them when RBG1 hides so NBG0's bits aren't left stale. The B-set plane map is emitted whenever the B-set will be read - RBG1 displays, RBG0 is in parameter mode B, or coefficient switching uses both sets (manual p04_84, parameter-mode page) - not only when RBG1 is on. The resource planner tracks B0/B1 separately (claim_rbg1_banks / release_rbg1_banks) so the rotation parameter table can sit in an RBG1-reserved None-role bank (p06_30) without giving RBG0 image data access to those banks. Per-dot coefficients and the rotation window mode remain refused on the NBG path - the same corner that E02 already records. Ymir's DUAL pixel check now passes 6/6 (no skip) after E01 was corrected from 256-colour configuration to the 16-colour mode its 4bpp tiles and palettes actually use; the host test remains 35/35. Physical hardware is PENDING."
+    },
+    {
+      "id": "hardware_blur",
+      "title": "Hardware horizontal blur (normal TV modes, CRAM mode 0; conflicts with extended colour calculation and line colour insert)",
+      "status": "exposed",
+      "manual": ["p12_13.md", "p12_14.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp", "harness/run-vdp2-hardware-blur.ps1", "harness/tests/test_vdp2_hardware_blur.py"],
+      "notes": "sat_vdp2_hardware_blur_set drives CCCTL's BOKEN/BOKN branch for the BOKN-selected screen (manual p12_14 table; 3 and 7 setting-prohibited and refused), with the normal-TV-mode and CRAM-mode-0 requirements and the line-colour exclusion in both directions (p12_13: enabling refuses a live insert, and sat_vdp2_layer/sprite_set_line_color_insert refuse behind a live blur; clearing the insert makes blur legal again). The acceptance/refusal table is pure policy (compose::CcctlExtras) and host-tested. E04 vdp2_hardware_blur is accepted on pinned Ymir: 11/11 harness tests assert CCCTL = BOKEN + BOKN 2 + N0CCEN, a watch-write of BOKEN at the switch, the sharp right half byte-identical across modes, and the left half equal to the manual's 2:1:1 average and 15:17 mix (188/68 blurred, 216/39 mixed, recomputed from the palette). The example keeps the blurred screen as the top image because Ymir at this pin replaces the second image only where the BOKN screen is top; the manual's second-image blur case remains unverified. Acceptance uses the documented ymir_gradation_sse_fix.patch (the pinned SSE2 path ANDed the source colour into the blur; AVX2/scalar were correct). Still emulator evidence, not hardware certification; physical execution is PENDING in docs/HARDWARE_ACCEPTANCE_CHECKLIST.md."
+    },
+    {
+      "id": "extended_color_calculation",
+      "title": "Extended colour calculation",
+      "status": "exposed",
+      "manual": ["p12_12.md", "p12_14.md"],
+      "api": ["include/saturn/vdp2_compose.h"],
+      "tests": ["tests/host/test_vdp2_compose_logic.cpp", "harness/run-vdp2-special-color.ps1", "harness/tests/test_vdp2_special_color.py"],
+      "notes": "sat_vdp2_extended_color_calc_set drives CCCTL's EXCCEN: the second image becomes the pre-mixed second+third result (plus the line colour screen when inserted - the manual's four-screen cascade, table 12.2), so EXCCEN is legal with line colour insertion, unlike blur. Normal TV mode only (p12_12, p12_14: refused while hi-res), mutually exclusive with BOKEN in both directions (p12_14 ignores EXCCEN while BOKEN is 1; the shadow never carries both). E03 vdp2_special_color is accepted on pinned Ymir: 9/9 harness tests assert the CCCTL N0CCEN/N1CCEN/EXCCEN bits, CCRNA's N0 ratio, the refusal fields, a watch-write of CCCTL at the RATIO switch, and manual-recomputed pixels for the table-12.2 cascade (second = (NBG1+NBG2)/2, then the top image blends at 16:16) confined by the colour calculation window. The evidence is emulator-side (Ymir 5c571f6, instrumentation-only patches); physical-hardware execution remains PENDING in docs/HARDWARE_ACCEPTANCE_CHECKLIST.md."
+    },
+    {
+      "id": "special_priority_color_calc",
+      "title": "Special priority and special colour calculation selection",
+      "status": "exposed",
+      "manual": ["p04_61.md", "p09_20.md", "p10_30.md", "p11_20.md", "p12_20.md"],
+      "api": ["include/saturn/vdp2_special.h"],
+      "tests": ["tests/host/test_vdp2_special.cpp", "harness/run-vdp2-special-priority.ps1", "harness/tests/test_vdp2_special_priority.py"],
+      "notes": "sat_vdp2_special_priority_mode_set / sat_vdp2_special_color_calc_mode_set drive SFPRMD/SFCCMD for NBG0-NBG3 (modes 0/1/2 for priority, 0/1/2/3 for colour calculation; priority mode 3 and out-of-range modes are refused). Per-character and per-dot modes read the PR/CC bits of a 2-word pattern name, built by sat_vdp2_pattern_name_2word with the manual's figure 4.9 layout; SFCODE/SFSEL select dot codes for the per-dot modes (bit n covers codes 2n/2n+1). Per-dot is refused for RGB formats; the 1-word PNCN auxiliary PR/CC bits and the bitmap BMPNA bits are not exposed, so those layers accept mode 0 only and return SAT_ERR_UNSUPPORTED. RBG0's SFPRMD/SFCCMD bits are not exposed yet because sat_vdp2_layer_t covers the four NBGs. Colour-calculation modes still need CCCTL's screen enable, and modes 1-3 apply only while that screen is the top image (the caller owns that composition choice). E06 vdp2_special_priority is accepted on pinned Ymir: 10/10 harness tests assert SFPRMD/SFCCMD/SFCODE/SFSEL/CCCTL, a watch-write of SFCCMD at the MSB switch, the priority-4-sprite control (sprites win ties), per-character/per-dot priority A/B, and manual-recomputed 15:17 colour calculation including CRAM-MSB mode. Still emulator evidence, not hardware certification; physical execution is PENDING in docs/HARDWARE_ACCEPTANCE_CHECKLIST.md."
+    },
+    {
+      "id": "vdp2_shadow_sprites",
+      "title": "VDP2 shadow sprites (distinct from VDP1 half-luminance shadow)",
+      "status": "exposed",
+      "manual": ["p09_10.md", "p14_10.md", "p15_40.md", "p16_18.md"],
+      "api": ["include/saturn/vdp2_sprite_shadow.h", "include/saturn/vdp1.h"],
+      "tests": ["tests/host/test_vdp2_sprite_shadow.cpp", "harness/run-vdp2-sprite-shadows.ps1", "harness/tests/test_vdp2_sprite_shadows.py"],
+      "notes": "sat_vdp2_sprite_shadow_configure owns SDCTL (N0SDEN..BKSDEN plus TPSDSL) and switches the sprite layer to type 2 palette-only for the normal and MSB shadow forms. It also owns PRISA's two selectors (S0PRIN = ordinary dots, S1PRIN = normal-shadow and selector-1 dots) while active, and refuses hi-res/8-bit sprites, palette priorities, the palette window, palette colour calculation and the VDP1 sprite colour-calculation module (SAT_ERR_BUSY), returning SAT_ERR_INVALID_ARG for a bad mode/target mask/priority. sat_vdp2_shadow_normal_word(1,0) is the canonical 0x47FE normal-shadow dot (low 11 bits 0x7FE); sat_vdp2_shadow_transparent_msb_word() is 0x8000 (all 15 non-MSB bits must be zero, so it uses S0PRIN); sat_vdp2_shadow_msb_word(dot) sets bit 15 for VDP1 MSB-on. SAT_SPRITE_FLAG_MSB_ON exposes the VDP1 MSB-on command (CMDPMOD bit 15) for sprite self-shadows. The words are written through a LUT4 texture, because CMDCOLR's palette<<8 form cannot express the 12-bit color bank/low nibble. Normal shadows target only the selected scroll/back screens; transparent MSB shadows use TPSDSL and the selected screen; a sprite MSB shadow darkens the sprite already in the frame buffer. E05 vdp2_sprite_shadows is accepted on pinned Ymir 12/12: a scrolling stripe ground, normal/MSB shadow pixels recomputed from the 5-bit palette and the scroll (248 -> 124), a VDP1 control panel (248 -> 120, the 5-bit path), a VDP1 MSB-on self-shadow, SDCTL=0 target-off control, final SDCTL/SPCTL/PRISA restoration, and a watch-write of SDCTL=0x0101 at the MSB switch. Limitations: the library cannot inspect VDP1 draws, so palette-only is enforced by the type-2 configuration and documented (RGB dots drawn while active are read as shadow/window data); TPSDSL is host-tested and set in the example, but the pinned Ymir does not gate transparent MSB shadows on it, so a TPSDSL=0 negative remains UNVERIFIED; physical execution is PENDING in docs/HARDWARE_ACCEPTANCE_CHECKLIST.md."
+    },
+    {
+      "id": "vdp2_dynamic_tile_stream",
+      "title": "Bounded dynamic tile/map streaming with double-buffered VBlank publication",
+      "status": "exposed",
+      "manual": ["p03_30.md", "p03_34.md", "p04_10.md"],
+      "api": ["include/saturn/stage_map2.h", "include/saturn/vdp2_layers.h", "include/saturn/vdp2.h"],
+      "tests": ["tests/host/test_stage_map2.cpp", "tests/host/test_vdp2_tile_stream.cpp",
+                "harness/run-vdp2-dynamic-tile-stream.ps1",
+                "harness/tests/test_vdp2_dynamic_tile_stream.py"],
+      "notes": "sat_stage_map2 already provided a heap-free, bounded resident-window streamer: caller-owned staging words/runs, transactional set_view/mark_dirty (SAT_ERR_CAPACITY leaves everything unchanged), a writer callback and sat_stage_map2_commit_vdp2. E07 adds the missing hardware publication half: sat_vdp2_layer_set_pattern_name_base(layer, byte_address) moves a one-plane cell layer's four pattern-name tables to a pre-populated ring and is replayed by sat_vdp2_layers_commit() at VBlank; nbg::retarget_plane_base host-tests alignment, one-plane, cell-format and map-offset-group checks, and nbg_set_plane_base re-runs the cycle planner before keeping the change (SAT_ERR_CAPACITY on a fetch-plan failure). sat_vdp2_vram_read_words exposes a validated VRAM read for CRC/diagnostics. E07 vdp2_dynamic_tile_stream composes two stage_map2 instances over rings at 0x00000/0x04000: every frame stages the next camera into the inactive ring, commits/replays the next scroll, publishes that ring's base at the next VBlank, and flips. The 36,000-frame Ymir stress passed 8/8: 34,905 guest frames, 32,999 switches, frozen at 33,000 with the active 45x33 window at base 0x04000; model/VRAM CRC both 0x517824CD, zero sentinel 0xFFFF cells, 0x0000/0x0202 MPABN0 watch values, max pending 1,485 words, 756,900 staged/committed words, 192 SCU-DMA transfers and 33,659 CPU copies with no timeout/illegal interrupt, and capacity/base/invalid-DMA refusals all 1. The harness dumps both rings with --dump-vram and recomputes the frozen CRC directly from Ymir's VRAM. Limitations: the live base switch supports one-plane cell maps (bitmap/multi-plane returns SAT_ERR_INVALID_ARG); the double-buffer sequence is caller-composed from two public stage_map2 instances; the example uses a procedural map rather than CD/VFS asset chunks; and physical hardware execution is PENDING in docs/HARDWARE_ACCEPTANCE_CHECKLIST.md."
+    },
+    {
+      "id": "interlace_output",
+      "title": "Interlaced output modes",
+      "status": "partial",
+      "manual": ["p02_20.md"],
+      "api": ["include/saturn/video.h"],
+      "tests": ["tests/host/test_video_mode.cpp", "harness/run-vdp2-video-modes.ps1",
+                "harness/tests/test_vdp2_video_modes.py",
+                "examples/vdp2_video_modes/main.c"],
+      "notes": "E09 exposes single-density interlace through sat_init's sat_video_config_t.interlace (TVMD LSMD=10) and sat_video_interlace_mode(); the logical picture height stays 224/240/256 and the output picture is twice as tall. VDP1 stays in its DIE=0 single-density state. Double-density interlace (LSMD=11, a different VDP1 picture per field) is refused with SAT_ERR_UNSUPPORTED because no public framebuffer path exposes per-field drawing. Ymir renders 320x480 and 640x480 and the PAL 320x512/640x512 fields; physical hardware remains PENDING in the acceptance checklist.",
+      "plan_milestone": "M4"
+    },
+    {
+      "id": "pal_240_256_line_modes",
+      "title": "PAL 240/256-line output modes",
+      "status": "exposed",
+      "manual": ["p02_10.md", "p02_40.md"],
+      "api": ["include/saturn/video.h"],
+      "tests": ["tests/host/test_video_mode.cpp", "harness/run-vdp2-video-modes.ps1",
+                "harness/tests/test_vdp2_video_modes.py",
+                "examples/vdp2_video_modes/main.c"],
+      "notes": "sat_init accepts width 320/352/640/704 and height 224/240/256, and sat_video_mode_supported() answers without touching the display. 224 and 240 are legal on NTSC and PAL; 256 is refused with SAT_ERR_UNSUPPORTED on an NTSC console (VDP2 manual 2.4, VRESO=10b is PAL-only). A mode change is a full sat_shutdown()+sat_init(): the manual requires the BIOS horizontal-resolution routine and a VDP2 reset when leaving dedicated-monitor modes. The E09 example exercises every supported mode with a VDP1 border and an NBG0 2x2-page test pattern; the PAL run proves 704x256 and 640x512. Physical hardware PENDING.",
+      "plan_milestone": "M4"
+    }
+  ],
+  "constants": [
+    {"name": "SAT_VDP2_NBG0", "header": "include/saturn/vdp2_layers.h", "kind": "enum", "value": 0},
+    {"name": "SAT_VDP2_NBG1", "header": "include/saturn/vdp2_layers.h", "kind": "enum", "value": 1},
+    {"name": "SAT_VDP2_NBG2", "header": "include/saturn/vdp2_layers.h", "kind": "enum", "value": 2},
+    {"name": "SAT_VDP2_NBG3", "header": "include/saturn/vdp2_layers.h", "kind": "enum", "value": 3},
+    {"name": "SAT_VDP2_SCREEN_NBG0", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 0},
+    {"name": "SAT_VDP2_SCREEN_NBG1", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 1},
+    {"name": "SAT_VDP2_SCREEN_NBG2", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 2},
+    {"name": "SAT_VDP2_SCREEN_NBG3", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 3},
+    {"name": "SAT_VDP2_SCREEN_RBG0", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 4},
+    {"name": "SAT_VDP2_SCREEN_SPRITE", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 5},
+    {"name": "SAT_VDP2_SCREEN_COLOR_CALC", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 6},
+    {"name": "SAT_VDP2_WINDOW_AREA_OFF", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 0},
+    {"name": "SAT_VDP2_WINDOW_AREA_INSIDE", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 1},
+    {"name": "SAT_VDP2_WINDOW_AREA_OUTSIDE", "header": "include/saturn/vdp2_compose.h", "kind": "enum", "value": 2},
+    {"name": "SAT_VDP2_COLOR_CALC_RATIO", "header": "include/saturn/vdp2_color_calc.h", "kind": "enum", "value": 0},
+    {"name": "SAT_VDP2_COLOR_CALC_ADD", "header": "include/saturn/vdp2_color_calc.h", "kind": "enum", "value": 1},
+    {"name": "SAT_VDP2_LAYER_NBG0", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 1},
+    {"name": "SAT_VDP2_LAYER_NBG1", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 2},
+    {"name": "SAT_VDP2_LAYER_NBG2", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 4},
+    {"name": "SAT_VDP2_LAYER_NBG3", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 8},
+    {"name": "SAT_VDP2_LAYER_RBG0", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 16},
+    {"name": "SAT_VDP2_LAYER_BACK", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 32},
+    {"name": "SAT_VDP2_LAYER_SPRITE", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 64},
+    {"name": "SAT_VDP2_LAYER_ALL", "header": "include/saturn/vdp2_color_offset.h", "kind": "define", "value": 127},
+    {"name": "SAT_VDP2_VRAM_NO_BASE", "header": "include/saturn/vdp2_alloc.h", "kind": "define", "value": 4294967295},
+    {"name": "SAT_VDP2_VRAM_WORD_CAPACITY", "header": "include/saturn/vdp2_environment.h", "kind": "define", "value": 262144},
+    {"name": "SAT_VDP2_CRAM_WORD_CAPACITY", "header": "include/saturn/vdp2_environment.h", "kind": "define", "value": 2048}
+  ]
+}

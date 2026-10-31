@@ -88,6 +88,8 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/vdp2/environment.cpp
     src/graphics/vdp2/floor.cpp
     src/graphics/vdp2/layers.cpp
+    src/graphics/vdp2/special.cpp
+    src/graphics/vdp2/sprite_shadow.cpp
     src/graphics/vdp2/stage_map2.cpp
     src/graphics/vdp2/stage_map2_vdp2.cpp
     src/graphics/video.cpp
@@ -137,6 +139,7 @@ set(LIBSATURN_HAL_SOURCES
     src/hal/vdp2/color_calc.cpp
     src/hal/vdp2/vdp2.cpp
     src/hal/vdp2/allocator.cpp
+    src/hal/vdp2/plan.cpp
 )
 
 set(LIBSATURN_INPUT_SOURCES

@@ -1,642 +1,280 @@
+<div align="center">
+
 # LibSaturn
 
-**A modern bare-metal game-development library for the Sega Saturn.**
+### A hardware-native SDK for Sega Saturn game development.
 
-LibSaturn is a C-facing, C++-implemented runtime and game framework built directly on the Saturn hardware — without SGL or libyaul. The project spans a high-level 3D scene stack, VDP1/VDP2 rendering, animation, physics, storage and streaming, save data, RAM expansion, audio, asset tooling, and managed use of both SH-2 processors.
+**Modern C APIs. Real Saturn hardware. Your level of control.**
 
-The goal is to make serious Saturn development feel like working with a coherent game-development platform while preserving explicit control over the machine.
+A native foundation for building Sega Saturn games — from direct VDP1/VDP2 work to 3D scenes, animation, physics, audio, asset streaming, and parallel SH-2 execution.
 
-> **Current direction:** reusable high-level APIs on top of small hardware-specific HALs, deterministic fixed-memory runtime systems, host-side asset baking, and Saturn-specific optimizations rather than hiding the console behind a desktop-style abstraction.
+**Bare metal · No SGL dependency · No libyaul dependency · No mandatory game engine**
 
+[Get started](#get-started) · [Explore the SDK](#what-you-can-build) · [Use in your game](#use-libsaturn-in-your-own-game) · [Examples](#examples) · [Documentation](#documentation)
 
-## A Different Foundation
-
-Many Saturn development stacks build their abstractions on top of Sega's SGL. LibSaturn takes a different route: its high-level systems are backed by its own runtime and hardware abstraction layers.
-
-<table>
-<tr>
-<th align="center">SGL-based stack</th>
-<th align="center">LibSaturn</th>
-</tr>
-<tr>
-<td valign="top">
-
-<pre>
-+-----------------------+
-|       Game Code       |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-| Framework / Library   |
-| built around SGL      |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-|          SGL          |
-| Sega Game Library     |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-| Sega Saturn Hardware  |
-+-----------------------+
-</pre>
-
-The framework inherits SGL as a major runtime and rendering foundation.
-
-</td>
-<td valign="top">
-
-<pre>
-+-----------------------+
-|       Game Code       |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-|   LibSaturn High-     |
-|     Level APIs        |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-| LibSaturn Subsystems  |
-| scene / physics /     |
-| assets / audio / ...  |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-|    LibSaturn HAL      |
-+-----------+-----------+
-            |
-            v
-+-----------------------+
-| Sega Saturn Hardware  |
-+-----------------------+
-</pre>
-
-LibSaturn owns the stack down to its hardware-facing layers, while still exposing reusable game-oriented APIs.
-
-</td>
-</tr>
-</table>
-
-This distinction is architectural, not an argument for forcing applications to program the Saturn at register level. LibSaturn's high-level scene, physics, asset, audio, storage and parallel APIs exist specifically so game code can stay above the hardware while the library remains free to exploit Saturn-specific behavior underneath.
-
-## Highlights
-
-- **Bare-metal Saturn runtime** — startup, linker/runtime support, frame lifecycle, VBlank timing, ELF -> BIN -> ISO build flow.
-- **VDP1 2D rendering** — sprites, scaled/distorted sprites, polygons, polylines, lines, rectangles, indexed textures, palettes, Gouraud shading and color calculation.
-- **High-level 3D stack** — fixed-point math, meshes, models, cameras, transforms, scene submission, global painter ordering, materials, visibility helpers and VDP1 command generation.
-- **3D asset pipeline** — OBJ/MTL/image and animated GLB processing with Saturn-aware texture baking, simplification, palette generation and pose baking.
-- **3D animation** — runtime skeletons, clips, crossfades, root motion, multi-anchor CPU skinning and dual SH-2 jobs, alongside compact baked pose streams.
-- **Scene/runtime helpers** — transform hierarchies, orbit/follow cameras, reusable surfaces, view caches, sprite animation, HUD and resource planning.
-- **3D physics** — collision queries, spatial acceleration, world stepping, moving/tilting kinematic geometry, rolling-body support and continuous-collision paths.
-- **2D physics** — deterministic fixed-step bodies, tile collision, sweeps, contacts, raycasts and uniform-grid broad phase.
-- **VDP2 environments** — NBG0, RBG0, rotation/Mode-7-style ground, panoramic/infinite environments and color-calculation integration.
-- **Voxel terrain** — reusable Saturn-oriented voxel terrain support.
-- **Audio** — SCSP PCM S8/S16 playback, voices, looping, volume/pan/pitch, music streams and bounded streaming support.
-- **CD and filesystems** — CD Block sector I/O, ISO9660/CDFS, logical file APIs and storage-neutral read paths.
-- **Asset system** — logical asset handles, embedded and non-resident assets, typed loaders, bounded cache and cooperative prefetch.
-- **Save data** — internal Backup RAM through the Saturn Boot ROM BUP services, including status, listing, read/write, verify, delete and format.
-- **RAM expansion cartridges** — 1 MiB / 4 MiB detection and bounded allocation/cache support.
-- **Dual SH-2 support** — low-level Master/Slave infrastructure plus a high-level bounded parallel executor with safe ownership and fallback semantics.
-- **Host tooling and validation** — asset converters, model importers, manifest generation, host tests and automated modified-Ymir runtime probes.
-
-## Why LibSaturn?
-
-The Sega Saturn is powerful, but its architecture asks the programmer to coordinate several specialized processors and memory domains:
-
-```text
-                         +------------------+
-                         |     Game Code    |
-                         +---------+--------+
-                                   |
-                    +--------------v--------------+
-                    |       LibSaturn APIs        |
-                    | scene / physics / assets /  |
-                    | audio / input / storage ... |
-                    +--------------+--------------+
-                                   |
-             +---------------------+---------------------+
-             |                     |                     |
-      +------v------+       +------v------+       +------v------+
-      | Master SH-2 |<----->| Slave SH-2  |       |     SCU     |
-      +------+------+       +-------------+       +------+------+
-             |                                           |
-      +------v-------------------------------------------v------+
-      |        VDP1 / VDP2 / SCSP / SMPC / CD / A-Bus         |
-      +---------------------------------------------------------+
-```
-
-LibSaturn's approach is to expose reusable game-facing systems without pretending the hardware is something it is not. VDP1 remains a command-based quad renderer. VDP2 remains a powerful background processor. Shared SH-2 work has explicit ownership. Runtime systems favor caller-owned or bounded storage. Expensive content transformation is pushed to host tools when that produces a better Saturn runtime.
-
-## Public API
-
-Applications can include the umbrella header:
-
-```c
-#include <saturn/saturn.h>
-```
-
-or include only the subsystem headers they use.
-
-The public API currently covers, among other areas:
-
-| Area | APIs / capabilities |
-|---|---|
-| Core | app lifecycle, memory, time, video, formatting |
-| 2D | geometry, surfaces, textures, rendering, sprite animation |
-| 3D | math, meshes, models, animation, surfaces, renderer, scenes |
-| Scene systems | transforms, cameras, material pools, face queues, view cache |
-| VDP1 | sprites, primitives, textures, palettes, Gouraud, color calculation |
-| VDP2 | backgrounds, RBG0 ground, environment helpers, color calculation |
-| Physics | 2D/3D collision, spatial structures, bodies, physics world |
-| Content | assets, resource plans, fonts, grids, HUD |
-| Audio | PCM voices and streamed music |
-| Storage | CD Block, CDFS, files, Backup RAM, RAM cart |
-| Multiprocessing | low-level Dual SH-2 and high-level parallel tasks |
-
-The public C ABI is intentionally separated from the internal C++ implementation so game code can remain small and predictable.
-
-## 3D Rendering
-
-LibSaturn provides a game-facing 3D layer above VDP1 rather than requiring every project to rebuild projection, sorting, material handling and command generation.
-
-A typical application submits scene objects and lets the library prepare and globally order their faces before VDP1 submission. This matters on the Saturn because VDP1 has **no depth buffer**: ordering is part of the renderer, not an optional convenience.
-
-The stack includes:
-
-- fixed-point vectors, matrices and transforms;
-- camera helpers;
-- mesh/model abstractions;
-- textured and colored faces;
-- scene instances;
-- material pooling;
-- scene-wide painter ordering;
-- clipping/culling helpers;
-- Gouraud data;
-- distance fading through Saturn color calculation;
-- transform hierarchies;
-- reusable geometry/surface helpers;
-- animation integration;
-- optional parallel geometry preparation.
-
-## Saturn-Aware Asset Pipeline
-
-Desktop-style UV meshes cannot be sent directly to VDP1. VDP1 distorted sprites are defined by four screen-space corners and do not provide arbitrary per-vertex UV coordinates.
-
-LibSaturn therefore moves expensive adaptation offline:
-
-```text
-OBJ / MTL / PNG                skinned GLB
-       |                           |
-       +-----------+---------------+
-                   |
-                   v
-          tools/import_model.py
-                   |
-        bake / simplify / quantize
-                   |
-                   v
-       generated Saturn C/H asset
-                   |
-                   v
-      model + scene + VDP1 runtime
-```
-
-The importer can bake source faces into VDP1-compatible rectangular textures, deduplicate textures, generate indexed palettes, enforce Saturn texture limits and produce runtime-ready model data.
-
-Animated GLB assets can use compact baked vertex poses or the selectable skeletal runtime export. The latter samples joint clips and deforms caller-owned vertices on Saturn, with one to three joint-local influences. Original humanoid, two-fighter arena and stress examples exercise the same scene and asset systems. See [skeletal animation](docs/SKELETAL_ANIMATION_3D.md) and [fighting-game readiness](docs/FIGHTING_GAME_READINESS.md) for APIs, measurements and remaining hardware acceptance.
-
-The [Killer Clown Octagon fight](examples/killer_clown_demo/README.md) uses two
-66-joint clowns, CPU/two-player combat, an imported MMA cage, a seamless RGB555
-crowd layer, a separate RBG0 mat, menus, dynamic fence coverage and RGB-CLUT
-LUT4 Gouraud spotlights. The [LUT4 Gouraud comparison](examples/lut4_gouraud/README.md)
-isolates textured color calculation with shared pixels and CLUTs.
-The [colored light cubes](examples/colored_light_cubes/README.md) isolate
-moving surface lighting and a smooth VDP2 additive footprint with two cubes.
-Use `tools/inspect_glb.py INPUT.glb --output REPORT.json` to inspect
-source geometry, joints, clip durations, materials and embedded-image metadata.
-
-## Physics and Collision
-
-The physics stack is deterministic and designed around Saturn constraints.
-
-### 2D
-
-- AABB and circle tests;
-- contacts and raycasts;
-- sweeps;
-- fixed-step body movement;
-- tile collision;
-- caller-owned uniform-grid broad phase.
-
-### 3D
-
-- spheres, AABBs, planes, quads and mesh queries;
-- spatial acceleration;
-- body/world stepping;
-- moving kinematic geometry;
-- translation-relative continuous collision;
-- bounded tilting kinematic meshes;
-- pose-relative contacts;
-- scene-renderer integration for physical transforms.
-
-Core math uses 16.16 fixed point, with hardware-aware integer paths where appropriate.
-
-## Dual SH-2 and Parallel Runtime
-
-LibSaturn exposes both levels of Saturn multiprocessing.
-
-### Low-level Dual SH-2 HAL
-
-`saturn/dual_sh2.h` provides explicit Slave lifecycle, signaling, mailbox and shared-state infrastructure for code that needs direct control.
-
-### High-level executor
-
-`saturn/parallel.h` provides a bounded Saturn-specific task runtime:
-
-- fixed caller-provided queue;
-- generation-safe handles;
-- Master, Slave and AUTO policies;
-- cancellation and timeout semantics;
-- explicit buffer ownership;
-- cache-safe shared-memory contracts;
-- Master fallback;
-- worker failure handling.
-
-It is intentionally **not** a desktop thread pool. Hardware ownership remains explicit, and tasks that touch VDP/SCU/SMPC/CD/SCSP registers stay Master-owned.
-
-Current integrations include animation decode and 3D geometry preparation. AUTO policy is driven conservatively by measured behavior rather than assumed multiprocessor speedups.
-
-See [`docs/PARALLEL_RUNTIME_ARCHITECTURE.md`](docs/PARALLEL_RUNTIME_ARCHITECTURE.md) and [`docs/PARALLEL_RUNTIME_BENCHMARKS.md`](docs/PARALLEL_RUNTIME_BENCHMARKS.md).
-
-## VDP2 and Saturn-Specific Environments
-
-LibSaturn is not limited to drawing everything as VDP1 polygons.
-
-The VDP2 stack includes NBG0 and RBG0 support, scrolling, priorities, tiled backgrounds, rotation parameters, coefficient control and reusable RBG0 ground/environment helpers. Examples use these capabilities for panoramic skies and effectively infinite Mode-7-style ground.
-
-This allows game scenes to reserve VDP1 command budget for objects while VDP2 handles large backgrounds and ground planes in parallel with the sprite processor.
-
-## Audio
-
-The SCSP runtime supports practical PCM-oriented game audio:
-
-- signed 8-bit and 16-bit PCM;
-- multiple voices;
-- looping;
-- volume;
-- pan;
-- pitch;
-- voice statistics/stealing;
-- resident sounds;
-- bounded music streams;
-- refill from storage-neutral file backends.
-
-See [`docs/SCSP_AUDIO_STREAMING_GUIDE.md`](docs/SCSP_AUDIO_STREAMING_GUIDE.md).
-
-## CD, Files and Asset Streaming
-
-LibSaturn has a layered storage path instead of assuming all content is compiled into the executable:
-
-```text
-CD Block
-   |
-   v
-ISO9660 / CDFS
-   |
-   v
-logical file API
-   |
-   v
-asset handles
-   |
-   +--> bounded cache
-   +--> cooperative prefetch
-   +--> streamed music
-   +--> typed resident loaders
-```
-
-The CD Block path provides synchronous 2048-byte sector reads and a storage-neutral device adapter. CDFS resolves ISO9660 content, while the logical file/asset layers allow higher-level code to avoid depending on the physical source of the bytes.
-
-## Save Data and RAM Expansion
-
-### Internal Backup RAM
-
-The save API wraps the Saturn Boot ROM BUP services and exposes:
-
-- initialization/status;
-- free-space inspection;
-- directory listing;
-- read;
-- write/overwrite;
-- verify;
-- delete;
-- explicit format.
-
-Initialization never silently formats save memory.
-
-### 1 MiB / 4 MiB RAM cartridges
-
-The RAM-cart layer supports expansion-cartridge detection, two-bank arenas, bounded logical buffers and optional use as asset-cache/VFS backing.
-
-See [`docs/RAM_EXPANSION_CARTRIDGE.md`](docs/RAM_EXPANSION_CARTRIDGE.md).
-
-## Examples
-
-The repository contains focused examples and larger integration demos covering areas such as:
-
-- basic 2D rendering and input;
-- textured sprites and fonts;
-- VDP1/VDP2 composition;
-- textured 3D models;
-- animated 3D models;
-- physics and collision;
-- RBG0 infinite environments;
-- CD Block and streamed audio;
-- Dual SH-2 communication;
-- the high-level parallel runtime;
-- larger scene/gameplay experiments used to drive reusable API design.
-
-Build an example with:
-
-```bash
-make EXAMPLE=<example_name>
-```
-
-On Windows, the helper can launch examples through the configured emulator:
-
-```powershell
-.\run-example.ps1 <example_name> -Emulator mednafen -BiosProfile auto
-```
-
-Mednafen starts with a 4 MiB expansion RAM cartridge (`-ss.cart extram4`).
-Choose another supported setting with `-MednafenCart`, for example
-`-MednafenCart auto` to let Mednafen select a cartridge per game.
-
-## Using LibSaturn in your game
-
-LibSaturn is installable: a game links it as a package instead of copying its
-sources. The three entry points below expose the same headers, the same
-`LibSaturn::Saturn` target, the same linker script and the same startup code.
-
-### Installed CMake package
-
-```cmake
-find_package(LibSaturn CONFIG REQUIRED)
-
-add_executable(my_game src/main.c)
-target_link_libraries(my_game PRIVATE LibSaturn::Saturn)
-libsaturn_configure_executable(my_game)
-```
-
-```sh
-cmake -S . -B build -G Ninja \
-      -DCMAKE_TOOLCHAIN_FILE=<prefix>/share/libsaturn/toolchains/sh2eb-elf.cmake \
-      -DCMAKE_PREFIX_PATH=<prefix>
-```
-
-Install a prefix from a checkout with `cmake --preset saturn-release`,
-`cmake --build --preset saturn-release` and
-`cmake --install build/saturn-release --prefix <prefix>`, or unpack a release
-archive.
-
-### Conan 2
-
-```text
-libsaturn/<version>
-```
-
-```sh
-conan config install packaging/conan/config
-conan install . --profile:host=saturn-sh2eb --profile:build=default --build=missing
-```
-
-The recipe republishes the installed CMake package unchanged, so the CMake code
-above does not change.
-
-### A real consumer
-
-[ikemen-saturn](https://github.com/celsowm/ikemen-saturn) is a complete game
-project that builds against an installed LibSaturn package only: the
-`saturn` preset links `LibSaturn::Saturn` and builds a bootable disc with
-`libsaturn_add_disc()`, with no sibling checkout and no private header. It is
-the reference for what an external project needs.
-
-[high-speed-platformer-saturn](https://github.com/celsowm/high-speed-platformer-saturn) is the
-acceptance example of the generic 2D runtime (terrain, character, physics, paths, camera, stage map,
-entity streaming, sprite clips). It also compiles its game logic on the host against
-`LibSaturn::Sim2D` and builds its stage with the shipped `stage2d_tool.py`.
-
-### Source checkout
-
-Keep using this repository directly for the examples, the asset/model/disc
-tooling and the harness (see below). vcpkg is not supported yet; see
-[docs/VCPKG_FEASIBILITY.md](docs/VCPKG_FEASIBILITY.md).
-
-Full details, options, install layout and the release process:
-[docs/PACKAGING.md](docs/PACKAGING.md).
-
-## Quick Start on Windows
-
-Windows 10/11 is supported through MSYS2, with PowerShell wrappers so the normal workflow does not require manually living in a Bash shell.
-
-Prepare the development environment:
-
-```powershell
-.\scripts\bootstrap-dev.ps1
-```
-
-or bootstrap host dependencies and the SH-2 toolchain:
-
-```powershell
-.\scripts\bootstrap-msys2.ps1 full
-```
-
-Then build:
-
-```bash
-make
-```
-
-Typical outputs include:
-
-```text
-build/mvp.elf
-build/mvp.app.bin   # SH-2 executable for the harness
-build/mvp.iso       # ISO9660 intermediate (2048-byte sectors)
-build/mvp.bin       # distributable raw MODE1/2352 disc track
-build/mvp.cue
-build/libsaturn.a
-```
-
-The SH-2 toolchain is based on `sh2eb-elf-gcc`.
-
-For a Saroo, other ODE, or a burned disc, copy the matching `.bin` and `.cue`
-files together and open the CUE. The `.iso` remains available for filesystem
-inspection and the automated harness, but is not the distribution image.
-
-## Validation
-
-Host tests:
-
-```bash
-make test
-```
-
-The native suite runs on macOS with Clang as well as GCC hosts. Tests that need
-an unavailable host facility report `SKIP` and exit 77; the Makefile lists these
-separately from passes. In particular, the parallel-completion ABI test must
-map fake WRAM at the Saturn's 32-bit address. Native macOS reserves that address
-range, so run that test on Linux/Windows; its assertions remain enabled there.
-
-Package gates (public headers, installed-package consumer, Conan):
-
-```powershell
-.\scripts\test-package.ps1            # add -Conan for the Conan path
-```
-
-The repository also uses a modified Ymir harness for automated Saturn runtime validation:
-
-```powershell
-.\harness\run-harness.ps1 runtime_2d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
-.\harness\run-harness.ps1 runtime_3d -Bios .\bios\saturn_bios_us.bin -Frames 120 -BootFrames 90
-.\harness\run-harness.ps1 cd_streaming_jukebox -Bios .\bios\saturn_bios_us.bin -Frames 300 -BootFrames 90
-```
-
-The harness boots the configured Saturn BIOS, injects the built program and probes the running runtime. Direct injection is a runtime validation path and should not be confused with proving a real optical-disc boot.
-
-## Project Structure
-
-```text
-include/saturn/   Public C API (an installed compatibility promise)
-cmake/            Package config, source manifest, SH-2 toolchain file
-packaging/        Conan config/profile and the experimental vcpkg overlay
-src/core/         Runtime, startup and memory
-src/graphics/     2D, 3D, VDP1 and VDP2 systems
-src/physics/      Collision, spatial structures and physics
-src/audio/        Playback and streaming
-src/input/        Input runtime
-src/storage/      CD, files, saves and cartridge services
-src/resources/    Asset/resource management
-src/hal/          Hardware-facing implementations
-examples/         Focused examples and integration demos
-tools/            Asset/model/build-time utilities
-scripts/          Bootstrap, build and automation helpers
-harness/          Automated Saturn runtime validation
-docs/             Architecture, hardware notes and engineering plans
-```
-
-The intended layering is:
-
-```text
-game / compatibility layer
-          |
-          v
-high-level LibSaturn API
-          |
-          v
-runtime subsystem
-          |
-          v
-hardware abstraction layer
-          |
-          v
-Saturn hardware / BIOS services
-```
-
-Hardware register access belongs in the HAL. Reusable algorithms belong in their owning subsystem. Game-facing code should not need to reproduce hardware protocol or renderer plumbing that the library can own once.
-
-## Current Scope
-
-LibSaturn already covers a meaningful portion of the systems required by small and medium-sized Saturn games, but it does **not** claim complete Saturn hardware coverage.
-
-Areas that remain incomplete or future-facing include broader Saturn peripheral support, additional VDP2 layers/raster effects, SCU DMA/DSP, richer SCSP DSP/synthesis, a resident 68000 audio service, generic A-Bus devices, external Backup Memory cartridges, NetLink and MPEG hardware.
-
-For a detailed subsystem-by-subsystem audit, see [`docs/LIBSATURN_CURRENT_COVERAGE.md`](docs/LIBSATURN_CURRENT_COVERAGE.md).
-
-## Design Principles
-
-LibSaturn favors:
-
-- **Saturn-native design** over pretending the console is a PC;
-- **high-level reusable APIs** over example-specific hardware code;
-- **bounded and caller-owned memory** over hidden allocation;
-- **deterministic behavior** over opaque runtime machinery;
-- **offline preprocessing** when it saves Saturn CPU/RAM/VRAM;
-- **explicit hardware ownership** in multiprocessor code;
-- **one canonical implementation path** instead of duplicated example logic;
-- **measurement and validation** instead of theoretical performance claims.
-
-## Documentation
-
-Useful starting points:
-
-- [Packaging and installed-package usage](docs/PACKAGING.md)
-- [Standalone integer arithmetic and floor shifts](docs/INTEGER_MATH.md)
-- [Exact SH-2 matrix / MAC.W experiment](docs/MATRIX_MAC_BENCH.md)
-- [Caller-owned nested profiling](docs/NESTED_PROFILING.md)
-- [Current hardware/runtime coverage](docs/LIBSATURN_CURRENT_COVERAGE.md)
-- [Parallel runtime architecture](docs/PARALLEL_RUNTIME_ARCHITECTURE.md)
-- [Parallel runtime benchmarks](docs/PARALLEL_RUNTIME_BENCHMARKS.md)
-- [Two-cube renderer pipeline benchmark](docs/CUBE_PIPELINE_BENCH.md)
-- [Shared renderer refactor and Dino measurements](docs/SHARED_RENDERER_PERFORMANCE.md)
-- [3D physics world](docs/PHYSICS3_WORLD.md)
-- [Transform hierarchy](docs/TRANSFORM3D_HIERARCHY.md)
-- [RAM expansion cartridge](docs/RAM_EXPANSION_CARTRIDGE.md)
-- [SCSP audio streaming](docs/SCSP_AUDIO_STREAMING_GUIDE.md)
-- [CD Block notes](docs/sega_saturn_hardware/hard/cdblock/index.md) (registers, timing rules, what is measured vs documented)
-- [Transparency and alpha](docs/TRANSPARENCY_ALPHA.md)
-- [Shmup / bullet-hell support](docs/SHMUP_BULLET_HELL_SUPPORT.md)
-
-The repository also includes Saturn hardware reference material and engineering plans for subsystems that are still evolving.
+</div>
 
 ---
 
-LibSaturn is an active exploration of how far a clean, modern, reusable game-development stack can push the Sega Saturn without giving up the character of the hardware.
+## Built for the Saturn, not around it
 
-## Thanks
+The Sega Saturn is not a conventional single-CPU, single-GPU machine. It combines two SH-2 processors with specialized graphics, sound, I/O, and storage hardware. Getting the most out of it means understanding those capabilities rather than abstracting them away.
 
-LibSaturn learns from the work of the Saturn development community. The
-projects below are reference checkouts when present under the ignored
-`.external/` directory; they are not linked into the LibSaturn runtime.
-Ymir is used by the separate integration harness.
+**LibSaturn is a bare-metal SDK with a public C API and a C++ implementation.** It supplies the runtime, hardware-facing interfaces, reusable gameplay systems, and build tools needed to create native Saturn software. It does **not** run on top of Sega Game Library (SGL) or libyaul.
 
-Special thanks to the SegaXtreme Discord community for testing LibSaturn and
-sharing so much knowledge about Sega Saturn development.
+**High-level convenience and low-level control are choices, not consecutive layers your game must pass through.** Use a scene API for a 3D world, issue VDP1 primitives directly, configure VDP2 effects, manage the Slave SH-2, or combine those approaches in a single project. Each API has its own ownership and hardware constraints; the SDK does not pretend they disappear.
 
-### External libraries and projects
+| Choose an approach | Work with | Examples of public interfaces |
+| --- | --- | --- |
+| **Game-oriented** | Scenes, characters, physics, cameras, sprites, asset handles | `saturn/scene.h`, `saturn/character2.h`, `saturn/physics3_world.h` |
+| **Subsystem-oriented** | VDP1 commands, VDP2 layers, audio, CD, input, parallel jobs | `saturn/vdp1.h`, `saturn/vdp2_layers.h`, `saturn/audio.h`, `saturn/parallel.h` |
+| **Hardware-facing** | SH-2 state, SCU DMA/DSP, interrupts, peripheral and storage services | `saturn/sh2.h`, `saturn/dma.h`, `saturn/scu_dsp.h`, `saturn/irq.h`, `saturn/cd_block.h` |
 
-- [Jo Engine](https://github.com/Johannes-Fetz/JoEngine) — Johannes Fetz;
-  MIT. Saturn engine and examples consulted for comparison.
-- [libyaul](https://github.com/yaul-org/libyaul) — Israel Jacquez and
-  contributors; MIT. Saturn SDK reference; LibSaturn accesses the hardware
-  directly and does not link libyaul.
-- [SaturnMathPP](https://github.com/robertoduarte/SaturnMathPP) — Roberto
-  Duarte; MIT. Saturn math library reference.
-- [SaturnRingLib](https://github.com/ReyeMe/SaturnRingLib) — ReyeMe and
-  contributors. SGL wrapper reviewed as a point of comparison; see the
-  upstream repository for its license and contributor credits.
-- [SGDK](https://github.com/Stephane-D/SGDK) — Stephane Dallongeville;
-  MIT. Mega Drive development kit consulted for 68000 audio-driver ideas.
+There is no separate desktop-style rendering engine between your application and the console. The library's rendering and runtime code is specifically implemented for Saturn hardware, with bounded resources, explicit ownership, and host-side preprocessing where it saves work on the machine.
 
-### Emulators
+## What you can build
 
-- [Ymir](https://github.com/StrikerX3/Ymir) — StrikerX3 and contributors;
-  GPL-3.0. Its pinned emulator core powers the automated integration
-  harness. The harness has its own GPL-3.0 license boundary; see
-  [`harness/README.md`](harness/README.md).
-- [Mednafen](https://mednafen.github.io/) — used through the optional launcher
-  in `emulators/mednafen/`.
-- [Kronos](https://github.com/FCare/yabause) — François Caron and contributors;
-  GPL-2.0-or-later. Optional manual testing launcher in `emulators/kronos/`.
-- [Yaba Sanshiro](https://github.com/devmiyax/yabause) — DevMiyax and
-  contributors; GPL-2.0. Optional manual testing launcher in
-  `emulators/YabaSanshiro/`.
+LibSaturn is more than a set of register definitions. Its subsystems are designed to work together in actual game projects.
 
-The emulator launchers and setup notes are in [`emulators/README.md`](emulators/README.md).
+### Graphics, rendering, and presentation
+
+- **VDP1 2D:** textured sprites, scaling and distortion, polygons, polylines, lines, indexed textures, LUT4, palettes, Gouraud shading, color calculation, sprite atlases, and batched command submission.
+- **3D rendering:** fixed-point math, models, cameras, transforms, scene submission, materials, clipping, culling, lighting helpers, and global painter ordering for VDP1's no-Z-buffer architecture.
+- **Animation and characters:** skeletal clips, interpolation, crossfades, root motion, attachments, CPU skinning, character assets, and dual SH-2-assisted workloads.
+- **VDP2 composition:** normal scroll layers (NBG0–NBG3), rotation backgrounds (RBG0/RBG1), VRAM cycle-aware configuration, windows, mosaic, line scrolling, per-line effects, color calculation, priority, and sprite-shadow facilities.
+- **Saturn-specific environments:** rotation-ground helpers, panoramic backgrounds, TATE-oriented rendering, and experimental/targeted voxel-terrain examples.
+
+### Gameplay systems
+
+- **2D gameplay:** deterministic collision and physics, tile terrain, character movement, paths, camera following, stage maps, entity streaming, and sprite clips.
+- **3D gameplay:** collision queries, spatial acceleration, physics-world stepping, moving/tilting geometry, and scene-integrated transforms.
+- **Input:** digital pads, analog/3D pads, multitap, mouse, keyboard, device events, and asynchronous polling through SMPC-backed services.
+- **Resource control:** caller-owned storage, bounded queues and caches, logical asset handles, and predictable runtime budgets.
+
+### Audio, storage, and system hardware
+
+- **SCSP audio:** PCM voices, playback controls, streamed music, and DSP-based echo/reverb.
+- **68000 sound driver:** a resident program for scheduled, timestamped SCSP register writes, independent of the SH-2 game loop's frame length.
+- **Disc and file access:** CD Block, ISO9660/CDFS, logical file APIs, cooperative prefetch, and a bounded disc scheduler coordinating data and music streams.
+- **Save and expansion:** internal Backup RAM via Boot ROM services, save inspection and verification, and 1 MiB / 4 MiB RAM-cartridge support.
+- **Parallelism and coprocessors:** low-level Master/Slave SH-2 APIs, a bounded task executor with explicit cache/ownership rules, SCU DMA, and SCU DSP access and transform support.
+
+### Tools that belong in the workflow
+
+Import and preprocess content **before** it reaches the console. LibSaturn includes host tools for OBJ/MTL and animated GLB assets, VDP1-compatible textures and palettes, skeletal/pose data, sprite atlases, stage data, disc images, and runtime validation.
+
+The library is also installable: a game can consume its C headers, startup objects, linker configuration, and runtime through a **CMake package**, without vendoring LibSaturn's implementation. Conan 2 is supported as a distribution route for that package.
+
+> **Coverage is specific, not universal.** These are implemented facilities, not a claim that every Saturn mode or peripheral is supported. Some subsystems, workloads, and devices remain partial or experimental. See the [coverage audit](docs/LIBSATURN_CURRENT_COVERAGE.md) and [hardware acceptance checklist](docs/HARDWARE_ACCEPTANCE_CHECKLIST.md).
+
+## A first Saturn program
+
+Here is a small native C program using the frame helpers and a direct VDP1 rectangle draw. It is intentionally simple: no engine setup, scene graph, or external graphics library.
+
+```c
+#include <saturn/app.h>
+#include <saturn/color.h>
+#include <saturn/vdp1.h>
+
+int main(void) {
+    if (sat_app_init_default() != SAT_OK) return 1;
+
+    for (;;) {
+        sat_pad_state_t pad = {0};
+
+        if (sat_app_frame_begin(SAT_COLOR_BLUE, SAT_COLOR_BLACK, &pad) != SAT_OK)
+            return 1;
+
+        if (sat_draw_rect_screen(116, 68, 88, 88, SAT_COLOR_RED) != SAT_OK)
+            return 1;
+
+        if (sat_app_frame_end() != SAT_OK) return 1;
+        if (pad.pressed & SAT_PAD_START) break;
+    }
+
+    return 0;
+}
+```
+
+The public API is C-compatible. Internally, the library implements Saturn-specific services in C++ with a freestanding SH-2 toolchain; game projects need not use C++ or adopt its internal architecture.
+
+For a complete example with assets and build configuration, start with [`examples/hello_world`](examples/hello_world). To explore the canonical high-level 3D frame contract, see [`saturn/scene.h`](include/saturn/scene.h).
+
+## Get started
+
+### Build an example from this repository
+
+You need the `sh2eb-elf` cross-toolchain and the host dependencies used by the build and asset tools. The Makefile builds the library and the selected example:
+
+```sh
+git clone https://github.com/celsowm/libsaturn.git
+cd libsaturn
+make EXAMPLE=hello_world
+```
+
+The build produces a Saturn ELF, executable image, and disc artifacts (including BIN/CUE) under `build/`. Open the matching `.cue` in your emulator or use the repository's launcher. The `.iso` is an intermediate image; **the distributed disc track is the `.bin` plus `.cue` pair**.
+
+### Windows setup
+
+On Windows 10/11, the PowerShell bootstrap configures the MSYS2-based development environment. It can also prepare the optional emulator tools:
+
+```powershell
+.\scripts\bootstrap-dev.ps1
+.\build-example.ps1 -Example hello_world
+.\run-example.ps1 hello_world -Emulator mednafen -BiosProfile auto
+```
+
+To install only the build environment, without the emulator download stage:
+
+```powershell
+.\scripts\bootstrap-dev.ps1 -SkipEmulators
+```
+
+Linux and macOS can run the native host tests; building Saturn binaries on those hosts requires an installed, working SH-2 cross-toolchain and the corresponding host build tools. The Windows bootstrap is not a universal installer for other platforms.
+
+### Test the project
+
+```sh
+make test
+```
+
+The host suite tests portable runtime algorithms and tooling. Hardware-facing acceptance is handled separately through emulator harnesses; see [Validation](#validation-and-hardware-status).
+
+## Use LibSaturn in your own game
+
+LibSaturn is designed to be **linked as an installed SDK**, not copied into every game's source tree. A standalone game can consume the provided CMake target:
+
+```cmake
+cmake_minimum_required(VERSION 3.24)
+project(my_saturn_game LANGUAGES C)
+
+find_package(LibSaturn 0.1 CONFIG REQUIRED)
+
+add_executable(my_saturn_game src/main.c)
+target_link_libraries(my_saturn_game PRIVATE LibSaturn::Saturn)
+libsaturn_configure_executable(my_saturn_game)
+libsaturn_add_disc(my_saturn_game)
+```
+
+Build and install a local SDK prefix from a LibSaturn checkout:
+
+```sh
+cmake --preset saturn-release
+cmake --build --preset saturn-release
+cmake --install build/saturn-release --prefix /path/to/libsaturn-sdk
+```
+
+Then configure your game with the SH-2 toolchain and installation prefix:
+
+```sh
+cmake -S . -B build -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=/path/to/libsaturn-sdk/share/libsaturn/toolchains/sh2eb-elf.cmake \
+  -DCMAKE_PREFIX_PATH=/path/to/libsaturn-sdk
+cmake --build build --target my_saturn_game_disc
+```
+
+**Conan 2** is also available for managing the installed package and SH-2 profile. See [Packaging and distribution](docs/PACKAGING.md) for the exact install layout, variants, host-side `LibSaturn::Sim2D` target, Conan configuration, and disc-building options.
+
+### Independent game projects
+
+- [ikemen-saturn](https://github.com/celsowm/ikemen-saturn) — an external consumer of the installed `LibSaturn::Saturn` package, with a disc build managed through CMake.
+- [high-speed-platformer-saturn](https://github.com/celsowm/high-speed-platformer-saturn) — an acceptance project for the reusable 2D runtime, including host-simulated gameplay through `LibSaturn::Sim2D`.
+
+These are separate games/projects, not required components of the SDK.
+
+## Examples
+
+The repository includes focused hardware examples, system tests, and larger demonstrations. Good entry points include:
+
+| Example | Explore |
+| --- | --- |
+| [`hello_world`](examples/hello_world) | Basic app lifecycle and text rendering |
+| [`runtime_2d`](examples/runtime_2d) | Reusable 2D frame/runtime systems |
+| [`runtime_3d`](examples/runtime_3d) | Scene-based 3D rendering |
+| [`dino_demo`](examples/dino_demo) | Imported 3D model and rendering pipeline |
+| [`skeletal_animation_3d`](examples/skeletal_animation_3d) | Skeletons, clips, and skinning |
+| [`killer_clown_demo`](examples/killer_clown_demo) | Two-character 3D gameplay and multiple subsystems in concert |
+| [`bullet_hell_stress`](examples/bullet_hell_stress) | Sprite batching, TATE, fixed-step simulation, and disc streaming |
+| [`vdp2_effects_demo`](examples/vdp2_effects_demo) | VDP2 effects and composition |
+| [`parallel_runtime`](examples/parallel_runtime) | Master/Slave execution and bounded jobs |
+| [`cd_streaming_jukebox`](examples/cd_streaming_jukebox) | Audio streamed from disc |
+| [`scsp_dsp_demo`](examples/scsp_dsp_demo) | SCSP DSP effects |
+| [`scu_dsp_demo`](examples/scu_dsp_demo) | SCU DSP operation |
+
+Build a different example by changing the Makefile selection, for example `make EXAMPLE=bullet_hell_stress`. See the [`examples/`](examples/) directory for the complete collection and individual requirements.
+
+## Engineering for the actual machine
+
+LibSaturn's goal is to make sophisticated Saturn software easier to write **without inventing a fictional hardware model**:
+
+- **VDP1 has no Z-buffer.** Its rendering path deals explicitly with face ordering, clipping, command budgets, and texture constraints.
+- **VDP2 is a specialized compositor.** Its layers, VRAM fetch cycles, priorities, color operations, and rotation modes have real constraints; invalid configurations can be rejected rather than silently approximated.
+- **Two SH-2s do not mean arbitrary shared-memory threads.** Parallel jobs have explicit ownership, cache synchronization, bounded work, and failure/fallback behavior.
+- **The SCSP, SCU, CD Block, and SMPC are separate devices.** Their services are exposed with device-specific contracts instead of a generic desktop I/O facade.
+- **Memory and bandwidth are budgets.** Static or caller-provided buffers, predictable capacity, offline baking, and measured hot paths are core design decisions.
+
+A project can deliberately bypass higher-level helpers when a lower-level route fits its requirements. Conversely, using a high-level feature does not require each game to redo hardware startup, renderer sorting, CD scheduling, or asset adaptation.
+
+For deeper implementation details, see the [parallel runtime architecture](docs/PARALLEL_RUNTIME_ARCHITECTURE.md), [renderer pipeline study](docs/RENDERER_PIPELINE_STUDY.md), and [VDP2 subsystem coverage](docs/LIBSATURN_CURRENT_COVERAGE.md).
+
+## Validation and hardware status
+
+LibSaturn includes host tests, package-consumer gates, and a modified-Ymir integration harness to exercise Saturn programs and inspect runtime behavior. Selected cases are also evaluated with Mednafen. Build output, game logic, emulator behavior, and physical console acceptance are **different levels of evidence**.
+
+Several complex 3D workloads have measured performance limits; emulator submissions or frame counters must not be presented as universally achieved display frame rates. Physical Saturn acceptance remains incomplete for parts of the project. Performance reports document specific builds, scenes, and emulator setups.
+
+- [Coverage by hardware block and SDK area](docs/LIBSATURN_CURRENT_COVERAGE.md)
+- [Real-hardware acceptance checklist](docs/HARDWARE_ACCEPTANCE_CHECKLIST.md)
+- [Fighting-game readiness and measured limitations](docs/FIGHTING_GAME_READINESS.md)
+- [Parallel runtime benchmarks](docs/PARALLEL_RUNTIME_BENCHMARKS.md)
+- [Shmup/bullet-hell performance and limitations](docs/SHMUP_BULLET_HELL_SUPPORT.md)
+
+**Current version:** `0.1.0`. The SDK is under active development; public interfaces can evolve before a stable 1.0 release. Incomplete areas include selected advanced VDP2 modes, broader peripherals/expansion support, additional SCU/SCSP DSP programs, and unverified real-hardware behaviors. Refer to the coverage audit for the specific status of each feature.
+
+## Project layout
+
+| Directory | Purpose |
+| --- | --- |
+| [`include/saturn/`](include/saturn/) | Public C headers and SDK interfaces |
+| [`src/`](src/) | Runtime implementation, systems, and hardware-facing code |
+| [`examples/`](examples/) | Applications, hardware exercises, and integration demos |
+| [`tools/`](tools/) | Host-side conversion, baking, and build utilities |
+| [`cmake/`](cmake/) and [`packaging/`](packaging/) | Installed SDK, toolchain, and Conan distribution |
+| [`tests/`](tests/) | Host-side regression and package tests |
+| [`harness/`](harness/) | Emulator-driven Saturn runtime acceptance |
+| [`docs/`](docs/) | Architecture, subsystem guides, hardware notes, and engineering studies |
+
+## Documentation
+
+**Start here**
+
+- [Using and packaging LibSaturn](docs/PACKAGING.md)
+- [Public API ownership](docs/PUBLIC_API_OWNERSHIP.md)
+- [Current feature and hardware coverage](docs/LIBSATURN_CURRENT_COVERAGE.md)
+- [Hardware acceptance checklist](docs/HARDWARE_ACCEPTANCE_CHECKLIST.md)
+
+**Graphics and animation**
+
+- [Skeletal animation and character runtime](docs/SKELETAL_ANIMATION_3D.md)
+- [3D renderer and scene pipeline](docs/RENDERER_PIPELINE_STUDY.md)
+- [VDP1 transparency and alpha](docs/TRANSPARENCY_ALPHA.md)
+- [3D physics world](docs/PHYSICS3_WORLD.md)
+- [Voxel terrain](docs/VOXEL_TERRAIN_PLAN.md)
+
+**Systems and hardware**
+
+- [Parallel SH-2 runtime](docs/PARALLEL_RUNTIME_ARCHITECTURE.md)
+- [SCSP audio streaming](docs/SCSP_AUDIO_STREAMING_GUIDE.md)
+- [RAM expansion cartridges](docs/RAM_EXPANSION_CARTRIDGE.md)
+- [CD Block hardware notes](docs/sega_saturn_hardware/hard/cdblock/index.md)
+- [Saturn hardware reference material](docs/sega_saturn_hardware/)
+
+## Community and credits
+
+LibSaturn draws on Sega Saturn hardware documentation and the work of the homebrew development community. Thanks to the **SegaXtreme Discord community** for testing, feedback, and shared knowledge.
+
+Related projects consulted as references include [Jo Engine](https://github.com/Johannes-Fetz/JoEngine), [libyaul](https://github.com/yaul-org/libyaul), [SaturnMathPP](https://github.com/robertoduarte/SaturnMathPP), and [SaturnRingLib](https://github.com/ReyeMe/SaturnRingLib). They are **not** linked as dependencies of the LibSaturn runtime. [SGDK](https://github.com/Stephane-D/SGDK) has also been consulted for sound-driver design ideas.
+
+The separate integration harness uses a pinned, modified [Ymir](https://github.com/StrikerX3/Ymir) emulator core under its own GPL-3.0 license boundary. Optional testing launchers support [Mednafen](https://mednafen.github.io/), [Kronos](https://github.com/FCare/yabause), and [Yaba Sanshiro](https://github.com/devmiyax/yabause); see [emulator setup](emulators/README.md).
+
+LibSaturn itself is licensed under the **[MIT License](LICENSE)**. Third-party references, tools, and emulator components retain their own licenses.

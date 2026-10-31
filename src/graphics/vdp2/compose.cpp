@@ -204,6 +204,18 @@ extern "C" sat_result_t sat_vdp2_color_calc_set_add(uint8_t add) {
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_vdp2_extended_color_calc_set(uint8_t enabled) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (!hal::set_extended_color_calc(enabled != 0u)) return SAT_ERR_UNSUPPORTED;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_vdp2_hardware_blur_set(uint8_t screen, uint8_t enabled) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (!hal::set_hardware_blur(screen, enabled != 0u)) return SAT_ERR_UNSUPPORTED;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_vdp2_hires_sprite_color_calc_set(sat_vdp2_hires_sprite_cc_t mode,
                                                              uint8_t ratio) {
     SAT_TRY(saturn::core::require_initialized());

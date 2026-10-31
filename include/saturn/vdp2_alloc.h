@@ -71,13 +71,15 @@ uint32_t sat_vdp2_vram_largest_free(void);
  * VDP2 CRAM bank / colour-code allocator
  *
  * CRAM is 8 banks of 256 colour codes. Bank 0 is the default VDP1
- * palette and is not part of this allocator; the four bytes are a
- * bank-rotation ring over banks 1..7 (a hand count for a small demo).
+ * palette and is not part of this allocator. Banks 1..7 are tracked as
+ * bitmaps, so a freed range is genuinely reusable and a transaction can
+ * restore the exact allocation state. The first fit is still the lowest
+ * bank and lowest code that can host the request.
  *
  * The wrapper that examples call is `sat_vdp2_palette_reserve(count)`
  * returning the bank and starting code so the caller can pass it to
  * `sat_vdp2_palette_upload(palette, count, base)`. The matching free
- * returns the whole count back to the ring in one call.
+ * returns the whole count in one call.
  * ------------------------------------------------------------------ */
 typedef struct sat_vdp2_palette_range {
     uint16_t bank;     /* 1..7 */
@@ -93,11 +95,179 @@ sat_result_t sat_vdp2_palette_reserve(uint16_t count,
 
 /* Release a previously reserved range. The whole range becomes free
  * at once; partial frees are not supported because every caller
- * uploads the whole block in one sat_vdp2_palette_upload() call. */
+ * uploads the whole block in one sat_vdp2_palette_upload() call.
+ * SAT_ERR_NOT_FOUND if any code in the range was not allocated. */
 sat_result_t sat_vdp2_palette_free(sat_vdp2_palette_range_t range);
 
 /* Reset every bank back to "empty" so the next test call starts clean. */
 void sat_vdp2_palette_reset(void);
+
+/* Current allocation snapshot. Bank 0 is reserved for VDP1 and reports
+ * used=free=0; banks 1..7 report their code counts. A null pointer writes
+ * nothing. */
+typedef struct sat_vdp2_palette_usage {
+    uint16_t used_codes[8];
+    uint16_t free_codes[8];
+    uint32_t refusals;       /* invalid or capacity refusals since reset */
+} sat_vdp2_palette_usage_t;
+
+void sat_vdp2_palette_usage(sat_vdp2_palette_usage_t* out);
+
+/* ------------------------------------------------------------------
+ * Transactional resource plan
+ *
+ * The free list above owns the bytes; this plan is the semantic ledger on
+ * top of it: what each range is FOR, which banks it may live in, and an
+ * all-or-nothing reserve/commit/rollback transaction so a half-built
+ * scene configuration never survives a failure (VDP2 manual 3.3, 6.2 and
+ * 6.4, vendored under docs/sega_saturn_hardware/hard/vdp2/hon/, govern
+ * the bank rules; the pure policy is src/hal/vdp2/resource_plan_logic.hpp).
+ *
+ * One plan per process, like the free list. Examples call
+ * sat_vdp2_plan_begin(), reserve every table the scene needs, then
+ * sat_vdp2_plan_commit(); a failure at any point (misalignment, an
+ * overlap, a rotation-claimed bank, exhaustion) returns an error, changes
+ * nothing and sat_vdp2_plan_rollback() restores the exact previous free
+ * space. The old raw sat_vdp2_vram_alloc pair keeps working beside it:
+ * the free list stays the single byte owner, but ranges that never went
+ * through the plan carry no kind and appear in telemetry only as free
+ * space that is gone.
+ *
+ * Bank masks are SAT_VDP2_BANK_A0/A1/B0/B1 from vdp2_layers.h. A whole
+ * bank claim (sat_vdp2_plan_claim_banks) mirrors the RAMCTL rotation data
+ * bank bits: RBG0 pattern names, characters/bitmap and per-dot
+ * coefficient tables each occupy a bank's whole access cycle, so that
+ * bank's cycle pattern is ignored and pattern-name, character, bitmap,
+ * rotation-parameter and coefficient reservations are refused there with
+ * SAT_ERR_BUSY. Line scroll, window, back screen, line colour and scratch
+ * tables may still live in a claimed bank (manual 5.3, 7.1, 7.2, 8.2).
+ * The inverse rule holds for RBG0's OWN image data: rotation name tables,
+ * character windows and a bitmap-format picture are fetched through the
+ * rotation data bank bits, so they are refused with SAT_ERR_BUSY anywhere
+ * outside banks claimed for rotation, and sat_vdp2_plan_release_banks is
+ * refused while such a reservation is live. A picture also excludes RBG1:
+ * it is refused while RBG1 banks are reserved, and
+ * sat_vdp2_plan_claim_rbg1_banks is refused while it is live.
+ * ------------------------------------------------------------------ */
+
+typedef enum sat_vdp2_reserve_kind {
+    SAT_VDP2_RESERVE_PATTERN_NAMES = 0,  /* plane alignment is the caller's */
+    SAT_VDP2_RESERVE_CHARACTERS     = 1,
+    SAT_VDP2_RESERVE_BITMAP         = 2,  /* 0x20000-aligned, one per bank */
+    SAT_VDP2_RESERVE_ROTATION_PARAMS = 3, /* the A+B parameter region: 4-byte aligned */
+    SAT_VDP2_RESERVE_COEFFICIENTS    = 4, /* per-line tables: 4-byte aligned */
+    SAT_VDP2_RESERVE_LINE_SCROLL    = 5,  /* even address */
+    SAT_VDP2_RESERVE_WINDOW_TABLE   = 6,  /* 4-byte aligned */
+    SAT_VDP2_RESERVE_BACK_SCREEN    = 7,  /* even address */
+    SAT_VDP2_RESERVE_LINE_COLOR     = 8,  /* even address */
+    SAT_VDP2_RESERVE_SCRATCH        = 9,  /* CPU-written, no VDP2 read */
+    SAT_VDP2_RESERVE_ROTATION_NAMES = 10, /* RBG0's own pattern names: only
+                                           * inside banks claimed for rotation */
+    SAT_VDP2_RESERVE_ROTATION_CHARS = 11, /* RBG0's character windows,
+                                           * 0x8000-aligned: only inside claimed banks */
+    SAT_VDP2_RESERVE_ROTATION_BITMAP = 12 /* RBG0's picture, 0x20000-aligned: only inside
+                                           * claimed banks, and never next to RBG1 */
+} sat_vdp2_reserve_kind_t;
+
+/* Opens a transaction. SAT_ERR_BUSY if one is already open. */
+sat_result_t sat_vdp2_plan_begin(void);
+
+/* Reserves `bytes` for `kind`, placed by the free list (first fit over the
+ * allowed banks), with a minimum alignment of `alignment_bytes` bytes
+ * (a 2-byte multiple; never below the kind's own minimum; 0 selects the
+ * kind's minimum). Writes the byte base on success. On failure returns
+ * SAT_ERR_INVALID_ARG / SAT_ERR_CAPACITY / SAT_ERR_BUSY and stages
+ * nothing: the previous state is intact.
+ *
+ * Pattern names, characters, bitmaps, rotation parameters and
+ * coefficient tables are placed inside one maximal run of banks not
+ * claimed for rotation: they may span bank edges inside the run (the
+ * cycle patterns time a mask of banks, manual 3.3), but never reach into
+ * a claimed bank. Tables that need no cycle pattern (line scroll,
+ * window, back screen, line colour, scratch) use the whole space. */
+sat_result_t sat_vdp2_plan_reserve(sat_vdp2_reserve_kind_t kind, uint32_t bytes,
+                                   uint32_t alignment_bytes, uint32_t* out_base);
+
+/* Reserves exactly [base, base + bytes) for `kind` (same rules; the
+ * alignment check applies to `base`). SAT_ERR_CAPACITY when the range is
+ * not free, SAT_ERR_BUSY when its bank is claimed for rotation. */
+sat_result_t sat_vdp2_plan_reserve_at(sat_vdp2_reserve_kind_t kind, uint32_t base,
+                                      uint32_t bytes);
+
+/* Reserves a CRAM palette range inside the open transaction. The allocator
+ * state is snapshotted at sat_vdp2_plan_begin(); sat_vdp2_plan_rollback()
+ * restores it exactly, so a failed scene cannot leak palette codes.
+ * SAT_ERR_NOT_INITIALIZED without an open transaction, SAT_ERR_CAPACITY
+ * when the palette ledger or the CRAM banks are full. */
+sat_result_t sat_vdp2_plan_palette_reserve(uint16_t count,
+                                            sat_vdp2_palette_range_t* out);
+
+/* Releases one committed palette range. Refused with SAT_ERR_BUSY while a
+ * transaction is open (rollback would otherwise resurrect the range) and
+ * SAT_ERR_NOT_FOUND when the range is not a committed plan palette. */
+sat_result_t sat_vdp2_plan_palette_release(sat_vdp2_palette_range_t range);
+
+/* Ends the transaction keeping every staged reservation. */
+sat_result_t sat_vdp2_plan_commit(void);
+
+/* Ends the transaction discarding every staged reservation; the VRAM free
+ * space and the CRAM allocation bitmap are exactly what they were before
+ * sat_vdp2_plan_begin(). */
+sat_result_t sat_vdp2_plan_rollback(void);
+
+/* Releases one committed reservation (deterministic teardown).
+ * SAT_ERR_NOT_FOUND when `base` is not a committed plan reservation. */
+sat_result_t sat_vdp2_plan_release(uint32_t base);
+
+/* Releases every committed VRAM reservation and committed palette range. */
+sat_result_t sat_vdp2_plan_release_all(void);
+
+/* Claims whole banks for rotation use (RAMCTL RDBS bits; see above) and
+ * refuses (SAT_ERR_BUSY, nothing changes) while a pattern-name, character,
+ * bitmap, rotation-parameter or coefficient reservation lives in one of
+ * them. Re-claiming an already claimed bank is SAT_OK. */
+sat_result_t sat_vdp2_plan_claim_banks(uint8_t bank_mask);
+
+/* Reserves whole banks for RBG1's fixed fetch (B0/B1). They are NOT
+ * counted when sat_vdp2_plan_reserve_at() checks that parameter or
+ * coefficient tables stay out of "claimed" banks: RDBSB0/B1 must be 00B
+ * while RBG1 displays (manual p06_20), and the parameter/coefficient
+ * tables need exactly that role. RBG1 image data (RotationNames/
+ * RotationChars) may be staged into those banks after the claim.
+ * Refused (SAT_ERR_BUSY) when an NBG range already lives in one of them
+ * because routing an NBG pattern-name or character window through B0/B1
+ * is not what B0/B1 are for, and while an RBG0 picture is live anywhere. */
+sat_result_t sat_vdp2_plan_claim_rbg1_banks(uint8_t bank_mask);
+
+/* Gives claimed banks back. SAT_ERR_BUSY while rotation image data
+ * (names, character windows or a picture) still lives in one of them;
+ * SAT_ERR_INVALID_ARG on a bad mask. */
+sat_result_t sat_vdp2_plan_release_banks(uint8_t bank_mask);
+
+/* Gives RBG1-reserved banks back. SAT_ERR_BUSY while RBG1 image data
+ * still lives in one of them. */
+sat_result_t sat_vdp2_plan_release_rbg1_banks(uint8_t bank_mask);
+
+/* Discards the whole ledger (reservations and bank claims) without
+ * freeing anything. Tests and example boot use it, paired with
+ * sat_vdp2_vram_alloc_reset: any range the plan had handed out is the
+ * caller's responsibility exactly as with sat_vdp2_vram_alloc_reset. */
+void sat_vdp2_plan_reset(void);
+
+typedef struct sat_vdp2_plan_usage {
+    uint32_t committed_count;
+    uint32_t staged_count;
+    uint32_t reserved_bytes;             /* committed, plan-managed */
+    uint32_t reserved_bytes_per_bank[4]; /* whole ranges attributed to every bank they touch */
+    uint32_t free_bytes_per_bank[4];     /* from the byte free list */
+    uint32_t claimed_banks;              /* SAT_VDP2_BANK_* mask */
+    uint32_t refusals;                   /* refused calls since boot */
+    int32_t  last_status;                /* sat_result_t of the last refused call, SAT_OK if none */
+    uint32_t last_conflict_base;         /* overlap culprit, 0 when not an overlap */
+} sat_vdp2_plan_usage_t;
+
+/* Snapshot for HUDs and tests. Never fails; a null pointer writes nothing. */
+void sat_vdp2_plan_usage(sat_vdp2_plan_usage_t* out);
 
 #ifdef __cplusplus
 }

@@ -11,6 +11,13 @@
 #include "saturn/irq.h"
 #include "examples/common/example_util.h"
 
+#ifndef CHARACTER_DEMO_VDP2_STAGE
+#define CHARACTER_DEMO_VDP2_STAGE 0
+#endif
+#if CHARACTER_DEMO_VDP2_STAGE
+#include "stage.h"
+#endif
+
 #ifndef CHARACTER_DEMO_MAX_ACTORS
 #define CHARACTER_DEMO_MAX_ACTORS 1
 #endif
@@ -173,6 +180,12 @@ typedef struct {
 static character_metrics_t g_metrics;
 volatile character_metrics_t g_character_demo;
 
+/* ARENA and STAGE share combat, cameras, inputs and HUD; STAGE only swaps
+ * the VDP2 backdrop. */
+static int combat_mode(void) {
+    return g_mode == CHARACTER_DEMO_ARENA || g_mode == CHARACTER_DEMO_STAGE;
+}
+
 static uint32_t ticks_us(uint32_t ticks) {
     const uint32_t frequency=sat_time_frequency_hz();
     return frequency?(uint32_t)((uint64_t)ticks*MICROSECONDS_PER_SECOND/frequency):0;
@@ -254,9 +267,18 @@ static void init_actors(void) {
     }
 }
 static void init_background(void) {
+#if CHARACTER_DEMO_VDP2_STAGE
+    if(g_mode==CHARACTER_DEMO_STAGE) {
+        /* The layer manager and the legacy NBG0 API refuse each other, so the
+         * stage path replaces the whole background; the fighters and training
+         * mat are VDP1 draws and do not depend on it. */
+        sat_example_must(vdp2_stage_init());
+        return;
+    }
+#endif
     for(unsigned y=0;y<BACKGROUND_HEIGHT;++y)for(unsigned x=0;x<BACKGROUND_WIDTH;++x) {
         unsigned skyline=((x/8)*7)%24+18;
-        if(g_mode==CHARACTER_DEMO_ARENA)
+        if(combat_mode())
             g_background[y*BACKGROUND_WIDTH+x]=(uint8_t)(ARENA_BACKGROUND_GRADIENT_BASE+
                 y/ARENA_BACKGROUND_GRADIENT_ROWS);
         else g_background[y*BACKGROUND_WIDTH+x]=(y>skyline)?(x%8==3 && y%8==4?3:2):1;
@@ -285,12 +307,12 @@ static void fit_camera(void) {
     fit.aspect=sat_fx16_div(SAT_FX16_ONE*SCREEN_WIDTH,SAT_FX16_ONE*SCREEN_HEIGHT);
     fit.far_z=SAT_FX16_ONE*32;fit.pitch_min_deg=-30;fit.pitch_max_deg=60;
     sat_example_must(sat_orbit_camera3d_fit_bounds(&g_orbit,&min,&max,&fit));
-    g_orbit.pitch_deg=g_mode==CHARACTER_DEMO_ARENA?ARENA_CAMERA_PITCH_DEGREES:12;
-    g_orbit.yaw_deg=g_mode==CHARACTER_DEMO_ARENA?ARENA_CAMERA_YAW_DEGREES:0;
+    g_orbit.pitch_deg=combat_mode()?ARENA_CAMERA_PITCH_DEGREES:12;
+    g_orbit.yaw_deg=combat_mode()?ARENA_CAMERA_YAW_DEGREES:0;
     sat_example_must(sat_orbit_camera3d_update(&g_orbit));
 }
 static void input(const sat_pad_state_t* pad) {
-    if(g_mode==CHARACTER_DEMO_ARENA) {
+    if(combat_mode()) {
         if(pad->pressed&SAT_PAD_START) { combat_reset(&g_combat);
             // At a frame boundary all skin jobs and the prior VDP1 list are done.
             for(unsigned s=0;s<CHARACTER_DEMO_ASSET_SLOTS;++s){release_assets(s);load_assets(s);}
@@ -298,6 +320,10 @@ static void input(const sat_pad_state_t* pad) {
         }
         if(pad->pressed&SAT_PAD_Z)g_debug=!g_debug;
         if(pad->pressed&SAT_PAD_Y)g_quality=(g_quality+1)%LOD_COUNT;
+#if CHARACTER_DEMO_VDP2_STAGE
+        if(g_mode==CHARACTER_DEMO_STAGE && (pad->pressed&SAT_PAD_L))
+            vdp2_stage_toggle();
+#endif
         return;
     }
     if(pad->pressed&SAT_PAD_START)g_paused=!g_paused;
@@ -332,7 +358,7 @@ static void simulate(uint16_t buttons) {
     g_tick_fraction+=SAT_FX16_ONE;
     const sat_fx16_t delta=(sat_fx16_t)(g_tick_fraction/SIMULATION_HZ);
     g_tick_fraction%=SIMULATION_HZ;
-    if(g_mode==CHARACTER_DEMO_ARENA) {
+    if(combat_mode()) {
         unsigned hits=g_combat.hits,blocks=g_combat.blocked;
         combat_tick(&g_combat,buttons);
         const sat_vec3_t p=g_combat.fighters[0].position,q=g_combat.fighters[1].position;
@@ -348,10 +374,10 @@ static void simulate(uint16_t buttons) {
     for(unsigned i=0;i<g_actor_count;++i) {
         actor_t* a=&g_actors[i]; unsigned clip=g_view_clip;
         if(a->flash_ticks)--a->flash_ticks;
-        if(g_mode==CHARACTER_DEMO_ARENA && a->seen_hit!=g_combat.fighters[i].hit_serial) {
+        if(combat_mode() && a->seen_hit!=g_combat.fighters[i].hit_serial) {
             a->seen_hit=g_combat.fighters[i].hit_serial;a->flash_ticks=SIMULATION_HZ/8;
         }
-        if(g_mode==CHARACTER_DEMO_ARENA)clip=(unsigned)g_combat.fighters[i].state;
+        if(combat_mode())clip=(unsigned)g_combat.fighters[i].state;
         else if(g_mode==CHARACTER_DEMO_STRESS)clip=g_complexity?(i+g_metrics.simulation_ticks/SIMULATION_HZ)%FIGHTER_CLIP_COUNT:FIGHTER_CLIP_WALK;
         select_clip(a,clip);
         sat_example_must(sat_skel_clip_player_set_speed(&a->player,g_speed));
@@ -370,7 +396,7 @@ static void draw_floor(void) {
         sat_fx16_t left=(x*2-1)*SAT_FX16_ONE,front=(z*2-1)*SAT_FX16_ONE;
         sat_quad3_t quad={{{left,0,front},{left+2*SAT_FX16_ONE,0,front},
             {left+2*SAT_FX16_ONE,0,front+2*SAT_FX16_ONE},{left,0,front+2*SAT_FX16_ONE}}};
-        if(g_mode==CHARACTER_DEMO_ARENA) {
+        if(combat_mode()) {
             // A bounded central mat and quieter surround replace the checkerboard.
             if(x==0 && z==0)mat.rgb555=SAT_RGB555(11,15,19);
             else if(x>=-1 && x<=1 && z>=-1 && z<=1)mat.rgb555=SAT_RGB555(9,12,16);
@@ -432,13 +458,13 @@ static void evaluate_actors(unsigned level) {
     }
 }
 static void place(actor_t* a,unsigned i) {
-    if(g_mode==CHARACTER_DEMO_ARENA)a->position=g_combat.fighters[i].position;
+    if(combat_mode())a->position=g_combat.fighters[i].position;
     else if(g_mode==CHARACTER_DEMO_STRESS) {
         a->position.x=((int)(i%4)*2-3)*SAT_FX16_ONE;
         a->position.z=((int)(i/4)*2-1)*SAT_FX16_ONE;
     } else a->position=(sat_vec3_t){0,0,0};
     sat_example_must(sat_mat4_translate(&a->world,a->position.x,a->position.y,a->position.z));
-    if(g_mode==CHARACTER_DEMO_ARENA) {
+    if(combat_mode()) {
         sat_mat4_t rotation,combined;
         sat_example_must(sat_mat4_rotate_y(&rotation,g_combat.fighters[i].facing*SAT_FX16_ONE*90));
         sat_example_must(sat_mat4_multiply(&combined,&a->world,&rotation));a->world=combined;
@@ -564,7 +590,7 @@ static void prepare_actors(void) {
     g_metrics.geometry_ms=preparation_us/(MICROSECONDS_PER_SECOND/MILLISECONDS_PER_SECOND);
 }
 static void camera(void) {
-    if(g_mode==CHARACTER_DEMO_ARENA) {
+    if(combat_mode()) {
         sat_fx16_t target_x=(g_combat.fighters[0].position.x+g_combat.fighters[1].position.x)/2;
         sat_fx16_t target_z=(g_combat.fighters[0].position.z+g_combat.fighters[1].position.z)/2;
         sat_fx16_t separation=g_combat.fighters[0].position.x-g_combat.fighters[1].position.x;
@@ -625,9 +651,9 @@ static void hud(void) {
         g_metrics.simulation_rate_x10=((g_metrics.simulation_ticks-g_rate_sim)*MILLISECONDS_PER_SECOND*RATE_DECIMAL_SCALE+span/2)/span;
         g_rate_frames=0;g_rate_mark=now;g_rate_sim=g_metrics.simulation_ticks;
     }
-    if(g_debug)for(unsigned i=0;i<g_actor_count;++i){debug_skeleton(&g_actors[i]);if(g_mode==CHARACTER_DEMO_ARENA)debug_collision(&g_actors[i]);}
-    if(g_mode==CHARACTER_DEMO_ARENA) {
-        text("VECTOR ARENA",112,8);
+    if(g_debug)for(unsigned i=0;i<g_actor_count;++i){debug_skeleton(&g_actors[i]);if(combat_mode())debug_collision(&g_actors[i]);}
+    if(combat_mode()) {
+        text(g_mode==CHARACTER_DEMO_STAGE?"VDP2 FIGHTING STAGE":"VECTOR ARENA",96,8);
         sat_rect_t track_left={ARENA_HEALTH_LEFT_X-1,ARENA_HEALTH_Y-1,ARENA_HEALTH_WIDTH+2,ARENA_HEALTH_HEIGHT+2};
         sat_rect_t track_right={ARENA_HEALTH_RIGHT_X-1,ARENA_HEALTH_Y-1,ARENA_HEALTH_WIDTH+2,ARENA_HEALTH_HEIGHT+2};
         sat_example_must(sat_fill_rect(&track_left,sat_color_rgba(25,35,50,255)));
@@ -641,8 +667,20 @@ static void hud(void) {
         value("",g_combat.round_ticks/SIMULATION_HZ,152,24);
         if(g_debug)rate("SUB/S ",g_metrics.loop_rate_x10,8,40);
         text(g_combat.round_over?"ROUND OVER / START TO RESTART":"D-PAD MOVE  A PUNCH  C KICK",8,192);
+#if CHARACTER_DEMO_VDP2_STAGE
+        text(g_mode==CHARACTER_DEMO_STAGE?"B GUARD X JUMP Y DETAIL Z DEBUG L STAGE":
+             "B GUARD X JUMP Y DETAIL Z DEBUG",8,208);
+#else
         text("B GUARD X JUMP Y DETAIL Z DEBUG",8,208);
+#endif
         if(g_debug){value("HITS ",g_combat.hits,8,56);value("BLOCK ",g_combat.blocked,8,72);text(kLodNames[g_quality],8,88);}
+#if CHARACTER_DEMO_VDP2_STAGE
+        if(g_debug && g_mode==CHARACTER_DEMO_STAGE) {
+            text(vdp2_stage_on()?"STAGE ON":"STAGE OFF",176,56);
+            value("CMDS ",g_vdp2_stage.last_commands,176,72);
+            value("TOGGLES ",g_vdp2_stage.toggles,176,88);
+        }
+#endif
         return;
     }
     text(g_mode==CHARACTER_DEMO_STRESS?"SKINNING / STOCK RAM BENCHMARK":"SKELETAL / ORIGINAL HUMANOID",8,8);
@@ -665,8 +703,11 @@ static void hud(void) {
     text("D-PAD CAMERA  C LIGHT  Y BONES  START",8,208);
 }
 int character_demo_run(character_demo_mode_t mode) {
-    g_mode=mode;g_actor_count=mode==CHARACTER_DEMO_ARENA?2:1;
-    g_quality=mode==CHARACTER_DEMO_ARENA?ARENA_DEFAULT_LOD:CHARACTER_LOD_HIGH;
+    g_mode=mode;g_actor_count=combat_mode()?2:1;
+    g_quality=combat_mode()?ARENA_DEFAULT_LOD:CHARACTER_LOD_HIGH;
+#if CHARACTER_DEMO_VDP2_STAGE
+    if(mode==CHARACTER_DEMO_STAGE)g_quality=CHARACTER_LOD_MEDIUM;
+#endif
     sat_video_config_t video={SCREEN_WIDTH,SCREEN_HEIGHT,SAT_VIDEO_AUTO,0};sat_example_must(sat_init(&video));
     sat_parallel_config_t parallel={SAT_PARALLEL_AUTO,NULL,0,0,PARALLEL_TIMEOUT_TICKS};
     sat_example_must(sat_parallel_init(&parallel));sat_example_must(sat_skin_parallel_register());
@@ -719,6 +760,9 @@ int character_demo_run(character_demo_mode_t mode) {
         uint32_t frame_start=sat_time_ms();
         uint64_t wait_start=sat_time_ticks();
         sat_example_must(sat_wait_vblank());
+#if CHARACTER_DEMO_VDP2_STAGE
+        if(g_mode==CHARACTER_DEMO_STAGE)vdp2_stage_frame();
+#endif
         uint32_t wait_us=ticks_us((uint32_t)(sat_time_ticks()-wait_start));
         uint32_t vblank_start=sat_irq_count(SAT_IRQ_VBLANK_IN);
         sat_example_must(sat_begin_frame());
@@ -773,6 +817,10 @@ int character_demo_run(character_demo_mode_t mode) {
         g_metrics.blocked=g_combat.blocked;g_metrics.knockdowns=g_combat.knockdowns;g_metrics.round_over=g_combat.round_over;
         hud();sat_vdp1_command_stats_t commands={0};sat_example_must(sat_vdp1_command_stats(&commands));
         g_metrics.commands=commands.used;
+#if CHARACTER_DEMO_VDP2_STAGE
+        if(g_mode==CHARACTER_DEMO_STAGE)
+            vdp2_stage_note_frame(commands.used,g_metrics.geometry_ms*1000u);
+#endif
         uint32_t cpu_ms=sat_time_ms()-cpu_start;
         uint64_t end_start=sat_time_ticks();
         sat_example_must(sat_end_frame());

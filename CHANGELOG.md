@@ -11,6 +11,203 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- Transactional VDP2 CRAM ranges (M7 follow-up):
+  `sat_vdp2_plan_palette_reserve` / `sat_vdp2_plan_palette_release` join the
+  existing VRAM transaction. The seven-bank CRAM allocator is now a real
+  bitmap with reusable frees and a `sat_vdp2_palette_usage` snapshot;
+  rollback restores the exact allocation state. E08 `vdp2_vram_stress` adds a
+  seventh scenario covering rollback/reuse, commit/release and the
+  eighth-full-bank refusal; the host plan tests cover the same paths. The
+  cycle planner remains outside the transaction, so the support-matrix row
+  stays `partial`.
+- VDP2 hardware signoff kit (M6 Phase B): `harness/prepare-vdp2-signoff.ps1`
+  builds and validates the twelve E01-E12 discs plus E13 as a marked
+  supplemental disc by default, writes a manifest and `SHA256SUMS.txt`, and
+  supports a clean-rebuild `-CompareTo` hash check.
+  `harness/verify-vdp2-signoff.ps1` verifies a bundle without building;
+  `harness/dry-run-vdp2-signoff.ps1` BIOS-boots every disc in Mednafen and
+  captures one frame. `docs/VDP2_HARDWARE_SESSION.md` defines the console
+  matrix, run order, per-row controls, evidence rules and PASS/FAIL/BLOCKED
+  handling. Physical Phase C remains PENDING.
+- `vdp2_parallax_lab` (E13, post-plan): a four-layer hand-painted coast
+  driven entirely by VDP2. NBG0/NBG1 are 512x256 8bpp bitmaps and NBG2/NBG3
+  are two-word cell maps (4bpp mountains, 8bpp sky); the SH-2 updates only
+  four scroll registers, using a 16.16 trapezoidal pan (short ease ramps and a
+  constant middle) so NBG0/NBG1 keep a regular subpixel cadence. The sea runs
+  at 65 percent instead of the source lab's 52 percent to keep its one-pixel
+  cadence above roughly 25 Hz, and its RGB is lightly softened to reduce wave
+  shimmer.
+  `tools/convert_vdp2_parallax_lab.py` converts the
+  four source PNGs into big-endian bitmap, cell and map assets, and
+  `harness/run-vdp2-parallax-lab.ps1` checks the public layer configuration,
+  VDP2 register geometry, uploaded maps/chars and live picture in NTSC and
+  PAL. Mednafen 1.32.1 captures are recorded; physical hardware PENDING.
+- `docs/VDP2_EVIDENCE_LEDGER.md` records the E01-E13 build, host, Ymir
+  NTSC/PAL, Mednafen, stress and physical-status evidence, and maps the plan's
+  definition-of-done checklist to named artifacts.
+- VDP2 video modes (plan milestone M4, E09): `sat_video_config_t.interlace`
+  (the old `reserved` byte), `sat_video_mode_supported()`,
+  `sat_video_interlace_mode()`, `sat_video_tvmd()` and
+  `sat_video_tvstat()`. `sat_init` accepts 320/352/640/704 by 224/240/256 and
+  writes TVMD's HRESO/VRESO/LSMD through one validated encoder
+  (`src/hal/video_mode_logic.hpp`); 256 lines is PAL-only, single-density
+  interlace is legal at every height, and double-density interlace is refused
+  with `SAT_ERR_UNSUPPORTED` because VDP1 would need a different picture per
+  field. A mode change is a full `sat_shutdown()` + `sat_init()`. Host test
+  `tests/host/test_video_mode.cpp`; `examples/vdp2_video_modes` and
+  `harness/run-vdp2-video-modes.ps1` cover five modes on NTSC and all eight
+  (including 704x256 and 640x512) on PAL. The matrix moves
+  `pal_240_256_line_modes` `absent` -> `exposed` and `interlace_output`
+  `absent` -> `partial` (single-density only). Physical hardware PENDING.
+- `vdp2_parallax_world` (plan milestone M5, E10): a dawn coast built from
+  four NBGs plus RBG0, per-line back-screen sky, window-clipped clouds,
+  mountains, a repeating sea, line-scrolled shore/foreground and add-mode
+  colour calculation. The example also times and uploads one comparable
+  software-built 320x224 background as a VDP1 reference and reports both
+  paths' command counts and per-field VDP2 table cost.
+  `harness/run-vdp2-parallax-world.ps1` passes 7/7, including `-Long`.
+- `vdp2_fighting_stage` (plan milestone M5, E11): the existing two-fighter
+  character demo with a four-NBG VDP2 stage (stands/crowd, banners, moving
+  spotlights, ring apron) compiled only for this example through
+  `examples/characters/stage.c`; `fighter_arena_3d` keeps its legacy NBG0
+  background. The harness compares the same fighter simulation with the stage
+  on and off and checks that the stage adds no VDP1 command of its own.
+- `vdp2_neon_city` (plan milestone M5, E12): the final integration of a
+  rotating RBG0 sign, `sat_stage_map2` double-buffered street streaming, a
+  moving colour-calculation window plus line-colour light pool, per-layer
+  colour offsets and four NBGs. The harness checks the ring switches,
+  model/VRAM CRC, sentinel cells, DMA/CPU transfers, layer priorities and
+  pixel families; 6/6 pass, including `-Long`.
+- `vdp2_video_modes`, `vdp2_parallax_world`, `vdp2_fighting_stage` and
+  `vdp2_neon_city` are listed with the other examples in the README; the
+  hardware acceptance checklist gains rows 35-38, all explicitly PENDING.
+  The four builds also booted in Mednafen 1.32.1 through `run-example.ps1`;
+  manual window captures confirm the E09 mode shapes, E10's live coast,
+  E11's stage off/on and E12's ring phases/light pool.
+- VDP2 extended colour calculation and hardware blur (plan milestone M3,
+  the E03/E04 library surface): `sat_vdp2_extended_color_calc_set` (CCCTL
+  EXCCEN) makes the second image the pre-mixed second+third result, plus the
+  line colour screen when it is inserted (the manual's four-screen cascade,
+  table 12.2, p12_12), so unlike blur it is legal there; and
+  `sat_vdp2_hardware_blur_set` (BOKEN/BOKN) blurs the BOKN-selected screen
+  per the manual's p12_14 table (3 and 7 setting-prohibited and refused).
+  Both require normal TV mode; blur additionally requires CRAM mode 0 and
+  excludes the line colour screen in both directions (p12_13: enabling
+  refuses an existing insert, and `sat_vdp2_layer/sprite_set_line_color_insert`
+  refuse behind a live blur). The two are mutually exclusive: p12_14 ignores
+  EXCCEN while BOKEN is 1, so CCCTL never carries both, and a refusal
+  returns `SAT_ERR_UNSUPPORTED` without touching the live configuration.
+  Both replay with `sat_vdp2_layers_commit()`. The acceptance/refusal table
+  is pure policy (`compose::CcctlExtras`, `src/hal/vdp2/compose_logic.hpp`)
+  with host tests (`tests/host/test_vdp2_compose_logic.cpp`). Honest status:
+  both matrix rows moved `absent` -> `partial` because no example or emulator
+  has demonstrated either effect yet: E03 `vdp2_special_color` and E04
+  `vdp2_hardware_blur` carry that evidence. Also repaired: the `rbg1` matrix
+  entry carried prose in its `api`/`tests` fields, failing the pinned
+  `tests/test_vdp2_support_matrix.py` rules; the detail moved to `notes` and
+  the suite is green again.
+- `vdp2_special_color` (plan milestone M3, E03): a live tour of VDP2
+  chapter-12 colour calculation with a colour-calculation window for a
+  side-by-side comparison - PLAIN, RATIO (15:17), ADD saturation and the
+  table-12.2 extended cascade - plus the five chapter-12 refusals in
+  `g_special_color`. Accepted on pinned Ymir 9/9 (struct/CRAM mode 0,
+  refusals, CCCTL/CCRNA registers, a watch-write of CCCTL at the RATIO
+  switch, and pixels recomputed from the manual); the
+  `extended_color_calculation` matrix row moved `partial` -> `exposed`.
+  `hardware_blur` follows in the E04 entry below. Physical hardware remains
+  PENDING in the acceptance checklist (row 30).
+- `vdp2_hardware_blur` (plan milestone M3, E04): a live A/B of CCCTL
+  BOKEN/BOKN with a one-pixel checker on NBG0 (top image), a solid blue NBG1
+  below and a colour-calculation window for a sharp control half. Accepted
+  on pinned Ymir 11/11: the left half matches the manual's 2:1:1 average
+  (188/68) and 15:17 mix (216/39) recomputed from the palette, a BLUR 32
+  mode shows the averaged second image alone, the right half is
+  byte-identical across modes, CCCTL carries BOKEN + BOKN 2 + N0CCEN, and a
+  watch-write sees BOKEN at the switch. `hardware_blur` moved `partial` ->
+  `exposed`; physical hardware remains PENDING (checklist row 31). The
+  example keeps the blurred screen on top because Ymir at the pin only
+  replaces the second image in that case; the manual's second-image blur
+  case remains unverified and is recorded in the matrix notes.
+- `vdp2_special_priority` (plan milestone M3, E06): special priority and
+  special colour calculation. New `include/saturn/vdp2_special.h` exposes
+  SFPRMD/SFCCMD for NBG0-NBG3, SFCODE/SFSEL, and
+  `sat_vdp2_pattern_name_2word` (manual figure 4.9: the auxiliary word first,
+  with V/H/PR/CC and a 7-bit palette, then the 15-bit character number). The
+  example is a 2-word NBG0 band with normal/special cells, a priority-4 VDP1
+  bar and four live modes (SCREEN, CHAR, DOT, MSB). Accepted on pinned Ymir
+  10/10: SFPRMD/SFCCMD/SFCODE/SFSEL/CCCTL, a watch-write of SFCCMD at the MSB
+  switch, the sprite-tie priority control, per-character/per-dot priority
+  A/B, and manual-recomputed 15:17 colour calculation against NBG1 and the
+  bar, including CRAM-MSB mode 3. `special_priority_color_calc` moved
+  `absent` -> `exposed`; physical hardware PENDING (checklist row 32).
+  Limitations: per-character/dot need 2-word names (the 1-word PNCN and
+  bitmap BMPNA auxiliary bits are not exposed), per-dot is refused for RGB,
+  and RBG0's mode bits are not exposed because `sat_vdp2_layer_t` covers the
+  four NBGs.
+- `vdp2_sprite_shadows` (plan milestone M3, E05): VDP2 normal and MSB sprite
+  shadows, completing M3. New `include/saturn/vdp2_sprite_shadow.h` owns
+  SDCTL (six target enables and TPSDSL), switches the sprite layer to type 2
+  palette-only, and exposes `sat_vdp2_shadow_normal_word` (`0x47FE`),
+  `sat_vdp2_shadow_transparent_msb_word` (`0x8000`, all 15 non-MSB bits
+  zero), and `sat_vdp2_shadow_msb_word`. `SAT_SPRITE_FLAG_MSB_ON` exposes
+  VDP1's MSB-on command for sprite self-shadows. The example draws normal and
+  transparent-MSB silhouettes over a scrolling stripe ground, a VDP1 MSB-on
+  self-shadow, and a VDP1 RGB panel plus VDP1 shadow control; a TARGETS OFF
+  mode proves the SDCTL target gate. Accepted on pinned Ymir 12/12:
+  manual-recomputed pixels (248 -> 124 for VDP2, 31 -> 15 -> 120 for the
+  VDP1 5-bit path), the target-off control, final SDCTL/SPCTL/PRISA
+  restoration, and a watch-write of SDCTL=0x0101 at the MSB switch.
+  `vdp2_shadow_sprites` moved `absent` -> `exposed`; physical hardware
+  PENDING (checklist row 33). The VDP1 sprite colour-calculation module and
+  palette priority/window/CC features are refused in both directions, and
+  selector 1 survives a colour-calc commit. Limitations: palette-only is
+  enforced by the type-2 configuration and documented (the library cannot
+  inspect VDP1 draws); TPSDSL is host-tested and set, but pinned Ymir does
+  not gate the transparent MSB shadow on it, so the TPSDSL=0 negative is
+  unverified.
+- `vdp2_dynamic_tile_stream` (plan milestone M4, E07): bounded dynamic
+  tile/map streaming. New `sat_vdp2_layer_set_pattern_name_base` retargets a
+  one-plane cell layer's four pattern-name tables and lets
+  `sat_vdp2_layers_commit()` publish the base at VBlank; the pure
+  `nbg::retarget_plane_base` checks one-plane/cell alignment and the shared
+  map-offset group, and the HAL re-runs the cycle planner. New
+  `sat_vdp2_vram_read_words` provides a validated VRAM read for CRC and
+  diagnostics. The example composes two `sat_stage_map2` instances over
+  rings at 0x00000/0x04000: the inactive ring receives the next camera's
+  entering cells, then the base and wrapped scroll are published together.
+  The 36,000-frame Ymir stress passed 8/8: 34,905 guest frames, 32,999
+  switches, frozen at 33,000 with model and VRAM CRC both 0x517824CD, no
+  0xFFFF sentinel cell, MPABN0/MPCDN0 0x0202 at base 0x04000, max pending
+  1,485 words, 756,900 staged/committed words, and 192 SCU-DMA / 33,659 CPU
+  transfers with no timeout or illegal interrupt; capacity/base/invalid-DMA
+  refusals all 1. The harness recomputes the frozen CRC from its VDP2 VRAM
+  dump. `vdp2_dynamic_tile_stream` moved `absent` -> `exposed`;
+  physical hardware PENDING (checklist row 34). Limitations: one-plane cell
+  maps only for the live base switch, the double buffer is caller-composed,
+  the map is procedural (no CD/VFS chunk loading), and the switch API's
+  VBlank contract is only as strong as the caller's commit point.
+- `tools/inspect_capture.py`: reusable capture inspector for PNG pixels,
+  spans and colour bounding boxes (Pillow), `probe.json` VDP2 registers, and
+  big-endian telemetry structs from a Work RAM dump + linker map. Host test
+  included; no more ad-hoc PIL snippets for acceptance debugging.
+- Harness: `ymir_gradation_sse_fix.patch` fixes the pinned Ymir SSE2
+  gradation path, which applied the mask with `color2` instead of `mask` and
+  bitwise-ANDed the source colour into the blur. Non-AVX2 builds rendered
+  184/0 where the manual (and Ymir's AVX2/scalar paths) give 188/68. This is
+  a documented one-line correctness fix, separate from the instrumentation
+  patches; `vdp2_hardware_blur` is the acceptance case, and the sweep now
+  includes its wrapper.
+- Harness observability for the M3/M4 slices: `probe.json` now dumps
+  CCCTL, CCRNA, CCRNB, LNCLEN, SFPRMD, SFCCMD, SFCODE, SFSEL, SDCTL, SPCTL,
+  PRISA, PRISB-PRISD, MPOFN, MPABN0 and MPCDN0; `--watch-write` records the first writes into a bus range under
+  `watch_writes` (PC, value, frame and size on both SH-2s); and
+  `Invoke-ExampleTest` accepts `-ScreenshotWhen(Symbol)`,
+  `-DumpMem(Symbol)` and `-WatchWrite`. The `...Symbol` forms resolve the
+  telemetry struct from the build map, so wrappers no longer hard-code link
+  addresses. The acceptance sweep now includes the dual-rotation,
+  rotation-coefficient, special-colour, hardware-blur, special-priority,
+  sprite-shadow, dynamic-tile-stream and VRAM-stress wrappers. Wrappers can
+  request extra VDP2 VRAM word dumps with `Invoke-ExampleTest -DumpVram`.
 - `sat_scene_flush_trusted` for scenes whose materials and textures stay
   resident until the flush returns, as immutable bindings do after
   initialization. It skips the per-face census that revalidated them and hands
@@ -495,6 +692,14 @@ The version is defined once, in the `VERSION` file.
 
 ### Changed
 
+- The VDP2 acceptance set now includes E13: the full sweep passes 19/19 in
+  NTSC and 19/19 in PAL. The Phase B signoff bundle reproduced 13/13 disc
+  hashes on a clean rebuild, and Mednafen 1.32.1 BIOS-booted all 13 bundle
+  discs as an emulator-only dry-run. Ymir still cannot BIOS-boot these discs;
+  its evidence remains direct injection.
+- The acceptance sweep now includes E09-E12. The E10-E12 wrappers accept
+  `-Pal`, and E10/E11 captures are triggered by scene telemetry so PAL frame
+  timing cannot select the wrong animation or stage state.
 - The general (rotated-camera) vertex projection overlaps each hardware divide with the next
   rows, as the axis-aligned path already did. It never forms clip Z. Output is bit-identical
   (`test_render3d_logic`); in Mednafen it saves about 6% of a skinned actor's geometry time.
@@ -534,6 +739,34 @@ The version is defined once, in the `VERSION` file.
 
 ### Fixed
 
+- E01 `vdp2_dual_rotation` configured RBG0/RBG1 as 256-colour screens while
+  uploading 4bpp/16-colour tiles and 16-entry palettes, so Ymir and Mednafen
+  rendered the scene in grayscale and the DUAL pixel assertion was skipped.
+  Both screens now use `SAT_VDP2_COLOR_MODE_16`; the checker is visible
+  through RBG0's transparent holes and the Ymir test passes 6/6 in NTSC and
+  PAL with no skip. `rbg1` moves to `exposed` in the support matrix.
+- The shared example-test runner writes PAL probe, WRAM and telemetry files
+  under `harness/build/<example>_pal/`, so a PAL run no longer overwrites the
+  NTSC evidence set.
+- `test_vdp2_hires_light.py` decoded three `uint8_t` telemetry switches as
+  `uint32_t`, reading struct padding (`0x01010100`) and failing the setup
+  assertion. The decoder now matches the C struct layout (`>IIIiiBBB`).
+- The Mednafen launcher and the script that generates it now place
+  `-ExtraArgs` before the disc image. Mednafen stops parsing options at the
+  image, so options such as `-qtrecord` were previously ignored without an
+  error.
+- The rotation manager cleared PRINA's NBG0 priority bits whenever RBG1 was
+  not displaying, even if RBG1 had never been enabled. An RBG0-only scene
+  configured after NBG0 (E10's leaf layer, E12's rain layer) therefore lost
+  NBG0's priority and hid it. The takeover bits are now cleared once, only
+  after an RBG1 takeover has actually been live (`g_rbg1_takeover_live`);
+  the RBG1 live toggle and E01 still pass.
+- VDP2 hardware blur stayed permanently refused after any line-colour
+  insertion had ever been configured: `set_hardware_blur` passed
+  `g_lncl_used` (a register-ownership flag that never clears) to the policy
+  instead of the live LNCLEN mask. It now checks the live insertion, so
+  clearing the insert makes blur legal again; `vdp2_hardware_blur` asserts
+  the refusal and the re-enable.
 - The first `sat_vdp2_layers_commit()` switched CRAM to mode 0 (1024 colours)
   in any program that used neither the legacy NBG0 text layout nor RBG0: the
   RBG0 replay wrote RAMCTL from a shadow that defaulted to 0. CRAM banks 4-7

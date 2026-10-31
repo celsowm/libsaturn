@@ -7,6 +7,7 @@
 #include "src/hal/vdp1/vdp1.hpp"
 #include "src/hal/vdp2/color_calc.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
+#include "src/hal/video_mode_logic.hpp"
 
 extern "C" sat_result_t sat_begin_frame(void) {
     using namespace saturn::core;
@@ -47,6 +48,29 @@ extern "C" uint16_t sat_video_height(void) {
 
 extern "C" uint8_t sat_video_is_hires(void) {
     return saturn::core::g_state.config.width >= 640u ? 1u : 0u;
+}
+
+extern "C" sat_result_t sat_video_mode_supported(const sat_video_mode_t* mode) {
+    if (mode == nullptr) return SAT_ERR_INVALID_ARG;
+    const bool pal = sat_video_is_pal() != 0u;
+    return saturn::hal::video_mode::validate(mode->width, mode->height,
+                                             mode->interlace, pal);
+}
+
+extern "C" uint8_t sat_video_interlace_mode(void) {
+    return saturn::core::g_state.config.interlace;
+}
+
+extern "C" uint8_t sat_video_is_interlaced(void) {
+    return saturn::core::g_state.config.interlace != SAT_VIDEO_INTERLACE_NONE ? 1u : 0u;
+}
+
+extern "C" uint16_t sat_video_tvmd(void) {
+    return saturn::hal::vdp2::read_tvmd();
+}
+
+extern "C" uint16_t sat_video_tvstat(void) {
+    return saturn::hal::vdp2::read_tvstat();
 }
 
 extern "C" uint8_t sat_video_is_pal(void) {

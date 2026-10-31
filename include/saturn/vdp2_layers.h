@@ -89,6 +89,19 @@ sat_result_t sat_vdp2_layer_configure(const sat_vdp2_layer_config_t* config);
 /* Stops managing the layer and hides it; its VRAM reads are freed. */
 sat_result_t sat_vdp2_layer_release(sat_vdp2_layer_t layer);
 
+/* Double-buffer publication for a one-plane cell layer: moves all four
+ * pattern-name tables to `byte_address` at the next
+ * sat_vdp2_layers_commit() VBlank replay. The new ring must already hold the
+ * picture for the scroll that commit will apply; both rings are expected to
+ * live in the same VRAM bank and map-offset group. No register is touched
+ * here, so writing the inactive ring during the picture is tear-free.
+ * Supports cell format with all four plane_address entries equal; bitmap or
+ * multi-plane maps return SAT_ERR_INVALID_ARG. A misaligned/out-of-range base
+ * is SAT_ERR_INVALID_ARG, a base the cycle planner cannot fetch is
+ * SAT_ERR_CAPACITY, and nothing changes on failure. */
+sat_result_t sat_vdp2_layer_set_pattern_name_base(sat_vdp2_layer_t layer,
+                                                  uint32_t byte_address);
+
 /* Shows or hides a configured layer (hiding frees its VRAM reads). */
 sat_result_t sat_vdp2_layer_set_enabled(sat_vdp2_layer_t layer, uint8_t enabled);
 
@@ -114,18 +127,29 @@ sat_result_t sat_vdp2_layer_set_zoom(sat_vdp2_layer_t layer, uint32_t zoom_x, ui
 /* RBG0: the rotation scroll screen, cell format                       */
 /* ------------------------------------------------------------------ */
 
-/* RBG0 draws a cell-format map through a 3x3 matrix, scaled per line or per
- * dot by a coefficient table: tilted floors, rotating and zooming maps (manual
+/* RBG0 draws a cell-format map through a 3x3 matrix, scaled per line by a
+ * coefficient table: tilted floors, rotating and zooming maps (manual
  * chapter 6). It runs beside NBG0..NBG3 under this manager and takes whole
  * VRAM banks (RAMCTL) for its pattern names and its characters; the VDP2
  * ignores those banks' cycle patterns, so no NBG may read them, and a
  * configuration that leaves an NBG without its bank fails with
- * SAT_ERR_CAPACITY. The rotation parameter table (parameter A) and a per-line
- * coefficient table can sit in any other bank and need no cycle pattern
- * (p06_20); a per-dot coefficient table is not supported here. While RBG0 is
- * shown the CPU should write its banks only in blanking.
+ * SAT_ERR_CAPACITY.
  *
- * The map is 4x4 planes (A..P, rows of four); outside it `over` applies. */
+ * The rotation parameter region holds TWO parameter sets (manual 6.3,
+ * figure 6.4): A at the region base, 0x20 ignored bytes, B at base+0x80.
+ * One address register (RPTA) covers the region; its bit 6 is ignored and
+ * fixed to 0 for A and 1 for B, so the region's byte address must have
+ * bit 7 clear. `parameter_mode` (RPMD) decides which set draws the screen:
+ * A only, B only, or per-line A/B by the coefficient flag bit; window
+ * switching (mode 3) needs the rotation window control register, which
+ * this manager does not model, and is refused with SAT_ERR_INVALID_ARG.
+ * While RBG0 is shown the CPU should write its banks only in blanking.
+ *
+ * Each set has its own coefficient table contract (KTCTL bits 4-0 for A,
+ * 12-8 for B): per-line 2-word or 1-word entries in one of the four modes
+ * below. Per-dot coefficients are not supported (they need a whole
+ * rotation bank or Color RAM, manual 6.4). The map is 4x4 planes (A..P,
+ * rows of four); outside it `over` applies. */
 #define SAT_VDP2_ROTATION_OVER_REPEAT       0u   /* the map repeats */
 #define SAT_VDP2_ROTATION_OVER_PATTERN      1u   /* over_pattern_name repeats */
 #define SAT_VDP2_ROTATION_OVER_TRANSPARENT  2u
@@ -136,6 +160,67 @@ sat_result_t sat_vdp2_layer_set_zoom(sat_vdp2_layer_t layer, uint32_t zoom_x, ui
 #define SAT_VDP2_COEFFICIENT_KX    1u
 #define SAT_VDP2_COEFFICIENT_KY    2u
 #define SAT_VDP2_COEFFICIENT_XP    3u
+
+/* Which rotation parameter set draws the screen (RPMD, manual 6.3.5). */
+#define SAT_VDP2_ROTATION_PARAMETER_A           0u  /* set A only */
+#define SAT_VDP2_ROTATION_PARAMETER_B           1u  /* set B only */
+#define SAT_VDP2_ROTATION_PARAMETER_COEFFICIENT 2u  /* per line: the coefficient
+                                                     * flag bit picks the image */
+
+/* Coefficient entry flags (figure 6.7 bit 15; both may be given). In
+ * parameter mode A or B a flagged line is hidden; in mode COEFFICIENT a
+ * flagged line shows the B image and the entry value still applies. */
+#define SAT_VDP2_COEFFICIENT_HIDE   1u
+#define SAT_VDP2_COEFFICIENT_USE_B  2u
+
+/* The coefficient table contract of one parameter set. */
+typedef struct sat_vdp2_rotation_coefficients {
+    uint8_t enabled;     /* read a per-line coefficient table for this set */
+    uint8_t mode;        /* SAT_VDP2_COEFFICIENT_* */
+    uint8_t one_word;    /* 1: 1-word entries; 0: 2-word entries */
+} sat_vdp2_rotation_coefficients_t;
+
+/* One rotation parameter set's pattern name map: a 4x4 plane layout in cell
+ * format. The RBG0 image uses the top-level plane_address/plane_pages_x/y/
+ * over/over_pattern_name fields; RBG1 always reads its names from VRAM-B1
+ * (manual p06_20) so its plane_address range must lie inside bank B1. */
+typedef struct sat_vdp2_rotation_map {
+    uint8_t plane_pages_x;       /* 1 or 2 */
+    uint8_t plane_pages_y;       /* 1 or 2 (1x2 is prohibited, like RBG0) */
+    uint8_t over;                /* SAT_VDP2_ROTATION_OVER_* */
+    uint8_t reserved0;
+    uint16_t over_pattern_name;  /* SAT_VDP2_ROTATION_OVER_PATTERN */
+    uint16_t reserved1;
+    /* Byte addresses of the 16 planes' pattern name tables. */
+    uint32_t plane_address[16];
+} sat_vdp2_rotation_map_t;
+
+/* RBG1: the second rotation scroll screen (manual p06_20). It requires
+ * RBG0 to display too, can never coexist with a normal scroll screen, and
+ * its pattern names are fixed in VRAM-B1 with its character window in
+ * VRAM-B0 (the manual's "the image data for each rotating scroll screen
+ * must be stored in separate VRAMs"). The validation rules refuse any
+ * configuration that breaks those constraints with SAT_ERR_INVALID_ARG.
+ *
+ * RBG1 is always drawn by rotation parameter set B (p06_30: RPTA's bit 6
+ * is fixed to 1 for B), so RPMD must stay SAT_VDP2_ROTATION_PARAMETER_A
+ * while RBG1 displays; live parameter-mode switches and concurrent NBG
+ * configurations are refused with SAT_ERR_INVALID_ARG / SAT_ERR_BUSY.
+ *
+ * RBG1 shares parameter set B's 4x4 plane map with RBG0's B-mode -- the
+ * VDP2 reads MPABRB..MPOPRB once and feeds both screens through it. The
+ * validation insists on VRAM-B1 names when this map is read by RBG1. */
+typedef struct sat_vdp2_rbg1_config {
+    uint8_t enabled;             /* 1: show RBG1 */
+    uint8_t color_mode;          /* 16, 256, 2048 or 32768 colours */
+    uint8_t char_size;           /* sat_vdp2_char_size_t */
+    uint8_t pattern_name_words;  /* 1 or 2 */
+    uint8_t priority;            /* 0 (hidden) to 7 */
+    uint8_t transparent;         /* 1: dot code 0 is transparent */
+    uint8_t palette;             /* 1-word names: palette number bits 6-4 */
+    uint8_t reserved0;
+    uint32_t char_base_address;  /* 1-word names: window base, must sit in VRAM-B0 */
+} sat_vdp2_rbg1_config_t;
 
 typedef struct sat_vdp2_rotation_config {
     uint8_t color_mode;          /* 16, 256, 2048 or 32768 colours */
@@ -149,31 +234,63 @@ typedef struct sat_vdp2_rotation_config {
     uint8_t over;                /* SAT_VDP2_ROTATION_OVER_* */
     uint8_t name_bank_mask;      /* SAT_VDP2_BANK_*: the banks of the pattern name tables */
     uint8_t char_bank_mask;      /* ... of the character data (not shared with the names) */
-    uint8_t coefficients;        /* 1: read a per-line table of 2-word coefficients */
-    uint8_t coefficient_mode;    /* SAT_VDP2_COEFFICIENT_* */
-    uint8_t reserved0;
+    uint8_t parameter_mode;      /* SAT_VDP2_ROTATION_PARAMETER_* */
     uint16_t over_pattern_name;  /* SAT_VDP2_ROTATION_OVER_PATTERN: a 1-word name */
+    sat_vdp2_rotation_coefficients_t coefficients_a;
+    sat_vdp2_rotation_coefficients_t coefficients_b;
     /* Byte addresses of the planes' pattern name tables, rules as for the NBGs. */
     uint32_t plane_address[16];
     uint32_t char_base_address;  /* 1-word names: as sat_vdp2_layer_config_t */
-    /* The rotation parameter table read first: byte address, a multiple of 4,
-     * outside the RBG0 banks (sat_vdp2_rotation_write_params fills it). */
+    /* The A+B parameter region: byte address, a multiple of 4 with bit 7
+     * clear, outside the RBG0 banks. sat_vdp2_rotation_write_params fills
+     * both sets. */
     uint32_t table_address;
+    /* Parameter set B's pattern name map. Set B is always read at
+     * region | 0x80 (manual p06_32), and RBG1 fetches B's names from
+     * VRAM-B1. When rbg1.enabled is 0 the map may sit anywhere a name
+     * table can; when it is 1 the validation insists on VRAM-B1. */
+    sat_vdp2_rotation_map_t map_b;
+    /* RBG1 sub-config; enabled = 0 leaves BGON R1ON clear. */
+    sat_vdp2_rbg1_config_t rbg1;
 } sat_vdp2_rotation_config_t;
 
 /* Defaults: 256 colours, 1x1 characters, 1-word names, one page per plane,
- * priority 1, dot 0 transparent, the map repeating, no coefficients. The
- * caller sets the banks and addresses. */
+ * priority 1, dot 0 transparent, the map repeating, parameter set A, no
+ * coefficient tables, no parameter-set-B map, RBG1 hidden. The caller
+ * sets the banks and addresses. */
 void sat_vdp2_rotation_config_default(sat_vdp2_rotation_config_t* out_config);
 
-/* Managed RBG0 bitmap, alongside NBG layers. The bitmap is 512x256 or
- * 512x512; its address is 0x20000 aligned. palette selects the upper
- * three palette-number bits, as in the cell configuration. */
+/* RBG0 in bitmap format: one 512x256 or 512x512 picture that the rotation
+ * parameters transform, instead of a pattern name map. It takes the place of
+ * sat_vdp2_rotation_configure for the same screen, so the parameter region,
+ * coefficient tables, priority and the other sat_vdp2_rotation_* calls work
+ * as for the cell format; the picture's banks go to RBG0 and the NBGs use the
+ * others. RBG1 cannot be shown with it (its data lives in VRAM-B too). */
 typedef struct sat_vdp2_rotation_bitmap_config {
-    uint8_t color_mode, height_512, priority, transparent;
-    uint8_t palette, over, coefficients, coefficient_mode;
-    uint32_t bitmap_address, table_address;
+    uint8_t color_mode;          /* 16, 256, 2048 or 32768 colours */
+    uint8_t height_512;          /* 1: 512x512, 0: 512x256 */
+    uint8_t priority;            /* 0 (hidden) to 7 */
+    uint8_t transparent;         /* 1: dot code 0 is transparent */
+    uint8_t palette;             /* palette number bits 6-4 (16/256 colours) */
+    uint8_t over;                /* REPEAT, TRANSPARENT or 512; PATTERN is refused */
+    uint8_t parameter_mode;      /* SAT_VDP2_ROTATION_PARAMETER_* */
+    uint8_t reserved0;
+    sat_vdp2_rotation_coefficients_t coefficients_a;
+    sat_vdp2_rotation_coefficients_t coefficients_b;
+    /* Byte address of the picture, a multiple of 0x20000. The banks it covers
+     * are given to RBG0; it must fit in VRAM. */
+    uint32_t bitmap_address;
+    /* The A+B parameter region: as for the cell format, outside the picture's banks. */
+    uint32_t table_address;
 } sat_vdp2_rotation_bitmap_config_t;
+
+/* Defaults: 256 colours, 512x256, priority 1, dot 0 transparent, the picture
+ * repeating, parameter set A, no coefficient tables. The caller sets the
+ * addresses. */
+void sat_vdp2_rotation_bitmap_config_default(sat_vdp2_rotation_bitmap_config_t* out_config);
+/* The picture's size in bytes for its colour mode and height, the amount to
+ * reserve as SAT_VDP2_RESERVE_ROTATION_BITMAP; 0 for a bad colour mode. */
+uint32_t sat_vdp2_rotation_bitmap_bytes(const sat_vdp2_rotation_bitmap_config_t* config);
 sat_result_t sat_vdp2_rotation_bitmap_configure(const sat_vdp2_rotation_bitmap_config_t* config);
 
 sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_config_t* config);
@@ -182,13 +299,28 @@ sat_result_t sat_vdp2_rotation_release(void);
 sat_result_t sat_vdp2_rotation_set_enabled(uint8_t enabled);
 sat_result_t sat_vdp2_rotation_set_priority(uint8_t priority);
 
-/* Rotation parameter A (manual 6.3). The screen dot (H, V) shows map dot
+/* Changes the parameter mode live (RPMD): SAT_VDP2_ROTATION_PARAMETER_A, B
+ * or COEFFICIENT. The window mode is not supported: SAT_ERR_INVALID_ARG.
+ * While RBG1 is visible the parameter mode must stay A (manual p06_30,
+ * p06_35: RBG1 reads parameter set B only) - refused with
+ * SAT_ERR_INVALID_ARG. */
+sat_result_t sat_vdp2_rotation_set_parameter_mode(uint8_t mode);
+
+/* Shows or hides RBG1 without a full reconfigure. SAT_ERR_INVALID_ARG when
+ * RBG1 is configured and the rotation parameter mode is not A. */
+sat_result_t sat_vdp2_rotation_rbg1_set_enabled(uint8_t enabled);
+
+/* One rotation parameter set (manual 6.3), used for A and B alike. The
+ * screen dot (H, V) shows map dot
  *   X = kx * (Xsp + dX * H) + Xp,   Y = ky * (Ysp + dY * H) + Yp
  * with (Xs, Ys, Zs) = (xst + dxst * V, yst + dyst * V, zst) and
  *   Xsp = A (Xs - px) + B (Ys - py) + C (Zs - pz),  dX = A dx + B dy
  *   Ysp = D (Xs - px) + E (Ys - py) + F (Zs - pz),  dY = D dx + E dy
  *   Xp  = A (px - cx) + B (py - cy) + C (pz - cz) + cx + mx    (Yp alike)
- * Values are 16.16 fixed point; the VDP2 keeps 10 fraction bits of most. */
+ * Values are 16.16 fixed point; the VDP2 keeps 10 fraction bits of most.
+ * The set's own coefficient table (when its contract is enabled in the
+ * configuration) starts at `coefficient_address` and advances
+ * `coefficient_step` entries per line. */
 typedef struct sat_vdp2_rotation_params {
     int32_t xst, yst, zst;
     int32_t dxst, dyst;          /* per line, -4 < d < 4 */
@@ -198,14 +330,25 @@ typedef struct sat_vdp2_rotation_params {
     int16_t cx, cy, cz;
     int32_t mx, my;
     int32_t kx, ky;              /* used where the coefficients do not replace them */
-    uint32_t coefficient_address;  /* byte address of the coefficient for screen line 0, a multiple of 4 */
-    int32_t coefficient_step;    /* 16.16 coefficients per line (0x10000: one each) */
+    uint32_t coefficient_address;  /* byte address of the first entry: even, a
+                                    * multiple of 4 when the contract is 2-word */
+    int32_t coefficient_step;    /* 16.16 entries per line (0x10000: one each) */
 } sat_vdp2_rotation_params_t;
 
-/* Writes a parameter table at `table_address` and makes it the one the VDP2
- * reads from the next sat_vdp2_layers_commit() on. A table being read while it
- * is rewritten tears the picture: alternate between two. */
-sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address, const sat_vdp2_rotation_params_t* params);
+/* Writes the whole A+B region - A at `table_address`, B at +0x80 - and makes
+ * it the one the VDP2 reads from the next sat_vdp2_layers_commit() on. Both
+ * sets are always written together, so B can never be stale. The coefficient
+ * entry offsets in KTAOF come from each set's enabled contract in the
+ * configuration. A region being read while it is rewritten tears the
+ * picture: alternate between two. */
+sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address,
+                                            const sat_vdp2_rotation_params_t* params_a,
+                                            const sat_vdp2_rotation_params_t* params_b);
+
+/* A 2-word coefficient entry as the VDP2 reads it (figure 6.7): a 16.16
+ * value between -128 and 128 (saturated) plus the flag bits, which hide the
+ * line or, in parameter mode COEFFICIENT, show the B image for that line. */
+uint32_t sat_vdp2_rotation_coefficient_2word(int32_t value, uint8_t flags);
 
 /* The words sat_vdp2_rotation_write_params stores, without writing VRAM or
  * changing which table the VDP2 reads: for a program that copies them into
@@ -213,14 +356,22 @@ sat_result_t sat_vdp2_rotation_write_params(uint32_t table_address, const sat_vd
 #define SAT_VDP2_ROTATION_PARAM_WORDS 48u
 sat_result_t sat_vdp2_rotation_encode_params(const sat_vdp2_rotation_params_t* params, uint16_t* words);
 
-/* A 2-word coefficient table entry as the VDP2 reads it (figure 6.7): a 16.16
- * value between -128 and 128 (saturated) and the transparent bit, which hides
- * the line. */
+/* Compatibility name for sat_vdp2_rotation_coefficient_2word: `transparent`
+ * is the HIDE flag. */
 uint32_t sat_vdp2_rotation_coefficient(int32_t value, uint8_t transparent);
 
-/* Writes `count` 2-word coefficients (as returned above) at a byte address. */
+/* A 1-word coefficient entry (figure 6.7): the same flag bit in bit 15,
+ * sign bit 14, a 16.16 value saturated to just under +-16. */
+uint16_t sat_vdp2_rotation_coefficient_1word(int32_t value, uint8_t flags);
+
+/* Writes `count` 2-word coefficients (as sat_vdp2_rotation_coefficient_2word
+ * returns) at a byte address, a multiple of 4. */
 sat_result_t sat_vdp2_rotation_write_coefficients(uint32_t byte_address, const uint32_t* coefficients,
                                                   uint32_t count);
+
+/* Writes `count` 1-word coefficients at an even byte address. */
+sat_result_t sat_vdp2_rotation_write_coefficients_1word(uint32_t byte_address, const uint16_t* coefficients,
+                                                        uint32_t count);
 
 /* ------------------------------------------------------------------ */
 /* Raster effects: tables the VDP2 reads while it draws each line       */

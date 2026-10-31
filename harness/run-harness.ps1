@@ -62,6 +62,11 @@ param(
     [string]$MisalignedReport,
     # ADDR:BYTES:PATH, any bus range at the end of the run
     [string[]]$DumpMem,
+    # BASE_WORD:WORD_COUNT, extra VDP2 VRAM word ranges in probe.json
+    [string[]]$DumpVram,
+    # ADDR:LEN[:FROM_FRAME], the first writes into a bus range on either SH-2
+    # (PC, value and emulated frame), also exported under "watch_writes" in JSON
+    [string]$WatchWrite,
     # ADDR:VALUE[+DELAY]:PATH, a shot when a guest big-endian counter reaches VALUE
     [string[]]$ScreenshotWhen,
     [string]$DumpSoundRam,
@@ -303,6 +308,12 @@ if ($MisalignedReport) {
 }
 foreach ($range in @($DumpMem | Where-Object { $_ })) {
     $probeArgs += @('--dump-mem', $range)
+}
+foreach ($range in @($DumpVram | Where-Object { $_ })) {
+    $probeArgs += @('--dump-vram', $range)
+}
+if ($WatchWrite) {
+    $probeArgs += @('--watch-write', $WatchWrite)
 }
 if ($DumpSoundRam) {
     $probeArgs += @('--dump-sound-ram', $DumpSoundRam)

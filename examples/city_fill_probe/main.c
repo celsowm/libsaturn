@@ -305,7 +305,7 @@ int main(void) {
     video.width = SCREEN_W;
     video.height = SCREEN_H;
     video.ntsc = SAT_VIDEO_AUTO;
-    video.reserved = 0u;
+    video.interlace = SAT_VIDEO_INTERLACE_NONE;
     if (sat_init(&video) != SAT_OK) {
         halt();
     }

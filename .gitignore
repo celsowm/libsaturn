@@ -6,6 +6,12 @@ dist/
 *.elf
 *.bin
 !assets/boot/ip_yaul_template.bin
+# bullet_hell_stress vendors the shmup v4 asset pack: the PNG half under
+# examples/bullet_hell_stress/assets/ is tracked, and its binary half
+# (palette_bgr555_be.bin, vdp1/index8/, vdp1/lut4/) is source data the pack
+# step reads, not a build output. tools/shmup_assets.py pack fails in a clean
+# clone without it, which broke the CI cross-build gate.
+!examples/bullet_hell_stress/assets/**/*.bin
 *.iso
 *.map
 *.cue
@@ -66,3 +72,6 @@ bios/
 # Package build and install trees
 /test_package/build/
 /CMakeUserPresets.json
+
+# Editor config with absolute paths, written by tools/gen_clangd.py
+/.clangd

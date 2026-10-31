@@ -59,15 +59,37 @@ typedef enum sat_result {
 /* ------------------------------------------------------------------ */
 /* Video config (needed early by core init)                            */
 /* ------------------------------------------------------------------ */
-/* width 320, or 640/704 for hi-res; height 224, or 448 with width 640/704.
+/* Width 320, 352, 640 or 704; height 224, 240 or 256 dots. Widths 640/704
+ * are the high-resolution modes and drop the VDP1 framebuffer to 8
+ * bits/pixel. Height 256 is PAL-only and is refused as SAT_ERR_UNSUPPORTED on
+ * an NTSC console (VDP2 manual 2.4, VRESO). `interlace` selects the scanning
+ * method:
+ *
+ *   SAT_VIDEO_INTERLACE_NONE   non-interlaced (every field is a picture)
+ *   SAT_VIDEO_INTERLACE_SINGLE single-density interlace (two fields show the
+ *                              same picture; output height is twice `height`)
+ *   SAT_VIDEO_INTERLACE_DOUBLE double-density interlace (two different
+ *                              pictures per frame) - NOT SUPPORTED by this
+ *                              library yet; sat_init returns
+ *                              SAT_ERR_UNSUPPORTED
+ *
+ * Single-density interlace is the VDP2's LSMD=10 mode and is valid at 224,
+ * 240 and 256 lines (320x448, 320x480, 320x512 and the 352/640/704
+ * equivalents). The logical picture height stays `height`: drawing
+ * coordinates, layer tables and sat_video_height() describe one field. The
+ * VBlank interrupt still fires once per field, so sat_video_refresh_hz()
+ * remains 60 (NTSC) or 50 (PAL); a full interlaced frame spans two VBlanks.
+ * VDP1 must stay in single-density interlace, which is its DIE=0 state
+ * (VDP1 manual 4.1/4.2, table 2.3 of the VDP2 manual).
  *
  * `ntsc` picks the frame-rate the library's time base assumes: SAT_VIDEO_NTSC
- * (60 frames per second), SAT_VIDEO_PAL (50) or SAT_VIDEO_AUTO, which reads the
- * console's own standard from VDP2 TVSTAT (sat_video_is_pal()). The picture
- * uses 224 active lines per field, which PAL shows at 50 Hz with borders;
- * the 240 and 256-line PAL modes are not offered. sat_time_ms(), the audio
- * clock and every frame-based duration follow the chosen rate, so a program
- * that hard-codes SAT_VIDEO_NTSC runs slow on a PAL console.
+ * (60 fields per second), SAT_VIDEO_PAL (50) or SAT_VIDEO_AUTO, which reads
+ * the console's own standard from VDP2 TVSTAT (sat_video_is_pal()). It is a
+ * timing choice, independent of the display mode, so a 256-line picture still
+ * needs a PAL console even when the timing is fixed to SAT_VIDEO_NTSC.
+ * sat_time_ms(), the audio clock and every frame-based duration follow the
+ * chosen rate, so a program that hard-codes SAT_VIDEO_NTSC runs slow on a PAL
+ * console.
  *
  * Hi-res doubles the horizontal resolution, and the VDP1 framebuffer drops
  * to 8 bits/pixel. VDP1 output is then palette codes 0-255 into one
@@ -76,22 +98,22 @@ typedef enum sat_result {
  * polygon colours, Gouraud shading and VDP1 colour calculation are not
  * available (VDP1 manual 1.3, 6.4). Polygon colours and LUT4 table entries
  * write their low byte as the code; indexed textures write their texel.
- * sat_set_clear_color() leaves the erase transparent: set the backdrop.
- *
- * Height 448 selects double-density interlace: full-resolution coordinates
- * are split into alternating even/odd 224-line fields. It requires the SCU
- * VBlank interrupt, SAT_VDP1_FRAME_AUTO and two immutable VRAM command banks
- * (131104 bytes total before textures). Gouraud remains unavailable in hi-res.
- * The time base counts fields, still 60/50 Hz, rather than interlaced pairs. */
+ * sat_set_clear_color() leaves the erase transparent: set the backdrop. */
 #define SAT_VIDEO_PAL 0u
 #define SAT_VIDEO_NTSC 1u
 #define SAT_VIDEO_AUTO 2u
+
+#define SAT_VIDEO_INTERLACE_NONE 0u
+#define SAT_VIDEO_INTERLACE_SINGLE 1u
+#define SAT_VIDEO_INTERLACE_DOUBLE 2u
 
 typedef struct sat_video_config {
     uint16_t width;
     uint16_t height;
     uint8_t ntsc;
-    uint8_t reserved;
+    /* SAT_VIDEO_INTERLACE_*; the field was named `reserved` before video
+     * modes existed, so positional initializers with 0 keep working. */
+    uint8_t interlace;
 } sat_video_config_t;
 
 /* ------------------------------------------------------------------ */

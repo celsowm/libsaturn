@@ -14,6 +14,9 @@
 #   make clean
 # ================================================================
 
+# The first rule below is an implementation detail; a bare `make` builds the example.
+.DEFAULT_GOAL := all
+
 # -- Toolchain --------------------------------------------------
 TARGET      := sh2eb-elf
 CC          := $(TARGET)-gcc
@@ -701,6 +704,7 @@ HOST_TEST_EXTRA_test_font_logic := src/graphics/2d/font/api.cpp
 HOST_TEST_EXTRA_test_core_logic := src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_vdp2_allocator := src/hal/vdp2/allocator.cpp
 HOST_TEST_EXTRA_test_vdp2_palette_alloc := src/hal/vdp2/allocator.cpp
+HOST_TEST_EXTRA_test_vdp2_plan_api := src/hal/vdp2/plan.cpp src/hal/vdp2/allocator.cpp
 HOST_TEST_EXTRA_test_font_text_logic :=
 HOST_TEST_EXTRA_test_audio_voice_transaction := src/audio/playback/state.cpp src/audio/playback/voice.cpp
 HOST_TEST_EXTRA_test_audio_stream_logic :=
@@ -799,6 +803,7 @@ HOST_TEST_EXTRA_test_physics2_world := src/physics/2d/physics2_world.cpp src/phy
 HOST_TEST_EXTRA_test_path2 := src/physics/2d/path2.cpp src/core/math2d/api.cpp
 HOST_TEST_EXTRA_test_follow_camera2d := src/physics/2d/follow_camera2d.cpp src/core/math2d/api.cpp
 HOST_TEST_EXTRA_test_stage_map2 := src/graphics/vdp2/stage_map2.cpp
+HOST_TEST_EXTRA_test_vdp2_tile_stream := src/graphics/vdp2/stage_map2.cpp
 HOST_TEST_EXTRA_test_entity_stream2 := src/physics/spatial/entity_stream2.cpp src/physics/2d/follow_camera2d.cpp src/core/math2d/api.cpp
 HOST_TEST_EXTRA_test_terrain2 := src/physics/2d/terrain2.cpp src/core/math2d/api.cpp src/physics/2d/grid.cpp src/physics/2d/collision.cpp
 HOST_TEST_EXTRA_test_collide2d_logic := src/physics/2d/collision.cpp
@@ -831,7 +836,7 @@ test: $(HOST_TEST_BINS)
 	if [ $$fail -ne 0 ]; then echo "[test] FAILED"; exit 1; fi; \
 	if [ $$skipped -eq 0 ]; then echo "[test] all host tests passed"; \
 	else echo "[test] supported host tests passed; $$skipped explicitly unavailable (exit 77)"; fi
-	$(PYTHON) -m unittest tests.test_boot_image tests.test_native_ip -v
+	$(PYTHON) -m unittest tests.test_boot_image tests.test_native_ip tests.test_vdp2_support_matrix -v
 	@for t in $(HOST_TOOL_TESTS); do \
 		echo "[test] $$t"; \
 		$(PYTHON) $$t || exit 1; \
